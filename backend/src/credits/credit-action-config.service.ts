@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, OnModuleInit } from '@nestjs/c
 import { PrismaService } from '../prisma/prisma.service';
 import {
   applyCreditActionOverrides,
+  CREDIT_ACTION_LOCK_REASON,
   CreditActionDefinition,
   CreditActionKey,
   CreditActionMode,
@@ -18,6 +19,9 @@ import {
 export type CreditActionCatalogItem = {
   actionKey: CreditActionKey;
   label: string;
+  /** Preço fixo de fábrica: o painel mostra em leitura, sem campo nem botão. */
+  locked: boolean;
+  lockedReason: string | null;
   base: { mode: CreditActionMode; cost: number };
   override: { mode: CreditActionMode; cost: number } | null;
   effective: { mode: CreditActionMode; cost: number };
@@ -72,9 +76,12 @@ export class CreditActionConfigService implements OnModuleInit {
     const base = getCreditActionBaseDefinition(key)!;
     const override = getCreditActionOverride(key);
     const effective = getCreditActionDefinition(key)!;
+    const locked = isCreditActionOverrideLocked(key);
     return {
       actionKey: key,
       label: base.label,
+      locked,
+      lockedReason: locked ? CREDIT_ACTION_LOCK_REASON : null,
       base: { mode: base.mode, cost: base.cost },
       override: override ? { mode: override.mode ?? base.mode, cost: override.cost ?? base.cost } : null,
       effective: { mode: effective.mode, cost: effective.cost },
@@ -111,7 +118,7 @@ export class CreditActionConfigService implements OnModuleInit {
     const key = normalizeCreditActionKey(actionKeyInput);
     if (!key) throw new BadRequestException('actionKey desconhecida');
     if (isCreditActionOverrideLocked(key)) {
-      throw new BadRequestException('A entrega avulsa é absorvida pela cobrança da rota e não aceita débito próprio.');
+      throw new BadRequestException(CREDIT_ACTION_LOCK_REASON);
     }
     if (typeof patch?.mode !== 'string' || !VALID_MODES.has(patch.mode as CreditActionMode)) {
       throw new BadRequestException('mode deve ser free ou debit');

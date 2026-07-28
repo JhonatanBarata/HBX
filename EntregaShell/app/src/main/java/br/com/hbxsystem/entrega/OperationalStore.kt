@@ -146,14 +146,14 @@ class OperationalStore(context: Context) : SQLiteOpenHelper(
     @Synchronized
     fun mergeAndStoreServerRoute(rawBody: String): String {
         val server = runCatching { JSONObject(rawBody) }.getOrNull() ?: return rawBody
-        val routeId = server.optString("routeId").trim()
-        val routeDate = server.optString("date").trim()
-        if (routeId.isBlank() || routeDate.isBlank()) return rawBody
+        val routeId = jsonText(server, "routeId")
+        val routeDate = jsonText(server, "date")
+        if (routeId.isEmpty() || routeDate.isEmpty()) return rawBody
 
         val existing = routeRow(routeId)
         val merged = applyLocalOverlay(server, routeId)
         val now = System.currentTimeMillis()
-        val routeStatus = merged.optString("routeStatus", "PLANNED").uppercase()
+        val routeStatus = jsonText(merged, "routeStatus").ifEmpty { "PLANNED" }.uppercase()
         val expiry = OperationalPolicy.routeExpiryMs(routeDate) ?: (now + 24 * 60 * 60 * 1000L)
         val sameRoute = existing != null
         val values = ContentValues().apply {
@@ -502,12 +502,16 @@ class OperationalStore(context: Context) : SQLiteOpenHelper(
 
     @Synchronized
     fun statusJson(): String {
-        val row = latestRoute()
         val now = System.currentTimeMillis()
-        val rx = row?.let { (uidRxBytes() - it.rxStart).coerceAtLeast(0L) } ?: 0L
-        val tx = row?.let { (uidTxBytes() - it.txStart).coerceAtLeast(0L) } ?: 0L
+        purgeExpiredRoutes(now)
+        val row = latestRoute()
+        val visible = row != null && routeVisible(row, now)
+        // Tráfego é da ROTA que está de pé. Sem rota visível o número não existe —
+        // antes ele continuava contando a partir do marco de uma rota que já morreu.
+        val rx = if (visible) (uidRxBytes() - row!!.rxStart).coerceAtLeast(0L) else 0L
+        val tx = if (visible) (uidTxBytes() - row!!.txStart).coerceAtLeast(0L) else 0L
         return JSONObject()
-            .put("hasRoute", row != null && routeVisible(row, now))
+            .put("hasRoute", visible)
             .put("routeId", row?.routeId)
             .put("routeDate", row?.routeDate)
             .put("routeStatus", row?.routeStatus)
@@ -678,6 +682,34 @@ class OperationalStore(context: Context) : SQLiteOpenHelper(
 
     private fun cleanupOldRoutes(currentRouteId: String) {
         writableDatabase.delete("route_snapshot", "route_id <> ?", arrayOf(currentRouteId))
+    }
+
+    /**
+     * 28/07 — o snapshot vencido ficava no banco pra sempre: `cleanupOldRoutes` só
+     * apaga id DIFERENTE, e sem leitura de rota nova ninguém passava por lá. Ele
+     * seguia sendo o `latestRoute()` do aparelho e o marco de tráfego preso nele
+     * fazia a tela somar dias de consumo do app como se fosse "desta rota".
+     * Só apaga com a caixa de saída VAZIA — o token do grant mora nesta linha e
+     * uma operação pendente ainda precisa dele pra subir.
+     */
+    private fun purgeExpiredRoutes(now: Long) {
+        if (hasPending()) return
+        writableDatabase.delete("route_snapshot", "expires_at_ms <= ?", arrayOf(now.toString()))
+    }
+
+    /**
+     * `optString` do org.json devolve a STRING "null" quando o campo vem `null` no
+     * JSON — e o backend manda `routeId: null` no dia sem rota montada. Sem este
+     * filtro nascia um snapshot fantasma (`route_id = "null"`, `route_status =
+     * "NULL"`) que virava a rota atual do aparelho: apagava o snapshot da rota
+     * real pelo `cleanupOldRoutes` e congelava `rx_start/tx_start` pra sempre,
+     * porque o id nunca mudava (medido no g15 em 28/07: 224 MB de "dados desta
+     * rota" com rota nenhuma).
+     */
+    private fun jsonText(source: JSONObject, key: String): String {
+        if (source.isNull(key)) return ""
+        val value = source.optString(key).trim()
+        return if (value.equals("null", ignoreCase = true)) "" else value
     }
 
     private fun commandExists(commandId: String): Boolean = readableDatabase.query(

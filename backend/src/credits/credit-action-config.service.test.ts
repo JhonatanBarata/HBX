@@ -85,6 +85,14 @@ test('entrega avulsa legada é sempre grátis e não aceita override de débito'
   const legacy = listed.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY);
   assert.deepEqual(legacy?.effective, { mode: 'free', cost: 0 });
   assert.equal(legacy?.override, null);
+  // O painel precisa saber do cadeado ANTES de tentar salvar (dono 28/07):
+  // a linha vira leitura em vez de oferecer campo que o backend recusa.
+  assert.equal(legacy?.locked, true);
+  assert.match(String(legacy?.lockedReason), /absorvida pela cobrança da rota/);
+  for (const item of listed.filter((row) => row.actionKey !== CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY)) {
+    assert.equal(item.locked, false, `${item.actionKey} não pode aparecer travada`);
+    assert.equal(item.lockedReason, null);
+  }
   await assert.rejects(
     service.setOverride(CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY, { mode: 'debit', cost: 0.2 }),
     /absorvida pela cobrança da rota/,

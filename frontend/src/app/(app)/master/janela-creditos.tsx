@@ -109,6 +109,10 @@ type CreditActionMode = "free" | "debit";
 type CreditActionItem = {
   actionKey: string;
   label: string;
+  // 28/07 — ação de preço FIXO (a avulsa é absorvida pela rota). Vem do backend
+  // pra tela não repetir a regra de negócio numa lista de chaves.
+  locked?: boolean;
+  lockedReason?: string | null;
   base: { mode: CreditActionMode; cost: number };
   override: { mode: CreditActionMode; cost: number } | null;
   effective: { mode: CreditActionMode; cost: number };
@@ -533,6 +537,8 @@ export function JanelaCreditos({ companies, reload }: {
 
   async function salvarAcao(actionKey: string) {
     if (actionBusyKey) return;
+    // Ação travada nem chega a ter botão; guarda só pra nunca disparar 400.
+    if ((actions || []).some(a => a.actionKey === actionKey && a.locked)) return;
     const form = actionForms[actionKey];
     const cost = Number(form?.cost);
     if (!Number.isFinite(cost) || cost < 0 || cost > 1000) { setActionMsg("Custo deve ficar entre 0 e 1000 créditos."); return; }
@@ -1018,12 +1024,31 @@ export function JanelaCreditos({ companies, reload }: {
                   <tr><td colSpan={5} className="muted-note">{actionsLoadError || "Nenhuma ação encontrada."}</td></tr>
                 )}
                 {(actions || []).map(a => {
-                  const hint = ACTION_UNIT_HINT[a.actionKey];
                   const form = actionForms[a.actionKey] || { mode: a.effective.mode, cost: String(a.effective.cost) };
                   const busy = actionBusyKey === a.actionKey;
                   // Desativada = o master editou a ação para Grátis (não cobra mais).
                   // Grátis de fábrica (sem override) segue como "padrão".
                   const desativada = !!a.override && a.effective.mode === "free";
+                  // 28/07 (dono) — ação de preço FIXO some com campo e botão: a tela
+                  // deixava editar o que o backend recusa, e o master só descobria
+                  // no erro do "Salvar". Agora a linha explica antes de tentar.
+                  const hint = a.locked ? (a.lockedReason || "Preço fixo — não aceita débito próprio.") : ACTION_UNIT_HINT[a.actionKey];
+                  if (a.locked) {
+                    return (
+                      <tr key={a.actionKey}>
+                        <td>
+                          <div className="co">
+                            <strong>{a.label}</strong>
+                            {hint && <span className="sub2">{hint}</span>}
+                          </div>
+                        </td>
+                        <td>{MODE_OPTIONS.find(o => o.value === a.effective.mode)?.label || "Grátis"}</td>
+                        <td>—</td>
+                        <td><span className="tag">fixo</span></td>
+                        <td><span className="muted-note">sem edição</span></td>
+                      </tr>
+                    );
+                  }
                   return (
                     <tr key={a.actionKey}>
                       <td>

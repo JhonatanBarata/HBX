@@ -4483,7 +4483,23 @@
     const chevron = icon("chevronRight", 18);
     return shell(`<div class="screen-head"><div><h1>Ajustes</h1></div></div>
       ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong>${chevron}</button><button class="settings-row" data-action="statement"><div class="avatar">${icon("sales", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div>${chevron}</button><button class="settings-row" data-action="toggle-creditos-panel" role="switch" aria-checked="${!creditosPanelOculto()}"><div class="avatar">${icon("calendar", 18)}</div><div class="settings-copy"><strong>Painel de créditos do dia</strong></div><span class="module-switch ${!creditosPanelOculto() ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" data-action="open-recarga"><div class="avatar">${icon("card", 18)}</div><div class="settings-copy"><strong>Recarga de créditos</strong></div>${chevron}</button><button class="settings-row" data-action="open-financeiro"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Financeiro</strong></div>${chevron}</button><button class="settings-row" data-action="open-avancado"><div class="avatar">${icon("gear", 18)}</div><div class="settings-copy"><strong>Avançado</strong></div>${chevron}</button></section>` : ""}
+      ${offlineSettingsSection()}
       <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div>${chevron}</button>${versionSettingsRow()}</section>`);
+  }
+
+  // 28/07 (dono: "bati o olho e achei q a rota estava sem sinal") — o preparo da
+  // rota offline era um cartão SOLTO que o offline-controls.js injetava ACIMA do
+  // título "Ajustes", com checkbox cru e o título "Rota sem sinal": de relance
+  // lia como ESTADO do aparelho, não como configuração. Agora é seção normal da
+  // tela, na MESMA forma das outras (section-title + settings-row + module-switch).
+  // Saíram a frase "Prepare a rota antes de ficar sem internet." e a linha
+  // "Dados desta rota: X MB" — o número era o tráfego do app inteiro desde o
+  // último snapshot, não o desta rota (a causa está no OperationalStore.kt).
+  function offlineSettingsSection() {
+    const off = H.offline && H.offline.status ? H.offline.status() : null;
+    if (!off || off.supported === false) return "";
+    const chave = (action, nome, label, on) => `<button class="settings-row" data-action="${action}" role="switch" aria-checked="${on ? "true" : "false"}"><div class="avatar">${icon(nome, 18)}</div><div class="settings-copy"><strong>${label}</strong></div><span class="module-switch ${on ? "active" : ""}" aria-hidden="true"><i></i></span></button>`;
+    return `<div class="section-title"><strong>Cadastrar Rota Offline</strong></div><section class="card flat">${chave("toggle-offline-wifi", "wifi", "Fotos apenas no Wi-Fi", !!off.wifiOnly)}${chave("toggle-offline-retain", "download", "Guardar comprovantes enviados", !!off.retainAfterUpload)}<button class="settings-row" data-action="offline-sync"><div class="avatar">${icon("refresh", 18)}</div><div class="settings-copy"><strong>Sincronizar agora</strong></div>${icon("chevronRight", 18)}</button></section>`;
   }
 
   // 22/07 — a versão instalada não aparecia em lugar nenhum: sem isso não dá
@@ -8161,6 +8177,19 @@
     // R8 (27/07) — liga/desliga o painel de créditos do dia (nasce LIGADO).
     if (action === "toggle-creditos-panel") { H.cache.set("logistica-creditos-panel-oculto", !creditosPanelOculto()); if (!creditosPanelOculto()) void loadCreditosDia(true); render(); return; }
     if (action === "open-recarga") { openRecarga(); return; }
+    // 28/07 (dono) — "Cadastrar Rota Offline" (ver offlineSettingsSection). As
+    // duas preferências viajam JUNTAS pro nativo (setPreferences recebe as duas),
+    // então a que não foi tocada vai com o valor atual.
+    if (action === "toggle-offline-wifi" || action === "toggle-offline-retain") {
+      const off = H.offline && H.offline.status ? H.offline.status() : null;
+      if (!off) return;
+      const wifi = action === "toggle-offline-wifi" ? !off.wifiOnly : !!off.wifiOnly;
+      const guardar = action === "toggle-offline-retain" ? !off.retainAfterUpload : !!off.retainAfterUpload;
+      if (H.offline.setPreferences) H.offline.setPreferences(wifi, guardar);
+      render();
+      return;
+    }
+    if (action === "offline-sync") { if (H.offline && H.offline.flush) H.offline.flush(); toast("Sincronizando…"); return; }
     // S7 — "Atualizar" do motorista não tem extrato pra chamar (403 pra ele):
     // dispara um refresh(true) normal, que já busca /logistica/config de novo e
     // reaplica applyDriverCreditsLock — mesmo botão, caminho por papel.

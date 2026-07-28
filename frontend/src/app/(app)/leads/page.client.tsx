@@ -5,27 +5,22 @@
 //   IDLE (sem lead selecionado) → RADAR console: disco animado + filtros + Play/STOP + Automático
 //   LEAD SELECIONADO → mini-radar no topo + DetalhesNegocio + botão voltar
 // Lista engordou: sem KPIs (exceto Total no Brasil como linha fininha) e sem rail lateral.
-// Filtro estilo CNPJ Biz (VENDAS-REFAB S4, 04/07): tem-site/tem-WhatsApp sobre a base
-// (substituiu "Canais exigidos" — não existe na nova regra lista+web).
+// Filtros avançados usam apenas o contrato real do Radar: canais obrigatórios,
+// reputação mínima e território explícito.
 // operationalState do backend ("funcionando"|"pausado"|"parado") dirige a animação e o botão.
 // Visual 100% em classe/token central (5 Leis). Zero hex/rgba inline.
 
 import { useRouter } from "next/navigation";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
-import { Av, I, ICONS, WhatsAppMark } from "@/components/hbx/shell";
+import { Av, I, ICONS } from "@/components/hbx/shell";
 import { CanalIcon } from "@/components/hbx/canal-icon";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
 import { BotStatusIcon } from "@/components/hbx/bot-action";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import { RadarDisc } from "@/components/hbx/radar-disc";
-import {
-  FILTRO_AVANCADO_VAZIO,
-  FiltroAvancadoModal,
-  type CnpjBaseQueryInput,
-  type FiltroAvancadoState,
-} from "@/components/hbx/filtro-avancado-modal";
+import { FiltroAvancadoModal } from "@/components/hbx/filtro-avancado-modal";
 import { apiFetch } from "@/lib/api";
 import { BRAZIL_CITIES_BY_UF, BRAZIL_UF_OPTIONS, mergeBrazilCityOptions } from "@/lib/brazil-cities";
 import { stampOnboardingEvent } from "@/lib/onboarding";
@@ -201,6 +196,10 @@ type UsageResponse = {
 } | null;
 
 type Tab = "shelf" | "carteira";
+type GeoMode = "cities" | "radius" | "ddd" | "nearby";
+type RadarRequiredChannel = "whatsapp" | "phone" | "email" | "website";
+type DddLookupResponse = { state?: string; cities?: string[] };
+type GeoTarget = { city: string; state: string };
 
 // B0: statuses realmente terminais — removeu "error" fantasma, adicionou partial_error
 const TERMINAL_RUN = new Set(["completed", "completed_insufficient_results", "canceled", "failed", "partial_error"]);
@@ -212,6 +211,115 @@ const TERMINAL_RUN = new Set(["completed", "completed_insufficient_results", "ca
 // Pool máximo por busca = 100, exibido em 4 páginas de 25 ("1 de 4"). Regra do dono 23/07.
 const SHELF_LIMIT = 25;
 const SEARCH_BATCH = 100;
+const MAX_CITY_TARGETS = 5;
+const SEARCH_POLL_MS = 4000;
+
+const VALID_DDDS = new Set([
+  "11", "12", "13", "14", "15", "16", "17", "18", "19",
+  "21", "22", "24", "27", "28",
+  "31", "32", "33", "34", "35", "37", "38",
+  "41", "42", "43", "44", "45", "46", "47", "48", "49",
+  "51", "53", "54", "55",
+  "61", "62", "63", "64", "65", "66", "67", "68", "69",
+  "71", "73", "74", "75", "77", "79",
+  "81", "82", "83", "84", "85", "86", "87", "88", "89",
+  "91", "92", "93", "94", "95", "96", "97", "98", "99",
+]);
+
+const GEO_MODE_META: Array<{
+  key: GeoMode;
+  label: string;
+  eyebrow: string;
+  description: string;
+  icon: string[];
+}> = [
+  {
+    key: "cities",
+    label: "Avulsas",
+    eyebrow: "Até 5 cidades",
+    description: "Escolha alvos pontuais. O Radar executa uma cidade por vez.",
+    icon: ICONS.mapin,
+  },
+  {
+    key: "radius",
+    label: "Região",
+    eyebrow: "1 cidade-base",
+    description: "Expanda em um raio controlado com uma única execução.",
+    icon: ICONS.scrape,
+  },
+  {
+    key: "ddd",
+    label: "Por DDD",
+    eyebrow: "1 DDD, até 5 alvos",
+    description: "Consulte o DDD e escolha até 5 cidades reais dele.",
+    icon: ICONS.phone,
+  },
+  {
+    key: "nearby",
+    label: "Perto de mim",
+    eyebrow: "Sua localização",
+    description: "Use sua posição como ponto de partida para a região.",
+    icon: ICONS.leads,
+  },
+];
+
+const CHANNEL_META: Array<{ key: RadarRequiredChannel; label: string; description: string; icon: string[] }> = [
+  { key: "whatsapp", label: "WhatsApp", description: "Número com sinal de WhatsApp", icon: ICONS.msg },
+  { key: "phone", label: "Telefone", description: "Contato telefônico válido", icon: ICONS.phone },
+  { key: "email", label: "E-mail", description: "E-mail público encontrado", icon: ICONS.mail },
+  { key: "website", label: "Site", description: "Site próprio identificado", icon: ICONS.website },
+];
+
+function geoTargetsFor(mode: GeoMode, uf: string, cities: string[]): GeoTarget[] {
+  const limit = mode === "radius" || mode === "nearby" ? 1 : MAX_CITY_TARGETS;
+  const state = uf.trim().toUpperCase();
+  if (!state) return [];
+  const seen = new Set<string>();
+  return cities
+    .map(city => city.trim())
+    .filter(city => {
+      const key = normCity(city);
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, limit)
+    .map(city => ({ city, state }));
+}
+
+function radarLeadMergeKey(lead: RadarLead) {
+  const cnpj = String(lead.cnpj || "").replace(/\D/g, "");
+  if (cnpj) return `cnpj:${cnpj}`;
+  const phone = String(lead.phone || "").replace(/\D/g, "");
+  if (phone.length >= 10) return `phone:${phone.slice(-11)}`;
+  return [
+    "place",
+    String(lead.name || "").trim().toLowerCase(),
+    String(lead.city || "").trim().toLowerCase(),
+    String(lead.state || "").trim().toUpperCase(),
+  ].join(":");
+}
+
+function mergeRadarLeads(...groups: Array<RadarLead[] | null | undefined>) {
+  const merged = new Map<string, RadarLead>();
+  for (const lead of groups.flatMap(group => group || [])) {
+    merged.set(radarLeadMergeKey(lead), lead);
+  }
+  return Array.from(merged.values());
+}
+
+function filterRadarLeadsByReputation(leads: RadarLead[], minRating: string, minReviews: string) {
+  const ratingFloor = Number(minRating || 0);
+  const reviewsFloor = Number(minReviews || 0);
+  return leads.filter(lead =>
+    (!ratingFloor || Number(lead.rating || 0) >= ratingFloor) &&
+    (!reviewsFloor || Number(lead.reviews || 0) >= reviewsFloor),
+  );
+}
+
+function waitForRadarPoll() {
+  return new Promise<void>(resolve => window.setTimeout(resolve, SEARCH_POLL_MS));
+}
 
 function mergeFilterOptions(primary: FilterOption[] | undefined, fallback: FilterOption[]) {
   const seen = new Set<string>();
@@ -291,27 +399,39 @@ function buildFiltroSnapshot(input: {
   city: string;
   segment: string;
   alcance: string;
-  quantos: number;
+  geoMode: GeoMode;
+  ddd: string;
+  minRating: string;
+  minReviews: string;
+  requiredChannels: RadarRequiredChannel[];
+  channelMatchMode: "any_required" | "all_required";
 }): SavedFiltro {
   const f: SavedFiltro = {};
   if (input.city.trim()) f.city = input.city.trim();
   if (input.uf.trim()) f.state = input.uf.trim();
   if (input.segment.trim()) f.segment = input.segment.trim();
-  if (input.alcance.trim()) f.alcance = input.alcance.trim();
-  if (input.quantos > 0) f.quantos = input.quantos;
+  if ((input.geoMode === "radius" || input.geoMode === "nearby") && input.alcance.trim()) {
+    f.radiusKm = Number(input.alcance);
+  }
+  if (input.geoMode === "ddd" && input.ddd.trim()) f.ddd = input.ddd.trim();
+  if (input.minRating.trim()) f.minRating = Number(input.minRating);
+  if (input.minReviews.trim()) f.minReviews = Number(input.minReviews);
+  if (input.requiredChannels.length) {
+    f.requiredChannels = input.requiredChannels;
+    f.channelMatchMode = input.channelMatchMode;
+  }
   return f;
 }
 
-// Resumo LEGIVEL do filtro salvo → frases (igual "deles"). Traduz o filtroJson em
-// texto para o usuario saber exatamente o que pediu sem abrir nada. Sem valores R$.
-// requiredChannels ("Canais exigidos") foi removido da UI (VENDAS-REFAB S4, 04/07) —
-// a leitura aqui fica só pra descrever pesquisas SALVAS antigas com esse campo.
+// Resumo legível do filtro salvo: traduz exatamente o recorte persistido.
 const CANAL_LABEL_PT: Record<string, string> = {
   whatsapp: "WhatsApp",
   email: "E-mail",
+  phone: "Telefone",
   telefone: "Telefone",
   instagram: "Instagram",
   facebook: "Facebook",
+  website: "Site",
   site: "Site",
 };
 function describeFiltro(filtro: SavedFiltro): string {
@@ -324,13 +444,19 @@ function describeFiltro(filtro: SavedFiltro): string {
   else if (city) parts.push(city);
   else if (uf) parts.push(uf);
   const alc = String(filtro?.alcance || "").trim();
-  if (alc) parts.push(`+ ${alc} km`);
+  const radius = String(filtro?.radiusKm || alc).trim();
+  if (radius) parts.push(`raio de ${radius} km`);
+  const ddd = String(filtro?.ddd || "").trim();
+  if (ddd) parts.push(`DDD ${ddd}`);
   const req = Array.isArray(filtro?.requiredChannels) ? (filtro.requiredChannels as string[]) : [];
   if (req.length) {
-    parts.push(`com ${req.map((c) => CANAL_LABEL_PT[c] || c).join(", ")}`);
+    const mode = String(filtro?.channelMatchMode || "all_required");
+    parts.push(`${mode === "any_required" ? "com algum de" : "com"} ${req.map((c) => CANAL_LABEL_PT[c] || c).join(", ")}`);
   }
-  const quantos = Number(filtro?.quantos || 0);
-  if (quantos > 0) parts.push(`${quantos} por vez`);
+  const minRating = Number(filtro?.minRating || 0);
+  if (minRating > 0) parts.push(`nota ${minRating.toLocaleString("pt-BR", { minimumFractionDigits: 1 })}+`);
+  const minReviews = Number(filtro?.minReviews || 0);
+  if (minReviews > 0) parts.push(`${fmtInt(minReviews)}+ avaliações`);
   return parts.length ? parts.join(" · ") : "Todos os leads";
 }
 
@@ -360,8 +486,34 @@ function normCity(s: string) {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
 }
 
-function getStoredFilters(): { uf: string; cities: string[]; segment: string; alcance: string; quantos: number } {
-  if (typeof window === "undefined") return { uf: "", cities: [], segment: "", alcance: "", quantos: 5 };
+type StoredLeadFilters = {
+  uf: string;
+  cities: string[];
+  segment: string;
+  alcance: string;
+  geoMode: GeoMode;
+  ddd: string;
+  minRating: string;
+  minReviews: string;
+  requiredChannels: RadarRequiredChannel[];
+  channelMatchMode: "any_required" | "all_required";
+};
+
+const EMPTY_STORED_FILTERS: StoredLeadFilters = {
+  uf: "",
+  cities: [],
+  segment: "",
+  alcance: "",
+  geoMode: "cities",
+  ddd: "",
+  minRating: "",
+  minReviews: "",
+  requiredChannels: [],
+  channelMatchMode: "all_required",
+};
+
+function getStoredFilters(): StoredLeadFilters {
+  if (typeof window === "undefined") return EMPTY_STORED_FILTERS;
   try {
     const s = localStorage.getItem("hbx:leads-filters");
     if (s) {
@@ -370,16 +522,31 @@ function getStoredFilters(): { uf: string; cities: string[]; segment: string; al
       const cities = Array.isArray(p.cities)
         ? p.cities.filter((c): c is string => typeof c === "string" && c.trim().length > 0)
         : (typeof p.city === "string" && p.city.trim() ? [p.city] : []);
+      const storedMode = String(p.geoMode || "");
+      const geoMode: GeoMode = storedMode === "radius" || storedMode === "ddd" || storedMode === "nearby"
+        ? storedMode
+        : "cities";
+      const allowedChannels = new Set<RadarRequiredChannel>(["whatsapp", "phone", "email", "website"]);
+      const requiredChannels = Array.isArray(p.requiredChannels)
+        ? p.requiredChannels.filter((channel): channel is RadarRequiredChannel =>
+            typeof channel === "string" && allowedChannels.has(channel as RadarRequiredChannel))
+        : [];
+      const cityLimit = geoMode === "radius" || geoMode === "nearby" ? 1 : MAX_CITY_TARGETS;
       return {
         uf: typeof p.uf === "string" ? p.uf : "",
-        cities,
+        cities: cities.slice(0, cityLimit),
         segment: typeof p.segment === "string" ? p.segment : "",
         alcance: typeof p.alcance === "string" ? p.alcance : "",
-        quantos: typeof p.quantos === "number" && p.quantos > 0 ? p.quantos : 5,
+        geoMode,
+        ddd: typeof p.ddd === "string" ? p.ddd.replace(/\D/g, "").slice(0, 2) : "",
+        minRating: typeof p.minRating === "string" || typeof p.minRating === "number" ? String(p.minRating) : "",
+        minReviews: typeof p.minReviews === "string" || typeof p.minReviews === "number" ? String(p.minReviews) : "",
+        requiredChannels,
+        channelMatchMode: p.channelMatchMode === "any_required" ? "any_required" : "all_required",
       };
     }
   } catch { /* sem storage */ }
-  return { uf: "", cities: [], segment: "", alcance: "", quantos: 5 };
+  return EMPTY_STORED_FILTERS;
 }
 
 // embedded: render DENTRO do Vendas (modo "Buscar empresas" do slide), sem a aba
@@ -494,12 +661,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     try { localStorage.setItem("hbx:leads-view-mode", viewMode); } catch { /* sem storage */ }
   }, [viewMode]);
 
-  // Filtro avançado (item 3b — popup ressuscitado do commit revertido): consulta
-  // a base Receita (28M) via cnpj-base/query só como PRÉVIA; "Aplicar" traduz o
-  // subconjunto compatível (UF/cidade/CNAE-ou-palavra/WhatsApp) pros filtros que
-  // o Pipeline de pesquisa já usa (uf/city/segment/zapFiltro), sem trocar a lista.
+  // O Avançado agora expõe somente filtros que chegam à busca real do Radar.
   const [advOpen, setAdvOpen] = useState(false);
-  const [advDraft, setAdvDraft] = useState<FiltroAvancadoState>(FILTRO_AVANCADO_VAZIO);
 
   // filtros (lago → prateleira) — persiste em localStorage. INICIALIZADOR
   // ESTÁTICO (não ler localStorage aqui): o inicializador roda no SSR e no 1º
@@ -508,16 +671,33 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   // PÓS-montagem (efeito de restauração abaixo), mesmo padrão SSR-safe já usado
   // no geoState do Topbar e no collapsed do ActivationChecklist.
   const [uf, setUf] = useState("");
-  // MULTI-CIDADE (23/07): a busca aceita VÁRIAS cidades do MESMO UF. `cities` é a
-  // fonte da verdade; `city` derivada = primeira, mantida só p/ leituras single-city
-  // (persistência/geo/pesquisa salva antiga). Painel seletivo abre em modal central.
+  const [geoMode, setGeoMode] = useState<GeoMode>("cities");
+  const geoModePill = useGlassPill<HTMLButtonElement>(geoMode);
+  // `cities` é sempre limitado no estado. Região/Perto usam só a primeira;
+  // Avulsas/DDD aceitam no máximo cinco alvos explícitos.
   const [cities, setCities] = useState<string[]>([]);
   const city = cities[0] || "";
   const [citiesModalOpen, setCitiesModalOpen] = useState(false);
+  const citiesModalRef = useRef<HTMLDivElement | null>(null);
+  const citiesTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [citiesQuery, setCitiesQuery] = useState("");
+  const [citiesLimitMsg, setCitiesLimitMsg] = useState<string | null>(null);
   const [segment, setSegment] = useState("");
   const [alcance, setAlcance] = useState("");
-  const [quantos, setQuantos] = useState(5);
+  const [ddd, setDdd] = useState("");
+  const [dddOptions, setDddOptions] = useState<string[]>([]);
+  const [dddBusy, setDddBusy] = useState(false);
+  const [dddError, setDddError] = useState<string | null>(null);
+  const dddLookupTokenRef = useRef(0);
+  const geoLookupTokenRef = useRef(0);
+  const [minRating, setMinRating] = useState("");
+  const [minReviews, setMinReviews] = useState("");
+  const minRatingRef = useRef("");
+  const minReviewsRef = useRef("");
+  minRatingRef.current = minRating;
+  minReviewsRef.current = minReviews;
+  const [requiredChannels, setRequiredChannels] = useState<RadarRequiredChannel[]>([]);
+  const [channelMatchMode, setChannelMatchMode] = useState<"any_required" | "all_required">("all_required");
   const filtersRestored = useRef(false);
 
   // navegação
@@ -552,7 +732,11 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const [liveRunItems, setLiveRunItems] = useState<RadarLead[] | null>(null);
   const [runBusy, setRunBusy] = useState(false);
   const [searchMsg, setSearchMsg] = useState<string | null>(null);
+  const [searchQueue, setSearchQueue] = useState<{ current: number; total: number; label: string } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const queueTokenRef = useRef(0);
+  const queueActiveRef = useRef(false);
+  const queueRunIdRef = useRef<string | null>(null);
 
   // P4: modal de campo faltando
   const [missingModal, setMissingModal] = useState<string[] | null>(null);
@@ -579,30 +763,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const [waStartBusy, setWaStartBusy] = useState(false);
   const [waStartError, setWaStartError] = useState<string | null>(null);
 
-  // Filtro estilo CNPJ Biz sobre a base (VENDAS-REFAB S4, 04/07): tem-site e
-  // tem-WhatsApp provável. Tri-estado (qualquer/sim/não) — mapeia direto pros
-  // params que o GET /webscraping/radar/leads já aceita (noWebsite/withWebsite/
-  // likelyWhatsapp). Substituiu "Canais exigidos" (removido — não existe na
-  // nova regra lista+web).
-  const [siteFiltro, setSiteFiltro] = useState<"qualquer" | "com" | "sem">("qualquer");
-  const [zapFiltro, setZapFiltro] = useState<"qualquer" | "com">("qualquer");
-
-  // Contagem grátis da gaveta (LEADS-FINAL/03): Estado/Cidade/Tem WhatsApp
-  // viram recorte real da base Receita (states/cities/contato.comCelular) —
-  // sem isto a prévia da gaveta ficaria muda pro que o usuário vê no topo.
-  // "Tem site" fica de fora de propósito: a base RFB não tem coluna de site
-  // (é dado de scraping web) — não finge que filtra o que não pode filtrar,
-  // mesma honestidade do resto do popup (ver camposSoPreviaAtivos no modal).
-  // Memo estabiliza a referência (o preview do modal reage a mudança de
-  // objeto) — só recalcula quando Estado/Cidade/WhatsApp realmente mudam.
-  const advExtraQueryInput = useMemo<Partial<CnpjBaseQueryInput>>(() => {
-    const extra: Partial<CnpjBaseQueryInput> = {};
-    if (uf) extra.states = [uf];
-    if (cities.length) extra.cities = cities;
-    if (zapFiltro === "com") extra.contato = { comCelular: true };
-    return extra;
-  }, [uf, cities, zapFiltro]);
-
   // Combobox próprio do segmento (05/07) — o <datalist> nativo do Chrome só
   // mostrava, pela seta, o que casa com o texto já digitado. Aqui a seta abre a
   // lista INTEIRA sempre; digitar só prioriza (matches no topo/realçados).
@@ -623,6 +783,14 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     } catch { /* sem storage */ }
     return null;
   });
+
+  const closeCitiesModal = useCallback(() => {
+    dddLookupTokenRef.current += 1;
+    geoLookupTokenRef.current += 1;
+    setDddBusy(false);
+    setGeoBusy(false);
+    setCitiesModalOpen(false);
+  }, []);
   useEffect(() => {
     function onGeo(e: Event) {
       const detail = (e as CustomEvent<{ lat: number; lng: number } | null>).detail;
@@ -671,9 +839,69 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     };
   }, [savedBar]);
 
+  useEffect(() => {
+    if (!citiesModalOpen) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = requestAnimationFrame(() => {
+      const modal = citiesModalRef.current;
+      const preferred = modal?.querySelector<HTMLElement>("[data-geo-autofocus]:not(:disabled)");
+      const first = modal?.querySelector<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      );
+      (preferred || first)?.focus();
+    });
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeCitiesModal();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const modal = citiesModalRef.current;
+      const focusable = Array.from(modal?.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      ) || []);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", onKeyDown);
+      if (previousFocus && document.contains(previousFocus)) previousFocus.focus();
+      else citiesTriggerRef.current?.focus();
+    };
+  }, [citiesModalOpen, closeCitiesModal]);
+
+  useEffect(() => {
+    return () => {
+      queueTokenRef.current += 1;
+      queueActiveRef.current = false;
+      queueRunIdRef.current = null;
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    };
+  }, []);
+
   async function pullGeoLocation() {
     if (!geo || geoBusy) return;
+    const lookupToken = geoLookupTokenRef.current + 1;
+    geoLookupTokenRef.current = lookupToken;
     markFiltersDirty();
+    setGeoMode("nearby");
+    setDdd("");
+    setDddOptions([]);
+    setDddError(null);
     setGeoBusy(true);
     try {
       const resp = await fetch(
@@ -681,6 +909,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         { headers: { "Accept-Language": "pt-BR" } },
       );
       const data = await resp.json();
+      if (geoLookupTokenRef.current !== lookupToken) return;
       const addr = data.address || {};
       // Estado: preferir BR-XX do ISO3166-2-lvl4, senão mapear pelo nome completo
       const iso = String(data["ISO3166-2-lvl4"] || "");
@@ -694,11 +923,58 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           const ufCities = BRAZIL_CITIES_BY_UF[resolvedUf] || [];
           const match = ufCities.find(c => normCity(c) === normCity(cityRaw));
           setCities([match || cityRaw]);
-          setAlcance("");
+          setAlcance(current => current || "25");
         }
       }
     } catch { /* silently ignore */ }
-    finally { setGeoBusy(false); }
+    finally {
+      if (geoLookupTokenRef.current === lookupToken) setGeoBusy(false);
+    }
+  }
+
+  async function consultarDdd() {
+    const digits = ddd.replace(/\D/g, "").slice(0, 2);
+    if (!VALID_DDDS.has(digits)) {
+      setDddError("Informe um DDD brasileiro válido.");
+      setDddOptions([]);
+      setCities([]);
+      return;
+    }
+    const lookupToken = dddLookupTokenRef.current + 1;
+    dddLookupTokenRef.current = lookupToken;
+    markFiltersDirty();
+    setDddBusy(true);
+    setDddError(null);
+    setCities([]);
+    try {
+      const response = await fetch(`https://brasilapi.com.br/api/ddd/v1/${encodeURIComponent(digits)}`);
+      if (!response.ok) throw new Error("DDD não encontrado.");
+      const result = await response.json() as DddLookupResponse;
+      if (dddLookupTokenRef.current !== lookupToken) return;
+      const resolvedUf = String(result?.state || "").trim().toUpperCase();
+      const ufCities = BRAZIL_CITIES_BY_UF[resolvedUf] || [];
+      const resolvedCities = Array.from(new Set(
+        (Array.isArray(result?.cities) ? result.cities : [])
+          .map(raw => {
+            const label = String(raw || "").trim();
+            return ufCities.find(cityName => normCity(cityName) === normCity(label)) || label;
+          })
+          .filter(Boolean),
+      )).sort((left, right) => left.localeCompare(right, "pt-BR"));
+      if (!resolvedUf || resolvedCities.length === 0) throw new Error("Não encontrei cidades para este DDD.");
+      setGeoMode("ddd");
+      setUf(resolvedUf);
+      setDdd(digits);
+      setDddOptions(resolvedCities);
+      setCitiesQuery("");
+      setAlcance("");
+    } catch (error) {
+      if (dddLookupTokenRef.current !== lookupToken) return;
+      setDddOptions([]);
+      setDddError(error instanceof Error ? error.message : "Não foi possível consultar este DDD.");
+    } finally {
+      if (dddLookupTokenRef.current === lookupToken) setDddBusy(false);
+    }
   }
 
   const loadBank = useCallback(() => {
@@ -715,36 +991,92 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       .catch(() => setUsage(null));
   }, []);
 
-  const loadList = useCallback((which: Tab, opts?: { page?: number; quantosOverride?: number }) => {
-    const params = new URLSearchParams();
-    params.set("page", String(opts?.page ?? 1));
-    // Prateleira: lote saudável fixo (SHELF_LIMIT) — não mais capado pelo "Quantos
-    // puxar" (removido). Carteira: paginação normal.
+  const loadList = useCallback((which: Tab, opts?: { page?: number }) => {
     const limit = which === "shelf" ? SHELF_LIMIT : pageSize;
-    params.set("limit", String(limit));
-    if (which === "shelf") params.set("scope", "vitrine");
-    if (segment) params.set("segment", segment);
-    if (city) params.set("city", city);
-    if (uf) params.set("state", uf);
-    if (which === "shelf" && alcance) params.set("radiusKm", alcance);
-    // Filtro estilo CNPJ Biz (tem-site/tem-WhatsApp) — só na prateleira (vitrine),
-    // igual ao resto do bloco B3. Params já existem no DTO do backend
-    // (noWebsite/withWebsite/likelyWhatsapp); só não estavam expostos na UI.
-    if (which === "shelf" && siteFiltro === "com") params.set("withWebsite", "true");
-    if (which === "shelf" && siteFiltro === "sem") params.set("noWebsite", "true");
-    if (which === "shelf" && zapFiltro === "com") params.set("likelyWhatsapp", "true");
-    return apiFetch<LeadsResponse>(`/webscraping/radar/leads?${params.toString()}`)
-      .then(res => {
-        setData(res);
+    const requestedPage = opts?.page ?? 1;
+    const selectedTargets = geoTargetsFor(geoMode, uf, cities);
+    // A prateleira pode representar até cinco alvos explícitos. Cada consulta
+    // continua sendo estritamente uma cidade, sem alterar o contrato do Radar.
+    const requestTargets: Array<GeoTarget | null> = which === "shelf" && selectedTargets.length > 0
+      ? selectedTargets
+      : [selectedTargets[0] || null];
+    const aggregateTargets = requestTargets.length > 1;
+    // A apresentação do backend normaliza uma consulta em no máximo 300 itens.
+    // Mantemos a paginação agregada dentro desse teto para nunca anunciar
+    // páginas que a API não consegue devolver.
+    const aggregateTargetCap = 300;
+    const fetchLimit = aggregateTargets ? Math.min(aggregateTargetCap, requestedPage * limit) : limit;
+
+    const requests = requestTargets.map(target => {
+      const params = new URLSearchParams();
+      params.set("page", String(aggregateTargets ? 1 : requestedPage));
+      params.set("limit", String(fetchLimit));
+      if (which === "shelf") params.set("scope", "vitrine");
+      if (segment) params.set("segment", segment);
+      if (target?.city) params.set("city", target.city);
+      if (target?.state) params.set("state", target.state);
+      if (which === "shelf" && (geoMode === "radius" || geoMode === "nearby") && alcance) {
+        params.set("radiusKm", alcance);
+      }
+      if (which === "shelf" && geoMode === "nearby" && geo) {
+        params.set("originLat", String(geo.lat));
+        params.set("originLng", String(geo.lng));
+      }
+      if (which === "shelf" && minRating) params.set("minRating", minRating);
+      if (which === "shelf" && minReviews) params.set("minReviews", minReviews);
+      if (which === "shelf" && requiredChannels.length > 0) {
+        requiredChannels.forEach(channel => params.append("requiredChannels", channel));
+        params.set("channelMatchMode", channelMatchMode);
+      }
+      return apiFetch<LeadsResponse>(`/webscraping/radar/leads?${params.toString()}`);
+    });
+
+    return Promise.all(requests)
+      .then(responses => {
+        const first = responses[0] || { items: [], total: 0 };
+        if (responses.length === 1) {
+          setData(first);
+          setLoadError(null);
+          const badge = which === "shelf" ? (first?.meta?.totalAvailable ?? first?.total ?? 0) : (first?.total ?? 0);
+          setCounts(current => ({ ...current, [which]: badge }));
+          return;
+        }
+
+        // Intercala as cidades para nenhuma delas dominar a primeira página e
+        // remove duplicados que eventualmente apareçam em recortes próximos.
+        const interleaved: RadarLead[] = [];
+        const maxItems = Math.max(0, ...responses.map(response => response.items?.length || 0));
+        for (let itemIndex = 0; itemIndex < maxItems; itemIndex += 1) {
+          for (const response of responses) {
+            const item = response.items?.[itemIndex];
+            if (item) interleaved.push(item);
+          }
+        }
+        const pageOffset = (requestedPage - 1) * limit;
+        const items = mergeRadarLeads(interleaved).slice(pageOffset, pageOffset + limit);
+        const total = responses.reduce(
+          (sum, response) => sum + Math.min(aggregateTargetCap, Number(response.total || 0)),
+          0,
+        );
+        const totalAvailable = responses.reduce(
+          (sum, response) => sum + Number(response.meta?.totalAvailable ?? response.total ?? 0),
+          0,
+        );
+        const result: LeadsResponse = {
+          ...first,
+          items,
+          total,
+          meta: { ...(first.meta || {}), totalAvailable, limit },
+        };
+        setData(result);
         setLoadError(null);
-        const badge = which === "shelf" ? (res?.meta?.totalAvailable ?? res?.total ?? 0) : (res?.total ?? 0);
-        setCounts(c => ({ ...c, [which]: badge }));
+        setCounts(current => ({ ...current, [which]: totalAvailable }));
       })
       .catch((err: unknown) => {
         setData(null);
         setLoadError(err instanceof Error ? err.message : "Falha ao carregar o Radar.");
       });
-  }, [segment, city, uf, alcance, siteFiltro, zapFiltro]);
+  }, [segment, geoMode, uf, cities, alcance, geo, minRating, minReviews, requiredChannels, channelMatchMode]);
 
   const refreshRadarLead = useCallback(async (radarLeadId: string) => {
     try {
@@ -762,20 +1094,26 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   }, [loadList, page, tab]);
 
   useEffect(() => {
+    const latestRequestToken = queueTokenRef.current;
     loadBank();
     loadUsage();
     loadList("shelf", { page: 1 });
-    // P8b: só aceita run do mount se operationalState = funcionando|pausado
-    // (run terminal antigo no banco engoliria o 1º clique via runActive=true)
+    // Só aceita run do mount se ele ainda estiver operacional; run terminal
+    // antigo não pode bloquear uma nova busca.
     apiFetch<RunResponse>("/webscraping/radar/search-runs/latest")
       .then(res => {
+        if (queueActiveRef.current || queueTokenRef.current !== latestRequestToken) return;
         if (!res || !(res.id || res.runId)) return;
         const opState = getOpState(res);
         const isTerminal = TERMINAL_RUN.has(String(res?.status || "")) || res?.meta?.terminal;
         // Só carrega se está visivelmente ativo (não terminal ou operacional ativo)
         if (!isTerminal || opState === "funcionando" || opState === "pausado") {
           setRun(res);
-          setLiveRunItems(Array.isArray(res.items) ? res.items : []);
+          setLiveRunItems(filterRadarLeadsByReputation(
+            Array.isArray(res.items) ? res.items : [],
+            minRatingRef.current,
+            minReviewsRef.current,
+          ));
         }
       })
       .catch(() => { /* sem busca ativa */ });
@@ -806,8 +1144,21 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     // Não persistir antes de restaurar: no mount os filtros nascem vazios
     // (defaults estáticos SSR-safe) — gravar aqui apagaria o que estava salvo.
     if (!filtersRestored.current) return;
-    try { localStorage.setItem("hbx:leads-filters", JSON.stringify({ uf, cities, segment, alcance, quantos })); } catch { /* sem storage */ }
-  }, [uf, cities, segment, alcance, quantos]);
+    try {
+      localStorage.setItem("hbx:leads-filters", JSON.stringify({
+        uf,
+        cities,
+        segment,
+        alcance,
+        geoMode,
+        ddd,
+        minRating,
+        minReviews,
+        requiredChannels,
+        channelMatchMode,
+      }));
+    } catch { /* sem storage */ }
+  }, [uf, cities, segment, alcance, geoMode, ddd, minRating, minReviews, requiredChannels, channelMatchMode]);
 
   // Restaura os filtros salvos SÓ pós-montagem (setState em rAF → respeita
   // react-hooks/set-state-in-effect). Roda depois do efeito de persistência
@@ -819,7 +1170,19 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       if (cancelled) return;
       const f = getStoredFilters();
       filtersRestored.current = true;
-      setUf(f.uf); setCities(f.cities); setSegment(f.segment); setAlcance(f.alcance); setQuantos(f.quantos);
+      setUf(f.uf);
+      setCities(f.cities);
+      setSegment(f.segment);
+      setAlcance(f.alcance);
+      setGeoMode(f.geoMode);
+      setDdd(f.ddd);
+      setMinRating(f.minRating);
+      setMinReviews(f.minReviews);
+      setRequiredChannels(f.requiredChannels);
+      setChannelMatchMode(f.channelMatchMode);
+      if (f.segment || f.uf || f.cities.length > 0 || f.minRating || f.minReviews || f.requiredChannels.length > 0) {
+        setHistoryHidden(true);
+      }
     });
     return () => { cancelled = true; cancelAnimationFrame(id); };
   }, []);
@@ -829,6 +1192,12 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
 
   // B0: polling por operationalState do backend (não por status fantasma)
   useEffect(() => {
+    // A fila multi-alvo controla o polling de forma serial. O intervalo legado
+    // só acompanha uma busca isolada retomada do backend.
+    if (queueActiveRef.current) {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+      return;
+    }
     const runId = run?.id || run?.runId;
     const opState = getOpState(run);
     const status = String(run?.status || "");
@@ -839,11 +1208,17 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       return;
     }
     if (pollRef.current) return;
+    const pollingToken = queueTokenRef.current;
     pollRef.current = setInterval(async () => {
       try {
         const res = await apiFetch<RunResponse>(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}`);
+        if (queueActiveRef.current || queueTokenRef.current !== pollingToken) return;
         setRun(res);
-        setLiveRunItems(Array.isArray(res?.items) ? res.items : []);
+        setLiveRunItems(filterRadarLeadsByReputation(
+          Array.isArray(res?.items) ? res.items : [],
+          minRatingRef.current,
+          minReviewsRef.current,
+        ));
         const resOpState = getOpState(res);
         const resStatus = String(res?.status || "");
         const resTerminal = TERMINAL_RUN.has(resStatus) || res?.meta?.terminal;
@@ -900,6 +1275,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
 
   function markFiltersDirty() {
     setHasSearched(false);
+    setHistoryHidden(true);
     setLiveRunItems(null);
     setSearchMsg(null);
     setSelected(new Set());
@@ -910,49 +1286,98 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   // zera o resultado anterior — mudar o recorte não pode mostrar leads de outro.
   function toggleCity(label: string) {
     markFiltersDirty();
-    setCities(prev => prev.includes(label) ? prev.filter(c => c !== label) : [...prev, label]);
+    if (cities.includes(label)) {
+      setCities(cities.filter(current => current !== label));
+      setCitiesLimitMsg(null);
+      return;
+    }
+    const limit = geoMode === "radius" || geoMode === "nearby" ? 1 : MAX_CITY_TARGETS;
+    if (cities.length >= limit) {
+      setCitiesLimitMsg(
+        limit === 1
+          ? "Este modo usa uma única cidade-base."
+          : "Limite seguro: até 5 cidades por busca.",
+      );
+      return;
+    }
+    const next = [...cities, label].slice(0, limit);
+    setCities(next);
+    setCitiesLimitMsg(
+      next.length === limit
+        ? limit === 1
+          ? "Cidade-base definida para esta região."
+          : "Limite seguro atingido: 5 cidades."
+        : null,
+    );
+  }
+
+  function selectGeoMode(nextMode: GeoMode) {
+    if (nextMode === geoMode) return;
+    dddLookupTokenRef.current += 1;
+    geoLookupTokenRef.current += 1;
+    setDddBusy(false);
+    setGeoBusy(false);
+    markFiltersDirty();
+    setGeoMode(nextMode);
+    setCitiesQuery("");
+    setCitiesLimitMsg(null);
+    setDddError(null);
+    if (nextMode === "cities") {
+      setCities(previous => previous.slice(0, MAX_CITY_TARGETS));
+      setAlcance("");
+      setDdd("");
+      setDddOptions([]);
+      return;
+    }
+    if (nextMode === "radius") {
+      setCities(previous => previous.slice(0, 1));
+      setAlcance(previous => previous || "50");
+      setDdd("");
+      setDddOptions([]);
+      return;
+    }
+    if (nextMode === "ddd") {
+      setUf("");
+      setCities([]);
+      setAlcance("");
+      setDdd("");
+      setDddOptions([]);
+      return;
+    }
+    setUf("");
+    setCities([]);
+    setAlcance(previous => previous || "25");
+    setDdd("");
+    setDddOptions([]);
   }
 
   function limparFiltros() {
     setUf("");
     setCities([]);
     setCitiesQuery("");
-    setCitiesModalOpen(false);
+    closeCitiesModal();
     setSegment("");
     setAlcance("");
-    setQuantos(5);
+    setGeoMode("cities");
+    setDdd("");
+    setDddOptions([]);
+    setDddError(null);
+    setCitiesLimitMsg(null);
+    setMinRating("");
+    setMinReviews("");
+    setRequiredChannels([]);
+    setChannelMatchMode("all_required");
     setRun(null);
     setSearchMsg(null);
     setPullMsg(null);
     setSelected(new Set());
     setSelLead(null);
-    setSiteFiltro("qualquer");
-    setZapFiltro("qualquer");
     setPage(1);
     setTab("shelf");
     setHasSearched(false);
+    setHistoryHidden(true);
     setLiveRunItems(null);
     try { localStorage.removeItem("hbx:leads-filters"); } catch { /* sem storage */ }
-  }
-
-  // Item 3b: "Aplicar filtro" do popup avançado — traduz o subconjunto compatível
-  // (UF/cidade/CNAE-ou-palavra-chave/WhatsApp) pros filtros que o Pipeline de
-  // pesquisa já entende. Campos só-RFB (capital, idade, sócio…) não têm onde
-  // aterrissar no Pipeline hoje (RadarLeadPool não guarda essas colunas) — o
-  // popup já avisa isso na prévia, então aqui só aplicamos o que é real.
-  function aplicarFiltroAvancado(f: FiltroAvancadoState) {
-    setAdvOpen(false);
-    if (f.states[0]) setUf(f.states[0]);
-    if (f.cities.length) setCities(f.cities.filter(c => c.trim()));
-    const seg = f.cnaes[0] || f.keyword.trim();
-    if (seg) setSegment(seg);
-    if (f.comCelular === true) setZapFiltro("com");
-    setPage(1);
-    setSelected(new Set());
-    setTab("shelf");
-    setHasSearched(false);
-    setLiveRunItems(null);
-    setSearchMsg(null);
   }
 
   // ── WORM-15: pesquisas salvas ────────────────────────────────────────────
@@ -965,32 +1390,56 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     } catch { /* mantem lista atual */ }
   }
 
-  // Aplica um recorte salvo aos filtros da tela e recarrega a prateleira.
-  // "Canais exigidos" foi removido (não existe na nova regra lista+web) — recorte
-  // salvo antigo com requiredChannels simplesmente ignora esse campo, sem erro.
+  // Aplica somente campos que a busca real entende. Pesquisa salva continua
+  // representando um único alvo porque esse é o contrato persistido no backend.
   function applySavedSearch(s: SavedSearch) {
     const f = s.filtro || {};
     const nextUf = String((f as SavedFiltro).state || "").trim();
     const nextCity = String((f as SavedFiltro).city || "").trim();
     const nextSeg = String((f as SavedFiltro).segment || "").trim();
-    const nextAlc = String((f as SavedFiltro).alcance || "").trim();
-    const nextQtd = Number((f as SavedFiltro).quantos || 0) || 5;
+    const nextAlc = String((f as SavedFiltro).radiusKm || (f as SavedFiltro).alcance || "").trim();
+    const nextDdd = String((f as SavedFiltro).ddd || "").replace(/\D/g, "").slice(0, 2);
+    const nextMinRating = String((f as SavedFiltro).minRating || "").trim();
+    const nextMinReviews = String((f as SavedFiltro).minReviews || "").trim();
+    const allowedChannels = new Set<RadarRequiredChannel>(["whatsapp", "phone", "email", "website"]);
+    const nextChannels = Array.isArray((f as SavedFiltro).requiredChannels)
+      ? ((f as SavedFiltro).requiredChannels as unknown[]).filter(
+          (channel): channel is RadarRequiredChannel =>
+            typeof channel === "string" && allowedChannels.has(channel as RadarRequiredChannel),
+        )
+      : [];
+    const nextMode: GeoMode = nextDdd ? "ddd" : nextAlc ? "radius" : "cities";
     setUf(nextUf);
     setCities(nextCity ? [nextCity] : []);
     setSegment(nextSeg);
     setAlcance(nextAlc);
-    setQuantos(nextQtd);
+    setGeoMode(nextMode);
+    setDdd(nextDdd);
+    setDddOptions(nextMode === "ddd" && nextCity ? [nextCity] : []);
+    setMinRating(nextMinRating);
+    setMinReviews(nextMinReviews);
+    setRequiredChannels(nextChannels);
+    setChannelMatchMode((f as SavedFiltro).channelMatchMode === "any_required" ? "any_required" : "all_required");
     setPage(1);
     setTab("shelf");
     setSavedBar(false);
     setSavedMsg(`Pesquisa "${s.nome}" aplicada.`);
     setHasSearched(false);
+    setHistoryHidden(true);
     setLiveRunItems(null);
     setSearchMsg(null);
     setSelected(new Set());
   }
 
   function openSaveModal() {
+    if (geoMode === "nearby") {
+      setSavedMsg("O modo Perto de mim depende da sua posição atual e não pode ser salvo.");
+      return;
+    }
+    if (geoTargetsFor(geoMode, uf, cities).length !== 1) {
+      setSavedMsg("Para salvar, deixe um único alvo territorial selecionado.");
+      return;
+    }
     setSaveName("");
     setSaveSeller("");
     setSavedMsg(null);
@@ -1001,7 +1450,18 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   async function saveCurrentFilter() {
     const nome = saveName.trim();
     if (!nome) { setSavedMsg("Dê um nome para a pesquisa."); return; }
-    const filtro = buildFiltroSnapshot({ uf, city, segment, alcance, quantos });
+    const filtro = buildFiltroSnapshot({
+      uf,
+      city,
+      segment,
+      alcance,
+      geoMode,
+      ddd,
+      minRating,
+      minReviews,
+      requiredChannels,
+      channelMatchMode,
+    });
     setSavedBusy(true);
     setSavedMsg(null);
     try {
@@ -1031,30 +1491,42 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   // operationalState atual (do run mais recente)
   const opState = getOpState(run);
 
-  // runActive = há uma busca acontecendo AGORA (só isso importa: dita o botão
-  // Buscar↔Parar e a linha de progresso "Varrendo…"). Item 8: sem estado de
-  // pausa/expansão no front — o painel não narra mais "em pausa"/"volta sozinho".
-  const runActive = Boolean(
+  // A interação cobre POST em voo, fila e run pausado ainda não terminal.
+  const runPending = Boolean(
     (run?.id || run?.runId) &&
-    !TERMINAL_RUN.has(String(run?.status || "")) &&
-    opState === "funcionando"
+    !(TERMINAL_RUN.has(String(run?.status || "")) || run?.meta?.terminal)
   );
+  const searchInProgress = runBusy || runPending;
   const runProgress = run?.meta?.progress;
-  const runVisibleCount = liveRunItems?.length ?? run?.meta?.deliveredCount ?? 0;
+  const runVisibleCount = liveRunItems
+    ? filterRadarLeadsByReputation(liveRunItems, minRating, minReviews).length
+    : run?.meta?.deliveredCount ?? 0;
+
+  useEffect(() => {
+    if (!searchInProgress) return;
+    function onBeforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [searchInProgress]);
 
   // Estado visual do disco (23/07 — reativa a leitura de estado do radar por
   // cor): pesquisando AGORA = funcionando; motor pausado (não-terminal) =
   // pausado; qualquer outra coisa (ocioso/pronto/concluído) = parado.
   const discState: "funcionando" | "pausado" | "parado" =
-    runActive ? "funcionando" : opState === "pausado" ? "pausado" : "parado";
+    opState === "pausado" ? "pausado" : searchInProgress ? "funcionando" : "parado";
 
   // P4: valida campos e abre popup se faltando — usado em 3 gatilhos
   function validarCamposOuPopup(effSegment?: string): boolean {
     const segToCheck = effSegment != null ? effSegment : segment;
     const faltando: string[] = [];
     if (!segToCheck.trim()) faltando.push("Segmento");
-    if (!uf.trim()) faltando.push("Estado");
-    if (!cities.length) faltando.push("Cidade");
+    if (!uf.trim() || geoTargetsFor(geoMode, uf, cities).length === 0) faltando.push("Território");
+    if ((geoMode === "radius" || geoMode === "nearby") && !(Number(alcance) > 0)) faltando.push("Raio");
+    if (geoMode === "ddd" && !VALID_DDDS.has(ddd)) faltando.push("DDD");
+    if (geoMode === "nearby" && !geo) faltando.push("Localização atual");
     if (faltando.length > 0) {
       setMissingModal(faltando);
       return false;
@@ -1065,84 +1537,190 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   // override: re-disparo da MESMA busca já expandida (ampliar alcance / incluir segmentos).
   // Quando vem override, os filtros visíveis também sobem (segment/alcance) pra refletir.
   async function executarBusca(override?: { segment?: string; radiusKm?: number }) {
-    // P8b: "pausado" não bloqueia — pode iniciar nova busca; só bloqueia se funcionando AGORA
-    if (runBusy || runActive) return;
+    if (searchInProgress || queueActiveRef.current) return;
     const effSegment = override?.segment != null ? override.segment : segment;
     const effRadius = override?.radiusKm != null ? override.radiusKm : (alcance ? Number(alcance) : 0);
-    // P4: valida e abre popup se faltando (usa o segmento efetivo)
     if (!validarCamposOuPopup(effSegment)) return;
+    const targets = geoTargetsFor(geoMode, uf, cities);
+    const queueToken = queueTokenRef.current + 1;
+    queueTokenRef.current = queueToken;
+    queueActiveRef.current = true;
+    queueRunIdRef.current = null;
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     setHasSearched(true);
     setHistoryHidden(false);
     setSearchMsg(null);
     setLoadError(null);
     setLiveRunItems([]);
+    setRun(null);
     setData(prev => prev ? { ...prev, items: [], total: 0 } : prev);
     setRunBusy(true);
+    let accumulated: RadarLead[] = [];
+    let firstMessage: string | null = null;
+    let interruptedByError = false;
     try {
-      // MULTI-CIDADE (23/07): o backend processa 1 cidade por run. Aqui a busca
-      // dispara UM run por cidade selecionada (sequencial), acumulando os leads
-      // ao vivo; o poll acompanha o ÚLTIMO run e os leads das demais cidades
-      // caem na prateleira/pool quando a busca encerra. `cities` sempre tem ≥1
-      // item aqui (validado acima). Sem cidade explícita, cai no fluxo antigo.
-      const alvos = cities.length ? cities : [city];
-      let lastRun: RunResponse = null;
-      const acumulado: RadarLead[] = [];
-      let primeiroErro: string | null = null;
-      let primeiraMsg: string | null = null;
-      for (const alvo of alvos) {
-        // P1/P8a: inclui quantity no body (DTO exige; antes ficava de fora → 400).
-        // Lote fixo (SEARCH_BATCH) — o usuário não escolhe mais "quantos" (removido).
-        const body: Record<string, unknown> = { city: alvo, state: uf || undefined, segment: effSegment, quantity: SEARCH_BATCH };
-        if (effRadius > 0) body.radiusKm = effRadius;
-        if (geo) { body.originLat = geo.lat; body.originLng = geo.lng; }
-        // Filtro estilo CNPJ Biz (mesmo DTO do GET /radar/leads — RadarPullDto estende
-        // RadarDatabaseQueryDto): reflete tem-site/tem-WhatsApp na busca ao vivo também.
-        if (siteFiltro === "com") body.withWebsite = true;
-        if (siteFiltro === "sem") body.noWebsite = true;
-        if (zapFiltro === "com") body.likelyWhatsapp = true;
+      // O backend continua recebendo uma cidade por execução. A serialização
+      // abaixo é a barreira de segurança que impede uma seleção de cinco cidades
+      // de virar cinco runs simultâneos que se cancelem entre si.
+      for (let index = 0; index < targets.length; index += 1) {
+        if (queueTokenRef.current !== queueToken) break;
+        queueRunIdRef.current = null;
+        const target = targets[index];
+        setSearchQueue({ current: index + 1, total: targets.length, label: `${target.city}/${target.state}` });
+        const body: Record<string, unknown> = {
+          city: target.city,
+          state: target.state,
+          segment: effSegment,
+          quantity: SEARCH_BATCH,
+        };
+        if ((geoMode === "radius" || geoMode === "nearby") && effRadius > 0) body.radiusKm = effRadius;
+        if (geoMode === "nearby" && geo) {
+          body.originLat = geo.lat;
+          body.originLng = geo.lng;
+        }
+        if (requiredChannels.length > 0) {
+          body.requiredChannels = requiredChannels;
+          body.channelMatchMode = channelMatchMode;
+        }
+
         try {
-          const res = await apiFetch<RunResponse>("/webscraping/radar/search-runs", {
+          let currentRun = await apiFetch<RunResponse>("/webscraping/radar/search-runs", {
             method: "POST",
             body: JSON.stringify(body),
           });
-          lastRun = res;
-          if (Array.isArray(res?.items)) acumulado.push(...res.items);
-          if (res?.message && !primeiraMsg) primeiraMsg = res.message;
+          const createdRunId = currentRun?.id || currentRun?.runId;
+
+          // O usuário pode apertar Parar enquanto o POST está em trânsito. Se o
+          // backend criou o run, cancelamos esse run antes de encerrar a fila.
+          if (queueTokenRef.current !== queueToken) {
+            if (createdRunId) {
+              try {
+                await apiFetch(`/webscraping/radar/search-runs/${encodeURIComponent(createdRunId)}/cancel`, {
+                  method: "POST",
+                  body: JSON.stringify({}),
+                });
+              } catch {
+                // Sem confirmação de cancelamento, o run permanece visível e
+                // bloqueia nova busca até o monitor observar um estado terminal.
+                interruptedByError = true;
+                queueRunIdRef.current = createdRunId;
+                setRun(currentRun);
+                setSearchMsg("Não foi possível confirmar o cancelamento. O Radar continuará sendo monitorado.");
+              }
+            }
+            break;
+          }
+          if (!createdRunId) throw new Error("O Radar não confirmou a execução. A fila foi interrompida por segurança.");
+
+          queueRunIdRef.current = createdRunId;
+          setRun(currentRun);
+          accumulated = mergeRadarLeads(accumulated, currentRun?.items);
+          setLiveRunItems(filterRadarLeadsByReputation(accumulated, minRating, minReviews));
+          if (currentRun?.message && !firstMessage) firstMessage = currentRun.message;
+
+          while (queueTokenRef.current === queueToken) {
+            const currentStatus = String(currentRun?.status || "");
+            const currentOpState = getOpState(currentRun);
+            const terminal = TERMINAL_RUN.has(currentStatus) || currentRun?.meta?.terminal;
+            if (currentStatus === "canceled" || currentStatus === "failed" || currentStatus === "partial_error") break;
+            if (terminal && currentOpState !== "funcionando" && currentOpState !== "pausado") break;
+            await waitForRadarPoll();
+            if (queueTokenRef.current !== queueToken) break;
+            currentRun = await apiFetch<RunResponse>(
+              `/webscraping/radar/search-runs/${encodeURIComponent(createdRunId)}`,
+            );
+            if (queueTokenRef.current !== queueToken || queueRunIdRef.current !== createdRunId) break;
+            if (!currentRun) {
+              throw new Error("O Radar não devolveu o estado da execução. A fila foi interrompida por segurança.");
+            }
+            setRun(currentRun);
+            accumulated = mergeRadarLeads(accumulated, currentRun?.items);
+            setLiveRunItems(filterRadarLeadsByReputation(accumulated, minRating, minReviews));
+          }
+
+          if (queueTokenRef.current !== queueToken) break;
+          const finalStatus = String(currentRun?.status || "");
+          if (finalStatus === "canceled") {
+            interruptedByError = true;
+            setSearchMsg("A execução atual foi cancelada. Os próximos alvos não foram iniciados.");
+            break;
+          }
+          if (finalStatus === "failed" || finalStatus === "partial_error") {
+            interruptedByError = true;
+            setSearchMsg(currentRun?.message || "Uma execução falhou. Os próximos alvos não foram iniciados.");
+            break;
+          }
+          if (queueRunIdRef.current === createdRunId) queueRunIdRef.current = null;
         } catch (err) {
-          if (!primeiroErro) primeiroErro = err instanceof Error ? err.message : "Não consegui iniciar a busca.";
-          // Cota/erro numa cidade não deve abortar as demais — segue o loop.
+          interruptedByError = true;
+          setSearchMsg(err instanceof Error ? err.message : "A fila foi interrompida para proteger o Radar.");
+          break;
         }
       }
-      // Reflete a expansão nos filtros visíveis (sem mexer quando é busca normal).
+
       if (override?.segment != null) setSegment(effSegment);
       if (override?.radiusKm != null) setAlcance(String(override.radiusKm));
-      setRun(lastRun);
-      setLiveRunItems(acumulado);
       setTab("shelf");
       setPage(1);
       setSelected(new Set());
-      if (primeiroErro && !lastRun) { setLiveRunItems(null); setSearchMsg(primeiroErro); }
-      else if (primeiraMsg) setSearchMsg(primeiraMsg);
+      if (!interruptedByError && firstMessage) setSearchMsg(firstMessage);
     } catch (err) {
-      setLiveRunItems(null);
-      setSearchMsg(err instanceof Error ? err.message : "Não consegui iniciar a busca.");
+      interruptedByError = true;
+      setSearchMsg(err instanceof Error ? err.message : "A fila foi interrompida para proteger o Radar.");
     } finally {
-      setRunBusy(false);
+      const canceled = queueTokenRef.current !== queueToken;
+      queueActiveRef.current = false;
+      queueRunIdRef.current = null;
+      setSearchQueue(null);
+      setTab("shelf");
+      setPage(1);
+      loadBank();
+      loadUsage();
+      try {
+        await loadList("shelf", { page: 1 });
+        setLiveRunItems(null);
+      } finally {
+        setRunBusy(false);
+      }
+      if (!canceled && !interruptedByError && accumulated.length > 0) {
+        const totalFound = filterRadarLeadsByReputation(accumulated, minRating, minReviews).length;
+        if (totalFound > 0) {
+          setFlyToast(`${totalFound} lead${totalFound > 1 ? "s" : ""} encontrad${totalFound > 1 ? "os" : "o"}`);
+          window.setTimeout(() => setFlyToast(null), 3200);
+        }
+      }
+      // Se o polling falhou com um run ainda aberto, devolve o acompanhamento
+      // para o monitor isolado em vez de iniciar o próximo alvo.
+      if (canceled || interruptedByError) setRun(current => current ? { ...current } : current);
     }
   }
 
   async function pararBusca() {
-    const runId = run?.id || run?.runId;
-    if (!runId || !runActive) return;
+    const wasQueue = queueActiveRef.current;
+    const stopToken = queueTokenRef.current + 1;
+    queueTokenRef.current = stopToken;
+    setSearchQueue(null);
+    const runId = wasQueue ? queueRunIdRef.current : (run?.id || run?.runId);
+    if (!runId) {
+      if (!wasQueue) setRunBusy(false);
+      return;
+    }
     try {
       await apiFetch(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}/cancel`, { method: "POST", body: JSON.stringify({}) });
-      // atualiza run
       const res = await apiFetch<RunResponse>(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}`);
+      if (queueTokenRef.current !== stopToken) return;
+      if (queueRunIdRef.current === runId) queueRunIdRef.current = null;
       setRun(res);
-      setLiveRunItems(Array.isArray(res?.items) ? res.items : []);
-      void loadList("shelf", { page: 1 }).finally(() => setLiveRunItems(null));
+      if (!wasQueue) {
+        setLiveRunItems(filterRadarLeadsByReputation(
+          Array.isArray(res?.items) ? res.items : [],
+          minRatingRef.current,
+          minReviewsRef.current,
+        ));
+        void loadList("shelf", { page: 1 }).finally(() => setLiveRunItems(null));
+      }
     } catch {
-      // silencia — o poll vai pegar o estado real
+      // A fila já foi invalidada; não há autorização para iniciar outro alvo.
     }
   }
 
@@ -1202,7 +1780,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const showingLiveRun = tab === "shelf" && liveRunItems !== null;
   const historyItems = data?.items || [];
   const hideHistory = tab === "shelf" && !hasSearched && historyHidden;
-  const items = showingLiveRun ? (liveRunItems ?? []) : (hideHistory ? [] : historyItems);
+  const filteredLiveRunItems = filterRadarLeadsByReputation(liveRunItems || [], minRating, minReviews);
+  const items = showingLiveRun ? filteredLiveRunItems : (hideHistory ? [] : historyItems);
   const hasHistory = tab === "shelf" && !hasSearched && !historyHidden && historyItems.length > 0;
 
   const aiStatusMap = useRadarAiStatusPoll(items.map(row => row.id), {
@@ -1214,14 +1793,41 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const byLabel = (a: { label: string }, b: { label: string }) => a.label.localeCompare(b.label, "pt-BR");
   const segOptions = (filters?.segments || []).sort(byLabel);
   const ufOptions = mergeFilterOptions(filters?.states, BRAZIL_UF_OPTIONS).sort(byLabel);
-  const cityOptions = uf
+  const ufCityOptions = uf
     ? mergeBrazilCityOptions(uf, filters?.citiesByState?.[uf]).sort(byLabel)
     : [];
-  const canSearch = Boolean(segment.trim() && uf.trim() && cities.length > 0);
-  // Rótulo amigável do recorte de cidades pros textos ao vivo (1 cidade = nome; várias = "N cidades").
-  const localLabel = cities.length === 0 ? "" : cities.length === 1 ? cities[0] : `${cities.length} cidades`;
+  const cityOptions = geoMode === "ddd"
+    ? mergeFilterOptions(
+        [...cities, ...dddOptions].map(label => ({ value: label, label })),
+        [],
+      ).sort(byLabel)
+    : ufCityOptions;
+  const geoTargets = geoTargetsFor(geoMode, uf, cities);
+  const geoModeInfo = GEO_MODE_META.find(mode => mode.key === geoMode) || GEO_MODE_META[0];
+  const geoSummary = geoTargets.length === 0
+    ? "Escolher território"
+    : geoMode === "ddd"
+      ? `DDD ${ddd} · ${geoTargets.length} cidade${geoTargets.length > 1 ? "s" : ""}`
+      : geoMode === "radius"
+        ? `${geoTargets[0].city}/${geoTargets[0].state} · ${alcance || "—"} km`
+        : geoMode === "nearby"
+          ? `Perto de ${geoTargets[0].city} · ${alcance || "—"} km`
+          : geoTargets.length === 1
+            ? `${geoTargets[0].city}/${geoTargets[0].state}`
+            : `${geoTargets.length} cidades em ${geoTargets[0].state}`;
+  const canSearch = Boolean(
+    segment.trim() &&
+    uf.trim() &&
+    geoTargets.length > 0 &&
+    (!(geoMode === "radius" || geoMode === "nearby") || Number(alcance) > 0) &&
+    (geoMode !== "ddd" || VALID_DDDS.has(ddd)) &&
+    (geoMode !== "nearby" || geo),
+  );
+  const localLabel = geoSummary === "Escolher território" ? "" : geoSummary;
+  const advancedCount = requiredChannels.length + Number(Boolean(minRating)) + Number(Boolean(minReviews));
+  const canSaveCurrentFilter = geoTargets.length === 1 && geoMode !== "nearby";
 
-  const pageTotal = showingLiveRun ? (liveRunItems?.length ?? 0) : (hideHistory ? 0 : (data?.total || 0));
+  const pageTotal = showingLiveRun ? filteredLiveRunItems.length : (hideHistory ? 0 : (data?.total || 0));
   const lastPage = Math.max(1, Math.ceil(pageTotal / limit));
 
   // CRÉDITOS FASE 2 (R5): a cota MENSAL de cards por plano (usage.cards) deixou
@@ -1244,7 +1850,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
 
   const emptyMsg = loadError
     ? loadError
-    : runActive && tab === "shelf"
+    : searchInProgress && tab === "shelf"
       ? `Procurando empresas em ${localLabel || "sua região"}…`
     : data?.meta?.available === false
       ? data?.meta?.message || "Banco do Radar indisponível neste ambiente."
@@ -1402,85 +2008,154 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     );
   }
 
-  // ── Filtros opcionais: os dois campos obrigatórios (segmento + cidade) ficam
-  // na barra principal. Alcance, canais, pesquisas salvas e filtros da Receita
-  // vivem somente na gaveta Avançado.
-  function renderQuickFilters() {
+  function toggleRequiredChannel(channel: RadarRequiredChannel) {
+    markFiltersDirty();
+    setRequiredChannels(previous =>
+      previous.includes(channel)
+        ? previous.filter(current => current !== channel)
+        : [...previous, channel],
+    );
+  }
+
+  function clearAdvancedFilters() {
+    markFiltersDirty();
+    setMinRating("");
+    setMinReviews("");
+    setRequiredChannels([]);
+    setChannelMatchMode("all_required");
+  }
+
+  // A gaveta expõe apenas parâmetros existentes nos DTOs de listagem e execução
+  // do Radar. Território aparece como resumo, mas é editado no seletor dedicado.
+  function renderAdvancedFilters() {
     const chips = activeChips();
     return (
-      <>
-        <div className="be-adv-grid2">
-          <div className="f">
-            <label htmlFor="cb-alcance">Alcance</label>
-            <select id="cb-alcance" className="select-dark" value={alcance} disabled={!city.trim()} onChange={e => { markFiltersDirty(); setAlcance(e.target.value); }}>
-              <option value="">Só a cidade</option>
-              <option value="25">+ 25 km</option>
-              <option value="50">+ 50 km</option>
-              <option value="100">+ 100 km</option>
-            </select>
+      <div className="be-adv-stack">
+        <section className="be-adv-section">
+          <div className="be-adv-section__head">
+            <div>
+              <span className="be-adv-section__eyebrow">Território</span>
+              <h3>Onde o Radar vai procurar</h3>
+            </div>
+            <button
+              type="button"
+              className="btn-ghost btn-xs"
+              onClick={() => {
+                setAdvOpen(false);
+                setCitiesQuery("");
+                setCitiesModalOpen(true);
+              }}
+            >
+              Alterar
+            </button>
           </div>
-          <div className="f">
-            <label>Localização atual</label>
-            {geo ? (
+          <div className="be-adv-territory">
+            <span className="be-adv-territory__icon"><I d={geoModeInfo.icon} size={18} /></span>
+            <span className="be-adv-territory__copy">
+              <strong>{geoSummary}</strong>
+              <small>{geoModeInfo.label} · {geoModeInfo.description}</small>
+            </span>
+            <span className="be-adv-territory__count">{geoTargets.length}</span>
+          </div>
+        </section>
+
+        <section className="be-adv-section">
+          <div className="be-adv-section__head">
+            <div>
+              <span className="be-adv-section__eyebrow">Contato</span>
+              <h3>Canais obrigatórios</h3>
+              <p>Selecione somente o que precisa existir no resultado.</p>
+            </div>
+          </div>
+          <div className="be-adv-channel-grid" role="group" aria-label="Canais obrigatórios">
+            {CHANNEL_META.map(channel => {
+              const selected = requiredChannels.includes(channel.key);
+              return (
+                <button
+                  key={channel.key}
+                  type="button"
+                  className={"be-adv-channel" + (selected ? " be-adv-channel--active" : "")}
+                  onClick={() => toggleRequiredChannel(channel.key)}
+                  aria-pressed={selected}
+                >
+                  <span className="be-adv-channel__icon"><I d={channel.icon} size={17} /></span>
+                  <span>
+                    <strong>{channel.label}</strong>
+                    <small>{channel.description}</small>
+                  </span>
+                  <span className="be-adv-channel__check" aria-hidden>{selected ? "✓" : ""}</span>
+                </button>
+              );
+            })}
+          </div>
+          {requiredChannels.length > 1 && (
+            <div className="be-adv-match" role="group" aria-label="Regra entre canais">
+              <span>Quando houver vários canais:</span>
               <button
                 type="button"
-                className="btn-ghost btn-xs"
-                onClick={pullGeoLocation}
-                disabled={geoBusy}
+                className={channelMatchMode === "all_required" ? "active" : ""}
+                onClick={() => { markFiltersDirty(); setChannelMatchMode("all_required"); }}
+                aria-pressed={channelMatchMode === "all_required"}
               >
-                <I d={ICONS.mapin} size={14} /> {geoBusy ? "Atualizando…" : "Usar minha localização"}
+                exigir todos
               </button>
-            ) : (
-              <p className="hint be-adv-location-hint">Ative a localização no topo do sistema para usar como alternativa à cidade.</p>
-            )}
-          </div>
-        </div>
+              <button
+                type="button"
+                className={channelMatchMode === "any_required" ? "active" : ""}
+                onClick={() => { markFiltersDirty(); setChannelMatchMode("any_required"); }}
+                aria-pressed={channelMatchMode === "any_required"}
+              >
+                aceitar qualquer um
+              </button>
+            </div>
+          )}
+        </section>
 
-        <div className="be-adv-grid2">
-          <div className="f">
-            <label><I d={ICONS.website} size={13} /> Tem site</label>
-            <div role="group" aria-label="Filtrar por site" className="radar-canais__tristate">
-              {([
-                { key: "qualquer", label: "Qualquer" },
-                { key: "com", label: "Com" },
-                { key: "sem", label: "Sem" },
-              ] as const).map(opt => (
-                <button
-                  key={opt.key}
-                  type="button"
-                  className={"radar-canais__switch" + (siteFiltro === opt.key ? " radar-canais__switch--on" : "")}
-                  onClick={() => { markFiltersDirty(); setSiteFiltro(opt.key); }}
-                  aria-pressed={siteFiltro === opt.key}
-                >
-                  {opt.label}
-                </button>
-              ))}
+        <section className="be-adv-section">
+          <div className="be-adv-section__head">
+            <div>
+              <span className="be-adv-section__eyebrow">Reputação</span>
+              <h3>Sinais mínimos</h3>
+              <p>Refinam a vitrine durante e depois da busca, sem criar novas execuções.</p>
             </div>
           </div>
-          <div className="f">
-            <label><WhatsAppMark size={13} /> Tem WhatsApp</label>
-            <div role="group" aria-label="Filtrar por WhatsApp" className="radar-canais__tristate">
-              {([
-                { key: "qualquer", label: "Qualquer" },
-                { key: "com", label: "Com" },
-              ] as const).map(opt => (
-                <button
-                  key={opt.key}
-                  type="button"
-                  className={"radar-canais__switch" + (zapFiltro === opt.key ? " radar-canais__switch--on" : "")}
-                  onClick={() => { markFiltersDirty(); setZapFiltro(opt.key); }}
-                  aria-pressed={zapFiltro === opt.key}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
+          <div className="be-adv-reputation">
+            <label className="f" htmlFor="radar-min-rating">
+              <span>Nota mínima</span>
+              <select
+                id="radar-min-rating"
+                className="select-dark"
+                value={minRating}
+                onChange={event => { markFiltersDirty(); setMinRating(event.target.value); }}
+              >
+                <option value="">Qualquer nota</option>
+                <option value="3.5">3,5 ou mais</option>
+                <option value="4">4,0 ou mais</option>
+                <option value="4.5">4,5 ou mais</option>
+              </select>
+            </label>
+            <label className="f" htmlFor="radar-min-reviews">
+              <span>Avaliações mínimas</span>
+              <select
+                id="radar-min-reviews"
+                className="select-dark"
+                value={minReviews}
+                onChange={event => { markFiltersDirty(); setMinReviews(event.target.value); }}
+              >
+                <option value="">Qualquer volume</option>
+                <option value="5">5 ou mais</option>
+                <option value="10">10 ou mais</option>
+                <option value="25">25 ou mais</option>
+                <option value="50">50 ou mais</option>
+                <option value="100">100 ou mais</option>
+              </select>
+            </label>
           </div>
-        </div>
+        </section>
 
         {chips.length > 0 && (
           <div className="be-adv-active">
-            <span className="be-adv-active__label">Filtros opcionais ativos</span>
+            <span className="be-adv-active__label">Ativos nesta busca</span>
             <div className="be-adv-active__chips">
               {chips.map(chip => (
                 <span key={chip.key} className="be-chip-active">
@@ -1505,7 +2180,12 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                 type="button"
                 className="btn-ghost btn-xs"
                 onClick={openSaveModal}
-                disabled={!segment.trim() && !city.trim() && !uf.trim()}
+                disabled={!segment.trim() || !canSaveCurrentFilter}
+                title={!canSaveCurrentFilter
+                  ? geoMode === "nearby"
+                    ? "Perto de mim depende da sua posição atual e não pode ser salvo."
+                    : "Pesquisas salvas aceitam um único alvo territorial."
+                  : undefined}
               >
                 Salvar atual
               </button>
@@ -1557,26 +2237,36 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
             </div>
           )}
         </div>
-
-        <button
-          type="button"
-          className="btn-ghost btn-xs be-adv-clear"
-          onClick={() => { setAdvDraft(FILTRO_AVANCADO_VAZIO); limparFiltros(); }}
-        >
-          <I d={ICONS.x} size={13} /> Limpar busca
-        </button>
-      </>
+        {savedMsg && <p className="be-adv-message" aria-live="polite">{savedMsg}</p>}
+      </div>
     );
   }
 
-  // Chips dos filtros opcionais. Cidade/UF e segmento não viram chips porque
-  // agora são os campos obrigatórios, sempre visíveis e editáveis na linha principal.
+  // Chips dos filtros avançados. Território e segmento ficam sempre visíveis.
   type ActiveChip = { key: string; label: string; onRemove: () => void };
   function activeChips(): ActiveChip[] {
     const chips: ActiveChip[] = [];
-    if (alcance) chips.push({ key: "alcance", label: `+ ${alcance} km`, onRemove: () => { markFiltersDirty(); setAlcance(""); } });
-    if (siteFiltro !== "qualquer") chips.push({ key: "site", label: siteFiltro === "com" ? "Com site" : "Sem site", onRemove: () => { markFiltersDirty(); setSiteFiltro("qualquer"); } });
-    if (zapFiltro !== "qualquer") chips.push({ key: "zap", label: "Com WhatsApp", onRemove: () => { markFiltersDirty(); setZapFiltro("qualquer"); } });
+    for (const channel of requiredChannels) {
+      chips.push({
+        key: `channel-${channel}`,
+        label: CANAL_LABEL_PT[channel] || channel,
+        onRemove: () => toggleRequiredChannel(channel),
+      });
+    }
+    if (minRating) {
+      chips.push({
+        key: "rating",
+        label: `Nota ${Number(minRating).toLocaleString("pt-BR", { minimumFractionDigits: 1 })}+`,
+        onRemove: () => { markFiltersDirty(); setMinRating(""); },
+      });
+    }
+    if (minReviews) {
+      chips.push({
+        key: "reviews",
+        label: `${fmtInt(Number(minReviews))}+ avaliações`,
+        onRemove: () => { markFiltersDirty(); setMinReviews(""); },
+      });
+    }
     return chips;
   }
 
@@ -1584,7 +2274,15 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   // para executar a busca — segmento, UF/cidade e Buscar. Todo o restante
   // fica atrás de Avançado.
   function renderCommandBar() {
-    const optionalCount = activeChips().length;
+    const targetLimit = geoMode === "radius" || geoMode === "nearby" ? 1 : MAX_CITY_TARGETS;
+    const hasAnyFilter = Boolean(
+      segment.trim() ||
+      uf.trim() ||
+      cities.length ||
+      alcance ||
+      ddd ||
+      advancedCount,
+    );
     return (
       <div className="be-cmdbar be-cmdbar--required" data-tut="leads-filtros">
         <div className="be-search be-required-segment" data-tut="leads-busca-criativa" ref={segBoxRef}>
@@ -1593,13 +2291,14 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
             className="be-search__input"
             placeholder="Segmento ou tipo de empresa"
             value={segment}
+            disabled={searchInProgress}
             onChange={e => {
               markFiltersDirty();
               setSegment(e.target.value);
               if (segOptions.length) setSegMenuOpen(true);
             }}
             onKeyDown={e => {
-              if (e.key === "Enter" && canSearch && !runBusy && !runActive) { setSegMenuOpen(false); executarBusca(); }
+              if (e.key === "Enter" && canSearch && !searchInProgress) { setSegMenuOpen(false); executarBusca(); }
               else if (e.key === "ArrowDown" && segOptions.length) { setSegMenuOpen(true); }
             }}
             role="combobox"
@@ -1613,6 +2312,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
             type="button"
             className={"be-search__chevron" + (segMenuOpen ? " be-search__chevron--open" : "")}
             onClick={() => setSegMenuOpen(o => !o)}
+            disabled={searchInProgress}
             aria-label={segMenuOpen ? "Fechar lista de segmentos" : "Abrir lista de segmentos"}
             tabIndex={-1}
           >
@@ -1662,64 +2362,57 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           )}
         </div>
 
-        <div
-          className="be-required-location"
-          aria-label="Localização obrigatória da busca"
-          title="Escolha UF e cidade"
+        <button
+          type="button"
+          ref={citiesTriggerRef}
+          className={"be-required-location be-geo-trigger" + (geoTargets.length > 0 ? " be-geo-trigger--ready" : "")}
+          onClick={() => {
+            setCitiesQuery("");
+            setCitiesLimitMsg(null);
+            setCitiesModalOpen(true);
+          }}
+          disabled={searchInProgress}
+          aria-haspopup="dialog"
+          aria-label={`Território da busca: ${geoSummary}`}
+          title="Escolher o território da busca"
         >
-          <select
-            id="cb-uf-inline"
-            value={uf}
-            onChange={e => {
-              markFiltersDirty();
-              setCities([]);
-              setAlcance("");
-              setUf(e.target.value);
-            }}
-            aria-label="Estado"
-            aria-required="true"
-          >
-            <option value="">UF</option>
-            {ufOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <button
-            type="button"
-            id="cb-city-inline"
-            className="be-cities-trigger"
-            disabled={!uf.trim()}
-            onClick={() => { setCitiesQuery(""); setCitiesModalOpen(true); }}
-            aria-haspopup="dialog"
-            aria-label="Cidades da busca (selecione uma ou várias)"
-            title={!uf.trim() ? "Escolha o estado primeiro" : "Selecione uma ou várias cidades"}
-          >
-            <span className="be-cities-trigger__label">
-              {cities.length === 0 ? "Cidade" : cities.length === 1 ? cities[0] : `${cities.length} cidades`}
-            </span>
+          <span className="be-geo-trigger__icon"><I d={geoModeInfo.icon} size={17} /></span>
+          <span className="be-geo-trigger__copy">
+            <small>{geoModeInfo.eyebrow}</small>
+            <strong>{geoSummary}</strong>
+          </span>
+          <span className="be-geo-trigger__limit">
+            {geoTargets.length}/{targetLimit}
+          </span>
+          <span className="be-geo-trigger__chevron">
             <I d={ICONS.chevronDown} size={15} />
-          </button>
-        </div>
+          </span>
+        </button>
 
         <button
           type="button"
           className="btn-ghost btn-xs be-cmdbar__advanced be-cmdbar__clear"
-          onClick={() => { setAdvDraft(FILTRO_AVANCADO_VAZIO); limparFiltros(); }}
-          disabled={!segment.trim() && !uf.trim() && cities.length === 0 && !alcance && siteFiltro === "qualquer" && zapFiltro === "qualquer"}
-          title="Limpar segmento, estado, cidades e filtros"
+          onClick={limparFiltros}
+          disabled={!hasAnyFilter || searchInProgress}
+          title="Limpar toda a busca"
         >
           <I d={ICONS.x} size={13} /> Limpar
         </button>
 
-        {runActive ? (
-          <button className="btn-ghost be-cmdbar__go" onClick={pararBusca}>◼ Parar</button>
+        {searchInProgress ? (
+          <button className="btn-ghost be-cmdbar__go" onClick={pararBusca}>
+            <span aria-hidden>◼</span>
+            {searchQueue ? `Parar ${searchQueue.current}/${searchQueue.total}` : "Parar"}
+          </button>
         ) : (
           <button
             className="btn-teal be-cmdbar__go"
             data-tut="leads-buscar"
             onClick={() => executarBusca()}
-            disabled={runBusy || !canSearch}
-            title={!canSearch ? "Selecione segmento, estado e cidade" : undefined}
+            disabled={!canSearch}
+            title={!canSearch ? "Defina o segmento e um território válido" : undefined}
           >
-            {runBusy ? "Iniciando…" : "Buscar"}
+            Buscar
           </button>
         )}
 
@@ -1728,10 +2421,11 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           className="btn-ghost btn-xs be-cmdbar__advanced"
           data-tut="leads-filtro-avancado"
           onClick={() => setAdvOpen(true)}
-          title="Alcance, site, WhatsApp, dados da Receita e pesquisas salvas"
+          disabled={searchInProgress}
+          title="Canais, reputação e pesquisas salvas"
         >
           <I d={ICONS.filter} size={13} /> Avançado
-          {optionalCount > 0 && <span className="be-cmdbar__advanced-count">{optionalCount}</span>}
+          {advancedCount > 0 && <span className="be-cmdbar__advanced-count">{advancedCount}</span>}
         </button>
       </div>
     );
@@ -1747,7 +2441,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           </div>
           <div style={{ minWidth: 0 }}>
             <div className="radar-mini-bar__title">Radar HBX</div>
-            <div className="radar-mini-bar__sub">{[localLabel, uf].filter(Boolean).join(" · ") || "Todo o Brasil"}{segment ? ` · ${segment}` : ""}</div>
+            <div className="radar-mini-bar__sub">{localLabel || "Território não definido"}{segment ? ` · ${segment}` : ""}</div>
           </div>
           <button className="btn-ghost btn-xs radar-mini-bar__back" onClick={() => setSelLead(null)} style={{ marginLeft: "auto" }}>
             ← Voltar
@@ -1760,18 +2454,18 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     // O histórico continua na área de resultados; o Radar não repete a narrativa.
     const activeSummary = [
       segment.trim(),
-      [localLabel, uf].filter(Boolean).join(" · "),
-      alcance ? `+ ${alcance} km` : "",
-      siteFiltro === "com" ? "Com site" : siteFiltro === "sem" ? "Sem site" : "",
-      zapFiltro === "com" ? "Com WhatsApp" : "",
+      localLabel,
+      ...activeChips().map(chip => chip.label),
     ].filter(Boolean);
-    const radarTitle = runActive
+    const radarTitle = searchInProgress
       ? "Buscando empresas"
       : hasSearched
         ? (items.length > 0 ? "Busca concluída" : "Nenhuma empresa encontrada")
         : "Radar pronto";
-    const radarStatus = runActive
-      ? `Mapeando ${localLabel || "sua região"}${runProgress != null ? ` · ${runProgress}%` : "…"}`
+    const radarStatus = searchInProgress
+      ? searchQueue
+        ? `${searchQueue.current} de ${searchQueue.total} · ${searchQueue.label}${runProgress != null ? ` · ${runProgress}%` : ""}`
+        : `Preparando ${localLabel || "sua região"}…`
       : hasSearched
         ? (items.length > 0
           ? `${fmtInt(items.length)} empresa${items.length === 1 ? " encontrada" : "s encontradas"}`
@@ -1799,7 +2493,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           </div>
         )}
 
-        {!runActive && hasSearched && items.length === 0 && searchMsg && (
+        {!searchInProgress && hasSearched && items.length === 0 && searchMsg && (
           <p className="radar-viewer__feedback">{searchMsg}</p>
         )}
       </div>
@@ -2083,9 +2777,14 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
               {/* Progresso REAL de uma busca em andamento (não é o radar decorativo
                   narrando estado — é feedback de uma operação assíncrona de verdade).
                   O texto de IDLE "Em pausa — volta sozinho" saiu daqui (item 2). */}
-              {runActive && (
+              {searchInProgress && (
                 <div className="radar2-live radar2-live--funcionando">
-                  <span className="dot" /> Varrendo {localLabel || "…"} · {fmtInt(runVisibleCount)} achados{runProgress != null ? ` · ${runProgress}%` : ""}
+                  <span className="dot" />
+                  {searchQueue
+                    ? `Fila ${searchQueue.current}/${searchQueue.total} · ${searchQueue.label}`
+                    : `Preparando ${localLabel || "território"}`}
+                  {" · "}{fmtInt(runVisibleCount)} achados{runProgress != null ? ` · ${runProgress}%` : ""}
+                  {" · mantenha esta tela aberta"}
                 </div>
               )}
 
@@ -2226,18 +2925,15 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         )}
       </aside>
 
-      {/* Gaveta "Filtro" (LEADS-FINAL/03, 06/07): Onde buscar (Estado/Cidade/
-          Alcance/site/WhatsApp — quickSlot) + todas as colunas reais do RFB
-          (CONTRATO-FILTRO.md), prévia ao vivo contra a base 28M. */}
+      {/* Gaveta normalizada: somente filtros que participam da consulta real. */}
       {advOpen && (
         <FiltroAvancadoModal
-          draft={advDraft}
-          onChange={setAdvDraft}
+          activeCount={advancedCount}
+          onClear={clearAdvancedFilters}
           onClose={() => setAdvOpen(false)}
-          onApply={aplicarFiltroAvancado}
-          quickSlot={renderQuickFilters()}
-          extraQueryInput={advExtraQueryInput}
-        />
+        >
+          {renderAdvancedFilters()}
+        </FiltroAvancadoModal>
       )}
 
       {/* P4: Modal de campo faltando — usa .hbx-veil + .hbx-modal (centralizados pela classe) */}
@@ -2256,90 +2952,301 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         </div>
       )}
 
-      {/* MULTI-CIDADE (23/07): painel central seletivo. Pop-up centralizado pela
-          classe (.hbx-veil/.hbx-modal) — Lei nº2. Lista as cidades do UF escolhido;
-          o usuário marca quantas quiser e a busca roda o segmento em cada uma. */}
+      {/* Território inteligente: a UI nunca autoriza mais de cinco cidades e
+          deixa explícito quando haverá fila de execuções. */}
       {citiesModalOpen && (() => {
-        const q = citiesQuery.trim().toLowerCase();
-        const filtered = q ? cityOptions.filter(o => o.label.toLowerCase().includes(q)) : cityOptions;
-        const filteredLabels = filtered.map(o => o.label);
-        const allFilteredOn = filteredLabels.length > 0 && filteredLabels.every(l => cities.includes(l));
+        const q = normCity(citiesQuery);
+        const filtered = q ? cityOptions.filter(option => normCity(option.label).includes(q)) : cityOptions;
+        const selectedOptions = cities.map(label => ({ value: label, label }));
+        const visibleOptions = q
+          ? filtered.slice(0, 80)
+          : mergeFilterOptions(selectedOptions, filtered.slice(0, 24));
+        const selectionLimit = geoMode === "radius" || geoMode === "nearby" ? 1 : MAX_CITY_TARGETS;
+        const showCityPicker = geoMode !== "nearby" && (geoMode !== "ddd" || dddOptions.length > 0);
+        const territoryReady = geoTargets.length > 0
+          && (geoMode !== "ddd" || VALID_DDDS.has(ddd))
+          && (!(geoMode === "radius" || geoMode === "nearby") || Number(alcance) > 0)
+          && (geoMode !== "nearby" || Boolean(geo));
         return (
-          <div className="hbx-veil" onClick={() => setCitiesModalOpen(false)}>
-            <div className="hbx-modal be-cities-modal" style={{ width: "min(560px, 94vw)" }} onClick={e => e.stopPropagation()}>
+          <div className="hbx-veil" onClick={closeCitiesModal}>
+            <div
+              ref={citiesModalRef}
+              className="hbx-modal be-cities-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="be-geo-title"
+              onClick={e => e.stopPropagation()}
+            >
               <div className="be-cities">
                 <div className="be-cities__head">
-                  <h3>Cidades{uf ? ` — ${uf}` : ""}</h3>
-                  <button type="button" className="be-cities__x" aria-label="Fechar" onClick={() => setCitiesModalOpen(false)}>
+                  <div>
+                    <span className="be-cities__eyebrow">Radar HBX</span>
+                    <h3 id="be-geo-title">Território da busca</h3>
+                    <p>Escolha o formato. O limite operacional aparece antes de executar.</p>
+                  </div>
+                  <button type="button" className="be-cities__x" aria-label="Fechar" onClick={closeCitiesModal}>
                     <I d={ICONS.x} size={16} />
                   </button>
                 </div>
-                <p className="be-cities__hint">Selecione quantas quiser — a busca roda o segmento em cada cidade marcada.</p>
-                <div className="be-cities__search">
-                  <I d={ICONS.search} size={15} />
-                  <input
-                    value={citiesQuery}
-                    onChange={e => setCitiesQuery(e.target.value)}
-                    placeholder="Filtrar cidade…"
-                    aria-label="Filtrar cidade"
-                    autoFocus
-                  />
-                </div>
-                <div className="be-cities__toolbar">
-                  <span className="be-cities__selcount">{cities.length} selecionada(s)</span>
-                  <div className="be-cities__toolbar-actions">
+
+                <div className="glass-pill-track be-geo-modes" role="group" aria-label="Formato do território">
+                  <GlassPill {...geoModePill} />
+                  {GEO_MODE_META.map(mode => (
                     <button
+                      key={mode.key}
                       type="button"
-                      className="btn-ghost btn-xs"
-                      disabled={filteredLabels.length === 0}
-                      onClick={() => {
-                        markFiltersDirty();
-                        if (allFilteredOn) setCities(prev => prev.filter(c => !filteredLabels.includes(c)));
-                        else setCities(prev => Array.from(new Set([...prev, ...filteredLabels])));
-                      }}
+                      ref={geoModePill.itemRef(mode.key)}
+                      aria-pressed={geoMode === mode.key}
+                      className={"glass-pill-item be-geo-mode" + (geoMode === mode.key ? " active" : "")}
+                      onClick={() => selectGeoMode(mode.key)}
                     >
-                      {allFilteredOn ? "Desmarcar" : "Selecionar"} {q ? "filtradas" : "todas"}
+                      <I d={mode.icon} size={16} />
+                      <span>
+                        <strong>{mode.label}</strong>
+                        <small>{mode.eyebrow}</small>
+                      </span>
                     </button>
+                  ))}
+                </div>
+
+                <div className="be-geo-mode-note">
+                  <span className="be-geo-mode-note__icon"><I d={geoModeInfo.icon} size={17} /></span>
+                  <span>
+                    <strong>{geoModeInfo.eyebrow}</strong>
+                    <small>{geoModeInfo.description}</small>
+                  </span>
+                </div>
+
+                {geoMode === "ddd" ? (
+                  <div className="be-geo-ddd">
+                    <div className="be-geo-ddd__field">
+                      <label htmlFor="be-ddd-input">DDD brasileiro</label>
+                      <div className="be-geo-ddd__control">
+                        <span className="be-geo-ddd__prefix">(</span>
+                        <input
+                          id="be-ddd-input"
+                          data-geo-autofocus
+                          value={ddd}
+                          inputMode="numeric"
+                          maxLength={2}
+                          disabled={dddBusy}
+                          placeholder="11"
+                          onChange={event => {
+                            markFiltersDirty();
+                            setDdd(event.target.value.replace(/\D/g, "").slice(0, 2));
+                            setDddOptions([]);
+                            setCities([]);
+                            setUf("");
+                            setDddError(null);
+                          }}
+                          onKeyDown={event => {
+                            if (event.key === "Enter" && !dddBusy) void consultarDdd();
+                          }}
+                          autoFocus
+                        />
+                        <span className="be-geo-ddd__suffix">)</span>
+                        <button
+                          type="button"
+                          className="btn-teal"
+                          onClick={() => void consultarDdd()}
+                          disabled={dddBusy || ddd.length !== 2}
+                        >
+                          {dddBusy ? "Consultando…" : "Consultar DDD"}
+                        </button>
+                      </div>
+                    </div>
+                    {dddError && <p className="be-geo-error" role="alert">{dddError}</p>}
+                    {dddOptions.length > 0 && (
+                      <p className="be-geo-ddd__result">
+                        <strong>DDD {ddd}</strong> · {uf} · {dddOptions.length} cidades encontradas
+                      </p>
+                    )}
+                  </div>
+                ) : geoMode === "nearby" ? (
+                  <div className={"be-geo-nearby" + (geoTargets.length > 0 ? " be-geo-nearby--ready" : "")}>
+                    <span className="be-geo-nearby__pulse"><I d={ICONS.mapin} size={21} /></span>
+                    <span className="be-geo-nearby__copy">
+                      <strong>{geoTargets.length > 0 ? `${geoTargets[0].city}/${geoTargets[0].state}` : "Use sua localização atual"}</strong>
+                      <small>
+                        {geo
+                          ? "Transformamos sua posição em uma cidade-base para o Radar."
+                          : "Ative a localização no topo do HBX para liberar este modo."}
+                      </small>
+                    </span>
                     <button
                       type="button"
-                      className="btn-ghost btn-xs"
-                      disabled={cities.length === 0}
-                      onClick={() => { markFiltersDirty(); setCities([]); }}
+                      className="btn-ghost"
+                      data-geo-autofocus
+                      onClick={() => void pullGeoLocation()}
+                      disabled={!geo || geoBusy}
                     >
-                      Limpar seleção
+                      {geoBusy ? "Localizando…" : geoTargets.length > 0 ? "Atualizar" : "Usar localização"}
                     </button>
                   </div>
-                </div>
-                <div className="be-cities__list" role="listbox" aria-multiselectable="true">
-                  {cityOptions.length === 0 ? (
-                    <div className="be-cities__empty">Escolha um estado para ver as cidades.</div>
-                  ) : filtered.length === 0 ? (
-                    <div className="be-cities__empty">Nenhuma cidade encontrada.</div>
-                  ) : (
-                    filtered.map(o => {
-                      const on = cities.includes(o.label);
-                      return (
+                ) : (
+                  <div className="be-geo-fields">
+                    <label className="f" htmlFor="be-geo-uf">
+                      <span>Estado</span>
+                      <select
+                        id="be-geo-uf"
+                        className="select-dark"
+                        value={uf}
+                        onChange={event => {
+                          markFiltersDirty();
+                          setUf(event.target.value);
+                          setCities([]);
+                          setCitiesQuery("");
+                          setCitiesLimitMsg(null);
+                        }}
+                      >
+                        <option value="">Escolha a UF</option>
+                        {ufOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                      </select>
+                    </label>
+                    <label className="f" htmlFor="be-geo-city-search">
+                      <span>Buscar cidade</span>
+                      <div className="be-cities__search">
+                        <I d={ICONS.search} size={15} />
+                        <input
+                          id="be-geo-city-search"
+                          data-geo-autofocus
+                          value={citiesQuery}
+                          onChange={event => setCitiesQuery(event.target.value)}
+                          placeholder={uf ? "Digite o nome da cidade" : "Escolha a UF primeiro"}
+                          disabled={!uf}
+                          autoFocus
+                        />
+                      </div>
+                    </label>
+                  </div>
+                )}
+
+                {showCityPicker && (
+                  <div className="be-geo-picker">
+                    {geoMode === "ddd" && (
+                      <div className="be-cities__search">
+                        <I d={ICONS.search} size={15} />
+                        <input
+                          value={citiesQuery}
+                          onChange={event => setCitiesQuery(event.target.value)}
+                          placeholder="Buscar dentro deste DDD"
+                          aria-label="Buscar cidade dentro do DDD"
+                        />
+                      </div>
+                    )}
+                    <div className="be-cities__toolbar">
+                      <span className="be-cities__selcount">
+                        {cities.length}/{selectionLimit} selecionada{cities.length === 1 ? "" : "s"}
+                      </span>
+                      <span className="be-cities__visible-count">
+                        {q
+                          ? filtered.length > 80
+                            ? `Mostrando 80 de ${filtered.length} resultados`
+                            : `${visibleOptions.length} resultado${visibleOptions.length === 1 ? "" : "s"}`
+                          : cityOptions.length > 24
+                            ? `Mostrando ${visibleOptions.length} de ${cityOptions.length}`
+                            : `${cityOptions.length} cidades`}
+                      </span>
+                    </div>
+                    <div className="be-cities__list" role="group" aria-label="Cidades disponíveis">
+                      {cityOptions.length === 0 ? (
+                        <div className="be-cities__empty">
+                          {geoMode === "ddd" ? "Consulte um DDD para ver as cidades." : "Escolha um estado para ver as cidades."}
+                        </div>
+                      ) : filtered.length === 0 ? (
+                        <div className="be-cities__empty">Nenhuma cidade encontrada.</div>
+                      ) : (
+                        visibleOptions.map(option => {
+                          const on = cities.includes(option.label);
+                          const disabled = !on && cities.length >= selectionLimit;
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              aria-pressed={on}
+                              disabled={disabled}
+                              className={"be-cities__opt" + (on ? " is-on" : "")}
+                              onClick={() => toggleCity(option.label)}
+                            >
+                              <span className="be-cities__check" aria-hidden="true">{on && <I d={ICONS.check} size={13} />}</span>
+                              <span className="be-cities__opt-label">{option.label}</span>
+                              {on && <span className="be-cities__opt-state">{uf}</span>}
+                            </button>
+                          );
+                        })
+                      )}
+                    </div>
+                    {!q && cityOptions.length > 24 && (
+                      <p className="be-cities__search-tip">Digite acima para buscar entre todas as {cityOptions.length} cidades.</p>
+                    )}
+                    {citiesLimitMsg && <p className="be-geo-limit-message" aria-live="polite">{citiesLimitMsg}</p>}
+                  </div>
+                )}
+
+                {(geoMode === "radius" || geoMode === "nearby") && (
+                  <div className="be-geo-radius">
+                    <div className="be-geo-radius__head">
+                      <span>
+                        <strong>Raio da região</strong>
+                        <small>Uma única execução, a partir da cidade-base.</small>
+                      </span>
+                      <strong>{alcance || "—"} km</strong>
+                    </div>
+                    <div className="be-geo-radius__options" role="group" aria-label="Raio da região">
+                      {[25, 50, 100, 250].map(radius => (
                         <button
-                          key={o.value}
+                          key={radius}
                           type="button"
-                          role="option"
-                          aria-selected={on}
-                          className={"be-cities__opt" + (on ? " is-on" : "")}
-                          onClick={() => toggleCity(o.label)}
+                          className={alcance === String(radius) ? "active" : ""}
+                          onClick={() => { markFiltersDirty(); setAlcance(String(radius)); }}
+                          aria-pressed={alcance === String(radius)}
                         >
-                          <span className="be-cities__check" aria-hidden="true">{on && <I d={ICONS.check} size={13} />}</span>
-                          <span className="be-cities__opt-label">{o.label}</span>
+                          {radius} km
                         </button>
-                      );
-                    })
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className={"be-geo-plan" + (territoryReady ? " be-geo-plan--ready" : "")}>
+                  <div className="be-geo-plan__head">
+                    <span>
+                      <small>Plano do Radar</small>
+                      <strong>
+                        {geoMode === "cities" || geoMode === "ddd"
+                          ? `${geoTargets.length} cidade${geoTargets.length === 1 ? "" : "s"} = ${geoTargets.length} execução${geoTargets.length === 1 ? "" : "ões"} em fila`
+                          : "1 execução regional"}
+                      </strong>
+                    </span>
+                    <span className="be-geo-plan__safety"><I d={ICONS.check} size={12} /> uma por vez nesta tela</span>
+                  </div>
+                  <div className="be-geo-plan__targets">
+                    {geoTargets.length === 0 ? (
+                      <span className="be-geo-plan__empty">Nenhum alvo definido.</span>
+                    ) : geoTargets.map((target, index) => (
+                      <span key={`${target.state}-${target.city}`} className="be-geo-target">
+                        <b>{index + 1}</b>
+                        {target.city}/{target.state}
+                        {geoMode !== "nearby" && (
+                          <button type="button" onClick={() => toggleCity(target.city)} aria-label={`Remover ${target.city}`}>
+                            <I d={ICONS.x} size={10} />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                  {geoTargets.length > 1 && (
+                    <p className="be-geo-plan__note">Mantenha esta tela aberta até a fila concluir todos os alvos.</p>
                   )}
                 </div>
+
                 <div className="be-cities__foot">
+                  <span className="be-cities__autosave">A seleção é aplicada na hora.</span>
                   <button type="button" className="btn-ghost" onClick={() => { markFiltersDirty(); setCities([]); }} disabled={cities.length === 0}>
-                    Limpar
+                    Limpar alvos
                   </button>
-                  <button type="button" className="btn-teal" onClick={() => setCitiesModalOpen(false)}>
-                    Pronto{cities.length ? ` (${cities.length})` : ""}
+                  <button type="button" className="btn-teal" onClick={closeCitiesModal} disabled={!territoryReady}>
+                    Concluir
                   </button>
                 </div>
               </div>
@@ -2354,7 +3261,20 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           <div className="hbx-modal" style={{ width: "min(420px, 92vw)" }} onClick={e => e.stopPropagation()}>
             <div className="radar-save-modal">
               <h3>Salvar pesquisa</h3>
-              <p className="radar-save-modal__desc">{describeFiltro(buildFiltroSnapshot({ uf, city, segment, alcance, quantos }))}</p>
+              <p className="radar-save-modal__desc">
+                {describeFiltro(buildFiltroSnapshot({
+                  uf,
+                  city,
+                  segment,
+                  alcance,
+                  geoMode,
+                  ddd,
+                  minRating,
+                  minReviews,
+                  requiredChannels,
+                  channelMatchMode,
+                }))}
+              </p>
               <div className="f">
                 <label htmlFor="save-name">Nome da pesquisa</label>
                 <input

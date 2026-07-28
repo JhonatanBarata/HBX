@@ -95,6 +95,17 @@ const OVERRIDE_LOCKED_ACTIONS = new Set<CreditActionKey>([
   CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY,
 ]);
 
+/**
+ * Motivo do cadeado em UMA frase só. O painel mostra a MESMA frase ANTES de
+ * editar; o master não precisa tentar salvar pra descobrir que não pode.
+ */
+export const CREDIT_ACTION_LOCK_REASON =
+  'A entrega avulsa é absorvida pela cobrança da rota e não aceita débito próprio. O preço editável é o da Logística Simples (por parada) ou o da Logística Rastreada.';
+
+export function getCreditActionLockReason(actionKey: unknown): string | null {
+  return isCreditActionOverrideLocked(actionKey) ? CREDIT_ACTION_LOCK_REASON : null;
+}
+
 export function normalizeCreditActionKey(value: unknown): CreditActionKey | null {
   const normalized = String(value || '').trim().toLowerCase();
   return ACTION_KEYS.includes(normalized as CreditActionKey) ? (normalized as CreditActionKey) : null;

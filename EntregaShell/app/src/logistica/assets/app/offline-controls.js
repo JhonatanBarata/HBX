@@ -21,12 +21,7 @@
     current.pendingOperations = Number(current.pendingOperations || 0);
     current.pendingProofs = Number(current.pendingProofs || 0);
     current.rejected = Number(current.rejected || 0);
-    current.trafficBytes = Number(current.trafficBytes || 0);
     return current;
-  }
-
-  function megabytes(bytes) {
-    return `${(Math.max(0, Number(bytes || 0)) / 1048576).toFixed(bytes >= 10485760 ? 0 : 1)} MB`;
   }
 
   function bannerModel(s) {
@@ -83,56 +78,11 @@
     banner.innerHTML = `<i class="hbx-offline-dot" aria-hidden="true"></i><span><strong>${H.escape(model.title)}</strong><small>${H.escape(model.text)}</small></span><b class="hbx-offline-count">${H.escape(model.count)}</b>`;
   }
 
-  function settingsVisible() {
-    return !!document.querySelector('.nav-btn.active[data-destination="logistica:settings"]');
-  }
-
-  function ensureSettings(s) {
-    const content = document.querySelector("main.content");
-    if (!content || !settingsVisible()) return;
-    let card = content.querySelector(":scope > .hbx-offline-settings");
-    if (!card) {
-      card = document.createElement("section");
-      card.className = "hbx-offline-settings";
-      const banner = content.querySelector(":scope > .hbx-offline-banner");
-      if (banner) banner.insertAdjacentElement("afterend", card); else content.prepend(card);
-    }
-    card.innerHTML = `
-      <h3>Rota sem sinal</h3>
-      <p>Prepare a rota antes de ficar sem internet.</p>
-      <label class="hbx-offline-option">
-        <input id="hbx-proof-wifi" type="checkbox" ${s.wifiOnly ? "checked" : ""}>
-        <span><strong>Fotos apenas no Wi-Fi</strong></span>
-      </label>
-      <label class="hbx-offline-option">
-        <input id="hbx-proof-retain" type="checkbox" ${s.retainAfterUpload ? "checked" : ""}>
-        <span><strong>Guardar comprovantes enviados</strong></span>
-      </label>
-      <div class="hbx-offline-actions">
-        <button type="button" class="btn btn-secondary" id="hbx-offline-sync">Sincronizar agora</button>
-        <span class="hbx-offline-metric">Dados desta rota: ${megabytes(s.trafficBytes)}</span>
-      </div>`;
-
-    const save = () => {
-      const next = H.offline.setPreferences(
-        !!card.querySelector("#hbx-proof-wifi")?.checked,
-        !!card.querySelector("#hbx-proof-retain")?.checked,
-      );
-      lastSignature = "";
-      renderOffline(next);
-    };
-    card.querySelector("#hbx-proof-wifi")?.addEventListener("change", save);
-    card.querySelector("#hbx-proof-retain")?.addEventListener("change", save);
-    card.querySelector("#hbx-offline-sync")?.addEventListener("click", () => {
-      H.offline.flush();
-      const button = card.querySelector("#hbx-offline-sync");
-      if (button) {
-        button.disabled = true;
-        button.textContent = "Sincronizando…";
-        setTimeout(() => { lastSignature = ""; refresh(); }, 1200);
-      }
-    });
-  }
+  // 28/07 (dono) — o cartão de ajustes que este arquivo injetava ACIMA do título
+  // "Ajustes" ("Rota sem sinal" + frase + checkbox cru + "Dados desta rota")
+  // MORREU aqui: virou seção normal da tela, renderizada pelo app.js
+  // (`offlineSettingsSection`, seção "Cadastrar Rota Offline"). Este arquivo
+  // cuida só do banner de estado e do esquema de rota sem mapa.
 
   function ensureOfflineSchematic() {
     const host = document.getElementById("route-live-map");
@@ -183,15 +133,11 @@
       pendingProofs: s.pendingProofs,
       rejected: s.rejected,
       wifiOnly: s.wifiOnly,
-      retainAfterUpload: s.retainAfterUpload,
-      traffic: Math.floor(s.trafficBytes / 262144),
       online: navigator.onLine,
-      settings: settingsVisible(),
     });
-    if (signature === lastSignature && document.querySelector(".hbx-offline-banner, .hbx-offline-settings")) return;
+    if (signature === lastSignature && document.querySelector(".hbx-offline-banner")) return;
     lastSignature = signature;
     ensureBanner(s);
-    ensureSettings(s);
   }
 
   function refresh() {
@@ -200,7 +146,7 @@
 
   function managedMutationTarget(target) {
     const element = target && target.nodeType === Node.ELEMENT_NODE ? target : target && target.parentElement;
-    return !!(element && element.closest && element.closest(".hbx-offline-banner,.hbx-offline-settings,.hbx-route-schematic"));
+    return !!(element && element.closest && element.closest(".hbx-offline-banner,.hbx-route-schematic"));
   }
 
   const observer = new MutationObserver(mutations => {
