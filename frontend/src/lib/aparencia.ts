@@ -25,7 +25,7 @@
 // ============================================================
 
 export type CascaKey = "premium" | "corporativa" | "backup";
-export type TemaKey = "login" | "aurora" | "ember" | "rose" | "hbx-cyber" | "corporativa";
+export type TemaKey = "login" | "aurora" | "ember" | "rose" | "hbx-cyber" | "corporativa" | "premium";
 export type Modo = "light" | "dark";
 
 // Chaves de armazenamento — uma por eixo (era `hbx:pele`, combinado).
@@ -37,8 +37,13 @@ export const LEGACY_PELE_STORAGE = "hbx:pele";
 
 export type TemaDef = { key: TemaKey; label: string };
 
-/** Os 5 temas de cor da Premium. Cada um é um theme-<key>.css já existente. */
-export const TEMAS_PREMIUM: readonly TemaDef[] = [
+/**
+ * Os 5 temas de cor CLÁSSICOS. Eram os temas da Premium até 28/07; agora
+ * pertencem só à casca Backup. A Premium passou a ter paleta PRÓPRIA e fixa
+ * (theme-premium.css, a da referência "Central do Lead"), por ordem do dono:
+ * "não aproveite cores de tema nesse".
+ */
+export const TEMAS_CLASSICOS: readonly TemaDef[] = [
   { key: "login", label: "Login" },
   { key: "aurora", label: "Aurora" },
   { key: "ember", label: "Ember" },
@@ -62,11 +67,14 @@ export const CASCAS: readonly CascaDef[] = [
   {
     key: "premium",
     label: "Premium",
-    hint: "Superfície, profundidade e cor — 5 temas, claro e escuro",
+    hint: "O desenho da Central do Lead — paleta própria, clara",
     attr: "premium",
-    temas: TEMAS_PREMIUM,
-    modos: ["light", "dark"],
-    temaPadrao: "login",
+    // Paleta ÚNICA e fixa (theme-premium.css). Não oferece escolha de cor:
+    // a referência é azul + verde-dinheiro, e trocar isso desmancharia o
+    // desenho. Um tema só ⇒ escolheTema()/escolheModo() somem do menu.
+    temas: [{ key: "premium", label: "Premium" }],
+    modos: ["light"],
+    temaPadrao: "premium",
     modoPadrao: "light",
   },
   {
@@ -86,7 +94,8 @@ export const CASCAS: readonly CascaDef[] = [
     label: "Backup",
     hint: "A casca anterior, congelada — rede de segurança",
     attr: "modern",
-    temas: TEMAS_PREMIUM,
+    // Os 5 temas clássicos moram AQUI agora: era a casca que os usava.
+    temas: TEMAS_CLASSICOS,
     modos: ["light", "dark"],
     temaPadrao: "login",
     modoPadrao: "light",
@@ -115,15 +124,19 @@ export function resolveModo(casca: CascaDef, modo: string | null | undefined): M
 }
 
 /**
- * Migração do formato antigo: `hbx:pele = "aurora-mod"` → casca Premium
- * + tema `aurora`. Cai na PREMIUM (não no backup) de propósito: hoje as duas
- * são visualmente idênticas, então ninguém vê mudança nenhuma, e o Backup
- * fica disponível como escolha em vez de ser o destino de todo mundo.
+ * Migração do formato antigo: `hbx:pele = "aurora-mod"` → casca Premium,
+ * guardando `aurora` como tema.
+ *
+ * A cor guardada NÃO some, mas também não pinta a Premium: a Premium tem
+ * paleta própria e fixa, então resolveTema() a devolve como "premium". A cor
+ * antiga fica esperando — se a pessoa escolher a casca Backup, acha o Aurora
+ * dela do jeito que deixou. É a mesma regra de memória das outras cascas:
+ * só se grava o que o usuário ESCOLHE; o aplicado é resolvido na hora.
  */
 export function temaDoLegado(pele: string | null | undefined): TemaKey | null {
   if (!pele) return null;
   const base = String(pele).replace(/-mod$/, "");
-  return TEMAS_PREMIUM.some(t => t.key === base) ? (base as TemaKey) : null;
+  return TEMAS_CLASSICOS.some(t => t.key === base) ? (base as TemaKey) : null;
 }
 
 /**

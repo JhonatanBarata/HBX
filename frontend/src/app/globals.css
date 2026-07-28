@@ -102,6 +102,11 @@
    bloco [data-theme-mode="dark"] de lá, então a ordem da cascata garante que
    preferência escura antiga fique ignorada na Corporativa. */
 @import "./hbx-theme/theme-corporativa.css";
+/* Paleta da casca PREMIUM — a de "Central do Lead — desenho aplicável",
+   literal hex a hex. Ordem do dono 28/07: a Premium não herda cor de tema
+   nenhum; tem a dela, fixa e clara. Os 5 temas clássicos acima passaram a
+   pertencer só à casca Backup. */
+@import "./hbx-theme/theme-premium.css";
 
 /* ============================================================
    AS 3 CASCAS (dono 28/07). NÃO são peles: vestem a MESMA estrutura

@@ -1,0 +1,165 @@
+/* ============================================================
+   HBX — TEMA PREMIUM (a paleta da referência, dono 28/07/2026)
+
+   Ordem do dono: "B = não aproveite cores de tema nesse". A casca Premium
+   NÃO herda mais a cor de Login/Aurora/Ember/Rosé/HBX — ela tem a própria
+   paleta, fixa, que é a de "Central do Lead — desenho aplicável". Os 5
+   temas antigos continuam existindo para a casca Backup; aqui não entram.
+
+   Os valores abaixo são LITERAIS da referência, conferidos hex a hex — é
+   por isso que este arquivo é theme-*.css e não casca-*.css: o fiscal
+   check-pele só permite cor literal em pele (é o contrato de tokens).
+
+   Duas camadas:
+     1) os tokens do CONTRATO (--hbx-*), pra todas as telas do app
+        vestirem a paleta sem saber que ela existe;
+     2) os tokens NOMEADOS da referência (--pr-*), que a casca e o
+        Detalhes do Vendas consomem direto onde o desenho é específico
+        (topo escuro, verde de dinheiro, âmbar do robô, fio duplo).
+   ============================================================ */
+
+[data-theme="premium"] {
+  /* ---- 1. CONTRATO — o app inteiro veste por aqui ------------------- */
+
+  /* Marca: o azul da referência (#2e6bff) e sua tinta escura. */
+  --hbx-brand: #2E6BFF;
+  --hbx-brand-strong: #1D4ED8;
+  --hbx-brand-soft: #EAF0FF;
+  --hbx-brand-contrast: #FFFFFF;
+
+  --hbx-primary: #2E6BFF;
+  --hbx-secondary: #5A6785;
+  --hbx-accent: #175BFF;
+  /* Verde de DINHEIRO — na referência é reservado a valor e a "Fechar
+     venda". Não é decoração: é a cor que significa receita. */
+  --hbx-success: #0FA968;
+
+  --hbx-info: #2E6BFF;
+  --hbx-warning: #E8960C;
+  --hbx-danger: #D64545;
+  --hbx-danger-soft: #FDEBEB;
+
+  /* ---- Superfícies: papel frio, cartão branco ---------------------- */
+  --hbx-background: #EEF1F8;        /* --paper */
+  --hbx-background-alt: #E6EBF5;
+  --hbx-surface: #FFFFFF;           /* --card  */
+  --hbx-surface-soft: #FBFCFF;
+  --hbx-surface-raised: #F4F7FF;
+  --hbx-header-surface: #FFFFFF;
+  --hbx-nav-surface: #FFFFFF;
+  --hbx-field-surface: #FBFCFF;
+  --hbx-table-head: #F7F9FE;
+
+  --hbx-hero-from: #FFFFFF;
+  --hbx-hero-to: #F7F9FE;
+  --hbx-hero-spotlight: transparent;
+
+  --hbx-chat-inbound: #FFFFFF;
+  --hbx-chat-outbound: #EAF0FF;
+  --hbx-chat-system: #F7F9FE;
+
+  /* ---- Texto: a escada de 3 tintas da referência -------------------- */
+  --hbx-foreground: #0D1526;        /* --ink   */
+  --hbx-foreground-soft: #5A6785;   /* --ink-2 */
+  --hbx-muted: #8D9AB8;             /* --ink-3 */
+
+  /* ---- Linhas: DUAS espessuras de fio, é assinatura do desenho ------
+     --hair separa peça de peça; --hair-2 separa linha de linha dentro da
+     mesma peça. Trocar uma pela outra achata a hierarquia. */
+  --hbx-line: #E2E8F4;
+  --hbx-shadow: #0D1526;
+  --hbx-overlay: rgba(13, 21, 38, 0.42);
+  --border-hairline: #E2E8F4;       /* --hair   */
+  --border-strong: #CBD5E6;
+  --ring-brand: rgba(46, 107, 255, 0.12);
+
+  --hbx-action-ink: #FFFFFF;
+  --hbx-avatar-from: #3B82F6;
+  --hbx-avatar-to: #1D4ED8;
+
+  /* ---- Profundidade: sombra DUPLA e rasa ---------------------------- */
+  --shadow-xs: 0 1px 2px rgba(13, 21, 38, 0.04);
+  --shadow-sm: 0 1px 2px rgba(13, 21, 38, 0.04), 0 8px 24px rgba(13, 21, 38, 0.04);
+  --shadow-md: 0 1px 2px rgba(13, 21, 38, 0.05), 0 12px 32px rgba(13, 21, 38, 0.06);
+  --shadow-lg: 0 2px 4px rgba(13, 21, 38, 0.06), 0 30px 80px rgba(13, 21, 38, 0.12);
+  --shadow-inset: inset 0 0 0 0 transparent;
+  --panel-glow: transparent;
+  --hero-glow: transparent;
+  --soft-ring: transparent;
+  /* ZERO vidro — a referência não tem um blur sequer. */
+  --blur-chrome: 0px;
+  --blur-glass: 0px;
+
+  /* ---- Movimento: curto, só transform/opacity ----------------------- */
+  --motion-fast: 120ms cubic-bezier(0.2, 0, 0.2, 1);
+  --motion-base: 180ms cubic-bezier(0.2, 0, 0.2, 1);
+  --motion-slow: 260ms cubic-bezier(0.2, 0, 0.2, 1);
+  --ease-out-quint: cubic-bezier(0.2, 0, 0.2, 1);
+  --icon-stroke: 1.9;
+
+  /* Anel de carregamento na paleta da marca. */
+  --casca-ring-1: #9DBCFF;
+  --casca-ring-2: #3D7BFF;
+  --casca-ring-3: #2E6BFF;
+  --casca-ring-4: #1D4ED8;
+  --casca-ring-5: #C7D7FB;
+  --casca-ring-track: rgba(13, 21, 38, 0.08);
+  --casca-ring-glow: rgba(46, 107, 255, 0.18);
+  --casca-mark-1: #0D1526;
+  --casca-mark-2: #5A6785;
+  --casca-mark-3: #2E6BFF;
+
+  --radar-base: #0E1729;
+
+  /* ---- 2. TOKENS NOMEADOS DA REFERÊNCIA ----------------------------
+     Consumidos direto pela casca e pelo Detalhes onde o desenho é
+     específico. Mesmos nomes de papel do arquivo original, prefixados
+     --pr- (premium reference) pra não colidir com o contrato. */
+  --pr-ink: #0D1526;
+  --pr-ink-2: #5A6785;
+  --pr-ink-3: #8D9AB8;
+  --pr-paper: #EEF1F8;
+  --pr-card: #FFFFFF;
+  --pr-hair: #E2E8F4;
+  --pr-hair-2: #EEF2F9;
+
+  --pr-brand: #2E6BFF;
+  --pr-brand-2: #175BFF;
+  --pr-brand-soft: #EAF0FF;
+  --pr-brand-ink: #1D4ED8;
+  --pr-brand-line: #D5E1FA;
+  --pr-brand-line-2: #B9CDFA;
+
+  --pr-money: #0FA968;
+  --pr-money-2: #0B8F57;
+  --pr-money-soft: #E3F8EE;
+
+  --pr-amber: #E8960C;
+  --pr-amber-soft: #FDF3E0;
+  --pr-amber-ink: #9A6205;
+
+  --pr-wa: #1FB05C;
+
+  /* topo escuro de comando */
+  --pr-dark: #0E1729;
+  --pr-dark-2: #16223C;
+  --pr-dark-ink: #F2F5FD;
+  --pr-dark-ink-2: #9DACCB;
+
+  --pr-mono: "Cascadia Code", "JetBrains Mono", ui-monospace, Consolas, monospace;
+  --font-mono: var(--pr-mono);
+}
+
+/* A Premium é CLARA FIXA: o desenho de referência não tem variante escura.
+   Se uma preferência escura antiga estiver salva, ela é ignorada aqui —
+   este bloco importa depois do skeleton e tem a mesma especificidade do
+   [data-theme-mode="dark"] de lá, então vence pela ordem da cascata. */
+[data-theme="premium"][data-theme-mode="dark"] {
+  --hbx-background: #EEF1F8;
+  --hbx-surface: #FFFFFF;
+  --hbx-foreground: #0D1526;
+  --hbx-foreground-soft: #5A6785;
+  --hbx-muted: #8D9AB8;
+  --border-hairline: #E2E8F4;
+  --border-strong: #CBD5E6;
+}

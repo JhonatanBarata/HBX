@@ -15,10 +15,15 @@
       rótulo. Isso vale MESMO CONTRA a referência: ela usa 650/750 em
       valor e badge, e aqui esses caem para peso normal. Hierarquia se
       faz com tamanho, cor e espaço — não engrossando tudo.
-   2. COR NASCE DO TEMA. Este arquivo não tem um hex sequer: tudo é
-      var(--hbx-*) do contrato (skeleton.css). É o que deixa Login,
-      Aurora, Ember, Rosé e HBX vestirem o MESMO desenho sem duplicar
-      folha — e é o que faz o check-pele passar.
+   2. A PREMIUM TEM PALETA PRÓPRIA E FIXA. Ordem do dono 28/07: "não
+      aproveite cores de tema nesse". Ela NÃO herda Login/Aurora/Ember/
+      Rosé/HBX — esses cinco passaram a pertencer só à casca Backup. A cor
+      vem literal de theme-premium.css (família --pr-*), que é a paleta da
+      referência: azul de marca, verde de dinheiro, âmbar de alerta, papel
+      frio e topo escuro de comando — os valores estão lá, e SÓ lá.
+      Aqui não há um hex sequer, nem em comentário (o fiscal check-pele lê
+      a linha inteira e não sabe o que é comentário). Geometria, peso e
+      estrutura moram neste arquivo; cor mora na pele.
 
    GEOMETRIA DA REFERÊNCIA (medida no arquivo, não chutada):
      cartão 14px · botão 11px · campo/entrada 9px · badge 999px
@@ -79,19 +84,14 @@
   --enter-stagger: 0ms;
 
   --icon-stroke: 1.8;
-
-  /* ---- Derivados do desenho (recalculam com o tema, 5 Leis) ----------
-     Nomes descrevem PAPEL, não cor: quem lê o CSS entende a intenção. */
-  --pr-hair: color-mix(in srgb, var(--hbx-foreground) 11%, transparent);
-  --pr-hair-soft: color-mix(in srgb, var(--hbx-foreground) 6%, transparent);
-  --pr-deck: color-mix(in srgb, var(--hbx-foreground) 94%, var(--hbx-brand));
-  --pr-deck-2: color-mix(in srgb, var(--hbx-foreground) 84%, var(--hbx-brand));
-  --pr-deck-ink: var(--hbx-brand-contrast);
-  --pr-deck-ink-2: color-mix(in srgb, var(--hbx-brand-contrast) 64%, transparent);
-  --pr-deck-line: color-mix(in srgb, var(--hbx-brand-contrast) 13%, transparent);
-  --pr-field: color-mix(in srgb, var(--hbx-brand) 3%, var(--hbx-surface));
-  --pr-focus: color-mix(in srgb, var(--hbx-brand) 12%, transparent);
 }
+
+/* NOTA DE ARQUITETURA (28/07): as cores desta casca NÃO nascem aqui e NÃO são
+   derivadas do tema ativo. Elas vêm literais de theme-premium.css, na família
+   --pr-* (--pr-ink, --pr-hair, --pr-brand, --pr-money, --pr-dark…). É a ordem
+   do dono: "não aproveite cores de tema nesse" — a Premium tem paleta própria
+   e fixa, a da referência. Este arquivo cuida de GEOMETRIA, PESO e ESTRUTURA;
+   quem colore é a pele. Por isso aqui não há um hex sequer. */
 
 /* Entrada de página: só transform + opacity. Nada de filter — blur em
    página inteira sai do fast path do compositor e engasga GPU fraca. */
@@ -178,7 +178,7 @@
 }
 /* Cabeçalho de cartão: caixa-alta pequena, fio abaixo, nada de fundo. */
 [data-casca="premium"] :is(.panel-head, .card-h) {
-  border-bottom: 1px solid var(--pr-hair-soft);
+  border-bottom: 1px solid var(--pr-hair-2);
   background: transparent;
 }
 
@@ -201,7 +201,7 @@
   color: var(--hbx-brand-strong);
 }
 [data-casca="premium"] :is(.search, .field-dark, .select-dark, input, textarea, select) {
-  background: var(--pr-field);
+  background: var(--hbx-field-surface);
   border: 1px solid var(--pr-hair);
   border-radius: var(--radius-sm);
 }
@@ -209,7 +209,7 @@
 [data-casca="premium"] :is(.field-dark, .select-dark, input, textarea, select):focus,
 [data-casca="premium"] :is(.field-dark, .select-dark, input, textarea, select):focus-visible {
   border-color: color-mix(in srgb, var(--hbx-brand) 45%, transparent);
-  box-shadow: 0 0 0 3px var(--pr-focus);
+  box-shadow: 0 0 0 3px var(--ring-brand);
   outline: none;
 }
 [data-casca="premium"] .round-btn {
@@ -238,7 +238,7 @@
   color: var(--text-muted);
 }
 [data-casca="premium"] .tbl td {
-  border-bottom: 1px solid var(--pr-hair-soft);
+  border-bottom: 1px solid var(--pr-hair-2);
 }
 [data-casca="premium"] .tbl tbody tr:hover td {
   background: color-mix(in srgb, var(--hbx-brand) 5%, transparent);
