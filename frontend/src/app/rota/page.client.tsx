@@ -24,9 +24,8 @@ import { useEffect, useState } from "react";
 
 import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
 import { apiFetch } from "@/lib/api";
+import { MOBILE_APK_URL } from "@/lib/app-mobile";
 import { CONTACT_WHATSAPP_URL } from "@/lib/contato";
-
-const MOBILE_APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "/download/android-logistica").trim();
 
 // Preço de referência de 1 galão de 20L no nicho (R$ 12-15, plano-mestre da
 // frente). É a régua que transforma mensalidade em "quantos galões" — a conta

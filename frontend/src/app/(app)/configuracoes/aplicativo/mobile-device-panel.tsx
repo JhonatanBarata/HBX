@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { MOBILE_APK_URL } from "@/lib/app-mobile";
+
 import styles from "./mobile-device-panel.module.css";
 
 type PairingCodeResponse = {
@@ -22,8 +24,6 @@ type MobileDevice = {
   createdAt: string;
   active: boolean;
 };
-
-const MOBILE_APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "/download/android-logistica").trim();
 
 function formatDate(value?: string | null) {
   if (!value) return "Ainda não usado";

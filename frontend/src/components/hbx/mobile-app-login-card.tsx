@@ -1,8 +1,8 @@
 "use client";
 
-import styles from "./mobile-app-login-card.module.css";
+import { MOBILE_APK_URL } from "@/lib/app-mobile";
 
-const MOBILE_APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "/download/android-logistica").trim();
+import styles from "./mobile-app-login-card.module.css";
 
 const MOBILE_ICON = [
   "M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z",

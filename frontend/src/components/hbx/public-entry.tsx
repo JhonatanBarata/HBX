@@ -10,9 +10,8 @@ import { RegisterPanel } from "@/components/hbx/register-client";
 import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
 import { WhatsAppPreview, type WAMessage } from "@/components/hbx/whatsapp-preview";
 import { isTokenLive } from "@/lib/api";
+import { MOBILE_APK_URL } from "@/lib/app-mobile";
 import { CONTACT_WHATSAPP_URL } from "@/lib/contato";
-
-const MOBILE_APK_URL = String(process.env.NEXT_PUBLIC_ANDROID_APK_URL || "/download/android-logistica").trim();
 
 type StageKey = "radar" | "vendas" | "whatsapp" | "entrega" | "cobranca";
 type IconName =
