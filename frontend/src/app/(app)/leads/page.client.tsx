@@ -2972,7 +2972,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                       ? `Fila ${searchQueue.current}/${searchQueue.total} · ${searchQueue.label}`
                       : `Preparando ${localLabel || "território"}`}
                   {" · "}{fmtInt(runVisibleCount)} achados{runProgress != null ? ` · ${runProgress}%` : ""}
-                  {radarState === "funcionando" && " · mantenha esta tela aberta"}
+                  {radarState === "funcionando" && " · pode sair da tela, o Radar continua"}
                 </div>
               )}
 
