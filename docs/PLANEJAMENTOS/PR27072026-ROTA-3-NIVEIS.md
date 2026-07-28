@@ -1,11 +1,47 @@
 # PR27072026 — GERENCIADOR DE ROTA EM 3 NÍVEIS (Basic / Advanced / Full)
 
-> **ESTADO (27/07 ~22h):** F0 ✅ NO AR (motor confiável + extrato de eventos; incidente
-> cobrancaStatus:null corrigido e publicado — ver [[tx-any-engole-erro-prisma]]).
-> F1 ✅ NO AR (nível por empresa + presets + tetos + seletor Master + selos).
-> F4 ✅ NO AR (/logistica/importar — quarentena 3 bocas; fase 2 = IA de visão, decisão
-> comercial aberta). F2 e F3 🔄 workers em paralelo; dono autorizou publish direto na
-> entrega. Reparos de dados 48/41 ✅ (exceção: Dejanira 23/07, decisão humana).
+> **ESTADO FINAL (28/07 ~00h): TODAS AS FRENTES NO AR** (deploy 2284edcd, verificado
+> dentro do container + link público testado com HTTP 200 real na empresa 41).
+> F0 motor confiável ✅ · F1 três níveis ✅ · F2 estoque+parada amarela ✅ ·
+> F3 rastreamento-produto ✅ (secret armado na VPS — nasceu LIGADO) ·
+> F4 quarentena de importação ✅. Incidente do dia documentado em
+> [[tx-any-engole-erro-prisma]] e [[guerra-de-sessoes-paralelas-add-a]].
+> **REPASSADA DAS PENDÊNCIAS (28/07, commit `6cdedca9` — LOCAL, publish não pedido):**
+> ✅ tela do extrato de eventos da agenda na ficha do cliente (o endpoint existia
+> desde 27/07 e nenhuma tela mostrava — F0 item 3 estava pela metade);
+> ✅ estoque no BASIC mostra o selo "Disponível no Advanced" em vez do 403 vermelho;
+> ✅ causa do caso Dejanira encontrada e travada (ver "Incidente do reabrir" abaixo).
+> ABERTO (decisões do dono): preço dos 3 níveis; taxa de implantação (destrava
+> IA de visão da F4 fase 2); as 3 entregas com dinheiro órfão em produção.
+> MVPs mantidos de propósito: estoque = 1 caminhão/dia sem seletor de motorista
+> (multi-caminhão é trimestre); {eta} vazio sem rota rastreada é degradação
+> prevista, não bug (o render já limpa o espaço órfão).
+
+## Incidente do reabrir (achado em 28/07 ao resolver a pendência da Dejanira)
+
+`POST /logistica/entregas/:id/reabrir` devolvia a entrega pra 'agendada' e NÃO
+olhava o dinheiro que o confirmar tinha criado. Quem reabria e não reconfirmava
+deixava uma entrega "a fazer" com cobrança viva dentro — invisível pra todo
+mundo (o fechamento de caixa se recusa a tocar cobrança resolvida, e faz certo).
+
+Varredura no banco de produção: **3 linhas no sistema inteiro**, todas da mesma
+família, todas na noite de 23/07 e 26/07 —
+
+| Empresa | Cliente | Entrega | Cobrança | Valor |
+|---|---|---|---|---|
+| 41 | Dejanira | agendada (reaberta) | paga | R$ 20 |
+| 41 | Fran | cancelada (reaberta e cancelada) | paga | R$ 20 |
+| 48 | Daniela | cancelada (reaberta e cancelada) | pendente (fiado) | R$ 11 |
+
+**Freio publicado no código (`6cdedca9`):** reabrir entrega JÁ PAGA é recusado
+com o valor na mensagem e o caminho pra resolver; fiado ainda pendente reabre
+normal (nada foi recebido); toda reabertura vira linha `ENTREGA_REABERTA` no
+extrato da agenda, com dia, hora e autor, na ficha do cliente.
+
+**Sobra 1 porta (decisão do dono):** cancelar uma entrega REABERTA com fiado
+pendente ainda deixa a cobrança órfã (caso da Daniela). A correção natural é
+cancelar a cobrança junto — mas isso é mexer em dinheiro por conta própria e o
+caminho é compartilhado com a fila offline do APK; não toquei sem ordem.
 
 > Decisão do dono (27/07): o produto de logística vira ESCADA de 3 planos vendáveis.
 > Este arquivo é o plano-mestre. Regra de ouro da arquitetura (dono, 27/07):
