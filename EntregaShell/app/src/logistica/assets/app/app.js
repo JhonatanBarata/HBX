@@ -5281,13 +5281,20 @@
     const abertas = openItems();
     const novo = abertas.find(item => String(item.id) === String(novoId));
     const base = abertas.filter(item => String(item.id) !== String(novoId));
-    if (!novo || !base.length) return { indice: 0, anterior: null, aplicado: false };
+    // 🔴 28/07 (dono, no g15) — PARADA ÚNICA também planeja. O `!base.length` aqui
+    // devolvia `aplicado:false` e saía ANTES do /rota/planejar: com uma parada só,
+    // ninguém ganhava rotaOrdem, `routePlanned()` ficava falso e o botão travava
+    // em "Montar rota" — o "Iniciar rota" só aparecia depois do 2º endereço. Sem
+    // perna pra medir o encaixe não há o que decidir: a ordem É a própria parada.
+    if (!novo) return { indice: 0, anterior: null, aplicado: false };
     const ids = base.map(item => String(item.id));
     const pontoDe = item => { const c = (item && item.cliente) || {}; return validCoordinates(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : null; };
     const pNovo = pontoDe(novo);
     let indice = ids.length;
     if (posicao === "primeira") indice = 0;
-    else if (pNovo) {
+    // Com `base` vazia o índice já é 0 e não há perna pra comparar — pedir matriz
+    // ao OSRM pra um ponto só seria round-trip jogado fora.
+    else if (pNovo && base.length) {
       const origem = await currentPosition();
       const pOrigem = origem && validCoordinates(origem.lat, origem.lng) ? { lat: origem.lat, lng: origem.lng } : null;
       // nós[0] = de onde eu saio (pode não existir), depois as paradas na ordem,
