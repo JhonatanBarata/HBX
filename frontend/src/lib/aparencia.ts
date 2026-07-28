@@ -141,8 +141,12 @@ export function buildAparenciaBoot(): string {
     td: c.temaPadrao,
     md: c.modoPadrao,
   }));
+  // `h.removeAttribute("data-engine")` vivia aqui, herdado do boot antigo.
+  // Varredura de 28/07: `data-engine` aparece em ZERO lugares no repositório
+  // inteiro — ninguém nunca seta. Era limpeza de um conceito que já tinha sido
+  // removido, rodando em toda carga de página desde então. Saiu.
   return `(function(){try{`
-    + `var h=document.documentElement;h.removeAttribute("data-engine");`
+    + `var h=document.documentElement;`
     + `var C=${JSON.stringify(registro)},P=${JSON.stringify(CASCA_PADRAO)};`
     + `var g=function(k){try{return localStorage.getItem(k);}catch(e){return null;}};`
     + `var casca=g(${JSON.stringify(CASCA_STORAGE)});`
