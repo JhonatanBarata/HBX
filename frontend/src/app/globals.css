@@ -34,7 +34,11 @@
    token; herda a pele ativa. Desktop nunca vê estas classes (a casca só monta
    sob o breakpoint mobile — ver components/casca/mobile-shell.tsx). */
 @import "./hbx-theme/casca.css";
-@import "./hbx-theme/casca-premium.css";
+/* Renomeado 28/07: este arquivo é o ACABAMENTO MOBILE (escopo .casca), não a
+   casca Premium — o nome antigo (casca-premium.css) passou a colidir com a
+   casca Premium de verdade, que é desktop+mobile e vive lá embaixo, junto das
+   outras cascas. Conteúdo intocado. */
+@import "./hbx-theme/casca-mobile-acabamento.css";
 
 /* É AQUI QUE FECHA — modal cinematográfico de fechamento de venda (Atendimento +
    Vendas), com passo-a-passo da comissão do vendedor. */
@@ -92,14 +96,29 @@
 @import "./hbx-theme/theme-rose.css";
 @import "./hbx-theme/theme-hbx-cyber.css";
 @import "./hbx-theme/theme-login.css";
+/* Paleta da casca CORPORATIVA. Não aparece no seletor de tema (a Corporativa
+   é clara fixa) — existe pra ela vestir as mesmas telas pelo contrato de
+   tokens, como qualquer pele. Depois do skeleton: mesma especificidade que o
+   bloco [data-theme-mode="dark"] de lá, então a ordem da cascata garante que
+   preferência escura antiga fique ignorada na Corporativa. */
+@import "./hbx-theme/theme-corporativa.css";
 
-/* CASCA MODERN — o 2º padrão de casca (desktop + mobile), escopo
-   [data-casca="modern"]. NÃO é pele: veste a MESMA estrutura (shell/casca)
-   com fundo infinito + vidro + transições, derivando TODA cor dos tokens da
-   pele ativa (por isso funciona em Aurora/Ember/Rosé/HBX Mod sem duplicar
-   tokens). Importada DEPOIS das peles de propósito: em empate de
-   especificidade a casca vence a camada de vestir da pele. */
+/* ============================================================
+   AS 3 CASCAS (dono 28/07). NÃO são peles: vestem a MESMA estrutura
+   (shell desktop + casca mobile) com outra densidade e outra superfície,
+   derivando TODA cor dos tokens do tema ativo. Importadas DEPOIS das peles
+   de propósito: em empate de especificidade, a casca vence a camada de
+   vestir do tema. Escolha em lib/aparencia.ts → <html data-casca>.
+   ============================================================ */
+/* BACKUP — a casca que estava no ar até 28/07, CONGELADA. Escopo
+   [data-casca="modern"] (nome do atributo preservado de propósito: mexer
+   nos 75 seletores seria arriscar justamente o fallback). NÃO EDITAR. */
 @import "./hbx-theme/casca-modern.css";
+/* PREMIUM — nasceu como cópia exata da de cima; é ela que evolui. */
+@import "./hbx-theme/casca-premium.css";
+/* CORPORATIVA — densa, clara, com grade. Reescreve a escada estrutural do
+   spacing.css; por último pra vencer as outras duas em empate. */
+@import "./hbx-theme/casca-corporativa.css";
 
 /* Design System ENTREGA (LOGISTICA-MOBILE M1) — pele mobile do app do
    entregador, TODA escopada em [data-skin="entrega"]. Não vaza pro

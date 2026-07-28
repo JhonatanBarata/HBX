@@ -7,7 +7,7 @@
 
 import React from "react";
 
-import { Av, I, ICONS, KpiRow, ModeToggle, PeleSwitch } from "@/components/hbx/shell";
+import { AparenciaSwitch, Av, I, ICONS, KpiRow, ModeToggle } from "@/components/hbx/shell";
 
 function Secao({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
@@ -32,15 +32,18 @@ export function PeleSpecimenClient() {
 
         <header className="panel">
           <div className="panel-head">
-            <h2>HBX — Prova de Pele</h2>
+            <h2>HBX — Prova de Casca</h2>
             <div className="meta" style={{ gap: 10 }}>
-              <PeleSwitch />
+              <AparenciaSwitch />
               <ModeToggle />
             </div>
           </div>
           <p className="text-ink-muted" style={{ margin: 0, padding: "0 18px 16px", fontSize: "0.8rem", lineHeight: 1.5 }}>
-            Documento vivo do padrão. Troque a pele e o claro/escuro acima: TUDO nesta
-            página deve vestir junto — é o mesmo sistema, só tokens e classes centrais.
+            Documento vivo do padrão — a vitrine onde as cascas se aprovam ANTES de
+            serem espalhadas pelas telas. Troque casca, tema e modo acima: TUDO aqui
+            deve vestir junto, porque é o mesmo sistema, só tokens e classes centrais.
+            Premium e Backup ainda são idênticas (a Premium nasceu como cópia); a
+            Corporativa muda densidade, grade e paleta sem trocar uma linha de markup.
           </p>
         </header>
 

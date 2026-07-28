@@ -11,7 +11,7 @@
    (data-theme/data-theme-mode vivem no <html>, herdados aqui). A casca
    MODERN também entra de graça: o /entrega monta a raiz .casca central
    (EntregaScaffold) e casca-modern.css a veste. Isto SUBSTITUI a decisão
-   de 04/07 ("pele isolada, imune ao PeleSwitch") — não reintroduzir hex
+   de 04/07 ("pele isolada, imune ao seletor de Aparência") — não reintroduzir hex
    próprio aqui.
 
    AS 5 LEIS continuam: TSX do app fica limpo (só classes .ent-* e as

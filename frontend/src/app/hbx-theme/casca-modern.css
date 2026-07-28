@@ -1,4 +1,20 @@
 /* ============================================================
+   ⚠️ ARQUIVO CONGELADO — CASCA "BACKUP" (ordem do dono, 28/07/2026)
+
+   Esta é a casca que estava no ar até 28/07. Ela virou a opção
+   "Backup" do menu Aparência: a rede de segurança pra voltar em um
+   clique se a Premium nova desagradar. Por isso ela NÃO evolui —
+   qualquer refino de aparência vai em casca-premium.css (que nasceu
+   como cópia exata deste arquivo).
+
+   NÃO EDITAR AQUI. Editar este arquivo destrói o valor do backup: ele
+   deixa de ser "exatamente o que estava no ar" e vira "quase isso".
+   O seletor continua [data-casca="modern"] de propósito — trocar o
+   nome do atributo mexeria em 75 seletores e é justamente o tipo de
+   risco que um backup não pode correr.
+   ============================================================ */
+
+/* ============================================================
    HBX — CASCA MODERN (2º padrão de casca, dono 07/07/2026)
    Desktop + mobile na MESMA linguagem: fundo infinito (grade em
    perspectiva + aurora + anéis + névoa), painéis de vidro flutuando

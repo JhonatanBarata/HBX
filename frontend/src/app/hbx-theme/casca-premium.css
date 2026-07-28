@@ -1,328 +1,514 @@
 /* ============================================================
-   HBX — CASCA MOBILE PREMIUM V2
-   Acabamento visual mobile escopado na casca real. Não cria estrutura nova,
-   não altera desktop e não importa o preview HTML no app.
+   HBX — CASCA PREMIUM (dono 28/07/2026)
+   A casca de alto acabamento: fundo infinito (grade em perspectiva +
+   aurora + anéis + névoa), painéis de vidro flutuando, pílula
+   gradiente na navegação ativa e entrada de página com blur —
+   vestindo a estrutura REAL do app (shell desktop .app/.side/.main e
+   casca mobile .casca/.casca-top/.casca-tabbar). Zero DOM novo.
+
+   DE ONDE VEIO: este arquivo NASCEU como cópia exata da casca-modern
+   (a casca de 07/07), trocando só o seletor. Foi decisão do dono
+   (28/07): a casca antiga fica CONGELADA em casca-modern.css como
+   opção "Backup", e a Premium evolui aqui sem risco de estragar o
+   fallback. Enquanto a Etapa 2 (refino Premium) não roda, as duas são
+   visualmente idênticas — isso é esperado, não é bug.
+
+   COMO LIGA: <html data-casca="premium"> (lib/aparencia.ts) por cima
+   do data-theme da COR escolhida. Este arquivo NÃO tem cor própria:
+   TODA cor nasce de var(--hbx-*) + color-mix com os neutros #fff/#000
+   (fiscal check-pele passa) — os 5 temas (Login, Aurora, Ember, Rosé,
+   HBX) saem de graça da mesma folha, claro e escuro automáticos.
+
+   Importada DEPOIS das peles (globals.css): em empate de
+   especificidade, a casca vence a camada de vestir da pele.
    ============================================================ */
 
-.casca {
-  --casca-premium-surface: color-mix(in srgb, var(--surface-card) 86%, transparent);
-  --casca-premium-strong: color-mix(in srgb, var(--surface-card) 96%, var(--surface-canvas));
-  --casca-premium-soft: color-mix(in srgb, var(--surface-recessed) 88%, var(--hbx-brand-soft));
-  --casca-premium-line: color-mix(in srgb, var(--border-hairline) 78%, transparent);
-  --casca-premium-line-strong: color-mix(in srgb, var(--border-strong) 68%, transparent);
-  --casca-premium-shadow: 0 14px 34px color-mix(in srgb, var(--text-strong) 13%, transparent);
-  --casca-premium-shadow-soft: 0 8px 20px color-mix(in srgb, var(--text-strong) 9%, transparent);
-  --casca-premium-radius-xl: 28px;
-  --casca-premium-radius-lg: 20px;
-  background:
-    radial-gradient(circle at 12% -8%, color-mix(in srgb, var(--hbx-brand-soft) 74%, transparent), transparent 34%),
-    linear-gradient(180deg, color-mix(in srgb, var(--surface-card) 34%, transparent), transparent 170px),
-    var(--surface-canvas);
-  -webkit-font-smoothing: antialiased;
-  text-rendering: geometricPrecision;
+/* ---- Tokens da casca (geometria, vidro, movimento) ----------------------
+   [data-casca="premium"][data-theme] = mesmo elemento (html) e mesma
+   especificidade dos blocos de pele; este arquivo importa por último,
+   então vence o empate — inclusive contra os --radius-* das peles. */
+[data-casca="premium"][data-theme] {
+  /* GEOMETRIA (revista 26/07 — dono: "o balão redondo está gasto e repetitivo").
+     O canto generoso do mockup original (10/14/18/24/30) engordava tudo e dava
+     ar de tela pequena esticada. A escada nova é discreta: a forma some e o
+     conteúdo aparece. A pílula (999px) foi APOSENTADA no app — ver bloco
+     "fim da pílula" mais abaixo. */
+  --radius-xs: 5px;
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 13px;
+  --radius-xl: 16px;
+
+  /* UMA LETRA SÓ (dono 26/07: "centralize a mesma letra"). As peles trazem duas
+     famílias (display + body); no app elas viram a MESMA — display vira apelido
+     do body. O contraste de hierarquia passa a vir de tamanho e cor, não de
+     trocar a fonte no meio da tela. O site público não usa esta casca. */
+  --font-display: var(--font-body);
+
+  /* vidro mais profundo que qualquer pele clássica */
+  --blur-chrome: 24px;
+  --blur-glass: 18px;
+
+  /* movimento: curva do mockup (ease-out longa) + entrada com blur */
+  --motion-base: 340ms cubic-bezier(0.22, 1, 0.36, 1);
+  --motion-slow: 620ms cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --enter-name: hbx-enter-modern;
+  --enter-duration: 560ms;
+  --enter-ease: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* derivados de vidro — recalculam sozinhos com pele/modo (5 Leis):
+     linha = tinta diluída; painel = superfície translúcida; flare = marca.
+     PERF (dono 07/07 "ficou pesado"): os painéis GRANDES (.side/.main) não
+     usam backdrop-filter — vidro deles é o par --mod-chrome-* mais OPACO
+     (a translucidez leve dá o efeito sem re-blur por frame); blur de vidro
+     de verdade fica só em superfície PEQUENA/transiente (modal/pop/sheet/
+     topo/dock mobile). GPU fraca (GTX 550 Ti) rasteriza blur em software. */
+  --mod-line: color-mix(in srgb, var(--hbx-foreground) 14%, transparent);
+  --mod-line-strong: color-mix(in srgb, var(--hbx-foreground) 24%, transparent);
+  --mod-chrome-hi: color-mix(in srgb, var(--hbx-surface) 88%, transparent);
+  --mod-chrome-lo: color-mix(in srgb, var(--hbx-surface) 76%, transparent);
+  --mod-glass-hi: color-mix(in srgb, var(--hbx-surface) 62%, transparent);
+  --mod-glass-lo: color-mix(in srgb, var(--hbx-surface) 40%, transparent);
+  --mod-glass-recessed: color-mix(in srgb, var(--hbx-surface-soft) 52%, transparent);
+  --mod-flare: color-mix(in srgb, var(--hbx-brand) 14%, transparent);
+  --mod-glow: color-mix(in srgb, var(--hbx-brand-strong) 45%, transparent);
 }
 
-.casca .casca-top {
-  background: var(--casca-premium-surface);
-  border-bottom-color: var(--casca-premium-line);
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--surface-card) 50%, transparent);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
+/* ---- Entrada de página (o app-page/hbx-page leem os tokens acima) -------
+   PERF: blur de entrada 6px (10px em página inteira engasgava GPU fraca). */
+@keyframes hbx-enter-modern {
+  from { opacity: 0; transform: translate3d(26px, 0, 0) scale(0.99); filter: blur(6px); }
+  to { opacity: 1; transform: none; filter: none; }
 }
 
-.casca .casca-top__title {
-  font-weight: 760;
-  letter-spacing: 0;
-}
-
-.casca .casca-view {
-  background: transparent;
-  scrollbar-width: none;
-}
-
-.casca .casca-view::-webkit-scrollbar,
-.casca .vnd-m__body::-webkit-scrollbar,
-.casca .emp-m__body::-webkit-scrollbar {
-  display: none;
-}
-
-.casca .casca-tabbar {
-  background: var(--casca-premium-surface);
-  border-top-color: var(--casca-premium-line);
-  box-shadow: 0 -8px 26px color-mix(in srgb, var(--text-strong) 8%, transparent);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-}
-
-.casca .casca-tab {
+/* ============================================================
+   FUNDO INFINITO — compartilhado desktop (.app) × mobile (.casca).
+   3 camadas: canvas (gradiente profundo + focos de marca), grade em
+   perspectiva animada (::before) e anéis + aurora + névoa (::after).
+   Pseudo em z-index:-1 dentro de contexto isolado: fica ACIMA do
+   fundo do container e ABAIXO de todo conteúdo.
+   ============================================================ */
+[data-casca="premium"] .app,
+[data-casca="premium"] .casca,
+[data-casca="premium"] .casca-stack-layer {
   position: relative;
-  gap: 3px;
+  isolation: isolate;
+  background:
+    radial-gradient(circle at 42% 14%, color-mix(in srgb, var(--hbx-brand) 20%, transparent), transparent 30%),
+    radial-gradient(circle at 8% 22%, color-mix(in srgb, var(--hbx-secondary) 12%, transparent), transparent 24%),
+    radial-gradient(circle at 92% 84%, color-mix(in srgb, var(--hbx-accent) 13%, transparent), transparent 26%),
+    linear-gradient(135deg, var(--hbx-background-alt), var(--hbx-background) 47%, color-mix(in srgb, var(--hbx-brand) 22%, var(--hbx-background)));
 }
+/* .casca e a camada empilhada já são position:fixed (não sobrescrever) */
+[data-casca="premium"] .casca,
+[data-casca="premium"] .casca-stack-layer { position: fixed; }
 
-.casca .casca-tab svg {
-  stroke-width: 1.85;
-}
+/* A TELA em si fica de vidro: o fundo infinito acima é quem pinta o canvas.
+   Sem isto o .casca-view (casca.css) pintava --surface-canvas OPACO por cima
+   e a tela inteira virava um chapadão claro (queixa do dono 07/07: "/empresas
+   está com fundo branco, pq?"). Mesma coisa pro loading de tela. */
+[data-casca="premium"] .casca-view { background: transparent; }
 
-.casca .casca-tab.is-on::before {
+/* grade em perspectiva (o "chão" do mockup).
+   PERF: ESTÁTICA de propósito — a animação de background-position do mockup
+   forçava re-raster do fundo a cada frame E re-blur de todo vidro por cima
+   (era ISSO que travava). Fundo parado = pinta 1x e vira textura. */
+[data-casca="premium"] .app::before,
+[data-casca="premium"] .casca::before,
+[data-casca="premium"] .casca-stack-layer::before {
   content: "";
   position: absolute;
-  top: 6px;
-  width: 22px;
-  height: 3px;
-  border-radius: var(--radius-pill);
-  background: currentColor;
-  opacity: 0.88;
+  inset: -14% -18% 0;
+  z-index: -1;
+  background:
+    linear-gradient(90deg, transparent 0 49.7%, color-mix(in srgb, var(--hbx-secondary) 24%, transparent) 50%, transparent 50.3%),
+    linear-gradient(0deg, transparent 0 49.7%, color-mix(in srgb, var(--hbx-brand) 15%, transparent) 50%, transparent 50.3%);
+  background-size: 150px 150px;
+  transform: perspective(1000px) rotateX(64deg) translateY(30%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 16%, #000 70%, transparent 92%);
+  mask-image: linear-gradient(to bottom, transparent 0%, #000 16%, #000 70%, transparent 92%);
+  opacity: 0.32;
+  pointer-events: none;
 }
 
-.casca .casca-tab__label {
-  font-weight: 800;
-  letter-spacing: 0;
+/* anéis concêntricos + aurora + névoa/vinheta */
+[data-casca="premium"] .app::after,
+[data-casca="premium"] .casca::after,
+[data-casca="premium"] .casca-stack-layer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    repeating-radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--hbx-foreground) 5%, transparent) 0 1px, transparent 1px 36px),
+    radial-gradient(ellipse at 22% 24%, color-mix(in srgb, var(--hbx-brand) 15%, transparent), transparent 36%),
+    radial-gradient(ellipse at 80% 58%, color-mix(in srgb, var(--hbx-secondary) 9%, transparent), transparent 30%),
+    radial-gradient(circle at 50% 46%, transparent 0 42%, color-mix(in srgb, var(--hbx-shadow) 12%, transparent) 78%, color-mix(in srgb, var(--hbx-shadow) 26%, transparent));
+  pointer-events: none;
 }
 
-.casca .casca-command {
-  gap: 8px;
-  margin: var(--space-2) var(--space-3) var(--space-1);
-  padding: 12px;
-  border-radius: var(--casca-premium-radius-xl);
-  background: var(--casca-premium-surface);
-  border-color: var(--casca-premium-line);
-  box-shadow: var(--casca-premium-shadow);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-}
-
-.casca .casca-command__btn,
-.casca .vnd-m__tool-btn,
-.casca .emp-m__edit-btn {
-  border-color: var(--casca-premium-line);
-  border-radius: 14px;
-  background: var(--casca-premium-strong);
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--surface-card) 62%, transparent);
-}
-
-.casca .vnd-m__tool-btn--primary,
-.casca .vnd-m__searchcta,
-.casca .emp-m__nova,
-.casca .btn-teal {
-  background: linear-gradient(135deg, var(--hbx-brand-strong), color-mix(in srgb, var(--hbx-brand-strong) 72%, var(--hbx-secondary, var(--hbx-brand))));
-  box-shadow: 0 12px 24px color-mix(in srgb, var(--hbx-brand-strong) 22%, transparent);
-}
-
-.casca .casca-segment {
-  height: 32px;
-  padding: 3px;
-  border: 1px solid var(--casca-premium-line);
-  background: var(--casca-premium-soft);
-}
-
-.casca .casca-segment__item {
-  letter-spacing: 0;
-}
-
-.casca .vnd-m__segment {
-  width: 124px;
-}
-
-.casca .vnd-m__mini-segment {
-  width: 70px;
-}
-
-.casca .vnd-m__searchfield,
-.casca .emp-m__searchfield,
-.casca .casca-picker__search,
-.casca .casca-picker-field,
-.casca .field-dark {
-  min-height: 38px;
-  border: 1px solid var(--casca-premium-line);
-  border-radius: var(--radius-pill);
-  background: var(--casca-premium-soft);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--surface-card) 52%, transparent);
-}
-
-.casca .vnd-m__stats,
-.casca .emp-m__stats {
-  color: var(--text-muted);
-  font-weight: 720;
-  letter-spacing: 0;
-}
-
-.casca .vnd-m__live {
-  height: 36px;
-  margin: var(--space-2) var(--space-3) var(--space-1);
-  border: 1px solid color-mix(in srgb, var(--hbx-brand-strong) 26%, transparent);
-  background: linear-gradient(90deg, var(--hbx-brand-soft), color-mix(in srgb, var(--surface-card) 14%, transparent));
-  box-shadow: var(--casca-premium-shadow-soft);
-}
-
-.casca .vnd-m__list,
-.casca .emp-m__list {
-  gap: 8px;
-  padding: 8px 12px 18px;
-}
-
-.casca .vnd-m__group {
-  gap: 8px;
-}
-
-.casca .vnd-m__group-head {
-  padding: 6px 4px 0;
-  font-size: 0.64rem;
-  font-weight: 850;
-  letter-spacing: 0.1em;
-}
-
-.casca .vnd-m__row,
-.casca .emp-m__row {
-  min-height: 66px;
-  align-items: center;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid var(--casca-premium-line);
-  border-radius: var(--casca-premium-radius-lg);
-  background: var(--casca-premium-surface);
-  box-shadow: var(--casca-premium-shadow-soft);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-  transition: transform var(--motion-fast), border-color var(--motion-fast), background var(--motion-fast);
-}
-
-/* Vendas ganha 2 linhas de nome (fix corte "Praça São Lourenço Restau…") —
-   respiro extra só aqui, Empresas (1 linha) mantém a altura original. */
-.casca .vnd-m__row {
-  min-height: 74px;
-}
-
-.casca .vnd-m__row:active,
-.casca .emp-m__row:active {
-  transform: scale(0.985);
-  background: var(--casca-premium-strong);
-}
-
-.casca .vnd-m__row .avatar,
-.casca .emp-m__ico {
-  flex: 0 0 auto;
-  border-radius: 16px;
-  background: linear-gradient(135deg, var(--hbx-brand-strong), color-mix(in srgb, var(--hbx-brand-strong) 54%, var(--hbx-secondary, var(--hbx-brand))));
-  color: var(--hbx-action-ink);
-  box-shadow: 0 10px 20px color-mix(in srgb, var(--hbx-brand-strong) 18%, transparent);
-}
-
-.casca .vnd-m__row-name,
-.casca .emp-m__row-name {
-  font-weight: 640;
-  letter-spacing: 0;
-}
-
-.casca .vnd-m__row-sub,
-.casca .emp-m__row-sub {
-  font-weight: 620;
-}
-
-.casca .vnd-m__row-value {
-  font-weight: 700;
-  white-space: nowrap;
-}
-
-/* "R$ 0" não deve competir visualmente com o nome (era ele empurrando o
-   corte) — tom discreto quando o valor é zero/vazio (marcado via
-   data-zero pelo TSX, evita seletor de texto que não existe em CSS). */
-.casca .vnd-m__row-value:empty,
-.casca .vnd-m__row-value[data-zero="true"] {
-  color: var(--text-muted);
-  font-weight: 620;
-}
-
-/* Seta à direita: indicador discreto de navegação, nunca preto forte. */
-.casca .vnd-m__row-chevron {
-  display: inline-flex;
-  flex: 0 0 auto;
-  color: var(--text-muted);
-}
-
-/* Ícones de canal subiram de sm(14px)→md(16px) — mais espaço entre os 6 pra
-   não amontoar, e mais respiro abaixo do subtítulo. */
-.casca .vnd-m__row-canais {
-  gap: var(--space-3);
-  margin-top: var(--space-2);
-}
-
-.casca .vnd-m__row-tag,
-.casca .emp-m__badge {
-  border: 1px solid color-mix(in srgb, var(--hbx-brand-strong) 18%, transparent);
-  background: var(--hbx-brand-soft);
-  color: var(--hbx-brand-strong);
-  letter-spacing: 0;
-}
-
-.casca .emp-m__badge.is-cliente {
-  border-color: color-mix(in srgb, var(--hbx-success) 22%, transparent);
-}
-
-.casca .vnd-m__empty,
-.casca .emp-m__empty {
-  margin: 16px 12px;
-  border: 1px solid var(--casca-premium-line);
-  border-radius: var(--casca-premium-radius-xl);
-  background: var(--casca-premium-surface);
-  box-shadow: var(--casca-premium-shadow-soft);
-}
-
-.casca .casca-sheet {
-  border: 1px solid var(--casca-premium-line-strong);
-  border-bottom: 0;
-  border-top-left-radius: 30px;
-  border-top-right-radius: 30px;
-  background: var(--casca-premium-strong);
-  box-shadow: 0 -22px 62px color-mix(in srgb, var(--text-strong) 24%, transparent);
-}
-
-.casca .casca-sheet__head {
-  padding-bottom: 10px;
-}
-
-.casca .casca-sheet__title {
-  font-weight: 780;
-  letter-spacing: 0;
-}
-
-.casca .casca-sheet__close {
-  border: 1px solid var(--casca-premium-line);
-  background: var(--casca-premium-soft);
-}
-
-.casca .casca-picker__list {
+/* ============================================================
+   DESKTOP — o shell vira painéis de vidro flutuando sobre o fundo.
+   Mesmo DOM de sempre: .app > .side + .main(.topbar + .app-page).
+   ============================================================ */
+[data-casca="premium"] .app {
+  padding: 7px;
   gap: 7px;
 }
 
-.casca .casca-picker__opt {
-  min-height: 44px;
-  padding: 0 10px;
-  border-radius: 16px;
+/* ============================================================
+   PASSE PREMIUM (dono, 26/07) — três ordens, resolvidas no CENTRO
+   para não virar caça a font-weight tela por tela:
+     1. "centralize a mesma letra"  → --font-display = --font-body (acima)
+     2. "nada de negrito"           → teto de peso no app inteiro
+     3. "o balão redondo está gasto e repetitivo, use outros"
+   Escopo: `.app` (o sistema). O site público e o login não entram.
+   ============================================================ */
+
+/* 2. TETO DE PESO. Bold começa em 700 — aqui o app inteiro para em 600, e o
+   texto corrido fica em 400/500. Especificidade [data-casca] + .app + tag ganha
+   das regras de tela (classe única), então nenhuma tela precisa ser editada. */
+[data-casca="premium"] .app :is(h1, h2, h3, h4, h5, h6, b, strong, th, dt, legend, summary, label, button, a) {
+  font-weight: var(--weight-semibold);
+  letter-spacing: -0.005em;
+}
+[data-casca="premium"] .app :is(p, td, span, small, li, input, textarea, select) {
+  font-weight: var(--weight-regular);
+}
+/* Rótulo em caixa-alta é o único lugar onde o peso não carrega a hierarquia —
+   quem separa é o tracking. Premium é isto: pouco peso, muito respiro. */
+[data-casca="premium"] .app :is(.hbx-overline, .nav-group-label, th) {
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.08em;
 }
 
-.casca .casca-picker__opt:active,
-.casca .casca-picker__opt.is-on {
-  background: var(--hbx-brand-soft);
+/* 3. FIM DA PÍLULA. O 999px estava em botão redondo, chip, badge, aba, medidor
+   e avatar ao mesmo tempo — a mesma forma repetida em tudo apaga a diferença
+   entre as coisas. Agora só o que é REDONDO DE VERDADE (avatar, ponto de
+   status, anel de progresso) continua circular; o resto vira canto discreto. */
+[data-casca="premium"] .app :is(.round-btn, .search, .tag, .badge, .chip, .seg, .seg-toggle, .glass-pill, .glass-pill__glass) {
+  border-radius: var(--radius-sm);
+}
+[data-casca="premium"] .app :is(.tag, .badge, .chip) {
+  border-radius: var(--radius-xs);
 }
 
-.casca .emp-m__acts,
-.casca .vnd-m__sheet-acts,
-.casca .vnd-m__novo-acts {
-  gap: 8px;
+/* rail de vidro — SEM backdrop-filter (painel grande, ver nota PERF acima):
+   a opacidade alta do --mod-chrome-* entrega o visual por corzinha só. */
+[data-casca="premium"] .side {
+  border: 1px solid var(--mod-line);
+  border-radius: var(--radius-xl);
+  background:
+    radial-gradient(circle at 14% 6%, var(--mod-flare), transparent 32%),
+    linear-gradient(180deg, var(--mod-chrome-hi), var(--mod-chrome-lo));
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
 }
 
-.casca .emp-m__act,
-.casca .vnd-m__act {
-  border: 1px solid var(--casca-premium-line);
-  background: var(--casca-premium-soft);
+/* moldura principal (topbar + conteúdo vivem dentro) — idem, sem blur */
+[data-casca="premium"] .main {
+  border: 1px solid var(--mod-line);
+  border-radius: var(--radius-xl);
+  background: linear-gradient(180deg, var(--mod-chrome-hi), var(--mod-chrome-lo));
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+[data-casca="premium"] .topbar {
+  background: transparent;
+  border-bottom: 1px solid var(--mod-line);
 }
 
+/* navegação: item respira no hover; ativo = pílula gradiente da pele
+   (o par primary→secondary é o MESMO contrato de contraste do .btn-teal
+   de cada pele — o --hbx-action-ink garante a tinta certa por cima). */
+[data-casca="premium"] .nav-item:hover { transform: translateX(2px); }
+[data-casca="premium"] .side .glass-pill__glass,
+[data-casca="premium"] .side .nav-pill__glass {
+  background:
+    radial-gradient(120% 140% at 30% -20%, color-mix(in srgb, #fff 38%, transparent), transparent 55%),
+    linear-gradient(135deg, var(--hbx-primary), var(--hbx-secondary));
+  border: 1px solid color-mix(in srgb, #fff 25%, transparent);
+  box-shadow: 0 14px 34px -16px var(--mod-glow);
+}
+[data-casca="premium"] .side .nav-item.active,
+[data-casca="premium"] .side .nav-item.active:hover { color: var(--hbx-action-ink); }
+
+/* cromo do topo: busca e botões redondos em vidro */
+[data-casca="premium"] .search {
+  border-color: var(--mod-line);
+  background: var(--mod-glass-recessed);
+}
+[data-casca="premium"] .round-btn {
+  border: 1px solid var(--mod-line);
+  background: var(--mod-glass-recessed);
+}
+[data-casca="premium"] .round-btn:hover {
+  transform: translateY(-1px);
+  border-color: var(--mod-line-strong);
+  background: var(--mod-glass-hi);
+}
+
+/* cartões e painéis: vidro com flare de marca no canto (sem backdrop-filter
+   aqui de propósito — já flutuam sobre o vidro do .main; só translucidez) */
+[data-casca="premium"] .panel,
+[data-casca="premium"] .kpi,
+[data-casca="premium"] .plan-card,
+[data-casca="premium"] .user-card {
+  border-color: var(--mod-line);
+  background:
+    radial-gradient(circle at 100% 0%, var(--mod-flare), transparent 42%),
+    linear-gradient(180deg, var(--mod-glass-hi), var(--mod-glass-lo));
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+
+/* controles: ação primária vira gradiente; campos/ghost em vidro raso */
+[data-casca="premium"] .btn-teal {
+  background: linear-gradient(135deg, var(--hbx-primary), var(--hbx-secondary));
+  box-shadow: 0 14px 30px -18px var(--mod-glow);
+}
+[data-casca="premium"] .btn-teal:hover {
+  background: linear-gradient(135deg, var(--hbx-brand-strong), var(--hbx-secondary));
+}
+[data-casca="premium"] .btn-ghost,
+[data-casca="premium"] .field-dark,
+[data-casca="premium"] .select-dark {
+  border-color: var(--mod-line);
+  background: var(--mod-glass-recessed);
+}
+
+/* overlays: o vidro escuro do mockup (coach/modal) — aqui SIM backdrop,
+   é a camada que flutua sobre a tela inteira */
+[data-casca="premium"] .hbx-modal,
+[data-casca="premium"] .hbx-pop,
+[data-casca="premium"] .hbx-drawer {
+  border-color: var(--mod-line-strong);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 92%, transparent), color-mix(in srgb, var(--hbx-surface) 82%, transparent));
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+  backdrop-filter: blur(var(--blur-chrome));
+}
+
+/* ============================================================
+   MOBILE — topo e dock FLUTUAM (margem + canto + vidro), navegação
+   ativa vira pílula gradiente; conteúdo continua o mesmo DOM.
+   ============================================================ */
+/* topo SEM BALÃO (dono 07/07 noite: "remova o fundo e deixe o HBX avulso",
+   generalizado pra casca inteira): a moldura de vidro saiu — no topo-raiz a
+   marca »HBX flutua solta (mobile-shell/EntregaScaffold); nas sub-telas o
+   par voltar+título continua, também sem moldura. */
+[data-casca="premium"] .casca-top {
+  position: relative;
+  margin: var(--space-2) var(--space-3) 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* dock: barra vira ilha (o safe-bottom sai do padding e vira margem) */
+[data-casca="premium"] .casca-tabbar {
+  height: auto;
+  min-height: var(--casca-tabbar-h);
+  margin: var(--space-2) var(--space-3) calc(var(--casca-safe-bottom) + var(--space-2));
+  padding: 5px;
+  gap: 4px;
+  border: 1px solid var(--mod-line);
+  border-radius: var(--radius-xl);
+  background: color-mix(in srgb, var(--hbx-background-alt) 90%, transparent);
+  box-shadow: 0 18px 44px -20px color-mix(in srgb, var(--hbx-shadow) 55%, transparent), var(--shadow-inset);
+}
+[data-casca="premium"] .casca-tab {
+  border-radius: calc(var(--radius-xl) - 8px);
+}
+[data-casca="premium"] .casca-tab.is-on {
+  background:
+    radial-gradient(120% 140% at 30% -20%, color-mix(in srgb, #fff 35%, transparent), transparent 55%),
+    linear-gradient(135deg, var(--hbx-primary), var(--hbx-secondary));
+  color: var(--hbx-action-ink);
+  box-shadow: 0 12px 30px -14px var(--mod-glow);
+}
+/* o tracinho indicador da casca clássica sai — a pílula já marca o ativo */
+[data-casca="premium"] .casca-tab.is-on::before { content: none; }
+
+/* painel de comando e linhas de lista: vidro sobre o fundo infinito */
+[data-casca="premium"] .casca-command {
+  border-color: var(--mod-line);
+  background:
+    radial-gradient(circle at 12% 0%, var(--mod-flare), transparent 44%),
+    linear-gradient(180deg, var(--mod-glass-hi), var(--mod-glass-lo));
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+[data-casca="premium"] .vnd-m__row,
+[data-casca="premium"] .emp-m__row,
+[data-casca="premium"] .mais-m__row {
+  border-color: var(--mod-line);
+  background: linear-gradient(180deg, var(--mod-glass-hi), var(--mod-glass-lo));
+}
+[data-casca="premium"] .casca-segment {
+  border: 1px solid var(--mod-line);
+  background: var(--mod-glass-recessed);
+}
+
+/* folha (bottom sheet): vidro profundo, como o coach do mockup */
+[data-casca="premium"] .casca-sheet {
+  border-color: var(--mod-line-strong);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 94%, transparent), color-mix(in srgb, var(--hbx-surface) 84%, transparent));
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+  backdrop-filter: blur(var(--blur-chrome));
+}
+
+/* ---- acessibilidade ------------------------------------------------------ */
 @media (prefers-reduced-motion: reduce) {
-  .casca .vnd-m__row,
-  .casca .emp-m__row,
-  .casca .casca-tab,
-  .casca .vnd-m__tool-btn,
-  .casca .casca-command__btn {
-    transition: none;
-  }
+  [data-casca="premium"] .nav-item:hover,
+  [data-casca="premium"] .round-btn:hover { transform: none; }
+}
+
+/* ============================================================
+   MARCA »HBX VIVA — topo-raiz da casca mobile INTEIRA (central +
+   /entrega; componente components/casca/hbx-mark.tsx). Água = as cores
+   do tema fluindo no texto + lâmina de brilho; 3D = flutuação em
+   perspectiva + extrusão por drop-shadows; reação = pulsada + anel
+   duplo de gota a cada clique na página (classe is-splash).
+   PERF: tudo em elemento MINÚSCULO (transform/background-position) —
+   nada do padrão full-screen que travava a GPU fraca.
+   ============================================================ */
+/* utilitário: some do visual, fica pra leitor de tela */
+.hbx-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+[data-casca="premium"] .hbx-mark-viva {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  pointer-events: none; /* o toque atravessa — a marca nunca rouba clique */
+}
+/* wrapper interno: FLUTUAÇÃO 3D contínua — separada do container pra não
+   brigar com a pulsada (cada um tem o próprio transform) */
+[data-casca="premium"] .hbx-mark-viva__i {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transform-style: preserve-3d;
+  animation: hbx-mark-float 5.5s ease-in-out infinite alternate;
+}
+@keyframes hbx-mark-float {
+  from { transform: perspective(300px) rotateX(11deg) rotateY(-9deg) translateY(0.5px); }
+  to { transform: perspective(300px) rotateX(-7deg) rotateY(9deg) translateY(-1.5px); }
+}
+[data-casca="premium"] .hbx-mark-viva svg {
+  color: var(--hbx-primary);
+  filter:
+    drop-shadow(0 2px 0 color-mix(in srgb, var(--hbx-brand-strong) 60%, #000))
+    drop-shadow(0 0 10px color-mix(in srgb, var(--hbx-primary) 65%, transparent));
+}
+/* a ÁGUA: cores do tema fluindo no texto + LÂMINA DE BRILHO varrendo por
+   cima (2ª camada do gradiente, posição própria nos keyframes) + relevo 3D
+   por extrusão (drop-shadows empilhados — elemento minúsculo, custo zero) */
+[data-casca="premium"] .hbx-mark-viva strong {
+  font-family: var(--font-display);
+  /* ×2 do título da casca ≈ os 28.5px aprovados pelo dono ("50% maior"
+     era sobre o título de 19px do entrega — o token central é menor) */
+  font-size: calc(var(--casca-text-title, 1.06rem) * 2);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  background:
+    linear-gradient(115deg, transparent 42%, color-mix(in srgb, #fff 90%, transparent) 50%, transparent 58%),
+    linear-gradient(100deg,
+      var(--hbx-primary) 0%,
+      var(--hbx-secondary) 22%,
+      var(--hbx-success) 42%,
+      var(--hbx-warning) 62%,
+      var(--hbx-brand-strong) 82%,
+      var(--hbx-primary) 100%);
+  background-size: 240% 100%, 340% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: hbx-mark-agua 6.5s ease-in-out infinite alternate;
+  filter:
+    drop-shadow(0 1px 0 color-mix(in srgb, var(--hbx-brand-strong) 65%, #000))
+    drop-shadow(0 2px 0 color-mix(in srgb, var(--hbx-brand-strong) 40%, #000))
+    drop-shadow(0 7px 12px color-mix(in srgb, var(--hbx-foreground) 45%, transparent))
+    drop-shadow(0 0 16px color-mix(in srgb, var(--hbx-secondary) 45%, transparent));
+}
+@keyframes hbx-mark-agua {
+  from { background-position: 240% 0, 0% 50%; }
+  to { background-position: -140% 0, 100% 50%; }
+}
+/* a PULSADA (clique em qualquer lugar da página) — squash de gota forte */
+[data-casca="premium"] .hbx-mark-viva.is-splash {
+  animation: hbx-mark-pulse 0.62s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes hbx-mark-pulse {
+  0% { transform: translate(-50%, -50%) scale(1); }
+  30% { transform: translate(-50%, -54%) scale(1.3) rotate(-2deg); }
+  58% { transform: translate(-50%, -48%) scale(0.94) rotate(1.2deg); }
+  80% { transform: translate(-50%, -51%) scale(1.06); }
+  100% { transform: translate(-50%, -50%) scale(1); }
+}
+/* flash no chevron junto da pulsada (brilho estoura e assenta) */
+[data-casca="premium"] .hbx-mark-viva.is-splash svg {
+  animation: hbx-mark-chev-flash 0.5s ease-out;
+}
+@keyframes hbx-mark-chev-flash {
+  0% { filter: drop-shadow(0 2px 0 color-mix(in srgb, var(--hbx-brand-strong) 60%, #000)) drop-shadow(0 0 22px var(--hbx-secondary)) brightness(1.6); }
+  100% { filter: drop-shadow(0 2px 0 color-mix(in srgb, var(--hbx-brand-strong) 60%, #000)) drop-shadow(0 0 10px color-mix(in srgb, var(--hbx-primary) 65%, transparent)) brightness(1); }
+}
+/* ANEL DUPLO de água se espalhando (a "reação"): onda interna rápida +
+   onda externa mais lenta e larga — como gota caindo de verdade */
+[data-casca="premium"] .hbx-mark-viva::before,
+[data-casca="premium"] .hbx-mark-viva::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(0.35);
+  opacity: 0;
+  pointer-events: none;
+}
+[data-casca="premium"] .hbx-mark-viva::before {
+  width: 54px;
+  height: 54px;
+  border: 2.5px solid color-mix(in srgb, var(--hbx-primary) 65%, transparent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--hbx-secondary) 40%, transparent), inset 0 0 8px color-mix(in srgb, var(--hbx-primary) 25%, transparent);
+}
+[data-casca="premium"] .hbx-mark-viva::after {
+  width: 72px;
+  height: 72px;
+  border: 1.5px solid color-mix(in srgb, var(--hbx-secondary) 55%, transparent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--hbx-primary) 30%, transparent);
+}
+[data-casca="premium"] .hbx-mark-viva.is-splash::before {
+  animation: hbx-mark-gota 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+[data-casca="premium"] .hbx-mark-viva.is-splash::after {
+  animation: hbx-mark-gota2 0.85s cubic-bezier(0.22, 1, 0.36, 1) 0.07s;
+}
+@keyframes hbx-mark-gota {
+  0% { opacity: 0.95; transform: translate(-50%, -50%) scale(0.35); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1.9); }
+}
+@keyframes hbx-mark-gota2 {
+  0% { opacity: 0.8; transform: translate(-50%, -50%) scale(0.3); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(2.3); }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-casca="premium"] .hbx-mark-viva__i,
+  [data-casca="premium"] .hbx-mark-viva strong,
+  [data-casca="premium"] .hbx-mark-viva.is-splash,
+  [data-casca="premium"] .hbx-mark-viva.is-splash svg,
+  [data-casca="premium"] .hbx-mark-viva.is-splash::before,
+  [data-casca="premium"] .hbx-mark-viva.is-splash::after { animation: none; }
 }

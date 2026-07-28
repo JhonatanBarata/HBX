@@ -12,7 +12,8 @@ import React, { useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { createPortal } from "react-dom";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
-import { applyThemeSoft, DEFAULT_PELE, getActivePele, PELES, setAppTheme, setThemeMode } from "@/components/hbx/theme-attributes";
+import { applyThemeSoft, getCascaAtiva, getTemaAtivo, setCasca, setTema, setThemeMode } from "@/components/hbx/theme-attributes";
+import { CASCAS, escolheModo, escolheTema, getCasca } from "@/lib/aparencia";
 import { apiFetch, getToken } from "@/lib/api";
 import { getInitialGeoState, hasStoredGeo, toggleGeoRadar } from "@/lib/geo-radar";
 import { logout } from "@/lib/logout";
@@ -1032,38 +1033,97 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
 
 export function subscribeToThemeMode(callback: () => void) {
   const obs = new MutationObserver(callback);
-  obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-theme-mode"] });
+  // data-casca entrou na lista (28/07): trocar de casca precisa re-renderizar
+  // o menu Aparência (a Corporativa esconde tema e modo) e o ModeToggle.
+  obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-casca", "data-theme", "data-theme-mode"] });
   return () => obs.disconnect();
 }
 
-// Seletor de PELE (AS 5 LEIS: pele = tokens + camada de vestir; troca na
-// MESMA tela, sem navegação). Visual 100% das classes centrais.
-export function PeleSwitch() {
-  const ativa = useSyncExternalStore(subscribeToThemeMode, getActivePele, () => DEFAULT_PELE);
+// ---------------------------------------------------------------
+// APARÊNCIA (dono 28/07) — UM menu para os três eixos: CASCA, TEMA e MODO.
+// Substituiu o antigo PeleSwitch (que misturava casca e cor num valor só) e
+// absorveu o botão sol/lua. As capacidades vêm do registro em lib/aparencia.ts:
+// a Corporativa declara 1 tema e 1 modo, então tema e modo simplesmente não
+// aparecem para ela — a regra é do CONTRATO, não um `if` escrito aqui.
+// Trocar NÃO navega e NÃO recarrega: a tela aberta (busca, filtros, abas,
+// dados) continua exatamente onde estava.
+// Visual 100% de classes centrais (.btn-ghost/.hbx-pop/.nav-item); os style
+// inline abaixo são só posição/caixa — nada de cor, borda ou sombra (Lei nº1).
+// ---------------------------------------------------------------
+export function AparenciaSwitch() {
+  const cascaKey = useSyncExternalStore(subscribeToThemeMode, getCascaAtiva, () => "premium" as const);
+  const temaKey = useSyncExternalStore(subscribeToThemeMode, getTemaAtivo, () => "login" as const);
+  const modeAttr = useSyncExternalStore(
+    subscribeToThemeMode,
+    () => document.documentElement.getAttribute("data-theme-mode"),
+    () => null,
+  );
   const [open, setOpen] = useState(false);
   const boxRef = useClickAway<HTMLSpanElement>(open, () => setOpen(false));
-  const label = PELES.find(p => p.key === ativa)?.label || PELES[0].label;
+
+  const casca = getCasca(cascaKey);
+  const isDark = modeAttr === "dark";
+
   return (
     <span ref={boxRef} style={{ position: "relative", display: "inline-flex" }}>
       <button className="btn-ghost" style={{ minHeight: 32, gap: 6 }} onClick={() => setOpen(o => !o)}
-        aria-expanded={open} aria-label="Escolher pele" title="Pele do sistema" data-tut="pele">
-        {label} ▾
+        aria-expanded={open} aria-label="Escolher aparência" title="Aparência do sistema" data-tut="pele">
+        {casca.label} ▾
       </button>
       {open && (
-        <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, minWidth: 150, padding: 6, display: "grid", gap: 2 }}>
-          {PELES.map(p => (
-            <button key={p.key} className={"nav-item" + (p.key === ativa ? " active" : "")} style={{ minHeight: 32 }}
-              onClick={() => { setAppTheme(p.key); setOpen(false); }}>
-              {p.label}
+        <div className="hbx-pop" role="menu" aria-label="Aparência"
+          style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, minWidth: 208, padding: 6, display: "grid", gap: 2 }}>
+          <small className="muted" style={{ padding: "4px 8px 2px" }}>Casca</small>
+          {CASCAS.map(c => (
+            <button key={c.key} role="menuitemradio" aria-checked={c.key === casca.key} title={c.hint}
+              className={"nav-item" + (c.key === casca.key ? " active" : "")} style={{ minHeight: 32 }}
+              onClick={() => { setCasca(c.key); setOpen(false); }}>
+              {c.label}
             </button>
           ))}
+
+          {escolheTema(casca) && (
+            <>
+              <small className="muted" style={{ padding: "8px 8px 2px" }}>Tema</small>
+              {casca.temas.map(t => (
+                <button key={t.key} role="menuitemradio" aria-checked={t.key === temaKey}
+                  className={"nav-item" + (t.key === temaKey ? " active" : "")} style={{ minHeight: 32 }}
+                  onClick={() => { setTema(t.key); setOpen(false); }}>
+                  {t.label}
+                </button>
+              ))}
+            </>
+          )}
+
+          {escolheModo(casca) && (
+            <>
+              <small className="muted" style={{ padding: "8px 8px 2px" }}>Modo</small>
+              <button role="menuitemradio" aria-checked={!isDark}
+                className={"nav-item" + (!isDark ? " active" : "")} style={{ minHeight: 32 }}
+                onClick={() => { applyThemeSoft(() => setThemeMode("light")); setOpen(false); }}>
+                <I d={ICONS.sun} size={15} /> Claro
+              </button>
+              <button role="menuitemradio" aria-checked={isDark}
+                className={"nav-item" + (isDark ? " active" : "")} style={{ minHeight: 32 }}
+                onClick={() => { applyThemeSoft(() => setThemeMode("dark")); setOpen(false); }}>
+                <I d={ICONS.moon} size={15} /> Escuro
+              </button>
+            </>
+          )}
         </div>
       )}
     </span>
   );
 }
 
+/**
+ * Atalho sol/lua. Continua existindo para as telas que têm chrome próprio
+ * (/master, vitrine /dev/pele), mas agora OBEDECE À CASCA: some na
+ * Corporativa, que é clara fixa — em vez de oferecer um botão que o contrato
+ * ia desfazer no próximo boot.
+ */
 export function ModeToggle() {
+  const cascaKey = useSyncExternalStore(subscribeToThemeMode, getCascaAtiva, () => "premium" as const);
   const modeAttr = useSyncExternalStore(
     subscribeToThemeMode,
     () => document.documentElement.getAttribute("data-theme-mode"),
@@ -1073,6 +1133,7 @@ export function ModeToggle() {
   function flip() {
     applyThemeSoft(() => setThemeMode(isDark ? "light" : "dark"));
   }
+  if (!escolheModo(getCasca(cascaKey))) return null;
   return (
     <button className="round-btn" onClick={flip} title={isDark ? "Tema claro" : "Tema escuro"} aria-label="Alternar claro/escuro" data-tut="theme-mode">
       <I d={isDark ? ICONS.sun : ICONS.moon} size={17} />
@@ -1487,8 +1548,7 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
             <I d={ICONS.help} size={17} />
           </button>
         )}
-        <PeleSwitch />
-        <ModeToggle />
+        <AparenciaSwitch />
         {podeNovoLead && (
           <button className="round-btn add" title="Novo lead" aria-label="Novo lead" onClick={abrirNovoLead} data-tut="novo-lead"><I d={ICONS.plus} size={16} /></button>
         )}

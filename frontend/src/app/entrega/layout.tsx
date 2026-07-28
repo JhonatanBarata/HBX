@@ -7,7 +7,7 @@ import { EntregaSkinGate } from "./entrega-skin-gate";
 // Rota FORA do grupo (app): NÃO renderiza AppShell/Sidebar/MobileTabBar
 // — casca limpa, mobile. Tudo mora dentro de [data-skin="entrega"], que
 // redefine as próprias CSS vars (entrega.css) e ISOLA das peles do
-// dashboard (aurora/ember/...): o PeleSwitch troca [data-theme] no <html>,
+// dashboard (aurora/ember/...): o menu Aparência troca [data-theme] no <html>,
 // mas nada dele vaza pra dentro deste escopo.
 //
 // PWA PRÓPRIO: o `manifest` desta metadata sobrescreve, só nesta rota, o

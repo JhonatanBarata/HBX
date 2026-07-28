@@ -1,0 +1,223 @@
+/* ============================================================
+   HBX — CASCA CORPORATIVA (dono 28/07/2026)
+
+   "Cara de Excel" lida como AMBIENTE PROFISSIONAL ORIENTADO A DADOS — não
+   como cópia da interface do Excel. Densidade alta, grade visível, cabeçalho
+   fixo, números alinhados e monoespaçados, zero vidro, sombra mínima, canto
+   discreto, movimento curto.
+
+   DIVISÃO DE TRABALHO (AS 5 LEIS):
+     theme-corporativa.css → COR, borda, sombra, vidro (é lá que hex pode)
+     casca-corporativa.css → DENSIDADE e geometria (aqui; só var()/color-mix)
+
+   A DENSIDADE NASCE AQUI, NUNCA NA TELA. Esta folha reescreve a escada
+   estrutural do spacing.css (--row-height, --control-height, --field-height,
+   --rail-width, --radius-*, --shell-gap…). Toda tela que já consome esses
+   tokens fica densa DE GRAÇA, sem uma linha de código por rota e sem nenhum
+   `if (casca === "corporativa")` dentro de componente nenhum.
+
+   O que ainda tem px cravado na própria tela (o levantamento de 28/07 achou
+   ~1.500 declarações em screens.css/vendas-*.css) NÃO responde a esta folha
+   — é a fila de tokenização das próximas etapas, família por família. Onde
+   isso aparecer, a tela fica corporativa na cor e na grade, mas ainda folgada
+   na altura. É esperado e está mapeado.
+
+   Importada DEPOIS das peles e das outras cascas (globals.css): em empate de
+   especificidade, a casca vence a camada de vestir do tema.
+   ============================================================ */
+
+/* ---- 1. ESCADA ESTRUTURAL — a identidade densa da casca ------------------
+   [data-casca="corporativa"][data-theme] = mesmo elemento (html) e mesma
+   especificidade dos blocos de tema; importa por último, então vence. */
+[data-casca="corporativa"][data-theme] {
+  /* GEOMETRIA — canto discreto. Nada de balão. */
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 4px;
+  /* a pílula MORRE aqui: chip/badge/nav viram retângulo de planilha */
+  --radius-pill: 3px;
+  --control-radius: var(--radius-sm);
+  --panel-radius: var(--radius-lg);
+  --hero-radius: var(--radius-lg);
+
+  /* DENSIDADE — o degrau que separa a Corporativa da Premium. */
+  --row-height: 29px;         /* linha de dados (Premium: 36px)  */
+  --control-height: 26px;     /* botão (Premium: 28px)           */
+  --control-height-sm: 22px;
+  --field-height: 27px;       /* input (Premium: 32px)           */
+
+  /* CROMO — menos moldura, mais dado na tela. */
+  --rail-width: 190px;        /* menu (Premium: 200px)           */
+  --rail-width-min: 48px;
+  --context-width: 220px;
+  --shell-gap: 0px;           /* painéis encostam: vira grade     */
+  --content-gutter: 0px;
+
+  /* RITMO — escada de 4px comprimida um degrau. */
+  --space-3: 10px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 20px;
+  --space-8: 26px;
+
+  /* UMA LETRA SÓ — hierarquia por tamanho e cor, não por trocar de família. */
+  --font-display: var(--font-body);
+
+  /* MOVIMENTO — curto e funcional. Nada de animação permanente de fundo. */
+  --enter-name: hbx-enter-fade;
+  --enter-stagger: 0ms;
+}
+
+/* ---- 2. SHELL — superfície chapada, sem vidro, com linha de separação --- */
+[data-casca="corporativa"] .app {
+  background: var(--surface-canvas);
+}
+[data-casca="corporativa"] .side {
+  background: var(--hbx-nav-surface);
+  border-right: 1px solid var(--border-strong);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+[data-casca="corporativa"] .topbar {
+  background: var(--hbx-header-surface);
+  border-bottom: 1px solid var(--border-strong);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+/* ---- 3. NAVEGAÇÃO — item ativo retangular, marcado na lateral ---------- */
+[data-casca="corporativa"] .nav-item {
+  border-radius: 0;
+  padding-block: 3px;
+}
+[data-casca="corporativa"] .nav-item.active {
+  background: var(--hbx-brand-soft);
+  color: var(--hbx-brand-strong);
+  font-weight: 700;
+  box-shadow: inset 3px 0 0 var(--hbx-brand);
+}
+
+/* ---- 4. TABELA — o coração da casca ------------------------------------
+   `.tbl` é a classe CENTRAL de tabela (kit.css), usada hoje por Vendas,
+   Financeiro, Gerencial, Relatórios, Leads, Estoque e as 8 janelas do Master.
+   Vestir ela aqui deixa TODAS densas de uma vez — é exatamente o ganho de
+   tratar por família em vez de tela por tela. */
+[data-casca="corporativa"] .tbl th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: var(--control-height);
+  padding: 0 var(--space-2);
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-body);
+  background: var(--hbx-table-head);
+  border-bottom: 1px solid var(--border-strong);
+  border-right: 1px solid var(--border-hairline);
+}
+[data-casca="corporativa"] .tbl td {
+  height: var(--row-height);
+  padding: 0 var(--space-2);
+  border-right: 1px solid var(--border-hairline);
+  border-bottom: 1px solid var(--border-hairline);
+}
+/* zebra: leitura horizontal em linha fina (o que o Excel acerta) */
+[data-casca="corporativa"] .tbl tbody tr:nth-child(even) td {
+  background: var(--hbx-surface-soft);
+}
+[data-casca="corporativa"] .tbl tbody tr:hover td {
+  background: color-mix(in srgb, var(--hbx-brand) 10%, transparent);
+}
+[data-casca="corporativa"] .tbl tbody tr.sel td {
+  background: var(--hbx-brand-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hbx-brand) 45%, transparent);
+}
+/* Célula de DUAS linhas (`.co` = nome + subtítulo). Na linha de 29px o par
+   nasceu grudado: 14,4px + 3 de gap + 11,7px = 29,1 dentro de 30 — cabia por
+   0,9px, o que na tela lê como texto encostando na borda. Zerar o gap e travar
+   a entrelinha devolve ~4px de respiro sem afrouxar a linha nem esconder o
+   subtítulo (que é dado, não enfeite). */
+[data-casca="corporativa"] .tbl .co {
+  gap: 0;
+  align-content: center;
+}
+[data-casca="corporativa"] .tbl .co strong { line-height: 1.25; }
+[data-casca="corporativa"] .tbl .sub2 { line-height: 1.15; }
+
+/* números: monoespaçado, tabular e alinhado à direita — coluna que soma */
+[data-casca="corporativa"] .tbl .hbx-mono,
+[data-casca="corporativa"] .tbl td.hbx-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ---- 4b. CHIPS DE STATUS — retângulo, não pílula ----------------------
+   `.tag` é a classe CENTRAL de status e crava `border-radius: 999px` (são 49
+   raios cravados assim no kit.css). Vestir componente central é papel DA
+   CASCA, então o override mora aqui e não no kit: assim Premium e Backup
+   continuam byte-a-byte como estavam. Tokenizar os 49 no kit é item da fila
+   de tokenização — quando isso acontecer, esta regra vira desnecessária e sai. */
+[data-casca="corporativa"] .tag {
+  border-radius: var(--radius-sm);
+}
+
+/* ---- 5. PAINÉIS E CARDS — planos, retangulares, sem halo -------------- */
+[data-casca="corporativa"] .kpi,
+[data-casca="corporativa"] .plan-card {
+  border-radius: var(--panel-radius);
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-xs);
+  padding: var(--space-3);
+}
+[data-casca="corporativa"] .kpi-icon {
+  border-radius: var(--radius-sm);
+  width: 30px;
+  height: 30px;
+}
+[data-casca="corporativa"] .avatar,
+[data-casca="corporativa"] .avatar .avatar-img {
+  border-radius: var(--radius-sm);
+}
+
+/* ---- 6. CONTROLES — alvo compacto, canto seco ------------------------- */
+[data-casca="corporativa"] .search {
+  min-height: var(--field-height);
+  border-radius: var(--control-radius);
+  border-color: var(--border-strong);
+}
+[data-casca="corporativa"] .round-btn {
+  border-radius: var(--control-radius);
+  width: var(--control-height);
+  height: var(--control-height);
+}
+
+/* ---- 7. STATUS — cor + forma + texto, nunca só cor -------------------
+   O pip do termômetro vira quadrado: em densidade alta o círculo de 6px
+   some, e a leitura por FORMA sobrevive a monitor ruim e a daltonismo. */
+[data-casca="corporativa"] .vnd-therm__pip {
+  width: 5px;
+  height: 9px;
+  border-radius: 1px;
+}
+[data-casca="corporativa"] .vnd-therm[data-score="4"] .vnd-therm__pip.is-on,
+[data-casca="corporativa"] .vnd-therm[data-score="5"] .vnd-therm__pip.is-on {
+  box-shadow: none;   /* sem halo: brilho é linguagem da Premium */
+}
+
+/* ---- 8. SEM VIDRO EM LUGAR NENHUM ------------------------------------
+   Rede de segurança: qualquer painel que ainda peça blur na folha de tela
+   (o levantamento achou 21 usos) fica chapado enquanto a Corporativa estiver
+   ativa. Blur em superfície grande é o que mais custa em GPU fraca — e é
+   justamente o oposto da identidade desta casca. */
+[data-casca="corporativa"] .glass,
+[data-casca="corporativa"] .hbx-pop,
+[data-casca="corporativa"] .modal,
+[data-casca="corporativa"] .drawer {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}

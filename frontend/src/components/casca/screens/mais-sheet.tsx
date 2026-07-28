@@ -15,7 +15,8 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { Av, I, ICONS, type SignalState, subscribeToThemeMode } from "@/components/hbx/shell";
-import { applyThemeSoft, DEFAULT_PELE, getActivePele, PELES, setAppTheme, setThemeMode } from "@/components/hbx/theme-attributes";
+import { applyThemeSoft, getCascaAtiva, getTemaAtivo, setTema, setThemeMode } from "@/components/hbx/theme-attributes";
+import { escolheModo, escolheTema, getCasca, type TemaKey } from "@/lib/aparencia";
 import { apiFetch } from "@/lib/api";
 import { getInitialGeoState, hasStoredGeo, subscribeGeoUpdated, toggleGeoRadar } from "@/lib/geo-radar";
 import { logout } from "@/lib/logout";
@@ -221,13 +222,22 @@ function ComissoesSheet({ open, onClose }: { open: boolean; onClose: () => void 
 }
 
 // ---------------------------------------------------------------
-// Controles compactos de Tema (modo claro/escuro + pele) — reusa
-// setThemeMode/setAppTheme/PELES de theme-attributes (mesma fonte única do
-// desktop), apresentação nova da casca (segmented + chips de pele). Exportado
-// como TemaSection: a tela Configuracoes (Aparência) reusa o MESMO controle,
-// sem duplicar lógica de tema.
+// Controles compactos de Tema (modo claro/escuro + cor) — reusa
+// setThemeMode/setTema de theme-attributes (mesma fonte única do desktop),
+// apresentação nova da casca (segmented + chips). Exportado como TemaSection:
+// a tela Configuracoes (Aparência) reusa o MESMO controle, sem duplicar lógica.
+//
+// 28/07: passou a ler as capacidades da CASCA ativa (lib/aparencia.ts). Na
+// Corporativa — clara fixa, um tema só — as duas linhas somem em vez de
+// oferecer escolha que o contrato desfaz no próximo boot. A escolha de casca
+// em si vive no menu Aparência do desktop; aqui é só cor e modo.
 // ---------------------------------------------------------------
 export function TemaSection() {
+  const cascaKey = useSyncExternalStore(
+    subscribeToThemeMode,
+    () => (typeof document !== "undefined" ? getCascaAtiva() : "premium" as const),
+    () => "premium" as const,
+  );
   const modeAttr = useSyncExternalStore(
     subscribeToThemeMode,
     () => (typeof document !== "undefined" ? document.documentElement.getAttribute("data-theme-mode") : null),
@@ -235,28 +245,30 @@ export function TemaSection() {
   );
   const isDark = modeAttr === "dark";
   const modeKey = isDark ? "dark" : "light";
+  const casca = getCasca(cascaKey);
   // lazy init: leitura síncrona do atributo já aplicado no <html> (boot inline
   // do layout.tsx já rodou antes da hidratação) — sem useEffect, sem
-  // set-state-in-effect. Troca local (escolherPele) já mantém o state em dia.
-  const [pele, setPele] = useState<string>(() => (typeof document !== "undefined" ? getActivePele() : DEFAULT_PELE));
+  // set-state-in-effect. Troca local (escolherTema) já mantém o state em dia.
+  const [tema, setTemaLocal] = useState<TemaKey>(() => (typeof document !== "undefined" ? getTemaAtivo() : "login"));
 
   // Seleção ativa = SEMPRE Glass Pill deslizante (Lei nº2, docs/Rules/FRONTEND.md)
   // — mesmo par hook+componente que Conversas (conversas-lista.tsx) já usa.
   const modeGp = useGlassPill<HTMLButtonElement>(modeKey);
-  const peleGp = useGlassPill<HTMLButtonElement>(pele, PELES.length);
+  const temaGp = useGlassPill<HTMLButtonElement>(tema, casca.temas.length);
 
   function flipMode(next: "light" | "dark") {
     if ((next === "dark") === isDark) return;
     applyThemeSoft(() => setThemeMode(next));
   }
 
-  function escolherPele(key: string) {
-    setPele(key);
-    setAppTheme(key);
+  function escolherTema(key: TemaKey) {
+    setTemaLocal(key);
+    setTema(key);
   }
 
   return (
     <div className="mais-m__tema">
+      {escolheModo(casca) && (
       <div className="mais-m__tema-row">
         <span className="mais-m__tema-label">Modo</span>
         <div className="casca-segment mais-m__mode-seg glass-pill-track" role="tablist" aria-label="Modo claro ou escuro">
@@ -283,25 +295,28 @@ export function TemaSection() {
           </button>
         </div>
       </div>
+      )}
+      {escolheTema(casca) && (
       <div className="mais-m__tema-row">
-        <span className="mais-m__tema-label">Pele</span>
-        <div className="mais-m__pele-chips glass-pill-track" role="tablist" aria-label="Pele">
-          <GlassPill {...peleGp} />
-          {PELES.map(p => (
+        <span className="mais-m__tema-label">Tema</span>
+        <div className="mais-m__pele-chips glass-pill-track" role="tablist" aria-label="Tema">
+          <GlassPill {...temaGp} />
+          {casca.temas.map(t => (
             <button
               type="button"
               role="tab"
-              aria-selected={pele === p.key}
-              key={p.key}
-              ref={peleGp.itemRef(p.key)}
-              className={"mais-m__pele-chip glass-pill-item" + (pele === p.key ? " is-on" : "")}
-              onClick={() => escolherPele(p.key)}
+              aria-selected={tema === t.key}
+              key={t.key}
+              ref={temaGp.itemRef(t.key)}
+              className={"mais-m__pele-chip glass-pill-item" + (tema === t.key ? " is-on" : "")}
+              onClick={() => escolherTema(t.key)}
             >
-              {p.label}
+              {t.label}
             </button>
           ))}
         </div>
       </div>
+      )}
     </div>
   );
 }

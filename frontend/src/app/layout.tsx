@@ -9,6 +9,9 @@ import { GlobalErrorHost } from "@/components/hbx/error-popup";
 // @/lib/casca-mobile puxaria o hook useSyncExternalStore (client) pro bundle do
 // servidor → 500 em toda rota (Next recusa hook client em Server Component).
 import { CASCA_BOOT_ATTR, QUERY as CASCA_MOBILE_QUERY } from "@/lib/casca-mobile-const";
+// Mesma fronteira do -const acima: lib/aparencia.ts é NEUTRO (zero React) de
+// propósito, justamente pra poder ser importado daqui, de um Server Component.
+import { buildAparenciaBoot } from "@/lib/aparencia";
 
 export const metadata: Metadata = {
   title: "HBX System",
@@ -30,15 +33,15 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-// Boot de PELE antes da pintura (sem flash) — espelho de
-// components/hbx/theme-attributes.tsx (manter os dois em sincronia).
-// hbx:pele = uma das 4 opções "<cor>-mod" (aurora|ember|rose|hbx-cyber) —
-// a casca MODERN é a única (dono 07/07: cascas/temas clássicos removidos);
-// chave clássica salva de antes migra pra variante Mod da mesma cor.
-// hbx:mode = claro/escuro global automático. 15/06: a landing "/" deixou de
-// ser "html puro" — agora É o login (tokens + robô do tema), herda
-// data-theme/mode.
-const THEME_BOOT = `(function(){try{var h=document.documentElement;h.removeAttribute("data-engine");var B=["login","aurora","ember","rose","hbx-cyber"];var k=localStorage.getItem("hbx:pele")||"login-mod";if(!/-mod$/.test(k)){k=k+"-mod";}var base=k.slice(0,-4);if(B.indexOf(base)<0){k="login-mod";base="login";}h.setAttribute("data-theme",base);h.setAttribute("data-pele",k);h.setAttribute("data-casca","modern");var m=localStorage.getItem("hbx:mode");h.setAttribute("data-theme-mode",m==="dark"?"dark":"light");}catch(e){}})();`;
+// Boot de APARÊNCIA antes da pintura (sem flash de casca). NÃO é mais um
+// "espelho" escrito à mão do runtime: o script é GERADO do registro único em
+// lib/aparencia.ts, então boot e runtime não têm como sair de sincronia — que
+// era exatamente o defeito do modelo `hbx:pele`/"-mod" anterior (duas listas,
+// uma aqui e outra no theme-attributes.tsx).
+// Escreve data-casca + data-theme + data-theme-mode e migra a chave antiga.
+// 15/06: a landing "/" deixou de ser "html puro" — agora É o login (tokens +
+// robô do tema), herda os mesmos atributos.
+const THEME_BOOT = buildAparenciaBoot();
 
 // Boot da CASCA MOBILE antes da pintura (07/07, queixa do dono: reload no
 // celular piscava a sidebar desktop antes da moldura mobile aparecer) —

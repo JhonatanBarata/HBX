@@ -1,0 +1,123 @@
+/* ============================================================
+   HBX — TEMA CORPORATIVA (paleta da casca Corporativa, dono 28/07/2026)
+
+   NÃO é uma opção do seletor. A casca Corporativa é "clara fixa": ela não
+   oferece escolha de cor nem de modo. Este arquivo existe porque a paleta
+   precisa continuar nascendo do CONTRATO DE TOKENS (skeleton.css) como
+   qualquer outra pele — é o que permite a Corporativa vestir as MESMAS telas
+   sem nenhum `if (casca === ...)` dentro delas.
+
+   Divisão de trabalho (AS 5 LEIS):
+     theme-corporativa.css (aqui)  → COR, borda, sombra, vidro
+     casca-corporativa.css         → DENSIDADE e geometria (estrutura)
+
+   Direção: ambiente profissional orientado a dados. Fundo neutro claro,
+   superfície branca, linha de grade visível, azul sóbrio de ação, status por
+   cor + ícone + texto (nunca só por cor). Sem vidro, sem sombra grande, sem
+   gradiente decorativo.
+
+   SEM MODO ESCURO — de propósito. Este arquivo é importado DEPOIS do
+   skeleton.css, então `[data-theme="corporativa"]` (mesma especificidade que
+   o `[data-theme-mode="dark"]` de lá) vence o empate pela ordem da cascata:
+   uma preferência escura antiga fica ignorada enquanto a Corporativa estiver
+   ativa, exatamente como pedido na matriz de validação.
+   ============================================================ */
+
+[data-theme="corporativa"] {
+  /* ---- Marca / ações — azul corporativo sóbrio ------------------------- */
+  --hbx-brand: #15589E;
+  --hbx-brand-strong: #0F4478;
+  --hbx-brand-soft: #E4EDF6;
+  --hbx-brand-contrast: #FFFFFF;
+
+  --hbx-primary: #15589E;
+  --hbx-secondary: #4A5360;
+  --hbx-success: #137A45;
+  --hbx-accent: #15589E;
+
+  /* ---- Status — legíveis sobre branco, contraste AA ------------------- */
+  --hbx-info: #15589E;
+  --hbx-warning: #8A5D00;
+  --hbx-danger: #B3261E;
+  --hbx-danger-soft: #FBE9E7;
+
+  /* ---- Superfícies — planilha: canvas neutro, dado no branco ---------- */
+  --hbx-background: #ECEEF1;
+  --hbx-background-alt: #E4E7EB;
+  --hbx-surface: #FFFFFF;
+  --hbx-surface-soft: #F4F6F8;
+  --hbx-surface-raised: #E8ECF0;
+  --hbx-header-surface: #FFFFFF;
+  --hbx-nav-surface: #FFFFFF;
+  --hbx-field-surface: #FFFFFF;
+  --hbx-table-head: #E8ECF0;
+
+  /* ---- Hero — chapado (nada de brilho decorativo) --------------------- */
+  --hbx-hero-from: #FFFFFF;
+  --hbx-hero-to: #F4F6F8;
+  --hbx-hero-spotlight: transparent;
+
+  /* ---- Chat ----------------------------------------------------------- */
+  --hbx-chat-inbound: #FFFFFF;
+  --hbx-chat-outbound: #E4EDF6;
+  --hbx-chat-system: #F4F6F8;
+
+  /* ---- Texto ---------------------------------------------------------- */
+  --hbx-foreground: #14181D;
+  --hbx-foreground-soft: #4A5360;
+  --hbx-muted: #6E7783;
+
+  /* ---- Linhas / véu — a GRADE é identidade aqui ----------------------- */
+  --hbx-line: #D4D9DF;
+  --hbx-shadow: #000000;
+  --hbx-overlay: rgba(20, 24, 29, 0.38);
+  --border-hairline: #E2E6EA;
+  --border-strong: #B6BEC8;
+  --ring-brand: rgba(21, 88, 158, 0.30);
+
+  /* ---- Tinta sobre ações preenchidas + avatar ------------------------- */
+  --hbx-action-ink: #FFFFFF;
+  --hbx-avatar-from: #3C6FA8;
+  --hbx-avatar-to: #15589E;
+
+  /* ---- Profundidade — quase nada. Hierarquia vem da GRADE ------------- */
+  --shadow-xs: 0 1px 1px rgba(20, 24, 29, 0.06);
+  --shadow-sm: 0 1px 2px rgba(20, 24, 29, 0.08);
+  --shadow-md: 0 1px 3px rgba(20, 24, 29, 0.10);
+  --shadow-lg: 0 2px 8px rgba(20, 24, 29, 0.12);
+  --shadow-inset: inset 0 0 0 0 transparent;
+  --panel-glow: transparent;
+  --hero-glow: transparent;
+  --soft-ring: transparent;
+  /* SEM VIDRO: blur zerado no contrato — nenhuma tela precisa saber disso. */
+  --blur-chrome: 0px;
+  --blur-glass: 0px;
+
+  /* ---- Movimento — curto e funcional (nada de animação permanente) ---- */
+  --motion-fast: 90ms ease;
+  --motion-base: 130ms ease;
+  --motion-slow: 180ms ease;
+  --ease-out-quint: cubic-bezier(0.2, 0, 0.1, 1);
+  --enter-name: hbx-enter-fade;
+  --enter-duration: var(--motion-fast);
+  --enter-ease: var(--ease-out-quint);
+  --enter-stagger: 0ms;
+
+  /* ---- Traço dos ícones — mais firme, leitura em densidade alta ------- */
+  --icon-stroke: 1.8;
+
+  /* ---- Anel de carregamento — monocromático corporativo --------------- */
+  --casca-ring-1: #9DB4CC;
+  --casca-ring-2: #3C6FA8;
+  --casca-ring-3: #15589E;
+  --casca-ring-4: #0F4478;
+  --casca-ring-5: #C8D6E4;
+  --casca-ring-track: rgba(20, 24, 29, 0.08);
+  --casca-ring-glow: rgba(21, 88, 158, 0.18);
+  --casca-mark-1: #14181D;
+  --casca-mark-2: #4A5360;
+  --casca-mark-3: #15589E;
+
+  /* ---- Radar — instrumento continua legível sobre fundo claro --------- */
+  --radar-base: #0D1117;
+}

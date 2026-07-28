@@ -3,76 +3,88 @@
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 
+import {
+  CASCA_STORAGE, CASCAS, LEGACY_PELE_STORAGE, MODE_STORAGE, TEMA_STORAGE,
+  getCasca, resolveModo, resolveTema, temaDoLegado,
+  type CascaDef, type CascaKey, type Modo, type TemaKey,
+} from "@/lib/aparencia";
+
 // ================================================================
-// PELE — fonte única de aplicação de tema (AS 5 LEIS, FRONTEND.md).
-// Pele = arquivo theme-<key>.css (tokens + camada de vestir) +
-// entrada no registry abaixo + import no globals.css. NADA MAIS.
-// Esqueleto = sem data-theme (base neutra do skeleton.css).
-// Modo claro/escuro é GLOBAL e automático (hbx:mode →
-// data-theme-mode na escada de tokens; telas não sabem do dark).
-// Boot inline do layout.tsx espelha esta lógica — manter em sincronia.
+// APARÊNCIA — aplicação (o CONTRATO mora em lib/aparencia.ts).
+// Aqui só o que precisa do navegador: ler storage, escrever no <html>,
+// migrar o formato antigo e animar a troca.
 //
-// CASCAS (dono 07/07, aprovação 07/07 noite: "remover temas e cascas
-// antigas, ficou perfeito os 4 novos"): a casca MODERN (fundo infinito +
-// vidro, casca-modern.css) é a ÚNICA selecionável — as 4 opções clássicas
-// saíram do seletor. Mecânica continua genérica: entrada com
-// `casca: "modern"` aplica data-casca="modern" no <html> por cima do
-// data-theme da COR base (`base`) — os temas "<Nome> Mod" reusam os tokens
-// das peles de cor (theme-<base>.css segue vivo como fonte de token).
+// AS 5 LEIS seguem valendo: tema = arquivo theme-<key>.css (tokens) +
+// entrada no registro + import no globals.css. A CASCA é a camada de
+// cima — casca-<key>.css veste a MESMA estrutura com outra densidade
+// e outra superfície. Nenhuma tela sabe qual casca está ativa.
+//
+// O boot inline do layout.tsx é GERADO do mesmo registro
+// (buildAparenciaBoot) — não existe mais lista duplicada pra sair de
+// sincronia.
+//
+// REGRA DA MEMÓRIA (dono 28/07): a escolha Premium NUNCA é apagada por
+// entrar na Corporativa. Só gravamos o que o usuário ESCOLHE; o valor
+// aplicado é resolvido na hora contra as capacidades da casca. Quem
+// estava em Aurora escuro, entra na Corporativa e volta, acha Aurora
+// escuro do jeito que deixou.
 // ================================================================
 
-export type Pele = {
-  key: string;
-  label: string;
-  /** pele de COR cujos tokens este tema usa (default: a própria key) */
-  base?: string;
-  /** padrão de casca aplicado em data-casca */
-  casca?: "modern";
-};
+export type Aparencia = { casca: CascaDef; tema: TemaKey; modo: Modo };
 
-// Peles selecionáveis (4 cores, todas na casca MODERN). skeleton.css continua
-// sendo a BASE de tokens (o contrato neutro que toda pele veste) — só não é
-// uma opção do seletor.
-export const PELES: ReadonlyArray<Pele> = [
-  { key: "login-mod", label: "Login Mod", base: "login", casca: "modern" },
-  { key: "aurora-mod", label: "Aurora Mod", base: "aurora", casca: "modern" },
-  { key: "ember-mod", label: "Ember Mod", base: "ember", casca: "modern" },
-  { key: "rose-mod", label: "Rosé Mod", base: "rose", casca: "modern" },
-  { key: "hbx-cyber-mod", label: "Tema HBX Mod", base: "hbx-cyber", casca: "modern" },
-];
+function ler(key: string): string | null {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+function gravar(key: string, value: string) {
+  try { localStorage.setItem(key, value); } catch { /* sem storage */ }
+}
 
-// Pele padrão quando não há preferência salva (mantém o boot do layout.tsx
-// em sincronia se mudar).
-export const DEFAULT_PELE = "login-mod";
+/**
+ * O que está escolhido (não necessariamente o que está aplicado — a casca
+ * pode não suportar o tema/modo guardado; ver `aplicar`).
+ */
+export function getAparencia(): Aparencia {
+  let cascaKey = ler(CASCA_STORAGE);
+  let temaSalvo = ler(TEMA_STORAGE);
 
-const PELE_KEY = "hbx:pele";
-const MODE_KEY = "hbx:mode";
+  // Migração do valor combinado antigo (`hbx:pele = "aurora-mod"`). Roda uma
+  // vez: depois de gravar os eixos separados a chave velha é APAGADA.
+  if (!cascaKey) {
+    const legado = ler(LEGACY_PELE_STORAGE);
+    if (legado) {
+      const tema = temaDoLegado(legado);
+      cascaKey = "premium";
+      if (tema && !temaSalvo) temaSalvo = tema;
+      gravar(CASCA_STORAGE, cascaKey);
+      if (temaSalvo) gravar(TEMA_STORAGE, temaSalvo);
+      try { localStorage.removeItem(LEGACY_PELE_STORAGE); } catch { /* sem storage */ }
+    }
+  }
 
-function applyPele(html: HTMLElement, key: string | null) {
-  // Migração: chave clássica salva antes da remoção (aurora/ember/rose/
-  // hbx-cyber ou noir) cai na variante Mod da mesma cor, senão no padrão.
-  const pele = PELES.find(p => p.key === key)
-    ?? PELES.find(p => p.key === `${key}-mod`)
-    ?? PELES.find(p => p.key === DEFAULT_PELE)!;
-  // data-theme = pele de COR (tokens); data-pele = a escolha do usuário
-  // (o seletor destaca por ela); data-casca = padrão de casca (modern).
-  html.setAttribute("data-theme", pele.base ?? pele.key);
-  html.setAttribute("data-pele", pele.key);
-  if (pele.casca === "modern") html.setAttribute("data-casca", "modern");
-  else html.removeAttribute("data-casca");
+  const casca = getCasca(cascaKey);
+  return {
+    casca,
+    tema: resolveTema(casca, temaSalvo),
+    modo: resolveModo(casca, ler(MODE_STORAGE)),
+  };
+}
+
+/** Escreve os 3 atributos no <html>. Escrita ÚNICA de aparência do app. */
+function aplicar({ casca, tema, modo }: Aparencia) {
+  const html = document.documentElement;
+  html.setAttribute("data-casca", casca.attr);
+  html.setAttribute("data-theme", tema);
+  html.setAttribute("data-theme-mode", modo);
 }
 
 export function applyThemeForPath(_pathname: string) {
   // 15/06: a landing "/" agora É o login (usa tokens + robô do tema), então
   // NÃO é mais "html puro" — herda data-theme + data-theme-mode como o resto,
   // senão o robô não sincroniza com o modo (fumaça branca sobre robô preto).
-  const html = document.documentElement;
   try {
-    applyPele(html, localStorage.getItem(PELE_KEY));
-    const mode = localStorage.getItem(MODE_KEY);
-    html.setAttribute("data-theme-mode", mode === "dark" ? "dark" : "light");
+    aplicar(getAparencia());
   } catch {
-    html.setAttribute("data-theme-mode", "light");
+    document.documentElement.setAttribute("data-theme-mode", "light");
   }
 }
 
@@ -128,23 +140,44 @@ export function applyThemeSoft(mutate: () => void) {
   }, 2300);
 }
 
-// Troca de PELE na mesma tela — nunca navega.
-export function setAppTheme(key: string) {
+// ---- Trocas (sempre na MESMA tela: nenhuma delas navega ou recarrega) ----
+
+/** Troca a CASCA. Preserva tema/modo escolhidos — ver REGRA DA MEMÓRIA. */
+export function setCasca(key: CascaKey) {
   applyThemeSoft(() => {
-    try { localStorage.setItem(PELE_KEY, key); } catch { /* sem storage */ }
-    applyPele(document.documentElement, key);
+    gravar(CASCA_STORAGE, key);
+    aplicar(getAparencia());
   });
 }
 
-export function getActivePele(): string {
-  const html = document.documentElement;
-  return html.getAttribute("data-pele") || html.getAttribute("data-theme") || DEFAULT_PELE;
+/** Troca o TEMA de cor (só faz sentido em casca que escolhe tema). */
+export function setTema(key: TemaKey) {
+  applyThemeSoft(() => {
+    gravar(TEMA_STORAGE, key);
+    aplicar(getAparencia());
+  });
 }
 
-// Escrita ÚNICA do modo claro/escuro.
-export function setThemeMode(mode: "light" | "dark") {
+/**
+ * Escrita ÚNICA do modo claro/escuro. Continua "burra" de propósito: as telas
+ * PÚBLICAS (login, /rota, tutorial externo, /entrega) têm o próprio botão de
+ * claro/escuro e não vivem dentro de casca nenhuma. Quem clampa a Corporativa
+ * em claro é o boot + o applyThemeForPath ao entrar no app.
+ */
+export function setThemeMode(mode: Modo) {
   document.documentElement.setAttribute("data-theme-mode", mode);
-  try { localStorage.setItem(MODE_KEY, mode); } catch { /* sem storage */ }
+  gravar(MODE_STORAGE, mode);
+}
+
+/** Casca ativa lida do DOM (fonte da verdade do que está na tela). */
+export function getCascaAtiva(): CascaKey {
+  const attr = document.documentElement.getAttribute("data-casca");
+  return (CASCAS.find(c => c.attr === attr)?.key ?? "premium");
+}
+
+/** Tema ativo lido do DOM. */
+export function getTemaAtivo(): TemaKey {
+  return (document.documentElement.getAttribute("data-theme") as TemaKey) || "login";
 }
 
 export function ThemeAttributes() {
