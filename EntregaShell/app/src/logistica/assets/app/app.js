@@ -49,6 +49,8 @@
     // { dias, dates, dados, carregando, erro, removendo } | null = tela fechada.
     checagem: null,
     checagemRetorno: false,
+    // "Remover da Rota" (só hoje) — customerProfileIds fora desta montagem.
+    rotaExcluidos: [],
     idlePosicao: null,
     idleEndereco: null,
     idleEnderecoDetalhe: null,
@@ -5304,11 +5306,15 @@
     const e = item.endereco || {};
     const pedacos = [];
     const ruim = texto => `<b class="chk-ruim">${H.escape(texto)}</b>`;
+    // Endereço legado vem COMPOSTO ("Rua 3a, 1354 - Jd. Ypê"): repetir número e
+    // bairro depois dele escrevia a mesma coisa duas vezes na linha do dono.
+    const semAcento = texto => String(texto || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+    const jaEscrito = trecho => !!trecho && semAcento(e.logradouro).includes(semAcento(trecho));
     if (e.logradouro) pedacos.push(campos.has("endereco") ? ruim(e.logradouro) : H.escape(e.logradouro));
     else pedacos.push(ruim("sem rua"));
-    if (e.numero) pedacos.push(H.escape(e.numero));
-    else if (campos.has("numero")) pedacos.push(ruim("sem número"));
-    if (e.bairro) pedacos.push(H.escape(e.bairro));
+    if (e.numero && !jaEscrito(e.numero)) pedacos.push(H.escape(e.numero));
+    else if (!e.numero && campos.has("numero")) pedacos.push(ruim("sem número"));
+    if (e.bairro && !jaEscrito(e.bairro)) pedacos.push(H.escape(e.bairro));
     if (campos.has("cep")) pedacos.push(ruim(e.cep ? `CEP ${e.cep} é de outra rua` : "sem CEP"));
     if (campos.has("localizacao") && !campos.has("numero") && !campos.has("endereco")) pedacos.push(ruim("não achei no mapa"));
     return pedacos.join(", ");
@@ -5324,7 +5330,12 @@
       : c.carregando && !problemas.length
         ? loading()
         : `<div class="list chk-lista">${linhas}</div>`;
-    const extra = `<div class="center-modal-extra chk-acoes"><button class="btn btn-danger btn-block" type="button" data-action="checagem-remover" ${c.removendo || c.carregando ? "disabled" : ""}>${c.removendo ? "Tirando…" : `Tirar da rota e do dia (${problemas.length})`}</button></div>`;
+    // 28/07 (correção do dono, no meio do teste): são DUAS opções, não uma.
+    // "Remover da Rota" = só HOJE (o cliente continua com o dia salvo; volta na
+    // semana que vem). "Remover do dia" = tira o dia do CADASTRO dele (não volta
+    // sozinho nunca mais) — por isso esta pede confirmação e a outra não.
+    const trava = c.removendo || c.carregando ? "disabled" : "";
+    const extra = `<div class="center-modal-extra chk-acoes"><button class="btn btn-secondary btn-block" type="button" data-action="checagem-remover-rota" ${trava}>Remover da Rota (${problemas.length})</button><button class="btn btn-danger btn-block" type="button" data-action="checagem-remover" ${trava}>${c.removendo ? "Removendo…" : `Remover do dia (${problemas.length})`}</button></div>`;
     return centerModal({
       icon: "route",
       title: "Endereços com erro",
@@ -6565,6 +6576,22 @@
     } catch (error) { if (!creditsLockFromRouteError(error)) toast(humanApiError(error), true); }
     finally { hideLoading(); state.dayStarting = false; }
   }
+  // "Remover da Rota" da tela de erros (28/07): tira do que ESTA montagem leva,
+  // sem tocar no cadastro. Devolve a lista de entregas que sobram (null = nada a
+  // excluir). Some sozinho quando a rota é desfeita/aceita.
+  function aplicarExcluidosDaRota() {
+    const excluidos = new Set((state.rotaExcluidos || []).map(String));
+    if (!excluidos.size) return null;
+    const sobram = allRouteItems()
+      .filter(item => item.status !== "cancelada")
+      .filter(item => {
+        const cliente = item.cliente || {};
+        const id = String(item.customerProfileId || cliente.id || "");
+        return !excluidos.has(id);
+      })
+      .map(item => String(item.id));
+    return sobram;
+  }
   async function beginManagedRoute() {
     if (!state.daySelection.length || state.dayStarting) return;
     state.dayStarting = true; render();
@@ -6623,6 +6650,10 @@
           // montar viram "Adicionado ✓" nos chips.
           await refresh(true);
           setDiasAdicionados(state.daySelection);
+          // Item 1 (28/07) — "Remover da Rota" vale AQUI: a seleção passa a ser só
+          // quem sobrou (o Aceitar cobra pelo que está selecionado).
+          const sobramAdmin = aplicarExcluidosDaRota();
+          if (sobramAdmin) setRouteSelection(sobramAdmin);
           // S4 25/07 (PR25072026-ROTA-CONFERIDA) — mesmo ponto único de startRoute.
           await afterRoutaPlanejada("Rota planejada.");
           return;
@@ -6658,7 +6689,10 @@
       const manualOrder = state.dayOrderMode !== "app" && state.dayManualOrder.length ? manualOrderDeliveryIds(allRouteItems()) : null;
       if (manualOrder && manualOrder.length) setRouteOrdemManual(manualOrder); else clearRouteOrdemManual();
       await saveManualRouteModeloIfNeeded();
-      setRouteSelection(deliveryIds);
+      // Item 1 (28/07) — a seleção já nasce sem quem o dono removeu da rota de hoje.
+      const excluidosHoje = new Set((state.rotaExcluidos || []).map(String));
+      const idsCliente = new Map(allRouteItems().map(item => [String(item.id), String(item.customerProfileId || (item.cliente || {}).id || "")]));
+      setRouteSelection(excluidosHoje.size ? deliveryIds.filter(id => !excluidosHoje.has(idsCliente.get(String(id)) || "")) : deliveryIds);
       // R1 (27/07) — mesmo contrato do ramo admin acima: planejar fica NA tela
       // única (a conferência renderiza nela); só o iniciar de verdade fecha.
       if (state.dayMode === "plan") setDiasAdicionados(state.daySelection);
@@ -6786,6 +6820,8 @@
       clearRouteEngineState();
       // R1 (27/07) — sem rota, nenhum dia é "Adicionado ✓" nos chips da montagem.
       clearDiasAdicionados();
+      // A exclusão "só hoje" da tela de erros morre junto com a rota.
+      state.rotaExcluidos = [];
       // Item 7 (28/07) — a rota morreu: o carimbo de "já aceita" morre com ela
       // (a próxima montagem do dia volta a se desfazer ao sair sem aceitar).
       limparRotaAceita();
@@ -7561,6 +7597,21 @@
     // 🔴 ITEM 1 (28/07) — ações da tela "Endereços com erro".
     if (action === "checagem-fechar") { state.checagem = null; render(); return; }
     if (action === "checagem-verificar") { await recarregarChecagem(); return; }
+    if (action === "checagem-remover-rota") {
+      const c = state.checagem;
+      const ids = [...new Set((((c && c.dados && c.dados.problemas) || []).map(p => String(p.customerProfileId)).filter(Boolean)))];
+      if (!c || !ids.length) return;
+      // Só HOJE: nada de cadastro. Os clientes ficam de fora da montagem que vem
+      // agora (a seleção da rota é quem manda no que entra — mesmo mecanismo de
+      // "Minha ordem"/rota salva), e o dia deles continua salvo pra próxima.
+      state.rotaExcluidos = ids;
+      state.daySelection = c.dias;
+      state.checagem = null;
+      render();
+      toast(`${ids.length} ${ids.length === 1 ? "cliente fica" : "clientes ficam"} fora da rota de hoje.`);
+      void beginManagedRoute();
+      return;
+    }
     if (action === "checagem-remover") {
       const c = state.checagem;
       const quantos = ((c && c.dados && c.dados.problemas) || []).length;
@@ -7569,9 +7620,9 @@
       // moldura .app-confirm de toda ação destrutiva do app).
       state.confirmation = {
         type: "checagem-remover",
-        title: "Tirar da rota e do dia?",
-        message: `${quantos} ${quantos === 1 ? "cliente sai" : "clientes saem"} deste dia e não voltam sozinhos.`,
-        confirmLabel: "Tirar",
+        title: "Remover do dia?",
+        message: `${quantos} ${quantos === 1 ? "cliente perde" : "clientes perdem"} este dia no cadastro e não voltam sozinhos.`,
+        confirmLabel: "Remover",
         danger: true,
         icon: "users",
       };

@@ -1569,8 +1569,13 @@ html.keyboard-open .recarga-checkout-actions { position: sticky; z-index: 8; bot
 
 /* 28/07 (item 1) — tela "Endereços com erro": SÓ dado em linha. O pedaço quebrado
    do endereço vem em vermelho (token --danger), o resto em texto normal. */
-.chk-lista .chk-linha { align-items: center; }
-.chk-endereco { display: block; margin-top: 2px; font-size: .74rem; font-weight: 700; color: var(--muted); line-height: 1.35; }
-.chk-endereco .chk-ruim { color: var(--danger); font-weight: 900; }
+/* .card-main-btn nasce com width:0 (ele SÓ funciona dentro de um flex — mesma
+   lição de 22/07): sem isto a linha inteira fica invisível, com o cliente e o
+   endereço em largura zero. */
+.chk-lista .chk-linha { display: flex; align-items: center; gap: 10px; }
+.chk-lista .chk-linha .card-main-btn { flex: 1 1 auto; width: 0; min-width: 0; }
+/* o endereço é o DADO da tela: pode ocupar duas linhas em vez de virar "…" */
+span.chk-endereco { display: block; margin-top: 2px; font-size: .74rem; font-weight: 700; color: var(--muted); line-height: 1.35; white-space: normal; overflow: visible; text-overflow: clip; }
+span.chk-endereco .chk-ruim { color: var(--danger); font-weight: 900; }
 .chk-seta { padding-left: 6px; color: var(--muted); font-size: 1.1rem; font-weight: 900; }
 .chk-acoes { margin-top: 4px; }
