@@ -233,7 +233,7 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
     );
     const vinculos = await this.prisma.clienteProduto.findMany({
       where: { companyId, customerProfileId: conta.id, ativo: true },
-      select: { id: true, diasSemana: true, proximaData: true },
+      select: { id: true, diasSemana: true, proximaData: true, frequenciaDias: true },
     });
     for (const vinculo of vinculos) {
       if ((vinculo.diasSemana ?? null) === diasSemana) continue;
@@ -242,8 +242,17 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
         data: {
           diasSemana,
           // Ganhou dia fixo e não tinha data de partida: começa a valer hoje
-          // (mesma regra do create). Perdeu o dia: a data fica como estava.
+          // (mesma regra do create).
           ...(diasSemana && !vinculo.proximaData ? { proximaData: startOfDay(new Date()) } : {}),
+          // 🔴 28/07 — perdeu o ÚLTIMO dia fixo: a próxima data vai junto. A
+          // data sobrevivendo sozinha não é neutra: `diasDoVinculo` (espelho da
+          // Agenda) cai pro dia-da-semana do `proximaData` quando não há dia
+          // explícito, então o dia recém-removido voltava por essa porta, o
+          // diff dava "manter" e o plano da Agenda continuava ativo — o cliente
+          // VOLTAVA no roster, o oposto do que "Remover este dia do cadastro"
+          // promete. Medido no g15 em 28/07. Vínculo de cadência POR DATA
+          // (`frequenciaDias`) não é tocado: lá a data É a regra.
+          ...(!diasSemana && !vinculo.frequenciaDias ? { proximaData: null } : {}),
         },
       });
     }
