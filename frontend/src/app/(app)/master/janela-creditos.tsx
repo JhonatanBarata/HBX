@@ -51,7 +51,7 @@ import { reportError } from "@/lib/error-bus";
 import { useTabParam } from "@/lib/use-tab-param";
 
 import type { MasterCompany } from "./page.client";
-import { fmtDataHora } from "./page.client";
+import { accountTypeLabel, accountTypeTagClass, fmtDataHora } from "./page.client";
 
 const GUIAS = ["Visão geral", "Empresas", "Packs", "Ações", "Rota", "Config", "Recargas"] as const;
 type Guia = (typeof GUIAS)[number];
@@ -337,7 +337,6 @@ export function JanelaCreditos({ companies, reload }: {
   const [planoBusy, setPlanoBusy] = useState<number | null>(null);
   const [planoMsg, setPlanoMsg] = useState<string | null>(null);
 
-  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- setters de useState têm identidade estável; deps [] corretas
   const carregarPlanos = useCallback(() => {
     apiFetch<{ empresas?: EmpresaPlanoItem[] }>("/logistica/master/niveis/empresas")
       .then(res => setPlanos(Array.isArray(res?.empresas) ? res.empresas : []))
@@ -383,8 +382,9 @@ export function JanelaCreditos({ companies, reload }: {
     setDebitAmount("");
     setDebitReason("");
     setDebitMsg(null);
-    // Token novo a cada ABERTURA da intenção — mesmo contrato do conceder.
-    setDebitToken(`debit-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    // Token novo a cada ABERTURA da intenção — MESMO helper do conceder (fora do
+    // componente de propósito: Date.now/random dentro do render é impuro).
+    setDebitToken(newIdempotencyKey());
     setGrantOpenFor(null);
     void saldo;
   }
@@ -409,7 +409,8 @@ export function JanelaCreditos({ companies, reload }: {
         body: JSON.stringify({ amount, reason: debitReason.trim(), idempotencyKey: debitToken }),
       });
       setDebitMsg("✓ Débito aplicado.");
-      reload();
+      // `reload` é opcional na assinatura do componente (mesmo contrato do conceder).
+      await reload?.();
     } catch (e) {
       reportError(e);
       setDebitMsg(e instanceof Error ? e.message : "Falha ao debitar.");
@@ -774,21 +775,25 @@ export function JanelaCreditos({ companies, reload }: {
             <h2>Empresas ({(companies || []).length})</h2>
             <div className="meta">sem saldo primeiro</div>
           </div>
+          {planoMsg && <div className="sc-intro"><div className={"sc-msg " + (planoMsg.startsWith("✓") ? "is-ok" : "is-warn")}>{planoMsg}</div></div>}
           <div className="tbl-wrap">
             <table className="tbl">
               <thead>
-                <tr><th>Empresa</th><th>Saldo</th><th>Lotes ativos</th><th>Último consumo</th><th>Ação</th></tr>
+                <tr><th>Empresa</th><th>Conta HBX</th><th>Plano de Rota</th><th>Franquia do mês</th><th>Saldo</th><th>Ações</th></tr>
               </thead>
               <tbody>
                 {companies === null && (
-                  <tr><td colSpan={5} className="muted-note">Carregando…</td></tr>
+                  <tr><td colSpan={6} className="muted-note">Carregando…</td></tr>
                 )}
                 {companies !== null && companies.length === 0 && (
-                  <tr><td colSpan={5} className="muted-note">Nenhuma empresa na base.</td></tr>
+                  <tr><td colSpan={6} className="muted-note">Nenhuma empresa na base.</td></tr>
                 )}
                 {empresasOrdenadas.map(c => {
                   const meta = overviewByCompany.get(c.id);
                   const isOpen = grantOpenFor === c.id;
+                  const isDebitOpen = debitOpenFor === c.id;
+                  const plano = planoPorEmpresa.get(c.id);
+                  const franquiaAcabou = !!plano && plano.paradasInclusas > 0 && plano.paradasRestantes === 0;
                   return (
                     <React.Fragment key={c.id}>
                       <tr>
@@ -799,22 +804,61 @@ export function JanelaCreditos({ companies, reload }: {
                           </div>
                         </td>
                         <td>
-                          <span className={c.creditsBalance != null && c.creditsBalance <= 0 ? "tag red" : "tag teal"}>
-                            {c.creditsBalance != null ? n0(c.creditsBalance) : "—"}
-                          </span>
+                          <span className={accountTypeTagClass(c.accountType)}>{accountTypeLabel(c.accountType)}</span>
                         </td>
-                        <td>{meta?.activeLots ?? 0}</td>
-                        <td>{fmtDataHora(meta?.lastConsumptionAt)}</td>
                         <td>
-                          <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }}
-                            onClick={() => (isOpen ? fecharConceder() : abrirConceder(c.id))}>
-                            {isOpen ? "Cancelar" : "Conceder"}
-                          </button>
+                          {plano ? (
+                            <div className="co">
+                              <select className="field-dark" style={{ maxWidth: 130 }} value={plano.nivel}
+                                disabled={planoBusy === c.id}
+                                onChange={e => trocarPlano(c.id, e.target.value)}>
+                                <option value="BASIC">Basic</option>
+                                <option value="ADVANCED">Advanced</option>
+                                <option value="FULL">Full</option>
+                              </select>
+                              <span className="sub2">{brl(plano.precoMensal)}/mês</span>
+                            </div>
+                          ) : <span className="muted-note">—</span>}
+                        </td>
+                        <td>
+                          {plano && plano.paradasInclusas > 0 ? (
+                            <div className="co">
+                              <strong>{n0(plano.paradasUsadas)} / {n0(plano.paradasInclusas)}</strong>
+                              <span className="sub2">
+                                {franquiaAcabou ? "esgotada — consumindo crédito" : n0(plano.paradasRestantes) + " paradas restantes"}
+                              </span>
+                            </div>
+                          ) : <span className="muted-note">sem franquia</span>}
+                        </td>
+                        <td>
+                          <div className="co">
+                            <span className={c.creditsBalance != null && c.creditsBalance <= 0 ? "tag red" : "tag teal"}>
+                              {c.creditsBalance != null ? n0(c.creditsBalance) : "—"}
+                            </span>
+                            {/* lotes + último consumo continuam aqui (viraram sub-linha
+                                pra caber as colunas de plano sem perder informação). */}
+                            <span className="sub2">
+                              {(meta?.activeLots ?? 0)} lote(s) · {fmtDataHora(meta?.lastConsumptionAt) || "sem consumo"}
+                            </span>
+                          </div>
+                        </td>
+                        <td>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }}
+                              onClick={() => (isOpen ? fecharConceder() : abrirConceder(c.id))}>
+                              {isOpen ? "Cancelar" : "Conceder"}
+                            </button>
+                            <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }}
+                              disabled={!c.creditsBalance || c.creditsBalance <= 0}
+                              onClick={() => (isDebitOpen ? fecharDebito() : abrirDebito(c.id, c.creditsBalance))}>
+                              {isDebitOpen ? "Cancelar" : "Debitar"}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                       {isOpen && (
                         <tr className="sel">
-                          <td colSpan={5}>
+                          <td colSpan={6}>
                             <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end", padding: "10px 2px" }}>
                               <div className="sc-field" style={{ minWidth: 120 }}>
                                 <label className="field-label">Quantidade</label>
@@ -838,6 +882,37 @@ export function JanelaCreditos({ companies, reload }: {
                             </div>
                             {grantMsg && <div className={"sc-msg " + (grantMsg.startsWith("✓") ? "is-ok" : "is-warn")} style={{ paddingBottom: 8 }}>{grantMsg}</div>}
                             <div className="sc-hint" style={{ paddingBottom: 8 }}>Vazio usa o prazo default global (guia Config).</div>
+                          </td>
+                        </tr>
+                      )}
+                      {isDebitOpen && (
+                        <tr className="sel">
+                          <td colSpan={6}>
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end", padding: "10px 2px" }}>
+                              <div className="sc-field" style={{ minWidth: 120 }}>
+                                <label className="field-label">Quantidade</label>
+                                <input className="field-dark" inputMode="numeric" value={debitAmount}
+                                  onChange={e => setDebitAmount(e.target.value)} placeholder="0" />
+                              </div>
+                              <div className="sc-field" style={{ minWidth: 260, flex: 1 }}>
+                                <label className="field-label">Motivo (obrigatório)</label>
+                                <input className="field-dark" value={debitReason}
+                                  onChange={e => setDebitReason(e.target.value)}
+                                  placeholder="ex.: migrou para plano fixo, zerando o saldo de crédito" />
+                              </div>
+                              <button className="btn-ghost" disabled={debitBusy}
+                                onClick={() => setDebitAmount(String(Math.trunc(Number(c.creditsBalance) || 0)))}>
+                                Zerar saldo
+                              </button>
+                              <button className="btn-teal" disabled={debitBusy || !debitAmount || !debitReason.trim()}
+                                onClick={() => debitar(c.id)}>
+                                {debitBusy ? "Debitando…" : "Debitar crédito"}
+                              </button>
+                            </div>
+                            {debitMsg && <div className={"sc-msg " + (debitMsg.startsWith("✓") ? "is-ok" : "is-warn")} style={{ paddingBottom: 8 }}>{debitMsg}</div>}
+                            <div className="sc-hint" style={{ paddingBottom: 8 }}>
+                              O débito nunca deixa o saldo negativo (para no que existe) e fica registrado no extrato da empresa com este motivo.
+                            </div>
                           </td>
                         </tr>
                       )}
