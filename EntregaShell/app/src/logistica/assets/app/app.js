@@ -276,6 +276,9 @@
   let keyboardBaselineHeight = Math.max(window.innerHeight || 0, window.visualViewport && window.visualViewport.height || 0);
   let lastKeyboardAction = { name: "", at: 0 };
   let keyboardRevealTimer = null;
+  // 🔴 28/07 — rolagem que o TECLADO tomou emprestado (ver os 2 freios do corte
+  // da Rota em syncKeyboardViewport/syncChromeMetrics). null = teclado fechado.
+  let scrollAntesDoTeclado = null;
   let touchStart = null;
   let clientHold = null;
   let ignoredClientClickId = null;
@@ -1908,6 +1911,44 @@
       }
     });
   }
+  // 🔴 28/07 (dono, 3ª queixa do MESMO corte: "minha tela principal de rotas voltou
+  // a ficar cortada") — INVARIANTE NOVA: **página sem rolagem = rolagem ZERO**.
+  // O corte NUNCA foi altura errada; é a página parada num scrollY herdado. A
+  // corrente completa, medida no g15: (1) o campo do modal (Rota rápida) recebe
+  // foco, o teclado sobe e o `scrollIntoView` do revealFocusedForKeyboard ROLA o
+  // documento pra trazer o campo pra cima do teclado; (2) o modal fecha e ninguém
+  // devolve essa rolagem; (3) a Rota sem paradas TRAVA o arrasto vertical
+  // (`body.overflowY = "hidden"` no syncChromeMetrics) e com isso CONGELA a
+  // rolagem herdada — o dedo não desfaz mais (foi por isso que arrastar a tela
+  // não resolvia); (4) o freio antigo do fitRouteMap não age, porque ele só volta
+  // ao topo quando NÃO há o que rolar — e havia (os ~54px herdados). A nav é
+  // `position: fixed` e fica no lugar; o cromo do topo sobe pra debaixo da barra
+  // do sistema. Daí "cortada". Os freios de 22/07 e 28/07 mexeram no CÁLCULO do
+  // mapa (sintoma); estes dois fecham a FONTE (teclado devolve) e a ARMADILHA
+  // (não se tranca a rolagem com a página rolada).
+  function voltarAoTopoDaPagina() {
+    try { window.scrollTo(0, 0); } catch (_) {}
+    const raiz = document.documentElement;
+    if (raiz.scrollTop) raiz.scrollTop = 0;
+    if (document.body.scrollTop) document.body.scrollTop = 0;
+    if (app && app.scrollTop) app.scrollTop = 0;
+  }
+  // FREIO 1 — o teclado DEVOLVE a rolagem que tomou (volta pro ponto de antes,
+  // não pro topo: quem estava lendo uma lista de paradas continua onde estava).
+  function restaurarScrollDoTeclado() {
+    const alvo = Math.max(0, Math.round(Number(scrollAntesDoTeclado) || 0));
+    scrollAntesDoTeclado = null;
+    const aplicar = () => {
+      try { window.scrollTo(0, alvo); } catch (_) {}
+      const raiz = document.documentElement;
+      if (raiz.scrollTop !== alvo) raiz.scrollTop = alvo;
+    };
+    aplicar();
+    // O WebView ainda está fechando o teclado quando isto roda: as duas passadas
+    // depois do layout assentar são a mesma razão dos 3 fitRouteMap escalonados.
+    setTimeout(aplicar, 120);
+    setTimeout(aplicar, 320);
+  }
   function syncKeyboardViewport() {
     const viewport = window.visualViewport;
     const visibleHeight = Math.max(0, Number(viewport && viewport.height || window.innerHeight || 0));
@@ -1917,9 +1958,12 @@
     else if (visibleHeight > keyboardBaselineHeight) keyboardBaselineHeight = Math.max(visibleHeight, window.innerHeight || 0);
     const keyboardOpen = editing && keyboardBaselineHeight - visibleHeight > 120;
     const height = keyboardOpen ? visibleHeight : Math.max(visibleHeight, window.innerHeight || 0);
+    const estavaAberto = document.documentElement.classList.contains("keyboard-open");
     document.documentElement.style.setProperty("--hbx-visible-height", `${Math.round(height)}px`);
     document.documentElement.classList.toggle("keyboard-open", keyboardOpen);
     document.body.classList.toggle("keyboard-open", keyboardOpen);
+    if (keyboardOpen && !estavaAberto) scrollAntesDoTeclado = Math.round(window.scrollY || document.documentElement.scrollTop || 0);
+    else if (!keyboardOpen && estavaAberto) restaurarScrollDoTeclado();
   }
   function revealFocusedForKeyboard() {
     clearTimeout(keyboardRevealTimer);
@@ -2044,6 +2088,12 @@
     // sobrar aquele resto de rolagem (o padding do topo aparecendo). Com rota
     // traçada volta ao normal, senão a lista não rolaria.
     document.body.style.overflowY = rotaSolo ? "hidden" : "";
+    // 🔴 FREIO 2 (28/07) — travar o arrasto com a página JÁ rolada CONGELA o corte
+    // pra sempre: o dedo não desfaz (não há rolagem) e o fitRouteMap não age (pra
+    // ele "há o que rolar"). Trava e rolagem-zero andam JUNTAS, sempre. Com o
+    // teclado aberto não encosta: ali quem manda é o reveal do campo focado, e o
+    // FREIO 1 devolve a rolagem quando o teclado fecha.
+    if (rotaSolo && !document.documentElement.classList.contains("keyboard-open")) voltarAoTopoDaPagina();
     [[".topbar", "--hbx-topbar-h"], [".bottom-nav", "--hbx-nav-h"]].forEach(([selector, prop]) => {
       const node = app.querySelector(selector);
       if (!node) return;
@@ -7294,6 +7344,9 @@
     state.screen = nextScreen;
     state.selected = null;
     state.modal = null;
+    // 🔴 FREIO 3 (28/07) — tela nova começa no TOPO. Rolagem herdada de OUTRA tela
+    // (lista de Clientes, ficha longa) é o outro caminho pro mesmo corte.
+    voltarAoTopoDaPagina();
     render();
     state.screenMotion = "";
     clearTimeout(navMotionTimer);
