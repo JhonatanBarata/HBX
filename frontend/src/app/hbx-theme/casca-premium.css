@@ -76,10 +76,17 @@
 }
 
 /* ---- Entrada de página (o app-page/hbx-page leem os tokens acima) -------
-   PERF: blur de entrada 6px (10px em página inteira engasgava GPU fraca). */
+   REFINO PREMIUM (28/07) — "movimento apenas em transform e opacity".
+   O `filter: blur(6px)` saiu daqui. Ele era a propriedade mais cara do app:
+   blur na PÁGINA INTEIRA a cada navegação, fora do fast path do compositor,
+   forçando re-raster de tudo que estava por baixo (já tinha sido reduzido de
+   10px→6px por engasgar GPU fraca — o remédio era tirar, não diluir).
+   A TRANSIÇÃO CONTINUA INTEIRA: a página segue entrando com deslize +
+   escala + fade, que é o que se vê. O que sumiu foi o custo, não o
+   movimento — `translate3d`/`scale`/`opacity` rodam na GPU sem repintar. */
 @keyframes hbx-enter-modern {
-  from { opacity: 0; transform: translate3d(26px, 0, 0) scale(0.99); filter: blur(6px); }
-  to { opacity: 1; transform: none; filter: none; }
+  from { opacity: 0; transform: translate3d(26px, 0, 0) scale(0.99); }
+  to { opacity: 1; transform: none; }
 }
 
 /* ============================================================
@@ -132,7 +139,14 @@
   pointer-events: none;
 }
 
-/* anéis concêntricos + aurora + névoa/vinheta */
+/* aurora + névoa/vinheta.
+   REFINO PREMIUM (28/07) — "gradientes muito controlados". O fundo somava 10
+   camadas (4 no canvas + 2 na grade + 4 aqui). Saiu o `repeating-radial-
+   gradient` de anéis concêntricos: 1px a cada 36px na tela toda, ~30 anéis
+   num monitor grande, e é a camada que mais lê como RUÍDO atrás de texto —
+   justamente o oposto de "o conteúdo aparece". Ficam a aurora (a cor da
+   pele respirando no fundo) e a vinheta (que dá profundidade e centra o
+   olho). Reverter = recolocar a linha; nada mais depende dela. */
 [data-casca="premium"] .app::after,
 [data-casca="premium"] .casca::after,
 [data-casca="premium"] .casca-stack-layer::after {
@@ -141,7 +155,6 @@
   inset: 0;
   z-index: -1;
   background:
-    repeating-radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--hbx-foreground) 5%, transparent) 0 1px, transparent 1px 36px),
     radial-gradient(ellipse at 22% 24%, color-mix(in srgb, var(--hbx-brand) 15%, transparent), transparent 36%),
     radial-gradient(ellipse at 80% 58%, color-mix(in srgb, var(--hbx-secondary) 9%, transparent), transparent 30%),
     radial-gradient(circle at 50% 46%, transparent 0 42%, color-mix(in srgb, var(--hbx-shadow) 12%, transparent) 78%, color-mix(in srgb, var(--hbx-shadow) 26%, transparent));
@@ -152,9 +165,15 @@
    DESKTOP — o shell vira painéis de vidro flutuando sobre o fundo.
    Mesmo DOM de sempre: .app > .side + .main(.topbar + .app-page).
    ============================================================ */
+/* REFINO PREMIUM (28/07) — "mais respiro". Os 7px viraram 10px.
+   CUIDADO DELIBERADO com a ordem de 26/07 ("parece tela 800x600"): aquilo era
+   sobre o cromo comer ALTURA ÚTIL — rail, controles e linha de lista, que
+   continuam exatamente como estão. Isto aqui é a folga ENTRE os painéis
+   flutuantes, custa 6px de altura total (0,6% em 1080p) e é o que separa
+   "painéis flutuando" de "painéis colados". Densidade de dado: intocada. */
 [data-casca="premium"] .app {
-  padding: 7px;
-  gap: 7px;
+  padding: 10px;
+  gap: 10px;
 }
 
 /* ============================================================
@@ -275,15 +294,29 @@
   background: var(--mod-glass-recessed);
 }
 
-/* overlays: o vidro escuro do mockup (coach/modal) — aqui SIM backdrop,
-   é a camada que flutua sobre a tela inteira */
+/* overlays: superfície do coach/modal do mockup.
+   REFINO PREMIUM (28/07) — "vidro apenas em elementos pequenos". Os três
+   estavam no MESMO bloco levando blur de 24px, mas não são a mesma coisa:
+   um menu suspenso é pequeno e transiente; um modal e uma gaveta cobrem meia
+   tela e ficam abertos. Blur em superfície grande re-blura a cada frame tudo
+   que está por baixo — é o mesmo custo que já tinha tirado de .side/.main.
+   Só o .hbx-pop continua de vidro de verdade. */
 [data-casca="premium"] .hbx-modal,
 [data-casca="premium"] .hbx-pop,
 [data-casca="premium"] .hbx-drawer {
   border-color: var(--mod-line-strong);
   background: linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 92%, transparent), color-mix(in srgb, var(--hbx-surface) 82%, transparent));
+}
+/* pequeno e transiente = pode ter vidro de verdade */
+[data-casca="premium"] .hbx-pop {
   -webkit-backdrop-filter: blur(var(--blur-chrome));
   backdrop-filter: blur(var(--blur-chrome));
+}
+/* grandes: a translucidez sobe pra compensar a falta do blur — o painel
+   continua "flutuando", sem custo por frame. Mesma receita do rail. */
+[data-casca="premium"] .hbx-modal,
+[data-casca="premium"] .hbx-drawer {
+  background: linear-gradient(180deg, var(--mod-chrome-hi), var(--mod-chrome-lo));
 }
 
 /* ============================================================
