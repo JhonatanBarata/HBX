@@ -483,13 +483,17 @@
         const activeIndex = Math.max(0, items.findIndex(([itemApp, screen]) => itemApp === appName && screen === currentScreen));
         const indicator = HBX.navIndicator(activeIndex);
         return `<nav class="bottom-nav is-centered" style="--nav-count:${items.length};--nav-from:${indicator.from};--nav-to:${indicator.to}" aria-label="Navegação principal"><i class="nav-water ${indicator.moving ? "is-moving" : ""}" aria-hidden="true"></i>${items.map(([itemApp, screen, iconName, label]) => {
-          return `<button class="nav-btn ${itemApp === appName && currentScreen === screen ? "active" : ""}" data-destination="${itemApp}:${screen}">${icon(iconName)}<span>${label}</span></button>`;
+          const active = itemApp === appName && currentScreen === screen;
+          return `<button type="button" class="nav-btn ${active ? "active" : ""}" data-destination="${itemApp}:${screen}"${active ? ` aria-current="page"` : ""}>${icon(iconName)}<span>${label}</span></button>`;
         }).join("")}</nav>`;
       },
       frame(options) {
         const companyName = HBX.cache.get("logistica-company-name", ""); const brandName = companyName ? `HBX - ${companyName}` : "HBX";
         const motion = options.motion ? `screen-enter-${options.motion}` : "";
-        return `<header class="topbar"><div class="topbar-spacer"></div><div class="brand"><div class="brand-mark">»</div><div class="brand-copy"><strong>${HBX.escape(brandName)}</strong></div></div><div class="toolbar"><span class="sync-dot ${options.error ? "offline" : ""}"></span><button class="icon-btn" data-action="theme" aria-label="Tema">${options.icon("moon", 18)}</button><button class="icon-btn" data-action="refresh" aria-label="Atualizar" ${options.refreshing ? "disabled" : ""}>${options.icon("refresh", 18)}</button></div></header><main class="content ${motion}">${options.content}</main>${this.navigation(options.appName, options.currentScreen, options.icon)}${options.overlays || ""}`;
+        const themeLabel = document.documentElement.dataset.theme === "dark" ? "Usar tema claro" : "Usar tema escuro";
+        const brandMark = options.appName === "logistica" ? options.icon("route", 20) : "»";
+        const syncStatus = options.appName === "vendas" ? `<span class="sync-dot ${options.error ? "offline" : ""}"></span>` : "";
+        return `<header class="topbar"><div class="topbar-spacer"></div><div class="brand"><div class="brand-mark">${brandMark}</div><div class="brand-copy"><strong>${HBX.escape(brandName)}</strong></div></div><div class="toolbar">${syncStatus}<button class="icon-btn" data-action="theme" aria-label="${themeLabel}">${options.icon("moon", 18)}</button><button class="icon-btn" data-action="refresh" aria-label="Atualizar" ${options.refreshing ? "disabled" : ""}>${options.icon("refresh", 18)}</button></div></header><main class="content ${motion}">${options.content}</main>${this.navigation(options.appName, options.currentScreen, options.icon)}${options.overlays || ""}`;
       },
       mount(root, markup) {
         if (!root.querySelector(":scope > .topbar") || !root.querySelector(":scope > .content") || !root.querySelector(":scope > .bottom-nav")) {
@@ -572,6 +576,9 @@
           const refresh = topbar.querySelector('[data-action="refresh"]');
           const nextRefresh = nextTopbar.querySelector('[data-action="refresh"]');
           if (refresh && nextRefresh) refresh.disabled = nextRefresh.disabled;
+          const theme = topbar.querySelector('[data-action="theme"]');
+          const nextTheme = nextTopbar.querySelector('[data-action="theme"]');
+          if (theme && nextTheme) theme.setAttribute("aria-label", nextTheme.getAttribute("aria-label") || "Alterar tema");
         }
 
         // 22/07 S3a — era `content.replaceWith(nextContent)` tudo-ou-nada.
@@ -591,7 +598,11 @@
             nav.style.cssText = nextNav.style.cssText;
             const buttons = nav.querySelectorAll(".nav-btn");
             const nextButtons = nextNav.querySelectorAll(".nav-btn");
-            buttons.forEach((button, index) => { button.className = nextButtons[index].className; });
+            buttons.forEach((button, index) => {
+              button.className = nextButtons[index].className;
+              const current = nextButtons[index].getAttribute("aria-current");
+              if (current) button.setAttribute("aria-current", current); else button.removeAttribute("aria-current");
+            });
             const water = nav.querySelector(".nav-water");
             const nextWater = nextNav.querySelector(".nav-water");
             if (water && nextWater) {

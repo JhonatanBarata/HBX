@@ -49,6 +49,7 @@ class OpeningActivity : AppCompatActivity() {
     private var sessionFailure: Throwable? = null
     private var openingProgress = 0
     private var fastLogin = false
+    private var openingSoundEngine: HbxSoundEngine? = null
 
     private inner class OpeningBridge {
         @JavascriptInterface
@@ -161,6 +162,11 @@ class OpeningActivity : AppCompatActivity() {
     private fun startWebHandoffWhenReady() {
         if (!webReady || !nativeArrived || handoffStarted || isFinishing || isDestroyed) return
         handoffStarted = true
+        if (BuildConfig.APP_MODE == "logistica") {
+            openingSoundEngine = HbxSoundEngine(this) { false }.also {
+                it.play("sonic_logo")
+            }
+        }
         webView.evaluateJavascript("window.HBXOpening&&window.HBXOpening.start()") {
             handler.postDelayed({
                 nativeHandoff?.animate()
@@ -241,6 +247,8 @@ class OpeningActivity : AppCompatActivity() {
         handler.removeCallbacksAndMessages(null)
         nativeHandoff?.animate()?.cancel()
         nativeHandoff = null
+        openingSoundEngine?.release()
+        openingSoundEngine = null
         if (::executor.isInitialized) executor.shutdownNow()
         if (::webView.isInitialized) {
             webView.removeJavascriptInterface("HBXOpeningAndroid")

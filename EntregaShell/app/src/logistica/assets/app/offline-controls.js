@@ -46,7 +46,7 @@
     if (s.hasRoute && !s.grantReady) return {
       tone: "warning",
       title: "Preparando proteção da rota",
-      text: s.grantError || "Mantenha a internet até o HBX confirmar a cápsula desta rota.",
+      text: s.grantError || "Mantenha a internet até o HBX terminar de preparar esta rota.",
       count: pending ? `${pending} pendente(s)` : "Aguardando",
     };
     if (pending > 0) return {
@@ -84,7 +84,7 @@
   }
 
   function settingsVisible() {
-    return !!document.querySelector('.nav-btn.active[data-screen="settings"]');
+    return !!document.querySelector('.nav-btn.active[data-destination="logistica:settings"]');
   }
 
   function ensureSettings(s) {
@@ -99,10 +99,10 @@
     }
     card.innerHTML = `
       <h3>Rota sem sinal</h3>
-      <p>O planejamento continua online. Depois de preparada, somente esta rota pode operar durante uma queda de rede.</p>
+      <p>Prepare a rota antes de ficar sem internet.</p>
       <label class="hbx-offline-option">
         <input id="hbx-proof-wifi" type="checkbox" ${s.wifiOnly ? "checked" : ""}>
-        <span><strong>Enviar fotos apenas no Wi-Fi</strong><small>Entregas continuam normalmente; o comprovante fica pendente até uma rede não tarifada.</small></span>
+        <span><strong>Enviar fotos apenas no Wi-Fi</strong><small>As fotos aguardam uma conexão Wi-Fi.</small></span>
       </label>
       <label class="hbx-offline-option">
         <input id="hbx-proof-retain" type="checkbox" ${s.retainAfterUpload ? "checked" : ""}>

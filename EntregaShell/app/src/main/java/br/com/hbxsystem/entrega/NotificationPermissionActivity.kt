@@ -34,10 +34,15 @@ class NotificationPermissionActivity : AppCompatActivity() {
             return
         }
 
+        val isLogistica = BuildConfig.APP_MODE == "logistica"
         AlertDialog.Builder(this)
-            .setTitle("Ações do HBX Logística")
+            .setTitle(if (isLogistica) "Ações do HBX Logística" else "Ações do HBX Vendas")
             .setMessage(
-                "Permita notificações para receber ligações, leads e conversas preparadas pelo HBX web mesmo com o aplicativo fechado ou o celular bloqueado."
+                if (isLogistica) {
+                    "Permita notificações para receber avisos de rota e entrega mesmo com o aplicativo fechado ou o celular bloqueado."
+                } else {
+                    "Permita notificações para receber ligações, leads e conversas preparadas pelo HBX web mesmo com o aplicativo fechado ou o celular bloqueado."
+                }
             )
             .setPositiveButton("Permitir") { _, _ ->
                 permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)

@@ -302,6 +302,11 @@
       const reduced = matchMedia('(prefers-reduced-motion:reduce)').matches;
       const fastLogin = root.dataset.fastLogin === 'true';
       const fastLoginRate = 1 / .7;
+      const authoredSequenceMs = 6080;
+      const normalSequenceMs = 5080;
+      const fastSequenceMs = 4256;
+      const entrySequenceMs = fastLogin ? fastSequenceMs : normalSequenceMs;
+      const entryPlaybackRate = authoredSequenceMs / entrySequenceMs;
       const stage = document.querySelector('.stage');
       const network = document.querySelector('.network');
       const hubWrap = document.querySelector('.hub-wrap');
@@ -413,12 +418,19 @@
         if (!fastLogin) return;
         stage.getAnimations({ subtree:true }).forEach(animation => { animation.playbackRate = fastLoginRate; });
       }
+      function applyEntryRate() {
+        if (root.dataset.mode === 'exit') {
+          applyFastLoginRate();
+          return;
+        }
+        stage.getAnimations({ subtree:true }).forEach(animation => { animation.playbackRate = entryPlaybackRate; });
+      }
       function start() {
         if (started) return false;
         started = true;
         root.classList.add('started');
-        applyFastLoginRate();
-        setTimeout(notifySequenceReady,reduced ? 80 : fastLogin ? 4256 : 6080);
+        applyEntryRate();
+        setTimeout(notifySequenceReady,reduced ? 80 : entrySequenceMs);
         return true;
       }
       function complete(kind,theme) {
@@ -440,7 +452,7 @@
       if ('ResizeObserver' in window) new ResizeObserver(scheduleGeometrySync).observe(stage);
       addEventListener('resize',scheduleGeometrySync,{ passive:true });
       setProgress(currentProgress);
-      applyFastLoginRate();
+      applyEntryRate();
       if (root.dataset.mode === 'exit') {
         root.classList.add('started');
       } else if (root.dataset.phase === 'loading') {

@@ -382,6 +382,9 @@
     plus: "<path d='M12 5v14M5 12h14'/>",
     close: "<path d='m6 6 12 12M18 6 6 18'/>",
     check: "<path d='m20 6-11 11-5-5' pathLength='1'/>",
+    star: "<path d='m12 2.7 2.9 5.9 6.5.9-4.7 4.6 1.1 6.5-5.8-3.1-5.8 3.1 1.1-6.5-4.7-4.6 6.5-.9z'/>",
+    chevronLeft: "<path d='m15 18-6-6 6-6'/>",
+    chevronRight: "<path d='m9 18 6-6-6-6'/>",
     // Setas ↑↓ do stepper da chegada (22/07). Trazidas do Lucide 24, como manda o
     // contrato acima — nada desenhado na mão.
     chevronUp: "<path d='m18 15-6-6-6 6'/>",
@@ -537,10 +540,6 @@
     if (mapaEstacionado === routeMapHost) return;
     garagemDoMapa().appendChild(routeMapHost);
     mapaEstacionado = routeMapHost;
-    // Próxima vez que a Rota aparecer, o mapa ENTRA (aproximando + paradas
-    // montando) em vez de simplesmente reaparecer.
-    const parts = routeMapHost.__hbxMapParts;
-    if (parts) { parts.entradaPendente = true; parts.animarMarcadores = true; parts.enquadradoEm = null; }
   }
   function disposeRouteMap() {
     // PR18072026 L4-D — quando de fato descartamos, limpar as marcas no
@@ -567,9 +566,32 @@
     if (window.maplibregl) return Promise.resolve(window.maplibregl);
     if (routeMapLibraryPromise) return routeMapLibraryPromise;
     routeMapLibraryPromise = new Promise((resolve, reject) => {
-      if (!document.querySelector('link[data-hbx-maplibre]')) { const link = document.createElement("link"); link.rel = "stylesheet"; link.href = "https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.css"; link.dataset.hbxMaplibre = "true"; document.head.appendChild(link); }
-      const script = document.createElement("script"); script.src = "https://unpkg.com/maplibre-gl@5.24.0/dist/maplibre-gl.js"; script.async = true; script.onload = () => window.maplibregl ? resolve(window.maplibregl) : reject(new Error("Mapa indisponível.")); script.onerror = () => reject(new Error("Mapa indisponível.")); document.head.appendChild(script);
-      setTimeout(() => reject(new Error("Mapa indisponível.")), 9000);
+      let timer = 0;
+      let settled = false;
+      const finish = error => {
+        if (settled) return;
+        settled = true;
+        if (timer) clearTimeout(timer);
+        if (error) {
+          routeMapLibraryPromise = null;
+          reject(error);
+        } else resolve(window.maplibregl);
+      };
+      if (!document.querySelector('link[data-hbx-maplibre]')) {
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = "vendor/maplibre-gl.css";
+        link.dataset.hbxMaplibre = "true";
+        document.head.appendChild(link);
+      }
+      const script = document.createElement("script");
+      script.src = "vendor/maplibre-gl.js";
+      script.async = true;
+      script.dataset.hbxMaplibre = "true";
+      script.onload = () => window.maplibregl ? finish() : finish(new Error("Mapa indisponível."));
+      script.onerror = () => { script.remove(); finish(new Error("Mapa indisponível.")); };
+      document.head.appendChild(script);
+      timer = setTimeout(() => { script.remove(); finish(new Error("Mapa indisponível.")); }, 9000);
     });
     return routeMapLibraryPromise;
   }
@@ -778,20 +800,32 @@
   }
   function applyRouteMarkers(host, map, points, interactive) {
     const parts = host.__hbxMapParts || (host.__hbxMapParts = { markers: [] });
-    (parts.markers || []).forEach(marker => { try { marker.remove(); } catch (_) {} });
-    // 28/07 (dono) — as paradas MONTAM na tela (uma atrás da outra, escalinha)
-    // quando o mapa acabou de entrar; nos updates normais entram secas, senão a
-    // rota inteira ficaria pulsando a cada refresh.
-    const montando = parts.animarMarcadores === true;
-    parts.animarMarcadores = false;
-    parts.markers = points.map((point, index) => {
-      const pin = document.createElement(interactive ? "button" : "span");
-      if (interactive) pin.type = "button";
-      pin.className = `route-map-pin${montando ? " is-montando" : ""}`; pin.textContent = String(point.number); pin.setAttribute("aria-label", `Parada ${point.number}`);
-      if (montando) pin.style.setProperty("--ordem", String(Math.min(index, 14)));
-      if (interactive) pin.addEventListener("click", () => showSheet(point.item));
-      return new window.maplibregl.Marker({ element: pin, anchor: "center" }).setLngLat([point.lng, point.lat]).addTo(map);
-    });
+    const markerSignature = `${interactive ? "1" : "0"}#${points.map((point, index) => `${point.item && point.item.id != null ? point.item.id : index}:${point.number}:${Number(point.lat).toFixed(6)},${Number(point.lng).toFixed(6)}`).join("|")}`;
+    const rebuild = parts.markerSignature !== markerSignature || (parts.markers || []).length !== points.length;
+    if (rebuild) {
+      (parts.markers || []).forEach(marker => { try { marker.remove(); } catch (_) {} });
+      // As paradas montam uma única vez, quando a instância do mapa nasce.
+      const montando = parts.animarMarcadores === true;
+      parts.animarMarcadores = false;
+      parts.markers = points.map((point, index) => {
+        const pin = document.createElement(interactive ? "button" : "span");
+        if (interactive) pin.type = "button";
+        pin.className = `route-map-pin${montando ? " is-montando" : ""}`;
+        pin.textContent = String(point.number);
+        pin.setAttribute("aria-label", `Parada ${point.number}`);
+        pin.__hbxItem = point.item;
+        if (montando) pin.style.setProperty("--ordem", String(Math.min(index, 14)));
+        if (interactive) pin.addEventListener("click", () => pin.__hbxItem && showSheet(pin.__hbxItem));
+        return new window.maplibregl.Marker({ element: pin, anchor: "center" }).setLngLat([point.lng, point.lat]).addTo(map);
+      });
+      parts.markerSignature = markerSignature;
+    } else {
+      points.forEach((point, index) => {
+        const marker = parts.markers[index];
+        const pin = marker && typeof marker.getElement === "function" ? marker.getElement() : null;
+        if (pin) pin.__hbxItem = point.item;
+      });
+    }
     const bounds = new window.maplibregl.LngLatBounds(); points.forEach(point => bounds.extend([point.lng, point.lat]));
     // S2 21/07 — nav mode também tem câmera própria (fitBounds motorista+
     // próxima parada, depois follow), então some da lista de quem pode pedir
@@ -809,7 +843,8 @@
     // o mapa (com `duration:0` quando não havia parada = TRANCO seco). O mapa só se
     // reenquadra quando o CONJUNTO de pontos muda de verdade, ou quando a tela Rota
     // está entrando (aí é a animação de aproximar, ver animarEntradaDoMapa).
-    const assinatura = `${points.map(p => `${Number(p.lat).toFixed(4)},${Number(p.lng).toFixed(4)}`).join("|")}#${lastKnownPosition && !points.length ? "eu" : ""}`;
+    const motoristaConhecido = lastKnownPosition && validCoordinates(lastKnownPosition.lat, lastKnownPosition.lng);
+    const assinatura = `${points.map(p => `${Number(p.lat).toFixed(4)},${Number(p.lng).toFixed(4)}`).join("|")}#${motoristaConhecido ? "com-motorista" : "sem-motorista"}`;
     const precisaEnquadrar = !reading && !bounds.isEmpty() && parts.enquadradoEm !== assinatura;
     if (precisaEnquadrar) {
       parts.enquadradoEm = assinatura;
@@ -1077,6 +1112,7 @@
   }
   function ensureRouteMapResizeGuard(host, map) {
     const parts = host.__hbxMapParts || (host.__hbxMapParts = { markers: [] });
+    let observerCreated = false;
     if (!parts.resizeObserver && "ResizeObserver" in window) {
       parts.resizeObserver = new ResizeObserver(() => {
         if (parts.resizeFrame) cancelAnimationFrame(parts.resizeFrame);
@@ -1086,10 +1122,13 @@
         });
       });
       parts.resizeObserver.observe(host);
+      observerCreated = true;
     }
-    requestAnimationFrame(() => {
-      if (host.__hbxMap === map && typeof map.resize === "function") { try { map.resize(); } catch (_) {} }
-    });
+    if (observerCreated || !("ResizeObserver" in window)) {
+      requestAnimationFrame(() => {
+        if (host.__hbxMap === map && typeof map.resize === "function") { try { map.resize(); } catch (_) {} }
+      });
+    }
   }
   function updateRouteReadingMap(host, map, options) {
     const parts = host.__hbxMapParts || (host.__hbxMapParts = { markers: [] });
@@ -1409,11 +1448,18 @@
     raiseRouteReadingTrail(map);
   }
   async function applyRouteLine(host, map, points) {
+    const parts = host.__hbxMapParts || (host.__hbxMapParts = { markers: [] });
+    let requestId = null;
     try {
       // S3 21/07 — em navegação ativa a linha única vira 3 cores (pernas);
       // Leitura e rota planejada (não ativa) continuam com a linha única de
       // sempre, comportamento intocado (invariante da frente).
-      if (navModeActive()) { await applyNavLegRoute(host, map); return; }
+      if (navModeActive()) {
+        parts.routeLineRequestId = Number(parts.routeLineRequestId || 0) + 1;
+        parts.routeLinePendingSignature = null;
+        await applyNavLegRoute(host, map);
+        return;
+      }
       removeNavLegLayers(map);
       // A linha representa só o que FALTA percorrer: paradas abertas
       // (agendada/em_rota). Entregues continuam como pino, mas saem do traçado
@@ -1421,11 +1467,32 @@
       // quando tudo foi entregue não sobra linha nenhuma. Pontos sem `item`
       // (pré-visualização do planejamento) passam direto, sem filtro.
       const lineStops = points.filter(point => !point.item || point.item.status === "agendada" || point.item.status === "em_rota");
+      const signature = lineStops.map((point, index) => `${point.item && point.item.id != null ? point.item.id : index}:${Number(point.lat).toFixed(6)},${Number(point.lng).toFixed(6)}`).join("|");
+      const sourceReady = !!map.getSource("hbx-route-line");
+      const layerReady = !!map.getLayer("hbx-route-line");
+      if (lineStops.length < 2) {
+        parts.routeLineRequestId = Number(parts.routeLineRequestId || 0) + 1;
+        parts.routeLinePendingSignature = null;
+        parts.routeLineSignature = signature;
+        if (layerReady) map.removeLayer("hbx-route-line");
+        if (sourceReady) map.removeSource("hbx-route-line");
+        return;
+      }
+      if (parts.routeLineSignature === signature && sourceReady && layerReady) {
+        raiseRouteReadingTrail(map);
+        return;
+      }
+      if (parts.routeLinePendingSignature === signature) return;
+      requestId = Number(parts.routeLineRequestId || 0) + 1;
+      parts.routeLineRequestId = requestId;
+      parts.routeLinePendingSignature = signature;
       const coordinates = lineStops.length >= 2 ? await roadGeometry(lineStops) : [];
-      if (routeMap !== map || routeMapHost !== host) return;
+      if (routeMap !== map || routeMapHost !== host || parts.routeLineRequestId !== requestId || navModeActive()) return;
+      parts.routeLinePendingSignature = null;
       if (coordinates.length < 2) {
         if (map.getLayer("hbx-route-line")) map.removeLayer("hbx-route-line");
         if (map.getSource("hbx-route-line")) map.removeSource("hbx-route-line");
+        parts.routeLineSignature = signature;
         return;
       }
       const data = { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates } };
@@ -1435,8 +1502,10 @@
         map.addSource("hbx-route-line", { type: "geojson", data });
         map.addLayer({ id: "hbx-route-line", type: "line", source: "hbx-route-line", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": mapPaintToken("--brand", "rgb(120,201,0)"), "line-width": 4, "line-opacity": .9 } });
       }
+      parts.routeLineSignature = signature;
       raiseRouteReadingTrail(map);
     } catch (_) {
+      if (requestId !== null && parts.routeLineRequestId === requestId) parts.routeLinePendingSignature = null;
       // Sem resposta viária, mantenha somente os pinos. Uma linha reta entre
       // casas seria visualmente falsa e não pode ser apresentada como rota.
     }
@@ -1638,7 +1707,7 @@
     const overlays = `${floatingAction || ""}${creditsLockOverlay()}${standardModal}${checagemOverlay}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${dddPromptOverlay()}${leituraPausaOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
     return H.mobileShell.frame({ appName: "logistica", currentScreen: state.screen, content, icon, motion: state.screenMotion, refreshing: state.refreshing, error: state.error, overlays });
   }
-  function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); const ringOffset = (188.5 * count / 5).toFixed(1); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30" style="stroke-dashoffset:${ringOffset}"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Próxima parada</p><h2>${H.escape(client.nome || "Cliente")}</h2><small>${H.escape(address(client))}</small><div class="actions next-stop-actions"><button class="btn btn-primary" data-action="next-stop">Ver rota</button><button class="btn btn-secondary" data-action="cancel-next-stop">Cancelar</button></div></section></div>`; }
+  function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); const ringOffset = (188.5 * count / 5).toFixed(1); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30" style="stroke-dashoffset:${ringOffset}"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Próxima parada</p><h2>${H.escape(client.nome || "Cliente")}</h2><small>${H.escape(address(client))}</small><div class="actions next-stop-actions"><button class="btn btn-primary" data-action="next-stop">Ver rota</button><button class="btn btn-secondary" data-action="cancel-next-stop">Ficar aqui</button></div></section></div>`; }
   function confirmationOverlay() {
     const confirmation = state.confirmation;
     if (!confirmation) return "";
@@ -1693,19 +1762,20 @@
     const o = opts || {};
     const closeAction = o.closeAction === false ? null : (o.closeAction || "leitura-voltar");
     const stepMotion = state.modal === "leitura-parada" && state.leituraStepMotion ? ` leitura-step-${state.leituraStepMotion}` : "";
-    return `<div class="modal-wrap day-home-wrap" ${closeAction ? `data-action="${closeAction}"` : ""}><section class="modal day-home center-modal${stepMotion}" role="dialog" aria-modal="true">
+    const titleId = `center-modal-title-${String(o.title || "dialogo").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "dialogo"}`;
+    const backButton = o.backAction ? `<button type="button" class="center-arrow center-arrow--back" data-action="${o.backAction}" aria-label="${H.escape(o.backLabel || "Voltar")}"><span class="center-arrow-glyph">${o.backGlyph === "×" ? icon("close", 27) : icon("chevronLeft", 29)}</span><span class="center-arrow-label">${H.escape(o.backLabel || "Voltar")}</span></button>` : "";
+    const nextButton = o.nextAction ? `<button type="button" class="center-arrow center-arrow--next" data-action="${o.nextAction}" ${o.nextDisabled ? "disabled" : ""} aria-label="${H.escape(o.nextLabel || "Próximo")}"><span class="center-arrow-glyph">${icon("chevronRight", 29)}</span><span class="center-arrow-label">${H.escape(o.nextLabel || "Próximo")}</span></button>` : "";
+    const navClass = backButton && nextButton ? "" : nextButton ? " is-next-only" : " is-back-only";
+    return `<div class="modal-wrap day-home-wrap" ${closeAction ? `data-action="${closeAction}"` : ""}><section class="modal day-home center-modal${stepMotion}" role="dialog" aria-modal="true" aria-labelledby="${titleId}">
       <div class="center-modal-head">
         <div class="day-home-icon">${icon(o.icon || "route", 22)}</div>
-        <h2>${H.escape(o.title || "")}</h2>
+        <h2 id="${titleId}">${H.escape(o.title || "")}</h2>
         ${o.resumo ? `<p class="center-modal-resumo">${o.resumo}</p>` : ""}
-        ${o.hideClose ? "" : `<button class="close center-modal-close" type="button" data-action="${o.closeButtonAction || "leitura-voltar"}">${icon("close", 16)}</button>`}
+        ${o.hideClose ? "" : `<button class="close center-modal-close" type="button" data-action="${o.closeButtonAction || "leitura-voltar"}" aria-label="${H.escape(o.closeLabel || "Fechar")}">${icon("close", 16)}</button>`}
       </div>
       <div class="center-modal-body">${o.body || ""}</div>
       ${o.extra || ""}
-      <div class="center-modal-nav">
-        <button type="button" class="center-arrow center-arrow--back" data-action="${o.backAction || ""}" ${!o.backAction ? "disabled" : ""} aria-label="${H.escape(o.backLabel || "Voltar")}"><span class="center-arrow-glyph">${o.backGlyph || "‹"}</span><span class="center-arrow-label">${H.escape(o.backLabel || "Voltar")}</span></button>
-        <button type="button" class="center-arrow center-arrow--next" data-action="${o.nextAction || ""}" ${o.nextDisabled || !o.nextAction ? "disabled" : ""} aria-label="${H.escape(o.nextLabel || "Próximo")}"><span class="center-arrow-glyph">›</span><span class="center-arrow-label">${H.escape(o.nextLabel || "Próximo")}</span></button>
-      </div>
+      ${backButton || nextButton ? `<div class="center-modal-nav${navClass}">${backButton}${nextButton}</div>` : ""}
     </section></div>`;
   }
 
@@ -1742,6 +1812,12 @@
       if (!control.hasAttribute("enterkeyhint")) control.setAttribute("enterkeyhint", "done");
     });
     app.querySelectorAll("#leitura-cliente-search,#leitura-produto-search").forEach(control => control.setAttribute("enterkeyhint", "go"));
+  }
+  function enhanceAccessibility() {
+    app.querySelectorAll("button.close:not([aria-label])").forEach(button => button.setAttribute("aria-label", "Fechar"));
+    app.querySelectorAll('[role="button"],[role="switch"]').forEach(control => {
+      if (!control.hasAttribute("tabindex") && !control.matches("button,a,input,select,textarea")) control.tabIndex = 0;
+    });
   }
   function focusedControlSnapshot() {
     const element = document.activeElement;
@@ -1888,6 +1964,10 @@
   }
   function stabilizeRouteMapLayout() {
     routeMapLayoutTimers.forEach(clearTimeout);
+    if (state.screen !== "route") {
+      routeMapLayoutTimers = [];
+      return;
+    }
     // 22/07 — a primeira medição é SÍNCRONA (era setTimeout 0). Entre o mount e
     // um setTimeout cabe um paint, e era nele que a tela aparecia com a altura
     // errada. Rodando aqui, a CSS var já está certa antes do primeiro pixel do
@@ -1897,9 +1977,6 @@
     routeMapLayoutTimers = [90, 220, 420].map(delay => setTimeout(() => {
       if (state.screen !== "route") return;
       fitRouteMap();
-      if (routeMap && routeMapHost && typeof routeMap.resize === "function") {
-        try { routeMap.resize(); } catch (_) {}
-      }
     }, delay));
   }
   function syncChromeMetrics() {
@@ -2101,8 +2178,7 @@
     // Fix recente (≤5 min) = verde, não importa o que a API de permissão diga.
     if (state.gpsFixAt && Date.now() - state.gpsFixAt < 300000) return "is-ok";
     if (state.gpsPerm === "denied") return "is-off";
-    if (state.gpsPerm === "granted") return "is-ok";
-    return "is-warn"; // desconhecido/aguardando = amarelo (nunca vermelho sem certeza)
+    return "is-warn"; // permissão sem posição recente ainda não comprova sinal
   }
   // S5 (PR22072026-APP-SOUNDS) — leitura do cache local (state.soundPrefs é só
   // pra pintar a tela, a fonte real é o SharedPreferences nativo — ver
@@ -2132,6 +2208,10 @@
   function motorDegradadoPorRede() {
     return state.routeEngine === "haversine" && !!state.routeDegradedReason && state.routeDegradedReason !== "coords_invalidas";
   }
+  function motorChipClass() {
+    if (!state.routeEngine || (state.routeEngine === "haversine" && state.routeDegradedReason === "coords_invalidas")) return "is-warn";
+    return motorDegradadoPorRede() ? "is-off" : "is-ok";
+  }
   function syncHeaderChips() {
     const toolbar = document.querySelector(".topbar .toolbar");
     if (!toolbar) return;
@@ -2146,7 +2226,7 @@
     box.innerHTML =
       (upd ? `<button class="hbx-chip hbx-chip-update" data-action="app-update" aria-label="Atualizar aplicativo">${icon("download", 13)}<span>Atualizar</span></button>` : "") +
       // R6 — chip "Motor" (verde/vermelho) no lugar da faixa técnica que morreu.
-      `<button class="hbx-chip ${motorDegradadoPorRede() ? "is-off" : "is-ok"}" data-action="chip-motor" aria-label="Motor de rotas">${icon("gear", 15)}</button>` +
+      `<button class="hbx-chip ${motorChipClass()}" data-action="chip-motor" aria-label="Motor de rotas">${icon("route", 15)}</button>` +
       // S5 — chip "Som" ENTRA à esquerda do GPS (S5-PREFERENCIA.md, "Porta 1").
       `<button class="hbx-chip ${soundChipClass()}" data-action="chip-som" aria-label="Sons">${icon(soundMasterOn() ? "volume" : "volumeOff", 15)}</button>` +
       `<button class="hbx-chip ${gpsChipClass()}" data-action="chip-gps" aria-label="Sinal de GPS">${icon("gps", 15)}</button>` +
@@ -3919,7 +3999,7 @@
     return parts.length ? H.escape(parts.join("  ·  ")) : "";
   }
   function leituraTipoStep() {
-    const body = `<div class="lrt-choice"><button class="row-card lrt-choice-btn" type="button" data-action="leitura-tipo-existente"><span class="card-main"><strong>Cliente existente</strong><span>Buscar quem já está cadastrado</span></span><span class="rp2-mode-chev">›</span></button><button class="row-card lrt-choice-btn" type="button" data-action="leitura-tipo-novo"><span class="card-main"><strong>Cliente novo</strong><span>Só nome e telefone</span></span><span class="rp2-mode-chev">›</span></button></div>`;
+    const body = `<div class="lrt-choice"><button class="row-card lrt-choice-btn" type="button" data-action="leitura-tipo-existente"><span class="card-main"><strong>Cliente existente</strong></span><span class="rp2-mode-chev">${icon("chevronRight", 18)}</span></button><button class="row-card lrt-choice-btn" type="button" data-action="leitura-tipo-novo"><span class="card-main"><strong>Cliente novo</strong></span><span class="rp2-mode-chev">${icon("chevronRight", 18)}</span></button></div>`;
     return centerModal({ icon: "gps", title: "Novo local", resumo: "Cliente novo ou existente?", body, closeButtonAction: "close-modal", backAction: "close-modal", backLabel: "Fechar" });
   }
   function leituraExistenteStep() {
@@ -3938,7 +4018,7 @@
     const draft = state.leituraNovoDraft;
     const summary = [[draft.endereco, draft.numero].filter(Boolean).join(", "), draft.bairro].filter(Boolean).join(" - ");
     const body = `<form id="leitura-novo-form"><div class="field"><label>Nome</label><input name="nome" required maxlength="160" value="${H.escape(draft.nome)}"></div><div class="field"><label>Telefone</label><input name="telefone" inputmode="tel" maxlength="15" value="${H.escape(draft.telefone)}" placeholder="(00) 00000-0000"></div>${state.leituraNovoEditing ? `<div class="section-title"><strong>Endereço</strong><button type="button" class="link-btn" data-action="leitura-novo-endereco-fechar">Fechar</button></div><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(draft.cep)}" placeholder="00.000-000"></div><div class="client-address-row client-address-primary"><div class="field"><label>Rua / Avenida</label><input name="endereco" maxlength="240" value="${H.escape(draft.endereco)}"></div><div class="field"><label>Nº</label><input name="numero" inputmode="numeric" maxlength="30" value="${H.escape(draft.numero)}"></div></div><div class="field"><label>Bairro</label><input name="bairro" maxlength="120" value="${H.escape(draft.bairro)}"></div><div class="client-address-row client-address-city"><div class="field"><label>Cidade</label><input name="cidade" maxlength="120" value="${H.escape(draft.cidade)}"></div><div class="field"><label>UF</label><input name="uf" maxlength="2" autocapitalize="characters" value="${H.escape(draft.uf)}"></div></div>${state.leituraNovoCepStatus ? `<p class="subtitle">${H.escape(state.leituraNovoCepStatus)}</p>` : ""}<div class="client-location-actions"><button type="button" class="btn btn-secondary btn-block client-locate-address" data-action="leitura-novo-consultar-local">${icon("map", 16)} Consultar local</button></div>` : `<p class="subtitle lrt-address-summary"><span>${summary ? `Endereço: ${H.escape(summary)}` : "Endereço não localizado ainda."}</span> <button type="button" class="link-btn" data-action="leitura-novo-endereco-editar">editar</button></p>`}<button class="btn btn-primary btn-block rp2-cta" type="submit">Confirmar</button></form>`;
-    return centerModal({ icon: "users", title: "Cliente novo", resumo: "Só nome e telefone", body, backAction: "leitura-voltar", nextAction: "" });
+    return centerModal({ icon: "users", title: "Cliente novo", body, backAction: "leitura-voltar", nextAction: "" });
   }
   function leituraTelefoneStep() {
     const hasPhone = !!state.leituraTelefoneValue;
@@ -4133,7 +4213,7 @@
   // ("leitura-live-map", ver mountLeituraLiveMap) — nunca reaproveita
   // #route-live-map (regra do transplante __hbxMap).
   function leituraAtivaModal() {
-    const body = `<div class="route-map-shell leitura-live-map-shell"><div id="leitura-live-map" class="route-live-map" aria-label="Mapa da leitura em andamento"><span class="route-map-loading">Carregando mapa…</span></div></div><p class="subtitle">O traçado segue o sinal de GPS e pode não bater 100% com o mapa.</p>`;
+    const body = `<div class="route-map-shell leitura-live-map-shell"><div id="leitura-live-map" class="route-live-map" aria-label="Mapa da leitura em andamento"><span class="route-map-loading">Carregando mapa…</span></div></div><p class="subtitle">A precisão varia conforme o GPS.</p>`;
     const extra = `<div class="center-modal-extra"><button type="button" class="btn btn-primary btn-block rp2-cta" data-action="leitura-cadastrar-local" ${state.leituraCapturing ? "disabled" : ""}>${icon("gps", 17)} ${state.leituraCapturing ? "Lendo GPS…" : "Cadastrar Local"}</button></div>`;
     return centerModal({
       icon: "gps", title: "Leitura de rota", resumo: leituraAtivaResumoTexto(), body, extra,
@@ -4171,6 +4251,7 @@
     const paused = serverRouteActive() && open.length > 0 && state.routePaused;
     const planned = routePlanned();
     const leituraAtiva = leituraRouteActive();
+    const mapLabel = leituraAtiva ? "Mapa da leitura em andamento" : paused ? "Mapa da rota pausada" : routeActive() ? "Mapa da rota em andamento" : planned ? "Mapa da rota montada" : "Mapa das entregas do dia";
     // S1 21/07 (PR21072026-NAVEGAÇÃO) — painel compacto "Próxima parada" some na
     // Leitura (ela tem os controles dela, e o topo do mapa já é o gpsStatus/
     // followControl dela — nunca exibem juntos, ver ensureRouteReadingUi).
@@ -4182,13 +4263,13 @@
     // S2 21/07 — "has-next-panel" empurra route-gps-status/route-follow-control
     // (agora também usados pela navegação normal, não só Leitura) pra baixo do
     // painel "Próxima parada" quando os dois aparecem juntos (ver app.css).
-    return shell(`${creditosDiaPanel()}<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="Mapa das paradas planejadas"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : routeTransmuxControl(planned, paused)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
-      ${total ? `<div class="route-filter" role="tablist">
-        <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila">Fila <b>${open.length}</b></button>
-        <button type="button" class="route-filter-btn ${state.routeFilter === "entregue" ? "active" : ""}" data-action="route-filter" data-filter="entregue">Entregue <b>${done.length}</b></button>
+    return shell(`${creditosDiaPanel()}<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="${mapLabel}"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : routeTransmuxControl(planned, paused)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
+      ${total ? `<div class="route-filter" role="tablist" aria-label="Filtros da rota">
+        <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila" role="tab" aria-selected="${state.routeFilter === "fila"}">Fila <b>${open.length}</b></button>
+        <button type="button" class="route-filter-btn ${state.routeFilter === "entregue" ? "active" : ""}" data-action="route-filter" data-filter="entregue" role="tab" aria-selected="${state.routeFilter === "entregue"}">Entregue <b>${done.length}</b></button>
       </div>` : ""}
       ${state.routeFilter === "fila" && next ? `<div class="section-title"><strong>Próxima parada</strong><span>${next.etaAt ? H.date(next.etaAt, { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>${stopCard(next, true)}` : ""}
-      ${total ? (filtered.length ? `<div class="list">${filtered.map((item, index) => `${state.routeFilter === "fila" ? routeLegConnector(item) : ""}${stopCard(item, false, index + (state.routeFilter === "fila" ? 2 : 1))}`).join("")}</div>` : state.routeFilter === "fila" && next ? "" : empty("Nada aqui", "")) : ""}`, leituraAtiva ? "" : `<button class="fab" data-action="rota-rapida" aria-label="Rota rápida">+</button>`);
+      ${total ? (filtered.length ? `<div class="list">${filtered.map((item, index) => `${state.routeFilter === "fila" ? routeLegConnector(item) : ""}${stopCard(item, false, index + (state.routeFilter === "fila" ? 2 : 1))}`).join("")}</div>` : state.routeFilter === "fila" && next ? "" : empty("Nada aqui", "")) : ""}`, leituraAtiva ? "" : `<button class="fab" data-action="rota-rapida" aria-label="Rota rápida">${icon("plus", 22)}</button>`);
   }
   function leituraRouteControls() {
     const checkpointLabel = state.leituraCapturing ? "Lendo GPS…" : "Checkpoint";
@@ -4230,12 +4311,12 @@
     const main = paused
       ? { state: "resume", action: "resume-route", label: "Continuar rota", caption: "Continuar", glifo: "play" }
       : active
-        ? { state: "stop", action: "stop-route", label: "Parar rota", caption: "Parar", glifo: "stop" }
+        ? { state: "stop", action: "stop-route", label: "Pausar rota", caption: "Pausar", glifo: "stop" }
         : planned
           // 26/07 (dono): rota pronta que nunca rodou INICIA — "Continuar" era mentira
           // de semântica (só quem pausou continua; o caso paused acima segue "Continuar").
           ? { state: "ready", action: "start-planned-route", label: "Iniciar rota", caption: "Iniciar", glifo: "play" }
-          : { state: "plan", action: "plan-route", label: "Planejar rota", caption: "Montar rota", glifo: "route" };
+          : { state: "plan", action: "plan-route", label: "Montar rota", caption: "Montar rota", glifo: "route" };
     const clearDayVisible = !active && !paused && isAdmin() && openItems().length > 0;
     const routeSatellite = (cls, action, label, caption, glifo, motion) => `<span class="route-control-unit route-control-unit--satellite"><button class="${cls}" type="button" data-action="${action}" aria-label="${H.escape(label)}"${motion ? " data-hbx-motion" : ""}>${icon(glifo, 21)}</button><small class="route-control-label">${H.escape(caption)}</small></span>`;
     // A ação de encerramento/cancelamento/limpeza fica sempre à esquerda. Ela
@@ -4246,7 +4327,7 @@
       : planned && isAdmin()
         ? routeSatellite("route-cancel-icon", "cancel-route", "Cancelar planejamento", "Cancelar", "close")
         : clearDayVisible
-          ? routeSatellite("route-cancel-icon", "clear-day-request", "Limpar o dia", "Limpar", "trash")
+          ? routeSatellite("route-cancel-icon", "clear-day-request", "Cancelar entregas abertas", "Cancelar abertas", "close")
           : "";
     // Rota pronta: o satélite da direita ADICIONA paradas na rota que já existe
     // (mesma tela de montagem por baixo). 26/07 (dono, 4ª cobrança): o rótulo diz o
@@ -4259,7 +4340,7 @@
   function stopCard(item, featured, sequenceNumber) {
     const c = item.cliente || {}; const done = item.status === "entregue"; const order = sequenceNumber || Math.max(1, orderedItems().indexOf(item) + 1);
     const constraints = routeConstraintChips(routeConstraintSource(item, c));
-    return `<article class="stop-card ${featured ? "card" : ""}" data-delivery="${H.escape(item.id)}" data-route-stop="${H.escape(item.id)}" ${featured ? `data-route-current="${H.escape(item.id)}"` : ""} role="button" tabindex="0"><div class="stop-top"><div class="order">${done ? icon("check", 16) : order}</div><div class="card-main"><strong>${H.escape(c.nome || "Cliente")}${item.localApelido ? ` · ${H.escape(item.localApelido)}` : ""}</strong><span>${H.escape(address(c))}</span><small>${H.escape((item.itens || []).map(x => `${x.qtdPrevista}× ${x.produto && x.produto.nome || "item"}`).join(", ") || `${item.quantidade || 0} item(ns)`)}</small>${constraints}${c.observacoes ? `<small class="stop-obs">${H.escape(c.observacoes)}</small>` : ""}</div><span class="badge ${done ? "success" : item.status === "em_rota" ? "warning" : ""}">${H.escape(statusLabel(item.status))}</span></div>${done ? `<div class="stop-actions stop-actions-done"><button class="btn btn-secondary" type="button" data-action="edit-delivered" data-delivery-edit="${H.escape(item.id)}">${icon("edit", 16)} Editar</button></div>` : ""}${featured ? `<div class="stop-actions"><button class="btn btn-secondary" data-action="call-stop">${icon("phone", 17)}</button><button class="btn btn-secondary" data-action="wa-stop">${icon("wa", 17)}</button><button class="btn btn-primary" data-action="confirm-stop" ${state.deliveryConfirming ? "disabled" : ""}>Confirmar entrega</button></div>` : ""}</article>`;
+    return `<article class="stop-card ${featured ? "card" : ""}" data-delivery="${H.escape(item.id)}" data-route-stop="${H.escape(item.id)}" ${featured ? `data-route-current="${H.escape(item.id)}"` : ""} role="button" tabindex="0"><div class="stop-top"><div class="order">${done ? icon("check", 16) : order}</div><div class="card-main"><strong>${H.escape(c.nome || "Cliente")}${item.localApelido ? ` · ${H.escape(item.localApelido)}` : ""}</strong><span>${H.escape(address(c))}</span><small>${H.escape((item.itens || []).map(x => `${x.qtdPrevista}× ${x.produto && x.produto.nome || "item"}`).join(", ") || `${item.quantidade || 0} item(ns)`)}</small>${constraints}${c.observacoes ? `<small class="stop-obs">${H.escape(c.observacoes)}</small>` : ""}</div><span class="badge ${done ? "success" : item.status === "em_rota" ? "warning" : ""}">${H.escape(statusLabel(item.status))}</span></div>${done ? `<div class="stop-actions stop-actions-done"><button class="btn btn-secondary" type="button" data-action="edit-delivered" data-delivery-edit="${H.escape(item.id)}">${icon("edit", 16)} Editar</button></div>` : ""}${featured ? `<div class="stop-actions"><button class="btn btn-secondary" data-action="call-stop" aria-label="Ligar para ${H.escape(c.nome || "cliente")}">${icon("phone", 17)}</button><button class="btn btn-secondary" data-action="wa-stop" aria-label="Abrir WhatsApp de ${H.escape(c.nome || "cliente")}">${icon("wa", 17)}</button><button class="btn btn-primary" data-action="confirm-stop" ${state.deliveryConfirming ? "disabled" : ""}>Confirmar entrega</button></div>` : ""}</article>`;
   }
   // S2 25/07 (PR25072026-ROTA-CONFERIDA) — conector "perna a perna" entre um
   // card e o próximo na FILA: expõe legDistanceM/legDurationS que o backend já
@@ -4298,8 +4379,8 @@
     const subtitle = selection ? [phone, location].filter(Boolean).join(" · ") || "Sem telefone ou endereço" : location;
     const distance = Number.isFinite(opts.distance) ? opts.distance : null;
     const trailing = selection
-      ? (distance !== null ? `<span class="lrt-distance">${distance < 1000 ? `${Math.round(distance)} m` : `${(distance / 1000).toFixed(1)} km`}</span>` : `<span class="selection-mode-chevron">›</span>`)
-      : `<span>›</span>`;
+      ? (distance !== null ? `<span class="lrt-distance">${distance < 1000 ? `${Math.round(distance)} m` : `${(distance / 1000).toFixed(1)} km`}</span>` : `<span class="selection-mode-chevron">${icon("chevronRight", 18)}</span>`)
+      : `<span class="selection-mode-chevron">${icon("chevronRight", 18)}</span>`;
     const searchText = duplicateTextKey(`${name} ${phone} ${location}`);
     const attrs = selection
       ? `type="button" data-action="leitura-escolher-cliente" data-client-id="${H.escape(client.id)}" data-selection-search="${H.escape(searchText)}"${opts.hidden ? " hidden" : ""}`
@@ -4316,7 +4397,7 @@
       ? `type="button" data-action="leitura-item-adicionar" data-product-id="${H.escape(product.id)}" data-selection-search="${H.escape(duplicateTextKey(product.nome || product.name || ""))}"${opts.hidden ? " hidden" : ""}`
       : (admin ? `type="button" data-action="edit-product" data-product-id="${H.escape(product.id)}"` : "");
     const subtitle = admin && !selection && product.precoCatalogo != null ? `${H.escape(product.unidade || "unidade")} · ${H.money(product.precoCatalogo)}` : H.escape(product.unidade || "unidade");
-    return `<${tag} class="lead-card${selection ? " hbx-selection-item" : ""}${archived ? " hbx-dimmed" : ""}" ${attrs}><div class="avatar">${icon("box", 19)}</div><div class="card-main"><strong>${H.escape(product.nome || product.name)}</strong><span>${subtitle}${archived ? ` · <span class="badge">Arquivado</span>` : ""}</span></div>${selection || admin ? `<span class="selection-mode-chevron">›</span>` : ""}</${tag}>`;
+    return `<${tag} class="lead-card${selection ? " hbx-selection-item" : ""}${archived ? " hbx-dimmed" : ""}" ${attrs}><div class="avatar">${icon("box", 19)}</div><div class="card-main"><strong>${H.escape(product.nome || product.name)}</strong><span>${subtitle}${archived ? ` · <span class="badge">Arquivado</span>` : ""}</span></div>${selection || admin ? `<span class="selection-mode-chevron">${icon("chevronRight", 18)}</span>` : ""}</${tag}>`;
   }
 
   function clientsScreen() {
@@ -4324,7 +4405,7 @@
     const total = Number(state.clientsTotal || 0);
     const firstLoad = state.clientsLoading && state.clientsPage === 0;
     const emptyText = state.clientsError || (state.query.trim() ? "Nenhum resultado." : "");
-    return shell(`<div class="screen-head"><div><h1>Clientes</h1></div></div><label class="search">${icon("search", 18)}<input id="client-search" placeholder="Buscar" value="${H.escape(state.query)}"></label><div class="section-title"><strong>Cadastros</strong><span>${list.length}${total > list.length ? ` de ${total}` : ""}</span></div>${firstLoad ? loading() : `<div class="list">${list.length ? list.map(c => clientCatalogCard(c)).join("") : empty(state.clientsError ? "Não foi possível carregar" : "Nenhum cliente", emptyText)}</div>`}${clientsAutoLoad()}`, `<button class="fab" data-action="new-client" aria-label="Novo cliente">+</button>`);
+    return shell(`<div class="screen-head"><div><h1>Clientes</h1></div></div><label class="search">${icon("search", 18)}<input id="client-search" aria-label="Buscar clientes" placeholder="Buscar" value="${H.escape(state.query)}"></label><div class="section-title"><strong>Cadastros</strong><span>${list.length}${total > list.length ? ` de ${total}` : ""}</span></div>${firstLoad ? loading() : `<div class="list">${list.length ? list.map(c => clientCatalogCard(c)).join("") : empty(state.clientsError ? "Não foi possível carregar" : "Nenhum cliente", emptyText)}</div>`}${clientsAutoLoad()}`, `<button class="fab" data-action="new-client" aria-label="Novo cliente">${icon("plus", 22)}</button>`);
   }
   function productsScreen() {
     const all = state.products || [];
@@ -4332,7 +4413,7 @@
     const query = state.productQuery.trim().toLowerCase();
     const products = query ? all.filter(p => String(p.nome || p.name || "").toLowerCase().includes(query)) : all;
     const emptyText = all.length && query ? "Nenhum resultado." : "";
-    return shell(`<div class="screen-head"><div><h1>Produtos</h1></div></div><label class="search">${icon("search", 18)}<input id="product-search" placeholder="Buscar" value="${H.escape(state.productQuery)}"></label><div class="section-title"><strong>Catálogo</strong><span>${products.length}</span></div><div class="list">${products.length ? products.map(p => productCatalogCard(p)).join("") : empty(all.length ? "Nenhum resultado" : "Nenhum produto", emptyText)}</div>`, admin ? `<button class="fab" data-action="new-product" aria-label="Novo produto">+</button>` : "");
+    return shell(`<div class="screen-head"><div><h1>Produtos</h1></div></div><label class="search">${icon("search", 18)}<input id="product-search" aria-label="Buscar produtos" placeholder="Buscar" value="${H.escape(state.productQuery)}"></label><div class="section-title"><strong>Catálogo</strong><span>${products.length}</span></div><div class="list">${products.length ? products.map(p => productCatalogCard(p)).join("") : empty(all.length ? "Nenhum resultado" : "Nenhum produto", emptyText)}</div>`, admin ? `<button class="fab" data-action="new-product" aria-label="Novo produto">${icon("plus", 22)}</button>` : "");
   }
   // 26/07 — a seção "Operação" (linhas só-leitura "Rastreamento: Disponível/Off"
   // e "Modo da rota") SAIU dos Ajustes por ordem do dono: Logística Simples é o
@@ -4349,9 +4430,10 @@
   // chip de som e o ↻ da barra), então a linha aqui era o mesmo botão duas vezes.
   function settingsScreen() {
     const cfg = state.config || {};
-    return shell(`<div class="screen-head"><div><h1>Ajustes</h1></div></div><section class="hero"><span class="hero-kicker">● ${serverRouteActive() ? "Rota em andamento" : "Aguardando rota"}</span><h2>${routeTracked() ? "Rastreamento ativo" : "Modo essencial"}</h2></section>
-      ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong><span>›</span></button><button class="settings-row" data-action="statement"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div><span>›</span></button><button class="settings-row" data-action="toggle-creditos-panel" role="switch" aria-checked="${!creditosPanelOculto()}"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Painel de créditos do dia</strong></div><span class="module-switch ${!creditosPanelOculto() ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" data-action="open-recarga"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Recarga de créditos</strong></div><span>›</span></button><button class="settings-row" data-action="open-financeiro"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Financeiro</strong></div><span>›</span></button><button class="settings-row" data-action="open-avancado"><div class="avatar">${icon("gear", 18)}</div><div class="settings-copy"><strong>Avançado</strong></div><span>›</span></button></section>` : ""}
-      <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div><span>›</span></button>${versionSettingsRow()}</section>`);
+    const chevron = icon("chevronRight", 18);
+    return shell(`<div class="screen-head"><div><h1>Ajustes</h1></div></div>
+      ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong>${chevron}</button><button class="settings-row" data-action="statement"><div class="avatar">${icon("sales", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div>${chevron}</button><button class="settings-row" data-action="toggle-creditos-panel" role="switch" aria-checked="${!creditosPanelOculto()}"><div class="avatar">${icon("calendar", 18)}</div><div class="settings-copy"><strong>Painel de créditos do dia</strong></div><span class="module-switch ${!creditosPanelOculto() ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" data-action="open-recarga"><div class="avatar">${icon("card", 18)}</div><div class="settings-copy"><strong>Recarga de créditos</strong></div>${chevron}</button><button class="settings-row" data-action="open-financeiro"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Financeiro</strong></div>${chevron}</button><button class="settings-row" data-action="open-avancado"><div class="avatar">${icon("gear", 18)}</div><div class="settings-copy"><strong>Avançado</strong></div>${chevron}</button></section>` : ""}
+      <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div>${chevron}</button>${versionSettingsRow()}</section>`);
   }
 
   // 22/07 — a versão instalada não aparecia em lugar nenhum: sem isso não dá
@@ -4362,7 +4444,7 @@
     const info = appInfo();
     if (!info || !info.versionName) return "";
     const nova = state.updateInfo && state.updateInfo.outdated;
-    return `<button class="settings-row" data-action="check-update"><div class="avatar">${icon("download", 18)}</div><div class="settings-copy"><strong>Versão</strong></div><strong>${H.escape(info.versionName)} · código ${H.escape(String(info.versionCode || "?"))}</strong>${nova ? `<span class="badge success">Nova</span>` : ""}<span>›</span></button>`;
+    return `<button class="settings-row" data-action="check-update"><div class="avatar">${icon("download", 18)}</div><div class="settings-copy"><strong>Versão</strong><span>${H.escape(info.versionName)} · código ${H.escape(String(info.versionCode || "?"))}</span></div>${nova ? `<span class="badge success">Nova</span>` : ""}${icon("chevronRight", 18)}</button>`;
   }
   // CHEGADA 22/07 — preço UNITÁRIO que a tela usa pra somar "Valor agora".
   // Ordem: (1) preço editado na mão nesta chegada; (2) valorUnit do item, que só
@@ -4483,7 +4565,7 @@
   //     antigo continua lá e o total soma os dois.
   //   • Cobrança simples resume em "Deve R$ X" e pergunta se pagou ou ficou
   //     devendo; a exibição detalhada preserva antigo / agora / total.
-  //   • "Não atendeu" pede o motivo; "Sem atendimento" mantém o atalho direto.
+    //   • "Não entregue" pede o motivo; "Não atendeu" mantém o atalho direto.
   function deliverySimpleSheet(item) {
     const c = item.cliente || {};
     const editando = state.deliveryEditingId === item.id;
@@ -4513,7 +4595,7 @@
         <button type="button" class="chegada-produto" data-action="delivery-swap" data-draft-item="${H.escape(row.key)}">${H.escape(row.nome)}</button>
         ${financeiroAtivo
           ? editandoPreco
-            ? `<form id="chegada-preco-form" class="chegada-preco-form" data-preco-form data-draft-item="${H.escape(row.key)}"><input class="chegada-preco-input lrt-produto-valor-input" name="preco" type="text" inputmode="numeric" autocomplete="off" data-chegada-preco="${H.escape(row.key)}" value="${H.escape(H.money(preco))}" aria-label="Valor da entrega" data-enter-action="delivery-price-save"><button type="submit" class="chegada-preco-ok" data-action="delivery-price-save" data-draft-item="${H.escape(row.key)}">${icon("check", 18)}</button></form>`
+            ? `<form id="chegada-preco-form" class="chegada-preco-form" data-preco-form data-draft-item="${H.escape(row.key)}"><input class="chegada-preco-input lrt-produto-valor-input" name="preco" type="text" inputmode="numeric" autocomplete="off" data-chegada-preco="${H.escape(row.key)}" value="${H.escape(H.money(preco))}" aria-label="Valor da entrega" data-enter-action="delivery-price-save"><button type="submit" class="chegada-preco-ok" data-action="delivery-price-save" data-draft-item="${H.escape(row.key)}" aria-label="Confirmar valor">${icon("check", 18)}</button></form>`
             : `<span class="chegada-sep" aria-hidden="true">·</span><button type="button" class="chegada-preco" data-action="delivery-price" data-draft-item="${H.escape(row.key)}">${H.escape(H.money(preco))}</button>`
           : ""}
       </div>`;
@@ -4525,8 +4607,8 @@
         ? `<button type="button" class="chegada-add" data-action="delivery-add-product">${icon("plus", 18)} Adicionar produto</button>`
         : "";
     const acoes = financeiroAtivo
-      ? `<div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} ${cobrancaSimples ? "Entregue e pagou" : "Pago"}</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} ${cobrancaSimples ? "Ficou devendo" : "Entregue"}</button>${editando ? `<button class="chegada-btn-sem" type="button" data-action="cancel-delivery-edit">Voltar sem alterar</button>` : `<button class="chegada-btn-sem" type="button" data-action="delivery-not-delivered">Não atendeu</button><button class="chegada-btn-sem" type="button" data-action="confirm-sem-atendimento">Sem atendimento</button>`}</div>${editando ? "" : `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-detail">Ver detalhes</button>`}`
-      : `<div class="delivery-hero-actions"><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="delivery-not-delivered">${icon("close", 20)} Não atendeu</button><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="confirm-sem-atendimento">${icon("close", 20)} Sem atendimento</button><button class="btn btn-primary delivery-confirm delivery-big-btn" type="button" data-action="confirm-entregue-simples" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button></div>`;
+      ? `<div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Entregue e quitou</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue, ficou devendo</button>${editando ? `<button class="chegada-btn-sem" type="button" data-action="cancel-delivery-edit">Voltar sem alterar</button>` : `<button class="chegada-btn-sem" type="button" data-action="delivery-not-delivered">Não entregue</button><button class="chegada-btn-sem" type="button" data-action="confirm-sem-atendimento">Não atendeu</button>`}</div>${editando ? "" : `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-detail">Ver detalhes</button>`}`
+      : `<div class="delivery-hero-actions"><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="delivery-not-delivered">${icon("close", 20)} Não entregue</button><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="confirm-sem-atendimento">${icon("phone", 20)} Não atendeu</button><button class="btn btn-primary delivery-confirm delivery-big-btn" type="button" data-action="confirm-entregue-simples" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button></div>`;
     const conta = !financeiroAtivo ? "" : cobrancaSimples
       ? `<div class="chegada-conta"><div class="chegada-conta-linha chegada-conta-total"><span>Deve</span><b>${H.money(valorAntigo + valorAgora)}</b></div></div>`
       : `<div class="chegada-conta"><div class="chegada-conta-linha"><span>Valor antigo</span><b>${H.money(valorAntigo)}</b></div><div class="chegada-conta-linha"><span>Valor entrega</span><b>${H.money(valorAgora)}</b></div><div class="chegada-conta-linha chegada-conta-total"><span>Valor total</span><b>${H.money(valorAntigo + valorAgora)}</b></div></div>`;
@@ -4548,8 +4630,8 @@
     const availableProducts = (state.products || []).filter(p => p && p.id != null && p.ativo !== false && !productIds.has(String(p.id)));
     const itemRows = draft.items.map(row => `<div class="delivery-item"><div><strong>${H.escape(row.nome)}</strong><small>${H.money(unitPriceFor(item, row))}${row.novo ? " · Novo na entrega" : ""}</small></div><div class="delivery-stepper"><button data-action="delivery-qty" data-draft-item="${H.escape(row.key)}" data-delta="-1" ${finished ? "disabled" : ""}>−</button><b>${row.qtd}</b><button data-action="delivery-qty" data-draft-item="${H.escape(row.key)}" data-delta="1" ${finished ? "disabled" : ""}>+</button></div></div>`).join("") || empty("Sem itens", "Adicione o que foi entregue.");
     const reasonPanel = `<div class="delivery-reason"><strong>Por que não foi entregue?</strong><div class="delivery-reason-options">${[["ausente","Ausente"],["recusou","Recusou"],["reagendar","Reagendar"]].map(([id,label]) => `<button class="${reason === id ? "active" : ""}" data-action="delivery-reason" data-reason="${id}">${label}</button>`).join("")}</div><button class="btn btn-danger delivery-confirm" data-action="confirm-not-delivered" ${reason ? "" : "disabled"}>Confirmar não entregue</button><button class="btn btn-secondary" data-action="delivery-back">Voltar</button></div>`;
-    const editor = `<div class="delivery-editor"><div class="delivery-editor-head"><strong>Quantidade entregue</strong><span>edite na hora</span></div>${itemRows}${!finished && availableProducts.length ? (!state.deliveryProductPicker ? `<button class="delivery-add" data-action="delivery-add-product">+ Adicionar produto</button>` : `<div class="delivery-picker"><strong>Adicionar produto</strong>${availableProducts.map(p => `<button data-action="delivery-product" data-product-id="${H.escape(p.id)}">${H.escape(p.nome || p.name || "Produto")}</button>`).join("")}<button class="btn btn-secondary" data-action="delivery-close-picker">Fechar</button></div>`) : ""}</div>`;
-    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><h2>${H.escape(c.nome || "Cliente")}</h2><p class="subtitle">${H.escape(address(c))}</p></div><button class="close" data-action="close-sheet">${icon("close", 18)}</button></div>${c.observacoes ? `<div class="card flat delivery-obs-card"><strong>Observações</strong><p class="subtitle">${H.escape(c.observacoes)}</p></div>` : ""}${notDelivered ? reasonPanel : editor}${item.status === "entregue" ? `<button class="btn btn-secondary btn-block delivery-reopen" data-action="reopen-delivery">${icon("refresh", 17)} Reabrir entrega</button>` : ""}${!finished && !notDelivered ? `<div class="delivery-tools"><button class="btn btn-secondary" data-action="maps">${icon("route", 17)} Continuar navegação</button><button class="btn btn-secondary" data-action="call" ${phone ? "" : "disabled"}>${icon("phone", 17)} Ligar</button><button class="btn btn-secondary" data-action="whatsapp" ${phone ? "" : "disabled"}>${icon("wa", 17)} WhatsApp</button></div><div class="section-title"><strong>Comprovante</strong><span>opcional</span></div><div class="actions"><input class="sr-only" id="proof-photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><button class="btn btn-secondary" data-action="photo">${proof.fotoEnviada ? icon("check",17) : icon("plus",17)} Foto</button></div><div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Pago</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button><button class="chegada-btn-sem" type="button" data-action="delivery-not-delivered">Não atendeu</button><button class="chegada-btn-sem" type="button" data-action="confirm-sem-atendimento">Sem atendimento</button></div>${state.deliverySimpleDetail ? `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-back">Voltar para exibição simples</button>` : ""}` : ""}</section></div>`;
+    const editor = `<div class="delivery-editor"><div class="delivery-editor-head"><strong>Quantidade entregue</strong></div>${itemRows}${!finished && availableProducts.length ? (!state.deliveryProductPicker ? `<button class="delivery-add" data-action="delivery-add-product">${icon("plus", 17)} Adicionar produto</button>` : `<div class="delivery-picker"><strong>Adicionar produto</strong>${availableProducts.map(p => `<button data-action="delivery-product" data-product-id="${H.escape(p.id)}">${H.escape(p.nome || p.name || "Produto")}</button>`).join("")}<button class="btn btn-secondary" data-action="delivery-close-picker">Fechar</button></div>`) : ""}</div>`;
+    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><h2>${H.escape(c.nome || "Cliente")}</h2><p class="subtitle">${H.escape(address(c))}</p></div><button class="close" data-action="close-sheet" aria-label="Fechar">${icon("close", 18)}</button></div>${c.observacoes ? `<div class="card flat delivery-obs-card"><strong>Observações</strong><p class="subtitle">${H.escape(c.observacoes)}</p></div>` : ""}${notDelivered ? reasonPanel : editor}${item.status === "entregue" ? `<button class="btn btn-secondary btn-block delivery-reopen" data-action="reopen-delivery">${icon("refresh", 17)} Reabrir entrega</button>` : ""}${!finished && !notDelivered ? `<div class="delivery-tools"><button class="btn btn-secondary" data-action="maps">${icon("route", 17)} Continuar navegação</button><button class="btn btn-secondary" data-action="call" ${phone ? "" : "disabled"}>${icon("phone", 17)} Ligar</button><button class="btn btn-secondary" data-action="whatsapp" ${phone ? "" : "disabled"}>${icon("wa", 17)} WhatsApp</button></div><div class="section-title"><strong>Comprovante</strong><span>opcional</span></div><div class="actions"><input class="sr-only" id="proof-photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><button class="btn btn-secondary" data-action="photo">${proof.fotoEnviada ? icon("check",17) : icon("plus",17)} Foto</button></div><div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Entregue e quitou</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue, ficou devendo</button><button class="chegada-btn-sem" type="button" data-action="delivery-not-delivered">Não entregue</button><button class="chegada-btn-sem" type="button" data-action="confirm-sem-atendimento">Não atendeu</button></div>${state.deliverySimpleDetail ? `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-back">Voltar para exibição simples</button>` : ""}` : ""}</section></div>`;
   }
   function newClientProductFields() {
     const draft = state.clientProductDraft;
@@ -4621,12 +4703,12 @@
   function modal() {
     if (state.modal === "client-product") return clientEditorModal(false);
     if (state.modal === "new-client") return clientEditorModal(true);
-    if (state.modal === "new-product") return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("box", 18)}</div><div><h2>Novo produto</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-product-form"><div class="form-grid"><div class="field"><label>Nome</label><input name="name" required maxlength="140"></div><div class="field"><label>Unidade</label><input name="unidade" maxlength="60" placeholder="galão, caixa, unidade"></div><div class="field"><label>Preço</label><input name="price" type="text" inputmode="numeric" data-product-price="new"></div><div class="field"><label>Estoque</label><input name="stock" type="number" min="0" step="1"></div></div><button class="btn btn-primary btn-block" type="submit">Cadastrar</button></form></section></div>`;
+    if (state.modal === "new-product") return `<div class="modal-wrap day-home-wrap product-edit-wrap" data-action="close-modal"><section class="modal day-home center-modal product-edit-modal" role="dialog" aria-modal="true" aria-labelledby="new-product-title"><div class="center-modal-head"><div class="day-home-icon">${icon("box", 22)}</div><h2 id="new-product-title">Novo produto</h2><button class="close center-modal-close" type="button" data-action="close-modal" aria-label="Fechar">${icon("close", 16)}</button></div><div class="center-modal-body product-edit-body"><form id="new-product-form"><div class="form-grid"><div class="field"><label>Nome</label><input name="name" required maxlength="140"></div><div class="field"><label>Unidade</label><input name="unidade" maxlength="60" placeholder="galão, caixa, unidade"></div><div class="field"><label>Preço</label><input name="price" type="text" inputmode="numeric" data-product-price="new"></div><div class="field"><label>Estoque</label><input name="stock" type="number" min="0" step="1"></div></div><button class="btn btn-primary btn-block product-edit-save" type="submit">Cadastrar</button></form></div></section></div>`;
     if (state.modal === "edit-product") {
       const p = state.modalProduct || {};
       const d = state.editProductDraft || { nome: p.nome || p.name || "", unidade: p.unidade || "", precoCatalogo: p.precoCatalogo != null ? String(p.precoCatalogo) : "", estoque: p.estoque != null ? String(p.estoque) : "" };
       const active = p.ativo !== false;
-      return `<div class="modal-wrap day-home-wrap product-edit-wrap" data-action="close-modal"><section class="modal day-home center-modal product-edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-product-title"><div class="center-modal-head"><div class="day-home-icon">${icon("box", 22)}</div><h2 id="edit-product-title">Editar produto</h2><p class="center-modal-resumo">${H.escape(p.nome || p.name || "Produto")}</p><button class="close center-modal-close" type="button" data-action="close-modal">${icon("close", 16)}</button></div><div class="center-modal-body product-edit-body"><form id="edit-product-form"><div class="form-grid"><div class="field"><label>Nome</label><input name="nome" required maxlength="140" value="${H.escape(d.nome)}"></div><div class="field"><label>Unidade</label><input name="unidade" maxlength="60" placeholder="galão, caixa, unidade" value="${H.escape(d.unidade)}"></div><div class="field"><label>Preço</label><input name="precoCatalogo" type="text" inputmode="numeric" data-product-price="edit" value="${H.escape(d.precoCatalogo)}"></div><div class="field"><label>Estoque</label><input name="estoque" type="number" min="0" step="1" inputmode="numeric" value="${H.escape(d.estoque)}"></div></div><button class="btn btn-primary btn-block product-edit-save" type="submit">Salvar</button></form><div class="product-edit-danger"><button class="btn ${active ? "btn-danger" : "btn-secondary"} btn-block" type="button" data-action="toggle-product-active" data-product-id="${H.escape(p.id)}">${active ? "Arquivar produto" : "Reativar produto"}</button></div></div></section></div>`;
+      return `<div class="modal-wrap day-home-wrap product-edit-wrap" data-action="close-modal"><section class="modal day-home center-modal product-edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-product-title"><div class="center-modal-head"><div class="day-home-icon">${icon("box", 22)}</div><h2 id="edit-product-title">Editar produto</h2><p class="center-modal-resumo">${H.escape(p.nome || p.name || "Produto")}</p><button class="close center-modal-close" type="button" data-action="close-modal" aria-label="Fechar">${icon("close", 16)}</button></div><div class="center-modal-body product-edit-body"><form id="edit-product-form"><div class="form-grid"><div class="field"><label>Nome</label><input name="nome" required maxlength="140" value="${H.escape(d.nome)}"></div><div class="field"><label>Unidade</label><input name="unidade" maxlength="60" placeholder="galão, caixa, unidade" value="${H.escape(d.unidade)}"></div><div class="field"><label>Preço</label><input name="precoCatalogo" type="text" inputmode="numeric" data-product-price="edit" value="${H.escape(d.precoCatalogo)}"></div><div class="field"><label>Estoque</label><input name="estoque" type="number" min="0" step="1" inputmode="numeric" value="${H.escape(d.estoque)}"></div></div><button class="btn btn-primary btn-block product-edit-save" type="submit">Salvar</button></form><div class="product-edit-danger"><button class="btn ${active ? "btn-danger" : "btn-secondary"} btn-block" type="button" data-action="toggle-product-active" data-product-id="${H.escape(p.id)}">${active ? "Arquivar produto" : "Reativar produto"}</button></div></div></section></div>`;
     }
     if (state.modal === "new-delivery") {
       const client = state.modalClient; return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Criar entrega</h2><p class="subtitle">${H.escape(client && (client.name || client.nome) || "Cliente")}</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-delivery-form"><input type="hidden" name="customerProfileId" value="${H.escape(client && client.id || "")}"><div class="form-grid"><div class="field"><label>Produto</label><select name="productId"><option value="">Sem produto</option>${(state.products || []).filter(p => p.ativo !== false).map(p => `<option value="${p.id}">${H.escape(p.nome || p.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="quantidade" type="number" min="1" value="1"></div></div><div class="field"><label>Data e hora</label><input name="scheduledAt" type="datetime-local" value="${localDateTimeInputValue(new Date(Date.now() + 3600000))}"></div><div class="field"><label>Observação</label><textarea name="notes" data-enter-submit maxlength="500"></textarea></div><button class="btn btn-primary btn-block" type="submit">Adicionar à rota</button></form></section></div>`;
@@ -4717,7 +4799,7 @@
       return `<article class="recarga-pack${pack.recommended ? " is-best" : ""}${pack.paused ? " is-paused" : ""}" data-recarga-pack="${H.escape(pack.key)}">${badge ? `<span class="recarga-pack-badge">${H.escape(badge)}</span>` : ""}<span class="recarga-pack-title">${H.escape(pack.title || "Pacote")}</span><div class="recarga-pack-credits"><strong>${credits.toLocaleString("pt-BR")}</strong><span>créditos</span></div><strong class="recarga-pack-price">${H.money(price)}</strong><span class="recarga-pack-unit">${H.money(unit)} por crédito</span>${save > 0 ? `<span class="recarga-pack-save">Economize ${save}% por crédito</span>` : `<span class="recarga-pack-save is-neutral">Recarga rápida e sem assinatura</span>`}<span class="recarga-pack-expiry">Validade de ${Number(pack.defaultExpiryDays || 0)} dias</span><button type="button" class="btn btn-primary btn-block recarga-pack-cta" data-action="recarga-select-pack" data-pack-key="${H.escape(pack.key)}" ${pack.paused ? "disabled" : ""}>${pack.paused ? "Em breve" : "Escolher pacote"}</button></article>`;
     }).join("");
     const content = state.recargaLoading ? skeletons : state.recargaError ? error : packs.length ? `<div class="recarga-pack-track">${cards}</div>` : `<div class="recarga-load-error"><strong>Sem pacotes no momento</strong><p>Fale com o suporte HBX.</p></div>`;
-    return `${recargaSheetHeader("Recarga de créditos", "Escolha o pacote ideal para sua operação")}<section class="recarga-balance-hero"><span class="recarga-balance-kicker">Saldo disponível</span><div class="recarga-balance-value"><strong>${Number.isFinite(balance) ? balance.toLocaleString("pt-BR") : "0"}</strong><span>créditos</span></div><p>Os créditos entram na hora após a aprovação.</p><span class="recarga-balance-orbit one"></span><span class="recarga-balance-orbit two"></span></section><div class="recarga-section-title"><div><strong>Pacotes</strong><span>Sem assinatura e sem fidelidade</span></div><span class="recarga-secure-chip">${icon("lock", 13)} Seguro</span></div>${content}<div class="recarga-trust-row"><span>${icon("check", 14)} Aprovação imediata</span><span>${icon("check", 14)} Preço do servidor</span><span>${icon("lock", 14)} Cartão protegido</span></div>`;
+    return `${recargaSheetHeader("Recarga de créditos", "Escolha o pacote ideal para sua operação")}<section class="recarga-balance-hero"><span class="recarga-balance-kicker">Saldo disponível</span><div class="recarga-balance-value"><strong>${Number.isFinite(balance) ? balance.toLocaleString("pt-BR") : "0"}</strong><span>créditos</span></div><p>Os créditos entram na hora após a aprovação.</p><span class="recarga-balance-orbit one"></span><span class="recarga-balance-orbit two"></span></section><div class="recarga-section-title"><div><strong>Pacotes</strong><span>Sem assinatura e sem fidelidade</span></div><span class="recarga-secure-chip">${icon("lock", 13)} Seguro</span></div>${content}<div class="recarga-trust-row"><span>${icon("check", 14)} Aprovação imediata</span><span>${icon("check", 14)} Valor atualizado</span><span>${icon("lock", 14)} Cartão protegido</span></div>`;
   }
   function recargaModal() {
     return `<div class="sheet-wrap recarga-wrap" data-action="close-modal"><section class="sheet recarga-sheet">${recargaPacksView()}</section></div>`;
@@ -4804,7 +4886,7 @@
   // ==========================================================================
   // S5 (PR22072026-APP-SOUNDS) — Central de Sons: chip no topo (syncHeaderChips
   // acima) + linha "Sons" em Ajustes abrem A MESMA folha (sonsModal). Tabela
-  // PT-BR dos 16 sons que entram no APK (docs/APP SOUNDS/docs/sound-map.json),
+  // PT-BR dos sons que entram no APK (docs/APP SOUNDS/docs/sound-map.json),
   // agrupada pelo MOMENTO em que o motorista ouve — nunca a key técnica
   // (`delivery_complete` não diz nada a ninguém). `essencial` marca a ÚNICA
   // linha que o dono pediu como "escolha consciente, não deslize de dedo"
@@ -4827,6 +4909,7 @@
     { group: "Sistema", key: "success", label: "Sucesso" },
     { group: "Sistema", key: "update_complete", label: "Atualização concluída" },
     { group: "Sistema", key: "pairing_success", label: "Pareamento concluído" },
+    { group: "Sistema", key: "sonic_logo", label: "Abertura do app" },
   ];
   // 27/07 (dono) — a linha "Sons" de Ajustes MORREU: a Central de Sons continua
   // inteira, agora com uma porta só — o chip de som do topo (data-action
@@ -4839,7 +4922,7 @@
   // mesmo truque que stopCard() usa (article + role="button" + tabindex).
   function soundItemRow(entry) {
     const on = soundItemOn(entry.key);
-    return `<div class="settings-row" data-action="toggle-sound-item" data-sound-key="${entry.key}" role="switch" aria-checked="${on}" tabindex="0"><div class="settings-copy"><strong>${H.escape(entry.label)}</strong>${entry.essencial ? `<span>Essencial</span>` : ""}</div><button type="button" class="link-btn" data-action="preview-sound" data-sound-key="${entry.key}" aria-label="Ouvir ${H.escape(entry.label)}">${icon("play", 15)}</button><span class="module-switch ${on ? "active" : ""}" aria-hidden="true"><i></i></span></div>`;
+    return `<div class="settings-row" data-action="toggle-sound-item" data-sound-key="${entry.key}" role="switch" aria-checked="${on}" tabindex="0"><div class="settings-copy"><strong>${H.escape(entry.label)}</strong></div><button type="button" class="link-btn" data-action="preview-sound" data-sound-key="${entry.key}" aria-label="Ouvir ${H.escape(entry.label)}">${icon("play", 15)}</button><span class="module-switch ${on ? "active" : ""}" aria-hidden="true"><i></i></span></div>`;
   }
   function soundGroupSection(groupName) {
     const rows = SOUND_CATALOG.filter(entry => entry.group === groupName).map(soundItemRow).join("");
@@ -4853,7 +4936,7 @@
     // arquivado/cliente pendente, sem `pointer-events` (os toggles continuam
     // funcionando, só o SOM que não sai enquanto a mestra estiver off).
     const groupsHtml = ["Chegada", "Entrega", "Sincronia", "Rota", "Sistema"].map(soundGroupSection).join("");
-    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon(master ? "volume" : "volumeOff", 18)}</div><div><h2>Sons</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><section class="card flat"><button class="settings-row" type="button" data-action="toggle-sound-master" role="switch" aria-checked="${master}"><div class="avatar">${icon(master ? "volume" : "volumeOff", 18)}</div><div class="settings-copy"><strong>Todos os sons</strong><span>Chave-mestra — desligar cala tudo</span></div><span class="module-switch ${master ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" type="button" data-action="toggle-sound-voz" role="switch" aria-checked="${voz}"><div class="avatar">${icon(voz ? "volume" : "volumeOff", 18)}</div><div class="settings-copy"><strong>Voz do GPS</strong><span>Fala da navegação — canal separado dos sons</span></div><span class="module-switch ${voz ? "active" : ""}" aria-hidden="true"><i></i></span></button></section><div class="${master ? "" : "hbx-dimmed"}">${groupsHtml}</div></section></div>`;
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon(master ? "volume" : "volumeOff", 18)}</div><div><h2>Sons</h2></div><button class="close" data-action="close-modal" aria-label="Fechar">${icon("close", 18)}</button></div><section class="card flat"><button class="settings-row" type="button" data-action="toggle-sound-master" role="switch" aria-checked="${master}"><div class="avatar">${icon(master ? "volume" : "volumeOff", 18)}</div><div class="settings-copy"><strong>Todos os sons</strong></div><span class="module-switch ${master ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" type="button" data-action="toggle-sound-voz" role="switch" aria-checked="${voz}"><div class="avatar">${icon(voz ? "volume" : "volumeOff", 18)}</div><div class="settings-copy"><strong>Voz do GPS</strong></div><span class="module-switch ${voz ? "active" : ""}" aria-hidden="true"><i></i></span></button></section><div class="${master ? "" : "hbx-dimmed"}">${groupsHtml}</div></section></div>`;
   }
   // PR18072026 — "Financeiro" (Ajustes › Administração): mestre liga/desliga o
   // módulo inteiro; sub-toggles só aparecem com o mestre ON. Cada linha é 1
@@ -4861,7 +4944,7 @@
   function financeiroModal() {
     const ativo = configFlag("moduloFinanceiroAtivo");
     const sub = (key, label, hint) => `<button class="settings-row" type="button" data-action="toggle-config-flag" data-config-key="${key}" role="switch" aria-checked="${configFlag(key)}"><div class="settings-copy"><strong>${label}</strong>${hint ? `<span>${hint}</span>` : ""}</div><span class="module-switch ${configFlag(key) ? "active" : ""}" aria-hidden="true"><i></i></span></button>`;
-    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("wallet", 18)}</div><div><h2>Financeiro</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><section class="card flat"><button class="settings-row" type="button" data-action="toggle-config-flag" data-config-key="moduloFinanceiroAtivo" role="switch" aria-checked="${ativo}"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Ativar financeiro</strong><span>Cobrança, saldo e formas de pagamento</span></div><span class="module-switch ${ativo ? "active" : ""}" aria-hidden="true"><i></i></span></button></section>${ativo ? `<section class="card flat">${sub("cobrancaSimples", "Cobrança simples na chegada", "Nome grande, Pago ou Próximo")}${sub("aceitaNaHora", "Na hora")}${sub("aceitaMensal", "Mensal")}${sub("aceitaFiado", "Fiado")}${sub("precoPorClienteAtivo", "Preço por cliente")}</section>` : ""}</section></div>`;
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("wallet", 18)}</div><div><h2>Financeiro</h2></div><button class="close" data-action="close-modal" aria-label="Fechar">${icon("close", 18)}</button></div><section class="card flat"><button class="settings-row" type="button" data-action="toggle-config-flag" data-config-key="moduloFinanceiroAtivo" role="switch" aria-checked="${ativo}"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Ativar financeiro</strong></div><span class="module-switch ${ativo ? "active" : ""}" aria-hidden="true"><i></i></span></button></section>${ativo ? `<section class="card flat">${sub("cobrancaSimples", "Cobrança simples na chegada")}${sub("aceitaNaHora", "Na hora")}${sub("aceitaMensal", "Mensal")}${sub("aceitaFiado", "Fiado")}${sub("precoPorClienteAtivo", "Preço por cliente")}</section>` : ""}</section></div>`;
   }
   // "Avançado" (Ajustes › Administração): estrutura pronta pra crescer com
   // mais toggles operacionais, sem precisar de tela nova a cada item.
@@ -4896,7 +4979,7 @@
     const rows = paradas.map((parada, index) => {
       const nome = rmeClienteNome(parada);
       const constraints = routeConstraintChips(routeConstraintSource(parada, clientById(parada.customerProfileId)));
-      return `<div class="row-card rp2-order-row" data-rme-parada="${index}"><label class="rp2-order-position"><span>Pos.</span><input type="number" min="1" max="${paradas.length}" inputmode="numeric" value="${index + 1}" data-rme-position-index="${index}" aria-label="Posição de ${H.escape(nome)}"></label><button type="button" class="card-main card-main-btn" data-action="rme-editar-itens" data-index="${index}"><strong>${H.escape(nome)}</strong><span>${H.escape(rmeParadaResumo(parada))}</span>${constraints}</button><div class="rp2-order-arrows"><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="rme-mover" data-index="${index}" data-delta="-1" aria-label="Mover para cima" ${index === 0 ? "disabled" : ""}>▲</button><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="rme-mover" data-index="${index}" data-delta="1" aria-label="Mover para baixo" ${index === paradas.length - 1 ? "disabled" : ""}>▼</button></div></div>`;
+      return `<div class="row-card rp2-order-row" data-rme-parada="${index}"><label class="rp2-order-position"><span>Pos.</span><input type="number" min="1" max="${paradas.length}" inputmode="numeric" value="${index + 1}" data-rme-position-index="${index}" aria-label="Posição de ${H.escape(nome)}"></label><button type="button" class="card-main card-main-btn" data-action="rme-editar-itens" data-index="${index}"><strong>${H.escape(nome)}</strong><span>${H.escape(rmeParadaResumo(parada))}</span>${constraints}</button><div class="rp2-order-arrows"><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="rme-mover" data-index="${index}" data-delta="-1" aria-label="Mover para cima" ${index === 0 ? "disabled" : ""}>${icon("chevronUp", 18)}</button><button type="button" class="btn btn-secondary rp2-order-arrow" data-action="rme-mover" data-index="${index}" data-delta="1" aria-label="Mover para baixo" ${index === paradas.length - 1 ? "disabled" : ""}>${icon("chevronDown", 18)}</button></div></div>`;
     }).join("");
     const body = `<div class="list day-order-list">${rows || empty("Rota sem paradas", "Toque em adicionar cliente abaixo.")}</div><button class="delivery-add" type="button" data-action="rme-add-cliente">+ Adicionar cliente</button><p class="subtitle rme-dica">Toque: itens · Segure: tirar</p>`;
     return centerModal({
@@ -4929,7 +5012,7 @@
     const selectedIds = new Set(itens.map(i => String(i.productId)));
     const available = (state.products || []).filter(p => p && p.id != null && p.ativo !== false && !selectedIds.has(String(p.id)));
     if (editor.produtoPicker) {
-      const list = available.length ? `<div class="list hbx-selection-list">${available.map(product => `<button type="button" class="lead-card hbx-selection-item" data-action="rme-produto-escolher" data-product-id="${H.escape(product.id)}"><div class="avatar">${icon("box", 19)}</div><div class="card-main"><strong>${H.escape(product.nome || product.name)}</strong><span>${H.escape(product.unidade || "unidade")}</span></div><span class="selection-mode-chevron">›</span></button>`).join("")}</div>` : empty("Todos os produtos já estão nesta parada", "");
+      const list = available.length ? `<div class="list hbx-selection-list">${available.map(product => `<button type="button" class="lead-card hbx-selection-item" data-action="rme-produto-escolher" data-product-id="${H.escape(product.id)}"><div class="avatar">${icon("box", 19)}</div><div class="card-main"><strong>${H.escape(product.nome || product.name)}</strong><span>${H.escape(product.unidade || "unidade")}</span></div><span class="selection-mode-chevron">${icon("chevronRight", 18)}</span></button>`).join("")}</div>` : empty("Todos os produtos já estão nesta parada", "");
       return centerModal({ icon: "box", title: "Produtos", resumo: "Escolha no catálogo", body: `<div class="hbx-selection-view">${list}</div>`, backAction: "rme-produto-fechar-picker", backLabel: "Voltar", nextAction: "" });
     }
     const rows = itens.map(item => `<div class="lrt-produto-item" data-rme-item="${H.escape(item.productId)}"><div class="lrt-produto-head"><div><strong>${H.escape(produtoNome(item.productId))}</strong></div></div><div class="lrt-produto-controls"><div class="delivery-stepper"><button type="button" data-action="rme-item-qtd" data-product-id="${H.escape(item.productId)}" data-delta="-1">−</button><b>${item.qtd}</b><button type="button" data-action="rme-item-qtd" data-product-id="${H.escape(item.productId)}" data-delta="1">+</button></div></div></div>`).join("");
@@ -5097,7 +5180,7 @@
     return centerModal({
       icon: "plus",
       title: "Rota rápida",
-      resumo: r.origem === "mapa" ? "Parada pelo toque no mapa" : "CEP e número viram uma parada",
+      resumo: "",
       body,
       closeAction: "montagem-rapida-fechar",
       closeButtonAction: "montagem-rapida-fechar",
@@ -5231,8 +5314,18 @@
       // lugar de sempre; o caminho do Gerenciador segue reconferindo, como antes.
       if (contexto === "rota") {
         await closeOverlay("modal");
+        // 28/07 (provado no g15) — a seleção do dia é filtro DURO em `items()`:
+        // rota montada pelo chip nasce com `routeSelection`, e o id da parada
+        // recém-criada não está nela. Sem somar o id aqui, `openItems()` não
+        // enxerga a parada nova, `encaixarParadaNaRota` devolve `aplicado:false`
+        // e ela fica NO DIA mas FORA da rota (rotaOrdem null) — o contador
+        // seguia "1 de 1" e o toast caía no genérico. O caminho do Gerenciador
+        // (logo abaixo) já fazia isso; o da tela Rota tinha ficado sem.
+        const novoIdRota = delivery && delivery.id ? String(delivery.id) : null;
+        const selecaoRota = activeRouteSelectionIds();
+        if (selecaoRota && novoIdRota) setRouteSelection([...selecaoRota, novoIdRota]);
         await refresh(true);
-        const encaixe = await encaixarParadaNaRota(delivery && delivery.id, posicao);
+        const encaixe = await encaixarParadaNaRota(novoIdRota, posicao);
         await refresh(true);
         toast(!encaixe.aplicado ? "Parada adicionada na rota."
           : encaixe.anterior ? `Entra depois de ${encaixe.anterior}.`
@@ -5347,7 +5440,7 @@
     if (!c) return "";
     const problemas = ((c.dados && c.dados.problemas) || []);
     const total = Number(c.dados && c.dados.total) || 0;
-    const linhas = problemas.map(item => `<div class="row-card chk-linha"><button type="button" class="card-main card-main-btn" data-action="checagem-abrir" data-cliente-id="${H.escape(item.customerProfileId)}"><strong>${H.escape(item.nome || "Cliente")}</strong><span class="chk-endereco">${checagemEnderecoHtml(item)}</span></button><span class="chk-seta">›</span></div>`).join("");
+    const linhas = problemas.map(item => `<div class="row-card chk-linha"><button type="button" class="card-main card-main-btn" data-action="checagem-abrir" data-cliente-id="${H.escape(item.customerProfileId)}"><strong>${H.escape(item.nome || "Cliente")}</strong><span class="chk-endereco">${checagemEnderecoHtml(item)}</span></button><span class="chk-seta">${icon("chevronRight", 18)}</span></div>`).join("");
     const corpo = c.erro
       ? `<div class="hbx-aviso hbx-aviso--danger">${H.escape(c.erro)}</div>`
       : c.carregando && !problemas.length
@@ -5358,7 +5451,7 @@
     // semana que vem). "Remover do dia" = tira o dia do CADASTRO dele (não volta
     // sozinho nunca mais) — por isso esta pede confirmação e a outra não.
     const trava = c.removendo || c.carregando ? "disabled" : "";
-    const extra = `<div class="center-modal-extra chk-acoes"><button class="btn btn-secondary btn-block" type="button" data-action="checagem-remover-rota" ${trava}>Remover da Rota (${problemas.length})</button><button class="btn btn-danger btn-block" type="button" data-action="checagem-remover" ${trava}>${c.removendo ? "Removendo…" : `Remover do dia (${problemas.length})`}</button></div>`;
+    const extra = `<div class="center-modal-extra chk-acoes"><button class="btn btn-secondary btn-block" type="button" data-action="checagem-remover-rota" ${trava}>Tirar só da rota de hoje (${problemas.length})</button><button class="btn btn-danger btn-block" type="button" data-action="checagem-remover" ${trava}>${c.removendo ? "Removendo…" : `Remover este dia do cadastro (${problemas.length})`}</button></div>`;
     return centerModal({
       icon: "route",
       title: "Endereços com erro",
@@ -5432,25 +5525,28 @@
       // "Registrar caminho" e a dica de tocar no dia.
       const modelos = state.routeModelos || [];
       const savedHint = state.routeModelosLoading ? "Carregando…" : (modelos.length ? `${modelos.length} rota${modelos.length === 1 ? "" : "s"} salva${modelos.length === 1 ? "" : "s"}` : "Nenhuma salva ainda");
-      const salvasRow = `<button type="button" class="row-card rp2-mode-card montagem-salvas-row" data-action="day-entry-saved" ${state.routeModelosLoading ? "disabled" : ""}><span class="rp2-mode-icon rp2-mode-icon--saved rp2-saved-icon">☆</span><span class="card-main"><strong>Rotas salvas</strong><span>${H.escape(savedHint)}</span></span><span class="rp2-mode-chev">›</span></button>`;
+      const salvasRow = `<button type="button" class="row-card rp2-mode-card montagem-salvas-row" data-action="day-entry-saved" ${state.routeModelosLoading ? "disabled" : ""}><span class="rp2-mode-icon rp2-mode-icon--saved rp2-saved-icon">${icon("star", 17)}</span><span class="card-main"><strong>Rotas salvas</strong><span>${H.escape(savedHint)}</span></span><span class="rp2-mode-chev">${icon("chevronRight", 18)}</span></button>`;
       // 27/07 (dono) — "Registrar caminho" mora AQUI, junto de "Rotas salvas":
       // as duas portas de rota ficam na mesma tela (saiu dos Ajustes).
-      const leituraRow = `<button type="button" class="row-card rp2-mode-card montagem-salvas-row" data-action="day-entry-leitura" ${state.leituraStarting ? "disabled" : ""}><span class="rp2-mode-icon rp2-mode-icon--app rp2-saved-icon">${icon("gps", 16)}</span><span class="card-main"><strong>Registrar caminho</strong></span><span class="rp2-mode-chev">›</span></button>`;
+      const leituraRow = `<button type="button" class="row-card rp2-mode-card montagem-salvas-row" data-action="day-entry-leitura" ${state.leituraStarting ? "disabled" : ""}><span class="rp2-mode-icon rp2-mode-icon--app rp2-saved-icon">${icon("gps", 16)}</span><span class="card-main"><strong>Iniciar gravação</strong></span><span class="rp2-mode-chev">${icon("chevronRight", 18)}</span></button>`;
       const semDia = !chipsHtml;
       corpo = `${salvasRow}${leituraRow}${state.dayStarting
         ? loading()
-        : semDia
+          : semDia
           ? empty("Nenhum dia com cliente", "Marque os dias de entrega no cadastro do cliente.")
-          : empty("Toque num dia lá em cima", "O dia inteiro entra na rota na hora.")}`;
+          : ""}`;
       footer = "";
     }
     // R2 — o "+" da rota rápida só faz sentido com rota montada (a parada nasce
     // nova DENTRO da rota em conferência).
-    const plus = rc ? `<button type="button" class="close montagem-plus" data-action="montagem-rapida" aria-label="Adicionar parada rápida">+</button>` : "";
+    const plus = rc ? `<button type="button" class="close montagem-plus" data-action="montagem-rapida" aria-label="Adicionar parada rápida">${icon("plus", 18)}</button>` : "";
+    const closeControl = rc
+      ? `<span class="montagem-descartar-unit"><button class="close montagem-descartar" type="button" data-action="close-modal" aria-label="Descartar montagem">${icon("close", 18)}</button><small>Descartar</small></span>`
+      : `<button class="close" type="button" data-action="close-modal" aria-label="Fechar">${icon("close", 18)}</button>`;
     // 27/07 (dono) — cabeçalho só com o NOME da tela, centralizado: o ícone, o
     // "Montar rota" e o resumo de paradas/km/previsão saíram. Os dois botões
     // (rota rápida e fechar) flutuam à direita sem tirar o título do meio.
-    return `<div class="sheet-wrap route-plan-wrap montagem-wrap" data-action="close-modal"><section class="sheet route-plan-sheet rp2-sheet montagem-sheet"><div class="sheet-head montagem-head"><h2>Gerenciador de Rota</h2><div class="montagem-head-acoes">${plus}<button class="close" data-action="close-modal">${icon("close", 18)}</button></div></div>${chips}${mapa}<div class="rp2-body montagem-body">${corpo}</div>${footer}</section></div>`;
+    return `<div class="sheet-wrap route-plan-wrap montagem-wrap" data-action="close-modal"><section class="sheet route-plan-sheet rp2-sheet montagem-sheet"><div class="sheet-head montagem-head"><h2>Gerenciador de Rota</h2><div class="montagem-head-acoes">${plus}${closeControl}</div></div>${chips}${mapa}<div class="rp2-body montagem-body">${corpo}</div>${footer}</section></div>`;
   }
   // 27/07 (dono) — "Salvar rota" da montagem: mesma moldura/idioma do passo
   // "Nome da rota" da Leitura (padronizar é IGUALAR), com uma diferença pedida
@@ -5461,7 +5557,7 @@
     return centerModal({
       icon: "route",
       title: "Nome da rota",
-      resumo: "Dê um nome pra encontrar depois",
+      resumo: "",
       body,
       closeAction: "montagem-salvar-fechar",
       closeButtonAction: "montagem-salvar-fechar",
@@ -5532,9 +5628,9 @@
     const rows = modelos.map(modelo => {
       const dia = weekDays.find(item => item.n === Number(modelo.diaSemana));
       const meta = [dia && dia.label, `${(modelo.paradas || []).length} ${(modelo.paradas || []).length === 1 ? "parada" : "paradas"}`].filter(Boolean).join(" · ");
-      return `<div class="day-saved-row"><button type="button" class="row-card rp2-mode-card" data-action="apply-route-modelo" data-modelo-id="${H.escape(modelo.id)}" ${admin ? `data-route-modelo-hold="${H.escape(modelo.id)}"` : ""}><span class="rp2-mode-icon rp2-mode-icon--saved rp2-saved-icon">☆</span><span class="card-main"><strong>${H.escape(modelo.nome || "Rota")}</strong><span>${H.escape(meta)}</span></span><span class="rp2-mode-chev">›</span></button>${admin ? `<button type="button" class="day-saved-edit" data-action="edit-route-modelo" data-modelo-id="${H.escape(modelo.id)}" aria-label="Editar rota">${icon("edit", 16)}</button>` : ""}</div>`;
+      return `<div class="day-saved-row"><button type="button" class="row-card rp2-mode-card" data-action="apply-route-modelo" data-modelo-id="${H.escape(modelo.id)}" ${admin ? `data-route-modelo-hold="${H.escape(modelo.id)}"` : ""}><span class="rp2-mode-icon rp2-mode-icon--saved rp2-saved-icon">${icon("star", 17)}</span><span class="card-main"><strong>${H.escape(modelo.nome || "Rota")}</strong><span>${H.escape(meta)}</span></span><span class="rp2-mode-chev">${icon("chevronRight", 18)}</span></button>${admin ? `<button type="button" class="day-saved-edit" data-action="edit-route-modelo" data-modelo-id="${H.escape(modelo.id)}" aria-label="Editar rota">${icon("edit", 16)}</button>` : ""}</div>`;
     }).join("");
-    return `<div class="modal-wrap day-home-wrap"><section class="modal day-home day-saved" role="dialog" aria-modal="true" aria-labelledby="day-saved-title"><div class="day-home-icon day-home-icon--saved">☆</div><h2 id="day-saved-title">Rotas salvas</h2><div class="list rp2-mode-list day-saved-list">${state.routeModelosLoading ? loading() : state.routeModelosError ? empty("Não foi possível carregar", state.routeModelosError) : rows || empty("Nenhuma rota salva", "Registre um caminho para salvar a primeira.")}</div><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button></section></div>`;
+    return `<div class="modal-wrap day-home-wrap"><section class="modal day-home day-saved" role="dialog" aria-modal="true" aria-labelledby="day-saved-title"><div class="day-home-icon day-home-icon--saved">${icon("star", 24)}</div><h2 id="day-saved-title">Rotas salvas</h2><div class="list rp2-mode-list day-saved-list">${state.routeModelosLoading ? loading() : state.routeModelosError ? empty("Não foi possível carregar", state.routeModelosError) : rows || empty("Nenhuma rota salva", "")}</div><button class="btn btn-secondary btn-block" type="button" data-action="back-route-order">Voltar</button></section></div>`;
   }
   function clientScheduleLine(client) {
     const days = clientCardDays(client);
@@ -5631,7 +5727,8 @@
   function pendingHasBlocking(list) { return (list || []).some(pendingIsBlocking); }
   function clientMissingLabels(client) {
     const missing = clientPendingKeys(client);
-    return missing.length ? `<span class="client-missing">${missing.map(item => `<b${pendingIsBlocking(item) ? "" : ` class="is-neutral"`}>${item}</b>`).join(" ")}</span>` : "";
+    const labels = { Tel: "Telefone", End: "Endereço", Dia: "Agenda", Pag: "Pagamento", Dup: "Duplicado" };
+    return missing.length ? `<span class="client-missing">${missing.map(item => `<b${pendingIsBlocking(item) ? "" : ` class="is-neutral"`}>${H.escape(labels[item] || item)}</b>`).join(" ")}</span>` : "";
   }
   function enhancePaymentForms() {
     const newForm = app.querySelector("#new-client-form");
@@ -5691,6 +5788,7 @@
     enhancePaymentForms();
     enhanceMoneyInputs();
     enhanceKeyboardFields();
+    enhanceAccessibility();
     syncChromeMetrics();
     stabilizeRouteMapLayout();
     syncHeaderChips();
@@ -6307,6 +6405,7 @@
     // após confirmar/pular, o refresh arma a seguinte.
     const next = open.find(item => validCoordinates(item.cliente && item.cliente.lat, item.cliente && item.cliente.lng));
     const stops = next ? [{ id: next.id, nome: next.cliente.nome || "Cliente", lat: Number(next.cliente.lat), lng: Number(next.cliente.lng) }] : [];
+    if (inicioReal) H.sound("route_start");
     if (!stops.length) return;
     // S4 22/07 (PR22072026-APP-SOUNDS) — esta função é o gate único de "a rota
     // REALMENTE começou a rodar": todo caminho que inicia rota de verdade
@@ -6327,7 +6426,6 @@
     // o re-armar fica calado. Silêncio é o default de propósito — um caminho
     // novo que esqueça a flag fica mudo, que é o erro barato; o caro é este
     // aqui, cantar onde não devia.
-    if (inicioReal) H.sound("route_start");
     H.activateRoute({ raioM: Number(state.config && state.config.raioChegadaM || 60), paradas: stops, routeId: route.routeId || state.route.routeId || null, mode: route.trackingRequired || state.route.trackingRequired ? "TRACKED" : "ESSENTIAL", trackingSessionId: route.trackingSessionId || state.route.trackingSessionId || null });
   }
   // S1 21/07 — todo fluxo que já chamava currentPosition() (iniciar rota, dia,
@@ -6535,7 +6633,7 @@
       // S4 25/07 (PR25072026-ROTA-CONFERIDA) — só o PLANEJAR troca o toast pela
       // tela de conferência (flag rotaConferidaAtiva); iniciar segue idêntico.
       if (planOnly) await afterRoutaPlanejada("Rota recalculada.");
-      else toast("Rota iniciada.");
+      else toast("Rota iniciada.", false, { mudo: true });
       // S2 21/07 (PR21072026-NAVEGAÇÃO) — fim do troca-troca: NÃO abre mais
       // Waze/Maps. Fica na tela Rota; navModeActive() vira true sozinho (rota
       // ativa, não pausada, sem Leitura) e o render() acima (dentro do
@@ -6593,7 +6691,7 @@
       H.cache.remove("logistica-route-paused");
       activateNativeRoute(started, true);
       await refresh(true);
-      toast("Rota iniciada.");
+      toast("Rota iniciada.", false, { mudo: true });
       // S2 21/07 — idem startRoute: fica na tela Rota, navModeActive() liga
       // o watch/mapa sozinho (ver comentário em startRoute).
     } catch (error) { if (!creditsLockFromRouteError(error)) toast(humanApiError(error), true); }
@@ -6697,7 +6795,7 @@
         applyRouteEngineState(started);
         activateNativeRoute(started, true);
         await refresh(true);
-        toast("Rota iniciada.");
+        toast("Rota iniciada.", false, { mudo: true });
         // S2 21/07 — idem startRoute: fica na tela Rota, navModeActive() liga
         // o watch/mapa sozinho (ver comentário em startRoute).
         return;
@@ -7145,8 +7243,16 @@
     if (emptyState) emptyState.hidden = visible > 0;
   }
   app.addEventListener("keydown", event => {
-    if (!moduleActive || event.defaultPrevented || event.key !== "Enter" || event.isComposing || event.keyCode === 229 || event.repeat || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+    if (!moduleActive || event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.repeat || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
     const target = event.target;
+    const customControl = target && target.matches && !target.matches("button,a,input,select,textarea") && target.matches('[role="button"],[role="switch"]');
+    if (customControl && (event.key === "Enter" || event.key === " ")) {
+      event.preventDefault();
+      event.stopPropagation();
+      target.click();
+      return;
+    }
+    if (event.key !== "Enter") return;
     if (!keyboardEditable(target)) return;
     if (target.tagName === "TEXTAREA" && !target.dataset.enterAction && target.dataset.enterSubmit === undefined) return;
     if (target.id === "leitura-cliente-search" || target.id === "leitura-produto-search") {
@@ -7325,7 +7431,7 @@
     if (action === "confirm-proximo" && state.selected) { confirmDelivery(state.selected, { receiptMethod: "fiado" }); return; }
     if (action === "confirm-sem-atendimento" && state.selected) {
       const nome = (state.selected.cliente || {}).nome || "este cliente";
-      state.confirmation = { type: "sem-atendimento", itemId: state.selected.id, title: "Registrar não atendimento?", message: `Você está registrando não atendimento para ${nome}. Nada é cobrado e a parada sai da fila de hoje.`, confirmLabel: "Confirmar", danger: true, icon: "close" };
+      state.confirmation = { type: "sem-atendimento", itemId: state.selected.id, title: "Marcar como não atendido?", message: `${nome} sai da fila de hoje e nada é cobrado.`, confirmLabel: "Marcar", danger: true, icon: "phone" };
       render();
       return;
     }
@@ -7533,12 +7639,12 @@
     if (action === "finish-route-save") { state.confirmation = null; render(); await performEncerrarRota("Rota encerrada pelo motorista.", { playSound: true, saveRoute: true }); return; }
     // PR18072026 Onda 3 — "Limpar o dia": segunda confirmação a partir do botão
     // perigoso dentro do popup de cancelar planejamento.
-    if (action === "confirm-limpar-dia") { state.confirmation = { type: "limpar-dia", title: "Limpar hoje?", message: `Cancela ${openItems().length} entregas abertas. Agenda, entregues e financeiro não mudam.`, confirmLabel: "Cancelar abertas", danger: true, icon: "route" }; render(); return; }
+    if (action === "confirm-limpar-dia") { state.confirmation = { type: "limpar-dia", title: "Cancelar entregas abertas?", message: `Cancela ${openItems().length} entregas abertas. Agenda, entregues e financeiro não mudam.`, confirmLabel: "Cancelar abertas", danger: true, icon: "route" }; render(); return; }
     // PR18072026 — satélite lixeira "Limpar o dia" fora do popup de cancelar
     // planejamento (o X só existe quando há rota planejada; sem ele a fila
     // ficava sem jeito de limpar). Mesma confirmação/type "limpar-dia" de cima,
     // reusa performLimparDia via accept-confirmation — zero duplicação de API.
-    if (action === "clear-day-request") { state.confirmation = { type: "limpar-dia", title: "Limpar hoje?", message: `Cancela ${openItems().length} entregas abertas. Agenda, entregues e financeiro não mudam.`, confirmLabel: "Cancelar abertas", danger: true, icon: "route" }; render(); return; }
+    if (action === "clear-day-request") { state.confirmation = { type: "limpar-dia", title: "Cancelar entregas abertas?", message: `Cancela ${openItems().length} entregas abertas. Agenda, entregues e financeiro não mudam.`, confirmLabel: "Cancelar abertas", danger: true, icon: "route" }; render(); return; }
     if (action === "begin-managed-route") await beginManagedRoute();
     // R1 (27/07) — o menu "Montar Rota" morreu; "Rotas salvas" é linha da tela
     // única e abre o único passo separado que restou.
@@ -7643,7 +7749,7 @@
       // moldura .app-confirm de toda ação destrutiva do app).
       state.confirmation = {
         type: "checagem-remover",
-        title: "Remover do dia?",
+        title: "Remover este dia do cadastro?",
         message: `${quantos} ${quantos === 1 ? "cliente perde" : "clientes perdem"} este dia no cadastro e não voltam sozinhos.`,
         confirmLabel: "Remover",
         danger: true,
@@ -7765,9 +7871,13 @@
       return;
     }
     // F3.4 — toques nos chips do header.
-    if (action === "chip-rede") { toast(netOnline() ? "Conexão de rede OK." : "Sem conexão. As alterações ficam salvas e sincronizam ao voltar o sinal.", !netOnline()); return; }
+    if (action === "chip-rede") { toast(netOnline() ? "Rede online." : "Sem rede. As alterações sincronizam quando o sinal voltar.", !netOnline()); return; }
     // R6 (27/07) — chip Motor: frase de motorista, zero jargão técnico.
-    if (action === "chip-motor") { toast(motorDegradadoPorRede() ? "Sem rede de rotas agora — distâncias em linha reta. Eu tento recalcular sozinho." : "Motor de rotas funcionando — cálculo pelas ruas.", motorDegradadoPorRede()); return; }
+    if (action === "chip-motor") {
+      if (motorChipClass() === "is-warn") toast("Motor de rotas ainda não verificado.");
+      else toast(motorDegradadoPorRede() ? "Sem cálculo pelas ruas agora." : "Motor de rotas online.", motorDegradadoPorRede());
+      return;
+    }
     if (action === "chip-gps") {
       if (gpsChipClass() === "is-ok") { toast("GPS ativo."); return; }
       if (H.requestLocationPermission) { H.requestLocationPermission(); toast("Confirme a permissão de localização."); }
@@ -7866,7 +7976,7 @@
       render();
       return;
     }
-    if (action === "stop-route") { pauseRouteOnDevice(); render(); toast("Rota parada."); }
+    if (action === "stop-route") { pauseRouteOnDevice(); render(); toast("Rota pausada."); }
     if (action === "resume-route") { await resumeRouteOnDevice(); }
     if (action === "show-map") abrirNavegacao(openItems()[0]);
     if (action === "maps" && state.selected) abrirNavegacao(state.selected);

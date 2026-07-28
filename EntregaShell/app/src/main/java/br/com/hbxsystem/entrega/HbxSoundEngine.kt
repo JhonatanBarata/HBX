@@ -5,6 +5,7 @@ import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.SoundPool
+import android.os.SystemClock
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -35,7 +36,18 @@ class HbxSoundEngine(
     private val context: Context,
     private val ttsFalando: () -> Boolean,
 ) {
-    private data class Som(val resId: Int, val volume: Float, val loop: Boolean)
+    private data class Som(
+        val resId: Int,
+        val volume: Float,
+        val loop: Boolean,
+        val resourceName: String? = null,
+    )
+
+    private data class EfeitoPendente(
+        val key: String,
+        val preview: Boolean,
+        val solicitadoEm: Long,
+    )
 
     companion object {
         // Tabela key → (resId, volume), copiada de docs/APP SOUNDS/docs/sound-map.json
@@ -59,10 +71,13 @@ class HbxSoundEngine(
             "success" to Som(R.raw.hbx_success, 0.55f, loop = false),
             "update_complete" to Som(R.raw.hbx_update_complete, 0.80f, loop = false),
             "pairing_success" to Som(R.raw.hbx_pairing_success, 0.82f, loop = false),
+            // Recurso exclusivo do flavor Logística; o nome evita inchar o HBX Vendas.
+            "sonic_logo" to Som(0, 0.90f, loop = false, resourceName = "hbx_sonic_logo"),
         )
 
         private const val LOOP_KEY = "arrival_alert_loop"
         private const val ANTI_REPIQUE_MS = 400L
+        private const val EFEITO_PENDENTE_MAX_MS = 500L
 
         // S5 escreve/lê este JSON (chave-mestra + itens desligados da folha);
         // S1 só precisa SABER ler — nada existindo ainda = tudo ligado.
@@ -150,6 +165,7 @@ class HbxSoundEngine(
     private var pool: SoundPool? = null
     private val carregando = HashMap<String, Int>()
     private val prontos = HashSet<Int>()
+    private val pendentes = HashMap<Int, EfeitoPendente>()
 
     private var loopPlayer: MediaPlayer? = null
     private var loopTocando = false
@@ -177,7 +193,7 @@ class HbxSoundEngine(
             if (ttsFalando()) return
             if (emLigacao()) return
             if (!passaAntiRepique(key)) return
-            if (som.loop) tocarLoop(som) else tocarEfeito(key, som)
+            if (som.loop) tocarLoop(som) else tocarEfeito(key, som, preview)
         }
     }
 
@@ -202,26 +218,32 @@ class HbxSoundEngine(
         pool = null
         carregando.clear()
         prontos.clear()
+        pendentes.clear()
         runCatching { loopPlayer?.stop() }
         runCatching { loopPlayer?.release() }
         loopPlayer = null
         loopTocando = false
     }
 
-    private fun tocarEfeito(key: String, som: Som) {
+    private fun tocarEfeito(key: String, som: Som, preview: Boolean) {
         val soundPool = pool ?: criarPool().also { pool = it }
         val idExistente = carregando[key]
         if (idExistente != null) {
             if (idExistente in prontos) {
                 soundPool.play(idExistente, som.volume, som.volume, 1, 0, 1f)
             }
-            // Ainda carregando: descarta silenciosamente (não enfileira).
             return
         }
-        val novoId = soundPool.load(context, som.resId, 1)
+        val resolvedResId = if (som.resId != 0) {
+            som.resId
+        } else {
+            context.resources.getIdentifier(som.resourceName.orEmpty(), "raw", context.packageName)
+        }
+        if (resolvedResId == 0) return
+        val novoId = soundPool.load(context, resolvedResId, 1)
+        if (novoId == 0) return
         carregando[key] = novoId
-        // O pedido que disparou o load() sempre chega cedo demais — só toca
-        // do 2º play() da mesma key em diante, depois do onLoadComplete.
+        pendentes[novoId] = EfeitoPendente(key, preview, SystemClock.elapsedRealtime())
     }
 
     private fun criarPool(): SoundPool {
@@ -234,8 +256,22 @@ class HbxSoundEngine(
             .setAudioAttributes(atributos)
             .build()
             .apply {
-                setOnLoadCompleteListener { _, sampleId, status ->
-                    if (status == 0) prontos.add(sampleId)
+                setOnLoadCompleteListener { loadedPool, sampleId, status ->
+                    val pendente = pendentes.remove(sampleId)
+                    val key = carregando.entries.firstOrNull { it.value == sampleId }?.key
+                    if (status != 0) {
+                        if (key != null) carregando.remove(key)
+                        prontos.remove(sampleId)
+                        return@setOnLoadCompleteListener
+                    }
+                    prontos.add(sampleId)
+                    if (pendente == null || key == null) return@setOnLoadCompleteListener
+                    if (SystemClock.elapsedRealtime() - pendente.solicitadoEm > EFEITO_PENDENTE_MAX_MS) return@setOnLoadCompleteListener
+                    if (!pendente.preview && BuildConfig.APP_MODE != "logistica") return@setOnLoadCompleteListener
+                    if (!pendente.preview && !habilitado(pendente.key)) return@setOnLoadCompleteListener
+                    if (ttsFalando() || emLigacao()) return@setOnLoadCompleteListener
+                    val som = SONS[pendente.key] ?: return@setOnLoadCompleteListener
+                    loadedPool.play(sampleId, som.volume, som.volume, 1, 0, 1f)
                 }
             }
     }

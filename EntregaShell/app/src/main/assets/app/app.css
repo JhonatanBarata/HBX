@@ -616,7 +616,7 @@ h3 { font-size: .95rem; }
 .delivery-confirm { width: 100%; min-height: 64px; margin-top: 14px; font-size: .88rem; font-weight: 850; }.delivery-not-delivered { display: block; width: max-content; margin: 12px auto 0; border: 0; color: var(--danger); background: transparent; font: inherit; font-size: .72rem; font-weight: 750; }
 .delivery-reason { display: grid; gap: 11px; padding: 12px 0 2px; }.delivery-reason > strong { font-size: .9rem; }.delivery-reason-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7px; }.delivery-reason-options button { min-height: 42px; border: 1px solid var(--line); border-radius: 11px; color: var(--muted); background: var(--surface-2); font: inherit; font-size: .7rem; font-weight: 760; }.delivery-reason-options button.active { border-color: color-mix(in srgb, var(--danger) 65%, var(--line)); color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--surface)); }
 .sales-view { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 12px 0; padding: 4px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-2); }.sales-view button { min-height: 37px; border: 0; border-radius: 9px; color: var(--muted); background: transparent; font: inherit; font-size: .72rem; font-weight: 780; }.sales-view button.active { color: var(--brand-strong); background: var(--surface); box-shadow: 0 1px 4px color-mix(in srgb, var(--ink) 12%, transparent); }.sales-board { display: flex; gap: 10px; overflow-x: auto; margin: 12px -2px 0; padding: 2px 2px 10px; scroll-snap-type: x mandatory; }.sales-column { display: grid; align-content: start; gap: 7px; min-width: min(78vw, 300px); min-height: 260px; padding: 11px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface-2); scroll-snap-align: start; }.sales-column-head { display: flex; justify-content: space-between; gap: 10px; font-size: .79rem; }.sales-column-head span { display: grid; place-items: center; min-width: 22px; height: 22px; border-radius: 8px; color: var(--brand-strong); background: var(--brand-soft); font-size: .66rem; font-weight: 800; }.sales-column > small, .sales-column-list > p { margin: 0; color: var(--muted); font-size: .65rem; line-height: 1.35; }.sales-column-list { display: grid; gap: 7px; }.sales-column .lead-card { background: var(--surface); }.sales-quick { display: grid; grid-template-columns: 1.25fr 1fr; gap: 8px; margin-top: 12px; }.sales-quick .btn { min-width: 0; font-size: .72rem; }.sales-stages { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; }.sales-stages button, .sales-negative-options button { min-height: 38px; padding: 0 10px; border: 1px solid var(--line); border-radius: 10px; color: var(--muted); background: var(--surface-2); font: inherit; font-size: .67rem; font-weight: 750; white-space: nowrap; }.sales-stages button.active { border-color: color-mix(in srgb, var(--brand) 55%, var(--line)); color: var(--brand-strong); background: var(--brand-soft); }.sales-negative-options { display: grid; gap: 8px; margin: 14px 0; }.sales-negative-options button { width: 100%; color: var(--danger); text-align: left; }
-.route-filter { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 12px 0; padding: 4px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-2); }.route-filter-btn { min-height: 40px; border: 0; border-radius: 9px; color: var(--muted); background: transparent; font: inherit; font-size: .74rem; font-weight: 780; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }.route-filter-btn b { font-size: .72rem; opacity: .8; }.route-filter-btn.active { color: var(--brand-strong); background: var(--surface); box-shadow: 0 1px 4px color-mix(in srgb, var(--ink) 12%, transparent); }
+.route-filter { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin: 12px 0; padding: 4px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface-2); }.route-filter-btn { min-height: 40px; border: 0; border-radius: 9px; color: var(--muted); background: transparent; font: inherit; font-size: .74rem; font-weight: 780; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }.route-filter-btn b { font-size: .72rem; opacity: .8; }.route-filter-btn.active { color: var(--brand-strong); background: var(--surface); box-shadow: 0 1px 4px color-mix(in srgb, var(--ink) 12%, transparent); }
 .radar-card { align-items: center; }.radar-pull { min-height: 38px; padding: 0 10px; font-size: .68rem; white-space: nowrap; }
 .field { display: grid; gap: 5px; margin-bottom: 10px; }
 .field label { color: var(--muted); font-size: .67rem; font-weight: 750; }
@@ -1586,3 +1586,167 @@ span.chk-endereco { display: block; margin-top: 2px; font-size: .74rem; font-wei
 span.chk-endereco .chk-ruim { color: var(--danger); font-weight: 900; }
 .chk-seta { padding-left: 6px; color: var(--muted); font-size: 1.1rem; font-weight: 900; }
 .chk-acoes { margin-top: 4px; }
+
+/* Acabamento exclusivo do HBX Logística. O atributo fica no index do flavor,
+   então o HBX Vendas preserva integralmente a própria aparência. */
+:root[data-app="logistica"] {
+  --brand-strong: #437b00;
+  --map-canvas-ink: #52604f;
+  --on-danger: #ffffff;
+  --on-info: #ffffff;
+  --on-success: #ffffff;
+  --on-brand-strong: #ffffff;
+  --toast-surface: color-mix(in srgb, var(--navy) 94%, transparent);
+}
+:root[data-app="logistica"][data-theme="dark"] {
+  --on-danger: #310807;
+  --on-info: #061a30;
+  --on-success: #071f12;
+  --on-brand-strong: #1b290b;
+}
+:root[data-app="logistica"][data-theme="dark"] .route-transmux[data-state="stop"] {
+  color: var(--on-solid);
+}
+
+:root[data-app="logistica"] button:focus-visible,
+:root[data-app="logistica"] [role="button"]:focus-visible,
+:root[data-app="logistica"] [role="switch"]:focus-visible,
+:root[data-app="logistica"] input:focus-visible,
+:root[data-app="logistica"] select:focus-visible,
+:root[data-app="logistica"] textarea:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--brand) 42%, transparent);
+  outline-offset: 2px;
+}
+
+:root[data-app="logistica"] .topbar {
+  min-height: 56px;
+  gap: 8px;
+  padding: 7px clamp(10px, 3vw, 20px);
+}
+:root[data-app="logistica"] .brand { gap: 7px; }
+:root[data-app="logistica"] .brand-mark { width: 32px; height: 32px; border-radius: 10px; box-shadow: 0 4px 12px color-mix(in srgb, var(--brand-strong) 24%, transparent); }
+:root[data-app="logistica"] .brand-copy { max-width: 34vw; }
+:root[data-app="logistica"] .toolbar,
+:root[data-app="logistica"] #hbx-header-chips { gap: 4px; }
+:root[data-app="logistica"] .icon-btn { width: 34px; height: 34px; border-radius: 11px; }
+:root[data-app="logistica"] .hbx-chip { width: 32px; height: 32px; border-radius: 10px; }
+:root[data-app="logistica"] .hbx-chip-update { width: auto; padding-inline: 8px; }
+
+:root[data-app="logistica"] .lead-card,
+:root[data-app="logistica"] .stop-card,
+:root[data-app="logistica"] .row-card {
+  border-radius: 16px;
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--ink) 5%, transparent);
+}
+:root[data-app="logistica"] .search {
+  border-radius: 14px;
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--ink) 4%, transparent);
+}
+
+:root[data-app="logistica"] .sheet-wrap,
+:root[data-app="logistica"] .modal-wrap {
+  background: color-mix(in srgb, var(--navy) 62%, transparent);
+  backdrop-filter: none;
+}
+:root[data-app="logistica"] .next-stop-overlay,
+:root[data-app="logistica"] .credits-lock {
+  background: color-mix(in srgb, var(--bg) 95%, transparent);
+  backdrop-filter: none;
+}
+:root[data-app="logistica"] .hbx-loading-overlay { backdrop-filter: none; }
+:root[data-app="logistica"] .toast {
+  border-color: color-mix(in srgb, var(--surface) 16%, transparent);
+  color: var(--on-solid);
+  background: var(--toast-surface);
+  box-shadow: 0 7px 20px color-mix(in srgb, var(--navy) 22%, transparent);
+  backdrop-filter: none;
+}
+:root[data-app="logistica"] .fab {
+  border-color: color-mix(in srgb, var(--brand-strong) 38%, var(--brand));
+  color: var(--on-brand);
+  background: var(--brand);
+  box-shadow: 0 7px 18px color-mix(in srgb, var(--brand-strong) 22%, transparent);
+  backdrop-filter: none;
+}
+
+:root[data-app="logistica"] .route-map-shell {
+  border-width: 1px;
+  border-radius: 20px;
+  box-shadow: 0 7px 20px color-mix(in srgb, var(--brand-strong) 10%, transparent);
+}
+:root[data-app="logistica"] .route-gps-status {
+  max-width: calc(100% - 76px);
+  background: color-mix(in srgb, var(--glass-surface) 96%, var(--surface));
+  backdrop-filter: none;
+}
+:root[data-app="logistica"] .route-follow-control {
+  background: color-mix(in srgb, var(--glass-surface) 96%, var(--surface));
+  backdrop-filter: none;
+}
+:root[data-app="logistica"] .route-follow-control.is-following { color: var(--on-info); }
+:root[data-app="logistica"] .route-next-panel {
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: 0 7px 20px color-mix(in srgb, var(--ink) 12%, transparent);
+  backdrop-filter: none;
+}
+:root[data-app="logistica"] .route-transmux { color: var(--on-success); }
+:root[data-app="logistica"] .route-transmux[data-state="stop"] { color: var(--on-danger); }
+:root[data-app="logistica"] .route-cancel-icon {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--line));
+  background: color-mix(in srgb, var(--danger) 9%, var(--surface));
+}
+:root[data-app="logistica"] .route-nav-external {
+  color: var(--brand-strong);
+  border-color: color-mix(in srgb, var(--brand) 45%, var(--line));
+  background: var(--brand-soft);
+}
+
+:root[data-app="logistica"] .rp2-mode-icon--saved,
+:root[data-app="logistica"] .day-home-icon--saved {
+  color: var(--brand-strong);
+  background: var(--brand-soft);
+}
+:root[data-app="logistica"] .montagem-descartar-unit {
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  color: var(--danger);
+}
+:root[data-app="logistica"] .montagem-descartar {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--line));
+  background: color-mix(in srgb, var(--danger) 9%, var(--surface));
+}
+:root[data-app="logistica"] .montagem-descartar-unit small {
+  font-size: .54rem;
+  font-weight: 800;
+}
+:root[data-app="logistica"] .montagem-head { min-height: 48px; }
+:root[data-app="logistica"] .montagem-head-acoes { gap: 5px; }
+:root[data-app="logistica"] .montagem-plus { margin-right: 0; }
+
+:root[data-app="logistica"] .settings-row { min-height: 52px; padding: 8px 10px; }
+:root[data-app="logistica"] .settings-row > .hbx-icon:last-child { color: var(--muted); }
+:root[data-app="logistica"] .client-editor-part-head span { color: var(--on-brand-strong); }
+:root[data-app="logistica"] .client-editor-part.client-part-pending .client-editor-part-head span { color: var(--on-danger); }
+:root[data-app="logistica"] .btn-danger { color: var(--on-danger); }
+:root[data-app="logistica"] .center-arrow-glyph { color: var(--on-brand); }
+:root[data-app="logistica"] .center-modal-nav.is-next-only { justify-content: flex-end; }
+:root[data-app="logistica"] .center-modal-nav.is-back-only { justify-content: flex-start; }
+:root[data-app="logistica"] .chegada-btn {
+  min-height: 68px;
+  padding-inline: 8px;
+  font-size: .84rem;
+  line-height: 1.15;
+  text-align: center;
+}
+:root[data-app="logistica"] .recarga-autofill-icon { color: var(--on-info); }
+:root[data-app="logistica"] .recarga-success-seal > span { color: var(--on-success); }
+:root[data-app="logistica"] .hbx-mapa-garagem { visibility: hidden; contain: strict; }
+
+@media (max-width: 390px) {
+  :root[data-app="logistica"] .brand-copy { display: none; }
+  :root[data-app="logistica"] .topbar { grid-template-columns: auto minmax(0, 1fr); }
+  :root[data-app="logistica"] .toolbar { min-width: 0; }
+}
