@@ -1095,9 +1095,17 @@ export class NucleoCadastroService {
       phone: true,
     } as const;
 
+    // 🔴 28/07 (medido na base do dono, company 48) — "Rua 14 JP, 1682" tem 9 contas:
+    // 1 CLIENTE e 8 stubs de Rota rápida. Quem responde primeiro tem que ser o
+    // cliente de verdade (é ele que a tela oferece pra reusar); stub vai pro fim,
+    // que é onde ele serve — pra ser adotado por quem cadastrar de verdade.
+    const pesoDoPapel = (row: Record<string, any>): number =>
+      row.isCliente ? 0 : row.isLead || row.isFornecedor ? 1 : 2;
+
     const confirmar = (rows: Array<Record<string, any>>): ContaNoEndereco[] =>
       rows
         .filter((row) => String(row.id) !== ignorar && mesmaPorta(alvo, row as PortaCadastro))
+        .sort((a, b) => pesoDoPapel(a) - pesoDoPapel(b))
         .slice(0, limite)
         .map((row) => ({
           id: String(row.id),
