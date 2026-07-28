@@ -79,6 +79,11 @@
 .tbl--acoes .co { max-width: none; gap: 4px; }
 .tbl--acoes .co strong { overflow: visible; text-overflow: clip; white-space: normal; line-height: 1.35; }
 .tbl--acoes .sub2 { overflow: visible; text-overflow: clip; white-space: normal; line-height: 1.45; max-width: 62ch; }
+/* `width:1%` acima colapsa select/input pro min-content deles, que pra um
+   form control é ~0 (ignora o texto da option/valor) — Modo e Custo sumiam
+   visualmente mesmo com o valor certo no DOM. Piso explícito devolve a leitura. */
+.tbl--acoes select.field-dark { min-width: 112px; }
+.tbl--acoes input.field-dark[type="number"] { min-width: 72px; }
 
 /* ── Banner "confirme seu WhatsApp" (F3 — CONFIRMACAO-TELEFONE) ─────────
    Pós-login Google sem telefone verificado: destrava SÓ o brinde (nunca o
