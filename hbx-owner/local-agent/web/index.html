@@ -113,6 +113,10 @@
             </div>
           </div>
           <div class="cockpit-actions ai-bridge-actions">
+            <!-- Lab de leads: motor local do scraping. Veio do card "Enriquecedor" (legado, removido
+                 28/07) — é dependência VIVA deste card, por isso mudou de casa em vez de sumir. -->
+            <span class="lab-state"><span id="lab-dot2" class="lab-dot checking"></span><span id="lab-text2">Lab…</span></span>
+            <button id="btn-lab-toggle" class="btn btn-sm btn-blue" title="Só liga o motor local do scraping. Sozinho, não recebe leads do VPS." aria-label="Ligar Lab">Lab</button>
             <button id="btn-local-unclog" class="btn btn-amber" title="Cancela jobs presos, remove duplicados, reconstrói a fila e rearma o desentupidor.">🪠 Desentupir fila</button>
             <button id="btn-ponte-toggle" class="btn btn-green" title="Recebe leads do VPS, processa no seu computador e grava o enriquecimento de volta no VPS." aria-label="Ligar" disabled>Ligar</button>
           </div>
@@ -169,42 +173,10 @@
         </details>
       </section>
 
-      <!-- Enriquecedor (roda NESTA máquina, com o SEU IP — mira o VPS) -->
-      <section class="card" id="enricher">
-        <header class="enr-header">
-          <div class="enr-heading">
-            <div class="enr-title-row">
-              <h2>Enriquecedor · e-mail / CNPJ / dono</h2>
-              <span class="pill pill-muted">mira o VPS</span>
-            </div>
-            <span id="enr-status" class="pill pill-muted">parado</span>
-          </div>
-          <button id="btn-enr-toggle" class="btn btn-sm btn-green">▶ Ligar</button>
-        </header>
-
-        <div class="enr-config">
-          <div class="enr-modes">
-            <label class="cf-toggle"><input type="checkbox" id="enr-identity" checked /> Tipo 1 · identidade</label>
-            <label class="cf-toggle"><input type="checkbox" id="enr-scraper" checked /> Tipo 2 · caça e-mail <span class="pill pill-amber">seu IP</span></label>
-            <label class="cf-toggle"><input type="checkbox" id="enr-aggressive" /> Agressivo</label>
-          </div>
-          <div class="enr-lab">
-            <span class="lab-state"><span id="lab-dot2" class="lab-dot checking"></span><span id="lab-text2">Lab…</span></span>
-            <button id="btn-lab-toggle" class="btn btn-sm btn-blue" title="Só liga o motor local do scraping. Sozinho, não recebe leads do VPS." aria-label="Ligar Lab">Lab</button>
-          </div>
-        </div>
-
-        <div class="enr-metrics">
-          <div class="metric"><span class="label">Cards varridos</span><strong id="enr-scanned">—</strong></div>
-          <div class="metric"><span class="label">Sites crawleados</span><strong id="enr-sites">—</strong></div>
-          <div class="metric"><span class="label">E-mails achados</span><strong id="enr-emails">—</strong></div>
-          <div class="metric"><span class="label">Telefones</span><strong id="enr-phones">—</strong></div>
-          <div class="metric"><span class="label">CNPJ achados</span><strong id="enr-cnpjs">—</strong></div>
-          <div class="metric"><span class="label">Aplicados no VPS</span><strong id="enr-applied">—</strong></div>
-        </div>
-
-        <p id="enr-feedback" class="delta" role="status" aria-live="polite">Desligado.</p>
-      </section>
+      <!-- Card "Enriquecedor · e-mail / CNPJ / dono" REMOVIDO (28/07). O motor por trás dele morreu em
+           47ae27b5 (substituído por local_deep_enrich_v1) e o POST /owner/enricher/start passou a
+           responder 409 fixo — o card ficou órfão, com cara de vivo, devolvendo 409 a cada clique.
+           O controle do Lab que morava aqui subiu pro card "Enriquecimento local" (é dependência dele). -->
 
     </div><!-- /v2-col local -->
 

@@ -3162,25 +3162,9 @@ async function route(req, res) {
     return;
   }
 
-  // Liga o worker contínuo (fica enriquecendo enquanto o PC estiver ligado).
-  if (req.method === "POST" && url.pathname === "/owner/enricher/start") {
-    sendJson(res, 409, {
-      ok: false,
-      reason: "enriquecedor_legado_desativado",
-      message: "O enriquecedor antigo foi desativado. O processamento agora usa local_deep_enrich_v1.",
-    });
-    return;
-  }
-
-  // Desliga o worker (para de verdade e fica parado; retoma do cursor ao religar).
-  if (req.method === "POST" && url.pathname === "/owner/enricher/stop") {
-    stopEnricher();
-    if (enricherJob.localLabJobId) {
-      await localLabRequest("POST", `/local-lab/jobs/${encodeURIComponent(enricherJob.localLabJobId)}/cancel`, {}, 8000).catch(() => {});
-    }
-    sendJson(res, 200, { ok: true, message: "Enriquecedor desligado." });
-    return;
-  }
+  // POST /owner/enricher/start e /stop REMOVIDOS em 28/07. O start já era uma lápide (409 fixo desde
+  // b2cb3d56) e o único chamador era o card legado do painel, que saiu junto. O trabalho é do
+  // local_deep_enrich_v1 (/owner/local-deep-enrich/start).
 
   // ================================================================
   // CÉREBRO IA (Ollama LOCAL) — status ao vivo + aquecer modelo.

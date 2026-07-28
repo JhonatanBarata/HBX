@@ -1215,69 +1215,9 @@ async function ckStartDiscover() {
   }
 }
 
-/* ---------- Enriquecedor de Cards (1 worker contínuo) ---------- */
-let enrPollTimer = null;
-let enrRunning = false;
-
-function enrSetStatus(text, kind) {
-  const s = $("#enr-status"); if (!s) return;
-  const cls = kind === "run" ? "pill-amber" : kind === "done" ? "pill-ok" : kind === "warn" ? "pill-bad" : "pill-muted";
-  s.textContent = text; s.className = "pill " + cls;
-}
-
-function enrPaint(r) {
-  enrRunning = !!(r && r.running);
-  const m = (r && r.metrics) || {};
-  const set = (id, v) => { const el = $(id); if (el) el.textContent = (v != null ? Number(v).toLocaleString("pt-BR") : "—"); };
-  set("#enr-scanned", m.cardsScanned);
-  set("#enr-sites", m.sitesCrawled);
-  set("#enr-emails", m.emailsFound);
-  set("#enr-phones", m.phonesFound);
-  set("#enr-cnpjs", m.cnpjsFound);
-  set("#enr-applied", m.applied);
-  const toggle = $("#btn-enr-toggle");
-  if (enrRunning) {
-    enrSetStatus(r.labUp ? "ligado" : "ligado (lab subindo)", "run");
-    if (toggle) { toggle.textContent = "■ Desligar"; toggle.className = "btn btn-sm btn-amber"; }
-  } else {
-    enrSetStatus("parado", r && r.error ? "warn" : "idle");
-    if (toggle) { toggle.textContent = "▶ Ligar"; toggle.className = "btn btn-sm btn-green"; }
-  }
-  const fb = $("#enr-feedback");
-  if (fb) {
-    if (enrRunning) {
-      const t1 = m.tipo1Runs ? ` · Tipo1 ${m.tipo1Runs}×` : "";
-      fb.textContent = `${(r && r.phase) || "rodando"}${t1}` + (r && r.error ? ` · ⚠ ${r.error}` : "");
-      fb.className = "delta up";
-    } else {
-      fb.textContent = r && r.error ? `Parado · ⚠ ${r.error}` : "Desligado.";
-      fb.className = "delta";
-    }
-  }
-}
-
-async function enrPollOnce() {
-  try { enrPaint(await api("GET", "/owner/enricher/status")); } catch { /* mantém */ }
-}
-
-async function enrToggle() {
-  const fb = $("#enr-feedback");
-  try {
-    if (enrRunning) {
-      await api("POST", "/owner/enricher/stop", {});
-      pushFeed("Enriquecedor desligado.", "warn");
-    } else {
-      const identity = !!($("#enr-identity") && $("#enr-identity").checked);
-      const scraper = !!($("#enr-scraper") && $("#enr-scraper").checked);
-      const aggressive = !!($("#enr-aggressive") && $("#enr-aggressive").checked);
-      const r = await api("POST", "/owner/enricher/start", { identity, scraper, aggressive });
-      if (!r.ok) { if (fb) { fb.textContent = r.message || r.reason || "não consegui ligar."; fb.className = "delta"; } return; }
-      pushFeed("Enriquecedor ligado — roda enquanto o PC ficar ligado.", "info");
-      enrSetStatus("ligado", "run");
-    }
-    enrPollOnce();
-  } catch (err) { if (fb) { fb.textContent = err.message; fb.className = "delta"; } }
-}
+/* Enriquecedor de Cards (legado) REMOVIDO em 28/07: o motor morreu em 47ae27b5 (virou
+   local_deep_enrich_v1) e /owner/enricher/start passou a responder 409 fixo. O card, o polling de
+   5s e o listener SSE foram junto — só sobravam pra devolver 409 e confundir. */
 
 /* ---------- Wire-up cockpit ---------- */
 (function wireupCockpit() {
@@ -1302,10 +1242,6 @@ async function enrToggle() {
   if (exportAllVpsBtn) exportAllVpsBtn.addEventListener("click", ckExportAllVps);
   if (cancelBtn) cancelBtn.addEventListener("click", ckCancelEnrich);
 
-  // Enriquecedor de Cards (1 worker contínuo)
-  const enrToggleBtn = $("#btn-enr-toggle"); if (enrToggleBtn) enrToggleBtn.addEventListener("click", enrToggle);
-  enrPollOnce();
-  if (!enrPollTimer) enrPollTimer = setInterval(enrPollOnce, 5000);
   if (clearBtn)  clearBtn.addEventListener("click", () => {
     for (const id of FILTER_KEYS) { const el = $(`#${id}`); if (el) el.value = ""; }
     for (const id of ["cf-not-enriched", "cf-has-site", "cf-has-whatsapp"]) { const el = $(`#${id}`); if (el) el.checked = false; }
@@ -2181,7 +2117,8 @@ setInterval(ponteRender, 8000);          // ponte local: controle, estado e trab
 setInterval(power30bRender, 8000);       // pílula do header: estado ligado/desligado do 30B
 // ─────────────────────────── SSE: o agent EMPURRA o estado (Sprint 4) ───────────────────────────
 // EventSource escuta /owner/events?token=<TOKEN> (o header Authorization não passa por EventSource;
-// o agent valida o ?token= só nessa rota). O painel consome `snapshot` e `enricher`.
+// o agent valida o ?token= só nessa rota). O painel consome `snapshot` (o evento `enricher` ainda é
+// emitido pelo agent, mas não tem mais ouvinte — o card legado saiu em 28/07).
 //
 // FALLBACK À PROVA DE BALA (requisito nº1): o polling NUNCA é removido.
 //  • Sem EventSource no browser → connectSSE() nem tenta; os timers rodam no ritmo ORIGINAL.
@@ -2208,8 +2145,6 @@ function paintSnapshot(snap) {
     renderSistema(local.system);
     // VPS: pressão/veredito + banco VPS + motores, tudo com o MESMO generatedAt do snapshot.
     renderVps(vps.system, vps.leads, vps.engines);
-    // Enricher (métricas). labUp não vem no snapshot → mantém o do último poll (não apaga).
-    if (snap.enricher) enrPaint(snap.enricher);
   } catch (err) {
     console.warn("[sse] paintSnapshot falhou:", err && err.message);
   }
@@ -2238,10 +2173,6 @@ function connectSSE() {
   es.addEventListener("snapshot", (ev) => {
     sseState.errorStreak = 0; sseState.healthy = true;
     try { paintSnapshot(JSON.parse(ev.data)); } catch {}
-  });
-  es.addEventListener("enricher", (ev) => {
-    sseState.errorStreak = 0; sseState.healthy = true;
-    try { enrPaint(JSON.parse(ev.data)); } catch {}
   });
   es.addEventListener("error", () => {
     // EventSource re-tenta sozinho (retry nativo). Após 2 erros seguidos, garante o fallback de polling
