@@ -763,9 +763,10 @@ h3 { font-size: .95rem; }
    sem teto ela atravessava o mapa inteiro. Uma linha só (o corte do texto é
    feito no JS — dentro de um flex o text-overflow não pega o nó de texto). */
 .route-gps-status { max-width: calc(100% - 22px); white-space: nowrap; overflow: hidden; }
-.route-follow-control { position: absolute; z-index: 6; top: 10px; right: 10px; width: 42px; height: 42px; display: grid; place-items: center; padding: 0; border: 1px solid var(--glass-border); border-radius: 14px; color: var(--glass-ink); background: var(--glass-surface); box-shadow: 0 6px 18px rgba(17,28,43,.22); backdrop-filter: blur(10px); touch-action: manipulation; transition: color .2s ease, background .2s ease, transform .18s ease; }
+.route-follow-control { position: absolute; z-index: 6; top: 10px; right: 10px; width: 44px; height: 44px; display: grid; place-items: center; padding: 0; border: 1px solid var(--glass-border); border-radius: 14px; color: var(--glass-ink); background: var(--glass-surface); box-shadow: 0 6px 18px rgba(17,28,43,.22); backdrop-filter: blur(10px); touch-action: manipulation; transition: color .2s ease, background .2s ease, opacity .2s ease, transform .18s ease; }
 .route-follow-control:active { transform: scale(.94); }
 .route-follow-control.is-following { color: white; border-color: color-mix(in srgb, var(--info) 80%, white); background: var(--info); }
+.route-follow-control:disabled { opacity: .56; transform: none; }
 .route-follow-control:focus-visible { outline: 3px solid color-mix(in srgb, var(--info) 46%, white); outline-offset: 3px; }
 :root[data-theme="dark"] .route-follow-control.is-following { border-color: color-mix(in srgb, var(--info) 78%, white); background: var(--info); }
 /* S1 21/07 (PR21072026-NAVEGAÇÃO) — painel "Próxima parada" no topo do mapa da
@@ -776,8 +777,10 @@ h3 { font-size: .95rem; }
    junto com este painel — a regra .has-next-panel logo abaixo empurra os
    dois pra baixo do painel nesse caso (classe no .route-map-shell, ver
    routeScreen/showNextPanel em app.js). */
-.route-next-panel { position: absolute; z-index: 5; top: 12px; left: 12px; right: 12px; width: auto; max-width: calc(100% - 24px); padding: 10px 40px 10px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); box-shadow: var(--shadow); backdrop-filter: blur(10px); text-align: left; cursor: pointer; animation: route-next-panel-in .32s cubic-bezier(.2,.82,.2,1.1) both; }
-.route-next-panel:active { transform: scale(.985); }
+.route-next-panel { position: absolute; z-index: 5; top: 12px; left: 12px; right: 12px; width: auto; max-width: calc(100% - 24px); overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 82%, transparent); box-shadow: var(--shadow); backdrop-filter: blur(10px); animation: route-next-panel-in .32s cubic-bezier(.2,.82,.2,1.1) both; }
+.route-next-panel-open { display: block; width: 100%; min-width: 0; padding: 10px 40px 10px 14px; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
+.route-next-panel-open:active { background: color-mix(in srgb, var(--ink) 5%, transparent); }
+.route-next-panel-open:focus-visible { outline: 3px solid color-mix(in srgb, var(--info) 46%, white); outline-offset: -3px; }
 .route-next-panel-title { display: block; overflow: hidden; color: var(--ink); font-size: .78rem; font-weight: 800; letter-spacing: -.01em; text-overflow: ellipsis; white-space: nowrap; }
 .route-next-panel-sub { display: block; overflow: hidden; margin-top: 2px; color: var(--muted); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
 @keyframes route-next-panel-in { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }

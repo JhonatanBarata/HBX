@@ -925,10 +925,15 @@
   }
   function syncRouteReadingFollowUi(parts) {
     if (!parts || !parts.followControl) return;
-    const following = parts.following !== false;
+    const mode = routeLiveMode();
+    const point = routeLivePoint(mode) || state.idlePosicao || lastKnownPosition;
+    const available = !!point && validCoordinates(point.lat, point.lng);
+    const following = !!mode && parts.following !== false;
     parts.followControl.classList.toggle("is-following", following);
-    parts.followControl.setAttribute("aria-pressed", following ? "true" : "false");
-    parts.followControl.setAttribute("aria-label", following ? "GPS centralizado" : "Centralizar no GPS");
+    parts.followControl.disabled = !available;
+    if (mode) parts.followControl.setAttribute("aria-pressed", following ? "true" : "false");
+    else parts.followControl.removeAttribute("aria-pressed");
+    parts.followControl.setAttribute("aria-label", available ? "Recentralizar na minha localização" : "Aguardando localização para recentralizar");
   }
   function followRouteReadingPosition(host, map, parts, point, resetZoom, mode) {
     if (!point || parts.following === false) return;
@@ -942,7 +947,7 @@
       duration: first ? 620 : 820,
       essential: false,
     };
-    if (first || resetZoom || Number(map.getZoom()) < 15) options.zoom = 16.2;
+    if (first || resetZoom || Number(map.getZoom()) < 15) options.zoom = resetZoom ? Math.max(Number(map.getZoom()) || 0, 16.6) : 16.6;
     if (moving) { options.bearing = bearing; options.pitch = 36; }
     else if (first || resetZoom) { options.bearing = 0; options.pitch = 0; }
     try { map.easeTo(options); parts.followCameraInitialized = true; } catch (_) {}
@@ -950,7 +955,7 @@
   // S2 21/07 — câmera de abertura da navegação: motorista + próxima parada
   // num fitBounds só, ANTES do follow tomar conta (spec S2 #2, "Câmera").
   // Sem next com coordenada válida, devolve false e o follow de sempre
-  // (single-point, zoom 16.2) cobre o enquadramento.
+  // (single-point, zoom 16.6) cobre o enquadramento.
   function navInitialFitBounds(map, point) {
     const next = openItems()[0];
     const client = next && next.cliente || {};
@@ -971,6 +976,43 @@
     }
     return parts.gpsStatus;
   }
+  function ensureRouteRecenterControl(host, map, parts) {
+    if (!parts.followControl) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "route-follow-control";
+      button.innerHTML = icon("gps", 20);
+      if (host.id) button.setAttribute("aria-controls", host.id);
+      button.addEventListener("pointerdown", event => event.stopPropagation());
+      button.addEventListener("click", event => {
+        event.preventDefault(); event.stopPropagation();
+        const mode = routeLiveMode();
+        const point = routeLivePoint(mode) || state.idlePosicao || lastKnownPosition;
+        if (!point || !validCoordinates(point.lat, point.lng)) return;
+        if (mode) {
+          parts.following = true;
+          followRouteReadingPosition(host, map, parts, point, true, mode);
+        } else {
+          try {
+            map.easeTo({
+              center: [point.lng, point.lat],
+              zoom: Math.max(Number(map.getZoom()) || 0, 16.6),
+              bearing: 0,
+              pitch: 0,
+              duration: 620,
+              essential: false,
+            });
+          } catch (_) {}
+        }
+        syncRouteReadingFollowUi(parts);
+        H.vibrate(10);
+      });
+      host.appendChild(button);
+      parts.followControl = button;
+    }
+    syncRouteReadingFollowUi(parts);
+    return parts.followControl;
+  }
   // 28/07 (dono, item 6) — "o status parado do mapa sempre vai pontuar onde você
   // está, e o seu endereço; dessa forma eu sei que o GPS tá ok". Sem rota rodando
   // não há trilha, follow nem câmera perseguindo ninguém: fica o MESMO ponto azul
@@ -978,10 +1020,10 @@
   // escrevendo o endereço de onde o aparelho está.
   function updateMapaOcioso(host, map, parts) {
     removeRouteReadingLayers(map);
-    if (parts.followControl) { try { parts.followControl.remove(); } catch (_) {} parts.followControl = null; }
     parts.readingSessionId = null; parts.followCameraInitialized = false; parts.following = true;
     host.classList.remove("is-reading-route");
     const status = ensureGpsStatusEl(host, parts);
+    ensureRouteRecenterControl(host, map, parts);
     const point = state.idlePosicao;
     if (!point || !validCoordinates(point.lat, point.lng)) {
       if (parts.currentLocationMarker) { try { parts.currentLocationMarker.remove(); } catch (_) {} }
@@ -1007,13 +1049,13 @@
     const endereco = state.idleEndereco && state.idleEndereco.texto ? state.idleEndereco.texto : "";
     // Corte no JS: dentro de um flex o text-overflow não pega o nó de texto.
     const curto = endereco.length > 38 ? `${endereco.slice(0, 37).trimEnd()}…` : endereco;
-    status.textContent = `${curto || "Estou aqui"}${metros}`;
+    status.textContent = `Você · ${curto || "Localização atual"}${metros}`;
     // Mapa SEM parada nenhuma não tem o que enquadrar: centraliza em você UMA vez
     // (mesma chave de enquadramento do applyRouteMarkers — os dois nunca disputam
     // a câmera; disputa de câmera é metade do "circo" que o dono viu).
     if (!routeMapPoints().length && parts.enquadradoEm !== "#eu") {
       parts.enquadradoEm = "#eu";
-      try { map.easeTo({ center: [point.lng, point.lat], zoom: Math.max(Number(map.getZoom()) || 0, 15), duration: 620, essential: false }); } catch (_) {}
+      try { map.easeTo({ center: [point.lng, point.lat], zoom: Math.max(Number(map.getZoom()) || 0, 15.6), duration: 620, essential: false }); } catch (_) {}
     }
   }
   // 28/07 (dono) — BALÃO DA BOLINHA AZUL: toque no ponto abre um cartãozinho preso
@@ -1069,28 +1111,9 @@
       parts.followCameraInitialized = false;
     }
     ensureGpsStatusEl(host, parts);
-    if (!parts.followControl) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "route-follow-control";
-      button.innerHTML = icon("gps", 20);
-      button.addEventListener("pointerdown", event => event.stopPropagation());
-      // Recalcula o modo NA HORA do toque (em vez de fechar sobre o `mode`
-      // do momento em que o botão nasceu) — o botão é criado 1x e sobrevive
-      // a trocas de modo no mesmo host (ex.: Leitura termina e a navegação
-      // normal assume o mesmo mapa), então uma closure travada no mode antigo
-      // leria a fonte de dados errada.
-      button.addEventListener("click", event => {
-        event.preventDefault(); event.stopPropagation();
-        const clickMode = routeLiveMode();
-        parts.following = true;
-        syncRouteReadingFollowUi(parts);
-        followRouteReadingPosition(host, map, parts, routeLivePoint(clickMode), true, clickMode);
-        H.vibrate(10);
-      });
-      host.appendChild(button);
-      parts.followControl = button;
-    }
+    // O mesmo controle permanece no mapa parado: no modo vivo religa o follow;
+    // fora dele faz uma recentralização única, sem a câmera perseguir o motorista.
+    ensureRouteRecenterControl(host, map, parts);
     if (!parts.readingInteractionBound) {
       const detach = event => {
         if (!routeLiveMode() || !event || !event.originalEvent) return;
@@ -1612,13 +1635,13 @@
         host.innerHTML = `<span class="route-map-loading">Carregando mapa…</span>`;
       }
       disposeRouteMap(); routeMapHost = host;
-      const map = new maplibregl.Map({ container: host, style: currentMapStyle(), center: [center.lng, center.lat], zoom: readingPoint ? 16.2 : points.length ? 12 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false, maxPitch: 60 });
+      const map = new maplibregl.Map({ container: host, style: currentMapStyle(), center: [center.lng, center.lat], zoom: readingPoint ? 16.6 : points.length ? 12 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false, maxPitch: 60 });
       // Mapa nascendo (boot do app): entra com a MESMA coreografia da volta.
       routeMap = map; host.__hbxMap = map; host.__hbxMapParts = { markers: [], mapTheme: currentMapTheme(), entradaPendente: true, animarMarcadores: true };
       wireMapTap(host, map, opts);
       ensureRouteMapResizeGuard(host, map);
       if (!points.length) void pendingPosition.then(position => {
-        if (position && routeMap === map && routeMapHost === host && !routeLivePoint(routeLiveMode())) map.easeTo({ center: [position.lng, position.lat], zoom: routeLiveMode() ? 16.2 : 14, duration: 500 });
+        if (position && routeMap === map && routeMapHost === host && !routeLivePoint(routeLiveMode())) map.easeTo({ center: [position.lng, position.lat], zoom: routeLiveMode() ? 16.6 : 14, duration: 500 });
       });
       map.on("load", async () => {
         if (routeMap !== map || routeMapHost !== host) return;
@@ -4295,7 +4318,7 @@
         <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila" role="tab" aria-selected="${state.routeFilter === "fila"}">Fila <b>${open.length}</b></button>
         <button type="button" class="route-filter-btn ${state.routeFilter === "entregue" ? "active" : ""}" data-action="route-filter" data-filter="entregue" role="tab" aria-selected="${state.routeFilter === "entregue"}">Entregue <b>${done.length}</b></button>
       </div>` : ""}
-      ${state.routeFilter === "fila" && next ? `<div class="section-title"><strong>Próxima parada</strong><span>${next.etaAt ? H.date(next.etaAt, { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>${stopCard(next, true)}` : ""}
+      ${state.routeFilter === "fila" && next && !showNextPanel ? `<div class="section-title"><strong>Próxima parada</strong><span>${next.etaAt ? H.date(next.etaAt, { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>${stopCard(next, true)}` : ""}
       ${total ? (filtered.length ? `<div class="list">${filtered.map((item, index) => `${state.routeFilter === "fila" ? routeLegConnector(item) : ""}${stopCard(item, false, index + (state.routeFilter === "fila" ? 2 : 1))}`).join("")}</div>` : state.routeFilter === "fila" && next ? "" : empty("Nada aqui", "")) : ""}`, leituraAtiva ? "" : `<button class="fab" data-action="rota-rapida" aria-label="Rota rápida">${icon("plus", 22)}</button>`);
   }
   function leituraRouteControls() {
@@ -4331,7 +4354,7 @@
     // não há voz pra silenciar (Leitura/pausada nunca chegam aqui — H.speak
     // não é chamado, então o botão só confundiria).
     const muteBtn = navModeActive() ? `<button type="button" class="route-next-panel-mute${state.navMudo ? " is-muted" : ""}" data-action="nav-mute-toggle" aria-label="${state.navMudo ? "Ativar voz da navegação" : "Silenciar voz da navegação"}">${icon(state.navMudo ? "volumeOff" : "volume", 18)}</button>` : "";
-    return `<div class="route-next-panel" data-delivery="${H.escape(next.id)}" role="button" tabindex="0" aria-label="Ver próxima parada"><strong class="route-next-panel-title">Próxima parada · ${H.escape(c.nome || "Cliente")} — ${n} de ${total}</strong><span class="route-next-panel-sub">${H.escape(routeNextStopSubText(next))}</span>${muteBtn}</div>`;
+    return `<div class="route-next-panel"><button type="button" class="route-next-panel-open" data-delivery="${H.escape(next.id)}" aria-label="Ver próxima parada"><strong class="route-next-panel-title">Próxima parada · ${H.escape(c.nome || "Cliente")} — ${n} de ${total}</strong><span class="route-next-panel-sub">${H.escape(routeNextStopSubText(next))}</span></button>${muteBtn}</div>`;
   }
   function routeTransmuxControl(planned, paused) {
     const active = routeActive();
