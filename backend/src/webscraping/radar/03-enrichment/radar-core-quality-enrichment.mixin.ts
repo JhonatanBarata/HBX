@@ -1208,12 +1208,48 @@ export class RadarCoreQualityEnrichmentMixin {
       const webSourceGate = classified.status === 'found'
         ? this.getRadarWebSourceGate().evaluate({ candidate: resultForQuality, filters: normalized })
         : { passed: true, reason: null };
-      const classified2Status: WebscrapingSearchRunItemStatus = classified.status === 'found' && !webSourceGate.passed
+      let classified2Status: WebscrapingSearchRunItemStatus = classified.status === 'found' && !webSourceGate.passed
         ? 'invalid'
         : classified.status;
-      const classified2DuplicateReason = classified.status === 'found' && !webSourceGate.passed
+      let classified2DuplicateReason = classified.status === 'found' && !webSourceGate.passed
         ? webSourceGate.reason
         : classified.duplicateReason;
+      // F3 REFUNDAÇÃO (28/07): reconciliação web→RFB ANTES da prateleira + sinal local.
+      // Só lane web (gate.appliesTo), só PJ, só quem ainda seria 'found'. Match inequívoco na
+      // RFB 28M → o card herda CNAE/razão e a categoria vira FATO; sem match → nasce "não
+      // confirmado" com categoria vazia (nunca o texto digitado na busca). Em cidade fora da
+      // lista de grandes, sem NENHUM sinal local (DDD real da cidade, cidade no conteúdo,
+      // match RFB) o candidato morre — é o freio do lixo global (eBay/CBS/Climatempo em
+      // Zacarias). Os serviços degradam gracioso por dentro; nada aqui derruba o save.
+      if (classified2Status === 'found' && normalized.targetType === 'pj' && this.getRadarWebSourceGate().appliesTo(resultForQuality)) {
+        const rfbReconcile = await this.getCnpjRfbReconcile().reconcileWebCandidate({
+          prisma: this.prisma,
+          candidate: resultForQuality,
+          city: resultCity || normalized.city,
+          state: resultState || normalized.state,
+          logger: this.logger,
+        });
+        this.getCnpjRfbReconcile().applyOutcomeToCandidate(resultForQuality, rfbReconcile);
+        const cityDddHints = await this.getCnpjRfbReconcile().getCityDddHints({
+          prisma: this.prisma,
+          city: normalized.city,
+          state: normalized.state,
+          logger: this.logger,
+        });
+        const localReality = this.getRadarWebSourceGate().evaluateLocalReality({
+          candidate: resultForQuality,
+          filters: normalized,
+          // 'skipped' = candidato JÁ tem CNPJ próprio (rodapé do site) — empresa ancorada em
+          // fato verificável (L4 resolve o resto), não é lixo global.
+          rfbMatched: rfbReconcile.status === 'matched' || rfbReconcile.status === 'skipped',
+          rfbUnavailable: rfbReconcile.status === 'unavailable',
+          cityDddHints,
+        });
+        if (!localReality.passed) {
+          classified2Status = 'invalid';
+          classified2DuplicateReason = localReality.reason;
+        }
+      }
       const quality = classified2Status === 'found'
         ? this.evaluateResultQualityForInput(resultForQuality, normalized)
         : this.extractLeadQualityFromObject(result as any);

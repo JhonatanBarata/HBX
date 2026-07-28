@@ -439,7 +439,18 @@ function makeSaveInstance(db: ReturnType<typeof makeFakeDb>, options: { donation
     buildSyntheticRunPlaceId: (runId: string, _result: any, index: number) => `radar:${runId}:${index}`,
     buildRunCompositeKey: (row: any) => instance.buildRunCompositeKey(row),
   });
-  instance.getRadarWebSourceGate = () => ({ evaluate: () => ({ passed: true, reason: null }) });
+  instance.getRadarWebSourceGate = () => ({
+    evaluate: () => ({ passed: true, reason: null }),
+    // F3 REFUNDAÇÃO: o save loop consulta appliesTo/evaluateLocalReality — neutro no teste.
+    appliesTo: () => false,
+    evaluateLocalReality: () => ({ passed: true, reason: null }),
+  });
+  // F3 REFUNDAÇÃO: reconciliação web→RFB neutra (este teste é da doação de campos, não da RFB).
+  instance.getCnpjRfbReconcile = () => ({
+    reconcileWebCandidate: async () => ({ status: 'unavailable', matchedBy: null, record: null }),
+    applyOutcomeToCandidate: () => undefined,
+    getCityDddHints: async () => null,
+  });
   instance.getRadarQualityGate = () => ({ evaluate: () => ({ deliverable: true, reason: null }) });
   instance.buildRadarQualityGateHost = () => ({});
   instance.getRadarSharedNormalizer = () => ({
