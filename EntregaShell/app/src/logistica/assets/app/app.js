@@ -5583,7 +5583,7 @@
   async function abrirSanitizador() {
     const rc = state.rotaConferencia;
     if (!rc || !rc.data || state.sanitizador) return;
-    state.sanitizador = { fase: "placar", date: rc.data.date || null, alvos: 0, curaveis: [], semDados: [], curados: 0, naoEncontrado: [], restantes: 0, carregando: true, erro: null, abortar: false };
+    state.sanitizador = { fase: "placar", date: rc.data.date || null, alvos: 0, curaveis: [], semDados: [], curados: 0, naoEncontrado: [], restantes: 0, pulados: 0, carregando: true, erro: null, abortar: false };
     render();
     try {
       const s = state.sanitizador;
@@ -5613,15 +5613,25 @@
     s.erro = null;
     render();
     try {
-      for (;;) {
+      // DISJUNTOR (27/07): laço com TETO, nunca livre. O servidor cura em lotes e a
+      // janela avança por `pular` — quem foi tentado e não curou NÃO volta pra frente
+      // da fila. Sem os dois, com a regra estrita (a maioria não cura), os mesmos 12
+      // eram reprocessados pra sempre: loop medido em produção, uma chamada a cada 3s.
+      const maxRodadas = Math.ceil((Number(s.alvos) || 0) / 12) + 3;
+      for (let rodada = 0; rodada < maxRodadas; rodada++) {
         if (!state.sanitizador || state.sanitizador.abortar) return;
-        const res = await H.api("/logistica/rota/sanitizar", { method: "POST", body: { executar: true, ...(s.date ? { date: s.date } : {}) } });
+        const res = await H.api("/logistica/rota/sanitizar", { method: "POST", body: { executar: true, pular: s.pulados, ...(s.date ? { date: s.date } : {}) } });
         if (!state.sanitizador || state.sanitizador.abortar) return;
-        s.curados += Number(res.curados) || 0;
+        const curadosAgora = Number(res.curados) || 0;
+        const processados = Number(res.processados) || 0;
+        s.curados += curadosAgora;
         s.restantes = Number(res.restantes) || 0;
+        // Curado SAI da lista do servidor, então ele não conta como "pulado" — se
+        // contasse, a janela da próxima rodada saltaria por cima de quem falta.
+        s.pulados += Math.max(0, processados - curadosAgora);
         (Array.isArray(res.naoEncontrado) ? res.naoEncontrado : []).forEach(c => { if (c && c.id && !s.naoEncontrado.some(x => x.id === c.id)) s.naoEncontrado.push(c); });
         render();
-        if (s.restantes <= 0 || (Number(res.processados) || 0) === 0) break;
+        if (s.restantes <= 0 || processados === 0) break;
       }
       // Lista final honesta: curado SAI da lista (placar novo), recusado fica.
       const placar = await H.api("/logistica/rota/sanitizar", { method: "POST", body: { ...(s.date ? { date: s.date } : {}) } });
@@ -5648,7 +5658,7 @@
   }
   function sanitizadorModal() {
     const s = state.sanitizador;
-    const feitos = Math.max(0, s.alvos - s.restantes);
+    const feitos = Math.max(0, Math.min(s.alvos, s.fase === "rodando" ? (s.pulados || 0) + s.curados : s.alvos - s.restantes));
     const pct = s.alvos > 0 ? Math.round((feitos / s.alvos) * 100) : 0;
     const jaListado = new Set(s.naoEncontrado.map(c => c.id));
     const linhas = [

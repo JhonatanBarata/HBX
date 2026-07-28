@@ -73,7 +73,10 @@ function tokensDeDia(textoNormalizado: string): string[] {
 }
 
 /** Reconhece 1+ dias da semana em QUALQUER texto solto ("seg e qui", "toda terça e
- *  sexta", "2ª/5ª"). Devolve ISO ordenado sem duplicata; [] quando nada reconhecido. */
+ *  sexta", "2ª/5ª"). Devolve ISO ordenado sem duplicata; [] quando nada reconhecido.
+ *  Uso direto (fora de parseLinhaTexto): planilha/campo já isolado, sem risco de rua
+ *  com nome de dia dentro — dentro de parseLinhaTexto quem decide é
+ *  `diasDeSegmentoPuro`, mais rígido (SEGMENTO inteiro, não palavra solta). */
 export function parseDiasSemana(textoBruto: string): number[] {
   const tokens = tokensDeDia(normalizarTexto(textoBruto));
   const dias = new Set<number>();
@@ -82,6 +85,28 @@ export function parseDiasSemana(textoBruto: string): number[] {
     if (d) dias.add(d);
   }
   return [...dias].sort((a, b) => a - b);
+}
+
+/** Conectivos que podem conviver num segmento 100% dia ("toda sexta", "seg e qui")
+ *  sem tirar a "pureza" dele — qualquer OUTRA palavra (rua, bairro, nome…) reprova. */
+const FILLER_DIA = new Set(['e', 'toda', 'todas', 'todo', 'todos']);
+
+/**
+ * Um SEGMENTO inteiro (já separado por vírgula/hífen) é feito SÓ de dia(s) da
+ * semana + conectivo? Devolve os dias (ISO) ou null quando há QUALQUER palavra que
+ * não seja dia/conectivo — é o que impede "Avenida Quinta da Boa Vista" de vazar
+ * "quinta" pra dentro da agenda: a via inteira nunca é um segmento 100% dia.
+ */
+function diasDeSegmentoPuro(seg: string): number[] | null {
+  const tokens = tokensDeDia(normalizarTexto(seg)).filter((t) => !FILLER_DIA.has(t));
+  if (!tokens.length) return null;
+  const dias: number[] = [];
+  for (const t of tokens) {
+    const d = DIA_DICIONARIO[t];
+    if (!d) return null;
+    dias.push(d);
+  }
+  return dias;
 }
 
 /** Planilha pode trazer o dia já em ISO cru ("1,3,5", convenção do próprio banco) —
@@ -170,27 +195,36 @@ export function parseLinhaTexto(
   const linha = String(linhaBruta ?? '').trim();
   if (!linha) return camposVazios();
 
-  const diasSemana = parseDiasSemana(linha);
   const telefoneAchado = encontrarTelefone(linha);
   const qtdProduto = encontrarQtdProduto(linha);
 
   // Resto = a linha com telefone/qtd+produto retirados (dia é removido por SEGMENTO
   // abaixo, não aqui — dia soltando span solto arriscaria comer parte do endereço,
-  // ex. "Rua Sexta-Feira Santa" [rua real] não pode virar "Rua Santa").
+  // ex. "Avenida Quinta da Boa Vista" [rua real] não pode virar dia da semana).
   let resto = linha;
   if (telefoneAchado) resto = resto.replace(telefoneAchado.match, ' ');
   if (qtdProduto) resto = resto.replace(new RegExp(escapeRegExp(qtdProduto.match), 'i'), ' ');
   resto = resto.replace(/\s{2,}/g, ' ').trim();
 
-  const segmentosBrutos = resto.split(SEGMENTO_RE).map((s) => s.trim()).filter(Boolean);
-  // Remove segmentos que são PURAMENTE dia da semana ("seg e qui", "toda sexta") —
-  // sobrevive o que tiver QUALQUER outra palavra (endereço/nome nunca some por engano).
+  const segmentosBrutos = resto
+    .split(SEGMENTO_RE)
+    .map((s) => s.trim())
+    // Descarta segmento que sobrou só com pontuação (hífen órfão de onde telefone/
+    // qtd foram cortados) — nunca vira "nome"/"endereço" fantasma.
+    .filter((s) => s && /[a-z0-9]/i.test(s));
+
+  // Dia da semana só sai de um SEGMENTO INTEIRO composto por dia(s) + conectivos
+  // ("seg e qui", "toda sexta") — NUNCA de uma palavra solta dentro de um segmento
+  // maior. Sem isso, endereço real com "Quinta"/"Domingos" no nome (comuns em rua/
+  // bairro do Brasil) contaminaria a agenda do cliente com um dia que não existe.
+  const diasDoTexto = new Set<number>();
   const segmentos = segmentosBrutos.filter((seg) => {
-    const tokens = normalizarTexto(seg).replace(/\be\b/g, '').trim();
-    if (!tokens) return false;
-    const soDias = tokensDeDia(tokens).length > 0 && tokensDeDia(tokens).every((t) => DIA_DICIONARIO[t]);
-    return !soDias;
+    const dias = diasDeSegmentoPuro(seg);
+    if (!dias) return true;
+    dias.forEach((d) => diasDoTexto.add(d));
+    return false;
   });
+  const diasSemana = [...diasDoTexto].sort((a, b) => a - b);
 
   if (segmentos.length === 0) {
     // Linha só tinha dia/telefone/produto (ou ficou vazia) — sem nome/endereço
@@ -204,17 +238,27 @@ export function parseLinhaTexto(
   const enderecoSegmentos = segmentos.length > 1 ? segmentos.slice(1) : segmentos;
 
   // UF: segmento isolado de 2 letras batendo a whitelist BR — extrai e some da
-  // composição (senão "SP" viraria ruído na busca de logradouro).
+  // composição (senão "SP" viraria ruído na busca de logradouro). Cidade: só
+  // adivinha quando há UF ANCORANDO — o segmento IMEDIATAMENTE ANTES da UF é
+  // quase sempre a cidade ("... - Rio Claro - SP", convenção padrão de endereço
+  // BR). SEM UF near ("... - Centro - seg", bairro sem cidade nenhuma por perto)
+  // não tenta adivinhar — "Centro" viraria "cidade" errado; fica dentro do
+  // endereço composto e cidadePadrao (do lote) é quem preenche o buraco.
+  const ufIdx = enderecoSegmentos.findIndex((seg) => seg.length === 2 && UFS_BR.has(seg.toUpperCase()));
   let uf = opts.ufPadrao ?? null;
-  const enderecoSemUf = enderecoSegmentos.filter((seg) => {
-    if (seg.length === 2 && UFS_BR.has(seg.toUpperCase())) {
-      uf = seg.toUpperCase();
-      return false;
+  let cidade = opts.cidadePadrao ?? null;
+  const excluir = new Set<number>();
+  if (ufIdx >= 0) {
+    uf = enderecoSegmentos[ufIdx].toUpperCase();
+    excluir.add(ufIdx);
+    if (ufIdx > 0) {
+      cidade = enderecoSegmentos[ufIdx - 1];
+      excluir.add(ufIdx - 1);
     }
-    return true;
-  });
+  }
+  const enderecoRestante = enderecoSegmentos.filter((_, i) => !excluir.has(i));
 
-  const endereco = enderecoSemUf.length ? enderecoSemUf.join(', ') : null;
+  const endereco = enderecoRestante.length ? enderecoRestante.join(', ') : null;
   const numero = endereco ? String(extrairNumeroPorta({ endereco }) ?? '') || null : null;
 
   return {
@@ -223,7 +267,7 @@ export function parseLinhaTexto(
     endereco,
     numero,
     bairro: null,
-    cidade: opts.cidadePadrao ?? null,
+    cidade,
     uf,
     cep: null,
     diasSemana,

@@ -771,7 +771,7 @@ export class LogisticaController {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const actorWhere = await this.operacao.whereForActor(req.user);
     const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
-    return this.conferencia.sanitizar(companyId, { date: dto?.date, executar: dto?.executar === true }, entregadorId);
+    return this.conferencia.sanitizar(companyId, { date: dto?.date, executar: dto?.executar === true, pular: dto?.pular }, entregadorId);
   }
 
   /**

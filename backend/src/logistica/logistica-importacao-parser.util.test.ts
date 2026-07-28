@@ -143,6 +143,20 @@ test('parseLinhaTexto: linha vazia devolve campos vazios sem lançar', () => {
   assert.deepEqual(r.diasSemana, []);
 });
 
+test('parseLinhaTexto: "... - Cidade - UF" extrai cidade do segmento ANCORADO na UF (convenção padrão BR)', () => {
+  const r = parseLinhaTexto('Dona Maria - Rua das Flores, 123 - Rio Claro - SP');
+  assert.equal(r.cidade, 'Rio Claro');
+  assert.equal(r.uf, 'SP');
+  assert.equal(r.endereco, 'Rua das Flores, 123', 'cidade/UF saem do endereço composto depois de extraídos');
+  assert.equal(r.numero, '123');
+});
+
+test('parseLinhaTexto: SEM UF por perto, não adivinha cidade (bairro solto não vira cidade errada)', () => {
+  const r = parseLinhaTexto('Maria - Rua das Flores, 123 - Centro');
+  assert.equal(r.cidade, null, '"Centro" é bairro, não cidade — sem UF ancorando, não adivinha');
+  assert.ok(r.endereco?.includes('Centro'), 'mas o texto não se perde — fica dentro do endereço composto');
+});
+
 test('parseLinhaTexto: cidadePadrao/ufPadrao do lote preenchem quando a linha não trouxe os próprios', () => {
   const r = parseLinhaTexto('João - Rua A, 50 - seg', { cidadePadrao: 'Rio Claro', ufPadrao: 'sp' });
   assert.equal(r.cidade, 'Rio Claro');

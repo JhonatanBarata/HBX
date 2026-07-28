@@ -324,7 +324,7 @@ export class LogisticaConferenciaService implements OnModuleInit {
    */
   async sanitizar(
     companyId: number,
-    input: { date?: string; executar?: boolean },
+    input: { date?: string; executar?: boolean; pular?: number },
     entregadorId?: number,
   ): Promise<{
     alvos: number;
@@ -365,6 +365,13 @@ export class LogisticaConferenciaService implements OnModuleInit {
       return { alvos: donos.length, curaveis, semDados, curados: 0, naoEncontrado: [], processados: 0, restantes: donos.length };
     }
 
+    // ANTI-LOOP (27/07) — `pular` é a janela de quem JÁ foi tentado e não curou. Sem
+    // isto, com a regra estrita (a maioria não cura), os mesmos 12 ficavam eternamente
+    // na frente da fila e o app repetia a chamada pra sempre: loop medido em produção
+    // (mesma linha de log a cada 3s). Curado sai da lista sozinho, então o app desconta
+    // os curados do `pular` e a janela não pula ninguém.
+    const inicio = Math.min(Math.max(0, Math.trunc(Number(input.pular) || 0)), donos.length);
+    const fila = donos.slice(inicio);
     // Lote e teto POR CHAMADA — o app repete até zerar; nunca uma chamada eterna.
     const LOTE = 12;
     // 27/07 — a cura SEM CEP paga 1 ida ao ViaCEP + 1-2 ao CNEFE por cliente (contra 1
@@ -377,7 +384,7 @@ export class LogisticaConferenciaService implements OnModuleInit {
     const recusa = (dono: { row: ParadaConferenciaRow }, problema: string): void => {
       naoEncontrado.push({ id: dono.row.customerProfileId, nome: nomeDe(dono.row), problema });
     };
-    for (const dono of donos) {
+    for (const dono of fila) {
       if (processados >= LOTE || Date.now() >= fim) break;
       processados += 1;
       const cura = await resolverCuraCnefe(dono.alvo, { queryTimeoutMs: 8000 });
@@ -391,8 +398,9 @@ export class LogisticaConferenciaService implements OnModuleInit {
       // parada NÃO curou — e a lista diz exatamente isso, sem fingir sucesso.
       else recusa(dono, cura.cepDescoberto ? 'CEP achado, número não' : 'Endereço não achado na base');
     }
+    const restantes = Math.max(0, donos.length - inicio - processados);
     this.logger.log(
-      `[logistica] sanitizador company=${companyId}: ${curados} curado(s) de ${processados} processado(s), ${donos.length - processados} na fila.`,
+      `[logistica] sanitizador company=${companyId}: ${curados} curado(s) de ${processados} processado(s), ${restantes} na fila (pulados=${inicio}).`,
     );
     return {
       alvos: donos.length,
@@ -401,7 +409,7 @@ export class LogisticaConferenciaService implements OnModuleInit {
       curados,
       naoEncontrado,
       processados,
-      restantes: donos.length - processados,
+      restantes,
     };
   }
 

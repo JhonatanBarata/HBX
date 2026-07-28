@@ -456,6 +456,19 @@ export class SanitizarRotaDto {
   @IsOptional()
   @IsBoolean()
   executar?: boolean;
+
+  /**
+   * Quantos alvos JÁ TENTADOS pular (27/07 — anti-loop). O sanitizador não tem cursor
+   * por design: o curado sai da fila sozinho e a próxima chamada pega os seguintes.
+   * Com a regra estrita (bairro + porta exata) a maioria NÃO cura, então os mesmos 12
+   * ficavam eternamente na frente e o app repetia a chamada pra sempre — loop medido
+   * em produção. Quem tentou e não curou é PULADO na rodada seguinte.
+   */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(1000)
+  pular?: number;
 }
 
 // ── PR17072026 Onda 1 — encerrar rota (transacional, tudo-ou-nada) ───────────
