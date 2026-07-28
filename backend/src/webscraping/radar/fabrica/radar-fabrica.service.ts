@@ -19,6 +19,13 @@ import type { LeadContactCandidate } from '../persistence/lead-contact-gate';
 //   GET  /modules/owner/fabrica/status
 //   POST /modules/owner/fabrica/start  { budget }   (roda até N e para sozinho; sem budget recusa)
 //   POST /modules/owner/fabrica/stop                 (para agora, congela com segurança)
+//   GET  /modules/owner/fabrica/energia               (interruptor RadarFactoryCursor.enabled)
+//   POST /modules/owner/fabrica/energia { on }        (liga/desliga; relê do banco antes de responder)
+//
+// ENERGIA (E1, 28/07) — o "anti-26-dias": RadarFactoryCursor.enabled é o PARAR TUDO global lido por
+// RadarMissionQueueService.isQueuePaused (e por globalPaused() aqui embaixo), mas NENHUM writer
+// existia pra essa coluna — só religava por UPDATE manual no banco. energiaStatus/setEnergia dão
+// o interruptor que faltava.
 
 const RUN_KEY = 'main';
 const MAX_BUDGET = 5000; // teto de sanidade por corrida (env pode reduzir, nunca é surpresa)
@@ -253,6 +260,67 @@ export class RadarFabricaService {
     return { stopped: true, status: await this.status() };
   }
 
+  /**
+   * Estado do interruptor de energia (RadarFactoryCursor.enabled) pro painel. Reaproveita a mesma
+   * availability() dos irmãos status/start/stop — se a fábrica não está montada (migration ausente),
+   * a energia também não está.
+   */
+  async energiaStatus(): Promise<{ supported: boolean; enabled: boolean; forcedOn: boolean; key: string; unavailableReason: string | null }> {
+    const availability = await this.availability();
+    if (availability.supported === false) {
+      // Sem tabela não dá pra saber o valor real — default do schema é enabled:true, não mentimos "desligado".
+      return { supported: false, enabled: true, forcedOn: false, key: RUN_KEY, unavailableReason: availability.reason };
+    }
+    const cursor = await this.prisma.radarFactoryCursor
+      .upsert({ where: { key: RUN_KEY }, create: { key: RUN_KEY }, update: {}, select: { enabled: true, forcedOn: true } })
+      .catch(() => null);
+    return {
+      supported: true,
+      enabled: cursor ? cursor.enabled === true : true,
+      forcedOn: Boolean(cursor?.forcedOn),
+      key: RUN_KEY,
+      unavailableReason: null,
+    };
+  }
+
+  /**
+   * Liga/desliga a fábrica (RadarFactoryCursor.enabled) — o interruptor que faltava e travou a
+   * fábrica por 26 dias (só religava por UPDATE manual). `on` inválido ou tabela ausente NUNCA
+   * lança/500: devolve ok:false com o motivo, é o painel quem decide o que mostrar.
+   * Verdade verificada (lei nº3): grava e RELÊ do banco antes de responder — nunca ecoa a intenção
+   * de quem chamou, porque um upsert concorrente ou um trigger podem deixar o valor diferente.
+   */
+  async setEnergia(on: unknown): Promise<{ ok: boolean; enabled: boolean; changed: boolean; reason: string | null }> {
+    const availability = await this.availability();
+    if (availability.supported === false) {
+      return { ok: false, enabled: true, changed: false, reason: availability.reason };
+    }
+    if (typeof on !== 'boolean') {
+      const current = await this.energiaStatus();
+      return { ok: false, enabled: current.enabled, changed: false, reason: 'on_invalido' };
+    }
+
+    const before = await this.prisma.radarFactoryCursor
+      .findUnique({ where: { key: RUN_KEY }, select: { enabled: true } })
+      .catch(() => null);
+    const wasEnabled = before ? before.enabled === true : true; // linha ainda não existe → default do schema é true
+
+    await this.prisma.radarFactoryCursor.upsert({
+      where: { key: RUN_KEY },
+      create: { key: RUN_KEY, enabled: on },
+      update: { enabled: on },
+    });
+
+    // Relê — nunca ecoa `on` direto (lei nº3: verdade verificada).
+    const after = await this.prisma.radarFactoryCursor
+      .findUnique({ where: { key: RUN_KEY }, select: { enabled: true } })
+      .catch(() => null);
+    const enabledNow = after ? after.enabled === true : on;
+
+    this.logger.log(`[fabrica] ENERGIA ${enabledNow ? 'LIGADA' : 'DESLIGADA'} (key=${RUN_KEY}).`);
+    return { ok: true, enabled: enabledNow, changed: enabledNow !== wasEnabled, reason: null };
+  }
+
   /** Deve continuar? Sai por: stop pedido, budget batido ou PARAR TUDO global. */
   private async shouldContinue(): Promise<{ go: boolean; reason?: string }> {
     const run = await this.prisma.radarFabricaRun.findUnique({ where: { key: RUN_KEY } }).catch(() => null);
@@ -263,9 +331,21 @@ export class RadarFabricaService {
     return { go: true };
   }
 
+  /**
+   * ANTI-26-DIAS: antes o motivo do fim só ia pro `this.logger` — a tela ficava muda e ninguém via
+   * que a fábrica tinha parado (foi exatamente isso que travou por 26 dias). Agora `reason` também
+   * vira `lastError`, que já é exposto em status().
+   * Fim saudável (`budget_atingido`) limpa lastError — MAS só se a corrida terminou limpa: se já
+   * existe um lastError gravado por falha real de lead (processEnrichMissionForLead), esse erro
+   * NÃO pode ser apagado só porque o budget também bateu no mesmo instante. Por isso lê o run ANTES
+   * de decidir, em vez de zerar cego.
+   */
   private async finishRun(reason: string) {
+    const run = await this.prisma.radarFabricaRun.findUnique({ where: { key: RUN_KEY } }).catch(() => null);
+    const isHealthyEnd = reason === 'budget_atingido';
+    const lastError = isHealthyEnd ? (run?.lastError || null) : reason.slice(0, 300);
     await this.prisma.radarFabricaRun
-      .updateMany({ where: { key: RUN_KEY }, data: { running: false, finishedAt: new Date() } })
+      .updateMany({ where: { key: RUN_KEY }, data: { running: false, finishedAt: new Date(), lastError } })
       .catch(() => null);
     this.logger.log(`[fabrica] corrida encerrada (${reason}).`);
   }

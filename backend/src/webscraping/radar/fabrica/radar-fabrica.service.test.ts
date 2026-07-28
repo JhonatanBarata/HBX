@@ -13,16 +13,20 @@ import { isLocalRole } from '../../source-budget/role-guard';
  */
 
 // ── fake mínimo de PrismaService: só o que a fábrica toca ────────────────────────────────────────
-function makeFakePrisma(opts: { hasFabrica?: boolean; rfb?: any[] } = {}) {
+function makeFakePrisma(opts: { hasFabrica?: boolean; hasCursor?: boolean; rfb?: any[] } = {}) {
   const run: any = { key: 'main', running: false, stopRequested: false, budget: 0, processed: 0, materialized: 0, contactsWritten: 0, paidAttempts: 0 };
+  // cursor da energia (RadarFactoryCursor) — precisa ser MUTÁVEL de verdade (diferente do upsert
+  // burro do run acima) porque setEnergia relê do banco depois de escrever (lei nº3).
+  const cursor: any = { key: 'main', enabled: true, forcedOn: false };
   const leads: any[] = [];
   const missions: any[] = [];
   const contacts: any[] = [];
   const rfb = opts.rfb || [];
   return {
-    _run: run, _leads: leads, _missions: missions, _contacts: contacts,
+    _run: run, _cursor: cursor, _leads: leads, _missions: missions, _contacts: contacts,
     async hasTable(name: string) {
       if (name === 'RadarFabricaRun') return opts.hasFabrica !== false;
+      if (name === 'RadarFactoryCursor') return opts.hasCursor !== false;
       return true;
     },
     radarFabricaRun: {
@@ -64,8 +68,14 @@ function makeFakePrisma(opts: { hasFabrica?: boolean; rfb?: any[] } = {}) {
       async findFirst() { return null; },
     },
     radarFactoryCursor: {
-      async upsert() { return { key: 'main', enabled: true }; },
-      async findUnique() { return { enabled: true }; }, // PARAR TUDO global desligado
+      // Ao contrário do upsert burro do radarFabricaRun (só ecoa o estado atual), este aplica
+      // `update`/`create` de verdade — setEnergia depende de ler o valor que ELE MESMO gravou.
+      async upsert(args: any) {
+        if (args?.update && Object.keys(args.update).length) Object.assign(cursor, args.update);
+        else if (args?.create) Object.assign(cursor, {}); // singleton já existe no fake — create é no-op
+        return { ...cursor };
+      },
+      async findUnique() { return { ...cursor }; },
     },
   } as any;
 }
@@ -80,17 +90,17 @@ function applyIncrements(target: any, data: any) {
 }
 
 // mission queue fake: só isQueuePaused (global) + stats + enqueue
-function makeFakeQueue() {
+function makeFakeQueue(opts: { paused?: boolean } = {}) {
   return {
-    async isQueuePaused() { return false; },
-    async stats() { return { supported: true, paused: false, byStageStatus: [], lag: { queuedDue: 0, oldestQueuedAgeMs: 0 } }; },
+    async isQueuePaused() { return Boolean(opts.paused); },
+    async stats() { return { supported: true, paused: Boolean(opts.paused), byStageStatus: [], lag: { queuedDue: 0, oldestQueuedAgeMs: 0 } }; },
     async enqueue() { return { created: true, missionId: 'm_x' }; },
   } as any;
 }
 
-function makeService(prisma: any) {
+function makeService(prisma: any, queue?: any) {
   const leadContactWrite = { async writeContacts() { return { written: 0, skipped: 0, rejected: [] }; } } as any;
-  return new RadarFabricaService(prisma, makeFakeQueue(), leadContactWrite);
+  return new RadarFabricaService(prisma, queue || makeFakeQueue(), leadContactWrite);
 }
 
 test('start sem budget → RECUSA (contrato do painel)', async () => {
@@ -210,4 +220,98 @@ test('stop marca stopRequested (congela com segurança)', async () => {
   const r = await svc.stop();
   assert.equal(r.stopped, true);
   assert.equal(prisma._run.stopRequested, true);
+});
+
+// ─── E1: rota de energia (o interruptor que faltou por 26 dias) ─────────────────────────────────
+
+test('setEnergia(false) desliga a fábrica; changed só na 1ª chamada', async () => {
+  const prisma = makeFakePrisma({ rfb: [] });
+  const svc = makeService(prisma);
+
+  const r1 = await svc.setEnergia(false);
+  assert.equal(r1.ok, true);
+  assert.equal(r1.enabled, false);
+  assert.equal(r1.changed, true);
+  assert.equal(prisma._cursor.enabled, false, 'gravou de verdade no banco');
+
+  const r2 = await svc.setEnergia(false);
+  assert.equal(r2.enabled, false);
+  assert.equal(r2.changed, false, 'já estava desligada — nada mudou');
+});
+
+test('setEnergia(true) religa a fábrica travada — é o caso literal dos 26 dias', async () => {
+  const prisma = makeFakePrisma({ rfb: [] });
+  prisma._cursor.enabled = false; // simula a chave presa em OFF (o incidente real)
+  const svc = makeService(prisma);
+
+  const before = await svc.energiaStatus();
+  assert.equal(before.enabled, false);
+
+  const r = await svc.setEnergia(true);
+  assert.equal(r.ok, true);
+  assert.equal(r.enabled, true);
+  assert.equal(r.changed, true);
+
+  const after = await svc.energiaStatus();
+  assert.equal(after.enabled, true, 'religou de verdade — relido do banco, não ecoado');
+});
+
+test('setEnergia com `on` não-booleano recusa sem lançar (reason on_invalido)', async () => {
+  const prisma = makeFakePrisma({ rfb: [] });
+  const svc = makeService(prisma);
+  const r = await svc.setEnergia('liga' as any);
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'on_invalido');
+  assert.equal(prisma._cursor.enabled, true, 'não escreveu nada no banco');
+});
+
+test('energiaStatus() sem a tabela RadarFactoryCursor → indisponível, sem lançar', async () => {
+  const prisma = makeFakePrisma({ hasCursor: false });
+  const svc = makeService(prisma);
+  const status = await svc.energiaStatus();
+  assert.equal(status.supported, false);
+  assert.ok(status.unavailableReason);
+});
+
+test('corrida barrada pelo PARAR TUDO global grava o motivo em lastError (prova de aceite E1)', async () => {
+  const rfb = [{ cnpj: '11222333000181', razaoSocial: 'ACME LTDA', city: 'Fortaleza', state: 'CE' }];
+  const prisma = makeFakePrisma({ rfb });
+  const svc = makeService(prisma, makeFakeQueue({ paused: true })); // PARAR TUDO global ligado
+
+  const started = await svc.start({ budget: 5 });
+  assert.equal(started.started, true);
+
+  // drena em background — o PARAR TUDO barra logo na 1ª checagem (shouldContinue), sem materializar
+  // nenhum lead. Antes o motivo só ia pro logger e a tela ficava muda; agora fica em lastError.
+  const deadline = Date.now() + 5_000;
+  while (prisma._run.running && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  const status = await svc.status();
+  assert.equal(status.running, false);
+  assert.equal(status.lastError, 'parar_tudo_global');
+});
+
+test('finishRun(budget_atingido) NÃO apaga lastError de falha real de lead pré-existente', async () => {
+  const prisma = makeFakePrisma({ rfb: [] });
+  prisma._run.running = true;
+  prisma._run.lastError = 'erro real de lead: timeout no L4';
+  const svc = makeService(prisma) as any;
+
+  await svc.finishRun('budget_atingido');
+
+  assert.equal(prisma._run.lastError, 'erro real de lead: timeout no L4', 'fim saudável não pode apagar falha real');
+  assert.equal(prisma._run.running, false);
+});
+
+test('finishRun com corrida limpa (sem falha prévia) zera lastError no fim saudável', async () => {
+  const prisma = makeFakePrisma({ rfb: [] });
+  prisma._run.running = true;
+  prisma._run.lastError = null;
+  const svc = makeService(prisma) as any;
+
+  await svc.finishRun('budget_atingido');
+
+  assert.equal(prisma._run.lastError, null);
 });
