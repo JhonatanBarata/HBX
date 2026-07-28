@@ -3182,6 +3182,35 @@ model WebscrapingSearchRunItem {
   @@index([companyId, placeId])
 }
 
+// REFUNDAÇÃO F1 (28/07 — docs/PLANEJAMENTOS/PR28072026-RADAR-REFUNDACAO.md): o "trabalho do
+// vendedor" (N cidades, 1 segmento, teto e pausa automática) vira cidadão do SERVIDOR.
+// A fila multi-cidade saiu do navegador: sobrevive a F5, troca de tela, deploy e restart.
+// Sem @relation de propósito — tabela aditiva, reversível por git revert sem tocar Company/User.
+model RadarSearchSession {
+  id               String    @id @default(cuid())
+  companyId        Int
+  userId           Int
+  status           String    @default("running") // running | paused | completed | canceled | failed
+  pauseReason      String?   // manual | pause_after_leads
+  segment          String
+  citiesJson       String    // [{city,state,status:pending|running|completed|failed|canceled,runId,foundCount}]
+  cursorIndex      Int       @default(0)
+  currentRunId     String?
+  targetTotal      Int       @default(0) // 0 = sem teto do trabalho
+  pauseAfterLeads  Int       @default(0) // 0 = nunca pausa sozinho
+  foundTotal       Int       @default(0)
+  foundSinceResume Int       @default(0)
+  filtersJson      String?
+  message          String?
+  startedAt        DateTime  @default(now())
+  finishedAt       DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([companyId, status, updatedAt])
+  @@index([status, updatedAt])
+}
+
 model HbxEngineLock {
   id              String   @id
   engineIndex     Int

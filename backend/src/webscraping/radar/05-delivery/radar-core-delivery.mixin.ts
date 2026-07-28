@@ -99,6 +99,7 @@ import {
 } from '../radar-core-method-imports';
 import { incrementAffinity } from '../../../users/segment-affinity.util';
 import { isBillingOwnerActor } from '../../../access/actor-kind';
+import { tryRegisterRunCreation } from '../shared/radar-run-rate-guard';
 import {
   materializeNucleoFromRadarLead as materializeNucleoIngestaoFromRadarLead,
   nucleoIngestaoEnabled,
@@ -997,6 +998,11 @@ export class RadarCoreDeliveryMixin {
 
   async startRadarSearchRunForUser(user: any, input: RadarFiltersInput = {}) {
     const context = this.resolveContext(user);
+    // Guard-rail REFUNDAÇÃO F1 (28/07): teto de criação de runs/min por empresa — nunca mais
+    // a família "645 runs se cancelando" (23/07=800, 27/07=645, 28/07=652).
+    if (!tryRegisterRunCreation(context.companyId)) {
+      throw new BadRequestException('Muitas buscas criadas em sequência. Aguarde um instante — o Radar processa uma cidade por vez.');
+    }
     await this.assertSellerTeamPolicyAccess(user, 'radar.search.run', 'Busca do Radar bloqueada pela politica da equipe.');
     const filters = await this.applyTeamPolicyRadarFilters(context, this.normalizeRadarFilters(input));
     if (!filters.normalizedCity || !filters.normalizedSegment) {
