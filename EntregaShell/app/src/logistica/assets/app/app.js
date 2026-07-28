@@ -1754,7 +1754,7 @@
     const checagemOverlay = state.checagem && state.modal !== "client-product" ? `<div class="overlay-host is-opening">${checagemModal()}</div>` : "";
     const standardModal = state.modal && state.modal !== "distance-warning" ? `<div class="overlay-host ${state.openingOverlay === "modal" ? "is-opening" : ""} ${state.closingOverlay === "modal" ? "is-closing" : ""}">${modal()}</div>` : "";
     const distanceModal = state.modal === "distance-warning" ? `<div class="overlay-host is-opening">${modal()}</div>` : "";
-    const overlays = `${floatingAction || ""}${creditsLockOverlay()}${standardModal}${checagemOverlay}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${dddPromptOverlay()}${leituraPausaOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
+    const overlays = `${floatingAction || ""}${creditsLockOverlay()}${routeNoticeOverlay()}${standardModal}${checagemOverlay}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${dddPromptOverlay()}${leituraPausaOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
     return H.mobileShell.frame({ appName: "logistica", currentScreen: state.screen, content, icon, motion: state.screenMotion, refreshing: state.refreshing, error: state.error, overlays });
   }
   function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); const ringOffset = (188.5 * count / 5).toFixed(1); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30" style="stroke-dashoffset:${ringOffset}"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Próxima parada</p><h2>${H.escape(client.nome || "Cliente")}</h2><small>${H.escape(address(client))}</small><div class="actions next-stop-actions"><button class="btn btn-primary" data-action="next-stop">Ver rota</button><button class="btn btn-secondary" data-action="cancel-next-stop">Ficar aqui</button></div></section></div>`; }
@@ -4893,45 +4893,58 @@
     if (state.creditsLock && !wasLocked) H.sound("warning");
     render();
   }
-  // S7 — espelho de refreshCreditsLock, mas para o MOTORISTA: ele não pode
-  // chamar /logistica/creditos/extrato (é @Admin(), leva 403), então deriva a
-  // trava do BOOLEANO `creditosEsgotados` que já veio dentro do
-  // `/logistica/config` que o refresh() comum já busca (results[2] em
-  // refresh()). Nunca lê nem guarda saldo — só o fato. `configFetchOk=false`
-  // (config falhou nesta rodada, ex. modo avião) é FAIL-OPEN: destrava, igual
-  // ao catch(_) do refreshCreditsLock acima — nunca tranca por bug de rede.
-  function applyDriverCreditsLock(configFetchOk) {
-    const wasLocked = !!state.creditsLock;
-    if (!configFetchOk) { state.creditsLock = null; return; }
-    const cfg = state.config;
-    state.creditsLock = !!(cfg && cfg.creditosEsgotados) && !routeActive() ? {} : null;
-    if (state.creditsLock && !wasLocked) H.sound("warning");
+  // 28/07 (dono) — papel operacional NUNCA vê trava de créditos: dinheiro é
+  // conversa do admin (LEI DO VENDEDOR). O booleano `creditosEsgotados` do
+  // config segue existindo pro painel web; aqui ele não trava mais nada — a
+  // função sobrevive só pra limpar lock residual deixado por versão anterior.
+  function applyDriverCreditsLock() {
+    state.creditsLock = null;
   }
-  // S7 — gatilho SECUNDÁRIO (rede de segurança): se o saldo estourar ENTRE um
-  // boot e outro, o backend recusa a geração/início de rota na hora com o code
-  // LOGISTICA_ROUTE_UNAVAILABLE (commercialUnavailable() em
-  // logistica-route-billing.service.ts) — mostra a MESMA trava já, sem esperar
-  // o próximo refresh(). Devolve true quando tratou o erro (o chamador NÃO deve
-  // também jogar um toast técnico em cima).
-  function creditsLockFromRouteError(error) {
-    const code = error && error.body && error.body.code;
-    if (code !== "LOGISTICA_ROUTE_UNAVAILABLE") return false;
-    const wasLocked = !!state.creditsLock;
-    state.creditsLock = isAdmin() ? (state.creditsLock || { balance: 0 }) : {};
-    if (!wasLocked) H.sound("warning");
+  // 28/07 (dono, incidente "créditos esgotados" com carteira cheia) — o 402 de
+  // rota agora vem com a CAUSA (body.reason, ver commercialUnavailable() em
+  // logistica-route-billing.service.ts) e cada causa tem a SUA tela, em
+  // linguagem de cliente. A trava de créditos (overlay com Recarregar) é
+  // EXCLUSIVA do admin e SÓ nasce de reason "creditos" (saldo zerado de
+  // verdade); pintá-la por qualquer 402 custou clientela. Backend antigo sem
+  // reason NUNCA tranca créditos (fail-open) — cai no cartão genérico com a
+  // mensagem do servidor. Devolve true quando tratou (o chamador não joga
+  // toast técnico em cima).
+  const ROUTE_NOTICE_CARDS = {
+    creditos: { icon: "lock", title: "Dia bloqueado", text: "Fale com o responsável pela conta para liberar as rotas de hoje." },
+    "rota-vazia": { icon: "map", title: "Rota sem paradas", text: "Adicione pelo menos uma entrega para montar a rota do dia." },
+    "cobranca-pendente": { icon: "map", title: "Rota desatualizada", text: "A rota mudou depois de preparada. Recalcule a rota e tente iniciar de novo." },
+    "rota-nao-iniciada": { icon: "navigation", title: "Rota ainda não iniciada", text: "Inicie a rota do dia antes de confirmar entregas." },
+    "entrega-fora-da-rota": { icon: "gps", title: "Entrega fora da rota de hoje", text: "Recalcule a rota para incluir esta entrega." },
+  };
+  function routeUnavailableFromError(error) {
+    const body = error && error.body;
+    if (!body || body.code !== "LOGISTICA_ROUTE_UNAVAILABLE") return false;
+    if (body.reason === "creditos" && isAdmin()) {
+      const wasLocked = !!state.creditsLock;
+      state.creditsLock = state.creditsLock || { balance: 0 };
+      if (!wasLocked) H.sound("warning");
+      render();
+      return true;
+    }
+    const card = ROUTE_NOTICE_CARDS[body.reason];
+    state.routeNotice = card ? { ...card } : { icon: "map", title: "Não deu para concluir", text: humanApiError(error) };
+    H.sound("warning");
     render();
     return true;
   }
   function creditsLockOverlay() {
-    if (!state.creditsLock) return "";
-    // S7 (PR22072026-APP-SOUNDS) — mesma casca (.credits-lock/.credits-lock-card,
-    // ícone carteira), DOIS textos por papel: o admin resolve (Recarregar), o
-    // motorista só tem UMA ação possível (falar com o Financeiro) — por isso
-    // ele nunca vê a palavra "créditos" nem número nenhum (LEI DO VENDEDOR).
-    if (!isAdmin()) {
-      return `<div class="credits-lock"><div class="credits-lock-card"><div class="avatar">${icon("wallet", 22)}</div><h2>Rota indisponível hoje</h2><p>Fale com o Financeiro para liberar as rotas.</p><button class="btn btn-primary btn-block" data-action="credits-lock-refresh">Atualizar</button></div></div>`;
-    }
+    // 28/07 (dono) — overlay de créditos é EXCLUSIVO do admin; quem não é
+    // admin nunca vê tela de dinheiro (blindagem além do gate acima).
+    if (!state.creditsLock || !isAdmin()) return "";
     return `<div class="credits-lock"><div class="credits-lock-card"><div class="avatar">${icon("wallet", 22)}</div><h2>Créditos esgotados</h2><p>Sem créditos a rota do dia não pode ser gerada. Recarregue para continuar usando o aplicativo.</p><button class="btn btn-primary btn-block" data-action="open-recarga">Recarregar créditos</button><button class="btn btn-secondary btn-block" data-action="credits-lock-refresh">Já recarreguei · atualizar</button></div></div>`;
+  }
+  // 28/07 (dono) — cartão de recusa da rota por tipo (ROUTE_NOTICE_CARDS):
+  // mesma casca visual da trava (zero classe nova), fecha no "Entendi". A
+  // trava de créditos tem prioridade — nunca dois overlays ao mesmo tempo.
+  function routeNoticeOverlay() {
+    const notice = state.routeNotice;
+    if (!notice || state.creditsLock) return "";
+    return `<div class="credits-lock"><div class="credits-lock-card"><div class="avatar">${icon(notice.icon || "map", 22)}</div><h2>${H.escape(notice.title)}</h2><p>${H.escape(notice.text)}</p><button class="btn btn-primary btn-block" data-action="route-notice-close">Entendi</button></div></div>`;
   }
   // ==========================================================================
   // S5 (PR22072026-APP-SOUNDS) — Central de Sons: chip no topo (syncHeaderChips
@@ -5195,6 +5208,54 @@
     if (r.origem === "mapa") return "direcao";
     return r.modo === "cadastro" ? "cadastro" : "direcao";
   }
+  // 🔴 28/07 (dono, na tela) — "se a pessoa clicou em CADASTRO tem q cadastrar
+  // certinho, e comece a barrar lixo pra dentro do sistema". No modo Cadastro o
+  // nome é OBRIGATÓRIO e tem que ter cara de nome: "1", "...", "-" não são
+  // cadastro, são lixo entrando na base. No modo Direção segue opcional — ali o
+  // pedido do dono foi "só traçar rota mesmo, sem produto, sem valor nem nada".
+  function nomeDeCadastroValido(nome) {
+    const limpo = String(nome || "").trim();
+    if (limpo.length < 2) return false;
+    return (limpo.match(/[a-zà-ÿ]/gi) || []).length >= 2;
+  }
+  // Conta SEM papel nenhum = stub de endereço (a parada "Direção" nasce assim).
+  // Quem cadastra por cima ASSUME o stub em vez de abrir linha nova na base.
+  function contaEhStub(conta) { return !!conta && !conta.isCliente && !conta.isLead && !conta.isFornecedor; }
+  // Parada ABERTA da mesma conta na rota de hoje. Entregue não conta: voltar no
+  // mesmo cliente depois de entregar é operação real ("esqueci o galão").
+  function paradaAbertaDaConta(contaId) {
+    if (!contaId) return null;
+    return openItems().find(item => String((item && item.customerProfileId) || (item && item.cliente && item.cliente.id) || "") === String(contaId)) || null;
+  }
+  function nomeDaConta(conta) {
+    if (!conta) return "";
+    return String(conta.nome || "").trim() || [conta.endereco, conta.numero].filter(Boolean).join(", ") || "Cadastro sem nome";
+  }
+  // 🔴 28/07 (dono: "nem compara se já existe o endereço?") — ANTES de criar conta,
+  // pergunta quem JÁ está nesta porta (a régua de "mesma porta" é do backend, e é
+  // fail-closed: na dúvida responde vazio). Best-effort: consulta que falha não
+  // trava a rua — o pior caso volta a ser o de hoje, uma linha nova.
+  async function montagemRapidaChecarPorta() {
+    const r = state.montagemRapida;
+    const res = r && r.resolvido;
+    if (!r || !res) return;
+    const numero = onlyDigits(r.numero) || onlyDigits(res.numero);
+    if (!numero) { r.duplicado = null; return; }
+    const cep = onlyDigits(r.cep) || onlyDigits(res.cep);
+    const partes = [`numero=${encodeURIComponent(numero)}`];
+    if (cep.length === 8) partes.push(`cep=${encodeURIComponent(cep)}`);
+    if (res.endereco) partes.push(`endereco=${encodeURIComponent(res.endereco)}`);
+    if (res.bairro) partes.push(`bairro=${encodeURIComponent(res.bairro)}`);
+    if (res.cidade) partes.push(`cidade=${encodeURIComponent(res.cidade)}`);
+    if (res.uf) partes.push(`uf=${encodeURIComponent(res.uf)}`);
+    r.checando = true; render();
+    try {
+      const resposta = await H.api(`/nucleo/contas/por-endereco?${partes.join("&")}`);
+      const achada = resposta && Array.isArray(resposta.contas) ? resposta.contas[0] : null;
+      if (state.montagemRapida === r) r.duplicado = achada || null;
+    } catch (_) { if (state.montagemRapida === r) r.duplicado = null; }
+    finally { if (state.montagemRapida === r) { r.checando = false; render(); } }
+  }
   function montagemRapidaModal() {
     const r = state.montagemRapida;
     const res = r.resolvido;
@@ -5203,15 +5264,25 @@
       ? `${[res.endereco, onlyDigits(r.numero)].filter(Boolean).join(", ")}${res.bairro ? ` - ${res.bairro}` : ""}${res.cidade ? ` · ${[res.cidade, res.uf].filter(Boolean).join("/")}` : ""}`
       : "";
     const localizado = !!(res && (validCoordinates(res.lat, res.lng) || r.origem === "mapa"));
+    // 🔴 28/07 (dono) — quem já está nesta porta manda na tela: a linha do
+    // duplicado VENCE o "Endereço localizado" (é o dado que decide a ação).
+    const modo = rapidaModo(r);
+    const duplicado = r.duplicado || null;
+    const jaNaRota = duplicado ? paradaAbertaDaConta(duplicado.id) : null;
+    const procurando = !!(r.buscando || r.checando);
     const statusLinha = r.erro
       ? `<div class="hbx-aviso hbx-aviso--danger">${H.escape(r.erro)}</div>`
-      : r.buscando
+      : procurando
         ? `<p class="subtitle">Procurando o endereço…</p>`
-        : res
-          ? localizado
-            ? `<div class="hbx-aviso hbx-aviso--ok">Endereço localizado${resumo ? `: ${H.escape(resumo)}` : ""}</div>`
-            : `<div class="hbx-aviso hbx-aviso--warn">Endereço anotado${resumo ? `: ${H.escape(resumo)}` : ""}</div>`
-          : "";
+        : jaNaRota
+          ? `<div class="hbx-aviso hbx-aviso--danger">Já está na rota: ${H.escape(nomeDaConta(duplicado))}</div>`
+          : duplicado
+            ? `<div class="hbx-aviso hbx-aviso--warn">Já cadastrado: ${H.escape(nomeDaConta(duplicado))}</div>`
+            : res
+              ? localizado
+                ? `<div class="hbx-aviso hbx-aviso--ok">Endereço localizado${resumo ? `: ${H.escape(resumo)}` : ""}</div>`
+                : `<div class="hbx-aviso hbx-aviso--warn">Endereço anotado${resumo ? `: ${H.escape(resumo)}` : ""}</div>`
+              : "";
     const pronto = !!res;
     // 28/07 (dono, item 4) — na tela Rota o "+" é a MESMA Rota rápida, com uma
     // pergunta a mais: entra no caminho (encaixe pelo ponto mais perto, o app
@@ -5226,7 +5297,19 @@
     // não). Cadastro é o fluxo de sempre, pra quando é cliente de verdade.
     // Dinheiro não muda nos dois: a parada é absorvida, quem cobra é a rota.
     const escolhaModo = `<div class="day-chips rapida-modo">${[["direcao", "Direção"], ["cadastro", "Cadastro"]].map(([valor, rotulo]) => `<button type="button" class="montagem-dia${rapidaModo(r) === valor ? " active" : ""}" data-action="rota-rapida-modo" data-modo="${valor}" aria-pressed="${rapidaModo(r) === valor}"><strong>${rotulo}</strong></button>`).join("")}</div>`;
-    const body = `<form id="montagem-rapida-form">${r.origem === "cep" ? `<div class="form-grid"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(r.cep)}"></div><div class="field"><label>Número</label><input name="numero" inputmode="numeric" maxlength="6" value="${H.escape(r.numero)}"></div></div>` : ""}<div class="field"><label>Nome (opcional)</label><input name="nome" maxlength="120" value="${H.escape(r.nome)}" data-enter-action="${pronto ? "montagem-rapida-confirmar" : "montagem-rapida-buscar"}"></div></form>${escolhaModo}${escolhaPosicao}${statusLinha}`;
+    // 🔴 28/07 (dono) — o campo Nome só existe quando ele vai pra algum lugar:
+    // com cadastro JÁ EXISTENTE nesta porta quem manda é o nome de lá (campo que
+    // não salva é mentira na tela). Sobra pedir nome quando é conta nova ou
+    // quando o Cadastro vai batizar um stub de endereço.
+    const vaiBatizar = !duplicado || contaEhStub(duplicado);
+    const pedeNome = modo === "cadastro" && vaiBatizar;
+    const campoNome = duplicado && !pedeNome
+      ? ""
+      : `<div class="field"><label>Nome${pedeNome ? "" : " (opcional)"}</label><input name="nome" maxlength="120" value="${H.escape(r.nome)}" data-enter-action="${pronto ? "montagem-rapida-confirmar" : "montagem-rapida-buscar"}"></div>`;
+    const body = `<form id="montagem-rapida-form">${r.origem === "cep" ? `<div class="form-grid"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(r.cep)}"></div><div class="field"><label>Número</label><input name="numero" inputmode="numeric" maxlength="6" value="${H.escape(r.numero)}"></div></div>` : ""}${campoNome}</form>${escolhaModo}${escolhaPosicao}${statusLinha}`;
+    const rotuloPronto = !duplicado || modo !== "cadastro"
+      ? "Adicionar na rota"
+      : contaEhStub(duplicado) ? "Cadastrar aqui" : "Usar este cadastro";
     return centerModal({
       icon: "plus",
       title: "Rota rápida",
@@ -5237,8 +5320,9 @@
       backAction: "montagem-rapida-fechar",
       backLabel: "Voltar",
       nextAction: pronto ? "montagem-rapida-confirmar" : "montagem-rapida-buscar",
-      nextLabel: r.salvando ? "Adicionando…" : pronto ? "Adicionar na rota" : r.buscando ? "Procurando…" : "Buscar endereço",
-      nextDisabled: r.buscando || r.salvando,
+      nextLabel: r.salvando ? "Adicionando…" : pronto ? rotuloPronto : procurando ? "Procurando…" : "Buscar endereço",
+      // Parada aberta da mesma porta na rota de hoje: não há o que adicionar.
+      nextDisabled: procurando || r.salvando || !!jaNaRota,
     });
   }
   async function montagemRapidaBuscar() {
@@ -5248,13 +5332,15 @@
     const numeroDigits = onlyDigits(r.numero);
     if (cepDigits.length !== 8) { r.erro = "Informe o CEP completo."; r.resolvido = null; render(); return; }
     if (!numeroDigits) { r.erro = "Informe o número."; r.resolvido = null; render(); return; }
-    r.buscando = true; r.erro = ""; render();
+    r.buscando = true; r.erro = ""; r.duplicado = null; render();
     try {
       const res = await H.api(`/logistica/geo/cep?cep=${encodeURIComponent(cepDigits)}&numero=${encodeURIComponent(numeroDigits)}`);
       if (res && (res.fonte === "cnefe" || res.fonte === "geocode" || res.endereco || res.cidade)) r.resolvido = res;
       else { r.resolvido = null; r.erro = "Não encontrei este endereço. Confira o CEP e o número."; }
     } catch (error) { r.resolvido = null; r.erro = humanApiError(error); }
     finally { r.buscando = false; render(); }
+    // Achou o endereço → pergunta quem já mora nele ANTES de deixar cadastrar.
+    if (state.montagemRapida === r && r.resolvido) await montagemRapidaChecarPorta();
   }
   // Matriz de tempo pelas RUAS (mesmo proxy OSRM do planejador). null = sem rede
   // ou resposta inválida — quem chama cai na linha reta, nunca trava.
@@ -5334,30 +5420,57 @@
   }
   async function montagemRapidaConfirmar() {
     const r = state.montagemRapida;
-    if (!r || r.salvando || !r.resolvido) return;
+    if (!r || r.salvando || r.buscando || r.checando || !r.resolvido) return;
     const res = r.resolvido;
-    r.salvando = true; render();
+    const modo = rapidaModo(r);
+    const duplicado = r.duplicado || null;
+    const nomeDigitado = String(r.nome || "").trim();
+    // 🔴 28/07 (dono) — 3 freios ANTES de escrever qualquer coisa na base:
+    // (1) a mesma porta não entra 2× na rota do dia;
+    // (2) Cadastro sem nome de gente não passa (Direção passa, é só direção);
+    // (3) endereço que já tem conta REUSA a conta — nada de linha nova.
+    if (duplicado && paradaAbertaDaConta(duplicado.id)) {
+      r.erro = `${nomeDaConta(duplicado)} já está na rota.`;
+      render();
+      return;
+    }
+    const vaiBatizar = !duplicado || contaEhStub(duplicado);
+    const pedeNome = modo === "cadastro" && vaiBatizar;
+    if (pedeNome && !nomeDeCadastroValido(nomeDigitado)) {
+      r.erro = "Escreva o nome do cliente.";
+      render();
+      return;
+    }
+    r.salvando = true; r.erro = ""; render();
     showLoading("Adicionando parada…");
     try {
       const numero = onlyDigits(r.numero) || String(res.numero || "");
-      const nome = String(r.nome || "").trim() || [res.endereco, numero].filter(Boolean).join(", ") || "Parada rápida";
-      const modo = rapidaModo(r);
-      const body = {
-        // 28/07 (dono) — DIREÇÃO não vira cliente: a conta existe só pra segurar
-        // o endereço da parada (a entrega precisa de uma), mas fica FORA do
-        // Cadastro (a lista de Clientes filtra isCliente; a rota não filtra).
-        // Sem isto, cada parada rápida virava um "cliente" chamado
-        // "Rua 14 JP, 1682" na base do dono.
-        nome, tipo: "pf", isCliente: modo === "cadastro", isLead: false,
-        endereco: res.endereco, numero, bairro: res.bairro, cidade: res.cidade, uf: res.uf,
-        cep: onlyDigits(r.cep) || res.cep,
-        // Só o TOQUE NO MAPA manda pino (o ponto tocado É a intenção do usuário);
-        // CEP+número deixa o servidor resolver pela base CNEFE (fonte certa).
-        ...(r.origem === "mapa" && validCoordinates(r.lat, r.lng) ? { lat: Number(r.lat), lng: Number(r.lng) } : {}),
-      };
-      Object.keys(body).forEach(k => { if (body[k] === undefined || body[k] === null || body[k] === "") delete body[k]; });
-      const created = await H.api("/nucleo/contas", { method: "POST", body });
-      const customerProfileId = created && (created.contaId || created.customerProfileId || created.id);
+      const nome = nomeDigitado || [res.endereco, numero].filter(Boolean).join(", ") || "Parada rápida";
+      let customerProfileId = duplicado ? String(duplicado.id) : "";
+      if (duplicado && pedeNome) {
+        // Stub de endereço vira CADASTRO de verdade: MESMA conta, agora com nome
+        // e papel de cliente. Cadastro que já tem nome nunca é renomeado daqui —
+        // quem edita ficha de cliente é a ficha.
+        await H.api(`/nucleo/contas/${encodeURIComponent(duplicado.id)}`, { method: "PATCH", body: { nome, isCliente: true } });
+      }
+      if (!customerProfileId) {
+        const body = {
+          // 28/07 (dono) — DIREÇÃO não vira cliente: a conta existe só pra segurar
+          // o endereço da parada (a entrega precisa de uma), mas fica FORA do
+          // Cadastro (a lista de Clientes filtra isCliente; a rota não filtra).
+          // Sem isto, cada parada rápida virava um "cliente" chamado
+          // "Rua 14 JP, 1682" na base do dono.
+          nome, tipo: "pf", isCliente: modo === "cadastro", isLead: false,
+          endereco: res.endereco, numero, bairro: res.bairro, cidade: res.cidade, uf: res.uf,
+          cep: onlyDigits(r.cep) || res.cep,
+          // Só o TOQUE NO MAPA manda pino (o ponto tocado É a intenção do usuário);
+          // CEP+número deixa o servidor resolver pela base CNEFE (fonte certa).
+          ...(r.origem === "mapa" && validCoordinates(r.lat, r.lng) ? { lat: Number(r.lat), lng: Number(r.lng) } : {}),
+        };
+        Object.keys(body).forEach(k => { if (body[k] === undefined || body[k] === null || body[k] === "") delete body[k]; });
+        const created = await H.api("/nucleo/contas", { method: "POST", body });
+        customerProfileId = created && (created.contaId || created.customerProfileId || created.id);
+      }
       if (!customerProfileId) throw new Error("Cliente criado sem identificador.");
       // 🔴 28/07 — `paraMinhaRota` faz a entrega NASCER com motorista. Sem ele
       // ela nascia órfã e o Iniciar respondia "Atribua as entregas a exatamente
@@ -5406,7 +5519,7 @@
   async function montagemMapTap(point) {
     if (!montagemConferencia() || state.montagemRapida || state.dayStarting) return;
     if (!point || !validCoordinates(point.lat, point.lng)) return;
-    state.montagemRapida = { origem: "mapa", cep: "", numero: "", nome: "", lat: point.lat, lng: point.lng, resolvido: { fonte: "mapa", endereco: "", bairro: "", cidade: "", uf: "", cep: "", numero: "", lat: point.lat, lng: point.lng }, buscando: true, salvando: false, erro: "" };
+    state.montagemRapida = { origem: "mapa", cep: "", numero: "", nome: "", lat: point.lat, lng: point.lng, resolvido: { fonte: "mapa", endereco: "", bairro: "", cidade: "", uf: "", cep: "", numero: "", lat: point.lat, lng: point.lng }, buscando: true, checando: false, salvando: false, erro: "", duplicado: null };
     render();
     try {
       // Sugestão EDITÁVEL de endereço (geo/reverse, mesmo contrato da Leitura);
@@ -5420,6 +5533,9 @@
       }
     } catch (_) {}
     finally { const r = state.montagemRapida; if (r) r.buscando = false; render(); }
+    // Toque no mapa que caiu num endereço com número também passa pelo freio de
+    // duplicata (o reverse costuma trazer rua+número da porta tocada).
+    if (state.montagemRapida && state.montagemRapida.origem === "mapa") await montagemRapidaChecarPorta();
   }
   // ══════════════════════════════════════════════════════════════════════════
   // 🔴 ITEM 1 (28/07, ordem do dono) — "Ao clicar no dia, ou em rotas salvas:
@@ -6429,11 +6545,9 @@
     // (dirigindo termina o dia; falha de rede nunca tranca). Não bloqueia o boot.
     if (isAdmin()) void refreshCreditsLock();
     else {
-      // S7 (PR22072026-APP-SOUNDS) — o BURACO do sprint: só o admin rodava a
-      // trava (refreshCreditsLock, que o motorista não pode chamar — 403). O
-      // booleano já veio no results[2] (/logistica/config) acima; deriva a
-      // trava dele. results[2] não fulfilled (ex. modo avião) = fail-open.
-      applyDriverCreditsLock(results[2].status === "fulfilled");
+      // 28/07 (dono) — motorista não deriva mais trava de créditos de nada:
+      // a chamada sobrevive só pra limpar lock residual de versão anterior.
+      applyDriverCreditsLock();
       state.error = humanApiError(results[0].reason);
       // Primeiro login: a sessão nativa pode não estar pronta quando o boot já
       // dispara — em vez de mostrar "Rota indisponível" e obrigar o motorista a
@@ -6696,7 +6810,7 @@
       // Waze/Maps. Fica na tela Rota; navModeActive() vira true sozinho (rota
       // ativa, não pausada, sem Leitura) e o render() acima (dentro do
       // refresh) já liga o watch/mapa via syncNavWatch/updateRouteReadingMap.
-    } catch (error) { if (!creditsLockFromRouteError(error)) toast(humanApiError(error), true); }
+    } catch (error) { if (!routeUnavailableFromError(error)) toast(humanApiError(error), true); }
   }
   function pauseRouteOnDevice() {
     clearInterval(nextStopTimer);
@@ -6752,7 +6866,7 @@
       toast("Rota iniciada.", false, { mudo: true });
       // S2 21/07 — idem startRoute: fica na tela Rota, navModeActive() liga
       // o watch/mapa sozinho (ver comentário em startRoute).
-    } catch (error) { if (!creditsLockFromRouteError(error)) toast(humanApiError(error), true); }
+    } catch (error) { if (!routeUnavailableFromError(error)) toast(humanApiError(error), true); }
     finally { hideLoading(); state.dayStarting = false; }
   }
   // "Remover da Rota" da tela de erros (28/07): tira do que ESTA montagem leva,
@@ -6877,7 +6991,7 @@
       if (state.dayMode === "plan") setDiasAdicionados(state.daySelection);
       else await closeOverlay("modal");
       await startRoute(state.dayMode === "plan", false, deliveryIds);
-    } catch (error) { if (!creditsLockFromRouteError(error)) { render(); toast(humanApiError(error), true); } }
+    } catch (error) { if (!routeUnavailableFromError(error)) { render(); toast(humanApiError(error), true); } }
     finally { hideLoading(); state.dayStarting = false; }
   }
   async function confirmDelivery(item, options) {
@@ -7832,7 +7946,7 @@
       return;
     }
     // R2 (27/07) — "+" rota rápida (CEP+número via CNEFE, ou toque no mapa).
-    if (action === "montagem-rapida") { state.montagemRapida = { origem: "cep", contexto: "montagem", cep: "", numero: "", nome: "", lat: null, lng: null, resolvido: null, buscando: false, salvando: false, erro: "" }; render(); return; }
+    if (action === "montagem-rapida") { state.montagemRapida = { origem: "cep", contexto: "montagem", cep: "", numero: "", nome: "", lat: null, lng: null, resolvido: null, buscando: false, checando: false, salvando: false, erro: "", duplicado: null }; render(); return; }
     // 28/07 (dono, item 4) — mesmo passo, aberto pelo "+" da tela Rota: aqui ele
     // ganha o "No caminho × Primeira parada" e encaixa na rota que está de pé.
     if (action === "rota-rapida") { state.montagemRapida = { origem: "cep", contexto: "rota", posicao: "perto", cep: "", numero: "", nome: "", lat: null, lng: null, resolvido: null, buscando: false, salvando: false, erro: "" }; showModal("rota-rapida"); return; }
@@ -8054,6 +8168,8 @@
       if (isAdmin()) { toast("Atualizando saldo…", false, { mudo: true }); void refreshCreditsLock(); }
       else { toast("Atualizando…", false, { mudo: true }); void refresh(true); }
     }
+    // 28/07 (dono) — fecha o cartão de recusa da rota (routeNoticeOverlay).
+    if (action === "route-notice-close") { state.routeNotice = null; render(); return; }
     if (action === "logout") { state.confirmation = { type: "logout", title: "Desvincular aparelho?", message: "Este aparelho precisará ser vinculado novamente para acessar o HBX Logística.", confirmLabel: "Desvincular", danger: true, icon: "logout" }; render(); }
     // ---- PR20072026 W2 — Leitura de Rota ----
     // A entrada da leitura parte de "day-entry-leitura".

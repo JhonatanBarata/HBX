@@ -423,7 +423,7 @@ test('falha antes da lease de início aborta PLANNED, estorna e versiona o retry
   assert.equal(h.refundCalls.length, 1);
   await assert.rejects(
     h.service.assertEssentialDeliveryCovered(7, 'd1'),
-    /Rota indisponível/,
+    (error: any) => error?.getResponse?.()?.reason === 'rota-nao-iniciada',
     'stop de rota FAILED não pode concluir após o estorno',
   );
   assert.equal(await h.service.abortPreparedRoute({
@@ -693,7 +693,10 @@ test('gate de confirmação bloqueia a 6ª entrega quando a parada nova ficou se
   h.setAvailable(0);
   await assert.rejects(h.service.prepareRoute({ ...base, deliveryIds: ['d1', 'd2', 'd3', 'd4', 'd5', 'd6'] }));
   await assert.doesNotReject(h.service.assertEssentialDeliveryCovered(7, 'd1'));
-  await assert.rejects(h.service.assertEssentialDeliveryCovered(7, 'd6'), /Rota indisponível/);
+  await assert.rejects(
+    h.service.assertEssentialDeliveryCovered(7, 'd6'),
+    (error: any) => error?.getResponse?.()?.reason === 'entrega-fora-da-rota',
+  );
 });
 
 test('Rota Rastreada congela snapshot sem cobrança Essencial', async () => {
@@ -838,4 +841,45 @@ test('franquia zerada = comportamento de sempre (toda parada debita)', async () 
 
   assert.equal(h.debitCalls.length, 5);
   assert.equal(h.claims.filter((c: any) => c.status === 'PLAN').length, 0);
+});
+
+// 28/07 (dono, incidente "créditos esgotados" com carteira cheia) — o caso de
+// prod: dia montado com 2 paradas, 1 cancelada ANTES do START. O preparo conta
+// 1 cobrável (franquia cobre, claim PLAN); o gate de iniciar tinha outra régua
+// (contava a cancelada), exigia claim a mais e levava 402 com a conta em dia.
+test('caso prod 28/07: cancelada antes do START não conta no gate e a rota inicia', async () => {
+  const h = makeHarness();
+  h.setFranquiaBlocos(10);
+  const base = { companyId: 7, entregadorId: 9, routeDate: '2026-07-13' };
+  // montagem (PLANNED, sem cobrança) com as 2 entregas ainda vivas
+  await h.service.prepareRoute({ ...base, deliveryIds: ['d1', 'd2'] });
+  assert.equal(h.claims.length, 0, 'montagem não cobra');
+  // limpar/cancelar mata a d1 com a rota ainda PLANNED (stop fica no snapshot)
+  h.setDeliveryStatus('d1', 'cancelada');
+  // START: 1 cobrável, coberto pela franquia
+  const prepared = await h.service.prepareRoute({ ...base, deliveryIds: [], chargeEssential: true });
+  assert.ok(prepared);
+  assert.equal(h.claims.filter((c: any) => c.status === 'PLAN').length, 1);
+  assert.equal(h.debitCalls.length, 0, 'franquia não toca a carteira');
+  const begin = await h.service.beginInitialization(7, prepared.routeId, prepared.billingRevision);
+  assert.ok(begin.token, 'gate aceita: parada cancelada não exige claim');
+});
+
+// 28/07 (dono) — o 402 diz a CAUSA em body.reason; 'creditos' é EXCLUSIVO do
+// débito recusado por saldo. É o contrato que impede o app de pintar a tela
+// "Créditos esgotados" com carteira cheia.
+test('402 sem saldo leva reason creditos; gate sem claim leva cobranca-pendente', async () => {
+  const h = makeHarness();
+  const base = { companyId: 7, entregadorId: 9, routeDate: '2026-07-13' };
+  h.setAvailable(0);
+  await assert.rejects(
+    h.service.prepareRoute({ ...base, deliveryIds: ['d1'], chargeEssential: true }),
+    (error: any) => error?.getStatus?.() === 402 && error?.getResponse?.()?.reason === 'creditos',
+  );
+  // a rota nasceu mas o claim ficou FAILED → o gate de iniciar recusa por
+  // prontidão da cobrança, nunca por "créditos"
+  await assert.rejects(
+    h.service.beginInitialization(7, h.routes[0].id, h.routes[0].billingRevision),
+    (error: any) => error?.getStatus?.() === 402 && error?.getResponse?.()?.reason === 'cobranca-pendente',
+  );
 });

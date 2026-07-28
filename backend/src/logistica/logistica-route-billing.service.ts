@@ -505,7 +505,9 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
           });
         }
         await this.setClaimAfterFailure(acquired, result.debited > 0 ? 'REFUNDED' : 'FAILED', 'insufficient_balance');
-        throw commercialUnavailable();
+        // Único 402 que significa "acabou o crédito de verdade" — é o único
+        // que pode virar a tela de recarga no app.
+        throw commercialUnavailable('creditos');
       }
 
       const updated = await (this.prisma as any).logisticaEssentialCreditClaim.updateMany({
@@ -770,7 +772,7 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
     });
     // Rota VAZIA continua barrada; rota só de pendências migradas (todas
     // billingExempt, 0 blocos cobráveis) PODE iniciar — já foi paga na origem.
-    if (stopCount === 0) throw commercialUnavailable();
+    if (stopCount === 0) throw commercialUnavailable('rota-vazia');
     // 28/07 — mesma régua do billableDeliveries do snapshot e do gate da
     // entrega (L~802): parada CANCELADA não conta bloco. Sem o filtro, um
     // stop de entrega cancelada (ex.: limpar-dia com a rota ainda PLANNED)
@@ -799,7 +801,7 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
         status: { in: ['DEBITED', 'PLAN'] },
       },
     });
-    if (debitedClaims !== requiredBlocks) throw commercialUnavailable();
+    if (debitedClaims !== requiredBlocks) throw commercialUnavailable('cobranca-pendente');
   }
 
   /**
@@ -817,7 +819,7 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
       if (route.mode !== 'ESSENTIAL') return;
       // Stop já congelado em rota Essencial nunca pode escapar pelo caminho
       // legado: PLANNED/FAILED/INITIALIZING ainda não é rota válida para entrega.
-      if (route.status !== 'ACTIVE') throw commercialUnavailable();
+      if (route.status !== 'ACTIVE') throw commercialUnavailable('rota-nao-iniciada');
       // Migrada de rota anterior: o bloco dela foi pago lá — liberada aqui.
       if (stop.billingExempt === true) return;
       // Posição COBRÁVEL (ignora migradas intercaladas E canceladas): snapshotOrder
@@ -844,7 +846,7 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
       const reconciled = claim ? await this.reconcileClaim(claim) : null;
       // 28/07 — mesma régua do assertRouteBillingReady: 'PLAN' (franquia) é
       // bloco pago; exigir DEBITED aqui travava a confirmação da entrega.
-      if (!reconciled || (reconciled.status !== 'DEBITED' && reconciled.status !== 'PLAN')) throw commercialUnavailable();
+      if (!reconciled || (reconciled.status !== 'DEBITED' && reconciled.status !== 'PLAN')) throw commercialUnavailable('entrega-fora-da-rota');
       return;
     }
 
@@ -863,7 +865,7 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
       },
       select: { id: true, mode: true },
     });
-    if (activeRoute?.mode === 'ESSENTIAL') throw commercialUnavailable();
+    if (activeRoute?.mode === 'ESSENTIAL') throw commercialUnavailable('entrega-fora-da-rota');
   }
 
   async activateRoute(companyId: number, routeId: string, token: string, startedAt: Date): Promise<void> {
@@ -1312,9 +1314,31 @@ export function essentialBlocksForDeliveries(deliveries: number): number {
   return Math.ceil(uniqueDeliveries / PARADAS_POR_BLOCO);
 }
 
-function commercialUnavailable() {
+// 28/07 (dono) — o 402 carrega a CAUSA e uma mensagem que o CLIENTE entende;
+// acabou o "Rota indisponível" genérico. 'creditos' é reservado pro débito
+// recusado por saldo insuficiente DE VERDADE — é a única causa que pode virar
+// a tela "Créditos esgotados" no app (pintá-la com carteira cheia custa
+// clientela). A message do caso 'creditos' é neutra de propósito: papel
+// operacional também a lê (LEI DO VENDEDOR — dinheiro só aparece pro admin).
+// Sem default no parâmetro: throw novo sem declarar causa nem compila.
+export type RouteUnavailableReason =
+  | 'creditos'
+  | 'rota-vazia'
+  | 'cobranca-pendente'
+  | 'rota-nao-iniciada'
+  | 'entrega-fora-da-rota';
+
+const ROUTE_UNAVAILABLE_MESSAGES: Record<RouteUnavailableReason, string> = {
+  creditos: 'O dia não pôde ser liberado. Fale com o responsável pela conta.',
+  'rota-vazia': 'A rota está sem paradas. Adicione pelo menos uma entrega para montar o dia.',
+  'cobranca-pendente': 'A rota mudou depois de preparada. Recalcule a rota e tente iniciar de novo.',
+  'rota-nao-iniciada': 'A rota desta entrega ainda não foi iniciada hoje.',
+  'entrega-fora-da-rota': 'Esta entrega não está na rota preparada de hoje. Recalcule a rota para incluí-la.',
+};
+
+function commercialUnavailable(reason: RouteUnavailableReason) {
   return new HttpException(
-    { statusCode: 402, code: 'LOGISTICA_ROUTE_UNAVAILABLE', message: 'Rota indisponível. Fale com o administrador.' },
+    { statusCode: 402, code: 'LOGISTICA_ROUTE_UNAVAILABLE', reason, message: ROUTE_UNAVAILABLE_MESSAGES[reason] },
     402,
   );
 }
