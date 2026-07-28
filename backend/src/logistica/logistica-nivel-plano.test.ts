@@ -147,3 +147,68 @@ test('tela do tenant fala em PARADAS e nunca passa do total do plano', async () 
   assert.equal(visao.paradasUsadas, 300, 'usou tudo — nunca mostra 500 de 300');
   assert.equal(visao.paradasRestantes, 0);
 });
+
+// ── Painel do Master: uma linha por empresa (28/07) ──────────────────────────
+// Pedido do dono: "quero controle sem depender de vc". Responde "quem está no
+// crédito puro × quem está num plano" sem abrir ficha por ficha.
+function makeServicePainel(opts: {
+  configs: Array<{ companyId: number; logisticaNivel: string | null }>;
+  essenciais?: Array<{ companyId: number; _count: { _all: number } }>;
+  rastreadas?: Array<{ companyId: number; _count: { _all: number } }>;
+}) {
+  let queries = 0;
+  const prisma: any = {
+    logisticaConfig: { findMany: async () => { queries += 1; return opts.configs; } },
+    logisticaEssentialCreditClaim: { groupBy: async () => { queries += 1; return opts.essenciais ?? []; } },
+    logisticaTrackedCreditClaim: { groupBy: async () => { queries += 1; return opts.rastreadas ?? []; } },
+  };
+  return { service: new LogisticaNivelPlanoService(prisma), contarQueries: () => queries };
+}
+
+test('painel do master: 3 queries fixas, some quantas empresas forem (sem N+1)', async () => {
+  limparOverlay();
+  const configs = Array.from({ length: 50 }, (_, i) => ({ companyId: i + 1, logisticaNivel: 'ADVANCED' }));
+  const { service, contarQueries } = makeServicePainel({ configs });
+  const linhas = await service.listarEmpresasParaMaster('2026-07-13');
+  assert.equal(linhas.length, 50);
+  assert.equal(contarQueries(), 3, '1 config + 2 groupBy, com 50 empresas ou 5000');
+});
+
+test('painel do master: junta o consumo dos dois caminhos por empresa', async () => {
+  limparOverlay();
+  const { service } = makeServicePainel({
+    configs: [
+      { companyId: 41, logisticaNivel: 'ADVANCED' },
+      { companyId: 48, logisticaNivel: 'BASIC' },
+      { companyId: 5, logisticaNivel: 'FULL' },
+    ],
+    // Desde 28/07 a Simples cobra POR PARADA: 1 claim = 1 parada, igual à Rastreada.
+    essenciais: [{ companyId: 41, _count: { _all: 410 } }, { companyId: 48, _count: { _all: 325 } }],
+    rastreadas: [{ companyId: 5, _count: { _all: 5 } }],
+  });
+  const linhas = await service.listarEmpresasParaMaster('2026-07-13');
+  const por = new Map(linhas.map((l) => [l.companyId, l]));
+
+  // 41: 410 paradas de 600 (Advanced R$ 199).
+  assert.equal(por.get(41)!.precoMensal, 199);
+  assert.equal(por.get(41)!.paradasUsadas, 410);
+  assert.equal(por.get(41)!.paradasRestantes, 190);
+
+  // 48: 325 paradas, mas o Basic só inclui 300 → estourou.
+  assert.equal(por.get(48)!.paradasInclusas, 300);
+  assert.equal(por.get(48)!.paradasUsadas, 300, 'nunca mostra 325 de 300');
+  assert.equal(por.get(48)!.paradasRestantes, 0, 'franquia esgotada = consumindo crédito');
+
+  // 5: rastreada conta 1 parada por entrega — mesma unidade da Simples.
+  assert.equal(por.get(5)!.paradasUsadas, 5);
+  assert.equal(por.get(5)!.precoMensal, 299);
+});
+
+test('painel do master: empresa sem claim nenhum aparece com a franquia inteira', async () => {
+  limparOverlay();
+  const { service } = makeServicePainel({ configs: [{ companyId: 7, logisticaNivel: null }] });
+  const [linha] = await service.listarEmpresasParaMaster('2026-07-13');
+  assert.equal(linha.nivel, 'ADVANCED', 'nível sujo/ausente cai em ADVANCED');
+  assert.equal(linha.paradasUsadas, 0);
+  assert.equal(linha.paradasRestantes, 600);
+});
