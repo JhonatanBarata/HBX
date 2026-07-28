@@ -491,6 +491,8 @@ function descreverEventoAgenda(ev: AgendaEvento): string {
       return para ? `Entrega de ${para} cancelada no fechamento` : "Entrega cancelada no fechamento";
     case "ENTREGA_REABERTA":
       return "Entrega concluída foi reaberta — voltou para a fazer";
+    case "CORRECAO_MANUAL":
+      return de && para ? `Correção manual: ${de} → ${para}` : "Correção manual no registro";
     default:
       return "Mudança na agenda";
   }

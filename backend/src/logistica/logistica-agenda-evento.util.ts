@@ -28,7 +28,10 @@ export type TipoEventoAgenda =
   // exatamente assim que a entrega da Dejanira, cia 41, virou 'agendada' com
   // R$ 20 já recebidos e ninguém percebeu por 5 dias). `tipo` é VarChar(40) no
   // schema, não enum — valor novo NÃO precisa de migration.
-  | 'ENTREGA_REABERTA';
+  | 'ENTREGA_REABERTA'
+  // 28/07 — conserto de dado feito à mão (origem 'reparo'). A ficha do cliente
+  // tem de dizer que ALGUÉM mexeu ali, senão o extrato mente por omissão.
+  | 'CORRECAO_MANUAL';
 
 export type OrigemEventoAgenda =
   | 'montagem'
