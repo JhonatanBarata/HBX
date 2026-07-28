@@ -281,6 +281,21 @@ export class LogisticaConferenciaService implements OnModuleInit {
     );
   }
 
+  /** Carimba "passou pelo sanitizador" no DONO do endereço (27/07). Best-effort: falhar
+   *  aqui só faz o cliente ser tentado de novo — nunca derruba a sanitização. */
+  private async marcarSanitizado(companyId: number, alvo: AlvoCuraCnefe, row: ParadaConferenciaRow): Promise<void> {
+    const agora = new Date();
+    try {
+      if (alvo.tipo === 'local' && row.localId) {
+        await this.prisma.localEntrega.updateMany({ where: { id: row.localId, companyId }, data: { sanitizadoEm: agora } });
+        return;
+      }
+      await this.prisma.customerProfile.updateMany({ where: { id: row.customerProfileId, companyId }, data: { sanitizadoEm: agora } });
+    } catch (e) {
+      this.logger.warn(`[logistica] carimbo do sanitizador não gravou: ${String((e as any)?.message || e)}`);
+    }
+  }
+
   /**
    * Grava a cura no DONO do endereço. Duas escritas independentes, cada uma com o
    * próprio guard de "só preenche buraco":
@@ -354,6 +369,14 @@ export class LogisticaConferenciaService implements OnModuleInit {
         semDadosMap.set(r.customerProfileId, { id: r.customerProfileId, nome: nomeDe(r), problema: problemaDoCadastro(r) });
         continue;
       }
+      // "Não sanitizar 2x": quem já passou pelo processo e não teve o cadastro tocado
+      // sai da FILA e vira item MANUAL na lista — nunca some da tela, só para de ser
+      // reprocessado (era o que fazia a barra andar pra nada e o dono esperar à toa).
+      const dono = alvo.tipo === 'local' ? r.local : r.customerProfile;
+      if (jaSanitizado(dono)) {
+        semDadosMap.set(r.customerProfileId, { id: r.customerProfileId, nome: nomeDe(r), problema: 'Já tentado — corrija o endereço à mão' });
+        continue;
+      }
       const chave = alvo.tipo === 'local' ? `l:${r.localId}` : `p:${r.customerProfileId}`;
       if (!porDono.has(chave)) porDono.set(chave, { alvo, row: r });
     }
@@ -388,6 +411,8 @@ export class LogisticaConferenciaService implements OnModuleInit {
       if (processados >= LOTE || Date.now() >= fim) break;
       processados += 1;
       const cura = await resolverCuraCnefe(dono.alvo, { queryTimeoutMs: 8000 });
+      // CARIMBO em TODA tentativa, curou ou não — é ele que impede o "sanitizar 2x".
+      await this.marcarSanitizado(companyId, dono.alvo, dono.row);
       if (!cura) {
         recusa(dono, 'Endereço não achado na base');
         continue;
@@ -453,12 +478,14 @@ export class LogisticaConferenciaService implements OnModuleInit {
           select: {
             apelido: true, lat: true, lng: true, geoFonte: true,
             cep: true, endereco: true, numero: true, bairro: true, cidade: true, uf: true,
+            sanitizadoEm: true, updatedAt: true,
           },
         },
         customerProfile: {
           select: {
             name: true, lat: true, lng: true, geoFonte: true,
             cep: true, endereco: true, numero: true, bairro: true, cidade: true, uf: true,
+            sanitizadoEm: true, updatedAt: true,
           },
         },
       },
@@ -662,6 +689,21 @@ export function problemaDoCadastro(r: ParadaConferenciaRow): string {
   return 'Falta o estado (UF)';
 }
 
+
+/**
+ * Já passou pelo SANITIZADOR e NADA mudou no cadastro desde então? (27/07, ordem do dono:
+ * "não sanitizar 2x — já foi feito o processo? já era; na próxima, o que faltou é MANUAL").
+ * Mesma entrada produz a mesma recusa, então repetir só queima tempo e dá falsa esperança.
+ * A porta de volta é o próprio cadastro: qualquer edição move `updatedAt` à frente do
+ * carimbo e o cliente entra na fila de novo — quem corrigiu o endereço é reavaliado.
+ */
+function jaSanitizado(cad: { sanitizadoEm?: Date | null; updatedAt?: Date | null } | null | undefined): boolean {
+  const carimbo = cad?.sanitizadoEm ? new Date(cad.sanitizadoEm).getTime() : 0;
+  if (!carimbo) return false;
+  const mudou = cad?.updatedAt ? new Date(cad.updatedAt).getTime() : 0;
+  return mudou <= carimbo;
+}
+
 /** Aplica o pino curado na linha EM MEMÓRIA (a fonte inteira, nunca campo solto) —
  *  esta mesma conferência já roda com o pino novo, sem re-consultar o banco. */
 function aplicarPinoCnefeNaLinha(r: ParadaConferenciaRow, tipo: 'local' | 'perfil', pino: CnefePino): void {
@@ -765,9 +807,9 @@ interface ParadaConferenciaRow {
   rotaOrdem: number | null;
   customerProfileId: string;
   localId: string | null;
-  local: ({ apelido: string | null; lat: number | null; lng: number | null; geoFonte: string | null } & EnderecoCadastrado) | null;
+  local: ({ apelido: string | null; lat: number | null; lng: number | null; geoFonte: string | null; sanitizadoEm?: Date | null; updatedAt?: Date | null } & EnderecoCadastrado) | null;
   customerProfile:
-    | ({ name: string | null; lat: number | null; lng: number | null; geoFonte: string | null } & EnderecoCadastrado)
+    | ({ name: string | null; lat: number | null; lng: number | null; geoFonte: string | null; sanitizadoEm?: Date | null; updatedAt?: Date | null } & EnderecoCadastrado)
     | null;
 }
 

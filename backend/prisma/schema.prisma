@@ -1127,6 +1127,10 @@ model CustomerProfile {
   // manualmente, NUNCA sobrescrito) | "gps_entrega" (GPS de ouro da porta real,
   // gravado pelo confirmar quando accuracy<=60m). null = legado (sem origem).
   geoFonte             String?
+  /// 27/07 — quando o SANITIZADOR já tentou curar este endereço (com ou sem sucesso).
+  /// Regra do dono: "não sanitizar 2x — já foi feito o processo? já era, o que faltou é
+  /// manual". Enquanto o cadastro não mudar (updatedAt <= isto), ele fica FORA da fila.
+  sanitizadoEm         DateTime?
   // LOGÍSTICA-MOBILE M5 (05/07) — toggle POR CLIENTE do aviso "entregue" no zap.
   // Soma com o global (LogisticaConfig.avisoWhatsEnabled): o N6 só dispara quando
   // ambos true. Default true = mantém o comportamento atual (aditivo/seguro).
@@ -1954,6 +1958,8 @@ model LocalEntrega {
   lat               Float?
   lng               Float?
   geoFonte          String?  // geocode | gps_cadastro | gps_entrega (mesma convenção do perfil)
+  /// 27/07 — igual ao perfil: sanitizador não repete quem já passou pelo processo.
+  sanitizadoEm      DateTime?
   isPrincipal       Boolean  @default(false)
   ativo             Boolean  @default(true)
   // AGENDA-SEMANAL — acesso estruturado do endereço. Null preserva legado.
