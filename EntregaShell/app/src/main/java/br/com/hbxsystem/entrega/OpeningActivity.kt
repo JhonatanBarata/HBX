@@ -103,9 +103,6 @@ class OpeningActivity : AppCompatActivity() {
                 override fun onPageFinished(view: WebView, url: String) {
                     webReady = true
                     setOpeningProgress(openingProgress)
-                    if (BuildConfig.APP_MODE == "logistica" && openingSoundPlayer == null) {
-                        playOpeningSound()
-                    }
                     startNativeMove()
                 }
             }
@@ -168,6 +165,9 @@ class OpeningActivity : AppCompatActivity() {
     private fun startWebHandoffWhenReady() {
         if (!webReady || !nativeArrived || handoffStarted || isFinishing || isDestroyed) return
         handoffStarted = true
+        if (BuildConfig.APP_MODE == "logistica") {
+            playOpeningSound()
+        }
         webView.evaluateJavascript("window.HBXOpening&&window.HBXOpening.start()") {
             handler.postDelayed({
                 nativeHandoff?.animate()
