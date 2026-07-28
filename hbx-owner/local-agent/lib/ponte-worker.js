@@ -1,5 +1,7 @@
 "use strict";
 
+const { spawnSync } = require("child_process"); // só p/ o kill do runner Ollama (força bruta, E2-a)
+
 // ─── WORKER LOCAL DA PONTE (CHIP E1, 05/07) ─────────────────────────────────────────────────────
 // A ÚNICA peça nova da arquitetura híbrida 30B×4b. Vive junto do local-agent (Node puro, sem
 // framework). Loop PULL: leaseia missão do BACKEND (VPS ou local) → executa no 30B local (Ollama
@@ -19,10 +21,19 @@
 // estado VERMELHO consultável (status pro :3107/E2), não reprocessa sozinho. Backoff exponencial com
 // teto. A configuração automática/env define apenas o primeiro boot; o freio manual do dono é
 // persistente e prevalece nos próximos boots. NUNCA loop livre.
+//
+// E2-a (28/07) — "nunca mais desligado de fé": keep_alive:0 sozinho NÃO prova descarga (o Ollama pode
+// responder 200 OU 500 com o modelo continuando residente na RAM — foi assim que ~19GB ficaram presos
+// e a máquina de 32GB do dono entrou em swap). A partir daqui, quem decide é o /api/ps (readResident);
+// state.warm só vira false com resident===false PROVADO. Ollama mudo = "não sei", nunca "desliguei".
 
 const OLLAMA_30B_MODEL = "qwen3:30b-a3b-instruct-2507-q4_K_M";
 const PONTE_NUM_CTX = 8192; // capado E unificado (lei 1)
 const PONTE_STAGES = ["enrich_lead"];
+// Falhas CONSECUTIVAS do /api/ps toleradas antes de pollUntilGone decidir "Ollama mudo" — só a 3ª
+// decide, nunca a 1ª (pedido do dono, 28/07: com o 30B em inferência pesada um timeout de 5s isolado
+// no /api/ps pode ser falso alarme, não o Ollama realmente fora do ar).
+const READ_FAILURE_TOLERANCE = 3;
 
 // Prompt de extração — VERBATIM do backend/src/webscraping/radar/03-enrichment/ai-contact-extraction.service.ts
 const EXTRACTION_SYSTEM_PROMPT = [
@@ -101,6 +112,89 @@ function safeParseJson(raw) {
   try { return JSON.parse(match[0]); } catch { return null; }
 }
 
+/**
+ * Compare tolerante entre o nome/model que o /api/ps devolve e o model configurado na ponte:
+ * igualdade exata OU prefixo antes do primeiro ":" (cobre variação de tag, ex. ":latest" a mais/menos).
+ */
+function modelMatches(candidate, target) {
+  const c = String(candidate || "").trim();
+  const t = String(target || "").trim();
+  if (!c || !t) return false;
+  if (c === t) return true;
+  const cBase = c.split(":")[0];
+  const tBase = t.split(":")[0];
+  return Boolean(cBase) && cBase === tBase;
+}
+
+// ─── Kill de força bruta do runner Ollama (Windows) ─────────────────────────────────────────────
+// CORRIGIDO 28/07 — achado em campo (máquina do dono, Ollama 0.32.5, `Get-CimInstance Win32_Process`):
+//   ollama app.exe   PID 14172  (bandeja/supervisor — é o PAI do serve)
+//   ollama.exe serve PID 2440   (filho de 14172 — É a API :11434, inclusive o /api/ps que prova a descarga)
+// A 1ª versão filtrava por NOME DE IMAGEM (tasklist puro) e fazia os DOIS erros ao mesmo tempo: (a)
+// matava "ollama app.exe" — não libera 1 byte de RAM e ainda arrisca derrubar o Ollama inteiro do
+// dono; pior que não fazer nada — e (b) pulava o runner de verdade, porque no Ollama moderno o runner
+// de inferência TAMBÉM se chama "ollama.exe" (binário único) — só a LINHA DE COMANDO diferencia
+// ("...serve" vs "...runner ..."). tasklist não devolve command line; por isso a fonte agora é
+// Get-CimInstance Win32_Process (mesmo padrão já usado pelo server.js em findLocalLabProcesses).
+function selectRunnerPidsToKill(rows) {
+  const list = Array.isArray(rows) ? rows : rows ? [rows] : [];
+  const targets = [];
+  for (const row of list) {
+    const pid = String((row && row.ProcessId) || "").trim();
+    const name = String((row && row.Name) || "").toLowerCase();
+    const cmd = String((row && row.CommandLine) || "");
+    const cmdLower = cmd.toLowerCase();
+    if (!pid || !/^\d+$/.test(pid)) continue;
+    // Regra dura, NÃO amaciar: "ollama app.exe" (bandeja/supervisor, PAI do serve) — NUNCA, mesmo
+    // que apareça na lista bruta. Defesa em dupla camada (nome E command line) de propósito.
+    if (name.includes("app.exe") || cmdLower.includes("ollama app.exe")) continue;
+    if (cmdLower.includes("serve")) continue; // é a API :11434 — NUNCA, mesmo que também tenha "runner"
+    if (!cmdLower.includes("runner")) continue; // sem "runner" explícito na cmdline não é alvo — o padrão diante de ambiguidade é NÃO matar
+    targets.push({ pid, name: (row && row.Name) || "", commandLine: cmd });
+  }
+  return targets;
+}
+
+// Usado SÓ quando unloadModel(reason,{force:true}) estoura o timeoutMs e o /api/ps ainda mostra o
+// modelo residente. Idempotente: ausência de processo não é erro (reason:'runner_nao_encontrado' fica
+// por conta de quem chama, não daqui). Nunca lança.
+function defaultKillOllamaRunner() {
+  try {
+    const script = [
+      "$ErrorActionPreference = 'SilentlyContinue'",
+      // Name LIKE 'ollama%' pega TANTO "ollama.exe" (serve/runner) QUANTO "ollama app.exe" (bandeja)
+      // de propósito — quem decide quem morre é selectRunnerPidsToKill, não este filtro.
+      "Get-CimInstance Win32_Process -Filter \"Name LIKE 'ollama%'\" |",
+      "  Select-Object ProcessId,Name,CommandLine |",
+      "  ConvertTo-Json -Compress",
+    ].join("\n");
+    const list = spawnSync("powershell", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script], {
+      shell: false,
+      windowsHide: true,
+      encoding: "utf8",
+      timeout: 8000,
+    });
+    if (list.error) return { killed: [], error: list.error.message || String(list.error) };
+    const out = String(list.stdout || "").trim();
+    if (!out) return { killed: [], error: null }; // nenhum processo "ollama*" rodando
+    let parsed;
+    try { parsed = JSON.parse(out); } catch { return { killed: [], error: "cim_json_invalido" }; }
+    const targets = selectRunnerPidsToKill(parsed);
+    const killed = [];
+    for (const target of targets) {
+      const killResult = spawnSync("taskkill", ["/F", "/PID", target.pid], { shell: false, windowsHide: true, encoding: "utf8" });
+      if (!killResult.error) killed.push(target);
+    }
+    return { killed, error: null };
+  } catch (error) {
+    return { killed: [], error: (error && error.message) || String(error) };
+  }
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
+}
+
 // ─── FÁBRICA DO WORKER ──────────────────────────────────────────────────────────────────────────
 
 /**
@@ -119,6 +213,8 @@ function createPonteWorker(deps) {
   const env = deps.env || process.env;
   const now = deps.now || (() => Date.now());
   const controlStore = deps.controlStore || null;
+  // Injetável nos testes (nunca deve tocar processo real fora do server.js em produção).
+  const killOllamaRunner = deps.killOllamaRunner || defaultKillOllamaRunner;
 
   const model = String(env.HBX_PONTE_MODEL || OLLAMA_30B_MODEL);
   const workerId = String(env.HBX_PONTE_WORKER_ID || `ponte-local-${process.pid || "x"}`);
@@ -216,17 +312,125 @@ function createPonteWorker(deps) {
     return { ok: true, elapsedMs: elapsed };
   }
 
-  async function unloadModel(reason) {
-    const r = await ollamaRequest(
+  // ── Leitura da VERDADE (E2-a): o que está REALMENTE residente na RAM/VRAM do Ollama agora, sem
+  // inferir nada do resultado de nenhuma outra chamada. Ollama fora do ar → ok:false (quem chama
+  // trata "não sei" como "não desligou", nunca como "desligou").
+  async function readResident() {
+    const ps = await ollamaRequest("GET", "/api/ps", null, 5000).catch((e) => ({ ok: false, error: String((e && e.message) || e) }));
+    if (!ps || !ps.ok) {
+      return { ok: false, resident: false, ramMb: null, error: "ollama_off" };
+    }
+    const list = ps.data && Array.isArray(ps.data.models) ? ps.data.models : [];
+    const match = list.find((m) => modelMatches(String((m && (m.name || m.model)) || ""), model));
+    if (!match) return { ok: true, resident: false, ramMb: null, error: null };
+    const sizeBytes = Number(match.size || 0);
+    const ramMb = sizeBytes > 0 ? Math.round(sizeBytes / 1e6) : null; // decimal, igual ao sizeGb do server.js (/1e9)
+    return { ok: true, resident: true, ramMb, error: null };
+  }
+
+  /**
+   * Poll de readResident() até: "gone" (resident:false confirmado), "mute" (Ollama sem resposta —
+   * decide-se só na Nª falha CONSECUTIVA, nunca na 1ª: com o 30B em inferência pesada um /api/ps de
+   * 5s pode estourar isolado sem o Ollama estar realmente fora do ar) ou "timeout" (prazo esgotado
+   * com o modelo comprovadamente ainda residente). Usado nas duas fases de unloadModel.
+   */
+  async function pollUntilGone(deadlineAt, pollIntervalMs) {
+    let last = { ok: true, resident: true, ramMb: null, error: null };
+    let consecutiveReadFailures = 0;
+    while (now() < deadlineAt) {
+      last = await readResident();
+      if (last.ok) {
+        consecutiveReadFailures = 0;
+        if (!last.resident) return { outcome: "gone", last };
+      } else {
+        consecutiveReadFailures += 1;
+        if (consecutiveReadFailures >= READ_FAILURE_TOLERANCE) return { outcome: "mute", last };
+      }
+      const remaining = deadlineAt - now();
+      if (remaining <= 0) break;
+      await sleep(Math.min(pollIntervalMs, remaining));
+    }
+    return { outcome: last.ok ? "timeout" : "mute", last };
+  }
+
+  /**
+   * Descarga do 30B COM PROVA (lei da etapa E2-a: nunca mais "desligado de fé").
+   * Contrato FIXO (outro worker já coda o cliente contra isto — não divergir):
+   *   unloadModel(reason, { force=false, timeoutMs=60000 })
+   *     → { ok, resident, ramMb, forced, reason, elapsedMs }
+   * Sequência: 1) pede keep_alive:0 (resultado HTTP é ignorado — não prova nada, T2 já viu 500 com
+   * modelo continuando quente); 2) poll no /api/ps a cada ~2s até sumir ou estourar timeoutMs (com
+   * tolerância a falha de leitura — ver pollUntilGone); 3) sumiu → state.warm=false PROVADO;
+   * 4) não sumiu e force → mata SÓ o runner (selectRunnerPidsToKill, nunca o serve/bandeja) e
+   * re-confere por até 15s; nenhum runner encontrado pra matar → reason:'runner_nao_encontrado'
+   * (honestidade: não tenta poll do nada mudou, item continua na Faixa de Problemas); 5) continua
+   * residente (ou force=false) → ok:false, reason:'ainda_residente', warm INTOCADO; 6) Ollama mudo
+   * (N falhas consecutivas do /api/ps) → ok:false, reason:'ollama_sem_resposta', warm INTOCADO
+   * (nunca afirma descarga sem prova). `pollIntervalMs` é só um respiro de teste (produção nunca
+   * passa isso — fica nos 2000ms da lei).
+   */
+  async function unloadModel(reason, opts) {
+    const { force = false, timeoutMs = 60000, pollIntervalMs = 2000 } = opts || {};
+    const t0 = now();
+
+    // Passo 1 — pede a descarga. NÃO decide nada: a prova é sempre o /api/ps do passo 2.
+    await ollamaRequest(
       "POST",
       "/api/generate",
       { model, prompt: "", keep_alive: 0, options: { num_ctx: PONTE_NUM_CTX } },
       15000,
-    );
-    state.warm = false;
-    state.totals.unloads += 1;
-    log(`[ponte] 30B descarregado (${reason}).`);
-    return Boolean(r && (r.ok || r.statusCode));
+    ).catch(() => null);
+
+    const phase1 = await pollUntilGone(t0 + timeoutMs, pollIntervalMs);
+
+    if (phase1.outcome === "gone") {
+      state.warm = false;
+      state.totals.unloads += 1;
+      log(`[ponte] 30B descarregado (${reason}) — CONFIRMADO por /api/ps.`);
+      return { ok: true, resident: false, ramMb: null, forced: false, reason: null, elapsedMs: now() - t0 };
+    }
+    if (phase1.outcome === "mute") {
+      log(`[ponte] descarga (${reason}) SEM CONFIRMAÇÃO — Ollama não respondeu ao /api/ps (não afirmo que desliguei).`);
+      return { ok: false, resident: false, ramMb: null, forced: false, reason: "ollama_sem_resposta", elapsedMs: now() - t0 };
+    }
+
+    // outcome === "timeout": ainda residente de verdade, prazo normal esgotado.
+    if (!force) {
+      log(`[ponte] descarga (${reason}) NÃO confirmada em ${timeoutMs}ms — ainda residente (${phase1.last.ramMb || "?"}MB); warm mantido.`);
+      return { ok: false, resident: true, ramMb: phase1.last.ramMb, forced: false, reason: "ainda_residente", elapsedMs: now() - t0 };
+    }
+
+    let killResult;
+    try {
+      killResult = await killOllamaRunner();
+    } catch (error) {
+      killResult = { killed: [], error: (error && error.message) || String(error) };
+    }
+    const killedList = (killResult && killResult.killed) || [];
+    log(`[ponte] descarga (${reason}) forçada — runner morto: ${JSON.stringify(killedList)}${killResult && killResult.error ? ` (erro: ${killResult.error})` : ""}.`);
+
+    if (!killedList.length) {
+      // Nada com "runner" na linha de comando pra matar — nada mudou desde a última leitura, então
+      // NÃO tenta poll (seria fingir que fez algo). Honestidade acima de tudo: painel mostra POR QUE
+      // a força falhou (motivo distinto de "ainda_residente" genérico), item continua na Faixa de Problemas.
+      log(`[ponte] descarga forçada (${reason}) — nenhum runner encontrado; modelo segue residente.`);
+      return { ok: false, resident: true, ramMb: phase1.last.ramMb, forced: true, reason: "runner_nao_encontrado", elapsedMs: now() - t0 };
+    }
+
+    const phase2 = await pollUntilGone(now() + 15000, pollIntervalMs);
+
+    if (phase2.outcome === "gone") {
+      state.warm = false;
+      state.totals.unloads += 1;
+      log(`[ponte] 30B descarregado à força (${reason}) — CONFIRMADO por /api/ps após kill do runner.`);
+      return { ok: true, resident: false, ramMb: null, forced: true, reason: null, elapsedMs: now() - t0 };
+    }
+    if (phase2.outcome === "mute") {
+      log(`[ponte] descarga forçada (${reason}) SEM CONFIRMAÇÃO — Ollama não respondeu ao /api/ps.`);
+      return { ok: false, resident: false, ramMb: null, forced: true, reason: "ollama_sem_resposta", elapsedMs: now() - t0 };
+    }
+    log(`[ponte] descarga forçada (${reason}) FALHOU — modelo ainda residente após kill do runner; warm mantido.`);
+    return { ok: false, resident: true, ramMb: phase2.last.ramMb, forced: true, reason: "ainda_residente", elapsedMs: now() - t0 };
   }
 
   // ── Chamada ao 30B (num_ctx SEMPRE 8192, think:false, temp 0) — mesma forma dos serviços do backend.
@@ -558,8 +762,14 @@ function createPonteWorker(deps) {
       return true;
     },
 
-    unload(reason) { return unloadModel(reason || "manual"); },
+    // Nome exportado continua "unload" — é como o server.js:3679/3710 já chama (CONTRATO congelado
+    // do orquestrador, HBX-OWNER-V3-CONTRATO.md §2). Por dentro virou unloadModel(reason, opts) COM
+    // PROVA; opts = { force=false, timeoutMs=60000 }; devolve OBJETO, não mais o boolean mentiroso.
+    unload(reason, opts) { return unloadModel(reason || "manual", opts); },
     warm() { return ensureWarm(); },
+
+    /** Leitura da verdade (E2-a): { ok, resident, ramMb, error } direto do /api/ps. Só leitura, nunca lança. */
+    readResident() { return readResident(); },
 
     /** Estado VERMELHO/verde consultável pro painel :3107 (E2). Só leitura, nunca lança. */
     status() {
@@ -577,6 +787,8 @@ module.exports = {
   decideNextAction,
   computeBackoffMs,
   safeParseJson,
+  modelMatches,
+  selectRunnerPidsToKill,
   OLLAMA_30B_MODEL,
   PONTE_NUM_CTX,
   PONTE_STAGES,

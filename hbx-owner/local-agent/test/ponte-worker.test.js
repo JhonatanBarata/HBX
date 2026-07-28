@@ -8,6 +8,7 @@ const {
   decideNextAction,
   computeBackoffMs,
   safeParseJson,
+  selectRunnerPidsToKill,
   PONTE_NUM_CTX,
 } = require("../lib/ponte-worker");
 
@@ -372,6 +373,207 @@ test("enabled=true libera novamente, confirma estado final e persiste no reboot"
   const rebooted = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv(), controlStore: store });
   assert.equal(rebooted.status().manualEnabled, true);
   assert.equal(rebooted.start(), true);
+});
+
+// ─── 12. readResident() — leitura da VERDADE via /api/ps (E2-a) ──────────────────────────────────
+
+test("readResident: modelo presente no /api/ps → resident:true, ramMb convertido de bytes", async () => {
+  const ollama = makeOllama({
+    "GET /api/ps": { ok: true, data: { models: [{ name: "qwen3:30b-a3b-instruct-2507-q4_K_M", size: 19_000_000_000 }] } },
+  });
+  const backend = makeBackend({});
+  const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv() });
+  const r = await w.readResident();
+  assert.equal(r.ok, true);
+  assert.equal(r.resident, true);
+  assert.equal(r.ramMb, 19000);
+  assert.equal(r.error, null);
+});
+
+test("readResident: /api/ps devolve campo 'model' (não 'name') e nenhum match → resident:false", async () => {
+  const ollama = makeOllama({
+    "GET /api/ps": { ok: true, data: { models: [{ model: "outro-modelo:8b", size: 4_000_000_000 }] } },
+  });
+  const backend = makeBackend({});
+  const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv() });
+  const r = await w.readResident();
+  assert.equal(r.ok, true);
+  assert.equal(r.resident, false);
+  assert.equal(r.ramMb, null);
+});
+
+test("readResident: Ollama fora do ar → ok:false, resident:false, error 'ollama_off' (não é 'desligado')", async () => {
+  const ollama = makeOllama({ "GET /api/ps": { ok: false, error: "ECONNREFUSED" } });
+  const backend = makeBackend({});
+  const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv() });
+  const r = await w.readResident();
+  assert.equal(r.ok, false);
+  assert.equal(r.resident, false);
+  assert.equal(r.ramMb, null);
+  assert.equal(r.error, "ollama_off");
+});
+
+// ─── 13. unload(reason, opts) COM PROVA — a razão de existir da etapa E2-a ───────────────────────
+// keep_alive:0 sozinho NUNCA prova nada; quem decide é sempre o /api/ps. Timeouts/poll curtos aqui
+// (não o padrão de 60s/2s da lei) só pra suíte não travar — produção chama sem esses overrides.
+
+test("unload: /api/ps esvazia na 2ª leitura → descarga CONFIRMADA, warm cai", async () => {
+  let psCalls = 0;
+  const ollama = makeOllama({
+    "POST /api/generate": { ok: true, data: {} },
+    "GET /api/ps": () => {
+      psCalls += 1;
+      if (psCalls >= 2) return { ok: true, data: { models: [] } };
+      return { ok: true, data: { models: [{ name: "qwen3:30b-a3b-instruct-2507-q4_K_M", size: 19_000_000_000 }] } };
+    },
+  });
+  const backend = makeBackend({});
+  const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv() });
+  w._state.warm = true;
+  const result = await w.unload("teste", { timeoutMs: 200, pollIntervalMs: 5 });
+  assert.equal(result.ok, true);
+  assert.equal(result.resident, false);
+  assert.equal(result.forced, false);
+  assert.equal(result.reason, null);
+  assert.equal(w.status().warm, false);
+  assert.ok(psCalls >= 2, "leu o /api/ps mais de uma vez antes de confirmar");
+});
+
+test("unload: /api/ps NUNCA esvazia, force:false → não mente que desligou (warm continua true)", async () => {
+  const ollama = makeOllama({
+    "POST /api/generate": { ok: true, data: {} },
+    "GET /api/ps": { ok: true, data: { models: [{ name: "qwen3:30b-a3b-instruct-2507-q4_K_M", size: 19_000_000_000 }] } },
+  });
+  const backend = makeBackend({});
+  const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv() });
+  w._state.warm = true;
+  const result = await w.unload("teste", { force: false, timeoutMs: 30, pollIntervalMs: 5 });
+  assert.equal(result.ok, false);
+  assert.equal(result.resident, true);
+  assert.ok(result.ramMb > 0);
+  assert.equal(result.forced, false);
+  assert.equal(result.reason, "ainda_residente");
+  assert.equal(w.status().warm, true, "sem prova de descarga, warm NÃO pode virar false");
+});
+
+test("unload force:true: kill do runner resolve → forced:true, ok:true", async () => {
+  let killed = false;
+  const ollama = makeOllama({
+    "POST /api/generate": { ok: true, data: {} },
+    "GET /api/ps": () => {
+      if (killed) return { ok: true, data: { models: [] } };
+      return { ok: true, data: { models: [{ name: "qwen3:30b-a3b-instruct-2507-q4_K_M", size: 19_000_000_000 }] } };
+    },
+  });
+  const backend = makeBackend({});
+  const killCalls = [];
+  const killOllamaRunner = async () => {
+    killCalls.push(1);
+    killed = true;
+    return { killed: [{ pid: "4242", imageName: "ollama_llama_server.exe" }], error: null };
+  };
+  const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv(), killOllamaRunner });
+  w._state.warm = true;
+  const result = await w.unload("teste", { force: true, timeoutMs: 20, pollIntervalMs: 5 });
+  assert.equal(result.ok, true);
+  assert.equal(result.forced, true);
+  assert.equal(result.resident, false);
+  assert.equal(killCalls.length, 1, "kill só dispara depois do timeout sem force não confirmar");
+  assert.equal(w.status().warm, false);
+});
+
+test("unload: /api/generate volta 500 mas /api/ps confirma saída → verdade é o /api/ps, não o status HTTP", async () => {
+  const ollama = makeOllama({
+    "POST /api/generate": { ok: false, statusCode: 500, error: "http_500" },
+    "GET /api/ps": { ok: true, data: { models: [] } },
+  });
+  const backend = makeBackend({});
+  const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv() });
+  w._state.warm = true;
+  const result = await w.unload("teste", { timeoutMs: 50, pollIntervalMs: 5 });
+  assert.equal(result.ok, true);
+  assert.equal(result.resident, false);
+  assert.equal(w.status().warm, false);
+});
+
+test("unload: Ollama fora do ar → reason 'ollama_sem_resposta', warm INTOCADO (nunca afirma descarga)", async () => {
+  const ollama = makeOllama({
+    "POST /api/generate": { ok: false, error: "ECONNREFUSED" },
+    "GET /api/ps": { ok: false, error: "ECONNREFUSED" },
+  });
+  const backend = makeBackend({});
+  const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv() });
+  w._state.warm = true;
+  const result = await w.unload("teste", { timeoutMs: 50, pollIntervalMs: 5 });
+  assert.equal(result.ok, false);
+  assert.equal(result.resident, false);
+  assert.equal(result.reason, "ollama_sem_resposta");
+  assert.equal(w.status().warm, true, "estado intocado quando Ollama está mudo");
+});
+
+test("unload: /api/ps falha 2x seguidas mas resolve na 3ª leitura → NÃO desiste num timeout isolado (tolerância pedida pelo dono, 30B ocupado pode atrasar 1 leitura)", async () => {
+  let calls = 0;
+  const ollama = makeOllama({
+    "POST /api/generate": { ok: true, data: {} },
+    "GET /api/ps": () => {
+      calls += 1;
+      if (calls <= 2) return { ok: false, error: "timeout" }; // 2 falhas seguidas — NÃO pode decidir "mudo" aqui
+      return { ok: true, data: { models: [] } }; // 3ª leitura confirma sumido
+    },
+  });
+  const backend = makeBackend({});
+  const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv() });
+  w._state.warm = true;
+  const result = await w.unload("teste", { timeoutMs: 200, pollIntervalMs: 5 });
+  assert.equal(result.ok, true, "não pode desistir por causa de um timeout isolado do /api/ps");
+  assert.equal(result.resident, false);
+  assert.equal(w.status().warm, false);
+  assert.ok(calls >= 3, "precisou de mais de 1 leitura pra decidir");
+});
+
+test("unload force:true: nenhum runner encontrado (nada com 'runner' na cmdline) → reason 'runner_nao_encontrado', não finge que descarregou", async () => {
+  const ollama = makeOllama({
+    "POST /api/generate": { ok: true, data: {} },
+    "GET /api/ps": { ok: true, data: { models: [{ name: "qwen3:30b-a3b-instruct-2507-q4_K_M", size: 19_000_000_000 }] } },
+  });
+  const backend = makeBackend({});
+  const killOllamaRunner = async () => ({ killed: [], error: null }); // simula: só achou "serve"/"app.exe", nada pra matar
+  const w = createPonteWorker({ backendRequest: backend.backendRequest, ollamaRequest: ollama.ollamaRequest, env: baseEnv(), killOllamaRunner });
+  w._state.warm = true;
+  const result = await w.unload("teste", { force: true, timeoutMs: 20, pollIntervalMs: 5 });
+  assert.equal(result.ok, false);
+  assert.equal(result.resident, true);
+  assert.equal(result.forced, true);
+  assert.equal(result.reason, "runner_nao_encontrado");
+  assert.equal(w.status().warm, true, "sem runner pra matar nada mudou de verdade — warm continua true");
+});
+
+// ─── 14. selectRunnerPidsToKill — a peça PURA que decide quem morre (achado em campo, Ollama 0.32.5) ─
+// Dump real do dono: "ollama app.exe" PID 14172 (bandeja, PAI do serve) + "ollama.exe serve" PID 2440
+// (API :11434). A 1ª versão do kill filtrava por nome de imagem e matava o app.exe (inútil e perigoso)
+// e pulava o runner de verdade (mesmo nome de imagem do serve, só a cmdline diferencia). Este é o
+// teste que tranca essa regressão.
+
+test("selectRunnerPidsToKill: mata SÓ o runner — 'ollama app.exe' (bandeja) e '...serve' (API) sobrevivem", () => {
+  const rows = [
+    { ProcessId: 14172, Name: "ollama app.exe", CommandLine: '"C:\\Program Files\\Ollama\\ollama app.exe"' },
+    { ProcessId: 2440, Name: "ollama.exe", CommandLine: "C:\\Program Files\\Ollama\\ollama.exe serve" },
+    { ProcessId: 5555, Name: "ollama.exe", CommandLine: "C:\\Program Files\\Ollama\\ollama.exe runner --model qwen3:30b-a3b-instruct-2507-q4_K_M --port 55001" },
+  ];
+  const targets = selectRunnerPidsToKill(rows);
+  assert.equal(targets.length, 1, "só o runner deve virar alvo");
+  assert.equal(targets[0].pid, "5555");
+  assert.ok(!targets.some((t) => t.pid === "14172"), "ollama app.exe (bandeja/supervisor) NUNCA é alvo");
+  assert.ok(!targets.some((t) => t.pid === "2440"), "ollama.exe serve (API :11434, inclusive o /api/ps) NUNCA é alvo");
+});
+
+test("selectRunnerPidsToKill: sem nenhum processo → lista vazia; objeto solto (1 processo do PowerShell) também funciona", () => {
+  assert.deepEqual(selectRunnerPidsToKill([]), []);
+  assert.deepEqual(selectRunnerPidsToKill(null), []);
+  // ConvertTo-Json do PowerShell devolve OBJETO (não array) quando só 1 processo casa o filtro.
+  const single = selectRunnerPidsToKill({ ProcessId: 777, Name: "ollama.exe", CommandLine: "ollama.exe runner --port 1" });
+  assert.equal(single.length, 1);
+  assert.equal(single[0].pid, "777");
 });
 
 test("falha ao persistir mantém o estado anterior e não responde otimista", () => {

@@ -113,6 +113,28 @@ Regras de preenchimento:
   `state.cascade = { enriquecimento: "desligado" | "ja_desligado" }`.
 - `switch/ia {on:false, force:true}` = "Forçar descarga" da faixa de problemas.
 
+### Auto-subida do backend local (aditivo 28/07, pedido do dono)
+O agent roda FORA do Docker (Node nativo no Windows) — então a linha `Energia · Localhost`
+sobe o backend sozinha quando o `:3000` está morto.
+
+Campos extras em `switches.scraping.local`:
+`starting: bool` · `startingSince: ISO|null` · `startingStep: 'docker'|'containers'|'health'|null`
+Bloco novo no overview: `docker: { daemon, desktopRunning, autoStart: bool|null }`
+
+Sequência: daemon vivo? → não: abre o Docker Desktop e espera (teto 180s, âmbar
+"abrindo o Docker Desktop (~1-2min)") → `npm run up -- -NoWebwhats -NoStudio` com
+`HBX_UP_OWNER=0` → poll `/health` do `:3000` (teto 120s) → só então liga a energia → relê.
+
+⚠️ **`npm run up` cru é PROIBIDO aqui.** `scripts/start-all.ps1` também sobe frontend :3001,
+Prisma Studio, **Webwhats (chips de WhatsApp — ação LIVE)** e o próprio owner agent. Os 3
+gates (`-NoWebwhats`, `-NoStudio`, `HBX_UP_OWNER=0`) são obrigatórios.
+⚠️ Docker Desktop fechado: `Assert-DockerReady` (start-all.ps1:533) **lança erro, não abre** —
+quem abre é o agent.
+⚠️ **Disjuntor:** 1 subida por vez (mutex), teto de tentativas, falhou = para e marca
+(`problems[]` `backend_local_nao_subiu` com o motivo real). **Nunca loop de retry.**
+- Âmbar não é verde. Verde só com `/health` 200 **e** energia relida.
+- IA 30B, Enriquecimento e Scraping·VPS **não dependem de Docker** — só a linha Localhost espera.
+
 ### Alvo por ambiente (`env`)
 - `local` → backend local via `backendRequest` (`HBX_OWNER_BACKEND_URL`, default `http://127.0.0.1:3000`).
 - `vps` → produção via ops-control (`opsUrl`/`opsToken`, `HBX_OWNER_OPS_URL` default `http://127.0.0.1:3099`),
