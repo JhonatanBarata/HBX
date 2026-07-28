@@ -662,7 +662,13 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
     const refunded = rows
       .filter((row) => row.kind === 'refund' && row.usageKey === `refund:${claim.debitUsageKey}`)
       .reduce((sum, row) => sum + Number(row.amount || 0), 0);
-    const status = refunded >= debited && debited > 0 ? 'REFUNDED' : debited >= 1 ? 'DEBITED' : claim.status;
+    // 🔴 28/07 — era `debited >= 1`, um limiar de 1 CRÉDITO cravado de quando a
+    // parada custava 1. Com o preço por parada (0,4) esse `>= 1` nunca é
+    // verdade: um débito que COMMITOU mas cuja resposta se perdeu ficava
+    // PROCESSING pra sempre, o reconciliador não reconhecia o dinheiro que já
+    // tinha saído e a rota do cliente travava com a carteira debitada. A régua
+    // certa nunca foi o valor — é "saiu dinheiro no ledger para esta usageKey?".
+    const status = refunded >= debited && debited > 0 ? 'REFUNDED' : debited > 0 ? 'DEBITED' : claim.status;
     if (status === claim.status) return claim;
     const now = new Date();
     const updated = await (this.prisma as any).logisticaEssentialCreditClaim.updateMany({
@@ -797,7 +803,12 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
           snapshotOrder: { lte: Number(stop.snapshotOrder) },
         },
       });
-      const blockIndex = Math.floor((Math.max(1, Number(billablePosition)) - 1) / 5) + 1;
+      // 28/07 — o divisor era 5 cravado (bloco). Agora é a MESMA unidade da
+      // cobrança (PARADAS_POR_BLOCO = 1): a posição cobrável É o índice do
+      // claim. Deixar o 5 aqui seria fail-OPEN — a parada 3, não paga por falta
+      // de saldo, passaria no claim da parada 1 só por estar no mesmo bloco.
+      const blockIndex =
+        Math.floor((Math.max(1, Number(billablePosition)) - 1) / PARADAS_POR_BLOCO) + 1;
       const claim = (await (this.prisma as any).logisticaEssentialCreditClaim.findFirst({
         where: { companyId, routeId: route.id, blockIndex },
       })) as ClaimRow | null;

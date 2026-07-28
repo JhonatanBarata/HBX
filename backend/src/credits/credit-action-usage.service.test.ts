@@ -106,15 +106,15 @@ test('override do master muda o valor efetivamente debitado', async () => {
     { isEnforceActiveForCompany: async () => true } as any,
   );
 
-  // Sem override: vale o custo do catálogo.
+  // Sem override: vale o custo do catálogo — 0,4 por PARADA desde 28/07.
   const padrao = await service.authorize({
     companyId: 7,
     actionKey: CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
     refId: 'bloco-1',
   });
-  assert.equal(padrao.charged, 1);
+  assert.equal(padrao.charged, 0.4);
 
-  // Master sobe 1 → 2: a carteira PRECISA debitar 2.
+  // Master sobe 0,4 → 2: a carteira PRECISA debitar 2.
   await config.setOverride(CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK, { mode: 'debit', cost: 2 });
   const editado = await service.authorize({
     companyId: 7,
@@ -122,7 +122,7 @@ test('override do master muda o valor efetivamente debitado', async () => {
     refId: 'bloco-2',
   });
   assert.equal(editado.charged, 2);
-  assert.deepEqual(debits, [1, 2]);
+  assert.deepEqual(debits, [0.4, 2]);
 
   // Master desativa (Grátis): para de debitar, sem apagar a ação do catálogo.
   await config.setOverride(CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK, { mode: 'free', cost: 0 });
@@ -133,7 +133,7 @@ test('override do master muda o valor efetivamente debitado', async () => {
   });
   assert.equal(desligado.applied, false);
   assert.equal(desligado.charged, 0);
-  assert.deepEqual(debits, [1, 2]);
+  assert.deepEqual(debits, [0.4, 2], 'modo Grátis não acrescenta débito nenhum');
 
   // Restaurar padrão volta ao custo do catálogo.
   await config.clearOverride(CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK);
@@ -142,6 +142,6 @@ test('override do master muda o valor efetivamente debitado', async () => {
     actionKey: CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
     refId: 'bloco-4',
   });
-  assert.equal(restaurado.charged, 1);
+  assert.equal(restaurado.charged, 0.4, 'Restaurar padrão volta pro preço por parada do catálogo');
   clearCreditActionOverrides();
 });

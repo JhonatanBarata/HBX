@@ -227,19 +227,20 @@ function makeHarness(mode: 'ESSENTIAL' | 'TRACKED' = 'ESSENTIAL') {
   prisma.$transaction = async (callback: any) => callback(prisma);
   const config: any = { resolveRouteMode: async () => mode };
   // 💰 27/07 — o serviço lê o preço do catálogo (resolveEffective); o stub
-  // nasce no contrato base (debit/1) pra bateria antiga valer byte a byte.
+  // nasce no contrato base, que desde 28/07 é 0,4 POR PARADA (era 1 por bloco).
   const essentialAction = { mode: 'debit' as 'debit' | 'free', cost: 0.4 };
   const actionConfig: any = {
     resolveEffective: async () => ({ key: 'logistica_essential_block', label: 'Rota Essencial', mode: essentialAction.mode, cost: essentialAction.cost }),
   };
-  // PR28072026 HÍBRIDO — franquia do plano. Default 0 blocos = comportamento
-  // ANTERIOR (tudo debita), pra toda asserção já existente continuar valendo.
+  // PR28072026 HÍBRIDO — franquia do plano. Default 0 = comportamento ANTERIOR
+  // (tudo debita). 28/07: a unidade virou a PARADA, então o número aqui é
+  // PARADAS cobertas — a conversão 1:1 do franquiaEmBlocos.
   let franquiaBlocos = 0;
   const nivelPlano: any = {
     franquiaDoMes: async () => ({
-      paradasInclusas: franquiaBlocos * 5,
+      paradasInclusas: franquiaBlocos,
       paradasUsadas: 0,
-      paradasRestantes: franquiaBlocos * 5,
+      paradasRestantes: franquiaBlocos,
       blocosRestantes: franquiaBlocos,
     }),
     cobreParadaRastreada: async () => franquiaBlocos > 0,
@@ -388,6 +389,9 @@ test('preço do catálogo manda: custo 2 debita 2 por parada; modo free pula cob
   assert.equal(gratis.stops.length, 3, 'o snapshot da rota continua nascendo');
 });
 
+// Saldo 1 com parada a 0,4: as 2 primeiras passam (0,8), a 3ª não cabe. O que
+// vale aqui é a regra, não o número: rota que falha no meio devolve TUDO que
+// tirou na mesma tentativa — ninguém paga por rota que não saiu.
 test('falha de saldo em lote novo estorna os débitos feitos na mesma tentativa', async () => {
   const h = makeHarness();
   h.setAvailable(1);
@@ -398,9 +402,10 @@ test('falha de saldo em lote novo estorna os débitos feitos na mesma tentativa'
     deliveryIds: ['d1', 'd2', 'd3', 'd4', 'd5', 'd6'],
     chargeEssential: true,
   }));
-  assert.equal(h.debitCalls.length, 2);
-  assert.equal(h.refundCalls.length, 1, 'bloco 1 debitado foi estornado quando bloco 2 falhou');
+  assert.equal(h.debitCalls.length, 3, '2 passam, a 3ª não cabe no saldo');
+  assert.equal(h.refundCalls.length, 2, 'as 2 paradas já debitadas foram estornadas');
   assert.equal(h.claims.find((c) => c.blockIndex === 1)?.status, 'REFUNDED');
+  assert.equal(h.claims.find((c) => c.blockIndex === 2)?.status, 'REFUNDED');
 });
 
 test('falha antes da lease de início aborta PLANNED, estorna e versiona o retry', async () => {
@@ -570,6 +575,31 @@ test('falha ao ler ledger após commit mantém claim reconciliável e o estorno 
   assert.equal(sweep.refundedClaims, 1);
   assert.equal(h.claims[0].status, 'REFUNDED');
   assert.equal(h.ledger.filter((row) => row.kind === 'refund').length, 1);
+});
+
+// 🔴 28/07 — regressão de dinheiro achada na troca do bloco pela parada: o
+// reconciliador decidia "esse claim debitou" com `debited >= 1`, um limiar de 1
+// CRÉDITO cravado. Com parada a 0,4 (ou qualquer preço decimal), um débito que
+// COMMITOU mas cuja resposta se perdeu ficava PROCESSING pra sempre — dinheiro
+// fora da carteira e claim sem dono. A régua é "saiu dinheiro?", não "quanto".
+test('custo abaixo de 1 crédito não engana o reconciliador: 0,4 debitado é recuperado', async () => {
+  const h = makeHarness();
+  h.setEssentialAction('debit', 0.4);
+  h.failNextDebitsAfterCommit(1);
+  h.failNextLedgerReads(1);
+  await assert.rejects(h.service.prepareRoute({
+    companyId: 7, entregadorId: 9, routeDate: '2026-07-13', deliveryIds: ['d1'], chargeEssential: true,
+  }), /resposta do débito caiu após commit/);
+  assert.equal(h.claims[0].status, 'PROCESSING', 'estado incerto fica reconciliável');
+  assert.equal(h.ledger.filter((row) => row.kind === 'debit').length, 1, 'os 0,4 saíram de verdade');
+  h.routes[0].updatedAt = new Date('2026-07-13T14:00:00.000Z');
+
+  const sweep = await h.service.reconcilePendingRefunds(new Date('2026-07-13T15:00:00.000Z'));
+  // Com o `debited >= 1` antigo, 0,4 não contava como débito: o claim ficava
+  // PROCESSING pra sempre e o dinheiro nunca voltava.
+  assert.equal(sweep.refundedClaims, 1, 'o reconciliador enxerga 0,4 como dinheiro que saiu');
+  assert.equal(h.claims[0].status, 'REFUNDED');
+  assert.equal(h.ledger.filter((row) => row.kind === 'refund').length, 1, 'devolvido na carteira');
 });
 
 test('reconciliador aborta rota PLANNED obsoleta após crash entre débito e begin', async () => {
@@ -765,23 +795,25 @@ test('rota VIVA no mesmo dia NÃO migra: 409 com code e mensagem sem id de entre
 
 // ── PR28072026 HÍBRIDO (28/07) — FRANQUIA DO PLANO ANTES DA CARTEIRA ─────────
 // A mensalidade do nível já paga N paradas do mês; só o EXCEDENTE queima
-// crédito. Bloco dentro da franquia vira claim 'PLAN' — mesma tabela, carteira
-// intocada — e a decisão é tomada UMA vez na vida do bloco (unique).
-test('franquia: blocos dentro do plano não tocam a carteira; o excedente debita', async () => {
+// crédito. Parada dentro da franquia vira claim 'PLAN' — mesma tabela, carteira
+// intocada — e a decisão é tomada UMA vez na vida da parada (unique).
+// 28/07: a unidade da franquia e a da cobrança são a MESMA (parada), então
+// "franquia de 300" cobre 300 paradas exatas, sem arredondar por bloco.
+test('franquia: paradas dentro do plano não tocam a carteira; o excedente debita', async () => {
   const h = makeHarness();
-  h.setFranquiaBlocos(2); // plano cobre 2 blocos = 10 paradas
+  h.setFranquiaBlocos(10); // plano cobre 10 paradas
   const base = { companyId: 7, entregadorId: 9, routeDate: '2026-07-13' };
 
-  // 15 entregas = 3 blocos: 2 pelo plano, 1 pela carteira.
+  // 15 entregas = 15 paradas: 10 pelo plano, 5 pela carteira.
   const ids = Array.from({ length: 15 }, (_, i) => `d${i + 1}`);
   await h.service.prepareRoute({ ...base, deliveryIds: ids, chargeEssential: true });
 
-  assert.equal(h.debitCalls.length, 1, 'só o bloco fora da franquia debita');
-  assert.equal(h.claims.filter((c: any) => c.status === 'PLAN').length, 2, '2 blocos cobertos pelo plano');
-  assert.equal(h.claims.length, 3, '1 claim por bloco, cobrado ou não');
+  assert.equal(h.debitCalls.length, 5, 'só as paradas fora da franquia debitam');
+  assert.equal(h.claims.filter((c: any) => c.status === 'PLAN').length, 10, '10 paradas cobertas pelo plano');
+  assert.equal(h.claims.length, 15, '1 claim por parada, cobrada ou não');
 });
 
-test('franquia: repreparar a rota não recobra nem reconta o bloco coberto', async () => {
+test('franquia: repreparar a rota não recobra nem reconta a parada coberta', async () => {
   const h = makeHarness();
   h.setFranquiaBlocos(5);
   const base = { companyId: 7, entregadorId: 9, routeDate: '2026-07-13' };
@@ -791,11 +823,11 @@ test('franquia: repreparar a rota não recobra nem reconta o bloco coberto', asy
   await h.service.prepareRoute({ ...base, deliveryIds: ids, chargeEssential: true });
 
   assert.equal(h.debitCalls.length, 0, 'nada foi cobrado — está dentro do plano');
-  assert.equal(h.claims.length, 1, 'o bloco tem UM claim, não dois');
-  assert.equal(h.claims[0].status, 'PLAN');
+  assert.equal(h.claims.length, 5, 'cada parada tem UM claim, não dois');
+  assert.ok(h.claims.every((c: any) => c.status === 'PLAN'));
 });
 
-test('franquia zerada = comportamento de sempre (todo bloco debita)', async () => {
+test('franquia zerada = comportamento de sempre (toda parada debita)', async () => {
   const h = makeHarness();
   h.setFranquiaBlocos(0);
   const base = { companyId: 7, entregadorId: 9, routeDate: '2026-07-13' };
@@ -804,6 +836,6 @@ test('franquia zerada = comportamento de sempre (todo bloco debita)', async () =
     ...base, deliveryIds: ['d1', 'd2', 'd3', 'd4', 'd5'], chargeEssential: true,
   });
 
-  assert.equal(h.debitCalls.length, 1);
+  assert.equal(h.debitCalls.length, 5);
   assert.equal(h.claims.filter((c: any) => c.status === 'PLAN').length, 0);
 });

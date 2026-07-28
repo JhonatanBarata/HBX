@@ -63,7 +63,9 @@ test('listagem relê o banco e mostra defaults pedidos', async () => {
   assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.AI_REALTIME)?.effective, { mode: 'debit', cost: 0.1 });
   assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.AI_BATCH)?.effective, { mode: 'free', cost: 0 });
   assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LOGISTICA_DELIVERY)?.effective, { mode: 'free', cost: 0 });
-  assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK)?.effective, { mode: 'debit', cost: 1 });
+  // 28/07 (dono) — Logística Simples cobra POR PARADA: o preço do bloco de 5 (2)
+  // dividido pelas paradas que ele cobria = 0,4.
+  assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK)?.effective, { mode: 'debit', cost: 0.4 });
   assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY)?.effective, { mode: 'debit', cost: 2 });
 });
 
