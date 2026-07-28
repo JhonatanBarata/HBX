@@ -1471,9 +1471,13 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   border-bottom: 1px solid var(--border-hairline);
   background: transparent;
 }
+/* TOKENIZADO 28/07 (Etapa 4): `min-height: 38px` e `padding: 0 12px` eram px
+   cravados — a faixa não respondia à casca. Trocados por --band-height e
+   --space-3, cujos valores BASE são exatamente 38px e 12px: a Premium não
+   muda um pixel; só a Corporativa (30px / 10px) aperta junto com a tabela. */
 .vnd-cmd__top {
-  display: flex; align-items: stretch; gap: 14px; padding: 0 12px; min-width: 0;
-  min-height: 38px;
+  display: flex; align-items: stretch; gap: 14px; padding: 0 var(--space-3); min-width: 0;
+  min-height: var(--band-height);
 }
 
 /* MODOS — aba sublinhada, não pílula preenchida. A pílula gradiente era a
@@ -1507,7 +1511,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   position: relative; z-index: 1;
   display: inline-flex; align-items: center; gap: 7px;
   border: 0; border-bottom: 2px solid transparent; background: transparent; cursor: pointer;
-  padding: 0 12px; border-radius: 0; white-space: nowrap;
+  padding: 0 var(--space-3); border-radius: 0; white-space: nowrap;
   font-family: var(--font-body); font-size: 0.76rem; font-weight: var(--weight-regular);
   color: var(--text-muted);
   transition: color var(--motion-fast), border-color var(--motion-fast);

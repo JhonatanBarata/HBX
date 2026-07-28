@@ -47,11 +47,17 @@
   --control-height: 26px;     /* botão (Premium: 28px)           */
   --control-height-sm: 22px;
   --field-height: 27px;       /* input (Premium: 32px)           */
+  --band-height: 30px;        /* faixa de comando (Premium: 38px) */
 
   /* CROMO — menos moldura, mais dado na tela. */
   --rail-width: 190px;        /* menu (Premium: 200px)           */
   --rail-width-min: 48px;
   --context-width: 220px;
+  /* ⚠️ NO-OP HOJE (medido 28/07): --shell-gap e --content-gutter estão
+     declarados no spacing.css mas NENHUMA folha os consome — cada tela pada a
+     si mesma em px cravado. Ficam aqui declarados porque são o lugar CERTO
+     dessa medida quando a fila de tokenização chegar nelas; enquanto isso não
+     mudam um pixel. Deixar explícito pra ninguém achar que já funciona. */
   --shell-gap: 0px;           /* painéis encostam: vira grade     */
   --content-gutter: 0px;
 
