@@ -135,14 +135,19 @@ const FORMA_COBRANCA: Record<string, string> = {
   BOLETO: "Boleto",
   BONUS: "Bônus",
 };
+/** Como o dinheiro entrou de fato (receiptMethod da entrega). */
 const FORMA_RECEBIDA: Record<string, string> = {
   pix: "Pix",
   dinheiro: "Dinheiro",
   cartao: "Cartão",
-  fiado: "Fiado (anotado)",
-  na_hora: "Na hora",
-  pendura: "Pendurado (fiado)",
-  avulso: "Avulso",
+  fiado: "Fiado (ficou anotado)",
+};
+/** O combinado da conta do cliente (formaPagamento) — não é o recebimento. */
+const COMBINADO: Record<string, string> = {
+  aberto: "Em aberto (paga depois)",
+  na_hora: "Paga na hora",
+  pendura: "Pendurado (fecha no dia combinado)",
+  mensal: "Fatura mensal",
 };
 const ETAPA: Record<string, string> = {
   in_progress: "Em aberto",
@@ -207,8 +212,8 @@ function Campo({ label, value }: { label: string; value: string | null | undefin
  */
 function ChargeDetalhe({ ch }: { ch: ExtratoCharge }) {
   const det = ch.detalhes || {};
-  const formaRecebida =
-    rotulo(FORMA_RECEBIDA, texto(det.receiptMethod)) || rotulo(FORMA_RECEBIDA, texto(det.forma));
+  const formaRecebida = rotulo(FORMA_RECEBIDA, texto(det.receiptMethod));
+  const combinado = rotulo(COMBINADO, texto(det.forma));
   const pagoNaHora = typeof det.pagoNaHora === "boolean" ? (det.pagoNaHora ? "Sim" : "Não") : null;
   const mesRef = texto(det.mesRef) || ch.competence;
   const extras = Object.entries(det).filter(
@@ -226,6 +231,7 @@ function ChargeDetalhe({ ch }: { ch: ExtratoCharge }) {
           <Campo label="Origem" value={origemLabel(ch.sourceModule)} />
           <Campo label="Tipo de cobrança" value={rotulo(CICLO, ch.billingCycle)} />
           <Campo label="Forma prevista" value={rotulo(FORMA_COBRANCA, ch.paymentMethod)} />
+          <Campo label="Combinado com o cliente" value={combinado} />
           <Campo label="Como foi recebido" value={formaRecebida} />
           <Campo label="Pago na hora" value={pagoNaHora} />
           <Campo label="Mês de referência" value={mesRef} />
