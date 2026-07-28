@@ -11,6 +11,7 @@ import {
   RADAR_SOCIAL_CATEGORY_TOKENS,
   RADAR_SOCIAL_STOP_TOKENS,
   RADAR_SOCIAL_WEAK_TOKENS,
+  socialProfileLooksCompatibleWithLead,
 } from '../04-socials/radar-social-matching';
 
 export type RadarWebEnrichmentHost = {
@@ -31,6 +32,10 @@ type WebCandidate = {
   url: string;
   title: string;
   snippet: string;
+  // Candidato de probe direto (slug sondado em instagram/facebook) que JÁ provou identidade
+  // pelo TÍTULO REAL da página — dispensa o matchesLead de página (o título de perfil não
+  // carrega cidade, e o snippet honesto não tem mais os dados do lead injetados).
+  probeValidated?: boolean;
 };
 
 type WebEnrichmentAttempt = {
@@ -540,13 +545,26 @@ function mergeHbxEnrichment(
   });
   if (!merged.result && !acceptedEmail && !acceptedSocial) return { result: null, accepted: merged.accepted, rejected: merged.rejected };
 
+  // Carimbo social (status/confidence) só acompanha URL social que REALMENTE entrou no result
+  // final — herdar o "found/82" de um result cuja URL a porta de handle rejeitou deixava o
+  // card dizendo "Instagram encontrado" sem link nenhum (ou pior, justificando um link errado).
+  const finalHasSocialUrl = Boolean(
+    (merged.result as any)?.instagramUrl
+    || (merged.result as any)?.facebookUrl
+    || lead.instagramUrl
+    || lead.facebookUrl,
+  );
   const result = {
     ...(merged.result || lead),
     email: lead.email || (acceptedEmail as any)?.email || (lead as any).email || null,
     emailStatus: (lead as any).emailStatus || (acceptedEmail as any)?.emailStatus || ((acceptedEmail as any)?.email ? 'probable' : (lead as any).emailStatus),
     emailSource: (lead as any).emailSource || (acceptedEmail as any)?.emailSource || ((acceptedEmail as any)?.email ? 'hbx_engine' : (lead as any).emailSource),
-    socialStatus: (acceptedSocial as any)?.socialStatus || (merged.result as any)?.socialStatus || (lead as any).socialStatus,
-    socialConfidence: (acceptedSocial as any)?.socialConfidence || (merged.result as any)?.socialConfidence || (lead as any).socialConfidence,
+    socialStatus: finalHasSocialUrl
+      ? ((acceptedSocial as any)?.socialStatus || (merged.result as any)?.socialStatus || (lead as any).socialStatus)
+      : (lead as any).socialStatus,
+    socialConfidence: finalHasSocialUrl
+      ? ((acceptedSocial as any)?.socialConfidence || (merged.result as any)?.socialConfidence || (lead as any).socialConfidence)
+      : (lead as any).socialConfidence,
     source: 'radar_web_enrichment',
     sourceEngine: 'radar_web_enrichment:hbx_engine',
     evidenceJson: {
@@ -581,8 +599,14 @@ function mergeEnrichment(lead: WebscrapingContactResult, input: NormalizedSearch
   const accepted: WebCandidate[] = [];
   const rejected: WebCandidate[] = [];
 
+  // Identidade pro handle social: nome do lead + cidade pesquisada (a cidade é DESCONTADA dos
+  // tokens de identidade dentro da porta — handle de portal local não casa só por carregar o
+  // nome da cidade).
+  const socialIdentity = { name: lead.name, city: input.city || (lead as any).city || null };
   for (const candidate of candidates) {
-    if (!matchesLead(lead, input, candidate)) {
+    // Probe direto já provou identidade pelo TÍTULO REAL do perfil; título de perfil não traz
+    // cidade, então o matchesLead de página (que exige cidade/telefone) reprovaria o legítimo.
+    if (!candidate.probeValidated && !matchesLead(lead, input, candidate)) {
       rejected.push(candidate);
       continue;
     }
@@ -591,19 +615,26 @@ function mergeEnrichment(lead: WebscrapingContactResult, input: NormalizedSearch
       accepted.push(candidate);
       continue;
     }
+    // Porta de handle (28/07 — conserto do "sociais errando quase tudo"): a página FALAR do
+    // lead não faz do perfil social DELA o perfil do lead — portal que citava a empresa
+    // emprestava o próprio @. O handle precisa carregar a identidade do lead pra ser aceito.
     if (!instagramUrl && isInstagram(candidate.url)) {
       const normalized = normalizeSocialUrl(candidate.url, 'instagram');
-      if (normalized) {
+      if (normalized && socialProfileLooksCompatibleWithLead(socialIdentity, normalized)) {
         instagramUrl = normalized;
         accepted.push(candidate);
+      } else if (normalized) {
+        rejected.push(candidate);
       }
       continue;
     }
     if (!facebookUrl && isFacebook(candidate.url)) {
       const normalized = normalizeSocialUrl(candidate.url, 'facebook');
-      if (normalized) {
+      if (normalized && socialProfileLooksCompatibleWithLead(socialIdentity, normalized)) {
         facebookUrl = normalized;
         accepted.push(candidate);
+      } else if (normalized) {
+        rejected.push(candidate);
       }
     }
   }
@@ -890,11 +921,19 @@ export class RadarWebEnrichmentService {
     if (!response.ok) return null;
     const html = await response.text();
     if (!/ProfilePage|profilePage_/i.test(html)) return null;
-    const title = stripHtml(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || `${lead.name} Instagram`);
+    // Login-wall do Instagram devolve 200 + shell com "ProfilePage" no bundle pra QUALQUER
+    // slug — página existir não prova perfil. Slug fabricado do nome virava perfil "confirmado"
+    // (@podemosaguasdaprataspmunicpalsp, @energisarc com o sufixo 'rc' da lista). Igual ao
+    // probe de Facebook: só aceita quando o TÍTULO REAL da página carrega a identidade do lead.
+    const title = stripHtml(html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '');
+    if (!title || /^(instagram|login)\b/i.test(title.trim()) || !socialTitleLooksCompatible(lead, title, slug)) return null;
     return {
       url,
-      title: title || `${lead.name} Instagram`,
-      snippet: `${lead.name || ''} ${input.city || (lead as any).city || ''} ${(lead as any).segment || input.segment || ''} ${slug} instagram direct_probe`,
+      title,
+      // Snippet SÓ com o que veio da página: injetar nome/cidade/segmento do lead aqui fazia
+      // o matchesLead rio abaixo validar evidência que nós mesmos fabricamos (circular).
+      snippet: `${title} ${slug} instagram direct_probe`,
+      probeValidated: true,
     };
   }
 
@@ -920,7 +959,9 @@ export class RadarWebEnrichmentService {
     return {
       url,
       title,
-      snippet: `${lead.name || ''} ${input.city || (lead as any).city || ''} ${(lead as any).segment || input.segment || ''} ${slug} facebook direct_probe`,
+      // Snippet honesto: só dado da própria página (ver comentário no probe de Instagram).
+      snippet: `${title} ${slug} facebook direct_probe`,
+      probeValidated: true,
     };
   }
 

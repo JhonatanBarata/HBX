@@ -59,8 +59,13 @@ export class RadarSocialCandidateScorer {
     const leadName = normalizeLookupValue(lead?.name || lead?.companyName || '');
     const legalName = normalizeLookupValue(lead?.legalName || lead?.razaoSocial || lead?.companyLegalName || '');
     const leadSegment = normalizeLookupValue(lead?.segment || lead?.businessCategory || lead?.category || '');
-    const leadTokens = tokens(leadName);
-    const legalTokens = tokens(legalName);
+    // Cidade fora da identidade (28/07, mesma lei da porta socialProfileLooksCompatibleWithLead):
+    // token do nome que é palavra da cidade pesquisada não vira evidência de marca — "zacarias"
+    // num handle de portal local não é "nome" do lead "Zacarias Gás e Água Mineral". O bônus de
+    // localização ('cidade') continua existindo à parte; só a identidade fica limpa.
+    const cityTokenSet = new Set(tokens(lead?.city));
+    const leadTokens = tokens(leadName).filter((token) => !cityTokenSet.has(token));
+    const legalTokens = tokens(legalName).filter((token) => !cityTokenSet.has(token));
     const segmentTokens = tokens(leadSegment);
     const strongTokens = leadTokens.filter((token) => token.length >= 4 && !RADAR_SOCIAL_CATEGORY_TOKENS.has(token));
     const leadCategoryTokens = leadTokens.filter((token) => RADAR_SOCIAL_CATEGORY_TOKENS.has(token));

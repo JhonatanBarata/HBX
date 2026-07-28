@@ -822,9 +822,7 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .hbx-x { color: var(--text-muted); font-weight: 400; cursor: pointer; }
 .hbx-pop { border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-md); }
 .hbx-drawer { border-left: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-lg); }
-/* Cabeçalho da gaveta — mesmo tratamento do .hbx-modal > h3 (central, Lei nº2):
-   primeira gaveta com <h3> própria (be-adv-modal, LEADS-FINAL/03) — sem isto o
-   título ficaria sem o layout flex/tamanho do resto do kit. */
+/* Cabeçalho de gavetas que usam <h3> diretamente. */
 .hbx-drawer > h3 { margin: 0; font-family: var(--font-display); font-size: var(--text-h4); font-weight: 800; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 /* Aviso transitório (canto inferior). Empilha acima das veils (z 60). */
 .hbx-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 70; max-width: min(420px, calc(100% - 32px)); padding: 11px 16px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-lg); color: var(--text-strong); font-size: 0.76rem; font-weight: 700; line-height: 1.45; text-align: center; }

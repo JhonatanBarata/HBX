@@ -20,7 +20,6 @@ import { BotStatusIcon } from "@/components/hbx/bot-action";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import { RadarDisc } from "@/components/hbx/radar-disc";
-import { FiltroAvancadoModal } from "@/components/hbx/filtro-avancado-modal";
 import { apiFetch } from "@/lib/api";
 import { BRAZIL_CITIES_BY_UF, BRAZIL_UF_OPTIONS, mergeBrazilCityOptions } from "@/lib/brazil-cities";
 import { stampOnboardingEvent } from "@/lib/onboarding";
@@ -251,8 +250,8 @@ const GEO_MODE_META: Array<{
   {
     key: "ddd",
     label: "Por DDD",
-    eyebrow: "1 DDD, até 5 alvos",
-    description: "Consulte o DDD e escolha até 5 cidades reais dele.",
+    eyebrow: "",
+    description: "",
     icon: ICONS.phone,
   },
   {
@@ -731,8 +730,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     try { localStorage.setItem("hbx:leads-view-mode", viewMode); } catch { /* sem storage */ }
   }, [viewMode]);
 
-  // O Avançado agora expõe somente filtros que chegam à busca real do Radar.
-  const [advOpen, setAdvOpen] = useState(false);
+  // O Avançado mora dentro do seletor territorial para manter uma única
+  // superfície de configuração da busca.
+  const [advancedInlineOpen, setAdvancedInlineOpen] = useState(false);
 
   // filtros (lago → prateleira) — persiste em localStorage. INICIALIZADOR
   // ESTÁTICO (não ler localStorage aqui): o inicializador roda no SSR e no 1º
@@ -840,8 +840,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const [segMenuOpen, setSegMenuOpen] = useState(false);
   const segBoxRef = useRef<HTMLDivElement | null>(null);
 
-  // "Minhas pesquisas" mora dentro da gaveta Avançado. Mantém ref + click-fora/
-  // Escape e reusa o mesmo estado do antigo popover da barra.
+  // "Minhas pesquisas" mora no acordeão Avançado do seletor unificado.
   const savedMenuRef = useRef<HTMLDivElement | null>(null);
 
   // Geolocalização — sincroniza com o botão do Topbar via localStorage + evento
@@ -860,6 +859,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     geoLookupTokenRef.current += 1;
     setDddBusy(false);
     setGeoBusy(false);
+    setAdvancedInlineOpen(false);
     setCitiesModalOpen(false);
   }, []);
   useEffect(() => {
@@ -915,7 +915,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const frame = requestAnimationFrame(() => {
       const modal = citiesModalRef.current;
-      const preferred = modal?.querySelector<HTMLElement>("[data-geo-autofocus]:not(:disabled)");
+      const preferred = modal?.querySelector<HTMLElement>("[data-advanced-autofocus]:not(:disabled)")
+        || modal?.querySelector<HTMLElement>("[data-geo-autofocus]:not(:disabled)");
       const first = modal?.querySelector<HTMLElement>(
         'button:not(:disabled), input:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])',
       );
@@ -2091,48 +2092,12 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     );
   }
 
-  function clearAdvancedFilters() {
-    markFiltersDirty();
-    setMinRating("");
-    setMinReviews("");
-    setRequiredChannels([]);
-    setChannelMatchMode("all_required");
-  }
-
-  // A gaveta expõe apenas parâmetros existentes nos DTOs de listagem e execução
-  // do Radar. Território aparece como resumo, mas é editado no seletor dedicado.
+  // Somente parâmetros existentes nos DTOs de listagem e execução do Radar.
+  // O território já está imediatamente acima e não é repetido aqui.
   function renderAdvancedFilters() {
     const chips = activeChips();
     return (
       <div className="be-adv-stack">
-        <section className="be-adv-section">
-          <div className="be-adv-section__head">
-            <div>
-              <span className="be-adv-section__eyebrow">Território</span>
-              <h3>Onde o Radar vai procurar</h3>
-            </div>
-            <button
-              type="button"
-              className="btn-ghost btn-xs"
-              onClick={() => {
-                setAdvOpen(false);
-                setCitiesQuery("");
-                setCitiesModalOpen(true);
-              }}
-            >
-              Alterar
-            </button>
-          </div>
-          <div className="be-adv-territory">
-            <span className="be-adv-territory__icon"><I d={geoModeInfo.icon} size={18} /></span>
-            <span className="be-adv-territory__copy">
-              <strong>{geoSummary}</strong>
-              <small>{geoModeInfo.label} · {geoModeInfo.description}</small>
-            </span>
-            <span className="be-adv-territory__count">{geoTargets.length}</span>
-          </div>
-        </section>
-
         <section className="be-adv-section">
           <div className="be-adv-section__head">
             <div>
@@ -2285,7 +2250,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                       <button
                         type="button"
                         className="radar-saved__apply"
-                        onClick={() => { applySavedSearch(s); setAdvOpen(false); }}
+                        onClick={() => applySavedSearch(s)}
                         title="Aplicar este recorte aos filtros"
                       >
                         <span className="radar-saved__name">{s.nome}</span>
@@ -2443,16 +2408,17 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           onClick={() => {
             setCitiesQuery("");
             setCitiesLimitMsg(null);
+            setAdvancedInlineOpen(false);
             setCitiesModalOpen(true);
           }}
           disabled={searchInProgress}
           aria-haspopup="dialog"
-          aria-label={`Território da busca: ${geoSummary}`}
-          title="Escolher o território da busca"
+          aria-label={`Filtros geográficos: ${geoSummary}`}
+          title="Editar filtros geográficos"
         >
           <span className="be-geo-trigger__icon"><I d={geoModeInfo.icon} size={17} /></span>
           <span className="be-geo-trigger__copy">
-            <small>{geoModeInfo.eyebrow}</small>
+            {geoModeInfo.eyebrow && <small>{geoModeInfo.eyebrow}</small>}
             <strong>{geoSummary}</strong>
           </span>
           <span className="be-geo-trigger__limit">
@@ -2494,7 +2460,12 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           type="button"
           className="btn-ghost btn-xs be-cmdbar__advanced"
           data-tut="leads-filtro-avancado"
-          onClick={() => setAdvOpen(true)}
+          onClick={() => {
+            setCitiesQuery("");
+            setCitiesLimitMsg(null);
+            setAdvancedInlineOpen(true);
+            setCitiesModalOpen(true);
+          }}
           disabled={searchInProgress}
           title="Canais, reputação e pesquisas salvas"
         >
@@ -2999,17 +2970,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         )}
       </aside>
 
-      {/* Gaveta normalizada: somente filtros que participam da consulta real. */}
-      {advOpen && (
-        <FiltroAvancadoModal
-          activeCount={advancedCount}
-          onClear={clearAdvancedFilters}
-          onClose={() => setAdvOpen(false)}
-        >
-          {renderAdvancedFilters()}
-        </FiltroAvancadoModal>
-      )}
-
       {/* P4: Modal de campo faltando — usa .hbx-veil + .hbx-modal (centralizados pela classe) */}
       {missingModal && (
         <div className="hbx-veil" onClick={() => setMissingModal(null)}>
@@ -3048,16 +3008,12 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
               className="hbx-modal be-cities-modal"
               role="dialog"
               aria-modal="true"
-              aria-labelledby="be-geo-title"
+              aria-label="Filtros da busca"
               onClick={e => e.stopPropagation()}
             >
               <div className="be-cities">
                 <div className="be-cities__head">
-                  <div>
-                    <span className="be-cities__eyebrow">Radar HBX</span>
-                    <h3 id="be-geo-title">Território da busca</h3>
-                    <p>Escolha o formato. O limite operacional aparece antes de executar.</p>
-                  </div>
+                  <span className="be-cities__eyebrow">Radar HBX</span>
                   <button type="button" className="be-cities__x" aria-label="Fechar" onClick={closeCitiesModal}>
                     <I d={ICONS.x} size={16} />
                   </button>
@@ -3077,20 +3033,22 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                       <I d={mode.icon} size={16} />
                       <span>
                         <strong>{mode.label}</strong>
-                        <small>{mode.eyebrow}</small>
+                        {mode.eyebrow && <small>{mode.eyebrow}</small>}
                       </span>
                     </button>
                   ))}
                 </div>
 
                 <GeoModeTransition mode={geoMode} direction={geoModeDirection}>
-                  <div className="be-geo-mode-note">
-                    <span className="be-geo-mode-note__icon"><I d={geoModeInfo.icon} size={17} /></span>
-                    <span>
-                      <strong>{geoModeInfo.eyebrow}</strong>
-                      <small>{geoModeInfo.description}</small>
-                    </span>
-                  </div>
+                  {(geoModeInfo.eyebrow || geoModeInfo.description) && (
+                    <div className="be-geo-mode-note">
+                      <span className="be-geo-mode-note__icon"><I d={geoModeInfo.icon} size={17} /></span>
+                      <span>
+                        {geoModeInfo.eyebrow && <strong>{geoModeInfo.eyebrow}</strong>}
+                        {geoModeInfo.description && <small>{geoModeInfo.description}</small>}
+                      </span>
+                    </div>
+                  )}
 
                   {geoMode === "ddd" ? (
                     <div className="be-geo-ddd">
@@ -3204,7 +3162,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                           <input
                             value={citiesQuery}
                             onChange={event => setCitiesQuery(event.target.value)}
-                            placeholder="Buscar dentro deste DDD"
                             aria-label="Buscar cidade dentro do DDD"
                           />
                         </div>
@@ -3277,17 +3234,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                   )}
 
                   <div className={"be-geo-plan" + (territoryReady ? " be-geo-plan--ready" : "")}>
-                    <div className="be-geo-plan__head">
-                      <span>
-                        <small>Plano do Radar</small>
-                        <strong>
-                          {geoMode === "cities" || geoMode === "ddd"
-                            ? `${geoTargets.length} cidade${geoTargets.length === 1 ? "" : "s"} = ${geoTargets.length} execução${geoTargets.length === 1 ? "" : "ões"} em fila`
-                            : "1 execução regional"}
-                        </strong>
-                      </span>
-                      <span className="be-geo-plan__safety"><I d={ICONS.check} size={12} /> uma por vez nesta tela</span>
-                    </div>
                     <div className="be-geo-plan__targets">
                       {geoTargets.length === 0 ? (
                         <span className="be-geo-plan__empty">Nenhum alvo definido.</span>
@@ -3303,11 +3249,29 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                         </span>
                       ))}
                     </div>
-                    {geoTargets.length > 1 && (
-                      <p className="be-geo-plan__note">Mantenha esta tela aberta até a fila concluir todos os alvos.</p>
-                    )}
                   </div>
                 </GeoModeTransition>
+
+                <div className={"be-geo-advanced" + (advancedInlineOpen ? " is-open" : "")}>
+                  <button
+                    type="button"
+                    className="be-geo-advanced__toggle"
+                    data-advanced-autofocus={advancedInlineOpen ? "" : undefined}
+                    onClick={() => setAdvancedInlineOpen(open => !open)}
+                    aria-expanded={advancedInlineOpen}
+                    aria-controls="be-geo-advanced-content"
+                  >
+                    <span className="be-geo-advanced__icon"><I d={ICONS.filter} size={15} /></span>
+                    <strong>Avançado</strong>
+                    {advancedCount > 0 && <span className="be-geo-advanced__count">{advancedCount}</span>}
+                    <span className="be-geo-advanced__chevron"><I d={ICONS.chevronDown} size={14} /></span>
+                  </button>
+                  {advancedInlineOpen && (
+                    <div id="be-geo-advanced-content" className="be-geo-advanced__body">
+                      {renderAdvancedFilters()}
+                    </div>
+                  )}
+                </div>
 
                 <div className="be-cities__foot">
                   <span className="be-cities__autosave">A seleção é aplicada na hora.</span>

@@ -1840,14 +1840,19 @@ export function hasTrustedEngineSocialSignal(row: any) {
   );
 }
 
+// Porta de IDENTIDADE handle×nome (28/07, cópia-gêmea de radar-social-matching.ts — manter as
+// duas IGUAIS): bypass hasTrustedEngineSocialSignal REMOVIDO (motor é extrator, não fiador de
+// identidade) e o nome da CIDADE fora dos tokens de identidade (a frase completa do nome
+// continua valendo com cidade dentro). Detalhe completo no comentário da gêmea.
 export function socialProfileLooksCompatibleWithLead(row: any, value: string | null | undefined) {
   const handle = socialHandleFromUrl(value);
   if (!handle) return false;
-  if (hasTrustedEngineSocialSignal(row)) return true;
   const name = normalizeLookupValue(row?.name || row?.companyName || '');
+  const cityTokens = new Set(normalizeLookupValue(row?.city || '').split(/\s+/).filter(Boolean));
   const tokens = name.split(/\s+/).filter((token) => token.length >= 3 && !RADAR_SOCIAL_STOP_TOKENS.has(token));
-  const categoryTokens = tokens.filter((token) => RADAR_SOCIAL_CATEGORY_TOKENS.has(token));
-  const strongTokens = tokens.filter((token) => (
+  const identityTokens = tokens.filter((token) => !cityTokens.has(token));
+  const categoryTokens = identityTokens.filter((token) => RADAR_SOCIAL_CATEGORY_TOKENS.has(token));
+  const strongTokens = identityTokens.filter((token) => (
     token.length >= 4
     && !RADAR_SOCIAL_CATEGORY_TOKENS.has(token)
     && !RADAR_SOCIAL_WEAK_TOKENS.has(token)

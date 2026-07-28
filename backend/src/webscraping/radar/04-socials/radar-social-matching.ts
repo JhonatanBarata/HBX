@@ -242,29 +242,58 @@ export function hasTrustedEngineSocialSignal(row: any) {
   );
 }
 
+// Porta de IDENTIDADE handle×nome (28/07 — conserto do "sociais errando quase tudo"):
+// 1. O bypass hasTrustedEngineSocialSignal foi REMOVIDO — o motor é EXTRATOR (acha URLs na
+//    página), não fiador de identidade: página de diretório/portal que cita a empresa
+//    emprestava o próprio perfil dela ("Zacarias Gás e Água" ganhou @portalzacarias.oficial,
+//    Wikipedia ganhou @press) com carimbo found/82 sem ninguém conferir o handle.
+// 2. O nome da CIDADE não conta como token de identidade (mesma lei de
+//    radar-segment-match.util na busca): em "Zacarias Gás e Água Mineral", "zacarias" é a
+//    cidade, não a marca — handle de portal local casava só por carregar o nome da cidade.
+//    A frase COMPLETA do nome (compactName) continua valendo com cidade dentro: handle real
+//    tipo @diskaguai segue casando pelo nome inteiro, na ordem do nome.
+// Conectores curtos que não são marca (as preposições ≥3 já morrem na RADAR_SOCIAL_STOP_TOKENS;
+// aqui é o resto com 2 letras que sobra quando o nome vira tokens ≥2 pra aceitar iniciais).
+const RADAR_SOCIAL_CONNECTOR_TOKENS = new Set(['ao', 'as', 'em', 'na', 'no', 'os', 'ou', 'um']);
+
 export function socialProfileLooksCompatibleWithLead(row: any, value: string | null | undefined) {
   const handle = socialHandleFromUrl(value);
   if (!handle) return false;
-  if (hasTrustedEngineSocialSignal(row)) return true;
   const name = normalizeLookupValue(row?.name || row?.companyName || '');
-  const tokens = name.split(/\s+/).filter((token) => token.length >= 3 && !RADAR_SOCIAL_STOP_TOKENS.has(token));
-  const categoryTokens = tokens.filter((token) => RADAR_SOCIAL_CATEGORY_TOKENS.has(token));
-  const strongTokens = tokens.filter((token) => (
+  const cityTokens = new Set(normalizeLookupValue(row?.city || '').split(/\s+/).filter(Boolean));
+  // Tokens ≥2 pra iniciais de marca contarem ("Lc Esmalteria" → lc; "AMD Imóveis" → amd) —
+  // padrão fortíssimo de handle BR (lcesmalteria, amd_imoveis, imobiliariafly).
+  const nameTokens = name.split(/\s+/).filter((token) => (
+    token.length >= 2
+    && !RADAR_SOCIAL_STOP_TOKENS.has(token)
+    && !RADAR_SOCIAL_CONNECTOR_TOKENS.has(token)
+  ));
+  const tokens = nameTokens.filter((token) => token.length >= 3);
+  const identityTokens = tokens.filter((token) => !cityTokens.has(token));
+  const categoryTokens = identityTokens.filter((token) => RADAR_SOCIAL_CATEGORY_TOKENS.has(token));
+  // Marca = qualquer token de identidade que não é categoria/fraco — inclui os curtos, que só
+  // valem COLADOS à categoria no handle (nunca soltos, bigrama solto casa qualquer coisa).
+  const brandTokens = nameTokens.filter((token) => (
+    !cityTokens.has(token)
+    && !RADAR_SOCIAL_CATEGORY_TOKENS.has(token)
+    && !RADAR_SOCIAL_WEAK_TOKENS.has(token)
+  ));
+  const strongTokens = identityTokens.filter((token) => (
     token.length >= 4
     && !RADAR_SOCIAL_CATEGORY_TOKENS.has(token)
     && !RADAR_SOCIAL_WEAK_TOKENS.has(token)
   ));
-  if (!strongTokens.length) return false;
-  const compactName = tokens.join('');
+  if (!brandTokens.length) return false;
+  const compactName = nameTokens.join('');
   if (compactName.length >= 8 && compactName.length <= 36 && (handle.includes(compactName) || compactName.includes(handle))) return true;
-  const strongVariants = Array.from(new Set(strongTokens.flatMap((token) => socialTokenVariants(token))));
+  const brandVariants = Array.from(new Set(brandTokens.flatMap((token) => socialTokenVariants(token))));
   const categoryVariants = Array.from(new Set(categoryTokens.flatMap((token) => socialCategoryTokenVariants(token))));
   for (const category of categoryVariants) {
-    for (const token of strongVariants) {
+    for (const token of brandVariants) {
       const a = `${category}${token}`;
       const b = `${token}${category}`;
       if ((a.length >= 6 && handle.includes(a)) || (b.length >= 6 && handle.includes(b))) return true;
-      if (handle.includes(category) && handle.includes(token)) return true;
+      if (token.length >= 3 && handle.includes(category) && handle.includes(token)) return true;
     }
   }
   const strongHits = strongTokens.filter((token) => socialTokenVariants(token).some((variant) => variant.length >= 5 && handle.includes(variant)));
