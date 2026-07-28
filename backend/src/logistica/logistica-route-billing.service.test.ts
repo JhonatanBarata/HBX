@@ -232,9 +232,22 @@ function makeHarness(mode: 'ESSENTIAL' | 'TRACKED' = 'ESSENTIAL') {
   const actionConfig: any = {
     resolveEffective: async () => ({ key: 'logistica_essential_block', label: 'Rota Essencial', mode: essentialAction.mode, cost: essentialAction.cost }),
   };
-  const service = new LogisticaRouteBillingService(prisma, wallet, config, actionConfig);
+  // PR28072026 HÍBRIDO — franquia do plano. Default 0 blocos = comportamento
+  // ANTERIOR (tudo debita), pra toda asserção já existente continuar valendo.
+  let franquiaBlocos = 0;
+  const nivelPlano: any = {
+    franquiaDoMes: async () => ({
+      paradasInclusas: franquiaBlocos * 5,
+      paradasUsadas: 0,
+      paradasRestantes: franquiaBlocos * 5,
+      blocosRestantes: franquiaBlocos,
+    }),
+    cobreParadaRastreada: async () => franquiaBlocos > 0,
+  };
+  const service = new LogisticaRouteBillingService(prisma, wallet, config, actionConfig, nivelPlano);
   return {
     service, routes, stops, claims, ledger, debitCalls, refundCalls,
+    setFranquiaBlocos: (n: number) => { franquiaBlocos = n; },
     setEssentialAction: (m: 'debit' | 'free', cost: number) => { essentialAction.mode = m; essentialAction.cost = cost; },
     setAvailable: (n: number) => { available = n; },
     failNextRefunds: (count = 1) => { refundFailuresRemaining = count; },
@@ -733,4 +746,49 @@ test('rota VIVA no mesmo dia NÃO migra: 409 com code e mensagem sem id de entre
   );
   assert.equal(h.stops.find((s) => s.deliveryId === 'd1')!.routeId, 'route-antiga');
   assert.equal(h.debitCalls.length, 0);
+});
+
+// ── PR28072026 HÍBRIDO (28/07) — FRANQUIA DO PLANO ANTES DA CARTEIRA ─────────
+// A mensalidade do nível já paga N paradas do mês; só o EXCEDENTE queima
+// crédito. Bloco dentro da franquia vira claim 'PLAN' — mesma tabela, carteira
+// intocada — e a decisão é tomada UMA vez na vida do bloco (unique).
+test('franquia: blocos dentro do plano não tocam a carteira; o excedente debita', async () => {
+  const h = makeHarness();
+  h.setFranquiaBlocos(2); // plano cobre 2 blocos = 10 paradas
+  const base = { companyId: 7, entregadorId: 9, routeDate: '2026-07-13' };
+
+  // 15 entregas = 3 blocos: 2 pelo plano, 1 pela carteira.
+  const ids = Array.from({ length: 15 }, (_, i) => `d${i + 1}`);
+  await h.service.prepareRoute({ ...base, deliveryIds: ids, chargeEssential: true });
+
+  assert.equal(h.debitCalls.length, 1, 'só o bloco fora da franquia debita');
+  assert.equal(h.claims.filter((c: any) => c.status === 'PLAN').length, 2, '2 blocos cobertos pelo plano');
+  assert.equal(h.claims.length, 3, '1 claim por bloco, cobrado ou não');
+});
+
+test('franquia: repreparar a rota não recobra nem reconta o bloco coberto', async () => {
+  const h = makeHarness();
+  h.setFranquiaBlocos(5);
+  const base = { companyId: 7, entregadorId: 9, routeDate: '2026-07-13' };
+  const ids = ['d1', 'd2', 'd3', 'd4', 'd5'];
+
+  await h.service.prepareRoute({ ...base, deliveryIds: ids, chargeEssential: true });
+  await h.service.prepareRoute({ ...base, deliveryIds: ids, chargeEssential: true });
+
+  assert.equal(h.debitCalls.length, 0, 'nada foi cobrado — está dentro do plano');
+  assert.equal(h.claims.length, 1, 'o bloco tem UM claim, não dois');
+  assert.equal(h.claims[0].status, 'PLAN');
+});
+
+test('franquia zerada = comportamento de sempre (todo bloco debita)', async () => {
+  const h = makeHarness();
+  h.setFranquiaBlocos(0);
+  const base = { companyId: 7, entregadorId: 9, routeDate: '2026-07-13' };
+
+  await h.service.prepareRoute({
+    ...base, deliveryIds: ['d1', 'd2', 'd3', 'd4', 'd5'], chargeEssential: true,
+  });
+
+  assert.equal(h.debitCalls.length, 1);
+  assert.equal(h.claims.filter((c: any) => c.status === 'PLAN').length, 0);
 });

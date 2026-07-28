@@ -54,6 +54,8 @@ import { LogisticaBaseSaudeService } from './logistica-base-saude.service';
 import { LogisticaImportacaoController } from './logistica-importacao.controller';
 import { LogisticaImportacaoService } from './logistica-importacao.service';
 import { LogisticaEstoqueController } from './logistica-estoque.controller';
+import { LogisticaNivelMasterController } from './logistica-nivel-master.controller';
+import { LogisticaNivelPlanoService } from './logistica-nivel-plano.service';
 import { LogisticaEstoqueService } from './logistica-estoque.service';
 
 /**
@@ -179,6 +181,7 @@ import { LogisticaEstoqueService } from './logistica-estoque.service';
     LogisticaBaseSaudeController,
     LogisticaImportacaoController,
     LogisticaEstoqueController,
+    LogisticaNivelMasterController,
   ],
   providers: [
     LogisticaService,
@@ -199,6 +202,7 @@ import { LogisticaEstoqueService } from './logistica-estoque.service';
     LogisticaGeoService,
     LogisticaOsrmService,
     LogisticaConfigService,
+    LogisticaNivelPlanoService,
     LogisticaRecoveryService,
     LogisticaCobrancaAvisoService,
     ResumoDiarioService,
@@ -227,6 +231,7 @@ import { LogisticaEstoqueService } from './logistica-estoque.service';
     LogisticaMobileService,
     LogisticaRotaService,
     LogisticaConfigService,
+    LogisticaNivelPlanoService,
     LogisticaOperacaoService,
     LogisticaRecoveryService,
     LogisticaRouteBillingService,

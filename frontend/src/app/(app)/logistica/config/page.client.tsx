@@ -27,6 +27,24 @@ import { isTenantAdmin } from "@/lib/roles";
 
 type RouteMode = "ESSENTIAL" | "TRACKED";
 
+// PR28072026 HÍBRIDO (28/07) — o plano da empresa: mensalidade + franquia de
+// paradas DESTE mês. Admin-only no backend (carrega valor — LEI DO VENDEDOR).
+type PlanoRota = {
+  nivel: "BASIC" | "ADVANCED" | "FULL";
+  titulo: string;
+  precoMensal: number;
+  paradasInclusas: number;
+  paradasUsadas: number;
+  paradasRestantes: number;
+};
+
+/** "R$ 199/mês" — sem centavos quando é inteiro (preço redondo é o normal). */
+function fmtMoedaMes(v: number): string {
+  const n = Number(v) || 0;
+  const corpo = Number.isInteger(n) ? String(n) : n.toFixed(2).replace(".", ",");
+  return `R$ ${corpo}/mês`;
+}
+
 type Config = {
   trackingAtivo?: boolean;
   trackingDisponivel?: boolean;
@@ -121,6 +139,17 @@ export function LogisticaConfigClient() {
   const [saving, setSaving] = useState(false);
   const [savedMsg, setSavedMsg] = useState<string | null>(null);
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+  // PR28072026 HÍBRIDO — plano + franquia do mês. Best-effort: falhar aqui não
+  // pode derrubar a tela de regras (o bloco simplesmente não aparece).
+  const [plano, setPlano] = useState<PlanoRota | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    apiFetch<PlanoRota>("/logistica/plano")
+      .then((res) => { if (vivo) setPlano(res); })
+      .catch(() => { if (vivo) setPlano(null); });
+    return () => { vivo = false; };
+  }, []);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -246,6 +275,29 @@ export function LogisticaConfigClient() {
 
         {!loading && cfg && (
           <div className="log-cfg">
+            {/* ── PR28072026 HÍBRIDO — o plano e o que ele já cobriu no mês ──
+                É o gatilho de upgrade: o dono vê a franquia acabando ANTES de
+                começar a queimar crédito, e sabe exatamente o que acontece
+                depois. Zero textão: 1 número grande e 1 frase. */}
+            {plano && plano.paradasInclusas > 0 && (
+              <div className="log-cfg__block">
+                <div className="log-cfg__block-head">
+                  <div className="log-cfg__heading-copy">
+                    <strong className="log-cfg__block-title">
+                      {plano.titulo} · {fmtMoedaMes(plano.precoMensal)}
+                    </strong>
+                    <span className="log-cfg__switch-hint">
+                      {plano.paradasUsadas} de {plano.paradasInclusas} paradas do plano usadas neste mês
+                      {plano.paradasRestantes > 0
+                        ? ` — restam ${plano.paradasRestantes}.`
+                        : " — a partir daqui cada parada consome crédito."}
+                    </span>
+                  </div>
+                  {plano.paradasRestantes === 0 && <span className="plano-selo">Franquia do mês esgotada</span>}
+                </div>
+              </div>
+            )}
+
             {/* ── Modo comercial da rota — somente dono/master ────────────── */}
             {billingOwner && (
               <div className="log-cfg__block">

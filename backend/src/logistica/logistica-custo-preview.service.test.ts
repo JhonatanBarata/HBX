@@ -186,7 +186,12 @@ function makeHarness(mode: 'ESSENTIAL' | 'TRACKED' = 'ESSENTIAL') {
   const actionConfig: any = {
     resolveEffective: async () => ({ key: 'logistica_essential_block', label: 'Rota Essencial', mode: essentialAction.mode, cost: essentialAction.cost }),
   };
-  const billing = new LogisticaRouteBillingService(prisma, wallet, config, actionConfig);
+  // PR28072026 HÍBRIDO — sem franquia: preserva as asserções de custo já existentes.
+  const nivelPlanoStub: any = {
+    franquiaDoMes: async () => ({ paradasInclusas: 0, paradasUsadas: 0, paradasRestantes: 0, blocosRestantes: 0 }),
+    cobreParadaRastreada: async () => false,
+  };
+  const billing = new LogisticaRouteBillingService(prisma, wallet, config, actionConfig, nivelPlanoStub);
   const preview = new LogisticaCustoPreviewService(prisma, wallet, config, actionConfig);
 
   return {

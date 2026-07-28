@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import { CreditWalletService } from '../credits/credit-wallet.service';
 import { CREDIT_ACTION_KEYS } from '../credits/credit-action-catalog';
 import { CreditActionConfigService } from '../credits/credit-action-config.service';
+import { LogisticaNivelPlanoService } from './logistica-nivel-plano.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { canonicalRouteDate } from './logistica-route-billing.service';
 import { lockLogisticaRouteTransaction } from './logistica-route-lock';
@@ -63,6 +64,8 @@ export class LogisticaTrackedBillingService implements OnModuleInit, OnModuleDes
     private readonly prisma: PrismaService,
     private readonly wallet: CreditWalletService,
     protected readonly actionConfig: CreditActionConfigService,
+    // PR28072026 HÍBRIDO — franquia do plano (fonte única, ver logistica-nivel-plano).
+    private readonly nivelPlano: LogisticaNivelPlanoService,
   ) {}
 
   onModuleInit(): void {
@@ -130,6 +133,38 @@ export class LogisticaTrackedBillingService implements OnModuleInit, OnModuleDes
     claim = await this.reconcileClaim(claim);
     if (claim.status === 'COMPLETED') {
       throw new ConflictException('Esta entrega rastreada já foi concluída. Atualize a rota.');
+    }
+
+    // 💰 PR28072026 HÍBRIDO (28/07) — FRANQUIA DO PLANO ANTES DA CARTEIRA.
+    // O Full nasce com modoRotaPadrao TRACKED: sem cobrir esta porta a franquia
+    // dele seria decorativa (queimaria crédito por aqui com a franquia intacta).
+    // 1 entrega rastreada = 1 parada da franquia — a MESMA conta do Essencial,
+    // que soma os dois caminhos no franquiaDoMes.
+    //
+    // Claim 'PLAN' é TERMINAL: sem usageKey, sem carteira, invisível pros
+    // varredores de estorno (filtram PROCESSING/DEBITED/REFUNDING). Devolver
+    // null aqui é o MESMO contrato do `definition.mode !== 'debit'` acima — o
+    // confirmar da entrega segue sem nada a liquidar.
+    if (claim.status === 'PLAN') return null; // repreparar não recobra nem reconta
+    if (claim.status === 'PENDING' && !claim.debitUsageKey) {
+      let cobre = false;
+      try {
+        cobre = await this.nivelPlano.cobreParadaRastreada(companyId, stop.route.routeDate);
+      } catch (e: any) {
+        // Franquia é BENEFÍCIO: falha de leitura nunca trava a entrega nem
+        // cobra em dobro — segue pelo caminho de sempre (débito).
+        this.logger.warn(`[logistica] franquia do plano indisponível company=${companyId}: ${String(e?.message || e)}`);
+        cobre = false;
+      }
+      if (cobre) {
+        const coberto = await (this.prisma as any).logisticaTrackedCreditClaim.updateMany({
+          // Guarda por status DENTRO do update: se outro processo pegou o claim
+          // pro débito no meio, count=0 e seguimos pro caminho de sempre.
+          where: { companyId, id: claim.id, status: 'PENDING', debitUsageKey: null },
+          data: { status: 'PLAN', debitedAt: new Date(), lastError: null, processingToken: null, leaseUntil: null },
+        });
+        if (coberto.count === 1) return null;
+      }
     }
     claim = await this.acquireClaim(claim);
     const usageKey = claim.debitUsageKey!;

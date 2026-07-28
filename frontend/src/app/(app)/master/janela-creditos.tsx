@@ -53,7 +53,7 @@ import { useTabParam } from "@/lib/use-tab-param";
 import type { MasterCompany } from "./page.client";
 import { fmtDataHora } from "./page.client";
 
-const GUIAS = ["Visão geral", "Empresas", "Packs", "Ações", "Config", "Recargas"] as const;
+const GUIAS = ["Visão geral", "Empresas", "Packs", "Ações", "Rota", "Config", "Recargas"] as const;
 type Guia = (typeof GUIAS)[number];
 
 type CreditPack = {
@@ -112,6 +112,18 @@ type CreditActionItem = {
   base: { mode: CreditActionMode; cost: number };
   override: { mode: CreditActionMode; cost: number } | null;
   effective: { mode: CreditActionMode; cost: number };
+};
+
+// PR28072026 HÍBRIDO (28/07) — um nível vendável de Rota: mensalidade fixa +
+// franquia de paradas do mês. `editado` = o master mexeu (dá pra restaurar).
+type NivelRotaItem = {
+  nivel: "BASIC" | "ADVANCED" | "FULL";
+  titulo: string;
+  slogan: string;
+  precoMensal: number;
+  franquiaParadasMes: number;
+  franquiaBlocos: number;
+  editado: boolean;
 };
 
 const MODE_OPTIONS: { value: CreditActionMode; label: string }[] = [
@@ -303,6 +315,84 @@ export function JanelaCreditos({ companies, reload }: {
   }
 
   const pausado = packForm.status === "paused";
+
+  // ── Rota: os 3 níveis vendáveis (PR28072026 HÍBRIDO — 28/07) ──────────────────────────────
+  // Modelo híbrido decidido pelo dono: mensalidade FIXA + franquia de paradas
+  // inclusa; o que passar disso consome crédito (guia Ações ao lado). Preço e
+  // franquia editáveis aqui — a base de fábrica vive no backend e "Restaurar"
+  // volta pra ela.
+  const [niveis, setNiveis] = useState<NivelRotaItem[] | null>(null);
+  const [niveisErro, setNiveisErro] = useState<string | null>(null);
+  const [nivelForms, setNivelForms] = useState<Record<string, { precoMensal: string; franquiaParadasMes: string }>>({});
+  const [nivelBusy, setNivelBusy] = useState<string | null>(null);
+  const [nivelMsg, setNivelMsg] = useState<string | null>(null);
+
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- setters de useState têm identidade estável; deps [] corretas
+  const carregarNiveis = useCallback(() => {
+    apiFetch<{ niveis?: NivelRotaItem[] }>("/logistica/master/niveis")
+      .then(res => {
+        const list = Array.isArray(res?.niveis) ? res.niveis : [];
+        setNiveis(list);
+        setNiveisErro(null);
+        setNivelForms(prev => {
+          const next = { ...prev };
+          for (const n of list) next[n.nivel] = { precoMensal: String(n.precoMensal), franquiaParadasMes: String(n.franquiaParadasMes) };
+          return next;
+        });
+      })
+      .catch((err: unknown) => {
+        setNiveis([]);
+        const status = (err as ApiError)?.status;
+        setNiveisErro(isFeatureFlagStatus(status) ? null : ((err as ApiError)?.message || "Falha ao carregar os níveis de Rota."));
+      });
+  }, []);
+
+  useEffect(() => { carregarNiveis(); }, [carregarNiveis]);
+
+  function aplicarNivel(item: NivelRotaItem) {
+    setNiveis(prev => (prev || []).map(n => (n.nivel === item.nivel ? item : n)));
+    setNivelForms(prev => ({ ...prev, [item.nivel]: { precoMensal: String(item.precoMensal), franquiaParadasMes: String(item.franquiaParadasMes) } }));
+  }
+
+  async function salvarNivel(nivel: string) {
+    if (nivelBusy) return;
+    const form = nivelForms[nivel];
+    const preco = Number(form?.precoMensal);
+    const franquia = Number(form?.franquiaParadasMes);
+    if (!Number.isFinite(preco) || preco < 0) { setNivelMsg("Mensalidade inválida."); return; }
+    if (!Number.isFinite(franquia) || franquia < 0) { setNivelMsg("Franquia inválida."); return; }
+    setNivelBusy(nivel);
+    setNivelMsg(null);
+    try {
+      const res = await apiFetch<{ nivel?: NivelRotaItem }>(`/logistica/master/niveis/${encodeURIComponent(nivel)}`, {
+        method: "PUT",
+        body: JSON.stringify({ precoMensal: preco, franquiaParadasMes: Math.trunc(franquia) }),
+      });
+      if (res?.nivel) aplicarNivel(res.nivel);
+      setNivelMsg("✓ Nível salvo.");
+    } catch (e) {
+      reportError(e);
+      setNivelMsg(e instanceof Error ? e.message : "Falha ao salvar o nível.");
+    } finally {
+      setNivelBusy(null);
+    }
+  }
+
+  async function restaurarNivel(nivel: string) {
+    if (nivelBusy) return;
+    setNivelBusy(nivel);
+    setNivelMsg(null);
+    try {
+      const res = await apiFetch<{ nivel?: NivelRotaItem }>(`/logistica/master/niveis/${encodeURIComponent(nivel)}`, { method: "DELETE" });
+      if (res?.nivel) aplicarNivel(res.nivel);
+      setNivelMsg("✓ Nível restaurado para o padrão.");
+    } catch (e) {
+      reportError(e);
+      setNivelMsg(e instanceof Error ? e.message : "Falha ao restaurar o nível.");
+    } finally {
+      setNivelBusy(null);
+    }
+  }
 
   // ── Ações (catálogo de ações de crédito — PR11072026 W1) ───────────────────────────────────
   const [actions, setActions] = useState<CreditActionItem[] | null>(null);
@@ -794,6 +884,78 @@ export function JanelaCreditos({ companies, reload }: {
                 })}
               </tbody>
             </table>
+          </div>
+        </section>
+      )}
+
+      {guia === "Rota" && (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Níveis de Rota</h2>
+            <div className="meta">Mensalidade fixa + paradas inclusas · o excedente consome crédito</div>
+          </div>
+          {niveisErro && <div className="sc-intro"><div className="sc-msg is-warn">{niveisErro}</div></div>}
+          {nivelMsg && <div className="sc-intro"><div className={"sc-msg " + (nivelMsg.startsWith("✓") ? "is-ok" : "is-warn")}>{nivelMsg}</div></div>}
+          <div className="tbl-wrap">
+            {/* --acoes: cada linha é DINHEIRO — nome e unidade nunca truncam. */}
+            <table className="tbl tbl--acoes">
+              <thead>
+                <tr><th>Nível</th><th>Mensalidade</th><th>Paradas inclusas/mês</th><th>Status</th><th aria-label="Editar"></th></tr>
+              </thead>
+              <tbody>
+                {niveis === null && (
+                  <tr><td colSpan={5} className="muted-note">Carregando…</td></tr>
+                )}
+                {niveis !== null && niveis.length === 0 && (
+                  <tr><td colSpan={5} className="muted-note">{niveisErro || "Nenhum nível encontrado."}</td></tr>
+                )}
+                {(niveis || []).map(n => {
+                  const form = nivelForms[n.nivel] || { precoMensal: String(n.precoMensal), franquiaParadasMes: String(n.franquiaParadasMes) };
+                  const busy = nivelBusy === n.nivel;
+                  return (
+                    <tr key={n.nivel}>
+                      <td>
+                        <div className="co">
+                          <strong>{n.titulo}</strong>
+                          <span className="sub2">{n.slogan}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <input className="field-dark" style={{ maxWidth: 110 }} type="number" min={0} step={1} inputMode="decimal"
+                          value={form.precoMensal}
+                          onChange={e => setNivelForms(prev => ({ ...prev, [n.nivel]: { ...form, precoMensal: e.target.value } }))} />
+                      </td>
+                      <td>
+                        <div className="co">
+                          <input className="field-dark" style={{ maxWidth: 110 }} type="number" min={0} step={5} inputMode="numeric"
+                            value={form.franquiaParadasMes}
+                            onChange={e => setNivelForms(prev => ({ ...prev, [n.nivel]: { ...form, franquiaParadasMes: e.target.value } }))} />
+                          <span className="sub2">{n.franquiaBlocos} blocos de 5 paradas</span>
+                        </div>
+                      </td>
+                      <td>
+                        <span className={n.editado ? "tag teal" : "tag"}>{n.editado ? "editado" : "padrão"}</span>
+                      </td>
+                      <td>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button className="btn-teal" style={{ minHeight: 28, fontSize: "0.66rem" }} disabled={busy}
+                            onClick={() => salvarNivel(n.nivel)}>{busy ? "…" : "Salvar"}</button>
+                          <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }} disabled={busy || !n.editado}
+                            onClick={() => restaurarNivel(n.nivel)}>Restaurar padrão</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <div className="sc-intro">
+            <span className="sc-hint">
+              A empresa gasta a franquia do mês primeiro; ao estourar, cada bloco de 5 paradas
+              (ou cada entrega rastreada) volta a consumir crédito pelo custo da guia Ações.
+              O nível de cada empresa é escolhido na ficha dela, aba Comercial.
+            </span>
           </div>
         </section>
       )}

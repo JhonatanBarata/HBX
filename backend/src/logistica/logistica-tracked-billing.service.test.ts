@@ -138,9 +138,17 @@ function setup(options?: { mode?: 'ESSENTIAL' | 'TRACKED'; validPosition?: boole
   const actionConfig: any = {
     resolveEffective: async () => ({ key: 'logistica_tracked_delivery', label: 'Rota Rastreada', mode: trackedAction.mode, cost: trackedAction.cost }),
   };
-  const service = new LogisticaTrackedBillingService(prisma, wallet, actionConfig);
+  // PR28072026 HÍBRIDO — franquia do plano. Default false = comportamento
+  // ANTERIOR (toda entrega rastreada debita).
+  let franquiaCobre = false;
+  const nivelPlano: any = {
+    franquiaDoMes: async () => ({ paradasInclusas: 0, paradasUsadas: 0, paradasRestantes: 0, blocosRestantes: 0 }),
+    cobreParadaRastreada: async () => franquiaCobre,
+  };
+  const service = new LogisticaTrackedBillingService(prisma, wallet, actionConfig, nivelPlano);
   return {
     service, prisma, route, session, claims, ledger, debitCalls, refundCalls, now, balance: () => balance,
+    setFranquiaCobre: (v: boolean) => { franquiaCobre = v; },
     setTrackedAction: (mode: 'debit' | 'free', cost: number) => { trackedAction.mode = mode; trackedAction.cost = cost; },
   };
 }
@@ -219,4 +227,36 @@ test('rollback da confirmação estorna de forma idempotente', async () => {
 test('competência usa o fuso America/Sao_Paulo', () => {
   assert.equal(saoPauloMonth(new Date('2026-08-01T01:30:00.000Z')), '2026-07');
   assert.equal(saoPauloMonth(new Date('2026-08-01T04:00:00.000Z')), '2026-08');
+});
+
+// ── PR28072026 HÍBRIDO (28/07) — franquia do plano também na Rastreada ───────
+// O Full nasce TRACKED: sem cobrir esta porta, a franquia dele seria decorativa
+// (queimaria crédito por aqui com a franquia intacta). 1 entrega = 1 parada.
+test('franquia: entrega rastreada dentro do plano conclui sem tocar a carteira', async () => {
+  const h = setup();
+  h.setFranquiaCobre(true);
+
+  const charge = await h.service.prepareDeliveryCompletion(7, 'delivery-1', 9, h.now);
+
+  assert.equal(charge, null, 'nada a liquidar — o plano cobriu');
+  assert.equal(h.debitCalls.length, 0, 'carteira intocada');
+  assert.equal(h.claims.length, 1, 'o claim existe (é ele que consome a franquia do mês)');
+  assert.equal(h.claims[0].status, 'PLAN');
+
+  // 2ª passada (retry do app / cápsula offline sincronizando): não recobra.
+  const denovo = await h.service.prepareDeliveryCompletion(7, 'delivery-1', 9, h.now);
+  assert.equal(denovo, null);
+  assert.equal(h.debitCalls.length, 0);
+  assert.equal(h.claims.length, 1);
+});
+
+test('franquia estourada: entrega rastreada volta a debitar normal', async () => {
+  const h = setup();
+  h.setFranquiaCobre(false);
+
+  const charge = await h.service.prepareDeliveryCompletion(7, 'delivery-1', 9, h.now);
+
+  assert.ok(charge, 'fora da franquia o débito acontece como sempre');
+  assert.equal(h.debitCalls.length, 1);
+  assert.equal(h.claims[0].status, 'DEBITED');
 });

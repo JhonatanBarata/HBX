@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { CreditWalletService } from '../credits/credit-wallet.service';
 import { CREDIT_ACTION_KEYS } from '../credits/credit-action-catalog';
 import { CreditActionConfigService } from '../credits/credit-action-config.service';
+import { LogisticaNivelPlanoService } from './logistica-nivel-plano.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { isLogisticaTrackingEnabled } from './logistica-tracking.flags';
 import {
@@ -24,8 +25,12 @@ export class OfflineAwareLogisticaTrackedBillingService extends LogisticaTracked
     private readonly offlinePrisma: PrismaService,
     private readonly offlineWallet: CreditWalletService,
     offlineActionConfig: CreditActionConfigService,
+    // PR28072026 HÍBRIDO — a franquia do plano desce pro billing herdado; a
+    // cápsula offline usa o MESMO prepareDeliveryCompletion, então cobre a
+    // franquia de graça (sem duplicar a regra aqui).
+    offlineNivelPlano: LogisticaNivelPlanoService,
   ) {
-    super(offlinePrisma, offlineWallet, offlineActionConfig);
+    super(offlinePrisma, offlineWallet, offlineActionConfig, offlineNivelPlano);
   }
 
   async reserveRouteDeliveries(input: {

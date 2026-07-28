@@ -5841,6 +5841,18 @@ model CreditActionConfig {
   updatedAt  DateTime @updatedAt
 }
 
+// PR28072026 HÍBRIDO (28/07) — overlay editável do catálogo comercial dos 3 níveis
+// de Rota (mensalidade + franquia de paradas do mês). MESMO contrato do
+// CreditPackConfig/CreditActionConfig acima: a BASE vive em código
+// (logistica-nivel-catalog.ts) e esta tabela guarda só o que o master editou.
+// Linha ausente = segue o catálogo. `nivel` é a PK: BASIC | ADVANCED | FULL.
+model LogisticaNivelConfig {
+  nivel      String   @id // BASIC | ADVANCED | FULL
+  configJson String   @default("{}") // { titulo, slogan, precoMensal, franquiaParadasMes }
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
 // Outbox do e-mail comercial automático. E-mail manual/transacional não passa
 // por aqui. Um passo canônico produz no máximo uma mensagem.
 model EmailOutboundMessage {

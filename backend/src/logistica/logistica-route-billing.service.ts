@@ -12,6 +12,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreditWalletService } from '../credits/credit-wallet.service';
 import { CREDIT_ACTION_KEYS } from '../credits/credit-action-catalog';
 import { CreditActionConfigService } from '../credits/credit-action-config.service';
+import { LogisticaNivelPlanoService } from './logistica-nivel-plano.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { lockLogisticaRouteTransaction } from './logistica-route-lock';
 
@@ -82,6 +83,9 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
     private readonly wallet: CreditWalletService,
     private readonly config: LogisticaConfigService,
     private readonly actionConfig: CreditActionConfigService,
+    // PR28072026 HÍBRIDO — quem sabe a franquia do plano. Fonte ÚNICA: este
+    // serviço nunca recalcula franquia por conta própria.
+    private readonly nivelPlano: LogisticaNivelPlanoService,
   ) {}
 
   onModuleInit(): void {
@@ -179,8 +183,33 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
         // Blocos cobram só entregas NÃO-migradas: stop com billingExempt veio de
         // rota anterior já cobrada — entra de graça (decisão do dono 18/07).
         const requiredBlocks = essentialBlocksForDeliveries(billableDeliveries);
+        // 💰 PR28072026 HÍBRIDO (28/07) — FRANQUIA DO PLANO ANTES DA CARTEIRA.
+        // A mensalidade do nível já paga N paradas do mês; só o EXCEDENTE queima
+        // crédito. Bloco dentro da franquia vira claim 'PLAN' (mesma tabela,
+        // sem tocar a carteira) — o unique (empresa+motorista+data+bloco) faz a
+        // decisão ser tomada UMA vez na vida do bloco, então repreparar a rota
+        // não recobra nem reconta.
+        //
+        // A leitura do saldo da franquia é fora de lock: duas rotas de
+        // motoristas diferentes começando no mesmo segundo podem, no pior caso,
+        // ganhar alguns blocos a mais do plano. Erra a favor do cliente e nunca
+        // cobra a mais — o oposto (lock global por empresa na hora de iniciar
+        // rota) custaria contenção real na janela das 6h da manhã.
+        let franquiaRestante = 0;
+        try {
+          franquiaRestante = (await this.nivelPlano.franquiaDoMes(companyId, routeDate)).blocosRestantes;
+        } catch (e: any) {
+          // Franquia é BENEFÍCIO: falha ao lê-la nunca pode travar a rota nem
+          // cobrar em dobro — cai em 0 e o caminho de sempre (débito) assume.
+          this.logger.warn(`[logistica] franquia do plano indisponível company=${companyId}: ${String(e?.message || e)}`);
+          franquiaRestante = 0;
+        }
         try {
           for (let blockIndex = 1; blockIndex <= requiredBlocks; blockIndex++) {
+            if (franquiaRestante > 0 && (await this.cobrirBlocoPelaFranquia(route, blockIndex))) {
+              franquiaRestante -= 1;
+              continue;
+            }
             const charged = await this.chargeEssentialBlock({
               route,
               blockIndex,
@@ -390,6 +419,31 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
       }
     }
     throw new ConflictException('Não foi possível congelar a ordem da rota. Tente novamente.');
+  }
+
+  /**
+   * PR28072026 HÍBRIDO — marca UM bloco como coberto pela franquia do plano.
+   *
+   * Devolve `true` só quando ESTE bloco está (ou acabou de ficar) coberto. Não
+   * cria usageKey, não chama a carteira e não entra na máquina de débito: o
+   * claim 'PLAN' é terminal e invisível pros varredores de estorno, que filtram
+   * por PROCESSING/DEBITED.
+   *
+   * `false` = o bloco já entrou no caminho do débito numa passada anterior
+   * (PENDING vencido por outro processo, PROCESSING, DEBITED…). O chamador cai
+   * no chargeEssentialBlock, que é idempotente — nunca cobra o mesmo bloco 2×.
+   */
+  private async cobrirBlocoPelaFranquia(route: RouteRow, blockIndex: number): Promise<boolean> {
+    const claim = await this.ensureClaim(route, blockIndex);
+    if (claim.status === 'PLAN') return true; // já coberto: repreparar não reconta
+    if (claim.status !== 'PENDING' || claim.debitUsageKey) return false;
+    const updated = await (this.prisma as any).logisticaEssentialCreditClaim.updateMany({
+      // Guarda por status DENTRO do update: se outro processo pegou o claim pro
+      // débito no meio, count=0 e o chamador segue pro caminho de sempre.
+      where: { companyId: route.companyId, id: claim.id, status: 'PENDING', debitUsageKey: null },
+      data: { status: 'PLAN', debitedAt: new Date(), lastError: null, processingToken: null, leaseUntil: null },
+    });
+    return updated.count === 1;
   }
 
   private async chargeEssentialBlock(input: {
