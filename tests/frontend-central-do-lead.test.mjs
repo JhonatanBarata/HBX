@@ -102,9 +102,14 @@ test("o desenho da referência está na tela, medida por medida", () => {
   assert.match(css, /\.cdl-led/);
   assert.match(css, /\.cdl-form3\s*\{[\s\S]*?grid-template-columns:\s*1fr 1fr 1fr/);
   assert.match(central, /Teto\/dia/);
-  // 8 · composer com altura reservada: trocar de modo não mexe no feed.
-  assert.match(css, /\.cdl-composer__slot\s*\{\s*min-height:\s*44px/);
-  assert.match(css, /\.cdl-composer__note\s*\{[\s\S]*?min-height:\s*44px/);
+  // 8 · composer com altura reservada FIXA: trocar de modo não mexe no feed.
+  //     Tem de ser `height`, não `min-height` — com min-height o modo
+  //     Observação (o mais alto) empurrava o feed 69px pra cima, que é
+  //     exatamente a montanha-russa que o desenho vem matar. Medido na tela
+  //     depois do conserto: feed constante em 482px nos 4 modos.
+  assert.match(css, /\.cdl-composer__slot\s*\{\s*\n?\s*height:\s*96px/);
+  assert.doesNotMatch(css, /\.cdl-composer__slot\s*\{\s*min-height/);
+  assert.match(css, /\.cdl-preview\s*\{[\s\S]*?max-height:\s*100%[\s\S]*?overflow-y:\s*auto/);
   // 9 · "Fechar venda" é o único verde-dinheiro, grande, no canto de ação.
   assert.match(css, /\.cdl-close-sale\s*\{[\s\S]*?height:\s*40px[\s\S]*?background:\s*var\(--cdl-money-grad\)/);
   assert.equal((css.match(/--cdl-money-grad\)/g) || []).length, 1, "verde-dinheiro só no Fechar venda");

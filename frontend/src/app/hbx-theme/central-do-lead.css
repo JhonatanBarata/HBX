@@ -935,7 +935,17 @@
   -webkit-backdrop-filter: none;
 }
 
-.cdl-composer__slot { min-height: 44px; }
+/* ALTURA RESERVADA DE VERDADE (queixa 8 da referência).
+   `min-height` NÃO resolve: o modo Observação é o mais alto e empurrava o
+   feed 69px pra cima, que é exatamente a montanha-russa que o desenho vem
+   matar. A caixa é FIXA no tamanho do modo mais alto, e cada modo se
+   acomoda dentro dela — trocar de modo não move um pixel do feed. */
+.cdl-composer__slot {
+  height: 96px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
 .cdl-send {
   display: flex;
   gap: 10px;
@@ -950,7 +960,9 @@
   border-radius: 11px;
   background: var(--cdl-field);
   color: var(--cdl-ink);
-  font: 13px/1.4 inherit;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
   outline: none;
 }
 .cdl .cdl-send textarea::placeholder { color: var(--cdl-ink-3); }
@@ -1003,14 +1015,20 @@
   border-radius: 9px;
   background: var(--cdl-field);
   color: var(--cdl-ink);
-  font: 650 13px/1 inherit;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1;
   outline: none;
 }
 .cdl .cdl-composer__body textarea {
   width: 100%;
-  height: 66px;
+  flex: 1;
+  min-height: 0;
   padding: 10px;
-  font: 13px/1.4 inherit;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
   resize: none;
 }
 .cdl .cdl-composer__row input:focus,
@@ -1019,9 +1037,18 @@
   border-color: var(--cdl-brand-line-2);
   box-shadow: 0 0 0 3px var(--cdl-ring);
 }
-.cdl-composer__body { min-height: 44px; }
+.cdl-composer__body {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 .cdl-composer__grow { flex: 1; }
+/* A prévia do e-mail pode ser longa: ela rola DENTRO da caixa reservada,
+   em vez de esticar o composer e empurrar o feed. */
 .cdl-preview {
+  max-height: 100%;
+  overflow-y: auto;
   padding: 10px 12px;
   border: 1px solid var(--cdl-hair);
   border-radius: 11px;
@@ -1092,7 +1119,10 @@
   border-radius: 9px;
   background: var(--cdl-field);
   color: var(--cdl-ink);
-  font: 600 13px/1 inherit;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
   font-variant-numeric: tabular-nums;
   outline: none;
 }
@@ -1300,7 +1330,10 @@
   border-radius: 9px;
   background: var(--cdl-field);
   color: var(--cdl-ink);
-  font: 650 13px/1 inherit;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1;
   outline: none;
 }
 .cdl .cdl-pop input:focus {

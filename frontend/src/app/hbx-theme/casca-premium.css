@@ -78,12 +78,13 @@
 /* ---- 2. A LEI DO NEGRITO ---------------------------------------------
    Resolvida no CENTRO: especificidade [data-casca] + .app + tag ganha das
    regras de tela (classe única), então nenhuma tela precisa ser editada
-   uma por uma. */
+   uma por uma.
+
    A ÚNICA EXCEÇÃO é a Central do Lead (.cdl): ela traz a régua
    tipográfica do desenho aprovado, peso a peso, e por isso fica FORA
    desta lei — senão a casca apagaria os pesos do próprio desenho que
-   ela existe para vestir. O recorte é explícito (`:not(.cdl, .cdl *)`),
-   não um acidente de especificidade. */
+   ela existe para vestir. O recorte é explícito, não um acidente de
+   especificidade. */
 [data-casca="premium"] .app :is(h1, h2, h3, h4, h5, h6):not(.cdl, .cdl *),
 [data-casca="premium"] .app :is(.panel-head h2, .hbx-title):not(.cdl, .cdl *) {
   font-weight: var(--weight-bold);
