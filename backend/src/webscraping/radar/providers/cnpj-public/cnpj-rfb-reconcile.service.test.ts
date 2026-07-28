@@ -12,7 +12,10 @@ type Row = Record<string, unknown>;
 function fakePrisma(handler: (args: Record<string, any>) => Row[] | Promise<Row[]>) {
   return {
     cnpjPublicCompany: {
-      findMany: async (args: Record<string, any>) => handler(args),
+      // O mock devolve linhas parciais de propósito (cada teste monta só os campos
+      // que interessam); o cast mantém o build ESTRITO do backend verde sem afrouxar
+      // o tipo real de RfbRow no serviço.
+      findMany: async (args: Record<string, any>) => (await handler(args)) as never[],
     },
   };
 }
