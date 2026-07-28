@@ -939,7 +939,14 @@ export class LogisticaRotaService {
         // com "Francine / Edila (?)" e "Elaine" — nomes que o dono não acha em
         // Clientes. Este é o funil por onde TODA rota passa (planejar/iniciar/
         // conferir), então é aqui que a régua tem que valer.
-        customerProfile: { status: 'active', isCliente: true },
+        // 28/07 — a régua é `status`, NÃO `isCliente`: o soft-delete do cadastro
+        // (nucleo-cadastro L1986) sempre grava `status:'deleted'`, então `active`
+        // sozinho já barra quem saiu. O `isCliente:true` extra matava a parada da
+        // Rota rápida modo Direção, que nasce DE PROPÓSITO com isCliente:false
+        // (endereço sem virar cliente no Cadastro) — o planejar devolvia
+        // "0 parada(s)" com a entrega recém-criada na cara e o app nunca saía de
+        // "Montar rota" com uma parada só.
+        customerProfile: { status: 'active' },
         OR: [{ scheduledAt: { gte: start, lte: end } }, { scheduledAt: null }],
       },
       orderBy: [{ rotaOrdem: 'asc' }, { scheduledAt: 'asc' }, { createdAt: 'asc' }],
