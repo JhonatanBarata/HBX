@@ -24,9 +24,11 @@
     recargaLoading: false,
     recargaError: null,
     creditsLock: null,
-    // Rascunho do form "Entrega avulsa" — sobrevive a re-renders do shell.
-    oneoffDraft: {},
-    // PR — os 3 KPIs viraram filtros clicáveis da lista de paradas (Fila/Entregue/Avulsos).
+    // 28/07 (item 6) — GPS do mapa PARADO: posição atual e o endereço dela
+    // (reverse geocode com freio, ver resolverEnderecoOcioso).
+    idlePosicao: null,
+    idleEndereco: null,
+    // PR — os KPIs viraram filtros clicáveis da lista de paradas (Fila/Entregue).
     routeFilter: "fila",
     // S1 25/07 (PR25072026-ROTA-CONFERIDA) — crachá do motor de rota. O resultado
     // de planejar/iniciar é persistido e revalidado contra a rota carregada para
@@ -310,6 +312,10 @@
   // (re)início do watch (fresh start ou retomada pós-pausa).
   let navWatchId = null;
   let navWatchSeq = 0;
+  // 28/07 (item 6) — watch do mapa parado (ver startIdleWatch) e o freio do
+  // reverse geocode do endereço mostrado nele.
+  let idleWatchId = null;
+  let idleEnderecoBuscando = false;
   // S3 21/07 — disjuntor do recálculo de pernas (regra dura da frente): mínimo
   // 30s entre tentativas + teto de 10 por rota/dia; zera só junto com a trilha
   // (encerrar rota / limpar o dia — ver resetNavRecalcBudget).
@@ -828,6 +834,57 @@
       return true;
     } catch (_) { return false; }
   }
+  function ensureGpsStatusEl(host, parts) {
+    if (!parts.gpsStatus) {
+      parts.gpsStatus = document.createElement("span");
+      parts.gpsStatus.className = "route-gps-status";
+      host.appendChild(parts.gpsStatus);
+    }
+    return parts.gpsStatus;
+  }
+  // 28/07 (dono, item 6) — "o status parado do mapa sempre vai pontuar onde você
+  // está, e o seu endereço; dessa forma eu sei que o GPS tá ok". Sem rota rodando
+  // não há trilha, follow nem câmera perseguindo ninguém: fica o MESMO ponto azul
+  // da navegação + a MESMA faixa .route-gps-status (padronizar é IGUALAR), só que
+  // escrevendo o endereço de onde o aparelho está.
+  function updateMapaOcioso(host, map, parts) {
+    removeRouteReadingLayers(map);
+    if (parts.followControl) { try { parts.followControl.remove(); } catch (_) {} parts.followControl = null; }
+    parts.readingSessionId = null; parts.followCameraInitialized = false; parts.following = true;
+    host.classList.remove("is-reading-route");
+    const status = ensureGpsStatusEl(host, parts);
+    const point = state.idlePosicao;
+    if (!point || !validCoordinates(point.lat, point.lng)) {
+      if (parts.currentLocationMarker) { try { parts.currentLocationMarker.remove(); } catch (_) {} }
+      parts.currentLocationMarker = null;
+      status.textContent = gpsChipClass() === "is-off" ? "GPS desligado" : "Buscando GPS…";
+      return;
+    }
+    if (parts.currentLocationMarker) {
+      parts.currentLocationMarker.setLngLat([point.lng, point.lat]);
+    } else {
+      const dot = document.createElement("span");
+      dot.className = "route-current-location";
+      dot.innerHTML = '<i class="route-current-heading" aria-hidden="true"></i><i class="route-current-core" aria-hidden="true"></i>';
+      dot.setAttribute("role", "img");
+      dot.setAttribute("aria-label", "Sua localização atual");
+      parts.currentLocationMarker = new window.maplibregl.Marker({ element: dot, anchor: "center", rotationAlignment: "map", pitchAlignment: "map" }).setLngLat([point.lng, point.lat]).addTo(map);
+    }
+    const markerElement = parts.currentLocationMarker.getElement && parts.currentLocationMarker.getElement();
+    if (markerElement) markerElement.classList.remove("has-heading");
+    const precisao = Number(point.accuracyM);
+    const metros = Number.isFinite(precisao) && precisao > 0 ? ` · ±${Math.round(precisao)} m` : "";
+    const endereco = state.idleEndereco && state.idleEndereco.texto ? state.idleEndereco.texto : "";
+    // Corte no JS: dentro de um flex o text-overflow não pega o nó de texto.
+    const curto = endereco.length > 38 ? `${endereco.slice(0, 37).trimEnd()}…` : endereco;
+    status.textContent = `${curto || "Estou aqui"}${metros}`;
+    // Mapa SEM parada nenhuma não tem o que enquadrar: centraliza em você (1x por
+    // fix novo, nunca a cada render — senão o mapa briga com o dedo do motorista).
+    if (!routeMapPoints().length && !parts.idleCameraKey) {
+      parts.idleCameraKey = `${point.lat.toFixed(4)},${point.lng.toFixed(4)}`;
+      try { map.easeTo({ center: [point.lng, point.lat], zoom: Math.max(Number(map.getZoom()) || 0, 14.5), duration: 520, essential: false }); } catch (_) {}
+    }
+  }
   function ensureRouteReadingUi(host, map, parts, mode, point) {
     const liveMode = mode || routeLiveMode();
     const sessionId = liveMode === "nav" ? `nav:${navWatchSeq}` : String(state.leitura && state.leitura.id || "");
@@ -837,11 +894,7 @@
       parts.following = true;
       parts.followCameraInitialized = false;
     }
-    if (!parts.gpsStatus) {
-      parts.gpsStatus = document.createElement("span");
-      parts.gpsStatus.className = "route-gps-status";
-      host.appendChild(parts.gpsStatus);
-    }
+    ensureGpsStatusEl(host, parts);
     if (!parts.followControl) {
       const button = document.createElement("button");
       button.type = "button";
@@ -903,17 +956,8 @@
     const parts = host.__hbxMapParts || (host.__hbxMapParts = { markers: [] });
     const mode = routeLiveMode();
     const point = routeLivePoint(mode);
-    if (!mode) {
-      if (parts.currentLocationMarker) { try { parts.currentLocationMarker.remove(); } catch (_) {} }
-      parts.currentLocationMarker = null;
-      if (parts.gpsStatus) parts.gpsStatus.remove();
-      if (parts.followControl) parts.followControl.remove();
-      parts.gpsStatus = null; parts.followControl = null;
-      parts.readingSessionId = null; parts.followCameraInitialized = false; parts.following = true;
-      host.classList.remove("is-reading-route");
-      removeRouteReadingLayers(map);
-      return;
-    }
+    // 28/07 (dono, item 6) — parado NÃO é mapa mudo: mostra você e o seu endereço.
+    if (!mode) { updateMapaOcioso(host, map, parts); return; }
     if (typeof map.isStyleLoaded === "function" && !map.isStyleLoaded()) return;
     ensureRouteReadingUi(host, map, parts, mode, point);
     const trailData = routeReadingTrailData(mode);
@@ -985,7 +1029,7 @@
   // propósito: "avançar de perna" ao confirmar entrega (S3 #2) normalmente só
   // relê o corte da nova primeira parada aberta no MESMO cortes, sem chamar o
   // OSRM de novo. Só pede rota nova quando aparece uma parada com ID que o
-  // cortes atual não conhece (1ª ativação, ou entrega avulsa nova no meio do
+  // cortes atual não conhece (1ª ativação, ou parada nova no meio do
   // dia) ou quando o disjuntor de "saiu do caminho" dispara (S3 #4). Ordem
   // final das camadas de paint: hbx-nav-leg-resto < hbx-nav-leg-atual(+casing)
   // < hbx-reading-trail(+casing) — raiseRouteReadingTrail (já existente,
@@ -3945,10 +3989,6 @@
     if (state.loading) return shell(loading());
     if (!state.route) return shell(empty("Rota indisponível", state.error || "Atualize para tentar novamente."));
     const open = openItems(); const done = deliveredItems(); const total = items().length; const next = open[0];
-    // Avulsos = item.origem === "avulsa" (campo do backend L4-A). scheduledAt é
-    // setado em TODO item pelo backend, então não serve pra distinguir; item
-    // legado sem origem (null/undefined) conta como recorrente.
-    const avulsos = items().filter(i => i.origem === "avulsa");
     const progress = total ? Math.round(done.length / total * 100) : 0;
     const paused = serverRouteActive() && open.length > 0 && state.routePaused;
     const planned = routePlanned();
@@ -3957,8 +3997,10 @@
     // Leitura (ela tem os controles dela, e o topo do mapa já é o gpsStatus/
     // followControl dela — nunca exibem juntos, ver ensureRouteReadingUi).
     const showNextPanel = !!next && !leituraAtiva;
-    // Subconjunto da lista conforme o filtro ativo (Fila/Entregue/Avulsos).
-    const filtered = state.routeFilter === "entregue" ? deliveredItems() : state.routeFilter === "avulsos" ? orderedItems().filter(i => i.origem === "avulsa") : orderedItems().filter(i => (i.status === "agendada" || i.status === "em_rota") && i.id !== next?.id);
+    // Subconjunto da lista conforme o filtro ativo (Fila/Entregue). 28/07 (dono,
+    // item 4) — o filtro "Avulsos" saiu junto com a entrega avulsa: a parada da
+    // Rota rápida entra na fila do dia como qualquer outra, não numa gaveta.
+    const filtered = state.routeFilter === "entregue" ? deliveredItems() : orderedItems().filter(i => (i.status === "agendada" || i.status === "em_rota") && i.id !== next?.id);
     // S2 21/07 — "has-next-panel" empurra route-gps-status/route-follow-control
     // (agora também usados pela navegação normal, não só Leitura) pra baixo do
     // painel "Próxima parada" quando os dois aparecem juntos (ver app.css).
@@ -3966,10 +4008,9 @@
       ${total ? `<div class="route-filter" role="tablist">
         <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila">Fila <b>${open.length}</b></button>
         <button type="button" class="route-filter-btn ${state.routeFilter === "entregue" ? "active" : ""}" data-action="route-filter" data-filter="entregue">Entregue <b>${done.length}</b></button>
-        <button type="button" class="route-filter-btn ${state.routeFilter === "avulsos" ? "active" : ""}" data-action="route-filter" data-filter="avulsos">Avulsos <b>${avulsos.length}</b></button>
       </div>` : ""}
       ${state.routeFilter === "fila" && next ? `<div class="section-title"><strong>Próxima parada</strong><span>${next.etaAt ? H.date(next.etaAt, { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>${stopCard(next, true)}` : ""}
-      ${total ? (filtered.length ? `<div class="list">${filtered.map((item, index) => `${state.routeFilter === "fila" ? routeLegConnector(item) : ""}${stopCard(item, false, index + (state.routeFilter === "fila" ? 2 : 1))}`).join("")}</div>` : state.routeFilter === "fila" && next ? "" : empty("Nada aqui", "")) : ""}`, leituraAtiva ? "" : `<button class="fab" data-action="new-oneoff" aria-label="Adicionar entrega avulsa">+</button>`);
+      ${total ? (filtered.length ? `<div class="list">${filtered.map((item, index) => `${state.routeFilter === "fila" ? routeLegConnector(item) : ""}${stopCard(item, false, index + (state.routeFilter === "fila" ? 2 : 1))}`).join("")}</div>` : state.routeFilter === "fila" && next ? "" : empty("Nada aqui", "")) : ""}`, leituraAtiva ? "" : `<button class="fab" data-action="rota-rapida" aria-label="Rota rápida">+</button>`);
   }
   function leituraRouteControls() {
     const checkpointLabel = state.leituraCapturing ? "Lendo GPS…" : "Checkpoint";
@@ -4047,7 +4088,7 @@
   // calcula por parada (listRota, ver logistica.service.ts) — nada de distância
   // calculada no cliente. Formato pedido: <1000m em metros, ≥1km em "N,N km",
   // minutos arredondados. Só chamado com routeFilter==="fila" (ver routeScreen):
-  // nas outras abas (Entregue/Avulsos) a lista pula paradas fora de ordem — o
+  // na aba Entregue a lista pula paradas fora de ordem — o
   // conector mostraria a perna do vizinho ERRADO (a parada real anterior não
   // está visível ali), então melhor não desenhar do que mentir.
   // Reusa .badge (token existente, zero hex/moldura nova); pino sem coordenada
@@ -4336,8 +4377,8 @@
     const draft = state.clientProductDraft;
     // 27/07 (ordem do dono, cobrança final) — produto NÃO tem tipo, NÃO tem dia e não
     // FALA de dia: o form é Produto + Quantidade + Preço, ponto. Dia é do CLIENTE
-    // (chips da seção Cadastro) e o vínculo segue eles sozinho. Avulsa vive no fluxo
-    // próprio "Entrega avulsa"; "Por data" morreu.
+    // (chips da seção Cadastro) e o vínculo segue eles sozinho. Parada fora do
+    // plano vive no fluxo próprio "Rota rápida"; "Por data" morreu.
     return `<div class="section-title"><strong>Produto / entrega</strong></div><div class="field"><label>Produto</label><select name="productId"><option value="">Escolha o produto</option>${(state.products || []).filter(product => product.ativo !== false).map(product => `<option value="${product.id}" ${String(draft.productId) === String(product.id) ? "selected" : ""}>${H.escape(product.nome || product.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="qtdPadrao" type="number" min="1" value="${H.escape(draft.qtdPadrao || "1")}"></div>${configFlag("precoPorClienteAtivo") ? `<div class="field"><label>Preço para este cliente</label><input name="precoAcordado" type="number" min="0" step="0.01" inputmode="decimal" value="${H.escape(draft.precoAcordado || "")}" placeholder="Vazio = preço do catálogo"></div>` : ""}`;
   }
   function clientEditorModal(isNew) {
@@ -4412,10 +4453,6 @@
     if (state.modal === "new-delivery") {
       const client = state.modalClient; return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("route", 18)}</div><div><h2>Criar entrega</h2><p class="subtitle">${H.escape(client && (client.name || client.nome) || "Cliente")}</p></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-delivery-form"><input type="hidden" name="customerProfileId" value="${H.escape(client && client.id || "")}"><div class="form-grid"><div class="field"><label>Produto</label><select name="productId"><option value="">Sem produto</option>${(state.products || []).filter(p => p.ativo !== false).map(p => `<option value="${p.id}">${H.escape(p.nome || p.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="quantidade" type="number" min="1" value="1"></div></div><div class="field"><label>Data e hora</label><input name="scheduledAt" type="datetime-local" value="${localDateTimeInputValue(new Date(Date.now() + 3600000))}"></div><div class="field"><label>Observação</label><textarea name="notes" data-enter-submit maxlength="500"></textarea></div><button class="btn btn-primary btn-block" type="submit">Adicionar à rota</button></form></section></div>`;
     }
-    // L4-F fix — o form da avulsa agora renderiza do rascunho (state.oneoffDraft):
-    // qualquer re-render do shell (toast expirando, saldo chegando) apagava o que
-    // o motorista tinha digitado. Rascunho zera no submit com sucesso.
-    if (state.modal === "new-oneoff") { const d = state.oneoffDraft || {}; return `<div class="modal-wrap" data-action="close-modal"><section class="modal"><div class="sheet-head"><div class="avatar">${icon("plus", 18)}</div><div><h2>Entrega avulsa</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="new-oneoff-form"><div class="field"><label>Cliente</label><select name="customerProfileId"><option value="">Novo cliente abaixo</option>${(state.clients || []).map(c => `<option value="${H.escape(c.id)}" ${String(d.customerProfileId || "") === String(c.id) ? "selected" : ""}>${H.escape(c.nome || c.name || "Cliente")}</option>`).join("")}</select></div><div class="form-grid"><div class="field"><label>Nome avulso</label><input name="clientName" maxlength="160" value="${H.escape(d.clientName || "")}"></div><div class="field"><label>Telefone</label><input name="clientPhone" inputmode="tel" maxlength="30" value="${H.escape(d.clientPhone || "")}"></div></div><div class="form-grid"><div class="field"><label>Produto</label><select name="productId" required><option value="">Escolha</option>${(state.products || []).filter(p => p.ativo !== false).map(p => `<option value="${p.id}" ${String(d.productId || "") === String(p.id) ? "selected" : ""}>${H.escape(p.nome || p.name)}</option>`).join("")}</select></div><div class="field"><label>Quantidade</label><input name="quantidade" type="number" min="1" value="${H.escape(d.quantidade || "1")}" required></div></div><div class="field"><label>Observação</label><textarea name="notes" data-enter-submit maxlength="500">${H.escape(d.notes || "")}</textarea></div><button class="btn btn-primary btn-block" type="submit">Adicionar</button></form></section></div>`; }
     // HISTÓRICO DO CLIENTE (22/07) — a resposta pro "vocês nunca vieram" / "eu já
     // paguei". Cartão CENTRAL (Lei 3). Cada linha some SEGURANDO PRESSIONADO (Lei
     // 1: nunca lixeira); "Apagar tudo" pede confirmação. Apagar aqui NÃO mexe em
@@ -4440,6 +4477,9 @@
         extra: (h.items || []).length ? `<div class="historico-rodape"><button type="button" class="link-btn historico-limpar" data-action="historico-limpar">Apagar tudo</button></div>` : "",
       });
     }
+    // 28/07 (dono, item 4) — "+" da tela Rota: a MESMA Rota rápida do Gerenciador
+    // (padronizar é IGUALAR), agora encaixando na rota que já está rodando.
+    if (state.modal === "rota-rapida") return state.montagemRapida ? montagemRapidaModal() : "";
     if (state.modal === "manage-day") {
       // R1 (27/07) — tela ÚNICA de montagem (padrão Circuit); "Rotas salvas" é o
       // único passo separado que restou (vira lista, Voltar cai de novo aqui).
@@ -4832,7 +4872,7 @@
     return (state.dayPreview || []).map((client, index) => { const c = dayPreviewCoordinates(client); return c ? { item: c.item, lat: c.lat, lng: c.lng, number: index + 1 } : null; }).filter(Boolean);
   }
   // R2 (27/07) — "+" ROTA RÁPIDA: CEP+número (resolver CNEFE do backend, GET
-  // /logistica/geo/cep) ou toque no mapa viram uma parada avulsa NA rota que
+  // /logistica/geo/cep) ou toque no mapa viram uma parada NA rota que
   // está sendo montada. CEP+número NÃO manda pino: o servidor resolve pela base
   // CNEFE no cadastro e grava a fonte certa ('cnefe'); toque no mapa manda o
   // ponto tocado (o backend carimba 'gps_impreciso' — a 1ª entrega corrige).
@@ -4854,7 +4894,14 @@
             : `<div class="hbx-aviso hbx-aviso--warn">Endereço anotado${resumo ? `: ${H.escape(resumo)}` : ""}</div>`
           : "";
     const pronto = !!res;
-    const body = `<form id="montagem-rapida-form">${r.origem === "cep" ? `<div class="form-grid"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(r.cep)}"></div><div class="field"><label>Número</label><input name="numero" inputmode="numeric" maxlength="6" value="${H.escape(r.numero)}"></div></div>` : ""}<div class="field"><label>Nome (opcional)</label><input name="nome" maxlength="120" value="${H.escape(r.nome)}" data-enter-action="${pronto ? "montagem-rapida-confirmar" : "montagem-rapida-buscar"}"></div></form>${statusLinha}`;
+    // 28/07 (dono, item 4) — na tela Rota o "+" é a MESMA Rota rápida, com uma
+    // pergunta a mais: entra no caminho (encaixe pelo ponto mais perto, o app
+    // decide) ou fura a fila. Só aparece com rota de pé — sem paradas abertas
+    // não há "caminho" nem "primeira" que signifiquem alguma coisa.
+    const escolhaPosicao = r.contexto === "rota" && openItems().length
+      ? `<div class="day-chips rapida-posicao">${[["perto", "No caminho"], ["primeira", "Primeira parada"]].map(([valor, rotulo]) => `<button type="button" class="montagem-dia${(r.posicao || "perto") === valor ? " active" : ""}" data-action="rota-rapida-posicao" data-posicao="${valor}" aria-pressed="${(r.posicao || "perto") === valor}"><strong>${rotulo}</strong></button>`).join("")}</div>`
+      : "";
+    const body = `<form id="montagem-rapida-form">${r.origem === "cep" ? `<div class="form-grid"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(r.cep)}"></div><div class="field"><label>Número</label><input name="numero" inputmode="numeric" maxlength="6" value="${H.escape(r.numero)}"></div></div>` : ""}<div class="field"><label>Nome (opcional)</label><input name="nome" maxlength="120" value="${H.escape(r.nome)}" data-enter-action="${pronto ? "montagem-rapida-confirmar" : "montagem-rapida-buscar"}"></div></form>${escolhaPosicao}${statusLinha}`;
     return centerModal({
       icon: "plus",
       title: "Rota rápida",
@@ -4884,6 +4931,75 @@
     } catch (error) { r.resolvido = null; r.erro = humanApiError(error); }
     finally { r.buscando = false; render(); }
   }
+  // Matriz de tempo pelas RUAS (mesmo proxy OSRM do planejador). null = sem rede
+  // ou resposta inválida — quem chama cai na linha reta, nunca trava.
+  async function matrizViaria(pontos) {
+    if (!Array.isArray(pontos) || pontos.length < 2) return null;
+    const encoded = pontos.map(p => `${Number(p.lng)},${Number(p.lat)}`).join(";");
+    try {
+      let payload;
+      try { payload = await H.api(`/logistica/osrm/table?coords=${encodeURIComponent(encoded)}`); }
+      catch (_) { payload = await fetchOsrmTablePublic(encoded); }
+      const matriz = payload && payload.durations;
+      if (payload.code !== "Ok" || !Array.isArray(matriz) || matriz.length !== pontos.length) return null;
+      return matriz;
+    } catch (_) { return null; }
+  }
+  // 28/07 (dono, item 4) — ENCAIXE da Rota rápida na rota que já está de pé:
+  // "se tiver perto, ele entra na logística — entre 1 e 10, se está mais perto do
+  // 5, vira o 6 e ficam 11". Custo de inserção clássico: em cada perna
+  // (anterior → próxima) mede quanto custa passar pelo ponto novo no meio
+  // (d(ant,novo) + d(novo,prox) − d(ant,prox)); ganha a perna mais barata. Pelas
+  // ruas quando o OSRM responde, linha reta quando não. Devolve o NOME de quem
+  // fica antes dele (pro toast dizer onde ele caiu) ou null se foi pra frente.
+  async function encaixarParadaNaRota(novoId, posicao) {
+    const abertas = openItems();
+    const novo = abertas.find(item => String(item.id) === String(novoId));
+    const base = abertas.filter(item => String(item.id) !== String(novoId));
+    if (!novo || !base.length) return { indice: 0, anterior: null, aplicado: false };
+    const ids = base.map(item => String(item.id));
+    const pontoDe = item => { const c = (item && item.cliente) || {}; return validCoordinates(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : null; };
+    const pNovo = pontoDe(novo);
+    let indice = ids.length;
+    if (posicao === "primeira") indice = 0;
+    else if (pNovo) {
+      const origem = await currentPosition();
+      const pOrigem = origem && validCoordinates(origem.lat, origem.lng) ? { lat: origem.lat, lng: origem.lng } : null;
+      // nós[0] = de onde eu saio (pode não existir), depois as paradas na ordem,
+      // e o novo ponto no fim.
+      const nos = [pOrigem, ...base.map(pontoDe), pNovo];
+      const indicesValidos = nos.map((p, i) => (p ? i : -1)).filter(i => i >= 0);
+      const matriz = await matrizViaria(indicesValidos.map(i => nos[i]));
+      const naMatriz = new Map(indicesValidos.map((noIndex, matrixIndex) => [noIndex, matrixIndex]));
+      const d = (a, b) => {
+        if (a == null || b == null || !nos[a] || !nos[b]) return Infinity;
+        if (matriz && naMatriz.has(a) && naMatriz.has(b)) {
+          const valor = matriz[naMatriz.get(a)][naMatriz.get(b)];
+          if (Number.isFinite(valor)) return valor;
+        }
+        return distanceMeters(nos[a], nos[b]);
+      };
+      const iNovo = nos.length - 1;
+      let melhor = Infinity;
+      for (let k = 0; k <= base.length; k++) {
+        const ant = k === 0 ? (pOrigem ? 0 : null) : k;
+        const prox = k < base.length ? k + 1 : null;
+        const entrada = ant == null ? 0 : d(ant, iNovo);
+        const saida = prox == null ? 0 : d(iNovo, prox);
+        const antiga = ant == null || prox == null ? 0 : d(ant, prox);
+        const custo = entrada + saida - antiga;
+        if (Number.isFinite(custo) && custo < melhor) { melhor = custo; indice = k; }
+      }
+    }
+    const novaOrdem = [...ids.slice(0, indice), String(novoId), ...ids.slice(indice)];
+    const origem = await currentPosition();
+    const body = { date: operationalDate(), deliveryIds: novaOrdem, ordemManual: novaOrdem };
+    if (origem && validCoordinates(origem.lat, origem.lng)) { body.origemLat = origem.lat; body.origemLng = origem.lng; }
+    applyRouteEngineState(await H.api("/logistica/rota/planejar", { method: "POST", body }));
+    setRouteOrdemManual(novaOrdem);
+    const anterior = indice > 0 ? base[indice - 1] : null;
+    return { indice, anterior: anterior && anterior.cliente && anterior.cliente.nome || null, aplicado: true };
+  }
   async function montagemRapidaConfirmar() {
     const r = state.montagemRapida;
     if (!r || r.salvando || !r.resolvido) return;
@@ -4906,7 +5022,22 @@
       const customerProfileId = created && (created.contaId || created.customerProfileId || created.id);
       if (!customerProfileId) throw new Error("Cliente criado sem identificador.");
       const delivery = await H.api("/logistica/entregas", { method: "POST", body: { customerProfileId, quantidade: 1, scheduledAt: operationalScheduledAt() } });
+      const contexto = r.contexto;
+      const posicao = r.posicao || "perto";
       state.montagemRapida = null;
+      // 28/07 (item 4) — vindo da tela Rota, a parada nova ENCAIXA na rota que
+      // está rodando (ou fura a fila, se foi isso que pediram) e a tela volta pro
+      // lugar de sempre; o caminho do Gerenciador segue reconferindo, como antes.
+      if (contexto === "rota") {
+        await closeOverlay("modal");
+        await refresh(true);
+        const encaixe = await encaixarParadaNaRota(delivery && delivery.id, posicao);
+        await refresh(true);
+        toast(!encaixe.aplicado ? "Parada adicionada na rota."
+          : encaixe.anterior ? `Entra depois de ${encaixe.anterior}.`
+          : "Entra como primeira parada.");
+        return;
+      }
       await refresh(true);
       const rc = montagemConferencia();
       if (rc) {
@@ -4990,7 +5121,7 @@
       footer = "";
     }
     // R2 — o "+" da rota rápida só faz sentido com rota montada (a parada nasce
-    // avulsa DENTRO da rota em conferência).
+    // nova DENTRO da rota em conferência).
     const plus = rc ? `<button type="button" class="close montagem-plus" data-action="montagem-rapida" aria-label="Adicionar parada rápida">+</button>` : "";
     // 27/07 (dono) — cabeçalho só com o NOME da tela, centralizado: o ícone, o
     // "Montar rota" e o resumo de paradas/km/previsão saíram. Os dois botões
@@ -5555,16 +5686,14 @@
       }
       return "";
     }
-    // 26/07 — dois NÚMEROS diretos, no formato escrito pelo dono. A frase
-    // condicional antiga ("Iniciar não vai debitar créditos agora") era leitura
-    // do sistema, não do bolso dele: o que o operador quer saber é quanto tem e
-    // quanto sai. Zero também é resposta — mostra 0, não some. O verbo é
-    // "Aceitar" (R1 27/07, palavra do roteiro do dono) porque é o ACEITAR desta
-    // tela que cobra (o Play da tela Rota, depois, não debita de novo).
-    const debita = Math.max(0, Number(custo.creditosAIniciar) || 0);
-    const saldo = Number(custo.saldoAtual) || 0;
-    const kind = custo.saldoCobre === false ? "danger" : "ok";
-    return `<div class="hbx-aviso hbx-aviso--${kind} conferencia-creditos"><span>Créditos atual: ${H.escape(String(saldo))}</span><span>Aceitar Debitará: ${H.escape(String(debita))}</span></div>`;
+    // 28/07 (dono, item 3) — a linha "Créditos atual / Aceitar Debitará" SAIU do
+    // Gerenciador: o painel de créditos do dia já mora no topo da tela Rota e o
+    // saldo não é decisão de montagem. Sobra só o que BLOQUEIA: saldo que não
+    // cobre o Aceitar (sem isso o botão falharia com erro cru do backend).
+    if (custo.saldoCobre === false) {
+      return `<div class="hbx-aviso hbx-aviso--danger">Créditos insuficientes para confirmar.</div>`;
+    }
+    return "";
   }
   function conferenciaListaStep(rc) {
     const data = rc.data;
@@ -5948,6 +6077,48 @@
     try { navigator.geolocation.clearWatch(navWatchId); } catch (_) {}
     navWatchId = null;
   }
+  // 28/07 (dono, item 6) — watch do mapa PARADO. Irmão pobre do startNavWatch:
+  // sem alta precisão, sem trilha, sem voz — só o suficiente pro ponto azul e pro
+  // endereço aparecerem quando não há rota rodando (prova de que o GPS está vivo).
+  function startIdleWatch() {
+    if (idleWatchId != null || !navigator.geolocation) return;
+    idleWatchId = navigator.geolocation.watchPosition(position => {
+      markGpsFix();
+      const coords = position.coords || {};
+      const point = { lat: coords.latitude, lng: coords.longitude, accuracyM: Number.isFinite(coords.accuracy) ? coords.accuracy : null };
+      if (!validCoordinates(point.lat, point.lng)) return;
+      state.idlePosicao = point;
+      lastKnownPosition = { lat: point.lat, lng: point.lng, accuracy: point.accuracyM };
+      if (routeMap && routeMapHost) updateRouteReadingMap(routeMapHost, routeMap);
+      void resolverEnderecoOcioso(point);
+    }, err => { markGpsError(err); }, { enableHighAccuracy: false, timeout: 12000, maximumAge: 30000 });
+  }
+  function stopIdleWatch() {
+    if (idleWatchId == null) return;
+    try { navigator.geolocation.clearWatch(idleWatchId); } catch (_) {}
+    idleWatchId = null;
+  }
+  // Reverse geocode com FREIO (mesma lei do disjuntor): 1 chamada em voo, e só
+  // pede de novo quando andou >150 m ou passou de 10 min. Falhou? fica o "Estou
+  // aqui" com a precisão — o ponto no mapa já é a prova que o dono pediu.
+  async function resolverEnderecoOcioso(point) {
+    if (idleEnderecoBuscando || !netOnline()) return;
+    const atual = state.idleEndereco;
+    if (atual && distanceMeters({ lat: atual.lat, lng: atual.lng }, point) < 150 && Date.now() - atual.at < 600000) return;
+    idleEnderecoBuscando = true;
+    try {
+      const rev = await H.api(`/logistica/geo/reverse?lat=${encodeURIComponent(point.lat)}&lng=${encodeURIComponent(point.lng)}`);
+      const texto = [[rev && rev.endereco, rev && rev.numero].filter(Boolean).join(", "), rev && rev.bairro].filter(Boolean).join(" - ");
+      if (texto) {
+        state.idleEndereco = { texto, lat: point.lat, lng: point.lng, at: Date.now() };
+        if (routeMap && routeMapHost) updateRouteReadingMap(routeMapHost, routeMap);
+      }
+    } catch (_) { /* endereço é enfeite do ponto; sem rede, o ponto basta */ }
+    finally { idleEnderecoBuscando = false; }
+  }
+  function syncIdleWatch() {
+    if (moduleActive && state.screen === "route" && !state.modal && !routeLiveMode()) startIdleWatch(); else stopIdleWatch();
+  }
   // Chamado no topo de todo render() (o pulso central do app — roda depois de
   // qualquer ação que possa mudar navModeActive()). Start/stop são idempotentes
   // (guard por navWatchId), então nunca vaza watcher nem duplica: pausar,
@@ -5956,6 +6127,7 @@
   // render), ver "accept-confirmation".
   function syncNavWatch() {
     if (moduleActive && navModeActive()) startNavWatch(); else stopNavWatch();
+    syncIdleWatch();
   }
   // ==========================================================================
   // ROTA-CONFERIDA — S5 (25/07): "aprovar congela". A ordem aprovada em
@@ -6510,6 +6682,9 @@
     state.closingOverlay = kind;
     render();
     return new Promise(resolve => setTimeout(() => {
+      // 28/07 (item 4) — a Rota rápida da tela Rota morre com o modal dela (senão
+      // o próximo "+" abriria com o CEP da vez passada preenchido).
+      if (kind === "modal" && state.modal === "rota-rapida") state.montagemRapida = null;
       if (kind === "modal") { state.modal = null; state.modalClient = null; state.editProductDraft = null; state.clientProductFormOpen = false; state.dddPrompt = null; state.historico = null; }
       // Passos que vivem DENTRO da montagem morrem com ela (senão o próximo
       // "Montar rota" abriria direto no nome da rota da vez passada).
@@ -6958,7 +7133,6 @@
     if (action === "complete-ddd") { openDddPrompt(); return; }
     if (action === "cancel-ddd") { state.dddPrompt = null; render(); return; }
     if (action === "confirm-ddd") { await confirmDddPrompt(); return; }
-    if (action === "new-oneoff") { if (state.clientsPage === 0) await loadClients(true, true); showModal("new-oneoff"); }
     if (action === "cancel-distance-confirm") { state.distanceWarning = null; state.distanceOverrideDeliveryId = null; await closeOverlay("modal"); return; }
     if (action === "confirm-distance-delivery") { const warning = state.distanceWarning; const item = warning && items().find(row => row.id === warning.itemId); const pendingOptions = warning && warning.options; state.distanceWarning = null; state.distanceOverrideDeliveryId = item && item.id || null; await closeOverlay("modal"); if (item) await confirmDelivery(item, pendingOptions); return; }
     if (action === "arrival-radius") { if (!isAdmin()) return; showModal("arrival-radius"); }
@@ -7063,8 +7237,12 @@
     // routeEngineBanner pras funções chamadas aqui.
     if (action === "conferencia-tentar-de-novo") { await recarregarConferencia(); return; }
     // R2 (27/07) — "+" rota rápida (CEP+número via CNEFE, ou toque no mapa).
-    if (action === "montagem-rapida") { state.montagemRapida = { origem: "cep", cep: "", numero: "", nome: "", lat: null, lng: null, resolvido: null, buscando: false, salvando: false, erro: "" }; render(); return; }
-    if (action === "montagem-rapida-fechar") { state.montagemRapida = null; render(); return; }
+    if (action === "montagem-rapida") { state.montagemRapida = { origem: "cep", contexto: "montagem", cep: "", numero: "", nome: "", lat: null, lng: null, resolvido: null, buscando: false, salvando: false, erro: "" }; render(); return; }
+    // 28/07 (dono, item 4) — mesmo passo, aberto pelo "+" da tela Rota: aqui ele
+    // ganha o "No caminho × Primeira parada" e encaixa na rota que está de pé.
+    if (action === "rota-rapida") { state.montagemRapida = { origem: "cep", contexto: "rota", posicao: "perto", cep: "", numero: "", nome: "", lat: null, lng: null, resolvido: null, buscando: false, salvando: false, erro: "" }; showModal("rota-rapida"); return; }
+    if (action === "rota-rapida-posicao") { if (state.montagemRapida) { state.montagemRapida.posicao = target.dataset.posicao === "primeira" ? "primeira" : "perto"; render(); } return; }
+    if (action === "montagem-rapida-fechar") { if (state.modal === "rota-rapida") { state.montagemRapida = null; await closeOverlay("modal"); return; } state.montagemRapida = null; render(); return; }
     if (action === "montagem-rapida-buscar") { await montagemRapidaBuscar(); return; }
     if (action === "montagem-rapida-confirmar") { await montagemRapidaConfirmar(); return; }
     // 27/07 (dono) — salvar a sequência alinhada na mão como rota salva.
@@ -7748,7 +7926,6 @@
       if (name === "cep") { if (onlyDigits(value).length === 8) lookupNewClientCep(value); else state.newClientCepStatus = ""; }
       return;
     }
-    if (event.target.form && event.target.form.id === "new-oneoff-form" && event.target.name) { if (event.target.name === "clientPhone") event.target.value = formatPhoneInput(event.target.value); state.oneoffDraft[event.target.name] = event.target.value; return; }
     // R2 (27/07) — rascunho da Rota rápida sobrevive a re-render (mesma lei L4-F).
     if (event.target.form && event.target.form.id === "montagem-rapida-form" && event.target.name && state.montagemRapida) { state.montagemRapida[event.target.name] = event.target.value; return; }
     // Rascunho do nome da rota salva (mesma lei L4-F: re-render não apaga o digitado).
@@ -7828,7 +8005,6 @@
       render();
       return;
     }
-    if (event.target.form && event.target.form.id === "new-oneoff-form" && event.target.name) { state.oneoffDraft[event.target.name] = event.target.value; return; }
     if (event.target.form && event.target.form.id === "edit-product-form" && event.target.name) { state.editProductDraft = { ...(state.editProductDraft || {}), [event.target.name]: event.target.value }; return; }
     if (event.target.form && event.target.form.id === "client-product-form" && event.target.name) { state.clientProductDraft[event.target.name] = event.target.value; return; }
     if (event.target.form && event.target.form.id === "client-details-form" && event.target.name) { state.clientPaymentDraft[event.target.name] = event.target.value; return; }
@@ -8046,7 +8222,6 @@
         button.disabled = false;
         render();
       }
-      if (form.id === "new-oneoff-form") { let customerProfileId = data.customerProfileId; if (!customerProfileId) { if (!data.clientName) throw new Error("Escolha ou informe o cliente avulso."); const client = await H.api("/nucleo/contas", { method: "POST", body: { nome: data.clientName, tipo: "pf", whatsapp: data.clientPhone, isCliente: true, isLead: false } }); customerProfileId = client && (client.id || client.contaId); } if (!customerProfileId) throw new Error("Não foi possível preparar o cliente avulso."); await H.api("/logistica/entregas", { method: "POST", body: { customerProfileId, productId: Number(data.productId), quantidade: Number(data.quantidade || 1), scheduledAt: operationalScheduledAt(), notes: data.notes || undefined } }); state.oneoffDraft = {}; await closeOverlay("modal"); await refresh(true); toast("Entrega avulsa adicionada à rota de hoje."); }
     } catch (error) { button.disabled = false; toast(humanApiError(error), true); }
   });
   // S5 21/07 (PR21072026-NAVEGAÇÃO-HBX) — "Chegada na parada: hbx:arrival já

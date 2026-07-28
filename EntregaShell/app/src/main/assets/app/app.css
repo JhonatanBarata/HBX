@@ -751,7 +751,11 @@ h3 { font-size: .95rem; }
 .route-current-location::after { content: ""; position: absolute; z-index: 0; inset: 3px; border: 3px solid color-mix(in srgb, var(--info) 58%, transparent); border-radius: 50%; pointer-events: none; animation: route-current-location-pulse 1.7s ease-out infinite; }
 @keyframes route-current-location-pulse { from { opacity: .8; transform: scale(.56); } to { opacity: 0; transform: scale(1.65); } }
 .route-gps-status { position: absolute; z-index: 5; top: 11px; left: 11px; min-height: 34px; display: inline-flex; align-items: center; padding: 7px 11px; border: 1px solid var(--glass-border); border-radius: 999px; color: var(--glass-ink); background: var(--glass-surface); box-shadow: 0 5px 16px rgba(17,28,43,.18); backdrop-filter: blur(10px); font-size: .68rem; font-weight: 850; letter-spacing: .01em; pointer-events: none; }
-.route-gps-status::before { content: ""; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--info); box-shadow: 0 0 0 4px color-mix(in srgb, var(--info) 18%, transparent); }
+.route-gps-status::before { content: ""; width: 7px; height: 7px; margin-right: 6px; margin-left: 1px; flex: 0 0 auto; border-radius: 50%; background: var(--info); box-shadow: 0 0 0 4px color-mix(in srgb, var(--info) 18%, transparent); }
+/* 28/07 (item 6) — no mapa parado esta faixa carrega o ENDEREÇO, que é longo:
+   sem teto ela atravessava o mapa inteiro. Uma linha só (o corte do texto é
+   feito no JS — dentro de um flex o text-overflow não pega o nó de texto). */
+.route-gps-status { max-width: calc(100% - 22px); white-space: nowrap; overflow: hidden; }
 .route-follow-control { position: absolute; z-index: 6; top: 10px; right: 10px; width: 42px; height: 42px; display: grid; place-items: center; padding: 0; border: 1px solid var(--glass-border); border-radius: 14px; color: var(--glass-ink); background: var(--glass-surface); box-shadow: 0 6px 18px rgba(17,28,43,.22); backdrop-filter: blur(10px); touch-action: manipulation; transition: color .2s ease, background .2s ease, transform .18s ease; }
 .route-follow-control:active { transform: scale(.94); }
 .route-follow-control.is-following { color: white; border-color: color-mix(in srgb, var(--info) 80%, white); background: var(--info); }
