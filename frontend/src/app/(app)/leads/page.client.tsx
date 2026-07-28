@@ -11,7 +11,7 @@
 // Visual 100% em classe/token central (5 Leis). Zero hex/rgba inline.
 
 import { useRouter } from "next/navigation";
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { Av, I, ICONS } from "@/components/hbx/shell";
 import { CanalIcon } from "@/components/hbx/canal-icon";
@@ -200,6 +200,7 @@ type GeoMode = "cities" | "radius" | "ddd" | "nearby";
 type RadarRequiredChannel = "whatsapp" | "phone" | "email" | "website";
 type DddLookupResponse = { state?: string; cities?: string[] };
 type GeoTarget = { city: string; state: string };
+type GeoModeDirection = "forward" | "back";
 
 // B0: statuses realmente terminais — removeu "error" fantasma, adicionou partial_error
 const TERMINAL_RUN = new Set(["completed", "completed_insufficient_results", "canceled", "failed", "partial_error"]);
@@ -331,6 +332,75 @@ function mergeFilterOptions(primary: FilterOption[] | undefined, fallback: Filte
     merged.push({ ...option, value, label: option.label || value });
   }
   return merged;
+}
+
+function GeoModeTransition({
+  mode,
+  direction,
+  children,
+}: {
+  mode: GeoMode;
+  direction: GeoModeDirection;
+  children: ReactNode;
+}) {
+  const stageRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const heightRef = useRef<number | null>(null);
+  const frameRef = useRef<number | null>(null);
+
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    const content = contentRef.current;
+    if (!stage || !content) return;
+
+    const nextHeight = Math.ceil(content.scrollHeight);
+    const previousHeight = heightRef.current;
+    if (previousHeight == null) {
+      stage.style.height = `${nextHeight}px`;
+      heightRef.current = nextHeight;
+      return;
+    }
+
+    stage.style.height = `${previousHeight}px`;
+    if (frameRef.current != null) window.cancelAnimationFrame(frameRef.current);
+    frameRef.current = window.requestAnimationFrame(() => {
+      stage.style.height = `${nextHeight}px`;
+      heightRef.current = nextHeight;
+      frameRef.current = null;
+    });
+  }, [mode]);
+
+  useEffect(() => {
+    const stage = stageRef.current;
+    const content = contentRef.current;
+    if (!stage || !content || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(entries => {
+      const nextHeight = Math.ceil(entries[0]?.contentRect.height || content.scrollHeight);
+      if (!nextHeight || nextHeight === heightRef.current) return;
+      stage.style.height = `${nextHeight}px`;
+      heightRef.current = nextHeight;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [mode]);
+
+  useEffect(() => () => {
+    if (frameRef.current != null) window.cancelAnimationFrame(frameRef.current);
+  }, []);
+
+  return (
+    <div ref={stageRef} className="be-geo-stage">
+      <div
+        key={mode}
+        ref={contentRef}
+        className="be-geo-stage__content"
+        data-direction={direction}
+      >
+        {children}
+      </div>
+    </div>
+  );
 }
 
 function fmtInt(n: number | null | undefined) {
@@ -672,6 +742,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   // no geoState do Topbar e no collapsed do ActivationChecklist.
   const [uf, setUf] = useState("");
   const [geoMode, setGeoMode] = useState<GeoMode>("cities");
+  const [geoModeDirection, setGeoModeDirection] = useState<GeoModeDirection>("forward");
   const geoModePill = useGlassPill<HTMLButtonElement>(geoMode);
   // `cities` é sempre limitado no estado. Região/Perto usam só a primeira;
   // Avulsas/DDD aceitam no máximo cinco alvos explícitos.
@@ -1313,6 +1384,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
 
   function selectGeoMode(nextMode: GeoMode) {
     if (nextMode === geoMode) return;
+    const currentIndex = GEO_MODE_META.findIndex(mode => mode.key === geoMode);
+    const nextIndex = GEO_MODE_META.findIndex(mode => mode.key === nextMode);
+    setGeoModeDirection(nextIndex >= currentIndex ? "forward" : "back");
     dddLookupTokenRef.current += 1;
     geoLookupTokenRef.current += 1;
     setDddBusy(false);
@@ -2959,8 +3033,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         const filtered = q ? cityOptions.filter(option => normCity(option.label).includes(q)) : cityOptions;
         const selectedOptions = cities.map(label => ({ value: label, label }));
         const visibleOptions = q
-          ? filtered.slice(0, 80)
-          : mergeFilterOptions(selectedOptions, filtered.slice(0, 24));
+          ? filtered
+          : mergeFilterOptions(selectedOptions, filtered);
         const selectionLimit = geoMode === "radius" || geoMode === "nearby" ? 1 : MAX_CITY_TARGETS;
         const showCityPicker = geoMode !== "nearby" && (geoMode !== "ddd" || dddOptions.length > 0);
         const territoryReady = geoTargets.length > 0
@@ -3009,236 +3083,231 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                   ))}
                 </div>
 
-                <div className="be-geo-mode-note">
-                  <span className="be-geo-mode-note__icon"><I d={geoModeInfo.icon} size={17} /></span>
-                  <span>
-                    <strong>{geoModeInfo.eyebrow}</strong>
-                    <small>{geoModeInfo.description}</small>
-                  </span>
-                </div>
-
-                {geoMode === "ddd" ? (
-                  <div className="be-geo-ddd">
-                    <div className="be-geo-ddd__field">
-                      <label htmlFor="be-ddd-input">DDD brasileiro</label>
-                      <div className="be-geo-ddd__control">
-                        <span className="be-geo-ddd__prefix">(</span>
-                        <input
-                          id="be-ddd-input"
-                          data-geo-autofocus
-                          value={ddd}
-                          inputMode="numeric"
-                          maxLength={2}
-                          disabled={dddBusy}
-                          placeholder="11"
-                          onChange={event => {
-                            markFiltersDirty();
-                            setDdd(event.target.value.replace(/\D/g, "").slice(0, 2));
-                            setDddOptions([]);
-                            setCities([]);
-                            setUf("");
-                            setDddError(null);
-                          }}
-                          onKeyDown={event => {
-                            if (event.key === "Enter" && !dddBusy) void consultarDdd();
-                          }}
-                          autoFocus
-                        />
-                        <span className="be-geo-ddd__suffix">)</span>
-                        <button
-                          type="button"
-                          className="btn-teal"
-                          onClick={() => void consultarDdd()}
-                          disabled={dddBusy || ddd.length !== 2}
-                        >
-                          {dddBusy ? "Consultando…" : "Consultar DDD"}
-                        </button>
-                      </div>
-                    </div>
-                    {dddError && <p className="be-geo-error" role="alert">{dddError}</p>}
-                    {dddOptions.length > 0 && (
-                      <p className="be-geo-ddd__result">
-                        <strong>DDD {ddd}</strong> · {uf} · {dddOptions.length} cidades encontradas
-                      </p>
-                    )}
-                  </div>
-                ) : geoMode === "nearby" ? (
-                  <div className={"be-geo-nearby" + (geoTargets.length > 0 ? " be-geo-nearby--ready" : "")}>
-                    <span className="be-geo-nearby__pulse"><I d={ICONS.mapin} size={21} /></span>
-                    <span className="be-geo-nearby__copy">
-                      <strong>{geoTargets.length > 0 ? `${geoTargets[0].city}/${geoTargets[0].state}` : "Use sua localização atual"}</strong>
-                      <small>
-                        {geo
-                          ? "Transformamos sua posição em uma cidade-base para o Radar."
-                          : "Ative a localização no topo do HBX para liberar este modo."}
-                      </small>
+                <GeoModeTransition mode={geoMode} direction={geoModeDirection}>
+                  <div className="be-geo-mode-note">
+                    <span className="be-geo-mode-note__icon"><I d={geoModeInfo.icon} size={17} /></span>
+                    <span>
+                      <strong>{geoModeInfo.eyebrow}</strong>
+                      <small>{geoModeInfo.description}</small>
                     </span>
-                    <button
-                      type="button"
-                      className="btn-ghost"
-                      data-geo-autofocus
-                      onClick={() => void pullGeoLocation()}
-                      disabled={!geo || geoBusy}
-                    >
-                      {geoBusy ? "Localizando…" : geoTargets.length > 0 ? "Atualizar" : "Usar localização"}
-                    </button>
                   </div>
-                ) : (
-                  <div className="be-geo-fields">
-                    <label className="f" htmlFor="be-geo-uf">
-                      <span>Estado</span>
-                      <select
-                        id="be-geo-uf"
-                        className="select-dark"
-                        value={uf}
-                        onChange={event => {
-                          markFiltersDirty();
-                          setUf(event.target.value);
-                          setCities([]);
-                          setCitiesQuery("");
-                          setCitiesLimitMsg(null);
-                        }}
-                      >
-                        <option value="">Escolha a UF</option>
-                        {ufOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                      </select>
-                    </label>
-                    <label className="f" htmlFor="be-geo-city-search">
-                      <span>Buscar cidade</span>
-                      <div className="be-cities__search">
-                        <I d={ICONS.search} size={15} />
-                        <input
-                          id="be-geo-city-search"
-                          data-geo-autofocus
-                          value={citiesQuery}
-                          onChange={event => setCitiesQuery(event.target.value)}
-                          placeholder={uf ? "Digite o nome da cidade" : "Escolha a UF primeiro"}
-                          disabled={!uf}
-                          autoFocus
-                        />
-                      </div>
-                    </label>
-                  </div>
-                )}
 
-                {showCityPicker && (
-                  <div className="be-geo-picker">
-                    {geoMode === "ddd" && (
-                      <div className="be-cities__search">
-                        <I d={ICONS.search} size={15} />
-                        <input
-                          value={citiesQuery}
-                          onChange={event => setCitiesQuery(event.target.value)}
-                          placeholder="Buscar dentro deste DDD"
-                          aria-label="Buscar cidade dentro do DDD"
-                        />
-                      </div>
-                    )}
-                    <div className="be-cities__toolbar">
-                      <span className="be-cities__selcount">
-                        {cities.length}/{selectionLimit} selecionada{cities.length === 1 ? "" : "s"}
-                      </span>
-                      <span className="be-cities__visible-count">
-                        {q
-                          ? filtered.length > 80
-                            ? `Mostrando 80 de ${filtered.length} resultados`
-                            : `${visibleOptions.length} resultado${visibleOptions.length === 1 ? "" : "s"}`
-                          : cityOptions.length > 24
-                            ? `Mostrando ${visibleOptions.length} de ${cityOptions.length}`
-                            : `${cityOptions.length} cidades`}
-                      </span>
-                    </div>
-                    <div className="be-cities__list" role="group" aria-label="Cidades disponíveis">
-                      {cityOptions.length === 0 ? (
-                        <div className="be-cities__empty">
-                          {geoMode === "ddd" ? "Consulte um DDD para ver as cidades." : "Escolha um estado para ver as cidades."}
+                  {geoMode === "ddd" ? (
+                    <div className="be-geo-ddd">
+                      <div className="be-geo-ddd__field">
+                        <label htmlFor="be-ddd-input">DDD brasileiro</label>
+                        <div className="be-geo-ddd__control">
+                          <span className="be-geo-ddd__prefix">(</span>
+                          <input
+                            id="be-ddd-input"
+                            data-geo-autofocus
+                            value={ddd}
+                            inputMode="numeric"
+                            maxLength={2}
+                            disabled={dddBusy}
+                            placeholder="11"
+                            onChange={event => {
+                              markFiltersDirty();
+                              setDdd(event.target.value.replace(/\D/g, "").slice(0, 2));
+                              setDddOptions([]);
+                              setCities([]);
+                              setUf("");
+                              setDddError(null);
+                            }}
+                            onKeyDown={event => {
+                              if (event.key === "Enter" && !dddBusy) void consultarDdd();
+                            }}
+                            autoFocus
+                          />
+                          <span className="be-geo-ddd__suffix">)</span>
+                          <button
+                            type="button"
+                            className="btn-teal"
+                            onClick={() => void consultarDdd()}
+                            disabled={dddBusy || ddd.length !== 2}
+                          >
+                            {dddBusy ? "Consultando…" : "Consultar DDD"}
+                          </button>
                         </div>
-                      ) : filtered.length === 0 ? (
-                        <div className="be-cities__empty">Nenhuma cidade encontrada.</div>
-                      ) : (
-                        visibleOptions.map(option => {
-                          const on = cities.includes(option.label);
-                          const disabled = !on && cities.length >= selectionLimit;
-                          return (
-                            <button
-                              key={option.value}
-                              type="button"
-                              aria-pressed={on}
-                              disabled={disabled}
-                              className={"be-cities__opt" + (on ? " is-on" : "")}
-                              onClick={() => toggleCity(option.label)}
-                            >
-                              <span className="be-cities__check" aria-hidden="true">{on && <I d={ICONS.check} size={13} />}</span>
-                              <span className="be-cities__opt-label">{option.label}</span>
-                              {on && <span className="be-cities__opt-state">{uf}</span>}
-                            </button>
-                          );
-                        })
+                      </div>
+                      {dddError && <p className="be-geo-error" role="alert">{dddError}</p>}
+                      {dddOptions.length > 0 && (
+                        <p className="be-geo-ddd__result">
+                          <strong>DDD {ddd}</strong> · {uf} · {dddOptions.length} cidades encontradas
+                        </p>
                       )}
                     </div>
-                    {!q && cityOptions.length > 24 && (
-                      <p className="be-cities__search-tip">Digite acima para buscar entre todas as {cityOptions.length} cidades.</p>
-                    )}
-                    {citiesLimitMsg && <p className="be-geo-limit-message" aria-live="polite">{citiesLimitMsg}</p>}
-                  </div>
-                )}
-
-                {(geoMode === "radius" || geoMode === "nearby") && (
-                  <div className="be-geo-radius">
-                    <div className="be-geo-radius__head">
-                      <span>
-                        <strong>Raio da região</strong>
-                        <small>Uma única execução, a partir da cidade-base.</small>
+                  ) : geoMode === "nearby" ? (
+                    <div className={"be-geo-nearby" + (geoTargets.length > 0 ? " be-geo-nearby--ready" : "")}>
+                      <span className="be-geo-nearby__pulse"><I d={ICONS.mapin} size={21} /></span>
+                      <span className="be-geo-nearby__copy">
+                        <strong>{geoTargets.length > 0 ? `${geoTargets[0].city}/${geoTargets[0].state}` : "Use sua localização atual"}</strong>
+                        <small>
+                          {geo
+                            ? "Transformamos sua posição em uma cidade-base para o Radar."
+                            : "Ative a localização no topo do HBX para liberar este modo."}
+                        </small>
                       </span>
-                      <strong>{alcance || "—"} km</strong>
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        data-geo-autofocus
+                        onClick={() => void pullGeoLocation()}
+                        disabled={!geo || geoBusy}
+                      >
+                        {geoBusy ? "Localizando…" : geoTargets.length > 0 ? "Atualizar" : "Usar localização"}
+                      </button>
                     </div>
-                    <div className="be-geo-radius__options" role="group" aria-label="Raio da região">
-                      {[25, 50, 100, 250].map(radius => (
-                        <button
-                          key={radius}
-                          type="button"
-                          className={alcance === String(radius) ? "active" : ""}
-                          onClick={() => { markFiltersDirty(); setAlcance(String(radius)); }}
-                          aria-pressed={alcance === String(radius)}
+                  ) : (
+                    <div className="be-geo-fields">
+                      <label className="f" htmlFor="be-geo-uf">
+                        <span>Estado</span>
+                        <select
+                          id="be-geo-uf"
+                          className="select-dark"
+                          value={uf}
+                          onChange={event => {
+                            markFiltersDirty();
+                            setUf(event.target.value);
+                            setCities([]);
+                            setCitiesQuery("");
+                            setCitiesLimitMsg(null);
+                          }}
                         >
-                          {radius} km
-                        </button>
+                          <option value="">Escolha a UF</option>
+                          {ufOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                      </label>
+                      <label className="f" htmlFor="be-geo-city-search">
+                        <span>Buscar cidade</span>
+                        <div className="be-cities__search">
+                          <I d={ICONS.search} size={15} />
+                          <input
+                            id="be-geo-city-search"
+                            data-geo-autofocus
+                            value={citiesQuery}
+                            onChange={event => setCitiesQuery(event.target.value)}
+                            placeholder={uf ? "Digite o nome da cidade" : "Escolha a UF primeiro"}
+                            disabled={!uf}
+                            autoFocus
+                          />
+                        </div>
+                      </label>
+                    </div>
+                  )}
+
+                  {showCityPicker && (
+                    <div className="be-geo-picker">
+                      {geoMode === "ddd" && (
+                        <div className="be-cities__search">
+                          <I d={ICONS.search} size={15} />
+                          <input
+                            value={citiesQuery}
+                            onChange={event => setCitiesQuery(event.target.value)}
+                            placeholder="Buscar dentro deste DDD"
+                            aria-label="Buscar cidade dentro do DDD"
+                          />
+                        </div>
+                      )}
+                      <div className="be-cities__toolbar">
+                        <span className="be-cities__selcount">
+                          {cities.length}/{selectionLimit} selecionada{cities.length === 1 ? "" : "s"}
+                        </span>
+                        <span className="be-cities__visible-count">
+                          {q
+                            ? `${visibleOptions.length} resultado${visibleOptions.length === 1 ? "" : "s"}`
+                            : `${cityOptions.length} cidades`}
+                        </span>
+                      </div>
+                      <div className="be-cities__list" role="group" aria-label="Cidades disponíveis">
+                        {cityOptions.length === 0 ? (
+                          <div className="be-cities__empty">
+                            {geoMode === "ddd" ? "Consulte um DDD para ver as cidades." : "Escolha um estado para ver as cidades."}
+                          </div>
+                        ) : filtered.length === 0 ? (
+                          <div className="be-cities__empty">Nenhuma cidade encontrada.</div>
+                        ) : (
+                          visibleOptions.map(option => {
+                            const on = cities.includes(option.label);
+                            const disabled = !on && cities.length >= selectionLimit;
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                aria-pressed={on}
+                                disabled={disabled}
+                                className={"be-cities__opt" + (on ? " is-on" : "")}
+                                onClick={() => toggleCity(option.label)}
+                              >
+                                <span className="be-cities__check" aria-hidden="true">{on && <I d={ICONS.check} size={13} />}</span>
+                                <span className="be-cities__opt-label">{option.label}</span>
+                                {on && <span className="be-cities__opt-state">{uf}</span>}
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                      {citiesLimitMsg && <p className="be-geo-limit-message" aria-live="polite">{citiesLimitMsg}</p>}
+                    </div>
+                  )}
+
+                  {(geoMode === "radius" || geoMode === "nearby") && (
+                    <div className="be-geo-radius">
+                      <div className="be-geo-radius__head">
+                        <span>
+                          <strong>Raio da região</strong>
+                          <small>Uma única execução, a partir da cidade-base.</small>
+                        </span>
+                        <strong>{alcance || "—"} km</strong>
+                      </div>
+                      <div className="be-geo-radius__options" role="group" aria-label="Raio da região">
+                        {[25, 50, 100, 250].map(radius => (
+                          <button
+                            key={radius}
+                            type="button"
+                            className={alcance === String(radius) ? "active" : ""}
+                            onClick={() => { markFiltersDirty(); setAlcance(String(radius)); }}
+                            aria-pressed={alcance === String(radius)}
+                          >
+                            {radius} km
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className={"be-geo-plan" + (territoryReady ? " be-geo-plan--ready" : "")}>
+                    <div className="be-geo-plan__head">
+                      <span>
+                        <small>Plano do Radar</small>
+                        <strong>
+                          {geoMode === "cities" || geoMode === "ddd"
+                            ? `${geoTargets.length} cidade${geoTargets.length === 1 ? "" : "s"} = ${geoTargets.length} execução${geoTargets.length === 1 ? "" : "ões"} em fila`
+                            : "1 execução regional"}
+                        </strong>
+                      </span>
+                      <span className="be-geo-plan__safety"><I d={ICONS.check} size={12} /> uma por vez nesta tela</span>
+                    </div>
+                    <div className="be-geo-plan__targets">
+                      {geoTargets.length === 0 ? (
+                        <span className="be-geo-plan__empty">Nenhum alvo definido.</span>
+                      ) : geoTargets.map((target, index) => (
+                        <span key={`${target.state}-${target.city}`} className="be-geo-target">
+                          <b>{index + 1}</b>
+                          {target.city}/{target.state}
+                          {geoMode !== "nearby" && (
+                            <button type="button" onClick={() => toggleCity(target.city)} aria-label={`Remover ${target.city}`}>
+                              <I d={ICONS.x} size={10} />
+                            </button>
+                          )}
+                        </span>
                       ))}
                     </div>
+                    {geoTargets.length > 1 && (
+                      <p className="be-geo-plan__note">Mantenha esta tela aberta até a fila concluir todos os alvos.</p>
+                    )}
                   </div>
-                )}
-
-                <div className={"be-geo-plan" + (territoryReady ? " be-geo-plan--ready" : "")}>
-                  <div className="be-geo-plan__head">
-                    <span>
-                      <small>Plano do Radar</small>
-                      <strong>
-                        {geoMode === "cities" || geoMode === "ddd"
-                          ? `${geoTargets.length} cidade${geoTargets.length === 1 ? "" : "s"} = ${geoTargets.length} execução${geoTargets.length === 1 ? "" : "ões"} em fila`
-                          : "1 execução regional"}
-                      </strong>
-                    </span>
-                    <span className="be-geo-plan__safety"><I d={ICONS.check} size={12} /> uma por vez nesta tela</span>
-                  </div>
-                  <div className="be-geo-plan__targets">
-                    {geoTargets.length === 0 ? (
-                      <span className="be-geo-plan__empty">Nenhum alvo definido.</span>
-                    ) : geoTargets.map((target, index) => (
-                      <span key={`${target.state}-${target.city}`} className="be-geo-target">
-                        <b>{index + 1}</b>
-                        {target.city}/{target.state}
-                        {geoMode !== "nearby" && (
-                          <button type="button" onClick={() => toggleCity(target.city)} aria-label={`Remover ${target.city}`}>
-                            <I d={ICONS.x} size={10} />
-                          </button>
-                        )}
-                      </span>
-                    ))}
-                  </div>
-                  {geoTargets.length > 1 && (
-                    <p className="be-geo-plan__note">Mantenha esta tela aberta até a fila concluir todos os alvos.</p>
-                  )}
-                </div>
+                </GeoModeTransition>
 
                 <div className="be-cities__foot">
                   <span className="be-cities__autosave">A seleção é aplicada na hora.</span>
