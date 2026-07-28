@@ -68,6 +68,7 @@ import { RadarGoogleResponseService } from './providers/google-search/radar-goog
 import { RadarHbxEngineErrorsService } from './providers/hbx-engine/radar-hbx-engine-errors.service';
 import { RadarSharedNormalizerService } from './shared/radar-shared-normalizer.service';
 import { CnpjBaseQueryService } from './providers/cnpj-public/cnpj-base-query.service';
+import { CnpjRfbReconcileService } from './providers/cnpj-public/cnpj-rfb-reconcile.service';
 import { NucleoCadastroService } from '../../nucleo/nucleo-cadastro.service';
 
 import {
@@ -268,6 +269,7 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
     @Optional() private readonly radarGoogleResponse?: RadarGoogleResponseService,
     @Optional() private readonly radarHbxEngineErrors?: RadarHbxEngineErrorsService,
     @Optional() private readonly cnpjBaseQuery?: CnpjBaseQueryService,
+    @Optional() private readonly cnpjRfbReconcile?: CnpjRfbReconcileService,
   ) {}
 
   onModuleInit() {
@@ -455,6 +457,15 @@ export class RadarWebscrapingCoreService implements OnModuleInit, OnModuleDestro
 
   private getRadarWebSourceGate() {
     return this.radarWebSourceGate || new RadarWebSourceGateService();
+  }
+
+  // F3 REFUNDAÇÃO (28/07): reconciliação web→RFB antes da prateleira (cache de DDD por cidade
+  // vive na instância — lazy singleton igual ao padrão getEnginePool).
+  private cnpjRfbReconcileLazy: CnpjRfbReconcileService | null = null;
+  private getCnpjRfbReconcile() {
+    if (this.cnpjRfbReconcile) return this.cnpjRfbReconcile;
+    if (!this.cnpjRfbReconcileLazy) this.cnpjRfbReconcileLazy = new CnpjRfbReconcileService();
+    return this.cnpjRfbReconcileLazy;
   }
 
   private getRadarRunItemFilter() {
