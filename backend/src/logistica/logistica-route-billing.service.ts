@@ -436,13 +436,28 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
    */
   private async cobrirBlocoPelaFranquia(route: RouteRow, blockIndex: number): Promise<boolean> {
     const claim = await this.ensureClaim(route, blockIndex);
-    if (claim.status === 'PLAN') return true; // já coberto: repreparar não reconta
+    if (claim.status === 'PLAN') {
+      // Já coberto: repreparar não reconta. Mas o carimbo de geração precisa
+      // acompanhar a rota: assertRouteBillingReady confere billingRevision, e a
+      // revisão bumpa a cada mudança de snapshot — sem re-carimbar aqui, o
+      // claim PLAN de uma revisão antiga levava 402 num iniciar posterior
+      // (provado em prod 28/07: bloco coberto às 14:02, 402 às 14:16).
+      if (claim.billingRevision !== route.billingRevision) {
+        await (this.prisma as any).logisticaEssentialCreditClaim.updateMany({
+          where: { companyId: route.companyId, id: claim.id, status: 'PLAN' },
+          data: { billingRevision: route.billingRevision },
+        });
+      }
+      return true;
+    }
     if (claim.status !== 'PENDING' || claim.debitUsageKey) return false;
     const updated = await (this.prisma as any).logisticaEssentialCreditClaim.updateMany({
       // Guarda por status DENTRO do update: se outro processo pegou o claim pro
       // débito no meio, count=0 e o chamador segue pro caminho de sempre.
       where: { companyId: route.companyId, id: claim.id, status: 'PENDING', debitUsageKey: null },
-      data: { status: 'PLAN', debitedAt: new Date(), lastError: null, processingToken: null, leaseUntil: null },
+      // billingRevision acompanha a rota — mesma régua do caminho DEBITED
+      // (acquireClaim carimba a revisão; o gate de prontidão filtra por ela).
+      data: { status: 'PLAN', billingRevision: route.billingRevision, debitedAt: new Date(), lastError: null, processingToken: null, leaseUntil: null },
     });
     return updated.count === 1;
   }
