@@ -14,6 +14,7 @@
     "build": "tsc -p tsconfig.json",
     "test:purge-stale": "node -e \"const fs=require('fs'),p=require('path');let n=0;(function w(d){if(!fs.existsSync(d))return;for(const e of fs.readdirSync(d,{withFileTypes:true})){const f=p.join(d,e.name);if(e.isDirectory())w(f);else if(/\\.test\\.js(\\.map)?$/.test(e.name)){fs.rmSync(f);n++}}})('dist');console.log('[test] '+n+' artefato(s) de teste antigos removidos do dist')\"",
     "test:all": "npm run test:purge-stale && npm run build && node --test \"dist/**/*.test.js\"",
+    "test:financeiro-extrato": "npm run build && node --test dist/financeiro-tenant/financeiro-tenant-extrato.test.js",
     "test:credits": "npm run build && node --test dist/credits/credit-action-config.service.test.js dist/credits/credit-action-usage.service.test.js dist/credits/credit-pack-catalog.test.js dist/credits/credit-pack-config.service.test.js dist/credits/credit-wallet.service.test.js dist/credits/credits.service.test.js dist/credits/credits-master-debit.controller.test.js dist/financeiro/financeiro-credit-reversal.test.js dist/commercial-plans/commercial-usage-limits.service.test.js",
     "test:indicacao": "npm run build && node --test dist/credits/indicacao.service.test.js",
     "test:profile-prospecting": "npm run build && node --test dist/auth/profile-prospecting-segments.test.js",

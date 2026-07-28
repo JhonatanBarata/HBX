@@ -53,6 +53,104 @@
   flex-wrap: wrap;
 }
 
+/* EXTRATO DETALHADO (28/07) — a linha da cobrança abre e mostra TUDO o que ficou
+   salvo (datas com hora, forma, quem lançou, referências) + as entregas somadas. */
+.fin-hint {
+  padding: 0 16px 8px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+
+.fin-exp {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.fin-exp:hover {
+  color: var(--text-strong);
+}
+
+.fin-exp-ico {
+  display: inline-block;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  transition: transform 0.15s ease;
+}
+.fin-exp-ico.open {
+  transform: rotate(90deg);
+}
+
+/* A .tbl trava `white-space: nowrap` na célula — o detalhe precisa quebrar linha. */
+.fin-tr-det > td,
+.fin-tr-det:hover > td {
+  background: var(--surface-recessed);
+  padding: 0;
+  white-space: normal;
+}
+
+.fin-det {
+  display: grid;
+  gap: var(--space-3);
+  padding: 14px 16px 18px;
+  border-left: 2px solid var(--hbx-primary);
+}
+
+.fin-det-block {
+  display: grid;
+  gap: 8px;
+}
+
+.fin-det-title {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.fin-det-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px 18px;
+}
+
+.fin-det-item {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.fin-det-k {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+}
+
+.fin-det-v {
+  font-size: 0.78rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.fin-det-sub {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  overflow-wrap: anywhere;
+}
+
+.fin-det-tbl th,
+.fin-det-tbl td {
+  font-size: 0.72rem;
+}
+
 .fin-st {
   font-weight: 700;
 }

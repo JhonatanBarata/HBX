@@ -23,6 +23,22 @@ type SaldoCliente = {
 };
 type SaldosResponse = { clientes: SaldoCliente[] };
 
+type ExtratoEntrega = {
+  id: string;
+  data: string | null;
+  entregue: boolean;
+  status: string;
+  quantidade: number;
+  valor: number;
+  produto: string | null;
+  entregador: string | null;
+  local: string | null;
+  recebidoNaHora: boolean | null;
+  receiptMethod: string | null;
+  cobrancaOutcome: string | null;
+  observacao: string | null;
+};
+
 type ExtratoCharge = {
   id: string;
   amount: number;
@@ -34,6 +50,26 @@ type ExtratoCharge = {
   dueDate: string | null;
   paidAt: string | null;
   createdAt: string | null;
+  updatedAt: string | null;
+  billingCycle: string | null;
+  paymentMethod: string | null;
+  competence: string | null;
+  externalReference: string | null;
+  entregaId: string | null;
+  ledgerEntryId: string | null;
+  refundedAt: string | null;
+  refundAmount: number;
+  mpPaymentId: string | null;
+  mpPreferenceId: string | null;
+  mpMerchantOrderId: string | null;
+  paymentUrl: string | null;
+  pixTicketUrl: string | null;
+  lastWebhookAt: string | null;
+  criadoPorUserId: number | null;
+  criadoPor: string | null;
+  detalhes: Record<string, unknown> | null;
+  entregas: ExtratoEntrega[];
+  entregasTotal: number;
 };
 type ExtratoResponse = {
   clienteId: string;
@@ -79,6 +115,206 @@ function fmtDate(iso: string | null): string {
   }
 }
 
+/** Data COM hora (fuso do navegador do dono) — o extrato detalhado precisa da hora. */
+function fmtDateTime(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+}
+
+const CICLO: Record<string, string> = {
+  ONCE: "Avulsa (uma vez)",
+  MONTHLY: "Mensal",
+  ANNUAL: "Anual",
+};
+const FORMA_COBRANCA: Record<string, string> = {
+  MANUAL: "Manual (na mão)",
+  PIX: "Pix",
+  CARD: "Cartão",
+  BOLETO: "Boleto",
+  BONUS: "Bônus",
+};
+const FORMA_RECEBIDA: Record<string, string> = {
+  pix: "Pix",
+  dinheiro: "Dinheiro",
+  cartao: "Cartão",
+  fiado: "Fiado (anotado)",
+  na_hora: "Na hora",
+  pendura: "Pendurado (fiado)",
+  avulso: "Avulso",
+};
+const ETAPA: Record<string, string> = {
+  in_progress: "Em aberto",
+  paid: "Paga",
+  cancelled: "Cancelada",
+  finalized: "Finalizada",
+};
+const ENTREGA_STATUS: Record<string, string> = {
+  agendada: "Agendada",
+  em_rota: "Em rota",
+  entregue: "Entregue",
+  cancelada: "Cancelada",
+};
+const COBRANCA_OUTCOME: Record<string, string> = {
+  lancada: "Lançada",
+  aguardando_fechamento: "Aguardando fechamento",
+  nao_contabilizado: "Não contabilizado",
+  isenta: "Isenta",
+  falhou: "Falhou",
+};
+
+/** Chaves do providerPayload já mostradas em campo próprio (o resto vai no bruto). */
+const PAYLOAD_JA_MOSTRADO = new Set([
+  "source",
+  "entregaId",
+  "entregaIds",
+  "forma",
+  "pagoNaHora",
+  "receiptMethod",
+  "mesRef",
+]);
+
+function rotulo(mapa: Record<string, string>, valor: string | null | undefined): string | null {
+  const v = String(valor ?? "").trim();
+  if (!v) return null;
+  return mapa[v] || v;
+}
+
+function texto(valor: unknown): string | null {
+  if (valor == null) return null;
+  if (typeof valor === "boolean") return valor ? "Sim" : "Não";
+  if (typeof valor === "object") return JSON.stringify(valor);
+  const s = String(valor).trim();
+  return s || null;
+}
+
+/** Um dado do extrato. Some da tela quando não há valor salvo — nada de "—" por toda parte. */
+function Campo({ label, value }: { label: string; value: string | null | undefined }) {
+  if (!value) return null;
+  return (
+    <div className="fin-det-item">
+      <span className="fin-det-k">{label}</span>
+      <span className="fin-det-v">{value}</span>
+    </div>
+  );
+}
+
+/**
+ * Detalhe de UMA cobrança: TUDO o que ficou salvo dela (datas com hora, ciclo,
+ * forma, quem lançou, referências) + as entregas que a compõem (avulsa = 1;
+ * fatura mensal = todas as somadas no fechamento). Campo vazio não aparece.
+ */
+function ChargeDetalhe({ ch }: { ch: ExtratoCharge }) {
+  const det = ch.detalhes || {};
+  const formaRecebida =
+    rotulo(FORMA_RECEBIDA, texto(det.receiptMethod)) || rotulo(FORMA_RECEBIDA, texto(det.forma));
+  const pagoNaHora = typeof det.pagoNaHora === "boolean" ? (det.pagoNaHora ? "Sim" : "Não") : null;
+  const mesRef = texto(det.mesRef) || ch.competence;
+  const extras = Object.entries(det).filter(
+    ([k, v]) => !PAYLOAD_JA_MOSTRADO.has(k) && texto(v) != null,
+  );
+
+  return (
+    <div className="fin-det">
+      <div className="fin-det-block">
+        <div className="fin-det-title">Cobrança</div>
+        <div className="fin-det-grid">
+          <Campo label="Valor" value={`${brl(ch.amount)} (${ch.currency || "BRL"})`} />
+          <Campo label="Situação" value={statusLabel(ch.status).label} />
+          <Campo label="Etapa" value={rotulo(ETAPA, ch.lifecycle)} />
+          <Campo label="Origem" value={origemLabel(ch.sourceModule)} />
+          <Campo label="Tipo de cobrança" value={rotulo(CICLO, ch.billingCycle)} />
+          <Campo label="Forma prevista" value={rotulo(FORMA_COBRANCA, ch.paymentMethod)} />
+          <Campo label="Como foi recebido" value={formaRecebida} />
+          <Campo label="Pago na hora" value={pagoNaHora} />
+          <Campo label="Mês de referência" value={mesRef} />
+          <Campo label="Criada em" value={fmtDateTime(ch.createdAt)} />
+          <Campo label="Vencimento" value={fmtDateTime(ch.dueDate)} />
+          <Campo label="Paga em" value={fmtDateTime(ch.paidAt)} />
+          <Campo label="Última alteração" value={fmtDateTime(ch.updatedAt)} />
+          <Campo label="Lançada por" value={ch.criadoPor || (ch.criadoPorUserId ? `Usuário #${ch.criadoPorUserId}` : null)} />
+          <Campo label="Estornada em" value={fmtDateTime(ch.refundedAt)} />
+          <Campo label="Valor estornado" value={ch.refundAmount > 0 ? brl(ch.refundAmount) : null} />
+          <Campo label="Último retorno do banco" value={fmtDateTime(ch.lastWebhookAt)} />
+        </div>
+      </div>
+
+      {ch.entregas.length > 0 && (
+        <div className="fin-det-block">
+          <div className="fin-det-title">
+            {ch.entregasTotal > 1
+              ? `Entregas somadas nesta cobrança (${ch.entregasTotal})`
+              : "Entrega desta cobrança"}
+          </div>
+          <div className="tbl-wrap">
+            <table className="tbl fin-det-tbl">
+              <thead>
+                <tr>
+                  <th>Data</th>
+                  <th>Produto</th>
+                  <th>Qtd</th>
+                  <th>Valor</th>
+                  <th>Situação</th>
+                  <th>Entregador</th>
+                  <th>Recebimento</th>
+                </tr>
+              </thead>
+              <tbody>
+                {ch.entregas.map((e) => (
+                  <tr key={e.id} className="fin-tr-static">
+                    <td>{fmtDateTime(e.data) || "—"}</td>
+                    <td>
+                      {e.produto || "—"}
+                      {e.local ? <span className="fin-det-sub">{e.local}</span> : null}
+                      {e.observacao ? <span className="fin-det-sub">{e.observacao}</span> : null}
+                    </td>
+                    <td>{e.quantidade}</td>
+                    <td>{brl(e.valor)}</td>
+                    <td>{rotulo(ENTREGA_STATUS, e.status)}</td>
+                    <td>{e.entregador || "—"}</td>
+                    <td>
+                      {rotulo(FORMA_RECEBIDA, e.receiptMethod) ||
+                        (e.recebidoNaHora === false ? "Não recebido" : "—")}
+                      {e.cobrancaOutcome ? (
+                        <span className="fin-det-sub">{rotulo(COBRANCA_OUTCOME, e.cobrancaOutcome)}</span>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {ch.entregasTotal > ch.entregas.length && (
+            <div className="fin-det-sub">
+              {ch.entregasTotal - ch.entregas.length} entrega(s) desta cobrança já não existem mais no
+              cadastro.
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="fin-det-block">
+        <div className="fin-det-title">Registro</div>
+        <div className="fin-det-grid">
+          <Campo label="ID da cobrança" value={ch.id} />
+          <Campo label="Referência externa" value={ch.externalReference} />
+          <Campo label="ID da entrega" value={ch.entregaId} />
+          <Campo label="Lançamento no caixa" value={ch.ledgerEntryId} />
+          <Campo label="Pagamento (Mercado Pago)" value={ch.mpPaymentId} />
+          <Campo label="Preferência (Mercado Pago)" value={ch.mpPreferenceId} />
+          <Campo label="Pedido (Mercado Pago)" value={ch.mpMerchantOrderId} />
+          <Campo label="Link de pagamento" value={ch.paymentUrl} />
+          <Campo label="Comprovante Pix" value={ch.pixTicketUrl} />
+          {extras.map(([k, v]) => (
+            <Campo key={k} label={k} value={texto(v)} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function FinanceiroClient() {
   const user = useCurrentUser();
   const admin = isTenantAdmin(user);
@@ -94,6 +330,13 @@ export function FinanceiroClient() {
 
   const [armed, setArmed] = useState<string | null>(null);
   const [quitando, setQuitando] = useState<string | null>(null);
+  const [abertos, setAbertos] = useState<string[]>([]);
+
+  const toggleDetalhe = useCallback((chargeId: string) => {
+    setAbertos((prev) =>
+      prev.includes(chargeId) ? prev.filter((id) => id !== chargeId) : [...prev, chargeId],
+    );
+  }, []);
 
   const loadSaldos = useCallback(async () => {
     setLoading(true);
@@ -265,6 +508,7 @@ export function FinanceiroClient() {
             </div>
           </div>
           {extErro && <div className="fin-err">{extErro}</div>}
+          <div className="fin-hint">Clique na cobrança para ver tudo o que ficou registrado nela.</div>
           <div className="tbl-wrap">
             <table className="tbl">
               <thead>
@@ -292,26 +536,45 @@ export function FinanceiroClient() {
                   (extrato?.charges || []).map((ch) => {
                     const st = statusLabel(ch.status);
                     const podeQuitar = String(ch.status).toLowerCase() === "pending";
+                    const aberto = abertos.includes(ch.id);
                     return (
-                      <tr key={ch.id} className="fin-tr-static">
-                        <td>{ch.description}</td>
-                        <td>{origemLabel(ch.sourceModule)}</td>
-                        <td>{fmtDate(ch.dueDate)}</td>
-                        <td><span className={`fin-st ${st.cls}`}>{st.label}</span></td>
-                        <td>{brl(ch.amount)}</td>
-                        <td className="fin-td-actions">
-                          {podeQuitar && armed !== ch.id && (
-                            <button className="btn-ghost" disabled={!!quitando} onClick={() => setArmed(ch.id)}>
-                              Marcar pago
+                      <React.Fragment key={ch.id}>
+                        <tr className="fin-tr-static">
+                          <td>
+                            <button
+                              className="fin-exp"
+                              aria-expanded={aberto}
+                              onClick={() => toggleDetalhe(ch.id)}
+                            >
+                              <span className={`fin-exp-ico${aberto ? " open" : ""}`}>▸</span>
+                              {ch.description}
                             </button>
-                          )}
-                          {podeQuitar && armed === ch.id && (
-                            <button className="btn-teal" disabled={quitando === ch.id} onClick={() => marcarPago(ch.id)}>
-                              {quitando === ch.id ? "…" : "Confirmar"}
-                            </button>
-                          )}
-                        </td>
-                      </tr>
+                          </td>
+                          <td>{origemLabel(ch.sourceModule)}</td>
+                          <td>{fmtDate(ch.dueDate)}</td>
+                          <td><span className={`fin-st ${st.cls}`}>{st.label}</span></td>
+                          <td>{brl(ch.amount)}</td>
+                          <td className="fin-td-actions">
+                            {podeQuitar && armed !== ch.id && (
+                              <button className="btn-ghost" disabled={!!quitando} onClick={() => setArmed(ch.id)}>
+                                Marcar pago
+                              </button>
+                            )}
+                            {podeQuitar && armed === ch.id && (
+                              <button className="btn-teal" disabled={quitando === ch.id} onClick={() => marcarPago(ch.id)}>
+                                {quitando === ch.id ? "…" : "Confirmar"}
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                        {aberto && (
+                          <tr className="fin-tr-static fin-tr-det">
+                            <td colSpan={6}>
+                              <ChargeDetalhe ch={ch} />
+                            </td>
+                          </tr>
+                        )}
+                      </React.Fragment>
                     );
                   })}
               </tbody>

@@ -8,6 +8,44 @@ import {
 
 const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
+/** Teto de entregas resolvidas por extrato (fatura mensal pode somar centenas). */
+const EXTRATO_ENTREGAS_CAP = 500;
+
+/** providerPayload é TEXT com JSON — decodifica sem nunca derrubar o extrato. */
+function parseDetalhes(raw: string | null): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Entregas referenciadas por uma cobrança: a própria (avulsa) + as somadas (fatura). */
+function entregaIdsDoCharge(
+  entregaId: string | null,
+  detalhes: Record<string, unknown> | null,
+): string[] {
+  const ids = new Set<string>();
+  const direto = String(entregaId || '').trim();
+  if (direto) ids.add(direto);
+  const lista = detalhes?.entregaIds;
+  if (Array.isArray(lista)) {
+    for (const item of lista) {
+      const id = String(item ?? '').trim();
+      if (id) ids.add(id);
+    }
+  }
+  return [...ids];
+}
+
+function iso(d: Date | null | undefined): string | null {
+  return d ? d.toISOString() : null;
+}
+
 export interface SaldoClienteRow {
   customerProfileId: string;
   nome: string | null;
@@ -17,6 +55,23 @@ export interface SaldoClienteRow {
 export interface SaldosResult {
   clientes: SaldoClienteRow[];
 }
+/** Uma entrega que COMPÕE a cobrança (a própria, ou uma das somadas na fatura mensal). */
+export interface ExtratoEntregaRow {
+  id: string;
+  data: string | null; // deliveredAt (real) ou scheduledAt (agendada)
+  entregue: boolean;
+  status: string;
+  quantidade: number;
+  valor: number;
+  produto: string | null;
+  entregador: string | null;
+  local: string | null;
+  recebidoNaHora: boolean | null;
+  receiptMethod: string | null;
+  cobrancaOutcome: string | null;
+  observacao: string | null;
+}
+
 export interface ExtratoChargeRow {
   id: string;
   amount: number;
@@ -28,6 +83,30 @@ export interface ExtratoChargeRow {
   dueDate: string | null;
   paidAt: string | null;
   createdAt: string | null;
+  // EXTRATO DETALHADO (28/07) — o resto do que a cobrança guarda de verdade.
+  updatedAt: string | null;
+  billingCycle: string | null;
+  paymentMethod: string | null;
+  competence: string | null;
+  externalReference: string | null;
+  entregaId: string | null;
+  ledgerEntryId: string | null;
+  refundedAt: string | null;
+  refundAmount: number;
+  mpPaymentId: string | null;
+  mpPreferenceId: string | null;
+  mpMerchantOrderId: string | null;
+  paymentUrl: string | null;
+  pixTicketUrl: string | null;
+  lastWebhookAt: string | null;
+  criadoPorUserId: number | null;
+  criadoPor: string | null;
+  /** providerPayload já decodificado (forma, pagoNaHora, receiptMethod, mesRef…). */
+  detalhes: Record<string, unknown> | null;
+  /** Entregas que compõem esta cobrança (avulsa = 1; fatura mensal = as somadas). */
+  entregas: ExtratoEntregaRow[];
+  /** Quantas entregas a cobrança referencia (pode ser > entregas.length no teto). */
+  entregasTotal: number;
 }
 export interface ExtratoResult {
   clienteId: string;
@@ -135,6 +214,23 @@ export class FinanceiroTenantService {
         dueDate: true,
         paidAt: true,
         createdAt: true,
+        updatedAt: true,
+        billingCycle: true,
+        paymentMethod: true,
+        competence: true,
+        externalReference: true,
+        entregaId: true,
+        ledgerEntryId: true,
+        refundedAt: true,
+        refundAmount: true,
+        mpPaymentId: true,
+        mpPreferenceId: true,
+        mpMerchantOrderId: true,
+        paymentUrl: true,
+        pixTicketUrl: true,
+        lastWebhookAt: true,
+        createdByUserId: true,
+        providerPayload: true,
       },
     });
 
@@ -144,12 +240,94 @@ export class FinanceiroTenantService {
         .reduce((sum, c) => sum + Math.max(0, Number(c.amount) || 0), 0),
     );
 
+    // Payload decodificado + entregas referenciadas, POR cobrança (1 passada só).
+    const porCharge = charges.map((c) => {
+      const detalhes = parseDetalhes(c.providerPayload);
+      return { charge: c, detalhes, entregaIds: entregaIdsDoCharge(c.entregaId, detalhes) };
+    });
+
+    // Resolve NOME de quem criou e as ENTREGAS em consultas em LOTE (nada de N+1).
+    const userIds = [
+      ...new Set(porCharge.map((p) => p.charge.createdByUserId).filter((id): id is number => !!id)),
+    ];
+    const idsEntrega = new Set<string>();
+    for (const p of porCharge) {
+      for (const id of p.entregaIds) {
+        if (idsEntrega.size >= EXTRATO_ENTREGAS_CAP) break;
+        idsEntrega.add(id);
+      }
+    }
+
+    const [usuarios, entregas] = await Promise.all([
+      userIds.length
+        ? this.prisma.user.findMany({
+            where: { companyId, id: { in: userIds } },
+            select: { id: true, name: true, username: true },
+          })
+        : Promise.resolve([]),
+      idsEntrega.size
+        ? this.prisma.entrega.findMany({
+            where: { companyId, id: { in: [...idsEntrega] } },
+            select: {
+              id: true,
+              status: true,
+              quantidade: true,
+              valor: true,
+              scheduledAt: true,
+              deliveredAt: true,
+              recebidoNaHora: true,
+              receiptMethod: true,
+              cobrancaOutcome: true,
+              notes: true,
+              product: { select: { name: true } },
+              entregador: { select: { name: true, username: true } },
+              local: { select: { apelido: true, endereco: true, numero: true, bairro: true } },
+            },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const nomePorUserId = new Map(
+      usuarios.map((u) => [u.id, String(u.name || u.username || '').trim() || null] as const),
+    );
+    const entregaPorId = new Map<string, ExtratoEntregaRow>(
+      entregas.map((e) => {
+        const local = e.local
+          ? [
+              String(e.local.apelido || '').trim(),
+              [String(e.local.endereco || '').trim(), String(e.local.numero || '').trim()]
+                .filter(Boolean)
+                .join(', '),
+              String(e.local.bairro || '').trim(),
+            ]
+              .filter(Boolean)
+              .join(' — ')
+          : '';
+        const row: ExtratoEntregaRow = {
+          id: e.id,
+          data: iso(e.deliveredAt ?? e.scheduledAt),
+          entregue: Boolean(e.deliveredAt),
+          status: e.status,
+          quantidade: Number(e.quantidade) || 0,
+          valor: round2(Number(e.valor) || 0),
+          produto: String(e.product?.name || '').trim() || null,
+          entregador: String(e.entregador?.name || e.entregador?.username || '').trim() || null,
+          local: local || null,
+          recebidoNaHora: e.recebidoNaHora ?? null,
+          receiptMethod: e.receiptMethod ?? null,
+          cobrancaOutcome: e.cobrancaOutcome ?? null,
+          observacao: String(e.notes || '').trim() || null,
+        };
+        return [e.id, row] as const;
+      }),
+    );
+
     return {
       clienteId: cliente.id,
       nome: String(cliente.name || '').trim() || null,
       saldoAberto,
       total: charges.length,
-      charges: charges.map((c) => ({
+      charges: porCharge.map(({ charge: c, detalhes, entregaIds }) => ({
         id: c.id,
         amount: c.amount,
         currency: c.currency,
@@ -157,9 +335,31 @@ export class FinanceiroTenantService {
         status: c.status,
         lifecycle: c.lifecycle,
         sourceModule: c.sourceModule ?? null,
-        dueDate: c.dueDate ? c.dueDate.toISOString() : null,
-        paidAt: c.paidAt ? c.paidAt.toISOString() : null,
-        createdAt: c.createdAt ? c.createdAt.toISOString() : null,
+        dueDate: iso(c.dueDate),
+        paidAt: iso(c.paidAt),
+        createdAt: iso(c.createdAt),
+        updatedAt: iso(c.updatedAt),
+        billingCycle: c.billingCycle ?? null,
+        paymentMethod: c.paymentMethod ?? null,
+        competence: c.competence ?? null,
+        externalReference: c.externalReference ?? null,
+        entregaId: c.entregaId ?? null,
+        ledgerEntryId: c.ledgerEntryId ?? null,
+        refundedAt: iso(c.refundedAt),
+        refundAmount: round2(Number(c.refundAmount) || 0),
+        mpPaymentId: c.mpPaymentId ?? null,
+        mpPreferenceId: c.mpPreferenceId ?? null,
+        mpMerchantOrderId: c.mpMerchantOrderId ?? null,
+        paymentUrl: c.paymentUrl ?? null,
+        pixTicketUrl: c.pixTicketUrl ?? null,
+        lastWebhookAt: iso(c.lastWebhookAt),
+        criadoPorUserId: c.createdByUserId ?? null,
+        criadoPor: c.createdByUserId ? (nomePorUserId.get(c.createdByUserId) ?? null) : null,
+        detalhes,
+        entregas: entregaIds
+          .map((id) => entregaPorId.get(id))
+          .filter((e): e is ExtratoEntregaRow => !!e),
+        entregasTotal: entregaIds.length,
       })),
     };
   }
