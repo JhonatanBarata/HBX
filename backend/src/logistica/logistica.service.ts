@@ -1163,11 +1163,35 @@ export class LogisticaService {
     const actorWhere = actor ? await this.requireOperacao().whereForActor(actor) : {};
     const entrega = await this.prisma.entrega.findFirst({
       where: { id: String(id).trim(), companyId, ...actorWhere },
-      select: { id: true, status: true },
+      // customerProfileId/planoEntregaId entram pro evento do extrato da agenda.
+      select: { id: true, status: true, customerProfileId: true, planoEntregaId: true },
     });
     if (!entrega) return null;
     if (entrega.status === 'cancelada') throw new BadRequestException('Entrega cancelada não pode ser reaberta.');
     if (entrega.status !== 'entregue') return { id: entrega.id, status: entrega.status };
+
+    // ── 28/07 — FREIO DO DINHEIRO JÁ RECEBIDO (incidente Dejanira, cia 41) ────
+    // O caso real: entrega confirmada e PAGA na hora (R$ 20 no bolso, charge
+    // approved/paid), reaberta 5 minutos depois e nunca reconfirmada. Resultado
+    // no banco: status 'agendada' + deliveredAt preenchido + cobrança paga —
+    // uma entrega que o painel mostra como "a fazer" com dinheiro dentro. Nem
+    // o fechamento de caixa a resgata (ele se recusa a tocar em qualquer coisa
+    // com cobrança resolvida, e faz certo).
+    //
+    // Reabrir NÃO pode desfazer um recebimento sozinho (regra do dono: sistema
+    // nunca decide dinheiro sozinho), e reabrir por cima dele produz mentira.
+    // Então recusa e diz onde resolver. Fiado ainda PENDENTE segue reabrindo
+    // normal — nada foi recebido, o desfecho é que manda.
+    const cobranca = await this.prisma.financeiroCharge.findFirst({
+      where: { companyId, entregaId: entrega.id },
+      select: { amount: true, status: true, lifecycle: true, paidAt: true },
+    });
+    if (cobranca && (cobranca.paidAt || cobranca.status === 'approved' || cobranca.lifecycle === 'paid')) {
+      const valor = `R$ ${round2(Number(cobranca.amount) || 0).toFixed(2).replace('.', ',')}`;
+      throw new BadRequestException(
+        `Esta entrega já foi paga (${valor}). Cancele o recebimento no financeiro do cliente antes de reabrir.`,
+      );
+    }
 
     const changed = await this.prisma.entrega.updateMany({
       where: { id: entrega.id, companyId, status: 'entregue' },
@@ -1180,6 +1204,20 @@ export class LogisticaService {
       },
     });
     if (changed.count !== 1) throw new ConflictException('A entrega mudou enquanto era reaberta. Atualize e tente novamente.');
+    // Extrato da agenda (F0): reabrir tira a entrega do dia de novo — some da
+    // vista se ninguém reconfirmar. Vira linha com dia/hora/autor na ficha do
+    // cliente. Best-effort por contrato do util: nunca derruba a reabertura.
+    await registrarEventoAgenda(this.prisma, {
+      companyId,
+      customerProfileId: entrega.customerProfileId,
+      entregaId: entrega.id,
+      planoEntregaId: entrega.planoEntregaId,
+      tipo: 'ENTREGA_REABERTA',
+      deTexto: 'entregue',
+      paraTexto: 'a fazer',
+      origem: 'app',
+      actorUserId: actorIdOrNull(actor),
+    });
     await this.recalcularEtaSilencioso(companyId, actor);
     return { id: entrega.id, status: 'agendada' };
   }

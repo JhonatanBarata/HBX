@@ -2702,3 +2702,77 @@ test('CHEGADA: falha ao gravar histórico NÃO derruba a confirmação da entreg
   const res = await service.confirmarEntrega(1, 'entrega-1', { lat: -22.4, lng: -47.5, receiptMethod: 'dinheiro' });
   assert.equal(res?.status, 'entregue', 'a entrega fecha mesmo com o histórico falhando');
 });
+
+// ── PR27072026 F0 (28/07) — REABRIR NÃO ATROPELA DINHEIRO JÁ RECEBIDO ────────
+// Incidente real (cia 41, entrega da Dejanira em 23/07): entrega confirmada e
+// PAGA na hora (R$ 20), reaberta 5 min depois e nunca reconfirmada. Ficou no
+// banco como 'agendada' + deliveredAt + cobrança paga — "a fazer" com dinheiro
+// dentro, invisível pra todo mundo por 5 dias (nem o fechamento de caixa a
+// resgata: ele se recusa a tocar cobrança resolvida, e faz certo).
+function buildReabrirPrisma(entrega: any, charge: any | null) {
+  const eventos: any[] = [];
+  const updates: any[] = [];
+  const prisma: any = {
+    entrega: {
+      findFirst: async () => entrega,
+      updateMany: async (args: any) => {
+        if (args?.where?.status && args.where.status !== entrega.status) return { count: 0 };
+        updates.push(args.data);
+        Object.assign(entrega, args.data);
+        return { count: 1 };
+      },
+    },
+    financeiroCharge: { findFirst: async () => charge },
+    logisticaAgendaEvento: {
+      create: async (args: any) => { eventos.push(args.data); return { id: `ev-${eventos.length}` }; },
+    },
+  };
+  return { prisma, eventos, updates };
+}
+
+test('reabrirEntrega: cobrança JÁ PAGA → recusa e a entrega continua entregue', async () => {
+  const entrega = buildEntrega({ status: 'entregue', cobrancaStatus: 'lancada' });
+  const { prisma, updates } = buildReabrirPrisma(entrega, {
+    amount: 20, status: 'approved', lifecycle: 'paid', paidAt: new Date('2026-07-24T01:21:04Z'),
+  });
+  const { rota } = buildRotaStub();
+  const service = new LogisticaService(prisma, {} as any, rota, {} as any);
+
+  await assert.rejects(
+    () => service.reabrirEntrega(1, 'entrega-1'),
+    (err: any) => {
+      assert.match(String(err?.message), /já foi paga/i, 'diz que a entrega já foi paga');
+      assert.match(String(err?.message), /R\$ 20,00/, 'mostra o valor recebido');
+      return true;
+    },
+  );
+  assert.equal(entrega.status, 'entregue', 'nada foi reaberto');
+  assert.equal(updates.length, 0, 'nenhum update na entrega');
+});
+
+test('reabrirEntrega: fiado ainda PENDENTE reabre normal e vira linha no extrato da agenda', async () => {
+  const entrega = buildEntrega({ status: 'entregue', cobrancaStatus: 'lancada' });
+  const { prisma, eventos } = buildReabrirPrisma(entrega, {
+    amount: 20, status: 'pending', lifecycle: 'in_progress', paidAt: null,
+  });
+  const { rota } = buildRotaStub();
+  const service = new LogisticaService(prisma, {} as any, rota, {} as any);
+
+  const res = await service.reabrirEntrega(1, 'entrega-1');
+
+  assert.equal(res?.status, 'agendada', 'nada recebido → reabre normal');
+  assert.equal(eventos.length, 1, 'reabertura vira 1 linha no extrato da agenda');
+  assert.equal(eventos[0].tipo, 'ENTREGA_REABERTA');
+  assert.equal(eventos[0].origem, 'app');
+  assert.equal(eventos[0].entregaId, 'entrega-1');
+});
+
+test('reabrirEntrega: sem cobrança nenhuma reabre normal (caminho antigo intacto)', async () => {
+  const entrega = buildEntrega({ status: 'entregue', cobrancaStatus: 'pendente' });
+  const { prisma } = buildReabrirPrisma(entrega, null);
+  const { rota } = buildRotaStub();
+  const service = new LogisticaService(prisma, {} as any, rota, {} as any);
+
+  const res = await service.reabrirEntrega(1, 'entrega-1');
+  assert.equal(res?.status, 'agendada');
+});

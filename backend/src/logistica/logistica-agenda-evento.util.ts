@@ -22,9 +22,25 @@ export type TipoEventoAgenda =
   | 'OCORRENCIA_ADIANTADA'
   | 'PLANO_AVANCADO'
   | 'OCORRENCIA_DEVOLVIDA'
-  | 'CANCELADA_FECHAMENTO';
+  | 'CANCELADA_FECHAMENTO'
+  // 28/07 — reabrir uma entrega concluída TIRA ela do dia de novo: é mudança de
+  // agenda como qualquer outra e some da vista se ninguém reconfirmar (foi
+  // exatamente assim que a entrega da Dejanira, cia 41, virou 'agendada' com
+  // R$ 20 já recebidos e ninguém percebeu por 5 dias). `tipo` é VarChar(40) no
+  // schema, não enum — valor novo NÃO precisa de migration.
+  | 'ENTREGA_REABERTA';
 
-export type OrigemEventoAgenda = 'montagem' | 'desfecho' | 'fechamento' | 'descarte' | 'manual' | 'reparo';
+export type OrigemEventoAgenda =
+  | 'montagem'
+  | 'desfecho'
+  | 'fechamento'
+  | 'descarte'
+  | 'manual'
+  | 'reparo'
+  // 28/07 — ação do app do entregador na rua (reabrir entrega). Separado de
+  // 'manual' (que é edição de plano no painel) pra ficha responder "quem mexeu:
+  // a rua ou o escritório?" sem adivinhação.
+  | 'app';
 
 export interface RegistrarEventoAgendaInput {
   companyId: number;

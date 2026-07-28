@@ -433,6 +433,175 @@ function ExtratoPanel({ clienteId }: { clienteId: string }) {
   );
 }
 
+// ── PR27072026 F0 — EXTRATO DE EVENTOS DA AGENDA (28/07) ────────────────────
+// Pedido explícito do dono: "toda mudança vira linha com timestamp exato, autor
+// e de→para, visível na ficha do cliente". O backend já gravava (tabela
+// append-only LogisticaAgendaEvento, endpoint GET /logistica/clientes/:id/
+// agenda-eventos desde 27/07) — faltava a TELA. É a resposta pra "por que a
+// entrega desse cliente mudou de dia?" sem abrir banco.
+//
+// SÓ LEITURA: não existe botão de editar/apagar aqui de propósito (o extrato
+// financeiro tem, este NÃO — evento de agenda é prova, não anotação).
+// Sem @Admin no endpoint (quem dirige a rota também precisa entender o que
+// mudou), então o painel aparece pra todo ator — diferente do extrato de
+// dinheiro logo acima, que é admin-only.
+// Casca: reusa .cli-ext* do ExtratoPanel — zero classe nova (5 Leis).
+type AgendaEvento = {
+  id: string;
+  tipo: string;
+  deTexto: string | null;
+  paraTexto: string | null;
+  origem: string;
+  autor: string | null;
+  createdAt: string;
+};
+
+type AgendaEventosResult = { items: AgendaEvento[]; nextCursor: string | null };
+
+const AGENDA_ORIGEM_LABEL: Record<string, string> = {
+  montagem: "Montagem da rota",
+  desfecho: "Entrega registrada",
+  fechamento: "Fechamento do dia",
+  descarte: "Montagem descartada",
+  manual: "Alteração manual",
+  reparo: "Reparo",
+  app: "App do entregador",
+};
+
+// Frase curta do que mudou (o "de→para" do dono). Nada de nome de tabela/enum
+// vazando pra tela; tipo desconhecido (versão futura do backend) vira linha
+// genérica em vez de sumir — o extrato nunca mente por omissão.
+function descreverEventoAgenda(ev: AgendaEvento): string {
+  const de = (ev.deTexto || "").trim();
+  const para = (ev.paraTexto || "").trim();
+  switch (ev.tipo) {
+    case "DIA_ALTERADO":
+      return de && para ? `Dia de entrega mudou de ${de} para ${para}` : "Dia de entrega alterado";
+    case "OCORRENCIA_GERADA":
+      return para ? `Entrega gerada para ${para}` : "Entrega gerada";
+    case "OCORRENCIA_ADIANTADA":
+      return de && para ? `Entrega de ${de} adiantada para ${para}` : "Entrega adiantada";
+    case "PLANO_AVANCADO":
+      if (de && para) return `Entrega de ${de} fechada — próxima passou para ${para}`;
+      if (de) return `Entrega de ${de} fechada — plano sem próxima data`;
+      return "Agenda avançou";
+    case "OCORRENCIA_DEVOLVIDA":
+      return para ? `Entrega de ${para} devolvida para o plano` : "Entrega devolvida para o plano";
+    case "CANCELADA_FECHAMENTO":
+      return para ? `Entrega de ${para} cancelada no fechamento` : "Entrega cancelada no fechamento";
+    case "ENTREGA_REABERTA":
+      return "Entrega concluída foi reaberta — voltou para a fazer";
+    default:
+      return "Mudança na agenda";
+  }
+}
+
+// Dia e hora EXATOS no fuso da OPERAÇÃO (America/Sao_Paulo), nunca no fuso do
+// navegador: o backend grava em UTC e este extrato é prova de horário — um
+// admin viajando não pode ver a mesma linha com hora diferente.
+function fmtEventoDia(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    day: "2-digit",
+    month: "2-digit",
+    year: "2-digit",
+  });
+}
+
+function fmtEventoHora(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("pt-BR", {
+    timeZone: "America/Sao_Paulo",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+const AGENDA_EVENTOS_PAGINA = 20;
+
+function AgendaEventosPanel({ clienteId }: { clienteId: string }) {
+  const [eventos, setEventos] = useState<AgendaEvento[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [carregandoMais, setCarregandoMais] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch ao montar/trocar cliente (guarda `alive`); efeito legítimo
+    setLoading(true);
+    apiFetch<AgendaEventosResult>(
+      `/logistica/clientes/${encodeURIComponent(clienteId)}/agenda-eventos?limit=${AGENDA_EVENTOS_PAGINA}`,
+    )
+      .then((res) => {
+        if (!alive) return;
+        setEventos(res?.items ?? []);
+        setCursor(res?.nextCursor ?? null);
+        setError(null);
+      })
+      .catch((err: unknown) => {
+        if (alive) setError(err instanceof Error ? err.message : "Não foi possível carregar o histórico da agenda.");
+      })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [clienteId]);
+
+  async function verMais() {
+    if (!cursor || carregandoMais) return;
+    setCarregandoMais(true);
+    try {
+      const res = await apiFetch<AgendaEventosResult>(
+        `/logistica/clientes/${encodeURIComponent(clienteId)}/agenda-eventos?limit=${AGENDA_EVENTOS_PAGINA}&cursor=${encodeURIComponent(cursor)}`,
+      );
+      setEventos((prev) => [...prev, ...(res?.items ?? [])]);
+      setCursor(res?.nextCursor ?? null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Não foi possível carregar mais.");
+    } finally {
+      setCarregandoMais(false);
+    }
+  }
+
+  if (loading) return <p className="cli-prod__muted">Carregando histórico da agenda…</p>;
+  if (error) return <p className="hint cli-prod__err">{error}</p>;
+  if (eventos.length === 0) {
+    return <p className="cli-prod__muted">Nenhuma mudança de agenda registrada ainda.</p>;
+  }
+
+  return (
+    <div className="cli-ext">
+      <div className="cli-ext__head">
+        <strong className="cli-fin__title">Histórico da agenda</strong>
+      </div>
+      <div className="cli-ext__list">
+        {eventos.map((ev) => (
+          <div className="cli-ext__row" key={ev.id}>
+            <span className="cli-ext__main">
+              <span className="cli-ext__desc">{descreverEventoAgenda(ev)}</span>
+              <span className="cli-ext__meta">
+                {AGENDA_ORIGEM_LABEL[ev.origem] || ev.origem}
+                {ev.autor ? ` · ${ev.autor}` : ""}
+              </span>
+            </span>
+            <span className="cli-ext__side">
+              <span className="cli-ext__amount">{fmtEventoDia(ev.createdAt)}</span>
+              <span className="cli-ext__meta">{fmtEventoHora(ev.createdAt)}</span>
+            </span>
+          </div>
+        ))}
+      </div>
+      {cursor && (
+        <button type="button" className="btn-ghost btn-xs" onClick={() => void verMais()} disabled={carregandoMais}>
+          {carregandoMais ? "Carregando…" : "Ver mais"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // Drawer com a lista + o formulário de adicionar produto ao cliente.
 function ClienteProdutosDrawer({
   cliente,
@@ -567,6 +736,10 @@ function ClienteProdutosDrawer({
         {/* M6 — editor da forma de pagamento (ADMIN) + extrato do cliente. */}
         {admin && <FinanceiroEditor clienteId={cliente.id} />}
         {admin && <ExtratoPanel clienteId={cliente.id} />}
+
+        {/* F0 (28/07) — "por que a entrega desse cliente mudou de dia?" com dia,
+            hora e autor. Sem gate de admin: o endpoint também não tem. */}
+        <AgendaEventosPanel clienteId={cliente.id} />
 
         {loading && <p className="cli-prod__muted">Carregando…</p>}
         {error && <p className="hint cli-prod__err">{error}</p>}
