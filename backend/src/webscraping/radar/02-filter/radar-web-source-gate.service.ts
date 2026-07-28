@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { RADAR_MARKETPLACE_HOST_HINTS, RADAR_BLOCKED_OFFICIAL_WEBSITE_DOMAINS } from '../shared/radar-core-shared';
+import { normalizeSegmentText } from '../shared/radar-segment-match.util';
 import type { NormalizedRadarFilters, NormalizedSearchInput } from '../shared/radar-types';
 
 export type RadarWebSourceGateResult = {
@@ -67,10 +68,77 @@ const KNOWN_DIRECTORY_BRAND_NAMES = [
   'solutudo',
 ];
 
+// F3 REFUNDAÇÃO (28/07) — PORTA DE REALIDADE, camada DURA: portal global/notícia/e-commerce/
+// TV/clima/marketplace NUNCA é lead, com ou sem "canal próprio". Caso real de Zacarias/SP:
+// eBay, CBS Sports, KSDK (TV americana), Climatempo e Buser entraram como "distribuidora de
+// água" porque a exceção de canal próprio (feita pra agregador de delivery com schema.org de
+// empresa real) dava carona pra qualquer domínio. Aqui não tem exceção: bateu o host, morreu.
+const WEB_GATE_PORTAL_DOMAIN_BLACKLIST = [
+  'ebay.com',
+  'ebay.com.br',
+  'cbssports.com',
+  'ksdk.com',
+  'climatempo.com.br',
+  'buser.com.br',
+  'mercadolivre.com.br',
+  'mercadolivre.com',
+  'mercadolibre.com',
+  'olx.com.br',
+  'amazon.com',
+  'amazon.com.br',
+  'americanas.com.br',
+  'magazineluiza.com.br',
+  'globo.com',
+  'g1.globo.com',
+  'uol.com.br',
+  'terra.com.br',
+  'youtube.com',
+  'youtu.be',
+  'wikipedia.org',
+];
+
+// Marca de portal global como NOME do candidato (item "eBay" sem host mapeável) — mesmo
+// critério exato-e-barato do KNOWN_DIRECTORY_BRAND_NAMES.
+const KNOWN_PORTAL_BRAND_NAMES = [
+  'ebay',
+  'cbs sports',
+  'ksdk',
+  'climatempo',
+  'buser',
+  'mercado livre',
+  'mercadolivre',
+  'olx',
+  'amazon',
+  'americanas',
+  'magazine luiza',
+  'magazineluiza',
+  'globo',
+  'g1',
+  'uol',
+  'terra',
+  'youtube',
+  'wikipedia',
+];
+
 function envDomainBlacklist(): string[] {
   const raw = String(process.env.HBX_RADAR_WEB_DOMAIN_BLACKLIST || '').trim();
   if (!raw) return [];
   return raw.split(',').map((item) => item.trim().toLowerCase()).filter(Boolean);
+}
+
+// Extensão de operação da camada DURA (mesma semântica do env da lista branda): domínio aqui
+// mata SEM exceção de canal próprio.
+function envPortalBlacklist(): string[] {
+  const raw = String(process.env.HBX_RADAR_WEB_PORTAL_BLACKLIST || '').trim();
+  if (!raw) return [];
+  return raw.split(',').map((item) => item.trim().toLowerCase()).filter(Boolean);
+}
+
+export function buildWebGatePortalBlacklist(): string[] {
+  return Array.from(new Set([
+    ...WEB_GATE_PORTAL_DOMAIN_BLACKLIST,
+    ...envPortalBlacklist(),
+  ].map((item) => item.toLowerCase())));
 }
 
 // Merge de seed (codigo) + constantes compartilhadas do quality gate + env (operacao)
@@ -100,7 +168,79 @@ const TITLE_LIST_PATTERNS: RegExp[] = [
   /\bnoticias?\b/,
   /\bpasso\s+a\s+passo\b/,
   /\bcomo\s+(abrir|montar)\b/,
+  // F3 REFUNDAÇÃO (28/07): página de diretório/agregador com título "Distribuidores de Água
+  // em Aguaí" virava lead. Cabeça no PLURAL + "de/da/do" + " em <lugar>" é título de listagem,
+  // não nome de empresa (empresa real é "Distribuidora de Água Chagas", singular e sem "em").
+  /^(?:os\s+|as\s+)?[a-z0-9]+s\s+(?:de|da|do|das|dos)\s+.+\bem\s+\S+/,
 ];
+
+// F3 REFUNDAÇÃO (28/07) — sinal local só é EXIGIDO fora das cidades grandes ("não quebrar o
+// que funciona em capital"): capitais + municípios notoriamente grandes ficam isentos; o resto
+// do país (onde o motor de busca devolve lixo global) precisa provar vínculo com a cidade.
+// Chave: "<cidade normalizada>:<UF>". Extensível por env HBX_RADAR_LOCAL_SIGNAL_CITY_EXEMPT
+// (lista "cidade:UF" separada por vírgula) pra operação isentar cidade média sem deploy.
+const RADAR_BIG_CITY_KEYS = new Set([
+  // Capitais
+  'rio branco:AC', 'maceio:AL', 'macapa:AP', 'manaus:AM', 'salvador:BA', 'fortaleza:CE',
+  'brasilia:DF', 'vitoria:ES', 'goiania:GO', 'sao luis:MA', 'cuiaba:MT', 'campo grande:MS',
+  'belo horizonte:MG', 'belem:PA', 'joao pessoa:PB', 'curitiba:PR', 'recife:PE', 'teresina:PI',
+  'rio de janeiro:RJ', 'natal:RN', 'porto alegre:RS', 'porto velho:RO', 'boa vista:RR',
+  'florianopolis:SC', 'sao paulo:SP', 'aracaju:SE', 'palmas:TO',
+  // Grandes não-capitais (ordem de grandeza 300k+ hab)
+  'guarulhos:SP', 'campinas:SP', 'sao goncalo:RJ', 'duque de caxias:RJ',
+  'sao bernardo do campo:SP', 'nova iguacu:RJ', 'santo andre:SP', 'osasco:SP',
+  'sao jose dos campos:SP', 'ribeirao preto:SP', 'sorocaba:SP', 'uberlandia:MG',
+  'contagem:MG', 'juiz de fora:MG', 'feira de santana:BA', 'joinville:SC', 'londrina:PR',
+  'aparecida de goiania:GO', 'ananindeua:PA', 'niteroi:RJ', 'campos dos goytacazes:RJ',
+  'caxias do sul:RS', 'maringa:PR', 'jaboatao dos guararapes:PE', 'sao jose do rio preto:SP',
+  'santos:SP', 'mogi das cruzes:SP', 'diadema:SP', 'betim:MG', 'piracicaba:SP', 'bauru:SP',
+  'jundiai:SP', 'franca:SP', 'anapolis:GO', 'pelotas:RS', 'canoas:RS', 'vila velha:ES',
+  'serra:ES', 'cariacica:ES', 'caruaru:PE', 'blumenau:SC', 'ponta grossa:PR', 'cascavel:PR',
+  'petrolina:PE', 'paulista:PE', 'uberaba:MG', 'santarem:PA', 'montes claros:MG',
+  'sao vicente:SP', 'praia grande:SP', 'taubate:SP', 'limeira:SP', 'suzano:SP',
+  'sao jose dos pinhais:PR', 'foz do iguacu:PR', 'itaquaquecetuba:SP', 'guaruja:SP',
+  'vitoria da conquista:BA', 'camacari:BA', 'juazeiro do norte:CE', 'caucaia:CE',
+  'imperatriz:MA', 'sao joao de meriti:RJ', 'belford roxo:RJ', 'petropolis:RJ',
+  'volta redonda:RJ', 'mossoro:RN', 'santa maria:RS', 'gravatai:RS', 'novo hamburgo:RS',
+  'viamao:RS', 'olinda:PE', 'criciuma:SC', 'itajai:SC', 'chapeco:SC', 'palhoca:SC',
+  'sao jose:SC', 'marilia:SP', 'presidente prudente:SP', 'americana:SP', 'araraquara:SP',
+  'indaiatuba:SP', 'cotia:SP', 'itapevi:SP', 'hortolandia:SP', 'rio claro:SP',
+  'barueri:SP', 'embu das artes:SP', 'carapicuiba:SP', 'maua:SP', 'sumare:SP',
+  'taboao da serra:SP', 'sao carlos:SP', 'aracatuba:SP', 'jacarei:SP',
+  'dourados:MS', 'varzea grande:MT', 'rondonopolis:MT', 'parauapebas:PA', 'maraba:PA',
+  'castanhal:PA', 'arapiraca:AL', 'caxias:MA', 'sobral:CE', 'parnamirim:RN',
+  'campina grande:PB', 'ipatinga:MG', 'sete lagoas:MG', 'divinopolis:MG',
+  'governador valadares:MG', 'ribeirao das neves:MG', 'santa luzia:MG', 'ibirite:MG',
+  'colombo:PR', 'guarapuava:PR', 'apucarana:PR', 'toledo:PR', 'rio grande:RS',
+  'passo fundo:RS', 'sapucaia do sul:RS', 'alvorada:RS', 'macae:RJ', 'itaborai:RJ',
+  'mage:RJ', 'cabo frio:RJ', 'nova friburgo:RJ', 'angra dos reis:RJ',
+  'lauro de freitas:BA', 'juazeiro:BA', 'itabuna:BA', 'ilheus:BA', 'jequie:BA',
+  'teixeira de freitas:BA', 'barreiras:BA', 'alagoinhas:BA', 'maracanau:CE',
+  'crato:CE', 'itapipoca:CE', 'maranguape:CE', 'sao luis de montes belos:GO',
+  'rio verde:GO', 'aguas lindas de goias:GO', 'luziania:GO', 'valparaiso de goias:GO',
+  'trindade:GO', 'senador canedo:GO', 'catalao:GO', 'itumbiara:GO',
+  'timon:MA', 'paco do lumiar:MA', 'sao jose de ribamar:MA', 'cascavel:CE',
+  'garanhuns:PE', 'vitoria de santo antao:PE', 'igarassu:PE', 'abreu e lima:PE',
+  'camaragibe:PE', 'cabo de santo agostinho:PE', 'parnaiba:PI', 'picos:PI',
+  'ariquemes:RO', 'ji-parana:RO', 'vilhena:RO', 'gurupi:TO', 'araguaina:TO',
+  'linhares:ES', 'colatina:ES', 'guarapari:ES', 'sao mateus:ES', 'cachoeiro de itapemirim:ES',
+  'lages:SC', 'balneario camboriu:SC', 'brusque:SC', 'tubarao:SC', 'jaragua do sul:SC',
+]);
+
+function envLocalSignalCityExempt(): string[] {
+  const raw = String(process.env.HBX_RADAR_LOCAL_SIGNAL_CITY_EXEMPT || '').trim();
+  if (!raw) return [];
+  return raw.split(',').map((item) => item.trim().toLowerCase()).filter(Boolean);
+}
+
+export function isRadarLocalSignalExemptCity(city: unknown, state: unknown): boolean {
+  const cityKey = normalizeSegmentText(city);
+  const stateKey = String(state || '').trim().toUpperCase();
+  if (!cityKey) return true; // sem cidade pedida não há "sinal local" a cobrar
+  const key = `${cityKey}:${stateKey}`;
+  if (RADAR_BIG_CITY_KEYS.has(key)) return true;
+  return envLocalSignalCityExempt().includes(key.toLowerCase());
+}
 
 function normalizeKey(value: unknown) {
   return String(value || '')
@@ -153,6 +293,11 @@ export class RadarWebSourceGateService {
     const candidate = input.candidate || {};
     if (!this.appliesTo(candidate)) return { passed: true, reason: null };
 
+    // Camada DURA primeiro: portal global não tem a exceção de canal próprio das listas
+    // brandas (o telefone/instagram num resultado do eBay não é "canal da empresa local").
+    const portalReason = this.checkGlobalPortal(candidate);
+    if (portalReason) return { passed: false, reason: `web_gate:${portalReason}` };
+
     const brandReason = this.checkBrandName(candidate);
     if (brandReason) return { passed: false, reason: `web_gate:${brandReason}` };
 
@@ -166,6 +311,19 @@ export class RadarWebSourceGateService {
     if (geoReason) return { passed: false, reason: `web_gate:${geoReason}` };
 
     return { passed: true, reason: null };
+  }
+
+  // F3 REFUNDAÇÃO: portal global por HOST (sourceUrl OU website) ou por NOME exato de marca.
+  // SEM exceção de canal próprio — o dado "próprio" achado numa página do eBay/Climatempo é
+  // da plataforma, não de uma empresa da cidade pesquisada.
+  private checkGlobalPortal(candidate: Record<string, any>): string | null {
+    const blacklist = buildWebGatePortalBlacklist();
+    const matchesBlacklist = (host: string) => Boolean(host) && blacklist.some((domain) => host === domain || host.endsWith(`.${domain}`));
+    if (matchesBlacklist(getHost(candidate.sourceUrl))) return 'global_portal';
+    if (matchesBlacklist(getHost(candidate.website))) return 'global_portal';
+    const name = normalizeKey(candidate.name);
+    if (name && KNOWN_PORTAL_BRAND_NAMES.includes(name)) return 'global_portal';
+    return null;
   }
 
   // C3: nome EXATO de marca de diretorio/agendamento conhecida (ex.: item chamado "Booksy"
@@ -218,6 +376,65 @@ export class RadarWebSourceGateService {
     const name = normalizeKey(candidate.name);
     if (!name) return null;
     return TITLE_LIST_PATTERNS.some((pattern) => pattern.test(name)) ? 'title_list_pattern' : null;
+  }
+
+  // F3 REFUNDAÇÃO (28/07) — SINAL LOCAL em cidade pequena/média: fora da lista de cidades
+  // grandes, candidato da lane web só passa se provar vínculo com a cidade pedida por UM de:
+  // (a) DDD do telefone bate com os DDDs reais da cidade (amostra da RFB local);
+  // (b) nome da cidade aparece no CONTEÚDO do candidato (nome/endereço/snippet/URL — os
+  //     campos city/state NÃO contam: são carimbo herdado da própria busca);
+  // (c) match na RFB 28M (reconciliação web→RFB feita antes desta porta).
+  // Degrade gracioso: se a RFB estava indisponível E não há DDD conhecido da cidade, não há
+  // como verificar nada — passa (o card segue "não confirmado"), nunca trava a entrega.
+  evaluateLocalReality(input: {
+    candidate: Record<string, any>;
+    filters?: NormalizedSearchInput | NormalizedRadarFilters | null;
+    rfbMatched?: boolean;
+    rfbUnavailable?: boolean;
+    cityDddHints?: string[] | null;
+  }): RadarWebSourceGateResult {
+    const candidate = input.candidate || {};
+    if (!this.appliesTo(candidate)) return { passed: true, reason: null };
+    const requestedCity = String((input.filters as any)?.city || '').trim();
+    const requestedState = String((input.filters as any)?.state || '').trim().toUpperCase();
+    if (!requestedCity) return { passed: true, reason: null };
+    if (isRadarLocalSignalExemptCity(requestedCity, requestedState)) return { passed: true, reason: null };
+
+    if (input.rfbMatched) return { passed: true, reason: null };
+
+    // (a) DDD do telefone × DDDs reais da cidade (amostra RFB). Hints vazios/nulos = não
+    // verificável — não aprova nem reprova sozinho.
+    const hints = Array.isArray(input.cityDddHints) ? input.cityDddHints.filter(Boolean) : null;
+    const digitsRaw = String(candidate.phoneDigits || candidate.phone || '').replace(/\D/g, '');
+    const digits = digitsRaw.startsWith('55') && digitsRaw.length > 11 ? digitsRaw.slice(2) : digitsRaw;
+    const candidateDdd = digits.length >= 10 ? digits.slice(0, 2) : '';
+    if (hints?.length && candidateDdd && hints.includes(candidateDdd)) return { passed: true, reason: null };
+
+    // (b) cidade pedida (ou vizinha do raio) citada no conteúdo próprio do candidato.
+    const cityNames = [requestedCity, ...(Array.isArray((input.filters as any)?.regionalCities)
+      ? (input.filters as any).regionalCities.map((item: any) => String(item?.city || '').trim()).filter(Boolean)
+      : [])];
+    const contentText = normalizeSegmentText([
+      candidate.name,
+      candidate.razaoSocial,
+      candidate.address,
+      candidate.snippet,
+      candidate.description,
+      candidate.opportunityReason,
+      candidate.sourceUrl,
+      candidate.website,
+    ].filter(Boolean).join(' '));
+    for (const cityName of cityNames) {
+      const cityPhrase = normalizeSegmentText(cityName);
+      if (cityPhrase && contentText && new RegExp(`\\b${cityPhrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(contentText)) {
+        return { passed: true, reason: null };
+      }
+    }
+
+    // Nada verificável (RFB fora do ar e sem DDD da cidade) → gracioso, nunca trava.
+    if (input.rfbUnavailable && !hints?.length) return { passed: true, reason: null };
+
+    return { passed: false, reason: 'web_gate:no_local_signal' };
   }
 
   private checkGeoConflict(

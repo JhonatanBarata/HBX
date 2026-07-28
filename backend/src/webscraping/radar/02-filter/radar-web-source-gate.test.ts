@@ -239,3 +239,153 @@ test('web gate: website em host de diretorio SEM canal proprio ainda mata o item
   assert.equal(result.passed, false);
   assert.match(result.reason || '', /^web_gate:/);
 });
+
+// ── F3 REFUNDAÇÃO (28/07): porta de realidade — casos REAIS de Zacarias/SP e Aguaí/SP ──
+
+test('F3: portal global MORRE mesmo com telefone proprio (eBay/CBS/KSDK/Climatempo/Buser em Zacarias)', () => {
+  const cases = [
+    { name: 'eBay', sourceUrl: 'https://www.ebay.com/b/agua-mineral' },
+    { name: 'CBS Sports', sourceUrl: 'https://www.cbssports.com/nfl/news' },
+    { name: 'KSDK', sourceUrl: 'https://www.ksdk.com/article/news/local' },
+    { name: 'Climatempo', sourceUrl: 'https://www.climatempo.com.br/previsao-do-tempo/cidade/5427/zacarias-sp' },
+    { name: 'Buser', sourceUrl: 'https://www.buser.com.br/onibus/zacarias' },
+    { name: 'Mercado Livre', sourceUrl: 'https://www.mercadolivre.com.br/galao-agua-20l' },
+    { name: 'Amazon', website: 'https://www.amazon.com.br/agua' },
+    { name: 'Magazine Luiza', sourceUrl: 'https://www.magazineluiza.com.br/busca/agua' },
+  ];
+  for (const item of cases) {
+    const result = gate.evaluate({
+      candidate: { source: 'hbx_engine', phoneDigits: '11999990001', ...item },
+      filters: { city: 'Zacarias', state: 'SP' } as any,
+    });
+    assert.equal(result.passed, false, item.name);
+    assert.equal(result.reason, 'web_gate:global_portal', item.name);
+  }
+});
+
+test('F3: portal global tambem morre so pelo NOME exato ("eBay" sem host mapeavel)', () => {
+  const result = gate.evaluate({
+    candidate: { source: 'hbx_engine', name: 'eBay', phoneDigits: '11999990001' },
+  });
+  assert.equal(result.passed, false);
+  assert.equal(result.reason, 'web_gate:global_portal');
+});
+
+test('F3: pagina de diretorio "Distribuidores de Agua em Aguai" NAO e empresa — morre por titulo', () => {
+  const result = gate.evaluate({
+    candidate: {
+      source: 'hbx_engine',
+      name: 'Distribuidores de Água em Aguaí',
+      sourceUrl: 'https://guia-generico-qualquer.com.br/distribuidores',
+      phoneDigits: '19999990001',
+    },
+    filters: { city: 'Aguaí', state: 'SP' } as any,
+  });
+  assert.equal(result.passed, false);
+  assert.match(result.reason || '', /title_list_pattern/);
+});
+
+test('F3: empresa real singular com "de" no nome NAO cai no padrao de diretorio', () => {
+  const result = gate.evaluate({
+    candidate: {
+      source: 'hbx_engine',
+      name: 'Distribuidora de Água Chagas',
+      sourceUrl: 'https://distribuidorachagas.com.br',
+      phoneDigits: '19999990001',
+    },
+    filters: { city: 'Aguaí', state: 'SP' } as any,
+  });
+  assert.equal(result.passed, true);
+});
+
+test('F3 sinal local: cidade pequena SEM nenhum sinal (DDD errado, cidade fora do conteudo, sem RFB) REPROVA', () => {
+  const result = gate.evaluateLocalReality({
+    candidate: {
+      source: 'hbx_engine',
+      name: 'Portal Aleatorio de Ofertas',
+      sourceUrl: 'https://ofertas-globais.com/agua',
+      phoneDigits: '11999990001', // DDD 11 (SP capital) — Zacarias é 18
+    },
+    filters: { city: 'Zacarias', state: 'SP' } as any,
+    rfbMatched: false,
+    rfbUnavailable: false,
+    cityDddHints: ['18'],
+  });
+  assert.equal(result.passed, false);
+  assert.equal(result.reason, 'web_gate:no_local_signal');
+});
+
+test('F3 sinal local: DDD da cidade no telefone PASSA', () => {
+  const result = gate.evaluateLocalReality({
+    candidate: { source: 'hbx_engine', name: 'Distribuidora Regional', phoneDigits: '18999990001' },
+    filters: { city: 'Zacarias', state: 'SP' } as any,
+    cityDddHints: ['18'],
+  });
+  assert.equal(result.passed, true);
+});
+
+test('F3 sinal local: nome da cidade no CONTEUDO passa (endereco/snippet), mas city/state carimbados NAO contam', () => {
+  const comConteudo = gate.evaluateLocalReality({
+    candidate: {
+      source: 'hbx_engine',
+      name: 'Distribuidora Regional',
+      address: 'Rua Principal, 100 - Centro, Zacarias - SP',
+      phoneDigits: '11999990001',
+    },
+    filters: { city: 'Zacarias', state: 'SP' } as any,
+    cityDddHints: ['18'],
+  });
+  assert.equal(comConteudo.passed, true);
+
+  const soCarimbo = gate.evaluateLocalReality({
+    candidate: {
+      source: 'hbx_engine',
+      name: 'Distribuidora Regional',
+      city: 'Zacarias',
+      state: 'SP',
+      phoneDigits: '11999990001',
+    },
+    filters: { city: 'Zacarias', state: 'SP' } as any,
+    cityDddHints: ['18'],
+  });
+  assert.equal(soCarimbo.passed, false);
+});
+
+test('F3 sinal local: match RFB passa direto', () => {
+  const result = gate.evaluateLocalReality({
+    candidate: { source: 'hbx_engine', name: 'Distribuidora Regional', phoneDigits: '11999990001' },
+    filters: { city: 'Zacarias', state: 'SP' } as any,
+    rfbMatched: true,
+    cityDddHints: ['18'],
+  });
+  assert.equal(result.passed, true);
+});
+
+test('F3 sinal local: capital/cidade grande NAO exige sinal local (nao quebrar o que funciona)', () => {
+  const result = gate.evaluateLocalReality({
+    candidate: { source: 'hbx_engine', name: 'Empresa Qualquer', phoneDigits: '21999990001' },
+    filters: { city: 'São Paulo', state: 'SP' } as any,
+    cityDddHints: ['11'],
+  });
+  assert.equal(result.passed, true);
+});
+
+test('F3 sinal local: RFB indisponivel + sem DDD conhecido = gracioso, passa (nunca trava a entrega)', () => {
+  const result = gate.evaluateLocalReality({
+    candidate: { source: 'hbx_engine', name: 'Distribuidora Regional', phoneDigits: '11999990001' },
+    filters: { city: 'Zacarias', state: 'SP' } as any,
+    rfbMatched: false,
+    rfbUnavailable: true,
+    cityDddHints: null,
+  });
+  assert.equal(result.passed, true);
+});
+
+test('F3 sinal local: fonte Receita/database nao passa por esta porta', () => {
+  const result = gate.evaluateLocalReality({
+    candidate: { source: 'cnpj_public', name: 'Empresa da Receita' },
+    filters: { city: 'Zacarias', state: 'SP' } as any,
+    cityDddHints: ['18'],
+  });
+  assert.equal(result.passed, true);
+});
