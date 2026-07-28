@@ -670,7 +670,7 @@ export function LeadCockpitHistory({
         const open = openSysGroups.has(groupKey);
         const grouped = [...group];
         nodes.push(
-          <div key={`sys-${groupKey}`} className={`lc2-sys${open ? " is-open" : ""}`}>
+          <div key={`sys-${groupKey}`} className={`lead-history__system-group${open ? " is-open" : ""}`}>
             <button
               type="button"
               aria-expanded={open}
@@ -681,11 +681,11 @@ export function LeadCockpitHistory({
                 return next;
               })}
             >
-              <span className="lc2-sys__line" />
+              <span className="lead-history__system-line" />
               {grouped.length} registros do sistema
-              <span className="lc2-sys__line" />
+              <span className="lead-history__system-line" />
             </button>
-            <ul className="lc2-sys__list">
+            <ul className="lead-history__system-list">
               {grouped.map((item) => item.kind === "event" ? (
                 <li key={item.id}>
                   <span>{visibleCopy(item.event.title) || "Atualização"}</span>
@@ -718,7 +718,7 @@ export function LeadCockpitHistory({
 
   return (
     <section className="lead-history">
-      <nav className="glass-pill-track lc2-tabs" role="tablist" aria-label="Visões da história">
+      <nav className="glass-pill-track lead-cockpit__tabs" role="tablist" aria-label="Visões da história">
         <GlassPill {...viewPill} />
         {HISTORY_VIEWS.map((item) => (
           <button
@@ -727,11 +727,11 @@ export function LeadCockpitHistory({
             role="tab"
             ref={viewPill.itemRef(item.key)}
             aria-selected={view === item.key}
-            className={`glass-pill-item lc2-tab${view === item.key ? " is-active" : ""}`}
+            className={`glass-pill-item lead-cockpit__tab${view === item.key ? " active" : ""}`}
             onClick={() => setView(item.key)}
           >
             {item.label}
-            <span className="lc2-tab__n">{viewCounts[item.key]}</span>
+            <span className="tag">{viewCounts[item.key]}</span>
           </button>
         ))}
       </nav>

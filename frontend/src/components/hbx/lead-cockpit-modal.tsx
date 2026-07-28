@@ -191,24 +191,6 @@ function conflictLabel(value: string): string {
   return trimmed.includes(" ") ? trimmed : CONFLICT_LABELS[trimmed] || humanize(trimmed);
 }
 
-// Delta absoluto entre timestamps (não é data civil — imune a fuso).
-function relativeTimeLabel(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  const diffMs = Date.now() - date.getTime();
-  if (diffMs < 0) return fmtDateTime(value);
-  const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 1) return "agora mesmo";
-  if (minutes < 60) return `${minutes} min atrás`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h atrás`;
-  const days = Math.floor(hours / 24);
-  if (days === 1) return "ontem";
-  if (days < 30) return `${days} dias atrás`;
-  return fmtDate(value);
-}
-
 const INCLUSION_REASON_LABELS: Record<string, string> = {
   cnae_compativel: "CNAE compatível com o segmento",
   nome_combina_segmento: "Nome combina com o segmento pedido",
@@ -282,25 +264,30 @@ function sourceModuleLabel(source?: string | null): string {
   return humanize(key);
 }
 
-// Linha chave-valor do dossiê (Central do Lead, 27/07).
-function Lc2Kv({ label, mono = false, empty = false, children }: {
+function InfoRow({ label, children, mono = false }: {
   label: string;
-  mono?: boolean;
-  empty?: boolean;
   children: React.ReactNode;
+  mono?: boolean;
 }) {
   return (
-    <div className="lc2-kv">
-      <small>{label}</small>
-      <span className={`${mono ? "is-mono" : ""}${empty ? " is-empty" : ""}`.trim() || undefined}>{children}</span>
+    <div className="lead-cockpit__kv-row">
+      <span className="lead-cockpit__kv-key">{label}</span>
+      <span className={`lead-cockpit__kv-value${mono ? " hbx-mono" : ""}`}>{children}</span>
     </div>
   );
 }
 
-// Botão de copiar compacto com feedback no próprio ícone.
-function Lc2Copy({ value, label, framed = false }: { value: string; label: string; framed?: boolean }) {
+function CopyRow({ label, value, mono = true, badge }: {
+  label: string;
+  value?: string | null;
+  mono?: boolean;
+  badge?: React.ReactNode;
+}) {
   const [copied, setCopied] = useState(false);
+  const display = value || "—";
+
   function copy() {
+    if (!value) return;
     navigator.clipboard?.writeText(value).then(
       () => {
         setCopied(true);
@@ -309,47 +296,43 @@ function Lc2Copy({ value, label, framed = false }: { value: string; label: strin
       () => undefined,
     );
   }
+
   return (
-    <button
-      type="button"
-      className={`lc2-copy${framed ? " lc2-copy--framed" : ""}`}
-      onClick={copy}
-      aria-label={`Copiar ${label}`}
-      title={`Copiar ${label}`}
-    >
-      {framed
-        ? (copied ? "copiado" : "copiar")
-        : <I d={copied ? ICONS.check : ICONS.doc} size={10} />}
-    </button>
+    <div className="lead-cockpit__kv-row">
+      <span className="lead-cockpit__kv-key">{label}</span>
+      <span className={`lead-cockpit__copy-value${mono ? " hbx-mono" : ""}`}>
+        <span>{display}</span>
+        {badge}
+        {value && (
+          <button type="button" className="lead-cockpit__copy-button" onClick={copy} aria-label={`Copiar ${label}`}>
+            <I d={copied ? ICONS.check : ICONS.doc} size={10} />
+          </button>
+        )}
+      </span>
+    </div>
   );
 }
 
-// Anel de score da telemetria — traço anima do zero até o valor na abertura.
-function Lc2Gauge({ value, label }: { value: number; label: string }) {
-  const safe = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
-  const circumference = 2 * Math.PI * 21;
-  const [drawn, setDrawn] = useState(false);
-  useEffect(() => {
-    const frameId = window.requestAnimationFrame(() => setDrawn(true));
-    return () => window.cancelAnimationFrame(frameId);
-  }, []);
+function CardTitle({ icon, title, action }: {
+  icon: string[];
+  title: string;
+  action?: React.ReactNode;
+}) {
   return (
-    <svg className="lc2-gauge" width="48" height="48" viewBox="0 0 52 52" role="img" aria-label={`${label}: ${safe} de 100`}>
-      <circle className="lc2-gauge__track" cx="26" cy="26" r="21" fill="none" strokeWidth="5" />
-      <circle
-        className="lc2-gauge__val"
-        cx="26"
-        cy="26"
-        r="21"
-        fill="none"
-        strokeWidth="5"
-        strokeLinecap="round"
-        strokeDasharray={circumference}
-        strokeDashoffset={drawn ? circumference * (1 - safe / 100) : circumference}
-        transform="rotate(-90 26 26)"
-      />
-      <text x="26" y="31" textAnchor="middle" fontSize="13">{safe}</text>
-    </svg>
+    <header className="lead-cockpit__compact-card-head">
+      <span><I d={icon} size={14} /> {title}</span>
+      {action}
+    </header>
+  );
+}
+
+function Score({ value, label }: { value: number; label: string }) {
+  const safeValue = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+  return (
+    <div className="lead-cockpit__score">
+      <span><strong>{safeValue}%</strong><small>{label}</small></span>
+      <progress max={100} value={safeValue} aria-label={`${label}: ${safeValue}%`} />
+    </div>
   );
 }
 
@@ -495,7 +478,6 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
   const [fecharOpen, setFecharOpen] = useState(false);
 
   const personaPill = useGlassPill<HTMLButtonElement>(selectedPersonaKey || "", preVoo?.personas?.length || 0);
-  const funnelPill = useGlassPill<HTMLButtonElement>(stage, COCKPIT_STAGES.length);
 
   // Config de disparo INLINE (S4 da reforma 27/07): o bloqueio "config_ausente"
   // se resolve DENTRO da ficha — nunca mais mandar o dono pra outra tela.
@@ -927,30 +909,19 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
     : 0;
   const timeline = [...addedNotes, ...(lead.timeline || [])]
     .filter((event, index, all) => all.findIndex((candidate) => candidate.id === event.id) === index);
-  const lastInteractionAt = timeline.reduce<string | null>((latest, event) => {
-    const at = event.createdAt || null;
-    if (!at) return latest;
-    return !latest || new Date(at).getTime() > new Date(latest).getTime() ? at : latest;
-  }, null);
   const situacaoLabel = (company?.found && company.situacao) || lead.companySituation || null;
   const situacaoAtiva = situacaoLabel ? String(situacaoLabel).toLowerCase().includes("ativa") : null;
-  const stageIndex = COCKPIT_STAGES.findIndex((item) => item.key === stage);
   const cnpjDisplay = cnpj ? (formatBrCnpj(cnpj) || cnpj) : null;
 
-  function renderMetro(persona: PreVooPersona, currentStep: number) {
+  function renderCadenceSteps(persona: PreVooPersona, currentStep: number) {
     return (
-      <div className="lc2-metro">
+      <div className="lead-cockpit__cadence-steps">
         {persona.passos.map((passo, index) => (
-          <div
-            key={`${passo.canal}-${passo.dia}-${index}`}
-            className={`lc2-metro__step${index < currentStep ? " is-done" : index === currentStep ? " is-next" : ""}`}
-          >
-            <span className="lc2-metro__node">{index < currentStep ? "✓" : index + 1}</span>
-            <span className="lc2-metro__body">
-              <b>{passo.titulo || humanize(passo.canal)}</b>
-              <small>{passo.dia === 0 ? "hoje" : `D+${passo.dia}`}</small>
-            </span>
-          </div>
+          <span key={`${passo.canal}-${passo.dia}-${index}`}>
+            <i>{index < currentStep ? "✓" : index + 1}</i>
+            <b>{passo.titulo || humanize(passo.canal)}</b>
+            <small>{passo.dia === 0 ? "hoje" : `D+${passo.dia}`}</small>
+          </span>
         ))}
       </div>
     );
@@ -961,134 +932,131 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
     const age = yearsSince(source?.openedAt);
     const ownerPhone = lead.ownerPhone || (keyPersonName !== "—" ? lead.phone : null);
     const extraPartners = (company?.partners || []).slice(1);
+
     return (
       <>
-        <section className="lc2-card">
-          <div className="lc2-cnpjcard">
-            {situacaoLabel && (
-              <span className={`lc2-badge ${situacaoAtiva ? "is-ok" : "is-warn"} lc2-cnpjcard__rfb`}>
-                {situacaoAtiva ? "RFB · ativa" : humanize(situacaoLabel)}
+        <section className="lead-cockpit__compact-card">
+          <CardTitle
+            icon={ICONS.doc}
+            title="Empresa"
+            action={situacaoLabel ? (
+              <span className={`tag${situacaoAtiva ? " teal" : " warn"}`}>
+                {situacaoAtiva ? "RFB ativa" : humanize(situacaoLabel)}
               </span>
-            )}
-            <span className="lc2-cnpjcard__k">CNPJ</span>
-            <span className="lc2-cnpjcard__num">
-              {cnpjDisplay || "—"}
-              {cnpjDisplay && <Lc2Copy value={cnpjDisplay} label="CNPJ" framed />}
+            ) : undefined}
+          />
+          {companyLoading ? (
+            <div className="lead-cockpit__empty-state">Carregando Receita Federal…</div>
+          ) : (
+            <>
+              <CopyRow label="CNPJ" value={cnpjDisplay} />
+              <InfoRow label="Razão social">{source?.razaoSocial || lead.razaoSocial || "—"}</InfoRow>
+              <InfoRow label="Fantasia">{source?.nomeFantasia || "—"}</InfoRow>
+              <InfoRow label="CNAE">
+                {source?.cnae
+                  ? `${formatBrCnae(source.cnae)}${source.cnaeDescription ? ` — ${source.cnaeDescription}` : ""}`
+                  : (formatBrCnae(lead.cnae) || "—")}
+              </InfoRow>
+              <InfoRow label="Porte">
+                {[source?.porte, source?.simples ? "Simples Nacional" : null, source?.mei ? "MEI" : null].filter(Boolean).join(" · ") || "—"}
+              </InfoRow>
+              <InfoRow label="Natureza">{source?.naturezaJuridica || "—"}</InfoRow>
+              <InfoRow label="Capital social" mono>{source?.capitalSocial != null ? fmtMoney(source.capitalSocial) : "—"}</InfoRow>
+              <InfoRow label="Abertura">
+                {source?.openedAt ? `${fmtDate(source.openedAt)}${age != null ? ` · ${age} ano${age === 1 ? "" : "s"}` : ""}` : "—"}
+              </InfoRow>
+              <InfoRow label="Unidade">{source?.matrizFilial ? humanize(source.matrizFilial) : "—"}</InfoRow>
+            </>
+          )}
+        </section>
+
+        <section className="lead-cockpit__compact-card">
+          <CardTitle
+            icon={ICONS.users}
+            title="Pessoa-chave"
+            action={company?.partners?.length ? <span className="tag">{company.partners.length} sócio{company.partners.length === 1 ? "" : "s"}</span> : undefined}
+          />
+          <div className="lead-cockpit__person">
+            <Av name={keyPersonName !== "—" ? keyPersonName : lead.name || "—"} size={34} />
+            <span>
+              <strong>{keyPersonName !== "—" ? keyPersonName : "Responsável não identificado"}</strong>
+              <small>{keyPersonRoleLabel}</small>
             </span>
-            <div className="lc2-cnpjcard__row"><span>Razão social</span><b>{source?.razaoSocial || lead.razaoSocial || "—"}</b></div>
-            <div className="lc2-cnpjcard__row">
-              <span>Abertura</span>
-              <b>{source?.openedAt ? `${fmtDate(source.openedAt)}${age != null ? ` · ${age} ano${age === 1 ? "" : "s"}` : ""}` : "—"}</b>
-            </div>
-            <div className="lc2-cnpjcard__row">
-              <span>Porte</span>
-              <b>{[source?.porte, source?.simples ? "Simples Nacional" : null, source?.mei ? "MEI" : null].filter(Boolean).join(" · ") || "—"}</b>
-            </div>
           </div>
-          <div className="lc2-card__body">
-            {companyLoading ? <span className="muted-note">Carregando Receita Federal…</span> : (
-              <>
-                <Lc2Kv label="Fantasia" empty={!source?.nomeFantasia}>{source?.nomeFantasia || "—"}</Lc2Kv>
-                <Lc2Kv label="CNAE">
-                  {source?.cnae
-                    ? `${formatBrCnae(source.cnae)}${source.cnaeDescription ? ` — ${source.cnaeDescription}` : ""}`
-                    : (formatBrCnae(lead.cnae) || "—")}
-                </Lc2Kv>
-                <Lc2Kv label="Natureza" empty={!source?.naturezaJuridica}>{source?.naturezaJuridica || "—"}</Lc2Kv>
-                <Lc2Kv label="Capital social" mono>{source?.capitalSocial != null ? fmtMoney(source.capitalSocial) : "—"}</Lc2Kv>
-                <Lc2Kv label="Unidade" empty={!source?.matrizFilial}>{source?.matrizFilial ? humanize(source.matrizFilial) : "—"}</Lc2Kv>
-              </>
-            )}
-          </div>
+          <CopyRow
+            label="Telefone"
+            value={ownerPhone ? formatPhoneDisplay(ownerPhone) : null}
+            badge={ownerPhone && whatsappMap[onlyDigits(ownerPhone)] === true ? <span className="tag teal">WhatsApp ✓</span> : undefined}
+          />
+          <InfoRow label="Instagram">{lead.ownerInstagram || "não localizado"}</InfoRow>
+          <InfoRow label="Facebook">{lead.ownerFacebook || "não localizado"}</InfoRow>
+          {extraPartners.map((partner, index) => (
+            <InfoRow key={`${partner.name || "partner"}-${index}`} label={index === 0 ? "Outros sócios" : ""}>
+              {partner.name || "—"}{partner.qualification ? ` · ${humanize(partner.qualification)}` : ""}
+            </InfoRow>
+          ))}
         </section>
 
-        <section className="lc2-card">
-          <span className="lc2-card__head">
-            Dono da empresa
-            {company?.partners?.length ? (
-              <span className="lc2-card__st lc2-badge is-ok">{company.partners.length} sócio{company.partners.length === 1 ? "" : "s"}</span>
-            ) : null}
-          </span>
-          <div className="lc2-card__body">
-            <div className="lc2-person">
-              <Av name={keyPersonName !== "—" ? keyPersonName : lead.name || "—"} size={38} />
-              <span>
-                <b>{keyPersonName !== "—" ? keyPersonName : "Responsável não identificado"}</b>
-                <small>{keyPersonRoleLabel}</small>
-              </span>
+        <section className="lead-cockpit__compact-card">
+          <CardTitle icon={ICONS.phone} title="Contatos" />
+          {phones.length ? phones.map((phone, index) => (
+            <CopyRow
+              key={phone}
+              label={index === 0 ? "Telefone" : `Telefone ${index + 1}`}
+              value={formatPhoneDisplay(phone)}
+              badge={whatsappMap[onlyDigits(phone)] === true ? <span className="tag teal">WhatsApp ✓</span> : undefined}
+            />
+          )) : <InfoRow label="Telefone">—</InfoRow>}
+          {emails.length ? emails.map((item, index) => (
+            <CopyRow key={item} label={index === 0 ? "E-mail" : `E-mail ${index + 1}`} value={item} mono={false} />
+          )) : <InfoRow label="E-mail">—</InfoRow>}
+          <InfoRow label="Site">{lead.website || "não localizado"}</InfoRow>
+          <InfoRow label="Endereço">{lead.address || "—"}</InfoRow>
+        </section>
+
+        <section className="lead-cockpit__compact-card">
+          <CardTitle icon={ICONS.scrape} title="Radar e prontidão" action={<span className="tag">{opportunityScore}/100</span>} />
+          <Score value={opportunityScore} label="oportunidade" />
+          {approachReason && <p className="lead-cockpit__card-copy">{approachReason}</p>}
+          {radarReasonsLoading ? (
+            <div className="lead-cockpit__empty-state">Carregando motivos…</div>
+          ) : radarReasons.length ? (
+            <ul className="lead-cockpit__reason-list">
+              {radarReasons.map((reason) => (
+                <li key={reason}><I d={ICONS.check} size={11} /> {INCLUSION_REASON_LABELS[reason] || humanize(reason)}</li>
+              ))}
+            </ul>
+          ) : (
+            <span className="muted-note">Motivo de inclusão não informado.</span>
+          )}
+          <Score value={readinessScore} label="prontidão" />
+          <InfoRow label="Cadastro">{registrationQuality}% completo</InfoRow>
+          {lead.timesSeen != null && lead.timesSeen > 1 && <InfoRow label="Visto no Radar">{lead.timesSeen} vezes</InfoRow>}
+          {preVoo?.prontidao?.faltantes?.length ? (
+            <div className="lead-cockpit__chips">
+              {preVoo.prontidao.faltantes.map((text, index) => (
+                <span key={`${text}-${index}`} className="tag red">{text.split(" — ")[0].replace(/\.$/, "")}</span>
+              ))}
             </div>
-            <Lc2Kv label="Telefone" mono empty={!ownerPhone}>
-              {ownerPhone ? (
-                <>
-                  {formatPhoneDisplay(ownerPhone)}
-                  {whatsappMap[onlyDigits(ownerPhone)] === true && <span className="lc2-badge is-ok">Whats ✓</span>}
-                  {" "}
-                  <Lc2Copy value={formatPhoneDisplay(ownerPhone)} label="telefone do dono" />
-                </>
-              ) : "—"}
-            </Lc2Kv>
-            <Lc2Kv label="Instagram" empty={!lead.ownerInstagram}>{lead.ownerInstagram || "não localizado"}</Lc2Kv>
-            <Lc2Kv label="Facebook" empty={!lead.ownerFacebook}>{lead.ownerFacebook || "não localizado"}</Lc2Kv>
-            {extraPartners.map((partner, index) => (
-              <Lc2Kv key={`${partner.name || "partner"}-${index}`} label={index === 0 ? "Outros sócios" : ""}>
-                {partner.name || "—"}{partner.qualification ? ` · ${humanize(partner.qualification)}` : ""}
-              </Lc2Kv>
-            ))}
-          </div>
+          ) : null}
+          {preVoo?.enrichment?.enabled && preVoo.enrichment.podeBuscar && (
+            <button type="button" className="btn-ghost btn-xs lead-cockpit__card-action" onClick={buscarDadosPreVoo} disabled={preVooEnrichBusy}>
+              <I d={ICONS.search} size={12} /> {preVooEnrichBusy ? "Buscando…" : "Buscar mais dados"}
+            </button>
+          )}
+          {preVooEnrichMsg && <span className="muted-note">{preVooEnrichMsg}</span>}
         </section>
 
-        <section className="lc2-card">
-          <span className="lc2-card__head">Contatos da empresa</span>
-          <div className="lc2-card__body">
-            {phones.length ? phones.map((phone, index) => (
-              <Lc2Kv key={phone} label={index === 0 ? "Telefone" : `Telefone ${index + 1}`} mono>
-                {formatPhoneDisplay(phone)}
-                {whatsappMap[onlyDigits(phone)] === true && <span className="lc2-badge is-ok">Whats ✓</span>}
-                {" "}
-                <Lc2Copy value={formatPhoneDisplay(phone)} label="telefone" />
-              </Lc2Kv>
-            )) : <Lc2Kv label="Telefone" empty>—</Lc2Kv>}
-            {emails.length ? emails.map((item, index) => (
-              <Lc2Kv key={item} label={index === 0 ? "E-mail" : `E-mail ${index + 1}`}>
-                {item} <Lc2Copy value={item} label="e-mail" />
-              </Lc2Kv>
-            )) : <Lc2Kv label="E-mail" empty>—</Lc2Kv>}
-            <Lc2Kv label="Site" empty={!lead.website}>
-              {lead.website || <span className="lc2-badge is-warn">sem site — argumento de venda</span>}
-            </Lc2Kv>
-            <Lc2Kv label="Endereço" empty={!lead.address}>{lead.address || "—"}</Lc2Kv>
-          </div>
-        </section>
-
-        <details className="lc2-card" open>
-          <summary><span className="lc2-card__head">Por que entrou no radar</span></summary>
-          <div className="lc2-card__body">
-            {radarReasonsLoading ? (
-              <span className="muted-note">Carregando motivos…</span>
-            ) : radarReasons.length ? (
-              <ul className="lc2-why">
-                {radarReasons.map((reason) => (
-                  <li key={reason}>{INCLUSION_REASON_LABELS[reason] || humanize(reason)}</li>
-                ))}
-              </ul>
-            ) : (
-              <span className="muted-note">Motivo de inclusão não informado.</span>
-            )}
-            {lead.timesSeen != null && lead.timesSeen > 1 && <Lc2Kv label="Visto no radar">{lead.timesSeen} vezes</Lc2Kv>}
-            <Lc2Kv label="Cadastro">{registrationQuality}% completo</Lc2Kv>
-            {preVoo?.prontidao?.faltantes?.length ? (
-              <Lc2Kv label="Falta">
-                {preVoo.prontidao.faltantes.map((text) => text.split(" — ")[0].replace(/\.$/, "")).join(", ")}
-              </Lc2Kv>
-            ) : null}
-            {preVoo?.enrichment?.enabled && preVoo.enrichment.podeBuscar && (
-              <button type="button" className="btn-ghost btn-xs" onClick={buscarDadosPreVoo} disabled={preVooEnrichBusy}>
-                <I d={ICONS.search} size={12} /> {preVooEnrichBusy ? "Buscando…" : "Buscar mais dados"}
-              </button>
-            )}
-            {preVooEnrichMsg && <span className="muted-note">{preVooEnrichMsg}</span>}
-          </div>
-        </details>
+        {templateText && (
+          <button
+            type="button"
+            className="lead-cockpit__template-copy"
+            onClick={() => focusWorkspace(recommendedChannel.toLowerCase().includes("mail") ? "email" : "whatsapp", templateText)}
+          >
+            <span>{templateText}</span>
+            <b><I d={ICONS.doc} size={10} /> Usar modelo de mensagem</b>
+          </button>
+        )}
       </>
     );
   }
@@ -1097,170 +1065,179 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
     const robo = preVoo?.robo;
     const bloqueio = preVoo?.roboBloqueado;
     const personas = preVoo?.personas || [];
+
     return (
-      <section className="lc2-card">
-        <span className="lc2-card__head">
-          <span className={`lc2-pulse${robo?.ligado ? "" : bloqueio ? " is-warn" : " is-off"}`} />
-          Robô de cadência
-          <span className={`lc2-card__st lc2-badge ${robo?.ligado ? "is-ok" : bloqueio ? "is-warn" : "is-ok"}`}>
-            {robo?.ligado ? "rodando" : bloqueio ? "parado" : "pronto"}
-          </span>
-        </span>
-        <div className="lc2-card__body">
-          {preVooLoading ? (
-            <span className="muted-note">Carregando plano…</span>
-          ) : !preVoo || preVoo.locked ? (
-            <span className="muted-note">Plano indisponível pra este lead.</span>
-          ) : robo?.ligado ? (
-            <>
-              <div className="lc2-live">
-                <span className="lc2-pulse" />
-                <span>
-                  <b>
-                    {selectedPersona ? `Plano ${selectedPersona.nome.split(" (")[0]}` : "Robô ativo"}
-                    {" · passo "}{robo.currentStep + 1}{selectedPersona ? ` de ${selectedPersona.passos.length}` : ""}
-                  </b>
-                </span>
-              </div>
-              {selectedPersona && renderMetro(selectedPersona, robo.currentStep)}
-              <div style={{ display: "flex", gap: 8 }}>
-                <button type="button" className="btn-ghost btn-xs" onClick={desligarRobo} disabled={roboBusy}>
-                  {roboBusy ? "Desligando…" : "Desligar"}
-                </button>
-                <button type="button" className="btn-teal btn-xs" onClick={() => void changeStage("qualificado")} disabled={stageBusy}>
-                  Assumir atendimento
-                </button>
-              </div>
-            </>
-          ) : bloqueio?.codigo === "config_ausente" ? (
-            <div className="lc2-block">
-              <b>Falta configurar horário e teto</b>
-              <div className="lc2-form-row">
-                <label>Início<input className="field-dark" type="time" value={configStart} onChange={(event) => setConfigStart(event.target.value)} /></label>
-                <label>Fim<input className="field-dark" type="time" value={configEnd} onChange={(event) => setConfigEnd(event.target.value)} /></label>
-                <label>Teto/dia<input className="field-dark" type="number" min={1} max={200} value={configLimit} onChange={(event) => setConfigLimit(event.target.value)} /></label>
-              </div>
-              <button type="button" className="btn-teal btn-xs lc2-block__cta" onClick={salvarConfigDisparo} disabled={configBusy}>
-                {configBusy ? "Salvando…" : "Salvar e liberar o robô"}
-              </button>
-              {configMsg && <span className={`ctx-msg ${configMsg.startsWith("✓") ? "ok" : "err"}`}>{configMsg}</span>}
+      <section className="lead-cockpit__compact-card lead-cockpit__cadence-card">
+        <CardTitle
+          icon={ICONS.bolt}
+          title="Robô de cadência"
+          action={<span className={`tag${robo?.ligado ? " teal" : bloqueio ? " warn" : ""}`}>{robo?.ligado ? "Rodando" : bloqueio ? "Parado" : "Pronto"}</span>}
+        />
+        {preVooLoading ? (
+          <div className="lead-cockpit__empty-state">Carregando plano…</div>
+        ) : !preVoo || preVoo.locked ? (
+          <div className="lead-cockpit__empty-state">Plano indisponível para este lead.</div>
+        ) : robo?.ligado ? (
+          <>
+            <div className="lead-cockpit__robot-state is-active">
+              <span><I d={ICONS.bolt} size={14} /></span>
+              <p>
+                <strong>
+                  {selectedPersona ? `Plano ${selectedPersona.nome.split(" (")[0]}` : "Robô ativo"}
+                  {" · passo "}{robo.currentStep + 1}{selectedPersona ? ` de ${selectedPersona.passos.length}` : ""}
+                </strong>
+                <small>Acompanhe a história e assuma quando houver resposta.</small>
+              </p>
             </div>
-          ) : bloqueio ? (
-            <div className="lc2-block">
-              <b>{bloqueio.motivo}</b>
-              <p>{bloqueio.acao}</p>
-              {bloqueio.codigo === "whatsapp_desconectado" && (
-                <button type="button" className="btn-teal btn-xs" onClick={() => setWaConnectOpen(true)}>
-                  <WhatsAppMark size={12} /> Conectar WhatsApp
-                </button>
-              )}
-            </div>
-          ) : (
-            <>
-              <nav className="glass-pill-track lc2-personas" aria-label="Escolha de persona da cadência">
-                <GlassPill {...personaPill} />
-                {personas.map((persona) => (
-                  <button
-                    key={persona.key}
-                    type="button"
-                    ref={personaPill.itemRef(persona.key)}
-                    className={`glass-pill-item lc2-persona${selectedPersonaKey === persona.key ? " is-active" : ""}`}
-                    aria-pressed={selectedPersonaKey === persona.key}
-                    onClick={() => setSelectedPersonaKey(persona.key)}
-                  >
-                    {persona.nome.split(" (")[0]}
-                    <small>{persona.recomendado ? "★ sugerida" : " "}</small>
-                  </button>
-                ))}
-              </nav>
-              {selectedPersona && (
-                <>
-                  {renderMetro(selectedPersona, -1)}
-                </>
-              )}
-              {!nextSlotLoading && nextSlot?.slot && (
-                <Lc2Kv label="Próximo horário livre">
-                  {fmtDateTime(nextSlot.slot)}
-                  {nextSlot.conflito && nextSlot.motivoConflito ? ` · ${conflictLabel(nextSlot.motivoConflito)}` : ""}
-                </Lc2Kv>
-              )}
-              <button type="button" className="btn-teal lc2-robo__on" onClick={ligarRobo} disabled={roboBusy || !selectedPersonaKey}>
-                {roboBusy ? "Ligando…" : "Ligar robô"}
+            {selectedPersona && renderCadenceSteps(selectedPersona, robo.currentStep)}
+            <div className="lead-cockpit__row-acts">
+              <button type="button" className="btn-ghost btn-xs" onClick={desligarRobo} disabled={roboBusy}>
+                {roboBusy ? "Desligando…" : "Desligar robô"}
               </button>
-            </>
-          )}
-          {roboMsg && <span className={`ctx-msg ${roboMsg.startsWith("✓") ? "ok" : "err"}`}>{roboMsg}</span>}
-          {stageMsg && <span className={`ctx-msg ${stageMsg.startsWith("✓") ? "ok" : "err"}`}>{stageMsg}</span>}
-        </div>
+              <button type="button" className="btn-teal btn-xs" onClick={() => void changeStage("qualificado")} disabled={stageBusy}>
+                Assumir atendimento
+              </button>
+            </div>
+          </>
+        ) : bloqueio?.codigo === "config_ausente" ? (
+          <>
+            <div className="lead-cockpit__robot-block">
+              <strong>Falta configurar horário e teto</strong>
+              <span>A configuração vale para a empresa e é aplicada ao liberar o robô.</span>
+            </div>
+            <div className="lead-cockpit__next-action-meta">
+              <span><small>Início</small><input className="field-dark" type="time" value={configStart} onChange={(event) => setConfigStart(event.target.value)} /></span>
+              <span><small>Fim</small><input className="field-dark" type="time" value={configEnd} onChange={(event) => setConfigEnd(event.target.value)} /></span>
+              <span><small>Teto por dia</small><input className="field-dark" type="number" min={1} max={200} value={configLimit} onChange={(event) => setConfigLimit(event.target.value)} /></span>
+            </div>
+            <button type="button" className="btn-teal btn-xs" onClick={salvarConfigDisparo} disabled={configBusy}>
+              {configBusy ? "Salvando…" : "Salvar e liberar o robô"}
+            </button>
+            {configMsg && <span className={`ctx-msg ${configMsg.startsWith("✓") ? "ok" : "err"}`}>{configMsg}</span>}
+          </>
+        ) : bloqueio ? (
+          <>
+            <div className="lead-cockpit__robot-block">
+              <strong>{bloqueio.motivo}</strong>
+              <span>{bloqueio.acao}</span>
+            </div>
+            {bloqueio.codigo === "whatsapp_desconectado" && (
+              <button type="button" className="btn-teal btn-xs" onClick={() => setWaConnectOpen(true)}>
+                <WhatsAppMark size={12} /> Conectar WhatsApp
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            <nav className="glass-pill-track lead-cockpit__persona-pick" aria-label="Escolha de persona da cadência">
+              <GlassPill {...personaPill} />
+              {personas.map((persona) => (
+                <button
+                  key={persona.key}
+                  type="button"
+                  ref={personaPill.itemRef(persona.key)}
+                  className={`glass-pill-item lead-cockpit__persona-chip${selectedPersonaKey === persona.key ? " is-active" : ""}`}
+                  aria-pressed={selectedPersonaKey === persona.key}
+                  onClick={() => setSelectedPersonaKey(persona.key)}
+                >
+                  {persona.nome.split(" (")[0]}{persona.recomendado ? <small> ★ sugerida</small> : null}
+                </button>
+              ))}
+            </nav>
+            {selectedPersona && (
+              <>
+                <p className="lead-cockpit__card-copy">{selectedPersona.descricao}</p>
+                {renderCadenceSteps(selectedPersona, -1)}
+              </>
+            )}
+            {!nextSlotLoading && nextSlot?.slot && (
+              <InfoRow label="Próximo horário">
+                {fmtDateTime(nextSlot.slot)}
+                {nextSlot.conflito && nextSlot.motivoConflito ? ` · ${conflictLabel(nextSlot.motivoConflito)}` : ""}
+              </InfoRow>
+            )}
+            <button type="button" className="btn-teal btn-xs" onClick={ligarRobo} disabled={roboBusy || !selectedPersonaKey}>
+              {roboBusy ? "Ligando…" : "Ligar robô"}
+            </button>
+          </>
+        )}
+        {roboMsg && <span className={`ctx-msg ${roboMsg.startsWith("✓") ? "ok" : "err"}`}>{roboMsg}</span>}
+        {stageMsg && <span className={`ctx-msg ${stageMsg.startsWith("✓") ? "ok" : "err"}`}>{stageMsg}</span>}
       </section>
     );
   }
 
   function renderNegocioCard() {
     return (
-      <section className="lc2-card">
-        <span className="lc2-card__head">
-          Negócio
-          <span className={`lc2-card__st lc2-badge ${lead.saleStatus === "sale_confirmed" ? "is-ok" : "is-warn"}`}>
-            {lead.saleStatusLabel || "Sem venda"}
-          </span>
-        </span>
-        <div className="lc2-card__body">
-          <div className="lc2-money">{lead.saleValue != null ? fmtMoney(lead.saleValue) : "R$ 0"}<small>/mês</small></div>
-          <div className="lc2-mgrid">
-            <div className="lc2-mcell"><small>Produto</small><b>{lead.product?.name || "Não definido"}</b></div>
-            <div className="lc2-mcell"><small>Implantação</small><b>{lead.setupValue != null ? fmtMoney(lead.setupValue) : "—"}</b></div>
-            <div className="lc2-mcell">
-              <small>Comissão</small>
-              <b>{lead.commissionAmount != null ? `${fmtMoney(lead.commissionAmount)}${lead.commissionRecurring ? " /mês" : ""}` : "—"}</b>
-            </div>
-            <div className="lc2-mcell"><small>Responsável</small><b>{lead.owner?.name || "—"}</b></div>
-          </div>
-        </div>
+      <section className="lead-cockpit__compact-card lead-cockpit__commercial-summary">
+        <CardTitle
+          icon={ICONS.money}
+          title="Negócio"
+          action={<span className={`tag${lead.saleStatus === "sale_confirmed" ? " teal" : " warn"}`}>{lead.saleStatusLabel || "Sem venda"}</span>}
+        />
+        <small>Recorrência mensal</small>
+        <strong className="lead-cockpit__money">{lead.saleValue != null ? fmtMoney(lead.saleValue) : "R$ 0,00"}</strong>
+        <InfoRow label="Produto">{lead.product?.name || "Não definido"}</InfoRow>
+        <InfoRow label="Implantação" mono>{lead.setupValue != null ? fmtMoney(lead.setupValue) : "—"}</InfoRow>
+        <InfoRow label="Comissão" mono>
+          {lead.commissionAmount != null ? `${fmtMoney(lead.commissionAmount)}${lead.commissionRecurring ? " /mês" : ""}` : "—"}
+        </InfoRow>
+        <InfoRow label="Responsável">{lead.owner?.name || "—"}</InfoRow>
       </section>
     );
   }
 
   function renderFinanceiroCard() {
     return (
-      <section className="lc2-card">
-        <span className="lc2-card__head">
-          Financeiro do cliente
-          {extrato && (
-            <span className={`lc2-card__st lc2-badge ${extrato.saldoAberto > 0 ? "is-warn" : "is-ok"}`}>
-              {extrato.saldoAberto > 0 ? `${fmtMoney(extrato.saldoAberto)} em aberto` : "em dia"}
-            </span>
-          )}
-        </span>
-        <div className="lc2-card__body">
-          {financeMessage && <span className={`ctx-msg ${financeMessage.startsWith("✓") ? "ok" : "err"}`}>{financeMessage}</span>}
-          {!customerProfileId ? (
-            <>
-              {(lead.saleValue ?? 0) > 0 && (
-                <button type="button" className="btn-teal btn-xs" onClick={createCharge} disabled={financeBusy != null}>
-                  {financeBusy === "create" ? "Gerando…" : "Gerar cobrança"}
-                </button>
-              )}
-            </>
-          ) : extratoError ? (
-            <span className="muted-note">Não foi possível carregar o extrato.</span>
-          ) : extrato == null ? (
-            <span className="muted-note">Carregando extrato…</span>
-          ) : extrato.charges.length === 0 ? (
+      <section className="lead-cockpit__compact-card lead-cockpit__statement-card">
+        <CardTitle
+          icon={ICONS.money}
+          title="Financeiro do cliente"
+          action={extrato ? <span className={`tag${extrato.saldoAberto > 0 ? " warn" : " teal"}`}>{extrato.saldoAberto > 0 ? "Em aberto" : "Em dia"}</span> : undefined}
+        />
+        {financeMessage && <span className={`ctx-msg ${financeMessage.startsWith("✓") ? "ok" : "err"}`}>{financeMessage}</span>}
+        {!customerProfileId ? (
+          <>
             <span className="muted-note">Sem cobranças.</span>
-          ) : extrato.charges.slice(0, 8).map((charge) => (
-            <div className="lc2-charge" key={charge.id}>
-              <span>{charge.description || "Título"}<small>{sourceModuleLabel(charge.sourceModule)} · {fmtDate(charge.dueDate)}</small></span>
-              <span className={chargeTagClass(charge.status)}>{chargeStatusLabel(charge.status)}</span>
-              <b>{fmtMoney(charge.amount)}</b>
-              {String(charge.status || "").toLowerCase() === "pending" && (
-                <button type="button" className="btn-ghost btn-xs" onClick={() => markPaid(charge.id)} disabled={financeBusy != null}>
-                  {financeBusy === charge.id ? "Baixando…" : "Marcar pago"}
-                </button>
-              )}
+            {(lead.saleValue ?? 0) > 0 && (
+              <button type="button" className="btn-teal btn-xs" onClick={createCharge} disabled={financeBusy != null}>
+                {financeBusy === "create" ? "Gerando…" : "Gerar cobrança"}
+              </button>
+            )}
+          </>
+        ) : extratoError ? (
+          <span className="muted-note">Não foi possível carregar o extrato.</span>
+        ) : extrato == null ? (
+          <span className="muted-note">Carregando extrato…</span>
+        ) : (
+          <>
+            <div className="lead-cockpit__balance">
+              <span>Saldo em aberto</span>
+              <strong>{fmtMoney(extrato.saldoAberto)}</strong>
             </div>
-          ))}
-        </div>
+            {extrato.charges.length === 0 ? (
+              <span className="muted-note">Sem cobranças.</span>
+            ) : (
+              <div className="lead-cockpit__charges">
+                {extrato.charges.slice(0, 8).map((charge) => (
+                  <div className="lead-cockpit__charge-row" key={charge.id}>
+                    <span>
+                      <strong>{charge.description || "Título"}</strong>
+                      <small>{sourceModuleLabel(charge.sourceModule)} · {fmtDate(charge.dueDate)}</small>
+                    </span>
+                    <span className={chargeTagClass(charge.status)}>{chargeStatusLabel(charge.status)}</span>
+                    <strong>{fmtMoney(charge.amount)}</strong>
+                    {String(charge.status || "").toLowerCase() === "pending" && (
+                      <button type="button" className="btn-ghost btn-xs" onClick={() => markPaid(charge.id)} disabled={financeBusy != null}>
+                        {financeBusy === charge.id ? "Baixando…" : "Marcar pago"}
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
       </section>
     );
   }
@@ -1270,194 +1247,124 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
   return (
     <>
       <div className={"hbx-veil lead-cockpit__veil" + (closing ? " is-closing" : "")} onClick={(event) => { if (event.target === event.currentTarget) requestClose(); }}>
-        <section ref={shellRef} className="hbx-modal lead-cockpit lead-cockpit--workbench lead-cockpit--central" role="dialog" aria-modal="true" aria-label={`Central do lead ${lead.name || ""}`}>
-          {/* CENTRAL DO LEAD (27/07) — hero de identidade + funil + telemetria.
-              Substitui o antigo header + barra de etapa + faixa do copiloto: a
-              "próxima ação" aparecia em TRÊS lugares e o dono não sabia mais
-              qual mandava. Agora é UMA célula (AGORA) e ela manda. */}
-          <header className="lc2-hero">
-            <div className="lc2-hero__row">
-              <Av name={lead.name || "—"} size={46} />
-              <div className="lc2-hero__id">
-                <h2>{lead.name || "—"}</h2>
+        <section ref={shellRef} className="hbx-modal lead-cockpit lead-cockpit--workbench" role="dialog" aria-modal="true" aria-label={`Detalhes do lead ${lead.name || ""}`}>
+          <header className="lead-cockpit__approved-head">
+            <div className="lead-cockpit__approved-identity">
+              <Av name={lead.name || "—"} size={44} />
+              <div className="lead-cockpit__approved-id">
+                <span className="lead-cockpit__approved-title-row">
+                  <h2>{lead.name || "—"}</h2>
+                  <span className="lead-cockpit__approved-badges">
+                    <RadarAiBadge status={aiStatus} />
+                    {situacaoLabel && <span className={`tag${situacaoAtiva ? " teal" : " warn"}`}>{situacaoAtiva ? "RFB ativa" : humanize(situacaoLabel)}</span>}
+                    {!lead.website && <span className="tag warn">Sem site</span>}
+                  </span>
+                </span>
                 <p title={[lead.razaoSocial, lead.segment, cityState].filter(Boolean).join(" • ")}>
-                  {lead.razaoSocial ? <b>{lead.razaoSocial}</b> : null}
-                  {[lead.segment, cityState].filter(Boolean).map((part) => ` · ${part}`).join("")}
+                  {[lead.razaoSocial, lead.segment, cityState].filter(Boolean).join(" • ") || "—"}
                 </p>
-              </div>
-
-              <RadarAiBadge status={aiStatus} />
-              {situacaoLabel && (
-                <span className={`lc2-badge ${situacaoAtiva ? "is-ok" : "is-warn"}`}>
-                  {situacaoAtiva ? "RFB ativa" : humanize(situacaoLabel)}
-                </span>
-              )}
-              {!lead.website && <span className="lc2-badge is-warn">Sem site</span>}
-
-              {/* 27/07, ordem do dono: o funil ENTRA na linha do cabeçalho,
-                  em vez de gastar uma faixa inteira só pra ele. */}
-              <nav className="glass-pill-track lc2-funnel" aria-label="Etapa do lead">
-                <GlassPill {...funnelPill} />
-                {COCKPIT_STAGES.map((item, index) => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    ref={funnelPill.itemRef(item.key)}
-                    className={`glass-pill-item lc2-funnel__seg${index < stageIndex ? " is-done" : ""}${item.key === stage ? " is-current" : ""}`}
-                    aria-pressed={item.key === stage}
-                    disabled={stageBusy}
-                    onClick={() => void changeStage(item.key)}
-                  >
-                    <i className="lc2-funnel__dot">{index + 1}</i>
-                    <span>{item.label}</span>
-                  </button>
-                ))}
-              </nav>
-
-              {availableChannels.length > 0 && (
-                <span className="lc2-hero__channels" aria-label="Canais do lead">
-                  {availableChannels.map((canal) => {
-                    if (canal === "whatsapp" || canal === "email") {
-                      return (
-                        <button
-                          key={canal}
-                          type="button"
-                          title={CANAL_LABEL[canal]}
-                          aria-label={`Abrir ${CANAL_LABEL[canal]}`}
-                          onClick={() => focusWorkspace(canal)}
-                        >
-                          <CanalIcon canal={canal} size="md" />
-                        </button>
-                      );
-                    }
-                    const href = channelTargets[canal]!;
-                    const external = canal === "instagram" || canal === "facebook" || canal === "site";
-                    return (
-                      <a
-                        key={canal}
-                        href={href}
-                        title={CANAL_LABEL[canal]}
-                        aria-label={`Abrir ${CANAL_LABEL[canal]}`}
-                        target={external ? "_blank" : undefined}
-                        rel={external ? "noopener noreferrer" : undefined}
-                      >
-                        <CanalIcon canal={canal} size="md" />
-                      </a>
-                    );
-                  })}
-                </span>
-              )}
-
-              {cnpjDisplay && (
-                <span className="lc2-hero__cnpj">
-                  <small>CNPJ</small>
-                  {cnpjDisplay}
-                  <Lc2Copy value={cnpjDisplay} label="CNPJ" framed />
-                </span>
-              )}
-
-              <div className="lc2-hero__acts">
-                {conciergeVisible && (
-                  <button type="button" className="btn-ghost btn-xs" onClick={searchSimilar}>
-                    <I d={ICONS.concierge} size={12} /> <span>Buscar parecidos</span>
-                  </button>
-                )}
-                {canViewValues && (
-                  <button type="button" className="btn-teal btn-xs" onClick={() => setFecharOpen(true)}>
-                    <I d={ICONS.money} size={12} /> <span>Fechar venda</span>
-                  </button>
-                )}
-                <button type="button" className="lead-cockpit__approved-close" onClick={requestClose} aria-label="Fechar">×</button>
               </div>
             </div>
 
+            {availableChannels.length > 0 && (
+              <span className="lead-cockpit__approved-channels" aria-label="Canais do lead">
+                {availableChannels.map((canal) => {
+                  if (canal === "whatsapp" || canal === "email") {
+                    return (
+                      <button
+                        key={canal}
+                        type="button"
+                        title={CANAL_LABEL[canal]}
+                        aria-label={`Abrir ${CANAL_LABEL[canal]}`}
+                        onClick={() => focusWorkspace(canal)}
+                      >
+                        <CanalIcon canal={canal} size="xl" />
+                      </button>
+                    );
+                  }
+                  const href = channelTargets[canal]!;
+                  const external = canal === "instagram" || canal === "facebook" || canal === "site";
+                  return (
+                    <a
+                      key={canal}
+                      href={href}
+                      title={CANAL_LABEL[canal]}
+                      aria-label={`Abrir ${CANAL_LABEL[canal]}`}
+                      target={external ? "_blank" : undefined}
+                      rel={external ? "noopener noreferrer" : undefined}
+                    >
+                      <CanalIcon canal={canal} size="xl" />
+                    </a>
+                  );
+                })}
+              </span>
+            )}
 
-            <div className="lc2-tele">
-              {/* 27/07, ordem do dono: "resumir MUITA ESCRITA". Cada célula diz
-                  UM número; o porquê vive no title, não ocupando linha. */}
-              {/* Rótulo e valor DITADOS pelo dono (27/07). Uma linha por célula:
-                  nada de frase de apoio embaixo do número. */}
-              <div className="lc2-tele__cell" title={approachReason}>
-                <Lc2Gauge value={opportunityScore} label="Score" />
-                <span className="lc2-tele__key">Score</span>
-              </div>
-
-              <div className="lc2-tele__cell">
-                <div>
-                  <span className="lc2-tele__key">Prontidão</span>
-                  <div className="lc2-tele__num">{readinessScore}<small>%</small></div>
-                </div>
-              </div>
-
-              <div className="lc2-tele__cell is-optional" title={lastInteractionAt ? fmtDateTime(lastInteractionAt) : undefined}>
-                <div>
-                  <span className="lc2-tele__key">Último contato</span>
-                  <div className="lc2-tele__num lc2-tele__num--word">
-                    {relativeTimeLabel(lastInteractionAt) || "Sem registro"}
-                  </div>
-                </div>
-              </div>
-
-              {/* A ÚNICA próxima ação da ficha. */}
-              <div className="lc2-now">
-                <span className="lc2-pulse" />
-                <div className="lc2-now__body">
-                  <span className="lc2-now__key">Indicado</span>
-                  <div className="lc2-now__what">{lead.nextAction || "Primeiro contato"}</div>
-                </div>
-                <button
-                  type="button"
-                  className="btn-teal btn-xs"
-                  onClick={() => focusWorkspace(recommendedChannel.toLowerCase().includes("mail") ? "email" : "whatsapp")}
-                >
-                  Fazer agora
+            <div className="lead-cockpit__approved-actions">
+              {conciergeVisible && (
+                <button type="button" className="btn-ghost btn-xs" onClick={searchSimilar}>
+                  <I d={ICONS.concierge} size={12} /> <span>Buscar parecidos</span>
                 </button>
-                <button type="button" className="btn-ghost btn-xs" onClick={() => setReagendarOpen(true)}>Reagendar</button>
-              </div>
+              )}
+              {canViewValues && (
+                <button type="button" className="btn-teal btn-xs" onClick={() => setFecharOpen(true)}>
+                  <I d={ICONS.money} size={12} /> <span>Fechar venda</span>
+                </button>
+              )}
+              <button type="button" className="lead-cockpit__approved-close" onClick={requestClose} aria-label="Fechar">×</button>
             </div>
           </header>
 
-          <div className="lc2-body">
-            <aside className="lc2-col lc2-col--dossier" aria-label="Dossiê do lead">
+          <div className="lead-cockpit__statusbar">
+            <label className="lead-cockpit__stage-field">
+              <small>Etapa</small>
+              <select
+                value={stage}
+                disabled={stageBusy}
+                aria-label="Etapa do lead"
+                onChange={(event) => void changeStage(event.target.value as CockpitStage)}
+              >
+                {COCKPIT_STAGES.map((item) => (
+                  <option key={item.key} value={item.key}>{item.label}</option>
+                ))}
+              </select>
+            </label>
+            <div className="lead-cockpit__header-next">
+              <span><small>Próxima ação</small><strong>{lead.nextAction || "Primeiro contato"}</strong></span>
+              <span><small>Quando</small><strong>{lead.returnAt ? fmtDateTime(lead.returnAt) : "Hoje"}</strong></span>
+            </div>
+            <div className="lead-cockpit__row-acts">
+              <button type="button" className="btn-teal btn-xs" onClick={() => focusWorkspace(recommendedChannel.toLowerCase().includes("mail") ? "email" : "whatsapp")}>
+                Fazer agora
+              </button>
+              <button type="button" className="btn-ghost btn-xs" onClick={() => setReagendarOpen(true)}>Reagendar</button>
+            </div>
+          </div>
+
+          <div className="lead-cockpit__workspace">
+            <aside className="lead-cockpit__rail lead-cockpit__rail--intelligence" aria-label="Dossiê do lead">
               {renderDossier()}
             </aside>
 
-            <main className="lc2-col lc2-col--talk">
-              <section className="lc2-copilot">
-                <div className="lc2-copilot__main">
-                  {/* O modelo pronto do Radar deixa de ser "copiar pro
-                      clipboard" e cai direto no composer, já no canal certo. */}
-                  {templateText && (
-                    <button
-                      type="button"
-                      className="btn-ghost btn-xs"
-                      title={templateText}
-                      onClick={() => focusWorkspace(
-                        recommendedChannel.toLowerCase().includes("mail") ? "email" : "whatsapp",
-                        templateText,
-                      )}
-                    >
-                      <I d={ICONS.doc} size={12} /> Usar modelo de mensagem
-                    </button>
-                  )}
-                  {copilotoEnabled ? (
-                    <CopilotoPanel
-                      leadId={lead.id}
-                      ficha={copilotoFicha}
-                      onDraft={(text) => focusWorkspace("whatsapp", text)}
-                      onSaveNote={saveCopilotoNote}
-                    />
-                  ) : (
-                    // Nunca mais "Copiloto indisponível" mudo: diz o que é e
-                    // leva pro lugar de ligar (ordem do dono 27/07).
-                    <div className="lc2-copilot__off">
-                      <span>A redação assistida está desligada para esta empresa.</span>
-                      <button type="button" className="btn-ghost btn-xs" onClick={() => router.push("/automacao?secao=atendente")}>
-                        Ativar copiloto
-                      </button>
-                    </div>
-                  )}
-                </div>
+            <main className="lead-cockpit__history-column">
+              <section className="lead-cockpit__smart-strip">
+                <span className="lead-cockpit__smart-strip-icon"><I d={ICONS.bolt} size={15} /></span>
+                <span>
+                  <strong>Copiloto</strong>
+                  <small>Rascunho, resumo e próxima ação sem envio automático.</small>
+                </span>
+                {copilotoEnabled ? (
+                  <CopilotoPanel
+                    leadId={lead.id}
+                    ficha={copilotoFicha}
+                    onDraft={(text) => focusWorkspace("whatsapp", text)}
+                    onSaveNote={saveCopilotoNote}
+                  />
+                ) : (
+                  <button type="button" className="btn-ghost btn-xs" onClick={() => router.push("/automacao?secao=atendente")}>
+                    Ativar copiloto
+                  </button>
+                )}
               </section>
 
               <LeadCockpitHistory
@@ -1477,13 +1384,13 @@ export function LeadCockpitModal({ lead, aiStatus, canViewValues, open, onClose,
               />
             </main>
 
-            {/* Pilha de decisão. LEI DO VENDEDOR: dinheiro só com canViewValues. */}
-            <aside className="lc2-col lc2-col--decide" aria-label="Robô e negócio">
+            <aside className="lead-cockpit__rail lead-cockpit__rail--operations" aria-label="Operação do lead">
               {renderRoboCard()}
               {canViewValues && renderNegocioCard()}
               {canViewValues && renderFinanceiroCard()}
-              <section className="lc2-card">
-                <div className="lc2-card__foot lc2-card__foot--solo">
+              <section className="lead-cockpit__compact-card lead-cockpit__lead-actions">
+                <CardTitle icon={ICONS.check} title="Ações" />
+                <div className="lead-cockpit__action-grid">
                   <button type="button" className="btn-ghost btn-xs" onClick={() => setAgendaOpen(true)}>Agenda do lead</button>
                   <button type="button" className="btn-ghost btn-xs" onClick={() => setSemInteresseOpen(true)}>Sem interesse…</button>
                 </div>
