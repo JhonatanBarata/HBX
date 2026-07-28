@@ -406,40 +406,61 @@ function Termometro({ score, why }: { score: number; why: string }) {
   );
 }
 
+type RadarUiState = "funcionando" | "pausado" | "parado" | "erro";
+type RadarRunSnapshot = {
+  status?: string;
+  meta?: { operationalState?: string };
+} | null;
+
+function resolveRadarUiState(run: RadarRunSnapshot): RadarUiState {
+  const status = String(run?.status || "").trim().toLowerCase();
+  const operationalState = String(run?.meta?.operationalState || "").trim().toLowerCase();
+  if (status === "failed" || status === "partial_error") return "erro";
+  if (operationalState === "funcionando" || operationalState === "pausado" || operationalState === "parado") {
+    return operationalState;
+  }
+  if (status === "queued" || status === "running") return "funcionando";
+  if (status === "sleeping") return "pausado";
+  return "parado";
+}
+
 // 4º botão do topo (visual DIFERENTÃO): os dados da faixa "Buscando empresas"
 // viram um card destacado ao lado dos 3 KPIs. Nunca invade o card de detalhe —
 // mora dentro da barra do topo, que é limitada à coluna da esquerda.
 function RadarSupplyCard({
   supply,
+  radarState,
   onLiberar,
 }: {
   supply: NonNullable<NonNullable<BoardResponse>["radarSupply"]>;
+  radarState: RadarUiState;
   onLiberar: () => void;
 }) {
   const unlimited = Boolean(supply.unlimited) && !supply.paused;
   const capacity = Math.max(1, supply.capacity || 1);
   const used = Math.max(0, Math.min(supply.activeCards ?? 0, capacity));
-  const pct = used / capacity;
-  const state = unlimited ? "ok" : supply.full ? "full" : (supply.paused || pct >= 0.8) ? "warn" : "ok";
   const count = unlimited ? Math.max(0, supply.activeCards ?? 0) : used;
-  const label = supply.paused ? "Distribuição pausada"
-    : state === "full" ? "Lista cheia"
-    : state === "warn" ? "Lista quase cheia"
-    : "Buscando empresas";
+  const label = radarState === "funcionando"
+    ? "Radar funcionando"
+    : radarState === "pausado"
+      ? "Radar pausado"
+      : radarState === "erro"
+        ? "Erro no radar"
+        : "Radar parado";
   const unit = unlimited ? "na lista" : `/ ${capacity}`;
-  const clickable = state === "full";
+  const clickable = supply.full;
   return (
     <div
-      className={"vnd-supcard vnd-supcard--" + state + (clickable ? " is-clickable" : "")}
+      className={"vnd-supcard vnd-supcard--" + radarState + (clickable ? " is-clickable" : "")}
       role={clickable ? "button" : "status"}
       tabIndex={clickable ? 0 : undefined}
-      aria-label={label}
+      aria-label={`${label}: ${count} ${unit}`}
       onClick={clickable ? onLiberar : undefined}
       onKeyDown={clickable ? (e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onLiberar(); } }) : undefined}
     >
       <span className="vnd-supcard__halo" aria-hidden="true" />
       <span className="vnd-supcard__ic" aria-hidden="true">
-        <I d={state === "full" ? ICONS.pause : ICONS.scrape} size={16} />
+        <I d={radarState === "funcionando" ? ICONS.scrape : ICONS.pause} size={16} />
       </span>
       <span className="vnd-supcard__txt">
         <span className="vnd-supcard__label">{label}</span>
@@ -504,13 +525,49 @@ export function VendasClient() {
   const [buscarMounted, setBuscarMounted] = useState(false);
   // 3 números do Radar pro topo da casca ÚNICA (vêm do LeadsClient via callback) —
   // o topo é o mesmo nos 2 modos; só os DADOS trocam. 29/06.
-  const [buscarStats, setBuscarStats] = useState<{ totalBrasil: number | null; disponiveis: number | null; cotaLabel: string; cotaValue: string; cotaPct: number }>(
-    { totalBrasil: null, disponiveis: null, cotaLabel: "Cota do mês", cotaValue: "—", cotaPct: 0 });
+  const [buscarStats, setBuscarStats] = useState<{
+    totalBrasil: number | null;
+    disponiveis: number | null;
+    cotaLabel: string;
+    cotaValue: string;
+    cotaPct: number;
+    radarState: RadarUiState;
+  }>({
+    totalBrasil: null,
+    disponiveis: null,
+    cotaLabel: "Cota do mês",
+    cotaValue: "—",
+    cotaPct: 0,
+    radarState: "parado",
+  });
   const [board, setBoard] = useState<BoardResponse>(null);
   // Relógio carimbado junto com o board (ver loadBoard) — referência de "há
   // quanto tempo" da faixa de contexto do painel de comando.
   const [agora, setAgora] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
+
+  // Antes de o painel Buscar ser montado, mantém o indicador compacto ligado
+  // ao mesmo status operacional que o backend já entrega. Depois, o próprio
+  // LeadsClient assume essa sincronização pelo callback existente.
+  useEffect(() => {
+    if (buscarMounted) return;
+    let active = true;
+    const refreshRadarState = async () => {
+      try {
+        const snapshot = await apiFetch<RadarRunSnapshot>("/webscraping/radar/search-runs/latest");
+        if (!active) return;
+        setBuscarStats(current => ({ ...current, radarState: resolveRadarUiState(snapshot) }));
+      } catch {
+        if (active) setBuscarStats(current => ({ ...current, radarState: "parado" }));
+      }
+    };
+    void refreshRadarState();
+    const interval = window.setInterval(refreshRadarState, 4000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [buscarMounted]);
   // Filtro de vendedor (admin): null = todas as equipes; id = carteira de UM
   // vendedor (inclui "Eu" quando o admin prospecta). Refaz o board ao mudar.
   // PERSISTE em localStorage → sobrevive reload/navegação. Initializer lazy com
@@ -1674,7 +1731,11 @@ export function VendasClient() {
                       <small>{ctxBrief.facts}</small>
                     </span>
                     {board?.radarSupply && (
-                      <RadarSupplyCard supply={board.radarSupply} onLiberar={() => { irFunil(); setView("list"); }} />
+                      <RadarSupplyCard
+                        supply={board.radarSupply}
+                        radarState={buscarStats.radarState}
+                        onLiberar={() => { irFunil(); setView("list"); }}
+                      />
                     )}
                     {ctxBrief.actions && <span className="vnd-ctx__acts">{ctxBrief.actions}</span>}
                   </React.Fragment>

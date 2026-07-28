@@ -93,11 +93,144 @@
 
 /* O Radar passa a ser um viewer de estado, não um segundo painel de instruções. */
 .leads-page .radar-viewer {
+  --radar-state-color: var(--hbx-danger);
   align-content: start;
 }
 
+.leads-page .radar-viewer[data-radar-state="funcionando"] { --radar-state-color: var(--hbx-info); }
+.leads-page .radar-viewer[data-radar-state="pausado"] { --radar-state-color: var(--hbx-warning); }
+.leads-page .radar-viewer[data-radar-state="parado"],
+.leads-page .radar-viewer[data-radar-state="erro"] { --radar-state-color: var(--hbx-danger); }
+
+.leads-page .radar-viewer .radar-hero {
+  position: relative;
+  isolation: isolate;
+  gap: 12px;
+  padding: 18px 14px 20px;
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--radar-state-color) 34%, var(--border-hairline));
+  background:
+    radial-gradient(90% 58% at 50% 12%, color-mix(in srgb, var(--radar-state-color) 17%, transparent), transparent 70%),
+    linear-gradient(180deg, color-mix(in srgb, var(--radar-state-color) 5%, var(--hbx-surface-soft)), var(--hbx-surface-soft));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--hbx-surface-raised) 78%, transparent),
+    0 18px 44px -34px color-mix(in srgb, var(--radar-state-color) 72%, transparent);
+  transition:
+    border-color 420ms var(--ease-out-quint),
+    background 420ms var(--ease-out-quint),
+    box-shadow 420ms var(--ease-out-quint);
+}
+
+.leads-page .radar-viewer .radar-hero::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: -45% 8% 46%;
+  border-radius: 50%;
+  background: radial-gradient(circle, color-mix(in srgb, var(--radar-state-color) 24%, transparent), transparent 68%);
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.leads-page .radar-viewer .radar-hero > * {
+  position: relative;
+  z-index: 1;
+}
+
+.leads-page .radar-viewer[data-radar-state="funcionando"] .radar-hero::before {
+  animation: radar-viewer-aura 2.8s ease-in-out infinite;
+}
+
+.leads-page .radar-hero__state {
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 0 11px;
+  border: 1px solid color-mix(in srgb, var(--radar-state-color) 40%, var(--border-hairline));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--radar-state-color) 10%, var(--hbx-surface));
+  color: color-mix(in srgb, var(--radar-state-color) 82%, var(--text-strong));
+  box-shadow: 0 8px 22px -17px var(--radar-state-color);
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.055em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.leads-page .radar-hero__state > i {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--radar-state-color);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--radar-state-color) 13%, transparent);
+}
+
+.leads-page .radar-viewer[data-radar-state="funcionando"] .radar-hero__state > i {
+  animation: radar-viewer-dot 1.55s ease-in-out infinite;
+}
+
+.leads-page .radar-viewer .radar-hero__disc {
+  filter: drop-shadow(0 20px 34px color-mix(in srgb, var(--radar-state-color) 34%, transparent));
+  transition: filter 420ms var(--ease-out-quint), transform 420ms var(--ease-out-quint);
+}
+
+.leads-page .radar-viewer[data-radar-state="funcionando"] .radar-hero__disc {
+  animation: radar-viewer-float 4.8s ease-in-out infinite;
+}
+
+.leads-page .radar-viewer .radar-hero__disc .radar-disc-wrap {
+  box-shadow:
+    0 22px 42px -15px color-mix(in srgb, var(--radar-state-color) 48%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, var(--radar-state-color) 24%, transparent);
+  transition: box-shadow 420ms var(--ease-out-quint);
+}
+
+/* Funcionando é azul; pausado é amarelo; parado e erro compartilham vermelho. */
+.leads-page .radar-disc-wrap--funcionando {
+  --radar-sweep: color-mix(in srgb, var(--hbx-info) 88%, transparent);
+  --radar-ring: color-mix(in srgb, var(--hbx-info) 30%, transparent);
+  --radar-blip: color-mix(in srgb, var(--hbx-info) 96%, white 8%);
+  --radar-glow: color-mix(in srgb, var(--hbx-info) 74%, transparent);
+  --radar-trail: color-mix(in srgb, var(--hbx-info) 34%, transparent);
+  --radar-axis: color-mix(in srgb, var(--hbx-info) 24%, transparent);
+}
+
+.leads-page .radar-disc-wrap--parado {
+  --radar-sweep: color-mix(in srgb, var(--hbx-danger) 70%, transparent);
+  --radar-ring: color-mix(in srgb, var(--hbx-danger) 25%, transparent);
+  --radar-blip: color-mix(in srgb, var(--hbx-danger) 76%, transparent);
+  --radar-glow: color-mix(in srgb, var(--hbx-danger) 40%, transparent);
+  --radar-trail: color-mix(in srgb, var(--hbx-danger) 22%, transparent);
+  --radar-axis: color-mix(in srgb, var(--hbx-danger) 20%, transparent);
+}
+
+/* Pausa e parada precisam parecer imóveis, não apenas mais lentas. */
+.leads-page .radar-disc-wrap--pausado .radarSweep2,
+.leads-page .radar-disc-wrap--pausado .radarPulseRing,
+.leads-page .radar-disc-wrap--pausado .radarBlip2,
+.leads-page .radar-disc-wrap--pausado .radarBlip2Ripple,
+.leads-page .radar-disc-wrap--pausado .radarBlip2Label,
+.leads-page .radar-disc-wrap--pausado .radarTrack,
+.leads-page .radar-disc-wrap--pausado .radarCompass,
+.leads-page .radar-disc-wrap--parado .radarBlip2Label {
+  animation: none;
+}
+
+.leads-page .radar-disc-wrap--pausado .radarBlip2 { opacity: 0.58; }
+.leads-page .radar-disc-wrap--pausado .radarBlip2Label,
+.leads-page .radar-disc-wrap--parado .radarBlip2Label { opacity: 0; }
+
 .leads-page .radar-viewer .radar-hero__copy {
   gap: 4px;
+}
+
+.leads-page .radar-viewer .radar-hero__eyebrow {
+  color: color-mix(in srgb, var(--radar-state-color) 80%, var(--text-strong));
+  transition: color 420ms var(--ease-out-quint);
 }
 
 .leads-page .radar-viewer__status {
@@ -109,7 +242,21 @@
 }
 
 .leads-page .radar-viewer__chips {
+  width: 100%;
+  justify-content: center;
   padding: 0 4px;
+  text-align: center;
+}
+
+.leads-page .radar-viewer__chips .radar-showoff__chip {
+  border-color: color-mix(in srgb, var(--radar-state-color) 34%, var(--border-hairline));
+  background: color-mix(in srgb, var(--radar-state-color) 9%, var(--hbx-surface));
+  color: color-mix(in srgb, var(--radar-state-color) 78%, var(--text-strong));
+  box-shadow: 0 7px 18px -16px var(--radar-state-color);
+  transition:
+    color 300ms var(--ease-out-quint),
+    border-color 300ms var(--ease-out-quint),
+    background 300ms var(--ease-out-quint);
 }
 
 .leads-page .radar-viewer__feedback {
@@ -121,6 +268,50 @@
   color: var(--text-muted);
   font-size: 0.7rem;
   line-height: 1.45;
+}
+
+/* Indicador compacto da imagem 1: usa o mesmo estado operacional do radar. */
+.vnd-supcard--funcionando { --radar-color: var(--hbx-info); }
+.vnd-supcard--pausado { --radar-color: var(--hbx-warning); }
+.vnd-supcard--parado,
+.vnd-supcard--erro { --radar-color: var(--hbx-danger); }
+
+.vnd-supcard--pausado .vnd-supcard__ic::before,
+.vnd-supcard--parado .vnd-supcard__ic::before,
+.vnd-supcard--erro .vnd-supcard__ic::before {
+  animation: none;
+}
+
+.vnd-modehost[data-fx="on"] .vnd-supcard--pausado .vnd-supcard__ic::after,
+.vnd-modehost[data-fx="on"] .vnd-supcard--parado .vnd-supcard__ic::after,
+.vnd-modehost[data-fx="on"] .vnd-supcard--erro .vnd-supcard__ic::after {
+  animation: none;
+  opacity: 0.72;
+}
+
+.vnd-ctx > .vnd-supcard .vnd-supcard__label {
+  color: color-mix(in srgb, var(--radar-color) 82%, var(--text-strong));
+  font-weight: 750;
+}
+
+.vnd-ctx > .vnd-supcard .vnd-supcard__ic {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--radar-color) 10%, transparent);
+  transition: box-shadow 300ms var(--ease-out-quint), background 300ms var(--ease-out-quint);
+}
+
+@keyframes radar-viewer-aura {
+  0%, 100% { opacity: 0.48; transform: scale(0.94); }
+  50% { opacity: 0.9; transform: scale(1.06); }
+}
+
+@keyframes radar-viewer-dot {
+  0%, 100% { opacity: 0.62; transform: scale(0.82); }
+  50% { opacity: 1; transform: scale(1.12); }
+}
+
+@keyframes radar-viewer-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
 }
 
 @media (max-width: 760px) {
@@ -136,5 +327,19 @@
   .leads-page .leads-headrow__center {
     width: 100%;
     margin-left: 0;
+  }
+
+  .leads-page .radar-viewer .radar-hero {
+    padding-inline: 10px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .leads-page .radar-viewer[data-radar-state="funcionando"] .radar-hero::before,
+  .leads-page .radar-viewer[data-radar-state="funcionando"] .radar-hero__disc,
+  .leads-page .radar-viewer[data-radar-state="funcionando"] .radar-hero__state > i,
+  .vnd-supcard__ic::before,
+  .vnd-modehost[data-fx="on"] .vnd-supcard__ic::after {
+    animation: none;
   }
 }

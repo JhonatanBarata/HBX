@@ -200,9 +200,16 @@ type RadarRequiredChannel = "whatsapp" | "phone" | "email" | "website";
 type DddLookupResponse = { state?: string; cities?: string[] };
 type GeoTarget = { city: string; state: string };
 type GeoModeDirection = "forward" | "back";
+type RadarUiState = "funcionando" | "pausado" | "parado" | "erro";
 
 // B0: statuses realmente terminais — removeu "error" fantasma, adicionou partial_error
 const TERMINAL_RUN = new Set(["completed", "completed_insufficient_results", "canceled", "failed", "partial_error"]);
+const RADAR_STATE_LABEL: Record<RadarUiState, string> = {
+  funcionando: "Funcionando",
+  pausado: "Pausado",
+  parado: "Parado",
+  erro: "Erro",
+};
 
 // Redesenho "Buscar empresas" (05/07): o usuário NÃO pré-seta quantidade (modelo
 // Mercado Livre — ninguém pergunta "quantos iPhones você quer ver"). A prateleira
@@ -722,7 +729,19 @@ function getStoredViewMode(): ViewMode {
   } catch { return "linhas"; }
 }
 
-export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embedTitle }: { embedded?: boolean; onLeadPulled?: (focus?: boolean) => void; onEmbedStats?: (s: { totalBrasil: number | null; disponiveis: number | null; cotaLabel: string; cotaValue: string; cotaPct: number }) => void; embedTitle?: ReactNode } = {}) {
+export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embedTitle }: {
+  embedded?: boolean;
+  onLeadPulled?: (focus?: boolean) => void;
+  onEmbedStats?: (s: {
+    totalBrasil: number | null;
+    disponiveis: number | null;
+    cotaLabel: string;
+    cotaValue: string;
+    cotaPct: number;
+    radarState: RadarUiState;
+  }) => void;
+  embedTitle?: ReactNode;
+} = {}) {
   const router = useRouter();
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
   const viewPill = useGlassPill<HTMLButtonElement>(viewMode);
@@ -802,6 +821,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   // impede que candidatos provisórios (`foundCount`) apareçam como leads.
   const [liveRunItems, setLiveRunItems] = useState<RadarLead[] | null>(null);
   const [runBusy, setRunBusy] = useState(false);
+  const [stopRequested, setStopRequested] = useState(false);
   const [searchMsg, setSearchMsg] = useState<string | null>(null);
   const [searchQueue, setSearchQueue] = useState<{ current: number; total: number; label: string } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -1587,11 +1607,24 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [searchInProgress]);
 
-  // Estado visual do disco (23/07 — reativa a leitura de estado do radar por
-  // cor): pesquisando AGORA = funcionando; motor pausado (não-terminal) =
-  // pausado; qualquer outra coisa (ocioso/pronto/concluído) = parado.
+  // A resposta do backend é a fonte de verdade. `runBusy` só cobre o intervalo
+  // entre o clique em Iniciar e a primeira resposta; ao pedir Parar, o visual
+  // congela imediatamente enquanto o cancelamento é confirmado.
+  const runStatus = String(run?.status || "").trim().toLowerCase();
+  const radarState: RadarUiState =
+    stopRequested
+      ? "parado"
+      : runStatus === "failed" || runStatus === "partial_error"
+        ? "erro"
+        : opState === "pausado"
+          ? "pausado"
+          : opState === "parado"
+            ? "parado"
+            : opState === "funcionando" || runBusy
+              ? "funcionando"
+              : "parado";
   const discState: "funcionando" | "pausado" | "parado" =
-    opState === "pausado" ? "pausado" : searchInProgress ? "funcionando" : "parado";
+    radarState === "erro" ? "parado" : radarState;
 
   // P4: valida campos e abre popup se faltando — usado em 3 gatilhos
   function validarCamposOuPopup(effSegment?: string): boolean {
@@ -1617,6 +1650,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     const effRadius = override?.radiusKm != null ? override.radiusKm : (alcance ? Number(alcance) : 0);
     if (!validarCamposOuPopup(effSegment)) return;
     const targets = geoTargetsFor(geoMode, uf, cities);
+    setStopRequested(false);
     const queueToken = queueTokenRef.current + 1;
     queueTokenRef.current = queueToken;
     queueActiveRef.current = true;
@@ -1678,6 +1712,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                 // Sem confirmação de cancelamento, o run permanece visível e
                 // bloqueia nova busca até o monitor observar um estado terminal.
                 interruptedByError = true;
+                setStopRequested(false);
                 queueRunIdRef.current = createdRunId;
                 setRun(currentRun);
                 setSearchMsg("Não foi possível confirmar o cancelamento. O Radar continuará sendo monitorado.");
@@ -1772,6 +1807,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
 
   async function pararBusca() {
     const wasQueue = queueActiveRef.current;
+    setStopRequested(true);
     const stopToken = queueTokenRef.current + 1;
     queueTokenRef.current = stopToken;
     setSearchQueue(null);
@@ -1786,6 +1822,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       if (queueTokenRef.current !== stopToken) return;
       if (queueRunIdRef.current === runId) queueRunIdRef.current = null;
       setRun(res);
+      setStopRequested(false);
       if (!wasQueue) {
         setLiveRunItems(filterRadarLeadsByReputation(
           Array.isArray(res?.items) ? res.items : [],
@@ -1795,6 +1832,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         void loadList("shelf", { page: 1 }).finally(() => setLiveRunItems(null));
       }
     } catch {
+      setStopRequested(false);
       // A fila já foi invalidada; não há autorização para iniciar outro alvo.
     }
   }
@@ -1925,6 +1963,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
 
   const emptyMsg = loadError
     ? loadError
+    : searchInProgress && radarState === "pausado" && tab === "shelf"
+      ? run?.meta?.operationalMessage || "Radar pausado. A busca será retomada quando o motor estiver disponível."
     : searchInProgress && tab === "shelf"
       ? `Procurando empresas em ${localLabel || "sua região"}…`
     : data?.meta?.available === false
@@ -1955,8 +1995,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       cotaLabel: meterLabel,
       cotaValue: meterValue,
       cotaPct: meterPct,
+      radarState,
     });
-  }, [onEmbedStats, totalBrasilReal, counts.shelf, meterLabel, meterValue, meterPct]);
+  }, [onEmbedStats, totalBrasilReal, counts.shelf, meterLabel, meterValue, meterPct, radarState]);
 
   function contatoMascarado(row: RadarLead) {
     const channelPresence = resolveRadarChannelPresence(row);
@@ -2440,9 +2481,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         </button>
 
         {searchInProgress ? (
-          <button className="btn-ghost be-cmdbar__go" onClick={pararBusca}>
+          <button className="btn-ghost be-cmdbar__go" onClick={pararBusca} disabled={stopRequested}>
             <span aria-hidden>◼</span>
-            {searchQueue ? `Parar ${searchQueue.current}/${searchQueue.total}` : "Parar"}
+            {stopRequested ? "Parando…" : searchQueue ? `Parar ${searchQueue.current}/${searchQueue.total}` : "Parar"}
           </button>
         ) : (
           <button
@@ -2502,27 +2543,39 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       localLabel,
       ...activeChips().map(chip => chip.label),
     ].filter(Boolean);
-    const radarTitle = searchInProgress
-      ? "Buscando empresas"
-      : hasSearched
-        ? (items.length > 0 ? "Busca concluída" : "Nenhuma empresa encontrada")
-        : "Radar pronto";
-    const radarStatus = searchInProgress
+    const radarBackendMessage = run?.meta?.operationalMessage || run?.message || "";
+    const radarTitle = radarState === "funcionando"
+      ? "Radar funcionando"
+      : radarState === "pausado"
+        ? "Radar pausado"
+        : radarState === "erro"
+          ? "Erro no radar"
+          : "Radar parado";
+    const radarStatus = radarState === "funcionando"
       ? searchQueue
         ? `${searchQueue.current} de ${searchQueue.total} · ${searchQueue.label}${runProgress != null ? ` · ${runProgress}%` : ""}`
-        : `Preparando ${localLabel || "sua região"}…`
-      : hasSearched
-        ? (items.length > 0
-          ? `${fmtInt(items.length)} empresa${items.length === 1 ? " encontrada" : "s encontradas"}`
-          : "Tente outra cidade ou segmento.")
-        : canSearch
-          ? "Tudo pronto para buscar."
-          : "Preencha os filtros para começar.";
+        : radarBackendMessage || `Preparando ${localLabel || "sua região"}…`
+      : radarState === "pausado"
+        ? radarBackendMessage || "A busca está pausada e será retomada automaticamente."
+        : radarState === "erro"
+          ? searchMsg || radarBackendMessage || "Não foi possível concluir a busca. Você pode iniciar novamente."
+          : radarBackendMessage
+            || (hasSearched
+              ? (items.length > 0
+                ? `${fmtInt(items.length)} empresa${items.length === 1 ? " encontrada" : "s encontradas"}`
+                : "A busca foi encerrada. Ajuste os filtros e inicie novamente.")
+              : canSearch
+                ? "Tudo pronto. Inicie quando quiser."
+                : "Preencha os filtros para iniciar.");
 
     return (
-      <div className="radar-console radar-showoff radar-viewer">
-        <div className="radar-hero">
-          <div className="radar-hero__disc">
+      <div className="radar-console radar-showoff radar-viewer" data-radar-state={radarState}>
+        <div className="radar-hero" role="status" aria-live="polite">
+          <span className="radar-hero__state" aria-label={`Status do Radar: ${RADAR_STATE_LABEL[radarState]}`}>
+            <i aria-hidden="true" />
+            {RADAR_STATE_LABEL[radarState]}
+          </span>
+          <div className="radar-hero__disc" aria-hidden="true">
             <RadarDisc state={discState} />
           </div>
           <div className="radar-hero__copy">
@@ -2822,14 +2875,16 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
               {/* Progresso REAL de uma busca em andamento (não é o radar decorativo
                   narrando estado — é feedback de uma operação assíncrona de verdade).
                   O texto de IDLE "Em pausa — volta sozinho" saiu daqui (item 2). */}
-              {searchInProgress && (
-                <div className="radar2-live radar2-live--funcionando">
+              {searchInProgress && !stopRequested && (
+                <div className={`radar2-live radar2-live--${radarState === "pausado" ? "pausado" : "funcionando"}`}>
                   <span className="dot" />
-                  {searchQueue
-                    ? `Fila ${searchQueue.current}/${searchQueue.total} · ${searchQueue.label}`
-                    : `Preparando ${localLabel || "território"}`}
+                  {radarState === "pausado"
+                    ? run?.meta?.operationalMessage || "Radar pausado"
+                    : searchQueue
+                      ? `Fila ${searchQueue.current}/${searchQueue.total} · ${searchQueue.label}`
+                      : `Preparando ${localLabel || "território"}`}
                   {" · "}{fmtInt(runVisibleCount)} achados{runProgress != null ? ` · ${runProgress}%` : ""}
-                  {" · mantenha esta tela aberta"}
+                  {radarState === "funcionando" && " · mantenha esta tela aberta"}
                 </div>
               )}
 
