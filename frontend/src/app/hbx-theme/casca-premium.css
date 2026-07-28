@@ -26,8 +26,13 @@
       estrutura moram neste arquivo; cor mora na pele.
 
    GEOMETRIA DA REFERÊNCIA (medida no arquivo, não chutada):
-     cartão 14px · botão 11px · campo/entrada 9px · badge 999px
-     avatar de comando 13px · ícone de canal 11px
+     JÁ LIGADA aqui → cartão 14px · botão 11px · campo 9px · badge 999px
+     AINDA NÃO      → avatar de comando 13px · ícone de canal 11px ·
+                      textarea do composer 11px
+   Esses três só existem no Detalhes do Lead, que ainda não foi refeito.
+   Estão listados de propósito para não sumirem da conta — a auditoria de
+   28/07 cobrou exatamente isso, e enquanto o Detalhes não vier eles não
+   têm seletor consumidor. Não confundir "documentado" com "implementado".
    ============================================================ */
 
 /* ---- 1. TOKENS DA CASCA ------------------------------------------------
@@ -83,7 +88,10 @@
   --enter-ease: cubic-bezier(0.2, 0, 0.2, 1);
   --enter-stagger: 0ms;
 
-  --icon-stroke: 1.8;
+  /* --icon-stroke NÃO é declarado aqui de propósito (corrigido 28/07 pela
+     auditoria): a casca fixava 1.8 e sobrescrevia o 1.9 do tema, que é o
+     stroke-width real dos SVGs da referência. Traço é cor/acabamento —
+     mora na pele. */
 }
 
 /* NOTA DE ARQUITETURA (28/07): as cores desta casca NÃO nascem aqui e NÃO são
@@ -118,10 +126,20 @@
 [data-casca="premium"] .app :is(b, strong, th, dt, label, legend, summary, .co strong) {
   font-weight: var(--weight-medium);
 }
-/* Rótulo em caixa-alta é o único lugar onde quem separa é o tracking, não
-   o peso — some o negrito, entra a letra espaçada. */
-[data-casca="premium"] .app :is(.hbx-overline, .nav-group-label, th, .card-h) {
-  font-weight: var(--weight-semibold);
+/* Rótulo em caixa-alta: quem separa é o TRACKING, não o peso.
+   CORRIGIDO 28/07 (auditoria): esta regra listava `.hbx-overline`,
+   `.nav-group-label` e `th` junto do `.card-h` em peso 600 — e com isso
+   (a) violava a lei do negrito, porque rótulo de grupo e cabeçalho de
+   coluna são DETALHE, não título, e (b) sobrescrevia a regra logo acima
+   deste arquivo, que já tinha posto `th` em 500 correto. Autocontradição
+   dentro da mesma folha. Agora estão separados: só o cabeçalho de CARTÃO
+   é título e pode pesar. */
+[data-casca="premium"] .app :is(.hbx-overline, .nav-group-label, th) {
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+[data-casca="premium"] .app .card-h {
   letter-spacing: 0.09em;
   text-transform: uppercase;
 }

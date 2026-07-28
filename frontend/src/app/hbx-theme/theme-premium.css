@@ -12,10 +12,17 @@
 
    Duas camadas:
      1) os tokens do CONTRATO (--hbx-*), pra todas as telas do app
-        vestirem a paleta sem saber que ela existe;
-     2) os tokens NOMEADOS da referência (--pr-*), que a casca e o
-        Detalhes do Vendas consomem direto onde o desenho é específico
-        (topo escuro, verde de dinheiro, âmbar do robô, fio duplo).
+        vestirem a paleta sem saber que ela existe — ESTA já está no ar;
+     2) os tokens NOMEADOS da referência (--pr-*), para o desenho
+        específico da Central do Lead (topo escuro, verde de dinheiro,
+        âmbar do robô, fio duplo).
+
+   ⚠️ ESTADO REAL DA CAMADA 2 (auditoria 28/07): hoje só --pr-hair,
+   --pr-hair-2 e --pr-mono têm consumidor. Os outros 22 estão DECLARADOS E
+   ÓRFÃOS de propósito — são a paleta reservada do Detalhes do Vendas, que
+   ainda não foi refeito. Quando ele vier, eles passam a ser usados; se o
+   Detalhes for feito e eles continuarem órfãos, aí sim é sujeira e devem
+   cair. Fica escrito para ninguém achar que já está tudo ligado.
    ============================================================ */
 
 [data-theme="premium"] {
