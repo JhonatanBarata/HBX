@@ -216,6 +216,11 @@ export class CnpjPublicProviderService {
       cnpj,
       cnae: record.cnae || null,
       cnaeDescription: record.cnaeDescription || null,
+      // Categoria VISÍVEL do card = atividade REAL da Receita (28/07): antes herdava o termo
+      // da busca e "IGREJA ..." aparecia carimbada de "distribuidora de agua" na vitrine. O
+      // `segment` continua sendo o bucket da pesquisa (dedup/carteira usam), mas a categoria
+      // fala a verdade do CNAE.
+      businessCategory: record.cnaeDescription || null,
       companySize: record.porte || null,
       companyBranchType: record.matrizFilial || null,
       source: 'cnpj_public',

@@ -57,3 +57,18 @@ test('matcher: singular/plural cruzados casam (distribuidoras↔distribuidora)',
   const matcher = buildSegmentTextMatcher('distribuidoras de aguas', 'Zacarias');
   assert.ok(matcher('distribuidora de agua mineral zacarias ltda'));
 });
+
+test('matcher: lista com virgula e OR entre frases (cada frase inteira, nao a soma)', () => {
+  // "bicicletarias, calçados" = quero bicicletaria OU calçados — um item basta, mas o item
+  // que casar casa inteiro. Tratar a lista como frase única (AND de tudo) mataria os dois.
+  const matcher = buildSegmentTextMatcher('bicicletarias, calçados', 'Rio Claro');
+  assert.ok(matcher('humanitarian calcados'));
+  assert.ok(matcher('bicicletaria e borracharia santana'));
+  assert.equal(matcher('edr imobiliaria'), false);
+});
+
+test('matcher: radicalPrefix tolera flexao em palavra longa sem reabrir o furo da curta', () => {
+  const matcher = buildSegmentTextMatcher('distribuidora de agua', 'Aguaí', { radicalPrefix: true });
+  assert.ok(matcher('distribuidores de agua em sao paulo'), 'distribuidores casa pelo radical');
+  assert.equal(matcher('distribuidora champions aguai'), false, '"agua" segue exigindo palavra exata');
+});

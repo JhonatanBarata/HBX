@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger, Optional, ServiceUnavailableEx
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { LeadHarvestImportService } from '../../../lead-harvest/lead-harvest-import.service';
 import { normalizePhoneDigits } from '../../shared/radar-core-shared';
-import { segmentTokenGroups } from '../../shared/radar-segment-match.util';
+import { segmentPhraseTokenGroups } from '../../shared/radar-segment-match.util';
 
 /**
  * HOT-02 + HOT-03 (fundidos) — "Base Receita": pesquisa avançada em cima do dump local da RFB
@@ -201,18 +201,19 @@ export class CnpjBaseQueryService {
     }
     if (input.keyword) {
       const keyword = String(input.keyword).trim();
-      // Lei única de radar-segment-match.util (28/07): AND entre as palavras do termo (grupo =
-      // variantes singular/plural/radical da MESMA palavra, em OR interno). O OR plano antigo
-      // fazia "distribuidora de agua" contar a cidade inteira de Aguai ("agua" batia em "AGUAI"
-      // no nome de qualquer empresa local). Frase inteira em razao/fantasia segue valendo.
-      const tokenGroups = segmentTokenGroups(keyword, { withRadical: true });
+      // Lei única de radar-segment-match.util (28/07): lista separada por vírgula = OR entre
+      // frases; dentro de cada frase, AND entre as palavras (grupo = variantes singular/plural/
+      // radical da MESMA palavra, em OR interno). O OR plano antigo fazia "distribuidora de
+      // agua" contar a cidade inteira de Aguai ("agua" batia em "AGUAI" no nome de qualquer
+      // empresa local). Frase inteira em razao/fantasia segue valendo.
+      const phraseGroups = segmentPhraseTokenGroups(keyword, { withRadical: true });
       and.push({
         OR: [
           { razaoSocial: { contains: keyword, mode: 'insensitive' } },
           { nomeFantasia: { contains: keyword, mode: 'insensitive' } },
-          ...(tokenGroups.length ? [{
-            AND: tokenGroups.map((group) => ({ OR: group.map((token) => ({ searchText: { contains: token } })) })),
-          }] : []),
+          ...phraseGroups.map((groups) => ({
+            AND: groups.map((group) => ({ OR: group.map((token) => ({ searchText: { contains: token } })) })),
+          })),
         ],
       });
     }

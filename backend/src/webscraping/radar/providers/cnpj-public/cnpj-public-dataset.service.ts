@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { NormalizedSearchInput } from '../../shared/radar-types';
-import { buildSegmentTextMatcher, segmentTokenGroups } from '../../shared/radar-segment-match.util';
+import { buildSegmentTextMatcher, segmentPhraseTokenGroups } from '../../shared/radar-segment-match.util';
 import { normalizeLegacyBrCellphone } from './cnpj-public-types';
 import type { CnpjPublicCompanyRecord } from './cnpj-public-types';
 
@@ -37,10 +37,11 @@ export class CnpjPublicDatasetService {
 
     const city = normalizeText(input.normalized?.city);
     const state = String(input.normalized?.state || '').trim().toUpperCase();
-    // Match de segmento pela lei única de radar-segment-match.util (28/07): AND entre as
-    // palavras do segmento — o OR antigo fazia "distribuidora de agua" casar a cidade inteira
-    // ("agua" batia em "AGUAS DE LINDOIA"/"AGUAI" no nome e em "agua doce" na descrição de CNAE).
-    const tokenGroups = segmentTokenGroups(input.normalized?.segment);
+    // Match de segmento pela lei única de radar-segment-match.util (28/07): lista = OR entre
+    // frases, AND entre as palavras de cada frase — o OR plano antigo fazia "distribuidora de
+    // agua" casar a cidade inteira ("agua" batia em "AGUAS DE LINDOIA"/"AGUAI" no nome e em
+    // "agua doce" na descrição de CNAE).
+    const phraseGroups = segmentPhraseTokenGroups(input.normalized?.segment);
     // Segmento pode vir como código CNAE (4-7 dígitos, ex. "5611" ou "5611203") — com o dump
     // da RFB carregado, cidade×CNAE resolve direto no índice (normalizedCity, cnae).
     const cnaeCode = (normalizeText(input.normalized?.segment).match(/\b\d{4,7}\b/) || [])[0] || null;
@@ -49,12 +50,9 @@ export class CnpjPublicDatasetService {
     const where: Record<string, any> = {};
     if (city) where.normalizedCity = city;
     if (state) where.state = state;
-    const matchers: Array<Record<string, any>> = [];
-    if (tokenGroups.length) {
-      matchers.push({
-        AND: tokenGroups.map((group) => ({ OR: group.map((token) => ({ searchText: { contains: token } })) })),
-      });
-    }
+    const matchers: Array<Record<string, any>> = phraseGroups.map((groups) => ({
+      AND: groups.map((group) => ({ OR: group.map((token) => ({ searchText: { contains: token } })) })),
+    }));
     if (cnaeCode) matchers.push({ cnae: { startsWith: cnaeCode } });
     if (matchers.length) where.OR = matchers;
 

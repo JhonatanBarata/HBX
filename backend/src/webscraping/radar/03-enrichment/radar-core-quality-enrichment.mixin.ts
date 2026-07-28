@@ -4,6 +4,7 @@ import {
   scoreRadarWebEnrichmentCandidate,
 } from './radar-web-enrichment-priority';
 import { RadarWebEnrichmentService } from './radar-web-enrichment.service';
+import { buildSegmentTextMatcher } from '../shared/radar-segment-match.util';
 import {
   BadRequestException,
   ConflictException,
@@ -356,7 +357,13 @@ export class RadarCoreQualityEnrichmentMixin {
       .some((generic) => normalized.startsWith(`${generic} `) || normalized.includes(` ${generic} `));
   }
 
-  private scoreSegmentMatch(candidate: Record<string, any>, requestedSegment: string) {
+  // Lei única de radar-segment-match.util (28/07 — conserto do "EDR Imobiliária virou
+  // distribuidora de água"): aderência ao segmento exige o pedido COMPLETO (todas as palavras,
+  // palavra inteira, nome da cidade fora do texto) em ALGUM texto do candidato. Token solto
+  // ("distribuidora" sozinho, "agua" dentro de "Aguaí") nunca aprova — vale no máximo 45,
+  // abaixo do corte de 55. O antigo "Motor HBX classificou como aderente" (score 60 só porque
+  // o motor achou a página na busca) foi REMOVIDO: o motor é buscador, não classificador.
+  private scoreSegmentMatch(candidate: Record<string, any>, requestedSegment: string, requestedCity?: string | null) {
     const segmentTokens = this.extractSegmentTokens(requestedSegment);
     const aliases = this.buildSegmentAliases(requestedSegment);
     if (!segmentTokens.length && !aliases.length) return { score: 80, reasons: ['Segmento amplo sem tokens especificos.'] };
@@ -380,35 +387,46 @@ export class RadarCoreQualityEnrichmentMixin {
     const reasons: string[] = [];
     let score = 0;
 
-    if (aliases.some((alias) => alias && name.includes(alias))) {
+    // Frase completa do pedido, com tolerância de flexão em palavra longa (radicalPrefix:
+    // "distribuidora de agua" casa a página "Distribuidores de Água em ..."). Cidade do
+    // candidato E da busca fora do texto antes do match.
+    const city = candidate.city || requestedCity || null;
+    const fullMatcher = buildSegmentTextMatcher(requestedSegment, city, { radicalPrefix: true });
+    if (fullMatcher(name)) {
       score = Math.max(score, 85);
-      reasons.push('Nome contem evidencia forte do segmento.');
+      reasons.push('Nome casa o segmento pedido completo.');
     }
-    if (segmentTokens.some((token) => name.includes(token))) {
-      score = Math.max(score, 72);
-      reasons.push('Nome contem token do segmento.');
-    }
-    if (aliases.some((alias) => alias && categoryText.includes(alias))) {
+    if (fullMatcher(categoryText)) {
       score = Math.max(score, 80);
-      reasons.push('Categoria contem evidencia forte do segmento.');
+      reasons.push('Categoria casa o segmento pedido completo.');
     }
-    if (aliases.some((alias) => alias && snippetText.includes(alias))) {
+    if (fullMatcher(snippetText)) {
       score = Math.max(score, 76);
-      reasons.push('Descricao/snippet contem evidencia do segmento.');
+      reasons.push('Descricao/snippet casa o segmento pedido completo.');
     }
-    if (segmentTokens.some((token) => categoryText.includes(token) || snippetText.includes(token))) {
-      score = Math.max(score, 70);
-      reasons.push('Categoria ou descricao contem token do segmento.');
+    if (fullMatcher(weakText)) {
+      score = Math.max(score, 62);
+      reasons.push('Website/source casa o segmento pedido completo.');
     }
-    if (segmentTokens.some((token) => weakText.includes(token)) || aliases.some((alias) => alias && weakText.includes(alias))) {
-      score = Math.max(score, 55);
-      reasons.push('Website/source contem evidencia fraca do segmento.');
+    // Aliases CURADOS (mapa SEGMENT_ALIASES, equivalências explícitas) valem como frase —
+    // os tokens crus do próprio segmento saem da lista (eram o furo do OR antigo).
+    const aliasPhrases = aliases.filter((alias) => alias && !segmentTokens.includes(alias));
+    const aliasPattern = aliasPhrases.length
+      ? new RegExp(`\\b(?:${aliasPhrases.map((alias) => alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`)
+      : null;
+    if (aliasPattern) {
+      if (aliasPattern.test(name)) {
+        score = Math.max(score, 85);
+        reasons.push('Nome contem equivalencia curada do segmento.');
+      } else if (aliasPattern.test(categoryText) || aliasPattern.test(snippetText)) {
+        score = Math.max(score, 76);
+        reasons.push('Categoria/descricao contem equivalencia curada do segmento.');
+      }
     }
-    const hasHygieneBlock = this.isGenericDirectoryName(candidate.name, { city: candidate.city, segment: requestedSegment })
-      || this.nameConflictsWithRequestedSegment(candidate.name, requestedSegment);
-    if (!score && safeInteger(candidate.score) >= 50 && !hasHygieneBlock) {
-      score = 60;
-      reasons.push('Motor HBX classificou o card como aderente ao segmento.');
+    // Token solto: evidência PARCIAL — informa o score, nunca aprova sozinho (45 < corte 55).
+    if (!score && segmentTokens.some((token) => name.includes(token) || categoryText.includes(token) || snippetText.includes(token) || weakText.includes(token))) {
+      score = 45;
+      reasons.push('Evidencia parcial do segmento (so parte das palavras pedidas).');
     }
     if (!score) {
       score = 25;
@@ -484,7 +502,7 @@ export class RadarCoreQualityEnrichmentMixin {
       };
     }
 
-    const segment = this.scoreSegmentMatch(candidate, input.requestedSegment);
+    const segment = this.scoreSegmentMatch(candidate, input.requestedSegment, input.requestedCity || null);
     const segmentMatchScore = input.targetType === 'pj' ? segment.score : Math.max(segment.score, 65);
     reasons.push(...segment.reasons);
     let contactQualityScore = 0;

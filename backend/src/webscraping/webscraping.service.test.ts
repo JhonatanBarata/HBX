@@ -1771,7 +1771,12 @@ test('persistRadarLeadPoolBatch preserva campos ricos ao sincronizar card primar
   assert.equal(enrichment.signals.whatsappStatus, 'missing');
 });
 
-test('persistRadarLeadPoolBatch preserva social confiavel ja aprovado pelo motor HBX', async () => {
+// CONTRATO NOVO 28/07 ("sociais errando quase tudo"): o carimbo do motor NAO e mais fiador de
+// identidade — social do motor so persiste quando o handle carrega a marca do lead (porta
+// socialProfileLooksCompatibleWithLead, sem bypass). Handle sem identidade (pauloimobiliaria
+// pro lead "ALUGUE OU COMPRE...", pedroso_imobiliaria pro "IMOVEIS EM PIRACICABA") e
+// descartado e o card fica sem social (missing) em vez de apontar perfil de terceiro.
+test('persistRadarLeadPoolBatch persiste social do motor SO quando o handle carrega a marca do lead', async () => {
   const createdRows: any[] = [];
   const service = new WebscrapingService(createPrisma({
     radarLeadCompanyState: {},
@@ -1833,13 +1838,63 @@ test('persistRadarLeadPoolBatch preserva social confiavel ja aprovado pelo motor
     [
       'https://instagram.com/marthimoveis',
       'https://instagram.com/imobjunqueira',
-      'https://instagram.com/pauloimobiliaria',
+      null,
       'https://instagram.com/imobiliariafly',
       'https://instagram.com/amd_imoveis',
-      'https://instagram.com/pedroso_imobiliaria',
+      null,
     ],
   );
-  assert.equal(createdRows.every((row) => row.socialStatus === 'found' && row.socialConfidence >= 80), true);
+  const comMarcaNoHandle = [0, 1, 3, 4].map((index) => createdRows[index]);
+  assert.equal(comMarcaNoHandle.every((row) => row.socialStatus === 'found' && row.socialConfidence >= 80), true);
+  const semMarcaNoHandle = [2, 5].map((index) => createdRows[index]);
+  assert.equal(semMarcaNoHandle.every((row) => !row.instagramUrl && !row.facebookUrl && row.socialStatus === 'missing'), true);
+});
+
+// REGRESSAO 28/07 ("EDR Imobiliaria virou distribuidora de agua"): a lane web aprovava
+// candidato SEM evidencia textual do segmento so porque o motor achou a pagina na busca
+// ("Motor HBX classificou como aderente", 60 >= corte 55). Aderencia agora exige o pedido
+// COMPLETO (todas as palavras, palavra inteira, cidade fora) em algum texto do candidato.
+test('evaluateLeadQuality reprova candidato web sem evidencia completa do segmento pedido', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const galmare = service.evaluateLeadQuality({
+    name: 'Galmare Planejados',
+    phone: '(19) 99999-1234',
+    phoneDigits: '19999991234',
+    score: 80,
+  }, {
+    requestedSegment: 'distribuidora de agua',
+    requestedCity: 'Aguaí',
+    targetType: 'pj',
+  });
+  assert.equal(galmare.status, 'segment_mismatch');
+
+  const imobiliaria = service.evaluateLeadQuality({
+    name: 'EDR Imobiliária',
+    phone: '(19) 99999-5678',
+    phoneDigits: '19999995678',
+    score: 80,
+  }, {
+    requestedSegment: 'distribuidora de agua',
+    requestedCity: 'Aguaí',
+    targetType: 'pj',
+  });
+  assert.equal(imobiliaria.status, 'segment_mismatch');
+});
+
+test('evaluateLeadQuality aprova candidato web com o pedido completo na evidencia (flexao tolerada)', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const quality = service.evaluateLeadQuality({
+    name: 'Distribuidora Laly',
+    phone: '(19) 99999-9012',
+    phoneDigits: '19999999012',
+    snippet: 'Distribuidores de Água em Aguaí - entrega de galão 20L',
+    score: 80,
+  }, {
+    requestedSegment: 'distribuidora de agua',
+    requestedCity: 'Aguaí',
+    targetType: 'pj',
+  });
+  assert.equal(quality.status, 'approved');
 });
 
 test('maskRadarSmartFieldsForList preserva contato natural e bloqueia inteligencia premium', () => {
