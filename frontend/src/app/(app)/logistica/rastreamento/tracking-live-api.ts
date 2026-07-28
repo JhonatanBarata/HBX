@@ -93,6 +93,23 @@ export interface TrackingCreditStatement {
   }>;
 }
 
+// F3 (27/07) — link público "acompanhe sua entrega" por parada da rota
+// (GET /logistica/tracking/routes/:id/share-links, Admin). Lista vazia quando o
+// segredo do link não está configurado no backend (fail-closed).
+export interface TrackingShareLink {
+  deliveryId: string;
+  token: string;
+  url: string;
+  clienteNome: string | null;
+  status: string;
+}
+
+export function getRouteShareLinks(routeId: string): Promise<{ links: TrackingShareLink[] }> {
+  return apiFetch<{ links: TrackingShareLink[] }>(
+    `/logistica/tracking/routes/${encodeURIComponent(routeId)}/share-links`,
+  );
+}
+
 export function getTrackingLive(): Promise<TrackingLiveResponse> {
   return apiFetch<TrackingLiveResponse>("/logistica/tracking/live");
 }

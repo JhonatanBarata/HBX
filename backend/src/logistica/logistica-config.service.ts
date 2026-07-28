@@ -521,6 +521,10 @@ export interface TemplateVars {
   quantidade?: number | string | null; // alias público de qtd
   produto?: string | null; // produto principal (o primeiro)
   empresa?: string | null;
+  // F3 (27/07) — {eta}: minutos estimados até a chegada ("12 min"), vindo do
+  // etaAt da entrega quando a rota está rastreada. Ausente/indisponível vira ""
+  // (a regra geral do render já limpa o espaço órfão).
+  eta?: string | null;
   now?: Date; // p/ a saudação por horário (default: agora) — injetável no teste
 }
 
@@ -541,6 +545,7 @@ export function renderTemplateAviso(template: string, vars: TemplateVars = {}): 
     quantidade: vars.quantidade == null ? (vars.qtd == null ? '' : String(vars.qtd).trim()) : String(vars.quantidade).trim(),
     produto: String(vars.produto ?? '').trim(),
     empresa: String(vars.empresa ?? '').trim(),
+    eta: String(vars.eta ?? '').trim(),
   };
   const out = String(template ?? '').replace(/\{(\w+)\}/g, (_full, key: string) => {
     const k = String(key).toLowerCase();

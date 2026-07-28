@@ -28,6 +28,8 @@ import { sourceDateFromOccurrenceKey, saoPauloMidnight } from './logistica-agend
 import { nextOccurrenceDate } from './logistica-agenda.service';
 import { saoPauloDateKey } from './logistica-occurrence.service';
 import { registrarEventoAgenda, formatDDMM } from './logistica-agenda-evento.util';
+// F3 (27/07) — {eta} no aviso de chegada (minutos até chegar, do etaAt).
+import { formatEtaMinutos } from './logistica-tracking-public.util';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (o app de entrega, cliente água).
@@ -1708,13 +1710,15 @@ export class LogisticaService {
     companyId: number,
     entregaId: string,
     cliente: string,
-  ): Promise<{ cliente: string; itens: string; qtd: number; quantidade: number; produto: string; empresa: string }> {
-    const vars = { cliente, itens: '', qtd: 0, quantidade: 0, produto: '', empresa: '' };
+  ): Promise<{ cliente: string; itens: string; qtd: number; quantidade: number; produto: string; empresa: string; eta: string }> {
+    const vars = { cliente, itens: '', qtd: 0, quantidade: 0, produto: '', empresa: '', eta: '' };
     try {
       const entrega = await this.prisma.entrega.findFirst({
         where: { id: entregaId, companyId },
         select: {
           quantidade: true,
+          // F3 (27/07) — {eta} no template do aviso: minutos até a chegada.
+          etaAt: true,
           company: { select: { name: true } },
           product: { select: { name: true, unidade: true } },
           itens: {
@@ -1749,6 +1753,9 @@ export class LogisticaService {
       vars.itens = linhas.join(', ');
       vars.qtd = total;
       vars.quantidade = total;
+      // F3 (27/07) — {eta}: só quando existe etaAt fresco (rota rastreada);
+      // sem ETA a variável fica "" e o render limpa o espaço órfão.
+      vars.eta = formatEtaMinutos(entrega.etaAt) ?? '';
     } catch (e: any) {
       this.logger.warn(`[logistica] montarVarsAviso entrega=${entregaId} falhou: ${String(e?.message || e)}`);
     }

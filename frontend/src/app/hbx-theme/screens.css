@@ -3207,6 +3207,8 @@ html, body { height: 100%; }
   padding: 13px 14px;
   border-bottom: 1px solid var(--border-hairline);
 }
+/* F3 (27/07) — badge + "Copiar links" lado a lado no cabeçalho do mapa. */
+.log-live-map-card__head-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .log-live-driver-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .log-live-driver-title__icon {
   display: grid;

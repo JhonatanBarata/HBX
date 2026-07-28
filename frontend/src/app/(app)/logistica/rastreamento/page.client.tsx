@@ -8,6 +8,7 @@ import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { isTenantAdmin } from "@/lib/roles";
 
 import {
+  getRouteShareLinks,
   getTrackingCreditStatement,
   getTrackingHistory,
   getTrackingLive,
@@ -363,6 +364,31 @@ export function LogisticaTrackingLiveClient() {
   const showFullGate = !!live && live.full === false && !routes.some((route) => route.sessionStatus === "ACTIVE");
 
   const selectedRoute = routes.find((route) => route.sessionId === selectedSessionId) ?? null;
+
+  // F3 (27/07) — "Copiar links": um clique copia TODOS os links públicos de
+  // acompanhamento da rota selecionada ("Cliente — url" por linha), pronto pra
+  // colar no WhatsApp. Só no plano Full (o link público é recurso Full).
+  const [copyLinksState, setCopyLinksState] = useState<"idle" | "loading" | "done" | "empty" | "error">("idle");
+  const copyShareLinks = async (routeId: string) => {
+    if (copyLinksState === "loading") return;
+    setCopyLinksState("loading");
+    try {
+      const { links } = await getRouteShareLinks(routeId);
+      if (!links.length) {
+        setCopyLinksState("empty");
+      } else {
+        const texto = links
+          .map((link) => `${(link.clienteNome || "Cliente").trim()} — ${link.url}`)
+          .join("\n");
+        await navigator.clipboard.writeText(texto);
+        setCopyLinksState("done");
+      }
+    } catch {
+      setCopyLinksState("error");
+    }
+    window.setTimeout(() => setCopyLinksState("idle"), 2500);
+  };
+
   const historyEvents = useMemo(() => {
     if (!history || history.sessionId !== selectedSessionId) return [];
 
@@ -506,7 +532,23 @@ export function LogisticaTrackingLiveClient() {
                     </small>
                   </span>
                 </div>
-                <StatusBadge status={selectedRoute.status} />
+                <span className="log-live-map-card__head-actions">
+                  {live?.full === true ? (
+                    <button
+                      type="button"
+                      className="btn-ghost btn-xs"
+                      onClick={() => void copyShareLinks(selectedRoute.routeId)}
+                      disabled={copyLinksState === "loading"}
+                    >
+                      {copyLinksState === "idle" && "Copiar links"}
+                      {copyLinksState === "loading" && "Copiando…"}
+                      {copyLinksState === "done" && "Copiado!"}
+                      {copyLinksState === "empty" && "Sem links"}
+                      {copyLinksState === "error" && "Falhou"}
+                    </button>
+                  ) : null}
+                  <StatusBadge status={selectedRoute.status} />
+                </span>
               </header>
 
               <TrackingLiveMap
