@@ -2776,3 +2776,86 @@ test('reabrirEntrega: sem cobrança nenhuma reabre normal (caminho antigo intact
   const res = await service.reabrirEntrega(1, 'entrega-1');
   assert.equal(res?.status, 'agendada');
 });
+
+// ── 28/07 — NINGUÉM PAGA POR ENTREGA CANCELADA (ordem do dono) ───────────────
+// Cobrança numa entrega não-'entregue' só existe depois de um reabrir. Cancelar
+// a entrega passa a cancelar junto a cobrança dela que NÃO foi recebida (caso
+// Daniela, cia 48, R$ 11 de fiado numa entrega cancelada). Dinheiro já recebido
+// nunca é desfeito por aqui, e nenhum ramo lança exceção — este é o mesmo
+// caminho da fila offline do APK.
+function buildCancelarPrisma(entrega: any, charge: any | null) {
+  const chargeUpdates: any[] = [];
+  const entregaUpdates: any[] = [];
+  const prisma: any = {
+    entrega: {
+      findFirst: async () => entrega,
+      update: async (args: any) => {
+        entregaUpdates.push(args.data);
+        Object.assign(entrega, args.data);
+        return { id: entrega.id, ...args.data };
+      },
+    },
+    financeiroCharge: {
+      updateMany: async (args: any) => {
+        const w = args?.where || {};
+        const bate = !!charge
+          && charge.entregaId === w.entregaId
+          && (w.status === undefined || charge.status === w.status)
+          && (w.paidAt !== null || charge.paidAt == null);
+        if (!bate) return { count: 0 };
+        chargeUpdates.push(args.data);
+        Object.assign(charge, args.data);
+        return { count: 1 };
+      },
+    },
+    clienteHistorico: { create: async () => ({ id: 'hist-1' }) },
+    $transaction: async (fn: any) => fn(prisma),
+  };
+  return { prisma, chargeUpdates, entregaUpdates };
+}
+
+test('cancelarEntrega: fiado PENDENTE da entrega é cancelado junto (ninguém paga por entrega cancelada)', async () => {
+  const entrega = buildEntrega({ status: 'agendada', cobrancaStatus: 'lancada', agendaOcorrenciaKey: null, planoEntregaId: null });
+  const charge = { entregaId: 'entrega-1', amount: 11, status: 'pending', lifecycle: 'in_progress', paidAt: null };
+  const { prisma, chargeUpdates } = buildCancelarPrisma(entrega, charge);
+  const { rota } = buildRotaStub();
+  const service = new LogisticaService(prisma, {} as any, rota, {} as any);
+
+  const res = await service.cancelarEntrega(1, 'entrega-1', 'cliente não estava');
+
+  assert.equal(res?.cobrancaCancelada, true, 'avisa que a cobrança caiu junto');
+  assert.equal(chargeUpdates.length, 1);
+  assert.equal(chargeUpdates[0].status, 'cancelled');
+  assert.equal(chargeUpdates[0].lifecycle, 'cancelled');
+  assert.equal(entrega.status, 'cancelada');
+  assert.equal(entrega.cobrancaStatus, 'pendente', 'entrega cancelada não fica com cobrança "lancada"');
+});
+
+test('cancelarEntrega: cobrança JÁ PAGA não é desfeita (sistema não decide dinheiro sozinho)', async () => {
+  const entrega = buildEntrega({ status: 'agendada', cobrancaStatus: 'lancada', agendaOcorrenciaKey: null, planoEntregaId: null });
+  const charge = { entregaId: 'entrega-1', amount: 20, status: 'approved', lifecycle: 'paid', paidAt: new Date() };
+  const { prisma, chargeUpdates } = buildCancelarPrisma(entrega, charge);
+  const { rota } = buildRotaStub();
+  const service = new LogisticaService(prisma, {} as any, rota, {} as any);
+
+  const res = await service.cancelarEntrega(1, 'entrega-1');
+
+  assert.equal(res?.cobrancaCancelada, false, 'dinheiro recebido fica de pé');
+  assert.equal(chargeUpdates.length, 0, 'nenhum toque no charge pago');
+  assert.equal(charge.status, 'approved');
+  assert.equal(entrega.status, 'cancelada', 'a entrega cancela mesmo assim — sem exceção (fila offline do APK)');
+  assert.equal(entrega.cobrancaStatus, 'lancada', 'cobrancaStatus intacto quando nada foi cancelado');
+});
+
+test('cancelarEntrega: entrega sem cobrança nenhuma cancela igual ao caminho antigo', async () => {
+  const entrega = buildEntrega({ status: 'agendada', agendaOcorrenciaKey: null, planoEntregaId: null });
+  const { prisma, chargeUpdates } = buildCancelarPrisma(entrega, null);
+  const { rota } = buildRotaStub();
+  const service = new LogisticaService(prisma, {} as any, rota, {} as any);
+
+  const res = await service.cancelarEntrega(1, 'entrega-1');
+  assert.equal(res?.id, 'entrega-1');
+  assert.equal(res?.cobrancaCancelada, false);
+  assert.equal(chargeUpdates.length, 0);
+  assert.equal(entrega.status, 'cancelada');
+});

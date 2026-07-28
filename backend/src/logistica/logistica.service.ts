@@ -1538,7 +1538,7 @@ export class LogisticaService {
     id: string,
     motivo?: string,
     actor?: LogisticaActor | null,
-  ): Promise<{ id: string } | null> {
+  ): Promise<{ id: string; cobrancaCancelada?: boolean } | null> {
     if (!companyId || !id) return null;
     const actorWhere = actor ? await this.requireOperacao().whereForActor(actor) : {};
     const entrega = await this.prisma.entrega.findFirst({
@@ -1560,19 +1560,45 @@ export class LogisticaService {
     // cancelar É um desfecho (a ocorrência foi DECIDIDA, mesmo sem entregar), e
     // a regra-mãe não permite "cancelou mas o cursor não andou" ficar meio-feito.
     // Evento do extrato só DEPOIS do commit (contrato do evento.util).
-    const avancoAgenda = await this.prisma.$transaction(async (tx) => {
+    // ── 28/07 — NINGUÉM PAGA POR ENTREGA CANCELADA (ordem do dono) ───────────
+    // Cobrança só existe numa entrega não-'entregue' depois de um REABRIR (é o
+    // confirmar que lança). Era assim que nascia a cobrança órfã: reabre →
+    // cancela → o fiado da entrega que não aconteceu continua na conta do
+    // cliente (caso Daniela, cia 48, R$ 11). Cancelar a entrega agora cancela
+    // junto a cobrança DELA que ainda não foi recebida.
+    //
+    // Trava dupla e deliberada: `paidAt: null` + `status: 'pending'`. Dinheiro
+    // JÁ RECEBIDO nunca é desfeito por aqui (regra do dono: sistema não decide
+    // dinheiro sozinho) — e desde o freio do reabrir uma entrega paga nem chega
+    // neste caminho. NÃO lança exceção em nenhum ramo: `cancelarEntrega` é o
+    // mesmo caminho da fila offline do APK (logistica-offline.service.ts), e um
+    // throw aqui quebraria o replay do motorista.
+    const desfecho = await this.prisma.$transaction(async (tx) => {
+      const cobranca = await tx.financeiroCharge.updateMany({
+        where: { companyId, entregaId: entrega.id, status: 'pending', paidAt: null },
+        data: { status: 'cancelled', lifecycle: 'cancelled' },
+      });
+      const cobrancaCancelada = cobranca.count > 0;
       await tx.entrega.update({
         where: { id: entrega.id },
-        data: { status: 'cancelada', notes },
+        data: {
+          status: 'cancelada',
+          notes,
+          // Sem charge viva, o status da cobrança volta pro neutro — deixar
+          // 'lancada' numa entrega cancelada é a mentira que gerou o caso.
+          ...(cobrancaCancelada ? { cobrancaStatus: 'pendente' } : {}),
+        },
       });
-      if (entrega.agendaOcorrenciaKey && entrega.planoEntregaId) {
-        return this.avancarPlanoNoDesfecho(tx, companyId, {
+      const avanco = entrega.agendaOcorrenciaKey && entrega.planoEntregaId
+        ? await this.avancarPlanoNoDesfecho(tx, companyId, {
           planoEntregaId: entrega.planoEntregaId,
           agendaOcorrenciaKey: entrega.agendaOcorrenciaKey,
-        });
-      }
-      return null;
+        })
+        : null;
+      return { avanco, cobrancaCancelada };
     });
+    // Default defensivo: mock pobre de $transaction em teste devolve undefined.
+    const { avanco: avancoAgenda = null, cobrancaCancelada = false } = desfecho ?? {};
     await this.registrarAvancoAgendaPosCommit(companyId, entrega, avancoAgenda, actorIdOrNull(actor));
     // HISTÓRICO (22/07) — "Sem atendimento" também é visita, e é a linha que evita
     // a discussão "vocês nunca vieram". Best-effort, nunca derruba o cancelamento.
@@ -1585,7 +1611,7 @@ export class LogisticaService {
     });
     // M3 — re-ETA das paradas restantes (aditivo, best-effort, não muda o retorno).
     await this.recalcularEtaSilencioso(companyId, actor);
-    return { id: entrega.id };
+    return { id: entrega.id, cobrancaCancelada };
   }
 
   // ── SOFT-DELETE (R3 — padrão DeletionRecord do repo) ────────────────────────
