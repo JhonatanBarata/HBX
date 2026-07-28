@@ -94,11 +94,91 @@ function Test-OwnerAlive {
   } catch { return $false }
 }
 
+# Ollama: mesmo padrao do Test-PortAlive (porta ouvindo = vivo). Porta vem de HBX_OWNER_OLLAMA_URL
+# quando configurada; senao 11434 (padrao do Ollama e do .env.example).
+function Test-OllamaAlive {
+  $port = 11434
+  if ($env:HBX_OWNER_OLLAMA_URL) {
+    try {
+      $uri = [uri]$env:HBX_OWNER_OLLAMA_URL
+      if ($uri.Port -gt 0) { $port = $uri.Port }
+    } catch {}
+  }
+  return Test-PortAlive -Port $port
+}
+
+# Poll de 1s ate 60s no /health (mesma forma do Test-OwnerAlive) - nunca abre aba pra servidor morto.
+function Wait-OwnerHealthy {
+  param([int]$TimeoutSeconds = 60)
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  do {
+    if (Test-OwnerAlive) { return $true }
+    Start-Sleep -Seconds 1
+  } while ((Get-Date) -lt $deadline)
+  return Test-OwnerAlive
+}
+
+# Estado do boot para o painel V3 ler ("boot: Windows OK - agent OK - Ollama OK - painel OK").
+# Nao e log: grava o arquivo INTEIRO a cada boot do supervisor (estado atual, nao historico).
+function Write-BootState {
+  param(
+    [Parameter(Mandatory = $true)][bool]$AgentUp,
+    [Parameter(Mandatory = $true)]$OllamaUp,
+    [Parameter(Mandatory = $true)][bool]$PainelAberto,
+    [string]$Reason
+  )
+  $stateDir = Join-Path $agentDir "state"
+  $bootFile = Join-Path $stateDir "boot.json"
+  try {
+    if (-not (Test-Path -LiteralPath $stateDir)) { New-Item -ItemType Directory -Path $stateDir -Force | Out-Null }
+    $payload = [ordered]@{
+      at      = (Get-Date).ToUniversalTime().ToString("o")
+      windows = $true
+      agent   = $AgentUp
+      ollama  = $OllamaUp
+      painel  = $PainelAberto
+      reason  = $Reason
+    }
+    ($payload | ConvertTo-Json -Depth 3) | Set-Content -LiteralPath $bootFile -Encoding utf8 -Force
+  } catch {
+    Write-Warning "Nao foi possivel gravar $bootFile ($($_.Exception.Message))."
+  }
+}
+
 $mutex = New-Object System.Threading.Mutex($false, "Local\HBXOwnerSupervisor")
 if (-not $mutex.WaitOne(0)) { exit 0 }
 
 try {
   Import-LocalAgentEnvironment
+  $port = if ($env:HBX_OWNER_LOCAL_AGENT_PORT) { $env:HBX_OWNER_LOCAL_AGENT_PORT } else { "3107" }
+
+  # ---- Sequencia de boot (uma vez por inicio do supervisor; nao repete no laco de vigia abaixo) ----
+  $ollamaUp = Test-OllamaAlive
+  if (-not (Test-OwnerAlive)) { & $launcher -NoBrowser }
+
+  $painelAberto = $false
+  $painelReason = $null
+  if ($NoBrowser) {
+    $agentUp = Test-OwnerAlive
+    $painelReason = "supervisor iniciado com -NoBrowser (-SemPainel no instalador)"
+  } else {
+    $agentUp = Wait-OwnerHealthy -TimeoutSeconds 60
+    if ($agentUp) {
+      # Guardado numa variavel de execucao unica: o laco abaixo pode respawnar o agent varias vezes
+      # ao longo do dia, e reabrir a aba a cada respawn seria pior do que nao abrir.
+      Start-Process "http://127.0.0.1:$port/v3"
+      $painelAberto = $true
+    }
+  }
+
+  $reasons = @()
+  if (-not $agentUp) { $reasons += "agent nao respondeu ao /health em 60s" }
+  if ($null -eq $ollamaUp -or $ollamaUp -eq $false) { $reasons += "ollama offline" }
+  if ($painelReason) { $reasons += $painelReason }
+  $bootReason = if ($reasons.Count -gt 0) { [string]::Join("; ", $reasons) } else { $null }
+  Write-BootState -AgentUp $agentUp -OllamaUp $ollamaUp -PainelAberto $painelAberto -Reason $bootReason
+
+  # ---- Laco de vigia: so reinicia o agent se cair; nunca reabre a aba do painel ----
   $cycle = 0
   while ($true) {
     if (($cycle % 4) -eq 0) { Start-TunnelSupervisor }
