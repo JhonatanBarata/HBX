@@ -531,6 +531,10 @@
     if (mapaEstacionado === routeMapHost) return;
     garagemDoMapa().appendChild(routeMapHost);
     mapaEstacionado = routeMapHost;
+    // Próxima vez que a Rota aparecer, o mapa ENTRA (aproximando + paradas
+    // montando) em vez de simplesmente reaparecer.
+    const parts = routeMapHost.__hbxMapParts;
+    if (parts) { parts.entradaPendente = true; parts.animarMarcadores = true; parts.enquadradoEm = null; }
   }
   function disposeRouteMap() {
     // PR18072026 L4-D — quando de fato descartamos, limpar as marcas no
@@ -750,13 +754,35 @@
   // mapa já vivo (sem recriar o objeto map): markers sempre podem ser
   // removidos/recriados, a linha da rota é atualizada via source.setData
   // quando já existe.
+  // 28/07 (dono: "queria bonitinho saindo da rota, aquele efeito aproximando,
+  // montando") — coreografia ÚNICA de entrada da tela Rota: o mapa (que nunca foi
+  // destruído, ver garagemDoMapa) abre um pouco mais afastado e FECHA suave no
+  // enquadramento certo. Sempre o mesmo alvo, sempre o mesmo tempo — nada de
+  // zoom diferente a cada volta. Quem pediu menos movimento pula direto pro alvo.
+  function animarEntradaDoMapa(map, bounds, temParadas) {
+    const suave = !(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+    const enquadrar = duracao => map.fitBounds(bounds, { padding: temParadas ? 46 : 90, maxZoom: temParadas ? 15 : 15.6, duration: duracao, essential: false });
+    if (!suave) { enquadrar(0); return; }
+    enquadrar(0);
+    const alvo = { zoom: map.getZoom(), center: map.getCenter() };
+    try {
+      map.jumpTo({ center: alvo.center, zoom: Math.max(2.4, alvo.zoom - 1.25) });
+      map.easeTo({ center: alvo.center, zoom: alvo.zoom, duration: 780, easing: t => 1 - Math.pow(1 - t, 3), essential: false });
+    } catch (_) { enquadrar(0); }
+  }
   function applyRouteMarkers(host, map, points, interactive) {
     const parts = host.__hbxMapParts || (host.__hbxMapParts = { markers: [] });
     (parts.markers || []).forEach(marker => { try { marker.remove(); } catch (_) {} });
-    parts.markers = points.map(point => {
+    // 28/07 (dono) — as paradas MONTAM na tela (uma atrás da outra, escalinha)
+    // quando o mapa acabou de entrar; nos updates normais entram secas, senão a
+    // rota inteira ficaria pulsando a cada refresh.
+    const montando = parts.animarMarcadores === true;
+    parts.animarMarcadores = false;
+    parts.markers = points.map((point, index) => {
       const pin = document.createElement(interactive ? "button" : "span");
       if (interactive) pin.type = "button";
-      pin.className = "route-map-pin"; pin.textContent = String(point.number); pin.setAttribute("aria-label", `Parada ${point.number}`);
+      pin.className = `route-map-pin${montando ? " is-montando" : ""}`; pin.textContent = String(point.number); pin.setAttribute("aria-label", `Parada ${point.number}`);
+      if (montando) pin.style.setProperty("--ordem", String(Math.min(index, 14)));
       if (interactive) pin.addEventListener("click", () => showSheet(point.item));
       return new window.maplibregl.Marker({ element: pin, anchor: "center" }).setLngLat([point.lng, point.lat]).addTo(map);
     });
@@ -772,7 +798,21 @@
     if (!reading && lastKnownPosition && validCoordinates(lastKnownPosition.lat, lastKnownPosition.lng)) {
       bounds.extend([lastKnownPosition.lng, lastKnownPosition.lat]);
     }
-    if (!reading && !bounds.isEmpty()) map.fitBounds(bounds, { padding: 42, maxZoom: 15, duration: points.length ? 300 : 0 });
+    // 🔴 28/07 (dono: "aperto voltar e parece um circo") — ESTE fitBounds rodava em
+    // TODO render: toast, refresh, tick de GPS, voltar de aba… cada um reenquadrava
+    // o mapa (com `duration:0` quando não havia parada = TRANCO seco). O mapa só se
+    // reenquadra quando o CONJUNTO de pontos muda de verdade, ou quando a tela Rota
+    // está entrando (aí é a animação de aproximar, ver animarEntradaDoMapa).
+    const assinatura = `${points.map(p => `${Number(p.lat).toFixed(4)},${Number(p.lng).toFixed(4)}`).join("|")}#${lastKnownPosition && !points.length ? "eu" : ""}`;
+    const precisaEnquadrar = !reading && !bounds.isEmpty() && parts.enquadradoEm !== assinatura;
+    if (precisaEnquadrar) {
+      parts.enquadradoEm = assinatura;
+      if (parts.entradaPendente) animarEntradaDoMapa(map, bounds, points.length);
+      else map.fitBounds(bounds, { padding: 42, maxZoom: 15, duration: points.length ? 420 : 0 });
+    } else if (parts.entradaPendente && !bounds.isEmpty()) {
+      animarEntradaDoMapa(map, bounds, points.length);
+    }
+    parts.entradaPendente = false;
     if (interactive && host.id === "route-live-map") updateRouteReadingMap(host, map);
   }
 
@@ -927,11 +967,12 @@
     // Corte no JS: dentro de um flex o text-overflow não pega o nó de texto.
     const curto = endereco.length > 38 ? `${endereco.slice(0, 37).trimEnd()}…` : endereco;
     status.textContent = `${curto || "Estou aqui"}${metros}`;
-    // Mapa SEM parada nenhuma não tem o que enquadrar: centraliza em você (1x por
-    // fix novo, nunca a cada render — senão o mapa briga com o dedo do motorista).
-    if (!routeMapPoints().length && !parts.idleCameraKey) {
-      parts.idleCameraKey = `${point.lat.toFixed(4)},${point.lng.toFixed(4)}`;
-      try { map.easeTo({ center: [point.lng, point.lat], zoom: Math.max(Number(map.getZoom()) || 0, 14.5), duration: 520, essential: false }); } catch (_) {}
+    // Mapa SEM parada nenhuma não tem o que enquadrar: centraliza em você UMA vez
+    // (mesma chave de enquadramento do applyRouteMarkers — os dois nunca disputam
+    // a câmera; disputa de câmera é metade do "circo" que o dono viu).
+    if (!routeMapPoints().length && parts.enquadradoEm !== "#eu") {
+      parts.enquadradoEm = "#eu";
+      try { map.easeTo({ center: [point.lng, point.lat], zoom: Math.max(Number(map.getZoom()) || 0, 15), duration: 620, essential: false }); } catch (_) {}
     }
   }
   // 28/07 (dono) — BALÃO DA BOLINHA AZUL: toque no ponto abre um cartãozinho preso
@@ -1474,7 +1515,8 @@
       if (!host.isConnected || host !== document.getElementById(hostId)) return;
       disposeRouteMap(); routeMapHost = host;
       const map = new maplibregl.Map({ container: host, style: currentMapStyle(), center: [center.lng, center.lat], zoom: readingPoint ? 16.2 : points.length ? 12 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false, maxPitch: 60 });
-      routeMap = map; host.__hbxMap = map; host.__hbxMapParts = { markers: [], mapTheme: currentMapTheme() };
+      // Mapa nascendo (boot do app): entra com a MESMA coreografia da volta.
+      routeMap = map; host.__hbxMap = map; host.__hbxMapParts = { markers: [], mapTheme: currentMapTheme(), entradaPendente: true, animarMarcadores: true };
       wireMapTap(host, map, opts);
       ensureRouteMapResizeGuard(host, map);
       if (!points.length) void pendingPosition.then(position => {

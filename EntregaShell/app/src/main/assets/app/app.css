@@ -1560,3 +1560,9 @@ html.keyboard-open .recarga-checkout-actions { position: sticky; z-index: 8; bot
 .hbx-balao-corpo small { font-size: .68rem; font-weight: 750; color: var(--muted); }
 @keyframes hbx-balao-pop { from { opacity: 0; transform: translateY(6px) scale(.9); } to { opacity: 1; transform: translateY(0) scale(1); } }
 @media (prefers-reduced-motion: reduce) { .hbx-balao-corpo { animation: none; } }
+
+/* 28/07 (dono) — as paradas MONTAM quando a tela Rota entra: cada pino sobe e
+   assenta, escalonado pela ordem da rota. Só na entrada (o JS liga a classe). */
+.route-map-pin.is-montando { animation: hbx-pin-monta .42s cubic-bezier(.2,1.3,.35,1) both; animation-delay: calc(var(--ordem, 0) * 55ms); }
+@keyframes hbx-pin-monta { from { opacity: 0; transform: translateY(-10px) scale(.5); } 60% { opacity: 1; } to { opacity: 1; transform: translateY(0) scale(1); } }
+@media (prefers-reduced-motion: reduce) { .route-map-pin.is-montando { animation: none; } }
