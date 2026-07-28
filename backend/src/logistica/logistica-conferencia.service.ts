@@ -247,6 +247,11 @@ export class LogisticaConferenciaService implements OnModuleInit {
     for (const r of rows) {
       const alvo = alvoCuraCnefe(r);
       if (!alvo) continue;
+      // "Não sanitizar 2x" (27/07, dono) vale AQUI, que agora é o único caminho: quem já
+      // foi tentado e não teve o cadastro tocado fica de fora. Sem isto, montar rota
+      // pagaria de novo, todo dia, o ViaCEP+CNEFE dos mesmos endereços impossíveis — e o
+      // orçamento de 12s se gastaria neles em vez de nos clientes NOVOS.
+      if (jaSanitizado(alvo.tipo === 'local' ? r.local : r.customerProfile)) continue;
       const chave = alvo.tipo === 'local' ? `l:${r.localId}` : `p:${r.customerProfileId}`;
       const entrada = porDono.get(chave);
       if (entrada) entrada.linhas.push(r);
@@ -265,6 +270,9 @@ export class LogisticaConferenciaService implements OnModuleInit {
         if (i >= donos.length || Date.now() >= fim) return;
         const dono = donos[i];
         const cura = await resolverCuraCnefe(dono.alvo, { queryTimeoutMs: 10000 });
+        // CARIMBO em toda tentativa, curou ou não: é ele que faz a cura CONVERGIR em vez
+        // de reprocessar a mesma lista impossível em cada montagem de rota.
+        await this.marcarSanitizado(companyId, dono.alvo, dono.linhas[0]);
         if (!cura) continue;
         const gravou = await this.gravarCuraCnefe(companyId, dono.alvo, dono.linhas[0], cura);
         if (!gravou || !cura.pino) continue;
@@ -277,7 +285,8 @@ export class LogisticaConferenciaService implements OnModuleInit {
     // curados: "0 de 50" nos logs teria denunciado na hora o veto de via que
     // engolia a cidade inteira de rua numerada. Silêncio nunca mais.
     this.logger.log(
-      `[logistica] conferência company=${companyId}: cura CNEFE resolveu ${curados} de ${donos.length} candidato(s) sem pino.`,
+      `[logistica] conferência company=${companyId}: cura automática resolveu ${curados} de ${donos.length} endereço(s) novo(s) sem pino ` +
+        '(já tentados antes ficam fora até o cadastro mudar).',
     );
   }
 
