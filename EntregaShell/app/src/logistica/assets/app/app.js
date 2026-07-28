@@ -2984,6 +2984,18 @@
     // 27/07 (dono, 2ª cobrança) — SEM tela de prévia: o primeiro toque num dia
     // JÁ monta a rota daquele dia nesta mesma tela (a conferência renderiza no
     // lugar; dias seguintes caem no ramo de ADICIONAR acima).
+    // 🔴 28/07 (dono na tela: "tente remover SEG ou QUI") — o chip é INTERRUPTOR
+    // ANTES de montar TAMBÉM. O ramo do interruptor só existia com rota de pé;
+    // aqui embaixo o toque só SOMAVA, então dia que entrou na seleção e NÃO virou
+    // rota (portão "Endereços com erro" fechado sem montar é o caminho normal:
+    // 49 de 124 travados) ficava preso verde pra sempre — cada toque reabria o
+    // mesmo portão em vez de tirar o dia. Sem rota montada não há nada a desfazer
+    // no servidor: desmarca e pronto.
+    if (state.daySelection.includes(day)) {
+      state.daySelection = state.daySelection.filter(value => value !== day);
+      render();
+      return;
+    }
     // 🔴 ITEM 1 (28/07) — antes de montar, os ENDEREÇOS. Só monta com tudo certo.
     state.daySelection = [...new Set([...state.daySelection, day])].sort((a, b) => a - b);
     render();
