@@ -671,6 +671,13 @@ export class UpdateLogisticaConfigDto {
   @IsOptional()
   @IsBoolean()
   comprovanteCodigoObrigatorio?: boolean;
+
+  // PR27072026 F2 — modo de tratamento do devedor na rota de hoje. Comercial
+  // (exige billing owner no serviço) + gate de nível ADVANCED+ pra COBRANCA/
+  // EXCLUIR (NORMAL sempre passa, mesmo no BASIC — ver LogisticaConfigService).
+  @IsOptional()
+  @IsIn(['COBRANCA', 'EXCLUIR', 'NORMAL'])
+  devedorNaRota?: 'COBRANCA' | 'EXCLUIR' | 'NORMAL';
 }
 
 // ── 26/07 — MODO DA ROTA (Simples × Rastreada) EM ENDEREÇO PRÓPRIO ───────────

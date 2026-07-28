@@ -190,6 +190,9 @@ export class LogisticaConfigService {
       input.cobrancaWhatsAtiva,
       input.resumoDiarioAtivo,
       input.resumoDiarioHora,
+      // PR27072026 F2 — o modo de tratamento do devedor na rota (cobrar/excluir/
+      // ignorar) é decisão financeira, mesma classe de cobrancaNaEntrega acima.
+      input.devedorNaRota,
     ].some((value) => value !== undefined);
     if (changesCommercialConfig && !isBillingOwnerActor(actor)) {
       throw new ForbiddenException('Somente o responsável financeiro pode alterar esta configuração.');
@@ -223,6 +226,19 @@ export class LogisticaConfigService {
         throw new ForbiddenException('Financeiro completo é do plano Advanced.');
       }
       data.moduloFinanceiroAtivo = !!input.moduloFinanceiroAtivo;
+    }
+    // PR27072026 F2 — PARADA AMARELA DE DEVEDOR: modo do tratamento na rota de
+    // hoje. GATE de uso igual ao financeiro (Advanced+); NORMAL (equivalente a
+    // "desligado") sempre passa, mesmo no BASIC — só COBRANCA/EXCLUIR exigem o
+    // nível. logistica.service.ts tem o cinto-e-suspensório na LEITURA (resolve
+    // NORMAL sozinho se o nível cair depois de gravado).
+    if (input.devedorNaRota !== undefined) {
+      const modo = normalizeDevedorNaRota(input.devedorNaRota);
+      if (!modo) throw new BadRequestException('Modo de devedor na rota inválido — use COBRANCA, EXCLUIR ou NORMAL.');
+      if (modo !== 'NORMAL' && !actor?.isSystemMaster && (await nivelDoTenant()) === 'BASIC') {
+        throw new ForbiddenException('Cobrar ou excluir devedor da rota é do plano Advanced.');
+      }
+      data.devedorNaRota = modo;
     }
     // PR18072026 W-A — toggles operacionais (não exigem billing owner, mesmo
     // padrão do cobrancaSimples): formas de pagamento aceitas + preço por
@@ -577,6 +593,15 @@ function normalizeDiasTrabalho(raw: unknown): string | null {
   return dias.length > 0 ? dias.join(',') : null;
 }
 
+// PR27072026 F2 — só os 3 valores da matriz do plano passam; qualquer outro (lixo,
+// vazio) é rejeitado no chamador (BadRequestException), nunca gravado silencioso.
+export type DevedorNaRotaModo = 'COBRANCA' | 'EXCLUIR' | 'NORMAL';
+function normalizeDevedorNaRota(value: unknown): DevedorNaRotaModo | null {
+  const v = String(value || '').trim().toUpperCase();
+  if (v === 'COBRANCA' || v === 'EXCLUIR' || v === 'NORMAL') return v;
+  return null;
+}
+
 function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = false): LogisticaConfigDTO {
   const operational: LogisticaConfigDTO = {
     // S7 (PR22072026-APP-SOUNDS) — BOOLEANO, nunca o saldo: vai pra TODO ator
@@ -631,6 +656,10 @@ function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = 
     ...operational,
     cobrancaNaEntrega: !!c.cobrancaNaEntrega,
     moduloRecoveryAtivo: !!c.moduloRecoveryAtivo,
+    // PR27072026 F2 — modo do tratamento do devedor na rota de hoje (tela de
+    // config, billing-owner-only — o chip por parada em si (`somenteCobranca`)
+    // é operacional e vive no payload de /logistica/rota, não aqui).
+    devedorNaRota: normalizeDevedorNaRota(c.devedorNaRota) ?? 'COBRANCA',
     pixChave: c.pixChave ?? null,
     pixNome: c.pixNome ?? null,
     pixCidade: c.pixCidade ?? null,
@@ -665,7 +694,7 @@ export type LogisticaNivel = 'BASIC' | 'ADVANCED' | 'FULL';
  * jamais pode derrubar recurso de quem já usa financeiro real (mesma regra do
  * default da coluna no schema).
  */
-function storedNivel(value: unknown): LogisticaNivel {
+export function storedNivel(value: unknown): LogisticaNivel {
   const v = String(value || '').trim().toUpperCase();
   if (v === 'BASIC' || v === 'FULL') return v;
   return 'ADVANCED';
@@ -770,6 +799,9 @@ export interface UpdateLogisticaConfigInput {
   aceitaFiado?: boolean;
   precoPorClienteAtivo?: boolean;
   cobrancaAutomatica?: boolean;
+  // PR27072026 F2 — modo de tratamento do devedor na rota de hoje. Comercial
+  // (billing owner), gate de nível ADVANCED+ pra COBRANCA/EXCLUIR (ver updateConfig).
+  devedorNaRota?: DevedorNaRotaModo;
 }
 
 export interface LogisticaConfigDTO {
@@ -828,4 +860,6 @@ export interface LogisticaConfigDTO {
   rotaConferidaAtiva: boolean;
   // PR27072026 F1 — nível do plano (Basic/Advanced/Full); ver serializeConfig.
   logisticaNivel: LogisticaNivel;
+  // PR27072026 F2 — modo de tratamento do devedor na rota (billing-owner-only).
+  devedorNaRota?: DevedorNaRotaModo;
 }

@@ -38,6 +38,9 @@ import { LogisticaOperacaoService } from './logistica-operacao.service';
 import { LogisticaRouteBillingService } from './logistica-route-billing.service';
 import { LogisticaTrackingService } from './logistica-tracking.service';
 import { LogisticaTrackingMobileController } from './logistica-tracking-mobile.controller';
+import { LogisticaTrackingPublicService } from './logistica-tracking-public.service';
+import { LogisticaTrackingPublicController } from './logistica-tracking-public.controller';
+import { LogisticaTrackingShareController } from './logistica-tracking-share.controller';
 import { LogisticaTrackedBillingService } from './logistica-tracked-billing.service';
 import { LogisticaTrackingBonusService } from './logistica-tracking-bonus.service';
 import { LogisticaOfflineController } from './logistica-offline.controller';
@@ -138,6 +141,17 @@ import { LogisticaImportacaoService } from './logistica-importacao.service';
  * Importa NucleoModule (novo import aqui) só pra reusar NucleoCadastroService#createConta
  * na efetivação — LogisticaAgendaService (plano de entrega) já é provider deste
  * módulo, nenhum import extra precisa pra ele.
+ *
+ * F3 FULL-POLIDO (27/07, PR27072026-ROTA-3-NIVEIS): LogisticaTrackingPublicService
+ * expõe o link "acompanhe sua entrega" — LogisticaTrackingPublicController é a
+ * rota PÚBLICA `/public/tracking/:token` (sem JWT — segurança pelo token
+ * ASSINADO, ver logistica-tracking-public.util.ts; DORMENTE sem
+ * HBX_LOGISTICA_TRACKING_LINK_SECRET configurado, fail-closed) e
+ * LogisticaTrackingShareController é `/logistica/tracking/deliveries/:id/link`
+ * + `/routes/:id/share-links` (autenticado, admin, resolve/gera o link pro
+ * painel). Arquivos novos, dono próprio (F3) — zero edição em
+ * logistica.service.ts/logistica-config.service.ts/logistica.controller.ts
+ * (território do worker F2 rodando em paralelo nesta mesma frente).
  */
 @Module({
   imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule, NucleoModule],
@@ -147,6 +161,8 @@ import { LogisticaImportacaoService } from './logistica-importacao.service';
     LogisticaMobileController,
     LogisticaPedidoPublicoController,
     LogisticaTrackingMobileController,
+    LogisticaTrackingPublicController,
+    LogisticaTrackingShareController,
     LogisticaOfflineController,
     LogisticaOsrmController,
     LogisticaAgendaController,
@@ -179,6 +195,7 @@ import { LogisticaImportacaoService } from './logistica-importacao.service';
     LogisticaOperacaoService,
     LogisticaRouteBillingService,
     LogisticaTrackingService,
+    LogisticaTrackingPublicService,
     OfflineAwareLogisticaTrackedBillingService,
     {
       provide: LogisticaTrackedBillingService,

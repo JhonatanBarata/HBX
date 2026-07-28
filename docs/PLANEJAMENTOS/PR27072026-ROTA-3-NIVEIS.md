@@ -1,5 +1,12 @@
 # PR27072026 — GERENCIADOR DE ROTA EM 3 NÍVEIS (Basic / Advanced / Full)
 
+> **ESTADO (27/07 ~22h):** F0 ✅ NO AR (motor confiável + extrato de eventos; incidente
+> cobrancaStatus:null corrigido e publicado — ver [[tx-any-engole-erro-prisma]]).
+> F1 ✅ NO AR (nível por empresa + presets + tetos + seletor Master + selos).
+> F4 ✅ NO AR (/logistica/importar — quarentena 3 bocas; fase 2 = IA de visão, decisão
+> comercial aberta). F2 e F3 🔄 workers em paralelo; dono autorizou publish direto na
+> entrega. Reparos de dados 48/41 ✅ (exceção: Dejanira 23/07, decisão humana).
+
 > Decisão do dono (27/07): o produto de logística vira ESCADA de 3 planos vendáveis.
 > Este arquivo é o plano-mestre. Regra de ouro da arquitetura (dono, 27/07):
 > **"os dias são organização; o financeiro começa quando confirma na porta"** —

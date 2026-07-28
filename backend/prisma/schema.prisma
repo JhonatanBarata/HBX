@@ -318,6 +318,9 @@ model Company {
   // Ver LogisticaImportacaoLote pro porquê (empresa 41: lista podre direto na base viva).
   logisticaImportacaoLotes LogisticaImportacaoLote[]
   logisticaImportacaoItens LogisticaImportacaoItem[]
+  // F2 (27/07, PR27072026-ROTA-3-NIVEIS) — estoque de carga do caminhão
+  // (conferência do dia: carregou/vendeu/voltou). Ver LogisticaCargaDia.
+  logisticaCargaDias     LogisticaCargaDia[]
   // MULTILOCAL (10/07) — N locais de entrega por cliente (back-relation obrigatória).
   locaisEntrega          LocalEntrega[]
   logisticaConfig        LogisticaConfig?
@@ -2107,10 +2110,70 @@ model LogisticaConfig {
   // nasce BASIC por um caminho de criação explícito que passe o valor; sem
   // isso, cai em Advanced também, até o Master mexer.
   logisticaNivel        String   @default("ADVANCED") @db.VarChar(10) // BASIC | ADVANCED | FULL
+  // PR27072026 F2 (27/07) — PARADA AMARELA DE DEVEDOR: o que fazer com a parada de
+  // um cliente devedor na montagem/leitura da rota de hoje (docs/PLANEJAMENTOS/
+  // PR27072026-ROTA-3-NIVEIS.md, decisão do dono: "parada AMARELA 'só cobrar' como
+  // default + opção na config de excluir"). 'COBRANCA' (default) = a parada ENTRA
+  // normalmente, só ganha o aviso "só cobrar" no payload; 'EXCLUIR' = a entrega do
+  // devedor NÃO entra na montagem de hoje (fica agendada, filtro só na SELEÇÃO,
+  // NUNCA cancela); 'NORMAL' = ignora o débito (comportamento pré-F2). Recurso
+  // ADVANCED+ — BASIC sempre se comporta como NORMAL (gate de nível no serviço,
+  // não aqui). DEFAULT 'COBRANCA' é seguro pra quem já tem financeiro real: passa
+  // a AVISAR sem nunca esconder cliente nem cancelar nada sozinho.
+  devedorNaRota         String   @default("COBRANCA") @db.VarChar(10) // COBRANCA | EXCLUIR | NORMAL
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 
   @@unique([companyId])
+}
+
+// PR27072026 F2 (27/07) — ESTOQUE DE CARGA (conferência de caminhão do dia). NÃO
+// é almoxarifado/WMS: só "carregou X, vendeu Y (soma do EntregaItem do dia, já
+// existe), voltou Z" — 1 tela, 2 números por produto (docs/PLANEJAMENTOS/
+// PR27072026-ROTA-3-NIVEIS.md, frente F2). Recurso ADVANCED+ (gate no serviço,
+// mesmo padrão do F1 — BASIC nem vê a tela). 1 linha por (empresa, dia, entregador
+// opcional); `entregadorId` é coluna SOLTA de propósito (sem @relation/FK), mesmo
+// padrão do LogisticaCobrancaAviso.chargeId — o MVP é 1 caminhão por empresa/dia
+// (o front nem seleciona motorista); null = caminhão único da empresa.
+// status ABERTA (declarada, ainda recebendo entregas do dia) → CONFERIDA (fechada
+// no fim do dia; qtdRetorno/resultado gravados por item como SNAPSHOT congelado —
+// não recalcula depois, mesma lógica de "fotografia do instante" do
+// ClienteHistorico: a entrega de amanhã não pode reescrever a conferência de hoje).
+model LogisticaCargaDia {
+  id           String    @id @default(cuid())
+  company      Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId    Int
+  dataISO      String    @db.VarChar(10) // dia civil SP (YYYY-MM-DD) — canonicalRouteDate/saoPauloDateKey
+  entregadorId Int?
+  status       String    @default("ABERTA") @db.VarChar(12) // ABERTA | CONFERIDA
+  conferidaAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  itens        LogisticaCargaDiaItem[]
+
+  @@index([companyId, dataISO, entregadorId])
+  @@index([companyId, status])
+}
+
+model LogisticaCargaDiaItem {
+  id                 String   @id @default(cuid())
+  cargaDia           LogisticaCargaDia @relation(fields: [cargaDiaId], references: [id], onDelete: Cascade)
+  cargaDiaId         String
+  product            Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productId          Int?
+  qtdCarregada       Int      @default(0)
+  // Preenchidos SÓ na conferência (POST carga/conferir) — enquanto ABERTA ficam
+  // null e o "vendido"/"esperado" são calculados AO VIVO na leitura (soma do
+  // EntregaItem do dia), nunca armazenados. Ao conferir, tudo vira SNAPSHOT
+  // congelado (ver comentário do model acima).
+  qtdVendidaSnapshot Int?
+  qtdRetorno         Int?
+  resultado          String?  @db.VarChar(10) // bateu | sobrou | faltou (só após conferir)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([cargaDiaId])
+  @@index([productId])
 }
 
 // S2 COBRANÇA-WHATS (11/07) — marca de IDEMPOTÊNCIA do aviso de cobrança no zap:
@@ -5017,6 +5080,8 @@ model Product {
   logisticaPlanoEntregaItens LogisticaPlanoEntregaItem[]
   logisticaRotaModeloParadaItens LogisticaRotaModeloParadaItem[]
   recoveryDebtItemProducts RecoveryDebtItemProduct[]
+  // F2 (27/07, PR27072026-ROTA-3-NIVEIS) — itens do estoque de carga do caminhão.
+  logisticaCargaDiaItens LogisticaCargaDiaItem[]
 
   @@index([companyId, status, sortOrder])
   @@unique([id, companyId])

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { MobileDevicePresenceService, type AuthenticatedMobileDevice } from '../auth/mobile-device-presence.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { LogisticaConfigService } from './logistica-config.service';
 import type {
   BatchLogisticaTrackingPointsDto,
   CurrentLogisticaTrackingSessionDto,
@@ -80,6 +81,13 @@ export class LogisticaTrackingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly mobileDevices: MobileDevicePresenceService,
+    // F3 FULL-POLIDO (27/07) — getLive() expõe o nível do plano pro painel
+    // admin gatear "onde está meu caminhão" (.plano-selo quando < FULL). Default
+    // preserva o único teste legado que instancia com 2 args
+    // (logistica-tracking.service.test.ts); no módulo Nest o provider é sempre
+    // injetado. Import de LogisticaConfigService é LEITURA (getNivel já existe,
+    // F1) — este worker não edita logistica-config.service.ts.
+    private readonly config: LogisticaConfigService = null as any,
   ) {}
 
   /**
@@ -649,6 +657,14 @@ export class LogisticaTrackingService {
   }
 
   async getLive(companyId: number) {
+    // PR27072026 F1 — rastreamento é EXCLUSIVO do nível Full (gate JÁ existe em
+    // logistica-config.service.ts; aqui só LÊ via getNivel, nunca reimplementa).
+    // Ausente/config antiga = ADVANCED, mesmo grandfathering do resto do app
+    // (ver storedNivel/serializeConfig). O front decide a UI (acinzentado com
+    // .plano-selo "Disponível no Full") — o backend nunca esconde rota ATIVA em
+    // andamento por causa de downgrade (grandfathering: operação em curso não
+    // para de ser vista pelo admin só porque o nível mudou no meio do dia).
+    const nivel = this.config?.getNivel ? (await this.config.getNivel(companyId)).nivel : 'ADVANCED';
     const recentSince = new Date(Date.now() - 24 * 60 * 60 * 1000);
     const routes = await (this.prisma as any).logisticaRoute.findMany({
       where: {
@@ -686,6 +702,8 @@ export class LogisticaTrackingService {
     });
     const now = Date.now();
     return {
+      nivel,
+      full: nivel === 'FULL',
       routes: routes.map((route: any) => {
         const session = route.trackingSession;
         const statuses = route.stops.map((stop: any) => String(stop.delivery.status || ''));

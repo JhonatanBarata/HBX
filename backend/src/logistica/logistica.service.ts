@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ConversationsService } from '../messaging/conversations.service';
 import { CreditActionUsageService } from '../credits/credit-action-usage.service';
 import { LogisticaRotaService, haversineKm, hasCoord, type Coord } from './logistica-rota.service';
-import { LogisticaConfigService, renderTemplateAviso } from './logistica-config.service';
+import { LogisticaConfigService, renderTemplateAviso, storedNivel } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
 import { LogisticaCobrancaAvisoService } from './logistica-cobranca-aviso.service';
 import { emitMasterEvent } from '../common/master-event';
@@ -357,6 +357,28 @@ export class LogisticaService {
       }
     }
 
+    // PR27072026 F2 — PARADA AMARELA DE DEVEDOR: mesmo gate de moduloFinanceiroAtivoConfig
+    // acima (sem financeiro real não existe "devedor"). resolverDevedorNaRota já
+    // resolve NORMAL sozinho fora do Advanced+ — chamar sempre é seguro, só evitamos
+    // a query extra quando já sabemos que não há financeiro.
+    let devedorPorCliente = new Map<string, { devedor: boolean; modo: 'COBRANCA' | 'EXCLUIR' | 'NORMAL'; saldoAberto: number; motivo: string | null }>();
+    if (moduloFinanceiroAtivoConfig) {
+      try {
+        devedorPorCliente = await this.resolverDevedorNaRota(
+          companyId,
+          Array.from(new Set(rows.map((r) => r.customerProfile.id))),
+        );
+      } catch (e: any) {
+        this.logger.warn(`[logistica] listRota devedorNaRota company=${companyId} falhou: ${String(e?.message || e)}`);
+      }
+    }
+    // EXCLUIR: a entrega do devedor NÃO entra na montagem/leitura de hoje — filtro
+    // só na SELEÇÃO (a ocorrência CONTINUA 'agendada', ninguém cancela nada aqui;
+    // o fechamento de caixa F0 a devolve no dia seguinte). Fica ANTES do cálculo de
+    // driverIds/routeMetadata de propósito: aquele bloco só decide QUAL sessão de
+    // tracking mostrar (não muda com a exclusão) — reduzir o blast radius aqui.
+    const rowsVisiveis = rows.filter((r) => devedorPorCliente.get(r.customerProfile.id)?.modo !== 'EXCLUIR');
+
     const driverIds = new Set<number>();
     const actorDriverId = Number((actorWhere as any)?.entregadorId);
     if (Number.isInteger(actorDriverId) && actorDriverId > 0) driverIds.add(actorDriverId);
@@ -395,7 +417,7 @@ export class LogisticaService {
     let prevLegCoord: Coord | null = null;
     return {
       date: dayISO,
-      total: rows.length,
+      total: rowsVisiveis.length,
       refreshedAt: new Date().toISOString(),
       ...operationalRouteMetadata,
       ...(billingAudience ? { routeMode: routeMode ?? null } : {}),
@@ -404,7 +426,7 @@ export class LogisticaService {
       avisoChegandoAtivo,
       avisoChegandoDistanciaM,
       comprovante,
-      items: rows.map((r) => {
+      items: rowsVisiveis.map((r) => {
         const foto = r.comprovantes.find((item) => item.tipo === 'foto') ?? null;
         const assinatura = r.comprovantes.find((item) => item.tipo === 'assinatura') ?? null;
         // PR18072026 W1 (coordenador) — valorHoje: total SEGURO da entrega ATUAL
@@ -459,6 +481,13 @@ export class LogisticaService {
         // `prevLegCoord` NÃO avança quando a parada está semCoordenada: a
         // próxima parada válida precisa medir a partir do último ponto físico
         // conhecido (pular o "buraco"), não do vazio.
+        // PR27072026 F2 — PARADA AMARELA: só marca "só cobrar" no modo COBRANCA
+        // (EXCLUIR nem chega aqui — já saiu em rowsVisiveis; NORMAL/BASIC/sem
+        // financeiro devolvem devedor:false do resolverDevedorNaRota). Mesmo gate
+        // de moduloFinanceiroAtivoConfig do debitoAtual logo abaixo — o entregador
+        // comum PRECISA ver isto (é ele quem decide na porta, não só o billing owner).
+        const devedorInfo = devedorPorCliente.get(r.customerProfile.id);
+        const somenteCobranca = !!(moduloFinanceiroAtivoConfig && devedorInfo?.devedor && devedorInfo.modo === 'COBRANCA');
         return {
           id: r.id,
         status: r.status,
@@ -473,6 +502,12 @@ export class LogisticaService {
         deliveredLat: r.deliveredLat ?? null,
         deliveredLng: r.deliveredLng ?? null,
         ...(billingAudience ? { cobrancaStatus: r.cobrancaStatus } : {}),
+        // PR27072026 F2 — chip "Só cobrar" da parada amarela de devedor (ver
+        // resolverDevedorNaRota). somenteCobranca sempre presente (boolean estável,
+        // nunca undefined) pro front não precisar de `?.`; motivoCobranca só
+        // preenche junto ("R$ X em aberto").
+        somenteCobranca,
+        motivoCobranca: somenteCobranca ? (devedorInfo?.motivo ?? null) : null,
         notes: r.notes ?? null,
         updatedAt: r.updatedAt.toISOString(),
         entregador: r.entregador
@@ -2243,6 +2278,78 @@ export class LogisticaService {
       entry(a.customerProfileId).aguardando = round2(Math.max(0, Number(a._sum.valor) || 0));
     }
     return mapa;
+  }
+
+  // ── PR27072026 F2 — PARADA AMARELA DE DEVEDOR (fonte ÚNICA) ─────────────────
+  /**
+   * Resolve o tratamento de cada cliente pra rota de HOJE a partir do MESMO
+   * saldo/limite que listRota e o extrato já usam (saldoAbertoPorClientes +
+   * CustomerProfile.limiteFiado) e do modo configurado em
+   * LogisticaConfig.devedorNaRota ('COBRANCA' default | 'EXCLUIR' | 'NORMAL').
+   *
+   * Fonte ÚNICA do cálculo: listRota (chip amarelo "só cobrar") e o `prepare` do
+   * admin-route (filtro da MONTAGEM, pra EXCLUIR nunca ganhar rotaOrdem) chamam
+   * ISTO — os dois nunca podem divergir sobre quem é devedor.
+   *
+   * devedor = saldoAberto > 0 E (limiteFiado nulo OU saldoAberto > limiteFiado)
+   * — MESMA fórmula de risco que o resto do módulo já usa.
+   *
+   * Cliente NÃO devedor sempre volta NORMAL, mesmo com o tenant configurado em
+   * COBRANCA/EXCLUIR (a config é "o que fazer com quem deve", não afeta quem
+   * está em dia). Fail-safe (tudo NORMAL) quando: sem companyId/clientes, config
+   * ilegível, moduloFinanceiroAtivo OFF (sem financeiro real não existe "saldo"
+   * de verdade — M4) ou nível BASIC (gate de nível — a "escada" comercial).
+   */
+  async resolverDevedorNaRota(
+    companyId: number,
+    clienteIds: string[],
+  ): Promise<Map<string, { devedor: boolean; modo: 'COBRANCA' | 'EXCLUIR' | 'NORMAL'; saldoAberto: number; motivo: string | null }>> {
+    const resultado = new Map<string, { devedor: boolean; modo: 'COBRANCA' | 'EXCLUIR' | 'NORMAL'; saldoAberto: number; motivo: string | null }>();
+    const ids = Array.from(new Set((clienteIds || []).filter(Boolean)));
+    if (!companyId || ids.length === 0) return resultado;
+    for (const id of ids) resultado.set(id, { devedor: false, modo: 'NORMAL', saldoAberto: 0, motivo: null });
+
+    let cfg: { moduloFinanceiroAtivo: boolean; devedorNaRota: unknown; logisticaNivel: unknown } | null = null;
+    try {
+      cfg = await this.prisma.logisticaConfig.findUnique({
+        where: { companyId },
+        select: { moduloFinanceiroAtivo: true, devedorNaRota: true, logisticaNivel: true },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[logistica] resolverDevedorNaRota loadConfig company=${companyId} falhou: ${String(e?.message || e)}`);
+      return resultado; // fail-safe: tudo NORMAL
+    }
+    // M4 — sem financeiro real, "saldo em aberto" não existe (nada escreve nele).
+    if (!cfg?.moduloFinanceiroAtivo) return resultado;
+    // Gate de nível (F1/F2): BASIC nunca vê parada amarela nem exclusão.
+    if (storedNivel(cfg.logisticaNivel) === 'BASIC') return resultado;
+
+    const modoRaw = String(cfg.devedorNaRota || 'COBRANCA').trim().toUpperCase();
+    const modoConfig: 'COBRANCA' | 'EXCLUIR' | 'NORMAL' =
+      modoRaw === 'EXCLUIR' ? 'EXCLUIR' : modoRaw === 'NORMAL' ? 'NORMAL' : 'COBRANCA';
+    if (modoConfig === 'NORMAL') return resultado; // tenant escolheu ignorar débito na rota
+
+    try {
+      const [clientes, saldos] = await Promise.all([
+        this.prisma.customerProfile.findMany({
+          where: { id: { in: ids }, companyId },
+          select: { id: true, limiteFiado: true },
+        }),
+        this.saldoAbertoPorClientes(companyId, ids),
+      ]);
+      for (const cliente of clientes) {
+        const saldoAberto = somaSaldo(saldos.get(cliente.id));
+        const limite = cliente.limiteFiado;
+        const devedor = saldoAberto > 0 && (limite == null || saldoAberto > limite);
+        if (!devedor) continue; // fica NORMAL (default já setado acima)
+        const motivo =
+          modoConfig === 'COBRANCA' ? `R$ ${saldoAberto.toFixed(2).replace('.', ',')} em aberto` : null;
+        resultado.set(cliente.id, { devedor: true, modo: modoConfig, saldoAberto, motivo });
+      }
+    } catch (e: any) {
+      this.logger.warn(`[logistica] resolverDevedorNaRota saldo company=${companyId} falhou: ${String(e?.message || e)}`);
+    }
+    return resultado;
   }
 
   // ── M6 — RESUMO DO DIA (read-only, company-scoped) ──────────────────────────
