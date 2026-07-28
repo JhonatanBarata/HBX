@@ -498,6 +498,11 @@ export function LogisticaClient() {
               </button>
             )}
             {admin && (
+              <Link href="/logistica/importar" className="btn-ghost btn-xs">
+                <I d={ICONS.upload} size={13} /> Importar clientes
+              </Link>
+            )}
+            {admin && (
               <Link href="/logistica/rastreamento" className="btn-ghost btn-xs">
                 <I d={ICONS.mapin} size={13} /> Ao vivo
               </Link>

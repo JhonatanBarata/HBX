@@ -1307,3 +1307,152 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* ================================================================
+   F4 (27/07, PR27072026-ROTA-3-NIVEIS) — "boca única" de importação +
+   quarentena (/logistica/importar). Prefixo `.log-quar-*` DE PROPÓSITO
+   diferente de `.log-agenda-import__*` (já existe — é a importação de
+   SEQUÊNCIA DE ROTA salva, feature totalmente diferente; mesmo radical
+   "import" nos dois nomes seria confuso lido lado a lado).
+   Reusa: .log-agenda/.log-agenda__surface/.log-agenda__head (casco da
+   página), .log-agenda-impact__stat (tiles), .log-saude__lista/__row/
+   __semaforo (lista verde/vermelho — MESMO padrão visual da Saúde da
+   Base), .imp-progress/.imp-summary/.imp-actions/.imp-errs/.imp-file
+   (screens.css, do modal de import de Contatos/Produtos — texto de
+   progresso/resumo/erro é o MESMO conceito, zero motivo pra reinventar).
+   Zero cor nova: só os tokens já usados no resto deste arquivo.
+   ================================================================ */
+
+.log-quar-tabs {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: repeat(3, minmax(96px, 1fr));
+  gap: 3px;
+  padding: 4px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  background: var(--hbx-surface-soft);
+  --glass-pill-radius: var(--radius-pill);
+}
+
+.log-quar-tab {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 750;
+  white-space: nowrap;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.log-quar-tab.is-active { color: var(--text-strong); }
+
+.log-quar-zone {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.log-quar-subhead {
+  margin-top: 18px;
+  font-size: 0.8rem;
+}
+
+/* Linha da lista virou clicável (abre a correção) — só o cursor muda; cor/estado
+   seguem os mesmos de .log-saude__row. */
+.log-saude__row.is-clickable { cursor: pointer; }
+
+/* Dropzone de arquivo/foto — borda tracejada, muda pro token de destaque
+   quando um arquivo está sendo arrastado por cima (drag&drop nativo). */
+.log-quar-drop {
+  display: grid;
+  place-items: center;
+  gap: 6px;
+  min-height: 140px;
+  padding: 18px;
+  border: 1.5px dashed var(--border-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--hbx-surface-soft);
+  text-align: center;
+  cursor: pointer;
+}
+
+.log-quar-drop.is-dragover {
+  border-color: var(--hbx-brand);
+  background: var(--hbx-brand-soft);
+}
+
+.log-quar-drop__title { font-size: 0.82rem; font-weight: 750; color: var(--text-strong); }
+.log-quar-drop__sub { font-size: 0.72rem; color: var(--text-muted); }
+
+.log-quar-textarea {
+  min-height: 220px;
+  resize: vertical;
+  font-family: inherit;
+  line-height: 1.5;
+}
+
+.log-quar-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.log-quar-row > .field-dark { flex: 1 1 160px; }
+
+/* Lotes recentes — cartão clicável (retoma rascunho) com badge de status. */
+.log-quar-lotes { display: grid; gap: 7px; margin-top: 6px; }
+
+.log-quar-lote {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--hbx-surface-soft);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.log-quar-lote__main { display: grid; gap: 2px; min-width: 0; }
+.log-quar-lote__title { font-size: 0.78rem; font-weight: 750; color: var(--text-strong); }
+.log-quar-lote__sub { font-size: 0.7rem; color: var(--text-muted); }
+
+.emp-role.is-rascunho { color: var(--text-body); border-color: var(--border-hairline); background: color-mix(in srgb, var(--text-muted) 10%, transparent); }
+.emp-role.is-conferido { color: var(--hbx-brand-strong); border-color: color-mix(in srgb, var(--hbx-brand) 40%, transparent); background: var(--hbx-brand-soft); }
+.emp-role.is-efetivado { color: var(--hbx-success); border-color: color-mix(in srgb, var(--hbx-success) 40%, transparent); background: color-mix(in srgb, var(--hbx-success) 12%, transparent); }
+.emp-role.is-descartado { color: var(--text-muted); border-color: var(--border-hairline); background: transparent; }
+
+/* Detalhe do lote — cabeçalho com os 4 stat tiles (verde/vermelho/pendente/
+   efetivado) reusando .log-agenda-impact__stat + só o dot novo (pendente). */
+.log-saude__semaforo--pendente { background: var(--hbx-warning); }
+
+.log-quar-detail__actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+
+/* Item da lista — herda .log-saude__row; some campo extra pro "tem foto"/qtd. */
+.log-quar-item__tag {
+  font-size: 0.64rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .log-quar-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}

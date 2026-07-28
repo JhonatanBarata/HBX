@@ -901,9 +901,20 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
             <button type="button" className="btn-ghost ctt-new" onClick={() => setShowNovo(true)}>
               <I d={ICONS.plus} size={13} /> Novo contato/cliente
             </button>
-            <button type="button" className="btn-ghost" onClick={() => setShowImport(true)}>
-              <I d={ICONS.upload} size={13} /> Importar planilha
-            </button>
+            {/* F4 (27/07) — em Logística→Clientes a entrada complicada (planilha
+                crua direto pra base viva) vira a "boca única" com quarentena:
+                arquivo/texto/foto passam pelo sanitizador antes de virar cliente.
+                Fora de clientesOnly (aba Contatos genérica), segue o import direto
+                de sempre — não é logística, não tem endereço/rota pra sanitizar. */}
+            {clientesOnly ? (
+              <Link href="/logistica/importar" className="btn-ghost">
+                <I d={ICONS.upload} size={13} /> Importar clientes
+              </Link>
+            ) : (
+              <button type="button" className="btn-ghost" onClick={() => setShowImport(true)}>
+                <I d={ICONS.upload} size={13} /> Importar planilha
+              </button>
+            )}
             {loading && <span className="emp-count">carregando…</span>}
           </form>
         </div>
