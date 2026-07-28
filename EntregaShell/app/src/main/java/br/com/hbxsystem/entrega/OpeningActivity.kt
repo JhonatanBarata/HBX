@@ -103,6 +103,9 @@ class OpeningActivity : AppCompatActivity() {
                 override fun onPageFinished(view: WebView, url: String) {
                     webReady = true
                     setOpeningProgress(openingProgress)
+                    if (BuildConfig.APP_MODE == "logistica" && openingSoundPlayer == null) {
+                        playOpeningSound()
+                    }
                     startNativeMove()
                 }
             }
@@ -165,9 +168,6 @@ class OpeningActivity : AppCompatActivity() {
     private fun startWebHandoffWhenReady() {
         if (!webReady || !nativeArrived || handoffStarted || isFinishing || isDestroyed) return
         handoffStarted = true
-        if (BuildConfig.APP_MODE == "logistica") {
-            playOpeningSound()
-        }
         webView.evaluateJavascript("window.HBXOpening&&window.HBXOpening.start()") {
             handler.postDelayed({
                 nativeHandoff?.animate()
@@ -207,6 +207,11 @@ class OpeningActivity : AppCompatActivity() {
                 if (isFinishing || isDestroyed) {
                     scheduleOpeningSoundRelease(preparedPlayer)
                     return@setOnPreparedListener
+                }
+                if (fastLogin) {
+                    runCatching {
+                        preparedPlayer.playbackParams = preparedPlayer.playbackParams.setSpeed(1.23f)
+                    }
                 }
                 runCatching { preparedPlayer.start() }.onFailure {
                     scheduleOpeningSoundRelease(preparedPlayer)
