@@ -38,10 +38,23 @@ com o valor na mensagem e o caminho pra resolver; fiado ainda pendente reabre
 normal (nada foi recebido); toda reabertura vira linha `ENTREGA_REABERTA` no
 extrato da agenda, com dia, hora e autor, na ficha do cliente.
 
-**Sobra 1 porta (decisão do dono):** cancelar uma entrega REABERTA com fiado
-pendente ainda deixa a cobrança órfã (caso da Daniela). A correção natural é
-cancelar a cobrança junto — mas isso é mexer em dinheiro por conta própria e o
-caminho é compartilhado com a fila offline do APK; não toquei sem ordem.
+**Porta do cancelar, fechada por ordem do dono (`b3f92dad`):** cancelar entrega
+passa a cancelar junto a cobrança DELA que ainda não foi recebida (trava dupla
+`status='pending'` + `paidAt IS NULL` — dinheiro recebido nunca é desfeito por
+ali). Nenhum ramo lança exceção: `cancelarEntrega` é o mesmo caminho da fila
+offline do APK e um throw quebraria o replay do motorista.
+
+**Reparo dos 3 registros em produção (28/07, decisão "vale o último gesto"):**
+Dejanira virou `entregue` (ninguém cancelou, o dinheiro entrou); as cobranças da
+Fran (R$ 20) e da Daniela (R$ 11) foram canceladas — entrega cancelada não
+cobra. Cada uma virou linha `CORRECAO_MANUAL` no extrato da agenda, então a
+ficha do cliente mostra o conserto com de→para. Conferido depois: a query
+`FinanceiroCharge JOIN Entrega WHERE status <> 'entregue'` não devolve mais
+nenhuma cobrança viva.
+
+⚠️ **O código do freio está só no master local** (`6cdedca9`, `b3f92dad`,
+`189b849c`) — **publish não foi pedido**. Até publicar, a produção segue com o
+reabrir/cancelar antigos e o buraco pode nascer de novo.
 
 > Decisão do dono (27/07): o produto de logística vira ESCADA de 3 planos vendáveis.
 > Este arquivo é o plano-mestre. Regra de ouro da arquitetura (dono, 27/07):
