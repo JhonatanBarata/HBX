@@ -58,10 +58,14 @@ const CREDIT_ACTION_BASE: Record<CreditActionKey, CreditActionDefinition> = {
   },
   // Rótulos comerciais (dono 26/07). As CHAVES continuam as mesmas —
   // ledger e extrato históricos apontam para elas.
+  // 28/07 (dono) — deixou de cobrar "1× por bloco iniciado de até 5 entregas"
+  // e passou a cobrar POR PARADA. O preço do bloco (2) foi dividido pelas 5
+  // paradas que ele cobria: 2/5 = 0,4. Cinco paradas custam o mesmo de antes;
+  // seis param de custar dois blocos. A CHAVE não muda (ledger histórico).
   [CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK]: {
     key: CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK,
     mode: 'debit',
-    cost: 1,
+    cost: 0.4,
     label: 'Logística Simples',
   },
   [CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY]: {

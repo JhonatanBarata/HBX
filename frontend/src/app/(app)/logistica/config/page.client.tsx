@@ -328,7 +328,7 @@ export function LogisticaConfigClient() {
                     onClick={() => patchModoRota({ modoRotaPadrao: "ESSENTIAL" })}
                   >
                     <span className="log-cfg__mode-title">Rota Essencial</span>
-                    <span className="log-cfg__mode-copy">1 crédito por bloco iniciado de até 5 entregas únicas.</span>
+                    <span className="log-cfg__mode-copy">Cobra por parada da rota.</span>
                   </button>
                   <button
                     type="button"

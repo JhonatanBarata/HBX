@@ -228,7 +228,7 @@ function makeHarness(mode: 'ESSENTIAL' | 'TRACKED' = 'ESSENTIAL') {
   const config: any = { resolveRouteMode: async () => mode };
   // 💰 27/07 — o serviço lê o preço do catálogo (resolveEffective); o stub
   // nasce no contrato base (debit/1) pra bateria antiga valer byte a byte.
-  const essentialAction = { mode: 'debit' as 'debit' | 'free', cost: 1 };
+  const essentialAction = { mode: 'debit' as 'debit' | 'free', cost: 0.4 };
   const actionConfig: any = {
     resolveEffective: async () => ({ key: 'logistica_essential_block', label: 'Rota Essencial', mode: essentialAction.mode, cost: essentialAction.cost }),
   };
@@ -274,7 +274,9 @@ function makeHarness(mode: 'ESSENTIAL' | 'TRACKED' = 'ESSENTIAL') {
   };
 }
 
-test('Essencial cobra uma vez por bloco e só abre novo claim na 6ª entrega', async () => {
+// 28/07 (dono) — 1 claim por PARADA. O invariante forte continua sendo a
+// idempotência: repreparar não recobra, e a entrega NOVA cobra só a si mesma.
+test('Simples cobra uma vez por parada e a 6ª entrega abre exatamente 1 claim novo', async () => {
   const h = makeHarness();
   const base = { companyId: 7, entregadorId: 9, routeDate: '2026-07-13' };
   assert.equal(await h.service.prepareRoute({
@@ -285,39 +287,39 @@ test('Essencial cobra uma vez por bloco e só abre novo claim na 6ª entrega', a
   assert.equal(h.debitCalls.length, 0);
   await h.service.prepareRoute({ ...base, deliveryIds: ['d1', 'd2', 'd3', 'd4', 'd5'], chargeEssential: true });
   await h.service.prepareRoute({ ...base, deliveryIds: ['d1', 'd2', 'd3', 'd4', 'd5'], chargeEssential: true });
-  assert.equal(h.debitCalls.length, 1, 'retry/reopen não debita novamente');
+  assert.equal(h.debitCalls.length, 5, 'retry/reopen não debita novamente: seguem as 5 paradas');
   h.routes[0].status = 'ACTIVE';
   await h.service.prepareRoute({ ...base, deliveryIds: ['d1', 'd2', 'd3', 'd4', 'd5', 'd6'] });
-  assert.equal(h.debitCalls.length, 2, '6ª entrega abre exatamente o bloco 2');
-  assert.equal(h.claims.length, 2);
+  assert.equal(h.debitCalls.length, 6, '6ª entrega cobra 1 parada, não um bloco inteiro');
+  assert.equal(h.claims.length, 6);
   assert.equal(new Set(h.stops.map((s) => s.deliveryId)).size, 6);
 });
 
-test('cancelada não ocupa bloco: limpar o dia e regerar não debita de novo (caso real 18/07)', async () => {
+test('cancelada não ocupa parada paga: limpar o dia e regerar não debita de novo (caso real 18/07)', async () => {
   const h = makeHarness();
   const base = { companyId: 7, entregadorId: 9, routeDate: '2026-07-13' };
   const firstBatch = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6', 'd7', 'd8', 'd9', 'd10'];
   await h.service.prepareRoute({ ...base, deliveryIds: firstBatch, chargeEssential: true });
-  assert.equal(h.debitCalls.length, 2, '10 entregas = 2 blocos');
+  assert.equal(h.debitCalls.length, 10, '10 entregas = 10 paradas');
 
   // "Limpar o dia": as entregas morrem (cancelada), os stops ficam no snapshot.
   firstBatch.forEach((id) => h.setDeliveryStatus(id, 'cancelada'));
 
-  // Regera o MESMO dia com 10 entregas novas: cobráveis = 10 (não 20). Blocos
-  // 1-2 já estão DEBITED → nenhum débito novo (antes do fix: 4 blocos, 2 extras).
+  // Regera o MESMO dia com 10 entregas novas: cobráveis = 10 (não 20). As 10
+  // posições já estão DEBITED → nenhum débito novo (antes do fix: 20).
   const secondBatch = ['d11', 'd12', 'd13', 'd14', 'd15', 'd16', 'd17', 'd18', 'd19', 'd20'];
   await h.service.prepareRoute({ ...base, deliveryIds: secondBatch, chargeEssential: true });
-  assert.equal(h.debitCalls.length, 2, 'regerar o dia reaproveita os blocos já pagos');
-  assert.equal(h.claims.length, 2);
+  assert.equal(h.debitCalls.length, 10, 'regerar o dia reaproveita as paradas já pagas');
+  assert.equal(h.claims.length, 10);
   assert.equal(h.stops.length, 20, 'snapshot segue append-only (auditoria intacta)');
 
-  // Posição cobrável pula canceladas: d11 é a 1ª cobrável (bloco 1), não a 11ª.
+  // Posição cobrável pula canceladas: d11 é a 1ª cobrável, não a 11ª.
   h.routes[0].status = 'ACTIVE';
   await h.service.assertEssentialDeliveryCovered(7, 'd11');
 
   // Crescer o dia além da capacidade já paga volta a cobrar só o delta.
   await h.service.prepareRoute({ ...base, deliveryIds: ['d21'], chargeEssential: true });
-  assert.equal(h.debitCalls.length, 3, '11ª cobrável abre exatamente o bloco 3');
+  assert.equal(h.debitCalls.length, 11, '11ª cobrável abre exatamente 1 parada nova');
 });
 
 test('COMPLETED é terminal: START não anexa, não cobra e não reabre o modo congelado', async () => {
@@ -362,7 +364,7 @@ test('COMPLETED é terminal: START não anexa, não cobra e não reabre o modo c
   );
 });
 
-test('preço do catálogo manda: custo 2 debita 2 por bloco; modo free pula cobrança e claim', async () => {
+test('preço do catálogo manda: custo 2 debita 2 por parada; modo free pula cobrança e claim', async () => {
   const caro = makeHarness('ESSENTIAL');
   caro.setEssentialAction('debit', 2);
   await caro.service.prepareRoute({
@@ -370,8 +372,8 @@ test('preço do catálogo manda: custo 2 debita 2 por bloco; modo free pula cobr
     deliveryIds: ['d1', 'd2', 'd3', 'd4', 'd5', 'd6'],
     chargeEssential: true,
   });
-  assert.equal(caro.debitCalls.length, 2, '6 entregas = 2 blocos');
-  assert.ok(caro.debitCalls.every((c: any) => c.amount === 2), 'cada bloco debitou o custo do catálogo (2), não o cravado');
+  assert.equal(caro.debitCalls.length, 6, '6 entregas = 6 paradas');
+  assert.ok(caro.debitCalls.every((c: any) => c.amount === 2), 'cada parada debitou o custo do catálogo (2), não o cravado');
 
   const gratis = makeHarness('ESSENTIAL');
   gratis.setEssentialAction('free', 0);
@@ -653,7 +655,7 @@ test('duas requisições concorrentes do mesmo bloco geram no máximo um débito
   assert.equal(h.ledger.filter((row) => row.kind === 'debit').length, 1);
 });
 
-test('gate de confirmação bloqueia a 6ª entrega quando o bloco 2 ficou sem saldo', async () => {
+test('gate de confirmação bloqueia a 6ª entrega quando a parada nova ficou sem saldo', async () => {
   const h = makeHarness();
   const base = { companyId: 7, entregadorId: 9, routeDate: '2026-07-13' };
   await h.service.prepareRoute({ ...base, deliveryIds: ['d1', 'd2', 'd3', 'd4', 'd5'], chargeEssential: true });
@@ -683,10 +685,23 @@ test('usageKey inclui tenant, motorista, data, bloco e versão; data inválida �
   assert.equal(canonicalRouteDate(undefined, new Date('2026-07-14T02:30:00.000Z')), '2026-07-13');
 });
 
-test('fronteiras da fórmula Essencial: 0/1/5/6/10/11', () => {
+// 28/07 (dono) — a unidade virou a PARADA: 1 unidade por entrega billável, sem
+// bloco iniciado. Com o custo 0,4 do catálogo, 5 paradas seguem custando 2 (o
+// preço do bloco antigo) e 6 passam a custar 2,4 em vez de 4.
+test('fronteiras da fórmula Simples: 1 unidade por parada', () => {
   assert.deepEqual(
     [0, 1, 5, 6, 10, 11].map(essentialBlocksForDeliveries),
-    [0, 1, 1, 2, 2, 3],
+    [0, 1, 5, 6, 10, 11],
+  );
+});
+
+test('a conta de 5 paradas não mudou de preço na troca do bloco pela parada', () => {
+  const custoParada = 0.4;
+  assert.equal(essentialBlocksForDeliveries(5) * custoParada, 2, '5 paradas = os mesmos 2 créditos do bloco');
+  assert.equal(
+    Math.round(essentialBlocksForDeliveries(6) * custoParada * 1000) / 1000,
+    2.4,
+    '6 paradas custam 2,4 — antes eram 2 blocos inteiros (4)',
   );
 });
 
@@ -708,13 +723,13 @@ test('pendência de rota de dia anterior MIGRA de graça: billingExempt e sem bl
     companyId: 7, entregadorId: 9, routeDate: '2026-07-13',
     deliveryIds: ['d1', 'd2', 'd3', 'd4', 'd5', 'd6'], chargeEssential: true,
   });
-  // 6 no snapshot, mas d1 migrada não conta: 5 cobráveis = 1 bloco (sem a isenção seriam 2).
+  // 6 no snapshot, mas d1 migrada não conta: 5 cobráveis (sem a isenção seriam 6).
   assert.equal(prepared!.totalUniqueDeliveries, 6);
-  assert.equal(h.claims.length, 1);
+  assert.equal(h.claims.length, 5);
   const moved = h.stops.find((s) => s.deliveryId === 'd1')!;
   assert.notEqual(moved.routeId, 'route-antiga');
   assert.equal(moved.billingExempt, true);
-  assert.equal(h.debitCalls.length, 1);
+  assert.equal(h.debitCalls.length, 5, 'a migrada entra de graça: 5 paradas cobradas, não 6');
 });
 
 test('rota do MESMO dia encerrada operacionalmente também libera a entrega', async () => {
@@ -725,8 +740,8 @@ test('rota do MESMO dia encerrada operacionalmente também libera a entrega', as
   });
   assert.equal(prepared!.totalUniqueDeliveries, 1);
   assert.equal(h.stops.find((s) => s.deliveryId === 'd1')!.billingExempt, true);
-  // migrada sozinha = 0 cobráveis = 0 blocos exigidos... rota sem bloco é barrada
-  // pelo START (requiredBlocks 0 → 402) — aqui só validamos que não debitou.
+  // migrada sozinha = 0 cobráveis = 0 unidades exigidas — aqui só validamos
+  // que não debitou.
   assert.equal(h.debitCalls.length, 0);
 });
 

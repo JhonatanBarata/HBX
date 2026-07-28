@@ -182,7 +182,7 @@ function makeHarness(mode: 'ESSENTIAL' | 'TRACKED' = 'ESSENTIAL') {
   const config: any = { resolveRouteMode: async () => mode };
   // 💰 27/07 — billing e preview leem o MESMO catálogo (resolveEffective); o
   // stub nasce no contrato base (debit/1) pra bateria antiga valer byte a byte.
-  const essentialAction = { mode: 'debit' as 'debit' | 'free', cost: 1 };
+  const essentialAction = { mode: 'debit' as 'debit' | 'free', cost: 0.4 };
   const actionConfig: any = {
     resolveEffective: async () => ({ key: 'logistica_essential_block', label: 'Rota Essencial', mode: essentialAction.mode, cost: essentialAction.cost }),
   };
@@ -213,39 +213,43 @@ function makeHarness(mode: 'ESSENTIAL' | 'TRACKED' = 'ESSENTIAL') {
 
 const BASE = { companyId: 7, entregadorId: 9, routeDate: '2026-07-25' };
 
-test('preview == débito real: 6 entregas viram 2 blocos e o START debita exatamente isso', async () => {
+// 28/07 (dono) — a unidade virou a PARADA: 6 entregas são 6 unidades de 0,4,
+// não 2 blocos de 2. O invariante que importa continua o mesmo: o que o motorista
+// LÊ em "Iniciar Debitará" é exatamente o que sai da carteira no START.
+test('preview == débito real: 6 entregas viram 6 paradas e o START debita exatamente isso', async () => {
   const h = makeHarness();
   const ids = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6'];
   ids.forEach((id) => h.seedEntrega(id));
 
   const preview = await h.preview.previewCusto(7, { date: BASE.routeDate, deliveryIds: ids }, 9);
-  assert.equal(preview.blocosTotais, 2);
+  assert.equal(preview.blocosTotais, 6, '1 unidade por parada');
   assert.equal(preview.blocosJaDebitados, 0);
-  assert.equal(preview.creditosAIniciar, 2);
+  assert.equal(preview.creditosAIniciar, 2.4, '6 × 0,4');
   assert.equal(preview.saldoAtual, 100);
   assert.equal(preview.saldoCobre, true);
 
   await h.billing.prepareRoute({ ...BASE, deliveryIds: ids, chargeEssential: true });
-  assert.equal(h.debitCalls.length, preview.creditosAIniciar, 'preview previu exatamente o que foi debitado');
+  const debitado = Math.round(h.debitCalls.reduce((s: number, c: any) => s + c.amount, 0) * 1000) / 1000;
+  assert.equal(debitado, preview.creditosAIniciar, 'preview previu exatamente o que foi debitado');
 });
 
-test('preview segue o catálogo: custo 2/bloco dobra o "Iniciar Debitará"; free zera antes de qualquer débito', async () => {
+test('preview segue o catálogo: custo por parada manda no "Iniciar Debitará"; free zera antes de qualquer débito', async () => {
   const caro = makeHarness();
   const ids = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6'];
   ids.forEach((id) => caro.seedEntrega(id));
   caro.setEssentialAction('debit', 2);
   const preview = await caro.preview.previewCusto(7, { date: BASE.routeDate, deliveryIds: ids }, 9);
-  assert.equal(preview.blocosTotais, 2);
-  assert.equal(preview.creditosAIniciar, 4, '2 blocos × custo 2 do catálogo');
+  assert.equal(preview.blocosTotais, 6);
+  assert.equal(preview.creditosAIniciar, 12, '6 paradas × custo 2 do catálogo');
   await caro.billing.prepareRoute({ ...BASE, deliveryIds: ids, chargeEssential: true });
-  assert.equal(caro.debitCalls.length, 2);
+  assert.equal(caro.debitCalls.length, 6);
   assert.ok(caro.debitCalls.every((c: any) => c.amount === 2), 'o débito real usa o MESMO custo que o preview prometeu');
 
   const gratis = makeHarness();
   ['d1', 'd2', 'd3'].forEach((id) => gratis.seedEntrega(id));
   gratis.setEssentialAction('free', 0);
   const zero = await gratis.preview.previewCusto(7, { date: BASE.routeDate, deliveryIds: ['d1', 'd2', 'd3'] }, 9);
-  assert.equal(zero.blocosTotais, 1, 'o bloco existe — só não custa nada');
+  assert.equal(zero.blocosTotais, 3, 'as paradas existem — só não custam nada');
   assert.equal(zero.creditosAIniciar, 0, 'modo free = iniciar não vai debitar');
   await gratis.billing.prepareRoute({ ...BASE, deliveryIds: ['d1', 'd2', 'd3'], chargeEssential: true });
   assert.equal(gratis.debitCalls.length, 0, 'e o START de fato não debitou');
@@ -256,27 +260,27 @@ test('re-iniciar não pede crédito de novo: claims já DEBITED zeram o preview'
   const ids = ['d1', 'd2', 'd3', 'd4', 'd5'];
   ids.forEach((id) => h.seedEntrega(id));
   await h.billing.prepareRoute({ ...BASE, deliveryIds: ids, chargeEssential: true });
-  assert.equal(h.debitCalls.length, 1, '5 entregas = 1 bloco cobrado no START');
+  assert.equal(h.debitCalls.length, 5, '5 entregas = 5 paradas cobradas no START');
 
   const preview = await h.preview.previewCusto(7, { date: BASE.routeDate, deliveryIds: ids }, 9);
-  assert.equal(preview.blocosTotais, 1);
-  assert.equal(preview.blocosJaDebitados, 1);
+  assert.equal(preview.blocosTotais, 5);
+  assert.equal(preview.blocosJaDebitados, 5);
   assert.equal(preview.creditosAIniciar, 0, 'já foi pago — reabrir a conferência não pede de novo');
-  assert.equal(h.debitCalls.length, 1, 'chamar o preview não debita nada');
+  assert.equal(h.debitCalls.length, 5, 'chamar o preview não debita nada');
 });
 
-test('entrega cancelada some do preview (mesma régua do billing: canceladas não inflam blocos)', async () => {
+test('entrega cancelada some do preview (mesma régua do billing: canceladas não inflam a conta)', async () => {
   const h = makeHarness();
   const ids = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6'];
   ids.forEach((id) => h.seedEntrega(id));
   await h.billing.prepareRoute({ ...BASE, deliveryIds: ids, chargeEssential: true });
-  assert.equal(h.debitCalls.length, 2, '6 entregas = 2 blocos cobrados');
+  assert.equal(h.debitCalls.length, 6, '6 entregas = 6 paradas cobradas');
 
   h.setStatus('d6', 'cancelada');
   const preview = await h.preview.previewCusto(7, { date: BASE.routeDate, deliveryIds: ids }, 9);
-  assert.equal(preview.blocosTotais, 1, 'd6 cancelada não conta mais como bloco');
-  assert.equal(preview.blocosJaDebitados, 1, 'só o bloco 1 ainda cabe no requiredBlocks novo (blockIndex<=1)');
-  assert.equal(preview.creditosAIniciar, 0, 'já foi pago — blocosTotais menor nunca fica negativo');
+  assert.equal(preview.blocosTotais, 5, 'd6 cancelada não conta mais como parada');
+  assert.equal(preview.blocosJaDebitados, 5, 'só as 5 que ainda cabem no total novo (blockIndex<=5)');
+  assert.equal(preview.creditosAIniciar, 0, 'já foi pago — total menor nunca fica negativo');
 });
 
 test('preview nunca escreve: zero mutação em rota/stop/claim/ledger/débito', async () => {
@@ -300,9 +304,10 @@ test('saldoCobre vira false quando o saldo não cobre os créditos necessários'
   const ids = ['d1', 'd2', 'd3', 'd4', 'd5', 'd6'];
   ids.forEach((id) => h.seedEntrega(id));
   const preview = await h.preview.previewCusto(7, { date: BASE.routeDate, deliveryIds: ids }, 9);
-  assert.equal(preview.blocosTotais, 2);
+  assert.equal(preview.blocosTotais, 6);
+  assert.equal(preview.creditosAIniciar, 2.4);
   assert.equal(preview.saldoAtual, 1);
-  assert.equal(preview.saldoCobre, false);
+  assert.equal(preview.saldoCobre, false, 'saldo 1 não cobre as 6 paradas (2,4)');
 });
 
 test('modo TRACKED não usa bloco de crédito: preview sempre zero e saldoCobre true', async () => {
@@ -326,7 +331,7 @@ test('ator ADMIN sem entregadorId explícito resolve o motorista único do dia',
   h.seedEntrega('d1');
   h.seedEntrega('d2');
   const preview = await h.preview.previewCusto(7, { date: BASE.routeDate, deliveryIds: ['d1', 'd2'] });
-  assert.equal(preview.blocosTotais, 1);
+  assert.equal(preview.blocosTotais, 2);
 });
 
 test('ator ADMIN não consegue prever quando o dia tem mais de um motorista nas entregas', async () => {
@@ -343,5 +348,5 @@ test('sem deliveryIds explícitos, usa todas as entregas abertas do motorista no
   const h = makeHarness();
   ['d1', 'd2', 'd3'].forEach((id) => h.seedEntrega(id));
   const preview = await h.preview.previewCusto(7, { date: BASE.routeDate }, 9);
-  assert.equal(preview.blocosTotais, 1);
+  assert.equal(preview.blocosTotais, 3);
 });

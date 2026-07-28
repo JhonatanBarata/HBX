@@ -112,8 +112,11 @@ export class LogisticaNivelPlanoService implements OnModuleInit {
    * FRANQUIA DO MÊS de uma empresa, contada em PARADAS — a unidade do plano e a
    * única que soma os DOIS jeitos de queimar crédito na rua:
    *
-   *   - Rota Essencial: 1 claim = 1 BLOCO = 5 paradas;
+   *   - Rota Simples: 1 claim = 1 PARADA (era 1 bloco de 5 até 28/07);
    *   - Rota Rastreada (Full): 1 claim = 1 ENTREGA = 1 parada.
+   *
+   * Desde 28/07 as duas contam na MESMA unidade, então a franquia vendida em
+   * paradas ("300/mês") é gasta parada a parada, sem arredondamento.
    *
    * Sem somar os dois, a franquia do Full seria decorativa: o preset do nível
    * liga TRACKED, e o Full queimaria crédito por outra porta com a franquia
@@ -178,7 +181,8 @@ export class LogisticaNivelPlanoService implements OnModuleInit {
       paradasInclusas,
       paradasUsadas,
       paradasRestantes,
-      // Bloco é indivisível: sobrar 3 paradas não dá o próximo bloco de graça.
+      // 1 unidade de cobrança = 1 parada (28/07): a conversão é 1:1 e nenhuma
+      // parada da franquia se perde em arredondamento de bloco.
       blocosRestantes: franquiaEmBlocos(paradasRestantes),
     };
   }
@@ -211,6 +215,80 @@ export class LogisticaNivelPlanoService implements OnModuleInit {
       paradasUsadas: Math.min(f.paradasInclusas, f.paradasUsadas),
       paradasRestantes: f.paradasRestantes,
     };
+  }
+
+  /**
+   * PAINEL DO MASTER (28/07, pedido do dono: "quero controle sem depender de vc") —
+   * uma linha por empresa com plano, mensalidade e o consumo do mês.
+   *
+   * É a resposta pra "quem está no crédito puro × quem está num plano fixo",
+   * que antes não existia em lugar nenhum (o nível morava só na ficha da
+   * empresa, uma janela por vez).
+   *
+   * SEM N+1 por desenho: 1 leitura das configs + 2 groupBy (Essencial e
+   * Rastreada). Com 8 ou 800 empresas são sempre 3 queries.
+   */
+  async listarEmpresasParaMaster(routeDate: string): Promise<Array<{
+    companyId: number;
+    nivel: LogisticaNivel;
+    titulo: string;
+    precoMensal: number;
+    paradasInclusas: number;
+    paradasUsadas: number;
+    paradasRestantes: number;
+  }>> {
+    const mes = String(routeDate || '').slice(0, 7);
+    const mesValido = /^\d{4}-\d{2}$/.test(mes);
+    const configs: Array<{ companyId: number; logisticaNivel: string | null }> =
+      await (this.prisma as any).logisticaConfig
+        .findMany({ select: { companyId: true, logisticaNivel: true } })
+        .catch(() => []);
+
+    const usadasPorEmpresa = new Map<number, number>();
+    if (mesValido) {
+      const [essenciais, rastreadas] = await Promise.all([
+        (this.prisma as any).logisticaEssentialCreditClaim
+          .groupBy({
+            by: ['companyId'],
+            where: { routeDate: { startsWith: mes }, status: { in: ['PLAN', 'PROCESSING', 'DEBITED'] } },
+            _count: { _all: true },
+          })
+          .catch(() => []),
+        (this.prisma as any).logisticaTrackedCreditClaim
+          .groupBy({
+            by: ['companyId'],
+            where: {
+              status: { in: ['PLAN', 'PROCESSING', 'DEBITED', 'COMPLETED'] },
+              route: { routeDate: { startsWith: mes } },
+            },
+            _count: { _all: true },
+          })
+          .catch(() => []),
+      ]);
+      for (const row of essenciais as Array<{ companyId: number; _count: { _all: number } }>) {
+        const atual = usadasPorEmpresa.get(row.companyId) ?? 0;
+        usadasPorEmpresa.set(row.companyId, atual + Number(row._count?._all || 0) * PARADAS_POR_BLOCO);
+      }
+      for (const row of rastreadas as Array<{ companyId: number; _count: { _all: number } }>) {
+        const atual = usadasPorEmpresa.get(row.companyId) ?? 0;
+        usadasPorEmpresa.set(row.companyId, atual + Number(row._count?._all || 0));
+      }
+    }
+
+    return configs.map((cfg) => {
+      const def = getLogisticaNivelDefinition(storedNivel(cfg.logisticaNivel));
+      const usadas = usadasPorEmpresa.get(cfg.companyId) ?? 0;
+      return {
+        companyId: cfg.companyId,
+        nivel: def.nivel,
+        titulo: def.titulo,
+        precoMensal: def.precoMensal,
+        paradasInclusas: def.franquiaParadasMes,
+        // Nunca mostra "500 de 300": o excedente aparece como franquia zerada.
+        paradasUsadas: def.franquiaParadasMes > 0 ? Math.min(def.franquiaParadasMes, usadas) : usadas,
+        paradasRestantes: Math.max(0, def.franquiaParadasMes - usadas),
+      };
+    });
   }
 
   /** Só pra log/telemetria — os 3 níveis numa linha. */

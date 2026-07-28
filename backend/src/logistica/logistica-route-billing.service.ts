@@ -13,6 +13,7 @@ import { CreditWalletService } from '../credits/credit-wallet.service';
 import { CREDIT_ACTION_KEYS } from '../credits/credit-action-catalog';
 import { CreditActionConfigService } from '../credits/credit-action-config.service';
 import { LogisticaNivelPlanoService } from './logistica-nivel-plano.service';
+import { PARADAS_POR_BLOCO } from './logistica-nivel-catalog';
 import { LogisticaConfigService } from './logistica-config.service';
 import { lockLogisticaRouteTransaction } from './logistica-route-lock';
 
@@ -1254,9 +1255,19 @@ export function essentialUsageKey(
   return `logistica:essential:company:${companyId}:driver:${entregadorId}:date:${routeDate}:block:${blockIndex}:attempt:${billingAttempt}`;
 }
 
+/**
+ * Quantas UNIDADES de cobrança a Rota Simples lança para N entregas billáveis.
+ *
+ * 28/07 (dono) — era `ceil(n/5)` (bloco iniciado de até 5 paradas @ 2 créditos).
+ * Virou 1 unidade por PARADA @ 0,4, que dá o mesmo total em 5 paradas e para de
+ * cobrar bloco inteiro de quem fez 6. A coluna do claim continua se chamando
+ * `blockIndex` (renomear exigiria migration) — hoje ela é o ÍNDICE DA PARADA, e
+ * o unique (empresa+motorista+data+blockIndex) segue sendo a trava de
+ * idempotência: cada parada é decidida uma vez na vida.
+ */
 export function essentialBlocksForDeliveries(deliveries: number): number {
   const uniqueDeliveries = Math.max(0, Math.trunc(Number(deliveries) || 0));
-  return Math.ceil(uniqueDeliveries / 5);
+  return Math.ceil(uniqueDeliveries / PARADAS_POR_BLOCO);
 }
 
 function commercialUnavailable() {

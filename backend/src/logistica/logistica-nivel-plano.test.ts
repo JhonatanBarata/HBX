@@ -66,10 +66,13 @@ test('sanitize recusa lixo e trava tetos (erro de digitação do master não vir
   assert.deepEqual(sanitizeLogisticaNivelOverride(null), {});
 });
 
-test('bloco é indivisível: sobra de paradas não dá bloco de graça', () => {
-  assert.equal(franquiaEmBlocos(300), 60);
-  assert.equal(franquiaEmBlocos(302), 60, '2 paradas de sobra não compram o bloco 61');
-  assert.equal(franquiaEmBlocos(4), 0);
+// 28/07 (dono) — unidade de cobrança virou a PARADA: a franquia vendida em
+// paradas é gasta 1:1 e nenhuma sobra se perde em arredondamento de bloco
+// (antes, 302 paradas de franquia valiam 300).
+test('franquia em paradas é 1:1 — nenhuma parada vendida se perde', () => {
+  assert.equal(franquiaEmBlocos(300), 300);
+  assert.equal(franquiaEmBlocos(302), 302, 'as 2 de sobra agora valem, não são arredondadas fora');
+  assert.equal(franquiaEmBlocos(4), 4);
   assert.equal(franquiaEmBlocos(0), 0);
   assert.equal(franquiaEmBlocos(-10), 0);
 });
@@ -91,15 +94,17 @@ function makeService(opts: { nivel?: string; blocosEssenciais?: number; entregas
   return { service: new LogisticaNivelPlanoService(prisma), queries };
 }
 
-test('franquia do mês soma os DOIS caminhos: bloco Essencial (×5) + entrega Rastreada (×1)', async () => {
+// 28/07 (dono) — Simples deixou de contar em bloco de 5: agora 1 claim = 1
+// parada, a MESMA unidade da Rastreada. As duas somam direto, sem fator.
+test('franquia do mês soma os DOIS caminhos na mesma unidade: Simples (×1) + Rastreada (×1)', async () => {
   limparOverlay();
-  // ADVANCED = 600 paradas. 40 blocos (200 paradas) + 50 entregas rastreadas.
+  // ADVANCED = 600 paradas. 40 paradas Simples + 50 entregas rastreadas.
   const { service } = makeService({ blocosEssenciais: 40, entregasRastreadas: 50 });
   const f = await service.franquiaDoMes(7, '2026-07-13');
   assert.equal(f.paradasInclusas, 600);
-  assert.equal(f.paradasUsadas, 250, '40×5 + 50');
-  assert.equal(f.paradasRestantes, 350);
-  assert.equal(f.blocosRestantes, 70);
+  assert.equal(f.paradasUsadas, 90, '40 + 50 — sem multiplicar por bloco');
+  assert.equal(f.paradasRestantes, 510);
+  assert.equal(f.blocosRestantes, 510, 'unidade de cobrança = parada, conversão 1:1');
 });
 
 test('franquia do mês usa o mês da ROTA (fuso da operação), nunca o relógio do container', async () => {
@@ -114,7 +119,7 @@ test('franquia do mês usa o mês da ROTA (fuso da operação), nunca o relógio
 
 test('franquia estourada nunca fica negativa', async () => {
   limparOverlay();
-  const { service } = makeService({ nivel: 'BASIC', blocosEssenciais: 100 }); // 500 paradas > 300
+  const { service } = makeService({ nivel: 'BASIC', blocosEssenciais: 400 }); // 400 paradas > 300
   const f = await service.franquiaDoMes(7, '2026-08-02');
   assert.equal(f.paradasRestantes, 0);
   assert.equal(f.blocosRestantes, 0);
@@ -133,7 +138,7 @@ test('nível sem franquia (editado pra 0) desliga o benefício sem quebrar a con
 
 test('tela do tenant fala em PARADAS e nunca passa do total do plano', async () => {
   limparOverlay();
-  const { service } = makeService({ nivel: 'BASIC', blocosEssenciais: 100 });
+  const { service } = makeService({ nivel: 'BASIC', blocosEssenciais: 500 });
   const visao = await service.franquiaDoMesEmParadas(7, '2026-07-13');
   assert.equal(visao.nivel, 'BASIC');
   assert.equal(visao.titulo, 'Rota Basic');

@@ -40,8 +40,17 @@ import type { LogisticaNivel } from './logistica-config.service';
 
 export const LOGISTICA_NIVEIS: LogisticaNivel[] = ['BASIC', 'ADVANCED', 'FULL'];
 
-/** Uma parada custa 1/5 de crédito — o bloco de cobrança da Rota Essencial. */
-export const PARADAS_POR_BLOCO = 5;
+/**
+ * 28/07 (dono) — A UNIDADE DE COBRANÇA DA ROTA SIMPLES É A PARADA, não mais um
+ * bloco de 5. O bloco existia porque a carteira só cobrava inteiros; hoje ela
+ * cobra até 3 casas decimais, então o preço do bloco (2) virou preço da parada
+ * (2/5 = 0,4) e a conta ficou igual pra 5 paradas — mas honesta pras outras.
+ * Ordem literal: "não quero logística Simples diferente, isso gera confusão".
+ *
+ * Fica como constante (em vez de sumir) porque é ela que amarra franquia do
+ * plano e billing na MESMA unidade: mudar aqui move os dois juntos.
+ */
+export const PARADAS_POR_BLOCO = 1;
 
 export type LogisticaNivelDefinition = {
   nivel: LogisticaNivel;
@@ -153,10 +162,11 @@ export function listLogisticaNiveisCatalog(): LogisticaNivelDefinition[] {
 }
 
 /**
- * Franquia convertida para BLOCOS de cobrança — a unidade que o billing da rota
- * realmente debita. Piso (`floor`): franquia de 302 paradas cobre 60 blocos
- * inteiros, nunca 61. Sobrar 2 paradas dentro do bloco 61 não dá o bloco de
- * graça — o bloco é a unidade indivisível da cobrança.
+ * Franquia convertida para a unidade que o billing da rota realmente debita.
+ * Desde 28/07 essa unidade é a PARADA (PARADAS_POR_BLOCO = 1), então a conversão
+ * é 1:1 e a franquia do plano ("300 paradas") passou a valer exatamente o que
+ * está escrito na venda — antes, com bloco de 5, ela era arredondada pra baixo
+ * em múltiplos de 5 e o cliente perdia o resto.
  */
 export function franquiaEmBlocos(franquiaParadasMes: number): number {
   const paradas = Math.max(0, Math.trunc(Number(franquiaParadasMes) || 0));

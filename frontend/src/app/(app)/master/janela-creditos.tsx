@@ -114,6 +114,19 @@ type CreditActionItem = {
   effective: { mode: CreditActionMode; cost: number };
 };
 
+// 28/07 — uma linha do painel de controle por empresa: em que plano ela está e
+// quanto da franquia já queimou no mês. É a resposta pra "quem está no crédito
+// puro x quem está num plano fixo", que antes não existia em lugar nenhum.
+type EmpresaPlanoItem = {
+  companyId: number;
+  nivel: "BASIC" | "ADVANCED" | "FULL";
+  titulo: string;
+  precoMensal: number;
+  paradasInclusas: number;
+  paradasUsadas: number;
+  paradasRestantes: number;
+};
+
 // PR28072026 HÍBRIDO (28/07) — um nível vendável de Rota: mensalidade fixa +
 // franquia de paradas do mês. `editado` = o master mexeu (dá pra restaurar).
 type NivelRotaItem = {
@@ -132,10 +145,10 @@ const MODE_OPTIONS: { value: CreditActionMode; label: string }[] = [
 ];
 
 // Apoio curto embaixo do rótulo: só a UNIDADE de cobrança. É o que evita errar o
-// preço — "Logística Simples" cobra por BLOCO, "Logística Rastreada" por ENTREGA.
+// preço — as duas rotas cobram por PARADA desde 28/07 (o bloco de 5 morreu).
 const ACTION_UNIT_HINT: Record<string, string> = {
   lead_delivery: "cobrado na entrega do lead",
-  logistica_essential_block: "cobra 1x por bloco iniciado de até 5 entregas",
+  logistica_essential_block: "cobra 1x por parada da rota",
   logistica_tracked_delivery: "cobra 1x por entrega concluída com rastreamento válido",
 };
 
@@ -315,6 +328,95 @@ export function JanelaCreditos({ companies, reload }: {
   }
 
   const pausado = packForm.status === "paused";
+
+  // ── Painel por empresa: plano + consumo do mês + débito manual (28/07) ────────────────────
+  // Pedido do dono: "é importante eu ter controle sem depender de vc". Aqui ele
+  // troca o plano da empresa, vê a franquia queimando e ajusta saldo — sem
+  // abrir ficha por ficha e sem me pedir nada.
+  const [planos, setPlanos] = useState<EmpresaPlanoItem[] | null>(null);
+  const [planoBusy, setPlanoBusy] = useState<number | null>(null);
+  const [planoMsg, setPlanoMsg] = useState<string | null>(null);
+
+  // eslint-disable-next-line react-hooks/preserve-manual-memoization -- setters de useState têm identidade estável; deps [] corretas
+  const carregarPlanos = useCallback(() => {
+    apiFetch<{ empresas?: EmpresaPlanoItem[] }>("/logistica/master/niveis/empresas")
+      .then(res => setPlanos(Array.isArray(res?.empresas) ? res.empresas : []))
+      .catch(() => setPlanos([]));
+  }, []);
+
+  useEffect(() => { carregarPlanos(); }, [carregarPlanos]);
+
+  const planoPorEmpresa = new Map((planos || []).map(p => [p.companyId, p]));
+
+  async function trocarPlano(companyId: number, nivel: string) {
+    if (planoBusy) return;
+    setPlanoBusy(companyId);
+    setPlanoMsg(null);
+    try {
+      await apiFetch(`/logistica/master/company/${companyId}/nivel`, {
+        method: "PUT",
+        body: JSON.stringify({ nivel }),
+      });
+      setPlanoMsg(`✓ Empresa #${companyId} agora é ${nivel}.`);
+      carregarPlanos();
+    } catch (e) {
+      reportError(e);
+      setPlanoMsg(e instanceof Error ? e.message : "Falha ao trocar o plano.");
+    } finally {
+      setPlanoBusy(null);
+    }
+  }
+
+  // ── Débito manual: o botão que faltava (o backend já existia) ──────────────
+  // Contrato do backend: amount inteiro > 0, motivo obrigatório e idempotencyKey
+  // por INTENÇÃO (double-click não debita 2×). O débito clampa no saldo — nunca
+  // negativa a carteira.
+  const [debitOpenFor, setDebitOpenFor] = useState<number | null>(null);
+  const [debitAmount, setDebitAmount] = useState("");
+  const [debitReason, setDebitReason] = useState("");
+  const [debitToken, setDebitToken] = useState("");
+  const [debitBusy, setDebitBusy] = useState(false);
+  const [debitMsg, setDebitMsg] = useState<string | null>(null);
+
+  function abrirDebito(companyId: number, saldo: number | null | undefined) {
+    setDebitOpenFor(companyId);
+    setDebitAmount("");
+    setDebitReason("");
+    setDebitMsg(null);
+    // Token novo a cada ABERTURA da intenção — mesmo contrato do conceder.
+    setDebitToken(`debit-${Date.now()}-${Math.random().toString(16).slice(2)}`);
+    setGrantOpenFor(null);
+    void saldo;
+  }
+
+  function fecharDebito() {
+    setDebitOpenFor(null);
+    setDebitAmount("");
+    setDebitReason("");
+    setDebitMsg(null);
+  }
+
+  async function debitar(companyId: number) {
+    if (debitBusy) return;
+    const amount = Math.trunc(Number(debitAmount));
+    if (!Number.isFinite(amount) || amount <= 0) { setDebitMsg("Quantidade deve ser um inteiro maior que zero."); return; }
+    if (!debitReason.trim()) { setDebitMsg("Motivo é obrigatório (fica no extrato e na trilha do master)."); return; }
+    setDebitBusy(true);
+    setDebitMsg(null);
+    try {
+      await apiFetch(`/credits/master/company/${companyId}/debit`, {
+        method: "POST",
+        body: JSON.stringify({ amount, reason: debitReason.trim(), idempotencyKey: debitToken }),
+      });
+      setDebitMsg("✓ Débito aplicado.");
+      reload();
+    } catch (e) {
+      reportError(e);
+      setDebitMsg(e instanceof Error ? e.message : "Falha ao debitar.");
+    } finally {
+      setDebitBusy(false);
+    }
+  }
 
   // ── Rota: os 3 níveis vendáveis (PR28072026 HÍBRIDO — 28/07) ──────────────────────────────
   // Modelo híbrido decidido pelo dono: mensalidade FIXA + franquia de paradas
