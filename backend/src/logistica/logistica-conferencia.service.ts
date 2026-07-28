@@ -284,13 +284,16 @@ export class LogisticaConferenciaService implements OnModuleInit {
   /** Carimba "passou pelo sanitizador" no DONO do endereço (27/07). Best-effort: falhar
    *  aqui só faz o cliente ser tentado de novo — nunca derruba a sanitização. */
   private async marcarSanitizado(companyId: number, alvo: AlvoCuraCnefe, row: ParadaConferenciaRow): Promise<void> {
-    const agora = new Date();
+    // SQL CRU de propósito: `@updatedAt` é aplicado pelo CLIENTE Prisma, então gravar o
+    // carimbo por `update` moveria `updatedAt` pra depois dele e o próprio carimbo
+    // nasceria inválido ("cadastro mudou depois da tentativa") — medido na tela: o
+    // sanitizador continuava oferecendo os mesmos 51. Aqui só a coluna do carimbo muda.
     try {
       if (alvo.tipo === 'local' && row.localId) {
-        await this.prisma.localEntrega.updateMany({ where: { id: row.localId, companyId }, data: { sanitizadoEm: agora } });
+        await this.prisma.$executeRaw`UPDATE "LocalEntrega" SET "sanitizadoEm" = now() WHERE "id" = ${row.localId} AND "companyId" = ${companyId}`;
         return;
       }
-      await this.prisma.customerProfile.updateMany({ where: { id: row.customerProfileId, companyId }, data: { sanitizadoEm: agora } });
+      await this.prisma.$executeRaw`UPDATE "CustomerProfile" SET "sanitizadoEm" = now() WHERE "id" = ${row.customerProfileId} AND "companyId" = ${companyId}`;
     } catch (e) {
       this.logger.warn(`[logistica] carimbo do sanitizador não gravou: ${String((e as any)?.message || e)}`);
     }
