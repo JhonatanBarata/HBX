@@ -5580,18 +5580,28 @@
     if (state.sanitizador) state.sanitizador.abortar = true;
     state.sanitizador = null;
   }
-  async function abrirSanitizador() {
+  // `auto` = veio da conferência abrindo sozinha. Nesse caso o pop-up SÓ aparece se o
+  // sanitizador tiver o que FAZER (alvos > 0): 27/07, dono — "a tela do sanitizador
+  // está aparecendo mesmo já tendo feito tudo". Vermelho que sobrou é MANUAL, e insistir
+  // com um pop-up que não conserta nada é só atrapalhar quem já fez o processo.
+  async function abrirSanitizador(opts) {
+    const auto = !!(opts && opts.auto);
     const rc = state.rotaConferencia;
     if (!rc || !rc.data || state.sanitizador) return;
-    state.sanitizador = { fase: "placar", date: rc.data.date || null, alvos: 0, curaveis: [], semDados: [], curados: 0, naoEncontrado: [], restantes: 0, pulados: 0, carregando: true, erro: null, abortar: false };
-    render();
+    state.sanitizador = { fase: "placar", date: rc.data.date || null, alvos: 0, curaveis: [], semDados: [], curados: 0, naoEncontrado: [], restantes: 0, pulados: 0, carregando: true, erro: null, abortar: false, auto };
+    // Abertura automática não pisca a tela: consulta primeiro, mostra só se valer.
+    if (!auto) render();
     try {
       const s = state.sanitizador;
       const placar = await H.api("/logistica/rota/sanitizar", { method: "POST", body: { ...(s.date ? { date: s.date } : {}) } });
       if (!state.sanitizador) return;
+      if (auto && !(Number(placar && placar.alvos) || 0)) { fecharSanitizador(); return; }
       aplicarPlacarSanitizador(placar);
     } catch (error) {
       if (!state.sanitizador) return;
+      // Falha de rede na abertura automática também fica calada — o operador abre pelo
+      // botão "Corrigir em massa" quando quiser, e aí sim vê o erro.
+      if (auto) { fecharSanitizador(); return; }
       state.sanitizador.carregando = false;
       state.sanitizador.erro = humanApiError(error);
     }
@@ -5825,7 +5835,7 @@
       // sozinho (1x por conferência; fechar não reabre até a próxima montagem).
       if (!rc.sanitizadorOferecido && (Number(result.vermelhas) || 0) > 0 && !state.sanitizador) {
         rc.sanitizadorOferecido = true;
-        void abrirSanitizador();
+        void abrirSanitizador({ auto: true });
       }
     } catch (error) {
       rc.error = humanApiError(error);
