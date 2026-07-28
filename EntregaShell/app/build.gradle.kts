@@ -41,7 +41,12 @@ plugins {
 // publish. Sem subir o piso o próximo publish carimbaria 68 — MESMO número já no
 // aparelho — e ele nunca veria a atualização (mesmo caso de 8→15, 15→18, 18→38
 // e 38→60 acima).
-val hbxLogisticaVersionCodeFloor = 87
+// 87 → 95 em 28/07: testando a seção "Cadastrar Rota Offline" nos Ajustes instalei
+// à mão o build 91 no moto g15 (que rodava o 90) e, no meio do teste, o publish do
+// dono carimbou o 94 no ar. Sem subir o piso o próximo publish repetiria um número
+// que JÁ está em aparelho e ele nunca veria a atualização (mesmo caso de 8→15,
+// 15→18, 18→38, 38→60 e 60→68 acima).
+val hbxLogisticaVersionCodeFloor = 95
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)
