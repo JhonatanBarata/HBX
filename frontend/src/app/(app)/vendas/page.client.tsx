@@ -24,6 +24,8 @@ import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { CanalIcon } from "@/components/hbx/canal-icon";
 import { RADAR_CHANNEL_ORDER, resolveRadarChannelPresence, type RadarChannel } from "@/lib/radar-channel-presence";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
+import { RADAR_RATE } from "@/components/hbx/radar-disc";
+import { useAnimationRate } from "@/components/hbx/use-animation-rate";
 import { LeadsClient } from "../leads/page.client";
 import { apiFetch } from "@/lib/api";
 
@@ -433,7 +435,9 @@ function RadarSupplyCard({
   onLiberar,
 }: {
   supply: NonNullable<NonNullable<BoardResponse>["radarSupply"]>;
-  radarState: RadarUiState;
+  // null = ainda não sabemos (1ª resposta do servidor não chegou): o card fica
+  // cinza "Verificando", nunca chuta "Radar parado". Mesma regra do viewer grande.
+  radarState: RadarUiState | null;
   onLiberar: () => void;
 }) {
   const unlimited = Boolean(supply.unlimited) && !supply.paused;
@@ -446,12 +450,24 @@ function RadarSupplyCard({
       ? "Radar pausado"
       : radarState === "erro"
         ? "Erro no radar"
-        : "Radar parado";
+        : radarState === "parado"
+          ? "Radar parado"
+          : "Verificando o Radar";
   const unit = unlimited ? "na lista" : `/ ${capacity}`;
   const clickable = supply.full;
+  // Mini-radar freia/acelera igual ao disco grande (nada de sweep saltando).
+  const cardRef = useRef<HTMLDivElement>(null);
+  useAnimationRate(
+    cardRef,
+    radarState === "funcionando" ? RADAR_RATE.funcionando
+      : radarState === "pausado" ? RADAR_RATE.pausado
+        : radarState === null ? RADAR_RATE.pausado
+          : RADAR_RATE.parado,
+  );
   return (
     <div
-      className={"vnd-supcard vnd-supcard--" + radarState + (clickable ? " is-clickable" : "")}
+      ref={cardRef}
+      className={"vnd-supcard vnd-supcard--" + (radarState || "carregando") + (clickable ? " is-clickable" : "")}
       role={clickable ? "button" : "status"}
       tabIndex={clickable ? 0 : undefined}
       aria-label={`${label}: ${count} ${unit}`}
@@ -460,7 +476,7 @@ function RadarSupplyCard({
     >
       <span className="vnd-supcard__halo" aria-hidden="true" />
       <span className="vnd-supcard__ic" aria-hidden="true">
-        <I d={radarState === "funcionando" ? ICONS.scrape : ICONS.pause} size={16} />
+        <I d={radarState === "funcionando" || radarState === null ? ICONS.scrape : ICONS.pause} size={16} />
       </span>
       <span className="vnd-supcard__txt">
         <span className="vnd-supcard__label">{label}</span>
@@ -531,14 +547,15 @@ export function VendasClient() {
     cotaLabel: string;
     cotaValue: string;
     cotaPct: number;
-    radarState: RadarUiState;
+    radarState: RadarUiState | null;
   }>({
     totalBrasil: null,
     disponiveis: null,
     cotaLabel: "Cota do mês",
     cotaValue: "—",
     cotaPct: 0,
-    radarState: "parado",
+    // null até o servidor responder — nascer "parado" era o pisca (28/07).
+    radarState: null,
   });
   const [board, setBoard] = useState<BoardResponse>(null);
   // Relógio carimbado junto com o board (ver loadBoard) — referência de "há
@@ -554,6 +571,21 @@ export function VendasClient() {
     let active = true;
     const refreshRadarState = async () => {
       try {
+        // REFUNDAÇÃO F2: a SESSÃO server-side é a verdade do trabalho (o run avulso
+        // fica terminal entre uma cidade e outra e fazia o card dizer "parado" no
+        // meio de uma busca viva). Run continua de fallback.
+        const sess = await apiFetch<{ id?: string; status?: string } | null>(
+          "/webscraping/radar/sessions/active"
+        ).catch(() => null);
+        if (!active) return;
+        const sessStatus = String(sess?.status || "").trim().toLowerCase();
+        if (sess?.id && (sessStatus === "running" || sessStatus === "paused")) {
+          setBuscarStats(current => ({
+            ...current,
+            radarState: sessStatus === "paused" ? "pausado" : "funcionando",
+          }));
+          return;
+        }
         const snapshot = await apiFetch<RadarRunSnapshot>("/webscraping/radar/search-runs/latest");
         if (!active) return;
         setBuscarStats(current => ({ ...current, radarState: resolveRadarUiState(snapshot) }));

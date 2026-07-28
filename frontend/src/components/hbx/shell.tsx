@@ -959,6 +959,10 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
         // Tinge "Vendas" com a cor do estado do radar — o Radar é a boca do funil,
         // então o funil "acende" quando está sendo abastecido (27/06; era no "leads",
         // que saiu do menu).
+        // A classe --radar (28/07) fica no item enquanto o estado é CONHECIDO: é ela
+        // que segura a transição longa de cor, então acender e apagar escorrem em vez
+        // de trocar seco (a cor por estado usa !important, hover não disputa).
+        if (n.id === "vendas" && n.id !== active && radarNavState !== null) cls += " nav-item--radar";
         if (n.id === "vendas" && n.id !== active && radarNavState === "funcionando") cls += " nav-item--radar-working";
         if (n.id === "vendas" && n.id !== active && radarNavState === "pausado")    cls += " nav-item--radar-paused";
         // Rótulo de seção (guia): só quando o grupo muda em relação ao item

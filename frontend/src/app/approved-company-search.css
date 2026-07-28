@@ -268,17 +268,16 @@
 .vnd-supcard--pausado { --radar-color: var(--hbx-warning); }
 .vnd-supcard--parado,
 .vnd-supcard--erro { --radar-color: var(--hbx-danger); }
+/* Antes da 1ª resposta do servidor o card não sabe o estado — cinza neutro, sem
+   fingir "parado" (mesma regra do viewer grande). */
+.vnd-supcard--carregando { --radar-color: var(--text-muted); }
 
-.vnd-supcard--pausado .vnd-supcard__ic::before,
-.vnd-supcard--parado .vnd-supcard__ic::before,
-.vnd-supcard--erro .vnd-supcard__ic::before {
-  animation: none;
-}
-
+/* 28/07: `animation: none` por estado SALTAVA o sweep pro ângulo zero. Agora o
+   mini-radar freia igual ao disco grande — rampa de playbackRate em
+   RadarSupplyCard (useAnimationRate) — e aqui fica só a tinta/opacidade. */
 .vnd-modehost[data-fx="on"] .vnd-supcard--pausado .vnd-supcard__ic::after,
 .vnd-modehost[data-fx="on"] .vnd-supcard--parado .vnd-supcard__ic::after,
 .vnd-modehost[data-fx="on"] .vnd-supcard--erro .vnd-supcard__ic::after {
-  animation: none;
   opacity: 0.72;
 }
 

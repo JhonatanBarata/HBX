@@ -956,6 +956,14 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 
 /* ── Leads nav-item: cor persistente por estado do radar ─────────────────── */
 /* Indicador sutil (ponto colorido à direita do label) recolore com operationalState */
+/* 28/07: a troca de estado ACENDE/APAGA o item devagar (700ms) em vez de piscar.
+   Fica na classe --radar (presente sempre que o estado é conhecido) pra valer na
+   entrada E na saída; o resto das transições do .nav-item continua rápido. */
+.nav-item--radar {
+  transition: color 700ms var(--ease-out-quint), background var(--motion-fast),
+              transform var(--motion-fast), padding var(--motion-base) var(--ease-out-quint),
+              gap var(--motion-base) var(--ease-out-quint);
+}
 .nav-item--radar-working { color: var(--radar-menu-working) !important; }
 .nav-item--radar-paused  { color: var(--radar-menu-paused)  !important; }
 /* parado = cor normal do nav-item, sem override */
