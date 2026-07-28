@@ -1059,6 +1059,20 @@ export class LogisticaService {
       })
       .catch(() => 0);
 
+    // ── 28/07 — BUG DO VALOR: correção que não chegava no dinheiro ────────────
+    // Reabrir existe pra UMA coisa ("corrigir quantidade ou incluir itens") e
+    // era exatamente nisso que falhava: o reconfirmar recalcula `Entrega.valor`
+    // pelos itens (tx acima) mas pula o bloco de efeitos inteiro
+    // (`!reabertaParaCorrecao` — e faz certo: não pode disparar WhatsApp nem
+    // criar 2ª cobrança), então o charge ficava com o valor VELHO. Entregou 3
+    // galões, cobrou 2. A cobrança que ainda NÃO foi recebida passa a seguir a
+    // entrega; dinheiro recebido nunca se mexe (mesma trava dos freios do
+    // reabrir/cancelar). Best-effort: nunca derruba o confirmar.
+    let cobrancaAjustada = false;
+    if (reabertaParaCorrecao) {
+      cobrancaAjustada = await this.sincronizarCobrancaReaberta(companyId, entrega.id, valorCobranca);
+    }
+
     let whatsappSent = false;
     let cobrancaLancada = false;
     if (this.effectsEnabled && !jaEntregue && !reabertaParaCorrecao) {
@@ -1148,9 +1162,58 @@ export class LogisticaService {
       effectsEnabled: this.effectsEnabled,
       whatsappSent,
       cobrancaLancada,
+      cobrancaAjustada,
       quitadas,
       valorQuitado,
     };
+  }
+
+  /**
+   * 28/07 — sincroniza a cobrança de uma entrega REABERTA com o valor corrigido.
+   *
+   * Regra única, a mesma dos freios do reabrir e do cancelar: **dinheiro que
+   * ainda não foi recebido segue a entrega; dinheiro recebido não se mexe.**
+   * Por isso o WHERE trava em `status:'pending'` + `paidAt:null` — charge pago
+   * (ou já cancelado) fica intacto, e desde o freio do reabrir uma entrega paga
+   * nem chega aqui. `amount: { not: novo }` deixa o caminho ocioso quando nada
+   * mudou (o caso comum: reabriu, olhou, confirmou igual).
+   *
+   * Valor corrigido pra ZERO (cortesia/brinde do dia) NÃO vira charge de R$ 0,00
+   * — a cobrança é cancelada e a entrega fica 'isenta', senão a cobrança
+   * automática iria cobrar zero real do cliente no WhatsApp.
+   *
+   * Best-effort por contrato do módulo: a entrega já está gravada como
+   * 'entregue' quando este método roda — um erro aqui vira log, nunca rollback.
+   */
+  private async sincronizarCobrancaReaberta(
+    companyId: number,
+    entregaId: string,
+    valor: number,
+  ): Promise<boolean> {
+    const novo = round2(Math.max(0, Number(valor) || 0));
+    try {
+      if (novo <= 0) {
+        const zerada = await this.prisma.financeiroCharge.updateMany({
+          where: { companyId, entregaId, status: 'pending', paidAt: null },
+          data: { status: 'cancelled', lifecycle: 'cancelled' },
+        });
+        if (zerada.count > 0) {
+          await this.prisma.entrega.update({ where: { id: entregaId }, data: { cobrancaStatus: 'isenta' } });
+          return true;
+        }
+        return false;
+      }
+      const ajustada = await this.prisma.financeiroCharge.updateMany({
+        where: { companyId, entregaId, status: 'pending', paidAt: null, amount: { not: novo } },
+        data: { amount: novo },
+      });
+      return ajustada.count > 0;
+    } catch (e: any) {
+      this.logger.warn(
+        `[logistica] ajuste da cobrança reaberta falhou entrega=${entregaId} company=${companyId}: ${String(e?.message || e)}`,
+      );
+      return false;
+    }
   }
 
   // ── REABRIR ENTREGA CONCLUÍDA ─────────────────────────────────────────────
@@ -3632,6 +3695,9 @@ export interface ConfirmarResult {
   // isso somou. 0/0 quando o botão foi [Entregue] ou não havia dívida velha.
   quitadas?: number;
   valorQuitado?: number;
+  // 28/07 — true quando o reconfirmar de uma entrega REABERTA corrigiu o valor
+  // (ou cancelou) a cobrança ainda não recebida dela. Ver sincronizarCobrancaReaberta.
+  cobrancaAjustada?: boolean;
 }
 
 // R4 — desfecho RICO dos efeitos (persistido na Entrega + base do MasterEvent de falha).

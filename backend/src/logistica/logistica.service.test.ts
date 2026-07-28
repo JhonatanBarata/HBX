@@ -69,7 +69,7 @@ function buildPrismaMock(
   entrega: any,
   conta: any,
   entregaItens: any[] = [],
-  opts: { products?: any[]; clienteProdutos?: any[]; contatos?: any[]; locais?: any[] } = {},
+  opts: { products?: any[]; clienteProdutos?: any[]; contatos?: any[]; locais?: any[]; charges?: any[] } = {},
 ) {
   // BUGFIX (09/07) — BUG 1b: `contatos` é a "tabela" injetável usada pelo fallback
   // defense-in-depth do dispararWhatsappEntregue (resolvePrincipalContato) quando a
@@ -78,7 +78,9 @@ function buildPrismaMock(
   const contatos = opts.contatos ?? [];
   const locais = opts.locais ?? [];
   const localEntregaUpdates: any[] = [];
-  const chargesCreated: any[] = [];
+  // 28/07 — `opts.charges` semeia cobranças JÁ existentes (cenário da entrega
+  // reaberta: o charge nasceu no 1º confirmar e o 2º só corrige o valor).
+  const chargesCreated: any[] = [...(opts.charges ?? [])];
   const entregaUpdates: any[] = [];
   const masterEvents: any[] = [];
   // B1 — updates do CustomerProfile fora da tx (realimentação de coordenada).
@@ -243,6 +245,21 @@ function buildPrismaMock(
       create: async (args: any) => {
         chargesCreated.push(args.data);
         return { id: `charge-${chargesCreated.length}`, ...args.data };
+      },
+      // 28/07 — ajuste do valor da cobrança de uma entrega REABERTA
+      // (sincronizarCobrancaReaberta). Espelha os filtros que importam do WHERE
+      // real: entregaId + status + paidAt null + amount diferente do novo.
+      updateMany: async (args: any) => {
+        const w = args?.where || {};
+        const alvos = chargesCreated.filter((c) => {
+          if (c.entregaId !== w.entregaId) return false;
+          if (w.status !== undefined && c.status !== w.status) return false;
+          if (w.paidAt === null && c.paidAt != null) return false;
+          if (w.amount?.not !== undefined && c.amount === w.amount.not) return false;
+          return true;
+        });
+        for (const alvo of alvos) Object.assign(alvo, args.data);
+        return { count: alvos.length };
       },
     },
     // R4 — trilha do cockpit master (emitMasterEvent). Sem dedupKey batendo, sempre insere.
@@ -2858,4 +2875,117 @@ test('cancelarEntrega: entrega sem cobrança nenhuma cancela igual ao caminho an
   assert.equal(res?.cobrancaCancelada, false);
   assert.equal(chargeUpdates.length, 0);
   assert.equal(entrega.status, 'cancelada');
+});
+
+// ── 28/07 — BUG DO VALOR: correção que não chegava no dinheiro ────────────────
+// Reabrir existe pra "corrigir quantidade ou incluir itens" e era exatamente
+// nisso que falhava: o reconfirmar recalculava Entrega.valor mas pulava o bloco
+// de efeitos inteiro (certo: não pode disparar WhatsApp nem criar 2ª cobrança),
+// então o charge ficava com o valor VELHO. Entregou 3 galões, cobrou 2.
+function buildEntregaReaberta(overrides: Record<string, any> = {}) {
+  return buildEntrega({
+    status: 'agendada',
+    // deliveredAt preenchido com status != 'entregue' = a marca da reabertura
+    // (é o que o reabrir deixa de propósito, pra não duplicar efeito).
+    deliveredAt: new Date('2026-07-27T18:00:00Z'),
+    cobrancaStatus: 'lancada',
+    valor: 20,
+    ...overrides,
+  });
+}
+
+test('REABERTA: corrigiu a quantidade → a cobrança PENDENTE segue o valor novo', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  // 1º confirmar: 2× R$10 = R$20 (o charge que já existe). Reabre e corrige
+  // para 3 entregues → a cobrança tem de virar R$30.
+  const itens = [{ id: 'item-1', qtdPrevista: 2, qtdEntregue: 2, valorUnit: 10 }];
+  const charge = { entregaId: 'entrega-1', amount: 20, status: 'pending', lifecycle: 'in_progress', paidAt: null };
+  const { prisma, chargesCreated } = buildPrismaMock(
+    buildEntregaReaberta(),
+    { id: 'conta-1', name: 'Dona Maria', formaPagamento: 'aberto', contabilizar: true, avisarEntrega: true },
+    itens,
+    { charges: [charge] },
+  );
+  const { conversations, calls } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const res = await service.confirmarEntrega(1, 'entrega-1', {
+    lat: -4.9,
+    lng: -38.3,
+    itens: [{ id: 'item-1', qtdEntregue: 3 }],
+  });
+
+  assert.equal(res?.status, 'entregue');
+  assert.equal(res?.cobrancaAjustada, true, 'o confirmar avisa que a cobrança foi corrigida');
+  assert.equal(chargesCreated.length, 1, 'reabertura NUNCA cria uma 2ª cobrança');
+  assert.equal(charge.amount, 30, 'entregou 3× R$10 → a cobrança vira R$ 30 (era R$ 20)');
+  assert.equal(calls.length, 0, 'reabertura não dispara WhatsApp de novo');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+test('REABERTA: cobrança JÁ PAGA não é mexida nem quando o valor muda', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const itens = [{ id: 'item-1', qtdPrevista: 2, qtdEntregue: 2, valorUnit: 10 }];
+  const charge = { entregaId: 'entrega-1', amount: 20, status: 'approved', lifecycle: 'paid', paidAt: new Date() };
+  const { prisma } = buildPrismaMock(
+    buildEntregaReaberta(),
+    { id: 'conta-1', name: 'Dona Maria', formaPagamento: 'aberto', contabilizar: true, avisarEntrega: true },
+    itens,
+    { charges: [charge] },
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  const res = await service.confirmarEntrega(1, 'entrega-1', {
+    lat: -4.9, lng: -38.3, itens: [{ id: 'item-1', qtdEntregue: 3 }],
+  });
+
+  assert.equal(res?.cobrancaAjustada, false, 'dinheiro recebido não se mexe');
+  assert.equal(charge.amount, 20, 'o valor pago fica exatamente como estava');
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
+});
+
+test('REABERTA: valor corrigido pra ZERO (cortesia) cancela a cobrança em vez de cobrar R$ 0,00', async () => {
+  const prev = process.env.HBX_LOGISTICA_ENABLED;
+  process.env.HBX_LOGISTICA_ENABLED = '1';
+
+  const itens = [{ id: 'item-1', qtdPrevista: 2, qtdEntregue: 2, valorUnit: 10 }];
+  const charge = { entregaId: 'entrega-1', amount: 20, status: 'pending', lifecycle: 'in_progress', paidAt: null };
+  const { prisma, entregaUpdates } = buildPrismaMock(
+    buildEntregaReaberta(),
+    { id: 'conta-1', name: 'Dona Maria', formaPagamento: 'aberto', contabilizar: true, avisarEntrega: true },
+    itens,
+    { charges: [charge] },
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+
+  const service = new LogisticaService(prisma, conversations, rota, config);
+  // preço zerado na chegada = brinde do dia → valor da entrega vai a 0.
+  const res = await service.confirmarEntrega(1, 'entrega-1', {
+    lat: -4.9, lng: -38.3, itens: [{ id: 'item-1', qtdEntregue: 2, valorUnit: 0 }],
+  });
+
+  assert.equal(res?.cobrancaAjustada, true);
+  assert.equal(charge.status, 'cancelled', 'nada a cobrar → a cobrança cai (não vira R$ 0,00 pendente)');
+  assert.ok(
+    entregaUpdates.some((u) => u.cobrancaStatus === 'isenta'),
+    'a entrega fica isenta',
+  );
+
+  if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
+  else process.env.HBX_LOGISTICA_ENABLED = prev;
 });
