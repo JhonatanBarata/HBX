@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { createHash } from 'crypto';
@@ -98,6 +99,8 @@ type DbLike = PrismaService | any;
 
 @Injectable()
 export class LogisticaAgendaService {
+  private readonly logger = new Logger(LogisticaAgendaService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async isAgendaV2Active(companyId: number): Promise<boolean> {
@@ -1041,11 +1044,28 @@ export class LogisticaAgendaService {
           }
         }
       }
-      return { avisos };
+      return this.reportarEspelho(companyId, vinculoId, avisos);
     } catch (error: any) {
       avisos.push(`Espelho da Agenda falhou (${String(error?.message || error)}).`);
-      return { avisos };
+      return this.reportarEspelho(companyId, vinculoId, avisos);
     }
+  }
+
+  /**
+   * 🔴 28/07 — o espelho falhava CALADO. Os avisos voltavam no JSON como
+   * `agendaAvisos` e ninguém logava nem mostrava, então um erro de Prisma dentro
+   * da transação (o `companyId` no create aninhado do createRouteStop) desfazia
+   * o plano inteiro sem deixar rastro: o dono via "cliente com dia e sem plano"
+   * e não tinha por onde começar. Falha de espelho agora SEMPRE vira linha de
+   * log — é a mesma lei do disjuntor: o conserto é o freio, não o sintoma.
+   */
+  private reportarEspelho(companyId: number, vinculoId: string | null, avisos: string[]) {
+    if (avisos.length) {
+      this.logger.warn(
+        `[logistica] espelho cadastro→agenda company=${companyId} vinculo=${vinculoId ?? '-'}: ${avisos.join(' | ')}`,
+      );
+    }
+    return { avisos };
   }
 
   async reorderDay(companyId: number, dayInput: unknown, input: ReordenarAgendaDiaDto) {
@@ -2107,8 +2127,18 @@ export class LogisticaAgendaService {
         ordemTravada: true,
         ...normalized.schedule,
         itens: {
+          // 🔴 28/07 — `companyId` NÃO entra em create ANINHADO (mesma lei do
+          // createPlan e do importador legado): o campo participa das relações
+          // compostas, o Prisma o herda do pai, e passá-lo aqui derruba com
+          // "Unknown argument `companyId`" só em RUNTIME — o `tx: any` engole o
+          // typecheck. Era o último call site com o erro, e como ele roda DENTRO
+          // da transação do createPlan/updatePlan, a exceção desfazia o plano
+          // inteiro: o espelho cadastro→Agenda nunca gravava nada e o motivo
+          // morria calado dentro de `agendaAvisos`. Sintomas medidos na empresa
+          // 48: cliente com dia marcado ficava sem plano (pendência "Dia"
+          // eterna, fora de todo roster) e "Remover este dia do cadastro"
+          // esvaziava o vínculo mas deixava o plano ativo (o cliente voltava).
           create: normalized.items.map((item: any) => ({
-            companyId,
             productId: item.productId,
             produtoNomeSnapshot: String(item.nome || 'Produto').slice(0, 140),
             qtd: item.qtd,
