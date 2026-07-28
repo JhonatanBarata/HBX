@@ -971,6 +971,11 @@ html.leitura-route-active .route-map-shell { border-color: color-mix(in srgb, va
 /* F4 — barra de progresso do auto-update. */
 .app-update-progress { height: 8px; overflow: hidden; border-radius: 99px; background: var(--surface-3); }
 .app-update-progress i { display: block; height: 100%; border-radius: inherit; background: var(--brand); transition: width .2s ease; }
+/* Janela de progresso do SANITIZADOR (27/07, dono): enquanto corrige, a tela mostra
+   quanto falta — número grande, barra e o total já corrigido. Só tokens. */
+.sanitizador-progresso { display: grid; gap: 12px; justify-items: center; padding: 28px 12px; text-align: center; }
+.sanitizador-progresso .app-update-progress { width: 100%; }
+.sanitizador-progresso-num { font-size: 30px; font-weight: 700; color: var(--ink); }
 
 /* F3.2 — cartão de comparação de endereço (GPS × cadastro) na Leitura. */
 .lrt-endereco-card { display: flex; align-items: center; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-2); font-weight: 700; }

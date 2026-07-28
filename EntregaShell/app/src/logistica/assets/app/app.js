@@ -36,6 +36,8 @@
     // 27/07 (ordem do dono) — pop-up "Correção em massa" do Gerenciador
     // (sanitizador CNEFE em lote). null = fechado.
     sanitizador: null,
+    // Marca "vim do sanitizador": fechar o cadastro reabre a lista (ver closeOverlay).
+    sanitizadorRetorno: null,
     // S4 25/07 (PR25072026-ROTA-CONFERIDA) — estado da tela de conferência
     // (flag rotaConferidaAtiva). null = tela fechada; `abrirRotaConferencia()`
     // monta o objeto inteiro de novo a cada abertura (nunca reaproveita entre
@@ -5654,7 +5656,15 @@
       ...s.naoEncontrado.map(c => sanitizadorClienteRow(c, "Endereço não achado na base")),
       ...s.semDados.map(c => sanitizadorClienteRow(c, "Falta endereço")),
     ].join("");
-    const corpo = s.carregando ? loading() : `${s.erro ? `<div class="hbx-aviso hbx-aviso--danger">${H.escape(s.erro)}</div>` : ""}${s.fase === "rodando" ? `<div class="app-update-progress"><i style="width:${pct}%"></i></div>` : ""}${s.fase === "fim" && s.curados > 0 ? `<div class="hbx-aviso hbx-aviso--ok">${s.curados} corrigido(s)</div>` : ""}<div class="list conferencia-lista">${linhas || empty("Tudo certo", "")}</div>`;
+    // 27/07 (dono) — JANELA DE PROGRESSO de verdade enquanto sanitiza: número
+    // grande, barra e o que já foi corrigido. A lista sai da tela nesse momento —
+    // ela está velha (o placar novo só chega no fim) e competia com o progresso.
+    const progresso = `<div class="sanitizador-progresso"><strong class="sanitizador-progresso-num">${feitos} de ${s.alvos}</strong><div class="app-update-progress"><i style="width:${pct}%"></i></div><p class="subtitle">${pct}% · ${s.curados} corrigido(s)</p></div>`;
+    const corpo = s.carregando
+      ? loading()
+      : s.fase === "rodando"
+        ? `${s.erro ? `<div class="hbx-aviso hbx-aviso--danger">${H.escape(s.erro)}</div>` : ""}${progresso}`
+        : `${s.erro ? `<div class="hbx-aviso hbx-aviso--danger">${H.escape(s.erro)}</div>` : ""}${s.fase === "fim" && s.curados > 0 ? `<div class="hbx-aviso hbx-aviso--ok">${s.curados} corrigido(s)</div>` : ""}<div class="list conferencia-lista">${linhas || empty("Tudo certo", "")}</div>`;
     return centerModal({
       icon: "map",
       title: "Sanitizador",
@@ -6606,6 +6616,9 @@
     // não mudou; rotaConferencia.retornoParadaId só existe enquanto esse editor
     // está aberto vindo da ficha, ver abrirFichaComEditor).
     const voltaParaConferencia = kind === "modal" && state.modal === "client-product" && state.rotaConferencia && state.rotaConferencia.retornoParadaId;
+    // Mesma ideia pro SANITIZADOR: a lista dele abre o cadastro real, e fechar o
+    // cadastro tem que devolver a lista (capturado AGORA, state.modal ainda intacto).
+    const voltaParaSanitizador = kind === "modal" && state.modal === "client-product" && !!state.sanitizadorRetorno;
     // 26/07 (dono, regra ABSOLUTA, 3ª cobrança): só o "Aceitar rota" consolida.
     // Sair da conferência por QUALQUER outro caminho (×, voltar, toque no fundo)
     // desfaz a rota sozinho. `confirmada`/`cancelada` marcam as duas saídas
@@ -6634,6 +6647,8 @@
       if (kind === "sheet") { state.selected = null; state.deliveryProductPicker = false; state.deliverySwapKey = null; state.deliveryPriceEdit = null; state.deliveryEditingId = null; }
       state.closingOverlay = null;
       if (voltaParaConferencia) void reabrirConferenciaAposEdicao();
+      // Volta pro sanitizador de onde o cadastro foi aberto (ver "sanitizador-cliente").
+      if (voltaParaSanitizador) { state.sanitizadorRetorno = null; void abrirSanitizador(); }
       render();
       resolve();
     }, 180));
@@ -7263,6 +7278,11 @@
       // Mesmo retorno da parada: fechar o editor volta pra conferência.
       const parada = rc && rc.data && (rc.data.paradas || []).find(p => String(p.customerProfileId) === clientId);
       if (rc && parada) rc.retornoParadaId = String(parada.id);
+      // 27/07 (dono) — fechar o cadastro VOLTA pro sanitizador, não cai na tela
+      // crua: quem entrou pela lista está no meio de uma faxina e tem os outros
+      // clientes pra resolver. Guarda o dia e reabre; o placar vem NOVO, então o
+      // cliente que acabou de ser arrumado some da lista sozinho.
+      state.sanitizadorRetorno = { date: (state.sanitizador && state.sanitizador.date) || null };
       fecharSanitizador();
       openClientEditor({ id: clientId, nome, name: nome });
       return;
