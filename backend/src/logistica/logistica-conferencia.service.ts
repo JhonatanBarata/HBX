@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, OnModuleInit, Optional } from 
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { LogisticaConfigService } from './logistica-config.service';
+import { LogisticaAgendaService } from './logistica-agenda.service';
 import { LogisticaOsrmService } from './logistica-osrm.service';
 import { fonteEscolhidaMultilocal, resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
 import {
@@ -37,6 +38,8 @@ import {
 // Só as entregas ABERTAS entram na conferência (mesmo recorte do planejador —
 // LogisticaRotaService.STATUS_ABERTO, duplicado aqui de propósito: ver comentário de
 // `fetchParadasEstendidas`).
+const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
+
 const STATUS_ABERTO = ['agendada', 'em_rota'] as const;
 
 /**
@@ -73,7 +76,142 @@ export class LogisticaConferenciaService implements OnModuleInit {
     // (teste instanciando direto, ou módulo sem o provider), planRouteByRoads pula
     // sozinho pro degrau 2 (OSRM público) — nunca quebra por causa deste opcional.
     @Optional() private readonly osrm?: LogisticaOsrmService,
+    // 28/07 (item 1 do dono) - a checagem PRE-MONTAGEM le o roster do dia pela
+    // MESMA porta da tela da agenda (planOccursOn, CLIENTE_VIVO, modo legado):
+    // reimplementar "quem entra no dia" aqui seria uma segunda verdade.
+    @Optional() private readonly agenda?: LogisticaAgendaService,
   ) {}
+
+  /**
+   * ITEM 1 (28/07, ordem do dono) - "PRIMEIRO verificar se todos os enderecos estao
+   * certos; caso nao, exibir so os erros, deixando claro a PARTE do endereco com erro".
+   *
+   * Roda ANTES de materializar qualquer entrega: nada de rota, nada de credito, nada de
+   * gerar-dia. Escreve so o que a cura automatica ja escrevia (pino/CEP de CADASTRO, ver
+   * resolverSemPinoViaCnefe) - quem da pra consertar sozinho some da lista antes de o
+   * dono ver. O que sobra volta em CAMPO (cep/numero/endereco/localizacao), pro app
+   * pintar exatamente o pedaco quebrado do endereco.
+   */
+  async checarEnderecos(
+    companyId: number,
+    input: { dias?: number[]; dates?: string[] } = {},
+  ): Promise<ChecarEnderecosResult> {
+    if (!companyId) throw new BadRequestException('Empresa nao identificada');
+    if (!this.agenda) throw new BadRequestException('Agenda indisponivel neste servidor.');
+    const dias = [
+      ...new Set((input.dias ?? []).map((d) => Number(d)).filter((d) => Number.isInteger(d) && d >= 1 && d <= 7)),
+    ];
+    const dates = (input.dates ?? []).map((d) => String(d || '').trim()).filter((d) => DATA_ISO.test(d));
+    if (!dias.length) throw new BadRequestException('Informe o dia da rota.');
+
+    // Roster do(s) dia(s): 1 chamada por dia, dedupe por (cliente, porta) - cliente com
+    // 2 produtos no mesmo dia e UMA linha de endereco, nao duas.
+    const alvos = new Map<string, { customerProfileId: string; localId: string | null; nome: string }>();
+    for (let i = 0; i < dias.length; i += 1) {
+      const dia = dias[i];
+      const date = dates[i] ?? dates[0];
+      let previa: any;
+      try {
+        previa = await this.agenda.getDayPreview(companyId, dia, date);
+      } catch (e) {
+        this.logger.warn(
+          `[logistica] checagem de enderecos: previa do dia ${dia} falhou - ${String((e as any)?.message || e)}`,
+        );
+        continue;
+      }
+      for (const parada of previa?.paradas ?? []) {
+        const customerProfileId = String(parada?.customerProfileId || '');
+        if (!customerProfileId) continue;
+        const localId = parada?.localId ? String(parada.localId) : null;
+        const chave = `${customerProfileId}:${localId ?? ''}`;
+        if (alvos.has(chave)) continue;
+        alvos.set(chave, {
+          customerProfileId,
+          localId,
+          nome: String(parada?.cliente?.nome || parada?.cliente?.name || 'Cliente'),
+        });
+      }
+    }
+    if (!alvos.size) return { dias, total: 0, ok: 0, problemas: [] };
+
+    const [perfis, locais] = await Promise.all([
+      this.prisma.customerProfile.findMany({
+        where: { companyId, id: { in: [...new Set([...alvos.values()].map((a) => a.customerProfileId))] } },
+        select: {
+          id: true, name: true, lat: true, lng: true, geoFonte: true,
+          cep: true, endereco: true, numero: true, bairro: true, cidade: true, uf: true,
+          sanitizadoEm: true, updatedAt: true,
+        },
+      }),
+      this.prisma.localEntrega.findMany({
+        where: {
+          companyId,
+          id: { in: [...new Set([...alvos.values()].map((a) => a.localId).filter((id): id is string => !!id))] },
+        },
+        select: {
+          id: true, apelido: true, lat: true, lng: true, geoFonte: true,
+          cep: true, endereco: true, numero: true, bairro: true, cidade: true, uf: true,
+          sanitizadoEm: true, updatedAt: true,
+        },
+      }),
+    ]);
+    const perfilPorId = new Map(perfis.map((p) => [p.id, p] as const));
+    const localPorId = new Map(locais.map((l) => [l.id, l] as const));
+
+    const rows = [...alvos.entries()].map(([chave, alvo]) => ({
+      id: chave,
+      status: 'agendada',
+      rotaOrdem: null,
+      customerProfileId: alvo.customerProfileId,
+      localId: alvo.localId,
+      local: (alvo.localId ? localPorId.get(alvo.localId) : null) ?? null,
+      customerProfile: perfilPorId.get(alvo.customerProfileId) ?? null,
+    })) as unknown as ParadaConferenciaRow[];
+
+    // Cura automatica ANTES da regua (a mesma da conferencia): o que o CNEFE resolve
+    // sozinho nunca chega na cara do dono. Grava pino/CEP no cadastro e atualiza as
+    // linhas em memoria.
+    await this.resolverSemPinoViaCnefe(companyId, rows);
+
+    const cadastros = rows.map((r) => enderecoDaFonteEscolhida(r));
+    const vereditos = await conferirCepsEmLote(cadastros).catch(() =>
+      cadastros.map(() => 'indeterminado' as CepVeredito),
+    );
+
+    const problemas: ChecagemEnderecoCliente[] = [];
+    rows.forEach((row, i) => {
+      const cadastro = cadastros[i];
+      const coord = resolverCoordenadaMultilocal(row.local, row.customerProfile);
+      const campos: ChecagemEnderecoCampo[] = [];
+      const rua = String(cadastro.endereco ?? '').trim();
+      if (!rua) campos.push({ campo: 'endereco', problema: 'Sem endereco' });
+      if (vereditos[i] === 'nao_bate') campos.push({ campo: 'cep', problema: 'CEP de outra rua' });
+      if (enderecoSemNumero(cadastro)) campos.push({ campo: 'numero', problema: 'Sem numero' });
+      if (coord.lat == null || coord.lng == null) campos.push({ campo: 'localizacao', problema: 'Nao achei no mapa' });
+      if (!campos.length) return;
+      const alvo = alvos.get(row.id);
+      problemas.push({
+        customerProfileId: row.customerProfileId,
+        localId: row.localId,
+        nome: row.local?.apelido || row.customerProfile?.name || alvo?.nome || 'Cliente',
+        endereco: {
+          cep: cadastro.cep ?? null,
+          logradouro: rua || null,
+          numero: cadastro.numero != null ? String(cadastro.numero) : null,
+          bairro: cadastro.bairro ?? null,
+          cidade: cadastro.cidade ?? null,
+          uf: cadastro.uf ?? null,
+        },
+        campos,
+      });
+    });
+
+    this.logger.log(
+      `[logistica] checagem de enderecos company=${companyId} dias=${dias.join(',')}: ` +
+        `${problemas.length} problema(s) em ${rows.length} cliente(s).`,
+    );
+    return { dias, total: rows.length, ok: rows.length - problemas.length, problemas };
+  }
 
   async conferir(companyId: number, input: ConferirRotaInput = {}, entregadorId?: number): Promise<ConferirRotaResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
@@ -825,7 +963,36 @@ interface ParadaConferenciaRow {
     | null;
 }
 
-/** Linha do sanitizador no app: cliente + o problema JÁ em português. */
+/** Item 1 (28/07) - qual PARTE do endereco esta quebrada. O app pinta o campo. */
+export interface ChecagemEnderecoCampo {
+  campo: 'cep' | 'numero' | 'endereco' | 'localizacao';
+  /** 2-4 palavras, ja em portugues de motorista (Lei no 8: dado em linha, nunca paragrafo). */
+  problema: string;
+}
+
+export interface ChecagemEnderecoCliente {
+  customerProfileId: string;
+  localId: string | null;
+  nome: string;
+  endereco: {
+    cep: string | null;
+    logradouro: string | null;
+    numero: string | null;
+    bairro: string | null;
+    cidade: string | null;
+    uf: string | null;
+  };
+  campos: ChecagemEnderecoCampo[];
+}
+
+export interface ChecarEnderecosResult {
+  dias: number[];
+  total: number;
+  ok: number;
+  problemas: ChecagemEnderecoCliente[];
+}
+
+/** Linha do sanitizador no app: cliente + o problema JA em portugues. */
 export interface ClienteSanitizador {
   id: string;
   nome: string;

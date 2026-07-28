@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -36,6 +37,8 @@ import { LogisticaConferenciaService } from './logistica-conferencia.service';
 import { LogisticaCustoPreviewService } from './logistica-custo-preview.service';
 import { LogisticaRotaModeloService } from './logistica-rota-modelo.service';
 import { LogisticaConfigService } from './logistica-config.service';
+import { LogisticaNivelPlanoService } from './logistica-nivel-plano.service';
+import { canonicalRouteDate } from './logistica-route-billing.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
 import { LogisticaOperacaoService } from './logistica-operacao.service';
 import { LogisticaTrackingService } from './logistica-tracking.service';
@@ -56,6 +59,8 @@ import {
   CancelarEntregaDto,
   ConferirRotaDto,
   SanitizarRotaDto,
+  ChecarEnderecosDto,
+  TirarDoDiaDto,
   ConfirmarEntregaDto,
   CreateClienteProdutoDto,
   CreateEntregaDto,
@@ -131,6 +136,9 @@ export class LogisticaController {
     // S6 (25/07, PR25072026-ROTA-CONFERIDA) — preview de créditos (100% leitura).
     // Mesmo padrão de default acima.
     private readonly custoPreviewService: LogisticaCustoPreviewService = null as any,
+    // PR28072026 HÍBRIDO (28/07) — preço + franquia do nível. Mesmo padrão de
+    // default acima (testes legados instanciam o controller direto).
+    private readonly nivelPlano: LogisticaNivelPlanoService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -775,6 +783,130 @@ export class LogisticaController {
   }
 
   /**
+   * ITEM 1 (28/07, ordem do dono) — "PRIMEIRO verificar se todos os enderecos estao
+   * certos". Roda ANTES de montar: le o roster do(s) dia(s) pela agenda, deixa a cura
+   * automatica resolver o que da, e devolve SO quem ficou com problema, com o CAMPO
+   * quebrado marcado. Nao materializa entrega, nao planeja rota, nao debita credito.
+   */
+  @Post('rota/checar-enderecos')
+  async checarEnderecosRota(@Req() req: any, @Body() dto: ChecarEnderecosDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.conferencia.checarEnderecos(companyId, { dias: dto?.dias, dates: dto?.dates });
+  }
+
+  /**
+   * ITEM 1 (28/07, ordem do dono) — "a opcao remover todos os clientes e o dia salvo
+   * deles. Assim nao volta na rota". Tira os dias informados dos clientes escolhidos
+   * pela MESMA porta canonica de escrita de dia (definirDiasDoCliente + espelho da
+   * agenda) — nunca escrevendo plano na mao.
+   */
+  @Post('rota/tirar-do-dia')
+  async tirarDoDia(@Req() req: any, @Body() dto: TirarDoDiaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    this.ensureBillingOwner(req.user);
+    const dias = [...new Set((dto?.dias ?? []).map((d) => Number(d)).filter((d) => Number.isInteger(d) && d >= 1 && d <= 7))];
+    const ids = [...new Set((dto?.customerProfileIds ?? []).map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 300);
+    if (!dias.length) throw new BadRequestException('Informe o dia.');
+    if (!ids.length) throw new BadRequestException('Informe os clientes.');
+    let removidos = 0;
+    const falhas: string[] = [];
+    for (const id of ids) {
+      try {
+        const atuais = await this.recorrencia.listByCliente(companyId, id, req.user);
+        const ativos = (atuais || []).filter((v: any) => v && v.ativo !== false);
+        const diasAtuais = [
+          ...new Set(
+            ativos.flatMap((v: any) =>
+              String(v?.diasSemana || '')
+                .split(',')
+                .map((d: string) => Number(d))
+                .filter((d: number) => Number.isInteger(d) && d >= 1 && d <= 7),
+            ),
+          ),
+        ];
+        const restantes = diasAtuais.filter((d) => !dias.includes(d));
+        const anteriores = this.agenda
+          ? await Promise.all(ativos.map((v: any) => this.recorrencia.vinculoEspelhoSnapshot(companyId, v.id)))
+          : [];
+        const res = await this.recorrencia.definirDiasDoCliente(companyId, id, restantes);
+        if (this.agenda) {
+          for (const vinculoId of res.vinculoIds) {
+            const anterior = anteriores.find((sn: any) => sn && String(sn.id) === String(vinculoId)) ?? null;
+            await this.agenda.espelharVinculoCadastro(companyId, vinculoId, anterior);
+          }
+        }
+        removidos += 1;
+      } catch (e) {
+        falhas.push(id);
+        this.logger?.warn?.(`[logistica] tirar-do-dia falhou para ${id}: ${String((e as any)?.message || e)}`);
+      }
+    }
+    return { success: true, removidos, falhas: falhas.length };
+  }
+
+  /**
+   * ITEM 1 (28/07, ordem do dono) — "PRIMEIRO verificar se todos os enderecos estao
+   * certos". Roda ANTES de montar: le o roster do(s) dia(s) pela agenda, deixa a cura
+   * automatica resolver o que da, e devolve SO quem ficou com problema, com o CAMPO
+   * quebrado marcado. Nao materializa entrega, nao planeja rota, nao debita credito.
+   */
+  @Post('rota/checar-enderecos')
+  async checarEnderecosRota(@Req() req: any, @Body() dto: ChecarEnderecosDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.conferencia.checarEnderecos(companyId, { dias: dto?.dias, dates: dto?.dates });
+  }
+
+  /**
+   * ITEM 1 (28/07, ordem do dono) — "a opcao remover todos os clientes e o dia salvo
+   * deles. Assim nao volta na rota". Tira os dias informados dos clientes escolhidos
+   * pela MESMA porta canonica de escrita de dia (definirDiasDoCliente + espelho da
+   * agenda) — nunca escrevendo plano na mao.
+   */
+  @Post('rota/tirar-do-dia')
+  async tirarDoDia(@Req() req: any, @Body() dto: TirarDoDiaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    this.ensureBillingOwner(req.user);
+    const dias = [...new Set((dto?.dias ?? []).map((d) => Number(d)).filter((d) => Number.isInteger(d) && d >= 1 && d <= 7))];
+    const ids = [...new Set((dto?.customerProfileIds ?? []).map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 300);
+    if (!dias.length) throw new BadRequestException('Informe o dia.');
+    if (!ids.length) throw new BadRequestException('Informe os clientes.');
+    let removidos = 0;
+    const falhas: string[] = [];
+    for (const id of ids) {
+      try {
+        const atuais = await this.recorrencia.listByCliente(companyId, id, req.user);
+        const ativos = (atuais || []).filter((v: any) => v && v.ativo !== false);
+        const diasAtuais = [
+          ...new Set(
+            ativos.flatMap((v: any) =>
+              String(v?.diasSemana || '')
+                .split(',')
+                .map((d: string) => Number(d))
+                .filter((d: number) => Number.isInteger(d) && d >= 1 && d <= 7),
+            ),
+          ),
+        ];
+        const restantes = diasAtuais.filter((d) => !dias.includes(d));
+        const anteriores = this.agenda
+          ? await Promise.all(ativos.map((v: any) => this.recorrencia.vinculoEspelhoSnapshot(companyId, v.id)))
+          : [];
+        const res = await this.recorrencia.definirDiasDoCliente(companyId, id, restantes);
+        if (this.agenda) {
+          for (const vinculoId of res.vinculoIds) {
+            const anterior = anteriores.find((sn: any) => sn && String(sn.id) === String(vinculoId)) ?? null;
+            await this.agenda.espelharVinculoCadastro(companyId, vinculoId, anterior);
+          }
+        }
+        removidos += 1;
+      } catch (e) {
+        falhas.push(id);
+        this.logger?.warn?.(`[logistica] tirar-do-dia falhou para ${id}: ${String((e as any)?.message || e)}`);
+      }
+    }
+    return { success: true, removidos, falhas: falhas.length };
+  }
+
+  /**
    * S6 (25/07, PR25072026-ROTA-CONFERIDA) — preview de créditos: quanto o
    * Iniciar VAI debitar se rodar agora, ANTES do operador apertar o botão.
    * GET (não POST) porque é puramente consultivo — 100% leitura, NENHUM
@@ -1078,6 +1210,26 @@ export class LogisticaController {
   getConfig(@Req() req: any) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     return this.config.getConfig(companyId, req.user);
+  }
+
+  /**
+   * PR28072026 HÍBRIDO (28/07) — O PLANO DA EMPRESA: nível, mensalidade e a
+   * franquia de paradas DESTE mês (usadas × inclusas).
+   *
+   * ADMIN-only por causa da LEI DO VENDEDOR: carrega VALOR (a mensalidade).
+   * Endpoint próprio em vez de engordar o GET /config, que o app do entregador
+   * chama a cada boot — a franquia custa 2 counts e quem olha isso é o dono no
+   * PC, não o motorista na rua.
+   *
+   * O mês é o da rota de HOJE no fuso da operação (canonicalRouteDate), nunca o
+   * relógio UTC do container.
+   */
+  @Get('plano')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  plano(@Req() req: any) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.nivelPlano.franquiaDoMesEmParadas(companyId, canonicalRouteDate(undefined));
   }
 
   /**

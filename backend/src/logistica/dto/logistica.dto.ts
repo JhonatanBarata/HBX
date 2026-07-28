@@ -934,3 +934,30 @@ export class UpdateProdutoDto {
   @IsBoolean()
   ativo?: boolean;
 }
+
+/**
+ * ITEM 1 (28/07, ordem do dono) — checagem de endereco ANTES de montar a rota.
+ * `dias` = dias da semana que vao entrar na rota; `dates` = as datas exatas que o
+ * app vai montar (mesma lista que ele manda no prepare) — paralelas a `dias`.
+ * Nada aqui materializa entrega nem toca em credito.
+ */
+export class ChecarEnderecosDto {
+  @IsOptional()
+  @IsArray()
+  dias?: number[];
+
+  @IsOptional()
+  @IsArray()
+  dates?: string[];
+}
+
+/** Item 1 — "remover todos os clientes e o dia salvo deles" (ordem do dono). */
+export class TirarDoDiaDto {
+  @IsOptional()
+  @IsArray()
+  dias?: number[];
+
+  @IsOptional()
+  @IsArray()
+  customerProfileIds?: string[];
+}

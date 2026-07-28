@@ -317,6 +317,10 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "rota", "descartar-montagem"),
             // SANITIZADOR (27/07) — correção em massa do Gerenciador (pop-up).
             listOf("logistica", "rota", "sanitizar"),
+            // ITEM 1 (28/07, ordem do dono) — checagem de endereço ANTES de montar
+            // a rota e a saída "tirar todos da rota e do dia" da tela de erros.
+            listOf("logistica", "rota", "checar-enderecos"),
+            listOf("logistica", "rota", "tirar-do-dia"),
             listOf("logistica", "rota-modelos"),
             listOf("logistica", "cliente-produtos"),
             listOf("logistica", "entregas"),

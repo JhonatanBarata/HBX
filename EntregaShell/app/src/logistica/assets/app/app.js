@@ -45,6 +45,10 @@
     creditsLock: null,
     // 28/07 (item 6) — GPS do mapa PARADO: posição atual e o endereço dela
     // (reverse geocode com freio, ver resolverEnderecoOcioso).
+    // ITEM 1 (28/07) — checagem de endereços ANTES de montar a rota.
+    // { dias, dates, dados, carregando, erro, removendo } | null = tela fechada.
+    checagem: null,
+    checagemRetorno: false,
     idlePosicao: null,
     idleEndereco: null,
     idleEnderecoDetalhe: null,
@@ -1621,9 +1625,15 @@
   }
 
   function shell(content, floatingAction) {
+    // 🔴 ITEM 1 (28/07) — a tela "Endereços com erro" é o PORTÃO da montagem: vive
+    // por cima de tudo (inclusive do Gerenciador) sem depender de state.modal, que
+    // continua sendo do Gerenciador por baixo.
+    // Enquanto o CADASTRO real está aberto (toque numa linha), a tela de erros sai
+    // da frente — ela volta sozinha quando o cadastro fecha (ver closeOverlay).
+    const checagemOverlay = state.checagem && state.modal !== "client-product" ? `<div class="overlay-host is-opening">${checagemModal()}</div>` : "";
     const standardModal = state.modal && state.modal !== "distance-warning" ? `<div class="overlay-host ${state.openingOverlay === "modal" ? "is-opening" : ""} ${state.closingOverlay === "modal" ? "is-closing" : ""}">${modal()}</div>` : "";
     const distanceModal = state.modal === "distance-warning" ? `<div class="overlay-host is-opening">${modal()}</div>` : "";
-    const overlays = `${floatingAction || ""}${creditsLockOverlay()}${standardModal}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${dddPromptOverlay()}${leituraPausaOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
+    const overlays = `${floatingAction || ""}${creditsLockOverlay()}${standardModal}${checagemOverlay}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${dddPromptOverlay()}${leituraPausaOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
     return H.mobileShell.frame({ appName: "logistica", currentScreen: state.screen, content, icon, motion: state.screenMotion, refreshing: state.refreshing, error: state.error, overlays });
   }
   function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); const ringOffset = (188.5 * count / 5).toFixed(1); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30" style="stroke-dashoffset:${ringOffset}"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Próxima parada</p><h2>${H.escape(client.nome || "Cliente")}</h2><small>${H.escape(address(client))}</small><div class="actions next-stop-actions"><button class="btn btn-primary" data-action="next-stop">Ver rota</button><button class="btn btn-secondary" data-action="cancel-next-stop">Cancelar</button></div></section></div>`; }
@@ -1811,6 +1821,21 @@
     const controls = app.querySelector(".route-hero > .route-controls");
     const nav = app.querySelector(".bottom-nav");
     if (!shell || !controls || !nav) return;
+    // 28/07 (dono: "voce fez algo q cortou o header") — esta conta so fecha com a
+    // pagina no TOPO (ver a bola de neve documentada abaixo). Rolagem HERDADA de
+    // outra tela (lista de Clientes, modal alto) empurrava o cromo do topo pra
+    // debaixo da barra do sistema. Quando a Rota nao tem o que rolar, volta pro
+    // topo ANTES de medir — e nunca briga com quem esta rolando uma lista de
+    // paradas de verdade (ai sobra rolagem e este bloco nao encosta em nada).
+    const raizDoc = document.documentElement;
+    const sobraDoc = Math.max(0, raizDoc.scrollHeight - (window.innerHeight || 0));
+    const sobraApp = Math.max(0, (app.scrollHeight || 0) - (app.clientHeight || 0));
+    const rolado = Math.round(window.scrollY || raizDoc.scrollTop || app.scrollTop || 0);
+    if (rolado > 0 && sobraDoc <= 8 && sobraApp <= 8) {
+      try { window.scrollTo(0, 0); } catch (_) {}
+      raizDoc.scrollTop = 0;
+      if (app.scrollTop) app.scrollTop = 0;
+    }
     const play = controls.querySelector(".route-transmux-wrap");
     const measuredNavTop = nav.getBoundingClientRect().top;
     // Na Leitura a nav já foi transicionada para fora da tela. Usar a posição
@@ -2768,14 +2793,19 @@
         return;
       }
       state.daySelection = [...new Set([...adicionados, day])].sort((a, b) => a - b);
+      // Item 1 — dia novo entrando numa rota já montada passa pelo MESMO portão
+      // (checa só o dia que está chegando; o resto já foi conferido pra entrar).
+      if (!(await checarEnderecosAntesDeMontar([day]))) return;
       void beginManagedRoute();
       return;
     }
     // 27/07 (dono, 2ª cobrança) — SEM tela de prévia: o primeiro toque num dia
     // JÁ monta a rota daquele dia nesta mesma tela (a conferência renderiza no
     // lugar; dias seguintes caem no ramo de ADICIONAR acima).
+    // 🔴 ITEM 1 (28/07) — antes de montar, os ENDEREÇOS. Só monta com tudo certo.
     state.daySelection = [...new Set([...state.daySelection, day])].sort((a, b) => a - b);
     render();
+    if (!(await checarEnderecosAntesDeMontar(state.daySelection))) return;
     void beginManagedRoute();
   }
   function blankClientProductDraft() { return { productId: "", qtdPadrao: "1", proximaData: "", frequenciaDias: "30", scheduledAt: "", precoAcordado: "" }; }
@@ -5216,6 +5246,120 @@
     } catch (_) {}
     finally { const r = state.montagemRapida; if (r) r.buscando = false; render(); }
   }
+  // ══════════════════════════════════════════════════════════════════════════
+  // 🔴 ITEM 1 (28/07, ordem do dono) — "Ao clicar no dia, ou em rotas salvas:
+  // PRIMEIRO verificar se todos endereços estão certos; caso não, exibir na tela
+  // os endereços com erro, deixando claro a parte do endereço com erro. Erro
+  // resolvido? monta a rota e pede confirmação". Ajuste dele no mesmo dia: "ao
+  // detectar erro, exibir APENAS os erros, e a opção remover todos os clientes e
+  // o dia salvo deles — assim não volta na rota".
+  // Nada aqui monta rota nem debita: é leitura + cura automática do backend.
+  // ══════════════════════════════════════════════════════════════════════════
+  function checagemDatasDosDias(dias) {
+    return dias.map(dia => state.daySourceDates[dia] || dateForIsoDay(dia));
+  }
+  // true = pode montar. false = a tela de erros está de pé (ou o dono cancelou).
+  async function checarEnderecosAntesDeMontar(dias) {
+    const lista = [...new Set((dias || []).map(Number).filter(d => d >= 1 && d <= 7))].sort((a, b) => a - b);
+    if (!lista.length) return true;
+    const dates = checagemDatasDosDias(lista);
+    showLoading("Conferindo os endereços…");
+    try {
+      const dados = await H.api("/logistica/rota/checar-enderecos", { method: "POST", body: { dias: lista, dates } });
+      const problemas = (dados && Array.isArray(dados.problemas)) ? dados.problemas : [];
+      if (!problemas.length) { state.checagem = null; return true; }
+      state.checagem = { dias: lista, dates, dados, carregando: false, erro: null, removendo: false };
+      render();
+      return false;
+    } catch (error) {
+      // Ponte de transição: servidor sem o endpoint (app novo, backend velho) não
+      // pode impedir o dono de montar a rota — segue o fluxo de antes.
+      if (apiRouteUnavailable(error)) return true;
+      toast(humanApiError(error), true);
+      return false;
+    } finally { hideLoading(); }
+  }
+  async function recarregarChecagem() {
+    const c = state.checagem;
+    if (!c || c.carregando) return;
+    c.carregando = true; c.erro = null; render();
+    try {
+      const dados = await H.api("/logistica/rota/checar-enderecos", { method: "POST", body: { dias: c.dias, dates: c.dates } });
+      c.dados = dados;
+      if (!((dados && dados.problemas) || []).length) {
+        // Zerou: o contrato do dono é montar na hora e cair no Gerenciador.
+        state.checagem = null;
+        state.daySelection = c.dias;
+        render();
+        toast("Endereços certos. Montando a rota…");
+        void beginManagedRoute();
+        return;
+      }
+    } catch (error) { c.erro = humanApiError(error); }
+    finally { if (state.checagem) state.checagem.carregando = false; render(); }
+  }
+  // Endereço em LINHA com a parte quebrada marcada (Lei nº8: dado, nunca parágrafo).
+  function checagemEnderecoHtml(item) {
+    const campos = new Set((item.campos || []).map(c => c.campo));
+    const e = item.endereco || {};
+    const pedacos = [];
+    const ruim = texto => `<b class="chk-ruim">${H.escape(texto)}</b>`;
+    if (e.logradouro) pedacos.push(campos.has("endereco") ? ruim(e.logradouro) : H.escape(e.logradouro));
+    else pedacos.push(ruim("sem rua"));
+    if (e.numero) pedacos.push(H.escape(e.numero));
+    else if (campos.has("numero")) pedacos.push(ruim("sem número"));
+    if (e.bairro) pedacos.push(H.escape(e.bairro));
+    if (campos.has("cep")) pedacos.push(ruim(e.cep ? `CEP ${e.cep} é de outra rua` : "sem CEP"));
+    if (campos.has("localizacao") && !campos.has("numero") && !campos.has("endereco")) pedacos.push(ruim("não achei no mapa"));
+    return pedacos.join(", ");
+  }
+  function checagemModal() {
+    const c = state.checagem;
+    if (!c) return "";
+    const problemas = ((c.dados && c.dados.problemas) || []);
+    const total = Number(c.dados && c.dados.total) || 0;
+    const linhas = problemas.map(item => `<div class="row-card chk-linha"><button type="button" class="card-main card-main-btn" data-action="checagem-abrir" data-cliente-id="${H.escape(item.customerProfileId)}"><strong>${H.escape(item.nome || "Cliente")}</strong><span class="chk-endereco">${checagemEnderecoHtml(item)}</span></button><span class="chk-seta">›</span></div>`).join("");
+    const corpo = c.erro
+      ? `<div class="hbx-aviso hbx-aviso--danger">${H.escape(c.erro)}</div>`
+      : c.carregando && !problemas.length
+        ? loading()
+        : `<div class="list chk-lista">${linhas}</div>`;
+    const extra = `<div class="center-modal-extra chk-acoes"><button class="btn btn-danger btn-block" type="button" data-action="checagem-remover" ${c.removendo || c.carregando ? "disabled" : ""}>${c.removendo ? "Tirando…" : `Tirar da rota e do dia (${problemas.length})`}</button></div>`;
+    return centerModal({
+      icon: "route",
+      title: "Endereços com erro",
+      resumo: `${problemas.length} de ${total} ${total === 1 ? "cliente" : "clientes"}`,
+      body: corpo,
+      extra,
+      closeAction: "checagem-fechar",
+      closeButtonAction: "checagem-fechar",
+      backAction: "checagem-fechar",
+      backLabel: "Fechar",
+      backGlyph: "×",
+      nextAction: "checagem-verificar",
+      nextLabel: c.carregando ? "Conferindo…" : "Verificar de novo",
+      nextDisabled: c.carregando || c.removendo,
+    });
+  }
+  async function checagemRemoverTodos() {
+    const c = state.checagem;
+    if (!c || c.removendo) return;
+    const problemas = ((c.dados && c.dados.problemas) || []);
+    const ids = [...new Set(problemas.map(p => String(p.customerProfileId)).filter(Boolean))];
+    if (!ids.length) return;
+    c.removendo = true; render();
+    showLoading("Tirando da rota…");
+    try {
+      await H.api("/logistica/rota/tirar-do-dia", { method: "POST", body: { dias: c.dias, customerProfileIds: ids } });
+      toast(`${ids.length} ${ids.length === 1 ? "cliente saiu" : "clientes saíram"} do dia.`);
+      c.removendo = false;
+      await recarregarChecagem();
+    } catch (error) {
+      c.removendo = false;
+      toast(humanApiError(error), true);
+      render();
+    } finally { hideLoading(); }
+  }
   function montagemUnicaSheet() {
     const rc = montagemConferencia();
     // Ficha "Como resolver?" e a Rota rápida são PASSOS por cima da tela única
@@ -5246,7 +5390,7 @@
       const salvarLinha = ordemEditada
         ? `<div class="montagem-salvar-linha"><button class="btn btn-secondary btn-block" type="button" data-action="montagem-salvar-rota" ${rc.loading || !rc.data ? "disabled" : ""}>Salvar rota</button></div>`
         : "";
-      footer = `${salvarLinha}<div class="rp2-footer montagem-footer"><button class="btn btn-secondary" type="button" data-action="cancel-route">Cancelar rota</button><button class="btn btn-primary rp2-cta" data-action="conferencia-continuar" ${rc.loading || !rc.data || pendentes.length > 0 ? "disabled" : ""}>${rc.loading ? "Atualizando…" : "Aceitar rota"}</button></div>`;
+      footer = `${salvarLinha}<div class="rp2-footer montagem-footer"><button class="btn btn-secondary" type="button" data-action="cancel-route">Cancelar rota</button><button class="btn btn-primary rp2-cta" data-action="conferencia-continuar" ${rc.loading || !rc.data ? "disabled" : ""}>${rc.loading ? "Atualizando…" : "Aceitar rota"}</button></div>`;
     } else {
       // 27/07 (dono, 2ª cobrança): NÃO existe tela de prévia — tocar no dia JÁ
       // monta (toggleManagedRouteDay chama beginManagedRoute na hora) e esta
@@ -5808,10 +5952,14 @@
     // Switch do catálogo (.module-switch, já usado em Ajustes/"salvar como
     // minha rota") direto no <span> — vira o próprio alvo clicável (role=switch)
     // pra não precisar de um botão-reset novo só pra caber neste cartão.
-    const ack = parada.semaforo === "vermelho"
-      ? `<span class="module-switch conferencia-ack${acknowledged ? " active" : ""}" data-action="conferencia-reconhecer" data-parada-id="${H.escape(id)}" role="switch" aria-checked="${acknowledged}" aria-label="Estou ciente desta pendência"><i></i></span>`
-      : "";
-    const selo = info ? `<span class="badge ${info.badgeClass}">${info.label}</span>` : "";
+    // 🔴 ITEM 2 (28/07, ordem do dono) — o selo "Corrigir" e o liga/desliga de
+    // ciência SAÍRAM do Gerenciador: com a checagem de endereços ANTES da montagem
+    // (item 1), é impossível chegar aqui com cliente quebrado. O que sobra nesta
+    // linha é ordem e sequência. `info`/`acknowledged` seguem calculados de graça
+    // (custam nada) pra frase da linha continuar existindo quando o motor apontar
+    // suspeita geométrica — mas nada BLOQUEIA o Aceitar aqui.
+    const ack = "";
+    const selo = "";
     // 26/07 (fusão) — a sequência edita AQUI: ▲▼ por linha, mesma mecânica da
     // antiga tela "Minha ordem" (que morreu), agora na única tela de revisão.
     const total = (rc.data && rc.data.paradas || []).length;
@@ -5891,7 +6039,8 @@
       // R1 (27/07) — a palavra do roteiro do dono é ACEITAR (é o aceitar que
       // debita; o Play depois não cobra de novo). Mesmo rótulo da tela única.
       nextLabel: rc.loading ? "Atualizando…" : "Aceitar rota",
-      nextDisabled: rc.loading || pendentes.length > 0,
+      // Item 2 (28/07) — só o carregamento segura o botão; vermelho não chega aqui.
+      nextDisabled: rc.loading,
     });
   }
   // 27/07 (dono) — a ficha intermediária "Como resolver?" foi REMOVIDA: o toque
@@ -6825,6 +6974,8 @@
     // não mudou; rotaConferencia.retornoParadaId só existe enquanto esse editor
     // está aberto vindo da ficha, ver abrirFichaComEditor).
     const voltaParaConferencia = kind === "modal" && state.modal === "client-product" && state.rotaConferencia && state.rotaConferencia.retornoParadaId;
+    // Item 1 (28/07) — mesma ideia, pro cadastro aberto pela tela "Endereços com erro".
+    const voltaParaChecagem = kind === "modal" && state.checagemRetorno && !!state.checagem;
     // 26/07 (dono, regra ABSOLUTA, 3ª cobrança): só o "Aceitar rota" consolida.
     // Sair da conferência por QUALQUER outro caminho (×, voltar, toque no fundo)
     // desfaz a rota sozinho. `confirmada`/`cancelada` marcam as duas saídas
@@ -6856,6 +7007,9 @@
       if (kind === "sheet") { state.selected = null; state.deliveryProductPicker = false; state.deliverySwapKey = null; state.deliveryPriceEdit = null; state.deliveryEditingId = null; }
       state.closingOverlay = null;
       if (voltaParaConferencia) void reabrirConferenciaAposEdicao();
+      // Item 1 — saiu do cadastro aberto pela tela de erros: volta pra ela JÁ
+      // reconferindo (corrigiu? a linha some sozinha; zerou? monta a rota).
+      else if (voltaParaChecagem) { state.checagemRetorno = false; void recarregarChecagem(); }
       render();
       resolve();
     }, 180));
@@ -7153,6 +7307,7 @@
       state.confirmation = null;
       render();
       if (!confirmation) return;
+      if (confirmation.type === "checagem-remover") await checagemRemoverTodos();
       if (confirmation.type === "delete-client") await performDeleteClient(clientById(confirmation.itemId));
       if (confirmation.type === "delete-client-product") await performDeleteClientProduct(state.clientProducts.find(item => item.id === confirmation.itemId));
       if (confirmation.type === "archive-product") await performArchiveProduct((state.products || []).find(p => String(p.id) === String(confirmation.itemId)));
@@ -7368,6 +7523,13 @@
       // os deliveryIds na ordem salva. O backend só usa snapshot/plano compatível;
       // não mistura vínculos de produto de outros dias.
       if (state.dayStarting) return;
+      // 🔴 ITEM 1 (28/07) — "ao clicar no dia, OU EM ROTAS SALVAS": rota salva com
+      // dia fixo passa pelo mesmo portão de endereços. Rota salva SEM dia (lista
+      // livre) não tem roster de agenda pra conferir — segue direto, e a régua
+      // volta a valer na conferência da rota montada.
+      if (Number.isInteger(Number(modelo.diaSemana)) && Number(modelo.diaSemana) >= 1 && Number(modelo.diaSemana) <= 7) {
+        if (!(await checarEnderecosAntesDeMontar([Number(modelo.diaSemana)]))) return;
+      }
       state.dayStarting = true; render();
       showLoading("Montando a rota…");
       try {
@@ -7396,6 +7558,41 @@
     // (lista + mini-ficha). Ver bloco "ROTA-CONFERIDA — S4" perto de
     // routeEngineBanner pras funções chamadas aqui.
     if (action === "conferencia-tentar-de-novo") { await recarregarConferencia(); return; }
+    // 🔴 ITEM 1 (28/07) — ações da tela "Endereços com erro".
+    if (action === "checagem-fechar") { state.checagem = null; render(); return; }
+    if (action === "checagem-verificar") { await recarregarChecagem(); return; }
+    if (action === "checagem-remover") {
+      const c = state.checagem;
+      const quantos = ((c && c.dados && c.dados.problemas) || []).length;
+      if (!quantos) return;
+      // Mexer no dia do cliente é escrita de cadastro: confirma antes (mesma
+      // moldura .app-confirm de toda ação destrutiva do app).
+      state.confirmation = {
+        type: "checagem-remover",
+        title: "Tirar da rota e do dia?",
+        message: `${quantos} ${quantos === 1 ? "cliente sai" : "clientes saem"} deste dia e não voltam sozinhos.`,
+        confirmLabel: "Tirar",
+        danger: true,
+        icon: "users",
+      };
+      render();
+      return;
+    }
+    if (action === "checagem-abrir") {
+      const id = String(target.dataset.clienteId || "");
+      if (!id) return;
+      showLoading("Abrindo o cadastro…");
+      try {
+        if (!(state.clients || []).length) await loadClients(true, true);
+        const daTela = ((state.checagem && state.checagem.dados && state.checagem.dados.problemas) || []).find(x => String(x.customerProfileId) === id);
+        const cliente = (state.clients || []).find(c => String(c.id) === id) || { id, nome: (daTela && daTela.nome) || "Cliente" };
+        // Volta pra tela de erros quando o cadastro fechar (ver closeOverlay).
+        state.checagemRetorno = true;
+        openClientEditor(cliente);
+      } catch (error) { toast(humanApiError(error), true); }
+      finally { hideLoading(); }
+      return;
+    }
     // R2 (27/07) — "+" rota rápida (CEP+número via CNEFE, ou toque no mapa).
     if (action === "montagem-rapida") { state.montagemRapida = { origem: "cep", contexto: "montagem", cep: "", numero: "", nome: "", lat: null, lng: null, resolvido: null, buscando: false, salvando: false, erro: "" }; render(); return; }
     // 28/07 (dono, item 4) — mesmo passo, aberto pelo "+" da tela Rota: aqui ele
@@ -7411,7 +7608,7 @@
     if (action === "montagem-salvar-confirmar") { await montagemSalvarConfirmar(); return; }
     if (action === "conferencia-continuar") {
       const rc = state.rotaConferencia;
-      if (!rc || rc.loading || conferenciaVermelhasPendentes(rc).length > 0) return;
+      if (!rc || rc.loading) return;
       // 26/07 (fusão) — ordem mexida nas setas vira a rota REAL antes de fechar:
       // um replanejar só, com a ordem final (o conferir já rodava em dry-run).
       if (rc.ordemManual && rc.ordemManual.length) {
@@ -8488,6 +8685,8 @@
           render();
           return true;
         }
+        // Lei 10 — tela nova entra aqui: a de erros fecha e devolve a montagem.
+        if (state.checagem && !state.modal) { state.checagem = null; render(); return true; }
         if (state.modal === "manage-day") {
           // R1 (27/07) — Lei 10 na tela única: Rota rápida e Rotas salvas
           // voltam pra tela principal; ficha "Como resolver?" volta pra lista;
