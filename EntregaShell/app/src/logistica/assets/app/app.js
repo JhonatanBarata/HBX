@@ -9,6 +9,14 @@
   // ONTEM abria a tela com as paradas no mapa e sumia assim que a resposta de HOJE
   // chegava (vazia). Cache de rota só vale pro dia operacional em que foi gravado —
   // dia diferente, o cache morre aqui e a tela nasce limpa.
+  // 28/07 (dono, item 7) — carimbo de "esta rota do dia JÁ FOI ACEITA". Vive no
+  // cache (sobrevive a fechar/abrir o app) porque `rotaConferencia.confirmada` é
+  // só da sessão da tela: sem ele, reabrir o Gerenciador numa rota já aceita e
+  // apertar Voltar DESFAZIA rota já debitada — o dono decidiu 28/07 que voltar só
+  // limpa rota NÃO aceita.
+  function rotaAceitaHoje() { return H.cache.get("logistica-rota-aceita-dia", "") === operationalDate(); }
+  function marcarRotaAceita() { H.cache.set("logistica-rota-aceita-dia", operationalDate()); }
+  function limparRotaAceita() { H.cache.remove("logistica-rota-aceita-dia"); }
   function rotaEmCache() {
     if (H.cache.get("logistica-route-dia", "") === operationalDate()) return H.cache.get("logistica-route", null);
     H.cache.remove("logistica-route");
@@ -39,6 +47,7 @@
     // (reverse geocode com freio, ver resolverEnderecoOcioso).
     idlePosicao: null,
     idleEndereco: null,
+    idleEnderecoDetalhe: null,
     // PR — os KPIs viraram filtros clicáveis da lista de paradas (Fila/Entregue).
     routeFilter: "fila",
     // S1 25/07 (PR25072026-ROTA-CONFERIDA) — crachá do motor de rota. O resultado
@@ -327,6 +336,8 @@
   // reverse geocode do endereço mostrado nele.
   let idleWatchId = null;
   let idleEnderecoBuscando = false;
+  // Balão da bolinha azul (28/07) — 1 por vez, igual toast.
+  let balaoLocal = null;
   // S3 21/07 — disjuntor do recálculo de pernas (regra dura da frente): mínimo
   // 30s entre tentativas + teto de 10 por rota/dia; zera só junto com a trilha
   // (encerrar rota / limpar o dia — ver resetNavRecalcBudget).
@@ -909,6 +920,7 @@
     }
     const markerElement = parts.currentLocationMarker.getElement && parts.currentLocationMarker.getElement();
     if (markerElement) markerElement.classList.remove("has-heading");
+    ligarToqueNaBolinha(host, parts, map);
     const precisao = Number(point.accuracyM);
     const metros = Number.isFinite(precisao) && precisao > 0 ? ` · ±${Math.round(precisao)} m` : "";
     const endereco = state.idleEndereco && state.idleEndereco.texto ? state.idleEndereco.texto : "";
@@ -921,6 +933,49 @@
       parts.idleCameraKey = `${point.lat.toFixed(4)},${point.lng.toFixed(4)}`;
       try { map.easeTo({ center: [point.lng, point.lat], zoom: Math.max(Number(map.getZoom()) || 0, 14.5), duration: 520, essential: false }); } catch (_) {}
     }
+  }
+  // 28/07 (dono) — BALÃO DA BOLINHA AZUL: toque no ponto abre um cartãozinho preso
+  // nele com a rua certinha onde o pino está e o bairro (em cidade de rua numerada,
+  // "estou na Três Nv ou na Três Dv?" é pergunta de verdade). Só DADO em linha
+  // (Lei nº8): rua, bairro, cidade/UF e a precisão do GPS.
+  function balaoLocalHtml(point) {
+    const endereco = (state.idleEndereco && state.idleEndereco.texto) || "";
+    const detalhe = state.idleEnderecoDetalhe || {};
+    const precisao = Number(point && point.accuracyM);
+    const linhaPrecisao = Number.isFinite(precisao) && precisao > 0 ? `±${Math.round(precisao)} m` : "";
+    const rua = detalhe.endereco || endereco || "";
+    const bairro = detalhe.bairro || "";
+    const cidade = [detalhe.cidade, detalhe.uf].filter(Boolean).join("/");
+    const rodape = [cidade, linhaPrecisao].filter(Boolean).join(" · ");
+    if (!rua && !bairro && !cidade) return `<strong>Estou aqui</strong><span>Procurando o endereço…</span>${linhaPrecisao ? `<small>${H.escape(linhaPrecisao)}</small>` : ""}`;
+    return `<strong>${H.escape(rua || "Estou aqui")}</strong>${bairro ? `<span>${H.escape(bairro)}</span>` : ""}${rodape ? `<small>${H.escape(rodape)}</small>` : ""}`;
+  }
+  function abrirBalaoLocal(map, point) {
+    if (!map || !point || !window.maplibregl) return;
+    H.vibrate(8);
+    if (balaoLocal) { try { balaoLocal.remove(); } catch (_) {} balaoLocal = null; }
+    balaoLocal = new window.maplibregl.Popup({ closeButton: false, closeOnClick: true, offset: 22, className: "hbx-balao", maxWidth: "260px" })
+      .setLngLat([point.lng, point.lat])
+      .setHTML(`<div class="hbx-balao-corpo">${balaoLocalHtml(point)}</div>`)
+      .addTo(map);
+    // Endereço ainda não resolvido (ou velho): pede AGORA e repinta o balão aberto.
+    void resolverEnderecoOcioso(point, true);
+  }
+  function atualizarBalaoLocal() {
+    if (!balaoLocal || !balaoLocal.isOpen || !balaoLocal.isOpen()) return;
+    const point = state.idlePosicao || routeLivePoint(routeLiveMode());
+    if (point) balaoLocal.setHTML(`<div class="hbx-balao-corpo">${balaoLocalHtml(point)}</div>`);
+  }
+  function ligarToqueNaBolinha(host, parts, map) {
+    const element = parts.currentLocationMarker && parts.currentLocationMarker.getElement && parts.currentLocationMarker.getElement();
+    if (!element || element.__hbxBalaoBound) return;
+    element.__hbxBalaoBound = true;
+    element.style.cursor = "pointer";
+    element.addEventListener("click", event => {
+      event.preventDefault(); event.stopPropagation();
+      const point = state.idlePosicao || routeLivePoint(routeLiveMode());
+      if (point) abrirBalaoLocal(map, point);
+    });
   }
   function ensureRouteReadingUi(host, map, parts, mode, point) {
     const liveMode = mode || routeLiveMode();
@@ -1042,6 +1097,7 @@
     }
     const markerElement = parts.currentLocationMarker.getElement && parts.currentLocationMarker.getElement();
     if (markerElement) markerElement.classList.toggle("has-heading", Number.isFinite(bearing));
+    ligarToqueNaBolinha(host, parts, map);
     if (Number.isFinite(bearing) && typeof parts.currentLocationMarker.setRotation === "function") parts.currentLocationMarker.setRotation(bearing);
     const accuracy = Number(point.accuracyM);
     parts.gpsStatus.textContent = Number.isFinite(accuracy) && accuracy > 0 ? `GPS · ±${Math.round(accuracy)} m` : "GPS ativo";
@@ -5885,7 +5941,9 @@
     // num cartão separado; o cartão central segue existindo pra qualquer caminho
     // que chegue aqui sem a montagem aberta.
     const host = state.modal === "manage-day" ? "montagem" : "standalone";
-    state.rotaConferencia = { data: null, loading: true, error: null, step: "lista", ficha: null, acknowledged: new Set(), focusParadaId: null, retornoParadaId: null, origem: null, custo: null, ordemManual: null, confirmada: false, cancelada: false, host };
+    // Item 7 — rota do dia JÁ aceita reabre como confirmada: sair (Voltar, ×, fundo)
+    // não desfaz o que já foi pago. Desfazer segue no botão "Cancelar rota".
+    state.rotaConferencia = { data: null, loading: true, error: null, step: "lista", ficha: null, acknowledged: new Set(), focusParadaId: null, retornoParadaId: null, origem: null, custo: null, ordemManual: null, confirmada: rotaAceitaHoje(), cancelada: false, host };
     if (host === "montagem") render(); else showModal("rota-conferencia");
     await recarregarConferencia();
   }
@@ -6154,18 +6212,22 @@
   // Reverse geocode com FREIO (mesma lei do disjuntor): 1 chamada em voo, e só
   // pede de novo quando andou >150 m ou passou de 10 min. Falhou? fica o "Estou
   // aqui" com a precisão — o ponto no mapa já é a prova que o dono pediu.
-  async function resolverEnderecoOcioso(point) {
+  async function resolverEnderecoOcioso(point, agora) {
     if (idleEnderecoBuscando || !netOnline()) return;
     const atual = state.idleEndereco;
-    if (atual && distanceMeters({ lat: atual.lat, lng: atual.lng }, point) < 150 && Date.now() - atual.at < 600000) return;
+    // `agora` = o dedo pediu (balão aberto): o freio de distância/tempo não vale,
+    // mas o "1 em voo por vez" vale sempre.
+    if (!agora && atual && distanceMeters({ lat: atual.lat, lng: atual.lng }, point) < 150 && Date.now() - atual.at < 600000) return;
     idleEnderecoBuscando = true;
     try {
       const rev = await H.api(`/logistica/geo/reverse?lat=${encodeURIComponent(point.lat)}&lng=${encodeURIComponent(point.lng)}`);
       const texto = [[rev && rev.endereco, rev && rev.numero].filter(Boolean).join(", "), rev && rev.bairro].filter(Boolean).join(" - ");
+      state.idleEnderecoDetalhe = rev ? { endereco: rev.endereco || "", bairro: rev.bairro || "", cidade: rev.cidade || "", uf: rev.uf || "" } : null;
       if (texto) {
         state.idleEndereco = { texto, lat: point.lat, lng: point.lng, at: Date.now() };
         if (routeMap && routeMapHost) updateRouteReadingMap(routeMapHost, routeMap);
       }
+      atualizarBalaoLocal();
     } catch (_) { /* endereço é enfeite do ponto; sem rede, o ponto basta */ }
     finally { idleEnderecoBuscando = false; }
   }
@@ -6533,6 +6595,9 @@
       clearRouteEngineState();
       // R1 (27/07) — sem rota, nenhum dia é "Adicionado ✓" nos chips da montagem.
       clearDiasAdicionados();
+      // Item 7 (28/07) — a rota morreu: o carimbo de "já aceita" morre com ela
+      // (a próxima montagem do dia volta a se desfazer ao sair sem aceitar).
+      limparRotaAceita();
       H.stopRoute();
       // S2 21/07 — "encerrar rota limpa" a trilha (spec S2 #4): não sobrevive
       // de um dia pro outro (sobrevive só a pausa/retomada DO MESMO dia, ver
@@ -7315,6 +7380,7 @@
         } catch (error) { toast(humanApiError(error), true); return; }
       }
       rc.confirmada = true;
+      marcarRotaAceita();
       // S5 25/07 — "Aprovar rota": concluir a conferência (Lei 7 "vermelho
       // nunca bloqueia") CONGELA a ordem revisada via o mesmo mecanismo de
       // "Minha ordem"/"Rota salva" (setRouteOrdemManual); a origem usada no

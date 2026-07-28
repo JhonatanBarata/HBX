@@ -1548,3 +1548,15 @@ html.keyboard-open .recarga-checkout-actions { position: sticky; z-index: 8; bot
    0px voltaria em branco). Quem mora aqui é o #route-live-map vivo enquanto o
    motorista está noutra aba. */
 .hbx-mapa-garagem { position: fixed; left: -10000px; top: 0; width: 360px; height: 320px; overflow: hidden; pointer-events: none; opacity: 0; }
+
+/* 28/07 (dono) — BALÃO da bolinha azul: cartãozinho preso no ponto, com a rua
+   e o bairro de onde o GPS está. Entra com pop (Lei nº9 — nada abre seco) e
+   respeita quem pediu menos movimento. Zero cor solta: tudo token. */
+.hbx-balao .maplibregl-popup-content { padding: 0; border-radius: var(--radius); border: 1px solid var(--line); background: var(--surface); box-shadow: 0 14px 34px rgba(17,28,43,.22); overflow: hidden; }
+.hbx-balao .maplibregl-popup-tip { border-top-color: var(--surface); border-bottom-color: var(--surface); }
+.hbx-balao-corpo { display: grid; gap: 2px; padding: 10px 13px; animation: hbx-balao-pop .26s cubic-bezier(.2,1.35,.4,1) both; }
+.hbx-balao-corpo strong { font-size: .84rem; font-weight: 900; color: var(--ink); letter-spacing: -.01em; }
+.hbx-balao-corpo span { font-size: .74rem; font-weight: 800; color: var(--brand-strong); }
+.hbx-balao-corpo small { font-size: .68rem; font-weight: 750; color: var(--muted); }
+@keyframes hbx-balao-pop { from { opacity: 0; transform: translateY(6px) scale(.9); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@media (prefers-reduced-motion: reduce) { .hbx-balao-corpo { animation: none; } }
