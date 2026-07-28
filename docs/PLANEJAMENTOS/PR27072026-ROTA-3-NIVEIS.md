@@ -1,23 +1,78 @@
 # PR27072026 — GERENCIADOR DE ROTA EM 3 NÍVEIS (Basic / Advanced / Full)
 
-> **ESTADO FINAL (28/07 ~00h): TODAS AS FRENTES NO AR** (deploy 2284edcd, verificado
-> dentro do container + link público testado com HTTP 200 real na empresa 41).
+> **ESTADO (28/07 ~06h) — TUDO DESTE ARQUIVO ESTÁ NO AR E TESTADO EM PRODUÇÃO.**
 > F0 motor confiável ✅ · F1 três níveis ✅ · F2 estoque+parada amarela ✅ ·
-> F3 rastreamento-produto ✅ (secret armado na VPS — nasceu LIGADO) ·
-> F4 quarentena de importação ✅. Incidente do dia documentado em
-> [[tx-any-engole-erro-prisma]] e [[guerra-de-sessoes-paralelas-add-a]].
-> **REPASSADA DAS PENDÊNCIAS (28/07, commit `6cdedca9` — LOCAL, publish não pedido):**
-> ✅ tela do extrato de eventos da agenda na ficha do cliente (o endpoint existia
-> desde 27/07 e nenhuma tela mostrava — F0 item 3 estava pela metade);
-> ✅ estoque no BASIC mostra o selo "Disponível no Advanced" em vez do 403 vermelho;
-> ✅ causa do caso Dejanira encontrada e travada (ver "Incidente do reabrir" abaixo).
-> ABERTO (decisões do dono): preço dos 3 níveis; taxa de implantação (destrava
-> IA de visão da F4 fase 2); as 3 entregas com dinheiro órfão em produção.
-> MVPs mantidos de propósito: estoque = 1 caminhão/dia sem seletor de motorista
-> (multi-caminhão é trimestre); {eta} vazio sem rota rastreada é degradação
-> prevista, não bug (o render já limpa o espaço órfão).
+> F3 rastreamento-produto ✅ · F4 quarentena de importação ✅ (deploy `2284edcd`).
+> Depois disso, na madrugada de 28/07, entraram e foram publicadas 3 coisas —
+> ver "O que entrou na madrugada de 28/07" logo abaixo.
+>
+> **🔴 PRÓXIMA FRENTE, NÃO INICIADA: a PÁGINA DE LOGÍSTICA NO WEBSITE.**
+> É o que você pediu em 28/07 e o que sobrou do roadmap desta frente. Material
+> pronto pra usar: os 3 slogans, a tabela de preço 99/199/299, a conta de venda
+> "1 galão ≈ R$ 13 → o Advanced se paga com ~13 fiados recuperados/mês" e o link
+> público de rastreamento como demo viva. Nada disso foi tocado.
+>
+> Incidentes desta frente: [[tx-any-engole-erro-prisma]] e
+> [[guerra-de-sessoes-paralelas-add-a]].
 
-## Incidente do reabrir (achado em 28/07 ao resolver a pendência da Dejanira)
+## O que entrou na madrugada de 28/07 (tudo publicado e verificado em prod)
+
+**1. Repassada das pendências** (`6cdedca9`) — o que estava pela metade:
+- **Tela do extrato de eventos da agenda na ficha do cliente**: o endpoint existia
+  desde 27/07 e NENHUMA tela lia (F0 item 3 entregue pela metade). Painel só-leitura
+  no drawer de Contatos (que `/logistica/clientes` reusa), com o que mudou em
+  de→para, origem, autor e dia/hora em `America/Sao_Paulo` fixo.
+- **Estoque no BASIC**: o 403 do gate virou o selo "Disponível no Advanced"
+  (ver-mas-não-usar), no lugar da tela vermelha de erro.
+
+**2. Família do dinheiro órfão** — 3 bugs da mesma raiz, ver seção abaixo
+(`6cdedca9`, `b3f92dad`, `189b849c`, `1aa54630`), **publicados e testados E2E em
+produção**, mais o reparo dos 3 registros reais.
+
+**3. Preço HÍBRIDO dos 3 níveis** (`40aef2ab`) — plano-mestre próprio em
+[docs/PLANEJAMENTOS/PR28072026-ROTA-PRECO-HIBRIDO.md](PR28072026-ROTA-PRECO-HIBRIDO.md).
+Mensalidade fixa **99/199/299** + **franquia de paradas** inclusa no mês
+(300/600/1000); o excedente segue consumindo crédito. Preço e franquia editáveis
+no Master (janela Créditos → guia **Rota**). O tenant vê "usou X de Y paradas do
+plano neste mês" na tela de regras.
+
+**4. Painel de controle do Master** (pedido do dono: *"é importante eu ter controle
+sem depender de vc"*) — na guia **Empresas** da janela de Créditos, uma linha por
+empresa com **Conta HBX** (Crédito × Empresarial, só leitura), **Plano de Rota**
+(troca na hora), **franquia do mês**, saldo/lotes e as ações **Conceder** e
+**Debitar** (com atalho "Zerar saldo"). O débito nunca deixa saldo negativo, exige
+motivo e é idempotente. Regra que nasceu daí: [[dono-controla-sozinho-no-master]].
+
+⚠️ **Não confundir os DOIS eixos de "plano"** (correção do dono, 28/07): *Conta
+HBX* (`accountType` Crédito × Empresarial, com a chavinha de contrato empresarial
+que já faz valor fixo) é da PLATAFORMA; *Plano de Rota* (Basic/Advanced/Full) é do
+PRODUTO. Não criar um terceiro.
+
+⚠️ **Mudança de unidade feita por outra sessão em 28/07** (`26a6090d`): a Logística
+Simples passou a cobrar **por parada (0,4 crédito)** no lugar do bloco de 5
+(2 créditos) — 5 paradas seguem custando 2, mas 6 custam 2,4 em vez de 4. Quem
+mexer em franquia/billing precisa saber: **1 claim = 1 parada** (`PARADAS_POR_BLOCO
+= 1`), na Simples e na Rastreada.
+
+### Aberto (decisão do dono)
+- **Taxa de implantação** (destrava a IA de visão da F4 fase 2).
+- **Cobrar a mensalidade automaticamente**: nenhuma empresa tem `CompanySubscription`
+  — os R$ 199 são ato comercial FORA do app. Amarrar no MercadoPago é decisão dele.
+- **Reembolso** no Master: adiado por ele (*"vou sofrer quando chegar"*). Antes de
+  codar, definir se é estornar crédito, devolver o dinheiro da recarga, ou os dois.
+- Se os 3 níveis viram família de plano própria no checkout (a 41 é logística-only,
+  então "Rota Basic 99" bateria de frente com o "Padrão 99" da plataforma).
+
+### MVPs mantidos de propósito
+Estoque = 1 caminhão/dia sem seletor de motorista (multi-caminhão é trimestre);
+`{eta}` vazio sem rota rastreada é degradação prevista, não bug.
+
+### Não verificado por mim
+A **tela do Master** (não tenho a senha do usuário master `Jhonatan`; a credencial
+de teste é a da empresa 5) e a **montagem de rota do piloto da 41** das ~6h de
+28/07 — que é o primeiro caso real da franquia e do freio do reabrir rodando juntos.
+
+## Dinheiro órfão: 3 bugs da mesma família (achados ao resolver a Dejanira)
 
 `POST /logistica/entregas/:id/reabrir` devolvia a entrega pra 'agendada' e NÃO
 olhava o dinheiro que o confirmar tinha criado. Quem reabria e não reconfirmava
@@ -52,9 +107,24 @@ ficha do cliente mostra o conserto com de→para. Conferido depois: a query
 `FinanceiroCharge JOIN Entrega WHERE status <> 'entregue'` não devolve mais
 nenhuma cobrança viva.
 
-⚠️ **O código do freio está só no master local** (`6cdedca9`, `b3f92dad`,
-`189b849c`) — **publish não foi pedido**. Até publicar, a produção segue com o
-reabrir/cancelar antigos e o buraco pode nascer de novo.
+**3º bug da família — O BUG DO VALOR (`1aa54630`):** reabrir existe pra "corrigir
+quantidade ou incluir itens" e era exatamente nisso que falhava. O reconfirmar
+recalcula `Entrega.valor` pelos itens, mas pula o bloco de efeitos inteiro
+(`reabertaParaCorrecao` — e faz certo: não pode disparar WhatsApp nem criar 2ª
+cobrança), então o charge ficava com o valor VELHO. **Entregou 3 galões, cobrou 2.**
+`sincronizarCobrancaReaberta` aplica a MESMA regra dos outros dois freios: dinheiro
+não recebido segue a entrega, dinheiro recebido não se mexe. Valor corrigido pra
+ZERO (cortesia) cancela a cobrança em vez de deixar R$ 0,00 pendente — senão a
+cobrança automática cobraria zero real no WhatsApp do cliente.
+
+✅ **TUDO PUBLICADO E TESTADO EM PRODUÇÃO** (28/07 ~04h, deploy `1aa54630`). E2E real
+na empresa sandbox 5 (nenhum cliente da 41/48 tocado, dados do teste apagados):
+corrigiu 2→3 unidades ⇒ entrega R$ 30 **e cobrança R$ 30** (era o bug), 1 só
+cobrança; `[Pago]` do APK quitou normal; reabrir entrega paga ⇒ **400** "Esta
+entrega já foi paga (R$ 30,00). Cancele o recebimento no financeiro do cliente
+antes de reabrir."
+
+Detalhe da API pra quem for testar: `POST /auth/login` usa **`username`**, não `email`.
 
 > Decisão do dono (27/07): o produto de logística vira ESCADA de 3 planos vendáveis.
 > Este arquivo é o plano-mestre. Regra de ouro da arquitetura (dono, 27/07):
