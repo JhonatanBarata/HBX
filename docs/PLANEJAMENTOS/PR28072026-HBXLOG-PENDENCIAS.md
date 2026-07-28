@@ -2,8 +2,11 @@
 
 > Handoff pra próxima sessão. Ler junto com a memória `hbxlog` (regra de teste no celular,
 > 10 Leis de UI, build/publish/ADB). Aparelho: moto g15 `ZF5255SMWF`, cabo plugado.
-> **NO AR agora: Loghbx v86** (backend + APK publicados 28/07 ~03:40, `HBX_PUBLISH_COMMITTED_ONLY=1
-> npm run new`) — o g15 está com o build local **87** (fix do encaixe da Rota rápida, ainda não publicado).
+> **NO AR agora: Loghbx v89 + backend** (publicados 28/07 ~05:00, `HBX_PUBLISH_COMMITTED_ONLY=1 npm run
+> new`) — o g15 está no **89**, instalado por cabo. Levou: fix do encaixe da Rota rápida, fix do espelho
+> cadastro→Agenda (2 causas, §2b) e o WARN de falha de espelho.
+> ⚠️ O APK é buildado do **tree LOCAL** (só o backend é committed-only), então as edições em andamento do
+> dono no `EntregaShell/` (app.js, native.js, app.css, Kotlin) foram junto nos v88/v89.
 
 ---
 
@@ -37,31 +40,50 @@
 | # | Item | Resultado |
 |---|---|---|
 | 1 | **"Tirar só da rota de hoje (1)"** | ✅ tira da montagem de HOJE, a rota monta com o resto e cai na Conferência ("1 parada, 0 com avisos"). **Cadastro intocado** conferido no banco (`diasSemana` e plano seguem lá). |
-| 2 | **"Remover este dia do cadastro (1)"** | ❌ **META BUG** — tira o dia do VÍNCULO (`diasSemana` esvazia) mas o **plano da Agenda continua `ativo`**, então o cliente **volta no roster do dia**: a reconferência devolveu "1 problema em 2 clientes" outra vez. É o oposto do que o dono pediu ("assim não volta na rota"). Ver §2b. |
+| 2 | **"Remover este dia do cadastro (1)"** | ❌ estava quebrado → 🔧 **CORRIGIDO E NO AR** (2 causas, §2b). Provado na tela: o cliente sai do dia, a tela de erros **zera sozinha** e a rota monta com quem sobrou (1 parada, 1,8 km). No banco: `diasSemana` vazio, `proximaData` nula, plano `ativo=f`. |
 | 3 | Toque na linha de erro → cadastro → volta | ✅ abre a ficha real, fechar volta pra tela de erros já reconferindo. |
 | 4 | Rota salva com dia fixo no mesmo portão | ⬜ não testado (não havia rota salva com dia fixo à mão). |
 | 5 | **Encaixe da Rota rápida com rota de pé** | 🔧 estava **QUEBRADO**, corrigido e provado: a parada nascia, mas ficava NO DIA e FORA da rota (`rotaOrdem` null, contador travado em "1 de 1"). Causa: `items()` filtra pela seleção do dia e o id novo não entrava nela, então `openItems()` não via a parada e `encaixarParadaNaRota` devolvia `aplicado:false` (o caminho do Gerenciador já somava o id; o da tela Rota não). Depois do fix: **"1 de 2" na tela**. |
 | 6 | Voltar não mata rota **aceita** | ✅ com a rota aceita, Voltar fecha o Gerenciador e a rota continua de pé. |
 | 7 | Header cortado | ✅ não reproduziu em nenhum dos estados percorridos. |
 
-### 2b. O buraco que apareceu no meio (vale mais que os itens acima)
+### 2b. O buraco que apareceu no meio — CORRIGIDO (vale mais que a fila inteira)
 
-**O espelho cadastro→Agenda não está escrevendo plano nenhum na empresa 48.** Duas provas na mesma noite:
+**O espelho cadastro→Agenda não escrevia plano nenhum**, nas duas direções, e falhava **calado**. Eram
+DUAS causas independentes, achadas rodando o próprio `espelharVinculoCadastro` contra a base de prod:
 
-1. **Tirar o dia** (item 2): `definirDiasDoCliente` limpa o vínculo, mas `LogisticaPlanoEntrega` do dia
-   segue `ativo=true` → o cliente volta.
-2. **Pôr o dia**: cliente novo com TER marcado e produto salvo ficou com `ClienteProduto.diasSemana='2'`
-   e **zero plano** → card com pendência "Dia" pra sempre e cliente fora de todo roster.
+**Causa 1 — `companyId` em create ANINHADO** (`fix ed6db9d6`, no ar). O erro que ninguém via:
 
-`agendaV2Ativa` está `true` nas 8 empresas e o `create` do plano funciona na mão (testado com Prisma no
-container, criou), então a falha está DENTRO de `espelharVinculoCadastro` (ou no `updatePlan`/`createPlan`
-que ele chama) — e ela é **silenciosa**: o retorno tem `agendaAvisos`, mas nem o controller loga nem o app
-mostra. **Primeiro passo da próxima sessão: logar o `agendaAvisos` do `PATCH /logistica/clientes/:id/dias`
-e do `POST /logistica/rota/tirar-do-dia`** — sem isso o diagnóstico é chute.
+```
+Invalid prisma.logisticaRotaModeloParada.create() invocation:
+  itens: { create: [ { companyId: 48, productId: 66, ... } ] }
+  Unknown argument `companyId`.
+```
 
-Efeito colateral do mesmo buraco, no cadastro NOVO: o `salvarDiasDoCliente` só é chamado dentro do
-`if (productIdNovo)` (app.js, ramo `new-client-form`), então **cliente cadastrado com dia marcado e sem
-produto perde o dia calado** — o form de edição já faz certo (`if (diasNovos.length)`), o de criação não.
+`companyId` participa das relações compostas, então o Prisma o herda do pai; passá-lo num create aninhado
+derruba **só em runtime** (o `tx: any` come o typecheck). A lei já estava escrita no `createPlan` e no
+importador legado — o **`createRouteStop` era o último call site que tinha ficado com o campo**. Como ele
+roda DENTRO da transação, a exceção desfazia o plano inteiro. É a mesma família do `tx: any` de 27/07.
+
+**Causa 2 — a `proximaData` órfã** (`fix 887a21ea`, no ar). Com a causa 1 resolvida, tirar o dia ainda
+não removia: `planejarEspelho` devolvia `{"remover":[],"manter":[2]}`. `diasDoVinculo` cai pro
+dia-da-semana do `proximaData` quando não há dia explícito (regra legítima da cadência POR DATA), e o
+`definirDiasDoCliente` esvaziava `diasSemana` deixando a data (uma terça) — o dia removido voltava por
+essa porta. Agora, perdendo o ÚLTIMO dia fixo e sem `frequenciaDias`, a `proximaData` vai junto.
+Tirar 1 dia de quem tem 2 já funcionava (sobra dia explícito); o furo era só no último dia — o caso normal.
+
+**O freio:** toda falha de espelho agora vira **WARN no log** (`reportarEspelho`). Os avisos voltavam em
+`agendaAvisos` e ninguém logava — foi por isso que um erro de Prisma sobreviveu semanas sem rastro.
+
+**Provas na tela (g15, v89):** cliente novo com TER + produto nasce com "Entrega TER" e **sem** a pendência
+vermelha "Dia" (antes: pendência eterna e cliente fora de todo roster) · "Remover este dia do cadastro"
+zera a tela de erros sozinha e a rota monta com quem sobrou (banco: `diasSemana` vazio, `proximaData` nula,
+plano `ativo=f`).
+
+⬜ **Ainda aberto (mesma família, menor):** no `new-client-form` o `salvarDiasDoCliente` só é chamado dentro
+do `if (productIdNovo)` — **cliente cadastrado com dia marcado e SEM produto perde o dia calado**. O form
+de edição já faz certo (`if (diasNovos.length)`). Consertar direito exige decidir se dia-sem-produto vira
+plano sem item (o schema aceita) ou se o form passa a exigir produto.
 
 Copy: a confirmação diz "1 cliente perde este dia no cadastro e **não voltam** sozinhos" (singular×plural).
 
