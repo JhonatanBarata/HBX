@@ -53,12 +53,11 @@
   --rail-width: 190px;        /* menu (Premium: 200px)           */
   --rail-width-min: 48px;
   --context-width: 220px;
-  /* ⚠️ NO-OP HOJE (medido 28/07): --shell-gap e --content-gutter estão
-     declarados no spacing.css mas NENHUMA folha os consome — cada tela pada a
-     si mesma em px cravado. Ficam aqui declarados porque são o lugar CERTO
-     dessa medida quando a fila de tokenização chegar nelas; enquanto isso não
-     mudam um pixel. Deixar explícito pra ninguém achar que já funciona. */
-  --shell-gap: 0px;           /* painéis encostam: vira grade     */
+  --shell-gap: 0px;           /* painéis encostam: vira grade — LIGADO no .app */
+  /* ⚠️ --content-gutter continua NO-OP: está no spacing.css mas nenhuma folha
+     o consome (cada tela pada a si mesma em px cravado). Fica declarado porque
+     é o lugar certo da medida quando a fila de tokenização chegar nas telas —
+     explícito pra ninguém achar que já funciona. */
   --content-gutter: 0px;
 
   /* RITMO — escada de 4px comprimida um degrau. */
@@ -162,15 +161,17 @@
   text-align: right;
 }
 
-/* ---- 4b. CHIPS DE STATUS — retângulo, não pílula ----------------------
-   `.tag` é a classe CENTRAL de status e crava `border-radius: 999px` (são 49
-   raios cravados assim no kit.css). Vestir componente central é papel DA
-   CASCA, então o override mora aqui e não no kit: assim Premium e Backup
-   continuam byte-a-byte como estavam. Tokenizar os 49 no kit é item da fila
-   de tokenização — quando isso acontecer, esta regra vira desnecessária e sai. */
-[data-casca="corporativa"] .tag {
-  border-radius: var(--radius-sm);
-}
+/* ---- 4b. CHIPS DE STATUS ---------------------------------------------
+   RESOLVIDO NA RAIZ (28/07): existia aqui um override do `.tag` porque o
+   kit.css cravava `border-radius: 999px`. A faxina tokenizou os 16 chips de
+   TEXTO do kit para var(--radius-pill), então todos eles já seguem a casca
+   sozinhos e o remendo saiu — nada de legado.
+
+   Os 33 raios que sobraram cravados no kit são círculo, trilha, medidor e
+   ponto de status: redondo ali é NATUREZA, não decoração, e o padrão é
+   continuar redondo em qualquer casca. A exceção é o avatar, que esta casca
+   quadra de propósito no bloco 5 — decisão de identidade, declarada uma vez
+   e explícita, não acidente de cascata. */
 
 /* ---- 5. PAINÉIS E CARDS — planos, retangulares, sem halo -------------- */
 [data-casca="corporativa"] .kpi,
