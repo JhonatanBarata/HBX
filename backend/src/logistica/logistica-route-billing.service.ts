@@ -771,8 +771,19 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
     // Rota VAZIA continua barrada; rota só de pendências migradas (todas
     // billingExempt, 0 blocos cobráveis) PODE iniciar — já foi paga na origem.
     if (stopCount === 0) throw commercialUnavailable();
+    // 28/07 — mesma régua do billableDeliveries do snapshot e do gate da
+    // entrega (L~802): parada CANCELADA não conta bloco. Sem o filtro, um
+    // stop de entrega cancelada (ex.: limpar-dia com a rota ainda PLANNED)
+    // inflava requiredBlocks acima dos claims reais e o iniciar levava 402
+    // com a cobrança em dia (provado em prod: snapshot com 1 cancelada +
+    // 1 viva, 1 claim PLAN válido, gate exigindo 2).
     const billableCount = await (this.prisma as any).logisticaRouteStop.count({
-      where: { companyId: route.companyId, routeId: route.id, billingExempt: false },
+      where: {
+        companyId: route.companyId,
+        routeId: route.id,
+        billingExempt: false,
+        delivery: { status: { not: 'cancelada' } },
+      },
     });
     const requiredBlocks = essentialBlocksForDeliveries(billableCount);
     if (requiredBlocks === 0) return;
