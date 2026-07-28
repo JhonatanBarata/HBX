@@ -16,7 +16,6 @@
 // arriscar um split errado que passaria por dado bom.
 
 import { extrairNumeroPorta } from '../nucleo/cnefe-resolver.util';
-import { logradouroDoCadastro } from './logistica-cep.util';
 
 export interface ParsedItemFields {
   nome: string | null;
@@ -134,7 +133,7 @@ export function encontrarTelefone(texto: string): { digitos: string; match: stri
 // codepoints antes de descartar o combinante — então índice normalizado ≠ índice
 // original). Por isso as vogais acentuadas entram na classe de caracteres, e o `i`
 // cobre maiúscula/minúscula.
-const QTD_PRODUTO_RE = /\b(\d{1,3})\s*[x×]?\s*(gal(?:[ãa]o|[õo]es|o)\w*|garraf\w*|buj(?:[ãa]o|[õo]es)\w*|botij\w*|unid\w*|un\b)/i;
+const QTD_PRODUTO_RE = /\b(\d{1,3})\s*[x×]?\s*(gal(?:[ãa]o|[õo]es|o)\w*|garraf\w*|buj(?:[ãa]o|[õo]es)\w*|botij(?:[ãa]o|[õo]es)?\w*|unid\w*|un\b)/i;
 
 export function encontrarQtdProduto(texto: string): { qtd: number; produtoTexto: string; match: string } | null {
   const m = QTD_PRODUTO_RE.exec(texto);
@@ -217,9 +216,6 @@ export function parseLinhaTexto(
 
   const endereco = enderecoSemUf.length ? enderecoSemUf.join(', ') : null;
   const numero = endereco ? String(extrairNumeroPorta({ endereco }) ?? '') || null : null;
-  // Só pra confirmar que HÁ uma via reconhecível (não guarda campo separado — o
-  // sanitizador refaz esta mesma leitura a partir de `endereco`, fonte única).
-  void (endereco ? logradouroDoCadastro(endereco) : '');
 
   return {
     nome,

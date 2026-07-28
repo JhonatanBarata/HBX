@@ -7,6 +7,9 @@ import { CreditsModule } from '../credits/credits.module';
 // PR10072026 W1: gate de módulo em rota (ModuleAccessGuard precisa do ModulesService).
 import { ModulesAccessModule } from '../modules/modules.module';
 import { AuthModule } from '../auth/auth.module';
+// F4 (27/07) — quarentena de importação reusa o cadastro idempotente do NÚCLEO-CRM
+// (NucleoCadastroService#createConta) pra virar CustomerProfile na efetivação.
+import { NucleoModule } from '../nucleo/nucleo.module';
 import { LogisticaService } from './logistica.service';
 import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
 import { LogisticaRecorrenciaOccurrenceService } from './logistica-recorrencia-occurrence.service';
@@ -45,6 +48,8 @@ import { LogisticaAgendaController } from './logistica-agenda.controller';
 import { LogisticaAgendaService } from './logistica-agenda.service';
 import { LogisticaBaseSaudeController } from './logistica-base-saude.controller';
 import { LogisticaBaseSaudeService } from './logistica-base-saude.service';
+import { LogisticaImportacaoController } from './logistica-importacao.controller';
+import { LogisticaImportacaoService } from './logistica-importacao.service';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (app de entrega, cliente água).
@@ -126,9 +131,16 @@ import { LogisticaBaseSaudeService } from './logistica-base-saude.service';
  * apontada pro tenant inteiro em vez da rota do dia. Read-only puro (só
  * findMany/groupBy); nenhuma dependência nova de módulo (só PrismaModule, já
  * importado acima).
+ *
+ * F4 QUARENTENA-DE-IMPORTAÇÃO (27/07, PR27072026-ROTA-3-NIVEIS): LogisticaImportacaoController/
+ * Service expõem `/logistica/importacao` — arquivo novo, dono próprio (F4), zero
+ * edição nos controllers/DTOs que a frente F1 (níveis de plano) mexe em paralelo.
+ * Importa NucleoModule (novo import aqui) só pra reusar NucleoCadastroService#createConta
+ * na efetivação — LogisticaAgendaService (plano de entrega) já é provider deste
+ * módulo, nenhum import extra precisa pra ele.
  */
 @Module({
-  imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule],
+  imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule, NucleoModule],
   controllers: [
     LogisticaController,
     LogisticaAdminRouteController,
@@ -139,6 +151,7 @@ import { LogisticaBaseSaudeService } from './logistica-base-saude.service';
     LogisticaOsrmController,
     LogisticaAgendaController,
     LogisticaBaseSaudeController,
+    LogisticaImportacaoController,
   ],
   providers: [
     LogisticaService,
@@ -176,6 +189,7 @@ import { LogisticaBaseSaudeService } from './logistica-base-saude.service';
     LogisticaTrackingBonusService,
     LogisticaAgendaService,
     LogisticaBaseSaudeService,
+    LogisticaImportacaoService,
   ],
   exports: [
     LogisticaService,
