@@ -4,9 +4,20 @@
   // Versões anteriores armazenavam a resposta genérica de customer-profiles,
   // que também contém contatos importados pelo WhatsApp. Nunca reaproveite esse cache.
   H.cache.remove("logistica-clients");
+  // 28/07 (dono, item 8) — "entrando no menu principal o mapa fica piscando com os
+  // pré-carregamentos e depois limpa": o cache da rota não guardava DIA. A rota de
+  // ONTEM abria a tela com as paradas no mapa e sumia assim que a resposta de HOJE
+  // chegava (vazia). Cache de rota só vale pro dia operacional em que foi gravado —
+  // dia diferente, o cache morre aqui e a tela nasce limpa.
+  function rotaEmCache() {
+    if (H.cache.get("logistica-route-dia", "") === operationalDate()) return H.cache.get("logistica-route", null);
+    H.cache.remove("logistica-route");
+    H.cache.remove("logistica-route-dia");
+    return null;
+  }
   const state = {
     screen: new URLSearchParams(window.location.search).get("screen") || "route",
-    route: H.cache.get("logistica-route", null),
+    route: rotaEmCache(),
     routeSelection: H.cache.get("logistica-route-selection", null),
     products: H.cache.get("logistica-products", []),
     clients: [],
@@ -45,7 +56,7 @@
     query: "",
     selected: null,
     modal: null,
-    loading: !H.cache.get("logistica-route", null),
+    loading: !rotaEmCache(),
     refreshing: false,
     error: null,
     toast: null,
@@ -487,6 +498,29 @@
   }
   function validCoordinates(latValue, lngValue) { const lat = Number(latValue); const lng = Number(lngValue); return Number.isFinite(lat) && Math.abs(lat) <= 90 && Number.isFinite(lng) && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0); }
   function routeMapPoints() { return orderedItems().map((item, index) => { const client = item.cliente || {}; const lat = Number(client.lat); const lng = Number(client.lng); return validCoordinates(lat, lng) ? { item, lat, lng, number: index + 1 } : null; }).filter(Boolean); }
+  // 28/07 (dono, item 8) — GARAGEM DO MAPA. Trocar de aba (Rota → Clientes →
+  // Rota) DESTRUÍA a instância maplibre e a volta recriava tudo: tiles baixando
+  // de novo, "Carregando mapa…", marcadores aparecendo depois — a piscada que o
+  // dono vê "ao entrar no menu principal". Agora o nó VIVO fica estacionado fora
+  // da tela e volta inteiro pro lugar quando a Rota reaparece. Destruir de
+  // verdade só quando o mapa muda de host (montagem) ou o app descarta.
+  let mapaEstacionado = null;
+  function garagemDoMapa() {
+    let garagem = document.querySelector(".hbx-mapa-garagem");
+    if (!garagem) {
+      garagem = document.createElement("div");
+      garagem.className = "hbx-mapa-garagem";
+      garagem.setAttribute("aria-hidden", "true");
+      document.body.appendChild(garagem);
+    }
+    return garagem;
+  }
+  function estacionarRouteMap() {
+    if (!routeMap || !routeMapHost || routeMapHost.id !== "route-live-map") { disposeRouteMap(); return; }
+    if (mapaEstacionado === routeMapHost) return;
+    garagemDoMapa().appendChild(routeMapHost);
+    mapaEstacionado = routeMapHost;
+  }
   function disposeRouteMap() {
     // PR18072026 L4-D — quando de fato descartamos, limpar as marcas no
     // elemento (el.__hbxMap/__hbxMapParts) pra que o transplante do native.js
@@ -502,6 +536,9 @@
       routeMapHost.__hbxMap = null;
       routeMapHost.__hbxMapParts = null;
     }
+    // Item 8 — mapa estacionado na garagem morre junto (o nó sai do documento):
+    // é o único jeito de o próximo mountMap saber que precisa criar um novo.
+    if (mapaEstacionado) { try { mapaEstacionado.remove(); } catch (_) {} mapaEstacionado = null; }
     if (routeMap) { routeMap.remove(); routeMap = null; }
     routeMapHost = null;
   }
@@ -1314,8 +1351,19 @@
     });
   }
   async function mountMap(hostId, points, interactive, opts) {
-    const host = document.getElementById(hostId);
+    let host = document.getElementById(hostId);
     if (!host) return;
+    // Item 8 — voltando pra Rota, o mapa que ficou na garagem entra no lugar do
+    // placeholder novo (nada de instância nova, nada de tiles baixando de novo).
+    if (hostId === "route-live-map" && mapaEstacionado && host !== mapaEstacionado && mapaEstacionado.__hbxMap) {
+      host.replaceWith(mapaEstacionado);
+      host = mapaEstacionado;
+      mapaEstacionado = null;
+      routeMapHost = host;
+      routeMap = host.__hbxMap;
+      const mapaVoltou = routeMap;
+      requestAnimationFrame(() => { if (routeMap === mapaVoltou && typeof mapaVoltou.resize === "function") { try { mapaVoltou.resize(); } catch (_) {} } });
+    }
     try {
       // R1 (27/07) — keepOrder: a montagem manda pontos JÁ na ordem da rota
       // conferida/prévia; re-otimizar aqui desenharia no mapa uma ordem que
@@ -5354,7 +5402,9 @@
     // do native.js já conhece) e a Rota por baixo fica sem mapa até fechar.
     const montagemMapaAberta = state.modal === "manage-day" && state.dayOrderStep !== "saved";
     const willShowRouteMap = state.screen === "route" && !montagemMapaAberta;
-    if (!willShowRouteMap && !montagemMapaAberta) disposeRouteMap();
+    // Item 8 (28/07) — sair da tela Rota ESTACIONA o mapa em vez de destruí-lo
+    // (ver garagemDoMapa): voltar não recarrega tile nenhum.
+    if (!willShowRouteMap && !montagemMapaAberta) estacionarRouteMap();
     // S3 21/07 — mesma regra pro mapa vivo da Leitura (host próprio, ver bloco
     // mountLeituraLiveMap acima): só descarta quando este render NÃO vai
     // reexibir a tela.
@@ -5929,6 +5979,9 @@
     if (results[0].status === "fulfilled") {
       state.route = results[0].value;
       H.cache.set("logistica-route", state.route);
+      // Item 8 — o cache carrega o DIA junto (ver rotaEmCache): sem isso a rota de
+      // ontem reaparecia no boot de hoje e sumia quando a de hoje chegava.
+      H.cache.set("logistica-route-dia", operationalDate());
       restoreRouteEngineState(state.route);
       state.error = null;
       state.routeBootRetries = 0;

@@ -1543,3 +1543,8 @@ html.keyboard-open .recarga-checkout-actions { position: sticky; z-index: 8; bot
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; transition-duration: .01ms !important; }
   .route-current-location::after { animation: none !important; opacity: .38; transform: scale(1.1); }
 }
+
+/* 28/07 (item 8) — garagem do mapa: fora da vista, mas COM tamanho (canvas de
+   0px voltaria em branco). Quem mora aqui é o #route-live-map vivo enquanto o
+   motorista está noutra aba. */
+.hbx-mapa-garagem { position: fixed; left: -10000px; top: 0; width: 360px; height: 320px; overflow: hidden; pointer-events: none; opacity: 0; }
