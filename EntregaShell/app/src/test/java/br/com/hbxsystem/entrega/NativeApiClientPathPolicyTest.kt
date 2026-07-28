@@ -10,6 +10,7 @@ class NativeApiClientPathPolicyTest {
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/nucleo/clientes"))
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/nucleo/contas"))
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/nucleo/clientes/cliente-1"))
+        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/nucleo/contas/por-endereco"))
         assertTrue(isMobileEndpointAllowed("logistica", "PATCH", "/nucleo/contas/cliente-1"))
         assertTrue(isMobileEndpointAllowed("logistica", "DELETE", "/nucleo/contas/cliente-1"))
         assertTrue(isMobileEndpointAllowed("logistica", "PATCH", "/nucleo/locais/local-1"))

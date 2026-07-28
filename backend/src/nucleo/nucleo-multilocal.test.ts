@@ -372,6 +372,13 @@ function buildSyncMock(seed: { profiles?: any[]; locais?: any[]; contatos?: any[
           ) || null
         );
       },
+      // 🔴 28/07 — o freio anti-duplicata de endereço (acharContasNoEndereco) varre
+      // os perfis da empresa; quem decide "mesma porta" é o JS, então o fake pode
+      // devolver o tenant inteiro sem imitar o filtro do Prisma.
+      findMany: async (args: any) => {
+        const w = args?.where || {};
+        return store.profiles.filter((p) => w.companyId == null || p.companyId === w.companyId);
+      },
       create: async (args: any) => {
         const row = { id: `p${++pid}`, companyId: 7, ...args.data };
         store.profiles.push(row);

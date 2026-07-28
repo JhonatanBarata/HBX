@@ -287,6 +287,9 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             && segments.take(3) == listOf("logistica", "agenda", "dias")
             && segments[4] == "previa" -> true
         method == "GET" && segments.size == 3 && segments.take(2) == listOf("nucleo", "clientes") -> true
+        // 🔴 28/07 (dono) — anti-duplicata de endereço da Rota rápida: quem JÁ está
+        // nesta porta. Leitura pura; sem isto o app cria conta nova em cima da antiga.
+        method == "GET" && segments == listOf("nucleo", "contas", "por-endereco") -> true
         // Reverse geocode do ponto capturado na leitura de rota. Sem isto o app
         // caía sempre no Nominatim: o backend respondia, a política é que barrava.
         method == "GET" && segments == listOf("logistica", "geo", "reverse") -> true

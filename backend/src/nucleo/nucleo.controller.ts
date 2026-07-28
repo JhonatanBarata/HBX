@@ -136,6 +136,34 @@ export class NucleoController {
   }
 
   /**
+   * 🔴 28/07 (dono, na Rota rápida do APK: "nem compara se já existe o endereço?") —
+   * QUEM JÁ ESTÁ NESTA PORTA. Leitura pura, company-scoped: a tela pergunta ANTES de
+   * criar mais uma linha no mesmo endereço. Sem número → lista vazia (a régua é
+   * fail-closed: duplicata falsa manda a entrega pro cliente errado).
+   *
+   * Declarado ANTES de qualquer `contas/:id` — path literal tem que ganhar do param.
+   */
+  @Get('contas/por-endereco')
+  async contasPorEndereco(
+    @Req() req: any,
+    @Query('numero') numero?: string,
+    @Query('cep') cep?: string,
+    @Query('endereco') endereco?: string,
+    @Query('bairro') bairro?: string,
+    @Query('cidade') cidade?: string,
+    @Query('uf') uf?: string,
+    @Query('ignorar') ignorar?: string,
+  ) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const contas = await this.service.acharContasNoEndereco(
+      companyId,
+      { numero, cep, endereco, bairro, cidade, uf },
+      { ignorarId: ignorar ?? null },
+    );
+    return { contas };
+  }
+
+  /**
    * Cria uma CONTA manual + o contato principal (o vendedor cadastrando cliente).
    * GRÁTIS (não é lead da base 28M → não debita crédito). Idempotente por
    * documento/cnpj/telefone dentro da empresa.

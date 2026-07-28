@@ -2,6 +2,8 @@ import { BadRequestException, ConflictException, Injectable, Logger } from '@nes
 import { PrismaService } from '../prisma/prisma.service';
 import { hasNumericCoord, resolveServerGeo } from './nucleo-geo.util';
 import { normalizeSearch } from './nucleo-search.util';
+// 🔴 28/07 (dono) — régua de "mesma porta" do anti-duplicata de endereço.
+import { mesmaPorta, numeroDaPorta, PortaCadastro } from './endereco-porta.util';
 import { decidirGeoFonteCadastro } from '../logistica/logistica-geo-fonte.util';
 
 /**
@@ -1054,6 +1056,86 @@ export class NucleoCadastroService {
   }
 
   /**
+   * 🔴 QUEM JÁ ESTÁ NESTA PORTA? (28/07, ordem do dono) — leitura pura, company-scoped.
+   *
+   * Serve pro cadastro PERGUNTAR antes de criar mais uma linha no mesmo endereço
+   * (Rota rápida do APK) e pro `createConta` não deixar passar stub duplicado.
+   * A régua de "mesma porta" vive em `endereco-porta.util` (fail-closed: sem número
+   * dos dois lados não decide nada).
+   *
+   * Candidatos vêm em 2 tiros baratos e o JS confirma a porta:
+   *  1. coluna `numero` contendo os dígitos pedidos (o caminho de 99% da base nova);
+   *  2. legado COMPOSTO (número dentro do texto, coluna vazia) — só se o 1º não achou.
+   * Apagado (status 'deleted') nunca conta.
+   */
+  async acharContasNoEndereco(
+    companyId: number,
+    alvo: PortaCadastro,
+    opts?: { ignorarId?: string | null; limite?: number },
+  ): Promise<ContaNoEndereco[]> {
+    if (!companyId) throw new Error('acharContasNoEndereco: companyId é obrigatório');
+    const numero = numeroDaPorta(alvo);
+    if (!numero) return [];
+    const numeroTexto = String(numero);
+    const limite = Math.min(10, Math.max(1, Math.trunc(Number(opts?.limite) || 5)));
+    const ignorar = String(opts?.ignorarId ?? '');
+
+    const select = {
+      id: true,
+      name: true,
+      endereco: true,
+      numero: true,
+      bairro: true,
+      cidade: true,
+      uf: true,
+      cep: true,
+      isCliente: true,
+      isLead: true,
+      isFornecedor: true,
+      phone: true,
+    } as const;
+
+    const confirmar = (rows: Array<Record<string, any>>): ContaNoEndereco[] =>
+      rows
+        .filter((row) => String(row.id) !== ignorar && mesmaPorta(alvo, row as PortaCadastro))
+        .slice(0, limite)
+        .map((row) => ({
+          id: String(row.id),
+          nome: row.name ?? null,
+          endereco: row.endereco ?? null,
+          numero: row.numero ?? null,
+          bairro: row.bairro ?? null,
+          cidade: row.cidade ?? null,
+          uf: row.uf ?? null,
+          cep: row.cep ?? null,
+          isCliente: Boolean(row.isCliente),
+          isLead: Boolean(row.isLead),
+          isFornecedor: Boolean(row.isFornecedor),
+          telefone: row.phone ?? null,
+        }));
+
+    const porColuna = await this.prisma.customerProfile.findMany({
+      where: { companyId, status: { not: 'deleted' }, numero: { contains: numeroTexto } },
+      select,
+      take: 60,
+    });
+    const achados = confirmar(porColuna);
+    if (achados.length) return achados;
+
+    const porTexto = await this.prisma.customerProfile.findMany({
+      where: {
+        companyId,
+        status: { not: 'deleted' },
+        OR: [{ numero: null }, { numero: '' }],
+        endereco: { contains: numeroTexto },
+      },
+      select,
+      take: 60,
+    });
+    return confirmar(porTexto);
+  }
+
+  /**
    * Cria uma CONTA manual (`origin='manual'`) + o CONTATO principal (a pessoa) —
    * o fluxo do vendedor cadastrando "Dona Maria" + endereço. GRÁTIS (não debita
    * crédito: não é lead da base 28M).
@@ -1102,6 +1184,25 @@ export class NucleoCadastroService {
         where: { companyId, phoneNormalized },
         select: GEO_RECORD_SELECT,
       });
+    }
+    // 🔴 28/07 (dono) — STUB da mesma porta NÃO vira linha nova. A Rota rápida no modo
+    // "Direção" cria conta só pra segurar o endereço da parada (sem papel nenhum:
+    // isCliente/isLead/isFornecedor false); passar 3× na mesma casa criava 3 contas.
+    // Quem chega depois ASSUME o stub — inclusive o cadastro de verdade, que herda a
+    // porta e carimba nome + papel por cima.
+    // Só STUB é absorvido aqui: conta COM papel nunca é fundida sozinha (dois
+    // moradores no mesmo endereço são duas contas legítimas — juntar é decisão de
+    // tela, com o nome na frente de quem cadastra, nunca silenciosa).
+    if (!existing) {
+      const stub = (await this.acharContasNoEndereco(companyId, input)).find(
+        (conta) => !conta.isCliente && !conta.isLead && !conta.isFornecedor,
+      );
+      if (stub) {
+        existing = await this.prisma.customerProfile.findFirst({
+          where: { companyId, id: stub.id },
+          select: GEO_RECORD_SELECT,
+        });
+      }
     }
 
     let contaId: string;
@@ -2601,6 +2702,23 @@ export interface CreateContaInput {
 export interface ContaCreated {
   contaId: string;
   contatoId: string;
+}
+
+/** 🔴 28/07 — uma conta que JÁ está na porta pedida (anti-duplicata de endereço). */
+export interface ContaNoEndereco {
+  id: string;
+  nome: string | null;
+  endereco: string | null;
+  numero: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  uf: string | null;
+  cep: string | null;
+  /** Sem nenhum papel = STUB de endereço (parada "Direção" da Rota rápida). */
+  isCliente: boolean;
+  isLead: boolean;
+  isFornecedor: boolean;
+  telefone: string | null;
 }
 
 // ── Importação em massa (planilha) ────────────────────────────────────────────

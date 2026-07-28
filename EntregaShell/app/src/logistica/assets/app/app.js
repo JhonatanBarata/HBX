@@ -7949,9 +7949,9 @@
     if (action === "montagem-rapida") { state.montagemRapida = { origem: "cep", contexto: "montagem", cep: "", numero: "", nome: "", lat: null, lng: null, resolvido: null, buscando: false, checando: false, salvando: false, erro: "", duplicado: null }; render(); return; }
     // 28/07 (dono, item 4) — mesmo passo, aberto pelo "+" da tela Rota: aqui ele
     // ganha o "No caminho × Primeira parada" e encaixa na rota que está de pé.
-    if (action === "rota-rapida") { state.montagemRapida = { origem: "cep", contexto: "rota", posicao: "perto", cep: "", numero: "", nome: "", lat: null, lng: null, resolvido: null, buscando: false, salvando: false, erro: "" }; showModal("rota-rapida"); return; }
+    if (action === "rota-rapida") { state.montagemRapida = { origem: "cep", contexto: "rota", posicao: "perto", cep: "", numero: "", nome: "", lat: null, lng: null, resolvido: null, buscando: false, checando: false, salvando: false, erro: "", duplicado: null }; showModal("rota-rapida"); return; }
     if (action === "rota-rapida-posicao") { if (state.montagemRapida) { state.montagemRapida.posicao = target.dataset.posicao === "primeira" ? "primeira" : "perto"; render(); } return; }
-    if (action === "rota-rapida-modo") { if (state.montagemRapida) { state.montagemRapida.modo = target.dataset.modo === "cadastro" ? "cadastro" : "direcao"; render(); } return; }
+    if (action === "rota-rapida-modo") { if (state.montagemRapida) { state.montagemRapida.modo = target.dataset.modo === "cadastro" ? "cadastro" : "direcao"; state.montagemRapida.erro = ""; render(); } return; }
     if (action === "montagem-rapida-fechar") { if (state.modal === "rota-rapida") { state.montagemRapida = null; await closeOverlay("modal"); return; } state.montagemRapida = null; render(); return; }
     if (action === "montagem-rapida-buscar") { await montagemRapidaBuscar(); return; }
     if (action === "montagem-rapida-confirmar") { await montagemRapidaConfirmar(); return; }
@@ -8644,7 +8644,18 @@
       return;
     }
     // R2 (27/07) — rascunho da Rota rápida sobrevive a re-render (mesma lei L4-F).
-    if (event.target.form && event.target.form.id === "montagem-rapida-form" && event.target.name && state.montagemRapida) { state.montagemRapida[event.target.name] = event.target.value; return; }
+    if (event.target.form && event.target.form.id === "montagem-rapida-form" && event.target.name && state.montagemRapida) {
+      const r = state.montagemRapida;
+      r[event.target.name] = event.target.value;
+      // 🔴 28/07 — mexeu no CEP/número: o endereço achado e a checagem de porta
+      // valem pro endereço ANTERIOR. Some com os dois (volta pro "Buscar
+      // endereço") — senão o botão adiciona uma parada que não é a da tela.
+      if ((event.target.name === "cep" || event.target.name === "numero") && (r.resolvido || r.duplicado || r.erro)) {
+        r.resolvido = null; r.duplicado = null; r.erro = "";
+        render();
+      }
+      return;
+    }
     // Rascunho do nome da rota salva (mesma lei L4-F: re-render não apaga o digitado).
     if (event.target.form && event.target.form.id === "montagem-salvar-form" && event.target.name === "nome" && state.montagemSalvar) { state.montagemSalvar.nome = event.target.value; return; }
     // PR20072026 W2 — Leitura de Rota.
