@@ -2,6 +2,9 @@ package br.com.hbxsystem.entrega
 
 import android.content.Intent
 import android.graphics.Color
+import android.media.AudioAttributes
+import android.media.AudioManager
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -49,7 +52,7 @@ class OpeningActivity : AppCompatActivity() {
     private var sessionFailure: Throwable? = null
     private var openingProgress = 0
     private var fastLogin = false
-    private var openingSoundEngine: HbxSoundEngine? = null
+    private var openingSoundPlayer: MediaPlayer? = null
 
     private inner class OpeningBridge {
         @JavascriptInterface
@@ -163,9 +166,7 @@ class OpeningActivity : AppCompatActivity() {
         if (!webReady || !nativeArrived || handoffStarted || isFinishing || isDestroyed) return
         handoffStarted = true
         if (BuildConfig.APP_MODE == "logistica") {
-            openingSoundEngine = HbxSoundEngine(this) { false }.also {
-                it.play("sonic_logo")
-            }
+            playOpeningSound()
         }
         webView.evaluateJavascript("window.HBXOpening&&window.HBXOpening.start()") {
             handler.postDelayed({
@@ -178,6 +179,64 @@ class OpeningActivity : AppCompatActivity() {
                     }
                     ?.start()
             }, openingTime(44L))
+        }
+    }
+
+    private fun playOpeningSound() {
+        if (!HbxSoundEngine.habilitadoEstatico(this, "sonic_logo")) return
+        val audioManager = getSystemService(AUDIO_SERVICE) as? AudioManager
+        if (audioManager?.mode == AudioManager.MODE_IN_CALL ||
+            audioManager?.mode == AudioManager.MODE_IN_COMMUNICATION
+        ) return
+        val soundResId = resources.getIdentifier("hbx_sonic_logo", "raw", packageName)
+        if (soundResId == 0) return
+        val player = runCatching { MediaPlayer() }.getOrNull() ?: return
+        openingSoundPlayer = player
+        runCatching {
+            player.setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build(),
+            )
+            resources.openRawResourceFd(soundResId).use {
+                player.setDataSource(it.fileDescriptor, it.startOffset, it.length)
+            }
+            player.setVolume(.90f, .90f)
+            player.setOnPreparedListener { preparedPlayer ->
+                if (isFinishing || isDestroyed) {
+                    scheduleOpeningSoundRelease(preparedPlayer)
+                    return@setOnPreparedListener
+                }
+                runCatching { preparedPlayer.start() }.onFailure {
+                    scheduleOpeningSoundRelease(preparedPlayer)
+                }
+            }
+            player.setOnCompletionListener(::scheduleOpeningSoundRelease)
+            player.setOnErrorListener { failedPlayer, _, _ ->
+                scheduleOpeningSoundRelease(failedPlayer)
+                true
+            }
+            player.prepareAsync()
+        }.onFailure {
+            releaseOpeningSound(player)
+        }
+    }
+
+    private fun scheduleOpeningSoundRelease(player: MediaPlayer) {
+        player.setOnCompletionListener(null)
+        player.setOnErrorListener(null)
+        handler.postDelayed({ releaseOpeningSound(player) }, 120L)
+    }
+
+    private fun releaseOpeningSound(player: MediaPlayer?) {
+        if (player == null) return
+        if (openingSoundPlayer === player) openingSoundPlayer = null
+        runCatching {
+            player.setOnPreparedListener(null)
+            player.setOnCompletionListener(null)
+            player.setOnErrorListener(null)
+            player.release()
         }
     }
 
@@ -247,11 +306,11 @@ class OpeningActivity : AppCompatActivity() {
         handler.removeCallbacksAndMessages(null)
         nativeHandoff?.animate()?.cancel()
         nativeHandoff = null
-        openingSoundEngine?.release()
-        openingSoundEngine = null
+        releaseOpeningSound(openingSoundPlayer)
         if (::executor.isInitialized) executor.shutdownNow()
         if (::webView.isInitialized) {
             webView.removeJavascriptInterface("HBXOpeningAndroid")
+            (webView.parent as? ViewGroup)?.removeView(webView)
             webView.destroy()
         }
         super.onDestroy()

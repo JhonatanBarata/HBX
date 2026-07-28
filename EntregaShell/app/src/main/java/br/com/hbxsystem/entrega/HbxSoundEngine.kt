@@ -17,7 +17,7 @@ import org.json.JSONObject
  * com o app soando exatamente igual a hoje.
  *
  * Dois caminhos de reprodução de propósito (Lei nº5 depende de tocar rápido):
- * - `SoundPool` pros 15 efeitos curtos: decodifica pra PCM em memória, toca
+ * - `SoundPool` pros 16 efeitos curtos: decodifica pra PCM em memória, toca
  *   com latência ~0 e não tem política de autoplay pra brigar.
  * - `MediaPlayer` só pro `arrival_alert_loop`: é loop longo + precisa de
  *   `USAGE_ALARM` — não cabe no modelo de PCM-em-memória do SoundPool.
@@ -158,10 +158,8 @@ class HbxSoundEngine(
     // SoundPool + cache LAZY (igual ao TTS): criado na 1a chamada de play(),
     // cada som carregado sob demanda. `carregando` guarda quem já pediu load
     // (pool.load é assíncrono); `prontos` só ganha o id depois do
-    // onLoadComplete. Pedido de play() que chega no meio do caminho — id em
-    // `carregando` mas ainda fora de `prontos` — é DESCARTADO silenciosamente
-    // (não enfileira: o momento do evento já passou). Quem nunca ouve um som
-    // nunca paga o custo de decodificar ele.
+    // onLoadComplete. O primeiro pedido fica pendente por até 500 ms, tempo
+    // suficiente para a carga normal sem tocar um evento já atrasado.
     private var pool: SoundPool? = null
     private val carregando = HashMap<String, Int>()
     private val prontos = HashSet<Int>()

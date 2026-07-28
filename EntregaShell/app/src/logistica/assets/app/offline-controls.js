@@ -102,11 +102,11 @@
       <p>Prepare a rota antes de ficar sem internet.</p>
       <label class="hbx-offline-option">
         <input id="hbx-proof-wifi" type="checkbox" ${s.wifiOnly ? "checked" : ""}>
-        <span><strong>Enviar fotos apenas no Wi-Fi</strong><small>As fotos aguardam uma conexão Wi-Fi.</small></span>
+        <span><strong>Fotos apenas no Wi-Fi</strong></span>
       </label>
       <label class="hbx-offline-option">
         <input id="hbx-proof-retain" type="checkbox" ${s.retainAfterUpload ? "checked" : ""}>
-        <span><strong>Manter comprovantes no aparelho</strong><small>Desligado: o arquivo local é excluído somente depois que o servidor confirma o upload.</small></span>
+        <span><strong>Guardar comprovantes enviados</strong></span>
       </label>
       <div class="hbx-offline-actions">
         <button type="button" class="btn btn-secondary" id="hbx-offline-sync">Sincronizar agora</button>

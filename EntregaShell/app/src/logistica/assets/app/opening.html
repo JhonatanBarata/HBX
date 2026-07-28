@@ -452,7 +452,7 @@
       if ('ResizeObserver' in window) new ResizeObserver(scheduleGeometrySync).observe(stage);
       addEventListener('resize',scheduleGeometrySync,{ passive:true });
       setProgress(currentProgress);
-      applyEntryRate();
+      applyFastLoginRate();
       if (root.dataset.mode === 'exit') {
         root.classList.add('started');
       } else if (root.dataset.phase === 'loading') {

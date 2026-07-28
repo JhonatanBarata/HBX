@@ -1372,14 +1372,14 @@ html.leitura-route-active .content.is-rota { padding-top: 10px; padding-bottom: 
 .hbx-offline-banner strong { display: block; font-size: .8rem; }
 .hbx-offline-banner small { display: block; opacity: .72; margin-top: 2px; }
 .hbx-offline-count { margin-left: auto; white-space: nowrap; font-weight: 750; font-variant-numeric: tabular-nums; }
-.hbx-offline-settings { margin: 0 0 16px; padding: 16px; border: 1px solid color-mix(in srgb, var(--line) 78%, transparent); border-radius: 18px; background: var(--surface); box-shadow: 0 9px 28px rgba(0, 0, 0, .045); }
+.hbx-offline-settings { margin: 0 0 16px; padding: 13px 14px; border: 1px solid color-mix(in srgb, var(--line) 78%, transparent); border-radius: 18px; background: var(--surface); box-shadow: 0 9px 28px rgba(0, 0, 0, .045); }
 .hbx-offline-settings h3 { margin: 0; font-size: 1rem; }
-.hbx-offline-settings > p { margin: 5px 0 14px; opacity: .72; font-size: .79rem; line-height: 1.4; }
-.hbx-offline-option { display: flex; align-items: flex-start; gap: 11px; padding: 12px 0; border-top: 1px solid color-mix(in srgb, var(--line) 58%, transparent); cursor: pointer; }
-.hbx-offline-option input { width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--brand); flex: none; }
+.hbx-offline-settings > p { margin: 4px 0 9px; opacity: .72; font-size: .76rem; line-height: 1.35; }
+.hbx-offline-option { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid color-mix(in srgb, var(--line) 58%, transparent); cursor: pointer; }
+.hbx-offline-option input { width: 19px; height: 19px; margin: 0; accent-color: var(--brand); flex: none; }
 .hbx-offline-option strong { display: block; font-size: .86rem; }
 .hbx-offline-option small { display: block; margin-top: 3px; opacity: .68; line-height: 1.35; }
-.hbx-offline-actions { display: flex; align-items: center; gap: 10px; margin-top: 13px; }
+.hbx-offline-actions { display: flex; align-items: center; gap: 10px; margin-top: 9px; }
 .hbx-offline-actions button { flex: 1; }
 .hbx-offline-metric { font-size: .72rem; opacity: .66; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .hbx-route-schematic { position: relative; width: 100%; min-height: 190px; padding: 8px 8px 28px; box-sizing: border-box; background: linear-gradient(145deg, color-mix(in srgb, var(--surface) 92%, var(--brand) 8%), var(--surface)); border-radius: inherit; overflow: hidden; }

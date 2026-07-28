@@ -322,12 +322,17 @@ object HbxMobileBridge {
     private fun ensureNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val isLogistica = BuildConfig.APP_MODE == "logistica"
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Ações de vendas HBX",
+            if (isLogistica) "Ações do HBX Logística" else "Ações de vendas HBX",
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
-            description = "Ligações, WhatsApp pessoal e tarefas enviadas pelo HBX web"
+            description = if (isLogistica) {
+                "Avisos de rota e entrega enviados pelo HBX"
+            } else {
+                "Ligações, WhatsApp pessoal e tarefas enviadas pelo HBX web"
+            }
             enableVibration(true)
         }
         manager.createNotificationChannel(channel)

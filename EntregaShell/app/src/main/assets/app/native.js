@@ -796,7 +796,10 @@
   };
   applyTheme(savedTheme);
   matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => {
-    if (HBX.theme.get() === "system") applyTheme("system");
+    if (HBX.theme.get() === "system") {
+      applyTheme("system");
+      document.dispatchEvent(new CustomEvent("hbx:theme"));
+    }
   });
   window.HBX = HBX;
 })();

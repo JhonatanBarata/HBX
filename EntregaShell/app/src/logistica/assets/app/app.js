@@ -1221,6 +1221,11 @@
       return validCoordinates(client.lat, client.lng) ? { id: item.id, lat: Number(client.lat), lng: Number(client.lng) } : null;
     }).filter(Boolean);
   }
+  function navRoutePointsSignature(points) {
+    const route = state.route || {};
+    const identity = `${route.routeId || ""}:${route.date || ""}`;
+    return `${identity}|${points.map((point, index) => `${index}:${String(point.id)}:${Number(point.lat).toFixed(6)},${Number(point.lng).toFixed(6)}`).join("|")}`;
+  }
   function navCurrentLegCutIndex() {
     const rota = state.navRota;
     if (!rota || !Array.isArray(rota.cortes)) return null;
@@ -1343,11 +1348,14 @@
   async function recomputeNavRoute(stops) {
     const origin = state.navPosicao;
     if (!origin || !validCoordinates(origin.lat, origin.lng) || !stops.length) return false;
+    const session = navWatchSeq;
+    const stopsSignature = navRoutePointsSignature(stops);
     try {
       // S5 21/07 — steps=true SÓ em navegação ativa (spec S5 #6): fora disso
       // o payload cresceria à toa (roadGeometry aceita o 2º arg em qualquer
       // chamador, mas só quem monta a perna atual da navegação passa true).
       const result = await roadGeometry([{ lat: origin.lat, lng: origin.lng }, ...stops], navModeActive());
+      if (!navModeActive() || navWatchSeq !== session || navRoutePointsSignature(navRouteOpenPoints()) !== stopsSignature) return false;
       const geometry = result.coordinates || result;
       if (!geometry || geometry.length < 2) return false;
       state.navRota = {
@@ -1397,10 +1405,16 @@
     markNavRecalc();
     const stops = navRouteOpenPoints();
     if (!stops.length) return;
+    const targetMap = routeMap;
+    const targetHost = routeMapHost;
+    const session = navWatchSeq;
     recomputeNavRoute(stops).then(ok => {
-      if (!ok || !routeMap || !routeMapHost) return; // falha do OSRM: mantém o desenho atual, tenta no próximo gatilho.
-      drawNavLegLayers(routeMap);
-      raiseRouteReadingTrail(routeMap);
+      if (!ok || !targetMap || !targetHost) return; // falha do OSRM: mantém o desenho atual, tenta no próximo gatilho.
+      if (routeMap !== targetMap || routeMapHost !== targetHost || targetHost.id !== "route-live-map") return;
+      if (!navModeActive() || navWatchSeq !== session) return;
+      if (typeof targetMap.isStyleLoaded === "function" && !targetMap.isStyleLoaded()) return;
+      drawNavLegLayers(targetMap);
+      raiseRouteReadingTrail(targetMap);
       const now = Date.now();
       if (now - navRecalcToastAt >= 60000) { navRecalcToastAt = now; toast("Rota atualizada."); }
     });
@@ -1409,7 +1423,8 @@
     const data = coordinates.length >= 2 ? { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates } } : { type: "FeatureCollection", features: [] };
     const source = map.getSource(id);
     if (source) source.setData(data);
-    else { map.addSource(id, { type: "geojson", data }); map.addLayer({ id, type: "line", source: id, layout: { "line-cap": "round", "line-join": "round" }, paint }); }
+    else map.addSource(id, { type: "geojson", data });
+    if (!map.getLayer(id)) map.addLayer({ id, type: "line", source: id, layout: { "line-cap": "round", "line-join": "round" }, paint });
   }
   function removeNavLegLayers(map) {
     ["hbx-nav-leg-atual", "hbx-nav-leg-atual-casing", "hbx-nav-leg-resto"].forEach(id => { try { if (map.getLayer(id)) map.removeLayer(id); } catch (_) {} });
@@ -1433,6 +1448,8 @@
   // ainda não existe navRota OU aparece uma parada de ID desconhecido — nunca
   // por causa só do motorista ter andado um pouco (isso é o watch/trilha).
   async function applyNavLegRoute(host, map) {
+    if (typeof map.isStyleLoaded === "function" && !map.isStyleLoaded()) return;
+    const session = navWatchSeq;
     const stops = navRouteOpenPoints();
     const originValid = state.navPosicao && validCoordinates(state.navPosicao.lat, state.navPosicao.lng);
     if (!stops.length || !originValid) { removeNavLegLayers(map); return; }
@@ -1441,9 +1458,9 @@
     if ((!state.navRota || hasUnknownStop) && navRecalcAllowed()) {
       markNavRecalc();
       await recomputeNavRoute(stops);
-      if (routeMap !== map || routeMapHost !== host) return;
+      if (routeMap !== map || routeMapHost !== host || !navModeActive() || navWatchSeq !== session) return;
     }
-    if (!state.navRota) { removeNavLegLayers(map); return; }
+    if (!state.navRota || !navModeActive() || navWatchSeq !== session) { removeNavLegLayers(map); return; }
     drawNavLegLayers(map);
     raiseRouteReadingTrail(map);
   }
@@ -1500,6 +1517,8 @@
       if (source) source.setData(data);
       else {
         map.addSource("hbx-route-line", { type: "geojson", data });
+      }
+      if (!map.getLayer("hbx-route-line")) {
         map.addLayer({ id: "hbx-route-line", type: "line", source: "hbx-route-line", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": mapPaintToken("--brand", "rgb(120,201,0)"), "line-width": 4, "line-opacity": .9 } });
       }
       parts.routeLineSignature = signature;
@@ -1588,6 +1607,10 @@
       const center = readingPoint || points[0] || { lat: -14.235, lng: -51.9253 };
       const maplibregl = await loadRouteMapLibrary();
       if (!host.isConnected || host !== document.getElementById(hostId)) return;
+      if (host.querySelector(".route-map-unavailable")) {
+        host.classList.remove("is-ready");
+        host.innerHTML = `<span class="route-map-loading">Carregando mapa…</span>`;
+      }
       disposeRouteMap(); routeMapHost = host;
       const map = new maplibregl.Map({ container: host, style: currentMapStyle(), center: [center.lng, center.lat], zoom: readingPoint ? 16.2 : points.length ? 12 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false, maxPitch: 60 });
       // Mapa nascendo (boot do app): entra com a MESMA coreografia da volta.
@@ -1678,6 +1701,10 @@
       }
       const maplibregl = await loadRouteMapLibrary();
       if (!host.isConnected || host !== document.getElementById("leitura-live-map")) return;
+      if (host.querySelector(".route-map-unavailable")) {
+        host.classList.remove("is-ready");
+        host.innerHTML = `<span class="route-map-loading">Carregando mapa…</span>`;
+      }
       disposeLeituraLiveMap();
       leituraLiveMapHost = host;
       const last = leituraLiveLastPoint();
@@ -5543,10 +5570,11 @@
     const closeControl = rc
       ? `<span class="montagem-descartar-unit"><button class="close montagem-descartar" type="button" data-action="close-modal" aria-label="Descartar montagem">${icon("close", 18)}</button><small>Descartar</small></span>`
       : `<button class="close" type="button" data-action="close-modal" aria-label="Fechar">${icon("close", 18)}</button>`;
+    const backdropAction = rc ? "" : ` data-action="close-modal"`;
     // 27/07 (dono) — cabeçalho só com o NOME da tela, centralizado: o ícone, o
     // "Montar rota" e o resumo de paradas/km/previsão saíram. Os dois botões
     // (rota rápida e fechar) flutuam à direita sem tirar o título do meio.
-    return `<div class="sheet-wrap route-plan-wrap montagem-wrap" data-action="close-modal"><section class="sheet route-plan-sheet rp2-sheet montagem-sheet"><div class="sheet-head montagem-head"><h2>Gerenciador de Rota</h2><div class="montagem-head-acoes">${plus}${closeControl}</div></div>${chips}${mapa}<div class="rp2-body montagem-body">${corpo}</div>${footer}</section></div>`;
+    return `<div class="sheet-wrap route-plan-wrap montagem-wrap"${backdropAction}><section class="sheet route-plan-sheet rp2-sheet montagem-sheet"><div class="sheet-head montagem-head"><h2>Gerenciador de Rota</h2><div class="montagem-head-acoes">${plus}${closeControl}</div></div>${chips}${mapa}<div class="rp2-body montagem-body">${corpo}</div>${footer}</section></div>`;
   }
   // 27/07 (dono) — "Salvar rota" da montagem: mesma moldura/idioma do passo
   // "Nome da rota" da Leitura (padronizar é IGUALAR), com uma diferença pedida
@@ -8961,7 +8989,7 @@
   };
   if (!["route", "clients", "products", "settings"].includes(state.screen)) state.screen = "route";
   restoreRouteEngineState(state.route);
-  render(); refresh(false, true); state.screenMotion = ""; void restoreLeituraSession(); refreshGpsPerm(); void checkAppUpdate(true);
+  render(); refresh(false, true); state.screenMotion = ""; void restoreLeituraSession(); refreshGpsPerm(); void checkAppUpdate(false);
   // Volta do fundo = nova chance de ver atualização (a trava de 30min dentro
   // de checkAppUpdate segura a frequência; trocar de app não vira enxurrada).
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { retomarUpdatePosPermissao(); void checkAppUpdate(); } });
