@@ -461,9 +461,16 @@ export function EntregaAjustes() {
                 defaultValue={cfg.avisoChegandoTemplate ?? ""}
                 onBlur={(e) => void patch({ avisoChegandoTemplate: e.target.value.trim() })}
                 rows={3}
-                placeholder="Ex.: {saudacao} {cliente}! Estou a caminho, já estou chegando!"
+                placeholder="Ex.: {saudacao} {cliente}! Estou a {eta}, já estou chegando!"
                 aria-label="Mensagem do aviso de chegada"
               />
+              {/* PR27072026 F3 (ROTA 3 NÍVEIS) — {eta} é NOVO: minutos estimados a
+                  partir do etaAt da rota ("chegando" | "8 min" | "1h 5min"), aditivo
+                  às variáveis que já existiam aqui. Igual às demais: se a rota ainda
+                  não tem ETA calculado, a variável sai vazia (nunca "{eta}" cru). */}
+              <span className="ent-hint">
+                Variáveis: {"{saudacao} {cliente} {itens} {qtd} {produto} {empresa}"} e {"{eta}"} (chegada estimada — novo).
+              </span>
             </label>
             <label className="ent-field">
               <span className="ent-field-label">Distância do aviso (m)</span>

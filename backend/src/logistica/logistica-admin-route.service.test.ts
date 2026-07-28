@@ -349,7 +349,10 @@ test('preparar traça sem cobrar e começar é a única etapa que inicia a rota 
       return { date: '2026-07-16', total: 2, paradas: [] };
     },
   };
-  const service = new LogisticaAdminRouteService(prisma, occurrences, rota, {} as any);
+  // PR27072026 F2 — prepare() agora chama logistica.resolverDevedorNaRota pro
+  // filtro EXCLUIR da parada amarela de devedor; stub devolve Map vazio (ninguém
+  // é EXCLUIR), preservando o comportamento anterior deste teste.
+  const service = new LogisticaAdminRouteService(prisma, occurrences, rota, { resolverDevedorNaRota: async () => new Map() } as any);
   const actor = { id: 42, companyId: 7, role: 'ADMIN', canViewBilling: true };
 
   const prepared = await service.prepare(7, {
@@ -369,6 +372,69 @@ test('preparar traça sem cobrar e começar é a única etapa que inicia a rota 
   assert.equal(iniciarCalls[0][0], 7);
   assert.equal(iniciarCalls[0][2], 42);
   assert.equal(iniciarCalls[0][4], true, 'Começar aplica a regra comercial para o dono');
+});
+
+// PR27072026 F2 — PARADA AMARELA DE DEVEDOR, modo EXCLUIR: a entrega do devedor
+// NÃO entra na MONTAGEM (nunca vira deliveryId pro planejador) — mas o teste
+// prova SÓ o filtro: nenhum mock de escrita (update/updateMany de cancelamento)
+// é chamado pra parada excluída, porque prepare() não tem NENHUM caminho de
+// escrita entre ler openRows e filtrar — a ocorrência segue 'agendada' no banco.
+test('preparar filtra a parada EXCLUIR da montagem (nunca ganha rotaOrdem), sem cancelar nada', async () => {
+  const planejarCalls: any[] = [];
+  const prisma: any = {
+    $transaction: async (cb: any) => cb({
+      logisticaRoute: { updateMany: async () => ({ count: 0 }) },
+      entrega: { findMany: async () => [], updateMany: async () => ({ count: 0 }) },
+    }),
+    entrega: {
+      updateMany: async () => ({ count: 2 }),
+      findMany: async () => [
+        { id: 'delivery-devedor', customerProfileId: 'cliente-devedor' },
+        { id: 'delivery-em-dia', customerProfileId: 'cliente-em-dia' },
+      ],
+    },
+  };
+  const occurrences: any = {
+    materialize: async () => ({
+      date: '2026-07-16',
+      sourceDates: ['2026-07-15'],
+      criadas: 0,
+      puladas: 0,
+      avancados: 2,
+      candidatos: 2,
+      deliveryIds: ['delivery-devedor', 'delivery-em-dia'],
+    }),
+  };
+  const rota: any = {
+    planejarRota: async (...args: any[]) => {
+      planejarCalls.push(args);
+      return { date: '2026-07-16', total: 1, semCoordenada: 0, distanciaTotalKm: 0, terminoPrevisto: null, velocidadeMediaKmH: 25, tempoParadaMin: 5, paradas: [] };
+    },
+  };
+  const devedorMapCalls: any[] = [];
+  const logistica: any = {
+    resolverDevedorNaRota: async (companyId: number, clienteIds: string[]) => {
+      devedorMapCalls.push([companyId, clienteIds]);
+      return new Map([
+        ['cliente-devedor', { devedor: true, modo: 'EXCLUIR', saldoAberto: 40, motivo: null }],
+        ['cliente-em-dia', { devedor: false, modo: 'NORMAL', saldoAberto: 0, motivo: null }],
+      ]);
+    },
+  };
+  const service = new LogisticaAdminRouteService(prisma, occurrences, rota, logistica);
+  const actor = { id: 42, companyId: 7, role: 'ADMIN', canViewBilling: true };
+
+  await service.prepare(7, { operationalDate: '2026-07-16', sourceDates: ['2026-07-15'] }, actor);
+
+  assert.equal(devedorMapCalls.length, 1, 'consultou a fonte única 1x');
+  assert.deepEqual(
+    [...devedorMapCalls[0][1]].sort(),
+    ['cliente-devedor', 'cliente-em-dia'],
+    'perguntou pelos DOIS clientes antes de decidir quem fica de fora',
+  );
+  assert.equal(planejarCalls.length, 1);
+  const deliveryIdsEnviados: string[] = planejarCalls[0][1].deliveryIds;
+  assert.deepEqual(deliveryIdsEnviados, ['delivery-em-dia'], 'só a parada em dia chega no planejador — devedor EXCLUIR nunca ganha rotaOrdem');
 });
 
 const ADMIN = {
@@ -440,7 +506,7 @@ test('preparar usa hoje como data operacional, aceita origem de quarta e não co
       return PLAN;
     },
   };
-  const service = new LogisticaAdminRouteService(prisma, occurrences, rota, {} as any);
+  const service = new LogisticaAdminRouteService(prisma, occurrences, rota, { resolverDevedorNaRota: async () => new Map() } as any);
 
   const result = await service.prepare(7, {
     operationalDate: '2026-07-16',
@@ -489,7 +555,7 @@ test('começar é a operação separada que inicia e congela a rota', async () =
       return { ...PLAN, routeStatus: 'ACTIVE' };
     },
   };
-  const service = new LogisticaAdminRouteService(prisma, {} as any, rota, {} as any);
+  const service = new LogisticaAdminRouteService(prisma, {} as any, rota, { resolverDevedorNaRota: async () => new Map() } as any);
 
   await service.start(7, { operationalDate: '2026-07-16' }, ADMIN);
 
@@ -533,7 +599,7 @@ test('tentar novamente move somente a própria parada para o fim', async () => {
       return { recalculadas: 1 };
     },
   };
-  const service = new LogisticaAdminRouteService(prisma, {} as any, rota, {} as any);
+  const service = new LogisticaAdminRouteService(prisma, {} as any, rota, { resolverDevedorNaRota: async () => new Map() } as any);
 
   const result = await service.retryLater(7, 'delivery-1', ADMIN);
 
@@ -627,7 +693,7 @@ test('preparar com pendência: clone do dia novo herda a origem da entrega origi
       paradas: [],
     }),
   };
-  const service = new LogisticaAdminRouteService(prisma, occurrences, rota, {} as any);
+  const service = new LogisticaAdminRouteService(prisma, occurrences, rota, { resolverDevedorNaRota: async () => new Map() } as any);
 
   await service.prepare(companyId, {
     operationalDate,

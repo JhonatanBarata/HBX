@@ -33,7 +33,7 @@
     "test:base-saude": "npm run build && node --test dist/logistica/logistica-base-saude.service.test.js",
     "test:agenda-fuso": "npm run build && node ./scripts/test-agenda-fuso.mjs",
     "test:logistica-billing": "npm run build && node --test dist/logistica/logistica-route-billing.service.test.js dist/logistica/logistica-tracked-billing.service.test.js dist/logistica/logistica-tracking-bonus.service.test.js",
-    "test:logistica-tracking-public": "npm run build && node --test dist/logistica/logistica-tracking-public.util.test.js dist/logistica/logistica-tracking-public.service.test.js dist/logistica/logistica-tracking.service.test.js",
+    "test:logistica-tracking-public": "npm run build && node --test dist/logistica/logistica-tracking-public.util.test.js dist/logistica/logistica-tracking-public.service.test.js dist/logistica/logistica-tracking-public.controller.test.js dist/logistica/logistica-tracking.service.test.js",
     "test:logistica-offline": "npm run build && node --test dist/logistica/logistica-offline-grant.test.js",
     "test:logistica-admin-route": "npm run build && node --test dist/logistica/logistica-admin-route.service.test.js",
     "test:logistica-mobile": "npm run build && node --test dist/logistica/logistica-mobile.service.test.js",

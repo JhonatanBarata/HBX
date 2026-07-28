@@ -22,6 +22,9 @@
 @import "./hbx-theme/detalhes-negocio-vendas.css";
 @import "./hbx-theme/public-entry.css";
 @import "./hbx-theme/transitions.css";
+/* F3 FULL-POLIDO — "Acompanhe sua entrega" (/acompanhar/[token], sem login),
+   escopo próprio .trk-pub, zero dependência de painel autenticado. */
+@import "./hbx-theme/tracking-publico.css";
 
 /* CASCA MOBILE (MOBILE-CASCA/W1) — a moldura única do celular (topo + slot +
    tab bar) + transições IR/VOLTAR + bottom sheet + toast. Só estrutura por

@@ -190,9 +190,6 @@ export class LogisticaConfigService {
       input.cobrancaWhatsAtiva,
       input.resumoDiarioAtivo,
       input.resumoDiarioHora,
-      // PR27072026 F2 — o modo de tratamento do devedor na rota (cobrar/excluir/
-      // ignorar) é decisão financeira, mesma classe de cobrancaNaEntrega acima.
-      input.devedorNaRota,
     ].some((value) => value !== undefined);
     if (changesCommercialConfig && !isBillingOwnerActor(actor)) {
       throw new ForbiddenException('Somente o responsável financeiro pode alterar esta configuração.');
@@ -228,7 +225,9 @@ export class LogisticaConfigService {
       data.moduloFinanceiroAtivo = !!input.moduloFinanceiroAtivo;
     }
     // PR27072026 F2 — PARADA AMARELA DE DEVEDOR: modo do tratamento na rota de
-    // hoje. GATE de uso igual ao financeiro (Advanced+); NORMAL (equivalente a
+    // hoje. OPERACIONAL (não exige billing owner — mesmo padrão de
+    // gerarDiaAutomatico/cobrancaAutomatica acima; @Admin() do controller já
+    // basta). GATE DE USO é só de NÍVEL (Advanced+): NORMAL (equivalente a
     // "desligado") sempre passa, mesmo no BASIC — só COBRANCA/EXCLUIR exigem o
     // nível. logistica.service.ts tem o cinto-e-suspensório na LEITURA (resolve
     // NORMAL sozinho se o nível cair depois de gravado).
@@ -645,6 +644,12 @@ function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = 
     // ator lê, inclusive motorista/vendedor): o front usa pra acinzentar os
     // recursos que o nível não cobre ("ver-mas-não-usar" — decisão do dono).
     logisticaNivel: storedNivel(c.logisticaNivel),
+    // PR27072026 F2 — modo do tratamento do devedor na rota de hoje. OPERACIONAL
+    // (todo ator lê, mesmo padrão do logisticaNivel acima): o chip por parada em
+    // si (`somenteCobranca`) já é operacional no payload de /logistica/rota; este
+    // campo é só o MODO configurado, pra tela de config saber o que mostrar
+    // marcado sem precisar ser billing owner (mesmo padrão de cobrancaAutomatica).
+    devedorNaRota: normalizeDevedorNaRota(c.devedorNaRota) ?? 'COBRANCA',
   };
 
   // O GET também é consumido pelo app do entregador. Campos administrativos,
@@ -656,10 +661,6 @@ function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = 
     ...operational,
     cobrancaNaEntrega: !!c.cobrancaNaEntrega,
     moduloRecoveryAtivo: !!c.moduloRecoveryAtivo,
-    // PR27072026 F2 — modo do tratamento do devedor na rota de hoje (tela de
-    // config, billing-owner-only — o chip por parada em si (`somenteCobranca`)
-    // é operacional e vive no payload de /logistica/rota, não aqui).
-    devedorNaRota: normalizeDevedorNaRota(c.devedorNaRota) ?? 'COBRANCA',
     pixChave: c.pixChave ?? null,
     pixNome: c.pixNome ?? null,
     pixCidade: c.pixCidade ?? null,
@@ -860,6 +861,7 @@ export interface LogisticaConfigDTO {
   rotaConferidaAtiva: boolean;
   // PR27072026 F1 — nível do plano (Basic/Advanced/Full); ver serializeConfig.
   logisticaNivel: LogisticaNivel;
-  // PR27072026 F2 — modo de tratamento do devedor na rota (billing-owner-only).
-  devedorNaRota?: DevedorNaRotaModo;
+  // PR27072026 F2 — modo de tratamento do devedor na rota. OPERACIONAL (todo
+  // ator lê, mesmo padrão do logisticaNivel acima); ver serializeConfig.
+  devedorNaRota: DevedorNaRotaModo;
 }

@@ -42,7 +42,16 @@ export interface TrackingHistoryEvent {
   capturedAt: string;
 }
 
+// PR27072026 F1/F3 (ROTA 3 NÍVEIS) — nível do plano no MOMENTO da consulta
+// (não é o nível em que a rota nasceu — grandfathering: downgrade não some com
+// rota ATIVA em andamento, ver logistica-tracking.service.ts#getLive). Ausente
+// em respostas antigas de cache = tratar como ADVANCED no consumo (mesmo
+// grandfathering do resto do app).
+export type LogisticaNivel = "BASIC" | "ADVANCED" | "FULL";
+
 export interface TrackingLiveResponse {
+  nivel?: LogisticaNivel;
+  full?: boolean;
   routes: TrackingLiveRoute[];
 }
 

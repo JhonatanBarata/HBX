@@ -222,9 +222,19 @@ export class LogisticaAdminRouteService {
       },
       orderBy: [{ rotaOrdem: 'asc' }, { createdAt: 'asc' }],
       take: 300,
-      select: { id: true },
+      select: { id: true, customerProfileId: true },
     });
-    const deliveryIds = openRows.map((row) => row.id);
+    // PR27072026 F2 — PARADA AMARELA DE DEVEDOR, modo EXCLUIR: a entrega do
+    // devedor NÃO entra na MONTAGEM de hoje (nunca ganha rotaOrdem/etaAt aqui) —
+    // filtro só na SELEÇÃO, a ocorrência CONTINUA 'agendada' (ninguém cancela
+    // nada; o fechamento de caixa F0 a devolve amanhã). Fonte ÚNICA com listRota:
+    // resolverDevedorNaRota (LogisticaService) — os dois nunca podem divergir.
+    const devedorMap = await this.logistica.resolverDevedorNaRota(
+      companyId,
+      openRows.map((row) => row.customerProfileId),
+    );
+    const visibleRows = openRows.filter((row) => devedorMap.get(row.customerProfileId)?.modo !== 'EXCLUIR');
+    const deliveryIds = visibleRows.map((row) => row.id);
     if (deliveryIds.length === 0) {
       await this.diagnosticoRotaVazia(companyId, operationalDate, start);
     }

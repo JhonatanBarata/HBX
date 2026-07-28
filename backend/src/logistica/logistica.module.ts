@@ -53,6 +53,8 @@ import { LogisticaBaseSaudeController } from './logistica-base-saude.controller'
 import { LogisticaBaseSaudeService } from './logistica-base-saude.service';
 import { LogisticaImportacaoController } from './logistica-importacao.controller';
 import { LogisticaImportacaoService } from './logistica-importacao.service';
+import { LogisticaEstoqueController } from './logistica-estoque.controller';
+import { LogisticaEstoqueService } from './logistica-estoque.service';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (app de entrega, cliente água).
@@ -152,6 +154,14 @@ import { LogisticaImportacaoService } from './logistica-importacao.service';
  * painel). Arquivos novos, dono próprio (F3) — zero edição em
  * logistica.service.ts/logistica-config.service.ts/logistica.controller.ts
  * (território do worker F2 rodando em paralelo nesta mesma frente).
+ *
+ * F2 ADVANCED-COMPLETO (27/07, PR27072026-ROTA-3-NIVEIS): LogisticaEstoqueController/
+ * Service expõem `/logistica/estoque/carga` — conferência de caminhão do dia
+ * (carregou/vendeu/voltou), arquivo novo, dono próprio (F2). Recurso ADVANCED+
+ * (gate de nível no serviço). A parada amarela de devedor (irmã desta mesma
+ * frente) NÃO tem arquivo próprio — é `resolverDevedorNaRota` dentro de
+ * LogisticaService (fonte única com listRota) + o filtro em
+ * LogisticaAdminRouteService#prepare.
  */
 @Module({
   imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule, NucleoModule],
@@ -168,6 +178,7 @@ import { LogisticaImportacaoService } from './logistica-importacao.service';
     LogisticaAgendaController,
     LogisticaBaseSaudeController,
     LogisticaImportacaoController,
+    LogisticaEstoqueController,
   ],
   providers: [
     LogisticaService,
@@ -207,6 +218,7 @@ import { LogisticaImportacaoService } from './logistica-importacao.service';
     LogisticaAgendaService,
     LogisticaBaseSaudeService,
     LogisticaImportacaoService,
+    LogisticaEstoqueService,
   ],
   exports: [
     LogisticaService,

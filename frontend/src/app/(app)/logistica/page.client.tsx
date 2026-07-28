@@ -47,6 +47,12 @@ type Entrega = {
   deliveredAt: string | null;
   cobrancaStatus: string;
   notes: string | null;
+  // PR27072026 F2 (ROTA 3 NÍVEIS) — PARADA AMARELA DE DEVEDOR: presente e true
+  // quando o cliente desta parada está devedor E a config da empresa é
+  // 'COBRANCA' (modo EXCLUIR nem chega aqui — some da lista no backend).
+  // Ausente/false = comportamento de sempre.
+  somenteCobranca?: boolean;
+  motivoCobranca?: string | null;
   cliente: Cliente;
   contato: { id: string; nome: string; whatsapp: string | null; phone: string | null } | null;
   produto: { id: number; nome: string; unidade: string | null } | null;
@@ -498,6 +504,11 @@ export function LogisticaClient() {
               </button>
             )}
             {admin && (
+              <Link href="/logistica/estoque" className="btn-ghost btn-xs">
+                <I d={ICONS.produtos} size={13} /> Estoque de carga
+              </Link>
+            )}
+            {admin && (
               <Link href="/logistica/importar" className="btn-ghost btn-xs">
                 <I d={ICONS.upload} size={13} /> Importar clientes
               </Link>
@@ -562,6 +573,12 @@ export function LogisticaClient() {
                   </span>
                 </span>
                 <span className="emp-row__side">
+                  {/* PR27072026 F2 — parada amarela de devedor: "só cobrar", sem
+                      esconder o cliente. title carrega o motivo (ex.: "R$ 42,50
+                      em aberto") sem textão extra na linha. */}
+                  {e.somenteCobranca && (
+                    <span className="tag warn" title={e.motivoCobranca || undefined}>Só cobrar</span>
+                  )}
                   <span className={`log-badge log-badge--${e.status}`}>{STATUS_LABEL[e.status] || e.status}</span>
                 </span>
               </button>

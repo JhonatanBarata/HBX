@@ -1,0 +1,247 @@
+/* F3 FULL-POLIDO (27/07, PR27072026-ROTA-3-NIVEIS) — "Acompanhe sua entrega"
+   (cliente final, SEM login, /acompanhar/[token]). Visual PRÓPRIO simples,
+   mobile-first, cara de produto (tipo iFood simplificado) — mas 100% em token
+   central (5 Leis): zero hex solto, tudo var()/color-mix(). Escopo próprio
+   `.trk-pub`, não reusa nenhuma classe de painel autenticado. */
+
+.trk-pub {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--hbx-background);
+  color: var(--text-body);
+  font-family: var(--font-body);
+}
+
+.trk-pub__header {
+  padding: 20px 20px 12px;
+  text-align: center;
+}
+
+.trk-pub__empresa {
+  font-size: 0.94rem;
+  font-weight: 800;
+  color: var(--text-strong);
+  letter-spacing: -0.01em;
+}
+
+.trk-pub__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 480px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 4px 16px 32px;
+}
+
+/* ---------- estados de carregamento / erro ---------- */
+.trk-pub__center {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 24px;
+  text-align: center;
+}
+
+.trk-pub__spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  border: 3px solid var(--border-hairline);
+  border-top-color: var(--hbx-brand);
+  animation: trk-pub-spin 0.8s linear infinite;
+}
+
+@keyframes trk-pub-spin {
+  to { transform: rotate(360deg); }
+}
+
+.trk-pub__center-title {
+  font-size: 0.92rem;
+  font-weight: 800;
+  color: var(--text-strong);
+}
+
+.trk-pub__center-text {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  max-width: 320px;
+}
+
+/* ---------- hero de status ---------- */
+.trk-pub__hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+  padding: 24px 16px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface);
+}
+
+.trk-pub__hero-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  background: var(--hbx-info);
+  margin-bottom: 4px;
+}
+
+.trk-pub__hero--a-caminho .trk-pub__hero-dot,
+.trk-pub__hero--a-caminho .trk-pub__hero-title { color: var(--hbx-info); }
+.trk-pub__hero--a-caminho .trk-pub__hero-dot { background: var(--hbx-info); box-shadow: 0 0 0 6px color-mix(in srgb, var(--hbx-info) 14%, transparent); }
+
+.trk-pub__hero--chegando .trk-pub__hero-dot { background: var(--hbx-warning); box-shadow: 0 0 0 6px color-mix(in srgb, var(--hbx-warning) 16%, transparent); animation: trk-pub-pulse 1.6s ease-in-out infinite; }
+.trk-pub__hero--chegando .trk-pub__hero-title { color: var(--hbx-warning); }
+
+.trk-pub__hero--entregue .trk-pub__hero-dot { background: var(--hbx-brand); }
+.trk-pub__hero--entregue .trk-pub__hero-title { color: var(--hbx-brand); }
+
+.trk-pub__hero--cancelada .trk-pub__hero-dot { background: var(--hbx-danger); }
+.trk-pub__hero--cancelada .trk-pub__hero-title { color: var(--hbx-danger); }
+
+@keyframes trk-pub-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+.trk-pub__hero-title {
+  font-size: 1.16rem;
+  font-weight: 800;
+  color: var(--text-strong);
+  letter-spacing: -0.01em;
+}
+
+.trk-pub__hero-sub {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+/* ---------- stepper (na fila -> a caminho -> chegando -> entregue) ---------- */
+.trk-pub__stepper {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.trk-pub__step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.trk-pub__step-bar {
+  width: 100%;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--hbx-surface-raised);
+}
+
+.trk-pub__step.is-done .trk-pub__step-bar,
+.trk-pub__step.is-current .trk-pub__step-bar {
+  background: var(--hbx-brand);
+}
+
+.trk-pub__step-label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.trk-pub__step.is-done .trk-pub__step-label,
+.trk-pub__step.is-current .trk-pub__step-label {
+  color: var(--text-strong);
+}
+
+/* ---------- bloco ao vivo (ETA + progresso da rota) ---------- */
+.trk-pub__live {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 16px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface);
+}
+
+.trk-pub__eta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  text-align: center;
+}
+
+.trk-pub__eta-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.trk-pub__eta-value {
+  font-size: 1.6rem;
+  font-weight: 800;
+  color: var(--text-strong);
+  letter-spacing: -0.02em;
+}
+
+.trk-pub__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.trk-pub__progress-bar {
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--hbx-surface-raised);
+  overflow: hidden;
+}
+
+.trk-pub__progress-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--hbx-brand);
+  transition: width 0.4s ease;
+}
+
+.trk-pub__progress-text {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.trk-pub__updated {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* ---------- rodapé ---------- */
+.trk-pub__footer {
+  margin-top: auto;
+  padding-top: 20px;
+  text-align: center;
+}
+
+.trk-pub__footer-brand {
+  font-size: 0.64rem;
+  color: var(--text-muted);
+  opacity: 0.7;
+}

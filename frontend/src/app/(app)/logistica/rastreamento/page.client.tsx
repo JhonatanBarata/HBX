@@ -356,6 +356,12 @@ export function LogisticaTrackingLiveClient() {
     });
   }, [live?.routes]);
 
+  // PR27072026 F1/F3 — rastreamento é EXCLUSIVO do plano Full (ver-mas-não-usar,
+  // .plano-selo — kit.css). NUNCA esconde uma rota que já está ATIVA agora
+  // (grandfathering: downgrade no meio do dia não cega o admin de uma operação
+  // em andamento) — o gate visual só aparece quando não há nada rodando.
+  const showFullGate = !!live && live.full === false && !routes.some((route) => route.sessionStatus === "ACTIVE");
+
   const selectedRoute = routes.find((route) => route.sessionId === selectedSessionId) ?? null;
   const historyEvents = useMemo(() => {
     if (!history || history.sessionId !== selectedSessionId) return [];
@@ -453,6 +459,16 @@ export function LogisticaTrackingLiveClient() {
           </div>
         ) : null}
 
+        {showFullGate ? (
+          <div className="emp-empty log-live-empty" aria-label="Recurso do plano Full">
+            <span className="plano-selo">Disponível no Full</span>
+            <strong className="emp-empty__title">Rastreamento ao vivo é do plano Full</strong>
+            <span className="emp-empty__text">
+              Posição do motorista, trajeto completo e ETA de cada entrega em tempo real — fale com a HBX para habilitar.
+            </span>
+          </div>
+        ) : (
+          <>
         {live ? <TrackingKpis routes={routes} /> : null}
 
         <CreditStatement
@@ -589,6 +605,8 @@ export function LogisticaTrackingLiveClient() {
             </aside>
           </div>
         ) : null}
+          </>
+        )}
       </section>
     </div>
   );
