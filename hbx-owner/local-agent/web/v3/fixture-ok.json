@@ -1,0 +1,28 @@
+{
+  "ok": true,
+  "generatedAt": "2026-07-28T18:40:00.000Z",
+  "boot": { "windows": true, "agent": true, "ollama": true, "painel": true, "reason": null },
+  "docker": { "daemon": true, "desktopRunning": true, "autoStart": true },
+  "switches": {
+    "scraping": {
+      "vps": { "on": true, "known": true, "reason": null,
+                 "running": true, "budget": 1000, "processed": 412,
+                 "contactsWritten": 561, "lastError": null, "rfbBaseCount": 28000000 },
+      "local": { "on": true, "known": true, "reason": null,
+                 "starting": false, "startingSince": null, "startingStep": null,
+                 "running": true, "budget": 500, "processed": 118,
+                 "contactsWritten": 803, "lastError": null, "rfbBaseCount": 28000000 }
+    },
+    "ia": { "on": true, "warm": true, "busy": false, "model": "qwen3:30b-a3b-instruct",
+            "ramMb": 19260, "reason": null },
+    "enriquecimento": { "on": true, "reason": null, "dependsOn": "ia",
+                        "queuedDue": 214, "oldestAgeMin": 12, "ratePerHour": 310 }
+  },
+  "engines": { "total": 20, "on": 20 },
+  "problems": [],
+  "feed": [
+    { "at": "2026-07-28T18:39:12.000Z", "text": "corrida VPS: 412/1000 leads" },
+    { "at": "2026-07-28T18:35:02.000Z", "text": "corrida Localhost: 118/500 leads" },
+    { "at": "2026-07-28T18:20:00.000Z", "text": "Boot: Windows → agent ok (3s) → Ollama ok → painel aberto automaticamente." }
+  ]
+}

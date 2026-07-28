@@ -1,0 +1,27 @@
+{
+  "ok": true,
+  "generatedAt": "2026-07-28T18:40:00.000Z",
+  "boot": { "windows": true, "agent": true, "ollama": true, "painel": true, "reason": null },
+  "switches": {
+    "scraping": {
+      "vps":   { "on": true,  "known": true, "reason": null,
+                 "running": true, "budget": 1000, "processed": 412,
+                 "contactsWritten": 561, "lastError": null, "rfbBaseCount": 28000000 },
+      "local": { "on": false, "known": true, "reason": "parar_tudo_global",
+                 "running": false, "budget": 0, "processed": 0,
+                 "contactsWritten": 0, "lastError": "parar_tudo_global", "rfbBaseCount": 28000000 }
+    },
+    "ia": { "on": true, "warm": true, "busy": false, "model": "qwen3:30b-a3b-instruct",
+            "ramMb": 19260, "reason": null },
+    "enriquecimento": { "on": true, "reason": null, "dependsOn": "ia",
+                        "queuedDue": 1873, "oldestAgeMin": 42, "ratePerHour": 310 }
+  },
+  "engines": { "total": 20, "on": 20 },
+  "problems": [
+    { "id": "scraping_local_off", "severity": "warn",
+      "text": "Scraping deste PC está desligado no disjuntor — nada roda até religar.",
+      "action": { "label": "Religar", "method": "POST",
+                  "path": "/owner/v3/switch/scraping", "body": { "env": "local", "on": true } } }
+  ],
+  "feed": [ { "at": "2026-07-28T18:39:12.000Z", "text": "corrida VPS: 412/1000 leads" } ]
+}

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HBX Owner · V3</title>
+  <link rel="stylesheet" href="/v3/styles.css" />
+</head>
+<body>
+  <script>window.__HBX_OWNER_TOKEN__ = "%%HBX_OWNER_TOKEN%%";</script>
+
+  <div class="wrap">
+
+    <header>
+      <div class="logo">HBX <em>OWNER</em></div>
+      <div class="boot" id="boot">lendo boot…</div>
+      <div class="spacer"></div>
+      <div class="master" id="master"></div>
+    </header>
+    <p class="subtitle">3 interruptores. Se algo não roda, o motivo está escrito. Sem exceção.</p>
+
+    <div id="fatal" class="fatal hidden"></div>
+
+    <!-- Faixa de problemas: só existe no DOM quando overview.problems[] tem itens (app.js). -->
+    <div class="problems hidden" id="problems"></div>
+
+    <div class="jobs">
+
+      <!-- ⚡ SCRAPING · roda no VPS e neste PC — 2 linhas de energia, cada uma com seu interruptor -->
+      <section class="job" id="job-scraping">
+        <div class="job-head">
+          <div class="t">
+            <h2>⚡ Scraping · Fábrica</h2>
+            <span class="where">VPS + ESTE PC</span>
+          </div>
+        </div>
+        <div id="scraping-body"></div>
+      </section>
+
+      <!-- 🧠 IA 30B · roda neste PC -->
+      <section class="job" id="job-ia">
+        <div class="job-head">
+          <div class="t">
+            <h2>🧠 IA 30B</h2>
+            <span class="where">ESTE PC</span>
+          </div>
+          <div id="ia-switch"></div>
+        </div>
+        <div id="ia-body"></div>
+      </section>
+
+      <!-- 🔄 ENRIQUECIMENTO · roda neste PC, escreve no VPS -->
+      <section class="job" id="job-enr">
+        <div class="job-head">
+          <div class="t">
+            <h2>🔄 Enriquecimento</h2>
+            <span class="where">ESTE PC → VPS</span>
+          </div>
+          <div id="enr-switch"></div>
+        </div>
+        <div id="enr-body"></div>
+      </section>
+
+    </div>
+
+    <!-- Gaveta: nada morre de função — só recolheu de prateleira. Alguns itens ainda são só
+         link pro painel velho (ver relatório da etapa E3 pra saber quais). -->
+    <details class="tools">
+      <summary><span class="chev">▶</span> Ferramentas (uso eventual)</summary>
+      <div class="toolgrid">
+        <a class="tool" href="/#cockpit-card" target="_blank" rel="noopener">
+          <div class="tn">🗂 Cockpit de leads</div><div class="td">filtrar, ver, CSV — painel antigo</div>
+        </a>
+        <a class="tool" href="/#cockpit-card" target="_blank" rel="noopener">
+          <div class="tn">📤 Exportar tudo</div><div class="td">local ou VPS, stream — painel antigo</div>
+        </a>
+        <a class="tool" href="/" target="_blank" rel="noopener">
+          <div class="tn">🔑 Integrações</div><div class="td">chaves local e VPS — painel antigo</div>
+        </a>
+        <a class="tool" href="/#cerebro-30b" target="_blank" rel="noopener">
+          <div class="tn">🪠 Limpeza / desentupir fila</div><div class="td">jobs presos e duplicados — painel antigo</div>
+        </a>
+        <a class="tool" href="/#engines-truth" target="_blank" rel="noopener">
+          <div class="tn">📋 Motores (drill-down)</div><div class="td">tabela da verdade, 20 motores — painel antigo</div>
+        </a>
+      </div>
+    </details>
+
+    <div class="feed">
+      <h3>ÚLTIMOS EVENTOS</h3>
+      <div id="feedlines"></div>
+    </div>
+
+    <footer>HBX Owner V3 · 1 endpoint de verdade (/owner/v3/overview) · 1 poll 5s + SSE · problema nunca fica mudo</footer>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="/v3/app.js"></script>
+</body>
+</html>

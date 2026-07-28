@@ -1,0 +1,129 @@
+/* HBX Owner V3 — CSS próprio do painel novo (as 5 Leis do frontend/ NÃO valem aqui).
+   Portado do mock aprovado docs/mockups/hbx-owner-v3.html + estados que o mock não cobria
+   (known:false, "aplicando…", severidade de erro, LIGAR/DESLIGAR TUDO, toast). */
+:root{
+  --bg:#0b0f14; --card:#111823; --card2:#0e141d; --border:#1d2836; --border2:#26344a;
+  --text:#e7eef6; --muted:#8fa0b3; --dim:#5c6c80;
+  --green:#2ec27e; --green-bg:rgba(46,194,126,.10);
+  --amber:#e5a50a; --amber-bg:rgba(229,165,10,.10);
+  --red:#f25d52;   --red-bg:rgba(242,93,82,.10);
+  --blue:#5aa2ff;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font:15px/1.5 "Segoe UI",system-ui,sans-serif;padding:28px 20px 60px}
+.wrap{max-width:1060px;margin:0 auto}
+.hidden{display:none !important}
+
+/* ── topo ── */
+header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+.logo{font-size:1.15rem;font-weight:800;letter-spacing:.4px}
+.logo em{color:var(--green);font-style:normal}
+.boot{display:flex;gap:10px;align-items:center;color:var(--muted);font-size:.78rem;margin-left:2px;flex-wrap:wrap}
+.boot b{color:var(--text);font-weight:600}
+.dot{width:8px;height:8px;border-radius:99px;background:var(--green);display:inline-block;box-shadow:0 0 0 3px rgba(46,194,126,.15)}
+.dot.bad{background:var(--red);box-shadow:0 0 0 3px rgba(242,93,82,.15)}
+.dot.unknown{background:var(--dim);box-shadow:none}
+.spacer{flex:1}
+.master{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:10px 16px;flex-wrap:wrap}
+.master .lbl{font-size:.72rem;font-weight:700;letter-spacing:.08em;color:var(--muted)}
+.master-actions{display:flex;gap:8px}
+.subtitle{color:var(--dim);font-size:.8rem;margin:2px 0 22px}
+
+/* ── botões LIGAR TUDO / DESLIGAR TUDO ── */
+.btn-master{border:0;border-radius:10px;padding:9px 16px;font-weight:800;font-size:.76rem;letter-spacing:.03em;cursor:pointer}
+.btn-master.on{background:var(--green);color:#06281a}
+.btn-master.off{background:var(--card2);color:var(--muted);border:1px solid var(--border2)}
+.btn-master:disabled,.btn-master.applying{opacity:.5;cursor:not-allowed;pointer-events:none}
+
+/* ── interruptor ── */
+.sw{position:relative;width:58px;height:30px;border-radius:99px;background:#26313f;border:1px solid var(--border2);cursor:pointer;transition:background .18s;flex:none}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:99px;background:#7b8a9c;transition:all .18s}
+.sw.on{background:var(--green)}
+.sw.on::after{left:31px;background:#fff}
+.sw.sm{width:44px;height:24px}
+.sw.sm::after{width:18px;height:18px}
+.sw.sm.on::after{left:23px}
+.sw.unknown{background:#2a3341;cursor:not-allowed;border-style:dashed}
+.sw.unknown::after{background:var(--dim)}
+.sw.applying{opacity:.55;pointer-events:none}
+/* "subindo" — o agent está de fato ligando o backend local fora do Docker; âmbar, nunca clicável,
+   NUNCA vira verde sozinho (só o próximo overview com on:true decide). */
+.sw.mid{background:var(--amber);cursor:not-allowed}
+.sw.mid::after{left:17px;background:#fff}
+.sw.sm.mid::after{left:13px}
+
+/* ── faixa de problemas: SÓ existe quando há problema (ver app.js) ── */
+.problems{border:1px solid rgba(229,165,10,.4);background:var(--amber-bg);border-radius:14px;padding:4px 16px;margin-bottom:22px}
+.problems.has-error{border-color:rgba(242,93,82,.4);background:var(--red-bg)}
+.problem{display:flex;align-items:center;gap:12px;padding:10px 0}
+.problem + .problem{border-top:1px dashed rgba(229,165,10,.25)}
+.problem .ic{font-size:1rem}
+.problem .tx{flex:1;font-size:.86rem}
+.problem .tx b{color:var(--amber)}
+.problem.error .tx b{color:var(--red)}
+.problem button{background:var(--amber);color:#1a1200;border:0;border-radius:9px;padding:7px 14px;font-weight:700;font-size:.78rem;cursor:pointer}
+.problem.error button{background:var(--red);color:#2a0805}
+.problem button.applying{opacity:.5;cursor:not-allowed;pointer-events:none}
+
+/* ── os 3 cards ── */
+.jobs{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:22px}
+@media(max-width:900px){.jobs{grid-template-columns:1fr}}
+.job{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px;display:flex;flex-direction:column;gap:14px}
+.job.on{border-color:rgba(46,194,126,.35)}
+.job-head{display:flex;align-items:flex-start;gap:10px}
+.job-head .t{flex:1}
+.job-head h2{font-size:.95rem;font-weight:750}
+.where{display:inline-block;margin-top:4px;font-size:.68rem;font-weight:700;letter-spacing:.06em;color:var(--muted);background:var(--card2);border:1px solid var(--border);border-radius:99px;padding:2px 9px}
+.bignum{font-size:1.9rem;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums}
+.bignum small{font-size:.78rem;font-weight:600;color:var(--muted);margin-left:6px}
+.why{font-size:.8rem;border-radius:10px;padding:8px 11px;background:var(--card2);border-left:3px solid var(--border2);color:var(--muted)}
+.why.ok{border-left-color:var(--green);color:var(--green);background:var(--green-bg)}
+.why.warn{border-left-color:var(--amber);color:var(--amber);background:var(--amber-bg)}
+.kv{display:flex;justify-content:space-between;font-size:.8rem;color:var(--muted)}
+.kv.sub{font-size:.74rem;opacity:.9}
+.kv b{color:var(--text);font-weight:650;font-variant-numeric:tabular-nums}
+.kv b.err{color:var(--red)}
+.env-row{display:flex;align-items:center;gap:10px;background:var(--card2);border:1px solid var(--border);border-radius:11px;padding:9px 12px}
+.env-info{flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}
+.env-info .nm{font-size:.82rem;font-weight:650}
+.env-info .st{font-size:.72rem;color:var(--muted)}
+.env-info .st.off{color:var(--amber)}
+.env-info .st.unknown{color:var(--dim);font-style:italic}
+.env-info .st.starting{color:var(--amber)}
+.hint{font-size:.72rem;color:var(--dim);margin-top:2px}
+.run-row{display:flex;gap:8px}
+.run-row input{width:84px;background:var(--card2);border:1px solid var(--border2);border-radius:9px;color:var(--text);padding:7px 10px;font-size:.85rem}
+.run-row button{flex:1;background:var(--green);border:0;border-radius:9px;color:#06281a;font-weight:750;font-size:.82rem;cursor:pointer;padding:7px 10px}
+.run-row button:disabled,.run-row button.applying{background:#26313f;color:var(--dim);cursor:not-allowed;pointer-events:none}
+.dep{font-size:.72rem;color:var(--dim)}
+.dep b{color:var(--muted)}
+
+/* ── faixa de erro fatal (agent inalcançável) ── */
+.fatal{border:1px solid rgba(242,93,82,.5);background:var(--red-bg);color:var(--red);border-radius:12px;padding:10px 14px;font-size:.82rem;margin-bottom:16px}
+
+/* ── gaveta ── */
+details.tools{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:0 18px;margin-bottom:22px}
+details.tools summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;padding:14px 0;font-weight:700;font-size:.85rem;color:var(--muted)}
+details.tools summary::-webkit-details-marker{display:none}
+details.tools summary .chev{transition:transform .15s;color:var(--dim)}
+details.tools[open] summary .chev{transform:rotate(90deg)}
+.toolgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;padding:2px 0 18px}
+.tool{display:block;text-decoration:none;color:inherit;background:var(--card2);border:1px solid var(--border);border-radius:11px;padding:12px 14px;cursor:pointer;transition:border-color .15s}
+.tool:hover{border-color:var(--border2)}
+.tool .tn{font-size:.83rem;font-weight:650}
+.tool .td{font-size:.72rem;color:var(--dim);margin-top:2px}
+
+/* ── feed ── */
+.feed{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px 18px}
+.feed h3{font-size:.72rem;font-weight:700;letter-spacing:.08em;color:var(--muted);margin-bottom:8px}
+.feed .ln{display:flex;gap:10px;font-size:.8rem;padding:4px 0;color:var(--muted)}
+.feed .ln time{color:var(--dim);font-variant-numeric:tabular-nums;flex:none}
+footer{margin-top:18px;color:var(--dim);font-size:.72rem;text-align:center}
+
+/* ── toast (feedback de ação — nunca otimista, só depois da resposta) ── */
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%) translateY(20px);
+  background:var(--card);border:1px solid var(--border2);border-radius:12px;padding:10px 18px;
+  font-size:.82rem;opacity:0;pointer-events:none;transition:all .2s;z-index:50;max-width:90vw;text-align:center}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.toast.ok{border-color:var(--green);color:var(--green)}
+.toast.warn{border-color:var(--amber);color:var(--amber)}
