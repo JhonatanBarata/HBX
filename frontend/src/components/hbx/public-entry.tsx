@@ -319,6 +319,9 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
           <span>HBX</span>
         </Link>
         <nav className="f1-header__actions" aria-label="Ações principais">
+          <Link className="f1-icon-button" href="/rota" aria-label="Conhecer o Gerenciador de Rota" title="Gerenciador de Rota">
+            <Icon name="route" /><span>Rota</span>
+          </Link>
           <Link className="f1-icon-button" href="/tutorialexterno" aria-label="Ver o tutorial" title="Tutorial">
             <Icon name="play" />
           </Link>
@@ -418,7 +421,10 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
             <div className="f1-mobile-app__copy">
               <small>HBX Logística para Android</small>
               <strong>A operação na<br />palma da mão.</strong>
-              <a href={MOBILE_APK_URL} className="f1-mobile-app__link">Baixar HBX Logística <Icon name="arrow" /></a>
+              <span className="f1-mobile-app__links">
+                <a href={MOBILE_APK_URL} className="f1-mobile-app__link">Baixar HBX Logística <Icon name="arrow" /></a>
+                <Link href="/rota" className="f1-mobile-app__link f1-mobile-app__link--ghost">Ver planos e preços</Link>
+              </span>
             </div>
             <div className="f1-mobile-app__art-wrap">
               <img src="/hbx-theme/assets/mobile-apps/android-hero.png" alt="Android futurista do HBX Logística" />

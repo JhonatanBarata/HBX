@@ -78,7 +78,14 @@ export function applyThemeForPath(_pathname: string) {
 
 // Troca com cross-fade suave (classe temporária que se remove sozinha).
 type ThemeTransitionDocument = Document & {
-  startViewTransition?: (update: () => void) => { finished: Promise<void> };
+  startViewTransition?: (update: () => void) => {
+    finished: Promise<void>;
+    // O navegador expõe MAIS promessas além de `finished` — e elas rejeitam
+    // sozinhas quando a transição é abortada (ex.: clicar no sol/lua duas
+    // vezes seguidas). Precisam de catch, ver applyThemeSoft.
+    ready?: Promise<void>;
+    updateCallbackDone?: Promise<void>;
+  };
 };
 
 let themeAnimTimer: number | null = null;
@@ -102,6 +109,14 @@ export function applyThemeSoft(mutate: () => void) {
   const startViewTransition = (document as ThemeTransitionDocument).startViewTransition;
   if (typeof startViewTransition === "function") {
     const transition = startViewTransition.call(document, mutate);
+    // `ready` e `updateCallbackDone` REJEITAM quando o navegador aborta a
+    // transição ("Transition was aborted because of invalid state" — acontece
+    // ao trocar de tema duas vezes rápido, ou com outra transição em curso).
+    // Sem catch isso vira unhandledrejection e o pop-up global de erro abre na
+    // cara do usuário por causa de um cross-fade — o tema TROCOU, não houve
+    // falha nenhuma. Abortar é resultado esperado aqui: só encerra a animação.
+    transition.ready?.catch(finish);
+    transition.updateCallbackDone?.catch(finish);
     void transition.finished.then(finish, finish);
     return;
   }

@@ -68,6 +68,17 @@ export class LogisticaNivelPlanoService implements OnModuleInit {
     }));
   }
 
+  /**
+   * Catálogo para a VITRINE PÚBLICA do site (/rota, sem login) — mesma fonte do
+   * billing, recortada no que é material de anúncio: nível, título, slogan,
+   * mensalidade e franquia. `editado`/`franquiaBlocos` ficam de fora de
+   * propósito: são detalhe interno de operação, não interessam a quem está
+   * decidindo comprar. Ver logistica-planos-publico.controller.ts.
+   */
+  listPublico(): LogisticaNivelDefinition[] {
+    return listLogisticaNiveisCatalog();
+  }
+
   /** Grava o override de UM nível (master). Campos ausentes não mudam nada. */
   async setOverride(nivelRaw: unknown, body: unknown): Promise<LogisticaNivelDefinition & { editado: boolean }> {
     const nivel = normalizeLogisticaNivelKey(nivelRaw);

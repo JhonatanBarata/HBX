@@ -21,6 +21,9 @@
 /* Vendas: refinamento aprovado do card Detalhes; escopo .dn-root--vendas. */
 @import "./hbx-theme/detalhes-negocio-vendas.css";
 @import "./hbx-theme/public-entry.css";
+/* Vitrine do Gerenciador de Rota (/rota, sem login) — veste a casca da landing
+   (.public-entry) e só acrescenta .rt-*; por isso entra DEPOIS dela. */
+@import "./hbx-theme/rota-site.css";
 @import "./hbx-theme/transitions.css";
 /* F3 FULL-POLIDO — "Acompanhe sua entrega" (/acompanhar/[token], sem login),
    escopo próprio .trk-pub, zero dependência de painel autenticado. */

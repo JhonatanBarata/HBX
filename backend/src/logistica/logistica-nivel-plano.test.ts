@@ -212,3 +212,43 @@ test('painel do master: empresa sem claim nenhum aparece com a franquia inteira'
   assert.equal(linha.paradasUsadas, 0);
   assert.equal(linha.paradasRestantes, 600);
 });
+
+// ── Vitrine pública do site (/rota) ─────────────────────────────────────────
+// A página do site lê GET /public/logistica/planos. O ponto do endpoint é NÃO
+// existir preço escrito à mão no HTML: mudou no Master, muda no site.
+
+test('vitrine pública: os 3 níveis com preço, franquia, título e slogan', () => {
+  limparOverlay();
+  const { service } = makeService({});
+  const niveis = service.listPublico();
+  assert.deepEqual(niveis.map((n) => n.nivel), ['BASIC', 'ADVANCED', 'FULL']);
+  const advanced = niveis[1];
+  assert.equal(advanced.precoMensal, 199);
+  assert.equal(advanced.franquiaParadasMes, 600);
+  assert.equal(advanced.titulo, 'Rota Advanced');
+  assert.equal(advanced.slogan, 'O app cobra por você');
+});
+
+test('vitrine pública: preço editado no Master aparece no site (é o motivo do endpoint)', () => {
+  limparOverlay();
+  applyLogisticaNivelOverrides([
+    { nivel: 'FULL', override: { precoMensal: 349, franquiaParadasMes: 1200, slogan: 'Rastreio de ponta a ponta' } },
+  ]);
+  const { service } = makeService({});
+  const full = service.listPublico().find((n) => n.nivel === 'FULL')!;
+  assert.equal(full.precoMensal, 349);
+  assert.equal(full.franquiaParadasMes, 1200);
+  assert.equal(full.slogan, 'Rastreio de ponta a ponta');
+});
+
+test('vitrine pública: só material de anúncio — nada de dado interno vaza', () => {
+  limparOverlay();
+  const { service } = makeService({});
+  for (const nivel of service.listPublico()) {
+    assert.deepEqual(
+      Object.keys(nivel).sort(),
+      ['franquiaParadasMes', 'nivel', 'precoMensal', 'slogan', 'titulo'],
+      'campo novo no catálogo entrou na vitrine pública sem ninguém decidir',
+    );
+  }
+});

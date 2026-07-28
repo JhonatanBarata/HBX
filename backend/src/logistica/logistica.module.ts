@@ -55,6 +55,7 @@ import { LogisticaImportacaoController } from './logistica-importacao.controller
 import { LogisticaImportacaoService } from './logistica-importacao.service';
 import { LogisticaEstoqueController } from './logistica-estoque.controller';
 import { LogisticaNivelMasterController } from './logistica-nivel-master.controller';
+import { LogisticaPlanosPublicoController } from './logistica-planos-publico.controller';
 import { LogisticaNivelPlanoService } from './logistica-nivel-plano.service';
 import { LogisticaEstoqueService } from './logistica-estoque.service';
 
@@ -164,6 +165,12 @@ import { LogisticaEstoqueService } from './logistica-estoque.service';
  * frente) NÃO tem arquivo próprio — é `resolverDevedorNaRota` dentro de
  * LogisticaService (fonte única com listRota) + o filtro em
  * LogisticaAdminRouteService#prepare.
+ *
+ * PÁGINA DO SITE (28/07, mesma frente): LogisticaPlanosPublicoController é a
+ * rota PÚBLICA `/public/logistica/planos` (sem JWT, sem token — é tabela de
+ * preço de anúncio) que alimenta a vitrine `/rota` do site com o MESMO catálogo
+ * que o Master edita. Sem ela a página teria preço escrito à mão e passaria a
+ * mentir no dia em que o dono mudasse o valor.
  */
 @Module({
   imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule, NucleoModule],
@@ -182,6 +189,7 @@ import { LogisticaEstoqueService } from './logistica-estoque.service';
     LogisticaImportacaoController,
     LogisticaEstoqueController,
     LogisticaNivelMasterController,
+    LogisticaPlanosPublicoController,
   ],
   providers: [
     LogisticaService,

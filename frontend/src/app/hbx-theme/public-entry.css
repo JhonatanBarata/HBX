@@ -410,6 +410,12 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .f1-mobile-app__link { display: inline-flex; width: fit-content; min-height: 38px; margin-top: 5px; padding: 0 14px; align-items: center; gap: 7px; border: 1px solid color-mix(in srgb, var(--f1-accent) 45%, transparent); border-radius: 12px; color: var(--f1-text); background: color-mix(in srgb, var(--f1-accent) 16%, transparent); font-size: 0.72rem; font-weight: 800; transition: transform 0.25s ease, background 0.25s ease; }
 .f1-mobile-app__link:hover { background: color-mix(in srgb, var(--f1-accent) 26%, transparent); transform: translateY(-2px); }
 .f1-mobile-app__link .f1-icon { width: 14px; height: 14px; }
+/* Card do Android leva a DOIS destinos: baixar o app (ação) e a vitrine do
+   Gerenciador de Rota em /rota (venda). O segundo é fantasma pra não brigar
+   com o primeiro. */
+.f1-mobile-app__links { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.f1-mobile-app__link--ghost { border-color: var(--f1-line-strong); color: var(--f1-text-soft); background: transparent; }
+.f1-mobile-app__link--ghost:hover { color: var(--f1-text); background: var(--f1-surface); }
 
 @media (max-width: 800px) {
   .f1-mobile-apps { width: calc(100% - 32px); margin-top: 8px; grid-template-columns: 1fr; gap: 14px; }
