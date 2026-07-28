@@ -208,18 +208,11 @@
   --radar-axis: color-mix(in srgb, var(--hbx-danger) 20%, transparent);
 }
 
-/* Pausa e parada precisam parecer imóveis, não apenas mais lentas. */
-.leads-page .radar-disc-wrap--pausado .radarSweep2,
-.leads-page .radar-disc-wrap--pausado .radarPulseRing,
-.leads-page .radar-disc-wrap--pausado .radarBlip2,
-.leads-page .radar-disc-wrap--pausado .radarBlip2Ripple,
-.leads-page .radar-disc-wrap--pausado .radarBlip2Label,
-.leads-page .radar-disc-wrap--pausado .radarTrack,
-.leads-page .radar-disc-wrap--pausado .radarCompass,
-.leads-page .radar-disc-wrap--parado .radarBlip2Label {
-  animation: none;
-}
-
+/* 28/07 — `animation: none` no pausado/parado FAZIA O PONTEIRO SALTAR pro ângulo
+   zero na troca de estado (o "pisca" que o dono viu). Agora as animações ficam
+   vivas e quem freia é a rampa de playbackRate (radar-disc.tsx): o disco
+   desacelera até quase parar (pausado) ou congelar no lugar (parado), e volta a
+   acelerar do MESMO ponto no play. Aqui sobra só o que é tinta/opacidade. */
 .leads-page .radar-disc-wrap--pausado .radarBlip2 { opacity: 0.58; }
 .leads-page .radar-disc-wrap--pausado .radarBlip2Label,
 .leads-page .radar-disc-wrap--parado .radarBlip2Label { opacity: 0; }

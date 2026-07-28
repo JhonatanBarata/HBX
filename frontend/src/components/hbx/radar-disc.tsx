@@ -13,7 +13,18 @@
 // nomes, sorteados aleatoriamente a cada montagem — nunca nome de empresa
 // real, isso seria dado fabricado).
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+
+// Ritmo de cada estado: 1 = giro cheio, fração = giro lento, 0 = parado no lugar
+// (congela ONDE está, não volta pro zero). 28/07, pedido do dono: "o radar ir
+// parando aos poucos, não piscar e voltar o outro".
+const RADAR_RATE: Record<RadarDiscState, number> = {
+  funcionando: 1,
+  pausado: 0.18,
+  parado: 0,
+};
+// Frear leva mais tempo que voltar a girar — é o que dá a sensação de inércia.
+const RADAR_RAMP_MS = { down: 1500, up: 1100 };
 
 const RADAR_LABEL_POOL = ["telefones", "sites", "instagram", "facebook", "e-mail", "CNAE", "Microempresa"];
 function pickRadarLabels(count: number): string[] {
@@ -45,6 +56,41 @@ export function RadarDisc({ mini = false, state = "funcionando" }: { mini?: bool
     // eslint-disable-next-line react-hooks/set-state-in-effect -- sorteio só PÓS-mount (ver comentário acima) pra não quebrar a hidratação; lazy init rodaria no servidor também
     setLabels(pickRadarLabels(3));
   }, []);
+
+  // ── Inércia do disco (28/07) — play/pause/stop deixam de ser corte seco ─────
+  // Trocar `animation-duration` pela classe faria o ponteiro PULAR de posição;
+  // aqui a velocidade é rampada no playbackRate das animações que JÁ estão
+  // rodando (Web Animations API), então o tempo atual é preservado: o ponteiro
+  // desacelera até congelar onde está e, no play, volta a acelerar do mesmo
+  // ponto. A COR troca em paralelo pelo transition dos tokens --radar-*.
+  const wrapRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el || typeof el.getAnimations !== "function") return;
+    // SÓ @keyframes: getAnimations devolve também as CSSTransition (a troca de cor
+    // dos tokens) — frear uma transition congelaria a cor no meio do caminho.
+    const anims = el
+      .getAnimations({ subtree: true })
+      .filter(anim => typeof (anim as CSSAnimation).animationName === "string");
+    if (anims.length === 0) return; // prefers-reduced-motion: nada a rampar
+    const target = RADAR_RATE[state] ?? 1;
+    const from = anims[0]?.playbackRate ?? 1;
+    if (Math.abs(from - target) < 0.01) return;
+    const duration = target < from ? RADAR_RAMP_MS.down : RADAR_RAMP_MS.up;
+    const started = performance.now();
+    let frame = 0;
+    const step = (now: number) => {
+      const p = Math.min(1, (now - started) / duration);
+      const eased = 1 - Math.pow(1 - p, 3); // ease-out: freia forte no fim
+      const rate = from + (target - from) * eased;
+      for (const anim of anims) {
+        try { anim.playbackRate = rate; } catch { /* animação já morta */ }
+      }
+      if (p < 1) frame = requestAnimationFrame(step);
+    };
+    frame = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(frame);
+  }, [state]);
   const blips: Array<{ top: string; left: string; size: number; hot?: boolean; label: string; delay: string }> = [
     { top: "35%", left: "62%", size: 13, hot: true, label: labels[0] || "", delay: "-0.15s" },
     { top: "47%", left: "73%", size: 12, label: labels[1] || "", delay: "-1.05s" },
@@ -59,7 +105,7 @@ export function RadarDisc({ mini = false, state = "funcionando" }: { mini?: bool
   ];
 
   return (
-    <div className={"radar-disc-wrap radar-disc-wrap--" + state + (mini ? " radar-disc-wrap--mini" : "")}>
+    <div ref={wrapRef} className={"radar-disc-wrap radar-disc-wrap--" + state + (mini ? " radar-disc-wrap--mini" : "")}>
       <div className="radarScopeClip">
         <i className="radarScopeGrid" />
         <i className="radarScopeGlow" />

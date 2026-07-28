@@ -1504,6 +1504,29 @@ html, body { height: 100%; }
    (sweep, blips, anéis, bússola, trilhas) recolore junto — sem tocar em nenhuma
    regra por-elemento. `--funcionando` é o padrão aprovado (accent, vivo). */
 
+/* 28/07 — TRANSIÇÃO DE COR de verdade: custom property só interpola quando é
+   REGISTRADA (@property). Com isso a troca funcionando→pausado→parado deixa de
+   ser corte seco: azul escorre pra âmbar e âmbar pra cinza no disco inteiro
+   (sweep, blips, anéis, bússola, trilhas) porque todos leem estes 6 tokens. */
+@property --radar-sweep { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --radar-ring  { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --radar-blip  { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --radar-glow  { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --radar-trail { syntax: "<color>"; inherits: true; initial-value: transparent; }
+@property --radar-axis  { syntax: "<color>"; inherits: true; initial-value: transparent; }
+
+.radar-disc-wrap {
+  transition:
+    --radar-sweep 900ms var(--ease-out-quint),
+    --radar-ring  900ms var(--ease-out-quint),
+    --radar-blip  900ms var(--ease-out-quint),
+    --radar-glow  900ms var(--ease-out-quint),
+    --radar-trail 900ms var(--ease-out-quint),
+    --radar-axis  900ms var(--ease-out-quint);
+}
+/* Blip apaga/acende junto com a cor, sem sumir de uma vez. */
+.radarBlip2 { transition: opacity 900ms var(--ease-out-quint); }
+
 /* Pausado = warning: mesmo disco, tinta âmbar e sweep respirando devagar. */
 .radar-disc-wrap--pausado {
   --radar-sweep: color-mix(in srgb, var(--hbx-warning) 82%, transparent);
@@ -1513,9 +1536,9 @@ html, body { height: 100%; }
   --radar-trail: color-mix(in srgb, var(--hbx-warning) 30%, transparent);
   --radar-axis:  color-mix(in srgb, var(--hbx-warning) 22%, transparent);
 }
-.radar-disc-wrap--pausado .radarSweep2   { animation-duration: 7.4s; }
-.radar-disc-wrap--pausado .radarPulseRing { animation-duration: 4.4s; }
-.radar-disc-wrap--pausado .radarBlip2    { animation-duration: 5.2s, 5.2s; }
+/* O RITMO do pausado não vem mais de animation-duration (trocar a duração no
+   meio faz o ponteiro PULAR de ângulo): quem desacelera é o playbackRate rampado
+   em radar-disc.tsx. Aqui fica só a tinta. */
 
 /* Parado = repouso: tinta cinza + sweep/pings congelados e blips apagados —
    dá pra ver na hora que o radar não está pegando nada agora. */
@@ -1527,12 +1550,11 @@ html, body { height: 100%; }
   --radar-trail: color-mix(in srgb, var(--text-muted) 20%, transparent);
   --radar-axis:  color-mix(in srgb, var(--text-muted) 18%, transparent);
 }
-.radar-disc-wrap--parado .radarSweep2,
-.radar-disc-wrap--parado .radarPulseRing,
-.radar-disc-wrap--parado .radarBlip2Ripple,
-.radar-disc-wrap--parado .radarTrack,
-.radar-disc-wrap--parado .radarCompass { animation: none; }
-.radar-disc-wrap--parado .radarBlip2 { animation: none; opacity: 0.4; }
+/* `animation: none` matava a animação e o ponteiro SALTAVA pro ângulo zero —
+   era exatamente o "pisca" que o dono viu. Agora as animações continuam vivas e
+   o playbackRate cai até 0: o disco desacelera e CONGELA onde estava. */
+.radar-disc-wrap--parado .radarBlip2 { opacity: 0.45; }
+.radar-disc-wrap--parado .radarBlip2Label { opacity: 0; }
 
 /* ── Radar console: estado label + filtros ───────────────────────────────── */
 .radar-state-label { font-size: 0.72rem; font-weight: 700; text-align: center; color: var(--text-muted); margin: 4px 0 0; }
