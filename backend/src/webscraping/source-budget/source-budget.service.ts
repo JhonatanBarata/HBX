@@ -82,6 +82,14 @@ export class SourceBudgetService {
   static braveMonthlyCap(): number {
     return integerEnv('HBX_BRAVE_MONTHLY_CAP', 900);
   }
+  /**
+   * Brave: teto DIÁRIO adicional (F4 REFUNDAÇÃO 28/07 — "um dia de teste nunca mais come o mês
+   * em silêncio"). Conta em linha separada (yearMonth = "YYYY-MM-DD", fora do mês "YYYY-MM").
+   * <=0 = sem teto diário (só o mensal segura).
+   */
+  static braveDailyCap(): number {
+    return integerEnv('HBX_BRAVE_DAILY_CAP', 30);
+  }
   /** Google Places: teto DIÁRIO físico (fonte de emergência — nunca metralhar buscador pago). */
   static googlePlacesDailyCap(): number {
     return integerEnv('HBX_GOOGLE_PLACES_DAILY_CAP', 200);
@@ -185,23 +193,31 @@ export class SourceBudgetService {
     const cap = source === 'brave'
       ? SourceBudgetService.braveMonthlyCap()
       : SourceBudgetService.googlePlacesDailyCap();
-    if (cap <= 0) return true; // sem teto (escolha explícita do dono via env)
+    const dailyCap = source === 'brave' ? SourceBudgetService.braveDailyCap() : 0;
+    if (cap <= 0 && dailyCap <= 0) return true; // sem teto (escolha explícita do dono via env)
     try {
-      const periodKey = SourceBudgetService.periodKeyFor(source);
       const db = SourceBudgetService.counterDb() as any;
-      const row = await db.sourceApiUsage.upsert({
-        where: { source_yearMonth: { source, yearMonth: periodKey } },
-        create: { source, yearMonth: periodKey, count: 0 },
-        update: {},
-      });
-      if (Number(row?.count || 0) >= cap) {
-        SourceBudgetService.logBlocked(source, `teto atingido (${row.count}/${cap} no período ${periodKey}) — chamadas pausadas até virar o período.`);
-        return false;
+      // Checa TODOS os períodos com teto antes de consumir (brave = mensal E diário).
+      const gates: Array<{ periodKey: string; cap: number }> = [];
+      if (cap > 0) gates.push({ periodKey: SourceBudgetService.periodKeyFor(source), cap });
+      if (dailyCap > 0) gates.push({ periodKey: SourceBudgetService.currentDay(), cap: dailyCap });
+      for (const gate of gates) {
+        const row = await db.sourceApiUsage.upsert({
+          where: { source_yearMonth: { source, yearMonth: gate.periodKey } },
+          create: { source, yearMonth: gate.periodKey, count: 0 },
+          update: {},
+        });
+        if (Number(row?.count || 0) >= gate.cap) {
+          SourceBudgetService.logBlocked(source, `teto atingido (${row.count}/${gate.cap} no período ${gate.periodKey}) — chamadas pausadas até virar o período.`);
+          return false;
+        }
       }
-      await db.sourceApiUsage.update({
-        where: { source_yearMonth: { source, yearMonth: periodKey } },
-        data: { count: { increment: 1 } },
-      });
+      for (const gate of gates) {
+        await db.sourceApiUsage.update({
+          where: { source_yearMonth: { source, yearMonth: gate.periodKey } },
+          data: { count: { increment: 1 } },
+        });
+      }
       return true;
     } catch (error) {
       SourceBudgetService.logBlocked(source, `FAIL-CLOSED: erro no contador (${String((error as any)?.message || error).slice(0, 120)}) — fonte paga não chama sem contador.`);

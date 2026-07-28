@@ -103,6 +103,25 @@ test('cap=2 no Brave: 2 consomem, a 3ª bloqueia; contador não passa do teto', 
   delete process.env.HBX_ROLE;
 });
 
+test('teto DIÁRIO do Brave (F4 28/07): bloqueia no dia mesmo com o mês folgado', async () => {
+  resetGovernorRuntime();
+  const db = makeFakeDb();
+  injectDb(db);
+  process.env.HBX_ROLE = 'vps';
+  process.env.HBX_BRAVE_MONTHLY_CAP = '900';
+  process.env.HBX_BRAVE_DAILY_CAP = '2';
+  assert.equal(await SourceBudgetService.tryConsumePaid('brave'), true);
+  assert.equal(await SourceBudgetService.tryConsumePaid('brave'), true);
+  assert.equal(await SourceBudgetService.tryConsumePaid('brave'), false, 'a 3ª do DIA bloqueia com 898 sobrando no mês');
+  const ym = new Date().toISOString().slice(0, 7);
+  const day = new Date().toISOString().slice(0, 10);
+  assert.equal(db.rows.get(`brave|${ym}`)?.count, 2, 'mensal conta junto');
+  assert.equal(db.rows.get(`brave|${day}`)?.count, 2, 'diário não passa do teto');
+  process.env.HBX_BRAVE_DAILY_CAP = '30';
+  process.env.HBX_BRAVE_MONTHLY_CAP = '900';
+  delete process.env.HBX_ROLE;
+});
+
 test('TRAVA LEI Nº1: HBX_ROLE=local recusa tryConsumePaid ANTES do contador (R$0)', async () => {
   resetGovernorRuntime();
   // banco QUEBRADO de propósito: se a trava não recusasse antes, o fail-closed do contador

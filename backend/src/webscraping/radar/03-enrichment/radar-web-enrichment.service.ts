@@ -1032,13 +1032,18 @@ export class RadarWebEnrichmentService {
     // (grátis), não só o Brave (já congelado no Sprint 1). searchWeb é o ÚNICO ponto de entrada
     // pro fallback bing→ddg deste serviço — gate aqui cobre ambos com 1 checagem.
     if (await RadarWebEnrichmentService.factoryEmergencyStopped()) return [];
-    if (process.env.BRAVE_SEARCH_API_KEY) {
-      const brave = await this.searchBrave(fetcher, query, timeoutMs).catch(() => [] as WebCandidate[]);
-      if (brave.length) return brave;
-    }
+    // ORDEM DO DINHEIRO (F4 da REFUNDAÇÃO 28/07): GRÁTIS primeiro, pago por ÚLTIMO.
+    // A ordem antiga (Brave 1º em toda query) queimou os 900/mês na vitrine enquanto
+    // ddg fechava o mês com ZERO chamadas (bing sempre devolve algo). Brave agora é
+    // refinador: só entra quando bing E ddg voltaram vazios, sob teto mensal E diário.
     const bing = await this.searchBing(fetcher, query, timeoutMs).catch(() => [] as WebCandidate[]);
     if (bing.length) return bing;
-    return this.searchDuckDuckGo(fetcher, query, timeoutMs);
+    const ddg = await this.searchDuckDuckGo(fetcher, query, timeoutMs).catch(() => [] as WebCandidate[]);
+    if (ddg.length) return ddg;
+    if (process.env.BRAVE_SEARCH_API_KEY) {
+      return this.searchBrave(fetcher, query, timeoutMs).catch(() => [] as WebCandidate[]);
+    }
+    return [];
   }
 
   /**
