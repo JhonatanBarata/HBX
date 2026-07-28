@@ -864,6 +864,10 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const sessionItemsRef = useRef<{ id: string | null; leads: RadarLead[] }>({ id: null, leads: [] });
   const sessionPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sessionSettledRef = useRef<string | null>(null);
+  // 28/07 — ANTI-PISCA: ao montar, a tela AINDA NÃO SABE o estado do Radar. Pintar
+  // "parado" nesse vão era chute, e o chute virava pisca (parado → funcionando 300ms
+  // depois). Só depois que a 1ª consulta à sessão volta é que existe estado pra pintar.
+  const [radarHydrated, setRadarHydrated] = useState(false);
   // Pausa automática ("não sair procurando igual retardado"): o Radar para depois de N
   // leads e espera o vendedor. Persistido junto com os filtros.
   const [pauseAfter, setPauseAfter] = useState<string>("50");
@@ -1286,7 +1290,12 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
             }
           });
       })
-      .catch(() => { /* sem busca ativa */ });
+      .catch(() => { /* sem busca ativa */ })
+      .finally(() => {
+        // Só aqui o Radar tem estado REAL (ativo, terminal ou nenhum) — antes disso
+        // a tela mostra "verificando", nunca "parado".
+        setRadarHydrated(true);
+      });
     // WORM-15 — carrega pesquisas salvas do usuario (+ vendedores, se admin/gerente)
     apiFetch<{ searches?: SavedSearch[]; sellers?: SavedSeller[]; canAssignSeller?: boolean }>("/saved-search")
       .then(res => {
@@ -1749,6 +1758,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                 : "parado";
   const discState: "funcionando" | "pausado" | "parado" =
     radarState === "erro" ? "parado" : radarState;
+  // ANTI-PISCA: enquanto a 1ª leitura da sessão não voltou, o estado acima é chute.
+  // `runBusy`/`session` cobrem o caso de a busca nascer aqui mesmo antes do GET voltar.
+  const radarKnown = radarHydrated || runBusy || Boolean(session?.id);
 
   // P4: valida campos e abre popup se faltando — usado em 3 gatilhos
   function validarCamposOuPopup(effSegment?: string): boolean {
@@ -2037,6 +2049,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   // Embutido no Vendas: espelha os 3 números pro topo da casca única. setState do
   // pai é estável (não dispara loop). 29/06.
   useEffect(() => {
+    // ANTI-PISCA: nada de empurrar estado chutado pro topo da casca — enquanto a
+    // sessão não responde, o card de cima segue com o que o /vendas já sabia.
+    if (!radarKnown) return;
     onEmbedStats?.({
       totalBrasil: totalBrasilReal,
       disponiveis: counts.shelf,
@@ -2045,7 +2060,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       cotaPct: meterPct,
       radarState,
     });
-  }, [onEmbedStats, totalBrasilReal, counts.shelf, meterLabel, meterValue, meterPct, radarState]);
+  }, [onEmbedStats, totalBrasilReal, counts.shelf, meterLabel, meterValue, meterPct, radarState, radarKnown]);
 
   function contatoMascarado(row: RadarLead) {
     const channelPresence = resolveRadarChannelPresence(row);
@@ -2500,7 +2515,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
             setAdvancedInlineOpen(false);
             setCitiesModalOpen(true);
           }}
-          disabled={searchInProgress}
+          disabled={searchInProgress || !radarKnown}
           aria-haspopup="dialog"
           aria-label={`Filtros geográficos: ${geoSummary}`}
           title="Editar filtros geográficos"
@@ -2522,7 +2537,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           type="button"
           className="btn-ghost btn-xs be-cmdbar__advanced be-cmdbar__clear"
           onClick={limparFiltros}
-          disabled={!hasAnyFilter || searchInProgress}
+          disabled={!hasAnyFilter || searchInProgress || !radarKnown}
           title="Limpar toda a busca"
         >
           <I d={ICONS.x} size={13} /> Limpar
@@ -2535,7 +2550,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           <select
             value={pauseAfter}
             onChange={e => setPauseAfter(e.target.value)}
-            disabled={searchInProgress}
+            disabled={searchInProgress || !radarKnown}
             aria-label="Pausa automática após quantos leads"
           >
             <option value="0">Sem pausa</option>
@@ -2545,7 +2560,14 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           </select>
         </label>
 
-        {searchInProgress ? (
+        {!radarKnown ? (
+          /* ANTI-PISCA: sem saber se já existe busca rodando, o botão não pode
+             oferecer "Buscar" (viraria Parar/Pausar 300ms depois — e um clique
+             nesse vão criaria busca em cima de busca). */
+          <button className="btn-teal be-cmdbar__go is-booting" disabled aria-busy="true">
+            Verificando…
+          </button>
+        ) : searchInProgress ? (
           <span className="be-cmdbar__runctl">
             {sessionActive && (sessionPaused ? (
               <button
@@ -2581,22 +2603,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           </button>
         )}
 
-        <button
-          type="button"
-          className="btn-ghost btn-xs be-cmdbar__advanced"
-          data-tut="leads-filtro-avancado"
-          onClick={() => {
-            setCitiesQuery("");
-            setCitiesLimitMsg(null);
-            setAdvancedInlineOpen(true);
-            setCitiesModalOpen(true);
-          }}
-          disabled={searchInProgress}
-          title="Canais, reputação e pesquisas salvas"
-        >
-          <I d={ICONS.filter} size={13} /> Avançado
-          {advancedCount > 0 && <span className="be-cmdbar__advanced-count">{advancedCount}</span>}
-        </button>
+        {/* 28/07 (dono): o botão "Avançado" da barra morreu — canais, reputação e
+            pesquisas salvas continuam a UM clique dentro do popup de Território
+            (acordeão "Avançado"), e a barra deixa de disputar espaço com o Buscar. */}
       </div>
     );
   }
@@ -2616,6 +2625,33 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           <button className="btn-ghost btn-xs radar-mini-bar__back" onClick={() => setSelLead(null)} style={{ marginLeft: "auto" }}>
             ← Voltar
           </button>
+        </div>
+      );
+    }
+
+    // ANTI-PISCA (28/07): enquanto a sessão do servidor não responde, o Radar não
+    // tem estado — então não pinta estado NENHUM. Esqueleto neutro, mesma moldura e
+    // mesma altura do viewer real: quando o status chega, ele só preenche (sem o
+    // vermelho "Radar parado" piscando antes do azul "funcionando").
+    if (!radarKnown) {
+      return (
+        <div
+          className="radar-console radar-showoff radar-viewer radar-viewer--boot"
+          data-radar-state="carregando"
+          aria-busy="true"
+        >
+          <div className="radar-hero" role="status" aria-live="polite">
+            <span className="radar-hero__state">
+              <i aria-hidden="true" />
+              Verificando
+            </span>
+            <div className="radar-boot__disc" aria-hidden="true" />
+            <div className="radar-hero__copy">
+              <span className="radar-hero__eyebrow">Radar HBX</span>
+              <span className="radar-boot__bar radar-boot__bar--title" aria-hidden="true" />
+              <span className="radar-boot__bar radar-boot__bar--status" aria-hidden="true" />
+            </div>
+          </div>
         </div>
       );
     }
@@ -2659,14 +2695,20 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     return (
       <div className="radar-console radar-showoff radar-viewer" data-radar-state={radarState}>
         <div className="radar-hero" role="status" aria-live="polite">
-          <span className="radar-hero__state" aria-label={`Status do Radar: ${RADAR_STATE_LABEL[radarState]}`}>
+          {/* key={radarState}: a troca de estado remonta selo e texto, então a
+              mudança entra no fade do CSS em vez de pular seca na tela. */}
+          <span
+            key={`state-${radarState}`}
+            className="radar-hero__state"
+            aria-label={`Status do Radar: ${RADAR_STATE_LABEL[radarState]}`}
+          >
             <i aria-hidden="true" />
             {RADAR_STATE_LABEL[radarState]}
           </span>
           <div className="radar-hero__disc" aria-hidden="true">
             <RadarDisc state={discState} />
           </div>
-          <div className="radar-hero__copy">
+          <div key={`copy-${radarState}`} className="radar-hero__copy">
             <span className="radar-hero__eyebrow">Radar HBX</span>
             <h2 className="radar-hero__title">{radarTitle}</h2>
             <p className="radar-viewer__status">{radarStatus}</p>

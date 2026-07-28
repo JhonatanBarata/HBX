@@ -299,6 +299,72 @@
   transition: box-shadow 300ms var(--ease-out-quint), background 300ms var(--ease-out-quint);
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   ANTI-PISCA (28/07) — o Radar não nasce "parado". Enquanto a sessão do
+   servidor não responde, o viewer mostra um ESQUELETO neutro (cinza, sem
+   estado, sem cor) e depois faz a TRANSIÇÃO pro estado real: fade + lift
+   curtinho, sem pulo de layout (mesma moldura, mesma altura do disco).
+   ══════════════════════════════════════════════════════════════════════════ */
+.leads-page .radar-viewer[data-radar-state="carregando"] {
+  --radar-state-color: var(--text-muted);
+}
+
+/* Entrada suave dos DOIS lados da troca: o esqueleto entra sozinho e o viewer
+   real entra por cima quando o status chega (React troca o nó → anima). */
+.leads-page .radar-viewer--boot,
+.leads-page .radar-viewer:not(.radar-viewer--boot) {
+  animation: radar-viewer-fade-in 420ms var(--ease-out-quint) backwards;
+}
+
+/* Estado dentro do viewer já montado (parado → funcionando → pausado): o
+   bloco de texto tem key={radarState}, então remonta e entra no mesmo fade. */
+.leads-page .radar-viewer .radar-hero__copy,
+.leads-page .radar-viewer .radar-hero__state {
+  animation: radar-viewer-fade-in 380ms var(--ease-out-quint) backwards;
+}
+
+.leads-page .radar-boot__disc {
+  flex: 0 0 auto;
+  width: min(240px, 100%);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 1px dashed color-mix(in srgb, var(--text-muted) 30%, transparent);
+  background: radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--text-muted) 12%, transparent), transparent 68%);
+  animation: radar-boot-breathe 1.7s ease-in-out infinite;
+}
+
+.leads-page .radar-boot__bar {
+  display: block;
+  height: 12px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--hbx-surface-soft),
+    color-mix(in srgb, var(--text-muted) 18%, var(--hbx-surface-soft)),
+    var(--hbx-surface-soft)
+  );
+  background-size: 220% 100%;
+  animation: radar-boot-shimmer 1.5s linear infinite;
+}
+
+.leads-page .radar-boot__bar--title { width: 9.5rem; max-width: 100%; height: 1rem; }
+.leads-page .radar-boot__bar--status { width: 13rem; max-width: 100%; margin-top: 0.25rem; }
+
+@keyframes radar-viewer-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes radar-boot-breathe {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.86; }
+}
+
+@keyframes radar-boot-shimmer {
+  from { background-position: 120% 0; }
+  to { background-position: -120% 0; }
+}
+
 @keyframes radar-viewer-aura {
   0%, 100% { opacity: 0.48; transform: scale(0.94); }
   50% { opacity: 0.9; transform: scale(1.06); }
@@ -342,4 +408,22 @@
   .vnd-modehost[data-fx="on"] .vnd-supcard__ic::after {
     animation: none;
   }
+  /* Com "reduzir movimento" o esqueleto para de brilhar, mas a TROCA continua
+     visível como fade puro (opacidade não é movimento) — sem isso a mudança de
+     estado do Radar volta a "piscar" seco. */
+  .leads-page .radar-boot__disc,
+  .leads-page .radar-boot__bar {
+    animation: none;
+  }
+  .leads-page .radar-viewer--boot,
+  .leads-page .radar-viewer:not(.radar-viewer--boot),
+  .leads-page .radar-viewer .radar-hero__copy,
+  .leads-page .radar-viewer .radar-hero__state {
+    animation: radar-viewer-soft-in 320ms var(--ease-out-quint) backwards;
+  }
+}
+
+@keyframes radar-viewer-soft-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }

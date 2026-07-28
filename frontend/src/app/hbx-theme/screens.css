@@ -5367,9 +5367,13 @@ html, body { height: 100%; }
 }
 
 /* ── Buscar empresas: segmento + território inteligente + execução explícita ── */
+/* 28/07 (dono): era GRID de colunas fixas — em larguras intermediárias a soma
+   dos mínimos estourava o container e o Buscar/Parar SUMIA na borda. Agora é
+   flex com quebra de linha: campo e território encolhem/quebram, o botão de
+   execução é o último a ceder e NUNCA sai da tela. */
 .be-cmdbar.be-cmdbar--required {
-  display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(300px, 390px) auto auto auto auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   flex: 0 0 auto;
@@ -5377,6 +5381,13 @@ html, body { height: 100%; }
   border-bottom: 1px solid var(--border-hairline);
   background: var(--hbx-surface);
 }
+.be-cmdbar--required > .be-search { flex: 1 1 15rem; min-width: 11rem; }
+.be-cmdbar--required > .be-required-location { flex: 1 1 18rem; min-width: 13rem; }
+.be-cmdbar--required > .be-cmdbar__clear,
+.be-cmdbar--required > .be-cmdbar__pause { flex: 0 0 auto; }
+/* Execução (Buscar / Pausar+Parar) sempre por último e sempre visível. */
+.be-cmdbar--required > .be-cmdbar__go,
+.be-cmdbar--required > .be-cmdbar__runctl { flex: 0 0 auto; margin-left: auto; }
 /* REFUNDAÇÃO F2: pausa automática (freio do trabalho) + controles de execução da sessão */
 .be-cmdbar__pause {
   display: inline-flex;
@@ -5932,11 +5943,10 @@ html, body { height: 100%; }
 .be-adv-searches__panel .radar-saved__list { margin: 0; padding: 0; }
 
 @media (max-width: 900px) {
-  .be-cmdbar.be-cmdbar--required { grid-template-columns: minmax(0, 1fr) auto; }
-  .be-cmdbar--required .be-search,
-  .be-cmdbar--required .be-required-location { grid-column: 1 / -1; }
-  .be-cmdbar--required .be-cmdbar__go,
-  .be-cmdbar--required .be-cmdbar__advanced { width: 100%; }
+  /* Campo e território tomam a linha inteira; o botão de execução continua
+     numa linha própria, inteiro e clicável (nunca escondido). */
+  .be-cmdbar--required > .be-search,
+  .be-cmdbar--required > .be-required-location { flex: 1 1 100%; min-width: 0; }
 }
 @media (max-width: 640px) {
   .be-geo-modes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -5948,9 +5958,10 @@ html, body { height: 100%; }
   .be-adv-searches__actions { justify-content: flex-start; }
 }
 @media (max-width: 520px) {
-  .be-cmdbar.be-cmdbar--required { grid-template-columns: 1fr; }
-  .be-cmdbar--required .be-cmdbar__go,
-  .be-cmdbar--required .be-cmdbar__advanced { grid-column: 1; }
+  .be-cmdbar--required > .be-cmdbar__pause { flex: 1 1 100%; }
+  .be-cmdbar--required > .be-cmdbar__go,
+  .be-cmdbar--required > .be-cmdbar__runctl { margin-left: 0; flex: 1 1 100%; justify-content: center; }
+  .be-cmdbar--required > .be-cmdbar__runctl > .be-cmdbar__go { flex: 1 1 auto; }
   .be-cities-modal { width: calc(100vw - 48px); }
   .be-cities { padding: 14px; }
   .be-cities__foot { bottom: -14px; margin: 0 -14px -14px; padding-inline: 14px; }
