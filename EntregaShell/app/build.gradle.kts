@@ -41,7 +41,7 @@ plugins {
 // publish. Sem subir o piso o próximo publish carimbaria 68 — MESMO número já no
 // aparelho — e ele nunca veria a atualização (mesmo caso de 8→15, 15→18, 18→38
 // e 38→60 acima).
-val hbxLogisticaVersionCodeFloor = 84
+val hbxLogisticaVersionCodeFloor = 87
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)
