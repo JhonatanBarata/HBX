@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HBX Owner · V3 (mock)</title>
+<style>
+  :root{
+    --bg:#0b0f14; --card:#111823; --card2:#0e141d; --border:#1d2836; --border2:#26344a;
+    --text:#e7eef6; --muted:#8fa0b3; --dim:#5c6c80;
+    --green:#2ec27e; --green-bg:rgba(46,194,126,.10);
+    --amber:#e5a50a; --amber-bg:rgba(229,165,10,.10);
+    --red:#f25d52;   --red-bg:rgba(242,93,82,.10);
+    --blue:#5aa2ff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:15px/1.5 "Segoe UI",system-ui,sans-serif;padding:28px 20px 60px}
+  .wrap{max-width:1060px;margin:0 auto}
+
+  /* ── topo ── */
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:6px}
+  .logo{font-size:1.15rem;font-weight:800;letter-spacing:.4px}
+  .logo em{color:var(--green);font-style:normal}
+  .boot{display:flex;gap:10px;align-items:center;color:var(--muted);font-size:.78rem;margin-left:2px}
+  .boot b{color:var(--text);font-weight:600}
+  .dot{width:8px;height:8px;border-radius:99px;background:var(--green);display:inline-block;box-shadow:0 0 0 3px rgba(46,194,126,.15)}
+  .spacer{flex:1}
+  .master{display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:10px 16px}
+  .master .lbl{font-size:.72rem;font-weight:700;letter-spacing:.08em;color:var(--muted)}
+  .subtitle{color:var(--dim);font-size:.8rem;margin:2px 0 22px}
+
+  /* ── interruptor ── */
+  .sw{position:relative;width:58px;height:30px;border-radius:99px;background:#26313f;border:1px solid var(--border2);cursor:pointer;transition:background .18s;flex:none}
+  .sw::after{content:"";position:absolute;top:3px;left:3px;width:22px;height:22px;border-radius:99px;background:#7b8a9c;transition:all .18s}
+  .sw.on{background:var(--green)}
+  .sw.on::after{left:31px;background:#fff}
+  .sw.mid{background:var(--amber)}
+  .sw.mid::after{left:17px;background:#fff}
+  .sw.lg{width:74px;height:38px}
+  .sw.lg::after{width:30px;height:30px}
+  .sw.lg.on::after{left:40px}
+
+  /* ── faixa de problemas ── */
+  .problems{border:1px solid rgba(229,165,10,.4);background:var(--amber-bg);border-radius:14px;padding:4px 16px;margin-bottom:22px}
+  .problem{display:flex;align-items:center;gap:12px;padding:10px 0}
+  .problem + .problem{border-top:1px dashed rgba(229,165,10,.25)}
+  .problem .ic{font-size:1rem}
+  .problem .tx{flex:1;font-size:.86rem}
+  .problem .tx b{color:var(--amber)}
+  .problem button{background:var(--amber);color:#1a1200;border:0;border-radius:9px;padding:7px 14px;font-weight:700;font-size:.78rem;cursor:pointer}
+  .problems.empty{border-color:var(--border);background:var(--card2)}
+  .problems.empty .ok-line{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:.84rem;padding:10px 0}
+
+  /* ── os 3 cards ── */
+  .jobs{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:22px}
+  @media(max-width:900px){.jobs{grid-template-columns:1fr}}
+  .job{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px;display:flex;flex-direction:column;gap:14px}
+  .job.on{border-color:rgba(46,194,126,.35)}
+  .job-head{display:flex;align-items:flex-start;gap:10px}
+  .job-head .t{flex:1}
+  .job-head h2{font-size:.95rem;font-weight:750}
+  .where{display:inline-block;margin-top:4px;font-size:.68rem;font-weight:700;letter-spacing:.06em;color:var(--muted);background:var(--card2);border:1px solid var(--border);border-radius:99px;padding:2px 9px}
+  .bignum{font-size:1.9rem;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums}
+  .bignum small{font-size:.78rem;font-weight:600;color:var(--muted);margin-left:6px}
+  .why{font-size:.8rem;border-radius:10px;padding:8px 11px;background:var(--card2);border-left:3px solid var(--border2);color:var(--muted)}
+  .why.ok{border-left-color:var(--green);color:var(--green);background:var(--green-bg)}
+  .why.warn{border-left-color:var(--amber);color:var(--amber);background:var(--amber-bg)}
+  .kv{display:flex;justify-content:space-between;font-size:.8rem;color:var(--muted)}
+  .kv b{color:var(--text);font-weight:650;font-variant-numeric:tabular-nums}
+  .env-row{display:flex;align-items:center;gap:10px;background:var(--card2);border:1px solid var(--border);border-radius:11px;padding:9px 12px}
+  .env-row .nm{flex:1;font-size:.82rem;font-weight:650}
+  .env-row .st{font-size:.72rem;color:var(--muted)}
+  .runline{display:flex;gap:8px}
+  .runline input{width:84px;background:var(--card2);border:1px solid var(--border2);border-radius:9px;color:var(--text);padding:7px 10px;font-size:.85rem}
+  .runline button{flex:1;background:var(--green);border:0;border-radius:9px;color:#06281a;font-weight:750;font-size:.82rem;cursor:pointer;padding:7px 10px}
+  .runline button:disabled{background:#26313f;color:var(--dim);cursor:not-allowed}
+  .dep{font-size:.72rem;color:var(--dim)}
+  .dep b{color:var(--muted)}
+
+  /* ── gaveta ── */
+  details.tools{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:0 18px;margin-bottom:22px}
+  details.tools summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:10px;padding:14px 0;font-weight:700;font-size:.85rem;color:var(--muted)}
+  details.tools summary::-webkit-details-marker{display:none}
+  details.tools summary .chev{transition:transform .15s;color:var(--dim)}
+  details.tools[open] summary .chev{transform:rotate(90deg)}
+  .toolgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;padding:2px 0 18px}
+  .tool{background:var(--card2);border:1px solid var(--border);border-radius:11px;padding:12px 14px;cursor:pointer;transition:border-color .15s}
+  .tool:hover{border-color:var(--border2)}
+  .tool .tn{font-size:.83rem;font-weight:650}
+  .tool .td{font-size:.72rem;color:var(--dim);margin-top:2px}
+
+  /* ── feed ── */
+  .feed{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px 18px}
+  .feed h3{font-size:.72rem;font-weight:700;letter-spacing:.08em;color:var(--muted);margin-bottom:8px}
+  .feed .ln{display:flex;gap:10px;font-size:.8rem;padding:4px 0;color:var(--muted)}
+  .feed .ln time{color:var(--dim);font-variant-numeric:tabular-nums;flex:none}
+  .feed .ln.ok{color:var(--green)}
+  .feed .ln.warn{color:var(--amber)}
+  footer{margin-top:18px;color:var(--dim);font-size:.72rem;text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="logo">HBX <em>OWNER</em></div>
+    <div class="boot">
+      <span class="dot"></span><b>VPS</b>
+      <span class="dot"></span><b>Este PC</b>
+      <span class="dot"></span><b>Ollama</b>
+      <span style="color:var(--dim)">·</span>
+      <span>boot: Windows ✓ → agent ✓ → painel abriu sozinho ✓</span>
+    </div>
+    <div class="spacer"></div>
+    <div class="master">
+      <span class="lbl" id="master-lbl">TUDO LIGADO</span>
+      <div class="sw lg on" id="sw-master" role="switch" aria-checked="true" tabindex="0"></div>
+    </div>
+  </header>
+  <p class="subtitle">3 interruptores. Se algo não roda, o motivo está escrito. Sem exceção.</p>
+
+  <!-- FAIXA DE PROBLEMAS: só existe quando há problema; todo item tem ação de 1 clique -->
+  <div class="problems" id="problems">
+    <div class="problem" id="prob-fila">
+      <span class="ic">⚠️</span>
+      <span class="tx"><b>Fila do enriquecimento parada há 11 dias</b> — 5.825 leads esperando. O disjuntor global foi desligado em 02/07 e ninguém religou.</span>
+      <button onclick="fixFila()">Destravar agora</button>
+    </div>
+  </div>
+
+  <div class="jobs">
+
+    <!-- ⚡ SCRAPING -->
+    <section class="job on" id="job-scraping">
+      <div class="job-head">
+        <div class="t">
+          <h2>⚡ Scraping · Fábrica</h2>
+          <span class="where">VPS + ESTE PC</span>
+        </div>
+        <div class="sw on" id="sw-scraping" role="switch" aria-checked="true" tabindex="0"></div>
+      </div>
+      <div class="bignum">1.364<small>contatos na última corrida</small></div>
+      <div class="why ok" id="why-scraping">✓ Energia ligada nos 2 ambientes · 20/20 motores · R$0 gasto</div>
+      <div class="env-row">
+        <div class="sw on sm" id="sw-energia-vps" role="switch" aria-checked="true" tabindex="0" style="width:44px;height:24px"></div>
+        <span class="nm">Energia · VPS</span><span class="st" id="st-vps">ligada</span>
+      </div>
+      <div class="env-row">
+        <div class="sw on sm" id="sw-energia-local" role="switch" aria-checked="true" tabindex="0" style="width:44px;height:24px"></div>
+        <span class="nm">Energia · Localhost</span><span class="st" id="st-local">ligada</span>
+      </div>
+      <div class="runline">
+        <input type="number" value="1000" min="1" max="5000" id="budget" aria-label="Limite de leads">
+        <button id="btn-run" onclick="runFabrica()">▶ Rodar corrida</button>
+      </div>
+      <div class="kv"><span>Base RFB disponível</span><b>28,4M empresas</b></div>
+      <div class="kv"><span>Última corrida</span><b>1.000 leads em 72s</b></div>
+    </section>
+
+    <!-- 🧠 IA 30B -->
+    <section class="job on" id="job-ia">
+      <div class="job-head">
+        <div class="t">
+          <h2>🧠 IA 30B</h2>
+          <span class="where">ESTE PC</span>
+        </div>
+        <div class="sw on" id="sw-ia" role="switch" aria-checked="true" tabindex="0"></div>
+      </div>
+      <div class="bignum" id="ia-ram">18,9<small>GB na RAM · aquecido</small></div>
+      <div class="why ok" id="why-ia">✓ Modelo residente e conferido no Ollama há 40s</div>
+      <div class="kv"><span>Modelo</span><b>qwen3:30b q4_K_M</b></div>
+      <div class="kv"><span>Ritmo</span><b>~118 leads/h (p50 30,4s)</b></div>
+      <div class="kv"><span>Desligar</span><b>descarrega e CONFERE a RAM</b></div>
+      <div class="dep">Desligar aqui também desliga o <b>Enriquecimento</b> (depende da IA).</div>
+    </section>
+
+    <!-- 🔄 ENRIQUECIMENTO -->
+    <section class="job on" id="job-enr">
+      <div class="job-head">
+        <div class="t">
+          <h2>🔄 Enriquecimento</h2>
+          <span class="where">ESTE PC → VPS</span>
+        </div>
+        <div class="sw on" id="sw-enr" role="switch" aria-checked="true" tabindex="0"></div>
+      </div>
+      <div class="bignum" id="enr-fila">5.825<small>na fila</small></div>
+      <div class="why warn" id="why-enr">⚠ Trabalhando, mas o mais antigo espera há 11 dias — fila acumulada do período travado</div>
+      <div class="kv"><span>Hoje</span><b>212 com dado novo · 38 sem novidade</b></div>
+      <div class="kv"><span>E-mails / telefones / donos</span><b>147 · 261 · 52</b></div>
+      <div class="kv"><span>Previsão de zerar a fila</span><b>~2 dias no ritmo atual</b></div>
+      <div class="dep">Ligar isto liga a <b>IA 30B</b> junto — sem estado impossível.</div>
+    </section>
+
+  </div>
+
+  <!-- GAVETA: tudo que é raro. Nenhuma função morreu — mudou de prateleira. -->
+  <details class="tools">
+    <summary><span class="chev">▶</span> Ferramentas (uso eventual)</summary>
+    <div class="toolgrid">
+      <div class="tool"><div class="tn">🗂 Cockpit de leads</div><div class="td">filtrar, ver, limpar lixo</div></div>
+      <div class="tool"><div class="tn">📤 Exportar CSV</div><div class="td">local ou VPS, stream</div></div>
+      <div class="tool"><div class="tn">🔁 Transferência</div><div class="td">local ↔ VPS, a cada 1.000</div></div>
+      <div class="tool"><div class="tn">🔑 Integrações</div><div class="td">chaves local e VPS</div></div>
+      <div class="tool"><div class="tn">🪠 Desentupir fila</div><div class="td">jobs presos e duplicados</div></div>
+      <div class="tool"><div class="tn">📋 Motores (drill-down)</div><div class="td">tabela da verdade, 20 motores</div></div>
+    </div>
+  </details>
+
+  <div class="feed">
+    <h3>ÚLTIMOS EVENTOS</h3>
+    <div id="feedlines">
+      <div class="ln ok"><time>19:57</time><span>Fábrica: corrida de 1.000 concluída em 72s — 1.364 contatos, R$0.</span></div>
+      <div class="ln ok"><time>19:56</time><span>Energia geral do VPS religada (estava desligada desde 02/07).</span></div>
+      <div class="ln warn"><time>19:48</time><span>30B: descarga pedida → /api/ps ainda mostrava 18,9GB → runner finalizado → RAM conferida livre em 22s.</span></div>
+      <div class="ln"><time>19:31</time><span>Boot: Windows → agent ok (3s) → Ollama ok → painel aberto automaticamente.</span></div>
+    </div>
+  </div>
+
+  <footer>mock V3 · 1 página · 1 endpoint de verdade (/owner/v3/overview) · 1 poll 5s + SSE · problema nunca fica mudo</footer>
+</div>
+
+<script>
+/* Demo interativa: cascata real dos interruptores.
+   IA off  → Enriquecimento off (dependência).
+   Enr on  → IA on (liga a dependência junto).
+   Master  → liga/desliga os três na ordem certa. */
+const S = { master:true, scraping:true, ia:true, enr:true, vps:true, local:true };
+const $ = (id)=>document.getElementById(id);
+
+function paint(){
+  set('sw-master', S.master); $('master-lbl').textContent = S.master ? 'TUDO LIGADO' : 'LIGAR TUDO';
+  set('sw-scraping', S.scraping); set('sw-ia', S.ia); set('sw-enr', S.enr);
+  set('sw-energia-vps', S.vps); set('sw-energia-local', S.local);
+  $('st-vps').textContent = S.vps ? 'ligada' : 'DESLIGADA';
+  $('st-local').textContent = S.local ? 'ligada' : 'DESLIGADA';
+  card('job-scraping', S.scraping); card('job-ia', S.ia); card('job-enr', S.enr);
+  $('btn-run').disabled = !(S.scraping && (S.vps || S.local));
+
+  why('why-scraping',
+    !S.scraping ? ['warn','● Desligado por você agora há pouco'] :
+    (!S.vps && !S.local) ? ['warn','⚠ Interruptor ligado mas SEM energia nos 2 ambientes — religue uma energia acima'] :
+    ['ok', `✓ Energia ${S.vps&&S.local?'ligada nos 2 ambientes':S.vps?'só no VPS':'só no Localhost'} · 20/20 motores · R$0 gasto`]);
+  why('why-ia',
+    S.ia ? ['ok','✓ Modelo residente e conferido no Ollama há 40s']
+         : ['','● Desligado — RAM conferida LIVRE (0 GB residente). Religa em ~2min (cold-load).']);
+  $('ia-ram').innerHTML = S.ia ? '18,9<small>GB na RAM · aquecido</small>' : '0<small>GB na RAM · conferido livre</small>';
+  why('why-enr',
+    !S.enr ? ['', S.ia ? '● Desligado por você.' : '● Desligado porque a IA 30B desligou (dependência).']
+           : ['warn','⚠ Trabalhando, mas o mais antigo espera há 11 dias — fila acumulada do período travado']);
+}
+function set(id,on){ const e=$(id); e.classList.toggle('on',on); e.setAttribute('aria-checked',on); }
+function card(id,on){ $(id).classList.toggle('on',on); }
+function why(id,[cls,txt]){ const e=$(id); e.className='why '+(cls||''); e.textContent=txt; }
+function log(txt,cls=''){ const d=document.createElement('div'); d.className='ln '+cls;
+  d.innerHTML=`<time>${new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'})}</time><span>${txt}</span>`;
+  $('feedlines').prepend(d); }
+
+function syncMaster(){ S.master = S.scraping || S.ia || S.enr; }
+
+$('sw-master').onclick = ()=>{ const on = !(S.scraping&&S.ia&&S.enr);
+  S.master=S.scraping=S.ia=S.enr=on; if(on){S.vps=true;S.local=true;}
+  log(on?'LIGAR TUDO: energia → IA 30B → enriquecimento, nessa ordem.':'DESLIGAR TUDO: enriquecimento → IA (RAM conferida) → corridas congeladas.', on?'ok':'warn'); paint(); };
+$('sw-scraping').onclick = ()=>{ S.scraping=!S.scraping; syncMaster();
+  log(S.scraping?'Scraping ligado.':'Scraping desligado — corridas congelam no próximo checkpoint.'); paint(); };
+$('sw-ia').onclick = ()=>{ S.ia=!S.ia;
+  if(!S.ia && S.enr){ S.enr=false; log('IA 30B desligada → Enriquecimento desligou junto (dependência).','warn'); }
+  else log(S.ia?'IA 30B ligando — cold-load ~2min.':'IA 30B: descarga pedida — vou CONFERIR a RAM antes de dizer que desligou.','warn');
+  syncMaster(); paint(); };
+$('sw-enr').onclick = ()=>{ S.enr=!S.enr;
+  if(S.enr && !S.ia){ S.ia=true; log('Enriquecimento ligado → IA 30B ligou junto (dependência).','ok'); }
+  syncMaster(); paint(); };
+$('sw-energia-vps').onclick   = ()=>{ S.vps=!S.vps;   log(S.vps?'Energia do VPS religada.':'Energia do VPS desligada — o botão que faltou por 26 dias.', S.vps?'ok':'warn'); paint(); };
+$('sw-energia-local').onclick = ()=>{ S.local=!S.local; log(S.local?'Energia do Localhost religada.':'Energia do Localhost desligada.'); paint(); };
+
+function runFabrica(){ const b=$('budget').value;
+  log(`Fábrica: corrida de ${Number(b).toLocaleString('pt-BR')} leads iniciada — para sozinha no fim.`,'ok'); }
+function fixFila(){ $('problems').classList.add('empty');
+  $('problems').innerHTML='<div class="ok-line"><span class="dot"></span>Nenhum problema. Quando algo travar, aparece AQUI com botão de 1 clique — nunca mais 26 dias no escuro.</div>';
+  log('Fila destravada: disjuntor religado + desentupidor rodou.','ok'); }
+
+paint();
+</script>
+</body>
+</html>
