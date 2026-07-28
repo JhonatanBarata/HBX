@@ -182,7 +182,9 @@ export class LogisticaController {
   async createEntrega(@Req() req: any, @Body() dto: CreateEntregaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     await this.operacao.assertCapacidade(req.user, 'SELLER');
-    return this.service.createEntrega(companyId, dto);
+    // 28/07 — o ator passa a viajar: sem ele `paraMinhaRota` não tem como saber
+    // QUEM é o motorista, e a entrega nascia órfã (ver CreateEntregaDto).
+    return this.service.createEntrega(companyId, dto, req.user);
   }
 
   /**

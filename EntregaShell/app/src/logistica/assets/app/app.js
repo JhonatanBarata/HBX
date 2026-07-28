@@ -5054,6 +5054,14 @@
   // está sendo montada. CEP+número NÃO manda pino: o servidor resolve pela base
   // CNEFE no cadastro e grava a fonte certa ('cnefe'); toque no mapa manda o
   // ponto tocado (o backend carimba 'gps_impreciso' — a 1ª entrega corrige).
+  // 28/07 (dono) — "Direção" é o padrão: o pedido foi "só traçar rota mesmo,
+  // sem produto, sem valor nem nada". Quem quer cliente de verdade toca em
+  // Cadastro. Toque no mapa não tem cadastro pra fazer — é sempre Direção.
+  function rapidaModo(r) {
+    if (!r) return "direcao";
+    if (r.origem === "mapa") return "direcao";
+    return r.modo === "cadastro" ? "cadastro" : "direcao";
+  }
   function montagemRapidaModal() {
     const r = state.montagemRapida;
     const res = r.resolvido;
@@ -5079,7 +5087,13 @@
     const escolhaPosicao = r.contexto === "rota" && openItems().length
       ? `<div class="day-chips rapida-posicao">${[["perto", "No caminho"], ["primeira", "Primeira parada"]].map(([valor, rotulo]) => `<button type="button" class="montagem-dia${(r.posicao || "perto") === valor ? " active" : ""}" data-action="rota-rapida-posicao" data-posicao="${valor}" aria-pressed="${(r.posicao || "perto") === valor}"><strong>${rotulo}</strong></button>`).join("")}</div>`
       : "";
-    const body = `<form id="montagem-rapida-form">${r.origem === "cep" ? `<div class="form-grid"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(r.cep)}"></div><div class="field"><label>Número</label><input name="numero" inputmode="numeric" maxlength="6" value="${H.escape(r.numero)}"></div></div>` : ""}<div class="field"><label>Nome (opcional)</label><input name="nome" maxlength="120" value="${H.escape(r.nome)}" data-enter-action="${pronto ? "montagem-rapida-confirmar" : "montagem-rapida-buscar"}"></div></form>${escolhaPosicao}${statusLinha}`;
+    // 28/07 (dono) — DIREÇÃO × CADASTRO. Direção é "só traçar rota mesmo": a
+    // parada entra na rota igual, mas NÃO vira cliente no Cadastro (a conta
+    // nasce isCliente:false — a lista de Clientes filtra por isCliente, a rota
+    // não). Cadastro é o fluxo de sempre, pra quando é cliente de verdade.
+    // Dinheiro não muda nos dois: a parada é absorvida, quem cobra é a rota.
+    const escolhaModo = `<div class="day-chips rapida-modo">${[["direcao", "Direção"], ["cadastro", "Cadastro"]].map(([valor, rotulo]) => `<button type="button" class="montagem-dia${rapidaModo(r) === valor ? " active" : ""}" data-action="rota-rapida-modo" data-modo="${valor}" aria-pressed="${rapidaModo(r) === valor}"><strong>${rotulo}</strong></button>`).join("")}</div>`;
+    const body = `<form id="montagem-rapida-form">${r.origem === "cep" ? `<div class="form-grid"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(r.cep)}"></div><div class="field"><label>Número</label><input name="numero" inputmode="numeric" maxlength="6" value="${H.escape(r.numero)}"></div></div>` : ""}<div class="field"><label>Nome (opcional)</label><input name="nome" maxlength="120" value="${H.escape(r.nome)}" data-enter-action="${pronto ? "montagem-rapida-confirmar" : "montagem-rapida-buscar"}"></div></form>${escolhaModo}${escolhaPosicao}${statusLinha}`;
     return centerModal({
       icon: "plus",
       title: "Rota rápida",
@@ -5187,8 +5201,14 @@
     try {
       const numero = onlyDigits(r.numero) || String(res.numero || "");
       const nome = String(r.nome || "").trim() || [res.endereco, numero].filter(Boolean).join(", ") || "Parada rápida";
+      const modo = rapidaModo(r);
       const body = {
-        nome, tipo: "pf", isCliente: true, isLead: false,
+        // 28/07 (dono) — DIREÇÃO não vira cliente: a conta existe só pra segurar
+        // o endereço da parada (a entrega precisa de uma), mas fica FORA do
+        // Cadastro (a lista de Clientes filtra isCliente; a rota não filtra).
+        // Sem isto, cada parada rápida virava um "cliente" chamado
+        // "Rua 14 JP, 1682" na base do dono.
+        nome, tipo: "pf", isCliente: modo === "cadastro", isLead: false,
         endereco: res.endereco, numero, bairro: res.bairro, cidade: res.cidade, uf: res.uf,
         cep: onlyDigits(r.cep) || res.cep,
         // Só o TOQUE NO MAPA manda pino (o ponto tocado É a intenção do usuário);
@@ -5199,7 +5219,10 @@
       const created = await H.api("/nucleo/contas", { method: "POST", body });
       const customerProfileId = created && (created.contaId || created.customerProfileId || created.id);
       if (!customerProfileId) throw new Error("Cliente criado sem identificador.");
-      const delivery = await H.api("/logistica/entregas", { method: "POST", body: { customerProfileId, quantidade: 1, scheduledAt: operationalScheduledAt() } });
+      // 🔴 28/07 — `paraMinhaRota` faz a entrega NASCER com motorista. Sem ele
+      // ela nascia órfã e o Iniciar respondia "Atribua as entregas a exatamente
+      // um motorista" pro dia inteiro (era o bug das 2 paradas do dono).
+      const delivery = await H.api("/logistica/entregas", { method: "POST", body: { customerProfileId, quantidade: 1, scheduledAt: operationalScheduledAt(), paraMinhaRota: true } });
       const contexto = r.contexto;
       const posicao = r.posicao || "perto";
       state.montagemRapida = null;
@@ -7650,6 +7673,7 @@
     // ganha o "No caminho × Primeira parada" e encaixa na rota que está de pé.
     if (action === "rota-rapida") { state.montagemRapida = { origem: "cep", contexto: "rota", posicao: "perto", cep: "", numero: "", nome: "", lat: null, lng: null, resolvido: null, buscando: false, salvando: false, erro: "" }; showModal("rota-rapida"); return; }
     if (action === "rota-rapida-posicao") { if (state.montagemRapida) { state.montagemRapida.posicao = target.dataset.posicao === "primeira" ? "primeira" : "perto"; render(); } return; }
+    if (action === "rota-rapida-modo") { if (state.montagemRapida) { state.montagemRapida.modo = target.dataset.modo === "cadastro" ? "cadastro" : "direcao"; render(); } return; }
     if (action === "montagem-rapida-fechar") { if (state.modal === "rota-rapida") { state.montagemRapida = null; await closeOverlay("modal"); return; } state.montagemRapida = null; render(); return; }
     if (action === "montagem-rapida-buscar") { await montagemRapidaBuscar(); return; }
     if (action === "montagem-rapida-confirmar") { await montagemRapidaConfirmar(); return; }

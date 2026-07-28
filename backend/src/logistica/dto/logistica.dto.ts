@@ -70,6 +70,22 @@ export class CreateEntregaDto {
   @IsString()
   @MaxLength(500)
   notes?: string;
+
+  /**
+   * 🔴 28/07 — "esta entrega é da MINHA rota de hoje" (Rota rápida do APK).
+   *
+   * Sem isto a entrega nascia com `entregadorId: null` e o Iniciar estourava
+   * "Atribua as entregas a exatamente um motorista antes de iniciar a rota" —
+   * uma parada avulsa envenenava o dia inteiro. É a MESMA regra que o
+   * admin-route/prepare já aplica (quem monta a rota adota as abertas sem
+   * dono); a Rota rápida não passa por lá, então diz explicitamente.
+   *
+   * Opt-in de propósito: o painel web (admin agendando pra OUTRO motorista)
+   * não manda o campo e segue nascendo sem dono, pro prepare adotar depois.
+   */
+  @IsOptional()
+  @IsBoolean()
+  paraMinhaRota?: boolean;
 }
 
 // ── Confirmar entrega (recebe o GPS do celular do entregador) ────────────────

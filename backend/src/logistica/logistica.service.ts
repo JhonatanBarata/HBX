@@ -619,7 +619,11 @@ export class LogisticaService {
   }
 
   // ── CRIAR (agendar entrega) ─────────────────────────────────────────────────
-  async createEntrega(companyId: number, input: CreateEntregaInput): Promise<{ id: string }> {
+  async createEntrega(
+    companyId: number,
+    input: CreateEntregaInput,
+    actor?: LogisticaActor | null,
+  ): Promise<{ id: string }> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const customerProfileId = String(input.customerProfileId || '').trim();
     if (!customerProfileId) throw new BadRequestException('Cliente é obrigatório.');
@@ -687,6 +691,29 @@ export class LogisticaService {
 
     const scheduledAt = parseDateOrNull(input.scheduledAt) ?? new Date();
 
+    // 🔴 28/07 — MOTORISTA DA PARADA AVULSA (Rota rápida do APK).
+    //
+    // Sem isto a entrega nascia `entregadorId: null` e o Iniciar caía em
+    // "Atribua as entregas a exatamente um motorista" (resolveSingleDriver
+    // exige EXATAMENTE 1 e conta null como órfã) — uma parada avulsa travava
+    // a rota do dia INTEIRA. Mesma regra do admin-route/prepare, que adota as
+    // abertas sem dono pra quem monta; a Rota rápida não passa por lá.
+    //
+    // Só entra com `paraMinhaRota` explícito: o painel web (admin agendando pra
+    // outro motorista) continua nascendo sem dono, pro prepare adotar depois.
+    // Ator inválido/de outra empresa cai em null — nunca inventa motorista.
+    let entregadorId: number | null = null;
+    if (input.paraMinhaRota) {
+      const candidato = actorIdOrNull(actor);
+      if (candidato) {
+        const driver = await this.prisma.user.findFirst({
+          where: { id: candidato, companyId, isActive: true, isSystemMaster: false },
+          select: { id: true },
+        });
+        entregadorId = driver?.id ?? null;
+      }
+    }
+
     const entregaId = randomUUID();
     const creditReservation = this.creditActionUsage
       ? await this.creditActionUsage.authorize({
@@ -714,6 +741,10 @@ export class LogisticaService {
         quantidade,
         valor,
         status: 'agendada',
+        // 28/07 — null quando não é "minha rota" (comportamento de sempre).
+        entregadorId,
+        atribuidoPorUserId: entregadorId,
+        atribuidoAt: entregadorId ? new Date() : null,
         // L4-A (18/07) — criação manual (POST /logistica/entregas) é sempre avulsa.
         origem: 'avulsa',
         scheduledAt,
@@ -3509,6 +3540,9 @@ export interface CreateEntregaInput {
   // MULTILOCAL (10/07) — local de entrega opcional (validado como do mesmo
   // cliente+empresa no serviço); null/ausente = endereço do perfil (legado).
   localId?: string;
+  // 28/07 — Rota rápida: a entrega já nasce atribuída a quem está criando.
+  // Ver CreateEntregaDto.paraMinhaRota.
+  paraMinhaRota?: boolean;
 }
 
 export interface RotaCliente {

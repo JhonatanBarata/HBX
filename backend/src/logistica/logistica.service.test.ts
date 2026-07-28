@@ -441,6 +441,56 @@ test('createEntrega: marca origem=avulsa na criação manual', async () => {
   assert.equal(createdData.origem, 'avulsa');
   assert.equal(createdData.companyId, 7);
   assert.equal(createdData.status, 'agendada');
+  assert.equal(createdData.entregadorId, null, 'sem paraMinhaRota segue sem dono (painel web)');
+});
+
+// 🔴 28/07 — bug medido na base do dono: as 2 paradas da Rota rápida nasceram
+// com entregadorId null, e o Iniciar passou a estourar "Atribua as entregas a
+// exatamente um motorista" pro DIA INTEIRO (resolveSingleDriver conta null como
+// órfã). A parada avulsa da Rota rápida tem que nascer já atribuída a quem cria.
+function harnessCreateEntrega(driver: { id: number; companyId: number } | null) {
+  let createdData: any = null;
+  const prisma: any = {
+    customerProfile: { findFirst: async () => ({ id: 'conta-1', precoPadrao: null }) },
+    contato: { findFirst: async () => null },
+    user: {
+      findFirst: async ({ where }: any) =>
+        driver && driver.id === where.id && driver.companyId === where.companyId ? { id: driver.id } : null,
+    },
+    entrega: {
+      create: async (args: any) => {
+        createdData = args.data;
+        return { id: args.data.id };
+      },
+    },
+  };
+  return {
+    service: new LogisticaService(prisma, {} as any, {} as any, {} as any),
+    created: () => createdData,
+  };
+}
+
+test('createEntrega: paraMinhaRota atribui quem cria — a parada avulsa não trava o Iniciar', async () => {
+  const h = harnessCreateEntrega({ id: 58, companyId: 7 });
+  await h.service.createEntrega(
+    7,
+    { customerProfileId: 'conta-1', paraMinhaRota: true } as any,
+    { id: 58, companyId: 7 } as any,
+  );
+  assert.equal(h.created().entregadorId, 58, 'nasce na rota de quem criou');
+  assert.equal(h.created().atribuidoPorUserId, 58);
+  assert.ok(h.created().atribuidoAt instanceof Date, 'carimba quando foi atribuída');
+});
+
+test('createEntrega: ator de OUTRA empresa nunca vira motorista (cai em null, não inventa)', async () => {
+  const h = harnessCreateEntrega({ id: 58, companyId: 99 });
+  await h.service.createEntrega(
+    7,
+    { customerProfileId: 'conta-1', paraMinhaRota: true } as any,
+    { id: 58, companyId: 99 } as any,
+  );
+  assert.equal(h.created().entregadorId, null, 'isolamento por empresa vale acima da conveniência');
+  assert.equal(h.created().atribuidoAt, null);
 });
 
 test('confirmarEntrega: flag ON (avulso) → WhatsApp blindado 1x + 1 charge LINKADO (MANUAL/pending)', async () => {

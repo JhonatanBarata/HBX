@@ -670,6 +670,13 @@ h3 { font-size: .95rem; }
 @keyframes client-autofill-write { from { color: transparent; clip-path: inset(0 100% 0 0); background: var(--brand-soft); } to { color: var(--ink); clip-path: inset(0); background: var(--bg); } }
 .form-grid { display: grid; gap: 0 10px; }
 .day-chips { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin: 4px 0 12px; }
+/* 28/07 — as escolhas de 2 opções da Rota rápida (Direção x Cadastro, No
+   caminho x Primeira parada) reusam .day-chips, que nasceu com 7 colunas fixas
+   (os dias da semana). Com 2 chips cada um ficava com 1/7 da largura e o
+   min-width de 62px do .montagem-dia estourava a coluna: o "No caminho"
+   quebrava em 2 linhas e era cortado pelo vizinho. Duas opções, duas colunas. */
+.day-chips.rapida-modo, .day-chips.rapida-posicao { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.day-chips.rapida-modo .montagem-dia, .day-chips.rapida-posicao .montagem-dia { min-width: 0; text-align: center; }
 .day-chip { min-height: 38px; border: 1px solid var(--line); border-radius: 11px; color: var(--muted); background: var(--surface-2); font-size: .62rem; font-weight: 800; }
 .day-chip.active { border-color: color-mix(in srgb, var(--brand) 55%, var(--line)); color: var(--on-brand); background: var(--brand); }
 .client-product-list .row-card { transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .16s ease; -webkit-user-select: none; user-select: none; }
