@@ -5369,13 +5369,37 @@ html, body { height: 100%; }
 /* ── Buscar empresas: segmento + território inteligente + execução explícita ── */
 .be-cmdbar.be-cmdbar--required {
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(300px, 390px) auto auto auto;
+  grid-template-columns: minmax(260px, 1fr) minmax(300px, 390px) auto auto auto auto;
   align-items: center;
   gap: 10px;
   flex: 0 0 auto;
   padding: 8px 16px;
   border-bottom: 1px solid var(--border-hairline);
   background: var(--hbx-surface);
+}
+/* REFUNDAÇÃO F2: pausa automática (freio do trabalho) + controles de execução da sessão */
+.be-cmdbar__pause {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: var(--field-height);
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+.be-cmdbar__pause select {
+  min-height: var(--field-height);
+  padding: 0 8px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--hbx-surface);
+  color: var(--text-strong);
+  font-size: var(--text-sm);
+}
+.be-cmdbar__runctl {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 .be-cmdbar--required .be-search {
   min-width: 0;

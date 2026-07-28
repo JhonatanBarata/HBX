@@ -803,6 +803,17 @@ function useRadarNavState(): RadarNavState {
     let alive = true;
     async function poll() {
       try {
+        // REFUNDAÇÃO F2: a SESSÃO server-side é a verdade do trabalho (sobrevive a
+        // troca de tela/deploy); o run avulso fica de fallback (casca mobile).
+        const sess = await apiFetch<{ id?: string; status?: string } | null>(
+          "/webscraping/radar/sessions/active"
+        ).catch(() => null);
+        if (!alive) return;
+        const sessStatus = String(sess?.status || "").trim().toLowerCase();
+        if (sess?.id && (sessStatus === "running" || sessStatus === "paused")) {
+          setState(sessStatus === "paused" ? "pausado" : "funcionando");
+          return;
+        }
         const res = await apiFetch<{ meta?: { operationalState?: string } } | null>(
           "/webscraping/radar/search-runs/latest"
         );

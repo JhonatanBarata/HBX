@@ -170,6 +170,34 @@ type RunResponse = {
   };
 } | null;
 
+// REFUNDAÇÃO F2 (28/07): a fila multi-cidade saiu do navegador — a sessão vive no
+// servidor e esta tela é ESPECTADORA. 1 GET re-hidrata tudo ao voltar pra tela.
+type SessionCityEntry = {
+  city: string;
+  state?: string | null;
+  status: string;
+  runId?: string | null;
+  foundCount?: number;
+};
+type SessionResponse = {
+  id?: string;
+  status?: string;
+  pauseReason?: string | null;
+  message?: string | null;
+  segment?: string;
+  cities?: SessionCityEntry[];
+  cityCount?: number;
+  cursorIndex?: number;
+  currentCity?: { city: string; state?: string | null } | null;
+  targetTotal?: number;
+  pauseAfterLeads?: number;
+  foundTotal?: number;
+  foundSinceResume?: number;
+  currentRunId?: string | null;
+  currentRun?: RunResponse;
+} | null;
+const SESSION_ACTIVE = new Set(["running", "paused"]);
+
 type BankResponse = {
   total?: number;
   deltaToday?: number;
@@ -218,7 +246,9 @@ const RADAR_STATE_LABEL: Record<RadarUiState, string> = {
 // Pool máximo por busca = 100, exibido em 4 páginas de 25 ("1 de 4"). Regra do dono 23/07.
 const SHELF_LIMIT = 25;
 const SEARCH_BATCH = 100;
-const MAX_CITY_TARGETS = 5;
+// REFUNDAÇÃO F2: com a fila server-side (1 cidade por vez, sobrevive a tudo), o teto de
+// 5 alvos do incidente 28/07 pôde subir — o backend segura o resto (cap 100 + runs/min).
+const MAX_CITY_TARGETS = 20;
 const SEARCH_POLL_MS = 4000;
 
 const VALID_DDDS = new Set([
@@ -243,8 +273,8 @@ const GEO_MODE_META: Array<{
   {
     key: "cities",
     label: "Avulsas",
-    eyebrow: "Até 5 cidades",
-    description: "Escolha alvos pontuais. O Radar executa uma cidade por vez.",
+    eyebrow: "Até 20 cidades",
+    description: "Escolha alvos pontuais. O Radar executa uma cidade por vez, mesmo com a tela fechada.",
     icon: ICONS.mapin,
   },
   {
@@ -322,10 +352,6 @@ function filterRadarLeadsByReputation(leads: RadarLead[], minRating: string, min
     (!ratingFloor || Number(lead.rating || 0) >= ratingFloor) &&
     (!reviewsFloor || Number(lead.reviews || 0) >= reviewsFloor),
   );
-}
-
-function waitForRadarPoll() {
-  return new Promise<void>(resolve => window.setTimeout(resolve, SEARCH_POLL_MS));
 }
 
 function mergeFilterOptions(primary: FilterOption[] | undefined, fallback: FilterOption[]) {
@@ -573,6 +599,7 @@ type StoredLeadFilters = {
   minReviews: string;
   requiredChannels: RadarRequiredChannel[];
   channelMatchMode: "any_required" | "all_required";
+  pauseAfter: string;
 };
 
 const EMPTY_STORED_FILTERS: StoredLeadFilters = {
@@ -586,6 +613,7 @@ const EMPTY_STORED_FILTERS: StoredLeadFilters = {
   minReviews: "",
   requiredChannels: [],
   channelMatchMode: "all_required",
+  pauseAfter: "50",
 };
 
 function getStoredFilters(): StoredLeadFilters {
@@ -619,6 +647,9 @@ function getStoredFilters(): StoredLeadFilters {
         minReviews: typeof p.minReviews === "string" || typeof p.minReviews === "number" ? String(p.minReviews) : "",
         requiredChannels,
         channelMatchMode: p.channelMatchMode === "any_required" ? "any_required" : "all_required",
+        pauseAfter: typeof p.pauseAfter === "string" || typeof p.pauseAfter === "number"
+          ? String(p.pauseAfter)
+          : "50",
       };
     }
   } catch { /* sem storage */ }
@@ -826,8 +857,16 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const [searchQueue, setSearchQueue] = useState<{ current: number; total: number; label: string } | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const queueTokenRef = useRef(0);
-  const queueActiveRef = useRef(false);
-  const queueRunIdRef = useRef<string | null>(null);
+  // REFUNDAÇÃO F2: a sessão server-side substituiu a fila do navegador (queueActiveRef/
+  // queueRunIdRef mortos). A tela acompanha por poll e re-hidrata com 1 GET ao montar.
+  const [session, setSession] = useState<SessionResponse>(null);
+  const sessionRef = useRef<SessionResponse>(null);
+  const sessionItemsRef = useRef<{ id: string | null; leads: RadarLead[] }>({ id: null, leads: [] });
+  const sessionPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const sessionSettledRef = useRef<string | null>(null);
+  // Pausa automática ("não sair procurando igual retardado"): o Radar para depois de N
+  // leads e espera o vendedor. Persistido junto com os filtros.
+  const [pauseAfter, setPauseAfter] = useState<string>("50");
 
   // P4: modal de campo faltando
   const [missingModal, setMissingModal] = useState<string[] | null>(null);
@@ -976,13 +1015,41 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   useEffect(() => {
     return () => {
       queueTokenRef.current += 1;
-      queueActiveRef.current = false;
-      queueRunIdRef.current = null;
       if (pollRef.current) {
         clearInterval(pollRef.current);
         pollRef.current = null;
       }
+      if (sessionPollRef.current) {
+        clearInterval(sessionPollRef.current);
+        sessionPollRef.current = null;
+      }
     };
+  }, []);
+
+  // REFUNDAÇÃO F2: adota o snapshot da sessão server-side como verdade da tela.
+  // Acumula os itens por sessão (o currentRun troca a cada cidade) e espelha o
+  // progresso no chip "cidade X/Y". É o que faz sair-e-voltar ser indolor.
+  const adoptSession = useCallback((s: NonNullable<SessionResponse>) => {
+    setSession(s);
+    sessionRef.current = s;
+    if ((s.id || null) !== sessionItemsRef.current.id) {
+      sessionItemsRef.current = { id: s.id || null, leads: [] };
+    }
+    const runItems = Array.isArray(s.currentRun?.items) ? s.currentRun.items : [];
+    sessionItemsRef.current.leads = mergeRadarLeads(sessionItemsRef.current.leads, runItems);
+    setRun(s.currentRun || null);
+    setLiveRunItems(filterRadarLeadsByReputation(
+      sessionItemsRef.current.leads,
+      minRatingRef.current,
+      minReviewsRef.current,
+    ));
+    const active = SESSION_ACTIVE.has(String(s.status || ""));
+    setSearchQueue(active && (s.cityCount || 0) > 1 ? {
+      current: Math.min((s.cursorIndex || 0) + 1, s.cityCount || 1),
+      total: s.cityCount || 1,
+      label: s.currentCity ? `${s.currentCity.city}${s.currentCity.state ? `/${s.currentCity.state}` : ""}` : "",
+    } : null);
+    if (s.message) setSearchMsg(s.message);
   }, []);
 
   async function pullGeoLocation() {
@@ -1190,23 +1257,34 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     loadBank();
     loadUsage();
     loadList("shelf", { page: 1 });
-    // Só aceita run do mount se ele ainda estiver operacional; run terminal
-    // antigo não pode bloquear uma nova busca.
-    apiFetch<RunResponse>("/webscraping/radar/search-runs/latest")
+    // REFUNDAÇÃO F2: a re-hidratação é 1 GET na SESSÃO server-side — voltar pra tela
+    // encontra a busca viva (ou o resultado recente) exatamente onde parou. O run
+    // avulso do /webscraping/radar/search-runs/latest fica de fallback (casca mobile).
+    apiFetch<SessionResponse>("/webscraping/radar/sessions/active")
       .then(res => {
-        if (queueActiveRef.current || queueTokenRef.current !== latestRequestToken) return;
-        if (!res || !(res.id || res.runId)) return;
-        const opState = getOpState(res);
-        const isTerminal = TERMINAL_RUN.has(String(res?.status || "")) || res?.meta?.terminal;
-        // Só carrega se está visivelmente ativo (não terminal ou operacional ativo)
-        if (!isTerminal || opState === "funcionando" || opState === "pausado") {
-          setRun(res);
-          setLiveRunItems(filterRadarLeadsByReputation(
-            Array.isArray(res.items) ? res.items : [],
-            minRatingRef.current,
-            minReviewsRef.current,
-          ));
+        if (queueTokenRef.current !== latestRequestToken) return;
+        if (res?.id && SESSION_ACTIVE.has(String(res.status || ""))) {
+          setHasSearched(true);
+          setHistoryHidden(false);
+          adoptSession(res);
+          return;
         }
+        return apiFetch<RunResponse>("/webscraping/radar/search-runs/latest")
+          .then(latest => {
+            if (sessionRef.current || queueTokenRef.current !== latestRequestToken) return;
+            if (!latest || !(latest.id || latest.runId)) return;
+            const opState = getOpState(latest);
+            const isTerminal = TERMINAL_RUN.has(String(latest?.status || "")) || latest?.meta?.terminal;
+            // Só carrega se está visivelmente ativo (não terminal ou operacional ativo)
+            if (!isTerminal || opState === "funcionando" || opState === "pausado") {
+              setRun(latest);
+              setLiveRunItems(filterRadarLeadsByReputation(
+                Array.isArray(latest.items) ? latest.items : [],
+                minRatingRef.current,
+                minReviewsRef.current,
+              ));
+            }
+          });
       })
       .catch(() => { /* sem busca ativa */ });
     // WORM-15 — carrega pesquisas salvas do usuario (+ vendedores, se admin/gerente)
@@ -1248,9 +1326,10 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         minReviews,
         requiredChannels,
         channelMatchMode,
+        pauseAfter,
       }));
     } catch { /* sem storage */ }
-  }, [uf, cities, segment, alcance, geoMode, ddd, minRating, minReviews, requiredChannels, channelMatchMode]);
+  }, [uf, cities, segment, alcance, geoMode, ddd, minRating, minReviews, requiredChannels, channelMatchMode, pauseAfter]);
 
   // Restaura os filtros salvos SÓ pós-montagem (setState em rAF → respeita
   // react-hooks/set-state-in-effect). Roda depois do efeito de persistência
@@ -1272,6 +1351,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       setMinReviews(f.minReviews);
       setRequiredChannels(f.requiredChannels);
       setChannelMatchMode(f.channelMatchMode);
+      setPauseAfter(f.pauseAfter);
       if (f.segment || f.uf || f.cities.length > 0 || f.minRating || f.minReviews || f.requiredChannels.length > 0) {
         setHistoryHidden(true);
       }
@@ -1282,11 +1362,57 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   // Filtros não consultam o Radar automaticamente. A busca filtrada só começa
   // depois de uma ação explícita no botão Buscar.
 
+  // REFUNDAÇÃO F2: poll da SESSÃO server-side. A tela só assiste — o servidor é quem
+  // trabalha. Erro de rede/502 de deploy NÃO derruba o estado (o publish de 13:45
+  // virou "parou sozinho" na cara do dono; nunca mais): mantém o último snapshot e
+  // avisa que o servidor está atualizando.
+  useEffect(() => {
+    const active = Boolean(session?.id && SESSION_ACTIVE.has(String(session.status || "")));
+    if (!active) {
+      if (sessionPollRef.current) { clearInterval(sessionPollRef.current); sessionPollRef.current = null; }
+      return;
+    }
+    if (sessionPollRef.current) return;
+    sessionPollRef.current = setInterval(async () => {
+      try {
+        const res = await apiFetch<SessionResponse>("/webscraping/radar/sessions/active");
+        if (!res || !res.id) {
+          setSession(null);
+          sessionRef.current = null;
+          setSearchQueue(null);
+          return;
+        }
+        adoptSession(res);
+        const terminal = !SESSION_ACTIVE.has(String(res.status || ""));
+        if (terminal && sessionSettledRef.current !== res.id) {
+          sessionSettledRef.current = res.id || null;
+          setSearchQueue(null);
+          loadBank();
+          loadUsage();
+          setTab("shelf");
+          setPage(1);
+          void loadList("shelf", { page: 1 }).finally(() => setLiveRunItems(null));
+          const total = Number(res.foundTotal || 0);
+          if (res.status === "completed" && total > 0) {
+            setFlyToast(`${total} lead${total > 1 ? "s" : ""} encontrad${total > 1 ? "os" : "o"} — disponíve${total > 1 ? "is" : "l"} pra puxar`);
+            window.setTimeout(() => setFlyToast(null), 3200);
+          }
+        }
+      } catch {
+        // Servidor atualizando (deploy/rede): estado fica; a sessão vive no banco.
+        setSearchMsg("Servidor atualizando… a busca continua no servidor.");
+      }
+    }, SEARCH_POLL_MS);
+    return () => {
+      if (sessionPollRef.current) { clearInterval(sessionPollRef.current); sessionPollRef.current = null; }
+    };
+  }, [session?.id, session?.status, adoptSession, loadBank, loadUsage, loadList]);
+
   // B0: polling por operationalState do backend (não por status fantasma)
   useEffect(() => {
-    // A fila multi-alvo controla o polling de forma serial. O intervalo legado
-    // só acompanha uma busca isolada retomada do backend.
-    if (queueActiveRef.current) {
+    // A sessão server-side tem poll próprio acima. O intervalo legado só acompanha
+    // uma busca isolada retomada do backend (ex.: run criado pela casca mobile).
+    if (session?.id) {
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
       return;
     }
@@ -1304,7 +1430,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     pollRef.current = setInterval(async () => {
       try {
         const res = await apiFetch<RunResponse>(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}`);
-        if (queueActiveRef.current || queueTokenRef.current !== pollingToken) return;
+        if (sessionRef.current || queueTokenRef.current !== pollingToken) return;
         setRun(res);
         setLiveRunItems(filterRadarLeadsByReputation(
           Array.isArray(res?.items) ? res.items : [],
@@ -1339,7 +1465,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     return () => {
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     };
-  }, [run, loadList, loadBank]);
+  }, [run, session?.id, loadList, loadBank]);
 
   function switchTab(next: Tab) {
     if (next === tab) return;
@@ -1586,26 +1712,22 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   // operationalState atual (do run mais recente)
   const opState = getOpState(run);
 
-  // A interação cobre POST em voo, fila e run pausado ainda não terminal.
+  // A interação cobre POST em voo, sessão ativa e run pausado ainda não terminal.
+  const sessionActive = Boolean(session?.id && SESSION_ACTIVE.has(String(session?.status || "")));
+  const sessionPaused = session?.status === "paused";
   const runPending = Boolean(
+    !sessionActive &&
     (run?.id || run?.runId) &&
     !(TERMINAL_RUN.has(String(run?.status || "")) || run?.meta?.terminal)
   );
-  const searchInProgress = runBusy || runPending;
+  const searchInProgress = runBusy || sessionActive || runPending;
   const runProgress = run?.meta?.progress;
   const runVisibleCount = liveRunItems
     ? filterRadarLeadsByReputation(liveRunItems, minRating, minReviews).length
     : run?.meta?.deliveredCount ?? 0;
 
-  useEffect(() => {
-    if (!searchInProgress) return;
-    function onBeforeUnload(event: BeforeUnloadEvent) {
-      event.preventDefault();
-      event.returnValue = "";
-    }
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [searchInProgress]);
+  // REFUNDAÇÃO F2: o aviso de beforeunload morreu — fechar/trocar de tela é SEGURO,
+  // a sessão vive no servidor e a tela re-hidrata ao voltar.
 
   // A resposta do backend é a fonte de verdade. `runBusy` só cobre o intervalo
   // entre o clique em Iniciar e a primeira resposta; ao pedir Parar, o visual
@@ -1614,15 +1736,17 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const radarState: RadarUiState =
     stopRequested
       ? "parado"
-      : runStatus === "failed" || runStatus === "partial_error"
-        ? "erro"
-        : opState === "pausado"
-          ? "pausado"
-          : opState === "parado"
-            ? "parado"
-            : opState === "funcionando" || runBusy
-              ? "funcionando"
-              : "parado";
+      : sessionActive
+        ? (sessionPaused ? "pausado" : "funcionando")
+        : runStatus === "failed" || runStatus === "partial_error"
+          ? "erro"
+          : opState === "pausado"
+            ? "pausado"
+            : opState === "parado"
+              ? "parado"
+              : opState === "funcionando" || runBusy
+                ? "funcionando"
+                : "parado";
   const discState: "funcionando" | "pausado" | "parado" =
     radarState === "erro" ? "parado" : radarState;
 
@@ -1644,17 +1768,16 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
 
   // override: re-disparo da MESMA busca já expandida (ampliar alcance / incluir segmentos).
   // Quando vem override, os filtros visíveis também sobem (segment/alcance) pra refletir.
+  // REFUNDAÇÃO F2: 1 POST cria a SESSÃO no servidor (todas as cidades de uma vez) e o
+  // poll acompanha. O loop de fila que morava aqui — e morria com a aba — foi demolido.
   async function executarBusca(override?: { segment?: string; radiusKm?: number }) {
-    if (searchInProgress || queueActiveRef.current) return;
+    if (searchInProgress) return;
     const effSegment = override?.segment != null ? override.segment : segment;
     const effRadius = override?.radiusKm != null ? override.radiusKm : (alcance ? Number(alcance) : 0);
     if (!validarCamposOuPopup(effSegment)) return;
     const targets = geoTargetsFor(geoMode, uf, cities);
     setStopRequested(false);
-    const queueToken = queueTokenRef.current + 1;
-    queueTokenRef.current = queueToken;
-    queueActiveRef.current = true;
-    queueRunIdRef.current = null;
+    queueTokenRef.current += 1;
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     setHasSearched(true);
     setHistoryHidden(false);
@@ -1662,178 +1785,103 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     setLoadError(null);
     setLiveRunItems([]);
     setRun(null);
+    sessionItemsRef.current = { id: null, leads: [] };
+    sessionSettledRef.current = null;
     setData(prev => prev ? { ...prev, items: [], total: 0 } : prev);
     setRunBusy(true);
-    let accumulated: RadarLead[] = [];
-    let firstMessage: string | null = null;
-    let interruptedByError = false;
     try {
-      // O backend continua recebendo uma cidade por execução. A serialização
-      // abaixo é a barreira de segurança que impede uma seleção de cinco cidades
-      // de virar cinco runs simultâneos que se cancelem entre si.
-      for (let index = 0; index < targets.length; index += 1) {
-        if (queueTokenRef.current !== queueToken) break;
-        queueRunIdRef.current = null;
-        const target = targets[index];
-        setSearchQueue({ current: index + 1, total: targets.length, label: `${target.city}/${target.state}` });
-        const body: Record<string, unknown> = {
-          city: target.city,
-          state: target.state,
-          segment: effSegment,
-          quantity: SEARCH_BATCH,
-        };
-        if ((geoMode === "radius" || geoMode === "nearby") && effRadius > 0) body.radiusKm = effRadius;
-        if (geoMode === "nearby" && geo) {
-          body.originLat = geo.lat;
-          body.originLng = geo.lng;
-        }
-        if (requiredChannels.length > 0) {
-          body.requiredChannels = requiredChannels;
-          body.channelMatchMode = channelMatchMode;
-        }
-
-        try {
-          let currentRun = await apiFetch<RunResponse>("/webscraping/radar/search-runs", {
-            method: "POST",
-            body: JSON.stringify(body),
-          });
-          const createdRunId = currentRun?.id || currentRun?.runId;
-
-          // O usuário pode apertar Parar enquanto o POST está em trânsito. Se o
-          // backend criou o run, cancelamos esse run antes de encerrar a fila.
-          if (queueTokenRef.current !== queueToken) {
-            if (createdRunId) {
-              try {
-                await apiFetch(`/webscraping/radar/search-runs/${encodeURIComponent(createdRunId)}/cancel`, {
-                  method: "POST",
-                  body: JSON.stringify({}),
-                });
-              } catch {
-                // Sem confirmação de cancelamento, o run permanece visível e
-                // bloqueia nova busca até o monitor observar um estado terminal.
-                interruptedByError = true;
-                setStopRequested(false);
-                queueRunIdRef.current = createdRunId;
-                setRun(currentRun);
-                setSearchMsg("Não foi possível confirmar o cancelamento. O Radar continuará sendo monitorado.");
-              }
-            }
-            break;
-          }
-          if (!createdRunId) throw new Error("O Radar não confirmou a execução. A fila foi interrompida por segurança.");
-
-          queueRunIdRef.current = createdRunId;
-          setRun(currentRun);
-          accumulated = mergeRadarLeads(accumulated, currentRun?.items);
-          setLiveRunItems(filterRadarLeadsByReputation(accumulated, minRating, minReviews));
-          if (currentRun?.message && !firstMessage) firstMessage = currentRun.message;
-
-          while (queueTokenRef.current === queueToken) {
-            const currentStatus = String(currentRun?.status || "");
-            const currentOpState = getOpState(currentRun);
-            const terminal = TERMINAL_RUN.has(currentStatus) || currentRun?.meta?.terminal;
-            if (currentStatus === "canceled" || currentStatus === "failed" || currentStatus === "partial_error") break;
-            if (terminal && currentOpState !== "funcionando" && currentOpState !== "pausado") break;
-            await waitForRadarPoll();
-            if (queueTokenRef.current !== queueToken) break;
-            currentRun = await apiFetch<RunResponse>(
-              `/webscraping/radar/search-runs/${encodeURIComponent(createdRunId)}`,
-            );
-            if (queueTokenRef.current !== queueToken || queueRunIdRef.current !== createdRunId) break;
-            if (!currentRun) {
-              throw new Error("O Radar não devolveu o estado da execução. A fila foi interrompida por segurança.");
-            }
-            setRun(currentRun);
-            accumulated = mergeRadarLeads(accumulated, currentRun?.items);
-            setLiveRunItems(filterRadarLeadsByReputation(accumulated, minRating, minReviews));
-          }
-
-          if (queueTokenRef.current !== queueToken) break;
-          const finalStatus = String(currentRun?.status || "");
-          if (finalStatus === "canceled") {
-            interruptedByError = true;
-            setSearchMsg("A execução atual foi cancelada. Os próximos alvos não foram iniciados.");
-            break;
-          }
-          if (finalStatus === "failed" || finalStatus === "partial_error") {
-            interruptedByError = true;
-            setSearchMsg(currentRun?.message || "Uma execução falhou. Os próximos alvos não foram iniciados.");
-            break;
-          }
-          if (queueRunIdRef.current === createdRunId) queueRunIdRef.current = null;
-        } catch (err) {
-          interruptedByError = true;
-          setSearchMsg(err instanceof Error ? err.message : "A fila foi interrompida para proteger o Radar.");
-          break;
-        }
+      const body: Record<string, unknown> = {
+        cities: targets.map(target => ({ city: target.city, state: target.state })),
+        segment: effSegment,
+        quantity: SEARCH_BATCH,
+        pauseAfterLeads: Math.max(0, Number(pauseAfter) || 0),
+      };
+      if ((geoMode === "radius" || geoMode === "nearby") && effRadius > 0) body.radiusKm = effRadius;
+      if (geoMode === "nearby" && geo) {
+        body.originLat = geo.lat;
+        body.originLng = geo.lng;
       }
-
+      if (requiredChannels.length > 0) {
+        body.requiredChannels = requiredChannels;
+        body.channelMatchMode = channelMatchMode;
+      }
+      const res = await apiFetch<SessionResponse>("/webscraping/radar/sessions", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      if (!res || !res.id) throw new Error("O Radar não confirmou a busca. Tente novamente.");
+      adoptSession(res);
       if (override?.segment != null) setSegment(effSegment);
       if (override?.radiusKm != null) setAlcance(String(override.radiusKm));
       setTab("shelf");
       setPage(1);
       setSelected(new Set());
-      if (!interruptedByError && firstMessage) setSearchMsg(firstMessage);
     } catch (err) {
-      interruptedByError = true;
-      setSearchMsg(err instanceof Error ? err.message : "A fila foi interrompida para proteger o Radar.");
+      setSearchMsg(err instanceof Error ? err.message : "Não consegui iniciar a busca no Radar.");
     } finally {
-      const canceled = queueTokenRef.current !== queueToken;
-      queueActiveRef.current = false;
-      queueRunIdRef.current = null;
-      setSearchQueue(null);
-      setTab("shelf");
-      setPage(1);
-      loadBank();
-      loadUsage();
-      try {
-        await loadList("shelf", { page: 1 });
-        setLiveRunItems(null);
-      } finally {
-        setRunBusy(false);
-      }
-      if (!canceled && !interruptedByError && accumulated.length > 0) {
-        const totalFound = filterRadarLeadsByReputation(accumulated, minRating, minReviews).length;
-        if (totalFound > 0) {
-          setFlyToast(`${totalFound} lead${totalFound > 1 ? "s" : ""} encontrad${totalFound > 1 ? "os" : "o"}`);
-          window.setTimeout(() => setFlyToast(null), 3200);
-        }
-      }
-      // Se o polling falhou com um run ainda aberto, devolve o acompanhamento
-      // para o monitor isolado em vez de iniciar o próximo alvo.
-      if (canceled || interruptedByError) setRun(current => current ? { ...current } : current);
+      setRunBusy(false);
     }
   }
 
-  async function pararBusca() {
-    const wasQueue = queueActiveRef.current;
-    setStopRequested(true);
-    const stopToken = queueTokenRef.current + 1;
-    queueTokenRef.current = stopToken;
-    setSearchQueue(null);
-    const runId = wasQueue ? queueRunIdRef.current : (run?.id || run?.runId);
-    if (!runId) {
-      if (!wasQueue) setRunBusy(false);
-      return;
-    }
+  // Pausar/Continuar: a sessão espera no servidor — o vendedor trabalha os leads e
+  // retoma de onde parou (cursor de cidade preservado).
+  async function pausarBusca() {
+    const active = sessionRef.current;
+    if (!active?.id) return;
     try {
+      const res = await apiFetch<SessionResponse>(`/webscraping/radar/sessions/${encodeURIComponent(active.id)}/pause`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      if (res) adoptSession(res);
+    } catch { /* poll pega o estado real */ }
+  }
+
+  async function continuarBusca() {
+    const active = sessionRef.current;
+    if (!active?.id) return;
+    try {
+      const res = await apiFetch<SessionResponse>(`/webscraping/radar/sessions/${encodeURIComponent(active.id)}/resume`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      if (res) adoptSession(res);
+    } catch { /* poll pega o estado real */ }
+  }
+
+  async function pararBusca() {
+    setStopRequested(true);
+    try {
+      const active = sessionRef.current;
+      if (active?.id && SESSION_ACTIVE.has(String(active.status || ""))) {
+        const res = await apiFetch<SessionResponse>(`/webscraping/radar/sessions/${encodeURIComponent(active.id)}/cancel`, {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+        if (res) adoptSession(res);
+        setSearchQueue(null);
+        void loadList("shelf", { page: 1 }).finally(() => setLiveRunItems(null));
+        return;
+      }
+      // Fallback: run avulso sem sessão (ex.: iniciado pela casca mobile).
+      const runId = run?.id || run?.runId;
+      if (!runId) {
+        setRunBusy(false);
+        return;
+      }
       await apiFetch(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}/cancel`, { method: "POST", body: JSON.stringify({}) });
       const res = await apiFetch<RunResponse>(`/webscraping/radar/search-runs/${encodeURIComponent(runId)}`);
-      if (queueTokenRef.current !== stopToken) return;
-      if (queueRunIdRef.current === runId) queueRunIdRef.current = null;
       setRun(res);
-      setStopRequested(false);
-      if (!wasQueue) {
-        setLiveRunItems(filterRadarLeadsByReputation(
-          Array.isArray(res?.items) ? res.items : [],
-          minRatingRef.current,
-          minReviewsRef.current,
-        ));
-        void loadList("shelf", { page: 1 }).finally(() => setLiveRunItems(null));
-      }
+      setLiveRunItems(filterRadarLeadsByReputation(
+        Array.isArray(res?.items) ? res.items : [],
+        minRatingRef.current,
+        minReviewsRef.current,
+      ));
+      void loadList("shelf", { page: 1 }).finally(() => setLiveRunItems(null));
     } catch {
+      // O poll observa o estado real; nada a desfazer aqui.
+    } finally {
       setStopRequested(false);
-      // A fila já foi invalidada; não há autorização para iniciar outro alvo.
     }
   }
 
@@ -2480,11 +2528,47 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           <I d={ICONS.x} size={13} /> Limpar
         </button>
 
+        {/* REFUNDAÇÃO F2: freio do trabalho — o Radar pausa sozinho depois de N leads
+            e espera o vendedor (Continuar retoma do ponto). 0 = corrida completa. */}
+        <label className="be-cmdbar__pause" title="Pausa automática: o Radar para depois de N leads e espera você continuar">
+          <span>Pausa a cada</span>
+          <select
+            value={pauseAfter}
+            onChange={e => setPauseAfter(e.target.value)}
+            disabled={searchInProgress}
+            aria-label="Pausa automática após quantos leads"
+          >
+            <option value="0">Sem pausa</option>
+            <option value="25">25 leads</option>
+            <option value="50">50 leads</option>
+            <option value="100">100 leads</option>
+          </select>
+        </label>
+
         {searchInProgress ? (
-          <button className="btn-ghost be-cmdbar__go" onClick={pararBusca} disabled={stopRequested}>
-            <span aria-hidden>◼</span>
-            {stopRequested ? "Parando…" : searchQueue ? `Parar ${searchQueue.current}/${searchQueue.total}` : "Parar"}
-          </button>
+          <span className="be-cmdbar__runctl">
+            {sessionActive && (sessionPaused ? (
+              <button
+                className="btn-teal be-cmdbar__go"
+                onClick={continuarBusca}
+                title="Retomar a busca de onde parou"
+              >
+                <span aria-hidden>▶</span> Continuar
+              </button>
+            ) : (
+              <button
+                className="btn-ghost be-cmdbar__go"
+                onClick={pausarBusca}
+                title="Pausar a busca — o Radar guarda o ponto e espera você"
+              >
+                <span aria-hidden>❚❚</span> Pausar
+              </button>
+            ))}
+            <button className="btn-ghost be-cmdbar__go" onClick={pararBusca} disabled={stopRequested}>
+              <span aria-hidden>◼</span>
+              {stopRequested ? "Parando…" : searchQueue ? `Parar ${searchQueue.current}/${searchQueue.total}` : "Parar"}
+            </button>
+          </span>
         ) : (
           <button
             className="btn-teal be-cmdbar__go"
@@ -2543,7 +2627,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
       localLabel,
       ...activeChips().map(chip => chip.label),
     ].filter(Boolean);
-    const radarBackendMessage = run?.meta?.operationalMessage || run?.message || "";
+    // A mensagem da SESSÃO (server-side) vence a do run — é ela que explica o
+    // trabalho inteiro ("cidade 3 de 8", "pausa automática após 50 leads"...).
+    const radarBackendMessage = session?.message || run?.meta?.operationalMessage || run?.message || "";
     const radarTitle = radarState === "funcionando"
       ? "Radar funcionando"
       : radarState === "pausado"
@@ -2556,7 +2642,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         ? `${searchQueue.current} de ${searchQueue.total} · ${searchQueue.label}${runProgress != null ? ` · ${runProgress}%` : ""}`
         : radarBackendMessage || `Preparando ${localLabel || "sua região"}…`
       : radarState === "pausado"
-        ? radarBackendMessage || "A busca está pausada e será retomada automaticamente."
+        ? radarBackendMessage || (sessionPaused
+          ? "Busca pausada — o ponto está guardado. Aperte Continuar quando quiser."
+          : "A busca está pausada e será retomada automaticamente.")
         : radarState === "erro"
           ? searchMsg || radarBackendMessage || "Não foi possível concluir a busca. Você pode iniciar novamente."
           : radarBackendMessage
