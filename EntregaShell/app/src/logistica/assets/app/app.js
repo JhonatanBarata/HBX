@@ -5625,10 +5625,14 @@
         const curadosAgora = Number(res.curados) || 0;
         const processados = Number(res.processados) || 0;
         s.curados += curadosAgora;
+        const antes = s.restantes;
         s.restantes = Number(res.restantes) || 0;
-        // Curado SAI da lista do servidor, então ele não conta como "pulado" — se
-        // contasse, a janela da próxima rodada saltaria por cima de quem falta.
-        s.pulados += Math.max(0, processados - curadosAgora);
+        // `pular` virou REDE DE SEGURANÇA, não o motor: quem é tentado recebe o carimbo
+        // (sanitizadoEm) e SAI da fila sozinho, então a janela anda por si. Somar aqui
+        // saltava por cima de quem faltava (medido: 24 alvos só carimbavam 12 por
+        // rodada). Só empurra a janela quando a fila NÃO andou — é o caso de o carimbo
+        // ter falhado, e sem isso viraria loop.
+        if (rodada > 0 && s.restantes >= antes) s.pulados += processados;
         (Array.isArray(res.naoEncontrado) ? res.naoEncontrado : []).forEach(c => { if (c && c.id && !s.naoEncontrado.some(x => x.id === c.id)) s.naoEncontrado.push(c); });
         render();
         if (s.restantes <= 0 || processados === 0) break;
