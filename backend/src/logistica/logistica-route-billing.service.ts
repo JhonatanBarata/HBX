@@ -761,13 +761,16 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
     });
     const requiredBlocks = essentialBlocksForDeliveries(billableCount);
     if (requiredBlocks === 0) return;
+    // 28/07 — 'PLAN' conta como pago: bloco coberto pela franquia do plano
+    // híbrido nunca vira DEBITED (não toca a carteira de propósito). Só DEBITED
+    // aqui fazia a rota 100% dentro da franquia levar 402 no iniciar.
     const debitedClaims = await (this.prisma as any).logisticaEssentialCreditClaim.count({
       where: {
         companyId: route.companyId,
         routeId: route.id,
         billingRevision: route.billingRevision,
         blockIndex: { lte: requiredBlocks },
-        status: 'DEBITED',
+        status: { in: ['DEBITED', 'PLAN'] },
       },
     });
     if (debitedClaims !== requiredBlocks) throw commercialUnavailable();
@@ -813,7 +816,9 @@ export class LogisticaRouteBillingService implements OnModuleInit, OnModuleDestr
         where: { companyId, routeId: route.id, blockIndex },
       })) as ClaimRow | null;
       const reconciled = claim ? await this.reconcileClaim(claim) : null;
-      if (!reconciled || reconciled.status !== 'DEBITED') throw commercialUnavailable();
+      // 28/07 — mesma régua do assertRouteBillingReady: 'PLAN' (franquia) é
+      // bloco pago; exigir DEBITED aqui travava a confirmação da entrega.
+      if (!reconciled || (reconciled.status !== 'DEBITED' && reconciled.status !== 'PLAN')) throw commercialUnavailable();
       return;
     }
 
