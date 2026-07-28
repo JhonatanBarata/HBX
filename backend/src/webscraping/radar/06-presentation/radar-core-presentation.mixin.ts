@@ -1962,6 +1962,9 @@ export class RadarCorePresentationMixin {
       googleMapsUrl: row?.googleMapsUrl || null,
       businessCategory: row?.businessCategory || null,
       category: row?.businessCategory || null,
+      // F3 REFUNDAÇÃO (28/07): origem da categoria visível ('cnae'/'observed'/'unconfirmed')
+      // persiste no metadataJson do pool — campo OPCIONAL, card antigo segue sem ele.
+      businessCategoryStatus: parseJsonObject(row?.metadataJson)?.businessCategoryStatus || null,
       openingHoursStatus: row?.openingHoursStatus || null,
       enrichmentJson: row?.enrichmentJson || null,
       metadataJson: row?.metadataJson || null,
@@ -2304,6 +2307,9 @@ export class RadarCorePresentationMixin {
       confirmedSocialCandidates,
       googleMapsUrl: row?.googleMapsUrl || null,
       businessCategory: row?.businessCategory || null,
+      // F3 REFUNDAÇÃO (28/07): a vitrine usa este flag pra mostrar "não confirmado" em vez do
+      // texto da busca quando não há fato (CNAE/observação). Opcional — card antigo sem ele.
+      businessCategoryStatus: meta?.businessCategoryStatus || null,
       openingHoursStatus: row?.openingHoursStatus || null,
       recommendedChannel: protectedChannel
         ? 'discard'

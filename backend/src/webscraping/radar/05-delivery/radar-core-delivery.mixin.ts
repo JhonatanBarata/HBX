@@ -2454,6 +2454,10 @@ export class RadarCoreDeliveryMixin {
           ...(((result as any).cnae || this.parseMaybeJsonObject(existing?.metadataJson)?.cnae) ? { cnae: (result as any).cnae || this.parseMaybeJsonObject(existing?.metadataJson)?.cnae } : {}),
           ...(((result as any).cnaeDescription || this.parseMaybeJsonObject(existing?.metadataJson)?.cnaeDescription) ? { cnaeDescription: (result as any).cnaeDescription || this.parseMaybeJsonObject(existing?.metadataJson)?.cnaeDescription } : {}),
           ...(((result as any).razaoSocial || this.parseMaybeJsonObject(existing?.metadataJson)?.razaoSocial) ? { razaoSocial: (result as any).razaoSocial || this.parseMaybeJsonObject(existing?.metadataJson)?.razaoSocial } : {}),
+          // F3 REFUNDAÇÃO (28/07): de onde veio a categoria VISÍVEL do card — 'cnae' (fato da
+          // Receita), 'observed' (motor viu na página/Maps) ou 'unconfirmed' (sem fato; a
+          // vitrine mostra "não confirmado" em vez do texto da busca). Campo OPCIONAL.
+          ...(((result as any).businessCategoryStatus || this.parseMaybeJsonObject(existing?.metadataJson)?.businessCategoryStatus) ? { businessCategoryStatus: (result as any).businessCategoryStatus || this.parseMaybeJsonObject(existing?.metadataJson)?.businessCategoryStatus } : {}),
           // Motivo de inclusão (S2 LEAD-CENTRICO, 25/07 — "se o sistema não explica por que a
           // empresa entrou, ele não sabe por que ela entrou"). Aditivo dentro do blob existente,
           // sem migration. Exposto em buildRadarLeadPublic e mostrado como badge no card.
@@ -2544,6 +2548,8 @@ export class RadarCoreDeliveryMixin {
           ...(((result as any).cnae || this.parseMaybeJsonObject(existing?.metadataJson)?.cnae) ? { cnae: (result as any).cnae || this.parseMaybeJsonObject(existing?.metadataJson)?.cnae } : {}),
           ...(((result as any).cnaeDescription || this.parseMaybeJsonObject(existing?.metadataJson)?.cnaeDescription) ? { cnaeDescription: (result as any).cnaeDescription || this.parseMaybeJsonObject(existing?.metadataJson)?.cnaeDescription } : {}),
           ...(((result as any).razaoSocial || this.parseMaybeJsonObject(existing?.metadataJson)?.razaoSocial) ? { razaoSocial: (result as any).razaoSocial || this.parseMaybeJsonObject(existing?.metadataJson)?.razaoSocial } : {}),
+          // F3 REFUNDAÇÃO (28/07): origem da categoria visível (ver comentário do blob acima).
+          ...(((result as any).businessCategoryStatus || this.parseMaybeJsonObject(existing?.metadataJson)?.businessCategoryStatus) ? { businessCategoryStatus: (result as any).businessCategoryStatus || this.parseMaybeJsonObject(existing?.metadataJson)?.businessCategoryStatus } : {}),
         }),
         enrichmentJson: JSON.stringify({ ...enrichmentJson, signals: preservedSignals, quality, delivery: finalDelivery }),
         enrichmentScore: enrichment.enrichmentScore,

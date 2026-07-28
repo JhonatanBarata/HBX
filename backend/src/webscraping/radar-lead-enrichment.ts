@@ -439,7 +439,12 @@ export function buildRadarLeadEnrichment(input: RadarLeadEnrichmentInput): Radar
     input.sourceUrl ||
     (input.placeId ? `https://www.google.com/maps/search/?api=1&query_place_id=${encodeURIComponent(String(input.placeId))}` : ''),
   );
-  const businessCategory = normalizeText(input.businessCategory || pickRaw(input, ['businessCategory', 'category', 'types'])) || normalizeText(input.segment) || null;
+  // F3 REFUNDAÇÃO (28/07): businessCategory é FATO da empresa (CNAE da Receita ou categoria
+  // OBSERVADA pelo motor), nunca o texto digitado na busca. O fallback `input.segment` daqui
+  // era a fábrica do "EDR Imobiliária = distribuidora de água": todo card web sem categoria
+  // real saía carimbado com o pedido do vendedor. Sem categoria real = null (o card mostra
+  // "não confirmado", a vitrine não mente).
+  const businessCategory = normalizeText(input.businessCategory || pickRaw(input, ['businessCategory', 'category', 'types'])) || null;
   const openingHoursStatus = normalizeText(input.openingHoursStatus || pickRaw(input, ['openingHoursStatus', 'openNow'])) || null;
   const pain = resolvePain(input);
   let recommendedChannel = resolveRecommendedChannel(input, emailStatus);

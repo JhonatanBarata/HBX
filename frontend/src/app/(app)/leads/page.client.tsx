@@ -45,6 +45,10 @@ export type RadarLead = {
   state: string | null;
   segment: string | null;
   businessCategory: string | null;
+  // F3 REFUNDAÇÃO (28/07): origem da categoria visível — 'cnae' (fato da Receita),
+  // 'observed' (motor viu na página/Maps) ou 'unconfirmed' (sem fato). Opcional: card
+  // antigo sem o campo cai no segment como sempre.
+  businessCategoryStatus?: string | null;
   opportunityScore: number;
   opportunityReason?: string | null;
   opportunitySignals?: string[] | null;
@@ -693,6 +697,17 @@ function fmtMoney(value: number | null | undefined) {
 // pra a página /leads/[id] poder chamar a MESMA função com seu próprio critério
 // de posse (ownershipStatus === 'mine', sem conceito de "aba"). Nenhuma lógica
 // de mapeamento duplicada entre lista e página.
+// F3 REFUNDAÇÃO (28/07): a vitrine mostra a categoria REAL da empresa (CNAE da Receita ou
+// categoria observada pelo motor) — nunca o texto digitado na busca. Card web sem fato chega
+// com businessCategoryStatus 'unconfirmed' e businessCategory vazio: mostra "Não confirmado"
+// em vez de recarimbar o pedido do vendedor ("EDR Imobiliária = distribuidora de água").
+// Card antigo sem o flag segue caindo no segment (compatibilidade, nada quebra).
+function categoriaDoCard(row: RadarLead): string {
+  if (row.businessCategory) return row.businessCategory;
+  if (row.businessCategoryStatus === "unconfirmed") return "Não confirmado";
+  return row.segment || "—";
+}
+
 export function buildNegocioDetailFromLead(lead: RadarLead, opts: { revealed: boolean }): NegocioDetail {
   const revealed = opts.revealed;
   const hasVendas = revealed && lead.vendasStatus != null;
@@ -2811,7 +2826,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                     <Av name={row.name || "—"} size={30} />
                     <span className="row-dense__id-body">
                       <span className="row-dense__name">{row.name || "—"}</span>
-                      <span className="row-dense__seg">{row.segment || row.businessCategory || "—"}</span>
+                      <span className="row-dense__seg">{categoriaDoCard(row)}</span>
                       {renderOriginBadge(row)}
                     </span>
                   </span>
@@ -3068,7 +3083,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                                       <span className={`radar2-fit${row.fitScore >= 60 ? " radar2-fit--hi" : ""}`}>Fit {row.fitScore}</span>
                                     )}
                                   </strong>
-                                  <span className="be-card__seg">{row.segment || row.businessCategory || "—"}</span>
+                                  <span className="be-card__seg">{categoriaDoCard(row)}</span>
                                   <span className="be-card__loc">
                                     <I d={ICONS.mapin} size={11} />
                                     {row.city ? `${row.city}${row.state ? "/" + row.state : ""}` : "Brasil"}

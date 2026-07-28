@@ -135,6 +135,37 @@ test('radar enrichment adds social networks to score and payload', () => {
   assert.match(enrichment.enrichmentJson, /instagramUrl/);
 });
 
+// F3 REFUNDAÇÃO (28/07): o fallback `input.segment` em businessCategory era a fábrica do
+// "EDR Imobiliária virou distribuidora de água" — o card herdava o texto DIGITADO na busca.
+test('radar enrichment: businessCategory NUNCA herda o segmento da busca (categoria vazia = null)', () => {
+  const enrichment = buildRadarLeadEnrichment({
+    name: 'EDR Imobiliária',
+    phoneDigits: '18999990001',
+    city: 'Zacarias',
+    state: 'SP',
+    segment: 'distribuidora de agua',
+    websiteStatus: 'none',
+  });
+
+  assert.equal(enrichment.businessCategory, null);
+});
+
+test('radar enrichment: businessCategory preserva o FATO (CNAE da Receita ou categoria observada)', () => {
+  const daReceita = buildRadarLeadEnrichment({
+    name: 'Padaria São João',
+    segment: 'distribuidora de agua',
+    businessCategory: 'Fabricação de produtos de padaria e confeitaria',
+  });
+  assert.equal(daReceita.businessCategory, 'Fabricação de produtos de padaria e confeitaria');
+
+  const observada = buildRadarLeadEnrichment({
+    name: 'Igreja Presbiteriana Central',
+    segment: 'distribuidora de agua',
+    rawPayload: { category: 'Igreja' },
+  });
+  assert.equal(observada.businessCategory, 'Igreja');
+});
+
 test('radar enrichment includes LeadQualityV2 in payload', () => {
   const enrichment = buildRadarLeadEnrichment({
     name: 'Oficina Mecânica São José',

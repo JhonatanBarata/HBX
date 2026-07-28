@@ -207,7 +207,10 @@ export class RadarRunPresenterService {
       city: String(item.city || raw.city || '').trim() || null,
       state: String(item.state || raw.state || '').trim().toUpperCase() || null,
       segment: String(item.segment || raw.segment || raw.businessCategory || raw.category || '').trim() || null,
-      businessCategory: String(raw.businessCategory || raw.category || item.segment || '').trim() || null,
+      // F3 REFUNDAÇÃO (28/07): businessCategory é FATO (CNAE/categoria observada) — o antigo
+      // fallback `item.segment` recarimbava o card com o texto DIGITADO na busca. `segment`
+      // acima continua sendo o bucket da pesquisa (dedup/carteira usam).
+      businessCategory: String(raw.businessCategory || raw.category || '').trim() || null,
       website: String(item.website || raw.website || '').trim() || null,
       instagramUrl: String(raw.instagramUrl || '').trim() || null,
       facebookUrl: String(raw.facebookUrl || '').trim() || null,
