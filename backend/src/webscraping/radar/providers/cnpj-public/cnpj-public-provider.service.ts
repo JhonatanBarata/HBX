@@ -3,6 +3,7 @@ import type { WebscrapingContactResult } from '../../shared/radar-core-shared';
 import { cleanRfbLegalName, normalizeLegacyBrCellphone } from './cnpj-public-types';
 import type { CnpjPublicCompanyRecord, CnpjPublicProviderResult, CnpjPublicSearchInput } from './cnpj-public-types';
 import { findRadarSegmentExclusionMatch } from '../../shared/radar-segment-exclusion.util';
+import { buildSegmentTextMatcher } from '../../shared/radar-segment-match.util';
 
 // Log dos rejeitados da porta receita (P1, 02/07 — docs/PLANEJAMENTOS/PR02072026/W1-cutover-ordem-fixa.md,
 // tarefa 7): cada registro rejeitado pelos filtros (DV inválido, situação não-ativa, cidade/UF
@@ -66,18 +67,26 @@ function isActiveCompany(record: CnpjPublicCompanyRecord) {
   return !status || ['ativa', 'ativo', 'active'].includes(status);
 }
 
-function segmentMatches(record: CnpjPublicCompanyRecord, segment: unknown) {
+// Match de segmento pela lei única de radar-segment-match.util (28/07 — conserto do
+// "distribuidora de agua trouxe igreja/academia/partido"): TODAS as palavras do segmento
+// (AND), palavra INTEIRA (\b, "agua" não casa "AGUAI"), e o nome da cidade pedida não conta
+// como texto ("IGREJA ... DE AGUAS DE LINDOIA" não vira match de "agua"). Código CNAE
+// explícito no segmento continua resolvendo por prefixo do código, sem passar pelo texto.
+function segmentMatches(
+  record: CnpjPublicCompanyRecord,
+  segment: unknown,
+  matcher: (haystack: unknown) => boolean,
+) {
   const requested = normalizeText(segment);
   if (!requested) return true;
-  const haystack = normalizeText([
+  const cnaeCode = (requested.match(/\b\d{4,7}\b/) || [])[0] || null;
+  if (cnaeCode && String(record.cnae || '').replace(/\D/g, '').startsWith(cnaeCode)) return true;
+  return matcher([
     record.nomeFantasia,
     record.razaoSocial,
     record.cnae,
     record.cnaeDescription,
   ].filter(Boolean).join(' '));
-  const tokens = requested.split(/\s+/).filter((token) => token.length >= 4);
-  const variants = tokens.flatMap((token) => (token.endsWith('s') ? [token, token.slice(0, -1)] : [token, `${token}s`]));
-  return !variants.length || variants.some((token) => token.length >= 4 && haystack.includes(token));
 }
 
 function locationMatches(record: CnpjPublicCompanyRecord, city: unknown, state: unknown) {
@@ -116,6 +125,8 @@ export class CnpjPublicProviderService {
     }
 
     const limit = Math.max(1, Math.min(100, Number(input.limit || 20) || 20));
+    // Matcher compilado UMA vez pro lote inteiro (regex por grupo de palavra do segmento).
+    const segmentMatcher = buildSegmentTextMatcher(input.normalized.segment, input.normalized.city);
     const accepted: WebscrapingContactResult[] = [];
     let rejectedCount = 0;
     for (const record of records) {
@@ -150,7 +161,7 @@ export class CnpjPublicProviderService {
           this.logRejected(record, `segmento_excluido_${exclusionMatch.code}`);
           continue;
         }
-        if (!segmentMatches(record, input.normalized.segment)) {
+        if (!segmentMatches(record, input.normalized.segment, segmentMatcher)) {
           rejectedCount += 1;
           this.logRejected(record, 'segmento_sem_match_cnae');
           continue;

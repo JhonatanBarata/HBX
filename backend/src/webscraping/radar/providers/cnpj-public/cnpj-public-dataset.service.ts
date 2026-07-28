@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { NormalizedSearchInput } from '../../shared/radar-types';
+import { buildSegmentTextMatcher, segmentTokenGroups } from '../../shared/radar-segment-match.util';
 import { normalizeLegacyBrCellphone } from './cnpj-public-types';
 import type { CnpjPublicCompanyRecord } from './cnpj-public-types';
 
@@ -10,11 +11,6 @@ function normalizeText(value: unknown) {
     .toLowerCase()
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-function segmentTokenVariants(segment: unknown) {
-  const tokens = normalizeText(segment).split(/\s+/).filter((token) => token.length >= 4);
-  return Array.from(new Set(tokens.flatMap((token) => (token.endsWith('s') ? [token, token.slice(0, -1)] : [token, `${token}s`]))));
 }
 
 function parseRawJson(value: unknown): Record<string, any> | null {
@@ -41,7 +37,10 @@ export class CnpjPublicDatasetService {
 
     const city = normalizeText(input.normalized?.city);
     const state = String(input.normalized?.state || '').trim().toUpperCase();
-    const variants = segmentTokenVariants(input.normalized?.segment);
+    // Match de segmento pela lei única de radar-segment-match.util (28/07): AND entre as
+    // palavras do segmento — o OR antigo fazia "distribuidora de agua" casar a cidade inteira
+    // ("agua" batia em "AGUAS DE LINDOIA"/"AGUAI" no nome e em "agua doce" na descrição de CNAE).
+    const tokenGroups = segmentTokenGroups(input.normalized?.segment);
     // Segmento pode vir como código CNAE (4-7 dígitos, ex. "5611" ou "5611203") — com o dump
     // da RFB carregado, cidade×CNAE resolve direto no índice (normalizedCity, cnae).
     const cnaeCode = (normalizeText(input.normalized?.segment).match(/\b\d{4,7}\b/) || [])[0] || null;
@@ -50,7 +49,12 @@ export class CnpjPublicDatasetService {
     const where: Record<string, any> = {};
     if (city) where.normalizedCity = city;
     if (state) where.state = state;
-    const matchers: Array<Record<string, any>> = variants.map((token) => ({ searchText: { contains: token } }));
+    const matchers: Array<Record<string, any>> = [];
+    if (tokenGroups.length) {
+      matchers.push({
+        AND: tokenGroups.map((group) => ({ OR: group.map((token) => ({ searchText: { contains: token } })) })),
+      });
+    }
     if (cnaeCode) matchers.push({ cnae: { startsWith: cnaeCode } });
     if (matchers.length) where.OR = matchers;
 
@@ -94,6 +98,17 @@ export class CnpjPublicDatasetService {
       // marcar partial_error. Silenciar aqui acionava discovery e fingia base vazia.
       throw new Error(`Falha ao consultar CnpjPublicCompany: ${String((error as any)?.message || error)}`);
     }
+
+    // Filtro fino em memória (o `contains` do WHERE é substring, sem fronteira de palavra):
+    // palavra inteira + frase da cidade fora do texto. Quem entrou por código CNAE explícito
+    // não passa pelo texto — o código já É o pedido.
+    const segmentMatcher = buildSegmentTextMatcher(input.normalized?.segment, input.normalized?.city);
+    rows = (rows || []).filter((row) => {
+      if (cnaeCode && String(row.cnae || '').replace(/\D/g, '').startsWith(cnaeCode)) return true;
+      const haystack = row.searchText
+        || [row.nomeFantasia, row.razaoSocial, row.cnae, row.cnaeDescription].filter(Boolean).join(' ');
+      return segmentMatcher(haystack);
+    });
 
     return (rows || []).map((row) => ({
       cnpj: row.cnpj || null,

@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, Optional, ServiceUnavailableEx
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { LeadHarvestImportService } from '../../../lead-harvest/lead-harvest-import.service';
 import { normalizePhoneDigits } from '../../shared/radar-core-shared';
+import { segmentTokenGroups } from '../../shared/radar-segment-match.util';
 
 /**
  * HOT-02 + HOT-03 (fundidos) — "Base Receita": pesquisa avançada em cima do dump local da RFB
@@ -118,24 +119,6 @@ function isLikelyCelular(phoneDigits: string | null | undefined): boolean {
 // diretamente no texto normalizado da Receita (fantasia, razão social e atividade). Não exige
 // que a pessoa conheça o código ou a nomenclatura oficial do CNAE. Para termos longos, também
 // usa um radical curto: "sorveteria" encontra "sorvetes" na descrição da atividade.
-function keywordVariants(value: unknown): string[] {
-  const normalized = String(value || '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-  const tokens = normalized.split(/\s+/).filter((token) => token.length >= 4);
-  return Array.from(new Set(tokens.flatMap((token) => {
-    const singularPlural = token.endsWith('s') ? [token, token.slice(0, -1)] : [token, `${token}s`];
-    // Cinco a oito caracteres preservam contexto suficiente e conectam variações naturais de
-    // atividade (transportadora/transporte, sorveteria/sorvetes) sem precisar de uma lista de CNAEs.
-    const radicalLength = Math.max(5, Math.min(8, token.length - 3));
-    const radical = token.length >= 7 ? token.slice(0, radicalLength) : null;
-    return radical ? [...singularPlural, radical] : singularPlural;
-  })));
-}
-
 function selarQualidade(row: { phone: string | null; email: string | null; phoneShareCount: number | null; emailShareCount: number | null; whatsappValidado?: boolean }, maxShare: number): CnpjBaseSampleRow['selo'] {
   const tokens = emailBlocklistTokens();
   const emailLower = String(row.email || '').toLowerCase();
@@ -218,12 +201,18 @@ export class CnpjBaseQueryService {
     }
     if (input.keyword) {
       const keyword = String(input.keyword).trim();
-      const variants = keywordVariants(keyword);
+      // Lei única de radar-segment-match.util (28/07): AND entre as palavras do termo (grupo =
+      // variantes singular/plural/radical da MESMA palavra, em OR interno). O OR plano antigo
+      // fazia "distribuidora de agua" contar a cidade inteira de Aguai ("agua" batia em "AGUAI"
+      // no nome de qualquer empresa local). Frase inteira em razao/fantasia segue valendo.
+      const tokenGroups = segmentTokenGroups(keyword, { withRadical: true });
       and.push({
         OR: [
           { razaoSocial: { contains: keyword, mode: 'insensitive' } },
           { nomeFantasia: { contains: keyword, mode: 'insensitive' } },
-          ...variants.map((token) => ({ searchText: { contains: token } })),
+          ...(tokenGroups.length ? [{
+            AND: tokenGroups.map((group) => ({ OR: group.map((token) => ({ searchText: { contains: token } })) })),
+          }] : []),
         ],
       });
     }
