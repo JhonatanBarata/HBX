@@ -1712,3 +1712,62 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 .vnd-grid th.vnd-grid__th.is-nosort { cursor: default; }
 .vnd-grid th.vnd-grid__th.is-nosort:hover { color: var(--text-muted); }
 .vnd-grid td.vnd-grid__acts { white-space: nowrap; }
+
+/* ============================================================
+   QUADRO EM LARGURA CHEIA + abertura da ficha (resgatado 28/07)
+
+   Estas regras viviam em vendas-details2.css — o arquivo que hospedava DOIS
+   vocabulários no mesmo lugar (o Detalhes velho e o layout do quadro). O
+   Detalhes velho foi deletado; o layout do quadro é vivo e volta pra casa
+   dele, que é esta folha. Nada aqui mudou de valor: é o mesmo CSS, no
+   arquivo certo.
+
+   O que NÃO voltou, de propósito: o recuo/desfoque da tela de trás
+   (`is-cockpit-zoom`) e a piscada de retorno (`is-cockpit-back`). Quem
+   punha e tirava aquelas classes era o modal deletado; sem ele são regras
+   sem dono — e regra sem dono é o lixo que a próxima pessoa não sabe se
+   pode apagar.
+   ============================================================ */
+
+/* O painel do funil ocupa a largura toda: não existe mais detalhe lateral
+   dividindo a tela com a planilha. */
+#vendas-panel-funil .content,
+#vendas-panel-funil .content.vnd-content--detail-open {
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) !important;
+  gap: 0 !important;
+}
+#vendas-panel-funil .content > .work {
+  grid-column: 1 / -1 !important;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+#vendas-panel-funil .work > .panel,
+#vendas-panel-funil .tbl-wrap,
+#vendas-panel-funil .tbl {
+  width: 100%;
+  max-width: none;
+}
+
+/* Abertura em 1 clique (quem marca é vendas-fullscreen-bridge.tsx): o item
+   vira clicável e dá um realce curto ao abrir a Central do Lead. */
+#vendas-panel-funil tr[id^="vnd-row-"][data-cockpit-open="single-click"],
+#vendas-panel-funil .vnd-card[data-cockpit-open="single-click"] {
+  cursor: pointer;
+}
+#vendas-panel-funil tr.is-cockpit-opening > td,
+#vendas-panel-funil .vnd-card.is-cockpit-opening {
+  animation: vnd-cockpit-open 0.36s var(--ease-out-quint) both;
+}
+@keyframes vnd-cockpit-open {
+  0% { filter: brightness(1); transform: translateZ(0); }
+  42% { filter: brightness(1.055); transform: translateY(-1px); }
+  100% { filter: brightness(1); transform: translateZ(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #vendas-panel-funil tr.is-cockpit-opening > td,
+  #vendas-panel-funil .vnd-card.is-cockpit-opening { animation: none; }
+}

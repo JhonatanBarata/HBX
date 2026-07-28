@@ -19,7 +19,7 @@ import {
   type VendasEngagementSnapshot,
 } from "@/components/hbx/detalhes-negocio";
 import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
-import { LeadCockpitModal } from "@/components/hbx/lead-cockpit-modal";
+import { CentralDoLead } from "@/components/hbx/central-do-lead";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { CanalIcon } from "@/components/hbx/canal-icon";
 import { RADAR_CHANNEL_ORDER, resolveRadarChannelPresence, type RadarChannel } from "@/lib/radar-channel-presence";
@@ -33,8 +33,8 @@ import { useTabParam } from "@/lib/use-tab-param";
 import { useRadarAiStatusPoll } from "@/lib/radar-ai-status";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
-// Exportado (LEAD-COCKPIT, 11/07): o LeadCockpitModal recebe o card do board
-// JÁ carregado (sem refetch) — `import type` (apagado no build, sem ciclo real).
+// Exportado: a Central do Lead recebe o card do board JÁ carregado (sem
+// refetch) — `import type` (apagado no build, sem ciclo real).
 export type VendasLead = {
   id: string;
   radarLeadId?: string | null;
@@ -2146,13 +2146,13 @@ export function VendasClient() {
         />
       )}
 
-      {/* LEAD-COCKPIT: detalhe avançado do card em overlay grande (3 guias).
-          key por lead = estado zerado a cada card (fetches/abas não vazam). */}
+      {/* CENTRAL DO LEAD (28/07): o Detalhes reescrito do zero no desenho
+          aprovado. key por lead = estado zerado a cada card (fetches/abas
+          não vazam de um lead pro outro). */}
       {cockpitOpen && sel && (
-        <LeadCockpitModal
+        <CentralDoLead
           key={sel.id}
           lead={sel}
-          aiStatus={aiStatusMap[sel.radarLeadId || ""]}
           canViewValues={Boolean(board?.canViewValues)}
           open={cockpitOpen}
           onClose={() => setCockpitOpen(false)}

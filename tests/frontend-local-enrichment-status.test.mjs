@@ -13,7 +13,7 @@ const radarDesktopSource = read("frontend/src/app/(app)/leads/page.client.tsx");
 const radarDetailSource = read("frontend/src/app/(app)/leads/[id]/page.client.tsx");
 const vendasMobileSource = read("frontend/src/components/casca/screens/vendas-funil.tsx");
 const radarMobileSource = read("frontend/src/components/casca/screens/vendas-buscar.tsx");
-const leadCockpitSource = read("frontend/src/components/hbx/lead-cockpit-modal.tsx");
+const centralDoLeadSource = read("frontend/src/components/hbx/central-do-lead.tsx");
 const kitSource = read("frontend/src/app/hbx-theme/kit.css");
 
 function statusToken(state, theme, token) {
@@ -120,17 +120,23 @@ test("Radar e Vendas mobile reutilizam o mesmo badge e atualizam ao concluir", (
   assert.match(radarMobileSource, /items\.map\(item => item\.id\)/);
 });
 
-test("detalhe do Radar e cockpit de Vendas exibem o mesmo status sem polling duplicado", () => {
+// 28/07: o Detalhes do /vendas foi reescrito no desenho aprovado ("Central do
+// Lead"), e a linha de identidade dele é fechada — nome, segmento, cidade, RFB
+// e "sem site", nada mais. O selo de status da IA continua VISÍVEL pro
+// vendedor, no card do quadro, que é onde ele decide qual lead abrir; o que
+// mudou é que a ficha não repete o selo nem abre um segundo polling.
+test("status da IA aparece uma vez por tela, sem polling duplicado", () => {
   assert.match(radarDetailSource, /useRadarAiStatusPoll\(\[leadId\]/);
   assert.equal(
     (radarDetailSource.match(/crownSlot=\{<RadarAiBadge status=\{aiStatusMap\[lead\.id\]\} \/>\}/g) || []).length,
     2,
     "os dois DetalhesNegocio devem mostrar o status",
   );
-  assert.match(leadCockpitSource, /aiStatus\?: RadarAiLeadStatus \| null/);
-  assert.match(leadCockpitSource, /<RadarAiBadge status=\{aiStatus\} \/>/);
-  assert.doesNotMatch(leadCockpitSource, /useRadarAiStatusPoll/);
-  assert.match(vendasSource, /aiStatus=\{aiStatusMap\[sel\.radarLeadId \|\| ""\]\}/);
+  // O quadro do Vendas é o dono do selo e do polling.
+  assert.match(vendasSource, /<RadarAiBadge status=\{aiStatusMap\[/);
+  assert.match(vendasSource, /useRadarAiStatusPoll/);
+  // A Central do Lead não repete nem re-consulta.
+  assert.doesNotMatch(centralDoLeadSource, /useRadarAiStatusPoll|RadarAiBadge/);
 });
 
 test("conclusão recarrega somente o card afetado", () => {

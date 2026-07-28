@@ -1,0 +1,260 @@
+/* ============================================================
+   HBX — PALETA PREMIUM  ·  escrita do ZERO em 28/07/2026
+
+   Ordem do dono, literal: "as cores dos temas não vai aproveitar tbm,
+   essa casca vai ter sua própria aparencia, igual o corporativo.
+   NÃO APROVEITE NADA".
+
+   Então: a Premium NÃO herda Login/Aurora/Ember/Rosé/HBX e NÃO deriva
+   nada da casca Backup. A cor vem de UM lugar só — este arquivo — e os
+   valores são os de "Central do Lead — desenho aplicável", conferidos
+   hex a hex no arquivo de referência.
+
+   POR QUE A PALETA MORA NUM theme-*.css
+   O fiscal (scripts/check-pele.mjs) só aceita cor literal em arquivo de
+   pele. Logo: cor aqui, geometria e tamanho lá fora (casca-premium.css e
+   central-do-lead.css não têm um hex sequer). O fiscal também proíbe
+   font-size em px dentro de pele — por isso aqui não há uma medida de
+   texto sequer, só cor, gradiente, sombra e família de fonte.
+
+   DOIS ALVOS, UMA FONTE
+     [data-theme="premium"] → o app inteiro veste o contrato --hbx-*.
+     .cdl                   → a Central do Lead veste a família --cdl-*.
+   A Central do Lead declara a paleta NO PRÓPRIO ELEMENTO de propósito:
+   assim ela sai igual à referência mesmo se a pessoa estiver na casca
+   Backup ou Corporativa. É a mesma escolha do app do entregador
+   (entrega.css, escopo [data-skin="entrega"]) — desenho fechado não
+   depende de qual tema está ligado.
+   ============================================================ */
+
+/* ---- 1. A FAMÍLIA --cdl-* : a paleta nomeada da referência ---------
+   Mesmos papéis do :root original, prefixados --cdl- (Central Do Lead)
+   pra não colidir com o contrato do app. Declarada nos dois alvos. */
+[data-theme="premium"],
+.cdl {
+  /* TINTA — três degraus, e só três. Hierarquia de texto se faz aqui. */
+  --cdl-ink: #0D1526;
+  --cdl-ink-2: #5A6785;
+  --cdl-ink-3: #8D9AB8;
+
+  /* PAPEL E PEÇA */
+  --cdl-paper: #EEF1F8;
+  --cdl-paper-deep: #DFE4EF;
+  --cdl-card: #FFFFFF;
+  --cdl-field: #FBFCFF;
+
+  /* FIO — duas espessuras de tinta, é assinatura do desenho:
+     --cdl-hair separa PEÇA de peça; --cdl-hair-2 separa LINHA de linha
+     dentro da mesma peça. Trocar uma pela outra achata a hierarquia. */
+  --cdl-hair: #E2E8F4;
+  --cdl-hair-2: #EEF2F9;
+  --cdl-hair-strong: #CBD5E6;
+
+  /* MARCA — o azul e sua escada */
+  --cdl-brand: #2E6BFF;
+  --cdl-brand-2: #175BFF;
+  --cdl-brand-ink: #1D4ED8;
+  --cdl-brand-soft: #EAF0FF;
+  --cdl-brand-line: #D5E1FA;
+  --cdl-brand-line-2: #B9CDFA;
+  --cdl-brand-lit: #3D7BFF;
+  --cdl-brand-deep: #1E5EFF;
+  --cdl-brand-grad: linear-gradient(135deg, #3D7BFF, #1E5EFF);
+  --cdl-brand-grad-flat: linear-gradient(120deg, #3D7BFF, #1E5EFF);
+  --cdl-ring: rgba(46, 107, 255, 0.12);
+  --cdl-brand-shadow: rgba(46, 107, 255, 0.40);
+  --cdl-brand-shadow-soft: rgba(46, 107, 255, 0.30);
+
+  /* DINHEIRO — verde reservado. Na referência ele só aparece em valor de
+     receita e no botão "Fechar venda"; não é decoração, é significado. */
+  --cdl-money: #0FA968;
+  --cdl-money-2: #0B8F57;
+  --cdl-money-soft: #E3F8EE;
+  --cdl-money-grad: linear-gradient(135deg, #16C07A, #0B9D5E);
+  --cdl-money-shadow: rgba(15, 169, 104, 0.42);
+
+  /* ALERTA — o âmbar do robô parado e das pendências */
+  --cdl-amber: #E8960C;
+  --cdl-amber-soft: #FDF3E0;
+  --cdl-amber-ink: #9A6205;
+  --cdl-amber-grad: linear-gradient(180deg, #F5B73D, #E8960C);
+  --cdl-amber-glow: rgba(232, 150, 12, 0.80);
+
+  /* WHATSAPP */
+  --cdl-wa: #1FB05C;
+  --cdl-wa-lit: #4ADE80;
+
+  /* TOPO ESCURO DE COMANDO — a única superfície escura do desenho */
+  --cdl-dark: #0E1729;
+  --cdl-dark-2: #16223C;
+  --cdl-dark-ink: #F2F5FD;
+  --cdl-dark-ink-2: #9DACCB;
+  --cdl-dark-ink-3: #CFDBF3;
+  --cdl-dark-brand-ink: #9DBCFF;
+  --cdl-cockpit: radial-gradient(900px 260px at 12% -40%, rgba(46, 107, 255, 0.32), transparent 60%),
+    radial-gradient(700px 200px at 88% -30%, rgba(15, 169, 104, 0.14), transparent 60%),
+    linear-gradient(178deg, #16223C, #0E1729);
+
+  /* Peças que vivem SOBRE o topo escuro (vidro leve, não blur) */
+  --cdl-on-dark-1: rgba(255, 255, 255, 0.055);
+  --cdl-on-dark-2: rgba(255, 255, 255, 0.07);
+  --cdl-on-dark-3: rgba(255, 255, 255, 0.09);
+  --cdl-on-dark-hover: rgba(255, 255, 255, 0.14);
+  --cdl-on-dark-line: rgba(255, 255, 255, 0.13);
+  --cdl-on-dark-line-2: rgba(255, 255, 255, 0.16);
+  --cdl-on-dark-faint: rgba(255, 255, 255, 0.25);
+  --cdl-on-dark-mute: rgba(226, 233, 248, 0.50);
+
+  /* FUNIL — peça única em setas: atual acesa, passadas tingidas */
+  --cdl-step-done-bg: rgba(61, 123, 255, 0.30);
+  --cdl-step-done-ink: #C4D6FF;
+  --cdl-step-done-dot: #8DB3FF;
+
+  /* ESTADO DO LEAD — as três temperaturas do score */
+  --cdl-cold: #8FB2FF;
+  --cdl-warm: #FFC861;
+  --cdl-hot: #4ADE80;
+
+  /* AGORA — a célula viva da régua de vitais */
+  --cdl-now-bg: linear-gradient(100deg, rgba(46, 107, 255, 0.24), rgba(46, 107, 255, 0.08));
+  --cdl-now-line: rgba(76, 125, 255, 0.50);
+  --cdl-now-inner: rgba(46, 107, 255, 0.18);
+  --cdl-pulse: #5B93FF;
+
+  /* AVATARES */
+  --cdl-av-grad: linear-gradient(140deg, #3B82F6, #1D4ED8);
+  --cdl-av-person: linear-gradient(140deg, #64748B, #475569);
+  --cdl-av-msg: #CBD5E6;
+  --cdl-av-msg-ink: #475569;
+
+  /* CONVERSA — papel pontilhado + balão de saída */
+  --cdl-feed: radial-gradient(rgba(46, 107, 255, 0.05) 1px, transparent 1.5px) 0 0 / 22px 22px,
+    linear-gradient(180deg, #F7F9FE, #F2F5FC);
+  --cdl-bubble-out: linear-gradient(135deg, #3D7BFF, #2059F5);
+  --cdl-bubble-out-ink: rgba(255, 255, 255, 0.75);
+  --cdl-bubble-out-time: rgba(255, 255, 255, 0.72);
+
+  /* SOMBRA — dupla e rasa. Nenhuma camada passa de 6% de tinta;
+     a profundidade vem do fio de borda, não de flutuar. */
+  --cdl-shadow-hair: 0 1px 2px rgba(13, 21, 38, 0.05);
+  --cdl-shadow-card: 0 1px 2px rgba(13, 21, 38, 0.04), 0 8px 24px rgba(13, 21, 38, 0.04);
+  --cdl-shadow-pop: 0 12px 34px rgba(13, 21, 38, 0.16);
+  --cdl-shadow-stage: 0 30px 80px rgba(13, 21, 38, 0.28);
+  --cdl-veil: rgba(13, 21, 38, 0.42);
+
+  /* Números tabulares — CNPJ, telefone e dinheiro alinham coluna. */
+  --cdl-mono: "Cascadia Code", "JetBrains Mono", ui-monospace, Consolas, monospace;
+}
+
+/* ---- 2. O CONTRATO --hbx-* : o app inteiro veste a Premium ---------
+   Só sob [data-theme="premium"]. É o que faz Dashboard, Radar, Agenda e
+   Configurações ficarem da mesma família da Central do Lead sem nenhuma
+   tela saber que esta paleta existe. */
+[data-theme="premium"] {
+  --hbx-brand: #2E6BFF;
+  --hbx-brand-strong: #1D4ED8;
+  --hbx-brand-soft: #EAF0FF;
+  --hbx-brand-contrast: #FFFFFF;
+
+  --hbx-primary: #2E6BFF;
+  --hbx-secondary: #5A6785;
+  --hbx-accent: #175BFF;
+  --hbx-success: #0FA968;
+  --hbx-info: #2E6BFF;
+  --hbx-warning: #E8960C;
+  --hbx-danger: #D64545;
+  --hbx-danger-soft: #FDEBEB;
+
+  --hbx-background: #EEF1F8;
+  --hbx-background-alt: #E6EBF5;
+  --hbx-surface: #FFFFFF;
+  --hbx-surface-soft: #FBFCFF;
+  --hbx-surface-raised: #F4F7FF;
+  --hbx-header-surface: #FFFFFF;
+  --hbx-nav-surface: #FFFFFF;
+  --hbx-field-surface: #FBFCFF;
+  --hbx-table-head: #F7F9FE;
+
+  --hbx-hero-from: #FFFFFF;
+  --hbx-hero-to: #F7F9FE;
+  --hbx-hero-spotlight: transparent;
+
+  --hbx-chat-inbound: #FFFFFF;
+  --hbx-chat-outbound: #EAF0FF;
+  --hbx-chat-system: #F7F9FE;
+
+  --hbx-foreground: #0D1526;
+  --hbx-foreground-soft: #5A6785;
+  --hbx-muted: #8D9AB8;
+
+  --hbx-line: #E2E8F4;
+  --hbx-shadow: #0D1526;
+  --hbx-overlay: rgba(13, 21, 38, 0.42);
+  --border-hairline: #E2E8F4;
+  --border-strong: #CBD5E6;
+  --ring-brand: rgba(46, 107, 255, 0.12);
+
+  --hbx-action-ink: #FFFFFF;
+  --hbx-avatar-from: #3B82F6;
+  --hbx-avatar-to: #1D4ED8;
+
+  /* Profundidade rasa em duas camadas — a mesma do desenho. */
+  --shadow-xs: 0 1px 2px rgba(13, 21, 38, 0.04);
+  --shadow-sm: 0 1px 2px rgba(13, 21, 38, 0.04), 0 8px 24px rgba(13, 21, 38, 0.04);
+  --shadow-md: 0 1px 2px rgba(13, 21, 38, 0.05), 0 12px 32px rgba(13, 21, 38, 0.06);
+  --shadow-lg: 0 2px 4px rgba(13, 21, 38, 0.06), 0 30px 80px rgba(13, 21, 38, 0.12);
+  --shadow-inset: inset 0 0 0 0 transparent;
+  --panel-glow: transparent;
+  --hero-glow: transparent;
+  --soft-ring: transparent;
+
+  /* ZERO vidro — a referência não tem um blur sequer. */
+  --blur-chrome: 0px;
+  --blur-glass: 0px;
+
+  --motion-fast: 120ms cubic-bezier(0.2, 0, 0.2, 1);
+  --motion-base: 180ms cubic-bezier(0.2, 0, 0.2, 1);
+  --motion-slow: 260ms cubic-bezier(0.2, 0, 0.2, 1);
+  --ease-out-quint: cubic-bezier(0.2, 0, 0.2, 1);
+  --icon-stroke: 1.9;
+
+  --casca-ring-1: #9DBCFF;
+  --casca-ring-2: #3D7BFF;
+  --casca-ring-3: #2E6BFF;
+  --casca-ring-4: #1D4ED8;
+  --casca-ring-5: #C7D7FB;
+  --casca-ring-track: rgba(13, 21, 38, 0.08);
+  --casca-ring-glow: rgba(46, 107, 255, 0.18);
+  --casca-mark-1: #0D1526;
+  --casca-mark-2: #5A6785;
+  --casca-mark-3: #2E6BFF;
+
+  --radar-base: #0E1729;
+
+  --font-mono: var(--cdl-mono);
+}
+
+/* A Premium é CLARA FIXA: a referência não tem variante escura. Preferência
+   escura salva de outra casca é ignorada aqui — este bloco importa depois do
+   skeleton, tem a mesma especificidade do bloco escuro de lá e vence pela
+   ordem da cascata. */
+[data-theme="premium"][data-theme-mode="dark"] {
+  --hbx-background: #EEF1F8;
+  --hbx-background-alt: #E6EBF5;
+  --hbx-surface: #FFFFFF;
+  --hbx-surface-soft: #FBFCFF;
+  --hbx-surface-raised: #F4F7FF;
+  --hbx-header-surface: #FFFFFF;
+  --hbx-nav-surface: #FFFFFF;
+  --hbx-field-surface: #FBFCFF;
+  --hbx-table-head: #F7F9FE;
+  --hbx-foreground: #0D1526;
+  --hbx-foreground-soft: #5A6785;
+  --hbx-muted: #8D9AB8;
+  --hbx-line: #E2E8F4;
+  --border-hairline: #E2E8F4;
+  --border-strong: #CBD5E6;
+  --hbx-chat-inbound: #FFFFFF;
+  --hbx-chat-outbound: #EAF0FF;
+  --hbx-chat-system: #F7F9FE;
+}

@@ -1,0 +1,1399 @@
+/* ============================================================
+   HBX — CENTRAL DO LEAD  ·  o Detalhes do /vendas
+   Escrita do ZERO em 28/07/2026, a partir de
+   "Central do Lead — desenho aplicável".
+
+   Ordem do dono: "Garanta q o /vendas detalhes saia igual esse html" +
+   "remova todos legados... não quero reaproveitado nada do backup".
+   O que existia antes (vendas-details2.css, 3.109 linhas, vocabulários
+   .lead-cockpit + .lead-history) foi DELETADO por `git rm`. Não há uma
+   linha daquele arquivo aqui: os nomes são outros, a estrutura é outra e
+   a medida vem do desenho, não do que estava no ar.
+
+   COMO LER ESTE ARQUIVO
+   A ordem é a da tela, de cima pra baixo: topo escuro de comando →
+   régua de vitais → três colunas (dossiê · conversa · decisão).
+   Cada medida abaixo foi lida no arquivo de referência, não estimada.
+
+   COR: nenhuma aqui. Toda cor entra por var(--cdl-*), declarada em
+   theme-premium.css — que é onde o fiscal check-pele permite literal.
+   A família --cdl-* é declarada TAMBÉM no próprio `.cdl`, então este
+   desenho sai igual mesmo se a pessoa estiver na casca Backup ou
+   Corporativa: ele não depende do tema ligado.
+
+   ESPECIFICIDADE: as cascas mexem em `input`, `textarea` e `.tag` por
+   seletor de tag. Esta folha entra DEPOIS das três cascas no globals.css
+   e escopa tudo em `.cdl`, então ganha o empate sem precisar de
+   `!important` em lugar nenhum.
+   ============================================================ */
+
+/* ---- 0. A MOLDURA ------------------------------------------------------
+   A referência é uma página de 1560px. Aqui é sobreposição: mesma largura
+   como TETO, e o miolo rola por coluna — a página de trás nunca rola
+   (zero-scroll é lei do FRONTEND.md). */
+.cdl {
+  /* `relative` é o que segura pop-up e gaveta DENTRO da ficha (ver seção 5). */
+  position: relative;
+  width: min(1560px, calc(100vw - 28px));
+  height: min(940px, calc(100vh - 28px));
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--cdl-paper);
+  color: var(--cdl-ink);
+  box-shadow: var(--cdl-shadow-stage);
+  font-family: var(--font-body);
+}
+.cdl * { box-sizing: border-box; }
+.cdl button { font-family: inherit; }
+
+/* ══════════════════ 1. TOPO ESCURO — comando ══════════════════ */
+.cdl-cockpit {
+  flex: none;
+  padding: 16px 22px 14px;
+  background: var(--cdl-cockpit);
+  color: var(--cdl-dark-ink);
+}
+.cdl-cockpit__row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* Avatar de comando — canto 13px, é o único raio próprio do topo. */
+.cdl-av {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--cdl-av-grad);
+  color: var(--cdl-card);
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.3px;
+  box-shadow: 0 0 0 1px var(--cdl-on-dark-line), 0 6px 18px var(--cdl-brand-shadow-soft);
+}
+
+.cdl-id {
+  width: 252px;
+  min-width: 0;
+}
+.cdl-id h1 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: 0.1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cdl-id p {
+  margin: 3px 0 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  color: var(--cdl-dark-ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cdl-id p b {
+  font-weight: 600;
+  color: var(--cdl-dark-ink-3);
+}
+.cdl-dot {
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--cdl-money);
+}
+.cdl-dot.is-warn { background: var(--cdl-amber); }
+
+/* ---- Funil: UMA peça contínua em setas, não 5 botões soltos ----------
+   A forma já diz a ordem, por isso não há número dentro do passo. */
+.cdl-funnel {
+  flex: 1 1 auto;
+  display: flex;
+  height: 38px;
+  min-width: 430px;
+  filter: drop-shadow(0 4px 14px var(--cdl-shadow-hair));
+}
+.cdl-step {
+  flex: 1 1 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin-left: -9px;
+  padding: 0 10px 0 16px;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--cdl-on-dark-mute);
+  background: var(--cdl-on-dark-1);
+  clip-path: polygon(0 0, calc(100% - 13px) 0, 100% 50%, calc(100% - 13px) 100%, 0 100%, 13px 50%);
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.cdl-step:first-child {
+  margin-left: 0;
+  border-radius: 9px 0 0 9px;
+  clip-path: polygon(0 0, calc(100% - 13px) 0, 100% 50%, calc(100% - 13px) 100%, 0 100%);
+}
+.cdl-step:last-child {
+  border-radius: 0 9px 9px 0;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 13px 50%);
+}
+.cdl-step__dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--cdl-on-dark-faint);
+}
+.cdl-step.is-done {
+  background: var(--cdl-step-done-bg);
+  color: var(--cdl-step-done-ink);
+}
+.cdl-step.is-done .cdl-step__dot { background: var(--cdl-step-done-dot); }
+.cdl-step.is-current {
+  background: var(--cdl-brand-grad-flat);
+  color: var(--cdl-card);
+  font-weight: 800;
+  text-shadow: 0 1px 6px var(--cdl-shadow-hair);
+}
+.cdl-step.is-current .cdl-step__dot {
+  background: var(--cdl-card);
+  box-shadow: 0 0 10px var(--cdl-on-dark-hover);
+}
+.cdl-step:disabled { cursor: default; }
+
+/* ---- Canais: ícone GRANDE dentro da caixa (24 em 40 = 60%) ---------- */
+.cdl-channels {
+  display: flex;
+  gap: 8px;
+}
+.cdl-chan {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+  cursor: pointer;
+  color: var(--cdl-dark-ink);
+  background: var(--cdl-on-dark-2);
+  border: 1px solid var(--cdl-on-dark-line);
+  transition: transform var(--motion-fast), background var(--motion-fast);
+}
+.cdl-chan:hover {
+  transform: translateY(-2px);
+  background: var(--cdl-on-dark-hover);
+}
+.cdl-chan svg { width: 24px; height: 24px; }
+.cdl-chan.is-wa { color: var(--cdl-wa-lit); }
+
+.cdl-cockpit__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+/* O ÚNICO botão verde-dinheiro da tela. Grande, no canto de ação: achar
+   "Fechar venda" tem que levar 1 segundo. */
+.cdl-close-sale {
+  height: 40px;
+  padding: 0 22px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: none;
+  border-radius: 11px;
+  cursor: pointer;
+  background: var(--cdl-money-grad);
+  color: var(--cdl-card);
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  box-shadow: 0 8px 22px var(--cdl-money-shadow), inset 0 1px 0 var(--cdl-on-dark-faint);
+}
+.cdl-close-sale svg { width: 18px; height: 18px; }
+.cdl-ghost {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  background: transparent;
+  color: var(--cdl-dark-ink-2);
+  font-size: 17px;
+  line-height: 1;
+}
+.cdl-ghost:hover {
+  background: var(--cdl-on-dark-3);
+  color: var(--cdl-card);
+}
+.cdl-ghost svg { width: 16px; height: 16px; }
+
+/* ---- Régua de vitais: UMA barra, mesma gramática nas células -------- */
+.cdl-vitals {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  margin-top: 14px;
+}
+.cdl-vit {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 16px;
+  border-radius: 13px;
+  background: var(--cdl-on-dark-1);
+  border: 1px solid var(--cdl-on-dark-3);
+}
+.cdl-vit__k {
+  display: block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.3px;
+  text-transform: uppercase;
+  color: var(--cdl-dark-ink-2);
+}
+.cdl-vit__v {
+  margin-top: 2px;
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.05;
+  color: var(--cdl-card);
+  font-variant-numeric: tabular-nums;
+}
+.cdl-vit__v.is-sm { font-size: 13.5px; }
+.cdl-vit__v.is-md { font-size: 15px; }
+.cdl-vit__v small {
+  margin-left: 4px;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--cdl-dark-ink-2);
+}
+.cdl-state { font-size: 12px; font-weight: 750; }
+.cdl-state.is-cold { color: var(--cdl-cold); }
+.cdl-state.is-warm { color: var(--cdl-warm); }
+.cdl-state.is-hot { color: var(--cdl-hot); }
+
+/* Anel do score — número no meio, arco na temperatura do lead. */
+.cdl-ring { width: 46px; height: 46px; flex: none; }
+.cdl-ring__track { stroke: var(--cdl-on-dark-line); }
+.cdl-ring__value { stroke-linecap: round; }
+.cdl-ring__value.is-cold { stroke: var(--cdl-cold); }
+.cdl-ring__value.is-warm { stroke: var(--cdl-warm); }
+.cdl-ring__value.is-hot { stroke: var(--cdl-hot); }
+.cdl-ring text {
+  fill: var(--cdl-card);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+/* Prontidão — 6 barrinhas: quantos dados de contato estão confirmados. */
+.cdl-seg {
+  display: flex;
+  gap: 3px;
+  margin-top: 5px;
+}
+.cdl-seg i {
+  width: 15px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--cdl-on-dark-line-2);
+}
+.cdl-seg i.is-on {
+  background: var(--cdl-hot);
+  box-shadow: 0 0 7px var(--cdl-now-inner);
+}
+
+/* AGORA — a célula viva: o que fazer, e os dois botões pra fazer. */
+.cdl-vit.is-now {
+  flex: 1;
+  background: var(--cdl-now-bg);
+  border-color: var(--cdl-now-line);
+  box-shadow: 0 0 24px var(--cdl-now-inner) inset;
+}
+.cdl-vit.is-now .cdl-vit__k { color: var(--cdl-dark-brand-ink); }
+.cdl-pulse {
+  position: relative;
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--cdl-pulse);
+}
+.cdl-pulse::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  border-radius: 50%;
+  border: 2px solid var(--cdl-pulse);
+  animation: cdl-pulse 1.6s ease-out infinite;
+}
+@keyframes cdl-pulse {
+  0% { transform: scale(0.4); opacity: 0.9; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+.cdl-vit__what {
+  margin-top: 2px;
+  font-size: 14.5px;
+  font-weight: 750;
+  color: var(--cdl-card);
+}
+.cdl-vit__cta {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+.cdl-do {
+  height: 34px;
+  padding: 0 18px;
+  border: none;
+  border-radius: 9px;
+  cursor: pointer;
+  background: var(--cdl-brand-grad);
+  color: var(--cdl-card);
+  font-size: 13px;
+  font-weight: 750;
+  box-shadow: 0 6px 16px var(--cdl-brand-shadow);
+}
+.cdl-when {
+  width: 38px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  cursor: pointer;
+  background: var(--cdl-on-dark-3);
+  border: 1px solid var(--cdl-on-dark-line-2);
+  color: var(--cdl-dark-ink-3);
+}
+.cdl-when svg { width: 16px; height: 16px; }
+
+/* ══════════════════ 2. CORPO — três colunas ══════════════════ */
+.cdl-body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 296px minmax(0, 1fr) 336px;
+  gap: 14px;
+  padding: 14px;
+}
+.cdl-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.cdl-col--talk { overflow: hidden; }
+
+/* A PEÇA — cartão branco, fio fino, canto 14, sombra dupla rasa. */
+.cdl-card {
+  flex: none;
+  background: var(--cdl-card);
+  border: 1px solid var(--cdl-hair);
+  border-radius: 14px;
+  box-shadow: var(--cdl-shadow-card);
+  overflow: hidden;
+}
+.cdl-card__h {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px 9px;
+  border-bottom: 1px solid var(--cdl-hair-2);
+  font-size: 10.5px;
+  font-weight: 750;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--cdl-ink-2);
+}
+.cdl-card__st { margin-left: auto; text-transform: none; }
+.cdl-card__b { padding: 10px 14px 12px; }
+.cdl-card__b--tight { padding-top: 2px; }
+
+.cdl-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 750;
+  letter-spacing: 0.2px;
+  text-transform: none;
+  white-space: nowrap;
+}
+.cdl-badge.is-ok { color: var(--cdl-money-2); background: var(--cdl-money-soft); }
+.cdl-badge.is-warn { color: var(--cdl-amber-ink); background: var(--cdl-amber-soft); }
+.cdl-badge.is-mute { color: var(--cdl-ink-2); background: var(--cdl-hair-2); }
+
+/* ---- Cartão-CNPJ: o documento existe num lugar SÓ da tela ---------- */
+.cdl-cnpj {
+  position: relative;
+  margin: 10px;
+  padding: 13px 14px 12px;
+  border-radius: 11px;
+  background: linear-gradient(150deg, var(--cdl-brand-soft), var(--cdl-card) 65%);
+  border: 1px solid var(--cdl-brand-line);
+}
+.cdl-cnpj__k {
+  display: block;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--cdl-ink-3);
+}
+.cdl-cnpj__num {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 5px 0 4px;
+  font-family: var(--cdl-mono);
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0.4px;
+  color: var(--cdl-ink);
+}
+.cdl-cnpj__rfb { position: absolute; top: 11px; right: 11px; }
+.cdl-copy {
+  padding: 3px 8px;
+  border: 1px solid var(--cdl-hair);
+  border-radius: 7px;
+  background: var(--cdl-card);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.5px;
+  color: var(--cdl-ink-2);
+}
+.cdl-copy:hover {
+  color: var(--cdl-brand-ink);
+  border-color: var(--cdl-brand-line);
+  background: var(--cdl-brand-soft);
+}
+
+/* ---- Chave-valor: UMA régua tipográfica pra tela inteira ------------
+   rótulo 11,5 cinza · valor 12,5 semibold · mono SÓ em CNPJ e telefone. */
+.cdl-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 0;
+  font-size: 12.5px;
+  border-bottom: 1px dashed var(--cdl-hair-2);
+}
+.cdl-kv:last-child { border-bottom: none; }
+.cdl-kv > small {
+  flex: none;
+  padding-top: 1px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--cdl-ink-2);
+}
+.cdl-kv__val {
+  min-width: 0;
+  text-align: right;
+  font-weight: 650;
+  color: var(--cdl-ink);
+  overflow-wrap: anywhere;
+}
+.cdl-kv__val.is-mono {
+  font-family: var(--cdl-mono);
+  font-size: 12px;
+  letter-spacing: 0.3px;
+  font-variant-numeric: tabular-nums;
+}
+.cdl-kv__val.is-off { color: var(--cdl-ink-3); font-weight: 500; }
+/* Ações da linha aparecem no hover: a régua fica limpa em repouso. */
+.cdl-kv__act {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 6px;
+  vertical-align: -3px;
+  opacity: 0;
+  transition: opacity var(--motion-fast);
+}
+.cdl-kv:hover .cdl-kv__act,
+.cdl-kv:focus-within .cdl-kv__act { opacity: 1; }
+.cdl-kv__act :is(button, a) {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--cdl-hair);
+  border-radius: 6px;
+  background: var(--cdl-card);
+  cursor: pointer;
+  color: var(--cdl-ink-2);
+}
+.cdl-kv__act :is(button, a):hover {
+  color: var(--cdl-brand-ink);
+  border-color: var(--cdl-brand-line);
+}
+.cdl-kv__act svg { width: 12px; height: 12px; }
+.cdl-wa-ok {
+  margin-left: 5px;
+  font-size: 10.5px;
+  font-weight: 750;
+  color: var(--cdl-wa);
+}
+
+.cdl-person {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0 8px;
+}
+.cdl-person__av {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--cdl-av-person);
+  color: var(--cdl-card);
+  font-size: 12px;
+  font-weight: 750;
+}
+.cdl-person b {
+  display: block;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.2;
+}
+.cdl-person small {
+  font-size: 11.5px;
+  color: var(--cdl-ink-2);
+}
+
+.cdl-why { margin: 0; padding: 0; }
+.cdl-why li {
+  margin-left: 16px;
+  padding: 2px 0;
+  font-size: 12.5px;
+  color: var(--cdl-ink-2);
+}
+.cdl-why li::marker { color: var(--cdl-brand); }
+
+.cdl-mut { font-size: 12.5px; color: var(--cdl-ink-2); }
+.cdl-msg-line {
+  display: block;
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--cdl-ink-2);
+}
+.cdl-msg-line.is-err { color: var(--cdl-amber-ink); }
+
+/* ══════════════════ 3. CENTRO — a conversa ══════════════════ */
+.cdl-talk {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.cdl-tabs {
+  flex: none;
+  display: flex;
+  gap: 4px;
+  padding: 6px 14px 0;
+  border-bottom: 1px solid var(--cdl-hair-2);
+}
+/* Aba: 13,5px peso 650 e sublinhado de 3px na ativa — padrão universal,
+   contraste alto. O sublinhado é a pílula deslizante da Lei nº2 vestida
+   como régua: ele MEDE a aba ativa e desliza até ela. */
+.cdl-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 14px 11px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--cdl-ink-2);
+  transition: color var(--motion-fast);
+}
+.cdl-tab.is-on { color: var(--cdl-brand-ink); font-weight: 750; }
+.cdl-tab__n {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 750;
+  background: var(--cdl-hair-2);
+  color: var(--cdl-ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.cdl-tab.is-on .cdl-tab__n {
+  background: var(--cdl-brand-soft);
+  color: var(--cdl-brand-ink);
+}
+/* O vidro da pílula (kit.css) é `position:absolute; inset:0`. Aqui ele vira
+   a RÉGUA de 3px colada embaixo: mesma mecânica que mede e desliza, outra
+   forma — que é o que o desenho pede pra aba. */
+.cdl-tabs .glass-pill__glass {
+  inset: auto 10px -1px 10px;
+  height: 3px;
+  border: none;
+  border-radius: 3px 3px 0 0;
+  background: var(--cdl-brand);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+/* Copiloto: uma LINHA viva, não um bloco gordo. */
+.cdl-copilot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--cdl-hair-2);
+  background: linear-gradient(90deg, var(--cdl-brand-soft), transparent 70%);
+}
+.cdl-copilot__spark {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--cdl-brand-grad);
+  color: var(--cdl-card);
+  box-shadow: 0 4px 12px var(--cdl-brand-shadow-soft);
+}
+.cdl-copilot__spark svg { width: 14px; height: 14px; }
+.cdl-copilot b { font-size: 12.5px; font-weight: 750; }
+.cdl-chip {
+  padding: 5px 12px;
+  border: 1px solid var(--cdl-brand-line);
+  border-radius: 999px;
+  background: var(--cdl-card);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--cdl-brand-ink);
+  white-space: nowrap;
+}
+.cdl-chip:hover { background: var(--cdl-brand-soft); }
+.cdl-chip:disabled { opacity: 0.55; cursor: default; }
+.cdl-copilot__model {
+  margin-left: auto;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--cdl-ink-2);
+  white-space: nowrap;
+}
+.cdl-copilot__model:hover { color: var(--cdl-brand-ink); }
+
+/* Papel da conversa: pontilhado leve — separa a fala do resto da tela. */
+.cdl-feed {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 20px;
+  background: var(--cdl-feed);
+}
+.cdl-msg {
+  display: flex;
+  gap: 9px;
+  max-width: 72%;
+}
+.cdl-msg__av {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--cdl-av-msg);
+  color: var(--cdl-av-msg-ink);
+  font-size: 10px;
+  font-weight: 750;
+}
+.cdl-bubble {
+  padding: 8px 12px 6px;
+  border: 1px solid var(--cdl-hair);
+  border-radius: 13px 13px 13px 4px;
+  background: var(--cdl-card);
+  font-size: 13px;
+  line-height: 1.45;
+  box-shadow: var(--cdl-shadow-hair);
+  overflow-wrap: anywhere;
+}
+.cdl-bubble__who {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 10.5px;
+  font-weight: 750;
+  letter-spacing: 0.3px;
+  color: var(--cdl-ink-2);
+}
+.cdl-bubble p { margin: 0; white-space: pre-wrap; }
+.cdl-bubble time {
+  display: block;
+  margin-top: 3px;
+  text-align: right;
+  font-size: 10.5px;
+  color: var(--cdl-ink-3);
+}
+.cdl-msg.is-out {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+.cdl-msg.is-out .cdl-bubble {
+  border: none;
+  border-radius: 13px 13px 4px 13px;
+  background: var(--cdl-bubble-out);
+  color: var(--cdl-card);
+}
+.cdl-msg.is-out .cdl-bubble__who { color: var(--cdl-bubble-out-ink); }
+.cdl-msg.is-out .cdl-bubble time { color: var(--cdl-bubble-out-time); }
+.cdl-msg.is-failed .cdl-bubble {
+  background: var(--cdl-amber-soft);
+  color: var(--cdl-amber-ink);
+}
+.cdl-msg.is-failed .cdl-bubble__who,
+.cdl-msg.is-failed .cdl-bubble time { color: var(--cdl-amber-ink); }
+
+/* Registro do sistema: some por padrão, abre em um clique. */
+.cdl-sys {
+  align-self: center;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 650;
+  color: var(--cdl-ink-3);
+}
+.cdl-sys::before,
+.cdl-sys::after {
+  content: "";
+  width: 70px;
+  height: 1px;
+  background: var(--cdl-hair);
+}
+.cdl-sys-list {
+  align-self: center;
+  width: min(460px, 100%);
+  margin: 0;
+  padding: 8px 12px;
+  list-style: none;
+  border: 1px solid var(--cdl-hair);
+  border-radius: 11px;
+  background: var(--cdl-card);
+}
+.cdl-sys-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 0;
+  font-size: 11.5px;
+  color: var(--cdl-ink-2);
+  border-bottom: 1px dashed var(--cdl-hair-2);
+}
+.cdl-sys-list li:last-child { border-bottom: none; }
+.cdl-sys-list small { color: var(--cdl-ink-3); white-space: nowrap; }
+
+/* Evento (e-mail, robô, nota, atividade) na linha do tempo. */
+.cdl-event {
+  align-self: center;
+  width: min(560px, 100%);
+  display: flex;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--cdl-hair);
+  border-radius: 11px;
+  background: var(--cdl-card);
+  box-shadow: var(--cdl-shadow-hair);
+}
+.cdl-event__icon {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: var(--cdl-brand-soft);
+  color: var(--cdl-brand-ink);
+}
+.cdl-event__icon svg { width: 14px; height: 14px; }
+.cdl-event[data-kind="robot"] .cdl-event__icon { background: var(--cdl-amber-soft); color: var(--cdl-amber-ink); }
+.cdl-event[data-kind="email"] .cdl-event__icon { background: var(--cdl-money-soft); color: var(--cdl-money-2); }
+.cdl-event__copy { min-width: 0; }
+.cdl-event__copy strong { display: block; font-size: 12.5px; font-weight: 750; }
+.cdl-event__copy span { display: block; font-size: 12px; color: var(--cdl-ink-2); }
+.cdl-event__copy small { display: block; margin-top: 2px; font-size: 10.5px; color: var(--cdl-ink-3); }
+
+.cdl-feed__empty {
+  margin: auto;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--cdl-ink-3);
+}
+.cdl-feed__more {
+  align-self: center;
+  padding: 5px 14px;
+  border: 1px solid var(--cdl-hair);
+  border-radius: 999px;
+  background: var(--cdl-card);
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 650;
+  color: var(--cdl-ink-2);
+}
+
+/* ---- Composer: ALTURA RESERVADA FIXA -------------------------------
+   Trocar WhatsApp/E-mail/Observação/Atividade não pode mudar a altura do
+   miolo — era isso que fazia o feed pular (a "montanha-russa"). */
+.cdl-composer {
+  flex: none;
+  padding: 9px 14px 12px;
+  border-top: 1px solid var(--cdl-hair-2);
+  background: var(--cdl-card);
+}
+.cdl-modes {
+  display: flex;
+  gap: 4px;
+  width: max-content;
+  margin-bottom: 9px;
+  padding: 4px;
+  border-radius: 11px;
+  background: var(--cdl-hair-2);
+}
+.cdl-mode {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--cdl-ink-2);
+}
+.cdl-mode svg { width: 15px; height: 15px; }
+.cdl-mode.is-on {
+  background: var(--cdl-card);
+  color: var(--cdl-ink);
+  font-weight: 750;
+  box-shadow: 0 1px 4px var(--cdl-shadow-hair);
+}
+.cdl-mode.is-on.is-wa svg { color: var(--cdl-wa); }
+.cdl-modes .glass-pill__glass {
+  border: none;
+  border-radius: 8px;
+  background: var(--cdl-card);
+  box-shadow: 0 1px 4px var(--cdl-shadow-hair);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.cdl-composer__slot { min-height: 44px; }
+.cdl-send {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+.cdl .cdl-send textarea {
+  flex: 1;
+  height: 44px;
+  resize: none;
+  padding: 12px 14px;
+  border: 1px solid var(--cdl-hair);
+  border-radius: 11px;
+  background: var(--cdl-field);
+  color: var(--cdl-ink);
+  font: 13px/1.4 inherit;
+  outline: none;
+}
+.cdl .cdl-send textarea::placeholder { color: var(--cdl-ink-3); }
+.cdl .cdl-send textarea:focus {
+  border-color: var(--cdl-brand-line-2);
+  box-shadow: 0 0 0 3px var(--cdl-ring);
+}
+.cdl-send__btn {
+  width: 44px;
+  height: 44px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  background: var(--cdl-brand-grad);
+  color: var(--cdl-card);
+  box-shadow: 0 6px 16px var(--cdl-brand-shadow);
+}
+.cdl-send__btn svg { width: 19px; height: 19px; }
+.cdl-send__btn:disabled { opacity: 0.5; cursor: default; box-shadow: none; }
+
+/* Aviso dentro do composer (sem telefone, WhatsApp fora do ar…) — ocupa a
+   mesma altura da caixa de escrever, então nada pula. */
+.cdl-composer__note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px dashed var(--cdl-hair);
+  border-radius: 11px;
+  font-size: 12.5px;
+  color: var(--cdl-ink-2);
+}
+.cdl-composer__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+}
+.cdl .cdl-composer__row input,
+.cdl .cdl-composer__row select,
+.cdl .cdl-composer__body textarea {
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--cdl-hair);
+  border-radius: 9px;
+  background: var(--cdl-field);
+  color: var(--cdl-ink);
+  font: 650 13px/1 inherit;
+  outline: none;
+}
+.cdl .cdl-composer__body textarea {
+  width: 100%;
+  height: 66px;
+  padding: 10px;
+  font: 13px/1.4 inherit;
+  resize: none;
+}
+.cdl .cdl-composer__row input:focus,
+.cdl .cdl-composer__row select:focus,
+.cdl .cdl-composer__body textarea:focus {
+  border-color: var(--cdl-brand-line-2);
+  box-shadow: 0 0 0 3px var(--cdl-ring);
+}
+.cdl-composer__body { min-height: 44px; }
+.cdl-composer__grow { flex: 1; }
+.cdl-preview {
+  padding: 10px 12px;
+  border: 1px solid var(--cdl-hair);
+  border-radius: 11px;
+  background: var(--cdl-field);
+  font-size: 12.5px;
+}
+.cdl-preview span { display: block; color: var(--cdl-ink-2); }
+.cdl-preview p { margin: 6px 0 0; white-space: pre-wrap; }
+
+/* ══════════════════ 4. DIREITA — a decisão ══════════════════ */
+/* Robô: cartão branco com listra e LED âmbar. O bege gigante morreu. */
+.cdl-card.is-robot { position: relative; }
+.cdl-card.is-robot::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--cdl-amber-grad);
+}
+.cdl-led {
+  width: 9px;
+  height: 9px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--cdl-amber);
+  box-shadow: 0 0 8px var(--cdl-amber-glow);
+}
+.cdl-led.is-on {
+  background: var(--cdl-money);
+  box-shadow: 0 0 8px var(--cdl-money-shadow);
+}
+.cdl-warn {
+  margin-bottom: 9px;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--cdl-ink);
+}
+.cdl-warn small {
+  display: block;
+  margin-top: 1px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--cdl-ink-2);
+}
+/* Grade limpa de 3 campos do MESMO tamanho. */
+.cdl-form3 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px;
+}
+.cdl-form3 label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--cdl-ink-2);
+}
+.cdl .cdl-form3 input {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--cdl-hair);
+  border-radius: 9px;
+  background: var(--cdl-field);
+  color: var(--cdl-ink);
+  font: 600 13px/1 inherit;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+}
+.cdl .cdl-form3 input:focus {
+  border-color: var(--cdl-brand-line-2);
+  box-shadow: 0 0 0 3px var(--cdl-ring);
+}
+.cdl-btn-full {
+  width: 100%;
+  height: 38px;
+  margin-top: 10px;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  background: var(--cdl-brand-grad);
+  color: var(--cdl-card);
+  font-size: 13px;
+  font-weight: 750;
+  box-shadow: 0 6px 16px var(--cdl-brand-shadow-soft);
+}
+.cdl-btn-full:disabled { opacity: 0.55; cursor: default; box-shadow: none; }
+.cdl-btn-line {
+  width: 100%;
+  height: 34px;
+  margin-top: 8px;
+  border: 1px solid var(--cdl-hair);
+  border-radius: 9px;
+  background: var(--cdl-card);
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--cdl-ink-2);
+}
+.cdl-btn-line:hover { color: var(--cdl-ink); border-color: var(--cdl-hair-strong); }
+
+/* Passos da cadência — a régua do plano do robô. */
+.cdl-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+.cdl-steps span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border: 1px solid var(--cdl-hair);
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: var(--cdl-ink-2);
+}
+.cdl-steps span.is-done {
+  border-color: var(--cdl-money-soft);
+  background: var(--cdl-money-soft);
+  color: var(--cdl-money-2);
+}
+.cdl-steps small { color: var(--cdl-ink-3); }
+
+/* Personas da cadência — chips de escolha. */
+.cdl-personas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 9px;
+}
+.cdl-persona {
+  padding: 5px 11px;
+  border: 1px solid var(--cdl-hair);
+  border-radius: 999px;
+  background: var(--cdl-card);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--cdl-ink-2);
+}
+.cdl-persona.is-on {
+  border-color: var(--cdl-brand-line);
+  background: var(--cdl-brand-soft);
+  color: var(--cdl-brand-ink);
+}
+.cdl-persona small { color: var(--cdl-amber-ink); }
+
+/* Negócio — o número grande é a recorrência mensal. */
+.cdl-money-big {
+  display: block;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.4px;
+  font-variant-numeric: tabular-nums;
+}
+.cdl-money-big small {
+  font-size: 12.5px;
+  font-weight: 650;
+  letter-spacing: 0;
+  color: var(--cdl-ink-2);
+}
+.cdl-mgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 11px;
+  border-top: 1px solid var(--cdl-hair-2);
+}
+.cdl-mcell { padding: 8px 10px 9px; }
+.cdl-mcell:nth-child(odd) { border-right: 1px solid var(--cdl-hair-2); }
+.cdl-mcell:nth-child(n + 3) { border-top: 1px solid var(--cdl-hair-2); }
+.cdl-mcell small {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--cdl-ink-3);
+}
+.cdl-mcell b {
+  font-size: 12.5px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.cdl-mcell b.is-off { color: var(--cdl-ink-3); font-weight: 500; }
+
+/* Extrato do cliente — linha por título. */
+.cdl-charge {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 10px;
+  padding: 7px 0;
+  border-bottom: 1px dashed var(--cdl-hair-2);
+  font-size: 12px;
+}
+.cdl-charge:last-child { border-bottom: none; }
+.cdl-charge .cdl-btn-line { grid-column: 1 / -1; margin-top: 4px; }
+.cdl-charge strong { font-weight: 650; }
+.cdl-charge small { display: block; font-size: 10.5px; color: var(--cdl-ink-3); }
+.cdl-charge__val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 650; }
+
+.cdl-foot {
+  flex: none;
+  display: flex;
+  gap: 8px;
+}
+.cdl-foot button {
+  flex: 1;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--cdl-hair);
+  border-radius: 9px;
+  background: var(--cdl-card);
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--cdl-ink-2);
+}
+.cdl-foot button:hover { color: var(--cdl-ink); border-color: var(--cdl-hair-strong); }
+.cdl-foot svg { width: 14px; height: 14px; }
+
+/* ══════════════════ 5. DECISÕES DENTRO DA FICHA ══════════════════
+   Pop-up e gaveta ficam CONTIDOS na Central do Lead: o `.hbx-veil`
+   central já centraliza (Lei nº2 do FRONTEND.md) — aqui só se troca
+   `fixed` por `absolute` pra ele não cobrir a tela inteira. */
+.cdl-inner-veil {
+  position: absolute;
+  background: var(--cdl-veil);
+  border-radius: 18px;
+  z-index: 5;
+}
+.cdl-pop {
+  width: min(360px, calc(100% - 32px));
+  display: grid;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid var(--cdl-hair);
+  border-radius: 14px;
+  background: var(--cdl-card);
+  box-shadow: var(--cdl-shadow-pop);
+}
+.cdl-pop > strong { font-size: 13.5px; font-weight: 750; }
+.cdl-pop__list { display: grid; gap: 4px; }
+.cdl-pop__list button {
+  padding: 9px 12px;
+  border: 1px solid var(--cdl-hair);
+  border-radius: 9px;
+  background: var(--cdl-card);
+  cursor: pointer;
+  text-align: left;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--cdl-ink);
+}
+.cdl-pop__list button:hover {
+  border-color: var(--cdl-brand-line);
+  background: var(--cdl-brand-soft);
+  color: var(--cdl-brand-ink);
+}
+.cdl-pop__acts { display: flex; justify-content: flex-end; gap: 8px; }
+.cdl .cdl-pop input {
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid var(--cdl-hair);
+  border-radius: 9px;
+  background: var(--cdl-field);
+  color: var(--cdl-ink);
+  font: 650 13px/1 inherit;
+  outline: none;
+}
+.cdl .cdl-pop input:focus {
+  border-color: var(--cdl-brand-line-2);
+  box-shadow: 0 0 0 3px var(--cdl-ring);
+}
+.cdl-pop__go {
+  height: 34px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 9px;
+  cursor: pointer;
+  background: var(--cdl-brand-grad);
+  color: var(--cdl-card);
+  font-size: 12.5px;
+  font-weight: 750;
+}
+.cdl-pop__cancel {
+  height: 34px;
+  padding: 0 16px;
+  border: 1px solid var(--cdl-hair);
+  border-radius: 9px;
+  cursor: pointer;
+  background: var(--cdl-card);
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--cdl-ink-2);
+}
+.cdl-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(420px, 92%);
+  display: flex;
+  flex-direction: column;
+  background: var(--cdl-card);
+  border-left: 1px solid var(--cdl-hair);
+  box-shadow: var(--cdl-shadow-pop);
+}
+.cdl-drawer__h {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--cdl-hair-2);
+}
+.cdl-drawer__h strong { display: block; font-size: 13.5px; font-weight: 750; }
+.cdl-drawer__h small { font-size: 11.5px; color: var(--cdl-ink-2); }
+.cdl-drawer__h button {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+  color: var(--cdl-ink-2);
+}
+.cdl-drawer__b {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 14px 16px;
+}
+
+/* ══════════════════ 6. TELA MENOR ══════════════════
+   Zero-scroll é lei: abaixo de 1360px a coluna da direita desce pro pé da
+   esquerda em vez de espremer a conversa; abaixo de 1120px vira uma
+   coluna só. Nenhum elemento some — só muda de lugar. */
+@media (max-width: 1360px) {
+  .cdl-body { grid-template-columns: 274px minmax(0, 1fr) 300px; gap: 12px; padding: 12px; }
+  .cdl-id { width: 210px; }
+  .cdl-funnel { min-width: 360px; }
+}
+@media (max-width: 1180px) {
+  .cdl-body { grid-template-columns: minmax(0, 1fr) 300px; }
+  .cdl-col--dossie {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    flex-wrap: wrap;
+    overflow-y: visible;
+  }
+  .cdl-col--dossie > .cdl-card { flex: 1 1 260px; }
+}
+@media (max-height: 820px) {
+  .cdl-cockpit { padding: 12px 18px 11px; }
+  .cdl-vitals { margin-top: 10px; }
+  .cdl-vit { padding: 7px 13px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cdl-pulse::after { animation: none; }
+}

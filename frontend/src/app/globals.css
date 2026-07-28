@@ -119,11 +119,19 @@
    [data-casca="modern"] (nome do atributo preservado de propósito: mexer
    nos 75 seletores seria arriscar justamente o fallback). NÃO EDITAR. */
 @import "./hbx-theme/casca-modern.css";
-/* PREMIUM — nasceu como cópia exata da de cima; é ela que evolui. */
+/* PREMIUM — REESCRITA DO ZERO em 28/07 a partir de "Central do Lead —
+   desenho aplicável". A anterior foi deletada por `git rm`: zero linha
+   herdada da Backup, paleta própria em theme-premium.css. */
 @import "./hbx-theme/casca-premium.css";
 /* CORPORATIVA — densa, clara, com grade. Reescreve a escada estrutural do
    spacing.css; por último pra vencer as outras duas em empate. */
 @import "./hbx-theme/casca-corporativa.css";
+
+/* CENTRAL DO LEAD — o Detalhes do /vendas, desenho fechado e autocontido.
+   DEPOIS das três cascas de propósito: as cascas mexem em `input`/`.tag` por
+   seletor de tag e esta folha precisa ganhar o empate sem `!important`.
+   Substitui vendas-details2.css (3.109 linhas, DELETADO em 28/07). */
+@import "./hbx-theme/central-do-lead.css";
 
 /* Design System ENTREGA (LOGISTICA-MOBILE M1) — pele mobile do app do
    entregador, TODA escopada em [data-skin="entrega"]. Não vaza pro
@@ -142,7 +150,7 @@
 /* TUTORIAL FRONT — painel de upload no /master. Só layout + token. */
 @import "./hbx-theme/tutorial-admin.css";
 
-/* VENDAS LIVE — sempre por último: fluxo único, cards coloridos, cockpit e
-   Detalhes rolável sem alterar os handlers existentes. */
+/* VENDAS LIVE — sempre por último: fluxo único, cards coloridos e cockpit do
+   quadro. (vendas-details2.css saiu daqui em 28/07 junto com o Detalhes velho
+   — o novo é hbx-theme/central-do-lead.css, importado com as cascas.) */
 @import "./hbx-theme/vendas-live.css";
-@import "./hbx-theme/vendas-details2.css";
