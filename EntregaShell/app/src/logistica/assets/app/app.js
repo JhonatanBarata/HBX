@@ -10091,7 +10091,21 @@
         return false;
       }
     },
-    routeActivated() { toast("GPS da rota ativado."); },
+    // 🔴 29/07 — ESTE toast era 2 dos 3 sons do Iniciar.
+    // O Kotlin dispara `routeActivated()` no FIM de todo `activateRoute`
+    // (MainActivity.kt), sem condição nenhuma. E `activateRoute` roda duas vezes
+    // por início: uma no `activateNativeRoute(result, true)` e outra no
+    // `refresh(true)` logo depois, que re-arma o GPS. Como todo `toast()` sem
+    // `mudo` toca som, saíam dois `success` por cima do `route_start`.
+    //
+    // É exatamente o bug de 22/07 voltando por outra porta: lá o `route_start`
+    // tocava 2× pelo MESMO par "inicia + refresh re-arma", e a cura foi tornar o
+    // som opt-in. O toast ficou de fora e trouxe o problema de volta.
+    //
+    // GPS ligar é CONSEQUÊNCIA, não evento do motorista: quem canta é o
+    // `route_start`, uma vez. O aviso na tela fica (é útil saber que o GPS
+    // subiu), mudo.
+    routeActivated() { toast("GPS da rota ativado.", false, { mudo: true }); },
     locationPermissionChanged(granted) {
       // S06 (fix 21/07) — resolve ensureLeituraTrilhaLocationPermission() acima
       // (pedido feito ANTES de iniciar a gravação nativa da trilha). Checado
