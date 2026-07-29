@@ -40,10 +40,6 @@ export const RADAR_SEGMENT_CATEGORIES: SegmentCategory[] = [
 ];
 
 // Lista achatada e deduplicada (pro datalist), preservando a ordem por categoria.
-export const RADAR_SEGMENTS_FLAT: string[] = Array.from(
-  new Set(RADAR_SEGMENT_CATEGORIES.flatMap((c) => c.segments)),
-);
-
 // Categoria de um segmento (pra mostrar como dica no datalist).
 export function categoryOfSegment(segment: string): string | null {
   const v = String(segment || "").trim().toLowerCase();

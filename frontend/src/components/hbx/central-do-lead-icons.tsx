@@ -34,8 +34,6 @@ const STROKED: Record<string, string[]> = {
   bolt: ["M13 3 4 14h7l-1 7 9-11h-7z"],
 };
 
-export type CdlIconName = keyof typeof FILLED | keyof typeof STROKED;
-
 export function CdlIcon({ name }: { name: string }) {
   const filled = FILLED[name];
   if (filled) {

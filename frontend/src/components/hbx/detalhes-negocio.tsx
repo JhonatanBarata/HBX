@@ -125,9 +125,6 @@ export type NegocioDetailHistory = {
   createdAt?: string | null;
 };
 
-/** @deprecated use NegocioDetailHistory */
-export type NegocioHistory = NegocioDetailHistory;
-
 export type NegocioSale = {
   statusLabel?: string | null;
   status?: string | null;
@@ -2829,42 +2826,5 @@ export function DetalhesNegocio({
       )}
 
     </div>
-  );
-}
-
-// ── Compat: inline WA button ──────────────────────────────────────────────────
-
-import { WhatsAppActionButton } from "@/components/hbx/whatsapp-action";
-
-export function LegacyWaButton({
-  phone,
-  name,
-  qrActive,
-  canInternal,
-  onOpenExternal,
-  onOpenInternal,
-  startBusy,
-  startError,
-}: {
-  phone?: string | null;
-  name?: string | null;
-  qrActive: boolean;
-  canInternal: boolean;
-  onOpenExternal: () => void;
-  onOpenInternal: () => void;
-  startBusy?: boolean;
-  startError?: string | null;
-}) {
-  return (
-    <WhatsAppActionButton
-      phone={phone}
-      name={name}
-      qrActive={qrActive}
-      canInternal={canInternal}
-      onOpenExternal={onOpenExternal}
-      onOpenInternal={onOpenInternal}
-      startBusy={startBusy}
-      startError={startError}
-    />
   );
 }

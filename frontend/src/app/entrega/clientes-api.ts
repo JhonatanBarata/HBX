@@ -537,20 +537,6 @@ export function enderecoCurtoCliente(c: { endereco?: string | null; cidade?: str
 }
 
 /** Rótulo curto da forma de pagamento pro badge do card (sem jargão ERP). */
-export function formaLabel(forma: string | null | undefined): string {
-  switch (forma) {
-    case "mensal":
-      return "Mensal";
-    case "na_hora":
-      return "Na hora";
-    case "pendura":
-      return "Fiado";
-    case "aberto":
-    default:
-      return "Pergunta na hora";
-  }
-}
-
 /** Frequência em texto simples pro chip do produto ("a cada 3 dias" / "avulso"). */
 export function frequenciaLabel(dias: number | null | undefined): string {
   if (!dias || dias <= 0) return "Avulso";

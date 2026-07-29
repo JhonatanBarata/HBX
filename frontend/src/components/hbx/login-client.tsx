@@ -13,7 +13,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MobileAppLoginCard } from "@/components/hbx/mobile-app-login-card";
 import { apiFetch, setToken, type ApiError } from "@/lib/api";
-import { consumeMobileLinkDestination } from "@/lib/mobile-link-intent";
 
 type LoginResponse = { access_token?: string; next?: string; requiresCheckout?: boolean };
 type LoginResume = { step?: string; planKey?: string | null; email?: string | null; resendAvailableAt?: string | null };
@@ -55,7 +54,7 @@ export function LoginClient({ onCriarConta }: { onCriarConta?: () => void } = {}
       setToken(res.access_token);
       setOk(true);
       setConflict(false);
-      const destination = consumeMobileLinkDestination() || res.next || "/dashboard";
+      const destination = res.next || "/dashboard";
       // Deixa o "✓ Autenticado" respirar antes de entrar no app.
       window.setTimeout(() => router.replace(destination), 750);
     } catch (err) {
@@ -120,7 +119,7 @@ export function LoginClient({ onCriarConta }: { onCriarConta?: () => void } = {}
       setToken(res.access_token, manterConectado);
       setOk(true);
       setConflict(false);
-      const destination = consumeMobileLinkDestination() || res.next || "/dashboard";
+      const destination = res.next || "/dashboard";
       window.setTimeout(() => router.replace(destination), 750);
     } catch (err) {
       const apiErr = err as ApiError;

@@ -26,15 +26,6 @@ export type OnboardingEvent =
   // Camada 4 — gerente
   | "first_seller_released";
 
-// Carimbos de configuração do onboarding (NÃO são marcos celebráveis): a escolha
-// solo|time do admin no 1º login + o interesse em configurar IA/Bot perguntado
-// no tutorial. Aceitos pelo POST /onboarding/event.
-export type OnboardingConfigEvent =
-  | "admin_mode:solo"
-  | "admin_mode:team"
-  | "ai_bot_interest:yes"
-  | "ai_bot_interest:no";
-
 // Texto da celebração por marco. Tom: vitória concreta e adulta — sem cara de
 // joguinho. O backend confirma se é milestone; aqui mora a copy.
 const CELEBRATION: Partial<Record<OnboardingEvent, { title: string; subtitle: string; kind: ConquistaKind; badge: string }>> = {

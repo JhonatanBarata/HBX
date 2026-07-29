@@ -145,11 +145,6 @@ export async function listAll(ownerKey: string): Promise<PendenciaItem[]> {
 }
 
 /** Contagem de pendências (o que ainda NÃO sincronizou): pending + needs_attention. */
-export async function countPending(ownerKey: string): Promise<number> {
-  const all = await listAll(ownerKey);
-  return all.length;
-}
-
 async function remove(key: string): Promise<void> {
   await tx("readwrite", (s) => s.delete(key));
 }

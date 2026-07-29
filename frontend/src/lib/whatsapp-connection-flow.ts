@@ -7,16 +7,7 @@ import type {
   WhatsAppBootstrapPayload,
   WhatsAppModalPayload,
   WhatsAppPairingCodePayload,
-  WhatsAppSessionDiagnostics,
 } from "@/lib/whatsapp-center";
-
-export function buildWhatsAppBootstrapKey(payload: WhatsAppModalPayload) {
-  return [
-    payload.data.companyId,
-    payload.data.tenantKey,
-    payload.data.connectedAt || payload.data.phone || "connected",
-  ].join(":");
-}
 
 export async function bootstrapWhatsAppAfterConnect(
   payload: WhatsAppModalPayload,
@@ -50,15 +41,6 @@ export function disconnectWhatsAppModalSession() {
 
 export function restartWhatsAppModalSession() {
   return apiFetch<WhatsAppModalPayload>("/companies/me/whatsapp-modal/restart", { method: "POST" });
-}
-
-// Diagnóstico da sessão atual (sem cleanup popup — store-on-arrival, sem supressão).
-export function fetchWhatsAppSessionDiagnostics() {
-  return apiFetch<WhatsAppSessionDiagnostics>("/inbox/whatsapp-session");
-}
-
-export function rebootstrapWhatsAppConversations() {
-  return apiFetch<WhatsAppBootstrapPayload>("/companies/me/whatsapp-modal/bootstrap", { method: "POST" });
 }
 
 export function wipeAllWhatsAppData() {
