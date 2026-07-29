@@ -8,6 +8,7 @@ import {
 import { LogisticaTrackingService } from './logistica-tracking.service';
 import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
 import { stopDeRotaMorta } from './logistica-rota-viva.util';
+import { diagnosticarMotoristaUnico } from './logistica-motorista-unico.util';
 import { LogisticaOsrmService } from './logistica-osrm.service';
 import { sourceDateFromOccurrenceKey, saoPauloMidnight } from './logistica-agenda-cursor.util';
 import { registrarEventoAgenda, formatDDMM } from './logistica-agenda-evento.util';
@@ -846,15 +847,12 @@ export class LogisticaRotaService {
       },
       select: { id: true, entregadorId: true },
     });
-    const hasMissingSelection = Boolean(selectedIds?.length && rows.length !== selectedIds.length);
-    const hasUnassigned = rows.some((row) => !Number.isInteger(row.entregadorId));
-    const drivers = Array.from(
-      new Set(rows.map((row) => row.entregadorId).filter((id): id is number => Number.isInteger(id))),
-    );
-    if (hasMissingSelection || hasUnassigned || drivers.length !== 1) {
-      throw new BadRequestException('Atribua as entregas a exatamente um motorista antes de iniciar a rota.');
-    }
-    return drivers[0];
+    // PR29072026 — a régua é a MESMA (os 4 casos continuam bloqueando); o que
+    // mudou é a FRASE dizer qual deles é. Ver logistica-motorista-unico.util.ts:
+    // a frase única mandava o dono atribuir motorista num dia VAZIO.
+    const diagnostico = diagnosticarMotoristaUnico(rows, selectedIds);
+    if (diagnostico.mensagem) throw new BadRequestException(diagnostico.mensagem);
+    return diagnostico.entregadorId as number;
   }
 
   // ── RE-ETA (hook aditivo do confirmar/cancelar do N6) ────────────────────────

@@ -36,6 +36,8 @@ type Linha = {
   nome: string;
   paradas: number;
   custo: CustoPreviewResult | null;
+  /** Por que o custo não veio (frase do backend). Nunca some calado. */
+  motivo: string | null;
 };
 
 const STATUS_ABERTO = ["agendada", "em_rota"];
@@ -55,6 +57,10 @@ export function RouteCreditPanel({ date, stops }: { date: string; stops: CreditP
   const [linhas, setLinhas] = useState<Linha[]>([]);
   const [semMotorista, setSemMotorista] = useState(0);
   const [carregando, setCarregando] = useState(true);
+  // Diagnóstico do DIA quando não há nenhum motorista pra consultar. Foi o
+  // buraco do bug de 29/07: o dono cancelou tudo, o painel sumiu junto e ele
+  // ficou "preso, sem enxergar o q falta fazer".
+  const [diaMotivo, setDiaMotivo] = useState<string | null>(null);
 
   // Assinatura do dia: quem são os motoristas e quantas paradas abertas cada um
   // tem. Só isso muda o painel — re-render de outra coisa não refaz os previews.
@@ -78,16 +84,29 @@ export function RouteCreditPanel({ date, stops }: { date: string; stops: CreditP
     });
     setSemMotorista(orfas);
 
-    if (!porMotorista.size) { setLinhas([]); setCarregando(false); return; }
+    if (!porMotorista.size) {
+      // Dia sem motorista nenhum: pergunta o diagnóstico DO DIA (sem
+      // deliveryIds) em vez de simplesmente não renderizar nada.
+      setLinhas([]);
+      const doDia = await getCustoPreview(date);
+      setDiaMotivo(doDia.custo ? null : doDia.motivo);
+      setCarregando(false);
+      return;
+    }
     setCarregando(true);
     const resultado = await Promise.all(
-      [...porMotorista.entries()].map(async ([entregadorId, dados]) => ({
-        entregadorId,
-        nome: dados.nome,
-        paradas: dados.ids.length,
-        custo: await getCustoPreview(date, dados.ids),
-      })),
+      [...porMotorista.entries()].map(async ([entregadorId, dados]) => {
+        const resposta = await getCustoPreview(date, dados.ids);
+        return {
+          entregadorId,
+          nome: dados.nome,
+          paradas: dados.ids.length,
+          custo: resposta.custo,
+          motivo: resposta.motivo,
+        };
+      }),
     );
+    setDiaMotivo(null);
     setLinhas(resultado.sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR")));
     setCarregando(false);
   }, [date, stops]);
@@ -113,7 +132,9 @@ export function RouteCreditPanel({ date, stops }: { date: string; stops: CreditP
   const aIniciar = linhas.reduce((soma, linha) => soma + Number(linha.custo?.creditosAIniciar || 0), 0);
   const cobre = linhas.every((linha) => linha.custo?.saldoCobre !== false);
 
-  if (!carregando && !linhas.length && !semMotorista) return null;
+  // Só cala a boca quando NÃO HÁ NADA a dizer — nem linha, nem parada órfã,
+  // nem motivo de bloqueio. Antes ele sumia sempre que o dia esvaziava.
+  if (!carregando && !linhas.length && !semMotorista && !diaMotivo) return null;
 
   return (
     <section className="log-cred" aria-label="Créditos da rota de hoje">
@@ -146,9 +167,9 @@ export function RouteCreditPanel({ date, stops }: { date: string; stops: CreditP
                     ? `${fmtCreditos(gasto)} ${gasto === 1 ? "crédito" : "créditos"}`
                     : `${debitados} ${debitados === 1 ? "bloco" : "blocos"}`}
                 </span>
-                <span className={`log-cred__dado${custo?.saldoCobre === false ? " is-falta" : ""}`}>
+                <span className={`log-cred__dado${custo?.saldoCobre === false || (!custo && linha.motivo) ? " is-falta" : ""}`}>
                   {!custo
-                    ? "Custo indisponível"
+                    ? linha.motivo || "Custo indisponível"
                     : pendentes > 0
                       ? `Iniciar: +${fmtCreditos(custo.creditosAIniciar)}`
                       : "Nada a debitar"}
@@ -156,6 +177,14 @@ export function RouteCreditPanel({ date, stops }: { date: string; stops: CreditP
               </div>
             );
           })}
+
+          {/* Dia sem motorista nenhum: a frase do backend explica o que falta. */}
+          {diaMotivo && !linhas.length && (
+            <div className="log-cred__row is-falta">
+              <span className="log-cred__nome">Nada para iniciar</span>
+              <span className="log-cred__dado">{diaMotivo}</span>
+            </div>
+          )}
 
           {/* Sem motorista TRAVA o Iniciar no backend — o operador precisa saber. */}
           {semMotorista > 0 && (

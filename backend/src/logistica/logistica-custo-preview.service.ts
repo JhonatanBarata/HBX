@@ -10,6 +10,7 @@ import {
   type LogisticaRouteMode,
 } from './logistica-route-billing.service';
 import { resolveDayRange } from './logistica-rota.service';
+import { diagnosticarMotoristaUnico } from './logistica-motorista-unico.util';
 
 // Só as entregas ABERTAS entram no universo do preview (mesmo recorte do
 // planejador/conferência — LogisticaRotaService.STATUS_ABERTO, duplicado aqui
@@ -208,15 +209,12 @@ export class LogisticaCustoPreviewService {
       },
       select: { id: true, entregadorId: true },
     });
-    const hasMissingSelection = Boolean(deliveryIds?.length && rows.length !== deliveryIds.length);
-    const hasUnassigned = rows.some((row: any) => !Number.isInteger(row.entregadorId));
-    const drivers = Array.from(
-      new Set(rows.map((row: any) => row.entregadorId).filter((id: any): id is number => Number.isInteger(id))),
-    );
-    if (hasMissingSelection || hasUnassigned || drivers.length !== 1) {
-      throw new BadRequestException('Atribua as entregas a exatamente um motorista antes de iniciar a rota.');
-    }
-    return drivers[0];
+    // PR29072026 — mesma régua, frase que diz QUAL é o problema (ver
+    // logistica-motorista-unico.util.ts). O painel de crédito do /logistica lê
+    // esta mensagem pra explicar por que o dia não tem custo.
+    const diagnostico = diagnosticarMotoristaUnico(rows as any, deliveryIds);
+    if (diagnostico.mensagem) throw new BadRequestException(diagnostico.mensagem);
+    return diagnostico.entregadorId as number;
   }
 }
 

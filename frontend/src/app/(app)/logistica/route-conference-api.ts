@@ -109,18 +109,29 @@ export function conferirRota(payload: ConferirRotaPayload): Promise<ConferirRota
 
 /**
  * Quanto o Aceitar VAI debitar, antes do operador apertar. 100% leitura.
- * Degrada MUDO (null) — igual ao APK: preview indisponível nunca trava a tela
- * nem esconde a rota. O 400 de "admin sem motorista único no dia" cai aqui.
+ *
+ * Degrada sem travar a tela (igual ao APK), mas NÃO degrada MUDO: o `motivo`
+ * carrega a frase do backend. Bug do dono (29/07): ele cancelou uma rota
+ * indicada e a tela passou a não mostrar custo NENHUM, sem dizer por quê —
+ * "fiquei preso, sem enxergar o q falta fazer". A régua de bloqueio é a mesma;
+ * a frase agora diz qual dos 4 estados é (ver logistica-motorista-unico.util.ts
+ * no backend: dia vazio · seleção velha · sem motorista · motoristas divididos).
  */
-export async function getCustoPreview(date: string, deliveryIds?: string[]): Promise<CustoPreviewResult | null> {
+export type CustoPreviewResposta = {
+  custo: CustoPreviewResult | null;
+  motivo: string | null;
+};
+
+export async function getCustoPreview(date: string, deliveryIds?: string[]): Promise<CustoPreviewResposta> {
   const params = new URLSearchParams();
   if (date) params.set("date", date);
   if (deliveryIds?.length) params.set("deliveryIds", deliveryIds.join(","));
   const query = params.toString();
   try {
-    return await apiFetch<CustoPreviewResult>(`/logistica/rota/custo-preview${query ? `?${query}` : ""}`);
-  } catch {
-    return null;
+    return { custo: await apiFetch<CustoPreviewResult>(`/logistica/rota/custo-preview${query ? `?${query}` : ""}`), motivo: null };
+  } catch (error: unknown) {
+    const mensagem = error instanceof Error && error.message ? error.message : null;
+    return { custo: null, motivo: mensagem };
   }
 }
 

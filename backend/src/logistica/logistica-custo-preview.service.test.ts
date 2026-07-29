@@ -338,9 +338,12 @@ test('ator ADMIN não consegue prever quando o dia tem mais de um motorista nas 
   const h = makeHarness();
   h.seedEntrega('d1', { entregadorId: 9 });
   h.seedEntrega('d2', { entregadorId: 10 });
+  // PR29072026 — o BLOQUEIO é o mesmo; a frase é que passou a dizer QUAL dos 4
+  // estados é (ver logistica-motorista-unico.util.ts: a frase única mandava o
+  // dono "atribuir motorista" num dia vazio e ele ficou preso sem saber por quê).
   await assert.rejects(
     h.preview.previewCusto(7, { date: BASE.routeDate, deliveryIds: ['d1', 'd2'] }),
-    /exatamente um motorista/,
+    /divididas entre 2 motoristas/,
   );
 });
 

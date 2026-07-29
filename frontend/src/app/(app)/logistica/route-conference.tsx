@@ -51,6 +51,8 @@ export function RouteConference({
 }) {
   const [data, setData] = useState<ConferirRotaResult | null>(null);
   const [custo, setCusto] = useState<CustoPreviewResult | null>(null);
+  // Por que o custo não veio. Sem isto a linha de crédito só desaparecia.
+  const [custoMotivo, setCustoMotivo] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [aceitando, setAceitando] = useState(false);
@@ -81,7 +83,9 @@ export function RouteConference({
     } catch (conferirError: unknown) {
       setError(humanError(conferirError, "Não foi possível conferir a rota."));
     } finally {
-      setCusto(await custoPromise);
+      const resposta = await custoPromise;
+      setCusto(resposta.custo);
+      setCustoMotivo(resposta.motivo);
       setLoading(false);
     }
   }, [date, ids]);
@@ -166,6 +170,9 @@ export function RouteConference({
         {custo && !admin && !custo.saldoCobre && (
           <p className={styles.creditoFalta}>Créditos insuficientes para aceitar — avise o administrador.</p>
         )}
+        {/* Custo indisponível DIZ por quê (dia vazio, seleção velha depois de um
+            cancelar, parada sem motorista, paradas divididas). */}
+        {!custo && custoMotivo && admin && <p className={styles.creditoFalta}>{custoMotivo}</p>}
 
         {error && <p className={styles.error}>{error}</p>}
 

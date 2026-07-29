@@ -574,11 +574,12 @@ export function LogisticaClient() {
 
         {/* PR29072026 (ordem do dono) — "Motorista X, gasto até agora Y". No
             celular o crédito mora no topo da tela Rota; no computador não morava
-            em lugar nenhum, e o preview de custo dá 400 quando o dia tem mais de
-            um motorista. Aqui ele volta, quebrado POR motorista. */}
-        {admin && rota && items.length > 0 && (
-          <RouteCreditPanel date={rota.date} stops={items} />
-        )}
+            em lugar nenhum. Aqui ele volta, quebrado POR motorista.
+            Sem `items.length > 0`: o painel também precisa falar no dia VAZIO —
+            foi o buraco do bug de 29/07 (o dono cancelou tudo, o painel sumiu
+            junto e ele ficou sem enxergar o que faltava). Ele se cala sozinho
+            quando não há nada a dizer. */}
+        {admin && rota && <RouteCreditPanel date={rota.date} stops={items} />}
 
         {loading && <div className="emp-empty"><span className="emp-empty__text">Carregando rota…</span></div>}
 
