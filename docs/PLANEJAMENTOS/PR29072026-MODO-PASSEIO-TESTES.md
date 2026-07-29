@@ -1,131 +1,121 @@
-# PR29072026 — MODO PASSEIO: bateria de testes (para execução por outra IA)
+# PR29072026 — MODO PASSEIO: bateria de testes + HANDOFF (Codex finaliza)
 
-Implantado em 29/07/2026. ⚠️ Estado do deploy: o **BACKEND já está EM PROD** —
-o publish do dono às 13:57 (`9829568d`) levou junto (migration `passeioEquipe`
-incluída). O **APK ainda é LOCAL** (app.js/css/native.js/Kotlin/manifest) e
-**AGUARDA O PRÓXIMO PUBLISH**. Este arquivo é o roteiro de verificação:
-executar na ordem, marcar cada `[ ]`, e devolver o arquivo preenchido com
-veredito + evidência (1 linha por check).
+Atualizado 29/07 ~15:35 depois do teste ao vivo no g15. O dono reprovou o
+VISUAL do balão do pino ("ficou horrível") e mandou parar — **o Codex assume
+daqui**. Este arquivo é o estado real: o que está no ar, o que foi provado na
+tela, o que está feio/quebrado, e a bateria pra fechar.
 
-## O que foi implantado (mapa rápido)
+## Estado do código (29/07 fim de tarde)
 
-| Peça | Onde |
+| Peça | Estado |
 |---|---|
-| Ação de crédito `passeio_tour` (débito 2, editável no /master) | `backend/src/credits/credit-action-catalog.ts` |
-| Flag `passeioEquipe` (coluna + migration + DTO + config) | `backend/prisma/...20260729150000_passeio_equipe`, `logistica-config.service.ts` |
-| `POST /logistica/passeio/iniciar` (gate admin×equipe, débito idempotente por tourId, 402/403 humanos) | `logistica-passeio.service.ts` + controller |
-| Tela única Modo Passeio (lista→editor→tour), casca escondida, mapa próprio, linha OSRM | `EntregaShell/.../logistica/assets/app/app.js` (bloco "MODO PASSEIO") |
-| Alarme NATIVO do tempo-no-lugar (AlarmManager + notificação com som de alarme) | `PasseioAlarme.kt` + ponte `passeioAlarme`/`passeioAlarmeCancelar` + manifest |
-| Entrada em Ajustes + chave admin "Liberar para a equipe" | `settingsScreen` → `passeioSettingsSection` |
+| Backend passeio (débito `passeio_tour` 2 idempotente por tourId, gate admin×`passeioEquipe`, `GET /logistica/geo/busca` proxy Nominatim) | **EM PROD** (publishes `9829568d` 13:57 e `9780849a` 15:17) |
+| OSRM self-host (`hbx-osrm`, Sudeste, `172.18.0.1:5000`, `OSRM_BASE_URL` no backend/.env) | **EM PROD**, smoke ok de dentro do hbx-backend |
+| CORRIGIR-O-LIXO S1-S3 (pele da Rota: busca + mapa + pino por toque + balão + cartão do tour + alarme nativo `PasseioAlarme.kt`) | no master (varrido pro ar pelo publish `9780849a`); **APK publicado contém isso SEM os escudos abaixo** |
+| Escudos anti-clique-fantasma (confirmações do passeio + clique do mapa) | commit **`845e5fa9`** LOCAL — precisa ir no próximo publish |
+| g15 | **versionCode 100 instalado por cabo** (build local = master + escudos). Publish que gerar ≤100 não oferta update |
+| v1 reprovada (lista de roteiros → modais de nome) | MORTA — zero referência no código (varrido; plano em `PR29072026-CORRIGIR-O-LIXO.md`) |
 
-Regra desta entrega: **nada pode atrapalhar o que funciona hoje** — por isso o
-bloco C (regressão) é obrigatório, não opcional.
+## ✅ Já PROVADO na tela do g15 (29/07, screenshots na sessão)
 
-## Pré-condições
+- Ajustes → seção **Passeio** (linha "Modo passeio" + chave "Liberar para a equipe").
+- Tocar "Modo passeio" → **pele da Rota**: hero fica, nav some, busca + mapa
+  grande + "Iniciar passeio ›" + **ícone verde à direita no hero** (modo trabalho).
+- **Toque no mapa = pino numerado na hora** (sem formulário) + CTA acende +
+  "Limpar (N)".
+- Modo **persiste** (sobreviveu a reinstalação do APK; tour ativo religa a pele
+  no boot e re-agenda o alarme).
+- Balão do pino abre com nome + chips 15/30/45/60m + Remover — **FUNCIONA mas o
+  dono REPROVOU o visual** (ver pendência nº1).
+- Cartão do tour ("INDO PARA … · km · Navegar · Cheguei · ✕") apareceu vivo com
+  o tour residual da v1.
 
-- [ ] P1. `npm run publish` pra levar o APK (o backend já subiu no publish de 13:57; este leva EntregaShell). Conferir o FIM do log: `[apk] fontes MUDARAM`, containers Up, commit do publish.
-- [ ] P2. 🔴 **versionCode do log ≥ 99** — o moto g15 do dono está com 98 instalado à mão; publish que gerar ≤98 NÃO oferta update (instalar por cabo se preciso).
-- [ ] P3. Migration aplicada: `node scripts/vps-run.js "docker exec hbx-postgres psql -U postgres -d hbx -c '\\d \"LogisticaConfig\"'" ` contém `passeioEquipe`.
-- [ ] P4. Backend de pé pós-publish (build verde ≠ boot ok): `docker ps` + logs sem crash-loop.
-- [ ] P5. Testar com o login de teste/empresa de teste (`.test-login.local.md`); crédito suficiente na carteira (o iniciar debita 2 por padrão).
+## 🔴 PENDÊNCIAS PRO CODEX (em ordem)
+
+1. **Balão do pino ficou horrível (veredito do dono).** O input de nome
+   auto-foca e o TECLADO SOBE inteiro em cima do mapa. Redesenhar: chips
+   primeiro, nome SEM autofocus (teclado só se o usuário tocar no campo),
+   moldura no padrão `hbx-balao` do app. Lei 8: zero texto extra.
+2. **Toque no mapa às vezes vira zoom e engole o pino** (double-tap do
+   maplibre com o clique duplicado do WebView). Sugestão: `doubleClickZoom:
+   false` no construtor do mapa do passeio (`mountPasseioMap`).
+3. **Mistério em aberto: o modo caiu pro trabalho SOZINHO 1×** entre dois
+   toques (~60s, zero input; a tela virou Rota de trabalho e um toque abriu o
+   Gerenciador). Não reproduzido depois. Vigiar; se voltar, suspeitar de
+   reload do WebView × cache `passeio-modo` e instrumentar.
+4. **Clique fantasma**: escudos em `845e5fa9` (confirmações com `abertaEm`
+   <450ms não aceitam; mapa ignora clique com confirmação aberta). Re-testar
+   Encerrar/Limpar com eles instalados (o incidente: confirmação aceita
+   invisível + pino nascendo sozinho).
+5. **Não testados no aparelho ainda**: busca (campo → resultados → vira pino;
+   backend + fallback Nominatim direto), linha OSRM entre 2+ pinos, fluxo
+   completo do tour na pele nova (Cheguei → countdown → +15 → alarme de tela
+   apagada → Próximo → Concluir), funcionário com/sem chave.
+6. ⚠️ **Iniciar passeio DEBITA 2 CRÉDITOS REAIS** (o aparelho loga na empresa
+   real do dono). Testar débito com consciência; débito não estorna.
+7. S4 do plano (roteiros salvos discretos) — só depois do dono aprovar S1-S3.
+
+## Pré-condições da bateria
+
+- [ ] P1. `npm run publish` levando `845e5fa9` (+ o que o Codex fizer). Fim do log: `[apk] fontes MUDARAM`, containers Up.
+- [ ] P2. 🔴 versionCode do publish **≥101** (g15 está com 100 por cabo) — senão instalar por cabo.
+- [ ] P3. Backend de pé (docker ps + logs — build verde ≠ boot ok).
+- [ ] P4. Crédito na carteira da empresa de teste.
 
 ## Bloco A — backend/comercial
 
-- [ ] A1. `/master` → painel de créditos: ação **"Modo Passeio (por passeio iniciado)"** listada, custo 2, modo débito, custo EDITÁVEL (o dono muda sozinho — lei "dono controla dinheiro sozinho no /master").
-- [ ] A2. `GET /logistica/config` (admin) devolve `passeioEquipe: false` por default.
-- [ ] A3. Funcionário (papel USER) SEM liberação: `POST /logistica/passeio/iniciar` → **403** "O Modo passeio não está liberado para a equipe. Fale com o administrador." (gate é do SERVIDOR, não da tela).
-- [ ] A4. Admin inicia passeio → extrato mostra **1 débito de 2** com actionKey `passeio_tour` e metadata `tourId`.
-- [ ] A5. **Idempotência**: repetir o POST com o MESMO `tourId` → 200 e **nenhum débito novo** no ledger (retry de rede não cobra 2×).
-- [ ] A6. Carteira zerada → **402** `PASSEIO_INDISPONIVEL`, mensagem neutra (sem valor — LEI DO VENDEDOR), **nada debitado** no ledger.
-- [ ] A7. No /master, trocar o custo (ex.: 2 → 1) → próximo iniciar debita o valor novo sem deploy.
+- [ ] A1. /master lista "Modo Passeio (por passeio iniciado)" (débito 2, editável; trocar custo vale no próximo iniciar sem deploy).
+- [ ] A2. `GET /logistica/config` devolve `passeioEquipe` (default false).
+- [ ] A3. Funcionário sem chave: `POST /logistica/passeio/iniciar` → 403 humano (gate é do servidor).
+- [ ] A4. Iniciar (admin) → 1 débito de 2 no extrato com `tourId` na metadata.
+- [ ] A5. Repetir o POST com o MESMO tourId → nenhum débito novo (idempotência).
+- [ ] A6. Carteira zerada → 402 `PASSEIO_INDISPONIVEL`, ledger limpo.
+- [ ] A7. `GET /logistica/geo/busca?q=catedral` → `{items:[…]}` (flag `HBX_GEO_SERVER_ENABLED` ON; OFF → items vazio e o app cai no Nominatim direto).
+- [ ] A8. `hbx-osrm` Up; rota calculada pelo app aparece no `docker logs hbx-osrm` (ninguém mais fala com o demo público).
 
-## Bloco B — APK no aparelho (moto g15, ADB)
+## Bloco B — APK no g15 (a CENA do CORRIGIR-O-LIXO)
 
-Receitas do hbxlog valem: toque = `input touchscreen swipe X Y X Y 120`,
-long-press = `... 1100`, `MSYS_NO_PATHCONV=1`, screenshot 1080x2400 (Read mostra
-900x2000 → coordenada ×1,2). Corrigir → **expor a tela corrigida** e só então
-perguntar sim/não.
+Receitas do hbxapk valem (toque = `input touchscreen swipe X Y X Y 120`;
+long-press = 1100; screenshot 1080x2400, Read 900x2000 → ×1,2).
 
-- [ ] B1. Ajustes (admin): seção **Passeio** com a linha "Modo passeio" + chave "Liberar para a equipe". As seções antigas continuam intactas.
-- [ ] B2. Chave "Liberar para a equipe" liga/desliga, persiste ao sair e voltar da tela (grava via PATCH /logistica/config).
-- [ ] B3. Tocar "Modo passeio" → **tela única**: topbar e bottom-nav SUMIRAM; ✕ volta pro Ajustes; Voltar físico na lista de roteiros → tela Rota (Lei 10).
-- [ ] B4. "Novo roteiro" → modal nome → Criar → cai no editor com mapa.
-- [ ] B5. **Toque no mapa** abre "Novo lugar" com nome + chips 15/30/45/60 + campo minutos; salvar → pino NUMERADO no mapa.
-- [ ] B6. Com 2+ lugares: **linha pelas RUAS** entre os pinos (OSRM do backend). Modo avião → linha RETA (fallback), nunca sem linha.
-- [ ] B7. "Marcar onde estou" cria lugar na posição do GPS.
-- [ ] B8. ▲▼ reordena e persiste (fechar e reabrir o app mantém a ordem). As setas NÃO armam o hold.
-- [ ] B9. **Segurar pressionado** numa linha (lugar ou roteiro) → vermelho progressivo → vibra → confirmação → exclui (Lei 1). O clique fantasma pós-hold NÃO abre a linha.
-- [ ] B10. "Iniciar passeio ›" → debita (conferir A4) → vista tour "Indo para <lugar 1>" com distância ao vivo.
-- [ ] B11. "Navegar" abre o seletor Waze/Google Maps com o destino certo.
-- [ ] B12. "Cheguei" → countdown mm:ss GRANDE contando + voz "Você chegou: X. N minutos aqui."
-- [ ] B13. **Auto-chegada**: com mock location (ou a pé) a <80 m do alvo → vira "Você está em" SOZINHO. Fix com accuracy >120 m NÃO dispara.
-- [ ] B14. 🔴 **O teste que importa — alarme com tela APAGADA**: lugar com 2 min, "Cheguei", apagar a tela, guardar o celular, esperar. No horário (tolerância ±1 min): **notificação com SOM DE ALARME + vibração**. Tocar nela abre o app.
-- [ ] B15. "+15 min" re-agenda: o alarme NÃO toca no horário velho, toca no novo.
-- [ ] B16. Countdown zera com o app ABERTO → som + voz "Hora de ir para o próximo lugar: Y" + tela vira "Hora de ir".
-- [ ] B17. "Próximo ›" avança (fase volta pra "Indo para"); no último lugar o botão é "Concluir passeio" → tour some, volta pra lista.
-- [ ] B18. **Persistência**: matar o app no MEIO do countdown → reabrir → tour continua na fase certa e o alarme ainda toca no horário. Tempo vencido com app fechado → reabrir mostra "Hora de ir".
-- [ ] B19. "Encerrar passeio" pede confirmação; roteiro e lugares CONTINUAM salvos; débito NÃO volta (igual rota).
-- [ ] B20. Funcionário com chave OFF: seção Passeio NÃO aparece no Ajustes dele. Com chave ON: aparece e o fluxo inteiro funciona.
-- [ ] B21. Voltar físico: editor→lista; tour→lista (tour segue vivo — reabrir pelo cartão "Em andamento"); modal aberto → fecha SÓ o modal.
+- [x] B1. Ajustes: seção Passeio (linha + chave equipe). *(provado 29/07)*
+- [x] B2. "Modo passeio" → pele: hero + busca + mapa + CTA + ícone à direita; nav some. *(provado)*
+- [x] B3. Toque no mapa = pino na hora, sem formulário; CTA acende; "Limpar (N)". *(provado; ver pendências 2)*
+- [x] B4. Modo persiste (reabrir app / reinstalar). *(provado)*
+- [ ] B5. Balão do pino REDESENHADO: sem teclado automático; chips trocam o tempo; Remover remove; nome opcional salva ao digitar.
+- [ ] B6. Segurar o pino (Lei 1) → vermelho progressivo → remove.
+- [ ] B7. Busca: digitar + Enter → lista curta → tocar → vira pino nomeado + câmera vai até ele.
+- [ ] B8. 2+ pinos → linha pelas RUAS (OSRM nosso); modo avião → linha reta.
+- [ ] B9. "Iniciar passeio ›" debita (A4) → cartão "Indo para" com distância ao vivo.
+- [ ] B10. "Navegar" abre Waze/Maps com o destino.
+- [ ] B11. "Cheguei" (e auto-chegada <80 m com accuracy ≤120) → countdown no cartão + voz.
+- [ ] B12. 🔴 Alarme com TELA APAGADA: 2 min, apagar tela → notificação com SOM DE ALARME no horário; tocar abre o app.
+- [ ] B13. "+15" re-agenda; countdown zerado com app aberto → som + voz + "Hora de ir".
+- [ ] B14. "Próximo ›" avança; último = "Concluir" → cartão some, pinos CONTINUAM no mapa.
+- [ ] B15. ✕ do cartão → confirmação "Encerrar passeio?" APARECE (escudo `845e5fa9`) e só encerra no botão.
+- [ ] B16. "Limpar (N)" → confirmação aparece e limpa só ao confirmar.
+- [ ] B17. Ícone à direita → volta pro trabalho NA HORA; reabrir modo → tudo como estava. Voltar físico = mesma coisa (tour segue vivo).
+- [ ] B18. Matar o app no meio do countdown → reabrir → cai na pele, no cartão certo; alarme ainda toca.
+- [ ] B19. Funcionário: chave OFF → sem seção Passeio (e servidor nega); ON → fluxo inteiro.
 
-## Bloco C — REGRESSÃO (a regra do dono: nada pode ter piorado)
+## Bloco C — REGRESSÃO (nada pode ter piorado)
 
-- [ ] C1. Fluxo de entrega completo intocado: montar rota → conferência → aceitar → entregar → encerrar (empresa de teste).
-- [ ] C2. **Mapa da Rota não pisca**: Rota→Clientes→Rota (garagem viva, sem "Carregando mapa…"); e Rota→Ajustes→Passeio→voltar→Rota idem — o passeio NUNCA rouba o mapa da Rota.
-- [ ] C3. Swipe lateral troca as 4 abas normais como antes; DENTRO do passeio o swipe NÃO troca de tela (exclusão `.pss-screen` no shell).
-- [ ] C4. Ajustes: Avisar chegada, Cadastrar Rota Offline, Consumo, Versão — tudo no lugar e funcionando.
-- [ ] C5. Voz e sons da navegação de entrega intactos (mudo do painel, chegada, comprovante).
-- [ ] C6. Tema claro/escuro: tela do passeio legível nos DOIS (tokens); medir contraste se algo parecer lavado (lei contraste-sempre).
-- [ ] C7. Flavor vendas builda (native.js compartilhado mudou): o publish não pode quebrar o outro flavor.
-- [ ] C8. Suíte local (já verde em 29/07, re-conferir pós-merge): `node --test dist/logistica/logistica-passeio.service.test.js` (7) + `test:credits` + `test:logistica-billing` (149) + config (48). Vermelho pré-existente conhecido: check-pele R1/R2 no kit.css do frontend (não é desta frente).
+- [ ] C1. Fluxo de entrega completo intocado (montar → conferir → aceitar → entregar → encerrar).
+- [ ] C2. Mapa da Rota não pisca: Rota→abas→Rota e Rota→passeio→trabalho (garagem viva; o passeio nunca rouba o mapa da Rota).
+- [ ] C3. Swipe troca as 4 abas como antes; dentro da pele NÃO troca.
+- [ ] C4. Ajustes antigos intactos; sons/voz da navegação de entrega intactos.
+- [ ] C5. Confirmações ANTIGAS do app (excluir cliente, encerrar rota…) continuam aceitando normal (o escudo só cobre as que têm `abertaEm`).
+- [ ] C6. Tema claro/escuro legível na pele (tokens).
+- [ ] C7. Flavor vendas builda (native.js mudou: botão pss-modo-sair no frame).
+- [ ] C8. Suíte: `logistica-passeio.service.test.js` (7) + `test:credits` + config (48) + billing (149) — todos verdes em 29/07; re-conferir pós-merge. Vermelho pré-existente conhecido: check-pele R1/R2 no kit.css do frontend.
 
-## Dicas de execução
+## Referências
 
-- Mock location p/ B13: app de mock location + `adb shell appops set br.com.hbxsystem.entrega... android:mock_location allow`; alternativa aceita: validar só o botão "Cheguei" e marcar B13 como "não coberto".
-- Release às vezes não abre CDP — diagnóstico visual: `adb shell screenrecord` + ffmpeg tile (contact sheet), receita do hbxlog.
-- Não mexer no aparelho na janela da rota real do dono (~4-5h da manhã).
-
-## Fica pra depois — COM MORADIA (lei "fica pra depois sem moradia = nunca")
-
-1. **F3 — Achar lugares de passeio perto de mim** (a stack sem Google): importar POIs do OSM (tourism/amenity/historic) pro Postgres + cruzar RFB 28M por CNAE (restaurante 5611, hotel 5510) com pino via CNEFE + descrições pelo qwen em batch (fábrica de enriquecimento com budget). Moradia: próxima frente do passeio; abre com as ⬜ deste arquivo.
-2. **F4 — Offline total** (tiles PMTiles da região baixados no claim + servir range-request do disco pelo Kotlin). Hoje o offline cobre: GPS (satélite não usa internet), tour persistido, alarme nativo, linha reta; só o BASEMAP e o recálculo pedem rede.
-3. **F0 restante — precisão na navegação de ENTREGA** (snap-to-route na polyline, filtro de fix ruim generalizado, dead-reckoning visual): não entrou DE PROPÓSITO — mexe no fluxo de entrega que funciona hoje; frente própria.
-4. **Cota/limite de passeios por funcionário** (hoje: liberou = equipe inteira pode; cada passeio debita — o freio é o custo). Se o dono quiser teto diário, é coluna nova + check no iniciar.
-5. **Reboot com tour ativo**: o alarme re-agenda quando o app ABRE (passeioBoot). Boot-receiver dedicado (RECEIVE_BOOT_COMPLETED já declarado) fica aqui como pendência se o caso real aparecer.
-
-## ✅ OSRM SELF-HOST — INSTALADO EM PROD 29/07 ~17:50 (Falha 2 MORTA)
-
-O roteamento não depende mais do servidor de demonstração público. Instalado ao
-vivo no VPS:
-
-- **Container `hbx-osrm`** (`osrm/osrm-backend`, algoritmo MLD, `--max-table-size 120`),
-  porta **só no gateway docker** (`-p 172.18.0.1:5000:5000` — mesmo padrão do
-  webwhats; nada exposto pra internet).
-- **Dados:** extrato **Sudeste** (Geofabrik, pbf 813MB) em `/root/osrm/` (~6,8GB
-  com os artefatos). Build: `build.sh` (extract→partition→customize), 13 min,
-  pico de RAM 3,2GB. Brasil inteiro NÃO cabe no VPS de 15GB — Sudeste cobre a
-  operação; fora dele a cadeia de fallback segura (proxy → OSRM público → reta).
-- **Backend:** `OSRM_BASE_URL=http://172.18.0.1:5000` em `/root/HBX/backend/.env`
-  (backup `.env.bak-osrm-20260729`; o publish só faz upsert de chaves próprias —
-  a variável SOBREVIVE a deploys). Backend recriado com
-  `docker compose --env-file .env -f docker-compose.hostinger.yml up -d backend`,
-  boot limpo, env conferido DENTRO do container.
-- **Smoke feito:** rota Rio Claro→São Carlos = 60km/49min pelo host E de dentro
-  do hbx-backend; `/table` com duration+distance ok.
-- **Atualizar o mapa (receita):** baixar pbf novo em `/root/osrm`, rodar
-  `./build.sh`, `docker restart hbx-osrm`.
-
-Checks extras pra bateria:
-
-- [ ] A8. `docker ps` → `hbx-osrm Up`; `curl http://172.18.0.1:5000/route/v1/driving/-47.5614,-22.4064;-47.8909,-22.0175?overview=false` devolve `"code":"Ok"`.
-- [ ] A9. Rota calculada no app (montar rota real) aparece no `docker logs hbx-osrm` (prova que o tráfego vai no NOSSO e não no demo).
-- [ ] C9. Rota FORA do Sudeste (ex.: 2 pontos em Curitiba) ainda funciona no app — cai no fallback público/reta sem quebrar a tela.
-
-## PLANEJAMENTO (não implantar) — o que o Valhalla ainda entregaria a mais
-
-Com o OSRM nosso no ar, sobram pro Valhalla (quando a frente abrir):
-
-- **Perfil A PÉ e bicicleta** — tour de centro histórico é caminhando; nosso OSRM está com perfil `car` (dá pra subir um segundo OSRM `foot` com os MESMOS dados — meio-termo antes de Valhalla).
-- **Otimização de ordem nativa** (rota ótima multi-parada) — hoje é 2-opt caseiro no app via `/osrm/table`.
-- **Map-matching** (snap da trilha/bolinha na rua) e **isócronas** ("o que alcanço em 30 min a pé" — casa com o F3 de descoberta).
-- Gatilho de decisão: passeio a pé virar caso real de cliente.
+- Plano/cena: `docs/PLANEJAMENTOS/PR29072026-CORRIGIR-O-LIXO.md`.
+- Código: bloco "MODO PASSEIO — CORRIGIR-O-LIXO" no fim de
+  `EntregaShell/app/src/logistica/assets/app/app.js`; `PasseioAlarme.kt`;
+  `passeioSettingsSection`; botão do hero em `native.js` (frame);
+  backend em `logistica-passeio.service.ts` + `logistica-geo.service.ts`.
+- Fica pra depois COM moradia: F3 descoberta de lugares (OSM+RFB/CNAE),
+  F4 offline PMTiles, F0 snap-to-route da entrega, plano Valhalla (perfil a
+  pé/isócronas) — seções no CORRIGIR-O-LIXO e neste arquivo.
