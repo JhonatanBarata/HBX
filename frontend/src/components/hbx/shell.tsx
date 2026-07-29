@@ -610,6 +610,234 @@ export function useCreditsSummary(enabled: boolean): CreditsSummary {
   return summary;
 }
 
+type CreditsVisualCache = {
+  balance: number;
+  history: number[];
+};
+
+function readCreditsVisualCache(key: string): CreditsVisualCache | null {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || "null") as Partial<CreditsVisualCache> | null;
+    if (!parsed || typeof parsed.balance !== "number" || !Number.isFinite(parsed.balance)) return null;
+    const history = Array.isArray(parsed.history)
+      ? parsed.history.filter(value => typeof value === "number" && Number.isFinite(value)).slice(-9)
+      : [];
+    return { balance: parsed.balance, history: history.length > 0 ? history : [parsed.balance] };
+  } catch {
+    return null;
+  }
+}
+
+function writeCreditsVisualCache(key: string, value: CreditsVisualCache) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* sem storage */ }
+}
+
+function appendCreditHistory(history: number[], value: number) {
+  if (history.length > 0 && history[history.length - 1] === value) return history.slice(-9);
+  return [...history, value].slice(-9);
+}
+
+function creditGraphGeometry(source: number[]) {
+  const values = source.length > 1 ? source : [source[0] ?? 0, source[0] ?? 0];
+  const width = 176;
+  const top = 8;
+  const bottom = 59;
+  const left = 5;
+  const right = 171;
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+  const span = Math.max(1, max - min);
+  const points = values.map((value, index) => ({
+    x: left + ((right - left) / Math.max(1, values.length - 1)) * index,
+    y: max === min ? (top + bottom) / 2 : top + ((max - value) / span) * (bottom - top),
+  }));
+  let line = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
+  for (let index = 1; index < points.length; index += 1) {
+    const previous = points[index - 1];
+    const point = points[index];
+    const middle = (previous.x + point.x) / 2;
+    line += ` C ${middle.toFixed(2)} ${previous.y.toFixed(2)}, ${middle.toFixed(2)} ${point.y.toFixed(2)}, ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
+  }
+  const first = points[0];
+  const last = points[points.length - 1];
+  return {
+    line,
+    area: `${line} L ${last.x.toFixed(2)} 64 L ${first.x.toFixed(2)} 64 Z`,
+    endX: last.x,
+    endY: last.y,
+  };
+}
+
+function formatCreditAmount(value: number | null) {
+  if (value == null) return "—";
+  return value.toLocaleString("pt-BR", {
+    minimumFractionDigits: Number.isInteger(value) ? 0 : 1,
+    maximumFractionDigits: 1,
+  });
+}
+
+function CreditsSidebarCard({
+  summary,
+  companyId,
+}: {
+  summary: CreditsSummary;
+  companyId?: number | null;
+}) {
+  const storageKey = `hbx:credits-visual:${companyId ?? "tenant"}`;
+  const [displayed, setDisplayed] = useState<number | null>(null);
+  const [history, setHistory] = useState<number[]>([]);
+  const [decaying, setDecaying] = useState(false);
+  const [debitAmount, setDebitAmount] = useState(0);
+  const displayedRef = useRef<number | null>(null);
+  const historyRef = useRef<number[]>([]);
+  const initializedKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const actual = summary?.restante;
+    if (typeof actual !== "number" || !Number.isFinite(actual)) return;
+
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let raf = 0;
+    let onLoaded: (() => void) | null = null;
+
+    if (initializedKeyRef.current !== storageKey) {
+      initializedKeyRef.current = storageKey;
+      const cached = readCreditsVisualCache(storageKey);
+      if (cached) {
+        displayedRef.current = cached.balance;
+        historyRef.current = cached.history;
+        setDisplayed(cached.balance);
+        setHistory(cached.history);
+      } else {
+        displayedRef.current = actual;
+        historyRef.current = [actual];
+        setDisplayed(actual);
+        setHistory([actual]);
+        writeCreditsVisualCache(storageKey, { balance: actual, history: [actual] });
+        return;
+      }
+    }
+
+    const from = displayedRef.current;
+    if (from == null || actual >= from) {
+      const nextHistory = appendCreditHistory(historyRef.current, actual);
+      displayedRef.current = actual;
+      historyRef.current = nextHistory;
+      setDisplayed(actual);
+      setHistory(nextHistory);
+      writeCreditsVisualCache(storageKey, { balance: actual, history: nextHistory });
+      return;
+    }
+
+    const delta = from - actual;
+    const baseHistory = historyRef.current.length > 0 ? historyRef.current : [from];
+    const targetHistory = appendCreditHistory(baseHistory, actual);
+    const startHistory = targetHistory.length > baseHistory.length ? [...baseHistory, from] : baseHistory;
+
+    const runDecay = () => {
+      if (cancelled) return;
+      setDebitAmount(delta);
+      setDecaying(true);
+      const startedAt = performance.now();
+      const duration = 1500;
+
+      const frame = (now: number) => {
+        if (cancelled) return;
+        const raw = Math.min(1, (now - startedAt) / duration);
+        const eased = 1 - Math.pow(1 - raw, 4);
+        const value = from + (actual - from) * eased;
+        const animatedHistory = startHistory.map((item, index) => {
+          const target = targetHistory[index] ?? actual;
+          return item + (target - item) * eased;
+        });
+        displayedRef.current = value;
+        setDisplayed(value);
+        setHistory(animatedHistory);
+        if (raw < 1) {
+          raf = requestAnimationFrame(frame);
+          return;
+        }
+        displayedRef.current = actual;
+        historyRef.current = targetHistory;
+        setDisplayed(actual);
+        setHistory(targetHistory);
+        writeCreditsVisualCache(storageKey, { balance: actual, history: targetHistory });
+        timer = setTimeout(() => {
+          if (!cancelled) setDecaying(false);
+        }, 220);
+      };
+
+      raf = requestAnimationFrame(frame);
+    };
+
+    const afterLoaded = () => {
+      timer = setTimeout(runDecay, 1100);
+    };
+    if (document.readyState === "complete") {
+      afterLoaded();
+    } else {
+      onLoaded = afterLoaded;
+      window.addEventListener("load", onLoaded, { once: true });
+    }
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+      if (raf) cancelAnimationFrame(raf);
+      if (onLoaded) window.removeEventListener("load", onLoaded);
+    };
+  }, [summary?.restante, storageKey]);
+
+  const graph = creditGraphGeometry(history.length > 0 ? history : [displayed ?? 0]);
+  const prepareNavigation = () => {
+    try { sessionStorage.setItem("hbx:config-sec", "Créditos"); } catch { /* sem storage */ }
+  };
+
+  return (
+    <Link
+      href="/configuracoes?sec=Cr%C3%A9ditos"
+      className={"plan-card credit-balance-card" + (decaying ? " is-decaying" : "")}
+      onClick={prepareNavigation}
+      aria-label={`Ver créditos. Saldo ${formatCreditAmount(displayed)}`}
+    >
+      <span className="credit-balance-card__title">
+        <span>Créditos:</span>
+        <strong>{formatCreditAmount(displayed)}</strong>
+      </span>
+
+      <span className="credit-balance-card__debit" aria-hidden="true">
+        − {formatCreditAmount(debitAmount)}
+      </span>
+      <span className="credit-balance-card__energy" aria-hidden="true" />
+
+      <span className="credit-balance-card__chart">
+        <svg viewBox="0 0 176 66" role="img" aria-label="Movimentação do saldo de créditos">
+          <defs>
+            <linearGradient id="credit-sidebar-area" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" className="credit-balance-card__area-start" />
+              <stop offset="100%" className="credit-balance-card__area-end" />
+            </linearGradient>
+          </defs>
+          <line className="credit-balance-card__grid" x1="5" y1="17" x2="171" y2="17" />
+          <line className="credit-balance-card__grid" x1="5" y1="34" x2="171" y2="34" />
+          <line className="credit-balance-card__grid" x1="5" y1="51" x2="171" y2="51" />
+          <path className="credit-balance-card__area" d={graph.area} />
+          <path className="credit-balance-card__line" d={graph.line} />
+          <path className="credit-balance-card__sweep" d={graph.line} pathLength="1" />
+          <circle className="credit-balance-card__ring" cx={graph.endX} cy={graph.endY} r="5" />
+          <circle className="credit-balance-card__point" cx={graph.endX} cy={graph.endY} r="3.5" />
+        </svg>
+      </span>
+
+      <span className="credit-balance-card__cta">
+        <span>Ver créditos</span>
+        <I d={ICONS.arrow} size={14} />
+      </span>
+    </Link>
+  );
+}
+
 // ---------------------------------------------------------------
 // Acesso por USUÁRIO (GET /modules/me): o plano libera o módulo para a
 // EMPRESA; isto responde se ESTE usuário pode ABRIR o módulo (papel +
@@ -808,14 +1036,6 @@ function hasAnyModuleAccess(mods: MyModulesState, keys: string[]): boolean {
   return keys.some((k) => mods.byKey[k]?.accessible === true);
 }
 
-// Modelo crédito: o card leva à seção "Créditos" de Configurações (carteira +
-// recarga), o único destino de cobrança do contratante. (A seção "Plano e
-// cobrança" morreu com o modelo de plano — W3/PR10072026.)
-function abrirCreditos(router: ReturnType<typeof useRouter>) {
-  try { sessionStorage.setItem("hbx:config-sec", "Créditos"); } catch { /* sem storage */ }
-  router.push("/configuracoes");
-}
-
 // ── Radar state poll (leve: ~8s) — tinge o item "Leads" no menu global ──────
 // Consulta /webscraping/radar/search-runs/latest e extrai operationalState.
 // Roda em QUALQUER tela (persistente no shell). Para quando o componente desmonta.
@@ -902,7 +1122,6 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
   const user = useCurrentUser();
   const ent = useEntitlements();
   const mods = useMyModules();
-  const router = useRouter();
   const plan = usePlanSummary();
   // Destaque do menu = GLASS PILL (Lei nº2, docs/Rules/FRONTEND.md): mede a
   // posição do item ATIVO e desliza até ele em vez de pular de item pra item.
@@ -1006,30 +1225,7 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
       })}
       <div className="side-bottom">
         {creditsMode && (
-          <div className="plan-card">
-            <div>
-              <strong>Créditos</strong>
-              {plan.accessLabel && <><br /><small>{plan.accessLabel}</small></>}
-            </div>
-            {creditsSummary && (() => {
-              // Medidor de crédito: consumo dentro dos lotes ATIVOS ("total concedido ativo").
-              const total = creditsSummary.total;
-              const restante = creditsSummary.restante;
-              const used = total != null ? Math.max(0, total - restante) : 0;
-              const pct = total && total > 0 ? Math.min(100, Math.round((used / total) * 100)) : 0;
-              const danger = restante <= 0;
-              return (
-                <div className={"plan-card__meter" + (danger ? " is-danger" : "")}>
-                  <div className="plan-card__meter-top">
-                    <span className="plan-card__meter-lbl">Créditos</span>
-                    <span className="plan-card__meter-val">{restante.toLocaleString("pt-BR")}{total != null ? ` / ${total.toLocaleString("pt-BR")}` : ""}</span>
-                  </div>
-                  {total != null && <div className="plan-card__bar"><div className="plan-card__bar-fill" style={{ width: `${pct}%` }} /></div>}
-                </div>
-              );
-            })()}
-            <button onClick={() => abrirCreditos(router)}>Ver créditos</button>
-          </div>
+          <CreditsSidebarCard summary={creditsSummary} companyId={user?.company?.id} />
         )}
         {/* Identidade da EMPRESA (ordem do dono 14/06): o usuário/vendedor é o
             avatar do topo-direito; aqui embaixo fica a empresa, e o card é

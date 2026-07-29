@@ -193,6 +193,283 @@ html, body { margin: 0; }
 .plan-card__bar-fill { height: 100%; border-radius: 99px; background: var(--login-accent); transition: width 0.5s ease; }
 .plan-card__meter.is-danger .plan-card__bar-fill { background: var(--hbx-danger); }
 .plan-card__meter.is-danger .plan-card__meter-val { color: var(--hbx-danger); }
+
+/* Painel vivo de créditos — saldo real, histórico observado no navegador e
+   decaimento acionado somente quando /credits/me devolve redução. */
+.credit-balance-card.plan-card {
+  --credit-card-accent: var(--hbx-brand);
+  --credit-card-accent-2: var(--hbx-secondary);
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  gap: 7px;
+  max-height: 310px;
+  min-height: 196px;
+  padding: 12px;
+  overflow: hidden;
+  color: var(--text-strong);
+  text-decoration: none;
+  cursor: pointer;
+  transform: translateZ(0);
+  transition:
+    max-height var(--motion-base) var(--ease-out-quint),
+    opacity var(--motion-fast),
+    padding var(--motion-base) var(--ease-out-quint),
+    border-width var(--motion-fast),
+    transform var(--motion-fast),
+    box-shadow var(--motion-base),
+    border-color var(--motion-fast);
+}
+.credit-balance-card.plan-card::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: -62px;
+  left: 17%;
+  width: 66%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--credit-card-accent) 24%, transparent);
+  filter: blur(28px);
+  opacity: 0.5;
+  transform: scale(0.82);
+  transition: opacity 420ms ease, transform 850ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.credit-balance-card.plan-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--credit-card-accent) 42%, var(--border-hairline));
+  box-shadow: var(--shadow-md);
+}
+.credit-balance-card.plan-card.is-decaying::before {
+  opacity: 0.92;
+  transform: scale(1.28);
+}
+.credit-balance-card__title {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 5px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  text-align: center;
+  white-space: nowrap;
+}
+.credit-balance-card.plan-card .credit-balance-card__title strong {
+  min-width: 5.3ch;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-size: 1.18rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 750;
+  letter-spacing: -0.045em;
+  line-height: 1;
+  text-align: left;
+  transform-origin: center;
+}
+.credit-balance-card.is-decaying .credit-balance-card__title strong {
+  animation: credit-balance-number-decay 1.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.credit-balance-card__chart {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  align-items: center;
+  min-height: 84px;
+  color: var(--credit-card-accent);
+}
+.credit-balance-card__chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+.credit-balance-card__grid {
+  stroke: var(--border-hairline);
+  stroke-width: 1;
+  opacity: 0.46;
+}
+.credit-balance-card__area { fill: url("#credit-sidebar-area"); }
+.credit-balance-card__area-start {
+  stop-color: var(--credit-card-accent);
+  stop-opacity: 0.36;
+}
+.credit-balance-card__area-end {
+  stop-color: var(--credit-card-accent);
+  stop-opacity: 0;
+}
+.credit-balance-card__line,
+.credit-balance-card__sweep {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.credit-balance-card__line {
+  stroke: currentColor;
+  stroke-width: 2.6;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--credit-card-accent) 54%, transparent));
+}
+.credit-balance-card__sweep {
+  stroke: color-mix(in srgb, var(--credit-card-accent-2) 74%, var(--text-strong));
+  stroke-width: 3.4;
+  stroke-dasharray: 0.12 0.88;
+  opacity: 0;
+}
+.credit-balance-card.is-decaying .credit-balance-card__sweep {
+  opacity: 1;
+  animation: credit-balance-sweep 1.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.credit-balance-card__point {
+  fill: var(--hbx-surface);
+  stroke: currentColor;
+  stroke-width: 2.6;
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--credit-card-accent) 58%, transparent));
+}
+.credit-balance-card__ring {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.4;
+  opacity: 0.2;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.credit-balance-card.is-decaying .credit-balance-card__ring {
+  animation: credit-balance-ring 920ms ease-out 580ms both;
+}
+.credit-balance-card__cta {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: var(--control-height-sm);
+  border: 1px solid color-mix(in srgb, var(--credit-card-accent) 70%, var(--border-hairline));
+  border-radius: var(--radius-xs);
+  background: color-mix(in srgb, var(--credit-card-accent) 7%, transparent);
+  color: var(--credit-card-accent);
+  font-size: 0.7rem;
+  font-weight: 700;
+  transition: background var(--motion-fast), color var(--motion-fast), transform var(--motion-fast);
+}
+.credit-balance-card:hover .credit-balance-card__cta {
+  background: var(--credit-card-accent);
+  color: var(--hbx-action-ink);
+  transform: translateY(-1px);
+}
+.credit-balance-card__cta svg { transition: transform var(--motion-base) var(--ease-out-quint); }
+.credit-balance-card:hover .credit-balance-card__cta svg { transform: translateX(3px); }
+.credit-balance-card__debit {
+  position: absolute;
+  z-index: 8;
+  top: 36px;
+  left: 50%;
+  padding: 3px 7px;
+  border: 1px solid color-mix(in srgb, var(--credit-card-accent-2) 48%, var(--border-hairline));
+  border-radius: var(--radius-pill);
+  background: var(--hbx-surface-raised);
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 750;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 10px) scale(0.72);
+}
+.credit-balance-card.is-decaying .credit-balance-card__debit {
+  animation: credit-balance-debit 1.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.credit-balance-card__energy {
+  position: absolute;
+  z-index: 7;
+  top: 58px;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--credit-card-accent);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--credit-card-accent) 14%, transparent),
+    0 0 18px color-mix(in srgb, var(--credit-card-accent) 66%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, 0) scale(0.6);
+}
+.credit-balance-card.is-decaying .credit-balance-card__energy {
+  animation: credit-balance-energy 1.2s cubic-bezier(0.22, 1, 0.36, 1) 170ms both;
+}
+
+/* A mesma peça herda a cor dominante e só muda a matéria de cada casca. */
+[data-casca="premium"] .side .plan-card.credit-balance-card {
+  --credit-card-accent: var(--hbx-brand);
+  --credit-card-accent-2: var(--hbx-secondary);
+  background:
+    radial-gradient(circle at 50% -12%, var(--hbx-brand-soft), transparent 54%),
+    var(--hbx-surface);
+}
+[data-casca="modern"] .side .plan-card.credit-balance-card {
+  --credit-card-accent: var(--hbx-brand);
+  --credit-card-accent-2: var(--hbx-secondary);
+  background:
+    radial-gradient(circle at 100% 0%, var(--mod-flare), transparent 46%),
+    linear-gradient(180deg, var(--mod-glass-hi), var(--mod-glass-lo));
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+[data-casca="corporativa"] .side .plan-card.credit-balance-card {
+  --credit-card-accent: var(--hbx-brand);
+  --credit-card-accent-2: var(--hbx-secondary);
+  background:
+    linear-gradient(var(--border-hairline) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border-hairline) 1px, transparent 1px),
+    var(--hbx-surface);
+  background-size: 24px 24px;
+  box-shadow: var(--shadow-xs);
+}
+[data-casca="corporativa"] .credit-balance-card__line {
+  stroke-width: 2;
+  filter: none;
+}
+
+@keyframes credit-balance-number-decay {
+  0% { transform: translateY(0) scale(1); filter: blur(0); }
+  24% { transform: translateY(-2px) scale(1.045); filter: blur(0); }
+  56% { transform: translateY(2px) scale(0.972); filter: blur(0.25px); }
+  100% { transform: translateY(0) scale(1); filter: blur(0); }
+}
+@keyframes credit-balance-sweep {
+  from { stroke-dashoffset: 1.2; }
+  to { stroke-dashoffset: -0.12; }
+}
+@keyframes credit-balance-ring {
+  0% { opacity: 0.72; transform: scale(0.4); }
+  100% { opacity: 0; transform: scale(4); }
+}
+@keyframes credit-balance-debit {
+  0% { opacity: 0; transform: translate(-50%, 10px) scale(0.72); }
+  18% { opacity: 1; transform: translate(-50%, 0) scale(1); }
+  68% { opacity: 1; transform: translate(-50%, -7px) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -20px) scale(0.86); }
+}
+@keyframes credit-balance-energy {
+  0% { opacity: 0; transform: translate(-50%, 0) scale(0.55); }
+  14% { opacity: 1; }
+  72% { opacity: 0.9; transform: translate(-50%, 58px) scale(1); }
+  100% { opacity: 0; transform: translate(50px, 88px) scale(0.2); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .credit-balance-card.plan-card,
+  .credit-balance-card.plan-card::before,
+  .credit-balance-card__cta,
+  .credit-balance-card__cta svg { transition: none; }
+  .credit-balance-card.is-decaying .credit-balance-card__title strong,
+  .credit-balance-card.is-decaying .credit-balance-card__sweep,
+  .credit-balance-card.is-decaying .credit-balance-card__ring,
+  .credit-balance-card.is-decaying .credit-balance-card__debit,
+  .credit-balance-card.is-decaying .credit-balance-card__energy { animation: none; }
+}
 .user-card { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface); }
 .user-card strong { display: block; max-height: 20px; overflow: hidden; opacity: 1; font-size: 0.78rem; transition: max-height var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast); }
 .user-card small { display: block; max-height: 16px; overflow: hidden; opacity: 1; font-size: 0.66rem; color: var(--text-muted); transition: max-height var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast); }

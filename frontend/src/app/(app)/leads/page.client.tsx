@@ -2038,6 +2038,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
         method: "POST",
         body: JSON.stringify({}),
       });
+      window.dispatchEvent(new Event("hbx:credits-changed"));
       setSelected(prev => { const n = new Set(prev); n.delete(id); return n; });
       if (selLead?.id === id) setSelLead(null);
       setPullMsg("✓ Puxado pra sua carteira (Vendas).");
@@ -2073,6 +2074,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
     }
     setSelected(new Set());
     setPullMsg(`${ok > 0 ? `✓ ${ok} puxado(s). ` : ""}${stopMsg || ""}`.trim() || "Nada puxado.");
+    if (ok > 0) window.dispatchEvent(new Event("hbx:credits-changed"));
     if (ok > 0) void stampOnboardingEvent("lead_pulled"); // marco: vitória #1 (Camada 1)
     setBulkBusy(false);
     loadList("shelf", { page: 1 });
