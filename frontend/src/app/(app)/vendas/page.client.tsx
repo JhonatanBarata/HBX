@@ -20,6 +20,7 @@ import {
 } from "@/components/hbx/detalhes-negocio";
 import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
 import { CentralDoLead } from "@/components/hbx/central-do-lead";
+import { VendasLeadPreview } from "@/components/hbx/vendas-lead-preview";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { CanalIcon } from "@/components/hbx/canal-icon";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
@@ -548,7 +549,7 @@ export function VendasClient() {
         const focusCard = focusId ? todos.find(c => c.id === focusId) : null;
         if (focusCard) focusLeadRef.current = null;
         // mantém a seleção, mas sempre com a versão FRESCA do card
-        setSel(prev => focusCard || (prev && todos.find(c => c.id === prev.id)) || todos[0] || null);
+        setSel(prev => focusCard || (prev && todos.find(c => c.id === prev.id)) || null);
       })
       .catch((err: unknown) => {
         setLoadError(err instanceof Error ? err.message : "Falha ao carregar o board de Vendas.");
@@ -1151,6 +1152,20 @@ export function VendasClient() {
     applyGridSort(gridSort?.key === key ? (gridSort.dir === 1 ? { key, dir: -1 } : null) : { key, dir: 1 });
   }
 
+  function selecionarLead(card: VendasLead) {
+    if (sel?.id === card.id) {
+      setCockpitOpen(true);
+      return;
+    }
+    setSel(card);
+  }
+
+  function selecionarLeadNoTeclado(event: React.KeyboardEvent<HTMLElement>, card: VendasLead) {
+    if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+    event.preventDefault();
+    selecionarLead(card);
+  }
+
   // "Selecionar todos" opera sobre a lista visível (já filtrada/ordenada — busca + guia de etapa).
   const todosSelecionados = listLeads.length > 0 && listLeads.every(c => selecionados.has(c.id));
   function toggleTodos() {
@@ -1389,7 +1404,7 @@ export function VendasClient() {
           <div className="vnd-stage">
             <div id="vendas-panel-funil" role="tabpanel" aria-labelledby="vendas-tab-funil"
               className={"vnd-layer" + (modo === "funil" ? " is-on" : "")} aria-hidden={modo !== "funil"}>
-                <div className="content">
+                <div className={"content" + (sel ? " vnd-content--preview-open" : "")}>
                   <div className="work">
             <section className="panel">
               {loadError && (
@@ -1427,9 +1442,8 @@ export function VendasClient() {
                   </div>
                 </div>
               )}
-              {/* GRADE (planilha): 1 linha por lead, 1 dado por coluna. É tela de
-                  LEITURA — o clique simples abre o cockpit em tela cheia
-                  (VendasFullscreenBridge), que é onde o lead se edita. */}
+              {/* GRADE (planilha): 1 linha por lead, 1 dado por coluna. Primeiro
+                  clique abre a prévia lateral; repetir no mesmo lead abre a ficha. */}
               {view === "list" && board && (summary?.total ?? 0) > 0 && (
                 <div className="vnd-grid-wrap">
                   {/* As guias de etapa e a barra de seleção subiram pro painel de
@@ -1480,8 +1494,10 @@ export function VendasClient() {
                         const ag = agendaInfo(card);
                         return (
                           <tr key={card.id} id={`vnd-row-${card.id}`} className={sel?.id === card.id ? "sel" : ""}
-                            onClick={() => setSel(card)}
-                            onDoubleClick={() => { setSel(card); setCockpitOpen(true); }}
+                            tabIndex={0}
+                            aria-selected={sel?.id === card.id}
+                            onClick={() => selecionarLead(card)}
+                            onKeyDown={e => selecionarLeadNoTeclado(e, card)}
                             onContextMenu={e => { e.preventDefault(); setSel(card); setRowMenu({ id: card.id, x: e.clientX, y: e.clientY }); }}>
                             <td className="vnd-grid__chk" onClick={e => e.stopPropagation()}>
                               <input type="checkbox" checked={selecionados.has(card.id)} onChange={() => toggleSelecionado(card.id)}
@@ -1587,10 +1603,12 @@ export function VendasClient() {
                                   data-lead-id={card.id}
                                   className={"vnd-card" + (sel?.id === card.id ? " is-sel" : "") + (dragId === card.id ? " is-dragging" : "") + (card.block === "closed" ? " is-locked" : "")}
                                   draggable={card.block !== "closed"}
+                                  tabIndex={0}
+                                  aria-selected={sel?.id === card.id}
                                   onDragStart={card.block !== "closed" ? (e => onCardDragStart(e, card)) : undefined}
                                   onDragEnd={onCardDragEnd}
-                                  onClick={() => setSel(card)}
-                                  onDoubleClick={() => { setSel(card); setCockpitOpen(true); }}
+                                  onClick={() => selecionarLead(card)}
+                                  onKeyDown={e => selecionarLeadNoTeclado(e, card)}
                                 >
                                   <span className="vnd-card__grip" aria-hidden="true" />
                                   <div className="vnd-card__top">
@@ -1631,6 +1649,11 @@ export function VendasClient() {
             </section>
           </div>
 
+                  <VendasLeadPreview
+                    lead={sel}
+                    onClose={() => setSel(null)}
+                    onExpand={() => setCockpitOpen(true)}
+                  />
                 </div>{/* /content (Meu funil) */}
             </div>{/* /vnd-layer funil */}
 
