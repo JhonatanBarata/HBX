@@ -574,17 +574,38 @@ export function useCreditsSummary(enabled: boolean): CreditsSummary {
   useEffect(() => {
     if (!enabled || !getToken()) return;
     let alive = true;
-    apiFetch<{ balance?: number; leadsDisponiveis?: number; lots?: Array<{ amount?: number; remaining?: number }> }>("/credits/me")
-      .then(res => {
+    let busy = false;
+    async function load() {
+      if (busy) return;
+      busy = true;
+      try {
+        const res = await apiFetch<{ balance?: number; leadsDisponiveis?: number; lots?: Array<{ amount?: number; remaining?: number }> }>("/credits/me");
         if (!alive) return;
         const restante = typeof res?.balance === "number" ? res.balance : (res?.leadsDisponiveis ?? 0);
         const total = Array.isArray(res?.lots)
           ? res!.lots!.reduce((sum, l) => sum + (Number(l?.amount) || 0), 0)
           : null;
-        setSummary({ restante, total: total && total > 0 ? total : null });
-      })
-      .catch(() => { /* carteira indisponível: card cai no fallback silencioso */ });
-    return () => { alive = false; };
+        const next = { restante, total: total && total > 0 ? total : null };
+        setSummary(current => (
+          current?.restante === next.restante && current?.total === next.total
+            ? current
+            : next
+        ));
+      } catch {
+        // carteira indisponível: card cai no último valor conhecido
+      } finally {
+        busy = false;
+      }
+    }
+    const refresh = () => { void load(); };
+    void load();
+    const id = window.setInterval(refresh, 8000);
+    window.addEventListener("hbx:credits-changed", refresh);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+      window.removeEventListener("hbx:credits-changed", refresh);
+    };
   }, [enabled]);
   return summary;
 }

@@ -14,7 +14,14 @@
 
 export const CASCA_BP = 768; // px — abaixo disto = celular (casca)
 
-export const QUERY = `(max-width: ${CASCA_BP - 1}px)`;
+// REMENDO 29/07 (dono: "ao logar fui encaminhado pra essa tela horrenda... se o
+// sistema ver q foi realocado de tamanho"): largura sozinha NÃO é celular.
+// Estreitar a janela do COMPUTADOR virava o app de telefone inteiro (casca +
+// /entrega), que é justamente o modo que vai morrer quando o app iOS sair.
+// `pointer: coarse` = dedo (celular/tablet); mouse/trackpad é `fine` e NUNCA
+// mais cai na casca, por mais estreita que a janela fique. Fonte única: o
+// script de boot pré-pintura (layout.tsx) e o hook useCascaMobile leem daqui.
+export const QUERY = `(max-width: ${CASCA_BP - 1}px) and (pointer: coarse)`;
 
 // <html data-casca-boot="mobile|desktop"> — stamp pré-hidratação (layout.tsx)
 // que o CSS usa pra esconder a sidebar desktop / mostrar o loader HBX antes de

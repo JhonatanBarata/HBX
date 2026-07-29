@@ -28,7 +28,15 @@
 }
 
 /* ---------- TOPO — 1 linha (~48px): título + ações compactas ≤28px -------- */
+/* REMENDO 29/07 (dono: "tela horrenda ... isso é temas"): o `position:relative`
+   morava SÓ em casca-modern.css ([data-casca="modern"]). Nas cascas Premium
+   (a PADRÃO desde 28/07) e Corporativa — que não têm NENHUMA regra .casca* —
+   o topo ficava estático e todo filho absoluto (`.ent-top-empresa` do /entrega,
+   `.hbx-mark-viva`) se ancorava na `.casca` (position:fixed; inset:0) e ia
+   parar no CENTRO DA VIEWPORT, por cima do conteúdo. É ESTRUTURA, não pele:
+   mora aqui e vale em toda casca. */
 .casca-top {
+  position: relative;
   height: var(--casca-top-h);
   min-height: var(--casca-top-h);
   display: flex;
