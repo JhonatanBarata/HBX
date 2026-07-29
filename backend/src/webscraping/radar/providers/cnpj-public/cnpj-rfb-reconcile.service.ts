@@ -125,10 +125,27 @@ export class CnpjRfbReconcileService {
     }
   }
 
+  // E3: pelo menos UM token (>=3 chars) do nome do candidato precisa existir em
+  // razão/fantasia da linha RFB (palavra inteira, tolerando plural). Sem nome utilizável,
+  // o telefone único decide sozinho (nada a contradizer).
+  private candidateNameCompatibleWithRow(candidate: Record<string, unknown>, row: RfbRow): boolean {
+    const nameText = normalizeSegmentText((candidate as { name?: unknown }).name);
+    const tokens = nameText.split(/\s+/).filter((token) => token.length >= 3);
+    if (!tokens.length) return true;
+    const haystack = normalizeSegmentText(row.searchText
+      || [row.nomeFantasia, row.razaoSocial].filter(Boolean).join(' '));
+    if (!haystack) return false;
+    return tokens.some((token) => {
+      const base = token.endsWith('s') ? token.slice(0, -1) : token;
+      return new RegExp(`\\b(?:${escapeRegex(token)}|${escapeRegex(base)}|${escapeRegex(base)}s)\\b`).test(haystack);
+    });
+  }
+
   /**
    * Tenta ancorar o candidato da lane web num CNPJ da base local. Telefone primeiro (índice
    * próprio, prova mais forte), nome+cidade como reserva. Só devolve 'matched' quando todas
-   * as linhas plausíveis apontam pro MESMO CNPJ básico.
+   * as linhas plausíveis apontam pro MESMO CNPJ básico — e, na lane telefone, só com nome
+   * compatível (E3): âncora inequívoca é fato + identidade, não fato sozinho.
    */
   async reconcileWebCandidate(input: {
     prisma: PrismaLike;
@@ -171,7 +188,14 @@ export class CnpjRfbReconcileService {
         if (basicos.size === 1) {
           const preferred = plausible.find((row) => normCity && normalizeSegmentText(row.normalizedCity) === normCity)
             || plausible[0];
-          return { status: 'matched', matchedBy: 'phone', record: toRecord(preferred) };
+          // E3 ESTABILIZAÇÃO (29/07): telefone único NÃO cola CNAE com nome incompatível.
+          // Caso real Mirão: extrator pegou texto de MENU ("Informática & Eletrônicos") como
+          // nome, o fone do site bateu em OUTRA empresa e o card saiu com CNAE alheio. Nome
+          // sem nenhum token em razão/fantasia → cai pra lane nome+cidade; sem âncora
+          // inequívoca o card fica "não confirmado", nunca fantasiado.
+          if (this.candidateNameCompatibleWithRow(candidate, preferred)) {
+            return { status: 'matched', matchedBy: 'phone', record: toRecord(preferred) };
+          }
         }
       }
 

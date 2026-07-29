@@ -203,3 +203,81 @@ test('F3: getCityDddHints degrada gracioso em erro (null = nao verificavel)', as
   const hints = await service.getCityDddHints({ prisma, city: 'Cidade Sem Amostra', state: 'SP' });
   assert.equal(hints, null);
 });
+
+// ── E3 ESTABILIZAÇÃO (29/07) — âncora por telefone exige NOME compatível ────────────────────
+// Caso real Mirão (Analândia/Araras): o extrator pegou texto de MENU do site
+// ("Informática & Eletrônicos") como nome da empresa; o telefone do site bateu em OUTRA
+// empresa na RFB e o card saiu com CNAE alheio ("Preparação de documentos..."). Fato
+// (telefone) sem identidade (nome) não é âncora inequívoca.
+
+test('E3: fone único mas nome SEM nenhum token na razão/fantasia = unmatched (caso Mirão)', async () => {
+  const service = new CnpjRfbReconcileService();
+  const alheia: Row = {
+    cnpj: '33444555000122',
+    razaoSocial: 'APOIO ADMINISTRATIVO PAULISTA LTDA',
+    nomeFantasia: 'APOIO PAULISTA',
+    cnae: '8211300',
+    cnaeDescription: 'Preparacao de documentos e servicos especializados de apoio administrativo',
+    normalizedCity: 'sao paulo',
+    state: 'SP',
+    searchText: 'apoio paulista apoio administrativo paulista ltda preparacao de documentos e servicos especializados de apoio administrativo',
+    situacao: 'ativa',
+    phoneShareCount: 1,
+  };
+  const prisma = fakePrisma((args) => {
+    if (args?.where?.phoneDigits === '1129432050') return [alheia];
+    return [];
+  });
+  const candidate: Record<string, unknown> = {
+    name: 'Informática & Eletrônicos',
+    phoneDigits: '1129432050',
+    segment: 'distribuidora de agua',
+  };
+  const outcome = await service.reconcileWebCandidate({ prisma, candidate, city: 'Analândia', state: 'SP' });
+  assert.equal(outcome.status, 'unmatched');
+  service.applyOutcomeToCandidate(candidate, outcome);
+  // Nada de CNAE alheio colado: card segue "não confirmado".
+  assert.equal(candidate.cnpj, undefined);
+  assert.notEqual(candidate.businessCategoryStatus, 'cnae');
+});
+
+test('E3: fone único com nome compatível (token na fantasia) segue matched — nada de falso negativo', async () => {
+  const service = new CnpjRfbReconcileService();
+  const dona: Row = {
+    cnpj: '44555666000133',
+    razaoSocial: 'JOSE DA SILVA COMERCIO DE AGUA LTDA',
+    nomeFantasia: 'MIRAO DISTRIBUIDORA',
+    cnae: '4635402',
+    cnaeDescription: 'Comercio atacadista de agua mineral',
+    normalizedCity: 'araras',
+    state: 'SP',
+    searchText: 'mirao distribuidora jose da silva comercio de agua ltda comercio atacadista de agua mineral',
+    situacao: 'ativa',
+    phoneShareCount: 1,
+  };
+  const prisma = fakePrisma((args) => {
+    if (args?.where?.phoneDigits === '1129432051') return [dona];
+    return [];
+  });
+  const candidate: Record<string, unknown> = {
+    name: 'Mirão Distribuidora',
+    phoneDigits: '1129432051',
+  };
+  const outcome = await service.reconcileWebCandidate({ prisma, candidate, city: 'Araras', state: 'SP' });
+  assert.equal(outcome.status, 'matched');
+  assert.equal(outcome.matchedBy, 'phone');
+  service.applyOutcomeToCandidate(candidate, outcome);
+  assert.equal(candidate.businessCategory, 'Comercio atacadista de agua mineral');
+});
+
+test('E3: candidato SEM nome utilizável mantém o match por fone único (nada a contradizer)', async () => {
+  const service = new CnpjRfbReconcileService();
+  const prisma = fakePrisma((args) => {
+    if (args?.where?.phoneDigits === '18999990001') return [EDR_ROW];
+    return [];
+  });
+  const candidate: Record<string, unknown> = { name: '', phoneDigits: '18999990001' };
+  const outcome = await service.reconcileWebCandidate({ prisma, candidate, city: 'Zacarias', state: 'SP' });
+  assert.equal(outcome.status, 'matched');
+  assert.equal(outcome.matchedBy, 'phone');
+});
