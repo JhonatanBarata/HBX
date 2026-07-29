@@ -231,6 +231,7 @@ type UsageResponse = {
 
 type Tab = "shelf" | "carteira";
 type GeoMode = "cities" | "radius" | "ddd" | "nearby";
+type SegmentIntentMode = "atividade" | "produto" | "publico" | "cnae";
 type RadarRequiredChannel = "whatsapp" | "phone" | "email" | "website";
 type DddLookupResponse = { state?: string; cities?: string[] };
 type GeoTarget = { city: string; state: string };
@@ -304,6 +305,48 @@ const GEO_MODE_META: Array<{
     eyebrow: "Sua localização",
     description: "Use sua posição como ponto de partida para a região.",
     icon: ICONS.leads,
+  },
+];
+
+const SEGMENT_INTENT_META: Array<{
+  key: SegmentIntentMode;
+  label: string;
+  eyebrow: string;
+  description: string;
+  placeholder: string;
+  icon: string[];
+}> = [
+  {
+    key: "atividade",
+    label: "Atividade",
+    eyebrow: "O que ela faz",
+    description: "Descreva a empresa do seu jeito. O Radar organiza a intenção e prioriza os alvos compatíveis.",
+    placeholder: "Ex.: distribuidora de água",
+    icon: ICONS.empresas,
+  },
+  {
+    key: "produto",
+    label: "Produto",
+    eyebrow: "O que ela vende",
+    description: "Procure pela oferta comercial mesmo quando a atividade registrada for mais ampla.",
+    placeholder: "Ex.: venda e entrega de água mineral",
+    icon: ICONS.produtos,
+  },
+  {
+    key: "publico",
+    label: "Público",
+    eyebrow: "Para quem vende",
+    description: "Descreva o público atendido para o Radar aproximar empresas com atuação compatível.",
+    placeholder: "Ex.: fornecedores para condomínios",
+    icon: ICONS.users,
+  },
+  {
+    key: "cnae",
+    label: "CNAE exato",
+    eyebrow: "Se você já souber",
+    description: "Use o código somente quando ele já fizer parte do seu recorte.",
+    placeholder: "Ex.: 4635-4/01",
+    icon: ICONS.doc,
   },
 ];
 
@@ -624,7 +667,6 @@ type StoredLeadFilters = {
   minReviews: string;
   requiredChannels: RadarRequiredChannel[];
   channelMatchMode: "any_required" | "all_required";
-  pauseAfter: string;
 };
 
 const EMPTY_STORED_FILTERS: StoredLeadFilters = {
@@ -638,7 +680,6 @@ const EMPTY_STORED_FILTERS: StoredLeadFilters = {
   minReviews: "",
   requiredChannels: [],
   channelMatchMode: "all_required",
-  pauseAfter: "50",
 };
 
 function getStoredFilters(): StoredLeadFilters {
@@ -672,9 +713,6 @@ function getStoredFilters(): StoredLeadFilters {
         minReviews: typeof p.minReviews === "string" || typeof p.minReviews === "number" ? String(p.minReviews) : "",
         requiredChannels,
         channelMatchMode: p.channelMatchMode === "any_required" ? "any_required" : "all_required",
-        pauseAfter: typeof p.pauseAfter === "string" || typeof p.pauseAfter === "number"
-          ? String(p.pauseAfter)
-          : "50",
       };
     }
   } catch { /* sem storage */ }
@@ -828,17 +866,25 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
   const [uf, setUf] = useState("");
   const [geoMode, setGeoMode] = useState<GeoMode>("cities");
   const [geoModeDirection, setGeoModeDirection] = useState<GeoModeDirection>("forward");
-  const geoModePill = useGlassPill<HTMLButtonElement>(geoMode);
   // `cities` é sempre limitado no estado. Região/Perto usam só a primeira;
   // Avulsas/DDD aceitam no máximo cinco alvos explícitos.
   const [cities, setCities] = useState<string[]>([]);
   const city = cities[0] || "";
   const [citiesModalOpen, setCitiesModalOpen] = useState(false);
+  const geoModePill = useGlassPill<HTMLButtonElement>(geoMode, citiesModalOpen);
   const citiesModalRef = useRef<HTMLDivElement | null>(null);
   const citiesTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [citiesQuery, setCitiesQuery] = useState("");
   const [citiesLimitMsg, setCitiesLimitMsg] = useState<string | null>(null);
   const [segment, setSegment] = useState("");
+  const [segmentModalOpen, setSegmentModalOpen] = useState(false);
+  const segmentModalRef = useRef<HTMLDivElement | null>(null);
+  const segmentTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const [segmentDraft, setSegmentDraft] = useState("");
+  const [segmentCandidate, setSegmentCandidate] = useState("");
+  const [segmentIntentMode, setSegmentIntentMode] = useState<SegmentIntentMode>("atividade");
+  const segmentIntentPill = useGlassPill<HTMLButtonElement>(segmentIntentMode, segmentModalOpen);
+  const [segmentAdvancedOpen, setSegmentAdvancedOpen] = useState(false);
   const [alcance, setAlcance] = useState("");
   const [ddd, setDdd] = useState("");
   const [dddOptions, setDddOptions] = useState<string[]>([]);
@@ -906,10 +952,6 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
   // "parado" nesse vão era chute, e o chute virava pisca (parado → funcionando 300ms
   // depois). Só depois que a 1ª consulta à sessão volta é que existe estado pra pintar.
   const [radarHydrated, setRadarHydrated] = useState(false);
-  // Pausa automática ("não sair procurando igual retardado"): o Radar para depois de N
-  // leads e espera o vendedor. Persistido junto com os filtros.
-  const [pauseAfter, setPauseAfter] = useState<string>("50");
-
   // P4: modal de campo faltando
   const [missingModal, setMissingModal] = useState<string[] | null>(null);
 
@@ -935,12 +977,6 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
   const [waStartBusy, setWaStartBusy] = useState(false);
   const [waStartError, setWaStartError] = useState<string | null>(null);
 
-  // Combobox próprio do segmento (05/07) — o <datalist> nativo do Chrome só
-  // mostrava, pela seta, o que casa com o texto já digitado. Aqui a seta abre a
-  // lista INTEIRA sempre; digitar só prioriza (matches no topo/realçados).
-  const [segMenuOpen, setSegMenuOpen] = useState(false);
-  const segBoxRef = useRef<HTMLDivElement | null>(null);
-
   // "Minhas pesquisas" mora no acordeão Avançado do seletor unificado.
   const savedMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -963,6 +999,10 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
     setAdvancedInlineOpen(false);
     setCitiesModalOpen(false);
   }, []);
+  const closeSegmentModal = useCallback(() => {
+    setSegmentAdvancedOpen(false);
+    setSegmentModalOpen(false);
+  }, []);
   useEffect(() => {
     function onGeo(e: Event) {
       const detail = (e as CustomEvent<{ lat: number; lng: number } | null>).detail;
@@ -972,27 +1012,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
     return () => window.removeEventListener("hbx:geo-updated", onGeo);
   }, []);
 
-  // Fecha o combobox de segmento ao clicar fora ou apertar Escape.
-  useEffect(() => {
-    if (!segMenuOpen) return;
-    function onPointerDown(e: PointerEvent) {
-      if (segBoxRef.current && !segBoxRef.current.contains(e.target as Node)) {
-        setSegMenuOpen(false);
-      }
-    }
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") setSegMenuOpen(false);
-    }
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [segMenuOpen]);
-
-  // Fecha o dropdown "Minhas pesquisas" ao clicar fora ou apertar Escape — mesmo
-  // padrão do combobox de segmento acima.
+  // Fecha o dropdown "Minhas pesquisas" ao clicar fora ou apertar Escape.
   useEffect(() => {
     if (!savedBar) return;
     function onPointerDown(e: PointerEvent) {
@@ -1010,6 +1030,47 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [savedBar]);
+
+  useEffect(() => {
+    if (!segmentModalOpen) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = requestAnimationFrame(() => {
+      const modal = segmentModalRef.current;
+      const preferred = modal?.querySelector<HTMLElement>("[data-segment-autofocus]:not(:disabled)");
+      const first = modal?.querySelector<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      );
+      (preferred || first)?.focus();
+    });
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        closeSegmentModal();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const focusable = Array.from(segmentModalRef.current?.querySelectorAll<HTMLElement>(
+        'button:not(:disabled), input:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      ) || []);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("keydown", onKeyDown);
+      if (previousFocus && document.contains(previousFocus)) previousFocus.focus();
+      else segmentTriggerRef.current?.focus();
+    };
+  }, [segmentModalOpen, closeSegmentModal]);
 
   useEffect(() => {
     if (!citiesModalOpen) return;
@@ -1385,10 +1446,9 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
         minReviews,
         requiredChannels,
         channelMatchMode,
-        pauseAfter,
       }));
     } catch { /* sem storage */ }
-  }, [uf, cities, segment, alcance, geoMode, ddd, minRating, minReviews, requiredChannels, channelMatchMode, pauseAfter]);
+  }, [uf, cities, segment, alcance, geoMode, ddd, minRating, minReviews, requiredChannels, channelMatchMode]);
 
   // Restaura os filtros salvos SÓ pós-montagem (setState em rAF → respeita
   // react-hooks/set-state-in-effect). Roda depois do efeito de persistência
@@ -1410,7 +1470,6 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
       setMinReviews(f.minReviews);
       setRequiredChannels(f.requiredChannels);
       setChannelMatchMode(f.channelMatchMode);
-      setPauseAfter(f.pauseAfter);
       if (f.segment || f.uf || f.cities.length > 0 || f.minRating || f.minReviews || f.requiredChannels.length > 0) {
         setHistoryHidden(true);
       }
@@ -1633,34 +1692,46 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
     setDddOptions([]);
   }
 
-  function limparFiltros() {
+  function openSegmentModal() {
+    const current = segment.trim();
+    const currentDigits = current.replace(/\D/g, "");
+    setSegmentDraft(current);
+    setSegmentCandidate(current);
+    setSegmentIntentMode(/^\d{4,7}$/.test(currentDigits) && currentDigits === current ? "cnae" : "atividade");
+    setSegmentAdvancedOpen(false);
+    setSegmentModalOpen(true);
+  }
+
+  function applySegmentSelection() {
+    const next = (segmentCandidate || segmentDraft).trim();
+    if (!next) return;
+    markFiltersDirty();
+    setSegment(next);
+    closeSegmentModal();
+  }
+
+  function limparSegmento() {
+    if (!segment.trim()) return;
+    markFiltersDirty();
+    setSegment("");
+    setSegmentDraft("");
+    setSegmentCandidate("");
+  }
+
+  function limparTerritorio() {
+    const hasTerritory = Boolean(uf || cities.length || alcance || ddd);
+    if (!hasTerritory) return;
+    markFiltersDirty();
     setUf("");
     setCities([]);
     setCitiesQuery("");
-    closeCitiesModal();
-    setSegment("");
     setAlcance("");
     setGeoMode("cities");
+    setGeoModeDirection("back");
     setDdd("");
     setDddOptions([]);
     setDddError(null);
     setCitiesLimitMsg(null);
-    setMinRating("");
-    setMinReviews("");
-    setRequiredChannels([]);
-    setChannelMatchMode("all_required");
-    setRun(null);
-    setSearchMsg(null);
-    setPullMsg(null);
-    setSelected(new Set());
-    setSelLead(null);
-    setPage(1);
-    setTab("shelf");
-    setHasSearched(false);
-    setHistoryHidden(true);
-    setFiltersStale(false);
-    setLiveRunItems(null);
-    try { localStorage.removeItem("hbx:leads-filters"); } catch { /* sem storage */ }
   }
 
   // ── WORM-15: pesquisas salvas ────────────────────────────────────────────
@@ -1861,7 +1932,6 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
         cities: targets.map(target => ({ city: target.city, state: target.state })),
         segment: effSegment,
         quantity: SEARCH_BATCH,
-        pauseAfterLeads: Math.max(0, Number(pauseAfter) || 0),
       };
       if ((geoMode === "radius" || geoMode === "nearby") && effRadius > 0) body.radiusKm = effRadius;
       if (geoMode === "nearby" && geo) {
@@ -2030,14 +2100,28 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
     segmentOptionMap.set(key, { ...segmentOptionMap.get(key), ...option });
   }
   const segmentSuggestions = Array.from(segmentOptionMap.values())
-    .map(option => ({ option, score: segmentSearchScore(option.label, segment) }))
+    .map(option => ({ option, score: segmentSearchScore(option.label, segmentDraft) }))
     .filter(item => Number.isFinite(item.score))
     .sort((a, b) => a.score - b.score || byLabel(a.option, b.option))
-    .slice(0, 9)
+    .slice(0, 8)
     .map(item => item.option);
   const segmentValue = segment.trim();
-  const cnaeValue = segmentValue.replace(/\D/g, "");
-  const isCnaeValue = /^\d{4,7}$/.test(cnaeValue) && cnaeValue === segmentValue;
+  const segmentDraftValue = segmentDraft.trim();
+  const segmentIntentInfo = SEGMENT_INTENT_META.find(mode => mode.key === segmentIntentMode)
+    || SEGMENT_INTENT_META[0];
+  const segmentCandidates = [
+    ...(segmentDraftValue ? [{
+      value: segmentDraftValue,
+      label: segmentDraftValue,
+      category: segmentIntentMode === "cnae" ? "CNAE exato" : "Intenção da busca",
+    }] : []),
+    ...segmentSuggestions,
+  ].filter((option, index, options) =>
+    options.findIndex(current => normCity(current.label) === normCity(option.label)) === index,
+  ).slice(0, 8);
+  const selectedSegmentOption = segmentCandidates.find(option =>
+    normCity(option.label) === normCity(segmentCandidate),
+  );
   const ufOptions = mergeFilterOptions(filters?.states, BRAZIL_UF_OPTIONS).sort(byLabel);
   const ufCityOptions = uf
     ? mergeBrazilCityOptions(uf, filters?.citiesByState?.[uf]).sort(byLabel)
@@ -2490,167 +2574,66 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
   }
 
   function renderCommandBar() {
-    const targetLimit = geoMode === "radius" || geoMode === "nearby" ? 1 : MAX_CITY_TARGETS;
-    const hasAnyFilter = Boolean(
-      segment.trim() ||
-      uf.trim() ||
-      cities.length ||
-      alcance ||
-      ddd ||
-      advancedCount,
-    );
+    const hasTerritory = Boolean(uf || cities.length || alcance || ddd);
     return (
       <div className="be-cmdbar be-cmdbar--required" data-tut="leads-filtros">
-        <div className={"be-search be-required-segment" + (segmentValue ? " is-ready" : "")} data-tut="leads-busca-criativa" ref={segBoxRef}>
-          <span className="be-search__icon"><I d={ICONS.search} size={16} /></span>
-          <label className="be-search__field">
-            <small>Atividade ou CNAE</small>
-            <input
-              className="be-search__input"
-              placeholder="Ex.: distribuidora de água"
-              value={segment}
-              disabled={searchInProgress}
-              onFocus={() => setSegMenuOpen(true)}
-              onChange={e => {
-                markFiltersDirty();
-                setSegment(e.target.value);
-                setSegMenuOpen(true);
-              }}
-              onKeyDown={e => {
-                if (e.key === "Enter" && canSearch && !searchInProgress) { setSegMenuOpen(false); executarBusca(); }
-                else if (e.key === "ArrowDown") { setSegMenuOpen(true); }
-              }}
-              role="combobox"
-              aria-label="Atividade ou CNAE obrigatório"
-              aria-required="true"
-              aria-expanded={segMenuOpen}
-              aria-controls="rc-seg-menu"
-              aria-autocomplete="list"
-            />
-          </label>
+        <div
+          className={"be-filter-panel" + (segmentValue ? " is-ready" : "")}
+          data-tut="leads-busca-criativa"
+        >
           <button
             type="button"
-            className={"be-search__chevron" + (segMenuOpen ? " be-search__chevron--open" : "")}
-            onClick={() => setSegMenuOpen(o => !o)}
-            disabled={searchInProgress}
-            aria-label={segMenuOpen ? "Fechar lista de segmentos" : "Abrir lista de segmentos"}
-            tabIndex={-1}
+            ref={segmentTriggerRef}
+            className="be-filter-panel__trigger"
+            onClick={openSegmentModal}
+            disabled={searchInProgress || !radarKnown}
+            aria-haspopup="dialog"
+            aria-label={`Atividade: ${segmentValue || "não definida"}`}
           >
-            <I d={ICONS.chevronDown} size={16} />
+            <span className="be-filter-panel__icon"><I d={ICONS.search} size={17} /></span>
+            <strong>{segmentValue || "Atividade"}</strong>
           </button>
-          {segMenuOpen && (
-            <div className="be-search__menu" id="rc-seg-menu" role="listbox">
-              <div className="be-search__menu-head">
-                <strong>Atividades e CNAEs</strong>
-                <b>Receita</b>
-              </div>
-              {segmentValue && (
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected="false"
-                  className="be-search__intent"
-                  onClick={() => { markFiltersDirty(); setSegment(isCnaeValue ? cnaeValue : segmentValue); setSegMenuOpen(false); }}
-                >
-                  <span className="be-search__intent-icon">{isCnaeValue ? "№" : "Aa"}</span>
-                  <span className="be-search__intent-copy">
-                    <strong>{isCnaeValue ? `CNAE ${cnaeValue}` : `“${segmentValue}”`}</strong>
-                  </span>
-                  <I d={ICONS.arrow} size={15} />
-                </button>
-              )}
-              <div className="be-search__section-title">
-                <span>{segmentValue ? "Atividades relacionadas" : "Atividades sugeridas"}</span>
-                <small>{segmentSuggestions.length} opções</small>
-              </div>
-              {segmentSuggestions.length === 0 ? (
-                <div className="be-search__opt be-search__opt--empty" aria-disabled>
-                  Nenhuma sugestão
-                </div>
-              ) : segmentSuggestions.map(o => {
-                const selected = normCity(o.label) === normCity(segment);
-                return (
-                  <button
-                    key={`${o.value}-${o.label}`}
-                    type="button"
-                    role="option"
-                    aria-selected={selected}
-                    className={"be-search__opt" + (selected ? " be-search__opt--active" : "")}
-                    onClick={() => { markFiltersDirty(); setSegment(o.label); setSegMenuOpen(false); }}
-                  >
-                    <span className="be-search__opt-copy">
-                      <strong>{o.label}</strong>
-                      {o.category && <small>{o.category}</small>}
-                    </span>
-                    {typeof o.count === "number" && (
-                      <span className="be-search__opt-count">{o.count.toLocaleString("pt-BR")}</span>
-                    )}
-                  </button>
-                );
-              })}
-              <div className="be-search__cnae-tip">
-                <span className="be-search__cnae-mark">CNAE</span>
-                <span className="be-search__cnae-digits">4–7 dígitos</span>
-              </div>
-            </div>
-          )}
+          <button
+            type="button"
+            className="be-filter-panel__trash"
+            onClick={limparSegmento}
+            disabled={!segmentValue || searchInProgress || !radarKnown}
+            aria-label="Limpar atividade"
+            title="Limpar atividade"
+          >
+            <I d={ICONS.trash} size={15} />
+          </button>
         </div>
 
-        <button
-          type="button"
-          ref={citiesTriggerRef}
-          className={"be-required-location be-geo-trigger" + (geoTargets.length > 0 ? " be-geo-trigger--ready" : "")}
-          onClick={() => {
-            setCitiesQuery("");
-            setCitiesLimitMsg(null);
-            setAdvancedInlineOpen(false);
-            setCitiesModalOpen(true);
-          }}
-          disabled={searchInProgress || !radarKnown}
-          aria-haspopup="dialog"
-          aria-label={`Filtros geográficos: ${geoSummary}`}
-          title="Editar filtros geográficos"
-        >
-          <span className="be-geo-trigger__icon"><I d={geoModeInfo.icon} size={17} /></span>
-          <span className="be-geo-trigger__copy">
-            {geoModeInfo.eyebrow && <small>{geoModeInfo.eyebrow}</small>}
-            <strong>{geoSummary}</strong>
-          </span>
-          <span className="be-geo-trigger__limit">
-            {geoTargets.length}/{targetLimit}
-          </span>
-          <span className="be-geo-trigger__chevron">
-            <I d={ICONS.chevronDown} size={15} />
-          </span>
-        </button>
-
-        <button
-          type="button"
-          className="btn-ghost btn-xs be-cmdbar__advanced be-cmdbar__clear"
-          onClick={limparFiltros}
-          disabled={!hasAnyFilter || searchInProgress || !radarKnown}
-          title="Limpar toda a busca"
-        >
-          <I d={ICONS.x} size={13} /> Limpar
-        </button>
-
-        {/* REFUNDAÇÃO F2: freio do trabalho — o Radar pausa sozinho depois de N leads
-            e espera o vendedor (Continuar retoma do ponto). 0 = corrida completa. */}
-        <label className="be-cmdbar__pause" title="Pausa automática: o Radar para depois de N leads e espera você continuar">
-          <span className="be-cmdbar__pause-icon"><I d={ICONS.clock} size={15} /></span>
-          <span className="be-cmdbar__pause-copy"><strong>Pausa automática</strong></span>
-          <select
-            value={pauseAfter}
-            onChange={e => setPauseAfter(e.target.value)}
+        <div className={"be-filter-panel" + (geoTargets.length > 0 ? " is-ready" : "")}>
+          <button
+            type="button"
+            ref={citiesTriggerRef}
+            className="be-filter-panel__trigger"
+            onClick={() => {
+              setCitiesQuery("");
+              setCitiesLimitMsg(null);
+              setAdvancedInlineOpen(false);
+              setCitiesModalOpen(true);
+            }}
             disabled={searchInProgress || !radarKnown}
-            aria-label="Pausa automática após quantos leads"
+            aria-haspopup="dialog"
+            aria-label={`Território: ${geoTargets.length > 0 ? geoSummary : "não definido"}`}
           >
-            <option value="0">Sem pausa</option>
-            <option value="25">25 leads</option>
-            <option value="50">50 leads</option>
-            <option value="100">100 leads</option>
-          </select>
-        </label>
+            <span className="be-filter-panel__icon"><I d={ICONS.mapin} size={17} /></span>
+            <strong>{geoTargets.length > 0 ? geoSummary : "Território"}</strong>
+          </button>
+          <button
+            type="button"
+            className="be-filter-panel__trash"
+            onClick={limparTerritorio}
+            disabled={!hasTerritory || searchInProgress || !radarKnown}
+            aria-label="Limpar território"
+            title="Limpar território"
+          >
+            <I d={ICONS.trash} size={15} />
+          </button>
+        </div>
 
         {!radarKnown ? (
           /* ANTI-PISCA: sem saber se já existe busca rodando, o botão não pode
@@ -3331,6 +3314,179 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
               </ul>
               <p>Preencha os campos acima antes de buscar.</p>
               <button className="btn-teal" onClick={() => setMissingModal(null)}>Entendi</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {segmentModalOpen && (
+        <div className="hbx-veil" onClick={closeSegmentModal}>
+          <div
+            ref={segmentModalRef}
+            className="hbx-modal be-cities-modal be-segment-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Atividade da busca"
+            onClick={event => event.stopPropagation()}
+          >
+            <div className="be-cities">
+              <div className="be-cities__head">
+                <span className="be-cities__eyebrow">Radar HBX</span>
+                <button type="button" className="be-cities__x" aria-label="Fechar" onClick={closeSegmentModal}>
+                  <I d={ICONS.x} size={16} />
+                </button>
+              </div>
+
+              <div className="glass-pill-track be-geo-modes" role="group" aria-label="Formato da atividade">
+                <GlassPill {...segmentIntentPill} />
+                {SEGMENT_INTENT_META.map(mode => (
+                  <button
+                    key={mode.key}
+                    type="button"
+                    ref={segmentIntentPill.itemRef(mode.key)}
+                    aria-pressed={segmentIntentMode === mode.key}
+                    className={"glass-pill-item be-geo-mode" + (segmentIntentMode === mode.key ? " active" : "")}
+                    onClick={() => setSegmentIntentMode(mode.key)}
+                  >
+                    <I d={mode.icon} size={16} />
+                    <span>
+                      <strong>{mode.label}</strong>
+                      <small>{mode.eyebrow}</small>
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="be-geo-mode-note">
+                <span className="be-geo-mode-note__icon"><I d={segmentIntentInfo.icon} size={17} /></span>
+                <span>
+                  <strong>{segmentIntentInfo.eyebrow}</strong>
+                  <small>{segmentIntentInfo.description}</small>
+                </span>
+              </div>
+
+              <div className="be-segment-fields">
+                <label className="f" htmlFor="be-segment-search">
+                  <span>{segmentIntentInfo.label}</span>
+                  <div className="be-cities__search">
+                    <I d={ICONS.search} size={15} />
+                    <input
+                      id="be-segment-search"
+                      data-segment-autofocus
+                      value={segmentDraft}
+                      placeholder={segmentIntentInfo.placeholder}
+                      onChange={event => {
+                        const value = event.target.value;
+                        setSegmentDraft(value);
+                        setSegmentCandidate(value.trim());
+                      }}
+                      onKeyDown={event => {
+                        if (event.key === "Enter" && (segmentCandidate || segmentDraft).trim()) {
+                          event.preventDefault();
+                          applySegmentSelection();
+                        }
+                      }}
+                      autoComplete="off"
+                    />
+                  </div>
+                </label>
+              </div>
+
+              <div className="be-geo-picker">
+                <div className="be-cities__toolbar">
+                  <span className="be-cities__selcount">{segmentCandidate ? "1 alvo" : "Nenhum alvo"}</span>
+                  <span className="be-cities__visible-count">{segmentCandidates.length} interpretações</span>
+                </div>
+                <div className="be-cities__list be-segment-results" role="listbox" aria-label="Interpretações da atividade">
+                  {segmentCandidates.length === 0 ? (
+                    <div className="be-cities__empty">Digite como você procura essa empresa.</div>
+                  ) : segmentCandidates.map(option => {
+                    const on = normCity(option.label) === normCity(segmentCandidate);
+                    return (
+                      <button
+                        key={`${option.value}-${option.label}`}
+                        type="button"
+                        role="option"
+                        aria-selected={on}
+                        className={"be-cities__opt be-segment-option" + (on ? " is-on" : "")}
+                        onClick={() => setSegmentCandidate(option.label)}
+                      >
+                        <span className="be-cities__check" aria-hidden="true">{on && <I d={ICONS.check} size={13} />}</span>
+                        <span className="be-segment-option__copy">
+                          <strong>{option.label}</strong>
+                          <small>{option.category || "Atividade"}</small>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className={"be-geo-plan" + (segmentCandidate ? " be-geo-plan--ready" : "")}>
+                <div className="be-geo-plan__targets">
+                  {segmentCandidate ? (
+                    <span className="be-geo-target">
+                      <b>1</b>
+                      <span className="be-segment-target__label">{segmentCandidate}</span>
+                      <button type="button" onClick={() => setSegmentCandidate("")} aria-label="Remover atividade">
+                        <I d={ICONS.x} size={10} />
+                      </button>
+                    </span>
+                  ) : (
+                    <span className="be-geo-plan__empty">Nenhum alvo definido.</span>
+                  )}
+                </div>
+              </div>
+
+              <div className={"be-geo-advanced" + (segmentAdvancedOpen ? " is-open" : "")}>
+                <button
+                  type="button"
+                  className="be-geo-advanced__toggle"
+                  onClick={() => setSegmentAdvancedOpen(open => !open)}
+                  aria-expanded={segmentAdvancedOpen}
+                  aria-controls="be-segment-advanced-content"
+                >
+                  <span className="be-geo-advanced__icon"><I d={ICONS.filter} size={15} /></span>
+                  <strong>Avançado</strong>
+                  <span className="be-geo-advanced__chevron"><I d={ICONS.chevronDown} size={14} /></span>
+                </button>
+                {segmentAdvancedOpen && (
+                  <div id="be-segment-advanced-content" className="be-geo-advanced__body">
+                    <div className="be-segment-tech">
+                      <span>
+                        <small>Busca enviada</small>
+                        <strong>{segmentCandidate || segmentDraftValue || "—"}</strong>
+                      </span>
+                      <span>
+                        <small>Leitura</small>
+                        <strong>{selectedSegmentOption?.category || segmentIntentInfo.label}</strong>
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="be-cities__foot">
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={() => {
+                    setSegmentDraft("");
+                    setSegmentCandidate("");
+                  }}
+                  disabled={!segmentDraft && !segmentCandidate}
+                >
+                  Limpar
+                </button>
+                <button
+                  type="button"
+                  className="btn-teal"
+                  onClick={applySegmentSelection}
+                  disabled={!(segmentCandidate || segmentDraft).trim()}
+                >
+                  Concluir
+                </button>
+              </div>
             </div>
           </div>
         </div>

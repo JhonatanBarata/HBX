@@ -5416,41 +5416,14 @@ html, body { height: 100%; }
   border-bottom: 1px solid var(--border-hairline);
   background: var(--hbx-surface);
 }
-.be-cmdbar--required > .be-search { flex: 1 1 15rem; min-width: 11rem; }
-.be-cmdbar--required > .be-required-location { flex: 1 1 18rem; min-width: 13rem; }
-.be-cmdbar--required > .be-cmdbar__clear,
-.be-cmdbar--required > .be-cmdbar__pause { flex: 0 0 auto; }
+.be-cmdbar--required > .be-filter-panel { flex: 1 1 15rem; min-width: 11rem; }
 /* Execução (Buscar / Pausar+Parar) sempre por último e sempre visível. */
 .be-cmdbar--required > .be-cmdbar__go,
 .be-cmdbar--required > .be-cmdbar__runctl { flex: 0 0 auto; margin-left: auto; }
-/* REFUNDAÇÃO F2: pausa automática (freio do trabalho) + controles de execução da sessão */
-.be-cmdbar__pause {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: var(--field-height);
-  white-space: nowrap;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-}
-.be-cmdbar__pause select {
-  min-height: var(--field-height);
-  padding: 0 8px;
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-md);
-  background: var(--hbx-surface);
-  color: var(--text-strong);
-  font-size: var(--text-sm);
-}
 .be-cmdbar__runctl {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-}
-.be-cmdbar--required .be-search {
-  min-width: 0;
-  min-height: var(--field-height);
-  padding: 0 12px;
 }
 .be-cmdbar--required .be-cmdbar__go,
 .be-cmdbar--required .be-cmdbar__advanced {
@@ -5473,78 +5446,89 @@ html, body { height: 100%; }
   font-size: 0.6rem;
   font-weight: 800;
 }
-.be-required-location.be-geo-trigger {
+.be-filter-panel {
   display: grid;
-  grid-template-columns: 32px minmax(0, 1fr) auto 18px;
+  grid-template-columns: minmax(0, 1fr) 38px;
   align-items: center;
-  gap: 8px;
   min-width: 0;
   height: var(--field-height);
-  padding: 0 10px;
   overflow: hidden;
   border: 1px solid var(--border-hairline);
-  border-radius: 999px;
+  border-radius: var(--radius-lg);
   background: var(--hbx-field-surface);
   color: var(--text-body);
-  font-family: var(--font-body);
-  text-align: left;
-  cursor: pointer;
   transition: border-color var(--motion-fast), box-shadow var(--motion-fast), background var(--motion-fast);
 }
-.be-required-location.be-geo-trigger:hover {
+.be-filter-panel:hover {
   border-color: color-mix(in srgb, var(--hbx-brand) 42%, var(--border-hairline));
   background: color-mix(in srgb, var(--hbx-brand-soft) 34%, var(--hbx-field-surface));
 }
-.be-required-location.be-geo-trigger:focus-visible {
+.be-filter-panel:focus-within {
   outline: none;
   border-color: var(--hbx-brand);
   box-shadow: 0 0 0 3px var(--ring-brand);
 }
-.be-required-location.be-geo-trigger:disabled { opacity: 0.65; cursor: not-allowed; }
-.be-geo-trigger__icon {
+.be-filter-panel.is-ready {
+  border-color: color-mix(in srgb, var(--hbx-brand) 42%, var(--border-hairline));
+}
+.be-filter-panel__trigger {
+  appearance: none;
   display: grid;
-  place-items: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 999px;
-  background: var(--hbx-surface-soft);
-  color: var(--text-muted);
+  grid-template-columns: 32px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--text-body);
+  font-family: var(--font-body);
+  text-align: left;
+  cursor: pointer;
 }
-.be-geo-trigger--ready .be-geo-trigger__icon { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); }
-.be-geo-trigger__copy { display: grid; gap: 0; min-width: 0; }
-.be-geo-trigger__copy small {
-  color: var(--text-muted);
-  font-size: 0.55rem;
-  font-weight: 800;
-  letter-spacing: 0.055em;
-  line-height: 1.15;
-  text-transform: uppercase;
-}
-.be-geo-trigger__copy strong {
+.be-filter-panel__trigger:disabled,
+.be-filter-panel__trash:disabled { opacity: 0.48; cursor: not-allowed; }
+.be-filter-panel__trigger strong {
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 0.7rem;
+  font-size: 0.72rem;
   font-weight: 780;
   line-height: 1.25;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.be-geo-trigger__limit {
-  display: inline-grid;
+.be-filter-panel__icon {
+  display: grid;
   place-items: center;
-  min-width: 30px;
-  height: 22px;
-  padding: 0 7px;
-  border: 1px solid var(--border-hairline);
-  border-radius: 999px;
-  background: var(--hbx-surface);
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: var(--hbx-surface-soft);
   color: var(--text-muted);
-  font-family: var(--font-mono);
-  font-size: 0.58rem;
-  font-weight: 850;
 }
-.be-geo-trigger--ready .be-geo-trigger__limit { border-color: var(--hbx-brand); color: var(--hbx-brand-strong); }
-.be-geo-trigger__chevron { display: grid; place-items: center; color: var(--text-muted); }
+.be-filter-panel.is-ready .be-filter-panel__icon {
+  background: var(--hbx-brand-soft);
+  color: var(--hbx-brand-strong);
+}
+.be-filter-panel__trash {
+  appearance: none;
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+  width: 38px;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--border-hairline);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
+}
+.be-filter-panel__trash:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--hbx-danger) 9%, transparent);
+  color: var(--hbx-danger);
+}
 
 /* Modal de território: mostra o custo operacional antes do usuário confirmar. */
 .be-cities-modal {
@@ -5693,6 +5677,67 @@ html, body { height: 100%; }
   outline: none;
 }
 .be-cities__search input:disabled { opacity: 0.62; cursor: not-allowed; }
+.be-segment-fields { display: grid; }
+.be-segment-fields .f { display: grid; gap: 5px; }
+.be-segment-fields .f > span {
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  font-weight: 780;
+}
+.be-segment-results { min-height: 118px; }
+.be-segment-option { min-height: 48px; }
+.be-segment-option__copy {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
+}
+.be-segment-option__copy strong {
+  overflow: hidden;
+  color: inherit;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.be-segment-option__copy small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 0.59rem;
+  font-weight: 620;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.be-segment-target__label {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.be-segment-modal .be-geo-advanced__toggle {
+  grid-template-columns: 30px minmax(0, 1fr) 18px;
+}
+.be-segment-tech {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.be-segment-tech > span {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 11px;
+  background: var(--hbx-surface);
+}
+.be-segment-tech small { color: var(--text-muted); font-size: 0.58rem; }
+.be-segment-tech strong {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .be-geo-ddd { display: grid; gap: 7px; }
 .be-geo-ddd__field { display: grid; gap: 5px; }
 .be-geo-ddd__control {
@@ -5980,8 +6025,7 @@ html, body { height: 100%; }
 @media (max-width: 900px) {
   /* Campo e território tomam a linha inteira; o botão de execução continua
      numa linha própria, inteiro e clicável (nunca escondido). */
-  .be-cmdbar--required > .be-search,
-  .be-cmdbar--required > .be-required-location { flex: 1 1 100%; min-width: 0; }
+  .be-cmdbar--required > .be-filter-panel { flex: 1 1 100%; min-width: 0; }
 }
 @media (max-width: 640px) {
   .be-geo-modes { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -5993,7 +6037,6 @@ html, body { height: 100%; }
   .be-adv-searches__actions { justify-content: flex-start; }
 }
 @media (max-width: 520px) {
-  .be-cmdbar--required > .be-cmdbar__pause { flex: 1 1 100%; }
   .be-cmdbar--required > .be-cmdbar__go,
   .be-cmdbar--required > .be-cmdbar__runctl { margin-left: 0; flex: 1 1 100%; justify-content: center; }
   .be-cmdbar--required > .be-cmdbar__runctl > .be-cmdbar__go { flex: 1 1 auto; }
@@ -6005,6 +6048,7 @@ html, body { height: 100%; }
   .be-geo-ddd__control input { width: 46px; }
   .be-geo-ddd__control .btn-teal { padding-inline: 9px; font-size: 0.65rem; }
   .be-geo-radius__options { grid-template-columns: repeat(2, 1fr); }
+  .be-segment-tech { grid-template-columns: 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
   .be-geo-stage { transition: none; }
