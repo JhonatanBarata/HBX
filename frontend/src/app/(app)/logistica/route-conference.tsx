@@ -19,6 +19,7 @@ import { apiFetch } from "@/lib/api";
 
 import styles from "./route-builder.module.css";
 import { RoutePlanMap, type PlanMapStop } from "./route-plan-map";
+import { RouteQuickStop } from "./route-quick-stop";
 import {
   conferirRota,
   descartarMontagem,
@@ -54,6 +55,10 @@ export function RouteConference({
   const [error, setError] = useState<string | null>(null);
   const [aceitando, setAceitando] = useState(false);
   const [desfazendo, setDesfazendo] = useState(false);
+  const [rapida, setRapida] = useState(false);
+  // A seleção cresce quando a Rota rápida adiciona uma parada — e o conferir
+  // roda de novo sozinho, então a distância e a previsão já contam com ela.
+  const [ids, setIds] = useState<string[]>(deliveryIds);
   // A ordem que o próximo conferir deve AUDITAR. Fica em ref, não em estado: a
   // sequência que a tela mostra é sempre a que o servidor devolveu (`data`), e
   // guardar isso em estado faria o efeito disparar dois conferir por toque.
@@ -64,12 +69,12 @@ export function RouteConference({
     setError(null);
     // Preview de crédito roda em PARALELO — zero lentidão artificial, e a falha
     // dele nunca vaza pro catch do conferir.
-    const custoPromise = getCustoPreview(date, deliveryIds);
+    const custoPromise = getCustoPreview(date, ids);
     try {
       const manual = ordemRef.current;
       const result = await conferirRota({
         date,
-        deliveryIds,
+        deliveryIds: ids,
         ...(manual?.length ? { ordemManual: manual } : {}),
       });
       setData(result);
@@ -79,7 +84,7 @@ export function RouteConference({
       setCusto(await custoPromise);
       setLoading(false);
     }
-  }, [date, deliveryIds]);
+  }, [date, ids]);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch ao montar; efeito legítimo, não estado derivado.
   useEffect(() => { void conferir(); }, [conferir]);
@@ -223,11 +228,30 @@ export function RouteConference({
           <button type="button" className={styles.secondary} onClick={() => void cancelar()} disabled={aceitando || desfazendo}>
             {desfazendo ? "Desfazendo…" : "Cancelar rota"}
           </button>
+          <button type="button" className={styles.secondary} onClick={() => setRapida(true)} disabled={travado}>
+            + Parada
+          </button>
           <button type="button" className={styles.primary} onClick={() => void aceitar()} disabled={travado || !paradas.length}>
             {aceitando ? "Aceitando…" : loading ? "Atualizando…" : "Aceitar rota"}
           </button>
         </div>
       </footer>
+
+      {rapida && (
+        <RouteQuickStop
+          date={date}
+          contasNaRota={paradas.map((parada) => String(parada.customerProfileId || "")).filter(Boolean)}
+          onClose={() => setRapida(false)}
+          onAdded={(deliveryId) => {
+            setRapida(false);
+            // A parada nova não está na ordem que o operador tinha alinhado à
+            // mão — devolver a decisão pro motor é mais honesto que enfiar ela
+            // no fim calado. Depois ele reordena com as setas se quiser.
+            ordemRef.current = null;
+            setIds((atuais) => [...new Set([...atuais, deliveryId])]);
+          }}
+        />
+      )}
     </>
   );
 }

@@ -493,8 +493,14 @@ export function RouteBuilderDialog({
     void refreshPreview(next);
   }
 
-  function openOrderChoice() {
-    setManualOrder(preview.map(previewKey));
+  // `fora` explícito porque quem chama daqui pode ter acabado de excluir gente
+  // NESTE mesmo handler: `preview` (estado derivado) ainda seria o de antes, e a
+  // ordem manual nasceria com clientes que já saíram da rota.
+  function openOrderChoice(fora: string[] = excluidos) {
+    const lista = fora.length
+      ? previewBruto.filter((customer) => !fora.includes(String(customer.customerProfileId)))
+      : previewBruto;
+    setManualOrder(lista.map(previewKey));
     setSearch("");
     setStep("order");
   }
@@ -525,7 +531,7 @@ export function RouteBuilderDialog({
     void abrirPortao(
       selectedDays,
       selectedDays.map((day) => sourceDates[day] || dateForWeekday(day)),
-      openOrderChoice,
+      () => openOrderChoice(),
     );
   }
 
@@ -798,9 +804,10 @@ export function RouteBuilderDialog({
             dados={gate.dados}
             onLimpo={() => { setGate(null); openOrderChoice(); }}
             onIgnorarNaRota={(ids) => {
-              setExcluidos((atuais) => [...new Set([...atuais, ...ids])]);
+              const fora = [...new Set([...excluidos, ...ids])];
+              setExcluidos(fora);
               setGate(null);
-              openOrderChoice();
+              openOrderChoice(fora);
             }}
             onVoltar={() => { setGate(null); setStep(selectedDays.length ? "days" : "home"); }}
           />
