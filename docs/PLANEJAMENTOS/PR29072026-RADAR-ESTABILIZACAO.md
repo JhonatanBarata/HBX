@@ -11,11 +11,15 @@
 > zero (o caso solutudo era fora-de-segmento); fechar exige reordenar reconcile↔evaluate —
 > só com caso falho real (que vira fixture primeiro).
 > **E3 lote 1 ✅** `1eeaf9ca` — âncora por fone exige nome compatível (caso Mirão morto).
-> Pendente do E3: cidade por evidência (matar o carimbo — o card de Campinas com DDD 19
-> ainda passa) e sanidade anti-menu no nome extraído.
-> **E5 parcial** — 12 regressões novas com os casos reais nos gates/reconcile; falta o
+> **E3 lote 2 ✅** `cf932610` — cidade por EVIDÊNCIA: caminho /uf/cidade/ com município real
+> do estado (base local 5.570) contradizendo a busca mata o card (caso PA Pingo D Agua,
+> qualotelefone/sp/campinas carimbado Analândia); anti-menu no nome ("Informática &
+> Eletrônicos" = non_business_name, "M & M Distribuidora" passa). Residual declarado: card
+> sem NENHUMA evidência de cidade ainda herda o rótulo da busca (não há contradição possível
+> hoje; virar "cidade não confirmada" no card é cosmético de presenter, não porta).
+> **E5 parcial** — 19 regressões novas com os casos reais nos gates/reconcile; falta o
 > replay coleta→apresentação de ponta a ponta como suíte do publish.
-> Suítes: gates 45/45, reconcile 13/13, grande 136/141 (4 socials pré-existentes = master).
+> Suítes: gates 52/52, reconcile 13/13, grande 174/179 (4 socials pré-existentes = master).
 
 > Contexto: a REFUNDAÇÃO (PR28072026) entregou F1 sessão server-side, F2 front espectador,
 > F4 ordem do dinheiro (Brave por último + teto diário) e F3 verdade de segmento — tudo em prod
