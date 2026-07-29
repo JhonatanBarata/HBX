@@ -750,6 +750,10 @@ test('saveSearchRunResults CORREÇÃO-DA-PORTA: skipped exige evidencia POSITIVA
     targetQuantity: 10,
   });
   const service = new WebscrapingService(prisma) as any;
+  // C6: a morte por segmento tem de virar estoque sob a categoria real (spy — o pool mock
+  // deste harness nao tem radarLeadPool).
+  const stockCalls: string[] = [];
+  service.storeMismatchAsRealSegmentStock = async (candidate: any) => { stockCalls.push(String(candidate?.name || '')); };
   const normalized = service.normalizeSearchInput({
     city: 'Campinas',
     state: 'SP',
@@ -797,6 +801,9 @@ test('saveSearchRunResults CORREÇÃO-DA-PORTA: skipped exige evidencia POSITIVA
   assert.equal(items[1].status, 'found');
   assert.equal(items[2].status, 'skipped');
   assert.equal(JSON.parse(items[2].rawJson).quality.status, 'segment_mismatch');
+  // C6: SO a morte por segmento vira estoque — Tia Luiza (unconfirmed) e a mecanica (found)
+  // nao passam pelo caminho de revenda.
+  assert.deepEqual(stockCalls, ['Farmácia Santa Rosa']);
 });
 
 test('saveSearchRunResults no List entrega card real com telefone mesmo sem enriquecimento', async () => {
@@ -1957,6 +1964,79 @@ test('VACINA D2: nome real sem evidencia NUNCA vira segment_mismatch bloqueante'
     }, { requestedSegment: segmento, targetType: 'pj' });
     assert.notEqual(quality.status, 'segment_mismatch', `"${nome}" (busca "${segmento}") NAO pode ser bloqueado sem evidencia de outro segmento`);
   }
+});
+
+// ── VACINA C6 (29/07): morte por segmento vira ESTOQUE com a categoria da EVIDÊNCIA ─────────
+// O card reprovado é empresa REAL de outro ramo — custo de achar já pago. Vira linha global
+// no pool sob a categoria que a EVIDÊNCIA diz, NUNCA o texto buscado (D9: carimbo ≠ fato).
+test('C6: mismatch com evidencia vira estoque no pool com a categoria REAL (nunca a buscada)', async () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const created: any[] = [];
+  service.supportsRadarPersistence = async () => true;
+  service.prisma.radarLeadPool = {
+    findFirst: async () => null,
+    create: async ({ data }: any) => { created.push(data); return data; },
+  };
+  await service.storeMismatchAsRealSegmentStock({
+    name: 'EDR Imobiliária',
+    phone: '(19) 99999-5678',
+    phoneDigits: '19999995678',
+    city: 'Aguaí',
+    state: 'SP',
+  }, { segment: 'distribuidora de agua', city: 'Aguaí', state: 'SP', targetType: 'pj' });
+  assert.equal(created.length, 1);
+  assert.equal(created[0].segment, 'imobiliarias');
+  assert.equal(created[0].normalizedSegment, 'imobiliarias');
+  assert.equal(created[0].status, 'clean');
+  assert.equal(created[0].companyId, null);
+  const metadata = JSON.parse(created[0].metadataJson);
+  assert.equal(metadata.segmentRejections[0].segment, 'distribuidora de agua');
+});
+
+test('C6: linha existente no pool NAO e sobrescrita pela rejeicao; sem categoria derivavel nao cria', async () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const created: any[] = [];
+  service.supportsRadarPersistence = async () => true;
+  service.prisma.radarLeadPool = {
+    findFirst: async () => ({ id: 'ja-existe' }),
+    create: async ({ data }: any) => { created.push(data); return data; },
+  };
+  await service.storeMismatchAsRealSegmentStock({
+    name: 'EDR Imobiliária',
+    phoneDigits: '19999995678',
+  }, { segment: 'distribuidora de agua', city: 'Aguaí', state: 'SP', targetType: 'pj' });
+  assert.equal(created.length, 0, 'linha existente tem dono/segmento proprios — rejeicao nao sobrescreve');
+
+  service.prisma.radarLeadPool = {
+    findFirst: async () => null,
+    create: async ({ data }: any) => { created.push(data); return data; },
+  };
+  await service.storeMismatchAsRealSegmentStock({
+    name: 'Empresa Neutra Qualquer',
+    phoneDigits: '19999990009',
+  }, { segment: 'padarias', city: 'Aguaí', state: 'SP', targetType: 'pj' });
+  assert.equal(created.length, 0, 'sem evidencia de categoria nao inventa estoque');
+});
+
+test('C6: isSegmentRejectedRunItem so pega skipped com mismatch de EVIDENCIA', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  assert.equal(service.isSegmentRejectedRunItem({
+    status: 'skipped',
+    rawJson: JSON.stringify({ quality: { status: 'segment_mismatch', billable: false, reasons: ['Nome indica outro segmento comercial.'] } }),
+  }), true);
+  // Carimbo velho "sem evidencia" → migração em leitura (D3) → unconfirmed → fica FORA do bloco.
+  assert.equal(service.isSegmentRejectedRunItem({
+    status: 'skipped',
+    rawJson: JSON.stringify({ quality: { status: 'segment_mismatch', billable: false, reasons: ['Sem evidencia suficiente de aderencia ao segmento.'] } }),
+  }), false);
+  assert.equal(service.isSegmentRejectedRunItem({
+    status: 'found',
+    rawJson: JSON.stringify({ quality: { status: 'segment_mismatch' } }),
+  }), false);
+  assert.equal(service.isSegmentRejectedRunItem({
+    status: 'skipped',
+    duplicateReason: 'Segmento excluido: Imobiliária / corretagem de imóveis.',
+  }), true);
 });
 
 // ── VACINA D3 (29/07): migração em LEITURA do carimbo velho ─────────────────────────────────

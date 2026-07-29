@@ -112,6 +112,11 @@ export type RadarLead = {
   // /leads/[id] usa isto (com fallback em Boolean(phone)) pra decidir entre a
   // página cheia e o aside mascarado + CTA "Puxar".
   ownershipStatus?: "mine" | "available" | "in_attendance" | "negative" | null;
+  // CORREÇÃO-DA-PORTA C6 (29/07): card reprovado por segmento (bloco "Fora do segmento") —
+  // ids pro resgate em 1 clique + motivo honesto da reprovação.
+  radarRunId?: string | null;
+  radarRunItemId?: string | null;
+  foraDoSegmentoMotivo?: string | null;
 };
 
 type LeadsResponse = {
@@ -164,6 +169,8 @@ type RunResponse = {
   status?: string;
   message?: string;
   items?: RadarLead[];
+  // C6: reprovados por segmento desta busca — auditáveis e resgatáveis, fora da lista boa.
+  foraDoSegmento?: RadarLead[];
   total?: number;
   foundCount?: number;
   meta?: {
@@ -931,6 +938,8 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
   // seleção (puxar em lote)
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [pullBusyId, setPullBusyId] = useState<string | null>(null);
+  // C6: resgate de card fora do segmento (1 por vez).
+  const [rescueBusyId, setRescueBusyId] = useState<string | null>(null);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [pullMsg, setPullMsg] = useState<string | null>(null);
 
@@ -2051,6 +2060,32 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
       setPullMsg(err instanceof Error ? err.message : "Não consegui puxar este lead.");
     } finally {
       setPullBusyId(null);
+    }
+  }
+
+  // C6 (29/07): o usuário desfaz a decisão da porta — o card sai do bloco "Fora do
+  // segmento" e materializa na lista boa (o backend devolve o run já atualizado).
+  async function resgatarForaDoSegmento(item: RadarLead) {
+    if (!item.radarRunId || !item.radarRunItemId || rescueBusyId) return;
+    setRescueBusyId(item.radarRunItemId);
+    try {
+      const res = await apiFetch<RunResponse>(
+        `/webscraping/radar/search-runs/${encodeURIComponent(item.radarRunId)}/items/${encodeURIComponent(item.radarRunItemId)}/rescue`,
+        { method: "POST", body: JSON.stringify({}) },
+      );
+      if (res) {
+        setRun(res);
+        setLiveRunItems(filterRadarLeadsByReputation(
+          Array.isArray(res.items) ? res.items : [],
+          minRatingRef.current,
+          minReviewsRef.current,
+        ));
+      }
+      loadList("shelf", { page: 1 });
+    } catch (err) {
+      setPullMsg(err instanceof Error ? err.message : "Não consegui resgatar este card.");
+    } finally {
+      setRescueBusyId(null);
     }
   }
 
@@ -3284,6 +3319,34 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
                     )}
                   </div>
                   )}
+
+              {/* C6 (29/07): reprovados por SEGMENTO — recolhidos, separados dos bons,
+                  auditáveis e resgatáveis em 1 clique. A porta pode ser dura porque o
+                  erro dela é visível e reversível aqui. */}
+              {tab === "shelf" && (run?.foraDoSegmento?.length || 0) > 0 && (
+                <details className="radar2-fora">
+                  <summary>Fora do segmento ({run!.foraDoSegmento!.length})</summary>
+                  {run!.foraDoSegmento!.map(item => (
+                    <div key={item.id} className="radar2-fora__row">
+                      <div className="radar2-fora__id">
+                        <span className="radar2-fora__name">{item.name || "—"}</span>
+                        <span className="radar2-fora__why">
+                          {[item.city ? `${item.city}${item.state ? "/" + item.state : ""}` : null, item.foraDoSegmentoMotivo]
+                            .filter(Boolean).join(" · ")}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn-ghost btn-xs"
+                        disabled={rescueBusyId != null}
+                        onClick={() => resgatarForaDoSegmento(item)}
+                      >
+                        {rescueBusyId === item.radarRunItemId ? "Resgatando…" : "É do meu segmento"}
+                      </button>
+                    </div>
+                  ))}
+                </details>
+              )}
 
               {meterBlocked && isSeller && (
                 <p className="radar2-cap--danger">

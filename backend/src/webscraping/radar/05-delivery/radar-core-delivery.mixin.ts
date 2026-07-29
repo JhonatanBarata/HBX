@@ -177,6 +177,7 @@ import { RadarCnpjL4EnrichmentService } from '../03-enrichment/radar-cnpj-l4-enr
 import { LeadContactWriteService } from '../persistence/lead-contact-write.service';
 import { buildRankedRadarContacts } from '../persistence/radar-ranked-contacts';
 import { radarDiscoveryEnginesOf } from '../shared/radar-source-lanes';
+import { findRadarSegmentExclusionMatch } from '../shared/radar-segment-exclusion.util';
 import { buildRadarLeadInclusionReasons } from '../shared/radar-inclusion-reasons.util';
 
 export class RadarCoreDeliveryMixin {
@@ -917,11 +918,29 @@ export class RadarCoreDeliveryMixin {
       }).catch(() => null);
     }
 
+    // CORREÇÃO-DA-PORTA C6 (29/07): reprovado por SEGMENTO deixa de ser invisível — vira o
+    // bloco recolhido "Fora do segmento (N)", auditável e resgatável. A porta pode ser dura
+    // porque o erro dela agora é visível e reversível pelo usuário (1 clique de resgate).
+    // Mesma máscara dos cards bons: contato só no Puxar.
+    const segmentRejectedItems = (effectiveRun.items || []).filter((item: any) => this.isSegmentRejectedRunItem(item));
+    const foraDoSegmento = segmentRejectedItems.slice(0, 60).map((item: any, index: number) => {
+      const contact = this.mapRunItemToContact(item) as any;
+      const publicItem = this.buildDirectRadarLeadPublic(contact, filters, deliveredCount + index);
+      return {
+        ...(includeSmartFields ? publicItem : this.maskRadarSmartFieldsForList(publicItem)),
+        id: `run:${effectiveRun.id}:${item.id}`,
+        radarRunId: effectiveRun.id,
+        radarRunItemId: item.id,
+        foraDoSegmentoMotivo: String(item.duplicateReason || '').trim() || null,
+      };
+    });
+
     return {
       id: effectiveRun.id,
       runId: effectiveRun.id,
       status,
       items,
+      foraDoSegmento,
       total: terminal ? deliveredCount : requestedQuantity,
       code: terminal ? 'RADAR_SEARCH_COMPLETED' : 'RADAR_SEARCH_RUNNING',
       message,
@@ -1281,6 +1300,216 @@ export class RadarCoreDeliveryMixin {
   async cancelRadarSearchRunForUser(user: any, runId: string) {
     await this.cancelSearchRunForUser(user, runId);
     return this.buildRadarSearchRunResponse(user, runId, { skipAutoImport: true });
+  }
+
+  // ── CORREÇÃO-DA-PORTA C6 (29/07) — reprovado por segmento: auditável, resgatável, revendível ──
+
+  // Item do run que a porta matou POR SEGMENTO (evidência positiva). Com a migração-em-leitura
+  // do D3, carimbo velho "sem evidência" já vira `segment_unconfirmed` — aqui só entra
+  // mismatch de verdade.
+  private isSegmentRejectedRunItem(item: any) {
+    if (String(item?.status || '') !== 'skipped') return false;
+    const quality = this.extractLeadQualityFromObject(item);
+    if (quality?.status === 'segment_mismatch') return true;
+    const reason = String(item?.duplicateReason || '');
+    return /segmento excluido|outro segmento/i.test(reason);
+  }
+
+  // Categoria HONESTA do card reprovado — derivada da EVIDÊNCIA que o matou, NUNCA do texto
+  // que o usuário digitou na busca (era exatamente o defeito D9: carimbo no lugar de fato).
+  private deriveEvidenceCategoryForMismatch(candidate: Record<string, any>, requestedSegment: string): { segment: string | null; category: string | null } {
+    const cnae = String(candidate?.cnaeDescription || '').trim();
+    const exclusion = findRadarSegmentExclusionMatch(
+      requestedSegment,
+      candidate?.name,
+      candidate?.cnaeDescription,
+      candidate?.businessCategory,
+      candidate?.category,
+    );
+    // Rótulo PESQUISÁVEL (normalizedSegment casa por igualdade): só onde há forma canônica.
+    const searchableByExclusion: Record<string, string> = {
+      imobiliaria: 'imobiliarias',
+      transporte_carga: 'transportadoras',
+    };
+    const verticalLabels: Record<string, string> = {
+      academia: 'academias',
+      barbearia: 'barbearias',
+      farmacia: 'farmacias',
+      imobiliaria: 'imobiliarias',
+      oficina: 'oficinas mecanicas',
+    };
+    const nameKey = normalizeLookupValue(String(candidate?.name || ''));
+    const verticalGroup = Object.entries(VERTICAL_TOKEN_GROUPS)
+      .find(([, tokens]) => tokens.some((token: string) => new RegExp(`\\b${normalizeLookupValue(token)}\\b`).test(nameKey)))?.[0] || null;
+    const segment = (exclusion && searchableByExclusion[exclusion.code])
+      || (verticalGroup && verticalLabels[verticalGroup])
+      || null;
+    const category = cnae || exclusion?.label || (verticalGroup ? verticalLabels[verticalGroup] : null) || null;
+    return { segment, category };
+  }
+
+  // O card que morreu por segmento é empresa REAL de OUTRO ramo — o custo de achar/enriquecer
+  // já foi pago. Em vez de evaporar, vira ESTOQUE global no pool sob a categoria da evidência
+  // (memória por telefone/placeId: quando a busca do ramo certo re-descobrir a empresa, o
+  // merge encontra a linha pronta). Sem carimbo de quality — cada busca futura avalia fresco.
+  private async storeMismatchAsRealSegmentStock(candidate: Record<string, any>, input: NormalizedSearchInput | NormalizedRadarFilters) {
+    if (!(await this.supportsRadarPersistence().catch(() => false))) return;
+    const delegate = (this.prisma as any).radarLeadPool;
+    if (!delegate?.create) return;
+    const phoneDigits = normalizePhoneDigits(candidate.phoneDigits || candidate.phone);
+    const placeId = String(candidate.placeId || '').trim() || null;
+    if (!phoneDigits && !placeId) return;
+    const derived = this.deriveEvidenceCategoryForMismatch(candidate, String((input as any).segment || ''));
+    if (!derived.category) return;
+    const existing = await delegate.findFirst({
+      where: {
+        OR: [
+          ...(phoneDigits ? [{ phoneDigits }] : []),
+          ...(placeId ? [{ placeId }] : []),
+        ],
+      },
+      select: { id: true },
+    }).catch(() => null);
+    // Linha existente já tem dono/segmento próprios — não sobrescrever por causa de rejeição.
+    if (existing?.id) return;
+    const now = new Date();
+    const city = String(candidate.city || (input as any).city || '').trim() || null;
+    const state = String(candidate.state || (input as any).state || '').trim().toUpperCase() || null;
+    const segmentValue = derived.segment || derived.category;
+    await delegate.create({
+      data: {
+        companyId: null,
+        placeId,
+        name: String(candidate.name || '').trim() || 'Empresa sem nome',
+        phone: String(candidate.phone || '').trim() || phoneDigits || null,
+        phoneDigits: phoneDigits || null,
+        ddd: this.extractDdd(phoneDigits || candidate.phone),
+        address: String(candidate.address || '').trim() || null,
+        city,
+        state,
+        normalizedCity: normalizeLookupValue(city || ''),
+        segment: segmentValue,
+        normalizedSegment: normalizeLookupValue(segmentValue || ''),
+        businessCategory: derived.category,
+        website: String(candidate.website || '').trim() || null,
+        email: String(candidate.email || '').trim() || null,
+        instagramUrl: String(candidate.instagramUrl || '').trim() || null,
+        facebookUrl: String(candidate.facebookUrl || '').trim() || null,
+        source: String(candidate.source || '').trim() || null,
+        sourceEngine: String(candidate.sourceEngine || candidate.source || '').trim() || null,
+        sourceUrl: String(candidate.sourceUrl || '').trim() || null,
+        status: 'clean',
+        opportunityScore: Math.min(safeInteger(candidate.opportunityScore ?? candidate.score), 40),
+        metadataJson: JSON.stringify({
+          targetType: (input as any).targetType || 'pj',
+          categorySource: 'evidence',
+          ...(String(candidate.cnaeDescription || '').trim() ? { cnaeDescription: String(candidate.cnaeDescription).trim(), businessCategoryStatus: 'cnae' } : { businessCategoryStatus: 'observed' }),
+          ...(String(candidate.cnpj || '').trim() ? { cnpj: String(candidate.cnpj).trim() } : {}),
+          segmentRejections: [{
+            segment: String((input as any).segment || ''),
+            city: String((input as any).city || ''),
+            at: now.toISOString(),
+            reason: 'segment_mismatch',
+          }],
+        }),
+        lastSeenAt: now,
+      },
+    }).catch(() => null);
+  }
+
+  // Resgate em 1 clique: o usuário diz "isto É do meu segmento" e desfaz a decisão da porta —
+  // o item volta como found (quality aprovada com motivo honesto) e materializa na vitrine da
+  // EMPRESA sob o segmento buscado. O Puxar continua sendo o único lugar que revela/debita.
+  async rescueRadarRunItemForUser(user: any, runId: string, itemId: string) {
+    const context = this.resolveContext(user);
+    await this.assertSearchRunPersistence();
+    const run = await this.prisma.webscrapingSearchRun.findFirst({
+      where: { id: String(runId || '').trim(), companyId: context.companyId },
+      include: { items: { where: { id: String(itemId || '').trim() }, take: 1 } },
+    });
+    const item = (run as any)?.items?.[0];
+    if (!run || !item) throw new NotFoundException('Card nao encontrado nesta pesquisa.');
+    if (!this.isSegmentRejectedRunItem(item)) throw new BadRequestException('Este card nao esta fora do segmento.');
+    const now = new Date();
+    const contact = this.mapRunItemToContact(item) as any;
+    const rescuedQuality = {
+      status: 'approved' as const,
+      billable: true,
+      segmentMatchScore: 60,
+      contactQualityScore: 60,
+      commercialScore: 60,
+      reasons: ['Resgatado pelo usuario — o Radar tinha classificado como fora do segmento.'],
+    };
+    const rawJson = this.parseMaybeJsonObject(item.rawJson);
+    await this.prisma.webscrapingSearchRunItem.update({
+      where: { id: item.id },
+      data: {
+        status: 'found',
+        duplicateReason: null,
+        rawJson: JSON.stringify({
+          ...rawJson,
+          quality: rescuedQuality,
+          segmentRescue: {
+            userId: context.userId,
+            at: now.toISOString(),
+            originalReason: String(item.duplicateReason || '').trim() || null,
+          },
+        }),
+      },
+    }).catch(() => null);
+    const delegate = (this.prisma as any).radarLeadPool;
+    const phoneDigits = normalizePhoneDigits(contact.phoneDigits || contact.phone);
+    const placeId = String(contact.placeId || item.placeId || '').trim() || null;
+    if (delegate && (phoneDigits || placeId)) {
+      const existing = await delegate.findFirst({
+        where: {
+          OR: [
+            ...(phoneDigits ? [{ phoneDigits }] : []),
+            ...(placeId ? [{ placeId }] : []),
+          ],
+        },
+      }).catch(() => null);
+      const city = String(contact.city || item.city || run.city || '').trim() || null;
+      const state = String(contact.state || item.state || run.state || '').trim().toUpperCase() || null;
+      const data = {
+        companyId: context.companyId,
+        name: contact.name || existing?.name || 'Empresa sem nome',
+        phone: contact.phone || existing?.phone || phoneDigits || null,
+        phoneDigits: phoneDigits || existing?.phoneDigits || null,
+        ddd: this.extractDdd(phoneDigits || contact.phone) || existing?.ddd || null,
+        address: contact.address || existing?.address || null,
+        city: city || existing?.city || null,
+        state: state || existing?.state || null,
+        normalizedCity: normalizeLookupValue(city || existing?.city || ''),
+        segment: String(run.segment || '').trim() || existing?.segment || null,
+        normalizedSegment: normalizeLookupValue(String(run.segment || '').trim() || existing?.segment || ''),
+        website: contact.website || existing?.website || null,
+        email: contact.email || existing?.email || null,
+        instagramUrl: contact.instagramUrl || existing?.instagramUrl || null,
+        facebookUrl: contact.facebookUrl || existing?.facebookUrl || null,
+        status: existing && this.isRadarProtectedStatus(existing.status) ? existing.status : 'clean',
+        rejectionReason: null,
+        enrichmentJson: JSON.stringify({
+          ...this.parseMaybeJsonObject(existing?.enrichmentJson),
+          quality: rescuedQuality,
+        }),
+        metadataJson: JSON.stringify({
+          ...this.parseMaybeJsonObject(existing?.metadataJson),
+          segmentRescue: {
+            runId: run.id,
+            itemId: item.id,
+            userId: context.userId,
+            at: now.toISOString(),
+            requestedSegment: String(run.segment || ''),
+            originalReason: String(item.duplicateReason || '').trim() || null,
+          },
+        }),
+        lastSeenAt: now,
+      };
+      if (existing?.id) await delegate.update({ where: { id: existing.id }, data }).catch(() => null);
+      else await delegate.create({ data: { ...data, placeId } }).catch(() => null);
+    }
+    return this.buildRadarSearchRunResponse(user, runId);
   }
 
   private async findActiveRadarRunForFilters(context: SearchExecutionContext, filters: NormalizedRadarFilters) {

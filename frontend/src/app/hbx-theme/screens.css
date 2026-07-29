@@ -677,6 +677,17 @@ html, body { height: 100%; }
 .radar-origin-badge--fusion { color: var(--hbx-brand-strong); background: color-mix(in srgb, var(--login-accent) 12%, transparent); }
 .radar-origin-enriched { display: inline-flex; align-items: center; font-size: 0.55rem; font-weight: 600; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, var(--text-muted) 10%, transparent); color: var(--text-muted); white-space: nowrap; }
 .radar2-cap--danger { font-size: 0.66rem; color: var(--hbx-danger); margin: 0 16px 10px; }
+/* CORREÇÃO-DA-PORTA C6 (29/07): bloco recolhido "Fora do segmento (N)" — reprovados por
+   evidência, auditáveis e resgatáveis; nunca misturados com os bons. */
+.radar2-fora { margin: 12px 16px 0; border: 1px dashed color-mix(in srgb, var(--text-muted) 35%, transparent); border-radius: var(--radius-md); }
+.radar2-fora summary { cursor: pointer; padding: 8px 14px; font-size: 0.72rem; font-weight: 700; color: var(--text-muted); list-style: none; }
+.radar2-fora summary::-webkit-details-marker { display: none; }
+.radar2-fora[open] summary { border-bottom: 1px dashed color-mix(in srgb, var(--text-muted) 25%, transparent); }
+.radar2-fora__row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 14px; font-size: 0.7rem; }
+.radar2-fora__row + .radar2-fora__row { border-top: 1px solid color-mix(in srgb, var(--text-muted) 12%, transparent); }
+.radar2-fora__id { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.radar2-fora__name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.radar2-fora__why { font-size: 0.6rem; color: var(--text-muted); }
 .cfg-nicho { margin-top: 18px; border-top: 1px solid var(--border-hairline); padding-top: 18px; }
 .cfg-nicho .ttl { font-size: 0.78rem; font-weight: 700; color: var(--text-strong); margin-bottom: 6px; }
 .cfg-nicho .dica { font-size: 0.68rem; color: var(--text-muted); margin-bottom: 10px; }

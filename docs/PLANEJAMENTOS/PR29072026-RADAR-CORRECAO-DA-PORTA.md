@@ -1,5 +1,33 @@
 # PR29072026 — CORREÇÃO DA PORTA (repasse para execução)
 
+> **STATUS 29/07 (execução):** C1+C2+C3+C4+C5 + migração-em-leitura do D3 **COMMITADOS no
+> master local** (`e4e03f5c`), **NÃO publicados** (aguardando ordem do dono).
+> Bateria: 880/898 webscraping (10 falhas pré-existentes, provadas idênticas na árvore HEAD
+> via `git archive`) + 251/251 vendas + `tsc --noEmit` limpo.
+> Decisões de execução que refinaram o plano:
+> - Evidência positiva = conflito de vertical + mapa de exclusão (relaxar VERTICAL_TOKEN_GROUPS
+>   recriaria falso negativo: "Auto Posto" cai em "oficina" pelo token `auto`). Caso EDR coberto
+>   por regra `imobiliaria` NOVA no mapa de exclusão de `distribuidora`.
+> - C4: telefone NÃO é âncora do anti-menu (o caso Mirão veio COM o telefone do site);
+>   âncora forte = CNPJ; sufixo jurídico já escapava sozinho.
+> - D3 ganhou migração EM LEITURA: carimbo velho `segment_mismatch` + "Sem evidencia…"
+>   é lido como `segment_unconfirmed` (sem tocar o banco).
+> - Suíte anti-perda (C5) reescrita: a antiga passava pelo caminho vazio (enriquecimento
+>   devolvia [] e o merge injetado nunca rodava) — teste verde que não provava nada.
+> **C6 ENTREGUE (29/07, decisão do dono: opção completa):**
+> - C6a: morte por segmento (evidência positiva) vira ESTOQUE global no pool sob a categoria
+>   da EVIDÊNCIA (`storeMismatchAsRealSegmentStock`, delivery mixin) — nunca o texto buscado
+>   (D9); linha existente nunca é sobrescrita; memória por telefone/placeId faz o merge quando
+>   a busca do ramo certo re-descobrir a empresa.
+> - C6b: response do run ganha `foraDoSegmento[]` (mascarado, mesmo contrato dos bons) +
+>   rota `POST radar/search-runs/:id/items/:itemId/rescue` — resgate em 1 clique materializa
+>   o card na vitrine da empresa sob o segmento buscado (quality aprovada com motivo honesto).
+> - C6c: bloco recolhido "Fora do segmento (N)" na tela /leads (classes `radar2-fora` em
+>   hbx-theme/screens.css), botão "É do meu segmento".
+> **PENDENTE:** C7 completo (replay coleta→apresentação como suíte golden; as vacinas
+> D2/D3/D4/C6 cobrem parte) · conferir na tela pós-publish (D3: filtrar vitrine por
+> "marmorarias").
+
 > **Documento de REPASSE.** Tudo que é preciso saber está aqui — não é preciso reler a sessão
 > anterior. Auditoria feita por worker + verificação manual no código e no VPS (29/07/2026).
 >

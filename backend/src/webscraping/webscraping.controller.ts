@@ -698,6 +698,17 @@ export class WebscrapingController {
     }
   }
 
+  // CORREÇÃO-DA-PORTA C6 (29/07): resgate de card reprovado por segmento — o usuário desfaz
+  // a decisão da porta em 1 clique e o card materializa na vitrine da empresa.
+  @Post('radar/search-runs/:id/items/:itemId/rescue')
+  async rescueRadarRunItem(@Req() req: any, @Param('id') id: string, @Param('itemId') itemId: string) {
+    try {
+      return await this.webscrapingService.rescueRadarRunItemForUser(req.user, id, itemId);
+    } catch (error) {
+      return this.webscrapingService.buildRadarClientErrorResponse(req.user, '/webscraping/radar/search-runs/:id/items/:itemId/rescue', error);
+    }
+  }
+
   @Post('radar/:id/import-to-vendas')
   radarImportToVendas(@Req() req: any, @Param('id') id: string) {
     return this.webscrapingService.importRadarLeadToVendasForUser(req.user, id, { debitOnImport: true });

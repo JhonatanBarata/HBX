@@ -1347,6 +1347,18 @@ export class RadarCoreQualityEnrichmentMixin {
       const duplicateReason = classified2Status === 'found' && !qualityDeliverable
         ? qualityGate.reason || quality.reasons.join('; ') || quality.status
         : classified2DuplicateReason;
+      // CORREÇÃO-DA-PORTA C6 (29/07): morte POR SEGMENTO (evidência positiva) não evapora —
+      // a empresa é REAL, de outro ramo, e o custo de achar já foi pago. Vira estoque global
+      // no pool sob a categoria da EVIDÊNCIA (storeMismatchAsRealSegmentStock, delivery
+      // mixin). Best-effort: nunca bloqueia o save.
+      if (
+        finalStatus === 'skipped'
+        && classified2Status === 'found'
+        && normalized.targetType === 'pj'
+        && (quality?.status === 'segment_mismatch' || /segmento excluido|outro segmento/i.test(String(duplicateReason || '')))
+      ) {
+        await this.storeMismatchAsRealSegmentStock(resultForQuality, normalized).catch(() => null);
+      }
       const resultInstagramUrl = String((result as any).instagramUrl || '').trim();
       const resultFacebookUrl = String((result as any).facebookUrl || '').trim();
       const resultWebsite = String((result as any).website || '').trim();
