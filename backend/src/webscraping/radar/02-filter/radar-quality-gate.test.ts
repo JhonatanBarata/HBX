@@ -219,6 +219,38 @@ test('quality gate E2: lane web com quality.status=segment_mismatch REJEITA (cas
   assert.ok(result.hardBlockers.includes('quality_segment_mismatch'));
 });
 
+// ── VACINA CORREÇÃO-DA-PORTA (29/07): "não sei" ≠ "não presta" ─────────────────────────────
+// Producao 29/07: dos 90 bloqueados no dia, 81 eram "Sem evidencia suficiente" + 9 "Evidencia
+// parcial" — ZERO por evidencia de outro segmento. `segment_unconfirmed` (sem evidencia)
+// PASSA na porta; so `segment_mismatch` (evidencia positiva) bloqueia.
+test('VACINA porta: lane web com quality.status=segment_unconfirmed NAO bloqueia (HOTEL GAUCHO vive)', () => {
+  const result = gate.evaluate({
+    candidate: {
+      source: 'hbx_engine',
+      name: 'HOTEL GAUCHO',
+      city: 'Rio Claro',
+      state: 'SP',
+      phoneDigits: '19999990003',
+      phone: '(19) 99999-0003',
+      score: 60,
+    },
+    filters: { city: 'Rio Claro', state: 'SP', segment: 'hotéis' } as any,
+    quality: {
+      status: 'segment_unconfirmed' as any,
+      billable: false,
+      segmentMatchScore: 25,
+      contactQualityScore: 60,
+      commercialScore: 52,
+      reasons: ['Segmento nao confirmado (sem evidencia) — lead mantido.'],
+    },
+    host: permissiveHost,
+    minQualityScore: 25,
+  });
+  assert.equal(result.deliverable, true, `esperava deliverable=true, motivo: ${result.reason}`);
+  assert.ok(!result.hardBlockers.includes('quality_segment_unconfirmed'));
+  assert.ok(!result.hardBlockers.includes('quality_segment_mismatch'));
+});
+
 test('quality gate E2: cnpj_public com segment_mismatch textual NAO bloqueia (razao social nao "fala" o segmento)', () => {
   // M. COSTA DISTRIBUIDORA DE AGUA LTDA veio validada por CNAE na porta do provider; a lei
   // TEXTUAL pode dar score baixo (CNAE "atacadista de agua mineral" nao contem a frase

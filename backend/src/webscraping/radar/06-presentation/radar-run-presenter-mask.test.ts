@@ -69,9 +69,14 @@ const borgesRun = {
   }],
 };
 
-test('run ao vivo: card COM telefone/e-mail anuncia presenca (fim do "sem contato" mentiroso)', () => {
+// CORREÇÃO-DA-PORTA D4 (29/07): a versao anterior deste teste afirmava sobre `results[0]` —
+// um campo que NENHUM consumidor lê (o front usa `run.items`; `RunResponse` do front nem tem
+// `results`). O teste passava verde enquanto `items[0].phone` ao lado carregava o telefone
+// cru. Regra: TESTE AFIRMA SOBRE O QUE O CONSUMIDOR REAL LÊ → daqui em diante, `items[0]`.
+
+test('run ao vivo (items): card COM telefone/e-mail anuncia presenca (fim do "sem contato" mentiroso)', () => {
   const response: any = new RadarRunPresenterService().buildSearchRunResponse(borgesRun, undefined, host());
-  const card = response.results[0];
+  const card = response.items[0];
   assert.equal(card.hasPhone, true, 'telefone existe no dado — a vitrine tem de anunciar');
   assert.equal(card.hasEmail, true);
   assert.equal(card.channelPresence.telefone, true);
@@ -80,9 +85,9 @@ test('run ao vivo: card COM telefone/e-mail anuncia presenca (fim do "sem contat
   assert.equal(card.channelPresence.instagram, false);
 });
 
-test('run ao vivo: contato vai MASCARADO (nao vaza antes do Puxar)', () => {
+test('run ao vivo (items): contato vai MASCARADO (nao vaza antes do Puxar)', () => {
   const response: any = new RadarRunPresenterService().buildSearchRunResponse(borgesRun, undefined, host());
-  const card = response.results[0];
+  const card = response.items[0];
   assert.equal(card.phone, '');
   assert.equal(card.phoneDigits, '');
   assert.equal(card.email, null);
@@ -91,7 +96,14 @@ test('run ao vivo: contato vai MASCARADO (nao vaza antes do Puxar)', () => {
   assert.ok(!serialized.includes('borges-advocacia@hotmail.com'), 'e-mail cru nao pode aparecer no payload ao vivo');
 });
 
-test('run ao vivo: card SEM nenhum canal continua honestamente "sem contato"', () => {
+test('run ao vivo: o payload INTEIRO nao carrega contato cru em lugar nenhum (items E results)', () => {
+  const response: any = new RadarRunPresenterService().buildSearchRunResponse(borgesRun, undefined, host());
+  const serialized = JSON.stringify(response);
+  assert.ok(!serialized.includes('19997516677'), 'telefone cru vazou em algum campo do payload');
+  assert.ok(!serialized.includes('borges-advocacia@hotmail.com'), 'e-mail cru vazou em algum campo do payload');
+});
+
+test('run ao vivo (items): card SEM nenhum canal continua honestamente "sem contato"', () => {
   const semCanal = {
     ...borgesRun,
     items: [{
@@ -102,7 +114,7 @@ test('run ao vivo: card SEM nenhum canal continua honestamente "sem contato"', (
     }],
   };
   const response: any = new RadarRunPresenterService().buildSearchRunResponse(semCanal, undefined, host());
-  const card = response.results[0];
+  const card = response.items[0];
   assert.equal(card.hasPhone, false);
   assert.equal(card.hasEmail, false);
   assert.equal(card.channelPresence.telefone, false);

@@ -174,6 +174,7 @@ import {
   splitRadarDiscoveryFromEnrichment,
   tagRadarDiscoverySnapshot,
 } from '../shared/radar-source-lanes';
+import { findRadarSegmentExclusionMatch } from '../shared/radar-segment-exclusion.util';
 
 // sourceChain (P1, 02/07 — docs/PLANEJAMENTOS/PR02072026/W1-cutover-ordem-fixa.md; reformado
 // 03/07): a tabela de lanes agora é ÚNICA em shared/radar-source-lanes.ts (antes triplicada e
@@ -200,17 +201,30 @@ export class RadarCoreQualityEnrichmentMixin {
   private normalizeLeadQuality(value: unknown): LeadQualityResult | null {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const raw = value as Record<string, any>;
-    const status = String(raw.status || '').trim() as LeadQualityStatus;
-    if (!['approved', 'segment_mismatch', 'weak_contact', 'generic_directory', 'invalid', 'duplicate'].includes(status)) return null;
+    let status = String(raw.status || '').trim() as LeadQualityStatus;
+    if (!['approved', 'segment_unconfirmed', 'segment_mismatch', 'weak_contact', 'generic_directory', 'invalid', 'duplicate'].includes(status)) return null;
+    const reasons = Array.isArray(raw.reasons)
+      ? raw.reasons.map((reason) => String(reason || '').trim()).filter(Boolean)
+      : [];
+    // MIGRAÇÃO EM LEITURA (CORREÇÃO-DA-PORTA D3, 29/07): a lei VELHA carimbou
+    // `segment_mismatch` em linha SEM evidência nenhuma ("Sem evidencia suficiente…" /
+    // "Evidencia parcial…") — e a leitura prefere a quality gravada, então essas linhas
+    // ficariam escondidas pra sempre. Carimbo velho sem evidência vira `segment_unconfirmed`
+    // aqui, sem tocar o banco; mismatch com evidência real ("Nome indica outro segmento…")
+    // continua mismatch.
+    if (
+      status === 'segment_mismatch'
+      && reasons.some((reason) => /sem evidencia suficiente|evidencia parcial/i.test(reason))
+    ) {
+      status = 'segment_unconfirmed';
+    }
     return {
       status,
       billable: raw.billable !== false && status === 'approved',
       segmentMatchScore: safeInteger(raw.segmentMatchScore),
       contactQualityScore: safeInteger(raw.contactQualityScore),
       commercialScore: safeInteger(raw.commercialScore),
-      reasons: Array.isArray(raw.reasons)
-        ? raw.reasons.map((reason) => String(reason || '').trim()).filter(Boolean)
-        : [],
+      reasons,
     };
   }
 
@@ -319,6 +333,24 @@ export class RadarCoreQualityEnrichmentMixin {
       if (cityKey && nameKey.startsWith(`${head} em ${cityKey} `)) return true;
     }
     return /^(10|20|30|40|50)\s+melhores\s+/.test(nameKey);
+  }
+
+  // Evidência POSITIVA de outro segmento (CORREÇÃO-DA-PORTA 29/07): só ela autoriza
+  // `segment_mismatch` bloqueante. Duas fontes, ambas afirmativas: (1) o nome carrega token
+  // de OUTRA vertical (nameConflictsWithRequestedSegment); (2) nome/categoria/CNAE caem numa
+  // exclusão explícita do segmento pedido (radar-segment-exclusion.util). Score baixo NÃO é
+  // evidência — é ausência dela.
+  private hasPositiveSegmentMismatchEvidence(candidate: Record<string, any>, requestedSegment: string) {
+    const name = this.normalizeQualityText(candidate.name);
+    if (!requestedSegment) return false;
+    if (this.nameConflictsWithRequestedSegment(name, requestedSegment)) return true;
+    return Boolean(findRadarSegmentExclusionMatch(
+      requestedSegment,
+      name,
+      candidate.cnaeDescription,
+      candidate.businessCategory,
+      candidate.category,
+    ));
   }
 
   private nameConflictsWithRequestedSegment(name: unknown, segment: unknown) {
@@ -523,13 +555,19 @@ export class RadarCoreQualityEnrichmentMixin {
       baseOpportunityScore * 0.20,
     );
 
+    // CORREÇÃO-DA-PORTA (29/07): score baixo é AUSÊNCIA de evidência, não prova de outro
+    // segmento — nome comercial brasileiro quase nunca "fala" o segmento (HOTEL GAUCHO,
+    // Sorridents, Lamego Propaganda). `segment_mismatch` (bloqueante na porta) exige
+    // evidência POSITIVA de outro ramo; sem ela o lead vive como `segment_unconfirmed`.
+    const positiveMismatch = () => this.hasPositiveSegmentMismatchEvidence(candidate, input.requestedSegment);
     let status: LeadQualityStatus = 'approved';
-    if (input.targetType === 'pj' && segmentMatchScore < 55) status = 'segment_mismatch';
+    if (input.targetType === 'pj' && segmentMatchScore < 55) status = positiveMismatch() ? 'segment_mismatch' : 'segment_unconfirmed';
     else if (contactQualityScore < 50) status = 'weak_contact';
-    else if (commercialScore < 60) status = segment.score < 55 ? 'segment_mismatch' : 'weak_contact';
+    else if (commercialScore < 60) status = segment.score < 55 ? (positiveMismatch() ? 'segment_mismatch' : 'segment_unconfirmed') : 'weak_contact';
 
     if (status !== 'approved') {
-      if (status === 'segment_mismatch') reasons.push('Lead sem aderencia minima ao segmento solicitado.');
+      if (status === 'segment_mismatch') reasons.push('Lead com evidencia de outro segmento comercial.');
+      if (status === 'segment_unconfirmed') reasons.push('Segmento nao confirmado (sem evidencia) — lead mantido.');
       if (status === 'weak_contact') reasons.push('Contato insuficiente para entrega billable.');
     }
 
@@ -1155,24 +1193,42 @@ export class RadarCoreQualityEnrichmentMixin {
       // perde uma entidade numa das rodadas, o card existe num lado e some no outro, calado.
       // Aqui o lote de saída é RECONCILIADO com a entrada: quem sumiu volta cru (sem
       // enriquecimento) em vez de virar lead perdido.
-      const identityOf = (item: Record<string, any>) => {
-        const placeId = String(item?.placeId || '').trim();
-        if (placeId) return `place:${placeId}`;
-        const phone = String(item?.phoneDigits || item?.phone || '').replace(/\D/g, '');
-        if (phone.length >= 10) return `phone:${phone.slice(-11)}`;
-        return `name:${normalizeLookupValue(String(item?.name || ''))}|${normalizeLookupValue(String(item?.city || ''))}`;
-      };
-      const survivors = new Set(enriched.map((item) => identityOf(item as Record<string, any>)));
-      const lost = results.filter((item) => !survivors.has(identityOf(item as Record<string, any>)));
-      if (lost.length) {
-        this.logger?.warn?.(`[radar-free-enrichment] merge perdeu ${lost.length} card(s); devolvendo cru (nenhum lead se perde)`);
-        return [...enriched, ...lost];
+      const reconciled = this.reconcileEnrichedBatch(results, enriched);
+      if (reconciled.lostCount) {
+        this.logger?.warn?.(`[radar-free-enrichment] merge perdeu ${reconciled.lostCount} card(s); devolvendo cru (nenhum lead se perde)`);
       }
-      return enriched;
+      return reconciled.batch;
     } catch (error) {
       this.logger?.warn?.(`[radar-free-enrichment] pre-save falhou sem bloquear lote: ${String((error as any)?.message || error)}`);
       return results;
     }
+  }
+
+  // INVARIANTE "enriquecer nunca perde card" + CORREÇÃO-DA-PORTA D8 (29/07): identidade NÃO
+  // é só placeId. Quando o merge colapsa dois cards da MESMA empresa com placeId diferente
+  // (cnpj_public:1234 × hbx:pj:A), o casamento por placeId primário classificava o colapsado
+  // como "perdido" e o ressuscitava CRU — desfazendo o dedup do merge (e quem voltava era a
+  // linha cnpj_public, sem enriquecimento). Cada card expõe TODAS as suas identidades (CNPJ,
+  // telefone, placeId, nome+cidade); "perdido" é só quem não casa NENHUMA com sobrevivente.
+  private reconcileEnrichedBatch<T extends Record<string, any>>(
+    input: T[],
+    enriched: T[],
+  ): { batch: T[]; lostCount: number } {
+    const identitiesOf = (item: Record<string, any>) => {
+      const ids: string[] = [];
+      const cnpj = String(item?.cnpj || '').replace(/\D/g, '');
+      if (cnpj.length === 14) ids.push(`cnpj:${cnpj}`);
+      const phone = String(item?.phoneDigits || item?.phone || '').replace(/\D/g, '');
+      if (phone.length >= 10) ids.push(`phone:${phone.slice(-11)}`);
+      const placeId = String(item?.placeId || '').trim();
+      if (placeId) ids.push(`place:${placeId}`);
+      const name = normalizeLookupValue(String(item?.name || ''));
+      if (name) ids.push(`name:${name}|${normalizeLookupValue(String(item?.city || ''))}`);
+      return ids;
+    };
+    const survivors = new Set(enriched.flatMap((item) => identitiesOf(item)));
+    const lost = input.filter((item) => !identitiesOf(item).some((id) => survivors.has(id)));
+    return { batch: lost.length ? [...enriched, ...lost] : enriched, lostCount: lost.length };
   }
 
   private async saveSearchRunResults(

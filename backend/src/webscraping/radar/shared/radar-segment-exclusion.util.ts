@@ -61,6 +61,22 @@ export const RADAR_SEGMENT_EXCLUSION_MAP: Record<string, RadarSegmentExclusionRu
       ],
     },
     {
+      // CORREÇÃO-DA-PORTA (29/07): caso original "EDR Imobiliária virou distribuidora de
+      // água" (28/07). Com a porta exigindo evidência POSITIVA, é esta regra que mata o
+      // imóvel em busca de distribuidora — não o score baixo.
+      code: 'imobiliaria',
+      label: 'Imobiliária / corretagem de imóveis',
+      tokens: [
+        'atividades imobiliarias',
+        'corretagem na compra e venda',
+        'administracao de imoveis',
+        'imobiliaria',
+        'imobiliarias',
+        'corretor de imoveis',
+        'corretora de imoveis',
+      ],
+    },
+    {
       code: 'servicos_financeiros',
       label: 'Serviços financeiros',
       tokens: [

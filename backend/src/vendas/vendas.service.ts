@@ -244,6 +244,9 @@ type EffectiveSalesProfile = LeadQualityV2SalesProfile & {
 
 type ImportLeadQualityStatus =
   | 'approved'
+  // CORREÇÃO-DA-PORTA (29/07): sem evidência de segmento = lead vivo com rótulo honesto
+  // (mesmo contrato de LeadQualityStatus em radar-core-shared.ts).
+  | 'segment_unconfirmed'
   | 'segment_mismatch'
   | 'weak_contact'
   | 'generic_directory'
@@ -651,7 +654,7 @@ export class VendasService {
     if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
     const raw = value as Record<string, any>;
     const status = String(raw.status || '').trim() as ImportLeadQualityStatus;
-    if (!['approved', 'segment_mismatch', 'weak_contact', 'generic_directory', 'invalid', 'duplicate'].includes(status)) return null;
+    if (!['approved', 'segment_unconfirmed', 'segment_mismatch', 'weak_contact', 'generic_directory', 'invalid', 'duplicate'].includes(status)) return null;
     return {
       status,
       billable: raw.billable !== false && status === 'approved',

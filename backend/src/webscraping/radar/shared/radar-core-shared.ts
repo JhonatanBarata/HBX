@@ -243,6 +243,10 @@ export type WebscrapingEngine = 'google' | 'hbx';
 export type HbxTargetType = 'pj' | 'pf' | 'agenda_pf';
 export type LeadQualityStatus =
   | 'approved'
+  // "Não sei" ≠ "não presta" (CORREÇÃO-DA-PORTA 29/07): sem evidência de aderência E sem
+  // evidência de outro segmento, o lead segue VIVO com rótulo honesto. `segment_mismatch`
+  // fica reservado pra evidência POSITIVA de outro segmento — só ele bloqueia na porta.
+  | 'segment_unconfirmed'
   | 'segment_mismatch'
   | 'weak_contact'
   | 'generic_directory'
@@ -807,6 +811,18 @@ const NAME_TAIL_NEIGHBORHOOD_HEADS = new Set(['centro', 'bairro', 'distrito']);
 const NAME_TAIL_MIN_WORDS = 7;
 const NAME_TAIL_MIN_REMAINING_WORDS = 3;
 
+// CORREÇÃO-DA-PORTA D5 (29/07): instituições onde a CIDADE é parte da identidade — "Santa
+// Casa de Misericordia de Rio Claro", "Sindicato dos Trabalhadores Rurais de Rio Claro".
+// Podar a cidade aqui MUTILA a razão social (e o nome é chave de dedup/busca social).
+const NAME_TAIL_INSTITUTIONAL_MARKERS = [
+  'cartorio', 'tabelionato', 'oficio', 'sindicato', 'cooperativa', 'associacao',
+  'santa casa', 'camara', 'prefeitura', 'foro', 'comarca',
+];
+
+// D5: preposição/artigo funcional — se a poda deixaria o nome terminando numa dessas,
+// a cauda NÃO era só localidade (a cidade fazia parte da frase do nome): não podar.
+const NAME_TAIL_DANGLING_WORDS = new Set(['de', 'da', 'do', 'das', 'dos', 'em', 'no', 'na', 'nas', 'nos', 'e']);
+
 function nameTailKey(value: string): string {
   return value
     .normalize('NFD')
@@ -822,6 +838,12 @@ export function stripLocationTailFromName(
 ): string {
   const original = String(rawName || '').trim();
   if (!original) return original;
+  const originalKey = nameTailKey(original);
+  // D5: nome institucional carrega a cidade como identidade — nunca podar.
+  if (NAME_TAIL_INSTITUTIONAL_MARKERS.some((marker) => originalKey.includes(marker))) return original;
+  // D6: "As 10 melhores lojas ... de Rio Claro" é TÍTULO DE PÁGINA — a poda não pode
+  // absolvê-lo do teto de palavras de looksLikeNonBusinessName.
+  if (/\bmelhores\b/.test(originalKey)) return original;
   let words = original.split(/\s+/).filter(Boolean);
   if (words.length < NAME_TAIL_MIN_WORDS) return original;
 
@@ -849,6 +871,15 @@ export function stripLocationTailFromName(
   ) {
     words = words.slice(0, -1);
   }
+
+  // D5: se a poda deixou preposição pendurada ("Santa Casa de Misericordia de"), a cidade
+  // era parte da FRASE do nome, não endereço colado — desfaz tudo e devolve o original.
+  const lastRemaining = words.length ? nameTailKey(words[words.length - 1]) : '';
+  if (NAME_TAIL_DANGLING_WORDS.has(lastRemaining)) return original;
+  // D5: conector de lugar na penúltima posição ("Soroca Atacadão das Embalagens em Jardim"
+  // após cortar "Vera Cruz") = bairro composto cortado no meio — desfaz também.
+  const secondToLast = words.length > 1 ? nameTailKey(words[words.length - 2]) : '';
+  if (['em', 'no', 'na', 'nos', 'nas'].includes(secondToLast)) return original;
 
   const cleaned = words.join(' ').replace(/[\s,;-]+$/, '').trim();
   return cleaned || original;
@@ -894,7 +925,17 @@ export function looksLikeCategoryMenuName(value: unknown) {
 // estrangeiro (ex.: "8 deaths that rocked the NASCAR world", "Official Site of the NHL",
 // "30 Best Things to Do in Vancouver", "IBEXエアラインズ"). ALTA PRECISÃO: só marca sinais
 // que jamais aparecem em nome de empresa local brasileira — não derruba negócio real.
-export function looksLikeNonBusinessName(value: unknown) {
+export function looksLikeNonBusinessName(
+  value: unknown,
+  context?: {
+    // CORREÇÃO-DA-PORTA D7 (29/07): âncora FORTE de empresa = CNPJ/registro (sufixo
+    // jurídico já escapa do anti-menu por si). Nome-fantasia REAL pode ser vocabulário de
+    // categoria ("Celulares e Acessórios" com CNPJ) — o anti-menu só derruba sem âncora.
+    // TELEFONE deliberadamente NÃO é âncora: no caso real Mirão o nome de menu veio COM o
+    // telefone do site — telefone absolvendo menu reabriria exatamente aquele furo.
+    hasCompanyAnchor?: boolean;
+  },
+) {
   const raw = String(value || '').trim();
   if (!raw) return false;
   // 1) Script estrangeiro (grego, cirílico, hebraico, árabe, tailandês, CJK, coreano).
@@ -911,8 +952,9 @@ export function looksLikeNonBusinessName(value: unknown) {
   // 5) Frase em inglês: 2+ palavras gramaticais que não existem em nome de empresa BR.
   const englishHits = new Set(words.filter((word) => NON_BUSINESS_ENGLISH_STOPWORDS.has(word)));
   if (englishHits.size >= 2) return true;
-  // 6) E3 (29/07): menu/categoria de loja como nome ("Informática & Eletrônicos").
-  if (looksLikeCategoryMenuName(raw)) return true;
+  // 6) E3 (29/07): menu/categoria de loja como nome ("Informática & Eletrônicos") — só
+  //    derruba SEM âncora de empresa (D7: nome-fantasia real escapa pelo segundo sinal).
+  if (!context?.hasCompanyAnchor && looksLikeCategoryMenuName(raw)) return true;
   return false;
 }
 

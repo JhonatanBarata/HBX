@@ -201,7 +201,9 @@ export class RadarQualityGateService {
       hardBlockers.push('generic_directory');
       return buildReject({ reason: 'Resultado generico ou diretorio.', qualityScore: 0, missing, hardBlockers, positiveSignals, weakSignals });
     }
-    if (!isCnpjPublic && looksLikeNonBusinessName(name)) {
+    if (!isCnpjPublic && looksLikeNonBusinessName(name, {
+      hasCompanyAnchor: Boolean(normalizeText(candidate.cnpj)),
+    })) {
       hardBlockers.push('non_business_name');
       return buildReject({ reason: 'Nome nao parece empresa (titulo de pagina/portal global/idioma estrangeiro).', qualityScore: 0, missing, hardBlockers, positiveSignals, weakSignals });
     }

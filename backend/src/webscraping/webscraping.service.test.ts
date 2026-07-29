@@ -263,10 +263,17 @@ test('buildSearchResponse E2: score HBX sozinho NAO e evidencia de segmento no L
     score: 70,
   }], meta);
 
-  assert.equal(response.results.length, 1);
-  assert.equal(response.results[0].name, 'Farmacia Central de Boituva Ltda');
-  assert.equal(response.results[0].score, undefined);
-  assert.equal(response.results[0].quality, undefined);
+  // CORREÇÃO-DA-PORTA (29/07): sem evidencia o card NAO morre mais — vive como
+  // segment_unconfirmed (nao billable). O contrato "score do provider nao e evidencia"
+  // continua: quem aprova/debita e a evidencia, nunca o score (ver testes de
+  // evaluateLeadQuality). Ambos entregues, score/quality continuam ocultos do payload.
+  assert.equal(response.results.length, 2);
+  const nomes = response.results.map((item: any) => item.name).sort();
+  assert.deepEqual(nomes, ['Celio Cesar Marcusso & Cia. Ltda', 'Farmacia Central de Boituva Ltda']);
+  for (const item of response.results) {
+    assert.equal(item.score, undefined);
+    assert.equal(item.quality, undefined);
+  }
 });
 
 test('buildSearchResponse bloqueia nomes genericos mesmo com score HBX no List', () => {
@@ -655,7 +662,9 @@ test('LeadQuality rejeita segmento errado e aprova evidencias fortes', () => {
     phoneDigits: '19999990004',
   }, { requestedSegment: 'oficina', targetType: 'pj' });
 
-  assert.equal(tiaLuiza.status, 'segment_mismatch');
+  // CORREÇÃO-DA-PORTA (29/07): "Tia Luiza" não tem evidência NENHUMA — nem do segmento
+  // pedido, nem de outro. "Não sei" ≠ "não presta": vive como segment_unconfirmed, sem debitar.
+  assert.equal(tiaLuiza.status, 'segment_unconfirmed');
   assert.equal(tiaLuiza.billable, false);
   assert.equal(autoMecanica.status, 'approved');
   assert.equal(autoMecanica.billable, true);
@@ -732,10 +741,10 @@ test('Radar dedupe nao usa dominio de diretorio como website forte', () => {
   assert.equal(classified.websiteKey, '');
 });
 
-test('saveSearchRunResults E2: baixa aderencia na lane web vira SKIPPED, nao card', async () => {
-  // Contrato NOVO (E2 ESTABILIZAÇÃO 29/07): o "found para revisão" morreu — era o card
-  // "Aguardando liberação" fora do segmento na vitrine (caso Analândia). Sem aderência
-  // textual/CNAE, o item fica skipped com o motivo gravado; quem tem evidência segue found.
+test('saveSearchRunResults CORREÇÃO-DA-PORTA: skipped exige evidencia POSITIVA; sem evidencia = found honesto', async () => {
+  // Contrato 29/07 (CORREÇÃO-DA-PORTA): "não sei" ≠ "não presta". "Tia Luiza" (zero
+  // evidencia) segue VIVA como segment_unconfirmed; quem morre skipped e quem DIZ ser de
+  // outro segmento ("Farmácia Santa Rosa" em busca de oficina).
   const { prisma, run, items } = createSearchRunPrisma({
     segment: 'oficina',
     targetQuantity: 10,
@@ -767,19 +776,27 @@ test('saveSearchRunResults E2: baixa aderencia na lane web vira SKIPPED, nao car
         phoneDigits: '19999990002',
         source: 'hbx_scraping:web',
       },
+      {
+        name: 'Farmácia Santa Rosa',
+        phone: '(19) 99999-0003',
+        phoneDigits: '19999990003',
+        source: 'hbx_scraping:web',
+      },
     ],
     'hbx',
   );
   await service.recalculateSearchRunCounters(run.id);
   const response = service.buildSearchRunResponse({ ...run, items });
 
-  assert.equal(counts.found, 1);
+  assert.equal(counts.found, 2);
   assert.equal(counts.skipped, 1);
-  assert.equal(run.foundCount, 1);
-  assert.equal(response.results.length, 1);
-  assert.equal(items[0].status, 'skipped');
-  assert.equal(JSON.parse(items[0].rawJson).quality.status, 'segment_mismatch');
+  assert.equal(run.foundCount, 2);
+  assert.equal(response.results.length, 2);
+  assert.equal(items[0].status, 'found');
+  assert.equal(JSON.parse(items[0].rawJson).quality.status, 'segment_unconfirmed');
   assert.equal(items[1].status, 'found');
+  assert.equal(items[2].status, 'skipped');
+  assert.equal(JSON.parse(items[2].rawJson).quality.status, 'segment_mismatch');
 });
 
 test('saveSearchRunResults no List entrega card real com telefone mesmo sem enriquecimento', async () => {
@@ -1529,7 +1546,11 @@ test('buildSearchRunResponse items preserva campos sociais do rawJson', () => {
 
   assert.equal(item.instagramUrl, 'https://instagram.com/autosocial');
   assert.equal(item.facebookUrl, 'https://facebook.com/autosocial');
-  assert.equal(item.email, 'contato@autosocial.com.br');
+  // CORREÇÃO-DA-PORTA D4 (29/07): `items` e o array que o front le — contato vai MASCARADO
+  // (presenca anunciada, valor so no Puxar), igual a vitrine.
+  assert.equal(item.email, null);
+  assert.equal(item.hasEmail, true);
+  assert.equal(item.channelPresence.email, true);
   assert.equal(item.whatsappStatus, 'confirmed');
   assert.equal(item.recommendedChannel, undefined);
   assert.equal(item.opportunityScore, 82);
@@ -1587,7 +1608,11 @@ test('buildSearchRunResponse preserva contato basico e mascara inteligencia em L
   assert.equal(item.website, 'https://oficinarica.com.br');
   assert.equal(item.instagramUrl, 'https://instagram.com/oficinarica');
   assert.equal(item.facebookUrl, 'https://facebook.com/oficinarica');
-  assert.equal(item.email, 'contato@oficinarica.com.br');
+  // CORREÇÃO-DA-PORTA D4 (29/07): e-mail/telefone mascarados no `items` (o array que o
+  // front le); presenca anunciada via channelPresence, valor so no Puxar.
+  assert.equal(item.email, null);
+  assert.equal(item.hasEmail, true);
+  assert.equal(item.channelPresence.email, true);
   assert.equal(item.googleMapsUrl, 'https://maps.google.com/?cid=123');
   assert.equal(item.rating, 4.8);
   assert.equal(item.reviews, 123);
@@ -1871,11 +1896,12 @@ test('persistRadarLeadPoolBatch persiste social do motor SO quando o handle carr
   assert.equal(semMarcaNoHandle.every((row) => !row.instagramUrl && !row.facebookUrl && row.socialStatus === 'missing'), true);
 });
 
-// REGRESSAO 28/07 ("EDR Imobiliaria virou distribuidora de agua"): a lane web aprovava
-// candidato SEM evidencia textual do segmento so porque o motor achou a pagina na busca
-// ("Motor HBX classificou como aderente", 60 >= corte 55). Aderencia agora exige o pedido
-// COMPLETO (todas as palavras, palavra inteira, cidade fora) em algum texto do candidato.
-test('evaluateLeadQuality reprova candidato web sem evidencia completa do segmento pedido', () => {
+// REGRESSAO 28/07 ("EDR Imobiliaria virou distribuidora de agua") + CORREÇÃO-DA-PORTA 29/07:
+// sem evidencia o candidato NAO e aprovado (billable) — mas so evidencia POSITIVA de outro
+// segmento vira `segment_mismatch` (bloqueante). "Galmare Planejados" nao diz nada → vive
+// como `segment_unconfirmed`; "EDR Imobiliária" DIZ que e imovel → mismatch pela regra de
+// exclusao do segmento distribuidora.
+test('evaluateLeadQuality: sem evidencia nao aprova; mismatch bloqueante exige evidencia positiva', () => {
   const service = new WebscrapingService(createPrisma()) as any;
   const galmare = service.evaluateLeadQuality({
     name: 'Galmare Planejados',
@@ -1887,7 +1913,8 @@ test('evaluateLeadQuality reprova candidato web sem evidencia completa do segmen
     requestedCity: 'Aguaí',
     targetType: 'pj',
   });
-  assert.equal(galmare.status, 'segment_mismatch');
+  assert.equal(galmare.status, 'segment_unconfirmed');
+  assert.equal(galmare.billable, false);
 
   const imobiliaria = service.evaluateLeadQuality({
     name: 'EDR Imobiliária',
@@ -1900,6 +1927,94 @@ test('evaluateLeadQuality reprova candidato web sem evidencia completa do segmen
     targetType: 'pj',
   });
   assert.equal(imobiliaria.status, 'segment_mismatch');
+});
+
+// ── VACINA CORREÇÃO-DA-PORTA D2 (29/07) ─────────────────────────────────────────────────────
+// Tabela medida em PRODUÇÃO: 11 nomes REAIS que a porta matava como "segment_mismatch" sem
+// nenhuma evidencia de outro segmento (~150 leads/dia). Nome comercial brasileiro quase nunca
+// contem a frase do segmento pedido. Se esta vacina quebrar, a porta voltou a transformar
+// "não sei" em "não presta".
+test('VACINA D2: nome real sem evidencia NUNCA vira segment_mismatch bloqueante', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const casos: Array<[string, string]> = [
+    ['hotéis', 'HOTEL GAUCHO'],
+    ['postos de combustível', 'Auto Posto Ariella Ltda'],
+    ['depósitos de bebidas', 'Distribuidora De Bebidas 3m Ltda'],
+    ['agências de marketing', 'Lamego Propaganda Ltda'],
+    ['autoescolas', 'Centro De Formacao De Condutores Interlagos'],
+    ['cartórios', 'Tabelionato De Protesto De Titulos'],
+    ['clínicas odontológicas', 'Sorridents'],
+    ['açougues', 'Maturo Boutique de Carnes'],
+    ['mecânicas diesel', 'Forte Diesel Araraquara'],
+    ['imobiliárias', 'F S Administradora De Bens Ltda'],
+    ['casas de ração', 'Agropecuaria Sao Jorge'],
+  ];
+  for (const [segmento, nome] of casos) {
+    const quality = service.evaluateLeadQuality({
+      name: nome,
+      phone: '(19) 99999-0000',
+      phoneDigits: '19999990000',
+    }, { requestedSegment: segmento, targetType: 'pj' });
+    assert.notEqual(quality.status, 'segment_mismatch', `"${nome}" (busca "${segmento}") NAO pode ser bloqueado sem evidencia de outro segmento`);
+  }
+});
+
+// ── VACINA D3 (29/07): migração em LEITURA do carimbo velho ─────────────────────────────────
+// A lei velha gravou `segment_mismatch` em linha do pool SEM evidência nenhuma; a leitura
+// prefere a quality gravada — sem migração, lead que JÁ estava na prateleira sumiria pra
+// sempre. Carimbo sem evidência vira `segment_unconfirmed` ao ler; mismatch com evidência
+// real continua mismatch.
+test('VACINA D3: carimbo velho "sem evidencia" gravado no banco e lido como segment_unconfirmed', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const semEvidencia = service.normalizeLeadQuality({
+    status: 'segment_mismatch',
+    billable: false,
+    segmentMatchScore: 25,
+    contactQualityScore: 60,
+    commercialScore: 52,
+    reasons: ['Sem evidencia suficiente de aderencia ao segmento.', 'Lead sem aderencia minima ao segmento solicitado.'],
+  });
+  assert.equal(semEvidencia.status, 'segment_unconfirmed');
+
+  const parcial = service.normalizeLeadQuality({
+    status: 'segment_mismatch',
+    billable: false,
+    segmentMatchScore: 45,
+    contactQualityScore: 60,
+    commercialScore: 55,
+    reasons: ['Evidencia parcial do segmento (so parte das palavras pedidas).'],
+  });
+  assert.equal(parcial.status, 'segment_unconfirmed');
+
+  const comEvidencia = service.normalizeLeadQuality({
+    status: 'segment_mismatch',
+    billable: false,
+    segmentMatchScore: 0,
+    contactQualityScore: 0,
+    commercialScore: 0,
+    reasons: ['Nome indica outro segmento comercial.'],
+  });
+  assert.equal(comEvidencia.status, 'segment_mismatch', 'mismatch com evidencia REAL nao pode ser migrado');
+});
+
+// Advogado autonomo e banca nomeada pelos socios (caso advocacia/Rio Claro, pós-f456d844):
+// nomes proprios nao "falam" advocacia — seguem vivos como nao-confirmados.
+test('VACINA D2: advogado autonomo e banca de socios nao morrem na porta', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const nomes = [
+    'JOSÉ ANTONIO ESCHER, MARIA FERNANDA BISCARO',
+    'Dr. Jouber Turolla',
+    'Thais Nayara Da Costa Lima',
+    'Pesce Amoedo',
+  ];
+  for (const nome of nomes) {
+    const quality = service.evaluateLeadQuality({
+      name: nome,
+      phone: '(19) 99999-0000',
+      phoneDigits: '19999990000',
+    }, { requestedSegment: 'advocacia', requestedCity: 'Rio Claro', targetType: 'pj' });
+    assert.notEqual(quality.status, 'segment_mismatch', `"${nome}" nao pode morrer na porta sem evidencia positiva`);
+  }
 });
 
 test('evaluateLeadQuality aprova candidato web com o pedido completo na evidencia (flexao tolerada)', () => {

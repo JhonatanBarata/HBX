@@ -51,6 +51,7 @@ import {
   GENERIC_DIRECTORY_CONTAINS,
   GENERIC_CATEGORY_HEADS,
   looksLikeNonBusinessName,
+  isRealisticBrPhone,
   VERTICAL_TOKEN_GROUPS,
   GooglePlacesApiError,
   HbxBatchError,
@@ -1104,7 +1105,9 @@ export class RadarCorePresentationMixin {
     seenPhones: Set<string>,
   ) {
     if (candidate.phoneDigits && seenPhones.has(candidate.phoneDigits)) return false;
-    if (looksLikeNonBusinessName(candidate.name)) return false;
+    if (looksLikeNonBusinessName(candidate.name, {
+      hasCompanyAnchor: Boolean((candidate as any).cnpj),
+    })) return false;
     if (!this.hasUsablePublicContactChannel(candidate as any)) return false;
     const seenKeys = new Set<string>();
     for (const item of existing) {

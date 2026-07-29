@@ -101,3 +101,54 @@ test('cauda de localidade: "Jardim"/"Vila" NAO sao podados (sobrenome/razao soci
   const limpo = stripLocationTailFromName(nome, { city: 'Rio Claro', state: 'SP' });
   assert.equal(limpo, 'Advocacia Marilene Jardim e Erika Habermann Jardim');
 });
+
+// ── VACINA CORREÇÃO-DA-PORTA D5 (29/07): a poda mutilava razao social onde a cidade E a
+// identidade (cartorio/sindicato/cooperativa/associacao/santa casa) e deixava preposicao
+// pendurada ("Santa Casa de Misericordia de"). Casos medidos rodando o codigo real.
+test('VACINA D5: instituicao onde a cidade e identidade fica INTACTA', () => {
+  const casos: Array<[string, { city?: string; state?: string }]> = [
+    ['Santa Casa de Misericordia de Rio Claro SP', { city: 'Rio Claro', state: 'SP' }],
+    ['Sindicato dos Trabalhadores Rurais de Rio Claro', { city: 'Rio Claro', state: 'SP' }],
+    ['Cooperativa Dos Transportadores De Carga Da Regiao De Tangara', { city: 'Tangara', state: 'MT' }],
+  ];
+  for (const [nome, contexto] of casos) {
+    assert.equal(stripLocationTailFromName(nome, contexto), nome, `mutilou: ${nome}`);
+  }
+});
+
+test('VACINA D5: poda que deixaria conector de lugar pendurado e DESFEITA', () => {
+  const nome = 'Soroca Atacadão das Embalagens em Jardim Vera Cruz';
+  assert.equal(stripLocationTailFromName(nome, { city: 'Vera Cruz', state: 'SP' }), nome);
+});
+
+// ── VACINA D6 (29/07): a poda virou porta de entrada — titulo de portal com 10-11 palavras
+// terminando em cidade era "absolvido" do teto de palavras.
+test('VACINA D6: titulo de portal NAO e absolvido pela poda da cidade', () => {
+  const titulo = 'As 10 melhores lojas de moveis e decoracao de Rio Claro';
+  const depois = stripLocationTailFromName(titulo, { city: 'Rio Claro', state: 'SP' });
+  assert.equal(looksLikeNonBusinessName(depois), true, 'titulo de pagina tem de continuar barrado apos a poda');
+});
+
+// ── VACINA D7 (29/07): anti-menu com SEGUNDO sinal — nome-fantasia real de vocabulario de
+// categoria so cai sem ancora FORTE (CNPJ/registro; sufixo juridico ja escapa sozinho).
+// Telefone NAO e ancora: no caso real Mirão o nome de menu veio COM o telefone do site.
+test('VACINA D7: nome de categoria COM CNPJ passa; sem ancora (mesmo com telefone) continua barrado', () => {
+  const nomes = ['Celulares e Acessórios', 'Móveis e Decoração', 'Cama, Mesa e Banho'];
+  for (const nome of nomes) {
+    assert.equal(
+      looksLikeNonBusinessName(nome, { hasCompanyAnchor: true }),
+      false,
+      `com CNPJ/registro, "${nome}" e nome-fantasia real`,
+    );
+    assert.equal(
+      looksLikeNonBusinessName(nome),
+      true,
+      `sem ancora forte, "${nome}" segue sendo menu de site`,
+    );
+  }
+  // Caso original Mirão: menu do site (veio com telefone, sem CNPJ) — continua morrendo.
+  assert.equal(looksLikeNonBusinessName('Informática & Eletrônicos'), true);
+  assert.equal(looksLikeNonBusinessName('Informática & Eletrônicos', { hasCompanyAnchor: false }), true);
+  // Sufixo juridico escapa por identidade propria, sem precisar de contexto.
+  assert.equal(looksLikeNonBusinessName('Cama Mesa e Banho Ltda'), false);
+});

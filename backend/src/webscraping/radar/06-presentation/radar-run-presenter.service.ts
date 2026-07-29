@@ -510,8 +510,15 @@ export class RadarRunPresenterService {
           deliveryBlockers: issueSummary.blockers,
           createdAt: item.createdAt instanceof Date ? item.createdAt.toISOString() : new Date().toISOString(),
         };
+        // CORREÇÃO-DA-PORTA D4 (29/07): `items` é o array que o FRONT consome
+        // (leads/page.client.tsx e casca usam run.items; `results` ninguém lê). A máscara
+        // aplicada só em `results` deixava telefone/e-mail CRUS aqui — vazamento no DevTools
+        // antes do Puxar — e sem `channelPresence` todo card ao vivo dizia "sem contato".
+        // Mesma lei do results.map logo acima: presença calculada ANTES da máscara.
         return host.stripListPremiumFields(
-          host.attachDeliveryClassification(publicItem, qualityInput, raw.quality || null, qualityV2),
+          maskRunContactForShowcase(
+            host.attachDeliveryClassification(publicItem, qualityInput, raw.quality || null, qualityV2),
+          ),
           qualityInput,
         );
       }),

@@ -659,7 +659,9 @@ export class RadarCoreMasterDatabaseMixin {
   // Era uma cópia à mão no agent (hbx-owner/local-agent/server.js isJunkLead) — agora usa as
   // PRIMITIVAS testadas do backend, sem duplicar a régua (Sprint 3 HBX-OWNER).
   isJunkRadarLead(row: any) {
-    if (looksLikeNonBusinessName(row && row.name)) return true;
+    if (looksLikeNonBusinessName(row && row.name, {
+      hasCompanyAnchor: Boolean(row && row.cnpj),
+    })) return true;
     if (isRealisticBrPhone(row && (row.phone || row.phoneDigits))) return false;
     const email = String((row && row.email) || '').trim();
     const emailStatus = String((row && row.emailStatus) || '').toLowerCase();
