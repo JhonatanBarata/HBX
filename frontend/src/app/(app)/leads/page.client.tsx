@@ -850,6 +850,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   // APPROVED-COMPANY-SEARCH-UX: histórico e resultado são estados distintos.
   const [hasSearched, setHasSearched] = useState(false);
   const [historyHidden, setHistoryHidden] = useState(false);
+  // E1 ESTABILIZAÇÃO (29/07): mexer em filtro deixou de APAGAR o resultado (era a tela
+  // "limpou sozinha"). O recorte desatualizado agora é um AVISO, nunca uma lista vazia.
+  const [filtersStale, setFiltersStale] = useState(false);
 
   // lead selecionado no painel de detalhe
   const [selLead, setSelLead] = useState<RadarLead | null>(null);
@@ -1288,6 +1291,18 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           adoptSession(res);
           return;
         }
+        if (res?.id) {
+          // E1 ESTABILIZAÇÃO (29/07): sessão TERMINAL dentro da janela de 30 min. O backend
+          // guarda ela de propósito (FINISHED_VISIBILITY_MS) pra tela que volta encontrar o
+          // resultado — e o front jogava fora na porta (só aceitava running/paused), deixando
+          // a vitrine em branco com os leads no banco. Não adota como sessão viva (isso
+          // religaria o modo "ao vivo" vazio): liga a exibição da lista e o fecho honesto.
+          sessionSettledRef.current = res.id || null;
+          setHasSearched(true);
+          setHistoryHidden(false);
+          if (res.message) setSearchMsg(res.message);
+          return;
+        }
         return apiFetch<RunResponse>("/webscraping/radar/search-runs/latest")
           .then(latest => {
             if (sessionRef.current || queueTokenRef.current !== latestRequestToken) return;
@@ -1516,10 +1531,12 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   }
 
   function markFiltersDirty() {
-    setHasSearched(false);
-    setHistoryHidden(true);
-    setLiveRunItems(null);
-    setSearchMsg(null);
+    // E1 ESTABILIZAÇÃO (29/07): este era o apagador de tela — zerar hasSearched +
+    // esconder histórico + matar itens ao vivo em 18 gatilhos de filtro fazia qualquer
+    // toque em estrela/canal/cidade apagar uma busca viva ou recém-terminada. A busca
+    // mora no SERVIDOR (F2) e a lista carregada é fato: mexer em filtro agora só marca
+    // o recorte como desatualizado — quem atualiza a lista é o botão Buscar.
+    setFiltersStale(true);
     setSelected(new Set());
     setSelLead(null);
   }
@@ -1621,6 +1638,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     setTab("shelf");
     setHasSearched(false);
     setHistoryHidden(true);
+    setFiltersStale(false);
     setLiveRunItems(null);
     try { localStorage.removeItem("hbx:leads-filters"); } catch { /* sem storage */ }
   }
@@ -1671,6 +1689,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     setSavedMsg(`Pesquisa "${s.nome}" aplicada.`);
     setHasSearched(false);
     setHistoryHidden(true);
+    setFiltersStale(false);
     setLiveRunItems(null);
     setSearchMsg(null);
     setSelected(new Set());
@@ -1808,6 +1827,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
     setHasSearched(true);
     setHistoryHidden(false);
+    setFiltersStale(false);
     setSearchMsg(null);
     setLoadError(null);
     setLiveRunItems([]);
@@ -1968,6 +1988,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const showingLiveRun = tab === "shelf" && liveRunItems !== null;
   const historyItems = data?.items || [];
   const hideHistory = tab === "shelf" && !hasSearched && historyHidden;
+  // E1: lista escondida com leads carregados precisa de saída pela própria tela —
+  // antes a única ação inversa era buscar de novo (gastando cota pra rever o banco).
+  const hiddenAvailable = hideHistory && historyItems.length > 0;
   const filteredLiveRunItems = filterRadarLeadsByReputation(liveRunItems || [], minRating, minReviews);
   const items = showingLiveRun ? filteredLiveRunItems : (hideHistory ? [] : historyItems);
   const hasHistory = tab === "shelf" && !hasSearched && !historyHidden && historyItems.length > 0;
@@ -2779,7 +2802,14 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     return (
       <div className="tbl-wrap row-dense-list-wrap">
         {items.length === 0 ? (
-          <div className="radar2-empty">{emptyMsg}</div>
+          <div className="radar2-empty">
+            {emptyMsg}
+            {hiddenAvailable && (
+              <button type="button" className="btn-ghost btn-xs" onClick={() => setHistoryHidden(false)}>
+                Mostrar leads disponíveis
+              </button>
+            )}
+          </div>
         ) : (
           <div className="row-dense-list">
             <div className="row-dense-list__head" aria-hidden="true">
@@ -3017,6 +3047,9 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                 </div>
               </div>
               {hasHistory && <div className="leads-history-note">Histórico recente</div>}
+              {tab === "shelf" && filtersStale && items.length > 0 && (
+                <div className="leads-history-note">Resultado desatualizado — clique Buscar para atualizar.</div>
+              )}
               {/* Progresso REAL de uma busca em andamento (não é o radar decorativo
                   narrando estado — é feedback de uma operação assíncrona de verdade).
                   O texto de IDLE "Em pausa — volta sozinho" saiu daqui (item 2). */}
@@ -3052,7 +3085,14 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
               {viewMode === "linhas" ? renderRowsDense() : (
                   <div className="tbl-wrap be-grid-wrap">
                     {items.length === 0 ? (
-                      <div className="be-grid__empty radar2-empty">{emptyMsg}</div>
+                      <div className="be-grid__empty radar2-empty">
+                        {emptyMsg}
+                        {hiddenAvailable && (
+                          <button type="button" className="btn-ghost btn-xs" onClick={() => setHistoryHidden(false)}>
+                            Mostrar leads disponíveis
+                          </button>
+                        )}
+                      </div>
                     ) : (
                       <div className="be-grid">
                         {items.map(row => {
