@@ -1751,6 +1751,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
    ============================================================ */
 .vnd-cmd {
   position: relative;
+  z-index: 20;
   flex: none;
   min-width: 0;
   margin: 8px 14px 10px;
@@ -2322,6 +2323,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   width: 100% !important;
   min-width: 0 !important;
 }
+.vnd-stage { z-index: 0; }
 #vendas-panel-funil .work > .panel,
 #vendas-panel-funil .tbl-wrap,
 #vendas-panel-funil .tbl {
@@ -2331,6 +2333,8 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 
 /* ── Detalhe rápido do Meu funil ───────────────────────────────────────── */
 .vnd-lead-peek {
+  position: relative;
+  z-index: 0;
   grid-column: 2;
   min-width: 0;
   height: 80%;
