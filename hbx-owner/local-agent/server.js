@@ -1660,162 +1660,12 @@ function opsRequest(method, route, payload, timeoutMs = 45000) {
 
 // parsePercentString, parseSizeToGb → lib/util.js (Sprint 5).
 
-// Usa CPU% (load÷núcleos) quando há núcleos; sem isso, cai pra load vs núcleos.
-function buildVpsVerdict(ramPct, diskPct, cpuPct, load1, cores) {
-  const cpuCritical = cpuPct != null ? cpuPct >= 90 : (cores && load1 != null && load1 >= cores * 1.5);
-  const cpuTight = cpuPct != null ? cpuPct >= PRESSURE_LIMITS.cpu : (cores && load1 != null && load1 >= cores);
-  const critical = [];
-  if (diskPct != null && diskPct >= 90) critical.push("disco no limite");
-  if (ramPct != null && ramPct >= 90) critical.push("RAM no limite");
-  if (cpuCritical) critical.push("CPU saturada");
-  if (critical.length) {
-    return { level: "buy", title: "Hora de agir", detail: `VPS no limite: ${critical.join(", ")}. Avalie subir o plano da VPS ou aliviar carga.` };
-  }
-  const tight = [];
-  if (diskPct != null && diskPct >= PRESSURE_LIMITS.disk) tight.push("disco");
-  if (ramPct != null && ramPct >= PRESSURE_LIMITS.ram) tight.push("RAM");
-  if (cpuTight) tight.push("CPU");
-  if (tight.length) {
-    return { level: "tight", title: "Começando a apertar", detail: `Na VPS, ${tight.join(" e ")} passou da faixa de aviso. Observe de perto.` };
-  }
-  return { level: "ok", title: "Ainda não", detail: "VPS com folga de recurso. Eu aviso quando começar a bater no teto." };
-}
-
 // parseLoadTriplet → lib/util.js (Sprint 5).
 
-function vpsContainersFrom(list) {
-  const isEngine = (name) => /^hbx-engine-\d+$/.test(name || "");
-  const all = Array.isArray(list) ? list : [];
-  const engineContainers = all.filter((c) => isEngine(c.name) || c.name === "hbx-scraping-engine");
-  const sysContainers = all
-    .filter((c) => SYSTEM_CONTAINERS.includes(c.name) || isEngine(c.name))
-    .map((c) => ({ name: c.name, state: c.state, status: c.status, cpu: c.cpu || "-", mem: c.memPercent || c.memUsage || "-" }));
-  return {
-    engines: { total: engineContainers.length, running: engineContainers.filter((c) => c.state === "running").length },
-    containers: sysContainers,
-  };
-}
-
-function buildVpsResult({ ramPct, diskPct, ramTotalGb, diskFreeGb, diskTotalGb, load, cpuPct, cores, engines, containers, containersAvailable, targetHost }) {
-  const load1 = Number.isFinite(load.load1) ? load.load1 : null;
-  const verdict = buildVpsVerdict(ramPct, diskPct, cpuPct, load1, cores);
-  const warnings = [];
-  if (diskPct != null && diskPct >= PRESSURE_LIMITS.disk) warnings.push(`Disco da VPS em ${diskPct}%`);
-  if (ramPct != null && ramPct >= PRESSURE_LIMITS.ram) warnings.push(`RAM da VPS em ${ramPct}%`);
-  if (cpuPct != null && cpuPct >= PRESSURE_LIMITS.cpu) warnings.push(`CPU da VPS em ${cpuPct}%${cores ? ` (load ${load1?.toFixed(2)} / ${cores} núcleos)` : ""}`);
-  else if (cores == null && load1 != null && load1 >= 8) warnings.push(`Carga (load 1m) da VPS alta: ${load1.toFixed(2)}`);
-  if (!containersAvailable) warnings.push("Containers da VPS não vieram (SSH/docker deu timeout sob carga)");
-  return {
-    ok: true,
-    configured: true,
-    generatedAt: nowIso(),
-    targetHost: targetHost || null,
-    pressure: {
-      ram: { usedPct: ramPct, limit: PRESSURE_LIMITS.ram, totalGb: ramTotalGb },
-      cpu: { usedPct: cpuPct, limit: PRESSURE_LIMITS.cpu, cores: cores },
-      disk: { usedPct: diskPct, limit: PRESSURE_LIMITS.disk, freeGb: diskFreeGb, totalGb: diskTotalGb },
-      load: { load1, load5: Number.isFinite(load.load5) ? load.load5 : null, load15: Number.isFinite(load.load15) ? load.load15 : null },
-    },
-    engines,
-    containers,
-    containersAvailable,
-    verdict,
-    warnings,
-  };
-}
-
-// Caminho preferido: snapshot leve (1 conexao SSH) com /proc/stat → CPU% REAL (delta de uso).
-function mapSnapshot(data) {
-  const mem = data.memory || {};
-  const disk = data.disk || {};
-  const load = parseLoadTriplet(data.load);
-  const cores = Number.isFinite(Number(data.cores)) && Number(data.cores) > 0 ? Number(data.cores) : null;
-  const ramPct = Number.isFinite(Number(mem.usedPercent)) ? Math.round(Number(mem.usedPercent)) : null;
-  // CPU% = uso REAL vindo do snapshot (/proc/stat). Só cai no load/cores se o snapshot for antigo
-  // (sem cpuUsedPct) — load/cores inflava (mostrava 100% com CPU real ~50%, divergindo da Hostinger).
-  const realCpu = Number(data.cpuUsedPct);
-  const cpuPct = Number.isFinite(realCpu)
-    ? Math.max(0, Math.min(100, Math.round(realCpu)))
-    : (cores && Number.isFinite(load.load1) ? Math.min(100, Math.round((load.load1 / cores) * 100)) : null);
-  const { engines, containers } = vpsContainersFrom(data.containers);
-  const containersAvailable = Array.isArray(data.containers) && data.containers.length > 0;
-  return buildVpsResult({
-    ramPct,
-    diskPct: parsePercentString(disk.usedPercent),
-    ramTotalGb: mem.totalMb ? Math.round(Number(mem.totalMb) / 1000) : null,
-    diskFreeGb: parseSizeToGb(disk.available),
-    diskTotalGb: parseSizeToGb(disk.size),
-    load,
-    cpuPct,
-    cores,
-    engines,
-    containers,
-    containersAvailable,
-    targetHost: data.target || null,
-  });
-}
-
-// Fallback: overview do Ops Control (8 conexoes SSH; docker costuma dar timeout sob carga).
-function mapOverview(data) {
-  const mem = data.memory || {};
-  const disk = data.disk || {};
-  const load = parseLoadTriplet(data.load);
-  const ramPct = Number.isFinite(Number(mem.usedPercent)) ? Math.round(Number(mem.usedPercent)) : null;
-  const { engines, containers } = vpsContainersFrom(data.containers);
-  const dockerTimedOut = (data.errors || []).some((e) => /timeout|docker/i.test(String(e || ""))) && containers.length === 0;
-  return buildVpsResult({
-    ramPct,
-    diskPct: parsePercentString(disk.usedPercent),
-    ramTotalGb: mem.totalMb ? Math.round(Number(mem.totalMb) / 1000) : null,
-    diskFreeGb: parseSizeToGb(disk.available),
-    diskTotalGb: parseSizeToGb(disk.size),
-    load,
-    cpuPct: null,
-    cores: null,
-    engines,
-    containers,
-    containersAvailable: !dockerTimedOut,
-    targetHost: data.targetHost || null,
-  });
-}
-
-// Cache de 30s do snapshot da VPS: cada poll do painel/árvore antes disparava um SSH real (via Ops
-// Control) → martelava a VPS. Mesmo padrão de vpsLeadsCache/radarCockpitCache. O botão ⟳ manda
-// `force=1` e fura o cache. Só cacheia resposta OK (erro não vira cache → próxima tentativa é fresca).
-let vpsSystemCache = { at: 0, data: null };
-async function readVpsSystem(force) {
-  if (!opsToken) {
-    return { ok: false, configured: false, reason: "ops_token_ausente", message: OPS_REASON_TEXT.ops_token_ausente };
-  }
-  if (!force && vpsSystemCache.data && Date.now() - vpsSystemCache.at < 30_000) return vpsSystemCache.data;
-  // 1) Snapshot leve (preferido). 2) Fallback overview se o Ops Control for o antigo.
-  const snap = await opsRequest("GET", "/api/host-snapshot/vps", null, 38000);
-  if (snap.ok && snap.data && snap.data.available !== false && snap.data.memory) {
-    const out = mapSnapshot(snap.data);
-    if (out && out.ok !== false) vpsSystemCache = { at: Date.now(), data: out };
-    return out;
-  }
-  // S2/D3 — o transporte ao :3099 falhou (container caído ou lento): a causa é do OPS LOCAL, nunca
-  // "VPS sob carga" (essa frase SÓ vale pra timeout = vps_lenta).
-  if (snap.reason === "ops_caido" || snap.reason === "vps_lenta") {
-    return { ok: false, configured: true, reason: snap.reason, message: OPS_REASON_TEXT[snap.reason] };
-  }
-  // Ops respondeu, mas explicitou que a leitura da VPS não está disponível (SSH caiu) → ssh_falhou.
-  // (Só o Ops Control ANTIGO — sem a rota de snapshot — merece o fallback overview logo abaixo.)
-  if (snap.ok && snap.data && snap.data.available === false) {
-    return { ok: false, configured: true, reason: "ssh_falhou", message: OPS_REASON_TEXT.ssh_falhou };
-  }
-  const ov = await opsRequest("GET", "/api/overview", null, 45000);
-  if (ov.ok && ov.data) {
-    const out = mapOverview(ov.data);
-    if (out && out.ok !== false) vpsSystemCache = { at: Date.now(), data: out };
-    return out;
-  }
-  // Overview também não veio → classifica a causa REAL. Timeout = vps_lenta ("sob carga"); refused =
-  // ops_caido; ops de pé mas a leitura da VPS falhou = ssh_falhou. Nunca "configure" aqui (há token).
-  const cause = (ov.reason === "ops_caido" || ov.reason === "vps_lenta") ? ov.reason : "ssh_falhou";
-  return { ok: false, configured: true, reason: cause, message: OPS_REASON_TEXT[cause] };
-}
+// buildVpsVerdict / vpsContainersFrom / buildVpsResult / mapSnapshot / mapOverview / readVpsSystem
+// (+ vpsSystemCache) REMOVIDOS em 28/07 (E5) — cadeia exclusiva do GET /owner/vps/system e do
+// buildTreeSnapshot do painel velho; nenhum outro caller em todo o repo (grep confirmou). O V3 lê
+// scraping VPS via fetchScrapingVps()/collectOwnerV3Parts, não por este caminho.
 
 // Total/leads/fábrica da VPS pela rota radar-audit que o Ops Control JÁ tem (SSH+psql, ~30s).
 // Cache de 90s pra não martelar SSH no ciclo do painel.
@@ -2355,91 +2205,10 @@ function broadcastEnricher() {
 }
 
 // ---------- Snapshot COMPOSTO da Árvore (Sprint 4; caches fechados no S3) ----------
-// Monta o estado INTEIRO (local + VPS) reusando os readers/caches que JÁ existem, num único JSON com
-// UM generatedAt. Custo por tick de 30s do SSE: no MÁXIMO 1 SSH (o host-snapshot da VPS, cache 30s) —
-// readSystemSnapshot é NATIVO (sem SSH) e cada leitor da VPS tem seu cache: readVpsSystem 30s,
-// readRadarCockpit 60s, readVpsLeads 90s, readVpsEngineCapacity 60s e readVpsIntegrationsPresence 120s.
-// O S3 fechou os 2 buracos (engines/status e env-presence rodavam SEM cache → SSH/HTTP de produção 2×/min
-// à toa). force=1 fura só os caches onde faz sentido no refresh manual (system/cockpit); os demais seguem
-// pelo seu TTL. Cada reader degrada sozinho (ok:false) — o snapshot nunca lança nem trava por um lado off.
-// D4: refreshOpsDrift (throttle 5min) roda aqui e, se a imagem do ops-control estiver atrás do código,
-// injeta o aviso em vps.system.warnings + expõe opsDrift no topo (a pílula ops fica âmbar).
-let treeSnapshotCache = { at: 0, data: null };
-const OPS_DRIFT_WARN = "Ops Control desatualizado — imagem atrás do código de ops-control/ (rebuild: npm run up ou docker compose up -d --build).";
-async function buildTreeSnapshot(force = false) {
-  const [
-    localSystem, localBank, localEnginesStatus,
-    vpsSystem, vpsLeads, vpsEngines, radarCockpit,
-    integrationsVps,
-  ] = await Promise.all([
-    readSystemSnapshot().catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
-    readLeadsBank().catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
-    readEngineCapacity().catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
-    readVpsSystem(force).catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
-    readVpsLeads().catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
-    readVpsEngineCapacity().catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
-    readRadarCockpit(force).catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
-    readVpsIntegrationsPresence().catch((e) => ({ ok: false, reason: String((e && e.message) || e) })),
-  ]);
-  await refreshOpsDrift(force).catch(() => {}); // D4: veredito de drift (throttle 5min interno; force fura)
-  // Aviso de drift no vps.system.warnings — idempotente (dedup + remove quando o drift some): vpsSystem é o
-  // objeto CACHEADO (readVpsSystem), então mutar sem dedup empilharia o mesmo aviso a cada tick.
-  if (vpsSystem && vpsSystem.ok && Array.isArray(vpsSystem.warnings)) {
-    const has = vpsSystem.warnings.includes(OPS_DRIFT_WARN);
-    if (opsDrift.drift && !has) vpsSystem.warnings.push(OPS_DRIFT_WARN);
-    else if (!opsDrift.drift && has) vpsSystem.warnings = vpsSystem.warnings.filter((w) => w !== OPS_DRIFT_WARN);
-  }
-  const integrationsLocal = INTEGRATION_CATALOG.map((i) => ({ ...i, ...readIntegrationPresence(i.key) }));
-  const snapshot = {
-    ok: true,
-    generatedAt: nowIso(),
-    local: {
-      system: localSystem,
-      bank: localBank,
-      engines: localEnginesStatus,
-      integrations: { ok: true, scope: "local", items: integrationsLocal },
-    },
-    vps: {
-      system: vpsSystem,
-      leads: vpsLeads,
-      engines: vpsEngines,
-      integrations: integrationsVps,
-    },
-    // D4: veredito de drift da imagem do Ops Control — a pílula ops fica âmbar "ops desatualizado" quando true.
-    opsDrift: { drift: opsDrift.drift, checked: opsDrift.checked, buildHash: opsDrift.buildHash, localHash: opsDrift.localHash },
-    radarCockpit,
-    enricher: {
-      ok: true,
-      running: enricherJob.running,
-      phase: enricherJob.phase,
-      types: enricherJob.types,
-      aggressive: enricherJob.aggressive,
-      cycle: enricherJob.cycle,
-      cursorPage: enricherJob.cursorPage,
-      vpsTotal: enricherJob.vpsTotal,
-      metrics: {
-        cardsScanned: enricherJob.cardsScanned,
-        sitesCrawled: enricherJob.sitesCrawled,
-        emailsFound: enricherJob.emailsFound,
-        phonesFound: enricherJob.phonesFound,
-        cnpjsFound: enricherJob.cnpjsFound,
-        applied: enricherJob.applied,
-        tipo1Runs: enricherJob.tipo1Runs,
-      },
-      tipo1: enricherJob.tipo1,
-      startedAt: enricherJob.startedAt,
-      lastCycleAt: enricherJob.lastCycleAt,
-      error: enricherJob.lastError,
-    },
-    transfer: (() => {
-      const t = { ok: true, ...transferJob };
-      if (!transferJob.running && transferResume) { t.resumable = true; t.resume = transferResume; }
-      return t;
-    })(),
-  };
-  treeSnapshotCache = { at: Date.now(), data: snapshot };
-  return snapshot;
-}
+// buildTreeSnapshot/treeSnapshotCache/OPS_DRIFT_WARN REMOVIDOS em 28/07 (E5) — montavam o JSON
+// composto local+VPS SÓ pro /owner/tree e pro "snapshot" do /owner/events, ambos demolidos junto
+// (zero outro caller). D4 (refreshOpsDrift/opsDrift) continua vivo: é chamado direto no boot/heal
+// (ver refreshOpsDrift(true) mais abaixo) e exposto em GET /health — não dependia deste bloco.
 
 // Presença das chaves na VPS (mesma leitura do GET /owner/integrations/vps) — extraída pra ser
 // reusada pelo snapshot sem duplicar a chamada ao Ops Control. Cache de 120s (D5/D7): sem ele, o tick
@@ -2461,23 +2230,9 @@ async function readVpsIntegrationsPresence(force) {
   return { ok: false, reason: body.reason || r.reason || `http_${r.statusCode || "?"}` };
 }
 
-// Timer interno: recomputa o snapshot e faz broadcast do evento `snapshot` a cada 30s. .unref() pra
-// não segurar o processo. Só recomputa quando há cliente SSE vivo (economiza SSH quando o painel
-// está fechado); o GET /owner/tree sempre serve o último snapshot (ou computa on-demand). Reentrância
-// travada por snapshotTimerBusy — leitor pesado nunca empilha em cima de si mesmo.
-let snapshotTimerBusy = false;
-async function snapshotTick() {
-  if (snapshotTimerBusy) return;
-  if (!sseClients.size) return; // ninguém ouvindo → não gasta SSH; o GET on-demand cobre o resto
-  snapshotTimerBusy = true;
-  try {
-    const snap = await buildTreeSnapshot(false);
-    sseBroadcast("snapshot", snap);
-  } catch { /* um tick falho não derruba o timer; tenta de novo no próximo */ }
-  finally { snapshotTimerBusy = false; }
-}
-const snapshotTimer = setInterval(() => { void snapshotTick(); }, 30000);
-if (snapshotTimer.unref) snapshotTimer.unref();
+// snapshotTick/snapshotTimer (setInterval de 30s) REMOVIDO em 28/07 (E5) — só existia pra recomputar
+// e empurrar o "snapshot" do buildTreeSnapshot morto acima. Timer nº1 dos "10 do painel velho" que
+// vivia no lado do agent (os outros 9 eram do web/app.js e morreram com o arquivo).
 
 // Heartbeat SSE: comentário `: ping` a cada 25s mantém a conexão viva atravessando proxies/idle
 // e detecta clientes mortos (write falha → poda). .unref() pra não segurar o processo.
@@ -2876,11 +2631,13 @@ async function route(req, res) {
 
   const url = new URL(req.url, `http://${HOST}:${PORT}`);
 
-  // Painel V3 (E3, diretório NOVO web/v3/): "/v3" e "/v3/" mapeiam pro index de lá — sendStatic só
-  // resolve "/" pra index.html automaticamente, então um diretório precisa do mapeamento explícito.
-  // Se web/v3/ ainda não existir (outro worker entrega em paralelo), sendStatic devolve false e cai
-  // no fluxo normal abaixo (que também não acha nada) — sem 500, sem crash, só o 401 de sempre.
-  if (req.method === "GET" && (url.pathname === "/v3" || url.pathname === "/v3/") && sendStatic(res, "/v3/index.html")) {
+  // Painel V3 (E3, diretório NOVO web/v3/) É O PAINEL: "/", "/v3" e "/v3/" mapeiam todos pro
+  // index de lá (E5, 28/07 — cutover direto, casca velha em web/index.html foi removida via
+  // git rm). "/v3" continua respondendo (atalho da Área de Trabalho e o boot apontam pra lá,
+  // não pode quebrar) — é só um alias da raiz agora. sendStatic só resolve "/" pra "index.html"
+  // automaticamente dentro do MESMO diretório (webDir), então um subdiretório (v3/) precisa do
+  // mapeamento explícito nos 3 casos.
+  if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/v3" || url.pathname === "/v3/") && sendStatic(res, "/v3/index.html")) {
     return;
   }
 
@@ -2899,44 +2656,11 @@ async function route(req, res) {
     return;
   }
 
-  // SSE — canal de eventos (transfer/enricher/snapshot). Auth por ?token= (EventSource não manda
-  // header Authorization) validado contra o TOKEN local SÓ nesta rota. Aceita Bearer também (curl).
-  // Registra o response no Set de clientes vivos e remove no close. Manda um snapshot inicial na hora
-  // (o último em cache; computa on-demand se ainda não houver) pra a árvore pintar sem esperar 30s.
-  if (req.method === "GET" && url.pathname === "/owner/events") {
-    const queryToken = url.searchParams.get("token");
-    const authed = isAuthorized(req) || (queryToken != null && queryToken === TOKEN);
-    if (!authed) { sendError(res, 401, "Token local invalido ou ausente."); return; }
-    res.writeHead(200, {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache, no-store",
-      Connection: "keep-alive",
-      "X-Accel-Buffering": "no",
-    });
-    // Sugere ao EventSource re-tentar em 3s se a conexão cair (reconexão nativa do browser).
-    res.write("retry: 3000\n\n");
-    sseClients.add(res);
-    const cleanup = () => {
-      sseClients.delete(res);
-      try { res.end(); } catch { /* já morto */ }
-    };
-    req.on("close", cleanup);
-    req.on("error", cleanup);
-    res.on("error", cleanup);
-    // Estado inicial imediato: transfer + enricher + a árvore composta.
-    sseWrite(res, "hello", { ok: true, at: nowIso() });
-    broadcastTransfer();
-    broadcastEnricher();
-    try {
-      const snap = (treeSnapshotCache.data && Date.now() - treeSnapshotCache.at < 30000)
-        ? treeSnapshotCache.data
-        : await buildTreeSnapshot(false);
-      sseWrite(res, "snapshot", snap);
-    } catch { /* snapshot inicial falhou (tudo offline) — o front cai no fallback de polling */ }
-    return;
-  }
+  // GET /owner/events (SSE do painel velho, snapshot da árvore VPS×Local) REMOVIDO em 28/07 (E5) —
+  // único consumidor era web/app.js, demolido junto. O V3 tem seu próprio canal abaixo
+  // (/owner/v3/events), que reusa o MESMO pool sseClients mas manda só o evento "overview".
 
-  // SSE do V3 — espelha /owner/events (MESMO auth por ?token=, MESMO pool sseClients: lei nº4, zero
+  // SSE do V3 — espelha o /owner/events antigo (MESMO auth por ?token=, MESMO pool sseClients: lei nº4, zero
   // timer novo). Evento "overview" no connect (snapshot imediato) + toda vez que um switch muda algo.
   if (req.method === "GET" && url.pathname === "/owner/v3/events") {
     const queryToken = url.searchParams.get("token");
@@ -2969,19 +2693,9 @@ async function route(req, res) {
     return;
   }
 
-  // Snapshot COMPOSTO da Árvore (Sprint 4): 1 GET devolve local+VPS com UM generatedAt, reusando os
-  // caches. ?force=1 recomputa furando os caches subjacentes onde há suporte. É o fallback do SSE.
-  if (req.method === "GET" && url.pathname === "/owner/tree") {
-    const force = url.searchParams.get("force") === "1";
-    if (!force && treeSnapshotCache.data && Date.now() - treeSnapshotCache.at < 30000) {
-      sendJson(res, 200, treeSnapshotCache.data);
-      return;
-    }
-    const snap = await buildTreeSnapshot(force);
-    if (sseClients.size) sseBroadcast("snapshot", snap); // recomputou → empurra pros ouvintes também
-    sendJson(res, 200, snap);
-    return;
-  }
+  // GET /owner/tree (snapshot COMPOSTO local+VPS da árvore do painel velho) REMOVIDO em 28/07 (E5) —
+  // único consumidor era web/app.js, demolido junto; buildTreeSnapshot/treeSnapshotCache foram
+  // junto (nenhum outro chamador). O V3 tem seu próprio agregado: GET /owner/v3/overview.
 
   if (req.method === "GET" && url.pathname === "/owner/leads-bank") {
     sendJson(res, 200, await readLeadsBank());
@@ -3174,10 +2888,10 @@ async function route(req, res) {
   }
 
   // ----- VPS (via Ops Control). Leitura assíncrona + controles que já existiam. -----
-  if (req.method === "GET" && url.pathname === "/owner/vps/system") {
-    sendJson(res, 200, await readVpsSystem(url.searchParams.get("force") === "1"));
-    return;
-  }
+  // GET /owner/vps/system (pressão RAM/CPU/disco/containers da VPS pro card do painel velho)
+  // REMOVIDO em 28/07 (E5) — único consumidor era web/app.js; readVpsSystem/mapSnapshot/mapOverview/
+  // buildVpsResult/vpsContainersFrom foram junto (cadeia exclusiva, zero uso fora dela; PRESSURE_LIMITS
+  // e SYSTEM_CONTAINERS continuam vivos — são compartilhados com o lado LOCAL).
 
   // Total/leads/fábrica da VPS (radar-audit do Ops Control, cacheado). Sem rebuild.
   if (req.method === "GET" && url.pathname === "/owner/vps/leads") {
