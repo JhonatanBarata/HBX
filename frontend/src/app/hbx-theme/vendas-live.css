@@ -2078,7 +2078,23 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
    /VENDAS — GRADE (planilha). 1 linha por lead, 1 dado por coluna,
    cabeçalho fixo, edição inline. Zero cor literal: só token central.
    ============================================================ */
-.vnd-grid-wrap { display: grid; min-width: 0; }
+.vnd-grid-wrap { position: relative; display: grid; min-width: 0; }
+.vnd-grid__bulk-actions {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding-left: 12px;
+  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--hbx-brand-soft) 40%, var(--hbx-table-head)) 14%);
+}
+.vnd-grid__bulk-actions .btn-ghost {
+  min-height: 28px;
+  white-space: nowrap;
+}
 .vnd-grid { table-layout: auto; }
 .vnd-grid th.vnd-grid__th {
   position: sticky; top: 0; z-index: 2;

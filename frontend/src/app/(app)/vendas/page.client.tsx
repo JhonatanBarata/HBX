@@ -1445,7 +1445,15 @@ export function VendasClient() {
               {/* GRADE (planilha): 1 linha por lead, 1 dado por coluna. Primeiro
                   clique abre a prévia lateral; repetir no mesmo lead abre a ficha. */}
               {view === "list" && board && (summary?.total ?? 0) > 0 && (
-                <div className="vnd-grid-wrap">
+                <div className={"vnd-grid-wrap" + (selecionados.size > 0 ? " is-bulk" : "")}>
+                  {selecionados.size > 0 && (
+                    <span className="vnd-grid__bulk-actions">
+                      <button type="button" className="btn-ghost btn-xs" onClick={() => setSelecionados(new Set())}>Desmarcar</button>
+                      <button type="button" className="btn-ghost danger btn-xs" onClick={() => { setBulkMsg(null); setExcluirMotivoOpen("bulk"); }} disabled={bulkDeleteBusy}>
+                        <I d={ICONS.trash} size={13} /> {bulkDeleteBusy ? "Excluindo…" : "Excluir selecionados"}
+                      </button>
+                    </span>
+                  )}
                   {/* As guias de etapa e a barra de seleção subiram pro painel de
                       comando (PAINEL-ÚNICO, 26/07) — aqui embaixo só a planilha. */}
                   <div className="tbl-wrap">
@@ -1462,12 +1470,6 @@ export function VendasClient() {
                               <span className="hbx-selection-bar__copy">
                                 <b>{selecionados.size} selecionado{selecionados.size === 1 ? "" : "s"}</b>
                                 {bulkMsg && <small className={"ctx-msg " + (bulkMsg.startsWith("✓") ? "ok" : "err")}>{bulkMsg}</small>}
-                              </span>
-                              <span className="hbx-selection-bar__actions">
-                                <button type="button" className="btn-ghost btn-xs" onClick={() => setSelecionados(new Set())}>Desmarcar</button>
-                                <button type="button" className="btn-ghost danger btn-xs" onClick={() => { setBulkMsg(null); setExcluirMotivoOpen("bulk"); }} disabled={bulkDeleteBusy}>
-                                  <I d={ICONS.trash} size={13} /> {bulkDeleteBusy ? "Excluindo…" : "Excluir selecionados"}
-                                </button>
                               </span>
                             </span>
                           </th>
