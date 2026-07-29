@@ -106,7 +106,7 @@
 .secondary {
   border-color: var(--border-hairline);
   background: var(--hbx-surface-soft);
-  color: var(--text-primary);
+  color: var(--text-strong);
 }
 
 .ghost,
@@ -135,7 +135,7 @@
 }
 
 .notice strong {
-  color: var(--text-primary);
+  color: var(--text-strong);
 }
 
 .card {
@@ -263,7 +263,7 @@ button.row {
   justify-content: center;
   border: 1px solid var(--border-hairline);
   background: var(--hbx-surface-soft);
-  color: var(--text-primary);
+  color: var(--text-strong);
 }
 
 .topButton {
@@ -330,7 +330,7 @@ button.row {
 .dayOn {
   border-color: color-mix(in srgb, var(--hbx-brand) 62%, transparent);
   background: color-mix(in srgb, var(--hbx-brand) 14%, transparent);
-  color: var(--text-primary);
+  color: var(--text-strong);
 }
 
 .dayEmpty {

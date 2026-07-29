@@ -26,7 +26,7 @@
   border: 1px solid color-mix(in srgb, var(--hbx-danger) 38%, transparent);
   border-radius: 12px;
   background: color-mix(in srgb, var(--hbx-danger) 9%, transparent);
-  color: var(--text-primary);
+  color: var(--text-strong);
   font-size: 0.8rem;
 }
 
@@ -390,7 +390,7 @@
   border: 0;
   outline: 0;
   background: transparent;
-  color: var(--text-primary);
+  color: var(--text-strong);
   font: inherit;
   font-size: 0.75rem;
 }
@@ -424,7 +424,7 @@
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius-lg);
   background: var(--hbx-surface-soft);
-  color: var(--text-primary);
+  color: var(--text-strong);
 }
 
 .log-agenda-stop.is-paused {
@@ -536,7 +536,7 @@
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius-md);
   background: var(--hbx-surface);
-  color: var(--text-primary);
+  color: var(--text-strong);
   font: inherit;
   font-size: 0.66rem;
   font-weight: 750;
@@ -620,7 +620,7 @@
   width: min(620px, 100%);
   max-height: min(860px, calc(100dvh - 48px));
   overflow: hidden;
-  color: var(--text-primary);
+  color: var(--text-strong);
 }
 
 .log-agenda-modal--wide {
@@ -756,7 +756,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  color: var(--text-primary);
+  color: var(--text-strong);
   font-size: 0.68rem;
   font-weight: 700;
   cursor: pointer;
@@ -981,7 +981,7 @@
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius-lg);
   background: var(--hbx-surface-soft);
-  color: var(--text-primary);
+  color: var(--text-strong);
   font: inherit;
   text-align: left;
   cursor: pointer;
@@ -1087,7 +1087,7 @@
 
 .log-agenda-import__row-name {
   overflow: hidden;
-  color: var(--text-primary);
+  color: var(--text-strong);
   font-size: 0.7rem;
   font-weight: 700;
   text-overflow: ellipsis;
