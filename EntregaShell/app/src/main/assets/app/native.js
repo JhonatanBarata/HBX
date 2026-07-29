@@ -502,7 +502,11 @@
         const themeLabel = document.documentElement.dataset.theme === "dark" ? "Usar tema claro" : "Usar tema escuro";
         const brandMark = options.appName === "logistica" ? options.icon("route", 20) : "»";
         const syncStatus = options.appName === "vendas" ? `<span class="sync-dot ${options.error ? "offline" : ""}"></span>` : "";
-        return `<header class="topbar"><div class="topbar-spacer"></div><div class="brand"><div class="brand-mark">${brandMark}</div><div class="brand-copy"><strong>${HBX.escape(brandName)}</strong></div></div><div class="toolbar">${syncStatus}<button class="icon-btn" data-action="theme" aria-label="${themeLabel}">${options.icon("moon", 18)}</button><button class="icon-btn" data-action="refresh" aria-label="Atualizar" ${options.refreshing ? "disabled" : ""}>${options.icon("refresh", 18)}</button></div></header><main class="content ${motion}">${options.content}</main>${this.navigation(options.appName, options.currentScreen, options.icon)}${options.overlays || ""}`;
+        // MODO PASSEIO (29/07) — o botão "modo trabalho" vive SEMPRE na marcação
+        // (o patch fino do topbar não reconcilia botões novos); quem mostra/esconde
+        // é o CSS via body.pss-active. Só logistica.
+        const passeioSair = options.appName === "logistica" ? `<button class="icon-btn pss-modo-sair" data-action="pss-trabalho" aria-label="Voltar ao modo trabalho">${options.icon("route", 18)}</button>` : "";
+        return `<header class="topbar"><div class="topbar-spacer"></div><div class="brand"><div class="brand-mark">${brandMark}</div><div class="brand-copy"><strong>${HBX.escape(brandName)}</strong></div></div><div class="toolbar">${syncStatus}<button class="icon-btn" data-action="theme" aria-label="${themeLabel}">${options.icon("moon", 18)}</button><button class="icon-btn" data-action="refresh" aria-label="Atualizar" ${options.refreshing ? "disabled" : ""}>${options.icon("refresh", 18)}</button>${passeioSair}</div></header><main class="content ${motion}">${options.content}</main>${this.navigation(options.appName, options.currentScreen, options.icon)}${options.overlays || ""}`;
       },
       mount(root, markup) {
         if (!root.querySelector(":scope > .topbar") || !root.querySelector(":scope > .content") || !root.querySelector(":scope > .bottom-nav")) {

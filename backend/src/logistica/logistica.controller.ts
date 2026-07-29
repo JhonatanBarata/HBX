@@ -1091,6 +1091,16 @@ export class LogisticaController {
     return this.geo.cepNumero(cep, numero, uf);
   }
 
+  /**
+   * MODO PASSEIO (29/07, CORRIGIR-O-LIXO S2b) — busca de lugar/endereço do
+   * mapa do passeio ("Catedral", "Av. 8, 500"). Mesma degradação do reverse:
+   * flag OFF/timeout/rede fora → `{items: []}`, nunca 500. q <3 letras → 400.
+   */
+  @Get('geo/busca')
+  geoBusca(@Query('q') q: string) {
+    return this.geo.busca(q);
+  }
+
   // ── PR18072026 W1 — façade de produtos sob /logistica (allowlist do APK) ───
   // O app do entregador só fala com endpoints `logistica/*`; PATCH/POST aqui
   // evitam sair do prefixo permitido. ADMIN-only (mesmo padrão de

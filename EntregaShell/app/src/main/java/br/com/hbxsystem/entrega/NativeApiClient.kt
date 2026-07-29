@@ -295,6 +295,8 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         method == "GET" && segments == listOf("logistica", "geo", "reverse") -> true
         // R2 (27/07) — rota rápida: CEP+número → pino (base CNEFE do backend).
         method == "GET" && segments == listOf("logistica", "geo", "cep") -> true
+        // MODO PASSEIO (29/07) — busca de lugar/endereço do mapa do passeio.
+        method == "GET" && segments == listOf("logistica", "geo", "busca") -> true
         // PR20072026 W2 — GET /logistica/leitura/:id/resumo.
         method == "GET" && segments.size == 4 && segments.take(2) == listOf("logistica", "leitura") && segments[3] == "resumo" -> true
         // S4 (PR21072026-NAVEGACAO-HBX) — proxy OSRM: coords vai em query string,

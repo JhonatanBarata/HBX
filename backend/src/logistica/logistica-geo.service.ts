@@ -29,6 +29,10 @@ import { consultarCepPublico } from './logistica-cep.util';
  */
 
 const NOMINATIM_REVERSE_URL = 'https://nominatim.openstreetmap.org/reverse';
+const NOMINATIM_SEARCH_URL = 'https://nominatim.openstreetmap.org/search';
+const BUSCA_CACHE_TTL_MS = 60 * 60 * 1000;
+const BUSCA_CACHE_MAX = 200;
+const BUSCA_LIMIT = 6;
 const NOMINATIM_TIMEOUT_MS = 2500;
 // Nominatim exige UA identificável com contato — mesmo motivo de nucleo-geo.util.ts.
 const NOMINATIM_USER_AGENT = 'HBX-Logistica/1.0 (contato@hbxsystem.com.br)';
@@ -66,10 +70,24 @@ interface CacheEntry {
   expiresAt: number;
 }
 
+/** MODO PASSEIO (29/07) — um resultado da busca de lugar/endereço do mapa. */
+export interface BuscaGeoItem {
+  nome: string;
+  detalhe: string;
+  lat: number;
+  lng: number;
+}
+
+interface BuscaCacheEntry {
+  items: BuscaGeoItem[];
+  expiresAt: number;
+}
+
 @Injectable()
 export class LogisticaGeoService {
   private readonly logger = new Logger(LogisticaGeoService.name);
   private readonly cache = new Map<string, CacheEntry>();
+  private readonly buscaCache = new Map<string, BuscaCacheEntry>();
 
   /** Kill-switch de rede — MESMO env de nucleo-geo.util.ts (default OFF). */
   private networkEnabled(): boolean {
@@ -157,6 +175,68 @@ export class LogisticaGeoService {
     if (geo) return { fonte: 'geocode', lat: geo.lat, lng: geo.lng, ...base };
 
     return { fonte: 'nenhum', lat: null, lng: null, ...base };
+  }
+
+  /**
+   * MODO PASSEIO (29/07) — busca "estilo Google Maps" do mapa do passeio:
+   * texto livre → até 6 lugares com coordenada. Mesmo contrato de degradação
+   * do reverse: flag OFF, timeout ou rede fora → `{ items: [] }`, NUNCA 500
+   * (o app tem fallback client-side). Cache LRU por termo (1h) segura o
+   * rate-limit de 1 req/s do Nominatim contra digitação repetida.
+   */
+  async busca(qRaw: unknown): Promise<{ items: BuscaGeoItem[] }> {
+    const q = String(qRaw ?? '').trim().slice(0, 120);
+    if (q.length < 3) throw new BadRequestException('Digite pelo menos 3 letras.');
+    if (!this.networkEnabled()) return { items: [] };
+
+    const key = q.toLowerCase();
+    const now = Date.now();
+    const cached = this.buscaCache.get(key);
+    if (cached && cached.expiresAt > now) {
+      this.buscaCache.delete(key);
+      this.buscaCache.set(key, cached);
+      return { items: cached.items.map((item) => ({ ...item })) };
+    }
+
+    const items = await this.buscarViaNominatim(q);
+    this.buscaCache.set(key, { items, expiresAt: now + BUSCA_CACHE_TTL_MS });
+    while (this.buscaCache.size > BUSCA_CACHE_MAX) {
+      const oldest = this.buscaCache.keys().next().value;
+      if (oldest === undefined) break;
+      this.buscaCache.delete(oldest);
+    }
+    return { items: items.map((item) => ({ ...item })) };
+  }
+
+  private async buscarViaNominatim(q: string): Promise<BuscaGeoItem[]> {
+    try {
+      const url = `${NOMINATIM_SEARCH_URL}?format=jsonv2&addressdetails=1&countrycodes=br&limit=${BUSCA_LIMIT}&q=${encodeURIComponent(q)}`;
+      const res = await fetch(url, {
+        headers: { 'User-Agent': NOMINATIM_USER_AGENT, Accept: 'application/json' },
+        signal: AbortSignal.timeout(NOMINATIM_TIMEOUT_MS),
+      });
+      if (!res.ok) return [];
+      const rows = (await res.json()) as Array<Record<string, unknown>>;
+      if (!Array.isArray(rows)) return [];
+      return rows
+        .map((row) => {
+          const lat = Number(row?.lat);
+          const lng = Number(row?.lon);
+          const display = String(row?.display_name ?? '');
+          const nome = String(row?.name ?? '').trim() || display.split(',')[0]?.trim() || '';
+          const detalhe = display.split(',').slice(1, 4).map((part) => part.trim()).filter(Boolean).join(', ');
+          return { nome: nome.slice(0, 60), detalhe: detalhe.slice(0, 90), lat, lng };
+        })
+        .filter(
+          (item) =>
+            item.nome &&
+            Number.isFinite(item.lat) && Math.abs(item.lat) <= 90 &&
+            Number.isFinite(item.lng) && Math.abs(item.lng) <= 180,
+        );
+    } catch (e: any) {
+      this.logger.debug(`[logistica] geo/busca falhou (degradando p/ vazio): ${String(e?.message || e)}`);
+      return [];
+    }
   }
 
   /** Nominatim /reverse — best-effort, NUNCA lança (qualquer falha vira 'nenhum'). */
