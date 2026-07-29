@@ -261,6 +261,7 @@ const SHELF_LIMIT = 25;
 // REFUNDAÇÃO F2: com a fila server-side (1 cidade por vez, sobrevive a tudo), o teto de
 // 5 alvos do incidente 28/07 pôde subir — o backend segura o resto (cap 100 + runs/min).
 const MAX_CITY_TARGETS = 20;
+const MAX_SEGMENT_INTERPRETATIONS = 48;
 const SEARCH_POLL_MS = 4000;
 
 const VALID_DDDS = new Set([
@@ -2147,7 +2148,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
     .map(option => ({ option, score: segmentSearchScore(option.label, segmentDraft) }))
     .filter(item => Number.isFinite(item.score))
     .sort((a, b) => a.score - b.score || byLabel(a.option, b.option))
-    .slice(0, 8)
+    .slice(0, MAX_SEGMENT_INTERPRETATIONS)
     .map(item => item.option);
   const segmentValue = segment.trim();
   const segmentDraftValue = segmentDraft.trim();
@@ -2162,7 +2163,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
     ...segmentSuggestions,
   ].filter((option, index, options) =>
     options.findIndex(current => normCity(current.label) === normCity(option.label)) === index,
-  ).slice(0, 8);
+  ).slice(0, MAX_SEGMENT_INTERPRETATIONS);
   const selectedSegmentOption = segmentCandidates.find(option =>
     normCity(option.label) === normCity(segmentCandidate),
   );
