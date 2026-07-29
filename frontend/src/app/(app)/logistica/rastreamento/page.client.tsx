@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
+import { apiFetch } from "@/lib/api";
 import { isTenantAdmin } from "@/lib/roles";
 
 import {
@@ -236,9 +237,44 @@ function CreditStatement({
   );
 }
 
+/**
+ * PR29072026 — "por que não vejo a entrega que está acontecendo?"
+ *
+ * A rota do dia carrega o MODO congelado (`ensureRoute` decide uma vez por
+ * motorista+data e não revisita, mesmo que a config mude depois). ESSENTIAL não
+ * abre sessão de rastreamento, então esta página fica eternamente vazia com o
+ * celular online — sem dizer por quê. Aqui a tela vai buscar esse fato.
+ *
+ * `routeMode` só é devolvido pra plateia de cobrança (admin), que é quem abre
+ * esta página. Falha de rede = null = tela igual à de antes (nunca inventa causa).
+ */
+function useRotaEssencialHoje(): boolean {
+  const [essencial, setEssencial] = useState(false);
+
+  // Sem parâmetro e sem condição: hook tem que rodar na MESMA ordem em todo
+  // render, e esta página tem returns antecipados (carregando / acesso restrito
+  // / portão do Full) antes do ponto onde a resposta é usada.
+  useEffect(() => {
+    let cancelado = false;
+    apiFetch<{ routeMode?: "ESSENTIAL" | "TRACKED" | null; items?: unknown[] }>("/logistica/rota")
+      .then((rota) => {
+        if (cancelado) return;
+        // Só acusa com PROVA positiva: existe rota no dia E ela é Essencial.
+        setEssencial(rota?.routeMode === "ESSENTIAL" && (rota.items?.length ?? 0) > 0);
+      })
+      .catch(() => { /* rede fora não inventa causa: segue sem explicação */ });
+    return () => { cancelado = true; };
+  }, []);
+
+  return essencial;
+}
+
 export function LogisticaTrackingLiveClient() {
   const user = useCurrentUser();
   const admin = isTenantAdmin(user);
+  // No topo, com os outros hooks: a página tem returns antecipados, e hook não
+  // pode nascer depois de um `return`. Só é LIDO no estado vazio, lá embaixo.
+  const rotaEssencialHoje = useRotaEssencialHoje();
   const [live, setLive] = useState<TrackingLiveResponse | null>(null);
   const [history, setHistory] = useState<TrackingHistoryResponse | null>(null);
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
@@ -567,6 +603,19 @@ export function LogisticaTrackingLiveClient() {
                     <div className="log-live-routes__empty">
                       <I d={ICONS.mapin} size={18} />
                       <span>Nenhuma rota rastreada agora</span>
+                      {/* 🔴 PR29072026 (bug do dono, 29/07) — ele estava "conectado,
+                          com rota iniciando, olhando pro celular online" e a tela só
+                          dizia "Posição ainda não recebida". MEDIDO: a rota do dia
+                          nasceu ESSENTIAL às 21:21:45 e ele ligou a Rastreada às
+                          21:23:30 — 1m45s DEPOIS. O modo congela por rota/dia
+                          (ensureRoute), e Essencial não abre sessão de rastreamento.
+                          O estado existia e não tinha voz; agora tem. */}
+                      {rotaEssencialHoje ? (
+                        <small className="log-live-routes__empty-why">
+                          A rota de hoje é Essencial — só a Rastreada envia posição.
+                          O modo é travado no dia: trocar agora vale da próxima rota.
+                        </small>
+                      ) : null}
                     </div>
                   ) : null}
                   <div className="log-live-routes__list">

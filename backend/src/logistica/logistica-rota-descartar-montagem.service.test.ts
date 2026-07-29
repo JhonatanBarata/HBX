@@ -247,3 +247,39 @@ test('descartarMontagem: idempotente — 2ª chamada não acha mais nada aberto 
   assert.equal(segunda.resumo.descartadas, 0);
   assert.equal(segunda.resumo.planosLiberados, 0);
 });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 🔴 VACINA PR29072026 — bug do dono (29/07): ele indicou rota, a pessoa aceitou
+// e CANCELOU; a entrega revertida continuava COLADA no motorista que desistiu.
+// Ele então materializou entregas pelo desktop e o dia ficou com paradas de DOIS
+// motoristas — estado que o `resolveSingleDriver` bloqueia. Medido em produção:
+// ele travado, sem saber por quê. Descartar = "eu não aceitei isso": a parada
+// volta pra fila SEM dono.
+// ══════════════════════════════════════════════════════════════════════════════
+test('descartar SOLTA o motorista da pendência (a parada volta pra fila sem dono)', async () => {
+  const h = buildHarness([
+    // Tem comprovante ⇒ NÃO é descartável ⇒ cai no ramo de pendência, que é
+    // exatamente o ramo que segurava o motorista.
+    seedRow({ id: 'd1', status: 'agendada', comprovantesCount: 1, entregadorId: 42 }),
+  ]);
+
+  const res = await h.service.descartarMontagem(7, { date: DATE }, 42);
+
+  assert.equal(res.resumo.pendentes, 1, 'a entrega tinha que virar pendência');
+  const row = h.store.get('d1') as any;
+  assert.equal(row.status, 'agendada');
+  assert.equal(row.entregadorId, null, 'pendência de DESCARTE não pode ficar com dono');
+  assert.equal(row.rotaOrdem, null);
+});
+
+test('descartar não inventa dono novo: quem já era pendência segue sem motorista', async () => {
+  const h = buildHarness([
+    seedRow({ id: 'd1', status: 'em_rota', startedAt: atHour(8), entregadorId: 42 }),
+  ]);
+
+  await h.service.descartarMontagem(7, { date: DATE }, 42);
+
+  const row = h.store.get('d1') as any;
+  assert.equal(row.entregadorId, null);
+  assert.equal(row.startedAt, null, 'descartar zera o startedAt junto com a ordem');
+});

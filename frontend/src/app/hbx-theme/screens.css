@@ -3805,6 +3805,16 @@ html, body { height: 100%; }
   font-weight: 650;
 }
 .log-live-routes__empty svg { color: var(--hbx-brand-strong); }
+/* PR29072026 — o PORQUÊ do vazio (rota do dia nasceu Essencial). Quebra a linha
+   do flex acima: o motivo é texto, não chip. */
+.log-live-routes__empty { flex-wrap: wrap; }
+.log-live-routes__empty-why {
+  flex: 1 0 100%;
+  color: var(--hbx-danger);
+  font-size: 0.63rem;
+  font-weight: 700;
+  line-height: 1.45;
+}
 .log-live-route {
   gap: 7px;
   padding: 9px;

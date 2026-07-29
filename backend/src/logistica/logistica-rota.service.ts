@@ -648,7 +648,18 @@ export class LogisticaRotaService {
         planosLiberados += liberados.count;
       }
 
-      // O que SOBROU aberto perde só a ordem — contrato do encerrarRota.
+      // O que SOBROU aberto perde a ordem — e, no DESCARTE, também o motorista.
+      //
+      // 🔴 PR29072026 (bug do dono, 29/07): a entrega revertida continuava colada
+      // no `entregadorId` de quem desistiu. Ele indicou uma rota, a pessoa
+      // aceitou e cancelou, ele materializou entregas pelo desktop, e o dia
+      // ficou com paradas de DOIS motoristas — estado que o `resolveSingleDriver`
+      // bloqueia. Resultado medido em produção: ele travado sem saber por quê.
+      //
+      // Aqui e SÓ aqui: descartar é "eu não aceitei isso", então a parada volta
+      // pra fila SEM dono e qualquer montagem seguinte pode assumi-la. No
+      // `encerrarRota` (fim de rota REAL, na rua) a pendência continua sendo
+      // daquele motorista de propósito — o trabalho era dele e não acabou.
       const descarteSet = new Set(idsDescarte);
       const idsPendencia = abertas.filter((row) => !descarteSet.has(row.id)).map((row) => row.id);
       let pendentes = 0;
@@ -659,7 +670,7 @@ export class LogisticaRotaService {
             id: { in: idsPendencia },
             status: { in: [...LogisticaRotaService.STATUS_ABERTO] },
           },
-          data: { status: 'agendada', rotaOrdem: null, etaAt: null, startedAt: null },
+          data: { status: 'agendada', rotaOrdem: null, etaAt: null, startedAt: null, entregadorId: null },
         });
         pendentes = revertidas.count;
       }

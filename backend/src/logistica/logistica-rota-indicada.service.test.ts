@@ -172,3 +172,74 @@ test('avisoVisto: dispensa a negada uma vez só; pendente não dispensa', async 
   assert.equal(await svc.avisoVisto(7, ind.id), false);
   assert.equal((await svc.listar(7))[0].avisoVisto, true);
 });
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 🔴 VACINA PR29072026 — pergunta do dono (29/07): "esse painel está acompanhando
+// se a pessoa cancelou? Se ela cancelou devolveu a rota para a pool?". Não
+// acompanhava: a indicação ficava presa em 'aplicada' pra sempre e o web dizia
+// que a rota estava de pé com um motorista que já tinha cancelado.
+// ══════════════════════════════════════════════════════════════════════════════
+test('desfazer: aceita e aplicada viram DESFEITA (a pessoa devolveu a rota)', async () => {
+  const { prisma, store } = buildPrisma({ modelos: [MODELO], users: EQUIPE });
+  const svc = new LogisticaRotaIndicadaService(prisma);
+
+  const aceita = await svc.indicar(7, 'm1', 20, 10);
+  await svc.responder(7, aceita.id, 20, true);
+  assert.equal(store.get(aceita.id)!.status, 'aceita');
+
+  const n = await svc.desfazerDoMotorista(7, 20);
+  assert.equal(n, 1);
+  assert.equal(store.get(aceita.id)!.status, 'desfeita');
+  // Aviso re-armado: o banner do web tem que APARECER de novo pra quem indicou.
+  assert.equal(store.get(aceita.id)!.avisoVistoEm, null);
+});
+
+test('desfazer NÃO come indicação PENDENTE (popup que a pessoa ainda não viu)', async () => {
+  const { prisma, store } = buildPrisma({ modelos: [MODELO], users: EQUIPE });
+  const svc = new LogisticaRotaIndicadaService(prisma);
+
+  const pendente = await svc.indicar(7, 'm1', 20, 10);
+  assert.equal(store.get(pendente.id)!.status, 'pendente');
+
+  const n = await svc.desfazerDoMotorista(7, 20);
+  assert.equal(n, 0, 'pendente é recado novo: matar em silêncio seria pior que o bug');
+  assert.equal(store.get(pendente.id)!.status, 'pendente');
+});
+
+test('desfazer é por PESSOA e por EMPRESA — não vaza pra quem não desistiu', async () => {
+  const { prisma, store } = buildPrisma({ modelos: [MODELO], users: EQUIPE });
+  const svc = new LogisticaRotaIndicadaService(prisma);
+
+  const doJoao = await svc.indicar(7, 'm1', 20, 10);
+  await svc.responder(7, doJoao.id, 20, true);
+  const daAna = await svc.indicar(7, 'm1', 10, 20);
+  await svc.responder(7, daAna.id, 10, true);
+
+  await svc.desfazerDoMotorista(7, 20);
+
+  assert.equal(store.get(doJoao.id)!.status, 'desfeita');
+  assert.equal(store.get(daAna.id)!.status, 'aceita', 'a Ana não desistiu de nada');
+  // Empresa errada não mexe em nada.
+  assert.equal(await svc.desfazerDoMotorista(99, 10), 0);
+  assert.equal(store.get(daAna.id)!.status, 'aceita');
+});
+
+test('desfazer: id de motorista inválido é no-op (nunca varredura geral)', async () => {
+  const { prisma } = buildPrisma({ modelos: [MODELO], users: EQUIPE });
+  const svc = new LogisticaRotaIndicadaService(prisma);
+  assert.equal(await svc.desfazerDoMotorista(7, 0), 0);
+  assert.equal(await svc.desfazerDoMotorista(7, -1), 0);
+  assert.equal(await svc.desfazerDoMotorista(0, 20), 0);
+});
+
+test('aviso de DESFEITA pode ser dispensado no web (senão o banner fica pra sempre)', async () => {
+  const { prisma, store } = buildPrisma({ modelos: [MODELO], users: EQUIPE });
+  const svc = new LogisticaRotaIndicadaService(prisma);
+
+  const ind = await svc.indicar(7, 'm1', 20, 10);
+  await svc.responder(7, ind.id, 20, true);
+  await svc.desfazerDoMotorista(7, 20);
+
+  assert.equal(await svc.avisoVisto(7, ind.id), true);
+  assert.ok(store.get(ind.id)!.avisoVistoEm, 'o × do banner tem que gravar o visto');
+});

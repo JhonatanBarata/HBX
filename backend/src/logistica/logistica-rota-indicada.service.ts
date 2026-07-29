@@ -91,6 +91,39 @@ export class LogisticaRotaIndicadaService {
     return this.toDTO(atualizado);
   }
 
+  /**
+   * PR29072026 (bug do dono, 29/07) — A PESSOA DEVOLVEU A ROTA.
+   *
+   * Cena relatada: ele indicou a rota, a pessoa ACEITOU e depois CANCELOU a rota
+   * no celular. A indicação ficava presa em `aplicada` pra sempre: o web dizia
+   * "entregue e aplicada" sobre uma rota que a pessoa tinha desfeito, e ele
+   * perguntou — com razão — *"esse painel está acompanhando se a pessoa
+   * cancelou? Se ela cancelou devolveu a rota para a pool?"*. Não acompanhava.
+   *
+   * Status `desfeita` (e não `cancelada`) DE PROPÓSITO: `cancelada` já significa
+   * "substituída por uma indicação nova" e é MUDA no web. Devolver a rota tem
+   * que APARECER, no mesmo banner da negada — quem indicou precisa saber que
+   * ficou sem motorista.
+   *
+   * Só mexe em `aceita`/`aplicada`: uma indicação `pendente` é um popup que a
+   * pessoa ainda NÃO viu — matar isso aqui comeria um recado novo em silêncio.
+   * Best-effort por contrato: chamado depois do commit do descarte, nunca dentro
+   * dele (falhar aqui não pode desfazer a devolução das ocorrências da agenda).
+   */
+  async desfazerDoMotorista(companyId: number, paraUserId: number): Promise<number> {
+    if (!companyId || !Number.isInteger(paraUserId) || paraUserId <= 0) return 0;
+    const res = await this.prisma.logisticaRotaIndicada.updateMany({
+      where: { companyId, paraUserId, status: { in: ['aceita', 'aplicada'] } },
+      data: { status: 'desfeita', respondidaEm: new Date(), avisoVistoEm: null },
+    });
+    if (res.count > 0) {
+      this.logger.log(
+        `[logistica] ${res.count} indicacao(oes) devolvida(s) company=${companyId} user=${paraUserId} (rota desfeita)`,
+      );
+    }
+    return res.count;
+  }
+
   /** Do WEB: histórico recente com nomes — alimenta o banner de negadas. */
   async listar(companyId: number): Promise<RotaIndicadaWebDTO[]> {
     if (!companyId) return [];
@@ -112,11 +145,15 @@ export class LogisticaRotaIndicadaService {
     }));
   }
 
-  /** Dispensa o aviso de negada no web (banner some, histórico fica). */
+  /**
+   * Dispensa o aviso no web (banner some, histórico fica). Vale pros DOIS avisos
+   * que o web mostra: `negada` (recusou de cara) e `desfeita` (aceitou e
+   * devolveu). Sem `desfeita` aqui o banner novo não teria × e ficaria pra sempre.
+   */
   async avisoVisto(companyId: number, id: string): Promise<boolean> {
     if (!companyId || !id) return false;
     const res = await this.prisma.logisticaRotaIndicada.updateMany({
-      where: { id: String(id).trim(), companyId, status: 'negada', avisoVistoEm: null },
+      where: { id: String(id).trim(), companyId, status: { in: ['negada', 'desfeita'] }, avisoVistoEm: null },
       data: { avisoVistoEm: new Date() },
     });
     return res.count > 0;

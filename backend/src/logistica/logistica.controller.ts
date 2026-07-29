@@ -929,7 +929,26 @@ export class LogisticaController {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const actorWhere = await this.operacao.whereForActor(req.user);
     const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
-    return this.rota.descartarMontagem(companyId, { date: dto?.date, motivo: dto?.motivo }, entregadorId);
+    const resultado = await this.rota.descartarMontagem(companyId, { date: dto?.date, motivo: dto?.motivo }, entregadorId);
+    // 🔴 PR29072026 (bug do dono) — quem desiste da rota DEVOLVE a indicação:
+    // sem isto ela ficava presa em 'aplicada' e o web dizia que a rota estava de
+    // pé com um motorista que já tinha cancelado. Vira 'desfeita' e aparece no
+    // MESMO banner da negada.
+    //
+    // Fail-closed: só quando dá pra ATRIBUIR o descarte a uma pessoa. Admin
+    // descartando (sem entregadorId) não mexe em indicação de ninguém — cancelar
+    // o recado de um motorista que eu não sei identificar seria pior que o bug.
+    //
+    // Best-effort DEPOIS do commit: falha aqui não pode desfazer a devolução das
+    // ocorrências da agenda, que é a parte irreversível do descarte.
+    if (entregadorId && this.rotaIndicada) {
+      try {
+        await this.rotaIndicada.desfazerDoMotorista(companyId, entregadorId);
+      } catch (e) {
+        this.logger?.warn?.(`[logistica] descarte ok, mas indicacao nao voltou: ${String((e as any)?.message || e)}`);
+      }
+    }
+    return resultado;
   }
 
   /**

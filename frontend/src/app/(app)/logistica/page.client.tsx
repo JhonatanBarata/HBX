@@ -417,7 +417,11 @@ export function LogisticaClient() {
       apiFetch<RotaIndicadaAviso[]>("/logistica/rota-indicadas")
         .then((rows) => {
           if (cancelled) return;
-          setNegadas((Array.isArray(rows) ? rows : []).filter((row) => row.status === "negada" && !row.avisoVisto));
+          // PR29072026 — "desfeita" entra no MESMO banner: aceitou e devolveu é
+          // tão importante quanto recusar de cara (quem indicou ficou sem motorista).
+          setNegadas((Array.isArray(rows) ? rows : []).filter(
+            (row) => (row.status === "negada" || row.status === "desfeita") && !row.avisoVisto,
+          ));
         })
         .catch(() => { /* aviso é acessório: rede fora não derruba a tela */ });
     };
@@ -561,10 +565,13 @@ export function LogisticaClient() {
             </div>
           </div>
 
-        {/* ROTA PRONTA (29/07) — aviso literal do dono: "Rota X negada por Y". */}
+        {/* ROTA PRONTA (29/07) — aviso literal do dono: "Rota X negada por Y".
+            PR29072026 — "desfeita" reusa a MESMA linha: aceitou e devolveu. */}
         {admin && negadas.map((aviso) => (
           <div className="log-negada" key={aviso.id} role="status">
-            <span>Rota <strong>{aviso.nome}</strong> negada por {aviso.paraNome}.</span>
+            <span>
+              Rota <strong>{aviso.nome}</strong> {aviso.status === "desfeita" ? "devolvida" : "negada"} por {aviso.paraNome}.
+            </span>
             <button type="button" className="log-negada__close" aria-label="Dispensar aviso" onClick={() => dispensarNegada(aviso.id)}>×</button>
           </div>
         ))}
