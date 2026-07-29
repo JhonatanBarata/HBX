@@ -67,6 +67,9 @@ type Entrega = {
 
 type Entregador = { id: number; nome: string | null; email: string | null };
 
+// ROTA PRONTA (29/07) — linha de GET /logistica/rota-indicadas (aviso de negada).
+type RotaIndicadaAviso = { id: string; nome: string; status: string; paraNome: string; porNome: string; avisoVisto: boolean };
+
 type Rota = {
   date: string;
   total: number;
@@ -374,6 +377,8 @@ export function LogisticaClient() {
   const [entregadores, setEntregadores] = useState<Entregador[]>([]);
   const [atualizadoEm, setAtualizadoEm] = useState<Date | null>(null);
   const [routeBuilderOpen, setRouteBuilderOpen] = useState(false);
+  // ROTA PRONTA (29/07) — avisos de rota indicada negada no celular.
+  const [negadas, setNegadas] = useState<RotaIndicadaAviso[]>([]);
   const [view, setView] = useState<LogisticsView>("today");
   const viewPill = useGlassPill<HTMLButtonElement>(admin ? view : "today", admin);
 
@@ -401,6 +406,30 @@ export function LogisticaClient() {
       .then(setEntregadores)
       .catch(() => setEntregadores([]));
   }, [admin]);
+
+  // ROTA PRONTA (29/07) — negadas ainda não vistas viram banner; tick de 60s
+  // enquanto a tela está aberta (a recusa acontece no celular, longe daqui).
+  useEffect(() => {
+    if (!admin) return;
+    let cancelled = false;
+    const carregar = () => {
+      apiFetch<RotaIndicadaAviso[]>("/logistica/rota-indicadas")
+        .then((rows) => {
+          if (cancelled) return;
+          setNegadas((Array.isArray(rows) ? rows : []).filter((row) => row.status === "negada" && !row.avisoVisto));
+        })
+        .catch(() => { /* aviso é acessório: rede fora não derruba a tela */ });
+    };
+    carregar();
+    const timer = setInterval(carregar, 60000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [admin]);
+
+  const dispensarNegada = useCallback((id: string) => {
+    setNegadas((current) => current.filter((row) => row.id !== id));
+    apiFetch(`/logistica/rota-indicadas/${encodeURIComponent(id)}/visto`, { method: "POST", body: JSON.stringify({}) })
+      .catch(() => { /* se falhar, o aviso volta no próximo tick */ });
+  }, []);
 
   // "Gerar entregas de hoje" (admin): materializa as entregas recorrentes vencidas.
   // Idempotente no backend — clicar 2× não duplica. Recarrega a rota ao terminar.
@@ -530,6 +559,14 @@ export function LogisticaClient() {
             )}
             </div>
           </div>
+
+        {/* ROTA PRONTA (29/07) — aviso literal do dono: "Rota X negada por Y". */}
+        {admin && negadas.map((aviso) => (
+          <div className="log-negada" key={aviso.id} role="status">
+            <span>Rota <strong>{aviso.nome}</strong> negada por {aviso.paraNome}.</span>
+            <button type="button" className="log-negada__close" aria-label="Dispensar aviso" onClick={() => dispensarNegada(aviso.id)}>×</button>
+          </div>
+        ))}
 
         {/* M6 — resumo financeiro do dia + fechar mês (admin). */}
         {admin && <ResumoDiaCard onFecharMes={load} />}

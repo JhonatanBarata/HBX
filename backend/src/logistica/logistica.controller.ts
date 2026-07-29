@@ -36,6 +36,7 @@ import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConferenciaService } from './logistica-conferencia.service';
 import { LogisticaCustoPreviewService } from './logistica-custo-preview.service';
 import { LogisticaRotaModeloService } from './logistica-rota-modelo.service';
+import { LogisticaRotaIndicadaService } from './logistica-rota-indicada.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaNivelPlanoService } from './logistica-nivel-plano.service';
 import { canonicalRouteDate } from './logistica-route-billing.service';
@@ -71,8 +72,10 @@ import {
   FecharMesDto,
   GerarDiaDto,
   GerarRotaModeloDto,
+  IndicarRotaDto,
   IniciarPasseioDto,
   IniciarRotaDto,
+  ResponderRotaIndicadaDto,
   LimparDiaDto,
   PlanejarRotaDto,
   SetAvisarClienteDto,
@@ -143,6 +146,8 @@ export class LogisticaController {
     private readonly nivelPlano: LogisticaNivelPlanoService = null as any,
     // MODO PASSEIO (29/07) — débito do passeio. Mesmo padrão de default acima.
     private readonly passeio: LogisticaPasseioService = null as any,
+    // ROTA PRONTA (29/07) — indicação de rota salva. Mesmo padrão de default acima.
+    private readonly rotaIndicada: LogisticaRotaIndicadaService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -990,6 +995,56 @@ export class LogisticaController {
     return this.rotaModelo.gerar(companyId, id, dto?.date, userId);
   }
 
+  // ── ROTA PRONTA (29/07) — indicação de rota salva pra equipe ───────────────
+  // Mesma guarda das demais rota-modelos (sem gate de cargo, decisão do dono:
+  // qualquer um da empresa indica, inclusive pra admin).
+
+  /** WEB: manda a rota salva pro celular de alguém — o APK abre o popup Aceitar/Negar. */
+  @Post('rota-modelos/:id/indicar')
+  indicarRota(@Req() req: any, @Param('id') id: string, @Body() dto: IndicarRotaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const porUserId = this.ensureUserId(req.user);
+    return this.rotaIndicada.indicar(companyId, id, dto.paraUserId, porUserId);
+  }
+
+  /** WEB: histórico recente (alimenta o banner "Rota X negada por Y"). */
+  @Get('rota-indicadas')
+  listRotasIndicadas(@Req() req: any) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.rotaIndicada.listar(companyId);
+  }
+
+  /** APP: indicações vivas da pessoa logada (pendente = popup; aceita = guardada). */
+  @Get('rota-indicadas/pendentes')
+  listRotasIndicadasPendentes(@Req() req: any) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const userId = this.ensureUserId(req.user);
+    return this.rotaIndicada.pendentes(companyId, userId);
+  }
+
+  /** APP: Aceitar/Negar do popup — só a pessoa indicada responde. */
+  @Post('rota-indicadas/:id/responder')
+  responderRotaIndicada(@Req() req: any, @Param('id') id: string, @Body() dto: ResponderRotaIndicadaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const userId = this.ensureUserId(req.user);
+    return this.rotaIndicada.responder(companyId, id, userId, !!dto.aceita);
+  }
+
+  /** APP: fecha o ciclo do aceite depois de gerar+planejar com sucesso. */
+  @Post('rota-indicadas/:id/aplicada')
+  aplicarRotaIndicada(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const userId = this.ensureUserId(req.user);
+    return this.rotaIndicada.aplicada(companyId, id, userId);
+  }
+
+  /** WEB: dispensa o aviso de negada (banner some, histórico fica). */
+  @Post('rota-indicadas/:id/visto')
+  async marcarRotaIndicadaVista(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return { success: await this.rotaIndicada.avisoVisto(companyId, id) };
+  }
+
   // ── PR20072026 W1 — "Leitura de Rota" (docs/PLANEJAMENTOS/PR20072026/
   // SPEC-LEITURA-DE-ROTA.md + 00-ORQUESTRACAO.md, contrato = LEI). Mesma
   // guarda das rotas acima (driver comum PODE usar, sem @Admin) — sessão é
@@ -1097,8 +1152,8 @@ export class LogisticaController {
    * flag OFF/timeout/rede fora → `{items: []}`, nunca 500. q <3 letras → 400.
    */
   @Get('geo/busca')
-  geoBusca(@Query('q') q: string) {
-    return this.geo.busca(q);
+  geoBusca(@Query('q') q: string, @Query('lat') lat?: string, @Query('lng') lng?: string) {
+    return this.geo.busca(q, lat, lng);
   }
 
   // ── PR18072026 W1 — façade de produtos sob /logistica (allowlist do APK) ───

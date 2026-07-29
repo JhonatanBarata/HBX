@@ -197,6 +197,45 @@
   font-size: 1.35rem;
 }
 
+/* ROTA PRONTA (29/07) — linha da rota salva: o botão principal segue sendo a
+   rota (montar pra mim); "Indicar" manda pro celular de alguém da equipe. */
+.savedRow {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.savedRow .option {
+  flex: 1;
+  min-width: 0;
+}
+
+.assign {
+  flex: none;
+  padding: 0 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 16px;
+  background: var(--hbx-surface-soft);
+  color: var(--hbx-brand-strong, var(--hbx-brand));
+  font: inherit;
+  font-size: 0.74rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
+}
+
+.assign:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--hbx-brand) 48%, var(--border-hairline));
+}
+
+.assign:disabled {
+  cursor: default;
+  opacity: 0.56;
+}
+
 .dayRow {
   min-height: 52px;
   justify-content: space-between;

@@ -7,6 +7,9 @@ import { apiFetch } from "@/lib/api";
 
 import { getAdminRouteAdjustments, prepareAdminRoute } from "../../entrega/admin-logistica-api";
 import styles from "./route-builder.module.css";
+import { RouteAddressGate } from "./route-address-gate";
+import { RouteConference } from "./route-conference";
+import { checarEnderecos, descartarMontagem, type ChecarEnderecosResult } from "./route-conference-api";
 import {
   getAgendaDayPreview,
   getWeeklyAgenda,
@@ -14,7 +17,21 @@ import {
   type AgendaWeekday,
 } from "./weekly-agenda-api";
 
-type Step = "home" | "saved" | "days" | "order" | "manual";
+// PR29072026 (ordem do dono) — "/logistica tem q ter tudo q o celular tem,
+// distancia (…) e quem está montando saber o q está acontecendo". Dois passos
+// NOVOS, os mesmos do celular, entram no fluxo:
+//   "gate"        → Endereços com erro, ANTES de materializar qualquer entrega.
+//   "conferencia" → mapa + distância + previsão + crédito; só "Aceitar rota"
+//                   consolida, e sair sem aceitar DESFAZ a montagem.
+type Step = "home" | "saved" | "assign" | "days" | "order" | "manual" | "gate" | "conferencia";
+
+// ROTA PRONTA (29/07) — mesma lista de /logistica/entregadores da atribuição
+// de entrega (quem pode dirigir; admin incluso — sem trava de cargo).
+type Entregador = {
+  id: number;
+  nome: string;
+  email?: string | null;
+};
 
 type RouteModelStop = {
   customerProfileId: string;
@@ -302,9 +319,13 @@ function ManualPositionInput({
 export function RouteBuilderDialog({
   onClose,
   onCompleted,
+  // LEI DO VENDEDOR: número de crédito é coisa de admin. Sem a prop, a
+  // conferência esconde o valor e só avisa quando o saldo NÃO cobre.
+  admin = false,
 }: {
   onClose: () => void;
   onCompleted: (message: string) => void;
+  admin?: boolean;
 }) {
   const [step, setStep] = useState<Step>("home");
   const [models, setModels] = useState<RouteModel[]>([]);
@@ -314,13 +335,28 @@ export function RouteBuilderDialog({
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
   const [sourceDates, setSourceDates] = useState<Record<number, string>>({});
   const [dayCounts, setDayCounts] = useState<Record<number, number | null | undefined>>({});
-  const [preview, setPreview] = useState<PreviewCustomer[]>([]);
+  // `previewBruto` = o que a agenda devolveu; `preview` (derivado abaixo) já
+  // desconta quem o operador tirou só da rota de hoje no portão de endereços.
+  const [previewBruto, setPreviewBruto] = useState<PreviewCustomer[]>([]);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [manualOrder, setManualOrder] = useState<string[]>([]);
   const [saveManual, setSaveManual] = useState(false);
   const [search, setSearch] = useState("");
   const [building, setBuilding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // ROTA PRONTA (29/07) — indicar uma rota salva pro celular de alguém.
+  const [assignModel, setAssignModel] = useState<RouteModel | null>(null);
+  const [team, setTeam] = useState<Entregador[]>([]);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [assigning, setAssigning] = useState(false);
+  // PR29072026 — portão de endereços + conferência.
+  const [gate, setGate] = useState<{ dias: number[]; dates: string[]; dados: ChecarEnderecosResult } | null>(null);
+  // Clientes que o operador mandou ficar fora SÓ HOJE (o dia deles fica salvo).
+  const [excluidos, setExcluidos] = useState<string[]>([]);
+  const [conferencia, setConferencia] = useState<{ date: string; deliveryIds: string[] } | null>(null);
+  // Recado da geração da rota salva ("N cliente(s) pulado(s)") — vira linha na
+  // conferência em vez de morrer num toast que fechava a tela.
+  const [aviso, setAviso] = useState<string | null>(null);
   const previewRequest = useRef(0);
 
   useEffect(() => {
@@ -358,12 +394,22 @@ export function RouteBuilderDialog({
   }, []);
 
   useEffect(() => {
+    // Na conferência o Escape não fecha seco: a rota já está materializada, e
+    // sumir com ela sem desfazer deixaria o dia do cliente consumido. Lá a
+    // saída é "Cancelar rota" (que desfaz) ou "Aceitar rota".
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && !building) onClose();
+      if (event.key === "Escape" && !building && step !== "conferencia") onClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [building, onClose]);
+  }, [building, onClose, step]);
+
+  // "Tirar só da rota de hoje" (portão de endereços) some da prévia na hora — o
+  // contador de tela conta o que a lista mostra.
+  const preview = useMemo(
+    () => (excluidos.length ? previewBruto.filter((customer) => !excluidos.includes(String(customer.customerProfileId))) : previewBruto),
+    [excluidos, previewBruto],
+  );
 
   const visiblePreview = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("pt-BR");
@@ -404,7 +450,7 @@ export function RouteBuilderDialog({
   async function refreshPreview(days: number[]) {
     const requestId = ++previewRequest.current;
     if (!days.length) {
-      setPreview([]);
+      setPreviewBruto([]);
       setSourceDates({});
       setPreviewLoading(false);
       return;
@@ -428,10 +474,10 @@ export function RouteBuilderDialog({
       }));
       if (previewRequest.current !== requestId) return;
       setSourceDates(Object.fromEntries(rows.map((row) => [row.day, row.sourceDate])));
-      setPreview(mergePreviews(rows.map((row) => row.result)));
+      setPreviewBruto(mergePreviews(rows.map((row) => row.result)));
     } catch (previewError: unknown) {
       if (previewRequest.current === requestId) {
-        setPreview([]);
+        setPreviewBruto([]);
         setError(humanError(previewError));
       }
     } finally {
@@ -451,6 +497,55 @@ export function RouteBuilderDialog({
     setManualOrder(preview.map(previewKey));
     setSearch("");
     setStep("order");
+  }
+
+  // 🔴 PORTÃO (ordem do dono, 28/07 — hoje também no computador): antes de
+  // materializar QUALQUER entrega, o backend confere os endereços e deixa a cura
+  // automática resolver o que dá. Sobrou problema → a tela de erros. Zerou →
+  // segue direto. Servidor sem o endpoint não pode travar o operador: segue.
+  async function abrirPortao(dias: number[], dates: string[], seguir: () => void) {
+    if (!dias.length) { seguir(); return; }
+    setBuilding(true);
+    setError(null);
+    try {
+      const dados = await checarEnderecos(dias, dates);
+      if (!(dados.problemas || []).length) { setBuilding(false); seguir(); return; }
+      setGate({ dias, dates, dados });
+      setStep("gate");
+      setBuilding(false);
+    } catch (gateError: unknown) {
+      const status = (gateError as { status?: number } | null)?.status;
+      setBuilding(false);
+      if (status === 404 || status === 405) { seguir(); return; }
+      setError(humanError(gateError));
+    }
+  }
+
+  function conferirDepoisDoPortao() {
+    void abrirPortao(
+      selectedDays,
+      selectedDays.map((day) => sourceDates[day] || dateForWeekday(day)),
+      openOrderChoice,
+    );
+  }
+
+  /**
+   * Clientes tirados "só da rota de hoje" no portão saem da SELEÇÃO (mesmo
+   * mecanismo do app): a entrega já nasceu no prepare, mas não entra nem na
+   * conferência nem no planejar. O dia deles continua salvo no cadastro.
+   */
+  async function semExcluidos(date: string, ids: string[]): Promise<string[]> {
+    if (!excluidos.length) return ids;
+    const fora = new Set(excluidos.map(String));
+    const route = await apiFetch<RouteForOrdering>(`/logistica/rota?date=${encodeURIComponent(date)}`);
+    const donoDaParada = new Map(route.items.map((item) => [String(item.id), String(item.customerProfileId || item.cliente.id)]));
+    return ids.filter((id) => !fora.has(donoDaParada.get(id) || ""));
+  }
+
+  function abrirConferencia(date: string, deliveryIds: string[]) {
+    setConferencia({ date, deliveryIds });
+    setStep("conferencia");
+    setBuilding(false);
   }
 
   function moveManual(index: number, direction: -1 | 1) {
@@ -527,8 +622,9 @@ export function RouteBuilderDialog({
         pendingDeliveryIds,
       });
 
+      const preparedIds = await semExcluidos(today, [...new Set(prepared.plan.paradas.map((stop) => String(stop.id)))]);
+
       if (mode === "manual") {
-        const preparedIds = [...new Set(prepared.plan.paradas.map((stop) => String(stop.id)))];
         const preparedSet = new Set(preparedIds);
         const route = await apiFetch<RouteForOrdering>(`/logistica/rota?date=${encodeURIComponent(today)}`);
         const used = new Set<string>();
@@ -552,15 +648,56 @@ export function RouteBuilderDialog({
         await saveManualModel();
       }
 
-      onCompleted("Rota planejada.");
+      // Montar e conferir são a MESMA coisa: em vez do toast seco "Rota
+      // planejada.", o operador cai na conferência e decide com o mapa, a
+      // distância e o crédito na frente.
+      abrirConferencia(today, preparedIds);
     } catch (buildError: unknown) {
       setError(humanError(buildError));
       setBuilding(false);
     }
   }
 
-  async function buildSavedRoute(model: RouteModel) {
+  // ROTA PRONTA (29/07) — escolher a pessoa: o backend cria a indicação e o
+  // popup Aceitar/Negar aparece no celular dela (polling do APK).
+  function openAssign(model: RouteModel) {
+    setError(null);
+    setAssignModel(model);
+    setStep("assign");
+    if (team.length || teamLoading) return;
+    setTeamLoading(true);
+    apiFetch<Entregador[]>("/logistica/entregadores")
+      .then((rows) => setTeam(Array.isArray(rows) ? rows : []))
+      .catch((loadError: unknown) => setError(humanError(loadError)))
+      .finally(() => setTeamLoading(false));
+  }
+
+  async function indicarPara(person: Entregador) {
+    if (!assignModel || assigning) return;
+    setAssigning(true);
+    setError(null);
+    try {
+      await apiFetch(`/logistica/rota-modelos/${encodeURIComponent(assignModel.id)}/indicar`, {
+        method: "POST",
+        body: JSON.stringify({ paraUserId: person.id }),
+      });
+      onCompleted(`Rota indicada para ${person.nome}.`);
+    } catch (assignError: unknown) {
+      setError(humanError(assignError));
+      setAssigning(false);
+    }
+  }
+
+  // "Ao clicar no dia, OU EM ROTAS SALVAS" — o portão vale nos dois caminhos.
+  // Rota salva sem dia da semana não tem roster de dia pra conferir: segue direto.
+  function buildSavedRoute(model: RouteModel) {
     if (building) return;
+    const dia = Number(model.diaSemana);
+    const dias = Number.isInteger(dia) && dia >= 1 && dia <= 7 ? [dia] : [];
+    void abrirPortao(dias, dias.map((day) => dateForWeekday(day)), () => void gerarRotaSalva(model));
+  }
+
+  async function gerarRotaSalva(model: RouteModel) {
     setBuilding(true);
     setError(null);
     try {
@@ -569,16 +706,17 @@ export function RouteBuilderDialog({
         method: "POST",
         body: JSON.stringify({ date }),
       });
-      const deliveryIds = [...new Set((result.deliveryIds || []).map(String))];
+      const gerados = [...new Set((result.deliveryIds || []).map(String))];
+      const deliveryIds = await semExcluidos(date, gerados);
       if (!deliveryIds.length) throw new Error(result.avisos?.[0] || "Nenhuma entrega para esta rota.");
       await apiFetch("/logistica/rota/planejar", {
         method: "POST",
         body: JSON.stringify({ date, deliveryIds, ordemManual: deliveryIds }),
       });
-      const notice = result.avisos?.length
-        ? `Rota planejada. ${result.avisos.length === 1 ? result.avisos[0] : `${result.avisos.length} cliente(s) pulado(s).`}`
-        : "Rota planejada.";
-      onCompleted(notice);
+      setAviso(result.avisos?.length
+        ? (result.avisos.length === 1 ? result.avisos[0] : `${result.avisos.length} cliente(s) pulado(s).`)
+        : null);
+      abrirConferencia(date, deliveryIds);
     } catch (buildError: unknown) {
       setError(humanError(buildError));
       setBuilding(false);
@@ -588,34 +726,94 @@ export function RouteBuilderDialog({
   function back() {
     setError(null);
     if (step === "saved" || step === "days") setStep("home");
+    else if (step === "assign") { setAssignModel(null); setStep("saved"); }
     else if (step === "order") setStep("days");
     else if (step === "manual") setStep("order");
   }
 
+  // Fechar (× ou fundo). Na conferência a rota JÁ está materializada: sair sem
+  // aceitar tem que DESFAZER, senão o dia do cliente fica consumido na agenda
+  // sem ninguém ter confirmado nada.
+  async function fechar() {
+    if (building) return;
+    if (step === "conferencia" && conferencia) {
+      setBuilding(true);
+      try {
+        await descartarMontagem(conferencia.date, "Rota desfeita antes da confirmação.");
+        onCompleted("Rota desfeita.");
+      } catch (closeError: unknown) {
+        setError(humanError(closeError));
+        setBuilding(false);
+      }
+      return;
+    }
+    onClose();
+  }
+
   const title = step === "saved"
     ? "Rotas Salvas"
-    : step === "days"
-      ? "Por dia"
-      : step === "order"
-        ? "Ordem das paradas"
-        : step === "manual"
-          ? "Sua ordem"
-          : "Montar Rota";
+    : step === "assign"
+      ? "Indicar rota"
+      : step === "days"
+        ? "Por dia"
+        : step === "order"
+          ? "Ordem das paradas"
+          : step === "manual"
+            ? "Sua ordem"
+            : step === "gate"
+              ? "Endereços com erro"
+              : step === "conferencia"
+                ? "Conferência de rota"
+                : "Montar Rota";
+
+  const gateTotal = Number(gate?.dados.total) || 0;
+  const gateProblemas = gate?.dados.problemas.length || 0;
 
   return (
-    <div className={styles.backdrop} onMouseDown={(event) => { if (event.target === event.currentTarget && !building) onClose(); }}>
-      <section className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="route-builder-title">
+    <div className={styles.backdrop} onMouseDown={(event) => { if (event.target === event.currentTarget && !building) void fechar(); }}>
+      <section
+        className={`${styles.dialog}${step === "conferencia" ? ` ${styles.dialogWide}` : ""}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="route-builder-title"
+      >
         <header className={styles.header}>
           <span className={styles.icon}><I d={ICONS.logistica} size={20} /></span>
           <div className={styles.heading}>
             <h2 id="route-builder-title">{title}</h2>
+            {step === "assign" && <p>{assignModel?.nome || "Rota"}</p>}
             {step === "days" && <p>Escolha os dias</p>}
             {step === "order" && <p>{preview.length} {preview.length === 1 ? "parada pronta" : "paradas prontas"}</p>}
             {step === "manual" && <p>Busque ou digite a posição</p>}
+            {step === "gate" && <p>{gateProblemas} de {gateTotal} {gateTotal === 1 ? "cliente" : "clientes"}</p>}
+            {step === "conferencia" && aviso && <p>{aviso}</p>}
           </div>
-          <button type="button" className={styles.close} aria-label="Fechar" onClick={onClose} disabled={building}>×</button>
+          <button type="button" className={styles.close} aria-label="Fechar" onClick={() => void fechar()} disabled={building}>×</button>
         </header>
 
+        {step === "gate" && gate ? (
+          <RouteAddressGate
+            dias={gate.dias}
+            dates={gate.dates}
+            dados={gate.dados}
+            onLimpo={() => { setGate(null); openOrderChoice(); }}
+            onIgnorarNaRota={(ids) => {
+              setExcluidos((atuais) => [...new Set([...atuais, ...ids])]);
+              setGate(null);
+              openOrderChoice();
+            }}
+            onVoltar={() => { setGate(null); setStep(selectedDays.length ? "days" : "home"); }}
+          />
+        ) : step === "conferencia" && conferencia ? (
+          <RouteConference
+            date={conferencia.date}
+            deliveryIds={conferencia.deliveryIds}
+            admin={admin}
+            onAccepted={(message) => onCompleted(message)}
+            onDiscarded={(message) => onCompleted(message)}
+          />
+        ) : (
+        <>
         <div className={styles.body}>
           {error && <p className={styles.error}>{error}</p>}
 
@@ -645,15 +843,35 @@ export function RouteBuilderDialog({
               {modelsLoading ? <p className={styles.empty}>Carregando rotas salvas…</p> : models.length ? [...models]
                 .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
                 .map((model) => (
-                  <button type="button" className={styles.option} key={model.id} onClick={() => void buildSavedRoute(model)} disabled={building}>
-                    <span className={`${styles.optionIcon} ${styles.star}`}>☆</span>
-                    <span className={styles.optionCopy}>
-                      <strong>{model.nome || "Rota"}</strong>
-                      <small>{model.paradas?.length || 0} parada(s)</small>
-                    </span>
-                    <span className={styles.chevron}>›</span>
-                  </button>
+                  <div className={styles.savedRow} key={model.id}>
+                    <button type="button" className={styles.option} onClick={() => void buildSavedRoute(model)} disabled={building}>
+                      <span className={`${styles.optionIcon} ${styles.star}`}>☆</span>
+                      <span className={styles.optionCopy}>
+                        <strong>{model.nome || "Rota"}</strong>
+                        <small>{model.paradas?.length || 0} parada(s)</small>
+                      </span>
+                      <span className={styles.chevron}>›</span>
+                    </button>
+                    <button type="button" className={styles.assign} onClick={() => openAssign(model)} disabled={building} title={`Indicar ${model.nome || "rota"} para alguém`}>
+                      Indicar
+                    </button>
+                  </div>
                 )) : <p className={styles.empty}>Nenhuma rota salva.</p>}
+            </div>
+          )}
+
+          {step === "assign" && (
+            <div className={styles.list}>
+              {teamLoading ? <p className={styles.empty}>Carregando a equipe…</p> : team.length ? team.map((person) => (
+                <button type="button" className={styles.option} key={person.id} onClick={() => void indicarPara(person)} disabled={assigning}>
+                  <span className={styles.avatar}>{(person.nome || "?").trim().slice(0, 1).toLocaleUpperCase("pt-BR")}</span>
+                  <span className={styles.optionCopy}>
+                    <strong>{person.nome}</strong>
+                    {person.email ? <small>{person.email}</small> : null}
+                  </span>
+                  <span className={styles.chevron}>›</span>
+                </button>
+              )) : <p className={styles.empty}>Ninguém disponível para dirigir.</p>}
             </div>
           )}
 
@@ -770,14 +988,20 @@ export function RouteBuilderDialog({
               </label>
             )}
             <div className={styles.footerActions}>
-              <button type="button" className={styles.secondary} onClick={back} disabled={building}>Voltar</button>
-              {step === "days" && <button type="button" className={styles.primary} onClick={openOrderChoice} disabled={!selectedDays.length || !preview.length || previewLoading || building}>Próximo ›</button>}
+              <button type="button" className={styles.secondary} onClick={back} disabled={building || assigning}>Voltar</button>
+              {step === "days" && <button type="button" className={styles.primary} onClick={conferirDepoisDoPortao} disabled={!selectedDays.length || !preview.length || previewLoading || building}>Próximo ›</button>}
               {step === "manual" && <button type="button" className={styles.primary} onClick={() => void buildFromDays("manual")} disabled={!manualOrder.length || building}>{building ? "Montando…" : "Gerar agora"}</button>}
             </div>
           </footer>
         )}
+        </>
+        )}
 
-        {building && step !== "manual" && <div className={styles.busy} role="status">Montando a rota…</div>}
+        {building && step !== "manual" && (
+          <div className={styles.busy} role="status">
+            {step === "days" ? "Conferindo os endereços…" : step === "conferencia" ? "Desfazendo a rota…" : "Montando a rota…"}
+          </div>
+        )}
       </section>
     </div>
   );

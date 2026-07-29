@@ -299,6 +299,8 @@ model Company {
   logisticaRouteStops    LogisticaRouteStop[]
   // PR18072026 W1 — roteiros salvos (rota-modelo) da empresa.
   logisticaRotaModelos   LogisticaRotaModelo[]
+  // ROTA PRONTA (29/07) — indicações de rota salva pra equipe.
+  logisticaRotasIndicadas LogisticaRotaIndicada[]
   // AGENDA-SEMANAL (23/07) — planos recorrentes, paradas normalizadas e ações
   // auditadas. Tudo aditivo; ClienteProduto/paradasJson continuam compatíveis.
   logisticaPlanosEntrega LogisticaPlanoEntrega[]
@@ -1468,6 +1470,35 @@ model LogisticaRotaModelo {
   @@unique([id, companyId])
   @@index([companyId])
   @@index([companyId, tipo, diaSemana, ativo])
+  indicacoes LogisticaRotaIndicada[]
+}
+
+// ROTA PRONTA (29/07) — indicação de uma rota salva para alguém da equipe: o
+// web indica, o app da pessoa mostra popup impeditivo Aceitar/Negar. userIds
+// são Int sem FK de propósito (evento operacional; usuário apagado não pode
+// travar delete — mesma dor da FK Restrict do TrackingSession).
+// status: pendente → aceita → aplicada | negada; cancelada = substituída por
+// nova indicação do mesmo modelo pra mesma pessoa.
+model LogisticaRotaIndicada {
+  id           String   @id @default(cuid())
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId    Int
+  rotaModelo   LogisticaRotaModelo @relation(fields: [rotaModeloId, companyId], references: [id, companyId], onDelete: Cascade)
+  rotaModeloId String
+  // Nome congelado no ato: o aviso "Rota X negada por Y" sobrevive a rename/delete do modelo.
+  nomeSnapshot String   @db.VarChar(80)
+  paraUserId   Int
+  porUserId    Int
+  status       String   @default("pendente") @db.VarChar(20)
+  respondidaEm DateTime?
+  aplicadaEm   DateTime?
+  // Aviso de negada dispensado no web (null = ainda aparece no banner).
+  avisoVistoEm DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([companyId, paraUserId, status])
+  @@index([companyId, status, createdAt])
 }
 
 // AGENDA-SEMANAL — compromisso recorrente de uma visita. O produto continua

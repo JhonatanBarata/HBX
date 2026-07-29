@@ -1761,7 +1761,7 @@
     const checagemOverlay = state.checagem && state.modal !== "client-product" ? `<div class="overlay-host is-opening">${checagemModal()}</div>` : "";
     const standardModal = state.modal && state.modal !== "distance-warning" ? `<div class="overlay-host ${state.openingOverlay === "modal" ? "is-opening" : ""} ${state.closingOverlay === "modal" ? "is-closing" : ""}">${modal()}</div>` : "";
     const distanceModal = state.modal === "distance-warning" ? `<div class="overlay-host is-opening">${modal()}</div>` : "";
-    const overlays = `${floatingAction || ""}${creditsLockOverlay()}${routeNoticeOverlay()}${standardModal}${checagemOverlay}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${dddPromptOverlay()}${leituraPausaOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
+    const overlays = `${floatingAction || ""}${creditsLockOverlay()}${routeNoticeOverlay()}${standardModal}${checagemOverlay}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${dddPromptOverlay()}${leituraPausaOverlay()}${rotaIndicadaOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
     return H.mobileShell.frame({ appName: "logistica", currentScreen: state.screen, content, icon, motion: state.screenMotion, refreshing: state.refreshing, error: state.error, overlays });
   }
   function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); const ringOffset = (188.5 * count / 5).toFixed(1); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30" style="stroke-dashoffset:${ringOffset}"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Próxima parada</p><h2>${H.escape(client.nome || "Cliente")}</h2><small>${H.escape(address(client))}</small><div class="actions next-stop-actions"><button class="btn btn-primary" data-action="next-stop">Ver rota</button><button class="btn btn-secondary" data-action="cancel-next-stop">Ficar aqui</button></div></section></div>`; }
@@ -1798,6 +1798,22 @@
       ? `<p><strong>${H.escape(cliente.nome || "Cliente")}</strong>${distanciaTxt ? `<br><span class="lrt-distance">${H.escape(distanciaTxt)}</span>` : ""}</p>`
       : `<p>Nenhum cliente cadastrado por perto.</p>`;
     return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm" role="dialog" aria-modal="true" aria-labelledby="lrt-pausa-title"><div class="app-confirm-icon">${icon("gps", 24)}</div><h2 id="lrt-pausa-title">Você parou — salvar parada?</h2>${corpo}<div class="actions"><button class="btn btn-secondary" type="button" data-action="leitura-pausa-dispensar">Dispensar</button><button class="btn btn-primary" type="button" data-action="leitura-pausa-salvar">${cliente ? "Salvar parada" : "Cadastrar Local"}</button></div></section></div>`;
+  }
+  // ROTA PRONTA (29/07) — popup IMPEDITIVO da rota indicada pelo web: overlay
+  // global (em cima de qualquer tela, mesma moldura .app-confirm da pausa) SEM
+  // toque-no-fundo e SEM Voltar (consumido no handleBack, mesmo contrato do
+  // app-update obrigatório). Só sai clicando Aceitar ou Negar.
+  function rotaIndicadaOverlay() {
+    const ind = state.rotaIndicada;
+    if (!ind) return "";
+    const busy = ind.saving ? "disabled" : "";
+    if (ind.passo === "escolha") {
+      // Aceitou com rota de pé: refaz o trajeto agora (distância) ou guarda a
+      // nova pro fim da atual (o servidor já sabe que foi aceita).
+      return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm" role="dialog" aria-modal="true" aria-labelledby="rota-ind-title"><div class="app-confirm-icon">${icon("route", 24)}</div><h2 id="rota-ind-title">Você está em rota</h2><p><strong>${H.escape(ind.nome || "Rota")}</strong></p><button class="btn btn-primary btn-block app-confirm-extra" type="button" data-action="rota-indicada-distancia" ${busy}>Refazer trajeto por distância</button><div class="actions"><button class="btn btn-secondary btn-block" type="button" data-action="rota-indicada-depois" ${busy}>Terminar a atual primeiro</button></div></section></div>`;
+    }
+    const detalhe = `${Number(ind.paradas || 0)} parada${Number(ind.paradas || 0) === 1 ? "" : "s"}${ind.porNome ? ` · por ${H.escape(ind.porNome)}` : ""}`;
+    return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm" role="dialog" aria-modal="true" aria-labelledby="rota-ind-title"><div class="app-confirm-icon">${icon("route", 24)}</div><h2 id="rota-ind-title">Rota nova indicada</h2><p><strong>${H.escape(ind.nome || "Rota")}</strong><br><span class="subtitle">${detalhe}</span></p><div class="actions"><button class="btn btn-secondary" type="button" data-action="rota-indicada-negar" ${busy}>Negar</button><button class="btn btn-primary" type="button" data-action="rota-indicada-aceitar" ${busy}>${ind.saving ? "Aguarde…" : "Aceitar"}</button></div></section></div>`;
   }
   function empty(title, text) { return `<div class="empty"><strong>${H.escape(title)}</strong>${H.escape(text)}</div>`; }
   function loading() { return `<div class="list"><div class="card loading"></div><div class="card loading"></div><div class="card loading"></div></div>`; }
@@ -6612,10 +6628,132 @@
     setClientCepStatus("Localização atual capturada. Toque em Salvar cliente para confirmar.");
   }
 
+  // ══════════════════════════════════════════════════════════════════════════
+  // ROTA PRONTA (29/07) — o web indica uma rota salva pra alguém da equipe; o
+  // app da pessoa mostra popup impeditivo Aceitar/Negar. O canal é POLLING leve
+  // (boot + refresh + volta do fundo + tick de 60s) — cadência FIXA com guard,
+  // nunca retry livre (mesma lei do disjuntor). Aceita com rota de pé: escolhe
+  // entre refazer o trajeto por distância AGORA ou guardar pro fim da atual —
+  // a guardada ('aceita' no servidor) aplica sozinha quando a rota morre.
+  let rotaIndicadaCheckAt = 0;
+  let rotaIndicadaChecking = false;
+  let rotaIndicadaTemGuardada = false;
+  let rotaIndicadaVibradaId = null;
+  const rotaIndicadaAutoTentada = {};
+  async function checkRotaIndicada(force) {
+    if (!moduleActive || rotaIndicadaChecking) return;
+    // Com uma aceita guardada o throttle cai: o refresh do fim da rota é quem
+    // precisa enxergar "rota morreu → aplica a guardada" sem esperar o tick.
+    if (!force && !rotaIndicadaTemGuardada && Date.now() - rotaIndicadaCheckAt < 45000) return;
+    rotaIndicadaChecking = true;
+    rotaIndicadaCheckAt = Date.now();
+    try {
+      const lista = await H.api("/logistica/rota-indicadas/pendentes");
+      const vivas = Array.isArray(lista) ? lista : [];
+      const pendente = vivas.find(item => item && item.status === "pendente") || null;
+      const guardada = vivas.find(item => item && item.status === "aceita") || null;
+      rotaIndicadaTemGuardada = !!guardada;
+      // Popup aberto que sumiu do servidor (substituída/cancelada no web) fecha
+      // sozinho — a verdade é o motor, nunca o estado local.
+      if (state.rotaIndicada && !state.rotaIndicada.saving && !vivas.some(item => item && item.id === state.rotaIndicada.id)) {
+        state.rotaIndicada = null;
+        render();
+      }
+      if (pendente && !state.rotaIndicada) {
+        state.rotaIndicada = { ...pendente, passo: "decisao", saving: false };
+        if (rotaIndicadaVibradaId !== pendente.id) { rotaIndicadaVibradaId = pendente.id; H.vibrate(45); }
+        render();
+        return;
+      }
+      // Guardada aplica sozinha SÓ com o app "parado": sem rota ativa, sem
+      // popup/modal/checagem no caminho e no máximo 1 tentativa a cada 5min —
+      // se a montagem barrar (ex.: endereços com erro), ninguém fica em loop.
+      if (guardada && !pendente && !routeActive() && !leituraRouteActive() && !state.rotaIndicada && !state.modal && !state.checagem && !state.confirmation && !state.dayStarting) {
+        const ultima = Number(rotaIndicadaAutoTentada[guardada.id] || 0);
+        if (Date.now() - ultima > 300000) {
+          rotaIndicadaAutoTentada[guardada.id] = Date.now();
+          await aplicarRotaIndicada(guardada);
+        }
+      }
+    } catch (_) { /* rede fora = silêncio; o próximo tick tenta de novo */ }
+    finally { rotaIndicadaChecking = false; }
+  }
+  // Aceite SEM rota de pé (ou guardada aplicando ao fim da atual): mesmíssimo
+  // caminho da rota salva escolhida na tela (apply-route-modelo) — materializa
+  // no /gerar, seleção+ordem exatas, planeja e cai na conferência. Só depois do
+  // planejar OK o servidor recebe o "aplicada" (fecha o ciclo do aceite).
+  async function aplicarRotaIndicada(ind) {
+    if (state.dayStarting) return false;
+    const dia = Number(ind.diaSemana);
+    if (Number.isInteger(dia) && dia >= 1 && dia <= 7) {
+      if (!(await checarEnderecosAntesDeMontar([dia]))) return false;
+    }
+    state.dayStarting = true; render();
+    showLoading("Montando a rota…");
+    try {
+      const result = await H.api(`/logistica/rota-modelos/${encodeURIComponent(ind.rotaModeloId)}/gerar`, { method: "POST", body: { date: operationalDate() } });
+      const deliveryIds = [...new Set((result && Array.isArray(result.deliveryIds) ? result.deliveryIds : []).map(String))];
+      const avisos = (result && Array.isArray(result.avisos)) ? result.avisos : [];
+      if (!deliveryIds.length) { toast(avisos[0] || "Nenhuma entrega para esta rota.", true); return false; }
+      setRouteSelection(deliveryIds);
+      setRouteOrdemManual(deliveryIds);
+      state.dayOrderStep = null;
+      state.dayOrderMode = "saved";
+      clearDiasAdicionados();
+      render();
+      await startRoute(true, false, deliveryIds);
+      await H.api(`/logistica/rota-indicadas/${encodeURIComponent(ind.id)}/aplicada`, { method: "POST", body: {} }).catch(() => {});
+      rotaIndicadaTemGuardada = false;
+      if (avisos.length) toast(avisos.length === 1 ? avisos[0] : `${avisos.length} cliente(s) pulado(s).`);
+      return true;
+    } catch (error) { toast(humanApiError(error), true); return false; }
+    finally { hideLoading(); state.dayStarting = false; render(); }
+  }
+  // Aceite COM rota de pé + "Refazer trajeto por distância": materializa as
+  // paradas novas e re-planeja TUDO (abertas + novas) SEM ordemManual — o
+  // backend recalcula pelo caminho (OSRM/NN+2-opt) a partir do GPS atual. A
+  // ordem que voltar vira a ordem manual ativa (mesmo contrato do encaixe da
+  // Rota rápida: sem isso um re-planejar posterior descartaria o trajeto).
+  async function mesclarRotaIndicada(ind) {
+    if (state.dayStarting) return false;
+    state.dayStarting = true; render();
+    showLoading("Refazendo o trajeto…");
+    try {
+      const result = await H.api(`/logistica/rota-modelos/${encodeURIComponent(ind.rotaModeloId)}/gerar`, { method: "POST", body: { date: operationalDate() } });
+      const novos = [...new Set((result && Array.isArray(result.deliveryIds) ? result.deliveryIds : []).map(String))];
+      const avisos = (result && Array.isArray(result.avisos)) ? result.avisos : [];
+      if (!novos.length) { toast(avisos[0] || "Nenhuma entrega para esta rota.", true); return false; }
+      // Seleção do dia é filtro DURO (mesma lição do encaixe da Rota rápida):
+      // sem somar os ids novos aqui, a parada fica NO DIA e FORA da rota.
+      const selecao = activeRouteSelectionIds();
+      if (selecao) setRouteSelection([...new Set([...selecao, ...novos])]);
+      await refresh(true);
+      const atuais = openItems().map(item => String(item.id));
+      const todos = [...new Set([...atuais, ...novos])];
+      const origem = await currentPosition();
+      const body = { date: operationalDate(), deliveryIds: todos };
+      if (origem && validCoordinates(origem.lat, origem.lng)) { body.origemLat = origem.lat; body.origemLng = origem.lng; }
+      const plano = await H.api("/logistica/rota/planejar", { method: "POST", body });
+      applyRouteEngineState(plano);
+      const ordem = plano && Array.isArray(plano.paradas) && plano.paradas.length ? plano.paradas.map(p => String(p.id)) : todos;
+      setRouteOrdemManual(ordem);
+      await refresh(true);
+      await H.api(`/logistica/rota-indicadas/${encodeURIComponent(ind.id)}/aplicada`, { method: "POST", body: {} }).catch(() => {});
+      rotaIndicadaTemGuardada = false;
+      // toast é único (o 2º engole o 1º): aviso de cliente pulado ganha do resumo.
+      if (avisos.length) toast(avisos.length === 1 ? avisos[0] : `${avisos.length} cliente(s) pulado(s).`);
+      else toast(`${novos.length} parada${novos.length === 1 ? " entrou" : "s entraram"} na rota.`);
+      return true;
+    } catch (error) { toast(humanApiError(error), true); return false; }
+    finally { hideLoading(); state.dayStarting = false; render(); }
+  }
+
   async function refresh(silent, boot) {
     state.refreshing = true; if (!silent && !state.route) state.loading = true; render();
     // R8 (27/07) — painel de créditos do dia (fire-and-forget, throttle interno).
     void loadCreditosDia(false);
+    // ROTA PRONTA (29/07) — indicação nova/guardada (fire-and-forget, throttle interno).
+    void checkRotaIndicada();
     const routePath = isAdmin() ? "/logistica/admin-route/route" : "/logistica/rota";
     const productsPath = isAdmin() ? "/products" : "/logistica/produtos";
     const requests = [H.api(`${routePath}?date=${encodeURIComponent(operationalDate())}`), H.api(productsPath), H.api("/logistica/config")];
@@ -8002,6 +8140,70 @@
       finally { hideLoading(); state.dayStarting = false; render(); }
       return;
     }
+    // ROTA PRONTA (29/07) — botões do popup impeditivo da rota indicada.
+    // Guard de reentrância (padrão accept-confirmation): saving marca ANTES do
+    // 1º await e o render síncrono desabilita os botões.
+    if (action === "rota-indicada-negar") {
+      const ind = state.rotaIndicada;
+      if (!ind || ind.saving) return;
+      ind.saving = true; render();
+      try {
+        await H.api(`/logistica/rota-indicadas/${encodeURIComponent(ind.id)}/responder`, { method: "POST", body: { aceita: false } });
+        state.rotaIndicada = null;
+        toast("Rota recusada.");
+      } catch (error) {
+        // Rede fora: popup fica (é impeditivo) e a pessoa tenta de novo; se a
+        // indicação morreu no servidor, o próximo check fecha o popup sozinho.
+        ind.saving = false;
+        toast(humanApiError(error), true);
+      }
+      render();
+      void checkRotaIndicada(true);
+      return;
+    }
+    if (action === "rota-indicada-aceitar") {
+      const ind = state.rotaIndicada;
+      if (!ind || ind.saving) return;
+      ind.saving = true; render();
+      try {
+        await H.api(`/logistica/rota-indicadas/${encodeURIComponent(ind.id)}/responder`, { method: "POST", body: { aceita: true } });
+      } catch (error) {
+        ind.saving = false;
+        toast(humanApiError(error), true);
+        render();
+        void checkRotaIndicada(true);
+        return;
+      }
+      ind.saving = false;
+      if (routeActive()) {
+        // Rota de pé: a escolha (refazer × terminar antes) é o passo 2 do MESMO
+        // popup. O servidor já registrou o aceite — se o app morrer aqui, a
+        // guardada aplica sozinha quando a rota atual encerrar.
+        ind.passo = "escolha";
+        render();
+        return;
+      }
+      state.rotaIndicada = null;
+      render();
+      await aplicarRotaIndicada(ind);
+      return;
+    }
+    if (action === "rota-indicada-distancia") {
+      const ind = state.rotaIndicada;
+      if (!ind || ind.saving) return;
+      state.rotaIndicada = null;
+      render();
+      await mesclarRotaIndicada(ind);
+      return;
+    }
+    if (action === "rota-indicada-depois") {
+      const ind = state.rotaIndicada;
+      if (!ind || ind.saving) return;
+      state.rotaIndicada = null;
+      render();
+      toast("Ela entra quando a rota atual terminar.");
+      return;
+    }
     // S4 25/07 (PR25072026-ROTA-CONFERIDA) — ações da tela de conferência
     // (lista + mini-ficha). Ver bloco "ROTA-CONFERIDA — S4" perto de
     // routeEngineBanner pras funções chamadas aqui.
@@ -9160,9 +9362,8 @@
   // ==========================================================================
   // MODO PASSEIO — CORRIGIR-O-LIXO (29/07, veredito do dono: a v1 de telas e
   // formulários morreu). O passeio é uma PELE da tela Rota: hero + busca +
-  // MAPA + cartão. TOQUE NO MAPA = PINO (nome "Lugar N" e 30 min nascem
-  // sozinhos, em silêncio — nenhum formulário obrigatório em fluxo nenhum);
-  // ajustar é no BALÃO do pino (chips de tempo + nome opcional + Remover).
+  // MAPA + cartão. Os lugares entram somente pela busca; o mesmo tempo vale
+  // pra todos e a ordem/remoção abre num painel compacto sobre o próprio mapa.
   // Traçado persiste sozinho em H.cache ("passeio-tracado"), sem nome, sem
   // "salvar". Iniciar passeio é a única chamada de rede que cobra (POST
   // /logistica/passeio/iniciar, idempotente por tourId). Relógio do tempo-no-
@@ -9177,8 +9378,6 @@
   let pssMapMarkers = [];
   let pssMapDot = null;
   let pssMapAssinatura = "";
-  let pssBalao = null;
-  let pssBalaoFechadoEm = 0;
   let passeioWatchId = null;
   let passeioPos = null;
   let passeioTimerId = null;
@@ -9195,7 +9394,7 @@
   function passeioDesligarModo() {
     state.passeioModo = false;
     H.cache.set("passeio-modo", false);
-    fecharBalaoPino();
+    state.passeioOrdemAberta = false;
     render();
   }
   function passeioTour() { return H.cache.get("passeio-tour", null); }
@@ -9209,28 +9408,64 @@
     return tracado && Array.isArray(tracado.pontos) ? tracado.pontos : [];
   }
   function salvarPasseioPontos(pontos) { H.cache.set("passeio-tracado", { pontos }); }
-  function passeioAddPonto(lat, lng, nome) {
+  function passeioMinutosPadrao() {
+    const minutos = Number(H.cache.get("passeio-minutos-padrao", 30));
+    return [1, 15, 30, 60].includes(minutos) ? minutos : 30;
+  }
+  function passeioDefinirMinutos(minutosRaw) {
+    const minutos = Number(minutosRaw);
+    if (![1, 15, 30, 60].includes(minutos)) return;
+    H.cache.set("passeio-minutos-padrao", minutos);
+    const pontos = passeioPontos().map(ponto => ({ ...ponto, minutos }));
+    salvarPasseioPontos(pontos);
+    H.vibrate(8);
+    render();
+  }
+  function passeioMinutosTexto(minutosRaw) {
+    const minutos = Math.max(1, Number(minutosRaw) || passeioMinutosPadrao());
+    return `${minutos} min`;
+  }
+  function passeioAddPonto(lat, lng, nome, opts) {
     if (passeioTour()) return; // durante o tour o mapa não cria pino
     const pontos = passeioPontos();
-    pontos.push({ id: H.uuid(), nome: String(nome || `Lugar ${pontos.length + 1}`).slice(0, 60), minutos: 30, lat, lng });
+    pontos.push({ id: H.uuid(), nome: String(nome || `Lugar ${pontos.length + 1}`).slice(0, 60), minutos: passeioMinutosPadrao(), lat, lng });
     salvarPasseioPontos(pontos);
     H.vibrate(12);
-    render();
+    if (!opts || opts.render !== false) render();
   }
   function passeioRemoverPonto(id) {
     salvarPasseioPontos(passeioPontos().filter(p => String(p.id) !== String(id)));
-    fecharBalaoPino();
     toast("Lugar removido.");
   }
   function passeioLimparPontos() {
     salvarPasseioPontos([]);
-    fecharBalaoPino();
+    state.passeioOrdemAberta = false;
     toast("Lugares limpos.");
   }
   function passeioMapPontos() {
     const tour = passeioTour();
     const pontos = tour ? tour.pontos || [] : passeioPontos();
     return pontos.filter(p => validCoordinates(p.lat, p.lng));
+  }
+  function passeioPontoChave(ponto) {
+    return validCoordinates(ponto && ponto.lat, ponto && ponto.lng)
+      ? `${Number(ponto.lat).toFixed(5)},${Number(ponto.lng).toFixed(5)}`
+      : "";
+  }
+  function passeioPontoDaBusca(item) {
+    const chave = passeioPontoChave(item);
+    return chave ? passeioPontos().find(ponto => passeioPontoChave(ponto) === chave) : null;
+  }
+  function passeioSugestoesBusca() {
+    const busca = state.passeioBusca;
+    if (passeioTour() || !busca || !Array.isArray(busca.items)) return [];
+    return busca.items.filter(item => validCoordinates(item.lat, item.lng) && !passeioPontoDaBusca(item));
+  }
+  function passeioDistanciaTotal(pontos) {
+    if (!Array.isArray(pontos) || pontos.length < 2) return "";
+    let total = 0;
+    for (let i = 1; i < pontos.length; i += 1) total += distanceMeters(pontos[i - 1], pontos[i]);
+    return Number.isFinite(total) ? formatRouteDistance(total).replace(".", ",") : "";
   }
 
   function passeioSettingsSection() {
@@ -9245,30 +9480,77 @@
     const tour = passeioTour();
     const pontos = passeioPontos();
     const busca = state.passeioBusca || {};
-    const resultados = !tour && Array.isArray(busca.items) && busca.items.length
-      ? `<div class="pss-busca-lista">${busca.items.map((r, i) => `<button type="button" class="pss-busca-item" data-action="pss-busca-escolha" data-index="${i}"><strong>${H.escape(r.nome)}</strong><span>${H.escape(r.detalhe || "")}</span></button>`).join("")}</div>`
-      : "";
     // O botão de submit oculto existe SÓ pro handler global de submit (que faz
     // button.disabled sem guard) — o gesto do usuário é o Enter do teclado.
-    const buscaBox = tour ? "" : `<div class="pss-busca"><form id="pss-busca-form" class="pss-busca-form">${icon("search", 16)}<input name="q" placeholder="Buscar lugar ou endereço" autocomplete="off" enterkeyhint="search" value="${H.escape(busca.q || "")}"><button type="submit" hidden aria-hidden="true"></button></form>${resultados}</div>`;
-    const rodape = tour
+    const buscaBox = tour ? "" : `<div class="pss-busca"><form id="pss-busca-form" class="pss-busca-form">${icon("search", 17)}<input name="q" placeholder="Buscar lugar ou endereço" autocomplete="off" enterkeyhint="search" value="${H.escape(busca.q || "")}"><button type="submit" hidden aria-hidden="true"></button>${busca.q ? `<button type="button" class="pss-busca-limpar" data-action="pss-busca-limpar" aria-label="Limpar busca">${icon("close", 14)}</button>` : ""}</form>${passeioBuscaChips(busca, pontos)}</div>`;
+    const painel = tour
       ? passeioCartao(tour)
-      : `<div class="pss-cta"><button type="button" class="btn btn-primary btn-block" data-action="pss-iniciar" ${pontos.length && !state.passeioIniciando ? "" : "disabled"}>Iniciar passeio ›</button>${pontos.length ? `<button type="button" class="link-btn pss-limpar" data-action="pss-limpar">Limpar (${pontos.length})</button>` : ""}</div>`;
-    return `<div class="pss-screen">${buscaBox}<div class="pss-map" id="pss-map"><span class="route-map-loading">Carregando mapa…</span></div>${rodape}</div>`;
+      : busca.items && busca.items.length && busca.recolhida !== true
+        ? passeioPainelBusca(busca)
+          : state.passeioOrdemAberta
+          ? passeioPainelOrdem(pontos)
+          : pontos.length
+            ? passeioResumo(pontos)
+            : passeioPainelMontagem();
+    return `<div class="pss-screen"><div class="pss-map" id="pss-map"><span class="route-map-loading">Carregando mapa…</span></div>${buscaBox}${painel}</div>`;
   }
+
+  function passeioPainelMontagem() {
+    return `<section class="pss-montagem" aria-label="Montagem do rolê"><header class="pss-montagem-head"><span class="pss-montagem-selo">${icon("route", 18)}</span><div><span>Montagem do rolê</span><strong>Seu caminho, do seu jeito</strong></div><b>0 lugares</b></header><div class="pss-montagem-chamada"><span>1 de 3</span><h2>Pra onde você quer ir?</h2><p>Pesquise acima e escolha os lugares que quer visitar.</p></div><div class="pss-montagem-trilha"><div class="pss-montagem-passo is-active"><i>${icon("search", 14)}</i><span><small>Agora</small><strong>Buscar o primeiro lugar</strong></span></div><em></em><div class="pss-montagem-passo"><i>2</i><span><small>Depois</small><strong>Organizar as paradas</strong></span></div><em></em><div class="pss-montagem-passo"><i>3</i><span><small>Por último</small><strong>Escolher o tempo e começar</strong></span></div></div><footer class="pss-montagem-dica">${icon("map", 16)}<span><strong>Pesquise do seu jeito</strong><small>Ex.: “depósito perto de mim” ou o endereço completo</small></span></footer></section>`;
+  }
+
+  function passeioBuscaChips(busca, pontos) {
+    if (!busca || (!busca.loading && !(Array.isArray(busca.items) && busca.items.length))) return "";
+    if (busca.loading) return `<div class="pss-busca-chips"><span class="pss-busca-chip is-loading">${icon("search", 13)}Buscando…</span></div>`;
+    return `<div class="pss-busca-chips"><button type="button" class="pss-busca-chip" data-action="pss-busca-abrir">${icon("map", 13)}${busca.items.length} encontrado${busca.items.length === 1 ? "" : "s"}</button>${pontos.length ? `<span class="pss-busca-chip is-selected">${icon("check", 13)}${pontos.length} na rota</span>` : ""}</div>`;
+  }
+
+  function passeioResultadoDetalhe(item) {
+    const distancia = Number(item && item.distanciaM);
+    const distanciaTexto = Number.isFinite(distancia) && distancia >= 0
+      ? distancia < 1000 ? `${Math.round(distancia)} m` : `${(distancia / 1000).toFixed(1).replace(".", ",")} km`
+      : passeioPos && validCoordinates(item && item.lat, item && item.lng)
+        ? formatRouteDistance(distanceMeters(passeioPos, item)).replace(".", ",")
+        : "";
+    return [distanciaTexto, String(item && item.detalhe || "").trim()].filter(Boolean).join(" • ");
+  }
+
+  function passeioPainelBusca(busca) {
+    const items = Array.isArray(busca.items) ? busca.items : [];
+    const titulo = passeioBuscaProxima(busca.q) ? "Lugares próximos" : "Resultados";
+    return `<section class="pss-painel pss-descoberta"><div class="pss-painel-head"><div><span>${titulo}</span><strong>${H.escape(busca.rotulo || busca.q || "Resultados")}</strong></div>${passeioPontos().length ? `<button type="button" class="pss-painel-link" data-action="pss-busca-recolher">Ver rota</button>` : `<span class="pss-painel-meta">no mapa</span>`}</div><div class="pss-resultados">${items.map((item, index) => {
+      const selecionado = !!passeioPontoDaBusca(item);
+      return `<button type="button" class="pss-resultado${selecionado ? " is-selected" : ""}" data-action="pss-busca-toggle" data-index="${index}" aria-pressed="${selecionado ? "true" : "false"}"><span class="pss-resultado-icone">${icon("map", 15)}</span><span class="pss-resultado-copy"><strong>${H.escape(item.nome)}</strong><small>${H.escape(passeioResultadoDetalhe(item))}</small></span><span class="pss-resultado-add">${selecionado ? icon("check", 15) : "+"}</span></button>`;
+    }).join("")}</div></section>`;
+  }
+
+  function passeioPainelOrdem(pontos) {
+    return `<section class="pss-painel pss-ordem"><div class="pss-painel-head"><div><span>Rota atual</span><strong>${pontos.length} parada${pontos.length === 1 ? "" : "s"}</strong></div><button type="button" class="pss-painel-link" data-action="pss-ordem-fechar">Fechar</button></div><div class="pss-ordem-lista">${pontos.map((ponto, index) => `<button type="button" class="pss-ordem-item" data-action="pss-pino-remover" data-id="${H.escape(ponto.id)}"><b>${index + 1}</b><span><strong>${H.escape(ponto.nome)}</strong><small>${passeioMinutosTexto(ponto.minutos)} no local</small></span>${icon("close", 14)}</button>`).join("")}</div><button type="button" class="link-btn pss-limpar" data-action="pss-limpar">Limpar tudo</button></section>`;
+  }
+
+  function passeioResumo(pontos) {
+    const distancia = passeioDistanciaTotal(pontos);
+    const minutos = passeioMinutosPadrao();
+    return `<section class="pss-painel pss-resumo"><div class="pss-painel-head"><div><span>Rota pronta</span><strong>${pontos.length} parada${pontos.length === 1 ? "" : "s"}${distancia ? ` • ~${distancia}` : ""}</strong></div><button type="button" class="pss-painel-link" data-action="pss-ordem-abrir">Ver ordem</button></div><div class="pss-tempo"><strong>Tempo em cada</strong>${[1, 15, 30, 60].map(valor => `<button type="button" class="${minutos === valor ? "active" : ""}" data-action="pss-tempo" data-min="${valor}">${valor} min</button>`).join("")}</div><button type="button" class="btn btn-primary btn-block pss-iniciar" data-action="pss-iniciar" ${state.passeioIniciando ? "disabled" : ""}>${state.passeioIniciando ? "Iniciando…" : "Iniciar passeio ›"}</button><small class="pss-custo">Usa 2 créditos ao iniciar</small></section>`;
+  }
+
+  function passeioProgresso(tour) {
+    return `<div class="pss-progresso">${tour.pontos.map((_, index) => `<i class="${index < tour.idx ? "is-done" : index === tour.idx ? "is-active" : ""}"></i>`).join("")}</div>`;
+  }
+
   function passeioCartao(tour) {
     const ponto = tour.pontos[tour.idx];
     if (!ponto) return "";
     const ultimo = tour.idx >= tour.pontos.length - 1;
     const proximo = ultimo ? null : tour.pontos[tour.idx + 1];
-    const fechar = `<button type="button" class="pss-cartao-fechar" data-action="pss-encerrar" aria-label="Encerrar passeio">${icon("close", 14)}</button>`;
+    const progresso = passeioProgresso(tour);
     if (tour.fase === "indo") {
-      return `<div class="pss-cartao"><div class="pss-cartao-copy"><span>Indo para</span><strong>${H.escape(ponto.nome)}</strong><small id="pss-dist">${passeioDistLabel()}</small></div><div class="pss-cartao-acoes"><button type="button" class="btn btn-secondary" data-action="pss-navegar" aria-label="Navegar">${icon("navigation", 17)}</button><button type="button" class="btn btn-primary" data-action="pss-cheguei">Cheguei</button></div>${fechar}</div>`;
+      return `<section class="pss-painel pss-cartao">${progresso}<div class="pss-cartao-kicker"><span>Parada ${tour.idx + 1} de ${tour.pontos.length}</span><span id="pss-dist">${passeioDistLabel()}</span></div><h2>${H.escape(ponto.nome)}</h2><small>${passeioMinutosTexto(ponto.minutos)} neste local</small><div class="pss-cartao-acoes"><button type="button" class="btn btn-secondary" data-action="pss-navegar">${icon("navigation", 16)}Navegar</button><button type="button" class="btn btn-primary" data-action="pss-cheguei">Cheguei</button></div></section>`;
     }
     if (tour.estourado) {
-      return `<div class="pss-cartao"><div class="pss-cartao-copy"><span>${proximo ? "Hora de ir" : "Fim do passeio"}</span><strong>${H.escape(proximo ? proximo.nome : ponto.nome)}</strong></div><div class="pss-cartao-acoes"><button type="button" class="btn btn-primary" data-action="pss-proximo">${ultimo ? "Concluir" : "Próximo ›"}</button></div>${fechar}</div>`;
+      return `<section class="pss-painel pss-cartao">${progresso}<div class="pss-cartao-kicker"><span>${proximo ? "Hora de ir" : "Fim do passeio"}</span><span>${tour.idx + 1} de ${tour.pontos.length}</span></div><h2>${H.escape(proximo ? proximo.nome : ponto.nome)}</h2><div class="pss-cartao-acoes"><button type="button" class="btn btn-secondary" data-action="pss-encerrar">Encerrar</button><button type="button" class="btn btn-primary" data-action="pss-proximo">${ultimo ? "Concluir" : "Próximo ›"}</button></div></section>`;
     }
-    return `<div class="pss-cartao"><div class="pss-cartao-copy"><span>${H.escape(ponto.nome)}</span><strong class="pss-cartao-count" id="pss-count">${passeioCountLabel()}</strong></div><div class="pss-cartao-acoes"><button type="button" class="btn btn-secondary" data-action="pss-mais15">+15</button><button type="button" class="btn btn-primary" data-action="pss-proximo">${ultimo ? "Concluir" : "Próximo ›"}</button></div>${fechar}</div>`;
+    return `<section class="pss-painel pss-cartao">${progresso}<div class="pss-cartao-kicker"><span>No ${H.escape(ponto.nome)}</span><span>${tour.idx + 1} de ${tour.pontos.length}</span></div><div class="pss-contagem"><strong id="pss-count">${passeioCountLabel()}</strong><button type="button" class="btn btn-secondary" data-action="pss-mais15">+15 min</button></div><div class="pss-cartao-acoes"><button type="button" class="btn btn-secondary" data-action="pss-encerrar">Encerrar</button><button type="button" class="btn btn-primary" data-action="pss-proximo">${ultimo ? "Concluir" : "Próximo ›"}</button></div></section>`;
   }
   function passeioDistLabel() {
     const tour = passeioTour();
@@ -9288,103 +9570,109 @@
   }
 
   // ---- busca (1 campo, estilo mapa) ----------------------------------------
+  function passeioBuscaProxima(q) {
+    return /\b(perto de mim|pr[oó]xim[oa]s?)\b/i.test(String(q || ""));
+  }
+  function passeioConsultaBusca(q) {
+    const limpa = String(q || "").replace(/\b(perto de mim|pr[oó]xim[oa]s?)\b/gi, " ").replace(/\s+/g, " ").trim();
+    return /^bares?$/i.test(limpa) ? "bar" : limpa || String(q || "").trim();
+  }
+  async function passeioPosicaoParaBusca() {
+    if (passeioPos && validCoordinates(passeioPos.lat, passeioPos.lng)) return passeioPos;
+    const posicao = await currentPosition();
+    if (posicao && validCoordinates(posicao.lat, posicao.lng)) {
+      passeioPos = posicao;
+      atualizarPasseioDot();
+      return posicao;
+    }
+    return null;
+  }
   async function passeioBuscar(qRaw) {
     const q = String(qRaw || "").trim();
     if (q.length < 3) { toast("Digite pelo menos 3 letras.", true); return; }
     if (state.passeioBusca && state.passeioBusca.loading) return;
-    state.passeioBusca = { q, items: [], loading: true };
+    const proxima = passeioBuscaProxima(q);
+    state.passeioBusca = { q, rotulo: q, items: [], loading: true, recolhida: false };
+    state.passeioOrdemAberta = false;
     render();
+    const posicao = proxima ? await passeioPosicaoParaBusca() : passeioPos;
+    if (proxima && !posicao) {
+      state.passeioBusca = { q, rotulo: q, items: [], loading: false, recolhida: false };
+      toast("Ative a localização para buscar perto de você.", true);
+      return;
+    }
     let items = [];
     try {
-      const payload = await H.api(`/logistica/geo/busca?q=${encodeURIComponent(q)}`);
+      const geo = posicao && validCoordinates(posicao.lat, posicao.lng)
+        ? `&lat=${encodeURIComponent(posicao.lat)}&lng=${encodeURIComponent(posicao.lng)}`
+        : "";
+      const payload = await H.api(`/logistica/geo/busca?q=${encodeURIComponent(q)}${geo}`);
       items = Array.isArray(payload && payload.items) ? payload.items : [];
     } catch (_) { items = []; }
     if (!items.length) {
       // Ponte: backend antigo (404 na allowlist/rota) ou flag OFF → Nominatim
       // direto do aparelho, mesmo precedente do lookupClientCep da ficha.
-      try { items = await passeioBuscaNominatimDireto(q); } catch (_) { items = []; }
+      try { items = await passeioBuscaNominatimDireto(q, posicao, proxima); } catch (_) { items = []; }
     }
-    state.passeioBusca = { q, items, loading: false };
+    state.passeioBusca = { q, rotulo: q, items, loading: false, recolhida: false };
     if (!items.length) toast("Nada encontrado.", true);
     render();
   }
-  async function passeioBuscaNominatimDireto(q) {
-    const res = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&countrycodes=br&limit=6&q=${encodeURIComponent(q)}`, { headers: { Accept: "application/json" } });
+  async function passeioBuscaNominatimDireto(q, posicao, proxima) {
+    const params = new URLSearchParams({ format: "jsonv2", addressdetails: "1", countrycodes: "br", limit: "6", "accept-language": "pt-BR", q: passeioConsultaBusca(q) });
+    if (posicao && validCoordinates(posicao.lat, posicao.lng)) {
+      const alcance = proxima ? .07 : .18;
+      params.set("viewbox", `${posicao.lng - alcance},${posicao.lat + alcance},${posicao.lng + alcance},${posicao.lat - alcance}`);
+      if (proxima) params.set("bounded", "1");
+    }
+    const res = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, { headers: { Accept: "application/json" } });
     if (!res.ok) throw new Error("busca indisponível");
     const rows = await res.json();
     if (!Array.isArray(rows)) return [];
     return rows.map(row => {
       const display = String(row && row.display_name || "");
       const nome = String(row && row.name || "").trim() || display.split(",")[0].trim();
-      return {
+      const item = {
         nome: nome.slice(0, 60),
         detalhe: display.split(",").slice(1, 4).map(part => part.trim()).filter(Boolean).join(", ").slice(0, 90),
         lat: Number(row && row.lat),
         lng: Number(row && row.lon),
       };
-    }).filter(item => item.nome && validCoordinates(item.lat, item.lng));
+      if (posicao && validCoordinates(posicao.lat, posicao.lng) && validCoordinates(item.lat, item.lng)) item.distanciaM = Math.round(distanceMeters(posicao, item));
+      return item;
+    }).filter(item => item.nome && validCoordinates(item.lat, item.lng)).sort((a, b) => Number(a.distanciaM || Number.MAX_SAFE_INTEGER) - Number(b.distanciaM || Number.MAX_SAFE_INTEGER));
   }
-
-  // ---- balão do pino (ajuste opcional: chips + nome + remover) -------------
-  function fecharBalaoPino() {
-    if (pssBalao) { try { pssBalao.remove(); } catch (_) {} pssBalao = null; }
-  }
-  function abrirBalaoPino(pontoId) {
-    const ponto = passeioPontos().find(p => String(p.id) === String(pontoId));
-    if (!ponto || !pssMapObj || !window.maplibregl) return;
-    fecharBalaoPino();
-    const el = document.createElement("div");
-    el.className = "pss-balao";
-    el.innerHTML = `<input class="pss-balao-nome" data-pss-nome="${H.escape(ponto.id)}" maxlength="60" autocomplete="off" value="${H.escape(ponto.nome)}">
-      <div class="day-chips pss-min">${[15, 30, 45, 60].map(v => `<button type="button" class="day-chip ${Number(ponto.minutos) === v ? "active" : ""}" data-action="pss-chip" data-id="${H.escape(ponto.id)}" data-min="${v}">${v}m</button>`).join("")}</div>
-      <button type="button" class="link-btn pss-balao-remover" data-action="pss-pino-remover" data-id="${H.escape(ponto.id)}">Remover</button>`;
-    pssBalao = new window.maplibregl.Popup({ closeButton: true, closeOnClick: true, offset: 20, className: "hbx-balao pss-balao-pop", maxWidth: "250px" })
-      .setLngLat([ponto.lng, ponto.lat])
-      .setDOMContent(el)
-      .addTo(pssMapObj);
-    pssBalao.on("close", () => { pssBalaoFechadoEm = Date.now(); pssBalao = null; });
-  }
-  // Nome do lugar salva enquanto digita (campo OPCIONAL — ninguém é obrigado).
-  app.addEventListener("input", event => {
-    const campo = event.target;
-    if (!campo || !campo.dataset || !campo.dataset.pssNome) return;
-    const pontos = passeioPontos();
-    const ponto = pontos.find(p => String(p.id) === String(campo.dataset.pssNome));
-    if (!ponto) return;
-    ponto.nome = String(campo.value || "").slice(0, 60) || ponto.nome;
-    salvarPasseioPontos(pontos);
-  });
 
   // ---- ações ---------------------------------------------------------------
   async function handlePasseioAction(action, target) {
     if (action === "pss-abrir") { passeioLigarModo(); return; }
     if (action === "pss-trabalho") { passeioDesligarModo(); return; }
-    if (action === "pss-chip") {
-      const pontos = passeioPontos();
-      const ponto = pontos.find(p => String(p.id) === String(target.dataset.id));
-      if (!ponto) return;
-      ponto.minutos = Number(target.dataset.min) || 30;
-      salvarPasseioPontos(pontos);
-      H.vibrate(8);
-      abrirBalaoPino(ponto.id); // re-abre com o chip aceso
-      return;
-    }
+    if (action === "pss-tempo") { passeioDefinirMinutos(target.dataset.min); return; }
     if (action === "pss-pino-remover") { passeioRemoverPonto(target.dataset.id); render(); return; }
     if (action === "pss-limpar") {
       state.confirmation = { type: "pss-limpar", title: "Limpar os lugares?", confirmLabel: "Limpar", danger: true, icon: "map", abertaEm: Date.now() };
       render();
       return;
     }
-    if (action === "pss-busca-escolha") {
+    if (action === "pss-busca-toggle") {
       const busca = state.passeioBusca;
       const item = busca && Array.isArray(busca.items) ? busca.items[Number(target.dataset.index)] : null;
       if (!item || !validCoordinates(item.lat, item.lng)) return;
-      passeioAddPonto(item.lat, item.lng, item.nome);
-      state.passeioBusca = null;
-      if (pssMapObj) { try { pssMapObj.easeTo({ center: [item.lng, item.lat], zoom: 15.5, duration: 420 }); } catch (_) {} }
+      const selecionado = passeioPontoDaBusca(item);
+      if (selecionado) {
+        salvarPasseioPontos(passeioPontos().filter(ponto => String(ponto.id) !== String(selecionado.id)));
+        H.vibrate(8);
+      }
+      else passeioAddPonto(item.lat, item.lng, item.nome, { render: false });
+      if (!selecionado && passeioPontos().length >= 3) busca.recolhida = true;
       render();
       return;
     }
+    if (action === "pss-busca-abrir") { if (state.passeioBusca) state.passeioBusca.recolhida = false; state.passeioOrdemAberta = false; render(); return; }
+    if (action === "pss-busca-recolher") { if (state.passeioBusca) state.passeioBusca.recolhida = true; render(); return; }
+    if (action === "pss-busca-limpar") { state.passeioBusca = null; render(); return; }
+    if (action === "pss-ordem-abrir") { state.passeioOrdemAberta = true; if (state.passeioBusca) state.passeioBusca.recolhida = true; render(); return; }
+    if (action === "pss-ordem-fechar") { state.passeioOrdemAberta = false; render(); return; }
     if (action === "pss-iniciar") { await passeioIniciarTour(); return; }
     if (action === "pss-navegar") { const tour = passeioTour(); const ponto = tour && tour.pontos[tour.idx]; if (ponto && validCoordinates(ponto.lat, ponto.lng)) H.maps(ponto.lat, ponto.lng, ponto.nome); return; }
     if (action === "pss-cheguei") { passeioChegou(); return; }
@@ -9399,7 +9687,7 @@
   // ---- núcleo do tour ------------------------------------------------------
   async function passeioIniciarTour() {
     const pontos = passeioPontos().filter(p => validCoordinates(p.lat, p.lng));
-    if (!pontos.length) { toast("Toque no mapa para marcar os lugares.", true); return; }
+    if (!pontos.length) { toast("Busque um lugar ou endereço para começar.", true); return; }
     if (state.passeioIniciando) return;
     // Guard de reentrância ANTES do 1º await (padrão accept-confirmation).
     state.passeioIniciando = true;
@@ -9409,7 +9697,7 @@
       await H.api("/logistica/passeio/iniciar", { method: "POST", body: { tourId } });
       const tour = { tourId, pontos: pontos.map(p => ({ ...p })), idx: 0, fase: "indo", fimEm: null, estourado: false };
       salvarPasseioTour(tour);
-      fecharBalaoPino();
+      state.passeioOrdemAberta = false;
       state.passeioBusca = null;
       H.sound("success");
       H.speak(`Passeio iniciado. Primeiro lugar: ${tour.pontos[0].nome}.`);
@@ -9431,7 +9719,8 @@
     salvarPasseioTour(tour);
     passeioAgendarAlarme(tour);
     H.sound("success");
-    H.speak(`Você chegou: ${ponto.nome}. ${Number(ponto.minutos) || 30} minutos aqui.`);
+    const minutos = Math.max(1, Number(ponto.minutos) || 30);
+    H.speak(`Você chegou: ${ponto.nome}. ${minutos} minuto${minutos === 1 ? "" : "s"} aqui.`);
     render();
   }
   function passeioMais15() {
@@ -9552,8 +9841,9 @@
         disposePasseioMap();
         pssMapHost = host;
         const pontos = passeioMapPontos();
-        const centro = pontos[0] || (passeioPos && validCoordinates(passeioPos.lat, passeioPos.lng) ? passeioPos : { lat: -14.235, lng: -51.9253 });
-        const map = new maplibregl.Map({ container: host, style: currentMapStyle(), center: [centro.lng, centro.lat], zoom: pontos.length ? 13 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false });
+        const sugestoes = passeioSugestoesBusca();
+        const centro = pontos[0] || sugestoes[0] || (passeioPos && validCoordinates(passeioPos.lat, passeioPos.lng) ? passeioPos : { lat: -14.235, lng: -51.9253 });
+        const map = new maplibregl.Map({ container: host, style: currentMapStyle(), center: [centro.lng, centro.lat], zoom: pontos.length || sugestoes.length ? 13 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false, doubleClickZoom: false });
         pssMapObj = map;
         host.__hbxMap = map;
         map.on("load", () => {
@@ -9564,16 +9854,6 @@
           aplicarPasseioMapa(true);
           atualizarPasseioDot();
         });
-        map.on("click", e => {
-          // Confirmação aberta também barra: o clique fantasma pós-popup caía
-          // no canvas e criava pino sozinho (visto ao vivo no g15).
-          if (state.modal || state.confirmation || passeioTour()) return;
-          // Toque que só fechou o balão não cria pino (o closeOnClick do popup
-          // dispara junto com este click).
-          if (Date.now() - pssBalaoFechadoEm < 400) return;
-          if (pssBalao) { fecharBalaoPino(); return; }
-          passeioAddPonto(e.lngLat.lat, e.lngLat.lng);
-        });
         map.on("error", () => {});
         return;
       }
@@ -9583,34 +9863,52 @@
   function aplicarPasseioMapa(recemCriado) {
     if (!pssMapObj || !pssMapHost) return;
     const pontos = passeioMapPontos();
+    const sugestoes = passeioSugestoesBusca();
     const tour = passeioTour();
     const alvoIdx = tour ? tour.idx : -1;
-    const assinatura = `${tour ? "tour" : "monta"}|${alvoIdx}|${pontos.map(p => `${p.id}:${Number(p.lat).toFixed(5)},${Number(p.lng).toFixed(5)}`).join(";")}`;
+    const assinatura = `${tour ? "tour" : "monta"}|${alvoIdx}|${pontos.map(p => `${p.id}:${Number(p.lat).toFixed(5)},${Number(p.lng).toFixed(5)}`).join(";")}|${sugestoes.map(p => passeioPontoChave(p)).join(";")}`;
     if (assinatura === pssMapAssinatura && !recemCriado) return;
     pssMapAssinatura = assinatura;
     pssMapMarkers.forEach(m => { try { m.remove(); } catch (_) {} });
-    pssMapMarkers = pontos.map((p, i) => {
+    const marcadoresPontos = pontos.map((p, i) => {
       const el = document.createElement("span");
       el.className = `pss-pin${i === alvoIdx ? " is-alvo" : ""}`;
-      el.textContent = String(i + 1);
-      // Toque no pino abre o balão de ajuste; segurar remove (Lei 1 — o hold
-      // delegado do app pega pelo data-pss-hold). stopPropagation segura o
-      // click de cair no mapa e virar pino novo.
+      el.innerHTML = `<span>${i + 1}</span>`;
+      // Segurar remove (Lei 1); toque só abre a ordem na própria pele.
       el.dataset.pssHold = `p:${p.id}`;
       el.addEventListener("click", event => {
         event.stopPropagation();
         if (ignoredPssClickId === `p:${p.id}`) { ignoredPssClickId = null; return; }
-        if (!passeioTour()) abrirBalaoPino(p.id);
+        if (!passeioTour()) {
+          state.passeioOrdemAberta = true;
+          if (state.passeioBusca) state.passeioBusca.recolhida = true;
+          render();
+        }
       });
       return new window.maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([p.lng, p.lat]).addTo(pssMapObj);
     });
+    const marcadoresSugestoes = sugestoes.map(item => {
+      const el = document.createElement("span");
+      el.className = "pss-pin is-sugestao";
+      el.innerHTML = "<span>+</span>";
+      el.addEventListener("click", event => {
+        event.stopPropagation();
+        passeioAddPonto(item.lat, item.lng, item.nome, { render: false });
+        if (state.passeioBusca && passeioPontos().length >= 3) state.passeioBusca.recolhida = true;
+        render();
+      });
+      return new window.maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([item.lng, item.lat]).addTo(pssMapObj);
+    });
+    pssMapMarkers = [...marcadoresPontos, ...marcadoresSugestoes];
     void aplicarPasseioLinha(pontos);
-    if (pontos.length > 1) {
+    const enquadrar = sugestoes.length ? [...pontos, ...sugestoes] : pontos;
+    if (enquadrar.length > 1) {
       const bounds = new window.maplibregl.LngLatBounds();
-      pontos.forEach(p => bounds.extend([p.lng, p.lat]));
-      try { pssMapObj.fitBounds(bounds, { padding: 46, maxZoom: 15.5, duration: recemCriado ? 0 : 420 }); } catch (_) {}
-    } else if (pontos.length === 1) {
-      try { pssMapObj.easeTo({ center: [pontos[0].lng, pontos[0].lat], zoom: 15, duration: recemCriado ? 0 : 420 }); } catch (_) {}
+      enquadrar.forEach(p => bounds.extend([p.lng, p.lat]));
+      const buscaAberta = state.passeioBusca && state.passeioBusca.recolhida !== true && Array.isArray(state.passeioBusca.items) && state.passeioBusca.items.length;
+      try { pssMapObj.fitBounds(bounds, { padding: { top: 118, right: 34, bottom: buscaAberta ? 330 : 210, left: 34 }, maxZoom: 15.5, duration: recemCriado ? 0 : 420 }); } catch (_) {}
+    } else if (enquadrar.length === 1) {
+      try { pssMapObj.easeTo({ center: [enquadrar[0].lng, enquadrar[0].lat], zoom: 15, duration: recemCriado ? 0 : 420 }); } catch (_) {}
     }
   }
   async function aplicarPasseioLinha(pontos) {
@@ -9679,6 +9977,10 @@
       // quer o boolean); closeOverlay é assíncrono, então dispara com `void` e já
       // devolve `true` — a UI fecha com a animação de qualquer forma.
       try {
+        // ROTA PRONTA (29/07) — popup impeditivo da rota indicada: Voltar é
+        // consumido e NÃO fecha (mesmo contrato do app-update obrigatório;
+        // só Aceitar/Negar tiram ele da tela).
+        if (state.rotaIndicada) return true;
         if (state.dddPrompt) { state.dddPrompt = null; render(); return true; }
         if (state.confirmation) { state.confirmation = null; render(); return true; }
         // S3.2 — popup de pausa (overlay global, aparece em cima de qualquer
@@ -9794,7 +10096,10 @@
   render(); refresh(false, true); state.screenMotion = ""; void restoreLeituraSession(); refreshGpsPerm(); void checkAppUpdate(false);
   // Volta do fundo = nova chance de ver atualização (a trava de 30min dentro
   // de checkAppUpdate segura a frequência; trocar de app não vira enxurrada).
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { retomarUpdatePosPermissao(); void checkAppUpdate(); } });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { retomarUpdatePosPermissao(); void checkAppUpdate(); void checkRotaIndicada(true); } });
+  // ROTA PRONTA (29/07) — tick de 60s do popup de rota indicada (cadência FIXA
+  // com throttle interno de 45s; tela escondida não gasta rede).
+  setInterval(() => { if (!document.hidden) void checkRotaIndicada(); }, 60000);
   // Voltar da tela de permissão do Android nem sempre passa por
   // visibilitychange em toda WebView — o focus da janela é o segundo laço de
   // segurança. retomarUpdatePosPermissao() é idempotente (sai na hora se o

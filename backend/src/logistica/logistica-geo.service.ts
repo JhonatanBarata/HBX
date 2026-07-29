@@ -76,6 +76,7 @@ export interface BuscaGeoItem {
   detalhe: string;
   lat: number;
   lng: number;
+  distanciaM?: number;
 }
 
 interface BuscaCacheEntry {
@@ -184,12 +185,20 @@ export class LogisticaGeoService {
    * (o app tem fallback client-side). Cache LRU por termo (1h) segura o
    * rate-limit de 1 req/s do Nominatim contra digitação repetida.
    */
-  async busca(qRaw: unknown): Promise<{ items: BuscaGeoItem[] }> {
-    const q = String(qRaw ?? '').trim().slice(0, 120);
-    if (q.length < 3) throw new BadRequestException('Digite pelo menos 3 letras.');
+  async busca(qRaw: unknown, latRaw?: unknown, lngRaw?: unknown): Promise<{ items: BuscaGeoItem[] }> {
+    const qOriginal = String(qRaw ?? '').trim().slice(0, 120);
+    if (qOriginal.length < 3) throw new BadRequestException('Digite pelo menos 3 letras.');
     if (!this.networkEnabled()) return { items: [] };
 
-    const key = q.toLowerCase();
+    const buscaProxima = /\b(perto de mim|pr[oó]xim[oa]s?)\b/i.test(qOriginal);
+    const q = this.normalizarConsultaProxima(qOriginal);
+    const lat = Number(latRaw);
+    const lng = Number(lngRaw);
+    const centro =
+      Number.isFinite(lat) && Math.abs(lat) <= 90 && Number.isFinite(lng) && Math.abs(lng) <= 180
+        ? { lat, lng }
+        : null;
+    const key = `${q.toLowerCase()}|${centro ? `${centro.lat.toFixed(2)},${centro.lng.toFixed(2)}` : ''}|${buscaProxima ? 'perto' : ''}`;
     const now = Date.now();
     const cached = this.buscaCache.get(key);
     if (cached && cached.expiresAt > now) {
@@ -198,7 +207,7 @@ export class LogisticaGeoService {
       return { items: cached.items.map((item) => ({ ...item })) };
     }
 
-    const items = await this.buscarViaNominatim(q);
+    const items = await this.buscarViaNominatim(q, centro, buscaProxima);
     this.buscaCache.set(key, { items, expiresAt: now + BUSCA_CACHE_TTL_MS });
     while (this.buscaCache.size > BUSCA_CACHE_MAX) {
       const oldest = this.buscaCache.keys().next().value;
@@ -208,9 +217,49 @@ export class LogisticaGeoService {
     return { items: items.map((item) => ({ ...item })) };
   }
 
-  private async buscarViaNominatim(q: string): Promise<BuscaGeoItem[]> {
+  private normalizarConsultaProxima(q: string): string {
+    const limpa = q
+      .replace(/\b(perto de mim|pr[oó]xim[oa]s?)\b/gi, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (/^bares?$/i.test(limpa)) return 'bar';
+    return limpa || q;
+  }
+
+  private distanciaMetros(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+    const r = 6371000;
+    const rad = Math.PI / 180;
+    const dLat = (b.lat - a.lat) * rad;
+    const dLng = (b.lng - a.lng) * rad;
+    const x =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(a.lat * rad) * Math.cos(b.lat * rad) * Math.sin(dLng / 2) ** 2;
+    return 2 * r * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+  }
+
+  private async buscarViaNominatim(
+    q: string,
+    centro: { lat: number; lng: number } | null,
+    buscaProxima: boolean,
+  ): Promise<BuscaGeoItem[]> {
     try {
-      const url = `${NOMINATIM_SEARCH_URL}?format=jsonv2&addressdetails=1&countrycodes=br&limit=${BUSCA_LIMIT}&q=${encodeURIComponent(q)}`;
+      const params = new URLSearchParams({
+        format: 'jsonv2',
+        addressdetails: '1',
+        countrycodes: 'br',
+        limit: String(BUSCA_LIMIT),
+        'accept-language': 'pt-BR',
+        q,
+      });
+      if (centro) {
+        const alcance = buscaProxima ? 0.07 : 0.18;
+        params.set(
+          'viewbox',
+          `${centro.lng - alcance},${centro.lat + alcance},${centro.lng + alcance},${centro.lat - alcance}`,
+        );
+        if (buscaProxima) params.set('bounded', '1');
+      }
+      const url = `${NOMINATIM_SEARCH_URL}?${params.toString()}`;
       const res = await fetch(url, {
         headers: { 'User-Agent': NOMINATIM_USER_AGENT, Accept: 'application/json' },
         signal: AbortSignal.timeout(NOMINATIM_TIMEOUT_MS),
@@ -225,13 +274,20 @@ export class LogisticaGeoService {
           const display = String(row?.display_name ?? '');
           const nome = String(row?.name ?? '').trim() || display.split(',')[0]?.trim() || '';
           const detalhe = display.split(',').slice(1, 4).map((part) => part.trim()).filter(Boolean).join(', ');
-          return { nome: nome.slice(0, 60), detalhe: detalhe.slice(0, 90), lat, lng };
+          const item: BuscaGeoItem = { nome: nome.slice(0, 60), detalhe: detalhe.slice(0, 90), lat, lng };
+          if (centro && Number.isFinite(lat) && Number.isFinite(lng)) {
+            item.distanciaM = Math.round(this.distanciaMetros(centro, { lat, lng }));
+          }
+          return item;
         })
         .filter(
           (item) =>
             item.nome &&
             Number.isFinite(item.lat) && Math.abs(item.lat) <= 90 &&
             Number.isFinite(item.lng) && Math.abs(item.lng) <= 180,
+        )
+        .sort((a, b) =>
+          centro ? Number(a.distanciaM ?? Number.MAX_SAFE_INTEGER) - Number(b.distanciaM ?? Number.MAX_SAFE_INTEGER) : 0,
         );
     } catch (e: any) {
       this.logger.debug(`[logistica] geo/busca falhou (degradando p/ vazio): ${String(e?.message || e)}`);

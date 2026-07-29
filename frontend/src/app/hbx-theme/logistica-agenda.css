@@ -15,6 +15,46 @@
   gap: 10px;
 }
 
+/* ROTA PRONTA (29/07) — aviso de rota indicada NEGADA pelo celular. Some no
+   fechar (marca visto no servidor); o histórico fica no backend. */
+.log-negada {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 10px;
+  padding: 10px 14px;
+  border: 1px solid color-mix(in srgb, var(--hbx-danger) 38%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--hbx-danger) 9%, transparent);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+}
+
+.log-negada strong {
+  color: var(--hbx-danger);
+  font-weight: 700;
+}
+
+.log-negada__close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.log-negada__close:hover {
+  background: color-mix(in srgb, var(--hbx-danger) 14%, transparent);
+  color: var(--hbx-danger);
+}
+
 .log-guide-slot {
   display: flex;
   justify-content: center;

@@ -18,6 +18,7 @@ import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConferenciaService } from './logistica-conferencia.service';
 import { LogisticaCustoPreviewService } from './logistica-custo-preview.service';
 import { LogisticaRotaModeloService } from './logistica-rota-modelo.service';
+import { LogisticaRotaIndicadaService } from './logistica-rota-indicada.service';
 import { LogisticaLeituraService } from './logistica-leitura.service';
 import { LogisticaGeoService } from './logistica-geo.service';
 import { LogisticaOsrmService } from './logistica-osrm.service';
@@ -207,6 +208,7 @@ import { LogisticaEstoqueService } from './logistica-estoque.service';
     LogisticaConferenciaService,
     LogisticaCustoPreviewService,
     LogisticaRotaModeloService,
+    LogisticaRotaIndicadaService,
     LogisticaLeituraService,
     LogisticaGeoService,
     LogisticaOsrmService,
