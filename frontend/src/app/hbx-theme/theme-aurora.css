@@ -176,3 +176,10 @@
   border: 3px solid transparent; background-clip: padding-box; border-radius: 999px;
 }
 [data-theme="aurora"] ::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, var(--hbx-brand) 60%, transparent); background-clip: padding-box; }
+
+
+/* AMOSTRA DO MENU APARÊNCIA (dono 28/07) — o pontinho de cor que identifica
+   este tema na lista, SEM precisar ativá-lo. Vai em `:root` de propósito: é o
+   único token daqui que precisa existir mesmo com outro tema ligado. Cor
+   literal só pode viver em pele, e esta é a pele dele. */
+:root { --swatch-aurora: linear-gradient(140deg, #6D28D9, #0891B2); }

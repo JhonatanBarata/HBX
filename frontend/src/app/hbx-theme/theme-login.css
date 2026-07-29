@@ -71,3 +71,10 @@
 [data-theme="login"] .btn-ghost,
 [data-theme="login"] .field-dark,
 [data-theme="login"] .select-dark { border-radius: var(--radius-sm); box-shadow: var(--shadow-inset); }
+
+
+/* AMOSTRA DO MENU APARÊNCIA (dono 28/07) — o pontinho de cor que identifica
+   este tema na lista, SEM precisar ativá-lo. Vai em `:root` de propósito: é o
+   único token daqui que precisa existir mesmo com outro tema ligado. Cor
+   literal só pode viver em pele, e esta é a pele dele. */
+:root { --swatch-login: linear-gradient(140deg, #8FCF16, #4A7307); }

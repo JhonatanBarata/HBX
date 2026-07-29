@@ -8,12 +8,15 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import React, { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
-import { applyThemeSoft, getCascaAtiva, getTemaAtivo, setCasca, setTema, setThemeMode } from "@/components/hbx/theme-attributes";
-import { CASCAS, escolheModo, escolheTema, getCasca } from "@/lib/aparencia";
+import { applyThemeSoft, getCascaAtiva, getTemaAtivo, setAparencia, setThemeMode } from "@/components/hbx/theme-attributes";
+import {
+  CASCAS, escolheModo, escolheTema, getCasca, resolveModo, resolveTema,
+  type CascaDef, type CascaKey, type Modo, type TemaKey,
+} from "@/lib/aparencia";
 import { apiFetch, getToken } from "@/lib/api";
 import { getInitialGeoState, hasStoredGeo, toggleGeoRadar } from "@/lib/geo-radar";
 import { logout } from "@/lib/logout";
@@ -1040,15 +1043,34 @@ export function subscribeToThemeMode(callback: () => void) {
 }
 
 // ---------------------------------------------------------------
-// APARÊNCIA (dono 28/07) — UM menu para os três eixos: CASCA, TEMA e MODO.
-// Substituiu o antigo PeleSwitch (que misturava casca e cor num valor só) e
-// absorveu o botão sol/lua. As capacidades vêm do registro em lib/aparencia.ts:
-// a Corporativa declara 1 tema e 1 modo, então tema e modo simplesmente não
-// aparecem para ela — a regra é do CONTRATO, não um `if` escrito aqui.
-// Trocar NÃO navega e NÃO recarrega: a tela aberta (busca, filtros, abas,
-// dados) continua exatamente onde estava.
-// Visual 100% de classes centrais (.btn-ghost/.hbx-pop/.nav-item); os style
-// inline abaixo são só posição/caixa — nada de cor, borda ou sombra (Lei nº1).
+// APARÊNCIA (dono 28/07, refeito na mesma noite) — UM menu para CASCA,
+// COR e MODO, no modo de seleção aprovado no mock
+// (docs/mockups/aparencia-selecao.html, opção A: gaveta que desliza).
+//
+// O QUE MUDOU E POR QUÊ (palavras do dono: "agora vc clica, o negócio já
+// altera e fechar, tá bagunçado" e, depois, "crie um aplicar no final"):
+//  · o rótulo "Casca" SAIU — a lista já é a primeira coisa do menu, e cada
+//    linha é SÓ o nome: HBX, Premium, Corporativo. Nada de subtítulo
+//    explicando a casca ("Remova explicações, eu pedi?");
+//  · CLICAR NÃO MUDA NADA. O clique só marca a escolha; quem troca a
+//    aparência é o botão APLICAR do rodapé, que aplica os três eixos de
+//    uma vez e fecha. Desistiu? Clique fora ou Esc: nada aconteceu, porque
+//    nada tinha sido aplicado. É o oposto do menu antigo, que mudava e
+//    fechava no primeiro clique;
+//  · a casca que tem cor/modo pra escolher ganha uma seta e abre um
+//    SEGUNDO NÍVEL que desliza, com "voltar". Quem não tem resolve em um
+//    clique, na mesma lista. Quem decide isso é o CONTRATO
+//    (escolheTema/escolheModo de lib/aparencia.ts), não um `if` daqui.
+//
+// O rascunho nasce do que está NO AR toda vez que o menu abre, e morre ao
+// fechar sem aplicar — não existe estado meio-aplicado.
+//
+// A altura da gaveta acompanha o nível ativo — medida aqui e escrita como
+// `height` inline (layout, não aparência: Lei nº4 permite). Sem isso o
+// painel pularia de tamanho no meio do deslize.
+//
+// Aplicar NÃO navega e NÃO recarrega: busca, filtros, abas e dados da tela
+// aberta continuam exatamente onde estavam.
 // ---------------------------------------------------------------
 export function AparenciaSwitch() {
   const cascaKey = useSyncExternalStore(subscribeToThemeMode, getCascaAtiva, () => "premium" as const);
@@ -1059,57 +1081,142 @@ export function AparenciaSwitch() {
     () => null,
   );
   const [open, setOpen] = useState(false);
-  const boxRef = useClickAway<HTMLSpanElement>(open, () => setOpen(false));
+  const [deep, setDeep] = useState(false);
+  const [deckH, setDeckH] = useState<number | undefined>(undefined);
+  const lvl1Ref = useRef<HTMLDivElement | null>(null);
+  const lvl2Ref = useRef<HTMLDivElement | null>(null);
 
-  const casca = getCasca(cascaKey);
-  const isDark = modeAttr === "dark";
+  // RASCUNHO — o que está marcado no menu. Nada disso vale até o Aplicar.
+  const [draftCasca, setDraftCasca] = useState<CascaKey>(cascaKey);
+  const [draftTema, setDraftTema] = useState<TemaKey>(temaKey);
+  const [draftModo, setDraftModo] = useState<Modo>(modeAttr === "dark" ? "dark" : "light");
+
+  const fechar = useCallback(() => { setOpen(false); setDeep(false); }, []);
+  const boxRef = useClickAway<HTMLSpanElement>(open, fechar);
+
+  const noAr = getCasca(cascaKey);
+  const casca = getCasca(draftCasca);
+  const temEscolha = (c: CascaDef) => escolheTema(c) || escolheModo(c);
+  // O rascunho é clampado pela casca escolhida: trocar de casca não pode
+  // deixar uma cor que ela não tem marcada na tela.
+  const temaDraft = resolveTema(casca, draftTema);
+  const modoDraft = resolveModo(casca, draftModo);
+  const corNoAr = noAr.temas.find(t => t.key === temaKey) || noAr.temas[0];
+
+  const mudou = draftCasca !== cascaKey
+    || temaDraft !== temaKey
+    || (escolheModo(casca) && modoDraft !== (modeAttr === "dark" ? "dark" : "light"));
+
+  // Abrir SEMPRE parte do que está no ar — sem rascunho velho sobrando.
+  function abrir() {
+    setDraftCasca(cascaKey);
+    setDraftTema(temaKey);
+    setDraftModo(modeAttr === "dark" ? "dark" : "light");
+    setDeep(false);
+    setOpen(true);
+  }
+
+  function aplicar() {
+    setAparencia(draftCasca, temaDraft, modoDraft);
+    fechar();
+  }
+
+  // A gaveta cresce/encolhe junto com o nível que está à mostra.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const alvo = deep ? lvl2Ref.current : lvl1Ref.current;
+    if (alvo) setDeckH(alvo.offsetHeight);
+  }, [open, deep, draftCasca, temaDraft, modoDraft]);
+
+  useEffect(() => {
+    if (!open) return;
+    const aoTeclar = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      if (deep) setDeep(false);
+      else fechar();
+    };
+    window.addEventListener("keydown", aoTeclar);
+    return () => window.removeEventListener("keydown", aoTeclar);
+  }, [deep, fechar, open]);
 
   return (
-    <span ref={boxRef} style={{ position: "relative", display: "inline-flex" }}>
-      <button className="btn-ghost" style={{ minHeight: 32, gap: 6 }} onClick={() => setOpen(o => !o)}
-        aria-expanded={open} aria-label="Escolher aparência" title="Aparência do sistema" data-tut="pele">
-        {casca.label} ▾
+    <span ref={boxRef} className="aparencia">
+      {/* O botão mostra o que está NO AR, nunca o rascunho. */}
+      <button className="btn-ghost aparencia__trigger" onClick={() => (open ? fechar() : abrir())}
+        aria-expanded={open} aria-haspopup="menu" aria-label="Escolher aparência"
+        title="Aparência do sistema" data-tut="pele">
+        <span className="aparencia__swatch aparencia__dot" data-tema={temaKey} />
+        {escolheTema(noAr) ? `${noAr.label} · ${corNoAr?.label ?? ""}` : noAr.label}
+        <span className="aparencia__caret" aria-hidden="true">▾</span>
       </button>
-      {open && (
-        <div className="hbx-pop" role="menu" aria-label="Aparência"
-          style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, minWidth: 208, padding: 6, display: "grid", gap: 2 }}>
-          <small className="muted" style={{ padding: "4px 8px 2px" }}>Casca</small>
-          {CASCAS.map(c => (
-            <button key={c.key} role="menuitemradio" aria-checked={c.key === casca.key} title={c.hint}
-              className={"nav-item" + (c.key === casca.key ? " active" : "")} style={{ minHeight: 32 }}
-              onClick={() => { setCasca(c.key); setOpen(false); }}>
-              {c.label}
-            </button>
-          ))}
 
-          {escolheTema(casca) && (
-            <>
-              <small className="muted" style={{ padding: "8px 8px 2px" }}>Tema</small>
-              {casca.temas.map(t => (
-                <button key={t.key} role="menuitemradio" aria-checked={t.key === temaKey}
-                  className={"nav-item" + (t.key === temaKey ? " active" : "")} style={{ minHeight: 32 }}
-                  onClick={() => { setTema(t.key); setOpen(false); }}>
-                  {t.label}
+      {open && (
+        <div className="hbx-pop aparencia__menu" role="menu" aria-label="Aparência">
+          <div className={"aparencia__deck" + (deep ? " is-deep" : "")} style={{ height: deckH }}>
+
+            {/* ── NÍVEL 1: as cascas ── */}
+            <div className="aparencia__lvl aparencia__lvl--1" ref={lvl1Ref} aria-hidden={deep}>
+              {CASCAS.map(c => (
+                <button key={c.key} role="menuitemradio" aria-checked={c.key === draftCasca}
+                  className={"aparencia__item" + (c.key === draftCasca ? " is-on" : "")}
+                  tabIndex={deep ? -1 : 0}
+                  onClick={() => { setDraftCasca(c.key); if (temEscolha(c)) setDeep(true); }}>
+                  <span className="aparencia__mark" aria-hidden="true">{c.key === draftCasca ? "✓" : ""}</span>
+                  <span className="aparencia__label">{c.label}</span>
+                  {temEscolha(c) && <span className="aparencia__go" aria-hidden="true">›</span>}
                 </button>
               ))}
-            </>
-          )}
+            </div>
 
-          {escolheModo(casca) && (
-            <>
-              <small className="muted" style={{ padding: "8px 8px 2px" }}>Modo</small>
-              <button role="menuitemradio" aria-checked={!isDark}
-                className={"nav-item" + (!isDark ? " active" : "")} style={{ minHeight: 32 }}
-                onClick={() => { applyThemeSoft(() => setThemeMode("light")); setOpen(false); }}>
-                <I d={ICONS.sun} size={15} /> Claro
+            {/* ── NÍVEL 2: cor e modo da casca que os tem ── */}
+            <div className="aparencia__lvl aparencia__lvl--2" ref={lvl2Ref} aria-hidden={!deep}>
+              <button className="aparencia__back" onClick={() => setDeep(false)} tabIndex={deep ? 0 : -1}>
+                <span aria-hidden="true">‹</span> {casca.label}
               </button>
-              <button role="menuitemradio" aria-checked={isDark}
-                className={"nav-item" + (isDark ? " active" : "")} style={{ minHeight: 32 }}
-                onClick={() => { applyThemeSoft(() => setThemeMode("dark")); setOpen(false); }}>
-                <I d={ICONS.moon} size={15} /> Escuro
-              </button>
-            </>
-          )}
+
+              {escolheTema(casca) && (
+                <>
+                  <div className="aparencia__cap">Cor</div>
+                  {casca.temas.map(t => (
+                    <button key={t.key} role="menuitemradio" aria-checked={t.key === temaDraft}
+                      className={"aparencia__item" + (t.key === temaDraft ? " is-on" : "")}
+                      tabIndex={deep ? 0 : -1}
+                      onClick={() => setDraftTema(t.key)}>
+                      <span className="aparencia__mark" aria-hidden="true">{t.key === temaDraft ? "✓" : ""}</span>
+                      <span className="aparencia__dot" data-tema={t.key} aria-hidden="true" />
+                      <span className="aparencia__label">{t.label}</span>
+                    </button>
+                  ))}
+                </>
+              )}
+
+              {escolheTema(casca) && escolheModo(casca) && <div className="aparencia__sep" />}
+
+              {escolheModo(casca) && (
+                <>
+                  <div className="aparencia__cap">Modo</div>
+                  <div className="aparencia__seg" role="group" aria-label="Modo claro ou escuro">
+                    <button className={modoDraft === "light" ? "is-on" : ""} aria-pressed={modoDraft === "light"}
+                      tabIndex={deep ? 0 : -1} onClick={() => setDraftModo("light")}>
+                      <I d={ICONS.sun} size={14} /> Claro
+                    </button>
+                    <button className={modoDraft === "dark" ? "is-on" : ""} aria-pressed={modoDraft === "dark"}
+                      tabIndex={deep ? 0 : -1} onClick={() => setDraftModo("dark")}>
+                      <I d={ICONS.moon} size={14} /> Escuro
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+
+          {/* RODAPÉ — fora da gaveta de propósito: some quem desliza, o
+              Aplicar fica parado no mesmo lugar nos dois níveis. */}
+          <footer className="aparencia__foot">
+            <button type="button" className="btn-teal aparencia__apply" disabled={!mudou} onClick={aplicar}>
+              Aplicar
+            </button>
+          </footer>
         </div>
       )}
     </span>

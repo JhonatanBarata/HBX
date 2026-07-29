@@ -73,7 +73,7 @@
   --cdl-money-grad: linear-gradient(135deg, #16C07A, #0B9D5E);
   --cdl-money-shadow: rgba(15, 169, 104, 0.42);
 
-  /* ALERTA — o âmbar do robô parado e das pendências */
+  /* ALERTA — o âmbar dAutomação parado e das pendências */
   --cdl-amber: #E8960C;
   --cdl-amber-soft: #FDF3E0;
   --cdl-amber-ink: #9A6205;
@@ -258,3 +258,10 @@
   --hbx-chat-outbound: #EAF0FF;
   --hbx-chat-system: #F7F9FE;
 }
+
+
+/* AMOSTRA DO MENU APARÊNCIA (dono 28/07) — o pontinho de cor que identifica
+   este tema na lista, SEM precisar ativá-lo. Vai em `:root` de propósito: é o
+   único token daqui que precisa existir mesmo com outro tema ligado. Cor
+   literal só pode viver em pele, e esta é a pele dele. */
+:root { --swatch-premium: linear-gradient(140deg, #2E6BFF, #1D4ED8); }

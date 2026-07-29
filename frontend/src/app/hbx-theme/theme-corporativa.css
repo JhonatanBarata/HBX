@@ -121,3 +121,10 @@
   /* ---- Radar — instrumento continua legível sobre fundo claro --------- */
   --radar-base: #0D1117;
 }
+
+
+/* AMOSTRA DO MENU APARÊNCIA (dono 28/07) — o pontinho de cor que identifica
+   este tema na lista, SEM precisar ativá-lo. Vai em `:root` de propósito: é o
+   único token daqui que precisa existir mesmo com outro tema ligado. Cor
+   literal só pode viver em pele, e esta é a pele dele. */
+:root { --swatch-corporativa: linear-gradient(140deg, #15589E, #0F4478); }

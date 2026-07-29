@@ -38,23 +38,25 @@ export const LEGACY_PELE_STORAGE = "hbx:pele";
 export type TemaDef = { key: TemaKey; label: string };
 
 /**
- * Os 5 temas de cor CLÁSSICOS. Eram os temas da Premium até 28/07; agora
- * pertencem só à casca Backup. A Premium passou a ter paleta PRÓPRIA e fixa
- * (theme-premium.css, a da referência "Central do Lead"), por ordem do dono:
- * "não aproveite cores de tema nesse".
+ * Os 5 temas de cor CLÁSSICOS. Eram os temas da casca `premium` até 28/07;
+ * agora pertencem só à casca `backup` — que é a que o usuário lê como
+ * "Premium" (ver NOMES, abaixo).
+ *
+ * `hbx-cyber` passou a se chamar **Layout** (ordem do dono, 28/07): ele se
+ * chamava "HBX" e a casca `premium` virou "HBX" na mesma conversa — dois
+ * "HBX" no mesmo menu, um como casca e outro como cor.
  */
 export const TEMAS_CLASSICOS: readonly TemaDef[] = [
   { key: "login", label: "Login" },
   { key: "aurora", label: "Aurora" },
   { key: "ember", label: "Ember" },
   { key: "rose", label: "Rosé" },
-  { key: "hbx-cyber", label: "HBX" },
+  { key: "hbx-cyber", label: "Layout" },
 ];
 
 export type CascaDef = {
   key: CascaKey;
   label: string;
-  hint: string;
   /** valor escrito em <html data-casca>. Ver nota do `backup` no topo. */
   attr: string;
   temas: readonly TemaDef[];
@@ -63,41 +65,57 @@ export type CascaDef = {
   modoPadrao: Modo;
 };
 
+// ============================================================
+// NOMES E ORDEM (dono 28/07, ao pé da letra: "HBX, Premium e Corporativo").
+// O RÓTULO mudou, a CHAVE não:
+//
+//   chave `premium`     → lê-se "HBX"          (attr premium)
+//   chave `backup`      → lê-se "Premium"      (attr modern)
+//   chave `corporativa` → lê-se "Corporativo"  (attr corporativa)
+//
+// Sim, a chave `premium` mostra "HBX" e a chave `backup` mostra "Premium".
+// É proposital e NÃO deve ser "consertado" renomeando as chaves: `hbx:casca`
+// está gravado no navegador de cada usuário e o `attr` é o que escreve
+// `<html data-casca>`, de onde pendem ~75 seletores de CSS. Renomear obrigaria
+// a migrar storage e reescrever as folhas, sem mudar um pixel na tela.
+// Regra pra quem mexer aqui: leia `label` quando falar com o usuário, leia
+// `key`/`attr` quando falar com o código.
+//
+// Não existe descrição/legenda por casca: o menu mostra só o nome (o dono
+// cortou o subtítulo — "Remova explicações, eu pedi?").
+// ============================================================
 export const CASCAS: readonly CascaDef[] = [
   {
     key: "premium",
-    label: "Premium",
-    hint: "O desenho da Central do Lead — paleta própria, clara",
+    label: "HBX",
     attr: "premium",
     // Paleta ÚNICA e fixa (theme-premium.css). Não oferece escolha de cor:
     // a referência é azul + verde-dinheiro, e trocar isso desmancharia o
     // desenho. Um tema só ⇒ escolheTema()/escolheModo() somem do menu.
-    temas: [{ key: "premium", label: "Premium" }],
+    temas: [{ key: "premium", label: "HBX" }],
     modos: ["light"],
     temaPadrao: "premium",
     modoPadrao: "light",
   },
   {
-    key: "corporativa",
-    label: "Corporativa",
-    hint: "Clara, densa e orientada a dados — sem escolha de cor",
-    attr: "corporativa",
-    // A paleta corporativa existe como TEMA fixo só pra continuar usando o
-    // contrato de tokens (theme-corporativa.css). Não é escolha do usuário.
-    temas: [{ key: "corporativa", label: "Corporativa" }],
-    modos: ["light"],
-    temaPadrao: "corporativa",
-    modoPadrao: "light",
-  },
-  {
     key: "backup",
-    label: "Backup",
-    hint: "A casca anterior, congelada — rede de segurança",
+    label: "Premium",
     attr: "modern",
     // Os 5 temas clássicos moram AQUI agora: era a casca que os usava.
     temas: TEMAS_CLASSICOS,
     modos: ["light", "dark"],
     temaPadrao: "login",
+    modoPadrao: "light",
+  },
+  {
+    key: "corporativa",
+    label: "Corporativo",
+    attr: "corporativa",
+    // A paleta corporativa existe como TEMA fixo só pra continuar usando o
+    // contrato de tokens (theme-corporativa.css). Não é escolha do usuário.
+    temas: [{ key: "corporativa", label: "Corporativo" }],
+    modos: ["light"],
+    temaPadrao: "corporativa",
     modoPadrao: "light",
   },
 ];

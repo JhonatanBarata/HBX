@@ -121,3 +121,10 @@
 [data-theme="rose"] .kpi:hover { transform: translateY(-2px); box-shadow: var(--shadow-inset), var(--shadow-md); }
 [data-theme="rose"] .btn-teal { transition: transform var(--motion-base), filter var(--motion-base); }
 [data-theme="rose"] .btn-teal:hover { transform: translateY(-1px); filter: saturate(1.05); }
+
+
+/* AMOSTRA DO MENU APARÊNCIA (dono 28/07) — o pontinho de cor que identifica
+   este tema na lista, SEM precisar ativá-lo. Vai em `:root` de propósito: é o
+   único token daqui que precisa existir mesmo com outro tema ligado. Cor
+   literal só pode viver em pele, e esta é a pele dele. */
+:root { --swatch-rose: linear-gradient(140deg, #DB2777, #9D174D); }

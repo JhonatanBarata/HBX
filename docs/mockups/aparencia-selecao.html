@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aparência — modo de seleção (mock)</title>
+<style>
+  /* ============================================================
+     MOCK do menu Aparência. Paleta da casca HBX (--cdl-*), pra
+     julgar com a cara real do sistema. Nada aqui vai pro app: o
+     que for aprovado vira classe central em hbx-theme/.
+     ============================================================ */
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --ink:#0d1526; --ink-2:#5a6785; --ink-3:#8d9ab8;
+    --paper:#eef1f8; --card:#fff; --hair:#e2e8f4; --hair-2:#eef2f9; --hair-3:#cbd5e6;
+    --brand:#2e6bff; --brand-ink:#1d4ed8; --brand-soft:#eaf0ff; --brand-line:#d5e1fa;
+    --money:#0fa968; --amber:#e8960c;
+    --dark:#0e1729; --dark-2:#16223c;
+    font-family:'Segoe UI Variable Display','Segoe UI',system-ui,-apple-system,sans-serif;
+  }
+  body{background:var(--paper);color:var(--ink);padding:26px 20px 70px}
+  .wrap{max-width:1180px;margin:0 auto}
+
+  h1{font-size:20px;font-weight:800;letter-spacing:-.01em}
+  .sub{margin-top:5px;font-size:13px;color:var(--ink-2);max-width:760px;line-height:1.5}
+  .pedido{
+    margin:16px 0 26px;padding:12px 15px;border-radius:12px;
+    background:#fff;border:1px solid var(--hair);box-shadow:0 1px 2px rgba(13,21,38,.04);
+    display:flex;flex-wrap:wrap;gap:8px 22px;font-size:12.5px;color:var(--ink-2)
+  }
+  .pedido b{color:var(--ink);font-weight:650}
+  .pedido s{color:var(--ink-3)}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start}
+  @media (max-width:980px){.grid{grid-template-columns:1fr}}
+
+  .op{background:#fff;border:1px solid var(--hair);border-radius:14px;overflow:hidden;
+      box-shadow:0 1px 2px rgba(13,21,38,.04),0 8px 24px rgba(13,21,38,.04)}
+  .op-h{padding:13px 16px 12px;border-bottom:1px solid var(--hair-2)}
+  .op-h .tag{display:inline-block;font-size:10px;font-weight:750;letter-spacing:1.1px;
+             text-transform:uppercase;color:var(--brand-ink);background:var(--brand-soft);
+             border-radius:999px;padding:3px 9px}
+  .op-h h2{margin-top:7px;font-size:15px;font-weight:750}
+  .op-h p{margin-top:3px;font-size:12.5px;color:var(--ink-2);line-height:1.45}
+  .op-b{padding:22px 16px 26px;background:linear-gradient(180deg,#f7f9fe,#f2f5fc);
+        min-height:330px;display:flex;justify-content:center}
+
+  /* ---- a barra de cima, só pra dar contexto ao botão ---- */
+  .fakebar{width:100%;max-width:420px}
+  .fakebar-row{display:flex;justify-content:flex-end;gap:8px;align-items:center}
+  .help{width:30px;height:30px;border-radius:50%;border:1px solid var(--hair);background:#fff;
+        color:var(--ink-2);font-size:13px;cursor:default;display:flex;align-items:center;justify-content:center}
+  .trigger{
+    display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 12px;
+    border:1px solid var(--hair);border-radius:11px;background:#fff;cursor:pointer;
+    font:650 13px/1 inherit;color:var(--ink);
+  }
+  .trigger:hover{border-color:var(--brand-line);background:var(--brand-soft);color:var(--brand-ink)}
+  .trigger .cor{width:9px;height:9px;border-radius:50%;flex:none}
+  .trigger .cv{font-weight:400;color:var(--ink-2)}
+  .trigger .ch{font-size:10px;color:var(--ink-3)}
+
+  /* ---- o menu ---- */
+  .menu{
+    position:relative;margin:9px 0 0 auto;width:246px;
+    background:#fff;border:1px solid var(--hair);border-radius:12px;
+    box-shadow:0 12px 34px rgba(13,21,38,.16);overflow:hidden
+  }
+  .item{
+    width:100%;display:flex;align-items:center;gap:9px;
+    padding:9px 11px;border:none;background:none;cursor:pointer;text-align:left;
+    font:650 13px/1.2 inherit;color:var(--ink);
+  }
+  .item:hover{background:var(--brand-soft);color:var(--brand-ink)}
+  .item .mk{width:15px;flex:none;color:var(--brand);font-size:12px;line-height:1}
+  .item .lb{flex:1;min-width:0}
+  .item .lb small{display:block;font-weight:400;font-size:11px;color:var(--ink-3);margin-top:2px}
+  .item:hover .lb small{color:var(--brand-ink);opacity:.7}
+  .item.on{color:var(--brand-ink)}
+  .item .go{color:var(--ink-3);font-size:14px;line-height:1}
+  .item:hover .go{color:var(--brand-ink)}
+  .sep{height:1px;background:var(--hair-2);margin:4px 0}
+  .cap{padding:9px 11px 4px;font-size:10px;font-weight:750;letter-spacing:1.1px;
+       text-transform:uppercase;color:var(--ink-3)}
+
+  .dot{width:10px;height:10px;border-radius:50%;flex:none;box-shadow:inset 0 0 0 1px rgba(13,21,38,.12)}
+  .d-login{background:linear-gradient(140deg,#5b7cfa,#2d3f8f)}
+  .d-aurora{background:linear-gradient(140deg,#48d6c8,#1f8fa6)}
+  .d-ember{background:linear-gradient(140deg,#ff9f45,#e2542a)}
+  .d-rose{background:linear-gradient(140deg,#ff8fb3,#d43f77)}
+  .d-cyber{background:linear-gradient(140deg,#7ef2ff,#0f8bd6)}
+
+  /* nível 2 — cabeçalho com voltar */
+  .back{display:flex;align-items:center;gap:9px;width:100%;padding:10px 11px;
+        border:none;border-bottom:1px solid var(--hair-2);background:none;cursor:pointer;
+        font:750 13px/1 inherit;color:var(--ink)}
+  .back:hover{color:var(--brand-ink)}
+  .back .ar{color:var(--ink-3);font-size:15px;line-height:1}
+  .back:hover .ar{color:var(--brand-ink)}
+
+  /* segmentado claro/escuro */
+  .seg{display:flex;gap:4px;margin:2px 9px 9px;padding:4px;background:var(--hair-2);border-radius:10px}
+  .seg button{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;
+              padding:7px 0;border:none;border-radius:7px;background:none;cursor:pointer;
+              font:650 12.5px/1 inherit;color:var(--ink-2)}
+  .seg button.on{background:#fff;color:var(--ink);font-weight:750;box-shadow:0 1px 4px rgba(13,21,38,.12)}
+
+  /* deslize entre os dois níveis */
+  .deck{position:relative;overflow:hidden}
+  .lvl{transition:transform .22s cubic-bezier(.2,0,.2,1),opacity .16s}
+  .lvl.l2{position:absolute;inset:0;transform:translateX(100%);opacity:0;pointer-events:none;background:#fff}
+  .deck.in .lvl.l1{transform:translateX(-14%);opacity:0;pointer-events:none}
+  .deck.in .lvl.l2{transform:translateX(0);opacity:1;pointer-events:auto}
+  .pad{padding:5px 0 6px}
+
+  /* variante B — duas colunas */
+  .menu.b{width:390px}
+  .cols{display:grid;grid-template-columns:150px 1fr}
+  .cols .esq{border-right:1px solid var(--hair-2);padding:5px 0 6px;background:#fbfcff}
+  .cols .dir{padding:5px 0 6px;min-height:186px}
+  .cols .vazio{padding:14px 12px;font-size:12px;color:var(--ink-3);line-height:1.5}
+
+  .nota{margin-top:12px;padding:11px 14px;border-radius:11px;background:#fff;
+        border:1px solid var(--hair);font-size:12.5px;color:var(--ink-2);line-height:1.55}
+  .nota b{color:var(--ink);font-weight:650}
+  .nota code{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;
+             background:var(--hair-2);border-radius:5px;padding:1px 5px}
+  .estado{margin-top:14px;text-align:center;font-size:12px;color:var(--ink-3)}
+  .estado b{color:var(--brand-ink);font-weight:650}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Aparência — o modo de seleção</h1>
+  <p class="sub">
+    Mock só desta seleção, do jeito que você pediu. Clique de verdade nos dois: o menu
+    <b>não fecha</b> quando você escolhe, e a <b>Premium</b> abre com seta em vez de aplicar seco.
+  </p>
+
+  <div class="pedido">
+    <span><b>Fora:</b> o rótulo <s>“Casca”</s></span>
+    <span><b>Premium</b> → <b>HBX</b></span>
+    <span><b>Backup</b> → <b>Premium</b></span>
+    <span><b>Premium</b> ganha seta <b>›</b> (tem 5 cores × claro/escuro)</span>
+    <span><b>Clicar não fecha mais o menu</b></span>
+  </div>
+
+  <div class="grid">
+
+    <!-- ══════════ A ══════════ -->
+    <section class="op">
+      <div class="op-h">
+        <span class="tag">Opção A · recomendada</span>
+        <h2>Gaveta que desliza</h2>
+        <p>Um painel só. HBX e Corporativa escolhem na hora; Premium tem seta e desliza pro
+           segundo nível, com “voltar”. É o padrão de menu do Windows, do macOS e do Chrome.</p>
+      </div>
+      <div class="op-b">
+        <div class="fakebar">
+          <div class="fakebar-row">
+            <span class="help">?</span>
+            <button class="trigger" id="tA">
+              <span class="cor" id="corA" style="background:#2e6bff"></span>
+              <span id="labA">HBX</span><span class="ch">▾</span>
+            </button>
+          </div>
+
+          <div class="menu" id="mA">
+            <div class="deck" id="deckA">
+              <div class="lvl l1">
+                <div class="pad" id="l1A"></div>
+              </div>
+              <div class="lvl l2">
+                <button class="back" id="backA"><span class="ar">‹</span> Premium</button>
+                <div class="cap">Cor</div>
+                <div id="coresA"></div>
+                <div class="sep"></div>
+                <div class="cap">Modo</div>
+                <div class="seg" id="modoA">
+                  <button data-m="light">☀ Claro</button>
+                  <button data-m="dark">☾ Escuro</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="estado">aplicado agora: <b id="stA">HBX</b></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════ B ══════════ -->
+    <section class="op">
+      <div class="op-h">
+        <span class="tag">Opção B</span>
+        <h2>Duas colunas, tudo à vista</h2>
+        <p>Casca à esquerda, opções dela à direita, sem deslizar. Um clique a menos, mas o menu
+           fica quase o dobro da largura e as duas colunas vazias em HBX e Corporativa.</p>
+      </div>
+      <div class="op-b">
+        <div class="fakebar">
+          <div class="fakebar-row">
+            <span class="help">?</span>
+            <button class="trigger" id="tB">
+              <span class="cor" id="corB" style="background:#2e6bff"></span>
+              <span id="labB">HBX</span><span class="ch">▾</span>
+            </button>
+          </div>
+
+          <div class="menu b" id="mB">
+            <div class="cols">
+              <div class="esq" id="esqB"></div>
+              <div class="dir" id="dirB"></div>
+            </div>
+          </div>
+          <p class="estado">aplicado agora: <b id="stB">HBX</b></p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="nota">
+    <b>O que muda por baixo:</b> só o <b>rótulo</b>. As chaves internas
+    (<code>hbx:casca</code> e <code>data-casca</code>) continuam <code>premium</code>,
+    <code>corporativa</code> e <code>modern</code> — renomear a chave obrigaria a migrar o que
+    está salvo no navegador de cada usuário e a reescrever 75 seletores de CSS, sem ganho nenhum
+    na tela. <b>Fechar o menu:</b> clicando fora, no <code>Esc</code> ou no próprio botão —
+    escolher já não fecha.
+  </div>
+</div>
+
+<script>
+(function(){
+  var CASCAS = [
+    { k:"hbx",  lab:"HBX",         cor:"#2e6bff", sub:"o desenho da Central do Lead", tem:false },
+    { k:"corp", lab:"Corporativa", cor:"#5a6785", sub:"clara, densa, orientada a dados", tem:false },
+    { k:"prem", lab:"Premium",     cor:"#48d6c8", sub:"vidro e fundo infinito", tem:true }
+  ];
+  var CORES = [
+    { k:"login",  lab:"Login",  cls:"d-login",  cor:"#3f5bc4" },
+    { k:"aurora", lab:"Aurora", cls:"d-aurora", cor:"#2bb3b8" },
+    { k:"ember",  lab:"Ember",  cls:"d-ember",  cor:"#f07535" },
+    { k:"rose",   lab:"Rosé",   cls:"d-rose",   cor:"#e0648f" },
+    { k:"cyber",  lab:"HBX",    cls:"d-cyber",  cor:"#3fb9e6" }
+  ];
+
+  function estado(){ return { casca:"hbx", cor:"aurora", modo:"light" }; }
+
+  function montar(id){
+    var S = estado();
+    var $ = function(s){ return document.getElementById(s); };
+    var trigger = $("t"+id), menu = $("m"+id), lab = $("lab"+id), cor = $("cor"+id), st = $("st"+id);
+    var aberto = false, nivel2 = false;
+
+    function pintarBotao(){
+      var c = CASCAS.filter(function(x){ return x.k === S.casca; })[0];
+      var temCor = c.tem;
+      var cc = CORES.filter(function(x){ return x.k === S.cor; })[0];
+      lab.textContent = temCor ? c.lab + " · " + cc.lab : c.lab;
+      cor.style.background = temCor ? cc.cor : c.cor;
+      st.textContent = temCor
+        ? c.lab + " · " + cc.lab + " · " + (S.modo === "dark" ? "escuro" : "claro")
+        : c.lab;
+    }
+
+    function linhaCasca(c, comSeta){
+      var b = document.createElement("button");
+      b.className = "item" + (c.k === S.casca ? " on" : "");
+      b.innerHTML =
+        '<span class="mk">' + (c.k === S.casca ? "✓" : "") + '</span>' +
+        '<span class="lb">' + c.lab + '<small>' + c.sub + '</small></span>' +
+        (c.tem && comSeta ? '<span class="go">›</span>' : "");
+      return b;
+    }
+
+    // ---------- A: gaveta ----------
+    if (id === "A") {
+      var deck = $("deckA"), l1 = $("l1A"), cores = $("coresA"), seg = $("modoA");
+
+      function desenharL1(){
+        l1.innerHTML = "";
+        CASCAS.forEach(function(c){
+          var b = linhaCasca(c, true);
+          b.onclick = function(){
+            if (c.tem) { nivel2 = true; deck.classList.add("in"); }
+            S.casca = c.k; pintarBotao(); desenharL1(); desenharL2();
+          };
+          l1.appendChild(b);
+        });
+      }
+      function desenharL2(){
+        cores.innerHTML = "";
+        CORES.forEach(function(x){
+          var b = document.createElement("button");
+          b.className = "item" + (x.k === S.cor ? " on" : "");
+          b.innerHTML = '<span class="mk">' + (x.k === S.cor ? "✓" : "") + '</span>' +
+                        '<span class="dot ' + x.cls + '"></span><span class="lb">' + x.lab + '</span>';
+          b.onclick = function(){ S.cor = x.k; S.casca = "prem"; pintarBotao(); desenharL1(); desenharL2(); };
+          cores.appendChild(b);
+        });
+        [].forEach.call(seg.children, function(b){
+          b.className = b.dataset.m === S.modo ? "on" : "";
+          b.onclick = function(){ S.modo = b.dataset.m; S.casca = "prem"; pintarBotao(); desenharL2(); };
+        });
+      }
+      $("backA").onclick = function(){ nivel2 = false; deck.classList.remove("in"); };
+      desenharL1(); desenharL2();
+    }
+
+    // ---------- B: duas colunas ----------
+    if (id === "B") {
+      var esq = $("esqB"), dir = $("dirB");
+      function desenharB(){
+        esq.innerHTML = ""; dir.innerHTML = "";
+        CASCAS.forEach(function(c){
+          var b = linhaCasca(c, false);
+          b.onclick = function(){ S.casca = c.k; pintarBotao(); desenharB(); };
+          esq.appendChild(b);
+        });
+        var c = CASCAS.filter(function(x){ return x.k === S.casca; })[0];
+        if (!c.tem) {
+          dir.innerHTML = '<p class="vazio">' + c.lab + ' tem cor própria e fixa —<br>nada para escolher aqui.</p>';
+          return;
+        }
+        var cap = document.createElement("div"); cap.className = "cap"; cap.textContent = "Cor"; dir.appendChild(cap);
+        CORES.forEach(function(x){
+          var b = document.createElement("button");
+          b.className = "item" + (x.k === S.cor ? " on" : "");
+          b.innerHTML = '<span class="mk">' + (x.k === S.cor ? "✓" : "") + '</span>' +
+                        '<span class="dot ' + x.cls + '"></span><span class="lb">' + x.lab + '</span>';
+          b.onclick = function(){ S.cor = x.k; pintarBotao(); desenharB(); };
+          dir.appendChild(b);
+        });
+        var sp = document.createElement("div"); sp.className = "sep"; dir.appendChild(sp);
+        var cap2 = document.createElement("div"); cap2.className = "cap"; cap2.textContent = "Modo"; dir.appendChild(cap2);
+        var wrap = document.createElement("div"); wrap.className = "seg";
+        [["light","☀ Claro"],["dark","☾ Escuro"]].forEach(function(p){
+          var b = document.createElement("button");
+          b.textContent = p[1]; b.className = S.modo === p[0] ? "on" : "";
+          b.onclick = function(){ S.modo = p[0]; pintarBotao(); desenharB(); };
+          wrap.appendChild(b);
+        });
+        dir.appendChild(wrap);
+      }
+      desenharB();
+    }
+
+    // abrir/fechar — escolher NÃO fecha
+    function fechar(){ aberto = false; menu.style.display = "none";
+      if (id === "A") { nivel2 = false; document.getElementById("deckA").classList.remove("in"); } }
+    trigger.onclick = function(e){ e.stopPropagation(); aberto = !aberto;
+      if (aberto) menu.style.display = "block"; else fechar(); };
+    menu.onclick = function(e){ e.stopPropagation(); };
+    document.addEventListener("click", fechar);
+    document.addEventListener("keydown", function(e){ if (e.key === "Escape") fechar(); });
+
+    menu.style.display = "block"; // no mock nasce aberto, pra você ver sem clicar
+    aberto = true;
+    pintarBotao();
+  }
+
+  montar("A"); montar("B");
+})();
+</script>
+</body>
+</html>

@@ -80,7 +80,7 @@ function aplicar({ casca, tema, modo }: Aparencia) {
 export function applyThemeForPath(_pathname: string) {
   // 15/06: a landing "/" agora É o login (usa tokens + robô do tema), então
   // NÃO é mais "html puro" — herda data-theme + data-theme-mode como o resto,
-  // senão o robô não sincroniza com o modo (fumaça branca sobre robô preto).
+  // senão Automação não sincroniza com o modo (fumaça branca sobre robô preto).
   try {
     aplicar(getAparencia());
   } catch {
@@ -146,6 +146,27 @@ export function applyThemeSoft(mutate: () => void) {
 export function setCasca(key: CascaKey) {
   applyThemeSoft(() => {
     gravar(CASCA_STORAGE, key);
+    aplicar(getAparencia());
+  });
+}
+
+/**
+ * Aplica os TRÊS eixos de uma vez — é o botão "Aplicar" do menu Aparência
+ * (dono 28/07: escolher no menu não muda nada; só o Aplicar muda).
+ *
+ * Uma chamada só, de propósito: chamar setCasca + setTema + setThemeMode em
+ * sequência dispararia TRÊS cross-fades encavalados e a troca ficaria
+ * tremida. Aqui grava os três e pinta uma vez.
+ *
+ * `getAparencia()` relê o storage e resolve contra as capacidades da casca,
+ * então combinação impossível (ex.: escuro numa casca clara fixa) já entra
+ * corrigida — a validação é do CONTRATO, não deste botão.
+ */
+export function setAparencia(casca: CascaKey, tema: TemaKey, modo: Modo) {
+  applyThemeSoft(() => {
+    gravar(CASCA_STORAGE, casca);
+    gravar(TEMA_STORAGE, tema);
+    gravar(MODE_STORAGE, modo);
     aplicar(getAparencia());
   });
 }

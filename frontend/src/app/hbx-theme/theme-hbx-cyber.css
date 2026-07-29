@@ -166,3 +166,10 @@
 [data-theme="hbx-cyber"] .nav-item:hover { transform: translateX(2px); }
 [data-theme="hbx-cyber"] .btn-teal { transition: transform var(--motion-fast), background var(--motion-fast), box-shadow var(--motion-fast); }
 [data-theme="hbx-cyber"] .btn-teal:hover { transform: translateY(-1px); }
+
+
+/* AMOSTRA DO MENU APARÊNCIA (dono 28/07) — o pontinho de cor que identifica
+   este tema na lista, SEM precisar ativá-lo. Vai em `:root` de propósito: é o
+   único token daqui que precisa existir mesmo com outro tema ligado. Cor
+   literal só pode viver em pele, e esta é a pele dele. */
+:root { --swatch-hbx-cyber: linear-gradient(140deg, #1565E0, #0A4FC0); }
