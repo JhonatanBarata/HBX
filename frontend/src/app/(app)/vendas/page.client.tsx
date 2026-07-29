@@ -413,41 +413,6 @@ type RetornoMode = 'manual' | 'auto_email' | 'auto_whatsapp' | 'auto_both';
 // religar = só pôr `true` aqui (o CSS lê via data-fx no .vnd-modehost).
 const EFFECTS_ON = true;
 
-// O rótulo apaga o modo atual e escreve o próximo na mesma posição.
-function MorphText({ text }: { text: string }) {
-  const [shown, setShown] = useState(text);
-  const shownRef = useRef(text);
-  const targetRef = useRef(text);
-  useEffect(() => {
-    if (targetRef.current === text) return;
-    targetRef.current = text;
-    const reduce = typeof window !== "undefined"
-      && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-    if (!EFFECTS_ON || reduce) {
-      const id = requestAnimationFrame(() => {
-        shownRef.current = text;
-        setShown(text);
-      });
-      return () => cancelAnimationFrame(id);
-    }
-
-    let phase: "erase" | "type" = shownRef.current ? "erase" : "type";
-    const iv = setInterval(() => {
-      if (phase === "erase") {
-        shownRef.current = shownRef.current.slice(0, -1);
-        setShown(shownRef.current);
-        if (!shownRef.current) phase = "type";
-        return;
-      }
-      shownRef.current = text.slice(0, shownRef.current.length + 1);
-      setShown(shownRef.current);
-      if (shownRef.current === text) clearInterval(iv);
-    }, 34);
-    return () => clearInterval(iv);
-  }, [text]);
-  return <span className="vnd-mode-morph">{shown}<i className="vnd-caret" aria-hidden="true" /></span>;
-}
-
 export function VendasClient() {
   const router = useRouter();
   // Gate do botão "Buscar empresas" (boca do funil): mesmo veredito da navegação —
@@ -1411,9 +1376,6 @@ export function VendasClient() {
             <div className="vnd-cmd__top">
               {segToggle}
               <div className="vnd-flowguide">
-                <span className="vnd-flowguide__title" aria-live="polite">
-                  <strong><MorphText text={modo === "funil" ? "Etapas do funil" : "Buscar empresas"} /></strong>
-                </span>
                 <div className="vnd-flowguide__viewport">
                   <div className="vnd-flowguide__panel vnd-flowguide__panel--funil" aria-hidden={modo !== "funil"}>
                   <div className="vnd-stages glass-pill-track" role="tablist" aria-label="Etapas do funil" data-tut="vendas-etapas">

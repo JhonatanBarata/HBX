@@ -1931,41 +1931,6 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   padding-left: 12px;
   border-left: 1px solid var(--border-hairline);
 }
-.vnd-flowguide__title {
-  display: grid;
-  gap: 2px;
-  flex: none;
-  width: 92px;
-  min-width: 92px;
-}
-.vnd-flowguide__title small {
-  color: var(--hbx-brand-strong);
-  font-size: 0.5rem;
-  font-weight: 780;
-  letter-spacing: 0.06em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-.vnd-flowguide__title strong {
-  color: var(--text-body);
-  font-size: 0.65rem;
-  font-weight: 720;
-  line-height: 1.15;
-}
-.vnd-mode-morph {
-  display: inline-flex;
-  align-items: center;
-  min-width: 82px;
-  white-space: nowrap;
-}
-.vnd-caret {
-  width: 1px;
-  height: 0.9em;
-  margin-left: 2px;
-  background: var(--hbx-brand);
-  animation: vnd-caret-blink 700ms steps(1, end) infinite;
-}
-@keyframes vnd-caret-blink { 50% { opacity: 0; } }
 .vnd-flowguide__viewport {
   position: relative;
   flex: 1;
@@ -2334,9 +2299,6 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   .vnd-flowguide__panel,
   .vnd-cmd__acts {
     transition: none;
-  }
-  .vnd-caret {
-    animation: none;
   }
 }
 .vnd-grid__txt { overflow: hidden; text-overflow: ellipsis; }
