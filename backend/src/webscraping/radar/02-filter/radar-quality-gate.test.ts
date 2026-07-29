@@ -183,3 +183,86 @@ test('quality gate: contato minimo ausente ainda derruba cnpj_public (regra comu
   assert.equal(result.deliverable, false);
   assert.ok(result.hardBlockers.includes('missing_minimum_contact'));
 });
+
+// ── E2 ESTABILIZAÇÃO (29/07) — segment_mismatch vira PORTA na lane web ──────────────────────
+// Caso real de Analândia/SP: clima, engenharia, cervejaria e página de categoria saíam como
+// "Aguardando liberação" com score 52-61 — o motor SABIA (quality.status=segment_mismatch,
+// lei única do scoreSegmentMatch) e entregava assim mesmo.
+
+const mismatchQuality = {
+  status: 'segment_mismatch' as const,
+  billable: false,
+  segmentMatchScore: 25,
+  contactQualityScore: 60,
+  commercialScore: 52,
+  reasons: ['Lead sem aderencia minima ao segmento solicitado.'],
+};
+
+test('quality gate E2: lane web com quality.status=segment_mismatch REJEITA (caso Analândia)', () => {
+  const result = gate.evaluate({
+    candidate: {
+      source: 'hbx_engine',
+      name: 'Quero Brasil',
+      city: 'Analândia',
+      state: 'SP',
+      phoneDigits: '19999990001',
+      phone: '(19) 99999-0001',
+      sourceUrl: 'https://www.querobrasil.com.br/sp/analandia/agua-saneamento',
+    },
+    filters: { city: 'Analândia', state: 'SP', segment: 'distribuidora de agua' } as any,
+    quality: mismatchQuality,
+    host: permissiveHost,
+    minQualityScore: 25,
+  });
+  assert.equal(result.deliverable, false);
+  assert.equal(result.qualityDecision, 'reject');
+  assert.ok(result.hardBlockers.includes('quality_segment_mismatch'));
+});
+
+test('quality gate E2: cnpj_public com segment_mismatch textual NAO bloqueia (razao social nao "fala" o segmento)', () => {
+  // M. COSTA DISTRIBUIDORA DE AGUA LTDA veio validada por CNAE na porta do provider; a lei
+  // TEXTUAL pode dar score baixo (CNAE "atacadista de agua mineral" nao contem a frase
+  // pedida) — isso nao e prova de outro segmento, e o melhor lead da busca.
+  const result = gate.evaluate({
+    candidate: {
+      source: 'cnpj_public',
+      name: 'M. COSTA DISTRIBUIDORA DE AGUA LTDA',
+      city: 'Araras',
+      state: 'SP',
+      phoneDigits: '19999990002',
+      phone: '(19) 99999-0002',
+      score: 61,
+    },
+    filters: { city: 'Araras', state: 'SP', segment: 'distribuidora de agua' } as any,
+    quality: { ...mismatchQuality, commercialScore: 61 },
+    host: permissiveHost,
+    minQualityScore: 25,
+  });
+  assert.equal(result.deliverable, true, `esperava deliverable=true, motivo: ${result.reason}`);
+  assert.ok(!result.hardBlockers.includes('quality_segment_mismatch'));
+});
+
+test('quality gate E2: lane web com quality approved segue entregavel (controle)', () => {
+  const result = gate.evaluate({
+    candidate: {
+      source: 'hbx_engine',
+      name: 'PA Pingo D Agua Distribuidora de Agua',
+      city: 'Analândia',
+      state: 'SP',
+      phoneDigits: '19999990003',
+      phone: '(19) 99999-0003',
+    },
+    filters: { city: 'Analândia', state: 'SP', segment: 'distribuidora de agua' } as any,
+    quality: {
+      status: 'approved' as const,
+      billable: true,
+      segmentMatchScore: 85,
+      contactQualityScore: 70,
+      commercialScore: 74,
+      reasons: [],
+    },
+    host: permissiveHost,
+    minQualityScore: 25,
+  });
+  assert.equal(result.deliverable, true, `esperava deliverable=true, motivo: ${result.reason}`);
+});

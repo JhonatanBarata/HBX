@@ -215,17 +215,30 @@ test('buildSearchResponse entrega leads List fracos sem aplicar corte Lead+', ()
   assert.equal(response.meta.filteredOutCount, 0);
 });
 
-test('buildSearchResponse usa score HBX como evidencia de segmento no List', () => {
+test('buildSearchResponse E2: score HBX sozinho NAO e evidencia de segmento no List', () => {
+  // Contrato NOVO (E2 ESTABILIZAÇÃO 29/07): razão social sem NENHUMA evidência do segmento
+  // pedido (nome/categoria/CNAE/snippet) não entra no List só porque o provider deu score —
+  // era a brecha que fantasiava free_pj/web de segmento (caso Analândia). Evidência real
+  // (frase completa no nome) segue entrando, com score/quality ocultos do payload.
   const service = new WebscrapingService(createPrisma()) as any;
   const input = service.normalizeSearchInput({
     city: 'Boituva',
     state: 'SP',
     segment: 'farmacias',
-    quantity: 1,
+    quantity: 2,
     engine: 'hbx',
     targetType: 'pj',
   });
 
+  const meta = {
+    historyId: null,
+    source: 'hbx',
+    reusedCount: 0,
+    fetchedCount: 2,
+    technicalCacheUsed: false,
+    technicalCacheReusedCount: 0,
+    technicalCacheValidUntil: null,
+  };
   const response = service.buildSearchResponse(input, [{
     placeId: 'hbx:pj:1532632490',
     name: 'Celio Cesar Marcusso & Cia. Ltda',
@@ -237,17 +250,21 @@ test('buildSearchResponse usa score HBX como evidencia de segmento no List', () 
     website: null,
     source: 'hbx_scraping:free_pj',
     score: 70,
-  }], {
-    historyId: null,
-    source: 'hbx',
-    reusedCount: 0,
-    fetchedCount: 1,
-    technicalCacheUsed: false,
-    technicalCacheReusedCount: 0,
-    technicalCacheValidUntil: null,
-  });
+  }, {
+    placeId: 'hbx:pj:1532632491',
+    name: 'Farmacia Central de Boituva Ltda',
+    phone: '(15) 3263-2491',
+    phoneDigits: '1532632491',
+    rating: null,
+    reviews: 0,
+    address: 'Rua do Centro, 10, Boituva',
+    website: null,
+    source: 'hbx_scraping:free_pj',
+    score: 70,
+  }], meta);
 
   assert.equal(response.results.length, 1);
+  assert.equal(response.results[0].name, 'Farmacia Central de Boituva Ltda');
   assert.equal(response.results[0].score, undefined);
   assert.equal(response.results[0].quality, undefined);
 });
@@ -715,7 +732,10 @@ test('Radar dedupe nao usa dominio de diretorio como website forte', () => {
   assert.equal(classified.websiteKey, '');
 });
 
-test('saveSearchRunResults salva baixa aderencia como found para revisao', async () => {
+test('saveSearchRunResults E2: baixa aderencia na lane web vira SKIPPED, nao card', async () => {
+  // Contrato NOVO (E2 ESTABILIZAÇÃO 29/07): o "found para revisão" morreu — era o card
+  // "Aguardando liberação" fora do segmento na vitrine (caso Analândia). Sem aderência
+  // textual/CNAE, o item fica skipped com o motivo gravado; quem tem evidência segue found.
   const { prisma, run, items } = createSearchRunPrisma({
     segment: 'oficina',
     targetQuantity: 10,
@@ -753,12 +773,13 @@ test('saveSearchRunResults salva baixa aderencia como found para revisao', async
   await service.recalculateSearchRunCounters(run.id);
   const response = service.buildSearchRunResponse({ ...run, items });
 
-  assert.equal(counts.found, 2);
-  assert.equal(counts.skipped, 0);
-  assert.equal(run.foundCount, 2);
-  assert.equal(response.results.length, 2);
-  assert.equal(items[0].status, 'found');
+  assert.equal(counts.found, 1);
+  assert.equal(counts.skipped, 1);
+  assert.equal(run.foundCount, 1);
+  assert.equal(response.results.length, 1);
+  assert.equal(items[0].status, 'skipped');
   assert.equal(JSON.parse(items[0].rawJson).quality.status, 'segment_mismatch');
+  assert.equal(items[1].status, 'found');
 });
 
 test('saveSearchRunResults no List entrega card real com telefone mesmo sem enriquecimento', async () => {
@@ -4946,7 +4967,10 @@ test('engine hbx aplica limite 100 para pj e envia targetType', async () => {
     return createResponse(200, {
       results: [
         {
-          name: 'Oficina Centro',
+          // E2 (29/07): fixture com a frase completa do segmento — este teste prova a
+          // mecânica do motor (limite/targetType), não a lei de segmento; nome sem
+          // aderência agora morre no gate e mataria o assert errado.
+          name: 'Oficina Mecanica Centro',
           phone: '(19) 3333-4444',
           phoneDigits: '1933334444',
           source: 'hbx_scraping:web',
@@ -5003,7 +5027,9 @@ test('radar_pull hbx coloca motor com falha em cooldown e tenta outro', async ()
     return createResponse(200, {
       results: [
         {
-          name: 'Oficina Reserva',
+          // E2 (29/07): frase completa do segmento na fixture — teste de cooldown de
+          // motor, não de lei de segmento (ver nota no teste do limite 100).
+          name: 'Oficina Mecanica Reserva',
           phone: '(19) 98888-7777',
           phoneDigits: '19988887777',
           source: 'hbx_scraping:web',
@@ -5066,7 +5092,7 @@ test('radar_pull hbx coloca motor com falha em cooldown e tenta outro', async ()
     assert.equal(calls[0].url, 'http://engine-1/search');
     assert.equal(calls[1].url, 'http://engine-2/search');
     assert.equal(response.results.length, 1);
-    assert.equal(response.results[0].name, 'Oficina Reserva');
+    assert.equal(response.results[0].name, 'Oficina Mecanica Reserva');
   } finally {
     global.fetch = previousFetch;
     if (previousAttempts === undefined) delete process.env.HBX_RADAR_PULL_ENGINE_ATTEMPTS;

@@ -283,7 +283,16 @@ export class RadarQualityGateService {
       return buildReject({ reason: 'Marketplace ou listagem de terceiro sem contato proprio.', qualityScore, missing, hardBlockers, positiveSignals, weakSignals });
     }
 
-    if (input.quality?.status === 'invalid' || input.quality?.status === 'duplicate' || input.quality?.status === 'generic_directory') {
+    // E2 ESTABILIZAÇÃO (29/07): `segment_mismatch` entra na porta. A lei única
+    // (scoreSegmentMatch: nome+categoria/CNAE+snippet+aliases) JÁ identificava o card sem
+    // aderência (score < 55) e ele era entregue assim mesmo como "Aguardando liberação" —
+    // caso real de Analândia: clima, engenharia, cervejaria, página de categoria. SÓ na lane
+    // web: na Receita o segmento é validado por CNAE na porta do provider, e razão social
+    // legitimamente não "fala" o segmento (M. COSTA LTDA = atacadista de água mineral).
+    const blockedQualityStatuses: string[] = isCnpjPublic
+      ? ['invalid', 'duplicate', 'generic_directory']
+      : ['invalid', 'duplicate', 'generic_directory', 'segment_mismatch'];
+    if (input.quality?.status && blockedQualityStatuses.includes(input.quality.status)) {
       hardBlockers.push(`quality_${input.quality.status}`);
       return buildReject({
         reason: input.quality.reasons?.[0] || input.quality.status,

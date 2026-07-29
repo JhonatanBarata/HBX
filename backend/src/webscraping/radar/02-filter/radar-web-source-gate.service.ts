@@ -411,6 +411,11 @@ export class RadarWebSourceGateService {
     if (hints?.length && candidateDdd && hints.includes(candidateDdd)) return { passed: true, reason: null };
 
     // (b) cidade pedida (ou vizinha do raio) citada no conteúdo próprio do candidato.
+    // E4 ESTABILIZAÇÃO (29/07): sourceUrl/website SAÍRAM do conteúdo — cidade na URL é o
+    // padrão exato do portal com página por cidade (tiempo.com/brasil/analandia/...,
+    // querobrasil.com.br/sp/analandia/agua-saneamento) e virava carimbo automático de
+    // localidade. Sinal local por texto = o que a empresa DIZ (nome/endereço/descrição),
+    // nunca o caminho do link; empresa real da cidade ancora pela RFB ou pelo DDD.
     const cityNames = [requestedCity, ...(Array.isArray((input.filters as any)?.regionalCities)
       ? (input.filters as any).regionalCities.map((item: any) => String(item?.city || '').trim()).filter(Boolean)
       : [])];
@@ -421,8 +426,6 @@ export class RadarWebSourceGateService {
       candidate.snippet,
       candidate.description,
       candidate.opportunityReason,
-      candidate.sourceUrl,
-      candidate.website,
     ].filter(Boolean).join(' '));
     for (const cityName of cityNames) {
       const cityPhrase = normalizeSegmentText(cityName);

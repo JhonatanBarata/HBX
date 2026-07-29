@@ -389,3 +389,60 @@ test('F3 sinal local: fonte Receita/database nao passa por esta porta', () => {
   });
   assert.equal(result.passed, true);
 });
+
+// ── E4 ESTABILIZAÇÃO (29/07) — cidade na URL deixou de ser sinal local ──────────────────────
+// Caso real de Analândia/SP: tiempo.com/brasil/analandia/por-horas (previsão do tempo) e
+// querobrasil.com.br/sp/analandia/agua-saneamento (página de categoria) passavam no sinal
+// local só porque o CAMINHO do link tem o nome da cidade — o padrão exato de portal com
+// página por cidade. Sinal por texto agora é só o que a empresa DIZ (nome/endereço/descrição).
+
+test('E4 sinal local: cidade SO na sourceUrl (portal com pagina por cidade) REPROVA', () => {
+  const result = gate.evaluateLocalReality({
+    candidate: {
+      source: 'hbx_engine',
+      name: 'Meteored',
+      sourceUrl: 'https://www.tiempo.com/brasil/analandia/por-horas',
+      phoneDigits: '1130001000', // DDD 11 — Analândia é 19
+    },
+    filters: { city: 'Analândia', state: 'SP' } as any,
+    rfbMatched: false,
+    rfbUnavailable: false,
+    cityDddHints: ['19'],
+  });
+  assert.equal(result.passed, false);
+  assert.equal(result.reason, 'web_gate:no_local_signal');
+});
+
+test('E4 sinal local: cidade SO no website (pagina de categoria) REPROVA', () => {
+  const result = gate.evaluateLocalReality({
+    candidate: {
+      source: 'hbx_engine',
+      name: 'Quero Brasil',
+      website: 'https://www.querobrasil.com.br/sp/analandia/agua-saneamento',
+      phoneDigits: '1130001001',
+    },
+    filters: { city: 'Analândia', state: 'SP' } as any,
+    rfbMatched: false,
+    rfbUnavailable: false,
+    cityDddHints: ['19'],
+  });
+  assert.equal(result.passed, false);
+  assert.equal(result.reason, 'web_gate:no_local_signal');
+});
+
+test('E4 sinal local: cidade no ENDERECO segue passando (conteudo proprio continua valendo)', () => {
+  const result = gate.evaluateLocalReality({
+    candidate: {
+      source: 'hbx_engine',
+      name: 'Distribuidora Regional',
+      address: 'Av. Central, 45 - Centro, Analândia - SP',
+      sourceUrl: 'https://distribuidoraregional.com.br',
+      phoneDigits: '1130001002',
+    },
+    filters: { city: 'Analândia', state: 'SP' } as any,
+    rfbMatched: false,
+    rfbUnavailable: false,
+    cityDddHints: ['19'],
+  });
+  assert.equal(result.passed, true);
+});
