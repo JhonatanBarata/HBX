@@ -37,7 +37,7 @@ export const ROBO_HOT_KEYWORDS = [
   'topo conversar',
 ] as const;
 
-// Pedido explícito de humano — já é "quente" (o lead quer sair do robô e falar com
+// Pedido explícito de humano — já é "quente" (o lead quer sair da Automação e falar com
 // gente). Some com os defaults de `classifyProspectingIntent` (DEFAULT_HUMAN_HANDOFF_
 // INTENT_KEYWORDS), esta lista é só reforço com termos de venda.
 export const ROBO_HUMAN_HANDOFF_KEYWORDS = [

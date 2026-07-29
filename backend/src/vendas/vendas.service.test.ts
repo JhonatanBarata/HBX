@@ -2424,7 +2424,7 @@ test('ligarRoboForUser config feita + chip conectado -> liga normalmente (as 2 t
 test('ligarRoboForUser religa sozinho uma cadência-seed desativada (nunca mais manda "ative-a antes")', async () => {
   const { service, cadenciaRows, inscricaoRows } = createRoboHarness();
   // Pré-semeia a cadência-seed 'moderado' já DESATIVADA — antes do S8 isto
-  // lançava BadRequestException ("ative-a antes de ligar o robô").
+  // lançava BadRequestException ("ative-a antes de ligar a Automação").
   cadenciaRows.set('cad-seed', {
     id: 'cad-seed',
     companyId: 7,
@@ -2526,7 +2526,7 @@ test('ligarRoboForUser: resíduo de campanha de prospecção legada (motor morto
   assert.equal(result.ok, true);
   assert.equal(result.ligou, true, 'resíduo de campanha legada nunca trava — cancela e liga');
   assert.equal(jobUpdateCalls.length, 1, 'o job legado residual foi cancelado');
-  assert.equal(inscricaoRows.size, 1, 'a cadência do robô foi criada normalmente');
+  assert.equal(inscricaoRows.size, 1, 'a cadência da Automação foi criada normalmente');
 });
 
 test('ligarRoboForUser: conflito cadência×cadência vira TROCA com aviso na timeline (nunca bloqueia)', async () => {

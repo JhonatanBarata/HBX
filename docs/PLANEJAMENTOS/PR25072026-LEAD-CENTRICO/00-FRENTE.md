@@ -112,7 +112,7 @@ mudou em `a5050b38`). Fechamento por ordem do dono 26/07:
 - Restam (futuro): gap IMAP (resposta por thread); motor de reembolso (dados já sendo
   colhidos); demolição total do motor de campanha.
 
-## S8 ✅ (26/07, ordem nova do dono) — DESTRAVAR O ROBÔ
+## S8 ✅ (26/07, ordem nova do dono) — DESTRAVAR Automação
 `08-destravar-robo.md` — regra implantada: travas de ativação = SÓ config do Admin feita
 (gate criado — não existia) + WhatsApp conectado (via `InboxService.getWhatsappHealth`);
 cadência desativada religa sozinha; sem persona → usa a recomendada; resíduo de campanha

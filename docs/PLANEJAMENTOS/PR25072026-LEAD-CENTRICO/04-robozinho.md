@@ -26,7 +26,7 @@ Freios de canal valem SEMPRE, robô ligado ou não. A infra JÁ EXISTE — este 
    como quente (pedido de preço/interesse — reusar o classificador existente em
    `backend/src/bot/intent/ai-intent-classifier.service.ts` se o caminho já roda; senão regex
    simples de intenção + campo pra IA plugar), então: mover etapa pra `retorno` ("Te chamou"),
-   criar atividade/notificação pro responsável com QUEM + O QUE pediu + O QUE o robô já fez +
+   criar atividade/notificação pro responsável com QUEM + O QUE pediu + O QUE Automação já fez +
    sugestão de prazo. Reusar o canal de notificação/atividade existente (`AtividadesService`) —
    nada de sistema novo de notificação.
 5. **Motivo de encerramento estruturado**: encerrar lead ganha motivo obrigatório

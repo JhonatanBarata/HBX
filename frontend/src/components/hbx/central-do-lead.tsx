@@ -298,7 +298,7 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
   const [financeBusy, setFinanceBusy] = useState<string | null>(null);
 
   // Config de disparo INLINE: o bloqueio "config_ausente" se resolve DENTRO
-  // da ficha — nunca mandar o dono pra outra tela pra destravar o robô.
+  // da ficha — nunca mandar o dono pra outra tela pra destravar Automação.
   const [configIni, setConfigIni] = useState("08:00");
   const [configFim, setConfigFim] = useState("18:00");
   const [configTeto, setConfigTeto] = useState("40");
@@ -513,7 +513,7 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
       setEtapa("contato");
       await onConversationChanged?.();
     } catch (error) {
-      setAviso(error instanceof Error ? error.message : "Não foi possível ligar o robô agora.");
+      setAviso(error instanceof Error ? error.message : "Não foi possível ligar a Automação agora.");
     } finally {
       setRoboBusy(false);
     }
@@ -528,7 +528,7 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
       await carregarPreVoo();
       await onConversationChanged?.();
     } catch (error) {
-      setAviso(error instanceof Error ? error.message : "Não foi possível desligar o robô agora.");
+      setAviso(error instanceof Error ? error.message : "Não foi possível desligar a Automação agora.");
     } finally {
       setRoboBusy(false);
     }
@@ -1030,7 +1030,7 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
                         <label>Teto/dia<input type="number" min={1} max={200} value={configTeto} onChange={(e) => setConfigTeto(e.target.value)} /></label>
                       </div>
                       <button type="button" className="cdl-btn-full" disabled={configBusy} onClick={salvarConfigDisparo}>
-                        {configBusy ? "Salvando…" : "Salvar e liberar o robô"}
+                        {configBusy ? "Salvando…" : "Salvar e liberar Automação"}
                       </button>
                     </>
                   ) : bloqueio ? (

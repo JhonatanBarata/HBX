@@ -2,7 +2,7 @@
 
 ## Conceito (decisão do dono 25/07)
 Fim do "pesquisei, disparou, foda-se". O vendedor abre o detalhes, LÊ o que o sistema entendeu,
-planeja (persona/objetivo) e só depois libera o robô (a liberação em si é o S4 — aqui o botão
+planeja (persona/objetivo) e só depois libera Automação (a liberação em si é o S4 — aqui o botão
 nasce DESABILITADO com dica "em breve"). Nada dispara neste sprint.
 
 ## Entrega

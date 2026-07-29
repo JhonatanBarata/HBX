@@ -13,7 +13,7 @@ body { min-height: 100vh; }
 .bl strong { font-family: var(--font-display); font-size: 1.5rem; font-weight: 800; }
 /* O card de auth (e seus campos) vale nos DOIS shells: .register-entry
    (register/reset/confirm) e .login-console--embedded (card do login na
-   landing — W1). O split legado e a cena do robô (HbxScene) morreram (W3). */
+   landing — W1). O split legado e a cena da Automação (HbxScene) morreram (W3). */
 .hbx-scene .card { width: min(400px, 100%); display: grid; gap: 16px; padding: 30px; border-radius: var(--radius-xl); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-md); }
 /* Variante opt-in p/ telas com leitura longa (contrato/onboarding) — não afeta login */
 .hbx-scene .is-wide .card { width: min(720px, 100%); }
@@ -33,7 +33,7 @@ body { min-height: 100vh; }
 
 /* ---------- Login: SÓ o card embutido na landing (W1 10/07 — o /login
    cinematográfico de 2 estados/3 colunas morreu; a casca do card vive em
-   public-entry.css: .login-console--embedded). A cena do robô (.login-art +
+   public-entry.css: .login-console--embedded). A cena da Automação (.login-art +
    robo-*.png) morreu no W3 — register/reset/confirm viraram card limpo
    (.register-entry). ---------- */
 
@@ -568,7 +568,7 @@ html, body { height: 100%; }
 .reg-form .card { width: min(480px, 100%); }
 /* Moldura das telas públicas de auth FORA da landing (register/reset/confirm/
    onboarding do vendedor — AuthSplit e register/page.tsx): card limpo centrado,
-   fundo em token. Substitui a cena do robô (W3/PR10072026). */
+   fundo em token. Substitui a cena da Automação (W3/PR10072026). */
 .register-entry {
   display: grid;
   min-height: 100dvh;

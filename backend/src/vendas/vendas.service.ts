@@ -5766,7 +5766,7 @@ export class VendasService {
 
     const faltantesCount = prontidao.faltantes.length;
 
-    // S4 LEAD-CENTRICO (04-robozinho.md, item 2): estado ligado/desligado do robô
+    // S4 LEAD-CENTRICO (04-robozinho.md, item 2): estado ligado/desligado da Automação
     // pra este lead — mesma projeção canônica que o board já usa (Fase 3,
     // AutomationEnrollment.activeCommercialSlot='commercial').
     const activeEnrollment = typeof (this.prisma as any).automationEnrollment?.findFirst === 'function'
@@ -5848,7 +5848,7 @@ export class VendasService {
   // ================================================================
   // S8 LEAD-CENTRICO (08-destravar-robo.md, ordem do dono 26/07: "a única [trava]
   // vai ser a config do Admin — feito, já libera. E LÓGICO, ter o WhatsApp").
-  // Fonte ÚNICA das travas de ATIVAÇÃO do robô — usada tanto pelo GET pré-voo
+  // Fonte ÚNICA das travas de ATIVAÇÃO da Automação — usada tanto pelo GET pré-voo
   // (pra mostrar o botão nunca desabilitado mudo) quanto pelo POST /robo (pra
   // enforçar de verdade, mesmo se o front for ignorado). Ordem de checagem =
   // ordem de prioridade da mensagem: (1) config do Admin, (2) WhatsApp
@@ -5871,7 +5871,7 @@ export class VendasService {
         codigo: 'config_ausente',
         motivo: 'Configuração de disparo (horário e teto) ainda não foi feita para esta empresa.',
         acao: this.canManageAgendaDisparo(context)
-          ? 'Configure horário e teto em Automações comerciais (ícone no topo do Vendas) antes de ligar o robô.'
+          ? 'Configure horário e teto em Automações comerciais (ícone no topo do Vendas) antes de ligar a Automação.'
           : 'Peça ao dono/gerente pra configurar horário e teto em Automações comerciais.',
       };
     }
@@ -5890,7 +5890,7 @@ export class VendasService {
       return {
         codigo: 'whatsapp_desconectado',
         motivo: 'WhatsApp da empresa não está conectado.',
-        acao: 'Conecte o WhatsApp antes de ligar o robô.',
+        acao: 'Conecte o WhatsApp antes de ligar a Automação.',
       };
     }
 
@@ -5901,7 +5901,7 @@ export class VendasService {
       return {
         codigo: 'lead_sem_canal',
         motivo: 'Este lead não tem WhatsApp, telefone nem e-mail cadastrado.',
-        acao: 'Use "Buscar dados" pra tentar localizar um contato antes de ligar o robô.',
+        acao: 'Use "Buscar dados" pra tentar localizar um contato antes de ligar a Automação.',
       };
     }
 
@@ -5996,7 +5996,7 @@ export class VendasService {
       // S8 LEAD-CENTRICO: cadência desativada NÃO trava mais — religa sozinha
       // (mesmo tratamento do caminho por persona/seed logo abaixo; "ative-a
       // antes" foi removido pela ordem do dono de 26/07 — nada de burocracia
-      // impede ligar o robô além da config do Admin + WhatsApp).
+      // impede ligar a Automação além da config do Admin + WhatsApp).
       if (!row.ativa) {
         await (this.prisma as any).cadencia.update({ where: { id: row.id }, data: { ativa: true } }).catch(() => null);
       }
@@ -6036,7 +6036,7 @@ export class VendasService {
 
   async ligarRoboForUser(user: any, leadId: string, dto: { personaKey?: string; cadenciaId?: string; objetivo?: string }) {
     const context = await this.resolveVendasUserContext(user);
-    this.assertVendasPermission(context.access?.canEditCards, 'Acesso para planejar o robô bloqueado pela política da equipe.');
+    this.assertVendasPermission(context.access?.canEditCards, 'Acesso para planejar Automação bloqueado pela política da equipe.');
     const normalizedLeadId = this.normalizeText(leadId);
     if (!normalizedLeadId) throw new BadRequestException('Lead não informado.');
 
@@ -6047,7 +6047,7 @@ export class VendasService {
     if (!lead) throw new NotFoundException('Lead não encontrado.');
     const status = this.normalizeStatus(lead.status);
     if (status === 'qualificado' || status === 'encerrado') {
-      throw new BadRequestException('Lead já avançado/encerrado — o robô não liga aqui (humano assumiu).');
+      throw new BadRequestException('Lead já avançado/encerrado — Automação não liga aqui (humano assumiu).');
     }
 
     // S8 LEAD-CENTRICO (08-destravar-robo.md): as 2 travas de ativação (config do
@@ -6124,7 +6124,7 @@ export class VendasService {
             data: { status: 'ativa', currentStep: 0, nextStepAt: new Date(), lastError: null, startedAt: new Date() },
           });
         } catch (error: any) {
-          throw new ConflictException(`Não foi possível religar o robô: ${String(error?.message || error)}`);
+          throw new ConflictException(`Não foi possível religar a Automação: ${String(error?.message || error)}`);
         }
         await this.commercialContactControl.finishAutomationEnrollment({
           companyId: context.companyId,
@@ -6167,7 +6167,7 @@ export class VendasService {
 
   async desligarRoboForUser(user: any, leadId: string) {
     const context = await this.resolveVendasUserContext(user);
-    this.assertVendasPermission(context.access?.canEditCards, 'Acesso para planejar o robô bloqueado pela política da equipe.');
+    this.assertVendasPermission(context.access?.canEditCards, 'Acesso para planejar Automação bloqueado pela política da equipe.');
     const normalizedLeadId = this.normalizeText(leadId);
     if (!normalizedLeadId) throw new BadRequestException('Lead não informado.');
 

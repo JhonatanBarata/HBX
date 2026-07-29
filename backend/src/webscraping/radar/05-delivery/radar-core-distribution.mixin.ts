@@ -624,7 +624,7 @@ export class RadarCoreDistributionMixin {
     return {
       ok: true,
       message: status === 'active'
-        ? 'Distribuição automática ativada. O robô vai manter os estoques configurados.'
+        ? 'Distribuição automática ativada. Automação vai manter os estoques configurados.'
         : 'Configuração de distribuição automática salva.',
       activeSellerCount: activeSellers.length,
       rule: this.radarAutoDistributionPayload(rule, activeSellers),
@@ -959,7 +959,7 @@ export class RadarCoreDistributionMixin {
           : 'Todos os vendedores já estão no estoque configurado.'
         : blockedByLimit
           ? 'Distribuição automática pausada pelo limite do plano.'
-          : 'Sem cards disponíveis agora para essa regra. O robô tentará novamente.';
+          : 'Sem cards disponíveis agora para essa regra. Automação tentará novamente.';
 
     return {
       ok: true,

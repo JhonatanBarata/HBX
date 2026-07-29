@@ -255,7 +255,7 @@ type VendasStage = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
 // língua do fluxo real (Planejar→Robô trabalhando→Te chamou→Negociação→
 // Fechado) — chaves/ordem/tone INTOCADOS (nada de migração).
 const STAGE_ORDER: { key: VendasStage; label: string; sub: string; tone: string }[] = [
-  { key: "novo", label: "Planejar", sub: "Lead novo — leia, planeje e decida se vai ligar o robô", tone: "new" },
+  { key: "novo", label: "Planejar", sub: "Lead novo — leia, planeje e decida se vai ligar a Automação", tone: "new" },
   { key: "contato", label: "Robô trabalhando", sub: "Em cadência — contatos em andamento", tone: "contact" },
   { key: "retorno", label: "Te chamou", sub: "Respondeu ou pediu retorno — sua vez", tone: "return" },
   { key: "qualificado", label: "Negociação", sub: "Você assumiu — proposta e acompanhamento", tone: "qualified" },
@@ -1467,7 +1467,7 @@ export function VendasClient() {
 
     if (stageFilter === "novo") return {
       tone: "calm",
-      title: "Leia, decida e ligue o robô",
+      title: "Leia, decida e ligue Automação",
       facts: fato([
         <React.Fragment key="z">{n(briefing.comZap)} com WhatsApp</React.Fragment>,
         briefing.semContato > 0 ? <React.Fragment key="s">{n(briefing.semContato)} sem nenhum contato</React.Fragment> : null,
@@ -1475,7 +1475,7 @@ export function VendasClient() {
       ]),
       actions: (
         <React.Fragment>
-          <button type="button" className="btn-teal btn-xs" onClick={() => setProspOpen(true)}>Configurar o robô</button>
+          <button type="button" className="btn-teal btn-xs" onClick={() => setProspOpen(true)}>Configurar Automação</button>
           <button type="button" className="btn-ghost btn-xs" onClick={() => router.push("/leads")}>Puxar mais leads</button>
         </React.Fragment>
       ),
@@ -1498,7 +1498,7 @@ export function VendasClient() {
       facts: fato([
         briefing.maisAntigo ? <React.Fragment key="e">espera mais antiga {n(fmtEspera(briefing.maisAntigo.at, agora) || "—")}</React.Fragment> : null,
         briefing.chamaramAtrasados > 0 ? <React.Fragment key="a">{n(briefing.chamaramAtrasados)} atrasado{briefing.chamaramAtrasados === 1 ? "" : "s"}</React.Fragment> : null,
-        <React.Fragment key="r">o robô para sozinho quando o cliente responde</React.Fragment>,
+        <React.Fragment key="r">Automação para sozinho quando o cliente responde</React.Fragment>,
       ]),
       actions: briefing.maisAntigo
         ? <button type="button" className="btn-teal btn-xs" onClick={() => { setSel(briefing.maisAntigo!.card); setCockpitOpen(true); }}>Abrir quem espera há mais tempo</button>
@@ -2168,7 +2168,7 @@ export function VendasClient() {
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setProspOpen(false)}>✕</span>
             </h3>
             {/* S5 LEAD-CENTRICO (05-agenda-slots.md): config comercial ENXUTA — 1
-                cartão, 3 campos + salvar. Vale pro robô por lead (S4) e pra prospecção
+                cartão, 3 campos + salvar. Vale prAutomação por lead (S4) e pra prospecção
                 antiga enquanto ela existir (S7 remove o cadastro imenso, não isto). */}
             <div style={{ display: "grid", gap: 8 }}>
               <div className="field-label">Horário e teto de disparo</div>

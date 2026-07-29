@@ -14,7 +14,7 @@ Arquivo único de tela: `frontend/src/app/(app)/vendas/page.client.tsx`.
 
 ## Entrega (SÓ isto — nada de backend, nada de migração)
 1. **Renomear as etapas** em `STAGE_ORDER` (chaves e ORDEM intocadas; muda rótulo+sub):
-   - `novo` → **Planejar** — sub: "Lead novo — leia, planeje e ligue o robô"
+   - `novo` → **Planejar** — sub: "Lead novo — leia, planeje e ligue Automação"
    - `contato` → **Robô trabalhando** — sub: "Em cadência — contatos em andamento"
    - `retorno` → **Te chamou** — sub: "Respondeu ou pediu retorno — sua vez"
    - `qualificado` → **Negociação** — sub: "Você assumiu — proposta e follow-up"

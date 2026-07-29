@@ -276,8 +276,8 @@ export class CadenciaGatilhoService implements OnModuleInit {
 
   // ================================================================
   // "Te chamou" (S4 LEAD-CENTRICO, item 4): resposta inbound QUENTE de um lead
-  // que TINHA o robô ligado -> etapa 'retorno' + atividade com contexto (quem, o
-  // que pediu, o que o robô já fez, prazo sugerido). Reusa AtividadesService
+  // que TINHA Automação ligado -> etapa 'retorno' + atividade com contexto (quem, o
+  // que pediu, o que a Automação já fez, prazo sugerido). Reusa AtividadesService
   // (hook WORM-12) — nada de sistema novo de notificação.
   //
   // "Robô ligado nesta resposta" = a inscrição de cadência do lead foi pausada
@@ -285,7 +285,7 @@ export class CadenciaGatilhoService implements OnModuleInit {
   // primeiro no InboundRouterService, ANTES deste hook) com
   // lastError='inbound_received', HÁ POUCO TEMPO. Sem essa janela de recência,
   // uma cadência cancelada há dias voltaria a "acender" o Te chamou a cada nova
-  // mensagem do lead — a recência garante que é ESTA resposta que desligou o robô.
+  // mensagem do lead — a recência garante que é ESTA resposta que desligou Automação.
   // ================================================================
   private async maybeHandleRoboHotReply(
     companyId: number,
@@ -336,7 +336,7 @@ export class CadenciaGatilhoService implements OnModuleInit {
           leadId: lead.id,
           eventType: 'robo_te_chamou',
           title: 'Te chamou — robô identificou interesse',
-          description: `Respondeu: "${excerpt}". O robô (${cadencia?.nome || 'cadência'}) já tinha enviado ${toques} toque(s). ${heat.motivo} Sugestão: retornar até ${prazo.toLocaleString('pt-BR')}.`,
+          description: `Respondeu: "${excerpt}". Automação (${cadencia?.nome || 'cadência'}) já tinha enviado ${toques} toque(s). ${heat.motivo} Sugestão: retornar até ${prazo.toLocaleString('pt-BR')}.`,
           sourceType: 'automacao',
           statusFrom: lead.status,
           statusTo: willMoveToRetorno ? 'retorno' : lead.status,

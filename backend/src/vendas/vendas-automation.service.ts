@@ -2352,7 +2352,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
 
   // 5º muro (PR13062026007): checklist da triagem. UMA fonte só — o gate de armar
   // (setCampaignStatusForUser) e o painel do front leem daqui, então o que a tela
-  // mostra é exatamente o que destrava o robô.
+  // mostra é exatamente o que destrava Automação.
   private computeTriagemChecklist(campaign: any): { key: string; label: string; ok: boolean }[] {
     return [
       { key: 'mensagem', label: 'mensagem de abordagem', ok: Boolean(String(campaign?.messageTemplate || '').trim()) },
@@ -2385,7 +2385,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     this.assertCanManageProspecting(user);
     const faltando = this.computeTriagemChecklist(campaign).filter((i) => !i.ok).map((i) => i.label);
     if (faltando.length) {
-      throw new BadRequestException(`Triagem incompleta: configure ${faltando.join(', ')} antes de ligar o robô.`);
+      throw new BadRequestException(`Triagem incompleta: configure ${faltando.join(', ')} antes de ligar a Automação.`);
     }
   }
 
@@ -2404,7 +2404,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     if (!campaign) throw new BadRequestException('Nenhuma campanha de prospecção encontrada.');
     // 5º muro fail-closed (PR13062026007): ligar a prospecção exige TRIAGEM.
     // Só dono/gerente (ADMIN) ou master arma; vendedor (USER) NUNCA. E só com a
-    // config mínima pronta — senão o robô fala com cliente sem estar configurado.
+    // config mínima pronta — senão a Automação fala com cliente sem estar configurado.
     if (status === 'running') {
       this.assertCanArmProspecting(user, campaign);
     }

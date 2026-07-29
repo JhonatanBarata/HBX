@@ -80,7 +80,7 @@ function aplicar({ casca, tema, modo }: Aparencia) {
 export function applyThemeForPath(_pathname: string) {
   // 15/06: a landing "/" agora É o login (usa tokens + robô do tema), então
   // NÃO é mais "html puro" — herda data-theme + data-theme-mode como o resto,
-  // senão Automação não sincroniza com o modo (fumaça branca sobre robô preto).
+  // senão a Automação não sincroniza com o modo (fumaça branca sobre robô preto).
   try {
     aplicar(getAparencia());
   } catch {

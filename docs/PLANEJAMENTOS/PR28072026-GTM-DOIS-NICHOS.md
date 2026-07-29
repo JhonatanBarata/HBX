@@ -63,7 +63,7 @@ pagando em desconto. Critério e escassez são reais: quem não topa as contrapa
 ## MÁQUINA DE AQUECIMENTO (funil resumido)
 Lista Radar (fila "tem zap" primeiro) → msg 1 manual → vídeo 60s → demo com dados DELE →
 lista/trial de brinde (50 créditos) → proposta fundador → onboarding assistido na semana 1
-(o robô do lead-cêntrico agenda follow-up; a vendedora ganha FILA PRONTA + script, o talento
+(Automação do lead-cêntrico agenda follow-up; a vendedora ganha FILA PRONTA + script, o talento
 dela deixa de ser variável).
 
 ## 30-60-90

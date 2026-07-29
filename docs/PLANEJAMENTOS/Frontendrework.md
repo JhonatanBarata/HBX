@@ -138,7 +138,7 @@ exceções: `docs/Rules/FRONTEND.md` (LEIA antes de começar).
 ## 9. Contexto de negócio (pra calibrar o gosto)
 
 O HBX está virando um cockpit comercial lead-cêntrico (o vendedor abre o lead, entende, planeja
-e liga o robô; o sistema chama ele quando o lead esquenta). O comprador é dono de PME
+e liga Automação; o sistema chama ele quando o lead esquenta). O comprador é dono de PME
 brasileiro. A aparência precisa transmitir: **ferramenta séria de vendas, cara de produto caro,
 zero cara de painel de admin genérico**. Referências de régua: Linear, Pipedrive, Attio —
 sobriedade, respiro, microdetalhe bem feito. Nada de neon, nada de densidade de terminal.

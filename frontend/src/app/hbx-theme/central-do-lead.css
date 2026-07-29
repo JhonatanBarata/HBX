@@ -1158,7 +1158,7 @@
 }
 .cdl-btn-line:hover { color: var(--cdl-ink); border-color: var(--cdl-hair-strong); }
 
-/* Passos da cadência — a régua do plano do robô. */
+/* Passos da cadência — a régua do plano da Automação. */
 .cdl-steps {
   display: flex;
   flex-wrap: wrap;

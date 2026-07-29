@@ -3,7 +3,7 @@
 // próximo horário livre respeitando janela de horário + teto/dia + intervalo mínimo +
 // o que já está agendado. Fonte da config: VendasComercialConfig (1 linha por empresa,
 // aditiva — ver schema.prisma). "Já agendado" é lido de CadenciaInscricao.nextStepAt
-// (status 'ativa') — é o que o robô por lead (S4) e o runner da cadência usam pra saber
+// (status 'ativa') — é o que a Automação por lead (S4) e o runner da cadência usam pra saber
 // quando o próximo passo de cada lead está devido.
 //
 // Plain class instanciada manualmente (mesmo padrão de CommercialContactControlService

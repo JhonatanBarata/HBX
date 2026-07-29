@@ -24,8 +24,8 @@ NADA das regras se perde (ordem literal do dono); o cadastro imenso morre depois
 4. **Solda na UI**: onde o vendedor agenda disparo/retorno (agenda de retornos do /vendas),
    mostrar o próximo slot livre e acusar conflito na hora ("08:00 ocupado — próximo livre
    08:15"). Copy mínima; strings novas no relatório.
-5. **Duas agendas separadas** (conceito do plano): disparos do robô NÃO poluem a agenda humana
-   de retornos — o vendedor vê os SEUS compromissos; a fila do robô aparece só no detalhes do
+5. **Duas agendas separadas** (conceito do plano): disparos da Automação NÃO poluem a agenda humana
+   de retornos — o vendedor vê os SEUS compromissos; a fila da Automação aparece só no detalhes do
    lead (próximo passo) e no selo do card.
 
 ## O que NÃO fazer
