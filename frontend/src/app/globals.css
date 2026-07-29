@@ -150,6 +150,11 @@
 /* TUTORIAL FRONT — painel de upload no /master. Só layout + token. */
 @import "./hbx-theme/tutorial-admin.css";
 
+/* MESA DE DESPACHO — /logistica: fila "Precisa de você" + O TABULEIRO (faixa
+   por motorista). Mesma moldura do .log-resumo/.log-cred (screens.css); só
+   token, nenhuma cor literal. Ver logistica-mesa.css. */
+@import "./hbx-theme/logistica-mesa.css";
+
 /* VENDAS LIVE — sempre por último: fluxo único, cards coloridos e cockpit do
    quadro. (vendas-details2.css saiu daqui em 28/07 junto com o Detalhes velho
    — o novo é hbx-theme/central-do-lead.css, importado com as cascas.) */

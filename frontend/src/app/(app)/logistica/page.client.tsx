@@ -23,8 +23,10 @@ import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { isTenantAdmin } from "@/lib/roles";
 
+import { RouteBoard } from "./route-board";
 import { RouteBuilderDialog } from "./route-builder";
 import { RouteCreditPanel } from "./route-credit-panel";
+import { RouteTriage } from "./route-triage";
 import { WeeklyAgenda } from "./weekly-agenda";
 import { BaseSaude } from "./base-saude";
 
@@ -54,6 +56,12 @@ type Entrega = {
   // Ausente/false = comportamento de sempre.
   somenteCobranca?: boolean;
   motivoCobranca?: string | null;
+  // PR29072026 (O TABULEIRO) — a ordem/ETA planejadas SEMPRE voltaram no payload
+  // (logistica.service.ts:201 seleciona rotaOrdem/etaAt; :532 devolve), só não
+  // estavam declaradas aqui. É `rotaOrdem` que dita o eixo do tabuleiro — hora
+  // não serve, `scheduledAt` pode ser null no dia mais comum.
+  rotaOrdem?: number | null;
+  etaAt?: string | null;
   cliente: Cliente;
   contato: { id: string; nome: string; whatsapp: string | null; phone: string | null } | null;
   produto: { id: number; nome: string; unidade: string | null } | null;
@@ -588,6 +596,19 @@ export function LogisticaClient() {
             quando não há nada a dizer. */}
         {admin && rota && <RouteCreditPanel date={rota.date} stops={items} />}
 
+        {/* PR29072026 (MESA DE DESPACHO) — o que TRAVA o dia, junto e por
+            gravidade. Só dado que a tela já tem: endereço sem ponto no mapa,
+            devedor "só cobrar" e entrega que fechou sem o comprovante exigido.
+            Não repete o painel de crédito (parada órfã é dele) nem o banner de
+            rota negada (logo acima). */}
+        {admin && items.length > 0 && (
+          <RouteTriage
+            stops={items}
+            requisitos={rota?.comprovante ?? null}
+            onOpen={(stop) => setOpen(items.find((item) => item.id === stop.id) ?? null)}
+          />
+        )}
+
         {loading && <div className="emp-empty"><span className="emp-empty__text">Carregando rota…</span></div>}
 
         {error && (
@@ -607,7 +628,26 @@ export function LogisticaClient() {
           </div>
         )}
 
-        {!error && items.length > 0 && (
+        {/* PR29072026 (MESA DE DESPACHO) — no COMPUTADOR do admin a rota do dia
+            deixa de ser uma lista lisa de 40 linhas e vira O TABULEIRO: uma
+            faixa por motorista, uma tira por parada, na ordem da rota. O
+            entregador (não-admin) continua na lista — é a tela dele no celular.
+            UMA representação por público: as duas juntas seriam o mesmo dado
+            duas vezes na mesma tela. */}
+        {!error && items.length > 0 && admin && (
+          <RouteBoard
+            stops={items}
+            onOpen={(stop) => setOpen(items.find((item) => item.id === stop.id) ?? null)}
+            onAssigned={(stopId, entregador) => {
+              setRota((atual) => atual
+                ? { ...atual, items: atual.items.map((item) => item.id === stopId ? { ...item, entregador } : item) }
+                : atual);
+              setOpen((atual) => atual && atual.id === stopId ? { ...atual, entregador } : atual);
+            }}
+          />
+        )}
+
+        {!error && items.length > 0 && !admin && (
           <div className="emp-list">
             {items.map((e) => (
               <button

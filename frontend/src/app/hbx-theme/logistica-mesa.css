@@ -1,0 +1,263 @@
+/* ============================================================
+   MESA DE DESPACHO — /logistica (PR29072026)
+   Dois blocos novos da Rota de hoje: a fila "Precisa de você" e
+   O TABULEIRO (uma faixa por motorista, uma tira por parada).
+
+   MOLDURA IGUAL à do .log-resumo/.log-cred que ficam logo acima
+   (screens.css): mesma margem, mesmo padding, mesma borda, mesmo
+   radius, mesma superfície. Padronizar é IGUALAR — não inventar
+   um cartão novo do lado de dois cartões iguais.
+
+   ZERO cor literal aqui: só var() do contrato (skeleton.css), por
+   isso o modo escuro é automático e o check-pele passa.
+   ============================================================ */
+
+/* ── moldura compartilhada ─────────────────────────────────── */
+.log-triage,
+.log-board {
+  display: grid;
+  gap: 10px;
+  margin: 0 16px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 14px;
+  background: var(--hbx-surface-raised);
+}
+
+.log-triage__head,
+.log-board__head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.log-triage__head strong,
+.log-board__head strong {
+  color: var(--text-strong);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+/* ── fila "Precisa de você" ────────────────────────────────── */
+/* Contador: destaque vem do FUNDO da marca, tinta é neutra. Não é vermelho de
+   propósito — vermelho é do painel de crédito, onde significa BLOQUEIA o Iniciar
+   (saldo que não cobre, parada órfã). Pendência de triagem não bloqueia nada:
+   pintar de vermelho aqui diluiria o único vermelho que vale dinheiro. */
+.log-triage__count {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--hbx-brand-soft);
+  color: var(--text-strong);
+  font-size: 0.68rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.log-triage__count.is-limpo {
+  background: var(--surface-recessed);
+  color: var(--text-body);
+}
+.log-triage__limpo {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+}
+.log-triage__list { display: grid; gap: 6px; }
+
+.log-triage__row {
+  display: grid;
+  grid-template-columns: 3px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 0;
+  border-radius: 11px;
+  background: var(--surface-recessed);
+  overflow: hidden;
+}
+.log-triage__stripe { align-self: stretch; border-radius: 999px; background: var(--text-muted); }
+.log-triage__row.is-alta .log-triage__stripe { background: var(--hbx-danger); }
+.log-triage__row.is-media .log-triage__stripe { background: var(--hbx-warning); }
+
+.log-triage__body { display: grid; gap: 2px; min-width: 0; }
+.log-triage__top { display: flex; align-items: center; gap: 8px; }
+.log-triage__tag {
+  color: var(--text-body);
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+/* A GRAVIDADE é a tarja de 3px + a etiqueta escrita; a cor do texto miúdo não
+   carrega o recado sozinha (âmbar em 8px sobre superfície clara dá 2,3:1). */
+.log-triage__what { color: var(--text-strong); font-size: 0.74rem; font-weight: 800; }
+.log-triage__why { color: var(--text-body); font-size: 0.7rem; line-height: 1.45; }
+.log-triage__act { flex: none; justify-self: end; }
+
+/* ── O tabuleiro ───────────────────────────────────────────── */
+.log-board__hint { color: var(--text-body); font-size: 0.68rem; font-weight: 700; }
+.log-board__err {
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--hbx-danger-soft);
+  color: var(--hbx-danger);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+.log-board__lanes { display: grid; gap: 6px; }
+.log-board__foot { margin: 0; color: var(--text-body); font-size: 0.66rem; line-height: 1.45; }
+
+.log-lane {
+  display: grid;
+  grid-template-columns: 172px minmax(0, 1fr);
+  align-items: stretch;
+  gap: 10px;
+  padding: 6px;
+  border-radius: 12px;
+  background: var(--surface-recessed);
+}
+/* Faixa órfã: parada sem motorista TRAVA o Iniciar no backend — a faixa avisa
+   com a borda, sem pintar tudo de vermelho (vermelho só onde bloqueia). */
+.log-lane.is-orfa { border: 1px solid color-mix(in srgb, var(--hbx-danger) 42%, var(--border-hairline)); padding: 5px; }
+
+.log-lane__head { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.log-lane__badge {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: var(--hbx-brand);
+  color: var(--hbx-action-ink);
+  font-size: 0.66rem;
+  font-weight: 800;
+}
+.log-lane.is-orfa .log-lane__badge { background: var(--surface-raised); color: var(--text-body); }
+.log-lane__who { display: grid; gap: 1px; min-width: 0; }
+.log-lane__who b {
+  overflow: hidden;
+  color: var(--text-strong);
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.log-lane__who span { color: var(--text-body); font-size: 0.64rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.log-lane__track {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px;
+  border-radius: 10px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+.log-lane__track.is-alvo {
+  background: var(--hbx-brand-soft);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hbx-brand) 45%, transparent);
+}
+.log-lane__drop {
+  flex: none;
+  padding: 0 10px;
+  color: var(--hbx-brand-strong, var(--hbx-brand));
+  font-size: 0.64rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+/* ── tira da parada ────────────────────────────────────────── */
+.log-strip {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  width: 186px;
+  min-height: 46px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 10px;
+  background: var(--surface-raised);
+  color: var(--text-strong);
+  font: inherit;
+  text-align: left;
+  cursor: grab;
+  transition: transform var(--motion-fast), box-shadow var(--motion-fast), border-color var(--motion-fast);
+}
+.log-strip:hover { transform: translateY(-1px); box-shadow: var(--shadow-xs); }
+.log-strip:active { cursor: grabbing; }
+.log-strip.is-movendo { opacity: 0.5; cursor: progress; }
+
+.log-strip__seq {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 19px;
+  height: 19px;
+  border-radius: 7px;
+  background: var(--surface-recessed);
+  color: var(--text-body);
+  font-size: 0.6rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.log-strip__main { display: grid; gap: 1px; min-width: 0; }
+.log-strip__main b {
+  overflow: hidden;
+  font-size: 0.7rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.log-strip__main span {
+  overflow: hidden;
+  color: var(--text-body);
+  font-size: 0.63rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.log-strip__marks { display: flex; align-items: center; gap: 4px; flex: none; }
+.log-strip__now {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--hbx-brand-strong, var(--hbx-brand));
+}
+.log-strip__mark {
+  display: inline-grid;
+  place-items: center;
+  padding: 1px 5px;
+  border-radius: 999px;
+  font-size: 0.6rem;
+  font-weight: 800;
+}
+/* Chip de cobrança: o âmbar é o FUNDO, a tinta é a do texto — âmbar como tinta
+   em 8px não passa contraste em nenhuma das peles. */
+.log-strip__mark.is-cobranca {
+  background: color-mix(in srgb, var(--hbx-warning) 30%, var(--surface-recessed));
+  color: var(--text-strong);
+}
+.log-strip__mark.is-geo { padding: 1px 3px; background: var(--hbx-danger-soft); color: var(--hbx-danger); }
+
+/* Estados — a cor diz o mesmo que o texto, nunca sozinha. */
+.log-strip--feita { background: color-mix(in srgb, var(--hbx-success) 13%, var(--surface-raised)); }
+.log-strip--feita .log-strip__seq { background: color-mix(in srgb, var(--hbx-success) 16%, var(--surface-recessed)); }
+.log-strip--agora {
+  border-color: color-mix(in srgb, var(--hbx-brand) 55%, var(--border-hairline));
+  background: var(--hbx-brand-soft);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--hbx-brand) 20%, transparent);
+}
+.log-strip--agora .log-strip__seq { background: var(--hbx-brand); color: var(--hbx-action-ink); }
+.log-strip--cobranca { border-color: color-mix(in srgb, var(--hbx-warning) 45%, var(--border-hairline)); }
+.log-strip--cancelada { opacity: 0.6; }
+.log-strip--cancelada .log-strip__main b { text-decoration: line-through; }
+
+/* Estreito: a faixa vira duas linhas (cabeça em cima, tiras rolando embaixo). */
+@media (max-width: 860px) {
+  .log-lane { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .log-triage__row { grid-template-columns: 3px minmax(0, 1fr); }
+  .log-triage__act { grid-column: 2; justify-self: start; }
+}
