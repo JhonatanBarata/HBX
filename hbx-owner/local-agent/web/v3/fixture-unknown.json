@@ -6,8 +6,8 @@
   "switches": {
     "scraping": {
       "vps":   { "on": false, "known": false, "reason": "energia_desconhecida",
-                 "running": false, "budget": 0, "processed": 0,
-                 "contactsWritten": 0, "lastError": null, "rfbBaseCount": null },
+                 "running": false, "budget": null, "processed": null,
+                 "contactsWritten": null, "lastError": null, "rfbBaseCount": null },
       "local": { "on": true, "known": true, "reason": null,
                  "starting": false, "startingSince": null, "startingStep": null,
                  "running": true, "budget": 500, "processed": 118,
@@ -16,15 +16,19 @@
     "ia": { "on": true, "warm": true, "busy": false, "model": "qwen3:30b-a3b-instruct",
             "ramMb": 19260, "reason": null },
     "enriquecimento": { "on": true, "reason": null, "dependsOn": "ia",
-                        "queuedDue": 214, "oldestAgeMin": 12, "ratePerHour": 310 }
+                        "queuedDue": null, "oldestAgeMin": null, "ratePerHour": null }
   },
-  "engines": { "total": 20, "on": 20 },
+  "engines": { "total": null, "on": null },
   "problems": [
     { "id": "energia_desconhecida", "severity": "warn",
       "text": "Não consegui ler a energia do VPS — o ops-control não respondeu. Não estou dizendo que está desligado, só que não sei.",
+      "action": null },
+    { "id": "backend_sem_resposta", "severity": "error",
+      "text": "Backend local não respondeu — não consigo ler fila do enriquecimento, motores nem contagens agora.",
       "action": null }
   ],
   "feed": [
-    { "at": "2026-07-28T18:39:12.000Z", "text": "Tentativa de ler energia do VPS falhou — ops-control sem resposta." }
+    { "at": "2026-07-28T18:39:12.000Z", "text": "Tentativa de ler energia do VPS falhou — ops-control sem resposta." },
+    { "at": "2026-07-28T18:38:50.000Z", "text": "Backend local sem resposta — leitura de fila e motores falhou." }
   ]
 }

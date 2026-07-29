@@ -23,9 +23,15 @@ async function api(method, path, body) {
 }
 
 /* ---------- formatação ---------- */
+// LEI Nº2 na prática: `null`/`undefined` = "não sei" = "—". NUNCA vira 0 — 0 medido continua
+// sendo 0 (ex.: IA descarregada com RAM conferida livre é 0 DE VERDADE). Só ausência de leitura
+// vira traço. Vale pra todo número do overview (fila, ritmo, motores, contatos, RAM...).
 function esc(v) { return String(v == null ? "" : v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
-function fmtInt(n) { return Number(n || 0).toLocaleString("pt-BR"); }
-function fmtMb(mb) { return mb == null ? "0" : (mb / 1024).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }); }
+function fmtInt(n) { return n == null ? "—" : Number(n).toLocaleString("pt-BR"); }
+function fmtMb(mb) { return mb == null ? "—" : (mb / 1024).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }); }
+// Soma só é confiável se OS DOIS lados forem leitura conhecida — somar um número real com um
+// "não sei" (tratando o desconhecido como 0) contaria uma mentira de precisão.
+function sumOrNull(a, b) { return (a == null || b == null) ? null : (a + b); }
 function fmtAge(min) {
   if (min == null) return "—";
   if (min < 60) return `${Math.round(min)}min`;
@@ -60,9 +66,15 @@ const REASON_TEXT = {
 };
 function reasonText(r) { return r ? (REASON_TEXT[r] || String(r).replace(/_/g, " ")) : ""; }
 
-/* ---------- interruptor genérico: known:false pinta CINZA, nunca desligado (lei nº2) ---------- */
+/* ---------- interruptor genérico: known:false pinta CINZA, nunca desligado (lei nº2) ----------
+   known:false continua CLICÁVEL — se existe caminho de ação, o clique tenta religar (on:true) e,
+   se falhar, o motivo aparece (toast + faixa). Só o estado "subindo" (mid) é fisicamente inerte —
+   esse não tem dado incerto, tem uma ação em andamento que não se deve interromper no meio. */
 function swBtn(known, on, path, extraBody, size) {
-  if (!known) return `<div class="sw ${size || ""} unknown" title="Não sei o estado real"></div>`;
+  if (!known) {
+    const body = JSON.stringify({ ...(extraBody || {}), on: true });
+    return `<div class="sw ${size || ""} unknown" data-action data-method="POST" data-path="${path}" data-body='${esc(body)}' title="Não sei o estado real — clique tenta religar" role="switch" tabindex="0"></div>`;
+  }
   const body = JSON.stringify({ ...(extraBody || {}), on: !on });
   return `<div class="sw ${size || ""} ${on ? "on" : ""}" data-action data-method="POST" data-path="${path}" data-body='${esc(body)}' role="switch" aria-checked="${on}" tabindex="0"></div>`;
 }
@@ -138,7 +150,7 @@ function scrapingWhy(vps, local) {
   const off = vps.on ? { name: "Localhost", d: local } : { name: "VPS", d: vps };
   return { level: "warn", text: `Energia só ligada num ambiente — ${off.name} desligado (${reasonText(off.d.reason) || "sem motivo informado"})` };
 }
-function envRow(label, env, d) {
+function envRow(label, env, d, liveBudget) {
   // Só o Localhost pode vir com `starting` (o agent roda fora do Docker e sobe o backend :3000
   // sozinho). Âmbar "mid", NUNCA clicável, NUNCA vira verde por conta própria — só o próximo
   // overview com on:true decide (lei nº3). Falhou? cai na faixa de problemas, não fica âmbar eterno.
@@ -157,6 +169,9 @@ function envRow(label, env, d) {
   }
   const runDisabled = starting || !d.known || !d.on || d.running;
   const runLabel = d.running ? `Rodando ${fmtInt(d.processed)}/${fmtInt(d.budget)}` : "▶ Rodar corrida";
+  // Se o dono está com o dedo no campo de budget agora, o valor digitado por ELE manda — nunca o
+  // eco do servidor sobrescreve no meio da digitação (o poll de 5s recria este nó a cada render).
+  const budgetVal = liveBudget != null ? liveBudget : (Number(d.budget) || 1000);
   return `
     <div class="env-row">
       ${swHtml}
@@ -166,27 +181,33 @@ function envRow(label, env, d) {
       </div>
     </div>
     <div class="run-row">
-      <input type="number" min="1" max="5000" value="${Number(d.budget) || 1000}" id="budget-${env}" aria-label="Limite de leads ${esc(label)}">
+      <input type="number" min="1" max="5000" value="${esc(budgetVal)}" id="budget-${env}" aria-label="Limite de leads ${esc(label)}">
       <button data-action data-method="POST" data-path="/owner/v3/fabrica/run" data-body='{"env":"${env}"}' data-budget-of="budget-${env}" ${runDisabled ? "disabled" : ""}>${esc(runLabel)}</button>
     </div>
     <div class="kv sub"><span>Processado</span><b>${fmtInt(d.processed)} de ${fmtInt(d.budget)}</b></div>
     ${d.lastError ? `<div class="kv sub"><span>Último erro</span><b class="err">${esc(reasonText(d.lastError))}</b></div>` : ""}`;
 }
-function scrapingBody(s, engines, docker) {
-  const total = (s.vps.contactsWritten || 0) + (s.local.contactsWritten || 0);
+function scrapingBody(s, engines, docker, focus) {
+  const total = sumOrNull(s.vps.contactsWritten, s.local.contactsWritten);
   const rfb = s.vps.rfbBaseCount ?? s.local.rfbBaseCount;
   const why = scrapingWhy(s.vps, s.local);
-  engines = engines || { total: 0, on: 0 };
+  engines = engines || {};
+  // "sem leitura" cinza — nunca 0/0 verde quando o backend não respondeu (o pecado dos 26 dias).
+  const enginesLine = engines.total == null || engines.on == null
+    ? `<div class="kv"><span>Motores</span><b class="dim">sem leitura</b></div>`
+    : `<div class="kv"><span>Motores</span><b>${fmtInt(engines.on)}/${fmtInt(engines.total)} ligados</b></div>`;
   // Dica discreta, sem alarme — não é problema, não entra na faixa. "Nada de card novo pra isso."
   const dockerHint = docker && docker.autoStart === false
     ? `<div class="hint">💡 Docker Desktop não inicia com o Windows — marcar a opção nas configurações dele deixa esta linha sempre rápida.</div>`
     : "";
+  const vpsLive = focus && focus.id === "budget-vps" ? focus.value : null;
+  const localLive = focus && focus.id === "budget-local" ? focus.value : null;
   return `
     <div class="bignum">${fmtInt(total)}<small>contatos coletados</small></div>
     <div class="why ${why.level}">${esc(why.text)}</div>
-    ${envRow("VPS", "vps", s.vps)}
-    ${envRow("Localhost", "local", s.local)}
-    <div class="kv"><span>Motores</span><b>${fmtInt(engines.on)}/${fmtInt(engines.total)} ligados</b></div>
+    ${envRow("VPS", "vps", s.vps, vpsLive)}
+    ${envRow("Localhost", "local", s.local, localLive)}
+    ${enginesLine}
     <div class="kv"><span>Base RFB disponível</span><b>${rfb != null ? fmtInt(rfb) + " empresas" : "—"}</b></div>
     ${dockerHint}`;
 }
@@ -205,14 +226,20 @@ function iaBody(ia) {
 
 /* ---------- 🔄 Enriquecimento ---------- */
 function enrBody(enr) {
-  const stale = (enr.oldestAgeMin || 0) > 360;
-  const level = enr.reason ? "" : stale ? "warn" : "ok";
-  const text = enr.reason ? `Parado — ${reasonText(enr.reason)}` : stale ? `⚠ Mais antigo espera ${fmtAge(enr.oldestAgeMin)} — fila acumulada` : "✓ Em dia";
+  // Selo verde só com número CONHECIDO. queuedDue/oldestAgeMin null = "não consegui medir",
+  // nunca "fila zerada" — pintar isso de "✓ Em dia" seria o mesmo pecado dos 26 dias, com tinta verde.
+  const known = enr.queuedDue != null && enr.oldestAgeMin != null;
+  const stale = known && enr.oldestAgeMin > 360;
+  let level, text;
+  if (enr.reason) { level = ""; text = `Parado — ${reasonText(enr.reason)}`; }
+  else if (!known) { level = ""; text = "Sem leitura da fila agora — não confirmo se está em dia."; }
+  else if (stale) { level = "warn"; text = `⚠ Mais antigo espera ${fmtAge(enr.oldestAgeMin)} — fila acumulada`; }
+  else { level = "ok"; text = "✓ Em dia"; }
   return `
     <div class="bignum">${fmtInt(enr.queuedDue)}<small>na fila</small></div>
     <div class="why ${level}">${esc(text)}</div>
     <div class="kv"><span>Mais antigo</span><b>${fmtAge(enr.oldestAgeMin)}</b></div>
-    <div class="kv"><span>Ritmo</span><b>${fmtInt(enr.ratePerHour)}/h</b></div>
+    <div class="kv"><span>Ritmo</span><b>${enr.ratePerHour != null ? fmtInt(enr.ratePerHour) + "/h" : "—"}</b></div>
     <div class="dep">Precisa da <b>IA 30B ligada</b> para processar — desligou a IA, isto para junto.</div>`;
 }
 
@@ -222,8 +249,28 @@ function renderFeed(feed) {
   $("#feedlines").innerHTML = lines || `<div class="ln">Sem eventos ainda.</div>`;
 }
 
+/* ---------- foco do campo de budget: o render troca o nó a cada poll/SSE (5s). Sem isto, o dono
+   digita "10" e a tecla seguinte cai no vazio — é o único input do painel. Captura valor+cursor
+   ANTES de recriar o nó, devolve os dois DEPOIS. Se o dono está com o dedo no campo, o valor
+   digitado por ele manda — o eco do servidor nunca sobrescreve no meio da digitação. ---------- */
+function captureFocus() {
+  const el = document.activeElement;
+  if (el && el.tagName === "INPUT" && el.id && el.id.startsWith("budget-")) {
+    return { id: el.id, value: el.value, start: el.selectionStart, end: el.selectionEnd };
+  }
+  return null;
+}
+function restoreFocus(f) {
+  if (!f) return;
+  const el = document.getElementById(f.id);
+  if (!el) return;
+  el.focus();
+  try { el.setSelectionRange(f.start, f.end); } catch { /* input type=number pode recusar seleção */ }
+}
+
 /* ---------- render geral ---------- */
 function render(ov) {
+  const focus = captureFocus();
   $("#fatal").classList.add("hidden");
   const s = ov.switches;
   $("#boot").innerHTML = bootHtml(ov.boot);
@@ -231,7 +278,7 @@ function render(ov) {
   renderProblems(ov.problems || []);
 
   $("#job-scraping").classList.toggle("on", Boolean(s.scraping.vps.on || s.scraping.local.on));
-  $("#scraping-body").innerHTML = scrapingBody(s.scraping, ov.engines, ov.docker);
+  $("#scraping-body").innerHTML = scrapingBody(s.scraping, ov.engines, ov.docker, focus);
 
   $("#job-ia").classList.toggle("on", Boolean(s.ia.on));
   $("#ia-switch").innerHTML = swBtn(true, s.ia.on, "/owner/v3/switch/ia", {}, "");
@@ -242,6 +289,7 @@ function render(ov) {
   $("#enr-body").innerHTML = enrBody(s.enriquecimento);
 
   renderFeed(ov.feed || []);
+  restoreFocus(focus);
 }
 function renderFatal(msg) {
   const el = $("#fatal");
