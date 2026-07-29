@@ -276,6 +276,24 @@ class NativeAppBridge(
         activity.runOnUiThread(onLocationPermissionRequested)
     }
 
+    // MODO PASSEIO (29/07) — relógio nativo do tempo-no-lugar (ver PasseioAlarme.kt).
+    // millis chega como STRING do JS (número de 13 dígitos pela ponte é terreno
+    // de coerção) — parse defensivo aqui. Devolve se agendou (exato ou janela).
+    @JavascriptInterface
+    fun passeioAlarme(atMillis: String, titulo: String, texto: String): Boolean {
+        if (BuildConfig.APP_MODE != "logistica") return false
+        val quando = atMillis.trim().toLongOrNull() ?: return false
+        val safeTitulo = titulo.filterNot(Char::isISOControl).take(60)
+        val safeTexto = texto.filterNot(Char::isISOControl).take(120)
+        return PasseioAlarme.agendar(activity, quando, safeTitulo, safeTexto)
+    }
+
+    @JavascriptInterface
+    fun passeioAlarmeCancelar() {
+        if (BuildConfig.APP_MODE != "logistica") return
+        PasseioAlarme.cancelar(activity)
+    }
+
     @JavascriptInterface
     fun appLoadProgress(value: Int) {
         if (appReadyEnviado.get()) return

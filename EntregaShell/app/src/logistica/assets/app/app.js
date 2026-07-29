@@ -281,6 +281,10 @@
   let scrollAntesDoTeclado = null;
   let touchStart = null;
   let clientHold = null;
+  // MODO PASSEIO (29/07) — hold único das linhas do passeio (roteiro "r:<id>" e
+  // lugar "p:<id>"); mesma máquina dos outros holds + guard de clique fantasma.
+  let pssHold = null;
+  let ignoredPssClickId = null;
   let ignoredClientClickId = null;
   let clientProductHold = null;
   let ignoredClientProductClickId = null;
@@ -4546,6 +4550,7 @@
     return shell(`<div class="screen-head"><div><h1>Ajustes</h1></div></div>
       ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong>${chevron}</button><button class="settings-row" data-action="statement"><div class="avatar">${icon("sales", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div>${chevron}</button><button class="settings-row" data-action="toggle-creditos-panel" role="switch" aria-checked="${!creditosPanelOculto()}"><div class="avatar">${icon("calendar", 18)}</div><div class="settings-copy"><strong>Painel de créditos do dia</strong></div><span class="module-switch ${!creditosPanelOculto() ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" data-action="open-recarga"><div class="avatar">${icon("card", 18)}</div><div class="settings-copy"><strong>Recarga de créditos</strong></div>${chevron}</button><button class="settings-row" data-action="open-financeiro"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Financeiro</strong></div>${chevron}</button><button class="settings-row" data-action="open-avancado"><div class="avatar">${icon("gear", 18)}</div><div class="settings-copy"><strong>Avançado</strong></div>${chevron}</button></section>` : ""}
       ${offlineSettingsSection()}
+      ${passeioSettingsSection()}
       <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div>${chevron}</button>${versionSettingsRow()}</section>`);
   }
 
@@ -4829,6 +4834,8 @@
     return `<div class="modal-wrap" data-action="close-modal"><section class="modal client-edit-modal"><div class="sheet-head ${pendingHasBlocking(pending) ? "client-head-pending" : ""}"><div class="avatar">${icon("users", 18)}</div><div><h2>${isNew ? "Novo cliente" : "Editar cliente"}</h2>${isNew ? "" : `<p class="subtitle">${H.escape(client.nome || client.name || "Cliente")}</p>`}</div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="client-editor-body">${customerForm}${isNew ? "" : productPart}</div></section></div>`;
   }
   function modal() {
+    if (state.modal === "passeio-ponto") return passeioPontoModal();
+    if (state.modal === "passeio-roteiro") return passeioRoteiroModal();
     if (state.modal === "client-product") return clientEditorModal(false);
     if (state.modal === "new-client") return clientEditorModal(true);
     if (state.modal === "new-product") return `<div class="modal-wrap day-home-wrap product-edit-wrap" data-action="close-modal"><section class="modal day-home center-modal product-edit-modal" role="dialog" aria-modal="true" aria-labelledby="new-product-title"><div class="center-modal-head"><div class="day-home-icon">${icon("box", 22)}</div><h2 id="new-product-title">Novo produto</h2><button class="close center-modal-close" type="button" data-action="close-modal" aria-label="Fechar">${icon("close", 16)}</button></div><div class="center-modal-body product-edit-body"><form id="new-product-form"><div class="form-grid"><div class="field"><label>Nome</label><input name="name" required maxlength="140"></div><div class="field"><label>Unidade</label><input name="unidade" maxlength="60" placeholder="galão, caixa, unidade"></div><div class="field"><label>Preço</label><input name="price" type="text" inputmode="numeric" data-product-price="new"></div><div class="field"><label>Estoque</label><input name="stock" type="number" min="0" step="1"></div></div><button class="btn btn-primary btn-block product-edit-save" type="submit">Cadastrar</button></form></div></section></div>`;
@@ -6035,7 +6042,12 @@
     // reexibir a tela.
     const willShowLeituraLiveMap = state.modal === "leitura-ativa";
     if (!willShowLeituraLiveMap) disposeLeituraLiveMap();
-    const screens = { route: routeScreen, clients: clientsScreen, products: productsScreen, settings: settingsScreen };
+    // MODO PASSEIO (29/07) — a casca (topbar/nav) some por CSS na tela única; o
+    // mapa do passeio é instância PRÓPRIA (nunca o singleton da Rota — a garagem
+    // do item 8 fica intocada) e morre junto com a tela.
+    document.body.classList.toggle("pss-active", state.screen === "passeio");
+    if (state.screen !== "passeio") disposePasseioMap();
+    const screens = { route: routeScreen, clients: clientsScreen, products: productsScreen, settings: settingsScreen, passeio: passeioScreen };
     H.mobileShell.mount(app, (screens[state.screen] || routeScreen)());
     enhancePaymentForms();
     enhanceMoneyInputs();
@@ -6072,6 +6084,8 @@
     if (montagemMapaAberta) void mountMap("route-plan-preview-map", montagemMapPoints(), false, { keepOrder: true, onTap: montagemMapTap });
     else if (willShowRouteMap) void mountRouteMap();
     if (willShowLeituraLiveMap) void mountLeituraLiveMap();
+    if (state.screen === "passeio") void mountPasseioMap();
+    syncPasseioTick();
     H.revealActiveNav();
     H.mobileShell.setContext({ appName: "logistica", currentScreen: state.screen, navigate: navigateTo });
     state.openingOverlay = null;
@@ -7576,6 +7590,9 @@
     // modoRotaPadrao) SAIU junto com o modal: o celular não escolhe mais o modo
     // comercial da rota. Quem liga a Rastreada é o administrador pelo PC.
     const action = target.dataset.action;
+    // MODO PASSEIO (29/07) — 1 gancho só; todas as ações moram no bloco PASSEIO
+    // no fim do arquivo (handlePasseioAction).
+    if (action && action.indexOf("pss-") === 0) { await handlePasseioAction(action, target); return; }
     if (action === "recarga-select-pack") { beginRecargaCheckout(target.dataset.packKey); return; }
     if (action === "recarga-reload") { openRecarga(); return; }
     // S5 21/07 (PR21072026-NAVEGAÇÃO-HBX) — mudo do painel de navegação:
@@ -7763,6 +7780,9 @@
       if (confirmation.type === "limpar-historico") await performLimparHistorico();
       if (confirmation.type === "delete-route-modelo") await performDeleteRouteModelo(confirmation.itemId);
       if (confirmation.type === "cancel-leitura") await performCancelLeitura();
+      if (confirmation.type === "pss-del-roteiro") passeioExcluirRoteiro(confirmation.itemId);
+      if (confirmation.type === "pss-del-ponto") passeioExcluirPonto(confirmation.itemId);
+      if (confirmation.type === "pss-encerrar") passeioEncerrarTour();
       if (confirmation.type === "remove-leitura-parada") await performRemoveLeituraParada(confirmation.itemId);
       if (confirmation.type === "logout") { stopNavWatch(); H.logout(); }
       if (confirmation.type === "ativar-financeiro") {
@@ -8542,6 +8562,16 @@
       hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
       routeModeloHold = hold;
     }
+    // MODO PASSEIO (29/07) — Lei 1: excluir roteiro/lugar é SEGURAR na linha.
+    // Setas ▲▼ (button) não armam o hold, igual à régua do clientProductHold.
+    const pssRow = event.target.closest("[data-pss-hold]");
+    if (pssRow && event.touches.length === 1 && state.screen === "passeio" && !state.modal && !event.target.closest("button")) {
+      ignoredPssClickId = null;
+      const touch = event.touches[0]; const hold = { id: pssRow.dataset.pssHold, el: pssRow, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
+      hold.el.classList.add("is-hold-arming");
+      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
+      pssHold = hold;
+    }
     const target = event.target;
     const routeStop = target.closest("[data-route-stop]");
     if (routeStop && event.touches.length === 1 && !state.modal && !state.selected) {
@@ -8605,12 +8635,18 @@
     if (lrtParadaHold && (Math.abs(touch.clientX - lrtParadaHold.x) > 12 || Math.abs(touch.clientY - lrtParadaHold.y) > 12)) { clearTimeout(lrtParadaHold.timer); lrtParadaHold.el.classList.remove("is-hold-arming", "is-holding"); lrtParadaHold = null; }
     if (lrtItemHold && (Math.abs(touch.clientX - lrtItemHold.x) > 12 || Math.abs(touch.clientY - lrtItemHold.y) > 12)) { clearTimeout(lrtItemHold.timer); lrtItemHold.el.classList.remove("is-hold-arming", "is-holding"); lrtItemHold = null; }
     if (historicoHold && (Math.abs(touch.clientX - historicoHold.x) > 12 || Math.abs(touch.clientY - historicoHold.y) > 12)) { clearTimeout(historicoHold.timer); historicoHold.el.classList.remove("is-hold-arming", "is-holding"); historicoHold = null; }
+    if (pssHold && (Math.abs(touch.clientX - pssHold.x) > 12 || Math.abs(touch.clientY - pssHold.y) > 12)) { clearTimeout(pssHold.timer); pssHold.el.classList.remove("is-hold-arming", "is-holding"); pssHold = null; }
     if (touchStart && touchStart.currentStopId) {
       const current = document.querySelector(`[data-route-current="${touchStart.currentStopId}"]`);
       current?.classList.toggle("is-swiping-skip", touch.clientX - touchStart.x < -24 && Math.abs(touch.clientX - touchStart.x) > Math.abs(touch.clientY - touchStart.y));
     }
   }, { passive: true });
   app.addEventListener("touchend", event => {
+    if (pssHold) {
+      clearTimeout(pssHold.timer);
+      const hold = pssHold; pssHold = null; hold.el.classList.remove("is-hold-arming", "is-holding");
+      if (hold.triggered) { ignoredPssClickId = hold.id; passeioHoldExcluir(hold.id); return; }
+    }
     if (historicoHold) {
       clearTimeout(historicoHold.timer);
       const hold = historicoHold; historicoHold = null; hold.el.classList.remove("is-hold-arming", "is-holding");
@@ -8893,6 +8929,8 @@
       // (Lei 5). Sem este ramo o submit caía no fim do handler sem fazer nada e o
       // valor digitado se perdia.
       if (form.id === "chegada-preco-form") { salvarPrecoDeHoje(form); return; }
+      if (form.id === "pss-roteiro-form") { passeioSalvarRoteiroNome(data); return; }
+      if (form.id === "pss-ponto-form") { passeioSalvarPonto(data); return; }
       if (form.id === "company-name-form") { state.companyName = String(data.companyName || "").trim().slice(0, 80); H.cache.set("logistica-company-name", state.companyName); render(); toast(state.companyName ? "Nome da empresa atualizado." : "Nome da empresa removido."); }
       if (form.id === "arrival-radius-form") { const radius = Math.max(20, Math.min(1000, Number(data.raioChegadaM))); if (!Number.isFinite(radius)) throw new Error("Informe um raio entre 20 e 1000 metros."); await H.api("/logistica/config", { method: "PATCH", body: { raioChegadaM: radius } }); await closeOverlay("modal"); await refresh(true); toast(`Aviso de chegada ajustado para ${radius} m.`); }
       if (form.id === "new-client-form") {
@@ -9111,6 +9149,487 @@
   });
   window.addEventListener("online", () => { refresh(true); void flushLeituraQueue(); syncHeaderChips(); });
   window.addEventListener("offline", syncHeaderChips);
+  // ==========================================================================
+  // MODO PASSEIO (29/07) — tela única (casca escondida via body.pss-active),
+  // 3 vistas: lista de roteiros → editor (mapa + lugares) → tour ao vivo.
+  // Tudo LOCAL no aparelho (H.cache): roteiro = {id, nome, pontos[]},
+  // ponto = {id, nome, lat, lng, minutos}. Iniciar passeio é a ÚNICA chamada
+  // de rede (POST /logistica/passeio/iniciar — debita crédito, idempotente por
+  // tourId; fail-closed sem rede, igual à rota). O RELÓGIO do tempo-no-lugar é
+  // NATIVO (H.passeioAlarme → AlarmManager): timer JS congela no Doze com a
+  // tela apagada — o turista tranca o celular no bolso, o motorista não.
+  // Mapa = instância PRÓPRIA (padrão leituraLiveMap), nunca o singleton da
+  // Rota; câmera enquadra SÓ quando a assinatura dos pontos muda (lei do dono
+  // 28/07, "câmera tem um dono só"). Linha entre pontos = OSRM do NOSSO
+  // backend via roadGeometry (fallback público já embutido; sem rota viária,
+  // liga em linha reta — nunca fica sem linha).
+  // ==========================================================================
+  let pssMapObj = null;
+  let pssMapHost = null;
+  let pssMapMarkers = [];
+  let pssMapDot = null;
+  let pssMapAssinatura = "";
+  let passeioWatchId = null;
+  let passeioPos = null;
+  let passeioTimerId = null;
+
+  function passeioRoteiros() { return H.cache.get("passeio-roteiros", []) || []; }
+  function salvarPasseioRoteiros(lista) { H.cache.set("passeio-roteiros", lista); }
+  function passeioTour() { return H.cache.get("passeio-tour", null); }
+  function salvarPasseioTour(tour) {
+    if (tour) H.cache.set("passeio-tour", tour);
+    else { H.cache.remove("passeio-tour"); H.passeioAlarmeCancelar(); }
+  }
+  function passeioView() { return state.passeioView || "lista"; }
+  function passeioRoteiroAtual() { return passeioRoteiros().find(r => String(r.id) === String(state.passeioRoteiroId)) || null; }
+  function passeioDisponivel() { return isAdmin() || configFlag("passeioEquipe"); }
+  function passeioPontosDaTela() {
+    const tour = passeioTour();
+    if (passeioView() === "tour" && tour) return tour.pontos || [];
+    const roteiro = passeioRoteiroAtual();
+    return roteiro ? roteiro.pontos || [] : [];
+  }
+  function passeioMapPontos() { return passeioPontosDaTela().filter(p => validCoordinates(p.lat, p.lng)); }
+
+  function passeioSettingsSection() {
+    if (!passeioDisponivel()) return "";
+    const equipe = configFlag("passeioEquipe");
+    const chave = isAdmin() ? `<button class="settings-row" data-action="toggle-config-flag" data-config-key="passeioEquipe" role="switch" aria-checked="${equipe ? "true" : "false"}"><div class="avatar">${icon("users", 18)}</div><div class="settings-copy"><strong>Liberar para a equipe</strong></div><span class="module-switch ${equipe ? "active" : ""}" aria-hidden="true"><i></i></span></button>` : "";
+    return `<div class="section-title"><strong>Passeio</strong></div><section class="card flat"><button class="settings-row" data-action="pss-abrir"><div class="avatar">${icon("map", 18)}</div><div class="settings-copy"><strong>Modo passeio</strong></div>${icon("chevronRight", 18)}</button>${chave}</section>`;
+  }
+
+  // ---- as 3 vistas ---------------------------------------------------------
+  function pssHead(titulo, backAction) {
+    return `<div class="pss-head">${backAction ? `<button type="button" class="pss-back" data-action="${backAction}" aria-label="Voltar">${icon("chevronLeft", 22)}</button>` : ""}<strong class="pss-titulo">${H.escape(titulo)}</strong><button type="button" class="pss-sair" data-action="pss-sair" aria-label="Sair do passeio">${icon("close", 18)}</button></div>`;
+  }
+  function passeioScreen() {
+    const view = passeioView();
+    const corpo = view === "tour" ? passeioTourView() : view === "editor" ? passeioEditorView() : passeioListaView();
+    return shell(`<div class="pss-screen">${corpo}</div>`);
+  }
+  function passeioListaView() {
+    const tour = passeioTour();
+    const roteiros = passeioRoteiros();
+    const emAndamento = tour ? `<button type="button" class="pss-tour-card" data-action="pss-ver-tour"><div class="pss-row-copy"><strong>${H.escape(tour.nomeRoteiro || "Passeio")}</strong><span>Em andamento · ${Math.min(tour.idx + 1, (tour.pontos || []).length)} de ${(tour.pontos || []).length}</span></div>${icon("chevronRight", 20)}</button>` : "";
+    const lista = roteiros.length
+      ? `<div class="list pss-lista">${roteiros.map(r => `<article class="pss-row" data-action="pss-abrir-roteiro" data-id="${H.escape(r.id)}" data-pss-hold="r:${H.escape(r.id)}"><div class="avatar">${icon("map", 18)}</div><div class="pss-row-copy"><strong>${H.escape(r.nome)}</strong><span>${(r.pontos || []).length} lugares</span></div>${icon("chevronRight", 18)}</article>`).join("")}</div>`
+      : empty("Nenhum roteiro ainda", "Crie um roteiro e marque os lugares do passeio.");
+    return `${pssHead("Passeio")}${emAndamento}${lista}<button type="button" class="btn btn-primary btn-block pss-nova" data-action="pss-novo-roteiro">Novo roteiro</button>`;
+  }
+  function passeioEditorView() {
+    const roteiro = passeioRoteiroAtual();
+    if (!roteiro) return `${pssHead("Passeio")}${empty("Roteiro não encontrado", "Volte e escolha outro.")}`;
+    const pontos = roteiro.pontos || [];
+    const lista = pontos.length
+      ? pontos.map((p, i) => `<article class="pss-row" data-action="pss-editar-ponto" data-index="${i}" data-pss-hold="p:${H.escape(p.id)}"><span class="pss-num">${i + 1}</span><div class="pss-row-copy"><strong>${H.escape(p.nome)}</strong><span>${Number(p.minutos) || 30} min</span></div><span class="pss-move"><button type="button" data-action="pss-mover" data-index="${i}" data-dir="-1" aria-label="Subir" ${i === 0 ? "disabled" : ""}>${icon("chevronUp", 16)}</button><button type="button" data-action="pss-mover" data-index="${i}" data-dir="1" aria-label="Descer" ${i === pontos.length - 1 ? "disabled" : ""}>${icon("chevronDown", 16)}</button></span></article>`).join("")
+      : empty("Nenhum lugar ainda", "Toque no mapa ou marque onde você está.");
+    return `${pssHead(roteiro.nome, "pss-voltar-lista")}
+      <div class="pss-map" id="pss-map"><span class="route-map-loading">Carregando mapa…</span></div>
+      <button type="button" class="btn btn-secondary btn-block pss-marcar" data-action="pss-marcar-gps">${icon("gps", 18)} Marcar onde estou</button>
+      <div class="list pss-lista">${lista}</div>
+      ${pontos.length ? `<button type="button" class="btn btn-primary btn-block pss-iniciar" data-action="pss-iniciar" ${state.passeioIniciando ? "disabled" : ""}>Iniciar passeio ›</button>` : ""}`;
+  }
+  function passeioTourView() {
+    const tour = passeioTour();
+    if (!tour) return `${pssHead("Passeio")}${empty("Nenhum passeio em andamento", "Escolha um roteiro para começar.")}`;
+    const ponto = tour.pontos[tour.idx] || null;
+    const ultimo = tour.idx >= tour.pontos.length - 1;
+    const proximo = ultimo ? null : tour.pontos[tour.idx + 1];
+    let corpo;
+    if (!ponto) corpo = empty("Passeio vazio", "Encerre e monte de novo.");
+    else if (tour.fase === "indo") {
+      corpo = `<div class="pss-alvo"><span class="pss-alvo-rotulo">Indo para</span><strong class="pss-alvo-nome">${H.escape(ponto.nome)}</strong><span class="pss-alvo-dist" id="pss-dist">${passeioDistLabel()}</span></div>
+        <div class="pss-tour-acoes"><button type="button" class="btn btn-secondary" data-action="pss-navegar">${icon("navigation", 18)} Navegar</button><button type="button" class="btn btn-primary" data-action="pss-cheguei">Cheguei</button></div>`;
+    } else {
+      const estourado = !!tour.estourado;
+      corpo = `<div class="pss-alvo"><span class="pss-alvo-rotulo">${estourado ? (proximo ? "Hora de ir" : "Fim do passeio") : "Você está em"}</span><strong class="pss-alvo-nome">${H.escape(estourado && proximo ? proximo.nome : ponto.nome)}</strong></div>
+        ${estourado ? "" : `<div class="pss-count" id="pss-count">${passeioCountLabel()}</div>`}
+        <div class="pss-tour-acoes">${estourado ? "" : `<button type="button" class="btn btn-secondary" data-action="pss-mais15">+15 min</button>`}<button type="button" class="btn btn-primary" data-action="pss-proximo">${ultimo ? "Concluir passeio" : "Próximo ›"}</button></div>`;
+    }
+    return `${pssHead(tour.nomeRoteiro || "Passeio", "pss-voltar-lista")}
+      <div class="pss-map" id="pss-map"><span class="route-map-loading">Carregando mapa…</span></div>
+      ${corpo}
+      <button type="button" class="link-btn pss-encerrar" data-action="pss-encerrar">Encerrar passeio</button>`;
+  }
+  function passeioDistLabel() {
+    const tour = passeioTour();
+    const ponto = tour && tour.pontos[tour.idx];
+    if (!ponto || !passeioPos || !validCoordinates(passeioPos.lat, passeioPos.lng) || !validCoordinates(ponto.lat, ponto.lng)) return "";
+    const d = distanceMeters(passeioPos, ponto);
+    if (!Number.isFinite(d)) return "";
+    return d >= 1000 ? `${(d / 1000).toFixed(1).replace(".", ",")} km` : `${Math.round(d)} m`;
+  }
+  function passeioCountLabel() {
+    const tour = passeioTour();
+    if (!tour || tour.fase !== "local" || !tour.fimEm) return "";
+    const resta = Math.max(0, Number(tour.fimEm) - Date.now());
+    const m = Math.floor(resta / 60000);
+    const s = Math.floor(resta % 60000 / 1000);
+    return `${m}:${String(s).padStart(2, "0")}`;
+  }
+
+  // ---- modais --------------------------------------------------------------
+  function passeioRoteiroModal() {
+    return centerModal({ icon: "map", title: "Novo roteiro", closeAction: "close-modal", closeButtonAction: "close-modal", body: `<form id="pss-roteiro-form"><div class="field"><label>Nome</label><input name="nome" required maxlength="60" autocomplete="off"></div><button class="btn btn-primary btn-block" type="submit">Criar</button></form>` });
+  }
+  function passeioPontoModal() {
+    const draft = state.passeioPonto || {};
+    const minutos = Number(draft.minutos) || 30;
+    const chips = [15, 30, 45, 60].map(v => `<button type="button" class="day-chip ${minutos === v ? "active" : ""}" data-action="pss-minutos" data-min="${v}">${v} min</button>`).join("");
+    return centerModal({ icon: "gps", title: draft.index != null ? "Editar lugar" : "Novo lugar", closeAction: "close-modal", closeButtonAction: "close-modal", body: `<form id="pss-ponto-form"><div class="field"><label>Nome</label><input name="nome" required maxlength="60" autocomplete="off" value="${H.escape(draft.nome || "")}"></div><div class="field"><label>Tempo no lugar (min)</label><div class="day-chips pss-min">${chips}</div><input name="minutos" type="number" inputmode="numeric" min="1" max="720" value="${minutos}"></div><button class="btn btn-primary btn-block" type="submit">Salvar</button></form>` });
+  }
+  function passeioSalvarRoteiroNome(data) {
+    const nome = String(data.nome || "").trim().slice(0, 60);
+    if (!nome) return;
+    const roteiro = { id: H.uuid(), nome, pontos: [] };
+    salvarPasseioRoteiros([...passeioRoteiros(), roteiro]);
+    state.passeioRoteiroId = roteiro.id;
+    state.passeioView = "editor";
+    void closeOverlay("modal");
+  }
+  function passeioSalvarPonto(data) {
+    const draft = state.passeioPonto;
+    if (!draft) { void closeOverlay("modal"); return; }
+    const nome = String(data.nome || "").trim().slice(0, 60);
+    if (!nome) return;
+    const minutos = Math.max(1, Math.min(720, Number(data.minutos) || Number(draft.minutos) || 30));
+    const roteiro = passeioRoteiroAtual();
+    if (!roteiro) { void closeOverlay("modal"); return; }
+    roteiro.pontos = roteiro.pontos || [];
+    if (draft.index != null && roteiro.pontos[draft.index]) roteiro.pontos[draft.index] = { ...roteiro.pontos[draft.index], nome, minutos };
+    else roteiro.pontos.push({ id: H.uuid(), nome, minutos, lat: draft.lat, lng: draft.lng });
+    salvarPasseioRoteiros(passeioRoteiros().map(r => String(r.id) === String(roteiro.id) ? roteiro : r));
+    state.passeioPonto = null;
+    void closeOverlay("modal");
+  }
+
+  // ---- ações ---------------------------------------------------------------
+  async function handlePasseioAction(action, target) {
+    if (action === "pss-abrir") { state.passeioView = passeioTour() ? "tour" : "lista"; navigateTo("passeio"); return; }
+    if (action === "pss-sair") { navigateTo("settings", "back"); return; }
+    if (action === "pss-voltar-lista") { state.passeioView = "lista"; state.passeioRoteiroId = null; render(); return; }
+    if (action === "pss-ver-tour") { state.passeioView = "tour"; render(); return; }
+    if (action === "pss-novo-roteiro") { showModal("passeio-roteiro"); return; }
+    if (action === "pss-abrir-roteiro") {
+      const id = target.dataset.id;
+      if (ignoredPssClickId === `r:${id}`) { ignoredPssClickId = null; return; }
+      state.passeioRoteiroId = id;
+      state.passeioView = "editor";
+      render();
+      return;
+    }
+    if (action === "pss-editar-ponto") {
+      const roteiro = passeioRoteiroAtual();
+      const index = Number(target.dataset.index);
+      const ponto = roteiro && (roteiro.pontos || [])[index];
+      if (!ponto) return;
+      if (ignoredPssClickId === `p:${ponto.id}`) { ignoredPssClickId = null; return; }
+      state.passeioPonto = { index, nome: ponto.nome, minutos: ponto.minutos, lat: ponto.lat, lng: ponto.lng };
+      showModal("passeio-ponto");
+      return;
+    }
+    if (action === "pss-minutos") { if (state.passeioPonto) { state.passeioPonto.minutos = Number(target.dataset.min) || 30; render(); } return; }
+    if (action === "pss-mover") {
+      const roteiro = passeioRoteiroAtual();
+      if (!roteiro || !Array.isArray(roteiro.pontos)) return;
+      const index = Number(target.dataset.index);
+      const alvo = index + Number(target.dataset.dir);
+      if (alvo < 0 || alvo >= roteiro.pontos.length || !roteiro.pontos[index]) return;
+      const [p] = roteiro.pontos.splice(index, 1);
+      roteiro.pontos.splice(alvo, 0, p);
+      salvarPasseioRoteiros(passeioRoteiros().map(r => String(r.id) === String(roteiro.id) ? roteiro : r));
+      H.vibrate(8);
+      render();
+      return;
+    }
+    if (action === "pss-marcar-gps") {
+      const posicao = passeioPos && validCoordinates(passeioPos.lat, passeioPos.lng) ? passeioPos : await currentPosition();
+      if (!posicao || !validCoordinates(posicao.lat, posicao.lng)) { toast("Sem sinal de GPS agora.", true); return; }
+      state.passeioPonto = { index: null, nome: "", minutos: 30, lat: posicao.lat, lng: posicao.lng };
+      showModal("passeio-ponto");
+      return;
+    }
+    if (action === "pss-iniciar") { await passeioIniciarTour(); return; }
+    if (action === "pss-navegar") { const tour = passeioTour(); const ponto = tour && tour.pontos[tour.idx]; if (ponto && validCoordinates(ponto.lat, ponto.lng)) H.maps(ponto.lat, ponto.lng, ponto.nome); return; }
+    if (action === "pss-cheguei") { passeioChegou(); return; }
+    if (action === "pss-mais15") { passeioMais15(); return; }
+    if (action === "pss-proximo") { passeioProximo(); return; }
+    if (action === "pss-encerrar") {
+      state.confirmation = { type: "pss-encerrar", title: "Encerrar passeio?", message: "O roteiro e os lugares salvos continuam.", confirmLabel: "Encerrar", danger: true, icon: "map" };
+      render();
+    }
+  }
+
+  // ---- núcleo do tour ------------------------------------------------------
+  async function passeioIniciarTour() {
+    const roteiro = passeioRoteiroAtual();
+    if (!roteiro || !(roteiro.pontos || []).length) { toast("Marque pelo menos um lugar.", true); return; }
+    if (state.passeioIniciando) return;
+    // Guard de reentrância ANTES do 1º await (padrão accept-confirmation).
+    state.passeioIniciando = true;
+    render();
+    try {
+      const tourId = H.uuid();
+      await H.api("/logistica/passeio/iniciar", { method: "POST", body: { tourId } });
+      const tour = { tourId, roteiroId: roteiro.id, nomeRoteiro: roteiro.nome, pontos: roteiro.pontos.map(p => ({ ...p })), idx: 0, fase: "indo", fimEm: null, estourado: false };
+      salvarPasseioTour(tour);
+      state.passeioView = "tour";
+      H.sound("success");
+      H.speak(`Passeio iniciado. Primeiro lugar: ${tour.pontos[0].nome}.`);
+    } catch (error) { toast(humanApiError(error), true); }
+    finally { state.passeioIniciando = false; render(); }
+  }
+  function passeioAgendarAlarme(tour) {
+    const proximo = tour.pontos[tour.idx + 1];
+    H.passeioAlarme(tour.fimEm, "Passeio", proximo ? `Hora de ir: ${proximo.nome}` : "Fim do passeio");
+  }
+  function passeioChegou() {
+    const tour = passeioTour();
+    if (!tour || tour.fase !== "indo") return;
+    const ponto = tour.pontos[tour.idx];
+    if (!ponto) return;
+    tour.fase = "local";
+    tour.estourado = false;
+    tour.fimEm = Date.now() + Math.max(1, Number(ponto.minutos) || 30) * 60000;
+    salvarPasseioTour(tour);
+    passeioAgendarAlarme(tour);
+    H.sound("success");
+    H.speak(`Você chegou: ${ponto.nome}. ${Number(ponto.minutos) || 30} minutos aqui.`);
+    render();
+  }
+  function passeioMais15() {
+    const tour = passeioTour();
+    if (!tour || tour.fase !== "local" || !tour.fimEm) return;
+    tour.fimEm = Math.max(Number(tour.fimEm), Date.now()) + 15 * 60000;
+    tour.estourado = false;
+    salvarPasseioTour(tour);
+    passeioAgendarAlarme(tour);
+    H.vibrate(12);
+    render();
+  }
+  function passeioTempoEsgotado() {
+    const tour = passeioTour();
+    if (!tour || tour.fase !== "local" || tour.estourado) return;
+    tour.estourado = true;
+    salvarPasseioTour(tour);
+    const proximo = tour.pontos[tour.idx + 1];
+    H.sound("warning");
+    H.speak(proximo ? `Hora de ir para o próximo lugar: ${proximo.nome}.` : "Fim do passeio.");
+    render();
+  }
+  function passeioProximo() {
+    const tour = passeioTour();
+    if (!tour) return;
+    H.passeioAlarmeCancelar();
+    if (tour.idx >= tour.pontos.length - 1) {
+      salvarPasseioTour(null);
+      state.passeioView = "lista";
+      H.sound("success");
+      H.speak("Passeio concluído.");
+      toast("Passeio concluído.");
+      return;
+    }
+    tour.idx += 1;
+    tour.fase = "indo";
+    tour.fimEm = null;
+    tour.estourado = false;
+    salvarPasseioTour(tour);
+    H.speak(`Próximo lugar: ${tour.pontos[tour.idx].nome}.`);
+    render();
+  }
+  function passeioEncerrarTour() {
+    salvarPasseioTour(null);
+    state.passeioView = "lista";
+    toast("Passeio encerrado.");
+  }
+  function passeioHandleBack() {
+    if (passeioView() !== "lista") { state.passeioView = "lista"; state.passeioRoteiroId = null; render(); return true; }
+    return false;
+  }
+  function passeioHoldExcluir(holdId) {
+    const sep = String(holdId || "").indexOf(":");
+    if (sep < 0) return;
+    const tipo = String(holdId).slice(0, sep);
+    const id = String(holdId).slice(sep + 1);
+    if (tipo === "r") {
+      const roteiro = passeioRoteiros().find(r => String(r.id) === String(id));
+      if (!roteiro) return;
+      state.confirmation = { type: "pss-del-roteiro", itemId: id, title: "Excluir roteiro?", message: `${roteiro.nome} e os lugares dele somem daqui.`, confirmLabel: "Excluir", danger: true, icon: "map" };
+      render();
+      return;
+    }
+    if (tipo === "p") {
+      state.confirmation = { type: "pss-del-ponto", itemId: id, title: "Excluir lugar?", confirmLabel: "Excluir", danger: true, icon: "gps" };
+      render();
+    }
+  }
+  function passeioExcluirRoteiro(id) {
+    salvarPasseioRoteiros(passeioRoteiros().filter(r => String(r.id) !== String(id)));
+    if (String(state.passeioRoteiroId) === String(id)) { state.passeioRoteiroId = null; state.passeioView = "lista"; }
+    toast("Roteiro excluído.");
+  }
+  function passeioExcluirPonto(id) {
+    const roteiro = passeioRoteiroAtual();
+    if (!roteiro) return;
+    roteiro.pontos = (roteiro.pontos || []).filter(p => String(p.id) !== String(id));
+    salvarPasseioRoteiros(passeioRoteiros().map(r => String(r.id) === String(roteiro.id) ? roteiro : r));
+    toast("Lugar excluído.");
+  }
+
+  // ---- GPS + relógio da tela ----------------------------------------------
+  function syncPasseioTick() {
+    const naTela = state.screen === "passeio" && moduleActive;
+    if (naTela && passeioWatchId == null && navigator.geolocation) {
+      passeioWatchId = navigator.geolocation.watchPosition(position => {
+        const coords = position.coords || {};
+        if (!validCoordinates(coords.latitude, coords.longitude)) return;
+        passeioPos = { lat: coords.latitude, lng: coords.longitude, accuracy: Number.isFinite(coords.accuracy) ? coords.accuracy : null };
+        atualizarPasseioDot();
+        // Patch direto no nó (padrão gpsStatus): distância muda a cada fix e
+        // re-render por segundo custaria a tela inteira.
+        const distEl = document.getElementById("pss-dist");
+        if (distEl) distEl.textContent = passeioDistLabel();
+        passeioAutoChegada();
+      }, () => {}, { enableHighAccuracy: true, timeout: 12000, maximumAge: 5000 });
+    } else if (!naTela && passeioWatchId != null) {
+      navigator.geolocation.clearWatch(passeioWatchId);
+      passeioWatchId = null;
+    }
+    const tour = passeioTour();
+    const contando = naTela && passeioView() === "tour" && tour && tour.fase === "local" && !tour.estourado;
+    if (contando && passeioTimerId == null) {
+      passeioTimerId = setInterval(() => {
+        const t = passeioTour();
+        if (!t || t.fase !== "local" || t.estourado) return;
+        if (Date.now() >= Number(t.fimEm || 0)) { passeioTempoEsgotado(); return; }
+        const el = document.getElementById("pss-count");
+        if (el) el.textContent = passeioCountLabel();
+      }, 1000);
+    } else if (!contando && passeioTimerId != null) {
+      clearInterval(passeioTimerId);
+      passeioTimerId = null;
+    }
+  }
+  function passeioAutoChegada() {
+    const tour = passeioTour();
+    if (!tour || tour.fase !== "indo" || state.screen !== "passeio") return;
+    const ponto = tour.pontos[tour.idx];
+    if (!ponto || !passeioPos || !validCoordinates(ponto.lat, ponto.lng)) return;
+    // Fix ruim não decide chegada (pino errado é pior que pino vazio).
+    const accuracy = Number(passeioPos.accuracy);
+    if (Number.isFinite(accuracy) && accuracy > 120) return;
+    if (distanceMeters(passeioPos, ponto) <= 80) passeioChegou();
+  }
+
+  // ---- mapa próprio --------------------------------------------------------
+  function disposePasseioMap() {
+    pssMapMarkers.forEach(m => { try { m.remove(); } catch (_) {} });
+    pssMapMarkers = [];
+    if (pssMapDot) { try { pssMapDot.remove(); } catch (_) {} pssMapDot = null; }
+    if (pssMapHost) pssMapHost.__hbxMap = null;
+    if (pssMapObj) { try { pssMapObj.remove(); } catch (_) {} }
+    pssMapObj = null;
+    pssMapHost = null;
+    pssMapAssinatura = "";
+  }
+  async function mountPasseioMap() {
+    const host = document.getElementById("pss-map");
+    if (!host) { disposePasseioMap(); return; }
+    try {
+      const maplibregl = await loadRouteMapLibrary();
+      if (!host.isConnected || host !== document.getElementById("pss-map")) return;
+      if (!pssMapObj || pssMapHost !== host) {
+        disposePasseioMap();
+        pssMapHost = host;
+        const pontos = passeioMapPontos();
+        const centro = pontos[0] || (passeioPos && validCoordinates(passeioPos.lat, passeioPos.lng) ? passeioPos : { lat: -14.235, lng: -51.9253 });
+        const map = new maplibregl.Map({ container: host, style: currentMapStyle(), center: [centro.lng, centro.lat], zoom: pontos.length ? 13 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false });
+        pssMapObj = map;
+        host.__hbxMap = map;
+        map.on("load", () => {
+          if (pssMapObj !== map || pssMapHost !== host) return;
+          host.classList.add("is-ready");
+          collapseMapAttribution(host);
+          map.resize();
+          aplicarPasseioMapa(true);
+          atualizarPasseioDot();
+        });
+        map.on("click", e => {
+          if (passeioView() !== "editor" || state.modal) return;
+          state.passeioPonto = { index: null, nome: "", minutos: 30, lat: e.lngLat.lat, lng: e.lngLat.lng };
+          showModal("passeio-ponto");
+        });
+        map.on("error", () => {});
+        return;
+      }
+      aplicarPasseioMapa(false);
+    } catch (_) { if (host.isConnected) host.innerHTML = `<span class="route-map-unavailable">Não foi possível carregar o mapa agora.</span>`; }
+  }
+  function aplicarPasseioMapa(recemCriado) {
+    if (!pssMapObj || !pssMapHost) return;
+    const pontos = passeioMapPontos();
+    const tour = passeioTour();
+    const alvoIdx = passeioView() === "tour" && tour ? tour.idx : -1;
+    const assinatura = `${passeioView()}|${alvoIdx}|${pontos.map(p => `${p.id}:${Number(p.lat).toFixed(5)},${Number(p.lng).toFixed(5)}`).join(";")}`;
+    if (assinatura === pssMapAssinatura && !recemCriado) return;
+    pssMapAssinatura = assinatura;
+    pssMapMarkers.forEach(m => { try { m.remove(); } catch (_) {} });
+    pssMapMarkers = pontos.map((p, i) => {
+      const el = document.createElement("span");
+      el.className = `pss-pin${i === alvoIdx ? " is-alvo" : ""}`;
+      el.textContent = String(i + 1);
+      return new window.maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([p.lng, p.lat]).addTo(pssMapObj);
+    });
+    void aplicarPasseioLinha(pontos);
+    if (pontos.length > 1) {
+      const bounds = new window.maplibregl.LngLatBounds();
+      pontos.forEach(p => bounds.extend([p.lng, p.lat]));
+      try { pssMapObj.fitBounds(bounds, { padding: 46, maxZoom: 15.5, duration: recemCriado ? 0 : 420 }); } catch (_) {}
+    } else if (pontos.length === 1) {
+      try { pssMapObj.easeTo({ center: [pontos[0].lng, pontos[0].lat], zoom: 15, duration: recemCriado ? 0 : 420 }); } catch (_) {}
+    }
+  }
+  async function aplicarPasseioLinha(pontos) {
+    const mapa = pssMapObj;
+    if (!mapa) return;
+    let coords = pontos.map(p => [Number(p.lng), Number(p.lat)]);
+    if (coords.length >= 2) {
+      try {
+        const viaRuas = await roadGeometry(pontos);
+        if (Array.isArray(viaRuas) && viaRuas.length >= 2) coords = viaRuas;
+      } catch (_) {}
+    }
+    if (pssMapObj !== mapa) return;
+    const data = { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: coords.length >= 2 ? coords : [] } };
+    try {
+      const source = mapa.getSource("pss-linha");
+      if (source) source.setData(data);
+      else if (coords.length >= 2) {
+        mapa.addSource("pss-linha", { type: "geojson", data });
+        mapa.addLayer({ id: "pss-linha", type: "line", source: "pss-linha", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": mapPaintToken("--brand", "rgb(120,201,0)"), "line-width": 4, "line-opacity": .8 } });
+      }
+    } catch (_) {}
+  }
+  function atualizarPasseioDot() {
+    if (!pssMapObj || !passeioPos || !validCoordinates(passeioPos.lat, passeioPos.lng)) return;
+    if (!pssMapDot) {
+      const el = document.createElement("span");
+      el.className = "pss-dot";
+      pssMapDot = new window.maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([passeioPos.lng, passeioPos.lat]).addTo(pssMapObj);
+    } else pssMapDot.setLngLat([passeioPos.lng, passeioPos.lat]);
+  }
+
+  // Boot: tour vivo sobrevive a fechar/abrir o app (e a reboot — o alarme do
+  // AlarmManager morre no reboot, então re-agenda aqui se ainda está no futuro;
+  // tempo já vencido com o app fechado vira "Hora de ir" na abertura).
+  (function passeioBoot() {
+    const tour = passeioTour();
+    if (!tour || tour.fase !== "local" || !tour.fimEm) return;
+    if (Date.now() >= Number(tour.fimEm)) {
+      if (!tour.estourado) { tour.estourado = true; salvarPasseioTour(tour); }
+    } else passeioAgendarAlarme(tour);
+  })();
+
   window.HBXApp = {
     refresh,
     rechargeCompleted(detail) {
@@ -9206,6 +9725,10 @@
         if (state.modal) { void closeOverlay("modal"); return true; }
         if (state.deliveryProductPicker) { state.deliveryProductPicker = false; render(); return true; }
         if (state.selected) { void closeOverlay("sheet"); return true; }
+        // MODO PASSEIO (29/07) — Lei 10: editor/tour voltam pra lista de
+        // roteiros; a lista cai no fallback (→ Rota). Tour ativo NÃO morre no
+        // Voltar — só sai da tela (o relógio nativo continua contando).
+        if (state.screen === "passeio" && passeioHandleBack()) return true;
         if (state.screen !== "route") { navigateTo("route", "back"); return true; }
         return false;
       } catch (error) {

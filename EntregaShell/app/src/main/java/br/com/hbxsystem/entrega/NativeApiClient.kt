@@ -332,6 +332,9 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("nucleo", "contas"),
             listOf("products"),
             listOf("logistica", "leitura", "iniciar"),
+            // MODO PASSEIO (29/07) — iniciar (e cobrar) o passeio; gate
+            // admin×passeioEquipe e idempotência por tourId moram no backend.
+            listOf("logistica", "passeio", "iniciar"),
         ) -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "entregas") && segments[3] in setOf("confirmar", "cancelar", "reabrir", "comprovantes", "chegando") -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "rota-modelos") && segments[3] == "gerar" -> true

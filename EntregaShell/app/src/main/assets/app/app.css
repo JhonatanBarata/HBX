@@ -1746,3 +1746,44 @@ span.chk-endereco .chk-ruim { color: var(--danger); font-weight: 900; }
   :root[data-app="logistica"] .topbar { grid-template-columns: auto minmax(0, 1fr); }
   :root[data-app="logistica"] .toolbar { min-width: 0; }
 }
+
+/* ==========================================================================
+   MODO PASSEIO (29/07) — tela única .pss-*. A casca (topbar + bottom-nav) some
+   via body.pss-active ("remover todos guias e avisos, criar uma tela só" —
+   ordem do dono); overlays/confirmação/toast continuam funcionando por cima.
+   Tudo por token (Lei 2); hold de excluir = mesmo ::after dos cards (Lei 1). */
+body.pss-active .topbar, body.pss-active .bottom-nav { display: none; }
+body.pss-active .content { padding-top: calc(10px + var(--safe-top)); padding-bottom: calc(14px + var(--safe-bottom)); }
+.pss-screen { display: flex; flex-direction: column; gap: 10px; min-height: 100%; }
+.pss-head { display: flex; align-items: center; gap: 8px; }
+.pss-titulo { flex: 1 1 auto; min-width: 0; overflow: hidden; font-size: .95rem; font-weight: 850; text-overflow: ellipsis; white-space: nowrap; }
+.pss-back, .pss-sair { display: grid; place-items: center; width: 38px; height: 38px; flex: 0 0 auto; border: 1px solid var(--line); border-radius: 12px; color: var(--ink); background: var(--surface); }
+.pss-map { position: relative; height: 38vh; min-height: 200px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--map-canvas); }
+.pss-map .route-map-loading, .pss-map .route-map-unavailable { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: .72rem; }
+.pss-pin { display: grid; place-items: center; width: 26px; height: 26px; border: 2px solid var(--on-brand); border-radius: 50%; color: var(--on-brand); background: var(--brand); font-size: .7rem; font-weight: 850; box-shadow: var(--shadow); }
+.pss-pin.is-alvo { border-color: var(--on-solid); color: var(--on-solid); background: var(--info); }
+.pss-dot { width: 15px; height: 15px; border: 3px solid var(--on-solid); border-radius: 50%; background: var(--info); box-shadow: 0 0 0 2px color-mix(in srgb, var(--info) 35%, transparent); }
+.pss-row { position: relative; display: flex; align-items: center; gap: 10px; width: 100%; overflow: hidden; padding: 12px; border: 1px solid var(--line); border-radius: 15px; color: var(--ink); background: var(--surface); text-align: left; -webkit-user-select: none; user-select: none; touch-action: pan-y; }
+.pss-row::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: color-mix(in srgb, var(--danger) 20%, transparent); transform: scaleX(0); transform-origin: left center; }
+.pss-row.is-hold-arming::after { animation: client-hold-fill .65s linear .3s forwards; }
+.pss-row.is-holding { border-color: var(--danger); }
+.pss-row.is-holding::after { transform: scaleX(1); }
+.pss-row-copy { flex: 1 1 auto; min-width: 0; }
+.pss-row-copy strong { display: block; overflow: hidden; font-size: .82rem; text-overflow: ellipsis; white-space: nowrap; }
+.pss-row-copy span { display: block; margin-top: 2px; color: var(--muted); font-size: .69rem; }
+.pss-num { display: grid; place-items: center; width: 26px; height: 26px; flex: 0 0 auto; border-radius: 50%; color: var(--on-brand); background: var(--brand); font-size: .7rem; font-weight: 850; }
+.pss-move { display: flex; flex: 0 0 auto; gap: 4px; }
+.pss-move button { display: grid; place-items: center; width: 32px; height: 32px; border: 1px solid var(--line); border-radius: 10px; color: var(--ink); background: var(--surface-2); }
+.pss-move button:disabled { opacity: .35; }
+.pss-tour-card { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px; border: 1px solid color-mix(in srgb, var(--brand) 45%, var(--line)); border-radius: 15px; color: var(--ink); background: var(--brand-soft); text-align: left; }
+.pss-tour-card .pss-row-copy strong { color: var(--on-brand-soft); }
+.pss-alvo { display: grid; gap: 2px; padding: 4px 2px; text-align: center; }
+.pss-alvo-rotulo { color: var(--muted); font-size: .68rem; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+.pss-alvo-nome { font-size: 1.35rem; font-weight: 850; line-height: 1.15; }
+.pss-alvo-dist { color: var(--muted); font-size: .78rem; font-variant-numeric: tabular-nums; }
+.pss-count { text-align: center; font-size: 3.4rem; font-weight: 850; line-height: 1; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+.pss-tour-acoes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.pss-tour-acoes .btn { min-height: 52px; }
+.pss-encerrar { align-self: center; color: var(--danger); }
+.pss-iniciar, .pss-nova { margin-top: auto; }
+.day-chips.pss-min { grid-template-columns: repeat(4, minmax(0, 1fr)); }

@@ -12,6 +12,12 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- MODO PASSEIO (29/07): alarme EXATO do "tempo no lugar" (PasseioAlarme.kt).
+         USE_EXACT_ALARM (33+) é concedida sozinha — app distribuído fora da Play,
+         e o alarme é função de despertador de verdade; SCHEDULE_EXACT_ALARM cobre
+         as APIs 31-32 (auto-concedida lá). -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <!-- Auto-update (F4): instalar o APK baixado do próprio VPS via PackageInstaller. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
@@ -154,6 +160,12 @@
              reabre o app sozinho. Este receiver avisa "HBX atualizado — toque
              para abrir". exported=false: MY_PACKAGE_REPLACED é entregue pelo
              sistema ao próprio pacote, ninguém de fora precisa disparar. -->
+        <!-- MODO PASSEIO (29/07): dispara a notificação-alarme do tempo-no-lugar.
+             exported=false — só o AlarmManager do próprio app dispara. -->
+        <receiver
+            android:name=".PasseioAlarmReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".AppAtualizadoReceiver"
             android:exported="false">

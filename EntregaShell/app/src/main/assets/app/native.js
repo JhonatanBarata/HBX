@@ -380,6 +380,15 @@
         }
       },
     },
+    // MODO PASSEIO (29/07) — relógio NATIVO do tempo-no-lugar (AlarmManager):
+    // timer JS congela no Doze com a tela apagada, o alarme nativo não. Millis
+    // viaja como STRING (número de 13 dígitos pela ponte é terreno de coerção).
+    // Mesmo guard de bridge ausente de speak/sound: preview no navegador = no-op.
+    passeioAlarme(atMillis, titulo, texto) {
+      try { return !!(bridge && bridge.passeioAlarme && bridge.passeioAlarme(String(Math.round(Number(atMillis) || 0)), String(titulo || ""), String(texto || ""))); }
+      catch (_) { return false; }
+    },
+    passeioAlarmeCancelar() { try { bridge && bridge.passeioAlarmeCancelar && bridge.passeioAlarmeCancelar(); } catch (_) {} },
     activateRoute(payload) { bridge && bridge.activateRoute && bridge.activateRoute(JSON.stringify(payload)); },
     stopRoute() { bridge && bridge.stopRoute && bridge.stopRoute(); },
     requestLocationPermission() { bridge && bridge.requestLocationPermission && bridge.requestLocationPermission(); },
@@ -772,7 +781,7 @@
     });
     appRoot.addEventListener("touchstart", event => {
       const target = event.target;
-      if (event.touches.length !== 1 || target.closest?.(".bottom-nav, input, textarea, select, [contenteditable], .chips, .sales-board, .sales-stages, .modal-wrap, .sheet-wrap, [data-route-current], .maplibregl-map, .route-live-map, .route-plan-preview-map")) { shellSwipe = null; return; }
+      if (event.touches.length !== 1 || target.closest?.(".bottom-nav, input, textarea, select, [contenteditable], .chips, .sales-board, .sales-stages, .modal-wrap, .sheet-wrap, [data-route-current], .maplibregl-map, .route-live-map, .route-plan-preview-map, .pss-screen")) { shellSwipe = null; return; }
       const touch = event.touches[0]; shellSwipe = { x: touch.clientX, y: touch.clientY };
     }, { passive: true });
     appRoot.addEventListener("touchend", event => {

@@ -57,7 +57,8 @@ test('listagem relê o banco e mostra defaults pedidos', async () => {
   const fake = createFakePrisma();
   const service = new CreditActionConfigService(fake as any);
   const list = await service.listForMaster();
-  assert.equal(list.length, 7);
+  // 29/07 — 8ª ação: passeio_tour (Modo Passeio do APK).
+  assert.equal(list.length, 8);
   assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LEAD_DELIVERY)?.effective, { mode: 'debit', cost: 1 });
   assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.AUTOMATION)?.effective, { mode: 'debit', cost: 0.1 });
   assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.AI_REALTIME)?.effective, { mode: 'debit', cost: 0.1 });
@@ -67,6 +68,7 @@ test('listagem relê o banco e mostra defaults pedidos', async () => {
   // dividido pelas paradas que ele cobria = 0,4.
   assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LOGISTICA_ESSENTIAL_BLOCK)?.effective, { mode: 'debit', cost: 0.4 });
   assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.LOGISTICA_TRACKED_DELIVERY)?.effective, { mode: 'debit', cost: 2 });
+  assert.deepEqual(list.find((item) => item.actionKey === CREDIT_ACTION_KEYS.PASSEIO_TOUR)?.effective, { mode: 'debit', cost: 2 });
 });
 
 test('entrega avulsa legada é sempre grátis e não aceita override de débito', async () => {
