@@ -266,3 +266,49 @@ test('quality gate E2: lane web com quality approved segue entregavel (controle)
   });
   assert.equal(result.deliverable, true, `esperava deliverable=true, motivo: ${result.reason}`);
 });
+
+// ── E3 ESTABILIZAÇÃO (29/07) — nome de MENU/categoria não é empresa ─────────────────────────
+// Caso real Mirão: extrator pegou "Informática & Eletrônicos" (menu do site) como nome.
+
+test('quality gate E3: "Informática & Eletrônicos" (menu de loja) REJEITA como non_business_name', () => {
+  const result = gate.evaluate({
+    candidate: {
+      source: 'hbx_engine',
+      name: 'Informática & Eletrônicos',
+      city: 'Analândia',
+      state: 'SP',
+      phoneDigits: '1129432050',
+      phone: '(11) 2943-2050',
+    },
+    filters: { city: 'Analândia', state: 'SP', segment: 'distribuidora de agua' } as any,
+    host: permissiveHost,
+    minQualityScore: 25,
+  });
+  assert.equal(result.deliverable, false);
+  assert.ok(result.hardBlockers.includes('non_business_name'));
+});
+
+test('quality gate E3: "M & M Distribuidora" (identidade propria com &) NAO cai no anti-menu', () => {
+  const result = gate.evaluate({
+    candidate: {
+      source: 'hbx_engine',
+      name: 'M & M Distribuidora',
+      city: 'Araras',
+      state: 'SP',
+      phoneDigits: '19999990015',
+      phone: '(19) 99999-0015',
+    },
+    filters: { city: 'Araras', state: 'SP', segment: 'distribuidora de agua' } as any,
+    quality: {
+      status: 'approved' as const,
+      billable: true,
+      segmentMatchScore: 85,
+      contactQualityScore: 70,
+      commercialScore: 74,
+      reasons: [],
+    },
+    host: permissiveHost,
+    minQualityScore: 25,
+  });
+  assert.equal(result.deliverable, true, `esperava deliverable=true, motivo: ${result.reason}`);
+});

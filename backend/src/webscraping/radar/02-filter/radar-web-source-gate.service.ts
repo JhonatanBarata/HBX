@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { RADAR_MARKETPLACE_HOST_HINTS, RADAR_BLOCKED_OFFICIAL_WEBSITE_DOMAINS } from '../shared/radar-core-shared';
 import { normalizeSegmentText } from '../shared/radar-segment-match.util';
 import type { NormalizedRadarFilters, NormalizedSearchInput } from '../shared/radar-types';
+import { BRAZIL_CITY_COORDINATES } from '../../brazil-city-coordinates';
 
 export type RadarWebSourceGateResult = {
   // true = passa (nao e lixo de web); false = rejeitado (motivo em `reason`, prefixo web_gate:).
@@ -278,6 +279,94 @@ function getHost(value: string | null | undefined) {
   }
 }
 
+// ── E3 ESTABILIZAÇÃO (29/07): cidade por EVIDÊNCIA na URL ──────────────────────────────────
+// Diretório com caminho /uf/cidade/ (qualotelefone.com/sp/campinas/...) é evidência de que o
+// dado pertence ÀQUELA cidade — o carimbo city/state herdado da busca não conta e o
+// checkGeoConflict clássico compara o carimbo com ele mesmo. Um slug só é aceito como cidade
+// se existir DE VERDADE no estado (base local de 5.570 municípios) — categoria depois da UF
+// ("/sp/agua-saneamento") não vira cidade por engano.
+const BR_UFS = new Set([
+  'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MT', 'MS', 'MG',
+  'PA', 'PB', 'PR', 'PE', 'PI', 'RJ', 'RN', 'RS', 'RO', 'RR', 'SC', 'SP', 'SE', 'TO',
+]);
+
+const BR_STATE_NAME_TO_UF: Record<string, string> = {
+  'acre': 'AC', 'alagoas': 'AL', 'amapa': 'AP', 'amazonas': 'AM', 'bahia': 'BA',
+  'ceara': 'CE', 'distrito federal': 'DF', 'espirito santo': 'ES', 'goias': 'GO',
+  'maranhao': 'MA', 'mato grosso': 'MT', 'mato grosso do sul': 'MS', 'minas gerais': 'MG',
+  'para': 'PA', 'paraiba': 'PB', 'parana': 'PR', 'pernambuco': 'PE', 'piaui': 'PI',
+  'rio de janeiro': 'RJ', 'rio grande do norte': 'RN', 'rio grande do sul': 'RS',
+  'rondonia': 'RO', 'roraima': 'RR', 'santa catarina': 'SC', 'sao paulo': 'SP',
+  'sergipe': 'SE', 'tocantins': 'TO',
+};
+
+function normalizeCitySlug(value: unknown): string {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[-_]+/g, ' ')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+let citySlugsByState: Map<string, Set<string>> | null = null;
+
+function getCitySlugsByState(): Map<string, Set<string>> {
+  if (!citySlugsByState) {
+    citySlugsByState = new Map();
+    for (const [state, city] of BRAZIL_CITY_COORDINATES) {
+      const uf = String(state).toUpperCase();
+      const slug = normalizeCitySlug(city);
+      if (!slug) continue;
+      let set = citySlugsByState.get(uf);
+      if (!set) {
+        set = new Set();
+        citySlugsByState.set(uf, set);
+      }
+      set.add(slug);
+    }
+  }
+  return citySlugsByState;
+}
+
+// Pares (UF|nome-do-estado, cidade-real-do-estado) achados no caminho da URL.
+function extractUrlCityEvidence(url: string | null | undefined): string[] {
+  const raw = String(url || '').trim();
+  if (!raw) return [];
+  let path = '';
+  try {
+    path = new URL(raw.startsWith('http') ? raw : `https://${raw}`).pathname;
+  } catch {
+    const stripped = raw.replace(/^https?:\/\//i, '');
+    const slash = stripped.indexOf('/');
+    path = slash >= 0 ? stripped.slice(slash) : '';
+  }
+  const segments = path
+    .split('/')
+    .map((segment) => {
+      try {
+        return decodeURIComponent(segment);
+      } catch {
+        return segment;
+      }
+    })
+    .filter(Boolean);
+  const found: string[] = [];
+  const byState = getCitySlugsByState();
+  for (let i = 0; i < segments.length - 1; i += 1) {
+    const seg = normalizeCitySlug(segments[i]);
+    const uf = seg.length === 2 && BR_UFS.has(seg.toUpperCase())
+      ? seg.toUpperCase()
+      : BR_STATE_NAME_TO_UF[seg] || '';
+    if (!uf) continue;
+    const citySlug = normalizeCitySlug(segments[i + 1]);
+    if (citySlug && byState.get(uf)?.has(citySlug)) found.push(citySlug);
+  }
+  return found;
+}
+
 @Injectable()
 export class RadarWebSourceGateService {
   // Fonte nao e web (Receita/database) → gate nao roda, sempre passa.
@@ -309,6 +398,9 @@ export class RadarWebSourceGateService {
 
     const geoReason = this.checkGeoConflict(candidate, input.filters);
     if (geoReason) return { passed: false, reason: `web_gate:${geoReason}` };
+
+    const evidenceGeoReason = this.checkEvidenceGeoConflict(candidate, input.filters);
+    if (evidenceGeoReason) return { passed: false, reason: `web_gate:${evidenceGeoReason}` };
 
     return { passed: true, reason: null };
   }
@@ -438,6 +530,30 @@ export class RadarWebSourceGateService {
     if (input.rfbUnavailable && !hints?.length) return { passed: true, reason: null };
 
     return { passed: false, reason: 'web_gate:no_local_signal' };
+  }
+
+  // E3 (29/07): evidência de OUTRA cidade na PROCEDÊNCIA contradiz a cidade pedida — caso
+  // real: "PA PINGO D AGUA" veio de qualotelefone.com/sp/campinas/... e saiu carimbado
+  // "Analândia" (o DDD 19 cobre as duas, o sinal local não separa). A MESMA cidade na URL
+  // continua NÃO aprovando nada (decisão E4) — aqui só se mata a mentira de localidade.
+  private checkEvidenceGeoConflict(
+    candidate: Record<string, any>,
+    filters?: NormalizedSearchInput | NormalizedRadarFilters | null,
+  ): string | null {
+    const requestedCity = normalizeCitySlug((filters as any)?.city);
+    if (!requestedCity) return null;
+    const allowed = new Set([requestedCity]);
+    const regionals = Array.isArray((filters as any)?.regionalCities) ? (filters as any).regionalCities : [];
+    for (const item of regionals) {
+      const slug = normalizeCitySlug(item?.city);
+      if (slug) allowed.add(slug);
+    }
+    for (const url of [candidate.sourceUrl, candidate.website]) {
+      for (const evidenceCity of extractUrlCityEvidence(url)) {
+        if (!allowed.has(evidenceCity)) return 'geo_conflict_source';
+      }
+    }
+    return null;
   }
 
   private checkGeoConflict(

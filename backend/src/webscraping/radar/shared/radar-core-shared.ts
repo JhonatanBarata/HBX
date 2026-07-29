@@ -793,6 +793,42 @@ export const NON_BUSINESS_ENGLISH_STOPWORDS = new Set([
   'can', 'could', 'should', 'has', 'have', 'had', 'does', 'did', 'its',
 ]);
 
+// E3 ESTABILIZAÇÃO (29/07) — vocabulário de MENU de loja: categoria de varejo que extrator
+// de página confunde com nome de empresa (caso real Mirão: o card saiu chamado "Informática
+// & Eletrônicos", texto do menu do site). Só palavras que NÃO nomeiam empresa sozinhas.
+export const GENERIC_MENU_CATEGORY_WORDS = new Set([
+  'informatica', 'eletronico', 'eletronicos', 'eletrodomestico', 'eletrodomesticos',
+  'celular', 'celulares', 'smartphone', 'smartphones', 'tablet', 'tablets',
+  'notebook', 'notebooks', 'telefonia', 'acessorio', 'acessorios',
+  'movel', 'moveis', 'roupa', 'roupas', 'calcado', 'calcados',
+  'brinquedo', 'brinquedos', 'papelaria', 'perfumaria', 'perfumarias',
+  'cosmetico', 'cosmeticos', 'utilidade', 'utilidades', 'ferramenta', 'ferramentas',
+  'esporte', 'esportes', 'game', 'games', 'livro', 'livros',
+  'joia', 'joias', 'bijuteria', 'bijuterias', 'relogio', 'relogios',
+  'decoracao', 'cama', 'mesa', 'banho',
+]);
+
+// Nome que é MENU/categoria ("Informática & Eletrônicos", "Cama, Mesa e Banho"): 2+ partes
+// separadas por &/e/vírgula em que TODAS são categoria de varejo — zero identidade própria.
+export function looksLikeCategoryMenuName(value: unknown) {
+  const normalized = String(value || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!normalized) return false;
+  const segments = normalized
+    .split(/\s*(?:&|,|\be\b)\s*/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+  if (segments.length < 2) return false;
+  return segments.every((segment) => (
+    GENERIC_MENU_CATEGORY_WORDS.has(segment)
+    || GENERIC_MENU_CATEGORY_WORDS.has(segment.replace(/s$/, ''))
+  ));
+}
+
 // Lixo de scraping que os filtros PT NÃO pegam: títulos de página, portais GLOBAIS e idioma
 // estrangeiro (ex.: "8 deaths that rocked the NASCAR world", "Official Site of the NHL",
 // "30 Best Things to Do in Vancouver", "IBEXエアラインズ"). ALTA PRECISÃO: só marca sinais
@@ -814,6 +850,8 @@ export function looksLikeNonBusinessName(value: unknown) {
   // 5) Frase em inglês: 2+ palavras gramaticais que não existem em nome de empresa BR.
   const englishHits = new Set(words.filter((word) => NON_BUSINESS_ENGLISH_STOPWORDS.has(word)));
   if (englishHits.size >= 2) return true;
+  // 6) E3 (29/07): menu/categoria de loja como nome ("Informática & Eletrônicos").
+  if (looksLikeCategoryMenuName(raw)) return true;
   return false;
 }
 

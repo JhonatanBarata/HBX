@@ -446,3 +446,78 @@ test('E4 sinal local: cidade no ENDERECO segue passando (conteudo proprio contin
   });
   assert.equal(result.passed, true);
 });
+
+// ── E3 ESTABILIZAÇÃO (29/07) — cidade por EVIDÊNCIA na procedência ──────────────────────────
+// Caso real: "PA PINGO D AGUA" veio de qualotelefone.com/sp/campinas/... e saiu carimbado
+// "Analândia" — o carimbo herdado da busca fazia o checkGeoConflict comparar consigo mesmo,
+// e o DDD 19 cobre as duas cidades. O slug só conta se for município REAL do estado.
+
+test('E3 geo-evidencia: URL /sp/campinas com busca em Analandia REPROVA (geo_conflict_source)', () => {
+  const result = gate.evaluate({
+    candidate: {
+      source: 'hbx_engine',
+      name: 'PA Pingo D Agua Distribuidora de Agua',
+      sourceUrl: 'https://www.qualotelefone.com/sp/campinas/pa-pingo-d-agua',
+      phoneDigits: '19999990010',
+      city: 'Analândia',
+      state: 'SP',
+    },
+    filters: { city: 'Analândia', state: 'SP' } as any,
+  });
+  assert.equal(result.passed, false);
+  assert.equal(result.reason, 'web_gate:geo_conflict_source');
+});
+
+test('E3 geo-evidencia: URL com a MESMA cidade da busca segue passando (nao vira aprovacao)', () => {
+  const result = gate.evaluate({
+    candidate: {
+      source: 'hbx_engine',
+      name: 'Distribuidora Local',
+      sourceUrl: 'https://www.qualotelefone.com/sp/analandia/distribuidora-local',
+      phoneDigits: '19999990011',
+    },
+    filters: { city: 'Analândia', state: 'SP' } as any,
+  });
+  assert.equal(result.passed, true);
+});
+
+test('E3 geo-evidencia: cidade vizinha do RAIO (regionalCities) e permitida', () => {
+  const result = gate.evaluate({
+    candidate: {
+      source: 'hbx_engine',
+      name: 'Distribuidora Vizinha',
+      sourceUrl: 'https://www.qualotelefone.com/sp/campinas/distribuidora-vizinha',
+      phoneDigits: '19999990012',
+    },
+    filters: { city: 'Analândia', state: 'SP', regionalCities: [{ city: 'Campinas', state: 'SP' }] } as any,
+  });
+  assert.equal(result.passed, true);
+});
+
+test('E3 geo-evidencia: segmento de CATEGORIA depois da UF nao vira cidade por engano', () => {
+  // "/sp/agua-saneamento" — "agua saneamento" nao e municipio de SP; nada a acusar.
+  const result = gate.evaluate({
+    candidate: {
+      source: 'hbx_engine',
+      name: 'Empresa Qualquer',
+      sourceUrl: 'https://www.diretorio-exemplo.com.br/sp/agua-saneamento/empresa-qualquer',
+      phoneDigits: '19999990013',
+    },
+    filters: { city: 'Analândia', state: 'SP' } as any,
+  });
+  assert.equal(result.passed, true);
+});
+
+test('E3 geo-evidencia: nome COMPLETO do estado no caminho tambem conta (/sao-paulo/rio-claro)', () => {
+  const result = gate.evaluate({
+    candidate: {
+      source: 'hbx_engine',
+      name: 'Agua Gelada Express',
+      sourceUrl: 'https://www.cervejaria24h.com.br/sao-paulo/rio-claro/agua-tonica-gelada',
+      phoneDigits: '19999990014',
+    },
+    filters: { city: 'Analândia', state: 'SP' } as any,
+  });
+  assert.equal(result.passed, false);
+  assert.equal(result.reason, 'web_gate:geo_conflict_source');
+});
