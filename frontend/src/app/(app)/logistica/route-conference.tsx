@@ -52,13 +52,12 @@ export function RouteConference({
   const [custo, setCusto] = useState<CustoPreviewResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [ordemManual, setOrdemManual] = useState<string[] | null>(null);
   const [aceitando, setAceitando] = useState(false);
   const [desfazendo, setDesfazendo] = useState(false);
-  // Guarda a ordem que o próximo conferir deve auditar sem entrar na dependência
-  // do efeito (senão cada toque na seta dispararia dois conferir).
+  // A ordem que o próximo conferir deve AUDITAR. Fica em ref, não em estado: a
+  // sequência que a tela mostra é sempre a que o servidor devolveu (`data`), e
+  // guardar isso em estado faria o efeito disparar dois conferir por toque.
   const ordemRef = useRef<string[] | null>(null);
-  ordemRef.current = ordemManual;
 
   const conferir = useCallback(async () => {
     setLoading(true);
@@ -92,7 +91,6 @@ export function RouteConference({
     if (alvo < 0 || alvo >= paradas.length) return;
     const proxima = paradas.map((parada) => String(parada.id));
     [proxima[index], proxima[alvo]] = [proxima[alvo], proxima[index]];
-    setOrdemManual(proxima);
     ordemRef.current = proxima;
     // Reconfere na hora: a distância e a previsão têm que responder ao que o
     // operador acabou de fazer — é exatamente o "saber o que está acontecendo".

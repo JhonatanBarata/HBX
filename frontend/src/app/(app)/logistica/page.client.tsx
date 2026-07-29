@@ -650,6 +650,7 @@ export function LogisticaClient() {
 
       {routeBuilderOpen && (
         <RouteBuilderDialog
+          admin={admin}
           onClose={() => setRouteBuilderOpen(false)}
           onCompleted={(message) => {
             setRouteBuilderOpen(false);

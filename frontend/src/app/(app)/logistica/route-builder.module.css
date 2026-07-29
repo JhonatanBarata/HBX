@@ -508,3 +508,248 @@
     white-space: normal;
   }
 }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   PR29072026 — PARIDADE COM O CELULAR: portão de endereços + conferência de
+   rota (mapa, distância, previsão, crédito). Ordem do dono: "/logistica tem q
+   ter tudo q o celular tem, distancia (…) e quem está montando saber o q está
+   acontecendo". Zero cor solta: tudo em token do tema, claro e escuro.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* A conferência tem mapa: precisa de mais largura que o wizard de listas. */
+.dialogWide {
+  width: min(940px, 100%);
+}
+
+.conferenciaResumo {
+  display: grid;
+  gap: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 16px;
+  background: var(--hbx-surface-soft);
+  color: var(--text-strong);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.creditoLinha,
+.creditoFalta {
+  margin: 0;
+  padding: 10px 13px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 14px;
+  font-size: 0.74rem;
+  font-weight: 750;
+}
+
+.creditoLinha {
+  background: var(--hbx-surface-soft);
+  color: var(--text-muted);
+}
+
+.creditoFalta {
+  border-color: color-mix(in srgb, var(--hbx-danger) 45%, var(--border-hairline));
+  background: var(--hbx-danger-soft);
+  color: var(--hbx-danger);
+}
+
+/* ── Mapa da rota em montagem ─────────────────────────────────────────────── */
+
+.map {
+  position: relative;
+  height: 300px;
+  overflow: hidden;
+  border: 1px solid var(--border-hairline);
+  border-radius: 18px;
+  background: var(--hbx-surface-soft);
+}
+
+.mapCanvas,
+.mapGl {
+  width: 100%;
+  height: 100%;
+}
+
+.mapState {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  padding: 14px;
+  background: color-mix(in srgb, var(--hbx-surface) 88%, transparent);
+  color: var(--text-muted);
+  font-size: 0.76rem;
+  font-weight: 750;
+  text-align: center;
+}
+
+.mapStateError {
+  color: var(--hbx-danger);
+}
+
+.mapRetry {
+  padding: 6px 12px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 11px;
+  background: var(--hbx-surface-soft);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.mapNote {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  padding: 5px 10px;
+  border: 1px solid color-mix(in srgb, var(--hbx-danger) 40%, var(--border-hairline));
+  border-radius: 999px;
+  background: var(--hbx-danger-soft);
+  color: var(--hbx-danger);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+/* Pino numerado: o número É o pino (a sequência tem que ler no mapa). */
+.mapPin {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border: 2px solid var(--hbx-brand-contrast);
+  border-radius: 999px;
+  background: var(--hbx-brand);
+  color: var(--hbx-brand-contrast);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--text-strong) 32%, transparent);
+  font-size: 0.68rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.mapPinAlert {
+  background: var(--hbx-danger);
+  color: var(--hbx-brand-contrast);
+}
+
+/* ── Lista da conferência ─────────────────────────────────────────────────── */
+
+.conferenciaLista {
+  display: grid;
+  gap: 4px;
+}
+
+/* Conector de perna: a distância mora ENTRE as paradas, como no celular. */
+.leg,
+.legAlert {
+  justify-self: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.leg {
+  background: var(--hbx-surface-soft);
+  color: var(--text-muted);
+}
+
+.legAlert {
+  background: var(--hbx-danger-soft);
+  color: var(--hbx-danger);
+}
+
+.conferenciaLista .orderRow {
+  margin-block: 2px;
+}
+
+.orderRowAlert {
+  border-color: color-mix(in srgb, var(--hbx-danger) 45%, var(--border-hairline));
+}
+
+.motivo {
+  color: var(--hbx-danger);
+  font-weight: 750;
+}
+
+.eta {
+  flex: none;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: var(--hbx-surface-soft);
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Portão "Endereços com erro" ──────────────────────────────────────────── */
+
+.gateRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  min-height: 62px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--hbx-danger) 38%, var(--border-hairline));
+  border-radius: 16px;
+  background: var(--hbx-surface-soft);
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, transform 160ms ease;
+}
+
+.gateRow:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--hbx-danger);
+}
+
+.gateRow:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.gateRuim {
+  color: var(--hbx-danger);
+  font-weight: 850;
+}
+
+.gateAcoes {
+  display: grid;
+  gap: 9px;
+}
+
+.gateAcoes button {
+  min-height: 42px;
+  padding: 0 14px;
+  border-radius: 13px;
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.danger {
+  border: 1px solid color-mix(in srgb, var(--hbx-danger) 50%, var(--border-hairline));
+  background: var(--hbx-danger-soft);
+  color: var(--hbx-danger);
+}
+
+.danger:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+@media (max-width: 640px) {
+  .map {
+    height: 220px;
+  }
+}
