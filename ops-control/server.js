@@ -2582,6 +2582,81 @@ app.post('/api/radar/vps/apply-contacts', async (req, res) => {
   }
 });
 
+// Ponte da linha "Scraping VPS" do painel HBX Owner :3107 (HBX-OWNER-V3, etapa E2c). O agent local
+// já chamava estas 4 rotas desde a E2b, mas o ops-control não tinha o proxy — a linha VPS ficava
+// permanentemente known:false. Mesmo padrão de callBackendForEnvironment('vps', ...) usado acima em
+// database-cards/cnpj-base: statusCode e mensagem de erro do backend VIAJAM intactos pro agent (que
+// já sabe interpretar 404 como "rota ausente" via classifyOpsRead), nunca vira 500 genérico.
+// Contrato: GET /api/radar/vps/fabrica/status → { ok:true, data }
+app.get('/api/radar/vps/fabrica/status', async (req, res) => {
+  try {
+    const result = await callBackendForEnvironment('vps', 'vps', 'GET', '/modules/owner/fabrica/status', undefined, { timeoutMs: 15000 });
+    if (!result.ok) {
+      return res.status(result.statusCode || 502).json({
+        ok: false,
+        error: result.reason || result.error || `Backend VPS respondeu HTTP ${result.statusCode || 'falha'}.`,
+      });
+    }
+    res.json({ ok: true, data: result.data });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ ok: false, error: error.message || 'Falha ao consultar status da fabrica VPS.' });
+  }
+});
+
+// Contrato: GET /api/radar/vps/fabrica/energia → { ok:true, data:{ enabled, supported, ... } }
+app.get('/api/radar/vps/fabrica/energia', async (req, res) => {
+  try {
+    const result = await callBackendForEnvironment('vps', 'vps', 'GET', '/modules/owner/fabrica/energia', undefined, { timeoutMs: 15000 });
+    if (!result.ok) {
+      return res.status(result.statusCode || 502).json({
+        ok: false,
+        error: result.reason || result.error || `Backend VPS respondeu HTTP ${result.statusCode || 'falha'}.`,
+      });
+    }
+    res.json({ ok: true, data: result.data });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ ok: false, error: error.message || 'Falha ao consultar energia da fabrica VPS.' });
+  }
+});
+
+// Contrato: POST /api/radar/vps/fabrica/energia { on:boolean } → { ok:true, data }
+// `on` fora do tipo booleano nem sai daqui pro backend — 400 explicito, sem gastar a viagem SSH.
+app.post('/api/radar/vps/fabrica/energia', async (req, res) => {
+  try {
+    const on = req.body?.on;
+    if (typeof on !== 'boolean') throw createHttpError(400, 'on_boolean_obrigatorio');
+    const result = await callBackendForEnvironment('vps', 'vps', 'POST', '/modules/owner/fabrica/energia', { on }, { timeoutMs: 15000 });
+    if (!result.ok) {
+      return res.status(result.statusCode || 502).json({
+        ok: false,
+        error: result.reason || result.error || `Backend VPS respondeu HTTP ${result.statusCode || 'falha'}.`,
+      });
+    }
+    res.json({ ok: true, data: result.data });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ ok: false, error: error.message || 'Falha ao alterar energia da fabrica VPS.' });
+  }
+});
+
+// Contrato: POST /api/radar/vps/fabrica/start { budget } → { ok:true, data:{ started, ... } }
+// Quem recusa budget invalido/ausente e o backend (hoje: 200 com started:false) — o proxy so repassa,
+// nunca duplica a regra de negocio aqui.
+app.post('/api/radar/vps/fabrica/start', async (req, res) => {
+  try {
+    const budget = req.body?.budget;
+    const result = await callBackendForEnvironment('vps', 'vps', 'POST', '/modules/owner/fabrica/start', { budget }, { timeoutMs: 30000 });
+    if (!result.ok) {
+      return res.status(result.statusCode || 502).json({
+        ok: false,
+        error: result.reason || result.error || `Backend VPS respondeu HTTP ${result.statusCode || 'falha'}.`,
+      });
+    }
+    res.json({ ok: true, data: result.data });
+  } catch (error) {
+    res.status(error.statusCode || 500).json({ ok: false, error: error.message || 'Falha ao iniciar a fabrica VPS.' });
+  }
+});
+
 // Build-info da imagem (D4/S3): hash do código de ops-control/ e instante do build, gravados como ENV
 // no Dockerfile (ARG do compose). O HBX Owner compara gitHash com o hash local de ops-control/ pra
 // flagrar drift — "imagem velha rodando código novo", o buraco D4 de 30/06→02/07. Atrás do token /api.
