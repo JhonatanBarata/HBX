@@ -1789,7 +1789,6 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
    ============================================================ */
 .vnd-cmd {
   position: relative;
-  z-index: 20;
   flex: none;
   min-width: 0;
   margin: 8px 14px 10px;
