@@ -35,7 +35,7 @@ import {
   type CdlComposerCommand,
   type CdlComposerMode,
 } from "@/components/hbx/central-do-lead-conversa";
-import { CANAL_LABEL, CanalIcon } from "@/components/hbx/canal-icon";
+import { CANAL_LABEL } from "@/components/hbx/canal-icon";
 import { CdlIcon } from "@/components/hbx/central-do-lead-icons";
 import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
@@ -47,6 +47,15 @@ import type { RadarChannel } from "@/lib/radar-channel-presence";
 import { vendasCanais } from "@/lib/vendas-channels";
 
 type Etapa = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
+
+const ICONE_CANAL: Record<RadarChannel, string> = {
+  whatsapp: "wa",
+  telefone: "phone",
+  email: "mail",
+  instagram: "instagram",
+  facebook: "facebook",
+  site: "globe",
+};
 
 // Nomes das etapas — ordem do dono 27/07, ao pé da letra.
 const ETAPAS: Array<{ key: Etapa; label: string }> = [
@@ -735,11 +744,11 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
                 {canais.map((canal) => {
                   const href = linksCanais[canal];
                   const externo = canal === "whatsapp" || canal === "instagram" || canal === "facebook" || canal === "site";
-                  const conteudo = <CanalIcon canal={canal} size="lg" />;
+                  const conteudo = <CdlIcon name={ICONE_CANAL[canal]} />;
                   return href ? (
                     <a
                       key={canal}
-                      className="cdl-chan"
+                      className={`cdl-chan is-${canal}`}
                       href={href}
                       target={externo ? "_blank" : undefined}
                       rel={externo ? "noopener noreferrer" : undefined}
@@ -749,7 +758,7 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
                       {conteudo}
                     </a>
                   ) : (
-                    <span key={canal} className="cdl-chan is-static" title={CANAL_LABEL[canal]}>
+                    <span key={canal} className={`cdl-chan is-${canal} is-static`} title={CANAL_LABEL[canal]}>
                       {conteudo}
                     </span>
                   );

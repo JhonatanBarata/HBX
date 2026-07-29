@@ -216,11 +216,7 @@
   background: var(--cdl-on-dark-2);
 }
 .cdl-chan svg { width: 24px; height: 24px; }
-.cdl-chan .chan-ico {
-  width: 24px;
-  height: 24px;
-  vertical-align: 0;
-}
+.cdl-chan.is-whatsapp { color: var(--cdl-wa-lit); }
 
 .cdl-cockpit__actions {
   display: flex;
