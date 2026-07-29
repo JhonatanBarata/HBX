@@ -22,13 +22,13 @@ import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
 import { CentralDoLead } from "@/components/hbx/central-do-lead";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { CanalIcon } from "@/components/hbx/canal-icon";
-import { RADAR_CHANNEL_ORDER, resolveRadarChannelPresence, type RadarChannel } from "@/lib/radar-channel-presence";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import { LeadsClient } from "../leads/page.client";
 import { apiFetch } from "@/lib/api";
 
 import { useTabParam } from "@/lib/use-tab-param";
 import { useRadarAiStatusPoll } from "@/lib/radar-ai-status";
+import { vendasCanais } from "@/lib/vendas-channels";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
 // Exportado: a Central do Lead recebe o card do board JÁ carregado (sem
@@ -319,24 +319,6 @@ type GridColumn = {
   nosort?: boolean;          // conteúdo vive fora do card (ex.: status da IA)
   text: (c: VendasLead) => string;   // valor cru: ordenação e busca
 };
-
-// Canais encontrados do lead — MESMA fileira de ícones do "Buscar empresas"
-// (CanalIcon + resolveRadarChannelPresence). Aqui a presença é derivada do que o
-// card de Vendas já traz; nenhum campo novo de backend.
-function vendasCanais(c: VendasLead): RadarChannel[] {
-  const li = c.leadIntelligence;
-  const temZap = li?.whatsappStatus === "confirmed"
-    || Object.values(c.phonesWhatsapp || {}).some(Boolean);
-  const presence = resolveRadarChannelPresence({
-    hasWhatsapp: temZap,
-    hasPhone: Boolean(c.phone) || (c.phones?.length ?? 0) > 0,
-    hasEmail: Boolean(c.email) || (c.emails?.length ?? 0) > 0 || li?.emailStatus === "confirmed",
-    instagramUrl: li?.instagramUrl || c.ownerInstagram || null,
-    facebookUrl: li?.facebookUrl || c.ownerFacebook || null,
-    website: c.website || (li?.websiteStatus === "confirmed" ? "sim" : null),
-  });
-  return RADAR_CHANNEL_ORDER.filter(canal => presence[canal]);
-}
 
 const GRID_COLUMNS: GridColumn[] = [
   { key: "name", label: "Empresa", width: 220, text: c => c.name || "" },

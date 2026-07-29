@@ -35,6 +35,7 @@ import {
   type CdlComposerCommand,
   type CdlComposerMode,
 } from "@/components/hbx/central-do-lead-conversa";
+import { CANAL_LABEL, CanalIcon } from "@/components/hbx/canal-icon";
 import { CdlIcon } from "@/components/hbx/central-do-lead-icons";
 import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
@@ -42,6 +43,8 @@ import { isModuleVisible, useCurrentUser, useEntitlements, useMyModules } from "
 import { apiFetch } from "@/lib/api";
 import { formatBrPhone, onlyDigits } from "@/lib/br-phone";
 import { formatBrCnae, formatBrCnpj } from "@/lib/br-document";
+import type { RadarChannel } from "@/lib/radar-channel-presence";
+import { vendasCanais } from "@/lib/vendas-channels";
 
 type Etapa = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
 
@@ -176,6 +179,17 @@ function anosDesde(value: string | null | undefined): number | null {
 }
 function iniciais(name: string | null | undefined): string {
   return String(name || "?").trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
+}
+function linkExterno(value: string | null | undefined): string | null {
+  const link = String(value || "").trim();
+  if (!link) return null;
+  return /^https?:\/\//i.test(link) ? link : `https://${link}`;
+}
+function linkRede(value: string | null | undefined, rede: "instagram" | "facebook"): string | null {
+  const link = String(value || "").trim();
+  if (!link) return null;
+  if (/^https?:\/\//i.test(link)) return link;
+  return `https://${rede}.com/${link.replace(/^@/, "")}`;
 }
 function etapaValida(value: string | null | undefined): Etapa {
   return value === "contato" || value === "retorno" || value === "qualificado" || value === "encerrado"
@@ -651,9 +665,23 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
   const persona = personas.find((p) => p.key === personaKey) || personas.find((p) => p.recomendado) || personas[0] || null;
   const roboLigado = Boolean(robo?.ligado);
 
-  const waLink = lead.phone ? `https://wa.me/${onlyDigits(lead.phone).length > 11
-    ? onlyDigits(lead.phone)
-    : `55${onlyDigits(lead.phone)}`}` : null;
+  const telefonePrincipal = lead.phone || lead.phones?.find(Boolean) || null;
+  const emailPrincipal = lead.email || lead.emails?.find(Boolean) || null;
+  const numeroWhatsApp = Object.entries(lead.phonesWhatsapp || {}).find(([, confirmado]) => confirmado)?.[0]
+    || (lead.leadIntelligence?.whatsappStatus === "confirmed" ? telefonePrincipal : null);
+  const digitosWhatsApp = onlyDigits(numeroWhatsApp || "");
+  const waLink = digitosWhatsApp
+    ? `https://wa.me/${digitosWhatsApp.length > 11 ? digitosWhatsApp : `55${digitosWhatsApp}`}`
+    : null;
+  const canais = vendasCanais(lead);
+  const linksCanais: Partial<Record<RadarChannel, string | null>> = {
+    whatsapp: waLink,
+    telefone: telefonePrincipal ? `tel:${onlyDigits(telefonePrincipal)}` : null,
+    email: emailPrincipal ? `mailto:${emailPrincipal}` : null,
+    instagram: linkRede(lead.leadIntelligence?.instagramUrl || lead.ownerInstagram, "instagram"),
+    facebook: linkRede(lead.leadIntelligence?.facebookUrl || lead.ownerFacebook, "facebook"),
+    site: linkExterno(lead.website),
+  };
 
   const indiceEtapa = ETAPAS.findIndex((item) => item.key === etapa);
 
@@ -689,40 +717,43 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
                   ACENDE e as passadas ficam tingidas, que é o desenho aprovado
                   (e o padrão de funil do mercado). Abas e modos, esses sim,
                   usam a pílula. */}
-              <nav className="cdl-funnel" aria-label="Etapa do lead">
+              <div className="cdl-funnel" aria-label="Etapa atual do lead">
                 {ETAPAS.map((item, index) => (
-                  <button
+                  <span
                     key={item.key}
-                    type="button"
-                    disabled={etapaBusy}
                     aria-current={etapa === item.key ? "step" : undefined}
                     className={`cdl-step${etapa === item.key ? " is-current" : index < indiceEtapa ? " is-done" : ""}`}
-                    onClick={() => void trocarEtapa(item.key)}
+                    title={item.label}
                   >
                     <span className="cdl-step__dot" />
-                    {item.label}
-                  </button>
+                    <span className="cdl-step__label">{item.label}</span>
+                  </span>
                 ))}
-              </nav>
+              </div>
 
               <span className="cdl-channels">
-                {lead.phone && (
-                  <a className="cdl-chan" href={`tel:${onlyDigits(lead.phone)}`} title="Ligar" aria-label="Ligar">
-                    <CdlIcon name="phone" />
-                  </a>
-                )}
-                {waLink && (
-                  <a
-                    className="cdl-chan is-wa"
-                    href={waLink}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title="WhatsApp"
-                    aria-label="Abrir WhatsApp"
-                  >
-                    <CdlIcon name="wa" />
-                  </a>
-                )}
+                {canais.map((canal) => {
+                  const href = linksCanais[canal];
+                  const externo = canal === "whatsapp" || canal === "instagram" || canal === "facebook" || canal === "site";
+                  const conteudo = <CanalIcon canal={canal} size="lg" />;
+                  return href ? (
+                    <a
+                      key={canal}
+                      className="cdl-chan"
+                      href={href}
+                      target={externo ? "_blank" : undefined}
+                      rel={externo ? "noopener noreferrer" : undefined}
+                      title={CANAL_LABEL[canal]}
+                      aria-label={`Abrir ${CANAL_LABEL[canal]}`}
+                    >
+                      {conteudo}
+                    </a>
+                  ) : (
+                    <span key={canal} className="cdl-chan is-static" title={CANAL_LABEL[canal]}>
+                      {conteudo}
+                    </span>
+                  );
+                })}
               </span>
 
               <div className="cdl-cockpit__actions">
