@@ -1,5 +1,22 @@
 # PR29072026 — RADAR ESTABILIZAÇÃO: por que "resolve um, cai outro" — e como parar
 
+> **STATUS 29/07 (go executado, commits locais, SEM publish):**
+> **E1 ✅** `348651c3` — tela aceita sessão terminal (janela 30min), filtro não apaga mais
+> resultado (vira aviso "Resultado desatualizado"), botão "Mostrar leads disponíveis" no vazio.
+> **E2 ✅ (interruptor)** `d5d914e1` — `segment_mismatch` BLOQUEIA na lane web; Receita isenta.
+> Pendente do E2: bloco visível "Fora do segmento (N)" (reprovado novo não é persistido hoje;
+> precisa decidir storage antes de UI).
+> **E4 ✅ (torneira a)** `d5d914e1` — cidade na URL não é mais sinal local. Torneira (b)
+> (exceção canal-próprio) ADIADA COM JUSTIFICATIVA: com E2 ligado o dano observado dela é
+> zero (o caso solutudo era fora-de-segmento); fechar exige reordenar reconcile↔evaluate —
+> só com caso falho real (que vira fixture primeiro).
+> **E3 lote 1 ✅** `1eeaf9ca` — âncora por fone exige nome compatível (caso Mirão morto).
+> Pendente do E3: cidade por evidência (matar o carimbo — o card de Campinas com DDD 19
+> ainda passa) e sanidade anti-menu no nome extraído.
+> **E5 parcial** — 12 regressões novas com os casos reais nos gates/reconcile; falta o
+> replay coleta→apresentação de ponta a ponta como suíte do publish.
+> Suítes: gates 45/45, reconcile 13/13, grande 136/141 (4 socials pré-existentes = master).
+
 > Contexto: a REFUNDAÇÃO (PR28072026) entregou F1 sessão server-side, F2 front espectador,
 > F4 ordem do dinheiro (Brave por último + teto diário) e F3 verdade de segmento — tudo em prod
 > 28/07. No dia seguinte, a MESMA busca real ("distribuidora de agua", multi-cidade SP) expôs
