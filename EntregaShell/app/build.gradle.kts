@@ -46,7 +46,13 @@ plugins {
 // dono carimbou o 94 no ar. Sem subir o piso o próximo publish repetiria um número
 // que JÁ está em aparelho e ele nunca veria a atualização (mesmo caso de 8→15,
 // 15→18, 18→38, 38→60 e 60→68 acima).
-val hbxLogisticaVersionCodeFloor = 95
+// 95 → 110 em 29/07: o publish das 20:22 carimbou 105 — o MESMO número que os
+// aparelhos já rodavam — porque o piso (95) estava abaixo do publicado e não
+// tinha força pra empurrar. Resultado: APK corrigido no servidor (Cancelar único
+// + 3 sons virando 1) e nenhum celular vendo atualização. No g15 nem apareceu
+// porque eu tinha sideloadado o 95 por cima do 105. Piso ACIMA do publicado é o
+// que destrava (mesmo caso de 8→15, 15→18, 18→38, 38→60, 60→68 e 87→95 acima).
+val hbxLogisticaVersionCodeFloor = 110
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)
