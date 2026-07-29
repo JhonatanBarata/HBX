@@ -110,10 +110,14 @@ details.tools summary::-webkit-details-marker{display:none}
 details.tools summary .chev{transition:transform .15s;color:var(--dim)}
 details.tools[open] summary .chev{transform:rotate(90deg)}
 .toolgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;padding:2px 0 18px}
-.tool{display:block;text-decoration:none;color:inherit;background:var(--card2);border:1px solid var(--border);border-radius:11px;padding:12px 14px;cursor:pointer;transition:border-color .15s}
+.tool{display:block;width:100%;text-decoration:none;color:inherit;background:var(--card2);border:1px solid var(--border);border-radius:11px;padding:12px 14px;cursor:pointer;transition:border-color .15s;font:inherit;text-align:left;-webkit-appearance:none;appearance:none}
 .tool:hover{border-color:var(--border2)}
 .tool .tn{font-size:.83rem;font-weight:650}
 .tool .td{font-size:.72rem;color:var(--dim);margin-top:2px}
+.tool.applying,.tool:disabled{opacity:.55;cursor:not-allowed;pointer-events:none}
+/* item sem tela no V3: texto, não link — sem mão no cursor, sem hover de "isto é clicável" */
+.tool-static{cursor:default}
+.tool-static:hover{border-color:var(--border)}
 
 /* ── feed ── */
 .feed{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px 18px}

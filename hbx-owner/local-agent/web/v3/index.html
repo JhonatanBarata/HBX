@@ -63,26 +63,32 @@
 
     </div>
 
-    <!-- Gaveta: nada morre de função — só recolheu de prateleira. Alguns itens ainda são só
-         link pro painel velho (ver relatório da etapa E3 pra saber quais). -->
+    <!-- Gaveta: nada morre de função — só recolheu de prateleira. O painel velho foi deletado (E6):
+         download e limpeza viraram ação de verdade (fetch+Bearer, o link puro não manda header); o
+         que ainda não tem tela no V3 aparece como TEXTO, nunca como link morto pro "/" que só recarrega
+         a si mesmo. As rotas do agent continuam todas vivas — só a tela é que ainda não existe. -->
     <details class="tools">
       <summary><span class="chev">▶</span> Ferramentas (uso eventual)</summary>
       <div class="toolgrid">
-        <a class="tool" href="/#cockpit-card" target="_blank" rel="noopener">
-          <div class="tn">🗂 Cockpit de leads</div><div class="td">filtrar, ver, CSV — painel antigo</div>
-        </a>
-        <a class="tool" href="/#cockpit-card" target="_blank" rel="noopener">
-          <div class="tn">📤 Exportar tudo</div><div class="td">local ou VPS, stream — painel antigo</div>
-        </a>
-        <a class="tool" href="/" target="_blank" rel="noopener">
-          <div class="tn">🔑 Integrações</div><div class="td">chaves local e VPS — painel antigo</div>
-        </a>
-        <a class="tool" href="/#cerebro-30b" target="_blank" rel="noopener">
-          <div class="tn">🪠 Limpeza / desentupir fila</div><div class="td">jobs presos e duplicados — painel antigo</div>
-        </a>
-        <a class="tool" href="/#engines-truth" target="_blank" rel="noopener">
-          <div class="tn">📋 Motores (drill-down)</div><div class="td">tabela da verdade, 20 motores — painel antigo</div>
-        </a>
+        <button class="tool" type="button" data-export="local">
+          <div class="tn">📤 Exportar tudo (este PC)</div><div class="td">baixa o csv.gz local — pode demorar</div>
+        </button>
+        <button class="tool" type="button" data-export="vps">
+          <div class="tn">📤 Exportar tudo (VPS)</div><div class="td">baixa o csv.gz da produção — pode demorar</div>
+        </button>
+        <button class="tool" type="button" data-action data-method="POST" data-path="/owner/clean-junk-leads"
+          data-body='{"confirm":true}' data-confirm="Apagar os leads sem nome de empresa do banco local? Não dá pra desfazer.">
+          <div class="tn">🪠 Limpeza de lixo</div><div class="td">apaga cards com nome que não é empresa — banco local</div>
+        </button>
+        <div class="tool tool-static">
+          <div class="tn">🗂 Cockpit de leads</div><div class="td">sem tela no V3 ainda (as rotas seguem vivas) — filtrar, ver, CSV, transferência. Volta em tela própria.</div>
+        </div>
+        <div class="tool tool-static">
+          <div class="tn">🔑 Integrações</div><div class="td">sem tela no V3 ainda (as rotas seguem vivas) — chaves local e VPS. Volta em tela própria.</div>
+        </div>
+        <div class="tool tool-static">
+          <div class="tn">📋 Motores (drill-down)</div><div class="td">sem tela no V3 ainda (as rotas seguem vivas) — tabela dos 20 motores. Volta em tela própria.</div>
+        </div>
       </div>
     </details>
 

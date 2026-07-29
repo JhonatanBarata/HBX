@@ -320,6 +320,8 @@ function cascadeText(c) {
 async function onAction(e) {
   const el = e.target.closest("[data-action]");
   if (!el || el.hasAttribute("disabled") || el.classList.contains("applying")) return;
+  // Ação destrutiva (ex.: limpeza de lixo) carrega data-confirm — cancelou, não sai daqui.
+  if (el.dataset.confirm && !window.confirm(el.dataset.confirm)) return;
   const method = el.dataset.method;
   const path = el.dataset.path;
   const body = el.dataset.body ? JSON.parse(el.dataset.body) : {};
@@ -333,6 +335,9 @@ async function onAction(e) {
     const cascade = r && r.state && cascadeText(r.state.cascade);
     if (path.endsWith("/fabrica/run")) {
       toast(r && r.ok !== false ? "Corrida iniciada — para sozinha no fim." : `Não rodou — ${reasonText(r && r.reason) || "erro desconhecido"}`, r && r.ok !== false ? "ok" : "warn");
+    } else if (path.endsWith("/clean-junk-leads")) {
+      const msg = r && r.message ? r.message : `Limpeza: ${fmtInt(r && r.cleared)} de ${fmtInt(r && r.scanned)} revisado(s) removido(s).`;
+      toast(r && r.ok !== false ? msg : `Não limpei — ${reasonText(r && r.reason) || "erro desconhecido"}`, r && r.ok !== false ? "ok" : "warn");
     } else if (r && r.ok === false) {
       toast(`Não mudou — ${reasonText(r.reason) || "erro desconhecido"}`, "warn");
     } else {
@@ -346,6 +351,56 @@ async function onAction(e) {
   }
 }
 document.body.addEventListener("click", onAction);
+
+/* ---------- exportar leads (gaveta, E6): GET com Authorization não dá pra fazer com <a href> —
+   link puro não manda header. fetch + Bearer -> blob -> <a download> sintético -> revoke.
+   As rotas às vezes respondem 200 com JSON {ok:false, reason} em vez do gzip (erro ANTES do
+   stream começar) — por isso checa Content-Type antes de salvar qualquer coisa em disco. ---------- */
+const EXPORT_PATHS = { local: "/owner/export-all", vps: "/owner/vps/export-all" };
+function filenameFromDisposition(cd, env) {
+  const m = cd && /filename\*?=(?:UTF-8''|")?([^";]+)"?/i.exec(cd);
+  if (m && m[1]) { try { return decodeURIComponent(m[1]); } catch { return m[1]; } }
+  const d = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  return `leads-${env}-${d}.csv.gz`;
+}
+async function exportDownload(env, btn) {
+  const path = EXPORT_PATHS[env];
+  if (!path || btn.disabled) return;
+  const label = btn.querySelector(".tn");
+  const original = label.textContent;
+  btn.disabled = true;
+  btn.classList.add("applying");
+  label.textContent = "⏳ baixando…";
+  try {
+    const res = await fetch(path, { headers: { Authorization: `Bearer ${TOKEN}` } });
+    const ct = res.headers.get("content-type") || "";
+    if (!res.ok || ct.includes("json")) {
+      // Erro real: ou HTTP não-2xx, ou 200 com corpo JSON no lugar do gzip — nunca salva isto como arquivo.
+      let reason = `http_${res.status}`;
+      try { const data = await res.json(); reason = (data && (data.reason || data.error || data.message)) || reason; } catch { /* corpo não é JSON legível */ }
+      throw new Error(reasonText(reason) || reason);
+    }
+    const blob = await res.blob();
+    const filename = filenameFromDisposition(res.headers.get("content-disposition"), env);
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    toast(`Exportado: ${filename}`, "ok");
+  } catch (err) {
+    toast(`Falhou: ${err.message}`, "warn");
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove("applying");
+    label.textContent = original;
+  }
+}
+document.body.addEventListener("click", (e) => {
+  const el = e.target.closest("[data-export]");
+  if (el) exportDownload(el.dataset.export, el);
+});
+
 $("#master").addEventListener("click", (e) => {
   if (e.target.id === "btn-ligar-tudo") masterAll(true);
   if (e.target.id === "btn-desligar-tudo") masterAll(false);
