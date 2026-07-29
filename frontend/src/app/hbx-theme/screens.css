@@ -3137,6 +3137,50 @@ html, body { height: 100%; }
 .log-resumo__lbl { font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.03em; color: var(--text-muted); }
 .log-resumo__acts { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 
+/* ── PR29072026 — Créditos de hoje POR MOTORISTA (ordem do dono: "Motorista X,
+   gasto até agora Y"). Mesma moldura do .log-resumo acima — padronizar é
+   IGUALAR, não inventar um cartão novo do lado de um cartão igual. ──────────── */
+.log-cred {
+  display: grid;
+  gap: 10px;
+  margin: 0 16px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 14px;
+  background: var(--hbx-surface-raised, transparent);
+}
+.log-cred__head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px; }
+.log-cred__head strong { color: var(--text-strong); font-size: 0.78rem; font-weight: 800; }
+.log-cred__saldo, .log-cred__iniciar {
+  padding: 3px 9px; border-radius: 999px;
+  background: var(--surface-recessed); color: var(--text-muted);
+  font-size: 0.68rem; font-weight: 800; font-variant-numeric: tabular-nums;
+}
+.log-cred__iniciar { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong, var(--hbx-brand)); }
+/* Saldo que NÃO cobre é o único vermelho aqui: é o que bloqueia o Iniciar. */
+.log-cred__iniciar.is-falta, .log-cred__dado.is-falta {
+  background: var(--hbx-danger-soft); color: var(--hbx-danger);
+}
+.log-cred__list { display: grid; gap: 6px; }
+.log-cred__row {
+  display: grid; grid-template-columns: minmax(0, 1.4fr) repeat(3, minmax(0, 1fr));
+  align-items: center; gap: 10px;
+  padding: 8px 10px; border-radius: 11px; background: var(--surface-recessed);
+}
+.log-cred__row.is-falta { background: var(--hbx-danger-soft); }
+.log-cred__nome {
+  overflow: hidden; color: var(--text-strong);
+  font-size: 0.74rem; font-weight: 800;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.log-cred__dado { color: var(--text-muted); font-size: 0.7rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.log-cred__dado.is-falta { padding: 2px 8px; border-radius: 999px; }
+.log-cred__vazio { margin: 0; color: var(--text-muted); font-size: 0.72rem; }
+/* Coluna única no estreito: 4 colunas de dado não cabem sem truncar o nome. */
+@media (max-width: 720px) {
+  .log-cred__row { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+}
+
 /* ── Rota Rastreada — cockpit operacional ao vivo (admin) ─────────────────── */
 .log-live-work {
   min-width: 0;

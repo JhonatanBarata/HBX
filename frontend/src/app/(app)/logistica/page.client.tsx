@@ -24,6 +24,7 @@ import { apiFetch } from "@/lib/api";
 import { isTenantAdmin } from "@/lib/roles";
 
 import { RouteBuilderDialog } from "./route-builder";
+import { RouteCreditPanel } from "./route-credit-panel";
 import { WeeklyAgenda } from "./weekly-agenda";
 import { BaseSaude } from "./base-saude";
 
@@ -570,6 +571,14 @@ export function LogisticaClient() {
 
         {/* M6 — resumo financeiro do dia + fechar mês (admin). */}
         {admin && <ResumoDiaCard onFecharMes={load} />}
+
+        {/* PR29072026 (ordem do dono) — "Motorista X, gasto até agora Y". No
+            celular o crédito mora no topo da tela Rota; no computador não morava
+            em lugar nenhum, e o preview de custo dá 400 quando o dia tem mais de
+            um motorista. Aqui ele volta, quebrado POR motorista. */}
+        {admin && rota && items.length > 0 && (
+          <RouteCreditPanel date={rota.date} stops={items} />
+        )}
 
         {loading && <div className="emp-empty"><span className="emp-empty__text">Carregando rota…</span></div>}
 
