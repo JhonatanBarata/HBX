@@ -796,17 +796,9 @@ function getStoredViewMode(): ViewMode {
   } catch { return "linhas"; }
 }
 
-export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats }: {
+export function LeadsClient({ embedded = false, onLeadPulled }: {
   embedded?: boolean;
   onLeadPulled?: (focus?: boolean) => void;
-  onEmbedStats?: (s: {
-    totalBrasil: number | null;
-    disponiveis: number | null;
-    cotaLabel: string;
-    cotaValue: string;
-    cotaPct: number;
-    radarState: RadarUiState;
-  }) => void;
 } = {}) {
   const router = useRouter();
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
@@ -2092,12 +2084,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats }: {
   // não é paywall de tier, é limite operacional por cargo.
   const saq = usage?.sellerActiveQuota;
   const isSeller = Boolean(saq?.seller);
-  const meterLabel = isSeller ? "Em mãos" : "Cards puxados (mês)";
-  const meterValue = isSeller
-    ? `${fmtInt(saq?.activeCount)} / ${fmtInt(saq?.effectiveLimit)}`
-    : usage?.cards
-      ? `${fmtInt(usage.cards.used)} / ${fmtInt(usage.cards.limit)}`
-      : "—";
   const meterBlocked = isSeller
     ? Boolean(saq?.paused) || Number(saq?.availableSlots ?? 1) <= 0
     : false;
@@ -2116,32 +2102,10 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats }: {
           ? `Nenhuma empresa encontrada para ${segment || "este segmento"} em ${localLabel || "esta cidade"}${uf ? `/${uf}` : ""}.`
           : "Preencha os filtros para começar.";
 
-  const meterPct = Math.min(100, Math.round(
-    isSeller
-      ? ((saq?.activeCount ?? 0) / (saq?.effectiveLimit || 1)) * 100
-      : ((usage?.cards?.used ?? 0) / (usage?.cards?.limit || 1)) * 100
-  ));
-
   // "Total no Brasil" (contrato S3, VENDAS-REFAB): a base 28M (CnpjPublicCompany)
   // quando carregada no ambiente; cai pro pool antigo (bank.total) só quando
   // baseAvailable===false (ex.: local, sem a carga da RFB). Nunca inventa 28M fixo.
   const totalBrasilReal = bank?.baseAvailable ? (bank?.baseTotal ?? null) : (bank?.total ?? null);
-
-  // Embutido no Vendas: espelha os 3 números pro topo da casca única. setState do
-  // pai é estável (não dispara loop). 29/06.
-  useEffect(() => {
-    // ANTI-PISCA: nada de empurrar estado chutado pro topo da casca — enquanto a
-    // sessão não responde, o card de cima segue com o que o /vendas já sabia.
-    if (!radarKnown) return;
-    onEmbedStats?.({
-      totalBrasil: totalBrasilReal,
-      disponiveis: counts.shelf,
-      cotaLabel: meterLabel,
-      cotaValue: meterValue,
-      cotaPct: meterPct,
-      radarState,
-    });
-  }, [onEmbedStats, totalBrasilReal, counts.shelf, meterLabel, meterValue, meterPct, radarState, radarKnown]);
 
   function contatoMascarado(row: RadarLead) {
     const channelPresence = resolveRadarChannelPresence(row);
@@ -2844,6 +2808,13 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats }: {
             <span className="radar-hero__eyebrow">Radar HBX</span>
             <h2 className="radar-hero__title">{radarTitle}</h2>
             <p className="radar-viewer__status">{radarStatus}</p>
+            {embedded && (
+              <span className="radar-viewer__supply">
+                <b>{totalBrasilReal != null ? fmtInt(totalBrasilReal) : "—"}</b> Brasil
+                <i aria-hidden="true" />
+                <b>{counts.shelf != null ? fmtInt(counts.shelf) : "—"}</b> disponíveis
+              </span>
+            )}
           </div>
           {pullMsg && <p className="radar-viewer__transfer" data-tone={pullTone}>{pullMsg}</p>}
         </div>

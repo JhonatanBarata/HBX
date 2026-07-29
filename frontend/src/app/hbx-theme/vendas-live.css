@@ -1896,31 +1896,6 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   line-height: 1.15;
   white-space: nowrap;
 }
-.vnd-segbtn__stats {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  color: var(--text-muted);
-  font-family: var(--font-body);
-  font-size: 0.48rem !important;
-  font-weight: 640 !important;
-  letter-spacing: 0 !important;
-  line-height: 1.1 !important;
-  text-transform: none !important;
-  white-space: nowrap;
-}
-.vnd-segbtn__stats b {
-  color: var(--text-body);
-  font-family: var(--font-mono);
-  font-weight: 760;
-}
-.vnd-segbtn__stats i {
-  width: 3px;
-  height: 3px;
-  border-radius: 999px;
-  background: var(--hbx-brand);
-}
-
 /* GUIA DE ETAPAS — título visível + Visão geral ativa por padrão. */
 .vnd-flowguide {
   display: flex;

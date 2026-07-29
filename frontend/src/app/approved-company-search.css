@@ -234,6 +234,33 @@
   line-height: 1.45;
 }
 
+.leads-page .radar-viewer__supply {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-top: 2px;
+  color: color-mix(in srgb, var(--radar-state-color) 82%, var(--text-strong));
+  font-size: 0.62rem;
+  font-weight: 650;
+  line-height: 1.2;
+  white-space: nowrap;
+  transition: color 420ms var(--ease-out-quint);
+}
+
+.leads-page .radar-viewer__supply b {
+  font-family: var(--font-mono);
+  font-weight: 780;
+}
+
+.leads-page .radar-viewer__supply i {
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--radar-state-color);
+  transition: background 420ms var(--ease-out-quint);
+}
+
 .leads-page .radar-viewer__chips {
   width: 100%;
   justify-content: center;

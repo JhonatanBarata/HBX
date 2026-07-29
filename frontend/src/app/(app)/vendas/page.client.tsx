@@ -386,24 +386,6 @@ function Termometro({ score, why }: { score: number; why: string }) {
   );
 }
 
-type RadarUiState = "funcionando" | "pausado" | "parado" | "erro";
-type RadarRunSnapshot = {
-  status?: string;
-  meta?: { operationalState?: string };
-} | null;
-
-function resolveRadarUiState(run: RadarRunSnapshot): RadarUiState {
-  const status = String(run?.status || "").trim().toLowerCase();
-  const operationalState = String(run?.meta?.operationalState || "").trim().toLowerCase();
-  if (status === "failed" || status === "partial_error") return "erro";
-  if (operationalState === "funcionando" || operationalState === "pausado" || operationalState === "parado") {
-    return operationalState;
-  }
-  if (status === "queued" || status === "running") return "funcionando";
-  if (status === "sleeping") return "pausado";
-  return "parado";
-}
-
 type BotStatus = { botModuleEnabled: boolean; botArmed: boolean } | null;
 type RetornoMode = 'manual' | 'auto_email' | 'auto_whatsapp' | 'auto_both';
 
@@ -427,64 +409,8 @@ export function VendasClient() {
   const [modo, setModo] = useState<"funil" | "buscar">("funil");
   const segPill = useGlassPill<HTMLButtonElement>(modo);
   const [buscarMounted, setBuscarMounted] = useState(false);
-  // 3 números do Radar pro topo da casca ÚNICA (vêm do LeadsClient via callback) —
-  // o topo é o mesmo nos 2 modos; só os DADOS trocam. 29/06.
-  const [buscarStats, setBuscarStats] = useState<{
-    totalBrasil: number | null;
-    disponiveis: number | null;
-    cotaLabel: string;
-    cotaValue: string;
-    cotaPct: number;
-    radarState: RadarUiState | null;
-  }>({
-    totalBrasil: null,
-    disponiveis: null,
-    cotaLabel: "Cota do mês",
-    cotaValue: "—",
-    cotaPct: 0,
-    // null até o servidor responder — nascer "parado" era o pisca (28/07).
-    radarState: null,
-  });
   const [board, setBoard] = useState<BoardResponse>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-
-  // Antes de o painel Buscar ser montado, mantém o indicador compacto ligado
-  // ao mesmo status operacional que o backend já entrega. Depois, o próprio
-  // LeadsClient assume essa sincronização pelo callback existente.
-  useEffect(() => {
-    if (buscarMounted) return;
-    let active = true;
-    const refreshRadarState = async () => {
-      try {
-        // REFUNDAÇÃO F2: a SESSÃO server-side é a verdade do trabalho (o run avulso
-        // fica terminal entre uma cidade e outra e fazia o card dizer "parado" no
-        // meio de uma busca viva). Run continua de fallback.
-        const sess = await apiFetch<{ id?: string; status?: string } | null>(
-          "/webscraping/radar/sessions/active"
-        ).catch(() => null);
-        if (!active) return;
-        const sessStatus = String(sess?.status || "").trim().toLowerCase();
-        if (sess?.id && (sessStatus === "running" || sessStatus === "paused")) {
-          setBuscarStats(current => ({
-            ...current,
-            radarState: sessStatus === "paused" ? "pausado" : "funcionando",
-          }));
-          return;
-        }
-        const snapshot = await apiFetch<RadarRunSnapshot>("/webscraping/radar/search-runs/latest");
-        if (!active) return;
-        setBuscarStats(current => ({ ...current, radarState: resolveRadarUiState(snapshot) }));
-      } catch {
-        if (active) setBuscarStats(current => ({ ...current, radarState: "parado" }));
-      }
-    };
-    void refreshRadarState();
-    const interval = window.setInterval(refreshRadarState, 4000);
-    return () => {
-      active = false;
-      window.clearInterval(interval);
-    };
-  }, [buscarMounted]);
   // Filtro de vendedor (admin): null = todas as equipes; id = carteira de UM
   // vendedor (inclui "Eu" quando o admin prospecta). Refaz o board ao mudar.
   // PERSISTE em localStorage → sobrevive reload/navegação. Initializer lazy com
@@ -1344,16 +1270,7 @@ export function VendasClient() {
         <button ref={segPill.itemRef("buscar")} id="vendas-tab-buscar" type="button" role="tab" aria-selected={modo === "buscar"} aria-controls="vendas-panel-buscar" data-tut="vendas-buscar"
           className={"vnd-segbtn glass-pill-item" + (modo === "buscar" ? " is-on" : "")} onClick={irBuscar}>
           <span className="vnd-segbtn__icon"><I d={ICONS.scrape} size={16} /></span>
-          <span className="vnd-segbtn__copy">
-            <strong>Buscar empresas</strong>
-            {modo === "buscar" && (
-              <small className="vnd-segbtn__stats">
-                <span><b>{buscarStats.totalBrasil != null ? buscarStats.totalBrasil.toLocaleString("pt-BR") : "—"}</b> Brasil</span>
-                <i aria-hidden="true" />
-                <span><b>{buscarStats.disponiveis != null ? buscarStats.disponiveis.toLocaleString("pt-BR") : "—"}</b> disponíveis</span>
-              </small>
-            )}
-          </span>
+          <span className="vnd-segbtn__copy"><strong>Buscar empresas</strong></span>
         </button>
       )}
     </div>
@@ -1741,7 +1658,6 @@ export function VendasClient() {
                 <LeadsClient
                   embedded
                   onLeadPulled={handlePulled}
-                  onEmbedStats={setBuscarStats}
                 />
               ) : null}
             </div>{/* /vnd-layer buscar */}
