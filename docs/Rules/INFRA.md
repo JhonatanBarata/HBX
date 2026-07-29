@@ -16,7 +16,7 @@
 
 | Comando | O que faz |
 |---|---|
-| `npm run up` | sobe ambiente local (backend, banco, webscraping legado, fallback engine, Webwhats local, frontend, Prisma Studio) |
+| `npm run up` | sobe ambiente local (backend, banco, webscraping legado, fallback engine, frontend, Prisma Studio) |
 | `npm run down` | derruba o local (e o warm pool `hbx-engine-*`, salvo `HBX_DOWN_KEEP_ENGINES=true`) |
 | `npm run publish` | fluxo rápido completo: adiciona e commita tudo no `master`, faz push e roda build/migrations/restart de backend, frontend, scraping, motores e Webwhats diretamente na VPS, sem repetir builds locais |
 | `npm run new` | deploy seletivo: detecta arquivos mudados vs `origin/master` e rebuilda só os serviços afetados |
@@ -25,7 +25,10 @@
 | `npm run engines:up` / `engines:down` | frota local de motores numerados (ver docs/Rules/MOTOR.md) |
 
 Flags úteis do `up`: `HBX_UP_BUILD=auto|always|never`, `HBX_UP_SYNC_BACKEND_DEPS=true`,
-`HBX_UP_WEBWHATS=false`, `HBX_UP_STUDIO=false`.
+`HBX_UP_STUDIO=false`.
+
+O motor **Webwhats não sobe local**: roda só na VPS como `webwhats.service` (systemd, `:8080`),
+fora do `up`/`down`.
 
 Capacidade elástica no publish: `HBX_PUBLISH_ENGINE_COUNT` (default 1),
 `HBX_PUBLISH_ENGINE_MAX_COUNT` (default 20), `HBX_ENGINE_WARM_MIN` (default 1),
