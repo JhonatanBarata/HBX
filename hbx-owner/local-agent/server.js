@@ -28,6 +28,10 @@ const { DEFAULT_BATCH_SIZE, createAutoTransferWorker, validateAutoBatchCompletio
 const { createPonteWorker } = require("./lib/ponte-worker");
 const { createLocalDeepEnrichWorker } = require("./lib/local-deep-enrich-worker");
 const { createLocalEnrichmentDbWriter } = require("./lib/local-enrichment-db-writer");
+// Funções PURAS do agregado /owner/v3/overview (E2b, 28/07) — montagem/problems[]/verificação de
+// switch. Zero I/O; server.js faz as chamadas de rede/processo e passa o resultado pra cá. Ver o
+// arquivo pra contexto/contrato completo.
+const ownerV3 = require("./lib/owner-v3");
 
 // Limiares de aviso (alinhados aos soft limits da Night Factory).
 const PRESSURE_LIMITS = { ram: 78, cpu: 75, disk: 85 };
@@ -2557,6 +2561,313 @@ function setDotenvValue(filePath, key, value) {
   fs.writeFileSync(filePath, lines.join("\n") + "\n", "utf8");
 }
 
+// ═══ HBX OWNER V3 (E2b, 28/07) — o agregado único /owner/v3/overview + 3 switches ═══════════════
+// Contrato: docs/PLANEJAMENTOS/HBX-OWNER-V3-CONTRATO.md. A MONTAGEM (shape, problems[], verificação)
+// é pura e vive em lib/owner-v3.js; aqui só o I/O (backend/ops/ponte/local-deep/docker) que alimenta
+// aquelas funções. ADITIVO: nada do painel velho (/owner/fabrica/*, /owner/30b/*, /owner/events) foi
+// tocado — o V3 nasce do lado, reusando os mesmos helpers por baixo.
+
+// ── Interruptor MESTRE do 30B (kill-switch do header) — movido pra escopo de módulo (era função
+// aninhada dentro de route()) porque o overview do V3 também precisa dela e route() não expõe nada
+// pra fora de si. Comportamento idêntico ao de antes, só mudou de casa. ──────────────────────────
+function build30bPower() {
+  const ld = localDeepEnrichWorker.status();
+  let pt = null;
+  try { pt = ponteWorker.status(); } catch { pt = null; }
+  const running = Boolean(ld && ld.running);
+  const ponteEnabled = Boolean(pt && pt.manualEnabled);
+  return {
+    on: running || ponteEnabled,
+    running,
+    ponteEnabled,
+    warm: Boolean(pt && pt.warm),
+    model: (ld && ld.model) || (pt && pt.model) || null,
+  };
+}
+
+// ---------- ambiente LOCAL: backend :3000 direto ----------
+// energia é rota NOVA do E1 (GET/POST /modules/owner/fabrica/energia) — pode ainda não existir quando
+// isto roda; 404 vira known:false com reason explicado, NUNCA 500 nem on:false chutado.
+async function fetchScrapingLocal() {
+  const [statusR, energiaR] = await Promise.all([
+    backendRequest("GET", "/modules/owner/fabrica/status", null, { timeoutMs: 8000 }),
+    backendRequest("GET", "/modules/owner/fabrica/energia", null, { timeoutMs: 8000 }),
+  ]);
+  return ownerV3.buildScrapingEnv(
+    ownerV3.classifyBackendRead(statusR, "fabrica_rota_ausente"),
+    ownerV3.classifyBackendRead(energiaR, "rota_energia_ausente"),
+  );
+}
+
+// ---------- ambiente VPS: via Ops Control (SSH) ----------
+// GAP CONHECIDO (ver relatório da E2b): o ops-control ainda NÃO tem proxy pra /modules/owner/fabrica/*
+// (só existem /api/radar/vps/database-cards, apply-contacts, etc.). As rotas abaixo hoje respondem 404
+// e o par vira known:false com reason 'ops_rota_fabrica_ausente' — nunca 500/on chutado. O dia que
+// alguém adicionar esse proxy no ops-control (projeto separado, fora do escopo desta etapa), passa a
+// funcionar sozinho, sem tocar aqui.
+async function fetchScrapingVps() {
+  const [statusR, energiaR] = await Promise.all([
+    opsRequest("GET", "/api/radar/vps/fabrica/status", null, 15000),
+    opsRequest("GET", "/api/radar/vps/fabrica/energia", null, 15000),
+  ]);
+  return ownerV3.buildScrapingEnv(
+    ownerV3.classifyOpsRead(statusR, "ops_rota_fabrica_ausente"),
+    ownerV3.classifyOpsRead(energiaR, "ops_rota_fabrica_ausente"),
+  );
+}
+
+// ---------- Docker (pedido do dono, mesma sessão): o agent roda NATIVO no Windows, fora do Docker —
+// o disjuntor "Localhost" pode subir o Docker Desktop + backend sozinho quando :3000 está morto. ----
+// Leitura CACHEADA (reusa dockerRead, TTL 5s) pro overview passivo — não é a leitura ATIVA usada
+// dentro do loop de espera da subida (essa usa execReadAsync direto, sem cache, ver mais abaixo).
+function dockerDesktopExeCandidates() {
+  return [
+    "C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe",
+    process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, "Docker", "Docker Desktop.exe") : null,
+  ].filter(Boolean);
+}
+
+function readDockerAutoStartSetting() {
+  // Docker Desktop guarda a preferência "abrir com o Windows" num JSON de config; o nome do arquivo/
+  // chave mudou entre versões, então tenta os candidatos conhecidos e devolve null (não sei) se nenhum bater
+  // — nunca assume false por ausência de arquivo (instalação pode ser mais nova/mais velha que o esperado).
+  const files = [
+    path.join(os.homedir(), "AppData", "Roaming", "Docker", "settings-store.json"),
+    path.join(os.homedir(), "AppData", "Roaming", "Docker", "settings.json"),
+  ];
+  for (const file of files) {
+    try {
+      const json = JSON.parse(fs.readFileSync(file, "utf8"));
+      for (const key of ["autoStart", "AutoStart", "startAtLogin", "StartAtLogin"]) {
+        if (typeof json[key] === "boolean") return json[key];
+      }
+    } catch { /* arquivo pode não existir nesta instalação — tenta o próximo candidato */ }
+  }
+  return null;
+}
+
+async function readDockerSnapshotCached() {
+  const [daemonR, desktopR] = await Promise.all([
+    dockerRead(["docker", "version", "--format", "{{.Server.APIVersion}}"]),
+    dockerRead(["tasklist", "/FI", "IMAGENAME eq Docker Desktop.exe", "/FO", "CSV", "/NH"]),
+  ]);
+  return {
+    daemon: Boolean(daemonR && daemonR.ok && String(daemonR.stdout || "").trim()),
+    desktopRunning: Boolean(daemonR && daemonR.ok) || Boolean(desktopR && desktopR.ok && /Docker Desktop\.exe/i.test(desktopR.stdout || "")),
+    autoStart: readDockerAutoStartSetting(),
+  };
+}
+
+// Leitura ATIVA (sem cache) do daemon — usada só dentro do loop de espera da subida (precisa fresca a
+// cada poll, o cache de 5s do overview passivo atrapalharia a detecção rápida de "ficou pronto").
+async function readDockerDaemonAliveFresh() {
+  const r = await execReadAsync(["docker", "version", "--format", "{{.Server.APIVersion}}"]);
+  return Boolean(r.ok && String(r.stdout || "").trim());
+}
+
+async function pollLocalBackendHealth() {
+  const r = await backendRequest("GET", "/health", null, { timeoutMs: 5000 }).catch(() => ({ ok: false }));
+  return Boolean(r && r.ok && r.data && r.data.status === "ok");
+}
+
+async function waitForCondition(conditionFn, timeoutMs, stepMs = 3000) {
+  if (await conditionFn()) return true;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, stepMs));
+    if (await conditionFn()) return true;
+  }
+  return false;
+}
+
+// Spawn dedicado do `npm run up` de FUNDO (não aguardamos ele terminar — o script sobe frontend/Next
+// junto e pode levar minutos com build; nosso critério de sucesso é o /health do :3000, apurado por
+// waitForCondition em paralelo). Não reusa spawnCaptureAsync (usada por docker ps/stats/git log/local-lab)
+// pra não arriscar efeito colateral nos outros ~10 chamadores dela — aqui precisamos de ENV extra
+// (HBX_UP_OWNER=0) que aquela função não aceita, e de ler o buffer ANTES do processo terminar.
+function spawnDetachedCapture(binary, args, envOverrides) {
+  const buf = { stdout: "", stderr: "" };
+  let child;
+  try {
+    child = spawn(binary, args, {
+      cwd: rootDir,
+      shell: false,
+      windowsHide: true,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, ...envOverrides },
+    });
+  } catch (error) {
+    buf.stderr = String((error && error.message) || error);
+    return { ok: false, buf, child: null };
+  }
+  const cap = (chunk, key) => {
+    buf[key] += chunk.toString("utf8");
+    if (buf[key].length > 20000) buf[key] = buf[key].slice(-20000);
+  };
+  child.stdout.on("data", (c) => cap(c, "stdout"));
+  child.stderr.on("data", (c) => cap(c, "stderr"));
+  child.on("error", (error) => { buf.stderr += `\n[spawn error] ${error.message}`; });
+  child.unref();
+  return { ok: true, buf, child };
+}
+
+// ---------- disjuntor da subida do backend local (mesma forma do auto-heal do Ops Control, ~L170) ----
+// UMA subida por vez (mutex via state==='starting'), rate-limit entre tentativas, teto de tentativas
+// seguidas sem sucesso → 'desisti' (para de tentar sozinho; só um clique humano depois do cooldown
+// reseta). NUNCA loop livre — é lei da casa (mesma que gerou a lição do WhatsApp em 18/06).
+const LOCAL_BOOT_MIN_INTERVAL_MS = 5 * 60 * 1000;
+const LOCAL_BOOT_MAX_ATTEMPTS = 3;
+const LOCAL_BOOT_DOCKER_TIMEOUT_MS = 180_000; // "abrindo o Docker Desktop (~1-2min)" — teto real 3min
+const LOCAL_BOOT_HEALTH_TIMEOUT_MS = 120_000;
+let localBackendBoot = {
+  state: "idle", // idle | starting | desisti
+  step: null, // 'docker' | 'containers' | 'health' | null
+  since: null,
+  attempts: 0,
+  lastAttemptAt: 0,
+  lastError: null,
+  stderrTail: "",
+};
+
+async function startLocalBackendBoot(attemptNo) {
+  localBackendBoot = {
+    state: "starting", step: "docker", since: nowIso(),
+    attempts: attemptNo, lastAttemptAt: Date.now(), lastError: null, stderrTail: "",
+  };
+  console.log(`[v3-boot] tentativa ${attemptNo}/${LOCAL_BOOT_MAX_ATTEMPTS} — :3000 morto, subindo o backend local.`);
+  try {
+    let daemonUp = await readDockerDaemonAliveFresh();
+    if (daemonUp) {
+      localBackendBoot.step = "containers";
+    } else {
+      const exe = dockerDesktopExeCandidates().find((p) => { try { return fs.existsSync(p); } catch { return false; } });
+      if (!exe) throw new Error("docker_desktop_nao_encontrado");
+      try { spawn(exe, [], { detached: true, stdio: "ignore", windowsHide: true }).unref(); }
+      catch (error) { throw new Error(`falha_ao_abrir_docker_desktop:${error.message}`); }
+      daemonUp = await waitForCondition(readDockerDaemonAliveFresh, LOCAL_BOOT_DOCKER_TIMEOUT_MS);
+      if (!daemonUp) throw new Error("docker_nao_respondeu_em_180s");
+      localBackendBoot.step = "containers";
+    }
+
+    // -NoWebwhats/-NoStudio + HBX_UP_OWNER=0: desarma 3 efeitos colaterais que um botão de SCRAPING
+    // jamais deveria disparar — (1) Webwhats re-linkaria os chips do dono (ação LIVE, chip banido não
+    // tem revert), (2) Prisma Studio é ferramenta manual, sem uso aqui, (3) o agent tentaria subir A SI
+    // MESMO (recursão). NÃO remover nenhum dos 3 achando "simplificação" — foram pedidos explícitos.
+    const spawned = spawnDetachedCapture(
+      "powershell",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "./scripts/start-all.ps1", "-NoWebwhats", "-NoStudio"],
+      { HBX_UP_OWNER: "0" },
+    );
+    if (!spawned.ok) throw new Error(`falha_ao_disparar_npm_run_up:${spawned.buf.stderr || "erro desconhecido"}`);
+
+    localBackendBoot.step = "health";
+    const healthy = await waitForCondition(pollLocalBackendHealth, LOCAL_BOOT_HEALTH_TIMEOUT_MS, 3000);
+    if (!healthy) {
+      localBackendBoot.stderrTail = (spawned.buf.stderr || spawned.buf.stdout || "").slice(-2000);
+      throw new Error("health_nao_respondeu_em_120s");
+    }
+
+    // Health verde → SÓ AGORA liga a energia (nunca antes — lei "nunca pinta verde antes do health").
+    // A confirmação final (Lei nº3) acontece na PRÓXIMA leitura de overview (fetchScrapingLocal relê tudo).
+    await backendRequest("POST", "/modules/owner/fabrica/energia", { on: true }, { timeoutMs: 15000 }).catch(() => null);
+    localBackendBoot = { state: "idle", step: null, since: null, attempts: 0, lastAttemptAt: Date.now(), lastError: null, stderrTail: "" };
+    console.log("[v3-boot] backend local de pé — health OK, energia ligada.");
+  } catch (error) {
+    const reason = String((error && error.message) || error);
+    const giveUp = ownerV3.isLocalBootAttemptExhausted(attemptNo, LOCAL_BOOT_MAX_ATTEMPTS);
+    localBackendBoot = { ...localBackendBoot, state: giveUp ? "desisti" : "idle", step: null, lastError: reason };
+    console.log(`[v3-boot] tentativa ${attemptNo} falhou: ${reason}${giveUp ? " — DESISTI (teto de tentativas, nao re-tento sozinho)." : ""}`);
+  }
+  void pushOverviewEvent();
+}
+
+// Chamado pelo handler HTTP — decide (puro, lib/owner-v3.js) e dispara em BACKGROUND. NUNCA aguarda
+// startLocalBackendBoot terminar (é isso que garante a resposta HTTP imediata, proibido segurar 40s-2min).
+function triggerLocalBackendBoot() {
+  const decision = ownerV3.decideLocalBootTrigger(localBackendBoot, Date.now(), LOCAL_BOOT_MIN_INTERVAL_MS, LOCAL_BOOT_MAX_ATTEMPTS);
+  if (!decision.allow) return { triggered: false, reason: decision.reason };
+  if (decision.reset) {
+    localBackendBoot = { state: "idle", step: null, since: null, attempts: 0, lastAttemptAt: 0, lastError: null, stderrTail: "" };
+  }
+  const attemptNo = localBackendBoot.attempts + 1;
+  void startLocalBackendBoot(attemptNo).catch((error) => {
+    console.log(`[v3-boot] excecao fora do try interno: ${(error && error.message) || error}`);
+  });
+  return { triggered: true, reason: null };
+}
+
+// ---------- agregado /owner/v3/overview ----------
+// Promise.allSettled: uma fonte morta (backend/ops/ollama/docker) NUNCA derruba as outras — vira
+// known:false + reason na fatia dela (a montagem final, pura, é ownerV3.buildOverview).
+async function collectOwnerV3Parts() {
+  const [
+    scrapingLocalR, scrapingVpsR, residentR, ponteStatusR, ldStatusR, engineCapR, bootRawR, powerR, dockerR,
+  ] = await Promise.allSettled([
+    fetchScrapingLocal(),
+    fetchScrapingVps(),
+    (typeof ponteWorker.readResident === "function"
+      ? ponteWorker.readResident()
+      : Promise.resolve({ ok: false, resident: null, ramMb: null, error: "ponte_sem_readResident" })),
+    Promise.resolve().then(() => ponteWorker.status()),
+    Promise.resolve().then(() => localDeepEnrichWorker.status()),
+    readEngineCapacity(),
+    Promise.resolve().then(() => stateStore.load("boot")),
+    Promise.resolve().then(() => build30bPower()),
+    readDockerSnapshotCached(),
+  ]);
+
+  const pick = (settled, fallback) => (settled.status === "fulfilled" ? settled.value : fallback);
+  const rejectReason = (settled) => String((settled.reason && settled.reason.message) || settled.reason || "falha_desconhecida");
+
+  const scrapingLocal = pick(scrapingLocalR, {
+    on: false, known: false, reason: rejectReason(scrapingLocalR), running: null, budget: null,
+    processed: null, contactsWritten: null, lastError: null, rfbBaseCount: null,
+  });
+  const scrapingVps = pick(scrapingVpsR, {
+    on: false, known: false, reason: rejectReason(scrapingVpsR), running: null, budget: null,
+    processed: null, contactsWritten: null, lastError: null, rfbBaseCount: null,
+  });
+  const residentRead = pick(residentR, { ok: false, resident: null, ramMb: null, error: rejectReason(residentR) });
+  const ponteStatus = pick(ponteStatusR, null);
+  const ldStatus = pick(ldStatusR, null);
+  const engineCap = pick(engineCapR, { ok: false });
+  const bootRaw = pick(bootRawR, null);
+  const power = pick(powerR, { on: false });
+  const dockerSnapshot = pick(dockerR, { daemon: false, desktopRunning: false, autoStart: null });
+
+  const ia = ownerV3.buildIaSwitch({ residentRead, power, ponteStatus });
+  const enriquecimento = ownerV3.buildEnriquecimentoSwitch(ldStatus);
+  const engines = engineCap && engineCap.ok
+    ? { total: Number.isFinite(engineCap.ceiling) ? engineCap.ceiling : null, on: Number.isFinite(engineCap.alive) ? engineCap.alive : null }
+    : { total: null, on: null };
+  const generatedAt = nowIso();
+  const feed = ownerV3.buildFeed({ scrapingLocal, scrapingVps, ldLastJobs: ldStatus && ldStatus.lastJobs, generatedAt });
+
+  return ownerV3.buildOverview({
+    bootRaw, scrapingLocal, scrapingVps, ia, enriquecimento, engines, feed, generatedAt,
+    docker: dockerSnapshot, localBoot: { ...localBackendBoot },
+  });
+}
+
+let ownerV3OverviewCache = { at: 0, data: null };
+const OWNER_V3_OVERVIEW_CACHE_MS = 3000; // poll de 5s do front não martelar backend/ops a cada request
+async function getOwnerV3Overview(force) {
+  if (!force && ownerV3OverviewCache.data && Date.now() - ownerV3OverviewCache.at < OWNER_V3_OVERVIEW_CACHE_MS) {
+    return ownerV3OverviewCache.data;
+  }
+  const data = await collectOwnerV3Parts();
+  ownerV3OverviewCache = { at: Date.now(), data };
+  return data;
+}
+
+// Empurra o overview fresco pros clientes SSE — REUSA o mesmo pool `sseClients` de /owner/events (lei
+// nº4: zero timer novo). Só quando alguém está ouvindo; best-effort, nunca lança.
+function pushOverviewEvent(preComputed) {
+  if (!sseClients.size) return;
+  if (preComputed) { sseBroadcast("overview", preComputed); return; }
+  getOwnerV3Overview(true).then((ov) => sseBroadcast("overview", ov)).catch(() => {});
+}
+
 async function route(req, res) {
   if (req.method === "OPTIONS") {
     sendJson(res, 200, { ok: true });
@@ -2564,6 +2875,14 @@ async function route(req, res) {
   }
 
   const url = new URL(req.url, `http://${HOST}:${PORT}`);
+
+  // Painel V3 (E3, diretório NOVO web/v3/): "/v3" e "/v3/" mapeiam pro index de lá — sendStatic só
+  // resolve "/" pra index.html automaticamente, então um diretório precisa do mapeamento explícito.
+  // Se web/v3/ ainda não existir (outro worker entrega em paralelo), sendStatic devolve false e cai
+  // no fluxo normal abaixo (que também não acha nada) — sem 500, sem crash, só o 401 de sempre.
+  if (req.method === "GET" && (url.pathname === "/v3" || url.pathname === "/v3/") && sendStatic(res, "/v3/index.html")) {
+    return;
+  }
 
   // Shell estática (HTML/CSS/JS) servida sem token: é só a casca; os dados exigem token.
   // Tenta servir arquivo; se NÃO for arquivo, cai through pro roteamento de API (os
@@ -2614,6 +2933,34 @@ async function route(req, res) {
         : await buildTreeSnapshot(false);
       sseWrite(res, "snapshot", snap);
     } catch { /* snapshot inicial falhou (tudo offline) — o front cai no fallback de polling */ }
+    return;
+  }
+
+  // SSE do V3 — espelha /owner/events (MESMO auth por ?token=, MESMO pool sseClients: lei nº4, zero
+  // timer novo). Evento "overview" no connect (snapshot imediato) + toda vez que um switch muda algo.
+  if (req.method === "GET" && url.pathname === "/owner/v3/events") {
+    const queryToken = url.searchParams.get("token");
+    const authed = isAuthorized(req) || (queryToken != null && queryToken === TOKEN);
+    if (!authed) { sendError(res, 401, "Token local invalido ou ausente."); return; }
+    res.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-store",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    res.write("retry: 3000\n\n");
+    sseClients.add(res);
+    const cleanup = () => {
+      sseClients.delete(res);
+      try { res.end(); } catch { /* já morto */ }
+    };
+    req.on("close", cleanup);
+    req.on("error", cleanup);
+    res.on("error", cleanup);
+    try {
+      const overview = await getOwnerV3Overview(false);
+      sseWrite(res, "overview", overview);
+    } catch { /* snapshot inicial falhou — o front cai no fallback do poll de 5s */ }
     return;
   }
 
@@ -3644,23 +3991,8 @@ async function route(req, res) {
     return;
   }
   // ── Interruptor MESTRE do 30B (kill-switch do header) ────────────────────────────────────────────
-  // "Desligar o 30B" = parar de puxar missão (local-deep + ponte) E descarregar o modelo da RAM na hora
-  // (keep_alive 0 no Ollama). Cobre os DOIS caminhos porque start-owner.ps1 arma a ponte junto.
-  // Reversível: "ligar" religa o local-deep e reabilita a ponte (o modelo reaquece sob demanda).
-  function build30bPower() {
-    const ld = localDeepEnrichWorker.status();
-    let pt = null;
-    try { pt = ponteWorker.status(); } catch { pt = null; }
-    const running = Boolean(ld && ld.running);
-    const ponteEnabled = Boolean(pt && pt.manualEnabled);
-    return {
-      on: running || ponteEnabled,
-      running,
-      ponteEnabled,
-      warm: Boolean(pt && pt.warm),
-      model: (ld && ld.model) || (pt && pt.model) || null,
-    };
-  }
+  // build30bPower() mora em escopo de módulo agora (ver acima de route()) — o /owner/v3/overview
+  // (E2b) também precisa dela pra montar switches.ia sem duplicar a leitura.
   if (req.method === "GET" && url.pathname === "/owner/30b/power") {
     sendJson(res, 200, { ok: true, power: build30bPower() });
     return;
@@ -3709,6 +4041,152 @@ async function route(req, res) {
   if (req.method === "POST" && url.pathname === "/owner/ponte/unload") {
     const ok = await ponteWorker.unload("manual (painel)");
     sendJson(res, 200, { ok, ponte: ponteWorker.status() });
+    return;
+  }
+
+  // ═══ HBX OWNER V3 (E2b) — agregado único + 3 switches ═══════════════════════════════════════════
+  // ADITIVO: nenhuma rota acima foi removida/alterada. Contrato completo em
+  // docs/PLANEJAMENTOS/HBX-OWNER-V3-CONTRATO.md — não divergir sem o orquestrador.
+
+  if (req.method === "GET" && url.pathname === "/owner/v3/overview") {
+    const force = url.searchParams.get("force") === "1";
+    sendJson(res, 200, await getOwnerV3Overview(force));
+    return;
+  }
+
+  // POST /owner/v3/switch/scraping { env:'vps'|'local', on }
+  if (req.method === "POST" && url.pathname === "/owner/v3/switch/scraping") {
+    let body = {};
+    try { body = await readBody(req); } catch (e) { sendError(res, 400, e.message); return; }
+    const env = body.env === "vps" ? "vps" : body.env === "local" ? "local" : null;
+    if (!env || typeof body.on !== "boolean") {
+      sendJson(res, 200, { ok: false, reason: "env_ou_on_invalido", state: null });
+      return;
+    }
+
+    if (env === "local" && body.on === true) {
+      // O agent roda NATIVO no Windows (fora do Docker) — :3000 pode estar morto. Sonda ANTES de
+      // mexer na energia; se estiver morto, dispara a subida em BACKGROUND (Docker Desktop + `npm
+      // run up`) e responde NA HORA — proibido segurar a requisição HTTP por 40s-2min.
+      const alive = await pollLocalBackendHealth();
+      if (!alive) {
+        const trigger = triggerLocalBackendBoot();
+        const overview = await getOwnerV3Overview(true);
+        sendJson(res, 200, {
+          // ainda não é sucesso — só vira ok:true numa releitura futura, depois do health+energia
+          // confirmados (lei "nunca pinta verde antes do health"); aqui só confirma que disparou.
+          ok: false,
+          reason: trigger.triggered ? "subindo_backend_local" : trigger.reason,
+          state: overview.switches.scraping.local,
+        });
+        void pushOverviewEvent(overview);
+        return;
+      }
+      // :3000 já respondendo → segue o fluxo normal abaixo (liga a energia direto, sem subir nada).
+    }
+
+    if (env === "local") await backendRequest("POST", "/modules/owner/fabrica/energia", { on: body.on }, { timeoutMs: 15000 });
+    else await opsRequest("POST", "/api/radar/vps/fabrica/energia", { on: body.on }, 20000);
+
+    // LEI Nº3: relê a fonte real antes de responder — nunca ecoa a intenção de quem chamou.
+    const overview = await getOwnerV3Overview(true);
+    const state = overview.switches.scraping[env];
+    const verdict = ownerV3.verifyScrapingSwitch(body.on, state);
+    sendJson(res, 200, { ok: verdict.ok, reason: verdict.reason, state });
+    void pushOverviewEvent(overview);
+    return;
+  }
+
+  // POST /owner/v3/switch/ia { on, force? }
+  if (req.method === "POST" && url.pathname === "/owner/v3/switch/ia") {
+    let body = {};
+    try { body = await readBody(req); } catch (e) { sendError(res, 400, e.message); return; }
+    if (typeof body.on !== "boolean") {
+      sendJson(res, 200, { ok: false, reason: "on_boolean_obrigatorio", state: null });
+      return;
+    }
+
+    if (body.on) {
+      try { localDeepEnrichWorker.start(); } catch (e) { console.log(`[v3] start local-deep falhou: ${e.message}`); }
+      try { ponteWorker.setManualEnabled(true); } catch (e) { console.log(`[v3] religar ponte falhou: ${e.message}`); }
+      const overview = await getOwnerV3Overview(true);
+      const verdict = ownerV3.verifySimpleSwitch(true, overview.switches.ia.on, "releitura_falhou");
+      sendJson(res, 200, { ok: verdict.ok, reason: verdict.reason, state: overview.switches.ia });
+      void pushOverviewEvent(overview);
+      return;
+    }
+
+    // DESLIGAR — cascata: derruba o enriquecimento (depende da IA) ANTES de descarregar o modelo,
+    // senão ele relesearia missão e reaqueceria o 30B no meio da descarga (estado impossível).
+    const enrichWasOn = Boolean(localDeepEnrichWorker.status().running);
+    try { ponteWorker.setManualEnabled(false); } catch (e) { console.log(`[v3] pausar ponte falhou: ${e.message}`); }
+    try { await localDeepEnrichWorker.stop(); } catch (e) { console.log(`[v3] stop local-deep falhou: ${e.message}`); }
+    const enrichStillOn = Boolean(localDeepEnrichWorker.status().running);
+    const cascade = { enriquecimento: ownerV3.decideCascadeEnriquecimentoOff(enrichWasOn, enrichStillOn) };
+
+    // Descarga verificada (contrato E2a): ponteWorker.unload(reason, opts) → { ok, resident, ramMb,
+    // forced, reason, elapsedMs }. Ollama mudo/teimando na RAM → ok:false, nunca finge que descarregou.
+    const unloadResult = await ponteWorker
+      .unload("desligado pelo painel v3", { force: Boolean(body.force) })
+      .catch((e) => ({ ok: false, resident: null, ramMb: null, forced: Boolean(body.force), reason: String((e && e.message) || e) }));
+    const verdict = ownerV3.verifyIaOffFromUnload(unloadResult);
+
+    const overview = await getOwnerV3Overview(true);
+    sendJson(res, 200, { ok: verdict.ok, reason: verdict.reason, state: { ...overview.switches.ia, cascade } });
+    void pushOverviewEvent(overview);
+    return;
+  }
+
+  // POST /owner/v3/switch/enriquecimento { on }
+  if (req.method === "POST" && url.pathname === "/owner/v3/switch/enriquecimento") {
+    let body = {};
+    try { body = await readBody(req); } catch (e) { sendError(res, 400, e.message); return; }
+    if (typeof body.on !== "boolean") {
+      sendJson(res, 200, { ok: false, reason: "on_boolean_obrigatorio", state: null });
+      return;
+    }
+
+    let cascade = null;
+    if (body.on) {
+      // Cascata: liga a IA ANTES (dependência real) — nunca deixa o enriquecimento leasear sem 30B.
+      const iaAlreadyOn = Boolean(build30bPower().on);
+      if (!iaAlreadyOn) {
+        try { ponteWorker.setManualEnabled(true); } catch (e) { console.log(`[v3] religar ponte (cascata) falhou: ${e.message}`); }
+      }
+      try { localDeepEnrichWorker.start(); } catch (e) { console.log(`[v3] start local-deep falhou: ${e.message}`); }
+      const iaNowOn = Boolean(build30bPower().on);
+      cascade = { ia: ownerV3.decideCascadeIaOn(iaAlreadyOn, iaNowOn) };
+    } else {
+      try { await localDeepEnrichWorker.stop(); } catch (e) { console.log(`[v3] stop local-deep falhou: ${e.message}`); }
+    }
+
+    const overview = await getOwnerV3Overview(true);
+    const verdict = ownerV3.verifySimpleSwitch(body.on, overview.switches.enriquecimento.on, "releitura_falhou");
+    const state = cascade ? { ...overview.switches.enriquecimento, cascade } : overview.switches.enriquecimento;
+    sendJson(res, 200, { ok: verdict.ok, reason: verdict.reason, state });
+    void pushOverviewEvent(overview);
+    return;
+  }
+
+  // POST /owner/v3/fabrica/run { env, budget } — mesma recusa do fabrica/start (sem budget válido →
+  // started:false + reason), só roteado por ambiente.
+  if (req.method === "POST" && url.pathname === "/owner/v3/fabrica/run") {
+    let body = {};
+    try { body = await readBody(req); } catch { body = {}; }
+    const env = body && body.env === "vps" ? "vps" : body && body.env === "local" ? "local" : null;
+    if (!env) { sendJson(res, 200, { ok: false, started: false, reason: "env_invalido" }); return; }
+    const budget = Number(body && body.budget);
+    const payload = Number.isFinite(budget) && budget > 0 ? { budget: Math.trunc(budget) } : {};
+    let normalized;
+    if (env === "local") {
+      const r = await backendRequest("POST", "/modules/owner/fabrica/start", payload, { timeoutMs: 30000 });
+      normalized = normalizeFabricaResponse("start", r);
+    } else {
+      const r = await opsRequest("POST", "/api/radar/vps/fabrica/start", payload, 30000);
+      normalized = normalizeFabricaResponse("start", { ok: r.ok, statusCode: r.statusCode, data: r.data, error: r.reasonText || r.reason });
+    }
+    sendJson(res, 200, { env, ...normalized });
+    void pushOverviewEvent();
     return;
   }
 
