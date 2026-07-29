@@ -2024,6 +2024,10 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   border-radius: var(--radius-lg);
   background: var(--hbx-field-surface);
 }
+.vnd-search-command-slot .be-cmdbar__quantity select {
+  height: 50px;
+  min-width: 98px;
+}
 .vnd-search-command-slot .be-cmdbar__go {
   flex: none;
   min-width: 92px;

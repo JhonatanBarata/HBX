@@ -232,6 +232,7 @@ type UsageResponse = {
 type Tab = "shelf" | "carteira";
 type GeoMode = "cities" | "radius" | "ddd" | "nearby";
 type SegmentIntentMode = "atividade" | "produto" | "publico" | "cnae";
+type SearchQuantity = "25" | "50" | "100";
 type RadarRequiredChannel = "whatsapp" | "phone" | "email" | "website";
 type DddLookupResponse = { state?: string; cities?: string[] };
 type GeoTarget = { city: string; state: string };
@@ -247,13 +248,9 @@ const RADAR_STATE_LABEL: Record<RadarUiState, string> = {
   erro: "Erro",
 };
 
-// Redesenho "Buscar empresas" (05/07): o usuário NÃO pré-seta quantidade (modelo
-// Mercado Livre — ninguém pergunta "quantos iPhones você quer ver"). A prateleira
-// mostra um lote saudável (antes o "Quantos puxar" capava em 5) e a busca traz um
-// lote fixo pro motor. Puxar = quantos você SELECIONA, não um número no filtro.
-// Pool máximo por busca = 100, exibido em 4 páginas de 25 ("1 de 4"). Regra do dono 23/07.
+// A prateleira pagina em lotes de 25; o usuário escolhe se a busca traz
+// 25, 50 ou 100 empresas.
 const SHELF_LIMIT = 25;
-const SEARCH_BATCH = 100;
 // REFUNDAÇÃO F2: com a fila server-side (1 cidade por vez, sobrevive a tudo), o teto de
 // 5 alvos do incidente 28/07 pôde subir — o backend segura o resto (cap 100 + runs/min).
 const MAX_CITY_TARGETS = 20;
@@ -667,6 +664,7 @@ type StoredLeadFilters = {
   minReviews: string;
   requiredChannels: RadarRequiredChannel[];
   channelMatchMode: "any_required" | "all_required";
+  searchQuantity: SearchQuantity;
 };
 
 const EMPTY_STORED_FILTERS: StoredLeadFilters = {
@@ -680,6 +678,7 @@ const EMPTY_STORED_FILTERS: StoredLeadFilters = {
   minReviews: "",
   requiredChannels: [],
   channelMatchMode: "all_required",
+  searchQuantity: "100",
 };
 
 function getStoredFilters(): StoredLeadFilters {
@@ -702,6 +701,10 @@ function getStoredFilters(): StoredLeadFilters {
             typeof channel === "string" && allowedChannels.has(channel as RadarRequiredChannel))
         : [];
       const cityLimit = geoMode === "radius" || geoMode === "nearby" ? 1 : MAX_CITY_TARGETS;
+      const storedQuantity = String(p.searchQuantity ?? p.pauseAfter ?? "100");
+      const searchQuantity: SearchQuantity = storedQuantity === "25" || storedQuantity === "50"
+        ? storedQuantity
+        : "100";
       return {
         uf: typeof p.uf === "string" ? p.uf : "",
         cities: cities.slice(0, cityLimit),
@@ -713,6 +716,7 @@ function getStoredFilters(): StoredLeadFilters {
         minReviews: typeof p.minReviews === "string" || typeof p.minReviews === "number" ? String(p.minReviews) : "",
         requiredChannels,
         channelMatchMode: p.channelMatchMode === "any_required" ? "any_required" : "all_required",
+        searchQuantity,
       };
     }
   } catch { /* sem storage */ }
@@ -900,6 +904,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
   minReviewsRef.current = minReviews;
   const [requiredChannels, setRequiredChannels] = useState<RadarRequiredChannel[]>([]);
   const [channelMatchMode, setChannelMatchMode] = useState<"any_required" | "all_required">("all_required");
+  const [searchQuantity, setSearchQuantity] = useState<SearchQuantity>("100");
   const filtersRestored = useRef(false);
 
   // navegação
@@ -1446,9 +1451,10 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
         minReviews,
         requiredChannels,
         channelMatchMode,
+        searchQuantity,
       }));
     } catch { /* sem storage */ }
-  }, [uf, cities, segment, alcance, geoMode, ddd, minRating, minReviews, requiredChannels, channelMatchMode]);
+  }, [uf, cities, segment, alcance, geoMode, ddd, minRating, minReviews, requiredChannels, channelMatchMode, searchQuantity]);
 
   // Restaura os filtros salvos SÓ pós-montagem (setState em rAF → respeita
   // react-hooks/set-state-in-effect). Roda depois do efeito de persistência
@@ -1470,6 +1476,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
       setMinReviews(f.minReviews);
       setRequiredChannels(f.requiredChannels);
       setChannelMatchMode(f.channelMatchMode);
+      setSearchQuantity(f.searchQuantity);
       if (f.segment || f.uf || f.cities.length > 0 || f.minRating || f.minReviews || f.requiredChannels.length > 0) {
         setHistoryHidden(true);
       }
@@ -1931,7 +1938,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
       const body: Record<string, unknown> = {
         cities: targets.map(target => ({ city: target.city, state: target.state })),
         segment: effSegment,
-        quantity: SEARCH_BATCH,
+        quantity: Number(searchQuantity),
       };
       if ((geoMode === "radius" || geoMode === "nearby") && effRadius > 0) body.radiusKm = effRadius;
       if (geoMode === "nearby" && geo) {
@@ -2634,6 +2641,19 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
             <I d={ICONS.trash} size={15} />
           </button>
         </div>
+
+        <label className="be-cmdbar__quantity">
+          <select
+            value={searchQuantity}
+            onChange={event => setSearchQuantity(event.target.value as SearchQuantity)}
+            disabled={searchInProgress || !radarKnown}
+            aria-label="Quantidade de leads"
+          >
+            <option value="25">25 leads</option>
+            <option value="50">50 leads</option>
+            <option value="100">100 leads</option>
+          </select>
+        </label>
 
         {!radarKnown ? (
           /* ANTI-PISCA: sem saber se já existe busca rodando, o botão não pode

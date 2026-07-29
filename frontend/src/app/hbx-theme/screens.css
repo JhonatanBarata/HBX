@@ -5425,6 +5425,29 @@ html, body { height: 100%; }
   align-items: center;
   gap: 8px;
 }
+.be-cmdbar__quantity {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+.be-cmdbar__quantity select {
+  min-width: 94px;
+  height: var(--field-height);
+  padding: 0 28px 0 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--hbx-field-surface);
+  color: var(--text-strong);
+  font-family: var(--font-body);
+  font-size: 0.7rem;
+  font-weight: 680;
+  cursor: pointer;
+}
+.be-cmdbar__quantity select:focus-visible {
+  outline: none;
+  border-color: var(--hbx-brand);
+  box-shadow: 0 0 0 3px var(--ring-brand);
+}
+.be-cmdbar__quantity select:disabled { opacity: 0.48; cursor: not-allowed; }
 .be-cmdbar--required .be-cmdbar__go,
 .be-cmdbar--required .be-cmdbar__advanced {
   min-height: var(--field-height);
