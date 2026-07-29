@@ -213,6 +213,9 @@ export class LogisticaConfigService {
     }
     if (input.raioChegadaM !== undefined) data.raioChegadaM = clampInt(input.raioChegadaM, 10, 5000, 60);
     if (input.cobrancaSimples !== undefined) data.cobrancaSimples = !!input.cobrancaSimples;
+    // MODO PASSEIO (29/07) — liberação pra equipe. Operacional (mesmo padrão do
+    // cobrancaSimples): @Admin() do controller já basta, não exige billing owner.
+    if (input.passeioEquipe !== undefined) data.passeioEquipe = !!input.passeioEquipe;
     if (input.velocidadeMediaKmH !== undefined) data.velocidadeMediaKmH = clampInt(input.velocidadeMediaKmH, 1, 200, 25);
     if (input.tempoParadaMin !== undefined) data.tempoParadaMin = clampInt(input.tempoParadaMin, 0, 240, 5);
     if (input.cobrancaNaEntrega !== undefined) data.cobrancaNaEntrega = !!input.cobrancaNaEntrega;
@@ -628,6 +631,9 @@ function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = 
     comprovanteAssinaturaObrigatoria: !!c.comprovanteAssinaturaObrigatoria,
     comprovanteCodigoObrigatorio: !!c.comprovanteCodigoObrigatorio,
     cobrancaSimples: !!c.cobrancaSimples,
+    // MODO PASSEIO (29/07) — OPERACIONAL (todo ator lê): o APK decide se mostra
+    // a entrada do modo pro papel comum. É TOGGLE, nunca valor (LEI DO VENDEDOR).
+    passeioEquipe: !!c.passeioEquipe,
     // PR18072026 W-A — módulo Financeiro liga/desliga (3 níveis) + painel
     // Avançado. moduloFinanceiroAtivo e os 5 toggles abaixo são OPERACIONAIS
     // (lidos por QUALQUER ator): o app do entregador precisa saber o nível da
@@ -798,6 +804,8 @@ export interface UpdateLogisticaConfigInput {
   comprovanteCodigoObrigatorio?: boolean;
   // W1-BACKEND (18/07) — toggle "Cobrança simples na chegada" do app do entregador.
   cobrancaSimples?: boolean;
+  // MODO PASSEIO (29/07) — liberação do modo pra equipe (operacional).
+  passeioEquipe?: boolean;
   // PR18072026 W-A — módulo Financeiro (3 níveis) + painel Avançado. Todos
   // operacionais: não exigem billing owner (mesmo padrão do cobrancaSimples).
   aceitaNaHora?: boolean;
@@ -851,6 +859,8 @@ export interface LogisticaConfigDTO {
   // W1-BACKEND (18/07) — toggle "Cobrança simples na chegada" do app do entregador.
   // Operacional (não financeiro): precisa estar visível pro motorista, não só billing owner.
   cobrancaSimples: boolean;
+  // MODO PASSEIO (29/07) — liberação pra equipe (operacional, todo ator lê).
+  passeioEquipe: boolean;
   // PR18072026 W-A — módulo Financeiro (3 níveis) + painel Avançado. Todos
   // OPERACIONAIS (lidos por QUALQUER ator, mesmo padrão do cobrancaSimples):
   // o app do entregador usa pra decidir o nível da folha de chegada e quais

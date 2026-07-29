@@ -21,6 +21,9 @@ export const CREDIT_ACTION_KEYS = {
   LOGISTICA_DELIVERY: 'logistica_delivery',
   LOGISTICA_ESSENTIAL_BLOCK: 'logistica_essential_block',
   LOGISTICA_TRACKED_DELIVERY: 'logistica_tracked_delivery',
+  // MODO PASSEIO (29/07) — 1 débito por passeio INICIADO no APK (usageKey por
+  // tourId, idempotente). Preço editável no /master como as demais ações.
+  PASSEIO_TOUR: 'passeio_tour',
 } as const;
 
 export type CreditActionKey =
@@ -30,7 +33,8 @@ export type CreditActionKey =
   | 'ai_batch'
   | 'logistica_delivery'
   | 'logistica_essential_block'
-  | 'logistica_tracked_delivery';
+  | 'logistica_tracked_delivery'
+  | 'passeio_tour';
 
 export type CreditActionDefinition = {
   key: CreditActionKey;
@@ -74,6 +78,12 @@ const CREDIT_ACTION_BASE: Record<CreditActionKey, CreditActionDefinition> = {
     cost: 2,
     label: 'Logística Rastreada',
   },
+  [CREDIT_ACTION_KEYS.PASSEIO_TOUR]: {
+    key: CREDIT_ACTION_KEYS.PASSEIO_TOUR,
+    mode: 'debit',
+    cost: 2,
+    label: 'Modo Passeio (por passeio iniciado)',
+  },
 };
 
 const ACTION_KEYS: CreditActionKey[] = [
@@ -84,6 +94,7 @@ const ACTION_KEYS: CreditActionKey[] = [
   'logistica_delivery',
   'logistica_essential_block',
   'logistica_tracked_delivery',
+  'passeio_tour',
 ];
 
 /**

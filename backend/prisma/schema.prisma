@@ -2038,6 +2038,10 @@ model LogisticaConfig {
   // nasce aqui; o comportamento em si é de outra frente. Default false = 0
   // mudança de comportamento pra quem não ligou.
   cobrancaSimples       Boolean  @default(false)
+  // MODO PASSEIO (29/07) — liberação do modo pra EQUIPE (papel comum). Admin
+  // (ADMIN/USERMASTER) usa sempre; funcionário só com esta chave ligada, porque
+  // iniciar passeio DEBITA crédito da empresa. Default false = dormente.
+  passeioEquipe         Boolean  @default(false)
   // TASK 4 (08/07) — dias da semana em que a empresa TRABALHA (CSV ISO "1,2,3,4,5,6,7",
   // 1=segunda…7=domingo; mesma convenção de ClienteProduto.diasSemana). null = default
   // (sem restrição configurada). Usado pelo pop-up "Gerar entregas" do app pra sugerir

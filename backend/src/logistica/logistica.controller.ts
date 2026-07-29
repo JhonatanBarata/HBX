@@ -54,6 +54,7 @@ import {
   RegistrarTrilhaDto,
   UpdateLeituraParadaDto,
 } from './dto/logistica-leitura.dto';
+import { LogisticaPasseioService } from './logistica-passeio.service';
 import {
   AtribuirEntregaDto,
   CancelarEntregaDto,
@@ -70,6 +71,7 @@ import {
   FecharMesDto,
   GerarDiaDto,
   GerarRotaModeloDto,
+  IniciarPasseioDto,
   IniciarRotaDto,
   LimparDiaDto,
   PlanejarRotaDto,
@@ -139,6 +141,8 @@ export class LogisticaController {
     // PR28072026 HÍBRIDO (28/07) — preço + franquia do nível. Mesmo padrão de
     // default acima (testes legados instanciam o controller direto).
     private readonly nivelPlano: LogisticaNivelPlanoService = null as any,
+    // MODO PASSEIO (29/07) — débito do passeio. Mesmo padrão de default acima.
+    private readonly passeio: LogisticaPasseioService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -1150,6 +1154,18 @@ export class LogisticaController {
   getConfig(@Req() req: any) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     return this.config.getConfig(companyId, req.user);
+  }
+
+  /**
+   * MODO PASSEIO (29/07) — inicia (e cobra) um passeio do APK. SEM @Admin() de
+   * propósito: funcionário também chama; o gate admin×passeioEquipe (e o débito
+   * idempotente por tourId) mora no serviço, fail-closed.
+   */
+  @Post('passeio/iniciar')
+  iniciarPasseio(@Req() req: any, @Body() dto: IniciarPasseioDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    this.ensureUserId(req.user);
+    return this.passeio.iniciar(companyId, req.user, dto?.tourId);
   }
 
   /**

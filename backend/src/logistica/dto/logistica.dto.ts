@@ -569,6 +569,12 @@ export class UpdateLogisticaConfigDto {
   @IsBoolean()
   cobrancaSimples?: boolean;
 
+  // MODO PASSEIO (29/07) — liberação do modo pra equipe (operacional, padrão
+  // do cobrancaSimples: @Admin() do PATCH já basta).
+  @IsOptional()
+  @IsBoolean()
+  passeioEquipe?: boolean;
+
   @IsOptional()
   @IsBoolean()
   moduloFinanceiroAtivo?: boolean;
@@ -711,6 +717,15 @@ export class UpdateLogisticaRouteModeDto {
   @IsOptional()
   @IsIn(['ESSENTIAL', 'TRACKED'])
   modoRotaPadrao?: 'ESSENTIAL' | 'TRACKED';
+}
+
+// ── MODO PASSEIO (29/07) — POST /logistica/passeio/iniciar ──────────────────
+// tourId nasce no APK (H.uuid) e é a chave de idempotência do débito: retry de
+// rede com o mesmo id nunca cobra 2×. Formato exato validado no serviço.
+export class IniciarPasseioDto {
+  @IsString()
+  @MaxLength(80)
+  tourId!: string;
 }
 
 // ── PR27072026 F1 — NÍVEL DO PLANO (Basic/Advanced/Full) ────────────────────

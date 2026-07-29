@@ -36,6 +36,7 @@ import { LogisticaMobileService } from './logistica-mobile.service';
 import { LogisticaPedidoPublicoController } from './logistica-pedido-publico.controller';
 import { LogisticaOperacaoService } from './logistica-operacao.service';
 import { LogisticaRouteBillingService } from './logistica-route-billing.service';
+import { LogisticaPasseioService } from './logistica-passeio.service';
 import { LogisticaTrackingService } from './logistica-tracking.service';
 import { LogisticaTrackingMobileController } from './logistica-tracking-mobile.controller';
 import { LogisticaTrackingPublicService } from './logistica-tracking-public.service';
@@ -217,6 +218,7 @@ import { LogisticaEstoqueService } from './logistica-estoque.service';
     LogisticaPedidoPublicoService,
     LogisticaOperacaoService,
     LogisticaRouteBillingService,
+    LogisticaPasseioService,
     LogisticaTrackingService,
     LogisticaTrackingPublicService,
     OfflineAwareLogisticaTrackedBillingService,
