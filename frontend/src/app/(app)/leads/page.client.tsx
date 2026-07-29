@@ -12,6 +12,7 @@
 
 import { useRouter } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Av, I, ICONS } from "@/components/hbx/shell";
 import { CanalIcon } from "@/components/hbx/canal-icon";
@@ -795,7 +796,7 @@ function getStoredViewMode(): ViewMode {
   } catch { return "linhas"; }
 }
 
-export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embedTitle }: {
+export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats }: {
   embedded?: boolean;
   onLeadPulled?: (focus?: boolean) => void;
   onEmbedStats?: (s: {
@@ -806,11 +807,18 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     cotaPct: number;
     radarState: RadarUiState;
   }) => void;
-  embedTitle?: ReactNode;
 } = {}) {
   const router = useRouter();
   const [viewMode, setViewMode] = useState<ViewMode>(getStoredViewMode);
   const viewPill = useGlassPill<HTMLButtonElement>(viewMode);
+  const [embedCommandHost, setEmbedCommandHost] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!embedded) return;
+    const frame = requestAnimationFrame(() => {
+      setEmbedCommandHost(document.getElementById("vendas-buscar-command-slot"));
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [embedded]);
   useEffect(() => {
     try { localStorage.setItem("hbx:leads-view-mode", viewMode); } catch { /* sem storage */ }
   }, [viewMode]);
@@ -2489,6 +2497,34 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   // ── Barra de comando: uma linha no desktop, com somente o que é necessário
   // para executar a busca — segmento, UF/cidade e Buscar. Todo o restante
   // fica atrás de Avançado.
+  function renderViewToggle() {
+    return (
+      <div className="glass-pill-track leads-viewtoggle" role="group" aria-label="Modo de exibição da lista">
+        <GlassPill {...viewPill} />
+        <button
+          type="button"
+          ref={viewPill.itemRef("linhas")}
+          className={"glass-pill-item leads-viewtoggle__item" + (viewMode === "linhas" ? " active" : "")}
+          onClick={() => setViewMode("linhas")}
+          aria-pressed={viewMode === "linhas"}
+          title="Ver em linhas"
+        >
+          <I d={ICONS.list} size={14} /> Linhas
+        </button>
+        <button
+          type="button"
+          ref={viewPill.itemRef("cards")}
+          className={"glass-pill-item leads-viewtoggle__item" + (viewMode === "cards" ? " active" : "")}
+          onClick={() => setViewMode("cards")}
+          aria-pressed={viewMode === "cards"}
+          title="Ver em cards"
+        >
+          <I d={ICONS.grid} size={14} /> Cards
+        </button>
+      </div>
+    );
+  }
+
   function renderCommandBar() {
     const targetLimit = geoMode === "radius" || geoMode === "nearby" ? 1 : MAX_CITY_TARGETS;
     const hasAnyFilter = Boolean(
@@ -2695,6 +2731,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           </button>
         )}
 
+        {embedded && renderViewToggle()}
+
         {/* 28/07 (dono): o botão "Avançado" da barra morreu — canais, reputação e
             pesquisas salvas continuam a UM clique dentro do popup de Território
             (acordeão "Avançado"), e a barra deixa de disputar espaço com o Buscar. */}
@@ -2852,6 +2890,88 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   // pra /leads/[id] SÓ quando o lead já está POSSUÍDO (revealed) — regra dura
   // do plano: card ainda não puxado nunca vê a página cheia, o clique na linha
   // (setSelLead) já abre o aside mascarado + CTA "Puxar", que é o caminho certo.
+  const allVisibleSelected = tab === "shelf"
+    && items.length > 0
+    && items.every(row => selected.has(row.id));
+
+  function toggleAllVisible() {
+    setSelected(allVisibleSelected ? new Set() : new Set(items.map(row => row.id)));
+  }
+
+  function renderResultsHeader() {
+    const bulk = tab === "shelf" && selected.size > 0;
+    const companyLabel = viewMode === "linhas" ? "Empresa" : "Empresas";
+    return (
+      <div className={"leads-results-head" + (viewMode === "cards" ? " is-cards" : "") + (bulk ? " is-bulk" : "")}>
+        {bulk ? (
+          <>
+            <label className="leads-results-head__select">
+              <input
+                type="checkbox"
+                checked={allVisibleSelected}
+                onChange={toggleAllVisible}
+                aria-label={allVisibleSelected ? "Desmarcar todos" : "Selecionar todos"}
+              />
+            </label>
+            <span className="hbx-selection-bar">
+              <span className="hbx-selection-bar__copy">
+                <b>{selected.size} selecionado{selected.size === 1 ? "" : "s"}</b>
+              </span>
+              <span className="hbx-selection-bar__actions">
+                <button type="button" className="btn-ghost btn-xs" onClick={() => setSelected(new Set())}>Desmarcar</button>
+                <button
+                  type="button"
+                  className="btn-teal btn-xs"
+                  data-tut="leads-puxar"
+                  onClick={puxarSelecionados}
+                  disabled={meterBlocked || bulkBusy}
+                >
+                  {bulkBusy ? "Puxando…" : "Puxar selecionados"}
+                </button>
+              </span>
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="leads-results-head__company">
+              {tab === "shelf" && (
+                <label className="leads-results-head__select">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleAllVisible}
+                    aria-label={allVisibleSelected ? "Desmarcar todos" : "Selecionar todos"}
+                  />
+                </label>
+              )}
+              {companyLabel}
+            </span>
+            {viewMode === "linhas" && (
+              <>
+                <span>Cidade/UF</span>
+                <span>Contato</span>
+                <span className="leads-results-head__score">Score</span>
+                <span>Status</span>
+              </>
+            )}
+            <span className="leads-results-head__tail">
+              {embedded && hasHistory && (
+                <button
+                  type="button"
+                  className="btn-ghost btn-xs leads-history-clear"
+                  onClick={() => { setHistoryHidden(true); setSelected(new Set()); setSelLead(null); }}
+                  title="Remover o histórico exibido"
+                >
+                  <I d={ICONS.x} size={13} /> Excluir histórico
+                </button>
+              )}
+            </span>
+          </>
+        )}
+      </div>
+    );
+  }
+
   function renderRowsDense() {
     return (
       <div className="tbl-wrap row-dense-list-wrap">
@@ -2866,14 +2986,6 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           </div>
         ) : (
           <div className="row-dense-list">
-            <div className="row-dense-list__head" aria-hidden="true">
-              <span>Empresa</span>
-              <span>Cidade/UF</span>
-              <span>Contato</span>
-              <span style={{ textAlign: "center" }}>Score</span>
-              <span>Status</span>
-              <span />
-            </div>
             {items.map(row => {
               const isSel = selLead?.id === row.id;
               const checked = selected.has(row.id);
@@ -3002,37 +3114,25 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           <div className="radar2-shell">
             {/* Área principal da lista */}
             <div className="radar2-main">
-              {/* Embutido no Vendas (casca única): título "Pipeline de pesquisa" DENTRO
-                  do painel — mesmo tratamento do "Pipeline de vendas" do funil. 29/06. */}
-              {embedded && embedTitle && (
-                <div className="panel-head leads-embed-head">
-                  <span className="leads-embed-head__icon"><I d={ICONS.scrape} size={18} /></span>
-                  <span className="leads-embed-head__copy">
-                    <h2>{embedTitle}</h2>
-                  </span>
-                  <span className="leads-embed-head__tag">Radar</span>
-                </div>
-              )}
-              {/* Barra de comando horizontal — os filtros saíram do aside paredão pra cá. */}
-              {renderCommandBar()}
+              {embedded
+                ? (embedCommandHost ? createPortal(renderCommandBar(), embedCommandHost) : null)
+                : renderCommandBar()}
               {/* Segunda linha operacional: ações em massa à esquerda/direita e o modo
                   de visualização centralizado. O rodapé de ações sai de baixo da lista,
                   liberando a altura dos resultados até a paginação. */}
-              <div className="leads-headrow leads-headrow--toolbar">
+              {!embedded && <div className="leads-headrow leads-headrow--toolbar">
                 <div className="leads-headrow__start">
-                  {!embedded && (
-                    <div className="tabs" data-tut="leads-abas">
-                      <button className={"tab" + (tab === "shelf" ? " active" : "")} onClick={() => switchTab("shelf")}>
-                        Disponíveis <span className="n">{counts.shelf == null ? "—" : fmtInt(counts.shelf)}</span>
-                      </button>
-                      <button
-                        className={"tab" + (tab === "carteira" ? " active" : "")}
-                        onClick={() => switchTab("carteira")}
-                      >
-                        Minha carteira <span className="n">{counts.carteira == null ? "—" : fmtInt(counts.carteira)}</span>
-                      </button>
-                    </div>
-                  )}
+                  <div className="tabs" data-tut="leads-abas">
+                    <button className={"tab" + (tab === "shelf" ? " active" : "")} onClick={() => switchTab("shelf")}>
+                      Disponíveis <span className="n">{counts.shelf == null ? "—" : fmtInt(counts.shelf)}</span>
+                    </button>
+                    <button
+                      className={"tab" + (tab === "carteira" ? " active" : "")}
+                      onClick={() => switchTab("carteira")}
+                    >
+                      Minha carteira <span className="n">{counts.carteira == null ? "—" : fmtInt(counts.carteira)}</span>
+                    </button>
+                  </div>
                   {tab === "shelf" && (
                     <button
                       type="button"
@@ -3053,29 +3153,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                 </div>
 
                 <div className="leads-headrow__center">
-                  <div className="glass-pill-track leads-viewtoggle" role="group" aria-label="Modo de exibição da lista">
-                    <GlassPill {...viewPill} />
-                    <button
-                      type="button"
-                      ref={viewPill.itemRef("linhas")}
-                      className={"glass-pill-item leads-viewtoggle__item" + (viewMode === "linhas" ? " active" : "")}
-                      onClick={() => setViewMode("linhas")}
-                      aria-pressed={viewMode === "linhas"}
-                      title="Ver em linhas (denso)"
-                    >
-                      <I d={ICONS.list} size={14} /> Linhas
-                    </button>
-                    <button
-                      type="button"
-                      ref={viewPill.itemRef("cards")}
-                      className={"glass-pill-item leads-viewtoggle__item" + (viewMode === "cards" ? " active" : "")}
-                      onClick={() => setViewMode("cards")}
-                      aria-pressed={viewMode === "cards"}
-                      title="Ver em cards"
-                    >
-                      <I d={ICONS.grid} size={14} /> Cards
-                    </button>
-                  </div>
+                  {renderViewToggle()}
                 </div>
 
                 <div className="leads-headrow__end">
@@ -3103,7 +3181,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                     </>
                   )}
                 </div>
-              </div>
+              </div>}
               {hasHistory && <div className="leads-history-note">Histórico recente</div>}
               {tab === "shelf" && filtersStale && items.length > 0 && (
                 <div className="leads-history-note">Resultado desatualizado — clique Buscar para atualizar.</div>
@@ -3140,6 +3218,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
               {/* Linhas densas (default) ou grade de cards — MESMO items, MESMO
                   modelo/normalização (buildNegocioDetail/renderOriginBadge/
                   contatoMascarado); só a moldura muda por viewMode. */}
+              {items.length > 0 && renderResultsHeader()}
               {viewMode === "linhas" ? renderRowsDense() : (
                   <div className="tbl-wrap be-grid-wrap">
                     {items.length === 0 ? (

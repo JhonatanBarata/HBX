@@ -24,8 +24,6 @@ import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { CanalIcon } from "@/components/hbx/canal-icon";
 import { RADAR_CHANNEL_ORDER, resolveRadarChannelPresence, type RadarChannel } from "@/lib/radar-channel-presence";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
-import { RADAR_RATE } from "@/components/hbx/radar-disc";
-import { useAnimationRate } from "@/components/hbx/use-animation-rate";
 import { LeadsClient } from "../leads/page.client";
 import { apiFetch } from "@/lib/api";
 
@@ -210,26 +208,6 @@ function fmtMoney(value: number | null | undefined) {
 
 function leadValueLabel(lead: VendasLead) {
   return lead.product?.priceLabel || fmtMoney(lead.saleValue) || "—";
-}
-
-// Hora do relógio (HH:MM) — usada na faixa de contexto do painel de comando.
-function fmtHora(ms: number | null | undefined) {
-  if (ms == null || !Number.isFinite(ms)) return null;
-  return new Date(ms).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-}
-
-// "há 2h11" / "há 3 dias" — o tempo de espera dito do jeito que o vendedor fala.
-// `agora` entra por parâmetro (e não por Date.now() aqui dentro) porque isto roda
-// no render: relógio lido durante o render é impuro e o lint barra.
-function fmtEspera(ms: number | null | undefined, agora: number) {
-  if (ms == null || !Number.isFinite(ms) || !agora) return null;
-  const min = Math.max(0, Math.floor((agora - ms) / 60000));
-  if (min < 1) return "agora";
-  if (min < 60) return `há ${min}min`;
-  const h = Math.floor(min / 60);
-  if (h < 24) return `há ${h}h${String(min % 60).padStart(2, "0")}`;
-  const d = Math.floor(h / 24);
-  return `há ${d} dia${d === 1 ? "" : "s"}`;
 }
 
 function fmtWhen(iso: string | null) {
@@ -426,67 +404,6 @@ function resolveRadarUiState(run: RadarRunSnapshot): RadarUiState {
   return "parado";
 }
 
-// 4º botão do topo (visual DIFERENTÃO): os dados da faixa "Buscando empresas"
-// viram um card destacado ao lado dos 3 KPIs. Nunca invade o card de detalhe —
-// mora dentro da barra do topo, que é limitada à coluna da esquerda.
-function RadarSupplyCard({
-  supply,
-  radarState,
-  onLiberar,
-}: {
-  supply: NonNullable<NonNullable<BoardResponse>["radarSupply"]>;
-  // null = ainda não sabemos (1ª resposta do servidor não chegou): o card fica
-  // cinza "Verificando", nunca chuta "Radar parado". Mesma regra do viewer grande.
-  radarState: RadarUiState | null;
-  onLiberar: () => void;
-}) {
-  const unlimited = Boolean(supply.unlimited) && !supply.paused;
-  const capacity = Math.max(1, supply.capacity || 1);
-  const used = Math.max(0, Math.min(supply.activeCards ?? 0, capacity));
-  const count = unlimited ? Math.max(0, supply.activeCards ?? 0) : used;
-  const label = radarState === "funcionando"
-    ? "Radar funcionando"
-    : radarState === "pausado"
-      ? "Radar pausado"
-      : radarState === "erro"
-        ? "Erro no radar"
-        : radarState === "parado"
-          ? "Radar parado"
-          : "Verificando o Radar";
-  const unit = unlimited ? "na lista" : `/ ${capacity}`;
-  const clickable = supply.full;
-  // Mini-radar freia/acelera igual ao disco grande (nada de sweep saltando).
-  const cardRef = useRef<HTMLDivElement>(null);
-  useAnimationRate(
-    cardRef,
-    radarState === "funcionando" ? RADAR_RATE.funcionando
-      : radarState === "pausado" ? RADAR_RATE.pausado
-        : radarState === null ? RADAR_RATE.pausado
-          : RADAR_RATE.parado,
-  );
-  return (
-    <div
-      ref={cardRef}
-      className={"vnd-supcard vnd-supcard--" + (radarState || "carregando") + (clickable ? " is-clickable" : "")}
-      role={clickable ? "button" : "status"}
-      tabIndex={clickable ? 0 : undefined}
-      aria-label={`${label}: ${count} ${unit}`}
-      onClick={clickable ? onLiberar : undefined}
-      onKeyDown={clickable ? (e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onLiberar(); } }) : undefined}
-    >
-      <span className="vnd-supcard__halo" aria-hidden="true" />
-      <span className="vnd-supcard__ic" aria-hidden="true">
-        <I d={radarState === "funcionando" || radarState === null ? ICONS.scrape : ICONS.pause} size={16} />
-      </span>
-      <span className="vnd-supcard__txt">
-        <span className="vnd-supcard__label">{label}</span>
-        <span className="vnd-supcard__val"><b>{count}</b> <span>{unit}</span></span>
-      </span>
-      {clickable && <span className="vnd-supcard__cta">Liberar</span>}
-    </div>
-  );
-}
-
 type BotStatus = { botModuleEnabled: boolean; botArmed: boolean } | null;
 type RetornoMode = 'manual' | 'auto_email' | 'auto_whatsapp' | 'auto_both';
 
@@ -496,33 +413,39 @@ type RetornoMode = 'manual' | 'auto_email' | 'auto_whatsapp' | 'auto_both';
 // religar = só pôr `true` aqui (o CSS lê via data-fx no .vnd-modehost).
 const EFFECTS_ON = true;
 
-// ── TypedText — efeito "digitando" (mesmo do card de detalhe) ─────────────────
-// Re-digita a cada montagem; o caller passa key={...} pra re-rodar na troca de
-// modo. Sem setState síncrono no corpo do effect (lint react-hooks é erro aqui):
-// o reset vem do key, os updates rodam só dentro do interval/rAF.
-function TypedTextCore({ text, speed }: { text: string; speed: number }) {
-  const [shown, setShown] = useState("");
-  const [done, setDone] = useState(false);
+// O rótulo apaga o modo atual e escreve o próximo na mesma posição.
+function MorphText({ text }: { text: string }) {
+  const [shown, setShown] = useState(text);
+  const shownRef = useRef(text);
+  const targetRef = useRef(text);
   useEffect(() => {
-    if (!text) return;
+    if (targetRef.current === text) return;
+    targetRef.current = text;
     const reduce = typeof window !== "undefined"
       && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     if (!EFFECTS_ON || reduce) {
-      const id = requestAnimationFrame(() => { setShown(text); setDone(true); });
+      const id = requestAnimationFrame(() => {
+        shownRef.current = text;
+        setShown(text);
+      });
       return () => cancelAnimationFrame(id);
     }
-    let i = 0;
+
+    let phase: "erase" | "type" = shownRef.current ? "erase" : "type";
     const iv = setInterval(() => {
-      i++;
-      setShown(text.slice(0, i));
-      if (i >= text.length) { clearInterval(iv); setDone(true); }
-    }, speed);
+      if (phase === "erase") {
+        shownRef.current = shownRef.current.slice(0, -1);
+        setShown(shownRef.current);
+        if (!shownRef.current) phase = "type";
+        return;
+      }
+      shownRef.current = text.slice(0, shownRef.current.length + 1);
+      setShown(shownRef.current);
+      if (shownRef.current === text) clearInterval(iv);
+    }, 34);
     return () => clearInterval(iv);
-  }, [text, speed]);
-  return <span className={"vnd-typed" + (done ? " is-done" : "")}>{shown}<i className="vnd-caret" aria-hidden="true" /></span>;
-}
-function TypedText({ text, speed = 42 }: { text: string; speed?: number }) {
-  return <TypedTextCore key={text} text={text} speed={speed} />;
+  }, [text]);
+  return <span className="vnd-mode-morph">{shown}<i className="vnd-caret" aria-hidden="true" /></span>;
 }
 
 export function VendasClient() {
@@ -558,9 +481,6 @@ export function VendasClient() {
     radarState: null,
   });
   const [board, setBoard] = useState<BoardResponse>(null);
-  // Relógio carimbado junto com o board (ver loadBoard) — referência de "há
-  // quanto tempo" da faixa de contexto do painel de comando.
-  const [agora, setAgora] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   // Antes de o painel Buscar ser montado, mantém o indicador compacto ligado
@@ -742,11 +662,6 @@ export function VendasClient() {
       .then(res => {
         setBoard(res);
         boardRef.current = res;
-        // Carimba o relógio JUNTO com os dados: a faixa de contexto diz "há 2h11"
-        // em cima do mesmo instante que o board retrata. Ler o relógio no render
-        // seria impuro; ler num efeito dispara render em cascata — o lugar certo
-        // é aqui, quando a resposta chega.
-        setAgora(Date.now());
         setLoadError(null);
         // Auto-cura: filtro persistido que o backend rejeitou (vendedor desativado/
         // removido → selectedSellerId volta null) é limpo p/ não ficar fantasma.
@@ -1311,59 +1226,7 @@ export function VendasClient() {
   for (const c of flatLeads) stageCounts[normalizeStage(c.status)]++;
   const listLeads: VendasLead[] = stageFilter ? flatLeads.filter(c => normalizeStage(c.status) === stageFilter) : flatLeads;
 
-  // ── BRIEFING DA ETAPA (PAINEL-ÚNICO, 26/07) ────────────────────────────────
-  // A faixa de contexto do painel de comando responde "o que está acontecendo
-  // AQUI e o que eu faço agora". Tudo sai dos leads já carregados (flatLeads) —
-  // nenhum endpoint novo, nenhum número inventado. Quando não dá pra afirmar um
-  // fato (campo ausente), o fato simplesmente não entra na linha.
-  const briefing = (() => {
-    const porEtapa = (k: VendasStage) => flatLeads.filter(c => normalizeStage(c.status) === k);
-    const novos = porEtapa("novo");
-    const emCadencia = porEtapa("contato");
-    const chamaram = porEtapa("retorno");
-    const negociando = porEtapa("qualificado");
-    const fechados = porEtapa("encerrado");
-
-    const comZap = novos.filter(c => vendasCanais(c).includes("whatsapp")).length;
-    const semContato = novos.filter(c => vendasCanais(c).length === 0).length;
-
-    const roboAtivo = flatLeads.filter(c => c.automation).length;
-    // relógio congelado no momento em que o board chegou (ver `agora`): ler
-    // Date.now() aqui seria impuro — o render tem que dar sempre o mesmo resultado.
-    const proximoDisparo = emCadencia
-      .map(c => c.automation?.nextStepAt)
-      .filter((iso): iso is string => Boolean(iso))
-      .map(iso => new Date(iso).getTime())
-      .filter(t => Number.isFinite(t))
-      .sort((a, b) => a - b)[0];
-    const mudos48h = emCadencia.filter(c => {
-      const out = c.engagement?.lastOutboundAt;
-      if (!out || c.engagement?.hasInboundReply) return false;
-      const t = new Date(out).getTime();
-      return Number.isFinite(t) && agora > 0 && agora - t > 48 * 3600 * 1000;
-    }).length;
-
-    // "Te chamou": o lead que está esperando há mais tempo é o que abre primeiro.
-    const esperando = chamaram
-      .map(c => ({ card: c, at: new Date(c.engagement?.lastInboundAt || c.returnAt || 0).getTime() }))
-      .filter(x => Number.isFinite(x.at) && x.at > 0)
-      .sort((a, b) => a.at - b.at);
-    const maisAntigo = esperando[0] || null;
-    const chamaramAtrasados = chamaram.filter(c => c.block === "overdue").length;
-
-    const somaNegociacao = negociando.reduce((acc, c) => acc + (c.saleValue || 0), 0);
-    const negociacaoHoje = negociando.filter(c => c.block === "today").length;
-    const negociacaoSemAcao = negociando.filter(c => !c.nextAction).length;
-
-    const comissaoPendente = fechados.filter(c =>
-      String(c.commissionStatusLabel || "").toLocaleLowerCase("pt-BR").includes("pend")).length;
-
-    return {
-      comZap, semContato, roboAtivo, proximoDisparo, mudos48h,
-      maisAntigo, chamaramAtrasados, somaNegociacao, negociacaoHoje, negociacaoSemAcao,
-      comissaoPendente,
-    };
-  })();
+  const roboAtivo = flatLeads.filter(c => c.automation).length;
 
   // O status pertence ao Radar. O id comercial de Vendas nunca é usado como radarLeadId.
   const aiStatusMap = useRadarAiStatusPoll(flatLeads.map(card => card.radarLeadId || ""), {
@@ -1448,101 +1311,6 @@ export function VendasClient() {
 
   const summary = board?.summary;
 
-  // ── FAIXA DE CONTEXTO (PAINEL-ÚNICO, 26/07) ────────────────────────────────
-  // O conteúdo da faixa é uma FUNÇÃO da etapa aberta: título em português do
-  // vendedor, a linha de fatos daquela etapa e as ações que fazem sentido ali.
-  // Sem etapa escolhida a faixa vira o resumo do funil — que é exatamente o que
-  // os 3 KPIs do topo diziam antes (total / atrasados / fechados).
-  // O título é CURTO e diz o SENTIDO da etapa (o nome dela já está na guia logo
-  // acima — repetir seria ocupar linha à toa); os fatos vêm depois, na mesma
-  // linha, em cinza.
-  const ctxBrief: { tone: string; title: string; facts: React.ReactNode; actions: React.ReactNode } = (() => {
-    const fato = (parts: React.ReactNode[]) => (
-      <React.Fragment>
-        {parts.filter(Boolean).map((p, i) => (
-          <React.Fragment key={i}>{i > 0 && <span className="vnd-ctx__dot" aria-hidden="true">·</span>}{p}</React.Fragment>
-        ))}
-      </React.Fragment>
-    );
-    const n = (v: number | string) => <b className="vnd-ctx__n">{v}</b>;
-
-    if (stageFilter === "novo") return {
-      tone: "calm",
-      title: "Leia, decida e ligue Automação",
-      facts: fato([
-        <React.Fragment key="z">{n(briefing.comZap)} com WhatsApp</React.Fragment>,
-        briefing.semContato > 0 ? <React.Fragment key="s">{n(briefing.semContato)} sem nenhum contato</React.Fragment> : null,
-        <React.Fragment key="a">nenhum foi abordado ainda</React.Fragment>,
-      ]),
-      actions: (
-        <React.Fragment>
-          <button type="button" className="btn-teal btn-xs" onClick={() => setProspOpen(true)}>Configurar Automação</button>
-          <button type="button" className="btn-ghost btn-xs" onClick={() => router.push("/leads")}>Puxar mais leads</button>
-        </React.Fragment>
-      ),
-    };
-
-    if (stageFilter === "contato") return {
-      tone: "bot",
-      title: "Cadência rodando — você não precisa fazer nada",
-      facts: fato([
-        briefing.proximoDisparo ? <React.Fragment key="d">próximo disparo {n(fmtHora(briefing.proximoDisparo) || "—")}</React.Fragment> : null,
-        <React.Fragment key="j">janela {n(`${comercialConfigDraft.workingHoursStart}–${comercialConfigDraft.workingHoursEnd}`)}</React.Fragment>,
-        briefing.mudos48h > 0 ? <React.Fragment key="m">{n(briefing.mudos48h)} sem resposta há mais de 48h</React.Fragment> : null,
-      ]),
-      actions: <button type="button" className="btn-ghost btn-xs" onClick={() => setProspOpen(true)}>Ver a cadência</button>,
-    };
-
-    if (stageFilter === "retorno") return {
-      tone: "hot",
-      title: `${stageCounts.retorno} esperando você responder`,
-      facts: fato([
-        briefing.maisAntigo ? <React.Fragment key="e">espera mais antiga {n(fmtEspera(briefing.maisAntigo.at, agora) || "—")}</React.Fragment> : null,
-        briefing.chamaramAtrasados > 0 ? <React.Fragment key="a">{n(briefing.chamaramAtrasados)} atrasado{briefing.chamaramAtrasados === 1 ? "" : "s"}</React.Fragment> : null,
-        <React.Fragment key="r">Automação para sozinho quando o cliente responde</React.Fragment>,
-      ]),
-      actions: briefing.maisAntigo
-        ? <button type="button" className="btn-teal btn-xs" onClick={() => { setSel(briefing.maisAntigo!.card); setCockpitOpen(true); }}>Abrir quem espera há mais tempo</button>
-        : null,
-    };
-
-    if (stageFilter === "qualificado") return {
-      tone: "calm",
-      title: "Você assumiu: proposta e acompanhamento",
-      facts: fato([
-        // LEI DO VENDEDOR: soma em R$ só para quem o backend autoriza.
-        board?.canViewValues && briefing.somaNegociacao > 0
-          ? <React.Fragment key="v">{n(fmtMoney(briefing.somaNegociacao) || "—")} em jogo</React.Fragment> : null,
-        briefing.negociacaoHoje > 0 ? <React.Fragment key="h">{n(briefing.negociacaoHoje)} com retorno hoje</React.Fragment> : null,
-        briefing.negociacaoSemAcao > 0 ? <React.Fragment key="s">{n(briefing.negociacaoSemAcao)} sem próxima ação definida</React.Fragment> : null,
-      ]),
-      actions: <button type="button" className="btn-ghost btn-xs" onClick={() => setAgendaOpen(true)}>Agenda de retornos</button>,
-    };
-
-    if (stageFilter === "encerrado") return {
-      tone: "calm",
-      title: `${stageCounts.encerrado} contrato${stageCounts.encerrado === 1 ? "" : "s"} fechado${stageCounts.encerrado === 1 ? "" : "s"}`,
-      facts: fato([
-        briefing.comissaoPendente > 0
-          ? <React.Fragment key="c">{n(briefing.comissaoPendente)} com comissão pendente</React.Fragment>
-          : <React.Fragment key="c">nenhuma comissão pendente</React.Fragment>,
-      ]),
-      actions: <button type="button" className="btn-ghost btn-xs" onClick={() => router.push("/financeiro")}>Abrir o financeiro</button>,
-    };
-
-    // Sem etapa escolhida: o resumo do funil (o que os 3 KPIs mostravam).
-    return {
-      tone: "calm",
-      title: board?.team ? "Funil da empresa" : "Escolha uma etapa acima",
-      facts: fato([
-        <React.Fragment key="t">{n(summary ? summary.total : "—")} {summary?.total === 1 ? "card" : "cards"} no funil</React.Fragment>,
-        <React.Fragment key="a">{n(summary ? summary.overdue : "—")} {summary?.overdue === 1 ? "atrasado" : "atrasados"}</React.Fragment>,
-        <React.Fragment key="f">{n(summary ? summary.closed : "—")} {summary?.closed === 1 ? "fechado" : "fechados"}</React.Fragment>,
-      ]),
-      actions: null,
-    };
-  })();
-
   // Organizador de colunas — o menu inteiro. Virou variável (PAINEL-ÚNICO, 26/07)
   // porque o botão que o abre mudou de casa: saiu do cabeçalho do painel e foi
   // pro cluster de ações do painel de comando. O conteúdo é o MESMO de antes.
@@ -1611,7 +1379,16 @@ export function VendasClient() {
         <button ref={segPill.itemRef("buscar")} id="vendas-tab-buscar" type="button" role="tab" aria-selected={modo === "buscar"} aria-controls="vendas-panel-buscar" data-tut="vendas-buscar"
           className={"vnd-segbtn glass-pill-item" + (modo === "buscar" ? " is-on" : "")} onClick={irBuscar}>
           <span className="vnd-segbtn__icon"><I d={ICONS.scrape} size={16} /></span>
-          <span className="vnd-segbtn__copy"><strong>Buscar empresas</strong></span>
+          <span className="vnd-segbtn__copy">
+            <strong>Buscar empresas</strong>
+            {modo === "buscar" && (
+              <small className="vnd-segbtn__stats">
+                <span><b>{buscarStats.totalBrasil != null ? buscarStats.totalBrasil.toLocaleString("pt-BR") : "—"}</b> Brasil</span>
+                <i aria-hidden="true" />
+                <span><b>{buscarStats.disponiveis != null ? buscarStats.disponiveis.toLocaleString("pt-BR") : "—"}</b> disponíveis</span>
+              </small>
+            )}
+          </span>
         </button>
       )}
     </div>
@@ -1633,11 +1410,12 @@ export function VendasClient() {
           <div className="vnd-cmd" data-mode={modo}>
             <div className="vnd-cmd__top">
               {segToggle}
-              {modo === "funil" && (
-                <div className="vnd-flowguide">
-                  <span className="vnd-flowguide__title" aria-hidden="true">
-                    <strong>Etapas do funil</strong>
-                  </span>
+              <div className="vnd-flowguide">
+                <span className="vnd-flowguide__title" aria-live="polite">
+                  <strong><MorphText text={modo === "funil" ? "Etapas do funil" : "Buscar empresas"} /></strong>
+                </span>
+                <div className="vnd-flowguide__viewport">
+                  <div className="vnd-flowguide__panel vnd-flowguide__panel--funil" aria-hidden={modo !== "funil"}>
                   <div className="vnd-stages glass-pill-track" role="tablist" aria-label="Etapas do funil" data-tut="vendas-etapas">
                     <GlassPill {...stagePill} />
                     <button
@@ -1658,7 +1436,7 @@ export function VendasClient() {
                       // Sinal vivo: verde pulsando = robô rodando; vermelho = cliente
                       // esperando resposta. O número da etapa quente é o próprio alarme
                       // (nada de badge repetindo o mesmo número ao lado).
-                      const vivo = stage.key === "contato" && briefing.roboAtivo > 0;
+                      const vivo = stage.key === "contato" && roboAtivo > 0;
                       const quente = stage.key === "retorno" && contagem > 0;
                       return (
                         <button
@@ -1682,28 +1460,13 @@ export function VendasClient() {
                       );
                     })}
                   </div>
+                  </div>
+                  <div className="vnd-flowguide__panel vnd-flowguide__panel--buscar" aria-hidden={modo !== "buscar"}>
+                    <div id="vendas-buscar-command-slot" className="vnd-search-command-slot" />
+                  </div>
                 </div>
-              )}
-              {modo === "buscar" && (
-                <div className="vnd-search-metrics" aria-label="Números do Radar">
-                  <span className="vnd-search-metric">
-                    <span className="vnd-search-metric__icon"><I d={ICONS.empresas} size={17} /></span>
-                    <span className="vnd-search-metric__copy">
-                      <small>Total no Brasil</small>
-                      <strong>{buscarStats.totalBrasil != null ? buscarStats.totalBrasil.toLocaleString("pt-BR") : "—"}</strong>
-                    </span>
-                  </span>
-                  <span className="vnd-search-metric is-available">
-                    <span className="vnd-search-metric__icon"><I d={ICONS.scrape} size={17} /></span>
-                    <span className="vnd-search-metric__copy">
-                      <small>Disponíveis agora</small>
-                      <strong>{buscarStats.disponiveis != null ? buscarStats.disponiveis.toLocaleString("pt-BR") : "—"}</strong>
-                    </span>
-                  </span>
-                </div>
-              )}
-              {modo === "funil" && (
-                <div className="vnd-cmd__acts">
+              </div>
+              <div className="vnd-cmd__acts" aria-hidden={modo !== "funil"}>
                   <span className="seg-toggle" role="group" aria-label="Visão do pipeline" data-tut="vendas-visao">
                     <button type="button" className={"seg" + (view === "list" ? " on" : "")} onClick={() => setView("list")} aria-pressed={view === "list"}>Lista</button>
                     <button type="button" className={"seg" + (view === "board" ? " on" : "")} onClick={() => setView("board")} aria-pressed={view === "board"}>Quadro</button>
@@ -1757,49 +1520,8 @@ export function VendasClient() {
                   <button type="button" className="btn-teal btn-xs" data-tut="vendas-novo" onClick={() => setNovoOpen(true)}>
                     <I d={ICONS.plus} size={14} /> Novo lead
                   </button>
-                </div>
-              )}
-            </div>
-
-            {/* Faixa de contexto — o "painel mais claro": diz onde você está, o
-                que está acontecendo ali e o que dá pra fazer. Seleção múltipla
-                assume a MESMA faixa (não nasce uma barra nova). */}
-            {/* No modo Buscar a linha de contexto NÃO existe: o Radar tem o
-                cabeçalho dele logo abaixo e duas explicações empilhadas
-                espremiam a lista, que é o que importa ali (dono 26/07). */}
-            {modo === "funil" && (
-              <div className={"vnd-ctx" + (selecionados.size > 0 ? " is-bulk" : "")} data-tone={selecionados.size > 0 ? "calm" : ctxBrief.tone}>
-                {selecionados.size > 0 ? (
-                  <React.Fragment>
-                    <span className="vnd-ctx__txt">
-                      <b>{selecionados.size} selecionado{selecionados.size === 1 ? "" : "s"}</b>
-                      <small>{bulkMsg ? <span className={"ctx-msg " + (bulkMsg.startsWith("✓") ? "ok" : "err")}>{bulkMsg}</span> : "Escolha o que fazer com eles ou desmarque para voltar."}</small>
-                    </span>
-                    <span className="vnd-ctx__acts">
-                      <button type="button" className="btn-ghost btn-xs" onClick={() => setSelecionados(new Set())}>Desmarcar</button>
-                      <button type="button" className="btn-ghost danger btn-xs" onClick={() => { setBulkMsg(null); setExcluirMotivoOpen("bulk"); }} disabled={bulkDeleteBusy}>
-                        <I d={ICONS.trash} size={13} /> {bulkDeleteBusy ? "Excluindo…" : "Excluir selecionados"}
-                      </button>
-                    </span>
-                  </React.Fragment>
-                ) : (
-                  <React.Fragment>
-                    <span className="vnd-ctx__txt" key={"ctx-" + (stageFilter || "todos")}>
-                      <b>{ctxBrief.title}</b>
-                      <small>{ctxBrief.facts}</small>
-                    </span>
-                    {board?.radarSupply && (
-                      <RadarSupplyCard
-                        supply={board.radarSupply}
-                        radarState={buscarStats.radarState}
-                        onLiberar={() => { irFunil(); setView("list"); }}
-                      />
-                    )}
-                    {ctxBrief.actions && <span className="vnd-ctx__acts">{ctxBrief.actions}</span>}
-                  </React.Fragment>
-                )}
               </div>
-            )}
+            </div>
           </div>
 
           {/* STAGE — camadas SOBREPOSTAS em crossfade (uma casca só). */}
@@ -1854,22 +1576,41 @@ export function VendasClient() {
                   <div className="tbl-wrap">
                   <table className="tbl vnd-grid" data-tut="vendas-funil">
                     <thead>
-                      <tr>
+                      <tr className={selecionados.size > 0 ? "is-bulk" : undefined}>
                         <th className="vnd-grid__chk">
                           <input type="checkbox" checked={todosSelecionados} onChange={toggleTodos}
                             aria-label={todosSelecionados ? "Desmarcar todos" : "Selecionar todos"} />
                         </th>
-                        {gridCols.map(col => (
-                          <th key={col.key} className={"vnd-grid__th" + (col.nosort ? " is-nosort" : "") + (pinnedKeys.includes(col.key) ? " is-pinned" : "")}
-                            style={pinnedKeys.includes(col.key) ? { left: pinnedLeft(col.key) } : undefined}
-                            onClick={col.nosort ? undefined : () => toggleGridSort(col.key)}
-                            title={col.nosort ? col.label : `Ordenar por ${col.label}`}
-                            aria-sort={gridSort?.key === col.key ? (gridSort.dir === 1 ? "ascending" : "descending") : "none"}>
-                            {col.label}
-                            {gridSort?.key === col.key && <span className="vnd-grid__sort">{gridSort.dir === 1 ? "▲" : "▼"}</span>}
+                        {selecionados.size > 0 ? (
+                          <th colSpan={gridCols.length + 1} className="vnd-grid__bulkcell">
+                            <span className="hbx-selection-bar">
+                              <span className="hbx-selection-bar__copy">
+                                <b>{selecionados.size} selecionado{selecionados.size === 1 ? "" : "s"}</b>
+                                {bulkMsg && <small className={"ctx-msg " + (bulkMsg.startsWith("✓") ? "ok" : "err")}>{bulkMsg}</small>}
+                              </span>
+                              <span className="hbx-selection-bar__actions">
+                                <button type="button" className="btn-ghost btn-xs" onClick={() => setSelecionados(new Set())}>Desmarcar</button>
+                                <button type="button" className="btn-ghost danger btn-xs" onClick={() => { setBulkMsg(null); setExcluirMotivoOpen("bulk"); }} disabled={bulkDeleteBusy}>
+                                  <I d={ICONS.trash} size={13} /> {bulkDeleteBusy ? "Excluindo…" : "Excluir selecionados"}
+                                </button>
+                              </span>
+                            </span>
                           </th>
-                        ))}
-                        <th className="vnd-grid__acts" aria-label="Ações" />
+                        ) : (
+                          <React.Fragment>
+                            {gridCols.map(col => (
+                              <th key={col.key} className={"vnd-grid__th" + (col.nosort ? " is-nosort" : "") + (pinnedKeys.includes(col.key) ? " is-pinned" : "")}
+                                style={pinnedKeys.includes(col.key) ? { left: pinnedLeft(col.key) } : undefined}
+                                onClick={col.nosort ? undefined : () => toggleGridSort(col.key)}
+                                title={col.nosort ? col.label : `Ordenar por ${col.label}`}
+                                aria-sort={gridSort?.key === col.key ? (gridSort.dir === 1 ? "ascending" : "descending") : "none"}>
+                                {col.label}
+                                {gridSort?.key === col.key && <span className="vnd-grid__sort">{gridSort.dir === 1 ? "▲" : "▼"}</span>}
+                              </th>
+                            ))}
+                            <th className="vnd-grid__acts" aria-label="Ações" />
+                          </React.Fragment>
+                        )}
                       </tr>
                     </thead>
                     <tbody>
@@ -2034,15 +1775,11 @@ export function VendasClient() {
 
             <div id="vendas-panel-buscar" role="tabpanel" aria-labelledby="vendas-tab-buscar"
               className={"vnd-layer vnd-layer--buscar" + (modo === "buscar" ? " is-on" : "")} aria-hidden={modo !== "buscar"}>
-              {/* MESMA casca: o título "Pipeline de pesquisa" digita DENTRO do painel do
-                  Radar (prop embedTitle) — mesmo tratamento do "Pipeline de vendas".
-                  Conteúdo intacto; os 3 números do topo vêm por callback. 29/06. */}
               {buscarMounted ? (
                 <LeadsClient
                   embedded
                   onLeadPulled={handlePulled}
                   onEmbedStats={setBuscarStats}
-                  embedTitle={<TypedText key={"t-busca-" + modo} text="Pipeline de pesquisa" />}
                 />
               ) : null}
             </div>{/* /vnd-layer buscar */}
