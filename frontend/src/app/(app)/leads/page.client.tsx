@@ -2742,15 +2742,17 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats }: {
 
   // ── Radar console: o disco + controles quando nenhum lead está selecionado ──
   function renderRadarConsole(mini: boolean) {
+    const pullTone = pullMsg?.startsWith("✓") ? "success" : "danger";
     if (mini) {
       return (
         <div className="radar-mini-bar">
           <div style={{ flexShrink: 0, width: 56, height: 56 }}>
             <RadarDisc mini state={discState} />
           </div>
-          <div style={{ minWidth: 0 }}>
+          <div className="radar-mini-bar__copy">
             <div className="radar-mini-bar__title">Radar HBX</div>
             <div className="radar-mini-bar__sub">{localLabel || "Território não definido"}{segment ? ` · ${segment}` : ""}</div>
+            {pullMsg && <p className="radar-viewer__transfer" data-tone={pullTone}>{pullMsg}</p>}
           </div>
           <button className="btn-ghost btn-xs radar-mini-bar__back" onClick={() => setSelLead(null)} style={{ marginLeft: "auto" }}>
             ← Voltar
@@ -2843,6 +2845,7 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats }: {
             <h2 className="radar-hero__title">{radarTitle}</h2>
             <p className="radar-viewer__status">{radarStatus}</p>
           </div>
+          {pullMsg && <p className="radar-viewer__transfer" data-tone={pullTone}>{pullMsg}</p>}
         </div>
 
         {activeSummary.length > 0 && (
@@ -3311,9 +3314,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats }: {
                   Carteira cheia — feche ou agende um retorno pra liberar vaga.
                 </p>
               )}
-              {pullMsg && <p className="radar2-pull-msg">{pullMsg}</p>}
 
-              <div className="pager">
+              <div className="pager leads-pager">
                 <span style={{ marginLeft: "auto" }}>
                   {pageTotal > 0
                     ? `${fmtInt((page - 1) * limit + 1)}–${fmtInt(Math.min(page * limit, pageTotal))} de ${fmtInt(pageTotal)}`

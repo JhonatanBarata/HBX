@@ -1606,6 +1606,70 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   background: var(--hbx-surface);
 }
 
+/* No Vendas, poucos resultados não esticam a prateleira até o rodapé. */
+.vnd-layer--buscar .leads-page.leads-embedded .work {
+  grid-template-rows: auto;
+  align-content: start;
+  padding-bottom: var(--space-2);
+}
+.vnd-layer--buscar .leads-page.leads-embedded .leads-shelf,
+.vnd-layer--buscar .leads-page.leads-embedded .radar2-shell {
+  flex: none;
+  min-height: auto;
+}
+.vnd-layer--buscar .leads-page.leads-embedded .radar2-main {
+  overflow: visible;
+}
+.vnd-layer--buscar .leads-page.leads-embedded .radar2-main .tbl-wrap {
+  flex: none;
+  overflow-y: visible;
+}
+.vnd-layer--buscar .leads-pager {
+  min-height: 38px;
+  padding: 4px 10px;
+  border-top: 1px solid color-mix(in srgb, var(--hbx-brand) 18%, var(--border-hairline));
+  background: color-mix(in srgb, var(--hbx-brand-soft) 48%, var(--hbx-surface));
+}
+.vnd-layer--buscar .leads-pager > span {
+  color: var(--hbx-brand-strong);
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+.vnd-layer--buscar .radar-mini-bar__copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.vnd-layer--buscar .radar-viewer__transfer {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  margin: 4px 0 0;
+  padding: 5px 9px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-pill);
+  font-size: 0.63rem;
+  font-weight: 720;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vnd-layer--buscar .radar-hero > .radar-viewer__transfer {
+  align-self: center;
+}
+.vnd-layer--buscar .radar-viewer__transfer[data-tone="success"] {
+  border-color: color-mix(in srgb, var(--hbx-success) 32%, var(--border-hairline));
+  background: color-mix(in srgb, var(--hbx-success) 11%, var(--hbx-surface));
+  color: var(--hbx-success);
+}
+.vnd-layer--buscar .radar-viewer__transfer[data-tone="danger"] {
+  border-color: color-mix(in srgb, var(--hbx-danger) 32%, var(--border-hairline));
+  background: color-mix(in srgb, var(--hbx-danger) 10%, var(--hbx-surface));
+  color: var(--hbx-danger);
+}
+
 /* ── Responsividade: nunca invade a coluna Detalhes ───────────────────────── */
 @media (max-width: 1370px) {
   .vnd-modehost.vnd-has-live-enrichment .vnd-segbtns {
