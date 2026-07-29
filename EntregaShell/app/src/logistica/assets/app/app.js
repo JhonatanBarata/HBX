@@ -7744,6 +7744,12 @@
     }
     if (action === "accept-confirmation") {
       const confirmation = state.confirmation;
+      // MODO PASSEIO (29/07, visto ao vivo no g15): o clique fantasma do WebView
+      // (touch→click sintético em cima do DOM recém-trocado) ACEITAVA a
+      // confirmação no mesmo toque que a abriu — popup nem chegava a aparecer.
+      // Só confirmações que carregam `abertaEm` (as do passeio) têm o escudo;
+      // nenhum fluxo antigo muda.
+      if (confirmation && confirmation.abertaEm && Date.now() - confirmation.abertaEm < 450) return;
       state.confirmation = null;
       render();
       if (!confirmation) return;
@@ -9365,7 +9371,7 @@
     }
     if (action === "pss-pino-remover") { passeioRemoverPonto(target.dataset.id); render(); return; }
     if (action === "pss-limpar") {
-      state.confirmation = { type: "pss-limpar", title: "Limpar os lugares?", confirmLabel: "Limpar", danger: true, icon: "map" };
+      state.confirmation = { type: "pss-limpar", title: "Limpar os lugares?", confirmLabel: "Limpar", danger: true, icon: "map", abertaEm: Date.now() };
       render();
       return;
     }
@@ -9385,7 +9391,7 @@
     if (action === "pss-mais15") { passeioMais15(); return; }
     if (action === "pss-proximo") { passeioProximo(); return; }
     if (action === "pss-encerrar") {
-      state.confirmation = { type: "pss-encerrar", title: "Encerrar passeio?", message: "Os lugares marcados continuam no mapa.", confirmLabel: "Encerrar", danger: true, icon: "map" };
+      state.confirmation = { type: "pss-encerrar", title: "Encerrar passeio?", message: "Os lugares marcados continuam no mapa.", confirmLabel: "Encerrar", danger: true, icon: "map", abertaEm: Date.now() };
       render();
     }
   }
@@ -9559,7 +9565,9 @@
           atualizarPasseioDot();
         });
         map.on("click", e => {
-          if (state.modal || passeioTour()) return;
+          // Confirmação aberta também barra: o clique fantasma pós-popup caía
+          // no canvas e criava pino sozinho (visto ao vivo no g15).
+          if (state.modal || state.confirmation || passeioTour()) return;
           // Toque que só fechou o balão não cria pino (o closeOnClick do popup
           // dispara junto com este click).
           if (Date.now() - pssBalaoFechadoEm < 400) return;
