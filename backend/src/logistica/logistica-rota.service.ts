@@ -451,9 +451,21 @@ export class LogisticaRotaService {
         // WHERE re-checa status (defesa extra dentro da própria transação) —
         // nunca sobrescreve uma entrega que virou 'entregue'/'cancelada' entre
         // a leitura acima e este update.
+        // 🔴 29/07 — SOLTA O MOTORISTA, igual ao descartarMontagem.
+        //
+        // Eu tinha deixado o `entregadorId` colado aqui argumentando "encerrar é
+        // fim de rota real, a pendência é dele". O dono corrigiu OLHANDO O
+        // APARELHO: quem guarda a rota pra continuar depois é o PAUSAR (botão do
+        // meio, que preserva tudo). Este caminho é o botão vermelho, que no
+        // aparelho agora se chama CANCELAR — rota cancelada não deixa dono em
+        // parada nenhuma, senão o dia seguinte nasce dividido entre motoristas e
+        // o `resolveSingleDriver` trava tudo (foi o bug que ele viveu hoje).
+        //
+        // Lição registrada: decidi semântica de tela lendo código, sem abrir o
+        // app. Pausar × Cancelar só fica óbvio olhando os dois botões juntos.
         const reverted = await tx.entrega.updateMany({
           where: { companyId, id: { in: openIds }, status: { in: [...LogisticaRotaService.STATUS_ABERTO] } },
-          data: { status: 'agendada', rotaOrdem: null, etaAt: null, startedAt: null },
+          data: { status: 'agendada', rotaOrdem: null, etaAt: null, startedAt: null, entregadorId: null },
         });
         pendentes = reverted.count;
       }
@@ -762,9 +774,14 @@ export class LogisticaRotaService {
         select: { id: true, planoEntregaId: true, agendaOcorrenciaKey: true },
       });
 
+      // 🔴 29/07 — SOLTA O MOTORISTA junto. Este é o caminho do botão CANCELAR
+      // do aparelho ("bati a porra do caminhão, não vai ter entrega, limpa
+      // pendência"): a entrega morre cancelada e não pode deixar dono pendurado,
+      // senão o dia seguinte nasce dividido entre motoristas e o
+      // `resolveSingleDriver` trava tudo — foi o bug que o dono viveu hoje.
       const canceladas = await tx.entrega.updateMany({
         where: escopoAberto,
-        data: { status: 'cancelada', rotaOrdem: null, etaAt: null, startedAt: null },
+        data: { status: 'cancelada', rotaOrdem: null, etaAt: null, startedAt: null, entregadorId: null },
       });
 
       // A chave da ocorrência é ÚNICA por empresa. Presa na entrega cancelada,

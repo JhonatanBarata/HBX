@@ -4458,11 +4458,21 @@
     // continua protegida pela confirmação original, mas o glifo é neutro como
     // os demais satélites — cor cheia pertence só ao estado principal.
     const leftIcon = active || paused
-      ? routeSatellite("route-cancel-icon", "finish-route", "Encerrar rota", "Encerrar", "stop", true)
+      // 29/07 (dono, no aparelho): "o encerrar pela linhagem de pensamento sua é
+      // o pausar. fica os dados e volta o continuar. Encerrar vira Cancelar."
+      // O Pausar (botão do meio) já É o "guarda e continua depois"; ter um
+      // "Encerrar" do lado dele era o MESMO verbo duas vezes. Aqui só existe o
+      // que MATA a rota, e ele se chama Cancelar.
+      ? routeSatellite("route-cancel-icon", "finish-route", "Cancelar rota", "Cancelar", "stop", true)
       : planned && isAdmin()
         ? routeSatellite("route-cancel-icon", "cancel-route", "Cancelar planejamento", "Cancelar", "close")
         : clearDayVisible
-          ? routeSatellite("route-cancel-icon", "clear-day-request", "Cancelar entregas abertas", "Cancelar abertas", "close")
+          // 🔴 29/07 (dono, no aparelho): "NÃO VAI EXISTIR CANCELAR ABERTAS,
+          // cancelar é cancelar". Os dois satélites nunca aparecem juntos (um é
+          // com rota rodando, outro sem) — então é sempre UM botão, e ele se
+          // chama Cancelar. "Cancelar abertas"/"Limpar o dia" eram o mesmo verbo
+          // com três nomes.
+          ? routeSatellite("route-cancel-icon", "clear-day-request", "Cancelar", "Cancelar", "close")
           : "";
     // Rota pronta: o satélite da direita ADICIONA paradas na rota que já existe
     // (mesma tela de montagem por baixo). 26/07 (dono, 4ª cobrança): o rótulo diz o
@@ -7432,7 +7442,7 @@
   // abertas de hoje. Botão perigoso dentro do popup de cancelar planejamento.
   async function performLimparDia() {
     try {
-      const response = await H.api("/logistica/rota/limpar-dia", { method: "POST", body: { date: operationalDate(), motivo: "Dia limpo pelo administrador." } });
+      const response = await H.api("/logistica/rota/limpar-dia", { method: "POST", body: { date: operationalDate(), motivo: "Rota cancelada." } });
       const canceladas = Number((response && response.canceladas) || 0);
       clearInterval(nextStopTimer);
       state.nextStop = null;
@@ -7457,7 +7467,8 @@
       H.speakStop();
       resetNavRecalcBudget();
       await refresh(true);
-      toast(canceladas > 0 ? `${canceladas} entrega(s) cancelada(s).` : "Nenhuma entrega aberta para cancelar.");
+      // 29/07 — um verbo: cancelou, avisa "Rota cancelada." e pronto.
+      toast(canceladas > 0 ? "Rota cancelada." : "Nada para cancelar.");
     } catch (error) {
       toast(humanApiError(error), true);
     }
@@ -7922,7 +7933,16 @@
       }
       // Cancelar = a saída de quem não aceitou: descarta e devolve os dias.
       if (confirmation.type === "cancel-route") await performEncerrarRota("Planejamento cancelado pelo administrador.", { descartar: true });
-      if (confirmation.type === "finish-route") await performEncerrarRota("Rota encerrada pelo motorista.", { playSound: true });
+      // 🔴 29/07 (dono, palavras dele): "eu quero q cancele de agenda, entregues
+      // e financeiro CANCELE TUDO (mas não o q já foi entregue) (…) tem q
+      // cancelar o q tinha por vir LIMPA (…) QUEIMOU NO INFERNO O Q EU NÃO FIZ".
+      //
+      // O `encerrar` fazia o CONTRÁRIO: devolvia as abertas pra PENDÊNCIA, ou
+      // seja, o que ele não fez continuava vivo esperando. Quem MATA é o
+      // `limpar-dia` (abertas viram 'cancelada'; entregue, comprovante e
+      // financeiro do que FOI entregue ficam intocados). Mesma ação dos outros
+      // dois caminhos de cancelar — um verbo, um efeito.
+      if (confirmation.type === "finish-route") await performLimparDia();
       if (confirmation.type === "limpar-dia") await performLimparDia();
       if (confirmation.type === "sem-atendimento") await performOfflineNotDelivered(items().find(item => item.id === confirmation.itemId));
       if (confirmation.type === "apagar-historico") await performApagarHistorico(confirmation.itemId);
@@ -8046,26 +8066,31 @@
     // dia (claim por dia — montar de novo não cobra de novo). Sem frase técnica.
     // 27/07 (dono): o popup fica, a ESCRITA sai. A pergunta é o título; o resto
     // era frase minha explicando crédito. Título + Sim/Não, nada mais.
-    if (action === "cancel-route") { state.confirmation = { type: "cancel-route", title: "Cancelar?", confirmLabel: "Sim", cancelLabel: "Não", danger: true, icon: "route" }; render(); }
-    // 22/07 — popup enxuto: texto de 1 linha e o "salvar rota" virou botão DESTE
-    // mesmo popup (extraAction, sem segundo popup). "Salvar" só aparece quando há
-    // ≥2 paradas com cliente pra formar uma rota.
+    if (action === "cancel-route") { state.confirmation = { type: "cancel-route", title: "Tem certeza que deseja cancelar?", confirmLabel: "Sim", cancelLabel: "Não", danger: true, icon: "route" }; render(); }
+    // 🔴 29/07 (dono, olhando o aparelho comigo): "eu não quero uma porra de
+    // aviso 'salvar esta ordem e encerrar', cancelar, encerrar — olha isso tudo!
+    // Tem certeza q deseja cancelar? Sim/Não. Cabou."
+    //
+    // O popup tinha TRÊS verbos e um deles mentia: o "Cancelar" ali era só
+    // FECHAR o popup, coladinho num botão que MATA a rota. Agora é o mesmo
+    // molde do "cancel-route" logo acima (que já tinha recebido esta ordem em
+    // 26/07) — padronizar é IGUALAR: pergunta no título, Sim/Não, nada mais.
+    //
+    // O "Salvar esta ordem e encerrar" MORREU daqui, não do app: salvar a
+    // sequência é botão "Salvar rota" da montagem (montagemSalvarModal), que é
+    // onde se mexe em ordem. Salvar não é assunto de quem está desistindo.
     if (action === "finish-route") {
-      const podeSalvar = items().filter(item => (item.cliente || {}).id).length >= 2;
-      state.confirmation = { type: "finish-route", title: "Encerrar rota?", message: `${deliveredItems().length} entregues ficam no histórico. ${openItems().length} abertas voltam às pendências.`, confirmLabel: "Encerrar", danger: true, icon: "route", ...(podeSalvar ? { extraAction: "finish-route-save", extraLabel: "Salvar esta ordem e encerrar", extraDanger: false } : {}) };
+      state.confirmation = { type: "finish-route", title: "Tem certeza que deseja cancelar?", confirmLabel: "Sim", cancelLabel: "Não", danger: true, icon: "route" };
       render();
     }
-    // Botão "Salvar esta ordem e encerrar" do popup acima: encerra E salva numa
-    // ação só (ver performEncerrarRota/saveTodayRoute).
-    if (action === "finish-route-save") { state.confirmation = null; render(); await performEncerrarRota("Rota encerrada pelo motorista.", { playSound: true, saveRoute: true }); return; }
     // PR18072026 Onda 3 — "Limpar o dia": segunda confirmação a partir do botão
     // perigoso dentro do popup de cancelar planejamento.
-    if (action === "confirm-limpar-dia") { state.confirmation = { type: "limpar-dia", title: "Cancelar entregas abertas?", message: `Cancela ${openItems().length} entregas abertas. Agenda, entregues e financeiro não mudam.`, confirmLabel: "Cancelar abertas", danger: true, icon: "route" }; render(); return; }
+    if (action === "confirm-limpar-dia") { state.confirmation = { type: "limpar-dia", title: "Tem certeza que deseja cancelar?", confirmLabel: "Sim", cancelLabel: "Não", danger: true, icon: "route" }; render(); return; }
     // PR18072026 — satélite lixeira "Limpar o dia" fora do popup de cancelar
     // planejamento (o X só existe quando há rota planejada; sem ele a fila
     // ficava sem jeito de limpar). Mesma confirmação/type "limpar-dia" de cima,
     // reusa performLimparDia via accept-confirmation — zero duplicação de API.
-    if (action === "clear-day-request") { state.confirmation = { type: "limpar-dia", title: "Cancelar entregas abertas?", message: `Cancela ${openItems().length} entregas abertas. Agenda, entregues e financeiro não mudam.`, confirmLabel: "Cancelar abertas", danger: true, icon: "route" }; render(); return; }
+    if (action === "clear-day-request") { state.confirmation = { type: "limpar-dia", title: "Tem certeza que deseja cancelar?", confirmLabel: "Sim", cancelLabel: "Não", danger: true, icon: "route" }; render(); return; }
     if (action === "begin-managed-route") await beginManagedRoute();
     // R1 (27/07) — o menu "Montar Rota" morreu; "Rotas salvas" é linha da tela
     // única e abre o único passo separado que restou.
