@@ -102,3 +102,31 @@ export function buildSegmentTextMatcher(
     return phrasePatterns.some((groupPatterns) => groupPatterns.every((pattern) => pattern.test(text)));
   };
 }
+
+// Matcher para EQUIVALÊNCIAS CURADAS (mapa SEGMENT_ALIASES: advocacia≡advogado, oficina≡
+// mecânica). Cada alias é uma frase própria — basta UMA casar, mas ela casa INTEIRA e com a
+// MESMA lei de flexão das frases do pedido.
+//
+// 29/07 (busca real "advocacia" em Rio Claro): o padrão anterior era um OR cru dos aliases
+// (`\b(?:advogado|juridico)\b`), sem singular/plural — e `\badvogado\b` NÃO casa
+// "advogadoS". Oito escritórios reais ("… Sociedade De Advogados", "IVBR Advogados") caíram
+// como fora do segmento. Aqui a flexão vem de graça, porque é o mesmo matcher do pedido.
+// ARMADILHA: `buildSegmentTextMatcher` aceita TUDO quando a frase não tem palavra útil
+// (≥4 chars) — é o contrato certo pro pedido ("sem segmento pedido não há filtro"), mas
+// aqui seria catastrófico: o alias "bar" (3 chars) viraria "casa qualquer texto" e a lei de
+// segmento morreria calada. Alias sem palavra útil é DESCARTADO, nunca vira curinga.
+export function buildSegmentAliasMatcher(
+  aliases: readonly string[],
+  city?: unknown,
+): (haystack: unknown) => boolean {
+  const matchers = aliases
+    .map((alias) => String(alias || '').trim())
+    .filter((alias) => alias && segmentPhraseTokenGroups(alias).length > 0)
+    .map((alias) => buildSegmentTextMatcher(alias, city, { radicalPrefix: true }));
+  if (!matchers.length) return () => false;
+  return (haystack: unknown) => {
+    const text = normalizeSegmentText(haystack);
+    if (!text) return false;
+    return matchers.some((matcher) => matcher(text));
+  };
+}

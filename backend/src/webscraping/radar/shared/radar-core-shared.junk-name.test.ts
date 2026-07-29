@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { looksLikeNonBusinessName, isRealisticBrPhone } from './radar-core-shared';
+import { looksLikeNonBusinessName, isRealisticBrPhone, stripLocationTailFromName } from './radar-core-shared';
 
 test('looksLikeNonBusinessName BARRA lixo de scraping (titulo de pagina / portal global / estrangeiro)', () => {
   const junk = [
@@ -59,4 +59,45 @@ test('isRealisticBrPhone BARRA telefone que nao existe', () => {
   }
   // fixo valido (DDD 11, assinante comeca com 2) deve ACEITAR
   assert.equal(isRealisticBrPhone('1122223333'), true);
+});
+
+// ── 29/07: extrator colando ENDEREÇO no nome (busca real "advocacia" em Rio Claro) ──────────
+// "Advocacia Marilene Jardim e Erika Habermann Centro Rio Claro SP": 11 palavras estouravam o
+// teto de looksLikeNonBusinessName (>9) e o escritório REAL morria como "título de página".
+
+test('cauda de localidade: bairro+cidade+UF colados no fim do nome sao podados', () => {
+  const limpo = stripLocationTailFromName(
+    'Advocacia Marilene Jardim e Erika Habermann Centro Rio Claro SP',
+    { city: 'Rio Claro', state: 'SP' },
+  );
+  assert.equal(limpo, 'Advocacia Marilene Jardim e Erika Habermann');
+  // E o nome podado deixa de ser julgado como titulo de pagina.
+  assert.equal(looksLikeNonBusinessName(limpo), false);
+});
+
+test('cauda de localidade: nome CURTO com a cidade na identidade nao e tocado', () => {
+  // "Padaria Rio Claro" — podar deixaria "Padaria", generico. Regra so age em nome ja longo.
+  assert.equal(stripLocationTailFromName('Padaria Rio Claro', { city: 'Rio Claro', state: 'SP' }), 'Padaria Rio Claro');
+  assert.equal(
+    stripLocationTailFromName('Auto Center Rio Claro SP', { city: 'Rio Claro', state: 'SP' }),
+    'Auto Center Rio Claro SP',
+  );
+});
+
+test('cauda de localidade: nunca poda a ponto de sobrar menos de 3 palavras', () => {
+  const nome = 'Escritorio Silva e Souza Advogados Rio Claro SP';
+  const limpo = stripLocationTailFromName(nome, { city: 'Rio Claro', state: 'SP' });
+  assert.ok(limpo.split(/\s+/).length >= 3);
+  assert.equal(limpo, 'Escritorio Silva e Souza Advogados');
+});
+
+test('cauda de localidade: nome longo SEM cauda de localidade fica intacto', () => {
+  const nome = 'Sociedade Individual de Advocacia Marcos Antonio Pereira Junior';
+  assert.equal(stripLocationTailFromName(nome, { city: 'Rio Claro', state: 'SP' }), nome);
+});
+
+test('cauda de localidade: "Jardim"/"Vila" NAO sao podados (sobrenome/razao social)', () => {
+  const nome = 'Advocacia Marilene Jardim e Erika Habermann Jardim Rio Claro SP';
+  const limpo = stripLocationTailFromName(nome, { city: 'Rio Claro', state: 'SP' });
+  assert.equal(limpo, 'Advocacia Marilene Jardim e Erika Habermann Jardim');
 });

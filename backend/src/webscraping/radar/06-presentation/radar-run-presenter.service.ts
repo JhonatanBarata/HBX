@@ -41,6 +41,43 @@ export type RadarRunPresenterHost = {
   ) => { state: string; reason: string | null; message: string | null };
 };
 
+// ── 29/07: a busca AO VIVO passa a falar a mesma língua da vitrine ──────────────────────────
+// Dois defeitos medidos na busca real "advocacia/Rio Claro":
+// (1) o item ao vivo NÃO emitia `channelPresence`/`hasPhone` — só a prateleira emitia. Sem o
+//     campo, o front assume `false` e TODO card ao vivo dizia "sem contato", mesmo com
+//     telefone e e-mail salvos (caso BORGES OLIVEIRA: fone e e-mail vindos da Receita).
+// (2) o item ao vivo devolvia phone/phoneDigits/email CRUS, sem máscara, enquanto a vitrine
+//     mascara ("revela no Puxar") — o contato vazava antes de puxar/pagar.
+// Presença é calculada ANTES da máscara: mostra ✓ sem entregar o valor. Mesmo contrato de
+// `buildRadarLeadPublic` (radar-core-presentation.mixin.ts) — uma lei, dois lugares.
+function maskRunContactForShowcase(contact: Record<string, any>): Record<string, any> {
+  const meta = contact?.metadataJson && typeof contact.metadataJson === 'object' ? contact.metadataJson : {};
+  const whatsappStatus = String(contact?.whatsappStatus || contact?.whatsappCheckStatus || '').trim().toLowerCase();
+  const channelPresence = {
+    whatsapp: whatsappStatus === 'confirmed'
+      || Object.values((meta as any)?.phonesWhatsapp || {}).some((value) => value === true),
+    telefone: Boolean(contact?.phoneDigits || contact?.phone),
+    email: Boolean(contact?.email),
+    instagram: Boolean(contact?.instagramUrl),
+    facebook: Boolean(contact?.facebookUrl),
+    site: Boolean(contact?.website),
+  };
+  return {
+    ...contact,
+    channelPresence,
+    hasPhone: channelPresence.telefone,
+    hasEmail: channelPresence.email,
+    hasWhatsapp: channelPresence.whatsapp,
+    phone: '',
+    phoneDigits: '',
+    email: null,
+    emailStatus: null,
+    phones: [],
+    emails: [],
+    phonesWhatsapp: {},
+  };
+}
+
 function normalizePhoneDigits(raw: string | null | undefined) {
   return String(raw || '').replace(/\D/g, '');
 }
@@ -289,7 +326,9 @@ export class RadarRunPresenterService {
       const { placeId: _placeId, ...publicContact } = contact;
       const qualityV2 = host.extractLeadQualityV2FromObject(contact) || null;
       return host.stripListPremiumFields(
-        host.attachDeliveryClassification(publicContact, qualityInput, contact.quality || null, qualityV2),
+        maskRunContactForShowcase(
+          host.attachDeliveryClassification(publicContact, qualityInput, contact.quality || null, qualityV2),
+        ),
         qualityInput,
       );
     });

@@ -793,6 +793,67 @@ export const NON_BUSINESS_ENGLISH_STOPWORDS = new Set([
   'can', 'could', 'should', 'has', 'have', 'had', 'does', 'did', 'its',
 ]);
 
+// ── 29/07: extrator colando ENDEREÇO no nome ────────────────────────────────────────────────
+// Caso real (busca "advocacia" em Rio Claro): o card chegou chamado "Advocacia Marilene Jardim
+// e Erika Habermann Centro Rio Claro SP" — o extrator grudou bairro+cidade+UF no fim do nome.
+// 11 palavras estouram o teto de `looksLikeNonBusinessName` (>9) e o escritório REAL morria
+// como "título de página". Aqui a cauda de localidade é podada ANTES de qualquer julgamento.
+//
+// CONSERVADOR de propósito: só age em nome JÁ suspeito de cola (>6 palavras) e exige sobrar
+// nome de verdade (≥3 palavras). "Padaria Rio Claro" (3 palavras, cidade é a identidade)
+// nunca é tocada — podar ali deixaria "Padaria", genérico.
+const NAME_TAIL_NEIGHBORHOOD_HEADS = new Set(['centro', 'bairro', 'distrito']);
+
+const NAME_TAIL_MIN_WORDS = 7;
+const NAME_TAIL_MIN_REMAINING_WORDS = 3;
+
+function nameTailKey(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+export function stripLocationTailFromName(
+  rawName: unknown,
+  context?: { city?: unknown; state?: unknown },
+): string {
+  const original = String(rawName || '').trim();
+  if (!original) return original;
+  let words = original.split(/\s+/).filter(Boolean);
+  if (words.length < NAME_TAIL_MIN_WORDS) return original;
+
+  const cutIfTailMatches = (phrase: string) => {
+    const phraseWords = phrase.split(/\s+/).filter(Boolean);
+    if (!phraseWords.length || words.length - phraseWords.length < NAME_TAIL_MIN_REMAINING_WORDS) return false;
+    const tail = words.slice(-phraseWords.length).map(nameTailKey).join(' ');
+    if (tail !== phraseWords.map(nameTailKey).join(' ')) return false;
+    words = words.slice(0, -phraseWords.length);
+    return true;
+  };
+
+  const state = nameTailKey(String(context?.state || ''));
+  if (state.length === 2) cutIfTailMatches(state);
+
+  const city = String(context?.city || '').trim();
+  if (city) cutIfTailMatches(city);
+
+  // UM head genérico de bairro logo antes da cidade ("... Centro Rio Claro SP"). "Jardim"/
+  // "Vila" ficam de fora de propósito: são sobrenome/parte de razão social com frequência.
+  const lastWord = words.length ? nameTailKey(words[words.length - 1]) : '';
+  if (
+    NAME_TAIL_NEIGHBORHOOD_HEADS.has(lastWord)
+    && words.length - 1 >= NAME_TAIL_MIN_REMAINING_WORDS
+  ) {
+    words = words.slice(0, -1);
+  }
+
+  const cleaned = words.join(' ').replace(/[\s,;-]+$/, '').trim();
+  return cleaned || original;
+}
+
 // E3 ESTABILIZAÇÃO (29/07) — vocabulário de MENU de loja: categoria de varejo que extrator
 // de página confunde com nome de empresa (caso real Mirão: o card saiu chamado "Informática
 // & Eletrônicos", texto do menu do site). Só palavras que NÃO nomeiam empresa sozinhas.

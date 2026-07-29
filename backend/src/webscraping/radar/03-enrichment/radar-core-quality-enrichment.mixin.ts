@@ -4,7 +4,7 @@ import {
   scoreRadarWebEnrichmentCandidate,
 } from './radar-web-enrichment-priority';
 import { RadarWebEnrichmentService } from './radar-web-enrichment.service';
-import { buildSegmentTextMatcher } from '../shared/radar-segment-match.util';
+import { buildSegmentTextMatcher, buildSegmentAliasMatcher } from '../shared/radar-segment-match.util';
 import {
   BadRequestException,
   ConflictException,
@@ -410,15 +410,15 @@ export class RadarCoreQualityEnrichmentMixin {
     }
     // Aliases CURADOS (mapa SEGMENT_ALIASES, equivalências explícitas) valem como frase —
     // os tokens crus do próprio segmento saem da lista (eram o furo do OR antigo).
+    // 29/07: o OR cru de antes não tolerava flexão — `\badvogado\b` não casava "advogadoS" e
+    // matava escritório real. Agora usa a MESMA lei do pedido (buildSegmentAliasMatcher).
     const aliasPhrases = aliases.filter((alias) => alias && !segmentTokens.includes(alias));
-    const aliasPattern = aliasPhrases.length
-      ? new RegExp(`\\b(?:${aliasPhrases.map((alias) => alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`)
-      : null;
-    if (aliasPattern) {
-      if (aliasPattern.test(name)) {
+    const aliasMatcher = aliasPhrases.length ? buildSegmentAliasMatcher(aliasPhrases, city) : null;
+    if (aliasMatcher) {
+      if (aliasMatcher(name)) {
         score = Math.max(score, 85);
         reasons.push('Nome contem equivalencia curada do segmento.');
-      } else if (aliasPattern.test(categoryText) || aliasPattern.test(snippetText)) {
+      } else if (aliasMatcher(categoryText) || aliasMatcher(snippetText)) {
         score = Math.max(score, 76);
         reasons.push('Categoria/descricao contem equivalencia curada do segmento.');
       }
@@ -1145,9 +1145,30 @@ export class RadarCoreQualityEnrichmentMixin {
           results: enrichment.results as WebscrapingContactResult[],
         },
       ]);
-      return Array.isArray(merged?.results) && merged.results.length
-        ? merged.results.map((item) => splitRadarDiscoveryFromEnrichment(item as Record<string, any>, mergeLabel)) as Array<Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null }>
-        : results;
+      if (!Array.isArray(merged?.results) || !merged.results.length) return results;
+      const enriched = merged.results.map((item) => splitRadarDiscoveryFromEnrichment(item as Record<string, any>, mergeLabel)) as Array<Omit<WebscrapingContactResult, 'placeId'> & { placeId?: string | null }>;
+      // INVARIANTE (29/07): ENRIQUECER NUNCA PODE PERDER CARD.
+      // Caso real "ADVOCACIA TOLEDO" (advocacia/Rio Claro): entrou como `found` no run e
+      // NUNCA chegou na prateleira. Esta função roda DUAS vezes por lote — uma pra gravar os
+      // itens do run, outra pra gravar o pool — e cada rodada bate na rede (o log tinha
+      // "HBX falhou; tentando fallback web: aborted due to timeout"). Quando o merge colapsa/
+      // perde uma entidade numa das rodadas, o card existe num lado e some no outro, calado.
+      // Aqui o lote de saída é RECONCILIADO com a entrada: quem sumiu volta cru (sem
+      // enriquecimento) em vez de virar lead perdido.
+      const identityOf = (item: Record<string, any>) => {
+        const placeId = String(item?.placeId || '').trim();
+        if (placeId) return `place:${placeId}`;
+        const phone = String(item?.phoneDigits || item?.phone || '').replace(/\D/g, '');
+        if (phone.length >= 10) return `phone:${phone.slice(-11)}`;
+        return `name:${normalizeLookupValue(String(item?.name || ''))}|${normalizeLookupValue(String(item?.city || ''))}`;
+      };
+      const survivors = new Set(enriched.map((item) => identityOf(item as Record<string, any>)));
+      const lost = results.filter((item) => !survivors.has(identityOf(item as Record<string, any>)));
+      if (lost.length) {
+        this.logger?.warn?.(`[radar-free-enrichment] merge perdeu ${lost.length} card(s); devolvendo cru (nenhum lead se perde)`);
+        return [...enriched, ...lost];
+      }
+      return enriched;
     } catch (error) {
       this.logger?.warn?.(`[radar-free-enrichment] pre-save falhou sem bloquear lote: ${String((error as any)?.message || error)}`);
       return results;

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildSegmentTextMatcher, segmentTokenGroups } from './radar-segment-match.util';
+import { buildSegmentTextMatcher, buildSegmentAliasMatcher, segmentTokenGroups } from './radar-segment-match.util';
 
 // Casos REAIS da regressão de 28/07 (busca "distribuidora de agua" em Águas de Lindóia/Aguaí/
 // Zacarias na VPS): o OR-substring antigo aceitava igreja, academia, partido e piscicultor.

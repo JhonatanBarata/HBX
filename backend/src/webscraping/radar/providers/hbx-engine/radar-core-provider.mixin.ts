@@ -53,6 +53,7 @@ import {
   GooglePlacesApiError,
   HbxBatchError,
   normalizePhoneDigits,
+  stripLocationTailFromName,
   isLikelyValidBrPhone,
   isLikelyWhatsapp,
   toNumberOrNull,
@@ -472,7 +473,13 @@ export class RadarCoreProviderMixin {
   private mapHbxContactResult(item: any, inputOrTargetType: HbxTargetType | NormalizedSearchInput): WebscrapingContactResult | null {
     const targetType = typeof inputOrTargetType === 'string' ? inputOrTargetType : inputOrTargetType.targetType;
     const requiredChannels = typeof inputOrTargetType === 'string' ? [] : this.requiredChannelsForInput(inputOrTargetType);
-    const name = String(item?.name || '').trim();
+    // 29/07: poda a cauda de localidade que o extrator grudou no nome ("… Centro Rio Claro
+    // SP") ANTES de qualquer julgamento — era ela que estourava o teto de palavras e matava
+    // escritório real como "título de página".
+    const name = stripLocationTailFromName(String(item?.name || '').trim(), {
+      city: item?.city || (typeof inputOrTargetType === 'string' ? null : inputOrTargetType.city),
+      state: item?.state || (typeof inputOrTargetType === 'string' ? null : inputOrTargetType.state),
+    });
     if (typeof inputOrTargetType !== 'string' && this.isGenericDirectoryName(name, {
       city: item?.city || inputOrTargetType.city,
       segment: item?.segment || item?.businessCategory || item?.category || inputOrTargetType.segment,
