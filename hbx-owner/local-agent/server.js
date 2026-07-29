@@ -2504,13 +2504,16 @@ async function startLocalBackendBoot(attemptNo) {
       localBackendBoot.step = "containers";
     }
 
-    // -NoWebwhats/-NoStudio + HBX_UP_OWNER=0: desarma 3 efeitos colaterais que um botão de SCRAPING
-    // jamais deveria disparar — (1) Webwhats re-linkaria os chips do dono (ação LIVE, chip banido não
-    // tem revert), (2) Prisma Studio é ferramenta manual, sem uso aqui, (3) o agent tentaria subir A SI
-    // MESMO (recursão). NÃO remover nenhum dos 3 achando "simplificação" — foram pedidos explícitos.
+    // -NoStudio + HBX_UP_OWNER=0: desarma 2 efeitos colaterais que um botão de SCRAPING jamais
+    // deveria disparar — (1) Prisma Studio é ferramenta manual, sem uso aqui, (2) o agent tentaria
+    // subir A SI MESMO (recursão). Webwhats NÃO entra mais nessa lista: o start-all.ps1 nunca subiu
+    // o motor localmente contra chip real (o .env local aponta pro banco `jhonatan_dev` com
+    // WEBHOOK_GLOBAL_ENABLED=false), e desde a limpeza de 29/07 o Webwhats saiu de vez do
+    // start-all.ps1 — o motor só roda na VPS como `webwhats.service` (systemd, :8080). NÃO remover
+    // nenhum dos 2 restantes achando "simplificação" — foram pedidos explícitos.
     const spawned = spawnDetachedCapture(
       "powershell",
-      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "./scripts/start-all.ps1", "-NoWebwhats", "-NoStudio"],
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "./scripts/start-all.ps1", "-NoStudio"],
       { HBX_UP_OWNER: "0" },
     );
     if (!spawned.ok) throw new Error(`falha_ao_disparar_npm_run_up:${spawned.buf.stderr || "erro desconhecido"}`);

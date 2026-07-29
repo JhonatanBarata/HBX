@@ -122,13 +122,16 @@ Campos extras em `switches.scraping.local`:
 Bloco novo no overview: `docker: { daemon, desktopRunning, autoStart: bool|null }`
 
 Sequência: daemon vivo? → não: abre o Docker Desktop e espera (teto 180s, âmbar
-"abrindo o Docker Desktop (~1-2min)") → `npm run up -- -NoWebwhats -NoStudio` com
+"abrindo o Docker Desktop (~1-2min)") → `npm run up -- -NoStudio` com
 `HBX_UP_OWNER=0` → poll `/health` do `:3000` (teto 120s) → só então liga a energia → relê.
 
 ⚠️ **`npm run up` cru é PROIBIDO aqui.** `scripts/start-all.ps1` também sobe frontend :3001,
-Prisma Studio, **Webwhats (chips de WhatsApp — ação LIVE)** e o próprio owner agent. Os 3
-gates (`-NoWebwhats`, `-NoStudio`, `HBX_UP_OWNER=0`) são obrigatórios.
-⚠️ Docker Desktop fechado: `Assert-DockerReady` (start-all.ps1:533) **lança erro, não abre** —
+Prisma Studio e o próprio owner agent. Os 2 gates (`-NoStudio`, `HBX_UP_OWNER=0`) são obrigatórios.
+(Webwhats NÃO sobe mais local desde a limpeza de 29/07 — o motor só roda na VPS como
+`webwhats.service`, systemd, `:8080` — então deixou de precisar de gate aqui; antes disso, mesmo
+a subida local nunca chegava a mexer em chip real: `.env` local apontava pro banco `jhonatan_dev`
+com `WEBHOOK_GLOBAL_ENABLED=false`.)
+⚠️ Docker Desktop fechado: `Assert-DockerReady` (start-all.ps1:433) **lança erro, não abre** —
 quem abre é o agent.
 ⚠️ **Disjuntor:** 1 subida por vez (mutex), teto de tentativas, falhou = para e marca
 (`problems[]` `backend_local_nao_subiu` com o motivo real). **Nunca loop de retry.**
