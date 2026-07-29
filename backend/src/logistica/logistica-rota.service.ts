@@ -451,21 +451,19 @@ export class LogisticaRotaService {
         // WHERE re-checa status (defesa extra dentro da própria transação) —
         // nunca sobrescreve uma entrega que virou 'entregue'/'cancelada' entre
         // a leitura acima e este update.
-        // 🔴 29/07 — SOLTA O MOTORISTA, igual ao descartarMontagem.
+        // ⚠️ Este é o ÚNICO dos três caminhos que NÃO solta o `entregadorId`, e
+        // o motivo é o que ele faz com a entrega: aqui ela volta VIVA
+        // ('agendada'). Toda leitura do app do motorista é escopada por
+        // `entregadorId` — soltar o dono aqui faria a entrega viva DESAPARECER da
+        // tela de quem acabou de encerrar, sem ninguém ver. (Peguei isso no teste
+        // "2ª chamada acha 0 abertas", que passou a contar 0 em vez de 2.)
         //
-        // Eu tinha deixado o `entregadorId` colado aqui argumentando "encerrar é
-        // fim de rota real, a pendência é dele". O dono corrigiu OLHANDO O
-        // APARELHO: quem guarda a rota pra continuar depois é o PAUSAR (botão do
-        // meio, que preserva tudo). Este caminho é o botão vermelho, que no
-        // aparelho agora se chama CANCELAR — rota cancelada não deixa dono em
-        // parada nenhuma, senão o dia seguinte nasce dividido entre motoristas e
-        // o `resolveSingleDriver` trava tudo (foi o bug que ele viveu hoje).
-        //
-        // Lição registrada: decidi semântica de tela lendo código, sem abrir o
-        // app. Pausar × Cancelar só fica óbvio olhando os dois botões juntos.
+        // Onde o dono mandou soltar, está solto: `limparDia` (o botão CANCELAR do
+        // aparelho) e `descartarMontagem` (a saída de quem não aceitou) matam a
+        // entrega — morta, ela não pode mesmo ficar com dono.
         const reverted = await tx.entrega.updateMany({
           where: { companyId, id: { in: openIds }, status: { in: [...LogisticaRotaService.STATUS_ABERTO] } },
-          data: { status: 'agendada', rotaOrdem: null, etaAt: null, startedAt: null, entregadorId: null },
+          data: { status: 'agendada', rotaOrdem: null, etaAt: null, startedAt: null },
         });
         pendentes = reverted.count;
       }
