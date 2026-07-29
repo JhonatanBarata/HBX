@@ -1310,6 +1310,327 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   border-bottom-color: color-mix(in srgb, var(--hbx-brand) 14%, var(--border-hairline));
 }
 
+.vnd-layer--buscar .leads-embed-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 9px 16px;
+}
+.leads-embed-head__icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 24%, var(--border-hairline));
+  border-radius: var(--radius-md);
+  background: var(--hbx-brand-soft);
+  color: var(--hbx-brand-strong);
+}
+.leads-embed-head__copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.leads-embed-head__copy h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 0.88rem;
+  font-weight: 750;
+  line-height: 1.2;
+}
+.leads-embed-head__copy small {
+  color: var(--text-muted);
+  font-size: 0.66rem;
+  font-weight: 550;
+  line-height: 1.25;
+}
+.leads-embed-head__tag {
+  margin-left: auto;
+  padding: 5px 9px;
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 22%, var(--border-hairline));
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--hbx-brand-soft) 72%, var(--hbx-surface));
+  color: var(--hbx-brand-strong);
+  font-size: 0.61rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.vnd-layer--buscar .be-cmdbar.be-cmdbar--required {
+  gap: 9px;
+  padding: 10px 16px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--hbx-brand) 4%, transparent), transparent 46%),
+    var(--hbx-surface);
+}
+.vnd-layer--buscar .be-search {
+  min-height: 50px;
+  padding: 5px 8px;
+  border-radius: var(--radius-lg);
+  background: var(--hbx-field-surface);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--text-strong) 5%, transparent);
+}
+.vnd-layer--buscar .be-search.is-ready {
+  border-color: color-mix(in srgb, var(--hbx-brand) 36%, var(--border-hairline));
+}
+.be-search__icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: var(--radius-md);
+  background: var(--hbx-brand-soft);
+  color: var(--hbx-brand-strong);
+}
+.be-search__field {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  flex: 1;
+  cursor: text;
+}
+.be-search__field > small {
+  color: var(--hbx-brand-strong);
+  font-size: 0.54rem;
+  font-weight: 780;
+  letter-spacing: 0.045em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+.vnd-layer--buscar .be-search__input {
+  width: 100%;
+  font-size: 0.74rem;
+  font-weight: 650;
+  line-height: 1.25;
+}
+.vnd-layer--buscar .be-search__input::placeholder {
+  color: var(--text-muted);
+  font-weight: 500;
+  opacity: 0.76;
+}
+.vnd-layer--buscar .be-search__chevron {
+  width: 30px;
+  height: 30px;
+}
+.vnd-layer--buscar .be-required-location.be-geo-trigger {
+  height: 50px;
+  border-radius: var(--radius-lg);
+}
+.vnd-layer--buscar .be-cmdbar__go {
+  min-width: 108px;
+  height: 50px;
+  min-height: 50px;
+  border-radius: var(--radius-md);
+  font-weight: 750;
+}
+.vnd-layer--buscar .be-cmdbar__clear {
+  min-height: 40px;
+  padding-inline: 10px;
+  border-radius: var(--radius-md);
+}
+
+.vnd-layer--buscar .be-search__menu {
+  top: calc(100% + 8px);
+  right: auto;
+  width: min(540px, calc(100vw - 48px));
+  max-height: min(470px, calc(100vh - 230px));
+  padding: 8px;
+  gap: 4px;
+  z-index: 80;
+  border-radius: var(--radius-lg);
+  border-color: color-mix(in srgb, var(--hbx-brand) 20%, var(--border-hairline));
+  background:
+    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--hbx-brand) 10%, transparent), transparent 42%),
+    var(--hbx-surface);
+  box-shadow: var(--shadow-lg);
+}
+.be-search__menu-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 9px 10px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+.be-search__menu-head > span {
+  display: grid;
+  gap: 2px;
+}
+.be-search__menu-head strong {
+  color: var(--text-strong);
+  font-size: 0.76rem;
+  font-weight: 750;
+}
+.be-search__menu-head small {
+  color: var(--text-muted);
+  font-size: 0.63rem;
+  font-weight: 520;
+}
+.be-search__menu-head > b {
+  padding: 4px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--hbx-brand-soft);
+  color: var(--hbx-brand-strong);
+  font-size: 0.56rem;
+  letter-spacing: 0.055em;
+}
+.be-search__intent {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px;
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 24%, var(--border-hairline));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--hbx-brand-soft) 66%, var(--hbx-surface));
+  color: var(--hbx-brand-strong);
+  font-family: var(--font-body);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--motion-fast), transform var(--motion-fast), background var(--motion-fast);
+}
+.be-search__intent:hover {
+  border-color: var(--hbx-brand);
+  background: var(--hbx-brand-soft);
+  transform: translateY(-1px);
+}
+.be-search__intent-icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  background: var(--hbx-brand);
+  color: var(--hbx-brand-contrast);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+.be-search__intent-copy,
+.be-search__opt-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.be-search__intent-copy strong,
+.be-search__opt-copy strong {
+  overflow: hidden;
+  font-size: 0.74rem;
+  font-weight: 720;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.be-search__intent-copy small,
+.be-search__opt-copy small {
+  color: var(--text-muted);
+  font-size: 0.6rem;
+  font-weight: 520;
+}
+.be-search__section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 9px 3px;
+  color: var(--text-muted);
+  font-size: 0.59rem;
+  font-weight: 720;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+.be-search__section-title small {
+  font: inherit;
+  letter-spacing: 0;
+  text-transform: none;
+}
+.vnd-layer--buscar .be-search__opt {
+  min-height: 44px;
+  padding: 7px 9px;
+}
+.vnd-layer--buscar .be-search__opt-count {
+  min-width: 30px;
+  padding: 3px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--hbx-surface-soft);
+  font-family: var(--font-mono);
+  text-align: center;
+}
+.be-search__cnae-tip {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 3px;
+  padding: 9px;
+  border-top: 1px solid var(--border-hairline);
+  color: var(--text-muted);
+  font-size: 0.61rem;
+  line-height: 1.35;
+}
+.be-search__cnae-tip strong { color: var(--text-body); }
+.be-search__cnae-mark {
+  flex: none;
+  padding: 4px 6px;
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 30%, var(--border-hairline));
+  border-radius: var(--radius-xs);
+  color: var(--hbx-brand-strong);
+  font-size: 0.52rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+.be-search__cnae-digits {
+  color: var(--text-body);
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+}
+
+.vnd-layer--buscar .be-cmdbar__pause {
+  min-height: 50px;
+  gap: 7px;
+  padding: 5px 6px 5px 8px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--hbx-field-surface);
+}
+.be-cmdbar__pause-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface-soft);
+  color: var(--text-muted);
+}
+.be-cmdbar__pause-copy {
+  display: grid;
+  gap: 1px;
+}
+.be-cmdbar__pause-copy small {
+  color: var(--text-muted);
+  font-size: 0.51rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.be-cmdbar__pause-copy strong {
+  color: var(--text-body);
+  font-size: 0.65rem;
+  font-weight: 680;
+  line-height: 1.15;
+}
+.vnd-layer--buscar .be-cmdbar__pause select {
+  min-height: 34px;
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface);
+  font-weight: 650;
+}
+
 .vnd-layer--buscar .row-dense-list-wrap,
 .vnd-layer--buscar .be-grid-wrap {
   background:
@@ -1467,72 +1788,228 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
    Zero cor literal — só token (5 Leis).
    ============================================================ */
 .vnd-cmd {
-  flex: none; margin: 0 0 6px; min-width: 0;
-  border-bottom: 1px solid var(--border-hairline);
-  background: transparent;
+  position: relative;
+  z-index: 20;
+  flex: none;
+  min-width: 0;
+  margin: 8px 14px 10px;
+  overflow: visible;
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 16%, var(--border-hairline));
+  border-radius: var(--radius-lg);
+  background:
+    radial-gradient(circle at 12% 0%, color-mix(in srgb, var(--hbx-brand) 8%, transparent), transparent 34%),
+    var(--hbx-surface);
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
 }
 /* TOKENIZADO 28/07 (Etapa 4): `min-height: 38px` e `padding: 0 12px` eram px
    cravados — a faixa não respondia à casca. Trocados por --band-height e
    --space-3, cujos valores BASE são exatamente 38px e 12px: a Premium não
    muda um pixel; só a Corporativa (30px / 10px) aperta junto com a tabela. */
 .vnd-cmd__top {
-  display: flex; align-items: stretch; gap: 14px; padding: 0 var(--space-3); min-width: 0;
-  min-height: var(--band-height);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 66px;
+  padding: 8px;
 }
 
-/* MODOS — aba sublinhada, não pílula preenchida. A pílula gradiente era a
-   mesma forma dos chips, dos botões e das etapas: tudo virava balão igual. */
-.vnd-cmd__top > .vnd-segbtns { gap: 0; align-items: stretch; }
+/* MODOS — duas entradas irmãs dentro da mesma página. O vidro móvel e o bloco
+   de ícone/cópia deixam o ativo inequívoco sem virar menu lateral. */
+.vnd-cmd__top > .vnd-segbtns {
+  display: flex;
+  align-items: stretch;
+  gap: 3px;
+  flex: none;
+  padding: 3px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--hbx-surface-soft);
+  --glass-pill-radius: var(--radius-md);
+}
 .vnd-cmd__top .vnd-segbtn {
-  flex: none; padding: 0 11px; border: 0; border-radius: 0; background: transparent;
-  box-shadow: none; font-size: 0.76rem; font-weight: var(--weight-medium);
-  color: var(--text-muted); border-bottom: 2px solid transparent;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  min-height: 48px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-muted);
 }
-.vnd-cmd__top .vnd-segbtn:hover { background: transparent; color: var(--text-body); }
-.vnd-cmd__top .vnd-segbtn.is-on { color: var(--text-strong); border-bottom-color: var(--hbx-brand); }
-/* o vidro deslizante não entra aqui: quem marca o ativo é a linha-base */
-.vnd-cmd__top .vnd-segbtns > .glass-pill { display: none; }
+.vnd-cmd__top .vnd-segbtn:hover { color: var(--text-body); }
+.vnd-cmd__top .vnd-segbtn.is-on { color: var(--hbx-brand-strong); }
+.vnd-cmd__top .vnd-segbtns > .glass-pill { display: block; }
+.vnd-cmd__top .vnd-segbtns > .glass-pill .glass-pill__glass {
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 25%, var(--border-hairline));
+  box-shadow: var(--shadow-xs);
+}
+.vnd-segbtn__icon {
+  display: grid;
+  place-items: center;
+  width: 31px;
+  height: 31px;
+  flex: none;
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface);
+  color: var(--text-muted);
+  box-shadow: inset 0 0 0 1px var(--border-hairline);
+}
+.vnd-segbtn.is-on .vnd-segbtn__icon {
+  background: var(--hbx-brand);
+  color: var(--hbx-brand-contrast);
+  box-shadow: none;
+}
+.vnd-segbtn__copy {
+  display: grid;
+  gap: 1px;
+  text-align: left;
+}
+.vnd-segbtn__copy small {
+  font-size: 0.51rem;
+  font-weight: 720;
+  letter-spacing: 0.045em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.vnd-segbtn__copy strong {
+  color: inherit;
+  font-size: 0.7rem;
+  font-weight: 750;
+  line-height: 1.15;
+  white-space: nowrap;
+}
 
-/* GUIA DE ETAPAS — agora LÊ como guia: régua embaixo, ativo com linha cheia.
-   Antes dependia só da pílula deslizante e, sem etapa escolhida (estado
-   inicial!), não havia pílula nenhuma — virava texto solto (dono 26/07:
-   "nem parece que é um guia"). */
-/* Divisor entre MODO (Meu funil / Buscar) e ETAPA: sem ele os dois viram uma
-   fileira contínua de abas e some a diferença entre "onde estou" e "que etapa
-   estou olhando". Régua fina, não caixa. */
-.vnd-stages {
-  position: relative; display: flex; align-items: stretch; gap: 0;
-  flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none;
-  margin-left: 4px; padding-left: 14px;
+/* GUIA DE ETAPAS — título visível + Visão geral ativa por padrão. */
+.vnd-flowguide {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+  padding-left: 12px;
   border-left: 1px solid var(--border-hairline);
 }
+.vnd-flowguide__title {
+  display: grid;
+  gap: 2px;
+  flex: none;
+  min-width: 72px;
+}
+.vnd-flowguide__title small {
+  color: var(--hbx-brand-strong);
+  font-size: 0.5rem;
+  font-weight: 780;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+.vnd-flowguide__title strong {
+  color: var(--text-body);
+  font-size: 0.65rem;
+  font-weight: 720;
+  line-height: 1.15;
+}
+.vnd-stages {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  padding: 3px;
+  overflow-x: auto;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-lg);
+  background: var(--hbx-surface-soft);
+  scrollbar-width: none;
+  --glass-pill-radius: var(--radius-md);
+}
 .vnd-stages::-webkit-scrollbar { display: none; }
+.vnd-stages > .glass-pill .glass-pill__glass {
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 22%, var(--border-hairline));
+  background: color-mix(in srgb, var(--hbx-brand-soft) 82%, var(--hbx-surface));
+  box-shadow: var(--shadow-xs);
+}
 .vnd-stagetab {
-  position: relative; z-index: 1;
-  display: inline-flex; align-items: center; gap: 7px;
-  border: 0; border-bottom: 2px solid transparent; background: transparent; cursor: pointer;
-  padding: 0 var(--space-3); border-radius: 0; white-space: nowrap;
-  font-family: var(--font-body); font-size: 0.76rem; font-weight: var(--weight-regular);
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 46px;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
   color: var(--text-muted);
-  transition: color var(--motion-fast), border-color var(--motion-fast);
+  font-family: var(--font-body);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color var(--motion-fast);
 }
 .vnd-stagetab:hover { color: var(--text-body); }
-.vnd-stagetab.is-on { color: var(--text-strong); border-bottom-color: var(--hbx-brand); }
+.vnd-stagetab.is-on { color: var(--hbx-brand-strong); }
 .vnd-stagetab.is-static { cursor: default; }
-.vnd-stagetab__l { display: inline-flex; align-items: center; gap: 6px; }
-/* o número anda na MESMA linha do rótulo e na mesma letra — só muda a cor */
+.vnd-stagetab__l {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.67rem;
+  font-weight: 720;
+  line-height: 1.1;
+}
+.vnd-stagetab__step {
+  display: inline-grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.53rem;
+  font-weight: 760;
+  box-shadow: inset 0 0 0 1px var(--border-hairline);
+}
+.vnd-stagetab.is-on .vnd-stagetab__step {
+  background: var(--hbx-brand);
+  color: var(--hbx-brand-contrast);
+  box-shadow: none;
+}
 .vnd-stagetab__n {
-  font-family: var(--font-mono); font-size: 0.76rem; font-weight: var(--weight-regular);
-  line-height: 1; color: var(--text-strong); opacity: 0.45;
-  transition: opacity var(--motion-fast), color var(--motion-fast);
+  display: inline-grid;
+  place-items: center;
+  min-width: 21px;
+  height: 21px;
+  padding: 0 5px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  background: var(--hbx-surface);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.57rem;
+  font-weight: 720;
+  line-height: 1;
+  transition: color var(--motion-fast), border-color var(--motion-fast), background var(--motion-fast);
 }
 .vnd-stagetab:hover .vnd-stagetab__n,
 .vnd-stagetab.is-on .vnd-stagetab__n,
-.vnd-stagetab.is-static .vnd-stagetab__n { opacity: 1; }
+.vnd-stagetab.is-static .vnd-stagetab__n {
+  border-color: color-mix(in srgb, var(--hbx-brand) 30%, var(--border-hairline));
+  color: var(--hbx-brand-strong);
+}
 /* etapa quente ("Te chamou" com gente esperando): o número é o próprio alarme */
 .vnd-stagetab.is-hot { color: var(--hbx-danger); }
-.vnd-stagetab.is-hot .vnd-stagetab__n { color: var(--hbx-danger); opacity: 1; }
-.vnd-stagetab.is-hot.is-on { border-bottom-color: var(--hbx-danger); }
+.vnd-stagetab.is-hot .vnd-stagetab__n {
+  border-color: color-mix(in srgb, var(--hbx-danger) 32%, var(--border-hairline));
+  background: color-mix(in srgb, var(--hbx-danger) 8%, var(--hbx-surface));
+  color: var(--hbx-danger);
+}
 .vnd-stagetab__dot {
   width: 5px; height: 5px; border-radius: 999px; flex: none;
   background: var(--hbx-brand); animation: vnd-dot-pulse 1.8s var(--ease-out-quint) infinite;
@@ -1542,10 +2019,62 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent); }
   50% { box-shadow: 0 0 0 4px transparent; }
 }
-/* Bloco só-leitura dos números do Radar (modo Buscar): rótulo e valor lado a
-   lado, sem virar aba clicável. */
-.vnd-stages--buscar { flex: none; gap: 18px; }
-.vnd-stages--buscar .vnd-stagetab { padding-inline: 0; }
+/* Números do Radar: dois cartões informativos, não abas falsas. */
+.vnd-search-metrics {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+  padding-left: 12px;
+  border-left: 1px solid var(--border-hairline);
+}
+.vnd-search-metric {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 170px;
+  padding: 6px 10px 6px 7px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--hbx-surface-soft);
+}
+.vnd-search-metric__icon {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface);
+  color: var(--text-muted);
+  box-shadow: inset 0 0 0 1px var(--border-hairline);
+}
+.vnd-search-metric.is-available {
+  border-color: color-mix(in srgb, var(--hbx-brand) 24%, var(--border-hairline));
+  background: color-mix(in srgb, var(--hbx-brand-soft) 54%, var(--hbx-surface));
+}
+.vnd-search-metric.is-available .vnd-search-metric__icon {
+  background: var(--hbx-brand);
+  color: var(--hbx-brand-contrast);
+  box-shadow: none;
+}
+.vnd-search-metric__copy {
+  display: grid;
+  gap: 2px;
+}
+.vnd-search-metric__copy small {
+  color: var(--text-muted);
+  font-size: 0.55rem;
+  font-weight: 680;
+  line-height: 1;
+}
+.vnd-search-metric__copy strong {
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 760;
+  line-height: 1.1;
+}
 
 .vnd-cmd__acts { display: flex; align-items: center; gap: 4px; flex: none; }
 .vnd-cmd__acts .vnd-colspick, .vnd-cmd__acts .vnd-team { position: relative; display: inline-flex; }
@@ -1555,8 +2084,9 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
    tela que era pra ser da lista. Agora é uma frase e as ações dela. */
 .vnd-ctx {
   display: flex; align-items: center; gap: 10px; min-width: 0;
-  padding: 5px 12px; min-height: 28px;
-  border-top: 1px solid color-mix(in srgb, var(--border-hairline) 60%, transparent);
+  padding: 7px 12px; min-height: 34px;
+  border-top: 1px solid var(--border-hairline);
+  background: color-mix(in srgb, var(--hbx-surface-soft) 70%, transparent);
 }
 .vnd-ctx__txt {
   flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 10px;

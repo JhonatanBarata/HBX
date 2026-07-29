@@ -637,6 +637,7 @@ export function VendasClient() {
   // etapa; clicar de novo na guia ativa limpa (null = mostra tudo). Estado
   // local só (não persiste). Seleção ativa = Glass Pill (Lei nº2).
   const [stageFilter, setStageFilter] = useState<VendasStage | null>(null);
+  const stagePill = useGlassPill<HTMLButtonElement>(stageFilter || "todos");
   // ── Grade (planilha): colunas do usuário, ordenação por coluna, edição inline.
   // Colunas e ordenação vivem em localStorage (por navegador/usuário logado).
   const [gridKeys, setGridKeys] = useState<string[]>(() => {
@@ -1603,12 +1604,14 @@ export function VendasClient() {
       <GlassPill {...segPill} />
       <button ref={segPill.itemRef("funil")} id="vendas-tab-funil" type="button" role="tab" aria-selected={modo === "funil"} aria-controls="vendas-panel-funil"
         className={"vnd-segbtn glass-pill-item" + (modo === "funil" ? " is-on" : "")} onClick={irFunil}>
-        <I d={ICONS.vendas} size={16} /> <span>Meu funil</span>
+        <span className="vnd-segbtn__icon"><I d={ICONS.vendas} size={16} /></span>
+        <span className="vnd-segbtn__copy"><strong>Meu funil</strong></span>
       </button>
       {podeBuscarLeads && (
         <button ref={segPill.itemRef("buscar")} id="vendas-tab-buscar" type="button" role="tab" aria-selected={modo === "buscar"} aria-controls="vendas-panel-buscar" data-tut="vendas-buscar"
           className={"vnd-segbtn glass-pill-item" + (modo === "buscar" ? " is-on" : "")} onClick={irBuscar}>
-          <I d={ICONS.scrape} size={16} /> <span>Buscar empresas</span>
+          <span className="vnd-segbtn__icon"><I d={ICONS.scrape} size={16} /></span>
+          <span className="vnd-segbtn__copy"><strong>Buscar empresas</strong></span>
         </button>
       )}
     </div>
@@ -1630,49 +1633,72 @@ export function VendasClient() {
           <div className="vnd-cmd" data-mode={modo}>
             <div className="vnd-cmd__top">
               {segToggle}
-              {/* Sem Glass Pill no guia: quem marca a etapa aberta é a LINHA-BASE.
-                  A pílula preenchida por baixo do sublinhado eram duas marcações
-                  brigando — e o texto sumia dentro do verde. */}
               {modo === "funil" && (
-                <div className="vnd-stages" role="tablist" aria-label="Etapa do lead" data-tut="vendas-etapas">
-                  {STAGE_ORDER.map(stage => {
-                    const active = stageFilter === stage.key;
-                    const contagem = stageCounts[stage.key];
-                    // Sinal vivo: verde pulsando = robô rodando; vermelho = cliente
-                    // esperando resposta. O número da etapa quente é o próprio alarme
-                    // (nada de badge repetindo o mesmo número ao lado).
-                    const vivo = stage.key === "contato" && briefing.roboAtivo > 0;
-                    const quente = stage.key === "retorno" && contagem > 0;
-                    return (
-                      <button
-                        key={stage.key}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        title={stage.sub}
-                        className={"vnd-stagetab" + (active ? " is-on" : "") + (quente ? " is-hot" : "")}
-                        onClick={() => setStageFilter(f => (f === stage.key ? null : stage.key))}
-                      >
-                        <span className="vnd-stagetab__l">
-                          {vivo && <span className="vnd-stagetab__dot" aria-hidden="true" />}
-                          {quente && <span className="vnd-stagetab__dot vnd-stagetab__dot--hot" aria-hidden="true" />}
-                          {stage.label}
-                        </span>
-                        <span className="vnd-stagetab__n">{contagem}</span>
-                      </button>
-                    );
-                  })}
+                <div className="vnd-flowguide">
+                  <span className="vnd-flowguide__title" aria-hidden="true">
+                    <strong>Etapas do funil</strong>
+                  </span>
+                  <div className="vnd-stages glass-pill-track" role="tablist" aria-label="Etapas do funil" data-tut="vendas-etapas">
+                    <GlassPill {...stagePill} />
+                    <button
+                      ref={stagePill.itemRef("todos")}
+                      type="button"
+                      role="tab"
+                      aria-selected={stageFilter == null}
+                      className={"vnd-stagetab vnd-stagetab--all glass-pill-item" + (stageFilter == null ? " is-on" : "")}
+                      onClick={() => setStageFilter(null)}
+                    >
+                      <span className="vnd-stagetab__step">●</span>
+                      <span className="vnd-stagetab__l">Todos</span>
+                      <span className="vnd-stagetab__n">{flatLeads.length}</span>
+                    </button>
+                    {STAGE_ORDER.map((stage, stageIndex) => {
+                      const active = stageFilter === stage.key;
+                      const contagem = stageCounts[stage.key];
+                      // Sinal vivo: verde pulsando = robô rodando; vermelho = cliente
+                      // esperando resposta. O número da etapa quente é o próprio alarme
+                      // (nada de badge repetindo o mesmo número ao lado).
+                      const vivo = stage.key === "contato" && briefing.roboAtivo > 0;
+                      const quente = stage.key === "retorno" && contagem > 0;
+                      return (
+                        <button
+                          ref={stagePill.itemRef(stage.key)}
+                          key={stage.key}
+                          type="button"
+                          role="tab"
+                          aria-selected={active}
+                          title={stage.sub}
+                          className={"vnd-stagetab glass-pill-item" + (active ? " is-on" : "") + (quente ? " is-hot" : "")}
+                          onClick={() => setStageFilter(f => (f === stage.key ? null : stage.key))}
+                        >
+                          <span className="vnd-stagetab__step">{String(stageIndex + 1).padStart(2, "0")}</span>
+                          <span className="vnd-stagetab__l">
+                            {vivo && <span className="vnd-stagetab__dot" aria-hidden="true" />}
+                            {quente && <span className="vnd-stagetab__dot vnd-stagetab__dot--hot" aria-hidden="true" />}
+                            {stage.label}
+                          </span>
+                          <span className="vnd-stagetab__n">{contagem}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
               {modo === "buscar" && (
-                <div className="vnd-stages vnd-stages--buscar" aria-label="Números do Radar">
-                  <span className="vnd-stagetab is-static">
-                    <span className="vnd-stagetab__l">Total no Brasil</span>
-                    <span className="vnd-stagetab__n">{buscarStats.totalBrasil != null ? buscarStats.totalBrasil.toLocaleString("pt-BR") : "—"}</span>
+                <div className="vnd-search-metrics" aria-label="Números do Radar">
+                  <span className="vnd-search-metric">
+                    <span className="vnd-search-metric__icon"><I d={ICONS.empresas} size={17} /></span>
+                    <span className="vnd-search-metric__copy">
+                      <small>Total no Brasil</small>
+                      <strong>{buscarStats.totalBrasil != null ? buscarStats.totalBrasil.toLocaleString("pt-BR") : "—"}</strong>
+                    </span>
                   </span>
-                  <span className="vnd-stagetab is-static">
-                    <span className="vnd-stagetab__l">Disponíveis</span>
-                    <span className="vnd-stagetab__n">{buscarStats.disponiveis != null ? buscarStats.disponiveis.toLocaleString("pt-BR") : "—"}</span>
+                  <span className="vnd-search-metric is-available">
+                    <span className="vnd-search-metric__icon"><I d={ICONS.scrape} size={17} /></span>
+                    <span className="vnd-search-metric__copy">
+                      <small>Disponíveis agora</small>
+                      <strong>{buscarStats.disponiveis != null ? buscarStats.disponiveis.toLocaleString("pt-BR") : "—"}</strong>
+                    </span>
                   </span>
                 </div>
               )}

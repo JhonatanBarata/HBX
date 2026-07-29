@@ -29,9 +29,11 @@ import {
   resolveRadarChannelPresence,
   type ChannelPresence,
 } from "@/lib/radar-channel-presence";
+import { RADAR_SEGMENT_CATEGORIES } from "@/lib/radar-segments";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
 type FilterOption = { value: string; label: string; count?: number };
+type SegmentSuggestion = FilterOption & { category?: string };
 
 // Exportado (LEADS-FINAL/02): a página /leads/[id] reusa o MESMO tipo — o GET
 // /webscraping/radar/leads/:id devolve o mesmo shape de item da listagem
@@ -590,6 +592,24 @@ const STATE_NAME_TO_UF: Record<string, string> = {
 
 function normCity(s: string) {
   return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+}
+
+const RADAR_SEGMENT_CATALOG: SegmentSuggestion[] = RADAR_SEGMENT_CATEGORIES.flatMap(category =>
+  category.segments.map(segment => ({ value: segment, label: segment, category: category.label })),
+);
+
+function segmentSearchScore(label: string, query: string): number {
+  const normalizedLabel = normCity(label);
+  const normalizedQuery = normCity(query);
+  if (!normalizedQuery) return 20;
+  if (normalizedLabel === normalizedQuery) return 0;
+  if (normalizedLabel.startsWith(normalizedQuery)) return 1;
+  if (normalizedLabel.includes(normalizedQuery)) return 2;
+
+  const ignored = new Set(["com", "das", "de", "do", "dos", "da", "e", "em", "para"]);
+  const terms = normalizedQuery.split(/\s+/).filter(term => term.length >= 3 && !ignored.has(term));
+  const hits = terms.filter(term => normalizedLabel.includes(term)).length;
+  return hits > 0 ? 10 + (terms.length - hits) : Number.POSITIVE_INFINITY;
 }
 
 type StoredLeadFilters = {
@@ -2003,6 +2023,21 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
   const filters = data?.meta?.availableFilters;
   const byLabel = (a: { label: string }, b: { label: string }) => a.label.localeCompare(b.label, "pt-BR");
   const segOptions = (filters?.segments || []).sort(byLabel);
+  const segmentOptionMap = new Map<string, SegmentSuggestion>();
+  for (const option of RADAR_SEGMENT_CATALOG) segmentOptionMap.set(normCity(option.label), option);
+  for (const option of segOptions) {
+    const key = normCity(option.label);
+    segmentOptionMap.set(key, { ...segmentOptionMap.get(key), ...option });
+  }
+  const segmentSuggestions = Array.from(segmentOptionMap.values())
+    .map(option => ({ option, score: segmentSearchScore(option.label, segment) }))
+    .filter(item => Number.isFinite(item.score))
+    .sort((a, b) => a.score - b.score || byLabel(a.option, b.option))
+    .slice(0, 9)
+    .map(item => item.option);
+  const segmentValue = segment.trim();
+  const cnaeValue = segmentValue.replace(/\D/g, "");
+  const isCnaeValue = /^\d{4,7}$/.test(cnaeValue) && cnaeValue === segmentValue;
   const ufOptions = mergeFilterOptions(filters?.states, BRAZIL_UF_OPTIONS).sort(byLabel);
   const ufCityOptions = uf
     ? mergeBrazilCityOptions(uf, filters?.citiesByState?.[uf]).sort(byLabel)
@@ -2466,29 +2501,33 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
     );
     return (
       <div className="be-cmdbar be-cmdbar--required" data-tut="leads-filtros">
-        <div className="be-search be-required-segment" data-tut="leads-busca-criativa" ref={segBoxRef}>
-          <I d={ICONS.search} size={16} />
-          <input
-            className="be-search__input"
-            placeholder="Segmento ou tipo de empresa"
-            value={segment}
-            disabled={searchInProgress}
-            onChange={e => {
-              markFiltersDirty();
-              setSegment(e.target.value);
-              if (segOptions.length) setSegMenuOpen(true);
-            }}
-            onKeyDown={e => {
-              if (e.key === "Enter" && canSearch && !searchInProgress) { setSegMenuOpen(false); executarBusca(); }
-              else if (e.key === "ArrowDown" && segOptions.length) { setSegMenuOpen(true); }
-            }}
-            role="combobox"
-            aria-label="Segmento obrigatório"
-            aria-required="true"
-            aria-expanded={segMenuOpen}
-            aria-controls="rc-seg-menu"
-            aria-autocomplete="list"
-          />
+        <div className={"be-search be-required-segment" + (segmentValue ? " is-ready" : "")} data-tut="leads-busca-criativa" ref={segBoxRef}>
+          <span className="be-search__icon"><I d={ICONS.search} size={16} /></span>
+          <label className="be-search__field">
+            <small>Atividade ou CNAE</small>
+            <input
+              className="be-search__input"
+              placeholder="Ex.: distribuidora de água"
+              value={segment}
+              disabled={searchInProgress}
+              onFocus={() => setSegMenuOpen(true)}
+              onChange={e => {
+                markFiltersDirty();
+                setSegment(e.target.value);
+                setSegMenuOpen(true);
+              }}
+              onKeyDown={e => {
+                if (e.key === "Enter" && canSearch && !searchInProgress) { setSegMenuOpen(false); executarBusca(); }
+                else if (e.key === "ArrowDown") { setSegMenuOpen(true); }
+              }}
+              role="combobox"
+              aria-label="Atividade ou CNAE obrigatório"
+              aria-required="true"
+              aria-expanded={segMenuOpen}
+              aria-controls="rc-seg-menu"
+              aria-autocomplete="list"
+            />
+          </label>
           <button
             type="button"
             className={"be-search__chevron" + (segMenuOpen ? " be-search__chevron--open" : "")}
@@ -2501,44 +2540,58 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
           </button>
           {segMenuOpen && (
             <div className="be-search__menu" id="rc-seg-menu" role="listbox">
-              {segOptions.length === 0 ? (
-                <div className="be-search__opt be-search__opt--empty" aria-disabled>
-                  Digite pra buscar
-                </div>
-              ) : (
-                [...segOptions]
-                  .sort((a, b) => {
-                    const q = segment.trim().toLowerCase();
-                    if (!q) return 0;
-                    const am = a.label.toLowerCase().includes(q) ? 0 : 1;
-                    const bm = b.label.toLowerCase().includes(q) ? 0 : 1;
-                    return am - bm;
-                  })
-                  .map(o => {
-                    const q = segment.trim().toLowerCase();
-                    const match = q.length > 0 && o.label.toLowerCase().includes(q);
-                    const selected = o.label === segment;
-                    return (
-                      <button
-                        key={o.value}
-                        type="button"
-                        role="option"
-                        aria-selected={selected}
-                        className={
-                          "be-search__opt"
-                          + (match ? " be-search__opt--match" : "")
-                          + (selected ? " be-search__opt--active" : "")
-                        }
-                        onClick={() => { markFiltersDirty(); setSegment(o.label); setSegMenuOpen(false); }}
-                      >
-                        <span>{o.label}</span>
-                        {typeof o.count === "number" && (
-                          <span className="be-search__opt-count">{o.count}</span>
-                        )}
-                      </button>
-                    );
-                  })
+              <div className="be-search__menu-head">
+                <strong>Atividades e CNAEs</strong>
+                <b>Receita</b>
+              </div>
+              {segmentValue && (
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected="false"
+                  className="be-search__intent"
+                  onClick={() => { markFiltersDirty(); setSegment(isCnaeValue ? cnaeValue : segmentValue); setSegMenuOpen(false); }}
+                >
+                  <span className="be-search__intent-icon">{isCnaeValue ? "№" : "Aa"}</span>
+                  <span className="be-search__intent-copy">
+                    <strong>{isCnaeValue ? `CNAE ${cnaeValue}` : `“${segmentValue}”`}</strong>
+                  </span>
+                  <I d={ICONS.arrow} size={15} />
+                </button>
               )}
+              <div className="be-search__section-title">
+                <span>{segmentValue ? "Atividades relacionadas" : "Atividades sugeridas"}</span>
+                <small>{segmentSuggestions.length} opções</small>
+              </div>
+              {segmentSuggestions.length === 0 ? (
+                <div className="be-search__opt be-search__opt--empty" aria-disabled>
+                  Nenhuma sugestão
+                </div>
+              ) : segmentSuggestions.map(o => {
+                const selected = normCity(o.label) === normCity(segment);
+                return (
+                  <button
+                    key={`${o.value}-${o.label}`}
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    className={"be-search__opt" + (selected ? " be-search__opt--active" : "")}
+                    onClick={() => { markFiltersDirty(); setSegment(o.label); setSegMenuOpen(false); }}
+                  >
+                    <span className="be-search__opt-copy">
+                      <strong>{o.label}</strong>
+                      {o.category && <small>{o.category}</small>}
+                    </span>
+                    {typeof o.count === "number" && (
+                      <span className="be-search__opt-count">{o.count.toLocaleString("pt-BR")}</span>
+                    )}
+                  </button>
+                );
+              })}
+              <div className="be-search__cnae-tip">
+                <span className="be-search__cnae-mark">CNAE</span>
+                <span className="be-search__cnae-digits">4–7 dígitos</span>
+              </div>
             </div>
           )}
         </div>
@@ -2584,7 +2637,8 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
         {/* REFUNDAÇÃO F2: freio do trabalho — o Radar pausa sozinho depois de N leads
             e espera o vendedor (Continuar retoma do ponto). 0 = corrida completa. */}
         <label className="be-cmdbar__pause" title="Pausa automática: o Radar para depois de N leads e espera você continuar">
-          <span>Pausa a cada</span>
+          <span className="be-cmdbar__pause-icon"><I d={ICONS.clock} size={15} /></span>
+          <span className="be-cmdbar__pause-copy"><strong>Pausa automática</strong></span>
           <select
             value={pauseAfter}
             onChange={e => setPauseAfter(e.target.value)}
@@ -2952,7 +3006,11 @@ export function LeadsClient({ embedded = false, onLeadPulled, onEmbedStats, embe
                   do painel — mesmo tratamento do "Pipeline de vendas" do funil. 29/06. */}
               {embedded && embedTitle && (
                 <div className="panel-head leads-embed-head">
-                  <h2>{embedTitle}</h2>
+                  <span className="leads-embed-head__icon"><I d={ICONS.scrape} size={18} /></span>
+                  <span className="leads-embed-head__copy">
+                    <h2>{embedTitle}</h2>
+                  </span>
+                  <span className="leads-embed-head__tag">Radar</span>
                 </div>
               )}
               {/* Barra de comando horizontal — os filtros saíram do aside paredão pra cá. */}
