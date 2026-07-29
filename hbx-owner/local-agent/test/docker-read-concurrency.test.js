@@ -35,6 +35,78 @@ function getJson(port, pathname) {
   });
 }
 
+// ── fake do Local Lab (127.0.0.1:3098) para o teste de starvation ───────────────────────────────
+// O server.js real fala com o Local Lab em uma URL FIXA ("http://127.0.0.1:3098"), sem env var de
+// override — então o teste não pode simplesmente "apontar para outra porta". Em vez disso,
+// interceptamos http.get/http.request no MESMO módulo "http" que o server.js importa (require de
+// módulo nativo é singleton no processo — patchear aqui também vale lá) e redirecionamos só o
+// tráfego destinado à 3098 para um fake nosso em porta efêmera. Isso tira a dependência de "há ou
+// não um processo real ouvindo na 3098 desta máquina" (a causa da instabilidade) sem tocar
+// server.js e sem trocar o que o teste prova (leitura do Docker não sofre starvation com o Local
+// Lab lento rodando concorrente).
+const LOCAL_LAB_ORIGIN = "http://127.0.0.1:3098";
+
+// Nunca responde ao /health: o cliente real (requestLocalLabHealth) tem timeout PRÓPRIO de 1200ms
+// e aborta sozinho — então isso reproduz de forma determinística "consulta ainda em andamento",
+// em qualquer máquina, com ou sem Local Lab de verdade rodando na 3098.
+function startHangingLocalLabFake() {
+  const sockets = new Set();
+  const server = http.createServer((req, res) => {
+    req.on("error", () => {});
+    res.on("error", () => {});
+    // Propositalmente sem res.end() — ver comentário acima.
+  });
+  server.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+  });
+  return {
+    listen: () => new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", () => resolve(server.address().port));
+    }),
+    close: () => new Promise((resolve) => {
+      for (const socket of sockets) socket.destroy();
+      server.close(() => resolve());
+    }),
+  };
+}
+
+function redirectLocalLabHttp(fakePort) {
+  const originalGet = http.get;
+  const originalRequest = http.request;
+  const fakeOrigin = `http://127.0.0.1:${fakePort}`;
+
+  function rewriteUrl(input) {
+    if (typeof input === "string" && input.startsWith(LOCAL_LAB_ORIGIN)) {
+      return fakeOrigin + input.slice(LOCAL_LAB_ORIGIN.length);
+    }
+    return input;
+  }
+  function rewriteOptions(input) {
+    if (input && typeof input === "object" && input.hostname === "127.0.0.1" && Number(input.port) === 3098) {
+      return { ...input, port: fakePort };
+    }
+    return input;
+  }
+
+  http.get = function patchedGet(a, ...rest) {
+    return typeof a === "string"
+      ? originalGet.call(http, rewriteUrl(a), ...rest)
+      : originalGet.call(http, rewriteOptions(a), ...rest);
+  };
+  http.request = function patchedRequest(a, ...rest) {
+    return typeof a === "string"
+      ? originalRequest.call(http, rewriteUrl(a), ...rest)
+      : originalRequest.call(http, rewriteOptions(a), ...rest);
+  };
+
+  return function restore() {
+    http.get = originalGet;
+    http.request = originalRequest;
+  };
+}
+
 test("leitura Docker lenta não bloqueia GET crítico da ponte e polls iguais são coalescidos", async () => {
   invalidateDockerReadCache();
   const server = createOwnerServer();
@@ -79,6 +151,13 @@ test("polling real do Local Lab não causa starvation no freio da ponte", {
   skip: process.platform !== "win32",
   timeout: 45_000,
 }, async () => {
+  // Isola de porta real (ver comentário do helper acima): não importa se ESTA máquina tem ou não
+  // um Local Lab de verdade escutando em 3098 — o tráfego do server.js pra lá é redirecionado
+  // pro fake, que nunca responde ao /health.
+  const fakeLab = startHangingLocalLabFake();
+  const fakeLabPort = await fakeLab.listen();
+  const restoreHttp = redirectLocalLabHttp(fakeLabPort);
+
   const server = createOwnerServer();
   await new Promise((resolve, reject) => {
     server.once("error", reject);
@@ -91,8 +170,14 @@ test("polling real do Local Lab não causa starvation no freio da ponte", {
     const firstLabRead = getJson(port, "/local-lab/status").finally(() => { labFinished = true; });
     const secondLabRead = getJson(port, "/local-lab/status");
 
-    // O health do Lab pode consumir até 1,2s; depois começa a consulta real ao PowerShell/WMI.
-    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    // O health do Lab (redirecionado pro fake) consome os 1200ms cheios do timeout PRÓPRIO do
+    // cliente (o fake nunca responde — quem corta é o timeout do cliente, não o fake), o que dá um
+    // piso DETERMINÍSTICO de ~1200ms pra essa leitura, medido empiricamente em ~1225ms (4 corridas,
+    // desvio <3ms) — independe da velocidade real da consulta concorrente ao PowerShell/WMI
+    // (findLocalLabProcesses). Checamos em 900ms (folga de ~300ms sob o piso) em vez dos 1500ms
+    // originais: com 1500ms a folga real ficava pequena e instável, dependendo de quão rápido o WMI
+    // respondesse nesta máquina.
+    await new Promise((resolve) => setTimeout(resolve, 900));
     assert.equal(labFinished, false, "a consulta real do Local Lab deveria continuar em andamento");
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -109,5 +194,7 @@ test("polling real do Local Lab não causa starvation no freio da ponte", {
     assert.equal(secondLab.statusCode, 200);
   } finally {
     await new Promise((resolve) => server.close(resolve));
+    restoreHttp();
+    await fakeLab.close();
   }
 });

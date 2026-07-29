@@ -13,7 +13,18 @@ import { isLocalRole } from '../../source-budget/role-guard';
  */
 
 // ── fake mínimo de PrismaService: só o que a fábrica toca ────────────────────────────────────────
-function makeFakePrisma(opts: { hasFabrica?: boolean; hasCursor?: boolean; rfb?: any[] } = {}) {
+function makeFakePrisma(opts: {
+  hasFabrica?: boolean;
+  hasCursor?: boolean;
+  rfb?: any[];
+  // rfbBaseCountCheap(): fonte 1 (CnpjBaseStats.aggregate) e fonte 2 — fallback reltuples via
+  // $queryRawUnsafe quando a tabela de stats não existe/não veio populada. Default: tabela
+  // presente e SEM total configurado (0), igual ao comportamento anterior a este fix — só os
+  // testes que configuram `cnpjBaseStatsTotal`/`reltuples` explicitamente exercitam o número real.
+  hasCnpjBaseStats?: boolean;
+  cnpjBaseStatsTotal?: number;
+  reltuples?: number;
+} = {}) {
   const run: any = { key: 'main', running: false, stopRequested: false, budget: 0, processed: 0, materialized: 0, contactsWritten: 0, paidAttempts: 0 };
   // cursor da energia (RadarFactoryCursor) — precisa ser MUTÁVEL de verdade (diferente do upsert
   // burro do run acima) porque setEnergia relê do banco depois de escrever (lei nº3).
@@ -27,7 +38,22 @@ function makeFakePrisma(opts: { hasFabrica?: boolean; hasCursor?: boolean; rfb?:
     async hasTable(name: string) {
       if (name === 'RadarFabricaRun') return opts.hasFabrica !== false;
       if (name === 'RadarFactoryCursor') return opts.hasCursor !== false;
+      if (name === 'CnpjBaseStats') return opts.hasCnpjBaseStats !== false;
       return true;
+    },
+    // Caminho barato do rfbBaseCountCheap() (fonte 1) — nunca varre CnpjPublicCompany (28M).
+    cnpjBaseStats: {
+      async aggregate(_args: any) {
+        return { _sum: { count: opts.cnpjBaseStatsTotal ?? 0 } };
+      },
+    },
+    // Fallback do rfbBaseCountCheap() (fonte 2) quando CnpjBaseStats está ausente/vazia: estimativa
+    // O(1) via reltuples do planejador. Só responde a essa query especifica; qualquer outra volta [].
+    async $queryRawUnsafe(sql: string) {
+      if (typeof sql === 'string' && sql.includes('reltuples')) {
+        return [{ n: opts.reltuples ?? 0 }];
+      }
+      return [];
     },
     radarFabricaRun: {
       async upsert() { return { ...run }; },
@@ -132,13 +158,30 @@ test('status sem delegate Prisma não finge fábrica offline nem contadores zera
 
 test('status expõe a trava anti-pago e paidAttempts=0 (prova de R$0)', async () => {
   delete process.env.HBX_ROLE; // ausente → local
-  const prisma = makeFakePrisma({ rfb: [{ cnpj: '11222333000181', razaoSocial: 'ACME LTDA', city: 'Fortaleza', state: 'CE' }] });
+  const prisma = makeFakePrisma({
+    rfb: [{ cnpj: '11222333000181', razaoSocial: 'ACME LTDA', city: 'Fortaleza', state: 'CE' }],
+    // rfbBaseCount não conta CnpjPublicCompany ao vivo (28M linhas) — vem do total barato gravado
+    // em CnpjBaseStats na última carga mensal (fix 1086be41, pool-storm 23/07).
+    cnpjBaseStatsTotal: 28_000_000,
+  });
   const svc = makeService(prisma);
   const status = await svc.status();
   assert.equal(status.paidLocked, true, 'no local a trava deve estar ativa');
   assert.equal(status.paidAttempts, 0);
-  assert.equal(status.rfbBaseCount, 1);
+  assert.equal(status.rfbBaseCount, 28_000_000, 'total da base RFB vem do CnpjBaseStats.aggregate (caminho barato), nunca de count() ao vivo');
   assert.equal(isLocalRole(), true);
+});
+
+test('status: sem CnpjBaseStats cai no fallback reltuples (planejador), nunca varre a base', async () => {
+  delete process.env.HBX_ROLE; // ausente → local
+  const prisma = makeFakePrisma({
+    rfb: [],
+    hasCnpjBaseStats: false, // simula tabela de stats ausente/não carregada
+    reltuples: 27_500_000, // estimativa O(1) do planejador (pg_class.reltuples)
+  });
+  const svc = makeService(prisma);
+  const status = await svc.status();
+  assert.equal(status.rfbBaseCount, 27_500_000, 'sem CnpjBaseStats, o total vem do fallback reltuples via $queryRawUnsafe');
 });
 
 test('TRAVA: mesmo com budget, drena RFB sem NENHUMA tentativa paga (paidAttempts=0)', async () => {
