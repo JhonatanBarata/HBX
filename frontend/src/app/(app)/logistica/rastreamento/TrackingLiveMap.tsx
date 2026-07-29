@@ -64,7 +64,7 @@ export function TrackingLiveMap({ sessionId, driverName, points, currentPosition
 
   useEffect(() => {
     const host = hostRef.current;
-    if (!host || !hasPosition) return;
+    if (!host) return;
 
     let cancelled = false;
     let loadTimer: number | null = null;
@@ -78,8 +78,8 @@ export function TrackingLiveMap({ sessionId, driverName, points, currentPosition
       map = new maplibregl.Map({
         container: mapElement,
         style: OPENFREEMAP_STYLE_URL,
-        center: [first.longitude, first.latitude],
-        zoom: 13,
+        center: first ? [first.longitude, first.latitude] : [-47.8825, -15.7942],
+        zoom: first ? 13 : 4,
         attributionControl: { compact: true },
         cooperativeGestures: false,
       });
@@ -179,19 +179,16 @@ export function TrackingLiveMap({ sessionId, driverName, points, currentPosition
     }
   }, [driverName, ready, sessionId, validPoints]);
 
-  if (!hasPosition) {
-    return (
-      <div className="log-live-map log-live-map--empty">
-        <strong>Posição ainda não recebida</strong>
-        <span>O mapa aparecerá após o primeiro ponto válido do aparelho.</span>
-      </div>
-    );
-  }
-
   return (
     <div className="log-live-map">
       <div className="log-live-map__canvas" ref={hostRef} aria-label={`Trajeto de ${driverName}`} />
       {!ready && !failed ? <div className="log-live-map__state">Carregando mapa…</div> : null}
+      {ready && !failed && !hasPosition ? (
+        <div className="log-live-map__empty-note">
+          <strong>Posição ainda não recebida</strong>
+          <span>O mapa acende com o primeiro sinal do motorista.</span>
+        </div>
+      ) : null}
       {failed ? (
         <div className="log-live-map__state log-live-map__state--error" role="alert">
           <strong>Mapa indisponível</strong>

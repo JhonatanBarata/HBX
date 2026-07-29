@@ -158,84 +158,80 @@ function CreditStatement({
 }) {
   return (
     <section className="log-credit-statement hbx-card-enter" aria-label="Extrato de créditos da logística">
-      <header className="log-credit-statement__head">
-        <div>
-          <strong>Consumo e bônus</strong>
-          <span>Informação comercial exclusiva da administração.</span>
+      <details>
+        <summary>
+          <span>
+            <strong>Créditos e bônus</strong>
+            <small>{statement ? `${statement.balanceCredits} disponíveis` : "Carregando…"}</small>
+          </span>
+          <I d={ICONS.chevronDown} size={15} />
+        </summary>
+
+        <div className="log-credit-statement__content">
+          <label className="log-credit-statement__month">
+            <span>Competência</span>
+            <input
+              type="month"
+              value={month}
+              max={currentMonth()}
+              onChange={(event) => onMonthChange(event.target.value)}
+            />
+          </label>
+
+          {error ? <div className="log-credit-statement__error" role="alert">{error}</div> : null}
+          {!statement && !error ? <div className="log-credit-statement__loading">Carregando extrato…</div> : null}
+          {statement ? (
+            <>
+              <div className="log-credit-statement__cards">
+                <article>
+                  <span>Saldo</span>
+                  <strong>{statement.balanceCredits}</strong>
+                  <small>créditos</small>
+                </article>
+                <article>
+                  <span>Essencial</span>
+                  <strong>{statement.totals.essentialCredits}</strong>
+                  <small>bloco(s)</small>
+                </article>
+                <article>
+                  <span>Rastreada</span>
+                  <strong>{statement.totals.trackedCredits}</strong>
+                  <small>{statement.totals.trackedDeliveries} entrega(s)</small>
+                </article>
+                <article className="is-bonus">
+                  <span>Bônus</span>
+                  <strong>+{statement.totals.bonusCredits}</strong>
+                  <small>competência</small>
+                </article>
+              </div>
+
+              <div className="log-credit-statement__deliveries">
+                <strong>Conclusões rastreadas</strong>
+                {statement.trackedDeliveries.length === 0 ? <span>Nenhuma nesta competência.</span> : null}
+                {statement.trackedDeliveries.slice(0, 6).map((delivery) => (
+                  <div key={delivery.claimId}>
+                    <span>{formatDateTime(delivery.completedAt)}</span>
+                    <b>#{delivery.routeId.slice(0, 8).toUpperCase()}</b>
+                    <small>{delivery.credits} cr. · {delivery.paidCredits} pago</small>
+                  </div>
+                ))}
+              </div>
+
+              <div className="log-credit-statement__bonus-list">
+                <strong>Bônus mensais</strong>
+                {statement.bonuses.length === 0 ? <span>Nenhum bônus processado ainda.</span> : null}
+                {statement.bonuses.slice(0, 4).map((bonus) => (
+                  <div key={bonus.sourceMonth}>
+                    <span>{bonus.sourceMonth}</span>
+                    <b>+{bonus.bonusCredits} cr.</b>
+                    <small>{bonus.status === "GRANTED" ? "Concedido" : "Processando"}</small>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : null}
         </div>
-        <label>
-          <span>Competência</span>
-          <input
-            type="month"
-            value={month}
-            max={currentMonth()}
-            onChange={(event) => onMonthChange(event.target.value)}
-          />
-        </label>
-      </header>
-
-      {error ? <div className="log-credit-statement__error" role="alert">{error}</div> : null}
-      {!statement && !error ? <div className="log-credit-statement__loading">Carregando extrato…</div> : null}
-      {statement ? (
-        <>
-          <div className="log-credit-statement__cards">
-            <article>
-              <span>Saldo disponível</span>
-              <strong>{statement.balanceCredits}</strong>
-              <small>créditos</small>
-            </article>
-            <article>
-              <span>Rota Essencial</span>
-              <strong>{statement.totals.essentialCredits}</strong>
-              <small>bloco(s) debitado(s)</small>
-            </article>
-            <article>
-              <span>Rota Rastreada</span>
-              <strong>{statement.totals.trackedCredits}</strong>
-              <small>{statement.totals.trackedDeliveries} entrega(s)</small>
-            </article>
-            <article className="is-bonus">
-              <span>Bônus da competência</span>
-              <strong>+{statement.totals.bonusCredits}</strong>
-              <small>20% dos créditos pagos elegíveis</small>
-            </article>
-          </div>
-
-          <div className="log-credit-statement__detail">
-            <div className="log-credit-statement__table-wrap">
-              <table>
-                <thead>
-                  <tr><th>Conclusão rastreada</th><th>Rota</th><th>Débito</th><th>Pago elegível</th></tr>
-                </thead>
-                <tbody>
-                  {statement.trackedDeliveries.slice(0, 12).map((delivery) => (
-                    <tr key={delivery.claimId}>
-                      <td>{formatDateTime(delivery.completedAt)}</td>
-                      <td>#{delivery.routeId.slice(0, 8).toUpperCase()}</td>
-                      <td>{delivery.credits} cr.</td>
-                      <td>{delivery.paidCredits} cr.</td>
-                    </tr>
-                  ))}
-                  {statement.trackedDeliveries.length === 0 ? (
-                    <tr><td colSpan={4}>Nenhuma entrega rastreada concluída nesta competência.</td></tr>
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-            <div className="log-credit-statement__bonus-list">
-              <strong>Bônus mensais</strong>
-              {statement.bonuses.length === 0 ? <span>Nenhum bônus processado ainda.</span> : null}
-              {statement.bonuses.slice(0, 6).map((bonus) => (
-                <div key={bonus.sourceMonth}>
-                  <span>{bonus.sourceMonth}</span>
-                  <b>+{bonus.bonusCredits} cr.</b>
-                  <small>{bonus.status === "GRANTED" ? "Concedido" : "Processando"}</small>
-                </div>
-              ))}
-            </div>
-          </div>
-        </>
-      ) : null}
+      </details>
     </section>
   );
 }
@@ -451,76 +447,16 @@ export function LogisticaTrackingLiveClient() {
 
   return (
     <div className="work log-live-work hbx-page-mobile-enter">
-      <section className="panel log-live-panel">
-        <div className="panel-head log-live-head">
-          <div>
-            <h2>Rastreamento ao vivo</h2>
-            <p className="log-live-head__subtitle">Posições válidas enviadas pelo app durante rotas rastreadas.</p>
-          </div>
-          <div className="meta log-live-head__actions">
-            {updatedAtMs > 0 ? <span>Atualizado às {new Date(updatedAtMs).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span> : null}
-            <button type="button" className="btn-ghost btn-xs" onClick={() => void loadAll(false)} disabled={loading || refreshing}>
-              <span className={refreshing ? "log-live-spin" : undefined} aria-hidden>↻</span>
-              {refreshing ? "Atualizando…" : "Atualizar"}
-            </button>
-            <Link href="/logistica" className="btn-ghost btn-xs">
-              <I d={ICONS.logistica} size={13} /> Rotas
-            </Link>
-          </div>
-        </div>
-
-        {loading && !live ? (
-          <div className="log-live-loading" aria-label="Carregando rastreamento">
-            <span /><span /><span /><span />
-          </div>
-        ) : null}
-
-        {error ? (
-          <div className={`log-live-alert${live ? " is-inline" : ""}`} role="alert">
-            <div>
-              <strong>{live ? "Atualização interrompida" : "Não foi possível abrir o painel"}</strong>
-              <span>{error}</span>
+      <section className="log-live-stage">
+        <main className="log-live-map-main hbx-card-enter" aria-label="Mapa do rastreamento">
+          {showFullGate ? (
+            <div className="log-live-map log-live-map--empty">
+              <span className="plano-selo">Disponível no Full</span>
+              <strong>Rastreamento ao vivo</strong>
+              <span>Posição, trajeto e ETA em tempo real.</span>
             </div>
-            <button type="button" className="btn-ghost btn-xs" onClick={() => void loadAll(false)}>Tentar novamente</button>
-          </div>
-        ) : null}
-
-        {showFullGate ? (
-          <div className="emp-empty log-live-empty" aria-label="Recurso do plano Full">
-            <span className="plano-selo">Disponível no Full</span>
-            <strong className="emp-empty__title">Rastreamento ao vivo é do plano Full</strong>
-            <span className="emp-empty__text">
-              Posição do motorista, trajeto completo e ETA de cada entrega em tempo real — fale com a HBX para habilitar.
-            </span>
-          </div>
-        ) : (
-          <>
-        {live ? <TrackingKpis routes={routes} /> : null}
-
-        <CreditStatement
-          statement={statement}
-          month={statementMonth}
-          error={statementError}
-          onMonthChange={(month) => {
-            if (!month) return;
-            setStatement(null);
-            setStatementError(null);
-            setStatementMonth(month);
-          }}
-        />
-
-        {noRoutes ? (
-          <div className="emp-empty log-live-empty">
-            <span className="log-live-empty__icon" aria-hidden><I d={ICONS.mapin} size={24} /></span>
-            <strong className="emp-empty__title">Nenhuma rota rastreada agora</strong>
-            <span className="emp-empty__text">Quando um motorista iniciar uma Rota Rastreada, a posição e o trajeto aparecerão aqui.</span>
-            <button type="button" className="btn-ghost" onClick={() => void loadAll(false)}>Atualizar painel</button>
-          </div>
-        ) : null}
-
-        {selectedRoute ? (
-          <div className="log-live-layout">
-            <section className="log-live-map-card hbx-card-enter" aria-label="Mapa da rota selecionada">
+          ) : selectedRoute ? (
+            <>
               <header className="log-live-map-card__head">
                 <div className="log-live-driver-title">
                   <span className="log-live-driver-title__icon"><I d={ICONS.logistica} size={18} /></span>
@@ -532,123 +468,202 @@ export function LogisticaTrackingLiveClient() {
                     </small>
                   </span>
                 </div>
-                <span className="log-live-map-card__head-actions">
-                  {live?.full === true ? (
-                    <button
-                      type="button"
-                      className="btn-ghost btn-xs"
-                      onClick={() => void copyShareLinks(selectedRoute.routeId)}
-                      disabled={copyLinksState === "loading"}
-                    >
-                      {copyLinksState === "idle" && "Copiar links"}
-                      {copyLinksState === "loading" && "Copiando…"}
-                      {copyLinksState === "done" && "Copiado!"}
-                      {copyLinksState === "empty" && "Sem links"}
-                      {copyLinksState === "error" && "Falhou"}
-                    </button>
-                  ) : null}
-                  <StatusBadge status={selectedRoute.status} />
-                </span>
+                <StatusBadge status={selectedRoute.status} />
               </header>
 
-              <TrackingLiveMap
-                sessionId={selectedRoute.sessionId}
-                driverName={driverName(selectedRoute)}
-                points={selectedHistory?.points ?? []}
-                currentPosition={selectedRoute.lastPosition}
-              />
+              <div className="log-live-map-frame">
+                <TrackingLiveMap
+                  sessionId={selectedRoute.sessionId}
+                  driverName={driverName(selectedRoute)}
+                  points={selectedHistory?.points ?? []}
+                  currentPosition={selectedRoute.lastPosition}
+                />
 
-              <div className="log-live-map-card__meta">
-                <div>
-                  <span>Última atualização</span>
-                  <strong>{formatClock(selectedRoute.lastPosition?.capturedAt)} · {relativeUpdate(selectedRoute.lastPosition?.capturedAt, nowMs)}</strong>
-                </div>
-                <div>
-                  <span>Posição atual</span>
-                  <strong>
-                    {selectedRoute.lastPosition
-                      ? `${selectedRoute.lastPosition.latitude.toFixed(5)}, ${selectedRoute.lastPosition.longitude.toFixed(5)}`
-                      : "Aguardando GPS"}
-                  </strong>
-                </div>
-                <div>
-                  <span>Trajeto</span>
-                  <strong>{historyLoading ? "Atualizando…" : `${selectedHistory?.points.length ?? 0} posições válidas`}</strong>
+                <div className="log-live-map-hud">
+                  <span>
+                    <small>Última posição</small>
+                    <strong>{formatClock(selectedRoute.lastPosition?.capturedAt)} · {relativeUpdate(selectedRoute.lastPosition?.capturedAt, nowMs)}</strong>
+                  </span>
+                  <span>
+                    <small>GPS</small>
+                    <strong>
+                      {selectedRoute.lastPosition
+                        ? `${selectedRoute.lastPosition.latitude.toFixed(5)}, ${selectedRoute.lastPosition.longitude.toFixed(5)}`
+                        : "Aguardando sinal"}
+                    </strong>
+                  </span>
+                  <span>
+                    <small>Trajeto</small>
+                    <strong>{historyLoading ? "Atualizando…" : `${selectedHistory?.points.length ?? 0} posições`}</strong>
+                  </span>
                 </div>
               </div>
+            </>
+          ) : (
+            <TrackingLiveMap
+              sessionId="aguardando-rota"
+              driverName="Rastreamento HBX"
+              points={[]}
+              currentPosition={null}
+            />
+          )}
+        </main>
 
-              {historyError ? (
-                <div className="log-live-history-error" role="alert">
-                  <span>{historyError}</span>
-                  <button type="button" className="btn-ghost btn-xs" onClick={() => void loadHistory(selectedRoute.sessionId, true)}>Recarregar trajeto</button>
-                </div>
-              ) : null}
+        <aside className="log-live-command" aria-label="Painel do rastreamento">
+          <header className="log-live-command__head">
+            <span>
+              <strong>Rastreamento ao vivo</strong>
+              <small>{updatedAtMs > 0 ? `Atualizado às ${new Date(updatedAtMs).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : "Aguardando atualização"}</small>
+            </span>
+            <span className="log-live-command__actions">
+              <button
+                type="button"
+                className="log-live-icon-btn"
+                onClick={() => void loadAll(false)}
+                disabled={loading || refreshing}
+                title="Atualizar"
+                aria-label="Atualizar rastreamento"
+              >
+                <span className={refreshing ? "log-live-spin" : undefined} aria-hidden>↻</span>
+              </button>
+              <Link href="/logistica" className="log-live-icon-btn" title="Rotas" aria-label="Abrir rotas">
+                <I d={ICONS.logistica} size={15} />
+              </Link>
+            </span>
+          </header>
 
-              <div className="log-live-history">
-                <div className="log-live-history__head">
-                  <strong>Histórico do trajeto</strong>
-                  <span>Início {formatDateTime(selectedRoute.startedAt)}</span>
+          <div className="log-live-command__body">
+            {error ? (
+              <div className="log-live-alert" role="alert">
+                <div>
+                  <strong>{live ? "Atualização interrompida" : "Falha no rastreamento"}</strong>
+                  <span>{error}</span>
                 </div>
-                {historyLoading && !selectedHistory ? <span className="log-live-history__loading">Carregando histórico…</span> : null}
-                {!historyLoading && historyEvents.length === 0 ? (
-                  <span className="log-live-history__empty">O traçado no mapa é atualizado conforme o aparelho envia novas posições.</span>
-                ) : null}
-                {historyEvents.length > 0 ? (
-                  <div className="log-live-history__events">
-                    {historyEvents.map((event, index) => (
-                      <span key={`${historyEventKey(event)}:${event.capturedAt}:${index}`}>
-                        <i aria-hidden />
-                        <b>{eventLabel(event.type)}</b>
-                        <small>{formatClock(event.capturedAt)}</small>
-                      </span>
-                    ))}
+                <button type="button" className="log-live-compact-btn" onClick={() => void loadAll(false)}>Tentar novamente</button>
+              </div>
+            ) : null}
+
+            {showFullGate ? (
+              <div className="log-live-gate">
+                <strong>Plano Full</strong>
+                <span>Habilite o rastreamento para acompanhar motoristas e entregas no mapa.</span>
+              </div>
+            ) : (
+              <>
+                {loading && !live ? (
+                  <div className="log-live-loading" aria-label="Carregando rastreamento">
+                    <span /><span /><span /><span />
                   </div>
                 ) : null}
-              </div>
-            </section>
 
-            <aside className="log-live-routes" aria-label="Motoristas e rotas">
-              <div className="log-live-routes__head">
-                <strong>Motoristas</strong>
-                <span>{routes.length} rota(s)</span>
-              </div>
-              <div className="log-live-routes__list">
-                {routes.map((route) => {
-                  const completed = Math.max(0, route.completedDeliveries);
-                  const total = Math.max(route.totalDeliveries, completed + Math.max(0, route.remainingDeliveries));
-                  const progress = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
-                  return (
-                    <button
-                      type="button"
-                      className={`log-live-route${route.sessionId === selectedRoute.sessionId ? " is-selected" : ""}`}
-                      key={route.sessionId}
-                      onClick={() => selectRoute(route.sessionId)}
-                      aria-pressed={route.sessionId === selectedRoute.sessionId}
-                    >
-                      <span className="log-live-route__top">
-                        <span className="log-live-route__name">{driverName(route)}</span>
-                        <StatusBadge status={route.status} />
+                {live ? <TrackingKpis routes={routes} /> : null}
+
+                <section className="log-live-routes" aria-label="Motoristas e rotas">
+                  <div className="log-live-routes__head">
+                    <strong>Motoristas</strong>
+                    <span>{routes.length} rota(s)</span>
+                  </div>
+                  {noRoutes ? (
+                    <div className="log-live-routes__empty">
+                      <I d={ICONS.mapin} size={18} />
+                      <span>Nenhuma rota rastreada agora</span>
+                    </div>
+                  ) : null}
+                  <div className="log-live-routes__list">
+                    {routes.map((route) => {
+                      const completed = Math.max(0, route.completedDeliveries);
+                      const total = Math.max(route.totalDeliveries, completed + Math.max(0, route.remainingDeliveries));
+                      const progress = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
+                      return (
+                        <button
+                          type="button"
+                          className={`log-live-route${route.sessionId === selectedRoute?.sessionId ? " is-selected" : ""}`}
+                          key={route.sessionId}
+                          onClick={() => selectRoute(route.sessionId)}
+                          aria-pressed={route.sessionId === selectedRoute?.sessionId}
+                        >
+                          <span className="log-live-route__top">
+                            <span className="log-live-route__name">{driverName(route)}</span>
+                            <StatusBadge status={route.status} />
+                          </span>
+                          <span className="log-live-route__meta">
+                            <span>{route.sessionStatus === "ACTIVE" ? "Rota ativa" : "Encerrada"} · #{shortRouteId(route.routeId)}</span>
+                            <span>{relativeUpdate(route.lastPosition?.capturedAt, nowMs)}</span>
+                          </span>
+                          <span className="log-live-route__progress" aria-hidden="true">
+                            <span style={{ width: `${progress}%` }} />
+                          </span>
+                          <span className="log-live-route__deliveries">
+                            <b>{completed} concluída(s)</b>
+                            <span>{Math.max(0, route.remainingDeliveries)} restante(s)</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+
+                {selectedRoute ? (
+                  <section className="log-live-history">
+                    <div className="log-live-history__head">
+                      <span>
+                        <strong>Histórico</strong>
+                        <small>Início {formatDateTime(selectedRoute.startedAt)}</small>
                       </span>
-                      <span className="log-live-route__meta">
-                        <span>{route.sessionStatus === "ACTIVE" ? "Rota ativa" : "Encerrada"} · #{shortRouteId(route.routeId)}</span>
-                        <span>{relativeUpdate(route.lastPosition?.capturedAt, nowMs)}</span>
-                      </span>
-                      <span className="log-live-route__progress" aria-hidden="true">
-                        <span style={{ width: `${progress}%` }} />
-                      </span>
-                      <span className="log-live-route__deliveries">
-                        <b>{completed} concluída(s)</b>
-                        <span>{Math.max(0, route.remainingDeliveries)} restante(s)</span>
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </aside>
+                      {live?.full === true ? (
+                        <button
+                          type="button"
+                          className="log-live-compact-btn"
+                          onClick={() => void copyShareLinks(selectedRoute.routeId)}
+                          disabled={copyLinksState === "loading"}
+                        >
+                          {copyLinksState === "idle" && "Copiar links"}
+                          {copyLinksState === "loading" && "Copiando…"}
+                          {copyLinksState === "done" && "Copiado!"}
+                          {copyLinksState === "empty" && "Sem links"}
+                          {copyLinksState === "error" && "Falhou"}
+                        </button>
+                      ) : null}
+                    </div>
+                    {historyError ? (
+                      <div className="log-live-history-error" role="alert">
+                        <span>{historyError}</span>
+                        <button type="button" className="log-live-compact-btn" onClick={() => void loadHistory(selectedRoute.sessionId, true)}>Recarregar</button>
+                      </div>
+                    ) : null}
+                    {historyLoading && !selectedHistory ? <span className="log-live-history__loading">Carregando histórico…</span> : null}
+                    {!historyLoading && historyEvents.length === 0 ? (
+                      <span className="log-live-history__empty">Aguardando eventos da rota.</span>
+                    ) : null}
+                    {historyEvents.length > 0 ? (
+                      <div className="log-live-history__events">
+                        {historyEvents.map((event, index) => (
+                          <span key={`${historyEventKey(event)}:${event.capturedAt}:${index}`}>
+                            <i aria-hidden />
+                            <b>{eventLabel(event.type)}</b>
+                            <small>{formatClock(event.capturedAt)}</small>
+                          </span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </section>
+                ) : null}
+
+                <CreditStatement
+                  statement={statement}
+                  month={statementMonth}
+                  error={statementError}
+                  onMonthChange={(month) => {
+                    if (!month) return;
+                    setStatement(null);
+                    setStatementError(null);
+                    setStatementMonth(month);
+                  }}
+                />
+              </>
+            )}
           </div>
-        ) : null}
-          </>
-        )}
+        </aside>
       </section>
     </div>
   );
