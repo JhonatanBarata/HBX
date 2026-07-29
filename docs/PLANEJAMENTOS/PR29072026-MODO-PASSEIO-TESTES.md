@@ -93,15 +93,39 @@ perguntar sim/não.
 4. **Cota/limite de passeios por funcionário** (hoje: liberou = equipe inteira pode; cada passeio debita — o freio é o custo). Se o dono quiser teto diário, é coluna nova + check no iniciar.
 5. **Reboot com tour ativo**: o alarme re-agenda quando o app ABRE (passeioBoot). Boot-receiver dedicado (RECEIVE_BOOT_COMPLETED já declarado) fica aqui como pendência se o caso real aparecer.
 
-## PLANEJAMENTO (não implantar) — o que o Valhalla entregaria a mais que o OSRM atual
+## ✅ OSRM SELF-HOST — INSTALADO EM PROD 29/07 ~17:50 (Falha 2 MORTA)
 
-Ordem do dono 29/07: terminar com o OSRM do nosso backend (feito — a linha do
-passeio usa o proxy `/logistica/osrm/route` com fallback) e só PLANEJAR o
-Valhalla. O que ele daria, quando essa frente abrir:
+O roteamento não depende mais do servidor de demonstração público. Instalado ao
+vivo no VPS:
 
-- **Perfil A PÉ e bicicleta** — tour de centro histórico é caminhando; o OSRM público que usamos só serve `driving` (mão única de carro mente pra pedestre, ETA errado). É a maior dor real do passeio urbano.
-- **Independência do servidor de demonstração** — `router.project-osrm.org` proíbe uso comercial/atrás de paywall e pode sumir; self-host mata o risco (o proxy já prevê: trocar `OSRM_BASE_URL`). Obs.: self-host de OSRM também resolve ESTE item — o Valhalla ganha nos demais.
-- **Otimização de ordem nativa** (rota ótima multi-parada) — hoje a ordem é 2-opt caseiro no app via `/osrm/table`.
-- **Map-matching** (snap da trilha/bolinha na rua) e **isócronas** ("o que alcanço em 30 min a pé daqui" — casa direto com o F3 de descoberta).
-- **RAM comportada com extrato regional** (SP/Sudeste) num container — cabe no VPS sem a pancada de RAM do OSRM Brasil-inteiro.
-- Gatilho de decisão: passeio a pé virar caso real de cliente OU o demo público começar a limitar/cair.
+- **Container `hbx-osrm`** (`osrm/osrm-backend`, algoritmo MLD, `--max-table-size 120`),
+  porta **só no gateway docker** (`-p 172.18.0.1:5000:5000` — mesmo padrão do
+  webwhats; nada exposto pra internet).
+- **Dados:** extrato **Sudeste** (Geofabrik, pbf 813MB) em `/root/osrm/` (~6,8GB
+  com os artefatos). Build: `build.sh` (extract→partition→customize), 13 min,
+  pico de RAM 3,2GB. Brasil inteiro NÃO cabe no VPS de 15GB — Sudeste cobre a
+  operação; fora dele a cadeia de fallback segura (proxy → OSRM público → reta).
+- **Backend:** `OSRM_BASE_URL=http://172.18.0.1:5000` em `/root/HBX/backend/.env`
+  (backup `.env.bak-osrm-20260729`; o publish só faz upsert de chaves próprias —
+  a variável SOBREVIVE a deploys). Backend recriado com
+  `docker compose --env-file .env -f docker-compose.hostinger.yml up -d backend`,
+  boot limpo, env conferido DENTRO do container.
+- **Smoke feito:** rota Rio Claro→São Carlos = 60km/49min pelo host E de dentro
+  do hbx-backend; `/table` com duration+distance ok.
+- **Atualizar o mapa (receita):** baixar pbf novo em `/root/osrm`, rodar
+  `./build.sh`, `docker restart hbx-osrm`.
+
+Checks extras pra bateria:
+
+- [ ] A8. `docker ps` → `hbx-osrm Up`; `curl http://172.18.0.1:5000/route/v1/driving/-47.5614,-22.4064;-47.8909,-22.0175?overview=false` devolve `"code":"Ok"`.
+- [ ] A9. Rota calculada no app (montar rota real) aparece no `docker logs hbx-osrm` (prova que o tráfego vai no NOSSO e não no demo).
+- [ ] C9. Rota FORA do Sudeste (ex.: 2 pontos em Curitiba) ainda funciona no app — cai no fallback público/reta sem quebrar a tela.
+
+## PLANEJAMENTO (não implantar) — o que o Valhalla ainda entregaria a mais
+
+Com o OSRM nosso no ar, sobram pro Valhalla (quando a frente abrir):
+
+- **Perfil A PÉ e bicicleta** — tour de centro histórico é caminhando; nosso OSRM está com perfil `car` (dá pra subir um segundo OSRM `foot` com os MESMOS dados — meio-termo antes de Valhalla).
+- **Otimização de ordem nativa** (rota ótima multi-parada) — hoje é 2-opt caseiro no app via `/osrm/table`.
+- **Map-matching** (snap da trilha/bolinha na rua) e **isócronas** ("o que alcanço em 30 min a pé" — casa com o F3 de descoberta).
+- Gatilho de decisão: passeio a pé virar caso real de cliente.
