@@ -1966,6 +1966,82 @@ test('VACINA D2: nome real sem evidencia NUNCA vira segment_mismatch bloqueante'
   }
 });
 
+// ── DDD 19, 30/07: 18 farmacêuticas passaram VIVAS em "distribuidora de água" (Sanofi 54 >
+// JOBEMA água 49). CNAE/nome de medicamentos é evidência POSITIVA de outro ramo — tem que
+// virar `segment_mismatch` (bloqueante e VISÍVEL no balde "Fora do segmento"), nunca
+// `segment_unconfirmed` misturado aos confirmados.
+test('PORTA 30/07: farma/hospitalar com evidencia NAO vive em busca de distribuidora de agua', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const casos: Array<[string, string | null]> = [
+    ['Camp Life-Distribuidora de Medicamentos e Cosméticos', 'Comércio atacadista de medicamentos e drogas de uso humano'],
+    ['Sanofi Medley Farmaceutica', null],
+    ['Suplefar', 'Comércio atacadista de medicamentos e drogas de uso humano'],
+    ['Gamacorp Hospitalar', null],
+  ];
+  for (const [nome, cnae] of casos) {
+    const quality = service.evaluateLeadQuality({
+      name: nome, cnaeDescription: cnae,
+      phone: '(19) 99999-0000', phoneDigits: '19999990000', score: 60,
+    }, { requestedSegment: 'distribuidora de agua', requestedCity: 'Campinas', targetType: 'pj' });
+    assert.equal(quality.status, 'segment_mismatch',
+      `"${nome}" tem evidencia farma/hospitalar e passou como ${quality.status}`);
+  }
+});
+
+// Score da vitrine (30/07): o cap por qualidade (radar-score-enrichment.service.ts) era
+// CÓDIGO MORTO — o caminho do analisador de sinais retornava antes, e todo lead enriquecido
+// tem sinais. `segment_unconfirmed` exibia 54-84 livre e ganhava de água com CNAE confirmado.
+test('SCORE 30/07: segment_unconfirmed com sinais de canal fica capado, nao ganha da agua', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const score = service.buildOpportunityScore({
+    name: 'Multicare Medical', phone: '(19) 99999-0000', phoneDigits: '19999990000',
+    opportunitySignals: ['telefone_fixo_sem_canal_digital'], sourceEvidence: { hbx_engine: true },
+    source: 'hbx_scraping:web',
+  }, { status: 'segment_unconfirmed', billable: false, segmentMatchScore: 45,
+       contactQualityScore: 70, commercialScore: 50, reasons: [] });
+  assert.ok(score <= 25, `unconfirmed exibiu score ${score} (cap 25 nao rodou)`);
+});
+
+// Isenção da lane Receita (decisão do dono 30/07: CNAE confirmado vale ponto): lead que
+// entrou pela porta da Receita (CNAE já validado no provider) NÃO é capado mesmo com nome
+// mudo (CALLEGARI/BELFANTE, segmentMatch 45) — capar junto puniria justamente o confirmado.
+test('SCORE 30/07: lane Receita (cnpj_public) nao e capada pelo teto de unconfirmed', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const score = service.buildOpportunityScore({
+    name: 'CALLEGARI COMERCIO DE BEBIDAS LTDA', phone: '(19) 3333-0000', phoneDigits: '1933330000',
+    score: 60, source: 'cnpj_public',
+  }, { status: 'segment_unconfirmed', billable: false, segmentMatchScore: 45,
+       contactQualityScore: 50, commercialScore: 50, reasons: [] });
+  assert.ok(score > 25, `lane Receita foi capada (score ${score}) — CNAE confirmado tem que valer ponto`);
+});
+
+// A CENA (prod 30/07): busca "distribuidora de água" DDD 19 — a Sanofi (farma, trilha web,
+// enriquecida) ranqueou 54 ACIMA da JOBEMA (CNAE "Distribuição de água por caminhões",
+// Receita) com 49. Invariante do dono: atacadista de medicamentos NUNCA acima de CNAE de água.
+test('CENA 30/07: busca de agua nao devolve atacadista de medicamentos acima de CNAE de agua', () => {
+  const service = new WebscrapingService(createPrisma()) as any;
+  const input = { requestedSegment: 'distribuidora de agua', requestedCity: 'Campinas', targetType: 'pj' };
+  const jobema = {
+    name: 'JOBEMA DISTRIBUIDORA DE AGUA LTDA', cnaeDescription: 'Distribuição de água por caminhões',
+    phone: '(19) 3333-0000', phoneDigits: '1933330000', score: 60, source: 'cnpj_public',
+  };
+  const sanofi = {
+    name: 'Sanofi Medley Farmaceutica', phone: '(19) 99999-0000', phoneDigits: '19999990000',
+    website: 'https://sanofi.com.br', instagramUrl: 'https://instagram.com/sanofi',
+    sourceEvidence: { hbx_engine: true }, source: 'hbx_scraping:web',
+  };
+  const qualityJobema = service.evaluateLeadQuality(jobema, input);
+  const qualitySanofi = service.evaluateLeadQuality(sanofi, input);
+  // Farma com evidência não se mistura aos confirmados…
+  assert.equal(qualitySanofi.status, 'segment_mismatch');
+  assert.equal(qualityJobema.status, 'approved');
+  // …e no score da vitrine, água com CNAE confirmado fica ACIMA do fora-de-segmento.
+  const scoreJobema = service.buildOpportunityScore(jobema, qualityJobema);
+  const scoreSanofi = service.buildOpportunityScore(sanofi, qualitySanofi);
+  assert.ok(scoreJobema > scoreSanofi,
+    `agua com CNAE confirmado (${scoreJobema}) ranqueou abaixo da farma (${scoreSanofi})`);
+});
+
 // ── VACINA C6 (29/07): morte por segmento vira ESTOQUE com a categoria da EVIDÊNCIA ─────────
 // O card reprovado é empresa REAL de outro ramo — custo de achar já pago. Vira linha global
 // no pool sob a categoria que a EVIDÊNCIA diz, NUNCA o texto buscado (D9: carimbo ≠ fato).

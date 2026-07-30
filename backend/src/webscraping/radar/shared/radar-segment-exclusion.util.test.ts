@@ -62,3 +62,33 @@ test('findRadarSegmentExclusionMatch: sem segmento pedido nunca exclui', () => {
 test('findRadarSegmentExclusionMatch: segmento sem mapa proprio nunca exclui (comportamento intacto)', () => {
   assert.equal(findRadarSegmentExclusionMatch('padaria', 'Distribuidora de Energia X'), null);
 });
+
+// ── 30/07 (DDD 19): 18 farmacêuticas/hospitalares passaram VIVAS em "distribuidora de água"
+// (Sanofi 54 > JOBEMA água 49). CNAE/nome de medicamentos É evidência positiva de outro ramo —
+// o mapa tinha 5 regras e nenhuma de farma, então a porta só via "não sei" (unconfirmed).
+test('exclusao distribuidora: farmaceutico/hospitalar e evidencia positiva de outro ramo', () => {
+  const match = findRadarSegmentExclusionMatch('distribuidora de agua', 'Suplefar',
+    'Comércio atacadista de medicamentos e drogas de uso humano');
+  assert.equal(match?.code, 'farma_hospitalar');
+  const porNome = findRadarSegmentExclusionMatch('distribuidora de agua', 'Sanofi Medley Farmaceutica');
+  assert.equal(porNome?.code, 'farma_hospitalar');
+});
+
+// MINA pré-existente (relatório 30/07): o segmento PEDIDO pelo dono caía na própria regra de
+// exclusão — "distribuidora de energia" morria na regra energia_agua_combustivel (token
+// 'energia' e 'distribuicao de energia' no CNAE) e a busca se auto-excluía inteira, na porta
+// da Receita E no gate web. Regra cuja atividade É o pedido sai do jogo.
+test('exclusao NAO auto-exclui o segmento pedido ("distribuidora de energia" vive)', () => {
+  const match = findRadarSegmentExclusionMatch(
+    'distribuidora de energia',
+    'Distribuidora de Energia Alfa Ltda',
+    'Distribuição de energia elétrica',
+  );
+  assert.equal(match, null);
+});
+
+// Guarda da regra nova: pedir "distribuidora de medicamentos" não pode cair na regra farma.
+test('exclusao NAO mata o proprio segmento pedido (farma pedida explicitamente)', () => {
+  assert.equal(findRadarSegmentExclusionMatch('distribuidora de medicamentos',
+    'Camp Life Distribuidora de Medicamentos', 'Comércio atacadista de medicamentos'), null);
+});

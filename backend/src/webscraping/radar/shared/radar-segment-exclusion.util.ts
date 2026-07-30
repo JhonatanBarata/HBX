@@ -77,6 +77,26 @@ export const RADAR_SEGMENT_EXCLUSION_MAP: Record<string, RadarSegmentExclusionRu
       ],
     },
     {
+      // 30/07: DDD 19 "distribuidora de água" trouxe 18 farmacêuticas/hospitalares VIVAS
+      // (Sanofi 54 > JOBEMA água 49). CNAE/nome de medicamentos É evidência positiva de
+      // outro ramo — sem esta regra a porta só via "não sei" (`segment_unconfirmed`).
+      code: 'farma_hospitalar',
+      label: 'Farmacêutico / hospitalar / veterinário',
+      tokens: [
+        // Frases oficiais de CNAE (fonte cnpj_public, quando há cnaeDescription real).
+        'medicamentos e drogas de uso humano',
+        'produtos farmaceuticos',
+        'produtos veterinarios',
+        // Termos curtos: pegam sinal só pelo NOME, sem CNAE oficial (lane web).
+        'medicamentos',
+        'medicamento',
+        'farmaceutica',
+        'farmaceutico',
+        'hospitalar',
+        'drogaria',
+      ],
+    },
+    {
       code: 'servicos_financeiros',
       label: 'Serviços financeiros',
       tokens: [
@@ -127,10 +147,24 @@ function segmentKeyCandidates(segment: unknown): string[] {
   return Array.from(candidates).filter(Boolean);
 }
 
+// 30/07 (mina desarmada): o segmento que o DONO pediu nunca é exclusão dele mesmo —
+// "distribuidora de energia" caía na regra energia_agua_combustivel (tokens 'energia' e
+// 'distribuicao de energia' no CNAE oficial) e a busca se auto-excluía INTEIRA, na porta da
+// Receita E no gate web; idem "distribuidora de medicamentos" com a regra farma. A regra sai
+// do jogo POR INTEIRO (não token a token): o CNAE oficial traz variações ('energia eletrica')
+// que continuariam matando o segmento pedido se só o token literal fosse poupado.
+function ruleTargetsRequestedSegment(rule: RadarSegmentExclusionRule, segmentKey: string): boolean {
+  if (!segmentKey) return false;
+  return rule.tokens.some((token) => segmentKey.includes(normalizeExclusionKey(token)));
+}
+
 export function resolveSegmentExclusionRules(segment: unknown): RadarSegmentExclusionRule[] {
+  const segmentKey = normalizeExclusionKey(segment);
   for (const candidate of segmentKeyCandidates(segment)) {
     const rules = RADAR_SEGMENT_EXCLUSION_MAP[candidate];
-    if (rules && rules.length) return rules;
+    if (rules && rules.length) {
+      return rules.filter((rule) => !ruleTargetsRequestedSegment(rule, segmentKey));
+    }
   }
   return [];
 }

@@ -972,6 +972,10 @@ export const GENERIC_CATEGORY_HEADS = [
   'contabilidades',
   'dentistas',
   'distribuidores de bebidas',
+  // 30/07 (DDD 19): título de categoria de diretório ("Distribuidoras de Alimentos") entrou
+  // como empresa — a lista tinha só a variante masculina de bebidas.
+  'distribuidoras de alimentos',
+  'distribuidoras de bebidas',
   'farmacias',
   'farmacias e drogarias',
   'gesso',

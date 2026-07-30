@@ -49,6 +49,10 @@ const WEB_GATE_SEED_DOMAIN_BLACKLIST = [
   'appbarber.com.br',
   'curtamais.com.br',
   'vidabrilhante.com',
+  // 30/07 (DDD 19 "distribuidora de água"): diretório/agregador entrando como empresa —
+  // telefone raspado de anunciante contava como "contato próprio" e o card nascia "found".
+  'misterwhat.com.br',
+  'misterwhat.com',
 ];
 
 // C3: marca de diretorio/plataforma conhecida — se o NOME normalizado do candidato for
@@ -67,6 +71,7 @@ const KNOWN_DIRECTORY_BRAND_NAMES = [
   'guiamais',
   'guiafacil',
   'solutudo',
+  'misterwhat',
 ];
 
 // F3 REFUNDAÇÃO (28/07) — PORTA DE REALIDADE, camada DURA: portal global/notícia/e-commerce/
@@ -96,6 +101,10 @@ const WEB_GATE_PORTAL_DOMAIN_BLACKLIST = [
   'youtube.com',
   'youtu.be',
   'wikipedia.org',
+  // 30/07 (DDD 19): jornal local entrando como empresa — notícia não tem exceção de canal
+  // próprio (o telefone citado na matéria é de terceiro, não da "empresa" Diário Cidade).
+  'diariocidade.com.br',
+  'diariocidade.com',
 ];
 
 // Marca de portal global como NOME do candidato (item "eBay" sem host mapeável) — mesmo
@@ -119,6 +128,8 @@ const KNOWN_PORTAL_BRAND_NAMES = [
   'terra',
   'youtube',
   'wikipedia',
+  'diario cidade',
+  'diariocidade',
 ];
 
 function envDomainBlacklist(): string[] {
