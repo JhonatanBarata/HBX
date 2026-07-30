@@ -180,6 +180,10 @@ import { radarDiscoveryEnginesOf } from '../shared/radar-source-lanes';
 import { findRadarSegmentExclusionMatch } from '../shared/radar-segment-exclusion.util';
 import { buildRadarLeadInclusionReasons } from '../shared/radar-inclusion-reasons.util';
 
+// Prazo esperando vaga no freio de checagem de WhatsApp durante a ENTREGA de um card (clique
+// do vendedor). Vale a mesma conta do lado de Vendas: 6s cabe num clique, 60s estoura o proxy.
+const RADAR_DELIVERY_ZAP_CHECK_MAX_WAIT_MS = 6000;
+
 export class RadarCoreDeliveryMixin {
   private _cnpjL4Enrichment: RadarCnpjL4EnrichmentService | null = null;
   private getCnpjL4Enrichment(): RadarCnpjL4EnrichmentService {
@@ -3491,7 +3495,12 @@ export class RadarCoreDeliveryMixin {
     if (!phoneDigits) return (existing as any) || null; // sem telefone, nada a checar
 
     try {
-      const results = await this.radarCheckWhatsappNumbers([phoneDigits]); // passa pelo freio W4 intacto
+      // Freio W4 intacto — só ganhou PRAZO: isto roda no clique de puxar o lead, e esperar a
+      // janela de 60s virar aqui foi o que estourou o proxy em 29/07. Sem vaga a tempo, o
+      // fail-open logo abaixo entrega o lead como 'unverified'.
+      const results = await this.radarCheckWhatsappNumbers([phoneDigits], undefined, {
+        maxWaitMs: RADAR_DELIVERY_ZAP_CHECK_MAX_WAIT_MS,
+      });
       const match = Array.isArray(results)
         ? results.find((item: any) => normalizePhoneDigits(item?.normalizedNumber || item?.input) === phoneDigits)
         : null;

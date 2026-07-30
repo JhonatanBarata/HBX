@@ -756,10 +756,14 @@ export class WebwhatsBridgeService {
   // e só se o disjuntor deixar. Disjuntor aberto = lança WEBWHATS_UNAVAILABLE (mesmo tratamento
   // de indisponibilidade que os chamadores já tinham pra qualquer falha do motor — Radar degrada
   // pra unverified, Inbox recusa pedindo retry). Nunca faz retry-loop por conta própria.
+  // `maxWaitMs`: prazo máximo esperando VAGA no teto de 20/min do guard. Passar sempre que a
+  // chamada estiver dentro de um request de usuário (ver ZapCheckGuardService.acquireRateSlot,
+  // incidente 29/07). Sem ele, a espera pode chegar a 60s e estourar o proxy.
   async checkWhatsappNumbers(
     companyId: number,
     numbersRaw: Array<string | null | undefined>,
     selector?: WebwhatsSessionSelector,
+    options?: { maxWaitMs?: number },
   ) {
     const normalizedNumbers = Array.from(
       new Set(
@@ -812,6 +816,7 @@ export class WebwhatsBridgeService {
         // ainda assim entra no cache pra não bater de novo até o TTL vencer.
         return pending.map((digits) => resultByDigits.get(digits) || { phoneDigits: digits, exists: false, remoteJid: null });
       },
+      { maxWaitMs: options?.maxWaitMs },
     );
 
     if (breakerOpen) {

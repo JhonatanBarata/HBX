@@ -135,8 +135,22 @@ export class ZapCheckGuardService {
    * Serializa uma "unidade de checagem real" (1 chamada HTTP ao motor, que pode cobrir vários
    * números de uma vez) respeitando o teto por minuto — janela deslizante simples (reseta a
    * cada 60s). Excedente ESPERA (nunca descarta) até a janela seguinte abrir vaga.
+   *
+   * 🔴 29/07 — `maxWaitMs` existe porque esta espera estava DENTRO do request HTTP do usuário.
+   * Medido em prod: puxar 25 leads com o banco zerado (nenhum número em cache) estourou o teto
+   * no 11º; a espera pela janela seguinte segurou a resposta por 51s, o proxy cortou e o
+   * navegador levou 500 num trabalho que tinha dado certo. O freio está certo — o chip precisa
+   * dele; errado era quem pagava a conta. Com teto, quem chama de um request de usuário desiste
+   * cedo e degrada pro caminho SEGURO que já existe (`breakerOpen: true` → não verificado).
+   * Sem `maxWaitMs` o comportamento é o de sempre: espera o que precisar (worker/fila de fundo).
+   *
+   * Devolve `true` quando conseguiu a vaga, `false` quando desistiu no teto — desistir NÃO
+   * consome vaga da janela nem toca no disjuntor (não houve erro, houve fila).
    */
-  private static async acquireRateSlot(): Promise<void> {
+  private static async acquireRateSlot(maxWaitMs?: number): Promise<boolean> {
+    const deadline = Number.isFinite(Number(maxWaitMs)) && Number(maxWaitMs) > 0
+      ? Date.now() + Number(maxWaitMs)
+      : null;
     const myTurn = ZapCheckGuardService._queue;
     let releaseNext: () => void = () => {};
     ZapCheckGuardService._queue = new Promise<void>((resolve) => { releaseNext = resolve; });
@@ -153,9 +167,12 @@ export class ZapCheckGuardService {
         }
         if (ZapCheckGuardService._windowCount < cap) {
           ZapCheckGuardService._windowCount += 1;
-          return;
+          return true;
         }
-        const waitMs = Math.max(25, ZapCheckGuardService._windowStartedAt + windowMs - now);
+        if (deadline !== null && now >= deadline) return false;
+        let waitMs = Math.max(25, ZapCheckGuardService._windowStartedAt + windowMs - now);
+        // Nunca dorme além do prazo: acorda no deadline pra devolver a desistência na hora.
+        if (deadline !== null) waitMs = Math.min(waitMs, Math.max(1, deadline - now));
         await new Promise((resolve) => setTimeout(resolve, waitMs));
       }
     } finally {
@@ -245,6 +262,7 @@ export class ZapCheckGuardService {
   static async guardedCheck(
     phoneDigitsList: string[],
     fetchReal: (pending: string[]) => Promise<Array<{ phoneDigits: string; exists: boolean; remoteJid: string | null }>>,
+    options?: { maxWaitMs?: number },
   ): Promise<{
     results: Map<string, ZapCheckCachedResult>;
     servedFromCache: string[];
@@ -274,7 +292,17 @@ export class ZapCheckGuardService {
       };
     }
 
-    await ZapCheckGuardService.acquireRateSlot();
+    // Fila cheia e o chamador tem prazo (request de usuário): devolve pelo MESMO caminho de
+    // degrade do disjuntor aberto — sem tocar a rede e sem marcar falha, porque não houve
+    // falha nenhuma, só espera. O lead entra não verificado e o worker confirma depois.
+    if (!(await ZapCheckGuardService.acquireRateSlot(options?.maxWaitMs))) {
+      return {
+        results,
+        servedFromCache: Array.from(cached.keys()),
+        fetchedFresh: [],
+        breakerOpen: true,
+      };
+    }
 
     try {
       const fresh = await fetchReal(pending);

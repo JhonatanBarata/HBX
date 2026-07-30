@@ -282,6 +282,11 @@ export type HbxPresentationEmailDraft = {
 };
 
 const VENDAS_WHATSAPP_LOOKUP_SOURCE = 'webwhats_lookup';
+
+// Teto de espera pela vaga no freio de checagem de WhatsApp (20/min) quando a consulta
+// acontece dentro de um request do usuário. 6s cabe folgado num clique e é MUITO menor que a
+// janela de 60s que estourou o proxy em 29/07. Estourou o prazo → lead entra não verificado.
+const VENDAS_WHATSAPP_LOOKUP_MAX_WAIT_MS = 6000;
 const VENDAS_REPORT_ADMIN_PHONE = '5519997024884';
 const COMMERCIAL_CONTACT_DUPLICATE_MESSAGE = 'Contato comercial duplicado nesta empresa. Use o card existente ou transfira/reabra pelo responsavel.';
 const MASTER_NOTICE_AUDIENCES = new Set(['seller', 'customer']);
@@ -5257,7 +5262,17 @@ export class VendasService {
       const engineCompanyId = await this.getOrCreateMasterWhatsappEngineCompanyId();
       if (engineCompanyId) {
         try {
-          const [lookup] = await this.webwhatsBridge.checkWhatsappNumbers(engineCompanyId, [phoneDigits]);
+          // Prazo curto: isto roda DENTRO do request do usuário (puxar lead do Radar). Se o
+          // teto de 20 checagens/min já estourou, não vale segurar a resposta esperando a
+          // janela virar — o catch abaixo já degrada pra "não verificado" e o lead entra na
+          // hora. Incidente 29/07: sem prazo, o 11º lead de um lote de 25 esperou 51s e o
+          // proxy devolveu 500 pra um import que tinha dado certo.
+          const [lookup] = await this.webwhatsBridge.checkWhatsappNumbers(
+            engineCompanyId,
+            [phoneDigits],
+            undefined,
+            { maxWaitMs: VENDAS_WHATSAPP_LOOKUP_MAX_WAIT_MS },
+          );
           if (lookup) {
             const status: VendasWhatsappAvailabilityStatus = lookup.exists ? 'available' : 'unavailable';
             const now = new Date();

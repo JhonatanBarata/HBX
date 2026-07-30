@@ -2090,13 +2090,31 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
     }
   }
 
+  // 29/07 — o lote NÃO morre no primeiro tropeço, e nunca mais chama de "cota" o
+  // que não é cota. O bug medido: puxar 25 com o banco zerado estourou o teto de
+  // verificação de WhatsApp (20/min, freio do chip) DENTRO do request; o lead 11
+  // entrou, mas a resposta demorou 51s, o proxy cortou (500) e este laço abortava
+  // os 14 restantes com o texto "Cota atingida" — mentira, o dono tinha 49 mil
+  // créditos. Só bloqueio que vale pros PRÓXIMOS leads para o lote (409 cota,
+  // 402 pagamento, 403 política — o backend usa ConflictException com `code`
+  // SELLER_CARD_QUOTA_REACHED/SELLER_QUOTA_PAUSED/DAILY_DELIVERY_CAP_REACHED).
+  // Erro de rede/5xx/404 é DAQUELE lead: conta, pula e segue.
+  function loteDeveParar(err: unknown): boolean {
+    const status = Number((err as { status?: number } | null)?.status || 0);
+    return status === 409 || status === 402 || status === 403;
+  }
+
   async function puxarSelecionados() {
     if (bulkBusy || selected.size === 0) return;
     setBulkBusy(true);
     setPullMsg(null);
     let ok = 0;
     let stopMsg: string | null = null;
-    for (const id of Array.from(selected)) {
+    const falharam: string[] = [];
+    const restantes = new Set<string>();
+    const fila = Array.from(selected);
+    for (let i = 0; i < fila.length; i += 1) {
+      const id = fila[i];
       try {
         await apiFetch(`/webscraping/radar/leads/${encodeURIComponent(id)}/send-to-vendas`, {
           method: "POST",
@@ -2104,11 +2122,23 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
         });
         ok += 1;
       } catch (err) {
-        stopMsg = err instanceof Error ? err.message : "Cota atingida — parei aqui.";
-        break;
+        if (loteDeveParar(err)) {
+          stopMsg = err instanceof Error ? err.message : "Limite da conta atingido — parei aqui.";
+          // O que ainda não foi tentado continua selecionado: o dono resolve o
+          // limite e reaproveita a seleção em vez de remarcar tudo na mão.
+          for (let j = i; j < fila.length; j += 1) restantes.add(fila[j]);
+          break;
+        }
+        falharam.push(id);
+        restantes.add(id);
       }
     }
-    setSelected(new Set());
+    if (falharam.length && !stopMsg) {
+      stopMsg = falharam.length === 1
+        ? "1 não respondeu a tempo e continua marcado — pode puxar de novo."
+        : `${falharam.length} não responderam a tempo e continuam marcados — pode puxar de novo.`;
+    }
+    setSelected(restantes);
     setPullMsg(`${ok > 0 ? `✓ ${ok} puxado(s). ` : ""}${stopMsg || ""}`.trim() || "Nada puxado.");
     if (ok > 0) window.dispatchEvent(new Event("hbx:credits-changed"));
     if (ok > 0) void stampOnboardingEvent("lead_pulled"); // marco: vitória #1 (Camada 1)

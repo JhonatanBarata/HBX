@@ -2699,9 +2699,13 @@ export class RadarCorePresentationMixin {
   // protected: o enricher (applyDiscoveredContactsForMaster) reusa esta MESMA verificação
   // em lote (motor WhatsApp dedicado, sessão já conectada — NUNCA reconecta) p/ checar os
   // multi-telefones capturados. 1 request por lote; degrada p/ [] se o motor não estiver no ar.
+  // `maxWaitMs`: prazo esperando vaga no teto de 20 checagens/min. Obrigatório quando a chamada
+  // está no caminho de um clique (ver incidente 29/07 no ZapCheckGuardService); sem ele a espera
+  // pode chegar a 60s e o proxy corta a resposta do usuário.
   protected async radarCheckWhatsappNumbers(
     numbers: Array<string | null | undefined>,
     requesterCompanyId?: number,
+    options?: { maxWaitMs?: number },
   ) {
     if (!this.webwhatsBridge) return [];
     // Regra do dono (07/07): o check usa o chip da PRÓPRIA empresa solicitante quando ela tem
@@ -2719,7 +2723,7 @@ export class RadarCorePresentationMixin {
         .catch(() => null);
       if (hasActiveSession) {
         try {
-          return await this.webwhatsBridge.checkWhatsappNumbers(requesterId, numbers);
+          return await this.webwhatsBridge.checkWhatsappNumbers(requesterId, numbers, undefined, options);
         } catch {
           /* sessão caiu entre o SELECT e o check → segue pro engine do master */
         }
@@ -2727,7 +2731,7 @@ export class RadarCorePresentationMixin {
     }
     const engineId = await this.resolveRadarWhatsappEngineCompanyId();
     if (!engineId) return [];
-    return await this.webwhatsBridge.checkWhatsappNumbers(engineId, numbers);
+    return await this.webwhatsBridge.checkWhatsappNumbers(engineId, numbers, undefined, options);
   }
 
   private async applyRadarWhatsappCheck(
