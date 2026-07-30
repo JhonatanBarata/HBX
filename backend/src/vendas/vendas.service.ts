@@ -1474,9 +1474,17 @@ export class VendasService {
     try {
       const engineCompanyId = await this.getOrCreateMasterWhatsappEngineCompanyId();
       if (!engineCompanyId) return availabilityByLeadId;
+      // Os 3 caminhos que chegam aqui são request de usuário — abrir a agenda do dia
+      // (`syncTodayAgendaForUser`), abrir o quadro (`getBoardForUser`) e o import
+      // (`importWebscrapingLeadsForUser`). Sem prazo, o teto de 20/min segurava a resposta até
+      // a janela virar (até 60s) e o proxy cortava. Este é o SEGUNDO lookup do caminho de
+      // puxar lead: junto com o da entrega do Radar dá 2 vagas por lead, e é por isso que um
+      // lote de 25 morria no 11º (11 × 2 = 22 > 20). O catch abaixo já degrada.
       const lookupResults = await this.webwhatsBridge.checkWhatsappNumbers(
         engineCompanyId,
         pendingRows.map((row) => row?.phoneNormalized || row?.phone || null),
+        undefined,
+        { maxWaitMs: VENDAS_WHATSAPP_LOOKUP_MAX_WAIT_MS },
       );
       const now = new Date();
       const byPhoneDigits = new Map<string, (typeof lookupResults)[number]>();

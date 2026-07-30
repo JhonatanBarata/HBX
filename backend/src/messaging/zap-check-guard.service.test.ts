@@ -238,3 +238,83 @@ test('erro isolado (abaixo do threshold) não abre o disjuntor', async () => {
   assert.equal(ZapCheckGuardService.breakerState(), 'closed');
   delete process.env.HBX_ZAP_CHECK_BREAKER_THRESHOLD;
 });
+
+// ── maxWaitMs: prazo pra quem chama de dentro de um clique (incidente 29/07) ──────────────────
+
+test('maxWaitMs: fila cheia devolve breakerOpen sem tocar a rede, sem contar erro e sem gastar vaga', async () => {
+  resetRuntime();
+  injectDb(makeFakeDb());
+  process.env.HBX_ZAP_CHECK_MAX_PER_MIN = '1';
+  (ZapCheckGuardService as any)._windowMs = 5_000; // janela longa: a 2ª só passaria em 5s
+  let bateuNaRede = 0;
+  const fetchReal = async (pending: string[]) => {
+    bateuNaRede += 1;
+    return pending.map((d) => ({ phoneDigits: d, exists: true, remoteJid: null }));
+  };
+
+  const primeira = await ZapCheckGuardService.guardedCheck(['5511000000031'], fetchReal);
+  assert.equal(primeira.breakerOpen, false, 'a 1ª pega a única vaga da janela');
+
+  const antes = Date.now();
+  const segunda = await ZapCheckGuardService.guardedCheck(['5511000000032'], fetchReal, { maxWaitMs: 120 });
+  const levou = Date.now() - antes;
+
+  assert.equal(segunda.breakerOpen, true, 'sem vaga a tempo → degrada pelo caminho do disjuntor');
+  assert.equal(bateuNaRede, 1, 'desistir na fila NUNCA chama a rede');
+  assert.ok(levou < 1_500, `deveria desistir no prazo, não esperar a janela (levou ${levou}ms)`);
+  assert.equal(ZapCheckGuardService.breakerState(), 'closed', 'fila cheia não é falha do motor');
+  assert.equal((ZapCheckGuardService as any)._consecutiveErrors, 0, 'não conta erro consecutivo');
+  assert.equal((ZapCheckGuardService as any)._windowCount, 1, 'quem desiste não consome vaga da janela');
+
+  delete process.env.HBX_ZAP_CHECK_MAX_PER_MIN;
+});
+
+test('maxWaitMs: desistir na fila DEVOLVE a prova meio-aberta (senão o freio morria até o boot)', async () => {
+  resetRuntime();
+  injectDb(makeFakeDb());
+  process.env.HBX_ZAP_CHECK_MAX_PER_MIN = '1';
+  (ZapCheckGuardService as any)._windowMs = 5_000;
+  const ok = async (pending: string[]) => pending.map((d) => ({ phoneDigits: d, exists: true, remoteJid: null }));
+
+  // Disjuntor MEIO-ABERTO (cooldown já vencido) e a única vaga da janela consumida.
+  (ZapCheckGuardService as any)._breakerState = 'open';
+  (ZapCheckGuardService as any)._openedUntil = Date.now() - 1;
+  (ZapCheckGuardService as any)._windowStartedAt = Date.now();
+  (ZapCheckGuardService as any)._windowCount = 1;
+  assert.equal(ZapCheckGuardService.breakerState(), 'half_open');
+
+  const desistiu = await ZapCheckGuardService.guardedCheck(['5511000000041'], ok, { maxWaitMs: 120 });
+  assert.equal(desistiu.breakerOpen, true);
+  assert.equal(
+    (ZapCheckGuardService as any)._halfOpenProbeInFlight,
+    false,
+    'a prova reservada por allowRealCall() tem de voltar: em voo pra sempre = toda checagem de WhatsApp recusada até reiniciar o backend',
+  );
+
+  // Prova de vida: com vaga na janela, a próxima tentativa consegue a prova e FECHA o disjuntor.
+  (ZapCheckGuardService as any)._windowStartedAt = 0;
+  (ZapCheckGuardService as any)._windowCount = 0;
+  const retomou = await ZapCheckGuardService.guardedCheck(['5511000000042'], ok, { maxWaitMs: 120 });
+  assert.equal(retomou.breakerOpen, false, 'meio-aberto ainda deixa passar a prova depois da desistência');
+  assert.equal(ZapCheckGuardService.breakerState(), 'closed', 'prova bem-sucedida fecha o disjuntor');
+
+  delete process.env.HBX_ZAP_CHECK_MAX_PER_MIN;
+});
+
+test('sem maxWaitMs o comportamento antigo fica INTACTO: espera a janela, não descarta', async () => {
+  resetRuntime();
+  injectDb(makeFakeDb());
+  process.env.HBX_ZAP_CHECK_MAX_PER_MIN = '1';
+  (ZapCheckGuardService as any)._windowMs = 150;
+  let bateuNaRede = 0;
+  const fetchReal = async (pending: string[]) => {
+    bateuNaRede += 1;
+    return pending.map((d) => ({ phoneDigits: d, exists: true, remoteJid: null }));
+  };
+  const r1 = await ZapCheckGuardService.guardedCheck(['5511000000051'], fetchReal);
+  const r2 = await ZapCheckGuardService.guardedCheck(['5511000000052'], fetchReal);
+  assert.equal(r1.breakerOpen, false);
+  assert.equal(r2.breakerOpen, false, 'sem prazo, a 2ª ESPERA a vaga e é atendida de verdade');
+  assert.equal(bateuNaRede, 2, 'worker/fila de fundo continua chegando na rede sempre');
+  delete process.env.HBX_ZAP_CHECK_MAX_PER_MIN;
+});

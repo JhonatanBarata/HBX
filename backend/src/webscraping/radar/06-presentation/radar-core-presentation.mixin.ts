@@ -2724,7 +2724,12 @@ export class RadarCorePresentationMixin {
       if (hasActiveSession) {
         try {
           return await this.webwhatsBridge.checkWhatsappNumbers(requesterId, numbers, undefined, options);
-        } catch {
+        } catch (error: any) {
+          // Freio/fila é GLOBAL (1 teto de 20/min pra plataforma inteira): se o guard já negou
+          // aqui, tentar o engine do master é gastar o prazo DE NOVO à toa — no pior caso
+          // dobrava a espera do clique (6s + 6s). Só o que é problema DESTA sessão (chip caiu
+          // entre o SELECT e o check) merece o fallback pro master.
+          if (String(error?.code || '') === 'WEBWHATS_UNAVAILABLE') return [];
           /* sessão caiu entre o SELECT e o check → segue pro engine do master */
         }
       }

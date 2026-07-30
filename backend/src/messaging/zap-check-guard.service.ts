@@ -219,6 +219,18 @@ export class ZapCheckGuardService {
     return true;
   }
 
+  /**
+   * 🔴 Devolve a prova meio-aberta SEM veredito — a chamada real nem aconteceu.
+   * Existe porque `allowRealCall()` marca `_halfOpenProbeInFlight = true` ANTES do rate limit:
+   * se o guard desistir na fila (maxWaitMs), ninguém chamaria `reportSuccess`/`reportFailure` e
+   * a prova ficaria em voo PARA SEMPRE — `allowRealCall()` passaria a recusar toda checagem de
+   * WhatsApp até o backend reiniciar. Nunca conta erro (não houve falha, houve fila): o estado
+   * segue meio-aberto e a próxima tentativa pega a prova.
+   */
+  static releaseHalfOpenProbe(): void {
+    ZapCheckGuardService._halfOpenProbeInFlight = false;
+  }
+
   /** Chamada real teve sucesso: zera erros e fecha o disjuntor. */
   static reportSuccess(): void {
     ZapCheckGuardService._consecutiveErrors = 0;
@@ -296,6 +308,9 @@ export class ZapCheckGuardService {
     // degrade do disjuntor aberto — sem tocar a rede e sem marcar falha, porque não houve
     // falha nenhuma, só espera. O lead entra não verificado e o worker confirma depois.
     if (!(await ZapCheckGuardService.acquireRateSlot(options?.maxWaitMs))) {
+      // A prova meio-aberta que `allowRealCall()` acabou de reservar volta pro bolso: sem isto
+      // ela ficaria em voo pra sempre e mataria toda checagem de WhatsApp até o próximo boot.
+      ZapCheckGuardService.releaseHalfOpenProbe();
       return {
         results,
         servedFromCache: Array.from(cached.keys()),

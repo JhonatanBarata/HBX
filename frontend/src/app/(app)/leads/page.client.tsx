@@ -2099,10 +2099,20 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
   // 402 pagamento, 403 política — o backend usa ConflictException com `code`
   // SELLER_CARD_QUOTA_REACHED/SELLER_QUOTA_PAUSED/DAILY_DELIVERY_CAP_REACHED).
   // Erro de rede/5xx/404 é DAQUELE lead: conta, pula e segue.
-  function loteDeveParar(err: unknown): boolean {
+  // 3 classes, porque as consequências são diferentes: BLOQUEIO vale pros próximos leads
+  // (não adianta seguir), TRANSIENTE vale a pena re-tentar (fica marcado), RECUSADO é
+  // definitivo daquele card (sai da seleção, senão ficaria marcado pra sempre num clique
+  // que nunca vai dar certo).
+  function classificarFalha(err: unknown): "bloqueio" | "transiente" | "recusado" {
     const status = Number((err as { status?: number } | null)?.status || 0);
-    return status === 409 || status === 402 || status === 403;
+    if (status === 409 || status === 402 || status === 403) return "bloqueio";
+    if (!status || status >= 500) return "transiente"; // sem status = rede/timeout/proxy
+    return "recusado";                                // 400/404/… = problema DESTE card
   }
+
+  // Teto de falhas transientes CONSECUTIVAS. Lei do projeto: laço livre no cliente é sempre
+  // bug — com o backend ruim, insistir nos 25 só empilha espera na cara do dono.
+  const MAX_FALHAS_SEGUIDAS = 3;
 
   async function puxarSelecionados() {
     if (bulkBusy || selected.size === 0) return;
@@ -2110,7 +2120,9 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
     setPullMsg(null);
     let ok = 0;
     let stopMsg: string | null = null;
-    const falharam: string[] = [];
+    let seguidas = 0;
+    const transientes: string[] = [];
+    const recusados: string[] = [];
     const restantes = new Set<string>();
     const fila = Array.from(selected);
     for (let i = 0; i < fila.length; i += 1) {
@@ -2121,22 +2133,39 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
           body: JSON.stringify({}),
         });
         ok += 1;
+        seguidas = 0;
       } catch (err) {
-        if (loteDeveParar(err)) {
-          stopMsg = err instanceof Error ? err.message : "Limite da conta atingido — parei aqui.";
-          // O que ainda não foi tentado continua selecionado: o dono resolve o
-          // limite e reaproveita a seleção em vez de remarcar tudo na mão.
-          for (let j = i; j < fila.length; j += 1) restantes.add(fila[j]);
-          break;
+        const classe = classificarFalha(err);
+        if (classe === "recusado") {
+          recusados.push(id);
+          seguidas = 0;
+          continue;
         }
-        falharam.push(id);
-        restantes.add(id);
+        if (classe === "transiente") {
+          transientes.push(id);
+          restantes.add(id);
+          seguidas += 1;
+          if (seguidas < MAX_FALHAS_SEGUIDAS) continue;
+          stopMsg = `${seguidas} seguidos sem resposta do servidor — parei aqui pra não insistir.`;
+        } else {
+          // Bloqueio: este card não entrou por causa do limite, então ele TAMBÉM volta pra
+          // seleção (o transiente já se marcou acima).
+          restantes.add(id);
+          stopMsg = err instanceof Error ? err.message : "Limite da conta atingido — parei aqui.";
+        }
+        // O que ainda não foi tentado continua selecionado: o dono resolve o motivo e
+        // reaproveita a seleção em vez de remarcar tudo na mão.
+        for (let j = i + 1; j < fila.length; j += 1) restantes.add(fila[j]);
+        break;
       }
     }
-    if (falharam.length && !stopMsg) {
-      stopMsg = falharam.length === 1
+    if (!stopMsg && transientes.length) {
+      stopMsg = transientes.length === 1
         ? "1 não respondeu a tempo e continua marcado — pode puxar de novo."
-        : `${falharam.length} não responderam a tempo e continuam marcados — pode puxar de novo.`;
+        : `${transientes.length} não responderam a tempo e continuam marcados — pode puxar de novo.`;
+    }
+    if (recusados.length) {
+      stopMsg = `${stopMsg ? `${stopMsg} ` : ""}${recusados.length} recusado(s) pelo servidor.`;
     }
     setSelected(restantes);
     setPullMsg(`${ok > 0 ? `✓ ${ok} puxado(s). ` : ""}${stopMsg || ""}`.trim() || "Nada puxado.");
