@@ -168,10 +168,12 @@ export type FichaPersistida = {
   ficha: FichaQualificacao;
   /** Vaga que a última mensagem do bot perguntou — onde a resposta entra. */
   ultimaVagaPerguntada: VagaQualificacao | null;
+  /** Id do último inbound que o bot RESPONDEU — trava anti-dupla-resposta. */
+  ultimoInboundRespondido: number | null;
 };
 
 export function parseFichaPersistida(raw: unknown): FichaPersistida {
-  const vazia: FichaPersistida = { ficha: fichaVazia(), ultimaVagaPerguntada: null };
+  const vazia: FichaPersistida = { ficha: fichaVazia(), ultimaVagaPerguntada: null, ultimoInboundRespondido: null };
   const texto = String(raw || '').trim();
   if (!texto) return vazia;
   let parsed: any = null;
@@ -190,20 +192,24 @@ export function parseFichaPersistida(raw: unknown): FichaPersistida {
     ficha = { ...ficha, aceiteExplicito: true };
   }
   const ultima = String(parsed.ultimaVagaPerguntada || '').trim() as VagaQualificacao;
+  const inbound = Number(parsed.ultimoInboundRespondido);
   return {
     ficha,
     ultimaVagaPerguntada: (VAGAS_QUALIFICACAO as readonly string[]).includes(ultima) ? ultima : null,
+    ultimoInboundRespondido: Number.isFinite(inbound) && inbound > 0 ? inbound : null,
   };
 }
 
 export function serializeFichaPersistida(
   ficha: FichaQualificacao,
   ultimaVagaPerguntada: VagaQualificacao | null,
+  ultimoInboundRespondido: number | null = null,
 ): string {
   return JSON.stringify({
     preenchidas: ficha.preenchidas,
     aceiteExplicito: ficha.aceiteExplicito,
     ultimaVagaPerguntada: ultimaVagaPerguntada || null,
+    ultimoInboundRespondido: ultimoInboundRespondido || null,
     atualizadoEm: new Date().toISOString(),
   });
 }

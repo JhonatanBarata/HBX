@@ -52,7 +52,7 @@ import {
   preencherVaga,
   serializeFichaPersistida,
 } from '../vendas/vendas-qualificacao';
-import { montarPromptRespostaQualificada, validarRespostaGerada } from '../vendas/vendas-gerador-resposta';
+import { montarPromptRespostaQualificada, podeContinuarConversaQualificada, validarRespostaGerada } from '../vendas/vendas-gerador-resposta';
 import {
   classifyProspectingAutoReply,
   sanitizeFirstContactMessage,
@@ -2094,7 +2094,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const proximaVaga = veredicto.estado === 'conduzindo' ? veredicto.proximaVaga : null;
     return {
       body: validada.body,
-      fichaJson: serializeFichaPersistida(ficha, proximaVaga),
+      // O inbound respondido entra na ficha: é a trava anti-dupla-resposta da
+      // continuidade (mesma mensagem nunca ganha duas respostas do bot).
+      fichaJson: serializeFichaPersistida(ficha, proximaVaga, Number(input.inboundMessageId || 0) || null),
       aquecido: veredicto.estado === 'aquecido',
       resumo: veredicto.estado === 'aquecido' ? veredicto.resumo : null,
     };
@@ -2138,6 +2140,94 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         })
         .catch(() => null);
     }
+  }
+
+  // ================================================================
+  // CONTINUIDADE da conversa qualificada (ordem do dono 30/07: "implante essa
+  // continuidade, parecendo humano falando"). Roda quando o lead responde DE
+  // NOVO depois do replied_positive e não é agendamento. Travas, na ordem:
+  //   1. gate puro (podeContinuarConversaQualificada): lead fechado, humano
+  //      assumiu, card já entregue ("Te chamou"+) ou mensagem já respondida;
+  //   2. mesma coreografia humana do caminho principal: silêncio real da
+  //      classificação → "visto" → digitando proporcional;
+  //   3. eco de robô não recebe resposta; negativa/opt-out NÃO recebe insistência
+  //      (fluxo segue como antes — nada automático fala com quem disse não);
+  //   4. o texto é o MESMO gerador validado (catálogo+ficha+objetivo); sem
+  //      catálogo/IA não há frase fixa aqui — o bot simplesmente não continua.
+  // O teto natural do multi-turno é o funil: veredito aquecido move o card pra
+  // "Te chamou" e o gate passa a negar — o vendedor vira o dono da conversa.
+  // ================================================================
+  private async handleVendasQualifiedContinuation(input: any, job: any) {
+    const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
+    const leadRow = await this.prisma.vendasLead
+      .findFirst({
+        where: { id: job.leadId, companyId: input.companyId },
+        select: { qualificacaoJson: true, status: true, closedAt: true, wasClosedBefore: true },
+      })
+      .catch(() => null);
+    if (!leadRow) return null;
+    const persistida = parseFichaPersistida(leadRow.qualificacaoJson);
+    const gate = podeContinuarConversaQualificada({
+      leadStatus: leadRow.status,
+      leadFechado: Boolean(leadRow.closedAt || leadRow.wasClosedBefore),
+      humanoAssumiu: input.metadata?.humanAssigned === true || queue.humanAssigned === true,
+      inboundMessageId: Number(input.inboundMessageId || 0) || null,
+      ultimoInboundRespondido: persistida.ultimoInboundRespondido,
+    });
+    if (gate.pode === false) return null;
+
+    const keywords = this.buildVendasIntentKeywords(job);
+    const aiStartedAt = Date.now();
+    const { intent, autoReply } = await this.intentEngine.classifyIntentWithFallback(
+      { text: input.text, ...keywords },
+      { companyId: input.companyId, conversationId: input.conversationId, flow: 'prospeccao' },
+    );
+    const silenceMs = computeSilenceRemainderMs(Date.now() - aiStartedAt, this.resolveVendasSilenceFloorMs());
+    if (silenceMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, silenceMs));
+    }
+    await this.markVendasAutomationInboundAsReadBestEffort(input).catch(() => null);
+    if (autoReply) return null;
+    if (intent.kind === 'negative' || intent.kind === 'opt_out') return null;
+
+    const geracao = await this.generateVendasQualifiedReply(
+      { ...input, replyKind: intent.kind === 'what_is_it' ? 'what_is_it' : 'positive' },
+      job,
+    ).catch((error: any) => {
+      this.logger.warn(`[prospeccao] continuidade: gerador falhou job=${job.id}: ${String(error?.message || error)}`);
+      return null;
+    });
+    if (!geracao) return null;
+
+    await input.setInboundMeta('vendas_prospeccao_continuidade', false);
+    try {
+      await this.conversations.queueOutboundForCompany(input.companyId, {
+        conversationId: input.conversationId,
+        to: input.from,
+        contactId: input.from,
+        body: geracao.body,
+        messageType: 'text',
+        sourceModule: 'vendas_prospeccao_bot',
+        senderType: 'bot',
+        variables: {
+          purpose: 'conversation_reply',
+          botType: 'prospeccao',
+          campaignId: job.campaignId,
+          jobId: job.id,
+          leadId: job.leadId,
+          replyKind: 'continuation',
+          automaticFollowUp: true,
+          typingDelayMs: this.computeVendasFollowUpTypingDelayMs(job.campaign, geracao.body),
+        },
+      });
+    } catch (error: any) {
+      this.logger.warn(`[prospeccao] continuidade: envio falhou job=${job.id}: ${String(error?.message || error)}`);
+      return null;
+    }
+    await this.persistVendasQualificacaoAfterReply(input, job, geracao).catch((error: any) =>
+      this.logger.warn(`[prospeccao] continuidade: gravar ficha falhou lead=${job.leadId}: ${String(error?.message || error)}`),
+    );
+    return { handled: true, classification: 'qualified_continuation' };
   }
 
   private pickVendasVariant(campaign: any, job: any, key: string, fallback: string[], extraValues: Record<string, string> = {}) {
@@ -3283,36 +3373,18 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return typingMs;
   }
 
-  private async handleVendasAutomationInbound(input: {
-    companyId: number;
-    conversationId: number;
-    inboundMessageId: number;
-    from: string;
-    text: string;
-    timestamp: Date;
-    metadata: Record<string, any>;
-    setInboundMeta: (sourceModule: string, isComplaint: boolean) => Promise<void>;
-  }) {
-    const job = await this.findVendasAutomationJobForInbound(input);
-    if (!job?.campaign || !job?.lead) return null;
-    if (String(job.status || '') === 'replied_positive') {
-      return this.handleVendasProspectionScheduleReply(input, job);
-    }
-    if (String(job.status || '') !== 'sent') return null;
-    const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
-    const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
-    const automationStatus = this.normalizeVendasAutomationIntentText(automation.status);
-    const queueStatus = this.normalizeVendasAutomationIntentText(queue.status);
-    const awaitingPreMessageHumanReply = this.isVendasPreMessageAwaitingHumanForJob(input.metadata, job);
-    const filters = this.readJsonRecord(job.campaign.filtersJson);
-    const positiveKeywords = this.readJsonTextList(job.campaign.positiveIntentKeywordsJson, [
+  // Listas de intenção da campanha (com defaults) — extraídas 1:1 do
+  // handleVendasAutomationInbound pra CONTINUIDADE usar as MESMAS réguas.
+  private buildVendasIntentKeywords(job: any) {
+    const filters = this.readJsonRecord(job?.campaign?.filtersJson);
+    const positiveKeywords = this.readJsonTextList(job?.campaign?.positiveIntentKeywordsJson, [
       'tenho interesse',
       'pode mandar',
       'quero saber',
       'me explica',
       'quanto custa',
     ]).map((item) => this.normalizeVendasAutomationIntentText(item));
-    const negativeKeywords = this.readJsonTextList(job.campaign.negativeIntentKeywordsJson, [
+    const negativeKeywords = this.readJsonTextList(job?.campaign?.negativeIntentKeywordsJson, [
       'nao tenho interesse',
       'não tenho interesse',
       'sem interesse',
@@ -3363,6 +3435,37 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       'me chama',
       'pode ligar',
     ]).map((item) => this.normalizeVendasAutomationIntentText(item));
+    return { positiveKeywords, negativeKeywords, whatIsItKeywords, neutralKeywords, callbackKeywords, humanHandoffKeywords };
+  }
+
+  private async handleVendasAutomationInbound(input: {
+    companyId: number;
+    conversationId: number;
+    inboundMessageId: number;
+    from: string;
+    text: string;
+    timestamp: Date;
+    metadata: Record<string, any>;
+    setInboundMeta: (sourceModule: string, isComplaint: boolean) => Promise<void>;
+  }) {
+    const job = await this.findVendasAutomationJobForInbound(input);
+    if (!job?.campaign || !job?.lead) return null;
+    if (String(job.status || '') === 'replied_positive') {
+      // Agendamento explícito ("amanhã às 10") continua tendo prioridade; o que
+      // não for agendamento vira CONTINUIDADE da conversa (ordem do dono 30/07)
+      // — o bot segue conduzindo a qualificação até o card virar do vendedor.
+      const scheduled = await this.handleVendasProspectionScheduleReply(input, job);
+      if (scheduled) return scheduled;
+      return this.handleVendasQualifiedContinuation(input, job);
+    }
+    if (String(job.status || '') !== 'sent') return null;
+    const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
+    const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
+    const automationStatus = this.normalizeVendasAutomationIntentText(automation.status);
+    const queueStatus = this.normalizeVendasAutomationIntentText(queue.status);
+    const awaitingPreMessageHumanReply = this.isVendasPreMessageAwaitingHumanForJob(input.metadata, job);
+    const { positiveKeywords, negativeKeywords, whatIsItKeywords, neutralKeywords, callbackKeywords, humanHandoffKeywords } =
+      this.buildVendasIntentKeywords(job);
 
     // PR05072026 (timing humano) — fase 1 "antes de ver": SILÊNCIO TOTAL (sem read,
     // sem presence) enquanto a IA classifica. A resposta só é decidida quando esta

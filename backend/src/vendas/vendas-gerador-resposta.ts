@@ -58,6 +58,38 @@ export function montarPromptRespostaQualificada(input: {
 
 export type RespostaValidada = { ok: true; body: string } | { ok: false; motivo: string };
 
+// ---------------------------------------------------------- CONTINUIDADE
+// O portão do multi-turno (ordem do dono 30/07: "implante essa continuidade").
+// O bot conversa ENQUANTO o card ainda é dele; o teto natural é o próprio
+// funil: aquecido → card vai pra "Te chamou" → o vendedor é o dono da conversa
+// e o bot cala. As outras travas: humano assumiu, lead fechado e a
+// anti-dupla-resposta (mesmo inbound nunca é respondido duas vezes).
+
+export type ContinuidadeGate = { pode: true } | { pode: false; motivo: string };
+
+export function podeContinuarConversaQualificada(input: {
+  leadStatus: string | null | undefined;
+  leadFechado: boolean;
+  humanoAssumiu: boolean;
+  inboundMessageId: number | null;
+  ultimoInboundRespondido: number | null;
+}): ContinuidadeGate {
+  if (input.leadFechado) return { pode: false, motivo: 'lead fechado' };
+  if (input.humanoAssumiu) return { pode: false, motivo: 'humano assumiu a conversa' };
+  const status = String(input.leadStatus || '').trim().toLowerCase();
+  if (['retorno', 'qualificado', 'encerrado'].includes(status)) {
+    return { pode: false, motivo: 'card já entregue ao vendedor' };
+  }
+  if (
+    input.inboundMessageId &&
+    input.ultimoInboundRespondido &&
+    input.inboundMessageId === input.ultimoInboundRespondido
+  ) {
+    return { pode: false, motivo: 'mensagem já respondida' };
+  }
+  return { pode: true };
+}
+
 const PADRAO_PRECO = /r\$\s*\d|\d+\s*(?:reais|por\s+m[eê]s|\/m[eê]s|mensais)|\d+\s*%/i;
 const PADRAO_IA = /sou\s+(?:uma?\s+)?(?:ia|intelig[eê]ncia artificial|assistente virtual|rob[oô]|modelo de linguagem)/i;
 

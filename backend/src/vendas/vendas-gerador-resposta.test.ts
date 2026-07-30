@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 
 import { normalizeCatalogo } from './vendas-catalogo';
 import { calcularVeredicto, fichaVazia, preencherVaga, parseFichaPersistida, serializeFichaPersistida } from './vendas-qualificacao';
-import { RESPOSTA_MAX_CHARS, montarPromptRespostaQualificada, validarRespostaGerada } from './vendas-gerador-resposta';
+import { RESPOSTA_MAX_CHARS, montarPromptRespostaQualificada, podeContinuarConversaQualificada, validarRespostaGerada } from './vendas-gerador-resposta';
 
 const catalogoFicticio = normalizeCatalogo({
   oQueVendemos: 'Sistema de agendamento para clínicas de pequeno porte',
@@ -55,6 +55,26 @@ test('validação: tira embrulho ("Resposta:", aspas) e devolve o corpo limpo', 
   const r = validarRespostaGerada('Resposta: "Boa! Me conta quantos pacientes vocês atendem por dia?"', { temAncoraDePreco: false });
   assert.equal(r.ok, true);
   if (r.ok) assert.equal(r.body, 'Boa! Me conta quantos pacientes vocês atendem por dia?');
+});
+
+// ------------------------------------------------------- CONTINUIDADE (gate)
+
+test('continuidade: o funil é o teto — card entregue ao vendedor cala o bot', () => {
+  const base = { leadFechado: false, humanoAssumiu: false, inboundMessageId: 10, ultimoInboundRespondido: 5 };
+  assert.equal(podeContinuarConversaQualificada({ ...base, leadStatus: 'contato' }).pode, true);
+  for (const status of ['retorno', 'qualificado', 'encerrado']) {
+    const gate = podeContinuarConversaQualificada({ ...base, leadStatus: status });
+    assert.equal(gate.pode, false, `status ${status} deveria calar o bot`);
+  }
+});
+
+test('continuidade: humano assumiu, lead fechado e dupla-resposta calam o bot', () => {
+  const base = { leadStatus: 'contato', leadFechado: false, humanoAssumiu: false, inboundMessageId: 10, ultimoInboundRespondido: 5 };
+  assert.equal(podeContinuarConversaQualificada({ ...base, humanoAssumiu: true }).pode, false);
+  assert.equal(podeContinuarConversaQualificada({ ...base, leadFechado: true }).pode, false);
+  const dupla = podeContinuarConversaQualificada({ ...base, ultimoInboundRespondido: 10 });
+  assert.equal(dupla.pode, false, 'o MESMO inbound nunca ganha duas respostas');
+  if (dupla.pode === false) assert.match(dupla.motivo, /já respondida/);
 });
 
 // ------------------------------------------------------- FICHA PERSISTIDA
