@@ -1516,7 +1516,14 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
   // segment/city da tela (e não com os defaults vazios do 1º render).
   useEffect(() => {
     if (!filtersHydrated) return;
-    void loadList("shelf", { page: 1 });
+    // S5 CORREÇÃO DO NOTURNO (B9): a vitrine mostrava 0 com 317 leads no banco.
+    // Quem tem filtro salvo entrava com `historyHidden = true` (proteção contra
+    // RESULTADO-CRUZADO: não pintar lista de OUTRO recorte antes da 1ª carga) — e
+    // nada nunca desligava a proteção. Esta carga JÁ é feita com o recorte
+    // restaurado, então quando ela volta a lista na tela É a do recorte: o motivo
+    // de esconder acabou. Sem isto, a única saída era um botão fantasma dentro de
+    // um vazio que ainda por cima mentia "Preencha os filtros para começar".
+    void loadList("shelf", { page: 1 }).then(ok => { if (ok) setHistoryHidden(false); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtersHydrated]);
 
@@ -2322,6 +2329,10 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
       ? data?.meta?.message || "Banco do Radar indisponível neste ambiente."
       : tab === "carteira"
         ? "Você ainda não puxou nenhum lead. Pegue um na aba Disponíveis."
+        // S5 (B9): quando há lead escondido, o vazio para de mentir "Preencha os
+        // filtros" — os filtros ESTÃO preenchidos e os leads ESTÃO no banco.
+        : hiddenAvailable
+          ? `${fmtInt(historyItems.length)} empresa${historyItems.length === 1 ? "" : "s"} já no seu Radar — o histórico está oculto.`
         : hasSearched
           ? `Nenhuma empresa encontrada para ${segment || "este segmento"} em ${localLabel || "esta cidade"}${uf ? `/${uf}` : ""}.`
           : "Preencha os filtros para começar.";

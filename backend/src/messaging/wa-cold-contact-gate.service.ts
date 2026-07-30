@@ -47,8 +47,13 @@ export const COLD_GATE_SOURCE_MODULES = [
 
 export type WaColdGateDecision =
   | { allow: true; cold: boolean }
-  | { allow: false; action: 'reschedule'; reason: 'cold_daily_cap' | 'cold_spacing'; retryAfterMs: number }
-  | { allow: false; action: 'cancel'; reason: 'cold_daily_cap' | 'cold_copy_similar'; detail: string };
+  | { allow: false; action: 'reschedule'; reason: 'cold_daily_cap' | 'cold_spacing' | 'cold_gate_unavailable'; retryAfterMs: number }
+  | { allow: false; action: 'cancel'; reason: 'cold_daily_cap' | 'cold_copy_similar' | 'cold_gate_unavailable'; detail: string };
+
+// Quanto o bot espera antes de tentar de novo quando o gate não conseguiu se avaliar
+// (banco fora). Curto o bastante pra retomar sozinho depois do soluço, longo o
+// bastante pra não virar loop de retentativa em cima de um banco doente.
+const COLD_GATE_UNAVAILABLE_RETRY_MS = 5 * 60 * 1000;
 
 type PrismaLike = {
   companyMessage: { findFirst: (args: any) => Promise<any> };
@@ -155,8 +160,11 @@ export class WaColdContactGateService {
   /**
    * O número é FRIO para este tenant? (nenhum inbound nunca; nenhum outbound já
    * entregue — nem nesta conversa nem em outra conversa do mesmo telefone).
-   * Best-effort fail-open: erro de banco não pode derrubar o caminho de envio —
-   * o freio de vazão continua atrás deste gate de qualquer forma.
+   * FAIL-CLOSED (decisão do dono 30/07/2026): se o banco não responde, NÃO dá pra
+   * afirmar que o número é conhecido — e "não sei" tratado como "é conhecido" foi
+   * exatamente o que abriria a porta de novo. Desconhecido = FRIO: o envio cai nas
+   * regras de frio (teto/espaçamento/copy) e, se nem essas puderem ser lidas, o
+   * `evaluate` segura (ver catch do final). Custo aceito: banco fora = frio não sai.
    */
   private async isColdContact(input: {
     companyId: number;
@@ -210,9 +218,9 @@ export class WaColdContactGateService {
       return !priorElsewhere;
     } catch (error) {
       this.logger.warn(
-        `cold-gate: falha ao classificar frio (company=${input.companyId}): ${String((error as any)?.message || error)}`,
+        `cold-gate: falha ao classificar frio (company=${input.companyId}) — assumindo FRIO: ${String((error as any)?.message || error)}`,
       );
-      return false;
+      return true;
     }
   }
 
@@ -352,10 +360,31 @@ export class WaColdContactGateService {
         });
       return { allow: true, cold: true };
     } catch (error) {
-      // Fail-open consciente: o gate protege contra padrão, não pode virar ponto único
-      // de queda do envio inteiro. O freio de vazão e a supressão continuam valendo.
-      this.logger.warn(`cold-gate: erro na avaliação (company=${input.companyId}): ${String((error as any)?.message || error)}`);
-      return { allow: true, cold: false };
+      // FAIL-CLOSED (decisão do dono 30/07/2026 — inverteu o fail-open original).
+      // Aqui já se sabe que o contato é FRIO; o que falhou foi LER teto/espaçamento/
+      // copy. Liberar sem conseguir contar era porta dos fundos: um soluço de banco
+      // desligava o freio inteiro justo no vetor que expulsou o chip. Resposta a lead
+      // quente não passa por aqui (sai lá em cima com cold=false), então o custo fica
+      // restrito ao primeiro contato frio: bot espera e tenta de novo, humano recebe
+      // recusa legível em vez de bolha "Enviando" mentindo.
+      this.logger.error(
+        `cold-gate: erro na avaliação (company=${input.companyId}) — SEGURANDO frio: ${String((error as any)?.message || error)}`,
+      );
+      if (isHuman) {
+        return {
+          allow: false,
+          action: 'cancel',
+          reason: 'cold_gate_unavailable',
+          detail:
+            'Não deu pra conferir o teto de primeiros contatos agora (falha ao ler o histórico). Por segurança do chip, este envio não saiu — tente de novo em alguns minutos.',
+        };
+      }
+      return {
+        allow: false,
+        action: 'reschedule',
+        reason: 'cold_gate_unavailable',
+        retryAfterMs: COLD_GATE_UNAVAILABLE_RETRY_MS,
+      };
     }
   }
 

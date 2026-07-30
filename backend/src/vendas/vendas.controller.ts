@@ -6,6 +6,7 @@ import { BotArmedGuard } from '../modules/bot-armed.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import {
+  AgendarDisparoDto,
   BulkDeleteVendasLeadsDto,
   CancelCommissionPayoutDto,
   CreateCommissionPayoutDto,
@@ -120,6 +121,14 @@ export class VendasController {
   @Post('automation/prospecting/gerar-variacoes')
   gerarVariacoesPrimeiroContato(@Req() req: any, @Body() dto: GerarVariacoesPrimeiroContatoDto) {
     return this.vendasAutomationService.gerarVariacoesPrimeiroContatoForUser(req.user, dto || {});
+  }
+
+  // S3 CORREÇÃO DO NOTURNO (B8): a tela avisa ao ABRIR a gaveta e o Ollama já sobe o
+  // modelo enquanto a pessoa escreve — o cold-load de ~35s deixa de acontecer DENTRO
+  // do clique (que precisa caber nos 30s do proxy). Responde na hora; o ping roda solto.
+  @Post('automation/prospecting/aquecer-ia')
+  aquecerIaLocal(@Req() req: any) {
+    return this.vendasAutomationService.aquecerIaLocalForUser(req.user);
   }
 
   // Teste de conversa (preview interativo). Sem efeito colateral: roda o mesmo
@@ -386,6 +395,15 @@ export class VendasController {
   @Post('lead/:leadId/robo')
   ligarRobo(@Req() req: any, @Param('leadId') leadId: string, @Body() dto: LigarRoboDto) {
     return this.vendasService.ligarRoboForUser(req.user, leadId, dto || {});
+  }
+
+  // S1 CORREÇÃO DO NOTURNO (DIA-VENDEDOR-NOTURNO/01-CORRECAO.md): AGENDAR DISPARO.
+  // O "agendar" da prospecção gravava `VendasLead.returnAt` — lembrete de CRM que
+  // nunca virava mensagem (B1). Agora cria o disparo de verdade, com o horário
+  // reservado pelo motor de slots (janela + teto + intervalo).
+  @Post('lead/:leadId/agendar-disparo')
+  agendarDisparo(@Req() req: any, @Param('leadId') leadId: string, @Body() dto: AgendarDisparoDto) {
+    return this.vendasService.agendarDisparoForUser(req.user, leadId, dto);
   }
 
   @Delete('lead/:leadId/robo')

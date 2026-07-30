@@ -143,7 +143,23 @@ type Cobranca = {
   dueDate?: string | null;
 };
 type Extrato = { saldoAberto: number; charges: Cobranca[] } | null;
-type ProximoSlot = { slot: string; conflito: boolean; motivoConflito: string | null } | null;
+type ProximoSlot = { slot: string; conflito: boolean; motivoConflito: string | null; resumo?: string } | null;
+
+// S1 CORREÇÃO DO NOTURNO: o dia começa em "hoje" no fuso do navegador (não UTC —
+// `toISOString().slice(0,10)` já mandou agendamento pro dia errado antes das 21h).
+function hojeLocalYMD(): string {
+  const agora = new Date();
+  const mes = String(agora.getMonth() + 1).padStart(2, "0");
+  const dia = String(agora.getDate()).padStart(2, "0");
+  return `${agora.getFullYear()}-${mes}-${dia}`;
+}
+
+/** ISO a partir dos dois campos da tela; null quando a hora é lixo ("99:99"). */
+function isoDeDataHora(data: string, hora: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(hora)) return null;
+  const date = new Date(`${data}T${hora}:00`);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
 
 // ---- Texto ---------------------------------------------------------------
 function humanizar(raw: string | null | undefined): string {
@@ -324,7 +340,10 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
   // da ficha — nunca mandar o dono pra outra tela pra destravar Automação.
   const [configIni, setConfigIni] = useState("08:00");
   const [configFim, setConfigFim] = useState("18:00");
-  const [configTeto, setConfigTeto] = useState("40");
+  // S2 CORREÇÃO DO NOTURNO (B5): 40 era chute da tela — o freio anti-ban entrega 10.
+  // O default local passa a ser o mesmo do backend, e o teto REAL vem do servidor.
+  const [configTeto, setConfigTeto] = useState("10");
+  const [tetoEfetivo, setTetoEfetivo] = useState<number | null>(null);
   const [configBusy, setConfigBusy] = useState(false);
 
   const [comando, setComando] = useState<CdlComposerCommand>({ mode: "whatsapp", seq: 0 });
@@ -336,6 +355,13 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
   const [semInteresseOpen, setSemInteresseOpen] = useState(false);
   const [agendaOpen, setAgendaOpen] = useState(false);
   const [fecharVendaOpen, setFecharVendaOpen] = useState(false);
+  // S1 CORREÇÃO DO NOTURNO: agendar DISPARO (não lembrete) — data + hora, com o
+  // horário reservado pelo mesmo motor de slots que o "Ligar robô" usa.
+  const [disparoOpen, setDisparoOpen] = useState(false);
+  const [disparoData, setDisparoData] = useState("");
+  const [disparoHora, setDisparoHora] = useState("09:00");
+  const [disparoPreview, setDisparoPreview] = useState<ProximoSlot>(null);
+  const [disparoPreviewBusy, setDisparoPreviewBusy] = useState(false);
 
   const carregarPreVoo = useCallback(async () => {
     const res = await apiFetch<PreVoo>(`/vendas/lead/${encodeURIComponent(lead.id)}/pre-voo`);
@@ -388,6 +414,20 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
       .then((res) => { if (vivo) setProximoSlot(res ?? null); })
       .catch(() => { if (vivo) setProximoSlot(null); });
 
+    // S2 (B5): a tela para de chutar o teto. Vem do servidor a config do tenant E o
+    // teto EFETIVO (o menor entre ela e o que o freio anti-ban deixa sair).
+    apiFetch<{ workingHoursStart?: string; workingHoursEnd?: string; dailyLimitPerSender?: number; tetoEfetivoPorDia?: number }>(
+      "/vendas/agenda-disparo/config",
+    )
+      .then((res) => {
+        if (!vivo || !res) return;
+        if (res.workingHoursStart) setConfigIni(res.workingHoursStart);
+        if (res.workingHoursEnd) setConfigFim(res.workingHoursEnd);
+        if (Number.isFinite(res.dailyLimitPerSender)) setConfigTeto(String(res.dailyLimitPerSender));
+        setTetoEfetivo(Number.isFinite(res.tetoEfetivoPorDia) ? Number(res.tetoEfetivoPorDia) : null);
+      })
+      .catch(() => { if (vivo) setTetoEfetivo(null); });
+
     if (lead.radarLeadId) {
       apiFetch<{ item?: { inclusionReasons?: string[] | null } }>(
         `/webscraping/radar/leads/${encodeURIComponent(lead.radarLeadId)}`,
@@ -412,7 +452,8 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
     if (!open) return;
     const aoTeclar = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      if (agendaOpen) setAgendaOpen(false);
+      if (disparoOpen) setDisparoOpen(false);
+      else if (agendaOpen) setAgendaOpen(false);
       else if (encerrarOpen) setEncerrarOpen(false);
       else if (agoraOpen) setAgoraOpen(false);
       else if (semInteresseOpen) setSemInteresseOpen(false);
@@ -420,7 +461,26 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
     };
     window.addEventListener("keydown", aoTeclar);
     return () => window.removeEventListener("keydown", aoTeclar);
-  }, [agendaOpen, agoraOpen, encerrarOpen, onClose, open, semInteresseOpen]);
+  }, [agendaOpen, agoraOpen, disparoOpen, encerrarOpen, onClose, open, semInteresseOpen]);
+
+  // Preview do horário: mesma rota que o backend usa pra reservar, com a data E a
+  // hora escolhidas (B3 — antes o preview ia sem `desiredAt` e mentia).
+  useEffect(() => {
+    if (!disparoOpen || !disparoData || !disparoHora) return;
+    const desiredAt = isoDeDataHora(disparoData, disparoHora);
+    if (!desiredAt) { setDisparoPreview(null); return; }
+    let vivo = true;
+    const timer = setTimeout(() => {
+      setDisparoPreviewBusy(true);
+      apiFetch<Exclude<ProximoSlot, null>>(
+        `/vendas/agenda-disparo/proximo-slot?desiredAt=${encodeURIComponent(desiredAt)}`,
+      )
+        .then((res) => { if (vivo) setDisparoPreview(res ?? null); })
+        .catch(() => { if (vivo) setDisparoPreview(null); })
+        .finally(() => { if (vivo) setDisparoPreviewBusy(false); });
+    }, 250);
+    return () => { vivo = false; clearTimeout(timer); };
+  }, [disparoOpen, disparoData, disparoHora]);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -511,7 +571,7 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
         body: JSON.stringify({
           workingHoursStart: configIni,
           workingHoursEnd: configFim,
-          dailyLimitPerSender: Math.max(1, Math.min(200, Number(configTeto) || 40)),
+          dailyLimitPerSender: Math.max(1, Math.min(200, Number(configTeto) || 10)),
         }),
       });
       await carregarPreVoo();
@@ -528,15 +588,42 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
     setRoboBusy(true);
     setAviso(null);
     try {
-      await apiFetch(`/vendas/lead/${encodeURIComponent(lead.id)}/robo`, {
+      const res = await apiFetch<{ resumo?: string }>(`/vendas/lead/${encodeURIComponent(lead.id)}/robo`, {
         method: "POST",
         body: JSON.stringify({ personaKey }),
       });
       await carregarPreVoo();
       setEtapa("contato");
+      // O horário nunca é "agora" cru: o motor de slots decide. A tela diz qual ficou.
+      setAviso(`✓ ${res?.resumo || "Automação ligada."}`);
       await onConversationChanged?.();
     } catch (error) {
       setAviso(error instanceof Error ? error.message : "Não foi possível ligar a Automação agora.");
+    } finally {
+      setRoboBusy(false);
+    }
+  }
+
+  // S1 CORREÇÃO DO NOTURNO: agenda o disparo pra data+hora escolhidas. Mesmo
+  // caminho do "Ligar robô" — a diferença é só que o vendedor escolheu quando.
+  async function agendarDisparo() {
+    if (!lead.id || roboBusy || !disparoData || !disparoHora) return;
+    const desiredAt = isoDeDataHora(disparoData, disparoHora);
+    if (!desiredAt) { setAviso("Hora inválida. Use o formato 09:00."); return; }
+    setRoboBusy(true);
+    setAviso(null);
+    try {
+      const res = await apiFetch<{ resumo?: string }>(
+        `/vendas/lead/${encodeURIComponent(lead.id)}/agendar-disparo`,
+        { method: "POST", body: JSON.stringify({ desiredAt, ...(personaKey ? { personaKey } : {}) }) },
+      );
+      await carregarPreVoo();
+      setEtapa("contato");
+      setAviso(`✓ ${res?.resumo || "Disparo agendado."}`);
+      setDisparoOpen(false);
+      await onConversationChanged?.();
+    } catch (error) {
+      setAviso(error instanceof Error ? error.message : "Não foi possível agendar o disparo.");
     } finally {
       setRoboBusy(false);
     }
@@ -1069,6 +1156,11 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
                         <label>Fim<input type="time" value={configFim} onChange={(e) => setConfigFim(e.target.value)} /></label>
                         <label>Teto/dia<input type="number" min={1} max={200} value={configTeto} onChange={(e) => setConfigTeto(e.target.value)} /></label>
                       </div>
+                      {tetoEfetivo != null && tetoEfetivo < (Number(configTeto) || 0) && (
+                        <span className="cdl-mut">
+                          Na prática saem {tetoEfetivo} primeiros contatos por dia — é o freio que protege o chip.
+                        </span>
+                      )}
                       <button type="button" className="cdl-btn-full" disabled={configBusy} onClick={salvarConfigDisparo}>
                         {configBusy ? "Salvando…" : "Salvar e liberar Automação"}
                       </button>
@@ -1128,6 +1220,21 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
                       )}
                       <button type="button" className="cdl-btn-full" disabled={roboBusy || !personaKey} onClick={ligarRobo}>
                         {roboBusy ? "Ligando…" : "Ligar robô"}
+                      </button>
+                      {/* S1: agendar é o MESMO disparo com hora marcada — mora ao
+                          lado de quem dispara, não num popup de lembrete. */}
+                      <button
+                        type="button"
+                        className="cdl-btn-line"
+                        disabled={roboBusy}
+                        onClick={() => {
+                          setDisparoData(hojeLocalYMD());
+                          setDisparoHora("09:00");
+                          setDisparoPreview(null);
+                          setDisparoOpen(true);
+                        }}
+                      >
+                        Agendar disparo…
                       </button>
                     </>
                   )}
@@ -1279,17 +1386,12 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
                 <input
                   type="date"
                   value={quandoDraft}
-                  aria-label="Quando retomar"
+                  aria-label="Lembrete: quando retomar"
                   onChange={(event) => setQuandoDraft(event.target.value)}
                 />
-                {proximoSlot?.slot && (
-                  <span className="cdl-mut">
-                    Próximo horário livre: {dataHoraBr(proximoSlot.slot)}
-                    {proximoSlot.conflito && proximoSlot.motivoConflito
-                      ? ` · ${rotuloConflito(proximoSlot.motivoConflito)}`
-                      : ""}
-                  </span>
-                )}
+                {/* Honestidade da tela (S1): esta data é LEMBRETE do vendedor — não
+                    manda mensagem nenhuma. Quem dispara é "Agendar disparo". */}
+                <span className="cdl-mut">Lembrete pra você — não envia mensagem.</span>
                 <div className="cdl-pop__acts">
                   <button type="button" className="cdl-pop__cancel" onClick={() => setAgoraOpen(false)}>Cancelar</button>
                   <button type="button" className="cdl-pop__go" disabled={acaoBusy} onClick={salvarAgora}>
@@ -1316,6 +1418,48 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
                 </div>
                 <div className="cdl-pop__acts">
                   <button type="button" className="cdl-pop__cancel" onClick={() => setSemInteresseOpen(false)}>Cancelar</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {disparoOpen && (
+            <div
+              className="hbx-veil cdl-inner-veil"
+              onClick={(event) => { if (event.target === event.currentTarget) setDisparoOpen(false); }}
+            >
+              <div className="cdl-pop" role="dialog" aria-modal="true" aria-label="Agendar disparo">
+                <strong>Agendar disparo · {lead.name || "lead"}</strong>
+                <input
+                  type="date"
+                  value={disparoData}
+                  aria-label="Dia do disparo"
+                  onChange={(event) => { setDisparoData(event.target.value); setDisparoPreview(null); }}
+                />
+                <input
+                  type="time"
+                  step={300}
+                  value={disparoHora}
+                  aria-label="Hora do disparo"
+                  onChange={(event) => { setDisparoHora(event.target.value); setDisparoPreview(null); }}
+                />
+                <span className="cdl-mut">
+                  {disparoPreviewBusy
+                    ? "Consultando agenda…"
+                    : disparoPreview?.slot
+                      ? disparoPreview.resumo || `Dispara ${dataHoraBr(disparoPreview.slot)}`
+                      : "Escolha o dia e a hora."}
+                </span>
+                <div className="cdl-pop__acts">
+                  <button type="button" className="cdl-pop__cancel" onClick={() => setDisparoOpen(false)}>Cancelar</button>
+                  <button
+                    type="button"
+                    className="cdl-pop__go"
+                    disabled={roboBusy || !disparoData || !disparoHora}
+                    onClick={agendarDisparo}
+                  >
+                    {roboBusy ? "Agendando…" : "Agendar disparo"}
+                  </button>
                 </div>
               </div>
             </div>

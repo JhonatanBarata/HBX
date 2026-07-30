@@ -92,3 +92,62 @@ test('exclusao NAO mata o proprio segmento pedido (farma pedida explicitamente)'
   assert.equal(findRadarSegmentExclusionMatch('distribuidora de medicamentos',
     'Camp Life Distribuidora de Medicamentos', 'Comércio atacadista de medicamentos'), null);
 });
+
+// ── S5 CORREÇÃO DO NOTURNO (30/07): 13,8% da entrega de "distribuidora de água" tinha
+// CARA DE GÁS — reincidência do achado nº5. O mapa só tinha as frases de CNAE
+// ('gas natural'/'gas liquefeito'); o revendedor de botijão da lane web se anuncia
+// pelo NOME ("Gás e Água do Zé"), e passava batido.
+
+test('B10 — revendedor de GÁS nao entra em "distribuidora de agua" (pelo nome)', () => {
+  const porNome = findRadarSegmentExclusionMatch('distribuidora de agua', 'Gas e Agua do Ze');
+  assert.equal(porNome?.code, 'gas_glp');
+  const botijao = findRadarSegmentExclusionMatch('distribuidora de agua', 'Deposito de Botijoes Sao Jorge');
+  assert.equal(botijao?.code, 'gas_glp');
+  // Com o CNAE oficial, a exclusão pode vir por varejo/energia antes — o que importa é
+  // que o card MORRE. A regra nova é o que garante a morte quando só existe o nome.
+  const glp = findRadarSegmentExclusionMatch('distribuidora de agua', 'Comercial Bom Preco',
+    'Comércio atacadista de gás liquefeito de petróleo (GLP)');
+  assert.ok(glp, 'atacadista de GLP tem que ser excluído de "distribuidora de água"');
+  assert.equal(findRadarSegmentExclusionMatch('distribuidora de agua', 'GLP Center Campinas')?.code, 'gas_glp');
+});
+
+test('B10 — token curto "gas" casa PALAVRA INTEIRA: Vargas/gastronomia/Gaspar vivem', () => {
+  assert.equal(findRadarSegmentExclusionMatch('distribuidora de agua', 'Distribuidora Vargas Ltda'), null);
+  assert.equal(findRadarSegmentExclusionMatch('distribuidora de agua', 'Distribuidora Gastronomica Sul'), null);
+  assert.equal(findRadarSegmentExclusionMatch('distribuidora de agua', 'Distribuidora Gaspar e Filhos'), null);
+});
+
+test('B10 — a regra NOVA do gás sai do jogo pra quem PEDE gás (não auto-exclui)', () => {
+  assert.equal(resolveSegmentExclusionRules('distribuidora de gas').some((r) => r.code === 'gas_glp'), false);
+  assert.equal(findRadarSegmentExclusionMatch('distribuidora de gas', 'Ultra Gas Campinas'), null);
+});
+
+// ⚠️ MINA PRÉ-EXISTENTE (não é desta correção, fica REGISTRADA aqui pra não virar
+// "descoberta nova" amanhã): quem busca "distribuidora de gás" continua morrendo na
+// regra ANTIGA energia_agua_combustivel quando o CNAE oficial fala 'gas liquefeito' —
+// `ruleTargetsRequestedSegment` compara o token INTEIRO contra o pedido, e
+// "distribuidora de gas" não contém a frase "gas liquefeito". Consertar isso por
+// sobreposição de palavras derrubaria a mesma regra em "distribuidora de ÁGUA" (token
+// 'agua e esgoto'), soltando saneamento/SANASA na busca do dono — decisão de produto,
+// não de código. Este teste CONGELA o comportamento de hoje.
+test('MINA CONHECIDA: "distribuidora de gas" ainda cai na regra antiga via CNAE oficial', () => {
+  assert.equal(
+    findRadarSegmentExclusionMatch('distribuidora de gas', 'Ultra Gas Campinas',
+      'Comércio atacadista de gás liquefeito de petróleo')?.code,
+    'energia_agua_combustivel',
+  );
+});
+
+test('casamento por palavra inteira preserva o plural que o mapa cobria com includes', () => {
+  // 'energia' tem que continuar pegando "Energias do Brasil"; 'transporte' pega "Transportes".
+  assert.equal(findRadarSegmentExclusionMatch('distribuidora', 'Energias do Brasil SA')?.code, 'energia_agua_combustivel');
+  assert.equal(findRadarSegmentExclusionMatch('distribuidora', 'Transportes Rapidos Ltda')?.code, 'transporte_carga');
+  assert.equal(findRadarSegmentExclusionMatch('distribuidora', 'Imobiliaria Central')?.code, 'imobiliaria');
+  assert.equal(findRadarSegmentExclusionMatch('distribuidora', 'Banco Comercial Y')?.code, 'servicos_financeiros');
+});
+
+test('a distribuidora de ÁGUA de verdade continua passando', () => {
+  assert.equal(findRadarSegmentExclusionMatch('distribuidora de agua', 'Tagliagua Atacadao das Aguas',
+    'Comércio atacadista de água mineral'), null);
+  assert.equal(findRadarSegmentExclusionMatch('distribuidora de agua', 'JOBEMA Distribuidora de Agua Mineral'), null);
+});

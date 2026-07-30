@@ -97,6 +97,28 @@ export const RADAR_SEGMENT_EXCLUSION_MAP: Record<string, RadarSegmentExclusionRu
       ],
     },
     {
+      // S5 CORREÇÃO DO NOTURNO (30/07, reincidência do achado nº5): o teste noturno
+      // mediu 13,8% da entrega de "distribuidora de água" com CARA DE GÁS. O mapa já
+      // tinha 'gas natural'/'gas liquefeito' (frases de CNAE), mas nada pegava o
+      // revendedor de botijão pelo NOME — que é como ele aparece na lane web. Mesma
+      // forma da regra farma_hospitalar (30/07), que nasceu do mesmo sintoma.
+      code: 'gas_glp',
+      label: 'Gás / GLP / botijão',
+      tokens: [
+        // Frases oficiais de CNAE.
+        'comercio varejista de gas liquefeito',
+        'comercio atacadista de gas liquefeito',
+        'gas liquefeito de petroleo',
+        // Nome (lane web) — 'gas' sozinho é seguro porque o casamento é por palavra
+        // INTEIRA: não pega "Vargas", "gastronomia" nem "Gaspar".
+        'gas',
+        'glp',
+        'botijao',
+        'botijoes',
+        'gasista',
+      ],
+    },
+    {
       code: 'servicos_financeiros',
       label: 'Serviços financeiros',
       tokens: [
@@ -120,6 +142,27 @@ export const RADAR_SEGMENT_EXCLUSION_MAP: Record<string, RadarSegmentExclusionRu
     // (independente de segmento) em isActiveCompany/situação, na porta da Receita.
   ],
 };
+
+// S5 CORREÇÃO DO NOTURNO (30/07): o casamento era `includes` cru. Com frase de CNAE
+// isso é seguro ('gas liquefeito' não aparece por acidente), mas com token de UMA
+// palavra é uma bomba: 'gas' casaria "VarGAS", "GAStronomia", "GASpar" — e a regra
+// nova do gás não existiria sem esse token (o revendedor de botijão se anuncia como
+// "Gás e Água do Zé", não com o CNAE na placa). Então token de uma palavra passa a
+// casar por PALAVRA INTEIRA, com tolerância de plural (a mesma que os pares
+// 'imobiliaria'/'imobiliarias' faziam na mão). Frases seguem em `includes`.
+const singleWordMatcherCache = new Map<string, RegExp>();
+function matchesExclusionToken(haystack: string, token: string): boolean {
+  const normalized = normalizeExclusionKey(token);
+  if (!normalized) return false;
+  if (normalized.includes(' ')) return haystack.includes(normalized);
+  let matcher = singleWordMatcherCache.get(normalized);
+  if (!matcher) {
+    const escaped = normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    matcher = new RegExp(`(?:^|[^a-z0-9])${escaped}(?:s|es)?(?:[^a-z0-9]|$)`);
+    singleWordMatcherCache.set(normalized, matcher);
+  }
+  return matcher.test(haystack);
+}
 
 function normalizeExclusionKey(value: unknown): string {
   return String(value || '')
@@ -182,7 +225,7 @@ export function findRadarSegmentExclusionMatch(
   const haystack = normalizeExclusionKey(texts.filter(Boolean).join(' '));
   if (!haystack) return null;
   for (const rule of rules) {
-    if (rule.tokens.some((token) => haystack.includes(normalizeExclusionKey(token)))) {
+    if (rule.tokens.some((token) => matchesExclusionToken(haystack, token))) {
       return rule;
     }
   }

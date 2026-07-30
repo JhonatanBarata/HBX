@@ -20,11 +20,22 @@ import type { VarDef } from "@/components/hbx/bot-variables-drawer";
 
 // Item 3 (30/07): pede à IA local variações da frase-base do 1º contato. O
 // backend valida o lote com a régua do gate anti-carimbo antes de devolver.
+// S3 CORREÇÃO DO NOTURNO (B8): `quantidade` sai explícita (o botão não mandava e o
+// backend chutava 4 com numPredict alto — passava dos 30s do proxy e virava 500).
+const VARIACOES_PEDIDAS = 3;
 function gerarVariacoesPrimeiroContato(base: string) {
   return apiFetch<{ variacoes: string[]; recusadas: { texto: string; motivo: string }[]; erro: string | null }>(
     "/vendas/automation/prospecting/gerar-variacoes",
-    { method: "POST", body: JSON.stringify({ frase: base }) },
+    { method: "POST", body: JSON.stringify({ frase: base, quantidade: VARIACOES_PEDIDAS }) },
   );
+}
+
+// Aquecimento da IA local: chamado ao ABRIR a gaveta de Prospecção. Sobe o modelo
+// enquanto a pessoa escreve, pra o cold-load de ~35s não cair dentro do clique.
+// Falha aqui não afeta nada — o botão continua funcionando (só demora mais).
+export function aquecerIaProspeccao() {
+  return apiFetch("/vendas/automation/prospecting/aquecer-ia", { method: "POST", body: JSON.stringify({}) })
+    .catch(() => null);
 }
 
 // "Pausar" uma variante = mantê-la salva SEM o motor usar (igual deletar, mas

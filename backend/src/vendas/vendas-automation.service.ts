@@ -27,7 +27,7 @@ import {
   type ProspectingAutoReplyClassification,
 } from './prospecting-safety';
 import { VendasService } from './vendas.service';
-import { callAssistenteOllama } from '../assistente/assistente-ollama';
+import { assistenteOllamaEnabled, callAssistenteOllama } from '../assistente/assistente-ollama';
 import {
   VARIACOES_QUANTIDADE_DEFAULT,
   VARIACOES_QUANTIDADE_MAX,
@@ -128,6 +128,17 @@ const DEFAULT_NEUTRAL_KEYWORDS = ['vou ver', 'mais tarde', 'depois', 'manda depo
 // elas entram POR CIMA destes, nunca os apagam.
 const DEFAULT_CALLBACK_KEYWORDS = ['depois', 'mais tarde', 'outro horario', 'outro dia', 'amanha', 'semana que vem', 'pode ligar depois', 'me chama depois', 'manda depois', 'agora nao'];
 const DEFAULT_HUMAN_HANDOFF_KEYWORDS = ['humano', 'atendente', 'consultor', 'ligar', 'me liga', 'me chama', 'pode ligar'];
+// S3 CORREÇÃO DO NOTURNO (B8): o teto do backend TEM que caber no proxy do Next
+// (30s). 25s deixa margem pro round-trip; `HBX_VENDAS_VARIACOES_TIMEOUT_MS` permite
+// afinar em ambiente com proxy diferente — mas nunca acima do proxy, senão volta o 500.
+const VARIACOES_TIMEOUT_MS_DEFAULT = 25_000;
+const VARIACOES_NUM_PREDICT = 420;
+const AQUECIMENTO_TIMEOUT_MS = 60_000;
+function variacoesTimeoutMs(): number {
+  const parsed = Number.parseInt(String(process.env.HBX_VENDAS_VARIACOES_TIMEOUT_MS || ''), 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : VARIACOES_TIMEOUT_MS_DEFAULT;
+}
+
 const DEFAULT_INTERVAL_MINUTES = 15;
 const DEFAULT_INTERVAL_VARIANCE_MINUTES = 30;
 const DEFAULT_BOT_REPLY_INTERVAL_REDUCTION_PERCENT = 0;
@@ -575,6 +586,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   private readonly coldGatePanel: WaColdContactGateService;
   private workerTimer: NodeJS.Timeout | null = null;
   private workerRunning = false;
+  // S3: 1 aquecimento por vez no processo — abrir/fechar a gaveta 5x não vira 5
+  // chamadas de IA empilhadas (o modelo é um só; a 2ª só esperaria a 1ª).
+  private aquecimentoIaEmVoo = false;
   // Restart-safe (ARQ4 S2): job que ficou preso em 'sending' apos restart/crash
   // (publish no meio do typing-delay) e reconciliado. Grace > janela de envio
   // (typing max ~20s) garante que nunca tocamos um envio VIVO em andamento.
@@ -1695,18 +1709,81 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  // S4 CORREÇÃO DO NOTURNO (B11): painel de disparos e alerta de lead quente NÃO
+  // podem depender de campanha rodando. O modo noturno é manual — a cena Tagliágua
+  // (lead respondeu "como que funciona ?" e ninguém viu) aconteceu com campanha
+  // PARADA. Estes três dados existem com ou sem campanha, então saem daqui.
+  private async buildPainelDisparos(companyId: number) {
+    const agora = new Date();
+    const [hotTimeline, hotJob, coldGate, agendadosFuturos, proximoAgendado] = await Promise.all([
+      this.prisma.vendasLeadTimelineEvent
+        .findFirst({
+          where: {
+            eventType: 'inbound_reply',
+            resultLabel: 'human_inbound_validated',
+            lead: { companyId },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { leadId: true, createdAt: true, lead: { select: { name: true } } },
+        })
+        .catch(() => null),
+      this.prisma.vendasAutomationJob
+        .findFirst({
+          where: { companyId, status: 'replied_positive' },
+          orderBy: { updatedAt: 'desc' },
+          select: { leadId: true, updatedAt: true, lead: { select: { name: true } } },
+        })
+        .catch(() => null),
+      this.coldGatePanel.snapshotForCompany(companyId).catch(() => null),
+      // Disparos AGENDADOS (S1): inscrição ativa com horário reservado no futuro.
+      // É o sinal de "tem coisa pra sair" no modo manual.
+      (this.prisma as any).cadenciaInscricao
+        ?.count?.({ where: { companyId, status: 'ativa', nextStepAt: { gte: agora } } })
+        .catch(() => 0) ?? 0,
+      (this.prisma as any).cadenciaInscricao
+        ?.findFirst?.({
+          where: { companyId, status: 'ativa', nextStepAt: { gte: agora } },
+          orderBy: { nextStepAt: 'asc' },
+          select: { nextStepAt: true },
+        })
+        .catch(() => null) ?? null,
+    ]);
+    const hotCandidates = [
+      hotTimeline?.createdAt instanceof Date
+        ? { leadId: String(hotTimeline.leadId || ''), leadName: String((hotTimeline as any)?.lead?.name || '').trim() || null, at: hotTimeline.createdAt }
+        : null,
+      (hotJob as any)?.updatedAt instanceof Date
+        ? { leadId: String((hotJob as any).leadId || ''), leadName: String((hotJob as any)?.lead?.name || '').trim() || null, at: (hotJob as any).updatedAt }
+        : null,
+    ].filter((c): c is { leadId: string; leadName: string | null; at: Date } => Boolean(c && c.leadId));
+    hotCandidates.sort((a, b) => b.at.getTime() - a.at.getTime());
+    const hotLead = hotCandidates[0]
+      ? { leadId: hotCandidates[0].leadId, leadName: hotCandidates[0].leadName, at: hotCandidates[0].at.toISOString() }
+      : null;
+    const proximoAgendadoAt = (proximoAgendado as any)?.nextStepAt instanceof Date
+      ? (proximoAgendado as any).nextStepAt.toISOString()
+      : null;
+    return { hotLead, coldGate, agendadosFuturos: Number(agendadosFuturos || 0), proximoAgendadoAt };
+  }
+
   async getLiveStatusForUser(user: any) {
     const context = this.resolveUserContext(user);
     await this.assertEntitlement(user);
     const campaign = await this.latestCampaign(context.companyId);
     if (!campaign) {
+      // Sem campanha o painel CONTINUA existindo quando há disparo agendado ou lead
+      // quente esperando — antes daqui, o modo manual ficava mudo (B11).
+      const painel = await this.buildPainelDisparos(context.companyId);
       return {
+        ...painel,
         status: 'parado' satisfies LiveAutomationStatus,
-        text: 'Nenhuma campanha ativa.',
-        active: false,
+        text: painel.agendadosFuturos > 0
+          ? `${painel.agendadosFuturos} disparo(s) agendado(s).`
+          : 'Nenhuma campanha ativa.',
+        active: painel.agendadosFuturos > 0 || Boolean(painel.hotLead),
         campaign: null,
-        counters: { todayPending: 0, overdue: 0, future: 0, sent: 0, positives: 0, archived: 0, failed: 0 },
-        nextScheduledAt: null,
+        counters: { todayPending: 0, overdue: 0, future: painel.agendadosFuturos, sent: 0, positives: 0, archived: 0, failed: 0 },
+        nextScheduledAt: painel.proximoAgendadoAt,
       };
     }
     return this.buildLiveStatus(campaign);
@@ -1842,44 +1919,16 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const lastError = isStaleProspectingRadarConfigText(campaign.lastError)
       ? null
       : campaign.lastError;
-    // Painel de disparos (30/07): lead QUENTE mais recente (interesse validado) e
-    // estado do gate de contato frio. Best-effort: falha aqui nunca derruba o status.
-    const [hotTimeline, hotJob, coldGate] = await Promise.all([
-      this.prisma.vendasLeadTimelineEvent
-        .findFirst({
-          where: {
-            eventType: 'inbound_reply',
-            resultLabel: 'human_inbound_validated',
-            lead: { companyId: campaign.companyId },
-          },
-          orderBy: { createdAt: 'desc' },
-          select: { leadId: true, createdAt: true, lead: { select: { name: true } } },
-        })
-        .catch(() => null),
-      this.prisma.vendasAutomationJob
-        .findFirst({
-          where: { companyId: campaign.companyId, status: 'replied_positive' },
-          orderBy: { updatedAt: 'desc' },
-          select: { leadId: true, updatedAt: true, lead: { select: { name: true } } },
-        })
-        .catch(() => null),
-      this.coldGatePanel.snapshotForCompany(campaign.companyId).catch(() => null),
-    ]);
-    const hotCandidates = [
-      hotTimeline?.createdAt instanceof Date
-        ? { leadId: String(hotTimeline.leadId || ''), leadName: String((hotTimeline as any)?.lead?.name || '').trim() || null, at: hotTimeline.createdAt }
-        : null,
-      (hotJob as any)?.updatedAt instanceof Date
-        ? { leadId: String((hotJob as any).leadId || ''), leadName: String((hotJob as any)?.lead?.name || '').trim() || null, at: (hotJob as any).updatedAt }
-        : null,
-    ].filter((c): c is { leadId: string; leadName: string | null; at: Date } => Boolean(c && c.leadId));
-    hotCandidates.sort((a, b) => b.at.getTime() - a.at.getTime());
-    const hotLead = hotCandidates[0]
-      ? { leadId: hotCandidates[0].leadId, leadName: hotCandidates[0].leadName, at: hotCandidates[0].at.toISOString() }
-      : null;
+    // Painel de disparos (30/07): lead QUENTE mais recente (interesse validado),
+    // estado do gate de contato frio e disparos agendados. Best-effort: falha aqui
+    // nunca derruba o status. Mesma função do caminho SEM campanha (S4/B11).
+    const painel = await this.buildPainelDisparos(campaign.companyId);
+    const { hotLead, coldGate, agendadosFuturos, proximoAgendadoAt } = painel;
     return {
       hotLead,
       coldGate,
+      agendadosFuturos,
+      proximoAgendadoAt,
       status,
       text:
         status === 'dormindo'
@@ -1888,7 +1937,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         status === 'aguardando' && nextScheduledText
           ? nextScheduledText
           : lastStatusText || (todayPending > 0 ? `${todayPending} contatos na fila hoje.` : 'Aguardando cards do Vendas com WhatsApp para continuar a Prospecção.'),
-      active: campaign.status === 'running' && status !== 'dormindo',
+      // S4 (B11): "ativo" deixou de ser sinônimo de campanha rodando — disparo
+      // agendado no futuro também é trabalho vivo (é o modo manual do dono).
+      active: (campaign.status === 'running' && status !== 'dormindo') || agendadosFuturos > 0,
       campaign: this.serializeCampaign(campaign),
       triagem: this.buildTriagemState(campaign),
       counters,
@@ -1983,18 +2034,26 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
 
     let raw = '';
     try {
-      // timeout folgado de propósito: é clique manual (a pessoa espera olhando o
-      // botão) e o cold-load do Ollama pós-ocioso leva ~35s (memória IA-VPS).
+      // S3 CORREÇÃO DO NOTURNO (B8): o timeout ANTIGO era 45s — inalcançável, porque
+      // o proxy do Next corta em 30s. Resultado: o botão dava 500 (erro do proxy) em
+      // vez do 200-com-motivo que este catch já sabia devolver. O timeout do backend
+      // TEM que caber no proxy: 25s, com `numPredict` menor pra caber no tempo. Quem
+      // resolve o cold-load de ~35s é o AQUECIMENTO ao abrir a gaveta (aquecerIaLocal),
+      // não um timeout maior que o do proxy.
       raw = await callAssistenteOllama(montarPromptVariacoes(frase, quantidade), {
         companyId: context.companyId,
         actionKey: 'ai_realtime',
         temperature: 0.9,
-        numPredict: 700,
-        timeoutMs: 45_000,
+        numPredict: VARIACOES_NUM_PREDICT,
+        timeoutMs: variacoesTimeoutMs(),
       });
     } catch (error: any) {
       this.logger.warn(`[copy-variacoes] IA indisponível company=${context.companyId}: ${String(error?.message || error)}`);
-      return { variacoes: [], recusadas: [], erro: 'IA local indisponível agora — tente novamente em instantes.' };
+      return {
+        variacoes: [],
+        recusadas: [],
+        erro: 'A IA local não respondeu a tempo. Ela já está esquentando — clique de novo em alguns segundos.',
+      };
     }
 
     const { aprovadas, recusadas } = validarLoteVariacoes(frase, parseVariacoesResposta(raw), thresholdPct, quantidade);
@@ -2003,6 +2062,33 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       recusadas,
       erro: aprovadas.length ? null : 'A IA não produziu variações diferentes o bastante — tente de novo.',
     };
+  }
+
+  // S3 CORREÇÃO DO NOTURNO (B8): AQUECIMENTO. O Ollama ocioso leva ~35s pra carregar
+  // o modelo na primeira chamada — sozinho isso estoura qualquer timeout que caiba no
+  // proxy. Então a tela avisa ao ABRIR a gaveta de Prospecção e o modelo já sobe
+  // enquanto a pessoa escreve a frase. Responde NA HORA (o ping roda solto): segurar
+  // a resposta aqui só trocaria um timeout por outro.
+  async aquecerIaLocalForUser(user: any): Promise<{ ok: true; aquecendo: boolean }> {
+    const context = this.resolveUserContext(user);
+    this.assertCanManageProspecting(user);
+    if (!assistenteOllamaEnabled()) return { ok: true, aquecendo: false };
+    if (this.aquecimentoIaEmVoo) return { ok: true, aquecendo: true };
+    this.aquecimentoIaEmVoo = true;
+    void callAssistenteOllama([{ role: 'user', content: 'ok' }], {
+      companyId: context.companyId,
+      actionKey: 'ai_realtime',
+      numPredict: 1,
+      temperature: 0,
+      timeoutMs: AQUECIMENTO_TIMEOUT_MS,
+    })
+      .catch((error: any) => {
+        this.logger.debug?.(`[copy-variacoes] aquecimento falhou (sem impacto): ${String(error?.message || error)}`);
+      })
+      .finally(() => {
+        this.aquecimentoIaEmVoo = false;
+      });
+    return { ok: true, aquecendo: true };
   }
 
   async patchProspectingConfigForUser(user: any, dto: UpdateVendasProspectingConfigDto) {

@@ -15,7 +15,7 @@ import { useRouter } from "next/navigation";
 import { I, ICONS } from "@/components/hbx/shell";
 import { BotTermsModal, isBotTermsAccepted, setBotTermsAccepted } from "@/components/hbx/bot-terms-modal";
 import { BotAvisoModal } from "@/components/hbx/bot-aviso-modal";
-import { ProspPieceBody, type ProspFieldHelpers } from "@/components/hbx/bot-prosp-fields";
+import { ProspPieceBody, aquecerIaProspeccao, type ProspFieldHelpers } from "@/components/hbx/bot-prosp-fields";
 import type { VarDef } from "@/components/hbx/bot-variables-drawer";
 import { BotProspeccaoSandbox } from "@/components/hbx/bot-prospeccao-sandbox";
 import { apiFetch } from "@/lib/api";
@@ -42,6 +42,10 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
     apiFetch<{ variableCatalog?: VarDef[] }>("/inbox/bot-config")
       .then(data => { if (data?.variableCatalog?.length) setVariableCatalog(data.variableCatalog); })
       .catch(() => {});
+    // S3 CORREÇÃO DO NOTURNO (B8): manda a IA local subir o modelo assim que a tela
+    // de Prospecção abre. Quando a pessoa terminar de escrever a frase e clicar em
+    // "Gerar variações", o cold-load de ~35s já aconteceu — o clique cabe no proxy.
+    void aquecerIaProspeccao();
   }, []);
 
   // Gate de Termos antes de INICIAR — estado controlado por handlers (não effect).

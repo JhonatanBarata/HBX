@@ -224,6 +224,24 @@ function fmtWhen(iso: string | null) {
   return d.toLocaleDateString("pt-BR");
 }
 
+// S1 CORREÇÃO DO NOTURNO: disparo tem HORA — "Hoje" sozinho não serve pra dizer
+// que o WhatsApp sai 09:15. Dia curto + hora, no fuso do próprio navegador.
+function fmtQuandoHora(iso: string | null) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const dia = d.toLocaleDateString("pt-BR", { weekday: "short", day: "2-digit", month: "2-digit" }).replace(".", "");
+  return `${dia} às ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+// Monta o ISO a partir dos dois campos da tela. Devolve null quando a hora é lixo
+// ("99:99") — antes isso virava `Invalid Date` e corrompia a agenda (B7).
+function isoLocalDeDataHora(data: string, hora: string): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(hora)) return null;
+  const d = new Date(`${data}T${hora}:00`);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 
 // ── Quadro (kanban arrastável) — etapas reais do lead (status), independente da
 // agenda (block). Arrastar entre colunas faz PATCH /vendas/lead/:id {status}.
@@ -370,7 +388,9 @@ function Termometro({ score, why }: { score: number; why: string }) {
 }
 
 type BotStatus = { botModuleEnabled: boolean; botArmed: boolean } | null;
-type RetornoMode = 'manual' | 'auto_email' | 'auto_whatsapp' | 'auto_both';
+// `RetornoMode` (manual/auto_email/auto_whatsapp/auto_both) morreu com o popup de
+// LEMBRETE — S1 da correção do noturno. O backend ainda aceita `retornoMode` no PATCH
+// do lead (retorno de CRM em cliente), mas nenhuma tela de PROSPECÇÃO grava lembrete.
 
 // LIGA/DESLIGA todos os efeitos de troca de guia (transição das camadas, entrada
 // escalonada dos KPIs, "digitando" do título, pulso do 4º card). Pedido do dono
@@ -423,7 +443,6 @@ export function VendasClient() {
   // Carregado uma vez na montagem; null = ainda consultando.
   const [botStatus, setBotStatus] = useState<BotStatus>(null);
   const [masterNotified, setMasterNotified] = useState(false);
-  const [retornoMode, setRetornoMode] = useState<RetornoMode>('manual');
   // visão do pipeline: lista densa (padrão — varredura) × quadro kanban
   // (arrastar entre etapas). Ordem do dono 13/06: lista padrão + quadro opcional.
   const [view, setView] = useTabParam<"list" | "board">("view", "list", ["list", "board"]);
@@ -664,13 +683,17 @@ export function VendasClient() {
   const [acaoBusy, setAcaoBusy] = useState(false);
   const [acaoMsg, setAcaoMsg] = useState<string | null>(null);
   const [retornoData, setRetornoData] = useState("");
+  // S1 CORREÇÃO DO NOTURNO: o popup deixou de gravar lembrete e passou a AGENDAR
+  // DISPARO — sem hora não existe disparo. 09:00 é só o palpite inicial; quem manda
+  // no horário final é o motor de slots (pode virar 09:15 e a tela DIZ).
+  const [retornoHora, setRetornoHora] = useState("09:00");
   const [obs, setObs] = useState("");
   // Popup de Retorno e Sem Interesse (substituem o clutter do cockpit)
   const [retornoOpen, setRetornoOpen] = useState(false);
-  // S5 LEAD-CENTRICO (05-agenda-slots.md): preview do próximo slot livre pra data
-  // escolhida — não muda o que é salvo (o vendedor continua escolhendo a data),
-  // só avisa se está ocupado/fora do horário comercial e qual o próximo livre.
-  const [slotPreview, setSlotPreview] = useState<{ slot: string; conflito: boolean; motivoConflito: string | null } | null>(null);
+  // S5 LEAD-CENTRICO (05-agenda-slots.md): preview do próximo slot livre pra data+hora
+  // escolhidas. S1 (30/07): virou preview DE VERDADE — é o mesmo motor que vai reservar
+  // o horário no Confirmar, então o que a tela mostra é o que vai acontecer.
+  const [slotPreview, setSlotPreview] = useState<{ slot: string; conflito: boolean; motivoConflito: string | null; resumo?: string } | null>(null);
   const [slotPreviewBusy, setSlotPreviewBusy] = useState(false);
   const [semInteresseOpen, setSemInteresseOpen] = useState(false);
   const [semInteresseMotivo, setSemInteresseMotivo] = useState<string>("");
@@ -764,43 +787,45 @@ export function VendasClient() {
     apiFetch("/vendas/notify-bot-config-missing", { method: "POST", body: JSON.stringify({}) }).catch(() => null);
   }
 
-  async function agendarRetorno() {
-    if (!sel?.id || !retornoData || acaoBusy) return;
+  // S1 CORREÇÃO DO NOTURNO (DIA-VENDEDOR-NOTURNO/01-CORRECAO.md): isto era
+  // `agendarRetorno` e gravava `VendasLead.returnAt` — um lembrete de CRM que NUNCA
+  // virava mensagem (B1 do teste noturno). Agora cria o disparo de verdade: o motor
+  // de slots reserva o horário (janela + teto + intervalo) e a tela diz o que ficou.
+  async function agendarDisparo() {
+    if (!sel?.id || !retornoData || !retornoHora || acaoBusy) return;
+    const desiredAt = isoLocalDeDataHora(retornoData, retornoHora);
+    if (!desiredAt) { setAcaoMsg("Hora inválida. Use o formato 09:00."); return; }
     setAcaoBusy(true);
     setAcaoMsg(null);
     try {
-      const effectiveMode = botStatus?.botModuleEnabled && botStatus?.botArmed ? retornoMode : 'manual';
-      const body: Record<string, unknown> = { returnAt: new Date(`${retornoData}T09:00:00`).toISOString() };
-      if (effectiveMode !== 'manual') body.retornoMode = effectiveMode;
-      if (obs.trim()) body.shortNote = obs.trim().slice(0, 280);
-      await apiFetch(`/vendas/lead/${encodeURIComponent(sel.id)}`, {
-        method: "PATCH",
-        body: JSON.stringify(body),
+      const res = await apiFetch<{ resumo?: string }>(`/vendas/lead/${encodeURIComponent(sel.id)}/agendar-disparo`, {
+        method: "POST",
+        body: JSON.stringify({ desiredAt, ...(obs.trim() ? { objetivo: obs.trim().slice(0, 200) } : {}) }),
       });
-      setAcaoMsg("✓ Retorno agendado.");
+      setAcaoMsg(`✓ ${res?.resumo || "Disparo agendado."}`);
       setRetornoData("");
       setObs("");
-      setRetornoMode("manual");
       setRetornoOpen(false);
       await loadBoard();
     } catch (err) {
-      setAcaoMsg(err instanceof Error ? err.message : "Falha ao agendar o retorno.");
+      setAcaoMsg(err instanceof Error ? err.message : "Falha ao agendar o disparo.");
     } finally {
       setAcaoBusy(false);
     }
   }
 
-  // S5 LEAD-CENTRICO (05-agenda-slots.md): consulta o serviço de slots (janela +
-  // teto + intervalo da empresa) pra data escolhida no popup de retorno — só avisa,
-  // não muda o que agendarRetorno() grava. Debounce simples via cleanup do effect.
+  // S1 (30/07): o preview consulta o MESMO motor que vai reservar, com a data E a
+  // hora escolhidas (antes mandava 09:00 cravado e mentia — B3). Debounce simples
+  // via cleanup do effect.
   useEffect(() => {
-    if (!retornoOpen || !retornoData) return;
+    if (!retornoOpen || !retornoData || !retornoHora) return;
     let alive = true;
-    const desiredAt = new Date(`${retornoData}T09:00:00`).toISOString();
+    const desiredAt = isoLocalDeDataHora(retornoData, retornoHora);
+    if (!desiredAt) { setSlotPreview(null); return; }
     const timer = setTimeout(() => {
       if (!alive) return;
       setSlotPreviewBusy(true);
-      apiFetch<{ slot: string; conflito: boolean; motivoConflito: string | null }>(
+      apiFetch<{ slot: string; conflito: boolean; motivoConflito: string | null; resumo?: string }>(
         `/vendas/agenda-disparo/proximo-slot?desiredAt=${encodeURIComponent(desiredAt)}`,
       )
         .then(res => { if (alive) setSlotPreview(res); })
@@ -808,7 +833,7 @@ export function VendasClient() {
         .finally(() => { if (alive) setSlotPreviewBusy(false); });
     }, 250);
     return () => { alive = false; clearTimeout(timer); };
-  }, [retornoOpen, retornoData]);
+  }, [retornoOpen, retornoData, retornoHora]);
 
   // O FecharVendaModal compartilhado carrega catálogos/perfil e gerencia o próprio
   // estado (pré-cadastro, plano/valor, implantação, salvar, gerar link). Aqui só abre.
@@ -975,7 +1000,14 @@ export function VendasClient() {
   // esse recorte específico. Leitura pra qualquer um do time; salvar é só dono/gerente
   // (board?.team só vem preenchido pra quem gerencia — mesmo gate usado no seletor
   // de vendedor do funil).
-  type ComercialConfig = { workingHoursStart: string; workingHoursEnd: string; dailyLimitPerSender: number; intervalMinutes: number };
+  // S2 CORREÇÃO DO NOTURNO (B5): `tetoEfetivoPorDia` = o menor entre o teto do tenant
+  // e o do freio anti-ban. A tela prometia 40 e o freio entregava 10 — agora ela diz
+  // o que REALMENTE sai.
+  type ComercialConfig = {
+    workingHoursStart: string; workingHoursEnd: string; dailyLimitPerSender: number; intervalMinutes: number;
+    tetoEfetivoPorDia?: number; coldGateAtivo?: boolean; coldGateMaxPorDia?: number;
+  };
+  const [tetoEfetivo, setTetoEfetivo] = useState<number | null>(null);
   const [comercialConfigDraft, setComercialConfigDraft] = useState<{ workingHoursStart: string; workingHoursEnd: string; dailyLimitPerSender: string; intervalMinutes: string }>({
     workingHoursStart: "08:00", workingHoursEnd: "18:00", dailyLimitPerSender: "10", intervalMinutes: "15",
   });
@@ -985,12 +1017,15 @@ export function VendasClient() {
 
   const loadComercialConfig = useCallback(() => {
     return apiFetch<ComercialConfig>("/vendas/agenda-disparo/config")
-      .then(res => setComercialConfigDraft({
-        workingHoursStart: res.workingHoursStart,
-        workingHoursEnd: res.workingHoursEnd,
-        dailyLimitPerSender: String(res.dailyLimitPerSender),
-        intervalMinutes: String(res.intervalMinutes),
-      }))
+      .then(res => {
+        setComercialConfigDraft({
+          workingHoursStart: res.workingHoursStart,
+          workingHoursEnd: res.workingHoursEnd,
+          dailyLimitPerSender: String(res.dailyLimitPerSender),
+          intervalMinutes: String(res.intervalMinutes),
+        });
+        setTetoEfetivo(Number.isFinite(res.tetoEfetivoPorDia) ? Number(res.tetoEfetivoPorDia) : null);
+      })
       .catch(() => {});
   }, []);
 
@@ -1082,6 +1117,7 @@ export function VendasClient() {
         dailyLimitPerSender: String(res.dailyLimitPerSender),
         intervalMinutes: String(res.intervalMinutes),
       });
+      setTetoEfetivo(Number.isFinite(res.tetoEfetivoPorDia) ? Number(res.tetoEfetivoPorDia) : null);
       setComercialConfigMsg("✓ Configuração salva.");
     } catch (err) {
       setComercialConfigMsg(err instanceof Error ? err.message : "Falha ao salvar.");
@@ -1817,8 +1853,8 @@ export function VendasClient() {
                 <I d={ICONS.money} size={13} /> Fechar venda
               </button>
               <button type="button" role="menuitem" disabled={card.block === "closed"}
-                onClick={() => { fechar(); setSel(card); setRetornoData(""); setObs(""); setAcaoMsg(null); setRetornoOpen(true); }}>
-                <I d={ICONS.clock} size={13} /> Agendar retorno
+                onClick={() => { fechar(); setSel(card); setRetornoData(""); setRetornoHora("09:00"); setObs(""); setSlotPreview(null); setAcaoMsg(null); setRetornoOpen(true); }}>
+                <I d={ICONS.clock} size={13} /> Agendar disparo
               </button>
               <button type="button" role="menuitem" disabled={card.block === "closed"}
                 onClick={() => { fechar(); setSel(card); setSemInteresseMotivo(""); setAcaoMsg(null); setSemInteresseOpen(true); }}>
@@ -1905,6 +1941,11 @@ export function VendasClient() {
                   disabled={!podeConfigurarDisparo}
                   onChange={e => setComercialConfigDraft(d => ({ ...d, dailyLimitPerSender: e.target.value }))}
                   aria-label="Teto de disparos por dia" />
+                {tetoEfetivo != null && tetoEfetivo < (Number(comercialConfigDraft.dailyLimitPerSender) || 0) && (
+                  <span style={{ fontSize: "0.68rem", color: "var(--hbx-warning)" }}>
+                    Na prática saem {tetoEfetivo} primeiros contatos por dia — é o freio que protege o chip.
+                  </span>
+                )}
               </label>
               <label style={{ display: "grid", gap: 4, fontSize: "0.7rem", color: "var(--text-muted)" }}>
                 Intervalo mínimo entre disparos (minutos)
@@ -2059,12 +2100,14 @@ export function VendasClient() {
           </div>
         </div>
       )}
-      {/* Popup: Agendar Retorno */}
+      {/* Popup: Agendar DISPARO (S1 correção do noturno — deixou de ser lembrete).
+          Data + hora obrigatórias; o preview vem do MESMO motor que reserva no
+          Confirmar, então o que está escrito aqui é o que vai acontecer. */}
       {retornoOpen && sel && (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setRetornoOpen(false); }}>
           <div className="hbx-modal vnd-popup" onClick={e => e.stopPropagation()}>
             <div className="vnd-popup__head">
-              <span className="vnd-popup__title">Retorno — {sel.name || "lead"}</span>
+              <span className="vnd-popup__title">Agendar disparo — {sel.name || "lead"}</span>
               <button className="vnd-popup__close" onClick={() => setRetornoOpen(false)} aria-label="Fechar">✕</button>
             </div>
             <div className="vnd-popup__body">
@@ -2072,45 +2115,31 @@ export function VendasClient() {
                 <div className={"ctx-msg " + (acaoMsg.startsWith("✓") ? "ok" : "err")}>{acaoMsg}</div>
               )}
               <div className="vnd-popup__field">
-                <label className="dn-cockpit__label">Data do retorno</label>
-                <input className="field-dark" type="date" value={retornoData}
-                  onChange={e => { setRetornoData(e.target.value); setRetornoMode("manual"); setSlotPreview(null); }}
-                  aria-label="Data do retorno" />
-                {retornoData && (
+                <label className="dn-cockpit__label">Dia e hora do disparo</label>
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <input className="field-dark" type="date" value={retornoData} style={{ flex: 2 }}
+                    onChange={e => { setRetornoData(e.target.value); setSlotPreview(null); }}
+                    aria-label="Dia do disparo" />
+                  <input className="field-dark" type="time" value={retornoHora} step={300} style={{ flex: 1 }}
+                    onChange={e => { setRetornoHora(e.target.value); setSlotPreview(null); }}
+                    aria-label="Hora do disparo" />
+                </div>
+                {retornoData && retornoHora && (
                   <span style={{ fontSize: "0.7rem", color: slotPreview?.conflito ? "var(--hbx-warning)" : "var(--text-muted)" }}>
                     {slotPreviewBusy
                       ? "Consultando agenda…"
                       : slotPreview
-                        ? (slotPreview.conflito
-                            ? `Ocupado — próximo horário livre: ${fmtWhen(slotPreview.slot) || "—"}`
-                            : `Horário livre: ${fmtWhen(slotPreview.slot) || "—"}`)
+                        ? (slotPreview.resumo || `Dispara ${fmtQuandoHora(slotPreview.slot)}`)
                         : null}
                   </span>
                 )}
               </div>
               <div className="vnd-popup__field">
-                <label className="dn-cockpit__label">Observação (opcional)</label>
-                <textarea className="field-dark" rows={2} maxLength={240}
-                  placeholder="Ex.: cliente pediu pra mandar fotos do produto"
+                <label className="dn-cockpit__label">Objetivo (opcional)</label>
+                <textarea className="field-dark" rows={2} maxLength={200}
+                  placeholder="Ex.: apresentar o controle de entregas"
                   value={obs} onChange={e => setObs(e.target.value)} />
               </div>
-              {retornoData && sel.block !== "closed" && botStatus?.botModuleEnabled && botStatus?.botArmed && (
-                <div className="retorno-mode">
-                  <span className="lbl">Tipo de retorno</span>
-                  <div className="radios">
-                    {(["manual", ...(sel.email ? ["auto_email"] : []), ...(sel.phone ? ["auto_whatsapp"] : []), ...(sel.email && sel.phone ? ["auto_both"] : [])] as RetornoMode[]).map(mode => {
-                      const labels: Record<RetornoMode, string> = { manual: "Manual", auto_email: "E-mail automático", auto_whatsapp: "WhatsApp automático", auto_both: "E-mail + WhatsApp" };
-                      return (
-                        <label key={mode} className="radio-lbl">
-                          <input type="radio" name="retorno-mode-popup" value={mode} checked={retornoMode === mode} onChange={() => setRetornoMode(mode)} />
-                          {labels[mode]}
-                        </label>
-                      );
-                    })}
-                  </div>
-                  {retornoMode === "auto_both" && <span className="collision">⚠ E-mail e WhatsApp agendados para o mesmo dia.</span>}
-                </div>
-              )}
               {retornoData && sel.block !== "closed" && botStatus?.botModuleEnabled && !botStatus?.botArmed && (
                 <div className="bot-warn">
                   <span className="warn-lbl">Bot sem configuração.</span>
@@ -2121,8 +2150,8 @@ export function VendasClient() {
               )}
               <div className="vnd-popup__foot">
                 <button className="btn-ghost" onClick={() => setRetornoOpen(false)}>Cancelar</button>
-                <button className="btn-teal" onClick={agendarRetorno} disabled={!retornoData || acaoBusy}>
-                  {acaoBusy ? "Agendando…" : "Confirmar"}
+                <button className="btn-teal" onClick={agendarDisparo} disabled={!retornoData || !retornoHora || acaoBusy}>
+                  {acaoBusy ? "Agendando…" : "Agendar disparo"}
                 </button>
               </div>
             </div>

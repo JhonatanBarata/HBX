@@ -76,7 +76,19 @@ import { VendasContactSuppressionService } from './vendas-contact-suppression.se
 // à mão (mesmo padrão de cadencia.service.ts/messaging.service.ts, NÃO é
 // @Injectable) porque não é registrado em nenhum módulo Nest.
 import { CommercialContactControlService } from './commercial-contact-control.service';
-import { AgendaDisparoService } from './agenda-disparo.service';
+import { AgendaDisparoService, type SlotConflictReason } from './agenda-disparo.service';
+// S1+S2 CORREÇÃO DO NOTURNO (DIA-VENDEDOR-NOTURNO/01-CORRECAO.md): regras puras do
+// "agendar disparo" (validação da hora, anti-carimbo no preparo, texto honesto do
+// que o motor fez com o horário pedido).
+import {
+  avaliarCopyAgendada,
+  explicarSlot,
+  textoNormalizadoParaAgenda,
+  validarDesiredAt,
+} from './vendas-agendamento-disparo';
+// Freio anti-ban: instância local só pra LER os parâmetros (teto/régua/janela) —
+// a tela e o preparo passam a falar os MESMOS números que o envio vai cobrar.
+import { WaColdContactGateService } from '../messaging/wa-cold-contact-gate.service';
 import { parseSignalsJson } from '../webscraping/radar/03-enrichment/lead-signals.util';
 import { ensureVendasComplaintsRuntimeSchema } from './vendas-complaints-runtime';
 import { buildLeadFingerprints } from './commercial-contact-fingerprint';
@@ -362,6 +374,10 @@ export class VendasService {
   // S7 LEAD-CENTRICO (07-pool-raiz.md) — marquinha/supressão global por contato.
   // Mesmo padrão de instanciação manual acima (só depende de PrismaService).
   private readonly contactSuppression: VendasContactSuppressionService;
+  // BLINDAGEM DO DISPARO FRIO (30/07): mesma instância manual. Aqui é usada só como
+  // FONTE DE VERDADE dos parâmetros do freio — o gate de envio continua sendo o do
+  // messaging.service; o que muda é que Vendas para de prometer o que ele não entrega.
+  private readonly coldGate: WaColdContactGateService;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -382,6 +398,7 @@ export class VendasService {
     this.commercialContactControl = new CommercialContactControlService(this.prisma);
     this.agendaDisparo = new AgendaDisparoService(this.prisma);
     this.contactSuppression = new VendasContactSuppressionService(this.prisma);
+    this.coldGate = new WaColdContactGateService(this.prisma as any);
   }
 
   // S7 LEAD-CENTRICO (07-pool-raiz.md, item 1): lead encerrado com motivo
@@ -5887,7 +5904,7 @@ export class VendasService {
     context: VendasUserContext,
     user: any,
     lead: { phone?: string | null; email?: string | null },
-  ): Promise<{ motivo: string; acao: string; codigo: 'config_ausente' | 'whatsapp_desconectado' | 'lead_sem_canal' } | null> {
+  ): Promise<{ motivo: string; acao: string; codigo: 'config_ausente' | 'whatsapp_desconectado' | 'lead_sem_canal' | 'contato_suprimido' } | null> {
     // 1) Config do Admin (S5, VendasComercialConfig) — precisa EXISTIR linha
     // salva pra empresa. AgendaDisparoService.getConfig() devolve default sem
     // persistir nada, então a existência é checada direto aqui.
@@ -5930,6 +5947,21 @@ export class VendasService {
         codigo: 'lead_sem_canal',
         motivo: 'Este lead não tem WhatsApp, telefone nem e-mail cadastrado.',
         acao: 'Use "Buscar dados" pra tentar localizar um contato antes de ligar a Automação.',
+      };
+    }
+
+    // 4) S2 CORREÇÃO DO NOTURNO: quem pediu pra não ser chamado não entra em
+    // agenda nenhuma. A supressão já barrava o ENVIO; barrar no PREPARO evita
+    // agendar hoje um disparo que o freio vai cancelar depois (e o vendedor
+    // ficar achando que está tudo certo até a mensagem não sair).
+    const supressao = await this.contactSuppression
+      .isSuppressed({ phone: lead?.phone || null, email: lead?.email || null })
+      .catch(() => ({ suppressed: false, matchedType: null as null }));
+    if (supressao.suppressed) {
+      return {
+        codigo: 'contato_suprimido',
+        motivo: 'Este contato pediu para não receber mensagens (ou foi marcado como sem perfil).',
+        acao: 'Não dá pra disparar nem agendar pra ele. Use outro contato da empresa.',
       };
     }
 
@@ -6062,7 +6094,11 @@ export class VendasService {
     return { id: created.id, nome: created.nome };
   }
 
-  async ligarRoboForUser(user: any, leadId: string, dto: { personaKey?: string; cadenciaId?: string; objetivo?: string }) {
+  async ligarRoboForUser(
+    user: any,
+    leadId: string,
+    dto: { personaKey?: string; cadenciaId?: string; objetivo?: string; startAt?: string | Date | null; message?: string | null },
+  ) {
     const context = await this.resolveVendasUserContext(user);
     this.assertVendasPermission(context.access?.canEditCards, 'Acesso para planejar Automação bloqueado pela política da equipe.');
     const normalizedLeadId = this.normalizeText(leadId);
@@ -6104,6 +6140,21 @@ export class VendasService {
     });
     const objetivo = this.normalizeText(dto?.objetivo);
 
+    // ── S1 CORREÇÃO DO NOTURNO (01-CORRECAO.md) ──────────────────────────────
+    // O horário do disparo NUNCA mais é `new Date()` cru (B2: ignorava janela,
+    // teto e intervalo). Sem hora pedida, "agora" é só o PONTO DE PARTIDA da
+    // busca — o motor de slots clampa pra dentro da janela (03:00 vira 08:00),
+    // pula o dia cheio e respeita o intervalo mínimo entre disparos.
+    const agora = new Date();
+    const desiredAt = (dto?.startAt ? this.parseDate(dto.startAt as any) : null) || agora;
+    const validacao = validarDesiredAt(desiredAt, agora);
+    if (!validacao.ok) throw new BadRequestException(validacao.motivo);
+
+    // S2: carimbo repetido é recusado JÁ no preparo, com a MESMA régua do gate
+    // anti-ban. Descobrir hoje > descobrir amanhã quando o envio for cancelado.
+    const copy = this.normalizeText(dto?.message);
+    if (copy) await this.assertCopyNaoEhCarimbo(context.companyId, copy);
+
     const attemptEnroll = () =>
       this.commercialContactControl.createCadenciaInscricao({
         companyId: context.companyId,
@@ -6116,7 +6167,11 @@ export class VendasService {
           status: 'ativa',
           currentStep: 0,
           startedAt: new Date(),
-          nextStepAt: new Date(),
+          // Provisório: o slot definitivo é reservado logo abaixo, DENTRO do
+          // mutex por empresa (é o que impede 2 agendamentos no mesmo minuto —
+          // B4). Gravar o pedido aqui já faz a linha "ocupar" o horário pra
+          // quem estiver reservando em paralelo.
+          nextStepAt: desiredAt,
         },
       });
 
@@ -6136,6 +6191,7 @@ export class VendasService {
     }
 
     let ligou = slot.created;
+    let inscricaoId: string | null = slot.created ? String((slot as any).row?.id || '') || null : null;
     if (!slot.created && slot.alreadyEnrolled) {
       // Já existe uma linha pra (cadência, lead) — pode ser a MESMA que já está
       // ativa (idempotente: no-op real) ou uma cancelada por um "desligar"
@@ -6145,11 +6201,12 @@ export class VendasService {
         where: { companyId: context.companyId, leadId: lead.id, cadenciaId: cadencia.id },
         select: { id: true, status: true },
       });
+      inscricaoId = row?.id ? String(row.id) : null;
       if (row && row.status !== 'ativa') {
         try {
           await (this.prisma as any).cadenciaInscricao.updateMany({
             where: { id: row.id, companyId: context.companyId },
-            data: { status: 'ativa', currentStep: 0, nextStepAt: new Date(), lastError: null, startedAt: new Date() },
+            data: { status: 'ativa', currentStep: 0, nextStepAt: desiredAt, lastError: null, startedAt: new Date() },
           });
         } catch (error: any) {
           throw new ConflictException(`Não foi possível religar a Automação: ${String(error?.message || error)}`);
@@ -6167,6 +6224,36 @@ export class VendasService {
       }
     }
 
+    // ── Reserva do horário (S1) ───────────────────────────────────────────────
+    // Roda DEPOIS da linha existir, dentro do mutex por empresa: `reservarProximoSlot`
+    // relê o que já está ocupado (excluindo a própria inscrição) e grava o
+    // `nextStepAt` definitivo. É o que faz 2 pedidos pro mesmo minuto virarem 09:00
+    // e 09:15 em vez de dois disparos colados (B4).
+    let reserva: { slot: Date; requested: Date; conflito: boolean; motivoConflito: SlotConflictReason } = {
+      slot: desiredAt,
+      requested: desiredAt,
+      conflito: false,
+      motivoConflito: null,
+    };
+    const pediuHora = Boolean(dto?.startAt);
+    if (inscricaoId && (ligou || pediuHora)) {
+      try {
+        reserva = await this.agendaDisparo.reservarProximoSlot({
+          companyId: context.companyId,
+          inscricaoId,
+          desiredAt,
+          now: agora,
+        });
+      } catch (error: any) {
+        this.logger.warn(`[vendas] reserva de slot falhou (lead=${lead.id}): ${String(error?.message || error)}`);
+      }
+    }
+    const resumoAgenda = explicarSlot(reserva);
+
+    if (copy && (ligou || pediuHora)) {
+      await this.registrarCopyAgendada(context.companyId, copy, { leadId: lead.id, slot: reserva.slot });
+    }
+
     if (ligou) {
       await this.prisma.vendasLeadTimelineEvent
         .create({
@@ -6175,7 +6262,7 @@ export class VendasService {
             ...this.buildTimelineEvent({
               eventType: 'robo_ligado',
               title: 'Robô ligado',
-              description: `Robô ligado na cadência "${cadencia.nome}"${objetivo ? ` — objetivo: ${objetivo}` : ''}.`,
+              description: `Robô ligado na cadência "${cadencia.nome}"${objetivo ? ` — objetivo: ${objetivo}` : ''}. ${resumoAgenda}`,
               resultLabel: 'robo_ligado',
               createdByUserId: context.userId,
             }),
@@ -6190,7 +6277,98 @@ export class VendasService {
       jaLigado: !ligou,
       cadenciaId: cadencia.id,
       cadenciaNome: cadencia.nome,
+      // O que a tela precisa pra NÃO mentir: pedi 09:00, ficou 09:15 e por quê.
+      slot: reserva.slot.toISOString(),
+      requested: reserva.requested.toISOString(),
+      conflito: reserva.conflito,
+      motivoConflito: reserva.motivoConflito,
+      resumo: resumoAgenda,
     };
+  }
+
+  // ── S1 CORREÇÃO DO NOTURNO: AGENDAR DISPARO (não é lembrete) ───────────────
+  // O popup de "agendar" da prospecção passa por aqui. Diferença pro `ligarRobo`:
+  // hora é OBRIGATÓRIA (o vendedor escolheu quando) — o resto é o mesmo caminho,
+  // de propósito: um agendamento é um disparo com hora marcada, não outro produto.
+  async agendarDisparoForUser(
+    user: any,
+    leadId: string,
+    dto: { desiredAt: string; personaKey?: string; cadenciaId?: string; objetivo?: string; message?: string },
+  ) {
+    const desiredAt = this.parseDate(dto?.desiredAt);
+    if (!desiredAt) throw new BadRequestException('Data e hora inválidas. Escolha o dia e a hora do disparo.');
+    const validacao = validarDesiredAt(desiredAt, new Date());
+    if (!validacao.ok) throw new BadRequestException(validacao.motivo);
+    return this.ligarRoboForUser(user, leadId, {
+      personaKey: dto?.personaKey,
+      cadenciaId: dto?.cadenciaId,
+      objetivo: dto?.objetivo,
+      message: dto?.message,
+      startAt: desiredAt,
+    });
+  }
+
+  // Copies de primeiro contato já ENVIADAS ou já AGENDADAS nas últimas 24h —
+  // as duas moram no MESMO audit log (scope 'dispatch') porque a pergunta é uma
+  // só: "esse texto já saiu/vai sair parecido demais?".
+  private async lerCopiasFriasRecentes(companyId: number, janelaMs: number): Promise<string[]> {
+    const rows = await (this.prisma as any).whatsAppAuditLog
+      .findMany({
+        where: {
+          companyId,
+          scope: 'dispatch',
+          event: { in: ['cold_contact_sent', 'cold_contact_scheduled'] },
+          createdAt: { gte: new Date(Date.now() - janelaMs) },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 40,
+        select: { metadata: true },
+      })
+      .catch(() => []);
+    const textos: string[] = [];
+    for (const row of rows || []) {
+      try {
+        const texto = String(JSON.parse(String(row?.metadata || '{}'))?.extra?.textNorm || '');
+        if (texto) textos.push(texto);
+      } catch {
+        // metadata podre não invalida a checagem das outras
+      }
+    }
+    return textos;
+  }
+
+  private async assertCopyNaoEhCarimbo(companyId: number, texto: string) {
+    if (!this.coldGate.isEnabled()) return;
+    const recentesNorm = await this.lerCopiasFriasRecentes(companyId, this.coldGate.similarityWindowMs());
+    if (!recentesNorm.length) return;
+    const veredito = avaliarCopyAgendada({
+      texto,
+      recentesNorm,
+      threshold: this.coldGate.similarityThreshold(),
+      minLen: this.coldGate.similarityMinLen(),
+    });
+    if (veredito.ok === false) throw new BadRequestException(veredito.motivo);
+  }
+
+  private async registrarCopyAgendada(
+    companyId: number,
+    texto: string,
+    origem: { leadId: string; slot: Date },
+  ): Promise<void> {
+    const textNorm = textoNormalizadoParaAgenda(texto);
+    if (!textNorm) return;
+    await (this.prisma as any).whatsAppAuditLog
+      .create({
+        data: {
+          companyId,
+          scope: 'dispatch',
+          event: 'cold_contact_scheduled',
+          level: 'INFO',
+          message: `Primeiro contato agendado para ${origem.slot.toISOString()}`,
+          metadata: JSON.stringify({ extra: { textNorm, leadId: origem.leadId, slot: origem.slot.toISOString() } }),
+        },
+      })
+      .catch(() => null);
   }
 
   async desligarRoboForUser(user: any, leadId: string) {
@@ -6245,15 +6423,35 @@ export class VendasService {
     this.assertVendasPermission(this.canManageAgendaDisparo(context), 'Só o dono/gerente pode configurar horário e teto de disparo.');
   }
 
+  // S2 CORREÇÃO DO NOTURNO (B5): a tela prometia 40 disparos/dia enquanto o freio
+  // anti-ban entregava 10. Teto EXIBIDO passa a ser o menor entre o que o tenant
+  // configurou e o que o freio físico deixa sair — a config continua valendo pro
+  // espaçamento da agenda, mas ninguém mais promete o que não sai.
+  private tetoEfetivoDoDia(dailyLimitPerSender: number): {
+    tetoEfetivoPorDia: number;
+    coldGateAtivo: boolean;
+    coldGateMaxPorDia: number;
+  } {
+    const coldGateAtivo = this.coldGate.isEnabled();
+    const coldGateMaxPorDia = this.coldGate.maxPerDay();
+    return {
+      coldGateAtivo,
+      coldGateMaxPorDia,
+      tetoEfetivoPorDia: coldGateAtivo ? Math.min(dailyLimitPerSender, coldGateMaxPorDia) : dailyLimitPerSender,
+    };
+  }
+
   async getComercialConfigForUser(user: any) {
     const context = await this.resolveVendasUserContext(user);
-    return this.agendaDisparo.getConfig(context.companyId);
+    const config = await this.agendaDisparo.getConfig(context.companyId);
+    return { ...config, ...this.tetoEfetivoDoDia(config.dailyLimitPerSender) };
   }
 
   async updateComercialConfigForUser(user: any, dto: { workingHoursStart?: string; workingHoursEnd?: string; dailyLimitPerSender?: number; intervalMinutes?: number }) {
     const context = await this.resolveVendasUserContext(user);
     this.assertCanManageAgendaDisparo(context);
-    return this.agendaDisparo.saveConfig(context.companyId, dto || {});
+    const config = await this.agendaDisparo.saveConfig(context.companyId, dto || {});
+    return { ...config, ...this.tetoEfetivoDoDia(config.dailyLimitPerSender) };
   }
 
   // Catálogo comercial (30/07): ler é do time; escrever é do mesmo gate do
@@ -6278,7 +6476,9 @@ export class VendasService {
       requested: result.requested.toISOString(),
       conflito: result.conflito,
       motivoConflito: result.motivoConflito,
-      config: result.config,
+      config: { ...result.config, ...this.tetoEfetivoDoDia(result.config.dailyLimitPerSender) },
+      // Frase pronta pra tela não ter que remontar a explicação (e divergir dela).
+      resumo: explicarSlot(result),
     };
   }
 

@@ -228,6 +228,50 @@ export class LigarRoboDto {
   @IsString()
   @MaxLength(200)
   objetivo?: string;
+
+  // S1 CORREÇÃO DO NOTURNO (30/07/2026): quando o disparo tem hora marcada. Sem
+  // isto o robô ligava com `nextStepAt: new Date()` cru — ignorando janela, teto e
+  // intervalo (B2). Agora TODO caminho passa pelo motor de slots; `startAt` só diz
+  // a partir de quando procurar.
+  @IsOptional()
+  @IsDateString()
+  startAt?: string;
+
+  // Copy do primeiro contato, quando a tela já sabe qual vai ser. Serve pra recusar
+  // carimbo repetido NA HORA DE AGENDAR (S2) — o vendedor descobre hoje, não amanhã
+  // quando o freio cancelar.
+  @IsOptional()
+  @IsString()
+  @MaxLength(1200)
+  message?: string;
+}
+
+// S1 CORREÇÃO DO NOTURNO (30/07/2026) — POST /vendas/lead/:id/agendar-disparo.
+// NÃO é lembrete de CRM: cria o disparo de verdade com horário reservado pelo motor
+// de slots. `desiredAt` é ISO COMPLETO (data+hora) e obrigatório — "99:99" morre
+// aqui no DTO (B7), nunca chega a corromper a agenda.
+export class AgendarDisparoDto {
+  @IsDateString()
+  desiredAt!: string;
+
+  @IsOptional()
+  @IsIn(ROBO_PERSONA_KEYS)
+  personaKey?: (typeof ROBO_PERSONA_KEYS)[number];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  cadenciaId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  objetivo?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1200)
+  message?: string;
 }
 
 // S5 LEAD-CENTRICO (05-agenda-slots.md): config comercial ENXUTA por empresa — janela

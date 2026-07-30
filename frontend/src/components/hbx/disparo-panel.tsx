@@ -38,6 +38,9 @@ type HotLead = { leadId: string; leadName: string | null; at: string };
 export type DisparoLive = ProspLive & {
   hotLead?: HotLead | null;
   coldGate?: ColdGateSnapshot | null;
+  // S4 (B11): disparos com hora marcada — existem com ou sem campanha.
+  agendadosFuturos?: number;
+  proximoAgendadoAt?: string | null;
 };
 
 const HOT_SEEN_KEY = "hbx:hotlead-seen";
@@ -288,9 +291,13 @@ export function CreditDisparoRotator({ credits }: { credits: React.ReactNode }) 
   // face visível: alterna sozinha a cada 8s quando as DUAS existem.
   const [face, setFace] = useState<"credits" | "disparo">("credits");
 
-  // Painel só existe com o bot ATIVO (campanha rodando — dormindo conta como
-  // ativo, o painel é quem mostra o âmbar de "fora do horário").
-  const panelActive = Boolean(live && live.campaign?.status === "running");
+  // S4 CORREÇÃO DO NOTURNO (B11): o painel deixou de depender de campanha rodando.
+  // O modo do dono é MANUAL — a cena Tagliágua (lead perguntou "como que funciona ?"
+  // e ninguém viu) aconteceu com campanha parada. Agora acende também quando existe
+  // disparo AGENDADO no futuro ou lead QUENTE esperando resposta.
+  const panelActive = Boolean(
+    live && (live.campaign?.status === "running" || (live.agendadosFuturos ?? 0) > 0 || live.hotLead),
+  );
   const hasCredits = Boolean(credits);
 
   useEffect(() => {

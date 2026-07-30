@@ -43,6 +43,7 @@ type PrismaScript = {
   lastColdAt?: Date | null;
   recentColdMetadatas?: string[];
   failAll?: boolean;
+  failClassification?: boolean;
 };
 
 function makePrisma(script: PrismaScript = {}) {
@@ -50,7 +51,7 @@ function makePrisma(script: PrismaScript = {}) {
   const prisma = {
     companyMessage: {
       async findFirst(args: any) {
-        if (script.failAll) throw new Error('db down');
+        if (script.failAll || script.failClassification) throw new Error('db down');
         const wantsConversation = Boolean(args?.where?.conversationId && !args?.where?.conversationId?.in);
         if (wantsConversation) return script.priorInConversation ?? null;
         return script.priorElsewhere ?? null;
@@ -58,7 +59,7 @@ function makePrisma(script: PrismaScript = {}) {
     },
     companyConversation: {
       async findMany() {
-        if (script.failAll) throw new Error('db down');
+        if (script.failAll || script.failClassification) throw new Error('db down');
         return script.siblingConversations ?? [];
       },
     },
@@ -258,8 +259,46 @@ test('texto curto (pré-mensagem "oi, tudo bem?") não passa pela régua de simi
   assert.deepEqual(decision, { allow: true, cold: true });
 });
 
-test('fail-open: banco fora do ar NUNCA derruba o caminho de envio', async () => {
+// ── S6 (decisão do dono 30/07/2026): fail-CLOSED no primeiro contato frio ─────
+// Antes daqui o gate era fail-open: qualquer soluço de banco desligava o freio
+// inteiro justo no vetor que expulsou o chip. Agora "não consegui contar" = não sai.
+
+test('banco fora + envio HUMANO frio: CANCELA com motivo legível (não mente "Enviando")', async () => {
   resetEnv();
+  const { prisma, calls } = makePrisma({ failAll: true });
+  const svc = new WaColdContactGateService(prisma);
+  const decision = await svc.evaluate(COLD_INPUT);
+  assert.equal(decision.allow, false);
+  assert.ok(decision.allow === false && decision.action === 'cancel');
+  assert.ok(decision.allow === false && decision.reason === 'cold_gate_unavailable');
+  assert.ok(decision.allow === false && decision.action === 'cancel' && decision.detail.length > 20);
+  assert.equal(calls.create.length, 0, 'sem cota consumida quando não deu pra avaliar');
+});
+
+test('banco fora + BOT frio: REAGENDA (retoma sozinho depois do soluço)', async () => {
+  resetEnv();
+  const { prisma } = makePrisma({ failAll: true });
+  const svc = new WaColdContactGateService(prisma);
+  const decision = await svc.evaluate({ ...COLD_INPUT, sourceModule: 'vendas_prospeccao_bot', senderType: 'bot' });
+  assert.equal(decision.allow, false);
+  assert.ok(decision.allow === false && decision.action === 'reschedule');
+  assert.ok(decision.allow === false && decision.reason === 'cold_gate_unavailable');
+  assert.ok(decision.allow === false && decision.retryAfterMs >= 60_000);
+});
+
+test('falha SÓ ao classificar: desconhecido vira FRIO e cai nas regras (teto cheio nega)', async () => {
+  resetEnv();
+  process.env.HBX_WA_COLD_MAX_PER_DAY = '10';
+  const { prisma } = makePrisma({ failClassification: true, coldSentToday: 10 });
+  const svc = new WaColdContactGateService(prisma);
+  const decision = await svc.evaluate(COLD_INPUT);
+  assert.equal(decision.allow, false);
+  assert.ok(decision.allow === false && decision.reason === 'cold_daily_cap');
+});
+
+test('gate desligado por kill-switch continua liberando mesmo com banco fora', async () => {
+  resetEnv();
+  process.env.HBX_WA_COLD_GATE_ENABLED = 'off';
   const { prisma } = makePrisma({ failAll: true });
   const svc = new WaColdContactGateService(prisma);
   const decision = await svc.evaluate(COLD_INPUT);
