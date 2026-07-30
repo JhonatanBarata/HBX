@@ -21,6 +21,7 @@ import {
   SimulateProspectingDto,
   StartVendasProspectingDto,
   UpdateSalesProfileDto,
+  UpdateVendasCatalogoComercialDto,
   UpdateVendasComercialConfigDto,
   UpdateVendasProspectingConfigDto,
   UpdateVendasLeadDto,
@@ -401,6 +402,18 @@ export class VendasController {
   @Get('agenda-disparo/proximo-slot')
   getProximoSlotDisparo(@Req() req: any, @Query() query: ProximoSlotDisparoQueryDto) {
     return this.vendasService.getProximoSlotDisparoForUser(req.user, query || {});
+  }
+
+  // Catálogo comercial (30/07): a tela do "o que a empresa vende". GET = qualquer
+  // membro do time; PATCH = dono/gerente (guard no service, mesmo gate do config).
+  @Get('catalogo-comercial')
+  getCatalogoComercial(@Req() req: any) {
+    return this.vendasService.getCatalogoComercialForUser(req.user);
+  }
+
+  @Patch('catalogo-comercial')
+  updateCatalogoComercial(@Req() req: any, @Body() dto: UpdateVendasCatalogoComercialDto) {
+    return this.vendasService.updateCatalogoComercialForUser(req.user, dto || {});
   }
 
   @Post('lead/:leadId/presentation-draft')

@@ -60,6 +60,20 @@ function limparTexto(value: unknown, max: number): string {
     .slice(0, max);
 }
 
+/**
+ * Chave estável a partir de texto humano: sem acento, minúscula, `_`. A tela do
+ * catálogo NÃO pede "chave" (jargão interno) — ela nasce do próprio ganho.
+ */
+function slugChave(value: unknown): string {
+  return limparTexto(value, 60)
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 40);
+}
+
 function limparLista(value: unknown, max: number, maxItens: number): string[] {
   if (!Array.isArray(value)) return [];
   const out: string[] = [];
@@ -79,8 +93,9 @@ export function normalizeCatalogo(raw: unknown): CatalogoComercial {
   for (const item of capacidadesRaw) {
     if (!item || typeof item !== 'object') continue;
     const row = item as Record<string, unknown>;
-    const chave = limparTexto(row.chave, 40).toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '');
     const ganho = limparTexto(row.ganho, 180);
+    // Sem chave explícita ela nasce do ganho — a UI só pede a frase do ganho.
+    const chave = slugChave(row.chave) || slugChave(ganho);
     if (!chave || !ganho) continue;
     if (capacidades.some((c) => c.chave === chave)) continue;
     capacidades.push({ chave, ganho, resolve: limparLista(row.resolve, 60, 8) });

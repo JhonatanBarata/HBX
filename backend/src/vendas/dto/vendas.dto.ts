@@ -258,6 +258,14 @@ export class UpdateVendasComercialConfigDto {
   intervalMinutes?: number;
 }
 
+// Catálogo comercial (30/07): o corpo é a forma livre de vendas-catalogo.ts — quem
+// valida/sanitiza é normalizeCatalogo (nunca lança; podre vira vazio). `catalogo: null`
+// limpa e volta ao estado NULO ("IA proibida de afirmar produto").
+export class UpdateVendasCatalogoComercialDto {
+  @IsOptional()
+  catalogo?: unknown;
+}
+
 // GET /vendas/agenda-disparo/proximo-slot?desiredAt=ISO — desiredAt opcional (default
 // agora); devolve o próximo horário livre e, se desiredAt estava ocupado/fora da
 // janela, o motivo do conflito ("08:00 ocupado — próximo livre 08:15").

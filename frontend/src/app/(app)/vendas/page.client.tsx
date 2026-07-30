@@ -994,10 +994,73 @@ export function VendasClient() {
       .catch(() => {});
   }, []);
 
+  // CATÁLOGO COMERCIAL (30/07): a tela do "o que a empresa vende" — sem ela o
+  // catalogoJson só era editável por SQL, o que reprova "ele muda sozinho?".
+  // Capacidades viajam como texto simples (1 por linha; "| dores" opcional) e o
+  // backend normaliza (chave nasce do ganho — a UI nunca pede jargão).
+  type CatalogoView = {
+    catalogo: { oQueVendemos: string; capacidades: { chave: string; ganho: string; resolve: string[] }[]; paraQuem: string[]; ancoraDePreco: string | null } | null;
+    pronto: boolean;
+    lacunas: string[];
+  };
+  const [catalogoInfo, setCatalogoInfo] = useState<CatalogoView | null>(null);
+  const [catalogoDraft, setCatalogoDraft] = useState({ oQueVendemos: "", capacidades: "", paraQuem: "", ancoraDePreco: "" });
+  const [catalogoBusy, setCatalogoBusy] = useState(false);
+  const [catalogoMsg, setCatalogoMsg] = useState<string | null>(null);
+
+  const espelharCatalogo = useCallback((res: CatalogoView) => {
+    setCatalogoInfo(res);
+    const c = res.catalogo;
+    setCatalogoDraft({
+      oQueVendemos: c?.oQueVendemos || "",
+      capacidades: (c?.capacidades || [])
+        .map(cap => (cap.resolve.length ? `${cap.ganho} | ${cap.resolve.join(", ")}` : cap.ganho))
+        .join("\n"),
+      paraQuem: (c?.paraQuem || []).join(", "),
+      ancoraDePreco: c?.ancoraDePreco || "",
+    });
+  }, []);
+
+  const loadCatalogo = useCallback(() => {
+    return apiFetch<CatalogoView>("/vendas/catalogo-comercial")
+      .then(espelharCatalogo)
+      .catch(() => {});
+  }, [espelharCatalogo]);
+
   useEffect(() => {
     if (!prospOpen) return;
     loadComercialConfig();
-  }, [prospOpen, loadComercialConfig]);
+    loadCatalogo();
+  }, [prospOpen, loadComercialConfig, loadCatalogo]);
+
+  async function salvarCatalogo() {
+    if (catalogoBusy) return;
+    setCatalogoBusy(true);
+    setCatalogoMsg(null);
+    try {
+      const capacidades = catalogoDraft.capacidades
+        .split("\n").map(l => l.trim()).filter(Boolean)
+        .map(linha => {
+          const [ganho, dores] = linha.split("|");
+          return { ganho: (ganho || "").trim(), resolve: (dores || "").split(",").map(s => s.trim()).filter(Boolean) };
+        })
+        .filter(c => c.ganho);
+      const oQueVendemos = catalogoDraft.oQueVendemos.trim();
+      const paraQuem = catalogoDraft.paraQuem.split(",").map(s => s.trim()).filter(Boolean);
+      const ancoraDePreco = catalogoDraft.ancoraDePreco.trim();
+      const vazio = !oQueVendemos && !capacidades.length && !paraQuem.length && !ancoraDePreco;
+      const res = await apiFetch<CatalogoView>("/vendas/catalogo-comercial", {
+        method: "PATCH",
+        body: JSON.stringify({ catalogo: vazio ? null : { oQueVendemos, capacidades, paraQuem, ancoraDePreco: ancoraDePreco || null } }),
+      });
+      espelharCatalogo(res);
+      setCatalogoMsg("✓ Catálogo salvo");
+    } catch (error: any) {
+      setCatalogoMsg(error?.message || "Não foi possível salvar");
+    } finally {
+      setCatalogoBusy(false);
+    }
+  }
 
   async function salvarComercialConfig() {
     if (comercialConfigBusy) return;
@@ -1861,6 +1924,61 @@ export function VendasClient() {
                 </React.Fragment>
               ) : (
                 <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>Somente o dono ou gerente pode alterar. O restante do time apenas visualiza.</span>
+              )}
+            </div>
+            {/* CATÁLOGO COMERCIAL (30/07): sem catálogo a IA é PROIBIDA de afirmar
+                produto/preço (nasceu do Copiloto oferecendo "gestão fiscal" pra
+                distribuidora de água). O selo diz o estado; a lacuna cobra o que falta. */}
+            <div style={{ display: "grid", gap: 8 }}>
+              <div className="field-label">O que a sua empresa vende</div>
+              {catalogoInfo && (
+                <span className={"tag" + (catalogoInfo.pronto ? " teal" : " warn")} style={{ justifySelf: "start" }}>
+                  {catalogoInfo.pronto ? "Catálogo pronto — a IA pode ofertar" : "Sem catálogo — a IA não oferta produto"}
+                </span>
+              )}
+              <label style={{ display: "grid", gap: 4, fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                O que vendemos (uma linha)
+                <input className="field-dark" maxLength={240} value={catalogoDraft.oQueVendemos}
+                  disabled={!podeConfigurarDisparo}
+                  onChange={e => setCatalogoDraft(d => ({ ...d, oQueVendemos: e.target.value }))}
+                  aria-label="O que a empresa vende" />
+              </label>
+              <label style={{ display: "grid", gap: 4, fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                Capacidades — uma por linha (opcional: "| dores que resolve")
+                <textarea className="field-dark" rows={4} value={catalogoDraft.capacidades}
+                  disabled={!podeConfigurarDisparo}
+                  placeholder={"Entrega no mesmo dia | atraso, cliente esperando\nPedido pelo WhatsApp"}
+                  onChange={e => setCatalogoDraft(d => ({ ...d, capacidades: e.target.value }))}
+                  aria-label="Capacidades do produto, uma por linha" />
+              </label>
+              <label style={{ display: "grid", gap: 4, fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                Para quem serve (separe por vírgula)
+                <input className="field-dark" value={catalogoDraft.paraQuem}
+                  disabled={!podeConfigurarDisparo}
+                  onChange={e => setCatalogoDraft(d => ({ ...d, paraQuem: e.target.value }))}
+                  aria-label="Para quem o produto serve" />
+              </label>
+              <label style={{ display: "grid", gap: 4, fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                Se perguntarem preço (opcional)
+                <input className="field-dark" maxLength={240} value={catalogoDraft.ancoraDePreco}
+                  disabled={!podeConfigurarDisparo}
+                  onChange={e => setCatalogoDraft(d => ({ ...d, ancoraDePreco: e.target.value }))}
+                  aria-label="Comparação de preço autorizada" />
+              </label>
+              {podeConfigurarDisparo ? (
+                <React.Fragment>
+                  {catalogoInfo && !catalogoInfo.pronto && catalogoInfo.lacunas.length > 0 && (
+                    <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>Falta: {catalogoInfo.lacunas.join(" · ")}</span>
+                  )}
+                  {catalogoMsg && (
+                    <span style={{ fontSize: "0.7rem", fontWeight: 700, color: catalogoMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{catalogoMsg}</span>
+                  )}
+                  <button className="btn-ghost" onClick={salvarCatalogo} disabled={catalogoBusy}>
+                    {catalogoBusy ? "Salvando…" : "Salvar catálogo"}
+                  </button>
+                </React.Fragment>
+              ) : (
+                <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>Somente o dono ou gerente pode alterar.</span>
               )}
             </div>
             <div style={{ display: "grid", gap: 8 }}>

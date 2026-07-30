@@ -18,6 +18,12 @@
 
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  catalogoEstaPronto,
+  lacunasDoCatalogo,
+  normalizeCatalogo,
+  type CatalogoComercial,
+} from './vendas-catalogo';
+import {
   addBusinessCalendarDays,
   dayKeyOf,
   moveIntoWorkingWindow,
@@ -166,6 +172,43 @@ export class AgendaDisparoService {
       update: { ...next },
     });
     return next;
+  }
+
+  // ---------------------------------------------------------------- CATÁLOGO
+  // Mora na mesma linha de VendasComercialConfig (catalogoJson), mas em métodos
+  // próprios: salvar horário/teto NUNCA toca o catálogo e vice-versa.
+
+  async getCatalogo(companyId: number): Promise<{ catalogo: CatalogoComercial | null; pronto: boolean; lacunas: string[] }> {
+    const row = await (this.prisma as any).vendasComercialConfig
+      ?.findUnique?.({ where: { companyId }, select: { catalogoJson: true } })
+      .catch(() => null);
+    let catalogo: CatalogoComercial | null = null;
+    const texto = String(row?.catalogoJson || '').trim();
+    if (texto) {
+      try {
+        catalogo = normalizeCatalogo(JSON.parse(texto));
+      } catch {
+        catalogo = null; // JSON podre no banco = mesmo efeito de não ter catálogo
+      }
+    }
+    return { catalogo, pronto: catalogoEstaPronto(catalogo), lacunas: lacunasDoCatalogo(catalogo) };
+  }
+
+  async saveCatalogo(companyId: number, raw: unknown): Promise<{ catalogo: CatalogoComercial | null; pronto: boolean; lacunas: string[] }> {
+    const normalizado = raw == null ? null : normalizeCatalogo(raw);
+    const vazio =
+      !normalizado ||
+      (!normalizado.oQueVendemos && !normalizado.capacidades.length && !normalizado.paraQuem.length && !normalizado.ancoraDePreco);
+    // Catálogo vazio grava NULL de propósito: NULO é o estado que proíbe a IA de
+    // afirmar produto (ver schema) — string '{}' órfã não pode virar "catálogo".
+    const catalogoJson = vazio ? null : JSON.stringify(normalizado);
+    await (this.prisma as any).vendasComercialConfig.upsert({
+      where: { companyId },
+      create: { companyId, catalogoJson },
+      update: { catalogoJson },
+    });
+    const catalogo = catalogoJson ? (normalizado as CatalogoComercial) : null;
+    return { catalogo, pronto: catalogoEstaPronto(catalogo), lacunas: lacunasDoCatalogo(catalogo) };
   }
 
   // Carrega os horários já ocupados (nextStepAt de inscrições ativas) num horizonte

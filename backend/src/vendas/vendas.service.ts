@@ -6256,6 +6256,19 @@ export class VendasService {
     return this.agendaDisparo.saveConfig(context.companyId, dto || {});
   }
 
+  // Catálogo comercial (30/07): ler é do time; escrever é do mesmo gate do
+  // horário/teto (dono/gerente) — só muda a mensagem, pra não mentir o motivo.
+  async getCatalogoComercialForUser(user: any) {
+    const context = await this.resolveVendasUserContext(user);
+    return this.agendaDisparo.getCatalogo(context.companyId);
+  }
+
+  async updateCatalogoComercialForUser(user: any, dto: { catalogo?: unknown }) {
+    const context = await this.resolveVendasUserContext(user);
+    this.assertVendasPermission(this.canManageAgendaDisparo(context), 'Só o dono/gerente pode editar o catálogo comercial.');
+    return this.agendaDisparo.saveCatalogo(context.companyId, dto?.catalogo ?? null);
+  }
+
   async getProximoSlotDisparoForUser(user: any, query: { desiredAt?: string }) {
     const context = await this.resolveVendasUserContext(user);
     const desiredAt = query?.desiredAt ? this.parseDate(query.desiredAt) : null;

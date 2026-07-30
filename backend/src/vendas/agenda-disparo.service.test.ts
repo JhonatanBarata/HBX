@@ -174,6 +174,54 @@ test('AgendaDisparoService.saveConfig: atualizacao parcial preserva os campos na
   assert.equal(saved.intervalMinutes, 20);
 });
 
+// ---------------------------------------------------------------- CATÁLOGO (30/07)
+
+test('catálogo: save→get roundtrip com a forma da UI (sem chave) fica PRONTO e ganha chave derivada', async () => {
+  const { prisma } = makeFakePrisma([], null);
+  const svc = new AgendaDisparoService(prisma as any);
+  const saved = await svc.saveCatalogo(7, {
+    oQueVendemos: 'Sistema de rota para entregadores',
+    capacidades: [{ ganho: 'Entrega no mesmo dia', resolve: ['atraso'] }],
+    paraQuem: ['Distribuidoras'],
+    ancoraDePreco: null,
+  });
+  assert.equal(saved.pronto, true);
+  assert.deepEqual(saved.lacunas, []);
+  const lido = await svc.getCatalogo(7);
+  assert.equal(lido.pronto, true);
+  assert.equal(lido.catalogo?.capacidades[0].chave, 'entrega_no_mesmo_dia');
+});
+
+test('catálogo: null (ou tudo vazio) grava NULL — o estado que PROÍBE a IA de afirmar produto', async () => {
+  const { prisma } = makeFakePrisma([], { companyId: 7, workingHoursStart: '08:00', workingHoursEnd: '18:00', dailyLimitPerSender: 10, intervalMinutes: 15, catalogoJson: '{"oQueVendemos":"algo","capacidades":[{"chave":"a","ganho":"b"}]}' });
+  const svc = new AgendaDisparoService(prisma as any);
+  const limpo = await svc.saveCatalogo(7, null);
+  assert.equal(limpo.catalogo, null);
+  assert.equal(limpo.pronto, false);
+  assert.equal(limpo.lacunas.length, 2, 'as duas lacunas voltam a ser cobradas');
+  const lido = await svc.getCatalogo(7);
+  assert.equal(lido.catalogo, null, 'não sobra string órfã fingindo catálogo');
+});
+
+test('catálogo: salvar horário/teto NÃO apaga o catálogo (e vice-versa)', async () => {
+  const { prisma } = makeFakePrisma([], null);
+  const svc = new AgendaDisparoService(prisma as any);
+  await svc.saveCatalogo(7, { oQueVendemos: 'x', capacidades: [{ ganho: 'y' }] });
+  await svc.saveConfig(7, { dailyLimitPerSender: 3 });
+  const catalogo = await svc.getCatalogo(7);
+  assert.equal(catalogo.pronto, true, 'saveConfig passou por cima do catalogoJson');
+  const config = await svc.getConfig(7);
+  assert.equal(config.dailyLimitPerSender, 3, 'saveCatalogo não pode ter mexido no teto');
+});
+
+test('catálogo: JSON podre no banco não derruba — vira "sem catálogo"', async () => {
+  const { prisma } = makeFakePrisma([], { companyId: 7, catalogoJson: '{quebrado' });
+  const svc = new AgendaDisparoService(prisma as any);
+  const lido = await svc.getCatalogo(7);
+  assert.equal(lido.catalogo, null);
+  assert.equal(lido.pronto, false);
+});
+
 test('AgendaDisparoService.reservarProximoDiaUtil: cap tecnico estourado -> agenda pro proximo dia util NO HORARIO configurado (nunca so +24h cru)', async () => {
   const { prisma, inscricoes } = makeFakePrisma(
     [{ id: 'i1', companyId: 7, status: 'ativa', nextStepAt: new Date() }],

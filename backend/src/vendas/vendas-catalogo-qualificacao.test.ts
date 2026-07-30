@@ -79,13 +79,30 @@ test('a seleção segue a DOR do lead e é determinística (mesma entrada, mesma
 test('entrada podre não derruba nem vira catálogo meia-boca', () => {
   const sujo = normalizeCatalogo({
     oQueVendemos: '   ',
-    capacidades: [null, 42, { chave: '', ganho: 'x' }, { chave: 'ok', ganho: '' }],
+    capacidades: [null, 42, { ganho: '   ' }, { chave: 'ok', ganho: '' }],
     paraQuem: 'não é lista',
   });
   assert.equal(sujo.oQueVendemos, '');
-  assert.deepEqual(sujo.capacidades, []);
+  assert.deepEqual(sujo.capacidades, [], 'sem ganho não existe capacidade — chave sozinha não diz nada ao lead');
   assert.deepEqual(sujo.paraQuem, []);
   assert.equal(catalogoEstaPronto(sujo), false);
+});
+
+test('a tela não pede "chave": ela nasce do ganho, sem acento e estável', () => {
+  // A UI do catálogo (30/07) manda só { ganho, resolve } — jargão interno como
+  // "chave" nunca aparece pro dono. Derivação precisa ser estável (mesma frase,
+  // mesma chave) pra seleção determinística continuar valendo.
+  const a = normalizeCatalogo({ oQueVendemos: 'x', capacidades: [{ ganho: 'Entrega no mesmo dia, sem atraso' }] });
+  const b = normalizeCatalogo({ oQueVendemos: 'x', capacidades: [{ ganho: 'Entrega no mesmo dia, sem atraso' }] });
+  assert.equal(a.capacidades[0].chave, 'entrega_no_mesmo_dia_sem_atraso');
+  assert.equal(a.capacidades[0].chave, b.capacidades[0].chave);
+
+  const acentuada = normalizeCatalogo({ oQueVendemos: 'x', capacidades: [{ ganho: 'Preço fecha rápido' }] });
+  assert.equal(acentuada.capacidades[0].chave, 'preco_fecha_rapido', 'acento não vira "_" nem some a palavra');
+
+  // Chave explícita (catálogo já salvo no banco) continua mandando.
+  const explicita = normalizeCatalogo({ oQueVendemos: 'x', capacidades: [{ chave: 'minha_chave', ganho: 'Qualquer ganho' }] });
+  assert.equal(explicita.capacidades[0].chave, 'minha_chave');
 });
 
 // ------------------------------------------------------------ QUALIFICAÇÃO
