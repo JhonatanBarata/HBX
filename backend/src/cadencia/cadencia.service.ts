@@ -521,8 +521,12 @@ export class CadenciaService {
 
         if (!automationStep.alreadyExecuted) {
           if (passo.canal === 'whats') {
-            const sent = await this.executeWhatsStep(insc, cadencia, passo, activeStepRunId);
-            if (sent) {
+            // O ROBÔ ENXERGA O HUMANO (30/07): ABERTURA = o PRIMEIRO passo de
+            // WhatsApp da cadência. Só ele é do vendedor por regra; follow-up de
+            // WhatsApp continua sendo do robô.
+            const isAbertura = passos.findIndex((p) => p.canal === 'whats') === insc.currentStep;
+            const outcome = await this.executeWhatsStep(insc, cadencia, passo, activeStepRunId, isAbertura);
+            if (outcome.sent) {
               whatsSent += 1;
               whatsSentByCompany.set(insc.companyId, alreadyToday + 1);
             } else {
@@ -530,7 +534,7 @@ export class CadenciaService {
                 companyId: insc.companyId,
                 stepRunId: activeStepRunId,
                 status: 'skipped',
-                errorCode: 'whatsapp_step_not_queued',
+                errorCode: outcome.skipReason || 'whatsapp_step_not_queued',
               });
             }
           } else if (passo.canal === 'email') {
@@ -687,18 +691,21 @@ export class CadenciaService {
   }
 
   // WhatsApp: reusa o caminho PROVADO do bot de prospeccao (com todos os freios).
+  // `isAbertura` = este passo é a PRIMEIRA mensagem de WhatsApp da cadência (a
+  // abertura). Quando é, o robô confere se um humano já abriu a conversa.
   private async executeWhatsStep(
     insc: { id: string; companyId: number; leadId: string },
     cadencia: CadenciaRow,
     passo: CadenciaPasso,
     automationStepRunId?: string | null,
-  ): Promise<boolean> {
+    isAbertura = false,
+  ): Promise<{ sent: boolean; skipReason?: string }> {
     if (!(await this.commercialContactControl.canCadenciaRun({
       companyId: insc.companyId,
       leadId: insc.leadId,
       inscricaoId: insc.id,
     }))) {
-      return false;
+      return { sent: false, skipReason: 'cadencia_inativa' };
     }
     const lead = (await this.prisma.vendasLead.findFirst({
       where: { id: insc.leadId, companyId: insc.companyId },
@@ -708,12 +715,41 @@ export class CadenciaService {
     if (!contact) {
       // Sem telefone: passo WhatsApp vira no-op silencioso (segue a cadencia).
       this.logger.log(`[cadencia-runner] whats sem telefone lead=${insc.leadId} — passo pulado`);
-      return false;
+      return { sent: false, skipReason: 'whats_sem_telefone' };
     }
     // Nada sai para quem pediu para sair — consulta ANTES de montar a mensagem.
-    if (await this.blockedBySuppression(insc, { phone: contact })) return false;
+    if (await this.blockedBySuppression(insc, { phone: contact })) {
+      return { sent: false, skipReason: 'contato_suprimido' };
+    }
+    // A ABERTURA É DO VENDEDOR (30/07/2026). Se um humano já mandou mensagem para
+    // este lead/telefone, a abertura FIXA do robô NÃO sai — seria a segunda abertura
+    // no mesmo número, minutos depois da do vendedor. A cadência NÃO morre: o passo
+    // é pulado e ela segue do passo seguinte (o resto da sequência continua valendo).
+    if (isAbertura) {
+      const humano = await this.commercialContactControl.hasHumanOpeningForLead({
+        companyId: insc.companyId,
+        leadId: insc.leadId,
+        phone: contact,
+      });
+      if (humano?.found) {
+        this.logger.log(
+          `[cadencia-runner] abertura ja feita por humano lead=${insc.leadId}` +
+          `${humano.failClosed ? ' (leitura falhou — fail-closed)' : ''} — passo de abertura pulado`,
+        );
+        await this.writeCadenciaTimeline(
+          insc.leadId,
+          'cadencia_whats',
+          cadencia,
+          passo,
+          humano.failClosed
+            ? 'Abertura do robô pulada por segurança (não deu para conferir o histórico da conversa).'
+            : 'Abertura do robô pulada — o vendedor já falou com este contato. A cadência segue do próximo passo.',
+        );
+        return { sent: false, skipReason: 'human_opening_already_sent' };
+      }
+    }
     const body = String(passo.corpo || passo.titulo || '').trim();
-    if (!body) return false;
+    if (!body) return { sent: false, skipReason: 'passo_sem_corpo' };
 
     // MESMO caminho do vendas-automation (queueOutboundForCompany) — disjuntor,
     // 1 numero=1 conexao, janela/gate de conexao viva, warmup e outbox com retry.
@@ -735,7 +771,7 @@ export class CadenciaService {
       automationStepRunId: automationStepRunId || undefined,
       flowState: { botActive: true, humanAssigned: false, flowResult: null },
     });
-    return true;
+    return { sent: true };
   }
 
   // E-mail automático: enfileira pelo remetente do próprio tenant, atrás da flag
@@ -854,12 +890,24 @@ export class CadenciaService {
   // Registra o evento de e-mail no timeline do lead (best-effort — nunca lanca).
   // Mantem o mesmo eventType/sourceType de hoje ('cadencia_email' / 'automacao').
   private async writeEmailTimeline(leadId: string, cadencia: CadenciaRow, passo: CadenciaPasso, description: string | null) {
+    await this.writeCadenciaTimeline(leadId, 'cadencia_email', cadencia, passo, description);
+  }
+
+  // Mesmo registro, com o eventType do canal (best-effort — nunca lanca). O vendedor
+  // precisa VER na ficha por que o robô não mandou a abertura dele.
+  private async writeCadenciaTimeline(
+    leadId: string,
+    eventType: string,
+    cadencia: CadenciaRow,
+    passo: CadenciaPasso,
+    description: string | null,
+  ) {
     await this.prisma.vendasLeadTimelineEvent
       .create({
         data: {
           leadId,
-          eventType: 'cadencia_email',
-          title: `Cadência (${cadencia.nome}): ${passo.titulo || 'E-mail'}`.slice(0, 200),
+          eventType,
+          title: `Cadência (${cadencia.nome}): ${passo.titulo || (eventType === 'cadencia_email' ? 'E-mail' : 'WhatsApp')}`.slice(0, 200),
           description: (description || '').slice(0, 500) || null,
           sourceType: 'automacao',
         },

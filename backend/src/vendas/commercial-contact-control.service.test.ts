@@ -451,3 +451,112 @@ test('lock comercial projeta tipo suportado pelo Prisma antes de criar o job', a
   assert.match(lockSql, /WITH advisory_lock AS/);
   assert.match(lockSql, /SELECT 1::integer AS locked FROM advisory_lock/);
 });
+
+// ================================================================
+// O ROBÔ ENXERGA O HUMANO (30/07/2026) — `hasHumanOpeningForLead` é a fonte única
+// que responde "um humano já abriu a conversa com este lead/telefone?". O corte é
+// `senderType:'human'` (composer da ficha) × `senderType:'bot'` (cadência), porque
+// envio anterior do PRÓPRIO robô não pode bloquear a cadência dele.
+// ================================================================
+
+function makeHumanOpeningPrisma(messages: any[], conversations?: any[]) {
+  const queries: any[] = [];
+  const rows = conversations ?? [{ id: 10 }];
+  return {
+    queries,
+    prisma: {
+      companyConversation: {
+        findMany: async (args: any) => {
+          queries.push({ model: 'companyConversation', args });
+          return rows;
+        },
+      },
+      companyMessage: {
+        findFirst: async (args: any) => {
+          queries.push({ model: 'companyMessage', args });
+          const where = args?.where || {};
+          const ids: number[] = where?.conversationId?.in || [];
+          const dead: string[] = where?.status?.notIn || [];
+          const hit = messages.find((message) => (
+            ids.includes(Number(message.conversationId)) &&
+            String(message.direction) === String(where.direction) &&
+            String(message.senderType) === String(where.senderType) &&
+            !dead.includes(String(message.status))
+          ));
+          return hit || null;
+        },
+      },
+    } as any,
+  };
+}
+
+test('robo enxerga o humano: mensagem OUTBOUND humana no lead BARRA a abertura', async () => {
+  const { prisma, queries } = makeHumanOpeningPrisma([
+    { id: 501, conversationId: 10, direction: 'OUTBOUND', senderType: 'human', status: 'SENT', timestamp: new Date('2026-07-30T11:58:00Z') },
+  ]);
+  const service = new CommercialContactControlService(prisma);
+
+  const result = await service.hasHumanOpeningForLead({ companyId: 7, leadId: 'lead-1', phone: '5511988887777' });
+
+  assert.equal(result.found, true, 'vendedor ja falou -> a abertura do robo nao pode sair');
+  assert.equal(result.conversationId, 10);
+  const conversationQuery = queries.find((q) => q.model === 'companyConversation');
+  assert.ok(
+    conversationQuery.args.where.OR.some((clause: any) => clause.vendasLeadId === 'lead-1'),
+    'procura pelo vinculo canonico da ficha (CompanyConversation.vendasLeadId)',
+  );
+  assert.ok(
+    conversationQuery.args.where.OR.some((clause: any) => Array.isArray(clause?.contact?.in) && clause.contact.in.includes('+5511988887777')),
+    'e tambem pelo telefone (conversa ainda nao vinculada e o MESMO numero)',
+  );
+});
+
+test('robo enxerga o humano: envio anterior do PROPRIO robo NAO bloqueia a cadencia dele', async () => {
+  const { prisma } = makeHumanOpeningPrisma([
+    { id: 502, conversationId: 10, direction: 'OUTBOUND', senderType: 'bot', status: 'SENT', timestamp: new Date('2026-07-29T12:00:00Z') },
+  ]);
+  const service = new CommercialContactControlService(prisma);
+
+  const result = await service.hasHumanOpeningForLead({ companyId: 7, leadId: 'lead-1', phone: '5511988887777' });
+
+  assert.equal(result.found, false, 'senderType bot e o proprio robo — nao conta como abertura humana');
+  assert.equal(result.at, null);
+});
+
+test('robo enxerga o humano: mensagem humana que FALHOU nao conta (cliente nunca viu)', async () => {
+  const { prisma } = makeHumanOpeningPrisma([
+    { id: 503, conversationId: 10, direction: 'OUTBOUND', senderType: 'human', status: 'FAILED', timestamp: new Date('2026-07-30T11:58:00Z') },
+  ]);
+  const service = new CommercialContactControlService(prisma);
+
+  const result = await service.hasHumanOpeningForLead({ companyId: 7, leadId: 'lead-1', phone: '5511988887777' });
+
+  assert.equal(result.found, false);
+});
+
+test('robo enxerga o humano: sem conversa nenhuma -> libera (lead virgem)', async () => {
+  const { prisma, queries } = makeHumanOpeningPrisma([], []);
+  const service = new CommercialContactControlService(prisma);
+
+  const result = await service.hasHumanOpeningForLead({ companyId: 7, leadId: 'lead-1', phone: '5511988887777' });
+
+  assert.equal(result.found, false);
+  assert.equal(queries.filter((q) => q.model === 'companyMessage').length, 0, 'sem conversa nem consulta mensagem');
+});
+
+test('robo enxerga o humano: leitura do historico quebrou -> FAIL-CLOSED (nao arrisca 2a abertura)', async () => {
+  const prisma: any = {
+    companyConversation: {
+      findMany: async () => {
+        throw new Error('db down');
+      },
+    },
+    companyMessage: { findFirst: async () => null },
+  };
+  const service = new CommercialContactControlService(prisma);
+
+  const result = await service.hasHumanOpeningForLead({ companyId: 7, leadId: 'lead-1', phone: '5511988887777' });
+
+  assert.equal(result.found, true, 'na duvida NAO manda abertura — chip banido nao tem git revert');
+  assert.equal(result.failClosed, true);
+});

@@ -1,5 +1,6 @@
 import { PrismaService } from '../prisma/prisma.service';
 import type { ConversationsService } from '../messaging/conversations.service';
+import { buildWhatsAppPhoneCandidates } from '../messaging/whatsapp-channel';
 import { CommercialAutomationStateService } from '../automation/commercial-automation-state.service';
 
 export const COMMERCIAL_WHATSAPP_SOURCE_MODULES = [
@@ -8,6 +9,14 @@ export const COMMERCIAL_WHATSAPP_SOURCE_MODULES = [
 ] as const;
 
 export const COMMERCIAL_INBOUND_STOP_REASON = 'inbound_received';
+
+// A ABERTURA é do VENDEDOR (regra dura do dono). Motivo carimbado no passo pulado
+// quando o robô descobre que um humano já abriu a conversa naquele número.
+export const COMMERCIAL_HUMAN_OPENING_REASON = 'human_opening_already_sent';
+
+// Mensagem que não chegou ao cliente não conta como "o humano já falou" — o
+// destinatário nunca viu nada, logo a abertura do robô ainda é o 1º contato.
+const HUMAN_OPENING_DEAD_STATUSES = ['FAILED', 'CANCELED'] as const;
 
 const ACTIVE_BOT_JOB_STATUSES = ['pending', 'scheduled', 'sending', 'sent'] as const;
 const ACTIVE_CADENCE_STATUSES = ['ativa', 'pausada'] as const;
@@ -285,6 +294,78 @@ export class CommercialContactControlService {
       });
     }
     return { canceledCadencias: affected.length };
+  }
+
+  // ================================================================
+  // O ROBÔ ENXERGA O HUMANO (30/07/2026) — "a primeira mensagem é do VENDEDOR".
+  // Cena real: abertura mandada na mão às 08:58 pelo composer da ficha e, minutos
+  // depois, o robô ofereceria a abertura FIXA dele para o MESMO número. Duas
+  // aberturas no mesmo chip é o que vira denúncia.
+  //
+  // ONDE OLHAR (decisão): a ficha do lead lê a conversa por
+  // `CompanyConversation.vendasLeadId` (VendasConversationService.resolveConversation)
+  // e as mensagens por `CompanyMessage` (@@map "Message"). Usamos a MESMA dupla, em 2
+  // passos: (1) as conversas de whatsapp do lead — pelo vínculo canônico OU pelo
+  // telefone (o chip é o mesmo número, então conversa não vinculada também conta);
+  // (2) uma mensagem OUTBOUND com `senderType:'human'` nelas, que casa o índice
+  // `@@index([conversationId, senderType, timestamp])`. Não usamos OutboundMessage
+  // (fila) porque o histórico do que JÁ foi falado mora na conversa.
+  //
+  // HUMANO × ROBÔ: o composer grava `senderType:'human'` (inbox.service#sendMessage);
+  // a cadência grava `senderType:'bot'` + `sourceModule:'vendas_prospeccao_bot'`
+  // (cadencia.service#executeWhatsStep). Filtrar por `senderType:'human'` já exclui
+  // o envio anterior do PRÓPRIO robô — robô não bloqueia robô.
+  async hasHumanOpeningForLead(input: {
+    companyId: number;
+    leadId: string;
+    phone?: string | null;
+  }): Promise<{ found: boolean; at: Date | null; conversationId: number | null; failClosed?: boolean }> {
+    const empty = { found: false, at: null, conversationId: null };
+    if (typeof (this.prisma as any)?.companyConversation?.findMany !== 'function') return empty;
+    if (typeof (this.prisma as any)?.companyMessage?.findFirst !== 'function') return empty;
+    try {
+      const contacts = buildWhatsAppPhoneCandidates(input.phone);
+      const conversations = await (this.prisma as any).companyConversation.findMany({
+        where: {
+          companyId: input.companyId,
+          channel: 'whatsapp',
+          OR: [
+            { vendasLeadId: input.leadId },
+            ...(contacts.length ? [{ contact: { in: contacts } }] : []),
+          ],
+        },
+        select: { id: true },
+        take: 20,
+      });
+      const conversationIds = Array.from(new Set<number>(
+        (conversations || []).map((row: any) => Number(row?.id || 0)).filter((id: number) => id > 0),
+      ));
+      if (!conversationIds.length) return empty;
+
+      const human = await (this.prisma as any).companyMessage.findFirst({
+        where: {
+          companyId: input.companyId,
+          conversationId: { in: conversationIds },
+          direction: 'OUTBOUND',
+          senderType: 'human',
+          status: { notIn: [...HUMAN_OPENING_DEAD_STATUSES] },
+        },
+        select: { id: true, timestamp: true, conversationId: true },
+        orderBy: { timestamp: 'asc' },
+      });
+      if (!human?.id) return empty;
+      return {
+        found: true,
+        at: human.timestamp instanceof Date ? human.timestamp : null,
+        conversationId: Number(human.conversationId || 0) || null,
+      };
+    } catch {
+      // FAIL-CLOSED de propósito (≠ supressão, que é fail-open): aqui o preço de
+      // errar para o lado do envio é uma SEGUNDA abertura no mesmo número — chip
+      // banido não tem `git revert`. O preço de errar para o lado do freio é uma
+      // abertura a menos, e a cadência segue nos passos seguintes.
+      return { found: true, at: null, conversationId: null, failClosed: true };
+    }
   }
 
   async canCadenciaRun(input: { companyId: number; leadId: string; inscricaoId: string }): Promise<boolean> {

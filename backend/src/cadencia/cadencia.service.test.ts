@@ -40,6 +40,9 @@ function makeService(opts: {
   // FREIO DA SUPRESSÃO (30/07) — chaves de contato que já pediram para sair.
   // Default: ninguém suprimido (comportamento de sempre).
   suppressedContacts?: string[];
+  // O ROBÔ ENXERGA O HUMANO (30/07) — telefones em que um humano JÁ mandou a
+  // abertura na mão. Default: ninguém falou ainda (comportamento de sempre).
+  humanOpeningPhones?: string[];
 }) {
   const svc = Object.create(CadenciaService.prototype) as any;
   const queueCalls: any[] = [];
@@ -52,6 +55,7 @@ function makeService(opts: {
   process.env.HBX_CADENCIA_EMAIL_ENABLED = opts.emailEnabled ? '1' : '0';
 
   const inscricoes = opts.inscricoes.map((i) => ({ ...i }));
+  const humanOpeningCalls: any[] = [];
 
   svc.prisma = {
     cadenciaInscricao: {
@@ -152,6 +156,14 @@ function makeService(opts: {
       const row = inscricoes.find((item) => item.id === inscricaoId);
       return Boolean(row && row.companyId === companyId && row.leadId === leadId && row.status === 'ativa');
     },
+    // O ROBÔ ENXERGA O HUMANO (30/07) — mesmo contrato do adaptador real: só diz
+    // SE existe mensagem OUTBOUND humana para aquele lead/telefone (o filtro
+    // senderType:'human' do service real já exclui o envio do próprio robô).
+    hasHumanOpeningForLead: async (input: any) => {
+      humanOpeningCalls.push(input);
+      const found = (opts.humanOpeningPhones || []).includes(String(input?.phone || ''));
+      return { found, at: found ? new Date() : null, conversationId: found ? 1 : null };
+    },
     // Mocks unitários não têm as tabelas da Fase 3; reproduz o modo de
     // compatibilidade do adaptador real sem desabilitar o runner legado.
     claimCadenciaStep: async () => ({ supported: false, claimed: true, alreadyExecuted: false, stepRunId: null }),
@@ -181,7 +193,7 @@ function makeService(opts: {
   // sem VendasComercialConfig na tabela falsa -> cai nos defaults 08:00-18:00/10/15).
   svc.agendaDisparo = new AgendaDisparoService(svc.prisma);
 
-  return { svc, queueCalls, atividadeCalls, mailerCalls, timelineCalls, updates, inscricoes, suppressionCalls };
+  return { svc, queueCalls, atividadeCalls, mailerCalls, timelineCalls, updates, inscricoes, suppressionCalls, humanOpeningCalls };
 }
 
 const cadenciaConservador = {
@@ -294,6 +306,83 @@ test('FREIO: contato limpo continua recebendo normalmente (nao-regressao)', asyn
   assert.equal((res as any).whatsSent, 1, 'quem nunca pediu para sair segue recebendo');
   assert.equal(queueCalls.length, 1);
   assert.ok(suppressionCalls.length >= 1);
+});
+
+// ================================================================
+// O ROBÔ ENXERGA O HUMANO (30/07/2026) — cena medida em produção: abertura mandada
+// na mão às 08:58 pelo composer da ficha (senderType 'human') e, minutos depois, o
+// robô ainda ofereceria a abertura FIXA dele para o MESMO número. Duas aberturas no
+// mesmo chip = denúncia. Estes 3 testes são a vacina.
+// ================================================================
+
+// Cadência com DOIS passos de WhatsApp: o dia 0 é a ABERTURA (regra do vendedor);
+// o dia 5 é follow-up do robô — esse NÃO é abertura e não pode ser barrado.
+const cadenciaDoisWhats = {
+  id: 'cadW',
+  companyId: 7,
+  ativa: true,
+  nome: 'Determinado (Agressivo)',
+  passosJson: JSON.stringify(
+    sanitizePassos([
+      { dia: 0, canal: 'whats', titulo: 'Abertura', corpo: 'Olá! Vi que sua empresa...' },
+      { dia: 1, canal: 'email', titulo: 'E-mail 1', corpo: 'Material rápido.' },
+      { dia: 5, canal: 'whats', titulo: 'Follow-up WhatsApp', corpo: 'Passando pra saber...' },
+    ]),
+  ),
+};
+
+test('HUMANO ABRIU: robo NAO manda a abertura dele, e a cadencia SEGUE do proximo passo', async () => {
+  const { svc, queueCalls, timelineCalls, inscricoes, humanOpeningCalls } = makeService({
+    runnerEnabled: true,
+    cadencia: cadenciaConservador,
+    humanOpeningPhones: ['5511988887777'],
+    inscricoes: [
+      { id: 'i1', cadenciaId: 'cad1', companyId: 7, leadId: 'lead1', responsavelId: null, status: 'ativa', currentStep: 0, nextStepAt: new Date(Date.now() - 1000) },
+    ],
+  });
+  const res = await svc.runDueSteps(new Date());
+  assert.equal(queueCalls.length, 0, 'a abertura do robo NAO pode sair depois da abertura do vendedor');
+  assert.equal((res as any).whatsSent, 0);
+  assert.ok(humanOpeningCalls.length >= 1, 'o robo TEM que olhar o historico antes da abertura');
+  assert.equal(humanOpeningCalls[0].phone, '5511988887777', 'confere pelo telefone do lead');
+  assert.equal(inscricoes[0].status, 'ativa', 'a cadencia NAO morre — so a abertura duplicada morre');
+  assert.equal(inscricoes[0].currentStep, 1, 'segue do passo seguinte (e-mail)');
+  assert.ok(
+    timelineCalls.some((t) => /vendedor já falou/i.test(t.description || '')),
+    'a ficha do lead registra POR QUE a abertura nao saiu',
+  );
+});
+
+test('NINGUEM ABRIU: abertura sai normalmente (nao-regressao)', async () => {
+  const { svc, queueCalls, humanOpeningCalls, inscricoes } = makeService({
+    runnerEnabled: true,
+    cadencia: cadenciaConservador,
+    humanOpeningPhones: ['5511777770000'],
+    inscricoes: [
+      { id: 'i1', cadenciaId: 'cad1', companyId: 7, leadId: 'lead1', responsavelId: null, status: 'ativa', currentStep: 0, nextStepAt: new Date(Date.now() - 1000) },
+    ],
+  });
+  const res = await svc.runDueSteps(new Date());
+  assert.equal((res as any).whatsSent, 1, 'lead sem humano no historico segue recebendo a abertura');
+  assert.equal(queueCalls.length, 1);
+  assert.ok(humanOpeningCalls.length >= 1, 'o portao e consultado mesmo quando libera');
+  assert.equal(inscricoes[0].currentStep, 1);
+});
+
+test('SO A ABERTURA e barrada: follow-up de WhatsApp do robo nem consulta o historico humano', async () => {
+  const { svc, queueCalls, humanOpeningCalls } = makeService({
+    runnerEnabled: true,
+    cadencia: cadenciaDoisWhats,
+    humanOpeningPhones: ['5511988887777'],
+    inscricoes: [
+      // currentStep 2 = o SEGUNDO passo de WhatsApp (dia 5), que nao e abertura.
+      { id: 'i1', cadenciaId: 'cadW', companyId: 7, leadId: 'lead1', responsavelId: null, status: 'ativa', currentStep: 2, nextStepAt: new Date(Date.now() - 1000) },
+    ],
+  });
+  const res = await svc.runDueSteps(new Date());
+  assert.equal((res as any).whatsSent, 1, 'follow-up do robo continua saindo — a regra e da ABERTURA');
+  assert.equal(queueCalls.length, 1);
+  assert.equal(humanOpeningCalls.length, 0, 'passo que nao e abertura nem paga a consulta');
 });
 
 test('teto diario de WhatsApp por empresa nao e furado (passo extra e adiado, nao enviado)', async () => {
