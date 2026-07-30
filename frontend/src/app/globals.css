@@ -13,6 +13,7 @@
 @import "./hbx-theme/skeleton.css";
 @import "./hbx-theme/base.css";
 @import "./hbx-theme/kit.css";
+@import "./hbx-theme/panel-shell.css";
 @import "./hbx-theme/errors.css";
 @import "./hbx-theme/screens.css";
 /* LOGÍSTICA — Agenda semanal do administrador. Estrutura derivada dos tokens

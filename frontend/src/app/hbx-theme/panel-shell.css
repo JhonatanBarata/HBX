@@ -1,0 +1,523 @@
+/* ============================================================
+   HBX — casca operacional compartilhada
+
+   Duas variantes, uma estrutura:
+   - comum: uma superfície de trabalho;
+   - contextual: trabalho + painel estável de 345px à direita.
+
+   A casca só organiza. Cor, contraste, profundidade e movimento vêm
+   integralmente do contrato de tokens ativo.
+   ============================================================ */
+
+.hbx-panel-shell {
+  --hbx-panel-shell-context-width: 345px;
+  --hbx-panel-shell-gap: 1px;
+
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  align-self: stretch;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--hbx-panel-shell-gap);
+  overflow: hidden;
+  isolation: isolate;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--panel-radius);
+  background: var(--border-hairline);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-body);
+  font-family: var(--font-body, "Plus Jakarta Sans", Inter, "Segoe UI", Roboto, Arial, sans-serif);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+.hbx-panel-shell--context {
+  grid-template-columns:
+    minmax(0, 1fr)
+    var(--hbx-panel-shell-context-width);
+}
+
+.hbx-panel-shell__main,
+.hbx-panel-shell__context {
+  min-width: 0;
+  min-height: 0;
+  background: var(--hbx-surface);
+}
+
+.hbx-panel-shell__main {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.hbx-panel-shell__content {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.hbx-panel-shell__context {
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  background:
+    radial-gradient(
+      90% 34% at 100% 0%,
+      color-mix(in srgb, var(--hbx-brand) 7%, transparent),
+      transparent 72%
+    ),
+    var(--hbx-surface);
+}
+
+/* Primitivas densas do painel contextual. Elas não impõem conteúdo ou ações. */
+.hbx-panel-context__header {
+  position: sticky;
+  z-index: 2;
+  top: 0;
+  flex: 0 0 auto;
+  min-height: 46px;
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-hairline);
+  background: color-mix(in srgb, var(--hbx-surface) 94%, transparent);
+  backdrop-filter: blur(var(--blur-chrome));
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+}
+
+.hbx-panel-context__header-copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.hbx-panel-context__eyebrow,
+.hbx-panel-context__title,
+.hbx-panel-context__subtitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hbx-panel-context__eyebrow {
+  color: var(--hbx-brand-strong);
+  font-size: 0.56rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hbx-panel-context__title {
+  color: var(--text-strong);
+  font-size: 0.78rem;
+  font-weight: 750;
+}
+
+.hbx-panel-context__subtitle {
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 600;
+}
+
+.hbx-panel-context__header-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.hbx-panel-context__empty {
+  flex: 1 1 auto;
+  min-height: 220px;
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.hbx-panel-context__empty-icon {
+  width: 42px;
+  height: 42px;
+  margin-bottom: 4px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 22%, var(--border-hairline));
+  border-radius: var(--radius-md);
+  background: var(--hbx-brand-soft);
+  color: var(--hbx-brand-strong);
+}
+
+.hbx-panel-context__empty strong {
+  color: var(--text-strong);
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
+.hbx-panel-context__empty > span:not(.hbx-panel-context__empty-icon) {
+  max-width: 30ch;
+  font-size: 0.68rem;
+  line-height: 1.45;
+}
+
+.hbx-panel-context__hero {
+  min-width: 0;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.hbx-panel-context__hero-visual {
+  width: 44px;
+  height: 44px;
+  display: inline-grid;
+  place-items: center;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--hbx-brand-soft);
+  color: var(--hbx-brand-strong);
+}
+
+.hbx-panel-context__hero-visual > :is(img, svg) {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.hbx-panel-context__hero-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.hbx-panel-context__hero-copy > strong,
+.hbx-panel-context__hero-copy > span,
+.hbx-panel-context__hero-copy > small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hbx-panel-context__hero-copy > strong {
+  color: var(--text-strong);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.hbx-panel-context__hero-copy > span {
+  color: var(--text-body);
+  font-size: 0.66rem;
+  font-weight: 650;
+}
+
+.hbx-panel-context__hero-copy > small {
+  color: var(--text-muted);
+  font-size: 0.6rem;
+  font-weight: 600;
+}
+
+.hbx-panel-context__hero-trailing {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.hbx-panel-context__metrics {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(78px, 1fr));
+  gap: 1px;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--border-hairline);
+}
+
+.hbx-panel-context__metric {
+  min-width: 0;
+  min-height: 66px;
+  padding: 9px 10px;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  background: var(--hbx-surface);
+}
+
+.hbx-panel-context__metric > strong,
+.hbx-panel-context__metric > span,
+.hbx-panel-context__metric > small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hbx-panel-context__metric > strong {
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
+.hbx-panel-context__metric > span {
+  color: var(--text-muted);
+  font-size: 0.59rem;
+  font-weight: 700;
+}
+
+.hbx-panel-context__metric > small {
+  color: var(--text-body);
+  font-size: 0.56rem;
+  font-weight: 600;
+}
+
+.hbx-panel-context__facts {
+  margin: 0;
+  padding: 4px 12px;
+  display: grid;
+}
+
+.hbx-panel-context__fact {
+  min-width: 0;
+  min-height: 36px;
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.hbx-panel-context__fact:last-child {
+  border-bottom: 0;
+}
+
+.hbx-panel-context__fact dt,
+.hbx-panel-context__fact dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hbx-panel-context__fact dt {
+  color: var(--text-muted);
+  font-size: 0.62rem;
+  font-weight: 650;
+}
+
+.hbx-panel-context__fact dd {
+  color: var(--text-strong);
+  font-size: 0.68rem;
+  font-weight: 750;
+  text-align: right;
+}
+
+/* Densidade da fase 1: elimina somente os vazios entre blocos. Conteúdo,
+   controles e alvos de toque preservam seus tamanhos próprios. */
+.hbx-panel-shell__route-work,
+.hbx-panel-shell-host {
+  padding: 1px;
+  gap: 1px;
+}
+
+.hbx-panel-shell__route-work > .panel,
+.hbx-panel-shell__route-work > :is(.panel, .fin-kpis) {
+  border-radius: 0;
+}
+
+.hbx-panel-shell__route-work .panel-head {
+  min-height: 42px;
+  padding: 7px 10px;
+  gap: 6px;
+}
+
+.hbx-panel-shell__route-work .emp-list {
+  gap: 1px;
+  padding: 1px;
+}
+
+.hbx-panel-shell__route-work .emp-row {
+  padding: 8px 10px;
+  border-radius: 0;
+}
+
+.hbx-panel-shell__route-work .emp-pager {
+  gap: 4px;
+  padding: 2px 4px 4px;
+}
+
+.hbx-panel-toolbar {
+  padding: 4px 6px 2px;
+}
+
+.hbx-panel-shell .hbx-selectable-row {
+  cursor: pointer;
+}
+
+.hbx-panel-shell .hbx-selectable-row:hover {
+  background: var(--hbx-surface-soft);
+  border-color: color-mix(in srgb, var(--hbx-brand) 34%, transparent);
+}
+
+.hbx-panel-context__actions {
+  margin-top: auto;
+  padding: 8px 12px 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 5px;
+  border-top: 1px solid var(--border-hairline);
+}
+
+.hbx-panel-context__actions > :is(a, button) {
+  width: 100%;
+  justify-content: center;
+}
+
+.hbx-panel-context__section {
+  padding: 7px 12px;
+  display: grid;
+  gap: 2px;
+  border-top: 1px solid var(--border-hairline);
+}
+
+.hbx-panel-context__section-title {
+  margin-bottom: 3px;
+  color: var(--text-muted);
+  font-size: 0.6rem;
+  font-weight: 750;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.hbx-panel-context__muted {
+  color: var(--text-muted);
+  font-size: 0.66rem;
+}
+
+.hbx-panel-context__compact-row {
+  min-width: 0;
+  min-height: 38px;
+  padding: 4px 0;
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1px solid var(--border-hairline);
+  color: var(--text-muted);
+}
+
+.hbx-panel-context__compact-row > span {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.hbx-panel-context__compact-row strong,
+.hbx-panel-context__compact-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hbx-panel-context__compact-row strong {
+  color: var(--text-strong);
+  font-size: 0.68rem;
+}
+
+.hbx-panel-context__compact-row small {
+  color: var(--text-muted);
+  font-size: 0.58rem;
+}
+
+/* Atendimento já possui três áreas internas; a casca apenas comprime seus
+   espaços macro e deixa a conversa/detalhe rolarem como antes. */
+.hbx-panel-shell.a-content {
+  grid-template-columns: minmax(0, 1fr) 345px;
+  gap: 1px;
+}
+
+.hbx-panel-shell .a-left {
+  padding: 1px;
+  gap: 1px;
+}
+
+.hbx-panel-shell .a-left .kpis {
+  padding-right: 0;
+}
+
+.hbx-panel-context--dense {
+  padding: 0;
+  gap: 2px;
+}
+
+.hbx-panel-context--dense .ctx-body {
+  gap: 3px;
+  padding-bottom: 4px;
+}
+
+.hbx-panel-context--dense :is(.ctx-section, .ctx-sec) {
+  gap: 3px;
+  padding-top: 4px;
+}
+
+.hbx-panel-context--dense :is(.ctx-note, .ctx-phone) {
+  padding-block: 7px;
+}
+
+@media (max-width: 900px) {
+  .hbx-panel-shell--context {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 3fr) minmax(240px, 2fr);
+  }
+
+  .hbx-panel-shell--context > .hbx-panel-shell__context {
+    border-top: 1px solid var(--border-hairline);
+  }
+}
+
+@media (max-width: 520px) {
+  .hbx-panel-shell {
+    border-inline: 0;
+    border-radius: 0;
+  }
+
+  .hbx-panel-shell--context {
+    grid-template-rows: minmax(0, 1fr) minmax(220px, 44%);
+  }
+
+  .hbx-panel-context__fact {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+    padding: 7px 0;
+  }
+
+  .hbx-panel-context__fact dd {
+    text-align: left;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hbx-panel-shell *,
+  .hbx-panel-shell *::before,
+  .hbx-panel-shell *::after {
+    scroll-behavior: auto;
+  }
+}

@@ -16,6 +16,16 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 
+import {
+  HbxContextEmpty,
+  HbxContextFact,
+  HbxContextFacts,
+  HbxContextHeader,
+  HbxContextHero,
+  HbxContextMetric,
+  HbxContextMetrics,
+  HbxPanelShell,
+} from "@/components/hbx/panel-shell";
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import {
   ImportPlanilhaModal,
@@ -218,6 +228,7 @@ export function ProdutosClient() {
   const [query, setQuery] = useState("");
   const [showArchived, setShowArchived] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [selected, setSelected] = useState<Produto | null>(null);
   const [modal, setModal] = useState<{ open: boolean; edit: Produto | null }>({ open: false, edit: null });
 
   const load = useCallback(() => {
@@ -226,7 +237,9 @@ export function ProdutosClient() {
     // cliente pelo toggle (o endpoint aceita ?status= mas queremos o join local).
     return apiFetch<Produto[]>("/products")
       .then((res) => {
-        setItems(Array.isArray(res) ? res : []);
+        const next = Array.isArray(res) ? res : [];
+        setItems(next);
+        setSelected((current) => current ? next.find((item) => item.id === current.id) || null : null);
         setError(null);
       })
       .catch((err: unknown) => {
@@ -268,8 +281,8 @@ export function ProdutosClient() {
 
   const isEmpty = !loading && !error && filtered.length === 0;
 
-  return (
-    <div className="work" style={{ flex: 1 }}>
+  const main = (
+    <div className="work hbx-panel-shell__route-work" style={{ flex: 1 }}>
       <section className="panel">
         <div className="panel-head">
           <h2>Produtos</h2>
@@ -278,7 +291,7 @@ export function ProdutosClient() {
           </div>
         </div>
 
-        <div style={{ padding: "12px 16px 4px" }}>
+        <div className="hbx-panel-toolbar">
           <form className="emp-toolbar" onSubmit={(e) => e.preventDefault()}>
             <input
               className="field-dark emp-search"
@@ -326,7 +339,20 @@ export function ProdutosClient() {
             {filtered.map((p) => {
               const archived = p.status === "archived";
               return (
-                <div className={`emp-row prod-row${archived ? " is-archived" : ""}`} key={p.id}>
+                <div
+                  className={`emp-row prod-row${archived ? " is-archived" : ""}${selected?.id === p.id ? " is-active" : ""}`}
+                  key={p.id}
+                  role="button"
+                  tabIndex={0}
+                  aria-selected={selected?.id === p.id}
+                  onClick={() => setSelected(p)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelected(p);
+                    }
+                  }}
+                >
                   <span className="emp-row__ico"><I d={ICONS.produtos} size={18} /></span>
                   <span className="emp-row__main">
                     <span className="emp-row__name">{p.name}</span>
@@ -347,7 +373,10 @@ export function ProdutosClient() {
                       <button
                         type="button"
                         className="btn-ghost btn-xs"
-                        onClick={() => setModal({ open: true, edit: p })}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setModal({ open: true, edit: p });
+                        }}
                       >
                         Editar
                       </button>
@@ -355,7 +384,10 @@ export function ProdutosClient() {
                         <button
                           type="button"
                           className="btn-ghost btn-xs"
-                          onClick={() => inativar(p)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void inativar(p);
+                          }}
                           title="Inativar produto"
                         >
                           <I d={ICONS.trash} size={13} />
@@ -369,7 +401,60 @@ export function ProdutosClient() {
           </div>
         )}
       </section>
+    </div>
+  );
 
+  const context = selected ? (
+    <>
+      <HbxContextHeader
+        eyebrow="Produto"
+        title="Detalhes do produto"
+        subtitle={selected.status === "archived" ? "Fora do catálogo ativo" : "Catálogo ativo"}
+        actions={(
+          <button type="button" className="icon-ghost" onClick={() => setSelected(null)} aria-label="Fechar detalhes">
+            <I d={ICONS.x} size={15} />
+          </button>
+        )}
+      />
+      <HbxContextHero
+        visual={<I d={ICONS.produtos} size={20} />}
+        title={selected.name}
+        subtitle={selected.unidade || "Sem unidade definida"}
+        meta={selected.sku ? `SKU ${selected.sku}` : "Sem SKU"}
+      />
+      <HbxContextMetrics>
+        <HbxContextMetric label="Preço" value={fmtPrice(selected.price, selected.priceCents)} />
+        <HbxContextMetric label="Logística" value={selected.usaLogistica ? "Sim" : "Não"} />
+      </HbxContextMetrics>
+      <HbxContextFacts>
+        <HbxContextFact label="Situação" value={selected.status === "archived" ? "Inativo" : "Ativo"} />
+        <HbxContextFact label="Unidade" value={selected.unidade || "Não definida"} />
+        <HbxContextFact label="SKU" value={selected.sku || "Não informado"} />
+        <HbxContextFact label="Descrição" value={selected.description || "Não informada"} />
+      </HbxContextFacts>
+      <div className="hbx-panel-context__actions">
+        <button type="button" className="btn-teal" onClick={() => setModal({ open: true, edit: selected })}>
+          <I d={ICONS.edit} size={13} /> Editar produto
+        </button>
+      </div>
+    </>
+  ) : (
+    <HbxContextEmpty
+      icon={<I d={ICONS.produtos} size={19} />}
+      title="Selecione um produto"
+      description="O catálogo continua à esquerda e os dados do item aparecem aqui."
+    />
+  );
+
+  return (
+    <>
+      <HbxPanelShell
+        variant="context"
+        ariaLabel="Catálogo de produtos"
+        contextLabel="Detalhes do produto"
+        main={main}
+        context={context}
+      />
       {modal.open && (
         <ProdutoModal edit={modal.edit} onClose={() => setModal({ open: false, edit: null })} onSaved={afterSaved} />
       )}
@@ -380,6 +465,6 @@ export function ProdutosClient() {
           onImported={load}
         />
       )}
-    </div>
+    </>
   );
 }

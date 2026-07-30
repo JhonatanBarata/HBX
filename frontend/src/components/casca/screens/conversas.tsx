@@ -1,7 +1,7 @@
 "use client";
 
 // MOBILE-CASCA/W3 — CONVERSAS mobile (mockup aprovado 2), registrada em
-// /atendimento. Orquestra LISTA (conversas-lista.tsx) + CHAT takeover
+// /conversas. Orquestra LISTA (conversas-lista.tsx) + CHAT takeover
 // (conversas-chat.tsx, via <CascaView> — a API da casca). Estado próprio
 // (conversa selecionada) — não compartilha estado com o desktop (DOM mobile é
 // árvore separada, mesmos endpoints). "+Nova" reusa POST

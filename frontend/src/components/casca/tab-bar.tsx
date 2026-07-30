@@ -37,7 +37,7 @@ export type Tab = { key: string; label: string; href: string; icon: string; navI
 // consome CASCA_TABS + isCascaTabVisible, sem duplicar a lista.
 export const CASCA_TABS: Tab[] = [
   { key: "vendas", label: "Vendas", href: "/vendas", icon: "vendas", navId: "vendas" },
-  { key: "atend", label: "Conversas", href: "/atendimento", icon: "atend", navId: "atend" },
+  { key: "atend", label: "Conversas", href: "/conversas", icon: "atend", navId: "atend" },
   { key: "empresas", label: "Empresas", href: "/empresas", icon: "empresas", navId: "empresas" },
   // Rota = módulo Logística (app /entrega). Gate = navId "logistica" (mesmo do
   // desktop). href /entrega (skin própria, W6). NÃO é destino de swipe (é
@@ -56,7 +56,7 @@ function isTabActive(tab: Tab, pathname: string): boolean {
   if (tab.key === "mais") {
     // "Mais" acende em /configuracoes (destino real da folha) e em qualquer
     // rota fora das outras 4 abas fixas (comportamento herdado do W1).
-    const fixed = ["/vendas", "/atendimento", "/empresas"];
+    const fixed = ["/vendas", "/conversas", "/atendimento", "/empresas"];
     if (fixed.includes(pathname) || pathname.startsWith("/entrega")) return false;
     return true;
   }

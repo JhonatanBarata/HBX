@@ -1327,7 +1327,7 @@ export function CentralDoLead({ lead, canViewValues, open, onClose, onConversati
               onClick={(event) => { if (event.target === event.currentTarget) setAgendaOpen(false); }}
             >
               {/* AgendaLeadPanel é painel de DADOS compartilhado com /leads e
-                  /atendimento — duplicá-lo criaria justamente o legado que a
+                  /conversas — duplicá-lo criaria justamente o legado que a
                   regra "duas telas vivas pra mesma função" proíbe. O desenho
                   da gaveta é desta folha; o miolo é o painel único. */}
               <aside className="cdl-drawer" aria-label="Agenda do lead">

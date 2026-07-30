@@ -59,7 +59,7 @@ export function VendasLeadPreview({
 }) {
   if (!lead) {
     return (
-      <aside className="vnd-lead-peek" aria-label="Radar HBX">
+      <aside className="vnd-lead-peek hbx-panel-shell__context" aria-label="Radar HBX">
         <header className="vnd-lead-peek__head">
           <span>Radar HBX</span>
           <span className="vnd-lead-peek__state">Pronto</span>
@@ -95,7 +95,7 @@ export function VendasLeadPreview({
   const etapa = etapaLabel(lead.status);
 
   return (
-    <aside className="vnd-lead-peek has-lead" aria-label={`Detalhes de ${lead.name || "lead"}`} aria-live="polite">
+    <aside className="vnd-lead-peek hbx-panel-shell__context has-lead" aria-label={`Detalhes de ${lead.name || "lead"}`} aria-live="polite">
       <header className="vnd-lead-peek__head">
         <span>Detalhes do lead</span>
         <span className="vnd-lead-peek__head-actions">

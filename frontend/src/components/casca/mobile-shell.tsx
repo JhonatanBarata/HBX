@@ -43,6 +43,7 @@ const TITLE_FALLBACK: Record<string, string> = {
   "/dashboard": "Dashboard",
   "/agenda": "Agenda",
   "/automacoes": "Automações",
+  "/clientes": "Clientes",
   "/contatos": "Contatos",
   "/produtos": "Produtos",
   "/logistica": "Logística",
@@ -84,10 +85,12 @@ function titleFor(pathname: string): string {
 const SWIPE_MIN_PX = 52;
 const SWIPE_EDGE_DAMP = 0.35;
 
-// /leads é alias de /vendas (registry: mesma tela) — pro swipe e pra direção
-// da transição, conta como a aba Vendas.
+// Aliases legados contam como suas abas canônicas no swipe e na direção da
+// transição.
 function normalizeTabPath(pathname: string): string {
-  return pathname === "/leads" ? "/vendas" : pathname;
+  if (pathname === "/leads") return "/vendas";
+  if (pathname === "/atendimento") return "/conversas";
+  return pathname;
 }
 
 function hasOverlayOpen(): boolean {

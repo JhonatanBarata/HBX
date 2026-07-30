@@ -1,14 +1,18 @@
-import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 
-import { ContatosClient } from "../../contatos/page.client";
-
-export const metadata: Metadata = { title: "HBX — Clientes" };
-
-// Logística → "Clientes" (07/07, pedido do dono): a MESMA gestão de clientes de
-// entrega que já vive na aba Contatos (view "Só clientes" + drawer Produtos /
-// forma de pagamento / extrato / aviso de entrega), agora acessível direto da
-// seção Logística do desktop. Zero duplicação: reusa ContatosClient travado em
-// clientesOnly. A sidebar acende via META["/logistica/clientes"] (app-shell).
-export default function LogisticaClientesPage() {
-  return <ContatosClient clientesOnly />;
+// Alias legado: preserva favoritos e parâmetros, consolidando a gestão de
+// clientes na URL curta e canônica /clientes.
+export default async function LogisticaClientesPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined) continue;
+    for (const item of Array.isArray(value) ? value : [value]) query.append(key, item);
+  }
+  const rest = query.toString();
+  redirect(rest ? `/clientes?${rest}` : "/clientes");
 }

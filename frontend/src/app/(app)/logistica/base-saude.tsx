@@ -210,7 +210,7 @@ export function BaseSaude() {
                     </span>
                     {/* Link pro cadastro JÁ existente (aba Clientes) — só linkar, não
                         criar editor novo (S7-SAUDE-DA-BASE.md). */}
-                    <Link href="/logistica/clientes" className="btn-ghost btn-xs">Ver cadastro</Link>
+                    <Link href="/clientes" className="btn-ghost btn-xs">Ver cadastro</Link>
                   </div>
                 ))}
               </div>

@@ -113,7 +113,7 @@ export function TutorialCoachHost() {
         if (res?.id != null) {
           try { sessionStorage.setItem("hbx:abrir-conversa", String(res.id)); } catch { /* */ }
           try { sessionStorage.setItem("hbx:abrir-conversa-draft", SUPPORT_MSG); } catch { /* */ }
-          router.push("/atendimento");
+          router.push("/conversas");
         }
       } catch { /* sem conexão interna, cai no externo */ }
       return;

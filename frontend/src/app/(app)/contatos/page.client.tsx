@@ -16,6 +16,16 @@ import Link from "next/link";
 import React, { useCallback, useEffect, useState } from "react";
 
 import { EditarContaModal, EditarContatoModal } from "@/components/hbx/editar-nucleo-modais";
+import {
+  HbxContextEmpty,
+  HbxContextFact,
+  HbxContextFacts,
+  HbxContextHeader,
+  HbxContextHero,
+  HbxContextMetric,
+  HbxContextMetrics,
+  HbxPanelShell,
+} from "@/components/hbx/panel-shell";
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { ImportPlanilhaModal, type ImportSchema } from "@/components/hbx/import-planilha-modal";
 import { apiFetch } from "@/lib/api";
@@ -125,6 +135,10 @@ type ClienteListResponse = {
   totalPages: number;
   items: ClienteItem[];
 } | null;
+
+type ContextSelection =
+  | { kind: "contato"; item: ContatoItem }
+  | { kind: "cliente"; item: ClienteItem };
 
 function fmtPhone(v: string | null): string {
   const d = String(v || "").replace(/\D+/g, "");
@@ -975,7 +989,7 @@ function NovoClienteModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
 }
 
 // `clientesOnly` (Logística → Clientes): abre travado na view "Clientes" e some
-// com o toggle "Só clientes" — a MESMA tela, reusada pela rota /logistica/clientes.
+// com o toggle "Só clientes" — a MESMA tela, reusada pela rota /clientes.
 export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolean } = {}) {
   const user = useCurrentUser();
   const admin = isTenantAdmin(user);
@@ -989,6 +1003,7 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
   const [page, setPage] = useState(1);
   const [showNovo, setShowNovo] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [selected, setSelected] = useState<ContextSelection | null>(null);
   // LOGÍSTICA-MOBILE M2 — cliente com o drawer "Produtos do cliente" aberto.
   const [prodCliente, setProdCliente] = useState<{ id: string; nome: string | null } | null>(null);
   // NÚCLEO-CRM — edição (pessoa ou conta) via PATCH já publicado no backend.
@@ -1003,8 +1018,25 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
     const path = only ? `/nucleo/clientes?${qs.toString()}` : `/nucleo/contatos?${qs.toString()}`;
     return apiFetch<ContatoListResponse | ClienteListResponse>(path)
       .then((res) => {
-        if (only) { setClientes(res as ClienteListResponse); setContatos(null); }
-        else { setContatos(res as ContatoListResponse); setClientes(null); }
+        if (only) {
+          const next = res as ClienteListResponse;
+          setClientes(next);
+          setContatos(null);
+          setSelected((current) => {
+            if (current?.kind !== "cliente") return null;
+            const item = next?.items.find((candidate) => candidate.id === current.item.id);
+            return item ? { kind: "cliente", item } : null;
+          });
+        } else {
+          const next = res as ContatoListResponse;
+          setContatos(next);
+          setClientes(null);
+          setSelected((current) => {
+            if (current?.kind !== "contato") return null;
+            const item = next?.items.find((candidate) => candidate.id === current.item.id);
+            return item ? { kind: "contato", item } : null;
+          });
+        }
         setError(null);
       })
       .catch((err: unknown) => {
@@ -1026,6 +1058,7 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
 
   function toggleOnly(next: boolean) {
     setOnlyClientes(next);
+    setSelected(null);
     setPage(1);
   }
 
@@ -1046,8 +1079,8 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
   const totalPages = onlyClientes ? (clientes?.totalPages || 1) : (contatos?.totalPages || 1);
   const isEmpty = !loading && !error && (onlyClientes ? cliItems.length === 0 : cttItems.length === 0);
 
-  return (
-    <div className="work" style={{ flex: 1 }}>
+  const main = (
+    <div className="work hbx-panel-shell__route-work" style={{ flex: 1 }}>
       <section className="panel">
         <div className="panel-head">
           <h2>{onlyClientes ? "Clientes" : "Contatos"}</h2>
@@ -1056,7 +1089,7 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
           </div>
         </div>
 
-        <div style={{ padding: "12px 16px 4px" }}>
+        <div className="hbx-panel-toolbar">
           <form className="emp-toolbar" onSubmit={submitSearch}>
             <input
               className="field-dark emp-search"
@@ -1126,7 +1159,19 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
               const sub = [c.cargo || "", canal].filter(Boolean).join("  ·  ");
               const teveConversa = Boolean(c.conversa && c.conversa.mensagens > 0);
               return (
-                <div className="emp-row ctt-row" key={c.id}>
+                <div
+                  className={`emp-row ctt-row hbx-selectable-row${selected?.kind === "contato" && selected.item.id === c.id ? " is-active" : ""}`}
+                  key={c.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSelected({ kind: "contato", item: c })}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelected({ kind: "contato", item: c });
+                    }
+                  }}
+                >
                   <span className="emp-row__ico"><I d={ICONS.users} size={18} /></span>
                   <span className="emp-row__main">
                     <span className="emp-row__name">
@@ -1167,8 +1212,9 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
                     {teveConversa && (
                       <Link
                         className="btn-ghost btn-xs ctt-conv-btn"
-                        href={`/atendimento?conversation=${c.conversa!.id}`}
+                        href={`/conversas?conversation=${c.conversa!.id}`}
                         title="Abrir a conversa salva no Atendimento"
+                        onClick={(event) => event.stopPropagation()}
                       >
                         <I d={ICONS.msg} size={13} /> Ver conversa
                       </Link>
@@ -1176,7 +1222,10 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
                     <button
                       type="button"
                       className="btn-ghost btn-xs"
-                      onClick={() => setEditContato(c)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setEditContato(c);
+                      }}
                     >
                       <I d={ICONS.edit} size={13} /> Editar
                     </button>
@@ -1193,7 +1242,19 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
             {cliItems.map((e) => {
               const sub = localCityUf(e.cidade, e.uf);
               return (
-                <div className="emp-row ctt-row" key={e.id}>
+                <div
+                  className={`emp-row ctt-row hbx-selectable-row${selected?.kind === "cliente" && selected.item.id === e.id ? " is-active" : ""}`}
+                  key={e.id}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSelected({ kind: "cliente", item: e })}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" || event.key === " ") {
+                      event.preventDefault();
+                      setSelected({ kind: "cliente", item: e });
+                    }
+                  }}
+                >
                   <span className="emp-row__ico"><I d={ICONS.empresas} size={18} /></span>
                   <span className="emp-row__main">
                     <span className="emp-row__name">{e.name || "(sem nome)"}</span>
@@ -1208,14 +1269,20 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
                     <button
                       type="button"
                       className="btn-ghost btn-xs ctt-prod-btn"
-                      onClick={() => setProdCliente({ id: e.id, nome: e.name })}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setProdCliente({ id: e.id, nome: e.name });
+                      }}
                     >
                       <I d={ICONS.logistica} size={13} /> Produtos
                     </button>
                     <button
                       type="button"
                       className="btn-ghost btn-xs"
-                      onClick={() => setEditCliente(e)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setEditCliente(e);
+                      }}
                     >
                       <I d={ICONS.edit} size={13} /> Editar
                     </button>
@@ -1241,7 +1308,107 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
           </div>
         )}
       </section>
+    </div>
+  );
 
+  const context = selected?.kind === "contato" ? (
+    <>
+      <HbxContextHeader
+        eyebrow="Contato"
+        title="Detalhes do contato"
+        subtitle={selected.item.finalizado ? finalizadoLabel(selected.item.finalizadoMotivo) : "Relacionamento ativo"}
+        actions={(
+          <button type="button" className="icon-ghost" onClick={() => setSelected(null)} aria-label="Fechar detalhes">
+            <I d={ICONS.x} size={15} />
+          </button>
+        )}
+      />
+      <HbxContextHero
+        visual={<I d={ICONS.users} size={20} />}
+        title={selected.item.nome}
+        subtitle={selected.item.cargo || "Contato"}
+        meta={selected.item.contaNome || "Sem empresa vinculada"}
+      />
+      <HbxContextMetrics>
+        <HbxContextMetric
+          label="Mensagens"
+          value={selected.item.conversa?.mensagens ?? 0}
+          hint={selected.item.conversa ? "conversa salva" : "sem conversa"}
+        />
+        <HbxContextMetric label="Principal" value={selected.item.isPrincipal ? "Sim" : "Não"} />
+      </HbxContextMetrics>
+      <HbxContextFacts>
+        <HbxContextFact label="WhatsApp" value={selected.item.whatsapp ? fmtPhone(selected.item.whatsapp) : "Não informado"} />
+        <HbxContextFact label="Telefone" value={selected.item.phone ? fmtPhone(selected.item.phone) : "Não informado"} />
+        <HbxContextFact label="E-mail" value={selected.item.email || "Não informado"} />
+        <HbxContextFact label="Empresa" value={selected.item.contaNome || "Não vinculada"} />
+        <HbxContextFact label="Origem" value={selected.item.source || "Não informada"} />
+      </HbxContextFacts>
+      <div className="hbx-panel-context__actions">
+        {selected.item.conversa && (
+          <Link className="btn-teal" href={`/conversas?conversation=${selected.item.conversa.id}`}>
+            <I d={ICONS.msg} size={13} /> Abrir conversa
+          </Link>
+        )}
+        <button type="button" className="btn-ghost" onClick={() => setEditContato(selected.item)}>
+          <I d={ICONS.edit} size={13} /> Editar
+        </button>
+      </div>
+    </>
+  ) : selected?.kind === "cliente" ? (
+    <>
+      <HbxContextHeader
+        eyebrow="Cliente"
+        title="Detalhes do cliente"
+        subtitle="Cadastro da logística"
+        actions={(
+          <button type="button" className="icon-ghost" onClick={() => setSelected(null)} aria-label="Fechar detalhes">
+            <I d={ICONS.x} size={15} />
+          </button>
+        )}
+      />
+      <HbxContextHero
+        visual={<I d={ICONS.empresas} size={20} />}
+        title={selected.item.name || "(sem nome)"}
+        subtitle={localCityUf(selected.item.cidade, selected.item.uf) || "Local não informado"}
+        meta={selected.item.origin || "Origem não informada"}
+      />
+      <HbxContextMetrics>
+        <HbxContextMetric label="Contatos" value={selected.item.contatosCount} />
+        <HbxContextMetric label="Lead" value={selected.item.isLead ? "Sim" : "Não"} />
+      </HbxContextMetrics>
+      <HbxContextFacts>
+        <HbxContextFact label="CNPJ" value={selected.item.cnpj || "Não informado"} />
+        <HbxContextFact label="Cidade" value={selected.item.cidade || "Não informada"} />
+        <HbxContextFact label="UF" value={selected.item.uf || "Não informada"} />
+        <HbxContextFact label="Fornecedor" value={selected.item.isFornecedor ? "Sim" : "Não"} />
+      </HbxContextFacts>
+      <div className="hbx-panel-context__actions">
+        <button type="button" className="btn-teal" onClick={() => setProdCliente({ id: selected.item.id, nome: selected.item.name })}>
+          <I d={ICONS.logistica} size={13} /> Produtos do cliente
+        </button>
+        <button type="button" className="btn-ghost" onClick={() => setEditCliente(selected.item)}>
+          <I d={ICONS.edit} size={13} /> Editar
+        </button>
+      </div>
+    </>
+  ) : (
+    <HbxContextEmpty
+      icon={<I d={onlyClientes ? ICONS.empresas : ICONS.users} size={19} />}
+      title={onlyClientes ? "Selecione um cliente" : "Selecione um contato"}
+      description="A lista fica no lugar e os dados da seleção aparecem neste painel."
+    />
+  );
+
+  return (
+    <>
+      <HbxPanelShell
+        variant="context"
+        ariaLabel={onlyClientes ? "Clientes" : "Contatos"}
+        contextLabel={onlyClientes ? "Detalhes do cliente" : "Detalhes do contato"}
+        main={main}
+        context={context}
+      />
       {showNovo && <NovoClienteModal onClose={() => setShowNovo(false)} onSaved={afterSaved} />}
       {showImport && (
         <ImportPlanilhaModal
@@ -1273,6 +1440,6 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
           onSaved={afterEdited}
         />
       )}
-    </div>
+    </>
   );
 }

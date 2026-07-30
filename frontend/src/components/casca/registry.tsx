@@ -42,6 +42,7 @@ export type CascaScreen = React.ComponentType;
 export const CASCA_SCREENS: Record<string, CascaScreen> = {
   "/vendas": VendasMobile,
   "/leads": VendasMobile,
+  "/conversas": ConversasMobile,
   "/atendimento": ConversasMobile,
   "/empresas": EmpresasMobile,
   "/configuracoes": ConfiguracoesMobile,
@@ -54,6 +55,7 @@ export const CASCA_SCREENS: Record<string, CascaScreen> = {
 export const CASCA_TITLES: Record<string, string> = {
   "/vendas": "Vendas",
   "/leads": "Vendas",
+  "/conversas": "Conversas",
   "/atendimento": "Conversas",
   "/empresas": "Empresas",
   "/configuracoes": "Configurações",

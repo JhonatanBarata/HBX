@@ -100,6 +100,13 @@ function fmtEndereco(c: Cliente): string {
   return [c.endereco, [c.cidade, c.uf].filter(Boolean).join(" - ")].filter(Boolean).join(", ") || "Sem endereço cadastrado";
 }
 
+function fmtHoraLogistica(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const data = new Date(iso);
+  if (Number.isNaN(data.getTime())) return null;
+  return data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
 // Deep-link de navegação NATIVO (custo R$0): por coordenada se houver lat/lng,
 // senão por endereço textual. O app abre Google Maps / Waze do celular.
 function navUrl(c: Cliente): string {
@@ -384,6 +391,7 @@ export function LogisticaClient() {
   const [gerando, setGerando] = useState(false);
   const [gerarMsg, setGerarMsg] = useState<string | null>(null);
   const [entregadores, setEntregadores] = useState<Entregador[]>([]);
+  const [selectedDriverId, setSelectedDriverId] = useState<number | null>(null);
   const [atualizadoEm, setAtualizadoEm] = useState<Date | null>(null);
   const [routeBuilderOpen, setRouteBuilderOpen] = useState(false);
   // ROTA PRONTA (29/07) — avisos de rota indicada negada no celular.
@@ -469,13 +477,41 @@ export function LogisticaClient() {
   const items = rota?.items ?? [];
   const pendentes = items.filter((e) => e.status === "agendada" || e.status === "em_rota").length;
   const isEmpty = !loading && !error && items.length === 0;
+  const selectedDriver = selectedDriverId == null
+    ? null
+    : entregadores.find((driver) => driver.id === selectedDriverId)
+      ?? items.find((item) => item.entregador?.id === selectedDriverId)?.entregador
+      ?? null;
+  const selectedDriverItems = selectedDriver
+    ? items.filter((item) => item.entregador?.id === selectedDriver.id)
+    : [];
+  const selectedDriverDone = selectedDriverItems.filter((item) => item.status === "entregue").length;
+  const selectedDriverOpen = selectedDriverItems.filter((item) => item.status === "agendada" || item.status === "em_rota").length;
+  const selectedDriverCancelled = selectedDriverItems.filter((item) => item.status === "cancelada").length;
+  const selectedDriverProgress = selectedDriverItems.length
+    ? Math.round((selectedDriverDone / selectedDriverItems.length) * 100)
+    : 0;
+  const selectedDriverNext = [...selectedDriverItems]
+    .filter((item) => item.status === "em_rota" || item.status === "agendada")
+    .sort((a, b) => {
+      const statusA = a.status === "em_rota" ? 0 : 1;
+      const statusB = b.status === "em_rota" ? 0 : 1;
+      if (statusA !== statusB) return statusA - statusB;
+      const orderA = typeof a.rotaOrdem === "number" ? a.rotaOrdem : Number.MAX_SAFE_INTEGER;
+      const orderB = typeof b.rotaOrdem === "number" ? b.rotaOrdem : Number.MAX_SAFE_INTEGER;
+      if (orderA !== orderB) return orderA - orderB;
+      return String(a.etaAt || a.scheduledAt || "").localeCompare(String(b.etaAt || b.scheduledAt || ""));
+    })[0] ?? null;
 
   return (
-    <div className="work log-work">
-      {admin && (
-        <div className="log-guide-slot">
-          <div className="log-guide glass-pill-track" role="tablist" aria-label="Visão da logística">
-            <GlassPill {...viewPill} />
+    <div className="work log-work hbx-panel-shell-host">
+      <div className={`hbx-panel-shell${admin ? " hbx-panel-shell--context" : ""}`}>
+        <div className="hbx-panel-shell__main">
+          <div className="hbx-panel-shell__content">
+            {admin && (
+              <div className="log-guide-slot">
+                <div className="log-guide glass-pill-track" role="tablist" aria-label="Visão da logística">
+                  <GlassPill {...viewPill} />
             <button
               ref={viewPill.itemRef("today")}
               id="log-tab-today"
@@ -515,17 +551,17 @@ export function LogisticaClient() {
             >
               Saúde da base
             </button>
-          </div>
-        </div>
-      )}
+                </div>
+              </div>
+            )}
 
-      {(!admin || view === "today") && (
-        <section
-          id="logistica-view-today"
-          className="panel hbx-page-mobile-enter"
-          role={admin ? "tabpanel" : undefined}
-          aria-labelledby={admin ? "log-tab-today" : undefined}
-        >
+            {(!admin || view === "today") && (
+              <section
+                id="logistica-view-today"
+                className="panel hbx-page-mobile-enter"
+                role={admin ? "tabpanel" : undefined}
+                aria-labelledby={admin ? "log-tab-today" : undefined}
+              >
           <div className="panel-head">
             <h2>Rota de hoje</h2>
             <div className="meta log-today-meta">
@@ -634,10 +670,12 @@ export function LogisticaClient() {
             entregador (não-admin) continua na lista — é a tela dele no celular.
             UMA representação por público: as duas juntas seriam o mesmo dado
             duas vezes na mesma tela. */}
-        {!error && items.length > 0 && admin && (
+        {!error && admin && (items.length > 0 || entregadores.length > 0) && (
           <RouteBoard
             stops={items}
+            drivers={entregadores}
             onOpen={(stop) => setOpen(items.find((item) => item.id === stop.id) ?? null)}
+            onDriverSelect={(driver) => setSelectedDriverId(driver.id)}
             onAssigned={(stopId, entregador) => {
               setRota((atual) => atual
                 ? { ...atual, items: atual.items.map((item) => item.id === stopId ? { ...item, entregador } : item) }
@@ -679,14 +717,106 @@ export function LogisticaClient() {
             ))}
           </div>
         )}
-        </section>
-      )}
+              </section>
+            )}
 
-      {admin && view === "weekly" && (
-        <WeeklyAgenda onOpenRouteBuilder={() => setRouteBuilderOpen(true)} />
-      )}
+            {admin && view === "weekly" && (
+              <WeeklyAgenda onOpenRouteBuilder={() => setRouteBuilderOpen(true)} />
+            )}
 
-      {admin && view === "saude" && <BaseSaude />}
+            {admin && view === "saude" && <BaseSaude />}
+          </div>
+        </div>
+
+        {admin && (
+          <aside className="hbx-panel-shell__context hbx-panel-context--dense" aria-label="Detalhes do motorista">
+            <header className="hbx-panel-context__header">
+              <div className="hbx-panel-context__header-copy">
+                <span className="hbx-panel-context__eyebrow">Logística</span>
+                <strong className="hbx-panel-context__title">Motorista</strong>
+                <span className="hbx-panel-context__subtitle">
+                  {selectedDriver ? "Resumo da rota de hoje" : "Selecione uma faixa do tabuleiro"}
+                </span>
+              </div>
+            </header>
+
+            {selectedDriver ? (
+              <>
+                <section className="hbx-panel-context__hero">
+                  <span className="hbx-panel-context__hero-visual" aria-hidden>
+                    <I d={ICONS.logistica} size={20} />
+                  </span>
+                  <span className="hbx-panel-context__hero-copy">
+                    <strong>{selectedDriver.nome || `Motorista ${selectedDriver.id}`}</strong>
+                    {selectedDriver.email && <span>{selectedDriver.email}</span>}
+                    <small>{selectedDriverItems.length} parada(s) atribuída(s)</small>
+                  </span>
+                </section>
+
+                <div className="hbx-panel-context__metrics" role="list">
+                  <div className="hbx-panel-context__metric" role="listitem">
+                    <strong>{selectedDriverItems.length}</strong>
+                    <span>Total</span>
+                  </div>
+                  <div className="hbx-panel-context__metric" role="listitem">
+                    <strong>{selectedDriverDone}</strong>
+                    <span>Concluídas</span>
+                  </div>
+                  <div className="hbx-panel-context__metric" role="listitem">
+                    <strong>{selectedDriverOpen}</strong>
+                    <span>Abertas</span>
+                  </div>
+                  <div className="hbx-panel-context__metric" role="listitem">
+                    <strong>{selectedDriverCancelled}</strong>
+                    <span>Canceladas</span>
+                  </div>
+                  <div className="hbx-panel-context__metric" role="listitem">
+                    <strong>{selectedDriverProgress}%</strong>
+                    <span>Progresso</span>
+                  </div>
+                </div>
+
+                <dl className="hbx-panel-context__facts">
+                  <div className="hbx-panel-context__fact">
+                    <dt>Próxima parada</dt>
+                    <dd>{selectedDriverNext?.cliente.nome || "Nenhuma parada aberta"}</dd>
+                  </div>
+                  <div className="hbx-panel-context__fact">
+                    <dt>Situação</dt>
+                    <dd>{selectedDriverNext ? (STATUS_LABEL[selectedDriverNext.status] || selectedDriverNext.status) : "—"}</dd>
+                  </div>
+                  <div className="hbx-panel-context__fact">
+                    <dt>Previsão</dt>
+                    <dd>{fmtHoraLogistica(selectedDriverNext?.etaAt || selectedDriverNext?.scheduledAt) || "Sem horário"}</dd>
+                  </div>
+                  <div className="hbx-panel-context__fact">
+                    <dt>Destino</dt>
+                    <dd>{selectedDriverNext ? fmtEndereco(selectedDriverNext.cliente) : "—"}</dd>
+                  </div>
+                  <div className="hbx-panel-context__fact">
+                    <dt>Carga</dt>
+                    <dd>
+                      {selectedDriverNext
+                        ? selectedDriverNext.produto
+                          ? `${selectedDriverNext.quantidade}× ${selectedDriverNext.produto.nome}`
+                          : `${selectedDriverNext.quantidade} un`
+                        : "—"}
+                    </dd>
+                  </div>
+                </dl>
+              </>
+            ) : (
+              <div className="hbx-panel-context__empty">
+                <span className="hbx-panel-context__empty-icon" aria-hidden>
+                  <I d={ICONS.logistica} size={20} />
+                </span>
+                <strong>Selecione um motorista</strong>
+                <span>Clique no cabeçalho de uma faixa para ver o resumo real da rota de hoje.</span>
+              </div>
+            )}
+          </aside>
+        )}
+      </div>
 
       {open && (
         <EntregaDetail

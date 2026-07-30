@@ -1,7 +1,7 @@
 "use client";
 
 // Pop-up "Modelo de atendimento" (só admin). Centralizado pela central (.hbx-veil
-// + .hbx-modal — Lei 2). Consumido em /atendimento.
+// + .hbx-modal — Lei 2). Consumido em /conversas.
 // Duas guias: "Modelo atual" (escolher compartilhado × individual + WhatsApp da
 // empresa) e "Equipe" (lista de atendentes → toca num e abre o WhatsApp DELE:
 // número, tempo conectado e a opção de DERRUBAR a conexão).

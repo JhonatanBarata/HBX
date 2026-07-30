@@ -14,6 +14,16 @@
 import React, { useCallback, useEffect, useState } from "react";
 
 import { AdicionarContatoModal, EditarContaModal, EditarContatoModal } from "@/components/hbx/editar-nucleo-modais";
+import {
+  HbxContextEmpty,
+  HbxContextFact,
+  HbxContextFacts,
+  HbxContextHeader,
+  HbxContextHero,
+  HbxContextMetric,
+  HbxContextMetrics,
+  HbxPanelShell,
+} from "@/components/hbx/panel-shell";
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 
@@ -244,6 +254,128 @@ function Ficha({ id, onClose }: { id: string; onClose: () => void }) {
   );
 }
 
+function EmpresaContext({
+  id,
+  onClose,
+  onOpenFull,
+}: {
+  id: string | null;
+  onClose: () => void;
+  onOpenFull: (id: string) => void;
+}) {
+  const [data, setData] = useState<EmpresaDetail>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!id) {
+      setData(null);
+      setError(null);
+      return;
+    }
+    let alive = true;
+    setLoading(true);
+    setError(null);
+    apiFetch<EmpresaDetail>(`/nucleo/empresas/${encodeURIComponent(id)}`)
+      .then((result) => {
+        if (alive) setData(result);
+      })
+      .catch((err: unknown) => {
+        if (alive) setError(err instanceof Error ? err.message : "Não foi possível abrir os detalhes.");
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [id]);
+
+  if (!id) {
+    return (
+      <HbxContextEmpty
+        icon={<I d={ICONS.empresas} size={19} />}
+        title="Selecione uma empresa"
+        description="A lista permanece à esquerda enquanto a empresa abre neste painel."
+      />
+    );
+  }
+
+  return (
+    <>
+      <HbxContextHeader
+        eyebrow="Empresa"
+        title="Detalhes da empresa"
+        subtitle={loading ? "Carregando cadastro…" : error ? "Não foi possível carregar" : "Cadastro empresarial"}
+        actions={(
+          <button type="button" className="icon-ghost" onClick={onClose} aria-label="Fechar detalhes">
+            <I d={ICONS.x} size={15} />
+          </button>
+        )}
+      />
+      {loading && (
+        <HbxContextEmpty
+          icon={<I d={ICONS.clock} size={18} />}
+          title="Carregando empresa"
+        />
+      )}
+      {!loading && error && (
+        <HbxContextEmpty
+          icon={<I d={ICONS.x} size={18} />}
+          title="A ficha não carregou"
+          description={error}
+        />
+      )}
+      {!loading && data && (
+        <>
+          <HbxContextHero
+            visual={<I d={ICONS.empresas} size={20} />}
+            title={data.name || "(sem nome)"}
+            subtitle={localCityUf(data.cidade, data.uf) || "Local não informado"}
+            meta={data.origin || "Origem não informada"}
+            trailing={<RoleBadges e={data} />}
+          />
+          <HbxContextMetrics>
+            <HbxContextMetric label="Contatos" value={data.contatos.length} />
+            <HbxContextMetric
+              label="Papéis"
+              value={[data.isCliente, data.isLead, data.isFornecedor].filter(Boolean).length}
+            />
+          </HbxContextMetrics>
+          <HbxContextFacts>
+            <HbxContextFact label="CNPJ" value={data.cnpj ? fmtCnpj(data.cnpj) : "Não informado"} />
+            <HbxContextFact label="Endereço" value={data.endereco || "Não informado"} />
+            <HbxContextFact label="CEP" value={data.cep || "Não informado"} />
+            <HbxContextFact label="Telefone" value={data.phone ? fmtPhone(data.phone) : "Não informado"} />
+            <HbxContextFact label="E-mail" value={data.email || "Não informado"} />
+          </HbxContextFacts>
+          <div className="hbx-panel-context__section">
+            <span className="hbx-panel-context__section-title">Contatos vinculados</span>
+            {data.contatos.length === 0 ? (
+              <span className="hbx-panel-context__muted">Nenhum contato vinculado.</span>
+            ) : (
+              data.contatos.slice(0, 4).map((contact) => (
+                <div className="hbx-panel-context__compact-row" key={contact.id}>
+                  <I d={ICONS.users} size={13} />
+                  <span>
+                    <strong>{contact.nome}</strong>
+                    <small>{contact.cargo || contact.email || "Contato"}</small>
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="hbx-panel-context__actions">
+            <button type="button" className="btn-teal" onClick={() => onOpenFull(data.id)}>
+              Abrir ficha completa <I d={ICONS.arrow} size={13} />
+            </button>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
 export function EmpresasClient() {
   useCurrentUser();
   const [data, setData] = useState<EmpresaListResponse>(null);
@@ -253,6 +385,7 @@ export function EmpresasClient() {
   const [query, setQuery] = useState("");
   const [uf, setUf] = useState("");
   const [page, setPage] = useState(1);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
 
   const load = useCallback((q: string, ufv: string, p: number) => {
@@ -283,15 +416,15 @@ export function EmpresasClient() {
   const total = data?.total || 0;
   const totalPages = data?.totalPages || 1;
 
-  return (
-    <div className="work" style={{ flex: 1 }}>
+  const main = (
+    <div className="work hbx-panel-shell__route-work" style={{ flex: 1 }}>
       <section className="panel">
         <div className="panel-head">
           <h2>Empresas</h2>
           <div className="meta"><span>{total} PJ</span></div>
         </div>
 
-        <div style={{ padding: "12px 16px 4px" }}>
+        <div className="hbx-panel-toolbar">
           <form className="emp-toolbar" onSubmit={submitSearch}>
             <input
               className="field-dark emp-search"
@@ -340,9 +473,9 @@ export function EmpresasClient() {
                 .filter(Boolean).join("  ·  ");
               return (
                 <button
-                  className={"emp-row" + (openId === e.id ? " is-active" : "")}
+                  className={"emp-row" + (selectedId === e.id ? " is-active" : "")}
                   key={e.id}
-                  onClick={() => setOpenId(e.id)}
+                  onClick={() => setSelectedId(e.id)}
                 >
                   <span className="emp-row__ico"><I d={ICONS.empresas} size={18} /></span>
                   <span className="emp-row__main">
@@ -373,8 +506,25 @@ export function EmpresasClient() {
           </div>
         )}
       </section>
-
-      {openId && <Ficha id={openId} onClose={() => setOpenId(null)} />}
     </div>
+  );
+
+  return (
+    <>
+      <HbxPanelShell
+        variant="context"
+        ariaLabel="Empresas"
+        contextLabel="Detalhes da empresa"
+        main={main}
+        context={(
+          <EmpresaContext
+            id={selectedId}
+            onClose={() => setSelectedId(null)}
+            onOpenFull={setOpenId}
+          />
+        )}
+      />
+      {openId && <Ficha id={openId} onClose={() => setOpenId(null)} />}
+    </>
   );
 }

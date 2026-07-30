@@ -98,7 +98,7 @@ export function RouteAddressGate({
     // Multilocal: o endereço quebrado é do LOCAL, não da conta — editar a conta
     // aqui corrigiria o registro errado, calado. A ficha do cliente é o lugar.
     if (item.localId) {
-      window.open("/logistica/clientes", "_blank", "noopener");
+      window.open("/clientes", "_blank", "noopener");
       return;
     }
     setEditando({

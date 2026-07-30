@@ -16,7 +16,7 @@
       "monthlyPrice": 0,
       "defaultEnabled": true,
       "companyAssignable": true,
-      "serviceUrl": "/atendimento"
+      "serviceUrl": "/conversas"
     },
     {
       "key": "vendas",

@@ -2011,8 +2011,8 @@ export function AtendimentoClient() {
 
   return (
     <React.Fragment>
-        <div className="a-content">
-          <div className="a-left">
+        <div className="a-content hbx-panel-shell hbx-panel-shell--context">
+          <div className="a-left hbx-panel-shell__main">
             <KpiRow items={[
               { icon: "msg", label: "WhatsApp", value: whatsappPillLabel(inboxWaStatus), delta: "—", onClick: () => setWaModalOpen(true), dataTut: "atend-whatsapp", title: "Conexão WhatsApp" },
               { icon: "clock", label: "Tempo médio de resposta", value: fmtResp(metrics?.avgResponseSeconds), delta: metrics ? "7 dias" : "—" },
@@ -2478,7 +2478,7 @@ export function AtendimentoClient() {
             </div>
           </div>
 
-          <aside className="ctx" data-tut="atend-painel">
+          <aside className="ctx hbx-panel-shell__context hbx-panel-context--dense" data-tut="atend-painel">
             <DetalhesNegocio
               key={convo?.id ?? "empty"}
               loading={cardLoading}

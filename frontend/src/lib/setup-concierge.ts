@@ -35,12 +35,12 @@ const SETUP_HREFS = [
   "/configuracoes?sec=M%C3%B3dulos",
   "/leads",
   "/vendas",
-  "/atendimento",
+  "/conversas",
   "/gerencial?aba=4",
   "/gerencial?aba=4&novo=1",
 ] as const;
 export type SetupHref = (typeof SETUP_HREFS)[number];
-const SAFE_FALLBACKS = new Set<string>(["/configuracoes", "/vendas", "/atendimento"]);
+const SAFE_FALLBACKS = new Set<string>(["/configuracoes", "/vendas", "/conversas"]);
 const SETUP_HREF_SET = new Set<string>(SETUP_HREFS);
 
 function navigate(id: string, label: string, description: string, href: SetupHref, hints?: SetupNavigateAction["hints"]): SetupSolution {
@@ -136,7 +136,7 @@ export function getSetupOffer(step: { key: string; href: string }, options: {
         intro: "Você pode começar pela conversa ou voltar ao lead que quer atender.",
         guidance: ["Abra Conversas.", "Escolha um contato.", "Revise a mensagem e envie você mesmo."],
         solutions: [
-          navigate("conversations", "Abrir Conversas", "Vai direto para o atendimento.", "/atendimento"),
+          navigate("conversations", "Abrir Conversas", "Vai direto para o atendimento.", "/conversas"),
           ...(!mobile && vendasAccessible ? [navigate("conversation-leads", "Escolher pelo funil", "Abra seus leads e escolha com quem falar.", "/vendas")] : []),
         ],
       };

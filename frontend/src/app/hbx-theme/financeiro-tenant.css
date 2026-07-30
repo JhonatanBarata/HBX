@@ -163,3 +163,127 @@
 .fin-st.muted {
   color: var(--text-muted);
 }
+
+/* Casca contextual: a carteira permanece à esquerda e o extrato usa os 345px
+   reservados pela casca compartilhada, sem alterar a regra financeira. */
+.fin-client-row.is-selected > td {
+  background: var(--hbx-brand-soft);
+}
+
+.fin-context .fin-hint {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.fin-context-charges {
+  min-width: 0;
+  display: grid;
+}
+
+.fin-context-charge {
+  min-width: 0;
+  padding: 10px 12px;
+  display: grid;
+  gap: 8px;
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--hbx-surface);
+}
+
+.fin-context-charge.is-open {
+  background: var(--surface-recessed);
+}
+
+.fin-context-charge-head {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.fin-context-charge .fin-exp {
+  width: 100%;
+  min-width: 0;
+}
+
+.fin-context-charge-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.fin-context-charge-copy > strong,
+.fin-context-charge-copy > small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fin-context-charge-copy > strong {
+  color: var(--text-strong);
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.fin-context-charge-copy > small {
+  color: var(--text-muted);
+  font-size: 0.6rem;
+  font-weight: 600;
+}
+
+.fin-context-charge-head > .fin-st {
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  white-space: nowrap;
+}
+
+.fin-context-charge-foot {
+  min-width: 0;
+  padding-left: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fin-context-charge-foot > strong {
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.fin-context-charge-foot > :is(.btn-ghost, .btn-teal) {
+  min-height: 28px;
+  padding: 5px 9px;
+  font-size: 0.62rem;
+}
+
+.fin-context .fin-det {
+  gap: 10px;
+  margin: 2px -12px -10px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--border-hairline);
+  border-left: 0;
+}
+
+.fin-context .fin-det-grid {
+  grid-template-columns: minmax(0, 1fr);
+  gap: 7px;
+}
+
+.fin-context .fin-det-item {
+  padding-bottom: 7px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.fin-context .fin-det-item:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.fin-context .fin-det-tbl {
+  min-width: 620px;
+}

@@ -247,14 +247,14 @@ function leadsModuleSteps(): CoachStep[] {
   ];
 }
 
-// Atendimento (/atendimento): conectar WhatsApp → ler conversas → responder →
+// Atendimento (/conversas): conectar WhatsApp → ler conversas → responder →
 // ficha do lead. Passo "modelo" só existe pra admin (botão some pro vendedor →
 // o coach pula sozinho). Painel/compose somem no celular na vista de lista (pula).
 function atendimentoModuleSteps(): CoachStep[] {
   return [
     {
       id: "atend-intro",
-      route: "/atendimento",
+      route: "/conversas",
       title: "Este é o seu Atendimento",
       body: "Aqui você fala com seus leads pelo WhatsApp, tudo num lugar só. Vou te mostrar cada parte.",
       gate: "next",
@@ -262,7 +262,7 @@ function atendimentoModuleSteps(): CoachStep[] {
     },
     {
       id: "atend-whatsapp",
-      route: "/atendimento",
+      route: "/conversas",
       target: '[data-tut="atend-whatsapp"]',
       title: "Conecte seu WhatsApp",
       body: "Esse selo mostra a conexão. Clique pra parear seu número, igual ao WhatsApp Web. Verde = conectado e recebendo mensagens.",
@@ -270,7 +270,7 @@ function atendimentoModuleSteps(): CoachStep[] {
     },
     {
       id: "atend-lista",
-      route: "/atendimento",
+      route: "/conversas",
       target: '[data-tut="atend-lista"]',
       title: "Suas conversas",
       body: "Toda conversa dos seus leads cai aqui na hora que a mensagem chega — a mais recente sobe pro topo.",
@@ -278,7 +278,7 @@ function atendimentoModuleSteps(): CoachStep[] {
     },
     {
       id: "atend-abas",
-      route: "/atendimento",
+      route: "/conversas",
       target: '[data-tut="atend-abas"]',
       title: "Filtre rápido",
       body: "Veja Todas, só as Não lidas, ou apenas as Minhas conversas.",
@@ -286,7 +286,7 @@ function atendimentoModuleSteps(): CoachStep[] {
     },
     {
       id: "atend-busca",
-      route: "/atendimento",
+      route: "/conversas",
       target: '[data-tut="atend-busca"]',
       title: "Achar alguém",
       body: "Procure uma conversa pelo nome ou número, sem rolar a lista toda.",
@@ -294,7 +294,7 @@ function atendimentoModuleSteps(): CoachStep[] {
     },
     {
       id: "atend-nova",
-      route: "/atendimento",
+      route: "/conversas",
       target: '[data-tut="atend-nova"]',
       title: "Começar do zero",
       body: "Clique em Nova pra puxar conversa com um número que ainda não te chamou.",
@@ -302,7 +302,7 @@ function atendimentoModuleSteps(): CoachStep[] {
     },
     {
       id: "atend-responder",
-      route: "/atendimento",
+      route: "/conversas",
       target: '[data-tut="atend-responder"]',
       title: "Responder",
       body: "Digite e mande. Dá pra usar emoji, anexar arquivo, gravar áudio na hora e inserir mensagens prontas.",
@@ -310,7 +310,7 @@ function atendimentoModuleSteps(): CoachStep[] {
     },
     {
       id: "atend-painel",
-      route: "/atendimento",
+      route: "/conversas",
       target: '[data-tut="atend-painel"]',
       title: "Tudo sobre o lead",
       body: "Do lado direito ficam os dados do cliente, suas observações, a etapa da venda, o agendar retorno e o histórico — sem sair da conversa.",
@@ -318,7 +318,7 @@ function atendimentoModuleSteps(): CoachStep[] {
     },
     {
       id: "atend-modelo",
-      route: "/atendimento",
+      route: "/conversas",
       target: '[data-tut="atend-modelo"]',
       title: "Como o time atende",
       body: "Escolha o modelo: todo mundo vê todas as conversas (Compartilhado) ou cada vendedor só as suas (Individual).",

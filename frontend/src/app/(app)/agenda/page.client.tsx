@@ -13,6 +13,14 @@ import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
+import {
+  HbxContextEmpty,
+  HbxContextFact,
+  HbxContextFacts,
+  HbxContextHeader,
+  HbxContextHero,
+  HbxPanelShell,
+} from "@/components/hbx/panel-shell";
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 
@@ -58,6 +66,13 @@ function tipoLabel(tipo: string) {
   return TIPO_META[tipo]?.label || tipo;
 }
 
+function origemLabel(origem: string) {
+  if (origem === "user") return "Usuário";
+  if (origem === "ia") return "IA";
+  if (origem === "automacao") return "Automação";
+  return origem || "—";
+}
+
 function fmtVenc(iso: string | null, diaInteiro: boolean) {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -89,6 +104,9 @@ export function AgendaClient() {
   const [tipoFilter, setTipoFilter] = useState<string>("");
   const tipoPill = useGlassPill<HTMLButtonElement>(tipoFilter || "todos");
   const [msg, setMsg] = useState<string | null>(null);
+
+  // Seleção do painel direito é independente do fluxo inline de conclusão.
+  const [selectedAtividade, setSelectedAtividade] = useState<Atividade | null>(null);
 
   // Conclusão: qual atividade está com a pergunta de resultado aberta.
   const [concluindo, setConcluindo] = useState<Atividade | null>(null);
@@ -166,6 +184,14 @@ export function AgendaClient() {
     return apiFetch<AgendaResponse>(`/atividades/agenda${qs}`)
       .then((res) => {
         setData(res);
+        const atualizadas = [
+          ...(res?.atrasadas || []),
+          ...(res?.hoje || []),
+          ...(res?.semana || []),
+        ];
+        setSelectedAtividade((atual) => (
+          atual ? atualizadas.find((atividade) => atividade.id === atual.id) ?? null : null
+        ));
         setLoadError(null);
       })
       .catch((err: unknown) => {
@@ -185,6 +211,12 @@ export function AgendaClient() {
   const hoje = data?.hoje || [];
   const semana = data?.semana || [];
   const total = atrasadas.length + hoje.length + semana.length;
+
+  function iniciarConclusao(atividade: Atividade) {
+    setConcluindo(atividade);
+    setRemarcarInput("");
+    setMsg(null);
+  }
 
   async function concluir(atividade: Atividade, resultado: "sim" | "nao" | "remarcar") {
     if (busyId) return;
@@ -285,8 +317,15 @@ export function AgendaClient() {
 
   return (
     <div className="work" style={{ flex: 1 }}>
-      {/* Barra de topo: contadores + filtro por tipo + nova atividade. */}
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+      <HbxPanelShell
+        variant="context"
+        ariaLabel="Agenda"
+        contextLabel="Detalhes da atividade"
+        contextClassName="hbx-panel-context--dense"
+        main={(
+          <>
+            {/* Barra de topo: contadores + filtro por tipo + nova atividade. */}
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <span
             className="badge-win"
@@ -352,6 +391,7 @@ export function AgendaClient() {
                 return (
                   <div
                     key={a.id}
+                    onClick={() => setSelectedAtividade(a)}
                     style={{
                       display: "grid",
                       gap: 8,
@@ -382,7 +422,7 @@ export function AgendaClient() {
 
                     {!aberto && (
                       <div style={{ display: "flex", gap: 8 }}>
-                        <button className="btn-teal btn-xs" onClick={() => { setConcluindo(a); setRemarcarInput(""); setMsg(null); }} disabled={busyId === a.id}>
+                        <button className="btn-teal btn-xs" onClick={() => iniciarConclusao(a)} disabled={busyId === a.id}>
                           <I d={ICONS.check} size={12} /> Concluir
                         </button>
                         <button className="btn-ghost btn-xs" onClick={() => abrirCard(a.leadId)} disabled={busyId === a.id}>
@@ -425,6 +465,68 @@ export function AgendaClient() {
           </section>
         ),
       )}
+          </>
+        )}
+        context={(
+          <>
+            <HbxContextHeader
+              eyebrow="Agenda"
+              title="Atividade"
+              subtitle={selectedAtividade ? "Detalhes da atividade selecionada" : "Selecione uma atividade"}
+            />
+
+            {selectedAtividade ? (
+              <>
+                <HbxContextHero
+                  visual={<I d={ICONS[TIPO_META[selectedAtividade.tipo]?.icon || "clock"]} size={20} />}
+                  title={selectedAtividade.titulo}
+                  subtitle={selectedAtividade.leadNome || selectedAtividade.leadId}
+                  meta={tipoLabel(selectedAtividade.tipo)}
+                  trailing={selectedAtividade.atrasada ? <span className="tag red">Atrasada</span> : undefined}
+                />
+
+                <HbxContextFacts>
+                  <HbxContextFact label="Tipo" value={tipoLabel(selectedAtividade.tipo)} />
+                  <HbxContextFact label="Título" value={selectedAtividade.titulo} />
+                  <HbxContextFact label="Lead" value={selectedAtividade.leadNome || selectedAtividade.leadId} />
+                  <HbxContextFact label="Vencimento" value={fmtVenc(selectedAtividade.vencimento, selectedAtividade.diaInteiro)} />
+                  <HbxContextFact
+                    label="Duração"
+                    value={selectedAtividade.duracao != null ? `${selectedAtividade.duracao} min` : "Não informada"}
+                  />
+                  <HbxContextFact label="Origem" value={origemLabel(selectedAtividade.criadaPor)} />
+                  <HbxContextFact label="Atraso" value={selectedAtividade.atrasada ? "Atrasada" : "No prazo"} />
+                </HbxContextFacts>
+
+                <div className="dn-actions hbx-panel-context__facts">
+                  <button
+                    className="btn-ghost btn-xs"
+                    onClick={() => abrirCard(selectedAtividade.leadId)}
+                    disabled={busyId === selectedAtividade.id}
+                  >
+                    <I d={ICONS.arrow} size={12} /> Abrir card
+                  </button>
+                  {selectedAtividade.pendente && (
+                    <button
+                      className="btn-teal btn-xs"
+                      onClick={() => iniciarConclusao(selectedAtividade)}
+                      disabled={busyId === selectedAtividade.id}
+                    >
+                      <I d={ICONS.check} size={12} /> Concluir
+                    </button>
+                  )}
+                </div>
+              </>
+            ) : (
+              <HbxContextEmpty
+                icon={<I d={ICONS.clock} size={20} />}
+                title="Selecione uma atividade"
+                description="Clique em uma linha da agenda para ver seus dados e ações."
+              />
+            )}
+          </>
+        )}
+      />
 
       {/* Modal central (pela classe .hbx-veil — Lei nº2). Nova atividade avulsa. */}
       {novaOpen && (

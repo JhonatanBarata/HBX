@@ -129,7 +129,7 @@ export function EmpresasFicha({
       });
       if (res?.id != null) {
         try { sessionStorage.setItem("hbx:abrir-conversa", String(res.id)); } catch { /* sem storage */ }
-        router.push("/atendimento");
+        router.push("/conversas");
       }
     } catch (err) {
       setMsg(err instanceof Error ? err.message : "Não foi possível abrir a conversa.");

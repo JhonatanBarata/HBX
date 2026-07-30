@@ -11,6 +11,14 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 
+import {
+  HbxContextEmpty,
+  HbxContextHeader,
+  HbxContextHero,
+  HbxContextMetric,
+  HbxContextMetrics,
+  HbxPanelShell,
+} from "@/components/hbx/panel-shell";
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { isTenantAdmin } from "@/lib/roles";
@@ -361,6 +369,9 @@ export function FinanceiroClient() {
   const loadExtrato = useCallback(async (clienteId: string) => {
     setExtLoading(true);
     setExtErro(null);
+    setExtrato(null);
+    setAbertos([]);
+    setArmed(null);
     try {
       const res = await apiFetch<ExtratoResponse>(
         `/financeiro-tenant/clientes/${encodeURIComponent(clienteId)}/extrato`,
@@ -417,7 +428,7 @@ export function FinanceiroClient() {
 
   const totalReceber = clientes.reduce((sum, c) => sum + (Number(c.saldoAberto) || 0), 0);
 
-  return (
+  const main = (
     <div className="fin-page">
       <div className="fin-kpis">
         <div className="kpi">
@@ -438,43 +449,50 @@ export function FinanceiroClient() {
         </div>
       </div>
 
-      {!sel && (
-        <section className="panel">
-          <div className="panel-head">
-            <h2>Quem me deve</h2>
-            <div className="meta"><span>{loading ? "carregando…" : `${clientes.length} cliente(s)`}</span></div>
-          </div>
-          {erro && <div className="fin-err">{erro}</div>}
-          {!erro && (
-            <div className="tbl-wrap">
-              <table className="tbl">
-                <thead>
-                  <tr>
-                    <th>Cliente</th>
-                    <th>Cobranças</th>
-                    <th>Em aberto</th>
-                    <th></th>
+      <section className="panel">
+        <div className="panel-head">
+          <h2>Quem me deve</h2>
+          <div className="meta"><span>{loading ? "carregando…" : `${clientes.length} cliente(s)`}</span></div>
+        </div>
+        {erro && <div className="fin-err">{erro}</div>}
+        {!erro && (
+          <div className="tbl-wrap">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>Cliente</th>
+                  <th>Cobranças</th>
+                  <th>Em aberto</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading && (
+                  <tr className="fin-tr-static">
+                    <td colSpan={4} className="fin-td-empty">Carregando…</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {loading && (
-                    <tr className="fin-tr-static">
-                      <td colSpan={4} className="fin-td-empty">Carregando…</td>
-                    </tr>
-                  )}
-                  {!loading && clientes.length === 0 && (
-                    <tr className="fin-tr-static">
-                      <td colSpan={4} className="fin-td-empty">Ninguém devendo. 👏</td>
-                    </tr>
-                  )}
-                  {!loading &&
-                    clientes.map((c) => (
-                      <tr key={c.customerProfileId} onClick={() => setSel({ id: c.customerProfileId, nome: c.nome })}>
+                )}
+                {!loading && clientes.length === 0 && (
+                  <tr className="fin-tr-static">
+                    <td colSpan={4} className="fin-td-empty">Ninguém devendo. 👏</td>
+                  </tr>
+                )}
+                {!loading &&
+                  clientes.map((c) => {
+                    const selecionado = sel?.id === c.customerProfileId;
+                    return (
+                      <tr
+                        key={c.customerProfileId}
+                        className={selecionado ? "fin-client-row is-selected" : "fin-client-row"}
+                        aria-selected={selecionado}
+                        onClick={() => setSel({ id: c.customerProfileId, nome: c.nome })}
+                      >
                         <td>{c.nome || "Cliente"}</td>
                         <td>{c.cobrancas}</td>
                         <td>{brl(c.saldoAberto)}</td>
                         <td className="fin-td-actions">
                           <button
+                            type="button"
                             className="btn-ghost"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -485,109 +503,131 @@ export function FinanceiroClient() {
                           </button>
                         </td>
                       </tr>
-                    ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      )}
-
-      {sel && (
-        <section className="panel">
-          <div className="panel-head">
-            <h2>{extrato?.nome || sel.nome || "Cliente"}</h2>
-            <div className="meta">
-              <button className="btn-ghost" onClick={() => { setSel(null); setExtrato(null); setArmed(null); }}>
-                ← Voltar
-              </button>
-            </div>
-          </div>
-          <div className="fin-sum">
-            <div>
-              <div className="kpi-label">Em aberto</div>
-              <div className="kpi-value">{brl(extrato?.saldoAberto ?? 0)}</div>
-            </div>
-            <div>
-              <div className="kpi-label">Cobranças</div>
-              <div className="kpi-value">{extrato ? String(extrato.total) : "—"}</div>
-            </div>
-          </div>
-          {extErro && <div className="fin-err">{extErro}</div>}
-          <div className="fin-hint">Clique na cobrança para ver tudo o que ficou registrado nela.</div>
-          <div className="tbl-wrap">
-            <table className="tbl">
-              <thead>
-                <tr>
-                  <th>Descrição</th>
-                  <th>Origem</th>
-                  <th>Vencimento</th>
-                  <th>Status</th>
-                  <th>Valor</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {extLoading && (
-                  <tr className="fin-tr-static">
-                    <td colSpan={6} className="fin-td-empty">Carregando…</td>
-                  </tr>
-                )}
-                {!extLoading && (extrato?.charges?.length ?? 0) === 0 && (
-                  <tr className="fin-tr-static">
-                    <td colSpan={6} className="fin-td-empty">Sem cobranças para este cliente.</td>
-                  </tr>
-                )}
-                {!extLoading &&
-                  (extrato?.charges || []).map((ch) => {
-                    const st = statusLabel(ch.status);
-                    const podeQuitar = String(ch.status).toLowerCase() === "pending";
-                    const aberto = abertos.includes(ch.id);
-                    return (
-                      <React.Fragment key={ch.id}>
-                        <tr className="fin-tr-static">
-                          <td>
-                            <button
-                              className="fin-exp"
-                              aria-expanded={aberto}
-                              onClick={() => toggleDetalhe(ch.id)}
-                            >
-                              <span className={`fin-exp-ico${aberto ? " open" : ""}`}>▸</span>
-                              {ch.description}
-                            </button>
-                          </td>
-                          <td>{origemLabel(ch.sourceModule)}</td>
-                          <td>{fmtDate(ch.dueDate)}</td>
-                          <td><span className={`fin-st ${st.cls}`}>{st.label}</span></td>
-                          <td>{brl(ch.amount)}</td>
-                          <td className="fin-td-actions">
-                            {podeQuitar && armed !== ch.id && (
-                              <button className="btn-ghost" disabled={!!quitando} onClick={() => setArmed(ch.id)}>
-                                Marcar pago
-                              </button>
-                            )}
-                            {podeQuitar && armed === ch.id && (
-                              <button className="btn-teal" disabled={quitando === ch.id} onClick={() => marcarPago(ch.id)}>
-                                {quitando === ch.id ? "…" : "Confirmar"}
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                        {aberto && (
-                          <tr className="fin-tr-static fin-tr-det">
-                            <td colSpan={6}>
-                              <ChargeDetalhe ch={ch} />
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
                     );
                   })}
               </tbody>
             </table>
           </div>
-        </section>
-      )}
+        )}
+      </section>
     </div>
+  );
+
+  const context = !sel ? (
+    <HbxContextEmpty
+      icon={<I d={ICONS.money} size={19} />}
+      title="Selecione um cliente"
+      description="O extrato aparece aqui sem tirar a lista da tela."
+    />
+  ) : (
+    <>
+      <HbxContextHeader
+        eyebrow="Financeiro"
+        title="Extrato"
+        actions={(
+          <button
+            type="button"
+            className="icon-ghost"
+            aria-label="Fechar extrato"
+            onClick={() => {
+              setSel(null);
+              setExtrato(null);
+              setArmed(null);
+              setAbertos([]);
+            }}
+          >
+            <I d={ICONS.x} size={15} />
+          </button>
+        )}
+      />
+      <HbxContextHero
+        visual={<I d={ICONS.money} size={20} />}
+        title={extrato?.nome || sel.nome || "Cliente"}
+        subtitle="Extrato financeiro"
+      />
+      <HbxContextMetrics>
+        <HbxContextMetric
+          label="Em aberto"
+          value={extLoading ? "—" : brl(extrato?.saldoAberto ?? 0)}
+        />
+        <HbxContextMetric
+          label="Cobranças"
+          value={extLoading ? "—" : extrato ? String(extrato.total) : "0"}
+        />
+      </HbxContextMetrics>
+
+      {extErro && <div className="fin-err">{extErro}</div>}
+      <div className="fin-hint">Clique na cobrança para ver tudo o que ficou registrado nela.</div>
+
+      <div className="fin-context-charges">
+        {extLoading && <div className="fin-td-empty">Carregando…</div>}
+        {!extLoading && (extrato?.charges?.length ?? 0) === 0 && (
+          <div className="fin-td-empty">Sem cobranças para este cliente.</div>
+        )}
+        {!extLoading &&
+          (extrato?.charges || []).map((ch) => {
+            const st = statusLabel(ch.status);
+            const podeQuitar = String(ch.status).toLowerCase() === "pending";
+            const aberto = abertos.includes(ch.id);
+
+            return (
+              <article key={ch.id} className={`fin-context-charge${aberto ? " is-open" : ""}`}>
+                <div className="fin-context-charge-head">
+                  <button
+                    type="button"
+                    className="fin-exp"
+                    aria-expanded={aberto}
+                    onClick={() => toggleDetalhe(ch.id)}
+                  >
+                    <span className={`fin-exp-ico${aberto ? " open" : ""}`}>▸</span>
+                    <span className="fin-context-charge-copy">
+                      <strong>{ch.description}</strong>
+                      <small>{origemLabel(ch.sourceModule)} · {fmtDate(ch.dueDate)}</small>
+                    </span>
+                  </button>
+                  <span className={`fin-st ${st.cls}`}>{st.label}</span>
+                </div>
+
+                <div className="fin-context-charge-foot">
+                  <strong>{brl(ch.amount)}</strong>
+                  {podeQuitar && armed !== ch.id && (
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      disabled={!!quitando}
+                      onClick={() => setArmed(ch.id)}
+                    >
+                      Marcar pago
+                    </button>
+                  )}
+                  {podeQuitar && armed === ch.id && (
+                    <button
+                      type="button"
+                      className="btn-teal"
+                      disabled={quitando === ch.id}
+                      onClick={() => marcarPago(ch.id)}
+                    >
+                      {quitando === ch.id ? "…" : "Confirmar"}
+                    </button>
+                  )}
+                </div>
+
+                {aberto && <ChargeDetalhe ch={ch} />}
+              </article>
+            );
+          })}
+      </div>
+    </>
+  );
+
+  return (
+    <HbxPanelShell
+      variant="context"
+      ariaLabel="Financeiro"
+      contextLabel="Extrato do cliente"
+      contextClassName="fin-context"
+      main={main}
+      context={context}
+    />
   );
 }

@@ -247,7 +247,7 @@ export function DashboardClient() {
                   onClick: () => { try { sessionStorage.setItem("hbx:gerencial-aba", "Comissões"); } catch { /* sem storage */ } },
                 }
               : { icon: "users", label: "Leads na base (Radar)", value: radarTotal != null ? radarTotal.toLocaleString("pt-BR") : radarDone ? "—" : "", href: "/leads" },
-            { icon: "atend", label: "Atendimentos em aberto", value: convCount != null ? String(convCount) : convDone ? "—" : "", href: "/atendimento" },
+            { icon: "atend", label: "Atendimentos em aberto", value: convCount != null ? String(convCount) : convDone ? "—" : "", href: "/conversas" },
             { icon: "check", label: "Taxa de conversão (7d)", value: m ? `${(m.taxaConversao * 100).toFixed(1).replace(".", ",")}%` : reportDone ? "—" : "", href: "/relatorios" },
           ]} />
 

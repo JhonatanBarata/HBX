@@ -3,7 +3,7 @@
 // MOBILE-CASCA/W2 — Sheet de detalhe compartilhado (lead do Radar OU negócio de
 // Vendas). Consome <DetalhesNegocio> (o mesmo bloco do desktop, sem duplicar
 // visual) dentro de um <CascaSheet> (bottom sheet central, IR/VOLTAR pela API
-// da casca). Ações rápidas: WhatsApp → /atendimento (POST /inbox/conversations/
+// da casca). Ações rápidas: WhatsApp → /conversas (POST /inbox/conversations/
 // start, mesmo handoff sessionStorage do desktop), ligar (tel:), puxar pro
 // funil (POST /webscraping/radar/leads/:id/send-to-vendas — só quando o
 // negócio ainda é um lead do Radar).
@@ -116,7 +116,7 @@ export function NegocioSheet({
       }
       if (conversationId) {
         try { sessionStorage.setItem("hbx:abrir-conversa", conversationId); } catch { /* sem storage */ }
-        router.push("/atendimento");
+        router.push("/conversas");
       } else {
         throw new Error("Não foi possível abrir a conversa.");
       }

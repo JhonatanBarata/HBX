@@ -54,6 +54,8 @@ const META: Record<string, Meta> = {
   // S17: /automacoes, /bot e /assistente saíram daqui — viraram redirect puro
   // pra /automacao (page.tsx client, sem tela própria); mesmo tratamento que
   // /workspace (sem entrada em META, fallback "HBX" cobre o instante do replace).
+  "/conversas": { active: "atend", title: "Conversas", crumbs: crumb("Conversas") },
+  // Alias legado preservado enquanto /atendimento redireciona para a URL canônica.
   "/atendimento": { active: "atend", title: "Conversas", crumbs: crumb("Conversas") },
   // NÚCLEO-CRM N3-N6: faltavam aqui → caíam no fallback active:"" e o item
   // correspondente nunca acendia na sidebar (nenhum highlight, sem transição).
@@ -64,6 +66,8 @@ const META: Record<string, Meta> = {
   // Logística → Clientes (07/07): reusa a gestão de clientes de Contatos (modo
   // clientesOnly). Match é EXATO aqui, então a sub-rota precisa da própria linha
   // pra o item "Clientes" acender na sidebar (sem isso cairia no active:"" mudo).
+  "/clientes": { active: "clientes", title: "Clientes", crumbs: crumb("Clientes", "Logística") },
+  // Alias legado preservado enquanto /logistica/clientes redireciona para /clientes.
   "/logistica/clientes": { active: "clientes", title: "Clientes", crumbs: crumb("Clientes", "Logística") },
   "/relatorios": { active: "relat", title: "Relatórios", crumbs: crumb("Relatórios") },
   "/dashboard/website": { active: "website", title: "Website", crumbs: crumb("Website") },

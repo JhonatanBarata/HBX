@@ -3814,15 +3814,6 @@ export class RadarCoreDeliveryMixin {
       ? Math.trunc(Number(options.assignedByUserId || context.userId || 0)) || null
       : null;
     const requiredChannels = await this.getTeamPolicyRequiredRadarChannels(assignedUserId || context.userId);
-    const quality = this.extractLeadQualityFromObject(leadRow)
-      || this.extractLeadQualityFromObject(leadRow?.enrichmentJson)
-      || this.extractLeadQualityFromObject(leadRow?.metadataJson)
-      || this.evaluateLeadQuality(leadRow, {
-        requestedSegment: String(leadRow?.segment || ''),
-        requestedCity: leadRow?.city || null,
-        requestedState: leadRow?.state || null,
-        targetType: normalizeTargetType(this.parseMaybeJsonObject(leadRow?.metadataJson)?.targetType),
-      });
     const metadata = this.parseMaybeJsonObject(leadRow?.metadataJson);
     const importQualityInput = {
       city: String(leadRow?.city || ''),
@@ -3834,16 +3825,24 @@ export class RadarCoreDeliveryMixin {
       channelMatchMode: requiredChannels.length ? 'all_required' : 'prefer',
       salesProfile: null,
     } as NormalizedRadarFilters;
+    // UM PORTEIRO SÓ (30/07) — a vitrine (`filterRowsByLeadQuality`) resolve qualidade por
+    // `getCandidateQuality` / `extract || getCandidateQualityV2`. O caixa resolvia por uma cadeia
+    // PRÓPRIA (só o que estava gravado, sem recálculo do v2), então o MESMO card era julgado com
+    // entradas diferentes nos dois lugares e o clique explodia em 400 no card que a tela mostrava.
+    // Agora as duas pontas fazem a mesma pergunta com a mesma resposta.
+    const quality = this.getCandidateQuality(leadRow, importQualityInput);
     const qualityV2 = this.extractLeadQualityV2FromObject(leadRow)
-      || this.extractLeadQualityV2FromObject(leadRow?.enrichmentJson)
-      || this.extractLeadQualityV2FromObject(leadRow?.metadataJson);
+      || this.getCandidateQualityV2(leadRow, importQualityInput);
+    // Porta ÚNICA: exatamente o gate da vitrine. Se o card está na lista, ele pode ser puxado.
+    // Nada de condição extra aqui — era isso que produzia "card visível que não entra no Vendas".
     if (!this.isListDeliverableCard(leadRow, importQualityInput, quality, qualityV2)) {
-      throw new BadRequestException('Card nao passou na qualidade minima para esse segmento. Descartados nao consomem limite.');
+      throw new BadRequestException(
+        `Card fora da lista por qualidade: ${this.buildQualityReason(quality, qualityV2, 'sem aderencia minima ao segmento')}. Descartados nao consomem limite.`,
+      );
     }
+    // A classificação NÃO barra mais a entrega — ela decide só DINHEIRO (cobra ou entrega de
+    // graça) e viaja junto pro card do Vendas, que continua marcado com a faixa honesta.
     const deliveryClassification = this.classifyCardDelivery(leadRow, importQualityInput, quality, qualityV2);
-    if (!this.isCardDeliveryEligibleForVendas(deliveryClassification, leadRow, qualityV2)) {
-      throw new BadRequestException('Card nao esta elegivel para Vendas neste modo de qualidade.');
-    }
     // CRÉDITOS — ATOMICIDADE (fix "entrega parcial + 409" / puxar com saldo 0). A ordem antiga era
     // criar card → entregar → debitar → 409 sem desfazer, deixando card órfão no Vendas. Agora o
     // débito acontece ANTES de qualquer gravação: sem saldo, o gate REAL sobe ConflictException
@@ -3852,10 +3851,19 @@ export class RadarCoreDeliveryMixin {
     // (2 chaves) = no-op transparente. O importWebscraping abaixo roda com debitOnImport:false — o
     // débito e o teto de cards-em-mãos já foram resolvidos aqui, então NÃO há débito duplo nem
     // dupla contagem do teto S4 do vendedor. Estorno atômico no catch se a gravação falhar depois.
-    const wantsCreditDebit = Boolean(options.debitOnImport);
+    //
+    // COBRA OU NÃO COBRA (decisão do dono, 30/07): card da faixa `review_backup` (e qualquer outra
+    // que a classificação marque como não-cobrável) ENTRA no Vendas mas NÃO desconta crédito. Antes
+    // o débito confiava cego no `debitOnImport:true` do controller e teria cobrado por card que o
+    // próprio motor marcou como "revisar". O TETO de cards-em-mãos continua valendo SEMPRE — card
+    // de graça não pode virar porta dos fundos pro vendedor estourar o limite operacional.
+    const wantsCommercialGates = Boolean(options.debitOnImport);
+    const chargesCredit = wantsCommercialGates
+      && Boolean(deliveryClassification?.debitEligible)
+      && Boolean(deliveryClassification?.billable);
     const creditUsageKey = `radar:${leadRow.id}`;
     let creditReserved = false;
-    if (wantsCreditDebit) {
+    if (wantsCommercialGates) {
       // (1) Teto operacional de cards-em-mãos do vendedor (mesmo gate do importador em lote —
       //     preservado aqui de propósito porque desligamos o debitOnImport downstream).
       if (typeof this.commercialUsageLimits?.assertSellerActiveCardSlots === 'function') {
@@ -3864,8 +3872,8 @@ export class RadarCoreDeliveryMixin {
           assignedUserId || context.userId,
         );
       }
-      // (2) Débito REAL do crédito, fail-closed, ANTES da gravação.
-      if (typeof this.commercialUsageLimits?.reserveLeadDeliveryCredit === 'function') {
+      // (2) Débito REAL do crédito, fail-closed, ANTES da gravação — só no card cobrável.
+      if (chargesCredit && typeof this.commercialUsageLimits?.reserveLeadDeliveryCredit === 'function') {
         const reservation = await this.commercialUsageLimits.reserveLeadDeliveryCredit(
           context.companyId,
           context.userId,

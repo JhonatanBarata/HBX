@@ -329,7 +329,7 @@ export const NAV_LINKS = [
   { id: "vendas", label: "Vendas", href: "/vendas", group: "Comunicação" },
   // WORM-12: agenda do vendedor ("o que eu faço hoje") — dentro da superfície Vendas.
   { id: "agenda", label: "Agenda", href: "/agenda", group: "Comunicação" },
-  { id: "atend", label: "Conversas", href: "/atendimento", group: "Comunicação" },
+  { id: "atend", label: "Conversas", href: "/conversas", group: "Comunicação" },
   // Website (WEBSITE-KIT Sprint 1): tela ocasional, só no menu. Gate fail-closed
   // via /modules/me — some quando o módulo não está liberado pro usuário/empresa.
   { id: "website", label: "Website", href: "/dashboard/website", group: "Comunicação" },
@@ -362,9 +362,9 @@ export const NAV_LINKS = [
   // Logística → "Clientes" (07/07, pedido do dono): a MESMA gestão de clientes de
   // entrega que já vive na aba Contatos (view "Só clientes" + drawer Produtos/forma
   // de pagamento/extrato), agora acessível direto da seção Logística no desktop.
-  // Reusa ContatosClient em modo clientesOnly (rota /logistica/clientes). Kill-switch
+  // Reusa ContatosClient em modo clientesOnly (rota /clientes). Kill-switch
   // (gates null abaixo), mesmo grupo que "Entregas" pra não repetir a guia.
-  { id: "clientes", label: "Clientes", href: "/logistica/clientes", group: "Logística" },
+  { id: "clientes", label: "Clientes", href: "/clientes", group: "Logística" },
   // Sem guia — fica solta no fim da lista, sem rótulo de seção acima.
   { id: "config", label: "Configurações", href: "/configuracoes", group: null as string | null },
 ];
@@ -1618,7 +1618,7 @@ async function fetchUnreadChatsCached(): Promise<number> {
 // desmembrar Vendas/Atendimento/etc. (par do MODULE_TOUR_BUILDERS nos steps).
 const MODULE_TOURS: Record<string, string> = {
   "/leads": "leads",
-  "/atendimento": "atendimento",
+  "/conversas": "atendimento",
   "/vendas": "vendas",
 };
 
@@ -1965,7 +1965,7 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
         </span>
         {/* Chat interno (restaurado): abre o Atendimento. Gated pelo acesso, como antes. */}
         {podeAtendimento && (
-          <button className="round-btn" title="Atendimento" aria-label="Atendimento" onClick={() => router.push("/atendimento")}>
+          <button className="round-btn" title="Atendimento" aria-label="Atendimento" onClick={() => router.push("/conversas")}>
             <I d={ICONS.msg} size={17} />
             {unreadChats > 0 && <span className="bub">{unreadChats}</span>}
           </button>

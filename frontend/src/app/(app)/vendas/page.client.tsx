@@ -852,7 +852,7 @@ export function VendasClient() {
       if (conversationId) {
         // Handoff via sessionStorage — o atendimento lê ao montar e seleciona a conversa.
         try { sessionStorage.setItem("hbx:abrir-conversa", conversationId); } catch { /* sem storage */ }
-        router.push("/atendimento");
+        router.push("/conversas");
       } else {
         throw new Error("Não foi possível abrir a conversa.");
       }
@@ -1467,8 +1467,8 @@ export function VendasClient() {
           <div className="vnd-stage">
             <div id="vendas-panel-funil" role="tabpanel" aria-labelledby="vendas-tab-funil"
               className={"vnd-layer" + (modo === "funil" ? " is-on" : "")} aria-hidden={modo !== "funil"}>
-                <div className={"content" + (sel ? " vnd-content--preview-open" : "")}>
-                  <div className="work">
+                <div className={"content hbx-panel-shell hbx-panel-shell--context" + (sel ? " vnd-content--preview-open" : "")}>
+                  <div className="work hbx-panel-shell__main hbx-panel-shell__route-work">
             <section className="panel">
               {loadError && (
                 <div style={{ padding: "12px 16px", fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>

@@ -43,6 +43,7 @@ const ROTAS_MODULO: ReadonlyArray<readonly [string, string]> = [
   ["/automacao", "bot"],
   ["/automacoes", "vendas"],
   ["/relatorios", "vendas"],
+  ["/conversas", "atendimento"],
   ["/atendimento", "atendimento"],
   ["/leads", "webscraping"],
   ["/webscraping", "webscraping"],

@@ -600,8 +600,8 @@ type ChecklistStep = {
 // Checklist do VENDEDOR (coração da Camada 1). Ativação = 1ª conversa iniciada.
 const SELLER_CHECKLIST: ChecklistStep[] = [
   { key: 'lead_pulled', label: 'Puxe seu primeiro lead', hint: 'Abra o Radar, busque empresas do seu ramo e traga uma pra sua carteira.', href: '/vendas', cta: 'Abrir Radar', milestone: true },
-  { key: 'whatsapp_connected', label: 'Conecte seu WhatsApp', hint: 'É por ele que você fala com o cliente. Leva 1 minuto.', href: '/atendimento', cta: 'Conectar', milestone: false },
-  { key: 'first_conversation_started', label: 'Inicie a primeira conversa', hint: 'Mande a primeira mensagem — é aqui que você ativa de verdade.', href: '/atendimento', cta: 'Ir para Conversas', milestone: true },
+  { key: 'whatsapp_connected', label: 'Conecte seu WhatsApp', hint: 'É por ele que você fala com o cliente. Leva 1 minuto.', href: '/conversas', cta: 'Conectar', milestone: false },
+  { key: 'first_conversation_started', label: 'Inicie a primeira conversa', hint: 'Mande a primeira mensagem — é aqui que você ativa de verdade.', href: '/conversas', cta: 'Ir para Conversas', milestone: true },
   { key: 'first_deal_closed', label: 'Feche a primeira venda', hint: 'Gere o link de contratação e amarre a sua comissão.', href: '/vendas', cta: 'Abrir Vendas', milestone: true },
 ];
 
@@ -618,13 +618,13 @@ const ADMIN_COMMON_STEPS: ChecklistStep[] = [
 const ADMIN_TEAM_STEPS: ChecklistStep[] = [
   ...ADMIN_COMMON_STEPS,
   { key: 'first_seller_invited', label: 'Convide seu primeiro vendedor', hint: 'Cadastre um vendedor e defina o cargo. A operação começa quando o time entra.', href: '/gerencial', cta: 'Convidar vendedor', milestone: true },
-  { key: 'first_conversation', label: 'Veja a primeira conversa acontecer', hint: 'Acompanhe o time falar com o cliente — é aqui que a empresa ativa.', href: '/atendimento', cta: 'Abrir Atendimento', milestone: true },
+  { key: 'first_conversation', label: 'Veja a primeira conversa acontecer', hint: 'Acompanhe o time falar com o cliente — é aqui que a empresa ativa.', href: '/conversas', cta: 'Abrir Atendimento', milestone: true },
 ];
 const ADMIN_SOLO_STEPS: ChecklistStep[] = [
   ...ADMIN_COMMON_STEPS,
   { key: 'lead_pulled', label: 'Puxe seu primeiro lead', hint: 'Abra o Radar, busque empresas do seu ramo e traga uma pra sua carteira.', href: '/vendas', cta: 'Abrir Radar', milestone: true },
-  { key: 'whatsapp_connected', label: 'Conecte seu WhatsApp', hint: 'É por ele que você fala com o cliente. Leva 1 minuto.', href: '/atendimento', cta: 'Conectar', milestone: false },
-  { key: 'first_conversation', label: 'Inicie a primeira conversa', hint: 'Mande a primeira mensagem — é aqui que você ativa de verdade.', href: '/atendimento', cta: 'Ir para Conversas', milestone: true },
+  { key: 'whatsapp_connected', label: 'Conecte seu WhatsApp', hint: 'É por ele que você fala com o cliente. Leva 1 minuto.', href: '/conversas', cta: 'Conectar', milestone: false },
+  { key: 'first_conversation', label: 'Inicie a primeira conversa', hint: 'Mande a primeira mensagem — é aqui que você ativa de verdade.', href: '/conversas', cta: 'Ir para Conversas', milestone: true },
 ];
 
 // Checklist do GERENTE (Camada 4): 1 marco — liberar o 1º vendedor. O worker C3

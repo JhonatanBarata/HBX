@@ -53,6 +53,7 @@ export type BoardStop = {
 type Faixa = {
   key: string;
   entregadorId: number | null;
+  entregador: BoardEntregador | null;
   nome: string;
   iniciais: string;
   paradas: BoardStop[];
@@ -96,13 +97,17 @@ function estadoDaTira(stop: BoardStop, ehAgora: boolean): string {
 
 export function RouteBoard({
   stops,
+  drivers,
   onOpen,
   onAssigned,
+  onDriverSelect,
 }: {
   stops: BoardStop[];
+  drivers: BoardEntregador[];
   onOpen: (stop: BoardStop) => void;
   /** Sobe a reatribuição pro estado da página (mesma assinatura da folha). */
   onAssigned: (stopId: string, entregador: BoardEntregador | null) => void;
+  onDriverSelect: (driver: BoardEntregador) => void;
 }) {
   const [arrastando, setArrastando] = useState<BoardStop | null>(null);
   const [alvo, setAlvo] = useState<string | null>(null);
@@ -113,6 +118,23 @@ export function RouteBoard({
   // ordem do painel de crédito logo acima — padronizar é IGUALAR).
   const faixas = useMemo<Faixa[]>(() => {
     const baldes = new Map<string, Faixa>();
+
+    // A lista administrativa já traz todos os motoristas ativos. Criar os
+    // baldes antes das paradas mantém visível também quem está sem rota hoje.
+    drivers.forEach((driver) => {
+      const id = Number(driver.id);
+      if (!Number.isInteger(id) || id <= 0) return;
+      const nome = nomeDoMotorista(driver);
+      baldes.set(`m${id}`, {
+        key: `m${id}`,
+        entregadorId: id,
+        entregador: driver,
+        nome,
+        iniciais: iniciaisDe(nome),
+        paradas: [],
+      });
+    });
+
     stops.forEach((stop) => {
       const id = Number(stop.entregador?.id);
       const temMotorista = Number.isInteger(id) && id > 0;
@@ -120,6 +142,7 @@ export function RouteBoard({
       const balde = baldes.get(key) || {
         key,
         entregadorId: temMotorista ? id : null,
+        entregador: temMotorista ? stop.entregador : null,
         nome: nomeDoMotorista(temMotorista ? stop.entregador : null),
         iniciais: temMotorista ? iniciaisDe(nomeDoMotorista(stop.entregador)) : "—",
         paradas: [],
@@ -146,7 +169,7 @@ export function RouteBoard({
       if (b.key === SEM_MOTORISTA) return -1;
       return a.nome.localeCompare(b.nome, "pt-BR");
     });
-  }, [stops]);
+  }, [drivers, stops]);
 
   const reatribuir = useCallback(
     async (stop: BoardStop, entregadorId: number | null) => {
@@ -193,7 +216,19 @@ export function RouteBoard({
 
           return (
             <div className={`log-lane${orfa ? " is-orfa" : ""}`} key={faixa.key}>
-              <div className="log-lane__head">
+              <div
+                className="log-lane__head"
+                role={faixa.entregador ? "button" : undefined}
+                tabIndex={faixa.entregador ? 0 : undefined}
+                aria-label={faixa.entregador ? `Ver detalhes de ${faixa.nome}` : undefined}
+                title={faixa.entregador ? `Ver detalhes de ${faixa.nome}` : undefined}
+                onClick={() => { if (faixa.entregador) onDriverSelect(faixa.entregador); }}
+                onKeyDown={(event) => {
+                  if (!faixa.entregador || (event.key !== "Enter" && event.key !== " ")) return;
+                  event.preventDefault();
+                  onDriverSelect(faixa.entregador);
+                }}
+              >
                 <span className="log-lane__badge" aria-hidden>{faixa.iniciais}</span>
                 <span className="log-lane__who">
                   <b>{faixa.nome}</b>
@@ -269,6 +304,9 @@ export function RouteBoard({
                     </button>
                   );
                 })}
+                {!faixa.paradas.length && (
+                  <span className="log-board__hint">Sem paradas hoje</span>
+                )}
                 {podeReceber && (
                   <span className="log-lane__drop" aria-hidden>
                     {orfa ? "Soltar aqui tira o motorista" : `Soltar aqui passa pro ${faixa.nome.split(" ")[0]}`}
