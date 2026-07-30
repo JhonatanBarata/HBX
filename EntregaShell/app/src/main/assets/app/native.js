@@ -796,23 +796,57 @@
     appRoot.addEventListener("touchcancel", () => { shellSwipe = null; }, { passive: true });
   }
 
-  const savedTheme = HBX.cache.get("theme", "system");
-  function applyTheme(value) {
-    const dark = value === "dark" || (value === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+  // 🔴 29/07 (dono, dirigindo às 21h com o mapa branco na cara: "NÃO TEM MODO
+  // NOTURNO depois das 18 bem feito") — MODO NOTURNO POR HORA, sozinho: das 18h
+  // às 6h o app e o mapa ficam escuros sem ninguém apertar nada. O botão de tema
+  // continua manda: a escolha à mão vale até o próximo virar de turno (18h/6h),
+  // aí a hora volta a mandar — quem forçou claro à noite não fica preso no claro
+  // pra sempre, e quem não toca em nada nunca mais vê mapa branco de madrugada.
+  function ehNoite(agora) {
+    const hora = (agora || new Date()).getHours();
+    return hora >= 18 || hora < 6;
+  }
+  function ultimoViradoDeTurno(agora) {
+    const marco = new Date(agora || Date.now());
+    const hora = marco.getHours();
+    marco.setMinutes(0, 0, 0);
+    if (hora >= 18) marco.setHours(18);
+    else if (hora >= 6) marco.setHours(6);
+    else { marco.setDate(marco.getDate() - 1); marco.setHours(18); }
+    return marco.getTime();
+  }
+  function temaResolvido() {
+    const escolha = HBX.cache.get("theme", "system");
+    const escolhidoEm = Number(HBX.cache.get("themeAt", 0)) || 0;
+    const manualVale = (escolha === "dark" || escolha === "light") && escolhidoEm > ultimoViradoDeTurno();
+    if (manualVale) return escolha;
+    if (ehNoite()) return "dark";
+    return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  }
+  function applyTheme() {
+    const dark = temaResolvido() === "dark";
     document.documentElement.dataset.theme = dark ? "dark" : "light";
     document.documentElement.style.colorScheme = dark ? "dark" : "light";
   }
   HBX.theme = {
     get: () => HBX.cache.get("theme", "system"),
-    set(value) { HBX.cache.set("theme", value); applyTheme(value); document.dispatchEvent(new CustomEvent("hbx:theme")); },
+    set(value) { HBX.cache.set("theme", value); HBX.cache.set("themeAt", Date.now()); applyTheme(); document.dispatchEvent(new CustomEvent("hbx:theme")); },
     toggle() { this.set(document.documentElement.dataset.theme === "dark" ? "light" : "dark"); },
   };
-  applyTheme(savedTheme);
+  applyTheme();
   matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => {
     if (HBX.theme.get() === "system") {
-      applyTheme("system");
+      applyTheme();
       document.dispatchEvent(new CustomEvent("hbx:theme"));
     }
   });
+  // Relógio do modo noturno: 1 checagem por minuto, e só avisa a tela quando o
+  // tema REALMENTE virou (nada de render a cada minuto).
+  setInterval(() => {
+    const atual = document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+    if (temaResolvido() === atual) return;
+    applyTheme();
+    document.dispatchEvent(new CustomEvent("hbx:theme"));
+  }, 60000);
   window.HBX = HBX;
 })();

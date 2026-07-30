@@ -357,6 +357,13 @@
   let navRecalcState = { count: 0, lastAt: 0 };
   let navOffPathStreak = 0;
   let navRecalcToastAt = 0;
+  // 🔴 29/07 — o traçado da fila ATUAL tem orçamento PRÓPRIO, separado do
+  // disjuntor de "saiu do caminho". Antes os dois dividiam o mesmo teto (10 por
+  // dia): como applyRouteLine roda a cada render, o teto queimava em segundos
+  // sem nenhuma rota desenhada e o app nunca mais pedia o traçado. Aqui o
+  // orçamento é POR FILA (assinatura) — fila nova, orçamento novo — com 1 pedido
+  // em voo e espera entre falhas. Laço livre continua proibido.
+  let navPedidoFila = { assinatura: null, emVoo: false, tentativas: 0, ultimaFalhaAt: 0 };
   const roadGeometryCache = new Map();
   // ══ CONTRATO DO ÍCONE (22/07) — ler antes de encostar aqui ══
   // Este objeto guarda SÓ GEOMETRIA. Aparência (tamanho do traço, cor, pontas,
@@ -656,6 +663,7 @@
       paint("hbx-nav-leg-resto", "line-color", "--brand", "rgb(120,201,0)");
       paint("hbx-nav-leg-atual", "line-color", "--cta-to", "rgb(7,169,63)");
       paint("hbx-route-line", "line-color", "--brand", "rgb(120,201,0)");
+      paint("hbx-rota-reta", "line-color", "--info", "rgb(8,101,223)");
       paint("hbx-leitura-trilha", "line-color", "--brand", "rgb(120,201,0)");
       try { applyDarkMapStreetContrast(map); } catch (_) {}
     };
@@ -719,9 +727,14 @@
   // coordenadas (legSteps[i] = instruções da perna i, mesma ordem de
   // `cortes` em recomputeNavRoute). Cache chaveado à parte (sufixo #steps)
   // pra nunca devolver um payload sem steps pra quem pediu com steps.
-  async function roadGeometry(points, wantSteps) {
+  // 29/07 (dono, no aparelho: "ETA AO VIVO NÃO TEM") — o OSRM já devolve
+  // distância E tempo por perna na MESMA resposta que desenha o traço, mesmo
+  // sem steps. roadRoute é a resposta INTEIRA (coordenadas + pernas + total) e
+  // é dela que sai a hora de chegada; roadGeometry continua devolvendo o que
+  // cada chamador antigo esperava (array cru, ou objeto com steps).
+  async function roadRoute(points, wantSteps) {
     const coordinates = points.map(point => [Number(point.lng), Number(point.lat)]).filter((point, index, rows) => index === 0 || point[0] !== rows[index - 1][0] || point[1] !== rows[index - 1][1]);
-    if (coordinates.length < 2) return wantSteps ? { coordinates: [], legSteps: [] } : [];
+    if (coordinates.length < 2) return { coordinates: [], legSteps: [], legs: [], durationS: null, distanceM: null };
     const key = coordinates.map(([lng, lat]) => `${lng.toFixed(5)},${lat.toFixed(5)}`).join(";");
     const cacheKey = wantSteps ? `${key}#steps` : key;
     if (roadGeometryCache.has(cacheKey)) return roadGeometryCache.get(cacheKey);
@@ -730,12 +743,25 @@
     catch (_) { payload = await fetchOsrmRoutePublic(key, wantSteps); }
     const routed = osrmRouteCoordinates(payload);
     if (!Array.isArray(routed) || routed.length < 2) throw new Error("Rota viária não encontrada.");
-    const result = wantSteps
-      ? { coordinates: routed, legSteps: ((payload.routes[0].legs) || []).map(osrmLegInstructions) }
-      : routed;
+    const route = payload.routes[0] || {};
+    const legs = (route.legs || []).map(leg => ({
+      distanceM: Number.isFinite(Number(leg && leg.distance)) ? Number(leg.distance) : null,
+      durationS: Number.isFinite(Number(leg && leg.duration)) ? Number(leg.duration) : null,
+    }));
+    const result = {
+      coordinates: routed,
+      legSteps: wantSteps ? (route.legs || []).map(osrmLegInstructions) : [],
+      legs,
+      durationS: Number.isFinite(Number(route.duration)) ? Number(route.duration) : null,
+      distanceM: Number.isFinite(Number(route.distance)) ? Number(route.distance) : null,
+    };
     roadGeometryCache.set(cacheKey, result);
     if (roadGeometryCache.size > 12) roadGeometryCache.delete(roadGeometryCache.keys().next().value);
     return result;
+  }
+  async function roadGeometry(points, wantSteps) {
+    const info = await roadRoute(points, wantSteps);
+    return wantSteps ? info : info.coordinates;
   }
   async function fetchOsrmTablePublic(encoded) {
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 8000);
@@ -975,16 +1001,28 @@
       return true;
     } catch (_) { return false; }
   }
+  // 🔴 29/07 (dono, no aparelho: "o gps está em cima de outra informação, olha q
+  // zona") — o mapa é remontado com um `parts` NOVO, mas os enfeites que moram no
+  // host (faixa de GPS, botão de recentralizar, chip de chegada) continuam no DOM:
+  // criar de novo pendurava a segunda faixa EXATAMENTE em cima da primeira. Texto
+  // se ADOTA (é só conteúdo); botão se REFAZ (o listener antigo aponta pro mapa
+  // morto), então o velho sai antes.
   function ensureGpsStatusEl(host, parts) {
-    if (!parts.gpsStatus) {
-      parts.gpsStatus = document.createElement("span");
-      parts.gpsStatus.className = "route-gps-status";
-      host.appendChild(parts.gpsStatus);
+    if (!parts.gpsStatus || !parts.gpsStatus.isConnected) {
+      const existente = host.querySelector(".route-gps-status");
+      if (existente) parts.gpsStatus = existente;
+      else {
+        parts.gpsStatus = document.createElement("span");
+        parts.gpsStatus.className = "route-gps-status";
+        host.appendChild(parts.gpsStatus);
+      }
     }
     return parts.gpsStatus;
   }
   function ensureRouteRecenterControl(host, map, parts) {
+    if (parts.followControl && !parts.followControl.isConnected) parts.followControl = null;
     if (!parts.followControl) {
+      host.querySelectorAll(".route-follow-control").forEach(velho => velho.remove());
       const button = document.createElement("button");
       button.type = "button";
       button.className = "route-follow-control";
@@ -1025,6 +1063,24 @@
   // não há trilha, follow nem câmera perseguindo ninguém: fica o MESMO ponto azul
   // da navegação + a MESMA faixa .route-gps-status (padronizar é IGUALAR), só que
   // escrevendo o endereço de onde o aparelho está.
+  // 🔴 29/07 (dono, no aparelho: "olha meu gps, vc é um ponto") — MARCADOR DA
+  // MINHA POSIÇÃO, criado num lugar só (o mesmo HTML estava copiado no mapa
+  // parado e no mapa ao vivo). O desenho muda por CLASSE, nunca por outro
+  // elemento: parado = bolinha; navegando com direção = SETA grande com
+  // contorno branco e facho de luz na frente. Desenho no app.css.
+  function garantirMarcadorAtual(map, parts, point) {
+    if (parts.currentLocationMarker) {
+      parts.currentLocationMarker.setLngLat([point.lng, point.lat]);
+    } else {
+      const puck = document.createElement("span");
+      puck.className = "route-current-location";
+      puck.innerHTML = '<i class="route-current-beam" aria-hidden="true"></i><i class="route-current-heading" aria-hidden="true"></i><i class="route-current-core" aria-hidden="true"></i>';
+      puck.setAttribute("role", "img");
+      puck.setAttribute("aria-label", "Sua localização atual");
+      parts.currentLocationMarker = new window.maplibregl.Marker({ element: puck, anchor: "center", rotationAlignment: "map", pitchAlignment: "map" }).setLngLat([point.lng, point.lat]).addTo(map);
+    }
+    return (parts.currentLocationMarker.getElement && parts.currentLocationMarker.getElement()) || null;
+  }
   function updateMapaOcioso(host, map, parts) {
     removeRouteReadingLayers(map);
     parts.readingSessionId = null; parts.followCameraInitialized = false; parts.following = true;
@@ -1036,21 +1092,15 @@
       if (parts.currentLocationMarker) { try { parts.currentLocationMarker.remove(); } catch (_) {} }
       parts.currentLocationMarker = null;
       status.textContent = gpsChipClass() === "is-off" ? "GPS desligado" : "Buscando GPS…";
+      atualizarChipEta(host, parts);
       return;
     }
-    if (parts.currentLocationMarker) {
-      parts.currentLocationMarker.setLngLat([point.lng, point.lat]);
-    } else {
-      const dot = document.createElement("span");
-      dot.className = "route-current-location";
-      dot.innerHTML = '<i class="route-current-heading" aria-hidden="true"></i><i class="route-current-core" aria-hidden="true"></i>';
-      dot.setAttribute("role", "img");
-      dot.setAttribute("aria-label", "Sua localização atual");
-      parts.currentLocationMarker = new window.maplibregl.Marker({ element: dot, anchor: "center", rotationAlignment: "map", pitchAlignment: "map" }).setLngLat([point.lng, point.lat]).addTo(map);
-    }
-    const markerElement = parts.currentLocationMarker.getElement && parts.currentLocationMarker.getElement();
-    if (markerElement) markerElement.classList.remove("has-heading");
+    const markerElement = garantirMarcadorAtual(map, parts, point);
+    if (markerElement) { markerElement.classList.remove("has-heading"); markerElement.classList.remove("is-navigating"); }
     ligarToqueNaBolinha(host, parts, map);
+    // Rota montada e ainda não iniciada também mostra a hora de chegada (o
+    // traço até a 1ª parada já está desenhado — ver applyRouteLine).
+    atualizarChipEta(host, parts);
     const precisao = Number(point.accuracyM);
     const metros = Number.isFinite(precisao) && precisao > 0 ? ` · ±${Math.round(precisao)} m` : "";
     const endereco = state.idleEndereco && state.idleEndereco.texto ? state.idleEndereco.texto : "";
@@ -1107,6 +1157,14 @@
       const point = state.idlePosicao || routeLivePoint(routeLiveMode());
       if (point) abrirBalaoLocal(map, point);
     });
+  }
+  // Faixa de GPS da navegação: precisão sempre; e o MOTIVO quando falta traço
+  // (state.navDiag) — sem linha na tela, quem dirige precisa saber por quê.
+  function atualizarFaixaGps(parts, point) {
+    if (!parts || !parts.gpsStatus) return;
+    const accuracy = Number(point && point.accuracyM);
+    const base = Number.isFinite(accuracy) && accuracy > 0 ? `GPS · ±${Math.round(accuracy)} m` : "GPS ativo";
+    parts.gpsStatus.textContent = state.navDiag ? `${base} · sem traço: ${state.navDiag}` : base;
   }
   function ensureRouteReadingUi(host, map, parts, mode, point) {
     const liveMode = mode || routeLiveMode();
@@ -1198,25 +1256,19 @@
       if (parts.currentLocationMarker) { try { parts.currentLocationMarker.remove(); } catch (_) {} }
       parts.currentLocationMarker = null;
       parts.gpsStatus.textContent = "Buscando GPS…";
+      atualizarChipEta(host, parts);
       return;
     }
     const bearing = routeReadingBearing(point, mode);
-    if (parts.currentLocationMarker) {
-      parts.currentLocationMarker.setLngLat([point.lng, point.lat]);
-    } else {
-      const dot = document.createElement("span");
-      dot.className = "route-current-location";
-      dot.innerHTML = '<i class="route-current-heading" aria-hidden="true"></i><i class="route-current-core" aria-hidden="true"></i>';
-      dot.setAttribute("role", "img");
-      dot.setAttribute("aria-label", "Sua localização atual");
-      parts.currentLocationMarker = new window.maplibregl.Marker({ element: dot, anchor: "center", rotationAlignment: "map", pitchAlignment: "map" }).setLngLat([point.lng, point.lat]).addTo(map);
+    const markerElement = garantirMarcadorAtual(map, parts, point);
+    if (markerElement) {
+      markerElement.classList.toggle("has-heading", Number.isFinite(bearing));
+      markerElement.classList.toggle("is-navigating", mode === "nav");
     }
-    const markerElement = parts.currentLocationMarker.getElement && parts.currentLocationMarker.getElement();
-    if (markerElement) markerElement.classList.toggle("has-heading", Number.isFinite(bearing));
     ligarToqueNaBolinha(host, parts, map);
+    atualizarChipEta(host, parts);
     if (Number.isFinite(bearing) && typeof parts.currentLocationMarker.setRotation === "function") parts.currentLocationMarker.setRotation(bearing);
-    const accuracy = Number(point.accuracyM);
-    parts.gpsStatus.textContent = Number.isFinite(accuracy) && accuracy > 0 ? `GPS · ±${Math.round(accuracy)} m` : "GPS ativo";
+    atualizarFaixaGps(parts, point);
     if ((options && options.moveCamera) || !parts.followCameraInitialized) followRouteReadingPosition(host, map, parts, point, !!(options && options.resetZoom), mode);
   }
   function collapseMapAttribution(host) {
@@ -1256,9 +1308,17 @@
     const identity = `${route.routeId || ""}:${route.date || ""}`;
     return `${identity}|${points.map((point, index) => `${index}:${String(point.id)}:${Number(point.lat).toFixed(6)},${Number(point.lng).toFixed(6)}`).join("|")}`;
   }
-  function navCurrentLegCutIndex() {
+  // Traçado só vale para a fila que o gerou (ver `assinatura` em
+  // recomputeNavRoute): rota de outra fila não corta, não fala e não dá ETA.
+  function navRotaDaFilaAtual() {
     const rota = state.navRota;
     if (!rota || !Array.isArray(rota.cortes)) return null;
+    if (rota.assinatura && rota.assinatura !== navRoutePointsSignature(navRouteOpenPoints())) return null;
+    return rota;
+  }
+  function navCurrentLegCutIndex() {
+    const rota = navRotaDaFilaAtual();
+    if (!rota) return null;
     const first = navRouteOpenPoints()[0];
     if (!first) return null;
     const entry = rota.cortes.find(corte => String(corte.id) === String(first.id));
@@ -1269,8 +1329,8 @@
   // então a POSIÇÃO do corte da 1ª parada aberta no array `cortes` é o índice
   // da perna em `legSteps` (não o `id`, que é só chave de busca).
   function navCurrentLegSteps() {
-    const rota = state.navRota;
-    if (!rota || !Array.isArray(rota.cortes) || !Array.isArray(rota.legSteps)) return [];
+    const rota = navRotaDaFilaAtual();
+    if (!rota || !Array.isArray(rota.legSteps)) return [];
     const first = navRouteOpenPoints()[0];
     if (!first) return [];
     const position = rota.cortes.findIndex(corte => String(corte.id) === String(first.id));
@@ -1287,6 +1347,76 @@
     for (let i = 1; i <= cut; i++) total += distanceMeters({ lat: rota.geometry[i - 1][1], lng: rota.geometry[i - 1][0] }, { lat: rota.geometry[i][1], lng: rota.geometry[i][0] });
     return total;
   }
+  // ==========================================================================
+  // 🔴 29/07 (dono, no aparelho: "ETA AO VIVO, NÃO TEM") — HORA DE CHEGADA.
+  // Fonte única: as pernas do OSRM (roadRoute.legs) recortadas pelo pedaço que
+  // AINDA FALTA da perna atual — nunca conta de padeiro com velocidade média
+  // inventada. Rodando: distância do ponto onde estou até o corte da parada,
+  // proporcional ao tempo daquela perna. Rota montada e ainda não iniciada:
+  // total da rota (state.rotaEta, gravado por applyRouteLine).
+  // ==========================================================================
+  function geometryStretchMeters(geometry, from, to) {
+    let total = 0;
+    for (let i = Math.max(1, from + 1); i <= to; i++) {
+      if (!geometry[i - 1] || !geometry[i]) break;
+      total += distanceMeters({ lat: geometry[i - 1][1], lng: geometry[i - 1][0] }, { lat: geometry[i][1], lng: geometry[i][0] });
+    }
+    return total;
+  }
+  function navEtaAtual() {
+    const rota = navRotaDaFilaAtual();
+    const cut = navCurrentLegCutIndex();
+    if (!rota || !Number.isFinite(cut) || cut < 1) return null;
+    const first = navRouteOpenPoints()[0];
+    const position = rota.cortes.findIndex(corte => String(corte.id) === String(first && first.id));
+    const leg = position >= 0 ? ((rota.legs || [])[position] || null) : null;
+    const point = state.navPosicao || lastKnownPosition;
+    const inicio = point && validCoordinates(point.lat, point.lng)
+      ? Math.min(cut, nearestGeometryIndex(rota.geometry.slice(0, cut + 1), { lat: Number(point.lat), lng: Number(point.lng) }))
+      : 0;
+    const restanteM = geometryStretchMeters(rota.geometry, inicio, cut);
+    const legM = leg && Number.isFinite(leg.distanceM) ? leg.distanceM : null;
+    const legS = leg && Number.isFinite(leg.durationS) ? leg.durationS : null;
+    let restanteS = null;
+    if (legS != null && legM && legM > 0) restanteS = legS * Math.max(0, Math.min(1, restanteM / legM));
+    else if (legS != null) restanteS = legS;
+    if (restanteS == null) return null;
+    return { restanteM, restanteS };
+  }
+  function rotaMontadaEta() {
+    const eta = state.rotaEta;
+    if (!eta || !Number.isFinite(eta.durationS)) return null;
+    return { restanteM: Number.isFinite(eta.distanceM) ? eta.distanceM : null, restanteS: eta.durationS };
+  }
+  function etaChipTexto() {
+    const fonte = navModeActive() ? navEtaAtual() : rotaMontadaEta();
+    if (!fonte || fonte.restanteS == null) return "";
+    const minutos = Math.max(1, Math.round(fonte.restanteS / 60));
+    const chegada = H.date(new Date(Date.now() + fonte.restanteS * 1000), { hour: "2-digit", minute: "2-digit" });
+    const distancia = Number.isFinite(fonte.restanteM) && fonte.restanteM > 0 ? ` · ${formatRouteDistance(fonte.restanteM)}` : "";
+    return `Chegada ${chegada} · ${minutos} min${distancia}`;
+  }
+  function ensureEtaChip(host, parts) {
+    if (!parts.etaChip) {
+      const chip = document.createElement("span");
+      chip.className = "route-eta-chip";
+      chip.setAttribute("aria-live", "polite");
+      host.appendChild(chip);
+      parts.etaChip = chip;
+    }
+    return parts.etaChip;
+  }
+  function atualizarChipEta(host, parts) {
+    const chip = ensureEtaChip(host, parts);
+    const texto = etaChipTexto();
+    chip.textContent = texto;
+    chip.hidden = !texto;
+  }
+  // Patch ao vivo (sem render): chamado a cada fix do GPS, junto do painel.
+  function atualizarEtaAoVivo() {
+    if (!routeMapHost || !routeMapHost.__hbxMapParts) return;
+    atualizarChipEta(routeMapHost, routeMapHost.__hbxMapParts);
+  }
   // S5 21/07 — bookkeeping do step falado da perna atual (state.navVoice:
   // {epoch, forStopId, stepIndex, spoken400, spoken60}). Ressincroniza
   // (zera stepIndex/marcações) sempre que a perna muda de parada-alvo
@@ -1301,7 +1431,9 @@
     const epoch = (rota && rota.voiceEpoch) || 0;
     const voice = state.navVoice;
     if (!voice || voice.forStopId !== forStopId || voice.epoch !== epoch) {
-      state.navVoice = { epoch, forStopId, stepIndex: 0, spoken400: false, spoken60: false };
+      // spokenAbertura: a fala de abertura da perna ("Em X, vire…") acontece 1x
+      // por perna/recálculo — nunca a cada tique.
+      state.navVoice = { epoch, forStopId, stepIndex: 0, spoken400: false, spoken60: false, spokenAbertura: false };
     }
     return state.navVoice;
   }
@@ -1384,13 +1516,21 @@
       // S5 21/07 — steps=true SÓ em navegação ativa (spec S5 #6): fora disso
       // o payload cresceria à toa (roadGeometry aceita o 2º arg em qualquer
       // chamador, mas só quem monta a perna atual da navegação passa true).
-      const result = await roadGeometry([{ lat: origin.lat, lng: origin.lng }, ...stops], navModeActive());
+      const result = await roadRoute([{ lat: origin.lat, lng: origin.lng }, ...stops], navModeActive());
       if (!navModeActive() || navWatchSeq !== session || navRoutePointsSignature(navRouteOpenPoints()) !== stopsSignature) return false;
       const geometry = result.coordinates || result;
       if (!geometry || geometry.length < 2) return false;
       state.navRota = {
         geometry,
+        // 🔴 29/07 — CARIMBO DA FILA que gerou este traçado. Sem ele, a rota da
+        // fila ANTIGA continuava em memória: os `cortes` não conheciam a parada
+        // de agora, o desenho apagava tudo e o mapa ficava sem linha até o app
+        // ser morto. Rota carimbada com outra fila é rota VENCIDA, não desenha.
+        assinatura: stopsSignature,
         cortes: stops.map(stop => ({ id: stop.id, index: nearestGeometryIndex(geometry, stop) })),
+        // 29/07 — pernas do OSRM (distância/tempo) guardadas junto: é a fonte da
+        // hora de chegada ao vivo (ver navEtaAtual). Mesma ordem de `cortes`.
+        legs: Array.isArray(result.legs) ? result.legs : [],
         // legSteps é paralelo a `cortes` — ver navCurrentLegSteps(). voiceEpoch
         // incrementa a cada recompute bem-sucedido: navVoiceState() usa isso
         // pra zerar as marcações de voz mesmo quando a parada-alvo não mudou
@@ -1404,19 +1544,49 @@
       // instrução. Processa agora, com os steps prontos e a posição mais nova.
       const voicePoint = state.navPosicao;
       if (voicePoint && validCoordinates(voicePoint.lat, voicePoint.lng)) {
+        // 🔴 29/07 (dono: "a mulherzinha não falou") — a voz só disparava a 400 m
+        // da manobra: parado na porta de casa, com a 1ª curva a 800 m, o app ficava
+        // MUDO no momento em que o motorista mais precisa ouvir. Ao montar o
+        // traçado da fila, fala a primeira instrução UMA vez, com a distância real.
+        const voice = navVoiceState();
+        const primeiro = navCurrentLegSteps()[voice.stepIndex];
+        if (primeiro && !voice.spokenAbertura && !state.navMudo) {
+          voice.spokenAbertura = true;
+          const metros = distanceMeters(voicePoint, { lat: primeiro.lat, lng: primeiro.lng });
+          H.speak(`Em ${formatRouteDistance(Math.max(0, metros))}, ${primeiro.instrucao}`);
+        }
         processNavVoice(voicePoint);
         updateNextStopPanelDistance();
       }
       return true;
     } catch (_) { return false; } // OSRM fora do ar: mantém o desenho atual (state.navRota intocado).
   }
+  // Disjuntor do RECÁLCULO por "saiu do caminho" — e SÓ dele (ver navPedidoFila
+  // para o traçado da fila atual). Teto por rota/dia + mínimo de 30s.
   function navRecalcAllowed() {
-    if (navRecalcState.count >= 10) return false; // disjuntor: teto por rota/dia
-    if (navRecalcState.lastAt && Date.now() - navRecalcState.lastAt < 30000) return false; // disjuntor: mínimo 30s
+    if (navRecalcState.count >= 10) return false;
+    if (navRecalcState.lastAt && Date.now() - navRecalcState.lastAt < 30000) return false;
     return true;
   }
   function markNavRecalc() { navRecalcState.count += 1; navRecalcState.lastAt = Date.now(); }
-  function resetNavRecalcBudget() { navRecalcState = { count: 0, lastAt: 0 }; navOffPathStreak = 0; navRecalcToastAt = 0; }
+  function resetNavRecalcBudget() {
+    navRecalcState = { count: 0, lastAt: 0 };
+    navOffPathStreak = 0;
+    navRecalcToastAt = 0;
+    navPedidoFila = { assinatura: null, emVoo: false, tentativas: 0, ultimaFalhaAt: 0 };
+  }
+  // Traçado da fila atual: 1 pedido em voo, 6s entre falhas, teto de 8 tentativas
+  // POR FILA. Fila nova (parada entregue, parada adicionada, rota nova) zera o
+  // orçamento — é outro traçado, não é insistência no mesmo.
+  function navPedidoFilaPermitido(assinatura) {
+    if (navPedidoFila.assinatura !== assinatura) {
+      navPedidoFila = { assinatura, emVoo: false, tentativas: 0, ultimaFalhaAt: 0 };
+    }
+    if (navPedidoFila.emVoo) return false;
+    if (navPedidoFila.tentativas >= 8) return false;
+    if (navPedidoFila.ultimaFalhaAt && Date.now() - navPedidoFila.ultimaFalhaAt < 6000) return false;
+    return true;
+  }
   // S3 #4 — "saiu do caminho": > 120m do segmento mais próximo da perna ATUAL
   // por 3 fixes seguidos (chamado a cada tick do watch, ver startNavWatch).
   function checkNavOffPath(point) {
@@ -1449,6 +1619,32 @@
       if (now - navRecalcToastAt >= 60000) { navRecalcToastAt = now; toast("Rota atualizada."); }
     });
   }
+  // 🔴 29/07 (dono, no aparelho) — roteador fora do ar NÃO pode virar mapa mudo:
+  // ficar sem traço nenhum é o pior dos mundos pra quem está dirigindo. A reta é
+  // TRACEJADA de propósito (desenho diferente do traço de ruas), então ninguém
+  // confunde "é por ali" com "este é o caminho".
+  function desenharRetaTracejada(map, coordinates) {
+    const id = "hbx-rota-reta";
+    const data = coordinates.length >= 2
+      ? { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates } }
+      : { type: "FeatureCollection", features: [] };
+    const source = map.getSource(id);
+    if (source) source.setData(data);
+    else map.addSource(id, { type: "geojson", data });
+    if (!map.getLayer(id)) {
+      map.addLayer({ id, type: "line", source: id, layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": mapPaintToken("--info", "rgb(8,101,223)"), "line-width": 4, "line-opacity": .78, "line-dasharray": [1.5, 1.4] } });
+    }
+  }
+  function removerRetaTracejada(map) {
+    try { if (map.getLayer("hbx-rota-reta")) map.removeLayer("hbx-rota-reta"); } catch (_) {}
+    try { if (map.getSource("hbx-rota-reta")) map.removeSource("hbx-rota-reta"); } catch (_) {}
+  }
+  // A linha da rota montada virou 2 camadas (contorno branco + limão por cima,
+  // mesmo padrão casing/core da trilha): apagar as duas sempre junto.
+  function removerLinhaPlanejada(map) {
+    ["hbx-route-line", "hbx-route-line-casing"].forEach(id => { try { if (map.getLayer(id)) map.removeLayer(id); } catch (_) {} });
+    try { if (map.getSource("hbx-route-line")) map.removeSource("hbx-route-line"); } catch (_) {}
+  }
   function setNavLegLine(map, id, coordinates, paint) {
     const data = coordinates.length >= 2 ? { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates } } : { type: "FeatureCollection", features: [] };
     const source = map.getSource(id);
@@ -1460,43 +1656,100 @@
     ["hbx-nav-leg-atual", "hbx-nav-leg-atual-casing", "hbx-nav-leg-resto"].forEach(id => { try { if (map.getLayer(id)) map.removeLayer(id); } catch (_) {} });
     ["hbx-nav-leg-atual", "hbx-nav-leg-atual-casing", "hbx-nav-leg-resto"].forEach(id => { try { if (map.getSource(id)) map.removeSource(id); } catch (_) {} });
   }
+  // Devolve true quando REALMENTE pintou um traço (o chamador usa isso pra saber
+  // se precisa da reta tracejada). 🔴 29/07: antes, corte inválido apagava tudo e
+  // deixava o mapa sem linha nenhuma — era isso que o dono via.
   function drawNavLegLayers(map) {
-    const rota = state.navRota; const cut = navCurrentLegCutIndex();
-    if (!rota || !Number.isFinite(cut) || cut < 1) { removeNavLegLayers(map); return; }
+    const rota = state.navRota; const cutBruto = navCurrentLegCutIndex();
+    if (!rota || !Array.isArray(rota.geometry) || rota.geometry.length < 2) { removeNavLegLayers(map); return false; }
+    // Parada que não caiu em cima da geometria (corte 0 ou ausente): pinta a rota
+    // INTEIRA como perna atual. Traço um pouco longo é muito melhor que nenhum.
+    const cut = Number.isFinite(cutBruto) && cutBruto >= 1 ? cutBruto : rota.geometry.length - 1;
     // Ordem de criação = ordem de empilhamento (quem nasce depois fica por
     // cima): resto primeiro (base), casing branco fino, esmeralda por cima —
     // mesmo padrão casing/core da trilha (hbx-reading-trail-casing/-trail).
-    setNavLegLine(map, "hbx-nav-leg-resto", rota.geometry.slice(cut), { "line-color": mapPaintToken("--brand", "rgb(120,201,0)"), "line-width": 4, "line-opacity": .35 });
-    setNavLegLine(map, "hbx-nav-leg-atual-casing", rota.geometry.slice(0, cut + 1), { "line-color": "rgba(255,255,255,.9)", "line-width": 7, "line-opacity": .9 });
-    setNavLegLine(map, "hbx-nav-leg-atual", rota.geometry.slice(0, cut + 1), { "line-color": mapPaintToken("--cta-to", "rgb(7,169,63)"), "line-width": 5, "line-opacity": .96 });
+    // 29/07 — traço mais GROSSO: no mapa de 6 cm do celular, dirigindo, 5 px de
+    // linha desaparecem embaixo do dedo e dos rótulos de rua.
+    setNavLegLine(map, "hbx-nav-leg-resto", rota.geometry.slice(cut), { "line-color": mapPaintToken("--brand", "rgb(120,201,0)"), "line-width": 5, "line-opacity": .4 });
+    setNavLegLine(map, "hbx-nav-leg-atual-casing", rota.geometry.slice(0, cut + 1), { "line-color": "rgba(255,255,255,.94)", "line-width": 11, "line-opacity": .94 });
+    setNavLegLine(map, "hbx-nav-leg-atual", rota.geometry.slice(0, cut + 1), { "line-color": mapPaintToken("--cta-to", "rgb(7,169,63)"), "line-width": 7, "line-opacity": .97 });
+    removerRetaTracejada(map);
     // A linha única planejada não convive com as pernas — nav mode substitui.
-    if (map.getLayer("hbx-route-line")) map.removeLayer("hbx-route-line");
-    if (map.getSource("hbx-route-line")) map.removeSource("hbx-route-line");
+    removerLinhaPlanejada(map);
+    return true;
   }
   // Chamada por applyRouteLine (todo render/mount) e pelo bootstrap do 1º fix
   // (startNavWatch). Barata quando não há nada novo: só entra no OSRM quando
   // ainda não existe navRota OU aparece uma parada de ID desconhecido — nunca
   // por causa só do motorista ter andado um pouco (isso é o watch/trilha).
+  // 🔴 29/07 — NUNCA mais bloquear o traçado atrás de isStyleLoaded(). Mapa
+  // remontado (troca de tema/aba) fica com o estilo "não pronto", e esse portão
+  // silencioso barrava o PEDIDO e o DESENHO da navegação pra sempre: sobrava na
+  // tela a linha da rota montada, sem voz e sem hora de chegada. Rede não depende
+  // de estilo; desenho espera o estilo e roda uma vez quando ele chega.
+  function quandoEstiloPronto(map, executar) {
+    if (typeof map.isStyleLoaded !== "function" || map.isStyleLoaded()) { executar(); return; }
+    if (map.__hbxEsperaEstilo) return;
+    map.__hbxEsperaEstilo = true;
+    const rodar = () => {
+      if (!map.__hbxEsperaEstilo) return;
+      map.__hbxEsperaEstilo = false;
+      try { executar(); } catch (_) {}
+    };
+    try { map.once("styledata", rodar); } catch (_) {}
+    setTimeout(rodar, 1200);
+  }
   async function applyNavLegRoute(host, map) {
-    if (typeof map.isStyleLoaded === "function" && !map.isStyleLoaded()) return;
     const session = navWatchSeq;
     const stops = navRouteOpenPoints();
     const originValid = state.navPosicao && validCoordinates(state.navPosicao.lat, state.navPosicao.lng);
-    if (!stops.length || !originValid) { removeNavLegLayers(map); return; }
-    const knownIds = new Set(((state.navRota && state.navRota.cortes) || []).map(corte => String(corte.id)));
-    const hasUnknownStop = stops.some(stop => !knownIds.has(String(stop.id)));
-    if ((!state.navRota || hasUnknownStop) && navRecalcAllowed()) {
-      markNavRecalc();
-      await recomputeNavRoute(stops);
+    if (!stops.length || !originValid) {
+      // Motivo em 2 palavras na faixa de GPS: quem dirige tem que saber por que
+      // não tem linha (e eu, sem depurador em build release, também).
+      state.navDiag = !stops.length ? "parada sem pino" : "sem GPS";
+      quandoEstiloPronto(map, () => removeNavLegLayers(map));
+      return;
+    }
+    // 🔴 29/07 — ROTA VENCIDA NÃO DESENHA E NÃO SEGURA O PEDIDO. O traçado é
+    // válido só para a fila que o gerou (carimbo `assinatura` em recomputeNavRoute):
+    // fila diferente = joga fora e pede o traçado da fila de agora. Era exatamente
+    // aqui que o mapa ficava sem linha — geometria antiga na memória, cortes que
+    // não conheciam a parada atual, e o teto de recálculo já queimado.
+    const assinatura = navRoutePointsSignature(stops);
+    if (state.navRota && state.navRota.assinatura !== assinatura) state.navRota = null;
+    if (!state.navRota && navPedidoFilaPermitido(assinatura)) {
+      navPedidoFila.emVoo = true;
+      navPedidoFila.tentativas += 1;
+      let ok = false;
+      try { ok = await recomputeNavRoute(stops); }
+      finally {
+        navPedidoFila.emVoo = false;
+        if (!ok) navPedidoFila.ultimaFalhaAt = Date.now();
+        state.navDiag = ok ? "" : "roteador fora";
+      }
       if (routeMap !== map || routeMapHost !== host || !navModeActive() || navWatchSeq !== session) return;
     }
-    if (!state.navRota || !navModeActive() || navWatchSeq !== session) { removeNavLegLayers(map); return; }
-    drawNavLegLayers(map);
-    raiseRouteReadingTrail(map);
+    if (!navModeActive() || navWatchSeq !== session) return;
+    // 🔴 29/07 — INVARIANTE: navegando, com posição e parada, SEMPRE existe linha
+    // na tela. Traço pelas ruas quando o roteador entrega geometria usável; reta
+    // tracejada em qualquer outro caso (sem rede, OSRM fora, geometria estranha).
+    quandoEstiloPronto(map, () => {
+      if (routeMap !== map || routeMapHost !== host || !navModeActive() || navWatchSeq !== session) return;
+      const pintou = state.navRota ? drawNavLegLayers(map) : false;
+      if (!pintou && state.navPosicao && stops[0]) desenharRetaTracejada(map, [[state.navPosicao.lng, state.navPosicao.lat], [stops[0].lng, stops[0].lat]]);
+      if (pintou) state.navDiag = "";
+      else if (!state.navDiag) state.navDiag = state.navRota ? "traçado estranho" : "esperando rota";
+      raiseRouteReadingTrail(map);
+      atualizarEtaAoVivo();
+      if (routeMapHost && routeMapHost.__hbxMapParts && routeMapHost.__hbxMapParts.gpsStatus) atualizarFaixaGps(routeMapHost.__hbxMapParts, state.navPosicao);
+    });
   }
   async function applyRouteLine(host, map, points) {
     const parts = host.__hbxMapParts || (host.__hbxMapParts = { markers: [] });
     let requestId = null;
+    // Pontos que a reta tracejada usa se o roteador falhar (o catch não alcança
+    // as const de dentro do try — por isso o candidato mora aqui fora).
+    let retaCandidatos = [];
     try {
       // S3 21/07 — em navegação ativa a linha única vira 3 cores (pernas);
       // Leitura e rota planejada (não ativa) continuam com a linha única de
@@ -1513,16 +1766,27 @@
       // — rota já cumprida não fica desenhada por cima do que foi feito, e
       // quando tudo foi entregue não sobra linha nenhuma. Pontos sem `item`
       // (pré-visualização do planejamento) passam direto, sem filtro.
-      const lineStops = points.filter(point => !point.item || point.item.status === "agendada" || point.item.status === "em_rota");
-      const signature = lineStops.map((point, index) => `${point.item && point.item.id != null ? point.item.id : index}:${Number(point.lat).toFixed(6)},${Number(point.lng).toFixed(6)}`).join("|");
+      const paradas = points.filter(point => !point.item || point.item.status === "agendada" || point.item.status === "em_rota");
+      // 🔴 29/07 (dono, no aparelho: "vc é um ponto, e aí vc tem q olhar no mapa
+      // onde é o outro ponto") — o traço SAI DE ONDE EU ESTOU. Antes a linha só
+      // ligava parada a parada: rota de UMA parada (a Rota rápida do dia a dia)
+      // nascia SEM TRAÇO NENHUM, sobrando dois pontos soltos na tela. A minha
+      // posição arredondada a ~100 m entra na assinatura pra não refazer a rota
+      // a cada tique do GPS.
+      const eu = state.idlePosicao || lastKnownPosition;
+      const origem = eu && validCoordinates(eu.lat, eu.lng) ? { lat: Number(eu.lat), lng: Number(eu.lng) } : null;
+      const lineStops = origem && paradas.length ? [origem, ...paradas] : paradas;
+      retaCandidatos = lineStops;
+      const signature = `${origem && paradas.length ? `eu:${origem.lat.toFixed(3)},${origem.lng.toFixed(3)}|` : ""}${paradas.map((point, index) => `${point.item && point.item.id != null ? point.item.id : index}:${Number(point.lat).toFixed(6)},${Number(point.lng).toFixed(6)}`).join("|")}`;
       const sourceReady = !!map.getSource("hbx-route-line");
       const layerReady = !!map.getLayer("hbx-route-line");
       if (lineStops.length < 2) {
         parts.routeLineRequestId = Number(parts.routeLineRequestId || 0) + 1;
         parts.routeLinePendingSignature = null;
         parts.routeLineSignature = signature;
-        if (layerReady) map.removeLayer("hbx-route-line");
-        if (sourceReady) map.removeSource("hbx-route-line");
+        removerLinhaPlanejada(map);
+        removerRetaTracejada(map);
+        state.rotaEta = null;
         return;
       }
       if (parts.routeLineSignature === signature && sourceReady && layerReady) {
@@ -1533,13 +1797,14 @@
       requestId = Number(parts.routeLineRequestId || 0) + 1;
       parts.routeLineRequestId = requestId;
       parts.routeLinePendingSignature = signature;
-      const coordinates = lineStops.length >= 2 ? await roadGeometry(lineStops) : [];
+      const info = await roadRoute(lineStops);
+      const coordinates = info.coordinates || [];
       if (routeMap !== map || routeMapHost !== host || parts.routeLineRequestId !== requestId || navModeActive()) return;
       parts.routeLinePendingSignature = null;
       if (coordinates.length < 2) {
-        if (map.getLayer("hbx-route-line")) map.removeLayer("hbx-route-line");
-        if (map.getSource("hbx-route-line")) map.removeSource("hbx-route-line");
+        removerLinhaPlanejada(map);
         parts.routeLineSignature = signature;
+        state.rotaEta = null;
         return;
       }
       const data = { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates } };
@@ -1548,15 +1813,39 @@
       else {
         map.addSource("hbx-route-line", { type: "geojson", data });
       }
+      // Contorno branco embaixo (nasce primeiro = fica embaixo) + limão por cima:
+      // sem ele a linha se perde nas ruas amarelas do mapa claro.
+      if (!map.getLayer("hbx-route-line-casing")) {
+        map.addLayer({ id: "hbx-route-line-casing", type: "line", source: "hbx-route-line", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": "rgba(255,255,255,.94)", "line-width": 10, "line-opacity": .92 } });
+      }
       if (!map.getLayer("hbx-route-line")) {
-        map.addLayer({ id: "hbx-route-line", type: "line", source: "hbx-route-line", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": mapPaintToken("--brand", "rgb(120,201,0)"), "line-width": 4, "line-opacity": .9 } });
+        map.addLayer({ id: "hbx-route-line", type: "line", source: "hbx-route-line", layout: { "line-cap": "round", "line-join": "round" }, paint: { "line-color": mapPaintToken("--brand", "rgb(120,201,0)"), "line-width": 6, "line-opacity": .95 } });
       }
       parts.routeLineSignature = signature;
+      removerRetaTracejada(map);
+      // 29/07 — hora de chegada da rota AINDA NÃO INICIADA: o tempo do OSRM da
+      // mesma resposta que desenhou o traço (nunca conta na mão). `primeiraPernaM`
+      // é a distância POR RUAS até a próxima parada, que o painel passa a mostrar
+      // no lugar da linha reta.
+      const primeiraPerna = origem && paradas.length ? (info.legs || [])[0] : null;
+      state.rotaEta = {
+        distanceM: Number.isFinite(info.distanceM) ? info.distanceM : null,
+        durationS: Number.isFinite(info.durationS) ? info.durationS : null,
+        primeiraPernaM: primeiraPerna && Number.isFinite(primeiraPerna.distanceM) ? primeiraPerna.distanceM : null,
+        at: Date.now(),
+      };
+      atualizarChipEta(host, parts);
       raiseRouteReadingTrail(map);
     } catch (_) {
       if (requestId !== null && parts.routeLineRequestId === requestId) parts.routeLinePendingSignature = null;
-      // Sem resposta viária, mantenha somente os pinos. Uma linha reta entre
-      // casas seria visualmente falsa e não pode ser apresentada como rota.
+      // 🔴 29/07 — antes ficava só o pino: dois pontos soltos e o motorista
+      // adivinhando. Sem resposta viária desenha a RETA TRACEJADA (desenho
+      // diferente de propósito: "é por ali", não "é este o caminho").
+      state.rotaEta = null;
+      try {
+        const retaStops = retaCandidatos.filter(stop => validCoordinates(stop.lat, stop.lng));
+        if (retaStops.length >= 2) desenharRetaTracejada(map, retaStops.map(stop => [Number(stop.lng), Number(stop.lat)]));
+      } catch (_) {}
     }
   }
   // R2 (27/07) — toque no mapa da MONTAGEM vira parada (rota rápida). Handler
@@ -4427,9 +4716,30 @@
     const c = next.cliente || {};
     const step = navActiveVoiceStep();
     if (step) return `Em ${formatRouteDistance(Math.max(0, step.distanceM))}, ${step.instrucao}`;
-    const viaria = navModeActive() ? navLegAtualMeters() : null;
+    // 29/07 — fora da navegação a distância também vem POR RUAS (perna 1 do
+    // traço que já está desenhado); a linha reta era o número que o dono viu
+    // ("aproximadamente 5.4 km" de um caminho que tem 6,3 km de rua).
+    const viaria = navModeActive() ? navLegAtualMeters() : (state.rotaEta && Number.isFinite(state.rotaEta.primeiraPernaM) ? state.rotaEta.primeiraPernaM : null);
     const distanceTxt = viaria != null ? formatRouteDistance(viaria) : (lastKnownPosition && validCoordinates(c.lat, c.lng) ? formatRouteDistance(distanceMeters(lastKnownPosition, { lat: Number(c.lat), lng: Number(c.lng) })) : "");
     return `${address(c)}${distanceTxt ? ` · aproximadamente ${distanceTxt}` : ""}`;
+  }
+  // 🔴 29/07 (dono, dirigindo) — navegando, a linha 1 é A MANOBRA, grande: é o
+  // único dado que serve a 60 km/h. Nome da parada e precisão do GPS descem pra
+  // linha 2 (dado em linha, Lei 8). Sem manobra à frente (reta longa, ou rota só
+  // montada), a linha 1 volta a ser a parada, como sempre foi. Os MESMOS textos
+  // alimentam o painel no render e o patch ao vivo (updateNextStopPanelDistance).
+  function routeNextPanelTextos(next) {
+    const c = next.cliente || {};
+    const n = orderedItems().indexOf(next) + 1;
+    const total = items().length;
+    const step = navActiveVoiceStep();
+    const manobra = step ? `Em ${formatRouteDistance(Math.max(0, step.distanceM))} · ${step.instrucao}` : "";
+    const precisao = navModeActive() && state.navPosicao && Number.isFinite(Number(state.navPosicao.accuracyM)) ? ` · GPS ±${Math.round(Number(state.navPosicao.accuracyM))} m` : "";
+    return {
+      manobra,
+      titulo: manobra || `Próxima parada · ${c.nome || "Cliente"} — ${n} de ${total}`,
+      sub: manobra ? `${c.nome || "Cliente"} · ${n} de ${total}${precisao}` : routeNextStopSubText(next),
+    };
   }
   function routeNextStopPanel(next) {
     const c = next.cliente || {};
@@ -4439,7 +4749,12 @@
     // não há voz pra silenciar (Leitura/pausada nunca chegam aqui — H.speak
     // não é chamado, então o botão só confundiria).
     const muteBtn = navModeActive() ? `<button type="button" class="route-next-panel-mute${state.navMudo ? " is-muted" : ""}" data-action="nav-mute-toggle" aria-label="${state.navMudo ? "Ativar voz da navegação" : "Silenciar voz da navegação"}">${icon(state.navMudo ? "volumeOff" : "volume", 18)}</button>` : "";
-    return `<div class="route-next-panel"><button type="button" class="route-next-panel-open" data-delivery="${H.escape(next.id)}" aria-label="Ver próxima parada"><strong class="route-next-panel-title">Próxima parada · ${H.escape(c.nome || "Cliente")} — ${n} de ${total}</strong><span class="route-next-panel-sub">${H.escape(routeNextStopSubText(next))}</span></button>${muteBtn}</div>`;
+    // 🔴 29/07 (dono, dirigindo) — navegando, a linha 1 é A MANOBRA, grande: é o
+    // único dado que serve a 60 km/h. Nome da parada e precisão do GPS descem
+    // pra linha 2 (dado em linha, Lei 8). Sem manobra à frente (reta longa, ou
+    // rota só montada), a linha 1 volta a ser a parada, como sempre foi.
+    const textos = routeNextPanelTextos(next);
+    return `<div class="route-next-panel${textos.manobra ? " has-manobra" : ""}"><button type="button" class="route-next-panel-open" data-delivery="${H.escape(next.id)}" aria-label="Ver próxima parada"><strong class="route-next-panel-title">${H.escape(textos.titulo)}</strong><span class="route-next-panel-sub">${H.escape(textos.sub)}</span></button>${muteBtn}</div>`;
   }
   function routeTransmuxControl(planned, paused) {
     const active = routeActive();
@@ -6865,7 +7180,16 @@
     // S3/S5 21/07 — mesma regra do routeNextStopPanel: viária em nav mode
     // (ou instrução do step à frente), reta de fallback (esta função é o
     // patch AO VIVO da mesma linha 2 do painel — sem re-render).
-    sub.textContent = routeNextStopSubText(next);
+    const textos = routeNextPanelTextos(next);
+    sub.textContent = textos.sub;
+    // 29/07 — a MANOBRA também é patch ao vivo (ela muda a cada 100 m, não a
+    // cada render): título e a classe que engrossa a fonte andam junto.
+    const titulo = app.querySelector(".route-next-panel-title");
+    if (titulo) titulo.textContent = textos.titulo;
+    const painel = app.querySelector(".route-next-panel");
+    if (painel) painel.classList.toggle("has-manobra", !!textos.manobra);
+    // 29/07 — a hora de chegada anda no mesmo tique do painel.
+    atualizarEtaAoVivo();
   }
   // S2 21/07 (PR21072026-NAVEGAÇÃO) — watch da navegação normal (rota já em
   // execução, sem app externo). Mesmas options de currentPosition() (spec S2
