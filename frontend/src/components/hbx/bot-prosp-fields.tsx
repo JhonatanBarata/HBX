@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { I, ICONS } from "@/components/hbx/shell";
+import { apiFetch } from "@/lib/api";
 import {
   ABSOLUTE_DAILY_SEND_CAP,
   VARIANT_LISTS,
@@ -16,6 +17,15 @@ import {
   type ProspCfg,
 } from "@/lib/use-prospecting-config";
 import type { VarDef } from "@/components/hbx/bot-variables-drawer";
+
+// Item 3 (30/07): pede à IA local variações da frase-base do 1º contato. O
+// backend valida o lote com a régua do gate anti-carimbo antes de devolver.
+function gerarVariacoesPrimeiroContato(base: string) {
+  return apiFetch<{ variacoes: string[]; recusadas: { texto: string; motivo: string }[]; erro: string | null }>(
+    "/vendas/automation/prospecting/gerar-variacoes",
+    { method: "POST", body: JSON.stringify({ frase: base }) },
+  );
+}
 
 // "Pausar" uma variante = mantê-la salva SEM o motor usar (igual deletar, mas
 // reversível: o dono reativa quando quiser). A variante pausada fica marcada com
@@ -134,6 +144,9 @@ export function ProspPieceBody({ piece, h }: { piece: PieceKey; h: ProspFieldHel
             items={listVal(v.key)}
             onChange={items => setField(v.key, items as never)}
             variableCatalog={h.variableCatalog}
+            // Item 3 (30/07): só no 1º contato (frio) — é onde o anti-carimbo mata
+            // copy repetida; a pessoa escreve a frase e a IA propõe variações.
+            aiAssist={v.key === "firstContactVariants" ? gerarVariacoesPrimeiroContato : undefined}
           />
         ))}
       </>
@@ -206,8 +219,13 @@ export function TimeField({ label, value, onChange }: { label: string; value: st
   );
 }
 
-export function VariantListEditor({ label, hint, max, items, onChange, single, variableCatalog }: { label: string; hint?: string; max: number; items: string[]; onChange: (next: string[]) => void; single?: boolean; variableCatalog?: VarDef[] }) {
+// Resposta do POST /vendas/automation/prospecting/gerar-variacoes (item 3, 30/07).
+export type AiVariacoesResult = { variacoes: string[]; recusadas: { texto: string; motivo: string }[]; erro: string | null };
+
+export function VariantListEditor({ label, hint, max, items, onChange, single, variableCatalog, aiAssist }: { label: string; hint?: string; max: number; items: string[]; onChange: (next: string[]) => void; single?: boolean; variableCatalog?: VarDef[]; aiAssist?: (base: string) => Promise<AiVariacoesResult> }) {
   const [varPopup, setVarPopup] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiMsg, setAiMsg] = useState<string | null>(null);
   const [popupPos, setPopupPos] = useState<{ bottom: number; right: number } | null>(null);
   const lastFocused = useRef<{ index: number; selStart: number; selEnd: number } | null>(null);
   const fieldRefs = useRef<(HTMLTextAreaElement | HTMLInputElement | null)[]>([]);
@@ -263,6 +281,32 @@ export function VariantListEditor({ label, hint, max, items, onChange, single, v
   }
 
   const showVarBtn = !single && variableCatalog && variableCatalog.length > 0;
+
+  // Item 3 (30/07): a pessoa escreve a frase-base (primeira variante ativa com
+  // texto); a IA PROPÕE variações que entram como itens editáveis — nada é salvo
+  // até a pessoa clicar em salvar (fluxo normal do PATCH).
+  const aiBase = aiAssist ? (items.map(it => bareVariant(it)).find(t => t.trim().length >= 20) || "") : "";
+  async function gerarComIa() {
+    if (!aiAssist || aiBusy || !aiBase) return;
+    setAiBusy(true);
+    setAiMsg(null);
+    try {
+      const res = await aiAssist(aiBase);
+      const existentes = new Set(items.map(it => bareVariant(it).trim()));
+      const novas = (res.variacoes || []).filter(v => !existentes.has(v.trim())).slice(0, Math.max(0, max - items.length));
+      if (novas.length) onChange([...items, ...novas]);
+      const recusadas = res.recusadas?.length || 0;
+      setAiMsg(
+        novas.length
+          ? `✓ ${novas.length} variação(ões) adicionada(s) — revise, edite e salve.${recusadas ? ` ${recusadas} recusada(s) por semelhança.` : ""}`
+          : res.erro || "Nenhuma variação aproveitável — tente de novo.",
+      );
+    } catch {
+      setAiMsg("Não deu pra gerar agora — tente novamente.");
+    } finally {
+      setAiBusy(false);
+    }
+  }
 
   function openVarPopup() {
     if (!varPopup && varBtnRef.current) {
@@ -335,7 +379,21 @@ export function VariantListEditor({ label, hint, max, items, onChange, single, v
             <I d={ICONS.bolt} size={12} /> Adicionar variável
           </button>
         )}
+        {aiAssist && (
+          <button
+            type="button"
+            className="btn-ghost bot-prosp-vlist__add"
+            onClick={gerarComIa}
+            disabled={aiBusy || !aiBase || items.length >= max}
+            title={aiBase ? "A IA propõe variações da sua primeira frase — você revisa e salva." : "Escreva a primeira frase antes."}
+          >
+            <I d={ICONS.assistente} size={12} /> {aiBusy ? "Gerando…" : "Gerar variações (IA)"}
+          </button>
+        )}
       </div>
+      {aiAssist && aiMsg && (
+        <span className="bot-prosp-vlist__hint" role="status">{aiMsg}</span>
+      )}
       {showVarBtn && varPopup && popupPos && createPortal(
         <div
           ref={popupRef}

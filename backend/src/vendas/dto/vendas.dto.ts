@@ -266,6 +266,19 @@ export class UpdateVendasCatalogoComercialDto {
   catalogo?: unknown;
 }
 
+// Variações de copy por IA (item 3, 30/07): frase-base da pessoa -> propostas da IA.
+export class GerarVariacoesPrimeiroContatoDto {
+  @IsString()
+  @MaxLength(1200)
+  frase!: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(8)
+  quantidade?: number;
+}
+
 // GET /vendas/agenda-disparo/proximo-slot?desiredAt=ISO — desiredAt opcional (default
 // agora); devolve o próximo horário livre e, se desiredAt estava ocupado/fora da
 // janela, o motivo do conflito ("08:00 ocupado — próximo livre 08:15").

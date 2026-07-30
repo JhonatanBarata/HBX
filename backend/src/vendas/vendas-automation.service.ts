@@ -27,6 +27,14 @@ import {
   type ProspectingAutoReplyClassification,
 } from './prospecting-safety';
 import { VendasService } from './vendas.service';
+import { callAssistenteOllama } from '../assistente/assistente-ollama';
+import {
+  VARIACOES_QUANTIDADE_DEFAULT,
+  VARIACOES_QUANTIDADE_MAX,
+  montarPromptVariacoes,
+  parseVariacoesResposta,
+  validarLoteVariacoes,
+} from './vendas-copy-variacoes';
 import { IntentEngineService } from '../bot/intent/intent-engine.service';
 import {
   COMMERCIAL_INBOUND_STOP_REASON,
@@ -1955,6 +1963,45 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       lastError: isStaleProspectingRadarConfigText(campaign.lastError) ? null : campaign.lastError || null,
       createdAt: campaign.createdAt instanceof Date ? campaign.createdAt.toISOString() : null,
       updatedAt: campaign.updatedAt instanceof Date ? campaign.updatedAt.toISOString() : null,
+    };
+  }
+
+  // Item 3 do dia de vendedor (aprovado 30/07): a pessoa escreve a frase-base e a
+  // IA local PROPÕE variações — nada é salvo aqui (a pessoa edita/aprova e salva
+  // pela tela, PATCH normal). O lote passa pela MESMA régua do gate anti-carimbo:
+  // sugestão que o gate cancelaria em produção nem chega à tela.
+  async gerarVariacoesPrimeiroContatoForUser(user: any, dto: { frase?: string; quantidade?: number }) {
+    const context = this.resolveUserContext(user);
+    await this.assertEntitlement(user);
+    this.assertCanManageProspecting(user);
+    const frase = String(dto?.frase || '').trim();
+    if (frase.length < 20) throw new BadRequestException('Escreva a frase-base primeiro (mínimo 20 caracteres).');
+    if (frase.length > 1200) throw new BadRequestException('Frase-base longa demais (máximo 1200 caracteres).');
+    const quantidade = Math.max(1, Math.min(VARIACOES_QUANTIDADE_MAX, Math.trunc(Number(dto?.quantidade) || VARIACOES_QUANTIDADE_DEFAULT)));
+    const thresholdRaw = Number(process.env.HBX_WA_COLD_SIMILARITY_PCT);
+    const thresholdPct = Number.isFinite(thresholdRaw) && thresholdRaw > 0 ? thresholdRaw : 85;
+
+    let raw = '';
+    try {
+      // timeout folgado de propósito: é clique manual (a pessoa espera olhando o
+      // botão) e o cold-load do Ollama pós-ocioso leva ~35s (memória IA-VPS).
+      raw = await callAssistenteOllama(montarPromptVariacoes(frase, quantidade), {
+        companyId: context.companyId,
+        actionKey: 'ai_realtime',
+        temperature: 0.9,
+        numPredict: 700,
+        timeoutMs: 45_000,
+      });
+    } catch (error: any) {
+      this.logger.warn(`[copy-variacoes] IA indisponível company=${context.companyId}: ${String(error?.message || error)}`);
+      return { variacoes: [], recusadas: [], erro: 'IA local indisponível agora — tente novamente em instantes.' };
+    }
+
+    const { aprovadas, recusadas } = validarLoteVariacoes(frase, parseVariacoesResposta(raw), thresholdPct, quantidade);
+    return {
+      variacoes: aprovadas,
+      recusadas,
+      erro: aprovadas.length ? null : 'A IA não produziu variações diferentes o bastante — tente de novo.',
     };
   }
 

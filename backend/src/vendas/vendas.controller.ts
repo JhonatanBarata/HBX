@@ -21,6 +21,7 @@ import {
   SimulateProspectingDto,
   StartVendasProspectingDto,
   UpdateSalesProfileDto,
+  GerarVariacoesPrimeiroContatoDto,
   UpdateVendasCatalogoComercialDto,
   UpdateVendasComercialConfigDto,
   UpdateVendasProspectingConfigDto,
@@ -112,6 +113,13 @@ export class VendasController {
   @Patch('automation/prospecting/config')
   updateProspectingConfig(@Req() req: any, @Body() dto: UpdateVendasProspectingConfigDto) {
     return this.vendasAutomationService.patchProspectingConfigForUser(req.user, dto || {});
+  }
+
+  // Item 3 (30/07): a pessoa escreve a frase; a IA propõe variações de exemplo.
+  // Só PROPÕE — nada é salvo aqui; aprovar/editar/salvar é da tela (PATCH acima).
+  @Post('automation/prospecting/gerar-variacoes')
+  gerarVariacoesPrimeiroContato(@Req() req: any, @Body() dto: GerarVariacoesPrimeiroContatoDto) {
+    return this.vendasAutomationService.gerarVariacoesPrimeiroContatoForUser(req.user, dto || {});
   }
 
   // Teste de conversa (preview interativo). Sem efeito colateral: roda o mesmo
