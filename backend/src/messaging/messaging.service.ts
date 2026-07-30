@@ -2084,7 +2084,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       timeoutMs: 25_000,
     });
     const validada = validarRespostaGerada(raw, { temAncoraDePreco: Boolean(catalogo.ancoraDePreco) });
-    if (!validada.ok) {
+    // `=== false` (não `!ok`): o tsc do container (npm ci cacheado, TS mais velho)
+    // não estreita a união com negação — custou um publish inteiro em 30/07.
+    if (validada.ok === false) {
       this.logger.warn(`[prospeccao] resposta gerada RECUSADA (${validada.motivo}) job=${job.id} — usando variante fixa.`);
       return null;
     }
