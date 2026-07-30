@@ -888,11 +888,36 @@ export class WhatsAppModalService {
         const rawState = String((state as any)?.instance?.state || (state as any)?.state || '').trim().toLowerCase();
         if (!state || (rawState !== 'open' && rawState !== 'connecting')) {
           this.logger.warn(`Modal WhatsApp start: instancia ${tenantKey} existe mas estado invalido (${rawState || 'null'}) — resetando e recriando.`);
-          await this.resetProviderInstanceForPairing(tenantKey);
+          try {
+            await this.resetProviderInstanceForPairing(tenantKey);
+          } catch (resetError) {
+            // O motor só responde OK ao delete depois de remover de fato; uma falha aqui é real
+            // e não pode virar 500 — devolve erro tratado para a tela em vez de derrubar a rota.
+            return this.buildFailureResponse(
+              baseCompany,
+              storedSnapshot,
+              resetError,
+              'Não foi possível limpar a sessão anterior do WhatsApp. Tente conectar novamente em alguns segundos.',
+            );
+          }
           try {
             await this.createProviderInstance(tenantKey);
           } catch (recreateError) {
-            if (!this.isExistingInstanceError(recreateError) && !this.isTransientProviderError(recreateError)) {
+            if (this.isExistingInstanceError(recreateError)) {
+              // O reset NÃO valeu: a instância condenada continua de pé no motor. Seguir daqui
+              // conecta um socket que a remoção atrasada vai destruir — é exatamente o "QR
+              // aparece e fecha sozinho", e o socket sobra órfão girando QR contra o WhatsApp.
+              this.logger.error(
+                `Modal WhatsApp start: reset de ${tenantKey} não removeu a instância (create seguiu recusando por nome em uso) — abortando para não criar socket órfão.`,
+              );
+              return this.buildFailureResponse(
+                baseCompany,
+                storedSnapshot,
+                recreateError,
+                'Não foi possível reiniciar a sessão do WhatsApp. Tente conectar novamente em alguns segundos.',
+              );
+            }
+            if (!this.isTransientProviderError(recreateError)) {
               return this.buildFailureResponse(baseCompany, storedSnapshot, recreateError, 'Falha ao recriar sessão do Modal WhatsApp.');
             }
           }

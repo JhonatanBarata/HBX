@@ -300,7 +300,9 @@ export class InstanceController {
         },
       };
     } catch (error) {
-      this.waMonitor.deleteInstance(instanceData.instanceName);
+      // Rollback da criacao: ESPERA a remocao, senao o proximo create colide com a linha
+      // meio-criada que ainda nao saiu ("already in use" logo apos um create que falhou).
+      await this.waMonitor.deleteInstance(instanceData.instanceName);
       this.logger.error(isArray(error.message) ? error.message[0] : error.message);
       throw new BadRequestException(isArray(error.message) ? error.message[0] : error.message);
     }
@@ -470,7 +472,10 @@ export class InstanceController {
         this.logger.error(error);
       }
 
-      this.eventEmitter.emit('remove.instance', instanceName, 'inner');
+      // ESPERA a remocao terminar antes de responder. Com `emit` (fire-and-forget) o 200 saia
+      // com a linha ainda de pe: quem recriava logo em seguida levava 403 "already in use" e a
+      // remocao atrasada matava a instancia NOVA, deixando socket orfao girando QR.
+      await this.waMonitor.removeInstanceNow(instanceName);
       return { status: 'SUCCESS', error: false, response: { message: 'Instance deleted' } };
     } catch (error) {
       throw new BadRequestException(error.toString());

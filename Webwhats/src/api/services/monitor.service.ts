@@ -42,6 +42,9 @@ export class WAMonitoringService {
   private readonly logger = new Logger('WAMonitoringService');
   public readonly waInstances: Record<string, any> = {};
   private readonly delInstanceTimeouts: Record<string, NodeJS.Timeout> = {};
+  // Remocoes em voo por instancia: dedup entre o listener do evento e a chamada direta do
+  // controller, para a mesma instancia nao ser limpa duas vezes em paralelo.
+  private readonly removalInFlight: Record<string, Promise<void>> = {};
 
   private readonly providerSession: ProviderSession;
 
@@ -398,9 +401,9 @@ export class WAMonitoringService {
     }
   }
 
-  public deleteInstance(instanceName: string) {
+  public async deleteInstance(instanceName: string) {
     try {
-      this.eventEmitter.emit('remove.instance', instanceName, 'inner');
+      await this.removeInstanceNow(instanceName);
     } catch (error) {
       this.logger.error(error);
     }
@@ -580,24 +583,65 @@ export class WAMonitoringService {
     );
   }
 
-  private removeInstance() {
-    this.eventEmitter.on('remove.instance', async (instanceName: string) => {
+  /**
+   * Remocao REAL e AGUARDAVEL da instancia.
+   *
+   * Antes isto so existia como listener assincrono do EventEmitter. `emit()` NAO espera listener
+   * async: o `DELETE /instance/delete` respondia 200 ANTES de a linha sair do banco. O app,
+   * confiando no 200, recriava na hora e levava 403 "already in use"; seguia em frente e mandava
+   * conectar — e a remocao atrasada detonava EM CIMA do socket recem-criado, deixando um ORFAO
+   * girando QR fora do waInstances. Efeito para o usuario: o QR aparece e fecha sozinho.
+   * Agora quem manda remover ESPERA a remocao terminar.
+   */
+  public async removeInstanceNow(instanceName: string): Promise<void> {
+    const running = this.removalInFlight[instanceName];
+    if (running) return running;
+
+    const task = (async () => {
+      const live = this.waInstances[instanceName];
       try {
-        await this.waInstances[instanceName]?.sendDataWebhook(Events.REMOVE_INSTANCE, null);
+        // Notificacao ao app FORA do caminho critico: o retry de webhook (10 tentativas,
+        // backoff ate 300s) nao pode segurar a resposta do DELETE nem atrasar a limpeza.
+        try {
+          void Promise.resolve(live?.sendDataWebhook(Events.REMOVE_INSTANCE, null)).catch((error) =>
+            this.logger.warn(`Webhook REMOVE_INSTANCE falhou para "${instanceName}": ${error?.toString()}`),
+          );
+        } catch (error) {
+          this.logger.warn(`Webhook REMOVE_INSTANCE falhou para "${instanceName}": ${error?.toString()}`);
+        }
 
         this.clearDelInstanceTime(instanceName);
+
+        // Mata o socket ANTES de apagar a linha. Socket vivo sem linha = zumbi: P2025 a cada
+        // giro de QR e reconexao pelo disjuntor, invisivel ao painel e a reap "1 numero = 1
+        // conexao" (que so varre o waInstances). So morria reiniciando o servico.
+        try {
+          live?.markRemoved?.('instancia removida');
+        } catch (error) {
+          this.logger.error(`Falha ao encerrar socket de "${instanceName}": ${error?.toString()}`);
+        }
 
         await this.cleaningUp(instanceName);
         await this.cleaningStoreData(instanceName);
       } finally {
+        delete this.waInstances[instanceName];
         this.logger.warn(`Instance "${instanceName}" - REMOVED`);
       }
+    })();
 
-      try {
-        delete this.waInstances[instanceName];
-      } catch (error) {
-        this.logger.error(error);
-      }
+    this.removalInFlight[instanceName] = task;
+    try {
+      await task;
+    } finally {
+      delete this.removalInFlight[instanceName];
+    }
+  }
+
+  private removeInstance() {
+    this.eventEmitter.on('remove.instance', (instanceName: string) => {
+      void this.removeInstanceNow(instanceName).catch((error) =>
+        this.logger.error(`Falha removendo instancia "${instanceName}": ${error?.toString()}`),
+      );
     });
     this.eventEmitter.on('logout.instance', async (instanceName: string) => {
       try {

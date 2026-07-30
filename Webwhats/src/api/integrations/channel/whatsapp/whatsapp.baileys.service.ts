@@ -261,6 +261,59 @@ export class BaileysStartupService extends ChannelStartupService {
   private static readonly MAX_RECONNECT_ATTEMPTS = 4;
   private static readonly RECONNECT_BASE_DELAY_MS = 15_000;
   private static readonly RECONNECT_MAX_DELAY_MS = 120_000;
+  // ORFAO (anti-ban): socket que sobrevive a remocao da instancia vira ZUMBI — sai do
+  // waInstances e do banco, mas continua girando QR e RECONECTANDO pelo disjuntor, invisivel
+  // para /instance/fetchInstances, para o painel e para a reap "1 numero = 1 conexao" (que so
+  // enxerga o que esta no waInstances). Ninguem consegue derruba-lo sem reiniciar o servico.
+  private removed = false;
+
+  public get isRemoved(): boolean {
+    return this.removed;
+  }
+
+  /**
+   * Encerra o socket DE VEZ e proibe ressurreicao. Usa ws.close/end — NUNCA client.logout,
+   * que desvincularia o aparelho no WhatsApp (ban/remocao de dispositivo nao tem git revert).
+   */
+  public markRemoved(reason: string): void {
+    if (this.removed) return;
+    this.removed = true;
+    this.logger.warn(`[ORFAO] ${this.instance.name}: socket encerrado e proibido de reconectar (${reason}).`);
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.reconnectCircuitOpen = true;
+    this.endSession = true;
+    this.clearQrCode('no_connection');
+    try {
+      this.client?.ws?.close?.();
+    } catch {
+      /* best-effort */
+    }
+    try {
+      this.client?.end?.(new Error(`instance removed: ${reason}`));
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  /**
+   * Grava na linha da instancia tolerando que ela NAO exista mais. Se sumiu (P2025), este socket
+   * e orfao: se autodestroi em vez de girar QR e reconectar para sempre contra o WhatsApp.
+   * Rede de seguranca de QUALQUER caminho de remocao (delete, reap, limpeza manual).
+   */
+  private async updateInstanceRow(data: Record<string, any>): Promise<void> {
+    try {
+      await this.prismaRepository.instance.update({ where: { id: this.instanceId }, data });
+    } catch (error) {
+      if ((error as any)?.code === 'P2025') {
+        this.markRemoved('linha da instancia inexistente (P2025)');
+        return;
+      }
+      throw error;
+    }
+  }
 
   private resetReconnectCircuit() {
     this.reconnectAttempts = 0;
@@ -395,6 +448,12 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   private async connectionUpdate({ qr, connection, lastDisconnect }: Partial<ConnectionState>) {
+    // ORFAO: instancia ja removida — nao gira QR, nao grava no banco e, principalmente, NAO
+    // entra no disjuntor de reconexao. Sem este freio o socket removido se reconecta sozinho.
+    if (this.removed) {
+      return;
+    }
+
     if (qr) {
       if (this.qrCodeLimit > 0 && this.instance.qrcode.count >= this.qrCodeLimit) {
         this.sendDataWebhook(Events.QRCODE_UPDATED, {
@@ -482,10 +541,7 @@ export class BaileysStartupService extends ChannelStartupService {
         ),
       );
 
-      await this.prismaRepository.instance.update({
-        where: { id: this.instanceId },
-        data: { connectionStatus: 'connecting' },
-      });
+      await this.updateInstanceRow({ connectionStatus: 'connecting' });
     }
 
     if (connection) {
@@ -565,14 +621,11 @@ export class BaileysStartupService extends ChannelStartupService {
           disconnectionObject: JSON.stringify(lastDisconnect),
         });
 
-        await this.prismaRepository.instance.update({
-          where: { id: this.instanceId },
-          data: {
-            connectionStatus: 'close',
-            disconnectionAt: new Date(),
-            disconnectionReasonCode: statusCode,
-            disconnectionObject: JSON.stringify(lastDisconnect),
-          },
+        await this.updateInstanceRow({
+          connectionStatus: 'close',
+          disconnectionAt: new Date(),
+          disconnectionReasonCode: statusCode,
+          disconnectionObject: JSON.stringify(lastDisconnect),
         });
 
         if (this.configService.get<Chatwoot>('CHATWOOT').ENABLED && this.localChatwoot?.enabled) {
@@ -619,14 +672,11 @@ export class BaileysStartupService extends ChannelStartupService {
       `,
       );
 
-      await this.prismaRepository.instance.update({
-        where: { id: this.instanceId },
-        data: {
-          ownerJid: this.instance.wuid,
-          profileName: (await this.getProfileName()) as string,
-          profilePicUrl: this.instance.profilePictureUrl,
-          connectionStatus: 'open',
-        },
+      await this.updateInstanceRow({
+        ownerJid: this.instance.wuid,
+        profileName: (await this.getProfileName()) as string,
+        profilePicUrl: this.instance.profilePictureUrl,
+        connectionStatus: 'open',
       });
 
       // NÚMERO ÚNICO: ao abrir, despeja qualquer outra instância amarrada neste mesmo
@@ -887,6 +937,10 @@ export class BaileysStartupService extends ChannelStartupService {
   }
 
   public async connectToWhatsapp(number?: string, isRetry = false): Promise<WASocket> {
+    // ORFAO: instancia removida nao ressuscita. Reconectar aqui recriaria o socket zumbi.
+    if (this.removed) {
+      throw new InternalServerErrorException(`Instance "${this.instance.name}" was removed`);
+    }
     try {
       // Conexao EXPLICITA (usuario/boot/restart) zera o disjuntor: ganha 4 tentativas limpas e
       // o 515 de pareamento consegue religar mesmo se o circuito tinha aberto antes. A retentativa
