@@ -6,6 +6,7 @@ import { AiIntentClassifierService } from '../bot/intent/ai-intent-classifier.se
 import { IntentEngineService } from '../bot/intent/intent-engine.service';
 import { DEFAULT_ATENDIMENTO_AGENDA_CONFIG, DEFAULT_ATENDIMENTO_BOT_CONFIG } from '../inbox/atendimento-config';
 import { BotConfigStoreService } from '../bot/config/bot-config-store.service';
+import { VendasContactSuppressionService } from '../vendas/vendas-contact-suppression.service';
 
 // PR05072026 (timing humano): pina o piso de silêncio da fase 1 em 0 para este
 // arquivo de teste inteiro — sem isso, cada teste que passa por
@@ -2166,4 +2167,260 @@ test('créditos: respostas humanas, manuais e mensagens fora da allowlist não e
   for (const message of messages) {
     assert.equal((service as any).isCreditAutomationMessage(message), false, message.sourceModule);
   }
+});
+
+// ================================================================
+// ESCRITA DA SUPRESSÃO (30/07/2026) — vacina do buraco medido em produção:
+// `applyAutoSuppressionForClosedLead` não tinha UM chamador de produção, e o
+// opt-out do bot fechava o lead gravando `doNotContact` só no metadata da
+// CONVERSA — que ninguém consulta antes de disparar. Estes testes usam o
+// serviço de supressão REAL sobre um armazém em memória: escreve pelo caminho
+// de produção e LÊ com `isSuppressed`, exatamente como a cadência lê.
+// ================================================================
+
+function createSuppressionStore() {
+  const rows: any[] = [];
+  const matchesKeys = (row: any, where: any) => {
+    const or = Array.isArray(where?.OR) ? where.OR : [];
+    if (!or.length) return false;
+    return or.some((clause: any) => {
+      if (String(clause.contactType) !== String(row.contactType)) return false;
+      const key = clause.contactKey;
+      if (key && typeof key === 'object' && Array.isArray(key.in)) return key.in.includes(row.contactKey);
+      return String(key) === String(row.contactKey);
+    });
+  };
+  const isActive = (row: any) =>
+    row.expiresAt === null || row.expiresAt === undefined || new Date(row.expiresAt).getTime() > Date.now();
+  return {
+    rows,
+    model: {
+      createMany: async ({ data }: any) => {
+        const list = Array.isArray(data) ? data : [data];
+        for (const item of list) rows.push({ ...item, createdAt: new Date() });
+        return { count: list.length };
+      },
+      findFirst: async ({ where }: any) =>
+        rows.filter((row) => matchesKeys(row, where) && isActive(row)).slice(-1)[0] || null,
+      findMany: async ({ where }: any) => rows.filter((row) => matchesKeys(row, where) && isActive(row)),
+      updateMany: async ({ where, data }: any) => {
+        const hit = rows.filter(
+          (row) =>
+            matchesKeys(row, where) &&
+            isActive(row) &&
+            (where.originCompanyId === undefined || row.originCompanyId === where.originCompanyId),
+        );
+        for (const row of hit) Object.assign(row, data);
+        return { count: hit.length };
+      },
+    },
+  };
+}
+
+function buildNegativeReplyTx(leadUpdates: Array<Record<string, any>>) {
+  return {
+    vendasAutomationJob: {
+      updateMany: async (input: any) => ({ count: input?.where?.id === 'job-email-1' ? 1 : 0 }),
+    },
+    vendasLead: {
+      updateMany: async (input: any) => {
+        leadUpdates.push(input);
+        return { count: 1 };
+      },
+    },
+    vendasLeadTimelineEvent: { createMany: async () => ({ count: 1 }) },
+  };
+}
+
+test('opt-out do bot grava a marca global do contato (consultavel por isSuppressed) e o motivo no lead', async () => {
+  const metadata = {
+    vendasAutomation: { jobId: 'job-email-1', leadId: 'lead-1' },
+    vendasAgendaQueue: { active: true, leadId: 'lead-1', automationJobId: 'job-email-1' },
+  };
+  const store = createSuppressionStore();
+  const leadUpdates: Array<Record<string, any>> = [];
+  const { service } = createService({
+    prisma: {
+      $transaction: async (fn: (client: unknown) => unknown) => fn(buildNegativeReplyTx(leadUpdates)),
+      vendasAutomationJob: { findFirst: async () => buildVendasEmailJob() },
+      companyConversation: { findFirst: async () => ({ id: 42, metadata: JSON.stringify(metadata) }) },
+      customerProfile: { findUnique: async () => ({ cnpj: '12.345.678/0001-90' }) },
+      vendasContactSuppression: store.model,
+    },
+  });
+
+  const result = await (service as any).handleVendasAutomationInbound({
+    companyId: 7,
+    conversationId: 42,
+    inboundMessageId: 1,
+    from: '+5519998877766',
+    text: 'Não tenho interesse, por favor remover.',
+    timestamp: new Date('2026-05-06T17:21:00.000Z'),
+    metadata,
+    setInboundMeta: async () => undefined,
+  });
+
+  assert.equal(result.classification, 'opt_out');
+  // motivo estruturado passou a ser gravado no lead (antes ficava null)
+  assert.equal((leadUpdates[0] as any).data.closureReason, 'sem_interesse');
+  assert.equal((leadUpdates[0] as any).data.outcome, 'opt_out');
+
+  // a marca global existe, e PERMANENTE (opt_out) e cobre telefone + cnpj
+  const phoneRow = store.rows.find((row) => row.contactType === 'phone');
+  assert.ok(phoneRow, 'marca de telefone tinha que existir');
+  assert.equal(phoneRow.reason, 'opt_out');
+  assert.equal(phoneRow.expiresAt, null, 'opt_out e permanente');
+  assert.equal(phoneRow.originCompanyId, 7);
+  assert.equal(phoneRow.originLeadId, 'lead-1');
+  assert.ok(store.rows.some((row) => row.contactType === 'cnpj' && row.contactKey === '12345678000190'));
+
+  // O QUE A CADENCIA VE: mesma leitura do portao publicado em 7943c9f2.
+  const reader = new VendasContactSuppressionService({ vendasContactSuppression: store.model } as any);
+  const hit = await reader.isSuppressed({ phone: '+55 19 99887-7766' });
+  assert.equal(hit.suppressed, true, 'quem pediu para sair tem que aparecer barrado na proxima tentativa');
+});
+
+test('resposta negativa SEM pedido explicito marca com dosagem menor (sem_interesse, com validade)', async () => {
+  const metadata = {
+    humanAssigned: true,
+    vendasAutomation: { jobId: 'job-email-1', leadId: 'lead-1', status: 'neutral', humanAssigned: true },
+    vendasAgendaQueue: { active: true, leadId: 'lead-1', automationJobId: 'job-email-1', humanAssigned: true },
+  };
+  const store = createSuppressionStore();
+  const leadUpdates: Array<Record<string, any>> = [];
+  const { service } = createService({
+    prisma: {
+      $transaction: async (fn: (client: unknown) => unknown) => fn(buildNegativeReplyTx(leadUpdates)),
+      vendasAutomationJob: { findFirst: async () => buildVendasEmailJob() },
+      companyConversation: { findFirst: async () => ({ id: 42, metadata: JSON.stringify(metadata) }) },
+      customerProfile: { findUnique: async () => null },
+      vendasContactSuppression: store.model,
+    },
+  });
+
+  const result = await (service as any).handleVendasAutomationInbound({
+    companyId: 7,
+    conversationId: 42,
+    inboundMessageId: 93,
+    from: '+55 19 99887-7766',
+    text: 'Não tenho interesse, obrigada',
+    timestamp: new Date('2026-05-06T17:21:00.000Z'),
+    metadata,
+    setInboundMeta: async () => undefined,
+  });
+
+  assert.equal(result.classification, 'negative');
+  const phoneRow = store.rows.find((row) => row.contactType === 'phone');
+  assert.ok(phoneRow, 'negativa tambem marca');
+  assert.equal(phoneRow.reason, 'sem_interesse');
+  assert.ok(phoneRow.expiresAt instanceof Date, 'sem_interesse resfria, nao e permanente');
+});
+
+test('sinal positivo (interessado/convertido) NUNCA grava marca de supressao', async () => {
+  const metadata = {
+    vendasAutomation: { jobId: 'job-email-1', leadId: 'lead-1' },
+    vendasAgendaQueue: { active: true, leadId: 'lead-1', automationJobId: 'job-email-1' },
+  };
+  const store = createSuppressionStore();
+  const { service } = createService({
+    prisma: {
+      $transaction: async (fn: (client: unknown) => unknown) =>
+        fn({
+          vendasAutomationJob: { updateMany: async () => ({ count: 1 }), update: async (i: any) => i },
+          vendasLead: { updateMany: async () => ({ count: 1 }), update: async (i: any) => i },
+          vendasLeadTimelineEvent: { createMany: async () => ({ count: 1 }), create: async (i: any) => i },
+        }),
+      vendasAutomationJob: {
+        findFirst: async () => buildVendasEmailJob(),
+        update: async (i: any) => i,
+        updateMany: async () => ({ count: 1 }),
+      },
+      vendasLead: { update: async (i: any) => i, updateMany: async () => ({ count: 1 }) },
+      vendasLeadTimelineEvent: { create: async (i: any) => i, createMany: async () => ({ count: 1 }) },
+      companyConversation: { findFirst: async () => ({ id: 42, metadata: JSON.stringify(metadata) }) },
+      customerProfile: { findUnique: async () => null },
+      vendasContactSuppression: store.model,
+    },
+  });
+
+  await (service as any).handleVendasAutomationInbound({
+    companyId: 7,
+    conversationId: 42,
+    inboundMessageId: 5,
+    from: '+5519998877766',
+    text: 'Tenho interesse sim, pode me explicar melhor?',
+    timestamp: new Date('2026-05-06T17:21:00.000Z'),
+    metadata,
+    setInboundMeta: async () => undefined,
+  });
+
+  assert.equal(store.rows.length, 0, 'lead que demonstra interesse nao pode ser suprimido');
+});
+
+test('marca do contato e best-effort: falha ao gravar NAO derruba o encerramento do lead', async () => {
+  const metadata = {
+    vendasAutomation: { jobId: 'job-email-1', leadId: 'lead-1' },
+    vendasAgendaQueue: { active: true, leadId: 'lead-1', automationJobId: 'job-email-1' },
+  };
+  const leadUpdates: Array<Record<string, any>> = [];
+  const { service } = createService({
+    prisma: {
+      $transaction: async (fn: (client: unknown) => unknown) => fn(buildNegativeReplyTx(leadUpdates)),
+      vendasAutomationJob: { findFirst: async () => buildVendasEmailJob() },
+      companyConversation: { findFirst: async () => ({ id: 42, metadata: JSON.stringify(metadata) }) },
+      customerProfile: {
+        findUnique: async () => {
+          throw new Error('perfil fora do ar');
+        },
+      },
+      vendasContactSuppression: {
+        createMany: async () => {
+          throw new Error('banco fora do ar');
+        },
+      },
+    },
+  });
+
+  const result = await (service as any).handleVendasAutomationInbound({
+    companyId: 7,
+    conversationId: 42,
+    inboundMessageId: 1,
+    from: '+5519998877766',
+    text: 'Não tenho interesse, por favor remover.',
+    timestamp: new Date('2026-05-06T17:21:00.000Z'),
+    metadata,
+    setInboundMeta: async () => undefined,
+  });
+
+  assert.equal(result.handled, true);
+  assert.equal(result.classification, 'opt_out');
+  assert.equal(leadUpdates.length, 1, 'o lead foi encerrado mesmo com a marquinha falhando');
+});
+
+test('pitch pos-pre-mensagem nao se apresenta com nome de outro tenant (fim do "Jhonatan" cravado)', async () => {
+  const metadata = {
+    vendasAutomation: { jobId: 'job-email-1', leadId: 'lead-1', preMessageAwaitingReply: true },
+    vendasAgendaQueue: { active: true, leadId: 'lead-1', automationJobId: 'job-email-1' },
+  };
+  const { service, queueCalls } = createService({
+    prisma: {
+      company: { findUnique: async () => ({ id: 7, name: 'Padaria do Ze' }) },
+      user: { findFirst: async () => ({ id: 3, name: 'Marcia', companyId: 7 }) },
+      companyConversation: { findFirst: async () => ({ id: 42, metadata: JSON.stringify(metadata) }) },
+    },
+  });
+
+  await (service as any).sendVendasPitchAfterPreMessage(
+    { companyId: 7, conversationId: 42, from: '+5519998877766', metadata },
+    {
+      ...buildVendasEmailJob(),
+      campaign: { id: 'campaign-1', companyId: 7, createdByUserId: 3, filtersJson: null },
+    },
+  );
+
+  const body = String((queueCalls[0] as any)?.payload?.body || '');
+  assert.ok(body.length > 0, 'pitch tinha que ser enfileirado');
+  assert.equal(body.includes('Jhonatan'), false, 'nenhum tenant pode se apresentar com o nome do dono da HBX');
+  assert.ok(body.includes('Marcia'), 'nome do responsavel pela campanha entra via {{funcionario}}');
+  assert.ok(body.includes('Padaria do Ze'), 'nome da empresa entra via {{empresa}}');
 });

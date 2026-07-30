@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { InboxService } from './inbox.service';
 import { WebwhatsProviderError } from '../messaging/webwhats-bridge.service';
 import { BotConfigStoreService } from '../bot/config/bot-config-store.service';
+import { VendasContactSuppressionService } from '../vendas/vendas-contact-suppression.service';
 
 function createBareService() {
   return Object.create(InboxService.prototype) as any;
@@ -3283,4 +3284,191 @@ test('P1.3 uploadConversationMedia grava UUID+ext do MIME no storage privado e d
       else process.env.JWT_SECRET = previousSecret;
     }
   })();
+});
+
+// ================================================================
+// ESCRITA DA SUPRESSÃO — CAMINHO HUMANO (30/07/2026).
+// Com o bot desligado em produção, "Sem interesse"/"Não ligar mais" do
+// /atendimento é o caminho que roda TODO DIA. Ele gravava botOff no perfil e o
+// SOFT-hide no metadata da conversa — nenhum dos dois é consultado antes de
+// disparar. A única marca que o portão da cadência lê é a global
+// (VendasContactSuppression), e ela não tinha escritor. Vacina abaixo: escreve
+// pelo caminho de produção e LÊ com o serviço real, como a cadência lê.
+// ================================================================
+
+function createInboxSuppressionStore() {
+  const rows: any[] = [];
+  const matchesKeys = (row: any, where: any) => {
+    const or = Array.isArray(where?.OR) ? where.OR : [];
+    if (!or.length) return false;
+    return or.some((clause: any) => {
+      if (String(clause.contactType) !== String(row.contactType)) return false;
+      const key = clause.contactKey;
+      if (key && typeof key === 'object' && Array.isArray(key.in)) return key.in.includes(row.contactKey);
+      return String(key) === String(row.contactKey);
+    });
+  };
+  const isActive = (row: any) =>
+    row.expiresAt === null || row.expiresAt === undefined || new Date(row.expiresAt).getTime() > Date.now();
+  return {
+    rows,
+    model: {
+      createMany: async ({ data }: any) => {
+        const list = Array.isArray(data) ? data : [data];
+        for (const item of list) rows.push({ ...item, createdAt: new Date() });
+        return { count: list.length };
+      },
+      findFirst: async ({ where }: any) =>
+        rows.filter((row) => matchesKeys(row, where) && isActive(row)).slice(-1)[0] || null,
+      findMany: async ({ where }: any) => rows.filter((row) => matchesKeys(row, where) && isActive(row)),
+      updateMany: async ({ where, data }: any) => {
+        const hit = rows.filter(
+          (row) =>
+            matchesKeys(row, where) &&
+            isActive(row) &&
+            (where.originCompanyId === undefined || row.originCompanyId === where.originCompanyId),
+        );
+        for (const row of hit) Object.assign(row, data);
+        return { count: hit.length };
+      },
+    },
+  };
+}
+
+function createStatusCardService(store: ReturnType<typeof createInboxSuppressionStore>) {
+  const leadWrites: Array<Record<string, any>> = [];
+  const service = createBareService();
+  service.logger = { log: () => undefined, warn: () => undefined, error: () => undefined, debug: () => undefined };
+  service.prisma = {
+    customerProfile: { update: async (input: any) => ({ id: 'profile-1', ...input.data }) },
+    atendimentoCustomer: { update: async (input: any) => ({ id: 5, ...input.data }) },
+    vendasLead: {
+      findFirst: async () => ({ id: 'lead-1', companyId: 7, name: 'Carlos' }),
+      update: async (input: any) => {
+        leadWrites.push(input);
+        return { id: 'lead-1', ...input.data };
+      },
+      create: async (input: any) => {
+        leadWrites.push(input);
+        return { id: 'lead-1', ...input.data };
+      },
+    },
+    vendasLeadTimelineEvent: { createMany: async () => ({ count: 1 }) },
+    vendasContactSuppression: store.model,
+  };
+  service.conversations = { updateConversationState: async () => ({ id: 42 }) };
+  service.customerProfileService = { upsertAtendimentoProfileState: async () => ({ id: 'profile-1' }) };
+  service.requireCompanyIdFromUser = () => 7;
+  service.resolveInboxMutationSessionScope = async () => ({ accessible: true });
+  service.resolveStatusCardRecords = async () => ({
+    conversation: { id: 42, metadata: '{}' },
+    phoneNormalized: '5519998877766',
+    profile: { id: 'profile-1', email: 'contato@padaria.com.br', cnpj: '12.345.678/0001-90', notes: null, botOff: false },
+    atendimentoCustomer: { id: 5 },
+  });
+  service.getConversationStatusCard = async () => ({ ok: true });
+  service.parseConversationMetadata = () => ({});
+  service.getStatusCardPhoneVariants = () => ['5519998877766'];
+  service.vendasLeadStatusCardSelectWithoutAddress = () => ({ id: true });
+  service.buildLeadClosureTimelineDescription = () => 'descricao';
+  service.parseStatusCardDate = (value: any) => (value ? new Date(value) : null);
+  return { service, leadWrites };
+}
+
+test('operador marca "Nao ligar mais" no Atendimento e o contato passa a aparecer suprimido para a cadencia', async () => {
+  const store = createInboxSuppressionStore();
+  const { service, leadWrites } = createStatusCardService(store);
+
+  await service.updateConversationStatusCard({ id: 1 }, 42, { doNotCall: true, closureReason: 'nao_ligar' });
+
+  const phoneRow = store.rows.find((row) => row.contactType === 'phone');
+  assert.ok(phoneRow, 'a marca global tinha que ser gravada pelo clique do operador');
+  assert.equal(phoneRow.reason, 'opt_out', '"Nao ligar mais" e pedido explicito: permanente');
+  assert.equal(phoneRow.expiresAt, null);
+  assert.equal(phoneRow.originCompanyId, 7);
+  assert.ok(store.rows.some((row) => row.contactType === 'cnpj' && row.contactKey === '12345678000190'));
+  assert.ok(store.rows.some((row) => row.contactType === 'email' && row.contactKey === 'contato@padaria.com.br'));
+
+  // motivo estruturado tambem chega no lead (a tela de Vendas parava de mostrar motivo)
+  assert.equal(leadWrites[0].data.closureReason, 'sem_interesse');
+
+  const reader = new VendasContactSuppressionService({ vendasContactSuppression: store.model } as any);
+  assert.equal((await reader.isSuppressed({ phone: '+55 19 99887-7766' })).suppressed, true);
+});
+
+test('"Sem interesse" (motivo de tela: preco) marca com dosagem menor e com validade', async () => {
+  const store = createInboxSuppressionStore();
+  const { service } = createStatusCardService(store);
+
+  await service.updateConversationStatusCard({ id: 1 }, 42, { doNotCall: true, closureReason: 'preco' });
+
+  const phoneRow = store.rows.find((row) => row.contactType === 'phone');
+  assert.ok(phoneRow);
+  assert.equal(phoneRow.reason, 'sem_interesse');
+  assert.ok(phoneRow.expiresAt instanceof Date, 'sem_interesse resfria, nao e permanente');
+});
+
+test('encerramento por "convertido" NAO marca supressao (sinal positivo nao trava prospeccao futura)', async () => {
+  const store = createInboxSuppressionStore();
+  const { service } = createStatusCardService(store);
+
+  await service.updateConversationStatusCard({ id: 1 }, 42, { doNotCall: true, closureReason: 'convertido' });
+
+  assert.equal(store.rows.length, 0, 'cliente convertido nao pode entrar na lista de quem pediu para sair');
+});
+
+test('"Liberar" (doNotCall=false) desfaz a marca desta empresa — botao nao pode mentir', async () => {
+  const store = createInboxSuppressionStore();
+  const { service } = createStatusCardService(store);
+
+  await service.updateConversationStatusCard({ id: 1 }, 42, { doNotCall: true, closureReason: 'nao_ligar' });
+  const reader = new VendasContactSuppressionService({ vendasContactSuppression: store.model } as any);
+  assert.equal((await reader.isSuppressed({ phone: '5519998877766' })).suppressed, true);
+
+  await service.updateConversationStatusCard({ id: 1 }, 42, { doNotCall: false });
+  assert.equal(
+    (await reader.isSuppressed({ phone: '5519998877766' })).suppressed,
+    false,
+    'liberado na tela tem que voltar a poder receber',
+  );
+});
+
+test('marca de OUTRA empresa nao e desfeita pelo "Liberar" deste tenant', async () => {
+  const store = createInboxSuppressionStore();
+  store.rows.push({
+    contactType: 'phone',
+    contactKey: '5519998877766',
+    reason: 'opt_out',
+    suppressedAt: new Date(),
+    expiresAt: null,
+    originCompanyId: 99,
+    originLeadId: 'lead-de-outro',
+  });
+  const { service } = createStatusCardService(store);
+
+  await service.updateConversationStatusCard({ id: 1 }, 42, { doNotCall: false });
+
+  const reader = new VendasContactSuppressionService({ vendasContactSuppression: store.model } as any);
+  assert.equal(
+    (await reader.isSuppressed({ phone: '5519998877766' })).suppressed,
+    true,
+    'marca de terceiro nao e minha para desfazer',
+  );
+});
+
+test('marca do Atendimento e best-effort: banco fora do ar NAO derruba o clique do operador', async () => {
+  const store = createInboxSuppressionStore();
+  const { service } = createStatusCardService(store);
+  service.prisma.vendasContactSuppression = {
+    createMany: async () => {
+      throw new Error('banco fora do ar');
+    },
+    updateMany: async () => {
+      throw new Error('banco fora do ar');
+    },
+  };
+
+  await assert.doesNotReject(
+    service.updateConversationStatusCard({ id: 1 }, 42, { doNotCall: true, closureReason: 'nao_ligar' }),
+  );
 });

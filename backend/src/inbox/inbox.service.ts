@@ -76,6 +76,12 @@ import { isBotArmedForCompany } from '../modules/bot-activation-state';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { WhatsAppModalService } from '../companies/whatsapp-modal.service';
 import { buildVendasLeadIntelligence } from '../vendas/vendas-lead-enrichment';
+import {
+  VendasContactSuppressionService,
+  normalizeSuppressionEmail,
+  normalizeSuppressionPhone,
+  type SuppressionReason,
+} from '../vendas/vendas-contact-suppression.service';
 import { parseSignalsJson } from '../webscraping/radar/03-enrichment/lead-signals.util';
 import { resolveActorKind, isGerenteActor, isBillingOwnerActor, isAdminTierActor } from '../access/actor-kind';
 import type { Request, Response } from 'express';
@@ -194,6 +200,18 @@ export class InboxService {
   // — cache 60s pra não martelar o motor a cada abertura do popup "Modelo de atendimento".
   private motorInstancesCache: { at: number; value: any[] | null } | null = null;
   private static readonly MOTOR_INSTANCES_TTL_MS = 60_000;
+  // ESCRITA DA SUPRESSÃO (30/07/2026): instância PREGUIÇOSA (getter no prototype), não
+  // campo de construtor — vários testes deste módulo montam o serviço com
+  // `Object.create(InboxService.prototype)`, que pula o construtor e deixaria o campo
+  // undefined. O getter existe no prototype, então funciona nos dois modos.
+  private contactSuppressionInstance: VendasContactSuppressionService | null = null;
+
+  private get contactSuppression(): VendasContactSuppressionService {
+    if (!this.contactSuppressionInstance) {
+      this.contactSuppressionInstance = new VendasContactSuppressionService(this.prisma);
+    }
+    return this.contactSuppressionInstance;
+  }
 
   constructor(
     private readonly prisma: PrismaService,
@@ -5635,6 +5653,9 @@ export class InboxService {
     status?: string;
     returnAt?: Date | null;
     observations?: string | null;
+    // Motivo estruturado (S4 LEAD-CENTRICO) — já normalizado para o vocabulário de
+    // VENDAS_CLOSURE_REASONS por resolveStatusCardLeadClosureReason.
+    closureReason?: string;
   }) {
     const phoneVariants = this.getStatusCardPhoneVariants(input.phoneNormalized);
     let existing: any = null;
@@ -5685,6 +5706,7 @@ export class InboxService {
                 lastResult: 'Não ligar mais',
                 wasClosedBefore: true,
                 closedAt: new Date(),
+                ...(input.closureReason ? { closureReason: input.closureReason } : {}),
               }
             : input.returnAt
               ? {
@@ -5713,10 +5735,98 @@ export class InboxService {
         lastResult: input.status === 'encerrado' ? 'Não ligar mais' : null,
         wasClosedBefore: input.status === 'encerrado',
         closedAt: input.status === 'encerrado' ? new Date() : null,
+        ...(input.status === 'encerrado' && input.closureReason ? { closureReason: input.closureReason } : {}),
         createdByUserId: input.userId,
       },
       select: this.vendasLeadStatusCardSelectWithoutAddress(),
     });
+  }
+
+  // ESCRITA DA MARQUINHA GLOBAL (30/07/2026) — tradução do motivo escolhido na TELA
+  // (menu "Sem Interesse" do /atendimento: sem_interesse | ja_tem | preco | sem_perfil |
+  // nao_ligar) para o vocabulário da supressão (vendas-contact-suppression.service.ts).
+  // Ladder de evidência, de propósito:
+  //   'nao_ligar'                      -> opt_out       (PERMANENTE — humano clicou "Não ligar mais")
+  //   'ja_tem'|'preco'|'sem_perfil'|ø  -> sem_interesse (~12 meses — negou o contato)
+  //   'convertido'|'outro'             -> null          (não marca; sinal positivo/fraco demais)
+  private resolveStatusCardSuppressionReason(closureReason: string | null): SuppressionReason | null {
+    const reason = String(closureReason || '').trim().toLowerCase();
+    if (reason === 'convertido' || reason === 'outro') return null;
+    if (reason === 'nao_ligar' || reason === 'do_not_call' || reason === 'opt_out') return 'opt_out';
+    if (reason === 'nao_atendeu') return 'nao_atendeu';
+    if (reason === 'contato_invalido') return 'contato_invalido';
+    return 'sem_interesse';
+  }
+
+  // O motivo da TELA não cabe inteiro na coluna do lead: VENDAS_CLOSURE_REASONS
+  // (vendas/dto/vendas.dto.ts) só aceita sem_interesse|nao_atendeu|contato_invalido|
+  // convertido|outro. Gravar 'preco'/'nao_ligar' cru faria formatClosureReasonLabel
+  // cair no default e a tela de Vendas mentir "motivo não informado" — o detalhe fino
+  // continua vivo na timeline e no atendimentoBlockedReason da conversa.
+  private resolveStatusCardLeadClosureReason(closureReason: string | null): string {
+    const reason = String(closureReason || '').trim().toLowerCase();
+    if (reason === 'nao_atendeu' || reason === 'contato_invalido' || reason === 'convertido' || reason === 'outro') {
+      return reason;
+    }
+    return 'sem_interesse';
+  }
+
+  // Best-effort: marcar "não ligar mais" NUNCA pode derrubar o clique do operador.
+  private async markStatusCardContactSuppression(input: {
+    companyId: number;
+    leadId?: string | null;
+    reason: SuppressionReason;
+    phone?: string | null;
+    email?: string | null;
+    cnpj?: string | null;
+  }): Promise<void> {
+    try {
+      const marked = await this.contactSuppression.applyAutoSuppressionForClosedLead(
+        { cnpj: input.cnpj, phone: input.phone, email: input.email },
+        input.reason,
+        { companyId: input.companyId, leadId: input.leadId || null },
+      );
+      if (marked > 0) {
+        this.logger.log(
+          `[contact-suppression] marca gravada pelo Atendimento motivo=${input.reason} lead=${input.leadId || '-'} chaves=${marked}`,
+        );
+      }
+    } catch (error: any) {
+      this.logger.warn(`[contact-suppression] falha ao marcar contato (best-effort): ${String(error?.message || error)}`);
+    }
+  }
+
+  // "Liberar" (doNotCall=false) tem que desfazer a marca, senão o botão vira mentira:
+  // a tela diz liberado e a cadência continua barrando. EXPIRA (expiresAt=agora) em vez
+  // de deletar — histórico preservado, nada destrutivo — e SÓ as linhas que ESTA empresa
+  // originou: marca de terceiro não é minha para desfazer.
+  private async releaseStatusCardContactSuppression(input: {
+    companyId: number;
+    phone?: string | null;
+    email?: string | null;
+  }): Promise<void> {
+    try {
+      const now = new Date();
+      const keys: Array<{ contactType: string; contactKey: string }> = [];
+      const phone = normalizeSuppressionPhone(input.phone);
+      const email = normalizeSuppressionEmail(input.email);
+      if (phone) keys.push({ contactType: 'phone', contactKey: phone });
+      if (email) keys.push({ contactType: 'email', contactKey: email });
+      if (!keys.length) return;
+      const released = await this.prisma.vendasContactSuppression.updateMany({
+        where: {
+          originCompanyId: input.companyId,
+          OR: keys,
+          AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }],
+        },
+        data: { expiresAt: now },
+      });
+      if (Number(released?.count || 0) > 0) {
+        this.logger.log(`[contact-suppression] marca liberada pelo Atendimento company=${input.companyId} chaves=${released.count}`);
+      }
+    } catch (error: any) {
+      this.logger.warn(`[contact-suppression] falha ao liberar contato (best-effort): ${String(error?.message || error)}`);
+    }
   }
 
   async updateConversationStatusCard(
@@ -5772,7 +5882,33 @@ export class InboxService {
         status: doNotCall === true ? 'encerrado' : returnAt ? 'retorno' : undefined,
         returnAt,
         observations,
+        closureReason: doNotCall === true ? this.resolveStatusCardLeadClosureReason(closureReason) : undefined,
       });
+
+      // A MARCA QUE A CADÊNCIA LÊ (30/07/2026). Até hoje "Não ligar mais"/"Sem interesse"
+      // gravava botOff no perfil + SOFT-hide no metadata da conversa — nenhum dos dois é
+      // consultado antes de disparar. A única fonte que o portão da cadência lê é a
+      // marquinha global; sem esta escrita, o operador marcava e o contato continuava
+      // elegível a WhatsApp/e-mail no próximo ciclo.
+      if (doNotCall === true) {
+        const suppressionReason = this.resolveStatusCardSuppressionReason(closureReason);
+        if (suppressionReason) {
+          await this.markStatusCardContactSuppression({
+            companyId,
+            leadId: (lead as any)?.id ? String((lead as any).id) : null,
+            reason: suppressionReason,
+            phone: records.phoneNormalized,
+            email: (records.profile as any)?.email || null,
+            cnpj: (records.profile as any)?.cnpj || null,
+          });
+        }
+      } else if (doNotCall === false) {
+        await this.releaseStatusCardContactSuppression({
+          companyId,
+          phone: records.phoneNormalized,
+          email: (records.profile as any)?.email || null,
+        });
+      }
 
       const events: any[] = [];
       if (doNotCall !== undefined) {

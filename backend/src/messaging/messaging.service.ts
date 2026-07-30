@@ -87,6 +87,7 @@ import {
   type HbxPresentationEmailIntent,
 } from '../mail/hbx-email-intent.util';
 import { CommercialContactControlService } from '../vendas/commercial-contact-control.service';
+import { VendasContactSuppressionService } from '../vendas/vendas-contact-suppression.service';
 import { InboundRouterService } from '../automation/inbound-router.service';
 import { AgentRuntimeResolver } from '../automation/agent-runtime.resolver';
 import { automationFlag } from '../automation/automation-flags';
@@ -262,6 +263,10 @@ type VendasAgendaQueueMetadata = {
 export class MessagingService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MessagingService.name);
   private readonly commercialContactControl: CommercialContactControlService;
+  // ESCRITA DA SUPRESSÃO (30/07/2026): mesmo padrão do commercialContactControl acima
+  // (instância local, sem ampliar o grafo de DI) — todos os testes deste arquivo criam
+  // o serviço com `new MessagingService(...)`, então o construtor sempre roda.
+  private readonly contactSuppression: VendasContactSuppressionService;
   private pollHandle: NodeJS.Timeout | null = null;
   private readonly startedAtMs = Date.now();
   // INTENTENGINE S4: reaper roda no boot e depois a cada N ciclos do poll de 5s existente
@@ -301,6 +306,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   ) {
     // Guarda transitoria local: evita ampliar o grafo de DI antes do modelo canonico.
     this.commercialContactControl = new CommercialContactControlService(this.prisma, this.conversations);
+    this.contactSuppression = new VendasContactSuppressionService(this.prisma);
   }
 
   onModuleInit() {
@@ -2116,15 +2122,19 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
   private async sendVendasPitchAfterPreMessage(input: any, job: any) {
     const now = new Date();
-    const company = await this.prisma.company.findUnique({ where: { id: job.campaign.companyId } }).catch(() => null);
+    // NOME DE OUTRO TENANT NO PITCH (fix 30/07/2026): esta era uma cópia esquecida do
+    // template padrão com "Jhonatan" LITERAL — qualquer empresa que não tivesse
+    // firstContactVariants próprio se apresentava com o nome do dono da HBX. Agora o
+    // texto usa {{funcionario}}/{{empresa}} e os valores vêm de
+    // buildVendasTemplateExtraValues (empresa = Company.name, funcionario = nome de quem
+    // criou a campanha), o MESMO caminho que as outras variantes deste arquivo já usam
+    // — em vez do 'time comercial' cravado que ignorava o dono da campanha.
+    const extraValues = await this.buildVendasTemplateExtraValues(job);
     const variants = this.readVendasVariantList(job.campaign, 'firstContactVariants', [
-      '{{cumprimentacao}}, tudo bem? Me chamo Jhonatan. Trabalho ajudando empresas a melhorar processos e automatizar tarefas repetitivas do dia a dia. Teria interesse em saber um pouco mais?',
+      '{{cumprimentacao}}, tudo bem? Me chamo {{funcionario}}, da {{empresa}}. Trabalho ajudando empresas a melhorar processos e automatizar tarefas repetitivas do dia a dia. Teria interesse em saber um pouco mais?',
     ]);
     const variant = variants[Math.floor(Math.random() * variants.length)] || variants[0] || '';
-    const body = this.renderVendasVariant(variant, job, {
-      empresa: String(company?.name || 'nossa empresa').trim(),
-      funcionario: 'time comercial',
-    });
+    const body = this.renderVendasVariant(variant, job, extraValues);
     if (!body) return null;
     const metadata = this.readJsonRecord(input.metadata);
     const queue = this.readJsonRecord(metadata.vendasAgendaQueue);
@@ -3596,6 +3606,54 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     });
   }
 
+  // ESCRITA DA MARQUINHA GLOBAL (30/07/2026) — irmão do portão de LEITURA da
+  // cadência (commit 7943c9f2). Até hoje quem respondia "pare / me remove" tinha
+  // `doNotContact: true` gravado SÓ no metadata da CONVERSA — e ninguém consulta
+  // metadata de conversa antes de disparar. A única marca que a cadência lê é a
+  // global (VendasContactSuppression), e ela não tinha um escritor de produção.
+  //
+  // Best-effort de ponta a ponta: encerrar um lead NUNCA pode falhar por causa da
+  // marquinha. O serviço já engole erro por dentro; o try daqui cobre a busca do
+  // CNPJ (só existe quando o lead está linkado a um CustomerProfile PJ).
+  private async markContactSuppressionOnClosure(input: {
+    companyId: number;
+    leadId?: string | null;
+    reason: 'sem_interesse' | 'nao_atendeu' | 'contato_invalido' | 'opt_out';
+    phone?: string | null;
+    email?: string | null;
+    cnpj?: string | null;
+    customerProfileId?: string | null;
+  }): Promise<void> {
+    try {
+      let cnpj = input.cnpj || null;
+      if (!cnpj && input.customerProfileId) {
+        // try PRÓPRIO: perder o CNPJ não pode custar a marca do TELEFONE, que é a
+        // chave que a cadência consulta em 100% dos casos.
+        try {
+          const profile = await this.prisma.customerProfile.findUnique({
+            where: { id: String(input.customerProfileId) },
+            select: { cnpj: true },
+          });
+          cnpj = profile?.cnpj || null;
+        } catch {
+          cnpj = null;
+        }
+      }
+      const marked = await this.contactSuppression.applyAutoSuppressionForClosedLead(
+        { cnpj, phone: input.phone, email: input.email },
+        input.reason,
+        { companyId: input.companyId, leadId: input.leadId || null },
+      );
+      if (marked > 0) {
+        this.logger.log(
+          `[contact-suppression] marca gravada motivo=${input.reason} lead=${input.leadId || '-'} chaves=${marked}`,
+        );
+      }
+    } catch (error: any) {
+      this.logger.warn(`[contact-suppression] falha ao marcar contato (best-effort): ${String(error?.message || error)}`);
+    }
+  }
+
   private async markVendasAutomationNegative(input: any, job: any) {
     const now = new Date();
     const claimed = await this.prisma.$transaction(async (tx) => {
@@ -3627,6 +3685,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           wasClosedBefore: true,
           closedAt: now,
           lastResult: input.optOut ? 'Opt-out' : 'Sem interesse',
+          // MOTIVO ESTRUTURADO (S4 LEAD-CENTRICO): faltava aqui, e sem ele o lead
+          // encerrado pelo bot ficava sem motivo na tela de Vendas. O vocabulário
+          // desta COLUNA é fechado por VENDAS_CLOSURE_REASONS (vendas/dto/vendas.dto.ts)
+          // e NÃO contém 'opt_out' — quem já registra o opt-out é `outcome` logo acima.
+          // Gravar 'opt_out' aqui faria formatClosureReasonLabel cair no default e a
+          // tela mentir "motivo não informado". A força do opt-out (permanente) vai
+          // pra marquinha global, fora da transação.
+          closureReason: 'sem_interesse',
         },
       });
       await tx.vendasLeadTimelineEvent.createMany({
@@ -3652,6 +3718,18 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       return true;
     });
     if (!claimed) return;
+
+    // Quem pediu para sair sai de verdade: marca global consultada pela cadência
+    // antes de qualquer disparo (whats e e-mail). 'opt_out' é permanente, negativa
+    // sem pedido explícito resfria ~12 meses (dosagem do dono, S7 LEAD-CENTRICO).
+    await this.markContactSuppressionOnClosure({
+      companyId: input.companyId,
+      leadId: job.leadId,
+      reason: input.optOut ? 'opt_out' : 'sem_interesse',
+      phone: job.lead?.phoneNormalized || job.lead?.phone || input.from,
+      email: job.lead?.email || null,
+      customerProfileId: job.lead?.customerProfileId || null,
+    });
 
     const optOutMessage = this.pickVendasVariant(
       job.campaign,
@@ -5185,9 +5263,23 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       ? await this.prisma.vendasLead.findFirst({
           where: { companyId: input.companyId, phoneNormalized: { in: phoneCandidates } },
           orderBy: [{ updatedAt: 'desc' }],
-          select: { id: true },
+          select: { id: true, email: true, customerProfileId: true },
         })
       : null;
+    // Marquinha global também aqui: este é o "não ligar mais" detectado pelo BOT.
+    // Dosagem menor de propósito — 'sem_interesse' (~12 meses) e não 'opt_out'
+    // (permanente): a detecção é uma regex (containsNegativeOptOut casa até com
+    // "sair"), evidência mais fraca que um pedido classificado ou um clique do
+    // operador. Roda mesmo sem lead casado — a chave do telefone é o que a
+    // cadência consulta.
+    await this.markContactSuppressionOnClosure({
+      companyId: input.companyId,
+      leadId: lead?.id || null,
+      reason: 'sem_interesse',
+      phone: phoneDigits || input.phone,
+      email: lead?.email || null,
+      customerProfileId: lead?.customerProfileId || null,
+    });
     if (lead?.id) {
       await this.prisma.vendasLeadTimelineEvent.create({
         data: {
