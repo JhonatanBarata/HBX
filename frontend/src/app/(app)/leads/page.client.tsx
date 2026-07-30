@@ -31,6 +31,17 @@ import {
   type ChannelPresence,
 } from "@/lib/radar-channel-presence";
 import { RADAR_SEGMENT_CATEGORIES } from "@/lib/radar-segments";
+// INCIDENTE 30/07 (3 defeitos na /leads): a decisão de consulta da vitrine, a
+// junção de respostas multi-cidade e a legenda de status viraram módulo PURO
+// testável com node --test (frontend/scripts/radar-shelf-query.test.mjs).
+import {
+  buildShelfGeoTargets,
+  buildShelfRequests,
+  deriveRadarBackendMessage,
+  mergeShelfResults,
+  MAX_SHELF_CITY_TARGETS,
+  SHELF_AGGREGATE_CAP,
+} from "@/lib/radar-shelf-query.mjs";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
 
 type FilterOption = { value: string; label: string; count?: number };
@@ -260,7 +271,8 @@ const RADAR_STATE_LABEL: Record<RadarUiState, string> = {
 const SHELF_LIMIT = 25;
 // REFUNDAÇÃO F2: com a fila server-side (1 cidade por vez, sobrevive a tudo), o teto de
 // 5 alvos do incidente 28/07 pôde subir — o backend segura o resto (cap 100 + runs/min).
-const MAX_CITY_TARGETS = 20;
+// O valor mora no módulo puro (radar-shelf-query.mjs) pra tela e teste lerem o MESMO teto.
+const MAX_CITY_TARGETS = MAX_SHELF_CITY_TARGETS;
 const MAX_SEGMENT_INTERPRETATIONS = 48;
 const SEARCH_POLL_MS = 4000;
 
@@ -363,20 +375,9 @@ const CHANNEL_META: Array<{ key: RadarRequiredChannel; label: string; descriptio
 ];
 
 function geoTargetsFor(mode: GeoMode, uf: string, cities: string[]): GeoTarget[] {
-  const limit = mode === "radius" || mode === "nearby" ? 1 : MAX_CITY_TARGETS;
-  const state = uf.trim().toUpperCase();
-  if (!state) return [];
-  const seen = new Set<string>();
-  return cities
-    .map(city => city.trim())
-    .filter(city => {
-      const key = normCity(city);
-      if (!key || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    })
-    .slice(0, limit)
-    .map(city => ({ city, state }));
+  // Delegado ao módulo puro (radar-shelf-query.mjs): a MESMA regra de dedupe/teto
+  // que monta as consultas da vitrine — tela e teste nunca divergem.
+  return buildShelfGeoTargets({ geoMode: mode, uf, cities });
 }
 
 function radarLeadMergeKey(lead: RadarLead) {
@@ -914,6 +915,11 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
   const [channelMatchMode, setChannelMatchMode] = useState<"any_required" | "all_required">("all_required");
   const [searchQuantity, setSearchQuantity] = useState<SearchQuantity>("100");
   const filtersRestored = useRef(false);
+  // RESULTADO-CRUZADO (30/07): a vitrine SÓ pode ser consultada DEPOIS que o
+  // recorte salvo voltou do localStorage — consultar antes saía sem segment/city
+  // e servia leads de OUTRA busca por baixo dos filtros da tela (25 restaurantes
+  // de 15/07 sob "distribuidora de água / DDD 19", com crédito novo no puxar).
+  const [filtersHydrated, setFiltersHydrated] = useState(false);
 
   // navegação
   const [tab, setTab] = useState<Tab>("shelf");
@@ -1268,55 +1274,57 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
       .catch(() => setUsage(null));
   }, []);
 
-  const loadList = useCallback((which: Tab, opts?: { page?: number }) => {
+  // Devolve `true` quando a lista realmente carregou — é esse booleano que
+  // autoriza os chamadores a soltar `liveRunItems` (o resultado vivo da busca).
+  const loadList = useCallback((which: Tab, opts?: { page?: number }): Promise<boolean> => {
     const limit = which === "shelf" ? SHELF_LIMIT : pageSize;
     const requestedPage = opts?.page ?? 1;
-    const selectedTargets = geoTargetsFor(geoMode, uf, cities);
-    // A prateleira pode representar até cinco alvos explícitos. Cada consulta
-    // continua sendo estritamente uma cidade, sem alterar o contrato do Radar.
-    const requestTargets: Array<GeoTarget | null> = which === "shelf" && selectedTargets.length > 0
-      ? selectedTargets
-      : [selectedTargets[0] || null];
-    const aggregateTargets = requestTargets.length > 1;
-    // A apresentação do backend normaliza uma consulta em no máximo 300 itens.
-    // Mantemos a paginação agregada dentro desse teto para nunca anunciar
-    // páginas que a API não consegue devolver.
-    const aggregateTargetCap = 300;
-    const fetchLimit = aggregateTargets ? Math.min(aggregateTargetCap, requestedPage * limit) : limit;
-
-    const requests = requestTargets.map(target => {
-      const params = new URLSearchParams();
-      params.set("page", String(aggregateTargets ? 1 : requestedPage));
-      params.set("limit", String(fetchLimit));
-      if (which === "shelf") params.set("scope", "vitrine");
-      if (segment) params.set("segment", segment);
-      if (target?.city) params.set("city", target.city);
-      if (target?.state) params.set("state", target.state);
-      if (which === "shelf" && (geoMode === "radius" || geoMode === "nearby") && alcance) {
-        params.set("radiusKm", alcance);
-      }
-      if (which === "shelf" && geoMode === "nearby" && geo) {
-        params.set("originLat", String(geo.lat));
-        params.set("originLng", String(geo.lng));
-      }
-      if (which === "shelf" && minRating) params.set("minRating", minRating);
-      if (which === "shelf" && minReviews) params.set("minReviews", minReviews);
-      if (which === "shelf" && requiredChannels.length > 0) {
-        requiredChannels.forEach(channel => params.append("requiredChannels", channel));
-        params.set("channelMatchMode", channelMatchMode);
-      }
-      return apiFetch<LeadsResponse>(`/webscraping/radar/leads?${params.toString()}`);
+    // A decisão inteira da consulta (recorte, alvos, teto agregado) mora no
+    // módulo puro — a tela nunca monta essa query na mão. Cada consulta continua
+    // sendo estritamente uma cidade, sem alterar o contrato do Radar.
+    const paramsList = buildShelfRequests({
+      hydrated: filtersRestored.current,
+      which,
+      page: requestedPage,
+      limit,
+      segment,
+      geoMode,
+      uf,
+      cities,
+      alcance,
+      origin: geo,
+      minRating,
+      minReviews,
+      requiredChannels,
+      channelMatchMode,
     });
+    // Filtros salvos ainda não restaurados → NÃO consultar (a 1ª vitrine nasce
+    // no efeito gated por filtersHydrated, sempre com o recorte da tela).
+    if (!paramsList) return Promise.resolve(false);
+    const aggregateTargets = paramsList.length > 1;
+    const requests = paramsList.map(params =>
+      apiFetch<LeadsResponse>(`/webscraping/radar/leads?${params.toString()}`),
+    );
 
-    return Promise.all(requests)
-      .then(responses => {
+    // 500-EM-CADEIA (30/07): 14 cidades = 14 GETs; UM proxy-timeout rejeitava o
+    // Promise.all inteiro e a tela virava "Erro 500 / 0 de 0" com 41 achados
+    // vivos. allSettled aproveita o que veio; só falha se TODAS falharem.
+    return Promise.allSettled(requests)
+      .then(settled => {
+        const merged = mergeShelfResults(settled);
+        if (!merged.ok) {
+          setData(null);
+          setLoadError(merged.error);
+          return false;
+        }
+        const responses = merged.responses;
         const first = responses[0] || { items: [], total: 0 };
-        if (responses.length === 1) {
+        if (!aggregateTargets) {
           setData(first);
           setLoadError(null);
           const badge = which === "shelf" ? (first?.meta?.totalAvailable ?? first?.total ?? 0) : (first?.total ?? 0);
           setCounts(current => ({ ...current, [which]: badge }));
-          return;
+          return true;
         }
 
         // Intercala as cidades para nenhuma delas dominar a primeira página e
@@ -1332,7 +1340,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
         const pageOffset = (requestedPage - 1) * limit;
         const items = mergeRadarLeads(interleaved).slice(pageOffset, pageOffset + limit);
         const total = responses.reduce(
-          (sum, response) => sum + Math.min(aggregateTargetCap, Number(response.total || 0)),
+          (sum, response) => sum + Math.min(SHELF_AGGREGATE_CAP, Number(response.total || 0)),
           0,
         );
         const totalAvailable = responses.reduce(
@@ -1348,10 +1356,12 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
         setData(result);
         setLoadError(null);
         setCounts(current => ({ ...current, [which]: totalAvailable }));
+        return true;
       })
       .catch((err: unknown) => {
         setData(null);
         setLoadError(err instanceof Error ? err.message : "Falha ao carregar o Radar.");
+        return false;
       });
   }, [segment, geoMode, uf, cities, alcance, geo, minRating, minReviews, requiredChannels, channelMatchMode]);
 
@@ -1374,7 +1384,10 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
     const latestRequestToken = queueTokenRef.current;
     loadBank();
     loadUsage();
-    loadList("shelf", { page: 1 });
+    // NÃO carregar a vitrine aqui: os filtros ainda não foram restaurados (1º
+    // render tem segment=""/cities=[]) — o GET sairia SEM recorte e a lista de
+    // outra busca apareceria sob os filtros da tela. Quem dispara a 1ª carga é
+    // o efeito gated por filtersHydrated, logo após a restauração.
     // REFUNDAÇÃO F2: a re-hidratação é 1 GET na SESSÃO server-side — voltar pra tela
     // encontra a busca viva (ou o resultado recente) exatamente onde parou. O run
     // avulso do /webscraping/radar/search-runs/latest fica de fallback (casca mobile).
@@ -1487,12 +1500,25 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
       setRequiredChannels(f.requiredChannels);
       setChannelMatchMode(f.channelMatchMode);
       setSearchQuantity(f.searchQuantity);
+      // Libera a 1ª carga da vitrine (efeito abaixo) — só agora o recorte da
+      // tela é o recorte de verdade.
+      setFiltersHydrated(true);
       if (f.segment || f.uf || f.cities.length > 0 || f.minRating || f.minReviews || f.requiredChannels.length > 0) {
         setHistoryHidden(true);
       }
     });
     return () => { cancelled = true; cancelAnimationFrame(id); };
   }, []);
+
+  // RESULTADO-CRUZADO (30/07): a 1ª carga da vitrine nasce COM o recorte
+  // restaurado — nunca antes dele. Este efeito roda no mesmo commit em que os
+  // filtros salvos entraram no estado, então o loadList já consulta com
+  // segment/city da tela (e não com os defaults vazios do 1º render).
+  useEffect(() => {
+    if (!filtersHydrated) return;
+    void loadList("shelf", { page: 1 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtersHydrated]);
 
   // Filtros não consultam o Radar automaticamente. A busca filtrada só começa
   // depois de uma ação explícita no botão Buscar.
@@ -1526,7 +1552,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
           loadUsage();
           setTab("shelf");
           setPage(1);
-          void loadList("shelf", { page: 1 }).finally(() => setLiveRunItems(null));
+          void loadList("shelf", { page: 1 }).then(ok => { if (ok) setLiveRunItems(null); });
           const total = Number(res.foundTotal || 0);
           if (res.status === "completed" && total > 0) {
             setFlyToast(`${total} lead${total > 1 ? "s" : ""} encontrad${total > 1 ? "os" : "o"} — disponíve${total > 1 ? "is" : "l"} pra puxar`);
@@ -1577,7 +1603,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
         const resTerminal = TERMINAL_RUN.has(resStatus) || res?.meta?.terminal;
         if (resTerminal && resOpState !== "funcionando" && resOpState !== "pausado") {
           if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-          void loadList("shelf", { page: 1 }).finally(() => setLiveRunItems(null));
+          void loadList("shelf", { page: 1 }).then(ok => { if (ok) setLiveRunItems(null); });
           loadBank();
           loadUsage();
           // P5/EFEITO: leads ficam na vitrine "Disponíveis"; mostra quantos achou pra
@@ -1940,6 +1966,13 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
     setLoadError(null);
     setLiveRunItems([]);
     setRun(null);
+    // STATUS-MENTIROSO (30/07): a sessão TERMINAL anterior não fala pela busca
+    // nova — sem esta limpeza, "Busca cancelada pelo usuário" ficava de
+    // subtítulo do selo verde FUNCIONANDO durante todo o POST /sessions (que
+    // espera o 1º tick do servidor criar o run da cidade 1).
+    setSession(null);
+    sessionRef.current = null;
+    setSearchQueue(null);
     sessionItemsRef.current = { id: null, leads: [] };
     sessionSettledRef.current = null;
     setData(prev => prev ? { ...prev, items: [], total: 0 } : prev);
@@ -2014,7 +2047,10 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
         });
         if (res) adoptSession(res);
         setSearchQueue(null);
-        void loadList("shelf", { page: 1 }).finally(() => setLiveRunItems(null));
+        // Só solta o resultado vivo quando a prateleira REALMENTE carregou —
+        // carga falhada mantém os achados na tela (o incidente 30/07 apagava os
+        // 41 achados com "Erro 500 / 0 de 0" mesmo com tudo salvo no banco).
+        void loadList("shelf", { page: 1 }).then(ok => { if (ok) setLiveRunItems(null); });
         return;
       }
       // Fallback: run avulso sem sessão (ex.: iniciado pela casca mobile).
@@ -2031,7 +2067,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
         minRatingRef.current,
         minReviewsRef.current,
       ));
-      void loadList("shelf", { page: 1 }).finally(() => setLiveRunItems(null));
+      void loadList("shelf", { page: 1 }).then(ok => { if (ok) setLiveRunItems(null); });
     } catch {
       // O poll observa o estado real; nada a desfazer aqui.
     } finally {
@@ -2861,7 +2897,15 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
     ].filter(Boolean);
     // A mensagem da SESSÃO (server-side) vence a do run — é ela que explica o
     // trabalho inteiro ("cidade 3 de 8", "pausa automática após 50 leads"...).
-    const radarBackendMessage = session?.message || run?.meta?.operationalMessage || run?.message || "";
+    // Mas SÓ enquanto a sessão está VIVA (módulo puro decide): sessão terminal
+    // é história e não legenda o selo FUNCIONANDO de uma corrida nova — no
+    // estado "parado" ela ainda vale como fecho honesto (fallback abaixo).
+    const radarBackendMessage = deriveRadarBackendMessage({
+      sessionStatus: session?.status,
+      sessionMessage: session?.message,
+      runOperationalMessage: run?.meta?.operationalMessage,
+      runMessage: run?.message,
+    });
     const radarTitle = radarState === "funcionando"
       ? "Radar funcionando"
       : radarState === "pausado"
@@ -2880,6 +2924,10 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
         : radarState === "erro"
           ? searchMsg || radarBackendMessage || "Não foi possível concluir a busca. Você pode iniciar novamente."
           : radarBackendMessage
+            // Radar parado: a mensagem da sessão TERMINAL volta a valer como
+            // fecho honesto ("Busca cancelada pelo usuário." embaixo do selo
+            // Parado é verdade; embaixo do Funcionando era a mentira do 30/07).
+            || session?.message
             || (hasSearched
               ? (items.length > 0
                 ? `${fmtInt(items.length)} empresa${items.length === 1 ? " encontrada" : "s encontradas"}`
