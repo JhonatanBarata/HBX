@@ -6,6 +6,7 @@ import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
 import { resolveVendasAccessContext, type VendasAccessContext } from '../team/team-access-runtime';
 import { EventRuleService, type EventRuleRow } from '../automation/event-rule.service';
 import { classifyRoboReplyHeat } from '../vendas/vendas-robo-heat';
+import { getBusinessDateParts } from '../vendas/business-hours.util';
 import type { CreateGatilhoDto, UpdateGatilhoDto } from './dto/cadencia.dto';
 
 // ================================================================
@@ -309,7 +310,12 @@ export class CadenciaGatilhoService implements OnModuleInit {
           select: { id: true, cadenciaId: true, currentStep: true },
         })
       : null;
-    if (!recentlyPaused) return; // robô não estava ligado nesta resposta
+    if (!recentlyPaused) {
+      // Robô não estava ligado nesta resposta — mas pode ser resposta a um
+      // CONTATO MANUAL do /vendas (item 3 do dia-de-vendedor, 30/07).
+      await this.maybeHandleManualVendasReply(companyId, lead, evt, text);
+      return;
+    }
 
     const heat = classifyRoboReplyHeat(text);
     if (!heat.quente) return;
@@ -360,6 +366,76 @@ export class CadenciaGatilhoService implements OnModuleInit {
       leadId: lead.id,
       companyId,
       titulo: `Te chamou: retornar contato${cadencia?.nome ? ` (${cadencia.nome})` : ''}`.slice(0, 160),
+      vencimento: now,
+      tipo: 'mensagem',
+      responsavelId: lead.assignedUserId,
+      origin: 'automacao',
+    });
+  }
+
+  // ================================================================
+  // "Te chamou" do CONTATO MANUAL (item 3 dia-de-vendedor, 30/07): a conversa
+  // nasceu de um disparo À MÃO pelo /vendas (Copiloto/cockpit — o envio grava o
+  // link canônico `CompanyConversation.vendasLeadId`) e o lead respondeu. Aqui
+  // NÃO existe robô pra continuar a conversa (o classificador só roda dentro de
+  // campanha), então SEM gate de calor DE PROPÓSITO: qualquer resposta humana é
+  // "sua vez" — até um "não tenho interesse" precisa aparecer pro vendedor
+  // decidir, senão morre no vácuo (cena real Tagliágua: "como que funciona ?" e
+  // o card parado em Planejar com "Te chamou" em 0).
+  // ================================================================
+  private async maybeHandleManualVendasReply(
+    companyId: number,
+    lead: { id: string; assignedUserId: number | null; status: string },
+    evt: CadenciaInboundEvent,
+    text: string,
+  ): Promise<void> {
+    const conversationId = Number(evt?.conversationId || 0);
+    if (!conversationId) return;
+    // Não regride etapa avançada nem re-acende o que já está aceso.
+    if (['qualificado', 'encerrado', 'retorno'].includes(String(lead.status || ''))) return;
+    if (typeof (this.prisma as any).companyConversation?.findFirst !== 'function') return;
+    const linked = await (this.prisma as any).companyConversation.findFirst({
+      where: { id: conversationId, companyId, vendasLeadId: lead.id },
+      select: { id: true },
+    });
+    if (!linked) return; // conversa não é do /vendas (ou é de outro lead) — nada a fazer
+
+    const excerpt = text.length > 200 ? `${text.slice(0, 200)}…` : text;
+    const now = new Date();
+    const parts = getBusinessDateParts(now); // dia-negócio -03, mesmo relógio do resto do vendas
+    const diaKey = `${parts.year}-${String(parts.month).padStart(2, '0')}-${String(parts.day).padStart(2, '0')}`;
+
+    // Idempotência por conversa/dia: o lead pode mandar várias mensagens em
+    // sequência — 1 evento de timeline por dia basta; o updateMany abaixo já é
+    // no-op quando o status saiu de novo/contato.
+    try {
+      await this.prisma.vendasLeadTimelineEvent.create({
+        data: {
+          leadId: lead.id,
+          eventType: 'robo_te_chamou',
+          title: 'Te chamou — respondeu seu contato',
+          description: `Respondeu: "${excerpt}". Contato feito manualmente pelo Vendas — sem robô nesta conversa, o retorno é seu.`,
+          sourceType: 'vendas',
+          statusFrom: lead.status,
+          statusTo: 'retorno',
+          resultLabel: 'te_chamou',
+          idempotencyKey: `manual-te-chamou:${conversationId}:${diaKey}`,
+        },
+      });
+    } catch (error: any) {
+      if (String(error?.code || '') === 'P2002') return; // já tratado hoje
+      throw error;
+    }
+
+    await this.prisma.vendasLead.updateMany({
+      where: { id: lead.id, companyId, status: { in: ['novo', 'contato'] } },
+      data: { status: 'retorno', lastContactAt: now },
+    });
+
+    await this.atividades.createFromAutomation({
+      leadId: lead.id,
+      companyId,
+      titulo: 'Te chamou: responder a conversa',
       vencimento: now,
       tipo: 'mensagem',
       responsavelId: lead.assignedUserId,

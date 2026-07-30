@@ -15,6 +15,9 @@ function makeService(opts: {
   lead: any | null;
   cadenciaInscricao?: any | null;
   cadencia?: any | null;
+  // Item 3 dia-de-vendedor (30/07): conversa do /vendas com link canônico
+  // (CompanyConversation.vendasLeadId) — evidência do contato MANUAL.
+  conversation?: { id: number; vendasLeadId: string } | null;
 }) {
   const svc = Object.create(CadenciaGatilhoService.prototype) as any;
   const statusUpdates: any[] = [];
@@ -54,6 +57,15 @@ function makeService(opts: {
     },
     cadencia: {
       findUnique: async () => opts.cadencia ?? null,
+    },
+    companyConversation: {
+      findFirst: async ({ where }: any) => {
+        const c = opts.conversation || null;
+        if (!c) return null;
+        if (where?.id !== undefined && Number(where.id) !== Number(c.id)) return null;
+        if (where?.vendasLeadId !== undefined && String(where.vendasLeadId) !== String(c.vendasLeadId)) return null;
+        return { id: c.id };
+      },
     },
   };
   svc.atividades = {
@@ -198,4 +210,89 @@ test('te chamou: nao regride lead ja qualificado/encerrado (so cria atividade, n
 
   assert.equal(statusUpdates.length, 0, 'nao regride status ja avancado');
   assert.equal(atividadeCalls.length, 1, 'ainda assim surfaceia a atividade');
+});
+
+// ---------------------------------------------------- TE CHAMOU do contato MANUAL (30/07)
+
+test('CENA Tagliagua: contato manual do /vendas + lead responde "como que funciona ?" -> Te chamou', async () => {
+  // 30/07: 3 disparos manuais pela UI, lead respondeu em 90s e o card ficou
+  // parado em Planejar com "Te chamou" em 0 — sem cadência, o hook retornava
+  // cedo; e "como que funciona ?" nem é "quente" pro gate de calor da cadência.
+  // No manual NÃO há robô pra continuar: qualquer resposta humana move.
+  const { svc, statusUpdates, atividadeCalls, timelineCalls } = makeService({
+    gatilhos: [],
+    lead: { id: 'lead1', assignedUserId: 33, status: 'novo' },
+    cadenciaInscricao: null,
+    conversation: { id: 51, vendasLeadId: 'lead1' },
+  });
+
+  await svc.handleInbound({ companyId: 7, fromPhone: '5519989431379', conversationId: 51, text: 'como que funciona ?' });
+
+  assert.equal(statusUpdates.length, 1);
+  assert.equal(statusUpdates[0].data.status, 'retorno');
+  assert.equal(timelineCalls.length, 1);
+  assert.equal(timelineCalls[0].eventType, 'robo_te_chamou');
+  assert.match(String(timelineCalls[0].idempotencyKey), /^manual-te-chamou:51:/);
+  assert.match(timelineCalls[0].description, /como que funciona/);
+  assert.equal(atividadeCalls.length, 1);
+  assert.equal(atividadeCalls[0].responsavelId, 33);
+});
+
+test('manual: conversa SEM link canonico com o lead nao move nada (nada de adivinhar por telefone)', async () => {
+  const { svc, statusUpdates, atividadeCalls } = makeService({
+    gatilhos: [],
+    lead: { id: 'lead1', assignedUserId: 33, status: 'novo' },
+    cadenciaInscricao: null,
+    conversation: null,
+  });
+
+  await svc.handleInbound({ companyId: 7, fromPhone: '5519989431379', conversationId: 51, text: 'como que funciona ?' });
+
+  assert.equal(statusUpdates.length, 0);
+  assert.equal(atividadeCalls.length, 0);
+});
+
+test('manual: conversa linkada a OUTRO lead nao move este', async () => {
+  const { svc, statusUpdates } = makeService({
+    gatilhos: [],
+    lead: { id: 'lead1', assignedUserId: 33, status: 'novo' },
+    cadenciaInscricao: null,
+    conversation: { id: 51, vendasLeadId: 'lead-DIFERENTE' },
+  });
+
+  await svc.handleInbound({ companyId: 7, fromPhone: '5519989431379', conversationId: 51, text: 'oi' });
+
+  assert.equal(statusUpdates.length, 0);
+});
+
+test('manual: idempotente no dia — lead mandando 3 mensagens seguidas vira 1 evento/1 atividade', async () => {
+  const { svc, statusUpdates, atividadeCalls, timelineCalls } = makeService({
+    gatilhos: [],
+    lead: { id: 'lead1', assignedUserId: 33, status: 'novo' },
+    cadenciaInscricao: null,
+    conversation: { id: 51, vendasLeadId: 'lead1' },
+  });
+
+  const evt = { companyId: 7, fromPhone: '5519989431379', conversationId: 51, text: 'como que funciona ?' };
+  await svc.handleInbound(evt);
+  await svc.handleInbound(evt);
+  await svc.handleInbound(evt);
+
+  assert.equal(timelineCalls.length, 1);
+  assert.equal(statusUpdates.length, 1);
+  assert.equal(atividadeCalls.length, 1);
+});
+
+test('manual: lead ja em retorno/qualificado nao re-acende', async () => {
+  const { svc, statusUpdates, atividadeCalls } = makeService({
+    gatilhos: [],
+    lead: { id: 'lead1', assignedUserId: 33, status: 'retorno' },
+    cadenciaInscricao: null,
+    conversation: { id: 51, vendasLeadId: 'lead1' },
+  });
+
+  await svc.handleInbound({ companyId: 7, fromPhone: '5519989431379', conversationId: 51, text: 'e ai?' });
+
+  assert.equal(statusUpdates.length, 0);
+  assert.equal(atividadeCalls.length, 0);
 });
