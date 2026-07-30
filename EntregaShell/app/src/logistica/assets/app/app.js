@@ -351,11 +351,19 @@
   let idleEnderecoBuscando = false;
   // Balão da bolinha azul (28/07) — 1 por vez, igual toast.
   let balaoLocal = null;
-  // S3 21/07 — disjuntor do recálculo de pernas (regra dura da frente): mínimo
-  // 30s entre tentativas + teto de 10 por rota/dia; zera só junto com a trilha
+  // S3 21/07 — disjuntor do recálculo de pernas; zera junto com a trilha
   // (encerrar rota / limpar o dia — ver resetNavRecalcBudget).
-  let navRecalcState = { count: 0, lastAt: 0 };
-  let navOffPathStreak = 0;
+  // 🔴 30/07 — o teto de 10 POR DIA morreu (ver navRecalcLimites): motorista com
+  // 30 paradas erra entrada, pega retorno e desvia de obra; queimava os 10 antes
+  // do almoço e o app PARAVA DE RETRAÇAR em silêncio pelo resto do dia. Agora é
+  // janela deslizante — freio contra laço de bug, nunca contra uso legítimo.
+  let navRecalcState = { count: 0, lastAt: 0, janela: [] };
+  // Instante do 1º fix fora do caminho + quantos fixes já vieram fora (S1 30/07).
+  let navOffPathDesde = 0;
+  let navOffPathFixes = 0;
+  // Quem entregou o último traçado: "proxy" (nosso hbx-osrm) ou "publico"
+  // (servidor de demonstração). Decide o aperto do freio.
+  let navRotaFonte = "";
   let navRecalcToastAt = 0;
   // 🔴 29/07 — o traçado da fila ATUAL tem orçamento PRÓPRIO, separado do
   // disjuntor de "saiu do caminho". Antes os dois dividiam o mesmo teto (10 por
@@ -735,7 +743,10 @@
   const BEARING_TOLERANCIA_GRAUS = 60;
   const BEARING_VELOCIDADE_MIN_MPS = 2.5; // ~9 km/h
   function bearingsParam(bearingDeg, totalPontos) {
-    if (!Number.isFinite(Number(bearingDeg)) || totalPontos < 2) return "";
+    // `bearingDeg == null` PRIMEIRO, e de propósito: Number(null) é 0, então sem
+    // esta linha "não sei a direção" (parado, sem bússola) viraria "aponta pro
+    // NORTE" e o roteador restringiria a saída pro lado errado.
+    if (bearingDeg == null || !Number.isFinite(Number(bearingDeg)) || totalPontos < 2) return "";
     const grau = ((Math.round(Number(bearingDeg) / 15) * 15) % 360 + 360) % 360;
     return `${grau},${BEARING_TOLERANCIA_GRAUS}${";".repeat(totalPontos - 1)}`;
   }
@@ -770,17 +781,28 @@
   // sem steps. roadRoute é a resposta INTEIRA (coordenadas + pernas + total) e
   // é dela que sai a hora de chegada; roadGeometry continua devolvendo o que
   // cada chamador antigo esperava (array cru, ou objeto com steps).
-  async function roadRoute(points, wantSteps) {
+  async function roadRoute(points, wantSteps, opcoes) {
     const coordinates = points.map(point => [Number(point.lng), Number(point.lat)]).filter((point, index, rows) => index === 0 || point[0] !== rows[index - 1][0] || point[1] !== rows[index - 1][1]);
-    if (coordinates.length < 2) return { coordinates: [], legSteps: [], legs: [], durationS: null, distanceM: null };
+    if (coordinates.length < 2) return { coordinates: [], legSteps: [], legs: [], durationS: null, distanceM: null, fonte: "" };
     const key = coordinates.map(([lng, lat]) => `${lng.toFixed(5)},${lat.toFixed(5)}`).join(";");
-    const cacheKey = wantSteps ? `${key}#steps` : key;
+    const bearings = bearingsParam(opcoes && opcoes.bearingDeg, coordinates.length);
+    // Direção entra na chave: a mesma origem apontada pra outro lado é OUTRA rota.
+    const cacheKey = `${wantSteps ? `${key}#steps` : key}${bearings ? `#b${bearings}` : ""}`;
     if (roadGeometryCache.has(cacheKey)) return roadGeometryCache.get(cacheKey);
-    let payload;
-    try { payload = await H.api(`/logistica/osrm/route?coords=${encodeURIComponent(key)}${wantSteps ? "&steps=true" : ""}`); }
-    catch (_) { payload = await fetchOsrmRoutePublic(key, wantSteps); }
-    const routed = osrmRouteCoordinates(payload);
+    let resposta;
+    try { resposta = await pedirRotaViaria(key, wantSteps, bearings); }
+    catch (e) { if (!bearings) throw e; resposta = await pedirRotaViaria(key, wantSteps, ""); }
+    let routed = osrmRouteCoordinates(resposta.payload);
+    // FAIL-OPEN DA DIREÇÃO: com o rumo restrito o roteador PODE responder que
+    // não há saída (bússola errada, carro apontado pra rua sem saída). Aí pede
+    // de novo sem restrição — rota "por qualquer lado" é muito melhor que
+    // nenhuma linha na tela, que é o pior dos mundos pra quem está dirigindo.
+    if ((!Array.isArray(routed) || routed.length < 2) && bearings) {
+      resposta = await pedirRotaViaria(key, wantSteps, "");
+      routed = osrmRouteCoordinates(resposta.payload);
+    }
     if (!Array.isArray(routed) || routed.length < 2) throw new Error("Rota viária não encontrada.");
+    const payload = resposta.payload;
     const route = payload.routes[0] || {};
     const legs = (route.legs || []).map(leg => ({
       distanceM: Number.isFinite(Number(leg && leg.distance)) ? Number(leg.distance) : null,
@@ -792,13 +814,14 @@
       legs,
       durationS: Number.isFinite(Number(route.duration)) ? Number(route.duration) : null,
       distanceM: Number.isFinite(Number(route.distance)) ? Number(route.distance) : null,
+      fonte: resposta.fonte,
     };
     roadGeometryCache.set(cacheKey, result);
     if (roadGeometryCache.size > 12) roadGeometryCache.delete(roadGeometryCache.keys().next().value);
     return result;
   }
-  async function roadGeometry(points, wantSteps) {
-    const info = await roadRoute(points, wantSteps);
+  async function roadGeometry(points, wantSteps, opcoes) {
+    const info = await roadRoute(points, wantSteps, opcoes);
     return wantSteps ? info : info.coordinates;
   }
   async function fetchOsrmTablePublic(encoded) {
@@ -1554,10 +1577,19 @@
       // S5 21/07 — steps=true SÓ em navegação ativa (spec S5 #6): fora disso
       // o payload cresceria à toa (roadGeometry aceita o 2º arg em qualquer
       // chamador, mas só quem monta a perna atual da navegação passa true).
-      const result = await roadRoute([{ lat: origin.lat, lng: origin.lng }, ...stops], navModeActive());
+      // 30/07 — a direção do carro vai junto (só andando; ver navBearingConfiavel):
+      // é o que faz o retraço mandar "siga em frente e vire na próxima" em vez de
+      // "faça o retorno agora".
+      const result = await roadRoute(
+        [{ lat: origin.lat, lng: origin.lng }, ...stops],
+        navModeActive(),
+        { bearingDeg: navBearingConfiavel(origin) },
+      );
       if (!navModeActive() || navWatchSeq !== session || navRoutePointsSignature(navRouteOpenPoints()) !== stopsSignature) return false;
       const geometry = result.coordinates || result;
       if (!geometry || geometry.length < 2) return false;
+      // Quem atendeu decide o aperto do freio do próximo retraço (navRecalcLimites).
+      navRotaFonte = result.fonte || "";
       state.navRota = {
         geometry,
         // 🔴 29/07 — CARIMBO DA FILA que gerou este traçado. Sem ele, a rota da
@@ -1599,17 +1631,41 @@
       return true;
     } catch (_) { return false; } // OSRM fora do ar: mantém o desenho atual (state.navRota intocado).
   }
+  // ==========================================================================
   // Disjuntor do RECÁLCULO por "saiu do caminho" — e SÓ dele (ver navPedidoFila
-  // para o traçado da fila atual). Teto por rota/dia + mínimo de 30s.
+  // para o traçado da fila atual).
+  // 🔴 30/07 — O FREIO DEPENDE DE QUEM ESTÁ ROTEANDO. O teto antigo (30s entre
+  // tentativas, 10 por dia) nasceu em 21/07, quando a rota vinha do servidor
+  // PÚBLICO de demonstração; era educação com máquina alheia. Desde 29/07 o
+  // roteador é NOSSO (container hbx-osrm no VPS): retraçar custa milissegundos
+  // de CPU nossa, e continuar apertado ali era pagar pedágio numa estrada que a
+  // gente comprou. Nosso roteador: 6 por minuto, 5s entre, teto de segurança
+  // alto só pra matar laço de bug. Caiu pro público: regra antiga, na íntegra.
+  // ==========================================================================
+  function navRecalcLimites() {
+    return navRotaFonte === "publico"
+      ? { intervaloMs: 30000, porMinuto: 2, tetoDia: 10 }
+      : { intervaloMs: 5000, porMinuto: 6, tetoDia: 300 };
+  }
   function navRecalcAllowed() {
-    if (navRecalcState.count >= 10) return false;
-    if (navRecalcState.lastAt && Date.now() - navRecalcState.lastAt < 30000) return false;
+    const limites = navRecalcLimites();
+    const agora = Date.now();
+    navRecalcState.janela = (navRecalcState.janela || []).filter(ts => ts > agora - 60000);
+    if (navRecalcState.count >= limites.tetoDia) return false;
+    if (navRecalcState.janela.length >= limites.porMinuto) return false;
+    if (navRecalcState.lastAt && agora - navRecalcState.lastAt < limites.intervaloMs) return false;
     return true;
   }
-  function markNavRecalc() { navRecalcState.count += 1; navRecalcState.lastAt = Date.now(); }
+  function markNavRecalc() {
+    navRecalcState.count += 1;
+    navRecalcState.lastAt = Date.now();
+    (navRecalcState.janela || (navRecalcState.janela = [])).push(navRecalcState.lastAt);
+  }
   function resetNavRecalcBudget() {
-    navRecalcState = { count: 0, lastAt: 0 };
-    navOffPathStreak = 0;
+    navRecalcState = { count: 0, lastAt: 0, janela: [] };
+    navOffPathDesde = 0;
+    navOffPathFixes = 0;
+    navRotaFonte = "";
     navRecalcToastAt = 0;
     navPedidoFila = { assinatura: null, emVoo: false, tentativas: 0, ultimaFalhaAt: 0 };
   }
@@ -1625,17 +1681,40 @@
     if (navPedidoFila.ultimaFalhaAt && Date.now() - navPedidoFila.ultimaFalhaAt < 6000) return false;
     return true;
   }
-  // S3 #4 — "saiu do caminho": > 120m do segmento mais próximo da perna ATUAL
-  // por 3 fixes seguidos (chamado a cada tick do watch, ver startNavWatch).
+  // ==========================================================================
+  // 🔴 30/07 (dono, com a foto do mapa: "se a pessoa errar uma entrada ou algo
+  // do tipo já era") — QUANDO É QUE SAIU DO CAMINHO.
+  // Antes: 120 m fixos, por 3 fixes seguidos. 120 m é MAIS que a distância entre
+  // duas ruas paralelas de bairro — errar a entrada e seguir pela paralela não
+  // acordava ninguém, e a linha verde ficava apontando pro caminho velho até o
+  // fim da rota. Era exatamente a foto que ele mandou.
+  // Agora o limiar acompanha a PRECISÃO que o próprio aparelho reporta em cada
+  // fix: GPS bom = 45 m (Waze/Google reagem nessa faixa); GPS ruim = até 140 m,
+  // senão o app retraçaria por causa do erro do sinal, não do motorista. E a
+  // confirmação é por TEMPO CONTÍNUO fora (4 s, no mínimo 2 fixes) em vez de
+  // contar fixes: pulo isolado de GPS não dura 4 segundos, e quem errou a
+  // entrada de verdade não volta pra linha sozinho.
+  // ==========================================================================
+  const OFF_PATH_MIN_M = 45;
+  const OFF_PATH_MAX_M = 140;
+  const OFF_PATH_TEMPO_MS = 4000;
+  function navOffPathLimiteM(point) {
+    const accuracy = point && Number.isFinite(Number(point.accuracyM)) ? Number(point.accuracyM) : null;
+    if (accuracy == null) return OFF_PATH_MIN_M;
+    return Math.max(OFF_PATH_MIN_M, Math.min(OFF_PATH_MAX_M, accuracy * 2));
+  }
   function checkNavOffPath(point) {
     const cut = navCurrentLegCutIndex();
     const rota = state.navRota;
-    if (!rota || !Number.isFinite(cut) || cut < 1) { navOffPathStreak = 0; return; }
+    if (!rota || !Number.isFinite(cut) || cut < 1) { navOffPathDesde = 0; navOffPathFixes = 0; return; }
     const distance = distanceToPolylineMeters(point, rota.geometry.slice(0, cut + 1));
-    if (distance == null || distance <= 120) { navOffPathStreak = 0; return; }
-    navOffPathStreak += 1;
-    if (navOffPathStreak < 3) return;
-    navOffPathStreak = 0;
+    if (distance == null || distance <= navOffPathLimiteM(point)) { navOffPathDesde = 0; navOffPathFixes = 0; return; }
+    const agora = Date.now();
+    if (!navOffPathDesde) { navOffPathDesde = agora; navOffPathFixes = 1; return; }
+    navOffPathFixes += 1;
+    if (navOffPathFixes < 2 || agora - navOffPathDesde < OFF_PATH_TEMPO_MS) return;
+    navOffPathDesde = 0;
+    navOffPathFixes = 0;
     triggerNavOffPathRecalc();
   }
   function triggerNavOffPathRecalc() {

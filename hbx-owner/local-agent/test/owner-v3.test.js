@@ -443,6 +443,27 @@ function overviewCom(enriquecimento) {
   return ownerV3.buildOverview({ scrapingLocal: okScrapingEnv(), scrapingVps: okScrapingEnv(), ia: okIa(), enriquecimento });
 }
 
+// Regressão 30/07: nesta máquina o Postgres local não tem o schema cnpj_public — zero empresas RFB.
+// A fábrica local morre em `rfb_esgotada` no primeiro passo, então o interruptor "Localhost" não
+// comanda nada. Sem esta guarda, o primeiro DESLIGAR TUDO cuspia um erro vermelho mandando "religar
+// o scraping deste PC" — cobrança de um ambiente que não tem o que moer.
+test("ambiente local SEM base RFB não gera problema de 'scraping deste PC desligado' (não há fábrica pra religar)", () => {
+  const semBase = okScrapingEnv({ on: false, running: false, rfbBaseCount: 0, reason: "energia_desligada" });
+  const problems = ownerV3.buildOverview({
+    scrapingLocal: semBase, scrapingVps: okScrapingEnv(), ia: okIa(), enriquecimento: okEnriquecimento(),
+  }).problems;
+  assert.ok(!problems.some((p) => p.id === "scraping_local_off"), "não se cobra energia de máquina sem base RFB");
+});
+
+test("ambiente local COM base RFB desligado continua virando problema (a guarda não pode engolir o caso real)", () => {
+  const comBase = okScrapingEnv({ on: false, running: false, rfbBaseCount: 28_000_000, reason: "energia_desligada" });
+  const problem = ownerV3.buildOverview({
+    scrapingLocal: comBase, scrapingVps: okScrapingEnv(), ia: okIa(), enriquecimento: okEnriquecimento(),
+  }).problems.find((p) => p.id === "scraping_local_off");
+  assert.ok(problem, "com base RFB de verdade, desligado continua sendo problema com botão");
+  assert.equal(problem.action.body.env, "local");
+});
+
 test("fila só vira problema acima de 6h (360min) de idade do item mais antigo", () => {
   const problems = overviewCom(okEnriquecimento({ oldestAgeMin: 359, on: false })).problems;
   assert.ok(!problems.some((p) => p.id === "fila_parada" || p.id === "fila_atrasada"));
