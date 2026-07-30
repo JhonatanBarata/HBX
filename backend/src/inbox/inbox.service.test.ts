@@ -3396,16 +3396,32 @@ test('operador marca "Nao ligar mais" no Atendimento e o contato passa a aparece
   assert.equal((await reader.isSuppressed({ phone: '+55 19 99887-7766' })).suppressed, true);
 });
 
-test('"Sem interesse" (motivo de tela: preco) marca com dosagem menor e com validade', async () => {
-  const store = createInboxSuppressionStore();
-  const { service } = createStatusCardService(store);
+test('dosagem POR MOTIVO (dono 30/07): preco ~60d, ja_tem ~90d, sem_perfil permanente', async () => {
+  // Antes preco/ja_tem/sem_perfil caiam todos no generico sem_interesse (12m).
+  const before = Date.now();
+  const days = (row: { expiresAt: Date | null }) => Math.round(((row.expiresAt as Date).getTime() - before) / (24 * 60 * 60 * 1000));
 
-  await service.updateConversationStatusCard({ id: 1 }, 42, { doNotCall: true, closureReason: 'preco' });
+  const storePreco = createInboxSuppressionStore();
+  const { service: svcPreco } = createStatusCardService(storePreco);
+  await svcPreco.updateConversationStatusCard({ id: 1 }, 42, { doNotCall: true, closureReason: 'preco' });
+  const rowPreco = storePreco.rows.find((row) => row.contactType === 'phone')!;
+  assert.equal(rowPreco.reason, 'preco');
+  assert.ok(rowPreco.expiresAt instanceof Date, 'preco resfria, nao e permanente');
+  assert.ok(days(rowPreco) >= 59 && days(rowPreco) <= 61, `preco deveria ser ~60 dias, foi ${days(rowPreco)}`);
 
-  const phoneRow = store.rows.find((row) => row.contactType === 'phone');
-  assert.ok(phoneRow);
-  assert.equal(phoneRow.reason, 'sem_interesse');
-  assert.ok(phoneRow.expiresAt instanceof Date, 'sem_interesse resfria, nao e permanente');
+  const storeJaTem = createInboxSuppressionStore();
+  const { service: svcJaTem } = createStatusCardService(storeJaTem);
+  await svcJaTem.updateConversationStatusCard({ id: 1 }, 42, { doNotCall: true, closureReason: 'ja_tem' });
+  const rowJaTem = storeJaTem.rows.find((row) => row.contactType === 'phone')!;
+  assert.equal(rowJaTem.reason, 'ja_tem');
+  assert.ok(days(rowJaTem) >= 89 && days(rowJaTem) <= 91, `ja_tem deveria ser ~90 dias, foi ${days(rowJaTem)}`);
+
+  const storeSemPerfil = createInboxSuppressionStore();
+  const { service: svcSemPerfil } = createStatusCardService(storeSemPerfil);
+  await svcSemPerfil.updateConversationStatusCard({ id: 1 }, 42, { doNotCall: true, closureReason: 'sem_perfil' });
+  const rowSemPerfil = storeSemPerfil.rows.find((row) => row.contactType === 'phone')!;
+  assert.equal(rowSemPerfil.reason, 'sem_perfil');
+  assert.equal(rowSemPerfil.expiresAt, null, 'sem_perfil e permanente — insistir queima chip');
 });
 
 test('encerramento por "convertido" NAO marca supressao (sinal positivo nao trava prospeccao futura)', async () => {

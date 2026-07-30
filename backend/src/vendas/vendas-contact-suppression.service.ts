@@ -20,16 +20,38 @@ import { PrismaService } from '../prisma/prisma.service';
 //   convertido / outro   -> NÃO gera marca automática (sinal fraco/positivo
 //                            demais pra travar prospecção futura de terceiros)
 //
+// Dosagem dos motivos do /atendimento (dono confirmou 30/07 — item 4 do dia de
+// vendedor; antes os três abaixo caíam no genérico sem_interesse/12m):
+//   ja_tem     -> ~90 dias (quem tem fornecedor hoje troca amanhã)
+//   preco      -> ~60 dias (preço muda, condição volta)
+//   sem_perfil -> permanente (não é o cliente; insistir queima chip)
+//   nao_ligar  -> já era opt_out permanente (ladder do inbox.service)
+//
 // Instanciado à mão (`new VendasContactSuppressionService(this.prisma)`) nos
 // pontos de escrita/leitura — mesmo padrão de EventRuleService
 // (cadencia-gatilho.service.ts) pra não abrir dependência de módulo Nest
 // entre Vendas e Webscraping só por causa disto.
 // ================================================================
 
-export type SuppressionReason = 'sem_interesse' | 'nao_atendeu' | 'contato_invalido' | 'opt_out';
+export type SuppressionReason =
+  | 'sem_interesse'
+  | 'nao_atendeu'
+  | 'contato_invalido'
+  | 'opt_out'
+  | 'ja_tem'
+  | 'preco'
+  | 'sem_perfil';
 export type SuppressionContactType = 'cnpj' | 'phone' | 'email';
 
-const REASONS_THAT_SUPPRESS: readonly SuppressionReason[] = ['sem_interesse', 'nao_atendeu', 'contato_invalido', 'opt_out'];
+const REASONS_THAT_SUPPRESS: readonly SuppressionReason[] = [
+  'sem_interesse',
+  'nao_atendeu',
+  'contato_invalido',
+  'opt_out',
+  'ja_tem',
+  'preco',
+  'sem_perfil',
+];
 
 function envDays(name: string, fallback: number): number {
   const raw = Number(process.env[name]);
@@ -48,6 +70,12 @@ function windowDaysForReason(reason: SuppressionReason): number | null {
       return null; // permanente pra aquela chave
     case 'opt_out':
       return null; // permanente
+    case 'ja_tem':
+      return envDays('HBX_SUPPRESSION_JA_TEM_DIAS', 90);
+    case 'preco':
+      return envDays('HBX_SUPPRESSION_PRECO_DIAS', 60);
+    case 'sem_perfil':
+      return null; // permanente — não é o cliente, insistir queima chip
     default:
       return null;
   }

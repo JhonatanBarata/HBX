@@ -151,6 +151,30 @@ test('janela por motivo: sem_interesse ~365 dias, nao_atendeu ~90 dias (defaults
   assert.ok(daysB >= 89 && daysB <= 91, `nao_atendeu deveria ser ~90 dias, foi ${daysB}`);
 });
 
+test('dosagem do dono 30/07: ja_tem ~90d, preco ~60d, sem_perfil PERMANENTE', async () => {
+  // Item 4 do dia de vendedor — antes os três caíam no genérico sem_interesse/12m.
+  const prisma = makeFakePrisma();
+  const svc = new VendasContactSuppressionService(prisma as any);
+  const before = Date.now();
+  await svc.mark({ email: 'jatem@a.com' }, 'ja_tem', {});
+  await svc.mark({ email: 'preco@a.com' }, 'preco', {});
+  await svc.mark({ email: 'semperfil@a.com' }, 'sem_perfil', {});
+
+  const rowJaTem = prisma.rows.find((r) => r.contactKey === 'jatem@a.com')!;
+  const rowPreco = prisma.rows.find((r) => r.contactKey === 'preco@a.com')!;
+  const rowSemPerfil = prisma.rows.find((r) => r.contactKey === 'semperfil@a.com')!;
+  const days = (row: { expiresAt: Date | null }) => Math.round((row.expiresAt!.getTime() - before) / (24 * 60 * 60 * 1000));
+  assert.ok(rowJaTem.expiresAt, 'ja_tem expira (quem tem fornecedor hoje troca amanhã)');
+  assert.ok(days(rowJaTem) >= 89 && days(rowJaTem) <= 91, `ja_tem deveria ser ~90 dias, foi ${days(rowJaTem)}`);
+  assert.ok(rowPreco.expiresAt, 'preco expira (preço muda, condição volta)');
+  assert.ok(days(rowPreco) >= 59 && days(rowPreco) <= 61, `preco deveria ser ~60 dias, foi ${days(rowPreco)}`);
+  assert.equal(rowSemPerfil.expiresAt, null, 'sem_perfil é permanente — insistir queima chip');
+
+  assert.equal((await svc.isSuppressed({ email: 'jatem@a.com' })).suppressed, true);
+  assert.equal((await svc.isSuppressed({ email: 'preco@a.com' })).suppressed, true);
+  assert.equal((await svc.isSuppressed({ email: 'semperfil@a.com' })).suppressed, true);
+});
+
 test('opt_out e contato_invalido são PERMANENTES (expiresAt null)', async () => {
   const prisma = makeFakePrisma();
   const svc = new VendasContactSuppressionService(prisma as any);

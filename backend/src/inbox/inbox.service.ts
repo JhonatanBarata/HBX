@@ -5745,16 +5745,23 @@ export class InboxService {
   // ESCRITA DA MARQUINHA GLOBAL (30/07/2026) — tradução do motivo escolhido na TELA
   // (menu "Sem Interesse" do /atendimento: sem_interesse | ja_tem | preco | sem_perfil |
   // nao_ligar) para o vocabulário da supressão (vendas-contact-suppression.service.ts).
-  // Ladder de evidência, de propósito:
-  //   'nao_ligar'                      -> opt_out       (PERMANENTE — humano clicou "Não ligar mais")
-  //   'ja_tem'|'preco'|'sem_perfil'|ø  -> sem_interesse (~12 meses — negou o contato)
-  //   'convertido'|'outro'             -> null          (não marca; sinal positivo/fraco demais)
+  // Ladder de evidência, de propósito (dosagem POR MOTIVO confirmada pelo dono 30/07 —
+  // item 4 do dia de vendedor; antes ja_tem/preco/sem_perfil caíam no genérico):
+  //   'nao_ligar'          -> opt_out       (PERMANENTE — humano clicou "Não ligar mais")
+  //   'sem_perfil'         -> sem_perfil    (PERMANENTE — não é o cliente, insistir queima chip)
+  //   'ja_tem'             -> ja_tem        (~90 dias — quem tem fornecedor hoje troca amanhã)
+  //   'preco'              -> preco         (~60 dias — preço muda, condição volta)
+  //   ø / desconhecido     -> sem_interesse (~12 meses — negou o contato)
+  //   'convertido'|'outro' -> null          (não marca; sinal positivo/fraco demais)
   private resolveStatusCardSuppressionReason(closureReason: string | null): SuppressionReason | null {
     const reason = String(closureReason || '').trim().toLowerCase();
     if (reason === 'convertido' || reason === 'outro') return null;
     if (reason === 'nao_ligar' || reason === 'do_not_call' || reason === 'opt_out') return 'opt_out';
     if (reason === 'nao_atendeu') return 'nao_atendeu';
     if (reason === 'contato_invalido') return 'contato_invalido';
+    if (reason === 'ja_tem') return 'ja_tem';
+    if (reason === 'preco') return 'preco';
+    if (reason === 'sem_perfil') return 'sem_perfil';
     return 'sem_interesse';
   }
 
