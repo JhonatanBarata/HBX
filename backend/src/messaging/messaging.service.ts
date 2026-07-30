@@ -42,6 +42,17 @@ import {
   resolveCompanyMercadoPagoAccess,
   isTenantOwnedMpSource,
 } from '../modules/master-global-integrations.util';
+// Gerador de resposta qualificada (30/07, 2º período) — SÓ módulos puros de
+// vendas + o cliente Ollama local (governor/flag). Nada aqui toca socket/motor.
+import { callAssistenteOllama } from '../assistente/assistente-ollama';
+import { catalogoEstaPronto, normalizeCatalogo } from '../vendas/vendas-catalogo';
+import {
+  calcularVeredicto,
+  parseFichaPersistida,
+  preencherVaga,
+  serializeFichaPersistida,
+} from '../vendas/vendas-qualificacao';
+import { montarPromptRespostaQualificada, validarRespostaGerada } from '../vendas/vendas-gerador-resposta';
 import {
   classifyProspectingAutoReply,
   sanitizeFirstContactMessage,
@@ -2028,6 +2039,105 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     );
   }
 
+  // ================================================================
+  // GERADOR DE RESPOSTA QUALIFICADA (30/07, 2º período). Pré-condições duras:
+  // catálogo PRONTO (sem ele a IA é proibida de afirmar produto — frases fixas
+  // seguem) e IA local de pé (flag/governor do callAssistenteOllama). A saída
+  // passa por validarRespostaGerada; QUALQUER recusa = null = sorteio de sempre.
+  // Módulos puros e testados: vendas-catalogo / vendas-qualificacao /
+  // vendas-gerador-resposta.
+  // ================================================================
+  private async generateVendasQualifiedReply(
+    input: any,
+    job: any,
+  ): Promise<{ body: string; fichaJson: string; aquecido: boolean; resumo: string | null } | null> {
+    const row = await Promise.resolve(
+      (this.prisma as any).vendasComercialConfig?.findUnique?.({ where: { companyId: input.companyId }, select: { catalogoJson: true } }),
+    ).catch(() => null);
+    const catalogoTexto = String(row?.catalogoJson || '').trim();
+    if (!catalogoTexto) return null;
+    let catalogo: ReturnType<typeof normalizeCatalogo>;
+    try {
+      catalogo = normalizeCatalogo(JSON.parse(catalogoTexto));
+    } catch {
+      return null;
+    }
+    if (!catalogoEstaPronto(catalogo)) return null;
+
+    const lead = await this.prisma.vendasLead
+      .findFirst({ where: { id: job.leadId, companyId: input.companyId }, select: { qualificacaoJson: true } })
+      .catch(() => null);
+    const persistida = parseFichaPersistida(lead?.qualificacaoJson);
+    let ficha = persistida.ficha;
+    // A resposta do lead entra na vaga que a ÚLTIMA mensagem do bot perguntou.
+    if (persistida.ultimaVagaPerguntada) {
+      ficha = preencherVaga(ficha, persistida.ultimaVagaPerguntada, input.text);
+    }
+    const veredicto = calcularVeredicto({ ficha, intencao: String(input.replyKind || 'positive') });
+    const prompt = montarPromptRespostaQualificada({ catalogo, ficha, veredicto, textoDoLead: String(input.text || '') });
+
+    const raw = await callAssistenteOllama(prompt, {
+      companyId: input.companyId,
+      actionKey: 'ai_realtime',
+      temperature: 0.6,
+      numPredict: 260,
+      timeoutMs: 25_000,
+    });
+    const validada = validarRespostaGerada(raw, { temAncoraDePreco: Boolean(catalogo.ancoraDePreco) });
+    if (!validada.ok) {
+      this.logger.warn(`[prospeccao] resposta gerada RECUSADA (${validada.motivo}) job=${job.id} — usando variante fixa.`);
+      return null;
+    }
+
+    const proximaVaga = veredicto.estado === 'conduzindo' ? veredicto.proximaVaga : null;
+    return {
+      body: validada.body,
+      fichaJson: serializeFichaPersistida(ficha, proximaVaga),
+      aquecido: veredicto.estado === 'aquecido',
+      resumo: veredicto.estado === 'aquecido' ? veredicto.resumo : null,
+    };
+  }
+
+  // Grava a ficha depois do envio; veredito AQUECIDO liga no funil: o card vai
+  // pra "Te chamou" (retorno) com o resumo da ficha no lastResult — o vendedor
+  // recebe o lead COM contexto, não um card pelado.
+  private async persistVendasQualificacaoAfterReply(
+    input: any,
+    job: any,
+    geracao: { fichaJson: string; aquecido: boolean; resumo: string | null },
+  ): Promise<void> {
+    await this.prisma.vendasLead.updateMany({
+      where: { id: job.leadId, companyId: input.companyId },
+      data: { qualificacaoJson: geracao.fichaJson },
+    });
+    if (!geracao.aquecido) return;
+    const resumoCurto = String(geracao.resumo || '').slice(0, 180);
+    await this.prisma.vendasLead.updateMany({
+      where: { id: job.leadId, companyId: input.companyId, status: { in: ['novo', 'contato'] } },
+      data: {
+        status: 'retorno',
+        lastResult: resumoCurto ? `Aquecido · ${resumoCurto}` : 'Aquecido pela conversa do robô',
+        returnAt: input.timestamp instanceof Date ? input.timestamp : new Date(),
+      },
+    });
+    if (typeof (this.prisma as any).vendasLeadTimelineEvent?.create === 'function') {
+      await (this.prisma as any).vendasLeadTimelineEvent
+        .create({
+          data: {
+            leadId: job.leadId,
+            eventType: 'robo_te_chamou',
+            title: 'Aquecido — a conversa do robô qualificou o lead',
+            description: resumoCurto ? `Ficha: ${resumoCurto}` : 'Ficha de qualificação completa.',
+            sourceType: 'vendas_prospeccao_bot',
+            statusTo: 'retorno',
+            resultLabel: 'aquecido',
+            idempotencyKey: `qualificacao-aquecido:${job.id}`,
+          },
+        })
+        .catch(() => null);
+    }
+  }
+
   private pickVendasVariant(campaign: any, job: any, key: string, fallback: string[], extraValues: Record<string, string> = {}) {
     const variants = this.readVendasVariantList(campaign, key, fallback);
     const variant = variants[Math.floor(Math.random() * variants.length)] || fallback[0] || '';
@@ -3464,7 +3574,15 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
     const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
     const prospeccao = this.readJsonRecord(input.metadata?.vendasProspeccao);
-    const followUpMessage = this.pickVendasVariant(
+    // 2º período 30/07 ("classificar ≠ conversar"): com catálogo PRONTO + IA local
+    // de pé, a resposta é GERADA (ficha + objetivo do veredito) em vez de sorteada.
+    // Qualquer falha/recusa devolve null e o sorteio de sempre responde — o gerador
+    // nunca é motivo de lead sem resposta.
+    const geracao = await this.generateVendasQualifiedReply(input, job).catch((error: any) => {
+      this.logger.warn(`[prospeccao] gerador de resposta falhou job=${job.id}: ${String(error?.message || error)}`);
+      return null;
+    });
+    const followUpMessage = geracao?.body || this.pickVendasVariant(
       job.campaign,
       job,
       input.replyKind === 'what_is_it' ? 'whatIsItReplyVariants' : 'positiveReplyVariants',
@@ -3574,6 +3692,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             metadata: nextMetadata,
           },
         });
+        // Ficha só é gravada com a resposta ENFILEIRADA (a pergunta registrada em
+        // ultimaVagaPerguntada precisa ter saído de verdade). Best-effort: a marca
+        // nunca desfaz um envio que já aconteceu.
+        if (geracao) {
+          await this.persistVendasQualificacaoAfterReply(input, job, geracao).catch((error: any) =>
+            this.logger.warn(`[prospeccao] gravar ficha falhou lead=${job.leadId}: ${String(error?.message || error)}`),
+          );
+        }
       } catch (error: any) {
         this.logger.warn(`Falha ao enviar resposta positiva da prospeccao job=${job.id}: ${String(error?.message || error)}`);
         await this.updateAtendimentoConversationState(input.companyId, input.conversationId, nextState, {

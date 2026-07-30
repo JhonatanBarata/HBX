@@ -156,3 +156,54 @@ export function buildObjetivoPromptBlock(veredicto: VeredictoLead): string {
   }
   return 'Objetivo: encerrar com educação. NÃO insista, NÃO ofereça nada, NÃO faça pergunta.';
 }
+
+// ---------------------------------------------------------------- PERSISTÊNCIA
+// A ficha vive em VendasLead.qualificacaoJson (30/07, 2º período). A forma
+// persistida carrega também a ÚLTIMA VAGA PERGUNTADA — é ela que diz onde a
+// próxima resposta do lead entra (o bot perguntou "volume", o lead respondeu
+// "40 por dia" → preencherVaga(ficha, 'volume', ...)). Entrada podre NUNCA
+// derruba: vira ficha vazia (mesma filosofia do normalizeCatalogo).
+
+export type FichaPersistida = {
+  ficha: FichaQualificacao;
+  /** Vaga que a última mensagem do bot perguntou — onde a resposta entra. */
+  ultimaVagaPerguntada: VagaQualificacao | null;
+};
+
+export function parseFichaPersistida(raw: unknown): FichaPersistida {
+  const vazia: FichaPersistida = { ficha: fichaVazia(), ultimaVagaPerguntada: null };
+  const texto = String(raw || '').trim();
+  if (!texto) return vazia;
+  let parsed: any = null;
+  try {
+    parsed = JSON.parse(texto);
+  } catch {
+    return vazia;
+  }
+  if (!parsed || typeof parsed !== 'object') return vazia;
+  let ficha = fichaVazia();
+  const preenchidas = parsed.preenchidas && typeof parsed.preenchidas === 'object' ? parsed.preenchidas : {};
+  for (const vaga of VAGAS_QUALIFICACAO) {
+    ficha = preencherVaga(ficha, vaga, (preenchidas as Record<string, unknown>)[vaga]);
+  }
+  if (parsed.aceiteExplicito === true) {
+    ficha = { ...ficha, aceiteExplicito: true };
+  }
+  const ultima = String(parsed.ultimaVagaPerguntada || '').trim() as VagaQualificacao;
+  return {
+    ficha,
+    ultimaVagaPerguntada: (VAGAS_QUALIFICACAO as readonly string[]).includes(ultima) ? ultima : null,
+  };
+}
+
+export function serializeFichaPersistida(
+  ficha: FichaQualificacao,
+  ultimaVagaPerguntada: VagaQualificacao | null,
+): string {
+  return JSON.stringify({
+    preenchidas: ficha.preenchidas,
+    aceiteExplicito: ficha.aceiteExplicito,
+    ultimaVagaPerguntada: ultimaVagaPerguntada || null,
+    atualizadoEm: new Date().toISOString(),
+  });
+}
