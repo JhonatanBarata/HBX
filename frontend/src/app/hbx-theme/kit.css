@@ -470,6 +470,270 @@ html, body { margin: 0; }
   .credit-balance-card.is-decaying .credit-balance-card__debit,
   .credit-balance-card.is-decaying .credit-balance-card__energy { animation: none; }
 }
+
+/* ── PAINEL DE DISPAROS (30/07) — intercala com o cartão de créditos na sidebar.
+   COR é a linguagem: --disparo-tone (verde funciona, âmbar atenção, vermelho erro)
+   pinta orb, borda, barra e brilho — a tela nunca escolhe cor, só o estado. */
+.credit-disparo-flip { position: relative; display: grid; perspective: 1100px; }
+.credit-disparo-flip__face {
+  grid-area: 1 / 1;
+  min-width: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transform: rotateY(0deg);
+  transition: transform 950ms var(--ease-out-quint), filter 950ms var(--ease-out-quint);
+}
+.credit-disparo-flip__face--disparo { transform: rotateY(180deg); pointer-events: none; }
+.credit-disparo-flip.is-disparo .credit-disparo-flip__face--credits { transform: rotateY(-180deg); pointer-events: none; }
+.credit-disparo-flip.is-disparo .credit-disparo-flip__face--disparo { transform: rotateY(0deg); pointer-events: auto; }
+/* facho especular que varre o cartão a cada virada — o "de milhões" da transição */
+.credit-disparo-flip::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border-radius: var(--radius-md);
+  background: linear-gradient(115deg, transparent 32%, color-mix(in srgb, var(--text-strong) 16%, transparent) 50%, transparent 68%);
+  background-size: 230% 100%;
+  background-position: 130% 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.credit-disparo-flip.is-disparo::after { animation: disparo-flip-sweep 950ms var(--ease-out-quint); }
+
+.disparo-card.plan-card {
+  --disparo-tone: var(--hbx-success);
+  position: relative;
+  isolation: isolate;
+  display: grid;
+  gap: 8px;
+  align-content: center;
+  min-height: 196px;
+  max-height: 310px;
+  padding: 12px;
+  overflow: hidden;
+  width: 100%;
+  text-align: center;
+  cursor: pointer;
+  color: var(--text-strong);
+  border-color: color-mix(in srgb, var(--disparo-tone) 36%, var(--border-hairline));
+  transition: transform var(--motion-fast), box-shadow var(--motion-base), border-color 600ms;
+}
+.disparo-card.plan-card.is-warn { --disparo-tone: var(--hbx-warning); }
+.disparo-card.plan-card.is-err { --disparo-tone: var(--hbx-danger); }
+.disparo-card.plan-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+.disparo-card.plan-card::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: -58px;
+  left: 18%;
+  width: 64%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--disparo-tone) 26%, transparent);
+  filter: blur(28px);
+  opacity: 0.55;
+  transition: background 600ms;
+}
+.disparo-card__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.disparo-card__count { margin-left: auto; color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.disparo-card__orb {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--disparo-tone);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--disparo-tone) 14%, transparent),
+    0 0 14px color-mix(in srgb, var(--disparo-tone) 70%, transparent);
+  animation: disparo-orb 2.2s ease-in-out infinite;
+}
+.disparo-card__timer {
+  font-family: var(--font-display);
+  font-size: 1.7rem;
+  font-weight: 750;
+  letter-spacing: -0.045em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.disparo-card__next {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+.disparo-card__bar {
+  height: 5px;
+  border-radius: 99px;
+  background: color-mix(in srgb, var(--text-muted) 22%, transparent);
+  overflow: hidden;
+}
+.disparo-card__bar-fill { display: block; height: 100%; border-radius: 99px; background: var(--disparo-tone); transition: width 0.5s ease; }
+.disparo-card--hot { animation: disparo-hot-pulse 1.1s ease-in-out infinite; }
+
+/* material por casca — mesma matéria do cartão de créditos vizinho */
+[data-casca="premium"] .side .plan-card.disparo-card {
+  background:
+    radial-gradient(circle at 50% -12%, color-mix(in srgb, var(--disparo-tone) 16%, transparent), transparent 54%),
+    var(--hbx-surface);
+}
+[data-casca="modern"] .side .plan-card.disparo-card {
+  background:
+    radial-gradient(circle at 100% 0%, var(--mod-flare), transparent 46%),
+    linear-gradient(180deg, var(--mod-glass-hi), var(--mod-glass-lo));
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+[data-casca="corporativa"] .side .plan-card.disparo-card {
+  background:
+    linear-gradient(var(--border-hairline) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border-hairline) 1px, transparent 1px),
+    var(--hbx-surface);
+  background-size: 24px 24px;
+  box-shadow: var(--shadow-xs);
+}
+
+/* central de regras (dentro do .hbx-modal padrão) */
+.disparo-modal { width: min(440px, 92vw); display: grid; gap: 12px; padding: 16px; }
+.disparo-modal__head { --disparo-tone: var(--hbx-success); display: flex; align-items: center; gap: 9px; }
+.disparo-modal__head.is-warn { --disparo-tone: var(--hbx-warning); }
+.disparo-modal__head.is-err { --disparo-tone: var(--hbx-danger); }
+.disparo-modal__head strong { font-family: var(--font-display); font-size: 0.98rem; letter-spacing: -0.02em; }
+.disparo-modal__close { margin-left: auto; }
+.disparo-modal__close svg { transform: rotate(45deg); }
+.disparo-modal__next {
+  --disparo-tone: var(--hbx-success);
+  display: grid;
+  gap: 3px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--disparo-tone) 32%, var(--border-hairline));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--disparo-tone) 6%, transparent);
+  text-align: center;
+}
+.disparo-modal__next.is-warn { --disparo-tone: var(--hbx-warning); }
+.disparo-modal__next.is-err { --disparo-tone: var(--hbx-danger); }
+.disparo-modal__next-label { font-size: 0.6rem; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted); }
+.disparo-modal__next-name { font-family: var(--font-display); font-size: 1.06rem; letter-spacing: -0.02em; }
+.disparo-modal__next-when { font-size: 0.74rem; font-weight: 700; color: var(--disparo-tone); }
+.disparo-modal__rules { display: grid; gap: 6px; }
+.disparo-rule {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface);
+  font-size: 0.72rem;
+}
+.disparo-rule__icon { display: grid; color: var(--hbx-brand); }
+.disparo-rule__label { font-weight: 600; color: var(--text-muted); white-space: nowrap; }
+.disparo-rule__value { margin-left: auto; min-width: 0; font-weight: 700; color: var(--text-strong); text-align: right; }
+.disparo-rule.is-warn .disparo-rule__value { color: var(--hbx-warning); }
+.disparo-rule.is-err .disparo-rule__value { color: var(--hbx-danger); }
+.disparo-modal__sample {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px dashed color-mix(in srgb, var(--hbx-brand) 42%, var(--border-hairline));
+  border-radius: var(--radius-md);
+}
+.disparo-modal__sample-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.disparo-modal__sample-text { margin: 0; font-size: 0.76rem; line-height: 1.45; color: var(--text-strong); }
+.disparo-modal__error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--hbx-danger) 45%, var(--border-hairline));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--hbx-danger) 8%, transparent);
+  color: var(--hbx-danger);
+  font-size: 0.72rem;
+  font-weight: 600;
+  --disparo-tone: var(--hbx-danger);
+}
+
+/* ── LEAD QUENTE: o sistema respira uma cor por 1s e o aviso sobe no topo ── */
+body { transition: filter 460ms var(--ease-out-quint); }
+html.hbx-hot-flash body { filter: saturate(1.55) hue-rotate(-22deg) brightness(1.05); }
+.hot-toast {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transform: translateX(-50%);
+  animation: hot-toast-in 620ms var(--ease-out-quint) both;
+}
+.hot-toast__body {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 15px;
+  border: 1px solid color-mix(in srgb, var(--hbx-success) 55%, var(--border-hairline));
+  border-radius: var(--radius-pill);
+  background: var(--hbx-surface-raised);
+  box-shadow: var(--shadow-md), 0 0 22px color-mix(in srgb, var(--hbx-success) 30%, transparent);
+  color: var(--text-strong);
+  font-family: var(--font-body);
+  cursor: pointer;
+}
+.hot-toast__flame { display: grid; color: var(--hbx-success); animation: disparo-orb 1.2s ease-in-out infinite; }
+.hot-toast__text { display: grid; text-align: left; line-height: 1.1; }
+.hot-toast__text strong { font-size: 0.78rem; }
+.hot-toast__text small { font-size: 0.62rem; color: var(--text-muted); }
+.hot-toast__x svg { transform: rotate(45deg); }
+
+@keyframes disparo-orb {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(0.82); opacity: 0.7; }
+}
+@keyframes disparo-hot-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--hbx-success) 55%, transparent); }
+  55% { box-shadow: 0 0 0 10px transparent; }
+}
+@keyframes disparo-flip-sweep {
+  0% { opacity: 0; background-position: 130% 0; }
+  30% { opacity: 1; }
+  100% { opacity: 0; background-position: -30% 0; }
+}
+@keyframes hot-toast-in {
+  from { transform: translate(-50%, -160%); opacity: 0; }
+  to { transform: translate(-50%, 0); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .credit-disparo-flip__face { transition: none; }
+  .credit-disparo-flip.is-disparo::after { animation: none; }
+  .disparo-card__orb,
+  .disparo-card--hot,
+  .hot-toast,
+  .hot-toast__flame { animation: none; }
+  body { transition: none; }
+}
 .user-card { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface); }
 .user-card strong { display: block; max-height: 20px; overflow: hidden; opacity: 1; font-size: 0.78rem; transition: max-height var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast); }
 .user-card small { display: block; max-height: 16px; overflow: hidden; opacity: 1; font-size: 0.66rem; color: var(--text-muted); transition: max-height var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast); }

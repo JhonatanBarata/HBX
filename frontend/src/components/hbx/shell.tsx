@@ -12,6 +12,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, useSy
 import { createPortal } from "react-dom";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
+import { CreditDisparoRotator } from "@/components/hbx/disparo-panel";
 import { applyThemeSoft, getCascaAtiva, getTemaAtivo, setAparencia, setThemeMode } from "@/components/hbx/theme-attributes";
 import {
   CASCAS, escolheModo, escolheTema, getCasca, resolveModo, resolveTema,
@@ -1224,9 +1225,15 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
         );
       })}
       <div className="side-bottom">
-        {creditsMode && (
-          <CreditsSidebarCard summary={creditsSummary} companyId={user?.company?.id} />
-        )}
+        {/* PAINEL DE DISPAROS (30/07): quando o bot de prospecção está ativo, o
+            cartão de créditos e o painel se INTERCALAM (flip 3D); sem bot, é o
+            cartão de créditos de sempre. O rotator também é o dono do alerta de
+            lead quente (pulso + respiro de cor + aviso no topo). */}
+        <CreditDisparoRotator
+          credits={creditsMode ? (
+            <CreditsSidebarCard summary={creditsSummary} companyId={user?.company?.id} />
+          ) : null}
+        />
         {/* Identidade da EMPRESA (ordem do dono 14/06): o usuário/vendedor é o
             avatar do topo-direito; aqui embaixo fica a empresa, e o card é
             informativo — SEM clique. O "Sair" mora só no menu da conta, no topo. */}

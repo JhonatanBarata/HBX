@@ -71,6 +71,7 @@ import { CustomerProfileService } from '../customer-profile/customer-profile.ser
 import { WebwhatsBridgeService, type WebwhatsFetchedMessage, type WebwhatsQuotedInput } from './webwhats-bridge.service';
 import { InboxRealtimeService } from './inbox-realtime.service';
 import { WaSendThrottleService } from './wa-send-throttle.service';
+import { WaColdContactGateService } from './wa-cold-contact-gate.service';
 import { WhatsAppConnectionProjectionService } from './whatsapp-connection-projection.service';
 import { CreditActionUsageService } from '../credits/credit-action-usage.service';
 import { ConversationAssistantRuntimeService } from '../assistente/conversation-assistant-runtime.service';
@@ -267,6 +268,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   // (instância local, sem ampliar o grafo de DI) — todos os testes deste arquivo criam
   // o serviço com `new MessagingService(...)`, então o construtor sempre roda.
   private readonly contactSuppression: VendasContactSuppressionService;
+  // BLINDAGEM DO DISPARO FRIO (30/07/2026, chip expulso): mesma guarda transitória
+  // local — instância própria pra não ampliar o grafo de DI (testes usam `new`).
+  private readonly waColdContactGate: WaColdContactGateService;
   private pollHandle: NodeJS.Timeout | null = null;
   private readonly startedAtMs = Date.now();
   // INTENTENGINE S4: reaper roda no boot e depois a cada N ciclos do poll de 5s existente
@@ -307,6 +311,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     // Guarda transitoria local: evita ampliar o grafo de DI antes do modelo canonico.
     this.commercialContactControl = new CommercialContactControlService(this.prisma, this.conversations);
     this.contactSuppression = new VendasContactSuppressionService(this.prisma);
+    this.waColdContactGate = new WaColdContactGateService(this.prisma as any);
   }
 
   onModuleInit() {
@@ -8884,6 +8889,106 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         });
         this.logger.warn(
           `WhatsApp send THROTTLED messageId=${msg.id} reason=${throttleDecision.reason} retryIn=${Math.round(throttleDecision.retryAfterMs / 1000)}s`,
+        );
+        return;
+      }
+
+      // BLINDAGEM DO DISPARO FRIO (incidente 30/07 — chip expulso por device_removed):
+      // depois do freio de vazão, ANTES de qualquer despacho. Primeiro contato comercial
+      // com número desconhecido tem teto diário, espaçamento e trava de copy repetida.
+      // Reagendável volta pra fila (nunca descarta); copy repetida/teto humano cancela
+      // com motivo legível — o vendedor precisa SABER, não ver "Enviando" mentindo.
+      const coldGateDecision = await this.waColdContactGate.evaluate({
+        companyId: msg.companyId,
+        conversationId,
+        to: msg.to,
+        sourceModule: msg.sourceModule,
+        senderType: msg.message?.senderType,
+        body: dispatchBody || null,
+        sessionId: webwhatsSelector.sessionId,
+        tenantKey: webwhatsSelector.tenantKey,
+        currentCompanyMessageId: Number(msg.message?.id || 0) || null,
+      });
+      if (coldGateDecision.allow === false && coldGateDecision.action === 'cancel') {
+        await this.cancelOutboundBeforeDispatch({
+          outboundMessageId: msg.id,
+          attemptId: attempt.id,
+          companyId: msg.companyId,
+          conversationId,
+          to: msg.to,
+          messageType,
+          sourceModule: msg.sourceModule,
+          reason: coldGateDecision.reason,
+          companyMessageId: Number(msg.message?.id || 0) || null,
+        });
+        // O detalhe humano vence o código de máquina na bolha da conversa.
+        await this.prisma.companyMessage.updateMany({
+          where: { outboundMessageId: msg.id },
+          data: { error: coldGateDecision.detail },
+        });
+        await this.logWhatsAppEvent({
+          companyId: msg.companyId,
+          scope: 'dispatch',
+          event: 'cold_send_blocked',
+          level: 'ERROR',
+          message: coldGateDecision.detail,
+          conversationId,
+          phone: msg.to,
+          messageType,
+          result: 'blocked',
+          reason: coldGateDecision.reason,
+          extra: { outboundMessageId: msg.id, sourceModule: msg.sourceModule || null },
+        });
+        return;
+      }
+      if (coldGateDecision.allow === false) {
+        const next = new Date(Date.now() + coldGateDecision.retryAfterMs);
+        await this.prisma.outboundAttempt.update({
+          where: { id: attempt.id },
+          data: { finishedAt: new Date(), success: false, error: `cold_gate:${coldGateDecision.reason}` },
+        });
+        await this.prisma.outboundMessage.update({
+          where: { id: msg.id },
+          data: { status: 'PENDING', nextAttemptAt: next },
+        });
+        await this.prisma.companyMessage.updateMany({
+          where: { outboundMessageId: msg.id },
+          data: { status: 'QUEUED' },
+        });
+        await this.commercialContactControl.syncAutomationStepFromOutbound({
+          companyId: msg.companyId,
+          outboundMessageId: msg.id,
+          status: 'queued',
+        }).catch(() => null);
+        if (conversationId) {
+          await this.conversations.dispatchVendasCockpitProjection?.({
+            companyId: msg.companyId,
+            conversationId,
+            event: 'queued',
+            messageId: Number(msg.message?.id || 0) || null,
+          });
+        }
+        await this.logWhatsAppEvent({
+          companyId: msg.companyId,
+          scope: 'dispatch',
+          event: 'cold_send_held',
+          level: 'WARN',
+          message: `Primeiro contato frio segurado (${coldGateDecision.reason})`,
+          conversationId,
+          phone: msg.to,
+          messageType,
+          result: 'pending',
+          reason: coldGateDecision.reason,
+          extra: {
+            outboundMessageId: msg.id,
+            sessionId: webwhatsSelector.sessionId,
+            tenantKey: webwhatsSelector.tenantKey,
+            retryInSeconds: Math.round(coldGateDecision.retryAfterMs / 1000),
+            nextAttemptAt: next.toISOString(),
+          },
+        });
+        this.logger.warn(
+          `WhatsApp cold send HELD messageId=${msg.id} reason=${coldGateDecision.reason} retryIn=${Math.round(coldGateDecision.retryAfterMs / 1000)}s`,
         );
         return;
       }

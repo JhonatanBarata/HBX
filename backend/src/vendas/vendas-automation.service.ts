@@ -12,6 +12,7 @@ import { CommercialPlansService } from '../commercial-plans/commercial-plans.ser
 import { ConversationsService } from '../messaging/conversations.service';
 import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
 import { buildWhatsAppPhoneCandidates, normalizeBrPhoneDigits } from '../messaging/whatsapp-channel';
+import { WaColdContactGateService } from '../messaging/wa-cold-contact-gate.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { pushMasterNotice } from '../common/push-master-notice';
 import { WebscrapingService, type WebscrapingContactResult, type WebscrapingSearchResponse } from '../webscraping/webscraping.service';
@@ -563,6 +564,7 @@ function normalizeWebsiteKey(value: unknown) {
 export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(VendasAutomationService.name);
   private readonly commercialContactControl: CommercialContactControlService;
+  private readonly coldGatePanel: WaColdContactGateService;
   private workerTimer: NodeJS.Timeout | null = null;
   private workerRunning = false;
   // Restart-safe (ARQ4 S2): job que ficou preso em 'sending' apos restart/crash
@@ -584,6 +586,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     private readonly botActivation?: BotActivationService,
   ) {
     this.commercialContactControl = new CommercialContactControlService(this.prisma);
+    // Painel de disparos (30/07): snapshot READ-ONLY do gate de contato frio no
+    // live-status. Instância local, mesmo padrão do commercialContactControl.
+    this.coldGatePanel = new WaColdContactGateService(this.prisma as any);
   }
 
   onModuleInit() {
@@ -1829,7 +1834,44 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const lastError = isStaleProspectingRadarConfigText(campaign.lastError)
       ? null
       : campaign.lastError;
+    // Painel de disparos (30/07): lead QUENTE mais recente (interesse validado) e
+    // estado do gate de contato frio. Best-effort: falha aqui nunca derruba o status.
+    const [hotTimeline, hotJob, coldGate] = await Promise.all([
+      this.prisma.vendasLeadTimelineEvent
+        .findFirst({
+          where: {
+            eventType: 'inbound_reply',
+            resultLabel: 'human_inbound_validated',
+            lead: { companyId: campaign.companyId },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { leadId: true, createdAt: true, lead: { select: { name: true } } },
+        })
+        .catch(() => null),
+      this.prisma.vendasAutomationJob
+        .findFirst({
+          where: { companyId: campaign.companyId, status: 'replied_positive' },
+          orderBy: { updatedAt: 'desc' },
+          select: { leadId: true, updatedAt: true, lead: { select: { name: true } } },
+        })
+        .catch(() => null),
+      this.coldGatePanel.snapshotForCompany(campaign.companyId).catch(() => null),
+    ]);
+    const hotCandidates = [
+      hotTimeline?.createdAt instanceof Date
+        ? { leadId: String(hotTimeline.leadId || ''), leadName: String((hotTimeline as any)?.lead?.name || '').trim() || null, at: hotTimeline.createdAt }
+        : null,
+      (hotJob as any)?.updatedAt instanceof Date
+        ? { leadId: String((hotJob as any).leadId || ''), leadName: String((hotJob as any)?.lead?.name || '').trim() || null, at: (hotJob as any).updatedAt }
+        : null,
+    ].filter((c): c is { leadId: string; leadName: string | null; at: Date } => Boolean(c && c.leadId));
+    hotCandidates.sort((a, b) => b.at.getTime() - a.at.getTime());
+    const hotLead = hotCandidates[0]
+      ? { leadId: hotCandidates[0].leadId, leadName: hotCandidates[0].leadName, at: hotCandidates[0].at.toISOString() }
+      : null;
     return {
+      hotLead,
+      coldGate,
       status,
       text:
         status === 'dormindo'
@@ -2549,8 +2591,25 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return dropPausedVariants(normalizeVariantList((filters as any)[key], fallback));
   }
 
+  // ── Sorteio SEM repetir a anterior (blindagem 30/07: carimbo igual em sequência
+  // é o que expulsa chip). Memória por campanha+lista em processo: com 2+ variantes,
+  // dois disparos seguidos NUNCA saem com o mesmo texto. Com 1 variante só, não há o
+  // que variar — e aí o cold-gate de similaridade do despacho é quem segura o excesso.
+  private static readonly lastVariantPick = new Map<string, string>();
+
+  private pickRotatingVariant(campaignId: unknown, listKey: string, items: string[]): string | null {
+    if (!Array.isArray(items) || items.length === 0) return null;
+    if (items.length === 1) return items[0];
+    const memoryKey = `${String(campaignId || 'global')}:${listKey}`;
+    const last = VendasAutomationService.lastVariantPick.get(memoryKey);
+    const pool = items.filter((item) => item !== last);
+    const picked = pickRandomItem(pool.length > 0 ? pool : items);
+    if (picked) VendasAutomationService.lastVariantPick.set(memoryKey, picked);
+    return picked;
+  }
+
   private renderRandomCampaignVariant(campaign: any, lead: any, user: any, key: string, fallback: string[]) {
-    const variant = pickRandomItem(this.getCampaignVariantList(campaign, key, fallback)) || fallback[0] || DEFAULT_MESSAGE_TEMPLATE;
+    const variant = this.pickRotatingVariant(campaign?.id, key, this.getCampaignVariantList(campaign, key, fallback)) || fallback[0] || DEFAULT_MESSAGE_TEMPLATE;
     return sanitizeFirstContactMessage(this.renderMessageTemplate(variant, { lead, campaign, user }));
   }
 
@@ -2560,7 +2619,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   }
 
   private renderPreMessage(campaign: any, lead: any, user: any) {
-    const variant = pickRandomItem(this.getCampaignVariantList(campaign, 'preMessageVariants', DEFAULT_PRE_MESSAGE_VARIANTS)) || DEFAULT_PRE_MESSAGE_VARIANTS[0];
+    const variant = this.pickRotatingVariant(campaign?.id, 'preMessageVariants', this.getCampaignVariantList(campaign, 'preMessageVariants', DEFAULT_PRE_MESSAGE_VARIANTS)) || DEFAULT_PRE_MESSAGE_VARIANTS[0];
     const rendered = sanitizeFirstContactMessage(this.renderMessageTemplate(variant, { lead, campaign, user }));
     return trimOrNull(rendered) || sanitizeFirstContactMessage(this.renderMessageTemplate(DEFAULT_PRE_MESSAGE_VARIANTS[0], { lead, campaign, user }));
   }
@@ -2571,7 +2630,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     if (queueTemplate) return isSystemGeneratedProspectingTemplate(queueTemplate) ? DEFAULT_MESSAGE_TEMPLATE : queueTemplate;
     const leadTemplate = trimOrNull(lead?.scriptText) || trimOrNull(lead?.roteiro) || trimOrNull(lead?.messageTemplate);
     if (leadTemplate) return isSystemGeneratedProspectingTemplate(leadTemplate) ? DEFAULT_MESSAGE_TEMPLATE : leadTemplate;
-    const variant = pickRandomItem(this.getCampaignVariantList(campaign, 'firstContactVariants', DEFAULT_FIRST_CONTACT_VARIANTS));
+    const variant = this.pickRotatingVariant(campaign?.id, 'firstContactVariants', this.getCampaignVariantList(campaign, 'firstContactVariants', DEFAULT_FIRST_CONTACT_VARIANTS));
     if (variant) return variant;
     const template = trimOrNull(campaign?.messageTemplate) || DEFAULT_MESSAGE_TEMPLATE;
     return isSystemGeneratedProspectingTemplate(template) ? DEFAULT_MESSAGE_TEMPLATE : template;
