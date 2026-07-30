@@ -4671,6 +4671,12 @@ model VendasComercialConfig {
   workingHoursEnd     String   @default("18:00")
   dailyLimitPerSender Int      @default(10) // teto de disparos por user/chip/dia
   intervalMinutes     Int      @default(15) // intervalo mínimo entre disparos
+  // CATÁLOGO COMERCIAL (30/07/2026) — "o que ESTA empresa vende", em JSON com a
+  // forma de vendas-catalogo.ts. NULO é estado legítimo e tem significado duro:
+  // sem catálogo a IA é PROIBIDA de afirmar produto/benefício/preço (nasceu do
+  // Copiloto oferecendo "gestão fiscal" para uma distribuidora de água, porque
+  // não existia campo nenhum dizendo o que a empresa vende). Aditiva pura.
+  catalogoJson        String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 }

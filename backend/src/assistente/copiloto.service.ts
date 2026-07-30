@@ -1,4 +1,6 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
+import { buildCatalogoPromptBlock, normalizeCatalogo } from '../vendas/vendas-catalogo';
 import { assistenteModel, callAssistenteOllama } from './assistente-ollama';
 import type {
   CopilotoFichaDto,
@@ -67,6 +69,41 @@ export type CopilotoResult =
 export class CopilotoService {
   private readonly logger = new Logger(CopilotoService.name);
 
+  // @Optional porque os testes constroem `new CopilotoService()` sem argumento
+  // (mesmo padrão do CadenciaService). Em produção o Nest resolve — o
+  // AssistenteModule já importa o PrismaModule.
+  constructor(@Optional() private readonly prisma?: PrismaService) {}
+
+  /**
+   * O que ESTA empresa vende. Sem catálogo, devolve a LACUNA — que PROÍBE o
+   * modelo de afirmar produto/benefício/preço.
+   *
+   * Por que isso existe: em 30/07/2026, pedido a rascunhar a primeira mensagem
+   * para uma distribuidora de água, o Copiloto ofereceu "gestão fiscal". A trava
+   * do prompt cobria "preço, prazo ou dado" — e não cobria a OFERTA. Como não
+   * havia nada no contexto dizendo o que a empresa vende, inventar era a única
+   * saída que sobrava para o modelo. Nunca deixe este bloco sair vazio: bloco
+   * vazio é convite para o modelo preencher sozinho.
+   *
+   * Falha de leitura NÃO derruba o Copiloto — cai na lacuna (fail-safe: na
+   * dúvida, cala a boca em vez de inventar).
+   */
+  private async catalogoBlock(companyId: number): Promise<string> {
+    let raw: unknown = null;
+    try {
+      const row = await (this.prisma as any)?.vendasComercialConfig?.findUnique({
+        where: { companyId },
+        select: { catalogoJson: true },
+      });
+      const texto = String(row?.catalogoJson || '').trim();
+      if (texto) raw = JSON.parse(texto);
+    } catch (error: any) {
+      this.logger.warn(`[copiloto] catalogo indisponivel company=${companyId}: ${String(error?.message || error)}`);
+      raw = null;
+    }
+    return buildCatalogoPromptBlock(raw ? normalizeCatalogo(raw) : null);
+  }
+
   get enabled(): boolean {
     const raw = String(process.env[COPILOTO_FLAG] ?? '').trim().toLowerCase();
     if (!raw) return true; // default ON
@@ -85,12 +122,15 @@ export class CopilotoService {
     const ficha = this.fichaBlock(dto?.ficha);
     const transcript = this.transcript(dto?.mensagens);
     const instrucao = this.clean(dto?.instrucao, 400);
+    const catalogo = await this.catalogoBlock(companyId);
 
     const system =
       'Você é o Copiloto de vendas de um CRM brasileiro. Escreva UM rascunho curto de resposta ' +
       'no WhatsApp para o VENDEDOR enviar a este lead (no máximo 2 frases, tom cordial e direto, ' +
-      'português do Brasil). Não invente preço, prazo ou dado que não esteja no contexto. Não ' +
-      'assine. Responda SOMENTE com JSON válido no formato {"rascunho":"<texto>"}.\n' +
+      'português do Brasil). Não invente PRODUTO, SERVIÇO, benefício, preço, prazo ou dado que ' +
+      'não esteja no contexto. Não assine. Responda SOMENTE com JSON válido no formato ' +
+      '{"rascunho":"<texto>"}.\n' +
+      catalogo + '\n' +
       ficha;
     const userMsg =
       (transcript

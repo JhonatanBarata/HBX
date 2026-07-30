@@ -37,6 +37,96 @@ function withOllama(content: string, run: (counter: { calls: number }) => Promis
 const USER = { companyId: 7 };
 const AI_ON = { HBX_LLM_CLASSIFIER_ENABLED: 'true', HBX_COPILOTO_ENABLED: undefined as string | undefined };
 
+// Mesma coisa que withOllama, mas GUARDA o corpo enviado — precisamos inspecionar
+// o system prompt, que é onde mora a regra que impede a IA de inventar oferta.
+function withOllamaSpy(content: string, run: (spy: { body: any }) => Promise<void> | void) {
+  const spy: { body: any } = { body: null };
+  const originalFetch = global.fetch;
+  (global as any).fetch = async (_url: any, init: any) => {
+    try {
+      spy.body = JSON.parse(String(init?.body || '{}'));
+    } catch {
+      spy.body = null;
+    }
+    return { ok: true, status: 200, json: async () => ({ message: { content } }) };
+  };
+  return Promise.resolve(run(spy)).finally(() => {
+    (global as any).fetch = originalFetch;
+  });
+}
+
+function systemDe(body: any): string {
+  const msgs = Array.isArray(body?.messages) ? body.messages : [];
+  return String(msgs.find((m: any) => m?.role === 'system')?.content || '');
+}
+
+// CENA REAL (30/07/2026): o Copiloto, pedido a rascunhar a primeira mensagem para
+// uma distribuidora de água, escreveu "Estou aqui para ajudar com a gestão fiscal
+// do seu estabelecimento". A empresa vende logística e controle de frota. A trava
+// do prompt proibia inventar "preço, prazo ou dado" — e NÃO proibia inventar a
+// OFERTA. Sem nada no contexto dizendo o que a empresa vende, inventar era a única
+// saída que sobrava para o modelo.
+test('copiloto: SEM catálogo, o prompt PROÍBE afirmar o que a empresa vende', async () => {
+  AiGatewayService.resetForTest();
+  await withEnv(AI_ON, () =>
+    withOllamaSpy('{"rascunho":"Bom dia! Tudo bem?"}', async (spy) => {
+      const svc = new CopilotoService(); // sem prisma = sem catálogo
+      const res = await svc.rascunho(USER, { mensagens: [], ficha: { nome: 'Tagliágua' } });
+      assert.equal(res.ok, true);
+      const system = systemDe(spy.body);
+      assert.match(system, /NÃO sabe o que esta empresa vende/);
+      assert.match(system, /PROIBIDO afirmar, supor ou dar exemplo/);
+      assert.match(system, /Não invente PRODUTO, SERVIÇO/, 'a trava velha só cobria preço e prazo');
+    }),
+  );
+});
+
+test('copiloto: COM catálogo, o prompt entrega o produto e fecha a porta para o resto', async () => {
+  AiGatewayService.resetForTest();
+  const catalogo = {
+    oQueVendemos: 'Sistema de logística e controle de frota',
+    capacidades: [
+      { chave: 'rota', ganho: 'Monta a rota do dia num clique', resolve: ['rota'] },
+      { chave: 'fiado', ganho: 'Você vê quem está devendo sem caderno', resolve: ['fiado'] },
+    ],
+    paraQuem: ['Quem ainda anota no caderno'],
+  };
+  await withEnv(AI_ON, () =>
+    withOllamaSpy('{"rascunho":"ok"}', async (spy) => {
+      const svc = new CopilotoService({
+        vendasComercialConfig: {
+          findUnique: async () => ({ catalogoJson: JSON.stringify(catalogo) }),
+        },
+      } as any);
+      const res = await svc.rascunho(USER, { mensagens: [], ficha: { nome: 'Tagliágua' } });
+      assert.equal(res.ok, true);
+      const system = systemDe(spy.body);
+      assert.match(system, /Sistema de logística e controle de frota/);
+      assert.match(system, /Monta a rota do dia num clique/);
+      assert.match(system, /É PROIBIDO citar produto, benefício ou preço que não esteja acima/);
+      assert.doesNotMatch(system, /NÃO sabe o que esta empresa vende/);
+    }),
+  );
+});
+
+test('copiloto: banco fora do ar cai na lacuna — cala a boca em vez de inventar', async () => {
+  AiGatewayService.resetForTest();
+  await withEnv(AI_ON, () =>
+    withOllamaSpy('{"rascunho":"ok"}', async (spy) => {
+      const svc = new CopilotoService({
+        vendasComercialConfig: {
+          findUnique: async () => {
+            throw new Error('connection refused');
+          },
+        },
+      } as any);
+      const res = await svc.rascunho(USER, { mensagens: [], ficha: {} });
+      assert.equal(res.ok, true, 'falha de leitura NÃO derruba o Copiloto');
+      assert.match(systemDe(spy.body), /PROIBIDO afirmar, supor ou dar exemplo/);
+    }),
+  );
+});
+
 test('copiloto: flag OFF -> disabled, sem tocar a IA', async () => {
   await withEnv({ HBX_COPILOTO_ENABLED: 'false' }, async () => {
     let called = false;
