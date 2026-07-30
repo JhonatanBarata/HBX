@@ -6,7 +6,7 @@ import {
   normalizeWhatsAppPhone,
 } from './whatsapp-channel';
 import { resolveWhatsAppCredentials } from './whatsapp-credentials.util';
-import { isModalSendReady } from './whatsapp-connection-state';
+import { buildMotorStateByCompany, isModalSendReady } from './whatsapp-connection-state';
 import { applyMasterWhatsAppCredentials } from '../modules/master-global-integrations.util';
 import {
   META_TEMPLATES_REQUIRED_MESSAGE,
@@ -110,6 +110,14 @@ export class ConversationsService {
     ((input: VendasCockpitProjectionHookInput) => Promise<void>) | null = null;
   private recoveryAutomationHook:
     ((input: RecoveryAutomationHookInput) => Promise<void>) | null = null;
+  // 30/07 — leitura do MOTOR AO VIVO no gate de enfileiramento (mesmo padrão já usado em
+  // ModulesService/MasterCockpitService: `/instance/fetchInstances` via listMotorInstances,
+  // SÓ LEITURA, jamais connect/reconnect/logout). Cache de 60 s + single-flight + teto de
+  // espera: o caminho quente do enqueue nunca martela o motor nem paga o timeout inteiro dele.
+  private motorInstancesCache: { at: number; value: any[] | null } | null = null;
+  private motorInstancesProbe: Promise<any[] | null> | null = null;
+  private static readonly MOTOR_INSTANCES_TTL_MS = 60_000;
+  private static readonly MOTOR_PROBE_WAIT_MS = 2_500;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -545,6 +553,103 @@ export class ConversationsService {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // 30/07 — GATE DO CHIP MORTO (fonte da verdade = motor ao vivo, não o banco)
+  // ---------------------------------------------------------------------------
+  // Leitura cacheada (60 s) e com teto de espera do `/instance/fetchInstances`. Retorna a
+  // lista crua ou null quando NÃO houve leitura (motor desligado/mudo/lento) — null nunca
+  // recusa nada. Single-flight: rajada de enfileiramento não vira rajada no motor.
+  private async readMotorInstancesCached(): Promise<any[] | null> {
+    const cached = this.motorInstancesCache;
+    if (cached && Date.now() - cached.at < ConversationsService.MOTOR_INSTANCES_TTL_MS) {
+      return cached.value;
+    }
+    const bridge = this.webwhatsBridge as any;
+    if (typeof bridge?.listMotorInstances !== 'function') return null;
+
+    if (!this.motorInstancesProbe) {
+      this.motorInstancesProbe = Promise.resolve()
+        .then(() => bridge.listMotorInstances())
+        .then((value: any[] | null) => {
+          const normalized = Array.isArray(value) ? value : null;
+          this.motorInstancesCache = { at: Date.now(), value: normalized };
+          return normalized;
+        })
+        .catch((error: unknown) => {
+          this.motorInstancesCache = { at: Date.now(), value: null };
+          this.logger.warn(`Leitura do motor falhou no gate de envio: ${String((error as any)?.message || error)}`);
+          return null;
+        })
+        .finally(() => {
+          this.motorInstancesProbe = null;
+        });
+    }
+
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const value = await Promise.race([
+      this.motorInstancesProbe,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), ConversationsService.MOTOR_PROBE_WAIT_MS);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+    return value;
+  }
+
+  // true  = motor confirma chip vivo (open/connecting) nesta empresa;
+  // false = EVIDÊNCIA POSITIVA de chip morto (motor respondeu com instâncias e nenhuma desta
+  //         empresa está viva);
+  // null  = sem leitura → não decide nada (nunca recusa por falta de informação).
+  // Motor respondendo com ZERO instâncias no total é ambíguo (motor recém-reiniciado ainda
+  // carregando) — vale como "sem leitura", não como prova de chip morto.
+  private async readCompanyChipStateOnMotor(companyId: number): Promise<boolean | null> {
+    const instances = await this.readMotorInstancesCached();
+    if (!Array.isArray(instances) || !instances.length) return null;
+    const state = buildMotorStateByCompany(instances).get(Number(companyId)) || '';
+    return state === 'open' || state === 'connecting';
+  }
+
+  // Gate do ENQUEUE para o canal Evolution/Webwhats.
+  //
+  // Antes: `if (evolutionChannel && !modalConnected)` — a coluna `company.whatsappModalStatus`
+  // PULAVA a checagem inteira. Como no modo por-vendedor essa coluna congelava (empresa 5 ficou
+  // 'CONNECTED' de 20/07 a 30/07 com o chip caído), cadência/bot/IA/recovery enfileiravam contra
+  // chip morto e só descobriam no dispatch, queimando as 3 tentativas do outbox.
+  //
+  // Agora a coluna NÃO abre portão nenhum — ela só entra no log como forense. A liberação exige:
+  //   1. sessão webwhats VIVA para esta conversa/empresa (linha WhatsAppConnectionSession); e
+  //   2. o motor ao vivo NÃO desmentindo essa sessão.
+  // Recusa é clara e registrada; NUNCA reconecta, religa ou tenta de novo — chip caído se resolve
+  // reconectando na tela, jamais em laço.
+  private async assertWebwhatsChipAliveForQueue(
+    companyId: number,
+    conversation: any,
+    columnSaysConnected: boolean,
+  ) {
+    const selector = {
+      sessionId: conversation?.whatsappConnectionSessionId ?? null,
+      tenantKey: conversation?.sourceTenantKey ?? null,
+    };
+    const forensics =
+      `company=${companyId} conversation=${conversation?.id ?? 'nova'} ` +
+      `sessionId=${selector.sessionId ?? 'null'} tenantKey=${selector.tenantKey ?? 'null'} ` +
+      `colunaEmpresa=${columnSaysConnected ? 'CONNECTED(pode estar velha)' : 'nao-conectada'}`;
+
+    const hasLiveSession = await this.webwhatsBridge.hasOperationalSession(companyId, selector);
+    if (!hasLiveSession) {
+      this.logger.warn(`[chip-morto] enqueue RECUSADO — sem sessao webwhats viva: ${forensics}`);
+      throw new BadRequestException('WhatsApp Evolution nao configurado para esta empresa.');
+    }
+
+    const motorChipAlive = await this.readCompanyChipStateOnMotor(companyId);
+    if (motorChipAlive === false) {
+      this.logger.warn(`[chip-morto] enqueue RECUSADO — motor sem chip vivo: ${forensics}`);
+      throw new BadRequestException(
+        'WhatsApp desconectado: o motor nao tem chip vivo para esta empresa. Reconecte o WhatsApp antes de enviar.',
+      );
+    }
+  }
+
   async queueOutboundForCompany(companyIdInput: number, payload: QueueOutboundPayload) {
     const companyId = Number(companyIdInput);
     const to = normalizeWhatsAppContact(payload?.to || '');
@@ -626,21 +731,8 @@ export class ConversationsService {
     const hasMetaCredentials = Boolean(resolvedCreds.phoneNumberId);
     const evolutionChannel = providerCapabilities.provider === 'evolution';
 
-    if (evolutionChannel && !modalConnected) {
-      // POR USUÁRIO: o connect per-vendedor NÃO seta company.whatsappModalStatus (de propósito —
-      // senão o status/número de um vaza pros outros). Depois que a conexão virou por-vendedor,
-      // ninguém mais grava CONNECTED no nível da empresa pela tela de Atendimento; o status da
-      // empresa sozinho passou a barrar o ENQUEUE de TODO mundo — mesmo com o chip vivo. O DISPATCH
-      // (messaging.service) já corrige isso olhando a sessão viva (hasOperationalSession); o enqueue
-      // tinha ficado pra trás. Espelha o mesmo gate aqui: se há sessão webwhats VIVA pra esta
-      // conversa (ou pra empresa), libera — o dispatch resolve o tenantKey por-vendedor.
-      const hasLiveSession = await this.webwhatsBridge.hasOperationalSession(companyId, {
-        sessionId: conversation?.whatsappConnectionSessionId ?? null,
-        tenantKey: conversation?.sourceTenantKey ?? null,
-      });
-      if (!hasLiveSession) {
-        throw new BadRequestException('WhatsApp Evolution nao configurado para esta empresa.');
-      }
+    if (evolutionChannel) {
+      await this.assertWebwhatsChipAliveForQueue(companyId, conversation, modalConnected);
     }
     if (!evolutionChannel && !hasMetaCredentials) {
       throw new BadRequestException('WhatsApp nao configurado para esta empresa.');

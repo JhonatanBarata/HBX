@@ -1499,3 +1499,91 @@ test('PR5 individual: vendedor conectando o número da LINHA PRINCIPAL é BLOQUE
   assert.ok(sessions.some((s) => s.id === 'session-main' && s.status === 'active'), 'linha principal preservada');
   assert.equal(sessions.some((s) => s.tenantKey === 'company-7-user-5'), false, 'sessão do vendedor não foi criada');
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 30/07 — A COLUNA DA EMPRESA NÃO PODE MENTIR
+// Cena medida em prod: empresa 5 ficou com `whatsappModalStatus='CONNECTED'` de
+// 20/07 até 30/07 com o chip caído, porque no modo por-vendedor persistSnapshot
+// retorna antes do update dessa coluna. A coluna descreve o CHIP-PONTEIRO: só é
+// afirmada com evidência viva de quem É o ponteiro e é derrubada quando não sobra
+// nenhuma sessão webwhats ativa na empresa.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('VACINA: coluna da empresa para de dizer CONNECTED quando nao sobra nenhuma sessao viva', async () => {
+  const company = createCompany({
+    whatsappAttendanceMode: 'individual',
+    whatsappModalStatus: 'CONNECTED', // congelada (a mentira medida em prod)
+    whatsappModalPhone: '+5519999999999',
+    whatsappModalConnectedAt: new Date('2026-07-20T08:00:00.000Z'),
+    currentWhatsappConnectionSessionId: 'session-user-36',
+  });
+  const { prisma, companyUpdates } = createSessionPrisma(company, [
+    {
+      id: 'session-user-36',
+      companyId: 7,
+      provider: 'webwhats',
+      tenantKey: 'company-7-user-36',
+      phoneNormalized: '5519999999999',
+      displayPhone: '+5519999999999',
+      status: 'active',
+      connectedAt: new Date('2026-07-20T08:00:00.000Z'),
+      createdAt: new Date('2026-07-20T08:00:00.000Z'),
+    },
+  ]);
+  const service = new WhatsAppModalService(prisma) as any;
+
+  // Poll por-vendedor com o motor confirmando queda.
+  await service.persistSnapshot(
+    company,
+    createSnapshot({ status: 'disconnected', phone: null, connectedAt: null }),
+    'status_sync',
+    36,
+  );
+
+  assert.equal(company.whatsappModalStatus, 'DISCONNECTED', 'coluna tem que refletir o estado real');
+  assert.equal(company.whatsappModalConnectedAt, null, 'connectedAt velho nao pode sobreviver a queda');
+  assert.ok(
+    companyUpdates.some((update) => update.whatsappModalStatus === 'DISCONNECTED'),
+    'derrubada tem que ser gravada no banco',
+  );
+  // Telefone NÃO é reescrito na derrubada (nada de estado individual na coluna da empresa).
+  assert.equal(company.whatsappModalPhone, '+5519999999999');
+});
+
+test('vendedor que NAO e ponteiro continua sem escrever status/telefone da empresa (zero vazamento)', async () => {
+  const company = createCompany({
+    whatsappAttendanceMode: 'individual',
+    whatsappModalStatus: 'DISCONNECTED',
+    whatsappModalPhone: null,
+  });
+  const { prisma, companyUpdates } = createSessionPrisma(company);
+  // user.findUnique = null (base) → vendedor comum, não é admin-dono.
+  const service = new WhatsAppModalService(prisma) as any;
+
+  await service.persistSnapshot(company, createSnapshot({ phone: '+5519911112222' }), 'status_sync', 5);
+
+  assert.equal(company.whatsappModalStatus, 'DISCONNECTED', 'chip do vendedor nao promove a empresa');
+  assert.equal(company.whatsappModalPhone, null, 'numero do vendedor nao pode vazar pra coluna da empresa');
+  assert.equal(
+    companyUpdates.some((update) => 'whatsappModalStatus' in update || 'whatsappModalPhone' in update),
+    false,
+    'nenhuma escrita de status/telefone da empresa no caminho do vendedor comum',
+  );
+});
+
+test('admin-dono (dono do ponteiro) atualiza a coluna com evidencia viva do motor', async () => {
+  const company = createCompany({
+    whatsappAttendanceMode: 'individual',
+    whatsappModalStatus: 'DISCONNECTED',
+    whatsappModalPhone: null,
+  });
+  const { prisma } = createSessionPrisma(company);
+  prisma.user.findUnique = async () => ({ isSystemMaster: false, role: 'ADMIN', canViewBilling: true });
+  const service = new WhatsAppModalService(prisma) as any;
+
+  await service.persistSnapshot(company, createSnapshot(), 'status_sync', 9);
+
+  assert.equal(company.whatsappModalStatus, 'CONNECTED');
+  assert.equal(company.whatsappModalPhone, '+5519999999999');
+  assert.ok(company.currentWhatsappConnectionSessionId, 'sessao do admin vira o ponteiro da empresa');
+});

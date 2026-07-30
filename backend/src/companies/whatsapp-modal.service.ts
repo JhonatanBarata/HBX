@@ -3734,6 +3734,16 @@ export class WhatsAppModalService {
       // VENDEDOR capturava o ponteiro e operações company-scoped caíam na instância dele.
       // Vendedor conectando → NÃO mexe no ponteiro (deixa como está). No modo SHARED o
       // comportamento segue igual (quem conecta o pool é o admin de qualquer forma).
+      //
+      // 30/07 — A COLUNA DA EMPRESA NÃO PODE MENTIR (bug medido em prod: empresa 5 ficou
+      // `whatsappModalStatus='CONNECTED'` de 20/07 até 30/07 com o chip CAÍDO, porque este
+      // early-return é o único caminho no modo por-vendedor e ele pula o update da coluna).
+      // Semântica adotada para a coluna no modo por-vendedor:
+      //   1. ela descreve o CHIP-PONTEIRO da empresa (currentWhatsappConnectionSessionId — o
+      //      chip que as operações company-scoped usam), NUNCA um vendedor qualquer;
+      //   2. só AFIRMA conectado com evidência viva do snapshot de quem É o ponteiro;
+      //   3. é DERRUBADA quando a empresa não tem mais NENHUMA sessão webwhats ativa.
+      // Vendedor que não é ponteiro continua sem escrever nada aqui — zero vazamento.
       if (snapshot.status === 'connected' && currentSessionId) {
         const mode = await this.resolveAttendanceMode(Number(company.id));
         const pointerAllowed =
@@ -3744,6 +3754,16 @@ export class WhatsAppModalService {
             data: {
               whatsappModalProvider: 'external_modal',
               currentWhatsappConnectionSessionId: currentSessionId,
+              // A coluna passa a descrever ESTA sessão — a que acabou de virar o ponteiro da
+              // empresa. É exatamente o mesmo dado que o caminho company-scoped gravaria para
+              // o mesmo chip, então não vaza estado de vendedor nenhum.
+              whatsappModalStatus: snapshot.status.toUpperCase(),
+              whatsappModalConnectedAt: snapshot.connectedAt,
+              whatsappModalLastError: snapshot.lastError,
+              whatsappModalUpdatedAt: snapshot.updatedAt || new Date(),
+              // Telefone só quando o motor já sabe o número (o 'connected' pode chegar antes
+              // do número); nunca apaga o número do ponteiro com null.
+              ...(snapshot.phone ? { whatsappModalPhone: snapshot.phone } : {}),
             },
           });
         } else {
@@ -3767,6 +3787,10 @@ export class WhatsAppModalService {
           data: { currentWhatsappConnectionSessionId: null },
         });
       }
+
+      // Sempre no fim do caminho por-vendedor: se a empresa ficou SEM nenhuma sessão viva,
+      // a coluna não pode continuar afirmando conexão (era o 'CONNECTED' congelado).
+      await this.demoteCompanyStatusWithoutLiveSession(company, snapshot, origin);
       return;
     }
 
@@ -3782,6 +3806,39 @@ export class WhatsAppModalService {
         currentWhatsappConnectionSessionId: currentSessionId,
       },
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // 30/07 — freio da coluna que mentia "CONNECTED" com o chip caído
+  // ---------------------------------------------------------------------------
+  // `Company.whatsappModalStatus` só pode AFIRMAR conexão enquanto existir sessão webwhats
+  // VIVA na empresa. Quando o snapshot deste poll não é conexão e a empresa não tem NENHUMA
+  // sessão ativa (qualquer tenantKey — legado, admin ou vendedor), a coluna é derrubada para o
+  // estado real. Escreve só status/connectedAt/updatedAt: nada de telefone nem de estado
+  // individual, então continua impossível vazar o chip de um vendedor para os outros.
+  // Não derruba quando outra sessão segue ativa (o chip do ponteiro pode estar vivo).
+  private async demoteCompanyStatusWithoutLiveSession(
+    company: CompanyModalFields,
+    snapshot: ModalSnapshot,
+    origin: string,
+  ) {
+    const stored = this.normalizeStoredStatus(company.whatsappModalStatus);
+    if (stored !== 'connected' && stored !== 'reconnecting') return;
+    if (snapshot.status === 'connected' || snapshot.status === 'reconnecting') return;
+    if (await this.hasActiveWebwhatsConnectionSession(Number(company.id))) return;
+
+    await this.prisma.company.update({
+      where: { id: Number(company.id) },
+      data: {
+        whatsappModalStatus: snapshot.status.toUpperCase(),
+        whatsappModalConnectedAt: null,
+        whatsappModalUpdatedAt: snapshot.updatedAt || new Date(),
+      },
+    });
+    this.logger.warn(
+      `[status-empresa] company ${company.id}: coluna dizia ${stored.toUpperCase()} sem nenhuma ` +
+      `sessao webwhats ativa — derrubada para ${snapshot.status.toUpperCase()} (${origin}).`,
+    );
   }
 
   private async fetchLiveSnapshotWithMeta(

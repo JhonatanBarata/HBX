@@ -14,6 +14,10 @@ function createService(opts?: {
   // vendedor sem chip conectado) e modo de atendimento da empresa.
   senderSession?: Record<string, unknown> | null;
   whatsappAttendanceMode?: string;
+  // 30/07 (gate do chip morto): estado da linha WhatsAppConnectionSession e leitura do MOTOR
+  // AO VIVO. `motorInstances` undefined = motor sem leitura (default dos testes antigos).
+  hasLiveSession?: boolean;
+  motorInstances?: any[] | null;
 }) {
   const outboundCreateCalls: Array<Record<string, unknown>> = [];
   const messageCreateCalls: Array<Record<string, unknown>> = [];
@@ -104,7 +108,10 @@ function createService(opts?: {
   } as any;
 
   const webwhatsBridge = {
-    hasOperationalSession: async () => true,
+    hasOperationalSession: async () => opts?.hasLiveSession ?? true,
+    // 30/07: `/instance/fetchInstances` (SÓ LEITURA) usado pelo gate do chip morto.
+    // null = sem leitura → o gate não recusa por falta de informação.
+    listMotorInstances: async () => opts?.motorInstances ?? null,
   } as any;
 
   return {
@@ -278,6 +285,105 @@ test('queueOutboundForCompany (A3): modo shared, senderUserId sem sessão própr
 
   assert.equal(messageCreateCalls.length, 1);
   assert.equal((messageCreateCalls[0] as any).whatsappConnectionSessionId, undefined);
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 30/07 — GATE DO CHIP MORTO. Cena medida em prod: `Company.whatsappModalStatus`
+// congelou em 'CONNECTED' (empresa 5, de 20/07 até 30/07) enquanto o chip estava
+// caído; o gate antigo (`if (evolutionChannel && !modalConnected)`) usava essa coluna
+// para PULAR a checagem de sessão viva, então cadência/bot/IA/recovery enfileiravam
+// contra chip morto e só falhavam no dispatch, queimando retry do outbox.
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('VACINA: motor diz chip CAIDO e a coluna da empresa diz CONNECTED — enfileiramento e RECUSADO', async () => {
+  const { service, outboundCreateCalls, messageCreateCalls } = createService({
+    inboundExists: true,
+    // Banco mentindo dos dois lados: coluna CONNECTED (mock padrão) + linha de sessão "viva".
+    hasLiveSession: true,
+    motorInstances: [{ instance: { instanceName: 'company-7' }, connectionStatus: 'close' }],
+  });
+
+  await assert.rejects(
+    () =>
+      service.queueOutboundForCompany(7, {
+        conversationId: 10,
+        to: '+55 11 99999-0000',
+        body: 'Mensagem contra chip morto',
+        sourceModule: 'cadencia_bot',
+        senderType: 'bot',
+        messageType: 'text',
+      }),
+    (error: any) => {
+      assert.ok(error instanceof BadRequestException);
+      assert.match(String(error.message), /WhatsApp desconectado/);
+      return true;
+    },
+  );
+  // Nada entrou no outbox → nenhuma tentativa/retry é queimada contra chip morto.
+  assert.equal(outboundCreateCalls.length, 0);
+  assert.equal(messageCreateCalls.length, 0);
+});
+
+test('NAO-REGRESSAO: motor com a instancia open enfileira normalmente', async () => {
+  const { service, outboundCreateCalls } = createService({
+    inboundExists: true,
+    hasLiveSession: true,
+    motorInstances: [{ instance: { instanceName: 'company-7-user-6' }, connectionStatus: 'open' }],
+  });
+
+  const result = await service.queueOutboundForCompany(7, {
+    conversationId: 10,
+    to: '+55 11 99999-0000',
+    body: 'Mensagem com chip vivo',
+    sourceModule: 'cadencia_bot',
+    senderType: 'bot',
+    messageType: 'text',
+  });
+
+  assert.equal(result.status, 'PENDING');
+  assert.equal(outboundCreateCalls.length, 1);
+});
+
+test('motor sem leitura (fora do ar) NAO recusa: cai na sessao viva do banco', async () => {
+  const { service, outboundCreateCalls } = createService({
+    inboundExists: true,
+    hasLiveSession: true,
+    motorInstances: null,
+  });
+
+  const result = await service.queueOutboundForCompany(7, {
+    conversationId: 10,
+    to: '+55 11 99999-0000',
+    body: 'Motor mudo, sessao viva',
+    sourceModule: 'atendimento_bot',
+    senderType: 'bot',
+    messageType: 'text',
+  });
+
+  assert.equal(result.status, 'PENDING');
+  assert.equal(outboundCreateCalls.length, 1);
+});
+
+test('coluna CONNECTED nao abre portao sozinha: sem sessao viva o enqueue e recusado', async () => {
+  const { service, outboundCreateCalls } = createService({
+    inboundExists: true,
+    hasLiveSession: false,
+    motorInstances: [{ instance: { instanceName: 'company-7' }, connectionStatus: 'open' }],
+  });
+
+  await assert.rejects(
+    () =>
+      service.queueOutboundForCompany(7, {
+        conversationId: 10,
+        to: '+55 11 99999-0000',
+        body: 'Sem sessao viva',
+        sourceModule: 'atendimento_bot',
+        senderType: 'bot',
+        messageType: 'text',
+      }),
+    /nao configurado para esta empresa/,
+  );
+  assert.equal(outboundCreateCalls.length, 0);
 });
 
 test('recordInboundMessage marks provider webhook replays as duplicates', async () => {
