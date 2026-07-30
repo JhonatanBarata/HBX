@@ -865,6 +865,8 @@ export class VendasService {
         return 'não atendeu';
       case 'contato_invalido':
         return 'contato inválido';
+      case 'opt_out':
+        return 'pediu para não ser mais chamado';
       case 'convertido':
         return 'convertido';
       case 'outro':

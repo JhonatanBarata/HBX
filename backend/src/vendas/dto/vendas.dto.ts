@@ -26,7 +26,13 @@ const MASTER_NOTICE_TONES = ['info', 'success', 'warning', 'urgent'] as const;
 // S4 LEAD-CENTRICO (04-robozinho.md): motivo estruturado obrigatório ao encerrar
 // (statusChanged -> 'encerrado'). Aditivo — alimenta S7 (marquinha/pool) e o
 // reembolso futuro (00-FRENTE.md, decisão nº1 do dono).
-export const VENDAS_CLOSURE_REASONS = ['sem_interesse', 'nao_atendeu', 'contato_invalido', 'convertido', 'outro'] as const;
+// 'opt_out' entrou em 30/07/2026: a marca global (VendasContactSuppression) já
+// tratava opt-out como supressão PERMANENTE, mas o vocabulário da coluna não
+// conhecia o valor — então o caminho do /atendimento precisava traduzir e a
+// timeline mostrava "motivo não informado". As telas montam a própria lista de
+// opções, então ampliar aqui só amplia o que a API ACEITA; nenhuma tela muda
+// sozinha por causa disto.
+export const VENDAS_CLOSURE_REASONS = ['sem_interesse', 'nao_atendeu', 'contato_invalido', 'opt_out', 'convertido', 'outro'] as const;
 export type VendasClosureReason = (typeof VENDAS_CLOSURE_REASONS)[number];
 // S4 LEAD-CENTRICO: personas de cadência prontas (seeds) — 'custom' fica de fora
 // do robozinho por lead (custom precisa de passos próprios, fora de escopo aqui).
