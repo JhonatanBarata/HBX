@@ -485,6 +485,24 @@ test("buildFeed: sem nada acontecendo devolve array vazio (nunca inventa ativida
 
 // ═══ 10. shape geral do overview (contrato) ═════════════════════════════════════════════════════════
 
+// Regressão 30/07: HBX_OWNER_BACKEND_URL fazia dois trabalhos (alvo das missões E lado "Localhost"),
+// então os dois interruptores liam a MESMA fábrica e o front somava os dois lados — 7.129 + 7.129 =
+// 14.258 contatos, o mesmo número contado duas vezes. O agent agora tem URL própria pro backend local;
+// esta flag existe pro caso das duas voltarem a coincidir: o painel avisa em vez de fingir 2 ambientes.
+test("buildOverview: mergedEnvs viaja no payload — o front precisa saber quando os 2 lados sao a mesma maquina", () => {
+  const juntos = ownerV3.buildOverview({
+    scrapingLocal: okScrapingEnv(), scrapingVps: okScrapingEnv(),
+    ia: okIa(), enriquecimento: okEnriquecimento(), mergedEnvs: true,
+  });
+  assert.equal(juntos.mergedEnvs, true);
+
+  const separados = ownerV3.buildOverview({
+    scrapingLocal: okScrapingEnv(), scrapingVps: okScrapingEnv(),
+    ia: okIa(), enriquecimento: okEnriquecimento(),
+  });
+  assert.equal(separados.mergedEnvs, false, "ausente = ambientes distintos, nunca undefined vazando pro front");
+});
+
 test("buildOverview: shape tem todas as chaves do contrato (boot, switches, docker, engines, problems, feed)", () => {
   const overview = ownerV3.buildOverview({
     scrapingLocal: okScrapingEnv(), scrapingVps: okScrapingEnv(), ia: okIa(), enriquecimento: okEnriquecimento(),

@@ -378,6 +378,9 @@ function buildOverview(parts) {
     boot,
     switches,
     docker,
+    // true = "Localhost" e "VPS" apontam pro MESMO backend. O painel tem que dizer isso e parar de
+    // somar os dois lados (senão mostra o dobro dos contatos, com o mesmo número contado duas vezes).
+    mergedEnvs: Boolean(parts.mergedEnvs),
     engines: parts.engines || { total: null, on: null },
     problems: computeProblems({ switches, docker, localBoot: parts.localBoot }),
     feed: Array.isArray(parts.feed) ? parts.feed : [],

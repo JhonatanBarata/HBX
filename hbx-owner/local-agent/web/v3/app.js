@@ -187,8 +187,12 @@ function envRow(label, env, d, liveBudget) {
     <div class="kv sub"><span>Processado</span><b>${fmtInt(d.processed)} de ${fmtInt(d.budget)}</b></div>
     ${d.lastError ? `<div class="kv sub"><span>Último erro</span><b class="err">${esc(reasonText(d.lastError))}</b></div>` : ""}`;
 }
-function scrapingBody(s, engines, docker, focus) {
-  const total = sumOrNull(s.vps.contactsWritten, s.local.contactsWritten);
+function scrapingBody(s, engines, docker, focus, mergedEnvs) {
+  // mergedEnvs = as duas pontas apontam pro MESMO backend. Somar aí conta o mesmo número duas vezes
+  // (foi o que exibiu "14.258" quando o real era 7.129). Mesma máquina: mostra o número UMA vez.
+  const total = mergedEnvs
+    ? (s.local.contactsWritten ?? s.vps.contactsWritten ?? null)
+    : sumOrNull(s.vps.contactsWritten, s.local.contactsWritten);
   const rfb = s.vps.rfbBaseCount ?? s.local.rfbBaseCount;
   const why = scrapingWhy(s.vps, s.local);
   engines = engines || {};
@@ -202,11 +206,17 @@ function scrapingBody(s, engines, docker, focus) {
     : "";
   const vpsLive = focus && focus.id === "budget-vps" ? focus.value : null;
   const localLive = focus && focus.id === "budget-local" ? focus.value : null;
+  // Não escondo o interruptor duplicado: quem configurou pode querer saber. Mas o painel avisa que
+  // os dois lados são a MESMA máquina, em vez de fingir dois ambientes.
+  const mergedNote = mergedEnvs
+    ? `<div class="hint">💡 "VPS" e "Localhost" estão apontando pro mesmo backend — é um ambiente só, e o número acima não é somado.</div>`
+    : "";
   return `
     <div class="bignum">${fmtInt(total)}<small>contatos coletados</small></div>
     <div class="why ${why.level}">${esc(why.text)}</div>
     ${envRow("VPS", "vps", s.vps, vpsLive)}
     ${envRow("Localhost", "local", s.local, localLive)}
+    ${mergedNote}
     ${enginesLine}
     <div class="kv"><span>Base RFB disponível</span><b>${rfb != null ? fmtInt(rfb) + " empresas" : "—"}</b></div>
     ${dockerHint}`;
@@ -278,7 +288,7 @@ function render(ov) {
   renderProblems(ov.problems || []);
 
   $("#job-scraping").classList.toggle("on", Boolean(s.scraping.vps.on || s.scraping.local.on));
-  $("#scraping-body").innerHTML = scrapingBody(s.scraping, ov.engines, ov.docker, focus);
+  $("#scraping-body").innerHTML = scrapingBody(s.scraping, ov.engines, ov.docker, focus, ov.mergedEnvs);
 
   $("#job-ia").classList.toggle("on", Boolean(s.ia.on));
   $("#ia-switch").innerHTML = swBtn(true, s.ia.on, "/owner/v3/switch/ia", {}, "");

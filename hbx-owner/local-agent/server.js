@@ -61,6 +61,20 @@ const PONTE_NUM_CTX_WARM = 8192; // T1/T2: SEMPRE capado — default 262k aloca 
 const backendUrl = String(process.env.HBX_OWNER_BACKEND_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
 let backendToken = String(process.env.HBX_OWNER_BACKEND_TOKEN || "").trim();
 let backendTokenRefreshPromise = null;
+
+// ── Backend LOCAL, alvo exclusivo do lado "Localhost" do interruptor de Scraping (30/07) ──────────
+// HBX_OWNER_BACKEND_URL fazia DOIS trabalhos: alvo das missões do enriquecimento (que TEM de ser
+// produção — HBX_LOCAL_DEEP_TARGET=production) e, por tabela, o lado "Localhost" da fábrica. Com o
+// .env.local apontando pra api.hbxsystem.com.br, os dois interruptores escreviam na MESMA fábrica:
+// o painel mostrava dois ambientes lendo a mesma coisa e SOMAVA os contatos dos dois, exibindo o
+// dobro (7.129 + 7.129 = 14.258). A fábrica local é real (20 motores em Docker nesta máquina), então
+// ela ganha endereço próprio em vez de virar apelido da VPS.
+const localBackendUrl = String(process.env.HBX_OWNER_LOCAL_BACKEND_URL || "http://127.0.0.1:3000").replace(/\/+$/, "");
+// Ambiente do dono onde as duas URLs coincidem (ninguém sobrescreveu nada): aí "local" e "vps" são
+// mesmo a mesma máquina e o painel precisa DIZER isso, não fingir dois ambientes. Ver mergedEnvs.
+const localIsSameAsBackend = localBackendUrl === backendUrl;
+let localBackendToken = String(process.env.HBX_OWNER_LOCAL_BACKEND_TOKEN || "").trim();
+let localBackendTokenRefreshPromise = null;
 // Transferência VPS<->local em segundo plano (1 por vez) + progresso vivo pra UI.
 // processed/total = a % honesta (quantos leads já passaram ÷ total real do banco).
 // total      = total de cards da ORIGEM (push=local, pull=VPS) → denominador da %.
@@ -1227,11 +1241,13 @@ function startEnricher(opts = {}) {
 function stopEnricher() { enricherJob.running = false; broadcastEnricher(); return true; }
 
 // ---------- Backend bridge (Banco de Leads + import) ----------
+// `options.baseUrl` escolhe o alvo (default = backendUrl, o de sempre — nenhum chamador antigo muda).
+// O lado "Localhost" do Scraping passa localBackendUrl aqui.
 function backendRequestOnce(method, route, payload, token, options = {}) {
   return new Promise((resolve) => {
     let target;
     try {
-      target = new URL(`${backendUrl}${route}`);
+      target = new URL(`${options.baseUrl || backendUrl}${route}`);
     } catch (error) {
       resolve({ ok: false, error: `URL backend invalida: ${error.message}` });
       return;
@@ -1275,11 +1291,11 @@ function backendRequestOnce(method, route, payload, token, options = {}) {
 
 // Faz 1 POST de login pra `route` com `body` e devolve { ok, statusCode, token, error }.
 // Nunca rejeita (erro de rede/timeout vira { ok: false, error }) — quem chama decide o fallback.
-function backendLoginOnce(route, body) {
+function backendLoginOnce(route, body, baseUrl) {
   return new Promise((resolve) => {
     let target;
     try {
-      target = new URL(`${backendUrl}${route}`);
+      target = new URL(`${baseUrl || backendUrl}${route}`);
     } catch (error) {
       resolve({ ok: false, error: `URL backend invalida: ${error.message}` });
       return;
@@ -1375,6 +1391,53 @@ async function backendRequest(method, route, payload, options = {}) {
   }
   response = await backendRequestOnce(method, route, payload, backendToken, options);
   return response;
+}
+
+// ── Cliente do backend LOCAL (:3000) — sessão SEPARADA da de produção ─────────────────────────────
+// Token próprio de propósito: são bancos e usuários diferentes, e reusar o token de produção contra o
+// :3000 daria 401 em loop. Mesmas credenciais de origem (backend/.env), mesma preferência por
+// service-login (não despeja a sessão humana do dono).
+function refreshLocalBackendToken() {
+  if (localBackendTokenRefreshPromise) return localBackendTokenRefreshPromise;
+  localBackendTokenRefreshPromise = (async () => {
+    const backendEnv = path.join(rootDir, "backend", ".env");
+    const username = String(process.env.SYSTEM_MASTER_USERNAME || readDotenvValue(backendEnv, "SYSTEM_MASTER_USERNAME") || "").trim();
+    const password = String(process.env.SYSTEM_MASTER_PASSWORD || readDotenvValue(backendEnv, "SYSTEM_MASTER_PASSWORD") || "").trim();
+    if (!username || !password) return { ok: false, error: "credenciais_master_ausentes" };
+
+    let result = await backendLoginOnce("/auth/service-login", { username, password }, localBackendUrl);
+    if (!result.ok && (result.statusCode === 404 || result.statusCode === 405)) {
+      result = await backendLoginOnce("/auth/login", { username, password, forceSession: true }, localBackendUrl);
+    }
+    if (result.ok && result.token) {
+      localBackendToken = result.token;
+      return { ok: true };
+    }
+    return { ok: false, statusCode: result.statusCode, error: result.error || `http_${result.statusCode || "?"}` };
+  })().finally(() => {
+    localBackendTokenRefreshPromise = null;
+  });
+  return localBackendTokenRefreshPromise;
+}
+
+async function localBackendRequest(method, route, payload, options = {}) {
+  // Quando as duas URLs coincidem (ninguém sobrescreveu), não abre uma segunda sessão à toa:
+  // é literalmente o mesmo backend, então reusa o cliente de produção.
+  if (localIsSameAsBackend) return backendRequest(method, route, payload, options);
+
+  const withBase = { ...options, baseUrl: localBackendUrl };
+  let response = await backendRequestOnce(method, route, payload, localBackendToken, withBase);
+  if (response.statusCode !== 401) return response;
+
+  const refreshed = await refreshLocalBackendToken();
+  if (!refreshed.ok || !localBackendToken) {
+    return {
+      ...response,
+      error: refreshed.error || response.data?.message || response.error || "backend_local_token_invalido",
+      refresh: refreshed,
+    };
+  }
+  return backendRequestOnce(method, route, payload, localBackendToken, withBase);
 }
 
 // Passthrough de STREAM upstream → cliente (sem bufferizar). Usado pelo "Exportar tudo":
@@ -2345,8 +2408,8 @@ function build30bPower() {
 // isto roda; 404 vira known:false com reason explicado, NUNCA 500 nem on:false chutado.
 async function fetchScrapingLocal() {
   const [statusR, energiaR] = await Promise.all([
-    backendRequest("GET", "/modules/owner/fabrica/status", null, { timeoutMs: 8000 }),
-    backendRequest("GET", "/modules/owner/fabrica/energia", null, { timeoutMs: 8000 }),
+    localBackendRequest("GET", "/modules/owner/fabrica/status", null, { timeoutMs: 8000 }),
+    localBackendRequest("GET", "/modules/owner/fabrica/energia", null, { timeoutMs: 8000 }),
   ]);
   return ownerV3.buildScrapingEnv(
     ownerV3.classifyBackendRead(statusR, "fabrica_rota_ausente"),
@@ -2421,7 +2484,9 @@ async function readDockerDaemonAliveFresh() {
 }
 
 async function pollLocalBackendHealth() {
-  const r = await backendRequest("GET", "/health", null, { timeoutMs: 5000 }).catch(() => ({ ok: false }));
+  // Sonda o backend LOCAL: é ele que a subida sob demanda (Docker + `npm run up`) acorda. Antes isto
+  // batia em produção, que responde 200 sempre — o painel dava o :3000 como vivo com ele morto.
+  const r = await localBackendRequest("GET", "/health", null, { timeoutMs: 5000 }).catch(() => ({ ok: false }));
   return Boolean(r && r.ok && r.data && r.data.status === "ok");
 }
 
@@ -2527,7 +2592,7 @@ async function startLocalBackendBoot(attemptNo) {
 
     // Health verde → SÓ AGORA liga a energia (nunca antes — lei "nunca pinta verde antes do health").
     // A confirmação final (Lei nº3) acontece na PRÓXIMA leitura de overview (fetchScrapingLocal relê tudo).
-    await backendRequest("POST", "/modules/owner/fabrica/energia", { on: true }, { timeoutMs: 15000 }).catch(() => null);
+    await localBackendRequest("POST", "/modules/owner/fabrica/energia", { on: true }, { timeoutMs: 15000 }).catch(() => null);
     localBackendBoot = { state: "idle", step: null, since: null, attempts: 0, lastAttemptAt: Date.now(), lastError: null, stderrTail: "" };
     console.log("[v3-boot] backend local de pé — health OK, energia ligada.");
   } catch (error) {
@@ -2603,7 +2668,7 @@ async function collectOwnerV3Parts() {
 
   return ownerV3.buildOverview({
     bootRaw, scrapingLocal, scrapingVps, ia, enriquecimento, engines, feed, generatedAt,
-    docker: dockerSnapshot, localBoot: { ...localBackendBoot },
+    docker: dockerSnapshot, localBoot: { ...localBackendBoot }, mergedEnvs: localIsSameAsBackend,
   });
 }
 
@@ -3806,7 +3871,7 @@ async function route(req, res) {
     // aqui (ex.: ops_caido, 404 de rota, 500 do backend). Sem isto o painel só dizia "releitura discorda
     // da intencao" — verdadeiro, mas inútil pra saber O QUE quebrou.
     const write = env === "local"
-      ? await backendRequest("POST", "/modules/owner/fabrica/energia", { on: body.on }, { timeoutMs: 15000 })
+      ? await localBackendRequest("POST", "/modules/owner/fabrica/energia", { on: body.on }, { timeoutMs: 15000 })
       : await opsRequest("POST", "/api/radar/vps/fabrica/energia", { on: body.on }, 20000);
     const writeFailed = !write || write.ok !== true;
     const writeReason = writeFailed
@@ -3906,7 +3971,7 @@ async function route(req, res) {
     const payload = Number.isFinite(budget) && budget > 0 ? { budget: Math.trunc(budget) } : {};
     let normalized;
     if (env === "local") {
-      const r = await backendRequest("POST", "/modules/owner/fabrica/start", payload, { timeoutMs: 30000 });
+      const r = await localBackendRequest("POST", "/modules/owner/fabrica/start", payload, { timeoutMs: 30000 });
       normalized = normalizeFabricaResponse("start", r);
     } else {
       const r = await opsRequest("POST", "/api/radar/vps/fabrica/start", payload, 30000);
