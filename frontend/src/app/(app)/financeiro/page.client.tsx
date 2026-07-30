@@ -9,14 +9,12 @@
 // Visual 100% de classe/token central (5 Leis): .panel/.tbl/.kpi + .fin-* de
 // hbx-theme/financeiro-tenant.css. ZERO style inline.
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   HbxContextEmpty,
   HbxContextHeader,
   HbxContextHero,
-  HbxContextMetric,
-  HbxContextMetrics,
   HbxPanelShell,
 } from "@/components/hbx/panel-shell";
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
@@ -345,8 +343,14 @@ export function FinanceiroClient() {
   const [armed, setArmed] = useState<string | null>(null);
   const [quitando, setQuitando] = useState<string | null>(null);
   const [abertos, setAbertos] = useState<string[]>([]);
+  const [chargeAtiva, setChargeAtiva] = useState<string | null>(null);
+  const [busca, setBusca] = useState("");
+  const [ordemAsc, setOrdemAsc] = useState(false);
+  const extratoRequest = useRef(0);
 
   const toggleDetalhe = useCallback((chargeId: string) => {
+    setChargeAtiva(chargeId);
+    setArmed(null);
     setAbertos((prev) =>
       prev.includes(chargeId) ? prev.filter((id) => id !== chargeId) : [...prev, chargeId],
     );
@@ -367,21 +371,28 @@ export function FinanceiroClient() {
   }, []);
 
   const loadExtrato = useCallback(async (clienteId: string) => {
+    const requestId = ++extratoRequest.current;
     setExtLoading(true);
     setExtErro(null);
     setExtrato(null);
     setAbertos([]);
     setArmed(null);
+    setChargeAtiva(null);
     try {
       const res = await apiFetch<ExtratoResponse>(
         `/financeiro-tenant/clientes/${encodeURIComponent(clienteId)}/extrato`,
       );
+      if (requestId !== extratoRequest.current) return;
       setExtrato(res);
+      const primeira = res?.charges?.[0]?.id || null;
+      setChargeAtiva(primeira);
+      setAbertos(primeira ? [primeira] : []);
     } catch (e) {
+      if (requestId !== extratoRequest.current) return;
       setExtErro(e instanceof Error ? e.message : "Falha ao carregar o extrato.");
       setExtrato(null);
     } finally {
-      setExtLoading(false);
+      if (requestId === extratoRequest.current) setExtLoading(false);
     }
   }, []);
 
@@ -419,204 +430,482 @@ export function FinanceiroClient() {
   // Não-admin: estado neutro (LEI DO VENDEDOR — não citar valores).
   if (user && !admin) {
     return (
-      <section className="panel">
-        <div className="panel-head"><h2>Financeiro</h2></div>
-        <div className="fin-note">Acesso restrito ao responsável da conta.</div>
-      </section>
+      <HbxPanelShell
+        ariaLabel="Financeiro"
+        main={(
+          <section className="fin-restricted">
+            <span className="fin-restricted-icon"><I d={ICONS.money} size={20} /></span>
+            <strong>Financeiro</strong>
+            <span>Acesso restrito ao responsável da conta.</span>
+          </section>
+        )}
+      />
     );
   }
 
   const totalReceber = clientes.reduce((sum, c) => sum + (Number(c.saldoAberto) || 0), 0);
+  const totalCobrancas = clientes.reduce((sum, c) => sum + (Number(c.cobrancas) || 0), 0);
+  const maiorCliente = clientes.reduce<SaldoCliente | null>((maior, cliente) => {
+    if (!maior || Number(cliente.saldoAberto) > Number(maior.saldoAberto)) return cliente;
+    return maior;
+  }, null);
+  const concentracao =
+    totalReceber > 0 && maiorCliente
+      ? (Number(maiorCliente.saldoAberto) / totalReceber) * 100
+      : 0;
+  const saldoMedio = clientes.length > 0 ? totalReceber / clientes.length : 0;
+  const termoBusca = busca.trim().toLocaleLowerCase("pt-BR");
+  const clientesVisiveis = clientes
+    .filter((cliente) =>
+      String(cliente.nome || "Cliente")
+        .toLocaleLowerCase("pt-BR")
+        .includes(termoBusca),
+    )
+    .sort((a, b) =>
+      ordemAsc
+        ? Number(a.saldoAberto) - Number(b.saldoAberto)
+        : Number(b.saldoAberto) - Number(a.saldoAberto),
+    );
+  const clienteSelecionado = sel
+    ? clientes.find((cliente) => cliente.customerProfileId === sel.id) || null
+    : null;
+  const charges = extrato?.charges || [];
+  const chargeSelecionada =
+    charges.find((charge) => charge.id === chargeAtiva) || charges[0] || null;
+  const saldoSelecionado =
+    extrato?.saldoAberto ?? clienteSelecionado?.saldoAberto ?? 0;
+  const participacaoSelecionada =
+    totalReceber > 0 ? Math.min(100, (Number(saldoSelecionado) / totalReceber) * 100) : 0;
+  const ultimaCharge = charges[0] || null;
+  const chargesAbertas = charges.filter(
+    (charge) => String(charge.status).toLowerCase() === "pending",
+  );
+  const totalOrigens = chargesAbertas.reduce(
+    (sum, charge) => sum + (Number(charge.amount) || 0),
+    0,
+  );
+  const origemTotais = chargesAbertas.reduce<Record<string, number>>((acc, charge) => {
+    const origem = origemLabel(charge.sourceModule);
+    acc[origem] = (acc[origem] || 0) + (Number(charge.amount) || 0);
+    return acc;
+  }, {});
+  const origens = Object.entries(origemTotais)
+    .map(([label, valor]) => ({
+      label,
+      valor,
+      percentual: totalOrigens > 0 ? (valor / totalOrigens) * 100 : 0,
+      cls:
+        label === "Entrega"
+          ? "entrega"
+          : label === "Venda"
+            ? "venda"
+            : label === "Fatura mensal"
+              ? "mensal"
+              : "outros",
+    }))
+    .sort((a, b) => b.valor - a.valor);
+
+  const nomeCliente = (nome: string | null | undefined) => nome || "Cliente";
+  const iniciaisCliente = (nome: string | null | undefined) => {
+    const partes = nomeCliente(nome)
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    return `${partes[0]?.[0] || "C"}${partes.length > 1 ? partes[partes.length - 1]?.[0] || "" : ""}`
+      .slice(0, 2)
+      .toLocaleUpperCase("pt-BR");
+  };
+  const qtdLabel = (valor: number, singular: string, plural: string) =>
+    `${valor} ${valor === 1 ? singular : plural}`;
+  const origemIcone = (sourceModule: string | null) => {
+    if (sourceModule === "logistica_entrega") return ICONS.logistica;
+    if (sourceModule === "vendas_fechamento") return ICONS.vendas;
+    return ICONS.doc;
+  };
 
   const main = (
-    <div className="fin-page">
-      <div className="fin-kpis">
-        <div className="kpi">
-          <span className="kpi-icon"><I d={ICONS.check} size={16} /></span>
-          <div>
-            <div className="kpi-label">A receber (em aberto)</div>
-            <div className="kpi-value">{brl(totalReceber)}</div>
-            <div className="kpi-foot"><span className="kpi-delta">todas as origens (entrega + venda)</span></div>
-          </div>
+    <div className="fin-cockpit">
+      <header className="fin-heading">
+        <div>
+          <h1>Painel financeiro</h1>
+          <span>Carteira aberta e cobranças por cliente</span>
         </div>
-        <div className="kpi">
-          <span className="kpi-icon"><I d={ICONS.x} size={16} /></span>
-          <div>
-            <div className="kpi-label">Clientes devendo</div>
-            <div className="kpi-value">{loading ? "—" : String(clientes.length)}</div>
-            <div className="kpi-foot"><span className="kpi-delta">com cobrança em aberto</span></div>
-          </div>
-        </div>
+      </header>
+
+      <div className="fin-metrics" role="list">
+        <article className="fin-metric fin-metric-primary" role="listitem">
+          <span className="fin-metric-icon"><I d={ICONS.money} size={15} /></span>
+          <span className="fin-metric-label">A receber</span>
+          <strong>{loading ? "—" : brl(totalReceber)}</strong>
+          <small>em aberto</small>
+        </article>
+        <article className="fin-metric" role="listitem">
+          <span className="fin-metric-icon"><I d={ICONS.users} size={15} /></span>
+          <span className="fin-metric-label">Clientes devendo</span>
+          <strong>{loading ? "—" : String(clientes.length)}</strong>
+          <small>na carteira atual</small>
+        </article>
+        <article className="fin-metric" role="listitem">
+          <span className="fin-metric-icon"><I d={ICONS.doc} size={15} /></span>
+          <span className="fin-metric-label">Cobranças</span>
+          <strong>{loading ? "—" : String(totalCobrancas)}</strong>
+          <small>em aberto</small>
+        </article>
+        <article className="fin-metric" role="listitem">
+          <span className="fin-metric-icon"><I d={ICONS.relat} size={15} /></span>
+          <span className="fin-metric-label">Concentração</span>
+          <strong>{loading ? "—" : `${concentracao.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`}</strong>
+          <small>maior saldo</small>
+        </article>
       </div>
 
-      <section className="panel">
-        <div className="panel-head">
-          <h2>Quem me deve</h2>
-          <div className="meta"><span>{loading ? "carregando…" : `${clientes.length} cliente(s)`}</span></div>
-        </div>
-        {erro && <div className="fin-err">{erro}</div>}
-        {!erro && (
-          <div className="tbl-wrap">
-            <table className="tbl">
-              <thead>
-                <tr>
-                  <th>Cliente</th>
-                  <th>Cobranças</th>
-                  <th>Em aberto</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading && (
-                  <tr className="fin-tr-static">
-                    <td colSpan={4} className="fin-td-empty">Carregando…</td>
-                  </tr>
-                )}
-                {!loading && clientes.length === 0 && (
-                  <tr className="fin-tr-static">
-                    <td colSpan={4} className="fin-td-empty">Ninguém devendo. 👏</td>
-                  </tr>
-                )}
-                {!loading &&
-                  clientes.map((c) => {
-                    const selecionado = sel?.id === c.customerProfileId;
-                    return (
-                      <tr
-                        key={c.customerProfileId}
-                        className={selecionado ? "fin-client-row is-selected" : "fin-client-row"}
-                        aria-selected={selecionado}
-                        onClick={() => setSel({ id: c.customerProfileId, nome: c.nome })}
-                      >
-                        <td>{c.nome || "Cliente"}</td>
-                        <td>{c.cobrancas}</td>
-                        <td>{brl(c.saldoAberto)}</td>
-                        <td className="fin-td-actions">
-                          <button
-                            type="button"
-                            className="btn-ghost"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setSel({ id: c.customerProfileId, nome: c.nome });
-                            }}
-                          >
-                            Ver extrato
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-              </tbody>
-            </table>
+      <section className="fin-portfolio">
+        <header className="fin-portfolio-head">
+          <div>
+            <h2>Carteira a receber</h2>
+            <span>
+              {loading
+                ? "Carregando…"
+                : qtdLabel(clientesVisiveis.length, "cliente com saldo aberto", "clientes com saldo aberto")}
+            </span>
           </div>
-        )}
+          <label className="fin-search">
+            <I d={ICONS.search} size={14} />
+            <input
+              type="search"
+              value={busca}
+              onChange={(event) => setBusca(event.target.value)}
+              placeholder="Buscar cliente…"
+              aria-label="Buscar cliente"
+            />
+          </label>
+          <button
+            type="button"
+            className="fin-sort"
+            title={ordemAsc ? "Ordenar por maior saldo" : "Ordenar por menor saldo"}
+            aria-label={ordemAsc ? "Ordenar por maior saldo" : "Ordenar por menor saldo"}
+            aria-pressed={ordemAsc}
+            onClick={() => setOrdemAsc((valor) => !valor)}
+          >
+            <I d={ICONS.filter} size={14} />
+          </button>
+        </header>
+
+        <div className="fin-list-labels" aria-hidden="true">
+          <span>Cliente</span>
+          <span>Concentração</span>
+          <span>Cobranças</span>
+          <span>Em aberto</span>
+          <span></span>
+        </div>
+
+        <div className="fin-client-list">
+          {loading &&
+            Array.from({ length: 5 }, (_, index) => (
+              <div className="fin-client-skeleton" key={index}>
+                <span />
+                <i />
+                <i />
+                <i />
+              </div>
+            ))}
+
+          {!loading && erro && (
+            <div className="fin-empty-state">
+              <span className="fin-empty-icon"><I d={ICONS.x} size={18} /></span>
+              <strong>Falha ao carregar o financeiro.</strong>
+              <button type="button" className="btn-ghost" onClick={() => void loadSaldos()}>
+                Tentar novamente
+              </button>
+            </div>
+          )}
+
+          {!loading && !erro && clientesVisiveis.length === 0 && (
+            <div className="fin-empty-state">
+              <span className="fin-empty-icon"><I d={ICONS.check} size={18} /></span>
+              <strong>{busca ? "Nenhum cliente encontrado." : "Ninguém devendo."}</strong>
+            </div>
+          )}
+
+          {!loading &&
+            !erro &&
+            clientesVisiveis.map((cliente, index) => {
+              const selecionado = sel?.id === cliente.customerProfileId;
+              const percentual =
+                totalReceber > 0 ? (Number(cliente.saldoAberto) / totalReceber) * 100 : 0;
+              return (
+                <button
+                  type="button"
+                  key={cliente.customerProfileId}
+                  className={`fin-client-row fin-client-tone-${(index % 5) + 1}${selecionado ? " is-selected" : ""}`}
+                  aria-pressed={selecionado}
+                  onClick={() =>
+                    setSel({ id: cliente.customerProfileId, nome: cliente.nome })
+                  }
+                >
+                  <span className="fin-client-identity">
+                    <span className="fin-client-avatar">{iniciaisCliente(cliente.nome)}</span>
+                    <span>
+                      <strong>{nomeCliente(cliente.nome)}</strong>
+                      <small>{qtdLabel(cliente.cobrancas, "cobrança", "cobranças")}</small>
+                    </span>
+                  </span>
+                  <span className="fin-share">
+                    <span>
+                      <small>da carteira</small>
+                      <strong>
+                        {percentual.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
+                      </strong>
+                    </span>
+                    <i>
+                      <span style={{ width: `${Math.min(100, percentual)}%` }} />
+                    </i>
+                  </span>
+                  <span className="fin-row-count">
+                    <strong>{cliente.cobrancas}</strong>
+                    <small>{cliente.cobrancas === 1 ? "cobrança" : "cobranças"}</small>
+                  </span>
+                  <span className="fin-row-amount">
+                    <strong>{brl(cliente.saldoAberto)}</strong>
+                    <small>em aberto</small>
+                  </span>
+                  <span className="fin-row-arrow"><I d={ICONS.arrow} size={13} /></span>
+                </button>
+              );
+            })}
+        </div>
+
+        <footer className="fin-portfolio-foot">
+          <div>
+            <span className="fin-insight-icon"><I d={ICONS.relat} size={14} /></span>
+            <span>
+              <small>Maior saldo</small>
+              <strong>
+                {maiorCliente ? `${nomeCliente(maiorCliente.nome)} · ${brl(maiorCliente.saldoAberto)}` : "—"}
+              </strong>
+            </span>
+          </div>
+          <div>
+            <span className="fin-insight-icon"><I d={ICONS.money} size={14} /></span>
+            <span>
+              <small>Saldo médio</small>
+              <strong>{clientes.length > 0 ? brl(saldoMedio) : "—"}</strong>
+            </span>
+          </div>
+        </footer>
       </section>
     </div>
   );
 
   const context = !sel ? (
-    <HbxContextEmpty
-      icon={<I d={ICONS.money} size={19} />}
-      title="Selecione um cliente"
-      description="O extrato aparece aqui sem tirar a lista da tela."
-    />
+    <>
+      <HbxContextHeader title="Extrato do cliente" />
+      <HbxContextEmpty
+        icon={<I d={ICONS.money} size={19} />}
+        title="Selecione um cliente"
+        description="O extrato aparece aqui sem tirar a carteira da tela."
+      />
+    </>
   ) : (
     <>
       <HbxContextHeader
-        eyebrow="Financeiro"
-        title="Extrato"
+        title="Extrato do cliente"
+        status={(
+          <span className={`fin-context-status${saldoSelecionado > 0 ? " is-open" : ""}`}>
+            <i />
+            {saldoSelecionado > 0 ? "Em aberto" : "Sem saldo"}
+          </span>
+        )}
         actions={(
           <button
             type="button"
             className="icon-ghost"
             aria-label="Fechar extrato"
             onClick={() => {
+              extratoRequest.current += 1;
               setSel(null);
               setExtrato(null);
               setArmed(null);
               setAbertos([]);
+              setChargeAtiva(null);
             }}
           >
             <I d={ICONS.x} size={15} />
           </button>
         )}
       />
-      <HbxContextHero
-        visual={<I d={ICONS.money} size={20} />}
-        title={extrato?.nome || sel.nome || "Cliente"}
-        subtitle="Extrato financeiro"
-      />
-      <HbxContextMetrics>
-        <HbxContextMetric
-          label="Em aberto"
-          value={extLoading ? "—" : brl(extrato?.saldoAberto ?? 0)}
+      <div className="fin-context-scroll">
+        <HbxContextHero
+          visual={<span className="fin-context-initials">{iniciaisCliente(extrato?.nome || sel.nome)}</span>}
+          title={extrato?.nome || sel.nome || "Cliente"}
+          subtitle="Extrato financeiro"
         />
-        <HbxContextMetric
-          label="Cobranças"
-          value={extLoading ? "—" : extrato ? String(extrato.total) : "0"}
-        />
-      </HbxContextMetrics>
 
-      {extErro && <div className="fin-err">{extErro}</div>}
-      <div className="fin-hint">Clique na cobrança para ver tudo o que ficou registrado nela.</div>
+        <section className="fin-balance-card">
+          <span>
+            <small>Total em aberto</small>
+            <strong>{extLoading ? "—" : brl(saldoSelecionado)}</strong>
+            <span>
+              {extLoading
+                ? "Carregando…"
+                : qtdLabel(extrato?.total ?? clienteSelecionado?.cobrancas ?? 0, "cobrança", "cobranças")}
+            </span>
+          </span>
+          <span className="fin-balance-ring">
+            <svg viewBox="0 0 44 44" aria-hidden="true">
+              <circle cx="22" cy="22" r="18" pathLength="100" />
+              <circle
+                className="fin-balance-ring-value"
+                cx="22"
+                cy="22"
+                r="18"
+                pathLength="100"
+                strokeDasharray={`${participacaoSelecionada} 100`}
+              />
+            </svg>
+            <span>
+              <strong>
+                {participacaoSelecionada.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
+              </strong>
+              <small>carteira</small>
+            </span>
+          </span>
+        </section>
 
-      <div className="fin-context-charges">
-        {extLoading && <div className="fin-td-empty">Carregando…</div>}
-        {!extLoading && (extrato?.charges?.length ?? 0) === 0 && (
-          <div className="fin-td-empty">Sem cobranças para este cliente.</div>
-        )}
-        {!extLoading &&
-          (extrato?.charges || []).map((ch) => {
-            const st = statusLabel(ch.status);
-            const podeQuitar = String(ch.status).toLowerCase() === "pending";
-            const aberto = abertos.includes(ch.id);
+        <div className="fin-context-minis">
+          <div>
+            <small>Última origem</small>
+            <strong>{extLoading ? "—" : origemLabel(ultimaCharge?.sourceModule || null)}</strong>
+          </div>
+          <div>
+            <small>Última competência</small>
+            <strong>{extLoading ? "—" : ultimaCharge?.competence || "—"}</strong>
+          </div>
+          <div>
+            <small>Último meio</small>
+            <strong>
+              {extLoading
+                ? "—"
+                : rotulo(FORMA_COBRANCA, ultimaCharge?.paymentMethod) || "—"}
+            </strong>
+          </div>
+        </div>
 
-            return (
-              <article key={ch.id} className={`fin-context-charge${aberto ? " is-open" : ""}`}>
-                <div className="fin-context-charge-head">
-                  <button
-                    type="button"
-                    className="fin-exp"
-                    aria-expanded={aberto}
-                    onClick={() => toggleDetalhe(ch.id)}
+        {extErro && <div className="fin-err">{extErro}</div>}
+
+        <section className="fin-origin">
+          <header>
+            <strong>Origem do saldo</strong>
+            <span>{extLoading ? "—" : brl(totalOrigens)}</span>
+          </header>
+          {origens.length > 0 ? (
+            <>
+              <div className="fin-origin-bar">
+                {origens.map((origem) => (
+                  <span
+                    key={origem.label}
+                    className={`fin-origin-segment is-${origem.cls}`}
+                    style={{ width: `${origem.percentual}%` }}
+                  />
+                ))}
+              </div>
+              <div className="fin-origin-legend">
+                {origens.map((origem) => (
+                  <span key={origem.label} className={`is-${origem.cls}`}>
+                    <i />
+                    {origem.label}{" "}
+                    {origem.percentual.toLocaleString("pt-BR", { maximumFractionDigits: 0 })}%
+                  </span>
+                ))}
+              </div>
+            </>
+          ) : (
+            <span className="fin-origin-empty">{extLoading ? "Carregando…" : "Sem saldo em aberto."}</span>
+          )}
+        </section>
+
+        <section className="fin-charges">
+          <header>
+            <strong>Cobranças</strong>
+            <span>{extLoading ? "—" : qtdLabel(charges.length, "item", "itens")}</span>
+          </header>
+
+          <div className="fin-context-charges">
+            {extLoading &&
+              Array.from({ length: 3 }, (_, index) => (
+                <div className="fin-charge-skeleton" key={index} />
+              ))}
+            {!extLoading && charges.length === 0 && (
+              <div className="fin-td-empty">Sem cobranças para este cliente.</div>
+            )}
+            {!extLoading &&
+              charges.map((charge) => {
+                const st = statusLabel(charge.status);
+                const aberto = abertos.includes(charge.id);
+                const ativo = chargeSelecionada?.id === charge.id;
+                return (
+                  <article
+                    key={charge.id}
+                    className={`fin-context-charge${aberto ? " is-open" : ""}${ativo ? " is-active" : ""}`}
                   >
-                    <span className={`fin-exp-ico${aberto ? " open" : ""}`}>▸</span>
-                    <span className="fin-context-charge-copy">
-                      <strong>{ch.description}</strong>
-                      <small>{origemLabel(ch.sourceModule)} · {fmtDate(ch.dueDate)}</small>
-                    </span>
-                  </button>
-                  <span className={`fin-st ${st.cls}`}>{st.label}</span>
-                </div>
-
-                <div className="fin-context-charge-foot">
-                  <strong>{brl(ch.amount)}</strong>
-                  {podeQuitar && armed !== ch.id && (
                     <button
                       type="button"
-                      className="btn-ghost"
-                      disabled={!!quitando}
-                      onClick={() => setArmed(ch.id)}
+                      className="fin-charge-trigger"
+                      aria-expanded={aberto}
+                      onClick={() => toggleDetalhe(charge.id)}
                     >
-                      Marcar pago
+                      <span className={`fin-charge-source is-${origemLabel(charge.sourceModule).toLocaleLowerCase("pt-BR").replace(/\s+/g, "-")}`}>
+                        <I d={origemIcone(charge.sourceModule)} size={14} />
+                      </span>
+                      <span className="fin-context-charge-copy">
+                        <strong>{charge.description}</strong>
+                        <small>
+                          {origemLabel(charge.sourceModule)}
+                          {" · "}
+                          {charge.dueDate ? `vence ${fmtDate(charge.dueDate)}` : "sem vencimento"}
+                        </small>
+                      </span>
+                      <span className="fin-charge-value">
+                        <strong>{brl(charge.amount)}</strong>
+                        <small className={`fin-st ${st.cls}`}>{st.label}</small>
+                      </span>
+                      <span className={`fin-exp-ico${aberto ? " open" : ""}`}>▸</span>
                     </button>
-                  )}
-                  {podeQuitar && armed === ch.id && (
-                    <button
-                      type="button"
-                      className="btn-teal"
-                      disabled={quitando === ch.id}
-                      onClick={() => marcarPago(ch.id)}
-                    >
-                      {quitando === ch.id ? "…" : "Confirmar"}
-                    </button>
-                  )}
-                </div>
 
-                {aberto && <ChargeDetalhe ch={ch} />}
-              </article>
-            );
-          })}
+                    {aberto && <ChargeDetalhe ch={charge} />}
+                  </article>
+                );
+              })}
+          </div>
+        </section>
       </div>
+
+      {!extLoading &&
+        chargeSelecionada &&
+        String(chargeSelecionada.status).toLowerCase() === "pending" && (
+          <footer className="fin-context-footer">
+            <button
+              type="button"
+              className={armed === chargeSelecionada.id ? "btn-teal" : "btn-primary"}
+              disabled={!!quitando}
+              aria-label={`${armed === chargeSelecionada.id ? "Confirmar pagamento" : "Marcar como pago"}: ${chargeSelecionada.description}, ${brl(chargeSelecionada.amount)}`}
+              onClick={() => {
+                if (armed === chargeSelecionada.id) {
+                  void marcarPago(chargeSelecionada.id);
+                } else {
+                  setArmed(chargeSelecionada.id);
+                }
+              }}
+            >
+              <I d={ICONS.check} size={14} />
+              {quitando === chargeSelecionada.id
+                ? "Baixando…"
+                : armed === chargeSelecionada.id
+                  ? "Confirmar pagamento"
+                  : "Marcar como pago"}
+            </button>
+          </footer>
+        )}
     </>
   );
 
@@ -626,6 +915,7 @@ export function FinanceiroClient() {
       ariaLabel="Financeiro"
       contextLabel="Extrato do cliente"
       contextClassName="fin-context"
+      contentClassName="fin-shell-content"
       main={main}
       context={context}
     />
