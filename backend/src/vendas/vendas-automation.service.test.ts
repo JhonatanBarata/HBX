@@ -18,7 +18,15 @@ function computeTestBrasiliaGreeting() {
   return 'Bom dia';
 }
 
-const FALLBACK_MESSAGE = SAFE_FIRST_CONTACT_TEMPLATE.replace('{{cumprimentacao}}', computeTestBrasiliaGreeting());
+// Fixture do prisma.user.findFirst abaixo devolve name:'Jhonatan'/company.name:'HBX' e
+// buildLead() abaixo devolve name:'Empresa Teste' — nomes de teste, não literais do
+// template (o template usa {{funcionario}}/{{empresa}}/{{cliente}} e é o
+// renderMessageTemplate que resolve a partir do usuário/lead "ativos" no teste).
+const FALLBACK_MESSAGE = SAFE_FIRST_CONTACT_TEMPLATE
+  .replace('{{cumprimentacao}}', computeTestBrasiliaGreeting())
+  .replace(/\{\{funcionario\}\}/g, 'Jhonatan')
+  .replace(/\{\{empresa\}\}/g, 'HBX')
+  .replace(/\{\{cliente\}\}/g, 'Empresa Teste');
   
 function buildCampaign(overrides?: Record<string, unknown>) {
   return {

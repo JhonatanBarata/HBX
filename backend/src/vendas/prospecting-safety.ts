@@ -28,14 +28,20 @@ export type ProspectingIntentClassification = {
   };
 };
 
+// Identidade e negócio SEMPRE por placeholder ({{funcionario}}/{{empresa}}), nunca literal:
+// renderMessageTemplate (vendas-automation.service.ts) resolve os dois a partir de
+// User.name/Company.name do tenant que está prospectando — nunca do dono da HBX.
+// Ver docs/AUDITORIA-COPY-VAZADA (30/07/2026): a versão anterior tinha "Jhonatan" e a
+// consultoria do dono hardcoded; qualquer tenant real que ligasse a prospecção sem
+// customizar o texto ia se apresentar como o dono e vender o negócio dele.
 export const SAFE_FIRST_CONTACT_TEMPLATE =
-  '{{cumprimentacao}}, tudo bem? Me chamo Jhonatan. Trabalho ajudando empresas a melhorar processos e automatizar tarefas repetitivas do dia a dia. Posso te explicar rapidinho e ver se faz sentido aí?';
+  '{{cumprimentacao}}, tudo bem? Aqui é {{funcionario}}, da {{empresa}}. Vi o contato de {{cliente}} e queria te explicar rapidinho o que a gente faz. Faz sentido eu te mandar uma ideia curta?';
 
 export const SAFE_FIRST_CONTACT_VARIANTS = [
-  '{{cumprimentacao}}, tudo certo? Aqui é o Jhonatan. Eu ajudo empresas a organizar melhor a rotina, reduzir retrabalho e implantar soluções simples para ganhar tempo na operação. Posso te mandar uma ideia rápida?',
-  '{{cumprimentacao}}! Sou o Jhonatan. Trabalho com consultoria e implantação de automações para empresas que querem parar de perder tempo com processos manuais, controles soltos e tarefas repetidas. Faz sentido eu te explicar em 1 minuto?',
-  '{{cumprimentacao}}, tudo bem? Me chamo Jhonatan. Eu olho a rotina da empresa, entendo onde está dando retrabalho e ajudo a implantar soluções práticas para deixar o dia a dia mais organizado. Posso te explicar rapidinho?',
-  '{{cumprimentacao}}, tudo bem? Trabalho com melhoria de processos para empresas: atendimento, vendas, administrativo, retornos, controles internos e automações conforme a necessidade. Posso te mostrar por alto como funciona?',
+  '{{cumprimentacao}}, tudo certo? Aqui é {{funcionario}}, da {{empresa}}. Encontrei {{cliente}} e acho que vale a pena eu te apresentar rapidinho o nosso trabalho. Posso te mandar uma ideia curta?',
+  '{{cumprimentacao}}! Sou {{funcionario}}, da {{empresa}}. Vi {{cliente}} e queria entender se faz sentido pra vocês conhecerem o que a gente faz. Posso te explicar em 1 minuto?',
+  '{{cumprimentacao}}, tudo bem? Meu nome é {{funcionario}}, trabalho na {{empresa}}. Vi o contato de {{cliente}} e queria te mostrar rapidinho uma novidade que pode interessar. Faz sentido?',
+  '{{cumprimentacao}}, tudo bem? Aqui é {{funcionario}}, da {{empresa}}. Posso te explicar em poucas palavras o que a gente faz e ver se faz sentido pra vocês?',
 ] as const;
 
 const CLICKABLE_URL_PATTERN =

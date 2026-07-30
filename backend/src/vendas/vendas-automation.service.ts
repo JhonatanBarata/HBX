@@ -138,28 +138,42 @@ const GENERICA_CASO_ERRO_MESSAGE =
   'Oi, tudo bem? Meu nome é {{funcionario}}, trabalho com uma plataforma para organizar vendas, orçamentos, prospecção de clientes e retornos pelo WhatsApp.\n' +
   'Tenho 7 dias grátis, sem compromisso. Faz sentido eu te mostrar?\n' +
   '';
+// LEGACY_JHONATAN_*: NÃO é o default atual — é o texto antigo (pré 30/07/2026) do
+// SAFE_FIRST_CONTACT_TEMPLATE/VARIANTS, com "Jhonatan" (nome do dono) hardcoded e sem
+// placeholder. Fica congelado aqui só para isSystemGeneratedProspectingTemplate
+// RECONHECER campanhas já salvas com esse texto (ex.: companyId 5 em prod) e trocar
+// pelo DEFAULT_MESSAGE_TEMPLATE novo (neutro) na próxima vez que a campanha for salva.
+// NUNCA usar para emitir mensagem nova — só para detectar e migrar a antiga.
+const LEGACY_JHONATAN_FIRST_CONTACT_TEMPLATE =
+  '{{cumprimentacao}}, tudo bem? Me chamo Jhonatan. Trabalho ajudando empresas a melhorar processos e automatizar tarefas repetitivas do dia a dia. Posso te explicar rapidinho e ver se faz sentido aí?';
+const LEGACY_JHONATAN_FIRST_CONTACT_VARIANTS = [
+  '{{cumprimentacao}}, tudo certo? Aqui é o Jhonatan. Eu ajudo empresas a organizar melhor a rotina, reduzir retrabalho e implantar soluções simples para ganhar tempo na operação. Posso te mandar uma ideia rápida?',
+  '{{cumprimentacao}}! Sou o Jhonatan. Trabalho com consultoria e implantação de automações para empresas que querem parar de perder tempo com processos manuais, controles soltos e tarefas repetidas. Faz sentido eu te explicar em 1 minuto?',
+  '{{cumprimentacao}}, tudo bem? Me chamo Jhonatan. Eu olho a rotina da empresa, entendo onde está dando retrabalho e ajudo a implantar soluções práticas para deixar o dia a dia mais organizado. Posso te explicar rapidinho?',
+  '{{cumprimentacao}}, tudo bem? Trabalho com melhoria de processos para empresas: atendimento, vendas, administrativo, retornos, controles internos e automações conforme a necessidade. Posso te mostrar por alto como funciona?',
+];
 const DEFAULT_MESSAGE_TEMPLATE = SAFE_FIRST_CONTACT_TEMPLATE;
 const DEFAULT_SEGMENT_MISMATCH_FALLBACK_MESSAGE = SAFE_FIRST_CONTACT_TEMPLATE;
 const DEFAULT_FIRST_CONTACT_VARIANTS = [
-  '{{cumprimentacao}}, tudo bem? Me chamo {{funcionario}}. Trabalho ajudando empresas a melhorar processos e automatizar tarefas repetitivas do dia a dia. Posso te explicar rapidinho e ver se faz sentido aí?',
-  '{{cumprimentacao}}, tudo certo? Aqui é o {{funcionario}}. Eu ajudo empresas a organizar melhor a rotina, reduzir retrabalho e implantar soluções simples para ganhar tempo na operação. Posso te mandar uma ideia rápida?',
-  '{{cumprimentacao}}! Sou o {{funcionario}}. Trabalho com consultoria e implantação de automações para empresas que querem parar de perder tempo com processos manuais, controles soltos e tarefas repetidas. Faz sentido eu te explicar em 1 minuto?',
-  '{{cumprimentacao}}, tudo bem? Me chamo {{funcionario}}. Eu olho a rotina da empresa, entendo onde está dando retrabalho e ajudo a implantar soluções práticas para deixar o dia a dia mais organizado. Posso te explicar rapidinho?',
-  '{{cumprimentacao}}, tudo bem? Trabalho com melhoria de processos para empresas: atendimento, vendas, administrativo, retornos, controles internos e automações conforme a necessidade. Posso te mostrar por alto como funciona?',
+  '{{cumprimentacao}}, tudo bem? Me chamo {{funcionario}}, da {{empresa}}. Posso te explicar rapidinho o que a gente faz e ver se faz sentido aí?',
+  '{{cumprimentacao}}, tudo certo? Aqui é o {{funcionario}}, da {{empresa}}. Queria te apresentar rapidinho o nosso trabalho. Posso te mandar uma ideia curta?',
+  '{{cumprimentacao}}! Sou o {{funcionario}}, da {{empresa}}. Acho que faz sentido eu te explicar em 1 minuto o que a gente pode fazer por vocês.',
+  '{{cumprimentacao}}, tudo bem? Me chamo {{funcionario}}, da {{empresa}}. Posso te explicar rapidinho como a gente pode ajudar no dia a dia da empresa?',
+  '{{cumprimentacao}}, tudo bem? Trabalho na {{empresa}} e queria te mostrar por alto como a gente pode ajudar. Posso te explicar rapidinho?',
 ];
 const DEFAULT_POSITIVE_REPLY_VARIANTS = [
-  'Boa! A ideia é entender como funciona a rotina de vocês hoje, onde tem retrabalho, tarefa manual ou informação perdida, e ver se dá para resolver com uma automação ou ajuste simples no processo. Posso te ligar rapidinho?',
-  'Perfeito. Primeiro eu entendo o cenário da empresa, porque cada operação tem um gargalo diferente. Pode ser atendimento, vendas, financeiro, planilhas, retornos, cadastros, tarefas internas… aí vejo o que faria sentido implantar. Posso te chamar numa ligação rápida?',
-  'Show. Meu trabalho não é empurrar uma ferramenta pronta. Eu entendo o processo, vejo onde a empresa está perdendo tempo e monto uma solução em cima da necessidade real. Posso te ligar 2 minutinhos para entender melhor?',
-  'Legal. Normalmente eu converso com o gestor ou responsável pela operação, faço algumas perguntas sobre a rotina e identifico onde uma melhoria simples já poderia economizar tempo. Pode ser uma ligação rápida?',
-  'Boa. A ideia é bem prática: entender o que hoje é manual, repetitivo ou bagunçado, e ver se vale implantar alguma automação, organização ou sistema simples para facilitar. Posso te ligar rapidinho?',
+  'Boa! A ideia é entender rapidinho a necessidade de vocês e ver o que faz sentido oferecer. Posso te ligar rapidinho?',
+  'Perfeito. Primeiro eu entendo o que a empresa precisa, porque cada operação tem uma necessidade diferente. Posso te chamar numa ligação rápida para entender melhor?',
+  'Show. A ideia não é empurrar algo pronto. Eu entendo a necessidade de vocês e vejo o que faz sentido propor. Posso te ligar 2 minutinhos?',
+  'Legal. Normalmente eu converso com o gestor ou responsável, faço algumas perguntas rápidas e já vejo o que pode fazer sentido pra vocês. Pode ser uma ligação rápida?',
+  'Boa. A ideia é simples: entender o que vocês precisam hoje e ver se faz sentido eu apresentar algo pra ajudar. Posso te ligar rapidinho?',
 ];
 const DEFAULT_WHAT_IS_IT_REPLY_VARIANTS = [
-  'Claro. É sobre consultoria e implantação de melhorias na rotina da empresa. Eu analiso processos manuais, retrabalho, controles espalhados e tarefas repetitivas, e vejo o que pode ser organizado ou automatizado.',
-  'É um trabalho para ajudar empresas a ganhar tempo e reduzir bagunça operacional. Eu entendo como a empresa funciona hoje e proponho soluções práticas: automações, sistemas simples, organização de fluxo ou ajustes no processo.',
-  'Basicamente eu ajudo a empresa a parar de depender tanto de planilha solta, memória, mensagem perdida e tarefa manual. Primeiro eu entendo o problema, depois implanto o que fizer sentido para aquela operação.',
-  'É uma consultoria bem prática. Eu olho áreas como atendimento, vendas, administrativo, retornos, cadastros, controles e tarefas repetitivas, e vejo onde dá para simplificar ou automatizar.',
-  'É sobre melhorar a operação da empresa. Não é uma solução única para todo mundo: eu entendo o gargalo, desenho uma forma mais organizada de trabalhar e implanto algo que ajude no dia a dia.',
+  'Claro. A ideia é entender a necessidade de vocês e ver o que faz sentido oferecer para ajudar no dia a dia.',
+  'É um jeito de ajudar empresas a resolver o que hoje é mais chato ou demorado na rotina. Primeiro eu entendo como funciona hoje e proponho algo prático.',
+  'Basicamente eu entendo o que está pesando na rotina de vocês e vejo o que faz sentido propor.',
+  'É bem prático. Eu olho a necessidade de cada empresa e vejo onde dá pra simplificar.',
+  'É sobre ajudar a empresa a resolver o que hoje é mais difícil no dia a dia. Não é algo padrão pra todo mundo: eu entendo o que faz sentido pra vocês e proponho algo sob medida.',
 ];
 const DEFAULT_SCHEDULED_REPLY_VARIANTS = [
   'Perfeito, {{retorno_label}} eu te chamo por aqui ou te ligo rapidinho.',
@@ -328,6 +342,8 @@ function isSystemGeneratedProspectingTemplate(value: unknown) {
     LEGACY_SEGMENT_MISMATCH_FALLBACK_MESSAGE,
     LEGACY_GENERICA_CASO_ERRO_MESSAGE,
     GENERICA_CASO_ERRO_MESSAGE,
+    LEGACY_JHONATAN_FIRST_CONTACT_TEMPLATE,
+    ...LEGACY_JHONATAN_FIRST_CONTACT_VARIANTS,
     SAFE_FIRST_CONTACT_TEMPLATE,
     ...SAFE_FIRST_CONTACT_VARIANTS,
   ].some((template) => normalizeTemplateText(template) === normalized);
