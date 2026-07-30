@@ -26,13 +26,31 @@ const CACHE_TTL_MS = 10 * 60 * 1000;
 const CACHE_MAX_ENTRIES = 200;
 const CACHE_COORDS_DECIMALS = 5;
 const MAX_COORDS_POINTS = 80;
-const RATE_LIMIT_PER_MIN = 30;
 const MINUTE_MS = 60 * 1000;
+/**
+ * 🔴 30/07 — O TETO DEPENDE DE QUEM ESTÁ ATENDENDO. Enquanto o roteador era o
+ * servidor de DEMONSTRAÇÃO público, 30 rotas/min por empresa era educação (uso
+ * comercial pesado lá é abuso). Desde 29/07 o roteador é NOSSO (container
+ * `hbx-osrm` no VPS): uma consulta de rota custa alguns milissegundos de CPU, e
+ * 30/min estrangulava operação real — 5 motoristas navegando, cada um pedindo
+ * traçado da fila + retraço ao errar entrada, batem o teto e caem no público
+ * (justamente o servidor que a gente parou de usar). Auto-hospedado o teto sobe
+ * pra 300/min e continua sendo DISJUNTOR: uso legítimo nunca chega perto, laço
+ * de bug morre. Regra da casa: freio limita AVARIA, não uso legítimo.
+ */
+const RATE_LIMIT_PER_MIN_PUBLICO = 30;
+const RATE_LIMIT_PER_MIN_SELF_HOST = 300;
 
 // Par "lng,lat" — mesma ordem de eixo do OSRM público. Regex trava o FORMATO
 // (dígitos/ponto/sinal); a faixa numérica (lat -90..90, lng -180..180) é
 // conferida depois de parsear, regex sozinha não bounda intervalo com sinal.
 const COORDS_PAIR_RE = /^-?\d{1,3}(?:\.\d{1,8})?,-?\d{1,3}(?:\.\d{1,8})?$/;
+
+// Par "grau,tolerância" de um waypoint (`bearings` do OSRM). Item VAZIO é legal e
+// quer dizer "esse waypoint não tem restrição de direção" — só a origem
+// costuma ter. Mesma disciplina do COORDS_PAIR_RE: regex trava o FORMATO, a
+// faixa numérica é conferida depois de parsear.
+const BEARING_PAIR_RE = /^\d{1,3},\d{1,3}$/;
 
 type OsrmPoint = [lng: number, lat: number];
 
@@ -74,6 +92,56 @@ export class LogisticaOsrmService {
     return (raw || DEFAULT_OSRM_BASE_URL).replace(/\/+$/, '');
   }
 
+  /** Roteador próprio (qualquer base que não seja o demo público) — ver RATE_LIMIT_*. */
+  private selfHosted(): boolean {
+    return !/project-osrm\.org/i.test(this.baseUrl());
+  }
+
+  private rateLimitPerMin(): number {
+    return this.selfHosted() ? RATE_LIMIT_PER_MIN_SELF_HOST : RATE_LIMIT_PER_MIN_PUBLICO;
+  }
+
+  /**
+   * Valida e normaliza `bearings=grau,tolerância;…` (30/07 — retraço da rota).
+   * Um item POR waypoint, na mesma ordem de `coords`; item vazio = waypoint sem
+   * restrição. Serve pro roteador saber pra que lado o carro está apontado:
+   * sem isso, quem errou uma entrada recebe rota nova mandando fazer retorno na
+   * hora, porque o OSRM assume que dá pra sair do ponto em qualquer direção.
+   * Ausente/vazio devolve null e a URL sai sem o parâmetro (comportamento de
+   * antes desta sprint, intocado).
+   */
+  private parseBearings(raw: unknown, totalPoints: number): string | null {
+    const value = String(raw ?? '').trim();
+    if (!value) return null;
+    const items = value.split(';');
+    if (items.length !== totalPoints) {
+      throw new BadRequestException('bearings deve ter um item por ponto de coords.');
+    }
+    const normalized: string[] = [];
+    let algumPreenchido = false;
+    for (const item of items) {
+      const pair = item.trim();
+      if (!pair) {
+        normalized.push('');
+        continue;
+      }
+      if (!BEARING_PAIR_RE.test(pair)) throw new BadRequestException('bearings em formato inválido.');
+      const [grauRaw, faixaRaw] = pair.split(',');
+      const grau = Number(grauRaw);
+      const faixa = Number(faixaRaw);
+      if (!Number.isFinite(grau) || grau < 0 || grau > 360) {
+        throw new BadRequestException('bearings: grau fora da faixa válida (0..360).');
+      }
+      if (!Number.isFinite(faixa) || faixa < 0 || faixa > 180) {
+        throw new BadRequestException('bearings: tolerância fora da faixa válida (0..180).');
+      }
+      normalized.push(`${grau},${faixa}`);
+      algumPreenchido = true;
+    }
+    // Só vazios = nada a restringir; não suja a URL nem a chave de cache.
+    return algumPreenchido ? normalized.join(';') : null;
+  }
+
   /** Valida e normaliza `coords=lng,lat;lng,lat;…`. Nunca repassa string crua. */
   private parseCoords(raw: unknown): { normalized: string; points: OsrmPoint[] } {
     const value = String(raw ?? '').trim();
@@ -100,11 +168,19 @@ export class LogisticaOsrmService {
     return { normalized, points };
   }
 
-  private cacheKey(kind: 'route' | 'table', points: OsrmPoint[], steps: boolean): string {
+  // `bearings` ENTRA na chave: mesma origem apontada pra outro lado é outra rota.
+  // Sem isso, o traçado calculado com direção vazaria pra quem pediu sem (e
+  // vice-versa) — mesmo motivo do sufixo de `steps`.
+  private cacheKey(
+    kind: 'route' | 'table',
+    points: OsrmPoint[],
+    steps: boolean,
+    bearings?: string | null,
+  ): string {
     const rounded = points
       .map(([lng, lat]) => `${lng.toFixed(CACHE_COORDS_DECIMALS)},${lat.toFixed(CACHE_COORDS_DECIMALS)}`)
       .join(';');
-    return `${kind}:${steps ? '1' : '0'}:${rounded}`;
+    return `${kind}:${steps ? '1' : '0'}:${bearings || '-'}:${rounded}`;
   }
 
   private cacheGet(key: string): unknown {
@@ -141,12 +217,24 @@ export class LogisticaOsrmService {
     const now = Date.now();
     const existing = this.hits.get(key) || [];
     const pruned = existing.filter((ts) => ts > now - MINUTE_MS);
-    if (pruned.length >= RATE_LIMIT_PER_MIN) {
+    if (pruned.length >= this.rateLimitPerMin()) {
       this.hits.set(key, pruned);
       throw rateLimited();
     }
     pruned.push(now);
     this.hits.set(key, pruned);
+  }
+
+  /**
+   * 30/07 — RESPOSTA DE ERRO LÓGICO NÃO ENTRA NO CACHE. O OSRM devolve HTTP 200
+   * com `code:"NoRoute"` quando não consegue atender (típico com `bearings`: o
+   * carro apontado pra dentro de rua sem saída). Guardar isso por 10 min fazia o
+   * mesmo "não achei" voltar de graça mesmo depois de o carro já ter virado —
+   * cache de fracasso é pior que cache nenhum.
+   */
+  private respostaUtil(body: unknown): boolean {
+    const code = (body as { code?: unknown } | null)?.code;
+    return code === undefined || code === 'Ok';
   }
 
   /** Timeout 9s; qualquer falha (rede, timeout, status não-2xx, JSON quebrado) vira 502 OSRM_INDISPONIVEL. */
@@ -162,15 +250,22 @@ export class LogisticaOsrmService {
   }
 
   /** GET /logistica/osrm/route — repassa pra `${OSRM_BASE_URL}/route/v1/driving/...`. */
-  async route(companyId: number, coordsRaw: unknown, stepsRaw: unknown): Promise<unknown> {
+  async route(
+    companyId: number,
+    coordsRaw: unknown,
+    stepsRaw: unknown,
+    bearingsRaw?: unknown,
+  ): Promise<unknown> {
     const { normalized, points } = this.parseCoords(coordsRaw);
     const steps = stepsRaw === true || stepsRaw === 'true' || stepsRaw === '1';
-    const key = this.cacheKey('route', points, steps);
+    const bearings = this.parseBearings(bearingsRaw, points.length);
+    const key = this.cacheKey('route', points, steps, bearings);
     const cached = this.cacheGet(key);
     if (cached !== undefined) return cached;
 
     this.consumeRate(companyId);
-    const url = `${this.baseUrl()}/route/v1/driving/${normalized}?overview=full&geometries=geojson&steps=${steps}`;
+    const bearingsQuery = bearings ? `&bearings=${encodeURIComponent(bearings)}` : '';
+    const url = `${this.baseUrl()}/route/v1/driving/${normalized}?overview=full&geometries=geojson&steps=${steps}${bearingsQuery}`;
     const body = await this.fetchUpstream(url);
     this.cacheSet(key, body);
     return body;
