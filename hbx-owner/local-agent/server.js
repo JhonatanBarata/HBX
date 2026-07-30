@@ -3802,14 +3802,24 @@ async function route(req, res) {
       // :3000 já respondendo → segue o fluxo normal abaixo (liga a energia direto, sem subir nada).
     }
 
-    if (env === "local") await backendRequest("POST", "/modules/owner/fabrica/energia", { on: body.on }, { timeoutMs: 15000 });
-    else await opsRequest("POST", "/api/radar/vps/fabrica/energia", { on: body.on }, 20000);
+    // A resposta da ESCRITA não pode ser jogada fora: quando a releitura discorda, o motivo útil está
+    // aqui (ex.: ops_caido, 404 de rota, 500 do backend). Sem isto o painel só dizia "releitura discorda
+    // da intencao" — verdadeiro, mas inútil pra saber O QUE quebrou.
+    const write = env === "local"
+      ? await backendRequest("POST", "/modules/owner/fabrica/energia", { on: body.on }, { timeoutMs: 15000 })
+      : await opsRequest("POST", "/api/radar/vps/fabrica/energia", { on: body.on }, 20000);
+    const writeFailed = !write || write.ok !== true;
+    const writeReason = writeFailed
+      ? (write && (write.reason || (write.statusCode ? `escrita_http_${write.statusCode}` : null))) || "escrita_falhou"
+      : null;
 
     // LEI Nº3: relê a fonte real antes de responder — nunca ecoa a intenção de quem chamou.
     const overview = await getOwnerV3Overview(true);
     const state = overview.switches.scraping[env];
     const verdict = ownerV3.verifyScrapingSwitch(body.on, state);
-    sendJson(res, 200, { ok: verdict.ok, reason: verdict.reason, state });
+    // Releitura manda no veredito (a escrita pode ter "falhado" e o estado já estar certo); a escrita
+    // só empresta o motivo quando o veredito é negativo.
+    sendJson(res, 200, { ok: verdict.ok, reason: verdict.ok ? null : (writeReason || verdict.reason), state });
     void pushOverviewEvent(overview);
     return;
   }

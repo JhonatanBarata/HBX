@@ -21,6 +21,8 @@
 		"cleanup:hbx-extra": "node ./scripts/cleanup-hbx-extra-engines-vps.js",
 		"docker:clean:vps": "node ./scripts/ops/docker-clean-vps.js",
 		"radar:elastic:validate": "node ./scripts/validate-radar-elastic-governor.js",
+		"ligar": "powershell -NoProfile -ExecutionPolicy Bypass -File ./hbx-owner/local-agent/ligar-tudo.ps1",
+		"ligar:sem-painel": "powershell -NoProfile -ExecutionPolicy Bypass -File ./hbx-owner/local-agent/ligar-tudo.ps1 -SemPainel",
 		"engines:up": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-hbx-engines.ps1",
 		"engines:down": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/stop-hbx-engines.ps1",
 		"up": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-all.ps1",

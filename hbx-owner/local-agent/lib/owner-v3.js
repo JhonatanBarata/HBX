@@ -15,19 +15,28 @@ function boolOrNull(v) {
 }
 
 // ---------- boot (state/boot.json, escrito pelo worker E4) ----------
-function normalizeBoot(raw) {
+// `liveOllama` (true/false/null): prova de AGORA, colhida no mesmo ciclo do overview (o Ollama
+// respondeu ao /api/ps?). boot.json é um retrato do BOOT — depois que o dono sobe o Ollama na mão,
+// o arquivo continua dizendo "offline" e o pino mentia o dia inteiro. Mesma lei já aplicada ao
+// `agent`: evidência viva ganha do arquivo velho; sem evidência, o arquivo continua valendo.
+function normalizeBoot(raw, liveOllama) {
+  const live = typeof liveOllama === "boolean" ? liveOllama : null;
   if (!raw || typeof raw !== "object") {
-    return { at: null, windows: null, agent: true, ollama: null, painel: null, reason: "sem_boot_json" };
+    return { at: null, windows: null, agent: true, ollama: live, painel: null, reason: "sem_boot_json" };
   }
+  const ollama = live !== null ? live : boolOrNull(raw.ollama);
+  // O motivo do boot só continua fazendo sentido enquanto descreve o presente: se ele culpa o Ollama
+  // e o Ollama está vivo AGORA, some com a frase em vez de exibir uma queixa já resolvida.
+  const stale = live === true && typeof raw.reason === "string" && /ollama/i.test(raw.reason);
   return {
     at: raw.at || null,
     windows: boolOrNull(raw.windows),
     // agent:true SEMPRE — o próprio fato de este código estar rodando e respondendo PROVA que o
     // agent está de pé agora; o que estiver em boot.json foi escrito NO BOOT e pode estar defasado.
     agent: true,
-    ollama: boolOrNull(raw.ollama),
+    ollama,
     painel: boolOrNull(raw.painel),
-    reason: raw.reason || null,
+    reason: stale ? null : (raw.reason || null),
   };
 }
 
@@ -47,13 +56,29 @@ function classifyBackendRead(response, notFoundReason) {
   return { known: false, reason: `backend_http_${statusCode}`, data: null };
 }
 
+// O ops-control responde as rotas /api/radar/vps/fabrica/* no envelope `{ ok, data }` (contrato dele,
+// ops-control/server.js:2590+), mas opsRequest() entrega o CORPO INTEIRO em `response.data`. Sem
+// desempacotar, buildScrapingEnv lia `envelope.enabled` (undefined) em vez de `data.enabled` e pintava
+// "energia_desligada" com a VPS LIGADA — mentira silenciosa, exatamente o que a Lei nº2 proíbe.
+// Tolerante a ops-control ANTIGO (corpo cru, sem envelope): só desembrulha quando o envelope existe.
+function unwrapOpsEnvelope(body) {
+  if (!body || typeof body !== "object") return { data: null, reason: "resposta_vazia" };
+  if (!Object.prototype.hasOwnProperty.call(body, "ok")) return { data: body, reason: null };
+  // Envelope presente e negado: o ops-control chegou a responder, mas disse que NÃO leu — nunca
+  // tratar como leitura boa (viraria on:false chutado).
+  if (body.ok === false) return { data: null, reason: body.reason || body.error || "ops_recusou_leitura" };
+  if (body.data && typeof body.data === "object") return { data: body.data, reason: null };
+  return { data: null, reason: "resposta_vazia" };
+}
+
 // `response` no formato de opsRequest(): { ok, configured, statusCode, data, reason, reasonText }.
 function classifyOpsRead(response, notFoundReason) {
   if (!response) return { known: false, reason: "ops_sem_resposta", data: null };
   if (response.configured === false) return { known: false, reason: response.reason || "ops_token_ausente", data: null };
   if (response.ok) {
-    if (response.data) return { known: true, reason: null, data: response.data };
-    return { known: false, reason: "resposta_vazia", data: null };
+    const unwrapped = unwrapOpsEnvelope(response.data);
+    if (unwrapped.data) return { known: true, reason: null, data: unwrapped.data };
+    return { known: false, reason: unwrapped.reason || "resposta_vazia", data: null };
   }
   const statusCode = Number(response.statusCode) || null;
   if (statusCode === 404) return { known: false, reason: notFoundReason || "rota_ausente", data: null };
@@ -310,9 +335,25 @@ function computeProblems({ switches, docker, localBoot }) {
     });
   }
 
+  // Idade do item mais antigo NÃO é prova de fila parada. Com 8 mil na fila a ~20/h, o mais antigo
+  // segue com 13 dias mesmo com o worker a todo vapor — e a tarja ficava vermelha jurando "nada sendo
+  // processado" enquanto a fila andava (o card do Enriquecimento, ao lado, já dizia "fila acumulada":
+  // duas frases sobre o MESMO fato, uma delas falsa). Quem decide o veredito é o interruptor.
   if (switches.enriquecimento.oldestAgeMin != null && switches.enriquecimento.oldestAgeMin > SIX_HOURS_MIN) {
     const hours = Math.round(switches.enriquecimento.oldestAgeMin / 60);
-    problems.push({ id: "fila_parada", severity: "error", text: `Fila de enriquecimento parada há ~${hours}h — nada sendo processado.`, action: null });
+    if (switches.enriquecimento.on) {
+      problems.push({
+        id: "fila_atrasada", severity: "warn",
+        text: `Fila de enriquecimento acumulada: o mais antigo espera há ~${hours}h. Está processando, mas sem dar conta.`,
+        action: null,
+      });
+    } else {
+      problems.push({
+        id: "fila_parada", severity: "error",
+        text: `Fila de enriquecimento parada há ~${hours}h — nada sendo processado.`,
+        action: { label: "Ligar", method: "POST", path: "/owner/v3/switch/enriquecimento", body: { on: true } },
+      });
+    }
   }
 
   return problems;
@@ -320,7 +361,10 @@ function computeProblems({ switches, docker, localBoot }) {
 
 // ---------- overview completo ----------
 function buildOverview(parts) {
-  const boot = normalizeBoot(parts.bootRaw);
+  // Ollama vivo AGORA = ele respondeu a leitura de residência deste mesmo ciclo. `ia.reason` só é
+  // null quando aquela leitura deu certo (buildIaSwitch), então serve de prova sem I/O novo aqui.
+  const liveOllama = parts.ia ? parts.ia.reason === null : null;
+  const boot = normalizeBoot(parts.bootRaw, liveOllama);
   const scrapingLocal = applyLocalBackendBootOverlay(parts.scrapingLocal, parts.localBoot);
   const docker = buildDockerBlock(parts.docker);
   const switches = {
@@ -385,6 +429,7 @@ module.exports = {
   SIX_HOURS_MIN,
   normalizeBoot,
   classifyBackendRead,
+  unwrapOpsEnvelope,
   classifyOpsRead,
   buildScrapingEnv,
   describeBootStep,

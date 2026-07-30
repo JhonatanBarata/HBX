@@ -24,7 +24,12 @@ function ensureDir() {
 
 function parseJournal(raw) {
   try {
-    return { status: "valid", data: JSON.parse(raw) };
+    // BOM: quem escreve boot.json é PowerShell (start-owner-supervised.ps1) e o `Set-Content -Encoding
+    // utf8` do PS 5.1 grava COM BOM. JSON.parse estoura no ﻿, o journal virava "corrupt" e o
+    // painel ficava preso em "sem boot json" com as bolinhas cinzas pra sempre. O writer já foi
+    // corrigido; o strip aqui conserta os arquivos antigos e qualquer escritor externo futuro.
+    const text = typeof raw === "string" && raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+    return { status: "valid", data: JSON.parse(text) };
   } catch {
     return { status: "corrupt", data: null };
   }

@@ -139,7 +139,10 @@ function Write-BootState {
       painel  = $PainelAberto
       reason  = $Reason
     }
-    ($payload | ConvertTo-Json -Depth 3) | Set-Content -LiteralPath $bootFile -Encoding utf8 -Force
+    # UTF-8 SEM BOM: no PS 5.1 (que e quem roda este supervisor) `-Encoding utf8` grava COM BOM e o
+    # JSON.parse do agent estoura no ﻿ -> o painel ficava eternamente em "sem boot json".
+    # WriteAllText com UTF8Encoding($false) e o unico jeito que nao depende da versao do PowerShell.
+    [System.IO.File]::WriteAllText($bootFile, ($payload | ConvertTo-Json -Depth 3), (New-Object System.Text.UTF8Encoding($false)))
   } catch {
     Write-Warning "Nao foi possivel gravar $bootFile ($($_.Exception.Message))."
   }

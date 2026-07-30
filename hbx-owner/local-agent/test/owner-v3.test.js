@@ -77,6 +77,35 @@ test("classifyOpsRead: 404 na rota nova do ops-control vira known:false com o re
   assert.equal(read.reason, "ops_rota_fabrica_ausente");
 });
 
+// Regressão 30/07: o ops-control responde `{ ok:true, data:{...} }` (contrato dele) e opsRequest entrega
+// o corpo INTEIRO. Sem desempacotar, buildScrapingEnv lia `envelope.enabled` (undefined) e o painel
+// pintava "energia_desligada" com a VPS LIGADA — o dono clicava "Religar" e recebia "releitura discorda".
+test("classifyOpsRead: desembrulha o envelope {ok,data} do ops-control — energia LIGADA na VPS não pode virar 'desligada'", () => {
+  const energiaR = { ok: true, configured: true, statusCode: 200, data: { ok: true, data: { supported: true, enabled: true, forcedOn: false, key: "main", unavailableReason: null } } };
+  const statusR = { ok: true, configured: true, statusCode: 200, data: { ok: true, data: { supported: true, running: true, budget: 1000, processed: 250, contactsWritten: 300, lastError: null, rfbBaseCount: 28_437_967 } } };
+
+  const energiaRead = ownerV3.classifyOpsRead(energiaR, "ops_rota_fabrica_ausente");
+  assert.equal(energiaRead.known, true);
+  assert.equal(energiaRead.data.enabled, true, "o dado tem que vir de dentro do envelope");
+
+  const env = ownerV3.buildScrapingEnv(ownerV3.classifyOpsRead(statusR, "x"), energiaRead);
+  assert.equal(env.on, true, "VPS ligada tem que ler LIGADA");
+  assert.equal(env.reason, null);
+  assert.equal(env.running, true);
+  assert.equal(env.processed, 250, "os números do status também vinham do envelope errado");
+  assert.equal(env.rfbBaseCount, 28_437_967);
+});
+
+test("classifyOpsRead: ops-control ANTIGO (corpo cru, sem envelope) continua sendo lido; {ok:false} não vira leitura boa", () => {
+  const cru = ownerV3.classifyOpsRead({ ok: true, configured: true, statusCode: 200, data: { supported: true, enabled: true } }, "x");
+  assert.equal(cru.known, true);
+  assert.equal(cru.data.enabled, true);
+
+  const negado = ownerV3.classifyOpsRead({ ok: true, configured: true, statusCode: 200, data: { ok: false, error: "ssh_falhou" } }, "x");
+  assert.equal(negado.known, false, "envelope negado NÃO pode virar on:false chutado");
+  assert.equal(negado.reason, "ssh_falhou");
+});
+
 test("classifyOpsRead: sem opsToken vira ops_token_ausente; erro de transporte propaga a causa nomeada (ops_caido/vps_lenta)", () => {
   const semToken = ownerV3.classifyOpsRead({ ok: false, configured: false, reason: "ops_token_ausente" }, "x");
   assert.equal(semToken.reason, "ops_token_ausente");
@@ -322,6 +351,42 @@ test("normalizeBoot: sem state/boot.json ainda → agent:true (o próprio códig
   assert.deepEqual(boot, { at: null, windows: null, agent: true, ollama: null, painel: null, reason: "sem_boot_json" });
 });
 
+// Regressão 30/07: boot.json guardava "ollama:false / reason:'ollama offline'" do boot da manhã; o
+// dono subiu o Ollama depois e o pino continuou vermelho o dia inteiro, com a queixa já resolvida.
+test("normalizeBoot: Ollama vivo AGORA ganha do boot.json velho — e a queixa 'ollama offline' já resolvida some", () => {
+  const raw = { at: "2026-07-30T11:11:12Z", windows: true, agent: true, ollama: false, painel: true, reason: "ollama offline" };
+
+  const vivo = ownerV3.normalizeBoot(raw, true);
+  assert.equal(vivo.ollama, true, "evidência viva tem que ganhar do arquivo do boot");
+  assert.equal(vivo.reason, null, "queixa sobre o Ollama não pode sobreviver ao Ollama vivo");
+
+  const morto = ownerV3.normalizeBoot(raw, false);
+  assert.equal(morto.ollama, false);
+  assert.equal(morto.reason, "ollama offline", "Ollama realmente morto mantém o motivo");
+
+  // Sem evidência viva (leitura falhou), o arquivo continua valendo — não inventa.
+  assert.equal(ownerV3.normalizeBoot(raw, null).ollama, false);
+
+  // Motivo que NÃO fala do Ollama nunca é apagado pela vivacidade dele.
+  const outro = ownerV3.normalizeBoot({ ...raw, reason: "painel nao abriu" }, true);
+  assert.equal(outro.reason, "painel nao abriu");
+});
+
+test("buildOverview: liveOllama sai do ia.reason do próprio ciclo (sem I/O novo)", () => {
+  const raw = { windows: true, agent: true, ollama: false, painel: true, reason: "ollama offline" };
+  const vivo = ownerV3.buildOverview({
+    bootRaw: raw, scrapingLocal: okScrapingEnv(), scrapingVps: okScrapingEnv(),
+    ia: okIa({ reason: null }), enriquecimento: okEnriquecimento(),
+  });
+  assert.equal(vivo.boot.ollama, true);
+
+  const semOllama = ownerV3.buildOverview({
+    bootRaw: raw, scrapingLocal: okScrapingEnv(), scrapingVps: okScrapingEnv(),
+    ia: okIa({ reason: "ollama_sem_resposta" }), enriquecimento: okEnriquecimento(),
+  });
+  assert.equal(semOllama.boot.ollama, false);
+});
+
 test("normalizeBoot: boot.json presente força agent:true mesmo que o arquivo diga outra coisa (pode estar defasado)", () => {
   const boot = ownerV3.normalizeBoot({ at: "2026-07-28T10:00:00.000Z", windows: true, agent: false, ollama: true, painel: false, reason: "health_timeout" });
   assert.equal(boot.agent, true);
@@ -358,16 +423,36 @@ test("buildEnriquecimentoSwitch: 2+ jobs concluídos com timestamp real → ritm
   assert.equal(sw.ratePerHour, 2);
 });
 
-test("problema fila_parada só aparece acima de 6h (360min) de idade do item mais antigo", () => {
-  const enriquecimento359 = okEnriquecimento({ oldestAgeMin: 359 });
-  const overview359 = ownerV3.buildOverview({ scrapingLocal: okScrapingEnv(), scrapingVps: okScrapingEnv(), ia: okIa(), enriquecimento: enriquecimento359 });
-  assert.ok(!overview359.problems.some((p) => p.id === "fila_parada"));
+function overviewCom(enriquecimento) {
+  return ownerV3.buildOverview({ scrapingLocal: okScrapingEnv(), scrapingVps: okScrapingEnv(), ia: okIa(), enriquecimento });
+}
 
-  const enriquecimento361 = okEnriquecimento({ oldestAgeMin: 361 });
-  const overview361 = ownerV3.buildOverview({ scrapingLocal: okScrapingEnv(), scrapingVps: okScrapingEnv(), ia: okIa(), enriquecimento: enriquecimento361 });
-  const problem = overview361.problems.find((p) => p.id === "fila_parada");
+test("fila só vira problema acima de 6h (360min) de idade do item mais antigo", () => {
+  const problems = overviewCom(okEnriquecimento({ oldestAgeMin: 359, on: false })).problems;
+  assert.ok(!problems.some((p) => p.id === "fila_parada" || p.id === "fila_atrasada"));
+});
+
+test("fila velha com o enriquecimento DESLIGADO: erro 'parada' + ação pra ligar (é o caso em que ninguém está processando)", () => {
+  const problem = overviewCom(okEnriquecimento({ oldestAgeMin: 361, on: false })).problems.find((p) => p.id === "fila_parada");
   assert.ok(problem);
   assert.equal(problem.severity, "error");
+  assert.match(problem.text, /nada sendo processado/);
+  assert.equal(problem.action.path, "/owner/v3/switch/enriquecimento", "problema com conserto óbvio não pode vir sem botão");
+  assert.deepEqual(problem.action.body, { on: true });
+});
+
+// Regressão 30/07: com 8 mil na fila a ~20/h, o item mais antigo fica com 13 dias mesmo com o worker
+// a todo vapor. A tarja vermelha jurava "nada sendo processado" enquanto a fila ANDAVA — e o card do
+// Enriquecimento, ao lado, dizia "fila acumulada". Duas frases sobre o mesmo fato, uma delas falsa.
+test("fila velha com o enriquecimento LIGADO: aviso de acúmulo, nunca 'parada' — a fila está andando", () => {
+  const problems = overviewCom(okEnriquecimento({ oldestAgeMin: 18963, on: true })).problems;
+  assert.ok(!problems.some((p) => p.id === "fila_parada"), "worker ligado NÃO pode ser acusado de fila parada");
+
+  const aviso = problems.find((p) => p.id === "fila_atrasada");
+  assert.ok(aviso);
+  assert.equal(aviso.severity, "warn");
+  assert.doesNotMatch(aviso.text, /nada sendo processado/);
+  assert.match(aviso.text, /~316h/, "a idade real do mais antigo continua aparecendo");
 });
 
 test("buildEnriquecimentoSwitch: desligado sem lastError ainda tem reason legível (lei nº2 — nada calado)", () => {
