@@ -624,7 +624,11 @@ export class WAMonitoringService {
         await this.cleaningUp(instanceName);
         await this.cleaningStoreData(instanceName);
       } finally {
-        delete this.waInstances[instanceName];
+        // So limpa o ponteiro se ainda for O MESMO socket que removemos: se um create legitimo
+        // entrou no meio-tempo, o novo registro fica de pe (apagar aqui recriaria o orfao).
+        if (this.waInstances[instanceName] === live) {
+          delete this.waInstances[instanceName];
+        }
         this.logger.warn(`Instance "${instanceName}" - REMOVED`);
       }
     })();
