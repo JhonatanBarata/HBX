@@ -267,7 +267,7 @@ export class LogisticaOsrmService {
     const bearingsQuery = bearings ? `&bearings=${encodeURIComponent(bearings)}` : '';
     const url = `${this.baseUrl()}/route/v1/driving/${normalized}?overview=full&geometries=geojson&steps=${steps}${bearingsQuery}`;
     const body = await this.fetchUpstream(url);
-    this.cacheSet(key, body);
+    if (this.respostaUtil(body)) this.cacheSet(key, body);
     return body;
   }
 
@@ -289,7 +289,7 @@ export class LogisticaOsrmService {
     this.consumeRate(companyId);
     const url = `${this.baseUrl()}/table/v1/driving/${normalized}?annotations=duration,distance`;
     const body = await this.fetchUpstream(url);
-    this.cacheSet(key, body);
+    if (this.respostaUtil(body)) this.cacheSet(key, body);
     return body;
   }
 

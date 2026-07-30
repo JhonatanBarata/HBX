@@ -21,9 +21,17 @@ export class LogisticaOsrmController {
     return companyId;
   }
 
+  // `bearings` (30/07): direção do carro no waypoint de origem, pro retraço não
+  // mandar retorno na hora. Validado no service (formato, contagem, faixa) —
+  // nunca sai daqui pra URL do upstream sem passar por lá.
   @Get('route')
-  route(@Req() req: any, @Query('coords') coords: string, @Query('steps') steps?: string) {
-    return this.osrm.route(this.companyId(req), coords, steps);
+  route(
+    @Req() req: any,
+    @Query('coords') coords: string,
+    @Query('steps') steps?: string,
+    @Query('bearings') bearings?: string,
+  ) {
+    return this.osrm.route(this.companyId(req), coords, steps, bearings);
   }
 
   @Get('table')

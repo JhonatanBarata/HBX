@@ -264,7 +264,12 @@ function computeProblems({ switches, docker, localBoot }) {
   const s = switches.scraping;
   const localBooting = Boolean(localBoot && (localBoot.state === "starting" || localBoot.state === "desisti"));
 
-  if (!localBooting) {
+  // Ambiente sem base RFB não tem fábrica (a corrida morre em `rfb_esgotada` no primeiro passo).
+  // Cobrar "religue o scraping deste PC" de uma máquina que não tem o que moer é erro de mentira —
+  // e era o que ia aparecer no primeiro DESLIGAR TUDO. O front colapsa a linha pelo mesmo critério.
+  const localSemFabrica = s.local.known && s.local.rfbBaseCount === 0 && !s.local.running;
+
+  if (!localBooting && !localSemFabrica) {
     if (s.local.known && !s.local.on) {
       problems.push({
         id: "scraping_local_off", severity: "warn",

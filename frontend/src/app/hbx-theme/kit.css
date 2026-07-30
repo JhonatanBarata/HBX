@@ -758,7 +758,7 @@ html.hbx-hot-flash body { filter: saturate(1.55) hue-rotate(-22deg) brightness(1
    criam stacking context e pintam por cima do menu. */
 /* Topo: 1 linha, sem hero. Antes eram 61px de altura só pra dizer o nome da
    tela — num 1080p isso é 6% da janela em cromo puro (dono 26/07). */
-.topbar { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 5px 12px; border-bottom: 1px solid var(--border-hairline); background: var(--hbx-header-surface); position: relative; z-index: 20; }
+.topbar { flex: 0 0 auto; display: flex; align-items: center; gap: 10px; padding: 5px 12px; border-bottom: 1px solid var(--border-hairline); background: var(--hbx-header-surface); position: relative; z-index: 30; }
 /* Identidade da tela em UMA linha (26/07): título + migalha lado a lado. Em
    duas linhas isso virava um herói de 40px só pra repetir o nome do módulo que
    já está aceso na navegação. */

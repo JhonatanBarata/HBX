@@ -712,14 +712,52 @@
       return validCoordinates(lat, lng) ? { lat, lng, instrucao } : null;
     }).filter(Boolean);
   }
-  async function fetchOsrmRoutePublic(key, wantSteps) {
+  async function fetchOsrmRoutePublic(key, wantSteps, bearings) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 9000);
+    const direcao = bearings ? `&bearings=${encodeURIComponent(bearings)}` : "";
     try {
-      const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${key}?overview=full&geometries=geojson&steps=${wantSteps ? "true" : "false"}`, { signal: controller.signal });
+      const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${key}?overview=full&geometries=geojson&steps=${wantSteps ? "true" : "false"}${direcao}`, { signal: controller.signal });
       if (!response.ok) throw new Error("Roteamento indisponível.");
       return await response.json();
     } finally { clearTimeout(timeout); }
+  }
+  // ==========================================================================
+  // 🔴 30/07 (dono, com a foto do mapa na mão: "vc não retraça a rota. Se a
+  // pessoa errar uma entrada já era") — DIREÇÃO DO CARRO NO PEDIDO.
+  // `bearings` do OSRM é um item POR waypoint ("grau,tolerância"; item vazio =
+  // waypoint sem restrição — só a origem precisa de uma). Sem isso o roteador
+  // assume que dá pra sair do ponto pra QUALQUER lado: a rota nova nascia
+  // mandando "faça o retorno agora" no meio da avenida, em vez de seguir em
+  // frente e virar na próxima. Grau arredondado de 15 em 15 pra bússola
+  // tremendo não gerar uma chave de cache nova a cada fix.
+  // ==========================================================================
+  const BEARING_TOLERANCIA_GRAUS = 60;
+  const BEARING_VELOCIDADE_MIN_MPS = 2.5; // ~9 km/h
+  function bearingsParam(bearingDeg, totalPontos) {
+    if (!Number.isFinite(Number(bearingDeg)) || totalPontos < 2) return "";
+    const grau = ((Math.round(Number(bearingDeg) / 15) * 15) % 360 + 360) % 360;
+    return `${grau},${BEARING_TOLERANCIA_GRAUS}${";".repeat(totalPontos - 1)}`;
+  }
+  // Bússola do aparelho só vale ANDANDO: parado no farol o rumo reportado é
+  // ruído, e restringir a saída pro lado errado é pior que não restringir nada.
+  function navBearingConfiavel(point) {
+    if (!point) return null;
+    const velocidade = Number(point.speedMps);
+    const rumo = Number(point.bearingDeg);
+    if (!Number.isFinite(velocidade) || velocidade < BEARING_VELOCIDADE_MIN_MPS) return null;
+    return Number.isFinite(rumo) ? rumo : null;
+  }
+  // Proxy primeiro, público como rede de segurança (contrato da S4 21/07,
+  // intocado) — e devolve QUEM atendeu: o freio do retraço é mais apertado
+  // quando quem está roteando é o servidor de demonstração (ver navRecalcLimites).
+  async function pedirRotaViaria(key, wantSteps, bearings) {
+    const direcao = bearings ? `&bearings=${encodeURIComponent(bearings)}` : "";
+    try {
+      return { payload: await H.api(`/logistica/osrm/route?coords=${encodeURIComponent(key)}${wantSteps ? "&steps=true" : ""}${direcao}`), fonte: "proxy" };
+    } catch (_) {
+      return { payload: await fetchOsrmRoutePublic(key, wantSteps, bearings), fonte: "publico" };
+    }
   }
   // wantSteps (S5): SÓ true quando quem chama está em navModeActive() (ver
   // recomputeNavRoute) — pede &steps=true pro backend/fallback público e o

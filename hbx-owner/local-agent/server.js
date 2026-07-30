@@ -1721,6 +1721,23 @@ function opsRequest(method, route, payload, timeoutMs = 45000) {
   });
 }
 
+// O ops-control responde as rotas /api/radar/vps/* no envelope `{ ok, data }`, mas opsRequest entrega
+// o CORPO INTEIRO em `.data`. Quem lê campo de dentro (started, enabled...) precisa desembrulhar antes,
+// senão lê `undefined` e conclui o contrário do que aconteceu. Foi o que fez o "Rodar corrida" da VPS
+// acusar falha COM A CORRIDA RODANDO (30/07): normalizeFabricaResponse olhava `envelope.started`.
+// Converte pro mesmo formato de backendRequest() — { ok, statusCode, data, error } — pra poder passar
+// direto pros normalizadores que já existem.
+function opsResponseAsBackend(response) {
+  const r = response || {};
+  const unwrapped = ownerV3.unwrapOpsEnvelope(r.data);
+  return {
+    ok: Boolean(r.ok) && !unwrapped.reason,
+    statusCode: r.statusCode || null,
+    data: unwrapped.data,
+    error: r.reasonText || r.reason || unwrapped.reason || null,
+  };
+}
+
 // parsePercentString, parseSizeToGb → lib/util.js (Sprint 5).
 
 // parseLoadTriplet → lib/util.js (Sprint 5).
@@ -3872,7 +3889,7 @@ async function route(req, res) {
     // da intencao" — verdadeiro, mas inútil pra saber O QUE quebrou.
     const write = env === "local"
       ? await localBackendRequest("POST", "/modules/owner/fabrica/energia", { on: body.on }, { timeoutMs: 15000 })
-      : await opsRequest("POST", "/api/radar/vps/fabrica/energia", { on: body.on }, 20000);
+      : opsResponseAsBackend(await opsRequest("POST", "/api/radar/vps/fabrica/energia", { on: body.on }, 20000));
     const writeFailed = !write || write.ok !== true;
     const writeReason = writeFailed
       ? (write && (write.reason || (write.statusCode ? `escrita_http_${write.statusCode}` : null))) || "escrita_falhou"
@@ -3975,7 +3992,7 @@ async function route(req, res) {
       normalized = normalizeFabricaResponse("start", r);
     } else {
       const r = await opsRequest("POST", "/api/radar/vps/fabrica/start", payload, 30000);
-      normalized = normalizeFabricaResponse("start", { ok: r.ok, statusCode: r.statusCode, data: r.data, error: r.reasonText || r.reason });
+      normalized = normalizeFabricaResponse("start", opsResponseAsBackend(r));
     }
     sendJson(res, 200, { env, ...normalized });
     void pushOverviewEvent();

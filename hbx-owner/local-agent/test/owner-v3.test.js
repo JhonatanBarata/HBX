@@ -96,6 +96,22 @@ test("classifyOpsRead: desembrulha o envelope {ok,data} do ops-control — energ
   assert.equal(env.rfbBaseCount, 28_437_967);
 });
 
+// Regressão 30/07 (a que escapou da primeira varredura): eu desembrulhei o envelope do ops-control em
+// classifyOpsRead e DEIXEI o "Rodar corrida" da VPS lendo `envelope.started` — undefined. Resultado:
+// o painel gritou falha com a corrida RODANDO de verdade ("deu erro mas continuou"). O desembrulho
+// tem de valer pra QUALQUER leitura de resposta do ops-control, não só pra do interruptor.
+test("unwrapOpsEnvelope: start da fábrica na VPS — `started` mora DENTRO do envelope, não em cima dele", () => {
+  const respostaDoOps = { ok: true, statusCode: 200, data: { ok: true, data: { started: true, budget: 5000 } } };
+  const desembrulhado = ownerV3.unwrapOpsEnvelope(respostaDoOps.data);
+  assert.equal(desembrulhado.data.started, true, "ler started em cima do envelope dá undefined = 'não iniciou'");
+  assert.equal(desembrulhado.reason, null);
+
+  // Recusa legítima da fábrica (started:false) continua sendo recusa — o desembrulho não inventa sucesso.
+  const recusa = ownerV3.unwrapOpsEnvelope({ ok: true, data: { started: false, reason: "budget_obrigatorio" } });
+  assert.equal(recusa.data.started, false);
+  assert.equal(recusa.reason, null, "o envelope veio OK; quem recusou foi a fábrica, e isso é dado, não erro de transporte");
+});
+
 test("classifyOpsRead: ops-control ANTIGO (corpo cru, sem envelope) continua sendo lido; {ok:false} não vira leitura boa", () => {
   const cru = ownerV3.classifyOpsRead({ ok: true, configured: true, statusCode: 200, data: { supported: true, enabled: true } }, "x");
   assert.equal(cru.known, true);

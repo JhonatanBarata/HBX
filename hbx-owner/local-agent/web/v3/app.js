@@ -63,6 +63,10 @@ const REASON_TEXT = {
   ja_ligada: "já estava ligada",
   ja_desligado: "já estava desligado",
   health_timeout: "health-check do agent não respondeu a tempo",
+  rfb_esgotada: "acabaram as empresas da base RFB pra virar lead",
+  fabrica_nao_iniciada: "a fábrica não confirmou o início da corrida",
+  ja_rodando: "já tem uma corrida rodando neste ambiente",
+  budget_obrigatorio: "informe o limite de leads antes de rodar",
 };
 function reasonText(r) { return r ? (REASON_TEXT[r] || String(r).replace(/_/g, " ")) : ""; }
 
@@ -92,8 +96,11 @@ function bootHtml(boot) {
 /* ---------- master: LIGAR TUDO / DESLIGAR TUDO (botões, não um switch ambíguo) ---------- */
 function masterHtml(ov) {
   const s = ov.switches;
-  const knownAll = s.scraping.vps.known && s.scraping.local.known;
-  const allOn = s.scraping.vps.on && s.scraping.local.on && s.ia.on && s.enriquecimento.on;
+  // Ambiente sem fábrica não entra no veredito: cobrar energia de um lugar que não tem base RFB
+  // deixaria o painel eternamente em "nem tudo ligado" por causa de um interruptor que não faz nada.
+  const localConta = !ambienteSemFabrica(s.scraping.local);
+  const knownAll = s.scraping.vps.known && (!localConta || s.scraping.local.known);
+  const allOn = s.scraping.vps.on && (!localConta || s.scraping.local.on) && s.ia.on && s.enriquecimento.on;
   const label = !knownAll ? "estado parcial — veja a faixa" : allOn ? "TUDO LIGADO" : "nem tudo ligado";
   return `<span class="lbl">${esc(label)}</span>
     <div class="master-actions">
@@ -139,8 +146,26 @@ function renderProblems(problems) {
 }
 
 /* ---------- ⚡ Scraping: 2 linhas de energia (VPS/Local), cada uma com corrida própria ---------- */
+
+// Um ambiente SEM base RFB não tem fábrica: a corrida morre no primeiro passo (`rfb_esgotada`, o
+// materializeNextLead não acha nenhuma empresa pra virar lead). Nesta máquina os 28M nem existem —
+// não há schema cnpj_public no Postgres local; a base mora só na VPS. Mostrar ali um interruptor e um
+// botão que só sabem dar erro é o oposto de "painel simples": vira uma linha de texto, e a linha
+// inteira volta sozinha no dia em que existir base (ou se uma corrida estiver rodando lá).
+function ambienteSemFabrica(d) {
+  return Boolean(d && d.known && d.rfbBaseCount === 0 && !d.running && !d.starting);
+}
+
 function scrapingWhy(vps, local) {
   if (local.starting) return { level: "", text: `Localhost subindo — ${local.reason || "aguarde"}${agoText(local.startingSince)}` };
+  // Localhost sem fábrica sai da conta do "2 ambientes" — senão o resumo cobra energia de um lugar
+  // que não tem o que rodar (era o "Energia ligada nos 2 ambientes" com um dos dois inútil).
+  if (ambienteSemFabrica(local)) {
+    if (!vps.known) return { level: "", text: `Não sei o estado da VPS — ${reasonText(vps.reason) || "sem detalhe"}` };
+    return vps.on
+      ? { level: "ok", text: "✓ Energia ligada na VPS (a única fábrica com base)" }
+      : { level: "warn", text: `Fábrica da VPS desligada — ${reasonText(vps.reason) || "sem motivo informado"}` };
+  }
   if (!vps.known || !local.known) {
     const bad = !vps.known ? { name: "VPS", d: vps } : { name: "Localhost", d: local };
     return { level: "", text: `Não sei o estado de ${bad.name} — ${reasonText(bad.d.reason) || "sem detalhe"}` };
@@ -167,8 +192,15 @@ function envRow(label, env, d, liveBudget) {
     statusTxt = !d.known ? "não sei o estado" : d.on ? "ligada" : "desligada";
     reasonTxt = d.reason ? ` — ${reasonText(d.reason)}` : "";
   }
-  const runDisabled = starting || !d.known || !d.on || d.running;
-  const runLabel = d.running ? `Rodando ${fmtInt(d.processed)}/${fmtInt(d.budget)}` : "▶ Rodar corrida";
+  // Sem base RFB no ambiente = a fábrica não tem matéria-prima, então a corrida morre no primeiro
+  // passo com "rfb_esgotada". Botão que só sabe dar erro não é botão: fica inerte e a linha EXPLICA.
+  // (30/07: o dono clicou no Localhost e levou "RFB esgotada" na cara — esta máquina não tem o
+  // schema cnpj_public; os 28M vivem só na VPS.)
+  const semBaseRfb = d.known && d.rfbBaseCount === 0;
+  const runDisabled = starting || !d.known || !d.on || d.running || semBaseRfb;
+  const runLabel = d.running
+    ? `Rodando ${fmtInt(d.processed)}/${fmtInt(d.budget)}`
+    : semBaseRfb ? "sem base aqui" : "▶ Rodar corrida";
   // Se o dono está com o dedo no campo de budget agora, o valor digitado por ELE manda — nunca o
   // eco do servidor sobrescreve no meio da digitação (o poll de 5s recria este nó a cada render).
   const budgetVal = liveBudget != null ? liveBudget : (Number(d.budget) || 1000);
@@ -185,7 +217,9 @@ function envRow(label, env, d, liveBudget) {
       <button data-action data-method="POST" data-path="/owner/v3/fabrica/run" data-body='{"env":"${env}"}' data-budget-of="budget-${env}" ${runDisabled ? "disabled" : ""}>${esc(runLabel)}</button>
     </div>
     <div class="kv sub"><span>Processado</span><b>${fmtInt(d.processed)} de ${fmtInt(d.budget)}</b></div>
-    ${d.lastError ? `<div class="kv sub"><span>Último erro</span><b class="err">${esc(reasonText(d.lastError))}</b></div>` : ""}`;
+    ${semBaseRfb
+      ? `<div class="kv sub"><span>Base RFB</span><b class="dim">não existe nesta máquina — a fábrica roda na VPS</b></div>`
+      : (d.lastError ? `<div class="kv sub"><span>Último erro</span><b class="err">${esc(reasonText(d.lastError))}</b></div>` : "")}`;
 }
 function scrapingBody(s, engines, docker, focus, mergedEnvs) {
   // mergedEnvs = as duas pontas apontam pro MESMO backend. Somar aí conta o mesmo número duas vezes
@@ -215,7 +249,9 @@ function scrapingBody(s, engines, docker, focus, mergedEnvs) {
     <div class="bignum">${fmtInt(total)}<small>contatos coletados</small></div>
     <div class="why ${why.level}">${esc(why.text)}</div>
     ${envRow("VPS", "vps", s.vps, vpsLive)}
-    ${envRow("Localhost", "local", s.local, localLive)}
+    ${ambienteSemFabrica(s.local)
+      ? `<div class="kv sub"><span>Localhost</span><b class="dim">sem base RFB nesta máquina — a fábrica roda na VPS</b></div>`
+      : envRow("Localhost", "local", s.local, localLive)}
     ${mergedNote}
     ${enginesLine}
     <div class="kv"><span>Base RFB disponível</span><b>${rfb != null ? fmtInt(rfb) + " empresas" : "—"}</b></div>
