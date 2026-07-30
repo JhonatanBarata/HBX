@@ -37,6 +37,9 @@ function makeService(opts: {
   // e supressão de e-mail por endereço (default = ninguém suprimido).
   identityReady?: boolean;
   suppressedEmails?: string[];
+  // FREIO DA SUPRESSÃO (30/07) — chaves de contato que já pediram para sair.
+  // Default: ninguém suprimido (comportamento de sempre).
+  suppressedContacts?: string[];
 }) {
   const svc = Object.create(CadenciaService.prototype) as any;
   const queueCalls: any[] = [];
@@ -156,12 +159,29 @@ function makeService(opts: {
     finishAutomationEnrollment: async () => null,
     advanceAutomationEnrollment: async () => null,
   };
+  // FREIO DA SUPRESSÃO (30/07) — o service real é instanciado no construtor, que os
+  // testes ignoram (Object.create). Mock com o MESMO contrato: isSuppressed devolve
+  // boolean + tipo da chave que bateu, e nunca vaza motivo/origem.
+  const suppressionCalls: any[] = [];
+  svc.contactSuppression = {
+    isSuppressed: async (contacts: any) => {
+      suppressionCalls.push(contacts);
+      const list = opts.suppressedContacts || [];
+      const hitPhone = contacts?.phone && list.includes(String(contacts.phone));
+      const hitEmail = contacts?.email && list.includes(String(contacts.email));
+      if (hitPhone) return { suppressed: true, matchedType: 'phone' };
+      if (hitEmail) return { suppressed: true, matchedType: 'email' };
+      return { suppressed: false, matchedType: null };
+    },
+    mark: async () => 1,
+    applyAutoSuppressionForClosedLead: async () => 1,
+  };
   // S5 LEAD-CENTRICO — instancia REAL (nao mock) contra o mesmo svc.prisma falso
   // acima: exercita o algoritmo de slot de verdade (janela/teto/intervalo default,
   // sem VendasComercialConfig na tabela falsa -> cai nos defaults 08:00-18:00/10/15).
   svc.agendaDisparo = new AgendaDisparoService(svc.prisma);
 
-  return { svc, queueCalls, atividadeCalls, mailerCalls, timelineCalls, updates, inscricoes };
+  return { svc, queueCalls, atividadeCalls, mailerCalls, timelineCalls, updates, inscricoes, suppressionCalls };
 }
 
 const cadenciaConservador = {
@@ -238,6 +258,42 @@ test('passo WhatsApp usa o caminho do bot de prospeccao (queueOutboundForCompany
   assert.equal(call.payload.senderType, 'bot');
   assert.equal(call.payload.variables.botType, 'prospeccao');
   assert.equal(call.payload.messageType, 'text');
+});
+
+// FREIO DA SUPRESSÃO (30/07/2026) — cena real do dia de vendedor: hoje `isSuppressed`
+// NÃO tinha nenhum chamador em todo o backend. Quem respondia "pare, me remove" podia
+// ser disparado de novo pela cadência. Estes 2 testes são a vacina: o primeiro reprova
+// se alguém tirar o portão, o segundo reprova se o portão barrar quem nunca pediu nada.
+test('FREIO: contato que pediu para sair NAO recebe WhatsApp da cadencia', async () => {
+  const { svc, queueCalls, suppressionCalls, inscricoes } = makeService({
+    runnerEnabled: true,
+    cadencia: cadenciaConservador,
+    suppressedContacts: ['5511988887777'],
+    inscricoes: [
+      { id: 'i1', cadenciaId: 'cad1', companyId: 7, leadId: 'lead1', responsavelId: null, status: 'ativa', currentStep: 0, nextStepAt: new Date(Date.now() - 1000) },
+    ],
+  });
+  const res = await svc.runDueSteps(new Date());
+  assert.equal(queueCalls.length, 0, 'NADA pode sair para contato suprimido');
+  assert.equal((res as any).whatsSent, 0);
+  assert.ok(suppressionCalls.length >= 1, 'o portao TEM que ser consultado antes de disparar');
+  assert.equal(inscricoes[0].status, 'cancelada', 'a inscricao morre — nao fica tentando de novo amanha');
+  assert.equal(inscricoes[0].lastError, 'contato_suprimido');
+});
+
+test('FREIO: contato limpo continua recebendo normalmente (nao-regressao)', async () => {
+  const { svc, queueCalls, suppressionCalls } = makeService({
+    runnerEnabled: true,
+    cadencia: cadenciaConservador,
+    suppressedContacts: ['5511999990000'],
+    inscricoes: [
+      { id: 'i1', cadenciaId: 'cad1', companyId: 7, leadId: 'lead1', responsavelId: null, status: 'ativa', currentStep: 0, nextStepAt: new Date(Date.now() - 1000) },
+    ],
+  });
+  const res = await svc.runDueSteps(new Date());
+  assert.equal((res as any).whatsSent, 1, 'quem nunca pediu para sair segue recebendo');
+  assert.equal(queueCalls.length, 1);
+  assert.ok(suppressionCalls.length >= 1);
 });
 
 test('teto diario de WhatsApp por empresa nao e furado (passo extra e adiado, nao enviado)', async () => {

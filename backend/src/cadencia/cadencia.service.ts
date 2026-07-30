@@ -663,6 +663,29 @@ export class CadenciaService {
     );
   }
 
+  // FREIO DA SUPRESSÃO (30/07/2026) — portão ÚNICO de saída da cadência.
+  // Até hoje `isSuppressed` não tinha UM chamador em todo o backend: quem respondia
+  // "pare, me remove" seguia elegível a disparo. Agora nenhum canal sai sem consultar,
+  // e marca positiva MATA a inscrição — só pular o passo adiaria o incômodo para o
+  // próximo ciclo. A leitura é fail-open por dentro (isSuppressed nunca lança): queda
+  // de banco não trava a cadência inteira, mas marca encontrada SEMPRE barra.
+  // Quem encerra aqui não é sobrescrito depois: o runner reconfere canCadenciaRun
+  // antes de avançar/concluir (mesmo guard que protege o cancelamento por inbound).
+  private async blockedBySuppression(
+    insc: { id: string; companyId: number; leadId: string },
+    contacts: { phone?: string | null; email?: string | null },
+  ): Promise<boolean> {
+    const hit = await this.contactSuppression.isSuppressed(contacts);
+    if (!hit.suppressed) return false;
+    this.logger.log(
+      `[cadencia-runner] contato suprimido lead=${insc.leadId} chave=${hit.matchedType} — cadencia encerrada`,
+    );
+    await (this.prisma as any).cadenciaInscricao
+      .update({ where: { id: insc.id }, data: { status: 'cancelada', lastError: 'contato_suprimido' } })
+      .catch(() => null);
+    return true;
+  }
+
   // WhatsApp: reusa o caminho PROVADO do bot de prospeccao (com todos os freios).
   private async executeWhatsStep(
     insc: { id: string; companyId: number; leadId: string },
@@ -687,6 +710,8 @@ export class CadenciaService {
       this.logger.log(`[cadencia-runner] whats sem telefone lead=${insc.leadId} — passo pulado`);
       return false;
     }
+    // Nada sai para quem pediu para sair — consulta ANTES de montar a mensagem.
+    if (await this.blockedBySuppression(insc, { phone: contact })) return false;
     const body = String(passo.corpo || passo.titulo || '').trim();
     if (!body) return false;
 
@@ -721,7 +746,7 @@ export class CadenciaService {
   //  - tenant nao config.  -> SKIP gracioso (errorCode COMPANY_EMAIL_NOT_CONFIGURED): timeline + segue.
   //  - erro de envio       -> timeline com o erro, cadencia AVANCA.
   private async executeEmailStep(
-    insc: { leadId: string; companyId: number; responsavelId?: number | null },
+    insc: { id: string; leadId: string; companyId: number; responsavelId?: number | null },
     cadencia: CadenciaRow,
     passo: CadenciaPasso,
     automationStepRunId?: string | null,
@@ -742,6 +767,13 @@ export class CadenciaService {
       // Sem e-mail: passo vira no-op (segue a cadencia), igual WhatsApp sem telefone.
       this.logger.log(`[cadencia-runner] email sem destinatario lead=${insc.leadId} — passo pulado`);
       await this.writeEmailTimeline(insc.leadId, cadencia, passo, 'Lead sem e-mail — passo pulado.');
+      return false;
+    }
+
+    // Mesmo portão do WhatsApp: a marquinha global de contato vale para TODO canal,
+    // e vem antes da supressão específica de e-mail (bounce/opt-out do provedor).
+    if (await this.blockedBySuppression(insc, { email: to })) {
+      await this.writeEmailTimeline(insc.leadId, cadencia, passo, 'Contato pediu para não ser mais chamado — cadência encerrada.');
       return false;
     }
 
