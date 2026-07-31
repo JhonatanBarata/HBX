@@ -1175,6 +1175,17 @@ export class LogisticaController {
     return this.geo.busca(q, lat, lng);
   }
 
+  /**
+   * 31/07 (APK-ROTA, pedido do dono) — localização COLADA (link do Maps ou par de
+   * coordenadas) vira ponto. O "Abrir com" do WhatsApp manda `geo:` e é resolvido
+   * dentro do aparelho; aqui só entra o que exige abrir link curto. 200 sempre:
+   * não achou → `fonte:'nenhum'`. Vazio → 400 (erro de input do chamador).
+   */
+  @Get('geo/link')
+  geoLink(@Query('u') u: string) {
+    return this.geo.link(u);
+  }
+
   // ── PR18072026 W1 — façade de produtos sob /logistica (allowlist do APK) ───
   // O app do entregador só fala com endpoints `logistica/*`; PATCH/POST aqui
   // evitam sair do prefixo permitido. ADMIN-only (mesmo padrão de

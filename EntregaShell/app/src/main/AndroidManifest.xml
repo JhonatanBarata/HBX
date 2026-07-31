@@ -65,6 +65,35 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
+            <!-- 31/07 (pedido do dono: "queria q o HBX seja reconhecido como app
+                 de rota") — LOCALIZAÇÃO VINDA DE FORA. Tocar numa localização
+                 recebida no WhatsApp e escolher "Abrir com" dispara um `geo:`;
+                 é este filtro que põe o HBX naquela lista, do mesmo jeito que os
+                 apps de navegação de mercado. A porta continua sendo esta
+                 Activity (sem WebView e sem ponte) — ela só traduz e repassa. -->
+            <intent-filter android:label="@string/hbx_abrir_como_rota">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="geo" />
+            </intent-filter>
+            <!-- Link do Google Maps colado/compartilhado. Sem autoVerify: o HBX
+                 aparece como OPÇÃO no "Abrir com", nunca sequestra o link. -->
+            <intent-filter android:label="@string/hbx_abrir_como_rota">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="maps.app.goo.gl" />
+                <data android:scheme="https" android:host="maps.google.com" />
+                <data android:scheme="https" android:host="www.google.com" android:pathPrefix="/maps" />
+            </intent-filter>
+            <!-- "Compartilhar → HBX" a partir da conversa. -->
+            <intent-filter android:label="@string/hbx_abrir_como_rota">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
         </activity>
 
         <activity

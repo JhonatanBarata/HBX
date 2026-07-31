@@ -297,6 +297,10 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         method == "GET" && segments == listOf("logistica", "geo", "cep") -> true
         // MODO PASSEIO (29/07) — busca de lugar/endereço do mapa do passeio.
         method == "GET" && segments == listOf("logistica", "geo", "busca") -> true
+        // 31/07 (APK-ROTA) — link de localização COLADO vira ponto. O `geo:` do
+        // WhatsApp o app resolve sozinho; aqui só passa o link curto do Maps, que
+        // exige seguir redirecionamento (rede, com trava de host, mora no servidor).
+        method == "GET" && segments == listOf("logistica", "geo", "link") -> true
         // PR20072026 W2 — GET /logistica/leitura/:id/resumo.
         method == "GET" && segments.size == 4 && segments.take(2) == listOf("logistica", "leitura") && segments[3] == "resumo" -> true
         // S4 (PR21072026-NAVEGACAO-HBX) — proxy OSRM: coords vai em query string,

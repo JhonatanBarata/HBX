@@ -5851,12 +5851,17 @@
       ? ""
       : `<div class="field"><label>Nome${pedeNome ? "" : " (opcional)"}</label><input name="nome" maxlength="120" value="${H.escape(r.nome)}" data-enter-action="${pronto ? "montagem-rapida-confirmar" : "montagem-rapida-buscar"}"></div>`;
     const body = `<form id="montagem-rapida-form">${r.origem === "cep" ? `<div class="form-grid"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(r.cep)}"></div><div class="field"><label>Número</label><input name="numero" inputmode="numeric" maxlength="6" value="${H.escape(r.numero)}"></div></div>` : ""}${campoNome}</form>${escolhaModo}${escolhaPosicao}${statusLinha}`;
-    const rotuloPronto = !duplicado || modo !== "cadastro"
-      ? "Adicionar na rota"
-      : contaEhStub(duplicado) ? "Cadastrar aqui" : "Usar este cadastro";
+    // 31/07 — destino que chegou de fora (WhatsApp/Maps): o botão diz o que ele
+    // FAZ. Sem rota de pé é "Traçar rota" (e o Iniciar continua sendo o único
+    // que gasta crédito); com rota rodando é a mesma parada nova de sempre.
+    const rotuloPronto = r.externo && !openItems().length
+      ? "Traçar rota"
+      : !duplicado || modo !== "cadastro"
+        ? "Adicionar na rota"
+        : contaEhStub(duplicado) ? "Cadastrar aqui" : "Usar este cadastro";
     return centerModal({
       icon: "plus",
-      title: "Rota rápida",
+      title: r.externo ? "Ir até aqui" : "Rota rápida",
       resumo: "",
       body,
       closeAction: "montagem-rapida-fechar",
@@ -9776,6 +9781,69 @@
     // A mensagem é best effort e nunca bloqueia a folha de chegada.
     void H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/chegando`, { method: "POST", body: {} }).catch(() => {});
   });
+  // ==========================================================================
+  // 🔴 31/07 (dono: "quero abrir localização vinda do whatsapp… queria q o HBX
+  // seja reconhecido como app de rota") — DESTINO VINDO DE FORA.
+  //
+  // O Android entrega a localização tocada no WhatsApp como `geo:` (ver
+  // DestinoCompartilhado.kt); link curto do Maps não tem coordenada no texto e
+  // é o servidor que abre (`/logistica/geo/link`). Aqui o destino cai na MESMA
+  // Rota rápida que o toque no mapa já usa — nada de tela paralela.
+  //
+  // O que NÃO acontece aqui: iniciar rota sozinho. Chegar de fora não pode
+  // gastar crédito — o destino fica montado com o traço pronto e quem debita é
+  // o toque no Iniciar, na tela.
+  // ==========================================================================
+  async function receberDestinoExterno(bruto) {
+    let destino = null;
+    try { destino = typeof bruto === "string" ? JSON.parse(bruto) : bruto; } catch (_) { destino = null; }
+    if (!destino) return;
+    if (state.montagemRapida) return; // já tem uma parada sendo montada: não atropela
+    let lat = Number(destino.lat);
+    let lng = Number(destino.lng);
+    const rotulo = String(destino.rotulo || "").trim().slice(0, 120);
+    const link = String(destino.link || "").trim();
+    if (!validCoordinates(lat, lng) && link) {
+      showLoading("Abrindo a localização…");
+      try {
+        const lido = await H.api(`/logistica/geo/link?u=${encodeURIComponent(link)}`);
+        if (lido && validCoordinates(Number(lido.lat), Number(lido.lng))) {
+          lat = Number(lido.lat);
+          lng = Number(lido.lng);
+        }
+      } catch (_) { /* servidor fora: cai no aviso abaixo, sem travar o app */ }
+      finally { hideLoading(); }
+    }
+    if (!validCoordinates(lat, lng)) {
+      toast("Não consegui ler essa localização. Cole o endereço na Rota rápida.", true);
+      return;
+    }
+    state.screen = "route";
+    // Mesmo formato do toque no mapa (origem "mapa"): o pino tocado É a intenção
+    // do usuário e vira o pino da parada, sem passar por CEP.
+    state.montagemRapida = {
+      origem: "mapa", contexto: "rota", posicao: "perto", externo: true,
+      cep: "", numero: "", nome: rotulo, lat, lng,
+      resolvido: { fonte: "mapa", endereco: "", bairro: "", cidade: "", uf: "", cep: "", numero: "", lat, lng },
+      buscando: true, checando: false, salvando: false, erro: "", duplicado: null,
+    };
+    showModal("rota-rapida");
+    try {
+      // Endereço só pra ELE CONFERIR que o ponto é o certo (dado que veio de
+      // fora não se confirma sozinho). Falhar aqui é ok: o pino já basta.
+      const rev = await H.api(`/logistica/geo/reverse?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`);
+      const r = state.montagemRapida;
+      if (r && r.externo && rev) {
+        r.resolvido = { fonte: "mapa", endereco: rev.endereco || "", bairro: rev.bairro || "", cidade: rev.cidade || "", uf: rev.uf || "", cep: rev.cep || "", numero: rev.numero || "", lat, lng };
+        if (rev.cep) r.cep = rev.cep;
+      }
+    } catch (_) {}
+    finally {
+      const r = state.montagemRapida;
+      if (r && r.externo) { r.buscando = false; render(); }
+    }
+  }
+  document.addEventListener("hbx:destino", event => { void receberDestinoExterno(event.detail); });
   document.addEventListener("hbx:theme", render);
   // Fix visual de alta frequência (~3s): move posição/precisão/câmera, mas não
   // entra na trilha gravada. O nativo mantém a gravação filtrada em 8m/15s.

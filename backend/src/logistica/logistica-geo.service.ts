@@ -2,6 +2,17 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { resolverCnefe } from '../nucleo/cnefe-resolver.util';
 import { resolveServerGeo } from '../nucleo/nucleo-geo.util';
 import { consultarCepPublico } from './logistica-cep.util';
+import {
+  coordenadaDaUrl,
+  DestinoLido,
+  hostDeMapa,
+  lerTextoColado,
+} from './logistica-geo-link.util';
+
+/** geo/link — cache curto por link (o mesmo link é colado várias vezes seguidas). */
+const LINK_CACHE_TTL_MS = 30 * 60 * 1000;
+const LINK_CACHE_MAX = 120;
+const LINK_TIMEOUT_MS = 6000;
 
 /**
  * PR20072026-ROTA-SALVA F3.2 — geocode REVERSO (GPS → endereço), server-side,
@@ -89,6 +100,7 @@ export class LogisticaGeoService {
   private readonly logger = new Logger(LogisticaGeoService.name);
   private readonly cache = new Map<string, CacheEntry>();
   private readonly buscaCache = new Map<string, BuscaCacheEntry>();
+  private readonly linkCache = new Map<string, { destino: DestinoLido; expiresAt: number }>();
 
   /** Kill-switch de rede — MESMO env de nucleo-geo.util.ts (default OFF). */
   private networkEnabled(): boolean {
@@ -315,6 +327,81 @@ export class LogisticaGeoService {
       this.logger.debug(`[logistica] geo/reverse falhou (degradando p/ 'nenhum'): ${String(e?.message || e)}`);
       return { ...VAZIO };
     }
+  }
+
+  /**
+   * 31/07 (APK-ROTA, pedido do dono) — TEXTO/LINK DE LOCALIZAÇÃO COLADO → ponto.
+   *
+   * O caminho principal do "abrir localização do WhatsApp" é o `geo:` do Android,
+   * resolvido dentro do aparelho, sem passar por aqui. Este endpoint cobre o que
+   * o aparelho NÃO consegue: o link curto do Google (maps.app.goo.gl), que só
+   * vira coordenada depois de seguir o redirecionamento — chamada de rede, que
+   * mora no servidor (com cache e teto), nunca solta no celular.
+   *
+   * Nunca 500: sem achar, devolve `fonte:'nenhum'` e o app pede o endereço na mão.
+   */
+  async link(uRaw: unknown): Promise<DestinoLido> {
+    const bruto = String(uRaw ?? '').trim().slice(0, 2048);
+    if (!bruto) throw new BadRequestException('Cole o link ou a localização.');
+
+    const { destino, link } = lerTextoColado(bruto);
+    // Coordenada que já estava no texto/URL: pronto, sem rede nenhuma.
+    if (destino.fonte !== 'nenhum') return destino;
+    if (!link || !hostDeMapa(link)) return destino;
+
+    const cacheado = this.linkCache.get(link);
+    if (cacheado && cacheado.expiresAt > Date.now()) return cacheado.destino;
+    // Kill-switch de rede do módulo (mesmo do reverse/busca): desligado, o
+    // servidor não abre nada — o app continua funcionando pelo `geo:`.
+    if (!this.networkEnabled()) return destino;
+
+    const final = await this.seguirRedirecionamento(link);
+    const resolvido = final ? coordenadaDaUrl(final) : { ...destino };
+    const saida: DestinoLido =
+      resolvido.fonte === 'url'
+        ? { ...resolvido, fonte: 'redirecionamento' }
+        : { ...destino, rotulo: resolvido.rotulo || destino.rotulo };
+    this.linkCache.set(link, { destino: saida, expiresAt: Date.now() + LINK_CACHE_TTL_MS });
+    while (this.linkCache.size > LINK_CACHE_MAX) {
+      const maisVelho = this.linkCache.keys().next().value;
+      if (maisVelho === undefined) break;
+      this.linkCache.delete(maisVelho);
+    }
+    return saida;
+  }
+
+  /**
+   * Segue o redirecionamento SEM ler corpo: só o cabeçalho `Location`, no máximo
+   * 4 saltos, e cada salto tem que continuar num host de mapa conhecido. É essa
+   * checagem por salto que impede o endpoint de virar proxy pra rede interna
+   * (SSRF por redirecionamento é o buraco clássico de "resolvedor de link").
+   */
+  private async seguirRedirecionamento(url: string): Promise<string> {
+    let atual = url;
+    for (let salto = 0; salto < 4; salto++) {
+      if (!hostDeMapa(atual)) return '';
+      let res: Response;
+      try {
+        res = await fetch(atual, {
+          method: 'GET',
+          redirect: 'manual',
+          headers: { 'User-Agent': NOMINATIM_USER_AGENT, Accept: 'text/html' },
+          signal: AbortSignal.timeout(LINK_TIMEOUT_MS),
+        });
+      } catch (e: any) {
+        this.logger.debug(`[logistica] geo/link não abriu (degradando): ${String(e?.message || e)}`);
+        return '';
+      }
+      const location = res.headers.get('location');
+      if (!location) return atual;
+      try {
+        atual = new URL(location, atual).toString();
+      } catch {
+        return '';
+      }
+      if (coordenadaDaUrl(atual).fonte === 'url') return atual;
+    }
+    return atual;
   }
 }
 

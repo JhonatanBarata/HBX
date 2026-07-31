@@ -1,6 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">HBX</string>
+    <!-- Texto que aparece na lista "Abrir com" do Android quando chega uma
+         localização de fora (WhatsApp, link do Maps). -->
+    <string name="hbx_abrir_como_rota">Traçar rota no HBX</string>
     <string name="offline_titulo">Sem conexão</string>
     <string name="offline_retry">Tentar de novo</string>
 </resources>

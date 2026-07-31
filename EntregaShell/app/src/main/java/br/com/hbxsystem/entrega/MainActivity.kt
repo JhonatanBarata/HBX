@@ -324,6 +324,11 @@ class MainActivity : AppCompatActivity() {
     private fun performReadyReveal(theme: String) {
         if (appRevealed || isFinishing || isDestroyed) return
         appRevealed = true
+        // 31/07 — destino que chegou de fora (WhatsApp/Maps) antes da tela existir:
+        // agora a tela existe, entrega. Mesma ideia da fila de chegadas do RotaState
+        // — evento disparado no vazio se perde, e o dono ficaria olhando pro app
+        // sem entender por que o endereço não veio junto.
+        DestinoPendente.drenar()?.let(::entregarDestino)
         openingWebView?.evaluateJavascript(
             "window.HBXOpening&&window.HBXOpening.complete('app','${if (theme == "light") "light" else "dark"}')",
             null,
@@ -370,6 +375,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Localização aberta com o app JÁ vivo: a porta (OfflineLauncherActivity)
+        // deixou o destino no slot e quem volta pro foco entrega.
+        DestinoPendente.drenar()?.let(::entregarDestino)
         if (BuildConfig.APP_MODE == "logistica") {
             RotaState.registrarListener { paradaId -> runOnUiThread { entregarChegada(paradaId) } }
             RotaState.drenarPendencias().forEach(::entregarChegada)
@@ -450,6 +458,20 @@ class MainActivity : AppCompatActivity() {
 
     private fun entregarChegada(paradaId: String) {
         val js = "document.dispatchEvent(new CustomEvent('hbx:arrival',{detail:{deliveryId:${JSONObject.quote(paradaId)}}}));"
+        webView.evaluateJavascript(js, null)
+    }
+
+    /**
+     * 31/07 (APK-ROTA) — destino recebido de fora (localização do WhatsApp, link
+     * do Maps). Vai como STRING e o JS faz JSON.parse: dado de fora nunca entra
+     * como código na página. App ainda abrindo → guarda e entrega no reveal.
+     */
+    private fun entregarDestino(json: String) {
+        if (!appRevealed) {
+            DestinoPendente.guardar(json)
+            return
+        }
+        val js = "document.dispatchEvent(new CustomEvent('hbx:destino',{detail:${JSONObject.quote(json)}}));"
         webView.evaluateJavascript(js, null)
     }
 
