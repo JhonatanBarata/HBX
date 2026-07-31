@@ -1667,6 +1667,13 @@ export function AtendimentoClient() {
     }
   }
 
+  // Manda o lead pra Central do Lead (/vendas) usando o MESMO contrato que a
+  // Agenda e o painel de disparos já usam — sem inventar rota nova.
+  function abrirNoVendas(leadId: string) {
+    try { sessionStorage.setItem("hbx:vendas-focus-lead", leadId); } catch { /* sem storage */ }
+    router.push("/vendas");
+  }
+
   // Limpar conversa: some da caixa do HBX. NÃO apaga nada — as mensagens
   // continuam salvas no histórico do cliente/lead — e NÃO manda comando de
   // exclusão pro WhatsApp (o chat no aparelho do cliente fica intacto).
@@ -2521,42 +2528,25 @@ export function AtendimentoClient() {
                 // Email: lead tem email completo; fallback pro contato do WhatsApp
                 email: card?.lead?.email || convo.customer?.email || null,
                 website: card?.lead?.website ?? null,
-                // Empresa + dono + multi-contatos (telefone extra só exibe se WhatsApp-confirmado, via phonesWhatsapp)
-                cnpj: card?.lead?.cnpj ?? null,
-                cnae: card?.lead?.cnae ?? null,
-                razaoSocial: card?.lead?.razaoSocial ?? null,
-                ownerName: card?.lead?.ownerName ?? null,
-                ownerNames: card?.lead?.ownerNames ?? null,
-                ownerPhone: card?.lead?.ownerPhone ?? null,
-                ownerInstagram: card?.lead?.ownerInstagram ?? null,
-                ownerFacebook: card?.lead?.ownerFacebook ?? null,
-                companySituation: card?.lead?.companySituation ?? null,
-                emails: card?.lead?.emails ?? null,
-                phones: card?.lead?.phones ?? null,
-                phonesWhatsapp: card?.lead?.phonesWhatsapp ?? null,
-                isFreshCompany: card?.lead?.isFreshCompany ?? null,
-                daysSinceOpened: card?.lead?.daysSinceOpened ?? null,
+                // ============================================================
+                // FICHA ENXUTA (faxina 31/07/2026 — lei "mostra num lugar,
+                // edita num lugar"). Este painel repetia ~20 campos de
+                // inteligência do lead (CNPJ, CNAE, razão social, sócios,
+                // redes, score, temperatura, dor/pitch, multi-contatos) que
+                // são da Central do Lead, no /vendas. Dado em dois lugares é
+                // bug de produto: diverge, confunde e dobra a manutenção.
+                //
+                // Aqui fica só o que o ATENDENTE usa sem sair da conversa:
+                // quem é, como falar, em que pé está, o que foi combinado e
+                // fechar a venda. O resto mora atrás do botão "Abrir no
+                // Vendas" (ações do painel).
+                // ============================================================
                 city: card?.lead?.city ?? null,
                 state: card?.lead?.state ?? null,
                 segment: card?.lead?.segment ?? null,
-                opportunityScore: card?.lead?.opportunityScore ?? null,
-                leadTemperature: card?.lead?.leadTemperature ?? null,
-                rating: card?.lead?.rating ?? null,
-                reviews: card?.lead?.reviews ?? null,
                 statusLabel: card?.lead?.statusLabel ?? null,
                 doNotCall: card?.customer?.doNotCall ?? false,
                 channel: "WhatsApp",
-                leadIntelligence: {
-                  whatsappStatus: "confirmed",
-                  emailStatus: card?.lead?.leadIntelligence?.emailStatus ?? null,
-                  websiteStatus: card?.lead?.leadIntelligence?.websiteStatus ?? null,
-                  instagramUrl: card?.lead?.leadIntelligence?.instagramUrl ?? null,
-                  facebookUrl: card?.lead?.leadIntelligence?.facebookUrl ?? null,
-                  recommendedChannel: card?.lead?.leadIntelligence?.recommendedChannel ?? null,
-                  painType: card?.lead?.leadIntelligence?.painType ?? null,
-                  painPitch: card?.lead?.leadIntelligence?.painPitch ?? null,
-                  opportunityReason: card?.lead?.leadIntelligence?.opportunityReason ?? null,
-                },
                 nextAction: card?.lead?.nextAction ?? null,
                 returnAt: card?.lead?.returnAt ?? undefined,
                 lastContactAt: card?.lead?.lastContactAt ?? undefined,
@@ -2609,6 +2599,14 @@ export function AtendimentoClient() {
                       </span>
                       <I d={ICONS.arrow} size={16} />
                     </button>
+                    {/* A ficha COMPLETA do lead (CNPJ, sócios, score, dor,
+                        multi-contatos) mora na Central do Lead — um lugar só. */}
+                    {card?.lead?.id && (
+                      <button className="btn-ghost" style={{ minHeight: 34, fontSize: "0.7rem" }}
+                        onClick={() => abrirNoVendas(String(card.lead!.id))}>
+                        Abrir ficha completa no Vendas
+                      </button>
+                    )}
                   </div>
                   {/* TIER 2 — Retorno + Sem Interesse */}
                   <div className="dn-cockpit__group">
