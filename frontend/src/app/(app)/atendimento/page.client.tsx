@@ -2498,7 +2498,7 @@ export function AtendimentoClient() {
                         </div>
                       ))}
                       <form onSubmit={createQuick} style={{ display: "grid", gap: 6, padding: "8px 6px 4px", borderTop: "1px solid var(--border-hairline)" }}>
-                        <input className="field-dark" placeholder="Título (ex.: Saudação)" maxLength={60} value={qrForm.title} onChange={e => setQrForm(f => ({ ...f, title: e.target.value }))} />
+                        <input className="field-dark" placeholder="Título" maxLength={60} value={qrForm.title} onChange={e => setQrForm(f => ({ ...f, title: e.target.value }))} />
                         <input className="field-dark" placeholder="Texto da mensagem" maxLength={1000} value={qrForm.content} onChange={e => setQrForm(f => ({ ...f, content: e.target.value }))} />
                         <button className="btn-ghost" type="submit" disabled={qrBusy} style={{ minHeight: 32, fontSize: "0.7rem" }}>{qrBusy ? "Salvando…" : "Salvar mensagem rápida"}</button>
                       </form>

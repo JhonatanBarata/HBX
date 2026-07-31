@@ -1298,7 +1298,6 @@ export function ClienteEditor({
               max={31}
               value={diaFechamento}
               onChange={(e) => setDiaFechamento(e.target.value)}
-              placeholder="Ex.: 10"
             />
           </label>
         ) : null}

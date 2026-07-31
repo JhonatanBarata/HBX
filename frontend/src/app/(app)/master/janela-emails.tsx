@@ -478,12 +478,12 @@ export function JanelaEmails() {
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div style={{ display: "grid", gap: 6 }}>
-                    <label style={lbl}>Nome exemplo</label>
+                    <label style={lbl}>Nome</label>
                     <input className="field-dark" maxLength={120} value={teste.sampleName}
                       onChange={e => setTeste(t => ({ ...t, sampleName: e.target.value }))} />
                   </div>
                   <div style={{ display: "grid", gap: 6 }}>
-                    <label style={lbl}>Empresa exemplo</label>
+                    <label style={lbl}>Empresa</label>
                     <input className="field-dark" maxLength={180} value={teste.sampleCompany}
                       onChange={e => setTeste(t => ({ ...t, sampleCompany: e.target.value }))} />
                   </div>
@@ -560,7 +560,7 @@ export function JanelaEmails() {
             </h3>
             <div style={{ display: "grid", gap: 6 }}>
               <label style={lbl}>Nome do template *</label>
-              <input className="field-dark" required minLength={3} maxLength={120} placeholder='Ex.: "Cobrança amigável"'
+              <input className="field-dark" required minLength={3} maxLength={120}
                 value={novoLabel} onChange={e => setNovoLabel(e.target.value)} />
             </div>
             <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 40 }}>

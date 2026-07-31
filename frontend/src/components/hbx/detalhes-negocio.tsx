@@ -1717,7 +1717,7 @@ export function AgendaLeadPanel({ leadId }: { leadId: string }) {
             </select>
             <input type="datetime-local" className="field-dark" value={novaVenc} onChange={e => setNovaVenc(e.target.value)} aria-label="Vencimento" />
           </div>
-          <input className="field-dark" maxLength={160} placeholder="Título (ex.: Ligar para fechar)" value={novaTitulo} onChange={e => setNovaTitulo(e.target.value)} />
+          <input className="field-dark" maxLength={160} placeholder="Título" value={novaTitulo} onChange={e => setNovaTitulo(e.target.value)} />
           {novaError && <span className="ctx-msg err">{novaError}</span>}
           <button type="button" className="btn-teal btn-xs" onClick={() => void criar()} disabled={novaBusy}>
             {novaBusy ? "Criando…" : "Criar atividade"}

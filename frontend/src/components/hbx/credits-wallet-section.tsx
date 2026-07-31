@@ -96,7 +96,7 @@ function Ic({ paths }: { paths: string[] }) {
 const HOW_ITEMS = [
   { ic: IC_SEARCH, t: "Grátis ou Débito", d: "Cada ação tem um modo claro. Buscar no Radar e IA em lote são grátis por padrão." },
   { ic: IC_TARGET, t: "Custos por ação", d: "Lead: 1 · Automação: 0,1 · IA em tempo real/Concierge: 0,1 · Logística iniciada: 0,2." },
-  { ic: IC_REFRESH, t: "Frações ficam no saldo", d: "Exemplo: 1 crédito menos uma Logística de 0,2 deixa exatamente 0,8. O saldo nunca fica negativo." },
+  { ic: IC_REFRESH, t: "Frações ficam no saldo", d: "1 crédito menos uma Logística de 0,2 deixa exatamente 0,8. O saldo nunca fica negativo." },
   { ic: IC_CAL, t: "Mudanças com aviso", d: "Qualquer alteração de preço ou regra será avisada previamente no sistema e por e-mail." },
 ];
 

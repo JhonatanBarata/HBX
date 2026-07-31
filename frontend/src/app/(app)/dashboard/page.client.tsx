@@ -212,7 +212,7 @@ export function DashboardClient() {
                 <span style={{ fontSize: "0.74rem", color: "var(--text-muted)", lineHeight: 1.55 }}>
                   A conta master não tem empresa vinculada, e este painel mostra a operação de UMA empresa —
                   por isso as chamadas retornam erro ({loadError}). Para operar o dia a dia, entre com a conta
-                  Admin da empresa (ex.: jhonatan@hbxsystem.com.br). A sua casa é o painel Master.
+                  Admin da empresa. A sua casa é o painel Master.
                 </span>
                 <a className="btn-teal" href="/master" style={{ width: "fit-content", textDecoration: "none" }}>Ir para o /master</a>
               </div>

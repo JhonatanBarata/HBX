@@ -1155,7 +1155,6 @@ export function AgendaClient() {
                   className="field-dark"
                   value={novaTitulo}
                   onChange={(event) => setNovaTitulo(event.target.value)}
-                  placeholder="Ex.: Ligar para retorno"
                 />
               </div>
 

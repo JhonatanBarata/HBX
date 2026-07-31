@@ -43,15 +43,15 @@ const CONTATOS_IMPORT_SCHEMA: ImportSchema = {
   templateName: "modelo-contatos.xlsx",
   endpoint: "/nucleo/contas/import",
   columns: [
-    { key: "nome", header: "nome", label: "Nome", required: true, example: "Dona Maria", hint: "nome da pessoa ou empresa (obrigatório)", aliases: ["nome completo", "cliente", "razao social"] },
-    { key: "telefone", header: "telefone", label: "Telefone", example: "(85) 99999-0000", hint: "telefone com DDD — vira o WhatsApp", aliases: ["whatsapp", "fone", "celular", "telefone/whatsapp"] },
-    { key: "cidade", header: "cidade", label: "Cidade", example: "Fortaleza", hint: "cidade do cliente", aliases: ["municipio"] },
-    { key: "uf", header: "uf", label: "UF", example: "CE", hint: 'estado — 2 letras ("CE") ou nome ("Ceará")', aliases: ["estado"] },
-    { key: "cnpj", header: "cnpj", label: "CNPJ", example: "12.345.678/0001-90", hint: "CNPJ — se preenchido, vira empresa (PJ)", aliases: ["cnpj/cpf", "documento", "cpf"] },
-    { key: "email", header: "email", label: "E-mail", example: "maria@empresa.com", hint: "e-mail de contato", aliases: ["e-mail"] },
-    { key: "endereco", header: "endereco", label: "Endereço", example: "Rua A, 123 - Centro", hint: "endereço / rua", aliases: ["endereço", "logradouro"] },
-    { key: "cep", header: "cep", label: "CEP", example: "60000-000", hint: "CEP" },
-    { key: "cargo", header: "cargo", label: "Cargo", example: "Compradora", hint: "cargo / função da pessoa", aliases: ["funcao", "função"] },
+    { key: "nome", header: "nome", label: "Nome", required: true, hint: "nome da pessoa ou empresa (obrigatório)", aliases: ["nome completo", "cliente", "razao social"] },
+    { key: "telefone", header: "telefone", label: "Telefone", hint: "telefone com DDD — vira o WhatsApp", aliases: ["whatsapp", "fone", "celular", "telefone/whatsapp"] },
+    { key: "cidade", header: "cidade", label: "Cidade", hint: "cidade do cliente", aliases: ["municipio"] },
+    { key: "uf", header: "uf", label: "UF", hint: "estado — 2 letras ou nome", aliases: ["estado"] },
+    { key: "cnpj", header: "cnpj", label: "CNPJ", hint: "CNPJ — se preenchido, vira empresa (PJ)", aliases: ["cnpj/cpf", "documento", "cpf"] },
+    { key: "email", header: "email", label: "E-mail", hint: "e-mail de contato", aliases: ["e-mail"] },
+    { key: "endereco", header: "endereco", label: "Endereço", hint: "endereço / rua", aliases: ["endereço", "logradouro"] },
+    { key: "cep", header: "cep", label: "CEP", hint: "CEP" },
+    { key: "cargo", header: "cargo", label: "Cargo", hint: "cargo / função da pessoa", aliases: ["funcao", "função"] },
   ],
   normalizeRow: (r) => {
     const nome = String(r.nome ?? "").trim();
@@ -972,7 +972,6 @@ function NovoClienteModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
             <input
               id="ctt-nome"
               className="field-dark"
-              placeholder="Ex.: Dona Maria"
               value={nome}
               onChange={(e) => setNome(e.target.value)}
               autoFocus
@@ -1010,7 +1009,6 @@ function NovoClienteModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
             <input
               id="ctt-cargo"
               className="field-dark"
-              placeholder="Ex.: Compradora"
               value={cargo}
               onChange={(e) => setCargo(e.target.value)}
             />

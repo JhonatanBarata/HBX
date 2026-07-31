@@ -376,7 +376,7 @@ export function ConciergeClient() {
                 className="field-dark"
                 value={input}
                 maxLength={500}
-                placeholder={aiOnline ? 'Ex.: "20 clínicas odontológicas em Curitiba"' : "IA indisponível — use os botões acima"}
+                placeholder={aiOnline ? "" : "IA indisponível — use os botões acima"}
                 onChange={(e) => setInput(e.target.value)}
                 disabled={busy || loading}
                 aria-label="Diga o que você procura"

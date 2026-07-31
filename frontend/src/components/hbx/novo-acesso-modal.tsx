@@ -637,7 +637,7 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
               <React.Fragment>
                 <div style={{ display: "grid", gap: 6 }}>
                   <label style={lbl}>Usuário (login)</label>
-                  <input className="field-dark" maxLength={60} autoFocus placeholder="ex.: joao.silva" value={form.username}
+                  <input className="field-dark" maxLength={60} autoFocus value={form.username}
                     onChange={e => setForm(f => ({ ...f, username: e.target.value }))} />
                   {avisoUsuario}
                 </div>
@@ -669,7 +669,7 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
             {!isEdit && (
               <div style={{ display: "grid", gap: 6 }}>
                 <label style={lbl}>Usuário (login)</label>
-                <input className="field-dark" maxLength={60} placeholder="ex.: joao.silva" value={form.username} disabled={travaForm}
+                <input className="field-dark" maxLength={60} value={form.username} disabled={travaForm}
                   onChange={e => setForm(f => ({ ...f, username: e.target.value }))} />
                 {avisoUsuario}
               </div>

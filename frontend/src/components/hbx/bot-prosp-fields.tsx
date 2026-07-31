@@ -200,10 +200,10 @@ export function ProspPieceBody({ piece, h }: { piece: PieceKey; h: ProspFieldHel
     return (
       <>
         <p className="bot-prosp-field__note">A <strong>IA local</strong> lê cada resposta do lead e decide a intenção (interesse, dúvida, adiar, parar…). Estas palavras são uma <strong>rede de segurança</strong>: entram quando a IA está indisponível ou em dúvida — nunca apagam o que a IA entende. Opcional.</p>
-        <VariantListEditor single label="Demonstra interesse" hint="O lead topou ouvir. Ex.: quero, tenho interesse, pode mandar, quanto custa." max={40} items={listVal("positiveIntentKeywords")} onChange={items => setField("positiveIntentKeywords", items)} />
-        <VariantListEditor single label="Demonstra dúvida" hint="O lead quer entender melhor antes de decidir. Ex.: o que é, como funciona, não entendi, me explica melhor." max={40} items={listVal("whatIsItIntentKeywords")} onChange={items => setField("whatIsItIntentKeywords", items)} />
-        <VariantListEditor single label="Pede pra falar depois" hint="Adiamento, não recusa. Ex.: depois, mais tarde, amanhã, semana que vem, agora não." max={40} items={listVal("callbackIntentKeywords")} onChange={items => setField("callbackIntentKeywords", items)} />
-        <VariantListEditor single label="Pede pra parar / não contatar" hint="Recusa firme — vira opt-out. Ex.: não quero, pare, remova, spam, bloqueia." max={40} items={listVal("negativeIntentKeywords")} onChange={items => setField("negativeIntentKeywords", items)} />
+        <VariantListEditor single label="Demonstra interesse" hint="O lead topou ouvir." max={40} items={listVal("positiveIntentKeywords")} onChange={items => setField("positiveIntentKeywords", items)} />
+        <VariantListEditor single label="Demonstra dúvida" hint="O lead quer entender melhor antes de decidir." max={40} items={listVal("whatIsItIntentKeywords")} onChange={items => setField("whatIsItIntentKeywords", items)} />
+        <VariantListEditor single label="Pede pra falar depois" hint="Adiamento, não recusa." max={40} items={listVal("callbackIntentKeywords")} onChange={items => setField("callbackIntentKeywords", items)} />
+        <VariantListEditor single label="Pede pra parar / não contatar" hint="Recusa firme — vira opt-out." max={40} items={listVal("negativeIntentKeywords")} onChange={items => setField("negativeIntentKeywords", items)} />
       </>
     );
   }

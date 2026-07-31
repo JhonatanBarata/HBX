@@ -929,7 +929,7 @@ export function GerencialClient() {
             </div>
             <div style={{ display: "grid", gap: 6 }}>
               <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Referência</label>
-              <input className="field-dark" maxLength={120} placeholder='Ex.: "Comissões junho/2026"'
+              <input className="field-dark" maxLength={120}
                 value={payoutForm.referenceLabel} onChange={e => setPayoutForm(f => ({ ...f, referenceLabel: e.target.value }))} />
             </div>
             <button className="btn-teal" type="submit" disabled={payoutBusy} style={{ minHeight: 42 }}>

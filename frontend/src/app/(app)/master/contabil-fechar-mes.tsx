@@ -325,7 +325,7 @@ function PassoReceita({ dossie, onRecarregar, onNext }: { dossie: PreClose; onRe
           </div>
           <div className="ctb-field">
             <label>Motivo do ajuste</label>
-            <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="ex.: recebimento fora do MP" />
+            <input value={motivo} onChange={(e) => setMotivo(e.target.value)} />
           </div>
           {msg && <span className="ctb-wiz-msg">{msg}</span>}
           <div className="ctb-wiz-actions">

@@ -711,7 +711,7 @@ export class HbxRecoveryService {
     context?: { companyName?: string | null; operatorName?: string | null },
   ) {
     const key = this.normalizeTemplateVariableKey(keyRaw);
-    const companyName = String(context?.companyName || '').trim() || 'Empresa Exemplo';
+    const companyName = String(context?.companyName || '').trim() || 'Empresa';
     const operatorName = String(context?.operatorName || '').trim() || 'Atendente';
     const defaults: Record<string, string> = {
       empresa: companyName,
@@ -722,7 +722,7 @@ export class HbxRecoveryService {
       valor_formatado: 'R$ 480,00',
       quantidade_parcelas: '3',
       valor_parcela_formatado: 'R$ 160,00',
-      link_pagamento: 'https://pagamentos.hbx.app/exemplo',
+      link_pagamento: 'https://pagamentos.hbx.app/checkout',
     };
     return defaults[key] || key.replace(/_/g, ' ');
   }
@@ -806,7 +806,7 @@ export class HbxRecoveryService {
       formattedAmount,
       installmentCount,
       installmentValue,
-      'https://pagamentos.hbx.app/exemplo',
+      'https://pagamentos.hbx.app/checkout',
     ];
     if (orderedBodyVariables.length > orderedFallbackValues.length) {
       throw new BadRequestException(

@@ -8,7 +8,7 @@ import { ModuleAccess } from '../modules/module-feature.decorator';
 class WhatsAppPairingCodeDto {
   @IsString()
   @Matches(/^\+[1-9]\d{7,14}$/, {
-    message: 'Informe o telefone em formato E.164, exemplo +5519999999999.',
+    message: 'Informe o telefone em formato E.164.',
   })
   phoneNumber!: string;
 }

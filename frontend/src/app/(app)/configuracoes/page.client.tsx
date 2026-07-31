@@ -425,7 +425,7 @@ export function ConfiguracoesClient() {
                       <div className="f"><label>Telefone</label><input className="field-dark" value={telefone} placeholder="(11) 90000-0000" onChange={e => setTelefone(e.target.value)} /></div>
                     </div>
                     <div className="frow cfg-fields">
-                      <div className="f"><label>Cargo</label><input className="field-dark" value={cargo} placeholder="Ex.: Consultor Comercial" onChange={e => setCargo(e.target.value)} /></div>
+                      <div className="f"><label>Cargo</label><input className="field-dark" value={cargo} onChange={e => setCargo(e.target.value)} /></div>
                       <div className="f"><label>Site</label><input className="field-dark" value={site} placeholder="seusite.com.br (opcional)" onChange={e => setSite(e.target.value)} /></div>
                     </div>
                     <p className="dica">
@@ -452,7 +452,7 @@ export function ConfiguracoesClient() {
                     {isTenantAdmin(user) && (
                       <div className="cfg-nicho">
                         <p className="ttl">Nicho da empresa (alimenta o Radar e os sinais de oportunidade)</p>
-                        <p className="dica">Segmentos que a empresa quer prospectar, separados por vírgula. Ex.: Odontologia, Estética, Advocacia.</p>
+                        <p className="dica">Segmentos que a empresa quer prospectar, separados por vírgula.</p>
                         <div className="row">
                           <input
                             className="field-dark"

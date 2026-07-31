@@ -49,7 +49,7 @@ export default function ExcluirContaPage() {
               atendimento e de entregas, conversas e mensagens, relatórios e configurações.
             </li>
             <li>
-              <strong>Se você for um usuário de uma empresa (ex.: vendedor ou entregador):</strong>{" "}
+              <strong>Se você for um usuário de uma empresa:</strong>{" "}
               apagamos a sua conta; os dados da empresa continuam sob responsabilidade do titular.
             </li>
           </ul>

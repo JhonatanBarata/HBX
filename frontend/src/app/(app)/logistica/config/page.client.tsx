@@ -399,7 +399,7 @@ export function LogisticaConfigClient() {
                 value={template}
                 onChange={(e) => setTemplate(e.target.value)}
                 rows={4}
-                placeholder="Escreva a mensagem com as variáveis (ex.: {saudacao} {cliente}! ...)"
+                placeholder="Escreva a mensagem com as variáveis"
                 aria-label="Template do aviso de entrega"
               />
 

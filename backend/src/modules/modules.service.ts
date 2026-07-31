@@ -4988,7 +4988,7 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     const active = Boolean(dto?.active);
     const reason = this.normalizeOptionalString(dto?.reason);
     if (active && !reason) {
-      throw new BadRequestException('Informe o motivo da cortesia (ex.: empresa interna HBX).');
+      throw new BadRequestException('Informe o motivo da cortesia.');
     }
     const endsAt = dto?.endsAt ? this.parseDateValue(dto.endsAt) : null;
     if (active && dto?.endsAt && !endsAt) {

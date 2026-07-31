@@ -903,8 +903,7 @@ export function JanelaCreditos({ companies, reload }: {
                               <div className="sc-field" style={{ minWidth: 260, flex: 1 }}>
                                 <label className="field-label">Motivo (obrigatório)</label>
                                 <input className="field-dark" value={debitReason}
-                                  onChange={e => setDebitReason(e.target.value)}
-                                  placeholder="ex.: migrou para plano fixo, zerando o saldo de crédito" />
+                                  onChange={e => setDebitReason(e.target.value)} />
                               </div>
                               <button className="btn-ghost" disabled={debitBusy}
                                 onClick={() => setDebitAmount(String(Math.trunc(Number(c.creditsBalance) || 0)))}>

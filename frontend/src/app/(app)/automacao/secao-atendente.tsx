@@ -484,7 +484,7 @@ function Wizard({ empresaPadrao, onCreated, onCancel, initialModelo }: {
         <div className="ia-form">
           <div className="ia-field">
             <label className="field-label">Nome do atendente</label>
-            <input className="field-dark" maxLength={60} placeholder="Ex.: Júlia, Leonardo, Bia…"
+            <input className="field-dark" maxLength={60}
               value={nome} onChange={(e) => setNome(e.target.value)} />
             {/* S03 (PADRAO-MERCADO): hint no teto da Lei nº1 (era 72 chars). */}
             <span className="ia-field__hint">Se escolher IA, seus clientes conversam com esse nome.</span>
@@ -536,16 +536,13 @@ function Wizard({ empresaPadrao, onCreated, onCancel, initialModelo }: {
           <div className="ia-form__grid">
             <div className="ia-field">
               <label className="field-label">Nome da empresa</label>
-              <input className="field-dark" maxLength={120} placeholder="Ex.: Colsani Ar-Condicionado"
+              <input className="field-dark" maxLength={120}
                 value={empresaNome} onChange={(e) => setEmpresaNome(e.target.value)} />
             </div>
           </div>
           <div className="ia-field">
             <label className="field-label">Produtos ou serviços</label>
-            {/* S09 (PADRAO-MERCADO): placeholder estourava o teto de copy (79
-                chars, Lei nº1 ≤70) — mesmo corte que o campo gêmeo do drawer
-                de Ajustes (IaAjustesDrawer, abaixo) já usava. */}
-            <textarea className="field-dark" rows={3} maxLength={600} placeholder="Ex.: instalação e manutenção de ar-condicionado…"
+            <textarea className="field-dark" rows={3} maxLength={600}
               value={produtos} onChange={(e) => setProdutos(e.target.value)} />
             {/* S03 (PADRAO-MERCADO): hint no teto da Lei nº1 (era 90 chars). */}
             <span className="ia-field__hint">Vale só pra IA — o roteiro usa as mensagens da próxima tela.</span>
@@ -1154,7 +1151,7 @@ function CondicaoEditor({ cond, passos, canManage, onChange, onRemove, onAddExem
       <div className="ia-flow-node__head">
         <span className="ia-flow-node__tag is-cond">Condição</span>
         <input className="field-dark" maxLength={120} value={cond.rotulo} disabled={!canManage}
-          onChange={(e) => onChange({ rotulo: e.target.value })} placeholder="Ex.: Cliente confirmou" />
+          onChange={(e) => onChange({ rotulo: e.target.value })} />
         {canManage && (
           <div className="ia-flow-node__actions">
             <button className="btn-ghost btn-xs danger" onClick={onRemove} aria-label="Remover condição"><I d={ICONS.trash} size={13} /></button>
@@ -1172,16 +1169,16 @@ function CondicaoEditor({ cond, passos, canManage, onChange, onRemove, onAddExem
           <div className="ia-fewshots">
             {cond.exemplos.map((ex) => (
               <span key={ex} className="ia-fewshot">{ex}
-                {canManage && <button onClick={() => onRemoveExemplo(ex)} aria-label="Remover exemplo"><I d={ICONS.x} size={11} /></button>}
+                {canManage && <button onClick={() => onRemoveExemplo(ex)} aria-label="Remover frase"><I d={ICONS.x} size={11} /></button>}
               </span>
             ))}
           </div>
           {canManage && (
             <div className="ia-fewshot-add">
-              <input className="field-dark" value={draft} maxLength={200} placeholder='Ex.: "quero sim", "pode falar"'
+              <input className="field-dark" value={draft} maxLength={200}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") { onAddExemplo(draft); setDraft(""); } }} />
-              <button className="btn-ghost btn-xs" onClick={() => { onAddExemplo(draft); setDraft(""); }} aria-label="Adicionar exemplo"><I d={ICONS.plus} size={13} /></button>
+              <button className="btn-ghost btn-xs" onClick={() => { onAddExemplo(draft); setDraft(""); }} aria-label="Adicionar frase"><I d={ICONS.plus} size={13} /></button>
             </div>
           )}
         </div>
@@ -1279,7 +1276,7 @@ function IaAjustesDrawer({ open, ia, empresaPadrao, saving, onSave, onClose }: {
         <div className="bot-phase-editor__body">
           <div className="ia-field">
             <label className="field-label">Nome do atendente</label>
-            <input className="field-dark" maxLength={60} placeholder="Ex.: Júlia, Leonardo, Bia…"
+            <input className="field-dark" maxLength={60}
               value={nome} onChange={(e) => setNome(e.target.value)} />
           </div>
 
@@ -1320,13 +1317,13 @@ function IaAjustesDrawer({ open, ia, empresaPadrao, saving, onSave, onClose }: {
 
           <div className="ia-field">
             <label className="field-label">Nome da empresa</label>
-            <input className="field-dark" maxLength={120} placeholder="Ex.: Colsani Ar-Condicionado"
+            <input className="field-dark" maxLength={120}
               value={empresaNome} onChange={(e) => setEmpresaNome(e.target.value)} />
           </div>
 
           <div className="ia-field">
             <label className="field-label">Produtos ou serviços</label>
-            <textarea className="field-dark" rows={3} maxLength={600} placeholder="Ex.: instalação e manutenção de ar-condicionado…"
+            <textarea className="field-dark" rows={3} maxLength={600}
               value={produtos} onChange={(e) => setProdutos(e.target.value)} />
           </div>
         </div>

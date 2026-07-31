@@ -181,7 +181,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
   async function generatePairing() {
     if (busy) return;
     if (!sessionId) { setError("Sessão WhatsApp ainda não carregou — clique em Atualizar status."); return; }
-    if (!phoneOk) { setError("Informe o telefone com DDD, ex.: (19)99702-4884."); return; }
+    if (!phoneOk) { setError("Informe o telefone com DDD."); return; }
     setBusy(true);
     setError(null);
     setBootstrapMsg(null);

@@ -552,7 +552,7 @@ function PlanEditorModal({
                   </label>
                   <label className="log-agenda-form__field">
                     <span>Motivo</span>
-                    <input className="field-dark" value={additionalReason} onChange={(event) => setAdditionalReason(event.target.value)} disabled={!additionalValue} placeholder="Ex.: escada" />
+                    <input className="field-dark" value={additionalReason} onChange={(event) => setAdditionalReason(event.target.value)} disabled={!additionalValue} />
                   </label>
                 </div>
               </section>

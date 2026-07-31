@@ -43,7 +43,7 @@ export function topicReply(
         ? `Cada empresa entregue consome crédito da sua conta. O valor exato aparece no resumo antes de você confirmar — nada é debitado sem o seu OK.${keep}`
         : `Você não paga nada do seu bolso: o consumo é da conta da empresa, dentro do limite que o responsável liberou pra você.${keep}`;
     case 'data':
-      return `Trago o que estiver público de cada empresa: nome, endereço, telefone e WhatsApp quando existir, site e Instagram. Dá pra pedir só quem tem WhatsApp, por exemplo.${keep}`;
+      return `Trago o que estiver público de cada empresa: nome, endereço, telefone e WhatsApp quando existir, site e Instagram. Dá pra pedir só quem tem WhatsApp.${keep}`;
     case 'how_it_works':
       return `Funciona assim: você me diz o tipo de empresa e a cidade, eu monto a busca e mostro o resumo. Só depois que você confirma eu saio procurando, e os contatos caem no Radar.${keep}`;
     case 'source':
@@ -87,7 +87,7 @@ export function cancelReply(): string {
  * entendeu e mostra as saídas.
  */
 export function previewStuckReply(): string {
-  return 'Não peguei essa. A busca que montei continua valendo aqui embaixo — é só confirmar. Se quiser mudar algo, me diga (ex.: "muda a cidade" ou "quero 30").';
+  return 'Não peguei essa. A busca que montei continua valendo aqui embaixo — é só confirmar. Se quiser mudar algo, me diga.';
 }
 
 /** Cliente escreveu "pode ser/manda ver" — o disparo é CLIQUE, nunca texto. */

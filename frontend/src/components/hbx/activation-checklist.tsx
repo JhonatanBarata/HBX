@@ -342,7 +342,6 @@ function CompanySegmentSetupModal({ onClose, onSaved }: { onClose: () => void; o
           className="field-dark"
           value={value}
           maxLength={240}
-          placeholder="Ex.: Odontologia, Estética"
           onChange={(event) => setValue(event.target.value)}
           aria-label="Ramos que deseja prospectar"
         />

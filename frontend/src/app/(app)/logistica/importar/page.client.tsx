@@ -511,7 +511,7 @@ function CriacaoZonas({ busy, onArquivo, onTexto, onFotos }: {
         <div className="log-quar-zone">
           <textarea
             className="field-dark log-quar-textarea"
-            placeholder={"Cole a lista — 1 cliente por linha. Ex.:\nDona Maria - Rua das Flores, 123 - Centro - seg e qui - (85) 99999-0000\nJoão - Rua B, 50 - sexta"}
+            placeholder="Cole a lista — 1 cliente por linha."
             value={texto}
             onChange={(e) => setTexto(e.target.value)}
           />

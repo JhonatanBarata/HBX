@@ -338,7 +338,7 @@ const SEGMENT_INTENT_META: Array<{
     label: "Atividade",
     eyebrow: "O que ela faz",
     description: "Descreva a empresa do seu jeito. O Radar organiza a intenção e prioriza os alvos compatíveis.",
-    placeholder: "Ex.: distribuidora de água",
+    placeholder: "",
     icon: ICONS.empresas,
   },
   {
@@ -346,7 +346,7 @@ const SEGMENT_INTENT_META: Array<{
     label: "Produto",
     eyebrow: "O que ela vende",
     description: "Procure pela oferta comercial mesmo quando a atividade registrada for mais ampla.",
-    placeholder: "Ex.: venda e entrega de água mineral",
+    placeholder: "",
     icon: ICONS.produtos,
   },
   {
@@ -354,7 +354,7 @@ const SEGMENT_INTENT_META: Array<{
     label: "Público",
     eyebrow: "Para quem vende",
     description: "Descreva o público atendido para o Radar aproximar empresas com atuação compatível.",
-    placeholder: "Ex.: fornecedores para condomínios",
+    placeholder: "",
     icon: ICONS.users,
   },
   {
@@ -362,7 +362,7 @@ const SEGMENT_INTENT_META: Array<{
     label: "CNAE exato",
     eyebrow: "Se você já souber",
     description: "Use o código somente quando ele já fizer parte do seu recorte.",
-    placeholder: "Ex.: 4635-4/01",
+    placeholder: "",
     icon: ICONS.doc,
   },
 ];
@@ -4025,7 +4025,6 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
                   className="field-dark"
                   value={saveName}
                   maxLength={120}
-                  placeholder="Ex.: Arquitetos de SP"
                   onChange={e => setSaveName(e.target.value)}
                   onKeyDown={e => { if (e.key === "Enter" && !savedBusy) saveCurrentFilter(); }}
                   autoFocus

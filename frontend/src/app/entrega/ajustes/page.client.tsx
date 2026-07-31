@@ -461,7 +461,6 @@ export function EntregaAjustes() {
                 defaultValue={cfg.avisoChegandoTemplate ?? ""}
                 onBlur={(e) => void patch({ avisoChegandoTemplate: e.target.value.trim() })}
                 rows={3}
-                placeholder="Ex.: {saudacao} {cliente}! Estou a {eta}, já estou chegando!"
                 aria-label="Mensagem do aviso de chegada"
               />
               {/* PR27072026 F3 (ROTA 3 NÍVEIS) — {eta} é NOVO: minutos estimados a

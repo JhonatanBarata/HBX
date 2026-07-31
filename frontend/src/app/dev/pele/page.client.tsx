@@ -118,7 +118,7 @@ export function PeleSpecimenClient() {
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
             <button className="btn-teal"><I d={ICONS.plus} size={13} /> Ação primária</button>
             <button className="btn-ghost">Ação secundária</button>
-            <button className="round-btn" aria-label="exemplo"><I d={ICONS.bell} size={16} /></button>
+            <button className="round-btn" aria-label="Notificações"><I d={ICONS.bell} size={16} /></button>
             <button className="sw on" aria-label="ligado"><i /></button>
             <button className="sw" aria-label="desligado"><i /></button>
             <Av name="Maria Silva" size={34} />

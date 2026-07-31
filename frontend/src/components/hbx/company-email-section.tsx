@@ -473,8 +473,8 @@ export function CompanyEmailSection() {
                   {testeMsg && <span style={{ fontSize: "0.7rem", fontWeight: 700, color: testeMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{testeMsg}</span>}
                   <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 8 }}>
                     <input className="field-dark" type="email" placeholder="email de teste" value={teste.to} onChange={e => setTeste(t => ({ ...t, to: e.target.value }))} />
-                    <input className="field-dark" placeholder="nome exemplo" value={teste.sampleName} onChange={e => setTeste(t => ({ ...t, sampleName: e.target.value }))} />
-                    <input className="field-dark" placeholder="empresa exemplo" value={teste.sampleCompany} onChange={e => setTeste(t => ({ ...t, sampleCompany: e.target.value }))} />
+                    <input className="field-dark" placeholder="nome" value={teste.sampleName} onChange={e => setTeste(t => ({ ...t, sampleName: e.target.value }))} />
+                    <input className="field-dark" placeholder="empresa" value={teste.sampleCompany} onChange={e => setTeste(t => ({ ...t, sampleCompany: e.target.value }))} />
                     <button className="btn-ghost" onClick={enviarTeste} disabled={testeBusy || !teste.to || !pronto}
                       title={pronto ? "Enviar teste" : "Configure o envio primeiro"}>
                       {testeBusy ? "Enviando…" : "Testar"}
@@ -603,7 +603,7 @@ export function CompanyEmailSection() {
             </h3>
             <div style={{ display: "grid", gap: 6 }}>
               <label style={lbl}>Nome do template *</label>
-              <input className="field-dark" required minLength={3} maxLength={120} placeholder='Ex.: "Apresentação da empresa"'
+              <input className="field-dark" required minLength={3} maxLength={120}
                 value={novoLabel} onChange={e => setNovoLabel(e.target.value)} />
             </div>
             <button className="btn-teal" type="submit" disabled={tplBusy} style={{ minHeight: 40 }}>

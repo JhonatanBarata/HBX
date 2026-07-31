@@ -1568,7 +1568,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                             <input
                               className="field-dark"
                               style={{ flex: 1, minWidth: 180 }}
-                              placeholder="Motivo (ex.: implantação acordada)"
+                              placeholder="Motivo"
                               value={botReason}
                               onChange={e => setBotReason(e.target.value)}
                             />
@@ -1807,7 +1807,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                       </div>
                       <div style={{ display: "grid", gap: 4, flex: "1 1 160px" }}>
                         <label className="field-label">Project ID {websiteForm.websiteAdminEnabled && "*"}</label>
-                        <input className="field-dark" placeholder="ex.: madeireira-diego"
+                        <input className="field-dark"
                           value={websiteForm.websiteProjectId}
                           onChange={e => setWebsiteForm(f => ({ ...f, websiteProjectId: e.target.value }))} />
                       </div>
@@ -2045,7 +2045,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               </div>
               <div style={{ display: "grid", gap: 6 }}>
                 <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Competência</label>
-                <input className="field-dark" placeholder="ex.: 2026-06" maxLength={20} value={pagForm.competence}
+                <input className="field-dark" placeholder="AAAA-MM" maxLength={20} value={pagForm.competence}
                   onChange={e => setPagForm(f => ({ ...f, competence: e.target.value }))} />
               </div>
             </div>
@@ -2109,7 +2109,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
             </div>
             <div style={{ display: "grid", gap: 6 }}>
               <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Motivo (opcional)</label>
-              <input className="field-dark" maxLength={200} placeholder="Ex.: negociação com o cliente"
+              <input className="field-dark" maxLength={200}
                 value={walletGrantForm.reason} onChange={e => setWalletGrantForm(f => ({ ...f, reason: e.target.value }))} />
             </div>
             <button className="btn-teal" type="submit" disabled={walletGrantBusy} style={{ minHeight: 42 }}>

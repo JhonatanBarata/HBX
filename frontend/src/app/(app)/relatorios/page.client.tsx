@@ -367,7 +367,7 @@ export function RelatoriosClient() {
                 </strong>
                 <span style={{ fontSize: "0.74rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
                   {isMaster
-                    ? `A conta master não tem empresa vinculada, e este relatório é da operação de UMA empresa — por isso a chamada falha (${loadError}). Entre com a conta Admin da empresa (ex.: jhonatan@hbxsystem.com.br).`
+                    ? `A conta master não tem empresa vinculada, e este relatório é da operação de UMA empresa — por isso a chamada falha (${loadError}). Entre com a conta Admin da empresa.`
                     : loadError}
                 </span>
                 <button className="btn-ghost" onClick={() => load(per)}>Tentar novamente</button>

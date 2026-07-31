@@ -154,7 +154,7 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
         draft: undefined,
         suggestions,
         aiOnline: conciergeAiEnabled(),
-        reply: 'Me diga o que você procura — ex.: "20 clínicas odontológicas em Curitiba".',
+        reply: 'Me diga o que você procura.',
         chips: this.buildChips(emptySlots(), suggestions),
       };
     }
@@ -317,7 +317,7 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
       meta.unclearCount += 1;
       const official = meta.unclearCount >= MAX_UNCLEAR_BEFORE_CHIPS
         ? 'Vamos por partes — escolha ou digite o tipo de empresa que você procura.'
-        : 'Não entendi. Me diga o tipo de empresa e a cidade — ex.: "15 padarias em Recife".';
+        : 'Não entendi. Me diga o tipo de empresa e a cidade.';
       const reply = await voice(official);
       await this.saveDraft(draft.id, slots, meta, this.stateFor(slots), draft);
       await this.appendTranscript(draft.id, text, reply);
@@ -564,7 +564,7 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
     const suggestions = await this.loadSuggestions(ctx.companyId);
     return {
       ok: true,
-      reply: 'Me diga o que você procura — ex.: "20 clínicas odontológicas em Curitiba".',
+      reply: 'Me diga o que você procura.',
       chips: this.buildChips(emptySlots(), suggestions),
       aiOnline: conciergeAiEnabled(),
     };

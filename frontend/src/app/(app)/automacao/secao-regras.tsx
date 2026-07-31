@@ -374,7 +374,7 @@ function NovoGatilhoModal({ onClose, onDone }: { onClose: () => void; onDone: ()
         <div className="auto-form" style={{ marginTop: 14 }}>
           <div className="auto-form__row">
             <label className="field-label" htmlFor="rg-nome">Nome</label>
-            <input id="rg-nome" className="field-dark" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Respondeu no WhatsApp" />
+            <input id="rg-nome" className="field-dark" value={nome} onChange={(e) => setNome(e.target.value)} />
           </div>
           <span className="hint">Quando o lead responder no WhatsApp:</span>
           <div className="auto-form__row">
@@ -564,7 +564,7 @@ function NovaRotinaModal({ onClose, onDone }: { onClose: () => void; onDone: () 
         <div className="auto-form" style={{ marginTop: 14 }}>
           <div className="auto-form__row">
             <label className="field-label" htmlFor="rr-nome">Nome</label>
-            <input id="rr-nome" className="field-dark" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Carga automática segunda-feira" />
+            <input id="rr-nome" className="field-dark" value={nome} onChange={(e) => setNome(e.target.value)} />
           </div>
           <div className="auto-form__row">
             <label className="field-label" htmlFor="rr-search">Pesquisa salva</label>

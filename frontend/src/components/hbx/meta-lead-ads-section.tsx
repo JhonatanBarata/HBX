@@ -295,7 +295,6 @@ export function MetaLeadAdsSection() {
             <div style={{ display: "grid", gap: 6 }}>
               <label style={lbl}>Nome da página</label>
               <input className="field-dark" maxLength={200} value={form.pageName}
-                placeholder="Ex.: Minha Empresa"
                 onChange={e => setForm(f => ({ ...f, pageName: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gap: 6 }}>

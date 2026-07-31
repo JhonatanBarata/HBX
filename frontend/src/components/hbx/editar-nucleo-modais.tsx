@@ -101,7 +101,6 @@ export function EditarContatoModal({
               <input
                 id="ec-cargo"
                 className="field-dark"
-                placeholder="Ex.: Compradora"
                 value={cargo}
                 onChange={(e) => setCargo(e.target.value)}
               />
@@ -210,7 +209,6 @@ export function AdicionarContatoModal({
             <input
               id="ac-nome"
               className="field-dark"
-              placeholder="Ex.: João da Silva"
               value={nome}
               onChange={(e) => setNome(e.target.value)}
               autoFocus
@@ -223,7 +221,6 @@ export function AdicionarContatoModal({
               <input
                 id="ac-cargo"
                 className="field-dark"
-                placeholder="Ex.: Compradora"
                 value={cargo}
                 onChange={(e) => setCargo(e.target.value)}
               />

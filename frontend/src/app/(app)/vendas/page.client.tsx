@@ -1838,7 +1838,7 @@ export function VendasClient() {
             </div>
             <div style={{ display: "grid", gap: 6 }}>
               <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Próximo passo</label>
-              <input className="field-dark" maxLength={140} placeholder="Ex.: Ligar amanhã" value={novoForm.nextAction}
+              <input className="field-dark" maxLength={140} value={novoForm.nextAction}
                 onChange={e => setNovoForm(f => ({ ...f, nextAction: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gap: 6 }}>
@@ -2174,7 +2174,6 @@ export function VendasClient() {
               <div className="vnd-popup__field">
                 <label className="dn-cockpit__label">Objetivo (opcional)</label>
                 <textarea className="field-dark" rows={2} maxLength={200}
-                  placeholder="Ex.: apresentar o controle de entregas"
                   value={obs} onChange={e => setObs(e.target.value)} />
               </div>
               {retornoData && sel.block !== "closed" && botStatus?.botModuleEnabled && !botStatus?.botArmed && (

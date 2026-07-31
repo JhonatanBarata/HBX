@@ -45,12 +45,12 @@ const PRODUTOS_IMPORT_SCHEMA: ImportSchema = {
   templateName: "modelo-produtos.xlsx",
   endpoint: "/products/import",
   columns: [
-    { key: "nome", header: "nome", label: "Nome", required: true, example: "Galão de água 20L", hint: "nome do produto (obrigatório)", aliases: ["produto"] },
-    { key: "preco", header: "preco", label: "Preço", example: "12,50", hint: "preço em R$ (aceita vírgula)", aliases: ["preço", "valor", "preco (r$)"] },
-    { key: "unidade", header: "unidade", label: "Unidade", example: "galão 20L", hint: "unidade de venda (kg, unidade, galão 20L…)", aliases: ["un", "und"] },
-    { key: "usa_logistica", header: "usa_logistica", label: "Usa logística", example: "sim", hint: '"sim" se entra no roteiro de entrega', aliases: ["logistica", "logística", "entrega", "usa logistica"] },
-    { key: "sku", header: "sku", label: "SKU", example: "AG20", hint: "código interno (opcional)", aliases: ["codigo", "código"] },
-    { key: "descricao", header: "descricao", label: "Descrição", example: "Água mineral natural", hint: "descrição (opcional)", aliases: ["descrição", "obs", "observacao"] },
+    { key: "nome", header: "nome", label: "Nome", required: true, hint: "nome do produto (obrigatório)", aliases: ["produto"] },
+    { key: "preco", header: "preco", label: "Preço", hint: "preço em R$ (aceita vírgula)", aliases: ["preço", "valor", "preco (r$)"] },
+    { key: "unidade", header: "unidade", label: "Unidade", hint: "unidade de venda (kg, unidade, galão 20L…)", aliases: ["un", "und"] },
+    { key: "usa_logistica", header: "usa_logistica", label: "Usa logística", hint: '"sim" se entra no roteiro de entrega', aliases: ["logistica", "logística", "entrega", "usa logistica"] },
+    { key: "sku", header: "sku", label: "SKU", hint: "código interno (opcional)", aliases: ["codigo", "código"] },
+    { key: "descricao", header: "descricao", label: "Descrição", hint: "descrição (opcional)", aliases: ["descrição", "obs", "observacao"] },
   ],
   normalizeRow: (r) => {
     const name = String(r.nome ?? "").trim();
@@ -164,7 +164,6 @@ function ProdutoModal({
             <input
               id="prod-nome"
               className="field-dark"
-              placeholder="Ex.: Galão de água 20L"
               value={nome}
               onChange={(e) => setNome(e.target.value)}
               autoFocus
@@ -177,7 +176,6 @@ function ProdutoModal({
               <input
                 id="prod-unidade"
                 className="field-dark"
-                placeholder="Ex.: galão 20L, kg, unidade"
                 value={unidade}
                 onChange={(e) => setUnidade(e.target.value)}
               />
@@ -204,7 +202,7 @@ function ProdutoModal({
             <span>Usa na Logística (entra no roteiro de entrega)</span>
           </label>
           <span className="prod-toggle__note">
-            Marque para itens que o cliente recebe fisicamente (ex.: galão de água). Serviços e planos ficam desmarcados.
+            Marque para itens que o cliente recebe fisicamente. Serviços e planos ficam desmarcados.
           </span>
 
           {error && <p className="hint ctt-form__err">{error}</p>}

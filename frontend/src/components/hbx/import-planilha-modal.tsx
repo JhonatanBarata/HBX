@@ -24,7 +24,6 @@ export type ImportColumn = {
   /** rótulo humano curto. */
   label: string;
   required?: boolean;
-  example?: string;
   /** "puxa para..." — explicação da coluna (modelo + ajuda). */
   hint?: string;
   /** apelidos extras aceitos como cabeçalho (ex.: "whatsapp" p/ telefone). */
@@ -144,21 +143,19 @@ async function parseFile(
 async function baixarModelo(schema: ImportSchema) {
   const XLSX = await import("xlsx");
   const headers = schema.columns.map((c) => c.header);
-  const exemplo = schema.columns.map((c) => c.example ?? "");
-  const wsDados = XLSX.utils.aoa_to_sheet([headers, exemplo]);
+  const wsDados = XLSX.utils.aoa_to_sheet([headers]);
   wsDados["!cols"] = schema.columns.map((c) => ({ wch: Math.max(14, c.header.length + 2) }));
 
   const info = [
-    ["Coluna", "O que preencher", "Obrigatório", "Exemplo"],
+    ["Coluna", "O que preencher", "Obrigatório"],
     ...schema.columns.map((c, i) => [
       `${LETRAS[i] || "?"} — ${c.header}`,
       c.hint || c.label,
       c.required ? "Sim" : "Não",
-      c.example || "",
     ]),
   ];
   const wsInfo = XLSX.utils.aoa_to_sheet(info);
-  wsInfo["!cols"] = [{ wch: 20 }, { wch: 52 }, { wch: 12 }, { wch: 26 }];
+  wsInfo["!cols"] = [{ wch: 20 }, { wch: 52 }, { wch: 12 }];
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, wsDados, "Dados");

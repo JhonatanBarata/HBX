@@ -1156,7 +1156,7 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
               </div>
               <div className="ctb-field">
                 <label>Descrição</label>
-                <input value={lcForm.descricao} onChange={(e) => setLcForm((f) => ({ ...f, descricao: e.target.value }))} placeholder="ex.: assinatura do servidor" />
+                <input value={lcForm.descricao} onChange={(e) => setLcForm((f) => ({ ...f, descricao: e.target.value }))} />
               </div>
               <div className="ctb-field">
                 <label>Valor (R$)</label>

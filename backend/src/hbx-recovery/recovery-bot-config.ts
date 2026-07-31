@@ -310,7 +310,7 @@ const DEFAULT_VARIABLE_CATALOG: RecoveryBotVariableDefinition[] = [
   {
     key: 'link_pagamento',
     label: 'Link de pagamento',
-    example: 'https://pagamentos.hbx.app/exemplo',
+    example: 'https://pagamentos.hbx.app/checkout',
     description: 'URL final enviada para checkout ou pagamento direto.',
     scope: 'shared',
     required: true,
