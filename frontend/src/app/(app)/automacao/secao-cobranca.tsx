@@ -114,7 +114,7 @@ type MsgFieldKey =
   | "closeTopicMessage"
   | "blockedMessage";
 type EditorKey = MsgFieldKey;
-type Peca = { key: EditorKey; label: string; hint: string; icon: string; tone: string; buttonsKey?: BotaoGrupo };
+type Peca = { key: EditorKey; label: string; icon: string; tone: string; buttonsKey?: BotaoGrupo };
 
 type RecoveryConfig = {
   variableCatalog?: VarDef[];
@@ -143,18 +143,18 @@ type ActivationState = {
 // Constantes — mesmas 7 fases + 2 grupos de botão que BotFlowCanvas conhece
 // (D1). Recovery nunca teve peça "Ajustes" (nem no /bot velho).
 // ================================================================
-const BOT_MSG_FIELDS: { key: MsgFieldKey; label: string; hint: string; icon: string; color: string; buttonsKey?: BotaoGrupo }[] = [
-  { key: "welcomeMessage", label: "Boas-vindas", hint: "Primeira mensagem para contato novo", icon: "msg", color: "var(--hbx-brand)", buttonsKey: "welcomeButtons" },
-  { key: "returningCustomerMessage", label: "Cliente retornando", hint: "Quando o contato já é conhecido", icon: "reply", color: "var(--hbx-info)" },
-  { key: "mainMenuPrompt", label: "Menu principal", hint: "Pergunta com as opções do menu", icon: "atend", color: "var(--hbx-info)", buttonsKey: "mainMenuButtons" },
-  { key: "postActionPrompt", label: "Pós-ação", hint: "Depois de concluir uma ação", icon: "check", color: "var(--hbx-success)" },
-  { key: "humanAckMessage", label: "Transferência para humano", hint: "Aviso de que um atendente assume", icon: "users", color: "var(--hbx-warning)" },
-  { key: "closeTopicMessage", label: "Encerramento", hint: "Fechamento da conversa", icon: "clock", color: "var(--hbx-secondary)" },
-  { key: "blockedMessage", label: "Contato bloqueado", hint: "Resposta para contato bloqueado", icon: "x", color: "var(--hbx-danger)" },
+const BOT_MSG_FIELDS: { key: MsgFieldKey; label: string; icon: string; color: string; buttonsKey?: BotaoGrupo }[] = [
+  { key: "welcomeMessage", label: "Boas-vindas", icon: "msg", color: "var(--hbx-brand)", buttonsKey: "welcomeButtons" },
+  { key: "returningCustomerMessage", label: "Cliente retornando", icon: "reply", color: "var(--hbx-info)" },
+  { key: "mainMenuPrompt", label: "Menu principal", icon: "atend", color: "var(--hbx-info)", buttonsKey: "mainMenuButtons" },
+  { key: "postActionPrompt", label: "Pós-ação", icon: "check", color: "var(--hbx-success)" },
+  { key: "humanAckMessage", label: "Transferência para humano", icon: "users", color: "var(--hbx-warning)" },
+  { key: "closeTopicMessage", label: "Encerramento", icon: "clock", color: "var(--hbx-secondary)" },
+  { key: "blockedMessage", label: "Contato bloqueado", icon: "x", color: "var(--hbx-danger)" },
 ];
-const BOT_BTN_GROUPS: { key: BotaoGrupo; label: string; hint: string }[] = [
-  { key: "welcomeButtons", label: "Botões de boas-vindas", hint: "aparecem na primeira mensagem" },
-  { key: "mainMenuButtons", label: "Botões do menu principal", hint: "opções do menu" },
+const BOT_BTN_GROUPS: { key: BotaoGrupo; label: string }[] = [
+  { key: "welcomeButtons", label: "Botões de boas-vindas" },
+  { key: "mainMenuButtons", label: "Botões do menu principal" },
 ];
 // Subconjunto com contraparte REAL no RecoveryBotConfig/DTO (D1) — o único
 // que buildBody() pode enviar; qualquer chave fora disso derruba o PATCH
@@ -454,7 +454,7 @@ function CobrancaPane({ config, canManage, activeStep, setActiveStep, cfgValue, 
   const activeFieldRef = useRef<HTMLTextAreaElement | null>(null);
 
   const pecas: Peca[] = useMemo(
-    () => BOT_MSG_FIELDS.map((f) => ({ key: f.key, label: f.label, hint: f.hint, icon: f.icon, tone: f.color, buttonsKey: f.buttonsKey })),
+    () => BOT_MSG_FIELDS.map((f) => ({ key: f.key, label: f.label, icon: f.icon, tone: f.color, buttonsKey: f.buttonsKey })),
     [],
   );
 
@@ -509,7 +509,6 @@ function CobrancaPane({ config, canManage, activeStep, setActiveStep, cfgValue, 
         <BotPhaseEditor
           open={editorKey !== null}
           title={pecaAtual.label}
-          hint={pecaAtual.hint}
           icon={pecaAtual.icon}
           tone={pecaAtual.tone}
           isSettings={false}
@@ -523,7 +522,6 @@ function CobrancaPane({ config, canManage, activeStep, setActiveStep, cfgValue, 
           actionCatalog={acoesDisponiveis as BotAction[]}
           canUseOfficialButtons={canUseOfficialButtons}
           buttonsLabel={pecaAtual.buttonsKey === "welcomeButtons" ? "Botões de boas-vindas" : "Botões do menu"}
-          buttonsHint={pecaAtual.buttonsKey === "welcomeButtons" ? "aparecem na primeira mensagem" : "opções do menu"}
           onButtonsChange={(next) => { if (pecaAtual.buttonsKey) onButtonsChange(pecaAtual.buttonsKey, next); }}
           rules={[]}
           ruleValue={() => false}

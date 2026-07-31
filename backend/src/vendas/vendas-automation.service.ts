@@ -14,6 +14,14 @@ import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
 import { buildWhatsAppPhoneCandidates, normalizeBrPhoneDigits } from '../messaging/whatsapp-channel';
 import { WaColdContactGateService } from '../messaging/wa-cold-contact-gate.service';
 import { AgendaDisparoService } from './agenda-disparo.service';
+import {
+  NIVEIS_DISPARO,
+  detectarNivel,
+  fraseDoNivel,
+  isNivelDisparo,
+  valoresDoNivel,
+  type NivelDisparo,
+} from './vendas-nivel-disparo';
 import { PrismaService } from '../prisma/prisma.service';
 import { pushMasterNotice } from '../common/push-master-notice';
 import { WebscrapingService, type WebscrapingContactResult, type WebscrapingSearchResponse } from '../webscraping/webscraping.service';
@@ -1507,6 +1515,13 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     botConfig?: AtendimentoBotConfig | null,
     existing?: any,
   ) {
+    // NÍVEL DE DISPARO (dono, 31/07 — "qual nível ele está? conservador, médio,
+    // agressivo? tudo isso está muito confuso"). Um clique preenche os 4 campos que
+    // mandam no risco, e VENCE campo solto que venha no mesmo PATCH: escolher "Médio"
+    // e o teto continuar 17 seria a mesma confusão de antes, com botão novo.
+    if (isNivelDisparo(payload?.nivelDisparo)) {
+      payload = { ...(payload || {}), ...valoresDoNivel(payload!.nivelDisparo as NivelDisparo) };
+    }
     const scene = this.getProspectingSceneRules(botConfig);
     const filters = parseJsonObject(payload?.filtersJson ?? existing?.filtersJson);
     const optOutReplyEnabled =
@@ -1941,9 +1956,23 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     // nunca derruba o status. Mesma função do caminho SEM campanha (S4/B11).
     const painel = await this.buildPainelDisparos(campaign.companyId);
     const { hotLead, coldGate, agendadosFuturos, proximoAgendadoAt } = painel;
+    // A frase do nível é montada AQUI, no servidor, porque é o único lugar onde o
+    // nível configurado e o freio anti-ban ao vivo estão juntos. Se a tela montasse
+    // essa frase sozinha, existiriam duas versões da mesma verdade — foi assim que
+    // nasceu o "teto tinha 3 números".
+    const serialized = this.serializeCampaign(campaign);
+    const tetoEfetivo = coldGate?.enabled && Number.isFinite(Number(coldGate.maxPerDay))
+      ? Math.min(dailyLimit, Number(coldGate.maxPerDay))
+      : dailyLimit;
     return {
       hotLead,
       coldGate,
+      nivelDisparo: serialized?.nivelDisparo ?? 'personalizado',
+      nivelFrase: fraseDoNivel({
+        nivel: serialized?.nivelDisparo ?? 'personalizado',
+        valores: serialized?.nivelValores ?? {},
+        tetoEfetivo,
+      }),
       agendadosFuturos,
       proximoAgendadoAt,
       status,
@@ -1957,7 +1986,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       // S4 (B11): "ativo" deixou de ser sinônimo de campanha rodando — disparo
       // agendado no futuro também é trabalho vivo (é o modo manual do dono).
       active: (campaign.status === 'running' && status !== 'dormindo') || agendadosFuturos > 0,
-      campaign: this.serializeCampaign(campaign),
+      campaign: serialized,
       triagem: this.buildTriagemState(campaign),
       counters,
       nextScheduledAt: nextScheduledAt ? nextScheduledAt.toISOString() : null,
@@ -1982,8 +2011,21 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   private serializeCampaign(campaign: any) {
     if (!campaign) return null;
     const filtersJson = parseJsonObject(campaign.filtersJson);
+    // NÍVEL: detectado sobre os valores CRUS da campanha, nunca sobre a capacidade
+    // efetiva (`getCampaignDailyCapacity`, que já desconta horário/ritmo). Detectar
+    // no número derivado faria uma config Médio aparecer como "personalizado" — a
+    // tela mentiria sobre a escolha que a própria tela gravou.
+    const valoresDeRisco = {
+      dailyLimit: clampInteger(campaign.dailyLimit, DEFAULT_DAILY_LIMIT, 1, ABSOLUTE_DAILY_SEND_CAP),
+      intervalMinutes: clampInteger(campaign.intervalMinutes, 15, 1, 180),
+      intervalVarianceMinutes: clampInteger(filtersJson.intervalVarianceMinutes, DEFAULT_INTERVAL_VARIANCE_MINUTES, 0, 180),
+      maxAttemptsPerLead: clampInteger(campaign.maxAttemptsPerLead, 1, 1, 3),
+    };
     return {
       id: campaign.id,
+      nivelDisparo: detectarNivel(valoresDeRisco),
+      nivelValores: valoresDeRisco,
+      niveisDisparo: NIVEIS_DISPARO,
       status: campaign.status,
       city: campaign.city,
       state: campaign.state,

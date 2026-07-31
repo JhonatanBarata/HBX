@@ -27,7 +27,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { apiFetch } from "@/lib/api";
 import { CheckoutPanel } from "@/components/hbx/checkout-panel";
 import { useHbxShell } from "@/lib/hbx-shell";
-import { IC_CAL, IC_REFRESH, IC_SEARCH, IC_TARGET } from "@/lib/plans";
 
 type CreditLot = {
   id: string;
@@ -81,51 +80,6 @@ function diasAte(iso?: string | null): number | null {
 function brl(v: number) {
   return (v ?? 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
-
-function Ic({ paths }: { paths: string[] }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      {paths.map((d, i) => <path key={i} d={d} />)}
-    </svg>
-  );
-}
-
-// Copy única da mecânica (mesma história na carteira e no FAQ — honesta com o
-// backend: débito on-success, refund on-failure, FIFO por validade, saldo
-// nunca negativo, carteira é da EMPRESA).
-const HOW_ITEMS = [
-  { ic: IC_SEARCH, t: "Grátis ou Débito", d: "Cada ação tem um modo claro. Buscar no Radar e IA em lote são grátis por padrão." },
-  { ic: IC_TARGET, t: "Custos por ação", d: "Lead: 1 · Automação: 0,1 · IA em tempo real/Concierge: 0,1 · Logística iniciada: 0,2." },
-  { ic: IC_REFRESH, t: "Frações ficam no saldo", d: "1 crédito menos uma Logística de 0,2 deixa exatamente 0,8. O saldo nunca fica negativo." },
-  { ic: IC_CAL, t: "Mudanças com aviso", d: "Qualquer alteração de preço ou regra será avisada previamente no sistema e por e-mail." },
-];
-
-const FAQ_ITEMS: Array<{ q: string; a: string }> = [
-  {
-    q: "O que é 1 crédito?",
-    a: "Crédito é a unidade da carteira da empresa. Um lead entregue custa 1; ações menores podem consumir frações, sempre com até três casas decimais e sem arredondamento surpresa.",
-  },
-  {
-    q: "O que é Automação?",
-    a: "É o envio automático de WhatsApp ou e-mail feito por Atendimento, Prospecção, Assistente ou Recovery. Respostas humanas, e-mail manual e mensagens transacionais da plataforma não entram.",
-  },
-  {
-    q: "Créditos expiram?",
-    a: "Cada lote tem validade própria (mostrada no pacote e no extrato). O sistema consome primeiro os créditos que vencem primeiro, então nada morre na mão à toa.",
-  },
-  {
-    q: "E se uma ação falhar?",
-    a: "Quando a falha é confirmada antes do efeito, a reserva volta automaticamente. Resultado incerto de provedor fica visível para revisão e não é repetido às cegas.",
-  },
-  {
-    q: "Quem da equipe gasta os créditos?",
-    a: "A carteira é da empresa: os usos autorizados da equipe saem do mesmo saldo. Vendedor não vê preços ou pacotes; o dono acompanha saldo, lotes e regras.",
-  },
-  {
-    q: "Preciso de assinatura pra usar?",
-    a: "Não. Crédito é o modelo padrão: adicionar gente na equipe é grátis e não existe mensalidade obrigatória — você recarrega quando quiser. Operação sob medida é conta empresarial, negociada direto com o nosso time.",
-  },
-];
 
 export function CreditsWalletSection() {
   // MODO-SHELL (Play billing): dentro da casca Android NENHUMA superfície de
@@ -224,7 +178,6 @@ export function CreditsWalletSection() {
             <span className="cw-hero__num">{data.balance ?? 0}</span>
             <div className="cw-hero__sub">
               <span className="cw-hero__label">créditos disponíveis</span>
-              <span className="cw-hero__hint">A carteira é da empresa e aceita custos fracionados por ação, sem saldo negativo.</span>
             </div>
           </div>
           <div className="cw-hero__side">
@@ -298,7 +251,6 @@ export function CreditsWalletSection() {
                   );
                 })}
               </div>
-              <span className="sc-note">Pagamento no cartão — os créditos entram na hora da aprovação. Sem assinatura e sem fidelidade: recarregue só quando precisar.</span>
             </React.Fragment>
           )}
           {pagando && (
@@ -333,33 +285,11 @@ export function CreditsWalletSection() {
       </section>
       )}
 
-      {/* ── Como funcionam os créditos ──────────────────────────────── */}
+      {/* ── Extrato de lotes ────────────────────────────────────────── */}
       <section className="panel cfg-section">
-        <div className="panel-head"><h2>Como funcionam os créditos</h2></div>
-        <div style={{ padding: 18 }}>
-          <div className="cw-how">
-            {HOW_ITEMS.map(item => (
-              <div key={item.t} className="cw-how__item">
-                <span className="cw-how__ic"><Ic paths={item.ic} /></span>
-                <span className="cw-how__t">{item.t}</span>
-                <span className="cw-how__d">{item.d}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── FAQ + extrato de lotes ──────────────────────────────────── */}
-      <section className="panel cfg-section">
-        <div className="panel-head"><h2>Perguntas frequentes</h2></div>
+        <div className="panel-head"><h2>Extrato</h2></div>
         <div style={{ padding: 18, display: "grid", gap: 14 }}>
           <div className="cw-faq">
-            {FAQ_ITEMS.map(item => (
-              <details key={item.q}>
-                <summary>{item.q}</summary>
-                <p>{item.a}</p>
-              </details>
-            ))}
             <details className="cw-extrato">
               <summary>Extrato de lotes ({lotesAtivos.length} com saldo)</summary>
               {lotesAtivos.length === 0 && <p>Nenhum lote com saldo disponível.</p>}

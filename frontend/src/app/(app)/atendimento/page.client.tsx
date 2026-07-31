@@ -2586,7 +2586,7 @@ export function AtendimentoClient() {
               obsBusy={obsBusy}
               onToggleDoNotCall={convo ? () => alternarNaoLigar(!card?.customer?.doNotCall) : undefined}
               historyLabel="Histórico do lead"
-              title="Detalhes"
+              title="Negócio"
               actions={convo ? (
                 <div className="dn-cockpit">
                   {/* TIER 1 — Fechar venda */}

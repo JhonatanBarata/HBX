@@ -220,8 +220,8 @@ export function RouteBoard({
                 className="log-lane__head"
                 role={faixa.entregador ? "button" : undefined}
                 tabIndex={faixa.entregador ? 0 : undefined}
-                aria-label={faixa.entregador ? `Ver detalhes de ${faixa.nome}` : undefined}
-                title={faixa.entregador ? `Ver detalhes de ${faixa.nome}` : undefined}
+                aria-label={faixa.entregador ? `Abrir ${faixa.nome}` : undefined}
+                title={faixa.entregador ? `Abrir ${faixa.nome}` : undefined}
                 onClick={() => { if (faixa.entregador) onDriverSelect(faixa.entregador); }}
                 onKeyDown={(event) => {
                   if (!faixa.entregador || (event.key !== "Enter" && event.key !== " ")) return;

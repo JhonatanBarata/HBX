@@ -472,3 +472,69 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--hbx-danger) 22%, transparent);
 }
 /* pele-allow-end */
+
+/* ── NÍVEL DE DISPARO (dono, 31/07) ──────────────────────────────────────────
+   O cartão que responde "qual nível ele está?" antes de qualquer gaveta abrir.
+   Mora no topo da coluna de peças da Prospecção. Só tokens centrais. */
+.nivel-disparo {
+  display: grid;
+  gap: 10px;
+  padding: 13px 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--hbx-surface-soft);
+  box-shadow: var(--shadow-xs);
+}
+.nivel-disparo__head { display: flex; align-items: flex-start; gap: 11px; }
+.nivel-disparo__icon {
+  display: grid; place-items: center;
+  width: 34px; height: 34px; flex: 0 0 auto;
+  border-radius: var(--radius-sm);
+  color: var(--hbx-action-ink);
+  background: var(--hbx-brand);
+}
+.nivel-disparo__titles { display: grid; gap: 3px; min-width: 0; }
+.nivel-disparo__title {
+  font-family: var(--font-display);
+  font-size: 0.84rem; font-weight: 700;
+  color: var(--text-strong);
+}
+/* o estado atual é DADO que se lê: --text-body, nunca --text-muted (contraste) */
+.nivel-disparo__now { font-size: 0.7rem; line-height: 1.45; color: var(--text-body); }
+
+.nivel-disparo__opcoes { display: grid; gap: 7px; }
+@media (min-width: 900px) {
+  .nivel-disparo__opcoes { grid-template-columns: repeat(3, 1fr); }
+}
+.nivel-disparo__opt {
+  appearance: none;
+  cursor: pointer;
+  text-align: left;
+  display: grid;
+  gap: 3px;
+  padding: 9px 11px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--hbx-surface);
+  transition: border-color var(--motion-fast), box-shadow var(--motion-fast), transform var(--motion-fast);
+}
+.nivel-disparo__opt:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+.nivel-disparo__opt.is-on {
+  border-color: var(--login-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--login-accent) 14%, transparent);
+  cursor: default;
+}
+.nivel-disparo__opt:disabled:not(.is-on) { opacity: 0.55; cursor: not-allowed; }
+.nivel-disparo__opt-nome {
+  font-family: var(--font-display);
+  font-size: 0.78rem; font-weight: 700;
+  color: var(--text-strong);
+}
+.nivel-disparo__opt-num { font-size: 0.68rem; font-weight: 600; color: var(--hbx-brand); }
+.nivel-disparo__opt-resumo { font-size: 0.64rem; line-height: 1.4; color: var(--text-body); }
+.nivel-disparo__custom {
+  margin: 0;
+  font-size: 0.66rem;
+  line-height: 1.45;
+  color: var(--text-body);
+}

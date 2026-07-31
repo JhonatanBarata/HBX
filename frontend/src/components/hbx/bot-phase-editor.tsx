@@ -16,18 +16,16 @@ import { I, ICONS } from "@/components/hbx/shell";
 import { BotButtonsEditor, type BotButton, type BotAction } from "@/components/hbx/bot-buttons-editor";
 import type { VarDef } from "@/components/hbx/bot-variables-drawer";
 
-// Espelha o tipo de regra da página (chave + label + hint).
+// Espelha o tipo de regra da página (chave + label).
 export type PhaseRuleDef = {
   key: string;
   label: string;
-  hint: string;
 };
 
 export type BotPhaseEditorProps = {
   open: boolean;
   // Identidade visual da peça
   title: string;
-  hint: string;
   icon: string; // chave em ICONS
   tone: string; // token central (var(--hbx-*)) — vira --bot-phase-color no CSS
   // Peça "Ajustes" (regras) vs. peça de mensagem
@@ -59,7 +57,6 @@ export function BotPhaseEditor(props: BotPhaseEditorProps): React.JSX.Element | 
   const {
     open,
     title,
-    hint,
     icon,
     tone,
     isSettings,
@@ -162,7 +159,6 @@ export function BotPhaseEditor(props: BotPhaseEditorProps): React.JSX.Element | 
           </span>
           <span className="bot-phase-editor__titles">
             <span className="bot-phase-editor__title">{title}</span>
-            <span className="bot-phase-editor__hint">{hint}</span>
           </span>
           <button
             type="button"
@@ -182,7 +178,6 @@ export function BotPhaseEditor(props: BotPhaseEditorProps): React.JSX.Element | 
                 <div className="setting" key={r.key}>
                   <div className="bot-phase-editor__rule-info">
                     <strong>{r.label}</strong>
-                    <small>{r.hint}</small>
                   </div>
                   <button
                     className={"sw" + (ruleValue(r.key) ? " on" : "")}

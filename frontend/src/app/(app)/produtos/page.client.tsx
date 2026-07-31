@@ -45,12 +45,12 @@ const PRODUTOS_IMPORT_SCHEMA: ImportSchema = {
   templateName: "modelo-produtos.xlsx",
   endpoint: "/products/import",
   columns: [
-    { key: "nome", header: "nome", label: "Nome", required: true, hint: "nome do produto (obrigatório)", aliases: ["produto"] },
-    { key: "preco", header: "preco", label: "Preço", hint: "preço em R$ (aceita vírgula)", aliases: ["preço", "valor", "preco (r$)"] },
-    { key: "unidade", header: "unidade", label: "Unidade", hint: "unidade de venda (kg, unidade, galão 20L…)", aliases: ["un", "und"] },
-    { key: "usa_logistica", header: "usa_logistica", label: "Usa logística", hint: '"sim" se entra no roteiro de entrega', aliases: ["logistica", "logística", "entrega", "usa logistica"] },
-    { key: "sku", header: "sku", label: "SKU", hint: "código interno (opcional)", aliases: ["codigo", "código"] },
-    { key: "descricao", header: "descricao", label: "Descrição", hint: "descrição (opcional)", aliases: ["descrição", "obs", "observacao"] },
+    { key: "nome", header: "nome", label: "Nome", required: true, aliases: ["produto"] },
+    { key: "preco", header: "preco", label: "Preço", aliases: ["preço", "valor", "preco (r$)"] },
+    { key: "unidade", header: "unidade", label: "Unidade", aliases: ["un", "und"] },
+    { key: "usa_logistica", header: "usa_logistica", label: "Usa logística", aliases: ["logistica", "logística", "entrega", "usa logistica"] },
+    { key: "sku", header: "sku", label: "SKU", aliases: ["codigo", "código"] },
+    { key: "descricao", header: "descricao", label: "Descrição", aliases: ["descrição", "obs", "observacao"] },
   ],
   normalizeRow: (r) => {
     const name = String(r.nome ?? "").trim();
@@ -423,10 +423,10 @@ export function ProdutosClient() {
     <>
       <HbxContextHeader
         eyebrow="Produto"
-        title="Detalhes do produto"
+        title="Produto"
         subtitle={selected.status === "archived" ? "Fora do catálogo ativo" : "Catálogo ativo"}
         actions={(
-          <button type="button" className="icon-ghost" onClick={() => setSelected(null)} aria-label="Fechar detalhes">
+          <button type="button" className="icon-ghost" onClick={() => setSelected(null)} aria-label="Fechar">
             <I d={ICONS.x} size={15} />
           </button>
         )}
@@ -462,7 +462,6 @@ export function ProdutosClient() {
     <HbxContextEmpty
       icon={<I d={ICONS.produtos} size={19} />}
       title="Selecione um produto"
-      description="O catálogo continua à esquerda e os dados do item aparecem aqui."
     />
   );
 
@@ -472,7 +471,7 @@ export function ProdutosClient() {
         variant="context"
         className="prod-live-shell"
         ariaLabel="Catálogo de produtos"
-        contextLabel="Detalhes do produto"
+        contextLabel="Produto"
         main={main}
         context={context}
       />

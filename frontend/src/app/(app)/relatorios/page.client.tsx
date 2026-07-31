@@ -472,7 +472,7 @@ export function RelatoriosClient() {
                   <span className="link" role="button" tabIndex={0} aria-expanded={allSellersOpen}
                     aria-disabled={sellers.length === 0} onClick={toggleAllSellers}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleAllSellers(); } }}>
-                    {allSellersOpen ? "Ocultar detalhes" : "Ver detalhes"}
+                    {allSellersOpen ? "Ocultar" : "Ver"}
                   </span>
                 </div>
               </div>
@@ -493,7 +493,7 @@ export function RelatoriosClient() {
                       const open = openSellers.has(v.seller.id);
                       return (
                         <React.Fragment key={v.seller.id}>
-                          <tr onClick={() => toggleSeller(v.seller.id)} aria-expanded={open} title="Ver detalhes do vendedor">
+                          <tr onClick={() => toggleSeller(v.seller.id)} aria-expanded={open} title="Abrir vendedor">
                             <td>
                               <div style={{ display: "flex", gap: 9, alignItems: "center" }}>
                                 <span aria-hidden style={{ display: "inline-block", width: 12, fontSize: "0.7rem", transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>▸</span>

@@ -212,8 +212,6 @@ export function SecaoRegras({ motor, onChanged }: { motor: MotorBlock; onChanged
 
   const gatilhos = gat?.gatilhos ?? [];
   const rotinas = rot?.rotinas ?? [];
-  // D2 — runner lido do overview (prop `motor`), não mais do próprio GET /cadencia/rotinas.
-  const runnerEnabled = Boolean(motor.ok && motor.runnerEnabled);
 
   return (
     <div className="ia-wrap">
@@ -232,7 +230,7 @@ export function SecaoRegras({ motor, onChanged }: { motor: MotorBlock; onChanged
       {tab === "gatilhos" ? (
         <GatilhosTab data={gat} loading={loading} error={errGat} reload={async () => { await loadGat(); onChanged?.(); }} />
       ) : (
-        <RotinasTab data={rot} loading={loading} error={errRot} reload={async () => { await loadRot(); onChanged?.(); }} runnerEnabled={runnerEnabled} />
+        <RotinasTab data={rot} loading={loading} error={errRot} reload={async () => { await loadRot(); onChanged?.(); }} />
       )}
     </div>
   );
@@ -261,10 +259,6 @@ function GatilhosTab({ data, loading, error, reload }: {
   return (
     <>
       <div className="auto-bar">
-        {/* S07 (PADRAO-MERCADO) — item 5: linha encurtada pro teto (≤70 chars,
-            Lei nº1) — "sem enviar mensagem automática" é a única frase de
-            SEGURANÇA que a forma não carrega, então fica (só mais curta). */}
-        <span className="hint">Reage ao lead no funil — sem enviar mensagem automática.</span>
         {canManage && gatilhos.length > 0 && (
           <button className="btn-teal" onClick={() => setNovo(true)}><I d={ICONS.plus} size={13} /> Novo gatilho</button>
         )}
@@ -404,8 +398,8 @@ function NovoGatilhoModal({ onClose, onDone }: { onClose: () => void; onDone: ()
 // ================================================================
 // ROTINAS (agenda semanal visual)
 // ================================================================
-function RotinasTab({ data, loading, error, reload, runnerEnabled }: {
-  data: RotinaResponse; loading: boolean; error: string | null; reload: () => Promise<void>; runnerEnabled: boolean;
+function RotinasTab({ data, loading, error, reload }: {
+  data: RotinaResponse; loading: boolean; error: string | null; reload: () => Promise<void>;
 }) {
   const [novo, setNovo] = useState(false);
 
@@ -424,16 +418,10 @@ function RotinasTab({ data, loading, error, reload, runnerEnabled }: {
   return (
     <>
       <div className="auto-bar">
-        {/* S07 (PADRAO-MERCADO) — item 5: linha encurtada pro teto (≤70 chars, Lei nº1). */}
-        <span className="hint">Recorrência sobre pesquisa salva, direto pro funil.</span>
         {canManage && rotinas.length > 0 && (
           <button className="btn-teal" onClick={() => setNovo(true)}><I d={ICONS.plus} size={13} /> Nova rotina</button>
         )}
       </div>
-
-      {!runnerEnabled && rotinas.length > 0 && (
-        <div className="auto-flag-note"><I d={ICONS.clock} size={15} /> Rotinas só rodam quando o motor está ligado pelo suporte.</div>
-      )}
 
       {error && <LoadErrorPanel error={error} retry={() => void reload()} />}
 

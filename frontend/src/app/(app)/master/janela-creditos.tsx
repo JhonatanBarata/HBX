@@ -887,7 +887,6 @@ export function JanelaCreditos({ companies, reload }: {
                               </button>
                             </div>
                             {grantMsg && <div className={"sc-msg " + (grantMsg.startsWith("✓") ? "is-ok" : "is-warn")} style={{ paddingBottom: 8 }}>{grantMsg}</div>}
-                            <div className="sc-hint" style={{ paddingBottom: 8 }}>Vazio usa o prazo default global (guia Config).</div>
                           </td>
                         </tr>
                       )}
@@ -1179,7 +1178,6 @@ export function JanelaCreditos({ companies, reload }: {
               <label className="field-label">Créditos de boas-vindas</label>
               <input className="field-dark" inputMode="numeric" value={welcomeCredits}
                 onChange={e => setWelcomeCredits(e.target.value)} placeholder="50" />
-              <span className="sc-hint">Concedido automaticamente no cadastro grátis (self-service).</span>
             </div>
             <div className="sc-field">
               <label className="field-label">Validade do bônus de cadastro (dias)</label>
@@ -1190,7 +1188,6 @@ export function JanelaCreditos({ companies, reload }: {
               <label className="field-label">Prazo default de expiração (dias)</label>
               <input className="field-dark" inputMode="numeric" value={defaultExpiryDays}
                 onChange={e => setDefaultExpiryDays(e.target.value)} placeholder="90" />
-              <span className="sc-hint">Usado nas concessões manuais (guia Empresas) quando nenhuma data é informada. Cada pacote (guia Packs) tem seu próprio prazo, que prevalece na compra.</span>
             </div>
             <button className="btn-teal" disabled={configBusy} onClick={salvarConfig}>
               {configBusy ? "Salvando…" : "Salvar configuração"}
@@ -1204,7 +1201,6 @@ export function JanelaCreditos({ companies, reload }: {
               <label className="field-label">Teto diário de leads (default)</label>
               <input className="field-dark" inputMode="numeric" value={dailyCapDefaultForm}
                 onChange={e => setDailyCapDefaultForm(e.target.value)} placeholder="500" />
-              <span className="sc-hint">Anti-scraper: teto de entregas de lead por dia, mesmo com saldo. Vale pra empresa que não tem teto próprio (ficha, guia Empresas). 0 = sem teto global.</span>
             </div>
             <button className="btn-teal" disabled={dailyCapBusy} onClick={salvarDailyCapDefault}>
               {dailyCapBusy ? "Salvando…" : "Salvar teto diário default"}
@@ -1213,7 +1209,6 @@ export function JanelaCreditos({ companies, reload }: {
           {/* S4 (10/07) — Política de indicação, migrada da Self-Checkout morta. Desconto anual
               (mesmo endpoint) não migrou e foi aposentado no S7 (backend ignora a escrita). */}
           <div className="sc-body">
-            <span className="sc-note">Desconto aplicado na cobrança de empresas indicadas (assinatura/ciclo ativo).</span>
             {refLoadError && <div className="sc-msg is-warn">{refLoadError}</div>}
             {refMsg && <div className={"sc-msg " + (refMsg.startsWith("✓") ? "is-ok" : "is-warn")}>{refMsg}</div>}
             <div className="sc-field sc-field--sep">

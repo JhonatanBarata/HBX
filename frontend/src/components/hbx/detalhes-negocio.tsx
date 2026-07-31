@@ -1757,7 +1757,7 @@ export function DetalhesNegocio({
   negocio,
   // Título unificado nas 3 telas (27/06): mesmo card = mesmo nome. "Detalhes" sem
   // jargão ("lead"/"negócio") — o nome da empresa já aparece no herói logo abaixo.
-  title = "Detalhes",
+  title = "Negócio",
   onClose,
   onExpand,
   heroAction,
@@ -2641,7 +2641,7 @@ export function DetalhesNegocio({
       {!n && (
         <div className="ctx-empty">
           <span className="ctx-empty__icon">←</span>
-          <span className="ctx-empty__hint">{emptyHint || "Selecione um item para ver os detalhes."}</span>
+          {emptyHint ? <span className="ctx-empty__hint">{emptyHint}</span> : null}
         </div>
       )}
 
@@ -2813,7 +2813,7 @@ export function DetalhesNegocio({
                 aria-expanded={expanded}
               >
                 <ChevronDown />
-                Mais detalhes
+                Mais
               </button>
             </>
           )}

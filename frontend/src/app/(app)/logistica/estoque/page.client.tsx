@@ -247,7 +247,6 @@ export function EstoqueCargaClient() {
           <div className="log-cfg__block">
             <div className="log-cfg__block-head">
               <strong className="log-cfg__block-title">Declarar carga do dia</strong>
-              <span className="log-cfg__switch-hint">O que subiu no caminhão hoje, produto por produto.</span>
             </div>
 
             <section className="log-agenda-form__section">

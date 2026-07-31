@@ -73,9 +73,9 @@ export function ProspPieceBody({ piece, h }: { piece: PieceKey; h: ProspFieldHel
   if (piece === "ritmo") {
     return (
       <>
-        <NumberField label="Tempo entre contatos (minutos)" hint="Quanto o motor espera entre um disparo e o próximo." value={numVal("intervalMinutes")} min={1} max={180} onChange={v => setNum("intervalMinutes", v, 1, 180)} />
-        <NumberField label="Variação aleatória (minutos)" hint="O motor sorteia até este valor pra cima/baixo — quebra o padrão de horário." value={numVal("intervalVarianceMinutes")} min={0} max={180} onChange={v => setNum("intervalVarianceMinutes", v, 0, 180)} />
-        <NumberField label="Acelerar quando o lead responde (%)" hint="Reduz o intervalo enquanto há conversa quente. 0 = sem aceleração." value={numVal("botReplyIntervalReductionPercent")} min={0} max={100} onChange={v => setNum("botReplyIntervalReductionPercent", v, 0, 100)} />
+        <NumberField label="Tempo entre contatos (minutos)" value={numVal("intervalMinutes")} min={1} max={180} onChange={v => setNum("intervalMinutes", v, 1, 180)} />
+        <NumberField label="Variação aleatória (minutos)" value={numVal("intervalVarianceMinutes")} min={0} max={180} onChange={v => setNum("intervalVarianceMinutes", v, 0, 180)} />
+        <NumberField label="Acelerar quando o lead responde (%)" value={numVal("botReplyIntervalReductionPercent")} min={0} max={100} onChange={v => setNum("botReplyIntervalReductionPercent", v, 0, 100)} />
       </>
     );
   }
@@ -83,8 +83,8 @@ export function ProspPieceBody({ piece, h }: { piece: PieceKey; h: ProspFieldHel
   if (piece === "digitacao") {
     return (
       <>
-        <NumberField label="Tempo digitando (segundos)" hint="Mostra “digitando…” por este tempo antes de enviar — parece gente." value={numVal("typingSeconds")} min={0} max={45} onChange={v => setNum("typingSeconds", v, 0, 45)} />
-        <NumberField label="Variação (segundos)" hint="Sorteio em cima do tempo de digitação — evita cadência robótica." value={numVal("typingVarianceSeconds")} min={0} max={30} onChange={v => setNum("typingVarianceSeconds", v, 0, 30)} />
+        <NumberField label="Tempo digitando (segundos)" value={numVal("typingSeconds")} min={0} max={45} onChange={v => setNum("typingSeconds", v, 0, 45)} />
+        <NumberField label="Variação (segundos)" value={numVal("typingVarianceSeconds")} min={0} max={30} onChange={v => setNum("typingVarianceSeconds", v, 0, 30)} />
       </>
     );
   }
@@ -137,7 +137,7 @@ export function ProspPieceBody({ piece, h }: { piece: PieceKey; h: ProspFieldHel
           max={ABSOLUTE_DAILY_SEND_CAP}
           onChange={v => setNum("dailyLimit", v, 1, ABSOLUTE_DAILY_SEND_CAP)}
         />
-        <NumberField label="Tentativas por lead" hint="Quantas vezes o motor tenta o mesmo contato antes de arquivar (1 a 3)." value={numVal("maxAttemptsPerLead")} min={1} max={3} onChange={v => setNum("maxAttemptsPerLead", v, 1, 3)} />
+        <NumberField label="Tentativas por lead" value={numVal("maxAttemptsPerLead")} min={1} max={3} onChange={v => setNum("maxAttemptsPerLead", v, 1, 3)} />
       </>
     );
   }
@@ -149,9 +149,8 @@ export function ProspPieceBody({ piece, h }: { piece: PieceKey; h: ProspFieldHel
           <TimeField label="Início do horário" value={strVal("workingHoursStart")} onChange={v => setField("workingHoursStart", v)} />
           <TimeField label="Fim do horário" value={strVal("workingHoursEnd")} onChange={v => setField("workingHoursEnd", v)} />
         </div>
-        <p className="bot-prosp-field__note">O disparo só roda dentro desta janela. Fora dela, o motor “dorme”.</p>
-        <NumberField label="Estoque mínimo de leads" hint="Quando a fila cai abaixo disso, o motor busca mais leads." value={numVal("minLeadBuffer")} min={1} max={500} onChange={v => setNum("minLeadBuffer", v, 1, 500)} />
-        <NumberField label="Estoque desejado de leads" hint="Tamanho de fila que o motor tenta manter cheia." value={numVal("desiredLeadBuffer")} min={1} max={500} onChange={v => setNum("desiredLeadBuffer", v, 1, 500)} />
+        <NumberField label="Estoque mínimo de leads" value={numVal("minLeadBuffer")} min={1} max={500} onChange={v => setNum("minLeadBuffer", v, 1, 500)} />
+        <NumberField label="Estoque desejado de leads" value={numVal("desiredLeadBuffer")} min={1} max={500} onChange={v => setNum("desiredLeadBuffer", v, 1, 500)} />
       </>
     );
   }
@@ -176,13 +175,12 @@ export function ProspPieceBody({ piece, h }: { piece: PieceKey; h: ProspFieldHel
           </button>
         </div>
         {boolVal("preMessageEnabled") && (
-          <VariantListEditor label="Variantes do aquecimento" hint="Mensagens curtas de abertura — o motor reveza." max={20} items={listVal("preMessageVariants")} onChange={items => setField("preMessageVariants", items)} variableCatalog={h.variableCatalog} />
+          <VariantListEditor label="Variantes do aquecimento" max={20} items={listVal("preMessageVariants")} onChange={items => setField("preMessageVariants", items)} variableCatalog={h.variableCatalog} />
         )}
         {VARIANT_LISTS.map(v => (
           <VariantListEditor
             key={String(v.key)}
             label={v.label}
-            hint={v.hint}
             max={v.max}
             items={listVal(v.key)}
             onChange={items => setField(v.key, items as never)}
@@ -199,11 +197,10 @@ export function ProspPieceBody({ piece, h }: { piece: PieceKey; h: ProspFieldHel
   if (piece === "palavras") {
     return (
       <>
-        <p className="bot-prosp-field__note">A <strong>IA local</strong> lê cada resposta do lead e decide a intenção (interesse, dúvida, adiar, parar…). Estas palavras são uma <strong>rede de segurança</strong>: entram quando a IA está indisponível ou em dúvida — nunca apagam o que a IA entende. Opcional.</p>
-        <VariantListEditor single label="Demonstra interesse" hint="O lead topou ouvir." max={40} items={listVal("positiveIntentKeywords")} onChange={items => setField("positiveIntentKeywords", items)} />
-        <VariantListEditor single label="Demonstra dúvida" hint="O lead quer entender melhor antes de decidir." max={40} items={listVal("whatIsItIntentKeywords")} onChange={items => setField("whatIsItIntentKeywords", items)} />
-        <VariantListEditor single label="Pede pra falar depois" hint="Adiamento, não recusa." max={40} items={listVal("callbackIntentKeywords")} onChange={items => setField("callbackIntentKeywords", items)} />
-        <VariantListEditor single label="Pede pra parar / não contatar" hint="Recusa firme — vira opt-out." max={40} items={listVal("negativeIntentKeywords")} onChange={items => setField("negativeIntentKeywords", items)} />
+        <VariantListEditor single label="Demonstra interesse" max={40} items={listVal("positiveIntentKeywords")} onChange={items => setField("positiveIntentKeywords", items)} />
+        <VariantListEditor single label="Demonstra dúvida" max={40} items={listVal("whatIsItIntentKeywords")} onChange={items => setField("whatIsItIntentKeywords", items)} />
+        <VariantListEditor single label="Pede pra falar depois" max={40} items={listVal("callbackIntentKeywords")} onChange={items => setField("callbackIntentKeywords", items)} />
+        <VariantListEditor single label="Pede pra parar / não contatar" max={40} items={listVal("negativeIntentKeywords")} onChange={items => setField("negativeIntentKeywords", items)} />
       </>
     );
   }

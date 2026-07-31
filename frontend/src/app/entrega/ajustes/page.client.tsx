@@ -654,9 +654,6 @@ export function EntregaAjustes() {
                 />
               </label>
             </div>
-            {cfg.pixChave ? (
-              <div className="ent-hint">QR aparece na chegada quando o pagamento é Pix</div>
-            ) : null}
 
             {/* ── S2 — COBRANÇA POR WHATSAPP (dormente): o card SÓ existe quando o
                 backend diz que a feature global está ligada (cobrancaWhatsDisponivel,
@@ -679,9 +676,6 @@ export function EntregaAjustes() {
                 </button>
                 {/* PR27072026 F1 — selo central (kit.css .plano-selo), ver-mas-não-usar. */}
                 {nivelBasic ? <span className="plano-selo">Disponível no Advanced</span> : null}
-                {cfg.cobrancaWhatsAtiva && !cfg.pixChave ? (
-                  <div className="ent-hint">Preencha a chave Pix acima para o aviso levar o copia e cola</div>
-                ) : null}
               </>
             ) : null}
 

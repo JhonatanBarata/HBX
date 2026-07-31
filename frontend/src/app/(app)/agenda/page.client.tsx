@@ -841,7 +841,7 @@ export function AgendaClient() {
         ariaLabel="Agenda operacional"
         className="age-shell"
         contentClassName="age-shell__content"
-        contextLabel="Detalhes da atividade"
+        contextLabel="Atividade"
         contextClassName="hbx-panel-context--dense age-context"
         main={(
           <>
@@ -942,7 +942,7 @@ export function AgendaClient() {
           <>
             <HbxContextHeader
               eyebrow="Agenda"
-              title={selectedAtividade ? "Detalhes da atividade" : "Nenhuma atividade selecionada"}
+              title={selectedAtividade ? "Atividade" : "Nenhuma atividade selecionada"}
               subtitle={selectedAtividade ? fmtVenc(selectedAtividade.vencimento, selectedAtividade.diaInteiro) : "Escolha um bloco no calendário"}
               status={selectedAtividade ? (
                 <span className={`age-status${selectedAtividade.atrasada ? " is-overdue" : ""}`}>
@@ -1079,7 +1079,6 @@ export function AgendaClient() {
               <HbxContextEmpty
                 icon={<I d={ICONS.agenda} size={20} />}
                 title="Escolha uma atividade"
-                description="Clique em um compromisso para ver horário, lead e ações."
               />
             )}
           </>

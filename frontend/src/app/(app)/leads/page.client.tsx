@@ -299,14 +299,14 @@ const GEO_MODE_META: Array<{
     key: "cities",
     label: "Avulsas",
     eyebrow: "Até 20 cidades",
-    description: "Escolha alvos pontuais. O Radar executa uma cidade por vez, mesmo com a tela fechada.",
+    description: "",
     icon: ICONS.mapin,
   },
   {
     key: "radius",
     label: "Região",
     eyebrow: "1 cidade-base",
-    description: "Expanda em um raio controlado com uma única execução.",
+    description: "",
     icon: ICONS.scrape,
   },
   {
@@ -320,7 +320,7 @@ const GEO_MODE_META: Array<{
     key: "nearby",
     label: "Perto de mim",
     eyebrow: "Sua localização",
-    description: "Use sua posição como ponto de partida para a região.",
+    description: "",
     icon: ICONS.leads,
   },
 ];
@@ -337,7 +337,7 @@ const SEGMENT_INTENT_META: Array<{
     key: "atividade",
     label: "Atividade",
     eyebrow: "O que ela faz",
-    description: "Descreva a empresa do seu jeito. O Radar organiza a intenção e prioriza os alvos compatíveis.",
+    description: "",
     placeholder: "",
     icon: ICONS.empresas,
   },
@@ -345,7 +345,7 @@ const SEGMENT_INTENT_META: Array<{
     key: "produto",
     label: "Produto",
     eyebrow: "O que ela vende",
-    description: "Procure pela oferta comercial mesmo quando a atividade registrada for mais ampla.",
+    description: "",
     placeholder: "",
     icon: ICONS.produtos,
   },
@@ -353,7 +353,7 @@ const SEGMENT_INTENT_META: Array<{
     key: "publico",
     label: "Público",
     eyebrow: "Para quem vende",
-    description: "Descreva o público atendido para o Radar aproximar empresas com atuação compatível.",
+    description: "",
     placeholder: "",
     icon: ICONS.users,
   },
@@ -361,17 +361,17 @@ const SEGMENT_INTENT_META: Array<{
     key: "cnae",
     label: "CNAE exato",
     eyebrow: "Se você já souber",
-    description: "Use o código somente quando ele já fizer parte do seu recorte.",
+    description: "",
     placeholder: "",
     icon: ICONS.doc,
   },
 ];
 
 const CHANNEL_META: Array<{ key: RadarRequiredChannel; label: string; description: string; icon: string[] }> = [
-  { key: "whatsapp", label: "WhatsApp", description: "Número com sinal de WhatsApp", icon: ICONS.msg },
-  { key: "phone", label: "Telefone", description: "Contato telefônico válido", icon: ICONS.phone },
-  { key: "email", label: "E-mail", description: "E-mail público encontrado", icon: ICONS.mail },
-  { key: "website", label: "Site", description: "Site próprio identificado", icon: ICONS.website },
+  { key: "whatsapp", label: "WhatsApp", description: "", icon: ICONS.msg },
+  { key: "phone", label: "Telefone", description: "", icon: ICONS.phone },
+  { key: "email", label: "E-mail", description: "", icon: ICONS.mail },
+  { key: "website", label: "Site", description: "", icon: ICONS.website },
 ];
 
 function geoTargetsFor(mode: GeoMode, uf: string, cities: string[]): GeoTarget[] {
@@ -2401,7 +2401,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
       <DetalhesNegocio
         key={lead.id}
         detail={detail}
-        title={opts?.title ?? "Detalhes"}
+        title={opts?.title ?? "Negócio"}
         enriching={hasLocalEnrichmentStatus ? false : enriching}
         onClose={opts?.onClose}
         crownSlot={<RadarAiBadge status={localEnrichmentStatus} />}
@@ -3502,7 +3502,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
             <div className="radar-console--mini">
               {renderRadarConsole(true)}
             </div>
-            {renderLeadDetail(selLead, { title: "Detalhes do lead", onClose: () => setSelLead(null) })}
+            {renderLeadDetail(selLead, { title: "Lead", onClose: () => setSelLead(null) })}
           </>
         )}
       </aside>
@@ -4042,7 +4042,6 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
                     <option value="">Ninguém (só minha)</option>
                     {savedSellers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
-                  <p className="hint" style={{ margin: "2px 0 0" }}>O vendedor passa a receber este recorte como fonte preferencial.</p>
                 </div>
               )}
               {savedMsg && <p className="radar-save-modal__err">{savedMsg}</p>}

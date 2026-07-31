@@ -304,7 +304,6 @@ export function LogisticaConfigClient() {
                 <div className="log-cfg__block-head">
                   <div className="log-cfg__heading-copy">
                     <strong className="log-cfg__block-title">Modo das novas rotas</strong>
-                    <span className="log-cfg__switch-hint">Escolha como o consumo de créditos será calculado.</span>
                   </div>
                   <label className="ctt-toggle ctt-toggle--inline">
                     <input
@@ -425,7 +424,6 @@ export function LogisticaConfigClient() {
                   />
                   <span className="log-cfg__switch-txt">
                     <span className="log-cfg__switch-name">Cobrança na entrega</span>
-                    <span className="log-cfg__switch-hint">Registra o recebimento no momento da entrega.</span>
                   </span>
                 </label>
               )}
@@ -437,7 +435,6 @@ export function LogisticaConfigClient() {
                 />
                 <span className="log-cfg__switch-txt">
                   <span className="log-cfg__switch-name">Gerar entregas do dia automaticamente</span>
-                  <span className="log-cfg__switch-hint">O sistema materializa as entregas recorrentes 1×/dia.</span>
                 </span>
               </label>
             </div>
@@ -455,7 +452,6 @@ export function LogisticaConfigClient() {
                 />
                 <span className="log-cfg__switch-txt">
                   <span className="log-cfg__switch-name">Foto da entrega</span>
-                  <span className="log-cfg__switch-hint">O entregador fotografa o comprovante ou o local da entrega.</span>
                 </span>
               </label>
               <label className="log-cfg__switch">
@@ -466,7 +462,6 @@ export function LogisticaConfigClient() {
                 />
                 <span className="log-cfg__switch-txt">
                   <span className="log-cfg__switch-name">Assinatura na tela</span>
-                  <span className="log-cfg__switch-hint">O recebedor assina com o dedo no celular do entregador.</span>
                 </span>
               </label>
               <label className="log-cfg__switch">
@@ -477,7 +472,6 @@ export function LogisticaConfigClient() {
                 />
                 <span className="log-cfg__switch-txt">
                   <span className="log-cfg__switch-name">Código de 6 dígitos</span>
-                  <span className="log-cfg__switch-hint">O admin gera o código e o cliente informa ao entregador.</span>
                 </span>
               </label>
             </div>
@@ -526,7 +520,6 @@ export function LogisticaConfigClient() {
                   />
                 </label>
               </div>
-              <p className="log-cfg__note">Usados no cálculo da rota (ordem das paradas) e da previsão de término (ETA).</p>
             </div>
           </div>
         )}

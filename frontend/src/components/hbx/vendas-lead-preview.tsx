@@ -90,14 +90,13 @@ export function VendasLeadPreview({
 }) {
   if (!lead) {
     return (
-      <aside className="vnd-lead-peek hbx-panel-shell__context is-empty" aria-label="Detalhes do lead">
+      <aside className="vnd-lead-peek hbx-panel-shell__context is-empty" aria-label="Lead">
         <header className="vnd-lead-peek__head">
-          <span>Detalhes do lead</span>
+          <span>Lead</span>
         </header>
         <div className="vnd-lead-peek__empty">
           <span className="vnd-lead-peek__empty-icon" aria-hidden="true"><I d={ICONS.vendas} size={20} /></span>
           <strong>Selecione um lead</strong>
-          <small>Os detalhes comerciais aparecem aqui.</small>
         </div>
       </aside>
     );
@@ -130,12 +129,12 @@ export function VendasLeadPreview({
   const lastRecord = lead.lastResult || lead.shortNote || null;
 
   return (
-    <aside className="vnd-lead-peek hbx-panel-shell__context has-lead" aria-label={`Detalhes de ${lead.name || "lead"}`} aria-live="polite">
+    <aside className="vnd-lead-peek hbx-panel-shell__context has-lead" aria-label={lead.name || "Lead"} aria-live="polite">
       <header className="vnd-lead-peek__head">
-        <span>Detalhes do lead</span>
+        <span>Lead</span>
         <span className="vnd-lead-peek__head-actions">
           <span className="vnd-lead-peek__state">{etapa}</span>
-          <button type="button" className="vnd-lead-peek__close" onClick={onClose} aria-label="Fechar detalhes">✕</button>
+          <button type="button" className="vnd-lead-peek__close" onClick={onClose} aria-label="Fechar">✕</button>
         </span>
       </header>
 

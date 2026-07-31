@@ -654,7 +654,6 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
                     <option value="DRIVER">Entregador</option>
                     <option value="BOTH">Vendedor e entregador</option>
                   </select>
-                  <span className="hint">O perfil vem do servidor. Trocar de tela no app não libera acesso.</span>
                 </div>
                 <button className="btn-teal" type="submit" disabled={busy || usernameCheck === "taken" || !form.username.trim() || !form.password.trim()} style={{ minHeight: 42 }}>
                   {busy ? "Criando…" : "Criar acesso"}
@@ -697,7 +696,6 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
                   <option value="DRIVER">Entregador</option>
                   <option value="BOTH">Vendedor e entregador</option>
                 </select>
-                <span className="hint">Define quais áreas esta pessoa pode operar. O backend continua sendo a fonte da verdade.</span>
               </div>
             ) : (
               <div className="novo-acesso__op-admin">

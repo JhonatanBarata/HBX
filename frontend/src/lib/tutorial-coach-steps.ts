@@ -353,7 +353,7 @@ function vendasModuleSteps(): CoachStep[] {
       route: "/vendas",
       target: '[data-tut="vendas-funil"]',
       title: "Sua carteira por etapa",
-      body: "Cada lead aparece agrupado pela etapa em que está. Clique num card pra abrir os detalhes e trabalhar.",
+      body: "Cada lead aparece agrupado pela etapa em que está. Clique num card pra abrir e trabalhar.",
       gate: "next",
     },
     {

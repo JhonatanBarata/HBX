@@ -381,7 +381,6 @@ export function ModeloAtendimentoPanel({ onClose, onConnectWhatsApp }: Props) {
                       </tbody>
                     </table>
                   </div>
-                  <span className="muted-note">Toque num atendente para ver o WhatsApp dele e derrubar a conexão se precisar.</span>
                 </React.Fragment>
               )}
             </div>

@@ -910,6 +910,15 @@ export class UpdateVendasProspectingConfigDto {
   @Max(3)
   maxAttemptsPerLead?: number;
 
+  // NÍVEL DE DISPARO (dono, 31/07): um clique no lugar de quatro campos. Quando vem
+  // preenchido, o service expande nos 4 campos de risco (vendas-nivel-disparo.ts) e
+  // o que veio junto no mesmo PATCH para esses campos é ignorado — senão "escolhi
+  // Médio e continuou 17/dia" volta a acontecer.
+  @IsOptional()
+  @IsString()
+  @IsIn(['conservador', 'medio', 'agressivo'])
+  nivelDisparo?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(5)

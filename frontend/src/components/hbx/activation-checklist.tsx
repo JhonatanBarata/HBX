@@ -225,7 +225,7 @@ export function ActivationChecklist() {
                           onClick={() => { void runAction(solution.action); }}
                         >
                           <strong>{solution.label}</strong>
-                          <span>{solution.description}</span>
+                          {solution.description ? <span>{solution.description}</span> : null}
                         </button>
                       ))}
                     </div>

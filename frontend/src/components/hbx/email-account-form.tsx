@@ -260,7 +260,7 @@ export function EmailAccountForm({ onAccountChange }: { onAccountChange?: (accou
             <label className="lead-email__row" style={{ cursor: "pointer" }}>
               <button type="button" className={"sw" + (form.smtpSecure ? " on" : "")} role="switch" aria-checked={form.smtpSecure}
                 onClick={() => setForm(f => ({ ...f, smtpSecure: !f.smtpSecure }))}><i></i></button>
-              <span className="lead-email__hint">Conexão SSL/TLS (ligado para porta 465; desligado usa STARTTLS na 587)</span>
+              <span className="lead-email__hint">Conexão SSL/TLS</span>
             </label>
             {currentPreset?.passwordHint && <p className="lead-email__hint">{currentPreset.passwordHint}</p>}
           </div>

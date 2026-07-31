@@ -43,15 +43,15 @@ const CONTATOS_IMPORT_SCHEMA: ImportSchema = {
   templateName: "modelo-contatos.xlsx",
   endpoint: "/nucleo/contas/import",
   columns: [
-    { key: "nome", header: "nome", label: "Nome", required: true, hint: "nome da pessoa ou empresa (obrigatório)", aliases: ["nome completo", "cliente", "razao social"] },
-    { key: "telefone", header: "telefone", label: "Telefone", hint: "telefone com DDD — vira o WhatsApp", aliases: ["whatsapp", "fone", "celular", "telefone/whatsapp"] },
-    { key: "cidade", header: "cidade", label: "Cidade", hint: "cidade do cliente", aliases: ["municipio"] },
-    { key: "uf", header: "uf", label: "UF", hint: "estado — 2 letras ou nome", aliases: ["estado"] },
-    { key: "cnpj", header: "cnpj", label: "CNPJ", hint: "CNPJ — se preenchido, vira empresa (PJ)", aliases: ["cnpj/cpf", "documento", "cpf"] },
-    { key: "email", header: "email", label: "E-mail", hint: "e-mail de contato", aliases: ["e-mail"] },
-    { key: "endereco", header: "endereco", label: "Endereço", hint: "endereço / rua", aliases: ["endereço", "logradouro"] },
-    { key: "cep", header: "cep", label: "CEP", hint: "CEP" },
-    { key: "cargo", header: "cargo", label: "Cargo", hint: "cargo / função da pessoa", aliases: ["funcao", "função"] },
+    { key: "nome", header: "nome", label: "Nome", required: true, aliases: ["nome completo", "cliente", "razao social"] },
+    { key: "telefone", header: "telefone", label: "Telefone", aliases: ["whatsapp", "fone", "celular", "telefone/whatsapp"] },
+    { key: "cidade", header: "cidade", label: "Cidade", aliases: ["municipio"] },
+    { key: "uf", header: "uf", label: "UF", aliases: ["estado"] },
+    { key: "cnpj", header: "cnpj", label: "CNPJ", aliases: ["cnpj/cpf", "documento", "cpf"] },
+    { key: "email", header: "email", label: "E-mail", aliases: ["e-mail"] },
+    { key: "endereco", header: "endereco", label: "Endereço", aliases: ["endereço", "logradouro"] },
+    { key: "cep", header: "cep", label: "CEP" },
+    { key: "cargo", header: "cargo", label: "Cargo", aliases: ["funcao", "função"] },
   ],
   normalizeRow: (r) => {
     const nome = String(r.nome ?? "").trim();
@@ -1438,10 +1438,10 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
     <>
       <HbxContextHeader
         eyebrow="Contato"
-        title="Detalhes do contato"
+        title="Contato"
         subtitle={selected.item.finalizado ? finalizadoLabel(selected.item.finalizadoMotivo) : "Relacionamento ativo"}
         actions={(
-          <button type="button" className="icon-ghost" onClick={() => setSelected(null)} aria-label="Fechar detalhes">
+          <button type="button" className="icon-ghost" onClick={() => setSelected(null)} aria-label="Fechar">
             <I d={ICONS.x} size={15} />
           </button>
         )}
@@ -1482,10 +1482,10 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
     <>
       <HbxContextHeader
         eyebrow="Cliente"
-        title="Detalhes do cliente"
+        title="Cliente"
         subtitle={clienteDetailLoading ? "Carregando ficha completa…" : clienteDetailError ? "Ficha parcial" : "Cadastro da logística"}
         actions={(
-          <button type="button" className="icon-ghost" onClick={() => setSelected(null)} aria-label="Fechar detalhes">
+          <button type="button" className="icon-ghost" onClick={() => setSelected(null)} aria-label="Fechar">
             <I d={ICONS.x} size={15} />
           </button>
         )}
@@ -1568,7 +1568,6 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
     <HbxContextEmpty
       icon={<I d={onlyClientes ? ICONS.empresas : ICONS.users} size={19} />}
       title={onlyClientes ? "Selecione um cliente" : "Selecione um contato"}
-      description="A lista fica no lugar e os dados da seleção aparecem neste painel."
     />
   );
 
@@ -1578,7 +1577,7 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
         variant="context"
         className={"ctt-live-shell" + (onlyClientes ? " is-clientes" : " is-contatos")}
         ariaLabel={onlyClientes ? "Clientes" : "Contatos"}
-        contextLabel={onlyClientes ? "Detalhes do cliente" : "Detalhes do contato"}
+        contextLabel={onlyClientes ? "Cliente" : "Contato"}
         main={main}
         context={context}
       />

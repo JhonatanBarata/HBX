@@ -29,6 +29,15 @@ que você vai tocar).
 O turno (dia ou noite) vem do dono na mensagem. Se ele não disser, pergunte **antes**
 de encostar em qualquer coisa — escolher errado é mensagem na madrugada.
 
+**O RELÓGIO VENCE A PALAVRA (ordem do dono, 31/07).** Antes de qualquer coisa, olhe a
+hora local (`Get-Date`). Se o dono pedir **DIA** mas agora estiver **fora de 08:00–18:00
+em dia útil**, o turno **vira NOITE automaticamente**: agenda, não dispara. Avise em uma
+linha ("são 03:20, então vou de noturno: agendo pra abertura") e siga — não pergunte,
+não espere. O contrário não vale: pedido de NOITE dentro do expediente continua NOITE
+(agendar de dia é legítimo). A mesma lei está em código para os clientes — disparo
+automático fora da janela é segurado no despacho (`wa-janela-comercial.gate.ts`), então
+"turno dia às 3h" não produz mensagem nenhuma, só fila.
+
 **Seja criativo de verdade** nos textos e abordagens: gancho, tom e horário variados —
 e meça qual variante gerou resposta pra ensinar a vencedora à IA. Dez textos iguais com
 palavras trocadas não é variedade, é risco de ban.

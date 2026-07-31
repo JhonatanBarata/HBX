@@ -276,7 +276,7 @@ function EmpresaContext({
         if (alive) setData(result);
       })
       .catch((err: unknown) => {
-        if (alive) setError(err instanceof Error ? err.message : "Não foi possível abrir os detalhes.");
+        if (alive) setError(err instanceof Error ? err.message : "Não foi possível abrir a empresa.");
       })
       .finally(() => {
         if (alive) setLoading(false);
@@ -298,7 +298,6 @@ function EmpresaContext({
       <HbxContextEmpty
         icon={<I d={ICONS.empresas} size={19} />}
         title="Selecione uma empresa"
-        description="A lista permanece à esquerda enquanto a empresa abre neste painel."
       />
     );
   }
@@ -307,10 +306,10 @@ function EmpresaContext({
     <>
       <HbxContextHeader
         eyebrow="Empresa"
-        title="Detalhes da empresa"
+        title="Empresa"
         subtitle={loading ? "Carregando cadastro…" : error ? "Não foi possível carregar" : "Cadastro empresarial"}
         actions={(
-          <button type="button" className="icon-ghost" onClick={onClose} aria-label="Fechar detalhes">
+          <button type="button" className="icon-ghost" onClick={onClose} aria-label="Fechar">
             <I d={ICONS.x} size={15} />
           </button>
         )}
@@ -584,7 +583,7 @@ export function EmpresasClient() {
         variant="context"
         className="emp-live-shell"
         ariaLabel="Empresas"
-        contextLabel="Detalhes da empresa"
+        contextLabel="Empresa"
         main={main}
         context={(
           <EmpresaContext

@@ -343,8 +343,6 @@ export function SecaoProspeccao({ motor, onChanged }: { motor: MotorBlock; onCha
         <div className="auto-bar">
           <div style={{ display: "grid", gap: 2 }}>
             <strong>Disparo frio</strong>
-            {/* S05 (PADRAO-MERCADO) — item 4: teto de copy (Lei nº1, ≤70 chars); Termos/confirm continuam no drawer (BotProspeccaoPanel, intocado). */}
-            <span className="hint">Ritmo, limite diário e mensagens de abertura.</span>
           </div>
           <button className="btn-teal" onClick={() => setProspOpen(true)}>
             <I d={ICONS.search} size={13} /> Abrir configuração
@@ -467,11 +465,6 @@ function PlayCard({ play, canManage, onToggle, onAbrirProspeccao }: {
       )}
 
       <div className="auto-card__foot">
-        {/* S09 (PADRAO-MERCADO) — jargão + copy velha: "próxima sprint" era
-            termo interno de processo (proibido na UI) E ficou desatualizado
-            — a gestão de rotina já existe (S16, seção Reagir e abastecer);
-            aponta pra lá em vez de prometer algo que já chegou. */}
-        {play.tipo === "rotina" && <span className="hint">Leitura — gerencie em Reagir e abastecer.</span>}
         {play.tipo === "prospeccao" && (
           <button className="btn-ghost btn-xs" onClick={onAbrirProspeccao}>Configurar</button>
         )}
@@ -792,8 +785,6 @@ function AplicarModal({ cadencia, onClose, onDone }: { cadencia: Cadencia; onClo
                 <option value="">Selecione…</option>
                 {searches.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
               </select>
-              {/* S09 (PADRAO-MERCADO): frase original estourava o teto de copy (80 chars, Lei nº1 ≤70). */}
-              <span className="hint">Inscreve os leads do funil que batem com o filtro da pesquisa.</span>
             </div>
           )}
 

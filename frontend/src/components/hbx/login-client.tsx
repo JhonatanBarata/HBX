@@ -175,7 +175,6 @@ export function LoginClient({ onCriarConta }: { onCriarConta?: () => void } = {}
       <main className="login-shell">
         <div className="login-intro">
           <h1 className="login-intro__title">Sua Esteira de Leads até Vendas</h1>
-          <p className="login-intro__sub">Radar encontra, vendas trabalha, WhatsApp fecha. Tudo num fluxo só.</p>
         </div>
         <form className="card" onSubmit={onSubmit}>
           <div className="bl"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--login-accent, var(--hbx-brand))" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg><strong>HBX</strong></div>

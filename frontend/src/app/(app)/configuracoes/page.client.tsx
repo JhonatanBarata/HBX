@@ -428,11 +428,6 @@ export function ConfiguracoesClient() {
                       <div className="f"><label>Cargo</label><input className="field-dark" value={cargo} onChange={e => setCargo(e.target.value)} /></div>
                       <div className="f"><label>Site</label><input className="field-dark" value={site} placeholder="seusite.com.br (opcional)" onChange={e => setSite(e.target.value)} /></div>
                     </div>
-                    <p className="dica">
-                      Nome, cargo e telefone montam a assinatura dos seus e-mails comerciais (cadência e apresentação enviada
-                      pelo card do lead). Sem esses 3 campos preenchidos, o e-mail não sai — regra do HBX pra nunca mandar
-                      mensagem sem identificação de quem está falando.
-                    </p>
                     <div className="cfg-save-mobile">
                       {saveMsg && <span className={"cfg-save-msg" + (saveMsg.startsWith("✓") ? " ok" : " err")}>{saveMsg}</span>}
                       <button className="btn-teal" onClick={salvarPerfil} disabled={saveBusy || !nome.trim()}>{saveBusy ? "Salvando…" : "Salvar alterações"}</button>
@@ -452,7 +447,6 @@ export function ConfiguracoesClient() {
                     {isTenantAdmin(user) && (
                       <div className="cfg-nicho">
                         <p className="ttl">Nicho da empresa (alimenta o Radar e os sinais de oportunidade)</p>
-                        <p className="dica">Segmentos que a empresa quer prospectar, separados por vírgula.</p>
                         <div className="row">
                           <input
                             className="field-dark"

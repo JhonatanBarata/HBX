@@ -1883,7 +1883,7 @@ export function VendasClient() {
               }}>
               <span className="vnd-rowmenu__title">{card.name || "Lead"}</span>
               <button type="button" role="menuitem" onClick={() => { fechar(); setSel(card); setCockpitOpen(true); }}>
-                Abrir detalhes
+                Abrir
               </button>
               <button type="button" role="menuitem" disabled={card.block === "closed"}
                 onClick={() => { fechar(); setSel(card); abrirFechar(); }}>
@@ -2217,13 +2217,11 @@ export function VendasClient() {
                   onClick={() => (excluirMotivoOpen === "bulk" ? excluirSelecionados("excluir") : deletarCard("excluir"))}
                   disabled={bulkDeleteBusy || deleteBusy}>
                   Só excluir
-                  <span className="vnd-si-opt__hint">volta pra sua vitrine</span>
                 </button>
                 <button type="button" className="vnd-si-opt"
                   onClick={() => (excluirMotivoOpen === "bulk" ? excluirSelecionados("unsatisfactory") : deletarCard("unsatisfactory"))}
                   disabled={bulkDeleteBusy || deleteBusy}>
                   Resultado não satisfatório
-                  <span className="vnd-si-opt__hint">some pra você, libera pros outros</span>
                 </button>
               </div>
               <div className="vnd-popup__foot">

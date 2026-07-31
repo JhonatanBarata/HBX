@@ -359,7 +359,6 @@ export function FecharVendaModal({ onClose, mode, leadName, phone, sellsHbxPlans
               {/* Pré-cadastro do cliente — confere/completa; alimenta o prefill do link */}
               <div className="fv-field">
                 <label className="fv-label">Dados do cliente <span className="fv-req">obrigatório</span></label>
-                <span className="fv-hint">O cliente vira da sua empresa — nome e telefone são obrigatórios pra fechar. E-mail e CPF o cliente completa no cartão.</span>
                 <input className="fv-input" placeholder="Nome do cliente" value={cliName} onChange={e => setCliName(e.target.value)} />
                 <input className="fv-input" placeholder="Telefone com DDD" value={cliPhone} onChange={e => setCliPhone(e.target.value)} inputMode="tel" />
                 <input className="fv-input" type="email" placeholder="E-mail (opcional)" value={cliEmail} onChange={e => setCliEmail(e.target.value)} />

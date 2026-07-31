@@ -1402,7 +1402,6 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                         style visual inline novo (5 Leis). */}
                     <div className="ctx-section">
                       <strong style={{ fontSize: "0.76rem" }}>Nível do plano de logística</strong>
-                      <span className="hint">Escolher já aplica o preset de toggles do plano; nada trava a edição individual depois.</span>
                       {nivelMsg && <div className={`ctx-msg ${nivelMsg.startsWith("✓") ? "ok" : "err"}`}>{nivelMsg}</div>}
                       <div className="plano-nivel-grid">
                         {NIVEL_ORDEM.map(n => (
@@ -1447,7 +1446,6 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                                 value={entContractForm.dailyDeliveryCap} onChange={e => setEntContractForm(f => ({ ...f, dailyDeliveryCap: e.target.value }))} />
                             </div>
                           </div>
-                          <span className="hint">Limites anti-abuso continuam valendo.</span>
                           {entContractArm ? (
                             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                               <span style={{ fontSize: "0.68rem", fontWeight: 700 }}>Confirma ativar contrato empresarial?</span>

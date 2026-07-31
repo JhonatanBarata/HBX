@@ -178,7 +178,7 @@ export function NegocioSheet({
         <div className="vnd-m__sheet vnd-m__sheet--lead-detail">
           <DetalhesNegocio
             detail={shown}
-            title="Detalhes"
+            title="Negócio"
             showConversation={showConversation}
             conversationLeadId={conversationLeadId}
             onConversationChanged={onConversationChanged}

@@ -703,7 +703,6 @@ export function FinanceiroClient() {
       <HbxContextEmpty
         icon={<I d={ICONS.money} size={19} />}
         title="Selecione um cliente"
-        description="O extrato aparece aqui sem tirar a carteira da tela."
       />
     </>
   ) : (

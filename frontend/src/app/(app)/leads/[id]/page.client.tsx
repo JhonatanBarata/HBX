@@ -278,7 +278,7 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
         <div className="lead-detail-locked">
           <DetalhesNegocio
             detail={detail}
-            title="Detalhes"
+            title="Negócio"
             showConversation={false}
             crownSlot={<RadarAiBadge status={aiStatusMap[lead.id]} />}
             actions={
@@ -299,7 +299,7 @@ export function LeadDetailClient({ leadId }: { leadId: string }) {
           <section className="lead-detail-col lead-detail-col--left">
             <DetalhesNegocio
               detail={detail}
-              title="Detalhes"
+              title="Negócio"
               showConversation={false}
               crownSlot={<RadarAiBadge status={aiStatusMap[lead.id]} />}
               waQrActive={waQrActive}

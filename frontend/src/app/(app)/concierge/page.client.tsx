@@ -498,7 +498,6 @@ function Head() {
       <span className="cg-head__badge"><I d={ICONS.concierge} size={20} /></span>
       <div>
         <div className="cg-head__title">Concierge IA</div>
-        <div className="cg-head__sub">Diga o que procura — eu monto a busca, mostro o custo e você confirma.</div>
       </div>
       <span className="cg-hot">Novo</span>
     </div>

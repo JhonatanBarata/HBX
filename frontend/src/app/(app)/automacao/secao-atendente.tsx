@@ -150,14 +150,14 @@ type PublishResponse = { published: boolean; brain: AgentBrain; ok: boolean; mes
 // ================================================================
 // Constantes (dados — não é "a página velha", só as tabelas de campo)
 // ================================================================
-const TONS: { key: Tom; title: string; desc: string; frase: string }[] = [
-  { key: "formal", title: "Formal", desc: "Respeitoso, sem gírias", frase: "Olá! Como posso ajudá-lo hoje? Fico à disposição para atendê-lo." },
-  { key: "normal", title: "Normal", desc: "Cordial e direto", frase: "Oi! Tudo bem? Me conta como posso te ajudar." },
-  { key: "descontraido", title: "Descontraído", desc: "Leve e amigável", frase: "E aí! Bora resolver isso rapidinho? 😄 Me diz o que você precisa!" },
+const TONS: { key: Tom; title: string; frase: string }[] = [
+  { key: "formal", title: "Formal", frase: "Olá! Como posso ajudá-lo hoje? Fico à disposição para atendê-lo." },
+  { key: "normal", title: "Normal", frase: "Oi! Tudo bem? Me conta como posso te ajudar." },
+  { key: "descontraido", title: "Descontraído", frase: "E aí! Bora resolver isso rapidinho? 😄 Me diz o que você precisa!" },
 ];
-const PERFIS: { key: Perfil; title: string; desc: string }[] = [
-  { key: "vendas", title: "Vendas", desc: "Desperta interesse e conduz para o próximo passo" },
-  { key: "suporte", title: "Suporte", desc: "Entende o problema e ajuda ou encaminha" },
+const PERFIS: { key: Perfil; title: string }[] = [
+  { key: "vendas", title: "Vendas" },
+  { key: "suporte", title: "Suporte" },
 ];
 // S08 (PADRAO-MERCADO) — modelos da galeria do passo 3 (achado do README:
 // "os modelos JÁ EXISTEM como seeds/templates no código", só não estavam
@@ -238,27 +238,27 @@ type MsgFieldKey =
   | "blockedMessage";
 type BotaoGrupo = "welcomeButtons" | "mainMenuButtons";
 type EditorKey = MsgFieldKey | "ajustes";
-type Peca = { key: EditorKey; label: string; hint: string; icon: string; tone: string; buttonsKey?: BotaoGrupo; settings?: boolean };
+type Peca = { key: EditorKey; label: string; icon: string; tone: string; buttonsKey?: BotaoGrupo; settings?: boolean };
 
-const BOT_MSG_FIELDS: { key: MsgFieldKey; label: string; hint: string; icon: string; color: string; buttonsKey?: BotaoGrupo }[] = [
-  { key: "welcomeMessage", label: "Boas-vindas", hint: "Primeira mensagem para contato novo", icon: "msg", color: "var(--hbx-brand)", buttonsKey: "welcomeButtons" },
-  { key: "returningCustomerMessage", label: "Cliente retornando", hint: "Quando o contato já é conhecido", icon: "reply", color: "var(--hbx-info)" },
-  { key: "mainMenuPrompt", label: "Menu principal", hint: "Pergunta com as opções do menu", icon: "atend", color: "var(--hbx-info)", buttonsKey: "mainMenuButtons" },
-  { key: "postActionPrompt", label: "Pós-ação", hint: "Depois de concluir uma ação", icon: "check", color: "var(--hbx-success)" },
-  { key: "humanAckMessage", label: "Transferência para humano", hint: "Aviso de que um atendente assume", icon: "users", color: "var(--hbx-warning)" },
-  { key: "closeTopicMessage", label: "Encerramento", hint: "Fechamento da conversa", icon: "clock", color: "var(--hbx-secondary)" },
-  { key: "blockedMessage", label: "Contato bloqueado", hint: "Resposta para contato bloqueado", icon: "x", color: "var(--hbx-danger)" },
+const BOT_MSG_FIELDS: { key: MsgFieldKey; label: string; icon: string; color: string; buttonsKey?: BotaoGrupo }[] = [
+  { key: "welcomeMessage", label: "Boas-vindas", icon: "msg", color: "var(--hbx-brand)", buttonsKey: "welcomeButtons" },
+  { key: "returningCustomerMessage", label: "Cliente retornando", icon: "reply", color: "var(--hbx-info)" },
+  { key: "mainMenuPrompt", label: "Menu principal", icon: "atend", color: "var(--hbx-info)", buttonsKey: "mainMenuButtons" },
+  { key: "postActionPrompt", label: "Pós-ação", icon: "check", color: "var(--hbx-success)" },
+  { key: "humanAckMessage", label: "Transferência para humano", icon: "users", color: "var(--hbx-warning)" },
+  { key: "closeTopicMessage", label: "Encerramento", icon: "clock", color: "var(--hbx-secondary)" },
+  { key: "blockedMessage", label: "Contato bloqueado", icon: "x", color: "var(--hbx-danger)" },
 ];
-const BOT_BTN_GROUPS: { key: BotaoGrupo; label: string; hint: string }[] = [
-  { key: "welcomeButtons", label: "Botões de boas-vindas", hint: "aparecem na primeira mensagem" },
-  { key: "mainMenuButtons", label: "Botões do menu principal", hint: "opções do menu" },
+const BOT_BTN_GROUPS: { key: BotaoGrupo; label: string }[] = [
+  { key: "welcomeButtons", label: "Botões de boas-vindas" },
+  { key: "mainMenuButtons", label: "Botões do menu principal" },
 ];
-const BOT_RULES: { key: keyof RoutingRules; label: string; hint: string }[] = [
-  { key: "globalBotEnabled", label: "Roteiro ligado", hint: "Liga/desliga o roteiro em todas as conversas novas" },
-  { key: "checkRecoveryBeforeReply", label: "Checar Recovery antes", hint: "Verifica pendências antes de responder" },
-  { key: "autoRouteDebtorsToRecovery", label: "Devedor vai pro Recovery", hint: "Roteia inadimplente automaticamente" },
-  { key: "autoReopenClosedConversation", label: "Reabrir conversa fechada", hint: "Nova mensagem reabre o atendimento" },
-  { key: "notifyOnNewInbound", label: "Avisar nova mensagem", hint: "Notifica a equipe a cada inbound" },
+const BOT_RULES: { key: keyof RoutingRules; label: string }[] = [
+  { key: "globalBotEnabled", label: "Roteiro ligado" },
+  { key: "checkRecoveryBeforeReply", label: "Checar Recovery antes" },
+  { key: "autoRouteDebtorsToRecovery", label: "Devedor vai pro Recovery" },
+  { key: "autoReopenClosedConversation", label: "Reabrir conversa fechada" },
+  { key: "notifyOnNewInbound", label: "Avisar nova mensagem" },
 ];
 
 const SANDBOX_SOURCE_LABEL: Record<string, string> = {
@@ -486,8 +486,6 @@ function Wizard({ empresaPadrao, onCreated, onCancel, initialModelo }: {
             <label className="field-label">Nome do atendente</label>
             <input className="field-dark" maxLength={60}
               value={nome} onChange={(e) => setNome(e.target.value)} />
-            {/* S03 (PADRAO-MERCADO): hint no teto da Lei nº1 (era 72 chars). */}
-            <span className="ia-field__hint">Se escolher IA, seus clientes conversam com esse nome.</span>
           </div>
           <div className="ia-field">
             <label className="field-label">Estilo de comunicação</label>
@@ -496,7 +494,6 @@ function Wizard({ empresaPadrao, onCreated, onCancel, initialModelo }: {
               {TONS.map((t) => (
                 <button key={t.key} ref={tomPill.itemRef(t.key)} type="button" className={"ia-choice" + (tom === t.key ? " is-on" : "")} onClick={() => setTom(t.key)}>
                   <span className="ia-choice__title">{t.title}</span>
-                  <span className="ia-choice__desc">{t.desc}</span>
                 </button>
               ))}
             </div>
@@ -528,7 +525,6 @@ function Wizard({ empresaPadrao, onCreated, onCancel, initialModelo }: {
               {PERFIS.map((p) => (
                 <button key={p.key} ref={perfilPill.itemRef(p.key)} type="button" className={"ia-choice" + (perfil === p.key ? " is-on" : "")} onClick={() => setPerfil(p.key)}>
                   <span className="ia-choice__title">{p.title}</span>
-                  <span className="ia-choice__desc">{p.desc}</span>
                 </button>
               ))}
             </div>
@@ -544,8 +540,6 @@ function Wizard({ empresaPadrao, onCreated, onCancel, initialModelo }: {
             <label className="field-label">Produtos ou serviços</label>
             <textarea className="field-dark" rows={3} maxLength={600}
               value={produtos} onChange={(e) => setProdutos(e.target.value)} />
-            {/* S03 (PADRAO-MERCADO): hint no teto da Lei nº1 (era 90 chars). */}
-            <span className="ia-field__hint">Vale só pra IA — o roteiro usa as mensagens da próxima tela.</span>
           </div>
           <div className="ia-actions">
             <button className="btn-ghost" onClick={() => setStep(1)}>Voltar</button>
@@ -558,7 +552,6 @@ function Wizard({ empresaPadrao, onCreated, onCancel, initialModelo }: {
         <div className="ia-form">
           <div className="ia-field">
             <label className="field-label">Como o Atendente vai responder</label>
-            <span className="ia-field__hint">Dá pra trocar depois, a qualquer momento, sem perder a configuração.</span>
           </div>
           {/* S08 (PADRAO-MERCADO): galeria de modelos prontos (card central,
               kit/template-card.tsx) no lugar dos 2 cards de texto — cada card
@@ -1003,9 +996,7 @@ function EmptyBrainCta({ icon, title, desc, canManage, busy, onStart }: {
       <p>{desc}</p>
       {canManage ? (
         <button className="btn-teal" disabled={busy} onClick={onStart}>{busy ? "Preparando…" : "Começar a configurar"}</button>
-      ) : (
-        <span className="hint">A configuração é feita pelo Admin da empresa.</span>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -1268,7 +1259,6 @@ function IaAjustesDrawer({ open, ia, empresaPadrao, saving, onSave, onClose }: {
           </span>
           <span className="bot-phase-editor__titles">
             <span className="bot-phase-editor__title">Ajustes da IA</span>
-            <span className="bot-phase-editor__hint">Persona do cérebro — nome, tom, perfil</span>
           </span>
           <button type="button" className="bot-phase-editor__close" aria-label="Fechar" title="Fechar" onClick={requestClose}>✕</button>
         </header>
@@ -1287,7 +1277,6 @@ function IaAjustesDrawer({ open, ia, empresaPadrao, saving, onSave, onClose }: {
               {TONS.map((t) => (
                 <button key={t.key} ref={tomPill.itemRef(t.key)} type="button" className={"ia-choice" + (tom === t.key ? " is-on" : "")} onClick={() => setTom(t.key)}>
                   <span className="ia-choice__title">{t.title}</span>
-                  <span className="ia-choice__desc">{t.desc}</span>
                 </button>
               ))}
             </div>
@@ -1309,7 +1298,6 @@ function IaAjustesDrawer({ open, ia, empresaPadrao, saving, onSave, onClose }: {
               {PERFIS.map((p) => (
                 <button key={p.key} ref={perfilPill.itemRef(p.key)} type="button" className={"ia-choice" + (perfil === p.key ? " is-on" : "")} onClick={() => setPerfil(p.key)}>
                   <span className="ia-choice__title">{p.title}</span>
-                  <span className="ia-choice__desc">{p.desc}</span>
                 </button>
               ))}
             </div>
@@ -1366,8 +1354,8 @@ function RoteiroPane({ config, canManage, activeStep, setActiveStep, cfgValue, r
   const activeFieldRef = useRef<HTMLTextAreaElement | null>(null);
 
   const pecas: Peca[] = useMemo(() => {
-    const fases: Peca[] = BOT_MSG_FIELDS.map((f) => ({ key: f.key, label: f.label, hint: f.hint, icon: f.icon, tone: f.color, buttonsKey: f.buttonsKey }));
-    fases.push({ key: "ajustes", label: "Ajustes", hint: "Regras gerais do roteiro", icon: "config", tone: "var(--hbx-secondary)", settings: true });
+    const fases: Peca[] = BOT_MSG_FIELDS.map((f) => ({ key: f.key, label: f.label, icon: f.icon, tone: f.color, buttonsKey: f.buttonsKey }));
+    fases.push({ key: "ajustes", label: "Ajustes", icon: "config", tone: "var(--hbx-secondary)", settings: true });
     return fases;
   }, []);
 
@@ -1434,7 +1422,6 @@ function RoteiroPane({ config, canManage, activeStep, setActiveStep, cfgValue, r
         <BotPhaseEditor
           open={editorKey !== null}
           title={pecaAtual.label}
-          hint={pecaAtual.hint}
           icon={pecaAtual.icon}
           tone={pecaAtual.tone}
           isSettings={Boolean(pecaAtual.settings)}
@@ -1448,9 +1435,8 @@ function RoteiroPane({ config, canManage, activeStep, setActiveStep, cfgValue, r
           actionCatalog={acoesDisponiveis as BotAction[]}
           canUseOfficialButtons={canUseOfficialButtons}
           buttonsLabel={pecaAtual.buttonsKey === "welcomeButtons" ? "Botões de boas-vindas" : "Botões do menu"}
-          buttonsHint={pecaAtual.buttonsKey === "welcomeButtons" ? "aparecem na primeira mensagem" : "opções do menu"}
           onButtonsChange={(next) => { if (pecaAtual.buttonsKey) onButtonsChange(pecaAtual.buttonsKey, next); }}
-          rules={BOT_RULES.map<PhaseRuleDef>((r) => ({ key: String(r.key), label: r.label, hint: r.hint }))}
+          rules={BOT_RULES.map<PhaseRuleDef>((r) => ({ key: String(r.key), label: r.label }))}
           ruleValue={(k) => ruleValue(k as keyof RoutingRules)}
           onToggleRule={(k) => onRuleToggle(k as keyof RoutingRules)}
           onClose={() => setEditorKey(null)}

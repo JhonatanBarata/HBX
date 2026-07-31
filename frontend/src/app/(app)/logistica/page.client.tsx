@@ -760,7 +760,7 @@ export function LogisticaClient() {
         </div>
 
         {admin && (
-          <aside className="hbx-panel-shell__context hbx-panel-context--dense" aria-label="Detalhes do motorista">
+          <aside className="hbx-panel-shell__context hbx-panel-context--dense" aria-label="Motorista">
             <header className="hbx-panel-context__header">
               <div className="hbx-panel-context__header-copy">
                 <span className="hbx-panel-context__eyebrow">Logística</span>
