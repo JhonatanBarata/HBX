@@ -4,6 +4,7 @@ import { sanitizeAssistenteConfig, type AssistenteConfigShape } from './assisten
 import { AssistenteSandboxService, type SandboxTurn } from './assistente-sandbox.service';
 import { AgentRuntimeResolver } from '../automation/agent-runtime.resolver';
 import { automationFlag } from '../automation/automation-flags';
+import { PersonaIaService } from '../vendas/persona-ia.service';
 
 const PUBLISH_FLAG = 'HBX_ASSISTENTE_PUBLISH_ENABLED';
 const PUBLISH_FLAG_NEW = 'HBX_AUTOMATION_IA_LIVE';
@@ -75,9 +76,8 @@ export class ConversationAssistantRuntimeService {
     const agentIaConfig: AssistenteConfigShape | null =
       effective.source === 'agent' && effective.brain === 'ia' ? effective.ia : null;
 
-    const [configRow, company, conversation] = await Promise.all([
+    const [configRow, conversation] = await Promise.all([
       agentIaConfig ? Promise.resolve(null) : this.prisma.assistenteConfig.findUnique({ where: { companyId } }),
-      this.prisma.company.findUnique({ where: { id: companyId }, select: { botArmedAt: true } }),
       this.prisma.companyConversation.findFirst({
         where: { id: conversationId, companyId },
         select: { id: true, botActive: true, humanAssigned: true, vendasLeadId: true },
@@ -88,7 +88,14 @@ export class ConversationAssistantRuntimeService {
     // `AssistenteConfig.published` no legado (comportamento pré-S10).
     const published = agentIaConfig ? Boolean((effective as any).published) : Boolean(configRow?.published);
     if (!published) return { handled: false, reason: 'assistant_not_published' };
-    if (!company?.botArmedAt) return { handled: false, reason: 'assistant_not_entitled' };
+    // "Armar bot" morreu (31/07/2026): no MESMO ponto do pino antigo entra a
+    // ENTREVISTA — IA só responde cliente se a empresa já disse o que faz, o
+    // que vende e quem a IA é. Fail-closed: erro de leitura = não responde.
+    const entrevistaOk = await new PersonaIaService(this.prisma)
+      .getPerfil(companyId)
+      .then((p) => p.entrevistaCompleta)
+      .catch(() => false);
+    if (!entrevistaOk) return { handled: false, reason: 'assistant_entrevista_incompleta' };
     if (!conversation || conversation.botActive !== true || conversation.humanAssigned === true) {
       return { handled: false, reason: 'assistant_conversation_inactive' };
     }

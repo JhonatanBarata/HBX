@@ -5943,59 +5943,10 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async setCompanyBotActivationByMaster(
-    masterUserId: number,
-    companyId: number,
-    dto: { armed?: boolean; channel?: string; reason?: string },
-  ) {
-    await this.assertMasterUser(masterUserId);
-    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
-    if (!company) throw new BadRequestException('Empresa nao encontrada');
-
-    const armed = Boolean(dto?.armed);
-    const channel = ['webwhats', 'meta'].includes(String(dto?.channel || '')) ? dto!.channel! : 'webwhats';
-    const reason = String(dto?.reason || '').trim() || null;
-    if (armed && !reason) throw new BadRequestException('Informe o motivo ao armar o bot.');
-
-    const previousState = {
-      botArmedAt: (company as any).botArmedAt ? String((company as any).botArmedAt) : null,
-      botArmChannel: (company as any).botArmChannel || null,
-    };
-
-    const updated = await this.prisma.company.update({
-      where: { id: companyId },
-      data: armed
-        ? {
-            botArmedAt: new Date(),
-            botArmChannel: channel,
-            botArmedByUserId: masterUserId,
-            botArmReason: reason,
-          }
-        : {
-            botArmedAt: null,
-            botArmChannel: null,
-            botArmedByUserId: null,
-            botArmReason: null,
-          },
-    });
-
-    await this.masterContextService.registerSupportAction({
-      masterUserId,
-      companyId,
-      scope: 'master_company',
-      action: armed ? 'BOT_ARMED' : 'BOT_DISARMED',
-      metadata: {
-        previousState,
-        currentState: {
-          botArmedAt: (updated as any).botArmedAt ? String((updated as any).botArmedAt) : null,
-          botArmChannel: (updated as any).botArmChannel || null,
-          reason,
-        },
-      },
-    });
-
-    return { ok: true, companyId, armed };
-  }
+  // setCompanyBotActivationByMaster MORREU (31/07/2026): o pino "Armar bot" do
+  // /master saiu SEM legado. A tranca que libera bot é a ENTREVISTA da própria
+  // empresa (PersonaIaService/bot-activation) — fail-closed no cliente, não no
+  // suporte. Migration 20260801020000_mata_bloqueios_bot dropou as colunas.
 
   async listMasterExclusoes(
     masterUserId: number,

@@ -448,7 +448,6 @@ export function VendasClient() {
   // Status do bot para a empresa (F5): bot-módulo habilitado + chave-mestra armada.
   // Carregado uma vez na montagem; null = ainda consultando.
   const [botStatus, setBotStatus] = useState<BotStatus>(null);
-  const [masterNotified, setMasterNotified] = useState(false);
   // visão do pipeline: lista densa (padrão — varredura) × quadro kanban
   // (arrastar entre etapas). Ordem do dono 13/06: lista padrão + quadro opcional.
   const [view, setView] = useTabParam<"list" | "board">("view", "list", ["list", "board"]);
@@ -777,12 +776,6 @@ export function VendasClient() {
     }
   }
 
-
-  async function notifyBotMaster() {
-    if (masterNotified) return;
-    setMasterNotified(true);
-    apiFetch("/vendas/notify-bot-config-missing", { method: "POST", body: JSON.stringify({}) }).catch(() => null);
-  }
 
   // S1 CORREÇÃO DO NOTURNO (DIA-VENDEDOR-NOTURNO/01-CORRECAO.md): isto era
   // `agendarRetorno` e gravava `VendasLead.returnAt` — um lembrete de CRM que NUNCA
@@ -2176,11 +2169,13 @@ export function VendasClient() {
                 <textarea className="field-dark" rows={2} maxLength={200}
                   value={obs} onChange={e => setObs(e.target.value)} />
               </div>
+              {/* "Armar bot" morreu (31/07/2026): quem libera é a ENTREVISTA em
+                  /automacao — o aviso encaminha pra lá, nunca mais pro suporte. */}
               {retornoData && sel.block !== "closed" && botStatus?.botModuleEnabled && !botStatus?.botArmed && (
                 <div className="bot-warn">
-                  <span className="warn-lbl">Bot sem configuração.</span>
-                  <button className="btn-ghost" onClick={notifyBotMaster} disabled={masterNotified}>
-                    {masterNotified ? "✓ Suporte avisado" : "Contate o suporte"}
+                  <span className="warn-lbl">A IA ainda não sabe o que sua empresa faz.</span>
+                  <button className="btn-ghost" onClick={() => router.push("/automacao")}>
+                    Responder em Automação
                   </button>
                 </div>
               )}

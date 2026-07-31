@@ -54,14 +54,6 @@ export type FullPlanRequestInput = {
   requestedByEmail?: string | null;
 };
 
-export type BotConfigMissingInput = {
-  companyId: number;
-  companyName?: string | null;
-  requestedByName?: string | null;
-  requestedByPhone?: string | null;
-  requestedByEmail?: string | null;
-};
-
 export type ImplantacaoSoldInput = {
   companyId: number;
   sellerName?: string | null;
@@ -509,56 +501,9 @@ export class MasterAlertService {
     });
   }
 
-  // Alerta ao master quando bot-módulo está habilitado para a empresa mas a
-  // chave-mestra (botArmedAt) ainda não foi configurada — vendedor pediu retorno
-  // automático e o fluxo não pode rodar sem a ativação.
-  async notifyBotConfigMissing(input: BotConfigMissingInput): Promise<{ email: boolean; whatsapp: boolean }> {
-    const companyId = Number(input.companyId || 0);
-    const company = String(input.companyName || '').trim() || `empresa #${companyId}`;
-    const seller = String(input.requestedByName || '').trim();
-    const phone = String(input.requestedByPhone || '').trim();
-    const email = String(input.requestedByEmail || '').trim();
-
-    const linhas = [
-      '⚠️ Bot IA sem chave-mestra — vendedor pediu retorno automático',
-      `Empresa: ${company}`,
-      seller ? `Vendedor: ${seller}` : '',
-      phone ? `Telefone: ${phone}` : '',
-      email ? `E-mail: ${email}` : '',
-      '',
-      'Ative o bot desta empresa no painel Master para liberar o retorno automático.',
-    ].filter(Boolean);
-    const text = linhas.join('\n');
-
-    // Write-through COCKPIT-MASTER: a pendência também vira evento tipado na
-    // trilha única do dono (best-effort — nunca derruba o pedido do vendedor).
-    const payload = {
-      companyName: company,
-      requestedByName: seller || null,
-      requestedByPhone: phone || null,
-      requestedByEmail: email || null,
-    };
-    const eventId = await emitMasterEvent(this.prisma, {
-      type: 'bot.config_missing',
-      severity: 'action_required',
-      companyId,
-      payload,
-    });
-
-    // warnMissingChannels: false — este método nunca avisou canal ausente
-    // (comportamento observável preservado no refactor). Sprint 3: rotea pela
-    // política (bot.config_missing = email+zap+sino, throttle 0 = IDÊNTICO).
-    return this.routeEvent({
-      id: eventId,
-      type: 'bot.config_missing',
-      severity: 'action_required',
-      companyId,
-      payload,
-      subject: `Bot IA sem configuração — ${company}`,
-      text,
-      warnMissingChannels: false,
-    });
-  }
+  // notifyBotConfigMissing MORREU (31/07/2026) com o pino "Armar bot" —
+  // não existe mais chave-mestra pra pedir ao suporte; a liberação é a
+  // ENTREVISTA da própria empresa em /automacao.
 
   // CONTABIL S2 — alerta de obrigação fiscal. Não existe "empresa-cliente" dona
   // deste alerta (é o fisco DO PRÓPRIO dono) — reusamos MASTER_ALERT_WA_COMPANY_ID

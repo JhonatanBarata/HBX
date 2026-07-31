@@ -1,8 +1,6 @@
 import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { UpdateAtendimentoBotConfigDto } from '../inbox/dto/update-atendimento-bot-config.dto';
-import { BotArmed } from '../modules/bot-armed.decorator';
-import { BotArmedGuard } from '../modules/bot-armed.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import {
@@ -48,8 +46,6 @@ export class VendasController {
   }
 
   @Patch('automation/bot-config')
-  @UseGuards(BotArmedGuard)
-  @BotArmed()
   updateAutomationBotConfig(@Req() req: any, @Body() dto: UpdateAtendimentoBotConfigDto) {
     return this.vendasService.updateAutomationBotConfigForUser(req.user, dto);
   }
@@ -71,42 +67,27 @@ export class VendasController {
     return this.vendasService.getMyCommissionProfileForUser(req.user);
   }
 
-  @Post('notify-bot-config-missing')
-  notifyBotConfigMissing(@Req() req: any) {
-    return this.vendasService.notifyBotConfigMissingForUser(req.user);
-  }
-
   @Get('automation/live-status')
-  @UseGuards(BotArmedGuard)
-  @BotArmed()
   getAutomationLiveStatus(@Req() req: any) {
     return this.vendasAutomationService.getLiveStatusForUser(req.user);
   }
 
   @Post('automation/prospecting/start')
-  @UseGuards(BotArmedGuard)
-  @BotArmed()
   startProspecting(@Req() req: any, @Body() dto: StartVendasProspectingDto) {
     return this.vendasAutomationService.startProspectingForUser(req.user, dto || {});
   }
 
   @Post('automation/prospecting/pause')
-  @UseGuards(BotArmedGuard)
-  @BotArmed()
   pauseProspecting(@Req() req: any) {
     return this.vendasAutomationService.pauseProspectingForUser(req.user);
   }
 
   @Post('automation/prospecting/resume')
-  @UseGuards(BotArmedGuard)
-  @BotArmed()
   resumeProspecting(@Req() req: any) {
     return this.vendasAutomationService.resumeProspectingForUser(req.user);
   }
 
   @Post('automation/prospecting/cancel')
-  @UseGuards(BotArmedGuard)
-  @BotArmed()
   cancelProspecting(@Req() req: any) {
     return this.vendasAutomationService.cancelProspectingForUser(req.user);
   }

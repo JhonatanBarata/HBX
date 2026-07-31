@@ -187,7 +187,21 @@ function basePrisma(overrides: Record<string, any> = {}) {
         published: true,
       }),
     },
-    company: { findUnique: async () => ({ botArmedAt: new Date() }) },
+    // ENTREVISTA no lugar do pino (31/07/2026): gate do runtime é a casa completa.
+    vendasComercialConfig: {
+      findUnique: async () => ({
+        aiNome: 'Lia',
+        aiIdentidade: 'nome_proprio',
+        aiUserId: null,
+        empresaFazTexto: 'Vendemos ERP.',
+        catalogoJson: JSON.stringify({
+          oQueVendemos: 'ERP',
+          capacidades: [{ ganho: 'Organiza vendas', resolve: ['bagunca'] }],
+          paraQuem: ['PMEs'],
+          ancoraDePreco: null,
+        }),
+      }),
+    },
     companyConversation: {
       findFirst: async () => ({ id: 10, botActive: true, humanAssigned: false, vendasLeadId: 'lead-1' }),
     },

@@ -101,7 +101,7 @@ import {
   resolveTeamPolicyStoredLimit,
 } from '../team/team-policy-persistence';
 import { resolveVendasAccessContext, type VendasAccessContext } from '../team/team-access-runtime';
-import { isBotArmedForCompany } from '../modules/bot-activation-state';
+import { PersonaIaService } from './persona-ia.service';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { MasterAlertService } from '../master-alert/master-alert.service';
 import { VendasLeadCockpitProjectorService } from './vendas-lead-cockpit-projector.service';
@@ -372,6 +372,7 @@ export class VendasService {
   // intervalo). Mesmo padrão de instanciação manual do commercialContactControl acima
   // (evita import circular entre VendasModule e CadenciaModule).
   private readonly agendaDisparo: AgendaDisparoService;
+  private readonly personaIa: PersonaIaService;
   // S7 LEAD-CENTRICO (07-pool-raiz.md) — marquinha/supressão global por contato.
   // Mesmo padrão de instanciação manual acima (só depende de PrismaService).
   private readonly contactSuppression: VendasContactSuppressionService;
@@ -398,6 +399,7 @@ export class VendasService {
   ) {
     this.commercialContactControl = new CommercialContactControlService(this.prisma);
     this.agendaDisparo = new AgendaDisparoService(this.prisma);
+    this.personaIa = new PersonaIaService(this.prisma);
     this.contactSuppression = new VendasContactSuppressionService(this.prisma);
     this.coldGate = new WaColdContactGateService(this.prisma as any);
   }
@@ -450,7 +452,6 @@ export class VendasService {
       this.prisma.company.findUnique({
         where: { id: context.companyId },
         select: {
-          botArmedAt: true,
           // Guarda de suspensao: campos lidos por resolveCompanyAccessState.
           companyKind: true,
           slug: true,
@@ -465,35 +466,21 @@ export class VendasService {
     // Empresa suspensa/overdue/pending_checkout nao expoe o bot como habilitado.
     // W1 removeu o wipe que desligava os modulos; a guarda de acesso passa a ser aqui.
     const acesso = resolveCompanyAccessState(company as any);
+    // "Armar bot" morreu (31/07/2026): botArmed do contrato = entrevista
+    // respondida (a tranca nova) — a tela usa isso só pra rótulo.
+    const entrevistaOk = await this.personaIa
+      .getPerfil(context.companyId)
+      .then((p) => p.entrevistaCompleta)
+      .catch(() => false);
     return {
       botModuleEnabled: Boolean(botModule?.id) && acesso.canUse,
-      botArmed: isBotArmedForCompany(company),
+      botArmed: entrevistaOk,
     };
   }
 
-  // Notifica o master que bot-módulo está habilitado mas sem chave-mestra configurada.
-  // Chamado uma vez por sessão quando o vendedor tenta usar retorno automático.
-  async notifyBotConfigMissingForUser(user: any) {
-    const context = await this.resolveVendasUserContext(user);
-    const [company, userRecord] = await Promise.all([
-      this.prisma.company.findUnique({
-        where: { id: context.companyId },
-        select: { id: true, name: true },
-      }).catch(() => null),
-      this.prisma.user.findUnique({
-        where: { id: context.userId },
-        select: { name: true, phone: true, email: true },
-      }).catch(() => null),
-    ]);
-    await this.masterAlert.notifyBotConfigMissing({
-      companyId: context.companyId,
-      companyName: company?.name || null,
-      requestedByName: userRecord?.name || null,
-      requestedByPhone: (userRecord as any)?.phone || null,
-      requestedByEmail: userRecord?.email || null,
-    });
-    return { ok: true, message: 'Suporte notificado. Aguarde a ativação do bot.' };
-  }
+  // notifyBotConfigMissingForUser MORREU (31/07/2026) junto com o "Armar bot":
+  // não existe mais chave no suporte pra pedir — a liberação é a ENTREVISTA
+  // que a própria empresa responde em /automacao.
 
   async getUsageSnapshotForUser(user: any) {
     const { companyId, userId } = await this.resolveVendasUserContext(user);
@@ -9017,17 +9004,18 @@ export class VendasService {
       activeEnrollments.map((enrollment) => [String(enrollment.leadId), enrollment]),
     );
 
-    const [assistantConfig, assistantCompany] = await Promise.all([
+    const [assistantConfig, entrevistaOkAssistant] = await Promise.all([
       typeof (this.prisma as any).assistenteConfig?.findUnique === 'function'
         ? this.prisma.assistenteConfig.findUnique({
             where: { companyId: context.companyId },
             select: { nome: true, published: true, updatedAt: true },
           }).catch(() => null)
         : Promise.resolve(null),
-      this.prisma.company.findUnique({
-        where: { id: context.companyId },
-        select: { botArmedAt: true },
-      }).catch(() => null),
+      // "Armar bot" morreu (31/07/2026): o canal do assistente é a entrevista.
+      this.personaIa
+        .getPerfil(context.companyId)
+        .then((p) => p.entrevistaCompleta)
+        .catch(() => false),
     ]);
     // S20 (MOTOR-ÚNICO): HBX_AUTOMATION_IA_LIVE, fallback pra
     // HBX_ASSISTENTE_PUBLISH_ENABLED (automation/automation-flags.ts).
@@ -9037,8 +9025,8 @@ export class VendasService {
       publicName: assistantConfig?.nome ? String(assistantConfig.nome) : null,
       published: Boolean(assistantConfig?.published),
       runtimeEnabled: assistantRuntimeEnabled,
-      channelArmed: Boolean(assistantCompany?.botArmedAt),
-      active: Boolean(assistantRuntimeEnabled && assistantConfig?.published && assistantCompany?.botArmedAt),
+      channelArmed: entrevistaOkAssistant,
+      active: Boolean(assistantRuntimeEnabled && assistantConfig?.published && entrevistaOkAssistant),
       updatedAt: assistantConfig?.updatedAt instanceof Date ? assistantConfig.updatedAt.toISOString() : null,
     };
 

@@ -1,12 +1,8 @@
 // Serviço de ativação do bot por tipo (PLAN-BOT-A + parte backend de PLAN-BOT-D).
 // Fonte canônica de leitura e escrita do estado por tipo — não duplicar lógica aqui.
 
-import { BadRequestException, HttpException, HttpStatus, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import {
-  resolveBotActivation,
-  isBotArmedForCompany,
-} from '../modules/bot-activation-state';
 import {
   ATENDIMENTO_AGENDA_CONFIG_CHANNEL,
   ATENDIMENTO_BOT_CONFIG_CHANNEL,
@@ -28,7 +24,6 @@ import { PersonaIaService, type PerfilEmpresaIa } from '../vendas/persona-ia.ser
 const BOT_CONFIG_DOMAINS: BotConfigDomain[] = [
   'atendimento_bot',
   'atendimento_agenda',
-  'bot_master_switch',
   'recovery_bot',
 ];
 
@@ -106,16 +101,6 @@ export class BotActivationService {
     });
     const status = String(company?.whatsappStatus || company?.whatsappModalStatus || '').toUpperCase();
     return status === 'CONNECTED';
-  }
-
-  // ── chave geral (master switch) por empresa — INDEPENDE de config/chip ───────
-  // Guardada na BotConfig, domain 'bot_master_switch'. off=true → o dono DESLIGOU o
-  // bot inteiro; o ícone do topo fica CINZA mesmo com tudo configurado.
-
-  private async resolveMasterOff(companyId: number): Promise<boolean> {
-    const payload = await this.botConfigStore.get(companyId, 'bot_master_switch');
-    if (!payload) return false; // sem registro = chave LIGADA (default)
-    return Boolean((payload as any)?.off);
   }
 
   // ── pré-voo: configCompleta por tipo ─────────────────────────────────────
@@ -200,10 +185,8 @@ export class BotActivationService {
 
   private resolveBlocked(
     type: BotTypeKey,
-    armed: boolean,
     preflight: { chipConectado: boolean; configCompleta: boolean; entrevistaCompleta: boolean },
   ): string | null {
-    if (!armed) return 'Bot não ativado pela plataforma. Acione o suporte.';
     // ENTREVISTA antes de tudo: IA que não sabe o que a empresa faz não fala
     // em nome dela — nos TRÊS tipos, sem exceção (fail-closed).
     if (!preflight.entrevistaCompleta) {
@@ -215,6 +198,9 @@ export class BotActivationService {
   }
 
   // ── GET /bot/activation ───────────────────────────────────────────────────
+  // "ARMAR BOT" MORREU (31/07/2026): não existe mais pino do master nem chave
+  // geral. A tranca é a ENTREVISTA (fail-closed no cliente) + chip + config —
+  // o cadeado sempre diz o motivo, e o motivo é sempre resolvível pelo dono.
 
   async getActivation(user: any) {
     const companyId = requireCompanyId(user);
@@ -222,10 +208,6 @@ export class BotActivationService {
     const company = await this.prisma.company.findUnique({
       where: { id: companyId },
       select: {
-        botArmedAt: true,
-        botArmChannel: true,
-        botArmedByUserId: true,
-        botArmReason: true,
         recoveryBotLiveAt: true,
         recoveryBotLiveByUserId: true,
         prospectingBotLiveAt: true,
@@ -233,29 +215,14 @@ export class BotActivationService {
       },
     });
 
-    const activation = resolveBotActivation(company);
-    const armed = activation.armed;
-
-    // armedBy: buscar nome do usuário que armou
-    let armedBy: string | null = null;
-    if (armed && company?.botArmedByUserId) {
-      const armer = await this.prisma.user
-        .findUnique({
-          where: { id: company.botArmedByUserId },
-          select: { name: true },
-        })
-        .catch(() => null);
-      armedBy = armer?.name || null;
-    }
-
-    const canAdminToggle = isAdminOrMaster(user) && armed;
+    const canAdminToggle = isAdminOrMaster(user);
 
     // Atendimento: ler globalBotEnabled do config JSON
     const atendimentoConfig = await this.getAtendimentoConfig(companyId);
-    const atendimentoLive = armed && Boolean(atendimentoConfig.routingRules?.globalBotEnabled);
+    const atendimentoLive = Boolean(atendimentoConfig.routingRules?.globalBotEnabled);
 
     // Chip conectado (único para todos os tipos — mesma empresa)
-    const chipConectado = armed ? await this.resolveChipConectado(companyId) : false;
+    const chipConectado = await this.resolveChipConectado(companyId);
 
     // Entrevista/persona: UMA leitura serve os 3 tipos (a identidade é única).
     const perfil = await this.personaIa.getPerfil(companyId);
@@ -267,17 +234,10 @@ export class BotActivationService {
       this.resolvePreflight(companyId, 'prospeccao', chipConectado, perfil),
     ]);
 
-    const recovLive = armed && Boolean(company?.recoveryBotLiveAt);
-    const prospLive = armed && Boolean(company?.prospectingBotLiveAt);
-
-    const masterOff = await this.resolveMasterOff(companyId);
+    const recovLive = Boolean(company?.recoveryBotLiveAt);
+    const prospLive = Boolean(company?.prospectingBotLiveAt);
 
     return {
-      armed,
-      armedBy,
-      armReason: company?.botArmReason || null,
-      channel: activation.channel,
-      masterOff,
       canAdminToggle,
       // A tela mostra o cadeado COM o motivo escrito — nunca mudo.
       perfil: {
@@ -293,17 +253,17 @@ export class BotActivationService {
         atendimento: {
           live: atendimentoLive,
           preflight: atendPreflight,
-          blocked: this.resolveBlocked('atendimento', armed, atendPreflight),
+          blocked: this.resolveBlocked('atendimento', atendPreflight),
         },
         recovery: {
           live: recovLive,
           preflight: recovPreflight,
-          blocked: this.resolveBlocked('recovery', armed, recovPreflight),
+          blocked: this.resolveBlocked('recovery', recovPreflight),
         },
         prospeccao: {
           live: prospLive,
           preflight: prospPreflight,
-          blocked: this.resolveBlocked('prospeccao', armed, prospPreflight),
+          blocked: this.resolveBlocked('prospeccao', prospPreflight),
         },
       },
     };
@@ -319,44 +279,20 @@ export class BotActivationService {
       throw new BadRequestException('Apenas administradores podem alterar a ativação do bot.');
     }
 
-    // Verificar pino
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
-      select: {
-        botArmedAt: true,
-        botArmChannel: true,
-        recoveryBotLiveAt: true,
-        prospectingBotLiveAt: true,
-      },
-    });
-
-    if (!isBotArmedForCompany(company)) {
-      throw new HttpException(
-        { code: 'BOT_NOT_ARMED', message: 'Acione o suporte para ativar o bot.' },
-        HttpStatus.PAYMENT_REQUIRED,
-      );
-    }
-
     const { type, live } = body;
     const validTypes: BotTypeKey[] = ['atendimento', 'recovery', 'prospeccao'];
     if (!validTypes.includes(type)) {
       throw new BadRequestException(`Tipo inválido: ${type}. Use atendimento, recovery ou prospeccao.`);
     }
 
-    // Se está ligando ao vivo: checar pré-voo
+    // Se está ligando ao vivo: checar pré-voo (entrevista + chip + config)
     if (live) {
-      if (await this.resolveMasterOff(companyId)) {
-        throw new BadRequestException({
-          code: 'BOT_MASTER_SWITCH_OFF',
-          message: 'A chave geral do Bot está desligada. Ligue-a antes de ativar este motor.',
-        });
-      }
       const chipConectado = await this.resolveChipConectado(companyId);
       const perfil = await this.personaIa.getPerfil(companyId);
       const atendimentoConfig =
         type === 'atendimento' ? await this.getAtendimentoConfig(companyId) : undefined;
       const preflight = await this.resolvePreflight(companyId, type, chipConectado, perfil, atendimentoConfig);
-      const blocked = this.resolveBlocked(type, true, preflight);
+      const blocked = this.resolveBlocked(type, preflight);
 
       if (blocked) {
         throw new BadRequestException({ code: 'PREFLIGHT_FAILED', message: blocked, preflight });
@@ -387,48 +323,28 @@ export class BotActivationService {
     return { ok: true, type, live };
   }
 
-  // ── CHAVE GERAL: liga/desliga o bot inteiro (INDEPENDE de pré-voo) ───────────
-  // É a "chave de desligar o bot" do dono. Desligar SEMPRE funciona (não exige
-  // chip/config) e derruba os 3 tipos de verdade (freio real, ver ramo `!on` abaixo).
-  // Ligar só remove o bloqueio geral — NÃO arma nenhum motor sozinho; cada tipo volta
-  // a ligar pelo próprio toggle de /bot (putActivation), que mantém o pré-voo intacto
-  // (chip/config/teste) e o anti-ban preservado.
-  async setMasterSwitch(user: any, on: boolean) {
+  // ── DESLIGAR TUDO: derruba os 3 tipos num gesto (freio real) ───────────────
+  // Substitui a antiga "chave geral": desligar continua existindo como AÇÃO
+  // (derruba os 3 live de verdade), mas não existe mais um estado persistente
+  // "off" bloqueando religamento — religar é pelo toggle de cada tipo, com o
+  // pré-voo intacto (anti-"frota disparando em 1 clique", incidente 20/07).
+  async desligarTudo(user: any) {
     const companyId = requireCompanyId(user);
     const userId = requireUserId(user);
     if (!isAdminOrMaster(user)) {
-      throw new BadRequestException('Apenas administradores podem usar a chave geral do bot.');
+      throw new BadRequestException('Apenas administradores podem desligar os bots da empresa.');
     }
-
-    // grava a INTENÇÃO (independe de config/chip — é a chave geral)
-    await this.botConfigStore.save(
-      companyId,
-      'bot_master_switch',
-      { off: !on, at: new Date().toISOString(), byUserId: userId },
-      userId,
-    );
-
-    if (!on) {
-      // DESLIGAR DE VERDADE: derruba os 3 tipos (live=false não exige pré-voo).
-      await this.toggleAtendimentoLive(companyId, false, userId).catch(() => undefined);
-      await this.prisma.company.update({
-        where: { id: companyId },
-        data: {
-          recoveryBotLiveAt: null,
-          recoveryBotLiveByUserId: null,
-          prospectingBotLiveAt: null,
-          prospectingBotLiveByUserId: null,
-        },
-      });
-      return { ok: true, on: false };
-    }
-
-    // LIGAR = permitir (levanta o bloqueio geral). NÃO arma os motores — cada tipo
-    // religa no próprio toggle de /bot (putActivation), com pré-voo. Anti-"frota
-    // disparando em 1 clique" (incidente 20/07: master-switch ON religou os 3
-    // motores sozinho e a prospecção parada desde 17/07 disparou 1 msg em 29s).
-    // A intenção (bot_master_switch off:false) já foi gravada acima.
-    return { ok: true, on: true };
+    await this.toggleAtendimentoLive(companyId, false, userId).catch(() => undefined);
+    await this.prisma.company.update({
+      where: { id: companyId },
+      data: {
+        recoveryBotLiveAt: null,
+        recoveryBotLiveByUserId: null,
+        prospectingBotLiveAt: null,
+        prospectingBotLiveByUserId: null,
+      },
+    });
+    return { ok: true };
   }
 
   // ── toggle atendimento via config JSON (reutilizar fonte canônica) ─────────

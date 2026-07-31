@@ -27,7 +27,6 @@ import { PrismaService } from '../prisma/prisma.service';
 import { pushMasterNotice } from '../common/push-master-notice';
 import { WebscrapingService, type WebscrapingContactResult, type WebscrapingSearchResponse } from '../webscraping/webscraping.service';
 import { StartVendasProspectingDto, UpdateVendasProspectingConfigDto } from './dto/vendas.dto';
-import { resolveBotActivation } from '../modules/bot-activation-state';
 import { BotActivationService } from '../bot/bot-activation.service';
 import {
   SAFE_FIRST_CONTACT_TEMPLATE,
@@ -796,18 +795,13 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async assertEntitlement(user: any) {
+    // "Armar bot" morreu (31/07/2026): LER/CONFIGURAR a prospecção é sempre
+    // permitido a quem tem o módulo. A tranca de DISPARAR é a entrevista +
+    // pré-voo (bot-activation putActivation), chamada nos caminhos de ligar.
     const companyId = Number(
       user?.masterContext?.active ? user?.masterContext?.companyId : user?.companyId || 0,
     );
     if (!companyId) throw new ForbiddenException('Empresa nao identificada.');
-    const company = await this.prisma.company.findUnique({
-      where: { id: companyId },
-      select: { botArmedAt: true, botArmChannel: true },
-    });
-    const activation = resolveBotActivation(company);
-    if (!activation.armed) {
-      throw new ForbiddenException('Acione o suporte para ativar o bot.');
-    }
   }
 
   private publishAutomationEvent(input: {

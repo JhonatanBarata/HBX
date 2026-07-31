@@ -72,7 +72,7 @@ import {
   signInboxMediaUrlIfLocal,
   stripInboxMediaSignature,
 } from '../uploads/inbox-media.util';
-import { isBotArmedForCompany } from '../modules/bot-activation-state';
+import { PersonaIaService } from '../vendas/persona-ia.service';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
 import { WhatsAppModalService } from '../companies/whatsapp-modal.service';
 import { buildVendasLeadIntelligence } from '../vendas/vendas-lead-enrichment';
@@ -6209,16 +6209,8 @@ export class InboxService {
 
   async updateBotConfig(user: any, payload: unknown) {
     const companyId = this.requireCompanyIdFromUser(user);
-    const companyForBot = await this.prisma.company.findUnique({
-      where: { id: companyId },
-      select: { botArmedAt: true, botArmChannel: true },
-    });
-    if (!isBotArmedForCompany(companyForBot)) {
-      throw new HttpException(
-        { code: 'BOT_NOT_ARMED', message: 'Acione o suporte para ativar o bot.' },
-        HttpStatus.PAYMENT_REQUIRED,
-      );
-    }
+    // "Armar bot" morreu (31/07/2026): CONFIGURAR é sempre permitido — a tranca
+    // (entrevista + pré-voo) mora na ATIVAÇÃO (bot-activation.service).
     const requested = normalizeAtendimentoBotConfig(payload || {});
     if (
       (requested.routingRules.globalBotEnabled || requested.setup.completed) &&
@@ -6263,15 +6255,17 @@ export class InboxService {
   async bulkSetBotActive(user: any, dto: { ids?: number[]; enabled?: boolean }) {
     const companyId = this.requireCompanyIdFromUser(user);
     if (dto?.enabled !== false) {
-      const companyForBot = await this.prisma.company.findUnique({
-        where: { id: companyId },
-        select: { botArmedAt: true, botArmChannel: true },
-      });
-      if (!isBotArmedForCompany(companyForBot)) {
-        throw new HttpException(
-          { code: 'BOT_NOT_ARMED', message: 'Acione o suporte para ativar o bot.' },
-          HttpStatus.PAYMENT_REQUIRED,
-        );
+      // "Armar bot" morreu (31/07/2026): mover pra fila do Bot exige a
+      // ENTREVISTA respondida — mesma tranca fail-closed dos 3 tipos.
+      const entrevistaOk = await new PersonaIaService(this.prisma)
+        .getPerfil(companyId)
+        .then((p) => p.entrevistaCompleta)
+        .catch(() => false);
+      if (!entrevistaOk) {
+        throw new BadRequestException({
+          code: 'ENTREVISTA_INCOMPLETA',
+          message: 'A IA ainda não sabe o que sua empresa faz. Responda as 3 perguntas em Automação para liberar.',
+        });
       }
       const config = await this.getBotConfigByCompanyId(companyId);
       if (!isAtendimentoBotSetupComplete(config)) {

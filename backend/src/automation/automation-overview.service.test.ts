@@ -36,10 +36,7 @@ function makeService(deps: Deps = {}) {
   svc.logger = { log() {}, warn() {}, error() {}, debug() {} };
 
   svc.prisma = {
-    company: {
-      findUnique: async () =>
-        deps.companyRow ?? { botArmedAt: new Date('2026-07-13T13:43:29Z'), botArmedByUserId: 2 },
-    },
+    company: { findUnique: async () => deps.companyRow ?? null },
   };
 
   svc.modulesService = {
@@ -51,7 +48,9 @@ function makeService(deps: Deps = {}) {
       if (deps.activationThrows) throw new Error('activation_boom');
       return (
         deps.activation ?? {
-          armed: true,
+          // "Armar bot" morreu (31/07/2026): o contrato agora carrega perfil
+          // (entrevista) e o bloco botArmed do overview deriva DELE.
+          perfil: { entrevistaCompleta: true, pendencias: [] },
           types: {
             atendimento: { live: true, preflight: { chipConectado: true, configCompleta: true } },
             recovery: { live: false, preflight: { chipConectado: true, configCompleta: false } },
@@ -136,8 +135,9 @@ test('overview feliz: todos os blocos ok com dado real dos services injetados', 
 
       assert.equal(result.companyId, 5);
       assert.deepEqual(result.moduleAccess, { atendimento: true, bot: true, vendas: true });
+      // armed ⇔ entrevista completa (a tranca nova); autor do pino morreu junto.
       assert.equal(result.botArmed.armed, true);
-      assert.equal(result.botArmed.armedByUserId, 2);
+      assert.equal(result.botArmed.armedByUserId, null);
 
       assert.equal(result.atendente.ok, true);
       if (result.atendente.ok) {
@@ -189,7 +189,7 @@ test('atendente sem nenhum cerebro configurado devolve brain:null (nao inventa t
   const svc = makeService({
     assistente: { ok: true, publishEnabled: true, assistente: null },
     activation: {
-      armed: true,
+      perfil: { entrevistaCompleta: true, pendencias: [] },
       types: {
         atendimento: { live: false, preflight: { chipConectado: false, configCompleta: false } },
         recovery: { live: false, preflight: { chipConectado: false, configCompleta: false } },
@@ -219,8 +219,8 @@ test('bloco fail-soft: assistenteService lancando NAO derruba o endpoint, so o b
 test('bloco fail-soft: getActivation indisponivel ainda devolve overview com blocos degradados', async () => {
   const svc = makeService({ activationThrows: true });
   const result = await svc.getOverview({ id: 9, companyId: 5 });
-  // botArmed cai pro fallback via company.botArmedAt (raw), sem lancar.
-  assert.equal(result.botArmed.armed, true);
+  // Sem activation nao ha como saber da entrevista -> armed=false (fail-closed), sem lancar.
+  assert.equal(result.botArmed.armed, false);
   assert.equal(result.cobranca.ok, true);
   if (result.cobranca.ok) assert.equal(result.cobranca.live, false); // activation nula -> false, nao quebra
 });

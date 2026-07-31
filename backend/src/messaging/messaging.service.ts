@@ -668,11 +668,12 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async hasCommercialBotAiEntitlementForCompany(companyId: number) {
-    const company = await this.prisma.company.findUnique({
-      where: { id: Number(companyId) },
-      select: { botArmedAt: true },
-    });
-    return Boolean(company?.botArmedAt);
+    // "Armar bot" morreu (31/07/2026): o entitlement da IA comercial é a
+    // ENTREVISTA respondida — mesma tranca fail-closed de todo bot.
+    return this.personaIa
+      .getPerfil(Number(companyId))
+      .then((p) => p.entrevistaCompleta)
+      .catch(() => false);
   }
 
   private computeWebhookSignature(rawBody: Buffer): string {

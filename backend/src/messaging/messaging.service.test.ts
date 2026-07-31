@@ -89,6 +89,23 @@ function createService(overrides?: Partial<Record<string, any>>) {
       findMany: async () => [],
       create: async ({ data }: any) => ({ id: 'bot-config-test', ...data }),
     },
+    // ENTREVISTA no lugar do pino botArmedAt (31/07/2026): o entitlement da IA
+    // comercial lê a casa. Default = completa (empresa liberada); o teste de
+    // "sem entitlement" sobrepõe com null.
+    vendasComercialConfig: {
+      findUnique: async () => ({
+        aiNome: 'Lia',
+        aiIdentidade: 'nome_proprio',
+        aiUserId: null,
+        empresaFazTexto: 'Vendemos solucoes de gestao.',
+        catalogoJson: JSON.stringify({
+          oQueVendemos: 'Sistema de gestao',
+          capacidades: [{ ganho: 'Organiza vendas', resolve: ['bagunca'] }],
+          paraQuem: ['PMEs'],
+          ancoraDePreco: null,
+        }),
+      }),
+    },
     ...(overrides?.prisma || {}),
   } as any;
 
@@ -1523,7 +1540,7 @@ test('NLU atendimento: flag OFF nunca chama o classificador e cai no menu', asyn
   assert.notEqual((queueCalls[0].payload as any).sourceModule, 'atendimento_human');
 });
 
-test('NLU atendimento: sem entitlement comercial (botArmedAt vazio) nunca chama o classificador', async () => {
+test('NLU atendimento: sem ENTREVISTA completa nunca chama o classificador', async () => {
   process.env.HBX_ATENDIMENTO_NLU_ENABLED = 'true';
   try {
     let called = false;
@@ -1535,24 +1552,12 @@ test('NLU atendimento: sem entitlement comercial (botArmedAt vazio) nunca chama 
       },
     };
 
+    // "Armar bot" morreu (31/07/2026): o gate comercial é a entrevista da casa
+    // (VendasComercialConfig). Sem linha = entrevista incompleta = IA muda.
     const { service } = createAtendimentoNluTestBase({
       intentEngine,
       prisma: {
-        company: {
-          findUnique: async () => ({
-            id: 7,
-            name: 'HBX Solutions',
-            timezone: 'America/Sao_Paulo',
-            whatsappConnectionMode: 'TEMPORARY',
-            trialModuleSelection: null,
-            paymentStatus: 'PAID',
-            subscriptionStatus: 'active',
-            onboardingStatus: 'active_paid',
-            trialEndsAt: null,
-            botArmedAt: null,
-            commercialEntitlements: [{ key: 'vendas', status: 'active', currentPeriodEnd: null }],
-          }),
-        },
+        vendasComercialConfig: { findUnique: async () => null },
       },
     });
 
@@ -1560,7 +1565,7 @@ test('NLU atendimento: sem entitlement comercial (botArmedAt vazio) nunca chama 
       buildAtendimentoInboundInput('quero falar com alguém urgente'),
     );
 
-    assert.equal(called, false, 'sem botArmedAt (gate comercial) o NLU nunca deve ser chamado');
+    assert.equal(called, false, 'sem entrevista completa o NLU nunca deve ser chamado');
   } finally {
     delete process.env.HBX_ATENDIMENTO_NLU_ENABLED;
   }
@@ -2416,6 +2421,10 @@ test('pitch pos-pre-mensagem nao se apresenta com nome de outro tenant (fim do "
       company: { findUnique: async () => ({ id: 7, name: 'Padaria do Ze' }) },
       user: { findFirst: async () => ({ id: 3, name: 'Marcia', companyId: 7 }) },
       companyConversation: { findFirst: async () => ({ id: 42, metadata: JSON.stringify(metadata) }) },
+      // Sem persona configurada: o {{funcionario}} cai no criador da campanha
+      // (fallback) — o cenário original deste teste. Persona vencendo é coberto
+      // pelo teste seguinte.
+      vendasComercialConfig: { findUnique: async () => null },
     },
   });
 
@@ -2432,6 +2441,33 @@ test('pitch pos-pre-mensagem nao se apresenta com nome de outro tenant (fim do "
   assert.equal(body.includes('Jhonatan'), false, 'nenhum tenant pode se apresentar com o nome do dono da HBX');
   assert.ok(body.includes('Marcia'), 'nome do responsavel pela campanha entra via {{funcionario}}');
   assert.ok(body.includes('Padaria do Ze'), 'nome da empresa entra via {{empresa}}');
+});
+
+test('pitch pos-pre-mensagem assina com a PERSONA da empresa quando ela existe (identidade unica)', async () => {
+  const metadata = {
+    vendasAutomation: { jobId: 'job-email-1', leadId: 'lead-1', preMessageAwaitingReply: true },
+    vendasAgendaQueue: { active: true, leadId: 'lead-1', automationJobId: 'job-email-1' },
+  };
+  const { service, queueCalls } = createService({
+    prisma: {
+      company: { findUnique: async () => ({ id: 7, name: 'Padaria do Ze' }) },
+      user: { findFirst: async () => ({ id: 3, name: 'Marcia', companyId: 7 }) },
+      companyConversation: { findFirst: async () => ({ id: 42, metadata: JSON.stringify(metadata) }) },
+      // Persona 'Lia' vem do harness base (vendasComercialConfig default).
+    },
+  });
+
+  await (service as any).sendVendasPitchAfterPreMessage(
+    { companyId: 7, conversationId: 42, from: '+5519998877766', metadata },
+    {
+      ...buildVendasEmailJob(),
+      campaign: { id: 'campaign-1', companyId: 7, createdByUserId: 3, filtersJson: null },
+    },
+  );
+
+  const body = String((queueCalls[0] as any)?.payload?.body || '');
+  assert.ok(body.includes('Lia'), 'a persona da empresa assina o {{funcionario}}');
+  assert.equal(body.includes('Marcia'), false, 'com persona, o criador da campanha nao assina mais');
 });
 
 // ============================================================================

@@ -306,16 +306,6 @@ test('notifyImplantacaoSold: comportamento observável IDÊNTICO ao Sprint 1 (em
   });
 });
 
-test('notifyBotConfigMissing: warnMissingChannels false preservado (sem env de whatsapp = sem warn, mas ainda entrega email)', async () => {
-  await withEnv({ MASTER_ALERT_WA_COMPANY_ID: undefined, MASTER_ALERT_WHATSAPP_TO: undefined }, async () => {
-    const { service, mailMock, webwhatsMock } = buildService();
-    const result = await service.notifyBotConfigMissing({
-      companyId: 9,
-      companyName: 'ACME',
-    });
-    assert.equal(result.email, true);
-    assert.equal(result.whatsapp, false); // sem MASTER_ALERT_WA_COMPANY_ID = sem envio
-    assert.equal(mailMock.calls.length, 1);
-    assert.equal(webwhatsMock.calls.length, 0);
-  });
-});
+// notifyBotConfigMissing MORREU (31/07/2026) com o pino "Armar bot" — não
+// existe mais chave-mestra pra pedir ao suporte; a liberação é a ENTREVISTA
+// da própria empresa em /automacao. O teste foi junto, sem legado.

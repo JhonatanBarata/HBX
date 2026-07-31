@@ -47,14 +47,14 @@ test('Recovery continua exigindo menu mesmo com etapa durável', async () => {
   assert.equal(complete, false);
 });
 
-// ── chave geral (setMasterSwitch) — PR20072026-CHIP Bloco E ─────────────────
-// Incidente 20/07: ligar a chave geral religava os 3 motores sozinha (a
-// prospecção parada desde 17/07 disparou 1 msg em 29s). Fix: LIGAR só levanta
-// o bloqueio; cada motor volta a ligar pelo próprio toggle de /bot.
+// ── desligarTudo (substituiu a chave geral, 31/07/2026) ─────────────────────
+// A chave geral morreu SEM legado: não existe mais estado "off" persistente.
+// O que sobrou é a AÇÃO de pânico: derrubar os 3 tipos num gesto. Religar é
+// pelo toggle de cada tipo, com pré-voo (anti-"frota em 1 clique", 20/07).
 
-const MASTER_SWITCH_ADMIN = { id: 7, companyId: 5, role: 'ADMIN' };
+const DESLIGAR_ADMIN = { id: 7, companyId: 5, role: 'ADMIN' };
 
-function masterSwitchFixture() {
+function desligarTudoFixture() {
   const companyUpdates: any[] = [];
   const storeSaves: any[] = [];
   const prisma = {
@@ -63,12 +63,12 @@ function masterSwitchFixture() {
         companyUpdates.push(query);
         return {};
       },
-      findUnique: async () => ({ botArmedAt: new Date() }),
+      findUnique: async () => null,
     },
   };
   const store = {
     get: async (_companyId: number, domain: string) =>
-      domain === 'atendimento_bot' ? { routingRules: { globalBotEnabled: false } } : null,
+      domain === 'atendimento_bot' ? { routingRules: { globalBotEnabled: true } } : null,
     save: async (companyId: number, domain: string, payload: any, userId: any) => {
       storeSaves.push({ companyId, domain, payload, userId });
     },
@@ -80,28 +80,16 @@ function masterSwitchFixture() {
   };
 }
 
-test('Chave geral LIGAR só levanta o bloqueio — não arma nenhum motor sozinho', async () => {
-  const { service, companyUpdates, storeSaves } = masterSwitchFixture();
-  const result = await (service as any).setMasterSwitch(MASTER_SWITCH_ADMIN, true);
+test('desligarTudo derruba os 3 tipos num gesto (freio real intacto)', async () => {
+  const { service, companyUpdates, storeSaves } = desligarTudoFixture();
+  const result = await (service as any).desligarTudo(DESLIGAR_ADMIN);
 
-  assert.deepEqual(result, { ok: true, on: true });
-  // só a intenção (bot_master_switch off:false) é gravada — nenhum outro domínio
-  assert.equal(storeSaves.length, 1);
-  assert.equal(storeSaves[0].domain, 'bot_master_switch');
-  assert.equal(storeSaves[0].payload.off, false);
-  // nenhum *LiveAt setado: ligar a chave geral não dá partida na frota
-  assert.equal(companyUpdates.length, 0);
-});
-
-test('Chave geral DESLIGAR continua derrubando os 3 tipos (freio real intacto)', async () => {
-  const { service, companyUpdates, storeSaves } = masterSwitchFixture();
-  const result = await (service as any).setMasterSwitch(MASTER_SWITCH_ADMIN, false);
-
-  assert.deepEqual(result, { ok: true, on: false });
-  const masterSave = storeSaves.find((c) => c.domain === 'bot_master_switch');
-  assert.equal(masterSave?.payload.off, true);
+  assert.deepEqual(result, { ok: true });
+  // atendimento: globalBotEnabled=false gravado na config canônica
   const atendSave = storeSaves.find((c) => c.domain === 'atendimento_bot');
   assert.equal(atendSave?.payload.routingRules.globalBotEnabled, false);
+  // nenhuma escrita de bot_master_switch: o domínio morreu com a chave geral
+  assert.equal(storeSaves.some((c) => c.domain === 'bot_master_switch'), false);
   assert.equal(companyUpdates.length, 1);
   assert.deepEqual(companyUpdates[0].data, {
     recoveryBotLiveAt: null,
@@ -109,4 +97,12 @@ test('Chave geral DESLIGAR continua derrubando os 3 tipos (freio real intacto)',
     prospectingBotLiveAt: null,
     prospectingBotLiveByUserId: null,
   });
+});
+
+test('desligarTudo exige admin', async () => {
+  const { service } = desligarTudoFixture();
+  await assert.rejects(
+    () => (service as any).desligarTudo({ id: 9, companyId: 5, role: 'USER' }),
+    /administradores/,
+  );
 });

@@ -21,7 +21,6 @@
 //   PUT  /modules/master/company/:id/delivery-cap        → {dailyDeliveryCapOverride} (GUARDRAILS S3, anti-scraper)
 //   PUT  /modules/master/company/:id/finance-settings    → {setupValue, monthlyValueOverride} (Implantação)
 //   PUT  /modules/master/company/:id/global-token-usage  → toggles credencial master
-//   PUT  /modules/master/company/:id/bot-activation      → {armed, channel, reason}
 //   POST /modules/master/company/:id/manual-payment      → registrar pagamento (rota Empresarial)
 //   PUT  .../manual-payment/:entryId/cancel              → cancelar lançamento
 //   GET  /credits/master/company/:id                     → Carteira (saldo/lotes/extrato)
@@ -114,9 +113,6 @@ type Detail = {
     // `effective` = masterEnabled && companyEnabled.
     modules?: { key: string; name: string; enabled: boolean; masterEnabled?: boolean; companyEnabled?: boolean; effective?: boolean }[];
     plan?: { id?: number; name?: string | null } | null;
-    botArmedAt?: string | null;
-    botArmChannel?: string | null;
-    botArmReason?: string | null;
     whatsapp?: { usingMasterToken?: boolean; masterCredentialKey?: string | null } | null;
     mercadoPago?: { usingMasterToken?: boolean; masterCredentialKey?: string | null } | null;
     masterIntegrations?: { whatsappLibrary?: CredEntry[]; mercadoPagoLibrary?: CredEntry[] } | null;
@@ -271,12 +267,6 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
   const [entContractArm, setEntContractArm] = useState(false);
   const [entContractForm, setEntContractForm] = useState({ monthlyValue: "", dailyDeliveryCap: "" });
 
-  // bot chave-mestra
-  const [botBusy, setBotBusy] = useState(false);
-  const [botMsg, setBotMsg] = useState<string | null>(null);
-  const [botReason, setBotReason] = useState("");
-  const [botChannel, setBotChannel] = useState("webwhats");
-
   // usuários
   const [userMsg, setUserMsg] = useState<string | null>(null);
   const [userBusy, setUserBusy] = useState(false);
@@ -348,9 +338,6 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     setUserMsg(null);
     setModuloMsg(null);
     setComMsg(null);
-    setBotMsg(null);
-    setBotReason("");
-    setBotChannel("webwhats");
     setPagMsg(null);
     setResetResult(null);
     setDeleteArm(null);
@@ -497,26 +484,6 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
     setProvStep(s => s + 1);
   }
 
-  async function armarBot(armed: boolean) {
-    if (botBusy || selId == null) return;
-    if (armed && !botReason.trim()) { setBotMsg("Informe o motivo ao armar o bot."); return; }
-    setBotBusy(true);
-    setBotMsg(null);
-    try {
-      await apiFetch(`/modules/master/company/${selId}/bot-activation`, {
-        method: "PUT",
-        body: JSON.stringify(armed
-          ? { armed: true, channel: botChannel, reason: botReason.trim() }
-          : { armed: false, reason: "Desarmado pelo Master." }),
-      });
-      setBotMsg(armed ? "✓ Bot armado." : "✓ Bot desarmado.");
-      await recarregarTudo();
-    } catch (err) {
-      setBotMsg(err instanceof Error ? err.message : "Falha ao armar o bot.");
-    } finally {
-      setBotBusy(false);
-    }
-  }
 
   // MASTER-REFAB S6 (10/07 noite): toggle enxuto do tipo de conta — substitui o box Cortesia
   // (presente = conceder crédito na Carteira, aba Financeiro).
@@ -1549,46 +1516,9 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                       </div>
                     </div>
 
-                    {/* Bot — chave-mestra */}
-                    <div style={{ paddingTop: 12, display: "grid", gap: 8 }}>
-                      <strong style={{ fontSize: "0.76rem" }}>Bot — chave-mestra</strong>
-                      <span style={{ fontSize: "0.68rem" }}>
-                        {c.botArmedAt
-                          ? `Armado${c.botArmChannel ? ` · ${c.botArmChannel}` : ""}${c.botArmReason ? ` — ${c.botArmReason}` : ""}`
-                          : "Desarmado — bot não dispara para nenhum usuário."}
-                      </span>
-                      {botMsg && (
-                        <span style={{ fontSize: "0.72rem", fontWeight: 700 }}>{botMsg}</span>
-                      )}
-                      {!c.botArmedAt && (
-                        <div style={{ display: "grid", gap: 8 }}>
-                          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                            <input
-                              className="field-dark"
-                              style={{ flex: 1, minWidth: 180 }}
-                              placeholder="Motivo"
-                              value={botReason}
-                              onChange={e => setBotReason(e.target.value)}
-                            />
-                            <select className="field-dark" style={{ minHeight: 30, fontSize: "0.66rem" }}
-                              value={botChannel} onChange={e => setBotChannel(e.target.value)}>
-                              <option value="webwhats">Webwhats</option>
-                              <option value="meta">Meta</option>
-                            </select>
-                          </div>
-                          <button className="btn-teal" disabled={botBusy} onClick={() => armarBot(true)}
-                            style={{ minHeight: 30, fontSize: "0.7rem", maxWidth: 180 }}>
-                            {botBusy ? "Armando…" : "🔑 Armar bot"}
-                          </button>
-                        </div>
-                      )}
-                      {c.botArmedAt && (
-                        <button className="btn-ghost" disabled={botBusy} onClick={() => armarBot(false)}
-                          style={{ minHeight: 28, fontSize: "0.68rem", maxWidth: 180 }}>
-                          {botBusy ? "Desarmando…" : "Desarmar bot"}
-                        </button>
-                      )}
-                    </div>
+                    {/* "Armar bot" MORREU (31/07/2026): a liberação do bot é a
+                        ENTREVISTA que a própria empresa responde em /automacao —
+                        fail-closed no cliente, sem chave no suporte. */}
                   </div>
                 )}
 

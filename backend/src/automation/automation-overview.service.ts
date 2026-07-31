@@ -162,14 +162,14 @@ export class AutomationOverviewService {
       return null;
     });
 
-    const company = await this.prisma.company
-      .findUnique({ where: { id: companyId }, select: { botArmedAt: true, botArmedByUserId: true } })
-      .catch(() => null);
-
+    // "Armar bot" morreu (31/07/2026): o bloco `botArmed` do contrato passa a
+    // refletir a ENTREVISTA (a tranca nova). armed=true ⇔ entrevista completa —
+    // o shape se mantém pra tela velha não quebrar antes da reforma (F4).
+    const perfilOk = Boolean((activation as any)?.perfil?.entrevistaCompleta);
     const botArmed = {
-      armed: Boolean(activation?.armed ?? company?.botArmedAt),
-      armedAt: company?.botArmedAt ? new Date(company.botArmedAt).toISOString() : null,
-      armedByUserId: company?.botArmedByUserId ?? null,
+      armed: perfilOk,
+      armedAt: null as string | null,
+      armedByUserId: null as number | null,
     };
 
     const [atendente, cobranca, prospeccao, regras, motor] = await Promise.all([

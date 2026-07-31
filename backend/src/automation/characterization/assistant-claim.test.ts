@@ -5,7 +5,8 @@ import assert from 'node:assert/strict';
 // (ConversationAssistantRuntimeService.prepareReply). Congela: (1) claim
 // duplicado (P2002) nunca produz segunda resposta; (2) conversa já assumida
 // por humano (`humanAssigned:true`) nunca é respondida pela IA; (3) empresa
-// sem `botArmedAt` (nao entitled) nunca é respondida pela IA.
+// sem ENTREVISTA completa nunca é respondida pela IA ("armar bot" morreu
+// 31/07/2026 — a tranca no mesmo ponto virou a entrevista).
 //
 // Mesmo estilo do vizinho backend/src/assistente/conversation-assistant-runtime.service.test.ts
 // (node:test + mocks manuais de Prisma, sem framework novo, sem rede real).
@@ -35,7 +36,20 @@ function basePrisma(overrides: Record<string, any> = {}) {
         published: true,
       }),
     },
-    company: { findUnique: async () => ({ botArmedAt: new Date() }) },
+    vendasComercialConfig: {
+      findUnique: async () => ({
+        aiNome: 'Lia',
+        aiIdentidade: 'nome_proprio',
+        aiUserId: null,
+        empresaFazTexto: 'Vendemos ERP.',
+        catalogoJson: JSON.stringify({
+          oQueVendemos: 'ERP',
+          capacidades: [{ ganho: 'Organiza vendas', resolve: ['bagunca'] }],
+          paraQuem: ['PMEs'],
+          ancoraDePreco: null,
+        }),
+      }),
+    },
     companyConversation: {
       findFirst: async () => ({ id: 10, botActive: true, humanAssigned: false, vendasLeadId: 'lead-1' }),
     },
@@ -105,10 +119,10 @@ test('conversa ja com humano designado (humanAssigned:true) nao e respondida pel
   assert.equal(sandboxCalls, 0);
 }));
 
-test('empresa sem botArmedAt (nao entitled) nao e respondida pela IA', async () => withRuntimeFlag('true', async () => {
+test('empresa sem entrevista completa nao e respondida pela IA', async () => withRuntimeFlag('true', async () => {
   let claimCalls = 0;
   const prisma = basePrisma({
-    company: { findUnique: async () => ({ botArmedAt: null }) },
+    vendasComercialConfig: { findUnique: async () => null },
     conversationAssistantRun: {
       create: async () => {
         claimCalls += 1;
@@ -122,6 +136,6 @@ test('empresa sem botArmedAt (nao entitled) nao e respondida pela IA', async () 
   const result = await service.prepareReply({ companyId: 7, conversationId: 10, inboundMessageId: 55, text: 'Oi' });
 
   assert.equal(result.handled, false);
-  assert.equal(result.handled === false && result.reason, 'assistant_not_entitled');
-  assert.equal(claimCalls, 0, 'sem botArmedAt nao deve nem tentar reivindicar (claim)');
+  assert.equal(result.handled === false && result.reason, 'assistant_entrevista_incompleta');
+  assert.equal(claimCalls, 0, 'sem entrevista nao deve nem tentar reivindicar (claim)');
 }));

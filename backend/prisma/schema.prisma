@@ -188,10 +188,11 @@ model Company {
   billingGraceLastEmailAt DateTime?
   billingGraceLastFailureAt DateTime?
   deactivatedAt           DateTime?
-  botArmedAt            DateTime?
-  botArmChannel         String?   // 'webwhats' | 'meta'
-  botArmedByUserId      Int?
-  botArmReason          String?
+  // "ARMAR BOT" MORREU (31/07/2026): o pino botArm* (master armava por empresa,
+  // 402 "Acione o suporte") e a chave geral (bot_master_switch) saíram SEM
+  // legado. A tranca que libera bot agora é a ENTREVISTA (VendasComercialConfig:
+  // empresaFazTexto + catálogo + persona) — fail-closed no cliente, não no
+  // suporte. Ver migration 20260801020000_mata_bloqueios_bot.
   // Ativação por tipo de bot (22/06): null = desligado; timestamp = ligado + auditoria.
   // Atendimento NÃO usa coluna — fonte é routingRules.globalBotEnabled no config JSON.
   recoveryBotLiveAt         DateTime?

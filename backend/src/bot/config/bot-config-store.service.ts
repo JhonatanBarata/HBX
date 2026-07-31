@@ -23,10 +23,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 
+// 'bot_master_switch' morreu com a chave geral (31/07/2026 — migration
+// 20260801020000_mata_bloqueios_bot apagou as linhas).
 export type BotConfigDomain =
   | 'atendimento_bot'
   | 'atendimento_agenda'
-  | 'bot_master_switch'
   | 'recovery_bot';
 
 // Canal/título mágico legado por domínio — mesmas constantes já usadas hoje em
@@ -37,7 +38,6 @@ export type BotConfigDomain =
 const LEGACY_CHANNEL_BY_DOMAIN: Record<BotConfigDomain, { channel: string; title: string }> = {
   atendimento_bot: { channel: '__ATENDIMENTO_BOT_CONFIG__', title: 'config_v1' },
   atendimento_agenda: { channel: '__ATENDIMENTO_AGENDA_CONFIG__', title: 'config_v1' },
-  bot_master_switch: { channel: '__BOT_MASTER_SWITCH__', title: 'v1' },
   recovery_bot: { channel: '__HBX_RECOVERY_BOT_CONFIG__', title: 'config_v1' },
 };
 

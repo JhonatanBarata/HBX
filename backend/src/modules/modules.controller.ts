@@ -276,18 +276,6 @@ class UpdateMasterCompanyProfileDto {
   billingProvider?: string;
 }
 
-class SetBotActivationDto {
-  @IsBoolean()
-  armed: boolean;
-
-  @IsOptional()
-  @IsIn(['webwhats', 'meta'])
-  channel?: string;
-
-  @IsOptional()
-  @IsString()
-  reason?: string;
-}
 
 class UpdateMasterCompanyFinanceSettingsDto {
   @IsOptional()
@@ -742,15 +730,8 @@ export class ModulesController {
     return this.modulesService.setCompanyEnterpriseContractByMaster(Number(req.user?.id), companyId, dto || {});
   }
 
-  @Put('master/company/:companyId/bot-activation')
-  @UseGuards(JwtAuthGuard, MasterGuard)
-  setCompanyBotActivation(
-    @Req() req: any,
-    @Param('companyId', ParseIntPipe) companyId: number,
-    @Body() dto: SetBotActivationDto,
-  ) {
-    return this.modulesService.setCompanyBotActivationByMaster(Number(req.user?.id), companyId, dto || {});
-  }
+  // PUT master/company/:companyId/bot-activation MORREU (31/07/2026) — o pino
+  // "Armar bot" saiu sem legado; a tranca é a ENTREVISTA da própria empresa.
 
   @Put('master/company/:companyId/finance-settings')
   @UseGuards(JwtAuthGuard, MasterGuard)

@@ -5,7 +5,6 @@ import { UsersModule } from '../users/users.module';
 import { ModulesController } from './modules.controller';
 import { ModulesService } from './modules.service';
 import { ModuleAccessGuard } from './module-access.guard';
-import { BotArmedGuard } from './bot-armed.guard';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { MasterContextModule } from '../master-context/master-context.module';
 import { CompaniesModule } from '../companies/companies.module';
@@ -21,8 +20,8 @@ import { CreditsModule } from '../credits/credits.module';
 // (coluna "Créditos" honesta); só leitura (CreditWalletService.getBalancesByCompanyIds).
 @Module({
   imports: [PrismaModule, forwardRef(() => UsersModule), MasterContextModule, IntegrationsModule, forwardRef(() => CompaniesModule), CommercialPlansModule, CreditsModule],
-  providers: [ModulesService, ModuleAccessGuard, BotArmedGuard, MasterGuard, WebwhatsBridgeService],
+  providers: [ModulesService, ModuleAccessGuard, MasterGuard, WebwhatsBridgeService],
   controllers: [ModulesController],
-  exports: [ModulesService, ModuleAccessGuard, BotArmedGuard],
+  exports: [ModulesService, ModuleAccessGuard],
 })
 export class ModulesAccessModule {}

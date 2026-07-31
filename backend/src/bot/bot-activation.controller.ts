@@ -42,14 +42,12 @@ export class BotActivationController {
     return this.botActivationService.putActivation(req.user, { type, live });
   }
 
-  // Chave geral (master switch): liga/desliga o bot inteiro. NÃO usa @BotArmed —
-  // desligar tem que funcionar sempre; o service valida admin e o pré-voo por dentro.
-  @Put('master-switch')
-  setMasterSwitch(@Req() req: any, @Body() body: { on: boolean }) {
-    if (typeof body?.on !== 'boolean') {
-      throw new BadRequestException('Campo "on" deve ser boolean.');
-    }
-    return this.botActivationService.setMasterSwitch(req.user, body.on);
+  // BOTÃO DE PÂNICO (substituiu a chave geral, 31/07/2026): derruba os 3 tipos
+  // num gesto. Não existe mais estado "off" persistente — religar é pelo toggle
+  // de cada tipo, com pré-voo. O service valida admin por dentro.
+  @Put('desligar-tudo')
+  desligarTudo(@Req() req: any) {
+    return this.botActivationService.desligarTudo(req.user);
   }
 
   // ── INTENTENGINE S3: histórico + rollback de config (admin/master) ──────────
