@@ -52,7 +52,13 @@ plugins {
 // + 3 sons virando 1) e nenhum celular vendo atualização. No g15 nem apareceu
 // porque eu tinha sideloadado o 95 por cima do 105. Piso ACIMA do publicado é o
 // que destrava (mesmo caso de 8→15, 15→18, 18→38, 38→60, 60→68 e 87→95 acima).
-val hbxLogisticaVersionCodeFloor = 110
+// 110 → 117 em 29/07 (noite): consertando a navegação COM O DONO usando o app pra
+// se guiar (traço, seta, chegada, noturno), sideloadei 112, 113, 114, 115 e 116 no
+// moto g15. O piso tem que ficar ACIMA do maior número que já está no aparelho,
+// senão o publish carimba um versionCode que o celular já roda e ele nunca vê a
+// atualização chegar (mesmo caso de 8→15, 15→18, 18→38, 38→60, 60→68, 87→95 e
+// 95→110 acima).
+val hbxLogisticaVersionCodeFloor = 117
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)
