@@ -156,6 +156,10 @@
    token, nenhuma cor literal. Ver logistica-mesa.css. */
 @import "./hbx-theme/logistica-mesa.css";
 
+/* AGENDA LIVE — calendário operacional com visualizações dia, semana e mês,
+   compromissos proporcionais ao horário e detalhe contextual. */
+@import "./hbx-theme/agenda-live.css";
+
 /* VENDAS LIVE — sempre por último: fluxo único, cards coloridos e cockpit do
    quadro. (vendas-details2.css saiu daqui em 28/07 junto com o Detalhes velho
    — o novo é hbx-theme/central-do-lead.css, importado com as cascas.) */
