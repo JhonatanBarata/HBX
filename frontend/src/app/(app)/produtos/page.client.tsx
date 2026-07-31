@@ -16,6 +16,7 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import {
   HbxContextEmpty,
   HbxContextFact,
@@ -230,6 +231,7 @@ export function ProdutosClient() {
   const [showImport, setShowImport] = useState(false);
   const [selected, setSelected] = useState<Produto | null>(null);
   const [modal, setModal] = useState<{ open: boolean; edit: Produto | null }>({ open: false, edit: null });
+  const archivePill = useGlassPill<HTMLButtonElement>(showArchived ? "todos" : "ativos");
 
   const load = useCallback(() => {
     setLoading(true);
@@ -256,6 +258,7 @@ export function ProdutosClient() {
     if (typeof window !== "undefined" && !window.confirm(`Inativar "${p.name}"? Ele sai do catálogo ativo.`)) return;
     try {
       await apiFetch(`/products/${p.id}`, { method: "DELETE" });
+      setSelected(null);
       load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Não foi possível inativar o produto.");
@@ -282,42 +285,79 @@ export function ProdutosClient() {
   const isEmpty = !loading && !error && filtered.length === 0;
 
   const main = (
-    <div className="work hbx-panel-shell__route-work" style={{ flex: 1 }}>
-      <section className="panel">
-        <div className="panel-head">
-          <h2>Produtos</h2>
-          <div className="meta">
-            <span>{filtered.length} produto(s)</span>
-          </div>
+    <section className="prod-live">
+      <header className="prod-command">
+        <div className="prod-command__identity">
+          <span className="prod-command__icon"><I d={ICONS.produtos} size={17} /></span>
+          <span>
+            <strong>Produtos</strong>
+            <small>{filtered.length} visíveis</small>
+          </span>
         </div>
 
-        <div className="hbx-panel-toolbar">
-          <form className="emp-toolbar" onSubmit={(e) => e.preventDefault()}>
-            <input
-              className="field-dark emp-search"
-              placeholder="Buscar por nome, unidade, SKU…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
-            <label className="ctt-toggle ctt-toggle--inline">
-              <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-              <span>Mostrar inativos</span>
-            </label>
-            <button type="button" className="btn-teal ctt-new" onClick={() => setModal({ open: true, edit: null })}>
-              <I d={ICONS.plus} size={13} /> Novo produto
-            </button>
-            <button type="button" className="btn-ghost" onClick={() => setShowImport(true)}>
-              <I d={ICONS.upload} size={13} /> Importar planilha
-            </button>
-            {loading && <span className="emp-count">carregando…</span>}
-          </form>
+        <div className="prod-view-switch glass-pill-track" aria-label="Situação do catálogo">
+          <GlassPill {...archivePill} />
+          <button
+            type="button"
+            ref={archivePill.itemRef("ativos")}
+            className={"glass-pill-item" + (!showArchived ? " is-active" : "")}
+            aria-pressed={!showArchived}
+            onClick={() => setShowArchived(false)}
+          >
+            Ativos
+          </button>
+          <button
+            type="button"
+            ref={archivePill.itemRef("todos")}
+            className={"glass-pill-item" + (showArchived ? " is-active" : "")}
+            aria-pressed={showArchived}
+            onClick={() => setShowArchived(true)}
+          >
+            Com inativos
+          </button>
         </div>
 
+        <div className="prod-command__search">
+          <I d={ICONS.search} size={13} />
+          <input
+            className="field-dark"
+            placeholder="Buscar por nome, unidade, SKU…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
+
+        <button type="button" className="btn-teal prod-command__new" onClick={() => setModal({ open: true, edit: null })}>
+          <I d={ICONS.plus} size={13} /> <span>Novo produto</span>
+        </button>
+        <button type="button" className="btn-ghost prod-command__import" onClick={() => setShowImport(true)} title="Importar planilha">
+          <I d={ICONS.upload} size={13} /> <span>Importar</span>
+        </button>
+        <span className={"prod-command__status" + (loading ? " is-loading" : "")} title={loading ? "Atualizando catálogo" : "Catálogo atualizado"}>
+          <i aria-hidden="true" />
+        </span>
+      </header>
+
+      <div className="prod-list-head" aria-hidden="true">
+        <span>Produto</span>
+        <span>Logística</span>
+        <span>Preço</span>
+      </div>
+
+      <div className="prod-live__body">
         {error && (
           <div className="emp-empty">
             <strong className="emp-empty__title">Não carregou</strong>
             <span className="emp-empty__text">{error}</span>
             <button className="btn-ghost" onClick={() => load()}>Tentar novamente</button>
+          </div>
+        )}
+
+        {!error && loading && items.length === 0 && (
+          <div className="prod-live-skeleton" aria-label="Carregando produtos" role="status">
+            {Array.from({ length: 8 }).map((_, index) => (
+              <span className="prod-live-skeleton__line" key={index} />
+            ))}
           </div>
         )}
 
@@ -340,7 +380,7 @@ export function ProdutosClient() {
               const archived = p.status === "archived";
               return (
                 <div
-                  className={`emp-row prod-row${archived ? " is-archived" : ""}${selected?.id === p.id ? " is-active" : ""}`}
+                  className={`emp-row prod-row hbx-selectable-row${archived ? " is-archived" : ""}${selected?.id === p.id ? " is-active" : ""}`}
                   key={p.id}
                   role="button"
                   tabIndex={0}
@@ -361,38 +401,15 @@ export function ProdutosClient() {
                     </span>
                   </span>
                   <span className="emp-row__side">
-                    {p.usaLogistica && (
+                    {p.usaLogistica ? (
                       <span className="prod-badge-log" title="Entra no módulo Logística">
                         <I d={ICONS.mapin} size={11} /> Logística
                       </span>
+                    ) : (
+                      <span className="prod-badge-off">Fora do roteiro</span>
                     )}
                     <span className="prod-row__pricecol">
                       <span className="prod-row__price">{fmtPrice(p.price, p.priceCents)}</span>
-                    </span>
-                    <span className="prod-row__acts">
-                      <button
-                        type="button"
-                        className="btn-ghost btn-xs"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setModal({ open: true, edit: p });
-                        }}
-                      >
-                        Editar
-                      </button>
-                      {!archived && (
-                        <button
-                          type="button"
-                          className="btn-ghost btn-xs"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void inativar(p);
-                          }}
-                          title="Inativar produto"
-                        >
-                          <I d={ICONS.trash} size={13} />
-                        </button>
-                      )}
                     </span>
                   </span>
                 </div>
@@ -400,8 +417,8 @@ export function ProdutosClient() {
             })}
           </div>
         )}
-      </section>
-    </div>
+      </div>
+    </section>
   );
 
   const context = selected ? (
@@ -432,10 +449,15 @@ export function ProdutosClient() {
         <HbxContextFact label="SKU" value={selected.sku || "Não informado"} />
         <HbxContextFact label="Descrição" value={selected.description || "Não informada"} />
       </HbxContextFacts>
-      <div className="hbx-panel-context__actions">
+      <div className="hbx-panel-context__actions prod-context-actions">
         <button type="button" className="btn-teal" onClick={() => setModal({ open: true, edit: selected })}>
           <I d={ICONS.edit} size={13} /> Editar produto
         </button>
+        {selected.status !== "archived" && (
+          <button type="button" className="btn-ghost prod-context-inactivate" onClick={() => void inativar(selected)}>
+            <I d={ICONS.trash} size={13} /> Inativar
+          </button>
+        )}
       </div>
     </>
   ) : (
@@ -450,6 +472,7 @@ export function ProdutosClient() {
     <>
       <HbxPanelShell
         variant="context"
+        className="prod-live-shell"
         ariaLabel="Catálogo de produtos"
         contextLabel="Detalhes do produto"
         main={main}
