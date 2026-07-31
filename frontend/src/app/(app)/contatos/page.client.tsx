@@ -130,6 +130,58 @@ type ClienteItem = {
   contatosCount: number;
 };
 
+type ClienteDetail = {
+  id: string;
+  name: string | null;
+  tipo: string;
+  cnpj: string | null;
+  document: string | null;
+  endereco: string | null;
+  numero: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  uf: string | null;
+  cep: string | null;
+  lat: number | null;
+  lng: number | null;
+  geoFonte: string | null;
+  whatsapp: string | null;
+  email: string | null;
+  isLead: boolean;
+  isCliente: boolean;
+  isFornecedor: boolean;
+  formaPagamento: string;
+  metodoPadrao: string | null;
+  contabilizar: boolean;
+  diaFechamento: number | null;
+  limiteFiado: number | null;
+  avisarCobranca: boolean;
+  contatoPrincipalId: string | null;
+  locais: Array<{
+    id: string;
+    apelido: string | null;
+    endereco: string | null;
+    numero: string | null;
+    bairro: string | null;
+    cidade: string | null;
+    uf: string | null;
+    cep: string | null;
+    lat: number | null;
+    lng: number | null;
+    geoFonte: string | null;
+    isPrincipal: boolean;
+    ativo: boolean;
+  }>;
+  telefones: Array<{
+    id: string;
+    nome: string;
+    whatsapp: string | null;
+    phone: string | null;
+    isPrincipal: boolean;
+  }>;
+  observacoes: string | null;
+};
+
 type ClienteListResponse = {
   page: number;
   pageSize: number;
@@ -144,6 +196,43 @@ type ContextSelection =
 
 function localCityUf(cidade: string | null, uf: string | null): string {
   return [String(cidade || "").trim(), String(uf || "").trim()].filter(Boolean).join(" · ");
+}
+
+function clienteEndereco(detail: ClienteDetail | null): string {
+  if (!detail) return "";
+  const local = detail.locais.find((item) => item.isPrincipal) || detail.locais[0] || null;
+  const rua = local?.endereco || detail.endereco;
+  const numero = local?.numero || detail.numero;
+  const bairro = local?.bairro || detail.bairro;
+  const cidadeUf = localCityUf(local?.cidade || detail.cidade, local?.uf || detail.uf);
+  return [
+    [rua, numero].filter(Boolean).join(", "),
+    bairro,
+    cidadeUf,
+  ].filter(Boolean).join(" · ");
+}
+
+function formaPagamentoLabel(value: string | null | undefined): string {
+  const labels: Record<string, string> = {
+    aberto: "Em aberto",
+    na_hora: "Na hora",
+    mensal: "Mensal",
+    fiado: "Fiado",
+  };
+  const key = String(value || "").trim().toLowerCase();
+  return labels[key] || (key ? key.replaceAll("_", " ") : "Não definida");
+}
+
+function metodoPagamentoLabel(value: string | null | undefined): string {
+  const labels: Record<string, string> = {
+    dinheiro: "Dinheiro",
+    pix: "Pix",
+    boleto: "Boleto",
+    transferencia: "Transferência",
+    cartao: "Cartão",
+  };
+  const key = String(value || "").trim().toLowerCase();
+  return labels[key] || (key ? key.replaceAll("_", " ") : "");
 }
 
 // Rótulos dos motivos de finalização (o backend guarda o código cru em botOffReason).
@@ -996,6 +1085,10 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
   const [showNovo, setShowNovo] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [selected, setSelected] = useState<ContextSelection | null>(null);
+  const [clienteDetail, setClienteDetail] = useState<ClienteDetail | null>(null);
+  const [clienteDetailLoading, setClienteDetailLoading] = useState(false);
+  const [clienteDetailError, setClienteDetailError] = useState<string | null>(null);
+  const [clienteDetailRevision, setClienteDetailRevision] = useState(0);
   // LOGÍSTICA-MOBILE M2 — cliente com o drawer "Produtos do cliente" aberto.
   const [prodCliente, setProdCliente] = useState<{ id: string; nome: string | null } | null>(null);
   // NÚCLEO-CRM — edição (pessoa ou conta) via PATCH já publicado no backend.
@@ -1043,6 +1136,37 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
   // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar ou mudar filtro/página; efeito legítimo, não estado derivado.
   useEffect(() => { load(onlyClientes, query, page); }, [load, onlyClientes, query, page]);
 
+  const selectedClienteId = selected?.kind === "cliente" ? selected.item.id : null;
+
+  // A lista é leve; a ficha completa (locais, telefones e contrato financeiro)
+  // só é lida quando o operador realmente seleciona um cliente.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch contextual ao trocar a seleção; guarda evita resposta velha.
+  useEffect(() => {
+    let alive = true;
+    if (!selectedClienteId) {
+      setClienteDetail(null);
+      setClienteDetailLoading(false);
+      setClienteDetailError(null);
+      return () => { alive = false; };
+    }
+    setClienteDetail(null);
+    setClienteDetailLoading(true);
+    setClienteDetailError(null);
+    apiFetch<ClienteDetail>(`/nucleo/clientes/${encodeURIComponent(selectedClienteId)}`)
+      .then((detail) => {
+        if (!alive) return;
+        setClienteDetail(detail);
+      })
+      .catch((err: unknown) => {
+        if (!alive) return;
+        setClienteDetailError(err instanceof Error ? err.message : "Não foi possível carregar a ficha completa.");
+      })
+      .finally(() => {
+        if (alive) setClienteDetailLoading(false);
+      });
+    return () => { alive = false; };
+  }, [selectedClienteId, clienteDetailRevision]);
+
   function submitSearch(e: React.FormEvent) {
     e.preventDefault();
     setPage(1);
@@ -1063,6 +1187,7 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
   function afterEdited() {
     setEditContato(null);
     setEditCliente(null);
+    setClienteDetailRevision((current) => current + 1);
     load(onlyClientes, query, page);
   }
 
@@ -1119,7 +1244,13 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
           </button>
         </form>
 
-        <button type="button" className="btn-ghost ctt-command__new" onClick={() => setShowNovo(true)}>
+        <button
+          type="button"
+          className="btn-ghost ctt-command__new"
+          onClick={() => setShowNovo(true)}
+          aria-label={onlyClientes ? "Novo cliente" : "Novo cadastro"}
+          title={onlyClientes ? "Novo cliente" : "Novo cadastro"}
+        >
           <I d={ICONS.plus} size={13} /> <span>{onlyClientes ? "Novo cliente" : "Novo cadastro"}</span>
         </button>
 
@@ -1294,6 +1425,17 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
     </section>
   );
 
+  const principalLocal = clienteDetail?.locais.find((item) => item.isPrincipal) || clienteDetail?.locais[0] || null;
+  const telefonesValidos = clienteDetail?.telefones.filter((item) => item.whatsapp || item.phone) || [];
+  const clienteTemGps = typeof (principalLocal?.lat ?? clienteDetail?.lat) === "number"
+    && typeof (principalLocal?.lng ?? clienteDetail?.lng) === "number";
+  const pagamentoCliente = clienteDetail
+    ? [
+        formaPagamentoLabel(clienteDetail.formaPagamento),
+        metodoPagamentoLabel(clienteDetail.metodoPadrao),
+      ].filter(Boolean).join(" · ")
+    : "Carregando…";
+
   const context = selected?.kind === "contato" ? (
     <>
       <HbxContextHeader
@@ -1343,7 +1485,7 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
       <HbxContextHeader
         eyebrow="Cliente"
         title="Detalhes do cliente"
-        subtitle="Cadastro da logística"
+        subtitle={clienteDetailLoading ? "Carregando ficha completa…" : clienteDetailError ? "Ficha parcial" : "Cadastro da logística"}
         actions={(
           <button type="button" className="icon-ghost" onClick={() => setSelected(null)} aria-label="Fechar detalhes">
             <I d={ICONS.x} size={15} />
@@ -1352,20 +1494,69 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
       />
       <HbxContextHero
         visual={<I d={ICONS.empresas} size={20} />}
-        title={selected.item.name || "(sem nome)"}
-        subtitle={localCityUf(selected.item.cidade, selected.item.uf) || "Local não informado"}
-        meta={selected.item.origin || "Origem não informada"}
+        title={clienteDetail?.name || selected.item.name || "(sem nome)"}
+        subtitle={clienteEndereco(clienteDetail) || localCityUf(selected.item.cidade, selected.item.uf) || "Local não informado"}
+        meta={clienteTemGps ? "Pino pronto para a rota" : "Localização precisa de atenção"}
       />
       <HbxContextMetrics>
-        <HbxContextMetric label="Contatos" value={selected.item.contatosCount} />
-        <HbxContextMetric label="Lead" value={selected.item.isLead ? "Sim" : "Não"} />
+        <HbxContextMetric
+          label="Locais"
+          value={clienteDetailLoading ? "…" : clienteDetail?.locais.length ?? 0}
+          hint={clienteDetailLoading ? "sincronizando" : principalLocal?.apelido || (principalLocal ? "principal" : "nenhum local")}
+        />
+        <HbxContextMetric
+          label="Telefones"
+          value={clienteDetailLoading ? "…" : telefonesValidos.length}
+          hint={clienteDetailLoading
+            ? "sincronizando"
+            : telefonesValidos.length
+              ? clienteDetail?.contatoPrincipalId ? "principal definido" : "sem principal"
+              : "nenhum telefone"}
+        />
+        <HbxContextMetric label="GPS" value={clienteDetailLoading ? "…" : clienteTemGps ? "Pronto" : "Revisar"} />
       </HbxContextMetrics>
       <HbxContextFacts>
-        <HbxContextFact label="CNPJ" value={selected.item.cnpj || "Não informado"} />
-        <HbxContextFact label="Cidade" value={selected.item.cidade || "Não informada"} />
-        <HbxContextFact label="UF" value={selected.item.uf || "Não informada"} />
-        <HbxContextFact label="Fornecedor" value={selected.item.isFornecedor ? "Sim" : "Não"} />
+        <HbxContextFact
+          label="WhatsApp"
+          value={clienteDetail?.whatsapp ? formatBrPhone(clienteDetail.whatsapp) : clienteDetailLoading ? "Carregando…" : "Não informado"}
+        />
+        <HbxContextFact label="Endereço" value={clienteEndereco(clienteDetail) || "Não informado"} />
+        <HbxContextFact label="Pagamento" value={pagamentoCliente} />
+        <HbxContextFact
+          label="Fechamento"
+          value={clienteDetailLoading ? "Carregando…" : clienteDetail?.diaFechamento ? `Dia ${clienteDetail.diaFechamento}` : "Sem fechamento mensal"}
+        />
+        <HbxContextFact
+          label="Limite fiado"
+          value={clienteDetailLoading
+            ? "Carregando…"
+            : clienteDetail?.limiteFiado != null
+              ? `R$ ${Number(clienteDetail.limiteFiado).toFixed(2).replace(".", ",")}`
+              : "Não definido"}
+        />
+        <HbxContextFact
+          label="Documento"
+          value={clienteDetail?.cnpj || clienteDetail?.document || selected.item.cnpj || "Não informado"}
+        />
+        <HbxContextFact
+          label="Cobrança"
+          value={clienteDetailLoading ? "Carregando…" : clienteDetail?.avisarCobranca === false ? "Aviso desligado" : "Aviso ativo"}
+        />
       </HbxContextFacts>
+      {clienteDetailError && (
+        <div className="ctt-client-context__notice is-error" role="status">
+          <span>{clienteDetailError}</span>
+          <button type="button" className="btn-ghost btn-xs" onClick={() => setClienteDetailRevision((current) => current + 1)}>
+            Tentar novamente
+          </button>
+        </div>
+      )}
+      {clienteDetail?.observacoes && (
+        <section className="hbx-panel-context__section ctt-client-context__note">
+          <strong className="hbx-panel-context__section-title">Observações</strong>
+          <p className="hbx-panel-context__muted">{clienteDetail.observacoes}</p>
+        </section>
+      )}
       <div className="hbx-panel-context__actions ctt-context-actions">
         <button type="button" className="btn-teal" onClick={() => setProdCliente({ id: selected.item.id, nome: selected.item.name })}>
           <I d={ICONS.logistica} size={13} /> Produtos do cliente
