@@ -6,6 +6,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  VARIACAO_MAX_CHARS,
   VARIACOES_QUANTIDADE_MAX,
   extrairPlaceholders,
   montarPromptVariacoes,
@@ -25,7 +26,10 @@ test('placeholders: extrai o conjunto {{...}} ordenado e ignora lixo', () => {
 test('prompt: exige os marcadores da base e proíbe inventar oferta', () => {
   const messages = montarPromptVariacoes(BASE, 4);
   const system = messages[0].content;
-  assert.match(system, /PROIBIDO inventar produto, benefício, preço/);
+  // A garantia é a mesma desde 30/07 (a IA varia FORMA, nunca inventa oferta); o
+  // texto do prompt mudou em 31/07 quando entrou a régua humana.
+  assert.match(system, /inventar produto ou benefício que não esteja na frase original/);
+  assert.match(system, /PROIBIDO: link, preço, prazo, promessa/);
   assert.match(system, /\{\{cumprimentacao\}\}, \{\{empresa\}\}, \{\{funcionario\}\}/);
   const semPlaceholder = montarPromptVariacoes('Frase simples sem marcador, tudo bem por aí?', 4);
   assert.match(semPlaceholder[0].content, /NÃO use marcadores/);
@@ -77,4 +81,80 @@ test('curta demais e teto de quantidade', () => {
     `{{cumprimentacao}} numero ${'x'.repeat(i + 1)}, aqui fala {{funcionario}} da {{empresa}} sobre o assunto ${i} de hoje, completamente diferente ${'y'.repeat(20 - i)}`);
   const lote = validarLoteVariacoes(BASE, muitas, 999 /* régua frouxa: mede só o teto */, VARIACOES_QUANTIDADE_MAX);
   assert.ok(lote.aprovadas.length <= VARIACOES_QUANTIDADE_MAX);
+});
+
+// ── VACINA DA RÉGUA HUMANA (treino do dono, 31/07/2026) ──────────────────────
+// "o disparo não pode ser grande, e tem q ser igual humano (...) não dê textão,
+// é 1~2 linhas no máximo". Antes disto a IA não tinha teto nenhum: 400 caracteres
+// de folheto passavam inteiros e iam pro disparo.
+
+const BASE_HUMANA = 'Bom dia! Vocês montam a rota da entrega no papel ou já usam sistema?';
+
+test('textão é recusado — primeiro contato é 1 a 2 linhas', () => {
+  const textao =
+    'Bom dia! Espero que esteja tudo bem com o senhor e com toda a sua equipe neste dia. ' +
+    'Gostaria de me apresentar e apresentar também a nossa empresa, que atua há bastante tempo ' +
+    'no mercado de tecnologia para distribuidoras, oferecendo um conjunto completo de recursos ' +
+    'para gestão de entregas, rotas, faturamento e cobrança, tudo integrado num só lugar.';
+  const { aprovadas, recusadas } = validarLoteVariacoes(BASE_HUMANA, [textao], 85);
+  assert.equal(aprovadas.length, 0);
+  assert.match(recusadas[0].motivo, /Text[aã]o/);
+});
+
+test('link no primeiro contato é recusado (cara de spam, queima o número)', () => {
+  const { aprovadas, recusadas } = validarLoteVariacoes(
+    BASE_HUMANA,
+    ['Oi! Da uma olhada aqui rapidinho, acho que encaixa: https://hbx.com/demo'],
+    85,
+  );
+  assert.equal(aprovadas.length, 0);
+  assert.match(recusadas[0].motivo, /link/i);
+});
+
+test('prova social inventada é recusada — a IA não sabe esse número', () => {
+  const { aprovadas, recusadas } = validarLoteVariacoes(
+    BASE_HUMANA,
+    ['Oi! Ja ajudamos mais de 300 distribuidoras a organizar a entrega. Quer ver?'],
+    85,
+  );
+  assert.equal(aprovadas.length, 0);
+  assert.match(recusadas[0].motivo, /prova social/i);
+});
+
+test('voz de folheto é recusada', () => {
+  const { aprovadas, recusadas } = validarLoteVariacoes(
+    BASE_HUMANA,
+    ['Prezado cliente, gostariamos de apresentar o nosso trabalho. Podemos conversar?'],
+    85,
+  );
+  assert.equal(aprovadas.length, 0);
+  assert.match(recusadas[0].motivo, /folheto/i);
+});
+
+test('mensagem humana curta PASSA — a régua não pode matar o que serve', () => {
+  const humanas = [
+    'Oi, tudo bem? O entregador de voces anota no papel e passa depois, e isso?',
+    'Bom dia! E voce que cuida das entregas ai da distribuidora?',
+  ];
+  const { aprovadas, recusadas } = validarLoteVariacoes(BASE_HUMANA, humanas, 85);
+  assert.equal(aprovadas.length, 2, `recusou humana: ${JSON.stringify(recusadas)}`);
+});
+
+test('teto nunca é menor que a frase que a própria pessoa escreveu', () => {
+  const baseLonga = 'Bom dia! '.padEnd(320, 'x');
+  const variacaoDoMesmoTamanho = 'Boa tarde! '.padEnd(300, 'y');
+  const { aprovadas } = validarLoteVariacoes(baseLonga, [variacaoDoMesmoTamanho], 85);
+  assert.equal(aprovadas.length, 1, 'a régua não pode brigar com quem escreveu a frase-base');
+});
+
+test('o prompt ENSINA a régua (tamanho, uma ideia, pergunta barata, sem link)', () => {
+  const system = montarPromptVariacoes('Bom dia! {{cumprimentacao}} vocês entregam galão?', 3)
+    .find(m => m.role === 'system')?.content || '';
+  assert.match(system, new RegExp(String(VARIACAO_MAX_CHARS)));
+  assert.match(system, /2 linhas/);
+  assert.match(system, /UMA ideia/);
+  assert.match(system, /pergunta f[aá]cil/i);
+  assert.match(system, /PROIBIDO: link/);
+  assert.match(system, /prova social/i);
+  assert.match(system, /GANCHO/);
 });

@@ -21,6 +21,48 @@ import { coldTextSimilarity, normalizeColdText } from '../messaging/wa-cold-cont
 export const VARIACOES_QUANTIDADE_DEFAULT = 4;
 export const VARIACOES_QUANTIDADE_MAX = 8;
 
+// ── RÉGUA DE MENSAGEM HUMANA (treino do dono, 31/07/2026) ────────────────────
+// Ordem literal: "o disparo não pode ser grande, e tem q ser igual humano. Contato
+// simples, 'consigo te ajudar' e tals (...) não dê textão, é 1~2 linhas no máximo".
+//
+// Antes deste bloco a IA não tinha NENHUM limite de tamanho nem de voz: o prompt só
+// pedia "varie estrutura, saudação e ritmo" e o validador só tinha piso (20 chars).
+// Um textão de 600 caracteres com cara de folheto passava inteiro e ia pro disparo.
+//
+// 2 linhas de WhatsApp ≈ 200 caracteres. O teto é HARD, mas nunca menor que a própria
+// frase-base: se a pessoa escreveu 300 caracteres, recusar as variações por terem o
+// mesmo tamanho seria o botão brigando com quem clicou.
+export const VARIACAO_MAX_CHARS = 200;
+
+// Marcas de folheto — o oposto de "gente falando". Lista curta e específica de
+// propósito: régua que reprova palavra comum ("solução") vira botão que nunca
+// funciona, e aí ninguém usa a IA.
+const MARCAS_DE_FOLHETO = [
+  'prezado',
+  'prezada',
+  'venho por meio',
+  'somos referencia',
+  'somos lider',
+  'solucoes integradas',
+  'otimizar processos',
+  'parceria de sucesso',
+  'oportunidade unica',
+  'promocao imperdivel',
+  'nao perca',
+];
+
+const LINK_RE = /(https?:\/\/|www\.|wa\.me\/|bit\.ly|encurta)/i;
+// Prova social inventada: a IA não sabe quantos clientes a empresa tem, então
+// qualquer número aqui é mentira que o lead pode cobrar na cara do vendedor.
+const PROVA_SOCIAL_RE = /\bmais de\s+\d+\s+(clientes|empresas|distribuidoras|lojas)/i;
+
+function semAcento(texto: string): string {
+  return String(texto || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '');
+}
+
 /** Placeholders `{{...}}` da frase, como conjunto ordenado (ex.: {{cumprimentacao}}). */
 export function extrairPlaceholders(texto: string): string[] {
   const found = new Set<string>();
@@ -40,15 +82,28 @@ export function montarPromptVariacoes(base: string, quantidade: number): { role:
     {
       role: 'system',
       content:
-        'Você reescreve mensagens curtas de WhatsApp comercial em português do Brasil. ' +
-        'Reescreva variando estrutura, saudação e ritmo — o SENTIDO e a oferta ficam idênticos. ' +
-        'É PROIBIDO inventar produto, benefício, preço, prazo ou promessa que não esteja na frase original. ' +
+        'Você escreve mensagens de PRIMEIRO CONTATO no WhatsApp, em português do Brasil. ' +
+        'Elas têm que parecer GENTE mandando mensagem, não empresa mandando folheto. ' +
+        'REGRAS DURAS: ' +
+        `no máximo 2 linhas (até ${VARIACAO_MAX_CHARS} caracteres); ` +
+        'UMA ideia só por mensagem; ' +
+        'termine numa pergunta fácil de responder (que se responde com "sim", "sou eu" ou um número); ' +
+        'fale da ROTINA de quem vai ler, não do seu produto; ' +
+        'pode escrever em tom informal, como se fosse no celular. ' +
+        'É PROIBIDO: link, preço, prazo, promessa, mais de um emoji, ' +
+        'palavra de folheto ("prezado", "somos referência", "soluções integradas", "otimizar processos"), ' +
+        'inventar cliente, número de clientes ou qualquer prova social, ' +
+        'e inventar produto ou benefício que não esteja na frase original. ' +
+        'Varie o GANCHO entre as mensagens (pergunta sobre a rotina, pedido de permissão, ' +
+        'procurar o responsável, oferta direta) — não troque só as palavras da mesma frase. ' +
         regraPlaceholders +
         ' Responda SOMENTE um JSON array de strings, sem comentários.',
     },
     {
       role: 'user',
-      content: `Frase original:\n${String(base || '').trim()}\n\nGere ${n} variações bem diferentes entre si.`,
+      content:
+        `Frase original:\n${String(base || '').trim()}\n\n` +
+        `Gere ${n} variações curtas, com ganchos diferentes entre si. Nenhuma pode passar de ${VARIACAO_MAX_CHARS} caracteres.`,
     },
   ];
 }
@@ -96,6 +151,8 @@ export function validarLoteVariacoes(
   const threshold = Math.min(100, Math.max(1, thresholdPct || 85)) / 100;
   const baseNorm = normalizeColdText(base);
   const basePlaceholders = extrairPlaceholders(base).join('|');
+  // Teto de tamanho: nunca menor que a frase que a própria pessoa escreveu.
+  const tetoChars = Math.max(VARIACAO_MAX_CHARS, String(base || '').trim().length);
   const aprovadas: string[] = [];
   const aprovadasNorm: string[] = [];
   const recusadas: VariacaoRecusada[] = [];
@@ -109,6 +166,28 @@ export function validarLoteVariacoes(
     }
     if (extrairPlaceholders(texto).join('|') !== basePlaceholders) {
       recusadas.push({ texto, motivo: 'Mudou os marcadores {{...}} da frase original.' });
+      continue;
+    }
+    // ── RÉGUA HUMANA (31/07) — antes disto, textão de folheto passava inteiro ──
+    if (texto.length > tetoChars) {
+      recusadas.push({
+        texto,
+        motivo: `Textão (${texto.length} caracteres). Primeiro contato é 1 a 2 linhas — até ${tetoChars}.`,
+      });
+      continue;
+    }
+    if (LINK_RE.test(texto)) {
+      recusadas.push({ texto, motivo: 'Tem link. Link no primeiro contato é cara de spam e queima o número.' });
+      continue;
+    }
+    if (PROVA_SOCIAL_RE.test(texto)) {
+      recusadas.push({ texto, motivo: 'Inventou prova social ("mais de N clientes"). A IA não sabe esse número.' });
+      continue;
+    }
+    const semAcentoTexto = semAcento(texto);
+    const folheto = MARCAS_DE_FOLHETO.find((marca) => semAcentoTexto.includes(marca));
+    if (folheto) {
+      recusadas.push({ texto, motivo: `Voz de folheto ("${folheto}"). Escreva como gente escreve no celular.` });
       continue;
     }
     const norm = normalizeColdText(texto);
