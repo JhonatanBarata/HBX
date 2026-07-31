@@ -59,7 +59,7 @@
   background: transparent;
   color: var(--text-body);
   font-family: var(--font-body);
-  font-size: 0.64rem;
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   cursor: pointer;
 }
@@ -94,7 +94,7 @@
   margin-left: 5px;
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 0.72rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -141,7 +141,7 @@
 .age-new-button {
   min-height: 30px;
   padding-inline: 11px;
-  font-size: 0.68rem;
+  font-size: var(--hbx-font-min);
 }
 
 .age-shell {
@@ -175,13 +175,13 @@
 
 .age-calendar__caption strong {
   color: var(--text-strong);
-  font-size: 0.74rem;
+  font-size: var(--hbx-font-min);
   font-weight: 850;
 }
 
 .age-calendar__caption span {
   color: var(--text-muted);
-  font-size: 0.6rem;
+  font-size: var(--hbx-font-min);
   font-weight: 650;
 }
 
@@ -262,7 +262,7 @@
   place-items: center;
   border-right: 1px solid var(--border-hairline);
   color: var(--text-muted);
-  font-size: 0.52rem;
+  font-size: var(--hbx-font-min);
   font-weight: 650;
 }
 
@@ -285,7 +285,7 @@
 }
 
 .age-calendar__day-head span {
-  font-size: 0.58rem;
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   text-transform: uppercase;
 }
@@ -297,7 +297,7 @@
   place-items: center;
   border-radius: var(--radius-pill);
   color: var(--text-strong);
-  font-size: 0.76rem;
+  font-size: var(--hbx-font-min);
   font-weight: 850;
 }
 
@@ -332,7 +332,7 @@
   background: var(--age-event-surface);
   color: var(--text-strong);
   font-family: var(--font-body);
-  font-size: 0.56rem;
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   text-align: left;
   text-overflow: ellipsis;
@@ -379,7 +379,7 @@
   display: block;
   color: var(--text-muted);
   font-family: var(--font-mono);
-  font-size: 0.52rem;
+  font-size: var(--hbx-font-min);
   font-weight: 650;
   text-align: right;
   transform: translateY(-5px);
@@ -462,13 +462,13 @@
 .age-event__time {
   color: var(--age-event-accent);
   font-family: var(--font-mono);
-  font-size: 0.5rem;
+  font-size: var(--hbx-font-min);
   font-weight: 850;
 }
 
 .age-event strong {
   overflow: hidden;
-  font-size: 0.61rem;
+  font-size: var(--hbx-font-min);
   font-weight: 850;
   line-height: 1.15;
   text-overflow: ellipsis;
@@ -478,7 +478,7 @@
 .age-event small {
   overflow: hidden;
   color: var(--text-body);
-  font-size: 0.5rem;
+  font-size: var(--hbx-font-min);
   font-weight: 650;
   line-height: 1.15;
   text-overflow: ellipsis;
@@ -517,7 +517,7 @@
   background: var(--hbx-danger);
   color: var(--hbx-brand-contrast);
   font-family: var(--font-mono);
-  font-size: 0.46rem;
+  font-size: var(--hbx-font-min);
   font-weight: 850;
 }
 
@@ -546,7 +546,7 @@
   place-items: center;
   border-right: 1px solid var(--border-hairline);
   color: var(--text-muted);
-  font-size: 0.54rem;
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   text-transform: uppercase;
 }
@@ -578,7 +578,7 @@
   background: transparent;
   color: var(--text-body);
   font-family: var(--font-mono);
-  font-size: 0.58rem;
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   cursor: pointer;
 }
@@ -608,7 +608,7 @@
   background: var(--age-event-surface);
   color: var(--text-strong);
   font-family: var(--font-body);
-  font-size: 0.52rem;
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   text-align: left;
   text-overflow: ellipsis;
@@ -620,7 +620,7 @@
   flex: 0 0 auto;
   color: var(--age-event-accent);
   font-family: var(--font-mono);
-  font-size: 0.46rem;
+  font-size: var(--hbx-font-min);
   font-weight: 850;
 }
 
@@ -635,7 +635,7 @@
   background: transparent;
   color: var(--hbx-brand-strong);
   font-family: var(--font-body);
-  font-size: 0.5rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
   text-align: left;
   cursor: pointer;
@@ -674,12 +674,12 @@
 
 .age-calendar-state strong {
   color: var(--text-strong);
-  font-size: 0.76rem;
+  font-size: var(--hbx-font-min);
 }
 
 .age-calendar-state > span:not(.age-calendar-state__icon) {
   max-width: 30ch;
-  font-size: 0.62rem;
+  font-size: var(--hbx-font-min);
   line-height: 1.45;
 }
 
@@ -711,7 +711,7 @@
   border-radius: var(--radius-pill);
   background: color-mix(in srgb, var(--hbx-success) 10%, transparent);
   color: var(--hbx-success);
-  font-size: 0.52rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
   white-space: nowrap;
 }
@@ -754,7 +754,7 @@
 
 .age-context__schedule small {
   color: var(--text-muted);
-  font-size: 0.52rem;
+  font-size: var(--hbx-font-min);
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -769,13 +769,13 @@
 
 .age-context__schedule strong {
   color: var(--text-strong);
-  font-size: 0.69rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
 }
 
 .age-context__schedule span {
   color: var(--text-muted);
-  font-size: 0.58rem;
+  font-size: var(--hbx-font-min);
   font-weight: 650;
 }
 
@@ -812,7 +812,7 @@
 }
 
 .age-context__quick-actions button span {
-  font-size: 0.52rem;
+  font-size: var(--hbx-font-min);
   font-weight: 750;
 }
 
@@ -833,14 +833,14 @@
 
 .age-result-panel small {
   color: var(--hbx-brand-strong);
-  font-size: 0.5rem;
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   text-transform: uppercase;
 }
 
 .age-result-panel strong {
   color: var(--text-strong);
-  font-size: 0.7rem;
+  font-size: var(--hbx-font-min);
 }
 
 .age-result-panel__buttons {
@@ -852,7 +852,7 @@
 .age-result-panel__buttons .btn-result {
   min-width: 0;
   padding-inline: 5px;
-  font-size: 0.55rem;
+  font-size: var(--hbx-font-min);
 }
 
 .age-result-panel__cancel {
@@ -862,7 +862,7 @@
   background: transparent;
   color: var(--text-muted);
   font-family: var(--font-body);
-  font-size: 0.56rem;
+  font-size: var(--hbx-font-min);
   font-weight: 700;
   cursor: pointer;
 }
@@ -881,13 +881,13 @@
 
 .age-context__note strong {
   color: var(--text-strong);
-  font-size: 0.64rem;
+  font-size: var(--hbx-font-min);
 }
 
 .age-context__note p {
   margin: 5px 0 0;
   color: var(--text-muted);
-  font-size: 0.59rem;
+  font-size: var(--hbx-font-min);
   line-height: 1.45;
 }
 
@@ -909,13 +909,13 @@
 
 .age-mini header strong {
   color: var(--text-strong);
-  font-size: 0.61rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
 }
 
 .age-mini header span {
   color: var(--text-muted);
-  font-size: 0.49rem;
+  font-size: var(--hbx-font-min);
   font-weight: 650;
 }
 
@@ -930,7 +930,7 @@
   display: grid;
   place-items: center;
   color: var(--text-muted);
-  font-size: 0.46rem;
+  font-size: var(--hbx-font-min);
   font-weight: 750;
 }
 
@@ -944,7 +944,7 @@
   background: transparent;
   color: var(--text-body);
   font-family: var(--font-mono);
-  font-size: 0.5rem;
+  font-size: var(--hbx-font-min);
   font-weight: 700;
   cursor: pointer;
 }
@@ -1052,13 +1052,13 @@
 
 .age-modal__selected-card .badge-win {
   min-height: 27px;
-  font-size: 0.68rem;
+  font-size: var(--hbx-font-min);
 }
 
 .age-modal__hint {
   padding: 3px 5px;
   color: var(--text-muted);
-  font-size: 0.62rem;
+  font-size: var(--hbx-font-min);
   line-height: 1.4;
 }
 
@@ -1072,7 +1072,7 @@
 .age-modal__load-error span,
 .age-modal__error {
   color: var(--hbx-danger);
-  font-size: 0.62rem;
+  font-size: var(--hbx-font-min);
   font-weight: 750;
 }
 
@@ -1100,7 +1100,7 @@
   gap: 8px;
   color: var(--text-body);
   font-family: var(--font-body);
-  font-size: 0.65rem;
+  font-size: var(--hbx-font-min);
   font-weight: 700;
   cursor: pointer;
 }

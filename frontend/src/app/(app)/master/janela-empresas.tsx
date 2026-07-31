@@ -1034,29 +1034,29 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
 
   return (
     <React.Fragment>
-      {error && <div style={{ fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>{error}</div>}
+      {error && <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 600, color: "var(--hbx-danger)" }}>{error}</div>}
 
       {provResult && (
         <section className="panel" style={{ borderColor: "var(--hbx-brand)" }}>
           <div style={{ padding: 16, display: "grid", gap: 6 }}>
             <strong style={{ fontSize: "0.8rem" }}>✓ Empresa criada (#{provResult.companyId})</strong>
             {provResult.temporaryPassword ? (
-              <span style={{ fontSize: "0.74rem", lineHeight: 1.5 }}>
+              <span style={{ fontSize: "var(--hbx-font-min)", lineHeight: 1.5 }}>
                 Senha temporária do admin: <b style={{ fontFamily: "var(--font-mono)" }}>{provResult.temporaryPassword}</b>
                 {" "}— anote agora, ela não aparece de novo (o admin troca no 1º login).
               </span>
             ) : provResult.passwordDefined && provResult.adminUserId ? (
-              <span style={{ fontSize: "0.74rem", lineHeight: 1.5 }}>
+              <span style={{ fontSize: "var(--hbx-font-min)", lineHeight: 1.5 }}>
                 Admin criado com a senha que você definiu — já pode entrar com ela (sem troca forçada).
               </span>
             ) : (
-              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Sem usuário admin inicial (criado sem senha ou não informado).</span>
+              <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Sem usuário admin inicial (criado sem senha ou não informado).</span>
             )}
             {provResult.creditsWarning && (
-              <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{provResult.creditsWarning}</span>
+              <span style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{provResult.creditsWarning}</span>
             )}
             {!provResult.temporaryPassword && provResult.companyId != null && (
-              <button className="btn-teal" style={{ width: "fit-content", minHeight: 28, fontSize: "0.66rem" }}
+              <button className="btn-teal" style={{ width: "fit-content", minHeight: 28, fontSize: "var(--hbx-font-min)" }}
                 onClick={() => {
                   setDetailTab("Usuários");
                   document.getElementById("detalhe-empresa")?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1064,7 +1064,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                 Criar usuário admin agora
               </button>
             )}
-            <button className="btn-ghost" style={{ width: "fit-content", minHeight: 28, fontSize: "0.66rem" }} onClick={() => setProvResult(null)}>Fechar</button>
+            <button className="btn-ghost" style={{ width: "fit-content", minHeight: 28, fontSize: "var(--hbx-font-min)" }} onClick={() => setProvResult(null)}>Fechar</button>
           </div>
         </section>
       )}
@@ -1132,7 +1132,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                   </td>
                   <td>
                     <span className={statusTagClass(emp.status, emp.isActive, emp.accountType)}>{statusLabel(emp.status, emp.accountType)}</span>
-                    <span className={accountTypeTagClass(emp.accountType)} style={{ marginLeft: 4, fontSize: "0.6rem" }}>
+                    <span className={accountTypeTagClass(emp.accountType)} style={{ marginLeft: 4, fontSize: "var(--hbx-font-min)" }}>
                       {accountTypeLabel(emp.accountType)}
                     </span>
                   </td>
@@ -1171,8 +1171,8 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               </div>
             </header>
             <div className="master-company-detail-body">
-              {detailError && <div style={{ fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>{detailError}</div>}
-              {!detail && !detailError && <div style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>Carregando detalhe…</div>}
+              {detailError && <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 600, color: "var(--hbx-danger)" }}>{detailError}</div>}
+              {!detail && !detailError && <div style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Carregando detalhe…</div>}
               {c && (
                 <div id="detalhe-empresa" className="master-company-detail-grid">
               <div style={{ display: "grid", gap: 14 }}>
@@ -1182,7 +1182,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                     <div className="meta">
                       <span className={statusTagClass(c.status, c.isActive, c.accountType)}>{statusLabel(c.status, c.accountType)}</span>
                       <span className={accountTypeTagClass(c.accountType)}>{accountTypeLabel(c.accountType)}</span>
-                      <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.64rem" }}
+                      <button className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }}
                         onClick={() => {
                           setEmpForm({
                             name: c.name || "",
@@ -1198,7 +1198,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                         }}>Editar</button>
                     </div>
                   </div>
-                  <div style={{ padding: "12px 16px 16px", display: "grid", gap: 8, fontSize: "0.74rem" }}>
+                  <div style={{ padding: "12px 16px 16px", display: "grid", gap: 8, fontSize: "var(--hbx-font-min)" }}>
                     {[
                       ["Contato", c.primaryContactName],
                       ["E-mail", c.contactEmail],
@@ -1213,7 +1213,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                       </div>
                     ))}
                     {assumirContexto && c.id != null && (
-                      <button className="btn-ghost" style={{ marginTop: 4, width: "fit-content", minHeight: 30, fontSize: "0.68rem" }}
+                      <button className="btn-ghost" style={{ marginTop: 4, width: "fit-content", minHeight: 30, fontSize: "var(--hbx-font-min)" }}
                         onClick={() => assumirContexto(Number(c.id))}>
                         Assumir contexto desta empresa
                       </button>
@@ -1224,25 +1224,25 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                 <section className="panel">
                   <div className="panel-head"><h2>Módulos</h2></div>
                   <div style={{ padding: "10px 16px 14px", display: "grid", gap: 8 }}>
-                    {moduloMsg && <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{moduloMsg}</div>}
-                    {(c.modules || []).length === 0 && <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Sem módulos atribuíveis.</span>}
+                    {moduloMsg && <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{moduloMsg}</div>}
+                    {(c.modules || []).length === 0 && <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Sem módulos atribuíveis.</span>}
                     {(c.modules || []).map(m => (
-                      <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.74rem" }}>
+                      <div key={m.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "var(--hbx-font-min)" }}>
                         <span style={{ fontWeight: 600 }}>{m.name}</span>
                         {/* PR10072026 W3 — estado da empresa quando diverge do teto:
                             teto ON (enabled) + camada empresa OFF = a empresa desligou
                             em Configurações/OOBE (o toggle ao lado segue sendo o teto). */}
                         {m.enabled && m.companyEnabled === false && (
-                          <span className="tag warn" style={{ fontSize: "0.6rem" }}>empresa desligou</span>
+                          <span className="tag warn" style={{ fontSize: "var(--hbx-font-min)" }}>empresa desligou</span>
                         )}
                         <button type="button" className="btn-ghost" disabled={moduloBusy === m.key}
-                          style={{ marginLeft: "auto", minHeight: 26, fontSize: "0.62rem", padding: "0 10px", ...(m.enabled ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)" } : {}) }}
+                          style={{ marginLeft: "auto", minHeight: 26, fontSize: "var(--hbx-font-min)", padding: "0 10px", ...(m.enabled ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)" } : {}) }}
                           onClick={() => alternarModulo(m.key, !m.enabled)}>
                           {moduloBusy === m.key ? "…" : m.enabled ? "ON" : "OFF"}
                         </button>
                       </div>
                     ))}
-                    <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>Liga/desliga módulo desta empresa. O pagamento continua barrando o acesso no app.</span>
+                    <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Liga/desliga módulo desta empresa. O pagamento continua barrando o acesso no app.</span>
                   </div>
                 </section>
               </div>
@@ -1260,10 +1260,10 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                 {detailTab === "Usuários" && (
                   <React.Fragment>
                     {userMsg && (
-                      <div style={{ padding: "10px 16px 0", fontSize: "0.72rem", fontWeight: 700, color: userMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{userMsg}</div>
+                      <div style={{ padding: "10px 16px 0", fontSize: "var(--hbx-font-min)", fontWeight: 700, color: userMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{userMsg}</div>
                     )}
                     {resetResult && (
-                      <div style={{ margin: "10px 16px 0", padding: "10px 12px", borderRadius: "var(--radius-sm)", border: "1px solid var(--hbx-brand)", fontSize: "0.74rem", lineHeight: 1.5 }}>
+                      <div style={{ margin: "10px 16px 0", padding: "10px 12px", borderRadius: "var(--radius-sm)", border: "1px solid var(--hbx-brand)", fontSize: "var(--hbx-font-min)", lineHeight: 1.5 }}>
                         ✓ Senha resetada (usuário #{resetResult.id}). Senha temporária:{" "}
                         <b style={{ fontFamily: "var(--font-mono)" }}>{resetResult.temporaryPassword}</b> — anote agora; o usuário troca no primeiro login.
                       </div>
@@ -1290,20 +1290,20 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                               <td>{fmtDataHora(u.createdAt)}</td>
                               <td>
                                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                                  <button className="btn-teal" style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px" }} disabled={userBusy}
+                                  <button className="btn-teal" style={{ minHeight: 26, fontSize: "var(--hbx-font-min)", padding: "0 8px" }} disabled={userBusy}
                                     onClick={() => entrarComo(u)}>Entrar como</button>
-                                  <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px" }} disabled={userBusy}
+                                  <button className="btn-ghost" style={{ minHeight: 26, fontSize: "var(--hbx-font-min)", padding: "0 8px" }} disabled={userBusy}
                                     onClick={() => resetSenha(u)}>Reset senha</button>
-                                  <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px" }} disabled={userBusy}
+                                  <button className="btn-ghost" style={{ minHeight: 26, fontSize: "var(--hbx-font-min)", padding: "0 8px" }} disabled={userBusy}
                                     onClick={() => { setUserEdit({ id: u.id, name: u.name || "", email: u.email || "", username: u.username || "", phone: "", role: String(u.role || "USER").toUpperCase(), isActive: u.isActive !== false }); setUserMsg(null); }}>Editar</button>
                                   {deleteArm === u.id ? (
-                                    <button className="btn-ghost btn-danger" style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px" }} disabled={userBusy}
+                                    <button className="btn-ghost btn-danger" style={{ minHeight: 26, fontSize: "var(--hbx-font-min)", padding: "0 8px" }} disabled={userBusy}
                                       onClick={() => excluirUsuario(u.id)}>Confirmar exclusão</button>
                                   ) : (
-                                    <button className="btn-ghost btn-danger" style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px" }} disabled={userBusy}
+                                    <button className="btn-ghost btn-danger" style={{ minHeight: 26, fontSize: "var(--hbx-font-min)", padding: "0 8px" }} disabled={userBusy}
                                       onClick={() => setDeleteArm(u.id)}>Excluir</button>
                                   )}
-                                  <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px" }} disabled={userBusy}
+                                  <button className="btn-ghost" style={{ minHeight: 26, fontSize: "var(--hbx-font-min)", padding: "0 8px" }} disabled={userBusy}
                                     onClick={() => confirmarEmail(u)}>Confirmar e-mail</button>
                                 </div>
                               </td>
@@ -1318,15 +1318,15 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                 {detailTab === "Comercial" && (
                   <div style={{ padding: "12px 16px 16px", display: "grid", gap: 14 }}>
                     {comMsg && (
-                      <div style={{ fontSize: "0.72rem", fontWeight: 700, lineHeight: 1.5, color: comMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{comMsg}</div>
+                      <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, lineHeight: 1.5, color: comMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{comMsg}</div>
                     )}
 
                     <div style={{ display: "grid", gap: 8 }}>
-                      <strong style={{ fontSize: "0.76rem" }}>Suspensão</strong>
-                      <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>{suspensa ? "Empresa SUSPENSA — sem acesso." : "Empresa não está suspensa."}</span>
+                      <strong style={{ fontSize: "var(--hbx-font-min)" }}>Suspensão</strong>
+                      <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>{suspensa ? "Empresa SUSPENSA — sem acesso." : "Empresa não está suspensa."}</span>
                       <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
                         <div style={{ display: "grid", gap: 4, flex: 1, minWidth: 180 }}>
-                          <label style={{ fontSize: "0.64rem", fontWeight: 700, color: "var(--text-muted)" }}>Motivo</label>
+                          <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Motivo</label>
                           <input className="field-dark" maxLength={200} value={suspReason} onChange={e => setSuspReason(e.target.value)} />
                         </div>
                         {suspensa ? (
@@ -1343,21 +1343,21 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                     </div>
 
                     <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, display: "grid", gap: 8 }}>
-                      <strong style={{ fontSize: "0.76rem" }}>Tipo de conta</strong>
-                      <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
+                      <strong style={{ fontSize: "var(--hbx-font-min)" }}>Tipo de conta</strong>
+                      <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>
                         Crédito = self-service, ativa por default (teto real é o saldo). Empresarial = exceção montada aqui (módulos/crédito/preço manuais).
                       </span>
                       {accountTypeMsg && (
-                        <div style={{ fontSize: "0.72rem", fontWeight: 700, color: accountTypeMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{accountTypeMsg}</div>
+                        <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: accountTypeMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{accountTypeMsg}</div>
                       )}
                       <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
-                        <select className="field-dark" style={{ minHeight: 32, fontSize: "0.7rem", width: 160 }}
+                        <select className="field-dark" style={{ minHeight: 32, fontSize: "var(--hbx-font-min)", width: 160 }}
                           value={accountType} disabled={accountTypeBusy}
                           onChange={e => salvarAccountType(e.target.value as "credit" | "enterprise")}>
                           <option value="credit">Crédito</option>
                           <option value="enterprise">Empresarial</option>
                         </select>
-                        {accountTypeBusy && <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>Salvando…</span>}
+                        {accountTypeBusy && <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Salvando…</span>}
                       </div>
                     </div>
 
@@ -1368,7 +1368,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                         ="ctx-section"/"hint"/"ctx-msg"/"plano-nivel-*" (kit.css) — zero
                         style visual inline novo (5 Leis). */}
                     <div className="ctx-section">
-                      <strong style={{ fontSize: "0.76rem" }}>Nível do plano de logística</strong>
+                      <strong style={{ fontSize: "var(--hbx-font-min)" }}>Nível do plano de logística</strong>
                       {nivelMsg && <div className={`ctx-msg ${nivelMsg.startsWith("✓") ? "ok" : "err"}`}>{nivelMsg}</div>}
                       <div className="plano-nivel-grid">
                         {NIVEL_ORDEM.map(n => (
@@ -1390,7 +1390,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                         className="ctx-section"/"hint"/"ctx-msg" (kit.css) — zero style visual
                         inline novo (5 Leis, catraca do check-pele). */}
                     <div className="ctx-section">
-                      <strong style={{ fontSize: "0.76rem" }}>Contrato empresarial</strong>
+                      <strong style={{ fontSize: "var(--hbx-font-min)" }}>Contrato empresarial</strong>
                       {accountType === "credit" ? (
                         <>
                           <span className="hint">
@@ -1415,7 +1415,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                           </div>
                           {entContractArm ? (
                             <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                              <span style={{ fontSize: "0.68rem", fontWeight: 700 }}>Confirma ativar contrato empresarial?</span>
+                              <span style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700 }}>Confirma ativar contrato empresarial?</span>
                               <button className="btn-teal" disabled={entContractBusy} onClick={ativarContratoEmpresarial}>
                                 {entContractBusy ? "Ativando…" : "Confirmar"}
                               </button>
@@ -1435,12 +1435,12 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                     </div>
 
                     <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, display: "grid", gap: 8 }}>
-                      <strong style={{ fontSize: "0.76rem" }}>Excluir empresa</strong>
-                      <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>
+                      <strong style={{ fontSize: "var(--hbx-font-min)" }}>Excluir empresa</strong>
+                      <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>
                         Apaga a empresa e TODOS os dados (usuários, leads, mensagens) permanentemente. Sem volta. Um clique exclui.
                       </span>
                       {delRefund?.eligible && (delRefund.amount || 0) > 0 && (
-                        <span className="tag warn" style={{ fontSize: "0.66rem", alignSelf: "flex-start" }}>
+                        <span className="tag warn" style={{ fontSize: "var(--hbx-font-min)", alignSelf: "flex-start" }}>
                           Excluir vai reembolsar {fmtBRL(delRefund.amount)} ao cliente
                           {delRefund.remainingDays ? ` (${delRefund.remainingDays} dia(s) restantes do período pago)` : ""}.
                         </span>
@@ -1454,8 +1454,8 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                     </div>
 
                     <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, display: "grid", gap: 8 }}>
-                      <strong style={{ fontSize: "0.76rem" }}>Teto de acessos (assentos)</strong>
-                      <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>Teto RÍGIDO de acessos (vazio = sem teto). Bloqueia criar acesso além do número.</span>
+                      <strong style={{ fontSize: "var(--hbx-font-min)" }}>Teto de acessos (assentos)</strong>
+                      <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Teto RÍGIDO de acessos (vazio = sem teto). Bloqueia criar acesso além do número.</span>
                       <div style={{ display: "flex", gap: 8, alignItems: "end", flexWrap: "wrap" }}>
                         <div style={{ display: "grid", gap: 4 }}>
                           <label className="field-label">Assentos (teto)</label>
@@ -1481,16 +1481,16 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                     </div>
 
                     <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, display: "grid", gap: 8 }}>
-                      <strong style={{ fontSize: "0.76rem" }}>Credenciais master</strong>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: "0.72rem" }}>
+                      <strong style={{ fontSize: "var(--hbx-font-min)" }}>Credenciais master</strong>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: "var(--hbx-font-min)" }}>
                         <span style={{ fontWeight: 600 }}>WhatsApp:</span>
                         <button className="btn-ghost" disabled={comBusy != null}
-                          style={{ minHeight: 26, fontSize: "0.62rem", ...(c.whatsapp?.usingMasterToken ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)" } : {}) }}
+                          style={{ minHeight: 26, fontSize: "var(--hbx-font-min)", ...(c.whatsapp?.usingMasterToken ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)" } : {}) }}
                           onClick={() => salvarTokens({ useMasterWhatsAppToken: !c.whatsapp?.usingMasterToken })}>
                           {c.whatsapp?.usingMasterToken ? "usando master" : "token próprio"}
                         </button>
                         {credsWa.length > 0 && (
-                          <select className="field-dark" style={{ minHeight: 30, fontSize: "0.66rem", width: 170 }}
+                          <select className="field-dark" style={{ minHeight: 30, fontSize: "var(--hbx-font-min)", width: 170 }}
                             value={String(c.whatsapp?.masterCredentialKey || "")}
                             onChange={e => salvarTokens({ useMasterWhatsAppToken: true, masterWhatsAppCredentialKey: e.target.value })}>
                             <option value="">credencial…</option>
@@ -1498,15 +1498,15 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                           </select>
                         )}
                       </div>
-                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: "0.72rem" }}>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", fontSize: "var(--hbx-font-min)" }}>
                         <span style={{ fontWeight: 600 }}>Mercado Pago:</span>
                         <button className="btn-ghost" disabled={comBusy != null}
-                          style={{ minHeight: 26, fontSize: "0.62rem", ...(c.mercadoPago?.usingMasterToken ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)" } : {}) }}
+                          style={{ minHeight: 26, fontSize: "var(--hbx-font-min)", ...(c.mercadoPago?.usingMasterToken ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)" } : {}) }}
                           onClick={() => salvarTokens({ useMasterMercadoPagoToken: !c.mercadoPago?.usingMasterToken })}>
                           {c.mercadoPago?.usingMasterToken ? "usando master" : "token próprio"}
                         </button>
                         {credsMp.length > 0 && (
-                          <select className="field-dark" style={{ minHeight: 30, fontSize: "0.66rem", width: 170 }}
+                          <select className="field-dark" style={{ minHeight: 30, fontSize: "var(--hbx-font-min)", width: 170 }}
                             value={String(c.mercadoPago?.masterCredentialKey || "")}
                             onChange={e => salvarTokens({ useMasterMercadoPagoToken: true, masterMercadoPagoCredentialKey: e.target.value })}>
                             <option value="">credencial…</option>
@@ -1529,7 +1529,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                         <div className="panel-head">
                           <h2>Carteira</h2>
                           <div className="meta">
-                            <button className="btn-teal" style={{ minHeight: 30, fontSize: "0.68rem" }}
+                            <button className="btn-teal" style={{ minHeight: 30, fontSize: "var(--hbx-font-min)" }}
                               onClick={() => {
                                 setWalletGrantKey(typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `grant-${Date.now()}-${Math.random().toString(36).slice(2)}`);
                                 setWalletGrantForm(WALLET_GRANT_VAZIO);
@@ -1541,26 +1541,26 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                           </div>
                         </div>
                         <div style={{ padding: "12px 16px 16px", display: "grid", gap: 12 }}>
-                          {!wallet && <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Carregando carteira…</span>}
+                          {!wallet && <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Carregando carteira…</span>}
                           {wallet && wallet.enabled === false && (
-                            <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Créditos desligados nesta env.</span>
+                            <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Créditos desligados nesta env.</span>
                           )}
                           {wallet && wallet.enabled !== false && (
                             <React.Fragment>
                               <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-                                <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>Saldo</span>
+                                <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Saldo</span>
                                 <strong style={{ fontSize: "1.3rem", fontFamily: "var(--font-mono)" }}>{wallet.balance ?? 0}</strong>
-                                <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>créditos</span>
-                                {(wallet.balance ?? 0) === 0 && <span className="tag warn" style={{ fontSize: "0.62rem" }}>sem saldo</span>}
+                                <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>créditos</span>
+                                {(wallet.balance ?? 0) === 0 && <span className="tag warn" style={{ fontSize: "var(--hbx-font-min)" }}>sem saldo</span>}
                               </div>
 
                               <div style={{ display: "grid", gap: 6 }}>
-                                <span style={{ fontSize: "0.68rem", fontWeight: 700, color: "var(--text-muted)" }}>Lotes</span>
+                                <span style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Lotes</span>
                                 {(wallet.lots || []).length === 0 && (
-                                  <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Sem lotes abertos.</span>
+                                  <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Sem lotes abertos.</span>
                                 )}
                                 {(wallet.lots || []).map(lot => (
-                                  <div key={lot.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: "0.72rem" }}>
+                                  <div key={lot.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: "var(--hbx-font-min)" }}>
                                     <span>{lot.remaining}/{lot.amount} créditos{lot.grantType ? ` · ${WALLET_GRANT_TYPE_LABEL[lot.grantType] || lot.grantType}` : ""}</span>
                                     <span style={{ color: "var(--text-muted)" }}>{lot.expiresAt ? `expira ${fmtData(lot.expiresAt)}` : "não expira"}</span>
                                   </div>
@@ -1568,12 +1568,12 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                               </div>
 
                               <div style={{ display: "grid", gap: 6 }}>
-                                <span style={{ fontSize: "0.68rem", fontWeight: 700, color: "var(--text-muted)" }}>Extrato (últimos movimentos)</span>
+                                <span style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Extrato (últimos movimentos)</span>
                                 {(wallet.recent || []).length === 0 && (
-                                  <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Sem movimentos.</span>
+                                  <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Sem movimentos.</span>
                                 )}
                                 {(wallet.recent || []).map(m => (
-                                  <div key={m.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: "0.72rem" }}>
+                                  <div key={m.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: "var(--hbx-font-min)" }}>
                                     <span>{WALLET_MOVEMENT_LABEL[m.kind] || m.kind}{m.actionKey ? ` · ${m.actionKey}` : ""}</span>
                                     <span style={{ fontFamily: "var(--font-mono)" }}>{m.amount}</span>
                                     <span style={{ color: "var(--text-muted)" }}>{fmtDataHora(m.createdAt)}</span>
@@ -1587,10 +1587,10 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                     </div>
 
                     <div style={{ padding: "10px 16px 0", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                      <button className="btn-teal" style={{ minHeight: 32, fontSize: "0.7rem" }}
+                      <button className="btn-teal" style={{ minHeight: 32, fontSize: "var(--hbx-font-min)" }}
                         onClick={() => { setPagForm(PAG_VAZIO); setPagMsg(null); setPagOpen(true); }}>+ Registrar pagamento</button>
                       {pagMsg && (
-                        <span style={{ fontSize: "0.72rem", fontWeight: 700, color: pagMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{pagMsg}</span>
+                        <span style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: pagMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{pagMsg}</span>
                       )}
                     </div>
                     <div className="tbl-wrap">
@@ -1629,20 +1629,20 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                                 <td>{l.paymentMethod || "—"}</td>
                                 <td>
                                   {manual && !cancelado && (cancelArm === l.id ? (
-                                    <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", borderColor: "var(--hbx-danger)", color: "var(--hbx-danger)" }}
+                                    <button className="btn-ghost" style={{ minHeight: 26, fontSize: "var(--hbx-font-min)", borderColor: "var(--hbx-danger)", color: "var(--hbx-danger)" }}
                                       disabled={pagBusy} onClick={() => cancelarLancamento(l.id)}>Confirmar</button>
                                   ) : (
-                                    <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", color: "var(--hbx-danger)" }}
+                                    <button className="btn-ghost" style={{ minHeight: 26, fontSize: "var(--hbx-font-min)", color: "var(--hbx-danger)" }}
                                       disabled={pagBusy} onClick={() => setCancelArm(l.id)}>Cancelar</button>
                                   ))}
                                   {refundable && chargeId && (refundArm === l.id ? (
-                                    <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", borderColor: "var(--hbx-danger)", color: "var(--hbx-danger)" }}
+                                    <button className="btn-ghost" style={{ minHeight: 26, fontSize: "var(--hbx-font-min)", borderColor: "var(--hbx-danger)", color: "var(--hbx-danger)" }}
                                       disabled={pagBusy} onClick={() => reembolsarLancamento(l.id, chargeId)}>Confirmar estorno</button>
                                   ) : (
-                                    <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", color: "var(--hbx-warning)" }}
+                                    <button className="btn-ghost" style={{ minHeight: 26, fontSize: "var(--hbx-font-min)", color: "var(--hbx-warning)" }}
                                       disabled={pagBusy} onClick={() => setRefundArm(l.id)}>Reembolsar</button>
                                   ))}
-                                  {jaEstornado && <span className="bv-hint" style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>estornado</span>}
+                                  {jaEstornado && <span className="bv-hint" style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>estornado</span>}
                                 </td>
                               </tr>
                             );
@@ -1653,17 +1653,17 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
 
                     {String(c?.billingProvider || "").toLowerCase() === "mercadopago" && (
                       <div style={{ padding: "12px 16px 16px" }}>
-                        <button type="button" className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }}
+                        <button type="button" className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }}
                           onClick={() => setLegadoAssinaturaOpen(o => !o)}>
                           {legadoAssinaturaOpen ? "▾" : "▸"} Legado (assinatura)
                         </button>
                         {legadoAssinaturaOpen && (
                           <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                             {subCancelArm ? (
-                              <button className="btn-ghost" style={{ minHeight: 32, fontSize: "0.7rem", borderColor: "var(--hbx-danger)", color: "var(--hbx-danger)" }}
+                              <button className="btn-ghost" style={{ minHeight: 32, fontSize: "var(--hbx-font-min)", borderColor: "var(--hbx-danger)", color: "var(--hbx-danger)" }}
                                 disabled={pagBusy} onClick={() => cancelarAssinatura()}>{pagBusy ? "Cancelando…" : "Confirmar cancelamento da assinatura"}</button>
                             ) : (
-                              <button className="btn-ghost" style={{ minHeight: 32, fontSize: "0.7rem", color: "var(--hbx-danger)" }}
+                              <button className="btn-ghost" style={{ minHeight: 32, fontSize: "var(--hbx-font-min)", color: "var(--hbx-danger)" }}
                                 disabled={pagBusy} onClick={() => setSubCancelArm(true)}>Cancelar assinatura</button>
                             )}
                           </div>
@@ -1704,10 +1704,10 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                       entra por token de uso único (90s) — nunca guardado, só na hora do clique.
                     </span>
                     {websiteMsg && (
-                      <div style={{ fontSize: "0.72rem", fontWeight: 700, lineHeight: 1.5, color: websiteMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{websiteMsg}</div>
+                      <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, lineHeight: 1.5, color: websiteMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{websiteMsg}</div>
                     )}
 
-                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.76rem", fontWeight: 700, cursor: "pointer" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "var(--hbx-font-min)", fontWeight: 700, cursor: "pointer" }}>
                       <input type="checkbox" checked={websiteForm.websiteEnabled}
                         onChange={e => setWebsiteForm(f => ({ ...f, websiteEnabled: e.target.checked }))} />
                       Website habilitado
@@ -1720,7 +1720,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                         onChange={e => setWebsiteForm(f => ({ ...f, websitePublicUrl: e.target.value }))} />
                     </div>
 
-                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.76rem", fontWeight: 700, cursor: "pointer" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "var(--hbx-font-min)", fontWeight: 700, cursor: "pointer" }}>
                       <input type="checkbox" checked={websiteForm.websiteAdminEnabled}
                         onChange={e => setWebsiteForm(f => ({ ...f, websiteAdminEnabled: e.target.checked }))} />
                       Admin do website habilitado
@@ -1768,12 +1768,12 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
 
                 {detailTab === "Auditoria" && (
                   <div style={{ padding: "12px 16px 16px", display: "grid", gap: 8, maxHeight: 480, overflowY: "auto" }}>
-                    {auditoria.length === 0 && <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Sem eventos de auditoria.</span>}
+                    {auditoria.length === 0 && <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Sem eventos de auditoria.</span>}
                     {auditoria.map(a => (
-                      <div key={a.id} style={{ display: "flex", gap: 10, alignItems: "center", fontSize: "0.72rem", padding: "7px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)" }}>
+                      <div key={a.id} style={{ display: "flex", gap: 10, alignItems: "center", fontSize: "var(--hbx-font-min)", padding: "7px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)" }}>
                         <span className={String(a.severity || "").toUpperCase() === "WARN" ? "tag warn" : "tag"}>{a.scope || "—"}</span>
-                        <strong style={{ fontSize: "0.7rem" }}>{a.action || "—"}</strong>
-                        <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: "0.62rem", color: "var(--text-muted)" }}>{fmtDataHora(a.createdAt)}</span>
+                        <strong style={{ fontSize: "var(--hbx-font-min)" }}>{a.action || "—"}</strong>
+                        <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>{fmtDataHora(a.createdAt)}</span>
                       </div>
                     ))}
                   </div>
@@ -1793,7 +1793,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800 }}>Nova empresa cliente</h3>
               <span style={{ color: "var(--text-muted)", cursor: "pointer" }} onClick={() => { setProvOpen(false); setProvStep(1); setProvMsg(null); }}>✕</span>
             </div>
-            <span style={{ fontSize: "0.66rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
+            <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", lineHeight: 1.5 }}>
               Rota de exceção (Empresarial) — o caminho normal é o cliente entrar sozinho pelo self-signup.
             </span>
 
@@ -1808,56 +1808,56 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               ))}
             </div>
 
-            {provMsg && <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{provMsg}</div>}
+            {provMsg && <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{provMsg}</div>}
 
             {provStep === 1 && (
               <div style={{ display: "grid", gap: 10 }}>
                 <div style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Nome da empresa *</label>
+                  <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Nome da empresa *</label>
                   <input className="field-dark" maxLength={140} autoFocus value={provForm.companyName}
                     onChange={e => setProvForm(f => ({ ...f, companyName: e.target.value }))} />
                 </div>
                 <div style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Slug (opcional)</label>
+                  <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Slug (opcional)</label>
                   <input className="field-dark" maxLength={80} placeholder="gerado do nome se vazio" value={provForm.slug}
                     onChange={e => setProvForm(f => ({ ...f, slug: e.target.value }))} />
                 </div>
                 <div style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>CNPJ / CPF (opcional)</label>
+                  <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>CNPJ / CPF (opcional)</label>
                   <input className="field-dark" maxLength={20} placeholder="apenas dígitos ou com pontuação" value={provForm.taxDocument}
                     onChange={e => setProvForm(f => ({ ...f, taxDocument: e.target.value }))} />
-                  <span style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>Opcional agora — exigido no caminho de cobrança (F6).</span>
+                  <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Opcional agora — exigido no caminho de cobrança (F6).</span>
                 </div>
               </div>
             )}
 
             {provStep === 2 && (
               <div style={{ display: "grid", gap: 10 }}>
-                <strong style={{ fontSize: "0.76rem" }}>Admin inicial</strong>
-                <span style={{ fontSize: "0.68rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
+                <strong style={{ fontSize: "var(--hbx-font-min)" }}>Admin inicial</strong>
+                <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", lineHeight: 1.5 }}>
                   Com e-mail preenchido o backend cria o admin. Defina uma senha para ele já entrar com ela;
                   deixe a senha vazia e o backend gera uma temporária (mostrada uma única vez, trocada no 1º login).
                   Deixe o e-mail vazio para criar a empresa sem usuário.
                 </span>
                 <div style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>E-mail do admin</label>
+                  <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>E-mail do admin</label>
                   <input className="field-dark" type="email" maxLength={180} value={provForm.adminEmail}
                     onChange={e => setProvForm(f => ({ ...f, adminEmail: e.target.value }))} />
                 </div>
                 <div style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Senha (opcional — vazio = temporária)</label>
+                  <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Senha (opcional — vazio = temporária)</label>
                   <input className="field-dark" type="text" autoComplete="new-password" maxLength={72} placeholder="deixe vazio para gerar automática"
                     value={provForm.adminPassword} onChange={e => setProvForm(f => ({ ...f, adminPassword: e.target.value }))} />
-                  <span style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>Mínimo 6 caracteres. Se você definir a senha, o admin NÃO é obrigado a trocá-la no primeiro login.</span>
+                  <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Mínimo 6 caracteres. Se você definir a senha, o admin NÃO é obrigado a trocá-la no primeiro login.</span>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div style={{ display: "grid", gap: 6 }}>
-                    <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Nome</label>
+                    <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Nome</label>
                     <input className="field-dark" maxLength={120} value={provForm.adminName}
                       onChange={e => setProvForm(f => ({ ...f, adminName: e.target.value }))} />
                   </div>
                   <div style={{ display: "grid", gap: 6 }}>
-                    <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Telefone</label>
+                    <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Telefone</label>
                     <input className="field-dark" maxLength={30} value={provForm.adminPhone}
                       onChange={e => setProvForm(f => ({ ...f, adminPhone: e.target.value }))} />
                   </div>
@@ -1867,8 +1867,8 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
 
             {provStep === 3 && (
               <div style={{ display: "grid", gap: 10 }}>
-                <strong style={{ fontSize: "0.76rem" }}>Avançado</strong>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.74rem", fontWeight: 600 }}>
+                <strong style={{ fontSize: "var(--hbx-font-min)" }}>Avançado</strong>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "var(--hbx-font-min)", fontWeight: 600 }}>
                   <input type="checkbox" checked={provForm.manualAccess} onChange={e => setProvForm(f => ({ ...f, manualAccess: e.target.checked }))} />
                   Acesso liberado desde a criação (sem checkout)
                 </label>
@@ -1881,13 +1881,13 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                   <label className="prov-fld-adv-lbl">Créditos iniciais (0 = sem concessão)</label>
                   <input className="field-dark" type="number" min={0} style={{ width: 140 }} value={provForm.initialCredits}
                     onChange={e => setProvForm(f => ({ ...f, initialCredits: e.target.value }))} />
-                  <span style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>Pré-preenchido com o lote de boas-vindas padrão.</span>
+                  <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Pré-preenchido com o lote de boas-vindas padrão.</span>
                 </div>
                 <div style={{ display: "grid", gap: 6 }}>
                   <label className="prov-fld-adv-lbl">Preço/mês override (R$) — vazio = sem cobrança automática</label>
                   <input className="field-dark" type="number" min={0} step="0.01" style={{ width: 160 }} placeholder="vazio = sem cobrança automática"
                     value={provForm.monthlyValueOverride} onChange={e => setProvForm(f => ({ ...f, monthlyValueOverride: e.target.value }))} />
-                  <span style={{ fontSize: "0.64rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
+                  <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", lineHeight: 1.5 }}>
                     Override = exceção marcada no registro. Preço 0 → empresa criada em <b>pending_checkout</b> (sem acesso, aguarda contato comercial).
                   </span>
                   {provForm.monthlyValueOverride.trim() === "0" && (
@@ -1933,7 +1933,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               Editar empresa
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setEmpOpen(false)}>✕</span>
             </h3>
-            {empMsg && <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{empMsg}</div>}
+            {empMsg && <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{empMsg}</div>}
             {([
               ["name", "Razão social / nome"],
               ["primaryContactName", "Contato principal"],
@@ -1942,7 +1942,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               ["taxDocument", "CNPJ / documento"],
             ] as [keyof typeof EMP_VAZIO, string][]).map(([k, label]) => (
               <div key={k} style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>{label}</label>
+                <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>{label}</label>
                 <input className="field-dark" maxLength={200} value={empForm[k]}
                   onChange={e => setEmpForm(f => ({ ...f, [k]: e.target.value }))} />
               </div>
@@ -1963,28 +1963,28 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setPagOpen(false)}>✕</span>
             </h3>
             {pagMsg && !pagMsg.startsWith("✓") && (
-              <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{pagMsg}</div>
+              <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{pagMsg}</div>
             )}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Valor (R$) *</label>
+                <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Valor (R$) *</label>
                 <input className="field-dark" required inputMode="decimal" placeholder="0,00" value={pagForm.value}
                   onChange={e => setPagForm(f => ({ ...f, value: e.target.value }))} />
               </div>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Competência</label>
+                <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Competência</label>
                 <input className="field-dark" placeholder="AAAA-MM" maxLength={20} value={pagForm.competence}
                   onChange={e => setPagForm(f => ({ ...f, competence: e.target.value }))} />
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Pago em</label>
+                <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Pago em</label>
                 <input className="field-dark" type="date" value={pagForm.paidAt}
                   onChange={e => setPagForm(f => ({ ...f, paidAt: e.target.value }))} />
               </div>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Método</label>
+                <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Método</label>
                 <select className="field-dark" value={pagForm.paymentMethod} onChange={e => setPagForm(f => ({ ...f, paymentMethod: e.target.value }))}>
                   <option value="PIX">PIX</option>
                   <option value="BOLETO">Boleto</option>
@@ -1995,11 +1995,11 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               </div>
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Observação</label>
+              <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Observação</label>
               <input className="field-dark" maxLength={280} value={pagForm.observation}
                 onChange={e => setPagForm(f => ({ ...f, observation: e.target.value }))} />
             </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.74rem", fontWeight: 600 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "var(--hbx-font-min)", fontWeight: 600 }}>
               <input type="checkbox" checked={pagForm.settlePending} onChange={e => setPagForm(f => ({ ...f, settlePending: e.target.checked }))} />
               Quitar pendências em aberto com este pagamento
             </label>
@@ -2019,15 +2019,15 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setWalletGrantOpen(false)}>✕</span>
             </h3>
             {walletGrantMsg && (
-              <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{walletGrantMsg}</div>
+              <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{walletGrantMsg}</div>
             )}
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Quantidade de créditos *</label>
+              <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Quantidade de créditos *</label>
               <input className="field-dark" type="number" min={1} required value={walletGrantForm.amount}
                 onChange={e => setWalletGrantForm(f => ({ ...f, amount: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Tipo</label>
+              <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Tipo</label>
               <select className="field-dark" value={walletGrantForm.grantType}
                 onChange={e => setWalletGrantForm(f => ({ ...f, grantType: e.target.value as typeof f.grantType }))}>
                 <option value="courtesy_internal">Concessão interna (grátis)</option>
@@ -2036,7 +2036,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               </select>
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Motivo (opcional)</label>
+              <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Motivo (opcional)</label>
               <input className="field-dark" maxLength={200}
                 value={walletGrantForm.reason} onChange={e => setWalletGrantForm(f => ({ ...f, reason: e.target.value }))} />
             </div>
@@ -2056,39 +2056,39 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setUserEdit(null)}>✕</span>
             </h3>
             {userMsg && !userMsg.startsWith("✓") && (
-              <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{userMsg}</div>
+              <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{userMsg}</div>
             )}
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Nome</label>
+              <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Nome</label>
               <input className="field-dark" maxLength={120} value={userEdit.name}
                 onChange={e => setUserEdit(u => u && ({ ...u, name: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>E-mail</label>
+              <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>E-mail</label>
               <input className="field-dark" type="email" maxLength={180} value={userEdit.email}
                 onChange={e => setUserEdit(u => u && ({ ...u, email: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Username</label>
+                <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Username</label>
                 <input className="field-dark" maxLength={120} value={userEdit.username}
                   onChange={e => setUserEdit(u => u && ({ ...u, username: e.target.value }))} />
               </div>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Telefone</label>
+                <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Telefone</label>
                 <input className="field-dark" maxLength={30} value={userEdit.phone}
                   onChange={e => setUserEdit(u => u && ({ ...u, phone: e.target.value }))} />
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Papel</label>
+                <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Papel</label>
                 <select className="field-dark" value={userEdit.role} onChange={e => setUserEdit(u => u && ({ ...u, role: e.target.value }))}>
                   <option value="USER">Vendedor</option>
                   <option value="ADMIN">Admin</option>
                 </select>
               </div>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.74rem", fontWeight: 600, alignSelf: "end", paddingBottom: 8 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "var(--hbx-font-min)", fontWeight: 600, alignSelf: "end", paddingBottom: 8 }}>
                 <input type="checkbox" checked={userEdit.isActive} onChange={e => setUserEdit(u => u && ({ ...u, isActive: e.target.checked }))} />
                 Ativo
               </label>

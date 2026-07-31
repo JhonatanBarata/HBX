@@ -112,7 +112,7 @@
   display: inline-block;
   margin-bottom: 8px;
   padding: 3px 12px;
-  font-size: 0.66rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
   letter-spacing: 0.09em;
   text-transform: uppercase;

@@ -18,7 +18,7 @@
   background: var(--hbx-brand);
   color: var(--hbx-action-ink);
   border: 2px solid var(--hbx-surface);
-  font-size: 0.58rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
   line-height: 1;
 }
@@ -74,7 +74,7 @@
   background: var(--hbx-surface-soft);
   color: var(--text-body);
   font: inherit;
-  font-size: 0.64rem;
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   cursor: pointer;
 }
@@ -108,7 +108,7 @@
 .deviceCard small,
 .errorText,
 .preferenceNote {
-  font-size: 0.66rem;
+  font-size: var(--hbx-font-min);
   line-height: 1.4;
 }
 
@@ -147,12 +147,12 @@
 
 .deviceCard strong {
   color: var(--text-title);
-  font-size: 0.74rem;
+  font-size: var(--hbx-font-min);
 }
 
 .sectionLabel {
   color: var(--text-muted);
-  font-size: 0.61rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
   letter-spacing: 0.07em;
   text-transform: uppercase;
@@ -184,13 +184,13 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-size: 0.7rem;
+  font-size: var(--hbx-font-min);
   font-weight: 650;
 }
 
 .preference b {
   color: var(--text-muted);
-  font-size: 0.62rem;
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   white-space: nowrap;
 }
@@ -240,7 +240,7 @@
 .historyCopy strong {
   overflow: hidden;
   color: var(--text-title);
-  font-size: 0.68rem;
+  font-size: var(--hbx-font-min);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -248,7 +248,7 @@
 .historyCopy small,
 .historyItem time {
   color: var(--text-muted);
-  font-size: 0.59rem;
+  font-size: var(--hbx-font-min);
 }
 
 .historyItem time {
@@ -277,7 +277,7 @@
   min-height: 32px;
   justify-content: center;
   text-decoration: none;
-  font-size: 0.7rem;
+  font-size: var(--hbx-font-min);
 }
 
 @media (max-width: 360px) {

@@ -37,7 +37,7 @@ type Template = {
 };
 
 // rótulo de campo reutilizado (Lei 2 — visual repetido vira um único ponto)
-const lbl = { fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" } as const;
+const lbl = { fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" } as const;
 
 type EmailState = {
   sender?: { from?: string | null; replyTo?: string | null; ready?: boolean; mode?: string; missing?: string[] };
@@ -356,7 +356,7 @@ export function JanelaEmails() {
 
   return (
     <React.Fragment>
-      {loadError && <div style={{ fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>}
+      {loadError && <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>}
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         {(templates || []).map(t => (
@@ -380,7 +380,7 @@ export function JanelaEmails() {
             </button>
           )
         )}
-        {!templates && !loadError && <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>Carregando templates…</span>}
+        {!templates && !loadError && <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Carregando templates…</span>}
       </div>
 
       {atual && (
@@ -401,10 +401,10 @@ export function JanelaEmails() {
             </div>
             <div style={{ padding: "12px 16px 16px", display: "grid", gap: 12 }}>
               {msg && (
-                <div style={{ fontSize: "0.72rem", fontWeight: 700, color: msg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{msg}</div>
+                <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: msg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{msg}</div>
               )}
               {atual.requiredVariable && (
-                <span style={{ fontSize: "0.66rem", color: "var(--text-muted)" }}>
+                <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>
                   Este template precisa conter <b style={{ fontFamily: "var(--font-mono)" }}>{atual.requiredVariable}</b>.
                 </span>
               )}
@@ -422,13 +422,13 @@ export function JanelaEmails() {
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {(atual.variableDefinitions || []).map(v => (
                   <button key={v.key} className="btn-ghost" title={v.description || v.label}
-                    style={{ minHeight: 24, fontSize: "0.6rem", padding: "0 8px", fontFamily: "var(--font-mono)" }}
+                    style={{ minHeight: 24, fontSize: "var(--hbx-font-min)", padding: "0 8px", fontFamily: "var(--font-mono)" }}
                     onClick={() => inserirVariavel(v.token)}>
                     {v.token}
                   </button>
                 ))}
               </div>
-              <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>Clique numa variável para inserir no texto, na posição do cursor.</span>
+              <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Clique numa variável para inserir no texto, na posição do cursor.</span>
             </div>
           </section>
 
@@ -437,14 +437,14 @@ export function JanelaEmails() {
               <div className="panel-head"><h2>Enviar apresentação a um contato</h2></div>
               <form onSubmit={enviarApresentacao} style={{ padding: "12px 16px 16px", display: "grid", gap: 10 }}>
                 {envioMsg && (
-                  <div style={{ fontSize: "0.72rem", fontWeight: 700, color: envioMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)", lineHeight: 1.5 }}>{envioMsg}</div>
+                  <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: envioMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)", lineHeight: 1.5 }}>{envioMsg}</div>
                 )}
                 {!estado?.attachment && (
-                  <span style={{ fontSize: "0.66rem", color: "var(--hbx-warning)", fontWeight: 700 }}>
+                  <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--hbx-warning)", fontWeight: 700 }}>
                     Carregue o PPTX da apresentação abaixo antes de enviar (o backend exige o anexo).
                   </span>
                 )}
-                <span style={{ fontSize: "0.66rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
+                <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", lineHeight: 1.5 }}>
                   Usa o template “Apresentação” (com suas edições) — as variáveis {"{nome}"}/{"{email}"} são preenchidas com o contato.
                 </span>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -469,7 +469,7 @@ export function JanelaEmails() {
               <div className="panel-head"><h2>Enviar teste</h2></div>
               <form onSubmit={enviarTeste} style={{ padding: "12px 16px 16px", display: "grid", gap: 10 }}>
                 {testeMsg && (
-                  <div style={{ fontSize: "0.72rem", fontWeight: 700, color: testeMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)", lineHeight: 1.5 }}>{testeMsg}</div>
+                  <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: testeMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)", lineHeight: 1.5 }}>{testeMsg}</div>
                 )}
                 <div style={{ display: "grid", gap: 6 }}>
                   <label style={lbl}>E-mail de teste *</label>
@@ -501,7 +501,7 @@ export function JanelaEmails() {
 
             <section className="panel">
               <div className="panel-head"><h2>Remetente e anexos</h2></div>
-              <div style={{ padding: "12px 16px 16px", display: "grid", gap: 10, fontSize: "0.74rem" }}>
+              <div style={{ padding: "12px 16px 16px", display: "grid", gap: 10, fontSize: "var(--hbx-font-min)" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
                   <span style={{ color: "var(--text-muted)" }}>Remetente</span>
                   <span style={{ fontWeight: 600, textAlign: "right", overflowWrap: "anywhere" }}>{estado?.sender?.from || "—"}</span>
@@ -513,34 +513,34 @@ export function JanelaEmails() {
                   </span>
                 </div>
                 {uploadMsg && (
-                  <div style={{ fontSize: "0.7rem", fontWeight: 700, color: uploadMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{uploadMsg}</div>
+                  <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: uploadMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{uploadMsg}</div>
                 )}
                 <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 10, display: "grid", gap: 8 }}>
-                  <strong style={{ fontSize: "0.72rem" }}>Apresentação (.pptx)</strong>
-                  <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>{estado?.attachment?.originalName || "Nenhum anexo."}</span>
+                  <strong style={{ fontSize: "var(--hbx-font-min)" }}>Apresentação (.pptx)</strong>
+                  <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>{estado?.attachment?.originalName || "Nenhum anexo."}</span>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <label className="btn-ghost" style={{ minHeight: 28, fontSize: "0.64rem", cursor: "pointer" }}>
+                    <label className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)", cursor: "pointer" }}>
                       {uploadBusy === "attachment" ? "Enviando…" : "Enviar PPTX"}
                       <input type="file" accept=".pptx" style={{ display: "none" }} disabled={uploadBusy != null}
                         onChange={e => { upload("attachment", e.target.files?.[0] || null); e.target.value = ""; }} />
                     </label>
                     {estado?.attachment && (
-                      <button className="btn-ghost btn-danger" style={{ minHeight: 28, fontSize: "0.64rem" }} disabled={uploadBusy != null}
+                      <button className="btn-ghost btn-danger" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }} disabled={uploadBusy != null}
                         onClick={() => removerArquivo("attachment")}>Remover</button>
                     )}
                   </div>
                 </div>
                 <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 10, display: "grid", gap: 8 }}>
-                  <strong style={{ fontSize: "0.72rem" }}>Cartão de visitas (assinatura)</strong>
-                  <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>{estado?.businessCard?.originalName || "Nenhuma imagem."}</span>
+                  <strong style={{ fontSize: "var(--hbx-font-min)" }}>Cartão de visitas (assinatura)</strong>
+                  <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>{estado?.businessCard?.originalName || "Nenhuma imagem."}</span>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <label className="btn-ghost" style={{ minHeight: 28, fontSize: "0.64rem", cursor: "pointer" }}>
+                    <label className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)", cursor: "pointer" }}>
                       {uploadBusy === "business-card" ? "Enviando…" : "Enviar imagem"}
                       <input type="file" accept="image/png,image/jpeg,image/webp" style={{ display: "none" }} disabled={uploadBusy != null}
                         onChange={e => { upload("business-card", e.target.files?.[0] || null); e.target.value = ""; }} />
                     </label>
                     {estado?.businessCard && (
-                      <button className="btn-ghost btn-danger" style={{ minHeight: 28, fontSize: "0.64rem" }} disabled={uploadBusy != null}
+                      <button className="btn-ghost btn-danger" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }} disabled={uploadBusy != null}
                         onClick={() => removerArquivo("business-card")}>Remover</button>
                     )}
                   </div>

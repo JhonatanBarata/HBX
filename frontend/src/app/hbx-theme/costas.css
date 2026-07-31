@@ -1,0 +1,848 @@
+/* ============================================================
+   AS COSTAS DOS MÓDULOS — o verso do menu lateral (dono, 31/07/2026)
+
+   A barra lateral tem duas faces no mesmo palco (.side-stack):
+     frente  → .costas   (o painel do módulo aberto, só leitura)
+     verso   → .side-nav (os módulos de sempre)
+
+   Quem vira a página é o HOVER na barra inteira — CSS puro, sem React no
+   meio: entrar com o mouse desmonta o painel na ordem INVERSA (rápido) e
+   monta os módulos; sair remonta o painel bloco a bloco.
+
+   Chegar na tela é a mesma cascata, disparada uma vez pelo atributo
+   data-costas-estado (entrando → dentro) que o componente vira no segundo
+   quadro. Duração e curva saem do contrato central (motion-system.css) —
+   este arquivo não inventa tempo nem easing.
+
+   COR: nenhuma literal. --costas-tom é o estado (verde funciona, âmbar
+   pede atenção, vermelho é problema, cinza é silêncio) e pinta orb, fio,
+   gráfico e barra. O resto vem dos tokens da casca ativa.
+   ============================================================ */
+
+/* ---- 1. PALCO ---------------------------------------------------------- */
+
+/* SEM verso, o palco é transparente: cresce pra ocupar a sobra, nunca encolhe
+   abaixo do próprio conteúdo (flex-shrink: 0), e a lista de módulos mais alta
+   que a barra faz o .side-scroll rolar exatamente como sempre fez. */
+.side-stack {
+  position: relative;
+  flex: 1 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.side-nav {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* COM verso, as DUAS faces ficam absolutas no palco e o palco vale exatamente
+   a sobra da barra. Consequência (é ela que importa): o painel cabe SEMPRE na
+   parte visível — nada de rodapé escondido abaixo da dobra — e o cartão de
+   créditos não se mexe um pixel quando o mouse entra. Quem rola, se a lista
+   não couber, é a própria lista, por dentro. */
+.side[data-costas="on"] .side-stack {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.side[data-costas="on"] .side-nav {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* A barrinha existe SEMPRE (largura fixa, nada reflui quando o mouse entra),
+   mas só ganha cor junto com os módulos: com o painel à mostra ela apagava um
+   risco da cor da marca por cima do verso. */
+.side[data-costas="on"] .side-nav::-webkit-scrollbar { width: 5px; }
+.side[data-costas="on"] .side-nav::-webkit-scrollbar-track { background: transparent; }
+.side[data-costas="on"] .side-nav::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: var(--radius-pill);
+  transition: background var(--hbx-motion-list-exit, 120ms) var(--hbx-motion-ease-exit, ease);
+}
+
+.side[data-costas="on"]:hover .side-nav::-webkit-scrollbar-thumb {
+  background: var(--hbx-brand);
+}
+
+/* ---- 2. A VIRADA ------------------------------------------------------- */
+/* Sem verso disponível, nada abaixo existe: a barra é a de sempre. */
+
+.side[data-costas="on"] .side-nav {
+  pointer-events: none;
+}
+
+.side[data-costas="on"] .side-nav > :is(.nav-item, .nav-group-label) {
+  opacity: 0;
+  translate: -7px 0;
+  transition:
+    opacity var(--hbx-motion-list-exit, 120ms) var(--hbx-motion-ease-exit, ease),
+    translate var(--hbx-motion-list-exit, 120ms) var(--hbx-motion-ease-exit, ease);
+}
+
+/* O vidro deslizante do item ativo tem transição PRÓPRIA (kit.css) que não
+   pode ser sobrescrita — por isso quem apaga é o filho, que não tem nenhuma. */
+.side[data-costas="on"] .glass-pill__glass {
+  opacity: 0;
+  transition: opacity var(--hbx-motion-list-exit, 120ms) var(--hbx-motion-ease-exit, ease);
+}
+
+.side[data-costas="on"]:hover .side-nav {
+  pointer-events: auto;
+}
+
+.side[data-costas="on"]:hover .side-nav > :is(.nav-item, .nav-group-label) {
+  opacity: 1;
+  translate: 0 0;
+  transition-duration: var(--hbx-motion-list-enter, 167ms);
+  transition-timing-function: var(--hbx-motion-ease-enter, ease);
+  transition-delay: calc(var(--i, 0) * 18ms);
+}
+
+.side[data-costas="on"]:hover .glass-pill__glass {
+  opacity: 1;
+  transition-duration: var(--hbx-motion-list-enter, 167ms);
+  transition-timing-function: var(--hbx-motion-ease-enter, ease);
+  transition-delay: 90ms;
+}
+
+/* ---- 3. O PAINEL ------------------------------------------------------- */
+
+.costas {
+  --costas-tom: var(--text-muted);
+
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  padding: 2px 2px 4px;
+  overflow: hidden;
+  pointer-events: none;
+  isolation: isolate;
+}
+
+/* Um fio separa seção de seção — é o que faz a coluna ler como painel de
+   instrumento, e não como texto empilhado. O primeiro bloco não tem fio. */
+.costas > .costas-bloco + .costas-bloco {
+  border-top: 1px solid var(--border-hairline);
+}
+
+/* As faixas guardam o próprio tamanho — esticar seção com pouco conteúdo (o
+   painel de Produtos, por exemplo) abria um vão enorme entre o número e as
+   barras. A sobra da coluna vai toda pras margens automáticas: o painel fica
+   CENTRADO quando cabe e, quando não cabe, as margens viram zero sozinhas e
+   nada é cortado — que é o que `justify-content: center` não garante. */
+.costas > .costas-bloco {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.costas > .costas-bloco:first-of-type {
+  margin-top: auto;
+}
+
+.costas > .costas-bloco--fecho {
+  margin-bottom: auto;
+}
+
+.costas.is-ok { --costas-tom: var(--hbx-success); }
+.costas.is-atencao { --costas-tom: var(--hbx-warning); }
+.costas.is-risco { --costas-tom: var(--hbx-danger); }
+
+/* Halo do estado no alto do painel — a mesma matéria do cartão de disparos. */
+.costas__brilho {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: radial-gradient(
+    118% 42% at 50% 0%,
+    color-mix(in srgb, var(--costas-tom) 15%, transparent),
+    transparent 72%
+  );
+  opacity: 0.85;
+  transition:
+    opacity var(--hbx-motion-view-enter, 250ms) var(--hbx-motion-ease-enter, ease),
+    background 600ms linear;
+}
+
+/* Sai de cena quando o mouse chega, junto com os blocos. */
+.side[data-costas="on"]:hover .costas {
+  pointer-events: none;
+}
+
+.side[data-costas="on"]:hover .costas__brilho {
+  opacity: 0;
+}
+
+/* ---- 4. A CASCATA ------------------------------------------------------ */
+/* Um bloco de cada vez, de cima pra baixo na entrada; de baixo pra cima na
+   saída. É a mesma transição nos dois sentidos: interromper no meio continua
+   de onde está, nunca salta. */
+
+.costas-bloco {
+  min-width: 0;
+  opacity: 1;
+  translate: 0 0;
+  scale: 1;
+  transition:
+    opacity var(--hbx-motion-view-enter, 250ms) var(--hbx-motion-ease-enter, ease),
+    translate var(--hbx-motion-view-enter, 250ms) var(--hbx-motion-ease-enter, ease),
+    scale var(--hbx-motion-view-enter, 250ms) var(--hbx-motion-ease-enter, ease);
+  transition-delay: calc(var(--i, 0) * 62ms);
+}
+
+.costas[data-costas-estado="entrando"] .costas-bloco,
+.side[data-costas="on"]:hover .costas-bloco {
+  opacity: 0;
+  translate: 0 10px;
+  scale: 0.985;
+}
+
+/* Saída no hover: mais curta e na ordem invertida (o rodapé some primeiro). */
+.side[data-costas="on"]:hover .costas-bloco {
+  transition-duration: var(--hbx-motion-floating-exit, 100ms);
+  transition-timing-function: var(--hbx-motion-ease-exit, ease);
+  transition-delay: calc(var(--o, 0) * 16ms);
+}
+
+/* ---- 5. CABEÇALHO ------------------------------------------------------ */
+
+.costas-topo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 6px 10px;
+}
+
+.costas-topo__selo {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--costas-tom) 26%, var(--border-hairline));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--costas-tom) 12%, transparent);
+  color: var(--costas-tom);
+}
+
+.costas-topo__copy {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.costas-topo__nome,
+.costas-topo__legenda {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.costas-topo__nome {
+  color: var(--text-strong);
+  font-size: var(--hbx-font-min);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.costas-topo__legenda {
+  color: var(--text-muted);
+  font-size: var(--hbx-font-min);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.02em;
+}
+
+.costas-topo__orb {
+  flex: 0 0 auto;
+  margin-left: auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--costas-tom);
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--costas-tom) 14%, transparent),
+    0 0 12px color-mix(in srgb, var(--costas-tom) 62%, transparent);
+  animation: costas-orb 2.4s ease-in-out infinite;
+}
+
+@keyframes costas-orb {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.42; }
+}
+
+/* ---- 6. NÚMERO GRANDE -------------------------------------------------- */
+
+.costas-hero {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 12px 6px 13px;
+}
+
+.costas-hero__valor {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-size: 2.45rem;
+  font-weight: var(--weight-extrabold);
+  letter-spacing: -0.06em;
+  line-height: 0.94;
+  font-variant-numeric: tabular-nums;
+}
+
+.costas-hero__rotulo {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-body);
+  font-size: var(--hbx-font-min);
+  font-weight: var(--weight-semibold);
+}
+
+.costas-hero__nota {
+  display: block;
+  min-width: 0;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: var(--hbx-font-min);
+  font-weight: var(--weight-medium);
+}
+
+/* ---- 7. GRÁFICO -------------------------------------------------------- */
+
+.costas-graf {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 12px 6px 12px;
+}
+
+.costas-graf__tela {
+  position: relative;
+  display: block;
+  height: 44px;
+}
+
+.costas-graf svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.costas-graf__grade {
+  stroke: var(--border-hairline);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.costas-graf__area-topo {
+  stop-color: var(--costas-tom);
+  stop-opacity: 0.3;
+}
+
+.costas-graf__area-base {
+  stop-color: var(--costas-tom);
+  stop-opacity: 0;
+}
+
+.costas-graf__area {
+  fill: url(#costas-area);
+  stroke: none;
+  opacity: 1;
+  transition: opacity var(--hbx-motion-view-enter, 250ms) var(--hbx-motion-ease-enter, ease) 180ms;
+}
+
+.costas-graf__linha {
+  fill: none;
+  stroke: var(--costas-tom);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  /* O traço se DESENHA na entrada — a curva nasce da esquerda pra direita. */
+  transition: stroke-dashoffset 760ms var(--hbx-motion-ease-enter, ease) 120ms;
+}
+
+.costas-graf__ponta {
+  position: absolute;
+  top: var(--ponta-y, 50%);
+  right: 0;
+  width: 5px;
+  height: 5px;
+  translate: 50% -50%;
+  border-radius: 50%;
+  background: var(--costas-tom);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--costas-tom) 18%, transparent);
+  opacity: 1;
+  transition: opacity var(--hbx-motion-view-enter, 250ms) var(--hbx-motion-ease-enter, ease) 700ms;
+}
+
+.costas[data-costas-estado="entrando"] .costas-graf__linha {
+  stroke-dashoffset: 1;
+}
+
+.costas[data-costas-estado="entrando"] :is(.costas-graf__area, .costas-graf__ponta) {
+  opacity: 0;
+  transition-delay: 0ms;
+}
+
+.costas-graf__legenda {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.costas-graf__legenda > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: var(--hbx-font-min);
+  font-weight: var(--weight-medium);
+  letter-spacing: 0.03em;
+}
+
+.costas-graf__legenda > strong {
+  margin-left: auto;
+  color: var(--text-body);
+  font-size: var(--hbx-font-min);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 8. MÉTRICAS ------------------------------------------------------- */
+
+.costas-metricas {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-width: 0;
+}
+
+.costas-metrica {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  padding: 11px 6px 12px;
+}
+
+.costas-metrica + .costas-metrica {
+  border-left: 1px solid var(--border-hairline);
+  padding-left: 10px;
+}
+
+.costas-metrica > strong,
+.costas-metrica > small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.costas-metrica > strong {
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.025em;
+}
+
+.costas-metrica > small {
+  color: var(--text-muted);
+  font-size: var(--hbx-font-min);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.costas-metrica.is-ok > strong { color: var(--hbx-success); }
+.costas-metrica.is-atencao > strong { color: var(--hbx-warning); }
+.costas-metrica.is-risco > strong { color: var(--hbx-danger); }
+
+/* ---- 9. BARRAS --------------------------------------------------------- */
+
+.costas-barras {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 6px;
+}
+
+.costas-barra {
+  --costas-barra-cor: var(--costas-tom);
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.costas-barra.is-ok { --costas-barra-cor: var(--hbx-success); }
+.costas-barra.is-atencao { --costas-barra-cor: var(--hbx-warning); }
+.costas-barra.is-risco { --costas-barra-cor: var(--hbx-danger); }
+
+.costas-barra__topo {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.costas-barra__rotulo {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-body);
+  font-size: var(--hbx-font-min);
+  font-weight: var(--weight-medium);
+}
+
+.costas-barra__valor {
+  margin-left: auto;
+  color: var(--text-strong);
+  font-size: var(--hbx-font-min);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.costas-barra__trilho {
+  display: block;
+  height: 4px;
+  overflow: hidden;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--text-muted) 18%, transparent);
+}
+
+.costas-barra__preenche {
+  display: block;
+  width: var(--pct, 0%);
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--costas-barra-cor) 55%, transparent),
+    var(--costas-barra-cor)
+  );
+  /* A barra CRESCE junto com a entrada do bloco — é o que faz o painel
+     parecer que está sendo montado, e não apenas revelado. */
+  transition: width 700ms var(--hbx-motion-ease-enter, ease) 140ms;
+}
+
+.costas[data-costas-estado="entrando"] .costas-barra__preenche {
+  width: 0%;
+  transition-delay: 0ms;
+}
+
+/* ---- 10. FATOS --------------------------------------------------------- */
+
+.costas-fatos {
+  display: grid;
+  min-width: 0;
+  padding: 4px 6px 6px;
+}
+
+.costas-fato {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  min-height: 27px;
+  padding-top: 5px;
+}
+
+.costas-fato > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: var(--hbx-font-min);
+  font-weight: var(--weight-medium);
+}
+
+.costas-fato > strong {
+  margin-left: auto;
+  color: var(--text-strong);
+  font-size: var(--hbx-font-min);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.costas-fato.is-ok > strong { color: var(--hbx-success); }
+.costas-fato.is-atencao > strong { color: var(--hbx-warning); }
+.costas-fato.is-risco > strong { color: var(--hbx-danger); }
+
+.costas-rodape {
+  padding: 8px 6px;
+  color: var(--text-muted);
+  font-size: var(--hbx-font-min);
+  font-weight: var(--weight-medium);
+  line-height: 1.35;
+}
+
+/* ---- 10b. FECHO -------------------------------------------------------- */
+/* Empurra o painel inteiro para o alto e apoia a coluna: um fio na cor do
+   estado que abre da esquerda pra direita, com o ponto na ponta. */
+
+.costas-bloco--fecho {
+  border-top: 0 !important;
+  padding: 10px 6px 2px;
+}
+
+.costas-fecho {
+  position: relative;
+  display: block;
+  height: 3px;
+}
+
+.costas-fecho__fio {
+  position: absolute;
+  inset: 1px 0 auto 0;
+  height: 1px;
+  transform-origin: left center;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--costas-tom) 55%, transparent),
+    transparent
+  );
+  scale: 1 1;
+  transition: scale 620ms var(--hbx-motion-ease-enter, ease) 120ms;
+}
+
+.costas-fecho__ponto {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--costas-tom);
+  opacity: 0.85;
+}
+
+.costas[data-costas-estado="entrando"] .costas-fecho__fio {
+  scale: 0 1;
+  transition-delay: 0ms;
+}
+
+/* ---- 10c. FIO DO SALDO ------------------------------------------------- */
+/* O cartão de créditos era uma peça de ~150px com moldura, gráfico e botão.
+   Ao lado do painel de costas ele virou peso morto (palavra do dono: "acabou
+   ficando irrelevante"), então virou ISTO: rótulo, número e um traço de 14px.
+   Continua sendo a última coisa da barra e continua levando pros créditos. */
+
+.credito-fio {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 7px 8px 6px;
+  border-radius: var(--radius-sm);
+  color: var(--text-body);
+  text-decoration: none;
+  transition: background var(--motion-fast);
+}
+
+.credito-fio:hover {
+  background: var(--hbx-surface-soft);
+}
+
+.credito-fio__topo {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.credito-fio__rotulo {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: var(--hbx-font-min);
+  font-weight: var(--weight-bold);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.credito-fio__valor {
+  margin-left: auto;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-size: 0.88rem;
+  font-weight: var(--weight-extrabold);
+  letter-spacing: -0.03em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* O débito só existe no instante em que o saldo cai. */
+.credito-fio__debito {
+  position: absolute;
+  right: 0;
+  bottom: 100%;
+  opacity: 0;
+  color: var(--hbx-danger);
+  font-size: var(--hbx-font-min);
+  font-weight: var(--weight-bold);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.credito-fio.is-decaying .credito-fio__debito {
+  animation: credito-fio-debito 1.5s var(--ease-out-quint);
+}
+
+@keyframes credito-fio-debito {
+  0% { opacity: 0; translate: 0 8px; }
+  22% { opacity: 1; translate: 0 0; }
+  100% { opacity: 0; translate: 0 -10px; }
+}
+
+.credito-fio__tela {
+  display: block;
+  height: 14px;
+}
+
+.credito-fio__tela svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.credito-fio__area-topo {
+  stop-color: var(--hbx-brand);
+  stop-opacity: 0.26;
+}
+
+.credito-fio__area-base {
+  stop-color: var(--hbx-brand);
+  stop-opacity: 0;
+}
+
+.credito-fio__area {
+  fill: url(#credit-sidebar-area);
+  stroke: none;
+}
+
+.credito-fio__linha {
+  fill: none;
+  stroke: var(--hbx-brand);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.app[data-rail="min"] .credito-fio {
+  max-height: 0;
+  padding-block: 0;
+  opacity: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* ---- 11. O INTERRUPTOR NA MARCA ---------------------------------------- */
+/* O "»" do HBX vira botão: liga e desliga o verso de todos os módulos. Ele
+   continua sendo a marca — só ganha alvo de clique e um sinal de estado. */
+
+.logo-switch {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  transition: opacity var(--motion-fast), transform var(--motion-fast);
+}
+
+.logo-switch:hover {
+  transform: translateY(-1px);
+}
+
+.logo-switch:not(.is-on) svg {
+  opacity: 0.42;
+}
+
+.logo-switch svg {
+  transition: opacity var(--motion-base) var(--ease-out-quint);
+}
+
+.logo-switch:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--hbx-brand) 60%, transparent);
+  outline-offset: 2px;
+}
+
+/* ---- 12. MATERIAL POR CASCA -------------------------------------------- */
+/* Cada casca já veste o painel pelos tokens; aqui só o que é matéria dela.
+   CORPORATIVA não recebe este tratamento (ordem do dono) — o componente nem
+   é montado lá, e esta regra é a segunda tranca. */
+
+[data-casca="modern"] .costas-metricas {
+  border-color: color-mix(in srgb, var(--text-strong) 12%, var(--border-hairline));
+}
+
+[data-casca="modern"] .costas-metrica {
+  background: linear-gradient(180deg, var(--mod-glass-hi), var(--mod-glass-lo));
+}
+
+[data-casca="premium"] .costas__brilho {
+  opacity: 0.62;
+}
+
+[data-casca="corporativa"] .costas {
+  display: none;
+}
+
+[data-casca="corporativa"] .side[data-costas="on"] .side-nav > :is(.nav-item, .nav-group-label),
+[data-casca="corporativa"] .side[data-costas="on"] .glass-pill__glass {
+  opacity: 1;
+  translate: none;
+  transition: none;
+}
+
+[data-casca="corporativa"] .side[data-costas="on"] .side-nav {
+  pointer-events: auto;
+}
+
+/* ---- 13. ACESSIBILIDADE ------------------------------------------------ */
+
+@media (prefers-reduced-motion: reduce) {
+  .costas-bloco,
+  .costas-graf__linha,
+  .costas-graf__area,
+  .costas-graf__ponta,
+  .costas-barra__preenche,
+  .side[data-costas="on"] .side-nav > :is(.nav-item, .nav-group-label),
+  .side[data-costas="on"] .glass-pill__glass {
+    transition: none;
+  }
+
+  .costas-topo__orb {
+    animation: none;
+  }
+}

@@ -850,11 +850,11 @@ export function JanelaCreditos({ companies, reload }: {
                         </td>
                         <td>
                           <div style={{ display: "flex", gap: 6 }}>
-                            <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }}
+                            <button className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }}
                               onClick={() => (isOpen ? fecharConceder() : abrirConceder(c.id))}>
                               {isOpen ? "Cancelar" : "Conceder"}
                             </button>
-                            <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }}
+                            <button className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }}
                               disabled={!c.creditsBalance || c.creditsBalance <= 0}
                               onClick={() => (isDebitOpen ? fecharDebito() : abrirDebito(c.id, c.creditsBalance))}>
                               {isDebitOpen ? "Cancelar" : "Debitar"}
@@ -1073,9 +1073,9 @@ export function JanelaCreditos({ companies, reload }: {
                       </td>
                       <td>
                         <div style={{ display: "flex", gap: 6 }}>
-                          <button className="btn-teal" style={{ minHeight: 28, fontSize: "0.66rem" }} disabled={busy}
+                          <button className="btn-teal" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }} disabled={busy}
                             onClick={() => salvarAcao(a.actionKey)}>{busy ? "…" : "Salvar"}</button>
-                          <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }} disabled={busy || !a.override}
+                          <button className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }} disabled={busy || !a.override}
                             onClick={() => restaurarAcao(a.actionKey)}>Restaurar padrão</button>
                         </div>
                       </td>
@@ -1138,9 +1138,9 @@ export function JanelaCreditos({ companies, reload }: {
                       </td>
                       <td>
                         <div style={{ display: "flex", gap: 6 }}>
-                          <button className="btn-teal" style={{ minHeight: 28, fontSize: "0.66rem" }} disabled={busy}
+                          <button className="btn-teal" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }} disabled={busy}
                             onClick={() => salvarNivel(n.nivel)}>{busy ? "…" : "Salvar"}</button>
-                          <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }} disabled={busy || !n.editado}
+                          <button className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }} disabled={busy || !n.editado}
                             onClick={() => restaurarNivel(n.nivel)}>Restaurar padrão</button>
                         </div>
                       </td>
@@ -1306,20 +1306,20 @@ function GuiaRecargas() {
           <h2>Recargas — notificações de pagamento (WhatsApp)</h2>
           <div className="meta">
             {data?.notifications ? `${linhas.length} disparo(s)` : ""}
-            <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }} onClick={() => carregar(status)}>Atualizar</button>
+            <button className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }} onClick={() => carregar(status)}>Atualizar</button>
           </div>
         </div>
         <div style={{ padding: "12px 16px 4px", display: "flex", gap: 8, flexWrap: "wrap" }}>
           {STATUS_OPCOES.map(o => (
             <button key={o.value} className="btn-ghost" onClick={() => trocarStatus(o.value)}
-              style={{ minHeight: 28, fontSize: "0.66rem", ...(o.value === status ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)", background: "var(--hbx-brand-soft)" } : {}) }}>
+              style={{ minHeight: 28, fontSize: "var(--hbx-font-min)", ...(o.value === status ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)", background: "var(--hbx-brand-soft)" } : {}) }}>
               {o.label}
             </button>
           ))}
         </div>
-        {loadError && <div style={{ padding: "8px 16px 12px", fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>}
+        {loadError && <div style={{ padding: "8px 16px 12px", fontSize: "var(--hbx-font-min)", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>}
         {data?.ok === false && data?.message && (
-          <div style={{ padding: "8px 16px 12px", fontSize: "0.72rem", color: "var(--text-muted)" }}>{data.message}</div>
+          <div style={{ padding: "8px 16px 12px", fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>{data.message}</div>
         )}
         <div className="tbl-wrap">
           <table className="tbl">
@@ -1352,7 +1352,7 @@ function GuiaRecargas() {
             </tbody>
           </table>
         </div>
-        <div style={{ padding: "8px 16px 14px", fontSize: "0.62rem", color: "var(--text-muted)" }}>
+        <div style={{ padding: "8px 16px 14px", fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>
           O disparo continua máquina-a-máquina (webhook Mercado Pago → WhatsApp via Webwhats). Esta guia é o histórico.
         </div>
       </section>
@@ -1363,7 +1363,7 @@ function GuiaRecargas() {
             <h2>Disparo {sel.status === "sent" ? "enviado" : "com falha"}</h2>
             <div className="meta">{fmtDataHora(sel.createdAt)}</div>
           </div>
-          <div style={{ padding: "12px 16px 16px", display: "grid", gap: 10, fontSize: "0.74rem" }}>
+          <div style={{ padding: "12px 16px 16px", display: "grid", gap: 10, fontSize: "var(--hbx-font-min)" }}>
             <p style={{ margin: 0, lineHeight: 1.55, whiteSpace: "pre-line", padding: "9px 11px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)" }}>{sel.text || "—"}</p>
             <div style={{ display: "grid", gap: 6 }}>
               {[

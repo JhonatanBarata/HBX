@@ -113,7 +113,7 @@
 
 .hbx-panel-context__eyebrow {
   color: var(--hbx-brand-strong);
-  font-size: 0.56rem;
+  font-size: var(--hbx-font-min);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -121,13 +121,13 @@
 
 .hbx-panel-context__title {
   color: var(--text-strong);
-  font-size: 0.78rem;
+  font-size: var(--hbx-font-min);
   font-weight: 750;
 }
 
 .hbx-panel-context__subtitle {
   color: var(--text-muted);
-  font-size: 0.62rem;
+  font-size: var(--hbx-font-min);
   font-weight: 600;
 }
 
@@ -171,7 +171,7 @@
 
 .hbx-panel-context__empty > span:not(.hbx-panel-context__empty-icon) {
   max-width: 30ch;
-  font-size: 0.68rem;
+  font-size: var(--hbx-font-min);
   line-height: 1.45;
 }
 
@@ -224,13 +224,13 @@
 
 .hbx-panel-context__hero-copy > span {
   color: var(--text-body);
-  font-size: 0.66rem;
+  font-size: var(--hbx-font-min);
   font-weight: 650;
 }
 
 .hbx-panel-context__hero-copy > small {
   color: var(--text-muted);
-  font-size: 0.6rem;
+  font-size: var(--hbx-font-min);
   font-weight: 600;
 }
 
@@ -278,13 +278,13 @@
 
 .hbx-panel-context__metric > span {
   color: var(--text-muted);
-  font-size: 0.59rem;
+  font-size: var(--hbx-font-min);
   font-weight: 700;
 }
 
 .hbx-panel-context__metric > small {
   color: var(--text-body);
-  font-size: 0.56rem;
+  font-size: var(--hbx-font-min);
   font-weight: 600;
 }
 
@@ -319,13 +319,13 @@
 
 .hbx-panel-context__fact dt {
   color: var(--text-muted);
-  font-size: 0.62rem;
+  font-size: var(--hbx-font-min);
   font-weight: 650;
 }
 
 .hbx-panel-context__fact dd {
   color: var(--text-strong);
-  font-size: 0.68rem;
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   text-align: right;
 }
@@ -401,7 +401,7 @@
 .hbx-panel-context__section-title {
   margin-bottom: 3px;
   color: var(--text-muted);
-  font-size: 0.6rem;
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -409,7 +409,7 @@
 
 .hbx-panel-context__muted {
   color: var(--text-muted);
-  font-size: 0.66rem;
+  font-size: var(--hbx-font-min);
 }
 
 .hbx-panel-context__compact-row {
@@ -439,12 +439,12 @@
 
 .hbx-panel-context__compact-row strong {
   color: var(--text-strong);
-  font-size: 0.68rem;
+  font-size: var(--hbx-font-min);
 }
 
 .hbx-panel-context__compact-row small {
   color: var(--text-muted);
-  font-size: 0.58rem;
+  font-size: var(--hbx-font-min);
 }
 
 /* Atendimento já possui três áreas internas; a casca apenas comprime seus

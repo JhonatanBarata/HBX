@@ -36,7 +36,9 @@
     display: grid;
     gap: 0;
     min-width: 86px;
-    max-width: 104px;
+    /* "CENTRAL OPERACIONAL" no piso de 0.8rem mede 131px + 10px de padding;
+       em 104px ele cortava com reticências (piso, 31/07). */
+    max-width: 148px;
     padding-inline: 3px 7px;
   }
 
@@ -52,13 +54,13 @@
   .at-opsbar__identity strong {
     color: var(--text-strong);
     font-family: var(--font-display);
-    font-size: 0.78rem;
+    font-size: var(--hbx-font-min);
     line-height: 1.15;
   }
 
   .at-opsbar__identity span {
     color: var(--text-muted);
-    font-size: 0.53rem;
+    font-size: var(--hbx-font-min);
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -103,7 +105,7 @@
 
   .at-wa-signal small {
     color: var(--text-muted);
-    font-size: 0.51rem;
+    font-size: var(--hbx-font-min);
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -111,7 +113,7 @@
 
   .at-wa-signal strong {
     color: var(--hbx-brand-strong);
-    font-size: 0.64rem;
+    font-size: var(--hbx-font-min);
     line-height: 1.15;
   }
 
@@ -152,13 +154,13 @@
   .at-micro strong {
     color: var(--text-strong);
     font-family: var(--font-mono);
-    font-size: 0.68rem;
+    font-size: var(--hbx-font-min);
     line-height: 1.15;
   }
 
   .at-micro small {
     color: var(--text-muted);
-    font-size: 0.49rem;
+    font-size: var(--hbx-font-min);
     font-weight: 750;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -182,7 +184,7 @@
     min-height: 32px;
     height: 32px;
     padding-inline: 7px;
-    font-size: 0.61rem;
+    font-size: var(--hbx-font-min);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -208,7 +210,7 @@
     height: 32px;
     padding-inline: 10px;
     flex: 0 0 auto;
-    font-size: 0.64rem;
+    font-size: var(--hbx-font-min);
     white-space: nowrap;
   }
 
@@ -277,14 +279,14 @@
   .a-content .tab {
     min-width: 0;
     padding: 8px 6px 7px;
-    font-size: 0.67rem;
+    font-size: var(--hbx-font-min);
     white-space: nowrap;
   }
 
   .a-content .tab .n {
     margin-left: 3px;
     padding-inline: 4px;
-    font-size: 0.54rem;
+    font-size: var(--hbx-font-min);
   }
 
   .a-content .at-convs-search {
@@ -297,7 +299,7 @@
     min-height: 31px;
     height: 31px;
     padding-inline: 9px;
-    font-size: 0.69rem;
+    font-size: var(--hbx-font-min);
   }
 
   .a-content .conv-list {
@@ -323,11 +325,11 @@
   }
 
   .a-content .conv .nm strong {
-    font-size: 0.73rem;
+    font-size: var(--hbx-font-min);
   }
 
   .a-content .conv .nm time {
-    font-size: 0.54rem;
+    font-size: var(--hbx-font-min);
   }
 
   .a-content .conv .pv {
@@ -336,7 +338,7 @@
   }
 
   .a-content .conv .pv small {
-    font-size: 0.62rem;
+    font-size: var(--hbx-font-min);
   }
 
   .a-content .conv .chan.wa {
@@ -360,7 +362,7 @@
 
   .a-content .at-convs-empty > span {
     color: var(--text-muted);
-    font-size: 0.66rem;
+    font-size: var(--hbx-font-min);
     line-height: 1.4;
   }
 
@@ -372,7 +374,7 @@
     padding: 4px 7px;
     border-top: 1px solid var(--border-hairline);
     color: var(--text-muted);
-    font-size: 0.59rem;
+    font-size: var(--hbx-font-min);
     text-align: center;
   }
 
@@ -380,7 +382,7 @@
     border: 0;
     background: transparent;
     font-family: var(--font-body);
-    font-size: 0.61rem;
+    font-size: var(--hbx-font-min);
     cursor: pointer;
   }
 
@@ -448,7 +450,7 @@
   .a-content .thread-head .btn-ghost {
     min-height: 28px;
     padding-inline: 7px;
-    font-size: 0.62rem;
+    font-size: var(--hbx-font-min);
   }
 
   .a-content .thread-head .tag {
@@ -470,7 +472,7 @@
 
   .a-content .bubble {
     padding: 7px 10px 5px;
-    font-size: 0.76rem;
+    font-size: var(--hbx-font-min);
     line-height: 1.42;
   }
 
@@ -486,7 +488,7 @@
 
   .a-content .composer .field-dark {
     min-height: 34px;
-    font-size: 0.75rem;
+    font-size: var(--hbx-font-min);
   }
 
   .a-content .composer :is(.icon-ghost, .send) {
@@ -521,7 +523,7 @@
     padding: 0 10px;
     border-bottom: 1px solid var(--border-hairline);
     font-family: var(--font-display);
-    font-size: 0.76rem;
+    font-size: var(--hbx-font-min);
     font-weight: 750;
   }
 

@@ -281,7 +281,7 @@
 }
 .cdl-vit__k {
   display: block;
-  font-size: calc(10px * var(--hbx-font-scale));
+  font-size: var(--hbx-font-min);
   font-weight: 700;
   letter-spacing: 1.3px;
   text-transform: uppercase;
@@ -438,7 +438,7 @@
   gap: 8px;
   padding: 10px 14px 9px;
   border-bottom: 1px solid var(--cdl-hair-2);
-  font-size: calc(10.5px * var(--hbx-font-scale));
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   letter-spacing: 1.2px;
   text-transform: uppercase;
@@ -454,7 +454,7 @@
   gap: 5px;
   padding: 3px 9px;
   border-radius: 999px;
-  font-size: calc(10.5px * var(--hbx-font-scale));
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   letter-spacing: 0.2px;
   text-transform: none;
@@ -475,7 +475,7 @@
 }
 .cdl-cnpj__k {
   display: block;
-  font-size: calc(10px * var(--hbx-font-scale));
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   letter-spacing: 1.5px;
   text-transform: uppercase;
@@ -499,7 +499,7 @@
   border-radius: 7px;
   background: var(--cdl-card);
   cursor: pointer;
-  font-size: calc(10px * var(--hbx-font-scale));
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   letter-spacing: 0.5px;
   color: var(--cdl-ink-2);
@@ -572,7 +572,7 @@
 .cdl-kv__act svg { width: 12px; height: 12px; }
 .cdl-wa-ok {
   margin-left: 5px;
-  font-size: calc(10.5px * var(--hbx-font-scale));
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   color: var(--cdl-wa);
 }
@@ -660,7 +660,7 @@
 .cdl-tab__n {
   padding: 1px 7px;
   border-radius: 999px;
-  font-size: calc(11px * var(--hbx-font-scale));
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   background: var(--cdl-hair-2);
   color: var(--cdl-ink-2);
@@ -761,7 +761,7 @@
   border-radius: 8px;
   background: var(--cdl-av-msg);
   color: var(--cdl-av-msg-ink);
-  font-size: calc(10px * var(--hbx-font-scale));
+  font-size: var(--hbx-font-min);
   font-weight: 750;
 }
 .cdl-bubble {
@@ -777,7 +777,7 @@
 .cdl-bubble__who {
   display: block;
   margin-bottom: 2px;
-  font-size: calc(10.5px * var(--hbx-font-scale));
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   letter-spacing: 0.3px;
   color: var(--cdl-ink-2);
@@ -787,7 +787,7 @@
   display: block;
   margin-top: 3px;
   text-align: right;
-  font-size: calc(10.5px * var(--hbx-font-scale));
+  font-size: var(--hbx-font-min);
   color: var(--cdl-ink-3);
 }
 .cdl-msg.is-out {
@@ -818,7 +818,7 @@
   border: none;
   background: none;
   cursor: pointer;
-  font-size: calc(11px * var(--hbx-font-scale));
+  font-size: var(--hbx-font-min);
   font-weight: 650;
   color: var(--cdl-ink-3);
 }
@@ -880,7 +880,7 @@
 .cdl-event__copy { min-width: 0; }
 .cdl-event__copy strong { display: block; font-size: calc(12.5px * var(--hbx-font-scale)); font-weight: 750; }
 .cdl-event__copy span { display: block; font-size: calc(12px * var(--hbx-font-scale)); color: var(--cdl-ink-2); }
-.cdl-event__copy small { display: block; margin-top: 2px; font-size: calc(10.5px * var(--hbx-font-scale)); color: var(--cdl-ink-3); }
+.cdl-event__copy small { display: block; margin-top: 2px; font-size: var(--hbx-font-min); color: var(--cdl-ink-3); }
 
 .cdl-feed__empty {
   margin: auto;
@@ -1118,7 +1118,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  font-size: calc(10px * var(--hbx-font-scale));
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   letter-spacing: 0.8px;
   text-transform: uppercase;
@@ -1246,7 +1246,7 @@
 .cdl-mcell small {
   display: block;
   margin-bottom: 2px;
-  font-size: calc(10px * var(--hbx-font-scale));
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   letter-spacing: 0.8px;
   text-transform: uppercase;
@@ -1271,7 +1271,7 @@
 .cdl-charge:last-child { border-bottom: none; }
 .cdl-charge .cdl-btn-line { grid-column: 1 / -1; margin-top: 4px; }
 .cdl-charge strong { font-weight: 650; }
-.cdl-charge small { display: block; font-size: calc(10.5px * var(--hbx-font-scale)); color: var(--cdl-ink-3); }
+.cdl-charge small { display: block; font-size: var(--hbx-font-min); color: var(--cdl-ink-3); }
 .cdl-charge__val { text-align: right; font-variant-numeric: tabular-nums; font-weight: 650; }
 
 .cdl-foot {

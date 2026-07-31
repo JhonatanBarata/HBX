@@ -407,13 +407,13 @@ export function JanelaCockpit() {
             <div className="meta" style={{ display: "flex", gap: 10, alignItems: "center" }}>
               {error && <span className="ckm-error">{error}</span>}
               {data?.generatedAt && (
-                <span style={{ fontSize: "0.62rem" }}>atualizado {fmtDataHora(data.generatedAt)}</span>
+                <span style={{ fontSize: "var(--hbx-font-min)" }}>atualizado {fmtDataHora(data.generatedAt)}</span>
               )}
-              <label style={{ display: "flex", gap: 5, alignItems: "center", fontSize: "0.66rem", cursor: "pointer" }}>
+              <label style={{ display: "flex", gap: 5, alignItems: "center", fontSize: "var(--hbx-font-min)", cursor: "pointer" }}>
                 <input type="checkbox" checked={auto} onChange={(e) => setAuto(e.target.checked)} />
                 auto (30s)
               </label>
-              <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem" }} disabled={loading} onClick={atualizar}>
+              <button className="btn-ghost" style={{ minHeight: 26, fontSize: "var(--hbx-font-min)" }} disabled={loading} onClick={atualizar}>
                 {loading ? "…" : "Atualizar"}
               </button>
             </div>

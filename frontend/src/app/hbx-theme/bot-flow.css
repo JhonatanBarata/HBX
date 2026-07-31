@@ -43,8 +43,8 @@
   justify-content: space-between;
   gap: 10px;
 }
-.bfc-progress-count { font-family: var(--font-display); font-size: 0.74rem; font-weight: 800; color: var(--text-strong); }
-.bfc-progress-pct { font-size: 0.72rem; font-weight: 700; color: var(--hbx-brand-strong); }
+.bfc-progress-count { font-family: var(--font-display); font-size: var(--hbx-font-min); font-weight: 800; color: var(--text-strong); }
+.bfc-progress-pct { font-size: var(--hbx-font-min); font-weight: 700; color: var(--hbx-brand-strong); }
 .bfc-progress-track {
   height: 8px;
   border-radius: 999px;
@@ -154,7 +154,7 @@
   border-radius: 999px;
   border: 1px dashed var(--border-strong);
   color: var(--text-muted);
-  font-size: 0.58rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
   letter-spacing: 0.02em;
   text-transform: uppercase;
@@ -186,7 +186,7 @@
   padding: 10px 12px;
 }
 .bfc-node-head strong {
-  font-size: 0.78rem;
+  font-size: var(--hbx-font-min);
   font-family: var(--font-display);
 }
 
@@ -204,7 +204,7 @@
 
 .bfc-node-body {
   padding: 0 12px 10px;
-  font-size: 0.7rem;
+  font-size: var(--hbx-font-min);
   color: var(--text-body);
   line-height: 1.45;
   display: -webkit-box;
@@ -231,7 +231,7 @@
 .bfc-node-foot {
   padding: 7px 12px;
   border-top: 1px solid var(--border-hairline);
-  font-size: 0.62rem;
+  font-size: var(--hbx-font-min);
   color: var(--text-muted);
   display: flex;
   justify-content: space-between;
@@ -250,7 +250,7 @@
   border: 1px solid var(--border-hairline);
   background: var(--hbx-surface-soft);
   color: var(--text-muted);
-  font-size: 0.6rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
 }
 .bfc-node--lit .bfc-node-badge { color: var(--hbx-brand-strong); border-color: var(--login-accent); }
@@ -268,7 +268,7 @@
   border-radius: 999px;
   border: 1px solid var(--border-hairline);
   background: color-mix(in srgb, var(--hbx-surface) 86%, transparent);
-  font-size: 0.62rem;
+  font-size: var(--hbx-font-min);
   color: var(--text-muted);
   z-index: 5;
 }

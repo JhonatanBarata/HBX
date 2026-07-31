@@ -118,19 +118,19 @@ export function JanelaOnline() {
     <React.Fragment>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <div style={cardStyle}>
-          <span style={{ fontSize: "0.66rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Online agora</span>
+          <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Online agora</span>
           <strong style={{ fontSize: "1.6rem", color: "var(--hbx-brand-strong)" }}>{counters ? counters.onlineNow : "—"}</strong>
-          <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>ativos nos últimos 5 min</span>
+          <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>ativos nos últimos 5 min</span>
         </div>
         <div style={cardStyle}>
-          <span style={{ fontSize: "0.66rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Ativos (15 min)</span>
+          <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Ativos (15 min)</span>
           <strong style={{ fontSize: "1.6rem" }}>{counters ? counters.activeLast15Min : "—"}</strong>
-          <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>movimento recente</span>
+          <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>movimento recente</span>
         </div>
         <div style={cardStyle}>
-          <span style={{ fontSize: "0.66rem", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Ativos hoje</span>
+          <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Ativos hoje</span>
           <strong style={{ fontSize: "1.6rem" }}>{counters ? counters.activeToday : "—"}</strong>
-          <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>desde a meia-noite</span>
+          <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>desde a meia-noite</span>
         </div>
       </div>
 
@@ -140,15 +140,15 @@ export function JanelaOnline() {
           <div className="meta" style={{ display: "flex", gap: 10, alignItems: "center" }}>
             {error && <span style={{ fontWeight: 700, color: "var(--hbx-warning)" }}>{error}</span>}
             {data?.generatedAt && (
-              <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>
+              <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>
                 atualizado {fmtDataHora(data.generatedAt)}
               </span>
             )}
-            <label style={{ display: "flex", gap: 5, alignItems: "center", fontSize: "0.66rem", color: "var(--text-muted)", cursor: "pointer" }}>
+            <label style={{ display: "flex", gap: 5, alignItems: "center", fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", cursor: "pointer" }}>
               <input type="checkbox" checked={auto} onChange={e => setAuto(e.target.checked)} />
               auto (30s)
             </label>
-            <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem" }} disabled={loading} onClick={atualizar}>
+            <button className="btn-ghost" style={{ minHeight: 26, fontSize: "var(--hbx-font-min)" }} disabled={loading} onClick={atualizar}>
               {loading ? "…" : "Atualizar"}
             </button>
           </div>
@@ -184,7 +184,7 @@ export function JanelaOnline() {
                     <td>{roleLabel(s.role, s.isSystemMaster)}</td>
                     <td><span className={p.cls}>{p.label}</span></td>
                     <td>{fmtDataHora(s.lastSeenAt)}</td>
-                    <td style={{ fontSize: "0.66rem", color: "var(--text-muted)", whiteSpace: "normal", maxWidth: 220 }}>{s.userAgent || "—"}</td>
+                    <td style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", whiteSpace: "normal", maxWidth: 220 }}>{s.userAgent || "—"}</td>
                   </tr>
                 );
               })}

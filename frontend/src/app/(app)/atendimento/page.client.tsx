@@ -2228,8 +2228,8 @@ export function AtendimentoClient() {
                     {convo && convoMode === "shared" && (
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         {assignedName
-                          ? <span className="tag teal" style={{ fontSize: "0.62rem" }}>Atendimento com: {assignedName}</span>
-                          : <span className="tag warn" style={{ fontSize: "0.62rem" }}>Sem atendente</span>}
+                          ? <span className="tag teal" style={{ fontSize: "var(--hbx-font-min)" }}>Atendimento com: {assignedName}</span>
+                          : <span className="tag warn" style={{ fontSize: "var(--hbx-font-min)" }}>Sem atendente</span>}
                         {(souAdmin || String(convo.assignedUserId || "") === meuUserId) && (
                           <span style={{ position: "relative", display: "inline-flex" }}>
                             <button
@@ -2260,7 +2260,7 @@ export function AtendimentoClient() {
                     )}
                     {assignMsg && <span className="tag red">{assignMsg}</span>}
                     <span ref={acoesWrapRef} style={{ position: "relative", display: "inline-flex" }}>
-                      <button className={"btn-ghost" + (acoesOpen ? " on" : "")} style={{ minHeight: 30, fontSize: "0.7rem" }}
+                      <button className={"btn-ghost" + (acoesOpen ? " on" : "")} style={{ minHeight: 30, fontSize: "var(--hbx-font-min)" }}
                         disabled={!convo} onClick={() => { setAcoesOpen(o => !o); setAcaoMsg(null); }} aria-expanded={acoesOpen}>Ações ▾</button>
                       {acoesOpen && convo && (
                         <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 6px)", zIndex: 30, minWidth: 190, padding: 6, display: "grid", gap: 2 }}>
@@ -2337,7 +2337,7 @@ export function AtendimentoClient() {
                 )}
                 <div className="composer" data-tut="atend-responder">
                   {sendError && (
-                    <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-danger)" }}>{sendError}</div>
+                    <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--hbx-danger)" }}>{sendError}</div>
                   )}
                   {replyTo && (
                     <div className="composer-quote">
@@ -2384,7 +2384,7 @@ export function AtendimentoClient() {
                     convoMode === "shared" ? (
                       /* Shared + atribuída a outra pessoa → botão Assumir */
                       <div className="at-claim-bar">
-                        <span style={{ flex: 1, fontSize: "0.73rem" }}>
+                        <span style={{ flex: 1, fontSize: "var(--hbx-font-min)" }}>
                           Atendimento com <strong>{assignedName || "outro atendente"}</strong>.
                         </span>
                         <button className="btn-ghost btn-xs" disabled={transferBusy} onClick={() => transferirConversa(Number(meuUserId))}>
@@ -2500,7 +2500,7 @@ export function AtendimentoClient() {
                       <form onSubmit={createQuick} style={{ display: "grid", gap: 6, padding: "8px 6px 4px", borderTop: "1px solid var(--border-hairline)" }}>
                         <input className="field-dark" placeholder="Título" maxLength={60} value={qrForm.title} onChange={e => setQrForm(f => ({ ...f, title: e.target.value }))} />
                         <input className="field-dark" placeholder="Texto da mensagem" maxLength={1000} value={qrForm.content} onChange={e => setQrForm(f => ({ ...f, content: e.target.value }))} />
-                        <button className="btn-ghost" type="submit" disabled={qrBusy} style={{ minHeight: 32, fontSize: "0.7rem" }}>{qrBusy ? "Salvando…" : "Salvar mensagem rápida"}</button>
+                        <button className="btn-ghost" type="submit" disabled={qrBusy} style={{ minHeight: 32, fontSize: "var(--hbx-font-min)" }}>{qrBusy ? "Salvando…" : "Salvar mensagem rápida"}</button>
                       </form>
                     </div>
                   )}
@@ -2602,7 +2602,7 @@ export function AtendimentoClient() {
                     {/* A ficha COMPLETA do lead (CNPJ, sócios, score, dor,
                         multi-contatos) mora na Central do Lead — um lugar só. */}
                     {card?.lead?.id && (
-                      <button className="btn-ghost" style={{ minHeight: 34, fontSize: "0.7rem" }}
+                      <button className="btn-ghost" style={{ minHeight: 34, fontSize: "var(--hbx-font-min)" }}
                         onClick={() => abrirNoVendas(String(card.lead!.id))}>
                         Abrir ficha completa no Vendas
                       </button>
@@ -2694,9 +2694,9 @@ export function AtendimentoClient() {
               Nova conversa
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setNovaOpen(false)}>✕</span>
             </h3>
-            {novaMsg && <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{novaMsg}</div>}
+            {novaMsg && <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{novaMsg}</div>}
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Telefone (com DDD) *</label>
+              <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Telefone (com DDD) *</label>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ fontWeight: 700, color: "var(--text-muted)" }}>+55</span>
                 <input className="field-dark" style={{ flex: 1 }} type="tel" inputMode="tel" required autoFocus maxLength={16} placeholder="(  )  ____-____" value={novaForm.phone}
@@ -2704,7 +2704,7 @@ export function AtendimentoClient() {
               </div>
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Nome (opcional)</label>
+              <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Nome (opcional)</label>
               <input className="field-dark" type="text" maxLength={120} value={novaForm.name}
                 onChange={e => setNovaForm(f => ({ ...f, name: e.target.value }))} />
             </div>

@@ -909,7 +909,7 @@ function MarcarObrigacaoCard({
       <div className="ctb-wiz-comprov">
         <div className="ctb-wiz-comprov-head">
           <span>Comprovantes {comprovantes > 0 ? `(${comprovantes})` : ""}</span>
-          <button type="button" className="btn-ghost" style={{ minHeight: 28, fontSize: "0.62rem" }} onClick={() => fileRef.current?.click()}>
+          <button type="button" className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }} onClick={() => fileRef.current?.click()}>
             + anexar (PDF/print)
           </button>
           <input
@@ -923,8 +923,8 @@ function MarcarObrigacaoCard({
         {(comprovList || []).map((c) => (
           <div key={c.id} className="ctb-wiz-comprov-item">
             <span className="ctb-wiz-comprov-name">{c.originalFilename}</span>
-            <button type="button" className="btn-ghost" style={{ minHeight: 24, fontSize: "0.6rem" }} onClick={() => baixar(c)}>baixar</button>
-            <button type="button" className="btn-ghost" style={{ minHeight: 24, fontSize: "0.6rem" }} onClick={() => remover(c)}>remover</button>
+            <button type="button" className="btn-ghost" style={{ minHeight: 24, fontSize: "var(--hbx-font-min)" }} onClick={() => baixar(c)}>baixar</button>
+            <button type="button" className="btn-ghost" style={{ minHeight: 24, fontSize: "var(--hbx-font-min)" }} onClick={() => remover(c)}>remover</button>
           </div>
         ))}
       </div>

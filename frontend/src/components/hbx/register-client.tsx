@@ -411,7 +411,7 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
           <div className="ok show">{done.message || `Enviamos um link de confirmação para ${done.email || email}.`}</div>
           {resendMsg && <div className="ok show">{resendMsg}</div>}
           {done.previewUrl && (
-            <a className="link" href={done.previewUrl} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", fontSize: "0.72rem" }}>
+            <a className="link" href={done.previewUrl} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", fontSize: "var(--hbx-font-min)" }}>
               Abrir e-mail de confirmação (ambiente de teste) ↗
             </a>
           )}
@@ -421,7 +421,7 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
             </button>
           ) : (
             <React.Fragment>
-              <button className="btn-ghost" type="button" onClick={reenviar} disabled={resendCooldown > 0} style={{ minHeight: 40, fontSize: "0.78rem" }}>
+              <button className="btn-ghost" type="button" onClick={reenviar} disabled={resendCooldown > 0} style={{ minHeight: 40, fontSize: "var(--hbx-font-min)" }}>
                 {resendCooldown > 0 ? `Reenviar confirmação em ${resendCooldown}s` : "Reenviar confirmação"}
               </button>
               <Link href="/login" className="btn-teal" style={{ minHeight: 44, fontSize: "0.84rem", textDecoration: "none" }}>
@@ -430,7 +430,7 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
               {/* F6 — Confirmação por WhatsApp (telefone já veio do cadastro —
                   pré-preenche pra não digitar de novo) */}
               {waStep === "idle" && (
-                <button className="btn-ghost" type="button" onClick={() => { setWaStep("phone"); setWaError(null); setWaMsg(null); if (freeTelefone) setWaPhone(freeTelefone); }} style={{ minHeight: 40, fontSize: "0.78rem" }}>
+                <button className="btn-ghost" type="button" onClick={() => { setWaStep("phone"); setWaError(null); setWaMsg(null); if (freeTelefone) setWaPhone(freeTelefone); }} style={{ minHeight: 40, fontSize: "var(--hbx-font-min)" }}>
                   Confirmar pelo WhatsApp
                 </button>
               )}
@@ -455,7 +455,7 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
                       disabled={waBusy}
                     />
                   </div>
-                  <button className="btn-teal" type="button" onClick={waSendCode} disabled={waBusy || !waPhone.trim()} style={{ minHeight: 40, fontSize: "0.78rem" }}>
+                  <button className="btn-teal" type="button" onClick={waSendCode} disabled={waBusy || !waPhone.trim()} style={{ minHeight: 40, fontSize: "var(--hbx-font-min)" }}>
                     {waBusy ? "Enviando…" : "Enviar código"}
                   </button>
                 </React.Fragment>
@@ -481,7 +481,7 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
                       disabled={waBusy}
                     />
                   </div>
-                  <button className="btn-teal" type="button" onClick={waConfirmCode} disabled={waBusy || waCode.length < 6} style={{ minHeight: 40, fontSize: "0.78rem" }}>
+                  <button className="btn-teal" type="button" onClick={waConfirmCode} disabled={waBusy || waCode.length < 6} style={{ minHeight: 40, fontSize: "var(--hbx-font-min)" }}>
                     {waBusy ? "Confirmando…" : "Confirmar código"}
                   </button>
                 </React.Fragment>
@@ -557,14 +557,14 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
           )}
           {error && error.includes("já tem conta") && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <Link href="/login" className="btn-ghost" style={{ minHeight: 38, fontSize: "0.74rem", textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>Entrar com este e-mail</Link>
-              <Link href="/reset-password" className="btn-ghost" style={{ minHeight: 38, fontSize: "0.74rem", textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>Recuperar senha</Link>
+              <Link href="/login" className="btn-ghost" style={{ minHeight: 38, fontSize: "var(--hbx-font-min)", textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>Entrar com este e-mail</Link>
+              <Link href="/reset-password" className="btn-ghost" style={{ minHeight: 38, fontSize: "var(--hbx-font-min)", textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>Recuperar senha</Link>
             </div>
           )}
           <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 44, fontSize: "0.84rem" }}>
             {busy ? "Enviando…" : "Criar conta grátis"}
           </button>
-          <p style={{ margin: "2px 0 0", fontSize: "0.62rem", lineHeight: 1.5, color: "var(--text-muted)", textAlign: "center" }}>
+          <p style={{ margin: "2px 0 0", fontSize: "var(--hbx-font-min)", lineHeight: 1.5, color: "var(--text-muted)", textAlign: "center" }}>
             Ao criar a conta, você concorda com os Termos de uso e a Política de privacidade do HBX.
           </p>
           <div className="alt">Já tem conta? {onEntrar
@@ -572,7 +572,7 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
             : <Link href="/?entrar" className="link" style={{ textDecoration: "none" }}>Entrar</Link>}</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginTop: 4 }}>
             {["Dados protegidos 24/7 com criptografia", "Conformidade LGPD", "Infraestrutura segura e estável"].map(t => (
-              <div key={t} style={{ padding: "9px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", fontSize: "0.62rem", fontWeight: 700, lineHeight: 1.4, color: "var(--text-muted)", textAlign: "center" }}>
+              <div key={t} style={{ padding: "9px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", fontSize: "var(--hbx-font-min)", fontWeight: 700, lineHeight: 1.4, color: "var(--text-muted)", textAlign: "center" }}>
                 {t}
               </div>
             ))}

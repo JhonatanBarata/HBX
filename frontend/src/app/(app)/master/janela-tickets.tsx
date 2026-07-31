@@ -92,18 +92,18 @@ export function JanelaTickets() {
           <h2>Tickets de suporte</h2>
           <div className="meta">
             {tickets ? `${tickets.length} ticket(s)` : ""}
-            <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }} onClick={() => carregar(status)}>Atualizar</button>
+            <button className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }} onClick={() => carregar(status)}>Atualizar</button>
           </div>
         </div>
         <div style={{ padding: "12px 16px 4px", display: "flex", gap: 8, flexWrap: "wrap" }}>
           {STATUS_OPCOES.map(o => (
             <button key={o.value} className="btn-ghost" onClick={() => trocarStatus(o.value)}
-              style={{ minHeight: 28, fontSize: "0.66rem", ...(o.value === status ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)", background: "var(--hbx-brand-soft)" } : {}) }}>
+              style={{ minHeight: 28, fontSize: "var(--hbx-font-min)", ...(o.value === status ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)", background: "var(--hbx-brand-soft)" } : {}) }}>
               {o.label}
             </button>
           ))}
         </div>
-        {loadError && <div style={{ padding: "8px 16px 12px", fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>}
+        {loadError && <div style={{ padding: "8px 16px 12px", fontSize: "var(--hbx-font-min)", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>}
         <div className="tbl-wrap">
           <table className="tbl">
             <thead>
@@ -135,7 +135,7 @@ export function JanelaTickets() {
             </tbody>
           </table>
         </div>
-        <div style={{ padding: "8px 16px 14px", fontSize: "0.62rem", color: "var(--text-muted)" }}>
+        <div style={{ padding: "8px 16px 14px", fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>
           Leitura espelhada do canal do Ops Control — criação e dispatch continuam máquina-a-máquina (x-owner-secret).
         </div>
       </section>
@@ -146,13 +146,13 @@ export function JanelaTickets() {
             <h2>{sel.title || sel.ticketCode || "Ticket"}</h2>
             <div className="meta"><span className={statusTag(sel.status)}>{sel.status || "—"}</span></div>
           </div>
-          <div style={{ padding: "12px 16px 16px", display: "grid", gap: 10, fontSize: "0.74rem" }}>
+          <div style={{ padding: "12px 16px 16px", display: "grid", gap: 10, fontSize: "var(--hbx-font-min)" }}>
             {sel.description && (
               <p style={{ margin: 0, lineHeight: 1.55, whiteSpace: "pre-line" }}>{sel.description}</p>
             )}
             {sel.lastCustomerMessage && (
-              <div style={{ padding: "9px 11px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", fontSize: "0.72rem", lineHeight: 1.5 }}>
-                <strong style={{ display: "block", fontSize: "0.64rem", color: "var(--text-muted)", marginBottom: 4 }}>Última mensagem do cliente</strong>
+              <div style={{ padding: "9px 11px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", fontSize: "var(--hbx-font-min)", lineHeight: 1.5 }}>
+                <strong style={{ display: "block", fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", marginBottom: 4 }}>Última mensagem do cliente</strong>
                 {sel.lastCustomerMessage}
               </div>
             )}
@@ -175,9 +175,9 @@ export function JanelaTickets() {
             </div>
             {(sel.jobs || []).length > 0 && (
               <div style={{ display: "grid", gap: 6 }}>
-                <strong style={{ fontSize: "0.72rem" }}>Jobs</strong>
+                <strong style={{ fontSize: "var(--hbx-font-min)" }}>Jobs</strong>
                 {(sel.jobs || []).map(j => (
-                  <div key={j.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem" }}>
+                  <div key={j.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "var(--hbx-font-min)" }}>
                     <span>{j.title || j.type || j.id}</span>
                     <span className={statusTag(j.status)} style={{ marginLeft: "auto" }}>{j.status || "—"}</span>
                   </div>

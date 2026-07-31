@@ -36,12 +36,12 @@
 
 .copy strong {
   font-family: var(--font-display);
-  font-size: 0.76rem;
+  font-size: var(--hbx-font-min);
 }
 
 .copy span {
   color: var(--text-muted);
-  font-size: 0.66rem;
+  font-size: var(--hbx-font-min);
   line-height: 1.4;
 }
 

@@ -75,6 +75,8 @@
 @import "./hbx-theme/assistente.css";
 /* MISSÃO F — Concierge IA (chat de busca guiada do Radar). */
 @import "./hbx-theme/concierge.css";
+/* COMEX — vendas/radar internacional (31/07) */
+@import "./hbx-theme/comex.css";
 /* S12 (MOTOR-ÚNICO) — /automacao: casca única (hub por objetivo + painel de
    status), funde bot + automações + assistente. Ver automacao.css. */
 @import "./hbx-theme/automacao.css";
@@ -172,6 +174,11 @@
    quadro. (vendas-details2.css saiu daqui em 28/07 junto com o Detalhes velho
    — o novo é hbx-theme/central-do-lead.css, importado com as cascas.) */
 @import "./hbx-theme/vendas-live.css";
+
+/* AS COSTAS DOS MÓDULOS — o verso do menu lateral (um painel por módulo). Entra
+   depois das cascas: o painel é todo em token e cada casca só acrescenta a
+   matéria dela. A Corporativa não recebe este tratamento (ordem do dono). */
+@import "./hbx-theme/costas.css";
 
 /* MOVIMENTO CENTRAL — precisa ser a última camada: transforma os overlays,
    listas, abas e páginas legados sem cada módulo inventar keyframe/timer. */

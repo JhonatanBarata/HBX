@@ -36,7 +36,7 @@
   background: var(--hbx-surface-soft);
   color: var(--text-muted);
   font-family: var(--font-body);
-  font-size: 0.66rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
   cursor: pointer;
 }
@@ -62,8 +62,8 @@
 .tpx-gcard.part { border-color: color-mix(in srgb, var(--login-accent) 38%, var(--border-hairline)); }
 .tpx-gcard.all { border-color: var(--login-accent); background: var(--hbx-brand-soft); }
 .tpx-gcard .tpx-gtext { display: grid; gap: 2px; min-width: 0; }
-.tpx-gcard .tpx-gtext b { font-size: 0.78rem; font-weight: 800; }
-.tpx-gcard .tpx-gtext small { font-size: 0.6rem; color: var(--text-muted); line-height: 1.4; }
+.tpx-gcard .tpx-gtext b { font-size: var(--hbx-font-min); font-weight: 800; }
+.tpx-gcard .tpx-gtext small { font-size: var(--hbx-font-min); color: var(--text-muted); line-height: 1.4; }
 
 /* Faixa de status do grupo: contador + sinalizador alterado */
 .tpx-gstate {

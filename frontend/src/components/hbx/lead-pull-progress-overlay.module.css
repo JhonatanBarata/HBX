@@ -90,7 +90,7 @@
   display: block;
   margin-bottom: 4px;
   font-family: var(--font-mono);
-  font-size: 0.64rem;
+  font-size: var(--hbx-font-min);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -109,7 +109,7 @@
 .heading p {
   margin: 6px 0 0;
   max-width: 60ch;
-  font-size: 0.78rem;
+  font-size: var(--hbx-font-min);
   line-height: 1.5;
   color: var(--text-muted);
 }
@@ -123,7 +123,7 @@
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius-pill);
   background: var(--hbx-surface-raised);
-  font-size: 0.68rem;
+  font-size: var(--hbx-font-min);
   font-weight: 700;
   color: var(--text-body);
   white-space: nowrap;
@@ -216,7 +216,7 @@
 
 .progressValue span {
   font-family: var(--font-mono);
-  font-size: 0.68rem;
+  font-size: var(--hbx-font-min);
   color: var(--text-muted);
 }
 
@@ -225,7 +225,7 @@
   align-items: flex-start;
   gap: 8px;
   max-width: 290px;
-  font-size: 0.68rem;
+  font-size: var(--hbx-font-min);
   line-height: 1.45;
   color: var(--text-muted);
   text-align: center;
@@ -343,7 +343,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.76rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
   color: var(--text-strong);
 }
@@ -352,7 +352,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.66rem;
+  font-size: var(--hbx-font-min);
   color: var(--text-muted);
 }
 
@@ -385,7 +385,7 @@
 .currentLabel {
   grid-column: 1 / -1;
   font-family: var(--font-mono);
-  font-size: 0.61rem;
+  font-size: var(--hbx-font-min);
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -403,7 +403,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.78rem;
+  font-size: var(--hbx-font-min);
   color: var(--text-strong);
 }
 
@@ -412,7 +412,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.67rem;
+  font-size: var(--hbx-font-min);
   color: var(--text-muted);
 }
 
@@ -439,7 +439,7 @@
 }
 
 .metric span {
-  font-size: 0.62rem;
+  font-size: var(--hbx-font-min);
   color: var(--text-muted);
 }
 
@@ -447,7 +447,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.74rem;
+  font-size: var(--hbx-font-min);
   color: var(--text-strong);
 }
 
@@ -463,7 +463,7 @@
   border: 1px solid color-mix(in srgb, var(--hbx-brand) 24%, var(--border-hairline));
   border-radius: var(--radius-pill);
   background: var(--hbx-brand-soft);
-  font-size: 0.7rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
   color: var(--hbx-brand);
 }

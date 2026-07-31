@@ -2416,7 +2416,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
               <div className="sub" style={{ marginTop: 4 }}>Contato revelado ao puxar este lead.</div>
             )}
             {lead.opportunityReason && (
-              <p style={{ margin: "8px 0 0", fontSize: "0.72rem", lineHeight: 1.5 }}>
+              <p style={{ margin: "8px 0 0", fontSize: "var(--hbx-font-min)", lineHeight: 1.5 }}>
                 {lead.opportunityReason}
               </p>
             )}
@@ -2434,7 +2434,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
                 <span className={`radar2-fit${lead.fitScore >= 60 ? " radar2-fit--hi" : ""}`}>Fit {lead.fitScore}</span>
               </div>
             )}
-            {waStartError && <p style={{ marginTop: 8, fontSize: "0.7rem", color: "var(--hbx-danger)" }}>{waStartError}</p>}
+            {waStartError && <p style={{ marginTop: 8, fontSize: "var(--hbx-font-min)", color: "var(--hbx-danger)" }}>{waStartError}</p>}
           </>
         }
         actions={
@@ -3167,7 +3167,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
                   </span>
                   <span className="row-dense__temp">
                     {row.opportunityScore != null && row.opportunityScore > 0 ? (
-                      <span className={"score-ring" + (row.opportunityScore >= 60 ? " hi" : " mid")} style={{ width: 26, height: 26, fontSize: "0.6rem" }}>
+                      <span className={"score-ring" + (row.opportunityScore >= 60 ? " hi" : " mid")} style={{ width: 26, height: 26, fontSize: "var(--hbx-font-min)" }}>
                         {row.opportunityScore}
                       </span>
                     ) : "—"}

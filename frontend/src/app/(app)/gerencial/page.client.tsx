@@ -475,7 +475,7 @@ export function GerencialClient() {
             <section className="panel">
               <div style={{ padding: 18 }}>
                 <strong style={{ fontSize: "0.86rem" }}>Área do administrador</strong>
-                <p style={{ margin: "6px 0 0", fontSize: "0.74rem", color: "var(--text-muted)" }}>
+                <p style={{ margin: "6px 0 0", fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>
                   Produtos, comissões e governança da equipe são geridos pelo Admin da empresa.
                 </p>
               </div>
@@ -521,17 +521,17 @@ export function GerencialClient() {
                         {(produtos || []).map(p => (
                           <tr key={p.id} style={{ cursor: "default" }}>
                             <td><div className="co"><strong>{p.name}</strong>{p.description ? <span className="sub2" style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.description}</span> : null}</div></td>
-                            <td style={{ fontFamily: "var(--font-mono)", fontSize: "0.68rem" }}>{p.sku || "—"}</td>
+                            <td style={{ fontFamily: "var(--font-mono)", fontSize: "var(--hbx-font-min)" }}>{p.sku || "—"}</td>
                             <td style={{ fontFamily: "var(--font-mono)" }}>{fmtPreco(precoDe(p))}</td>
                             <td>{cicloLabel(p.billingCycle)}</td>
                             <td><span className={"tag" + (p.status === "active" ? " teal" : " warn")}>{p.status === "active" ? "Ativo" : p.status === "archived" ? "Arquivado" : p.status || "—"}</span></td>
                             <td>
                               <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
-                                <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.68rem" }} onClick={() => abrirEditar(p)}>Editar</button>
+                                <button className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }} onClick={() => abrirEditar(p)}>Editar</button>
                                 {arquivarArm === p.id ? (
-                                  <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.68rem", color: "var(--hbx-danger)", borderColor: "color-mix(in srgb, var(--hbx-danger) 40%, transparent)" }} onClick={() => arquivar(p)} disabled={busy}>Confirmar</button>
+                                  <button className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)", color: "var(--hbx-danger)", borderColor: "color-mix(in srgb, var(--hbx-danger) 40%, transparent)" }} onClick={() => arquivar(p)} disabled={busy}>Confirmar</button>
                                 ) : (
-                                  <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.68rem" }} onClick={() => setArquivarArm(p.id)} disabled={p.status === "archived"}>Arquivar</button>
+                                  <button className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }} onClick={() => setArquivarArm(p.id)} disabled={p.status === "archived"}>Arquivar</button>
                                 )}
                               </div>
                             </td>
@@ -546,7 +546,7 @@ export function GerencialClient() {
               {aba === 1 && (
                 <React.Fragment>
                   {comissoesErro && (
-                    <section className="panel"><div style={{ padding: 16, fontSize: "0.74rem", color: "var(--hbx-danger)", fontWeight: 600 }}>{comissoesErro}</div></section>
+                    <section className="panel"><div style={{ padding: 16, fontSize: "var(--hbx-font-min)", color: "var(--hbx-danger)", fontWeight: 600 }}>{comissoesErro}</div></section>
                   )}
 
                   {(casos?.length ?? 0) > 0 && (
@@ -579,7 +579,7 @@ export function GerencialClient() {
                                       const armado = casoArm === `${c.leadId}:${r}`;
                                       return (
                                         <button key={r} className="btn-ghost" disabled={casoBusy}
-                                          style={{ minHeight: 26, fontSize: "0.64rem", ...(armado ? { color: "var(--hbx-danger)", borderColor: "color-mix(in srgb, var(--hbx-danger) 40%, transparent)" } : r === "kept" ? { color: "var(--hbx-brand-strong)" } : {}) }}
+                                          style={{ minHeight: 26, fontSize: "var(--hbx-font-min)", ...(armado ? { color: "var(--hbx-danger)", borderColor: "color-mix(in srgb, var(--hbx-danger) 40%, transparent)" } : r === "kept" ? { color: "var(--hbx-brand-strong)" } : {}) }}
                                           onClick={() => armado ? decidirCaso(c.leadId, r) : setCasoArm(`${c.leadId}:${r}`)}>
                                           {armado ? `Confirmar ${rotulo.toLowerCase()}` : rotulo}
                                         </button>
@@ -634,7 +634,7 @@ export function GerencialClient() {
                               <td><span className="tag teal">{c.saleStatusLabel || "—"}</span></td>
                               <td style={{ fontFamily: "var(--font-mono)" }}>{fmtBRL(c.saleValue)}</td>
                               <td style={{ fontFamily: "var(--font-mono)", color: "var(--hbx-brand-strong)", fontWeight: 700 }}>{fmtBRL(c.commissionAmount)}</td>
-                              <td style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{fmtData(c.commissionDueAt)}</td>
+                              <td style={{ fontFamily: "var(--font-mono)", fontSize: "var(--hbx-font-min)" }}>{fmtData(c.commissionDueAt)}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -654,7 +654,7 @@ export function GerencialClient() {
                             {(comissoes?.clients?.pendingActivation || []).map(c => (
                               <tr key={c.leadId} style={{ cursor: "default" }}>
                                 <td><strong>{c.name}</strong></td>
-                                <td style={{ fontFamily: "var(--font-mono)", fontSize: "0.72rem" }}>{fmtBRL(c.saleValue)}</td>
+                                <td style={{ fontFamily: "var(--font-mono)", fontSize: "var(--hbx-font-min)" }}>{fmtBRL(c.saleValue)}</td>
                                 <td><span className="tag warn">{c.commissionStatusLabel || "Pendente"}</span></td>
                               </tr>
                             ))}
@@ -678,10 +678,10 @@ export function GerencialClient() {
                                 <td>
                                   {comissoes?.canPayout && p.status === "paid" && (
                                     cancelArm === p.id ? (
-                                      <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.64rem", color: "var(--hbx-danger)", borderColor: "color-mix(in srgb, var(--hbx-danger) 40%, transparent)" }}
+                                      <button className="btn-ghost" style={{ minHeight: 26, fontSize: "var(--hbx-font-min)", color: "var(--hbx-danger)", borderColor: "color-mix(in srgb, var(--hbx-danger) 40%, transparent)" }}
                                         onClick={() => cancelarPayout(p.id)} disabled={payoutBusy}>Confirmar</button>
                                     ) : (
-                                      <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.64rem" }} onClick={() => setCancelArm(p.id)}>Cancelar</button>
+                                      <button className="btn-ghost" style={{ minHeight: 26, fontSize: "var(--hbx-font-min)" }} onClick={() => setCancelArm(p.id)}>Cancelar</button>
                                     )
                                   )}
                                 </td>
@@ -720,9 +720,9 @@ export function GerencialClient() {
                         {(cands || []).map(c => (
                           <tr key={c.id} style={{ cursor: "default", opacity: c.status === "pending" ? 1 : 0.65 }}>
                             <td><strong>{c.name}</strong><span className="sub2" style={{ display: "block" }}>{fmtData(c.createdAt)}</span></td>
-                            <td style={{ fontFamily: "var(--font-mono)", fontSize: "0.68rem" }}>{c.phone || "—"}{c.email ? <span style={{ display: "block" }}>{c.email}</span> : null}</td>
+                            <td style={{ fontFamily: "var(--font-mono)", fontSize: "var(--hbx-font-min)" }}>{c.phone || "—"}{c.email ? <span style={{ display: "block" }}>{c.email}</span> : null}</td>
                             <td>{c.city || "—"}</td>
-                            <td style={{ maxWidth: 220 }}><span style={{ display: "block", fontSize: "0.68rem", lineHeight: 1.4, maxHeight: 54, overflow: "hidden" }}>{c.experience || "—"}</span></td>
+                            <td style={{ maxWidth: 220 }}><span style={{ display: "block", fontSize: "var(--hbx-font-min)", lineHeight: 1.4, maxHeight: 54, overflow: "hidden" }}>{c.experience || "—"}</span></td>
                             <td>{c.resumeUrl ? <a href={c.resumeUrl} target="_blank" rel="noopener noreferrer">abrir ↗</a> : "—"}</td>
                             <td><span className={"tag" + (c.status === "pending" ? " warn" : c.status === "approved" ? " teal" : "")}>{c.status === "pending" ? "Pendente" : c.status === "approved" ? "Aprovada" : "Rejeitada"}</span></td>
                             <td>
@@ -733,7 +733,7 @@ export function GerencialClient() {
                                     const armado = candArm === `${c.id}:${a}`;
                                     return (
                                       <button key={a} className="btn-ghost" disabled={candBusy}
-                                        style={{ minHeight: 26, fontSize: "0.64rem", ...(armado ? { color: "var(--hbx-danger)", borderColor: "color-mix(in srgb, var(--hbx-danger) 40%, transparent)" } : a === "approve" ? { color: "var(--hbx-brand-strong)" } : {}) }}
+                                        style={{ minHeight: 26, fontSize: "var(--hbx-font-min)", ...(armado ? { color: "var(--hbx-danger)", borderColor: "color-mix(in srgb, var(--hbx-danger) 40%, transparent)" } : a === "approve" ? { color: "var(--hbx-brand-strong)" } : {}) }}
                                         onClick={() => armado ? revisarCandidatura(c.id, a) : setCandArm(`${c.id}:${a}`)}>
                                         {armado ? `Confirmar` : rotulo}
                                       </button>
@@ -752,7 +752,7 @@ export function GerencialClient() {
 
               {aba === 3 && (
                 <section className="panel">
-                  <div style={{ padding: 18, fontSize: "0.76rem", color: "var(--text-muted)" }}>
+                  <div style={{ padding: 18, fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>
                     Visão geral chega na sequência — o backend já está pronto (GET /gerencial/overview).
                   </div>
                 </section>
@@ -805,7 +805,7 @@ export function GerencialClient() {
                                     <Av name={nomeMembro} size={28} />
                                     <div>
                                       <strong>{nomeMembro}</strong>
-                                      <div style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>{m.isActive === false ? "Inativo" : "Ativo"}</div>
+                                      <div style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>{m.isActive === false ? "Inativo" : "Ativo"}</div>
                                     </div>
                                   </div>
                                 </td>
@@ -813,9 +813,9 @@ export function GerencialClient() {
                                 <td><span className={"tag" + (ehAdmin ? " teal" : "")}>{teamOperationalLabel(m)}</span></td>
                                 <td>
                                   <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", flexWrap: "wrap" }}>
-                                    <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.68rem" }}
+                                    <button className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }}
                                       onClick={() => { setTeamMsg(null); abrirAcessos(m); }}>Acessos</button>
-                                    <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.68rem" }}
+                                    <button className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }}
                                       onClick={() => { setTeamMsg(null); abrirGerir(m); }}>Gerenciar</button>
                                   </div>
                                 </td>
@@ -879,7 +879,7 @@ export function GerencialClient() {
             <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800 }}>
               Excluir vendedor
             </h3>
-            <p style={{ margin: 0, fontSize: "0.78rem", lineHeight: 1.5, color: "var(--text-muted)" }}>
+            <p style={{ margin: 0, fontSize: "var(--hbx-font-min)", lineHeight: 1.5, color: "var(--text-muted)" }}>
               Tem certeza que deseja excluir <b>{excluirAlvo.name || excluirAlvo.username || excluirAlvo.email || `Usuário ${excluirAlvo.id}`}</b> definitivamente?
               Esta ação não pode ser desfeita.
             </p>
@@ -903,14 +903,14 @@ export function GerencialClient() {
               Marcar comissões como pagas
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setPayoutOpen(false)}>✕</span>
             </h3>
-            <p style={{ margin: 0, fontSize: "0.68rem", lineHeight: 1.5, color: "var(--text-muted)" }}>
+            <p style={{ margin: 0, fontSize: "var(--hbx-font-min)", lineHeight: 1.5, color: "var(--text-muted)" }}>
               Gera um payout com as comissões LIBERADAS e VENCIDAS (o D+{comissoes?.settings?.dueBusinessDays ?? 3} úteis já passou).
             </p>
             {payoutMsg && !payoutMsg.startsWith("✓") && (
-              <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{payoutMsg}</div>
+              <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{payoutMsg}</div>
             )}
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Vendedor</label>
+              <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Vendedor</label>
               <select className="select-dark" value={payoutForm.sellerUserId}
                 onChange={e => setPayoutForm(f => ({ ...f, sellerUserId: e.target.value }))} style={{ width: "100%" }}>
                 <option value="">Todos os vendedores</option>
@@ -921,14 +921,14 @@ export function GerencialClient() {
             </div>
             <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
               <div style={{ flex: 1 }}>
-                <strong style={{ fontSize: "0.76rem" }}>Incluir não vencidas</strong>
-                <div style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>Paga também o que ainda está dentro do prazo D+{comissoes?.settings?.dueBusinessDays ?? 3}.</div>
+                <strong style={{ fontSize: "var(--hbx-font-min)" }}>Incluir não vencidas</strong>
+                <div style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Paga também o que ainda está dentro do prazo D+{comissoes?.settings?.dueBusinessDays ?? 3}.</div>
               </div>
               <button type="button" className={"sw" + (payoutForm.includeNotYetDue ? " on" : "")} role="switch" aria-checked={payoutForm.includeNotYetDue}
                 onClick={() => setPayoutForm(f => ({ ...f, includeNotYetDue: !f.includeNotYetDue }))}><i></i></button>
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Referência</label>
+              <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Referência</label>
               <input className="field-dark" maxLength={120}
                 value={payoutForm.referenceLabel} onChange={e => setPayoutForm(f => ({ ...f, referenceLabel: e.target.value }))} />
             </div>
@@ -948,32 +948,32 @@ export function GerencialClient() {
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setModalOpen(false)}>✕</span>
             </h3>
             {msg && !msg.startsWith("✓") && (
-              <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{msg}</div>
+              <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{msg}</div>
             )}
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Nome *</label>
+              <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Nome *</label>
               <input className="field-dark" required maxLength={140} value={form.name}
                 onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Código (SKU)</label>
+                <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Código (SKU)</label>
                 <input className="field-dark" maxLength={80} placeholder="opcional" value={form.sku}
                   onChange={e => setForm(f => ({ ...f, sku: e.target.value }))} />
               </div>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Preço (R$) *</label>
+                <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Preço (R$) *</label>
                 <input className="field-dark" type="number" min={0} step="0.01" required value={form.preco}
                   onChange={e => setForm(f => ({ ...f, preco: e.target.value }))} />
               </div>
             </div>
-            <p style={{ margin: 0, fontSize: "0.62rem", lineHeight: 1.5, color: "var(--text-muted)" }}>
+            <p style={{ margin: 0, fontSize: "var(--hbx-font-min)", lineHeight: 1.5, color: "var(--text-muted)" }}>
               O preço acima é o BASE (mensal). Ciclo de cobrança é escolha do CLIENTE no pagamento
               (anual tem o desconto do catálogo) — e a comissão é o % acordado com cada vendedor,
               calculado sobre o que o cliente pagou de verdade.
             </p>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Descrição</label>
+              <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Descrição</label>
               <textarea className="field-dark" rows={3} maxLength={1000} style={{ resize: "vertical", padding: "9px 12px" }}
                 value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
             </div>

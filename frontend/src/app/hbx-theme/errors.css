@@ -42,7 +42,7 @@
 
 .hbx-error__ref {
   margin: 2px 0 0;
-  font-size: 0.72rem;
+  font-size: var(--hbx-font-min);
   letter-spacing: 0.02em;
   color: var(--color-ink-muted);
   font-family: "IBM Plex Mono", ui-monospace, monospace;

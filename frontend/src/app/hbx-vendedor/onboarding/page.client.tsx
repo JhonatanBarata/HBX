@@ -175,18 +175,18 @@ export function SellerOnboardingClient() {
                 return (
                   <div key={doc.kind} style={{ display: "flex", gap: 10, alignItems: "center", padding: "10px 12px", borderRadius: "var(--radius-md)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)" }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <strong style={{ fontSize: "0.78rem", display: "block" }}>{doc.label}</strong>
-                      <span style={{ fontSize: "0.64rem", color: enviado ? "var(--hbx-brand-strong)" : "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
+                      <strong style={{ fontSize: "var(--hbx-font-min)", display: "block" }}>{doc.label}</strong>
+                      <span style={{ fontSize: "var(--hbx-font-min)", color: enviado ? "var(--hbx-brand-strong)" : "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
                         {enviado ? `✓ ${doc.filename || "recebido"}` : "Pendente — PDF, JPG ou PNG (até 5 MB)"}
                       </span>
                     </div>
                     {enviado && !confirmado ? (
-                      <button type="button" className="btn-ghost" style={{ minHeight: 30, fontSize: "0.68rem", color: "var(--hbx-danger)" }}
+                      <button type="button" className="btn-ghost" style={{ minHeight: 30, fontSize: "var(--hbx-font-min)", color: "var(--hbx-danger)" }}
                         disabled={busyKind !== null} onClick={() => removerArquivo(doc.kind)}>
                         {busyKind === doc.kind ? "Removendo…" : "Trocar"}
                       </button>
                     ) : !enviado ? (
-                      <label className="btn-ghost" style={{ minHeight: 30, fontSize: "0.68rem", display: "inline-flex", alignItems: "center", cursor: busyKind ? "default" : "pointer" }}>
+                      <label className="btn-ghost" style={{ minHeight: 30, fontSize: "var(--hbx-font-min)", display: "inline-flex", alignItems: "center", cursor: busyKind ? "default" : "pointer" }}>
                         {busyKind === doc.kind ? "Enviando…" : "Escolher arquivo"}
                         <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} disabled={busyKind !== null}
                           onChange={e => { enviarArquivo(doc.kind, e.target.files?.[0]); e.target.value = ""; }} />

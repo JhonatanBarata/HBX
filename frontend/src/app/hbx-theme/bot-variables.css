@@ -45,7 +45,7 @@
 
 .bot-vars-hint {
   margin: 0;
-  font-size: 0.72rem;
+  font-size: var(--hbx-font-min);
   line-height: 1.4;
   color: var(--text-muted);
 }
@@ -62,7 +62,7 @@
 
 .bot-vars-empty {
   margin: 0;
-  font-size: 0.78rem;
+  font-size: var(--hbx-font-min);
   color: var(--text-muted);
 }
 
@@ -75,7 +75,7 @@
 .bot-vars-group-title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 0.66rem;
+  font-size: var(--hbx-font-min);
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -133,7 +133,7 @@
 }
 
 .bot-vars-req {
-  font-size: 0.6rem;
+  font-size: var(--hbx-font-min);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -145,7 +145,7 @@
 
 .bot-vars-token {
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: var(--hbx-font-min);
   color: var(--text-strong);
   background: var(--surface-recessed);
   border: 1px solid var(--border-hairline);
@@ -155,14 +155,14 @@
 }
 
 .bot-vars-example {
-  font-size: 0.72rem;
+  font-size: var(--hbx-font-min);
   line-height: 1.35;
   color: var(--text-muted);
   font-style: italic;
 }
 
 .bot-vars-desc {
-  font-size: 0.72rem;
+  font-size: var(--hbx-font-min);
   line-height: 1.4;
   color: var(--text-muted);
 }

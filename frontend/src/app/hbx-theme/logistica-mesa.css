@@ -34,7 +34,7 @@
 .log-triage__head strong,
 .log-board__head strong {
   color: var(--text-strong);
-  font-size: 0.78rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
 }
 
@@ -48,7 +48,7 @@
   border-radius: 999px;
   background: var(--hbx-brand-soft);
   color: var(--text-strong);
-  font-size: 0.68rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
@@ -59,7 +59,7 @@
 .log-triage__limpo {
   margin: 0;
   color: var(--text-muted);
-  font-size: 0.72rem;
+  font-size: var(--hbx-font-min);
 }
 .log-triage__list { display: grid; gap: 6px; }
 
@@ -81,29 +81,29 @@
 .log-triage__top { display: flex; align-items: center; gap: 8px; }
 .log-triage__tag {
   color: var(--text-body);
-  font-size: 0.62rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 /* A GRAVIDADE é a tarja de 3px + a etiqueta escrita; a cor do texto miúdo não
    carrega o recado sozinha (âmbar em 8px sobre superfície clara dá 2,3:1). */
-.log-triage__what { color: var(--text-strong); font-size: 0.74rem; font-weight: 800; }
-.log-triage__why { color: var(--text-body); font-size: 0.7rem; line-height: 1.45; }
+.log-triage__what { color: var(--text-strong); font-size: var(--hbx-font-min); font-weight: 800; }
+.log-triage__why { color: var(--text-body); font-size: var(--hbx-font-min); line-height: 1.45; }
 .log-triage__act { flex: none; justify-self: end; }
 
 /* ── O tabuleiro ───────────────────────────────────────────── */
-.log-board__hint { color: var(--text-body); font-size: 0.68rem; font-weight: 700; }
+.log-board__hint { color: var(--text-body); font-size: var(--hbx-font-min); font-weight: 700; }
 .log-board__err {
   padding: 3px 9px;
   border-radius: 999px;
   background: var(--hbx-danger-soft);
   color: var(--hbx-danger);
-  font-size: 0.68rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
 }
 .log-board__lanes { display: grid; gap: 6px; }
-.log-board__foot { margin: 0; color: var(--text-body); font-size: 0.66rem; line-height: 1.45; }
+.log-board__foot { margin: 0; color: var(--text-body); font-size: var(--hbx-font-min); line-height: 1.45; }
 
 .log-lane {
   display: grid;
@@ -128,7 +128,7 @@
   border-radius: 10px;
   background: var(--hbx-brand);
   color: var(--hbx-action-ink);
-  font-size: 0.66rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
 }
 .log-lane.is-orfa .log-lane__badge { background: var(--surface-raised); color: var(--text-body); }
@@ -136,12 +136,12 @@
 .log-lane__who b {
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 0.74rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.log-lane__who span { color: var(--text-body); font-size: 0.64rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.log-lane__who span { color: var(--text-body); font-size: var(--hbx-font-min); font-weight: 700; font-variant-numeric: tabular-nums; }
 
 .log-lane__track {
   display: flex;
@@ -161,7 +161,7 @@
   flex: none;
   padding: 0 10px;
   color: var(--hbx-brand-strong, var(--hbx-brand));
-  font-size: 0.64rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
   white-space: nowrap;
 }
@@ -198,14 +198,14 @@
   border-radius: 7px;
   background: var(--surface-recessed);
   color: var(--text-body);
-  font-size: 0.6rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
 .log-strip__main { display: grid; gap: 1px; min-width: 0; }
 .log-strip__main b {
   overflow: hidden;
-  font-size: 0.7rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -213,7 +213,7 @@
 .log-strip__main span {
   overflow: hidden;
   color: var(--text-body);
-  font-size: 0.63rem;
+  font-size: var(--hbx-font-min);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   text-overflow: ellipsis;
@@ -231,7 +231,7 @@
   place-items: center;
   padding: 1px 5px;
   border-radius: 999px;
-  font-size: 0.6rem;
+  font-size: var(--hbx-font-min);
   font-weight: 800;
 }
 /* Chip de cobrança: o âmbar é o FUNDO, a tinta é a do texto — âmbar como tinta
@@ -325,13 +325,13 @@
 .log-command__single-view {
   color: var(--text-strong);
   font-family: var(--font-display);
-  font-size: 0.74rem;
+  font-size: var(--hbx-font-min);
   line-height: 1.15;
 }
 
 .log-command__copy small {
   color: var(--text-muted);
-  font-size: 0.5rem;
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   letter-spacing: 0.035em;
   text-transform: uppercase;
@@ -359,7 +359,7 @@
   min-height: 26px;
   padding: 0 5px;
   border-radius: var(--radius-sm);
-  font-size: 0.56rem;
+  font-size: var(--hbx-font-min);
 }
 
 .log-command__single-view {
@@ -370,7 +370,7 @@
 .log-command__updated {
   margin-left: auto;
   color: var(--text-muted);
-  font-size: 0.54rem;
+  font-size: var(--hbx-font-min);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -395,7 +395,7 @@
 .log-command__build {
   gap: 5px;
   padding-inline: 9px;
-  font-size: 0.6rem;
+  font-size: var(--hbx-font-min);
   white-space: nowrap;
 }
 
@@ -459,7 +459,7 @@
   background: transparent;
   color: var(--text-muted);
   font: inherit;
-  font-size: 0.55rem;
+  font-size: var(--hbx-font-min);
   font-weight: 750;
   text-decoration: none;
   white-space: nowrap;
@@ -481,7 +481,7 @@
   margin-left: auto;
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 0.54rem;
+  font-size: var(--hbx-font-min);
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -507,7 +507,7 @@
   padding: 4px 8px;
   gap: 6px;
   border-radius: var(--radius-sm);
-  font-size: 0.62rem;
+  font-size: var(--hbx-font-min);
 }
 
 .log-instruments {
@@ -548,7 +548,7 @@
 
 .log-instruments .log-resumo__lbl {
   overflow: hidden;
-  font-size: 0.45rem;
+  font-size: var(--hbx-font-min);
   letter-spacing: 0.02em;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -561,7 +561,7 @@
 .log-instruments .log-resumo__acts .btn-xs {
   min-height: 27px;
   padding-inline: 6px;
-  font-size: 0.52rem;
+  font-size: var(--hbx-font-min);
 }
 
 .log-instruments .log-cred__head {
@@ -569,12 +569,12 @@
 }
 
 .log-instruments .log-cred__head strong {
-  font-size: 0.66rem;
+  font-size: var(--hbx-font-min);
 }
 
 .log-instruments :is(.log-cred__saldo, .log-cred__iniciar) {
   padding: 2px 6px;
-  font-size: 0.53rem;
+  font-size: var(--hbx-font-min);
 }
 
 .log-instruments .log-cred__list {
@@ -590,14 +590,14 @@
 }
 
 .log-instruments .log-cred__nome {
-  font-size: 0.59rem;
+  font-size: var(--hbx-font-min);
 }
 
 .log-instruments .log-cred__dado,
 .log-instruments .log-cred__vazio {
   min-width: 0;
   overflow: hidden;
-  font-size: 0.53rem;
+  font-size: var(--hbx-font-min);
   text-overflow: ellipsis;
 }
 
@@ -614,7 +614,7 @@
 }
 
 .log-today-scroll :is(.log-triage__head, .log-board__head) strong {
-  font-size: 0.66rem;
+  font-size: var(--hbx-font-min);
 }
 
 .log-today-scroll .log-triage__row {
@@ -625,11 +625,11 @@
 }
 
 .log-today-scroll .log-triage__what {
-  font-size: 0.63rem;
+  font-size: var(--hbx-font-min);
 }
 
 .log-today-scroll .log-triage__why {
-  font-size: 0.57rem;
+  font-size: var(--hbx-font-min);
   line-height: 1.25;
 }
 
@@ -653,15 +653,15 @@
   width: 27px;
   height: 27px;
   border-radius: var(--radius-xs);
-  font-size: 0.56rem;
+  font-size: var(--hbx-font-min);
 }
 
 .log-today-scroll .log-lane__who b {
-  font-size: 0.61rem;
+  font-size: var(--hbx-font-min);
 }
 
 .log-today-scroll .log-lane__who span {
-  font-size: 0.52rem;
+  font-size: var(--hbx-font-min);
 }
 
 .log-today-scroll .log-lane__track {
@@ -683,21 +683,21 @@
   width: 22px;
   height: 22px;
   border-radius: var(--radius-xs);
-  font-size: 0.53rem;
+  font-size: var(--hbx-font-min);
 }
 
 .log-today-scroll .log-strip__main b {
-  font-size: 0.59rem;
+  font-size: var(--hbx-font-min);
 }
 
 .log-today-scroll .log-strip__main span {
-  font-size: 0.5rem;
+  font-size: var(--hbx-font-min);
 }
 
 .log-today-scroll .log-board__hint,
 .log-today-scroll .log-board__foot,
 .log-today-scroll .log-triage__limpo {
-  font-size: 0.53rem;
+  font-size: var(--hbx-font-min);
   line-height: 1.25;
 }
 
@@ -711,12 +711,12 @@
 }
 
 .log-today-scroll > .emp-empty .emp-empty__title {
-  font-size: 0.7rem;
+  font-size: var(--hbx-font-min);
 }
 
 .log-today-scroll > .emp-empty .emp-empty__text {
   max-width: 520px;
-  font-size: 0.58rem;
+  font-size: var(--hbx-font-min);
 }
 
 .log-live-content > .log-agenda {
@@ -762,7 +762,7 @@
 }
 
 .log-live-content .log-agenda__head p {
-  font-size: 0.59rem;
+  font-size: var(--hbx-font-min);
 }
 
 .log-live-content .log-agenda__tools {

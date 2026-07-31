@@ -100,6 +100,15 @@
       "serviceUrl": "/logistica"
     },
     {
+      "key": "comex",
+      "name": "Comex",
+      "description": "Inteligência de comércio exterior: mapa do mercado por produto (NCM/SH4), preço médio por kg, origens e prováveis importadores/exportadores. Dado público agregado + inferência; nasce ligado (kill-switch por empresa).",
+      "monthlyPrice": 0,
+      "defaultEnabled": true,
+      "companyAssignable": true,
+      "serviceUrl": "/comex"
+    },
+    {
       "key": "bot",
       "name": "Bot IA",
       "description": "Automacao de atendimento e prospecção via bot configurado pela empresa.",

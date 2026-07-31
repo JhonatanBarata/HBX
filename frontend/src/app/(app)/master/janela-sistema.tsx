@@ -262,56 +262,56 @@ export function JanelaSistema() {
             </div>
           </div>
           <div style={{ padding: "12px 16px 16px", display: "grid", gap: 14 }}>
-            {credMsg && <div style={{ fontSize: "0.72rem", fontWeight: 700, lineHeight: 1.5, color: credMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{credMsg}</div>}
-            <span style={{ fontSize: "0.66rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
+            {credMsg && <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, lineHeight: 1.5, color: credMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{credMsg}</div>}
+            <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", lineHeight: 1.5 }}>
               Token em branco mantém o segredo atual (o backend preserva pelo “key”). Remover uma linha exclui a credencial da biblioteca ao salvar.
             </span>
 
             <div style={{ display: "grid", gap: 8 }}>
-              <strong style={{ fontSize: "0.76rem" }}>WhatsApp (Meta Cloud)</strong>
-              {(waLib || []).length === 0 && <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Sem credenciais — adicione a primeira.</span>}
+              <strong style={{ fontSize: "var(--hbx-font-min)" }}>WhatsApp (Meta Cloud)</strong>
+              {(waLib || []).length === 0 && <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Sem credenciais — adicione a primeira.</span>}
               {(waLib || []).map((c, i) => (
                 <div key={c.key || i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto", gap: 6, alignItems: "center" }}>
-                  <input className="field-dark" style={{ minHeight: 32, fontSize: "0.68rem" }} placeholder="Rótulo" value={c.label || ""}
+                  <input className="field-dark" style={{ minHeight: 32, fontSize: "var(--hbx-font-min)" }} placeholder="Rótulo" value={c.label || ""}
                     onChange={e => setWaLib(prev => (prev || []).map((x, j) => j === i ? { ...x, label: e.target.value } : x))} />
-                  <input className="field-dark" style={{ minHeight: 32, fontSize: "0.68rem" }} placeholder="Phone Number ID" value={c.phoneNumberId || ""}
+                  <input className="field-dark" style={{ minHeight: 32, fontSize: "var(--hbx-font-min)" }} placeholder="Phone Number ID" value={c.phoneNumberId || ""}
                     onChange={e => setWaLib(prev => (prev || []).map((x, j) => j === i ? { ...x, phoneNumberId: e.target.value } : x))} />
-                  <input className="field-dark" style={{ minHeight: 32, fontSize: "0.68rem" }} placeholder="WABA ID" value={c.wabaId || ""}
+                  <input className="field-dark" style={{ minHeight: 32, fontSize: "var(--hbx-font-min)" }} placeholder="WABA ID" value={c.wabaId || ""}
                     onChange={e => setWaLib(prev => (prev || []).map((x, j) => j === i ? { ...x, wabaId: e.target.value } : x))} />
-                  <input className="field-dark" type="password" style={{ minHeight: 32, fontSize: "0.68rem" }}
+                  <input className="field-dark" type="password" style={{ minHeight: 32, fontSize: "var(--hbx-font-min)" }}
                     placeholder={c.accessTokenPreview ? `manter ${c.accessTokenPreview}` : "Access token"} value={c.accessToken || ""}
                     onChange={e => setWaLib(prev => (prev || []).map((x, j) => j === i ? { ...x, accessToken: e.target.value } : x))} />
                   <button className="icon-ghost" title="Remover da biblioteca" aria-label="Remover credencial"
                     onClick={() => setWaLib(prev => (prev || []).filter((_, j) => j !== i))}>✕</button>
                 </div>
               ))}
-              <button className="btn-ghost" style={{ width: "fit-content", minHeight: 28, fontSize: "0.66rem" }}
+              <button className="btn-ghost" style={{ width: "fit-content", minHeight: 28, fontSize: "var(--hbx-font-min)" }}
                 onClick={() => setWaLib(prev => ([...(prev || []), { key: `wa_${Date.now().toString(36)}`, label: "", phoneNumberId: "", wabaId: "", accessToken: "" }]))}>
                 + Adicionar credencial WhatsApp
               </button>
             </div>
 
             <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, display: "grid", gap: 8 }}>
-              <strong style={{ fontSize: "0.76rem" }}>Mercado Pago</strong>
-              {(mpLib || []).length === 0 && <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Sem credenciais — adicione a primeira.</span>}
+              <strong style={{ fontSize: "var(--hbx-font-min)" }}>Mercado Pago</strong>
+              {(mpLib || []).length === 0 && <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Sem credenciais — adicione a primeira.</span>}
               {(mpLib || []).map((c, i) => (
                 <div key={c.key || i} style={{ display: "grid", gridTemplateColumns: "1fr 2fr auto", gap: 6, alignItems: "center" }}>
-                  <input className="field-dark" style={{ minHeight: 32, fontSize: "0.68rem" }} placeholder="Rótulo" value={c.label || ""}
+                  <input className="field-dark" style={{ minHeight: 32, fontSize: "var(--hbx-font-min)" }} placeholder="Rótulo" value={c.label || ""}
                     onChange={e => setMpLib(prev => (prev || []).map((x, j) => j === i ? { ...x, label: e.target.value } : x))} />
-                  <input className="field-dark" type="password" style={{ minHeight: 32, fontSize: "0.68rem" }}
+                  <input className="field-dark" type="password" style={{ minHeight: 32, fontSize: "var(--hbx-font-min)" }}
                     placeholder={c.accessTokenPreview ? `manter ${c.accessTokenPreview}` : "Access token"} value={c.accessToken || ""}
                     onChange={e => setMpLib(prev => (prev || []).map((x, j) => j === i ? { ...x, accessToken: e.target.value } : x))} />
                   <button className="icon-ghost" title="Remover da biblioteca" aria-label="Remover credencial"
                     onClick={() => setMpLib(prev => (prev || []).filter((_, j) => j !== i))}>✕</button>
                 </div>
               ))}
-              <button className="btn-ghost" style={{ width: "fit-content", minHeight: 28, fontSize: "0.66rem" }}
+              <button className="btn-ghost" style={{ width: "fit-content", minHeight: 28, fontSize: "var(--hbx-font-min)" }}
                 onClick={() => setMpLib(prev => ([...(prev || []), { key: `mp_${Date.now().toString(36)}`, label: "", accessToken: "" }]))}>
                 + Adicionar credencial Mercado Pago
               </button>
             </div>
 
-            <div style={{ display: "flex", gap: 12, fontSize: "0.68rem", color: "var(--text-muted)" }}>
+            <div style={{ display: "flex", gap: 12, fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>
               <span>Status: WhatsApp {integ?.whatsappLibrary?.some(c => c.configured) ? "configurado ✓" : "pendente"}</span>
               <span>· Mercado Pago {integ?.mercadoPagoLibrary?.some(c => c.configured) ? "configurado ✓" : "pendente"}</span>
             </div>
@@ -325,13 +325,13 @@ export function JanelaSistema() {
 
       {sub === 1 && (
         <React.Fragment>
-          {exclMsg && <div style={{ fontSize: "0.72rem", fontWeight: 700, color: exclMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{exclMsg}</div>}
+          {exclMsg && <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: exclMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{exclMsg}</div>}
           <section className="panel">
             <div className="panel-head">
               <h2>Cards do Radar removidos</h2>
               <div className="meta">
                 {Object.entries(radarSummary).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(" · ")}
-                <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem" }} onClick={carregarExclusoes}>Atualizar</button>
+                <button className="btn-ghost" style={{ minHeight: 26, fontSize: "var(--hbx-font-min)" }} onClick={carregarExclusoes}>Atualizar</button>
               </div>
             </div>
             <div className="tbl-wrap">
@@ -347,10 +347,10 @@ export function JanelaSistema() {
                       <td><strong>{card.name || "—"}</strong>{card.city ? <span className="sub2" style={{ display: "block" }}>{card.city}</span> : null}</td>
                       <td>{card.companyName || "—"}</td>
                       <td><span className="tag warn">{card.status || "—"}</span></td>
-                      <td style={{ whiteSpace: "normal", maxWidth: 220, fontSize: "0.68rem" }}>{card.motivo || "—"}</td>
+                      <td style={{ whiteSpace: "normal", maxWidth: 220, fontSize: "var(--hbx-font-min)" }}>{card.motivo || "—"}</td>
                       <td>{fmtDataHora(card.removedAt)}</td>
                       <td>
-                        <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem" }} disabled={exclBusy != null}
+                        <button className="btn-ghost" style={{ minHeight: 26, fontSize: "var(--hbx-font-min)" }} disabled={exclBusy != null}
                           onClick={() => restaurarRadarCard(card.id)}>
                           {exclBusy === `restore:${card.id}` ? "…" : "Restaurar"}
                         </button>
@@ -377,14 +377,14 @@ export function JanelaSistema() {
                       <td>{r.moduleKey || "—"}</td>
                       <td>{r.company?.name || "—"}</td>
                       <td>{r.deletedBy?.username || r.deletedBy?.email || "—"}</td>
-                      <td style={{ whiteSpace: "normal", maxWidth: 200, fontSize: "0.68rem" }}>{r.motivo || "—"}</td>
+                      <td style={{ whiteSpace: "normal", maxWidth: 200, fontSize: "var(--hbx-font-min)" }}>{r.motivo || "—"}</td>
                       <td>{fmtDataHora(r.deletedAt)}</td>
                       <td>
                         {exclArm === `rec:${r.id}` ? (
-                          <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", borderColor: "var(--hbx-danger)", color: "var(--hbx-danger)" }}
+                          <button className="btn-ghost" style={{ minHeight: 26, fontSize: "var(--hbx-font-min)", borderColor: "var(--hbx-danger)", color: "var(--hbx-danger)" }}
                             disabled={exclBusy != null} onClick={() => excluirRegistro(r.id)}>Confirmar</button>
                         ) : (
-                          <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", color: "var(--hbx-danger)" }}
+                          <button className="btn-ghost" style={{ minHeight: 26, fontSize: "var(--hbx-font-min)", color: "var(--hbx-danger)" }}
                             disabled={exclBusy != null} onClick={() => setExclArm(`rec:${r.id}`)}>Excluir de vez</button>
                         )}
                       </td>
@@ -409,7 +409,7 @@ export function JanelaSistema() {
             {COMPLAINT_STATUS.map(o => (
               <button key={o.value} className="btn-ghost"
                 onClick={() => { setCompStatus(o.value); setComplaints(null); }}
-                style={{ minHeight: 28, fontSize: "0.66rem", ...(o.value === compStatus ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)", background: "var(--hbx-brand-soft)" } : {}) }}>
+                style={{ minHeight: 28, fontSize: "var(--hbx-font-min)", ...(o.value === compStatus ? { borderColor: "var(--hbx-brand)", color: "var(--hbx-brand-strong)", background: "var(--hbx-brand-soft)" } : {}) }}>
                 {o.label}
               </button>
             ))}
@@ -436,25 +436,25 @@ export function JanelaSistema() {
                         <span className="sub2">{c.userName || c.userEmail || "—"}</span>
                       </div>
                     </td>
-                    <td style={{ whiteSpace: "normal", maxWidth: 220, fontSize: "0.68rem" }}>{c.reason || "—"}</td>
+                    <td style={{ whiteSpace: "normal", maxWidth: 220, fontSize: "var(--hbx-font-min)" }}>{c.reason || "—"}</td>
                     <td><span className={c.status === "refunded" || c.status === "resolved" ? "tag teal" : c.status === "denied" ? "tag red" : "tag warn"}>{c.status || "—"}</span></td>
                     <td>{fmtDataHora(c.createdAt)}</td>
                     <td>
                       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                         {["new", "reviewing"].includes(String(c.status)) && (
                           <React.Fragment>
-                            <button className="btn-ghost" style={{ minHeight: 24, fontSize: "0.6rem", padding: "0 7px" }} disabled={compBusy != null}
+                            <button className="btn-ghost" style={{ minHeight: 24, fontSize: "var(--hbx-font-min)", padding: "0 7px" }} disabled={compBusy != null}
                               onClick={() => atualizarComplaint(c, { status: "refunded", refundCards: 1 })} title="Aceitar e devolver 1 card à cota">
                               {compBusy === c.id ? "…" : "Reembolsar"}
                             </button>
-                            <button className="btn-ghost" style={{ minHeight: 24, fontSize: "0.6rem", padding: "0 7px", color: "var(--hbx-danger)" }} disabled={compBusy != null}
+                            <button className="btn-ghost" style={{ minHeight: 24, fontSize: "var(--hbx-font-min)", padding: "0 7px", color: "var(--hbx-danger)" }} disabled={compBusy != null}
                               onClick={() => atualizarComplaint(c, { status: "denied" })}>Negar</button>
-                            <button className="btn-ghost" style={{ minHeight: 24, fontSize: "0.6rem", padding: "0 7px" }} disabled={compBusy != null}
+                            <button className="btn-ghost" style={{ minHeight: 24, fontSize: "var(--hbx-font-min)", padding: "0 7px" }} disabled={compBusy != null}
                               onClick={() => atualizarComplaint(c, { status: "reviewing" })}>Em análise</button>
                           </React.Fragment>
                         )}
                         {!["new", "reviewing"].includes(String(c.status)) && (
-                          <span style={{ fontSize: "0.62rem", color: "var(--text-muted)" }}>{c.refundedCards ? `${c.refundedCards} card(s) devolvido(s)` : "triada"}</span>
+                          <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>{c.refundedCards ? `${c.refundedCards} card(s) devolvido(s)` : "triada"}</span>
                         )}
                       </div>
                     </td>

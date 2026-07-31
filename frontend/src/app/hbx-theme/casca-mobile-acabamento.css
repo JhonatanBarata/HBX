@@ -166,7 +166,7 @@
 
 .casca .vnd-m__group-head {
   padding: 6px 4px 0;
-  font-size: 0.64rem;
+  font-size: var(--hbx-font-min);
   font-weight: 850;
   letter-spacing: 0.1em;
 }

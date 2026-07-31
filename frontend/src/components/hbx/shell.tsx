@@ -12,7 +12,8 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, useSy
 import { createPortal } from "react-dom";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
-import { CreditDisparoRotator } from "@/components/hbx/disparo-panel";
+import { DisparoSidebarSlot } from "@/components/hbx/disparo-panel";
+import { CostasPainel, toggleCostas, useCostasDisponivel, useCostasLigado } from "@/components/hbx/costas-panel";
 import { applyThemeSoft, getCascaAtiva, getTemaAtivo, setAparencia, setThemeMode } from "@/components/hbx/theme-attributes";
 import {
   CASCAS, escolheModo, escolheTema, getCasca, resolveModo, resolveTema,
@@ -147,6 +148,8 @@ export const ICONS: Record<string, string[]> = {
   // NÚCLEO-CRM N6 — módulo "Logística": caminhão de entrega. A chave PRECISA
   // existir (nav id sem entrada em ICONS derruba a Sidebar — P0 do "assistente").
   logistica: ["M3 6a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v9H3z", "M14 9h3.6a1 1 0 0 1 .8.4l2.4 3.1a1 1 0 0 1 .2.6V15h-7z", "M7.5 20a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6Z", "M17.5 20a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6Z"],
+  // COMEX — globo com paralelos/meridianos (comércio internacional).
+  comex: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z", "M3 12h18", "M12 3c2.6 2.3 4 5.5 4 9s-1.4 6.7-4 9c-2.6-2.3-4-5.5-4-9s1.4-6.7 4-9Z"],
   // Logística → "Clientes" (roteiro do dia): 1 pessoa (distinto de contatos=2
   // pessoas e empresas=prédio). A chave PRECISA existir — nav id sem ICONS
   // derruba a Sidebar (P0 do "assistente").
@@ -360,6 +363,11 @@ export const NAV_LINKS = [
   // Kill-switch, não paywall (null nos gates abaixo). Rótulo exibido virou
   // "Entregas" (pedido do dono, 07/07) — id/href/gate seguem "logistica".
   { id: "logistica", label: "Entregas", href: "/logistica", group: "Logística" },
+  // COMEX (31/07): vendas/radar internacional — mapa do mercado por NCM/SH4 +
+  // prováveis importadores/exportadores. Módulo próprio 'comex' (defaultEnabled
+  // =true, "nasce ligado"); kill-switch do master, não paywall (null no
+  // entitlement). Grupo próprio "Internacional".
+  { id: "comex", label: "Comex", href: "/comex", group: "Internacional" },
   // Logística → "Clientes" (07/07, pedido do dono): a MESMA gestão de clientes de
   // entrega que já vive na aba Contatos (view "Só clientes" + drawer Produtos/forma
   // de pagamento/extrato), agora acessível direto da seção Logística no desktop.
@@ -639,18 +647,21 @@ function appendCreditHistory(history: number[], value: number) {
   return [...history, value].slice(-9);
 }
 
+// FIO DO SALDO (dono, 31/07): a curva do crédito virou um traço fino de 14px
+// de altura no rodapé da barra. O cartão grande — com gráfico, moldura e botão
+// "Ver créditos" — foi DELETADO: ao lado do painel de costas ele virou peso
+// morto ("acabou ficando irrelevante"). O saldo continua sendo a última coisa
+// visível da barra, agora do tamanho da informação que carrega.
 function creditGraphGeometry(source: number[]) {
   const values = source.length > 1 ? source : [source[0] ?? 0, source[0] ?? 0];
-  const width = 176;
-  const top = 8;
-  const bottom = 59;
-  const left = 5;
-  const right = 171;
+  const top = 2;
+  const bottom = 12;
+  const right = 100;
   const max = Math.max(...values);
   const min = Math.min(...values);
   const span = Math.max(1, max - min);
   const points = values.map((value, index) => ({
-    x: left + ((right - left) / Math.max(1, values.length - 1)) * index,
+    x: (right / Math.max(1, values.length - 1)) * index,
     y: max === min ? (top + bottom) / 2 : top + ((max - value) / span) * (bottom - top),
   }));
   let line = `M ${points[0].x.toFixed(2)} ${points[0].y.toFixed(2)}`;
@@ -660,11 +671,10 @@ function creditGraphGeometry(source: number[]) {
     const middle = (previous.x + point.x) / 2;
     line += ` C ${middle.toFixed(2)} ${previous.y.toFixed(2)}, ${middle.toFixed(2)} ${point.y.toFixed(2)}, ${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
   }
-  const first = points[0];
   const last = points[points.length - 1];
   return {
     line,
-    area: `${line} L ${last.x.toFixed(2)} 64 L ${first.x.toFixed(2)} 64 Z`,
+    area: `${line} L ${right} 14 L 0 14 Z`,
     endX: last.x,
     endY: last.y,
   };
@@ -799,42 +809,26 @@ function CreditsSidebarCard({
   return (
     <Link
       href="/configuracoes?sec=Cr%C3%A9ditos"
-      className={"plan-card credit-balance-card" + (decaying ? " is-decaying" : "")}
+      className={"credito-fio" + (decaying ? " is-decaying" : "")}
       onClick={prepareNavigation}
       aria-label={`Ver créditos. Saldo ${formatCreditAmount(displayed)}`}
     >
-      <span className="credit-balance-card__title">
-        <span>Créditos:</span>
-        <strong>{formatCreditAmount(displayed)}</strong>
+      <span className="credito-fio__topo">
+        <span className="credito-fio__rotulo">Créditos</span>
+        <strong className="credito-fio__valor">{formatCreditAmount(displayed)}</strong>
+        <span className="credito-fio__debito" aria-hidden="true">− {formatCreditAmount(debitAmount)}</span>
       </span>
-
-      <span className="credit-balance-card__debit" aria-hidden="true">
-        − {formatCreditAmount(debitAmount)}
-      </span>
-      <span className="credit-balance-card__energy" aria-hidden="true" />
-
-      <span className="credit-balance-card__chart">
-        <svg viewBox="0 0 176 66" role="img" aria-label="Movimentação do saldo de créditos">
+      <span className="credito-fio__tela" aria-hidden="true">
+        <svg viewBox="0 0 100 14" preserveAspectRatio="none">
           <defs>
             <linearGradient id="credit-sidebar-area" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" className="credit-balance-card__area-start" />
-              <stop offset="100%" className="credit-balance-card__area-end" />
+              <stop offset="0%" className="credito-fio__area-topo" />
+              <stop offset="100%" className="credito-fio__area-base" />
             </linearGradient>
           </defs>
-          <line className="credit-balance-card__grid" x1="5" y1="17" x2="171" y2="17" />
-          <line className="credit-balance-card__grid" x1="5" y1="34" x2="171" y2="34" />
-          <line className="credit-balance-card__grid" x1="5" y1="51" x2="171" y2="51" />
-          <path className="credit-balance-card__area" d={graph.area} />
-          <path className="credit-balance-card__line" d={graph.line} />
-          <path className="credit-balance-card__sweep" d={graph.line} pathLength="1" />
-          <circle className="credit-balance-card__ring" cx={graph.endX} cy={graph.endY} r="5" />
-          <circle className="credit-balance-card__point" cx={graph.endX} cy={graph.endY} r="3.5" />
+          <path className="credito-fio__area" d={graph.area} />
+          <path className="credito-fio__linha" d={graph.line} vectorEffect="non-scaling-stroke" />
         </svg>
-      </span>
-
-      <span className="credit-balance-card__cta">
-        <span>Ver créditos</span>
-        <I d={ICONS.arrow} size={14} />
       </span>
     </Link>
   );
@@ -903,6 +897,8 @@ const NAV_ENTITLEMENT: Record<string, string | null> = {
   logistica: null,
   // Logística → Clientes: mesma gestão de clientes de entrega (Contatos), sem paywall.
   clientes: null,
+  // COMEX: kill-switch por módulo (defaultEnabled=true), NÃO paywall.
+  comex: null,
   // Concierge IA: kill-switch por módulo (master liga por empresa), NÃO paywall.
   concierge: null,
   relat: "vendas",
@@ -950,6 +946,9 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
   logistica: "logistica",
   // Logística → Clientes: mesma porta do módulo Logística (sem chave própria).
   clientes: "logistica",
+  // COMEX: chave própria 'comex' (defaultEnabled=true — nasce ligado; master
+  // desliga por empresa). Fail-closed igual aos demais: sem accessible:true, some.
+  comex: "comex",
   // Concierge IA tem chave PRÓPRIA (defaultEnabled=false) — nasce oculto e o
   // master libera empresa-a-empresa. Fail-closed: sem accessible:true, some.
   concierge: "concierge",
@@ -1158,8 +1157,15 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
   // Vendedor (role USER) NUNCA vê cobrança (PAGAMENTOS.md). O backend já zera
   // os campos, mas aqui escondemos o card inteiro para não sobrar moldura vazia.
 
+  // AS COSTAS DOS MÓDULOS (31/07): o verso do menu. Quando existe verso pra
+  // esta tela, a barra nasce mostrando o PAINEL; passar o mouse devolve os
+  // módulos (o resto é CSS puro — hover na própria barra, sem re-render).
+  // Rail colapsado não tem verso: lá só cabe ícone.
+  const costasLigado = useCostasLigado();
+  const costasDisponivel = useCostasDisponivel(active) && rail !== "min";
+
   return (
-    <aside className="side">
+    <aside className="side" data-costas={costasDisponivel ? "on" : "off"}>
       {/* wrapper que rola de verdade (07/07): o Chrome NÃO recorta o scrollbar
           customizado (::-webkit-scrollbar) no border-radius do próprio elemento
           que rola — a barra vazava reta pelos cantos arredondados da casca
@@ -1167,18 +1173,29 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
           overflow:hidden + o raio) corta a barra igual corta qualquer outro
           conteúdo, sem depender do Chrome respeitar o raio no scrollbar. */}
       <div className="side-scroll">
+        {/* O "»" da marca é o INTERRUPTOR do verso (ordem do dono 31/07): clicar
+            liga/desliga o painel de costas de TODOS os módulos, e a escolha
+            fica gravada no navegador. Sem verso disponível (casca corporativa,
+            /dashboard, /relatórios) o botão continua ali, só não muda nada
+            visível naquela tela. */}
       <div className="side-head">
-        <div className={"logo" + (soLog ? " logo--empresa" : "")}>
+        <button
+          type="button"
+          className={"logo logo-switch" + (soLog ? " logo--empresa" : "") + (costasLigado ? " is-on" : "")}
+          onClick={toggleCostas}
+          aria-pressed={costasLigado}
+          title={costasLigado ? "Painel do módulo ligado" : "Painel do módulo desligado"}
+        >
           {/* S1 MODO DISTRIBUIDORA: marca = nome da empresa (de-HBX). */}
           {soLog ? (
-            <strong title={currentCompanyName(user)}>{currentCompanyName(user)}</strong>
+            <strong>{currentCompanyName(user)}</strong>
           ) : (
             <>
               <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg>
               <strong>HBX</strong>
             </>
           )}
-        </div>
+        </button>
         {/* Toggle do rail (LEADS-FINAL/01): colapsa pra --rail-width-min (só ícone).
             Botão central existente (round-btn) — zero visual novo. Fica ao lado
             da marca (07/07): libera a linha inteira que sobrava abaixo do logo. */}
@@ -1199,6 +1216,11 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
           </button>
         )}
       </div>
+      {/* A pilha é o palco das duas faces: os MÓDULOS (o menu de sempre) e as
+          COSTAS (o painel do módulo aberto). Quem troca uma pela outra é o
+          hover na barra inteira, em CSS — o React não re-renderiza por isso. */}
+      <div className="side-stack">
+      <div className="side-nav">
       <GlassPill {...gp} />
       {visible.map((n, i) => {
         let cls = "nav-item" + (n.id === active ? " active" : "");
@@ -1215,26 +1237,31 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
         // anterior VISÍVEL — se o gate escondeu tudo de um grupo, o rótulo
         // some junto (nunca sobra guia vazia).
         const showGroupLabel = Boolean(n.group) && n.group !== visible[i - 1]?.group;
+        // --i alimenta a cascata do CSS: quando os módulos voltam (mouse em
+        // cima da barra) eles entram um atrás do outro, na ordem da lista.
+        const passo = { "--i": i } as React.CSSProperties;
         return (
           <React.Fragment key={n.id}>
-            {showGroupLabel && <div className="nav-group-label">{n.group}</div>}
-            <Link ref={gp.itemRef(n.id)} className={cls} href={n.href} data-tut={"nav-" + n.id} title={rail === "min" ? n.label : undefined}>
+            {showGroupLabel && <div className="nav-group-label" style={passo}>{n.group}</div>}
+            <Link ref={gp.itemRef(n.id)} className={cls} style={passo} href={n.href} data-tut={"nav-" + n.id} title={rail === "min" ? n.label : undefined}>
               <I d={ICONS[n.id]} />
               <span className="nav-item__label">{n.label}</span>
             </Link>
           </React.Fragment>
         );
       })}
+      </div>
+        <CostasPainel modulo={active} disponivel={costasDisponivel} />
+      </div>
       <div className="side-bottom">
-        {/* PAINEL DE DISPAROS (30/07): quando o bot de prospecção está ativo, o
-            cartão de créditos e o painel se INTERCALAM (flip 3D); sem bot, é o
-            cartão de créditos de sempre. O rotator também é o dono do alerta de
-            lead quente (pulso + respiro de cor + aviso no topo). */}
-        <CreditDisparoRotator
-          credits={creditsMode ? (
-            <CreditsSidebarCard summary={creditsSummary} companyId={user?.company?.id} />
-          ) : null}
-        />
+        {/* ORDEM DEFINIDA PELO DONO (31/07): Disparos SÓ na tela de Vendas e
+            sempre ACIMA; Créditos é o último cartão e não sai de lá. O slot de
+            disparos fica montado em toda tela porque é ele quem carrega o
+            alerta de lead quente (pulso + respiro de cor + aviso no topo). */}
+        <DisparoSidebarSlot mostrarCartao={active === "vendas"} />
+        {creditsMode ? (
+          <CreditsSidebarCard summary={creditsSummary} companyId={user?.company?.id} />
+        ) : null}
         {/* Identidade da EMPRESA (ordem do dono 14/06): o usuário/vendedor é o
             avatar do topo-direito; aqui embaixo fica a empresa, e o card é
             informativo — SEM clique. O "Sair" mora só no menu da conta, no topo. */}
@@ -1618,8 +1645,10 @@ async function fetchEmailStatusCached(): Promise<SignalState> {
 }
 
 type TopbarBotActivation = {
-  armed: boolean;
-  masterOff?: boolean;
+  // Os 2 bloqueios morreram (31/07/2026): sem `armed` (pino do master) e sem
+  // `masterOff` (chave geral). O que existe é o estado real por tipo + o
+  // motivo escrito quando algo trava (entrevista/chip/config).
+  perfil?: { entrevistaCompleta: boolean; pendencias: string[] } | null;
   types: {
     atendimento: { live: boolean; blocked: string | null };
     recovery: { live: boolean; blocked: string | null };
@@ -1636,20 +1665,17 @@ async function fetchBotActivationCached(): Promise<TopbarBotActivation | null> {
   return data;
 }
 
-// CHAVE GERAL do bot (modelo confirmado pelo dono, 24/06). UMA chave liga/desliga
-// o bot inteiro; a cor tem 3 estados:
-//   off   (cinza)    = DESLIGADO. O dono baixou a chave geral (`masterOff`) — é
-//                      "desativado desativado", NÃO importa se tem config ou não.
-//                      (também cinza sem acesso/não-armado.)
-//   error (vermelho) = LIGADO, mas não consegue rodar: faltando WhatsApp/chip ou
-//                      config (nenhum tipo no ar). No localhost (sem chip) é sempre isto.
-//   active (tema)    = LIGADO e rodando (algum tipo `live`, sem bloqueio).
+// SINAL do bot no topo (31/07/2026 — os 2 bloqueios morreram). O ícone virou
+// FAROL + atalho pro /automacao (config centralizada), sem chave nenhuma:
+//   off   (cinza)    = sem acesso ao módulo ou leitura indisponível.
+//   error (vermelho) = nenhum tipo rodando — o tooltip diz o PRIMEIRO motivo
+//                      (entrevista/chip/config), nunca um vermelho mudo.
+//   active (tema)    = algum tipo `live` sem bloqueio.
 function computeBotSignalState(accessible: boolean, act: TopbarBotActivation | null): SignalState {
-  if (!accessible || !act || !act.armed) return "off";
-  if (act.masterOff) return "off";                                    // chave geral baixada → cinza
+  if (!accessible || !act) return "off";
   const types = [act.types.atendimento, act.types.recovery, act.types.prospeccao];
   if (types.some(t => t.live && t.blocked === null)) return "active"; // rodando → tema
-  return "error";                                                     // ligado, mas não roda → vermelho
+  return "error";                                                     // parado → vermelho com motivo
 }
 
 async function fetchNoticesCached(force = false): Promise<MasterNotice[]> {
@@ -1699,10 +1725,6 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
   const [waStatus, setWaStatus] = useState<WaStatus>({ state: "off", phone: null });
   const [emailState, setEmailState] = useState<SignalState>("off");
   const [botActivation, setBotActivation] = useState<TopbarBotActivation | null>(null);
-  const [botBusy, setBotBusy] = useState(false);
-  // Confirmação ao LIGAR a chave geral do bot (E3, PR20072026-CHIP) — desligar
-  // nunca abre esse dialog (é sempre seguro).
-  const [confirmLigarBotOpen, setConfirmLigarBotOpen] = useState(false);
   const [waMenuOpen, setWaMenuOpen] = useState(false);
   const waMode = useWaOpenMode();
   const botAccessible = mods.loaded && Boolean(mods.byKey["bot"]?.accessible);
@@ -1755,38 +1777,11 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
     await logout();
   }
 
-  // Faz o PUT de fato na chave geral (extraído p/ poder rodar direto no desligar
-  // e só após confirmação no ligar — ver toggleBot/confirmLigarBot abaixo).
-  async function putMasterSwitch(turningOn: boolean) {
-    setBotBusy(true);
-    await apiFetch("/bot/activation/master-switch", {
-      method: "PUT",
-      body: JSON.stringify({ on: turningOn }),
-    }).catch(() => null);
-    botActivationCache = null;
-    const fresh = await fetchBotActivationCached().catch(() => null);
-    if (fresh) setBotActivation(fresh);
-    setBotBusy(false);
-  }
-
-  async function toggleBot() {
-    if (!botAccessible || botBusy) return;
-    // CHAVE GERAL: se está desligada (masterOff) → liga; senão → desliga. Desligar
-    // sempre funciona (vira cinza) e é seguro — não pede confirmação. Ligar só
-    // remove o bloqueio geral: os 3 motores NÃO voltam sozinhos, cada um precisa
-    // ser religado no próprio toggle de /bot — por isso avisamos ANTES (anti-"1
-    // clique = frota disparando", incidente 20/07). Desligar continua imediato.
-    const turningOn = botActivation?.masterOff === true;
-    if (turningOn) {
-      setConfirmLigarBotOpen(true);
-      return;
-    }
-    await putMasterSwitch(false);
-  }
-
-  async function confirmLigarBot() {
-    setConfirmLigarBotOpen(false);
-    await putMasterSwitch(true);
+  // A chave geral MORREU (31/07/2026): o ícone do bot virou farol + atalho.
+  // Ligar/desligar/configurar mora num lugar só — /automacao (centralização).
+  function abrirAutomacao() {
+    if (!botAccessible) return;
+    router.push("/automacao");
   }
 
   const prevNaoLidosRef = React.useRef(0);
@@ -1958,7 +1953,7 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
               <strong style={{ fontFamily: "var(--font-display)", fontSize: "0.82rem" }}>Avisos</strong>
               {bellMuted && (
                 <button
-                  style={{ textAlign: "left", background: "var(--hbx-danger-soft)", borderRadius: "var(--radius-sm)", border: "none", padding: "8px 10px", fontSize: "0.7rem", color: "var(--hbx-danger)", cursor: "pointer", lineHeight: 1.4 }}
+                  style={{ textAlign: "left", background: "var(--hbx-danger-soft)", borderRadius: "var(--radius-sm)", border: "none", padding: "8px 10px", fontSize: "var(--hbx-font-min)", color: "var(--hbx-danger)", cursor: "pointer", lineHeight: 1.4 }}
                   onClick={async () => {
                     try {
                       await apiFetch("/pulse/push-unmute", { method: "POST" });
@@ -1969,7 +1964,7 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
                   Push de Novidades desativado — tocar p/ reativar
                 </button>
               )}
-              {notices.length === 0 && <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Nenhum aviso no momento.</span>}
+              {notices.length === 0 && <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Nenhum aviso no momento.</span>}
               {notices.map(n => {
                 const alvo = noticeTarget(n);
                 const isLeadNotice = n.source === "brain" && n.payload?.kind === "lead";
@@ -1986,17 +1981,17 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
                     }}
                     style={{ display: "grid", gap: 4, padding: "9px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: n.acknowledged ? "transparent" : "var(--hbx-surface-soft)", cursor: alvo ? "pointer" : "default" }}>
                     <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between" }}>
-                      <strong style={{ fontSize: "0.74rem" }}>{n.title}</strong>
+                      <strong style={{ fontSize: "var(--hbx-font-min)" }}>{n.title}</strong>
                       {!n.acknowledged && (
-                        <button className="btn-ghost" style={{ minHeight: 24, fontSize: "0.62rem", padding: "0 8px" }}
+                        <button className="btn-ghost" style={{ minHeight: 24, fontSize: "var(--hbx-font-min)", padding: "0 8px" }}
                           onClick={e => { e.stopPropagation(); marcarLido(n); }}>Marcar lido</button>
                       )}
                     </div>
-                    <span style={{ fontSize: "0.68rem", lineHeight: 1.45, color: "var(--text-muted)", whiteSpace: "pre-line" }}>{n.body}</span>
+                    <span style={{ fontSize: "var(--hbx-font-min)", lineHeight: 1.45, color: "var(--text-muted)", whiteSpace: "pre-line" }}>{n.body}</span>
                     {isLeadNotice && n.payload?.poolId && (
                       <button
                         className="btn-ghost"
-                        style={{ width: "100%", minHeight: 28, fontSize: "0.66rem", marginTop: 2 }}
+                        style={{ width: "100%", minHeight: 28, fontSize: "var(--hbx-font-min)", marginTop: 2 }}
                         onClick={async e => {
                           e.stopPropagation();
                           try {
@@ -2011,8 +2006,8 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
                       </button>
                     )}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                      {n.createdAt ? <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.58rem", color: "var(--text-muted)" }}>{new Date(n.createdAt).toLocaleDateString("pt-BR")}</span> : <span />}
-                      {alvo && <span className="link" style={{ fontSize: "0.62rem" }}>Abrir tela →</span>}
+                      {n.createdAt ? <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>{new Date(n.createdAt).toLocaleDateString("pt-BR")}</span> : <span />}
+                      {alvo && <span className="link" style={{ fontSize: "var(--hbx-font-min)" }}>Abrir tela →</span>}
                     </div>
                   </div>
                 );
@@ -2042,13 +2037,13 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
           </button>
           {waMenuOpen && (
             <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, minWidth: 252, padding: 8, display: "grid", gap: 4 }}>
-              <strong className="font-display" style={{ fontSize: "0.74rem", padding: "2px 6px" }}>Ao clicar no WhatsApp de um lead:</strong>
+              <strong className="font-display" style={{ fontSize: "var(--hbx-font-min)", padding: "2px 6px" }}>Ao clicar no WhatsApp de um lead:</strong>
               <button className={"nav-item" + (waMode === "internal" ? " active" : "")} style={{ minHeight: 34, display: "flex", alignItems: "center", gap: 8, opacity: waStatus.state !== "active" ? 0.45 : 1, cursor: waStatus.state !== "active" ? "not-allowed" : "pointer" }}
                 disabled={waStatus.state !== "active"}
                 onClick={() => { setWaOpenMode("internal"); setWaMenuOpen(false); }}>
                 <I d={ICONS.msg} size={16} /> Abrir no atendimento interno
                 {waStatus.state !== "active"
-                  ? <span style={{ marginLeft: "auto", fontSize: "0.65rem" }} className="muted-note">Sem conexão</span>
+                  ? <span style={{ marginLeft: "auto", fontSize: "var(--hbx-font-min)" }} className="muted-note">Sem conexão</span>
                   : waMode === "internal" && <span style={{ marginLeft: "auto", display: "inline-flex" }}><I d={ICONS.check} size={15} /></span>}
               </button>
               <button className={"nav-item" + (waMode === "external" ? " active" : "")} style={{ minHeight: 34, display: "flex", alignItems: "center", gap: 8 }}
@@ -2061,7 +2056,7 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
                 <I d={ICONS.phone} size={16} /> Enviar ao HBX Logística
                 {waMode === "mobile" && <span style={{ marginLeft: "auto", display: "inline-flex" }}><I d={ICONS.check} size={15} /></span>}
               </button>
-              <small className="text-ink-muted" style={{ padding: "4px 6px 2px", fontSize: "0.62rem" }}>Vale como padrão pra todos os leads. Dá pra trocar quando quiser.</small>
+              <small className="text-ink-muted" style={{ padding: "4px 6px 2px", fontSize: "var(--hbx-font-min)" }}>Vale como padrão pra todos os leads. Dá pra trocar quando quiser.</small>
             </div>
           )}
         </span>}
@@ -2074,14 +2069,13 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
         >
           <I d={ICONS.mapin} size={17} />
         </button>}
-        {/* Bot: chave geral + 3 bolinhas de estado por tipo */}
+        {/* Bot: farol de estado + atalho pro /automacao (a chave geral morreu) */}
         {!soLog && <span className="bot-signal-wrap">
           <button
             className={signalBtnClass(botState)}
-            title={botState === "active" ? "Bot ligado e rodando — clique para desligar" : botState === "error" ? `Bot ligado, mas não roda: ${botBlockedReason || "faltando configuração"} — clique para desligar` : "Bot desligado — clique para ligar"}
-            aria-label="Bot — ativar ou desativar"
-            onClick={toggleBot}
-            disabled={botBusy}
+            title={botState === "active" ? "IA trabalhando — abrir Automação" : botState === "error" ? `IA parada: ${botBlockedReason || "faltando configuração"} — abrir Automação` : "IA — abrir Automação"}
+            aria-label="IA — abrir Automação"
+            onClick={abrirAutomacao}
           >
             <I d={ICONS.bot} size={17} />
           </button>
@@ -2098,15 +2092,6 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
             })}
           </span>
         </span>}
-        <ConfirmDialog
-          open={confirmLigarBotOpen}
-          title="Ligar a chave geral do bot"
-          message="Isso só remove o bloqueio geral — os motores (atendimento, recovery, prospecção) não voltam a rodar sozinhos. Ligue cada um em /bot depois."
-          confirmLabel="Ligar mesmo assim"
-          busy={botBusy}
-          onConfirm={confirmLigarBot}
-          onCancel={() => setConfirmLigarBotOpen(false)}
-        />
         {!soLog && <button
           className={signalBtnClass(emailState)}
           title={emailState === "active" ? "E-mail ativo" : emailState === "error" ? "E-mail com erro" : "E-mail inativo"}
@@ -2122,19 +2107,19 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
           {avatarOpen && (
             <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, minWidth: 200, padding: 8, display: "grid", gap: 6 }}>
               <div style={{ padding: "4px 6px" }}>
-                <strong style={{ display: "block", fontSize: "0.76rem" }}>{currentUserDisplayName(user)}</strong>
-                <small style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>{user?.email || currentUserRoleLabel(user)}</small>
+                <strong style={{ display: "block", fontSize: "var(--hbx-font-min)" }}>{currentUserDisplayName(user)}</strong>
+                <small style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>{user?.email || currentUserRoleLabel(user)}</small>
               </div>
-              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => { setAvatarOpen(false); router.push("/configuracoes"); }}>Configurações</button>
-              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => { setAvatarOpen(false); router.push("/tutorial"); }}>Tutorial</button>
+              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "var(--hbx-font-min)" }} onClick={() => { setAvatarOpen(false); router.push("/configuracoes"); }}>Configurações</button>
+              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "var(--hbx-font-min)" }} onClick={() => { setAvatarOpen(false); router.push("/tutorial"); }}>Tutorial</button>
               {isTenantAdmin(user) && (
-                <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => { setAvatarOpen(false); router.push("/gerencial"); }}>Gerencial</button>
+                <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "var(--hbx-font-min)" }} onClick={() => { setAvatarOpen(false); router.push("/gerencial"); }}>Gerencial</button>
               )}
               {user?.isSystemMaster && (
-                <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => { setAvatarOpen(false); router.push("/master"); }}>Master</button>
+                <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "var(--hbx-font-min)" }} onClick={() => { setAvatarOpen(false); router.push("/master"); }}>Master</button>
               )}
-              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => { setAvatarOpen(false); router.push("/reset-password"); }}>Reset de senha</button>
-              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem", color: "var(--hbx-danger)" }} onClick={sairTopo} disabled={signingOut}>
+              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "var(--hbx-font-min)" }} onClick={() => { setAvatarOpen(false); router.push("/reset-password"); }}>Reset de senha</button>
+              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "var(--hbx-font-min)", color: "var(--hbx-danger)" }} onClick={sairTopo} disabled={signingOut}>
                 {signingOut ? "Saindo…" : "Sair"}
               </button>
             </div>

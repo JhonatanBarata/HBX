@@ -48,7 +48,7 @@ export function TrabalheConoscoClient() {
 
   const campo = (label: string, key: keyof typeof form, props: Record<string, unknown> = {}) => (
     <div style={{ display: "grid", gap: 6 }}>
-      <label style={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", opacity: 0.8 }}>{label}</label>
+      <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", opacity: 0.8 }}>{label}</label>
       <input
         value={form[key]}
         onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))}
@@ -107,7 +107,7 @@ export function TrabalheConoscoClient() {
                 </div>
                 {campo("E-mail", "email", { type: "email", maxLength: 160, placeholder: "para o convite de acesso" })}
                 <div style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: "0.72rem", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", opacity: 0.8 }}>Experiência com vendas</label>
+                  <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", opacity: 0.8 }}>Experiência com vendas</label>
                   <textarea
                     value={form.experience}
                     onChange={e => setForm(f => ({ ...f, experience: e.target.value }))}
@@ -120,7 +120,7 @@ export function TrabalheConoscoClient() {
                 <button className="cta cta-success" type="submit" disabled={busy}>
                   {busy ? "Enviando…" : "Enviar candidatura"}
                 </button>
-                <p style={{ margin: 0, fontSize: "0.68rem", opacity: 0.7 }}>
+                <p style={{ margin: 0, fontSize: "var(--hbx-font-min)", opacity: 0.7 }}>
                   Analisamos toda candidatura e respondemos pelo WhatsApp. Documentos só são pedidos na etapa de contratação.
                 </p>
               </form>

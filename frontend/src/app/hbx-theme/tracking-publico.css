@@ -155,7 +155,7 @@
 }
 
 .trk-pub__step-label {
-  font-size: 0.62rem;
+  font-size: var(--hbx-font-min);
   font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -187,7 +187,7 @@
 }
 
 .trk-pub__eta-label {
-  font-size: 0.68rem;
+  font-size: var(--hbx-font-min);
   font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -222,13 +222,13 @@
 }
 
 .trk-pub__progress-text {
-  font-size: 0.74rem;
+  font-size: var(--hbx-font-min);
   color: var(--text-muted);
   text-align: center;
 }
 
 .trk-pub__updated {
-  font-size: 0.68rem;
+  font-size: var(--hbx-font-min);
   color: var(--text-muted);
   text-align: center;
 }
@@ -241,7 +241,7 @@
 }
 
 .trk-pub__footer-brand {
-  font-size: 0.64rem;
+  font-size: var(--hbx-font-min);
   color: var(--text-muted);
   opacity: 0.7;
 }

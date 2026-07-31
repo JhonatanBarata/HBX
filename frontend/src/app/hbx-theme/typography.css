@@ -34,11 +34,29 @@
   --text-h3: 1.15rem;         /* era 1.35rem */
   --text-h4: 0.95rem;         /* era 1.05rem */
 
+  /* ---- PISO: a menor letra que o app tem direito de pintar (31/07) -----
+     A escala do header resolvia legibilidade subindo TUDO — e a 120% o
+     texto grande estourava caixa e cortava linha. O problema era o degrau
+     de baixo: a linha meta do cartão de lead media 0.5rem = 7px, e havia
+     letra descendo até 0.38rem = 5,3px.
+
+     PISO É PISO: vale pra TODA letra abaixo dele, senão inverte — micro
+     rótulo saindo maior que o nome que ele legenda. Por isso o token não
+     é decorativo: todo font-size do app que ficava abaixo dele foi
+     trocado por este var(). Mexer aqui move o degrau inteiro de uma vez.
+
+     Ordem do dono (31/07, 2ª passada): 0.8rem = 11,2px. É rem, então
+     continua obedecendo a porcentagem do header (a 120% vira 13,4px);
+     a porcentagem em si não mudou — segue 100/110/120/130. */
+  --hbx-font-min: 0.8rem;     /* 11.2px na raiz de 14px */
+
   /* ---- Body scale ----------------------------------------------------- */
   --text-lg: 1rem;            /* 16px */
   --text-base: 0.88rem;       /* 14px — default UI body */
-  --text-sm: 0.78rem;         /* 12.5px — controls / labels */
-  --text-xs: 0.68rem;         /* 11px — badges / captions */
+  /* sm e xs eram 0.78rem/0.68rem — os dois caíram DENTRO do piso, então
+     viraram o piso. Token que mente é pior que token repetido. */
+  --text-sm: var(--hbx-font-min);
+  --text-xs: var(--hbx-font-min);
 
   /* ---- Tracking ------------------------------------------------------- */
   --tracking-display: -0.06em;
@@ -53,13 +71,14 @@
   --leading-tight: 1.1;
 
   /* ---- CASCA MOBILE (MOBILE-CASCA/W1) — font-size ESTRUTURAL da casca ---
-     Métrica é esqueleto (Lei 1): stats 1 linha = 11px, label da tab = 10.5px,
-     título do topo = 15px. Pele PROIBIDA de mexer nisto (check-pele R5). */
+     Métrica é esqueleto (Lei 1): título do topo = 15px. Pele PROIBIDA de
+     mexer nisto (check-pele R5). Label da tab (10.5px), stat (11px) e
+     sub de linha (12px) ficavam abaixo do piso e passaram a ser o piso. */
   --casca-text-title: 0.95rem;   /* ~15px — título do topo (1 linha) */
-  --casca-text-label: 0.66rem;   /* ~10.5px — label da tab bar / segmented */
-  --casca-text-stat: 0.69rem;    /* ~11px — stats 1 linha micro */
+  --casca-text-label: var(--hbx-font-min);   /* label da tab bar / segmented */
+  --casca-text-stat: var(--hbx-font-min);    /* stats 1 linha micro */
   --casca-text-body: 0.88rem;    /* 14px — corpo de linha de lista */
-  --casca-text-sub: 0.75rem;     /* ~12px — subtítulo/meta de linha */
+  --casca-text-sub: var(--hbx-font-min);     /* subtítulo/meta de linha */
   --casca-text-pct: 0.8rem;      /* ~13px — % no centro do loading */
   --casca-loading-mark: 1.62rem; /* ~26px — wordmark HBX no loading (aumentada o pouco, 07/07) */
 }

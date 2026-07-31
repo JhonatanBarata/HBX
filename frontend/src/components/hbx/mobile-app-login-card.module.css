@@ -39,7 +39,7 @@
 .copy span,
 .unavailable {
   color: var(--text-muted);
-  font-size: 0.67rem;
+  font-size: var(--hbx-font-min);
   line-height: 1.45;
 }
 
@@ -57,7 +57,7 @@
   justify-content: center;
   border-radius: var(--radius-sm);
   font: inherit;
-  font-size: 0.72rem;
+  font-size: var(--hbx-font-min);
   font-weight: 700;
   text-decoration: none;
   cursor: pointer;

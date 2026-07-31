@@ -647,7 +647,7 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
           <div className="ctb-status-row">
             <span className={"ctb-status-dot" + (estadoGeral.nivel === "ok" ? "" : ` ${estadoGeral.nivel}`)} />
             <span>{estadoGeral.texto}</span>
-            <button className="btn-ghost" style={{ marginLeft: "auto", minHeight: 26, fontSize: "0.62rem" }} onClick={() => setHeroExpandido((v) => !v)}>
+            <button className="btn-ghost" style={{ marginLeft: "auto", minHeight: 26, fontSize: "var(--hbx-font-min)" }} onClick={() => setHeroExpandido((v) => !v)}>
               {heroExpandido ? "recolher" : "ver breakdown"}
             </button>
           </div>
@@ -658,7 +658,7 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
               <div className="ctb-hero-breakdown-row"><span>IRRF (pró-labore)</span><span>{brl(mes.irrfPrevistoCents)}</span></div>
             </div>
           )}
-          {mesError && <span style={{ fontSize: "0.7rem", color: "var(--hbx-danger)" }}>{mesError}</span>}
+          {mesError && <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--hbx-danger)" }}>{mesError}</span>}
         </div>
 
         <div className="ctb-hero-card">
@@ -668,7 +668,7 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
           {mes && mes.ajusteManualCents !== 0 && (
             <span className="ctb-hero-sub">inclui ajuste manual de {brl(mes.ajusteManualCents)}{mes.ajusteMotivo ? ` — ${mes.ajusteMotivo}` : ""}</span>
           )}
-          <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem", width: "fit-content", marginTop: 4 }} onClick={() => setPerfilOpen(true)}>
+          <button className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)", width: "fit-content", marginTop: 4 }} onClick={() => setPerfilOpen(true)}>
             Perfil fiscal
           </button>
         </div>
@@ -713,11 +713,11 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
             <span className="ctb-fator-reco-text">
               Pró-labore recomendado deste mês: <strong>{brl(prolaboreRecomendadoCents)}</strong>
             </span>
-            <button className="btn-teal" style={{ minHeight: 30, fontSize: "0.7rem" }} disabled={prolaboreBusy || prolaboreRecomendadoCents <= 0} onClick={usarProlaboreRecomendado}>
+            <button className="btn-teal" style={{ minHeight: 30, fontSize: "var(--hbx-font-min)" }} disabled={prolaboreBusy || prolaboreRecomendadoCents <= 0} onClick={usarProlaboreRecomendado}>
               {prolaboreBusy ? "gravando…" : "usar este valor"}
             </button>
           </div>
-          {ajusteMsg && <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>{ajusteMsg}</span>}
+          {ajusteMsg && <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>{ajusteMsg}</span>}
 
           {mes && mes.fatorR < FATOR_R_LIMIAR && custoDoErro > 0 && (
             <div className="ctb-banner-warn">
@@ -748,7 +748,7 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
               <label>Pró-labore (R$)</label>
               <input inputMode="decimal" value={simProlabore} onChange={(e) => setSimProlabore(e.target.value)} placeholder="0,00" />
             </div>
-            <span style={{ fontSize: "0.66rem", color: "var(--text-muted)" }}>
+            <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>
               {simBusy ? "recalculando…" : "recalcula automaticamente ao digitar"}
             </span>
           </div>
@@ -778,10 +778,10 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
           <h2>Obrigações</h2>
           <div className="meta">
             {obrigacoes ? `${proximasObrigs.length} ativa(s)` : ""}
-            <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.66rem" }} onClick={carregarObrigacoes}>Atualizar</button>
+            <button className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }} onClick={carregarObrigacoes}>Atualizar</button>
           </div>
         </div>
-        {obrigError && <div style={{ padding: "8px 16px 0", fontSize: "0.72rem", color: "var(--hbx-danger)" }}>{obrigError}</div>}
+        {obrigError && <div style={{ padding: "8px 16px 0", fontSize: "var(--hbx-font-min)", color: "var(--hbx-danger)" }}>{obrigError}</div>}
         <div className="ctb-timeline">
           {obrigacoes === null && !obrigError && <div className="ctb-empty">Carregando obrigações…</div>}
           {obrigacoes !== null && proximasObrigs.length === 0 && (
@@ -802,12 +802,12 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
                 <div className="ctb-oblig-actions">
                   <span className={estadoChipClass(ob.estado, ob.atrasado)}>{ESTADO_LABEL[ob.estado] || ob.estado}</span>
                   {alvo && (
-                    <button className="btn-ghost" style={{ minHeight: 28, fontSize: "0.62rem" }} disabled={marcarBusy === ob.id} onClick={() => marcarObrigacao(ob)}>
+                    <button className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }} disabled={marcarBusy === ob.id} onClick={() => marcarObrigacao(ob)}>
                       {marcarBusy === ob.id ? "…" : `marcar ${ESTADO_LABEL[alvo].toLowerCase()}`}
                     </button>
                   )}
                   {link && (
-                    <a className="btn-ghost" style={{ minHeight: 28, fontSize: "0.62rem", textDecoration: "none" }} href={link} target="_blank" rel="noreferrer">
+                    <a className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)", textDecoration: "none" }} href={link} target="_blank" rel="noreferrer">
                       abrir no governo
                     </a>
                   )}
@@ -849,7 +849,7 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
               Receita acumulada {anoAtual}: <strong>{lucroIsento ? brl(lucroIsento.receitaAcumuladaCents) : "—"}</strong>
               {" · "}DAS pago: <strong>{lucroIsento ? brl(lucroIsento.dasPagoAcumuladoCents) : "—"}</strong>
             </span>
-            <button className="btn-teal" style={{ minHeight: 30, fontSize: "0.7rem" }} onClick={() => setRetiradaOpen(true)}>
+            <button className="btn-teal" style={{ minHeight: 30, fontSize: "var(--hbx-font-min)" }} onClick={() => setRetiradaOpen(true)}>
               Registrar retirada de lucro
             </button>
           </div>
@@ -897,22 +897,22 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
               ))}
             </select>
           </div>
-          <button className="btn-ghost" style={{ minHeight: 34, fontSize: "0.7rem" }} onClick={() => setLcCompetencia("")}>
+          <button className="btn-ghost" style={{ minHeight: 34, fontSize: "var(--hbx-font-min)" }} onClick={() => setLcCompetencia("")}>
             ver ano inteiro
           </button>
-          <button className="btn-ghost" style={{ minHeight: 34, fontSize: "0.7rem", marginLeft: "auto" }} onClick={() => setLcFormOpen(true)}>
+          <button className="btn-ghost" style={{ minHeight: 34, fontSize: "var(--hbx-font-min)", marginLeft: "auto" }} onClick={() => setLcFormOpen(true)}>
             + lançamento manual
           </button>
-          <button className="btn-ghost" style={{ minHeight: 34, fontSize: "0.7rem" }} onClick={() => exportarLivroCaixaCsv("competencia")}>
+          <button className="btn-ghost" style={{ minHeight: 34, fontSize: "var(--hbx-font-min)" }} onClick={() => exportarLivroCaixaCsv("competencia")}>
             exportar competência (CSV)
           </button>
-          <button className="btn-ghost" style={{ minHeight: 34, fontSize: "0.7rem" }} onClick={() => exportarLivroCaixaCsv("ano")}>
+          <button className="btn-ghost" style={{ minHeight: 34, fontSize: "var(--hbx-font-min)" }} onClick={() => exportarLivroCaixaCsv("ano")}>
             exportar {anoAtual} (CSV)
           </button>
         </div>
 
-        {lcMsg && <div style={{ padding: "8px 16px 0", fontSize: "0.72rem", color: "var(--text-muted)" }}>{lcMsg}</div>}
-        {lcError && <div style={{ padding: "8px 16px 0", fontSize: "0.72rem", color: "var(--hbx-danger)" }}>{lcError}</div>}
+        {lcMsg && <div style={{ padding: "8px 16px 0", fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>{lcMsg}</div>}
+        {lcError && <div style={{ padding: "8px 16px 0", fontSize: "var(--hbx-font-min)", color: "var(--hbx-danger)" }}>{lcError}</div>}
 
         <div className="tbl-wrap" style={{ padding: 16 }}>
           <table className="tbl">
@@ -949,7 +949,7 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
                   <td><span className="ctb-chip">{l.origem}</span></td>
                   <td>
                     {!l.estornaId && l.categoria !== "ESTORNO" && (
-                      <button className="btn-ghost" style={{ minHeight: 26, fontSize: "0.6rem" }} onClick={() => estornarLancamento(l)}>
+                      <button className="btn-ghost" style={{ minHeight: 26, fontSize: "var(--hbx-font-min)" }} onClick={() => estornarLancamento(l)}>
                         estornar
                       </button>
                     )}
@@ -961,14 +961,14 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
         </div>
 
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0 16px 16px", flexWrap: "wrap", gap: 10 }}>
-          <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>
+          <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>
             Saldo acumulado na visão atual: <strong>{brl(saldoAtualCents)}</strong>
           </span>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <button className="btn-ghost" style={{ minHeight: 30, fontSize: "0.7rem" }} disabled={fecharAnoBusy} onClick={fecharLivroCaixaAno}>
+            <button className="btn-ghost" style={{ minHeight: 30, fontSize: "var(--hbx-font-min)" }} disabled={fecharAnoBusy} onClick={fecharLivroCaixaAno}>
               {fecharAnoBusy ? "fechando…" : `fechar Livro Caixa ${anoAtual}`}
             </button>
-            {fecharAnoMsg && <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>{fecharAnoMsg}</span>}
+            {fecharAnoMsg && <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>{fecharAnoMsg}</span>}
           </div>
         </div>
       </section>
@@ -993,7 +993,7 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
           <form className="hbx-modal" style={{ width: "min(560px, 100%)", maxHeight: "90vh", overflowY: "auto" }} onSubmit={salvarPerfil}>
             <h3 style={{ padding: "16px 20px 0" }}>
               Perfil fiscal
-              <button type="button" className="btn-ghost" style={{ minHeight: 28, fontSize: "0.7rem" }} onClick={() => setPerfilOpen(false)}>fechar</button>
+              <button type="button" className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }} onClick={() => setPerfilOpen(false)}>fechar</button>
             </h3>
             <div className="ctb-perfil-form">
               <div className="ctb-perfil-grid">
@@ -1119,7 +1119,7 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
 
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <button className="btn-teal" type="submit" disabled={perfilBusy}>{perfilBusy ? "salvando…" : "Salvar perfil"}</button>
-                {perfilMsg && <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>{perfilMsg}</span>}
+                {perfilMsg && <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>{perfilMsg}</span>}
               </div>
             </div>
           </form>
@@ -1132,7 +1132,7 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
           <form className="hbx-modal" style={{ width: "min(460px, 100%)" }} onSubmit={criarLancamentoManual}>
             <h3 style={{ padding: "16px 20px 0" }}>
               Lançamento manual
-              <button type="button" className="btn-ghost" style={{ minHeight: 28, fontSize: "0.7rem" }} onClick={() => setLcFormOpen(false)}>fechar</button>
+              <button type="button" className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }} onClick={() => setLcFormOpen(false)}>fechar</button>
             </h3>
             <div className="ctb-perfil-form">
               <div className="ctb-field">
@@ -1164,7 +1164,7 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
               </div>
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <button className="btn-teal" type="submit" disabled={lcBusy}>{lcBusy ? "gravando…" : "Registrar lançamento"}</button>
-                {lcMsg && <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>{lcMsg}</span>}
+                {lcMsg && <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>{lcMsg}</span>}
               </div>
             </div>
           </form>
@@ -1177,10 +1177,10 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
           <form className="hbx-modal" style={{ width: "min(420px, 100%)" }} onSubmit={registrarRetiradaLucro}>
             <h3 style={{ padding: "16px 20px 0" }}>
               Registrar retirada de lucro
-              <button type="button" className="btn-ghost" style={{ minHeight: 28, fontSize: "0.7rem" }} onClick={() => setRetiradaOpen(false)}>fechar</button>
+              <button type="button" className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }} onClick={() => setRetiradaOpen(false)}>fechar</button>
             </h3>
             <div className="ctb-perfil-form">
-              <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
+              <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>
                 Disponível em {anoAtual}: <strong>{lucroIsento ? brl(lucroIsento.disponivelCents) : "—"}</strong>
               </span>
               <div className="ctb-field">
@@ -1195,7 +1195,7 @@ export function JanelaContabil({ onBadgeChange }: { onBadgeChange?: (contagem: {
               )}
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <button className="btn-teal" type="submit" disabled={retiradaBusy}>{retiradaBusy ? "gravando…" : "Confirmar retirada"}</button>
-                {retiradaMsg && <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>{retiradaMsg}</span>}
+                {retiradaMsg && <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>{retiradaMsg}</span>}
               </div>
             </div>
           </form>

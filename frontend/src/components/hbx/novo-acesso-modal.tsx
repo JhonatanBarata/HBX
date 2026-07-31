@@ -110,7 +110,7 @@ function limparRascunho() {
   try { window.localStorage.removeItem(DRAFT_KEY); } catch { /* sem storage */ }
 }
 
-const lbl = { fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" } as const;
+const lbl = { fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" } as const;
 
 // member ausente = criar; presente = gerenciar (mesma tela). O componente monta
 // APENAS aberto (o pai condiciona a renderização).
@@ -599,7 +599,7 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
               <Av name={nomeMembro} size={34} />
               <span>
                 {nomeMembro}
-                <small style={{ display: "block", fontSize: "0.64rem", fontWeight: 600, color: "var(--text-muted)" }}>
+                <small style={{ display: "block", fontSize: "var(--hbx-font-min)", fontWeight: 600, color: "var(--text-muted)" }}>
                   {vendedor ? operationalProfileLabel(form.operationalProfile) : "Gerente"} · {ativo ? "Ativo" : "Inativo"}
                 </small>
               </span>
@@ -614,18 +614,18 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
             extra. Só resta o teto operacional (seatCap), quando o master
             configurou um. */}
         {seatInfo && !painelAtivo && seatInfo.seatCap != null && (
-          <div style={{ padding: "9px 11px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", fontSize: "0.68rem", lineHeight: 1.5 }}>
+          <div style={{ padding: "9px 11px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", fontSize: "var(--hbx-font-min)", lineHeight: 1.5 }}>
             {seatInfo.capReached
               ? `Teto de ${seatInfo.seatCap} acesso(s) atingido — peça ao master para aumentar.`
               : `${seatInfo.activeUsers ?? "—"} de ${seatInfo.seatCap} acesso(s) em uso.`}
           </div>
         )}
-        {msg && <div style={{ fontSize: "0.72rem", fontWeight: 700, lineHeight: 1.5, color: msg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{msg}</div>}
+        {msg && <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, lineHeight: 1.5, color: msg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{msg}</div>}
         {senhaTemporaria && (
           <div className="ok show" style={{ display: "grid", gap: 4 }}>
-            <strong style={{ fontSize: "0.74rem" }}>O e-mail de boas-vindas NÃO saiu — entregue a credencial na mão:</strong>
+            <strong style={{ fontSize: "var(--hbx-font-min)" }}>O e-mail de boas-vindas NÃO saiu — entregue a credencial na mão:</strong>
             <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.8rem" }}>{member?.email} · {senhaTemporaria}</span>
-            <span style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>Troca obrigatória no primeiro login.</span>
+            <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Troca obrigatória no primeiro login.</span>
           </div>
         )}
 
@@ -747,7 +747,7 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
               <label style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "10px 12px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", cursor: travaForm ? "default" : "pointer" }}>
                 <input type="checkbox" checked={form.salvarDocumentacao} disabled={travaForm}
                   onChange={e => setForm(f => ({ ...f, salvarDocumentacao: e.target.checked }))} style={{ marginTop: 2 }} />
-                <span style={{ fontSize: "0.7rem", lineHeight: 1.5 }}>
+                <span style={{ fontSize: "var(--hbx-font-min)", lineHeight: 1.5 }}>
                   <strong>Salvar documentação deste vendedor</strong>
                   <span style={{ display: "block", color: "var(--text-muted)" }}>
                     Use quando quiser guardar documentos, contrato e liberar depois (o acesso nasce inativo). Desmarcado cria o acesso normalmente.
@@ -843,7 +843,7 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
                       Excluir
                     </button>
                   )}
-                  <span style={{ fontSize: "0.64rem", color: "var(--text-muted)" }}>
+                  <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>
                     {isSelf
                       ? "Você não pode alterar o próprio acesso."
                       : "Perfil de acesso (admin/vendas) é definido pelo Master."}
@@ -867,7 +867,7 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
           {/* coluna direita — documentação (mesmo painel para criar e gerenciar) */}
           <div style={{ display: "grid", gap: 10, alignContent: "start", opacity: vendedor ? 1 : 0.45 }}>
             {!vendedor ? (
-              <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Gerentes não têm fluxo de documentação.</span>
+              <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Gerentes não têm fluxo de documentação.</span>
             ) : (
               <React.Fragment>
                 {isEdit && (
@@ -888,18 +888,18 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
                     const obrigatorio = Boolean(reqState[slot.kind]);
                     return (
                       <div key={slot.kind} style={{ display: "grid", gap: 6, padding: "10px 12px", borderRadius: "var(--radius-sm)", border: "1px dashed var(--border-hairline)", background: "var(--hbx-surface-soft)" }}>
-                        <strong style={{ fontSize: "0.74rem" }}>{slot.label}</strong>
-                        <span style={{ fontSize: "0.62rem", color: anexo ? "var(--hbx-brand-strong)" : "var(--text-muted)" }}>
+                        <strong style={{ fontSize: "var(--hbx-font-min)" }}>{slot.label}</strong>
+                        <span style={{ fontSize: "var(--hbx-font-min)", color: anexo ? "var(--hbx-brand-strong)" : "var(--text-muted)" }}>
                           {anexo ? `✓ ${anexo.originalFilename || "anexado"}` : obrigatorio ? "Obrigatório pendente" : "Opcional"}
                         </span>
                         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                          <label className="btn-ghost" style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px", display: "inline-flex", alignItems: "center", cursor: painelAtivo ? "pointer" : "not-allowed", opacity: painelAtivo ? 1 : 0.55 }}>
+                          <label className="btn-ghost" style={{ minHeight: 26, fontSize: "var(--hbx-font-min)", padding: "0 8px", display: "inline-flex", alignItems: "center", cursor: painelAtivo ? "pointer" : "not-allowed", opacity: painelAtivo ? 1 : 0.55 }}>
                             {docBusy === slot.kind ? "Enviando…" : "Escolher arquivo"}
                             <input type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} disabled={!painelAtivo || docBusy !== null}
                               onChange={e => { uploadDoc(slot.kind, e.target.files?.[0]); e.target.value = ""; }} />
                           </label>
                           <button type="button" className="btn-ghost" disabled={!painelAtivo || docBusy !== null}
-                            style={{ minHeight: 26, fontSize: "0.62rem", padding: "0 8px", ...(obrigatorio ? { color: "var(--hbx-warning)", borderColor: "color-mix(in srgb, var(--hbx-warning) 40%, transparent)" } : {}) }}
+                            style={{ minHeight: 26, fontSize: "var(--hbx-font-min)", padding: "0 8px", ...(obrigatorio ? { color: "var(--hbx-warning)", borderColor: "color-mix(in srgb, var(--hbx-warning) 40%, transparent)" } : {}) }}
                             onClick={() => alternarObrigatorio(slot.kind)}>
                             {obrigatorio ? "Obrigatório" : "Opcional"}
                           </button>
@@ -942,7 +942,7 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
                       {docBusy === "email" ? "Enviando…" : "Solicitar documentos"}
                     </button>
                   ) : (
-                    <span style={{ fontSize: "0.64rem", color: "var(--text-muted)", alignSelf: "center", lineHeight: 1.4 }}>
+                    <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", alignSelf: "center", lineHeight: 1.4 }}>
                       Disparo de e-mail indisponível — ative e configure em Configurações → E-mail.
                     </span>
                   )}
@@ -953,7 +953,7 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
                   </button>
                 )}
                 {!isEdit && !painelAtivo && (
-                  <span style={{ fontSize: "0.64rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
+                  <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", lineHeight: 1.5 }}>
                     Crie o acesso para habilitar uploads, contrato e solicitação de documentos.
                   </span>
                 )}
@@ -972,12 +972,12 @@ export function NovoAcessoModal({ onClose, onDone, team, member = null, isSelf =
               Modelo do contrato
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setModeloOpen(false)}>✕</span>
             </h3>
-            {modeloMsg && <div style={{ fontSize: "0.72rem", fontWeight: 700, color: modeloMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{modeloMsg}</div>}
-            <p style={{ margin: 0, fontSize: "0.66rem", lineHeight: 1.5, color: "var(--text-muted)" }}>
+            {modeloMsg && <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: modeloMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{modeloMsg}</div>}
+            <p style={{ margin: 0, fontSize: "var(--hbx-font-min)", lineHeight: 1.5, color: "var(--text-muted)" }}>
               Use as variáveis {"{{sellerName}}"}, {"{{sellerCpf}}"}, {"{{sellerEmail}}"}, {"{{sellerPhone}}"}, {"{{sellerAddress}}"}, {"{{commissionPercent}}"}, {"{{commissionDueBusinessDays}}"}, {"{{commissionMonthlyCap}}"}, {"{{setupCommissionCap}}"}, {"{{commissionCapClause}}"} e {"{{contractDate}}"} — preenchidas na geração do PDF.
             </p>
             <textarea className="field-dark" rows={16} value={modeloText} disabled={modeloBusy}
-              style={{ resize: "vertical", fontFamily: "var(--font-mono)", fontSize: "0.7rem", lineHeight: 1.55, padding: "10px 12px" }}
+              style={{ resize: "vertical", fontFamily: "var(--font-mono)", fontSize: "var(--hbx-font-min)", lineHeight: 1.55, padding: "10px 12px" }}
               onChange={e => setModeloText(e.target.value)} />
             <button className="btn-teal" onClick={salvarModelo} disabled={modeloBusy} style={{ minHeight: 40 }}>
               {modeloBusy ? "Salvando…" : "Salvar modelo"}

@@ -3,7 +3,7 @@
    .panel/.tag/.btn-* do kit. As cores vêm dos tokens do tema. */
 
 .tut-adm { display: grid; gap: 16px; }
-.tut-adm__intro { font-size: 0.72rem; color: var(--text-muted); line-height: 1.55; margin: 0; }
+.tut-adm__intro { font-size: var(--hbx-font-min); color: var(--text-muted); line-height: 1.55; margin: 0; }
 
 .tut-guide { display: grid; gap: 10px; }
 .tut-guide__head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 2px 2px 0; }
@@ -25,7 +25,7 @@
   border-radius: 999px;
   background: var(--hbx-brand-soft);
   color: var(--hbx-brand-strong);
-  font-size: 0.6rem; font-weight: 800;
+  font-size: var(--hbx-font-min); font-weight: 800;
 }
 
 /* Campos editáveis */
@@ -37,14 +37,14 @@
   background: var(--hbx-surface);
   color: var(--hbx-foreground);
   font: inherit;
-  font-size: 0.72rem;
+  font-size: var(--hbx-font-min);
 }
 .tut-inp:focus { outline: none; border-color: var(--hbx-brand); }
 .tut-inp::placeholder { color: var(--text-muted); }
-.tut-inp--title { font-size: 0.78rem; font-weight: 700; }
+.tut-inp--title { font-size: var(--hbx-font-min); font-weight: 700; }
 .tut-inp--desc { resize: vertical; line-height: 1.45; }
 .tut-inp--guide { width: auto; flex: 0 1 200px; font-size: 0.8rem; font-weight: 700; }
-.tut-inp--hint { width: auto; flex: 1 1 200px; font-size: 0.7rem; }
+.tut-inp--hint { width: auto; flex: 1 1 200px; font-size: var(--hbx-font-min); }
 
 /* Botõezinhos de ação (ordenar, remover, trocar) */
 .tut-mini {
@@ -54,7 +54,7 @@
   background: var(--hbx-surface);
   color: var(--hbx-foreground);
   font: inherit;
-  font-size: 0.66rem;
+  font-size: var(--hbx-font-min);
   font-weight: 700;
   cursor: pointer;
 }
@@ -74,13 +74,13 @@
   border-radius: var(--radius-sm);
   background: var(--hbx-surface);
   color: var(--text-muted);
-  font-size: 0.66rem;
+  font-size: var(--hbx-font-min);
   cursor: pointer;
   transition: border-color 0.2s ease, background 0.2s ease, color 0.2s ease;
 }
 .tut-drop:hover { border-color: var(--hbx-brand); color: var(--hbx-brand-strong); }
 .tut-drop.is-over { border-color: var(--hbx-brand); background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); }
-.tut-drop strong { font-size: 0.72rem; font-weight: 700; }
+.tut-drop strong { font-size: var(--hbx-font-min); font-weight: 700; }
 .tut-drop.is-busy { opacity: 0.6; pointer-events: none; }
 
 .tut-link { display: flex; align-items: center; gap: 6px; }
@@ -102,14 +102,14 @@
   background: transparent;
   padding: 4px 12px;
   font: inherit;
-  font-size: 0.64rem;
+  font-size: var(--hbx-font-min);
   font-weight: 700;
   color: var(--text-muted);
   cursor: pointer;
 }
 .tut-media__seg button.is-on { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); }
-.tut-media__tag { font-size: 0.6rem; font-weight: 700; color: var(--text-muted); margin-right: auto; }
+.tut-media__tag { font-size: var(--hbx-font-min); font-weight: 700; color: var(--text-muted); margin-right: auto; }
 
-.tut-msg { font-size: 0.66rem; font-weight: 700; }
+.tut-msg { font-size: var(--hbx-font-min); font-weight: 700; }
 .tut-msg.is-err { color: var(--hbx-danger); }
 .tut-msg.is-ok { color: var(--hbx-success, var(--hbx-brand-strong)); }

@@ -53,6 +53,8 @@ import { UploadsModule } from './uploads/uploads.module';
 import { TutorialMediaModule } from './tutorial-media/tutorial-media.module';
 import { FinanceiroTenantModule } from './financeiro-tenant/financeiro-tenant.module';
 import { AutomationModule } from './automation/automation.module';
+import { PainelModuloModule } from './painel-modulo/painel-modulo.module';
+import { ComexModule } from './comex/comex.module';
 
 @Module({
   imports: [
@@ -117,6 +119,8 @@ import { AutomationModule } from './automation/automation.module';
     FinanceiroTenantModule,
     TutorialMediaModule,
     AutomationModule,
+    PainelModuloModule,
+    ComexModule,
   ],
   controllers: [AppController],
   providers: [

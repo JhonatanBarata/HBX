@@ -1,7 +1,8 @@
 "use client";
 
-// PAINEL DE DISPAROS (dono, 30/07/2026) — mora na sidebar INTERCALANDO com o
-// cartão de créditos, e SÓ existe quando o bot de prospecção está ativo.
+// PAINEL DE DISPAROS (dono, 30/07/2026) — mora na sidebar, ACIMA do cartão de
+// créditos e SÓ na tela de Vendas (lugar definido pelo dono em 31/07). Existe
+// apenas quando o bot de prospecção está ativo.
 // Linguagem: COR diz o estado (verde = funcionando, âmbar = atenção, vermelho =
 // erro) — zero textão. Clique abre a central de regras (.hbx-veil, Lei nº2).
 // O mesmo painel é o dono do ALERTA DE LEAD QUENTE: quando um lead demonstra
@@ -281,15 +282,22 @@ function HotLeadToast({ hot, onOpen, onDismiss }: { hot: HotLead; onOpen: () => 
   );
 }
 
-// ── O rotator créditos ↔ disparos ────────────────────────────────────────────
+// ── O slot dos disparos na barra lateral ─────────────────────────────────────
+//
+// LUGAR CERTO (dono, 31/07/2026): o cartão de Disparos aparece SÓ na tela de
+// Vendas — antes ele revezava com o cartão de Créditos em qualquer módulo, e o
+// dono cortou o revezamento ("Crédito é o último, sempre visível; Disparos só
+// em vendas"). Quem desenha o crédito é a Sidebar, logo abaixo deste slot.
+//
+// O componente continua montado em TODA tela mesmo sem mostrar cartão: é ele o
+// dono do ALERTA DE LEAD QUENTE (pulso + respiro de cor + aviso no topo), e
+// esse aviso só serve se chegar onde o vendedor estiver — nunca só no /vendas.
 
-export function CreditDisparoRotator({ credits }: { credits: React.ReactNode }) {
+export function DisparoSidebarSlot({ mostrarCartao }: { mostrarCartao: boolean }) {
   const router = useRouter();
   const { live } = useDisparoLive();
   const [modalOpen, setModalOpen] = useState(false);
   const [hot, setHot] = useState<HotLead | null>(null);
-  // face visível: alterna sozinha a cada 8s quando as DUAS existem.
-  const [face, setFace] = useState<"credits" | "disparo">("credits");
 
   // S4 CORREÇÃO DO NOTURNO (B11): o painel deixou de depender de campanha rodando.
   // O modo do dono é MANUAL — a cena Tagliágua (lead perguntou "como que funciona ?"
@@ -298,15 +306,6 @@ export function CreditDisparoRotator({ credits }: { credits: React.ReactNode }) 
   const panelActive = Boolean(
     live && (live.campaign?.status === "running" || (live.agendadosFuturos ?? 0) > 0 || live.hotLead),
   );
-  const hasCredits = Boolean(credits);
-
-  useEffect(() => {
-    if (!panelActive || !hasCredits) return;
-    const t = setInterval(() => {
-      setFace((prev) => (prev === "credits" ? "disparo" : "credits"));
-    }, 8_000);
-    return () => clearInterval(t);
-  }, [panelActive, hasCredits]);
 
   // Lead quente novo (mais recente que o último visto) → dispara o ritual:
   // pulso no painel + respiro de cor no sistema inteiro (1s) + aviso no topo.
@@ -325,11 +324,8 @@ export function CreditDisparoRotator({ credits }: { credits: React.ReactNode }) 
     if (!hot) return;
     const root = document.documentElement;
     root.classList.add("hbx-hot-flash");
-    // painel vira a face visível na hora do alerta — o pulso é dele.
-    const id = requestAnimationFrame(() => setFace("disparo"));
     flashTimer.current = setTimeout(() => root.classList.remove("hbx-hot-flash"), 1_000);
     return () => {
-      cancelAnimationFrame(id);
       if (flashTimer.current) clearTimeout(flashTimer.current);
       root.classList.remove("hbx-hot-flash");
     };
@@ -350,27 +346,15 @@ export function CreditDisparoRotator({ credits }: { credits: React.ReactNode }) 
     setHot(null);
   }, [hot]);
 
-  // Sem bot ativo: comportamento de sempre (só créditos, ou nada).
-  if (!panelActive || !live) return <>{credits}</>;
-
-  const disparoCard = (
-    <DisparoSidebarCard live={live} hotPulse={Boolean(hot)} onOpen={() => setModalOpen(true)} />
-  );
+  // Sem bot ativo NÃO existe cartão nenhum — e o alerta também não teria o que
+  // avisar. O slot vira nada e a barra fica com o crédito de sempre.
+  if (!panelActive || !live) return null;
 
   return (
     <>
-      {hasCredits ? (
-        <div className={"credit-disparo-flip" + (face === "disparo" ? " is-disparo" : "")}>
-          <div className="credit-disparo-flip__face credit-disparo-flip__face--credits" aria-hidden={face !== "credits"}>
-            {credits}
-          </div>
-          <div className="credit-disparo-flip__face credit-disparo-flip__face--disparo" aria-hidden={face !== "disparo"}>
-            {disparoCard}
-          </div>
-        </div>
-      ) : (
-        disparoCard
-      )}
+      {mostrarCartao ? (
+        <DisparoSidebarCard live={live} hotPulse={Boolean(hot)} onOpen={() => setModalOpen(true)} />
+      ) : null}
       {modalOpen && <DisparoRulesModal live={live} onClose={() => setModalOpen(false)} />}
       {hot && <HotLeadToast hot={hot} onOpen={openHotLead} onDismiss={dismissHot} />}
     </>
