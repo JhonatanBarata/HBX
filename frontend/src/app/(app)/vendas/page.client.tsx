@@ -325,10 +325,9 @@ function patchCardStage(board: BoardResponse, id: string, stage: VendasStage): B
   };
 }
 
-// ── GRADE (planilha) ─────────────────────────────────────────────────────────
-// Catálogo ÚNICO de colunas da lista. Cada lead vira UMA linha; cada dado tem
-// sua coluna (nada empilhado dentro da célula). A grade é de LEITURA: quem
-// edita o lead é a ficha (cockpit), aberta com 1 clique na linha.
+// ── CAMPOS DA LISTA COMERCIAL ────────────────────────────────────────────────
+// Catálogo único dos fatos que o usuário pode priorizar nas faixas densas.
+// A lista continua sendo de leitura: quem edita o lead é a Central do Lead.
 type GridColumn = {
   key: string;
   label: string;
@@ -365,15 +364,22 @@ const GRID_COLUMNS: GridColumn[] = [
   { key: "source", label: "Origem", width: 130, text: c => c.primarySource || c.sourceType || "" },
   { key: "created", label: "Criado em", width: 110, mono: true, text: c => (c.createdAt ? new Date(c.createdAt).toLocaleDateString("pt-BR") : "") },
 ];
-const GRID_DEFAULT_KEYS = ["name", "icons", "status", "phone", "city", "state", "segment", "stage", "agenda", "engage", "value", "next", "owner", "date"];
-const GRID_COLS_STORAGE = "hbx:vendas-grid-cols";
-const GRID_SORT_STORAGE = "hbx:vendas-grid-sort";
-const GRID_PINNED_STORAGE = "hbx:vendas-grid-pinned";
+const GRID_DEFAULT_KEYS = ["name", "segment", "city", "stage", "score", "next", "agenda", "engage", "value", "owner", "icons", "phone", "email", "note"];
+const GRID_COLS_STORAGE = "hbx:vendas-list-fields-v2";
+const GRID_SORT_STORAGE = "hbx:vendas-list-sort-v2";
 const GRID_COLUMN_GROUPS = [
   { label: "Dados da empresa", keys: ["name", "icons", "phone", "city", "state", "segment", "email", "address", "cnpj", "razao"] },
   { label: "Negociação", keys: ["stage", "agenda", "engage", "value", "next", "note", "owner", "date", "score", "temp", "attempts"] },
   { label: "Controle", keys: ["status", "created", "source"] },
 ] as const;
+
+function compactGridText(card: VendasLead, visibleKeys: string[], allowedKeys: readonly string[]) {
+  return visibleKeys
+    .filter(key => allowedKeys.includes(key))
+    .map(key => GRID_COLUMNS.find(column => column.key === key)?.text(card).trim() || "")
+    .filter(Boolean)
+    .join(" · ");
+}
 
 // Termômetro visual (1–5 estrelas) — nota derivada + tooltip do porquê. Só
 // classes/tokens centrais (Lei nº4): a cor nasce do .vnd-therm em screens.css.
@@ -446,13 +452,12 @@ export function VendasClient() {
   // visão do pipeline: lista densa (padrão — varredura) × quadro kanban
   // (arrastar entre etapas). Ordem do dono 13/06: lista padrão + quadro opcional.
   const [view, setView] = useTabParam<"list" | "board">("view", "list", ["list", "board"]);
-  // Guias de etapa da LISTA (S1 LEAD-CENTRICO): 1 clique filtra a planilha por
+  // Guias de etapa da LISTA (S1 LEAD-CENTRICO): 1 clique filtra as faixas por
   // etapa; clicar de novo na guia ativa limpa (null = mostra tudo). Estado
   // local só (não persiste). Seleção ativa = Glass Pill (Lei nº2).
   const [stageFilter, setStageFilter] = useState<VendasStage | null>(null);
   const stagePill = useGlassPill<HTMLButtonElement>(stageFilter || "todos");
-  // ── Grade (planilha): colunas do usuário, ordenação por coluna, edição inline.
-  // Colunas e ordenação vivem em localStorage (por navegador/usuário logado).
+  // Campos priorizados e ordenação vivem em localStorage por navegador/usuário.
   const [gridKeys, setGridKeys] = useState<string[]>(() => {
     if (typeof window === "undefined") return GRID_DEFAULT_KEYS;
     try {
@@ -479,16 +484,8 @@ export function VendasClient() {
   const [columnDraft, setColumnDraft] = useState<string[]>(gridKeys);
   const [columnDrag, setColumnDrag] = useState<string | null>(null);
   const [columnDropIndex, setColumnDropIndex] = useState<number | null>(null);
-  const [pinnedKeys, setPinnedKeys] = useState<string[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const raw = JSON.parse(localStorage.getItem(GRID_PINNED_STORAGE) || "[]");
-      return Array.isArray(raw) ? raw.filter((k: unknown) => typeof k === "string") : [];
-    } catch { return []; }
-  });
-  const [pinnedDraft, setPinnedDraft] = useState<string[]>(pinnedKeys);
-  // Menu da linha (botão ⋯ ou clique-direito): as ações que antes só existiam
-  // no painel morto — Fechar venda, Retorno, Sem interesse, WhatsApp, Excluir.
+  // Menu da faixa (botão ⋯ ou clique-direito): Fechar venda, Retorno,
+  // Sem interesse, WhatsApp e Excluir.
   const [rowMenu, setRowMenu] = useState<{ id: string; x: number; y: number } | null>(null);
 
   const applyGridKeys = useCallback((keys: string[]) => {
@@ -1193,13 +1190,16 @@ export function VendasClient() {
 
   // Guias de etapa da LISTA: contagem por etapa sobre os MESMOS leads carregados
   // (busca + equipe já aplicados em flatLeads) — bate com as colunas do quadro
-  // pros mesmos dados. listLeads é a planilha efetivamente renderizada: compõe
+  // pros mesmos dados. listLeads é a lista efetivamente renderizada: compõe
   // busca + guia de etapa (guia ativa filtra; nenhuma = mostra tudo).
   const stageCounts: Record<VendasStage, number> = { novo: 0, contato: 0, retorno: 0, qualificado: 0, encerrado: 0 };
   for (const c of flatLeads) stageCounts[normalizeStage(c.status)]++;
   const listLeads: VendasLead[] = stageFilter ? flatLeads.filter(c => normalizeStage(c.status) === stageFilter) : flatLeads;
 
   const roboAtivo = flatLeads.filter(c => c.automation).length;
+  const canViewValues = Boolean(board?.canViewValues);
+  const carteiraValue = flatLeads.reduce((total, card) => total + (Number(card.saleValue) || 0), 0);
+  const carteiraValueLabel = canViewValues ? (fmtMoney(carteiraValue) || "—") : "—";
 
   // O status pertence ao Radar. O id comercial de Vendas nunca é usado como radarLeadId.
   const aiStatusMap = useRadarAiStatusPoll(flatLeads.map(card => card.radarLeadId || ""), {
@@ -1211,27 +1211,18 @@ export function VendasClient() {
   const gridCols: GridColumn[] = gridKeys
     .map(k => GRID_COLUMNS.find(c => c.key === k))
     .filter((c): c is GridColumn => Boolean(c) && (c!.gate !== "values" || Boolean(board?.canViewValues)));
-  const pinnedLeft = (key: string) => 34 + gridCols.filter(c => c.key !== key && pinnedKeys.includes(c.key)).reduce((left, col) => {
-    const keyIndex = gridCols.findIndex(c => c.key === key);
-    return left + (gridCols.findIndex(c => c.key === col.key) < keyIndex ? col.width : 0);
-  }, 0);
 
   function openColumnPicker() {
     setColumnDraft(gridKeys);
-    setPinnedDraft(pinnedKeys.filter(k => gridKeys.includes(k)));
     setColumnSearch("");
     setColsOpen(true);
   }
   function cancelColumnPicker() {
     setColumnDraft(gridKeys);
-    setPinnedDraft(pinnedKeys);
     setColsOpen(false);
   }
   function saveColumnPicker() {
     applyGridKeys(columnDraft);
-    const nextPinned = pinnedDraft.filter(k => columnDraft.includes(k));
-    setPinnedKeys(nextPinned);
-    try { localStorage.setItem(GRID_PINNED_STORAGE, JSON.stringify(nextPinned)); } catch { /* sem storage */ }
     setColsOpen(false);
   }
   function dropColumnAt(key: string, index: number) {
@@ -1245,7 +1236,6 @@ export function VendasClient() {
   }
   function removeDraftColumn(key: string) {
     setColumnDraft(keys => keys.filter(k => k !== key));
-    setPinnedDraft(keys => keys.filter(k => k !== key));
   }
   function toggleGridSort(key: string) {
     applyGridSort(gridSort?.key === key ? (gridSort.dir === 1 ? { key, dir: -1 } : null) : { key, dir: 1 });
@@ -1272,7 +1262,7 @@ export function VendasClient() {
   }
 
   // Navega com ↑/↓ entre leads igual Excel — só na lista desktop. Usa a MESMA
-  // listLeads da planilha (busca + guia de etapa) pra nunca pousar numa linha
+  // listLeads da tela (busca + guia de etapa) pra nunca pousar numa faixa
   // fora do que está visível na tela.
   useEffect(() => {
     if (view !== "list") return;
@@ -1298,20 +1288,20 @@ export function VendasClient() {
 
   const summary = board?.summary;
 
-  // Organizador de colunas — o menu inteiro. Virou variável (PAINEL-ÚNICO, 26/07)
+  // Organizador de campos — o menu inteiro. Virou variável (PAINEL-ÚNICO, 26/07)
   // porque o botão que o abre mudou de casa: saiu do cabeçalho do painel e foi
   // pro cluster de ações do painel de comando. O conteúdo é o MESMO de antes.
   const columnPicker = (
     <React.Fragment>
       <button type="button" className="vnd-team-veil" aria-label="Fechar" onClick={cancelColumnPicker} />
-      <div className="vnd-colspick__menu" role="dialog" aria-label="Colunas da planilha">
+      <div className="vnd-colspick__menu" role="dialog" aria-label="Campos da lista">
         <div className="vnd-colspick__head">
-          <span><strong>Organizar colunas</strong><small>{columnDraft.length} de {GRID_COLUMNS.filter(c => c.gate !== "values" || board?.canViewValues).length} colunas visíveis</small></span>
+          <span><strong>Organizar campos</strong><small>{columnDraft.length} de {GRID_COLUMNS.filter(c => c.gate !== "values" || board?.canViewValues).length} campos priorizados</small></span>
           <button type="button" className="icon-ghost" aria-label="Fechar" onClick={cancelColumnPicker}>✕</button>
         </div>
         <div className="vnd-colspick__boards">
           <section className="vnd-colspick__board" onDragOver={e => e.preventDefault()} onDrop={() => columnDrag && dropColumnAt(columnDrag, columnDraft.length)}>
-            <div className="vnd-colspick__boardhead"><span><b>Ordem das colunas</b><small>De cima para baixo = esquerda para direita</small></span><button type="button" onClick={() => { setColumnDraft([]); setPinnedDraft([]); }}>Remover todas</button></div>
+            <div className="vnd-colspick__boardhead"><span><b>Ordem dos campos</b><small>De cima para baixo = maior prioridade</small></span><button type="button" onClick={() => setColumnDraft([])}>Remover todos</button></div>
             <div className="vnd-collist">
               {columnDraft.map((key, i) => {
                 const col = GRID_COLUMNS.find(c => c.key === key);
@@ -1320,16 +1310,15 @@ export function VendasClient() {
                   onDragStart={() => setColumnDrag(key)} onDragEnd={() => { setColumnDrag(null); setColumnDropIndex(null); }}
                   onDragOver={e => { e.preventDefault(); e.stopPropagation(); setColumnDropIndex(i); }} onDrop={e => { e.preventDefault(); e.stopPropagation(); columnDrag && dropColumnAt(columnDrag, i); }}>
                   <span className="vnd-colrow__grip" aria-hidden="true">⠿</span><b className="vnd-colrow__num">{String(i + 1).padStart(2, "0")}</b><span className="vnd-colrow__name">{col.label}</span>
-                  <button type="button" className={"vnd-colrow__pin" + (pinnedDraft.includes(key) ? " is-on" : "")} onClick={() => setPinnedDraft(p => p.includes(key) ? p.filter(k => k !== key) : [...p, key])} aria-label={`${pinnedDraft.includes(key) ? "Desafixar" : "Fixar"} ${col.label}`} title="Fixar na rolagem horizontal">●</button>
                   <button type="button" className="vnd-colrow__remove" onClick={() => removeDraftColumn(key)} aria-label={`Remover ${col.label}`}>✕</button>
                 </div>;
               })}
-              {columnDraft.length === 0 && <span className="vnd-colspick__empty">Arraste colunas para cá</span>}
+              {columnDraft.length === 0 && <span className="vnd-colspick__empty">Arraste campos para cá</span>}
             </div>
             <small className="vnd-colspick__hint">⠿ Arraste para reordenar</small>
           </section>
           <section className="vnd-colspick__board vnd-colspick__available" onDragOver={e => e.preventDefault()} onDrop={() => columnDrag && removeDraftColumn(columnDrag)}>
-            <div className="vnd-colspick__boardhead"><span><b>Colunas disponíveis</b><small>Arraste ou dê dois cliques para adicionar</small></span><button type="button" onClick={() => setColumnDraft(GRID_COLUMNS.filter(c => c.gate !== "values" || board?.canViewValues).map(c => c.key))}>Adicionar todas</button></div>
+            <div className="vnd-colspick__boardhead"><span><b>Campos disponíveis</b><small>Arraste ou dê dois cliques para adicionar</small></span><button type="button" onClick={() => setColumnDraft(GRID_COLUMNS.filter(c => c.gate !== "values" || board?.canViewValues).map(c => c.key))}>Adicionar todos</button></div>
             <label className="vnd-colsearch"><span aria-hidden="true">⌕</span><input value={columnSearch} onChange={e => setColumnSearch(e.target.value)} placeholder="Buscar coluna" aria-label="Buscar coluna" /></label>
             <div className="vnd-colavailable">
               {GRID_COLUMN_GROUPS.map(group => {
@@ -1344,7 +1333,7 @@ export function VendasClient() {
         <div className="vnd-colpreview"><b>Prévia:</b><span>{columnDraft.slice(0, 7).map(key => GRID_COLUMNS.find(c => c.key === key)?.label).join(" → ")}{columnDraft.length > 7 ? "…" : ""}</span></div>
         <div className="vnd-colspick__actions">
           <button type="button" className="btn-ghost" onClick={cancelColumnPicker}>Cancelar</button>
-          <button type="button" className="btn-ghost" onClick={() => { setColumnDraft(GRID_DEFAULT_KEYS); setPinnedDraft([]); }}>Restaurar padrão</button>
+          <button type="button" className="btn-ghost" onClick={() => setColumnDraft(GRID_DEFAULT_KEYS)}>Restaurar padrão</button>
           <button type="button" className="btn-teal" onClick={saveColumnPicker}>Salvar</button>
         </div>
       </div>
@@ -1449,7 +1438,7 @@ export function VendasClient() {
                   {view === "list" && (
                     <div className="vnd-colspick">
                       <button type="button" className="icon-ghost" aria-haspopup="menu" aria-expanded={colsOpen}
-                        onClick={() => colsOpen ? cancelColumnPicker() : openColumnPicker()} title="Escolher e ordenar as colunas" aria-label="Colunas da planilha">
+                        onClick={() => colsOpen ? cancelColumnPicker() : openColumnPicker()} title="Escolher e ordenar os campos" aria-label={`Campos da lista: ${gridCols.length} visíveis`}>
                         <I d={ICONS.edit} size={16} />
                       </button>
                       {colsOpen && columnPicker}
@@ -1541,117 +1530,156 @@ export function VendasClient() {
                   </div>
                 </div>
               )}
-              {/* GRADE (planilha): 1 linha por lead, 1 dado por coluna. Primeiro
-                  clique abre a prévia lateral; repetir no mesmo lead abre a ficha. */}
+              {/* LISTA COMERCIAL: faixas densas com os sinais que fazem o vendedor
+                  decidir. Primeiro clique abre a prévia; repetir abre a ficha. */}
               {view === "list" && board && (summary?.total ?? 0) > 0 && (
-                <div className={"vnd-grid-wrap" + (selecionados.size > 0 ? " is-bulk" : "")}>
-                  {selecionados.size > 0 && (
-                    <span className="vnd-grid__bulk-actions">
+                <div className={"vnd-sales-list-wrap" + (selecionados.size > 0 ? " is-bulk" : "")}>
+                  {selecionados.size > 0 ? (
+                    <div className="vnd-sales-toolbar vnd-sales-toolbar--bulk">
+                      <span className="hbx-selection-bar__copy">
+                        <b>{selecionados.size} selecionado{selecionados.size === 1 ? "" : "s"}</b>
+                        {bulkMsg && <small className={"ctx-msg " + (bulkMsg.startsWith("✓") ? "ok" : "err")}>{bulkMsg}</small>}
+                      </span>
+                      <span className="vnd-sales-toolbar__bulk-actions">
                       <button type="button" className="btn-ghost btn-xs" onClick={() => setSelecionados(new Set())}>Desmarcar</button>
                       <button type="button" className="btn-ghost danger btn-xs" onClick={() => { setBulkMsg(null); setExcluirMotivoOpen("bulk"); }} disabled={bulkDeleteBusy}>
                         <I d={ICONS.trash} size={13} /> {bulkDeleteBusy ? "Excluindo…" : "Excluir selecionados"}
                       </button>
-                    </span>
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="vnd-sales-toolbar">
+                      <span className="vnd-sales-metric">
+                        <span className="vnd-sales-metric__icon"><I d={ICONS.leads} size={15} /></span>
+                        <span><strong>{flatLeads.length} lead{flatLeads.length === 1 ? "" : "s"}</strong><small>carteira ativa</small></span>
+                      </span>
+                      <span className="vnd-sales-metric">
+                        <span className="vnd-sales-metric__icon"><I d={ICONS.money} size={15} /></span>
+                        <span><strong>{carteiraValueLabel}</strong><small>{canViewValues ? "potencial" : "valores restritos"}</small></span>
+                      </span>
+                      <span className={"vnd-sales-metric" + (stageCounts.retorno > 0 ? " is-hot" : "")}>
+                        <span className="vnd-sales-metric__icon"><I d={ICONS.msg} size={15} /></span>
+                        <span><strong>{stageCounts.retorno} chamou</strong><small>responder agora</small></span>
+                      </span>
+                      <label className="vnd-sales-search">
+                        <I d={ICONS.search} size={15} />
+                        <input
+                          value={searchQuery}
+                          onChange={event => setSearchQuery(event.target.value)}
+                          placeholder="Buscar no funil…"
+                          aria-label="Buscar no funil"
+                        />
+                      </label>
+                    </div>
                   )}
-                  {/* As guias de etapa e a barra de seleção subiram pro painel de
-                      comando (PAINEL-ÚNICO, 26/07) — aqui embaixo só a planilha. */}
-                  <div className="tbl-wrap">
-                  <table className="tbl vnd-grid" data-tut="vendas-funil">
-                    <thead>
-                      <tr className={selecionados.size > 0 ? "is-bulk" : undefined}>
-                        <th className="vnd-grid__chk">
-                          <input type="checkbox" checked={todosSelecionados} onChange={toggleTodos}
-                            aria-label={todosSelecionados ? "Desmarcar todos" : "Selecionar todos"} />
-                        </th>
-                        {selecionados.size > 0 ? (
-                          <th colSpan={gridCols.length + 1} className="vnd-grid__bulkcell">
-                            <span className="hbx-selection-bar">
-                              <span className="hbx-selection-bar__copy">
-                                <b>{selecionados.size} selecionado{selecionados.size === 1 ? "" : "s"}</b>
-                                {bulkMsg && <small className={"ctx-msg " + (bulkMsg.startsWith("✓") ? "ok" : "err")}>{bulkMsg}</small>}
-                              </span>
-                            </span>
-                          </th>
-                        ) : (
-                          <React.Fragment>
-                            {gridCols.map(col => (
-                              <th key={col.key} className={"vnd-grid__th" + (col.nosort ? " is-nosort" : "") + (pinnedKeys.includes(col.key) ? " is-pinned" : "")}
-                                style={pinnedKeys.includes(col.key) ? { left: pinnedLeft(col.key) } : undefined}
-                                onClick={col.nosort ? undefined : () => toggleGridSort(col.key)}
-                                title={col.nosort ? col.label : `Ordenar por ${col.label}`}
-                                aria-sort={gridSort?.key === col.key ? (gridSort.dir === 1 ? "ascending" : "descending") : "none"}>
-                                {col.label}
-                                {gridSort?.key === col.key && <span className="vnd-grid__sort">{gridSort.dir === 1 ? "▲" : "▼"}</span>}
-                              </th>
-                            ))}
-                            <th className="vnd-grid__acts" aria-label="Ações" />
-                          </React.Fragment>
-                        )}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {listLeads.map(card => {
-                        const engagement = vendasEngagementMeta(card.engagement, card.conversation);
-                        const ag = agendaInfo(card);
-                        return (
-                          <tr key={card.id} id={`vnd-row-${card.id}`} className={sel?.id === card.id ? "sel" : ""}
-                            tabIndex={0}
-                            aria-selected={sel?.id === card.id}
-                            onClick={() => selecionarLead(card)}
-                            onKeyDown={e => selecionarLeadNoTeclado(e, card)}
-                            onContextMenu={e => { e.preventDefault(); setSel(card); setRowMenu({ id: card.id, x: e.clientX, y: e.clientY }); }}>
-                            <td className="vnd-grid__chk" onClick={e => e.stopPropagation()}>
-                              <input type="checkbox" checked={selecionados.has(card.id)} onChange={() => toggleSelecionado(card.id)}
-                                aria-label={`Selecionar ${card.name || "card"}`} />
-                            </td>
-                            {gridCols.map(col => {
-                              const texto = col.text(card);
-                              return (
-                                <td key={col.key}
-                                  className={"vnd-grid__td" + (col.mono ? " hbx-mono" : "") + (pinnedKeys.includes(col.key) ? " is-pinned" : "")}
-                                  style={pinnedKeys.includes(col.key) ? { left: pinnedLeft(col.key) } : undefined}
-                                  title={texto || undefined}>
-                                  {col.key === "name" ? (
-                                    <span className="vnd-grid__name">
-                                      <span className="vnd-grid__txt">{texto || "—"}</span>
-                                      {card.saleConfirmedAt && <span className="badge-win">Ganho</span>}
-                                    </span>
-                                  ) : col.key === "icons" ? (
-                                    <span className="vnd-grid__canais" aria-label="Canais encontrados">
-                                      {vendasCanais(card).map(canal => <CanalIcon key={canal} canal={canal} size="sm" />)}
-                                      {vendasCanais(card).length === 0 && <span className="sub2">sem contato</span>}
-                                    </span>
-                                  ) : col.key === "status" ? (
-                                    <RadarAiBadge status={aiStatusMap[card.radarLeadId || ""]} />
-                                  ) : col.key === "agenda" ? (
-                                    <span className={"tag" + (card.block === "overdue" ? " warn" : card.block === "closed" ? " teal" : "")}>{ag.label}</span>
-                                  ) : col.key === "engage" ? (
-                                    <span className={engagement.className}>{engagement.label}</span>
-                                  ) : col.key === "stage" ? (
-                                    <React.Fragment>
-                                      <span className="tag">{texto}</span>
-                                      {card.automation && <span className="tag warn vnd-grid__gap" title={`Passo ${card.automation.currentStep + 1}`}>🤖 Robô ativo</span>}
-                                    </React.Fragment>
-                                  ) : col.key === "owner" && card.owner?.name ? (
-                                    <span className="vnd-grid__owner"><Av name={card.owner.name} size={18} />{card.owner.name}</span>
-                                  ) : (
-                                    <span className="vnd-grid__txt">{texto || "—"}</span>
-                                  )}
-                                </td>
-                              );
-                            })}
-                            <td className="vnd-grid__acts" onClick={e => e.stopPropagation()}>
-                              <button type="button" className="vnd-grid__more" aria-label="Abrir detalhes" title="Abrir detalhes"
-                                onClick={() => { setSel(card); setCockpitOpen(true); }}>⤢</button>
-                              <button type="button" className="vnd-grid__more" aria-label="Ações do lead" title="Ações"
-                                onClick={e => { setSel(card); setRowMenu({ id: card.id, x: e.clientX, y: e.clientY }); }}>⋯</button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+
+                  <div className="vnd-sales-head" role="row">
+                    <span className="vnd-sales-check">
+                      <input type="checkbox" checked={todosSelecionados} onChange={toggleTodos}
+                        aria-label={todosSelecionados ? "Desmarcar todos" : "Selecionar todos"} />
+                    </span>
+                    <button type="button" onClick={() => toggleGridSort("name")} aria-label="Ordenar por lead">
+                      Lead {gridSort?.key === "name" && <span>{gridSort.dir === 1 ? "▲" : "▼"}</span>}
+                    </button>
+                    <button type="button" onClick={() => toggleGridSort("stage")} aria-label="Ordenar por etapa">
+                      Etapa {gridSort?.key === "stage" && <span>{gridSort.dir === 1 ? "▲" : "▼"}</span>}
+                    </button>
+                    <button type="button" onClick={() => toggleGridSort("next")} aria-label="Ordenar por próximo passo">
+                      Próximo passo {gridSort?.key === "next" && <span>{gridSort.dir === 1 ? "▲" : "▼"}</span>}
+                    </button>
+                    <button type="button" onClick={() => toggleGridSort(canViewValues ? "value" : "owner")} aria-label="Ordenar negócio">
+                      Negócio {gridSort && (gridSort.key === "value" || gridSort.key === "owner") && <span>{gridSort.dir === 1 ? "▲" : "▼"}</span>}
+                    </button>
+                    <span aria-hidden="true" />
                   </div>
+
+                  <div className="vnd-sales-list" role="listbox" data-tut="vendas-funil" aria-label="Leads do funil">
+                    {listLeads.map(card => {
+                      const engagement = vendasEngagementMeta(card.engagement, card.conversation);
+                      const ag = agendaInfo(card);
+                      const score = Math.max(0, Math.min(100, Math.round(Number(card.opportunityScore) || 0)));
+                      const canais = vendasCanais(card);
+                      const location = card.city ? `${card.city}${card.state ? `/${card.state}` : ""}` : card.state || "";
+                      const identityMeta = [
+                        gridKeys.includes("segment") ? card.segment : null,
+                        (gridKeys.includes("city") || gridKeys.includes("state")) ? location : null,
+                        gridKeys.includes("phone") ? card.phone : null,
+                        gridKeys.includes("email") ? card.email : null,
+                      ].filter(Boolean).join(" · ");
+                      const nextMeta = compactGridText(card, gridKeys, ["agenda", "engage", "date", "attempts", "note"]);
+                      const dealPrimary = canViewValues ? leadValueLabel(card) : (card.product?.name || "—");
+                      const owner = card.owner?.name || "Sem responsável";
+                      return (
+                        <article
+                          key={card.id}
+                          id={`vnd-row-${card.id}`}
+                          className={"vnd-sales-row" + (sel?.id === card.id ? " is-selected" : "")}
+                          role="option"
+                          tabIndex={0}
+                          aria-selected={sel?.id === card.id}
+                          onClick={() => selecionarLead(card)}
+                          onKeyDown={event => selecionarLeadNoTeclado(event, card)}
+                          onContextMenu={event => { event.preventDefault(); setSel(card); setRowMenu({ id: card.id, x: event.clientX, y: event.clientY }); }}
+                        >
+                          <span className="vnd-sales-check" onClick={event => event.stopPropagation()}>
+                            <input type="checkbox" checked={selecionados.has(card.id)} onChange={() => toggleSelecionado(card.id)}
+                              aria-label={`Selecionar ${card.name || "card"}`} />
+                          </span>
+
+                          <span className="vnd-sales-row__lead">
+                            <span className="vnd-sales-row__avatar"><Av name={card.name || "Lead"} size={34} /></span>
+                            <span className="vnd-sales-row__identity">
+                              <span className="vnd-sales-row__name">
+                                <strong>{card.name || "—"}</strong>
+                                {card.saleConfirmedAt && <span className="badge-win">Ganho</span>}
+                              </span>
+                              <small title={identityMeta || undefined}>{identityMeta || "—"}</small>
+                            </span>
+                            <span className="vnd-sales-row__signals" aria-label="Canais encontrados">
+                              {canais.slice(0, 3).map(canal => <CanalIcon key={canal} canal={canal} size="sm" />)}
+                              <RadarAiBadge status={aiStatusMap[card.radarLeadId || ""]} />
+                            </span>
+                          </span>
+
+                          <span className="vnd-sales-row__stage">
+                            <span className={"vnd-sales-score" + (score ? "" : " is-empty")}>{score || "—"}</span>
+                            <span className="vnd-sales-row__stage-copy">
+                              <strong>{STAGE_LABEL[normalizeStage(card.status)]}</strong>
+                              <small>{card.automation ? `Automação · passo ${card.automation.currentStep + 1}` : (card.leadTemperature || ag.label)}</small>
+                            </span>
+                          </span>
+
+                          <span className="vnd-sales-row__next">
+                            <strong>{card.nextAction || "—"}</strong>
+                            <small title={nextMeta || undefined}>{ag.label} · {engagement.label}</small>
+                          </span>
+
+                          <span className="vnd-sales-row__deal">
+                            <strong className={canViewValues ? "hbx-mono" : undefined}>{dealPrimary}</strong>
+                            <small>{owner}</small>
+                          </span>
+
+                          <span className="vnd-sales-row__actions" onClick={event => event.stopPropagation()}>
+                            <button type="button" aria-label="Ações do lead" title="Ações"
+                              onClick={event => { setSel(card); setRowMenu({ id: card.id, x: event.clientX, y: event.clientY }); }}>⋯</button>
+                            <button type="button" aria-label="Abrir ficha completa" title="Abrir ficha completa"
+                              onClick={() => { setSel(card); setCockpitOpen(true); }}>
+                              <I d={ICONS.arrow} size={14} />
+                            </button>
+                          </span>
+                        </article>
+                      );
+                    })}
+                    {listLeads.length === 0 && (
+                      <div className="vnd-sales-list__empty">Nenhum lead encontrado.</div>
+                    )}
+                  </div>
+
+                  <footer className="vnd-sales-footer">
+                    <span><strong>{listLeads.length}</strong> lead{listLeads.length === 1 ? "" : "s"} {listLeads.length === 1 ? "visível" : "visíveis"}</span>
+                    <span aria-hidden="true">•</span>
+                    <span><strong>{stageCounts.retorno}</strong> aguardando resposta</span>
+                  </footer>
                 </div>
               )}
 
@@ -1752,8 +1780,17 @@ export function VendasClient() {
 
                   <VendasLeadPreview
                     lead={sel}
+                    canViewValues={canViewValues}
                     onClose={() => setSel(null)}
                     onExpand={() => setCockpitOpen(true)}
+                    onSchedule={() => {
+                      setRetornoData("");
+                      setRetornoHora("09:00");
+                      setObs("");
+                      setSlotPreview(null);
+                      setAcaoMsg(null);
+                      setRetornoOpen(true);
+                    }}
                   />
                 </div>{/* /content (Meu funil) */}
             </div>{/* /vnd-layer funil */}

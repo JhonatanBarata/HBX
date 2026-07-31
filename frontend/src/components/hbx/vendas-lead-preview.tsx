@@ -4,6 +4,7 @@ import type { CSSProperties } from "react";
 
 import type { VendasLead } from "@/app/(app)/vendas/page.client";
 import { CANAL_LABEL, CanalIcon } from "@/components/hbx/canal-icon";
+import { vendasEngagementMeta } from "@/components/hbx/detalhes-negocio";
 import { Av, I, ICONS } from "@/components/hbx/shell";
 import { formatBrPhone, onlyDigits } from "@/lib/br-phone";
 import { formatBrCnpj } from "@/lib/br-document";
@@ -13,8 +14,8 @@ import { buildWaLink } from "@/lib/wa-link";
 
 const ETAPAS: Record<string, string> = {
   novo: "Planejar",
-  contato: "Automação",
-  retorno: "Retorno",
+  contato: "Robô trabalhando",
+  retorno: "Te chamou",
   qualificado: "Negociação",
   encerrado: "Fechado",
 };
@@ -48,25 +49,55 @@ function dataContato(value: string | null | undefined): string {
   });
 }
 
+function valorNegocio(value: number | null | undefined): string | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  return value.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
+}
+
+function prioridadeLabel(lead: VendasLead): string {
+  if (lead.block === "closed") return "Fechado";
+  if (lead.block === "overdue") return "Agora";
+  if (lead.block === "today") return "Hoje";
+  if (!lead.returnAt) return "Sem data";
+  const date = new Date(lead.returnAt);
+  return Number.isNaN(date.getTime())
+    ? "Sem data"
+    : date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+}
+
+function temperaturaLabel(value: string | null | undefined): string {
+  const text = String(value || "").trim();
+  return text ? `${text.charAt(0).toLocaleUpperCase("pt-BR")}${text.slice(1).toLocaleLowerCase("pt-BR")}` : "—";
+}
+
 export function VendasLeadPreview({
   lead,
+  canViewValues,
   onClose,
   onExpand,
+  onSchedule,
 }: {
   lead: VendasLead | null;
+  canViewValues: boolean;
   onClose: () => void;
   onExpand: () => void;
+  onSchedule: () => void;
 }) {
   if (!lead) {
     return (
-      <aside className="vnd-lead-peek hbx-panel-shell__context" aria-label="Radar HBX">
+      <aside className="vnd-lead-peek hbx-panel-shell__context is-empty" aria-label="Detalhes do lead">
         <header className="vnd-lead-peek__head">
-          <span>Radar HBX</span>
-          <span className="vnd-lead-peek__state">Pronto</span>
+          <span>Detalhes do lead</span>
         </header>
         <div className="vnd-lead-peek__empty">
-          <span className="vnd-lead-peek__radar" aria-hidden="true" />
-          <strong>Radar pronto</strong>
+          <span className="vnd-lead-peek__empty-icon" aria-hidden="true"><I d={ICONS.vendas} size={20} /></span>
+          <strong>Selecione um lead</strong>
+          <small>Os detalhes comerciais aparecem aqui.</small>
         </div>
       </aside>
     );
@@ -93,6 +124,10 @@ export function VendasLeadPreview({
   const meta = [lead.segment, cidade !== "—" ? cidade : null].filter(Boolean).join(" · ") || "Empresa";
   const cnpj = lead.cnpj ? (formatBrCnpj(lead.cnpj) || lead.cnpj) : "—";
   const etapa = etapaLabel(lead.status);
+  const engagement = vendasEngagementMeta(lead.engagement, lead.conversation);
+  const dealValue = lead.product?.priceLabel || valorNegocio(lead.saleValue) || "—";
+  const dealSupporting = lead.product?.name || lead.nextAction || "—";
+  const lastRecord = lead.lastResult || lead.shortNote || null;
 
   return (
     <aside className="vnd-lead-peek hbx-panel-shell__context has-lead" aria-label={`Detalhes de ${lead.name || "lead"}`} aria-live="polite">
@@ -147,31 +182,62 @@ export function VendasLeadPreview({
           {canais.length === 0 && <span className="vnd-lead-peek__missing">Nenhum canal localizado</span>}
         </section>
 
-        <section className="vnd-lead-peek__facts">
-          <span><small>Etapa</small><strong>{etapa}</strong></span>
+        <section className="vnd-lead-peek__deal">
+          <span>
+            <small>{canViewValues ? "Potencial do negócio" : "Produto"}</small>
+            <strong>{canViewValues ? dealValue : (lead.product?.name || "—")}</strong>
+            <em>{dealSupporting}</em>
+          </span>
+          <b><strong>{prioridadeLabel(lead)}</strong><small>prioridade</small></b>
+        </section>
+
+        <section className="vnd-lead-peek__minis">
           <span><small>Responsável</small><strong>{lead.owner?.name || "Sem responsável"}</strong></span>
           <span><small>Último contato</small><strong>{dataContato(lead.lastContactAt)}</strong></span>
+          <span><small>Engajamento</small><strong>{engagement.label}</strong></span>
         </section>
 
         <section className="vnd-lead-peek__next">
           <span className="vnd-lead-peek__next-icon"><I d={ICONS.bolt} size={17} /></span>
           <span>
             <small>Próximo passo</small>
-            <strong>{lead.nextAction || "Primeiro contato"}</strong>
+            <strong>{lead.nextAction || "—"}</strong>
+            <em>{etapa}</em>
           </span>
+          <I d={ICONS.arrow} size={14} />
         </section>
 
         <section className="vnd-lead-peek__facts">
           <span><small>CNPJ</small><strong className="hbx-mono">{cnpj}</strong></span>
           <span><small>Cidade</small><strong>{cidade}</strong></span>
           {telefone && <span><small>Telefone</small><strong className="hbx-mono">{formatBrPhone(telefone)}</strong></span>}
+          <span><small>Temperatura</small><strong>{temperaturaLabel(lead.leadTemperature)}</strong></span>
         </section>
 
-        <button type="button" className="vnd-lead-peek__expand" onClick={onExpand}>
-          Abrir ficha completa
-          <I d={ICONS.arrow} size={16} />
-        </button>
+        {lastRecord && (
+          <section className="vnd-lead-peek__record">
+            <small>Último registro</small>
+            <strong>{lastRecord}</strong>
+          </section>
+        )}
       </div>
+
+      <footer className="vnd-lead-peek__footer">
+        {links.whatsapp ? (
+          <a className="vnd-lead-peek__quick is-whatsapp" href={links.whatsapp} target="_blank" rel="noopener noreferrer" aria-label="Abrir WhatsApp" title="WhatsApp">
+            <I d={ICONS.msg} size={17} />
+          </a>
+        ) : (
+          <span className="vnd-lead-peek__quick is-disabled" aria-label="WhatsApp indisponível"><I d={ICONS.msg} size={17} /></span>
+        )}
+        <button type="button" className="vnd-lead-peek__quick" onClick={onSchedule} disabled={lead.block === "closed"} aria-label="Agendar disparo" title="Agendar disparo">
+          <I d={ICONS.clock} size={17} />
+        </button>
+        <button type="button" className="vnd-lead-peek__expand" onClick={onExpand}>
+          <I d={ICONS.vendas} size={15} />
+          Abrir ficha
+        </button>
+      </footer>
     </aside>
   );
 }
