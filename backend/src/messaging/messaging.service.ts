@@ -83,6 +83,7 @@ import { WebwhatsBridgeService, type WebwhatsFetchedMessage, type WebwhatsQuoted
 import { InboxRealtimeService } from './inbox-realtime.service';
 import { WaSendThrottleService } from './wa-send-throttle.service';
 import { WaColdContactGateService } from './wa-cold-contact-gate.service';
+import { WaJanelaComercialGateService } from './wa-janela-comercial.gate';
 import { WhatsAppConnectionProjectionService } from './whatsapp-connection-projection.service';
 import { CreditActionUsageService } from '../credits/credit-action-usage.service';
 import { ConversationAssistantRuntimeService } from '../assistente/conversation-assistant-runtime.service';
@@ -301,6 +302,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   // BLINDAGEM DO DISPARO FRIO (30/07/2026, chip expulso): mesma guarda transitória
   // local — instância própria pra não ampliar o grafo de DI (testes usam `new`).
   private readonly waColdContactGate: WaColdContactGateService;
+  private readonly waJanelaComercialGate: WaJanelaComercialGateService;
   private pollHandle: NodeJS.Timeout | null = null;
   private readonly startedAtMs = Date.now();
   // INTENTENGINE S4: reaper roda no boot e depois a cada N ciclos do poll de 5s existente
@@ -346,6 +348,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     this.recepcionista = new RecepcionistaService();
     this.contactSuppression = new VendasContactSuppressionService(this.prisma);
     this.waColdContactGate = new WaColdContactGateService(this.prisma as any);
+    this.waJanelaComercialGate = new WaJanelaComercialGateService(this.prisma as any);
   }
 
   onModuleInit() {
@@ -9296,6 +9299,68 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           companyMessageId: Number(msg.message?.id || 0) || null,
         });
         this.logger.warn(`WhatsApp automatic send suppressed messageId=${msg.id} reason=${suppressionReason}`);
+        return;
+      }
+
+      // TRAVA DE HORÁRIO (ordem do dono 31/07/2026 — ver wa-janela-comercial.gate.ts):
+      // robô não fala fora da janela comercial da empresa, e isso vale para TODO tenant.
+      // Humano segue livre (responder cliente às 21h é certo); disparo AUTOMÁTICO fora do
+      // expediente volta para a fila com a hora da abertura marcada — nunca descarta,
+      // nunca envia de madrugada. Roda antes do freio de vazão de propósito: é a pergunta
+      // mais barata do caminho e a única que não admite exceção.
+      const janelaDecision = await this.waJanelaComercialGate.evaluate({
+        companyId: msg.companyId,
+        sourceModule: msg.sourceModule,
+        senderType: msg.message?.senderType,
+      });
+      if (janelaDecision.allow === false) {
+        const next = new Date(Date.now() + janelaDecision.retryAfterMs);
+        await this.prisma.outboundAttempt.update({
+          where: { id: attempt.id },
+          data: { finishedAt: new Date(), success: false, error: `janela:${janelaDecision.reason}` },
+        });
+        await this.prisma.outboundMessage.update({
+          where: { id: msg.id },
+          data: { status: 'PENDING', nextAttemptAt: next },
+        });
+        await this.prisma.companyMessage.updateMany({
+          where: { outboundMessageId: msg.id },
+          data: { status: 'QUEUED' },
+        });
+        await this.commercialContactControl.syncAutomationStepFromOutbound({
+          companyId: msg.companyId,
+          outboundMessageId: msg.id,
+          status: 'queued',
+        }).catch(() => null);
+        if (conversationId) {
+          await this.conversations.dispatchVendasCockpitProjection?.({
+            companyId: msg.companyId,
+            conversationId,
+            event: 'queued',
+            messageId: Number(msg.message?.id || 0) || null,
+          });
+        }
+        await this.logWhatsAppEvent({
+          companyId: msg.companyId,
+          scope: 'dispatch',
+          event: 'fora_da_janela_held',
+          level: 'WARN',
+          message: janelaDecision.detail,
+          conversationId,
+          phone: msg.to,
+          messageType,
+          result: 'pending',
+          reason: janelaDecision.reason,
+          extra: {
+            outboundMessageId: msg.id,
+            sourceModule: msg.sourceModule || null,
+            proximaAberturaAt: janelaDecision.proximaAberturaAt.toISOString(),
+            nextAttemptAt: next.toISOString(),
+          },
+        });
+        this.logger.warn(
+          `WhatsApp send FORA DA JANELA messageId=${msg.id} abertura=${janelaDecision.proximaAberturaAt.toISOString()}`,
+        );
         return;
       }
 

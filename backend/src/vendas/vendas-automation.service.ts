@@ -13,6 +13,7 @@ import { ConversationsService } from '../messaging/conversations.service';
 import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
 import { buildWhatsAppPhoneCandidates, normalizeBrPhoneDigits } from '../messaging/whatsapp-channel';
 import { WaColdContactGateService } from '../messaging/wa-cold-contact-gate.service';
+import { AgendaDisparoService } from './agenda-disparo.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { pushMasterNotice } from '../common/push-master-notice';
 import { WebscrapingService, type WebscrapingContactResult, type WebscrapingSearchResponse } from '../webscraping/webscraping.service';
@@ -584,6 +585,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(VendasAutomationService.name);
   private readonly commercialContactControl: CommercialContactControlService;
   private readonly coldGatePanel: WaColdContactGateService;
+  private readonly agendaDisparo: AgendaDisparoService;
   private workerTimer: NodeJS.Timeout | null = null;
   private workerRunning = false;
   // S3: 1 aquecimento por vez no processo — abrir/fechar a gaveta 5x não vira 5
@@ -611,6 +613,21 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     // Painel de disparos (30/07): snapshot READ-ONLY do gate de contato frio no
     // live-status. Instância local, mesmo padrão do commercialContactControl.
     this.coldGatePanel = new WaColdContactGateService(this.prisma as any);
+    this.agendaDisparo = new AgendaDisparoService(this.prisma);
+  }
+
+  // UMA JANELA SÓ (31/07/2026). A tela de Prospecção editava
+  // `VendasAutomationCampaign.workingHours*` (default 09:00–17:30) enquanto o motor de
+  // slots e a trava de horário obedecem `VendasComercialConfig` (default 08:00–18:00):
+  // o dono mudava o horário na tela e o agendamento seguia com outro. Mesma família do
+  // [[teto-da-tela-mentia]], agora no relógio. Salvar a campanha passa a espelhar a
+  // janela na config comercial — as duas não conseguem mais divergir.
+  private async espelharJanelaNaConfigComercial(companyId: number, data: { workingHoursStart?: string; workingHoursEnd?: string }) {
+    if (!data?.workingHoursStart && !data?.workingHoursEnd) return;
+    await this.agendaDisparo.saveConfig(companyId, {
+      ...(data.workingHoursStart ? { workingHoursStart: data.workingHoursStart } : {}),
+      ...(data.workingHoursEnd ? { workingHoursEnd: data.workingHoursEnd } : {}),
+    });
   }
 
   onModuleInit() {
@@ -2126,6 +2143,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             lastStatusText: 'Configuração salva. Pronta para iniciar.',
           },
         });
+    await this.espelharJanelaNaConfigComercial(context.companyId, data);
     if (searchChanged) {
       await this.cancelQueuedJobsAfterSearchChange(campaign.id, campaign.companyId);
     }

@@ -6521,6 +6521,15 @@ export class VendasService {
     const context = await this.resolveVendasUserContext(user);
     this.assertCanManageAgendaDisparo(context);
     const config = await this.agendaDisparo.saveConfig(context.companyId, dto || {});
+    // UMA JANELA SÓ (31/07/2026): a tela de Prospecção lê o horário da campanha. Sem
+    // este espelho, mudar o horário aqui deixava a Prospecção mostrando o antigo — e
+    // "a tela diz uma coisa, o motor obedece outra" é o bug que já custou duas frentes.
+    if (dto?.workingHoursStart || dto?.workingHoursEnd) {
+      await this.prisma.vendasAutomationCampaign.updateMany({
+        where: { companyId: context.companyId },
+        data: { workingHoursStart: config.workingHoursStart, workingHoursEnd: config.workingHoursEnd },
+      });
+    }
     return { ...config, ...this.tetoEfetivoDoDia(config.dailyLimitPerSender) };
   }
 
