@@ -12,7 +12,7 @@
 .setupCard { display: grid; gap: 10px; padding: 16px; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--panel-2, transparent); }
 .pairingCard { display: grid; gap: 10px; padding: 20px; border: 1px solid var(--hbx-brand); border-radius: var(--radius-lg); background: color-mix(in srgb, var(--hbx-brand) 9%, transparent); text-align: center; }
 .pairingLabel { color: var(--text-muted); font-size: .75rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
-.pairingCode { border: 0; background: transparent; color: var(--text); font-size: clamp(2rem, 8vw, 3.8rem); font-weight: 900; letter-spacing: .15em; cursor: pointer; }
+.pairingCode { border: 0; background: transparent; color: var(--text); font-size: clamp(2rem, calc(8vw * var(--hbx-font-scale)), 3.8rem); font-weight: 900; letter-spacing: .15em; cursor: pointer; }
 .countdown { color: var(--text-muted); font-weight: 800; }
 .countdownUrgent { color: var(--hbx-danger); }
 .expired,

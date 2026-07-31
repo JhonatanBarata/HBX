@@ -6,6 +6,12 @@
    ============================================================ */
 
 :root {
+  /* ---- Escala escolhida no header ------------------------------------
+     100% é o desenho atual. O inverso mantém intactas as raras medidas de
+     layout escritas em rem; somente font-size acompanha o aumento. */
+  --hbx-font-scale: 1;
+  --hbx-font-scale-inverse: 1;
+
   /* ---- Families (esqueleto: sistema; pele sobrescreve) ----------------- */
   --font-display: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
   --font-body: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
@@ -56,4 +62,19 @@
   --casca-text-sub: 0.75rem;     /* ~12px — subtítulo/meta de linha */
   --casca-text-pct: 0.8rem;      /* ~13px — % no centro do loading */
   --casca-loading-mark: 1.62rem; /* ~26px — wordmark HBX no loading (aumentada o pouco, 07/07) */
+}
+
+html[data-font-scale="110"] {
+  --hbx-font-scale: 1.1;
+  --hbx-font-scale-inverse: 0.909091;
+}
+
+html[data-font-scale="120"] {
+  --hbx-font-scale: 1.2;
+  --hbx-font-scale-inverse: 0.833333;
+}
+
+html[data-font-scale="130"] {
+  --hbx-font-scale: 1.3;
+  --hbx-font-scale-inverse: 0.769231;
 }

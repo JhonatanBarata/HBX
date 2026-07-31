@@ -2153,7 +2153,7 @@ export function VendasClient() {
               )}
               <div className="vnd-popup__field">
                 <label className="dn-cockpit__label">Dia e hora do disparo</label>
-                <div style={{ display: "flex", gap: "0.5rem" }}>
+                <div style={{ display: "flex", gap: "calc(0.5rem * var(--hbx-font-scale-inverse))" }}>
                   <input className="field-dark" type="date" value={retornoData} style={{ flex: 2 }}
                     onChange={e => { setRetornoData(e.target.value); setSlotPreview(null); }}
                     aria-label="Dia do disparo" />

@@ -24,6 +24,7 @@ import { logout } from "@/lib/logout";
 import { canUseOperationalWorkspace } from "@/lib/operational-access";
 import { isCompanySeller, isTenantAdmin } from "@/lib/roles";
 import { soLogistica } from "@/lib/so-logistica";
+import { FONT_SCALE_DEFAULT, FONT_SCALE_OPTIONS, getFontScaleAtiva, setFontScale } from "@/lib/tipografia";
 import { startTutorialCoach } from "@/lib/tutorial-coach-store";
 import { setWaOpenMode, useWaOpenMode } from "@/lib/wa-open-mode";
 
@@ -1262,7 +1263,7 @@ export function subscribeToThemeMode(callback: () => void) {
   const obs = new MutationObserver(callback);
   // data-casca entrou na lista (28/07): trocar de casca precisa re-renderizar
   // o menu Aparência (a Corporativa esconde tema e modo) e o ModeToggle.
-  obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-casca", "data-theme", "data-theme-mode"] });
+  obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-casca", "data-theme", "data-theme-mode", "data-font-scale"] });
   return () => obs.disconnect();
 }
 
@@ -1441,6 +1442,61 @@ export function AparenciaSwitch() {
               Aplicar
             </button>
           </footer>
+        </div>
+      )}
+    </span>
+  );
+}
+
+// ---------------------------------------------------------------
+// TAMANHO DAS LETRAS — eixo separado de casca/tema.
+// 100% é o desenho atual; a preferência é global no navegador e não
+// muda cor, espaçamento, altura, largura, ícone ou qualquer outro visual.
+// ---------------------------------------------------------------
+export function FontScaleSwitch() {
+  const scale = useSyncExternalStore(
+    subscribeToThemeMode,
+    getFontScaleAtiva,
+    () => FONT_SCALE_DEFAULT,
+  );
+  const [open, setOpen] = useState(false);
+  const fechar = useCallback(() => setOpen(false), []);
+  const boxRef = useClickAway<HTMLSpanElement>(open, fechar);
+
+  return (
+    <span ref={boxRef} className="tipografia">
+      <button
+        className="btn-ghost tipografia__trigger"
+        type="button"
+        onClick={() => setOpen(value => !value)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        aria-label={`Tamanho das letras: ${scale}%`}
+        title="Tamanho das letras"
+      >
+        <span className="tipografia__aa" aria-hidden="true">Aa</span>
+        <span className="tipografia__value">{scale}%</span>
+        <span className="aparencia__caret" aria-hidden="true">▾</span>
+      </button>
+
+      {open && (
+        <div className="hbx-pop tipografia__menu" role="menu" aria-label="Tamanho das letras">
+          {FONT_SCALE_OPTIONS.map(option => (
+            <button
+              key={option}
+              type="button"
+              role="menuitemradio"
+              aria-checked={option === scale}
+              className={"aparencia__item" + (option === scale ? " is-on" : "")}
+              onClick={() => {
+                setFontScale(option);
+                fechar();
+              }}
+            >
+              <span className="aparencia__mark" aria-hidden="true">{option === scale ? "✓" : ""}</span>
+              <span className="aparencia__label">{option}%</span>
+            </button>
+          ))}
         </div>
       )}
     </span>
@@ -1880,6 +1936,7 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
           </button>
         )}
         <AparenciaSwitch />
+        <FontScaleSwitch />
         {podeNovoLead && (
           <button className="round-btn add" title="Novo lead" aria-label="Novo lead" onClick={abrirNovoLead} data-tut="novo-lead"><I d={ICONS.plus} size={16} /></button>
         )}

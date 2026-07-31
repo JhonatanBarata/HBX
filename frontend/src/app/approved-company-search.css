@@ -366,8 +366,16 @@
   animation: radar-boot-shimmer 1.5s linear infinite;
 }
 
-.leads-page .radar-boot__bar--title { width: 9.5rem; max-width: 100%; height: 1rem; }
-.leads-page .radar-boot__bar--status { width: 13rem; max-width: 100%; margin-top: 0.25rem; }
+.leads-page .radar-boot__bar--title {
+  width: calc(9.5rem * var(--hbx-font-scale-inverse));
+  max-width: 100%;
+  height: calc(1rem * var(--hbx-font-scale-inverse));
+}
+.leads-page .radar-boot__bar--status {
+  width: calc(13rem * var(--hbx-font-scale-inverse));
+  max-width: 100%;
+  margin-top: calc(0.25rem * var(--hbx-font-scale-inverse));
+}
 
 @keyframes radar-viewer-fade-in {
   from { opacity: 0; transform: translateY(6px); }

@@ -100,7 +100,7 @@
 .heading h2 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(1.45rem, 2.6vw, 2rem);
+  font-size: clamp(1.45rem, calc(2.6vw * var(--hbx-font-scale)), 2rem);
   font-weight: 800;
   letter-spacing: -0.025em;
   color: var(--text-strong);

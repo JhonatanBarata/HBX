@@ -6,8 +6,12 @@
    nenhuma: o texto é a coisa mais visível do app e ele não tinha encolhido).
    Tudo no kit é rem, então baixar a raiz encolhe a tipografia inteira de
    forma proporcional — cara de ferramenta densa, não "alta resolução".
-   Espaçamentos em px não mudam (o esqueleto usa px pra grid/rail/aside). */
-html { font-size: 14px; }
+   Espaçamentos em px não mudam (o esqueleto usa px pra grid/rail/aside).
+   A preferência do header multiplica esta raiz; 100% mantém o valor atual. */
+html {
+  --hbx-font-root-size: 14px;
+  font-size: calc(var(--hbx-font-root-size) * var(--hbx-font-scale));
+}
 
 /* ESCADA DE ALTA RESOLUÇÃO (22/07) — a raiz de 14px é a densidade aprovada até
    Full HD e NÃO muda lá. Acima disso o app parava de crescer: num monitor
@@ -17,9 +21,9 @@ html { font-size: 14px; }
    Os degraus leem px de CSS, não px do painel: quem já usa escala do Windows
    (150 por cento num 4K vira 2560 de CSS) pega o degrau certo em vez de dobrar
    o aumento. 1368, HD e Full HD ficam exatamente como o dono aprovou. */
-@media (min-width: 2000px) { html { font-size: 15px; } }
-@media (min-width: 2560px) { html { font-size: 16.5px; } }
-@media (min-width: 3300px) { html { font-size: 18.5px; } }
+@media (min-width: 2000px) { html { --hbx-font-root-size: 15px; } }
+@media (min-width: 2560px) { html { --hbx-font-root-size: 16.5px; } }
+@media (min-width: 3300px) { html { --hbx-font-root-size: 18.5px; } }
 
 body {
   margin: 0;

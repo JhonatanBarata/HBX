@@ -496,7 +496,7 @@
   justify-content: center;
   border: none;
   cursor: pointer;
-  font-size: 26px;
+  font-size: calc(26px * var(--hbx-font-scale));
   font-weight: 800;
   line-height: 1;
   background: linear-gradient(135deg, var(--ent-brand), var(--ent-accent));
@@ -1916,7 +1916,7 @@
   background: color-mix(in srgb, var(--ent-success) 16%, var(--ent-surface));
   color: var(--ent-success);
   font-family: var(--ent-font-num);
-  font-size: 30px;
+  font-size: calc(30px * var(--hbx-font-scale));
   font-weight: 800;
   line-height: 1;
   margin-bottom: var(--ent-3);

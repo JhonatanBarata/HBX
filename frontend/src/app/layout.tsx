@@ -12,6 +12,7 @@ import { CASCA_BOOT_ATTR, QUERY as CASCA_MOBILE_QUERY } from "@/lib/casca-mobile
 // Mesma fronteira do -const acima: lib/aparencia.ts é NEUTRO (zero React) de
 // propósito, justamente pra poder ser importado daqui, de um Server Component.
 import { buildAparenciaBoot } from "@/lib/aparencia";
+import { buildFontScaleBoot } from "@/lib/tipografia";
 
 export const metadata: Metadata = {
   title: "HBX System",
@@ -42,6 +43,7 @@ export const viewport: Viewport = {
 // 15/06: a landing "/" deixou de ser "html puro" — agora É o login (tokens +
 // robô do tema), herda os mesmos atributos.
 const THEME_BOOT = buildAparenciaBoot();
+const FONT_SCALE_BOOT = buildFontScaleBoot();
 
 // Boot da CASCA MOBILE antes da pintura (07/07, queixa do dono: reload no
 // celular piscava a sidebar desktop antes da moldura mobile aparecer) —
@@ -86,6 +88,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
         <style dangerouslySetInnerHTML={{ __html: CASCA_BOOT_CSS }} />
         <script dangerouslySetInnerHTML={{ __html: SW_REGISTER }} />
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
+        <script dangerouslySetInnerHTML={{ __html: FONT_SCALE_BOOT }} />
         <script dangerouslySetInnerHTML={{ __html: CASCA_BOOT }} />
       </head>
       {/* suppressHydrationWarning no <body> (não é "cego": é o nó EXATO que

@@ -2603,3 +2603,28 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 @media (prefers-reduced-motion: reduce) {
   .aparencia__deck, .aparencia__lvl { transition: none; }
 }
+
+/* Escala tipográfica: controle independente, ao lado de Aparência no header.
+   O padrão 100% mantém a tela atual; as opções são degraus fixos. */
+.tipografia { position: relative; display: inline-flex; }
+.tipografia__trigger {
+  min-height: 32px;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.tipografia__aa {
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-weight: var(--weight-extrabold);
+  line-height: 1;
+}
+.tipografia__value { min-width: 4ch; text-align: right; }
+.tipografia__menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  z-index: 30;
+  width: 132px;
+  padding: 5px 0 6px;
+  overflow: hidden;
+}

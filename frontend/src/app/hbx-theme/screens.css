@@ -192,7 +192,9 @@ html, body { height: 100%; }
 .a-left .kpis { padding-right: 22px; }
 .a-left .kpi { padding-block: 7px; }
 .a-left button.kpi { width: 100%; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.a-left [data-tut="atend-whatsapp"] .kpi-value { font-size: calc(1.5rem - 4px); }
+.a-left [data-tut="atend-whatsapp"] .kpi-value {
+  font-size: calc(1.5rem - calc(4px * var(--hbx-font-scale)));
+}
 .at-convs-controls { flex-wrap: nowrap; }
 .at-convs-filter { position: relative; display: inline-flex; flex: 1 1 0; min-width: 0; }
 .at-convs-control { flex: 1 1 0; min-width: 0; min-height: 32px; padding-inline: 7px; font-size: 0.66rem; white-space: nowrap; }
@@ -754,7 +756,7 @@ html, body { height: 100%; }
 /* Nome da empresa */
 .lead-list-row__name {
   font-family: var(--font-display);
-  font-size: clamp(0.88rem, 2.4vw, 1.0rem);
+  font-size: clamp(0.88rem, calc(2.4vw * var(--hbx-font-scale)), 1.0rem);
   font-weight: 700;
   color: var(--text-strong);
   white-space: nowrap;
@@ -766,7 +768,7 @@ html, body { height: 100%; }
 
 /* Segmento · cidade */
 .lead-list-row__sub {
-  font-size: clamp(0.68rem, 1.8vw, 0.78rem);
+  font-size: clamp(0.68rem, calc(1.8vw * var(--hbx-font-scale)), 0.78rem);
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -785,7 +787,7 @@ html, body { height: 100%; }
 /* Chevron da linha */
 .lead-list-row__chev {
   flex: 0 0 auto;
-  font-size: clamp(1.0rem, 3vw, 1.3rem);
+  font-size: clamp(1.0rem, calc(3vw * var(--hbx-font-scale)), 1.3rem);
   color: var(--text-muted);
   line-height: 1;
 }
@@ -812,7 +814,7 @@ html, body { height: 100%; }
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: clamp(0.58rem, 1.5vw, 0.66rem);
+  font-size: clamp(0.58rem, calc(1.5vw * var(--hbx-font-scale)), 0.66rem);
   font-weight: 700;
   color: var(--text-muted);
   text-transform: uppercase;
@@ -820,7 +822,7 @@ html, body { height: 100%; }
 }
 .lead-list__meter-val {
   font-family: var(--font-display);
-  font-size: clamp(0.82rem, 2.2vw, 0.96rem);
+  font-size: clamp(0.82rem, calc(2.2vw * var(--hbx-font-scale)), 0.96rem);
   font-weight: 800;
   color: var(--text-strong);
 }
@@ -1464,7 +1466,7 @@ html, body { height: 100%; }
   border: 1px solid color-mix(in srgb, var(--radar-sweep) 22%, transparent);
   background: color-mix(in srgb, var(--radar-base) 70%, transparent);
   color: var(--hbx-brand-contrast);
-  font-size: 9px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+  font-size: calc(9px * var(--hbx-font-scale)); font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
   white-space: nowrap;
   opacity: 0; transform: translateY(4px);
   animation: radarBlipLabelReveal 8s ease-in-out infinite;
@@ -2020,10 +2022,10 @@ html, body { height: 100%; }
   padding: 7px 8px;
 }
 .lead-kpis-strip .radar2-kpi .lbl {
-  font-size: clamp(0.54rem, 1.4vw, 0.62rem);
+  font-size: clamp(0.54rem, calc(1.4vw * var(--hbx-font-scale)), 0.62rem);
 }
 .lead-kpis-strip .radar2-kpi .num {
-  font-size: clamp(0.88rem, 2.4vw, 1.05rem);
+  font-size: clamp(0.88rem, calc(2.4vw * var(--hbx-font-scale)), 1.05rem);
   font-weight: 800;
 }
 
@@ -3064,7 +3066,7 @@ html, body { height: 100%; }
   color: var(--hbx-brand-strong); font-size: 0.72rem; font-weight: 800;
   letter-spacing: 0.08em; text-transform: uppercase;
 }
-.workspace-switch h1 { margin: 8px 0 6px; color: var(--text-strong); font-size: clamp(1.4rem, 3vw, 2rem); }
+.workspace-switch h1 { margin: 8px 0 6px; color: var(--text-strong); font-size: clamp(1.4rem, calc(3vw * var(--hbx-font-scale)), 2rem); }
 .workspace-switch__lead { margin: 0; color: var(--text-muted); line-height: 1.55; }
 .workspace-switch__grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin-top: 24px; }
 .workspace-switch__card {
@@ -3129,7 +3131,7 @@ html, body { height: 100%; }
    shimmer central .dn-skel (kit.css). Altura casa a linha do número. */
 .log-resumo__skel {
   display: inline-block;
-  width: 52px; height: 1.05rem; border-radius: 5px;
+  width: 52px; height: calc(1.05rem * var(--hbx-font-scale-inverse)); border-radius: 5px;
   background: linear-gradient(90deg, var(--surface-recessed) 25%, var(--surface-raised) 50%, var(--surface-recessed) 75%);
   background-size: 250% 100%;
   animation: dn-shimmer 1.4s ease-in-out infinite;
@@ -5950,7 +5952,10 @@ html, body { height: 100%; }
   border-bottom: 1px solid var(--border-hairline);
   background: var(--hbx-surface);
 }
-.be-cmdbar--required > .be-filter-panel { flex: 1 1 15rem; min-width: 11rem; }
+.be-cmdbar--required > .be-filter-panel {
+  flex: 1 1 calc(15rem * var(--hbx-font-scale-inverse));
+  min-width: calc(11rem * var(--hbx-font-scale-inverse));
+}
 /* Execução (Buscar / Pausar+Parar) sempre por último e sempre visível. */
 .be-cmdbar--required > .be-cmdbar__go,
 .be-cmdbar--required > .be-cmdbar__runctl { flex: 0 0 auto; margin-left: auto; }
@@ -6763,7 +6768,7 @@ html, body { height: 100%; }
   margin: 0;
   color: var(--text-strong);
   font-family: var(--font-display, var(--font-body));
-  font-size: clamp(1.05rem, 2vw, 1.34rem);
+  font-size: clamp(1.05rem, calc(2vw * var(--hbx-font-scale)), 1.34rem);
   font-weight: 780;
   letter-spacing: 0;
 }
@@ -6919,7 +6924,7 @@ html, body { height: 100%; }
   min-width: 0;
   color: var(--text-strong);
   font-family: var(--font-display, var(--font-body));
-  font-size: clamp(1.12rem, 2.5vw, 1.55rem);
+  font-size: clamp(1.12rem, calc(2.5vw * var(--hbx-font-scale)), 1.55rem);
   font-weight: 780;
   line-height: 1.22;
 }
