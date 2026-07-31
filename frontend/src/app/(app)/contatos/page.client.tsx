@@ -16,6 +16,7 @@ import Link from "next/link";
 import React, { useCallback, useEffect, useState } from "react";
 
 import { EditarContaModal, EditarContatoModal } from "@/components/hbx/editar-nucleo-modais";
+import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import {
   HbxContextEmpty,
   HbxContextFact,
@@ -29,6 +30,7 @@ import {
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { ImportPlanilhaModal, type ImportSchema } from "@/components/hbx/import-planilha-modal";
 import { apiFetch } from "@/lib/api";
+import { formatBrPhone } from "@/lib/br-phone";
 import { isTenantAdmin } from "@/lib/roles";
 
 // Importação em massa (planilha): A nome (obrigatório) · B telefone · C cidade ·
@@ -139,16 +141,6 @@ type ClienteListResponse = {
 type ContextSelection =
   | { kind: "contato"; item: ContatoItem }
   | { kind: "cliente"; item: ClienteItem };
-
-function fmtPhone(v: string | null): string {
-  const d = String(v || "").replace(/\D+/g, "");
-  if (d.length < 10) return v || "";
-  const ddd = d.slice(0, 2);
-  const rest = d.slice(2);
-  return rest.length === 9
-    ? `(${ddd}) ${rest.slice(0, 5)}-${rest.slice(5)}`
-    : `(${ddd}) ${rest.slice(0, 4)}-${rest.slice(4)}`;
-}
 
 function localCityUf(cidade: string | null, uf: string | null): string {
   return [String(cidade || "").trim(), String(uf || "").trim()].filter(Boolean).join(" · ");
@@ -988,8 +980,8 @@ function NovoClienteModal({ onClose, onSaved }: { onClose: () => void; onSaved: 
   );
 }
 
-// `clientesOnly` (Logística → Clientes): abre travado na view "Clientes" e some
-// com o toggle "Só clientes" — a MESMA tela, reusada pela rota /clientes.
+// `clientesOnly` (Logística → Clientes): abre travado na view "Clientes" e
+// oculta a troca Contatos | Clientes — a MESMA tela, reusada pela rota /clientes.
 export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolean } = {}) {
   const user = useCurrentUser();
   const admin = isTenantAdmin(user);
@@ -1009,6 +1001,7 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
   // NÚCLEO-CRM — edição (pessoa ou conta) via PATCH já publicado no backend.
   const [editContato, setEditContato] = useState<ContatoItem | null>(null);
   const [editCliente, setEditCliente] = useState<ClienteItem | null>(null);
+  const viewPill = useGlassPill<HTMLButtonElement>(onlyClientes ? "clientes" : "contatos", clientesOnly);
 
   const load = useCallback((only: boolean, q: string, p: number) => {
     setLoading(true);
@@ -1080,58 +1073,94 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
   const isEmpty = !loading && !error && (onlyClientes ? cliItems.length === 0 : cttItems.length === 0);
 
   const main = (
-    <div className="work hbx-panel-shell__route-work" style={{ flex: 1 }}>
-      <section className="panel">
-        <div className="panel-head">
-          <h2>{onlyClientes ? "Clientes" : "Contatos"}</h2>
-          <div className="meta">
-            <span>{total} {onlyClientes ? "cliente(s)" : "pessoa(s)"}</span>
-          </div>
+    <section className={"ctt-live" + (onlyClientes ? " is-clientes" : " is-contatos")}>
+      <header className="ctt-command">
+        <div className="ctt-command__identity">
+          <span className="ctt-command__icon"><I d={onlyClientes ? ICONS.empresas : ICONS.users} size={17} /></span>
+          <span>
+            <strong>{onlyClientes ? "Clientes" : "Contatos"}</strong>
+            <small>{total} {onlyClientes ? "clientes" : "pessoas"}</small>
+          </span>
         </div>
 
-        <div className="hbx-panel-toolbar">
-          <form className="emp-toolbar" onSubmit={submitSearch}>
-            <input
-              className="field-dark emp-search"
-              placeholder={onlyClientes ? "Buscar cliente por nome, CNPJ, cidade…" : "Buscar pessoa, cargo, telefone, empresa…"}
-              value={queryInput}
-              onChange={(e) => setQueryInput(e.target.value)}
-            />
-            <button className="btn-teal" type="submit">
-              <I d={ICONS.search} size={13} /> Buscar
+        {!clientesOnly && (
+          <div className="ctt-view-switch glass-pill-track" aria-label="Visualização do cadastro">
+            <GlassPill {...viewPill} />
+            <button
+              type="button"
+              ref={viewPill.itemRef("contatos")}
+              className={"glass-pill-item" + (!onlyClientes ? " is-active" : "")}
+              aria-pressed={!onlyClientes}
+              onClick={() => toggleOnly(false)}
+            >
+              Contatos
             </button>
-            {!clientesOnly && (
-              <label className="ctt-toggle ctt-toggle--inline">
-                <input type="checkbox" checked={onlyClientes} onChange={(e) => toggleOnly(e.target.checked)} />
-                <span>Só clientes</span>
-              </label>
-            )}
-            <button type="button" className="btn-ghost ctt-new" onClick={() => setShowNovo(true)}>
-              <I d={ICONS.plus} size={13} /> Novo contato/cliente
+            <button
+              type="button"
+              ref={viewPill.itemRef("clientes")}
+              className={"glass-pill-item" + (onlyClientes ? " is-active" : "")}
+              aria-pressed={onlyClientes}
+              onClick={() => toggleOnly(true)}
+            >
+              Clientes
             </button>
-            {/* F4 (27/07) — em Logística→Clientes a entrada complicada (planilha
-                crua direto pra base viva) vira a "boca única" com quarentena:
-                arquivo/texto/foto passam pelo sanitizador antes de virar cliente.
-                Fora de clientesOnly (aba Contatos genérica), segue o import direto
-                de sempre — não é logística, não tem endereço/rota pra sanitizar. */}
-            {clientesOnly ? (
-              <Link href="/logistica/importar" className="btn-ghost">
-                <I d={ICONS.upload} size={13} /> Importar clientes
-              </Link>
-            ) : (
-              <button type="button" className="btn-ghost" onClick={() => setShowImport(true)}>
-                <I d={ICONS.upload} size={13} /> Importar planilha
-              </button>
-            )}
-            {loading && <span className="emp-count">carregando…</span>}
-          </form>
-        </div>
+          </div>
+        )}
+
+        <form className="ctt-command__form" onSubmit={submitSearch}>
+          <input
+            className="field-dark emp-search"
+            placeholder={onlyClientes ? "Buscar cliente por nome, CNPJ, cidade…" : "Buscar pessoa, cargo, telefone, empresa…"}
+            value={queryInput}
+            onChange={(e) => setQueryInput(e.target.value)}
+          />
+          <button className="btn-teal ctt-command__search" type="submit" aria-label="Buscar cadastro" title="Buscar">
+            <I d={ICONS.search} size={13} />
+          </button>
+        </form>
+
+        <button type="button" className="btn-ghost ctt-command__new" onClick={() => setShowNovo(true)}>
+          <I d={ICONS.plus} size={13} /> <span>{onlyClientes ? "Novo cliente" : "Novo cadastro"}</span>
+        </button>
+
+        {/* Em /clientes, a entrada oficial passa pela quarentena da logística.
+            Em /contatos, a importação direta existente permanece intacta. */}
+        {clientesOnly ? (
+          <Link href="/logistica/importar" className="btn-ghost ctt-command__import" title="Importar clientes">
+            <I d={ICONS.upload} size={13} /> <span>Importar</span>
+          </Link>
+        ) : (
+          <button type="button" className="btn-ghost ctt-command__import" onClick={() => setShowImport(true)} title="Importar planilha">
+            <I d={ICONS.upload} size={13} /> <span>Importar</span>
+          </button>
+        )}
+
+        <span className={"ctt-command__status" + (loading ? " is-loading" : "")} title={loading ? "Atualizando cadastros" : "Cadastros atualizados"}>
+          <i aria-hidden="true" />
+        </span>
+      </header>
+
+      <div className={"ctt-list-head" + (onlyClientes ? " is-clientes" : " is-contatos")} aria-hidden="true">
+        <span>{onlyClientes ? "Cliente" : "Pessoa"}</span>
+        <span>{onlyClientes ? "Papéis" : "Relacionamento"}</span>
+        <span>{onlyClientes ? "Contatos" : "Papéis"}</span>
+      </div>
+
+      <div className="ctt-live__body">
 
         {error && (
           <div className="emp-empty">
             <strong className="emp-empty__title">Não carregou</strong>
             <span className="emp-empty__text">{error}</span>
             <button className="btn-ghost" onClick={() => load(onlyClientes, query, page)}>Tentar novamente</button>
+          </div>
+        )}
+
+        {!error && loading && (onlyClientes ? cliItems.length === 0 : cttItems.length === 0) && (
+          <div className="ctt-live-skeleton" aria-label="Carregando cadastros" role="status">
+            {Array.from({ length: 8 }).map((_, index) => (
+              <span className="ctt-live-skeleton__line" key={index} />
+            ))}
           </div>
         )}
 
@@ -1155,8 +1184,8 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
         {!error && !onlyClientes && cttItems.length > 0 && (
           <div className="emp-list">
             {cttItems.map((c) => {
-              const canal = c.whatsapp ? fmtPhone(c.whatsapp) : c.phone ? fmtPhone(c.phone) : c.email || "";
-              const sub = [c.cargo || "", canal].filter(Boolean).join("  ·  ");
+              const canal = c.whatsapp ? formatBrPhone(c.whatsapp) : c.phone ? formatBrPhone(c.phone) : c.email || "";
+              const sub = [c.cargo || "", canal, c.contaNome || ""].filter(Boolean).join("  ·  ");
               const teveConversa = Boolean(c.conversa && c.conversa.mensagens > 0);
               return (
                 <div
@@ -1176,15 +1205,11 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
                   <span className="emp-row__main">
                     <span className="emp-row__name">
                       {c.nome}
-                      {c.isPrincipal && <span className="badge-win" style={{ marginLeft: 6 }}>Principal</span>}
+                      {c.isPrincipal && <span className="badge-win ctt-principal">Principal</span>}
                     </span>
                     {sub && <span className="emp-row__sub">{sub}</span>}
-                    {c.contaNome && (
-                      <span className="ctt-row__conta">
-                        <I d={ICONS.empresas} size={11} /> {c.contaNome}
-                      </span>
-                    )}
-                    {/* Atendimento: teve conversa? finalizado? (dado já salvo no backend) */}
+                  </span>
+                  <span className="ctt-row__signals">
                     <span className="ctt-conv">
                       {teveConversa ? (
                         <span className="ctt-conv__tag is-talk" title={`${c.conversa!.mensagens} mensagem(ns) salva(s)`}>
@@ -1200,8 +1225,6 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
                         </span>
                       )}
                     </span>
-                  </span>
-                  <span className="emp-row__side">
                     {(c.contaIsCliente || c.contaIsLead || c.contaIsFornecedor) && (
                       <span className="emp-roles">
                         {c.contaIsCliente && <span className="emp-role is-cliente">Cliente</span>}
@@ -1209,26 +1232,6 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
                         {c.contaIsFornecedor && <span className="emp-role is-fornecedor">Fornecedor</span>}
                       </span>
                     )}
-                    {teveConversa && (
-                      <Link
-                        className="btn-ghost btn-xs ctt-conv-btn"
-                        href={`/conversas?conversation=${c.conversa!.id}`}
-                        title="Abrir a conversa salva no Atendimento"
-                        onClick={(event) => event.stopPropagation()}
-                      >
-                        <I d={ICONS.msg} size={13} /> Ver conversa
-                      </Link>
-                    )}
-                    <button
-                      type="button"
-                      className="btn-ghost btn-xs"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setEditContato(c);
-                      }}
-                    >
-                      <I d={ICONS.edit} size={13} /> Editar
-                    </button>
                   </span>
                 </div>
               );
@@ -1266,26 +1269,6 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
                       {e.isLead && <span className="emp-role is-lead">Lead</span>}
                       {e.isFornecedor && <span className="emp-role is-fornecedor">Fornecedor</span>}
                     </span>
-                    <button
-                      type="button"
-                      className="btn-ghost btn-xs ctt-prod-btn"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setProdCliente({ id: e.id, nome: e.name });
-                      }}
-                    >
-                      <I d={ICONS.logistica} size={13} /> Produtos
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-ghost btn-xs"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setEditCliente(e);
-                      }}
-                    >
-                      <I d={ICONS.edit} size={13} /> Editar
-                    </button>
                     <span className="emp-row__contacts" title="Contatos">
                       <I d={ICONS.users} size={13} /> {e.contatosCount}
                     </span>
@@ -1295,20 +1278,20 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
             })}
           </div>
         )}
+      </div>
 
-        {!error && totalPages > 1 && (
-          <div className="emp-pager">
-            <button className="btn-ghost btn-xs" disabled={page <= 1 || loading} onClick={() => setPage((p) => Math.max(1, p - 1))}>
-              Anterior
-            </button>
-            <span className="emp-pager__info">Página {page} de {totalPages}</span>
-            <button className="btn-ghost btn-xs" disabled={page >= totalPages || loading} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
-              Próxima
-            </button>
-          </div>
-        )}
-      </section>
-    </div>
+      {!error && totalPages > 1 && (
+        <div className="emp-pager">
+          <button className="btn-ghost btn-xs" disabled={page <= 1 || loading} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+            Anterior
+          </button>
+          <span className="emp-pager__info">Página {page} de {totalPages}</span>
+          <button className="btn-ghost btn-xs" disabled={page >= totalPages || loading} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
+            Próxima
+          </button>
+        </div>
+      )}
+    </section>
   );
 
   const context = selected?.kind === "contato" ? (
@@ -1338,13 +1321,13 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
         <HbxContextMetric label="Principal" value={selected.item.isPrincipal ? "Sim" : "Não"} />
       </HbxContextMetrics>
       <HbxContextFacts>
-        <HbxContextFact label="WhatsApp" value={selected.item.whatsapp ? fmtPhone(selected.item.whatsapp) : "Não informado"} />
-        <HbxContextFact label="Telefone" value={selected.item.phone ? fmtPhone(selected.item.phone) : "Não informado"} />
+        <HbxContextFact label="WhatsApp" value={selected.item.whatsapp ? formatBrPhone(selected.item.whatsapp) : "Não informado"} />
+        <HbxContextFact label="Telefone" value={selected.item.phone ? formatBrPhone(selected.item.phone) : "Não informado"} />
         <HbxContextFact label="E-mail" value={selected.item.email || "Não informado"} />
         <HbxContextFact label="Empresa" value={selected.item.contaNome || "Não vinculada"} />
         <HbxContextFact label="Origem" value={selected.item.source || "Não informada"} />
       </HbxContextFacts>
-      <div className="hbx-panel-context__actions">
+      <div className="hbx-panel-context__actions ctt-context-actions">
         {selected.item.conversa && (
           <Link className="btn-teal" href={`/conversas?conversation=${selected.item.conversa.id}`}>
             <I d={ICONS.msg} size={13} /> Abrir conversa
@@ -1383,7 +1366,7 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
         <HbxContextFact label="UF" value={selected.item.uf || "Não informada"} />
         <HbxContextFact label="Fornecedor" value={selected.item.isFornecedor ? "Sim" : "Não"} />
       </HbxContextFacts>
-      <div className="hbx-panel-context__actions">
+      <div className="hbx-panel-context__actions ctt-context-actions">
         <button type="button" className="btn-teal" onClick={() => setProdCliente({ id: selected.item.id, nome: selected.item.name })}>
           <I d={ICONS.logistica} size={13} /> Produtos do cliente
         </button>
@@ -1404,6 +1387,7 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
     <>
       <HbxPanelShell
         variant="context"
+        className={"ctt-live-shell" + (onlyClientes ? " is-clientes" : " is-contatos")}
         ariaLabel={onlyClientes ? "Clientes" : "Contatos"}
         contextLabel={onlyClientes ? "Detalhes do cliente" : "Detalhes do contato"}
         main={main}
