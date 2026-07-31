@@ -586,7 +586,13 @@ export function LogisticaClient() {
                 <span aria-hidden>↻</span>
               </button>
               {admin && (
-                <button type="button" className="btn-teal log-command__build" onClick={() => setRouteBuilderOpen(true)}>
+                <button
+                  type="button"
+                  className="btn-teal log-command__build"
+                  onClick={() => setRouteBuilderOpen(true)}
+                  aria-label="Montar rota"
+                  title="Montar rota"
+                >
                   <I d={ICONS.logistica} size={13} />
                   <span>Montar rota</span>
                 </button>
