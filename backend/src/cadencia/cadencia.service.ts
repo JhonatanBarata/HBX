@@ -17,6 +17,7 @@ import {
 import type { AplicarCadenciaDto, CreateCadenciaDto, UpdateCadenciaDto } from './dto/cadencia.dto';
 import { CommercialContactControlService } from '../vendas/commercial-contact-control.service';
 import { AgendaDisparoService } from '../vendas/agenda-disparo.service';
+import { PersonaIaService } from '../vendas/persona-ia.service';
 import { VendasContactSuppressionService } from '../vendas/vendas-contact-suppression.service';
 import { automationFlag } from '../automation/automation-flags';
 
@@ -81,6 +82,12 @@ export class CadenciaService {
   // dias). Mesmo padrão de instanciação manual acima.
   private readonly contactSuppression: VendasContactSuppressionService;
 
+  // BUG DO PLACEHOLDER CRU (31/07/2026, turno dos 5 disparos): a abertura
+  // agendada saiu pro lead com "{{funcionario}}" LITERAL — a cadência mandava a
+  // aberturaCopy sem renderizar. A persona (identidade única da IA) preenche o
+  // {{funcionario}} agora; plain class fora do grafo de DI, padrão do arquivo.
+  private readonly personaIa: PersonaIaService;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly conversations: ConversationsService,
@@ -98,6 +105,7 @@ export class CadenciaService {
     this.commercialContactControl = new CommercialContactControlService(this.prisma);
     this.agendaDisparo = new AgendaDisparoService(this.prisma);
     this.contactSuppression = new VendasContactSuppressionService(this.prisma);
+    this.personaIa = new PersonaIaService(this.prisma);
   }
 
   private get runnerEnabled(): boolean {
@@ -691,6 +699,48 @@ export class CadenciaService {
     return true;
   }
 
+  // Saudação no fuso do dono (mesma régua de vendas-automation.service.ts).
+  private saudacaoBrasilia(): string {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      hour: '2-digit',
+      hour12: false,
+      timeZone: 'America/Sao_Paulo',
+    }).formatToParts(new Date());
+    const hour = Number(parts.find((part) => part.type === 'hour')?.value || '0');
+    if (hour >= 18 || hour < 3) return 'Boa noite';
+    if (hour >= 12) return 'Boa tarde';
+    return 'Bom dia';
+  }
+
+  /**
+   * Renderiza o corpo de um passo WhatsApp da cadência. {{funcionario}} = a
+   * PERSONA da empresa (aiNome ou vendedor representado — persona-ia.service),
+   * {{empresa}} = nome da empresa, {{cliente}} = nome do lead,
+   * {{cumprimentacao}} = saudação do fuso. Marcador desconhecido é REMOVIDO:
+   * cliente jamais lê "{{...}}" (bug real de 31/07 — o RISSO leu).
+   */
+  private async renderCorpoWhats(companyId: number, leadName: string | null, template: string): Promise<string> {
+    const texto = String(template || '').trim();
+    if (!texto.includes('{{')) return texto;
+    const [company, funcionario] = await Promise.all([
+      (this.prisma as any).company
+        ?.findUnique?.({ where: { id: Number(companyId) }, select: { name: true } })
+        .catch(() => null),
+      this.personaIa.assinatura(Number(companyId), 'time comercial'),
+    ]);
+    const valores: Record<string, string> = {
+      cumprimentacao: this.saudacaoBrasilia(),
+      empresa: String(company?.name || 'nossa empresa').trim(),
+      funcionario: String(funcionario || 'time comercial').trim(),
+      cliente: String(leadName || 'sua empresa').trim(),
+    };
+    let out = texto;
+    for (const [chave, valor] of Object.entries(valores)) {
+      out = out.replace(new RegExp(`\\{\\{\\s*${chave}\\s*\\}\\}`, 'gi'), valor);
+    }
+    return out.replace(/\{\{[^}]*\}\}/g, '').replace(/[ \t]{2,}/g, ' ').trim();
+  }
+
   // WhatsApp: reusa o caminho PROVADO do bot de prospeccao (com todos os freios).
   // `isAbertura` = este passo é a PRIMEIRA mensagem de WhatsApp da cadência (a
   // abertura). Quando é, o robô confere se um humano já abriu a conversa.
@@ -756,7 +806,12 @@ export class CadenciaService {
     // variante do dono ainda não usada (`aberturaCopy`); só a abertura usa esse
     // texto, e quem não tem reserva segue com o corpo do passo, como antes.
     const aberturaReservada = isAbertura ? String(insc.aberturaCopy || '').trim() : '';
-    const body = aberturaReservada || String(passo.corpo || passo.titulo || '').trim();
+    const bodyCru = aberturaReservada || String(passo.corpo || passo.titulo || '').trim();
+    if (!bodyCru) return { sent: false, skipReason: 'passo_sem_corpo' };
+    // RENDER ANTES DE ENVIAR (31/07/2026): o RISSO recebeu "{{funcionario}}"
+    // LITERAL porque este caminho mandava o template cru. {{funcionario}} é a
+    // PERSONA da empresa (identidade única); marcador desconhecido NUNCA vaza.
+    const body = await this.renderCorpoWhats(insc.companyId, lead?.name || null, bodyCru);
     if (!body) return { sent: false, skipReason: 'passo_sem_corpo' };
 
     // MESMO caminho do vendas-automation (queueOutboundForCompany) — disjuntor,

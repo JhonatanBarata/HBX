@@ -192,6 +192,9 @@ function makeService(opts: {
   // acima: exercita o algoritmo de slot de verdade (janela/teto/intervalo default,
   // sem VendasComercialConfig na tabela falsa -> cai nos defaults 08:00-18:00/10/15).
   svc.agendaDisparo = new AgendaDisparoService(svc.prisma);
+  // PERSONA (31/07/2026): o render do corpo assina {{funcionario}} com a
+  // identidade única da empresa. Mock com o mesmo contrato do service real.
+  svc.personaIa = { assinatura: async () => 'Jhonatan' };
 
   return { svc, queueCalls, atividadeCalls, mailerCalls, timelineCalls, updates, inscricoes, suppressionCalls, humanOpeningCalls };
 }
@@ -270,6 +273,32 @@ test('passo WhatsApp usa o caminho do bot de prospeccao (queueOutboundForCompany
   assert.equal(call.payload.senderType, 'bot');
   assert.equal(call.payload.variables.botType, 'prospeccao');
   assert.equal(call.payload.messageType, 'text');
+});
+
+// PLACEHOLDER NUNCA VAZA (31/07/2026) — cena real do turno dos 5 disparos: o
+// RISSO recebeu "Aqui é o {{funcionario}}, da HBX..." LITERAL porque a
+// aberturaCopy ia pro WhatsApp sem renderizar. Vacina: corpo com marcador sai
+// RENDERIZADO (persona no {{funcionario}}) e marcador desconhecido é removido.
+test('VACINA: abertura com {{funcionario}} sai RENDERIZADA — cliente nunca le marcador', async () => {
+  const { svc, queueCalls } = makeService({
+    runnerEnabled: true,
+    cadencia: cadenciaConservador,
+    inscricoes: [
+      {
+        id: 'i1', cadenciaId: 'cad1', companyId: 7, leadId: 'lead1', responsavelId: null,
+        status: 'ativa', currentStep: 0, nextStepAt: new Date(Date.now() - 1000),
+        aberturaCopy: '{{cumprimentacao}}, {{cliente}}! Aqui é o {{funcionario}}, da {{empresa}}. {{marcador_que_nao_existe}} Posso te mostrar?',
+      },
+    ],
+  });
+  svc.prisma.company = { findUnique: async () => ({ name: 'HBX' }) };
+  const res = await svc.runDueSteps(new Date());
+  assert.equal((res as any).whatsSent, 1);
+  const body = String(queueCalls[0]?.payload?.body || '');
+  assert.equal(body.includes('{{'), false, 'NENHUM marcador pode chegar no cliente');
+  assert.ok(body.includes('Jhonatan'), 'o {{funcionario}} e a PERSONA da empresa');
+  assert.ok(body.includes('HBX'), 'o {{empresa}} vira o nome real');
+  assert.ok(body.includes('Fulano'), 'o {{cliente}} vira o nome do lead');
 });
 
 // FREIO DA SUPRESSÃO (30/07/2026) — cena real do dia de vendedor: hoje `isSuppressed`
