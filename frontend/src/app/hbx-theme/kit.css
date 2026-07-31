@@ -430,7 +430,9 @@ html.hbx-hot-flash body { filter: saturate(1.55) hue-rotate(-22deg) brightness(1
 .user-card small { display: block; max-height: 16px; overflow: hidden; opacity: 1; font-size: var(--hbx-font-min); color: var(--text-muted); transition: max-height var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast); }
 .user-card .dots { margin-left: auto; color: var(--text-muted); cursor: pointer; }
 
-.avatar { position: relative; display: inline-grid; place-items: center; border-radius: 999px; color: var(--hbx-brand-contrast); font-weight: 700; background: var(--hbx-avatar-from); flex: 0 0 auto; }
+/* --avatar-size chega do componente (o diâmetro varia por lugar); a inicial é
+   38% dele — proporção do círculo, não degrau de tipografia. */
+.avatar { --avatar-size: 32px; position: relative; display: inline-grid; place-items: center; border-radius: 999px; color: var(--hbx-brand-contrast); font-size: calc(var(--avatar-size) * 0.38); font-weight: 700; background: var(--hbx-avatar-from); flex: 0 0 auto; }
 .avatar .avatar-ini { grid-area: 1 / 1; line-height: 1; }
 .avatar .avatar-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; border-radius: 999px; display: block; }
 .avatar .avatar-dot { position: absolute; right: -1px; bottom: -1px; width: 30%; height: 30%; min-width: 8px; min-height: 8px; border-radius: 999px; background: var(--hbx-success); box-shadow: 0 0 0 2px var(--hbx-surface); }
@@ -2340,6 +2342,11 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
   gap: 8px;
   padding: 8px 11px;
   border-bottom: 1px solid var(--border-hairline);
+  /* Miolo OPACO — a casca Premium veste .hbx-pop com vidro (82% + blur), o
+     que deixava a lista do funil aparecer ATRAVÉS das réguas. Mesma solução
+     do menu Aparência (.aparencia__lvl): o vidro fica na moldura, o conteúdo
+     é sólido. Painel de ajuste fino não pode competir com o fundo. */
+  background: var(--surface-card);
 }
 .tipografia__nome {
   display: flex; align-items: baseline; gap: 6px;

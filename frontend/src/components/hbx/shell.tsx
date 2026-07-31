@@ -232,7 +232,10 @@ export function Av({ name, size = 20, src, online }: { name?: string; size?: num
   }, [src, failed, shown]);
 
   return (
-    <span className="avatar" style={{ width: size, height: size, fontSize: size * 0.38 }}>
+    // A inicial é 38% do DIÂMETRO — proporção geométrica (tem que caber no
+    // círculo), não tipografia de leitura: por isso não é degrau do sistema.
+    // O tamanho chega como variável e quem faz a conta é o CSS (Lei nº4).
+    <span className="avatar" style={{ width: size, height: size, "--avatar-size": `${size}px` } as React.CSSProperties}>
       <span className="avatar-ini">{ini}</span>
       {shown && !failed
         // eslint-disable-next-line @next/next/no-img-element -- foto de perfil do WhatsApp (URL externa/dinâmica do CDN)
@@ -1399,9 +1402,13 @@ export function AparenciaSwitch() {
   return (
     <span ref={boxRef} className="aparencia">
       {/* O botão mostra o que está NO AR, nunca o rascunho. */}
+      {/* Sem `title`: o balão nativo do navegador nasce POR CIMA do menu aberto
+          e tapa a primeira linha (era a mesma doença do painel de letras —
+          consertar num e deixar no vizinho seria padronizar pela metade).
+          O aria-label continua dizendo o que o botão é. */}
       <button className="btn-ghost aparencia__trigger" onClick={() => (open ? fechar() : abrir())}
         aria-expanded={open} aria-haspopup="menu" aria-label="Escolher aparência"
-        title="Aparência do sistema" data-tut="pele">
+        data-tut="pele">
         <span className="aparencia__swatch aparencia__dot" data-tema={temaKey} />
         {escolheTema(noAr) ? `${noAr.label} · ${corNoAr?.label ?? ""}` : noAr.label}
         <span className="aparencia__caret" aria-hidden="true">▾</span>

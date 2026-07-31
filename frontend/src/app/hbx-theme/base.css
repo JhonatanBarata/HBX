@@ -59,6 +59,15 @@ input[type="checkbox"], input[type="radio"] { cursor: pointer; }
 
 button:disabled, [disabled], [aria-disabled="true"] { cursor: not-allowed; }
 
+/* O PISO VALE PRO NAVEGADOR TAMBÉM (31/07) — <small> sem regra própria não
+   nasce de token nenhum: o user-agent aplica `smaller` (~0.83× do pai) e o
+   texto cai ABAIXO do piso (medido em produção na ficha do lead: 9,57px com
+   piso de 9,8px). Como o piso é a menor letra que o app tem direito de
+   pintar, ele precisa alcançar quem o HTML encolhe sozinho. A proporção
+   continua valendo onde ela já dava um tamanho legítimo — o max() só impede
+   de descer do chão. */
+small { font-size: max(0.83em, var(--hbx-font-min)); }
+
 /* Uppercase, wide-tracked eyebrow used above headings everywhere */
 .hbx-overline {
   display: inline-flex;
