@@ -13,7 +13,7 @@ import {
   signInboxMediaUrlIfLocal,
 } from '../uploads/inbox-media.util';
 import { buildWhatsAppPhoneCandidates, normalizeWhatsAppPhone } from './whatsapp-channel';
-import { isModalSendReady } from './whatsapp-connection-state';
+import { isModalSendReady, readMotorInstanceName } from './whatsapp-connection-state';
 import { ZapCheckGuardService } from './zap-check-guard.service';
 
 type WebwhatsMediaType = 'image' | 'video' | 'document' | 'audio' | 'sticker';
@@ -1513,7 +1513,7 @@ export class WebwhatsBridgeService {
         treatNotFoundAsNull: true,
       });
       instanceNames = (Array.isArray(all) ? all : [])
-        .map((inst: any) => this.normalizeOptionalString(inst?.instance?.instanceName || inst?.instanceName))
+        .map((inst: any) => this.normalizeOptionalString(readMotorInstanceName(inst)))
         .filter((name): name is string => Boolean(name) && (name === prefix || name.startsWith(`${prefix}-`)));
     } catch (error) {
       this.logger.warn(`wipe motor: falha ao listar instâncias para company=${companyId}: ${String((error as any)?.message || error)}`);

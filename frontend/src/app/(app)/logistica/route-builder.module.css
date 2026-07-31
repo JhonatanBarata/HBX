@@ -197,6 +197,46 @@
   font-size: 1.35rem;
 }
 
+/* 31/07 — sub-rótulo de estado da rota salva ("Na rua com João desde 14:02").
+   É DADO QUE SE LÊ, não legenda: vai em --text-body, nunca em --text-muted
+   (2,6:1 no claro). O alerta usa o token de perigo do tema. */
+.estado,
+.estadoAlerta {
+  overflow: hidden;
+  font-size: 0.69rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.optionCopy .estado {
+  color: var(--text-body);
+}
+
+/* MEDIDO (31/07, tema premium claro): `--hbx-danger` puro dá 4,27:1 nesta
+   fonte de 11px — abaixo dos 4,5 da AA. A mistura com a cor de texto forte
+   puxa pro lado do primeiro plano NOS DOIS MODOS (no claro escurece, no
+   escuro clareia) e sobe pra 5,4:1 sem inventar cor fora do tema. */
+.optionCopy .estadoAlerta {
+  color: color-mix(in srgb, var(--hbx-danger) 78%, var(--text-strong));
+}
+
+/* Rota ocupada: a linha fica desligada, mas o RECADO não pode apagar junto —
+   é ele que explica POR QUE não dá pra clicar. O `opacity` do :disabled some
+   com o texto inteiro (0,56 mata o contraste do que se lê), então aqui a
+   opacidade volta pro normal e só a moldura (ícone, seta e a contagem de
+   paradas) fica apagada. */
+.option.bloqueada:disabled {
+  opacity: 1;
+}
+
+.option.bloqueada:disabled .optionIcon,
+.option.bloqueada:disabled .chevron,
+.option.bloqueada:disabled strong,
+.option.bloqueada:disabled .optionCopy small:not(.estado):not(.estadoAlerta) {
+  opacity: 0.56;
+}
+
 /* ROTA PRONTA (29/07) — linha da rota salva: o botão principal segue sendo a
    rota (montar pra mim); "Indicar" manda pro celular de alguém da equipe. */
 .savedRow {

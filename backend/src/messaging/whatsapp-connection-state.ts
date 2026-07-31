@@ -75,8 +75,22 @@ function readInstanceState(inst: any): string {
     .toLowerCase();
 }
 
+/**
+ * Nome da instância dentro de UM item do `/instance/fetchInstances`.
+ *
+ * 31/07 — o motor (Evolution v2) devolve o nome em `name` no item raiz:
+ *   { id, name: 'company-5-user-6', connectionStatus: 'open', ... }
+ * Ler só `instance.instanceName` / `instanceName` (formato v1) devolvia '' pra TODA
+ * instância: o mapa saía vazio, o gate do chip morto lia isso como "nenhum chip vivo"
+ * e recusava todo envio do Webwhats com 400 (empresa 5, chip `open`, 31/07).
+ * As 3 grafias ficam aqui, em fonte ÚNICA — quem lê o motor não repete o parse.
+ */
+export function readMotorInstanceName(inst: any): string {
+  return String(inst?.instance?.instanceName ?? inst?.instanceName ?? inst?.name ?? '').trim();
+}
+
 function readInstanceName(inst: any): string {
-  return String(inst?.instance?.instanceName ?? inst?.instanceName ?? '').trim();
+  return readMotorInstanceName(inst);
 }
 
 /**

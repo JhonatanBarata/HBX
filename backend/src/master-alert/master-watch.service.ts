@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { WebwhatsBridgeService } from '../messaging/webwhats-bridge.service';
+import { readMotorInstanceName } from '../messaging/whatsapp-connection-state';
 import { emitMasterEvent } from '../common/master-event';
 import { resolveCompanyAccessState, CompanyAccessSnapshot } from '../modules/company-access-state';
 import { MasterAlertService } from './master-alert.service';
@@ -204,7 +205,7 @@ export class MasterWatchService implements OnModuleInit, OnModuleDestroy {
 
     const currentStateByInstance = new Map<string, string>();
     for (const inst of instances) {
-      const name = String(inst?.instance?.instanceName || inst?.instanceName || '').trim();
+      const name = readMotorInstanceName(inst);
       if (!name) continue;
       const state = String(
         inst?.connectionStatus ?? inst?.instance?.state ?? inst?.instance?.status ?? inst?.state ?? inst?.status ?? '',

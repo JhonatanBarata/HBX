@@ -605,7 +605,19 @@ export class ConversationsService {
   private async readCompanyChipStateOnMotor(companyId: number): Promise<boolean | null> {
     const instances = await this.readMotorInstancesCached();
     if (!Array.isArray(instances) || !instances.length) return null;
-    const state = buildMotorStateByCompany(instances).get(Number(companyId)) || '';
+    const byCompany = buildMotorStateByCompany(instances);
+    // 31/07 — FREIO: motor respondeu, mas NENHUMA instância virou empresa reconhecível
+    // (nome em campo que não sabemos ler / formato novo do motor). Isso é falha de LEITURA
+    // nossa, não prova de chip morto — e sem este freio ela derrubava o envio de TODOS os
+    // tenants com 400 (31/07: `name` no lugar de `instanceName`, chip `open` o tempo todo).
+    // Sem leitura confiável não se recusa nada; quem recusa é evidência, nunca ignorância.
+    if (!byCompany.size) {
+      this.logger.warn(
+        `[chip-morto] leitura do motor ININTELIGIVEL (${instances.length} instancia(s), nenhuma reconhecida) — gate NAO recusa`,
+      );
+      return null;
+    }
+    const state = byCompany.get(Number(companyId)) || '';
     return state === 'open' || state === 'connecting';
   }
 

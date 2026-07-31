@@ -976,6 +976,20 @@ export class LogisticaController {
     return this.rotaModelo.list(companyId);
   }
 
+  /**
+   * 31/07 — estado de HOJE de cada rota salva (quem está com ela, na rua ou
+   * não, quantas entregou, quem devolveu). Alimenta o sub-rótulo do painel
+   * "Rotas Salvas": o dono deixa de descobrir que a rota está com alguém
+   * levando 409 na cara. Declarada ANTES de qualquer `rota-modelos/:id` pra
+   * 'estado' nunca ser lido como id.
+   */
+  @Get('rota-modelos/estado')
+  estadoRotaModelos(@Req() req: any, @Query('date') date?: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const userId = this.ensureUserId(req.user);
+    return this.rotaModelo.estadoDoDia(companyId, date, userId);
+  }
+
   @Post('rota-modelos')
   createRotaModelo(@Req() req: any, @Body() dto: CreateRotaModeloDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);

@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, Logger, NotFoundExc
 import { PrismaService } from '../prisma/prisma.service';
 import { parseDateOrNull, resolveValorUnit } from './logistica-recorrencia.service';
 import { resolvePrincipalContatoId } from './logistica-contato.util';
+import { canonicalRouteDate } from './logistica-route-billing.service';
 
 /**
  * PR18072026 W1 — CRUD de "rota-modelo" (roteiro salvo): nome + dia da semana
@@ -152,6 +153,12 @@ export class LogisticaRotaModeloService {
 
     const dia = startOfDay(parseDateOrNull(dateInput) ?? new Date());
     const dayEnd = endOfDay(dia);
+    // Chave da rota comercial do dia (VarChar 'YYYY-MM-DD') — usada só pra
+    // CONTAR a história na mensagem de conflito (quem está com a parada e desde
+    // quando). Nunca decide nada aqui: data podre continua caindo no "hoje" do
+    // `parseDateOrNull` acima em vez de virar 400 num caminho que sempre foi
+    // tolerante.
+    const routeDate = safeRouteDate(dateInput);
 
     const avisos: string[] = [];
     const deliveryIds: string[] = [];
@@ -228,12 +235,24 @@ export class LogisticaRotaModeloService {
       // MESMA linha não duplica entrega nem cobra 2×. A aberta ainda ganha dela
       // (a busca acima procura aberta primeiro).
       const reabrirId = existente && existente.status === 'cancelada' ? existente.id : null;
-      if (reabrirId && existente!.entregadorId != null && existente!.entregadorId !== userId) {
-        throw new ConflictException(`A entrega de ${cliente.name || 'um cliente'} já está atribuída a outro motorista.`);
-      }
+      // 🔴 31/07 — ENTREGA CANCELADA NÃO TEM DONO VIVO (o 409 do print do dono:
+      // "A entrega de Márcia já está atribuída a outro motorista" num dia em que
+      // NINGUÉM estava entregando nada).
+      //
+      // O motorista cancela a rota no aparelho → `descartarMontagem` mata a
+      // parada ('cancelada') e o `entregadorId` fica colado nela de propósito:
+      // é o rastro de QUEM devolveu. Só que este 409 lia rastro como POSSE — a
+      // parada morta ficava trancada no nome dele até a meia-noite, sem ninguém
+      // pra entregar e sem ninguém que pudesse pegar (o escopo do dia só olha
+      // hoje, então a trava nascia e morria no mesmo dia, justo quando dói).
+      //
+      // Reabrir já reatribui pro `userId` no update lá embaixo, então assumir
+      // aqui é o contrato certo: quem escolhe a rota salva está PEDINDO a rota.
+      // O 409 sobra só pra entrega ABERTA — que é onde existe trabalho de gente
+      // de verdade pra proteger.
       if (existente && !reabrirId) {
         if (existente.entregadorId != null && existente.entregadorId !== userId) {
-          throw new ConflictException(`A entrega de ${cliente.name || 'um cliente'} já está atribuída a outro motorista.`);
+          throw new ConflictException(await this.explicarDono(companyId, cliente.name, existente.entregadorId, routeDate));
         }
         if (existente.entregadorId == null) {
           const assigned = await this.prisma.entrega.updateMany({
@@ -246,7 +265,11 @@ export class LogisticaRotaModeloService {
               select: { entregadorId: true },
             });
             if (current?.entregadorId !== userId) {
-              throw new ConflictException(`A entrega de ${cliente.name || 'um cliente'} foi atribuída a outro motorista.`);
+              throw new ConflictException(
+                current?.entregadorId != null
+                  ? await this.explicarDono(companyId, cliente.name, current.entregadorId, routeDate)
+                  : `A entrega de ${cliente.name || 'um cliente'} foi atribuída a outro motorista.`,
+              );
             }
           }
         }
@@ -374,6 +397,199 @@ export class LogisticaRotaModeloService {
   }
 
   /**
+   * 31/07 — O 409 ERA UMA PAREDE SEM NOME. "A entrega de Márcia já está
+   * atribuída a outro motorista" não dizia QUEM, nem se a rota estava na rua,
+   * parada ou já encerrada — o dono levava o erro na cara e não tinha o que
+   * fazer com ele. Agora a mensagem conta o fato: dono e hora.
+   *
+   * Best-effort por contrato: isto roda no caminho de ERRO, então falha de
+   * leitura aqui não pode virar 500 em cima de um 409 — sem nome, volta a
+   * frase antiga.
+   */
+  private async explicarDono(
+    companyId: number,
+    clienteNome: string | null | undefined,
+    entregadorId: number,
+    routeDate: string,
+  ): Promise<string> {
+    const cliente = clienteNome || 'um cliente';
+    try {
+      const [pessoa, rota] = await Promise.all([
+        this.prisma.user.findFirst({
+          where: { id: entregadorId, companyId },
+          select: { name: true, username: true },
+        }),
+        this.prisma.logisticaRoute.findFirst({
+          where: { companyId, entregadorId, routeDate },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          select: { startedAt: true, operationalEndedAt: true, status: true },
+        }),
+      ]);
+      const nome = pessoa?.name || pessoa?.username || 'outro motorista';
+      // Rota VIVA (mesma régua do logistica-rota-viva.util: encerrada
+      // operacionalmente ou terminal já não está de pé).
+      const viva = !!rota && !rota.operationalEndedAt && !['COMPLETED', 'FAILED', 'REFUNDING'].includes(String(rota.status));
+      if (viva && rota!.startedAt) {
+        return `A entrega de ${cliente} está com ${nome} — na rua desde ${horaSP(rota!.startedAt)}.`;
+      }
+      if (rota?.operationalEndedAt) {
+        return `A entrega de ${cliente} continua com ${nome} — a rota foi encerrada às ${horaSP(rota.operationalEndedAt)}.`;
+      }
+      return `A entrega de ${cliente} está com ${nome} — rota montada, ainda não iniciada.`;
+    } catch (e: any) {
+      this.logger.warn(`[logistica] explicarDono falhou entregador=${entregadorId}: ${String(e?.message || e)}`);
+      return `A entrega de ${cliente} já está atribuída a outro motorista.`;
+    }
+  }
+
+  /**
+   * 31/07 — ESTADO DAS ROTAS SALVAS (o painel do dono: "Rotas Salvas" mostrava
+   * só nome + nº de paradas, e a única forma de descobrir que a rota estava com
+   * alguém era clicar e tomar 409 na cara).
+   *
+   * Devolve, por rota salva do dia: quem está com as paradas, se ele está na
+   * rua, quantas já foram entregues e — o recado que faltava — se alguém
+   * ACEITOU e DEVOLVEU hoje.
+   *
+   * 🔒 `podeMontar` é calculado com a MESMA regra do `gerar` (entrega ABERTA com
+   * `entregadorId` de outra pessoa = conflito; cancelada não tranca nada).
+   * Vitrine e caixa têm que ter o mesmo porteiro: um botão que a tela libera e o
+   * servidor recusa é pior que um botão desligado.
+   */
+  async estadoDoDia(companyId: number, dateInput: string | undefined, userId: number): Promise<RotaModeloEstadoDTO[]> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const modelos = await this.prisma.logisticaRotaModelo.findMany({
+      where: { companyId, tipo: 'LIVRE' },
+      select: { id: true, paradasJson: true },
+    });
+    if (!modelos.length) return [];
+
+    const dia = startOfDay(parseDateOrNull(dateInput) ?? new Date());
+    const dayEnd = endOfDay(dia);
+    const routeDate = safeRouteDate(dateInput);
+
+    const clientesPorModelo = new Map<string, string[]>();
+    const todosClientes = new Set<string>();
+    for (const modelo of modelos) {
+      const paradas: RotaModeloParada[] = Array.isArray(modelo.paradasJson)
+        ? (modelo.paradasJson as unknown as RotaModeloParada[])
+        : [];
+      const ids = paradas
+        .map((parada) => String((parada as any)?.customerProfileId ?? '').trim())
+        .filter(Boolean);
+      clientesPorModelo.set(modelo.id, ids);
+      for (const id of ids) todosClientes.add(id);
+    }
+
+    const [entregas, rotasVivas, indicacoes] = await Promise.all([
+      todosClientes.size
+        ? this.prisma.entrega.findMany({
+            where: {
+              companyId,
+              customerProfileId: { in: [...todosClientes] },
+              scheduledAt: { gte: dia, lte: dayEnd },
+            },
+            orderBy: { createdAt: 'desc' },
+            select: { customerProfileId: true, status: true, entregadorId: true },
+          })
+        : Promise.resolve([] as { customerProfileId: string; status: string; entregadorId: number | null }[]),
+      this.prisma.logisticaRoute.findMany({
+        where: {
+          companyId,
+          routeDate,
+          status: { in: ['ACTIVE', 'INITIALIZING'] },
+          operationalEndedAt: null,
+        },
+        select: { entregadorId: true, startedAt: true },
+      }),
+      this.prisma.logisticaRotaIndicada.findMany({
+        where: {
+          companyId,
+          rotaModeloId: { in: modelos.map((m) => m.id) },
+          OR: [
+            { status: { in: ['pendente', 'aceita'] } },
+            // Devolvida/negada é recado do DIA: ontem já não é notícia.
+            { status: { in: ['negada', 'desfeita'] }, respondidaEm: { gte: dia, lte: dayEnd } },
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+        select: { rotaModeloId: true, paraUserId: true, status: true, respondidaEm: true },
+      }),
+    ]);
+
+    // Por cliente, a ABERTA manda (mesma precedência do `gerar`): é ela que
+    // decide dono e conflito. Sem aberta, uma 'entregue' conta como atendida.
+    const porCliente = new Map<string, { status: string; entregadorId: number | null }>();
+    for (const entrega of entregas) {
+      const atual = porCliente.get(entrega.customerProfileId);
+      const aberta = entrega.status === 'agendada' || entrega.status === 'em_rota';
+      if (!atual) { porCliente.set(entrega.customerProfileId, entrega); continue; }
+      const atualAberta = atual.status === 'agendada' || atual.status === 'em_rota';
+      if (aberta && !atualAberta) porCliente.set(entrega.customerProfileId, entrega);
+      else if (!atualAberta && atual.status !== 'entregue' && entrega.status === 'entregue') {
+        porCliente.set(entrega.customerProfileId, entrega);
+      }
+    }
+
+    const naRua = new Map<number, Date | null>(rotasVivas.map((rota) => [rota.entregadorId, rota.startedAt]));
+    const pessoasCitadas = new Set<number>();
+    for (const entrega of porCliente.values()) if (entrega.entregadorId) pessoasCitadas.add(entrega.entregadorId);
+    for (const indicacao of indicacoes) pessoasCitadas.add(indicacao.paraUserId);
+    const nomes = new Map<number, string>();
+    if (pessoasCitadas.size) {
+      const users = await this.prisma.user.findMany({
+        where: { id: { in: [...pessoasCitadas] }, companyId },
+        select: { id: true, name: true, username: true },
+      });
+      for (const user of users) nomes.set(user.id, user.name || user.username || `Usuário ${user.id}`);
+    }
+
+    return modelos.map((modelo) => {
+      const clientes = clientesPorModelo.get(modelo.id) ?? [];
+      const donos = new Map<number, number>();
+      let entregues = 0;
+      for (const clienteId of clientes) {
+        const entrega = porCliente.get(clienteId);
+        if (!entrega) continue;
+        if (entrega.status === 'entregue') { entregues++; continue; }
+        if (entrega.status !== 'agendada' && entrega.status !== 'em_rota') continue;
+        if (entrega.entregadorId) donos.set(entrega.entregadorId, (donos.get(entrega.entregadorId) ?? 0) + 1);
+      }
+      let dono: number | null = null;
+      let comEle = 0;
+      for (const [id, quantas] of donos) if (quantas > comEle) { dono = id; comEle = quantas; }
+      const outroDono = [...donos.keys()].find((id) => id !== userId) ?? null;
+
+      const viva = indicacoes.find((linha) => linha.rotaModeloId === modelo.id && (linha.status === 'pendente' || linha.status === 'aceita'));
+      const devolvida = indicacoes.find((linha) => linha.rotaModeloId === modelo.id && (linha.status === 'desfeita' || linha.status === 'negada'));
+
+      let estado: RotaModeloEstado = 'livre';
+      if (dono && naRua.has(dono)) estado = 'na_rua';
+      else if (dono) estado = 'montada';
+      else if (viva) estado = 'indicada';
+      else if (devolvida) estado = 'devolvida';
+
+      const pessoaId = estado === 'na_rua' || estado === 'montada'
+        ? dono
+        : estado === 'indicada' ? viva!.paraUserId : estado === 'devolvida' ? devolvida!.paraUserId : null;
+
+      return {
+        id: modelo.id,
+        estado,
+        pessoaNome: pessoaId ? (nomes.get(pessoaId) ?? `Usuário ${pessoaId}`) : null,
+        pessoaEhVoce: pessoaId === userId,
+        comEle,
+        total: clientes.length,
+        entregues,
+        desde: dono && naRua.get(dono) ? (naRua.get(dono) as Date).toISOString() : null,
+        em: estado === 'devolvida' && devolvida?.respondidaEm ? devolvida.respondidaEm.toISOString() : null,
+        // Mesma régua do `gerar`: só entrega ABERTA de outra pessoa trava.
+        podeMontar: outroDono == null,
+      };
+    });
+  }
+
+  /**
    * 3º degrau da cascata de itens: os vínculos ativos do cliente (o que ele
    * recebe "de sempre"). Vale pra empresa ainda em modo LEGADO, onde não existe
    * plano da Agenda. Voltou em 27/07 — tinha sido removida quando o snapshot da
@@ -416,6 +632,31 @@ async function resolveSnapshotItens(
     throw new BadRequestException('Um produto salvo nesta rota não pertence mais a esta empresa.');
   }
   return itens;
+}
+
+/**
+ * `canonicalRouteDate` estoura 400 em data podre; o `gerar`/`estado` sempre
+ * foram tolerantes (data inválida = hoje). Mantém a tolerância sem perder a
+ * chave certa da rota comercial.
+ */
+function safeRouteDate(dateInput?: string): string {
+  try {
+    return canonicalRouteDate(dateInput);
+  } catch {
+    return canonicalRouteDate();
+  }
+}
+
+/**
+ * Hora pro texto que o dono lê — SEMPRE no fuso da operação. O container roda
+ * em UTC: sem `timeZone` explícito, "encerrou às 17:31" apareceria como 20:31.
+ */
+function horaSP(value: Date): string {
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(value);
 }
 
 function startOfDay(d: Date): Date {
@@ -538,4 +779,28 @@ export interface RotaModeloDTO {
 export interface GerarRotaModeloResult {
   deliveryIds: string[];
   avisos: string[];
+}
+
+/**
+ * 31/07 — estado de uma rota salva HOJE (linha do painel "Rotas Salvas").
+ * `livre` = ninguém pegou · `indicada` = mandada e ainda não aplicada ·
+ * `montada` = as paradas estão no nome de alguém, parado · `na_rua` = esse
+ * alguém tem rota viva iniciada · `devolvida` = aceitou e desistiu hoje.
+ */
+export type RotaModeloEstado = 'livre' | 'indicada' | 'montada' | 'na_rua' | 'devolvida';
+
+export interface RotaModeloEstadoDTO {
+  id: string;
+  estado: RotaModeloEstado;
+  pessoaNome: string | null;
+  pessoaEhVoce: boolean;
+  /** Quantas paradas DESTA rota estão no nome da pessoa. */
+  comEle: number;
+  total: number;
+  entregues: number;
+  /** Início da rota viva (ISO) — só no estado `na_rua`. */
+  desde: string | null;
+  /** Hora da devolução/recusa (ISO) — só no estado `devolvida`. */
+  em: string | null;
+  podeMontar: boolean;
 }

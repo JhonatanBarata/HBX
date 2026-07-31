@@ -50,6 +50,23 @@ type RouteModel = {
   paradas?: RouteModelStop[];
 };
 
+// 31/07 — GET /logistica/rota-modelos/estado: o que está acontecendo HOJE com
+// cada rota salva. Sem isto, a única forma de descobrir que a rota estava com
+// alguém era clicar e tomar 409 ("A entrega de X já está atribuída a outro
+// motorista"). `podeMontar` vem do servidor com a MESMA regra do gerar.
+type RouteModelState = {
+  id: string;
+  estado: "livre" | "indicada" | "montada" | "na_rua" | "devolvida";
+  pessoaNome: string | null;
+  pessoaEhVoce: boolean;
+  comEle: number;
+  total: number;
+  entregues: number;
+  desde: string | null;
+  em: string | null;
+  podeMontar: boolean;
+};
+
 type PreviewItem = {
   productId: number;
   nome: string;
@@ -112,6 +129,41 @@ function operationalDate(): string {
 
 function isoWeekday(date: string): number {
   return new Date(`${date}T00:00:00Z`).getUTCDay() || 7;
+}
+
+function horaCurta(iso: string | null): string {
+  if (!iso) return "";
+  const data = new Date(iso);
+  return Number.isNaN(data.getTime()) ? "" : data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+}
+
+/**
+ * 31/07 — a frase do sub-rótulo da rota salva. Curta, sem jargão e sempre com
+ * NOME e HORA: é o que responde "cadê minha rota?" antes de clicar. `alerta`
+ * marca o caso que o dono precisa ver de longe — alguém aceitou e devolveu.
+ */
+function estadoDaRota(state: RouteModelState | undefined): { texto: string; alerta: boolean } | null {
+  if (!state) return null;
+  const quem = state.pessoaEhVoce ? "você" : (state.pessoaNome || "alguém");
+  if (state.estado === "na_rua") {
+    const hora = horaCurta(state.desde);
+    const inicio = hora ? ` desde ${hora}` : "";
+    return { texto: `Na rua com ${quem}${inicio} · ${state.entregues} de ${state.comEle} entregues`, alerta: false };
+  }
+  if (state.estado === "montada") {
+    return { texto: `${state.pessoaEhVoce ? "Você está" : `${quem} está`} com ${state.comEle} de ${state.total} paradas`, alerta: false };
+  }
+  if (state.estado === "indicada") {
+    return { texto: `Aguardando ${quem} aceitar`, alerta: false };
+  }
+  if (state.estado === "devolvida") {
+    const hora = horaCurta(state.em);
+    return {
+      texto: `Devolvida por ${quem}${hora ? ` às ${hora}` : ""} · ${state.entregues} de ${state.total} atendidas`,
+      alerta: true,
+    };
+  }
+  return null;
 }
 
 function dateForWeekday(day: number, extraWeeks = 0): string {
@@ -330,6 +382,8 @@ export function RouteBuilderDialog({
   const [step, setStep] = useState<Step>("home");
   const [models, setModels] = useState<RouteModel[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
+  // 31/07 — o que está acontecendo com cada rota salva HOJE (ver RouteModelState).
+  const [modelStates, setModelStates] = useState<Record<string, RouteModelState>>({});
   const [agendaLoading, setAgendaLoading] = useState(true);
   const [agendaSource, setAgendaSource] = useState<AgendaSource>("LEGADO");
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
@@ -358,6 +412,20 @@ export function RouteBuilderDialog({
   // conferência em vez de morrer num toast que fechava a tela.
   const [aviso, setAviso] = useState<string | null>(null);
   const previewRequest = useRef(0);
+
+  // 31/07 — estado das rotas salvas: relido toda vez que a lista aparece (a
+  // pessoa pode aceitar, sair ou devolver a rota com este diálogo aberto).
+  useEffect(() => {
+    if (step !== "home" && step !== "saved") return undefined;
+    let cancelled = false;
+    apiFetch<RouteModelState[]>(`/logistica/rota-modelos/estado?date=${encodeURIComponent(operationalDate())}`)
+      .then((rows) => {
+        if (cancelled) return;
+        setModelStates(Object.fromEntries((Array.isArray(rows) ? rows : []).map((row) => [row.id, row])));
+      })
+      .catch(() => { /* estado é acessório: rede fora não pode derrubar o painel */ });
+    return () => { cancelled = true; };
+  }, [step]);
 
   useEffect(() => {
     let cancelled = false;
@@ -849,21 +917,33 @@ export function RouteBuilderDialog({
             <div className={styles.list}>
               {modelsLoading ? <p className={styles.empty}>Carregando rotas salvas…</p> : models.length ? [...models]
                 .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
-                .map((model) => (
+                .map((model) => {
+                  const state = modelStates[model.id];
+                  const recado = estadoDaRota(state);
+                  // Vitrine e caixa, o MESMO porteiro: `podeMontar` é a régua do
+                  // servidor. Rota ocupada por outra pessoa fica desligada com o
+                  // motivo escrito, em vez de liberar o clique e devolver 409.
+                  const ocupada = state?.podeMontar === false;
+                  const motivo = ocupada
+                    ? `${state?.pessoaNome || "Outra pessoa"} está com as paradas desta rota hoje.`
+                    : "";
+                  return (
                   <div className={styles.savedRow} key={model.id}>
-                    <button type="button" className={styles.option} onClick={() => void buildSavedRoute(model)} disabled={building}>
+                    <button type="button" className={`${styles.option} ${ocupada ? styles.bloqueada : ""}`} onClick={() => void buildSavedRoute(model)} disabled={building || ocupada} title={motivo}>
                       <span className={`${styles.optionIcon} ${styles.star}`}>☆</span>
                       <span className={styles.optionCopy}>
                         <strong>{model.nome || "Rota"}</strong>
                         <small>{model.paradas?.length || 0} parada(s)</small>
+                        {recado ? <small className={recado.alerta ? styles.estadoAlerta : styles.estado}>{recado.texto}</small> : null}
                       </span>
                       <span className={styles.chevron}>›</span>
                     </button>
-                    <button type="button" className={styles.assign} onClick={() => openAssign(model)} disabled={building} title={`Indicar ${model.nome || "rota"} para alguém`}>
+                    <button type="button" className={styles.assign} onClick={() => openAssign(model)} disabled={building || ocupada} title={ocupada ? motivo : `Indicar ${model.nome || "rota"} para alguém`}>
                       Indicar
                     </button>
                   </div>
-                )) : <p className={styles.empty}>Nenhuma rota salva.</p>}
+                  );
+                }) : <p className={styles.empty}>Nenhuma rota salva.</p>}
             </div>
           )}
 
