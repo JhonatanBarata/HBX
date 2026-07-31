@@ -7,6 +7,7 @@ import { IntentEngineService } from '../bot/intent/intent-engine.service';
 import { DEFAULT_ATENDIMENTO_AGENDA_CONFIG, DEFAULT_ATENDIMENTO_BOT_CONFIG } from '../inbox/atendimento-config';
 import { BotConfigStoreService } from '../bot/config/bot-config-store.service';
 import { VendasContactSuppressionService } from '../vendas/vendas-contact-suppression.service';
+import { extractSlotsDeterministic } from '../concierge/recepcionista-slots';
 
 // PR05072026 (timing humano): pina o piso de silêncio da fase 1 em 0 para este
 // arquivo de teste inteiro — sem isso, cada teste que passa por
@@ -2431,4 +2432,160 @@ test('pitch pos-pre-mensagem nao se apresenta com nome de outro tenant (fim do "
   assert.equal(body.includes('Jhonatan'), false, 'nenhum tenant pode se apresentar com o nome do dono da HBX');
   assert.ok(body.includes('Marcia'), 'nome do responsavel pela campanha entra via {{funcionario}}');
   assert.ok(body.includes('Padaria do Ze'), 'nome da empresa entra via {{empresa}}');
+});
+
+// ============================================================================
+// RECEPCIONISTA IA — 31/07/2026 (ordem do dono).
+// "O cliente entra em contato, se apresenta, ai o IA/bot ja comeca o cadastro."
+// A cena que estes testes travam: desconhecido escreve -> a empresa se
+// apresenta e CADASTRA, em vez de despejar menu; e o que a pessoa responde so
+// vira nome se for nome de verdade.
+// ============================================================================
+
+function montarRecepcionista(opts?: {
+  identity?: Record<string, any>;
+  currentStep?: string | null;
+  metadata?: Record<string, any>;
+}) {
+  const { service, queueCalls, conversationStateCalls } = createService();
+  const cadastros: Array<Record<string, any>> = [];
+  const eventos: Array<Record<string, any>> = [];
+
+  (service as any).resolveAtendimentoIdentityState = async () => ({
+    profileId: null,
+    name: null,
+    confirmedName: null,
+    isConfirmed: false,
+    registrationStatus: null,
+    botOff: false,
+    botOffReason: null,
+    ...(opts?.identity || {}),
+  });
+  (service as any).upsertAtendimentoCustomerLocal = async (input: Record<string, any>) => {
+    cadastros.push(input);
+  };
+  (service as any).appendAtendimentoSystemEvent = async (input: Record<string, any>) => {
+    eventos.push(input);
+  };
+  (service as any).updateAtendimentoConversationState = async (
+    _companyId: number,
+    conversationId: number,
+    state: Record<string, any>,
+    metadata: Record<string, any>,
+  ) => {
+    conversationStateCalls.push({ conversationId, state, metadata });
+  };
+  (service as any).logWhatsAppEvent = async () => undefined;
+  // TESTE NAO FALA COM REDE. O gate e o que esta sob teste aqui; o cerebro da
+  // IA tem cobertura propria em recepcionista-slots.test.ts. Sem este stub, a
+  // mensagem "rica" vaza pro Ollama real e o teste leva 10s (ou passa/falha
+  // conforme a GPU do momento) — teste que depende de rede nao e teste.
+  (service as any).recepcionista = {
+    extrairSlots: async (texto: string) => ({
+      slots: extractSlotsDeterministic(texto),
+      fonte: 'regra' as const,
+    }),
+  };
+
+  const chamar = (text: string, metadata?: Record<string, any>) =>
+    (service as any).tryRecepcionistaGate({
+      companyId: 7,
+      from: '+5519998877766',
+      text,
+      conversationId: 42,
+      company: { id: 7, name: 'Padaria Central' },
+      conversation: { currentStep: opts?.currentStep ?? null },
+      metadata: metadata ?? opts?.metadata ?? {},
+      inboundProfileName: null,
+      timestamp: new Date('2026-07-31T12:00:00.000Z'),
+      setInboundMeta: async () => undefined,
+    });
+
+  return { service, chamar, cadastros, eventos, queueCalls, conversationStateCalls };
+}
+
+test('RECEPCIONISTA: desconhecido manda "oi" e a empresa se APRESENTA em vez de jogar menu', async () => {
+  const { chamar, queueCalls, conversationStateCalls } = montarRecepcionista();
+
+  const resultado = await chamar('oi');
+
+  assert.equal(resultado?.handled, true, 'a recepcao tinha que assumir a mensagem');
+  const enviada = String((queueCalls.at(-1) as any)?.payload?.body || '');
+  assert.match(enviada, /Padaria Central/, 'a empresa precisa se identificar');
+  assert.match(enviada, /Com quem eu falo/i, 'precisa perguntar quem e');
+  // Fica no passo de recepcao pra proxima mensagem continuar o cadastro.
+  assert.equal((conversationStateCalls.at(-1) as any)?.state?.currentStep, 'recepcao');
+  assert.equal((conversationStateCalls.at(-1) as any)?.metadata?.recepcionistaPerguntas, 1);
+});
+
+test('RECEPCIONISTA: cliente responde o nome e o CADASTRO nasce ali', async () => {
+  const { chamar, cadastros, eventos, conversationStateCalls } = montarRecepcionista({
+    currentStep: 'recepcao',
+    // Estado real depois da 1a pergunta: a recepcao ja perguntou o NOME.
+    metadata: { recepcionistaPerguntas: 1, recepcionistaAguardando: 'nome' },
+  });
+
+  await chamar('Jhonatan');
+
+  assert.equal(cadastros.length, 1, 'nao cadastrou o cliente');
+  assert.equal(cadastros[0].name, 'Jhonatan');
+  assert.equal(cadastros[0].registrationStatus, 'confirmed');
+  assert.equal(cadastros[0].nameSource, 'recepcionista_ia');
+  // O nome vira a identidade HBX da conversa (a lei do inbox.service).
+  assert.equal((conversationStateCalls.at(-1) as any)?.metadata?.cliente, 'Jhonatan');
+  assert.equal(eventos.some((e) => e.eventType === 'recepcionista_cadastrou'), true);
+});
+
+test('RECEPCIONISTA: "quero saber o preco" NAO vira nome de cliente', async () => {
+  // Este era o bug do fluxo antigo de coleta: o que a pessoa digitasse virava
+  // o nome dela, pra sempre, e ia pro funil assim.
+  const { chamar, cadastros } = montarRecepcionista({
+    currentStep: 'recepcao',
+    // Estado real depois da 1a pergunta: a recepcao ja perguntou o NOME.
+    metadata: { recepcionistaPerguntas: 1, recepcionistaAguardando: 'nome' },
+  });
+
+  await chamar('quero saber o preco');
+
+  assert.deepEqual(cadastros, [], 'cadastrou um pedido como se fosse nome de gente');
+});
+
+test('RECEPCIONISTA: quem se apresenta INTEIRO nao e perguntado nada', async () => {
+  const { chamar, cadastros, conversationStateCalls } = montarRecepcionista();
+
+  // Nome + empresa + assunto na primeira mensagem: a recepcao cadastra e sai
+  // do caminho (devolve null pro fluxo normal seguir com o menu).
+  const resultado = await chamar('Oi, aqui e o Jhonatan da Padaria Central, queria um orcamento');
+
+  assert.equal(resultado, null, 'nao podia segurar quem ja disse tudo');
+  assert.equal(cadastros.length, 1);
+  assert.equal(cadastros[0].name, 'Jhonatan');
+  const ultimo = conversationStateCalls.at(-1) as any;
+  assert.equal(ultimo?.metadata?.recepcionistaAssunto, 'orcamento');
+  assert.equal(ultimo?.metadata?.recepcionistaEmpresa, 'Padaria Central');
+  assert.equal(ultimo?.state?.currentStep, 'menu_principal', 'tinha que devolver pro fluxo normal');
+});
+
+test('RECEPCIONISTA: cliente JA cadastrado nao e interrogado de novo', async () => {
+  const { chamar, queueCalls } = montarRecepcionista({
+    identity: { isConfirmed: true, confirmedName: 'Jhonatan' },
+  });
+
+  const resultado = await chamar('bom dia');
+
+  assert.equal(resultado, null, 'a recepcao nao pode assumir conversa de cliente conhecido');
+  assert.deepEqual(queueCalls, [], 'nao pode mandar mensagem nenhuma');
+});
+
+test('RECEPCIONISTA: teto de 2 perguntas — quem nao responde vai pro fluxo normal', async () => {
+  const { chamar, queueCalls } = montarRecepcionista({
+    currentStep: 'recepcao',
+    // Ja perguntou as duas vezes permitidas.
+    metadata: { recepcionistaPerguntas: 2 },
+  });
+
+  const resultado = await chamar('...');
+
+  assert.equal(resultado, null, 'passou do teto e continuou entrevistando');
+  assert.deepEqual(queueCalls, [], 'nao pode fazer uma terceira pergunta');
 });

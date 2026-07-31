@@ -103,6 +103,15 @@ import { VendasContactSuppressionService } from '../vendas/vendas-contact-suppre
 import { InboundRouterService } from '../automation/inbound-router.service';
 import { AgentRuntimeResolver } from '../automation/agent-runtime.resolver';
 import { automationFlag } from '../automation/automation-flags';
+// RECEPCIONISTA IA (31/07/2026): cérebro fino + regra dura do cadastro na porta.
+import { RecepcionistaService } from '../concierge/recepcionista.service';
+import {
+  computeMissingFields,
+  mergeSlots,
+  nextQuestion,
+  normalizeNome,
+  sanitizeRecepcionistaSlots,
+} from '../concierge/recepcionista-slots';
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -222,7 +231,15 @@ const ATENDIMENTO_STEP = {
   CLOSED: 'encerrado',
   COLLECTING_NAME_CONFIRM: 'coletando_confirmacao_nome',
   COLLECTING_NAME: 'coletando_nome',
+  // RECEPCIONISTA IA (31/07/2026): conversa em que o bot está se apresentando e
+  // cadastrando quem chegou, antes de despejar menu em cima de desconhecido.
+  RECEPCAO: 'recepcao',
 } as const;
+
+// Teto DURO de perguntas da recepcionista. Passar disso é interrogatório e o
+// cliente desiste — o dono pediu "se apresenta, aí o bot já começa o cadastro",
+// não "o bot entrevista". Quem não respondeu em 2 vezes vai pro fluxo normal.
+const RECEPCIONISTA_MAX_PERGUNTAS = 2;
 const HBX_GATE_STEP = 'hbxGateContext';
 const HBX_DYNAMIC_MENU_STEP = 'hbx_menu_dinamico';
 const HBX_AGENDA_STEP = 'hbx_agenda_simples';
@@ -275,6 +292,8 @@ type VendasAgendaQueueMetadata = {
 export class MessagingService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MessagingService.name);
   private readonly commercialContactControl: CommercialContactControlService;
+  // RECEPCIONISTA IA (31/07/2026): mesma guarda local — ver tryRecepcionistaGate.
+  private readonly recepcionista: RecepcionistaService;
   // ESCRITA DA SUPRESSÃO (30/07/2026): mesmo padrão do commercialContactControl acima
   // (instância local, sem ampliar o grafo de DI) — todos os testes deste arquivo criam
   // o serviço com `new MessagingService(...)`, então o construtor sempre roda.
@@ -321,6 +340,10 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   ) {
     // Guarda transitoria local: evita ampliar o grafo de DI antes do modelo canonico.
     this.commercialContactControl = new CommercialContactControlService(this.prisma, this.conversations);
+    // Recepcionista IA: sem dependência de construtor e sem estado, então segue
+    // a mesma guarda local acima — não entra no grafo de DI e os testes que
+    // instanciam o serviço direto continuam funcionando.
+    this.recepcionista = new RecepcionistaService();
     this.contactSuppression = new VendasContactSuppressionService(this.prisma);
     this.waColdContactGate = new WaColdContactGateService(this.prisma as any);
   }
@@ -7393,6 +7416,185 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return { handled: true };
   }
 
+  // ==========================================================================
+  // RECEPCIONISTA IA — 31/07/2026 (ordem do dono).
+  //
+  // "O cliente entra em contato, se apresenta, aí o IA/bot ao atender o cliente
+  // já começa o cadastro do mesmo… fica menos 'chat whatsapp' e mais chat
+  // empresarial."
+  //
+  // Roda no ÚLTIMO instante antes do menu genérico: se chegou aqui, nenhuma
+  // ação específica (botão, agenda, opt-out, recovery) reclamou a mensagem, e
+  // estávamos prestes a despejar um menu em cima de alguém que a empresa não
+  // sabe quem é. A recepcionista se apresenta, pergunta NO MÁXIMO 2 coisas
+  // (nome e assunto) e grava o cadastro.
+  //
+  // O QUE ELA NÃO FAZ, de propósito:
+  //  · Não inventa nome. `isPlausibleName` barra pedido/saudação/telefone — o
+  //    fluxo antigo cadastrava "quero saber o preço" como nome de gente.
+  //  · Não depende de IA pra funcionar. Sem GPU/Ollama, a extração por regra
+  //    atende igual (ver RecepcionistaService).
+  //  · Não dispara nada frio: só responde a quem escreveu primeiro, então não
+  //    encosta no gate de contato frio nem no throttle de campanha.
+  // ==========================================================================
+  private async tryRecepcionistaGate(input: {
+    companyId: number;
+    from: string;
+    text: string;
+    conversationId: number;
+    company: { id: number; name: string };
+    conversation: { currentStep?: string | null } | null;
+    metadata: Record<string, any>;
+    inboundProfileName?: string | null;
+    timestamp: Date;
+    setInboundMeta: (module: string, isComplaint: boolean) => Promise<void>;
+  }): Promise<{ handled: boolean; recepcionista: true; cadastrou?: boolean } | null> {
+    const { companyId, from, text, conversationId, company, conversation, metadata } = input;
+    const emRecepcao = String(conversation?.currentStep || '').trim().toLowerCase() === ATENDIMENTO_STEP.RECEPCAO;
+
+    const identity = await this.resolveAtendimentoIdentityState({
+      companyId,
+      phone: from,
+      metadata,
+      fallbackName: input.inboundProfileName || null,
+    });
+
+    // Já sabemos quem é e não há recepção em curso: nada a fazer aqui.
+    if (identity.isConfirmed && !emRecepcao) return null;
+
+    const perguntasFeitas = Number(metadata?.recepcionistaPerguntas || 0) || 0;
+    const salvos = sanitizeRecepcionistaSlots(metadata?.recepcionistaSlots);
+    // O nome já confirmado no HBX vale como slot preenchido — não perguntar de
+    // novo quem a empresa já cadastrou.
+    const base = mergeSlots(salvos, {
+      nome: identity.confirmedName || null,
+      empresa: null,
+      assunto: null,
+    });
+
+    const { slots: extraidos, fonte } = await this.recepcionista.extrairSlots(text, { companyId });
+    let slots = mergeSlots(base, extraidos);
+
+    // RESPOSTA DIRETA À PERGUNTA. Quando acabamos de perguntar "com quem eu
+    // falo?", a pessoa responde só "Jhonatan" — sem "meu nome é", que é o que
+    // os padrões de extração procuram. Aqui a mensagem INTEIRA é candidata a
+    // nome, mas passa pelo mesmo porteiro: se ela respondeu "quero saber o
+    // preço", continua não sendo nome.
+    if (!slots.nome && String(metadata?.recepcionistaAguardando || '') === 'nome') {
+      const respostaComoNome = normalizeNome(text);
+      if (respostaComoNome) slots = { ...slots, nome: respostaComoNome };
+    }
+
+    const faltando = computeMissingFields(slots);
+
+    // Cadastra assim que o nome for confiável — mesmo que o assunto falte. O
+    // cadastro é o ativo; o assunto é bônus.
+    let cadastrou = false;
+    if (slots.nome && !identity.confirmedName) {
+      await this.upsertAtendimentoCustomerLocal({
+        companyId,
+        phone: from,
+        name: slots.nome,
+        registrationStatus: 'confirmed',
+        conversationId,
+        nameSource: 'recepcionista_ia',
+        inboundAt: input.timestamp,
+        metadata,
+      });
+      cadastrou = true;
+      await this.appendAtendimentoSystemEvent({
+        companyId,
+        conversationId,
+        contactId: from,
+        text: `Recepção cadastrou o cliente como *${slots.nome}*${slots.empresa ? ` (${slots.empresa})` : ''}.`,
+        eventType: 'recepcionista_cadastrou',
+      });
+    }
+
+    const metadataPatch: Record<string, unknown> = {
+      ...metadata,
+      recepcionistaSlots: slots,
+      ...(slots.nome ? { cliente: slots.nome } : {}),
+      ...(slots.empresa ? { recepcionistaEmpresa: slots.empresa } : {}),
+      ...(slots.assunto ? { recepcionistaAssunto: slots.assunto } : {}),
+    };
+
+    const pergunta = perguntasFeitas < RECEPCIONISTA_MAX_PERGUNTAS ? nextQuestion(slots, company.name) : null;
+
+    if (faltando.length && pergunta) {
+      await input.setInboundMeta('atendimento_bot', false);
+      await this.conversations.queueOutboundForCompany(companyId, {
+        to: from,
+        contactId: from,
+        body: pergunta.texto,
+        messageType: 'text',
+        sourceModule: 'atendimento_bot',
+        senderType: 'bot',
+        flowState: {
+          currentFlow: ATENDIMENTO_FLOW_ID,
+          currentStep: ATENDIMENTO_STEP.RECEPCAO,
+          botActive: true,
+          humanAssigned: false,
+          flowResult: null,
+        },
+      });
+      await this.updateAtendimentoConversationState(
+        companyId,
+        conversationId,
+        {
+          currentFlow: ATENDIMENTO_FLOW_ID,
+          currentStep: ATENDIMENTO_STEP.RECEPCAO,
+          botActive: true,
+          humanAssigned: false,
+          flowResult: null,
+        },
+        {
+          ...metadataPatch,
+          recepcionistaPerguntas: perguntasFeitas + 1,
+          // Guarda O QUE foi perguntado: é isso que permite ler a resposta
+          // seca ("Jhonatan") como resposta daquela pergunta.
+          recepcionistaAguardando: pergunta.campo,
+        },
+      );
+      await this.logWhatsAppEvent({
+        companyId,
+        scope: 'atendimento',
+        event: 'recepcionista_perguntou',
+        message: `Recepção perguntou "${pergunta.campo}" (pergunta ${perguntasFeitas + 1}/${RECEPCIONISTA_MAX_PERGUNTAS}, extração=${fonte}).`,
+        conversationId,
+        phone: from,
+        flowStep: ATENDIMENTO_STEP.RECEPCAO,
+        result: 'asked',
+      });
+      return { handled: true, recepcionista: true, cadastrou };
+    }
+
+    // Acabou a recepção (tudo respondido, ou o teto de 2 perguntas bateu):
+    // grava o que aprendeu e DEVOLVE null pro fluxo normal seguir com o menu.
+    await this.updateAtendimentoConversationState(
+      companyId,
+      conversationId,
+      {
+        currentFlow: ATENDIMENTO_FLOW_ID,
+        currentStep: ATENDIMENTO_STEP.MAIN_MENU,
+        botActive: true,
+        humanAssigned: false,
+        flowResult: null,
+      },
+      metadataPatch,
+    );
+    if (slots.assunto) {
+      await this.appendAtendimentoSystemEvent({
+        companyId,
+        conversationId,
+        contactId: from,
+        text: `Recepção identificou o assunto: *${slots.assunto}*.`,
+        eventType: 'recepcionista_assunto',
+      });
+    }
+    return null;
+  }
+
   private async handleAtendimentoInbound(input: {
     companyId: number;
     from: string;
@@ -8493,6 +8695,24 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }
 
     // ------- End name-collection flow -------
+
+    // RECEPCIONISTA IA — último portão antes do menu genérico. Se a empresa
+    // ainda não sabe quem é quem escreveu, ela se apresenta e cadastra em vez
+    // de despejar um menu em cima de um desconhecido. Devolve null quando a
+    // recepção terminou (ou não se aplica) e o menu deve seguir normalmente.
+    const recepcao = await this.tryRecepcionistaGate({
+      companyId,
+      from,
+      text,
+      conversationId: safeConversationId,
+      company,
+      conversation,
+      metadata,
+      inboundProfileName,
+      timestamp: input.timestamp,
+      setInboundMeta,
+    });
+    if (recepcao?.handled) return recepcao;
 
     await setInboundMeta('atendimento_bot', Boolean(normalizedText));
     await queueMainMenu();
