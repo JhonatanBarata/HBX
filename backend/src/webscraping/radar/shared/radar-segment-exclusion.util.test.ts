@@ -117,25 +117,56 @@ test('B10 — token curto "gas" casa PALAVRA INTEIRA: Vargas/gastronomia/Gaspar 
   assert.equal(findRadarSegmentExclusionMatch('distribuidora de agua', 'Distribuidora Gaspar e Filhos'), null);
 });
 
-test('B10 — a regra NOVA do gás sai do jogo pra quem PEDE gás (não auto-exclui)', () => {
+// ── MINA DO GÁS DESARMADA (30/07, ordem do dono "implante sua recomendação") ────
+// Cada regra agora DIZ de quais pedidos ela se afasta (`notFor`), em vez de o código
+// adivinhar pelos tokens. Sem a lista explícita, "distribuidora de gás" morria na
+// regra de energia/combustível (o token é a frase 'gas liquefeito', que o pedido não
+// contém) e o conserto por sobreposição de palavras teria soltado saneamento na busca
+// de ÁGUA (token 'agua e esgoto'). Os dois lados abaixo têm que valer AO MESMO TEMPO.
+
+test('quem PEDE gás acha gás — nenhuma regra se vira contra o pedido', () => {
   assert.equal(resolveSegmentExclusionRules('distribuidora de gas').some((r) => r.code === 'gas_glp'), false);
   assert.equal(findRadarSegmentExclusionMatch('distribuidora de gas', 'Ultra Gas Campinas'), null);
-});
-
-// ⚠️ MINA PRÉ-EXISTENTE (não é desta correção, fica REGISTRADA aqui pra não virar
-// "descoberta nova" amanhã): quem busca "distribuidora de gás" continua morrendo na
-// regra ANTIGA energia_agua_combustivel quando o CNAE oficial fala 'gas liquefeito' —
-// `ruleTargetsRequestedSegment` compara o token INTEIRO contra o pedido, e
-// "distribuidora de gas" não contém a frase "gas liquefeito". Consertar isso por
-// sobreposição de palavras derrubaria a mesma regra em "distribuidora de ÁGUA" (token
-// 'agua e esgoto'), soltando saneamento/SANASA na busca do dono — decisão de produto,
-// não de código. Este teste CONGELA o comportamento de hoje.
-test('MINA CONHECIDA: "distribuidora de gas" ainda cai na regra antiga via CNAE oficial', () => {
   assert.equal(
     findRadarSegmentExclusionMatch('distribuidora de gas', 'Ultra Gas Campinas',
-      'Comércio atacadista de gás liquefeito de petróleo')?.code,
+      'Comércio atacadista de gás liquefeito de petróleo'),
+    null,
+    'era aqui que a busca de gás se matava sozinha',
+  );
+  assert.equal(findRadarSegmentExclusionMatch('distribuidora de glp', 'GLP Center', 'Gás liquefeito de petróleo'), null);
+});
+
+test('e a busca de ÁGUA continua sem saneamento (o lado que o conserto fácil quebrava)', () => {
+  assert.equal(
+    findRadarSegmentExclusionMatch('distribuidora de agua', 'Companhia de Saneamento',
+      'Captação, tratamento e distribuição de água')?.code,
     'energia_agua_combustivel',
   );
+  assert.equal(
+    findRadarSegmentExclusionMatch('distribuidora de agua', 'Servico Municipal', 'Gestão de redes de esgoto')?.code,
+    'energia_agua_combustivel',
+  );
+  assert.equal(resolveSegmentExclusionRules('distribuidora de agua').some((r) => r.code === 'energia_agua_combustivel'), true);
+});
+
+test('cada regra se afasta do pedido que é a PRÓPRIA atividade dela', () => {
+  const seAfastaDe = (segmento: string, code: string) =>
+    resolveSegmentExclusionRules(segmento).every((rule) => rule.code !== code);
+  assert.ok(seAfastaDe('distribuidora de energia eletrica', 'energia_agua_combustivel'));
+  assert.ok(seAfastaDe('distribuidora de combustiveis', 'energia_agua_combustivel'));
+  assert.ok(seAfastaDe('distribuidora de medicamentos', 'farma_hospitalar'));
+  assert.ok(seAfastaDe('transportadora', 'transporte_carga'));
+  assert.ok(seAfastaDe('distribuidora para varejo', 'varejo_puro'));
+  assert.ok(seAfastaDe('distribuidora de seguros', 'servicos_financeiros'));
+  assert.ok(seAfastaDe('imobiliaria', 'imobiliaria'));
+});
+
+test('afastar-se do pedido NÃO desarma as outras regras', () => {
+  // Pedindo gás, o cara ainda não quer transportadora nem banco na lista.
+  const rules = resolveSegmentExclusionRules('distribuidora de gas').map((rule) => rule.code);
+  assert.ok(rules.includes('transporte_carga'));
+  assert.ok(rules.includes('servicos_financeiros'));
+  assert.ok(rules.includes('farma_hospitalar'));
 });
 
 test('casamento por palavra inteira preserva o plural que o mapa cobria com includes', () => {

@@ -54,6 +54,10 @@ export const RADAR_SEGMENT_EXCLUSION_MAP: Record<string, RadarSegmentExclusionRu
     {
       code: 'energia_agua_combustivel',
       label: 'Energia, água ou combustível',
+      // 'agua' está FORA de propósito: quem pede "distribuidora de água" quer o
+      // distribuidor de galão/mineral, não a companhia de saneamento — é esta regra
+      // que segura SANASA & cia fora da lista. Decisão do dono, 30/07.
+      notFor: ['energia', 'eletrica', 'gas', 'glp', 'combustivel', 'combustiveis', 'saneamento', 'esgoto'],
       tokens: [
         // Frases oficiais de CNAE.
         'energia eletrica',
@@ -68,6 +72,10 @@ export const RADAR_SEGMENT_EXCLUSION_MAP: Record<string, RadarSegmentExclusionRu
         // Termos curtos: pegam sinal só pelo NOME (ex.: "Distribuidora de Energia X").
         'energia',
         'saneamento',
+        // 'esgoto' solto (casa palavra inteira): o CNAE de saneamento aparece em
+        // muitas formas ("gestão de redes de esgoto") e só a frase 'agua e esgoto'
+        // deixava a companhia de esgoto passar pra busca de distribuidora de água.
+        'esgoto',
         'combustivel',
         'combustiveis',
       ],
@@ -78,6 +86,7 @@ export const RADAR_SEGMENT_EXCLUSION_MAP: Record<string, RadarSegmentExclusionRu
       // imóvel em busca de distribuidora — não o score baixo.
       code: 'imobiliaria',
       label: 'Imobiliária / corretagem de imóveis',
+      notFor: ['imovel', 'imoveis', 'imobiliaria', 'corretagem', 'corretor', 'corretora'],
       tokens: [
         'atividades imobiliarias',
         'corretagem na compra e venda',
@@ -94,6 +103,7 @@ export const RADAR_SEGMENT_EXCLUSION_MAP: Record<string, RadarSegmentExclusionRu
       // outro ramo — sem esta regra a porta só via "não sei" (`segment_unconfirmed`).
       code: 'farma_hospitalar',
       label: 'Farmacêutico / hospitalar / veterinário',
+      notFor: ['medicamento', 'medicamentos', 'farmaceutica', 'farmaceutico', 'farmacia', 'hospitalar', 'veterinario', 'drogaria'],
       tokens: [
         // Frases oficiais de CNAE (fonte cnpj_public, quando há cnaeDescription real).
         'medicamentos e drogas de uso humano',
@@ -116,6 +126,7 @@ export const RADAR_SEGMENT_EXCLUSION_MAP: Record<string, RadarSegmentExclusionRu
       // forma da regra farma_hospitalar (30/07), que nasceu do mesmo sintoma.
       code: 'gas_glp',
       label: 'Gás / GLP / botijão',
+      notFor: ['gas', 'glp', 'botijao', 'botijoes', 'gasista'],
       tokens: [
         // Frases oficiais de CNAE.
         'comercio varejista de gas liquefeito',
@@ -133,6 +144,7 @@ export const RADAR_SEGMENT_EXCLUSION_MAP: Record<string, RadarSegmentExclusionRu
     {
       code: 'servicos_financeiros',
       label: 'Serviços financeiros',
+      notFor: ['banco', 'financeira', 'seguro', 'seguros', 'seguradora', 'credito', 'valores'],
       tokens: [
         // Frases oficiais de CNAE.
         'banco multiplo',
@@ -208,8 +220,16 @@ function segmentKeyCandidates(segment: unknown): string[] {
 // Receita E no gate web; idem "distribuidora de medicamentos" com a regra farma. A regra sai
 // do jogo POR INTEIRO (não token a token): o CNAE oficial traz variações ('energia eletrica')
 // que continuariam matando o segmento pedido se só o token literal fosse poupado.
+//
+// 30/07 (2ª volta — "a mina do gás"): a lista `notFor` MANDA quando existe. A inferência
+// pelos tokens continua embaixo só como rede pra regra futura que nascer sem `notFor` —
+// nunca como fonte principal, porque adivinhar foi exatamente o que deixou
+// "distribuidora de gás" se matando sozinha na regra de energia/combustível.
 function ruleTargetsRequestedSegment(rule: RadarSegmentExclusionRule, segmentKey: string): boolean {
   if (!segmentKey) return false;
+  if (rule.notFor?.length) {
+    return rule.notFor.some((term) => matchesExclusionToken(segmentKey, term));
+  }
   return rule.tokens.some((token) => segmentKey.includes(normalizeExclusionKey(token)));
 }
 
