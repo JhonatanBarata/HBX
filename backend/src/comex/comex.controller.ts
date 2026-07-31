@@ -3,6 +3,8 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
+import { ComexCambioService } from './comex-cambio.service';
+import { ComexNewsService } from './comex-news.service';
 import { ComexService } from './comex.service';
 
 /**
@@ -15,7 +17,11 @@ import { ComexService } from './comex.service';
 @UseGuards(JwtAuthGuard, ModuleAccessGuard)
 @ModuleAccess('comex')
 export class ComexController {
-  constructor(private readonly comex: ComexService) {}
+  constructor(
+    private readonly comex: ComexService,
+    private readonly news: ComexNewsService,
+    private readonly cambioService: ComexCambioService,
+  ) {}
 
   @Get('status')
   status() {
@@ -35,5 +41,17 @@ export class ComexController {
   @Get('radar')
   radar(@Query('sh4') sh4: string, @Query('fluxo') fluxo: string) {
     return this.comex.radar(sh4, fluxo);
+  }
+
+  // N3 — manchete + fonte + link (modelo Google News); ?lang=pt|en|es filtra.
+  @Get('noticias')
+  noticias(@Query('lang') lang: string) {
+    return this.news.noticias(lang);
+  }
+
+  // N3 — PTAX oficial BCB (USD/EUR/CNY venda), cache 60min.
+  @Get('cambio')
+  cambio() {
+    return this.cambioService.cambio();
   }
 }

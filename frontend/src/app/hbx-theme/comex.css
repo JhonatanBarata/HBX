@@ -128,7 +128,8 @@
   border-radius: 2px;
   border: 1px solid var(--hbx-line);
   color: var(--hbx-muted);
-  font-size: 9px;
+  /* era 9px — abaixo do piso do app (typography.css) */
+  font-size: var(--hbx-font-min);
 }
 
 /* Radar — selo de perfil do candidato */
@@ -149,6 +150,52 @@
   color: var(--hbx-muted);
   border-left: 2px solid var(--hbx-line);
   padding-left: 10px;
+}
+
+/* Barra de título do módulo: produto à esquerda, PTAX à direita */
+.cmx-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.cmx-cambio {
+  display: flex;
+  gap: 14px;
+  color: var(--hbx-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cmx-cambio strong { color: var(--hbx-foreground); }
+
+/* Notícias (N3) — lista de manchetes com fonte nomeada e link externo */
+.cmx-news {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+  max-height: 52vh;
+  overflow-y: auto;
+}
+.cmx-news-item {
+  display: grid;
+  gap: 3px;
+  padding: 9px 6px;
+  border-bottom: 1px solid var(--hbx-line);
+  color: var(--hbx-foreground);
+  text-decoration: none;
+}
+.cmx-news-item:last-child { border-bottom: 0; }
+.cmx-news-item:hover { background: var(--hbx-surface-soft); }
+.cmx-news-fonte { color: var(--hbx-teal); }
+.cmx-news-titulo { line-height: 1.35; }
+.cmx-news-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* Filtro de idioma das notícias — chip clicável em cima da classe .tag */
+.cmx-tagbtn { cursor: pointer; }
+.cmx-tagbtn.active {
+  color: var(--hbx-teal);
+  border-color: var(--hbx-teal);
 }
 
 /* Zero-scroll: compacta espaçamento em viewport baixa (FRONTEND.md) */

@@ -1,12 +1,12 @@
 "use client";
 
 // COMEX — vendas/radar internacional (módulo NOVO 31/07, isolado do /vendas).
-// Mapa do mercado por produto (SH4): totais, série mensal, municípios, origens
-// com bandeira, vias — e o Radar Internacional: PROVÁVEIS importadores/
-// exportadores (inferência de dados públicos; payload sem valor por empresa —
-// embalagem jurídica, ver backend/src/comex/comex.service.ts).
+// N2: Mercado (mapa do SH4) + Radar (prováveis, SEM valor por empresa — embalagem
+// jurídica no backend). N3: Notícias (RSS 3 idiomas, fonte nomeada + link out),
+// PTAX oficial no cabeçalho e i18n PT/EN/ES restrito a ESTE módulo (i18n.ts).
 // Contratos (gate 'comex'): GET /comex/status · /comex/busca?q= ·
-// /comex/mercado?sh4=&fluxo= · /comex/radar?sh4=&fluxo=
+// /comex/mercado?sh4=&fluxo= · /comex/radar?sh4=&fluxo= · /comex/noticias?lang= ·
+// /comex/cambio
 // Visual 100% em classe central (comex.css + kit) — zero hex/inline visual.
 
 import "flag-icons/css/flag-icons.min.css";
@@ -17,13 +17,15 @@ import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { apiFetch } from "@/lib/api";
 import { iso3ToIso2 } from "@/lib/iso-flags";
 
-type Fluxo = "IMP" | "EXP";
-type Aba = "mercado" | "radar";
+import { COMEX_LANGS, type ComexLang, comexT } from "./i18n";
 
-type BuscaItem = { sh4: string; descricao: string };
+type Fluxo = "IMP" | "EXP";
+type Aba = "mercado" | "radar" | "noticias";
+
+type BuscaItem = { sh4: string; descricao: string; descricaoEn?: string | null; descricaoEs?: string | null };
 type Mercado = {
   disponivel: boolean;
-  descricao?: { pt: string } | null;
+  descricao?: { pt: string; en?: string | null; es?: string | null } | null;
   totais?: { fobUsd: number | null; kg: number | null; usdPorKg: number | null; municipios: number | null } | null;
   serieMensal?: { ano: number; mes: number; fobUsd: number }[];
   topMunicipios?: { municipio: string | null; uf: string; fobUsd: number; sharePct: number }[];
@@ -41,9 +43,12 @@ type Candidato = {
   score: number;
 };
 type Radar = { disponivel: boolean; descricao?: string | null; candidatos: Candidato[] };
+type Noticia = { titulo: string; link: string; fonte: string; lang: "pt" | "en" | "es"; data: string | null; tags: string[] };
+type Cambio = { moedas: Array<{ moeda: string; venda: number; dataCotacao: string }> };
 
 const nfUsd = new Intl.NumberFormat("pt-BR", { notation: "compact", maximumFractionDigits: 1 });
 const nfInt = new Intl.NumberFormat("pt-BR");
+const nfBrl = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 function fmtCnpj(cnpj: string): string {
   const d = String(cnpj || "").replace(/\D/g, "");
@@ -57,11 +62,7 @@ function Bandeira({ iso3 }: { iso3: string | null }) {
   return <span className={`fi fi-${a2}`} aria-hidden />;
 }
 
-const PERFIL_LABEL: Record<Candidato["perfil"], { cls: string; label: string }> = {
-  cnae_do_produto: { cls: "cmx-perfil produto", label: "CNAE do produto" },
-  trading_atacado: { cls: "cmx-perfil trading", label: "Trading / atacado" },
-  regiao_do_fluxo: { cls: "cmx-perfil", label: "Região do fluxo" },
-};
+const LANG_STORAGE_KEY = "hbx-comex-lang";
 
 export function ComexClient() {
   const [q, setQ] = useState("");
@@ -70,20 +71,42 @@ export function ComexClient() {
   const [sh4, setSh4] = useState<string>("4011");
   const [fluxo, setFluxo] = useState<Fluxo>("IMP");
   const [aba, setAba] = useState<Aba>("mercado");
+  const [lang, setLang] = useState<ComexLang>("pt");
   const [mercado, setMercado] = useState<Mercado | null>(null);
   const [radar, setRadar] = useState<Radar | null>(null);
+  const [noticias, setNoticias] = useState<Noticia[] | null>(null);
+  const [filtroNoticias, setFiltroNoticias] = useState<"all" | ComexLang>("all");
+  const [cambio, setCambio] = useState<Cambio | null>(null);
   const [carregando, setCarregando] = useState(false);
   const buscaRef = useRef<number>(0);
 
+  const t = comexT(lang);
   const gpFluxo = useGlassPill<HTMLButtonElement>(fluxo);
-  const gpAba = useGlassPill<HTMLButtonElement>(aba);
+  const gpAba = useGlassPill<HTMLButtonElement>(aba, lang);
+  const gpLang = useGlassPill<HTMLButtonElement>(lang);
 
-  // Busca com debounce simples — sugestões de SH4 por código ou descrição.
-  // (todo setState dentro do timeout — regra react-hooks/set-state-in-effect)
+  // Idioma persistido por usuário deste navegador (só do módulo Comex).
+  useEffect(() => {
+    const saved = typeof window !== "undefined" ? window.localStorage.getItem(LANG_STORAGE_KEY) : null;
+    if (saved === "en" || saved === "es") {
+      const timer = setTimeout(() => setLang(saved), 0);
+      return () => clearTimeout(timer);
+    }
+  }, []);
+  const trocarLang = (novo: ComexLang) => {
+    setLang(novo);
+    try {
+      window.localStorage.setItem(LANG_STORAGE_KEY, novo);
+    } catch {
+      /* modo anônimo */
+    }
+  };
+
+  // Busca com debounce — todo setState dentro do timeout (regra do lint).
   useEffect(() => {
     const termo = q.trim();
     const id = ++buscaRef.current;
-    const t = setTimeout(
+    const timer = setTimeout(
       async () => {
         if (termo.length < 2) {
           if (id === buscaRef.current) setSugestoes([]);
@@ -101,7 +124,7 @@ export function ComexClient() {
       },
       termo.length < 2 ? 0 : 250,
     );
-    return () => clearTimeout(t);
+    return () => clearTimeout(timer);
   }, [q]);
 
   const carregar = useCallback(async (alvo: string, f: Fluxo) => {
@@ -122,13 +145,42 @@ export function ComexClient() {
   }, []);
 
   useEffect(() => {
-    // adiado pro próximo tick: setCarregando não dispara síncrono no effect.
-    const t = setTimeout(() => void carregar(sh4, fluxo), 0);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => void carregar(sh4, fluxo), 0);
+    return () => clearTimeout(timer);
   }, [sh4, fluxo, carregar]);
+
+  // Notícias + câmbio: uma carga por visita (cache do backend segura o resto).
+  useEffect(() => {
+    const timer = setTimeout(async () => {
+      try {
+        const n = await apiFetch<{ itens: Noticia[] }>(`/comex/noticias`);
+        setNoticias(n?.itens || []);
+      } catch {
+        setNoticias([]);
+      }
+      try {
+        setCambio(await apiFetch<Cambio>(`/comex/cambio`));
+      } catch {
+        /* régua fica em "—" */
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
 
   const maxFobMes = Math.max(1, ...(mercado?.serieMensal || []).map((s) => s.fobUsd || 0));
   const totais = mercado?.totais;
+  const descProduto =
+    (lang === "en" && mercado?.descricao?.en) ||
+    (lang === "es" && mercado?.descricao?.es) ||
+    mercado?.descricao?.pt;
+
+  const PERFIL_LABEL: Record<Candidato["perfil"], { cls: string; label: string }> = {
+    cnae_do_produto: { cls: "cmx-perfil produto", label: t("cnaeDoProduto") },
+    trading_atacado: { cls: "cmx-perfil trading", label: t("tradingAtacado") },
+    regiao_do_fluxo: { cls: "cmx-perfil", label: t("regiaoDoFluxo") },
+  };
+
+  const noticiasVisiveis = (noticias || []).filter((n) => filtroNoticias === "all" || n.lang === filtroNoticias);
 
   return (
     <div className="cmx-page">
@@ -136,7 +188,7 @@ export function ComexClient() {
         <div className="cmx-search">
           <input
             value={q}
-            placeholder="Produto ou NCM/SH4 — ex.: pneus, 4011, bomba de água…"
+            placeholder={t("buscaPlaceholder")}
             onChange={(e) => setQ(e.target.value)}
             onFocus={() => sugestoes.length && setAberto(true)}
             onBlur={() => setTimeout(() => setAberto(false), 150)}
@@ -155,7 +207,9 @@ export function ComexClient() {
                   }}
                 >
                   <span className="code">{s.sh4}</span>
-                  <span>{s.descricao}</span>
+                  <span>
+                    {(lang === "en" && s.descricaoEn) || (lang === "es" && s.descricaoEs) || s.descricao}
+                  </span>
                 </button>
               ))}
             </div>
@@ -172,7 +226,7 @@ export function ComexClient() {
               className={"glass-pill-item btn-ghost btn-xs" + (fluxo === f ? " active" : "")}
               onClick={() => setFluxo(f)}
             >
-              {f === "IMP" ? "Importação" : "Exportação"}
+              {f === "IMP" ? t("importacao") : t("exportacao")}
             </button>
           ))}
         </div>
@@ -181,8 +235,9 @@ export function ComexClient() {
           <GlassPill {...gpAba} />
           {(
             [
-              ["mercado", "Mercado"],
-              ["radar", "Radar Internacional"],
+              ["mercado", t("mercado")],
+              ["radar", t("radar")],
+              ["noticias", t("noticias")],
             ] as [Aba, string][]
           ).map(([key, label]) => (
             <button
@@ -196,12 +251,35 @@ export function ComexClient() {
             </button>
           ))}
         </div>
+
+        <div className="glass-pill-track" style={{ display: "flex", gap: 4, marginLeft: "auto" }}>
+          <GlassPill {...gpLang} />
+          {COMEX_LANGS.map((l) => (
+            <button
+              key={l}
+              type="button"
+              ref={gpLang.itemRef(l)}
+              className={"glass-pill-item btn-ghost btn-xs" + (lang === l ? " active" : "")}
+              onClick={() => trocarLang(l)}
+            >
+              {l.toUpperCase()}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="panel" style={{ padding: "10px 14px" }}>
-        <strong>{sh4}</strong>{" "}
-        <span style={{ marginLeft: 8 }}>
-          {mercado?.descricao?.pt || (carregando ? "Carregando…" : "—")}
+      <div className="panel cmx-titlebar" style={{ padding: "10px 14px" }}>
+        <span>
+          <strong>{sh4}</strong>{" "}
+          <span style={{ marginLeft: 8 }}>{descProduto || (carregando ? t("carregando") : "—")}</span>
+        </span>
+        <span className="cmx-cambio" title={t("ptaxLegenda")}>
+          {(cambio?.moedas || []).map((m) => (
+            <span key={m.moeda}>
+              {m.moeda} <strong>{nfBrl.format(m.venda)}</strong>
+            </span>
+          ))}
+          {!cambio?.moedas?.length && <span>—</span>}
         </span>
       </div>
 
@@ -209,29 +287,29 @@ export function ComexClient() {
         <>
           <div className="kpis">
             <div className="kpi">
-              <div className="kpi-label">{fluxo === "IMP" ? "Importado (FOB)" : "Exportado (FOB)"}</div>
+              <div className="kpi-label">{fluxo === "IMP" ? t("importadoFob") : t("exportadoFob")}</div>
               <div className="kpi-value">{totais?.fobUsd != null ? `US$ ${nfUsd.format(totais.fobUsd)}` : "—"}</div>
-              <div className="kpi-foot">2024 → hoje</div>
+              <div className="kpi-foot">{t("periodoDesde")}</div>
             </div>
             <div className="kpi">
-              <div className="kpi-label">Peso líquido</div>
+              <div className="kpi-label">{t("pesoLiquido")}</div>
               <div className="kpi-value">{totais?.kg != null ? `${nfUsd.format(totais.kg)} kg` : "—"}</div>
-              <div className="kpi-foot">mesmo período</div>
+              <div className="kpi-foot">{t("mesmoPeriodo")}</div>
             </div>
             <div className="kpi">
-              <div className="kpi-label">Preço médio</div>
+              <div className="kpi-label">{t("precoMedio")}</div>
               <div className="kpi-value">{totais?.usdPorKg != null ? `US$ ${totais.usdPorKg}/kg` : "—"}</div>
-              <div className="kpi-foot">FOB ÷ kg</div>
+              <div className="kpi-foot">{t("fobPorKg")}</div>
             </div>
             <div className="kpi">
-              <div className="kpi-label">Municípios no fluxo</div>
+              <div className="kpi-label">{t("municipiosNoFluxo")}</div>
               <div className="kpi-value">{totais?.municipios != null ? nfInt.format(totais.municipios) : "—"}</div>
-              <div className="kpi-foot">com registro no período</div>
+              <div className="kpi-foot">{t("comRegistro")}</div>
             </div>
           </div>
 
           <div className="panel" style={{ padding: 14 }}>
-            <div className="panel-head">Movimento mensal (US$ FOB)</div>
+            <div className="panel-head">{t("movimentoMensal")}</div>
             <div className="cmx-bars">
               {(mercado?.serieMensal || []).map((s, i, arr) => (
                 <i
@@ -246,16 +324,14 @@ export function ComexClient() {
 
           <div className="cmx-grid">
             <div className="panel" style={{ padding: 14 }}>
-              <div className="panel-head">
-                {fluxo === "IMP" ? "De onde vem" : "Para onde vai"} — países
-              </div>
+              <div className="panel-head">{fluxo === "IMP" ? t("deOndeVem") : t("paraOndeVai")}</div>
               <table className="cmx-tbl">
                 <thead>
                   <tr>
-                    <th>País</th>
+                    <th>{t("pais")}</th>
                     <th className="num">US$ FOB</th>
                     <th className="num">US$/kg</th>
-                    <th style={{ width: 110 }}>Participação</th>
+                    <th style={{ width: 110 }}>{t("participacao")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -281,13 +357,13 @@ export function ComexClient() {
             </div>
 
             <div className="panel" style={{ padding: 14 }}>
-              <div className="panel-head">Onde {fluxo === "IMP" ? "entra" : "sai"} — municípios</div>
+              <div className="panel-head">{fluxo === "IMP" ? t("ondeEntra") : t("ondeSai")}</div>
               <table className="cmx-tbl">
                 <thead>
                   <tr>
-                    <th>Município</th>
+                    <th>{t("municipio")}</th>
                     <th className="num">US$ FOB</th>
-                    <th className="num">Share</th>
+                    <th className="num">%</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -317,19 +393,16 @@ export function ComexClient() {
       {aba === "radar" && (
         <div className="panel" style={{ padding: 14 }}>
           <div className="panel-head">
-            Prováveis {fluxo === "IMP" ? "importadores" : "exportadores"} — {radar?.descricao || sh4}
+            {fluxo === "IMP" ? t("provaveisImportadores") : t("provaveisExportadores")} — {radar?.descricao || sh4}
           </div>
-          <p className="cmx-nota">
-            Inferência de dados públicos (fluxo por município + cadastro oficial + RFB). Indica
-            probabilidade, não afirmação de operação — valores só aparecem agregados, nunca por empresa.
-          </p>
+          <p className="cmx-nota">{t("notaInferencia")}</p>
           <table className="cmx-tbl">
             <thead>
               <tr>
-                <th>Empresa</th>
+                <th>{t("empresa")}</th>
                 <th>CNPJ</th>
-                <th>Cidade</th>
-                <th>Perfil</th>
+                <th>{t("cidade")}</th>
+                <th>{t("perfil")}</th>
                 <th className="num">Score</th>
               </tr>
             </thead>
@@ -356,14 +429,55 @@ export function ComexClient() {
               {!carregando && (radar?.candidatos || []).length === 0 && (
                 <tr>
                   <td colSpan={5} style={{ opacity: 0.6 }}>
-                    {radar?.disponivel === false
-                      ? "Base analítica indisponível neste ambiente."
-                      : "Nenhum candidato para este produto/fluxo."}
+                    {radar?.disponivel === false ? t("baseIndisponivel") : t("semCandidatos")}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {aba === "noticias" && (
+        <div className="panel" style={{ padding: 14 }}>
+          <div className="panel-head cmx-titlebar">
+            <span>{t("noticias")}</span>
+            <span style={{ display: "flex", gap: 6 }}>
+              {(["all", ...COMEX_LANGS] as const).map((f) => (
+                <button
+                  key={f}
+                  type="button"
+                  className={"tag cmx-tagbtn" + (filtroNoticias === f ? " active" : "")}
+                  onClick={() => setFiltroNoticias(f)}
+                >
+                  {f === "all" ? t("todas") : f.toUpperCase()}
+                </button>
+              ))}
+            </span>
+          </div>
+          <p className="cmx-nota">{t("fonteAviso")}</p>
+          <div className="cmx-news">
+            {noticias === null && <span style={{ opacity: 0.6 }}>{t("carregando")}</span>}
+            {noticias !== null && noticiasVisiveis.length === 0 && <span style={{ opacity: 0.6 }}>—</span>}
+            {noticiasVisiveis.slice(0, 40).map((n) => (
+              <a key={n.link} href={n.link} target="_blank" rel="noopener noreferrer" className="cmx-news-item">
+                <span className="cmx-news-fonte">
+                  {n.fonte}
+                  {n.data ? ` · ${new Date(n.data).toLocaleDateString()}` : ""}
+                </span>
+                <span className="cmx-news-titulo">{n.titulo}</span>
+                {n.tags.length > 0 && (
+                  <span className="cmx-news-tags">
+                    {n.tags.map((tag) => (
+                      <span key={tag} className="tag">
+                        {tag}
+                      </span>
+                    ))}
+                  </span>
+                )}
+              </a>
+            ))}
+          </div>
         </div>
       )}
     </div>

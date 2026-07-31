@@ -44,19 +44,37 @@ export class ComexService {
     const termo = textoBuscaSeguro(q);
     if (!termo) return { disponivel: true, itens: [] };
 
-    const where = /^\d+$/.test(termo)
-      ? `CO_SH4 LIKE '${termo}%'`
-      : termo
-          .toLowerCase()
-          .split(/\s+/)
-          .slice(0, 5)
-          .map((t) => `lower(strip_accents(NO_SH4_POR)) LIKE '%${t}%'`)
-          .join(' AND ');
+    if (/^\d+$/.test(termo)) {
+      const itens = await this.data.query(`
+        SELECT DISTINCT CO_SH4 AS sh4, NO_SH4_POR AS descricao,
+               NO_SH4_ING AS descricaoEn, NO_SH4_ESP AS descricaoEs
+        FROM aux_ncm_sh WHERE CO_SH4 LIKE '${termo}%' ORDER BY sh4 LIMIT 20
+      `);
+      return { disponivel: true, itens };
+    }
+
+    // Multi-palavra: OR com ranking por nº de tokens casados ("bomba de água"
+    // acha "Bombas para líquidos" mesmo sem "água" na descrição) — AND rígido
+    // devolvia vazio. Palavrinha curta (de/para) fica de fora do ranking.
+    const tokens = termo
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((t) => t.length >= 4)
+      .slice(0, 5);
+    if (!tokens.length) return { disponivel: true, itens: [] };
+    // 1º token pesa 2 ("bomba de água": quem casa "bomba" vence quem só casa
+    // "água" — senão crustáceo em água salgada ranqueia na frente da bomba).
+    const hits = tokens
+      .map((t, i) => `(CASE WHEN lower(strip_accents(NO_SH4_POR)) LIKE '%${t}%' THEN ${i === 0 ? 2 : 1} ELSE 0 END)`)
+      .join(' + ');
 
     const itens = await this.data.query(`
-      SELECT DISTINCT CO_SH4 AS sh4, NO_SH4_POR AS descricao,
-             NO_SH4_ING AS descricaoEn, NO_SH4_ESP AS descricaoEs
-      FROM aux_ncm_sh WHERE ${where} ORDER BY sh4 LIMIT 20
+      SELECT sh4, descricao, descricaoEn, descricaoEs FROM (
+        SELECT DISTINCT CO_SH4 AS sh4, NO_SH4_POR AS descricao,
+               NO_SH4_ING AS descricaoEn, NO_SH4_ESP AS descricaoEs,
+               ${hits} AS casados
+        FROM aux_ncm_sh
+      ) WHERE casados > 0 ORDER BY casados DESC, sh4 LIMIT 20
     `);
     return { disponivel: true, itens };
   }

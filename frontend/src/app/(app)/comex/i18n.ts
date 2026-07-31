@@ -1,0 +1,141 @@
+// COMEX — dicionário do módulo (N3). i18n SÓ dentro do /comex (decisão 31/07):
+// internacionalizar o app inteiro encostaria em telas que não são desta frente.
+// Descrições de produto EN/ES vêm do próprio dado oficial (aux_ncm_sh).
+
+export type ComexLang = "pt" | "en" | "es";
+
+export const COMEX_LANGS: ComexLang[] = ["pt", "en", "es"];
+
+type Dict = Record<string, string>;
+
+const pt: Dict = {
+  buscaPlaceholder: "Produto ou NCM/SH4 — ex.: pneus, 4011, bomba de água…",
+  importacao: "Importação",
+  exportacao: "Exportação",
+  mercado: "Mercado",
+  radar: "Radar Internacional",
+  noticias: "Notícias",
+  carregando: "Carregando…",
+  importadoFob: "Importado (FOB)",
+  exportadoFob: "Exportado (FOB)",
+  periodoDesde: "2024 → hoje",
+  pesoLiquido: "Peso líquido",
+  mesmoPeriodo: "mesmo período",
+  precoMedio: "Preço médio",
+  fobPorKg: "FOB ÷ kg",
+  municipiosNoFluxo: "Municípios no fluxo",
+  comRegistro: "com registro no período",
+  movimentoMensal: "Movimento mensal (US$ FOB)",
+  deOndeVem: "De onde vem — países",
+  paraOndeVai: "Para onde vai — países",
+  ondeEntra: "Onde entra — municípios",
+  ondeSai: "Onde sai — municípios",
+  pais: "País",
+  participacao: "Participação",
+  municipio: "Município",
+  provaveisImportadores: "Prováveis importadores",
+  provaveisExportadores: "Prováveis exportadores",
+  notaInferencia:
+    "Inferência de dados públicos (fluxo por município + cadastro oficial + RFB). Indica probabilidade, não afirmação de operação — valores só aparecem agregados, nunca por empresa.",
+  empresa: "Empresa",
+  cidade: "Cidade",
+  perfil: "Perfil",
+  cnaeDoProduto: "CNAE do produto",
+  tradingAtacado: "Trading / atacado",
+  regiaoDoFluxo: "Região do fluxo",
+  baseIndisponivel: "Base analítica indisponível neste ambiente.",
+  semCandidatos: "Nenhum candidato para este produto/fluxo.",
+  todas: "Todas",
+  fonteAviso: "Manchetes com nome da fonte; o texto completo abre no site original.",
+  ptaxLegenda: "PTAX venda (BCB)",
+};
+
+const en: Dict = {
+  buscaPlaceholder: "Product or HS code — e.g. tires, 4011, water pump…",
+  importacao: "Imports",
+  exportacao: "Exports",
+  mercado: "Market",
+  radar: "International Radar",
+  noticias: "News",
+  carregando: "Loading…",
+  importadoFob: "Imported (FOB)",
+  exportadoFob: "Exported (FOB)",
+  periodoDesde: "2024 → today",
+  pesoLiquido: "Net weight",
+  mesmoPeriodo: "same period",
+  precoMedio: "Average price",
+  fobPorKg: "FOB ÷ kg",
+  municipiosNoFluxo: "Municipalities in flow",
+  comRegistro: "with records in the period",
+  movimentoMensal: "Monthly flow (US$ FOB)",
+  deOndeVem: "Where it comes from — countries",
+  paraOndeVai: "Where it goes — countries",
+  ondeEntra: "Where it enters — municipalities",
+  ondeSai: "Where it leaves — municipalities",
+  pais: "Country",
+  participacao: "Share",
+  municipio: "Municipality",
+  provaveisImportadores: "Likely importers",
+  provaveisExportadores: "Likely exporters",
+  notaInferencia:
+    "Inference from public data (municipal flow + official registry + federal company data). Indicates probability, not a statement of operations — values are shown only in aggregate, never per company.",
+  empresa: "Company",
+  cidade: "City",
+  perfil: "Profile",
+  cnaeDoProduto: "Product-related activity",
+  tradingAtacado: "Trading / wholesale",
+  regiaoDoFluxo: "Flow region",
+  baseIndisponivel: "Analytical base unavailable in this environment.",
+  semCandidatos: "No candidates for this product/flow.",
+  todas: "All",
+  fonteAviso: "Headlines with named source; full text opens on the original site.",
+  ptaxLegenda: "PTAX sell rate (Central Bank of Brazil)",
+};
+
+const es: Dict = {
+  buscaPlaceholder: "Producto o código SA — ej.: neumáticos, 4011, bomba de agua…",
+  importacao: "Importación",
+  exportacao: "Exportación",
+  mercado: "Mercado",
+  radar: "Radar Internacional",
+  noticias: "Noticias",
+  carregando: "Cargando…",
+  importadoFob: "Importado (FOB)",
+  exportadoFob: "Exportado (FOB)",
+  periodoDesde: "2024 → hoy",
+  pesoLiquido: "Peso neto",
+  mesmoPeriodo: "mismo período",
+  precoMedio: "Precio medio",
+  fobPorKg: "FOB ÷ kg",
+  municipiosNoFluxo: "Municipios en el flujo",
+  comRegistro: "con registro en el período",
+  movimentoMensal: "Movimiento mensual (US$ FOB)",
+  deOndeVem: "De dónde viene — países",
+  paraOndeVai: "Hacia dónde va — países",
+  ondeEntra: "Dónde entra — municipios",
+  ondeSai: "Dónde sale — municipios",
+  pais: "País",
+  participacao: "Participación",
+  municipio: "Municipio",
+  provaveisImportadores: "Probables importadores",
+  provaveisExportadores: "Probables exportadores",
+  notaInferencia:
+    "Inferencia de datos públicos (flujo municipal + registro oficial + datos federales de empresas). Indica probabilidad, no afirmación de operación — los valores solo aparecen agregados, nunca por empresa.",
+  empresa: "Empresa",
+  cidade: "Ciudad",
+  perfil: "Perfil",
+  cnaeDoProduto: "Actividad del producto",
+  tradingAtacado: "Trading / mayorista",
+  regiaoDoFluxo: "Región del flujo",
+  baseIndisponivel: "Base analítica no disponible en este entorno.",
+  semCandidatos: "Ningún candidato para este producto/flujo.",
+  todas: "Todas",
+  fonteAviso: "Titulares con nombre de la fuente; el texto completo abre en el sitio original.",
+  ptaxLegenda: "PTAX venta (Banco Central de Brasil)",
+};
+
+const DICTS: Record<ComexLang, Dict> = { pt, en, es };
+
+export function comexT(lang: ComexLang): (key: string) => string {
+  return (key: string) => DICTS[lang]?.[key] ?? pt[key] ?? key;
+}
