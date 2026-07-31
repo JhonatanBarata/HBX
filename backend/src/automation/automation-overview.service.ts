@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { PersonaIaService } from '../vendas/persona-ia.service';
 import { ModulesService } from '../modules/modules.service';
 import { AssistenteService } from '../assistente/assistente.service';
 import { BotActivationService } from '../bot/bot-activation.service';
@@ -108,7 +109,38 @@ export class AutomationOverviewService {
     // `motor` precisa continuar `ok:true` mesmo com o orquestrador ausente
     // (ver `buildMotor`, fallback `?? []`).
     @Optional() private readonly outboundOrchestrator?: OutboundOrchestratorService,
-  ) {}
+  ) {
+    this.personaIa = new PersonaIaService(this.prisma);
+  }
+
+  // IDENTIDADE ÚNICA + ENTREVISTA (31/07/2026) — o /automacao é a casa da
+  // config: perfil da IA (nome/quem representa + o que a empresa faz) mora
+  // aqui. Plain class fora do grafo de DI (padrão do repo).
+  private readonly personaIa: PersonaIaService;
+
+  // GET /automation/perfil-ia — leitura liberada a qualquer usuário do módulo
+  // (a tela precisa MOSTRAR o cadeado com motivo mesmo pra quem não edita).
+  async getPerfilIa(user: any) {
+    const companyId = requireCompanyId(user);
+    return this.personaIa.getPerfil(companyId);
+  }
+
+  // PUT /automation/perfil-ia — só dono/gerente muda quem a IA é.
+  async putPerfilIa(
+    user: any,
+    dto: { aiNome?: string | null; aiIdentidade?: string; aiUserId?: number | null; empresaFazTexto?: string | null },
+  ) {
+    const companyId = requireCompanyId(user);
+    const role = String(user?.role || '').toUpperCase();
+    if (!user?.isSystemMaster && role !== 'ADMIN' && role !== 'USERMASTER') {
+      throw new BadRequestException('Só o dono/gerente pode mudar a identidade da IA.');
+    }
+    try {
+      return await this.personaIa.savePerfil(companyId, dto || {});
+    } catch (error: any) {
+      throw new BadRequestException(String(error?.message || 'Não foi possível salvar o perfil da IA.'));
+    }
+  }
 
   // GET /automation/overview
   async getOverview(user: any): Promise<AutomationOverviewResponse> {

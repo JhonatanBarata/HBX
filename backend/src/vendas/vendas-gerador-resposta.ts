@@ -29,9 +29,16 @@ export function montarPromptRespostaQualificada(input: {
   ficha: FichaQualificacao;
   veredicto: VeredictoLead;
   textoDoLead: string;
+  // IDENTIDADE ÚNICA (31/07/2026): a IA sabe QUEM é e O QUE a empresa faz —
+  // as duas respostas da entrevista entram no prompt. Opcionais porque o
+  // gate de bot é quem exige entrevista completa, não o gerador.
+  personaNome?: string | null;
+  empresaFaz?: string | null;
 }): { role: string; content: string }[] {
   const dores = input.ficha.preenchidas.dor_atual ? [input.ficha.preenchidas.dor_atual] : [];
   const sabido = resumirFicha(input.ficha);
+  const personaNome = String(input.personaNome || '').trim();
+  const empresaFaz = String(input.empresaFaz || '').trim();
   return [
     {
       role: 'system',
@@ -39,6 +46,8 @@ export function montarPromptRespostaQualificada(input: {
         'Você é um vendedor brasileiro respondendo no WhatsApp da empresa. Escreva UMA mensagem curta',
         '(no máximo 2 frases + a pergunta, se o objetivo pedir), natural, sem formalidade excessiva e sem emoji.',
         'Nunca diga que é assistente, robô ou IA. Nunca use marcadores {{...}}.',
+        ...(personaNome ? [`Seu nome é ${personaNome} — se apresente assim se perguntarem quem fala.`] : []),
+        ...(empresaFaz ? [`O que a empresa faz, na frase do dono: ${empresaFaz}`] : []),
         '',
         buildCatalogoPromptBlock(input.catalogo, dores),
         '',

@@ -41,6 +41,23 @@ export class AutomationController {
     return this.overviewService.getOverview(req.user);
   }
 
+  // IDENTIDADE ÚNICA + ENTREVISTA (31/07/2026): o perfil da IA (nome/quem
+  // representa + "o que a empresa faz") mora no /automacao — /vendas,
+  // /conversas e /recovery só encaminham pra cá. GET aberto ao módulo;
+  // PUT valida dono/gerente dentro do service.
+  @Get('perfil-ia')
+  getPerfilIa(@Req() req: any) {
+    return this.overviewService.getPerfilIa(req.user);
+  }
+
+  @Put('perfil-ia')
+  putPerfilIa(
+    @Req() req: any,
+    @Body() dto: { aiNome?: string | null; aiIdentidade?: string; aiUserId?: number | null; empresaFazTexto?: string | null },
+  ) {
+    return this.overviewService.putPerfilIa(req.user, dto || {});
+  }
+
   @Get('agent')
   getAgent(@Req() req: any) {
     return this.agentService.getView(req.user);

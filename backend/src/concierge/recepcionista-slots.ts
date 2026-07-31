@@ -272,13 +272,20 @@ export function buildRecepcionistaMessages(text: unknown): Array<{ role: string;
 export function nextQuestion(
   slots: RecepcionistaSlots,
   companyName: string,
+  personaNome?: string | null,
 ): { campo: RecepcionistaCampo; texto: string } | null {
   const faltando = computeMissingFields(slots);
   if (!faltando.length) return null;
   if (faltando.includes('nome')) {
+    // IDENTIDADE ÚNICA (31/07/2026): com persona configurada, a recepcionista
+    // tem nome — o mesmo que assina prospecção e cobrança. Sem persona, a
+    // apresentação neutra antiga continua valendo.
+    const nome = String(personaNome || '').trim();
     return {
       campo: 'nome',
-      texto: `Oi! Aqui é o atendimento da ${companyName}. Com quem eu falo?`,
+      texto: nome
+        ? `Oi! Eu sou ${nome}, do atendimento da ${companyName}. Com quem eu falo?`
+        : `Oi! Aqui é o atendimento da ${companyName}. Com quem eu falo?`,
     };
   }
   const comNome = slots.nome ? `${slots.nome}, ` : '';

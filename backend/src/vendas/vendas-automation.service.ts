@@ -14,6 +14,7 @@ import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
 import { buildWhatsAppPhoneCandidates, normalizeBrPhoneDigits } from '../messaging/whatsapp-channel';
 import { WaColdContactGateService } from '../messaging/wa-cold-contact-gate.service';
 import { AgendaDisparoService, type VendasComercialConfigDto } from './agenda-disparo.service';
+import { PersonaIaService } from './persona-ia.service';
 import {
   NIVEIS_DISPARO,
   detectarNivel,
@@ -594,6 +595,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   private readonly commercialContactControl: CommercialContactControlService;
   private readonly coldGatePanel: WaColdContactGateService;
   private readonly agendaDisparo: AgendaDisparoService;
+  private readonly personaIa: PersonaIaService;
   private workerTimer: NodeJS.Timeout | null = null;
   private workerRunning = false;
   // S3: 1 aquecimento por vez no processo — abrir/fechar a gaveta 5x não vira 5
@@ -622,6 +624,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     // live-status. Instância local, mesmo padrão do commercialContactControl.
     this.coldGatePanel = new WaColdContactGateService(this.prisma as any);
     this.agendaDisparo = new AgendaDisparoService(this.prisma);
+    this.personaIa = new PersonaIaService(this.prisma);
   }
 
   // CASA DO RISCO (31/07/2026). Janela, teto/dia, intervalo, variação, tentativas
@@ -2245,7 +2248,11 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       ? await this.buildAutomationUser(campaign)
       : {
           id: context.userId,
-          name: trimOrNull(user?.name) || trimOrNull(user?.fullName) || 'time comercial',
+          // Preview fiel ao disparo real: assina com a PERSONA da empresa.
+          name: await this.personaIa.assinatura(
+            context.companyId,
+            trimOrNull(user?.name) || trimOrNull(user?.fullName) || 'time comercial',
+          ),
           companyId: context.companyId,
           company: await this.prisma.company.findUnique({ where: { id: context.companyId } }),
         };
@@ -2712,9 +2719,18 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           include: { company: true },
         })
       : null;
-    if (user?.id) return user;
+    // IDENTIDADE ÚNICA (31/07/2026): o {{funcionario}} dos textos automáticos é a
+    // PERSONA da empresa (aiNome, ou o vendedor que ela representa) — não mais
+    // quem criou a campanha. Fallback = comportamento antigo, pros caminhos
+    // manuais que rodam antes da entrevista.
+    const assinatura = await this.personaIa.assinatura(
+      Number(campaign.companyId),
+      String(user?.name || '').trim() || 'time comercial',
+    );
+    if (user?.id) return { ...user, name: assinatura };
     return {
       id: userId || 1,
+      name: assinatura,
       companyId: campaign.companyId,
       company: await this.prisma.company.findUnique({ where: { id: campaign.companyId } }),
     };

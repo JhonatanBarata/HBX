@@ -101,6 +101,7 @@ import {
 } from '../mail/hbx-email-intent.util';
 import { CommercialContactControlService } from '../vendas/commercial-contact-control.service';
 import { AgendaDisparoService } from '../vendas/agenda-disparo.service';
+import { PersonaIaService } from '../vendas/persona-ia.service';
 import { VendasContactSuppressionService } from '../vendas/vendas-contact-suppression.service';
 import { InboundRouterService } from '../automation/inbound-router.service';
 import { AgentRuntimeResolver } from '../automation/agent-runtime.resolver';
@@ -295,6 +296,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MessagingService.name);
   private readonly commercialContactControl: CommercialContactControlService;
   private readonly agendaDisparo: AgendaDisparoService;
+  private readonly personaIa: PersonaIaService;
   // RECEPCIONISTA IA (31/07/2026): mesma guarda local — ver tryRecepcionistaGate.
   private readonly recepcionista: RecepcionistaService;
   // ESCRITA DA SUPRESSÃO (30/07/2026): mesmo padrão do commercialContactControl acima
@@ -347,6 +349,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     // CASA DO RISCO (31/07/2026): intervalo/digitação do follow-up comercial leem
     // VendasComercialConfig — mesma guarda local (plain class, fora do grafo de DI).
     this.agendaDisparo = new AgendaDisparoService(this.prisma);
+    // IDENTIDADE ÚNICA (31/07/2026): a persona assina o {{funcionario}} de
+    // pitch/follow-up e apresenta a recepcionista.
+    this.personaIa = new PersonaIaService(this.prisma);
     // Recepcionista IA: sem dependência de construtor e sem estado, então segue
     // a mesma guarda local acima — não entra no grafo de DI e os testes que
     // instanciam o serviço direto continuam funcionando.
@@ -2105,7 +2110,16 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       ficha = preencherVaga(ficha, persistida.ultimaVagaPerguntada, input.text);
     }
     const veredicto = calcularVeredicto({ ficha, intencao: String(input.replyKind || 'positive') });
-    const prompt = montarPromptRespostaQualificada({ catalogo, ficha, veredicto, textoDoLead: String(input.text || '') });
+    // IDENTIDADE ÚNICA: a IA responde sabendo quem é e o que a empresa faz.
+    const perfilIa = await this.personaIa.getPerfil(input.companyId).catch(() => null);
+    const prompt = montarPromptRespostaQualificada({
+      catalogo,
+      ficha,
+      veredicto,
+      textoDoLead: String(input.text || ''),
+      personaNome: perfilIa?.persona?.nome || null,
+      empresaFaz: perfilIa?.empresaFaz || null,
+    });
 
     const raw = await callAssistenteOllama(prompt, {
       companyId: input.companyId,
@@ -2283,20 +2297,27 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async buildVendasTemplateExtraValues(job: any) {
+    const companyId = Number(job?.campaign?.companyId || job?.companyId || 0);
     const [company, user] = await Promise.all([
-      this.prisma.company.findUnique({ where: { id: Number(job?.campaign?.companyId || 0) } }).catch(() => null),
+      this.prisma.company.findUnique({ where: { id: companyId } }).catch(() => null),
       Number(job?.campaign?.createdByUserId || 0)
         ? this.prisma.user.findFirst({
             where: {
               id: Number(job.campaign.createdByUserId),
-              companyId: Number(job?.campaign?.companyId || 0),
+              companyId,
             },
           }).catch(() => null)
         : Promise.resolve(null),
     ]);
+    // IDENTIDADE ÚNICA (31/07/2026): {{funcionario}} é a PERSONA da empresa
+    // (aiNome ou o vendedor representado); quem criou a campanha vira fallback.
+    const funcionario = await this.personaIa.assinatura(
+      companyId,
+      String(user?.name || user?.username || '').trim() || 'time comercial',
+    );
     return {
       empresa: String(company?.name || 'nossa empresa').trim(),
-      funcionario: String(user?.name || user?.username || 'time comercial').trim(),
+      funcionario,
     };
   }
 
@@ -7530,7 +7551,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       ...(slots.assunto ? { recepcionistaAssunto: slots.assunto } : {}),
     };
 
-    const pergunta = perguntasFeitas < RECEPCIONISTA_MAX_PERGUNTAS ? nextQuestion(slots, company.name) : null;
+    // Persona CRUA (não a assinatura com fallback): sem persona a recepcionista
+    // usa a apresentação neutra — "time comercial" aqui soaria robô com crachá.
+    const personaNome = await this.personaIa
+      .getPerfil(companyId)
+      .then((p) => p.persona.nome)
+      .catch(() => null);
+    const pergunta = perguntasFeitas < RECEPCIONISTA_MAX_PERGUNTAS ? nextQuestion(slots, company.name, personaNome) : null;
 
     if (faltando.length && pergunta) {
       await input.setInboundMeta('atendimento_bot', false);

@@ -23,6 +23,7 @@ import {
   type BotConfigDomain,
   type BotConfigVersionInfo,
 } from './config/bot-config-store.service';
+import { PersonaIaService, type PerfilEmpresaIa } from '../vendas/persona-ia.service';
 
 const BOT_CONFIG_DOMAINS: BotConfigDomain[] = [
   'atendimento_bot',
@@ -70,10 +71,17 @@ function isAdminOrMaster(user: any): boolean {
 
 @Injectable()
 export class BotActivationService {
+  // ENTREVISTA FORÇADA (31/07/2026): a tranca que libera qualquer bot é o
+  // cliente ter respondido as 3 perguntas (o que a empresa faz · o que vende ·
+  // como a IA se apresenta). Plain class fora do grafo de DI, padrão do repo.
+  private readonly personaIa: PersonaIaService;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly botConfigStore: BotConfigStoreService,
-  ) {}
+  ) {
+    this.personaIa = new PersonaIaService(this.prisma);
+  }
 
   private async getAtendimentoConfig(companyId: number) {
     const payload = await this.botConfigStore.get(companyId, 'atendimento_bot');
@@ -183,18 +191,24 @@ export class BotActivationService {
     companyId: number,
     type: BotTypeKey,
     chipConectado: boolean,
+    perfil: PerfilEmpresaIa,
     atendimentoConfig?: ReturnType<typeof normalizeAtendimentoBotConfig>,
   ) {
     const configCompleta = await this.resolveConfigCompleta(companyId, type, atendimentoConfig);
-    return { chipConectado, configCompleta };
+    return { chipConectado, configCompleta, entrevistaCompleta: perfil.entrevistaCompleta };
   }
 
   private resolveBlocked(
     type: BotTypeKey,
     armed: boolean,
-    preflight: { chipConectado: boolean; configCompleta: boolean },
+    preflight: { chipConectado: boolean; configCompleta: boolean; entrevistaCompleta: boolean },
   ): string | null {
     if (!armed) return 'Bot não ativado pela plataforma. Acione o suporte.';
+    // ENTREVISTA antes de tudo: IA que não sabe o que a empresa faz não fala
+    // em nome dela — nos TRÊS tipos, sem exceção (fail-closed).
+    if (!preflight.entrevistaCompleta) {
+      return 'A IA ainda não sabe o que sua empresa faz. Responda as 3 perguntas em Automação para liberar.';
+    }
     if (!preflight.chipConectado) return 'Nenhum chip WhatsApp conectado.';
     if (!preflight.configCompleta) return 'Configuração do bot incompleta.';
     return null;
@@ -243,11 +257,14 @@ export class BotActivationService {
     // Chip conectado (único para todos os tipos — mesma empresa)
     const chipConectado = armed ? await this.resolveChipConectado(companyId) : false;
 
+    // Entrevista/persona: UMA leitura serve os 3 tipos (a identidade é única).
+    const perfil = await this.personaIa.getPerfil(companyId);
+
     // Pré-voo por tipo (paralelo)
     const [atendPreflight, recovPreflight, prospPreflight] = await Promise.all([
-      this.resolvePreflight(companyId, 'atendimento', chipConectado, atendimentoConfig),
-      this.resolvePreflight(companyId, 'recovery', chipConectado),
-      this.resolvePreflight(companyId, 'prospeccao', chipConectado),
+      this.resolvePreflight(companyId, 'atendimento', chipConectado, perfil, atendimentoConfig),
+      this.resolvePreflight(companyId, 'recovery', chipConectado, perfil),
+      this.resolvePreflight(companyId, 'prospeccao', chipConectado, perfil),
     ]);
 
     const recovLive = armed && Boolean(company?.recoveryBotLiveAt);
@@ -262,6 +279,16 @@ export class BotActivationService {
       channel: activation.channel,
       masterOff,
       canAdminToggle,
+      // A tela mostra o cadeado COM o motivo escrito — nunca mudo.
+      perfil: {
+        entrevistaCompleta: perfil.entrevistaCompleta,
+        pendencias: perfil.pendencias,
+        aiNome: perfil.persona.nome,
+        aiIdentidade: perfil.persona.modo,
+        aiUserId: perfil.persona.fonteUserId,
+        empresaFaz: perfil.empresaFaz,
+        catalogoPronto: perfil.catalogoPronto,
+      },
       types: {
         atendimento: {
           live: atendimentoLive,
@@ -325,9 +352,10 @@ export class BotActivationService {
         });
       }
       const chipConectado = await this.resolveChipConectado(companyId);
+      const perfil = await this.personaIa.getPerfil(companyId);
       const atendimentoConfig =
         type === 'atendimento' ? await this.getAtendimentoConfig(companyId) : undefined;
-      const preflight = await this.resolvePreflight(companyId, type, chipConectado, atendimentoConfig);
+      const preflight = await this.resolvePreflight(companyId, type, chipConectado, perfil, atendimentoConfig);
       const blocked = this.resolveBlocked(type, true, preflight);
 
       if (blocked) {

@@ -8,6 +8,7 @@ import { resolveWhatsAppCredentials } from '../messaging/whatsapp-credentials.ut
 import { MercadoPagoClientService } from '../payments/mercado-pago-client.service';
 import { ExternalWebhookLedgerService } from '../integrations/external-webhook-ledger.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { PersonaIaService } from '../vendas/persona-ia.service';
 import { getBackendPublicUploadDir } from '../public-assets';
 import { CreateRecoveryCustomerDto } from './dto/create-recovery-customer.dto';
 import { ListRecoveryPaymentsDto } from './dto/list-payments.dto';
@@ -138,6 +139,12 @@ const DEFAULT_RECOVERY_FLOW_STAGES = [
 
 @Injectable()
 export class HbxRecoveryService {
+  // IDENTIDADE ÚNICA (31/07/2026): plain class fora do grafo de DI (padrão do
+  // repo) — a cobrança assina com a persona da empresa. Instanciada no corpo
+  // do construtor (initializer de campo antes de `this.prisma` é armadilha de
+  // ordem de emissão do TS).
+  private readonly personaIa: PersonaIaService;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly conversations: ConversationsService,
@@ -145,7 +152,9 @@ export class HbxRecoveryService {
     private readonly cadastrosService: CadastrosService,
     private readonly externalWebhookLedger: ExternalWebhookLedgerService,
     @Optional() private readonly botConfigStore?: BotConfigStoreService,
-  ) {}
+  ) {
+    this.personaIa = new PersonaIaService(this.prisma);
+  }
 
   private requireCompanyIdFromUser(user: any) {
     const companyId = Number(user?.companyId || 0);
@@ -2375,6 +2384,20 @@ export class HbxRecoveryService {
   }
 
   private async getRecoveryOperatorName(user: any) {
+    // IDENTIDADE ÚNICA (31/07/2026): a cobrança assina com a MESMA persona do
+    // atendimento e da prospecção — duas personalidades no mesmo WhatsApp é
+    // teatro que o cliente percebe. Sem persona configurada, cai no operador
+    // (comportamento antigo).
+    const companyId = Number(
+      user?.masterContext?.active ? user?.masterContext?.companyId : user?.companyId || 0,
+    );
+    if (companyId) {
+      const personaNome = await this.personaIa
+        .getPerfil(companyId)
+        .then((p) => p.persona.nome)
+        .catch(() => null);
+      if (personaNome) return personaNome;
+    }
     const direct = String(user?.name || user?.username || '').trim();
     if (direct) return direct;
     const userId = Number(user?.id || 0);
