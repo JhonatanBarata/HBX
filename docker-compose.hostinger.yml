@@ -82,6 +82,10 @@ services:
       # volume o filesystem do container é efêmero e todo anexo recebido entre dois publishes
       # some no recreate (perda irrecuperável de mídia de cliente).
       - ./backend/storage:/app/storage
+      # COMEX (31/07) — Parquet analítico do comex-motor (gerado por export_parquet.py,
+      # sobe por SFTP; NÃO vai no git). Read-only: o backend só lê. Sem o mount o
+      # /comex responde "indisponível" e nada quebra (ComexDataService é fail-safe).
+      - ./comex-motor/data/parquet:/comex-motor/data/parquet:ro
       # Socket do Docker do host montado — dá ao backend o mesmo caminho "docker local" do governor de motores.
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
