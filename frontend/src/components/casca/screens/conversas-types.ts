@@ -2,8 +2,11 @@
 // Espelham (mesmo contrato, sem importar — os tipos do desktop não são
 // exportados) os tipos locais de app/(app)/atendimento/page.client.tsx.
 // Mesma API: GET /inbox/conversations, GET .../messages, POST .../message,
-// POST .../media, PATCH .../read, GET .../presence, GET /inbox/whatsapp-health,
+// POST .../media, PATCH .../read, GET /inbox/whatsapp-health,
 // GET /inbox/whatsapp-session. Zero endpoint novo.
+// FAXINA 31/07/2026: presença e foto de perfil saíram aqui também (a lei do
+// dono é "padronizar = IGUALAR" — não dá pra limpar a tela grande e deixar a
+// casca compacta imitando o WhatsApp).
 
 export type MsgMeta = {
   normalizedMessageType?: string | null;
@@ -51,13 +54,13 @@ export type InboxConversation = {
     name: string | null;
     phone: string | null;
     email: string | null;
-    avatarUrl?: string | null;
+    suggestedName?: string | null;
+    isRegistered?: boolean;
   } | null;
   messages?: InboxMessage[];
 };
 
 export type MessagesResponse = { messages: InboxMessage[]; hasMore?: boolean; nextBefore?: string | null };
-export type Presence = { online?: boolean; typing?: boolean; recording?: boolean; lastSeenAt?: string | null; presence?: string };
 
 // Nunca deixar JID técnico chegar na tela (ordem do dono 17/06: "não existe
 // número lid"). @s.whatsapp.net/@g.us/@broadcast/@newsletter também não.

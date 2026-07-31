@@ -9,15 +9,22 @@
 //   - Thread → GET /inbox/conversations/:id/messages (paginação ?before=)
 //   - Enviar → POST /inbox/conversations/:id/message { content, attachment?, quoted? }
 //   - Mídia → POST /inbox/conversations/:id/media (multipart) → URL, depois envia
-//   - Reação → POST /inbox/conversations/:id/messages/:mid/reaction
 //   - Reenviar → POST /inbox/conversations/:id/messages/:mid/retry
-//   - Presença → GET /inbox/conversations/:id/presence (online/digitando/gravando)
 //   - Mensagem rápida → GET/POST/DELETE /inbox/quick-replies
 //   - Marcar lida → PATCH /inbox/conversations/:id/read
+//   - Cadastrar nome → PATCH /inbox/conversations/:id/status-card { name }
 //   - Nova conversa → POST /inbox/conversations/start { phone, name? }
 //     (também recebe handoff do Leads via sessionStorage hbx:abrir-conversa)
-// Fidelidade WhatsApp: aviso de leitura real (status), imagem/vídeo/doc/áudio,
-// nota de voz gravada no navegador, citação, reações, mensagem apagada.
+//
+// FAXINA 31/07/2026 (ordem do dono: "menos chat whatsapp, mais chat empresarial").
+// Isto aqui é um ATENDIMENTO, não um clone do WhatsApp. Saíram: foto de perfil
+// (URL da Meta expirava = erro constante), presença "digitando…" (poll de 6s no
+// motor), reagir com emoji. A identidade do contato é a do HBX — nome cadastrado
+// e iniciais coloridas. O nome que o cliente usa no WhatsApp virou DICA de
+// cadastro, nunca identidade.
+// Continua fiel onde importa: aviso de leitura real (status), imagem/vídeo/doc/
+// áudio, nota de voz gravada no navegador, citação, mensagem apagada, e a reação
+// que o CLIENTE mandou (exibida, só não se responde com uma).
 // Tabs Todas/Não lidas/Minhas = filtro client-side (unread/humanAssigned).
 // REGRA DAS 5 LEIS: NADA de cor/borda/fonte/radius inline — todo visual
 // vem de classe do kit.css (token). Inline só layout.
@@ -26,7 +33,7 @@
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import { Av, ConfirmDialog, I, ICONS, PhotoLightbox, WhatsAppMark, useCurrentUser, useMyModules } from "@/components/hbx/shell";
+import { Av, ConfirmDialog, I, ICONS, WhatsAppMark, useCurrentUser, useMyModules } from "@/components/hbx/shell";
 import { decodeAudioBlob, renderVoiceWav, VOICE_MODE_LABEL, VOICE_PRESETS, VOICE_PITCH_RANGE, VOICE_FORMANT_RANGE, type DecodedAudio, type VoiceMode, type VoiceTune } from "@/lib/voice-fx";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { ModeloAtendimentoPanel } from "@/components/hbx/modelo-atendimento-panel";
@@ -87,13 +94,15 @@ type InboxConversation = {
     name: string | null;
     phone: string | null;
     email: string | null;
-    avatarUrl?: string | null;
+    // Nome que o cliente se deu no WhatsApp, quando AINDA não há cadastro no HBX.
+    // É dica pra oferecer o cadastro — nunca identidade (ver convName).
+    suggestedName?: string | null;
+    isRegistered?: boolean;
   } | null;
   messages?: InboxMessage[];
 };
 
 type MessagesResponse = { messages: InboxMessage[]; hasMore?: boolean; nextBefore?: string | null };
-type Presence = { online?: boolean; typing?: boolean; recording?: boolean; lastSeenAt?: string | null; presence?: string };
 type QuickReply = { id: number | string; title: string; content: string };
 
 // Card de situação do lead (GET/PATCH /inbox/conversations/:id/status-card):
@@ -190,7 +199,8 @@ const FILAS: { key: string; label: string }[] = [
 ];
 
 const EMOJIS = ["😀", "😁", "😂", "🤣", "😊", "😍", "😘", "😎", "🤔", "😅", "🙏", "👍", "👏", "🙌", "💪", "🔥", "✅", "❌", "❤️", "💯", "🎉", "👋", "🤝", "😇", "😉", "😢", "😭", "😡", "🥳", "🤩", "😴", "📎"];
-const QUICK_RX = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+// (QUICK_RX saiu na faxina de 31/07 — reagir com emoji era imitação do WhatsApp.
+// Reação RECEBIDA do cliente continua aparecendo no balão, ver `reactionsByKey`.)
 
 // Nunca deixar um JID técnico chegar na tela. @lid NÃO é número (ordem do dono 17/06:
 // "não existe número lid, eu nunca vi isso"); @s.whatsapp.net/@g.us/@broadcast/@newsletter
@@ -251,6 +261,8 @@ function phoneToBackendBR(raw: string): string {
   return "55" + d;
 }
 
+// Nome exibido. O backend já entrega `customer.name` com a ordem CERTA
+// (cadastro HBX > nome do WhatsApp), então aqui é só a queda pro telefone.
 function convName(c: InboxConversation) {
   return (
     cleanContact(c.customer?.name) ||
@@ -273,11 +285,15 @@ function convUnread(c: InboxConversation) {
   return Number.isFinite(n) && n > 0 ? Math.trunc(n) : 0;
 }
 
-// Foto de perfil real do WhatsApp (backend já manda em customer.avatarUrl —
-// URL do CDN pps.whatsapp.net ou /uploads). O <Av> cai pras iniciais se faltar/expirar.
-function convAvatar(c: InboxConversation | null | undefined) {
-  const u = c?.customer?.avatarUrl;
-  return u ? resolveMediaUrl(u) : undefined;
+// IDENTIDADE HBX (31/07/2026): a conversa NÃO tem foto de perfil. O <Av> desenha
+// iniciais coloridas a partir do nome — determinístico, offline, nunca expira.
+// A foto do WhatsApp foi aposentada (URL assinada da Meta que expirava = erro de
+// imagem constante, e obrigava consultar o motor a cada contato).
+
+// Dica de cadastro: cliente que se apresentou no WhatsApp mas ainda não tem
+// nome no HBX. Alimenta o selo "cadastrar" — nunca o nome exibido.
+function convSuggestedName(c: InboxConversation | null | undefined) {
+  return cleanContact(c?.customer?.suggestedName) || null;
 }
 
 function fmtConvTime(iso: string | null) {
@@ -441,12 +457,7 @@ export function AtendimentoClient() {
   // na conversa anterior). Mídia do WhatsApp cresce a altura depois do render, então
   // re-colamos algumas vezes enquanto este flag estiver ligado.
   const forceBottomRef = useRef(false);
-  // Anti-spam do refresh de foto on-demand: ids já tentados nesta sessão (não
-  // re-busca no motor a cada clique; force=true ignora este guard).
-  const avatarTriedRef = useRef<Set<string>>(new Set());
   const router = useRouter();
-
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   // conexão WhatsApp (R2.9): chip de status + modal QR/start/disconnect
   const [waStatus, setWaStatus] = useState<string | null>(null);
@@ -514,13 +525,14 @@ export function AtendimentoClient() {
     return info.sellerName || fullPhone(info.phone) || "?";
   }
 
-  // fidelidade: citação, lightbox, reação, popovers, presença, gravação
+  // Citação, lightbox de MÍDIA (foto/vídeo que o cliente mandou — isso fica),
+  // popovers e gravação. Reação-de-saída e presença ("digitando…") saíram na
+  // faxina de 31/07: eram imitação do WhatsApp, custavam consulta ao motor a
+  // cada 6s e não movem venda nenhuma.
   const [replyTo, setReplyTo] = useState<InboxMessage | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
-  const [reactFor, setReactFor] = useState<string | null>(null);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [quickOpen, setQuickOpen] = useState(false);
-  const [presence, setPresence] = useState<Presence | null>(null);
 
   // colar (Ctrl+V) / arrastar arquivo: nunca envia direto — fica pendente até confirmar
   // no cartão de prévia (anti-cagada). previewUrl só existe para imagem (miniatura).
@@ -691,6 +703,9 @@ export function AtendimentoClient() {
   // abertas e jamais usadas). Não dispara nada pro WhatsApp.
   const [limparBusy, setLimparBusy] = useState(false);
   const [limparConfirm, setLimparConfirm] = useState(false);
+
+  // Limpar ESTA conversa da caixa (some daqui, continua salva no cliente).
+  const [limparOpen, setLimparOpen] = useState(false);
 
   // mensagens rápidas
   const [quickList, setQuickList] = useState<QuickReply[]>([]);
@@ -1052,20 +1067,6 @@ export function AtendimentoClient() {
     return () => clearInterval(timer);
   }, [loadConvs]);
 
-  // presença (online / digitando… / gravando…) — poll leve enquanto aberta.
-  // Sem reset síncrono aqui: ao trocar de conversa, openConv() já zera; e com
-  // selId nulo a presença não é renderizada (convo é null).
-  useEffect(() => {
-    if (!selId) return;
-    let alive = true;
-    const poll = () => apiFetch<Presence>(`/inbox/conversations/${encodeURIComponent(selId)}/presence`)
-      .then(p => { if (alive) setPresence(p || null); })
-      .catch(() => { /* presença é best-effort */ });
-    poll();
-    const t = setInterval(poll, 6000);
-    return () => { alive = false; clearInterval(t); };
-  }, [selId]);
-
   // mensagens rápidas (carrega ao abrir o popover a 1ª vez)
   const loadQuick = useCallback(() => {
     return apiFetch<QuickReply[]>("/inbox/quick-replies")
@@ -1171,8 +1172,6 @@ export function AtendimentoClient() {
     if (id !== selId) {
       setSelId(id);
       setReplyTo(null);
-      setReactFor(null);
-      setPresence(null);
       setEmojiOpen(false);
       setQuickOpen(false);
       setCard(null);
@@ -1182,10 +1181,6 @@ export function AtendimentoClient() {
       setAcaoMsg(null);
       cancelPendingFile(); // anexo colado/arrastado pendente não atravessa pra outra conversa
     }
-    // Foto on-demand: se a conversa abriu sem foto, busca sozinho (best-effort,
-    // sem await travando a UI). Patch in-place no estado — não pisca.
-    const target = convs.find(c => c.id === id);
-    if (target && !convAvatar(target)) void refreshAvatar(id);
     requestAnimationFrame(() => draftRef.current?.focus());
   }
 
@@ -1524,49 +1519,12 @@ export function AtendimentoClient() {
     );
   }
 
-  async function doReact(m: InboxMessage, emoji: string) {
-    setReactFor(null);
-    if (!selId || !/^\d+$/.test(m.id)) return;
-    try {
-      await apiFetch(`/inbox/conversations/${encodeURIComponent(selId)}/messages/${m.id}/reaction`, {
-        method: "POST",
-        body: JSON.stringify({ reaction: emoji }),
-      });
-      await loadThread(selId);
-    } catch { /* segue */ }
-  }
-
   async function doRetry(m: InboxMessage) {
     if (!selId || !/^\d+$/.test(m.id)) return;
     try {
       await apiFetch(`/inbox/conversations/${encodeURIComponent(selId)}/messages/${m.id}/retry`, { method: "POST" });
       await loadThread(selId);
     } catch { /* segue */ }
-  }
-
-  // Foto on-demand (sem piscar): busca a foto SÓ desta conversa e faz patch
-  // pontual no estado `convs`. Como `convo`, o <Av> do cabeçalho e o painel
-  // direito derivam de convAvatar(convo), tudo atualiza in-place — nada de
-  // loadConvs()/reload (piscaria a tela). force=true ignora o guard anti-spam
-  // (clicar na foto força nova busca). Motor sem foto → avatarUrl null = ok
-  // (fica nas iniciais, estado válido).
-  async function refreshAvatar(convId: string, force = false) {
-    if (!convId) return;
-    if (!force) {
-      if (avatarTriedRef.current.has(convId)) return;
-      avatarTriedRef.current.add(convId);
-    }
-    try {
-      const res = await apiFetch<{ avatarUrl: string | null }>(
-        `/inbox/conversations/${encodeURIComponent(convId)}/avatar/refresh`,
-        { method: "POST", body: JSON.stringify({}) },
-      );
-      const url = res?.avatarUrl;
-      if (url) {
-        setConvs(prev => prev.map(c =>
-          c.id === convId ? { ...c, customer: { ...(c.customer ?? { name: null, phone: null, email: null }), avatarUrl: url } } : c));
-      }
-    } catch { /* best-effort: segue com as iniciais */ }
   }
 
   function insertText(text: string) {
@@ -1709,6 +1667,28 @@ export function AtendimentoClient() {
     }
   }
 
+  // Limpar conversa: some da caixa do HBX. NÃO apaga nada — as mensagens
+  // continuam salvas no histórico do cliente/lead — e NÃO manda comando de
+  // exclusão pro WhatsApp (o chat no aparelho do cliente fica intacto).
+  async function limparConversa() {
+    if (!selId || acaoBusy) return;
+    setAcaoBusy(true);
+    setAcaoMsg(null);
+    try {
+      await apiFetch(`/inbox/conversations/${encodeURIComponent(selId)}/clear`,
+        { method: "PATCH", body: JSON.stringify({ reason: "limpeza_manual" }) });
+      setLimparOpen(false);
+      setSelId(null);
+      setThread([]);
+      setCard(null);
+      await loadConvs();
+    } catch (err) {
+      setAcaoMsg(err instanceof Error ? err.message : "Não foi possível limpar a conversa.");
+    } finally {
+      setAcaoBusy(false);
+    }
+  }
+
   // "Sem interesse" + motivo → SOFT-hide (atendimentoBlockedAt) → vai pra "Finalizadas"
   async function semInteresse(reason: string) {
     if (!selId || acaoBusy) return;
@@ -1737,6 +1717,24 @@ export function AtendimentoClient() {
       await loadCard(selId);
     } catch (err) {
       setAcaoMsg(err instanceof Error ? err.message : "Não foi possível salvar a observação.");
+    } finally {
+      setObsBusy(false);
+    }
+  }
+
+  // Aceita a dica de nome do WhatsApp e CADASTRA no HBX (1 clique). A partir
+  // daqui a identidade é do HBX: nenhum sync futuro sobrescreve, e a dica some.
+  async function abrirCadastroSugerido(nome: string) {
+    if (!selId || obsBusy) return;
+    setObsBusy(true);
+    setAcaoMsg(null);
+    try {
+      await apiFetch(`/inbox/conversations/${encodeURIComponent(selId)}/status-card`,
+        { method: "PATCH", body: JSON.stringify({ name: nome }) });
+      await loadCard(selId);
+      await loadConvs();
+    } catch (err) {
+      setAcaoMsg(err instanceof Error ? err.message : "Não foi possível cadastrar o nome.");
     } finally {
       setObsBusy(false);
     }
@@ -1950,14 +1948,23 @@ export function AtendimentoClient() {
     .length;
   const showThrottleWarning = recentOutboundFailed >= 3;
 
-  function presenceNode() {
+  // Subtítulo do cabeçalho: o TELEFONE, sempre. (Era "online/digitando…" — saiu
+  // na faxina; ver o comentário do estado lá em cima.) Quando o contato ainda
+  // não tem cadastro no HBX e se apresentou no WhatsApp, oferece o nome dele
+  // como atalho de cadastro em vez de assumir que aquilo é a identidade.
+  function contatoSubtitulo() {
     const phone = phoneFromContact(convo?.customer?.phone) || phoneFromContact(convo?.contact) || "—";
-    if (!presence) return <small>{phone}</small>;
-    if (presence.typing) return <small><span className="typing"><i /><i /><i /></span> digitando…</small>;
-    if (presence.recording) return <small>gravando áudio…</small>;
-    if (presence.online) return <small>online</small>;
-    if (presence.lastSeenAt) return <small>visto {fmtConvTime(presence.lastSeenAt)}</small>;
-    return <small>{phone}</small>;
+    const sugerido = convSuggestedName(convo);
+    if (!sugerido) return <small>{phone}</small>;
+    return (
+      <small>
+        {phone}
+        {" · "}
+        <button className="at-name-hint" onClick={() => abrirCadastroSugerido(sugerido)}>
+          se apresentou como {sugerido} — cadastrar
+        </button>
+      </small>
+    );
   }
 
   // corpo do balão conforme o tipo (texto / imagem / vídeo / áudio / documento)
@@ -2161,7 +2168,7 @@ export function AtendimentoClient() {
                     const lastMsg = (c.messages || [])[(c.messages || []).length - 1] || null;
                     return (
                       <button key={c.id} className={"conv" + (selId === c.id ? " sel" : "")} onClick={() => openConv(c.id)}>
-                        <Av name={convName(c)} src={convAvatar(c)} size={36} />
+                        <Av name={convName(c)} size={36} />
                         <span className="at-conv-copy">
                           <span className="nm"><strong>{convName(c)}</strong><time>{fmtConvTime(c.lastMessageAt)}</time></span>
                           <span className="pv">
@@ -2198,26 +2205,16 @@ export function AtendimentoClient() {
                   <button className="chat-back" aria-label="Voltar para conversas" onClick={() => setMobileThread(false)}>
                     <I d={["M15 6l-6 6 6 6"]} size={20} />
                   </button>
-                  {/* Foto: abre lightbox se já tiver foto carregada; sem foto = atualiza. */}
-                  {lightboxSrc && <PhotoLightbox src={lightboxSrc} name={convo ? convName(convo) : undefined} onClose={() => setLightboxSrc(null)} />}
-                  <span
-                    className="at-thread-avatar"
-                    onClick={() => {
-                      const src = convAvatar(convo);
-                      if (src) { setLightboxSrc(src); }
-                      else if (convo && selId) { void refreshAvatar(selId, true); }
-                    }}
-                    title={convAvatar(convo) ? "Ver foto" : convo ? "Atualizar foto" : undefined}
-                    data-clickable={Boolean(convo)}
-                  >
-                    <Av key={convo?.id ?? "none"} name={convo ? convName(convo) : "—"} src={convAvatar(convo)} online={Boolean(presence?.online) && Boolean(convo)} size={36} />
+                  {/* Iniciais do nome cadastrado no HBX — sem foto, sem rede. */}
+                  <span className="at-thread-avatar">
+                    <Av key={convo?.id ?? "none"} name={convo ? convName(convo) : "—"} size={36} />
                   </span>
                   <div className="at-thread-person">
                     <span className="at-thread-person__name">
                       <strong>{convo ? convName(convo) : "Selecione uma conversa"}</strong>
                       {convo?.botActive && <span className="on"><i></i>Bot ativo</span>}
                     </span>
-                    {convo ? presenceNode() : <small>—</small>}
+                    {convo ? contatoSubtitulo() : <small>—</small>}
                   </div>
                   <div className="at-thread-actions">
                     {/* Shared mode: info + ações de atribuição no cabeçalho */}
@@ -2264,6 +2261,8 @@ export function AtendimentoClient() {
                           {blocked
                             ? <button className="nav-item" style={{ minHeight: 32 }} disabled={acaoBusy} onClick={() => acaoBloqueio(false)}>Desbloquear contato</button>
                             : <button className="nav-item" style={{ minHeight: 32 }} disabled={acaoBusy} onClick={() => acaoBloqueio(true)}>Bloquear contato</button>}
+                          <button className="nav-item" style={{ minHeight: 32 }} disabled={acaoBusy}
+                            onClick={() => { setAcoesOpen(false); setLimparOpen(true); }}>Limpar conversa</button>
                         </div>
                       )}
                     </span>
@@ -2282,12 +2281,11 @@ export function AtendimentoClient() {
                     const key = meta.providerKeyId || meta.providerMessageId || "";
                     const rx = key ? reactionsByKey.get(key) : undefined;
                     const failed = (m.status || "").toUpperCase() === "FAILED";
-                    const canReact = /^\d+$/.test(m.id) && !meta.isDeleted;
                     return (
                       <React.Fragment key={m.id}>
                         {showDay && <span className="day">{day}</span>}
                         <div className={"msg " + (out ? "out" : "in")}>
-                          {!out && convo && <Av name={convName(convo)} src={convAvatar(convo)} size={26} />}
+                          {!out && convo && <Av name={convName(convo)} size={26} />}
                           <div style={{ display: "grid", minWidth: 0 }}>
                             <div className={"bubble" + (meta.isDeleted ? " deleted" : "") + (["image", "video", "audio", "document", "sticker"].includes(msgType(m)) && !meta.isDeleted ? " has-media" : "")}>
                               {meta.quotedPreview && (
@@ -2307,12 +2305,9 @@ export function AtendimentoClient() {
                               </div>
                             )}
                           </div>
-                          {!meta.isDeleted && reactFor !== m.id && (
+                          {!meta.isDeleted && (
                             <button className="reply-add" onClick={() => setReplyTo(m)} aria-label="Responder" title="Responder"><I d={ICONS.reply} size={15} /></button>
                           )}
-                          {canReact && (reactFor === m.id
-                            ? <span className="reactions">{QUICK_RX.map(e => <button className="rx" key={e} onClick={() => doReact(m, e)}>{e}</button>)}</span>
-                            : <button className="react-add" onClick={() => setReactFor(m.id)} aria-label="Reagir"><I d={ICONS.smile} size={15} /></button>)}
                         </div>
                       </React.Fragment>
                     );
@@ -2520,8 +2515,8 @@ export function AtendimentoClient() {
                 enriched: Boolean(card?.lead?.leadIntelligence?.enrichedAt),
                 // Nome: lead tem nome de empresa, senão usa o nome do contato WhatsApp
                 name: card?.lead?.name || convName(convo),
-                avatarUrl: convAvatar(convo) || null,
-                online: Boolean(presence?.online),
+                avatarUrl: null,
+                online: false,
                 phone: phoneFromContact(convo.customer?.phone) || phoneFromContact(convo.contact) || null,
                 // Email: lead tem email completo; fallback pro contato do WhatsApp
                 email: card?.lead?.email || convo.customer?.email || null,
@@ -2731,6 +2726,20 @@ export function AtendimentoClient() {
         busy={limparBusy}
         onConfirm={doLimparVazias}
         onCancel={() => setLimparConfirm(false)}
+      />
+
+      <ConfirmDialog
+        open={limparOpen}
+        title="Limpar esta conversa"
+        message={
+          convo
+            ? `A conversa com ${convName(convo)} sai da sua caixa, mas continua salva no histórico do cliente — nada é perdido. O WhatsApp do cliente NÃO é alterado: nenhuma mensagem é apagada no aparelho dele.`
+            : ""
+        }
+        confirmLabel="Limpar da caixa"
+        busy={acaoBusy}
+        onConfirm={limparConversa}
+        onCancel={() => setLimparOpen(false)}
       />
     </React.Fragment>
   );

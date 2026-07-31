@@ -189,6 +189,41 @@ function isWaSyncPollingDisabled(): boolean {
   return String(process.env.HBX_WA_SYNC_POLLING_DISABLED || '').trim().toLowerCase() === 'true';
 }
 
+// ============================================================================
+// HISTÓRICO SOBERANO DO HBX — 31/07/2026, ordem do dono.
+//
+// A lei tem DUAS metades e confundir uma com a outra é o erro caro:
+//
+//  1. "o histórico vai ficar full no HBX, nada de puxar chat antigo"
+//     O HBX parou de importar o arquivo morto do aparelho. O histórico daqui
+//     começa quando o chip conecta e cresce no NOSSO banco, pra sempre. Antes,
+//     o primeiro espelhamento puxava 120 msgs × 80 páginas = até 9.600 mensagens
+//     POR CONVERSA — a origem da bagunça que o dono via (conversa duplicada por
+//     @lid, "nome" que era só número mascarado, mídia velha que não baixa) e de
+//     um bootstrap lento que castigava o chip.
+//
+//  2. "mas não pode perder mensagens entre o cliente! isso é grave!"
+//     A REDE DE SEGURANÇA CONTINUA LIGADA. Se o webhook do motor for engolido
+//     (já aconteceu — ver INVARIANTES DO WEBHOOK), a reconciliação da janela
+//     recente ao abrir a conversa traz o que faltou. Desligar isso junto com o
+//     item 1 trocaria um incômodo visual por PERDA DE MENSAGEM: o oposto do
+//     pedido. Por isso as duas coisas têm nomes e números separados aqui.
+//
+// Quem quiser o arquivo antigo de UMA conversa continua tendo o backfill
+// MANUAL (POST /inbox/conversations/:id/backfill): explícito, humano, sob
+// demanda. O que morreu foi a escavação AUTOMÁTICA de toda a caixa.
+// ============================================================================
+
+// Janela de cortesia do primeiro espelhamento: o suficiente pra conversa não
+// nascer vazia na tela, longe de uma escavação. 1 página, sem paginar pra trás.
+const HBX_BOOTSTRAP_RECENT_MESSAGES = 30;
+const HBX_BOOTSTRAP_MAX_PAGES = 1;
+
+// Rede de segurança anti-perda (metade 2 da lei). Quantas mensagens recentes a
+// reconciliação confere ao abrir a conversa. NÃO É histórico: é conferência de
+// entrega. Mexer aqui pra baixo aumenta o risco de mensagem sumida.
+const HBX_SAFETY_NET_RECENT_MESSAGES = 20;
+
 @Injectable()
 export class InboxService {
   private readonly logger = new Logger(InboxService.name);
@@ -471,12 +506,16 @@ export class InboxService {
     req.on('error', cleanup);
   }
 
+  // Hidratação de mídia da janela recente (a thread tem anexo sem arquivo local).
+  // Não é histórico: só completa o que já está na tela. `fullSync` desligado em
+  // 31/07 pela metade 1 da lei do histórico soberano — hidratar mídia visível
+  // nunca precisou reimportar a conversa inteira.
   private async syncPersistedInboxConversation(companyId: number, conversationId: number) {
     try {
       const selector = await this.buildWebwhatsConversationSelector(companyId, conversationId);
       await this.webwhatsBridge.syncConversationMessagesDetailed(companyId, conversationId, {
-        limit: 20,
-        fullSync: true,
+        limit: HBX_SAFETY_NET_RECENT_MESSAGES,
+        fullSync: false,
         maxPages: 1,
         force: false,
       }, selector);
@@ -490,6 +529,13 @@ export class InboxService {
     }
   }
 
+  // ⚠️ REDE DE SEGURANÇA ANTI-PERDA DE MENSAGEM (metade 2 da lei do histórico
+  // soberano — ver topo do arquivo). Isto NÃO é "puxar chat antigo": é conferir,
+  // ao abrir a conversa, se alguma mensagem RECENTE do cliente ficou de fora
+  // porque o webhook do motor foi engolido. Já aconteceu em produção.
+  // NÃO REMOVER junto com o corte de histórico. O teste
+  // "rede de segurança continua conferindo a janela recente" existe pra gritar
+  // se alguém tentar.
   private async syncLatestInboxConversationWindow(companyId: number, conversationId: number) {
     // GATEWAY-WA S5: mesma flag do trigger acima — rotina automática de leitura, não fetch
     // explícito. Backfill manual (força) não passa por este método.
@@ -501,7 +547,7 @@ export class InboxService {
     try {
       const selector = await this.buildWebwhatsConversationSelector(companyId, conversationId);
       await this.webwhatsBridge.syncConversationMessagesDetailed(companyId, conversationId, {
-        limit: 20,
+        limit: HBX_SAFETY_NET_RECENT_MESSAGES,
         fullSync: false,
         maxPages: 1,
         force: true,
@@ -2077,6 +2123,45 @@ export class InboxService {
     };
   }
 
+  // ============================================================
+  // CONVERSA LIMPA DO HBX (31/07/2026 — ordem do dono).
+  //
+  // "sumir com o chat (e ficar salvo no lead do cliente/empresa)".
+  //
+  // Isto SÓ some da tela de Conversas. As mensagens continuam no banco
+  // (`CompanyMessage`), ligadas ao lead, e continuam aparecendo na ficha do
+  // cliente. Nada é apagado — "auditoria sim, sujeira não".
+  //
+  // ⚠️ E NUNCA, EM HIPÓTESE NENHUMA, manda comando de exclusão pro WhatsApp:
+  // limpar aqui é do NOSSO sistema, não do aparelho do cliente. O motor tem
+  // `deleteMessageForEveryone` na bridge; ele NÃO tem chamador e não pode
+  // ganhar um por este caminho. Há teste que grita se alguém ligar.
+  //
+  // Diferente de "Finalizada" (atendimentoBlockedAt), que só move pra fila
+  // "Finalizadas" e continua visível lá. Limpar é o passo além: sai da vista.
+  // É reversível (restoreConversationToInbox).
+  // ============================================================
+  private getConversationClearedState(metadataRaw: string | Record<string, any> | null | undefined) {
+    const metadata =
+      metadataRaw && typeof metadataRaw === 'object' && !Array.isArray(metadataRaw)
+        ? metadataRaw
+        : this.parseConversationMetadata(String(metadataRaw || ''));
+    const clearedAt = String(metadata?.hbxClearedAt || '').trim() || null;
+    return {
+      isCleared: Boolean(clearedAt),
+      clearedAt,
+      clearedReason: String(metadata?.hbxClearedReason || '').trim() || null,
+      clearedByUserId:
+        metadata?.hbxClearedByUserId === undefined || metadata?.hbxClearedByUserId === null
+          ? null
+          : Number(metadata.hbxClearedByUserId) || null,
+      preservedMessageCount:
+        metadata?.hbxClearedMessageCount === undefined || metadata?.hbxClearedMessageCount === null
+          ? null
+          : Number(metadata.hbxClearedMessageCount) || 0,
+    };
+  }
+
   private clearAtendimentoBlockedMetadata(metadataRaw: Record<string, any> | null | undefined) {
     const metadata = { ...(metadataRaw || {}) };
     delete metadata.atendimentoBlockedAt;
@@ -3043,12 +3128,26 @@ export class InboxService {
       String(identityRow?.registrationStatus || '').trim().toLowerCase() === 'manual'
         ? this.normalizeDisplayNameCandidate(identityRow?.name || null, conversation.contact)
         : null;
-    const customerName =
+    // ============================================================
+    // IDENTIDADE HBX (31/07/2026 — ordem do dono: "e se os nomes forem do HBX?").
+    //
+    // A LEI: quem manda no nome é o CADASTRO do HBX, não o WhatsApp. Antes desta
+    // data a ordem era invertida (displayName do WhatsApp na frente), e o cadastro
+    // só ganhava quando marcado 'manual' — por isso o vendedor cadastrava
+    // "Padaria do Zé" e a tela continuava mostrando "😎 Ze" (pushName que o
+    // CLIENTE controla), ou o número mascarado que o history sync entrega.
+    //
+    // Ordem nova: cadastro (identity → profile) > nome do WhatsApp > telefone.
+    // O nome do WhatsApp NÃO some do sistema: vira DICA de cadastro
+    // (`suggestedName` abaixo) — sugestão que o humano aceita, nunca identidade.
+    // ============================================================
+    const hbxRegisteredName =
       manualLockedName ||
-      this.normalizeDisplayNameCandidate(displayName || null, conversation.contact) ||
       this.normalizeDisplayNameCandidate(identityRow?.name || null, conversation.contact) ||
       this.normalizeDisplayNameCandidate(profile?.name || null, conversation.contact) ||
       null;
+    const whatsappGivenName = this.normalizeDisplayNameCandidate(displayName || null, conversation.contact);
+    const customerName = hbxRegisteredName || whatsappGivenName || null;
     // Nome do atendente atribuído: vem batched (__assignedToName) na lista; no caminho de UMA
     // conversa (detalhe) resolve aqui (1 lookup, sem N+1 na lista).
     const assignedUserIdNum = conversation.assignedUserId ? Number(conversation.assignedUserId) : null;
@@ -3107,15 +3206,20 @@ export class InboxService {
         id: String(identityRow?.id || conversation.id),
         phone: this.resolveConversationDisplayPhone(conversation, identityRow, conversationMetadata),
         name: customerName,
-        avatarUrl:
-          hasConflictingWhatsappIdentity
-            ? null
-            : String(
-                conversationMetadata.whatsappAvatarUrl ||
-                conversationMetadata.profilePicUrl ||
-                conversationMetadata.avatarUrl ||
-                '',
-              ).trim() || null,
+        // FOTO DE PERFIL: SEMPRE null (31/07/2026 — ordem do dono "erro de fotos
+        // é constante, seria interessante tirar?"). A URL do CDN da Meta é
+        // ASSINADA e EXPIRA, então toda foto virava 403 depois de um tempo e o
+        // motor precisava ser consultado de novo pra renovar — fábrica de bug
+        // com zero retorno. A tela usa iniciais coloridas do nome do HBX.
+        // O campo continua no contrato (front antigo não quebra), sempre null.
+        avatarUrl: null as string | null,
+        // Nome que o CLIENTE se deu no WhatsApp. NÃO é identidade — é sugestão
+        // de cadastro pra tela oferecer ("se apresentou como X"). Só aparece
+        // quando ainda NÃO existe cadastro no HBX; havendo cadastro, a dica
+        // sumiria como ruído.
+        suggestedName:
+          hbxRegisteredName || hasConflictingWhatsappIdentity ? null : whatsappGivenName || null,
+        isRegistered: Boolean(hbxRegisteredName),
         customerProfileId: profile?.id ? String(profile.id) : identityRow?.customerProfileId ? String(identityRow.customerProfileId) : null,
         email: profile?.email ? String(profile.email) : null,
         document: profile?.document ? String(profile.document) : null,
@@ -4001,6 +4105,11 @@ export class InboxService {
         if (this.parseBooleanMetadataFlag(metadata.whatsappConversationDeleted || metadata.inboxWhatsAppDeleted)) {
           continue;
         }
+        // Limpa pelo operador: some da caixa. As mensagens continuam no banco
+        // e na ficha do cliente — ver clearConversationFromInbox.
+        if (this.getConversationClearedState(metadata).isCleared) {
+          continue;
+        }
         // Inbox 1:1 só: grupos legados que já entraram no banco não aparecem mais
         // (o espelhamento novo já bloqueia na origem — ver isSyncableChat no bridge).
         if (this.isConversationGroup(row, metadata)) {
@@ -4033,6 +4142,11 @@ export class InboxService {
         }
         const metadata = this.parseConversationMetadata(row.metadata);
         if (this.parseBooleanMetadataFlag(metadata.whatsappConversationDeleted || metadata.inboxWhatsAppDeleted)) {
+          continue;
+        }
+        // Limpa pelo operador: some da caixa. As mensagens continuam no banco
+        // e na ficha do cliente — ver clearConversationFromInbox.
+        if (this.getConversationClearedState(metadata).isCleared) {
           continue;
         }
         // Inbox 1:1 só: grupos legados que já entraram no banco não aparecem mais
@@ -4072,6 +4186,7 @@ export class InboxService {
       seenIds.add(Number(row.id));
       if (!this.isRowVisibleForWhatsappSessionScope(row, options.sessionScope)) return false;
       const metadata = this.parseConversationMetadata(row.metadata);
+      if (this.getConversationClearedState(metadata).isCleared) return false;
       return !this.parseBooleanMetadataFlag(metadata.whatsappConversationDeleted || metadata.inboxWhatsAppDeleted);
     });
     const mappedOperationalRows = await this.mapPersistedConversationRowsForCompany(companyId, visibleOperationalRows, routingRules);
@@ -4098,6 +4213,7 @@ export class InboxService {
         seenIds.add(Number(row.id));
         if (!this.isRowVisibleForWhatsappSessionScope(row, options.sessionScope)) return false;
         const metadata = this.parseConversationMetadata(row.metadata);
+        if (this.getConversationClearedState(metadata).isCleared) return false;
         return !this.parseBooleanMetadataFlag(metadata.whatsappConversationDeleted || metadata.inboxWhatsAppDeleted);
       });
       const mappedRows = await this.mapPersistedConversationRowsForCompany(companyId, visibleRows, routingRules);
@@ -4378,14 +4494,16 @@ export class InboxService {
         > = [];
         for (const conversation of chunk) {
           try {
+            // HISTÓRICO SOBERANO (metade 1 da lei, ver topo do arquivo): janela
+            // de cortesia, não escavação. Era limit:120 × maxPages:80.
             const result = await this.webwhatsBridge.syncConversationMessagesDetailed(
               companyId,
               conversation.id,
               {
                 force: true,
-                limit: 120,
-                fullSync: true,
-                maxPages: 80,
+                limit: HBX_BOOTSTRAP_RECENT_MESSAGES,
+                fullSync: false,
+                maxPages: HBX_BOOTSTRAP_MAX_PAGES,
                 downloadMedia: false,
                 failOnError: true,
               },
@@ -4885,6 +5003,7 @@ export class InboxService {
       if (!this.isRowVisibleForWhatsappSessionScope(row, sessionScope)) continue;
       const metadata = this.parseConversationMetadata(row.metadata);
       if (this.parseBooleanMetadataFlag(metadata.whatsappConversationDeleted || metadata.inboxWhatsAppDeleted)) continue;
+      if (this.getConversationClearedState(metadata).isCleared) continue;
       if (this.isConversationGroup(row, metadata)) continue;
       ids.push(Number(row.id));
     }
@@ -5839,13 +5958,22 @@ export class InboxService {
   async updateConversationStatusCard(
     user: any,
     conversationId: number,
-    dto: { doNotCall?: boolean; closureReason?: string | null; returnAt?: string | null; observations?: string | null },
+    dto: {
+      doNotCall?: boolean;
+      closureReason?: string | null;
+      returnAt?: string | null;
+      observations?: string | null;
+      name?: string | null;
+    },
   ) {
     const companyId = this.requireCompanyIdFromUser(user);
     const scope = await this.resolveInboxMutationSessionScope(user, companyId);
     const records = await this.resolveStatusCardRecords(companyId, conversationId, scope);
     const observations =
       dto.observations === undefined ? undefined : String(dto.observations || '').trim();
+    // Nome cadastrado pelo operador (ou aceito da dica do WhatsApp). Vazio = limpar.
+    const registeredName =
+      dto.name === undefined ? undefined : String(dto.name || '').replace(/\s+/g, ' ').trim();
     const returnAt = dto.returnAt === undefined ? undefined : this.parseStatusCardDate(dto.returnAt);
     const doNotCall = dto.doNotCall === undefined ? undefined : Boolean(dto.doNotCall);
     // closureReason: motivo escolhido pelo operador ao clicar "Sem interesse" (SOFT-hide)
@@ -5866,6 +5994,7 @@ export class InboxService {
 
     const profilePatch: any = {};
     if (observations !== undefined) profilePatch.notes = observations || null;
+    if (registeredName !== undefined) profilePatch.name = registeredName || null;
     if (Object.keys(profilePatch).length) {
       records.profile = await this.prisma.customerProfile.update({
         where: { id: records.profile.id },
@@ -5874,7 +6003,14 @@ export class InboxService {
       if (records.atendimentoCustomer?.id) {
         records.atendimentoCustomer = await this.prisma.atendimentoCustomer.update({
           where: { id: records.atendimentoCustomer.id },
-          data: { notes: observations || null },
+          data: {
+            ...(observations !== undefined ? { notes: observations || null } : {}),
+            // registrationOrigin 'manual' TRAVA o nome: nenhum sync futuro do
+            // WhatsApp sobrescreve o que o humano cadastrou.
+            ...(registeredName !== undefined
+              ? { name: registeredName || null, registrationOrigin: 'manual' }
+              : {}),
+          },
         });
       }
     }
@@ -6650,6 +6786,101 @@ export class InboxService {
       conversationId,
       phone: String(conversation.contact || '').trim(),
       result: 'blocked',
+    });
+    return this.getConversationByIdForCompany(companyId, conversation.id);
+  }
+
+  /**
+   * Some com a conversa da tela de Conversas — SÓ no HBX.
+   *
+   * O que NÃO acontece aqui, por lei do dono (31/07/2026):
+   *  · Nenhuma mensagem é apagada do banco. Elas seguem ligadas ao lead e
+   *    aparecem na ficha do cliente/empresa. Por isso contamos e gravamos
+   *    quantas ficaram guardadas: é a prova auditável de que nada sumiu.
+   *  · NENHUM comando de exclusão vai pro WhatsApp. Este método não fala com
+   *    a bridge do motor. O chat no aparelho do cliente fica intacto.
+   */
+  async clearConversationFromInbox(
+    user: any,
+    conversationId: number,
+    dto?: { reason?: string | null },
+  ) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const scope = await this.resolveInboxMutationSessionScope(user, companyId);
+    const conversation = await this.ensureConversation(companyId, conversationId, scope);
+    const metadata = this.parseConversationMetadata(conversation.metadata);
+    const already = this.getConversationClearedState(metadata);
+    if (already.isCleared) {
+      return {
+        cleared: true,
+        alreadyCleared: true,
+        preservedMessages: already.preservedMessageCount ?? 0,
+      };
+    }
+
+    const reason = String(dto?.reason || '').trim() || 'limpeza_manual';
+    const userId = Number(user?.id || 0) || null;
+    const now = new Date();
+
+    // Conta ANTES de esconder: este número vai pro log e pra resposta, e é o
+    // que permite auditar depois que o histórico continua inteiro.
+    const preservedMessages = await this.prisma.companyMessage.count({
+      where: { companyId, conversationId: conversation.id },
+    });
+
+    await this.conversations.updateConversationState(companyId, conversation.id, {
+      metadata: {
+        ...metadata,
+        hbxClearedAt: now.toISOString(),
+        hbxClearedByUserId: userId,
+        hbxClearedReason: reason,
+        hbxClearedMessageCount: preservedMessages,
+      },
+    });
+
+    // Marca na própria timeline da conversa: quem abrir a ficha do lead vê que
+    // a conversa foi limpa da caixa, quando, e que o conteúdo continua ali.
+    await this.appendInboxSystemEvent({
+      companyId,
+      conversationId: conversation.id,
+      contactId: String(conversation.contact || '').trim(),
+      text: `Conversa limpa da caixa de Conversas (${reason}). ${preservedMessages} mensagem(ns) seguem salvas no histórico do cliente.`,
+      eventType: 'conversation_cleared',
+      variables: { reason, preservedMessages },
+    });
+
+    await this.logInboxEvent({
+      companyId,
+      event: 'conversation_cleared_from_inbox',
+      message: `Conversa limpa da caixa (${reason}) — ${preservedMessages} mensagem(ns) preservadas, nada apagado no WhatsApp.`,
+      conversationId,
+      phone: String(conversation.contact || '').trim(),
+      result: 'cleared',
+      extra: { reason, preservedMessages, clearedByUserId: userId },
+    });
+
+    return { cleared: true, alreadyCleared: false, preservedMessages };
+  }
+
+  /** Desfaz o "limpar": a conversa volta pra caixa. Nada foi perdido no meio. */
+  async restoreConversationToInbox(user: any, conversationId: number) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const scope = await this.resolveInboxMutationSessionScope(user, companyId);
+    const conversation = await this.ensureConversation(companyId, conversationId, scope);
+    const metadata = { ...this.parseConversationMetadata(conversation.metadata) };
+    delete metadata.hbxClearedAt;
+    delete metadata.hbxClearedByUserId;
+    delete metadata.hbxClearedReason;
+    delete metadata.hbxClearedMessageCount;
+
+    await this.conversations.updateConversationState(companyId, conversation.id, { metadata });
+    await this.logInboxEvent({
+      companyId,
+      event: 'conversation_restored_to_inbox',
+      message: 'Conversa restaurada para a caixa de Conversas.',
+      conversationId,
+      phone: String(conversation.contact || '').trim(),
+      result: 'restored',
     });
     return this.getConversationByIdForCompany(companyId, conversation.id);
   }
@@ -8008,34 +8239,24 @@ export class InboxService {
     return this.getConversationByIdForCompany(companyId, conversation.id);
   }
 
+  // FOTO DE PERFIL — APOSENTADA (31/07/2026, ordem do dono).
+  //
+  // A rota continua existindo e responde 200 pra não quebrar aba aberta com o
+  // front antigo (que ainda chama isto ao abrir conversa sem foto), mas virou
+  // NO-OP: não fala com o motor, não grava metadata, devolve sempre null.
+  //
+  // Por que aposentar em vez de "consertar": a URL do CDN da Meta é assinada e
+  // expira; manter foto exigia repetir a consulta no motor pra cada contato —
+  // tráfego no chip (fingerprint de bot) e uma classe inteira de bug de imagem
+  // quebrada, tudo isso pra exibir um dado que não vende nada. A identidade
+  // visual agora é iniciais coloridas do nome cadastrado no HBX.
   async refreshConversationAvatar(user: any, conversationId: number) {
     const companyId = this.requireCompanyIdFromUser(user);
     const scope = await this.resolveInboxMutationSessionScope(user, companyId);
-    const conversation = await this.ensureConversation(companyId, conversationId, scope);
-    const metadata = this.parseConversationMetadata(conversation.metadata);
-    const remoteJid =
-      this.normalizeMessageMetadataText(metadata?.whatsappRemoteJid) ||
-      String(conversation.contact || '').trim();
-    if (!remoteJid) {
-      return { avatarUrl: null as string | null };
-    }
-
-    const avatarUrl = await this.webwhatsBridge.refreshConversationProfilePicture(companyId, remoteJid);
-    if (avatarUrl) {
-      const nextMetadata = {
-        ...metadata,
-        whatsappAvatarUrl: avatarUrl,
-        whatsappAvatarCheckedAt: Date.now(),
-      };
-      await this.prisma.companyConversation.update({
-        where: { id: conversation.id },
-        data: {
-          metadata: JSON.stringify(nextMetadata),
-        },
-      });
-    }
-
-    return { avatarUrl: avatarUrl || null };
+    // Mantém a checagem de acesso: rota autenticada não pode virar buraco de
+    // enumeração de conversa de outra empresa só porque o corpo ficou vazio.
+    await this.ensureConversation(companyId, conversationId, scope);
+    return { avatarUrl: null as string | null };
   }
 
   // GATEWAY-WA S5 (item 2): escape hatch manual. Com HBX_WA_SYNC_POLLING_DISABLED=true a

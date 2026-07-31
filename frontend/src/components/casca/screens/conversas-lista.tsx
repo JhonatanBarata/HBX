@@ -41,10 +41,6 @@ type Tab = "todas" | "naolidas" | "bot";
 // assignedUserId (já vem no payload de /inbox/conversations) — zero endpoint novo.
 type Escopo = "todos" | "meu";
 
-function convAvatar(c: InboxConversation | null | undefined): string | undefined {
-  return c?.customer?.avatarUrl || undefined;
-}
-
 // Traduz o estado do motor (mesmo /inbox/whatsapp-health que o desktop lê)
 // pro vocabulário do selo central — verde só quando open+canSend.
 function mapHealthToStatus(providerState: string): string | null {
@@ -234,7 +230,7 @@ export function ConversasLista({
                 className={"cvs-m__row" + (unread > 0 ? " is-unread" : "")}
                 onClick={() => onOpen(c.id)}
               >
-                <Av name={convName(c)} src={convAvatar(c)} size={36} />
+                <Av name={convName(c)} size={36} />
                 <span className="cvs-m__row-main">
                   <span className="cvs-m__row-top">
                     <span className="cvs-m__row-name">

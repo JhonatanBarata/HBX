@@ -657,3 +657,26 @@
     animation: none;
   }
 }
+
+/* ============================================================
+   DICA DE CADASTRO (faxina 31/07/2026)
+   Contato que se apresentou no WhatsApp mas ainda não tem nome no HBX.
+   É uma SUGESTÃO clicável no subtítulo do cabeçalho — nunca a identidade.
+   Fora do @media de desktop: a dica também vale no celular.
+   ============================================================ */
+.at-name-hint {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--hbx-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.at-name-hint:hover,
+.at-name-hint:focus-visible {
+  color: var(--text-strong);
+}

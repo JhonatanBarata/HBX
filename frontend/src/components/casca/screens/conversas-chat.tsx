@@ -31,7 +31,6 @@ import {
   type InboxConversation,
   type InboxMessage,
   type MessagesResponse,
-  type Presence,
 } from "./conversas-types";
 
 function resolveMediaUrl(u?: string | null): string {
@@ -167,7 +166,6 @@ export function ConversasChat({
   const [draft, setDraft] = useState("");
   const [sendBusy, setSendBusy] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [presence, setPresence] = useState<Presence | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const endRef = useRef<HTMLDivElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -193,16 +191,6 @@ export function ConversasChat({
     const t = setInterval(() => { if (alive) void loadThread(); }, 8000);
     return () => { alive = false; clearInterval(t); };
   }, [conversationId, loadThread]);
-
-  useEffect(() => {
-    let alive = true;
-    const poll = () => apiFetch<Presence>(`/inbox/conversations/${encodeURIComponent(conversationId)}/presence`)
-      .then(p => { if (alive) setPresence(p || null); })
-      .catch(() => { /* best-effort */ });
-    void poll();
-    const t = setInterval(poll, 6000);
-    return () => { alive = false; clearInterval(t); };
-  }, [conversationId]);
 
   useEffect(() => {
     const el = endRef.current;
@@ -280,7 +268,9 @@ export function ConversasChat({
 
   const name = conversation ? convName(conversation) : "Conversa";
   const phone = conversation ? (phoneFromContact(conversation.customer?.phone) || phoneFromContact(conversation.contact)) : null;
-  const presenceLabel = presence?.typing ? "digitando…" : presence?.recording ? "gravando áudio…" : presence?.online ? "online" : (phone || "—");
+  // Subtítulo = telefone. ("digitando…/online" saiu na faxina de 31/07 junto
+  // com o poll de 6s no motor — mesma decisão da tela grande.)
+  const presenceLabel = phone || "—";
 
   const threadWithDays = thread.map((m, i) => {
     const day = dayLabel(m.createdAt);
@@ -309,7 +299,7 @@ export function ConversasChat({
     >
       <div className="cvs-m__chat">
         <div className="cvs-m__chat-sub">
-          <Av name={name} src={conversation?.customer?.avatarUrl || undefined} size={22} />
+          <Av name={name} size={22} />
           <span className="cvs-m__chat-sub-text">{presenceLabel}</span>
         </div>
 

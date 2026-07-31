@@ -1283,7 +1283,12 @@ test('reactToConversationMessage throws BadRequest (not 404) when message has no
   assert.equal(reactionCalls.length, 0);
 });
 
-test('refreshConversationAvatar persists motor photo into metadata.whatsappAvatarUrl', async () => {
+// REESCRITO em 31/07/2026. Este teste cobrava o comportamento ANTIGO (buscar a
+// foto no motor e gravar no metadata). O dono aposentou a foto de perfil na
+// faxina — "erro de fotos e constante, seria interessante tirar?" — entao agora
+// ele cobra o contrario: a rota responde, mas NAO fala com o motor e NAO grava
+// nada. Se alguem religar a busca de foto, este teste cai.
+test('refreshConversationAvatar e NO-OP: nao consulta o motor nem grava foto', async () => {
   const conversationUpdates: Array<Record<string, any>> = [];
   const bridgeCalls: Array<Record<string, any>> = [];
   const { service } = createService({
@@ -1316,14 +1321,11 @@ test('refreshConversationAvatar persists motor photo into metadata.whatsappAvata
 
   const result = await service.refreshConversationAvatar({ companyId: 7 }, 42);
 
-  assert.deepEqual(result, { avatarUrl: 'https://motor.example/avatar/abner.jpg' });
-  assert.equal(bridgeCalls.length, 1);
-  assert.equal(bridgeCalls[0].remoteJid, '5519998877766@s.whatsapp.net');
-  assert.equal(conversationUpdates.length, 1);
-  const persisted = JSON.parse(conversationUpdates[0].data.metadata);
-  assert.equal(persisted.whatsappAvatarUrl, 'https://motor.example/avatar/abner.jpg');
-  // Preserva metadata existente.
-  assert.equal(persisted.cliente, 'Carlos');
+  // Responde 200 com null (aba antiga que ainda chama a rota nao quebra).
+  assert.deepEqual(result, { avatarUrl: null });
+  // Zero trafego no motor: menos fingerprint de bot no chip.
+  assert.deepEqual(bridgeCalls, [], 'a rota aposentada nao pode consultar o motor');
+  assert.deepEqual(conversationUpdates, [], 'a rota aposentada nao pode gravar metadata');
 });
 
 test('refreshConversationAvatar returns null without persisting when motor has no photo', async () => {
@@ -3487,4 +3489,234 @@ test('marca do Atendimento e best-effort: banco fora do ar NAO derruba o clique 
   await assert.doesNotReject(
     service.updateConversationStatusCard({ id: 1 }, 42, { doNotCall: true, closureReason: 'nao_ligar' }),
   );
+});
+
+// ============================================================================
+// FAXINA DAS CONVERSAS — 31/07/2026 (ordem do dono).
+// Tres leis novas viraram teste aqui. Cada uma nasceu de uma queixa real:
+//  1. IDENTIDADE HBX   — "puxar nome do contato da erro / e se os nomes forem do HBX?"
+//  2. HISTORICO SOBERANO — "nada de puxar chat antigo, MAS nao pode perder mensagens"
+//  3. LIMPAR CONVERSA  — "some do HBX, NUNCA manda exclusao pro WhatsApp"
+// ============================================================================
+
+function conversaDaFaxina(metadata: Record<string, unknown>) {
+  return {
+    id: 42,
+    companyId: 7,
+    channel: 'whatsapp',
+    contact: '+5519998877766',
+    humanAssigned: false,
+    botActive: true,
+    currentFlow: null,
+    currentStep: null,
+    flowResult: null,
+    assignedUserId: null,
+    metadata: JSON.stringify(metadata),
+    createdAt: new Date('2026-07-31T10:00:00.000Z'),
+    updatedAt: new Date('2026-07-31T10:01:00.000Z'),
+    messages: [],
+  };
+}
+
+async function mapearConversaDaFaxina(service: any, conversation: any, identityRow: any) {
+  service.resolveRecoveryRoutingContext = async () => ({
+    routeTarget: 'atendimento',
+    routeReason: null,
+    recoverySuggestedPath: null,
+    latestSourceModule: null,
+  });
+  return service.mapConversation(7, conversation, {} as any, identityRow, null);
+}
+
+test('IDENTIDADE HBX: o nome CADASTRADO vence o nome que o cliente usa no WhatsApp', async () => {
+  const { service } = createService();
+  // Cena do dono: vendedor cadastrou "Padaria do Ze"; o cliente se chama
+  // "Ze da Van" no WhatsApp. Antes de 31/07 a tela mostrava o do WhatsApp.
+  const mapped = await mapearConversaDaFaxina(
+    service,
+    conversaDaFaxina({ whatsappContactName: 'Ze da Van' }),
+    { id: 'ident-1', name: 'Padaria do Ze', customerProfile: { id: 'prof-1', name: 'Padaria do Ze' } },
+  );
+
+  assert.equal(mapped.customer.name, 'Padaria do Ze');
+  assert.equal(mapped.customer.isRegistered, true);
+  // Com cadastro existindo, a dica some — seria ruido na tela.
+  assert.equal(mapped.customer.suggestedName, null);
+});
+
+test('IDENTIDADE HBX: sem cadastro, o nome do WhatsApp vira DICA (nao vira identidade sozinho)', async () => {
+  const { service } = createService();
+  const mapped = await mapearConversaDaFaxina(
+    service,
+    conversaDaFaxina({ whatsappContactName: 'Ze da Van' }),
+    null,
+  );
+
+  // Ainda EXIBE (melhor que numero cru), mas marcado como nao-cadastrado e
+  // oferecido como sugestao pra tela pedir o cadastro em 1 clique.
+  assert.equal(mapped.customer.name, 'Ze da Van');
+  assert.equal(mapped.customer.isRegistered, false);
+  assert.equal(mapped.customer.suggestedName, 'Ze da Van');
+});
+
+test('IDENTIDADE HBX: foto de perfil do WhatsApp NUNCA sai no payload', async () => {
+  const { service } = createService();
+  // Mesmo com foto gravada no metadata (legado de antes da faxina), o contrato
+  // devolve null: a tela usa iniciais. Isto mata o "erro de fotos constante" —
+  // a URL da Meta e assinada e expira.
+  const mapped = await mapearConversaDaFaxina(
+    service,
+    conversaDaFaxina({
+      whatsappContactName: 'Ze da Van',
+      whatsappAvatarUrl: 'https://pps.whatsapp.net/v/t61.24694-24/expirada.jpg',
+      profilePicUrl: 'https://pps.whatsapp.net/outra.jpg',
+    }),
+    null,
+  );
+
+  assert.equal(mapped.customer.avatarUrl, null);
+});
+
+test('HISTORICO SOBERANO: o primeiro espelhamento NAO escava o chat antigo do aparelho', async () => {
+  const { service } = createService();
+  const syncCalls: Array<Record<string, any>> = [];
+  (service as any).resolveInboxWhatsappSessionScope = async () => ({
+    accessible: true,
+    mode: 'current',
+    currentSessionId: 'session-7',
+  });
+  (service as any).assertInboxWhatsappAccessible = () => undefined;
+  (service as any).webwhatsBridge = {
+    listContacts: async () => [],
+    syncRecentChats: async () => 1,
+    syncConversationMessagesDetailed: async (
+      _companyId: number,
+      _conversationId: number,
+      options: Record<string, any>,
+    ) => {
+      syncCalls.push(options);
+      return { syncedMessages: 0, mediaMessages: 0, pagesFetched: 1, remoteJids: [], avatarUrl: null, displayName: null };
+    },
+  };
+
+  await (service as any).runBootstrapFullMirror(7, 50, 6);
+
+  assert.equal(syncCalls.length > 0, true, 'o bootstrap precisa espelhar alguma coisa');
+  for (const options of syncCalls) {
+    // O teto que importa: era limit 120 x maxPages 80 = ate 9.600 msgs/conversa.
+    assert.equal(options.maxPages, 1, 'bootstrap nao pode paginar pra tras no historico do aparelho');
+    assert.equal(options.fullSync, false, 'bootstrap nao pode pedir sync completo do historico');
+    assert.ok(options.limit <= 30, `janela de cortesia estourou: limit=${options.limit}`);
+  }
+});
+
+test('HISTORICO SOBERANO: a REDE DE SEGURANCA anti-perda continua conferindo a janela recente', async () => {
+  // Este teste existe pra GRITAR se alguem, "limpando o historico", apagar
+  // junto a reconciliacao que impede mensagem do cliente de sumir quando o
+  // webhook do motor e engolido (ja aconteceu em producao). O dono foi
+  // explicito: "nao pode perder mensagens entre o cliente! isso e grave!".
+  const { service } = createService();
+  const syncCalls: Array<Record<string, any>> = [];
+  (service as any).buildWebwhatsConversationSelector = async () => ({ sessionId: 'session-7' });
+  (service as any).webwhatsBridge = {
+    syncConversationMessagesDetailed: async (
+      _companyId: number,
+      _conversationId: number,
+      options: Record<string, any>,
+    ) => {
+      syncCalls.push(options);
+      return { syncedMessages: 0, mediaMessages: 0, pagesFetched: 1, remoteJids: [], avatarUrl: null, displayName: null };
+    },
+  };
+
+  const erro = await (service as any).syncLatestInboxConversationWindow(7, 42);
+
+  assert.equal(erro, null);
+  assert.equal(syncCalls.length, 1, 'a rede de seguranca precisa consultar o motor');
+  assert.ok(syncCalls[0].limit >= 20, 'janela de conferencia pequena demais aumenta risco de perda');
+  assert.equal(syncCalls[0].force, true, 'a conferencia nao pode ser barrada por cache');
+});
+
+test('LIMPAR CONVERSA: some da caixa, preserva as mensagens e NUNCA apaga no WhatsApp', async () => {
+  const bridgeCalls: string[] = [];
+  const { service, conversationStateCalls } = createService({
+    prisma: {
+      companyMessage: {
+        findFirst: async () => null,
+        findMany: async () => [],
+        // 137 mensagens guardadas: o numero tem que sobreviver na auditoria.
+        count: async () => 137,
+        create: async ({ data }: any) => ({ id: 801, ...data }),
+        delete: async ({ where }: any) => ({ id: where.id }),
+        deleteMany: async () => ({ count: 0 }),
+      },
+    },
+    webwhatsBridge: {
+      // Qualquer chamada ao motor neste caminho e violacao da lei do dono.
+      deleteMessageForEveryone: async () => { bridgeCalls.push('deleteMessageForEveryone'); return true; },
+      updateBlockStatus: async () => { bridgeCalls.push('updateBlockStatus'); return true; },
+      archiveChat: async () => { bridgeCalls.push('archiveChat'); return true; },
+    },
+  });
+  (service as any).resolveInboxMutationSessionScope = async () => ({ mode: 'current', currentSessionId: 'session-7' });
+  (service as any).ensureConversation = async () => conversaDaFaxina({ cliente: 'Carlos' });
+  (service as any).appendInboxSystemEvent = async () => undefined;
+  const logs: Array<Record<string, any>> = [];
+  (service as any).logInboxEvent = async (payload: Record<string, any>) => { logs.push(payload); };
+
+  const result = await service.clearConversationFromInbox({ id: 6, companyId: 7 }, 42, { reason: 'finalizado' });
+
+  // 1) Sumiu da caixa — mas via metadata, sem deletar linha nenhuma.
+  assert.equal(result.cleared, true);
+  const patch = conversationStateCalls.at(-1)?.payload as any;
+  assert.ok(patch.metadata.hbxClearedAt, 'precisa carimbar quando foi limpa');
+  assert.equal(patch.metadata.hbxClearedByUserId, 6, 'auditoria: quem limpou');
+  assert.equal(patch.metadata.hbxClearedReason, 'finalizado');
+
+  // 2) O historico continua salvo — "auditoria sim, sujeira nao".
+  assert.equal(result.preservedMessages, 137);
+  assert.equal(patch.metadata.hbxClearedMessageCount, 137);
+
+  // 3) A LEI DURA: zero comando de exclusao pro WhatsApp.
+  assert.deepEqual(bridgeCalls, [], 'limpar no HBX NAO pode falar com o motor do WhatsApp');
+
+  // 4) Ficou registrado pra auditoria.
+  assert.equal(logs.some((l) => l.event === 'conversation_cleared_from_inbox'), true);
+});
+
+test('LIMPAR CONVERSA: conversa limpa fica invisivel na listagem, e restaurar traz de volta', async () => {
+  const { service } = createService();
+
+  const limpa = (service as any).getConversationClearedState({
+    hbxClearedAt: '2026-07-31T12:00:00.000Z',
+    hbxClearedByUserId: 6,
+    hbxClearedMessageCount: 137,
+  });
+  assert.equal(limpa.isCleared, true);
+  assert.equal(limpa.preservedMessageCount, 137);
+
+  // Restaurar limpa as marcas — a conversa volta pra caixa intacta.
+  (service as any).resolveInboxMutationSessionScope = async () => ({ mode: 'current', currentSessionId: 'session-7' });
+  (service as any).ensureConversation = async () => conversaDaFaxina({
+    hbxClearedAt: '2026-07-31T12:00:00.000Z',
+    hbxClearedByUserId: 6,
+    hbxClearedReason: 'finalizado',
+    hbxClearedMessageCount: 137,
+  });
+  (service as any).logInboxEvent = async () => undefined;
+  (service as any).getConversationByIdForCompany = async () => ({ id: '42' });
+  const stateCalls: Array<Record<string, any>> = [];
+  (service as any).conversations = {
+    updateConversationState: async (_c: number, _id: number, payload: Record<string, any>) => {
+      stateCalls.push(payload);
+      return {};
+    },
+  };
+
+  await service.restoreConversationToInbox({ id: 6, companyId: 7 }, 42);
+
+  const restored = stateCalls.at(-1)?.metadata as Record<string, unknown>;
+  assert.equal(restored.hbxClearedAt, undefined);
+  assert.equal(restored.hbxClearedByUserId, undefined);
+  assert.equal((service as any).getConversationClearedState(restored).isCleared, false);
 });

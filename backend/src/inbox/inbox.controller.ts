@@ -190,7 +190,16 @@ export class InboxController {
   updateStatusCard(
     @Req() req: any,
     @Param('id', ParseIntPipe) id: number,
-    @Body() dto: { doNotCall?: boolean; closureReason?: string | null; returnAt?: string | null; observations?: string | null },
+    @Body()
+    dto: {
+      doNotCall?: boolean;
+      closureReason?: string | null;
+      returnAt?: string | null;
+      observations?: string | null;
+      // Cadastro do nome pela tela de Conversas (31/07/2026). Grava a identidade
+      // HBX do contato — passa a valer sobre qualquer nome vindo do WhatsApp.
+      name?: string | null;
+    },
   ) {
     return this.inboxService.updateConversationStatusCard(req.user, id, dto || {});
   }
@@ -225,6 +234,23 @@ export class InboxController {
     @Body() dto: BlockConversationDto,
   ) {
     return this.inboxService.blockConversation(req.user, id, dto?.reason);
+  }
+
+  // Limpar/restaurar conversa NA CAIXA DO HBX (31/07/2026). Some da tela; as
+  // mensagens continuam salvas no histórico do cliente. NUNCA manda exclusão
+  // pro WhatsApp — ver clearConversationFromInbox.
+  @Patch('conversations/:id/clear')
+  clearConversation(
+    @Req() req: any,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: { reason?: string | null },
+  ) {
+    return this.inboxService.clearConversationFromInbox(req.user, id, dto || {});
+  }
+
+  @Patch('conversations/:id/restore')
+  restoreConversation(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+    return this.inboxService.restoreConversationToInbox(req.user, id);
   }
 
   @Patch('conversations/:id/unblock')
