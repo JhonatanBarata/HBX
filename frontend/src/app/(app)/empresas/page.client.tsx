@@ -26,6 +26,7 @@ import {
 } from "@/components/hbx/panel-shell";
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
+import { formatBrPhone } from "@/lib/br-phone";
 
 type EmpresaListItem = {
   id: string;
@@ -90,16 +91,6 @@ function fmtCnpj(cnpj: string | null): string {
   const d = String(cnpj || "").replace(/\D+/g, "");
   if (d.length !== 14) return cnpj || "—";
   return `${d.slice(0, 2)}.${d.slice(2, 5)}.${d.slice(5, 8)}/${d.slice(8, 12)}-${d.slice(12)}`;
-}
-
-function fmtPhone(v: string | null): string {
-  const d = String(v || "").replace(/\D+/g, "");
-  if (d.length < 10) return v || "—";
-  const ddd = d.slice(0, 2);
-  const rest = d.slice(2);
-  return rest.length === 9
-    ? `(${ddd}) ${rest.slice(0, 5)}-${rest.slice(5)}`
-    : `(${ddd}) ${rest.slice(0, 4)}-${rest.slice(4)}`;
 }
 
 function localCityUf(cidade: string | null, uf: string | null): string {
@@ -177,7 +168,7 @@ function Ficha({ id, onClose }: { id: string; onClose: () => void }) {
               <div className="row"><span className="k">Cidade / UF</span><span className={`v${localCityUf(data.cidade, data.uf) ? "" : " is-empty"}`}>{localCityUf(data.cidade, data.uf) || "—"}</span></div>
               <div className="row"><span className="k">Endereço</span><span className={`v${data.endereco ? "" : " is-empty"}`}>{data.endereco || "—"}</span></div>
               <div className="row"><span className="k">CEP</span><span className={`v${data.cep ? "" : " is-empty"}`}>{data.cep || "—"}</span></div>
-              <div className="row"><span className="k">Telefone</span><span className={`v${data.phone ? "" : " is-empty"}`}>{data.phone ? fmtPhone(data.phone) : "—"}</span></div>
+              <div className="row"><span className="k">Telefone</span><span className={`v${data.phone ? "" : " is-empty"}`}>{data.phone ? formatBrPhone(data.phone) : "—"}</span></div>
               <div className="row"><span className="k">E-mail</span><span className={`v${data.email ? "" : " is-empty"}`}>{data.email || "—"}</span></div>
               <div className="row"><span className="k">Origem</span><span className={`v${data.origin ? "" : " is-empty"}`}>{data.origin || "—"}</span></div>
             </div>
@@ -193,7 +184,7 @@ function Ficha({ id, onClose }: { id: string; onClose: () => void }) {
                 <p className="hint">Nenhum contato vinculado a esta empresa ainda.</p>
               )}
               {data.contatos.map((c) => {
-                const canal = c.whatsapp ? fmtPhone(c.whatsapp) : c.phone ? fmtPhone(c.phone) : c.email || "";
+                const canal = c.whatsapp ? formatBrPhone(c.whatsapp) : c.phone ? formatBrPhone(c.phone) : c.email || "";
                 return (
                   <div className="emp-contact" key={c.id}>
                     <span className="emp-contact__ico"><I d={ICONS.users} size={16} /></span>
@@ -266,6 +257,10 @@ function EmpresaContext({
   const [data, setData] = useState<EmpresaDetail>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editando, setEditando] = useState(false);
+  const [addContato, setAddContato] = useState(false);
+  const [editContato, setEditContato] = useState<EmpresaContato | null>(null);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     if (!id) {
@@ -289,7 +284,14 @@ function EmpresaContext({
     return () => {
       alive = false;
     };
-  }, [id]);
+  }, [id, refreshKey]);
+
+  function afterEdit() {
+    setEditando(false);
+    setAddContato(false);
+    setEditContato(null);
+    setRefreshKey((key) => key + 1);
+  }
 
   if (!id) {
     return (
@@ -346,7 +348,7 @@ function EmpresaContext({
             <HbxContextFact label="CNPJ" value={data.cnpj ? fmtCnpj(data.cnpj) : "Não informado"} />
             <HbxContextFact label="Endereço" value={data.endereco || "Não informado"} />
             <HbxContextFact label="CEP" value={data.cep || "Não informado"} />
-            <HbxContextFact label="Telefone" value={data.phone ? fmtPhone(data.phone) : "Não informado"} />
+            <HbxContextFact label="Telefone" value={data.phone ? formatBrPhone(data.phone) : "Não informado"} />
             <HbxContextFact label="E-mail" value={data.email || "Não informado"} />
           </HbxContextFacts>
           <div className="hbx-panel-context__section">
@@ -355,22 +357,69 @@ function EmpresaContext({
               <span className="hbx-panel-context__muted">Nenhum contato vinculado.</span>
             ) : (
               data.contatos.slice(0, 4).map((contact) => (
-                <div className="hbx-panel-context__compact-row" key={contact.id}>
+                <button
+                  type="button"
+                  className="hbx-panel-context__compact-row emp-context-contact"
+                  key={contact.id}
+                  onClick={() => setEditContato(contact)}
+                  title={`Editar ${contact.nome}`}
+                >
                   <I d={ICONS.users} size={13} />
                   <span>
                     <strong>{contact.nome}</strong>
                     <small>{contact.cargo || contact.email || "Contato"}</small>
                   </span>
-                </div>
+                  <I d={ICONS.edit} size={12} />
+                </button>
               ))
             )}
           </div>
-          <div className="hbx-panel-context__actions">
+          <div className="hbx-panel-context__actions emp-context-actions">
+            <button type="button" className="btn-ghost" onClick={() => setEditando(true)}>
+              <I d={ICONS.edit} size={13} /> Editar empresa
+            </button>
+            <button type="button" className="btn-ghost" onClick={() => setAddContato(true)}>
+              <I d={ICONS.plus} size={13} /> Novo contato
+            </button>
             <button type="button" className="btn-teal" onClick={() => onOpenFull(data.id)}>
               Abrir ficha completa <I d={ICONS.arrow} size={13} />
             </button>
           </div>
         </>
+      )}
+      {editando && data && (
+        <EditarContaModal
+          conta={{
+            id: data.id,
+            nome: data.name,
+            tipo: "pj",
+            email: data.email,
+            phone: data.phone,
+            endereco: data.endereco,
+            cidade: data.cidade,
+            uf: data.uf,
+            cep: data.cep,
+            isCliente: data.isCliente,
+            isLead: data.isLead,
+            isFornecedor: data.isFornecedor,
+          }}
+          onClose={() => setEditando(false)}
+          onSaved={afterEdit}
+        />
+      )}
+      {addContato && data && (
+        <AdicionarContatoModal
+          customerProfileId={data.id}
+          onClose={() => setAddContato(false)}
+          onSaved={afterEdit}
+        />
+      )}
+      {editContato && (
+        <EditarContatoModal
+          contato={editContato}
+          onClose={() => setEditContato(null)}
+          onSaved={afterEdit}
+        />
       )}
     </>
   );
@@ -417,15 +466,16 @@ export function EmpresasClient() {
   const totalPages = data?.totalPages || 1;
 
   const main = (
-    <div className="work hbx-panel-shell__route-work" style={{ flex: 1 }}>
-      <section className="panel">
-        <div className="panel-head">
-          <h2>Empresas</h2>
-          <div className="meta"><span>{total} PJ</span></div>
+    <section className="emp-live">
+      <header className="emp-command">
+        <div className="emp-command__identity">
+          <span className="emp-command__icon"><I d={ICONS.empresas} size={17} /></span>
+          <span>
+            <strong>Empresas</strong>
+            <small>{total} contas PJ</small>
+          </span>
         </div>
-
-        <div className="hbx-panel-toolbar">
-          <form className="emp-toolbar" onSubmit={submitSearch}>
+        <form className="emp-toolbar emp-command__form" onSubmit={submitSearch}>
             <input
               className="field-dark emp-search"
               placeholder="Buscar por nome, CNPJ ou cidade…"
@@ -444,15 +494,33 @@ export function EmpresasClient() {
             <button className="btn-teal" type="submit">
               <I d={ICONS.search} size={13} /> Buscar
             </button>
-            {loading && <span className="emp-count">carregando…</span>}
-          </form>
-        </div>
+        </form>
+        <span className={"emp-command__status" + (loading ? " is-loading" : "")}>
+          <i aria-hidden="true" />
+          {loading ? "Atualizando" : `${items.length} nesta página`}
+        </span>
+      </header>
 
+      <div className="emp-list-head" aria-hidden="true">
+        <span>Empresa</span>
+        <span>Papéis</span>
+        <span>Contatos</span>
+      </div>
+
+      <div className="emp-live__body">
         {error && (
           <div className="emp-empty">
             <strong className="emp-empty__title">As empresas não carregaram</strong>
             <span className="emp-empty__text">{error}</span>
             <button className="btn-ghost" onClick={() => load(query, uf, page)}>Tentar novamente</button>
+          </div>
+        )}
+
+        {!error && loading && items.length === 0 && (
+          <div className="emp-live-skeleton" aria-label="Carregando empresas" role="status">
+            {Array.from({ length: 8 }).map((_, index) => (
+              <span className="emp-live-skeleton__line" key={index} />
+            ))}
           </div>
         )}
 
@@ -473,7 +541,8 @@ export function EmpresasClient() {
                 .filter(Boolean).join("  ·  ");
               return (
                 <button
-                  className={"emp-row" + (selectedId === e.id ? " is-active" : "")}
+                  type="button"
+                  className={"emp-row hbx-selectable-row" + (selectedId === e.id ? " is-active" : "")}
                   key={e.id}
                   onClick={() => setSelectedId(e.id)}
                 >
@@ -493,26 +562,27 @@ export function EmpresasClient() {
             })}
           </div>
         )}
+      </div>
 
-        {!error && totalPages > 1 && (
-          <div className="emp-pager">
-            <button className="btn-ghost btn-xs" disabled={page <= 1 || loading} onClick={() => setPage((p) => Math.max(1, p - 1))}>
-              Anterior
-            </button>
-            <span className="emp-pager__info">Página {page} de {totalPages}</span>
-            <button className="btn-ghost btn-xs" disabled={page >= totalPages || loading} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
-              Próxima
-            </button>
-          </div>
-        )}
-      </section>
-    </div>
+      {!error && totalPages > 1 && (
+        <div className="emp-pager">
+          <button className="btn-ghost btn-xs" disabled={page <= 1 || loading} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+            Anterior
+          </button>
+          <span className="emp-pager__info">Página {page} de {totalPages}</span>
+          <button className="btn-ghost btn-xs" disabled={page >= totalPages || loading} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
+            Próxima
+          </button>
+        </div>
+      )}
+    </section>
   );
 
   return (
     <>
       <HbxPanelShell
         variant="context"
+        className="emp-live-shell"
         ariaLabel="Empresas"
         contextLabel="Detalhes da empresa"
         main={main}

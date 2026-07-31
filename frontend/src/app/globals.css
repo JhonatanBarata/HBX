@@ -160,6 +160,10 @@
    casca compacta dos módulos operacionais. */
 @import "./hbx-theme/conversas-live.css";
 
+/* CADASTROS LIVE — Empresas, Contatos, Clientes e Produtos compartilham
+   comando, lista densa e detalhe contextual. */
+@import "./hbx-theme/cadastros-live.css";
+
 /* AGENDA LIVE — calendário operacional com visualizações dia, semana e mês,
    compromissos proporcionais ao horário e detalhe contextual. */
 @import "./hbx-theme/agenda-live.css";
