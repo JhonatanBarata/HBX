@@ -92,7 +92,11 @@ const fakeWebscraping = {
       .replace(/[̀-ͯ]/g, '')
       .toLowerCase();
     if (flat.includes('vitoria das missoes')) return { items: ['Vitória das Missões - RS'] };
-    if (flat.includes('santa maria')) return { items: ['Santa Maria - RS', 'Santa Maria da Vitória - BA'] };
+    // O IBGE devolve MESMO várias "Santa Maria" (RS, RN, DF...) — é isso que
+    // fez o código escolher a errada quando rodei a cena com IA real.
+    if (flat.includes('santa maria')) {
+      return { items: ['Santa Maria - RN', 'Santa Maria - RS', 'Santa Maria da Vitória - BA'] };
+    }
     return { items: [] };
   },
   async startRadarSearchRunForUser(_user: any, input: any) {
@@ -151,7 +155,11 @@ function fakeExtractorJson(text: string): string {
   if (text.includes('outro estado')) return slots({ intent: 'question', topic: 'coverage' });
   if (text.includes('consegue me responder')) return slots({ intent: 'question', topic: 'other' });
   if (text.includes('quanto') && text.includes('custa')) return slots({ intent: 'question', topic: 'cost' });
-  if (text.includes('santa maria')) return slots({ intent: 'change_request', changeTarget: 'city', city: 'Santa Maria' });
+  if (text.includes('santa maria')) {
+    return text.includes('padarias')
+      ? slots({ intent: 'radar_search', targetSegment: 'padarias', city: 'Santa Maria', desiredCount: 10 })
+      : slots({ intent: 'change_request', changeTarget: 'city', city: 'Santa Maria' });
+  }
   if (text.includes('outra cidade')) return slots({ intent: 'change_request', changeTarget: 'city' });
   if (text.includes('esquece')) return slots({ intent: 'cancel' });
   return slots({ intent: 'unclear', confidence: 0.4 });
@@ -283,6 +291,51 @@ test('VACINA: mesmo com o modelo BURRO (classifica tudo como busca vazia), o res
       // E, mesmo sem entender, a máquina mostra as saídas e não perde a busca.
       assert.match(String(t2.reply), /confirmar|mudar/i);
       assert.equal(t2.draft?.confirmToken, t1.draft?.confirmToken);
+    } finally {
+      ollama.restore();
+    }
+  });
+});
+
+test('CIDADE HOMÔNIMA: "Santa Maria" não é escolhida sozinha — a máquina PERGUNTA qual', async () => {
+  // Achado rodando a cena com IA real (31/07): o cliente buscava no RS, pediu
+  // "muda pra Santa Maria" e o código adotou "Santa Maria - RN" (a primeira da
+  // lista do IBGE). A busca sairia no estado errado, com o cliente pagando por
+  // leads inúteis — e ninguém veria o erro. Escolher cidade no chute é proibido.
+  await withEnv({ ...ON, HBX_AI_CONCIERGE_VOICE: 'off' }, async () => {
+    const ollama = installFakeOllama();
+    try {
+      const service = buildService();
+      const out = await service.message(DONO, { message: 'quero 10 padarias em Santa Maria' });
+
+      assert.equal(out.draft?.slots.city, null, 'homônima não pode virar slot no chute');
+      assert.match(String(out.reply), /mais de uma "Santa Maria"/i);
+      const opcoes = (out.chips || []).filter((chip: any) => chip.kind === 'slot' && chip.field === 'city').map((chip: any) => chip.label);
+      assert.deepEqual(opcoes, ['Santa Maria - RN', 'Santa Maria - RS'], 'as duas homônimas viram opção; a de nome diferente fica de fora');
+
+      // Escolhendo pelo chip, a busca fecha na cidade certa.
+      const escolhida = await service.setSlot(DONO, { draftId: out.draft!.id, field: 'city', value: 'Santa Maria - RS' });
+      assert.equal(escolhida.draft?.slots.city, 'Santa Maria - RS');
+      assert.equal(escolhida.draft?.slots.placeLabel, 'Santa Maria - RS');
+    } finally {
+      ollama.restore();
+    }
+  });
+});
+
+test('CIDADE HOMÔNIMA: com a UF dita pelo cliente, o código resolve sem perguntar', async () => {
+  await withEnv({ ...ON, HBX_AI_CONCIERGE_VOICE: 'off' }, async () => {
+    const ollama = installFakeOllama(() => '-', () =>
+      JSON.stringify({
+        intent: 'radar_search', targetSegment: 'padarias', city: 'Santa Maria', state: 'RS',
+        desiredCount: 10, channels: [], topic: null, changeTarget: null, confidence: 0.9,
+      }),
+    );
+    try {
+      const out = await buildService().message(DONO, { message: 'quero 10 padarias em Santa Maria RS' });
+      assert.equal(out.draft?.slots.city, 'Santa Maria - RS');
+      assert.equal(out.draft?.state, 'PREVIEW', 'com a UF dita não há por que perguntar');
+      assert.ok(!/RS\s*-\s*RS/.test(String(out.reply)));
     } finally {
       ollama.restore();
     }

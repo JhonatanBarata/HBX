@@ -339,10 +339,12 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
     // Cidade da IA é CANDIDATA: só vira slot depois de casar com a lista real (§2.2 item 4).
     const cityCheck = await this.validateCity(slots);
     slots = cityCheck.slots;
-    if (cityCheck.invalidCity) {
-      const official = cityCheck.suggestions.length
-        ? `Não achei "${cityCheck.invalidCity}" — é alguma destas?`
-        : `Só atendo cidades do Brasil e não achei "${cityCheck.invalidCity}". Qual é a cidade?`;
+    if (cityCheck.invalidCity || cityCheck.ambiguousCity) {
+      const official = cityCheck.ambiguousCity
+        ? `Existe mais de uma "${cityCheck.ambiguousCity}" no Brasil. Qual delas?`
+        : cityCheck.suggestions.length
+          ? `Não achei "${cityCheck.invalidCity}" — é alguma destas?`
+          : `Só atendo cidades do Brasil e não achei "${cityCheck.invalidCity}". Qual é a cidade?`;
       const reply = await voice(official);
       await this.saveDraft(workingDraft.id, slots, meta, this.stateFor(slots), workingDraft);
       await this.appendTranscript(workingDraft.id, text, reply);
@@ -429,8 +431,12 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
       slots = { ...slots, intent: 'radar_search', city: value, cityValidated: false };
       const cityCheck = await this.validateCity(slots);
       slots = cityCheck.slots;
-      if (cityCheck.invalidCity) {
-        const reply = cityCheck.suggestions.length ? `Não achei "${cityCheck.invalidCity}" — é alguma destas?` : 'Não achei essa cidade. Tente de novo.';
+      if (cityCheck.invalidCity || cityCheck.ambiguousCity) {
+        const reply = cityCheck.ambiguousCity
+          ? `Existe mais de uma "${cityCheck.ambiguousCity}" no Brasil. Qual delas?`
+          : cityCheck.suggestions.length
+            ? `Não achei "${cityCheck.invalidCity}" — é alguma destas?`
+            : 'Não achei essa cidade. Tente de novo.';
         await this.saveDraft(draft.id, slots, meta, this.stateFor(slots), draft);
         const fresh = await this.getDraftOrThrow(ctx, draft.id);
         return {
@@ -583,14 +589,14 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Cidade SEMPRE validada contra a lista real (código, §2.2 item 4). */
-  private async validateCity(slots: ConciergeSlots): Promise<{ slots: ConciergeSlots; invalidCity: string | null; suggestions: string[] }> {
-    if (!slots.city || slots.cityValidated) return { slots, invalidCity: null, suggestions: [] };
+  private async validateCity(slots: ConciergeSlots): Promise<{ slots: ConciergeSlots; invalidCity: string | null; ambiguousCity: string | null; suggestions: string[] }> {
+    if (!slots.city || slots.cityValidated) return { slots, invalidCity: null, ambiguousCity: null, suggestions: [] };
     let result: { items: string[] } | null = null;
     try {
       result = await this.webscraping.listBrazilianCities(slots.city, 6);
     } catch {
       // IBGE fora do ar: degrada aceitando o texto (a busca real é o gate final).
-      return { slots: { ...slots, cityValidated: true }, invalidCity: null, suggestions: [] };
+      return { slots: { ...slots, cityValidated: true }, invalidCity: null, ambiguousCity: null, suggestions: [] };
     }
     const normalize = (value: string) =>
       String(value || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
@@ -599,19 +605,42 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
     // "Curitiba - PR"). Casa pelo item inteiro OU só pela parte da cidade; ao
     // casar, adota o item CANÔNICO (o normalizador do Radar aceita "Cidade - UF")
     // e resolve a UF deterministicamente pelo sufixo — código, não IA (§2.2#7).
-    const exact = (result?.items || []).find((item) => {
+    const matches = (result?.items || []).filter((item) => {
       const whole = normalize(item);
       return whole === target || normalize(String(item).split(' - ')[0]) === target;
     });
+    const ufOf = (item: string) => String(item).split(' - ')[1]?.trim().toUpperCase() || null;
+
+    // HOMÔNIMAS (achado no teste da cena, 31/07): "Santa Maria" existe em RS, RN,
+    // DF... e o código pegava a PRIMEIRA da lista — o cliente pedia RS e a busca
+    // sairia no RN, gastando crédito no estado errado, sem ninguém perceber.
+    // Com UF dita, filtra; sem UF, PERGUNTA. Máquina não escolhe cidade sozinha.
+    if (matches.length > 1) {
+      const byState = slots.state ? matches.filter((item) => ufOf(item) === slots.state) : [];
+      if (byState.length === 1) {
+        return { slots: { ...slots, city: byState[0], cityValidated: true }, invalidCity: null, ambiguousCity: null, suggestions: [] };
+      }
+      if (!slots.state) {
+        return {
+          slots: { ...slots, city: null, cityValidated: false },
+          invalidCity: null,
+          ambiguousCity: slots.city,
+          suggestions: matches.slice(0, 5),
+        };
+      }
+    }
+
+    const exact = matches[0];
     if (exact) {
-      const suffix = String(exact).split(' - ')[1]?.trim().toUpperCase() || null;
+      const suffix = ufOf(exact);
       const state = slots.state || (suffix && (BRAZIL_UFS as readonly string[]).includes(suffix) ? suffix : null);
-      return { slots: { ...slots, city: exact, state, cityValidated: true }, invalidCity: null, suggestions: [] };
+      return { slots: { ...slots, city: exact, state, cityValidated: true }, invalidCity: null, ambiguousCity: null, suggestions: [] };
     }
     const invalid = slots.city;
     return {
       slots: { ...slots, city: null, cityValidated: false },
       invalidCity: invalid,
+      ambiguousCity: null,
       suggestions: (result?.items || []).slice(0, 5),
     };
   }
