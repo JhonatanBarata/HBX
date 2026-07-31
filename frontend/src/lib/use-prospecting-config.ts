@@ -146,21 +146,27 @@ export const STATUS_LABEL: Record<string, string> = {
 
 export type PieceKey = "ritmo" | "digitacao" | "limite" | "alvo" | "mensagens" | "palavras";
 
+// REGRAS DA CASA (31/07/2026): horário, teto por dia, intervalo, variação e
+// digitação SAÍRAM daqui — moram na frase viva do /automacao (a CASA,
+// VendasComercialConfig, é a fonte única desde a migration
+// 20260801000000_casa_risco_identidade). Mesmo número em duas telas foi
+// exatamente como nasceu o "teto tinha 3 números": a tela consertada não
+// consertava o que o motor obedecia. O nível de disparo (conservador/médio/
+// agressivo) é quem grava esses 4 campos agora, e ele também mora lá.
+// Sobra aqui o que é só da campanha: estoque de leads, textos e palavras.
 export const PIECES: { key: PieceKey; label: string; icon: string; tone: string }[] = [
-  { key: "ritmo",     label: "Ritmo de disparo",     icon: "clock",  tone: "var(--hbx-brand)" },
-  { key: "digitacao", label: "Digitação humana",     icon: "bolt",   tone: "var(--hbx-info)" },
-  { key: "limite",    label: "Limite diário",        icon: "bell",   tone: "var(--hbx-warning)" },
-  { key: "alvo",      label: "Alvo & horário",       icon: "mapin",  tone: "var(--hbx-success)" },
+  { key: "alvo",      label: "Estoque de leads",     icon: "users",  tone: "var(--hbx-success)" },
   { key: "mensagens", label: "Mensagens alternadas", icon: "msg",    tone: "var(--hbx-secondary)" },
   { key: "palavras",  label: "Detecção por IA",      icon: "bot",    tone: "var(--hbx-secondary)" },
 ];
 
 // Campos numéricos/strings por peça (pra detectar "editado" — só leitura do draft).
+// `alvo` perdeu workingHours* junto com a peça "Alvo & horário": horário é da CASA.
 export const PIECE_FIELDS: Record<"ritmo" | "digitacao" | "limite" | "alvo", (keyof ProspCfg)[]> = {
   ritmo: ["intervalMinutes", "intervalVarianceMinutes", "botReplyIntervalReductionPercent"],
   digitacao: ["typingSeconds", "typingVarianceSeconds"],
   limite: ["dailyLimit", "maxAttemptsPerLead"],
-  alvo: ["workingHoursStart", "workingHoursEnd", "minLeadBuffer", "desiredLeadBuffer"],
+  alvo: ["minLeadBuffer", "desiredLeadBuffer"],
 };
 
 // Listas de variantes da peça "Mensagens alternadas" (cada lista = um grupo).
@@ -372,7 +378,9 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
         return `até ${efetivo}/dia · ${teto} · ${numVal("maxAttemptsPerLead")} tentativa(s)/lead`;
       }
       case "alvo":
-        return `${strVal("workingHoursStart")}–${strVal("workingHoursEnd")} · estoque ${numVal("minLeadBuffer")}–${numVal("desiredLeadBuffer")}`;
+        // Horário saiu do resumo junto com os campos: quem manda no expediente
+        // é a frase viva das Regras da casa (/automacao), não esta peça.
+        return `estoque ${numVal("minLeadBuffer")}–${numVal("desiredLeadBuffer")} leads`;
       case "mensagens": {
         const n = listVal("firstContactVariants").length;
         return n > 0 ? `${n} variante(s) de 1º contato` : "mensagens padrão do motor";
@@ -388,7 +396,7 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
       default:
         return "";
     }
-  }, [numVal, strVal, listVal, live]);
+  }, [numVal, listVal, live]);
 
   return {
     live, loadErr, campaign, draft, dirty, busy, saveMsg, canSave,

@@ -348,6 +348,14 @@ export function SecaoProspeccao({ motor, onChanged }: { motor: MotorBlock; onCha
             <I d={ICONS.search} size={13} /> Abrir configuração
           </button>
         </div>
+        {/* REGRAS DA CASA (31/07): teto por dia, intervalo, janela de horário e
+            digitação saíram desta seção — mesmo número em duas telas foi como
+            nasceu o "teto tinha 3 números". Aqui fica só o alvo, os textos, as
+            palavras-chave e o estoque; o ritmo mora na frase viva do hub. */}
+        <div className="auto-flag-note">
+          <I d={ICONS.clock} size={14} />
+          Ritmo e horário moram nas Regras da casa, no topo da Automação.
+        </div>
       </section>
 
       {/* ── "Ritmo de toques" — item 3: cards de persona + aplicar, visual integrado ── */}

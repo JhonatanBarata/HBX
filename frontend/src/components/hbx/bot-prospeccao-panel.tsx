@@ -15,10 +15,9 @@ import { useRouter } from "next/navigation";
 import { I, ICONS } from "@/components/hbx/shell";
 import { BotTermsModal, isBotTermsAccepted, setBotTermsAccepted } from "@/components/hbx/bot-terms-modal";
 import { BotAvisoModal } from "@/components/hbx/bot-aviso-modal";
-import { ProspPieceBody, aquecerIaProspeccao, type ProspFieldHelpers } from "@/components/hbx/bot-prosp-fields";
+import { NumberField, ProspPieceBody, aquecerIaProspeccao, type ProspFieldHelpers } from "@/components/hbx/bot-prosp-fields";
 import type { VarDef } from "@/components/hbx/bot-variables-drawer";
 import { BotProspeccaoSandbox } from "@/components/hbx/bot-prospeccao-sandbox";
-import { NivelDisparoCard } from "@/components/hbx/nivel-disparo-card";
 // Só o TIPO do payload com o freio anti-ban (`coldGate`) — o mesmo GET
 // /vendas/automation/live-status que esta tela já carrega. `import type` some no
 // build (não puxa o componente do painel pra cá).
@@ -126,7 +125,7 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
   function handleStartOrResume(path: "start" | "resume") {
     if (live && !isProspConfigComplete(live)) {
       setOpenPiece("mensagens");
-      cfg.setSaveMsg("Complete ritmo, limite diário e a 1ª mensagem antes de iniciar.");
+      cfg.setSaveMsg("Escreva a mensagem de 1º contato antes de iniciar.");
       return;
     }
     if (isBotTermsAccepted("prospeccao")) {
@@ -199,10 +198,16 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
         </div>
       </div>
 
-      {/* ── ESQUERDA: 6 peças em coluna única ── */}
+      {/* ── ESQUERDA: as peças que ainda são DA CAMPANHA, em coluna única ── */}
       <div className="bot-prosp__main">
-        {/* Nível de disparo: responde "onde eu estou?" antes de qualquer gaveta abrir. */}
-        <NivelDisparoCard live={live} busy={busy} onAplicar={nivel => { void cfg.aplicarNivel(nivel); }} />
+        {/* REGRAS DA CASA (31/07): ritmo, horário, teto, digitação e o NÍVEL de
+            disparo saíram desta gaveta — moram na frase viva do /automacao, que
+            é a fonte única (a CASA). Mesmo número em duas telas foi como nasceu
+            o "teto tinha 3 números". Aqui fica o aviso de onde eles moram. */}
+        <div className="auto-flag-note">
+          <I d={ICONS.clock} size={14} />
+          Ritmo, horário e nível moram nas Regras da casa, no topo da Automação.
+        </div>
         <div className="bot-prosp__pieces">
           {PIECES.map(p => {
             const edited = p.key === "mensagens"
@@ -340,7 +345,7 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
         <BotAvisoModal
           alert={botAlert}
           onDismiss={() => setDismissedAlertKind(botAlert.kind)}
-          onConfigure={() => setOpenPiece("ritmo")}
+          onConfigure={() => setOpenPiece("mensagens")}
           onViewCredits={() => router.push("/configuracoes")}
           onAdjustFilter={() => setOpenPiece("alvo")}
         />
@@ -371,7 +376,18 @@ function ProspEditorInline({ piece, onClose, h }: { piece: PieceKey; onClose: ()
         <button type="button" className="bot-prosp-editor__close" aria-label="Fechar" title="Fechar" onClick={onClose}>✕</button>
       </header>
       <div className="bot-prosp-editor__body">
-        <ProspPieceBody piece={piece} h={h} />
+        {/* "Estoque de leads" é o que sobrou da antiga peça "Alvo & horário":
+            os dois campos de horário viraram números da frase viva das Regras
+            da casa (fonte única). O corpo padrão da peça continua servindo
+            todas as outras — só esta ganha um recorte aqui. */}
+        {piece === "alvo" ? (
+          <>
+            <NumberField label="Estoque mínimo de leads" value={h.numVal("minLeadBuffer")} min={1} max={500} onChange={v => h.setNum("minLeadBuffer", v, 1, 500)} />
+            <NumberField label="Estoque desejado de leads" value={h.numVal("desiredLeadBuffer")} min={1} max={500} onChange={v => h.setNum("desiredLeadBuffer", v, 1, 500)} />
+          </>
+        ) : (
+          <ProspPieceBody piece={piece} h={h} />
+        )}
       </div>
       <footer className="bot-prosp-editor__foot">
         <button type="button" className="btn-teal bot-prosp-editor__done" onClick={onClose}>

@@ -1,51 +1,42 @@
 "use client";
 
-// S12 (MOTOR-ÚNICO) — /automacao: a CASCA ÚNICA. Hub de entrada POR OBJETIVO
-// (padrão Intercom/HubSpot/ManyChat/Blip), no lugar de 3 telas soltas
-// (/bot + /automacoes + /assistente). HERO com identidade + chip do motor
-// (pré-voo do chip WhatsApp) e PAINEL DE STATUS: 4 cartões-objetivo com
-// estado REAL, consumindo GET /automation/overview (fail-soft — bloco
-// `ok:false` vira aviso no cartão, nunca derruba a tela; ver
-// automation-overview.service.ts).
+// /automacao — UMA FUNCIONÁRIA DIGITAL, TRÊS TURNOS (reforma de 31/07/2026).
 //
-// Navegação por seção fica NA MESMA rota via `?secao=`, estado LOCAL (sem
-// sub-rota Next — README "Regras de orquestração"). S13-S16 substituíram o
-// placeholder "em migração" pelo conteúdo real, seção por seção — S16 (a
-// última, "Reagir e abastecer") fecha a Fase 3. As telas velhas (/bot,
-// /automacoes, /assistente) continuam no ar e intocadas — matar/redirecionar
-// é trabalho da S17.
+// A tela deixou de ser um "painel de módulos" e passou a ser a mesa de quem
+// trabalha pela empresa. De cima pra baixo, na ordem em que a pergunta nasce:
 //
-// Gates (README decisão nº2, revisada pós-S03 — S04-modulo-automation-
-// overview.md "Gate de 3 chaves"):
-//   · item da sidebar (shell.tsx) = atendimento OU bot OU vendas.
-//   · cartão "Atender sozinho"    = atendimento OU bot.
-//   · cartão "Cobrar quem deve"   = bot E atendimento (o bloco `cobranca` do
-//     overview só sai ok:true quando as DUAS chaves batem — o recovery
-//     bot-config é gateado por `atendimento`, a ativação por `bot`;
-//     automation-overview.service.ts `buildCobranca`). Usar OR aqui deixaria
-//     o cartão visível e permanentemente "indisponível" pra quem só tem uma
-//     das duas — pior que escondê-lo.
-//   · cartão "Buscar clientes"/"Reagir e abastecer" = vendas.
-// Fonte do gate por SEÇÃO é o `moduleAccess` que o PRÓPRIO overview devolve
-// (já calculado por usuário no backend) — não se refaz outra leitura de
-// /modules/me aqui; isso é papel só do item da sidebar (shell.tsx).
+//   1. CRACHÁ    — quem é ela (nome/identidade) e por qual WhatsApp fala.
+//   2. ENTREVISTA— o cadeado COM motivo: 3 perguntas que liberam os turnos.
+//   3. REGRAS DA CASA — horário e ritmo, escritos como frase de números vivos.
+//   4. TRÊS TURNOS — Atender · Cobrar · Buscar clientes, cada um com o seu
+//      interruptor real (PUT /bot/activation) e, quando bloqueado, o MOTIVO
+//      escrito no próprio cartão. Nunca cadeado mudo.
+//   5. RODAPÉ    — catálogo (de onde a IA tira o que pode afirmar), atalho de
+//      gatilhos/rotinas e o botão de pânico "Desligar tudo".
 //
-// Design System: zero hex/inline solto — só classes/tokens centrais. HERO
-// reusa .auto-hero*/.auto-engine* de screens.css (mesma linguagem visual da
-// /automacoes v2 — Lei nº2, nunca repetir visual). CSS NOVO desta tela (grade
-// de cartões-objetivo + placeholder de seção) vive em hbx-theme/automacao.css.
+// O QUE MORREU: "armar bot" e a chave geral (bot-activation.service.ts, 31/07)
+// — a tranca agora é a entrevista + pré-voo, e todo bloqueio vem com frase.
+// Os 4 cartões-objetivo antigos (buildCard/ObjetivoCard) e a faixa "Começar
+// por um modelo" saíram do hub: a galeria de modelos continua viva DENTRO da
+// seção Atendente (passo 3 do wizard), que é onde ela é usada de verdade.
+//
+// O QUE FICA IGUAL: os gates por `moduleAccess` (o overview já calcula por
+// usuário no backend) e a navegação por `?secao=` — as 4 seções continuam
+// sendo os "ajustes finos" de cada turno.
+//
+// Design System: zero hex/inline visual — classes centrais + hbx-theme/automacao.css.
 
 import { useRouter, useSearchParams } from "next/navigation";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
-import { IlustracaoAtender, IlustracaoBuscar, IlustracaoCobrar, IlustracaoReagir } from "./kit/ilustracoes";
-import { MiniFluxo, type MiniFluxoNode } from "./kit/mini-fluxo";
-import { StatusChip, type StatusTone } from "./kit/status-chip";
-// S08 (PADRAO-MERCADO): card de template padrão (kit central) — faixa "Começar por um modelo".
-import { TemplateCard } from "./kit/template-card";
-import { ATENDENTE_MODELOS, SecaoAtendente } from "./secao-atendente";
+import { Cracha, type PerfilIa } from "./cracha";
+import { Entrevista, type CatalogoView } from "./entrevista";
+import { RegrasDaCasa } from "./regras-casa";
+import { IlustracaoAtender, IlustracaoBuscar, IlustracaoCobrar } from "./kit/ilustracoes";
+import { StatusChip } from "./kit/status-chip";
+import { SecaoAtendente } from "./secao-atendente";
 import { SecaoCobranca } from "./secao-cobranca";
 import { SecaoProspeccao } from "./secao-prospeccao";
 import { SecaoRegras } from "./secao-regras";
@@ -57,9 +48,6 @@ import { SecaoRegras } from "./secao-regras";
 type AgentBrain = "roteiro" | "ia";
 type Block<T extends Record<string, unknown>> = ({ ok: true } & T) | { ok: false; reason: string };
 
-// S15: campos reais (não mais `unknown[]`) — a seção Prospecção & Cadência
-// consome a telemetria por executor (backend/src/automation/outbound-
-// orchestrator.service.ts OutboundExecutorTelemetry) pro chip de motor.
 type ExecutorTelemetry = { key: string; enabled: boolean; lastTickAt: string | null; lastResult: "ok" | "skipped" | "error" | null };
 
 type Overview = {
@@ -73,46 +61,34 @@ type Overview = {
   motor: Block<{ runnerEnabled: boolean; publishEnabled: boolean; chipConectado: boolean; executores: ExecutorTelemetry[] }>;
 };
 
+// ── GET/PUT /bot/activation (bot-activation.service.ts) ──────────────────────
+// `armed`/`masterOff` morreram em 31/07: o que resta é o pré-voo por tipo, e
+// `blocked` já chega como FRASE pronta pro cliente ler.
+type BotTipo = "atendimento" | "recovery" | "prospeccao";
+type ActivationTipo = {
+  live: boolean;
+  preflight: { chipConectado: boolean; configCompleta: boolean; entrevistaCompleta: boolean };
+  blocked: string | null;
+};
+type Activation = {
+  canAdminToggle: boolean;
+  types: Record<BotTipo, ActivationTipo>;
+};
+
 type SecaoKey = "atendente" | "cobranca" | "prospeccao" | "regras";
 const SECOES: SecaoKey[] = ["atendente", "cobranca", "prospeccao", "regras"];
 function isSecaoKey(v: string | null): v is SecaoKey {
   return v !== null && (SECOES as string[]).includes(v);
 }
 
-type SecaoMeta = { key: SecaoKey; titulo: string; sub: string; icon: keyof typeof ICONS };
+type SecaoMeta = { key: SecaoKey; titulo: string; sub: string };
 
+// Um turno = um verbo + UMA linha do que ele faz (Lei nº1, teto de copy ≤70).
 const SECAO_META: Record<SecaoKey, SecaoMeta> = {
-  atendente: {
-    key: "atendente",
-    titulo: "Atender sozinho",
-    icon: "atend",
-    // S09 (PADRAO-MERCADO): frase original estourava o teto de copy (79
-    // chars, Lei nº1 ≤70) — mesmo corte que a S04 já fez pro sub de Cobrança.
-    sub: "Roteiro de menu ou IA respondendo o cliente sem vendedor no meio.",
-  },
-  cobranca: {
-    key: "cobranca",
-    titulo: "Cobrar quem deve",
-    icon: "money",
-    // S04 (PADRAO-MERCADO, sprint "cobranca"): frase original estourava o
-    // teto de copy (~84 chars, Lei nº1 ≤70) — a prévia no telefone já mostra
-    // o tom do lembrete, então a linha só precisa dizer o QUÊ.
-    sub: "Recovery: lembra o cliente que deve, no ritmo certo.",
-  },
-  prospeccao: {
-    key: "prospeccao",
-    titulo: "Buscar clientes",
-    icon: "search",
-    sub: "Cadência e prospecção ativa puxando leads pro funil sozinhas.",
-  },
-  regras: {
-    key: "regras",
-    titulo: "Reagir e abastecer",
-    icon: "bolt",
-    // S09 (PADRAO-MERCADO): frase original estourava o teto de copy (76
-    // chars, Lei nº1 ≤70) — "abastecem" ecoa o título da seção.
-    sub: "Gatilhos e rotinas abastecem o funil sozinhos, sem ninguém lembrar.",
-  },
+  atendente: { key: "atendente", titulo: "Atender", sub: "Responde quem chama a empresa." },
+  cobranca: { key: "cobranca", titulo: "Cobrar", sub: "Lembra quem deve, no ritmo certo." },
+  prospeccao: { key: "prospeccao", titulo: "Buscar clientes", sub: "Puxa assunto com leads novos do Radar." },
+  regras: { key: "regras", titulo: "Reagir e abastecer", sub: "Gatilhos e rotinas abastecem o funil sozinhos." },
 };
 
 function secaoGateOk(key: SecaoKey, ma: Overview["moduleAccess"]): boolean {
@@ -121,199 +97,69 @@ function secaoGateOk(key: SecaoKey, ma: Overview["moduleAccess"]): boolean {
   return ma.vendas; // prospeccao | regras
 }
 
-// Referência estável (fora do componente) pro fallback "sem overview ainda" —
-// um objeto literal `?? {...}` inline recriaria uma referência nova a cada
-// render e invalidaria o useMemo de `cards` sempre.
+// Os TRÊS turnos do hub (a seção `regras` continua acessível pelo rodapé —
+// ela é ajuste fino de funil, não um turno da funcionária).
+const TURNOS: { secao: SecaoKey; tipo: BotTipo; Ilustracao: (props: { className?: string }) => React.ReactElement }[] = [
+  { secao: "atendente", tipo: "atendimento", Ilustracao: IlustracaoAtender },
+  { secao: "cobranca", tipo: "recovery", Ilustracao: IlustracaoCobrar },
+  { secao: "prospeccao", tipo: "prospeccao", Ilustracao: IlustracaoBuscar },
+];
+
+// Referência estável (fora do componente) pro fallback "sem overview ainda".
 const EMPTY_MODULE_ACCESS: Overview["moduleAccess"] = { atendimento: false, bot: false, vendas: false };
 
-// ================================================================
-// Cartão-objetivo — normaliza cada bloco do overview num view-model comum
-// (tone de status ÚNICO — kit/status-chip.tsx, Lei nº3 —, 1 número-chave,
-// aviso opcional). Fail-soft: bloco `ok:false` nunca derruba a tela, vira
-// estado "Indisponível". S02 (PADRAO-MERCADO): `dot`/`icon`/`sub` saíram —
-// o dot solto virou StatusChip (mesmo componente do resto do módulo) e o
-// ícone plano virou ilustração (SECAO_ILUSTRACAO, abaixo); `sub` (parágrafo
-// descritivo) foi removido da tela sem substituto — a forma (ilustração +
-// MiniFluxo + número + StatusChip) assume, nenhuma frase nova no lugar.
-type CardVM = {
-  key: SecaoKey;
-  titulo: string;
-  tone: StatusTone;
-  stateLabel: string;
-  metric: { value: string; label: string } | null;
-  // NOVO (S02) — linha secundária, peso MENOR que o StatusChip. Hoje só o
-  // cartão Cobrança usa (achado A6): nunca 2 termos de status com o mesmo
-  // peso, então "Disparo automático" só vira texto quando DIVERGE do estado
-  // principal — ver o bloco `cobranca` abaixo.
-  secondary: string | null;
-  note: string | null;
-};
-
-const INDISPONIVEL_NOTE = "Não deu pra ler o status agora — tente recarregar.";
-
-function buildCard(key: SecaoKey, ov: Overview): CardVM {
-  const meta = SECAO_META[key];
-  const base = { key, titulo: meta.titulo };
-  // Chip do WhatsApp é o MESMO pino físico pra todos os tipos de bot — usar o
-  // preflight do bloco `motor` (fonte única) como proxy pros cartões que
-  // dependem dele. `null` = motor indisponível (fail-soft: não assusta com
-  // aviso que não dá pra confirmar).
-  const chipOk = ov.motor.ok ? ov.motor.chipConectado : null;
-
-  if (key === "atendente") {
-    const b = ov.atendente;
-    if (!b.ok) return { ...base, tone: "pausado", stateLabel: "Indisponível", metric: null, secondary: null, note: INDISPONIVEL_NOTE };
-    const brainLabel = b.brain === "ia" ? "IA" : b.brain === "roteiro" ? "Roteiro" : "—";
-    const publishBloqueado = ov.motor.ok && ov.motor.publishEnabled === false;
-    let tone: StatusTone = "pausado";
-    let stateLabel = "Não configurado";
-    if (b.published && !publishBloqueado) {
-      tone = "ligado";
-      stateLabel = "Ligado";
-    } else if (b.published && publishBloqueado) {
-      tone = "atencao";
-      stateLabel = "Aguardando suporte";
-    } else if (b.brain) {
-      tone = "rascunho";
-      stateLabel = "Rascunho";
-    }
-    return {
-      ...base,
-      tone,
-      stateLabel,
-      metric: { value: brainLabel, label: "Cérebro atual" },
-      secondary: null,
-      note: chipOk === false ? "Sem chip do WhatsApp conectado." : null,
-    };
-  }
-
-  if (key === "cobranca") {
-    const b = ov.cobranca;
-    if (!b.ok) return { ...base, tone: "pausado", stateLabel: "Indisponível", metric: null, secondary: null, note: INDISPONIVEL_NOTE };
-    let tone: StatusTone = "pausado";
-    let stateLabel = "Pausado";
-    if (b.live) {
-      tone = "ligado";
-      stateLabel = "Ativo";
-    } else if (chipOk === false) {
-      tone = "atencao";
-      stateLabel = "Pré-voo: sem chip";
-    }
-    // A6 (README) — antes: dot solto "Pausado" + metric GRANDE "Ligado"
-    // liam como 2 status discordantes com o MESMO peso visual (achado do
-    // QA). `workerEnabled` é flag de INFRA (disparo automático do sistema),
-    // não config da empresa — deixa de ser metric; vira linha secundária
-    // (peso menor, ver .aut-obj-card__secondary) e só aparece quando
-    // DIVERGE do estado principal (b.live). Quando bate, é redundante e some.
-    const secondary = b.workerEnabled !== b.live
-      ? (b.workerEnabled ? "envio automático ativo" : "envio automático pausado")
-      : null;
-    return {
-      ...base,
-      tone,
-      stateLabel,
-      metric: null,
-      secondary,
-      note: tone === "atencao" ? "Conecte o WhatsApp para o recovery sair do pré-voo." : null,
-    };
-  }
-
-  if (key === "prospeccao") {
-    const b = ov.prospeccao;
-    if (!b.ok) return { ...base, tone: "pausado", stateLabel: "Indisponível", metric: null, secondary: null, note: INDISPONIVEL_NOTE };
-    let tone: StatusTone = "pausado";
-    let stateLabel = "Pausado";
-    if (b.live) {
-      tone = "ligado";
-      stateLabel = "Ativo";
-    } else if (b.campaignId) {
-      tone = "rascunho";
-      stateLabel = "Configurado";
-    }
-    return { ...base, tone, stateLabel, metric: { value: String(b.pendingLeads), label: "Leads dentro" }, secondary: null, note: null };
-  }
-
-  // regras
-  const b = ov.regras;
-  if (!b.ok) return { ...base, tone: "pausado", stateLabel: "Indisponível", metric: null, secondary: null, note: INDISPONIVEL_NOTE };
-  const total = b.gatilhosAtivos + b.rotinasAtivas;
-  return {
-    ...base,
-    tone: total > 0 ? "ligado" : "pausado",
-    stateLabel: total > 0 ? "Ativo" : "Nada ligado",
-    metric: {
-      value: String(total),
-      label: `${b.gatilhosAtivos} gatilho${b.gatilhosAtivos === 1 ? "" : "s"} · ${b.rotinasAtivas} rotina${b.rotinasAtivas === 1 ? "" : "s"}`,
-    },
-    secondary: null,
-    note: null,
-  };
-}
-
-// Mapas estáticos de apresentação por objetivo (S02) — a ilustração (kit/
-// ilustracoes.tsx) e o mini-fluxo compacto (kit/mini-fluxo.tsx) NÃO vêm do
-// overview: são a FORMA fixa de cada objetivo (o dado real vira StatusChip +
-// número-chave, via buildCard acima). Ficam fora de SECAO_META por serem
-// puramente visuais, não meta de conteúdo.
-const SECAO_ILUSTRACAO: Record<SecaoKey, (props: { className?: string }) => React.ReactElement> = {
-  atendente: IlustracaoAtender,
-  cobranca: IlustracaoCobrar,
-  prospeccao: IlustracaoBuscar,
-  regras: IlustracaoReagir,
-};
-
-const SECAO_FLUXO: Record<SecaoKey, MiniFluxoNode[]> = {
-  atendente: [
-    { icon: "msg", label: "Mensagem" },
-    { icon: "atend", label: "Bot/IA" },
-    { icon: "check", label: "Resposta" },
-  ],
-  cobranca: [
-    { icon: "clock", label: "Vencido" },
-    { icon: "send", label: "Lembrete" },
-    { icon: "money", label: "Recebido" },
-  ],
-  prospeccao: [
-    { icon: "search", label: "Lead" },
-    { icon: "send", label: "Cadência" },
-    { icon: "users", label: "Funil" },
-  ],
-  regras: [
-    { icon: "bolt", label: "Gatilho" },
-    { icon: "clock", label: "Rotina" },
-    { icon: "users", label: "Funil" },
-  ],
-};
+const SEM_ESTADO = "Não deu pra ler o estado agora — tente recarregar.";
 
 // ================================================================
 // RAIZ
 // ================================================================
 export function AutomacaoHubClient() {
-  useCurrentUser();
+  const user = useCurrentUser();
   const router = useRouter();
   const params = useSearchParams();
   const secaoParam = params.get("secao");
   const templateParam = params.get("template");
 
-  // Deep-link (?secao=...) só decide o estado INICIAL — dali em diante é
-  // estado local puro (mesmo padrão de /entrega/financeiro ?cliente=).
   const [secao, setSecao] = useState<SecaoKey | null>(isSecaoKey(secaoParam) ? secaoParam : null);
-  // S08 (PADRAO-MERCADO): idem, pro `?template=` da faixa "Começar por um
-  // modelo" (ex. ?secao=atendente&template=agil) — só o Atendente consome
-  // hoje (SecaoAtendente ignora se não fizer sentido pro modo atual).
   const [secaoTemplate, setSecaoTemplate] = useState<string | null>(isSecaoKey(secaoParam) ? templateParam : null);
   const [overview, setOverview] = useState<Overview | null>(null);
+  const [perfil, setPerfil] = useState<PerfilIa | null>(null);
+  const [activation, setActivation] = useState<Activation | null>(null);
+  // Sem ativação, o cartão precisa dizer POR QUE — e o "por quê" honesto é o
+  // que o servidor respondeu (módulo não liberado, sessão, rede). Frase genérica
+  // só quando nem isso chegou.
+  const [activationErro, setActivationErro] = useState<string | null>(null);
+  const [catalogo, setCatalogo] = useState<CatalogoView | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [acaoMsg, setAcaoMsg] = useState<string | null>(null);
+  const [tipoBusy, setTipoBusy] = useState<BotTipo | null>(null);
 
+  // O overview é o único bloco que pode derrubar a tela (é ele que decide os
+  // gates). Perfil/ativação/catálogo são fail-soft: quem não tem o módulo
+  // simplesmente não vê aquele pedaço, nunca um erro vermelho.
   const load = useCallback(async () => {
-    try {
-      const data = await apiFetch<Overview>("/automation/overview");
-      setOverview(data);
+    const [ov, pf, act, cat] = await Promise.allSettled([
+      apiFetch<Overview>("/automation/overview"),
+      apiFetch<PerfilIa>("/automation/perfil-ia"),
+      apiFetch<Activation>("/bot/activation"),
+      apiFetch<CatalogoView>("/vendas/catalogo-comercial"),
+    ]);
+    if (ov.status === "fulfilled") {
+      setOverview(ov.value);
       setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Não foi possível carregar o painel de automação.");
+    } else {
+      setError(ov.reason instanceof Error ? ov.reason.message : "Não foi possível carregar a Automação.");
     }
+    if (pf.status === "fulfilled") setPerfil(pf.value);
+    if (act.status === "fulfilled") {
+      setActivation(act.value);
+      setActivationErro(null);
+    } else {
+      setActivation(null);
+      setActivationErro(act.reason instanceof Error ? act.reason.message : SEM_ESTADO);
+    }
+    if (cat.status === "fulfilled") setCatalogo(cat.value);
   }, []);
 
   useEffect(() => {
@@ -323,8 +169,6 @@ export function AutomacaoHubClient() {
     return () => { alive = false; };
   }, [load]);
 
-  // S08 (PADRAO-MERCADO): `template` é opcional — segue o MESMO mecanismo do
-  // `secao` (query param espelha o estado local, nunca o contrário).
   const abrirSecao = useCallback((key: SecaoKey, template?: string) => {
     setSecao(key);
     setSecaoTemplate(template ?? null);
@@ -339,29 +183,49 @@ export function AutomacaoHubClient() {
 
   const moduleAccess = overview?.moduleAccess ?? EMPTY_MODULE_ACCESS;
 
-  const cards = useMemo(() => {
-    if (!overview) return [];
-    return SECOES.filter((key) => secaoGateOk(key, moduleAccess)).map((key) => buildCard(key, overview));
-  }, [overview, moduleAccess]);
+  // Quem manda na identidade/regras/interruptores: o backend já responde
+  // `canAdminToggle`; sem ele (empresa sem o módulo bot) cai no papel do
+  // usuário — as duas fontes usam a MESMA régua (ADMIN/USERMASTER/master).
+  const ehAdmin = Boolean(user?.isSystemMaster) || ["ADMIN", "USERMASTER"].includes(String(user?.role || "").toUpperCase());
+  const podeEditar = activation ? activation.canAdminToggle : ehAdmin;
 
-  // S08 (PADRAO-MERCADO) — item 4: a faixa "Começar por um modelo" só aparece
-  // pro retrato exato de "empresa que acabou de ganhar o módulo" (S08.md):
-  // objetivo Atendente liberado (senão não haveria pra onde o clique mandar)
-  // E nada ainda "ligado" em nenhum cartão (tudo rascunho/pausado/indisponível
-  // — nenhum objetivo ativo de verdade). Deriva 100% do `cards` que o hub JÁ
-  // calcula acima (buildCard) — zero chamada nova.
-  const mostrarGaleriaModelos = useMemo(() => {
-    if (!cards.length) return false;
-    const temAtendente = cards.some((c) => c.key === "atendente");
-    const tudoParado = cards.every((c) => c.tone !== "ligado");
-    return temAtendente && tudoParado;
-  }, [cards]);
+  const turnosVisiveis = useMemo(
+    () => TURNOS.filter((t) => secaoGateOk(t.secao, moduleAccess)),
+    [moduleAccess],
+  );
 
-  // Seção aberta: só renderiza se o gate DAQUELA seção ainda passa (empresa
-  // pode ter perdido acesso entre o deep-link e agora) — senão cai pro hub.
-  // S13: "atendente" já tem conteúdo real (SecaoAtendente). S14: "cobranca"
-  // idem (SecaoCobranca, Recovery reembalado). As demais (S15-S16) continuam
-  // no placeholder "em migração" até a sprint delas chegar.
+  const motorOn = Boolean(overview?.motor.ok && overview.motor.chipConectado);
+
+  const alternarTurno = useCallback(async (tipo: BotTipo, live: boolean) => {
+    setAcaoMsg(null);
+    setTipoBusy(tipo);
+    try {
+      await apiFetch("/bot/activation", { method: "PUT", body: JSON.stringify({ type: tipo, live }) });
+      const fresh = await apiFetch<Activation>("/bot/activation").catch(() => null);
+      if (fresh) setActivation(fresh);
+      void load();
+    } catch (err) {
+      setAcaoMsg(err instanceof Error ? err.message : "Não foi possível mudar agora.");
+    } finally {
+      setTipoBusy(null);
+    }
+  }, [load]);
+
+  const desligarTudo = useCallback(async () => {
+    if (!window.confirm("Desligar as três funções agora?")) return;
+    setAcaoMsg(null);
+    try {
+      await apiFetch("/bot/activation/desligar-tudo", { method: "PUT", body: JSON.stringify({}) });
+      const fresh = await apiFetch<Activation>("/bot/activation").catch(() => null);
+      if (fresh) setActivation(fresh);
+      void load();
+      setAcaoMsg("Tudo desligado.");
+    } catch (err) {
+      setAcaoMsg(err instanceof Error ? err.message : "Não foi possível desligar agora.");
+    }
+  }, [load]);
+
+  // ── Seção aberta (?secao=) — os "ajustes finos" de cada turno ──
   if (secao && overview && secaoGateOk(secao, moduleAccess)) {
     const meta = SECAO_META[secao];
     return (
@@ -390,25 +254,16 @@ export function AutomacaoHubClient() {
     );
   }
 
-  const motorOn = Boolean(overview?.motor.ok && overview.motor.chipConectado);
+  const catalogoItens = catalogo?.catalogo?.capacidades.length ?? 0;
 
   return (
-    <div className="work" style={{ flex: 1 }}>
-      <header className="auto-hero">
-        <div className="auto-hero__id">
-          <span className="auto-hero__badge"><I d={ICONS.automacao} size={22} /></span>
-          <div className="auto-hero__title">Automação</div>
-        </div>
-        {/* S02 (PADRAO-MERCADO) — hero enxuto: a frase "Uma superfície só..."
-            e a explicação à direita saíram sem substituto (Lei nº1). O
-            StatusChip fala sozinho: tone `ligado`/`atencao` já diz o estado;
-            a AÇÃO (conectar o WhatsApp) vira tooltip, só quando falta chip. */}
-        <div className="auto-engine">
-          <span title={motorOn ? undefined : "Conecte o WhatsApp em qualquer seção com chip para os objetivos saírem do papel."}>
-            <StatusChip tone={motorOn ? "ligado" : "atencao"} label={motorOn ? "WhatsApp conectado" : "Sem chip"} />
-          </span>
-        </div>
-      </header>
+    <div className="work auto-mesa" style={{ flex: 1 }}>
+      <Cracha
+        perfil={perfil}
+        chipConectado={motorOn}
+        podeEditar={podeEditar}
+        onPerfil={(p) => { setPerfil(p); void load(); }}
+      />
 
       {error && (
         <section className="panel">
@@ -421,84 +276,164 @@ export function AutomacaoHubClient() {
       )}
 
       {!error && loading && (
-        <div className="aut-hub-grid">
-          {[0, 1, 2, 3].map((i) => <div key={i} className="auto-skel" />)}
+        <div className="aut-fn-grid">
+          {[0, 1, 2].map((i) => <div key={i} className="auto-skel" />)}
         </div>
       )}
 
-      {!error && !loading && cards.length === 0 && (
+      {!error && !loading && perfil && !perfil.entrevistaCompleta && (
+        <Entrevista
+          perfil={perfil}
+          catalogo={catalogo}
+          podeEditar={podeEditar}
+          onPerfil={(p) => { setPerfil(p); void load(); }}
+          onCatalogo={(c) => { setCatalogo(c); void load(); }}
+        />
+      )}
+
+      {!error && !loading && moduleAccess.vendas && <RegrasDaCasa podeEditar={podeEditar} />}
+
+      {acaoMsg && <div className="auto-flag-note"><I d={ICONS.bell} size={14} />{acaoMsg}</div>}
+
+      {!error && !loading && turnosVisiveis.length === 0 && (
         <section className="panel">
           <div style={{ padding: 18, display: "grid", gap: 6, justifyItems: "start" }}>
-            <strong>Nenhum objetivo liberado</strong>
-            {/* S09 (PADRAO-MERCADO): frase original estourava o teto de copy (83 chars, Lei nº1 ≤70). */}
+            <strong>Nenhum turno liberado</strong>
             <span className="hint">Atendimento, bot e vendas ainda não liberados — fale com o suporte.</span>
           </div>
         </section>
       )}
 
-      {/* S08 (PADRAO-MERCADO) — item 4: "começar por um modelo" — só quando
-          nada está ligado ainda (mostrarGaleriaModelos acima). Mesmo card
-          central da galeria do wizard (ATENDENTE_MODELOS/TemplateCard) — 1
-          clique cai direto na seção Atendente com o modelo pré-selecionado. */}
-      {!error && !loading && mostrarGaleriaModelos && (
-        <section style={{ display: "grid", gap: 10 }}>
-          <div className="auto-bar">
-            <span className="hint">Começar por um modelo</span>
-          </div>
-          <div className="aut-tpl-grid">
-            {ATENDENTE_MODELOS.map((m) => (
-              <TemplateCard key={m.key} option={m} onSelect={() => abrirSecao("atendente", m.key)} />
-            ))}
-          </div>
-        </section>
+      {!error && !loading && turnosVisiveis.length > 0 && (
+        <div className="aut-fn-grid">
+          {turnosVisiveis.map((t) => (
+            <TurnoCard
+              key={t.secao}
+              meta={SECAO_META[t.secao]}
+              Ilustracao={t.Ilustracao}
+              estado={activation?.types?.[t.tipo] ?? null}
+              semEstado={activationErro ?? SEM_ESTADO}
+              detalhe={detalheDoTurno(t.secao, overview)}
+              podeEditar={podeEditar}
+              busy={tipoBusy === t.tipo}
+              onAbrir={() => abrirSecao(t.secao)}
+              onAlternar={(live) => { void alternarTurno(t.tipo, live); }}
+            />
+          ))}
+        </div>
       )}
 
-      {!error && !loading && cards.length > 0 && (
-        <div className="aut-hub-grid">
-          {cards.map((c) => <ObjetivoCard key={c.key} card={c} onAbrir={() => abrirSecao(c.key)} />)}
-        </div>
+      {!error && !loading && (
+        <footer className="auto-rodape">
+          <span className="auto-rodape__cat">
+            {catalogoItens > 0
+              ? `Catálogo: ${catalogoItens} ${catalogoItens === 1 ? "item" : "itens"} — é daqui que a IA tira o que pode afirmar.`
+              : "Catálogo vazio — sem ele a IA não afirma produto nem preço."}
+          </span>
+          <div className="auto-rodape__acoes">
+            {secaoGateOk("regras", moduleAccess) && (
+              <button type="button" className="btn-ghost btn-xs" onClick={() => abrirSecao("regras")}>
+                <I d={ICONS.bolt} size={12} /> Gatilhos e rotinas
+              </button>
+            )}
+            {podeEditar && activation && (
+              <button type="button" className="btn-ghost btn-xs" onClick={() => void desligarTudo()}>
+                <I d={ICONS.stop} size={12} /> Desligar tudo
+              </button>
+            )}
+          </div>
+        </footer>
       )}
     </div>
   );
 }
 
-function ObjetivoCard({ card, onAbrir }: { card: CardVM; onAbrir: () => void }) {
-  const Ilustracao = SECAO_ILUSTRACAO[card.key];
+// Contador do dia por turno — só o que o overview JÁ traz (zero chamada nova).
+function detalheDoTurno(secao: SecaoKey, ov: Overview | null): { valor: string; rotulo: string } | null {
+  if (!ov) return null;
+  if (secao === "prospeccao" && ov.prospeccao.ok) {
+    return { valor: String(ov.prospeccao.pendingLeads), rotulo: "Leads na fila" };
+  }
+  if (secao === "atendente" && ov.atendente.ok && ov.atendente.brain) {
+    return { valor: ov.atendente.brain === "ia" ? "IA" : "Roteiro", rotulo: "Cérebro atual" };
+  }
+  if (secao === "cobranca" && ov.cobranca.ok) {
+    return { valor: ov.cobranca.workerEnabled ? "Ativo" : "Parado", rotulo: "Envio automático" };
+  }
+  return null;
+}
+
+// ============================================================================
+// CARTÃO DE TURNO — ícone, título, 1 linha, interruptor real e, quando
+// bloqueado, o MOTIVO escrito (nunca cadeado mudo).
+// ============================================================================
+function TurnoCard({
+  meta,
+  Ilustracao,
+  estado,
+  semEstado,
+  detalhe,
+  podeEditar,
+  busy,
+  onAbrir,
+  onAlternar,
+}: {
+  meta: SecaoMeta;
+  Ilustracao: (props: { className?: string }) => React.ReactElement;
+  estado: ActivationTipo | null;
+  semEstado: string;
+  detalhe: { valor: string; rotulo: string } | null;
+  podeEditar: boolean;
+  busy: boolean;
+  onAbrir: () => void;
+  onAlternar: (live: boolean) => void;
+}) {
+  const live = Boolean(estado?.live);
+  // O motivo vem escrito do backend (`blocked`). A ÚNICA troca é quando o
+  // bloqueio é a entrevista: a frase inteira já está no bloco logo acima, e
+  // repeti-la nos 3 cartões vira parede de texto — aqui vira o ponteiro curto.
+  const motivo = !estado
+    ? semEstado
+    : estado.blocked && !estado.preflight.entrevistaCompleta
+      ? "Responda as 3 perguntas aqui em cima."
+      : estado.blocked;
+  // Bloqueio só trava LIGAR — desligar nunca fica preso atrás de pré-voo.
+  const travado = !estado || !podeEditar || busy || (!live && Boolean(estado.blocked));
+
   return (
-    <div className="aut-obj-card">
-      <div className="aut-obj-card__head">
-        <span className="aut-obj-card__illus" aria-hidden="true"><Ilustracao /></span>
-        <div className="aut-obj-card__head-text">
-          <div className="aut-obj-card__title">{card.titulo}</div>
-          <MiniFluxo nodes={SECAO_FLUXO[card.key]} compact />
-        </div>
+    <div className={"aut-fn-card" + (live ? " is-on" : "")}>
+      <button type="button" className="aut-fn-card__abrir" onClick={onAbrir}>
+        <span className="aut-fn-card__ico" aria-hidden="true"><Ilustracao /></span>
+        <span className="aut-fn-card__titulos">
+          <span className="aut-fn-card__title">{meta.titulo}</span>
+          <span className="aut-fn-card__linha">{meta.sub}</span>
+        </span>
+      </button>
+
+      <div className="aut-fn-card__estado">
+        <StatusChip tone={live ? "ligado" : "pausado"} label={live ? "Ligada" : "Desligada"} size="s" />
+        <button
+          type="button"
+          className={"sw" + (live ? " on" : "")}
+          role="switch"
+          aria-checked={live}
+          aria-label={`${meta.titulo}: ${live ? "desligar" : "ligar"}`}
+          disabled={travado}
+          onClick={() => onAlternar(!live)}
+        >
+          <i></i>
+        </button>
       </div>
 
-      <div className="aut-obj-card__status">
-        <StatusChip tone={card.tone} label={card.stateLabel} />
-        {/* Preflight ruim (S02, item 4): ícone+tooltip no lugar da frase
-            solta — o texto de `card.note` só existe no hover (`title`). */}
-        {card.note && (
-          <span className="aut-obj-card__notebadge" title={card.note}>
-            <I d={ICONS.bell} size={12} />
-          </span>
-        )}
-      </div>
-
-      {/* A6 (S02, item 3): linha secundária — só existe quando diverge do
-          StatusChip acima; hoje só o cartão Cobrança preenche `secondary`. */}
-      {card.secondary && <div className="aut-obj-card__secondary">{card.secondary}</div>}
-
-      {card.metric && (
-        <div className="aut-obj-card__metric">
-          <span className="aut-obj-card__metric-n">{card.metric.value}</span>
-          <span className="aut-obj-card__metric-l">{card.metric.label}</span>
+      {detalhe && (
+        <div className="aut-fn-card__metric">
+          <span className="aut-fn-card__metric-n">{detalhe.valor}</span>
+          <span className="aut-fn-card__metric-l">{detalhe.rotulo}</span>
         </div>
       )}
 
-      <div className="aut-obj-card__foot">
-        <button type="button" className="btn-teal" onClick={onAbrir}>Abrir</button>
-      </div>
+      {motivo && <p className="aut-fn-card__motivo">{motivo}</p>}
+      {!motivo && !podeEditar && <p className="aut-fn-card__motivo">Só o dono ou o gerente liga e desliga.</p>}
     </div>
   );
 }
