@@ -92,7 +92,16 @@ export const TAMANHOS_PADRAO: Tamanhos = {
   legenda: TAMANHO_PADRAO, micro: TAMANHO_PADRAO,
 };
 
-export const TIPOGRAFIA_PADRAO: Tipografia = { fonte: null, tamanhos: { ...TAMANHOS_PADRAO } };
+/**
+ * O que o painel lê da tela. `fonte` é a família que ESTÁ pintando (pode vir
+ * do tema, e é ela que aparece marcada); `escolhaFonte` é o que a pessoa
+ * escolheu — null quando ninguém mexeu.
+ */
+export type TipografiaNaTela = Tipografia & { escolhaFonte: FonteKey | null };
+
+export const TIPOGRAFIA_PADRAO: TipografiaNaTela = {
+  fonte: null, escolhaFonte: null, tamanhos: { ...TAMANHOS_PADRAO },
+};
 
 /** Prende no intervalo e no passo — nada de 137,4%. */
 export function resolveTamanho(valor: unknown): number {
@@ -110,8 +119,15 @@ export function multiplicador(pct: number): string {
   return (resolveTamanho(pct) / 100).toFixed(4).replace(/0+$/, "").replace(/\.$/, "");
 }
 
-export function ehPadrao(t: Tipografia): boolean {
-  return t.fonte === null && PAPEIS.every(p => t.tamanhos[p.key] === TAMANHO_PADRAO);
+/**
+ * "Nada foi mexido aqui." Olha a ESCOLHA (o que a pessoa gravou), não a fonte
+ * que está pintando: com o painel no padrão, o chip da família continua
+ * marcado — quem escolheu a letra foi o tema — e mesmo assim não há nada a
+ * restaurar. Confundir os dois deixava o botão "Restaurar padrão" aceso pra
+ * sempre, prometendo uma ação sem efeito.
+ */
+export function ehPadrao(t: TipografiaNaTela): boolean {
+  return t.escolhaFonte === null && PAPEIS.every(p => t.tamanhos[p.key] === TAMANHO_PADRAO);
 }
 
 // ---------------------------------------------------------------
@@ -184,7 +200,7 @@ export function restaurarTipografia() {
  * a família, de --font-display resolvida, pra o chip certo aparecer marcado
  * mesmo quando quem escolheu a letra foi o tema.
  */
-export function getTipografiaAtiva(): Tipografia {
+export function getTipografiaAtiva(): TipografiaNaTela {
   if (typeof document === "undefined") return TIPOGRAFIA_PADRAO;
   const html = document.documentElement;
   const tamanhos: Tamanhos = { ...TAMANHOS_PADRAO };
@@ -192,12 +208,12 @@ export function getTipografiaAtiva(): Tipografia {
     const bruto = html.style.getPropertyValue(papel.prop).trim();
     if (bruto) tamanhos[papel.key] = resolveTamanho(Number(bruto) * 100);
   }
-  const salva = resolveFonte(html.getAttribute(FONTE_ATTR));
-  if (salva) return { fonte: salva, tamanhos };
+  const escolhaFonte = resolveFonte(html.getAttribute(FONTE_ATTR));
+  if (escolhaFonte) return { fonte: escolhaFonte, escolhaFonte, tamanhos };
 
   const display = getComputedStyle(html).getPropertyValue("--font-display");
   const casada = FONTES.find(f => display.includes(f.marca));
-  return { fonte: casada?.key ?? null, tamanhos };
+  return { fonte: casada?.key ?? null, escolhaFonte: null, tamanhos };
 }
 
 /**

@@ -134,6 +134,42 @@
   (MOTOR-ÚNICO, jul/26). Nunca escrever `*/` no texto de um comentário CSS;
   se precisar citar a sequência, quebrar (`* /`) ou reescrever a frase.
 
+## Tipografia — UMA moradia para toda letra (31/07/2026)
+
+`hbx-theme/typography.css` é o único lugar onde nasce tamanho de letra. Antes
+desta passada o app tinha **2.523 declarações de `font-size`** espalhadas por
+~70 medidas quase iguais (0,72 / 0,74 / 0,76 / 0,77 / 0,78rem — meio pixel de
+diferença entre telas); mexer numa legenda era caçar arquivo por arquivo.
+
+**Os 4 papéis e os 18 degraus.** Título `--fz-t1…t10`, normal `--fz-n1…n3`,
+legenda `--fz-l1…l3`, micro `--fz-m1/m2` (o `m2` é o PISO, `--hbx-font-min`).
+Tela pede o degrau, nunca a medida: `font-size: var(--fz-n2)`. Faltou um
+tamanho? **O degrau nasce no typography.css** — não se escreve rem em tela.
+Os nomes antigos (`--text-h1`, `--text-base`, `--text-xs`…) continuam vivos
+como apelido do degrau equivalente.
+
+**Fiscal R8** (`check-pele.mjs`): `font-size` com medida fixa (px/rem/pt) em
+qualquer CSS/TSX **reprova o build**. Passam `var()`, `0`, `inherit`, `em` de
+proporção e o miolo em `vw` de um `clamp` — desde que os LIMITES do clamp
+sejam degraus. Isentos: o próprio typography.css e o mundo público
+(landing/portal/site de cliente, que tem cena própria).
+
+**Quem manda no tamanho.** O painel do header (fonte + 5 réguas de 50% a 150%:
+Tudo, Títulos, Normal, Legendas, Micro) é da casca **Premium**. HBX e
+Corporativo respeitam a própria casca — e quem garante isso é o CSS
+(`html[data-casca="modern"]` é o único bloco que lê `--fz-user-*`), não um
+`if` de componente. O painel só aparece lá porque o CSS já decidiu.
+
+**Módulo pode ter tamanho próprio, não medida solta.** `/entrega` se lê na rua
+e nasce 7% maior: isso é UM multiplicador (`--ent-mult`) sobre os degraus, não
+7 px avulsos. Mesmo padrão para a casca mobile (`--casca-text-*`).
+
+**Duas armadilhas medidas em produção:** `<small>` sem regra própria cai
+ABAIXO do piso (o navegador aplica `smaller`, ~0,83× do pai) — por isso
+`base.css` tem `small { font-size: max(0.83em, var(--hbx-font-min)) }`; e
+`title=` nativo em botão de menu nasce POR CIMA do menu aberto e tapa a
+primeira linha — em trigger de painel, usar só `aria-label`.
+
 ## Layout — Zero scroll em desktop (100% zoom)
 
 Toda tela de marketing (landing, esteira, módulos, planos) e toda tela do app

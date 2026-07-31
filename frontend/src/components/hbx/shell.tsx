@@ -28,7 +28,7 @@ import { soLogistica } from "@/lib/so-logistica";
 import {
   FONTES, PAPEIS, TAMANHO_MAX, TAMANHO_MIN, TAMANHO_PASSO, TIPOGRAFIA_PADRAO,
   ehPadrao, getTipografiaAtiva, restaurarTipografia, setFonte, setTamanho,
-  type Tipografia,
+  type TipografiaNaTela,
 } from "@/lib/tipografia";
 import { startTutorialCoach } from "@/lib/tutorial-coach-store";
 import { setWaOpenMode, useWaOpenMode } from "@/lib/wa-open-mode";
@@ -1525,7 +1525,7 @@ export function TipografiaSwitch() {
     lerTipografiaSnapshot,
     () => TIPOGRAFIA_SNAPSHOT_PADRAO,
   );
-  const tipografia = useMemo(() => JSON.parse(snapshot) as Tipografia, [snapshot]);
+  const tipografia = useMemo(() => JSON.parse(snapshot) as TipografiaNaTela, [snapshot]);
   const [open, setOpen] = useState(false);
   const fechar = useCallback(() => setOpen(false), []);
   const boxRef = useClickAway<HTMLSpanElement>(open, fechar);
