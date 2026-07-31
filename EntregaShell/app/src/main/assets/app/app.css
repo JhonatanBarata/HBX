@@ -839,6 +839,19 @@ h3 { font-size: .95rem; }
 .route-next-panel.has-manobra .route-next-panel-title { font-size: 1.02rem; line-height: 1.2; white-space: normal; }
 .route-next-panel.has-manobra .route-next-panel-open { padding: 11px 40px 11px 14px; }
 html.leitura-route-active .route-map-shell { border-color: color-mix(in srgb, var(--info) 58%, var(--line)); box-shadow: 0 12px 32px color-mix(in srgb, var(--info) 15%, transparent); }
+/* 🔴 31/07 (dono, item 2) — NAVEGANDO, O MAPA TOMA A TELA. O mapa era um cartão
+   de meia tela com a lista de paradas embaixo: dirigindo, metade do celular
+   mostrava coisa que ninguém lê a 60 km/h. Com `nav-cheia` (classe posta em
+   syncNavWatch) some o cromo e sobra mapa + a manobra em cima + os controles
+   embaixo. Sem tela nova: é a MESMA tela Rota, com menos coisa. */
+html.nav-cheia .route-map-shell { height: calc(100dvh - 268px); max-height: none; }
+html.nav-cheia .creditos-dia,
+html.nav-cheia .route-filter,
+html.nav-cheia .route-hero > .progress,
+html.nav-cheia .section-title,
+html.nav-cheia .list,
+html.nav-cheia .fab { display: none; }
+html.nav-cheia .route-controls { padding-top: 6px; }
 /* S3 21/07 — mapa vivo da tela "Leitura de rota" (state.modal === "leitura-ativa"):
    mesma moldura do mapa da Rota (.route-map-shell/.route-live-map, reaproveitados
    via classe), só mais baixo pra caber no cartão central junto do cabeçalho/CTA/

@@ -350,6 +350,9 @@
     // Mesmo padrão de guard de maps()/vibrate: bridge ausente (preview fora do
     // app) = no-op silencioso, nunca quebra o fluxo de entrega.
     speak(text) { bridge && bridge.speak && bridge.speak(String(text || "")); },
+    // 31/07 — tela acesa enquanto guia (ver syncNavWatch). Sem ponte (preview no
+    // navegador) é no-op, igual speak/vibrate.
+    manterTelaAcesa(ligado) { try { bridge && bridge.manterTelaAcesa && bridge.manterTelaAcesa(!!ligado); } catch (_) {} },
     speakStop() { bridge && bridge.speakStop && bridge.speakStop(); },
     // S1 22/07 (PR22072026-APP-SOUNDS) — motor de sons nativo. Mesmo guard de
     // bridge ausente que speak/vibrate acima: preview fora do APK (browser)

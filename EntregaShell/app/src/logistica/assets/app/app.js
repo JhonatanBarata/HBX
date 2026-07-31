@@ -1035,14 +1035,21 @@
     const speed = Number(point.speedMps);
     const moving = Number.isFinite(speed) && speed >= 1.8 && Number.isFinite(bearing);
     const first = !parts.followCameraInitialized;
+    // 🔴 31/07 (item 3) — ZOOM QUE ACOMPANHA A VELOCIDADE (era 16.6 fixo, sempre):
+    // parado/manobrando aproxima pra ver a esquina; na estrada afasta pra ver o
+    // que vem. E a seta senta mais pra baixo (~22% da altura), sobrando tela na
+    // frente — todo GPS faz assim porque o que importa é o que AINDA vai acontecer.
+    const kmh = Number.isFinite(speed) ? Math.max(0, speed) * 3.6 : 0;
+    const zoomPorVelocidade = kmh < 8 ? 17.2 : kmh < 30 ? 16.7 : kmh < 60 ? 16.1 : 15.4;
     const options = {
       center: [point.lng, point.lat],
-      offset: [0, Math.round(Math.min(54, Math.max(22, host.clientHeight * .1)))],
+      offset: [0, Math.round(Math.min(150, Math.max(22, host.clientHeight * (mode === "nav" ? .22 : .1))))],
       duration: first ? 620 : 820,
       essential: false,
     };
-    if (first || resetZoom || Number(map.getZoom()) < 15) options.zoom = resetZoom ? Math.max(Number(map.getZoom()) || 0, 16.6) : 16.6;
-    if (moving) { options.bearing = bearing; options.pitch = 36; }
+    if (mode === "nav") options.zoom = zoomPorVelocidade;
+    else if (first || resetZoom || Number(map.getZoom()) < 15) options.zoom = resetZoom ? Math.max(Number(map.getZoom()) || 0, 16.6) : 16.6;
+    if (moving) { options.bearing = bearing; options.pitch = 48; }
     else if (first || resetZoom) { options.bearing = 0; options.pitch = 0; }
     try { map.easeTo(options); parts.followCameraInitialized = true; } catch (_) {}
   }
@@ -1494,7 +1501,7 @@
     if (!voice || voice.forStopId !== forStopId || voice.epoch !== epoch) {
       // spokenAbertura: a fala de abertura da perna ("Em X, vire…") acontece 1x
       // por perna/recálculo — nunca a cada tique.
-      state.navVoice = { epoch, forStopId, stepIndex: 0, spoken400: false, spoken60: false, spokenAbertura: false };
+      state.navVoice = { epoch, forStopId, stepIndex: 0, spoken1000: false, spoken400: false, spoken60: false, spokenAbertura: false };
     }
     return state.navVoice;
   }
@@ -1529,10 +1536,13 @@
     if (!step) return;
     const distanceM = distanceMeters(point, { lat: step.lat, lng: step.lng });
     if (!state.navMudo) {
+      // 31/07 (item 5) — três avisos, como GPS de verdade: 1 km (dá tempo de
+      // trocar de faixa), 400 m e a hora da manobra.
+      if (distanceM <= 1000 && !voice.spoken1000) { voice.spoken1000 = true; H.speak(`Em 1 quilômetro, ${step.instrucao}`); }
       if (distanceM <= 400 && !voice.spoken400) { voice.spoken400 = true; H.speak(`Em 400 metros, ${step.instrucao}`); }
       if (distanceM <= 60 && !voice.spoken60) { voice.spoken60 = true; H.speak(step.instrucao); }
     }
-    if (distanceM <= 40) { voice.stepIndex += 1; voice.spoken400 = false; voice.spoken60 = false; }
+    if (distanceM <= 40) { voice.stepIndex += 1; voice.spoken1000 = false; voice.spoken400 = false; voice.spoken60 = false; }
   }
   function nearestGeometryIndex(geometry, stop) {
     let bestIndex = 0; let bestDist = Infinity;
@@ -1720,6 +1730,9 @@
   function triggerNavOffPathRecalc() {
     if (!navRecalcAllowed()) return; // teto/backoff estourado: log silencioso, mantém a última geometria (sem toast repetido — Lei 8).
     markNavRecalc();
+    // 31/07 (item 5) — avisa NA HORA que saiu do caminho. Sem isto o motorista
+    // fica seguindo um traço que já não é o dele até o recálculo chegar.
+    if (!state.navMudo) H.speak("Recalculando");
     const stops = navRouteOpenPoints();
     if (!stops.length) return;
     const targetMap = routeMap;
@@ -7510,8 +7523,16 @@
   // render desliga sozinho — logout também para explícito (não espera
   // render), ver "accept-confirmation".
   function syncNavWatch() {
-    if (moduleActive && navModeActive()) startNavWatch(); else stopNavWatch();
+    const navegando = moduleActive && navModeActive();
+    if (navegando) startNavWatch(); else stopNavWatch();
     syncIdleWatch();
+    // 🔴 31/07 (item 1) — TELA ACESA só enquanto guia. Dirigindo, o celular
+    // apagava em 30s e o motorista ficava sem mapa e sem manobra; preso ligado
+    // seria bateria queimando com o app aberto parado.
+    H.manterTelaAcesa(navegando);
+    // 🔴 31/07 (item 2) — navegando, o mapa toma a tela e o resto do cromo some
+    // (regra no app.css). Quem dirige olha UMA coisa.
+    document.documentElement.classList.toggle("nav-cheia", navegando);
   }
   // ==========================================================================
   // ROTA-CONFERIDA — S5 (25/07): "aprovar congela". A ordem aprovada em

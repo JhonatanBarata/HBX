@@ -8,6 +8,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageInstaller
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Build
 import android.os.VibrationEffect
@@ -19,6 +22,7 @@ import android.util.Base64
 import android.webkit.JavascriptInterface
 import android.webkit.WebStorage
 import android.webkit.WebView
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
@@ -567,8 +571,82 @@ class NativeAppBridge(
         val text = ttsTextoPendente ?: return
         ttsTextoPendente = null
         try {
-            engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, "hbx-nav")
+            // 🔴 31/07 (dono, item 5) — no carro com rádio ligado a manobra some
+            // embaixo da música. Pedimos foco de áudio TRANSIENT_MAY_DUCK: o
+            // player alheio ABAIXA (não pausa) enquanto a voz fala, igual GPS de
+            // mercado. Foco é devolvido quando a fala termina (ver ttsProgresso).
+            pedirFocoDeAudio()
+            engine.setOnUtteranceProgressListener(ttsProgresso)
+            val params = android.os.Bundle().apply {
+                putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
+            }
+            engine.speak(text, TextToSpeech.QUEUE_FLUSH, params, "hbx-nav")
+        } catch (_: Throwable) { devolverFocoDeAudio() }
+    }
+
+    private val audioManager: AudioManager?
+        get() = activity.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+
+    private var focoDeAudio: AudioFocusRequest? = null
+
+    private fun pedirFocoDeAudio() {
+        val manager = audioManager ?: return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (focoDeAudio != null) return
+                val atributos = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_ASSISTANCE_NAVIGATION_GUIDANCE)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build()
+                val pedido = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+                    .setAudioAttributes(atributos)
+                    .build()
+                focoDeAudio = pedido
+                manager.requestAudioFocus(pedido)
+            } else {
+                @Suppress("DEPRECATION")
+                manager.requestAudioFocus(null, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_MAY_DUCK)
+            }
         } catch (_: Throwable) {}
+    }
+
+    private fun devolverFocoDeAudio() {
+        val manager = audioManager ?: return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                focoDeAudio?.let { manager.abandonAudioFocusRequest(it) }
+                focoDeAudio = null
+            } else {
+                @Suppress("DEPRECATION")
+                manager.abandonAudioFocus(null)
+            }
+        } catch (_: Throwable) {}
+    }
+
+    /** Devolve o foco assim que a frase termina — música presa abaixada é pior que voz muda. */
+    private val ttsProgresso = object : android.speech.tts.UtteranceProgressListener() {
+        override fun onStart(utteranceId: String?) {}
+        override fun onDone(utteranceId: String?) { activity.runOnUiThread { devolverFocoDeAudio() } }
+        @Deprecated("Deprecated in Java")
+        override fun onError(utteranceId: String?) { activity.runOnUiThread { devolverFocoDeAudio() } }
+    }
+
+    /**
+     * 🔴 31/07 (dono, item 1) — TELA ACESA NA NAVEGAÇÃO. `FLAG_KEEP_SCREEN_ON` só
+     * existia na tela de chegada: dirigindo, o celular apagava em 30s e o
+     * motorista ficava sem mapa e sem manobra. Ligado/desligado pelo próprio
+     * estado da navegação (ver syncNavWatch no app.js) — nunca fica preso ligado,
+     * senão a bateria some com o app aberto parado.
+     */
+    @JavascriptInterface
+    fun manterTelaAcesa(ligado: Boolean) {
+        if (BuildConfig.APP_MODE != "logistica") return
+        activity.runOnUiThread {
+            try {
+                if (ligado) activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                else activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            } catch (_: Throwable) {}
+        }
     }
 
     // Chamado só de close() (mesmo lugar/thread que já limpa o resto da
