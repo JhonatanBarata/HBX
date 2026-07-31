@@ -95,7 +95,7 @@
   flex: 0 0 auto;
 }
 .wa-status__time {
-  font-size: var(--hbx-font-min);
+  font-size: 0.76rem;
   font-weight: 700;
   letter-spacing: 0.01em;
   color: var(--wa-header-ink);
@@ -140,7 +140,7 @@
   border-radius: 999px;
   background: var(--wa-avatar);
   color: var(--wa-header-ink);
-  font-size: var(--hbx-font-min);
+  font-size: 0.73rem;
   font-weight: 700;
   overflow: hidden;
   border: 1.5px solid var(--wa-avatar-ring);
@@ -214,7 +214,7 @@
   margin: auto;
   max-width: 200px;
   text-align: center;
-  font-size: var(--hbx-font-min);
+  font-size: 0.7rem;
   line-height: 1.55;
   color: var(--wa-text-sub);
 }
@@ -237,7 +237,7 @@
   position: relative;
   padding: 5px 8px 3px;
   border-radius: 8px;
-  font-size: var(--hbx-font-min);
+  font-size: 0.77rem;
   line-height: 1.45;
   color: var(--wa-text);
   background: var(--wa-bubble-in);
@@ -317,7 +317,7 @@
   background: var(--wa-quick);
   color: var(--wa-quick-ink);
   font: inherit;
-  font-size: var(--hbx-font-min);
+  font-size: 0.76rem;
   font-weight: 600;
   text-align: center;
   cursor: pointer;
@@ -360,7 +360,7 @@
 }
 .wa-compose__placeholder {
   flex: 1;
-  font-size: var(--hbx-font-min);
+  font-size: 0.72rem;
   color: var(--wa-text-sub);
   user-select: none;
 }
@@ -566,7 +566,7 @@
   gap: 1px;
 }
 .attach-preview .info strong {
-  font-size: var(--hbx-font-min);
+  font-size: 0.78rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -621,7 +621,7 @@
 }
 @keyframes wa-setup-spin { to { transform: rotate(360deg); } }
 .wa-setup-error { display: grid; justify-items: center; gap: 12px; text-align: center; }
-.wa-setup-error span { font-size: var(--hbx-font-min); line-height: 1.45; color: var(--hbx-danger); }
+.wa-setup-error span { font-size: 0.76rem; line-height: 1.45; color: var(--hbx-danger); }
 @media (prefers-reduced-motion: reduce) {
   .wa-setup-loading { animation: none; }
 }

@@ -25,7 +25,7 @@
 
 .eyebrow {
   color: var(--text-muted);
-  font-size: var(--hbx-font-min);
+  font-size: 0.72rem;
   font-weight: 750;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -93,7 +93,7 @@
   border-radius: 14px;
   border: 1px solid transparent;
   font: inherit;
-  font-size: var(--hbx-font-min);
+  font-size: 0.78rem;
   font-weight: 800;
   cursor: pointer;
 }
@@ -130,7 +130,7 @@
   gap: 10px;
   padding: 12px 14px;
   color: var(--text-muted);
-  font-size: var(--hbx-font-min);
+  font-size: 0.72rem;
   line-height: 1.45;
 }
 
@@ -196,7 +196,7 @@ button.row {
 
 .rowName {
   overflow: hidden;
-  font-size: var(--hbx-font-min);
+  font-size: 0.76rem;
   font-weight: 780;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -245,7 +245,7 @@ button.row {
 .stopAddress,
 .stopItems {
   color: var(--text-muted);
-  font-size: var(--hbx-font-min);
+  font-size: 0.75rem;
   line-height: 1.45;
 }
 
@@ -289,7 +289,7 @@ button.row {
   border-radius: 13px;
   background: color-mix(in srgb, var(--hbx-danger) 10%, transparent);
   color: var(--hbx-danger);
-  font-size: var(--hbx-font-min);
+  font-size: 0.72rem;
   line-height: 1.45;
 }
 
@@ -302,7 +302,7 @@ button.row {
 .sheetIntro {
   margin: 0;
   color: var(--text-muted);
-  font-size: var(--hbx-font-min);
+  font-size: 0.74rem;
   line-height: 1.55;
 }
 

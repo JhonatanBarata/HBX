@@ -76,7 +76,7 @@
 }
 .aut-secao-placeholder__icon svg { width: 26px; height: 26px; }
 .aut-secao-placeholder h4 { margin: 0; font-family: var(--font-display); font-size: 1rem; font-weight: 800; color: var(--text-strong); }
-.aut-secao-placeholder p { margin: 0; font-size: var(--hbx-font-min); color: var(--text-muted); max-width: 420px; line-height: 1.55; }
+.aut-secao-placeholder p { margin: 0; font-size: 0.78rem; color: var(--text-muted); max-width: 420px; line-height: 1.55; }
 
 /* ── S13 — seção Atendente: switch de cérebro (Roteiro | IA) na toolbar ────
    Vidro desliza por cima via Glass Pill (Lei nº2); a trilha é só o trilho
@@ -89,7 +89,7 @@
 }
 .atd-brain-btn {
   display: inline-flex; align-items: center; gap: 6px; padding: 5px 11px;
-  border-radius: var(--radius-pill); font-size: var(--hbx-font-min); font-weight: 800;
+  border-radius: var(--radius-pill); font-size: 0.7rem; font-weight: 800;
   color: var(--text-muted); background: transparent; border: none; cursor: pointer;
 }
 .atd-brain-btn:hover { color: var(--text-strong); }
@@ -182,7 +182,7 @@
   background: var(--hbx-field-surface); color: var(--text-strong);
   font-weight: 800; white-space: nowrap;
 }
-.aut-chip--m { padding: 5px 12px; font-size: var(--hbx-font-min); }
+.aut-chip--m { padding: 5px 12px; font-size: 0.74rem; }
 .aut-chip--s { padding: 3px 9px; font-size: var(--hbx-font-min); gap: 5px; }
 
 .aut-chip__dot {
@@ -208,7 +208,7 @@
 .aut-empty-illus { display: grid; place-items: center; width: 88px; height: 88px; color: var(--hbx-brand-strong); flex: none; }
 .aut-empty-illus svg { width: 100%; height: 100%; }
 .aut-empty-title { margin: 0; font-family: var(--font-display); font-size: 0.98rem; font-weight: 800; color: var(--text-strong); }
-.aut-empty-line { font-size: var(--hbx-font-min); color: var(--text-muted); max-width: 320px; line-height: 1.5; }
+.aut-empty-line { font-size: 0.78rem; color: var(--text-muted); max-width: 320px; line-height: 1.5; }
 .aut-empty-cta { margin-top: 2px; }
 
 /* MiniFluxo — 2-4 nós (ícone+rótulo) num conector horizontal. `--compact`
@@ -336,10 +336,10 @@
 .aut-tpl-card__tag { font-size: var(--hbx-font-min); font-weight: 700; color: var(--hbx-brand-strong); }
 
 .aut-tpl-card__fluxo { margin: 2px 0; }
-.aut-tpl-card__metric { font-size: var(--hbx-font-min); font-weight: 700; color: var(--text-muted); }
+.aut-tpl-card__metric { font-size: 0.72rem; font-weight: 700; color: var(--text-muted); }
 
 .aut-tpl-card__foot { margin-top: auto; padding-top: 4px; }
-.aut-tpl-card__cta { font-size: var(--hbx-font-min); font-weight: 800; color: var(--hbx-brand-strong); }
+.aut-tpl-card__cta { font-size: 0.76rem; font-weight: 800; color: var(--hbx-brand-strong); }
 
 /* ══════════════════════════════════════════════════════════════════════════
    UMA FUNCIONÁRIA DIGITAL, TRÊS TURNOS (31/07/2026) — a reforma do /automacao.
@@ -379,7 +379,7 @@
   font-family: var(--font-display); font-size: 1.02rem; font-weight: 800; line-height: 1.15;
   color: var(--text-strong);
 }
-.auto-cracha__sub { font-size: var(--hbx-font-min); color: var(--text-body); line-height: 1.35; }
+.auto-cracha__sub { font-size: 0.76rem; color: var(--text-body); line-height: 1.35; }
 .auto-cracha__lado { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* Editor de identidade (crachá e passo 3 da entrevista usam o MESMO) */
@@ -390,8 +390,8 @@
 }
 .auto-ident__modos { gap: 6px; }
 .auto-ident__campo { display: grid; gap: 4px; max-width: 360px; }
-.auto-ident__dica { font-size: var(--hbx-font-min); color: var(--text-body); }
-.auto-ident__erro { font-size: var(--hbx-font-min); font-weight: 700; color: var(--hbx-danger); }
+.auto-ident__dica { font-size: 0.7rem; color: var(--text-body); }
+.auto-ident__erro { font-size: 0.72rem; font-weight: 700; color: var(--hbx-danger); }
 .auto-ident__acoes { display: flex; gap: 8px; justify-content: flex-end; }
 
 /* ── 2. ENTREVISTA — o cadeado COM motivo escrito ────────────────────────── */
@@ -412,9 +412,9 @@
 }
 .auto-ent__titulos { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .auto-ent__title { font-family: var(--font-display); font-size: 0.92rem; font-weight: 800; color: var(--text-strong); line-height: 1.2; }
-.auto-ent__sub { font-size: var(--hbx-font-min); color: var(--text-body); line-height: 1.35; }
-.auto-ent__contador { font-size: var(--hbx-font-min); font-weight: 800; color: var(--text-body); white-space: nowrap; }
-.auto-ent__aviso { margin: 0; font-size: var(--hbx-font-min); color: var(--text-body); line-height: 1.45; }
+.auto-ent__sub { font-size: 0.76rem; color: var(--text-body); line-height: 1.35; }
+.auto-ent__contador { font-size: 0.72rem; font-weight: 800; color: var(--text-body); white-space: nowrap; }
+.auto-ent__aviso { margin: 0; font-size: 0.74rem; color: var(--text-body); line-height: 1.45; }
 
 .auto-ent__passos { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .auto-ent__passo {
@@ -444,13 +444,13 @@
 .auto-ent__texto { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
 .auto-ent__label { font-size: 0.8rem; font-weight: 700; color: var(--text-strong); line-height: 1.25; }
 .auto-ent__resumo {
-  font-size: var(--hbx-font-min); color: var(--text-body); line-height: 1.35;
+  font-size: 0.72rem; color: var(--text-body); line-height: 1.35;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .auto-ent__editor { padding: 0 11px 11px; }
 .auto-ent__form { display: grid; gap: 8px; }
 .auto-ent__campo { display: grid; gap: 4px; }
-.auto-ent__erro { font-size: var(--hbx-font-min); font-weight: 700; color: var(--hbx-danger); }
+.auto-ent__erro { font-size: 0.72rem; font-weight: 700; color: var(--hbx-danger); }
 .auto-ent__acoes { display: flex; gap: 8px; justify-content: flex-end; }
 
 /* textarea usa a MESMA pele de campo do kit (.field-dark), só a altura é daqui */
@@ -495,8 +495,8 @@ input.auto-casa__campo {
   min-height: 30px; padding: 0 8px; margin: 0 2px;
   font-size: 0.82rem; font-weight: 700;
 }
-.auto-casa__nota { margin: 0; font-size: var(--hbx-font-min); color: var(--text-body); line-height: 1.4; }
-.auto-casa__erro { margin: 0; font-size: var(--hbx-font-min); font-weight: 700; color: var(--hbx-danger); }
+.auto-casa__nota { margin: 0; font-size: 0.74rem; color: var(--text-body); line-height: 1.4; }
+.auto-casa__erro { margin: 0; font-size: 0.74rem; font-weight: 700; color: var(--hbx-danger); }
 
 /* ── 4. TRÊS TURNOS ──────────────────────────────────────────────────────── */
 .aut-fn-grid {
@@ -523,7 +523,7 @@ input.auto-casa__campo {
 .aut-fn-card__ico svg { width: 100%; height: 100%; }
 .aut-fn-card__titulos { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
 .aut-fn-card__title { font-family: var(--font-display); font-size: 0.92rem; font-weight: 800; color: var(--text-strong); line-height: 1.2; }
-.aut-fn-card__linha { font-size: var(--hbx-font-min); color: var(--text-body); line-height: 1.35; }
+.aut-fn-card__linha { font-size: 0.75rem; color: var(--text-body); line-height: 1.35; }
 
 .aut-fn-card__estado { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 
@@ -534,7 +534,7 @@ input.auto-casa__campo {
 /* O MOTIVO do bloqueio, escrito — cadeado mudo é proibido nesta tela. */
 .aut-fn-card__motivo {
   margin: 0; margin-top: auto;
-  font-size: var(--hbx-font-min); line-height: 1.4; color: var(--text-body);
+  font-size: 0.72rem; line-height: 1.4; color: var(--text-body);
   padding: 7px 9px; border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--hbx-warning) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--hbx-warning) 26%, transparent);
@@ -548,7 +548,7 @@ input.auto-casa__campo {
   border: 1px solid var(--border-hairline);
   background: var(--hbx-surface-soft);
 }
-.auto-rodape__cat { font-size: var(--hbx-font-min); color: var(--text-body); line-height: 1.4; flex: 1; min-width: 200px; }
+.auto-rodape__cat { font-size: 0.74rem; color: var(--text-body); line-height: 1.4; flex: 1; min-width: 200px; }
 .auto-rodape__acoes { display: flex; gap: 8px; flex-wrap: wrap; }
 
 /* Laptop 1366x768 e telas baixas: aperta espaçamento, nunca conteúdo

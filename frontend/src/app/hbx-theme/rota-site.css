@@ -177,13 +177,13 @@
 }
 .rt-preco__valor i { font-size: 0.82rem; font-style: normal; font-weight: 700; }
 .rt-preco__valor strong { font-size: clamp(1.9rem, calc(2.5vw * var(--hbx-font-scale)), 2.6rem); font-weight: 820; letter-spacing: -0.05em; line-height: 1; }
-.rt-preco__valor small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 650; }
+.rt-preco__valor small { color: var(--f1-text-soft); font-size: 0.72rem; font-weight: 650; }
 
 .rt-preco__franquia,
 .rt-preco__conta {
   margin: 0;
   color: var(--f1-text-soft);
-  font-size: var(--hbx-font-min);
+  font-size: 0.78rem;
   line-height: 1.45;
 }
 .rt-preco__franquia b { color: var(--f1-text); font-weight: 780; }
@@ -195,7 +195,7 @@
   background: var(--f1-accent-soft);
   font-weight: 620;
 }
-.rt-preco__nota { color: var(--f1-text-soft); font-size: var(--hbx-font-min); line-height: 1.4; }
+.rt-preco__nota { color: var(--f1-text-soft); font-size: 0.7rem; line-height: 1.4; }
 
 .rt-cta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
 .rt-cta-row .f1-primary-cta,

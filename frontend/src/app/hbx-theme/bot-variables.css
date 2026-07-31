@@ -45,7 +45,7 @@
 
 .bot-vars-hint {
   margin: 0;
-  font-size: var(--hbx-font-min);
+  font-size: 0.72rem;
   line-height: 1.4;
   color: var(--text-muted);
 }
@@ -62,7 +62,7 @@
 
 .bot-vars-empty {
   margin: 0;
-  font-size: var(--hbx-font-min);
+  font-size: 0.78rem;
   color: var(--text-muted);
 }
 
@@ -145,7 +145,7 @@
 
 .bot-vars-token {
   font-family: var(--font-mono);
-  font-size: var(--hbx-font-min);
+  font-size: 0.72rem;
   color: var(--text-strong);
   background: var(--surface-recessed);
   border: 1px solid var(--border-hairline);
@@ -155,14 +155,14 @@
 }
 
 .bot-vars-example {
-  font-size: var(--hbx-font-min);
+  font-size: 0.72rem;
   line-height: 1.35;
   color: var(--text-muted);
   font-style: italic;
 }
 
 .bot-vars-desc {
-  font-size: var(--hbx-font-min);
+  font-size: 0.72rem;
   line-height: 1.4;
   color: var(--text-muted);
 }

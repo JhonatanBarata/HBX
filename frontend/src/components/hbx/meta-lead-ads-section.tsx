@@ -184,7 +184,7 @@ export function MetaLeadAdsSection() {
     return u ? (u.name || u.username || u.email || `#${id}`) : `#${id}`;
   }
 
-  const lbl = { fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" } as const;
+  const lbl = { fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" } as const;
 
   return (
     <React.Fragment>
@@ -196,12 +196,12 @@ export function MetaLeadAdsSection() {
           </div>
         </div>
         <div style={{ padding: "0 18px 14px" }}>
-          <p style={{ margin: "12px 0", fontSize: "var(--hbx-font-min)", lineHeight: 1.55, color: "var(--text-muted)" }}>
+          <p style={{ margin: "12px 0", fontSize: "0.72rem", lineHeight: 1.55, color: "var(--text-muted)" }}>
             Conecte uma página do Facebook/Instagram para receber leads de anúncios direto na esteira, com
             aviso ao responsável em minutos.
           </p>
         </div>
-        {loadError && <div style={{ padding: "0 18px 14px", fontSize: "var(--hbx-font-min)", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>}
+        {loadError && <div style={{ padding: "0 18px 14px", fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>}
         {!loadError && (
           <div className="tbl-wrap">
             <table className="tbl">
@@ -284,7 +284,7 @@ export function MetaLeadAdsSection() {
               {form.id ? "Editar conexão" : "Nova conexão Meta"}
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setModalOpen(false)}>✕</span>
             </h3>
-            {msg && <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{msg}</div>}
+            {msg && <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{msg}</div>}
             <div style={{ display: "grid", gap: 6 }}>
               <label style={lbl}>Page ID *</label>
               <input className="field-dark" required minLength={1} maxLength={80} value={form.pageId}

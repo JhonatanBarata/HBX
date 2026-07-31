@@ -75,6 +75,8 @@
 @import "./hbx-theme/assistente.css";
 /* MISSÃO F — Concierge IA (chat de busca guiada do Radar). */
 @import "./hbx-theme/concierge.css";
+/* COMEX — vendas/radar internacional (31/07). */
+@import "./hbx-theme/comex.css";
 /* COMEX — vendas/radar internacional (31/07) */
 @import "./hbx-theme/comex.css";
 /* S12 (MOTOR-ÚNICO) — /automacao: casca única (hub por objetivo + painel de

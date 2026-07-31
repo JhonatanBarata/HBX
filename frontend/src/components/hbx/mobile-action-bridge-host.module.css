@@ -36,7 +36,7 @@
 
 .copy strong {
   font-family: var(--font-display);
-  font-size: var(--hbx-font-min);
+  font-size: 0.76rem;
 }
 
 .copy span {

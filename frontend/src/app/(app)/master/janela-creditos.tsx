@@ -1317,9 +1317,9 @@ function GuiaRecargas() {
             </button>
           ))}
         </div>
-        {loadError && <div style={{ padding: "8px 16px 12px", fontSize: "var(--hbx-font-min)", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>}
+        {loadError && <div style={{ padding: "8px 16px 12px", fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>}
         {data?.ok === false && data?.message && (
-          <div style={{ padding: "8px 16px 12px", fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>{data.message}</div>
+          <div style={{ padding: "8px 16px 12px", fontSize: "0.72rem", color: "var(--text-muted)" }}>{data.message}</div>
         )}
         <div className="tbl-wrap">
           <table className="tbl">
@@ -1363,7 +1363,7 @@ function GuiaRecargas() {
             <h2>Disparo {sel.status === "sent" ? "enviado" : "com falha"}</h2>
             <div className="meta">{fmtDataHora(sel.createdAt)}</div>
           </div>
-          <div style={{ padding: "12px 16px 16px", display: "grid", gap: 10, fontSize: "var(--hbx-font-min)" }}>
+          <div style={{ padding: "12px 16px 16px", display: "grid", gap: 10, fontSize: "0.74rem" }}>
             <p style={{ margin: 0, lineHeight: 1.55, whiteSpace: "pre-line", padding: "9px 11px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)" }}>{sel.text || "—"}</p>
             <div style={{ display: "grid", gap: 6 }}>
               {[

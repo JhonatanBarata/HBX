@@ -363,17 +363,18 @@ export const NAV_LINKS = [
   // Kill-switch, não paywall (null nos gates abaixo). Rótulo exibido virou
   // "Entregas" (pedido do dono, 07/07) — id/href/gate seguem "logistica".
   { id: "logistica", label: "Entregas", href: "/logistica", group: "Logística" },
-  // COMEX (31/07): vendas/radar internacional — mapa do mercado por NCM/SH4 +
-  // prováveis importadores/exportadores. Módulo próprio 'comex' (defaultEnabled
-  // =true, "nasce ligado"); kill-switch do master, não paywall (null no
-  // entitlement). Grupo próprio "Internacional".
-  { id: "comex", label: "Comex", href: "/comex", group: "Internacional" },
   // Logística → "Clientes" (07/07, pedido do dono): a MESMA gestão de clientes de
   // entrega que já vive na aba Contatos (view "Só clientes" + drawer Produtos/forma
   // de pagamento/extrato), agora acessível direto da seção Logística no desktop.
   // Reusa ContatosClient em modo clientesOnly (rota /clientes). Kill-switch
   // (gates null abaixo), mesmo grupo que "Entregas" pra não repetir a guia.
   { id: "clientes", label: "Clientes", href: "/clientes", group: "Logística" },
+  // COMEX (31/07): vendas/radar internacional — mapa do mercado por NCM/SH4 +
+  // prováveis importadores/exportadores. Módulo próprio 'comex' (defaultEnabled
+  // =true, "nasce ligado"); kill-switch do master, não paywall (null no
+  // entitlement). Grupo próprio "Internacional", DEPOIS do bloco Logística
+  // inteiro (item no meio do grupo parte a guia em duas).
+  { id: "comex", label: "Comex", href: "/comex", group: "Internacional" },
   // Sem guia — fica solta no fim da lista, sem rótulo de seção acima.
   { id: "config", label: "Configurações", href: "/configuracoes", group: null as string | null },
 ];
@@ -1953,7 +1954,7 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
               <strong style={{ fontFamily: "var(--font-display)", fontSize: "0.82rem" }}>Avisos</strong>
               {bellMuted && (
                 <button
-                  style={{ textAlign: "left", background: "var(--hbx-danger-soft)", borderRadius: "var(--radius-sm)", border: "none", padding: "8px 10px", fontSize: "var(--hbx-font-min)", color: "var(--hbx-danger)", cursor: "pointer", lineHeight: 1.4 }}
+                  style={{ textAlign: "left", background: "var(--hbx-danger-soft)", borderRadius: "var(--radius-sm)", border: "none", padding: "8px 10px", fontSize: "0.7rem", color: "var(--hbx-danger)", cursor: "pointer", lineHeight: 1.4 }}
                   onClick={async () => {
                     try {
                       await apiFetch("/pulse/push-unmute", { method: "POST" });
@@ -1964,7 +1965,7 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
                   Push de Novidades desativado — tocar p/ reativar
                 </button>
               )}
-              {notices.length === 0 && <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Nenhum aviso no momento.</span>}
+              {notices.length === 0 && <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>Nenhum aviso no momento.</span>}
               {notices.map(n => {
                 const alvo = noticeTarget(n);
                 const isLeadNotice = n.source === "brain" && n.payload?.kind === "lead";
@@ -1981,7 +1982,7 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
                     }}
                     style={{ display: "grid", gap: 4, padding: "9px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: n.acknowledged ? "transparent" : "var(--hbx-surface-soft)", cursor: alvo ? "pointer" : "default" }}>
                     <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between" }}>
-                      <strong style={{ fontSize: "var(--hbx-font-min)" }}>{n.title}</strong>
+                      <strong style={{ fontSize: "0.74rem" }}>{n.title}</strong>
                       {!n.acknowledged && (
                         <button className="btn-ghost" style={{ minHeight: 24, fontSize: "var(--hbx-font-min)", padding: "0 8px" }}
                           onClick={e => { e.stopPropagation(); marcarLido(n); }}>Marcar lido</button>
@@ -2037,7 +2038,7 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
           </button>
           {waMenuOpen && (
             <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, minWidth: 252, padding: 8, display: "grid", gap: 4 }}>
-              <strong className="font-display" style={{ fontSize: "var(--hbx-font-min)", padding: "2px 6px" }}>Ao clicar no WhatsApp de um lead:</strong>
+              <strong className="font-display" style={{ fontSize: "0.74rem", padding: "2px 6px" }}>Ao clicar no WhatsApp de um lead:</strong>
               <button className={"nav-item" + (waMode === "internal" ? " active" : "")} style={{ minHeight: 34, display: "flex", alignItems: "center", gap: 8, opacity: waStatus.state !== "active" ? 0.45 : 1, cursor: waStatus.state !== "active" ? "not-allowed" : "pointer" }}
                 disabled={waStatus.state !== "active"}
                 onClick={() => { setWaOpenMode("internal"); setWaMenuOpen(false); }}>
@@ -2107,19 +2108,19 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
           {avatarOpen && (
             <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, minWidth: 200, padding: 8, display: "grid", gap: 6 }}>
               <div style={{ padding: "4px 6px" }}>
-                <strong style={{ display: "block", fontSize: "var(--hbx-font-min)" }}>{currentUserDisplayName(user)}</strong>
+                <strong style={{ display: "block", fontSize: "0.76rem" }}>{currentUserDisplayName(user)}</strong>
                 <small style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>{user?.email || currentUserRoleLabel(user)}</small>
               </div>
-              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "var(--hbx-font-min)" }} onClick={() => { setAvatarOpen(false); router.push("/configuracoes"); }}>Configurações</button>
-              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "var(--hbx-font-min)" }} onClick={() => { setAvatarOpen(false); router.push("/tutorial"); }}>Tutorial</button>
+              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => { setAvatarOpen(false); router.push("/configuracoes"); }}>Configurações</button>
+              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => { setAvatarOpen(false); router.push("/tutorial"); }}>Tutorial</button>
               {isTenantAdmin(user) && (
-                <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "var(--hbx-font-min)" }} onClick={() => { setAvatarOpen(false); router.push("/gerencial"); }}>Gerencial</button>
+                <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => { setAvatarOpen(false); router.push("/gerencial"); }}>Gerencial</button>
               )}
               {user?.isSystemMaster && (
-                <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "var(--hbx-font-min)" }} onClick={() => { setAvatarOpen(false); router.push("/master"); }}>Master</button>
+                <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => { setAvatarOpen(false); router.push("/master"); }}>Master</button>
               )}
-              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "var(--hbx-font-min)" }} onClick={() => { setAvatarOpen(false); router.push("/reset-password"); }}>Reset de senha</button>
-              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "var(--hbx-font-min)", color: "var(--hbx-danger)" }} onClick={sairTopo} disabled={signingOut}>
+              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem" }} onClick={() => { setAvatarOpen(false); router.push("/reset-password"); }}>Reset de senha</button>
+              <button className="btn-ghost" style={{ width: "100%", minHeight: 32, fontSize: "0.72rem", color: "var(--hbx-danger)" }} onClick={sairTopo} disabled={signingOut}>
                 {signingOut ? "Saindo…" : "Sair"}
               </button>
             </div>

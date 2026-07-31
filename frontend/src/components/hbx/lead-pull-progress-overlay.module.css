@@ -109,7 +109,7 @@
 .heading p {
   margin: 6px 0 0;
   max-width: 60ch;
-  font-size: var(--hbx-font-min);
+  font-size: 0.78rem;
   line-height: 1.5;
   color: var(--text-muted);
 }
@@ -343,7 +343,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--hbx-font-min);
+  font-size: 0.76rem;
   font-weight: 800;
   color: var(--text-strong);
 }
@@ -403,7 +403,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--hbx-font-min);
+  font-size: 0.78rem;
   color: var(--text-strong);
 }
 
@@ -447,7 +447,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--hbx-font-min);
+  font-size: 0.74rem;
   color: var(--text-strong);
 }
 
@@ -463,7 +463,7 @@
   border: 1px solid color-mix(in srgb, var(--hbx-brand) 24%, var(--border-hairline));
   border-radius: var(--radius-pill);
   background: var(--hbx-brand-soft);
-  font-size: var(--hbx-font-min);
+  font-size: 0.7rem;
   font-weight: 800;
   color: var(--hbx-brand);
 }

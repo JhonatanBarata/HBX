@@ -147,7 +147,7 @@ export function JanelaIntegracoes({ companies }: { companies: MasterCompany[] | 
         </div>
         <div style={{ padding: "12px 16px", display: "flex", gap: 10, alignItems: "end" }}>
           <div style={{ display: "grid", gap: 6 }}>
-            <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Empresa</label>
+            <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Empresa</label>
             <select className="field-dark" style={{ minWidth: 220 }} value={companyId} onChange={e => trocarEmpresa(e.target.value)}>
               <option value="">Escolha…</option>
               {(companies || []).map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
@@ -155,9 +155,9 @@ export function JanelaIntegracoes({ companies }: { companies: MasterCompany[] | 
           </div>
         </div>
         {acaoMsg && (
-          <div style={{ padding: "0 16px 10px", fontSize: "var(--hbx-font-min)", fontWeight: 700, color: acaoMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{acaoMsg}</div>
+          <div style={{ padding: "0 16px 10px", fontSize: "0.72rem", fontWeight: 700, color: acaoMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{acaoMsg}</div>
         )}
-        {loadError && <div style={{ padding: "0 16px 12px", fontSize: "var(--hbx-font-min)", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>}
+        {loadError && <div style={{ padding: "0 16px 12px", fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>}
         {companyId && (
           <div className="tbl-wrap">
             <table className="tbl">
@@ -220,7 +220,7 @@ export function JanelaIntegracoes({ companies }: { companies: MasterCompany[] | 
           </div>
         )}
         {!companyId && (
-          <div style={{ padding: "0 16px 16px", fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>
+          <div style={{ padding: "0 16px 16px", fontSize: "0.74rem", color: "var(--text-muted)" }}>
             Escolha uma empresa para ver e gerir as conexões ERP dela.
           </div>
         )}
@@ -234,38 +234,38 @@ export function JanelaIntegracoes({ companies }: { companies: MasterCompany[] | 
               {form.id ? "Editar conexão" : "Nova conexão ERP"}
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setModalOpen(false)}>✕</span>
             </h3>
-            {msg && <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{msg}</div>}
+            {msg && <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{msg}</div>}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Provider</label>
+                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Provider</label>
                 <select className="field-dark" value={form.provider} onChange={e => setForm(f => ({ ...f, provider: e.target.value }))}>
                   {PROVIDERS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
                 </select>
               </div>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "var(--hbx-font-min)", fontWeight: 600, alignSelf: "end", paddingBottom: 8 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.74rem", fontWeight: 600, alignSelf: "end", paddingBottom: 8 }}>
                 <input type="checkbox" checked={form.isActive} onChange={e => setForm(f => ({ ...f, isActive: e.target.checked }))} />
                 Ativa
               </label>
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Nome da instância *</label>
+              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Nome da instância *</label>
               <input className="field-dark" required minLength={2} maxLength={120} value={form.instanceName}
                 onChange={e => setForm(f => ({ ...f, instanceName: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Base URL</label>
+              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Base URL</label>
               <input className="field-dark" maxLength={500} placeholder="https://…" value={form.baseUrl}
                 onChange={e => setForm(f => ({ ...f, baseUrl: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>App key</label>
+                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>App key</label>
                 <input className="field-dark" maxLength={4000} value={form.appKey}
                   placeholder={form.id ? "manter atual" : ""}
                   onChange={e => setForm(f => ({ ...f, appKey: e.target.value }))} />
               </div>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Secret</label>
+                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Secret</label>
                 <input className="field-dark" type="password" maxLength={4000} value={form.secret}
                   placeholder={form.id ? "manter atual" : ""}
                   onChange={e => setForm(f => ({ ...f, secret: e.target.value }))} />

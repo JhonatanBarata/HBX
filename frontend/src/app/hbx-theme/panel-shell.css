@@ -121,7 +121,7 @@
 
 .hbx-panel-context__title {
   color: var(--text-strong);
-  font-size: var(--hbx-font-min);
+  font-size: 0.78rem;
   font-weight: 750;
 }
 

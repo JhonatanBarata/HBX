@@ -73,7 +73,7 @@ export function WebsiteClient() {
   return (
     <div className="work" style={{ flex: 1 }}>
       {loadError && (
-        <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>
+        <div style={{ fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>
       )}
 
       <section className="panel">
@@ -82,7 +82,7 @@ export function WebsiteClient() {
         </div>
         <div style={{ padding: "16px 18px 20px", display: "grid", gap: 14 }}>
           {loading && !portal && (
-            <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Carregando…</span>
+            <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Carregando…</span>
           )}
 
           {!loading && portal && !portal.configured && (

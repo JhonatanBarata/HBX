@@ -405,13 +405,13 @@ export function ConfiguracoesClient() {
                         <div style={{ display: "flex", gap: 8 }}>
                           <button
                             className="btn-ghost"
-                            style={{ minHeight: 30, fontSize: "var(--hbx-font-min)" }}
+                            style={{ minHeight: 30, fontSize: "0.7rem" }}
                             disabled={avatarBusy}
                             onClick={() => avatarInputRef.current?.click()}
                           >{avatarBusy ? "Aguarde…" : "Alterar"}</button>
                           <button
                             className="btn-ghost cfg-danger-btn"
-                            style={{ minHeight: 30, fontSize: "var(--hbx-font-min)", color: "var(--hbx-danger)" }}
+                            style={{ minHeight: 30, fontSize: "0.7rem", color: "var(--hbx-danger)" }}
                             disabled={avatarBusy || !user?.avatarUrl}
                             onClick={removerAvatar}
                           >Remover</button>
@@ -550,7 +550,7 @@ export function ConfiguracoesClient() {
                       )}
                       {entitlementsAtivos.length > 0 && (
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                          <span style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: "var(--text-muted)" }}>Módulos liberados:</span>
+                          <span style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Módulos liberados:</span>
                           {entitlementsAtivos.map(k => <span key={k} className="tag teal">{entitlementLabel(k)}</span>)}
                         </div>
                       )}

@@ -100,7 +100,7 @@ export function PeleSpecimenClient() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div className="hbx-modal" style={{ display: "grid", gap: 10, padding: 20 }}>
               <h3 className="font-display text-ink" style={{ margin: 0, fontSize: "1rem", fontWeight: 800 }}>Modal central</h3>
-              <p className="text-ink-muted" style={{ margin: 0, fontSize: "var(--hbx-font-min)" }}>Confirmações e formulários vivem nesta janela.</p>
+              <p className="text-ink-muted" style={{ margin: 0, fontSize: "0.78rem" }}>Confirmações e formulários vivem nesta janela.</p>
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button className="btn-ghost">Cancelar</button>
                 <button className="btn-teal">Confirmar</button>

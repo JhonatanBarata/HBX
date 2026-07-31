@@ -45,18 +45,23 @@
      é decorativo: todo font-size do app que ficava abaixo dele foi
      trocado por este var(). Mexer aqui move o degrau inteiro de uma vez.
 
-     Ordem do dono (31/07, 2ª passada): 0.8rem = 11,2px. É rem, então
-     continua obedecendo a porcentagem do header (a 120% vira 13,4px);
-     a porcentagem em si não mudou — segue 100/110/120/130. */
-  --hbx-font-min: 0.8rem;     /* 11.2px na raiz de 14px */
+     E o token só entra onde o valor ORIGINAL era menor que ele. Quem já
+     nascia igual ou maior guarda a própria medida — senão baixar o piso
+     deixaria de abaixar um chão e passaria a ENCOLHER texto legível.
+     Foi o que aconteceu no caminho 0.6 → 0.8 → 0.7: na ida pra 0.8 o piso
+     engoliu 812 declarações que já eram maiores que 0.7rem; elas foram
+     devolvidas ao próprio valor antes de o piso descer.
+
+     Ordem do dono (31/07, 3ª passada): 0.8rem → 0.7rem = 9,8px. É rem,
+     então continua obedecendo a porcentagem do header (a 120% vira
+     11,8px); a porcentagem em si não mudou — segue 100/110/120/130. */
+  --hbx-font-min: 0.7rem;     /* 9.8px na raiz de 14px */
 
   /* ---- Body scale ----------------------------------------------------- */
   --text-lg: 1rem;            /* 16px */
   --text-base: 0.88rem;       /* 14px — default UI body */
-  /* sm e xs eram 0.78rem/0.68rem — os dois caíram DENTRO do piso, então
-     viraram o piso. Token que mente é pior que token repetido. */
-  --text-sm: var(--hbx-font-min);
-  --text-xs: var(--hbx-font-min);
+  --text-sm: 0.78rem;         /* 10.9px — acima do piso, guarda a própria medida */
+  --text-xs: var(--hbx-font-min);  /* era 0.68rem = 9,5px: caía dentro do piso */
 
   /* ---- Tracking ------------------------------------------------------- */
   --tracking-display: -0.06em;
@@ -72,13 +77,14 @@
 
   /* ---- CASCA MOBILE (MOBILE-CASCA/W1) — font-size ESTRUTURAL da casca ---
      Métrica é esqueleto (Lei 1): título do topo = 15px. Pele PROIBIDA de
-     mexer nisto (check-pele R5). Label da tab (10.5px), stat (11px) e
-     sub de linha (12px) ficavam abaixo do piso e passaram a ser o piso. */
+     mexer nisto (check-pele R5). Label da tab (9,2px) e stat (9,7px)
+     ficavam abaixo do piso e passaram a ser o piso; sub de linha (10,5px)
+     já nascia acima e guarda a própria medida. */
   --casca-text-title: 0.95rem;   /* ~15px — título do topo (1 linha) */
-  --casca-text-label: var(--hbx-font-min);   /* label da tab bar / segmented */
-  --casca-text-stat: var(--hbx-font-min);    /* stats 1 linha micro */
+  --casca-text-label: var(--hbx-font-min);   /* era 0.66rem — label da tab bar */
+  --casca-text-stat: var(--hbx-font-min);    /* era 0.69rem — stats 1 linha micro */
   --casca-text-body: 0.88rem;    /* 14px — corpo de linha de lista */
-  --casca-text-sub: var(--hbx-font-min);     /* subtítulo/meta de linha */
+  --casca-text-sub: 0.75rem;     /* ~10.5px — subtítulo/meta de linha */
   --casca-text-pct: 0.8rem;      /* ~13px — % no centro do loading */
   --casca-loading-mark: 1.62rem; /* ~26px — wordmark HBX no loading (aumentada o pouco, 07/07) */
 }

@@ -6,7 +6,7 @@
 
 .bot-btns__head { display: grid; gap: 3px; }
 .bot-btns__label {
-  font-size: var(--hbx-font-min);
+  font-size: 0.7rem;
   font-weight: 700;
   color: var(--text-muted);
 }
@@ -39,7 +39,7 @@
 }
 .bot-btns__mode--meta .bot-btns__mode-dot { background: var(--hbx-brand-strong); }
 
-.bot-btns__empty { font-size: var(--hbx-font-min); color: var(--text-muted); }
+.bot-btns__empty { font-size: 0.7rem; color: var(--text-muted); }
 
 .bot-btns__list { display: grid; gap: 8px; }
 
@@ -58,7 +58,7 @@
   width: 26px;
   height: 26px;
   border-radius: var(--radius-xs);
-  font-size: var(--hbx-font-min);
+  font-size: 0.7rem;
   font-weight: 800;
   color: var(--hbx-brand-strong);
   background: var(--hbx-brand-soft);

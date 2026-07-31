@@ -57,7 +57,7 @@
   justify-content: center;
   border-radius: var(--radius-sm);
   font: inherit;
-  font-size: var(--hbx-font-min);
+  font-size: 0.72rem;
   font-weight: 700;
   text-decoration: none;
   cursor: pointer;

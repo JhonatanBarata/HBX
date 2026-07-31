@@ -262,14 +262,14 @@ export function JanelaSistema() {
             </div>
           </div>
           <div style={{ padding: "12px 16px 16px", display: "grid", gap: 14 }}>
-            {credMsg && <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, lineHeight: 1.5, color: credMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{credMsg}</div>}
+            {credMsg && <div style={{ fontSize: "0.72rem", fontWeight: 700, lineHeight: 1.5, color: credMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{credMsg}</div>}
             <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", lineHeight: 1.5 }}>
               Token em branco mantém o segredo atual (o backend preserva pelo “key”). Remover uma linha exclui a credencial da biblioteca ao salvar.
             </span>
 
             <div style={{ display: "grid", gap: 8 }}>
-              <strong style={{ fontSize: "var(--hbx-font-min)" }}>WhatsApp (Meta Cloud)</strong>
-              {(waLib || []).length === 0 && <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Sem credenciais — adicione a primeira.</span>}
+              <strong style={{ fontSize: "0.76rem" }}>WhatsApp (Meta Cloud)</strong>
+              {(waLib || []).length === 0 && <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Sem credenciais — adicione a primeira.</span>}
               {(waLib || []).map((c, i) => (
                 <div key={c.key || i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr auto", gap: 6, alignItems: "center" }}>
                   <input className="field-dark" style={{ minHeight: 32, fontSize: "var(--hbx-font-min)" }} placeholder="Rótulo" value={c.label || ""}
@@ -292,8 +292,8 @@ export function JanelaSistema() {
             </div>
 
             <div style={{ borderTop: "1px solid var(--border-hairline)", paddingTop: 12, display: "grid", gap: 8 }}>
-              <strong style={{ fontSize: "var(--hbx-font-min)" }}>Mercado Pago</strong>
-              {(mpLib || []).length === 0 && <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Sem credenciais — adicione a primeira.</span>}
+              <strong style={{ fontSize: "0.76rem" }}>Mercado Pago</strong>
+              {(mpLib || []).length === 0 && <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Sem credenciais — adicione a primeira.</span>}
               {(mpLib || []).map((c, i) => (
                 <div key={c.key || i} style={{ display: "grid", gridTemplateColumns: "1fr 2fr auto", gap: 6, alignItems: "center" }}>
                   <input className="field-dark" style={{ minHeight: 32, fontSize: "var(--hbx-font-min)" }} placeholder="Rótulo" value={c.label || ""}
@@ -325,7 +325,7 @@ export function JanelaSistema() {
 
       {sub === 1 && (
         <React.Fragment>
-          {exclMsg && <div style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, color: exclMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{exclMsg}</div>}
+          {exclMsg && <div style={{ fontSize: "0.72rem", fontWeight: 700, color: exclMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-warning)" }}>{exclMsg}</div>}
           <section className="panel">
             <div className="panel-head">
               <h2>Cards do Radar removidos</h2>

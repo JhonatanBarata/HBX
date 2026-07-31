@@ -147,7 +147,7 @@
   padding: 4px 11px;
   border-radius: var(--radius-pill);
   font-family: var(--font-display);
-  font-size: var(--hbx-font-min); font-weight: 800;
+  font-size: 0.7rem; font-weight: 800;
   border: 1px solid var(--border-hairline);
   background: var(--hbx-surface-raised);
   color: var(--text-body);
@@ -174,7 +174,7 @@
   color: var(--hbx-danger);
 }
 .bot-prosp-sum__cooldown { font-size: var(--hbx-font-min); font-weight: 700; color: var(--hbx-warning); }
-.bot-prosp-sum__text { margin: 0; font-size: var(--hbx-font-min); line-height: 1.5; color: var(--text-body); }
+.bot-prosp-sum__text { margin: 0; font-size: 0.7rem; line-height: 1.5; color: var(--text-body); }
 
 .bot-prosp-sum__stats {
   display: grid;
@@ -195,7 +195,7 @@
 .bot-prosp-stat__label { font-size: var(--hbx-font-min); color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
 
 .bot-prosp-sum__rows { display: grid; gap: 6px; }
-.bot-prosp-sum__row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: var(--hbx-font-min); }
+.bot-prosp-sum__row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 0.7rem; }
 .bot-prosp-sum__row-k { color: var(--text-muted); }
 .bot-prosp-sum__row-v { color: var(--text-strong); font-weight: 700; text-align: right; }
 
@@ -295,7 +295,7 @@
 
 /* ---- campos ---- */
 .bot-prosp-field { display: grid; gap: 4px; }
-.bot-prosp-field__label { font-size: var(--hbx-font-min); font-weight: 700; color: var(--text-body); }
+.bot-prosp-field__label { font-size: 0.74rem; font-weight: 700; color: var(--text-body); }
 .bot-prosp-field__hint { font-size: var(--hbx-font-min); color: var(--text-muted); line-height: 1.4; }
 .bot-prosp-field__note { margin: 0; font-size: var(--hbx-font-min); color: var(--text-muted); line-height: 1.45; }
 .bot-prosp-field__num { width: 100%; max-width: 180px; }
@@ -317,7 +317,7 @@
   color: var(--hbx-danger);
 }
 .bot-prosp-warn__title svg { color: var(--hbx-danger); }
-.bot-prosp-warn__msg { margin: 0; font-size: var(--hbx-font-min); line-height: 1.55; color: var(--text-body); }
+.bot-prosp-warn__msg { margin: 0; font-size: 0.7rem; line-height: 1.55; color: var(--text-body); }
 .bot-prosp-ramp {
   padding: 10px 12px;
   border-radius: var(--radius-sm);
@@ -349,7 +349,7 @@
   background: var(--hbx-surface-soft);
 }
 .bot-prosp-toggle-row__info { flex: 1; min-width: 0; display: grid; gap: 2px; }
-.bot-prosp-toggle-row__info strong { font-size: var(--hbx-font-min); font-weight: 700; color: var(--text-strong); }
+.bot-prosp-toggle-row__info strong { font-size: 0.78rem; font-weight: 700; color: var(--text-strong); }
 .bot-prosp-toggle-row__info small { font-size: var(--hbx-font-min); color: var(--text-muted); line-height: 1.4; }
 
 /* ---- editor de listas de variantes ---- */
@@ -360,7 +360,7 @@
   border-top: 1px dashed var(--border-hairline);
 }
 .bot-prosp-vlist__head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
-.bot-prosp-vlist__title { font-size: var(--hbx-font-min); font-weight: 700; color: var(--text-strong); }
+.bot-prosp-vlist__title { font-size: 0.76rem; font-weight: 700; color: var(--text-strong); }
 .bot-prosp-vlist__count { font-size: var(--hbx-font-min); color: var(--text-muted); font-weight: 700; }
 .bot-prosp-vlist__hint { font-size: var(--hbx-font-min); color: var(--text-muted); line-height: 1.4; }
 .bot-prosp-vlist__empty { font-size: var(--hbx-font-min); color: var(--text-muted); font-style: italic; }
@@ -404,7 +404,7 @@
 }
 .bot-prosp-var-popup__item:last-child { border-bottom: none; }
 .bot-prosp-var-popup__item:hover { background: var(--hbx-surface-soft); }
-.bot-prosp-var-popup__label { font-size: var(--hbx-font-min); color: var(--text-strong); font-weight: 600; }
+.bot-prosp-var-popup__label { font-size: 0.7rem; color: var(--text-strong); font-weight: 600; }
 .bot-prosp-var-popup__token { font-size: var(--hbx-font-min); color: var(--hbx-brand); font-family: var(--font-mono); }
 
 /* ---- Teste de conversa (sandbox interativo) no dock da direita ---- */
@@ -452,7 +452,7 @@
 }
 .bot-sandbox__restart:hover { background: color-mix(in srgb, var(--wa-header-ink) 24%, transparent); }
 .bot-sandbox__restart:disabled { opacity: 0.5; cursor: not-allowed; }
-.bot-sandbox__restart-glyph { font-size: var(--hbx-font-min); }
+.bot-sandbox__restart-glyph { font-size: 0.78rem; }
 
 /* pele-allow — chave de liberação do bot (header desktop + mobile) */
 .bot-release-key {
@@ -500,7 +500,7 @@
   color: var(--text-strong);
 }
 /* o estado atual é DADO que se lê: --text-body, nunca --text-muted (contraste) */
-.nivel-disparo__now { font-size: var(--hbx-font-min); line-height: 1.45; color: var(--text-body); }
+.nivel-disparo__now { font-size: 0.7rem; line-height: 1.45; color: var(--text-body); }
 
 .nivel-disparo__opcoes { display: grid; gap: 7px; }
 @media (min-width: 900px) {
@@ -527,7 +527,7 @@
 .nivel-disparo__opt:disabled:not(.is-on) { opacity: 0.55; cursor: not-allowed; }
 .nivel-disparo__opt-nome {
   font-family: var(--font-display);
-  font-size: var(--hbx-font-min); font-weight: 700;
+  font-size: 0.78rem; font-weight: 700;
   color: var(--text-strong);
 }
 .nivel-disparo__opt-num { font-size: var(--hbx-font-min); font-weight: 600; color: var(--hbx-brand); }

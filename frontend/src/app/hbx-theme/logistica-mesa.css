@@ -34,7 +34,7 @@
 .log-triage__head strong,
 .log-board__head strong {
   color: var(--text-strong);
-  font-size: var(--hbx-font-min);
+  font-size: 0.78rem;
   font-weight: 800;
 }
 
@@ -59,7 +59,7 @@
 .log-triage__limpo {
   margin: 0;
   color: var(--text-muted);
-  font-size: var(--hbx-font-min);
+  font-size: 0.72rem;
 }
 .log-triage__list { display: grid; gap: 6px; }
 
@@ -88,8 +88,8 @@
 }
 /* A GRAVIDADE é a tarja de 3px + a etiqueta escrita; a cor do texto miúdo não
    carrega o recado sozinha (âmbar em 8px sobre superfície clara dá 2,3:1). */
-.log-triage__what { color: var(--text-strong); font-size: var(--hbx-font-min); font-weight: 800; }
-.log-triage__why { color: var(--text-body); font-size: var(--hbx-font-min); line-height: 1.45; }
+.log-triage__what { color: var(--text-strong); font-size: 0.74rem; font-weight: 800; }
+.log-triage__why { color: var(--text-body); font-size: 0.7rem; line-height: 1.45; }
 .log-triage__act { flex: none; justify-self: end; }
 
 /* ── O tabuleiro ───────────────────────────────────────────── */
@@ -136,7 +136,7 @@
 .log-lane__who b {
   overflow: hidden;
   color: var(--text-strong);
-  font-size: var(--hbx-font-min);
+  font-size: 0.74rem;
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -205,7 +205,7 @@
 .log-strip__main { display: grid; gap: 1px; min-width: 0; }
 .log-strip__main b {
   overflow: hidden;
-  font-size: var(--hbx-font-min);
+  font-size: 0.7rem;
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -325,7 +325,7 @@
 .log-command__single-view {
   color: var(--text-strong);
   font-family: var(--font-display);
-  font-size: var(--hbx-font-min);
+  font-size: 0.74rem;
   line-height: 1.15;
 }
 
@@ -711,7 +711,7 @@
 }
 
 .log-today-scroll > .emp-empty .emp-empty__title {
-  font-size: var(--hbx-font-min);
+  font-size: 0.7rem;
 }
 
 .log-today-scroll > .emp-empty .emp-empty__text {

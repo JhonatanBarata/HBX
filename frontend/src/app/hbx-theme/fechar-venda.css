@@ -81,7 +81,7 @@
 .fv-step.is-active, .fv-step.is-done { opacity: 1; }
 .fv-step-dot {
   width: 26px; height: 26px; border-radius: 50%;
-  display: grid; place-items: center; font-size: var(--hbx-font-min); font-weight: 800;
+  display: grid; place-items: center; font-size: 0.72rem; font-weight: 800;
   color: #fff; background: rgba(255,255,255,0.22); border: 2px solid rgba(255,255,255,0.5);
   transition: background .3s, transform .3s, border-color .3s;
 }
@@ -94,10 +94,10 @@
 .fv-body { padding: 18px 22px 22px; display: grid; gap: 16px; }
 
 .fv-field { display: grid; gap: 6px; }
-.fv-label { font-size: var(--hbx-font-min); font-weight: 800; letter-spacing: .02em; color: #5a5478; text-transform: uppercase; }
+.fv-label { font-size: 0.7rem; font-weight: 800; letter-spacing: .02em; color: #5a5478; text-transform: uppercase; }
 .fv-req { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: var(--hbx-font-min); font-weight: 700; letter-spacing: .03em; color: #b4790a; background: #fbe7c6; }
 .fv-hint { font-size: var(--hbx-font-min); line-height: 1.5; color: #7b7596; }
-.fv-warn { font-size: var(--hbx-font-min); line-height: 1.5; font-weight: 600; color: #b4790a; }
+.fv-warn { font-size: 0.7rem; line-height: 1.5; font-weight: 600; color: #b4790a; }
 
 .fv-input, .fv-select {
   width: 100%; box-sizing: border-box;
@@ -144,11 +144,11 @@
 .fv-spot-amount .fv-per { font-size: 0.9rem; font-weight: 700; color: rgba(255,255,255,0.7); margin-left: 4px; }
 .fv-spot-amount.fv-pop { animation: fv-pop .42s cubic-bezier(.2,1.4,.4,1) both; }
 @keyframes fv-pop { from { transform: scale(.7); opacity: .3 } to { transform: scale(1); opacity: 1 } }
-.fv-spot-meta { position: relative; display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: var(--hbx-font-min); }
+.fv-spot-meta { position: relative; display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 0.72rem; }
 .fv-spot-meta b { color: #fff; font-weight: 800; font-variant-numeric: tabular-nums; }
 .fv-spot-meta span { color: rgba(255,255,255,0.72); }
 .fv-spot-chip { position: relative; display: inline-flex; align-items: center; gap: 5px; margin-top: 12px; padding: 5px 10px; border-radius: 999px; font-size: var(--hbx-font-min); font-weight: 800; background: rgba(37, 224, 176, 0.18); color: #6cf3cb; border: 1px solid rgba(37,224,176,0.4); }
-.fv-spot-zero { position: relative; margin-top: 8px; font-size: var(--hbx-font-min); line-height: 1.5; color: #ffd9a0; }
+.fv-spot-zero { position: relative; margin-top: 8px; font-size: 0.72rem; line-height: 1.5; color: #ffd9a0; }
 /* Linha sutil da cascata (Camada 2): o vendedor vê SÓ o ganho dele em destaque;
    esta linha reconhece, sem números alheios, que a venda também sobe a cadeia. */
 .fv-spot-cascade { position: relative; margin-top: 11px; padding-top: 9px; border-top: 1px solid rgba(255,255,255,0.12); font-size: var(--hbx-font-min); line-height: 1.45; color: rgba(255,255,255,0.58); }
@@ -176,7 +176,7 @@
 .fv-btn-ghost:not(:disabled):hover { background: #e9e3ff; }
 .fv-btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .fv-foot-note { margin: 2px 0 0; font-size: var(--hbx-font-min); line-height: 1.55; color: #8e88a8; text-align: center; }
-.fv-error { font-size: var(--hbx-font-min); font-weight: 700; color: #d23b4e; background: #fdeef0; border: 1px solid #f7ccd3; padding: 9px 12px; border-radius: 11px; }
+.fv-error { font-size: 0.74rem; font-weight: 700; color: #d23b4e; background: #fdeef0; border: 1px solid #f7ccd3; padding: 9px 12px; border-radius: 11px; }
 
 /* ── Estado de sucesso (link gerado) ───────────────────────────────────────── */
 .fv-success-burst { position: relative; text-align: center; padding: 6px 0 2px; }
@@ -189,11 +189,11 @@
 }
 @keyframes fv-badge-in { from { transform: scale(.2) rotate(-25deg); opacity: 0 } to { transform: none; opacity: 1 } }
 .fv-success-title { margin: 0; font-family: var(--font-display, inherit); font-weight: 850; font-size: 1.12rem; color: #1b1635; }
-.fv-success-sub { margin: 4px 0 0; font-size: var(--hbx-font-min); color: #6f6991; line-height: 1.5; }
+.fv-success-sub { margin: 4px 0 0; font-size: 0.76rem; color: #6f6991; line-height: 1.5; }
 
 .fv-linkbox { display: grid; gap: 4px; padding: 12px 14px; border-radius: 13px; background: #f6f5ff; border: 1.5px dashed #cdc4f5; }
 .fv-linkbox-h { font-size: var(--hbx-font-min); font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #8079a3; }
-.fv-linkbox-url { font-size: var(--hbx-font-min); line-height: 1.5; color: #4a3fb0; word-break: break-all; font-weight: 600; }
+.fv-linkbox-url { font-size: 0.74rem; line-height: 1.5; color: #4a3fb0; word-break: break-all; font-weight: 600; }
 
 /* confete leve no sucesso */
 .fv-confetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }

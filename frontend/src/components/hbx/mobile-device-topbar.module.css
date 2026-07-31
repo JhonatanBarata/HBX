@@ -147,7 +147,7 @@
 
 .deviceCard strong {
   color: var(--text-title);
-  font-size: var(--hbx-font-min);
+  font-size: 0.74rem;
 }
 
 .sectionLabel {
@@ -184,7 +184,7 @@
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-size: var(--hbx-font-min);
+  font-size: 0.7rem;
   font-weight: 650;
 }
 
@@ -277,7 +277,7 @@
   min-height: 32px;
   justify-content: center;
   text-decoration: none;
-  font-size: var(--hbx-font-min);
+  font-size: 0.7rem;
 }
 
 @media (max-width: 360px) {

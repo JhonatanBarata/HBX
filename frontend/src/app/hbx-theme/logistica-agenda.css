@@ -83,7 +83,7 @@
   background: transparent;
   color: var(--text-muted);
   font: inherit;
-  font-size: var(--hbx-font-min);
+  font-size: 0.75rem;
   font-weight: 750;
   white-space: nowrap;
   cursor: pointer;
@@ -163,7 +163,7 @@
 
 .log-agenda__day strong {
   color: inherit;
-  font-size: var(--hbx-font-min);
+  font-size: 0.72rem;
   font-weight: 800;
 }
 
@@ -220,7 +220,7 @@
 
 .log-agenda-legacy strong {
   color: var(--text-strong);
-  font-size: var(--hbx-font-min);
+  font-size: 0.72rem;
   font-weight: 800;
 }
 
@@ -392,7 +392,7 @@
   background: transparent;
   color: var(--text-strong);
   font: inherit;
-  font-size: var(--hbx-font-min);
+  font-size: 0.75rem;
 }
 
 .log-agenda__search input::placeholder {
@@ -441,7 +441,7 @@
   background: var(--hbx-brand-soft);
   color: var(--hbx-brand-strong, var(--hbx-brand));
   font: inherit;
-  font-size: var(--hbx-font-min);
+  font-size: 0.76rem;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
@@ -568,7 +568,7 @@
 
 .log-agenda__feedback span {
   max-width: 360px;
-  font-size: var(--hbx-font-min);
+  font-size: 0.7rem;
   line-height: 1.45;
 }
 
@@ -717,7 +717,7 @@
 .log-agenda-form__section-title {
   margin: 0;
   color: var(--text-strong);
-  font-size: var(--hbx-font-min);
+  font-size: 0.72rem;
   font-weight: 800;
 }
 
@@ -864,7 +864,7 @@
   background: transparent;
   color: var(--text-muted);
   font: inherit;
-  font-size: var(--hbx-font-min);
+  font-size: 0.7rem;
   font-weight: 750;
   cursor: pointer;
 }
@@ -1005,7 +1005,7 @@
 .log-agenda-import__route-name strong {
   overflow: hidden;
   color: var(--text-strong);
-  font-size: var(--hbx-font-min);
+  font-size: 0.76rem;
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1046,7 +1046,7 @@
 .log-agenda-import__block-head h4 {
   margin: 0;
   color: var(--text-strong);
-  font-size: var(--hbx-font-min);
+  font-size: 0.72rem;
   font-weight: 800;
 }
 
@@ -1088,7 +1088,7 @@
 .log-agenda-import__row-name {
   overflow: hidden;
   color: var(--text-strong);
-  font-size: var(--hbx-font-min);
+  font-size: 0.7rem;
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1383,7 +1383,7 @@
   background: transparent;
   color: var(--text-muted);
   font: inherit;
-  font-size: var(--hbx-font-min);
+  font-size: 0.72rem;
   font-weight: 750;
   white-space: nowrap;
   cursor: pointer;
@@ -1431,7 +1431,7 @@
 }
 
 .log-quar-drop__title { font-size: 0.82rem; font-weight: 750; color: var(--text-strong); }
-.log-quar-drop__sub { font-size: var(--hbx-font-min); color: var(--text-muted); }
+.log-quar-drop__sub { font-size: 0.72rem; color: var(--text-muted); }
 
 .log-quar-textarea {
   min-height: 220px;
@@ -1468,8 +1468,8 @@
 }
 
 .log-quar-lote__main { display: grid; gap: 2px; min-width: 0; }
-.log-quar-lote__title { font-size: var(--hbx-font-min); font-weight: 750; color: var(--text-strong); }
-.log-quar-lote__sub { font-size: var(--hbx-font-min); color: var(--text-muted); }
+.log-quar-lote__title { font-size: 0.78rem; font-weight: 750; color: var(--text-strong); }
+.log-quar-lote__sub { font-size: 0.7rem; color: var(--text-muted); }
 
 .emp-role.is-rascunho { color: var(--text-body); border-color: var(--border-hairline); background: color-mix(in srgb, var(--text-muted) 10%, transparent); }
 .emp-role.is-conferido { color: var(--hbx-brand-strong); border-color: color-mix(in srgb, var(--hbx-brand) 40%, transparent); background: var(--hbx-brand-soft); }

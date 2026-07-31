@@ -101,8 +101,8 @@ html[data-hbx-authed] .public-entry { display: none; }
 .f1-icon-button:hover,
 .f1-login:hover { transform: translateY(-2px); border-color: var(--f1-line-strong); background: var(--f1-surface-up); }
 .f1-icon-button { display: inline-flex; height: 42px; min-width: 42px; padding: 0 12px; align-items: center; justify-content: center; gap: 8px; border-radius: 999px; cursor: pointer; }
-.f1-icon-button span { font-size: var(--hbx-font-min); font-weight: 700; }
-.f1-login { display: inline-flex; height: 42px; padding: 0 17px; align-items: center; gap: 9px; border-radius: 999px; font-size: var(--hbx-font-min); font-weight: 750; }
+.f1-icon-button span { font-size: 0.74rem; font-weight: 700; }
+.f1-login { display: inline-flex; height: 42px; padding: 0 17px; align-items: center; gap: 9px; border-radius: 999px; font-size: 0.78rem; font-weight: 750; }
 .f1-login .f1-icon { transition: transform 0.35s var(--f1-ease); }
 .f1-login:hover .f1-icon { transform: translateX(3px); }
 
@@ -158,7 +158,7 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .f1-product__dots i { width: 7px; height: 7px; border-radius: 50%; background: var(--f1-line-strong); }
 .f1-product__dots i:first-child { background: var(--f1-accent); }
 .f1-product__brand { position: absolute; left: 50%; display: inline-flex; gap: 5px; align-items: baseline; transform: translateX(-50%); }
-.f1-product__brand b { font-size: var(--hbx-font-min); }
+.f1-product__brand b { font-size: 0.72rem; }
 .f1-product__brand small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); }
 .f1-live { display: inline-flex; align-items: center; gap: 6px; color: var(--f1-text-soft); font-family: var(--font-mono, monospace); font-size: var(--hbx-font-min); font-weight: 700; letter-spacing: 0.08em; }
 .f1-live i { width: 6px; height: 6px; border-radius: 50%; background: var(--f1-success); box-shadow: 0 0 12px var(--f1-success); animation: f1-live 1.8s ease-in-out infinite; }
@@ -342,10 +342,10 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 
 .f1-cookie-banner { position: fixed; z-index: 30; left: 4px; right: 4px; bottom: 14px; display: flex; min-height: 90px; padding: 20px 22px; align-items: center; justify-content: space-between; gap: 22px; border: 1px solid var(--f1-line-strong); border-radius: 22px; background: color-mix(in srgb, var(--f1-surface-solid) 92%, transparent); box-shadow: 0 22px 60px var(--f1-shadow); backdrop-filter: blur(22px); }
 .f1-cookie-banner strong { display: block; font-size: 0.95rem; font-weight: 800; }
-.f1-cookie-banner p { margin: 5px 0 0; color: var(--f1-text-soft); font-size: var(--hbx-font-min); }
+.f1-cookie-banner p { margin: 5px 0 0; color: var(--f1-text-soft); font-size: 0.75rem; }
 .f1-cookie-banner a { color: var(--f1-text-soft); text-decoration: underline; text-underline-offset: 2px; }
 .f1-cookie-actions { display: flex; flex: 0 0 auto; gap: 10px; }
-.f1-cookie-actions button { min-height: 46px; padding: 0 18px; border: 1px solid var(--f1-line); border-radius: 16px; color: var(--f1-text); background: transparent; font-size: var(--hbx-font-min); font-weight: 750; cursor: pointer; }
+.f1-cookie-actions button { min-height: 46px; padding: 0 18px; border: 1px solid var(--f1-line); border-radius: 16px; color: var(--f1-text); background: transparent; font-size: 0.78rem; font-weight: 750; cursor: pointer; }
 .f1-cookie-actions button.is-accept { border-color: rgba(100, 181, 255, 0.54); color: #fff; background: linear-gradient(135deg, #4baaff, #1c70e8); box-shadow: 0 12px 28px rgba(20, 111, 226, 0.28); }
 
 @media (max-width: 620px) {
@@ -407,7 +407,7 @@ html[data-theme-mode="light"] .f1-secondary-cta:hover { background: #e4f1ff; }
 .f1-mobile-app--android .f1-mobile-app__art-wrap { align-self: flex-end; height: 275px; margin: -15px -10px -26px 0; }
 .f1-mobile-app--apple .f1-mobile-app__art-wrap { height: 195px; margin: 0 -10px 0 -18px; }
 .f1-mobile-app__ribbon { position: absolute; z-index: 2; top: 20px; left: -33px; width: 142px; padding: 7px 0; color: #18202c; background: #e5ebf2; box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18); font-size: var(--hbx-font-min); font-weight: 900; letter-spacing: 0.08em; text-align: center; text-transform: uppercase; transform: rotate(-34deg); }
-.f1-mobile-app__link { display: inline-flex; width: fit-content; min-height: 38px; margin-top: 5px; padding: 0 14px; align-items: center; gap: 7px; border: 1px solid color-mix(in srgb, var(--f1-accent) 45%, transparent); border-radius: 12px; color: var(--f1-text); background: color-mix(in srgb, var(--f1-accent) 16%, transparent); font-size: var(--hbx-font-min); font-weight: 800; transition: transform 0.25s ease, background 0.25s ease; }
+.f1-mobile-app__link { display: inline-flex; width: fit-content; min-height: 38px; margin-top: 5px; padding: 0 14px; align-items: center; gap: 7px; border: 1px solid color-mix(in srgb, var(--f1-accent) 45%, transparent); border-radius: 12px; color: var(--f1-text); background: color-mix(in srgb, var(--f1-accent) 16%, transparent); font-size: 0.72rem; font-weight: 800; transition: transform 0.25s ease, background 0.25s ease; }
 .f1-mobile-app__link:hover { background: color-mix(in srgb, var(--f1-accent) 26%, transparent); transform: translateY(-2px); }
 .f1-mobile-app__link .f1-icon { width: 14px; height: 14px; }
 /* Card do Android leva a DOIS destinos: baixar o app (ação) e a vitrine do

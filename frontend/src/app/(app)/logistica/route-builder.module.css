@@ -67,7 +67,7 @@
 .heading p {
   margin-top: 3px;
   color: var(--text-muted);
-  font-size: var(--hbx-font-min);
+  font-size: 0.72rem;
 }
 
 .close {
@@ -260,7 +260,7 @@
   background: var(--hbx-surface-soft);
   color: var(--hbx-brand-strong, var(--hbx-brand));
   font: inherit;
-  font-size: var(--hbx-font-min);
+  font-size: 0.74rem;
   font-weight: 700;
   cursor: pointer;
   transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
@@ -283,12 +283,12 @@
 
 .dayRow strong {
   color: var(--text-strong);
-  font-size: var(--hbx-font-min);
+  font-size: 0.78rem;
 }
 
 .dayRow span {
   color: var(--text-muted);
-  font-size: var(--hbx-font-min);
+  font-size: 0.7rem;
 }
 
 .dayRow.selected {
@@ -312,7 +312,7 @@
   border-radius: 14px;
   background: var(--hbx-brand-soft);
   color: var(--text-muted);
-  font-size: var(--hbx-font-min);
+  font-size: 0.72rem;
 }
 
 .summary strong {
@@ -339,7 +339,7 @@
   background: transparent;
   color: var(--text-strong);
   font: inherit;
-  font-size: var(--hbx-font-min);
+  font-size: 0.76rem;
 }
 
 .search input::placeholder {
@@ -357,7 +357,7 @@
   width: 36px;
   height: 36px;
   border-radius: 12px;
-  font-size: var(--hbx-font-min);
+  font-size: 0.76rem;
   font-weight: 850;
 }
 
@@ -437,7 +437,7 @@
   border-radius: 13px;
   background: color-mix(in srgb, var(--hbx-danger) 10%, transparent);
   color: var(--hbx-danger);
-  font-size: var(--hbx-font-min);
+  font-size: 0.72rem;
   line-height: 1.45;
 }
 
@@ -445,7 +445,7 @@
   margin: 0;
   padding: 24px 14px;
   color: var(--text-muted);
-  font-size: var(--hbx-font-min);
+  font-size: 0.76rem;
   text-align: center;
 }
 
@@ -468,7 +468,7 @@
   min-height: 44px;
   border-radius: 14px;
   font: inherit;
-  font-size: var(--hbx-font-min);
+  font-size: 0.76rem;
   font-weight: 800;
   cursor: pointer;
 }
@@ -497,7 +497,7 @@
   justify-content: space-between;
   gap: 12px;
   color: var(--text-strong);
-  font-size: var(--hbx-font-min);
+  font-size: 0.74rem;
   font-weight: 700;
 }
 
@@ -579,7 +579,7 @@
   padding: 10px 13px;
   border: 1px solid var(--border-hairline);
   border-radius: 14px;
-  font-size: var(--hbx-font-min);
+  font-size: 0.74rem;
   font-weight: 750;
 }
 
@@ -620,7 +620,7 @@
   padding: 14px;
   background: color-mix(in srgb, var(--hbx-surface) 88%, transparent);
   color: var(--text-muted);
-  font-size: var(--hbx-font-min);
+  font-size: 0.76rem;
   font-weight: 750;
   text-align: center;
 }
@@ -636,7 +636,7 @@
   background: var(--hbx-surface-soft);
   color: var(--text-strong);
   font: inherit;
-  font-size: var(--hbx-font-min);
+  font-size: 0.72rem;
   font-weight: 800;
   cursor: pointer;
 }
@@ -772,7 +772,7 @@
   padding: 0 14px;
   border-radius: 13px;
   font: inherit;
-  font-size: var(--hbx-font-min);
+  font-size: 0.76rem;
   font-weight: 800;
   cursor: pointer;
 }
@@ -850,7 +850,7 @@
   background: var(--hbx-surface-soft);
   color: var(--text-muted);
   font: inherit;
-  font-size: var(--hbx-font-min);
+  font-size: 0.76rem;
   font-weight: 800;
   cursor: pointer;
   transition: border-color 160ms ease, color 160ms ease, background 160ms ease;
