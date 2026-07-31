@@ -22,6 +22,7 @@
 // para herdar o efeito automaticamente.
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 
 import { Av, I, ICONS, PhotoLightbox, WhatsAppMark } from "@/components/hbx/shell";
 import { CanalIcon, type Canal, toCanal } from "@/components/hbx/canal-icon";
@@ -1329,7 +1330,8 @@ export function ConversationPanel({
   }
 
   // Toggle IA por conversa via bulk-bot (mesma rotina do Atendimento). Ligar =
-  // "devolver pra IA"; desligar = "assumo eu". Erros de bot-não-armado/setup viram hint.
+  // "devolver pra IA"; desligar = "assumo eu". Erros de entrevista/setup viram
+  // hint com porta pro /automacao ("armar bot" morreu 31/07/2026).
   async function toggleIa() {
     if (!convoId || aiBusy) return;
     const next = !botActive;
@@ -1472,7 +1474,14 @@ export function ConversationPanel({
             )}
           </div>
 
-          {aiHint && <div className="dn-convo__ai-armhint">{aiHint}</div>}
+          {aiHint && (
+            <div className="dn-convo__ai-armhint">
+              {aiHint}{" "}
+              {/* Centralização (31/07/2026): o que trava a IA se resolve no
+                  /automacao — o hint encaminha, nunca deixa a pessoa sem porta. */}
+              <Link href="/automacao" className="btn-ghost">Abrir Automação</Link>
+            </div>
+          )}
           {sendError && <div className="dn-convo__err">{sendError}</div>}
 
           <div className="dn-convo__composer">
