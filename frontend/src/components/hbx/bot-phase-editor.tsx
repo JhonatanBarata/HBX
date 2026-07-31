@@ -6,16 +6,12 @@
 // "Variáveis" (expande picker inline) + <BotButtonsEditor> (quando a peça emite botões).
 // Para a peça "Ajustes" mostra os toggles de regras (BOT_RULES).
 //
-// Casca/animação vêm das classes CENTRAIS do kit (.hbx-veil.to-right + .hbx-drawer);
+// Casca/animação vêm do contrato CENTRAL useHbxPresence + motion-system;
 // o visual do conteúdo mora em hbx-theme/bot-builder.css (zero hex/inline color).
-//
-// CRÍTICO — fechar SEM travar o véu: espelha EXATAMENTE o padrão já corrigido em
-// bot-variables-drawer.tsx (estado `closing` + finishClose() que ZERA `closing`
-// ANTES de onClose, onAnimationEnd + timeout de fallback, e
-// `if (!open && !closing) return null` pra DESMONTAR ao fechar).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { useHbxPresence } from "@/components/hbx/motion";
 import { I, ICONS } from "@/components/hbx/shell";
 import { BotButtonsEditor, type BotButton, type BotAction } from "@/components/hbx/bot-buttons-editor";
 import type { VarDef } from "@/components/hbx/bot-variables-drawer";
@@ -87,7 +83,8 @@ export function BotPhaseEditor(props: BotPhaseEditorProps): React.JSX.Element | 
 
   const panelRef = useRef<HTMLDivElement | null>(null);
   const fieldRef = useRef<HTMLTextAreaElement | null>(null);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const presence = useHbxPresence(open, { kind: "drawer", onExited: onClose });
+  const requestClose = presence.requestClose;
 
   // ── Picker inline de variáveis ────────────────────────────────────────────
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -120,48 +117,6 @@ export function BotPhaseEditor(props: BotPhaseEditorProps): React.JSX.Element | 
     setPickerOpen(false);
   }
 
-  // `closing` mantém o componente montado durante a animação de saída.
-  const [closing, setClosing] = useState(false);
-
-  // Reset SEM effect: ao reabrir, zera o estado de saída pra a animação de
-  // entrada rodar limpa (mesmo padrão do drawer de variáveis).
-  const [prevOpen, setPrevOpen] = useState(open);
-  if (open !== prevOpen) {
-    setPrevOpen(open);
-    if (open && closing) setClosing(false);
-  }
-
-  // Fecha de verdade: ZERA `closing` (senão o véu fica preso cobrindo a tela —
-  // bug do "não dá pra fechar") e avisa o pai (onClose).
-  const finishClose = useCallback(() => {
-    if (closeTimer.current) {
-      clearTimeout(closeTimer.current);
-      closeTimer.current = null;
-    }
-    setClosing(false);
-    onClose();
-  }, [onClose]);
-
-  // Pede o fechamento: dispara a saída e fecha quando ela termina
-  // (onAnimationEnd) — com fallback por timeout (reduced-motion).
-  const requestClose = useCallback(() => {
-    setClosing(true);
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(finishClose, 360);
-  }, [finishClose]);
-
-  const handleAnimEnd = useCallback(() => {
-    if (!closing) return;
-    finishClose();
-  }, [closing, finishClose]);
-
-  // Limpa o timer no unmount.
-  useEffect(() => {
-    return () => {
-      if (closeTimer.current) clearTimeout(closeTimer.current);
-    };
-  }, []);
-
   // Fechar no Esc.
   useEffect(() => {
     if (!open) return;
@@ -175,37 +130,31 @@ export function BotPhaseEditor(props: BotPhaseEditorProps): React.JSX.Element | 
     return () => document.removeEventListener("keydown", onKey);
   }, [open, requestClose]);
 
-  // Ao abrir: cancela timer de fechamento pendente + foca o campo (mensagem) ou
-  // o painel (ajustes). Limpar timer/foco é side-effect — ok dentro de effect.
+  // Ao abrir: foca o campo (mensagem) ou o painel (ajustes).
   useEffect(() => {
     if (open) {
-      if (closeTimer.current) {
-        clearTimeout(closeTimer.current);
-        closeTimer.current = null;
-      }
       if (!isSettings && fieldRef.current) fieldRef.current.focus();
       else panelRef.current?.focus();
     }
   }, [open, isSettings]);
 
-  // Mantém montado enquanto fecha (`closing`) para a animação de saída rodar.
-  if (!open && !closing) return null;
+  if (!presence.mounted) return null;
 
   return (
     <div
-      className={`hbx-veil to-right${closing ? " bot-phase-veil--closing" : ""}`}
+      {...presence.motionProps}
+      className="hbx-veil to-right"
       onClick={e => {
         if (e.target === e.currentTarget) requestClose();
       }}
     >
       <div
         ref={panelRef}
-        className={`hbx-drawer bot-phase-editor${closing ? " bot-phase-editor--closing" : ""}`}
+        className="hbx-drawer bot-phase-editor"
         role="dialog"
         aria-modal="true"
         aria-label={`Editar peça: ${title}`}
         tabIndex={-1}
-        onAnimationEnd={handleAnimEnd}
       >
         <header className="bot-phase-editor__head">
           <span className="bot-phase-editor__icon" style={{ ["--bot-phase-color" as string]: tone }}>

@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 
+import { HbxMotionRuntime } from "@/components/hbx/motion";
 import {
   CASCA_STORAGE, CASCAS, LEGACY_PELE_STORAGE, MODE_STORAGE, TEMA_STORAGE,
   getCasca, resolveModo, resolveTema, temaDoLegado,
@@ -78,6 +79,7 @@ function aplicar({ casca, tema, modo }: Aparencia) {
 }
 
 export function applyThemeForPath(_pathname: string) {
+  void _pathname;
   // 15/06: a landing "/" agora É o login (usa tokens + robô do tema), então
   // NÃO é mais "html puro" — herda data-theme + data-theme-mode como o resto,
   // senão a Automação não sincroniza com o modo (fumaça branca sobre robô preto).
@@ -142,9 +144,25 @@ export function applyThemeSoft(mutate: () => void) {
 
 // ---- Trocas (sempre na MESMA tela: nenhuma delas navega ou recarrega) ----
 
+/**
+ * O Corporativo é deliberadamente instantâneo. Entrar nele ou sair dele não
+ * pode herdar o cross-fade da casca anterior.
+ */
+function applyCascaChange(next: CascaKey, mutate: () => void) {
+  if (next === "corporativa" || getCascaAtiva() === "corporativa") {
+    if (themeAnimTimer !== null) window.clearTimeout(themeAnimTimer);
+    themeAnimTimer = null;
+    themeAnimRun += 1;
+    document.documentElement.classList.remove("hbx-theme-anim");
+    mutate();
+    return;
+  }
+  applyThemeSoft(mutate);
+}
+
 /** Troca a CASCA. Preserva tema/modo escolhidos — ver REGRA DA MEMÓRIA. */
 export function setCasca(key: CascaKey) {
-  applyThemeSoft(() => {
+  applyCascaChange(key, () => {
     gravar(CASCA_STORAGE, key);
     aplicar(getAparencia());
   });
@@ -163,7 +181,7 @@ export function setCasca(key: CascaKey) {
  * corrigida — a validação é do CONTRATO, não deste botão.
  */
 export function setAparencia(casca: CascaKey, tema: TemaKey, modo: Modo) {
-  applyThemeSoft(() => {
+  applyCascaChange(casca, () => {
     gravar(CASCA_STORAGE, casca);
     gravar(TEMA_STORAGE, tema);
     gravar(MODE_STORAGE, modo);
@@ -206,5 +224,5 @@ export function ThemeAttributes() {
   useEffect(() => {
     applyThemeForPath(pathname || "/");
   }, [pathname]);
-  return null;
+  return <HbxMotionRuntime />;
 }

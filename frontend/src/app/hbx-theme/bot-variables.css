@@ -3,50 +3,6 @@
    aqui mora SÓ o visual do conteúdo, todo em token central (zero hex/inline color).
    Parte D do rebuild. Import deste arquivo no tema é responsabilidade da etapa E. */
 
-/* Efeito radar — entra deslizando da direita inteira até aparecer completo; ao
-   recolher (clique fora / Esc / X) SAI deslizando ao contrário, na MESMA velocidade.
-   Keyframes próprios e ESCOPADOS — não tocam o `.hbx-drawer` central (outras gavetas
-   usam o keyframe `hbx-drawer-in` de transitions.css). O override usa seletor COMPOSTO
-   (`.hbx-drawer.bot-vars`) pra vencer o `.hbx-drawer { animation }` central por
-   especificidade — independente da ordem de @import. Entrada e saída usam a MESMA
-   duração/ease (`--motion-base`/`--ease-out-quint`): mesma velocidade nos dois sentidos. */
-@keyframes bot-vars-in {
-  from { transform: translateX(100%); opacity: 0.6; }
-  to { transform: none; opacity: 1; }
-}
-
-@keyframes bot-vars-out {
-  from { transform: none; opacity: 1; }
-  to { transform: translateX(100%); opacity: 0.6; }
-}
-
-.hbx-drawer.bot-vars {
-  animation: bot-vars-in var(--motion-base) var(--ease-out-quint) both;
-}
-
-.hbx-drawer.bot-vars.bot-vars--closing {
-  animation: bot-vars-out var(--motion-base) var(--ease-out-quint) both;
-}
-
-/* Fundo (véu) acompanha o fade reverso ao recolher. */
-.bot-vars-veil--closing {
-  animation: bot-vars-veil-out var(--motion-base) var(--ease-out-quint) both;
-}
-
-@keyframes bot-vars-veil-out {
-  from { opacity: 1; }
-  to { opacity: 0; }
-}
-
-/* Sem movimento quando o usuário pede menos animação — só presença, sem slide. */
-@media (prefers-reduced-motion: reduce) {
-  .hbx-drawer.bot-vars,
-  .hbx-drawer.bot-vars.bot-vars--closing,
-  .bot-vars-veil--closing {
-    animation: none;
-  }
-}
-
 .bot-vars {
   width: min(360px, 92vw);
   height: 100vh;

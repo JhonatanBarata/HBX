@@ -171,7 +171,7 @@
 
 /* ============================================================================
  * EDITOR DESLIZANTE DE PEÇA (BotPhaseEditor) — casca central (.hbx-veil.to-right
- * + .hbx-drawer); aqui só o conteúdo + a animação reversa (espelha bot-vars).
+ * + .hbx-drawer); movimento vem do contrato motion-system.
  * ==========================================================================*/
 .hbx-drawer.bot-phase-editor {
   width: min(440px, 94vw);
@@ -180,24 +180,6 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  animation: bot-phase-editor-in var(--motion-base) var(--ease-out-quint) both;
-}
-.hbx-drawer.bot-phase-editor.bot-phase-editor--closing {
-  animation: bot-phase-editor-out var(--motion-base) var(--ease-out-quint) both;
-}
-.bot-phase-veil--closing { animation: bot-vars-veil-out var(--motion-base) var(--ease-out-quint) both; }
-@keyframes bot-phase-editor-in {
-  from { transform: translateX(100%); opacity: 0.6; }
-  to { transform: none; opacity: 1; }
-}
-@keyframes bot-phase-editor-out {
-  from { transform: none; opacity: 1; }
-  to { transform: translateX(100%); opacity: 0.6; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .hbx-drawer.bot-phase-editor,
-  .hbx-drawer.bot-phase-editor.bot-phase-editor--closing,
-  .bot-phase-veil--closing { animation: none; }
 }
 
 .bot-phase-editor__head {

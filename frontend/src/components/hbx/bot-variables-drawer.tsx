@@ -5,14 +5,15 @@
 // variável insere o token {{key}} no campo que estava em foco (onInsert).
 // Clicar no véu (fora do drawer) ou Esc recolhe com o efeito reverso (onClose).
 //
-// Reusa as classes CENTRAIS (kit.css): `.hbx-veil.to-right` (véu que encosta
-// à direita) + `.hbx-drawer` (painel com keyframe hbx-drawer-in). NÃO cria
-// animação solta. Todo visual do conteúdo mora em hbx-theme/bot-variables.css.
+// Reusa a presença e o vocabulário CENTRAIS de motion. Todo visual do conteúdo
+// mora em hbx-theme/bot-variables.css.
 //
 // Parte D do rebuild (PLAN-BOT-REBUILD-D). Integração (importar este
 // componente em bot/page.client.tsx) é a etapa E.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+import { useHbxPresence } from "@/components/hbx/motion";
 
 export type VarScope = "shared" | "atendimento" | "recovery";
 
@@ -47,11 +48,8 @@ export function BotVariablesDrawer({
   onInsert,
 }: BotVariablesDrawerProps): React.JSX.Element | null {
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Efeito radar: ao recolher, anima a saída ANTES de avisar o pai (onClose).
-  // `closing` mantém o componente montado durante a animação de saída.
-  const [closing, setClosing] = useState(false);
+  const presence = useHbxPresence(open, { kind: "drawer", onExited: onClose });
+  const requestClose = presence.requestClose;
 
   // Busca no catálogo (dezenas de variáveis não cabem numa lista rolável).
   const [query, setQuery] = useState("");
@@ -63,42 +61,8 @@ export function BotVariablesDrawer({
   const [prevOpen, setPrevOpen] = useState(open);
   if (open !== prevOpen) {
     setPrevOpen(open);
-    if (open && closing) setClosing(false);
     setQuery("");
   }
-
-  // Fecha de verdade: ZERA o `closing` (senão o componente fica preso montado, com
-  // o véu cobrindo a tela — bug do "não dá pra fechar") e avisa o pai (onClose).
-  const finishClose = useCallback(() => {
-    if (closeTimer.current) {
-      clearTimeout(closeTimer.current);
-      closeTimer.current = null;
-    }
-    setClosing(false);
-    onClose();
-  }, [onClose]);
-
-  // Pede o fechamento: dispara a animação de saída e só fecha quando ela termina
-  // (onAnimationEnd no painel) — com setTimeout de fallback caso o evento não
-  // dispare (reduced-motion / animação desligada).
-  const requestClose = useCallback(() => {
-    setClosing(true);
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(finishClose, 360);
-  }, [finishClose]);
-
-  // Ao terminar a animação de saída, fecha de verdade (cancela o fallback).
-  const handleAnimEnd = useCallback(() => {
-    if (!closing) return;
-    finishClose();
-  }, [closing, finishClose]);
-
-  // Limpa o timer no unmount.
-  useEffect(() => {
-    return () => {
-      if (closeTimer.current) clearTimeout(closeTimer.current);
-    };
-  }, []);
 
   // Fechar no Esc.
   useEffect(() => {
@@ -113,17 +77,9 @@ export function BotVariablesDrawer({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, requestClose]);
 
-  // Ao abrir: foco inicial no painel + cancela qualquer timer de fechamento pendente
-  // (caso o pai reabra durante a animação de saída). Limpar timer é side-effect, não
-  // setState — ok dentro de effect.
+  // Ao abrir: foco inicial no painel.
   useEffect(() => {
-    if (open) {
-      if (closeTimer.current) {
-        clearTimeout(closeTimer.current);
-        closeTimer.current = null;
-      }
-      panelRef.current?.focus();
-    }
+    if (open) panelRef.current?.focus();
   }, [open]);
 
   // Agrupa por scope na ordem fixa; só mostra grupos que têm variáveis.
@@ -141,25 +97,24 @@ export function BotVariablesDrawer({
     })).filter(g => g.items.length > 0);
   }, [variableCatalog, query]);
 
-  // Mantém montado enquanto fecha (`closing`) para a animação de saída rodar.
-  if (!open && !closing) return null;
+  if (!presence.mounted) return null;
 
   return (
     <div
-      className={`hbx-veil to-right${closing ? " bot-vars-veil--closing" : ""}`}
+      {...presence.motionProps}
+      className="hbx-veil to-right"
       onClick={e => {
         if (e.target === e.currentTarget) requestClose();
       }}
     >
       <div
         ref={panelRef}
-        className={`hbx-drawer bot-vars${closing ? " bot-vars--closing" : ""}`}
+        className="hbx-drawer bot-vars"
         role="dialog"
         aria-modal="true"
         aria-label="Catálogo de variáveis"
         tabIndex={-1}
         style={{ display: "flex", flexDirection: "column" }}
-        onAnimationEnd={handleAnimEnd}
       >
         <header className="bot-vars-head">
           <h3 className="bot-vars-title">Variáveis</h3>

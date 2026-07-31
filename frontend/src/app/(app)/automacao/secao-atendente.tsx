@@ -76,6 +76,7 @@ import { BotPhaseEditor, type PhaseRuleDef } from "@/components/hbx/bot-phase-ed
 import { BotVariablesDrawer, type VarDef } from "@/components/hbx/bot-variables-drawer";
 import { BotTermsModal, isBotTermsAccepted, setBotTermsAccepted } from "@/components/hbx/bot-terms-modal";
 import type { BotButton, BotAction } from "@/components/hbx/bot-buttons-editor";
+import { useHbxPresence } from "@/components/hbx/motion";
 import { apiFetch } from "@/lib/api";
 
 // ================================================================
@@ -1232,36 +1233,8 @@ function IaAjustesDrawer({ open, ia, empresaPadrao, saving, onSave, onClose }: {
   const canSave = nome.trim().length >= 2;
 
   const panelRef = useRef<HTMLDivElement | null>(null);
-  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [closing, setClosing] = useState(false);
-
-  // Reset SEM effect ao reabrir (mesmo padrão de BotPhaseEditor).
-  const [prevOpen, setPrevOpen] = useState(open);
-  if (open !== prevOpen) {
-    setPrevOpen(open);
-    if (open && closing) setClosing(false);
-  }
-
-  const finishClose = useCallback(() => {
-    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; }
-    setClosing(false);
-    onClose();
-  }, [onClose]);
-
-  const requestClose = useCallback(() => {
-    setClosing(true);
-    if (closeTimer.current) clearTimeout(closeTimer.current);
-    closeTimer.current = setTimeout(finishClose, 360);
-  }, [finishClose]);
-
-  const handleAnimEnd = useCallback(() => {
-    if (!closing) return;
-    finishClose();
-  }, [closing, finishClose]);
-
-  useEffect(() => {
-    return () => { if (closeTimer.current) clearTimeout(closeTimer.current); };
-  }, []);
+  const presence = useHbxPresence(open, { kind: "drawer", onExited: onClose });
+  const requestClose = presence.requestClose;
 
   useEffect(() => {
     if (!open) return;
@@ -1273,27 +1246,24 @@ function IaAjustesDrawer({ open, ia, empresaPadrao, saving, onSave, onClose }: {
   }, [open, requestClose]);
 
   useEffect(() => {
-    if (open) {
-      if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null; }
-      panelRef.current?.focus();
-    }
+    if (open) panelRef.current?.focus();
   }, [open]);
 
-  if (!open && !closing) return null;
+  if (!presence.mounted) return null;
 
   return (
     <div
-      className={"hbx-veil to-right" + (closing ? " bot-phase-veil--closing" : "")}
+      {...presence.motionProps}
+      className="hbx-veil to-right"
       onClick={(e) => { if (e.target === e.currentTarget) requestClose(); }}
     >
       <div
         ref={panelRef}
-        className={"hbx-drawer bot-phase-editor" + (closing ? " bot-phase-editor--closing" : "")}
+        className="hbx-drawer bot-phase-editor"
         role="dialog"
         aria-modal="true"
         aria-label="Ajustes da IA"
         tabIndex={-1}
-        onAnimationEnd={handleAnimEnd}
       >
         <header className="bot-phase-editor__head">
           <span className="bot-phase-editor__icon" style={{ ["--bot-phase-color" as string]: "var(--hbx-secondary)" }}>

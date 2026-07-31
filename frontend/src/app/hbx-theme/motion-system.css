@@ -1,0 +1,511 @@
+/* ============================================================
+   HBX MOTION SYSTEM — contrato central, 31/07/2026
+
+   Oito intenções, sempre com ida e volta:
+   surface · drawer · toast · floating · list · switch ·
+   disclosure · view
+
+   React escolhe a intenção via data-hbx-motion. Este arquivo é o ÚNICO lugar
+   que decide desenho, duração e curva. Transições CSS (em vez de fill-mode)
+   fazem uma reversão interrompida continuar do ponto atual, sem salto.
+   ============================================================ */
+
+:root {
+  --hbx-motion-ease-enter: cubic-bezier(.05, .7, .1, 1);
+  --hbx-motion-ease-exit: cubic-bezier(.3, 0, .8, .15);
+  --hbx-motion-ease-state: cubic-bezier(.2, 0, 0, 1);
+
+  --hbx-motion-surface-enter: 200ms;
+  --hbx-motion-surface-exit: 150ms;
+  --hbx-motion-drawer-enter: 250ms;
+  --hbx-motion-drawer-exit: 200ms;
+  --hbx-motion-toast-enter: 200ms;
+  --hbx-motion-toast-exit: 150ms;
+  --hbx-motion-floating-enter: 150ms;
+  --hbx-motion-floating-exit: 100ms;
+  --hbx-motion-list-enter: 167ms;
+  --hbx-motion-list-exit: 120ms;
+  --hbx-motion-switch-enter: 200ms;
+  --hbx-motion-switch-exit: 167ms;
+  --hbx-motion-disclosure-enter: 200ms;
+  --hbx-motion-disclosure-exit: 167ms;
+  --hbx-motion-view-enter: 250ms;
+  --hbx-motion-view-exit: 200ms;
+
+  --hbx-motion-surface-y: 6px;
+  --hbx-motion-drawer-x: 18px;
+  --hbx-motion-toast-y: 10px;
+  --hbx-motion-floating-y: 4px;
+  --hbx-motion-list-y: 6px;
+  --hbx-motion-view-x: 8px;
+  --hbx-motion-z-clone: 90;
+  --hbx-motion-z-tooltip: 100;
+}
+
+/* A ponte central substitui só a animação estrutural antiga. Filhos como
+   spinner/progresso continuam animando normalmente. */
+html:not([data-casca="corporativa"]) :is(
+  .hbx-page,
+  .app-page,
+  .hbx-veil,
+  .hbx-modal,
+  .hbx-pop,
+  .hbx-drawer,
+  .hbx-toast,
+  .hot-toast,
+  .casca-toast
+)[data-hbx-motion] {
+  animation: none !important;
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="surface"],
+html:not([data-casca="corporativa"]) [data-hbx-motion="drawer"],
+html:not([data-casca="corporativa"]) [data-hbx-motion="toast"],
+html:not([data-casca="corporativa"]) [data-hbx-motion="floating"],
+html:not([data-casca="corporativa"]) [data-hbx-motion="list"],
+html:not([data-casca="corporativa"]) [data-hbx-motion="switch"],
+html:not([data-casca="corporativa"]) [data-hbx-motion="view"] {
+  backface-visibility: hidden;
+}
+
+/* 1 — SURFACE: modal, diálogo e confirmação. */
+html:not([data-casca="corporativa"]) [data-hbx-motion="surface"] {
+  transition:
+    opacity var(--hbx-motion-surface-enter) var(--hbx-motion-ease-enter),
+    translate var(--hbx-motion-surface-enter) var(--hbx-motion-ease-enter),
+    scale var(--hbx-motion-surface-enter) var(--hbx-motion-ease-enter);
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="surface"][data-hbx-motion-state="exiting"] {
+  transition-duration: var(--hbx-motion-surface-exit);
+  transition-timing-function: var(--hbx-motion-ease-exit);
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="surface"]:not(.hbx-veil):not([class*="veil"]) {
+  transform-origin: center;
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="surface"]:not(.hbx-veil):not([class*="veil"]):is(
+  [data-hbx-motion-state="entering"],
+  [data-hbx-motion-state="exiting"]
+) {
+  opacity: 0;
+  translate: 0 var(--hbx-motion-surface-y);
+  scale: .98;
+}
+
+html:not([data-casca="corporativa"]) :is(.hbx-veil, [class*="veil"])[data-hbx-motion="surface"] {
+  transition: opacity var(--hbx-motion-surface-enter) var(--hbx-motion-ease-enter);
+}
+
+html:not([data-casca="corporativa"]) :is(.hbx-veil, [class*="veil"])[data-hbx-motion="surface"][data-hbx-motion-state="exiting"] {
+  transition-duration: var(--hbx-motion-surface-exit);
+  transition-timing-function: var(--hbx-motion-ease-exit);
+}
+
+html:not([data-casca="corporativa"]) :is(.hbx-veil, [class*="veil"])[data-hbx-motion="surface"]:is(
+  [data-hbx-motion-state="entering"],
+  [data-hbx-motion-state="exiting"]
+) {
+  opacity: 0;
+}
+
+html:not([data-casca="corporativa"]) :is(.hbx-veil, [class*="veil"])[data-hbx-motion="surface"] > :is(
+  .hbx-modal,
+  [role="dialog"],
+  [role="alertdialog"],
+  section,
+  form
+) {
+  transition:
+    opacity var(--hbx-motion-surface-enter) var(--hbx-motion-ease-enter),
+    translate var(--hbx-motion-surface-enter) var(--hbx-motion-ease-enter),
+    scale var(--hbx-motion-surface-enter) var(--hbx-motion-ease-enter);
+  transform-origin: center;
+}
+
+html:not([data-casca="corporativa"]) :is(.hbx-veil, [class*="veil"])[data-hbx-motion="surface"][data-hbx-motion-state="exiting"] > :is(
+  .hbx-modal,
+  [role="dialog"],
+  [role="alertdialog"],
+  section,
+  form
+) {
+  transition-duration: var(--hbx-motion-surface-exit);
+  transition-timing-function: var(--hbx-motion-ease-exit);
+}
+
+html:not([data-casca="corporativa"]) :is(.hbx-veil, [class*="veil"])[data-hbx-motion="surface"]:is(
+  [data-hbx-motion-state="entering"],
+  [data-hbx-motion-state="exiting"]
+) > :is(.hbx-modal, [role="dialog"], [role="alertdialog"], section, form) {
+  opacity: 0;
+  translate: 0 var(--hbx-motion-surface-y);
+  scale: .98;
+}
+
+/* 2 — DRAWER: detalhe lateral ou folha inferior. */
+html:not([data-casca="corporativa"]) [data-hbx-motion="drawer"] {
+  --hbx-motion-drawer-enter-x: var(--hbx-motion-drawer-x);
+  --hbx-motion-drawer-enter-y: 0px;
+  transition:
+    opacity var(--hbx-motion-drawer-enter) var(--hbx-motion-ease-enter),
+    translate var(--hbx-motion-drawer-enter) var(--hbx-motion-ease-enter);
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="drawer"].to-left {
+  --hbx-motion-drawer-enter-x: calc(var(--hbx-motion-drawer-x) * -1);
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="drawer"]:is(.hbx-drawer-bottom, .casca-sheet-veil) {
+  --hbx-motion-drawer-enter-x: 0px;
+  --hbx-motion-drawer-enter-y: var(--hbx-motion-drawer-x);
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="drawer"][data-hbx-motion-state="exiting"] {
+  transition-duration: var(--hbx-motion-drawer-exit);
+  transition-timing-function: var(--hbx-motion-ease-exit);
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="drawer"]:not(.hbx-veil):not(.casca-sheet-veil):is(
+  [data-hbx-motion-state="entering"],
+  [data-hbx-motion-state="exiting"]
+) {
+  opacity: 0;
+  translate: var(--hbx-motion-drawer-enter-x) var(--hbx-motion-drawer-enter-y);
+}
+
+html:not([data-casca="corporativa"]) :is(.hbx-veil, .casca-sheet-veil)[data-hbx-motion="drawer"] {
+  transition: opacity var(--hbx-motion-drawer-enter) var(--hbx-motion-ease-enter);
+}
+
+html:not([data-casca="corporativa"]) :is(.hbx-veil, .casca-sheet-veil)[data-hbx-motion="drawer"][data-hbx-motion-state="exiting"] {
+  transition-duration: var(--hbx-motion-drawer-exit);
+  transition-timing-function: var(--hbx-motion-ease-exit);
+}
+
+html:not([data-casca="corporativa"]) :is(.hbx-veil, .casca-sheet-veil)[data-hbx-motion="drawer"]:is(
+  [data-hbx-motion-state="entering"],
+  [data-hbx-motion-state="exiting"]
+) {
+  opacity: 0;
+}
+
+html:not([data-casca="corporativa"]) :is(.hbx-veil, .casca-sheet-veil)[data-hbx-motion="drawer"] > :is(
+  .hbx-drawer,
+  .hbx-drawer-bottom,
+  .casca-sheet
+) {
+  animation: none !important;
+  transition:
+    opacity var(--hbx-motion-drawer-enter) var(--hbx-motion-ease-enter),
+    translate var(--hbx-motion-drawer-enter) var(--hbx-motion-ease-enter);
+}
+
+html:not([data-casca="corporativa"]) :is(.hbx-veil, .casca-sheet-veil)[data-hbx-motion="drawer"][data-hbx-motion-state="exiting"] > :is(
+  .hbx-drawer,
+  .hbx-drawer-bottom,
+  .casca-sheet
+) {
+  transition-duration: var(--hbx-motion-drawer-exit);
+  transition-timing-function: var(--hbx-motion-ease-exit);
+}
+
+html:not([data-casca="corporativa"]) :is(.hbx-veil, .casca-sheet-veil)[data-hbx-motion="drawer"]:is(
+  [data-hbx-motion-state="entering"],
+  [data-hbx-motion-state="exiting"]
+) > :is(.hbx-drawer, .hbx-drawer-bottom) {
+  opacity: 0;
+  translate: var(--hbx-motion-drawer-enter-x) var(--hbx-motion-drawer-enter-y);
+}
+
+html:not([data-casca="corporativa"]) .casca-sheet-veil[data-hbx-motion="drawer"]:is(
+  [data-hbx-motion-state="entering"],
+  [data-hbx-motion-state="exiting"]
+) > .casca-sheet {
+  opacity: 0;
+  translate: 0 var(--hbx-motion-drawer-x);
+}
+
+/* 3 — TOAST: entra e volta pelo mesmo eixo. */
+html:not([data-casca="corporativa"]) [data-hbx-motion="toast"] {
+  transition:
+    opacity var(--hbx-motion-toast-enter) var(--hbx-motion-ease-enter),
+    translate var(--hbx-motion-toast-enter) var(--hbx-motion-ease-enter);
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="toast"][data-hbx-motion-state="exiting"] {
+  transition-duration: var(--hbx-motion-toast-exit);
+  transition-timing-function: var(--hbx-motion-ease-exit);
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="toast"]:is(
+  [data-hbx-motion-state="entering"],
+  [data-hbx-motion-state="exiting"]
+) {
+  opacity: 0;
+  translate: 0 var(--hbx-motion-toast-y);
+}
+
+/* 4 — FLOATING: menu, popover e tooltip partem do próprio gatilho. */
+html:not([data-casca="corporativa"]) [data-hbx-motion="floating"] {
+  transition:
+    opacity var(--hbx-motion-floating-enter) var(--hbx-motion-ease-enter),
+    translate var(--hbx-motion-floating-enter) var(--hbx-motion-ease-enter),
+    scale var(--hbx-motion-floating-enter) var(--hbx-motion-ease-enter);
+  transform-origin: top center;
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="floating"][data-hbx-motion-state="exiting"] {
+  transition-duration: var(--hbx-motion-floating-exit);
+  transition-timing-function: var(--hbx-motion-ease-exit);
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="floating"]:is(
+  [data-hbx-motion-state="entering"],
+  [data-hbx-motion-state="exiting"]
+) {
+  opacity: 0;
+  translate: 0 calc(var(--hbx-motion-floating-y) * -1);
+  scale: .97;
+}
+
+/* 5 — LIST: item inserido/removido. O bridge só clona o item que saiu. */
+html:not([data-casca="corporativa"]) [data-hbx-motion="list"] {
+  transition:
+    opacity var(--hbx-motion-list-enter) var(--hbx-motion-ease-enter),
+    translate var(--hbx-motion-list-enter) var(--hbx-motion-ease-enter);
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="list"][data-hbx-motion-state="exiting"] {
+  transition-duration: var(--hbx-motion-list-exit);
+  transition-timing-function: var(--hbx-motion-ease-exit);
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="list"]:is(
+  [data-hbx-motion-state="entering"],
+  [data-hbx-motion-state="exiting"]
+) {
+  opacity: 0;
+  translate: 0 var(--hbx-motion-list-y);
+}
+
+/* 6 — SWITCH: troca de aba/segmento com eixo complementar. */
+html:not([data-casca="corporativa"]) {
+  --hbx-motion-switch-enter-x: var(--hbx-motion-view-x);
+  --hbx-motion-switch-exit-x: calc(var(--hbx-motion-view-x) * -1);
+}
+
+html:not([data-casca="corporativa"])[data-hbx-motion-direction="back"] {
+  --hbx-motion-switch-enter-x: calc(var(--hbx-motion-view-x) * -1);
+  --hbx-motion-switch-exit-x: var(--hbx-motion-view-x);
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="switch"] {
+  transition:
+    opacity var(--hbx-motion-switch-enter) var(--hbx-motion-ease-enter),
+    translate var(--hbx-motion-switch-enter) var(--hbx-motion-ease-state);
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="switch"][data-hbx-motion-state="entering"] {
+  opacity: 0;
+  translate: var(--hbx-motion-switch-enter-x) 0;
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="switch"][data-hbx-motion-state="exiting"] {
+  opacity: 0;
+  translate: var(--hbx-motion-switch-exit-x) 0;
+  transition-duration: var(--hbx-motion-switch-exit);
+  transition-timing-function: var(--hbx-motion-ease-exit);
+}
+
+/* 7 — DISCLOSURE: details abre e fecha de verdade, inclusive display discreto. */
+html:not([data-casca="corporativa"]) {
+  interpolate-size: allow-keywords;
+}
+
+html:not([data-casca="corporativa"]) details[data-hbx-motion="disclosure"]::details-content {
+  block-size: 0;
+  opacity: 0;
+  overflow: clip;
+  transition:
+    block-size var(--hbx-motion-disclosure-exit) var(--hbx-motion-ease-exit),
+    opacity var(--hbx-motion-disclosure-exit) var(--hbx-motion-ease-exit),
+    content-visibility var(--hbx-motion-disclosure-exit) allow-discrete;
+}
+
+html:not([data-casca="corporativa"]) details[data-hbx-motion="disclosure"][open]::details-content {
+  block-size: auto;
+  opacity: 1;
+  transition-duration: var(--hbx-motion-disclosure-enter);
+  transition-timing-function: var(--hbx-motion-ease-enter);
+}
+
+/* 8 — VIEW: página/painel; voltar inverte o mesmo eixo. */
+html:not([data-casca="corporativa"]) {
+  --hbx-motion-view-enter-x: var(--hbx-motion-view-x);
+  --hbx-motion-view-exit-x: calc(var(--hbx-motion-view-x) * -1);
+}
+
+html:not([data-casca="corporativa"])[data-hbx-motion-direction="back"] {
+  --hbx-motion-view-enter-x: calc(var(--hbx-motion-view-x) * -1);
+  --hbx-motion-view-exit-x: var(--hbx-motion-view-x);
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="view"].is-back {
+  --hbx-motion-view-enter-x: calc(var(--hbx-motion-view-x) * -1);
+  --hbx-motion-view-exit-x: var(--hbx-motion-view-x);
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="view"] {
+  transition:
+    opacity var(--hbx-motion-view-enter) var(--hbx-motion-ease-enter),
+    translate var(--hbx-motion-view-enter) var(--hbx-motion-ease-state);
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="view"][data-hbx-motion-state="entering"] {
+  opacity: 0;
+  translate: var(--hbx-motion-view-enter-x) 0;
+}
+
+html:not([data-casca="corporativa"]) [data-hbx-motion="view"][data-hbx-motion-state="exiting"] {
+  opacity: 0;
+  translate: var(--hbx-motion-view-exit-x) 0;
+  transition-duration: var(--hbx-motion-view-exit);
+  transition-timing-function: var(--hbx-motion-ease-exit);
+}
+
+/* Elementos que React desmontou imediatamente ganham uma cópia visual inerte
+   por apenas o tempo da saída. Geometria vem do bridge, aparência continua
+   vindo dos tokens/classes da casca. */
+[data-hbx-motion-clone="true"] {
+  position: fixed !important;
+  inset: auto !important;
+  top: var(--hbx-motion-clone-top) !important;
+  left: var(--hbx-motion-clone-left) !important;
+  width: var(--hbx-motion-clone-width) !important;
+  height: var(--hbx-motion-clone-height) !important;
+  max-width: none !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+  transform: none !important;
+  pointer-events: none !important;
+  user-select: none !important;
+  z-index: var(--hbx-motion-z-clone) !important;
+}
+
+/* Dialog/popover nativos: o top-layer segura display/overlay até a volta acabar. */
+@supports (transition-behavior: allow-discrete) {
+  html:not([data-casca="corporativa"]) dialog[data-hbx-motion="surface"],
+  html:not([data-casca="corporativa"]) [popover][data-hbx-motion="floating"] {
+    transition-behavior: allow-discrete;
+    transition-property: opacity, translate, scale, display, overlay;
+  }
+
+  html:not([data-casca="corporativa"]) dialog[data-hbx-motion="surface"]:not([open]),
+  html:not([data-casca="corporativa"]) [popover][data-hbx-motion="floating"]:not(:popover-open) {
+    opacity: 0;
+    translate: 0 var(--hbx-motion-surface-y);
+    scale: .98;
+  }
+
+  @starting-style {
+    html:not([data-casca="corporativa"]) dialog[data-hbx-motion="surface"][open],
+    html:not([data-casca="corporativa"]) [popover][data-hbx-motion="floating"]:popover-open {
+      opacity: 0;
+      translate: 0 var(--hbx-motion-surface-y);
+      scale: .98;
+    }
+  }
+}
+
+/* Tooltip real substitui os 319 titles nativos e consome a mesma intenção
+   floating. A âncora posiciona; a cápsula é quem anima. */
+.hbx-tooltip-anchor {
+  position: fixed;
+  top: var(--hbx-tooltip-top);
+  left: var(--hbx-tooltip-left);
+  z-index: var(--hbx-motion-z-tooltip);
+  display: block;
+  max-width: min(280px, calc(100vw - 24px));
+  translate: -50% -100%;
+  pointer-events: none;
+}
+
+.hbx-tooltip-anchor[data-placement="bottom"] {
+  translate: -50% 0;
+}
+
+.hbx-tooltip {
+  position: relative;
+  display: block;
+  padding: 6px 9px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--text-strong);
+  box-shadow: var(--shadow-md);
+  color: var(--hbx-surface);
+  font-family: var(--font-body);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  line-height: 1.35;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+/* A troca de tema deixa de prender a árvore inteira por 2,2 s: usa a duração
+   de view do contrato e continua cobrindo gradientes via View Transition. */
+html:not([data-casca="corporativa"]).hbx-theme-anim body,
+html:not([data-casca="corporativa"]).hbx-theme-anim body * {
+  transition-duration: var(--hbx-motion-view-enter) !important;
+  transition-timing-function: var(--hbx-motion-ease-state) !important;
+}
+
+html:not([data-casca="corporativa"]).hbx-theme-anim::view-transition-old(root),
+html:not([data-casca="corporativa"]).hbx-theme-anim::view-transition-new(root),
+html:not([data-casca="corporativa"])::view-transition-group(hbx-brand) {
+  animation-duration: var(--hbx-motion-view-enter);
+  animation-timing-function: var(--hbx-motion-ease-state);
+}
+
+/* CORPORATIVO: nenhuma das oito transições. Não desligamos spinner, progresso
+   ou feedback semântico — apenas a camada estética central. */
+html[data-casca="corporativa"] :is(.hbx-page, .app-page),
+html[data-casca="corporativa"] [data-hbx-motion] {
+  animation: none !important;
+  transition: none !important;
+  translate: none !important;
+  scale: none !important;
+  filter: none !important;
+}
+
+html[data-casca="corporativa"] [data-hbx-motion] {
+  opacity: 1 !important;
+}
+
+html[data-casca="corporativa"].hbx-theme-anim body,
+html[data-casca="corporativa"].hbx-theme-anim body * {
+  transition: none !important;
+}
+
+html[data-casca="corporativa"]::view-transition-group(*),
+html[data-casca="corporativa"]::view-transition-old(*),
+html[data-casca="corporativa"]::view-transition-new(*) {
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-hbx-motion],
+  [data-hbx-motion] > :is(.hbx-modal, .hbx-drawer, .hbx-drawer-bottom, .casca-sheet),
+  .hbx-tooltip {
+    animation: none !important;
+    transition: none !important;
+    translate: none !important;
+    scale: none !important;
+    filter: none !important;
+  }
+
+  [data-hbx-motion] {
+    opacity: 1 !important;
+  }
+}

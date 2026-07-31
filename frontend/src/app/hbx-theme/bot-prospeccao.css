@@ -232,7 +232,7 @@
 
 /* ============================================================================
  * EDITOR DESLIZANTE DA PEÇA — casca central .hbx-veil/.hbx-drawer; aqui o
- * conteúdo + animação reversa (espelha bot-phase-editor).
+ * conteúdo; movimento vem do contrato motion-system.
  * ==========================================================================*/
 .hbx-drawer.bot-prosp-editor {
   width: min(460px, 96vw);
@@ -241,24 +241,6 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
-  animation: bot-prosp-editor-in var(--motion-base) var(--ease-out-quint) both;
-}
-.hbx-drawer.bot-prosp-editor.bot-prosp-editor--closing {
-  animation: bot-prosp-editor-out var(--motion-base) var(--ease-out-quint) both;
-}
-.bot-prosp-veil--closing { animation: bot-vars-veil-out var(--motion-base) var(--ease-out-quint) both; }
-@keyframes bot-prosp-editor-in {
-  from { transform: translateX(100%); opacity: 0.6; }
-  to { transform: none; opacity: 1; }
-}
-@keyframes bot-prosp-editor-out {
-  from { transform: none; opacity: 1; }
-  to { transform: translateX(100%); opacity: 0.6; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .hbx-drawer.bot-prosp-editor,
-  .hbx-drawer.bot-prosp-editor.bot-prosp-editor--closing,
-  .bot-prosp-veil--closing { animation: none; }
 }
 
 .bot-prosp-editor__head {

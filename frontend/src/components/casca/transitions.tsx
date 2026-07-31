@@ -19,18 +19,11 @@
 //   • <CascaSheet>      — bottom sheet central (handle + arrastar-pra-fechar).
 // ============================================================
 
-import React, { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { useHbxPresence } from "@/components/hbx/motion";
 import { I, ICONS } from "@/components/hbx/shell";
-
-// Fallback do fecho: maior duração de motion usada nas camadas da casca
-// (--casca-motion-dur = 220ms hoje) + buffer generoso. Blinda contra
-// `animationend` que não dispara (reduced-motion mal pego por algum caminho,
-// aba em background, keyframe removida etc.) — sem isso a folha trava aberta
-// pra sempre (bug ao vivo, dono, 06/07). Puramente uma rede de segurança: o
-// caminho normal continua sendo o `animationend`, que cancela este timer.
-const CASCA_EXIT_FALLBACK_MS = 500;
 
 // ---------------------------------------------------------------
 // CascaPortal — os overlays da casca (veil do CascaSheet, camada do CascaView)
@@ -51,76 +44,14 @@ function CascaPortal({ children }: { children: React.ReactNode }) {
   return createPortal(children, document.body);
 }
 
-// ---------------------------------------------------------------
-// useCascaExitGate — o coração: abrir monta na hora (anima entrada); fechar
-// NÃO desmonta na hora — marca `leaving`, espera a animação e só então some.
-// `open` é o desejo do chamador; `mounted` é o que deve estar no DOM.
-//
-// `phase` é a máquina: "in" (montado/entrando), "out" (saindo, ainda no DOM),
-// "gone" (desmontado). `lastOpen` guarda o último `open` reconciliado.
-//
-// BUG CORRIGIDO (07/07, ao vivo: "abre e não fecha"): antes eram DOIS useState
-// (phase + lastOpen) atualizados DURANTE o render. Em certas ordens de flush do
-// React o `setLastOpen(false)` grudava mas o `setPhase("out")` irmão se PERDIA
-// — a folha ficava `open=false` mas `phase="in"`, presa aberta pra sempre
-// (reproduzido no fiber: openProp=false, lastOpen=false, phase="in"). A cura é
-// um ÚNICO estado atômico via useReducer: `phase` e `lastOpen` andam JUNTOS num
-// só dispatch, então nunca divergem. Continua "adjust state while rendering"
-// (padrão oficial) — sem useEffect no caminho de abrir/fechar, sem flicker.
-// ---------------------------------------------------------------
-type GatePhase = "in" | "out" | "gone";
-interface GateState { phase: GatePhase; lastOpen: boolean }
-type GateAction = { type: "sync"; open: boolean } | { type: "gone" };
-
-function gateReducer(state: GateState, action: GateAction): GateState {
-  switch (action.type) {
-    case "sync":
-      // abriu → monta e anima entrada; fechou → anima saída (segura o DOM),
-      // a menos que já tenha sumido.
-      if (action.open) return { phase: "in", lastOpen: true };
-      return { phase: state.phase === "gone" ? "gone" : "out", lastOpen: false };
-    case "gone":
-      // só desmonta de fato quando estava SAINDO (o animationend da entrada
-      // também chama isto — aí é no-op).
-      return state.phase === "out" ? { phase: "gone", lastOpen: state.lastOpen } : state;
-    default:
-      return state;
-  }
-}
-
 export function useCascaExitGate(open: boolean, onClosed?: () => void) {
-  const [state, dispatch] = useReducer(
-    gateReducer,
-    open,
-    (o: boolean): GateState => ({ phase: o ? "in" : "gone", lastOpen: o }),
-  );
-
-  // Reconcilia DURANTE o render: um único dispatch atômico (nunca dois setState
-  // que possam se separar num flush).
-  if (open !== state.lastOpen) {
-    dispatch({ type: "sync", open });
-  }
-
-  // fim da animação de saída → desmonta de vez e avisa o chamador. Guarda por
-  // `state.phase` (dep) pra ignorar o animationend da ENTRADA, que também cai
-  // aqui. `onClosed` inline recria o callback (barato); estável fica estável.
-  const handleAnimEnd = useCallback(() => {
-    if (state.phase !== "out") return;
-    onClosed?.();
-    dispatch({ type: "gone" });
-  }, [state.phase, onClosed]);
-
-  // Rede de segurança: se `animationend` não vier (ver nota no topo do
-  // arquivo), o timeout força o mesmo desfecho. Roda só enquanto phase==="out";
-  // limpo no cleanup pra não disparar depois de já ter fechado por evento ou
-  // de o usuário ter reaberto.
-  useEffect(() => {
-    if (state.phase !== "out") return;
-    const timer = setTimeout(handleAnimEnd, CASCA_EXIT_FALLBACK_MS);
-    return () => clearTimeout(timer);
-  }, [state.phase, handleAnimEnd]);
-
-  return { mounted: state.phase !== "gone", leaving: state.phase === "out", handleAnimEnd };
+  const presence = useHbxPresence(open, { kind: "drawer", onExited: onClosed });
+  return {
+    mounted: presence.mounted,
+    leaving: presence.leaving,
+    handleAnimEnd: presence.finishExit,
+    motionProps: presence.motionProps,
+  };
 }
 
 // ---------------------------------------------------------------
@@ -142,18 +73,10 @@ export function CascaView({
   onClose: () => void;
   actions?: React.ReactNode;
 }) {
-  // Aqui `open` é sempre true enquanto montado pelo chamador; o gate serve pra
-  // segurar a saída quando `requestClose` roda.
-  const [closing, setClosing] = useState(false);
-  const requestClose = useCallback(() => setClosing(true), []);
-
-  // Mesma rede de segurança do gate: se o `onAnimationEnd` da própria camada
-  // não disparar, força o `onClose` depois do tempo de motion + buffer.
-  useEffect(() => {
-    if (!closing) return;
-    const timer = setTimeout(onClose, CASCA_EXIT_FALLBACK_MS);
-    return () => clearTimeout(timer);
-  }, [closing, onClose]);
+  // O chamador mantém a view montada; a presença central só o avisa depois que
+  // a volta terminou.
+  const presence = useHbxPresence(true, { kind: "view", onExited: onClose });
+  const requestClose = presence.requestClose;
 
   // fecho por gesto de voltar do browser/hardware seria plugado aqui (W7);
   // por ora só o botão/seta chama requestClose.
@@ -163,19 +86,19 @@ export function CascaView({
   // VOLTAR, entrando da esquerda). FECHAR = VOLTAR → sai PRA DIREITA
   // (.casca-view--leave.is-back). O onClose só dispara no onAnimationEnd do
   // fechar (guard `if (closing)` abaixo).
-  const cls =
-    "casca-view " + (closing ? "casca-view--leave is-back" : "casca-view--enter");
+  const cls = "casca-view" + (presence.leaving ? " is-back" : "");
 
   return (
     <CascaPortal>
-      <div className="casca-stack-layer" role="dialog" aria-modal="true">
+      <div
+        className="casca-stack-layer"
+        role="dialog"
+        aria-modal="true"
+        data-hbx-motion-ignore="true"
+      >
         <div
+          {...presence.motionProps}
           className={cls}
-          onAnimationEnd={(e) => {
-            // só reage à animação da PRÓPRIA camada, não de filhos
-            if (e.target !== e.currentTarget) return;
-            if (closing) onClose();
-          }}
         >
           <div className="casca-top">
             <button className="casca-top__back" onClick={requestClose} aria-label="Voltar">
@@ -211,7 +134,7 @@ export function CascaSheet({
   children: React.ReactNode;
   onClose: () => void;
 }) {
-  const { mounted, leaving, handleAnimEnd } = useCascaExitGate(open);
+  const { mounted, leaving, motionProps } = useCascaExitGate(open);
   const sheetRef = useRef<HTMLDivElement | null>(null);
   const dragStartY = useRef<number | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -266,9 +189,9 @@ export function CascaSheet({
   return (
     <CascaPortal>
       <div
+        {...motionProps}
         className={"casca-sheet-veil" + (leaving ? " is-leaving" : "")}
         onClick={(e) => { if (!sheetRef.current || !sheetRef.current.contains(e.target as Node)) onClose(); }}
-        onAnimationEnd={(e) => { if (e.target === e.currentTarget) handleAnimEnd(); }}
       >
         <div
           ref={sheetRef}
