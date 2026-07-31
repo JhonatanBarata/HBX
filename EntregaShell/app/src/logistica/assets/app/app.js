@@ -2283,6 +2283,9 @@
     app.querySelectorAll("form,[data-enter-scope],.center-modal-body").forEach(scope => {
       const controls = keyboardControls(scope);
       controls.forEach((control, index) => {
+        // Campo de BUSCA mantém a lupa e o Enter que busca (ver keydown): quem
+        // reescrevia a dica pra "next" desligava a exceção sem ninguém ver.
+        if (control.dataset && control.dataset.enterBusca === "1") { control.setAttribute("enterkeyhint", "search"); return; }
         const last = index === controls.length - 1;
         control.setAttribute("enterkeyhint", last ? "done" : "next");
       });
@@ -3691,7 +3694,7 @@
     const formaSelector = options.length ? `<div class="section-title"><strong>Forma de pagamento</strong></div><div class="recurrence-modes">${options.map(([id, label]) => `<button type="button" class="recurrence-mode ${form === id ? "active" : ""}" data-payment-form="${id}" data-payment-target="${target}">${label}</button>`).join("")}</div>` : "";
     const naHoraDisponivel = options.some(([id]) => id === "na_hora");
     const mensalDisponivel = options.some(([id]) => id === "mensal");
-    return `${formaSelector}${form === "na_hora" && naHoraDisponivel ? `<div class="field"><label>Recebe por</label><div class="recurrence-modes"><button type="button" class="recurrence-mode ${draft.metodoPadrao === "pix" ? "active" : ""}" data-payment-method="pix" data-payment-target="${target}">Pix</button><button type="button" class="recurrence-mode ${draft.metodoPadrao === "dinheiro" ? "active" : ""}" data-payment-method="dinheiro" data-payment-target="${target}">Dinheiro</button></div></div>` : ""}${form === "mensal" && mensalDisponivel ? `<div class="field"><label>Dia de pagamento</label><input name="diaFechamento" type="number" inputmode="numeric" min="1" max="31" value="${H.escape(draft.diaFechamento || "")}" placeholder="Ex.: 10"></div>` : ""}<div class="field"><label>Limite</label><input name="limite" inputmode="decimal" type="number" min="0" step="0.01" value="${H.escape(draft.limite || "")}" placeholder="R$ 0,00"></div>${target === "client" && state.modalClient && state.modalClient.id ? `<button type="button" class="btn btn-secondary btn-block historico-abrir" data-action="open-historico">${icon("calendar", 18)} Histórico</button>` : ""}`;
+    return `${formaSelector}${form === "na_hora" && naHoraDisponivel ? `<div class="field"><label>Recebe por</label><div class="recurrence-modes"><button type="button" class="recurrence-mode ${draft.metodoPadrao === "pix" ? "active" : ""}" data-payment-method="pix" data-payment-target="${target}">Pix</button><button type="button" class="recurrence-mode ${draft.metodoPadrao === "dinheiro" ? "active" : ""}" data-payment-method="dinheiro" data-payment-target="${target}">Dinheiro</button></div></div>` : ""}${form === "mensal" && mensalDisponivel ? `<div class="field"><label>Dia de pagamento</label><input name="diaFechamento" type="number" inputmode="numeric" min="1" max="31" value="${H.escape(draft.diaFechamento || "")}"></div>` : ""}<div class="field"><label>Limite</label><input name="limite" inputmode="decimal" type="number" min="0" step="0.01" value="${H.escape(draft.limite || "")}" placeholder="R$ 0,00"></div>${target === "client" && state.modalClient && state.modalClient.id ? `<button type="button" class="btn btn-secondary btn-block historico-abrir" data-action="open-historico">${icon("calendar", 18)} Histórico</button>` : ""}`;
   }
   function onlyDigits(value) { return String(value || "").replace(/\D/g, ""); }
   function formatPhone(value) { const digits = onlyDigits(value).slice(0, 11); if (digits.length <= 2) return digits ? `(${digits}` : ""; if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`; const split = digits.length <= 10 ? 6 : 7; return `(${digits.slice(0, 2)}) ${digits.slice(2, split)}-${digits.slice(split)}`; }
@@ -3728,7 +3731,7 @@
     const isNew = mode === "new";
     const statusKind = cepStatusKind(status);
     const statusClass = statusKind ? `hbx-aviso hbx-aviso--${statusKind}` : "subtitle";
-    return `<div class="section-title"><strong>Endereço</strong></div><div class="client-address-row client-address-primary"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(fields.cep || "")}" placeholder="00.000-000"></div><div class="field"><label>Rua / Avenida</label><input name="endereco" maxlength="240" value="${H.escape(fields.endereco || "")}"></div><div class="field"><label>Nº</label><input name="numero" inputmode="numeric" maxlength="30" value="${H.escape(fields.numero || "")}"></div></div><p class="${statusClass} ${isNew ? "new-client-cep-status" : "client-cep-status"}" ${status ? "" : "hidden"}>${H.escape(status || "")}</p><div class="field"><label>Bairro</label><input name="bairro" maxlength="120" value="${H.escape(fields.bairro || "")}"></div><div class="client-address-row client-address-city"><div class="field"><label>Cidade</label><input name="cidade" maxlength="120" value="${H.escape(fields.cidade || "")}"></div><div class="field"><label>UF</label><input name="uf" maxlength="2" autocapitalize="characters" value="${H.escape(fields.uf || "")}"></div></div><div class="client-location-actions">${isNew ? `<button type="button" class="btn btn-secondary btn-block" data-action="new-client-gps">${icon("gps", 16)} Usar minha localização</button>` : ""}<button type="button" class="btn btn-secondary btn-block client-locate-address" data-action="${isNew ? "new-client-locate-address" : "locate-client-address"}">${icon("map", 16)} Consultar local</button></div><div class="field"><label>Observações</label><textarea name="observacoes" maxlength="500" placeholder="Ex.: entregar só depois das 14h, portão azul">${H.escape(fields.observacoes || "")}</textarea></div>`;
+    return `<div class="section-title"><strong>Endereço</strong></div><div class="client-address-row client-address-primary"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(fields.cep || "")}" placeholder="00.000-000"></div><div class="field"><label>Rua / Avenida</label><input name="endereco" maxlength="240" value="${H.escape(fields.endereco || "")}"></div><div class="field"><label>Nº</label><input name="numero" inputmode="numeric" maxlength="30" value="${H.escape(fields.numero || "")}"></div></div><p class="${statusClass} ${isNew ? "new-client-cep-status" : "client-cep-status"}" ${status ? "" : "hidden"}>${H.escape(status || "")}</p><div class="field"><label>Bairro</label><input name="bairro" maxlength="120" value="${H.escape(fields.bairro || "")}"></div><div class="client-address-row client-address-city"><div class="field"><label>Cidade</label><input name="cidade" maxlength="120" value="${H.escape(fields.cidade || "")}"></div><div class="field"><label>UF</label><input name="uf" maxlength="2" autocapitalize="characters" value="${H.escape(fields.uf || "")}"></div></div><div class="client-location-actions">${isNew ? `<button type="button" class="btn btn-secondary btn-block" data-action="new-client-gps">${icon("gps", 16)} Usar minha localização</button>` : ""}<button type="button" class="btn btn-secondary btn-block client-locate-address" data-action="${isNew ? "new-client-locate-address" : "locate-client-address"}">${icon("map", 16)} Consultar local</button></div><div class="field"><label>Observações</label><textarea name="observacoes" maxlength="500">${H.escape(fields.observacoes || "")}</textarea></div>`;
   }
   function separateAddress(value, numberValue, districtValue) {
     let endereco = String(value || "").trim(); const numero = String(numberValue || "").trim(); const bairro = String(districtValue || "").trim();
@@ -4499,7 +4502,7 @@
     // que já estava no cadastro). O dono pediu: sempre poder digitar/corrigir.
     if (e.editing) {
       const f = e.form || {};
-      const body = `<div data-enter-scope data-enter-action="leitura-end-salvar-digitado"><div class="field"><label>Rua / Avenida</label><input id="lend-endereco" maxlength="240" value="${H.escape(f.endereco || "")}" placeholder="Ex.: Rua 16"></div><div class="field"><label>Bairro</label><input id="lend-bairro" maxlength="120" value="${H.escape(f.bairro || "")}"></div><div class="client-address-row client-address-city"><div class="field"><label>Cidade</label><input id="lend-cidade" maxlength="120" value="${H.escape(f.cidade || "")}"></div><div class="field"><label>UF</label><input id="lend-uf" maxlength="2" autocapitalize="characters" value="${H.escape(f.uf || "")}"></div></div><div class="field"><label>CEP</label><input id="lend-cep" inputmode="numeric" maxlength="10" value="${H.escape(f.cep || "")}"></div><div class="center-modal-extra"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-end-salvar-digitado">Usar este endereço</button></div></div>`;
+      const body = `<div data-enter-scope data-enter-action="leitura-end-salvar-digitado"><div class="field"><label>Rua / Avenida</label><input id="lend-endereco" maxlength="240" value="${H.escape(f.endereco || "")}"></div><div class="field"><label>Bairro</label><input id="lend-bairro" maxlength="120" value="${H.escape(f.bairro || "")}"></div><div class="client-address-row client-address-city"><div class="field"><label>Cidade</label><input id="lend-cidade" maxlength="120" value="${H.escape(f.cidade || "")}"></div><div class="field"><label>UF</label><input id="lend-uf" maxlength="2" autocapitalize="characters" value="${H.escape(f.uf || "")}"></div></div><div class="field"><label>CEP</label><input id="lend-cep" inputmode="numeric" maxlength="10" value="${H.escape(f.cep || "")}"></div><div class="center-modal-extra"><button class="btn btn-primary btn-block rp2-cta" type="button" data-action="leitura-end-salvar-digitado">Usar este endereço</button></div></div>`;
       return centerModal({ icon: "map", title: "Digitar endereço", resumo, body, backAction: "leitura-end-cancelar-digitar", backLabel: "Voltar", nextAction: "" });
     }
     const rev = e.reverse;
@@ -4522,7 +4525,7 @@
   }
   function leituraNumeroStep() {
     const e = state.leituraEnd || {};
-    const body = `<div class="field" data-enter-scope data-enter-action="leitura-numero-confirmar"><label>Número da casa</label><input id="leitura-numero-input" class="lrt-input-lg" inputmode="numeric" maxlength="30" value="${H.escape(String(e.numero || ""))}" placeholder="Ex.: 1079"></div>`;
+    const body = `<div class="field" data-enter-scope data-enter-action="leitura-numero-confirmar"><label>Número da casa</label><input id="leitura-numero-input" class="lrt-input-lg" inputmode="numeric" maxlength="30" value="${H.escape(String(e.numero || ""))}"></div>`;
     return centerModal({ icon: "map", title: "Número", resumo: leituraResumo() || (state.leituraSelectedClient && state.leituraSelectedClient.nome) || "", body, backAction: "leitura-end-voltar-numero", nextAction: "leitura-numero-confirmar", nextLabel: "Próximo" });
   }
   // Resumo curto do que já foi escolhido nesta parada (cliente · itens) — some no
@@ -4621,7 +4624,7 @@
     // Contagem só enquanto ninguém digitou (ao digitar ela some via DOM, sem
     // re-render, pra não roubar o foco do textarea no 1º caractere).
     const hint = state.leituraObsTyped ? "" : `<p class="lrt-obs-count">Salvando em <b class="lrt-obs-secs">${Math.max(0, Number(state.leituraObsCountdown || 0))}</b>s… <span>ou escreva um lembrete</span></p>`;
-    const body = `<div class="field"><textarea id="leitura-obs-input" data-enter-action="leitura-obs-salvar" maxlength="500" rows="4" placeholder="Ex.: subir escadas, cachorro bravo, entregar após 18h…">${H.escape(state.leituraObsDraft || "")}</textarea></div>${hint}`;
+    const body = `<div class="field"><textarea id="leitura-obs-input" data-enter-action="leitura-obs-salvar" maxlength="500" rows="4">${H.escape(state.leituraObsDraft || "")}</textarea></div>${hint}`;
     return centerModal({ icon: "box", title: "Observações", resumo: leituraResumo() || "Lembrete pra entrega (opcional)", body, backAction: "leitura-voltar", nextAction: "leitura-obs-salvar", nextLabel: "Salvar" });
   }
   // Abre o passo Observações e liga a contagem de 7s (auto-salva ao zerar).
@@ -5012,7 +5015,7 @@
       ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong>${chevron}</button><button class="settings-row" data-action="statement"><div class="avatar">${icon("sales", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div>${chevron}</button><button class="settings-row" data-action="toggle-creditos-panel" role="switch" aria-checked="${!creditosPanelOculto()}"><div class="avatar">${icon("calendar", 18)}</div><div class="settings-copy"><strong>Painel de créditos do dia</strong></div><span class="module-switch ${!creditosPanelOculto() ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" data-action="open-recarga"><div class="avatar">${icon("card", 18)}</div><div class="settings-copy"><strong>Recarga de créditos</strong></div>${chevron}</button><button class="settings-row" data-action="open-financeiro"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Financeiro</strong></div>${chevron}</button><button class="settings-row" data-action="open-avancado"><div class="avatar">${icon("gear", 18)}</div><div class="settings-copy"><strong>Avançado</strong></div>${chevron}</button></section>` : ""}
       ${offlineSettingsSection()}
       ${passeioSettingsSection()}
-      <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}" placeholder="Ex.: Água Boa"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div>${chevron}</button>${versionSettingsRow()}</section>`);
+      <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div>${chevron}</button>${versionSettingsRow()}</section>`);
   }
 
   // 28/07 (dono: "bati o olho e achei q a rota estava sem sinal") — o preparo da
@@ -5850,7 +5853,18 @@
     const campoNome = duplicado && !pedeNome
       ? ""
       : `<div class="field"><label>Nome${pedeNome ? "" : " (opcional)"}</label><input name="nome" maxlength="120" value="${H.escape(r.nome)}" data-enter-action="${pronto ? "montagem-rapida-confirmar" : "montagem-rapida-buscar"}"></div>`;
-    const body = `<form id="montagem-rapida-form">${r.origem === "cep" ? `<div class="form-grid"><div class="field"><label>CEP</label><input name="cep" inputmode="numeric" maxlength="10" value="${H.escape(r.cep)}"></div><div class="field"><label>Número</label><input name="numero" inputmode="numeric" maxlength="6" value="${H.escape(r.numero)}"></div></div>` : ""}${campoNome}</form>${escolhaModo}${escolhaPosicao}${statusLinha}`;
+    // 🔴 31/07 — UM CAMPO SÓ (ver montagemRapidaBuscar): endereço, CEP com número
+    // ou localização colada. Destino que chegou de fora já vem com o ponto — não
+    // tem o que procurar, então o campo nem aparece.
+    const campoBusca = r.externo
+      ? ""
+      : `<div class="field"><label>Para onde</label><input name="busca" autocomplete="off" enterkeyhint="search" data-enter-busca="1" placeholder="Endereço, CEP com número ou link" value="${H.escape(r.busca || "")}" data-enter-action="${pronto ? "montagem-rapida-confirmar" : "montagem-rapida-buscar"}"></div>`;
+    // Endereço parecido demais pra máquina escolher sozinha: QUEM ESCOLHE é ele
+    // (mesma lei do pino — pino errado é pior que pino vazio).
+    const listaOpcoes = Array.isArray(r.opcoes) && r.opcoes.length
+      ? `<div class="list rapida-opcoes">${r.opcoes.map((opcao, indice) => `<button type="button" class="row-card" data-action="montagem-rapida-escolher" data-indice="${indice}"><div class="card-main"><strong>${H.escape(opcao.nome || "Endereço")}</strong><span>${H.escape(opcao.detalhe || "")}</span>${Number.isFinite(Number(opcao.distanciaM)) ? `<small>${H.escape(formatRouteDistance(Number(opcao.distanciaM)))} daqui</small>` : ""}</div></button>`).join("")}</div>`
+      : "";
+    const body = `<form id="montagem-rapida-form">${campoBusca}${campoNome}</form>${listaOpcoes}${escolhaModo}${escolhaPosicao}${statusLinha}`;
     // 31/07 — destino que chegou de fora (WhatsApp/Maps): o botão diz o que ele
     // FAZ. Sem rota de pé é "Traçar rota" (e o Iniciar continua sendo o único
     // que gasta crédito); com rota rodando é a mesma parada nova de sempre.
@@ -5874,21 +5888,90 @@
       nextDisabled: procurando || r.salvando || !!jaNaRota,
     });
   }
+  // 🔴 31/07 (dono: "criar uma rota simples já existe, mas tá ruim") — UM CAMPO SÓ.
+  // A Rota rápida pedia CEP **e** número, obrigatórios: pra ir na casa de um amigo
+  // (que mandou a localização, não o CEP) isso não servia pra nada. Agora o mesmo
+  // campo engole os quatro jeitos de dizer "é aqui":
+  //   1. localização colada  — link do Maps ou "-22.41, -47.56"
+  //   2. CEP com número      — "13500-000 1067" (o caminho antigo, agora sem formulário)
+  //   3. endereço escrito    — "Rua 8, 500" → lista pra escolher
+  //   4. toque no mapa       — que já existia e continua igual
+  const PAR_COORDENADA_COLADA = /(-?\d{1,2}[.,]\d{3,8})\s*,\s*(-?\d{1,3}[.,]\d{3,8})/;
+  function lerCepENumero(texto) {
+    const compacto = String(texto || "");
+    const cep = /(\d{5})-?(\d{3})/.exec(compacto);
+    if (!cep) return null;
+    const depois = compacto.slice(cep.index + cep[0].length);
+    const numero = /(\d{1,6})/.exec(depois) || /(\d{1,6})\s*[,-]?\s*$/.exec(compacto.slice(0, cep.index));
+    return { cep: `${cep[1]}${cep[2]}`, numero: numero ? numero[1] : "" };
+  }
+  async function montagemRapidaAplicarPonto(lat, lng, rotulo) {
+    const r = state.montagemRapida;
+    if (!r) return;
+    r.origem = "mapa"; r.lat = lat; r.lng = lng; r.opcoes = null;
+    if (rotulo && !String(r.nome || "").trim()) r.nome = String(rotulo).slice(0, 120);
+    r.resolvido = { fonte: "mapa", endereco: "", bairro: "", cidade: "", uf: "", cep: "", numero: "", lat, lng };
+    try {
+      const rev = await H.api(`/logistica/geo/reverse?lat=${encodeURIComponent(lat)}&lng=${encodeURIComponent(lng)}`);
+      const atual = state.montagemRapida;
+      if (atual === r && rev) {
+        r.resolvido = { fonte: "mapa", endereco: rev.endereco || "", bairro: rev.bairro || "", cidade: rev.cidade || "", uf: rev.uf || "", cep: rev.cep || "", numero: rev.numero || "", lat, lng };
+        if (rev.cep) r.cep = rev.cep;
+        if (rev.numero) r.numero = rev.numero;
+      }
+    } catch (_) { /* pino já basta pra parada existir */ }
+  }
   async function montagemRapidaBuscar() {
     const r = state.montagemRapida;
     if (!r || r.buscando) return;
-    const cepDigits = onlyDigits(r.cep);
-    const numeroDigits = onlyDigits(r.numero);
-    if (cepDigits.length !== 8) { r.erro = "Informe o CEP completo."; r.resolvido = null; render(); return; }
-    if (!numeroDigits) { r.erro = "Informe o número."; r.resolvido = null; render(); return; }
-    r.buscando = true; r.erro = ""; r.duplicado = null; render();
+    const texto = String(r.busca != null ? r.busca : "").trim();
+    if (!texto) { r.erro = "Escreva o endereço, o CEP com número, ou cole a localização."; r.resolvido = null; render(); return; }
+    r.buscando = true; r.erro = ""; r.duplicado = null; r.opcoes = null; render();
     try {
-      const res = await H.api(`/logistica/geo/cep?cep=${encodeURIComponent(cepDigits)}&numero=${encodeURIComponent(numeroDigits)}`);
-      if (res && (res.fonte === "cnefe" || res.fonte === "geocode" || res.endereco || res.cidade)) r.resolvido = res;
-      else { r.resolvido = null; r.erro = "Não encontrei este endereço. Confira o CEP e o número."; }
+      const temLink = /https?:\/\//i.test(texto);
+      const temPar = PAR_COORDENADA_COLADA.test(texto);
+      const cepNumero = lerCepENumero(texto);
+      if (temLink || temPar) {
+        // Localização colada. O servidor lê o par direto e é o único que abre link
+        // curto do Maps (redirecionamento é rede — ver /logistica/geo/link).
+        const lido = await H.api(`/logistica/geo/link?u=${encodeURIComponent(texto)}`);
+        if (lido && validCoordinates(Number(lido.lat), Number(lido.lng))) {
+          await montagemRapidaAplicarPonto(Number(lido.lat), Number(lido.lng), lido.rotulo || "");
+        } else {
+          r.resolvido = null;
+          r.erro = "Não consegui ler essa localização. Tente o endereço escrito.";
+        }
+      } else if (cepNumero && cepNumero.numero) {
+        const res = await H.api(`/logistica/geo/cep?cep=${encodeURIComponent(cepNumero.cep)}&numero=${encodeURIComponent(cepNumero.numero)}`);
+        if (res && (res.fonte === "cnefe" || res.fonte === "geocode" || res.endereco || res.cidade)) {
+          r.origem = "cep"; r.cep = cepNumero.cep; r.numero = cepNumero.numero; r.resolvido = res;
+        } else { r.resolvido = null; r.erro = "Não encontrei este endereço. Confira o CEP e o número."; }
+      } else if (cepNumero) {
+        r.resolvido = null;
+        r.erro = "Falta o número da casa.";
+      } else {
+        // Endereço escrito: devolve opções e QUEM ESCOLHE é ele — endereço parecido
+        // demais pra máquina escolher sozinha é como se planta parada no lugar errado.
+        const eu = state.idlePosicao || lastKnownPosition;
+        const perto = eu && validCoordinates(eu.lat, eu.lng) ? `&lat=${encodeURIComponent(eu.lat)}&lng=${encodeURIComponent(eu.lng)}` : "";
+        const payload = await H.api(`/logistica/geo/busca?q=${encodeURIComponent(texto)}${perto}`);
+        const items = (payload && Array.isArray(payload.items) ? payload.items : []).filter(item => validCoordinates(Number(item.lat), Number(item.lng))).slice(0, 4);
+        if (items.length === 1) await montagemRapidaAplicarPonto(Number(items[0].lat), Number(items[0].lng), items[0].nome || "");
+        else if (items.length) { r.opcoes = items; r.resolvido = null; }
+        else { r.resolvido = null; r.erro = "Não encontrei esse endereço."; }
+      }
     } catch (error) { r.resolvido = null; r.erro = humanApiError(error); }
     finally { r.buscando = false; render(); }
     // Achou o endereço → pergunta quem já mora nele ANTES de deixar cadastrar.
+    if (state.montagemRapida === r && r.resolvido) await montagemRapidaChecarPorta();
+  }
+  async function montagemRapidaEscolherOpcao(indice) {
+    const r = state.montagemRapida;
+    const opcao = r && Array.isArray(r.opcoes) ? r.opcoes[Number(indice)] : null;
+    if (!opcao) return;
+    r.buscando = true; render();
+    await montagemRapidaAplicarPonto(Number(opcao.lat), Number(opcao.lng), opcao.nome || "");
+    r.buscando = false; render();
     if (state.montagemRapida === r && r.resolvido) await montagemRapidaChecarPorta();
   }
   // Matriz de tempo pelas RUAS (mesmo proxy OSRM do planejador). null = sem rede
@@ -8135,10 +8218,15 @@
     const next = index >= 0 ? controls.slice(index + 1).find(control => control !== target) : null;
     const action = target.dataset.enterAction || scope && scope.dataset && scope.dataset.enterAction;
     const form = target.form;
+    // 31/07 — exceção declarada da Lei do Enter (avança campo): CAMPO DE BUSCA
+    // (enterkeyhint="search") BUSCA, não pula pro campo seguinte. É o que o
+    // teclado promete com a lupa e o que todo app faz; sem isto o Enter da Rota
+    // rápida caía no "Nome" e a busca nunca acontecia.
+    const buscaDireta = !!target.dataset.enterAction && target.dataset.enterBusca === "1";
     if (!next && !action && !form) return;
     event.preventDefault();
     event.stopPropagation();
-    if (next) { focusKeyboardField(next); return; }
+    if (next && !buscaDireta) { focusKeyboardField(next); return; }
     if (action) {
       const now = Date.now();
       if (lastKeyboardAction.name === action && now - lastKeyboardAction.at < 800) return;
@@ -8730,10 +8818,11 @@
       return;
     }
     // R2 (27/07) — "+" rota rápida (CEP+número via CNEFE, ou toque no mapa).
-    if (action === "montagem-rapida") { state.montagemRapida = { origem: "cep", contexto: "montagem", cep: "", numero: "", nome: "", lat: null, lng: null, resolvido: null, buscando: false, checando: false, salvando: false, erro: "", duplicado: null }; render(); return; }
+    if (action === "montagem-rapida") { state.montagemRapida = { origem: "cep", contexto: "montagem", busca: "", opcoes: null, cep: "", numero: "", nome: "", lat: null, lng: null, resolvido: null, buscando: false, checando: false, salvando: false, erro: "", duplicado: null }; render(); return; }
     // 28/07 (dono, item 4) — mesmo passo, aberto pelo "+" da tela Rota: aqui ele
     // ganha o "No caminho × Primeira parada" e encaixa na rota que está de pé.
-    if (action === "rota-rapida") { state.montagemRapida = { origem: "cep", contexto: "rota", posicao: "perto", cep: "", numero: "", nome: "", lat: null, lng: null, resolvido: null, buscando: false, checando: false, salvando: false, erro: "", duplicado: null }; showModal("rota-rapida"); return; }
+    if (action === "rota-rapida") { state.montagemRapida = { origem: "cep", contexto: "rota", posicao: "perto", busca: "", opcoes: null, cep: "", numero: "", nome: "", lat: null, lng: null, resolvido: null, buscando: false, checando: false, salvando: false, erro: "", duplicado: null }; showModal("rota-rapida"); return; }
+    if (action === "montagem-rapida-escolher") { await montagemRapidaEscolherOpcao(target.dataset.indice); return; }
     if (action === "rota-rapida-posicao") { if (state.montagemRapida) { state.montagemRapida.posicao = target.dataset.posicao === "primeira" ? "primeira" : "perto"; render(); } return; }
     if (action === "rota-rapida-modo") { if (state.montagemRapida) { state.montagemRapida.modo = target.dataset.modo === "cadastro" ? "cadastro" : "direcao"; state.montagemRapida.erro = ""; render(); } return; }
     if (action === "montagem-rapida-fechar") { if (state.modal === "rota-rapida") { state.montagemRapida = null; await closeOverlay("modal"); return; } state.montagemRapida = null; render(); return; }
@@ -9462,8 +9551,11 @@
       // 🔴 28/07 — mexeu no CEP/número: o endereço achado e a checagem de porta
       // valem pro endereço ANTERIOR. Some com os dois (volta pro "Buscar
       // endereço") — senão o botão adiciona uma parada que não é a da tela.
-      if ((event.target.name === "cep" || event.target.name === "numero") && (r.resolvido || r.duplicado || r.erro)) {
-        r.resolvido = null; r.duplicado = null; r.erro = "";
+      // 31/07 — o campo único (busca) segue a MESMA lei: mexeu no que define o
+      // lugar, o achado anterior morre (senão o botão adiciona outra parada).
+      if ((event.target.name === "cep" || event.target.name === "numero" || event.target.name === "busca") && (r.resolvido || r.duplicado || r.erro || r.opcoes)) {
+        r.resolvido = null; r.duplicado = null; r.erro = ""; r.opcoes = null;
+        if (event.target.name === "busca") { r.origem = "cep"; r.lat = null; r.lng = null; }
         render();
       }
       return;
@@ -10030,7 +10122,7 @@
   }
 
   function passeioPainelMontagem() {
-    return `<section class="pss-montagem" aria-label="Montagem do rolê"><header class="pss-montagem-head"><span class="pss-montagem-selo">${icon("route", 18)}</span><div><span>Montagem do rolê</span><strong>Seu caminho, do seu jeito</strong></div><b>0 lugares</b></header><div class="pss-montagem-chamada"><span>1 de 3</span><h2>Pra onde você quer ir?</h2><p>Pesquise acima e escolha os lugares que quer visitar.</p></div><div class="pss-montagem-trilha"><div class="pss-montagem-passo is-active"><i>${icon("search", 14)}</i><span><small>Agora</small><strong>Buscar o primeiro lugar</strong></span></div><em></em><div class="pss-montagem-passo"><i>2</i><span><small>Depois</small><strong>Organizar as paradas</strong></span></div><em></em><div class="pss-montagem-passo"><i>3</i><span><small>Por último</small><strong>Escolher o tempo e começar</strong></span></div></div><footer class="pss-montagem-dica">${icon("map", 16)}<span><strong>Pesquise do seu jeito</strong><small>Ex.: “depósito perto de mim” ou o endereço completo</small></span></footer></section>`;
+    return `<section class="pss-montagem" aria-label="Montagem do rolê"><header class="pss-montagem-head"><span class="pss-montagem-selo">${icon("route", 18)}</span><div><span>Montagem do rolê</span><strong>Seu caminho, do seu jeito</strong></div><b>0 lugares</b></header><div class="pss-montagem-chamada"><span>1 de 3</span><h2>Pra onde você quer ir?</h2><p>Pesquise acima e escolha os lugares que quer visitar.</p></div><div class="pss-montagem-trilha"><div class="pss-montagem-passo is-active"><i>${icon("search", 14)}</i><span><small>Agora</small><strong>Buscar o primeiro lugar</strong></span></div><em></em><div class="pss-montagem-passo"><i>2</i><span><small>Depois</small><strong>Organizar as paradas</strong></span></div><em></em><div class="pss-montagem-passo"><i>3</i><span><small>Por último</small><strong>Escolher o tempo e começar</strong></span></div></div><footer class="pss-montagem-dica">${icon("map", 16)}<span><strong>Pesquise do seu jeito</strong></span></footer></section>`;
   }
 
   function passeioBuscaChips(busca, pontos) {
