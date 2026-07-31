@@ -41,6 +41,11 @@ export const MASTER_ALERT_ROUTES: Record<string, MasterAlertRoute> = {
   // Zap entra (é ação física que só ele faz), throttle 6h = cooldown do grito.
   'ai.pressure_high': { channels: ['email', 'whatsapp', 'sino'], throttleMinutes: 360, digest: false },
 
+  // REVISOR NOTURNO DO CONCIERGE (31/07): relatório do que a máquina errou
+  // falando com cliente. É informação, não emergência — só SINO (o dono lê no
+  // cockpit quando quiser). Nada de zap: chip do dono não é mural de aviso.
+  'ai.concierge_review': { channels: ['sino'], throttleMinutes: 12 * 60, digest: false },
+
   // Novos (Sprint 3 — watcher de transições).
   'chip.dropped': { channels: ['email', 'whatsapp', 'sino'], throttleMinutes: 60, digest: false },
   'billing.webhook_stale': { channels: ['email', 'whatsapp'], throttleMinutes: 24 * 60, digest: false },

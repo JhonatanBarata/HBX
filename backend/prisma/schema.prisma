@@ -6015,6 +6015,29 @@ model AiConciergeDraft {
   @@index([companyId, userId, status])
 }
 
+// REVISOR NOTURNO (31/07) — caderno de falhas do Concierge. De madrugada o
+// modelo em faixa BATCH relê as conversas do dia e anota onde a máquina deixou
+// o cliente na mão (ver concierge-review.service.ts). Cada linha é uma frase
+// REAL que a máquina errou: é isso que corrige prompt e vira teste de regressão.
+// Sem FK para o rascunho de propósito — o draft expira em 24h, a evidência não.
+model AiConciergeReviewFinding {
+  id          String   @id @default(cuid())
+  draftId     String   @unique
+  companyId   Int
+  /// Dia analisado no fuso do dono (YYYY-MM-DD, America/Sao_Paulo) — o container roda UTC.
+  reviewedFor String
+  /// ok | falha
+  verdict     String
+  /// nao_respondeu | repetiu | entendeu_errado | travou | outro
+  failureKind String?
+  evidence    String?
+  suggestion  String?
+  model       String
+  createdAt   DateTime @default(now())
+
+  @@index([reviewedFor, verdict])
+}
+
 // F4 (27/07, PR27072026-ROTA-3-NIVEIS) — MÁQUINA DE ENGOLIR LISTA PODRE: quarentena
 // OBRIGATÓRIA de toda importação de clientes de logística. Lição da empresa 41 (245
 // clientes importados direto na base viva, endereços podres — "M22A", sem número, sem

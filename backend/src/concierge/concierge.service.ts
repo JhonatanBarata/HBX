@@ -24,8 +24,9 @@ import { CreditsService } from '../credits/credits.service';
 import { isBillingOwnerActor } from '../access/actor-kind';
 import { AiPressureSignals } from '../master-alert/ai-pressure-signals';
 import { CreditActionConfigService } from '../credits/credit-action-config.service';
-import { applyDeterministicGuards, buildExtractorMessages, channelsToRadarPreferred, computeMissingFields, ConciergeChannel, CONCIERGE_CHANNELS, ConciergeSlots, emptySlots, mergeSlots, safeParseConciergeJson, sanitizeAiSlots, slotsExecutionHash, BRAZIL_UFS } from './concierge-slots';
-import { callConciergeExtractor, conciergeAiEnabled, conciergeFeatureEnabled, conciergeModel } from './concierge-ollama';
+import { applyDeterministicGuards, buildExtractorMessages, channelsToRadarPreferred, computeMissingFields, ConciergeChannel, CONCIERGE_CHANNELS, ConciergeSlots, emptySlots, formatPlaceLabel, hasNewSearchData, mergeSlots, safeParseConciergeJson, sanitizeAiSlots, slotsExecutionHash, BRAZIL_UFS } from './concierge-slots';
+import { callConciergeExtractor, callConciergeWriter, conciergeAiEnabled, conciergeFeatureEnabled, conciergeVoiceEnabled } from './concierge-ollama';
+import { buildWriterMessages, cancelReply, changeRequestReply, composeReply, confirmNudgeReply, looksLikeAffirmation, previewStuckReply, sanitizeVoiceText, topicReply } from './concierge-replies';
 
 const DRAFT_TTL_MS = 24 * 60 * 60 * 1000; // 24h (§2.1)
 const CONFIRM_TTL_MS = 10 * 60 * 1000; // 10min (§2.3)
@@ -70,6 +71,7 @@ type PresentedDraft = {
     state: string | null;
     desiredCount: number | null;
     channels: ConciergeChannel[];
+    placeLabel: string | null;
   };
   missingFields: Array<'targetSegment' | 'city'>;
   preview: CostPreview | null;
@@ -189,33 +191,55 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
   }
 
   // ── POST /concierge/message — turno de conversa (IA preenche slots) ────────
+  // FAIL-SOFT (31/07): o concierge é CONVERSA. Erro interno vira frase honesta,
+  // nunca um 500 seco na cara de quem ia comprar. Falha de validação (400/404)
+  // continua subindo — é contrato, não acidente.
   async message(user: any, input: { draftId?: string | null; message?: string | null }): Promise<ConciergeReply> {
     if (!conciergeFeatureEnabled()) return this.featureDisabled();
     const ctx = this.resolveContext(user);
     const text = String(input?.message || '').replace(/\s+/g, ' ').trim().slice(0, 500);
     if (!text) throw new BadRequestException('Mensagem vazia.');
 
-    const draft = await this.loadOrCreateDraft(ctx, input?.draftId);
-    let slots = this.parseSlots(draft);
-    const meta = this.parseMeta(draft);
-    const suggestions = await this.loadSuggestions(ctx.companyId);
-
-    // Draft já executado não volta pra coleta — idempotência por draft (§2.1).
-    if (draft.status === 'executed') {
+    try {
+      return await this.handleMessage(ctx, user, input?.draftId ?? null, text);
+    } catch (error) {
+      if (error instanceof BadRequestException || error instanceof NotFoundException) throw error;
+      AiPressureSignals.report('concierge_turn_error');
+      this.logger.error(`turno do concierge falhou: ${String((error as Error)?.stack || (error as Error)?.message || error)}`);
       return {
         ok: true,
-        draft: this.presentDraft(draft, slots, user),
-        reply: 'Essa busca já foi disparada. Toque em "Nova busca" para começar outra.',
+        reply: 'Tive um problema aqui do meu lado e não consegui processar agora. Tenta de novo em instantes — nada foi gasto.',
         chips: [{ kind: 'reset', label: 'Nova busca' }],
         aiOnline: conciergeAiEnabled(),
       };
+    }
+  }
+
+  private async handleMessage(
+    ctx: { companyId: number; userId: number },
+    user: any,
+    draftId: string | null,
+    text: string,
+  ): Promise<ConciergeReply> {
+    const draft = await this.loadOrCreateDraft(ctx, draftId);
+    let slots = this.parseSlots(draft);
+    const meta = this.parseMeta(draft);
+    const suggestions = await this.loadSuggestions(ctx.companyId);
+    const executed = draft.status === 'executed';
+    // Resumo na tela esperando o clique: aqui o turno quase nunca é "busca nova".
+    const awaitingConfirm = !executed && draft.state === 'PREVIEW' && Boolean(draft.confirmToken);
+
+    // "pode ser", "manda ver" com o resumo na tela: o disparo é CLIQUE, sempre.
+    // Determinístico — não gasta IA e não deixa dúvida sobre quem apertou o botão.
+    if (awaitingConfirm && looksLikeAffirmation(text)) {
+      return this.replyKeeping(ctx, user, draft, slots, confirmNudgeReply(), [], { userText: text, voice: false });
     }
 
     // 1. IA extrai slots (com 1 retry curto). Falha → fallback por chips (§2.5).
     let extracted: ConciergeSlots | null = null;
     let aiOnline = true;
     try {
-      extracted = await this.extractWithRetry(slots, text, ctx.companyId);
+      extracted = await this.extractWithRetry(slots, text, ctx.companyId, awaitingConfirm);
     } catch (error) {
       aiOnline = false;
       // AI-SOS: falha REAL de IA (timeout/recusa/Ollama fora) — alimenta o grito.
@@ -223,65 +247,163 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(`extrator indisponivel: ${String((error as Error)?.message || error)}`);
     }
 
-    let reply: string;
-    if (!aiOnline) {
-      reply = 'Estou sem a IA agora. Use os botões abaixo ou o formulário do Radar — nada se perde.';
-    } else if (!extracted) {
-      // JSON inválido 2x → fluxo por chips, sem IA (§2.2 item 1). AI-SOS conta.
-      AiPressureSignals.report('concierge_extractor_invalid');
-      reply = 'Não consegui entender. Vamos por partes — escolha ou digite o tipo de empresa.';
-    } else {
-      // 2. Validação/merge no CÓDIGO (a IA é consultiva).
-      const lowConfidence = extracted.confidence < 0.55 && extracted.intent === 'radar_search';
-      if (extracted.intent === 'out_of_scope') {
-        reply = this.outOfScopeReply(slots);
-        await this.appendTranscript(draft.id, text, reply);
-        return {
-          ok: true,
-          draft: this.presentDraft(draft, slots, user),
-          reply,
-          chips: this.buildChips(slots, suggestions),
-          aiOnline,
-        };
+    // IA fora ou JSON impossível: sem repertório, mas o pedido montado não morre.
+    if (!aiOnline || !extracted) {
+      if (aiOnline) AiPressureSignals.report('concierge_extractor_invalid');
+      const official = aiOnline
+        ? 'Não consegui entender. Vamos por partes — escolha ou digite o tipo de empresa.'
+        : 'Estou sem a IA agora. Use os botões abaixo ou o formulário do Radar — nada se perde.';
+      if (awaitingConfirm || executed) {
+        return this.replyKeeping(ctx, user, draft, slots, official, this.buildChips(slots, suggestions), { userText: text, voice: false });
       }
-      if (extracted.intent === 'unclear' || lowConfidence) {
-        meta.unclearCount += 1;
-        reply = meta.unclearCount >= MAX_UNCLEAR_BEFORE_CHIPS
-          ? 'Vamos por partes — escolha ou digite o tipo de empresa que você procura.'
-          : 'Não entendi. Me diga o tipo de empresa e a cidade — ex.: "15 padarias em Recife".';
-        await this.saveDraft(draft.id, slots, meta, this.stateFor(slots), draft);
-        await this.appendTranscript(draft.id, text, reply);
-        const fresh = await this.getDraftOrThrow(ctx, draft.id);
-        return { ok: true, draft: this.presentDraft(fresh, slots, user), reply, chips: this.buildChips(slots, suggestions), aiOnline };
-      }
-      meta.unclearCount = 0;
-      slots = mergeSlots(slots, extracted);
-      // Cidade da IA é CANDIDATA: só vira slot depois de casar com a lista real (§2.2 item 4).
-      const cityCheck = await this.validateCity(slots);
-      slots = cityCheck.slots;
-      if (cityCheck.invalidCity) {
-        reply = cityCheck.suggestions.length
-          ? `Não achei "${cityCheck.invalidCity}" — é alguma destas?`
-          : `Só atendo cidades do Brasil e não achei "${cityCheck.invalidCity}". Qual é a cidade?`;
-        await this.saveDraft(draft.id, slots, meta, this.stateFor(slots), draft);
-        await this.appendTranscript(draft.id, text, reply);
-        const fresh = await this.getDraftOrThrow(ctx, draft.id);
-        return {
-          ok: true,
-          draft: this.presentDraft(fresh, slots, user),
-          reply,
-          chips: [
-            ...cityCheck.suggestions.map((city) => ({ kind: 'slot', field: 'city', label: city, value: city }) as ConciergeChip),
-            ...this.buildChips(slots, suggestions).filter((chip) => chip.kind !== 'slot' || chip.field !== 'city'),
-          ],
-          aiOnline,
-        };
-      }
-      reply = ''; // preenchido abaixo pelo estado
+      return this.advance(ctx, user, draft.id, slots, meta, suggestions, { userText: text, replyOverride: official, aiOnline });
     }
 
-    // 3. Transição determinística de estado + PREVIEW quando completo.
-    return this.advance(ctx, user, draft.id, slots, meta, suggestions, { userText: text, replyOverride: reply || null, aiOnline });
+    const voice = this.voiceFor(text, ctx.companyId);
+
+    // 2. CANCELAR — verbo único: mata o rascunho e volta ao começo.
+    if (extracted.intent === 'cancel') {
+      if (executed) {
+        // Honestidade: a busca já saiu; o que veio, veio. Não invento cancelamento.
+        return this.replyKeeping(
+          ctx, user, draft, slots,
+          'Essa busca já está rodando e não dá pra parar por aqui — o que ela achar fica no Radar. Quando quiser, me diga a próxima.',
+          [{ kind: 'reset', label: 'Nova busca' }],
+          { userText: text, voice: true },
+        );
+      }
+      await this.prisma.aiConciergeDraft.update({ where: { id: draft.id }, data: { status: 'abandoned' } });
+      const reply = await voice(cancelReply());
+      await this.appendTranscript(draft.id, text, reply);
+      return { ok: true, draft: undefined, reply, chips: this.buildChips(emptySlots(), suggestions), aiOnline };
+    }
+
+    // 3. PERGUNTA — o repertório responde e o pedido montado fica INTACTO
+    //    (nada de token morto e nada de repetir o resumo: era o loop do print).
+    if (extracted.intent === 'question') {
+      const official = topicReply(extracted.topic, { billingOwner: isBillingOwnerActor(user) }, { pendingPreview: awaitingConfirm });
+      return this.replyKeeping(ctx, user, draft, slots, official, awaitingConfirm ? [] : this.buildChips(slots, suggestions), {
+        userText: text,
+        voice: true,
+      });
+    }
+
+    // 4. FORA DE ESCOPO — pedido de AÇÃO que este balcão não faz.
+    if (extracted.intent === 'out_of_scope') {
+      return this.replyKeeping(ctx, user, draft, slots, this.outOfScopeReply(slots), awaitingConfirm ? [] : this.buildChips(slots, suggestions), {
+        userText: text,
+        voice: true,
+      });
+    }
+
+    const broughtData = hasNewSearchData(slots, extracted);
+
+    // 5. TROCA pedida sem dizer o valor novo ("quero em outra cidade") — pergunta
+    //    o que falta e preserva o resumo atual (ele pode desistir da troca).
+    if (extracted.intent === 'change_request' && !broughtData) {
+      return this.replyKeeping(ctx, user, draft, slots, changeRequestReply(extracted.changeTarget), awaitingConfirm ? [] : this.buildChips(slots, suggestions), {
+        userText: text,
+        voice: true,
+      });
+    }
+
+    // 6. Turno confuso — ou "radar_search" que não trouxe NADA com o resumo já
+    //    na tela (o papagaio: era exatamente aqui que o mesmo texto voltava).
+    const lowConfidence = extracted.confidence < 0.55 && extracted.intent === 'radar_search';
+    if (extracted.intent === 'unclear' || lowConfidence || (awaitingConfirm && !broughtData)) {
+      if (awaitingConfirm) {
+        return this.replyKeeping(ctx, user, draft, slots, previewStuckReply(), [], { userText: text, voice: true });
+      }
+      meta.unclearCount += 1;
+      const official = meta.unclearCount >= MAX_UNCLEAR_BEFORE_CHIPS
+        ? 'Vamos por partes — escolha ou digite o tipo de empresa que você procura.'
+        : 'Não entendi. Me diga o tipo de empresa e a cidade — ex.: "15 padarias em Recife".';
+      const reply = await voice(official);
+      await this.saveDraft(draft.id, slots, meta, this.stateFor(slots), draft);
+      await this.appendTranscript(draft.id, text, reply);
+      const fresh = await this.getDraftOrThrow(ctx, draft.id);
+      return { ok: true, draft: this.presentDraft(fresh, slots, user), reply, chips: this.buildChips(slots, suggestions), aiOnline };
+    }
+
+    // 7. Pedido de verdade sobre uma busca JÁ disparada = busca NOVA. O draft
+    //    executado fica na história (idempotência §2.1) e nasce um rascunho limpo.
+    let workingDraft = draft;
+    if (executed) {
+      workingDraft = await this.createDraft(ctx);
+      slots = emptySlots();
+      meta.unclearCount = 0;
+    }
+
+    meta.unclearCount = 0;
+    slots = mergeSlots(slots, extracted);
+    // Cidade da IA é CANDIDATA: só vira slot depois de casar com a lista real (§2.2 item 4).
+    const cityCheck = await this.validateCity(slots);
+    slots = cityCheck.slots;
+    if (cityCheck.invalidCity) {
+      const official = cityCheck.suggestions.length
+        ? `Não achei "${cityCheck.invalidCity}" — é alguma destas?`
+        : `Só atendo cidades do Brasil e não achei "${cityCheck.invalidCity}". Qual é a cidade?`;
+      const reply = await voice(official);
+      await this.saveDraft(workingDraft.id, slots, meta, this.stateFor(slots), workingDraft);
+      await this.appendTranscript(workingDraft.id, text, reply);
+      const fresh = await this.getDraftOrThrow(ctx, workingDraft.id);
+      return {
+        ok: true,
+        draft: this.presentDraft(fresh, slots, user),
+        reply,
+        chips: [
+          ...cityCheck.suggestions.map((city) => ({ kind: 'slot', field: 'city', label: city, value: city }) as ConciergeChip),
+          ...this.buildChips(slots, suggestions).filter((chip) => chip.kind !== 'slot' || chip.field !== 'city'),
+        ],
+        aiOnline,
+      };
+    }
+
+    // 8. Transição determinística de estado + PREVIEW quando completo.
+    return this.advance(ctx, user, workingDraft.id, slots, meta, suggestions, { userText: text, replyOverride: null, aiOnline, voice });
+  }
+
+  /**
+   * Resposta que NÃO mexe no rascunho: preserva `confirmToken`, `slotsHash` e o
+   * `costPreviewJson` — ou seja, o resumo e o botão Confirmar continuam vivos na
+   * tela enquanto a conversa segue em volta deles. É o que permite perguntar sem
+   * perder a busca montada.
+   */
+  private async replyKeeping(
+    ctx: { companyId: number; userId: number },
+    user: any,
+    draft: any,
+    slots: ConciergeSlots,
+    official: string,
+    chips: ConciergeChip[],
+    opts: { userText: string; voice: boolean },
+  ): Promise<ConciergeReply> {
+    const reply = opts.voice ? await this.voiceFor(opts.userText, ctx.companyId)(official) : official;
+    await this.appendTranscript(draft.id, opts.userText, reply);
+    const fresh = await this.getDraftOrThrow(ctx, draft.id);
+    return { ok: true, draft: this.presentDraft(fresh, slots, user), reply, chips, aiOnline: conciergeAiEnabled() };
+  }
+
+  /**
+   * VOZ COM GUARDA-CORPO (degrau 2): devolve uma função que enfeita a resposta
+   * OFICIAL com uma frase humana escrita pela IA — e só se ela passar na guarda
+   * (`sanitizeVoiceText`: nada de número, dinheiro, promessa ou ação alegada).
+   * Qualquer falha, recusa do governor ou frase reprovada → sai a resposta
+   * oficial pura, idêntica à de antes desta entrega. Os fatos nunca dependem da IA.
+   */
+  private voiceFor(userText: string, companyId: number): (official: string) => Promise<string> {
+    return async (official: string) => {
+      if (!conciergeVoiceEnabled() || !official) return official;
+      try {
+        const raw = await callConciergeWriter(buildWriterMessages(userText, official), { companyId });
+        const safe = sanitizeVoiceText(raw);
+        if (!safe || safe === '-') return official;
+        return composeReply(safe, official);
+      } catch (error) {
+        this.logger.debug?.(`voz indisponivel: ${String((error as Error)?.message || error)}`);
+        return official;
+      }
+    };
   }
 
   // ── POST /concierge/slot — clique em chip (determinístico, NÃO passa pela IA) ─
@@ -444,7 +566,7 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
 
   // ══ internos ═══════════════════════════════════════════════════════════════
 
-  private async extractWithRetry(slots: ConciergeSlots, text: string, companyId: number): Promise<ConciergeSlots | null> {
+  private async extractWithRetry(slots: ConciergeSlots, text: string, companyId: number, awaitingConfirm = false): Promise<ConciergeSlots | null> {
     const context = {
       targetSegment: slots.targetSegment,
       city: slots.city,
@@ -452,10 +574,10 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
       desiredCount: slots.desiredCount,
       channels: slots.channels,
     };
-    const first = await callConciergeExtractor(buildExtractorMessages(context, text), { companyId });
+    const first = await callConciergeExtractor(buildExtractorMessages(context, text, { awaitingConfirm }), { companyId });
     let sanitized = sanitizeAiSlots(safeParseConciergeJson(first));
     if (sanitized) return applyDeterministicGuards(sanitized, text);
-    const second = await callConciergeExtractor(buildExtractorMessages(context, text, { retry: true }), { companyId });
+    const second = await callConciergeExtractor(buildExtractorMessages(context, text, { retry: true, awaitingConfirm }), { companyId });
     sanitized = sanitizeAiSlots(safeParseConciergeJson(second));
     return sanitized ? applyDeterministicGuards(sanitized, text) : null; // null → fluxo por chips
   }
@@ -509,7 +631,7 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
     slots: ConciergeSlots,
     meta: DraftMeta,
     suggestions: { segments: string[]; city: string | null; state: string | null },
-    opts: { userText: string | null; replyOverride: string | null; aiOnline: boolean },
+    opts: { userText: string | null; replyOverride: string | null; aiOnline: boolean; voice?: (official: string) => Promise<string> },
   ): Promise<ConciergeReply> {
     const state = this.stateFor(slots);
     let reply = opts.replyOverride || '';
@@ -541,6 +663,10 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    // Voz por último: ela enfeita a resposta JÁ decidida (inclusive a do resumo
+    // com custo) — os números continuam vindo do template, nunca da IA.
+    if (opts.voice && reply) reply = await opts.voice(reply);
+
     await this.prisma.aiConciergeDraft.update({
       where: { id: draftId },
       data: {
@@ -560,7 +686,9 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
   }
 
   private previewReply(slots: ConciergeSlots, preview: CostPreview, user: any): string {
-    const where = slots.state ? `${slots.city} - ${slots.state}` : String(slots.city);
+    // `validateCity` adota o nome canônico do IBGE, que já vem "Cidade - UF" —
+    // colar a UF de novo produzia "Vitória das Missões - RS - RS" (print 31/07).
+    const where = formatPlaceLabel(slots.city, slots.state);
     const clampNote = preview.clamped
       ? ` Você pediu ${preview.requestedQuantity}, consigo até ${preview.quantity} agora (limite do seu plano/dia).`
       : '';
@@ -613,7 +741,12 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
     let costCredits: number | null = null;
     let mode: 'free' | 'debit' | null = null;
     if (billingAudience) {
-      const definition = await this.creditActions.resolveEffective('lead_delivery');
+      // Catálogo fora do ar não pode virar 500 no meio da conversa NEM "de graça"
+      // por acidente: na dúvida, cobra o padrão (1/lead) — erra pro lado seguro.
+      const definition = await this.creditActions.resolveEffective('lead_delivery').catch((error) => {
+        this.logger.warn(`catalogo de credito indisponivel: ${String((error as Error)?.message || error)}`);
+        return null;
+      });
       const unitCost = definition?.mode === 'free' ? 0 : Math.max(0, Number(definition?.cost ?? 1));
       costCredits = Math.round(quantity * unitCost * 1000) / 1000;
       const enforceActive = await this.credits.isEnforceActiveForCompany(ctx.companyId).catch(() => false);
@@ -676,7 +809,11 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
     // nova — o usuário digita outra busca e nasce um draft novo.
     const existing = await this.loadActiveDraft(ctx);
     if (existing) return existing;
-    // 1 draft ativo por usuário — pedido novo abandona o anterior (§2.1).
+    return this.createDraft(ctx);
+  }
+
+  /** Rascunho limpo — 1 ativo por usuário: o anterior é abandonado (§2.1). */
+  private async createDraft(ctx: { companyId: number; userId: number }) {
     await this.prisma.aiConciergeDraft.updateMany({
       where: { companyId: ctx.companyId, userId: ctx.userId, status: 'active' },
       data: { status: 'abandoned' },
@@ -791,6 +928,8 @@ export class ConciergeService implements OnModuleInit, OnModuleDestroy {
         state: slots.state,
         desiredCount: slots.desiredCount,
         channels: slots.channels,
+        // Rótulo pronto: a tela mostra o MESMO texto do resumo, sem recolar a UF.
+        placeLabel: formatPlaceLabel(slots.city, slots.state) || null,
       },
       missingFields: computeMissingFields(slots),
       preview,

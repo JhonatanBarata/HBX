@@ -34,7 +34,10 @@ type Draft = {
   id: string;
   state: string;
   status: string;
-  slots: { targetSegment: string | null; city: string | null; state: string | null; desiredCount: number | null; channels: string[] };
+  // placeLabel: rótulo do lugar já pronto pelo servidor — a cidade canônica do
+  // IBGE às vezes já vem "Cidade - UF", e colar a UF de novo aqui produzia
+  // "Vitória das Missões - RS - RS" (print do dono, 31/07).
+  slots: { targetSegment: string | null; city: string | null; state: string | null; desiredCount: number | null; channels: string[]; placeLabel?: string | null };
   missingFields: string[];
   preview: Preview | null;
   confirmToken: string | null;
@@ -61,6 +64,17 @@ type Msg = { dir: "in" | "out"; text: string };
 // frase natural do que o dono quer buscar a partir do segmento/cidade do lead.
 // Cidade sai como "Cidade - UF" (mesmo formato do próprio Concierge). Campo
 // faltando → adapta; tudo vazio → "" (o chamador ignora o seed).
+/** Mesma regra do servidor (`formatPlaceLabel`): só cola a UF se ela não estiver no fim. */
+function placeLabelOf(slots: Draft["slots"] | undefined | null): string {
+  if (!slots) return "";
+  if (slots.placeLabel) return slots.placeLabel;
+  const city = String(slots.city || "").trim();
+  const uf = String(slots.state || "").trim().toUpperCase();
+  if (!city) return uf;
+  if (!uf) return city;
+  return city.split(" - ").pop()?.trim().toUpperCase() === uf ? city : `${city} - ${uf}`;
+}
+
 function buildConciergeSeedPhrase(seed: { targetSegment?: string; city?: string; state?: string } | null | undefined): string {
   const seg = String(seed?.targetSegment || "").trim();
   const city = String(seed?.city || "").trim();
@@ -326,7 +340,7 @@ export function ConciergeClient() {
               <div className="cg-preview__facts">
                 <span className="cg-preview__qty">{preview.quantity}</span>
                 <span className="cg-preview__what">
-                  {draft?.slots.targetSegment} · {draft?.slots.city}{draft?.slots.state ? ` - ${draft.slots.state}` : ""}
+                  {draft?.slots.targetSegment} · {placeLabelOf(draft?.slots)}
                 </span>
                 {preview.costCredits != null && (
                   <span className="cg-preview__cost">
@@ -448,7 +462,7 @@ function Guide({ step, runTerminal, draft, aiOnline, suggestions, busy, onExampl
           <div className="cg-guide__sec">Já entendi</div>
           <dl className="cg-gslots">
             <div className="cg-gslot"><dt>Segmento</dt><dd className={slots.targetSegment ? "is-on" : ""}>{slots.targetSegment || "—"}</dd></div>
-            <div className="cg-gslot"><dt>Cidade</dt><dd className={slots.city ? "is-on" : ""}>{slots.city ? `${slots.city}${slots.state ? ` - ${slots.state}` : ""}` : "—"}</dd></div>
+            <div className="cg-gslot"><dt>Cidade</dt><dd className={slots.city ? "is-on" : ""}>{slots.city ? placeLabelOf(slots) : "—"}</dd></div>
             <div className="cg-gslot"><dt>Quantos</dt><dd className={slots.desiredCount != null ? "is-on" : ""}>{slots.desiredCount ?? "—"}</dd></div>
             {slots.channels.length > 0 && (
               <div className="cg-gslot"><dt>Canais</dt><dd className="is-on">{slots.channels.join(", ")}</dd></div>

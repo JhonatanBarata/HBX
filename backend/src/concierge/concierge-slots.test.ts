@@ -7,6 +7,8 @@ import {
   computeMissingFields,
   channelsToRadarPreferred,
   emptySlots,
+  formatPlaceLabel,
+  hasNewSearchData,
   mergeSlots,
   safeParseConciergeJson,
   sanitizeAiSlots,
@@ -137,6 +139,75 @@ test('applyDeterministicGuards: 2+ ramos no segmento viram null (1 busca por vez
   assert.equal(applyDeterministicGuards({ ...base, targetSegment: 'farmácias, mercados, padarias' }, 'x').targetSegment, null);
   // 1 ramo só (mesmo composto) fica.
   assert.equal(applyDeterministicGuards({ ...base, targetSegment: 'material de construção' }, 'x').targetSegment, 'material de construção');
+});
+
+// ── REPERTÓRIO E EXIBIÇÃO (31/07, print do dono) ────────────────────────────
+
+test('formatPlaceLabel: a UF nunca é colada duas vezes ("Vitória das Missões - RS - RS")', () => {
+  // A cidade canônica do IBGE já vem com a UF — foi assim que o print nasceu.
+  assert.equal(formatPlaceLabel('Vitória das Missões - RS', 'RS'), 'Vitória das Missões - RS');
+  // Cidade sem sufixo + UF conhecida → cola normalmente.
+  assert.equal(formatPlaceLabel('Curitiba', 'PR'), 'Curitiba - PR');
+  // UF diferente do sufixo não é engolida (Santa Maria da Vitória - BA).
+  assert.equal(formatPlaceLabel('Santa Maria - RS', 'BA'), 'Santa Maria - RS - BA');
+  // Faltando um dos lados, devolve o que existe.
+  assert.equal(formatPlaceLabel('Recife', null), 'Recife');
+  assert.equal(formatPlaceLabel(null, 'PE'), 'PE');
+  assert.equal(formatPlaceLabel(null, null), '');
+});
+
+test('sanitizeAiSlots: as intenções novas passam; topic/changeTarget fora da whitelist morrem', () => {
+  const question = sanitizeAiSlots(safeParseConciergeJson('{"intent":"question","topic":"coverage"}'));
+  assert.equal(question?.intent, 'question');
+  assert.equal(question?.topic, 'coverage');
+
+  const change = sanitizeAiSlots(safeParseConciergeJson('{"intent":"change_request","changeTarget":"city","city":"Santa Maria"}'));
+  assert.equal(change?.intent, 'change_request');
+  assert.equal(change?.changeTarget, 'city');
+
+  assert.equal(sanitizeAiSlots(safeParseConciergeJson('{"intent":"cancel"}'))?.intent, 'cancel');
+
+  // Enum inventado pela IA não vira comportamento.
+  const lixo = sanitizeAiSlots(safeParseConciergeJson('{"intent":"question","topic":"me_da_desconto","changeTarget":"tudo"}'));
+  assert.equal(lixo?.topic, null);
+  assert.equal(lixo?.changeTarget, null);
+  assert.equal(sanitizeAiSlots(safeParseConciergeJson('{"intent":"executar_busca_agora"}'))?.intent, 'unclear');
+});
+
+test('hasNewSearchData: só DADO conta — intenção e confiança não mexem no pedido', () => {
+  const atual = { ...emptySlots(), targetSegment: 'padarias', city: 'Santos - SP', state: 'SP', desiredCount: 10 };
+
+  // O caso do print: o modelo devolveu "busca" com tudo vazio. Nada mudou.
+  const vazio = { ...emptySlots(), intent: 'radar_search' as const, confidence: 0.95 };
+  assert.equal(hasNewSearchData(atual, vazio), false);
+
+  assert.equal(hasNewSearchData(atual, { ...vazio, city: 'Campinas' }), true);
+  assert.equal(hasNewSearchData(atual, { ...vazio, desiredCount: 30 }), true);
+  assert.equal(hasNewSearchData(atual, { ...vazio, channels: ['whatsapp'] }), true);
+  // Repetir o MESMO valor não é mudança.
+  assert.equal(hasNewSearchData(atual, { ...vazio, city: 'Santos - SP', desiredCount: 10 }), false);
+});
+
+test('mergeSlots: topic/changeTarget são do TURNO — não grudam no pedido', () => {
+  const current = { ...emptySlots(), targetSegment: 'padarias', topic: 'cost' as const, changeTarget: 'city' as const };
+  const incoming = { ...emptySlots(), intent: 'radar_search' as const, city: 'Recife', confidence: 0.9 };
+  const merged = mergeSlots(current, incoming);
+  assert.equal(merged.topic, null, 'assunto da pergunta anterior não pode contaminar o turno novo');
+  assert.equal(merged.changeTarget, null);
+  assert.equal(merged.targetSegment, 'padarias', 'mas o PEDIDO continua preservado');
+});
+
+test('buildExtractorMessages: com o resumo na tela, o extrator é avisado do estágio', () => {
+  const semResumo = buildExtractorMessages({ targetSegment: null, city: null, state: null, desiredCount: null, channels: [] }, 'oi');
+  assert.doesNotMatch(semResumo[1].content, /ainda não confirmou/);
+
+  const comResumo = buildExtractorMessages(
+    { targetSegment: 'padarias', city: 'Recife', state: null, desiredCount: 10, channels: [] },
+    'e em outro estado?',
+    { awaitingConfirm: true },
+  );
+  assert.match(comResumo[1].content, /ainda não confirmou/);
+  assert.match(comResumo[1].content, /question/);
 });
 
 test('buildExtractorMessages: slots coletados entram como contexto neutro', () => {

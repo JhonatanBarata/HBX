@@ -64,6 +64,82 @@ export function conciergeTimeoutMs() {
   return envInt('HBX_LLM_CLASSIFIER_TIMEOUT_MS', 12000);
 }
 
+// ── VOZ (degrau 2) — o redator ───────────────────────────────────────────────
+// LIGADO por padrão (lei "entregar ligado"): quem quiser silenciar a voz e
+// voltar ao texto 100% template põe HBX_AI_CONCIERGE_VOICE=off. Timeout CURTO
+// de propósito: a voz é enfeite, os fatos são obrigação — se o modelo demorar,
+// o cliente recebe a resposta oficial sem esperar por enfeite.
+export function conciergeVoiceEnabled() {
+  const raw = String(process.env.HBX_AI_CONCIERGE_VOICE || '').trim().toLowerCase();
+  if (['false', '0', 'no', 'off', 'nao', 'não'].includes(raw)) return false;
+  return conciergeAiEnabled();
+}
+
+export function conciergeVoiceTimeoutMs() {
+  return envInt('HBX_AI_CONCIERGE_VOICE_TIMEOUT_MS', 6000);
+}
+
+/**
+ * UMA frase de abertura escrita pela IA. Texto LIVRE (sem `format:'json'`) —
+ * por isso a saída passa OBRIGATORIAMENTE por `sanitizeVoiceText` no caller:
+ * frase reprovada vira null e a resposta sai só com os fatos do código.
+ * Lança em qualquer erro; a voz é opcional e o caller já trata.
+ */
+export async function callConciergeWriter(
+  messages: Array<{ role: string; content: string }>,
+  opts: { companyId?: number | null } = {},
+): Promise<string> {
+  if (!conciergeVoiceEnabled()) throw new Error('voz do concierge desligada');
+  return callOllamaChat({
+    baseUrl: conciergeOllamaBaseUrl(),
+    model: conciergeModel(),
+    timeoutMs: conciergeVoiceTimeoutMs(),
+    messages,
+    temperature: 0.5,
+    numPredict: 60,
+    think: false,
+    companyId: opts.companyId,
+    actionKey: 'ai_realtime',
+    refusedMessage: 'governor recusou a voz do concierge — respondendo só com os fatos',
+  });
+}
+
+// ── REVISOR NOTURNO (degrau 3) ───────────────────────────────────────────────
+// Faixa BATCH: cede a vez pro cliente ao vivo (GOVERNOR-IA) e pode usar modelo
+// maior. Roda de madrugada, sem ninguém esperando — timeout generoso.
+export function conciergeReviewEnabled() {
+  const raw = String(process.env.HBX_AI_CONCIERGE_REVIEW || '').trim().toLowerCase();
+  if (['false', '0', 'no', 'off', 'nao', 'não'].includes(raw)) return false;
+  return conciergeFeatureEnabled() && conciergeAiEnabled();
+}
+
+export function conciergeReviewModel() {
+  const own = String(process.env.HBX_AI_CONCIERGE_REVIEW_MODEL || '').trim();
+  if (own) return own;
+  const batch = String(process.env.HBX_LLM_BATCH_MODEL || '').trim();
+  return batch || conciergeModel();
+}
+
+export async function callConciergeReviewer(
+  messages: Array<{ role: string; content: string }>,
+): Promise<string> {
+  if (!conciergeAiEnabled()) throw new Error('IA local desligada (HBX_LLM_CLASSIFIER_ENABLED)');
+  return callOllamaChat({
+    baseUrl: conciergeOllamaBaseUrl(),
+    model: conciergeReviewModel(),
+    timeoutMs: envInt('HBX_AI_CONCIERGE_REVIEW_TIMEOUT_MS', 120000),
+    messages,
+    lane: 'batch',
+    format: 'json',
+    temperature: 0.1,
+    numPredict: 260,
+    think: false,
+    companyId: null,
+    actionKey: 'ai_batch',
+    refusedMessage: 'governor recusou a revisão noturna do concierge — fica para o próximo ciclo',
+  });
+}
+
 /**
  * UMA chamada de extração: faixa realtime + budget do Concierge + autorização
  * da ação `ai_realtime` por empresa. Wrapper fino sobre `callOllamaChat`

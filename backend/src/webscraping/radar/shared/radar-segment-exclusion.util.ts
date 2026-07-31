@@ -13,6 +13,16 @@ export type RadarSegmentExclusionRule = {
   // Termos (CNAE description ou trecho de nome) que marcam a atividade excluída.
   // Comparados em texto normalizado (sem acento, minúsculo) via "includes".
   tokens: string[];
+  // De QUAIS pedidos esta regra se afasta (30/07 — "a mina do gás"). Antes isso era
+  // ADIVINHADO: a regra saía do jogo quando o segmento pedido continha um token dela.
+  // Adivinhar não fecha: quem pede "distribuidora de gás" morria na regra de
+  // energia/água/combustível (o token é a frase 'gas liquefeito', que o pedido não
+  // contém), e comparar palavra a palavra consertaria o gás e sujaria a água — o token
+  // 'agua e esgoto' faria a MESMA regra se afastar de "distribuidora de água" e soltar
+  // saneamento na busca do dono. Com a lista explícita não há troca: energia/água/
+  // combustível se afasta de energia, gás e combustível — e NUNCA de água, porque ali
+  // saneamento é mesmo outro ramo. Palavra inteira, com tolerância de plural.
+  notFor?: string[];
 };
 
 export const RADAR_SEGMENT_EXCLUSION_MAP: Record<string, RadarSegmentExclusionRule[]> = {
@@ -20,6 +30,7 @@ export const RADAR_SEGMENT_EXCLUSION_MAP: Record<string, RadarSegmentExclusionRu
     {
       code: 'transporte_carga',
       label: 'Transporte de carga',
+      notFor: ['transporte', 'transportadora', 'carga', 'logistica', 'frete'],
       tokens: [
         // Frases oficiais de CNAE (fonte cnpj_public, quando há cnaeDescription real).
         'transporte rodoviario de carga',
@@ -34,6 +45,7 @@ export const RADAR_SEGMENT_EXCLUSION_MAP: Record<string, RadarSegmentExclusionRu
     {
       code: 'varejo_puro',
       label: 'Varejo puro',
+      notFor: ['varejo', 'varejista'],
       tokens: [
         'comercio varejista',
         'varejista',
