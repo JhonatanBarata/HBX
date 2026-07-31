@@ -144,7 +144,35 @@ function createService(overrides?: {
     return currentMetadata;
   }
 
+  // CASA DO RISCO (31/07/2026): o motor lê janela/teto/intervalo/digitação de
+  // VendasComercialConfig. A casa mockada é SEMEADA dos campos de risco da
+  // fixture de campanha — os testes antigos continuam controlando o risco pelo
+  // mesmo objeto, agora servido pela porta certa. intervalVarianceMinutes vinha
+  // de filtersJson na fixture; mesma origem aqui.
+  let fixtureFilters: Record<string, any> = {};
+  try {
+    fixtureFilters = JSON.parse(String(campaignFixture.filtersJson || '{}'));
+  } catch {
+    fixtureFilters = {};
+  }
+  const casaFixture = {
+    workingHoursStart: campaignFixture.workingHoursStart,
+    workingHoursEnd: campaignFixture.workingHoursEnd,
+    dailyLimitPerSender: campaignFixture.dailyLimit,
+    intervalMinutes: campaignFixture.intervalMinutes,
+    intervalVarianceMinutes: Number.isFinite(Number(fixtureFilters.intervalVarianceMinutes))
+      ? Number(fixtureFilters.intervalVarianceMinutes)
+      : 15,
+    maxAttemptsPerLead: campaignFixture.maxAttemptsPerLead,
+    typingSeconds: campaignFixture.typingSeconds,
+    typingVarianceSeconds: campaignFixture.typingVarianceSeconds,
+  };
+
   const prisma: any = {
+    vendasComercialConfig: {
+      findUnique: async () => casaFixture,
+      upsert: async ({ create, update }: any = {}) => ({ ...casaFixture, ...(create || {}), ...(update || {}) }),
+    },
     vendasAutomationCampaign: {
       findUnique: async () => campaignFixture,
       findMany: async () => [campaignFixture],
@@ -400,11 +428,13 @@ test('triagem permite armar somente para dono ou gerente com checklist completo'
 
 test('triagem permanece fail-closed quando falta configuração mínima', () => {
   const { service } = createService();
-  const incompleteCampaign = buildCampaign({ messageTemplate: '', optOutMessage: null, dailyLimit: 0 });
+  // CASA DO RISCO: limite/horário saíram do checklist (moram na casa, com default
+  // seguro — nunca "faltam"). O que a campanha ainda pode deixar vazio é texto.
+  const incompleteCampaign = buildCampaign({ messageTemplate: '', optOutMessage: null });
 
   assert.throws(
     () => service.assertCanArmProspecting({ role: 'ADMIN' }, incompleteCampaign),
-    /Triagem incompleta: configure mensagem de abordagem, mensagem de saída \(opt-out\), limite diário de envios/,
+    /Triagem incompleta: configure mensagem de abordagem, mensagem de saída \(opt-out\)/,
   );
 });
 
@@ -838,6 +868,10 @@ test('working window capacity allows 10 different successful sends, then blocks 
     conversationMetadataByPhone: Object.fromEntries(phones.map((phone) => [phone, {}])),
   });
   service.getNextAllowedSendAt = async () => null;
+  // O alvo do teste é o TETO (capacidade da janela 08:00–10:30 = 10), não o
+  // relógio: sem este stub o teste só passava se rodasse DENTRO da janela, em
+  // dia útil ([[teste-verde-no-meu-fuso-nao-vale]]).
+  service.dentroDaJanelaDaCasa = () => true;
 
   const outcomes: string[] = [];
   for (let index = 0; index < 11; index += 1) {
@@ -1015,6 +1049,8 @@ test('sentToday=9 with working window capacity 10 sends one more and then blocks
     },
   });
   service.getNextAllowedSendAt = async () => null;
+  // Mesmo stub do teste acima: o alvo é o teto, não o horário da rodada.
+  service.dentroDaJanelaDaCasa = () => true;
   const firstLead = buildLead({ id: 'lead-allowed-last', phone: '+551100000051', phoneNormalized: '551100000051', segment: campaign.segment });
   const secondLead = buildLead({ id: 'lead-blocked-limit', phone: '+551100000052', phoneNormalized: '551100000052', segment: campaign.segment });
 

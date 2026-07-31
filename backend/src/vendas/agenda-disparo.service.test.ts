@@ -165,7 +165,17 @@ test('AgendaDisparoService.getConfig: sem linha no banco -> defaults (08:00-18:0
   const { prisma } = makeFakePrisma([], null);
   const svc = new AgendaDisparoService(prisma as any);
   const config = await svc.getConfig(7);
-  assert.deepEqual(config, { workingHoursStart: '08:00', workingHoursEnd: '18:00', dailyLimitPerSender: 10, intervalMinutes: 15 });
+  // CASA DO RISCO (31/07/2026): defaults dos 4 campos novos = nível MÉDIO.
+  assert.deepEqual(config, {
+    workingHoursStart: '08:00',
+    workingHoursEnd: '18:00',
+    dailyLimitPerSender: 10,
+    intervalMinutes: 15,
+    intervalVarianceMinutes: 15,
+    maxAttemptsPerLead: 1,
+    typingSeconds: 8,
+    typingVarianceSeconds: 12,
+  });
 });
 
 test('AgendaDisparoService.saveConfig: atualizacao parcial preserva os campos nao enviados', async () => {
