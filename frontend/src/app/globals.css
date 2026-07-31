@@ -156,6 +156,10 @@
    token, nenhuma cor literal. Ver logistica-mesa.css. */
 @import "./hbx-theme/logistica-mesa.css";
 
+/* LOGÍSTICA LIVE — comando compacto, instrumentos do dia, tabuleiro e
+   motorista dentro da mesma casca dos módulos operacionais. */
+@import "./hbx-theme/logistica-live.css";
+
 /* CONVERSAS LIVE — comando único + inbox + conversa + contexto, na mesma
    casca compacta dos módulos operacionais. */
 @import "./hbx-theme/conversas-live.css";

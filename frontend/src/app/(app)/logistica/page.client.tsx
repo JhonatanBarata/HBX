@@ -505,109 +505,129 @@ export function LogisticaClient() {
 
   return (
     <div className="work log-work hbx-panel-shell-host">
-      <div className={`hbx-panel-shell${admin ? " hbx-panel-shell--context" : ""}`}>
+      <div
+        className={`hbx-panel-shell log-live-shell${admin ? " hbx-panel-shell--context" : ""}`}
+        data-variant={admin ? "context" : "common"}
+        aria-label="Operação logística"
+      >
         <div className="hbx-panel-shell__main">
-          <div className="hbx-panel-shell__content">
-            {admin && (
-              <div className="log-guide-slot">
+          <div className="hbx-panel-shell__content log-live-content">
+            <header className="log-command">
+              <div className="log-command__identity">
+                <span className="log-command__icon" aria-hidden>
+                  <I d={ICONS.logistica} size={17} />
+                </span>
+                <span className="log-command__copy">
+                  <strong>Operação</strong>
+                  <small>{items.length} parada(s) · {pendentes} aberta(s)</small>
+                </span>
+              </div>
+
+              {admin ? (
                 <div className="log-guide glass-pill-track" role="tablist" aria-label="Visão da logística">
                   <GlassPill {...viewPill} />
-            <button
-              ref={viewPill.itemRef("today")}
-              id="log-tab-today"
-              type="button"
-              role="tab"
-              aria-controls="logistica-view-today"
-              aria-selected={view === "today"}
-              tabIndex={view === "today" ? 0 : -1}
-              className={`log-guide__tab glass-pill-item${view === "today" ? " is-active" : ""}`}
-              onClick={() => setView("today")}
-            >
-              Rota de hoje
-            </button>
-            <button
-              ref={viewPill.itemRef("weekly")}
-              id="log-tab-weekly"
-              type="button"
-              role="tab"
-              aria-controls="logistica-view-weekly"
-              aria-selected={view === "weekly"}
-              tabIndex={view === "weekly" ? 0 : -1}
-              className={`log-guide__tab glass-pill-item${view === "weekly" ? " is-active" : ""}`}
-              onClick={() => setView("weekly")}
-            >
-              Agenda semanal
-            </button>
-            <button
-              ref={viewPill.itemRef("saude")}
-              id="log-tab-saude"
-              type="button"
-              role="tab"
-              aria-controls="logistica-view-saude"
-              aria-selected={view === "saude"}
-              tabIndex={view === "saude" ? 0 : -1}
-              className={`log-guide__tab glass-pill-item${view === "saude" ? " is-active" : ""}`}
-              onClick={() => setView("saude")}
-            >
-              Saúde da base
-            </button>
+                  <button
+                    ref={viewPill.itemRef("today")}
+                    id="log-tab-today"
+                    type="button"
+                    role="tab"
+                    aria-controls="logistica-view-today"
+                    aria-selected={view === "today"}
+                    tabIndex={view === "today" ? 0 : -1}
+                    className={`log-guide__tab glass-pill-item${view === "today" ? " is-active" : ""}`}
+                    onClick={() => setView("today")}
+                  >
+                    Hoje
+                  </button>
+                  <button
+                    ref={viewPill.itemRef("weekly")}
+                    id="log-tab-weekly"
+                    type="button"
+                    role="tab"
+                    aria-controls="logistica-view-weekly"
+                    aria-selected={view === "weekly"}
+                    tabIndex={view === "weekly" ? 0 : -1}
+                    className={`log-guide__tab glass-pill-item${view === "weekly" ? " is-active" : ""}`}
+                    onClick={() => setView("weekly")}
+                  >
+                    Semana
+                  </button>
+                  <button
+                    ref={viewPill.itemRef("saude")}
+                    id="log-tab-saude"
+                    type="button"
+                    role="tab"
+                    aria-controls="logistica-view-saude"
+                    aria-selected={view === "saude"}
+                    tabIndex={view === "saude" ? 0 : -1}
+                    className={`log-guide__tab glass-pill-item${view === "saude" ? " is-active" : ""}`}
+                    onClick={() => setView("saude")}
+                  >
+                    Saúde
+                  </button>
                 </div>
-              </div>
-            )}
+              ) : (
+                <strong className="log-command__single-view">Rota de hoje</strong>
+              )}
+
+              <span className="log-command__updated">
+                {atualizadoEm
+                  ? `às ${atualizadoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`
+                  : loading ? "sincronizando" : "sem leitura"}
+              </span>
+              <button
+                type="button"
+                className="btn-ghost log-command__refresh"
+                onClick={() => void load()}
+                disabled={loading}
+                aria-label={loading ? "Atualizando rota" : "Atualizar rota"}
+                title={loading ? "Atualizando rota" : "Atualizar rota"}
+              >
+                <span aria-hidden>↻</span>
+              </button>
+              {admin && (
+                <button type="button" className="btn-teal log-command__build" onClick={() => setRouteBuilderOpen(true)}>
+                  <I d={ICONS.logistica} size={13} />
+                  <span>Montar rota</span>
+                </button>
+              )}
+              <span className={`log-command__status${loading ? " is-loading" : ""}`} title={loading ? "Sincronizando" : "Operação sincronizada"}>
+                <i aria-hidden="true" />
+              </span>
+            </header>
 
             {(!admin || view === "today") && (
               <section
                 id="logistica-view-today"
-                className="panel hbx-page-mobile-enter"
+                className="panel log-today-panel hbx-page-mobile-enter"
                 role={admin ? "tabpanel" : undefined}
                 aria-labelledby={admin ? "log-tab-today" : undefined}
               >
-          <div className="panel-head">
-            <h2>Rota de hoje</h2>
-            <div className="meta log-today-meta">
-            {gerarMsg && <span className="emp-count">{gerarMsg}</span>}
-            {atualizadoEm && <span>Atualizado às {atualizadoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span>}
-            <span>{pendentes} pendente(s) · {items.length} no dia</span>
-            <button type="button" className="btn-ghost btn-xs" onClick={() => void load()} disabled={loading}>
-              <span aria-hidden>↻</span> {loading ? "Atualizando…" : "Atualizar"}
-            </button>
-            {admin && (
-              <button type="button" className="btn-ghost btn-xs" onClick={gerarDia} disabled={gerando}>
-                <I d={ICONS.plus} size={13} /> {gerando ? "Gerando…" : "Gerar entregas de hoje"}
-              </button>
-            )}
-            {admin && (
-              <button type="button" className="btn-ghost btn-xs" onClick={() => setRouteBuilderOpen(true)}>
-                <I d={ICONS.logistica} size={13} /> Montar rota
-              </button>
-            )}
-            {admin && (
-              <Link href="/logistica/estoque" className="btn-ghost btn-xs">
-                <I d={ICONS.produtos} size={13} /> Estoque de carga
-              </Link>
-            )}
-            {admin && (
-              <Link href="/logistica/importar" className="btn-ghost btn-xs">
-                <I d={ICONS.upload} size={13} /> Importar clientes
-              </Link>
-            )}
-            {admin && (
-              <Link href="/logistica/rastreamento" className="btn-ghost btn-xs">
-                <I d={ICONS.mapin} size={13} /> Ao vivo
-              </Link>
-            )}
-            {admin && (
-              <Link href="/logistica/config" className="btn-ghost btn-xs">
-                <I d={ICONS.config} size={13} /> Regras
-              </Link>
-            )}
-            {admin && (
-              <Link href="/logistica/instalar" className="btn-ghost btn-xs">
-                <I d={ICONS.phone} size={13} /> Instalar app
-              </Link>
-            )}
-            </div>
-          </div>
+                {admin && (
+                  <nav className="log-quickbar" aria-label="Atalhos da logística">
+                    <button type="button" className="log-quickbar__action" onClick={gerarDia} disabled={gerando}>
+                      <I d={ICONS.plus} size={12} /> {gerando ? "Gerando…" : "Gerar entregas"}
+                    </button>
+                    <Link href="/logistica/estoque" className="log-quickbar__action">
+                      <I d={ICONS.produtos} size={12} /> Estoque
+                    </Link>
+                    <Link href="/logistica/importar" className="log-quickbar__action">
+                      <I d={ICONS.upload} size={12} /> Importar
+                    </Link>
+                    <Link href="/logistica/rastreamento" className="log-quickbar__action">
+                      <I d={ICONS.mapin} size={12} /> Ao vivo
+                    </Link>
+                    <Link href="/logistica/config" className="log-quickbar__action">
+                      <I d={ICONS.config} size={12} /> Regras
+                    </Link>
+                    <Link href="/logistica/instalar" className="log-quickbar__action">
+                      <I d={ICONS.phone} size={12} /> App
+                    </Link>
+                    {gerarMsg && <span className="log-quickbar__feedback">{gerarMsg}</span>}
+                  </nav>
+                )}
+
+                <div className="log-today-scroll">
 
         {/* ROTA PRONTA (29/07) — aviso literal do dono: "Rota X negada por Y".
             PR29072026 — "desfeita" reusa a MESMA linha: aceitou e devolveu. */}
@@ -620,17 +640,21 @@ export function LogisticaClient() {
           </div>
         ))}
 
-        {/* M6 — resumo financeiro do dia + fechar mês (admin). */}
-        {admin && <ResumoDiaCard onFecharMes={load} />}
+        {admin && (
+          <div className="log-instruments">
+            {/* M6 — resumo financeiro do dia + fechar mês (admin). */}
+            <ResumoDiaCard onFecharMes={load} />
 
-        {/* PR29072026 (ordem do dono) — "Motorista X, gasto até agora Y". No
-            celular o crédito mora no topo da tela Rota; no computador não morava
-            em lugar nenhum. Aqui ele volta, quebrado POR motorista.
-            Sem `items.length > 0`: o painel também precisa falar no dia VAZIO —
-            foi o buraco do bug de 29/07 (o dono cancelou tudo, o painel sumiu
-            junto e ele ficou sem enxergar o que faltava). Ele se cala sozinho
-            quando não há nada a dizer. */}
-        {admin && rota && <RouteCreditPanel date={rota.date} stops={items} />}
+            {/* PR29072026 (ordem do dono) — "Motorista X, gasto até agora Y". No
+                celular o crédito mora no topo da tela Rota; no computador não morava
+                em lugar nenhum. Aqui ele volta, quebrado POR motorista.
+                Sem `items.length > 0`: o painel também precisa falar no dia VAZIO —
+                foi o buraco do bug de 29/07 (o dono cancelou tudo, o painel sumiu
+                junto e ele ficou sem enxergar o que faltava). Ele se cala sozinho
+                quando não há nada a dizer. */}
+            {rota && <RouteCreditPanel date={rota.date} stops={items} />}
+          </div>
+        )}
 
         {/* PR29072026 (MESA DE DESPACHO) — o que TRAVA o dia, junto e por
             gravidade. Só dado que a tela já tem: endereço sem ponto no mapa,
@@ -717,6 +741,7 @@ export function LogisticaClient() {
             ))}
           </div>
         )}
+                </div>
               </section>
             )}
 
