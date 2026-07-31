@@ -38,6 +38,16 @@ function envOn(name: string) {
   return ['true', '1', 'yes', 'on', 'sim'].includes(String(process.env[name] || '').trim().toLowerCase());
 }
 
+/**
+ * Janela de contexto das 3 chamadas do Concierge (extrator, redator, revisor).
+ * MESMO valor nas três de propósito: `num_ctx` diferente força o Ollama a
+ * recarregar o modelo (VPS roda com OLLAMA_MAX_LOADED_MODELS=1). 4096 é o que a
+ * VPS já usa hoje e sobra para o maior prompt daqui (o revisor, ~2,1k tokens).
+ * Fixar aqui tira a dependência do `OLLAMA_CONTEXT_LENGTH` do servidor: sem ele
+ * o Ollama abre o contexto cheio do modelo e devolve 500 por falta de memória.
+ */
+const CONCIERGE_NUM_CTX = 4096;
+
 /** Flag da FEATURE — default OFF (§2.6): endpoints respondem feature_disabled. */
 export function conciergeFeatureEnabled() {
   return envOn('HBX_AI_CONCIERGE_ENABLED');
@@ -97,6 +107,7 @@ export async function callConciergeWriter(
     messages,
     temperature: 0.5,
     numPredict: 60,
+    numCtx: CONCIERGE_NUM_CTX,
     think: false,
     companyId: opts.companyId,
     actionKey: 'ai_realtime',
@@ -133,6 +144,7 @@ export async function callConciergeReviewer(
     format: 'json',
     temperature: 0.1,
     numPredict: 260,
+    numCtx: CONCIERGE_NUM_CTX,
     think: false,
     companyId: null,
     actionKey: 'ai_batch',
@@ -161,6 +173,7 @@ export async function callConciergeExtractor(
     format: 'json',
     temperature: 0.1,
     numPredict: 220,
+    numCtx: CONCIERGE_NUM_CTX,
     think: false,
     companyId: opts.companyId,
     actionKey: 'ai_realtime',

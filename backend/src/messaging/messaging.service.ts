@@ -10448,6 +10448,21 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           validHumanInbound: false,
         });
       }
+      // Resposta humana recuperada por sync (chip esteve fora do ar) ainda move o FUNIL:
+      // o hook de cadência nunca envia WhatsApp (só mover_status/atividade/notificar), então
+      // é seguro pra mensagem velha — o que fica proibido é o bot responder. Janela de 48h
+      // pra não reprocessar histórico antigo em re-pareamento.
+      const recoveredFunnelWindowMs = 48 * 60 * 60 * 1000;
+      const isRecentEnoughForFunnel =
+        input.timestamp instanceof Date && Date.now() - input.timestamp.getTime() <= recoveredFunnelWindowMs;
+      if (isRecentEnoughForFunnel && text && ['text', 'button', 'interactive'].includes(input.inboundType)) {
+        void this.conversations.dispatchCadenciaInbound({
+          companyId,
+          fromPhone: from,
+          conversationId: inboundConversationId || null,
+          text,
+        });
+      }
       return { matched: false, source: 'webwhats_sync_historical', botSuppressed: true };
     }
 

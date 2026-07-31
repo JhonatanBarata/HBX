@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   buildReviewMessages,
+  ConciergeReviewService,
   ownerDayKey,
   ownerHour,
   sanitizeReviewVerdict,
@@ -59,6 +60,116 @@ test('FUSO DO DONO: o dia vira à meia-noite de São Paulo, não à do UTC', () 
   const horaDoRevisor = new Date('2026-07-31T06:00:00Z');
   assert.equal(ownerDayKey(horaDoRevisor), '2026-07-31');
   assert.equal(ownerHour(horaDoRevisor), 3);
+});
+
+// ── O ciclo inteiro: lê conversa do dia, grava o achado, avisa o dono ────────
+
+function reviewFakes(verdicts: string[]) {
+  const findings: any[] = [];
+  const events: any[] = [];
+  const alerts: any[] = [];
+  let call = 0;
+  const prisma = {
+    aiConciergeDraft: {
+      findMany: async () => [
+        {
+          id: 'draft-papagaio',
+          companyId: 3,
+          transcriptJson: JSON.stringify([
+            { role: 'user', content: 'Quero distribuidoras de água em Vitória das Missões' },
+            { role: 'assistant', content: 'Vou buscar 10 distribuidoras de água...' },
+            { role: 'user', content: 'teria como pesquisar em outro estado?' },
+            { role: 'assistant', content: 'Vou buscar 10 distribuidoras de água...' },
+          ]),
+        },
+        {
+          id: 'draft-ok',
+          companyId: 3,
+          transcriptJson: JSON.stringify([
+            { role: 'user', content: '20 padarias em Recife' },
+            { role: 'assistant', content: 'Vou buscar 20 padarias em Recife — confirma?' },
+            { role: 'user', content: 'pode' },
+          ]),
+        },
+        // Conversa de 1 turno: não tem o que auditar, não pode gastar IA.
+        { id: 'draft-curto', companyId: 3, transcriptJson: JSON.stringify([{ role: 'user', content: 'oi' }]) },
+      ],
+    },
+    aiConciergeReviewFinding: {
+      findMany: async () => [],
+      create: async ({ data }: any) => { findings.push(data); return data; },
+    },
+    masterEvent: {
+      findFirst: async () => null,
+      create: async ({ data }: any) => { events.push(data); return { id: `ev-${events.length}` }; },
+    },
+  };
+  const masterAlert = { routeEvent: async (event: any) => { alerts.push(event); return { email: false, whatsapp: false, sino: true }; } };
+
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ message: { content: verdicts[Math.min(call++, verdicts.length - 1)] } }),
+  })) as any;
+
+  return {
+    findings, events, alerts,
+    service: new ConciergeReviewService(prisma as any, masterAlert as any),
+    callCount: () => call,
+    restore: () => { globalThis.fetch = originalFetch; },
+  };
+}
+
+test('CICLO NOTURNO: acha o papagaio, guarda a frase real do cliente e acende o sino do dono', async () => {
+  const prev = process.env.HBX_LLM_CLASSIFIER_ENABLED;
+  process.env.HBX_LLM_CLASSIFIER_ENABLED = 'true';
+  const fakes = reviewFakes([
+    '{"verdict":"falha","failureKind":"repetiu","evidence":"teria como pesquisar em outro estado?","suggestion":"Responder que busca em todo o Brasil e perguntar a cidade"}',
+    '{"verdict":"ok","failureKind":null,"evidence":null,"suggestion":null}',
+  ]);
+  try {
+    const result = await fakes.service.runReview('2026-07-30');
+
+    assert.equal(result.analyzed, 2, 'conversa de 1 turno não pode consumir IA');
+    assert.equal(result.failures, 1);
+    assert.equal(fakes.callCount(), 2);
+
+    // O VALOR da rotina: a frase real do cliente vira dataset.
+    const falha = fakes.findings.find((f) => f.verdict === 'falha');
+    assert.equal(falha.draftId, 'draft-papagaio');
+    assert.equal(falha.failureKind, 'repetiu');
+    assert.match(falha.evidence, /outro estado/);
+    assert.equal(falha.reviewedFor, '2026-07-30');
+    assert.ok(falha.model, 'o achado registra QUAL modelo julgou');
+
+    // E o dono fica sabendo — pelo sino, com o resumo do dia.
+    assert.equal(fakes.alerts.length, 1);
+    assert.match(fakes.alerts[0].subject, /1 de 2 conversas com falha/);
+    assert.match(fakes.alerts[0].text, /outro estado/);
+    assert.equal(fakes.alerts[0].type, 'ai.concierge_review');
+  } finally {
+    fakes.restore();
+    if (prev === undefined) delete process.env.HBX_LLM_CLASSIFIER_ENABLED;
+    else process.env.HBX_LLM_CLASSIFIER_ENABLED = prev;
+  }
+});
+
+test('CICLO NOTURNO: Ollama fora do ar não vira alarme falso nem relatório vazio', async () => {
+  const prev = process.env.HBX_LLM_CLASSIFIER_ENABLED;
+  process.env.HBX_LLM_CLASSIFIER_ENABLED = 'true';
+  const fakes = reviewFakes(['irrelevante']);
+  globalThis.fetch = (async () => { throw new Error('ECONNREFUSED'); }) as any;
+  try {
+    const result = await fakes.service.runReview('2026-07-30');
+    assert.equal(result.analyzed, 0);
+    assert.equal(fakes.findings.length, 0);
+    assert.equal(fakes.alerts.length, 0, 'sem análise não se manda relatório');
+  } finally {
+    fakes.restore();
+    if (prev === undefined) delete process.env.HBX_LLM_CLASSIFIER_ENABLED;
+    else process.env.HBX_LLM_CLASSIFIER_ENABLED = prev;
+  }
 });
 
 test('buildReviewMessages: conversa entra DELIMITADA como dado inerte e com papéis legíveis', () => {

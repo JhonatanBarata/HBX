@@ -2750,6 +2750,11 @@ export class WhatsAppModalService {
       'MESSAGES_UPSERT',
       'MESSAGES_UPDATE',
       'MESSAGES_DELETE',
+      // MESSAGES_SET = histórico sincronizado após (re)pareamento. Sem ele, tudo que o chip
+      // recebeu enquanto esteve fora do ar nunca chega ao app (caso Atacadão 30/07: chip caiu
+      // com 401 às 08:58, conversa quente inteira ficou só no celular). O reconcile de webhook
+      // detecta missingEvents e re-configura as instâncias vivas sozinho.
+      'MESSAGES_SET',
       'SEND_MESSAGE',
       'CONNECTION_UPDATE',
       'LOGOUT_INSTANCE',

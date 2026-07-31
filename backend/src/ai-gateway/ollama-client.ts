@@ -52,6 +52,17 @@ export type OllamaChatOptions = {
   format?: 'json';
   temperature: number;
   numPredict: number;
+  /**
+   * Janela de contexto (`options.num_ctx`). OMITIDO por padrão — aí o Ollama usa
+   * o que o SERVIDOR mandar (`OLLAMA_CONTEXT_LENGTH`), exatamente como antes.
+   * Quem passa vira independente dessa config: na VPS ela existe (4096), na
+   * máquina local não — e sem ela o servidor tenta abrir o contexto cheio do
+   * modelo (qwen3:4b = 262k), pede 36GB de KV cache e devolve HTTP 500
+   * (medido 31/07). Depender de env de servidor para não cair é depender da
+   * sorte. Mantenha o MESMO valor entre chamadas do mesmo modelo: num_ctx
+   * diferente força reload (OLLAMA_MAX_LOADED_MODELS=1 na VPS).
+   */
+  numCtx?: number;
   /** Sempre false nos 3 originais. Parametrizável só por precaução. */
   think?: boolean;
   /** Empresa dona da chamada — autorização `ai_realtime` do CRÉDITO UNIVERSAL. */
@@ -83,7 +94,11 @@ export async function callOllamaChat(opts: OllamaChatOptions): Promise<string> {
           stream: false,
           think: opts.think ?? false,
           ...(opts.format ? { format: opts.format } : {}),
-          options: { temperature: opts.temperature, num_predict: opts.numPredict },
+          options: {
+            temperature: opts.temperature,
+            num_predict: opts.numPredict,
+            ...(opts.numCtx ? { num_ctx: opts.numCtx } : {}),
+          },
           messages: opts.messages,
         }),
         signal: AbortSignal.timeout(timeoutMs),
