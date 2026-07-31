@@ -26,7 +26,7 @@
 import { useRouter } from "next/navigation";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import { Av, ConfirmDialog, I, ICONS, KpiRow, PhotoLightbox, WhatsAppMark, useCurrentUser, useMyModules } from "@/components/hbx/shell";
+import { Av, ConfirmDialog, I, ICONS, PhotoLightbox, WhatsAppMark, useCurrentUser, useMyModules } from "@/components/hbx/shell";
 import { decodeAudioBlob, renderVoiceWav, VOICE_MODE_LABEL, VOICE_PRESETS, VOICE_PITCH_RANGE, VOICE_FORMANT_RANGE, type DecodedAudio, type VoiceMode, type VoiceTune } from "@/lib/voice-fx";
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { ModeloAtendimentoPanel } from "@/components/hbx/modelo-atendimento-panel";
@@ -2013,79 +2013,112 @@ export function AtendimentoClient() {
     <React.Fragment>
         <div className="a-content hbx-panel-shell hbx-panel-shell--context">
           <div className="a-left hbx-panel-shell__main">
-            <KpiRow items={[
-              { icon: "msg", label: "WhatsApp", value: whatsappPillLabel(inboxWaStatus), delta: "—", onClick: () => setWaModalOpen(true), dataTut: "atend-whatsapp", title: "Conexão WhatsApp" },
-              { icon: "clock", label: "Tempo médio de resposta", value: fmtResp(metrics?.avgResponseSeconds), delta: metrics ? "7 dias" : "—" },
-              { icon: "check", label: "Não lidas", value: convs.length ? String(naoLidas.length) : "—", delta: "—" },
-              { icon: "money", label: "Conversões", value: metrics?.conversions != null ? String(metrics.conversions) : "—", delta: "—" },
-            ]} />
+            <div className="at-opsbar">
+              <div className="at-opsbar__identity">
+                <strong>Conversas</strong>
+                <span>Central operacional</span>
+              </div>
+
+              <button
+                className="at-wa-signal"
+                data-state={inboxWaStatus}
+                data-tut="atend-whatsapp"
+                onClick={() => setWaModalOpen(true)}
+                title="Conexão WhatsApp"
+              >
+                <span className="at-wa-signal__icon"><WhatsAppMark size={13} /></span>
+                <span>
+                  <small>WhatsApp</small>
+                  <strong>{whatsappPillLabel(inboxWaStatus)}</strong>
+                </span>
+              </button>
+
+              <div className="at-opsbar__metrics" aria-label="Resumo da caixa">
+                <span className="at-micro">
+                  <strong>{convs.length || "—"}</strong>
+                  <small>Abertas</small>
+                </span>
+                <span className="at-micro">
+                  <strong>{convs.length ? naoLidas.length : "—"}</strong>
+                  <small>Não lidas</small>
+                </span>
+                <span className="at-micro at-micro--response">
+                  <strong>{fmtResp(metrics?.avgResponseSeconds)}</strong>
+                  <small>Resposta</small>
+                </span>
+                <span className="at-micro at-micro--conversion">
+                  <strong>{metrics?.conversions != null ? metrics.conversions : "—"}</strong>
+                  <small>Conversões</small>
+                </span>
+              </div>
+
+              <div className="at-opsbar__controls">
+                <span ref={filaWrapRef} className="at-convs-filter">
+                  <button className="btn-ghost at-convs-control" onClick={() => { setFilaOpen(o => !o); setVendOpen(false); }} aria-expanded={filaOpen}>
+                    {FILAS.find(f => f.key === fila)?.label || "Todas as filas"} ▾
+                  </button>
+                  {filaOpen && (
+                    <div className="hbx-pop at-ops-pop at-ops-pop--left">
+                      {FILAS.map(f => (
+                        <button key={f.key || "all"} className={"nav-item at-ops-pop__item" + (f.key === fila ? " active" : "")} onClick={() => aplicarFila(f.key)}>
+                          {f.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </span>
+                {showNumberFilter && (
+                  <span ref={vendWrapRef} className="at-convs-filter">
+                    <button className="btn-ghost at-convs-control" onClick={() => { setVendOpen(o => !o); setFilaOpen(false); }} aria-expanded={vendOpen}>
+                      {chatFilterLabel} ▾
+                    </button>
+                    {vendOpen && (
+                      <div className="hbx-pop at-ops-pop at-ops-pop--left at-ops-pop--wide">
+                        <button className={"nav-item at-ops-pop__item" + (!numberFilter ? " active" : "")} onClick={() => { setNumberFilter(""); setVendOpen(false); }}>Todos os chats</button>
+                        {sessionList.map(s => (
+                          <button key={s.id} className={"nav-item at-ops-pop__item" + (numberFilter === s.id ? " active" : "")} onClick={() => { setNumberFilter(s.id); setVendOpen(false); }}>
+                            {s.sellerName || fullPhone(s.phone) || s.id}
+                          </button>
+                        ))}
+                        {chiplessUsers.map(u => (
+                          <button key={"u:" + u.userId} className={"nav-item at-ops-pop__item at-ops-pop__person" + (numberFilter === ("u:" + u.userId) ? " active" : "")} onClick={() => { setNumberFilter("u:" + u.userId); setVendOpen(false); }}>
+                            <span>{u.name}</span>
+                            <span className="conv-seller">sem chip</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </span>
+                )}
+                {souAdmin && (
+                  <button
+                    className="btn-ghost at-convs-control at-convs-control--model"
+                    data-tut="atend-modelo"
+                    onClick={() => setAtPanelOpen(true)}
+                    title="Modelo de atendimento"
+                    aria-label="Modelo de atendimento"
+                  >
+                    <I d={ICONS.users} size={13} /> <span>Modelo</span>
+                  </button>
+                )}
+                <button
+                  className="btn-ghost at-opsbar__clean"
+                  onClick={limparVazias}
+                  disabled={limparBusy}
+                  title="Apagar conversas sem nenhuma mensagem"
+                  aria-label="Limpar conversas vazias"
+                >
+                  <I d={ICONS.trash} size={14} />
+                </button>
+                <button className="btn-teal at-opsbar__new" data-tut="atend-nova" onClick={() => { setNovaOpen(true); setNovaMsg(null); }}>
+                  <I d={ICONS.plus} size={13} /> Nova conversa
+                </button>
+              </div>
+            </div>
 
             <div className={"a-shell" + (mobileThread ? " mobile-thread-open" : "")}>
               <div className="convs">
                 <div className="convs-head">
-                  <div className="row">
-                    <h2>Conversas</h2>
-                    <button className="btn-teal" style={{ minHeight: 32, fontSize: "0.7rem" }} data-tut="atend-nova" onClick={() => { setNovaOpen(true); setNovaMsg(null); }}>
-                      <I d={ICONS.plus} size={13} /> Nova
-                    </button>
-                    {/* "Limpar": apaga as conversas abertas e nunca usadas (sem mensagem
-                        alguma) — não envia nada pro WhatsApp. */}
-                    <button className="btn-teal" style={{ minHeight: 32, fontSize: "0.7rem" }} onClick={limparVazias} disabled={limparBusy} title="Apagar conversas sem nenhuma mensagem">
-                      <I d={ICONS.trash} size={13} /> {limparBusy ? "Limpando…" : "Limpar"}
-                    </button>
-                  </div>
-                  {/* Filtros irmãos: Fila + Chat (um controle por função — sem o ícone-funil que duplicava). */}
-                  <div className="row at-convs-controls">
-                    <span ref={filaWrapRef} className="at-convs-filter">
-                      <button className="btn-ghost at-convs-control" onClick={() => { setFilaOpen(o => !o); setVendOpen(false); }} aria-expanded={filaOpen}>
-                        {FILAS.find(f => f.key === fila)?.label || "Todas as filas"} ▾
-                      </button>
-                      {filaOpen && (
-                        <div className="hbx-pop" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 30, minWidth: 172, padding: 6, display: "grid", gap: 2 }}>
-                          {FILAS.map(f => (
-                            <button key={f.key || "all"} className={"nav-item" + (f.key === fila ? " active" : "")} style={{ minHeight: 32 }} onClick={() => aplicarFila(f.key)}>
-                              {f.label}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </span>
-                    {showNumberFilter && (
-                      <span ref={vendWrapRef} className="at-convs-filter">
-                        <button className="btn-ghost at-convs-control" onClick={() => { setVendOpen(o => !o); setFilaOpen(false); }} aria-expanded={vendOpen}>
-                          Chat: {chatFilterLabel} ▾
-                        </button>
-                        {vendOpen && (
-                          <div className="hbx-pop" style={{ position: "absolute", left: 0, top: "calc(100% + 6px)", zIndex: 30, minWidth: 184, padding: 6, display: "grid", gap: 2 }}>
-                            <button className={"nav-item" + (!numberFilter ? " active" : "")} style={{ minHeight: 32 }} onClick={() => { setNumberFilter(""); setVendOpen(false); }}>Todos os chats</button>
-                            {sessionList.map(s => (
-                              <button key={s.id} className={"nav-item" + (numberFilter === s.id ? " active" : "")} style={{ minHeight: 32 }} onClick={() => { setNumberFilter(s.id); setVendOpen(false); }}>
-                                {s.sellerName || fullPhone(s.phone) || s.id}
-                              </button>
-                            ))}
-                            {/* Usuários da empresa ainda sem chip conectado — entram aqui pra
-                                a lista mostrar TODO o time, não só quem já conectou. */}
-                            {chiplessUsers.map(u => (
-                              <button key={"u:" + u.userId} className={"nav-item" + (numberFilter === ("u:" + u.userId) ? " active" : "")} style={{ minHeight: 32, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }} onClick={() => { setNumberFilter("u:" + u.userId); setVendOpen(false); }}>
-                                <span>{u.name}</span>
-                                <span className="conv-seller">sem chip</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </span>
-                    )}
-                    {souAdmin && (
-                      <button
-                        className="btn-ghost at-convs-control"
-                        data-tut="atend-modelo"
-                        onClick={() => setAtPanelOpen(true)}
-                        title="Modelo de atendimento"
-                      >
-                        <I d={ICONS.users} size={12} /> Modelo
-                      </button>
-                    )}
-                  </div>
                   {/* Banner: admin + sem modelo escolhido ainda */}
                   {souAdmin && waAttendanceMode === null && (
                     <div className="at-mode-banner">
@@ -2105,13 +2138,13 @@ export function AtendimentoClient() {
                     </button>
                   ))}
                 </div>
-                <div style={{ padding: "10px 14px" }} data-tut="atend-busca">
+                <div className="at-convs-search" data-tut="atend-busca">
                   <input className="field-dark" placeholder="Buscar conversas..." value={busca} onChange={e => setBusca(e.target.value)} />
                 </div>
                 <div className="conv-list" data-tut="atend-lista">
                   {filtered.length === 0 && (
-                    <div style={{ padding: "18px 14px", display: "grid", gap: 10, justifyItems: "start" }}>
-                      <span style={{ fontSize: "0.72rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
+                    <div className="at-convs-empty">
+                      <span>
                         {loadError || (inboxWaStatus === "connected"
                           ? "Nenhuma conversa ainda — as mensagens aparecem aqui."
                           : "WhatsApp ainda não conectado. Vincule o número para receber e responder as conversas aqui.")}
@@ -2129,7 +2162,7 @@ export function AtendimentoClient() {
                     return (
                       <button key={c.id} className={"conv" + (selId === c.id ? " sel" : "")} onClick={() => openConv(c.id)}>
                         <Av name={convName(c)} src={convAvatar(c)} size={36} />
-                        <span style={{ display: "grid", minWidth: 0, flex: 1 }}>
+                        <span className="at-conv-copy">
                           <span className="nm"><strong>{convName(c)}</strong><time>{fmtConvTime(c.lastMessageAt)}</time></span>
                           <span className="pv">
                             <small>{isNovaConversa(c) ? "Mande a primeira mensagem…" : (lastMsg?.content || "—")}</small>
@@ -2145,10 +2178,10 @@ export function AtendimentoClient() {
                     );
                   })}
                 </div>
-                <div style={{ padding: "10px 14px", borderTop: "1px solid var(--border-hairline)", textAlign: "center" }}>
+                <div className="at-convs-foot">
                   {hasMore
-                    ? <span className="link" style={{ cursor: "pointer" }} onClick={carregarMais}>{moreBusy ? "Carregando…" : "Carregar mais conversas ▾"}</span>
-                    : <span style={{ fontSize: "0.72rem", color: "var(--text-muted)" }}>{convs.length > 0 ? "Sem mais conversas" : "—"}</span>}
+                    ? <button className="link at-convs-more" onClick={carregarMais}>{moreBusy ? "Carregando…" : "Carregar mais ▾"}</button>
+                    : <span>{convs.length > 0 ? "Fim da caixa" : "—"}</span>}
                 </div>
               </div>
 
@@ -2168,24 +2201,25 @@ export function AtendimentoClient() {
                   {/* Foto: abre lightbox se já tiver foto carregada; sem foto = atualiza. */}
                   {lightboxSrc && <PhotoLightbox src={lightboxSrc} name={convo ? convName(convo) : undefined} onClose={() => setLightboxSrc(null)} />}
                   <span
+                    className="at-thread-avatar"
                     onClick={() => {
                       const src = convAvatar(convo);
                       if (src) { setLightboxSrc(src); }
                       else if (convo && selId) { void refreshAvatar(selId, true); }
                     }}
                     title={convAvatar(convo) ? "Ver foto" : convo ? "Atualizar foto" : undefined}
-                    style={{ display: "inline-flex", cursor: convo ? "pointer" : "default" }}
+                    data-clickable={Boolean(convo)}
                   >
                     <Av key={convo?.id ?? "none"} name={convo ? convName(convo) : "—"} src={convAvatar(convo)} online={Boolean(presence?.online) && Boolean(convo)} size={36} />
                   </span>
-                  <div style={{ display: "grid", gap: 2 }}>
-                    <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div className="at-thread-person">
+                    <span className="at-thread-person__name">
                       <strong>{convo ? convName(convo) : "Selecione uma conversa"}</strong>
                       {convo?.botActive && <span className="on"><i></i>Bot ativo</span>}
                     </span>
                     {convo ? presenceNode() : <small>—</small>}
                   </div>
-                  <div style={{ marginLeft: "auto", display: "grid", gap: 6, justifyItems: "end" }}>
+                  <div className="at-thread-actions">
                     {/* Shared mode: info + ações de atribuição no cabeçalho */}
                     {convo && convoMode === "shared" && (
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -2423,21 +2457,19 @@ export function AtendimentoClient() {
                         onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(); } }}
                         onPaste={onComposerPaste}
                         disabled={!convo || sendBusy} />
+                      <button className={"icon-ghost" + (quickOpen ? " on" : "")}
+                        onClick={() => { const next = !quickOpen; setQuickOpen(next); setEmojiOpen(false); if (next) loadQuick(); }}
+                        disabled={!convo}
+                        title="Mensagens rápidas"
+                        aria-label="Mensagens rápidas">
+                        <I d={ICONS.bolt} size={17} />
+                      </button>
                       <button className={"icon-ghost" + (emojiOpen ? " on" : "")} onClick={() => { setEmojiOpen(o => !o); setQuickOpen(false); }} disabled={!convo} title="Emoji"><I d={ICONS.smile} size={17} /></button>
                       <button className="icon-ghost" onClick={() => fileRef.current?.click()} disabled={!convo || sendBusy} title="Anexar"><I d={ICONS.clip} size={17} /></button>
                       <button className={"icon-ghost" + (voiceMenuOpen ? " on" : "")}
                         onClick={() => { if (vcAllowed) { setVoiceMenuOpen(o => !o); setEmojiOpen(false); setQuickOpen(false); } else { void startRec(); } }}
                         disabled={!convo || sendBusy} title={vcAllowed ? "Gravar — escolher voz" : "Gravar áudio"}><I d={ICONS.mic} size={17} /></button>
                       <button className="send" onClick={send} disabled={!convo || sendBusy}><I d={ICONS.send} size={16} /></button>
-                    </div>
-                  )}
-
-                  {(!convo || canSend) && (
-                    <div>
-                      <button className={"btn-ghost" + (quickOpen ? " on" : "")} style={{ minHeight: 30, fontSize: "0.7rem" }}
-                        onClick={() => { const next = !quickOpen; setQuickOpen(next); setEmojiOpen(false); if (next) loadQuick(); }} disabled={!convo}>
-                        <I d={ICONS.bolt} size={13} /> Inserir mensagem rápida
-                      </button>
                     </div>
                   )}
 
