@@ -79,24 +79,28 @@ export function ComexClient() {
   const gpAba = useGlassPill<HTMLButtonElement>(aba);
 
   // Busca com debounce simples — sugestões de SH4 por código ou descrição.
+  // (todo setState dentro do timeout — regra react-hooks/set-state-in-effect)
   useEffect(() => {
     const termo = q.trim();
-    if (termo.length < 2) {
-      setSugestoes([]);
-      return;
-    }
     const id = ++buscaRef.current;
-    const t = setTimeout(async () => {
-      try {
-        const r = await apiFetch<{ itens: BuscaItem[] }>(`/comex/busca?q=${encodeURIComponent(termo)}`);
-        if (id === buscaRef.current) {
-          setSugestoes(r?.itens || []);
-          setAberto(true);
+    const t = setTimeout(
+      async () => {
+        if (termo.length < 2) {
+          if (id === buscaRef.current) setSugestoes([]);
+          return;
         }
-      } catch {
-        /* busca é acessório — silêncio */
-      }
-    }, 250);
+        try {
+          const r = await apiFetch<{ itens: BuscaItem[] }>(`/comex/busca?q=${encodeURIComponent(termo)}`);
+          if (id === buscaRef.current) {
+            setSugestoes(r?.itens || []);
+            setAberto(true);
+          }
+        } catch {
+          /* busca é acessório — silêncio */
+        }
+      },
+      termo.length < 2 ? 0 : 250,
+    );
     return () => clearTimeout(t);
   }, [q]);
 
@@ -118,7 +122,9 @@ export function ComexClient() {
   }, []);
 
   useEffect(() => {
-    void carregar(sh4, fluxo);
+    // adiado pro próximo tick: setCarregando não dispara síncrono no effect.
+    const t = setTimeout(() => void carregar(sh4, fluxo), 0);
+    return () => clearTimeout(t);
   }, [sh4, fluxo, carregar]);
 
   const maxFobMes = Math.max(1, ...(mercado?.serieMensal || []).map((s) => s.fobUsd || 0));

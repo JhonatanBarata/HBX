@@ -2421,6 +2421,10 @@ export class ModulesService implements OnModuleInit, OnModuleDestroy {
       // != accessible:true) — o pedido do dono é o oposto: ela "fica como
       // está" (visível, seguindo SystemModule.defaultEnabled=true).
       'conversas',
+      // COMEX (31/07): mesma situação do 'conversas' — chave fora da caixa de
+      // qualquer plano (kill-switch por empresa, defaultEnabled=true). Sem esta
+      // linha o módulo não entra no /modules/me e a sidebar nunca mostra.
+      'comex',
     ]);
     for (const row of rows) {
       knownModuleKeys.add(this.normalizeRequestedModuleKey(row.systemModule.key));

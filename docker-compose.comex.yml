@@ -1,0 +1,9 @@
+# COMEX (local/dev) — monta o Parquet do comex-motor dentro do backend.
+# O caminho /comex-motor/data/parquet é o default que ComexDataService resolve
+# a partir de /app (cwd do container) — nenhum env necessário.
+# Uso: docker compose -f docker-compose.yml -f docker-compose.comex.yml up -d backend
+# Sem este override o backend sobe normal e o /comex responde "indisponível".
+services:
+  backend:
+    volumes:
+      - ./comex-motor/data/parquet:/comex-motor/data/parquet:ro
