@@ -86,6 +86,7 @@ import {
   textoNormalizadoParaAgenda,
   validarDesiredAt,
 } from './vendas-agendamento-disparo';
+import { reservarVarianteDeAbertura } from './vendas-copy-reserva';
 // Freio anti-ban: instância local só pra LER os parâmetros (teto/régua/janela) —
 // a tela e o preparo passam a falar os MESMOS números que o envio vai cobrar.
 import { WaColdContactGateService } from '../messaging/wa-cold-contact-gate.service';
@@ -6154,6 +6155,9 @@ export class VendasService {
     // anti-ban. Descobrir hoje > descobrir amanhã quando o envio for cancelado.
     const copy = this.normalizeText(dto?.message);
     if (copy) await this.assertCopyNaoEhCarimbo(context.companyId, copy);
+    // Sem texto explícito (o caso da TELA), reserva uma variante ainda não usada.
+    // É isto que impede 10 agendamentos virarem 10 mensagens iguais amanhã.
+    const copyReservada = copy || (await this.reservarCopyDeAberturaAgendada(context.companyId));
 
     const attemptEnroll = () =>
       this.commercialContactControl.createCadenciaInscricao({
@@ -6167,6 +6171,7 @@ export class VendasService {
           status: 'ativa',
           currentStep: 0,
           startedAt: new Date(),
+          aberturaCopy: copyReservada || null,
           // Provisório: o slot definitivo é reservado logo abaixo, DENTRO do
           // mutex por empresa (é o que impede 2 agendamentos no mesmo minuto —
           // B4). Gravar o pedido aqui já faz a linha "ocupar" o horário pra
@@ -6206,7 +6211,15 @@ export class VendasService {
         try {
           await (this.prisma as any).cadenciaInscricao.updateMany({
             where: { id: row.id, companyId: context.companyId },
-            data: { status: 'ativa', currentStep: 0, nextStepAt: desiredAt, lastError: null, startedAt: new Date() },
+            data: {
+              status: 'ativa',
+              currentStep: 0,
+              nextStepAt: desiredAt,
+              lastError: null,
+              startedAt: new Date(),
+              // Religar é um disparo novo: leva texto novo, nunca o da rodada anterior.
+              aberturaCopy: copyReservada || null,
+            },
           });
         } catch (error: any) {
           throw new ConflictException(`Não foi possível religar a Automação: ${String(error?.message || error)}`);
@@ -6250,8 +6263,11 @@ export class VendasService {
     }
     const resumoAgenda = explicarSlot(reserva);
 
-    if (copy && (ligou || pediuHora)) {
-      await this.registrarCopyAgendada(context.companyId, copy, { leadId: lead.id, slot: reserva.slot });
+    // Registra o texto que ESTE disparo vai levar (explícito ou reservado): é o
+    // que faz o próximo agendamento enxergar esta copy como "já usada" e pegar
+    // outra. Sem isto, a reserva não tem memória e todo mundo pega a primeira.
+    if (copyReservada && (ligou || pediuHora)) {
+      await this.registrarCopyAgendada(context.companyId, copyReservada, { leadId: lead.id, slot: reserva.slot });
     }
 
     if (ligou) {
@@ -6335,6 +6351,60 @@ export class VendasService {
       }
     }
     return textos;
+  }
+
+  // ── VARIANTE DE ABERTURA RESERVADA (31/07/2026 — turno noturno 2) ──────────
+  // Achado N2: a régua anti-carimbo do S2 só rodava quando a chamada trazia
+  // `message` — e o popup "Agendar disparo" só manda data e hora. Resultado
+  // medido: dava pra agendar 10 disparos e todos levavam o MESMO corpo fixo do
+  // passo da cadência. Dez mensagens idênticas na manhã seguinte é exatamente a
+  // assinatura que fez a Meta remover o dispositivo em 30/07.
+  //
+  // Agora, quem agenda pela tela também escolhe um texto: a variante de 1º
+  // contato do dono mais distante do que já saiu/está agendado. Sem variante
+  // livre, o agendamento é RECUSADO com motivo legível (gere mais variações) —
+  // recusar hoje é melhor que o freio cancelar amanhã, um por um.
+  // Empresa sem copy própria mantém o comportamento antigo (corpo do passo).
+  private async reservarCopyDeAberturaAgendada(companyId: number): Promise<string | null> {
+    if (!this.coldGate.isEnabled()) return null;
+    const campaign = await (this.prisma as any).vendasAutomationCampaign
+      ?.findFirst?.({
+        where: { companyId },
+        orderBy: { updatedAt: 'desc' },
+        select: { filtersJson: true },
+      })
+      .catch(() => null);
+    const filters = this.parseFiltersJson((campaign as any)?.filtersJson);
+    const brutas = Array.isArray(filters?.firstContactVariants) ? filters.firstContactVariants : [];
+    // Variante PAUSADA carrega um caractere de controle no início (o dono
+    // desliga sem perder o texto) — o motor não pode usá-la.
+    const ativas = brutas
+      .map((v: unknown) => String(v || ''))
+      .filter((v: string) => v && v.charCodeAt(0) !== 1)
+      .map((v: string) => v.trim())
+      .filter(Boolean);
+    if (!ativas.length) return null;
+
+    const usadasNorm = await this.lerCopiasFriasRecentes(companyId, this.coldGate.similarityWindowMs());
+    const escolha = reservarVarianteDeAbertura({
+      variantes: ativas,
+      usadasNorm,
+      threshold: this.coldGate.similarityThreshold(),
+      minLen: this.coldGate.similarityMinLen(),
+    });
+    if (escolha.ok === false) throw new BadRequestException(escolha.motivo);
+    return escolha.variante;
+  }
+
+  private parseFiltersJson(raw: unknown): Record<string, any> {
+    if (!raw) return {};
+    if (typeof raw === 'object') return raw as Record<string, any>;
+    try {
+      const parsed = JSON.parse(String(raw));
+      return parsed && typeof parsed === 'object' ? (parsed as Record<string, any>) : {};
+    } catch {
+      return {};
+    }
   }
 
   private async assertCopyNaoEhCarimbo(companyId: number, texto: string) {

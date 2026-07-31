@@ -121,6 +121,20 @@ export function businessDayStartUtc(now = new Date()): Date {
   return new Date(Date.UTC(sp.getUTCFullYear(), sp.getUTCMonth(), sp.getUTCDate(), 3, 0, 0));
 }
 
+// ── Teto físico como FUNÇÃO, não só método ──────────────────────────────────
+// O motor de slots (agenda-disparo.service) precisa do MESMO número que o freio
+// usa no envio. Sem isto, a agenda reservava até o limite do tenant (40/dia)
+// enquanto o freio liberava 10 — o vendedor planejava 40 e 30 morriam no dia
+// seguinte, um cancelamento por vez. Uma pergunta, uma fonte.
+export function coldGateEnabledFromEnv(): boolean {
+  const raw = String(process.env.HBX_WA_COLD_GATE_ENABLED ?? '').trim().toLowerCase();
+  return !['0', 'false', 'off', 'no'].includes(raw);
+}
+
+export function coldGateMaxPerDayFromEnv(): number {
+  return Math.max(1, integerEnv('HBX_WA_COLD_MAX_PER_DAY', 10));
+}
+
 @Injectable()
 export class WaColdContactGateService {
   private readonly logger = new Logger(WaColdContactGateService.name);
@@ -128,12 +142,11 @@ export class WaColdContactGateService {
   constructor(private readonly prisma: PrismaLike) {}
 
   isEnabled(): boolean {
-    const raw = String(process.env.HBX_WA_COLD_GATE_ENABLED ?? '').trim().toLowerCase();
-    return !['0', 'false', 'off', 'no'].includes(raw);
+    return coldGateEnabledFromEnv();
   }
 
   maxPerDay(): number {
-    return Math.max(1, integerEnv('HBX_WA_COLD_MAX_PER_DAY', 10));
+    return coldGateMaxPerDayFromEnv();
   }
 
   minSpacingMs(): number {

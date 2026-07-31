@@ -417,6 +417,7 @@ export class CadenciaService {
       responsavelId: number | null;
       currentStep: number;
       nextStepAt: Date;
+      aberturaCopy: string | null;
     }>;
 
     let executed = 0;
@@ -694,7 +695,7 @@ export class CadenciaService {
   // `isAbertura` = este passo é a PRIMEIRA mensagem de WhatsApp da cadência (a
   // abertura). Quando é, o robô confere se um humano já abriu a conversa.
   private async executeWhatsStep(
-    insc: { id: string; companyId: number; leadId: string },
+    insc: { id: string; companyId: number; leadId: string; aberturaCopy?: string | null },
     cadencia: CadenciaRow,
     passo: CadenciaPasso,
     automationStepRunId?: string | null,
@@ -748,7 +749,14 @@ export class CadenciaService {
         return { sent: false, skipReason: 'human_opening_already_sent' };
       }
     }
-    const body = String(passo.corpo || passo.titulo || '').trim();
+    // ── TEXTO DA ABERTURA (31/07/2026) ───────────────────────────────────────
+    // O corpo do passo é IGUAL para todo mundo. Agendar 10 disparos numa noite
+    // mandava 10 mensagens idênticas na manhã seguinte — carimbo de robô, que é
+    // o que faz a Meta derrubar o dispositivo. Quem agenda agora reserva uma
+    // variante do dono ainda não usada (`aberturaCopy`); só a abertura usa esse
+    // texto, e quem não tem reserva segue com o corpo do passo, como antes.
+    const aberturaReservada = isAbertura ? String(insc.aberturaCopy || '').trim() : '';
+    const body = aberturaReservada || String(passo.corpo || passo.titulo || '').trim();
     if (!body) return { sent: false, skipReason: 'passo_sem_corpo' };
 
     // MESMO caminho do vendas-automation (queueOutboundForCompany) — disjuntor,

@@ -60,6 +60,10 @@ export type ProspLive = {
   nextAllowedSendAt?: string | null;
   cooldownActive?: boolean;
   nextEligibleLeadName?: string | null;
+  // Freio anti-ban ao vivo (mesmo payload de /vendas/automation/live-status). A
+  // linha de resumo da peça "Limite diário" prometia o número da campanha (17)
+  // enquanto o freio entregava 10 — o vendedor planejava 17 e 7 morriam no envio.
+  coldGate?: { enabled?: boolean; maxPerDay?: number; remainingToday?: number; minSpacingMinutes?: number } | null;
   // fila de contatos agendados/pendentes (buildLiveStatus) — usado pelo pop-up de aviso
   // pra detectar "fila vazia" sem reimplementar a soma de todayPending+overdue+future.
   pendingJobs?: number;
@@ -292,8 +296,15 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
         return `a cada ~${numVal("intervalMinutes")} min · variação ${numVal("intervalVarianceMinutes")} min`;
       case "digitacao":
         return `${numVal("typingSeconds")}s digitando · variação ${numVal("typingVarianceSeconds")}s`;
-      case "limite":
-        return `até ${numVal("dailyLimit")}/dia · teto ${ABSOLUTE_DAILY_SEND_CAP} · ${numVal("maxAttemptsPerLead")} tentativa(s)/lead`;
+      case "limite": {
+        // O resumo diz o que REALMENTE sai: com o freio ligado, o teto é o menor
+        // entre a config do dono e o que o freio libera (10/dia hoje).
+        const freio = live?.coldGate?.enabled ? Number(live.coldGate?.maxPerDay) : NaN;
+        const pedido = numVal("dailyLimit");
+        const efetivo = Number.isFinite(freio) ? Math.min(pedido, freio) : pedido;
+        const teto = Number.isFinite(freio) ? `freio ${freio}` : `teto ${ABSOLUTE_DAILY_SEND_CAP}`;
+        return `até ${efetivo}/dia · ${teto} · ${numVal("maxAttemptsPerLead")} tentativa(s)/lead`;
+      }
       case "alvo":
         return `${strVal("workingHoursStart")}–${strVal("workingHoursEnd")} · estoque ${numVal("minLeadBuffer")}–${numVal("desiredLeadBuffer")}`;
       case "mensagens": {
@@ -311,7 +322,7 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
       default:
         return "";
     }
-  }, [numVal, strVal, listVal]);
+  }, [numVal, strVal, listVal, live]);
 
   return {
     live, loadErr, campaign, draft, dirty, busy, saveMsg, canSave,

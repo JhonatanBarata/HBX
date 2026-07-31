@@ -4603,6 +4603,12 @@ model CadenciaInscricao {
   nextStepAt   DateTime // quando o proximo passo fica devido
   lastStepAt   DateTime?
   lastError    String?
+  // TEXTO DA ABERTURA RESERVADO NO AGENDAMENTO (31/07/2026). Antes, todo disparo
+  // agendado mandava o `corpo` FIXO do passo da cadência: 10 agendamentos = 10
+  // mensagens idênticas no dia seguinte = carimbo (o que mata chip). Agora, quem
+  // agenda escolhe UMA variante ainda não usada e ela fica presa aqui — o runner
+  // manda ESTE texto na abertura. NULL = comportamento antigo (corpo do passo).
+  aberturaCopy String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

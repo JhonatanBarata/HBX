@@ -212,6 +212,19 @@
   color: var(--text-body);
 }
 .bot-prosp-sum__note svg { flex: 0 0 auto; margin-top: 1px; color: var(--hbx-warning); }
+/* texto do aviso como item flex: pode encolher sem estourar a caixa */
+.bot-prosp-sum__note > span { min-width: 0; }
+
+/* Freio do disparo frio (30/07): quando a configuração pede mais do que o gate
+ * anti-banimento libera no dia, a diferença aparece — o vendedor deixa de planejar
+ * em cima de um número que não sai. Mesmo tom do .bot-prosp-sum__cooldown. */
+.bot-prosp-sum__freio {
+  margin: 0;
+  font-size: 0.62rem;
+  line-height: 1.4;
+  font-weight: 700;
+  color: var(--hbx-warning);
+}
 
 .bot-prosp-controls { display: flex; gap: 8px; flex-wrap: wrap; }
 .bot-prosp-controls .btn-ghost { flex: 1; min-width: 110px; justify-content: center; }
@@ -333,6 +346,15 @@
 .bot-prosp-ramp__list { margin: 0; padding-left: 18px; display: grid; gap: 2px; }
 .bot-prosp-ramp__list li { font-size: 0.66rem; line-height: 1.4; color: var(--text-muted); }
 .bot-prosp-ramp__list strong { color: var(--text-strong); }
+/* a rampa é por HORA; o freio anti-ban é por DIA e por espaçamento — o menor vence */
+.bot-prosp-ramp__freio {
+  display: block;
+  margin-top: 6px;
+  font-size: 0.66rem;
+  line-height: 1.4;
+  font-weight: 700;
+  color: var(--hbx-warning);
+}
 
 /* ---- toggle (mensagem de aquecimento) ---- */
 .bot-prosp-toggle-row {

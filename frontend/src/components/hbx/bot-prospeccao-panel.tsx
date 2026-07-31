@@ -18,6 +18,10 @@ import { BotAvisoModal } from "@/components/hbx/bot-aviso-modal";
 import { ProspPieceBody, aquecerIaProspeccao, type ProspFieldHelpers } from "@/components/hbx/bot-prosp-fields";
 import type { VarDef } from "@/components/hbx/bot-variables-drawer";
 import { BotProspeccaoSandbox } from "@/components/hbx/bot-prospeccao-sandbox";
+// Só o TIPO do payload com o freio anti-ban (`coldGate`) — o mesmo GET
+// /vendas/automation/live-status que esta tela já carrega. `import type` some no
+// build (não puxa o componente do painel pra cá).
+import type { DisparoLive } from "@/components/hbx/disparo-panel";
 import { apiFetch } from "@/lib/api";
 import { deriveBotAlert, type BotAlertKind } from "@/lib/bot-alert";
 import { useHbxShell } from "@/lib/hbx-shell";
@@ -80,10 +84,28 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
     if (prevKind !== currentAlertKind) setDismissedAlertKind(null);
   }, [currentAlertKind]);
 
+  // ── TETO EFETIVO DO DIA (30/07) ─────────────────────────────────────────────
+  // POR QUE: a tela mostrava o limite da CAMPANHA (ex.: 17/dia) enquanto o freio
+  // anti-banimento (cold gate) só deixa sair 10 primeiros contatos por dia. O
+  // vendedor planejava 17 disparos e 7 morriam na hora de enviar, no dia seguinte.
+  // Agora o número na tela é o MENOR entre o que a campanha pede e o que o freio
+  // libera. Os dados vêm do MESMO GET /vendas/automation/live-status (nenhum
+  // endpoint novo); sem freio no payload, ou com ele desligado, nada muda.
+  const coldGate = (live as DisparoLive | null)?.coldGate ?? null;
+  const freio = coldGate?.enabled && Number.isFinite(coldGate.maxPerDay) ? coldGate : null;
+  const limitePedido = cfg.numVal("dailyLimit");           // o que o dono configurou (cru)
+  const limiteCampanha = live?.dailyLimit ?? limitePedido; // capacidade da campanha (horário/ritmo)
+  const restamCampanha = live?.remainingToday ?? 0;
+  const tetoEfetivo = freio ? Math.min(limiteCampanha, freio.maxPerDay) : limiteCampanha;
+  const restamEfetivo = freio ? Math.min(restamCampanha, freio.remainingToday) : restamCampanha;
+  // Pediu mais do que o freio deixa sair? Mostra a diferença em vez de esconder o corte.
+  const freioApertou = Boolean(freio) && limitePedido > tetoEfetivo;
+
   const helpers: ProspFieldHelpers = {
     numVal: cfg.numVal, boolVal: cfg.boolVal, strVal: cfg.strVal, listVal: cfg.listVal,
     setField: cfg.setField, setNum: cfg.setNum,
     variableCatalog,
+    coldGate: freio,
   };
 
   async function handleSalvar() {
@@ -145,8 +167,6 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
   const statusKey = live?.status || "parado";
   const statusLabel = STATUS_LABEL[statusKey] || statusKey;
   const sentToday = live?.sentToday ?? 0;
-  const remainingToday = live?.remainingToday ?? 0;
-  const liveDaily = live?.dailyLimit ?? cfg.numVal("dailyLimit");
   const nextWhen = fmtWhen(live?.nextScheduledAt);
   const campaignStatus = campaign?.status;
 
@@ -229,14 +249,20 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
                 <span className="bot-prosp-stat__label">enviadas hoje</span>
               </div>
               <div className="bot-prosp-stat">
-                <span className="bot-prosp-stat__num">{remainingToday}</span>
+                <span className="bot-prosp-stat__num">{restamEfetivo}</span>
                 <span className="bot-prosp-stat__label">restam hoje</span>
               </div>
               <div className="bot-prosp-stat">
-                <span className="bot-prosp-stat__num">{liveDaily}</span>
+                <span className="bot-prosp-stat__num">{tetoEfetivo}</span>
                 <span className="bot-prosp-stat__label">limite/dia</span>
               </div>
             </div>
+
+            {freioApertou && (
+              <p className="bot-prosp-sum__freio">
+                Sua configuração pede {limitePedido}/dia; o freio libera {tetoEfetivo}.
+              </p>
+            )}
 
             <div className="bot-prosp-sum__rows">
               <div className="bot-prosp-sum__row">
@@ -252,7 +278,18 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
             </div>
 
             <div className="bot-prosp-sum__note">
-              <I d={ICONS.bell} size={12} /> Teto fixo de {ABSOLUTE_DAILY_SEND_CAP}/dia. Nos primeiros dias a rampa de aquecimento limita ainda mais — é o que protege o número.
+              <I d={ICONS.bell} size={12} />
+              {freio ? (
+                <span>
+                  Hoje saem no máximo <strong>{freio.maxPerDay} primeiros contatos</strong>
+                  {freio.minSpacingMinutes > 0 ? `, com ${freio.minSpacingMinutes} min entre um e outro` : ""} — é o freio que protege o número.
+                  {" "}O limite maior da campanha só vale quando o freio permitir.
+                </span>
+              ) : (
+                <span>
+                  Teto fixo de {ABSOLUTE_DAILY_SEND_CAP}/dia. Nos primeiros dias a rampa de aquecimento limita ainda mais — é o que protege o número.
+                </span>
+              )}
             </div>
 
             <div className="bot-prosp-controls">

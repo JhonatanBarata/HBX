@@ -59,6 +59,11 @@ export type ProspFieldHelpers = {
   setField: <K extends keyof ProspCfg>(k: K, v: ProspCfg[K]) => void;
   setNum: (k: keyof ProspCfg, raw: string, min: number, max: number) => void;
   variableCatalog?: VarDef[];
+  // Freio anti-banimento AO VIVO (cold gate do live-status), já filtrado por quem
+  // monta os helpers: vem preenchido só quando está LIGADO, senão null/ausente.
+  // Existe porque a peça "Limite diário" prometia o teto do motor (80) enquanto o
+  // freio soltava 10 — o vendedor planejava em cima de um número que não sai.
+  coldGate?: { enabled: boolean; maxPerDay: number; minSpacingMinutes: number } | null;
 };
 
 // ── Corpo da peça (os controles) — o switch que estava na gaveta ──
@@ -85,13 +90,26 @@ export function ProspPieceBody({ piece, h }: { piece: PieceKey; h: ProspFieldHel
   }
 
   if (piece === "limite") {
+    // Mesma verdade dos tiles do resumo: com o freio ligado, quem manda no dia é
+    // ele — não o teto do motor. O campo continua aceitando o número maior (o
+    // freio é ao vivo e pode mudar), mas a tela para de prometer o que não sai.
+    const freio = h.coldGate?.enabled ? h.coldGate : null;
     return (
       <>
         <div className="bot-prosp-warn" role="note">
           <strong className="bot-prosp-warn__title"><I d={ICONS.bell} size={13} /> Isto protege o número</strong>
           <p className="bot-prosp-warn__msg">
             Estourar o volume de disparo frio <strong>pode BANIR o WhatsApp</strong> — e número banido não tem como desfazer.
-            O motor nunca passa de <strong>{ABSOLUTE_DAILY_SEND_CAP} mensagens por dia</strong>, mesmo que você peça mais.
+            {freio ? (
+              <>
+                {" "}Hoje o freio deixa sair no máximo <strong>{freio.maxPerDay} primeiros contatos por dia</strong>
+                {freio.minSpacingMinutes > 0 ? `, um a cada ${freio.minSpacingMinutes} min` : ""}. Pedir mais aqui não faz sair mais — o resto fica pro dia seguinte.
+              </>
+            ) : (
+              <>
+                {" "}O motor nunca passa de <strong>{ABSOLUTE_DAILY_SEND_CAP} mensagens por dia</strong>, mesmo que você peça mais.
+              </>
+            )}
           </p>
           <div className="bot-prosp-ramp">
             <span className="bot-prosp-ramp__title">Rampa de aquecimento (envios por hora):</span>
@@ -102,9 +120,23 @@ export function ProspPieceBody({ piece, h }: { piece: PieceKey; h: ProspFieldHel
               <li>a partir do 14º dia: <strong>20/h</strong></li>
               <li>depois disso, sobe gradualmente até o seu limite</li>
             </ul>
+            {freio && freio.minSpacingMinutes > 0 && (
+              <span className="bot-prosp-ramp__freio">
+                Enquanto o freio estiver ligado, vale o menor dos dois: sai 1 a cada {freio.minSpacingMinutes} min.
+              </span>
+            )}
           </div>
         </div>
-        <NumberField label="Limite diário (mensagens/dia)" hint={`Teto de envios por dia. Valor efetivo considera seu horário e ritmo; o motor nunca passa de ${ABSOLUTE_DAILY_SEND_CAP}.`} value={numVal("dailyLimit")} min={1} max={ABSOLUTE_DAILY_SEND_CAP} onChange={v => setNum("dailyLimit", v, 1, ABSOLUTE_DAILY_SEND_CAP)} />
+        <NumberField
+          label="Limite diário (mensagens/dia)"
+          hint={freio
+            ? `Hoje o freio libera ${freio.maxPerDay}/dia. O que passar disso fica na fila pro dia seguinte.`
+            : `Teto de envios por dia. Valor efetivo considera seu horário e ritmo; o motor nunca passa de ${ABSOLUTE_DAILY_SEND_CAP}.`}
+          value={numVal("dailyLimit")}
+          min={1}
+          max={ABSOLUTE_DAILY_SEND_CAP}
+          onChange={v => setNum("dailyLimit", v, 1, ABSOLUTE_DAILY_SEND_CAP)}
+        />
         <NumberField label="Tentativas por lead" hint="Quantas vezes o motor tenta o mesmo contato antes de arquivar (1 a 3)." value={numVal("maxAttemptsPerLead")} min={1} max={3} onChange={v => setNum("maxAttemptsPerLead", v, 1, 3)} />
       </>
     );

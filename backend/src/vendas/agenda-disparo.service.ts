@@ -32,6 +32,8 @@ import {
   parseTimeOnDate,
   type BusinessWindow,
 } from './business-hours.util';
+import { coldGateEnabledFromEnv, coldGateMaxPerDayFromEnv } from '../messaging/wa-cold-contact-gate.service';
+import { jitterHumanoMinutos } from './vendas-copy-reserva';
 
 const DEFAULT_WORKING_HOURS_START = '08:00';
 const DEFAULT_WORKING_HOURS_END = '18:00';
@@ -148,6 +150,38 @@ export class AgendaDisparoService {
     return run;
   }
 
+  // ── TETO EFETIVO (31/07/2026, turno noturno 2) ────────────────────────────
+  // Achado N1: este motor reservava horário até o limite do TENANT (40/dia)
+  // enquanto o freio anti-ban entregava 10 — a agenda aceitava 40 disparos pra
+  // amanhã sabendo que 30 iam ser cancelados no envio, um por um. O teto que
+  // vale aqui é o MENOR entre "o que o dono pediu" e "o que o freio deixa sair".
+  // Sem env de freio (ou com ele desligado), nada muda.
+  private comTetoEfetivo(config: VendasComercialConfigDto): VendasComercialConfigDto {
+    if (!coldGateEnabledFromEnv()) return config;
+    const fisico = coldGateMaxPerDayFromEnv();
+    if (!Number.isFinite(fisico) || fisico >= config.dailyLimitPerSender) return config;
+    return { ...config, dailyLimitPerSender: fisico };
+  }
+
+  // Tira o disparo do "minuto redondo" SEM nunca encurtar a distância pro
+  // vizinho: só adia, e desiste do deslocamento se ele quebrar o intervalo
+  // mínimo ou sair da janela. Dez disparos em 08:00/08:15/08:30 têm cara de
+  // máquina; 08:03/08:19/08:32 têm cara de gente.
+  private aplicarJitterHumano(
+    slot: Date,
+    occupied: Date[],
+    config: VendasComercialConfigDto,
+    chave: string,
+  ): Date {
+    const minutos = jitterHumanoMinutos(chave);
+    if (!minutos) return slot;
+    const candidato = new Date(slot.getTime() + minutos * 60000);
+    if (moveIntoWorkingWindow(candidato, config).getTime() !== candidato.getTime()) return slot;
+    const intervalMs = Math.max(1, config.intervalMinutes) * 60000;
+    const colide = occupied.some((t) => Math.abs(t.getTime() - candidato.getTime()) < intervalMs);
+    return colide ? slot : candidato;
+  }
+
   async getConfig(companyId: number): Promise<VendasComercialConfigDto> {
     const row = await (this.prisma as any).vendasComercialConfig?.findUnique?.({ where: { companyId } }).catch(() => null);
     return {
@@ -237,9 +271,12 @@ export class AgendaDisparoService {
     const now = opts?.now ?? new Date();
     const desired = opts?.desiredAt ?? now;
     const config = await this.getConfig(companyId);
+    const efetiva = this.comTetoEfetivo(config);
     const occupied = await this.loadOccupiedTimes(companyId, desired, opts?.excludeInscricaoId ?? null);
-    const result = findNextFreeSlot(desired, config, occupied, now);
-    return { ...result, config };
+    const result = findNextFreeSlot(desired, efetiva, occupied, now);
+    // Devolve a config EFETIVA (não a crua): quem lê o preview tem que ver o
+    // mesmo teto que a reserva vai obedecer.
+    return { ...result, config: efetiva };
   }
 
   // Reserva o próximo slot livre PARA uma inscrição de cadência (grava nextStepAt na
@@ -254,14 +291,20 @@ export class AgendaDisparoService {
   }): Promise<ReservaResult> {
     return this.runExclusive(`slot:${params.companyId}`, async () => {
       const now = params.now ?? new Date();
-      const config = await this.getConfig(params.companyId);
+      const config = this.comTetoEfetivo(await this.getConfig(params.companyId));
       const occupied = await this.loadOccupiedTimes(params.companyId, params.desiredAt, params.inscricaoId);
       const result = findNextFreeSlot(params.desiredAt, config, occupied, now);
+      const slot = this.aplicarJitterHumano(
+        result.slot,
+        occupied,
+        config,
+        `${params.inscricaoId}|${result.slot.toISOString()}`,
+      );
       const updated = await (this.prisma as any).cadenciaInscricao.updateMany({
         where: { id: params.inscricaoId, status: 'ativa' },
-        data: { nextStepAt: result.slot, ...(params.extraData || {}) },
+        data: { nextStepAt: slot, ...(params.extraData || {}) },
       });
-      return { ...result, updatedCount: Number(updated?.count || 0) };
+      return { ...result, slot, updatedCount: Number(updated?.count || 0) };
     });
   }
 
