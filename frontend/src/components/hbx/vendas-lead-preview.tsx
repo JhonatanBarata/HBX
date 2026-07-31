@@ -13,15 +13,15 @@ import { vendasCanais } from "@/lib/vendas-channels";
 import { buildWaLink } from "@/lib/wa-link";
 
 const ETAPAS: Record<string, string> = {
-  novo: "Planejar",
-  contato: "Robô trabalhando",
-  retorno: "Te chamou",
-  qualificado: "Negociação",
+  novo: "Sem contato",
+  contato: "Contato feito",
+  retorno: "Respondeu",
+  qualificado: "Ligação marcada",
   encerrado: "Fechado",
 };
 
 function etapaLabel(status: string | null | undefined): string {
-  return ETAPAS[String(status || "").toLowerCase()] || "Planejar";
+  return ETAPAS[String(status || "").toLowerCase()] || "Sem contato";
 }
 
 function linkExterno(value: string | null | undefined): string | null {

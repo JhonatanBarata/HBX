@@ -32,6 +32,13 @@ test('classifyRoboReplyHeat: duvida neutra nao e quente', () => {
   assert.equal(result.quente, false);
 });
 
+test('classifyRoboReplyHeat: "como que funciona" e duvida de produto (what_is_it)', () => {
+  // Cena Atacadão 30/07: pergunta de produto sem palavra "quente" — não é quente
+  // pro robô, mas o contato manual usa o kind pra acender "sua vez".
+  const result = classifyRoboReplyHeat('como que funciona ?');
+  assert.equal(result.intent.kind, 'what_is_it');
+});
+
 test('classifyRoboReplyHeat: texto vazio nao e quente', () => {
   const result = classifyRoboReplyHeat('');
   assert.equal(result.quente, false);

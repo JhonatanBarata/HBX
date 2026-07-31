@@ -2299,3 +2299,16 @@ test('buildPublicAssetUrl signs inbox media paths for the motor fallback', () =>
     else process.env.PUBLIC_API_BASE_URL = previousBase;
   }
 });
+
+// ---------------------------------------------------------------- JID com sufixo de aparelho
+// Baileys entrega "724...:1@lid" / "5511...:12@s.whatsapp.net" — sem normalizar, o mesmo
+// contato virava conversa duplicada SEM lead (caso Atacadão 30/07: conversa vazia ":1@lid").
+test('stripJidDeviceSuffix: tira o sufixo de aparelho de @lid e @s.whatsapp.net', () => {
+  const service = Object.create(WebwhatsBridgeService.prototype) as any;
+  assert.equal(service.stripJidDeviceSuffix('72481901699271:1@lid'), '72481901699271@lid');
+  assert.equal(service.stripJidDeviceSuffix('5519989431379:12@s.whatsapp.net'), '5519989431379@s.whatsapp.net');
+  assert.equal(service.stripJidDeviceSuffix('5519989431379@s.whatsapp.net'), '5519989431379@s.whatsapp.net');
+  assert.equal(service.stripJidDeviceSuffix('123456@g.us'), '123456@g.us');
+  assert.equal(service.stripJidDeviceSuffix('  '), null);
+  assert.equal(service.stripJidDeviceSuffix(null), null);
+});

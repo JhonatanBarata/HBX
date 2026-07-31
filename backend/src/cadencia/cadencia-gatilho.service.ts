@@ -6,6 +6,8 @@ import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
 import { resolveVendasAccessContext, type VendasAccessContext } from '../team/team-access-runtime';
 import { EventRuleService, type EventRuleRow } from '../automation/event-rule.service';
 import { classifyRoboReplyHeat } from '../vendas/vendas-robo-heat';
+import { classifyProspectingAutoReply } from '../vendas/prospecting-safety';
+import { VendasContactSuppressionService } from '../vendas/vendas-contact-suppression.service';
 import { getBusinessDateParts } from '../vendas/business-hours.util';
 import type { CreateGatilhoDto, UpdateGatilhoDto } from './dto/cadencia.dto';
 
@@ -71,10 +73,20 @@ export type CadenciaInboundEvent = {
   text?: string | null;
 };
 
+type LeadMatch = {
+  id: string;
+  assignedUserId: number | null;
+  status: string;
+  phone: string | null;
+  phoneNormalized: string | null;
+  email: string | null;
+};
+
 @Injectable()
 export class CadenciaGatilhoService implements OnModuleInit {
   private readonly logger = new Logger(CadenciaGatilhoService.name);
   private readonly eventRules: EventRuleService;
+  private readonly contactSuppression: VendasContactSuppressionService;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -86,6 +98,7 @@ export class CadenciaGatilhoService implements OnModuleInit {
     // comentário S08 no topo do arquivo e no próprio event-rule.service.ts:
     // evita ciclo de módulo (AutomationModule já importa CadenciaModule).
     this.eventRules = new EventRuleService(this.prisma);
+    this.contactSuppression = new VendasContactSuppressionService(this.prisma);
   }
 
   onModuleInit() {
@@ -290,7 +303,7 @@ export class CadenciaGatilhoService implements OnModuleInit {
   // ================================================================
   private async maybeHandleRoboHotReply(
     companyId: number,
-    lead: { id: string; assignedUserId: number | null; status: string },
+    lead: LeadMatch,
     evt: CadenciaInboundEvent,
   ): Promise<void> {
     const text = String(evt?.text || '').trim();
@@ -318,20 +331,19 @@ export class CadenciaGatilhoService implements OnModuleInit {
     }
 
     const heat = classifyRoboReplyHeat(text);
+    // Negativa não fica no limbo: fecha com motivo + marquinha (dono, 31/07 —
+    // "negativa vai já pro lugar certo"). Mesmo destino do fluxo de campanha.
+    if (heat.intent.kind === 'negative' || heat.intent.kind === 'opt_out') {
+      await this.closeLeadAsLostFromReply(companyId, lead, evt, text, heat.intent.kind === 'opt_out');
+      return;
+    }
     if (!heat.quente) return;
 
     // Não regride etapa já avançada por humano — só surfaceia o contexto.
     const willMoveToRetorno = !['qualificado', 'encerrado'].includes(lead.status) && lead.status !== 'retorno';
 
-    const cadencia = recentlyPaused.cadenciaId
-      ? await (this.prisma as any).cadencia
-          .findUnique({ where: { id: recentlyPaused.cadenciaId }, select: { nome: true } })
-          .catch(() => null)
-      : null;
-    const toques = Math.max(0, Math.trunc(Number(recentlyPaused.currentStep || 0)));
     const excerpt = text.length > 200 ? `${text.slice(0, 200)}…` : text;
     const now = new Date();
-    const prazo = new Date(now.getTime() + 2 * 60 * 60 * 1000); // sugestão: retornar em até 2h
 
     // Idempotência: se este MESMO evento (mesma inscrição pausada) já foi tratado,
     // o create abaixo bate no @@unique([leadId, idempotencyKey]) — P2002 = já feito,
@@ -341,8 +353,8 @@ export class CadenciaGatilhoService implements OnModuleInit {
         data: {
           leadId: lead.id,
           eventType: 'robo_te_chamou',
-          title: 'Te chamou — robô identificou interesse',
-          description: `Respondeu: "${excerpt}". Automação (${cadencia?.nome || 'cadência'}) já tinha enviado ${toques} toque(s). ${heat.motivo} Sugestão: retornar até ${prazo.toLocaleString('pt-BR')}.`,
+          title: 'Respondeu — sua vez',
+          description: `"${excerpt}"`,
           sourceType: 'automacao',
           statusFrom: lead.status,
           statusTo: willMoveToRetorno ? 'retorno' : lead.status,
@@ -365,7 +377,7 @@ export class CadenciaGatilhoService implements OnModuleInit {
     await this.atividades.createFromAutomation({
       leadId: lead.id,
       companyId,
-      titulo: `Te chamou: retornar contato${cadencia?.nome ? ` (${cadencia.nome})` : ''}`.slice(0, 160),
+      titulo: 'Retornar contato',
       vencimento: now,
       tipo: 'mensagem',
       responsavelId: lead.assignedUserId,
@@ -374,24 +386,23 @@ export class CadenciaGatilhoService implements OnModuleInit {
   }
 
   // ================================================================
-  // "Te chamou" do CONTATO MANUAL (item 3 dia-de-vendedor, 30/07): a conversa
-  // nasceu de um disparo À MÃO pelo /vendas (Copiloto/cockpit — o envio grava o
-  // link canônico `CompanyConversation.vendasLeadId`) e o lead respondeu. Aqui
-  // NÃO existe robô pra continuar a conversa (o classificador só roda dentro de
-  // campanha), então SEM gate de calor DE PROPÓSITO: qualquer resposta humana é
-  // "sua vez" — até um "não tenho interesse" precisa aparecer pro vendedor
-  // decidir, senão morre no vácuo (cena real Tagliágua: "como que funciona ?" e
-  // o card parado em Planejar com "Te chamou" em 0).
+  // Resposta a CONTATO MANUAL do /vendas (conversa com `vendasLeadId` linkado).
+  // Roteamento por classificação (dono, 31/07 — "positiva acende, negativa vai
+  // já pro lugar certo"):
+  //   negativa/opt-out  -> encerrado + motivo + marquinha de supressão
+  //   quente/dúvida/pergunta -> 'retorno' ("sua vez") + atividade
+  //   neutra            -> só timeline (visível, sem mover o card)
+  // Pergunta = texto com "?" que não é resposta automática de empresa
+  // (cena real: "como que funciona ?" tem que acender).
   // ================================================================
   private async maybeHandleManualVendasReply(
     companyId: number,
-    lead: { id: string; assignedUserId: number | null; status: string },
+    lead: LeadMatch,
     evt: CadenciaInboundEvent,
     text: string,
   ): Promise<void> {
     const conversationId = Number(evt?.conversationId || 0);
     if (!conversationId) return;
-    // Não regride etapa avançada nem re-acende o que já está aceso.
     if (['qualificado', 'encerrado', 'retorno'].includes(String(lead.status || ''))) return;
     if (typeof (this.prisma as any).companyConversation?.findFirst !== 'function') return;
     const linked = await (this.prisma as any).companyConversation.findFirst({
@@ -399,6 +410,16 @@ export class CadenciaGatilhoService implements OnModuleInit {
       select: { id: true },
     });
     if (!linked) return; // conversa não é do /vendas (ou é de outro lead) — nada a fazer
+
+    const heat = classifyRoboReplyHeat(text);
+    if (heat.intent.kind === 'negative' || heat.intent.kind === 'opt_out') {
+      await this.closeLeadAsLostFromReply(companyId, lead, evt, text, heat.intent.kind === 'opt_out');
+      return;
+    }
+
+    const isAutoReply = classifyProspectingAutoReply(text) !== null;
+    const isQuestion = !isAutoReply && text.includes('?');
+    const acende = heat.quente || heat.intent.kind === 'what_is_it' || isQuestion;
 
     const excerpt = text.length > 200 ? `${text.slice(0, 200)}…` : text;
     const now = new Date();
@@ -413,12 +434,12 @@ export class CadenciaGatilhoService implements OnModuleInit {
         data: {
           leadId: lead.id,
           eventType: 'robo_te_chamou',
-          title: 'Te chamou — respondeu seu contato',
-          description: `Respondeu: "${excerpt}". Contato feito manualmente pelo Vendas — sem robô nesta conversa, o retorno é seu.`,
+          title: acende ? 'Respondeu — sua vez' : 'Respondeu',
+          description: `"${excerpt}"`,
           sourceType: 'vendas',
           statusFrom: lead.status,
-          statusTo: 'retorno',
-          resultLabel: 'te_chamou',
+          statusTo: acende ? 'retorno' : lead.status,
+          resultLabel: acende ? 'te_chamou' : 'respondeu',
           idempotencyKey: `manual-te-chamou:${conversationId}:${diaKey}`,
         },
       });
@@ -426,6 +447,8 @@ export class CadenciaGatilhoService implements OnModuleInit {
       if (String(error?.code || '') === 'P2002') return; // já tratado hoje
       throw error;
     }
+
+    if (!acende) return; // neutra: fica visível na timeline, card não move
 
     await this.prisma.vendasLead.updateMany({
       where: { id: lead.id, companyId, status: { in: ['novo', 'contato'] } },
@@ -435,12 +458,68 @@ export class CadenciaGatilhoService implements OnModuleInit {
     await this.atividades.createFromAutomation({
       leadId: lead.id,
       companyId,
-      titulo: 'Te chamou: responder a conversa',
+      titulo: 'Responder a conversa',
       vencimento: now,
       tipo: 'mensagem',
       responsavelId: lead.assignedUserId,
       origin: 'automacao',
     });
+  }
+
+  // ================================================================
+  // Resposta negativa -> destino final, sem parar na fila quente: lead encerra
+  // com motivo estruturado e o CONTATO ganha a marquinha global (opt-out
+  // permanente; sem interesse ~12 meses — mesma dosagem do fluxo de campanha,
+  // markVendasAutomationNegative). Idempotente: updateMany só pega lead aberto.
+  // Nada aqui envia WhatsApp.
+  // ================================================================
+  private async closeLeadAsLostFromReply(
+    companyId: number,
+    lead: LeadMatch,
+    evt: CadenciaInboundEvent,
+    text: string,
+    optOut: boolean,
+  ): Promise<void> {
+    if (String(lead.status || '') === 'encerrado') return;
+    const now = new Date();
+    const excerpt = text.length > 200 ? `${text.slice(0, 200)}…` : text;
+
+    const moved = await this.prisma.vendasLead.updateMany({
+      where: { id: lead.id, companyId, status: { not: 'encerrado' } },
+      data: {
+        status: 'encerrado',
+        outcome: optOut ? 'opt_out' : 'no_interest',
+        wasClosedBefore: true,
+        closedAt: now,
+        lastResult: optOut ? 'Opt-out' : 'Sem interesse',
+        closureReason: 'sem_interesse',
+      },
+    });
+    if (Number(moved?.count || 0) !== 1) return; // outro caminho já fechou
+
+    await this.prisma.vendasLeadTimelineEvent
+      .create({
+        data: {
+          leadId: lead.id,
+          eventType: 'lead_closed',
+          title: optOut ? 'Pediu pra não chamar' : 'Sem interesse',
+          description: `"${excerpt}"`,
+          sourceType: 'vendas',
+          statusFrom: lead.status,
+          statusTo: 'encerrado',
+          resultLabel: optOut ? 'Opt-out' : 'Sem interesse',
+          idempotencyKey: `reply-negativa:${lead.id}`,
+        },
+      })
+      .catch((error: any) => {
+        if (String(error?.code || '') !== 'P2002') throw error;
+      });
+
+    await this.contactSuppression.mark(
+      { phone: lead.phoneNormalized || lead.phone || evt?.fromPhone || null, email: lead.email || null },
+      optOut ? 'opt_out' : 'sem_interesse',
+      { companyId, leadId: lead.id },
+    );
   }
 
   // Handler registrado no EventRuleService para 'lead_respondeu_whatsapp'
@@ -487,15 +566,15 @@ export class CadenciaGatilhoService implements OnModuleInit {
       .catch(() => null);
   }
 
-  private async matchLeadByPhone(companyId: number, digits: string) {
+  private async matchLeadByPhone(companyId: number, digits: string): Promise<LeadMatch | null> {
     // Tenta match exato do normalizado; se nao, sufixo dos ultimos 8 digitos.
     const tail = digits.slice(-8);
     const rows = (await this.prisma.vendasLead.findMany({
       where: { companyId, OR: [{ phoneNormalized: digits }, { phoneNormalized: { endsWith: tail } }, { phone: { endsWith: tail } }] },
-      select: { id: true, assignedUserId: true, status: true },
+      select: { id: true, assignedUserId: true, status: true, phone: true, phoneNormalized: true, email: true },
       take: 1,
       orderBy: { updatedAt: 'desc' },
-    })) as Array<{ id: string; assignedUserId: number | null; status: string }>;
+    })) as LeadMatch[];
     return rows[0] || null;
   }
 

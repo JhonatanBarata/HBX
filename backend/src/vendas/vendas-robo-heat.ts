@@ -46,6 +46,20 @@ export const ROBO_HUMAN_HANDOFF_KEYWORDS = [
   'quero atendimento',
 ] as const;
 
+// Dúvida real de produto ("como que funciona?", cena Atacadão 30/07). Não é "quente"
+// pro robô de cadência, mas no contato manual acende "sua vez" — pergunta de produto
+// sem resposta é venda morrendo no vácuo.
+export const ROBO_WHAT_IS_IT_KEYWORDS = [
+  'como funciona',
+  'como que funciona',
+  'o que e',
+  'o que seria',
+  'que sistema',
+  'que app',
+  'como assim',
+  'do que se trata',
+] as const;
+
 export type RoboReplyClassifier = (text: string) => ProspectingIntentClassification;
 
 export type RoboHeatResult = {
@@ -59,7 +73,7 @@ function defaultClassify(text: string): ProspectingIntentClassification {
     text,
     positiveKeywords: [...ROBO_HOT_KEYWORDS],
     negativeKeywords: [],
-    whatIsItKeywords: [],
+    whatIsItKeywords: [...ROBO_WHAT_IS_IT_KEYWORDS],
     neutralKeywords: [],
     humanHandoffKeywords: [...ROBO_HUMAN_HANDOFF_KEYWORDS],
   });

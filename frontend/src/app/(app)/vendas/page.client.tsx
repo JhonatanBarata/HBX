@@ -248,18 +248,18 @@ function isoLocalDeDataHora(data: string, hora: string): string | null {
 type VendasStage = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
 // Subtítulo = a AÇÃO da etapa (onboarding embutido): o vendedor lê "o que fazer
 // aqui" sem tour. Mapeado sobre os 5 status reais do VendasLead (nada de máquina
-// de estados nova). LEAD-CÊNTRICO (S1, 25/07): rótulos renomeados pra falar a
-// língua do fluxo real (Planejar→Robô trabalhando→Te chamou→Negociação→
-// Fechado) — chaves/ordem/tone INTOCADOS (nada de migração).
+// de estados nova). 31/07 (dono): coluna = onde o LEAD está, nunca o que a
+// ferramenta faz — nomes no padrão de funil de mercado (Sem contato→Contato
+// feito→Respondeu→Ligação marcada→Fechado). Chaves/ordem/tone INTOCADOS.
 const STAGE_ORDER: { key: VendasStage; label: string; sub: string; tone: string }[] = [
-  { key: "novo", label: "Planejar", sub: "Lead novo — leia, planeje e decida se vai ligar a Automação", tone: "new" },
-  { key: "contato", label: "Robô trabalhando", sub: "Em cadência — contatos em andamento", tone: "contact" },
-  { key: "retorno", label: "Te chamou", sub: "Respondeu ou pediu retorno — sua vez", tone: "return" },
-  { key: "qualificado", label: "Negociação", sub: "Você assumiu — proposta e acompanhamento", tone: "qualified" },
-  { key: "encerrado", label: "Fechado", sub: "Contrato e compromissos", tone: "ended" },
+  { key: "novo", label: "Sem contato", sub: "Lead na fila — ainda não recebeu mensagem", tone: "new" },
+  { key: "contato", label: "Contato feito", sub: "Mensagem enviada — aguardando resposta", tone: "contact" },
+  { key: "retorno", label: "Respondeu", sub: "Sua vez — responda e marque a ligação", tone: "return" },
+  { key: "qualificado", label: "Ligação marcada", sub: "Conversa de venda em andamento", tone: "qualified" },
+  { key: "encerrado", label: "Fechado", sub: "Ganhou ou perdeu — motivo na ficha", tone: "ended" },
 ];
 const STAGE_LABEL: Record<VendasStage, string> = {
-  novo: "Planejar", contato: "Robô trabalhando", retorno: "Te chamou", qualificado: "Negociação", encerrado: "Fechado",
+  novo: "Sem contato", contato: "Contato feito", retorno: "Respondeu", qualificado: "Ligação marcada", encerrado: "Fechado",
 };
 function normalizeStage(status: string | null | undefined): VendasStage {
   const s = String(status || "").trim().toLowerCase();

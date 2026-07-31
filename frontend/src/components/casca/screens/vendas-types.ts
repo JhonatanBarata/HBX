@@ -120,11 +120,11 @@ export const BLOCK_ORDER_MOBILE: { key: VendasBlockKey; label: string }[] = [
 // normalizeStage do desktop (vendas/page.client.tsx) — mesmos 5 status.
 export type VendasStageMobile = "novo" | "contato" | "retorno" | "qualificado" | "encerrado";
 export const STAGE_ORDER_MOBILE: { key: VendasStageMobile; label: string }[] = [
-  { key: "novo", label: "Prospecção" },
-  { key: "contato", label: "Qualificação" },
-  { key: "retorno", label: "Proposta" },
-  { key: "qualificado", label: "Negociação" },
-  { key: "encerrado", label: "Fechamento" },
+  { key: "novo", label: "Sem contato" },
+  { key: "contato", label: "Contato feito" },
+  { key: "retorno", label: "Respondeu" },
+  { key: "qualificado", label: "Ligação marcada" },
+  { key: "encerrado", label: "Fechado" },
 ];
 export function normalizeStageMobile(status: string | null | undefined): VendasStageMobile {
   const s = String(status || "").trim().toLowerCase();

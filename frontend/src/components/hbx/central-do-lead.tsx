@@ -57,12 +57,12 @@ const ICONE_CANAL: Record<RadarChannel, string> = {
   site: "globe",
 };
 
-// Nomes das etapas — ordem do dono 27/07, ao pé da letra.
+// Nomes das etapas — padrão de mercado (dono 31/07), IGUAIS ao quadro do /vendas.
 const ETAPAS: Array<{ key: Etapa; label: string }> = [
-  { key: "novo", label: "Planejar" },
-  { key: "contato", label: "Automação" },
-  { key: "retorno", label: "Retorno" },
-  { key: "qualificado", label: "Negociação" },
+  { key: "novo", label: "Sem contato" },
+  { key: "contato", label: "Contato feito" },
+  { key: "retorno", label: "Respondeu" },
+  { key: "qualificado", label: "Ligação marcada" },
   { key: "encerrado", label: "Fechado" },
 ];
 

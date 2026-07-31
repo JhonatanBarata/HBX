@@ -3055,7 +3055,7 @@ export class WebwhatsBridgeService {
   // Baileys entrega JID com sufixo de aparelho ("724...:1@lid", "5511...:12@s.whatsapp.net").
   // Sem tirar o ":N", o mesmo contato vira conversa DUPLICADA (o sufixo também corrompe o
   // match por dígitos: "...:1" ganha um 1 a mais). Mesmo papel do jidNormalizedUser.
-  private normalizeRemoteJid(value: unknown): string | null {
+  private stripJidDeviceSuffix(value: unknown): string | null {
     const normalized = this.normalizeOptionalString(value);
     if (!normalized) return null;
     const match = normalized.match(/^([^@:]+)(?::\d+)?@(.+)$/);
@@ -3063,8 +3063,8 @@ export class WebwhatsBridgeService {
   }
 
   private getChatRemoteJidAlt(chat: WebwhatsChatSummary) {
-    const remoteJid = this.normalizeRemoteJid(chat?.remoteJid);
-    const remoteJidAlt = this.normalizeRemoteJid(
+    const remoteJid = this.stripJidDeviceSuffix(chat?.remoteJid);
+    const remoteJidAlt = this.stripJidDeviceSuffix(
       chat?.lastMessage?.key?.remoteJidAlt ||
       chat?.lastMessage?.remoteJidAlt ||
       (chat as any)?.remoteJidAlt,
@@ -3079,7 +3079,7 @@ export class WebwhatsBridgeService {
   }
 
   private getMessageRemoteJidAlt(message: WebwhatsFetchedMessage) {
-    return this.normalizeRemoteJid(message?.key?.remoteJidAlt);
+    return this.stripJidDeviceSuffix(message?.key?.remoteJidAlt);
   }
 
   private getChatDisplayName(
@@ -3396,7 +3396,7 @@ export class WebwhatsBridgeService {
     primaryContact?: WebwhatsContactSummary | null,
     alternateContact?: WebwhatsContactSummary | null,
   ) {
-    const remoteJid = this.normalizeRemoteJid(chat.remoteJid);
+    const remoteJid = this.stripJidDeviceSuffix(chat.remoteJid);
     if (!remoteJid) return null;
 
     const remoteJidAlt = this.getChatRemoteJidAlt(chat);
@@ -3540,14 +3540,14 @@ export class WebwhatsBridgeService {
       );
     }
     const remoteJid =
-      this.normalizeRemoteJid(message?.key?.remoteJid) ||
-      this.normalizeRemoteJid(opts?.remoteJid);
+      this.stripJidDeviceSuffix(message?.key?.remoteJid) ||
+      this.stripJidDeviceSuffix(opts?.remoteJid);
     if (!remoteJid) {
       throw new Error('WEBWHATS_WEBHOOK_REMOTE_JID_MISSING');
     }
     const remoteJidAlt =
-      this.normalizeRemoteJid(message?.key?.remoteJidAlt) ||
-      this.normalizeRemoteJid(opts?.remoteJidAlt);
+      this.stripJidDeviceSuffix(message?.key?.remoteJidAlt) ||
+      this.stripJidDeviceSuffix(opts?.remoteJidAlt);
     const timestamp = this.resolveMessageDate(message?.messageTimestamp) || new Date();
     const chat = {
       remoteJid,
@@ -3726,8 +3726,8 @@ export class WebwhatsBridgeService {
     rawRemoteJidAlt: string | null,
     preferredContact: string,
   ): Promise<WebwhatsConversationStateRow | null> {
-    const remoteJid = this.normalizeRemoteJid(rawRemoteJid) || rawRemoteJid;
-    const remoteJidAlt = this.normalizeRemoteJid(rawRemoteJidAlt);
+    const remoteJid = this.stripJidDeviceSuffix(rawRemoteJid) || rawRemoteJid;
+    const remoteJidAlt = this.stripJidDeviceSuffix(rawRemoteJidAlt);
     const digits = String(remoteJid).replace(/\D/g, '');
     const altDigits = String(remoteJidAlt || '').replace(/\D/g, '');
     const candidates = buildWhatsAppPhoneCandidates(preferredContact);

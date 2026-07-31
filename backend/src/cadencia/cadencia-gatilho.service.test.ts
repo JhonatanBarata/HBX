@@ -24,6 +24,7 @@ function makeService(opts: {
   const atividadeCalls: any[] = [];
   const timelineCalls: any[] = [];
   const realtimeCalls: any[] = [];
+  const suppressionCalls: any[] = [];
   const createdIdempotencyKeys = new Set<string>();
 
   svc.prisma = {
@@ -81,10 +82,16 @@ function makeService(opts: {
     },
   };
   svc.logger = { log() {}, warn() {}, error() {} };
+  svc.contactSuppression = {
+    mark: async (contacts: any, reason: string, origin: any) => {
+      suppressionCalls.push({ contacts, reason, origin });
+      return 1;
+    },
+  };
   svc.eventRules = new EventRuleService(svc.prisma as any);
   svc.onModuleInit();
 
-  return { svc, statusUpdates, atividadeCalls, timelineCalls, realtimeCalls };
+  return { svc, statusUpdates, atividadeCalls, timelineCalls, realtimeCalls, suppressionCalls };
 }
 
 test('gatilho inbound move status, cria atividade (hook WORM-12) e notifica — sem enviar WhatsApp', async () => {
@@ -149,7 +156,7 @@ test('te chamou: resposta quente com robo ligado move p/ retorno e cria atividad
   assert.equal(statusUpdates[0].data.status, 'retorno');
   assert.equal(atividadeCalls.length, 1, 'atividade com contexto criada');
   assert.equal(atividadeCalls[0].responsavelId, 33);
-  assert.match(atividadeCalls[0].titulo, /Te chamou/);
+  assert.match(atividadeCalls[0].titulo, /Retornar contato/);
   assert.equal(timelineCalls.length, 1);
   assert.equal(timelineCalls[0].eventType, 'robo_te_chamou');
   assert.match(timelineCalls[0].description, /Quanto custa isso/);
@@ -294,5 +301,78 @@ test('manual: lead ja em retorno/qualificado nao re-acende', async () => {
   await svc.handleInbound({ companyId: 7, fromPhone: '5519989431379', conversationId: 51, text: 'e ai?' });
 
   assert.equal(statusUpdates.length, 0);
+  assert.equal(atividadeCalls.length, 0);
+});
+
+// ------------------------------------------- ROTEAMENTO POR CLASSIFICACAO (dono, 31/07)
+// "positiva acende, negativa vai ja pro lugar certo" — negativa nunca para na fila quente.
+
+test('manual: "nao tenho interesse" fecha o lead com motivo + marquinha, sem acender', async () => {
+  const { svc, statusUpdates, atividadeCalls, timelineCalls, suppressionCalls } = makeService({
+    gatilhos: [],
+    lead: { id: 'lead1', assignedUserId: 33, status: 'novo', phone: '5519989431379', phoneNormalized: '5519989431379', email: null },
+    cadenciaInscricao: null,
+    conversation: { id: 51, vendasLeadId: 'lead1' },
+  });
+
+  await svc.handleInbound({ companyId: 7, fromPhone: '5519989431379', conversationId: 51, text: 'não tenho interesse, obrigado' });
+
+  assert.equal(statusUpdates.length, 1);
+  assert.equal(statusUpdates[0].data.status, 'encerrado');
+  assert.equal(statusUpdates[0].data.closureReason, 'sem_interesse');
+  assert.equal(timelineCalls.length, 1);
+  assert.equal(timelineCalls[0].eventType, 'lead_closed');
+  assert.equal(atividadeCalls.length, 0, 'negativa nao vira atividade de retorno');
+  assert.equal(suppressionCalls.length, 1, 'contato ganha a marquinha');
+  assert.equal(suppressionCalls[0].reason, 'sem_interesse');
+  assert.equal(suppressionCalls[0].contacts.phone, '5519989431379');
+});
+
+test('manual: opt-out explicito ("pare") fecha com marquinha permanente', async () => {
+  const { svc, statusUpdates, suppressionCalls } = makeService({
+    gatilhos: [],
+    lead: { id: 'lead1', assignedUserId: 33, status: 'contato', phone: '5519989431379', phoneNormalized: '5519989431379', email: null },
+    cadenciaInscricao: null,
+    conversation: { id: 51, vendasLeadId: 'lead1' },
+  });
+
+  await svc.handleInbound({ companyId: 7, fromPhone: '5519989431379', conversationId: 51, text: 'pare de me mandar mensagem' });
+
+  assert.equal(statusUpdates.length, 1);
+  assert.equal(statusUpdates[0].data.status, 'encerrado');
+  assert.equal(statusUpdates[0].data.outcome, 'opt_out');
+  assert.equal(suppressionCalls.length, 1);
+  assert.equal(suppressionCalls[0].reason, 'opt_out');
+});
+
+test('manual: resposta neutra ("ok obrigado") fica so na timeline, card nao move', async () => {
+  const { svc, statusUpdates, atividadeCalls, timelineCalls } = makeService({
+    gatilhos: [],
+    lead: { id: 'lead1', assignedUserId: 33, status: 'novo' },
+    cadenciaInscricao: null,
+    conversation: { id: 51, vendasLeadId: 'lead1' },
+  });
+
+  await svc.handleInbound({ companyId: 7, fromPhone: '5519989431379', conversationId: 51, text: 'ok obrigado' });
+
+  assert.equal(timelineCalls.length, 1, 'resposta nunca fica invisivel');
+  assert.equal(timelineCalls[0].title, 'Respondeu');
+  assert.equal(statusUpdates.length, 0, 'neutra nao move o card');
+  assert.equal(atividadeCalls.length, 0);
+});
+
+test('robo (cadencia pausada): negativa tambem fecha com marquinha, nao fica no limbo', async () => {
+  const { svc, statusUpdates, suppressionCalls, atividadeCalls } = makeService({
+    gatilhos: [],
+    lead: { id: 'lead1', assignedUserId: 33, status: 'contato', phone: '5511988887777', phoneNormalized: '5511988887777', email: null },
+    cadenciaInscricao: { id: 'insc1', cadenciaId: 'cad1', currentStep: 1, updatedAt: new Date() },
+    cadencia: { nome: 'Estratégico (Moderado)' },
+  });
+
+  await svc.handleInbound({ companyId: 7, fromPhone: '5511988887777', text: 'sem interesse' });
+
+  assert.equal(statusUpdates.length, 1);
+  assert.equal(statusUpdates[0].data.status, 'encerrado');
+  assert.equal(suppressionCalls.length, 1);
   assert.equal(atividadeCalls.length, 0);
 });

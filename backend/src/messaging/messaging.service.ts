@@ -3672,6 +3672,27 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         now,
         lastResult: 'Interessado',
       });
+      // Interesse real = card em "Respondeu — sua vez" (retorno), não parado na
+      // coluna do robô (dono, 31/07). O bot ainda manda o follow-up abaixo, mas a
+      // ligação é do vendedor. Não regride etapa avançada por humano.
+      await tx.vendasLead.updateMany({
+        where: { id: job.leadId, companyId: input.companyId, status: { in: ['novo', 'contato'] } },
+        data: { status: 'retorno', lastContactAt: now },
+      });
+      const interestExcerpt = String(input.text || '').trim().slice(0, 200);
+      await tx.vendasLeadTimelineEvent.createMany({
+        data: [{
+          leadId: job.leadId,
+          eventType: 'robo_te_chamou',
+          title: 'Respondeu — sua vez',
+          description: interestExcerpt ? `"${interestExcerpt}"` : null,
+          sourceType: 'vendas_prospeccao_bot',
+          statusTo: 'retorno',
+          resultLabel: 'te_chamou',
+          idempotencyKey: `campanha-te-chamou:${job.id}`,
+        }],
+        skipDuplicates: true,
+      });
       return true;
     });
     if (!claimed) return;
@@ -3691,20 +3712,20 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       job.campaign,
       job,
       input.replyKind === 'what_is_it' ? 'whatIsItReplyVariants' : 'positiveReplyVariants',
+      // Copy curta e humana (dono, 31/07): resposta de vendedor, não parágrafo de
+      // consultor. Uma ideia + uma pergunta, e só.
       input.replyKind === 'what_is_it'
         ? [
-            'Claro. É sobre consultoria e implantação de melhorias na rotina da empresa. Eu analiso processos manuais, retrabalho, controles espalhados e tarefas repetitivas, e vejo o que pode ser organizado ou automatizado.',
-            'É um trabalho para ajudar empresas a ganhar tempo e reduzir bagunça operacional. Eu entendo como a empresa funciona hoje e proponho soluções práticas: automações, sistemas simples, organização de fluxo ou ajustes no processo.',
-            'Basicamente eu ajudo a empresa a parar de depender tanto de planilha solta, memória, mensagem perdida e tarefa manual. Primeiro eu entendo o problema, depois implanto o que fizer sentido para aquela operação.',
-            'É uma consultoria bem prática. Eu olho áreas como atendimento, vendas, administrativo, retornos, cadastros, controles e tarefas repetitivas, e vejo onde dá para simplificar ou automatizar.',
-            'É sobre melhorar a operação da empresa. Não é uma solução única para todo mundo: eu entendo o gargalo, desenho uma forma mais organizada de trabalhar e implanto algo que ajude no dia a dia.',
+            'Ajudo empresas a tirar a rotina da planilha e do papel. Te explico em 2 min no telefone?',
+            'É um sistema que organiza a operação: atendimento, vendas, controles. Posso te ligar rapidinho e mostrar?',
+            'A gente organiza o dia a dia da empresa, menos tarefa manual. Quer que eu te explique por ligação?',
+            'É bem prático: eu olho a rotina de vocês e mostro o que dá pra automatizar. Posso ligar?',
           ]
         : [
-            'Boa! A ideia é entender como funciona a rotina de vocês hoje, onde tem retrabalho, tarefa manual ou informação perdida, e ver se dá para resolver com uma automação ou ajuste simples no processo. Posso te ligar rapidinho?',
-            'Perfeito. Primeiro eu entendo o cenário da empresa, porque cada operação tem um gargalo diferente. Pode ser atendimento, vendas, financeiro, planilhas, retornos, cadastros, tarefas internas… aí vejo o que faria sentido implantar. Posso te chamar numa ligação rápida?',
-            'Show. Meu trabalho não é empurrar uma ferramenta pronta. Eu entendo o processo, vejo onde a empresa está perdendo tempo e monto uma solução em cima da necessidade real. Posso te ligar 2 minutinhos para entender melhor?',
-            'Legal. Normalmente eu converso com o gestor ou responsável pela operação, faço algumas perguntas sobre a rotina e identifico onde uma melhoria simples já poderia economizar tempo. Pode ser uma ligação rápida?',
-            'Boa. A ideia é bem prática: entender o que hoje é manual, repetitivo ou bagunçado, e ver se vale implantar alguma automação, organização ou sistema simples para facilitar. Posso te ligar rapidinho?',
+            'Boa! Posso te ligar rapidinho pra entender a rotina de vocês?',
+            'Show. Como funciona a operação hoje? Se preferir te ligo, 2 minutinhos.',
+            'Perfeito. Qual o maior aperto da rotina aí hoje? Posso te ligar e a gente vê junto.',
+            'Legal! Me diz um horário bom que eu te ligo pra explicar direitinho.',
           ],
       await this.buildVendasTemplateExtraValues(job),
     );
@@ -10455,7 +10476,12 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       const recoveredFunnelWindowMs = 48 * 60 * 60 * 1000;
       const isRecentEnoughForFunnel =
         input.timestamp instanceof Date && Date.now() - input.timestamp.getTime() <= recoveredFunnelWindowMs;
-      if (isRecentEnoughForFunnel && text && ['text', 'button', 'interactive'].includes(input.inboundType)) {
+      if (
+        isRecentEnoughForFunnel &&
+        text &&
+        ['text', 'button', 'interactive'].includes(input.inboundType) &&
+        typeof (this.conversations as any)?.dispatchCadenciaInbound === 'function'
+      ) {
         void this.conversations.dispatchCadenciaInbound({
           companyId,
           fromPhone: from,

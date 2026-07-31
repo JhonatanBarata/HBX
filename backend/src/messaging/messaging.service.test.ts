@@ -747,10 +747,16 @@ test('Meta Cloud duplicate webhook does not repeat inbound orchestration', async
 
 test('historical WebWhats inbound refreshes preview without qualifying the lead', async () => {
   const projectionCalls: Array<Record<string, unknown>> = [];
+  const cadenciaCalls: Array<Record<string, unknown>> = [];
   const { service } = createService({
     conversations: {
       dispatchVendasCockpitProjection: async (input: Record<string, unknown>) => {
         projectionCalls.push(input);
+      },
+      // Resposta recuperada por sync (chip esteve fora do ar) ainda move o FUNIL
+      // (caso Atacadão 30/07) — o hook nunca envia WhatsApp, então é seguro.
+      dispatchCadenciaInbound: async (input: Record<string, unknown>) => {
+        cadenciaCalls.push(input);
       },
     },
   });
@@ -777,6 +783,8 @@ test('historical WebWhats inbound refreshes preview without qualifying the lead'
     messageId: 902,
     validHumanInbound: false,
   });
+  assert.equal(cadenciaCalls.length, 1, 'resposta recente recuperada por sync move o funil');
+  assert.equal(cadenciaCalls[0].conversationId, 42);
 });
 
 test('upsertAtendimentoCustomerLocal reuses known customer profile before syncing atendimento projection', async () => {
