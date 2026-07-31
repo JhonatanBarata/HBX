@@ -710,15 +710,41 @@
   // {lat,lng,instrucao} por step de UMA perna (leg do OSRM) — location vem de
   // maneuver.location ([lng,lat], eixo OSRM). Steps sem instrução mapeada ou
   // sem coordenada válida somem da lista (ver osrmStepInstrucao).
+  // 🔴 31/07 (item 7) — FAIXA. O OSRM já manda `intersections[].lanes` na MESMA
+  // resposta que desenha o traço: cada faixa vem marcada como válida ou não pra
+  // manobra. Só falamos quando a resposta é sem ambiguidade (as válidas estão
+  // todas de um lado) — inventar faixa é pior que não falar nada.
+  function osrmFaixa(step) {
+    const interseccoes = step && Array.isArray(step.intersections) ? step.intersections : [];
+    const comFaixas = interseccoes.find(item => Array.isArray(item.lanes) && item.lanes.length > 1);
+    if (!comFaixas) return "";
+    const faixas = comFaixas.lanes;
+    const total = faixas.length;
+    const validas = faixas.map((faixa, indice) => (faixa && faixa.valid ? indice : -1)).filter(indice => indice >= 0);
+    if (!validas.length || validas.length === total) return "";
+    if (validas.every(indice => indice >= total / 2)) return "faixa da direita";
+    if (validas.every(indice => indice < total / 2)) return "faixa da esquerda";
+    return "";
+  }
   function osrmLegInstructions(leg) {
     const steps = (leg && Array.isArray(leg.steps)) ? leg.steps : [];
-    return steps.map(step => {
+    const lista = steps.map(step => {
       const instrucao = osrmStepInstrucao(step);
       const location = step && step.maneuver && step.maneuver.location;
       if (!instrucao || !Array.isArray(location) || location.length < 2) return null;
       const lng = Number(location[0]); const lat = Number(location[1]);
-      return validCoordinates(lat, lng) ? { lat, lng, instrucao } : null;
+      return validCoordinates(lat, lng) ? { lat, lng, instrucao, faixa: osrmFaixa(step) } : null;
     }).filter(Boolean);
+    // 🔴 item 7 — MANOBRA ENCADEADA: "vire à direita" e, logo depois, "vire à
+    // esquerda". Quem dirige precisa saber que vêm DUAS curvas seguidas antes de
+    // entrar na primeira; é o que separa um app com mapa de um GPS.
+    lista.forEach((passo, indice) => {
+      const proximo = lista[indice + 1];
+      if (!proximo) return;
+      const metros = distanceMeters(passo, proximo);
+      if (Number.isFinite(metros) && metros <= 420) passo.depois = proximo.instrucao;
+    });
+    return lista;
   }
   async function fetchOsrmRoutePublic(key, wantSteps, bearings) {
     const controller = new AbortController();
@@ -991,9 +1017,42 @@
     }
     return { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [ring] } };
   }
+  // 🔴 31/07 (item 8) — BÚSSOLA PARADO. Sem velocidade o GPS não sabe pra onde o
+  // aparelho aponta e a seta virava bolinha justo na hora de decidir a saída da
+  // esquina. O sensor magnético responde parado; ele só entra quando o GPS não
+  // tem rumo (movimento sempre vence: a bússola erra perto de metal e no carro).
+  let bussolaGrau = null;
+  let bussolaEm = 0;
+  function ligarBussola() {
+    if (window.__hbxBussolaLigada) return;
+    window.__hbxBussolaLigada = true;
+    const ouvir = event => {
+      if (!event) return;
+      const absoluto = typeof event.webkitCompassHeading === "number"
+        ? event.webkitCompassHeading
+        : (event.absolute === true && Number.isFinite(Number(event.alpha)) ? (360 - Number(event.alpha)) % 360 : null);
+      if (absoluto == null || !Number.isFinite(absoluto)) return;
+      bussolaGrau = (absoluto % 360 + 360) % 360;
+      bussolaEm = Date.now();
+    };
+    try { window.addEventListener("deviceorientationabsolute", ouvir, { passive: true }); } catch (_) {}
+    try { window.addEventListener("deviceorientation", ouvir, { passive: true }); } catch (_) {}
+  }
+  function bussolaRecente() {
+    return bussolaGrau != null && Date.now() - bussolaEm < 5000 ? bussolaGrau : null;
+  }
   function routeReadingBearing(point, mode) {
     const nativeBearing = point && point.bearingDeg;
     if (nativeBearing != null && Number.isFinite(Number(nativeBearing))) return (Number(nativeBearing) % 360 + 360) % 360;
+    // Navegando e parado: direção do traçado sob o pino (a rua não gira), e a
+    // bússola como último recurso.
+    if (mode === "nav") {
+      const encaixe = encaixarNaRota(point);
+      const velocidade = Number(point && point.speedMps);
+      if (encaixe && (!Number.isFinite(velocidade) || velocidade < 1.8)) return encaixe.bearingDeg;
+      const bussola = bussolaRecente();
+      if (bussola != null) return bussola;
+    }
     const trail = routeLiveTrailSource(mode || "leitura");
     if (trail.length < 2) return null;
     const a = trail[trail.length - 2]; const b = trail[trail.length - 1];
@@ -1328,7 +1387,11 @@
       return;
     }
     const bearing = routeReadingBearing(point, mode);
-    const markerElement = garantirMarcadorAtual(map, parts, point);
+    // 🔴 item 6 — o que vai pra TELA é o ponto encaixado no traçado (quando ele
+    // existe); `point` (GPS cru) segue intocado pro resto do app.
+    const encaixe = mode === "nav" ? encaixarNaRota(point) : null;
+    const pontoDesenho = encaixe ? { ...point, lat: encaixe.lat, lng: encaixe.lng } : point;
+    const markerElement = garantirMarcadorAtual(map, parts, pontoDesenho);
     if (markerElement) {
       markerElement.classList.toggle("has-heading", Number.isFinite(bearing));
       markerElement.classList.toggle("is-navigating", mode === "nav");
@@ -1337,7 +1400,7 @@
     atualizarChipEta(host, parts);
     if (Number.isFinite(bearing) && typeof parts.currentLocationMarker.setRotation === "function") parts.currentLocationMarker.setRotation(bearing);
     atualizarFaixaGps(parts, point);
-    if ((options && options.moveCamera) || !parts.followCameraInitialized) followRouteReadingPosition(host, map, parts, point, !!(options && options.resetZoom), mode);
+    if ((options && options.moveCamera) || !parts.followCameraInitialized) followRouteReadingPosition(host, map, parts, pontoDesenho, !!(options && options.resetZoom), mode);
   }
   function collapseMapAttribution(host) {
     requestAnimationFrame(() => {
@@ -1515,7 +1578,12 @@
     const voice = navVoiceState();
     const step = steps[voice.stepIndex];
     if (!step || !lastKnownPosition) return null;
-    return { instrucao: step.instrucao, distanceM: distanceMeters(lastKnownPosition, { lat: step.lat, lng: step.lng }) };
+    return {
+      instrucao: step.instrucao,
+      faixa: step.faixa || "",
+      depois: step.depois || "",
+      distanceM: distanceMeters(lastKnownPosition, { lat: step.lat, lng: step.lng }),
+    };
   }
   // Disparo de voz por distância (spec S5 #3): fala cada step 2x — ~400m
   // ("Em 400 metros, {instrução}") e ~60m ("{instrução}"), cada limiar só 1x
@@ -1563,6 +1631,48 @@
     const t = lenSq > 0 ? Math.max(0, Math.min(1, (px * bx + py * by) / lenSq)) : 0;
     const dx = px - bx * t; const dy = py - by * t;
     return Math.sqrt(dx * dx + dy * dy);
+  }
+  // ==========================================================================
+  // 🔴 31/07 (item 6, dono: "o que falta pro gps ficar igual gps") — SETA GRUDADA
+  // NA RUA. O ponto do GPS urbano erra 3 a 20 m: solto no mapa, ele desenha a
+  // seta em cima do quintal do vizinho e "pula" de rua. GPS de mercado projeta a
+  // posição no traçado (map matching) — é isso que dá a sensação de precisão.
+  //
+  // LEI DESTE BLOCO: o encaixe é só DESENHO. `state.navPosicao` e a trilha
+  // gravada continuam com o GPS cru — a trilha é prova do que aconteceu, e prova
+  // não se maquia. Só o marcador e a câmera usam o ponto encaixado, e só quando
+  // ele está perto o bastante do traçado pra não ser chute (30 m).
+  // ==========================================================================
+  const SNAP_MAX_M = 30;
+  function projetarEmSegmento(point, a, b) {
+    const latM = 111320; const lngM = 111320 * Math.max(.05, Math.cos(a.lat * Math.PI / 180));
+    const px = (point.lng - a.lng) * lngM; const py = (point.lat - a.lat) * latM;
+    const bx = (b.lng - a.lng) * lngM; const by = (b.lat - a.lat) * latM;
+    const lenSq = bx * bx + by * by;
+    const t = lenSq > 0 ? Math.max(0, Math.min(1, (px * bx + py * by) / lenSq)) : 0;
+    const dx = px - bx * t; const dy = py - by * t;
+    return {
+      lat: a.lat + (b.lat - a.lat) * t,
+      lng: a.lng + (b.lng - a.lng) * t,
+      distM: Math.sqrt(dx * dx + dy * dy),
+      // Direção DO SEGMENTO: parado no farol, é ela que mantém a seta apontando
+      // pra frente da rua em vez de girar com o ruído do GPS.
+      bearingDeg: (Math.atan2(bx, by) * 180 / Math.PI + 360) % 360,
+    };
+  }
+  function encaixarNaRota(point) {
+    if (!point || !validCoordinates(point.lat, point.lng)) return null;
+    const rota = navRotaDaFilaAtual();
+    if (!rota || !Array.isArray(rota.geometry) || rota.geometry.length < 2) return null;
+    let melhor = null;
+    for (let i = 1; i < rota.geometry.length; i++) {
+      const a = { lat: rota.geometry[i - 1][1], lng: rota.geometry[i - 1][0] };
+      const b = { lat: rota.geometry[i][1], lng: rota.geometry[i][0] };
+      const candidato = projetarEmSegmento({ lat: Number(point.lat), lng: Number(point.lng) }, a, b);
+      if (!melhor || candidato.distM < melhor.distM) melhor = candidato;
+    }
+    if (!melhor || melhor.distM > SNAP_MAX_M) return null;
+    return melhor;
   }
   function distanceToPolylineMeters(point, coordinates) {
     if (!Array.isArray(coordinates) || coordinates.length < 2) return null;
@@ -4867,11 +4977,16 @@
     const total = items().length;
     const step = navActiveVoiceStep();
     const manobra = step ? `Em ${formatRouteDistance(Math.max(0, step.distanceM))} · ${step.instrucao}` : "";
-    const precisao = navModeActive() && state.navPosicao && Number.isFinite(Number(state.navPosicao.accuracyM)) ? ` · GPS ±${Math.round(Number(state.navPosicao.accuracyM))} m` : "";
+    const precisao = navModeActive() && state.navPosicao && Number.isFinite(Number(state.navPosicao.accuracyM)) ? `GPS ±${Math.round(Number(state.navPosicao.accuracyM))} m` : "";
+    // Linha 2 navegando: faixa e a PRÓXIMA manobra vêm antes do resto — é o que
+    // muda a decisão de quem está dirigindo (Lei 8: dado em linha, sem frase).
+    const linha2 = manobra
+      ? [step.faixa, step.depois ? `depois, ${step.depois}` : "", `${c.nome || "Cliente"} · ${n} de ${total}`, precisao].filter(Boolean).join(" · ")
+      : routeNextStopSubText(next);
     return {
       manobra,
       titulo: manobra || `Próxima parada · ${c.nome || "Cliente"} — ${n} de ${total}`,
-      sub: manobra ? `${c.nome || "Cliente"} · ${n} de ${total}${precisao}` : routeNextStopSubText(next),
+      sub: linha2,
     };
   }
   function routeNextStopPanel(next) {
@@ -7418,6 +7533,7 @@
   // Leitura) e reaproveita updateNextStopPanelDistance()/updateRouteReadingMap
   // pra atualizar painel e mapa sem esperar o próximo render() completo.
   function startNavWatch() {
+    ligarBussola();
     if (navWatchId != null || !navigator.geolocation) return;
     navWatchSeq += 1;
     navWatchId = navigator.geolocation.watchPosition(position => {
