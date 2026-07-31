@@ -43,9 +43,41 @@ export type ProspCfg = {
   humanHandoffIntentKeywords: string[];
 };
 
+// ── NÍVEL DE DISPARO (dono, 31/07) ────────────────────────────────────────────
+// "qual nível ele está? conservador, médio, agressivo? tudo isso está muito confuso".
+// Os presets e a detecção moram no BACKEND (vendas-nivel-disparo.ts) e chegam prontos
+// no live-status: a tela não recalcula nada, só desenha. Duas cópias da mesma régua é
+// exatamente como nasceu o "teto tinha 3 números".
+export type NivelDisparoChave = "conservador" | "medio" | "agressivo";
+export type NivelDisparoDetectado = NivelDisparoChave | "personalizado";
+export type NivelDisparoDef = {
+  chave: NivelDisparoChave;
+  titulo: string;
+  resumo: string;
+  dailyLimit: number;
+  intervalMinutes: number;
+  intervalVarianceMinutes: number;
+  maxAttemptsPerLead: number;
+};
+
+// Os 4 campos que o nível grava — usados pra limpar o rascunho quando o nível muda.
+const CAMPOS_DO_NIVEL: (keyof ProspCfg)[] = [
+  "dailyLimit",
+  "intervalMinutes",
+  "intervalVarianceMinutes",
+  "maxAttemptsPerLead",
+];
+
 // city/segment: alvo da campanha (Radar) — o backend devolve (serializeCampaign),
 // mas não fazem parte do DTO de mensageria (ProspCfg); aqui só pra leitura (deriveBotAlert).
-export type ProspCampaign = Partial<ProspCfg> & { id?: number; status?: string; city?: string | null; segment?: string | null };
+export type ProspCampaign = Partial<ProspCfg> & {
+  id?: number;
+  status?: string;
+  city?: string | null;
+  segment?: string | null;
+  nivelDisparo?: NivelDisparoDetectado;
+  niveisDisparo?: NivelDisparoDef[];
+};
 
 export type ProspLive = {
   status: string;
@@ -68,6 +100,10 @@ export type ProspLive = {
   // pra detectar "fila vazia" sem reimplementar a soma de todayPending+overdue+future.
   pendingJobs?: number;
   lastError?: string | null;
+  // Nível atual + a frase pronta ("Médio — 10 por dia, um a cada ~15 min"), montada
+  // no servidor porque é lá que o nível e o freio anti-ban ao vivo se encontram.
+  nivelDisparo?: NivelDisparoDetectado;
+  nivelFrase?: string;
 };
 
 // Defaults do motor (DEFAULT_* / scene) — usados só quando ainda não há campanha.
@@ -110,13 +146,13 @@ export const STATUS_LABEL: Record<string, string> = {
 
 export type PieceKey = "ritmo" | "digitacao" | "limite" | "alvo" | "mensagens" | "palavras";
 
-export const PIECES: { key: PieceKey; label: string; hint: string; icon: string; tone: string }[] = [
-  { key: "ritmo",     label: "Ritmo de disparo",    hint: "Tempo entre cada contato",                 icon: "clock",  tone: "var(--hbx-brand)" },
-  { key: "digitacao", label: "Digitação humana",    hint: "Simula a pessoa digitando",                icon: "bolt",   tone: "var(--hbx-info)" },
-  { key: "limite",    label: "Limite diário",       hint: "Proteção contra banimento",                icon: "bell",   tone: "var(--hbx-warning)" },
-  { key: "alvo",      label: "Alvo & horário",      hint: "Janela de trabalho e estoque de leads",    icon: "mapin",  tone: "var(--hbx-success)" },
-  { key: "mensagens", label: "Mensagens alternadas", hint: "O motor rotaciona pra fugir de padrão",   icon: "msg",    tone: "var(--hbx-secondary)" },
-  { key: "palavras",  label: "Detecção por IA",     hint: "A IA lê a resposta; palavras são reforço",  icon: "bot",    tone: "var(--hbx-secondary)" },
+export const PIECES: { key: PieceKey; label: string; icon: string; tone: string }[] = [
+  { key: "ritmo",     label: "Ritmo de disparo",     icon: "clock",  tone: "var(--hbx-brand)" },
+  { key: "digitacao", label: "Digitação humana",     icon: "bolt",   tone: "var(--hbx-info)" },
+  { key: "limite",    label: "Limite diário",        icon: "bell",   tone: "var(--hbx-warning)" },
+  { key: "alvo",      label: "Alvo & horário",       icon: "mapin",  tone: "var(--hbx-success)" },
+  { key: "mensagens", label: "Mensagens alternadas", icon: "msg",    tone: "var(--hbx-secondary)" },
+  { key: "palavras",  label: "Detecção por IA",      icon: "bot",    tone: "var(--hbx-secondary)" },
 ];
 
 // Campos numéricos/strings por peça (pra detectar "editado" — só leitura do draft).
@@ -128,12 +164,12 @@ export const PIECE_FIELDS: Record<"ritmo" | "digitacao" | "limite" | "alvo", (ke
 };
 
 // Listas de variantes da peça "Mensagens alternadas" (cada lista = um grupo).
-export const VARIANT_LISTS: { key: keyof ProspCfg; label: string; hint: string; max: number }[] = [
-  { key: "firstContactVariants",  label: "Primeiro contato (frio)",        hint: "Abertura do disparo. O motor reveza entre as variantes.", max: 20 },
-  { key: "positiveReplyVariants", label: "Quando responde com interesse",  hint: "Resposta quando o lead demonstra interesse.",            max: 20 },
-  { key: "whatIsItReplyVariants", label: "Quando pergunta “o que é?”",     hint: "Explicação curta quando o lead quer entender.",          max: 20 },
-  { key: "scheduledReplyVariants", label: "Quando pede pra falar depois",  hint: "Confirmação de retorno agendado.",                       max: 20 },
-  { key: "optOutVariants",        label: "Quando pede pra parar",          hint: "Descadastro educado (opt-out).",                          max: 20 },
+export const VARIANT_LISTS: { key: keyof ProspCfg; label: string; max: number }[] = [
+  { key: "firstContactVariants",  label: "Primeiro contato (frio)",       max: 20 },
+  { key: "positiveReplyVariants", label: "Quando responde com interesse", max: 20 },
+  { key: "whatIsItReplyVariants", label: "Quando pergunta “o que é?”",    max: 20 },
+  { key: "scheduledReplyVariants", label: "Quando pede pra falar depois", max: 20 },
+  { key: "optOutVariants",        label: "Quando pede pra parar",         max: 20 },
 ];
 
 export function fmtWhen(iso: string | null | undefined): string | null {
@@ -271,6 +307,36 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
     }
   }, [draft, busy]);
 
+  // NÍVEL DE DISPARO: um clique aplica na hora (não fica esperando "Salvar"). O nível
+  // é UMA decisão, não um formulário — e o rascunho dos 4 campos que ele grava é
+  // descartado junto, senão a tela voltaria a mostrar o número velho por cima do nível
+  // novo (a mesma mentira que o nível veio matar).
+  const aplicarNivel = useCallback(async (nivel: NivelDisparoChave) => {
+    if (busy) return null;
+    setBusy(true);
+    setSaveMsg(null);
+    try {
+      const res = await apiFetch<ProspLive>("/vendas/automation/prospecting/config", {
+        method: "PATCH",
+        body: JSON.stringify({ nivelDisparo: nivel }),
+      });
+      if (res) { setLive(res); setLoadErr(null); onLiveRef.current?.(res); }
+      setDraft(d => {
+        const next = { ...d };
+        for (const campo of CAMPOS_DO_NIVEL) delete next[campo];
+        return next;
+      });
+      setSaveMsg("✓ Nível de disparo aplicado.");
+      return res;
+    } catch (err) {
+      const e = err as ApiError;
+      setSaveMsg(e?.message || "Não foi possível aplicar o nível.");
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }, [busy]);
+
   const ciclo = useCallback(async (path: "start" | "pause" | "resume" | "cancel") => {
     if (busy) return;
     if (path === "cancel" && !window.confirm("Cancelar a campanha de prospecção? A fila de contatos pendentes é descartada (os leads voltam pro funil).")) return;
@@ -327,7 +393,7 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
   return {
     live, loadErr, campaign, draft, dirty, busy, saveMsg, canSave,
     numVal, boolVal, strVal, listVal, hasReal,
-    setField, setNum, loadLive, salvar, ciclo, piecePreview,
+    setField, setNum, loadLive, salvar, ciclo, piecePreview, aplicarNivel,
     setSaveMsg,
   };
 }

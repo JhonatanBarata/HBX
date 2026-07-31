@@ -18,6 +18,7 @@ import { BotAvisoModal } from "@/components/hbx/bot-aviso-modal";
 import { ProspPieceBody, aquecerIaProspeccao, type ProspFieldHelpers } from "@/components/hbx/bot-prosp-fields";
 import type { VarDef } from "@/components/hbx/bot-variables-drawer";
 import { BotProspeccaoSandbox } from "@/components/hbx/bot-prospeccao-sandbox";
+import { NivelDisparoCard } from "@/components/hbx/nivel-disparo-card";
 // Só o TIPO do payload com o freio anti-ban (`coldGate`) — o mesmo GET
 // /vendas/automation/live-status que esta tela já carrega. `import type` some no
 // build (não puxa o componente do painel pra cá).
@@ -189,7 +190,6 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
       <div className="bot-prosp__toolbar">
         <div className="bot-prosp__toolbar-info">
           <strong className="bot-prosp__toolbar-title">Motor de disparo frio</strong>
-          <span className="bot-prosp__toolbar-hint">Toque numa peça pra ajustar. O ritmo e o limite são a proteção do número.</span>
         </div>
         <div className="bot-prosp__toolbar-actions">
           {saveMsg && (
@@ -201,6 +201,8 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
 
       {/* ── ESQUERDA: 6 peças em coluna única ── */}
       <div className="bot-prosp__main">
+        {/* Nível de disparo: responde "onde eu estou?" antes de qualquer gaveta abrir. */}
+        <NivelDisparoCard live={live} busy={busy} onAplicar={nivel => { void cfg.aplicarNivel(nivel); }} />
         <div className="bot-prosp__pieces">
           {PIECES.map(p => {
             const edited = p.key === "mensagens"
@@ -220,7 +222,6 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
                 </span>
                 <span className="bot-prosp-piece__titles">
                   <span className="bot-prosp-piece__name">{p.label}</span>
-                  <span className="bot-prosp-piece__hint">{p.hint}</span>
                   <span className="bot-prosp-piece__preview">{piecePreview(p.key)}</span>
                 </span>
                 {edited && <span className="bot-prosp-piece__badge">editado</span>}
@@ -366,7 +367,6 @@ function ProspEditorInline({ piece, onClose, h }: { piece: PieceKey; onClose: ()
         </span>
         <span className="bot-prosp-editor__titles">
           <span className="bot-prosp-editor__title">{def?.label}</span>
-          <span className="bot-prosp-editor__hint">{def?.hint}</span>
         </span>
         <button type="button" className="bot-prosp-editor__close" aria-label="Fechar" title="Fechar" onClick={onClose}>✕</button>
       </header>
