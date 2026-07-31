@@ -638,6 +638,76 @@ class NativeAppBridge(
      * estado da navegação (ver syncNavWatch no app.js) — nunca fica preso ligado,
      * senão a bateria some com o app aberto parado.
      */
+    /**
+     * 🔴 31/07 (dono: "opção download do mapa no ajustes") — MAPA OFFLINE.
+     * `mapaOfflineEstado` responde o que já está guardado (bytes) e o tamanho
+     * estimado do que falta; `mapaOfflineBaixar` enche a despensa em segundo
+     * plano avisando o progresso; `mapaOfflineApagar` devolve o espaço.
+     * Detalhe e guardas em MapaOffline.kt.
+     */
+    @JavascriptInterface
+    fun mapaOfflineEstado(lat: String, lng: String, raioKm: String): String {
+        if (BuildConfig.APP_MODE != "logistica") return "{}"
+        val latitude = lat.toDoubleOrNull()
+        val longitude = lng.toDoubleOrNull()
+        val raio = raioKm.toDoubleOrNull()?.coerceIn(2.0, 120.0) ?: 30.0
+        val estimativa = if (latitude != null && longitude != null) {
+            MapaOffline.estimativa(latitude, longitude, raio)
+        } else {
+            0 to 0L
+        }
+        return JSONObject()
+            .put("guardadoBytes", MapaOffline.tamanhoBytes(activity))
+            .put("tiles", estimativa.first)
+            .put("estimadoBytes", estimativa.second)
+            .put("baixando", MapaOffline.estaBaixando())
+            .put("falhas", MapaOffline.falhas)
+            .put("erro", MapaOffline.ultimoErro)
+            .toString()
+    }
+
+    @JavascriptInterface
+    fun mapaOfflineBaixar(estiloUrl: String, lat: String, lng: String, raioKm: String) {
+        if (BuildConfig.APP_MODE != "logistica") return
+        val latitude = lat.toDoubleOrNull() ?: return
+        val longitude = lng.toDoubleOrNull() ?: return
+        val raio = raioKm.toDoubleOrNull()?.coerceIn(2.0, 120.0) ?: 30.0
+        val estilo = estiloUrl.takeIf { it.startsWith("https://tiles.openfreemap.org/") } ?: return
+        if (MapaOffline.estaBaixando()) return
+        executor.execute {
+            val guardados = MapaOffline.baixarRegiao(activity, estilo, latitude, longitude, raio) { feitos, total ->
+                emitirMapaProgresso(feitos, total, false)
+            }
+            emitirMapaProgresso(guardados, guardados, true)
+        }
+    }
+
+    @JavascriptInterface
+    fun mapaOfflineApagar() {
+        if (BuildConfig.APP_MODE != "logistica") return
+        executor.execute {
+            MapaOffline.apagar(activity)
+            emitirMapaProgresso(0, 0, true)
+        }
+    }
+
+    private fun emitirMapaProgresso(feitos: Int, total: Int, fim: Boolean) {
+        val detalhe = JSONObject()
+            .put("feitos", feitos)
+            .put("total", total)
+            .put("fim", fim)
+            .put("falhas", MapaOffline.falhas)
+            .put("erro", MapaOffline.ultimoErro)
+            .put("guardadoBytes", MapaOffline.tamanhoBytes(activity))
+            .toString()
+        activity.runOnUiThread {
+            webView.evaluateJavascript(
+                "document.dispatchEvent(new CustomEvent('hbx:mapa-offline',{detail:${JSONObject.quote(detalhe)}}));",
+                null,
+            )
+        }
+    }
+
     @JavascriptInterface
     fun manterTelaAcesa(ligado: Boolean) {
         if (BuildConfig.APP_MODE != "logistica") return

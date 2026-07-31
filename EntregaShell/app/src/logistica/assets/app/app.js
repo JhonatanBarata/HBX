@@ -5142,10 +5142,66 @@
     return shell(`<div class="screen-head"><div><h1>Ajustes</h1></div></div>
       ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong>${chevron}</button><button class="settings-row" data-action="statement"><div class="avatar">${icon("sales", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div>${chevron}</button><button class="settings-row" data-action="toggle-creditos-panel" role="switch" aria-checked="${!creditosPanelOculto()}"><div class="avatar">${icon("calendar", 18)}</div><div class="settings-copy"><strong>Painel de créditos do dia</strong></div><span class="module-switch ${!creditosPanelOculto() ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" data-action="open-recarga"><div class="avatar">${icon("card", 18)}</div><div class="settings-copy"><strong>Recarga de créditos</strong></div>${chevron}</button><button class="settings-row" data-action="open-financeiro"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Financeiro</strong></div>${chevron}</button><button class="settings-row" data-action="open-avancado"><div class="avatar">${icon("gear", 18)}</div><div class="settings-copy"><strong>Avançado</strong></div>${chevron}</button></section>` : ""}
       ${offlineSettingsSection()}
+      ${mapaOfflineSettingsSection()}
       ${passeioSettingsSection()}
       <div class="section-title"><strong>Aplicativo</strong></div><section class="card flat"><form id="company-name-form" class="company-name-form"><div class="field"><label>Nome da empresa</label><input name="companyName" maxlength="80" value="${H.escape(state.companyName)}"></div><button class="btn btn-primary" type="submit">Salvar</button></form><button class="settings-row" data-action="logout"><div class="avatar">${icon("logout", 18)}</div><div class="settings-copy"><strong>Sair</strong></div>${chevron}</button>${versionSettingsRow()}</section>`);
   }
 
+  // ==========================================================================
+  // 🔴 31/07 (dono: "e a opção download do mapa no ajustes") — MAPA OFFLINE.
+  // O mapa vem da internet; em estrada e sítio o sinal cai e a tela ficava cinza
+  // no meio da rota. Aqui ele guarda a região no aparelho. Mesma forma das outras
+  // seções de Ajustes (section-title + settings-row), nada de tela nova.
+  // O tamanho é MEDIDO (32 KB por pedaço, média real de Rio Claro), não chutado —
+  // número redondo inventado em tela de download é mentira que o dono descobre
+  // sozinho quando o download termina no dobro.
+  // ==========================================================================
+  const MAPA_RAIOS = [10, 30, 60];
+  function mapaOfflineEstado() {
+    return state.mapaOffline || { guardadoBytes: 0, tiles: 0, estimadoBytes: 0, baixando: false, feitos: 0, total: 0 };
+  }
+  function mapaOfflineRaio() {
+    const salvo = Number(H.cache.get("mapaRaioKm", 30));
+    return MAPA_RAIOS.includes(salvo) ? salvo : 30;
+  }
+  function formatarBytes(bytes) {
+    const valor = Number(bytes) || 0;
+    if (valor < 1024 * 1024) return `${Math.max(1, Math.round(valor / 1024))} KB`;
+    if (valor < 1024 * 1024 * 1024) return `${(valor / (1024 * 1024)).toFixed(valor < 10 * 1024 * 1024 ? 1 : 0)} MB`;
+    return `${(valor / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  }
+  function mapaOfflineSettingsSection() {
+    if (!H.mapaOfflineDisponivel()) return "";
+    const estado = mapaOfflineEstado();
+    const raio = mapaOfflineRaio();
+    const baixando = !!estado.baixando;
+    const pronto = Number(estado.guardadoBytes) > 0;
+    const progresso = baixando && estado.total ? Math.min(100, Math.round((estado.feitos / estado.total) * 100)) : 0;
+    const chips = `<div class="day-chips mapa-raios">${MAPA_RAIOS.map(km => `<button type="button" class="montagem-dia${km === raio ? " active" : ""}" data-action="mapa-offline-raio" data-raio="${km}" aria-pressed="${km === raio}" ${baixando ? "disabled" : ""}><strong>${km} km</strong></button>`).join("")}</div>`;
+    // Uma linha SÓ, que muda de texto (nunca troca <button> por <div>): o
+    // reconciliador de tela mistura os dois estados quando a estrutura muda, e a
+    // tela mostrava "Baixar" com a barra andando embaixo.
+    const linhaBaixar = `<button class="settings-row" data-action="mapa-offline-baixar" ${baixando ? "disabled" : ""}><div class="avatar">${icon("download", 18)}</div><div class="settings-copy"><strong>${baixando ? `Baixando o mapa · ${progresso}%` : "Baixar mapa desta região"}</strong><span>${baixando ? `${estado.feitos} de ${estado.total} pedaços` : `${raio} km em volta · cerca de ${formatarBytes(estado.estimadoBytes)}`}</span></div>${icon("chevronRight", 18)}</button>${baixando ? `<div class="progress"><i style="width:${progresso}%"></i></div>` : ""}`;
+    // Falha do último download fica NA LINHA (aviso que some não conserta nada e
+    // não deixa o dono saber por que o mapa não baixou).
+    const falhou = !baixando && Number(estado.falhas) > 0
+      ? `<div class="hbx-aviso hbx-aviso--warn">Faltaram ${Number(estado.falhas)} pedaços${estado.erro ? ` · ${H.escape(String(estado.erro).slice(0, 60))}` : ""}</div>`
+      : "";
+    const linhaGuardado = pronto
+      ? `<button class="settings-row" data-action="mapa-offline-apagar"><div class="avatar">${icon("trash", 18)}</div><div class="settings-copy"><strong>Apagar mapa baixado</strong><span>${formatarBytes(estado.guardadoBytes)} no aparelho</span></div>${icon("chevronRight", 18)}</button>`
+      : "";
+    return `<div class="section-title"><strong>Mapa sem internet</strong></div><section class="card flat">${chips}${linhaBaixar}${falhou}${linhaGuardado}</section>`;
+  }
+  async function mapaOfflineSincronizar() {
+    if (!H.mapaOfflineDisponivel()) return;
+    const eu = state.idlePosicao || lastKnownPosition;
+    const lat = eu && validCoordinates(eu.lat, eu.lng) ? eu.lat : null;
+    const lng = eu && validCoordinates(eu.lat, eu.lng) ? eu.lng : null;
+    const dados = H.mapaOfflineEstado(lat, lng, mapaOfflineRaio());
+    if (!dados) return;
+    state.mapaOffline = { ...(state.mapaOffline || {}), ...dados };
+    render();
+  }
   // 28/07 (dono: "bati o olho e achei q a rota estava sem sinal") — o preparo da
   // rota offline era um cartão SOLTO que o offline-controls.js injetava ACIMA do
   // título "Ajustes", com checkbox cru e o título "Rota sem sinal": de relance
@@ -8194,6 +8250,9 @@
     // (lista de Clientes, ficha longa) é o outro caminho pro mesmo corte.
     voltarAoTopoDaPagina();
     render();
+    // Entrando nos Ajustes: pergunta ao aparelho quanto de mapa já está guardado
+    // e quanto pesa o download do raio escolhido (número medido, nunca chutado).
+    if (nextScreen === "settings") void mapaOfflineSincronizar();
     state.screenMotion = "";
     clearTimeout(navMotionTimer);
     navMotionTimer = setTimeout(() => { state.navMotionFrom = null; }, 360);
@@ -8573,6 +8632,7 @@
       state.confirmation = null;
       render();
       if (!confirmation) return;
+      if (confirmation.type === "mapa-offline-apagar") H.mapaOfflineApagar();
       if (confirmation.type === "checagem-remover") await checagemRemoverTodos();
       if (confirmation.type === "delete-client") await performDeleteClient(clientById(confirmation.itemId));
       if (confirmation.type === "delete-client-product") await performDeleteClientProduct(state.clientProducts.find(item => item.id === confirmation.itemId));
@@ -8960,6 +9020,33 @@
     // ganha o "No caminho × Primeira parada" e encaixa na rota que está de pé.
     if (action === "rota-rapida") { state.montagemRapida = { origem: "cep", contexto: "rota", posicao: "perto", busca: "", opcoes: null, cep: "", numero: "", nome: "", lat: null, lng: null, resolvido: null, buscando: false, checando: false, salvando: false, erro: "", duplicado: null }; showModal("rota-rapida"); return; }
     if (action === "montagem-rapida-escolher") { await montagemRapidaEscolherOpcao(target.dataset.indice); return; }
+    if (action === "mapa-offline-raio") {
+      const km = Number(target.dataset.raio);
+      if (MAPA_RAIOS.includes(km)) { H.cache.set("mapaRaioKm", km); await mapaOfflineSincronizar(); }
+      return;
+    }
+    if (action === "mapa-offline-baixar") {
+      const eu = state.idlePosicao || lastKnownPosition;
+      if (!eu || !validCoordinates(eu.lat, eu.lng)) { toast("Preciso saber onde você está pra escolher o pedaço do mapa.", true); return; }
+      state.mapaOffline = { ...mapaOfflineEstado(), baixando: true, feitos: 0, total: 0 };
+      render();
+      H.mapaOfflineBaixar(currentMapStyle(), eu.lat, eu.lng, mapaOfflineRaio());
+      return;
+    }
+    if (action === "mapa-offline-apagar") {
+      // Apagar mapa é o gesto que devolve espaço do aparelho: confirma antes,
+      // como toda exclusão de peso (Lei nº1 do APK).
+      state.confirmation = {
+        type: "mapa-offline-apagar",
+        title: "Apagar o mapa baixado?",
+        message: `${formatarBytes(mapaOfflineEstado().guardadoBytes)} voltam pro aparelho. Sem internet, o mapa deixa de desenhar.`,
+        confirmLabel: "Apagar",
+        danger: true,
+        icon: "trash",
+      };
+      render();
+      return;
+    }
     if (action === "rota-rapida-posicao") { if (state.montagemRapida) { state.montagemRapida.posicao = target.dataset.posicao === "primeira" ? "primeira" : "perto"; render(); } return; }
     if (action === "rota-rapida-modo") { if (state.montagemRapida) { state.montagemRapida.modo = target.dataset.modo === "cadastro" ? "cadastro" : "direcao"; state.montagemRapida.erro = ""; render(); } return; }
     if (action === "montagem-rapida-fechar") { if (state.modal === "rota-rapida") { state.montagemRapida = null; await closeOverlay("modal"); return; } state.montagemRapida = null; render(); return; }
@@ -10073,6 +10160,33 @@
     }
   }
   document.addEventListener("hbx:destino", event => { void receberDestinoExterno(event.detail); });
+  // Progresso do download do mapa (ver MapaOffline.kt): barra anda sem render em
+  // laço — o nativo avisa a cada 10 pedaços.
+  document.addEventListener("hbx:mapa-offline", event => {
+    let dados = null;
+    try { dados = typeof event.detail === "string" ? JSON.parse(event.detail) : event.detail; } catch (_) { dados = null; }
+    if (!dados) return;
+    const fim = !!dados.fim;
+    state.mapaOffline = {
+      ...(state.mapaOffline || {}),
+      guardadoBytes: Number(dados.guardadoBytes) || 0,
+      feitos: Number(dados.feitos) || 0,
+      total: Number(dados.total) || 0,
+      falhas: Number(dados.falhas) || 0,
+      erro: dados.erro || "",
+      baixando: !fim,
+    };
+    if (fim) {
+      void mapaOfflineSincronizar();
+      const falhas = Number(dados.falhas) || 0;
+      const guardado = Number(dados.guardadoBytes) || 0;
+      // Erro de verdade na tela: "não deu certo" sem número é o que me fez
+      // perder tempo adivinhando. Aqui aparece quantos pedaços faltaram e por quê.
+      if (falhas > 0) toast(`Faltaram ${falhas} pedaços do mapa${dados.erro ? ` (${String(dados.erro).slice(0, 40)})` : ""}.`, true);
+      else toast(guardado > 0 ? "Mapa pronto pra usar sem internet." : "Mapa apagado.");
+    }
+    else render();
+  });
   document.addEventListener("hbx:theme", render);
   // Fix visual de alta frequência (~3s): move posição/precisão/câmera, mas não
   // entra na trilha gravada. O nativo mantém a gravação filtrada em 8m/15s.

@@ -19,6 +19,7 @@ import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.FrameLayout
@@ -187,8 +188,16 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             webViewClient = object : WebViewClient() {
-                override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?) =
-                    request?.url?.let(assetLoader::shouldInterceptRequest)
+                override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
+                    val url = request?.url ?: return null
+                    // 🔴 31/07 — MAPA OFFLINE: pedaço de mapa que já está no aparelho
+                    // é servido do disco, sem tocar na rede (ver MapaOffline.kt).
+                    // Só o mapa passa por aqui; o resto segue o caminho de sempre.
+                    if (BuildConfig.APP_MODE == "logistica") {
+                        MapaOffline.resposta(this@MainActivity, url.toString())?.let { return it }
+                    }
+                    return assetLoader.shouldInterceptRequest(url)
+                }
 
                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                     if (request.url.toString().startsWith(LOCAL_ORIGIN)) return false

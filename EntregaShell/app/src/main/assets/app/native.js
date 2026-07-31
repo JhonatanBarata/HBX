@@ -353,6 +353,19 @@
     // 31/07 — tela acesa enquanto guia (ver syncNavWatch). Sem ponte (preview no
     // navegador) é no-op, igual speak/vibrate.
     manterTelaAcesa(ligado) { try { bridge && bridge.manterTelaAcesa && bridge.manterTelaAcesa(!!ligado); } catch (_) {} },
+    // 31/07 — mapa offline (ver MapaOffline.kt). Sem ponte (preview no navegador)
+    // a seção inteira some da tela, em vez de mostrar botão que não faz nada.
+    mapaOfflineDisponivel() { return !!(bridge && bridge.mapaOfflineBaixar && bridge.mapaOfflineEstado); },
+    mapaOfflineEstado(lat, lng, raioKm) {
+      if (!this.mapaOfflineDisponivel()) return null;
+      try { return JSON.parse(bridge.mapaOfflineEstado(String(lat == null ? "" : lat), String(lng == null ? "" : lng), String(raioKm || 30))); }
+      catch (_) { return null; }
+    },
+    mapaOfflineBaixar(estiloUrl, lat, lng, raioKm) {
+      if (!this.mapaOfflineDisponivel()) return;
+      try { bridge.mapaOfflineBaixar(String(estiloUrl || ""), String(lat), String(lng), String(raioKm || 30)); } catch (_) {}
+    },
+    mapaOfflineApagar() { try { bridge && bridge.mapaOfflineApagar && bridge.mapaOfflineApagar(); } catch (_) {} },
     speakStop() { bridge && bridge.speakStop && bridge.speakStop(); },
     // S1 22/07 (PR22072026-APP-SOUNDS) — motor de sons nativo. Mesmo guard de
     // bridge ausente que speak/vibrate acima: preview fora do APK (browser)
