@@ -58,7 +58,12 @@ plugins {
 // senão o publish carimba um versionCode que o celular já roda e ele nunca vê a
 // atualização chegar (mesmo caso de 8→15, 15→18, 18→38, 38→60, 60→68, 87→95 e
 // 95→110 acima).
-val hbxLogisticaVersionCodeFloor = 117
+// 117 → 123 em 31/07 (madrugada): a frente "HBX vira app de rota" sideloadou 119,
+// 120, 121 e 122 no moto g15 durante o teste no aparelho. Piso ACIMA do maior que
+// já está no celular, senão o publish carimba um número que ele já roda e a
+// atualização nunca aparece (mesmo caso de 8→15, 15→18, 18→38, 38→60, 60→68,
+// 87→95, 95→110 e 110→117 acima).
+val hbxLogisticaVersionCodeFloor = 123
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)
