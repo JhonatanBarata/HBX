@@ -53,7 +53,7 @@
 .emp-command__identity strong {
   color: var(--text-strong);
   font-family: var(--font-display);
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
   line-height: 1.15;
 }
 
@@ -210,7 +210,7 @@
 }
 
 .emp-live .emp-row__name {
-  font-size: 0.75rem;
+  font-size: var(--fz-l3);
 }
 
 .emp-live .emp-row__sub {
@@ -462,7 +462,7 @@
 .ctt-command__identity strong {
   color: var(--text-strong);
   font-family: var(--font-display);
-  font-size: 0.74rem;
+  font-size: var(--fz-l3);
   line-height: 1.15;
 }
 
@@ -670,7 +670,7 @@
   display: flex;
   align-items: center;
   min-width: 0;
-  font-size: 0.74rem;
+  font-size: var(--fz-l3);
   white-space: nowrap;
 }
 
@@ -942,7 +942,7 @@
 .prod-command__identity strong {
   color: var(--text-strong);
   font-family: var(--font-display);
-  font-size: 0.74rem;
+  font-size: var(--fz-l3);
   line-height: 1.15;
 }
 
@@ -1133,7 +1133,7 @@
 }
 
 .prod-live .emp-row__name {
-  font-size: 0.75rem;
+  font-size: var(--fz-l3);
 }
 
 .prod-live .emp-row__sub {

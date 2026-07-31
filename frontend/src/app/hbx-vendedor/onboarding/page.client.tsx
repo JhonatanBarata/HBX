@@ -175,7 +175,7 @@ export function SellerOnboardingClient() {
                 return (
                   <div key={doc.kind} style={{ display: "flex", gap: 10, alignItems: "center", padding: "10px 12px", borderRadius: "var(--radius-md)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)" }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <strong style={{ fontSize: "0.78rem", display: "block" }}>{doc.label}</strong>
+                      <strong style={{ fontSize: "var(--fz-l2)", display: "block" }}>{doc.label}</strong>
                       <span style={{ fontSize: "var(--hbx-font-min)", color: enviado ? "var(--hbx-brand-strong)" : "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block" }}>
                         {enviado ? `✓ ${doc.filename || "recebido"}` : "Pendente — PDF, JPG ou PNG (até 5 MB)"}
                       </span>
@@ -245,7 +245,7 @@ export function SellerOnboardingClient() {
 
             {!confirmado && (
               <button className="btn-teal" type="button" disabled={!completo || busyKind !== null} onClick={concluir}
-                style={{ minHeight: 44, fontSize: "0.84rem" }}
+                style={{ minHeight: 44, fontSize: "var(--fz-n3)" }}
                 title={completo ? "Confirmar o envio dos documentos" : "Envie todos os documentos obrigatórios primeiro"}>
                 {busyKind === "__complete" ? "Enviando…" : "Enviar documentos"}
               </button>

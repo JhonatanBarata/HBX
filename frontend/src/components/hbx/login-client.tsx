@@ -203,17 +203,17 @@ export function LoginClient({ onCriarConta }: { onCriarConta?: () => void } = {}
               <span>Falta confirmar seu e-mail (<b>{confirmPending}</b>) pra entrar. Já enviamos um link — confirme e volte aqui.</span>
               {confirmMsg && <span>{confirmMsg}</span>}
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <button type="button" className="btn-ghost" onClick={reenviarConfirmacao} style={{ minHeight: 38, fontSize: "0.74rem" }}>Reenviar confirmação</button>
-                <Link href={resumeHref} className="btn-ghost" style={{ minHeight: 38, fontSize: "0.74rem", textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>Continuar cadastro</Link>
+                <button type="button" className="btn-ghost" onClick={reenviarConfirmacao} style={{ minHeight: 38, fontSize: "var(--fz-l3)" }}>Reenviar confirmação</button>
+                <Link href={resumeHref} className="btn-ghost" style={{ minHeight: 38, fontSize: "var(--fz-l3)", textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>Continuar cadastro</Link>
               </div>
             </div>
           )}
           {conflict && (
-            <button className="btn-ghost" type="button" disabled={busy} style={{ minHeight: 40, fontSize: "0.78rem" }} onClick={() => doLogin(true)}>
+            <button className="btn-ghost" type="button" disabled={busy} style={{ minHeight: 40, fontSize: "var(--fz-l2)" }} onClick={() => doLogin(true)}>
               Conectar aqui mesmo (encerra a sessão ativa)
             </button>
           )}
-          <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 44, fontSize: "0.84rem" }}>
+          <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 44, fontSize: "var(--fz-n3)" }}>
             {busy ? "Entrando…" : "Entrar"}
           </button>
           {GOOGLE_CLIENT_ID && (

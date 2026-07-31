@@ -346,7 +346,7 @@ export function RelatoriosClient() {
                 {p.label}
               </button>
             ))}
-            {pdfError && <span style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-danger)" }}>{pdfError}</span>}
+            {pdfError && <span style={{ fontSize: "var(--fz-m1)", fontWeight: 700, color: "var(--hbx-danger)" }}>{pdfError}</span>}
             <div style={{ marginLeft: "auto", display: "flex", gap: 9 }}>
               {podeExportarPdf && (
                 <button className="btn-ghost" onClick={exportarPdf} disabled={pdfBusy}><I d={ICONS.doc} size={13} /> {pdfBusy ? "Exportando…" : "Exportar PDF"}</button>
@@ -362,10 +362,10 @@ export function RelatoriosClient() {
           {loadError && !report && (
             <section className="panel">
               <div style={{ padding: 18, display: "grid", gap: 10, justifyItems: "start" }}>
-                <strong style={{ fontSize: "0.86rem", color: isMaster ? "var(--text-strong)" : "var(--hbx-danger)" }}>
+                <strong style={{ fontSize: "var(--fz-n3)", color: isMaster ? "var(--text-strong)" : "var(--hbx-danger)" }}>
                   {isMaster ? "Você está logado como MASTER" : "O relatório não carregou"}
                 </strong>
-                <span style={{ fontSize: "0.74rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
+                <span style={{ fontSize: "var(--fz-l3)", color: "var(--text-muted)", lineHeight: 1.5 }}>
                   {isMaster
                     ? `A conta master não tem empresa vinculada, e este relatório é da operação de UMA empresa — por isso a chamada falha (${loadError}). Entre com a conta Admin da empresa.`
                     : loadError}
@@ -390,7 +390,7 @@ export function RelatoriosClient() {
               </div>
               <div style={{ padding: "10px 18px 16px" }}>
                 {segments.length === 0 && (
-                  <p style={{ margin: "12px 0", fontSize: "0.74rem", color: "var(--text-muted)" }}>Sem dados no período — trabalhe alguns cards para o ranking aparecer.</p>
+                  <p style={{ margin: "12px 0", fontSize: "var(--fz-l3)", color: "var(--text-muted)" }}>Sem dados no período — trabalhe alguns cards para o ranking aparecer.</p>
                 )}
                 {segments.length > 0 && (
                   <div className="bars" style={{ height: 180 }}>
@@ -410,7 +410,7 @@ export function RelatoriosClient() {
               <div className="panel-head"><h2>Leads por canal</h2></div>
               <div style={{ padding: "16px 18px 18px" }}>
                 {channels.length === 0 && (
-                  <p style={{ margin: 0, fontSize: "0.74rem", color: "var(--text-muted)" }}>Sem dados de canal no período.</p>
+                  <p style={{ margin: 0, fontSize: "var(--fz-l3)", color: "var(--text-muted)" }}>Sem dados de canal no período.</p>
                 )}
                 <div className="hbar">
                   {channels.map((c, i) => (
@@ -430,7 +430,7 @@ export function RelatoriosClient() {
               <div className="panel-head"><h2>Funil de conversão</h2></div>
               <div style={{ padding: "14px 18px 18px" }}>
                 {funil.length === 0 && (
-                  <p style={{ margin: 0, fontSize: "0.74rem", color: "var(--text-muted)" }}>Sem dados no período.</p>
+                  <p style={{ margin: 0, fontSize: "var(--fz-l3)", color: "var(--text-muted)" }}>Sem dados no período.</p>
                 )}
                 {funil.length > 0 && (
                   <React.Fragment>
@@ -450,7 +450,7 @@ export function RelatoriosClient() {
                       ))}
                     </div>
                     {report?.recommendation && (
-                      <p style={{ margin: "12px 0 0", fontSize: "0.7rem", lineHeight: 1.5, color: "var(--text-muted)" }}>{report.recommendation}</p>
+                      <p style={{ margin: "12px 0 0", fontSize: "var(--fz-m2)", lineHeight: 1.5, color: "var(--text-muted)" }}>{report.recommendation}</p>
                     )}
                   </React.Fragment>
                 )}
@@ -496,7 +496,7 @@ export function RelatoriosClient() {
                           <tr onClick={() => toggleSeller(v.seller.id)} aria-expanded={open} title="Abrir vendedor">
                             <td>
                               <div style={{ display: "flex", gap: 9, alignItems: "center" }}>
-                                <span aria-hidden style={{ display: "inline-block", width: 12, fontSize: "0.7rem", transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>▸</span>
+                                <span aria-hidden style={{ display: "inline-block", width: 12, fontSize: "var(--fz-m2)", transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>▸</span>
                                 <Av name={v.seller.name} size={26} /><strong>{v.seller.name}</strong>
                               </div>
                             </td>
@@ -565,7 +565,7 @@ function EquipeSection({ data, err, periodoLabel }: { data: EquipeDashboard; err
       <section className="panel">
         <div className="panel-head"><h2>Acompanhe sua equipe</h2></div>
         <div style={{ padding: 18 }}>
-          <span style={{ fontSize: "0.74rem", color: "var(--hbx-danger)", fontWeight: 700 }}>{err}</span>
+          <span style={{ fontSize: "var(--fz-l3)", color: "var(--hbx-danger)", fontWeight: 700 }}>{err}</span>
         </div>
       </section>
     );
@@ -596,7 +596,7 @@ function EquipeSection({ data, err, periodoLabel }: { data: EquipeDashboard; err
             <div className="panel-head"><h2>💰 Funil por etapa</h2></div>
             <div style={{ padding: "12px 16px 16px" }}>
               {(!fr || fr.stages.length === 0) && (
-                <p style={{ margin: 0, fontSize: "0.74rem", color: "var(--text-muted)" }}>Sem cards no período.</p>
+                <p style={{ margin: 0, fontSize: "var(--fz-l3)", color: "var(--text-muted)" }}>Sem cards no período.</p>
               )}
               {fr && fr.stages.length > 0 && (
                 <div className="bars" style={{ height: 170 }}>
@@ -746,15 +746,15 @@ function EquipeSection({ data, err, periodoLabel }: { data: EquipeDashboard; err
               <div className="fleg">
                 <div className="row">
                   <span className="swatch" style={{ background: "var(--hbx-info)" }}></span>Conversas tocadas pela IA
-                  <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: "0.7rem", fontWeight: 700 }}>{bot?.touched ?? "—"}</span>
+                  <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: "var(--fz-m2)", fontWeight: 700 }}>{bot?.touched ?? "—"}</span>
                 </div>
                 <div className="row">
                   <span className="swatch" style={{ background: "var(--hbx-warning)" }}></span>Devolvidas pro humano
-                  <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{bot ? `${bot.handedToHuman} (${botMax ? Math.round((bot.handedToHuman / botMax) * 100) : 0}%)` : "—"}</span>
+                  <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: "var(--fz-m2)" }}>{bot ? `${bot.handedToHuman} (${botMax ? Math.round((bot.handedToHuman / botMax) * 100) : 0}%)` : "—"}</span>
                 </div>
                 <div className="row">
                   <span className="swatch" style={{ background: "var(--hbx-brand-strong)" }}></span>Viraram venda
-                  <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: "0.7rem", fontWeight: 700, color: "var(--hbx-brand-strong)" }}>{bot ? `${bot.converted} (${botMax ? Math.round((bot.converted / botMax) * 100) : 0}%)` : "—"}</span>
+                  <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--hbx-brand-strong)" }}>{bot ? `${bot.converted} (${botMax ? Math.round((bot.converted / botMax) * 100) : 0}%)` : "—"}</span>
                 </div>
               </div>
             </div>

@@ -646,7 +646,7 @@ export function TeamPolicyEditor({ userId, sellers, isSelf }: {
           <span>Exigir localização<small>Vendedor só busca dentro do território definido.</small></span>
           <input type="checkbox" checked={requiresLocation} disabled={dis} onChange={(e) => setRequiresLocation(e.target.checked)} />
         </label>
-        <span className="lbl" style={{ fontSize: "0.7rem", fontWeight: 700 }}>Canais obrigatórios no resultado</span>
+        <span className="lbl" style={{ fontSize: "var(--fz-m2)", fontWeight: 700 }}>Canais obrigatórios no resultado</span>
         <div className="tp-grid2">
           {CHANNEL_LABELS.map(([key, label]) => (
             <label key={key} className="tp-toggle">

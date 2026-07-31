@@ -389,7 +389,7 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
 
   const eyeBtn = (on: boolean, toggle: () => void) => (
     <button type="button" onClick={toggle} aria-label={on ? "Ocultar senha" : "Mostrar senha"}
-      style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", border: 0, background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: "0.85rem" }}>
+      style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", border: 0, background: "transparent", color: "var(--text-muted)", cursor: "pointer", fontSize: "var(--fz-n3)" }}>
       {on ? "🙈" : "👁"}
     </button>
   );
@@ -411,26 +411,26 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
           <div className="ok show">{done.message || `Enviamos um link de confirmação para ${done.email || email}.`}</div>
           {resendMsg && <div className="ok show">{resendMsg}</div>}
           {done.previewUrl && (
-            <a className="link" href={done.previewUrl} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", fontSize: "0.72rem" }}>
+            <a className="link" href={done.previewUrl} target="_blank" rel="noopener noreferrer" style={{ textDecoration: "none", fontSize: "var(--fz-m1)" }}>
               Abrir e-mail de confirmação (ambiente de teste) ↗
             </a>
           )}
           {done.access_token ? (
-            <button className="btn-teal" type="button" onClick={entrarAgora} style={{ minHeight: 44, fontSize: "0.84rem" }}>
+            <button className="btn-teal" type="button" onClick={entrarAgora} style={{ minHeight: 44, fontSize: "var(--fz-n3)" }}>
               Encontrar meus primeiros leads →
             </button>
           ) : (
             <React.Fragment>
-              <button className="btn-ghost" type="button" onClick={reenviar} disabled={resendCooldown > 0} style={{ minHeight: 40, fontSize: "0.78rem" }}>
+              <button className="btn-ghost" type="button" onClick={reenviar} disabled={resendCooldown > 0} style={{ minHeight: 40, fontSize: "var(--fz-l2)" }}>
                 {resendCooldown > 0 ? `Reenviar confirmação em ${resendCooldown}s` : "Reenviar confirmação"}
               </button>
-              <Link href="/login" className="btn-teal" style={{ minHeight: 44, fontSize: "0.84rem", textDecoration: "none" }}>
+              <Link href="/login" className="btn-teal" style={{ minHeight: 44, fontSize: "var(--fz-n3)", textDecoration: "none" }}>
                 Ir para o login
               </Link>
               {/* F6 — Confirmação por WhatsApp (telefone já veio do cadastro —
                   pré-preenche pra não digitar de novo) */}
               {waStep === "idle" && (
-                <button className="btn-ghost" type="button" onClick={() => { setWaStep("phone"); setWaError(null); setWaMsg(null); if (freeTelefone) setWaPhone(freeTelefone); }} style={{ minHeight: 40, fontSize: "0.78rem" }}>
+                <button className="btn-ghost" type="button" onClick={() => { setWaStep("phone"); setWaError(null); setWaMsg(null); if (freeTelefone) setWaPhone(freeTelefone); }} style={{ minHeight: 40, fontSize: "var(--fz-l2)" }}>
                   Confirmar pelo WhatsApp
                 </button>
               )}
@@ -455,7 +455,7 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
                       disabled={waBusy}
                     />
                   </div>
-                  <button className="btn-teal" type="button" onClick={waSendCode} disabled={waBusy || !waPhone.trim()} style={{ minHeight: 40, fontSize: "0.78rem" }}>
+                  <button className="btn-teal" type="button" onClick={waSendCode} disabled={waBusy || !waPhone.trim()} style={{ minHeight: 40, fontSize: "var(--fz-l2)" }}>
                     {waBusy ? "Enviando…" : "Enviar código"}
                   </button>
                 </React.Fragment>
@@ -481,7 +481,7 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
                       disabled={waBusy}
                     />
                   </div>
-                  <button className="btn-teal" type="button" onClick={waConfirmCode} disabled={waBusy || waCode.length < 6} style={{ minHeight: 40, fontSize: "0.78rem" }}>
+                  <button className="btn-teal" type="button" onClick={waConfirmCode} disabled={waBusy || waCode.length < 6} style={{ minHeight: 40, fontSize: "var(--fz-l2)" }}>
                     {waBusy ? "Confirmando…" : "Confirmar código"}
                   </button>
                 </React.Fragment>
@@ -557,11 +557,11 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
           )}
           {error && error.includes("já tem conta") && (
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-              <Link href="/login" className="btn-ghost" style={{ minHeight: 38, fontSize: "0.74rem", textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>Entrar com este e-mail</Link>
-              <Link href="/reset-password" className="btn-ghost" style={{ minHeight: 38, fontSize: "0.74rem", textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>Recuperar senha</Link>
+              <Link href="/login" className="btn-ghost" style={{ minHeight: 38, fontSize: "var(--fz-l3)", textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>Entrar com este e-mail</Link>
+              <Link href="/reset-password" className="btn-ghost" style={{ minHeight: 38, fontSize: "var(--fz-l3)", textDecoration: "none", display: "inline-flex", alignItems: "center", justifyContent: "center" }}>Recuperar senha</Link>
             </div>
           )}
-          <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 44, fontSize: "0.84rem" }}>
+          <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 44, fontSize: "var(--fz-n3)" }}>
             {busy ? "Enviando…" : "Criar conta grátis"}
           </button>
           <p style={{ margin: "2px 0 0", fontSize: "var(--hbx-font-min)", lineHeight: 1.5, color: "var(--text-muted)", textAlign: "center" }}>

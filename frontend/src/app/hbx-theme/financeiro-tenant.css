@@ -46,7 +46,7 @@
 .fin-heading h1 {
   color: var(--text-strong);
   font-family: var(--font-display);
-  font-size: 0.96rem;
+  font-size: var(--fz-t10);
   font-weight: 780;
   letter-spacing: var(--tracking-tight);
 }
@@ -133,14 +133,14 @@
   margin-top: 2px;
   color: var(--text-strong);
   font-family: var(--font-display);
-  font-size: 1.12rem;
+  font-size: var(--fz-t8);
   font-weight: 800;
   letter-spacing: var(--tracking-tight);
 }
 
 .fin-metric-primary > strong {
   color: color-mix(in srgb, var(--hbx-brand) 50%, var(--text-strong));
-  font-size: 1.26rem;
+  font-size: var(--fz-t7);
 }
 
 .fin-metric > small {
@@ -188,7 +188,7 @@
 .fin-portfolio-head h2 {
   color: var(--text-strong);
   font-family: var(--font-display);
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
   font-weight: 760;
 }
 
@@ -586,7 +586,7 @@
 
 .fin-empty-state strong {
   color: var(--text-strong);
-  font-size: 0.7rem;
+  font-size: var(--fz-m2);
   font-weight: 750;
 }
 
@@ -647,7 +647,7 @@
 
 .fin-restricted strong {
   color: var(--text-strong);
-  font-size: 0.86rem;
+  font-size: var(--fz-n3);
 }
 
 .fin-restricted > span:last-child {
@@ -664,7 +664,7 @@
 }
 
 .fin-context .hbx-panel-context__title {
-  font-size: 0.72rem;
+  font-size: var(--fz-m1);
 }
 
 .fin-context-status {
@@ -722,7 +722,7 @@
 }
 
 .fin-context-initials {
-  font-size: 0.72rem;
+  font-size: var(--fz-m1);
   font-weight: 800;
   letter-spacing: 0.02em;
 }
@@ -780,7 +780,7 @@
 .fin-balance-card > span:first-child > strong {
   color: color-mix(in srgb, var(--hbx-brand) 50%, var(--text-strong));
   font-family: var(--font-display);
-  font-size: 1.34rem;
+  font-size: var(--fz-t7);
   font-weight: 820;
   letter-spacing: var(--tracking-tight);
 }

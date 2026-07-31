@@ -103,7 +103,7 @@ export function JanelaTickets() {
             </button>
           ))}
         </div>
-        {loadError && <div style={{ padding: "8px 16px 12px", fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>}
+        {loadError && <div style={{ padding: "8px 16px 12px", fontSize: "var(--fz-l3)", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>}
         <div className="tbl-wrap">
           <table className="tbl">
             <thead>
@@ -146,12 +146,12 @@ export function JanelaTickets() {
             <h2>{sel.title || sel.ticketCode || "Ticket"}</h2>
             <div className="meta"><span className={statusTag(sel.status)}>{sel.status || "—"}</span></div>
           </div>
-          <div style={{ padding: "12px 16px 16px", display: "grid", gap: 10, fontSize: "0.74rem" }}>
+          <div style={{ padding: "12px 16px 16px", display: "grid", gap: 10, fontSize: "var(--fz-l3)" }}>
             {sel.description && (
               <p style={{ margin: 0, lineHeight: 1.55, whiteSpace: "pre-line" }}>{sel.description}</p>
             )}
             {sel.lastCustomerMessage && (
-              <div style={{ padding: "9px 11px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", fontSize: "0.72rem", lineHeight: 1.5 }}>
+              <div style={{ padding: "9px 11px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", fontSize: "var(--fz-m1)", lineHeight: 1.5 }}>
                 <strong style={{ display: "block", fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", marginBottom: 4 }}>Última mensagem do cliente</strong>
                 {sel.lastCustomerMessage}
               </div>
@@ -175,9 +175,9 @@ export function JanelaTickets() {
             </div>
             {(sel.jobs || []).length > 0 && (
               <div style={{ display: "grid", gap: 6 }}>
-                <strong style={{ fontSize: "0.72rem" }}>Jobs</strong>
+                <strong style={{ fontSize: "var(--fz-m1)" }}>Jobs</strong>
                 {(sel.jobs || []).map(j => (
-                  <div key={j.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "0.72rem" }}>
+                  <div key={j.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "var(--fz-m1)" }}>
                     <span>{j.title || j.type || j.id}</span>
                     <span className={statusTag(j.status)} style={{ marginLeft: "auto" }}>{j.status || "—"}</span>
                   </div>

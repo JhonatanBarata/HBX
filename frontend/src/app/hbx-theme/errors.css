@@ -18,7 +18,7 @@
   place-items: center;
   border-radius: 50%;
   font-weight: 800;
-  font-size: 1.4rem;
+  font-size: var(--fz-t6);
   line-height: 1;
   color: var(--color-warning);
   background: color-mix(in srgb, var(--color-warning) 16%, transparent);
@@ -31,7 +31,7 @@
 
 .hbx-error__title {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: var(--fz-t9);
 }
 
 .hbx-error__msg {
@@ -42,7 +42,7 @@
 
 .hbx-error__ref {
   margin: 2px 0 0;
-  font-size: 0.72rem;
+  font-size: var(--fz-m1);
   letter-spacing: 0.02em;
   color: var(--color-ink-muted);
   font-family: "IBM Plex Mono", ui-monospace, monospace;

@@ -100,7 +100,7 @@
 .heading h2 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(1.45rem, calc(2.6vw * var(--hbx-font-scale)), 2rem);
+  font-size: clamp(var(--fz-t6), calc(2.6vw * var(--hbx-font-scale)), var(--fz-t3));
   font-weight: 800;
   letter-spacing: -0.025em;
   color: var(--text-strong);
@@ -109,7 +109,7 @@
 .heading p {
   margin: 6px 0 0;
   max-width: 60ch;
-  font-size: 0.78rem;
+  font-size: var(--fz-l2);
   line-height: 1.5;
   color: var(--text-muted);
 }
@@ -208,7 +208,7 @@
 
 .progressValue strong {
   font-family: var(--font-display);
-  font-size: 2.55rem;
+  font-size: var(--fz-t2);
   line-height: 1;
   letter-spacing: -0.04em;
   color: var(--text-strong);
@@ -343,7 +343,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
   font-weight: 800;
   color: var(--text-strong);
 }
@@ -403,7 +403,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.78rem;
+  font-size: var(--fz-l2);
   color: var(--text-strong);
 }
 
@@ -447,7 +447,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.74rem;
+  font-size: var(--fz-l3);
   color: var(--text-strong);
 }
 
@@ -463,7 +463,7 @@
   border: 1px solid color-mix(in srgb, var(--hbx-brand) 24%, var(--border-hairline));
   border-radius: var(--radius-pill);
   background: var(--hbx-brand-soft);
-  font-size: 0.7rem;
+  font-size: var(--fz-m2);
   font-weight: 800;
   color: var(--hbx-brand);
 }
@@ -552,7 +552,7 @@
 
 @media (max-width: 460px) {
   .header { padding: 17px; }
-  .heading h2 { font-size: 1.25rem; }
+  .heading h2 { font-size: var(--fz-t7); }
   .body { padding: 17px; }
   .stages { border-radius: var(--radius-md); }
   .stage { min-height: 58px; padding: 9px 12px; }

@@ -95,7 +95,7 @@
   flex: 0 0 auto;
 }
 .wa-status__time {
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
   font-weight: 700;
   letter-spacing: 0.01em;
   color: var(--wa-header-ink);
@@ -140,7 +140,7 @@
   border-radius: 999px;
   background: var(--wa-avatar);
   color: var(--wa-header-ink);
-  font-size: 0.73rem;
+  font-size: var(--fz-l3);
   font-weight: 700;
   overflow: hidden;
   border: 1.5px solid var(--wa-avatar-ring);
@@ -153,7 +153,7 @@
   line-height: 1.2;
 }
 .wa-head__name {
-  font-size: 0.84rem;
+  font-size: var(--fz-n3);
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -214,7 +214,7 @@
   margin: auto;
   max-width: 200px;
   text-align: center;
-  font-size: 0.7rem;
+  font-size: var(--fz-m2);
   line-height: 1.55;
   color: var(--wa-text-sub);
 }
@@ -237,7 +237,7 @@
   position: relative;
   padding: 5px 8px 3px;
   border-radius: 8px;
-  font-size: 0.77rem;
+  font-size: var(--fz-l2);
   line-height: 1.45;
   color: var(--wa-text);
   background: var(--wa-bubble-in);
@@ -317,7 +317,7 @@
   background: var(--wa-quick);
   color: var(--wa-quick-ink);
   font: inherit;
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
   font-weight: 600;
   text-align: center;
   cursor: pointer;
@@ -360,7 +360,7 @@
 }
 .wa-compose__placeholder {
   flex: 1;
-  font-size: 0.72rem;
+  font-size: var(--fz-m1);
   color: var(--wa-text-sub);
   user-select: none;
 }
@@ -419,7 +419,7 @@
   border-radius: 50%;
   background: color-mix(in srgb, var(--wa-text-sub) 18%, transparent);
   color: var(--wa-text);
-  font-size: 0.8rem;
+  font-size: var(--fz-l1);
   line-height: 1;
   cursor: pointer;
   padding: 0;
@@ -526,7 +526,7 @@
   background: var(--hbx-surface);
   border: 1px solid var(--hbx-brand);
   color: var(--hbx-brand-strong);
-  font-size: 0.82rem;
+  font-size: var(--fz-l1);
   font-weight: 700;
 }
 
@@ -566,7 +566,7 @@
   gap: 1px;
 }
 .attach-preview .info strong {
-  font-size: 0.78rem;
+  font-size: var(--fz-l2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -621,7 +621,7 @@
 }
 @keyframes wa-setup-spin { to { transform: rotate(360deg); } }
 .wa-setup-error { display: grid; justify-items: center; gap: 12px; text-align: center; }
-.wa-setup-error span { font-size: 0.76rem; line-height: 1.45; color: var(--hbx-danger); }
+.wa-setup-error span { font-size: var(--fz-l2); line-height: 1.45; color: var(--hbx-danger); }
 @media (prefers-reduced-motion: reduce) {
   .wa-setup-loading { animation: none; }
 }

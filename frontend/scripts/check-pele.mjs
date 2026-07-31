@@ -9,6 +9,14 @@
 //  R5. font-size em px dentro de theme-*.css (pele) — métrica estrutural é
 //      ESQUELETO (FRONTEND.md, Lei 1, LEADS-FINAL/01 06/07): pele veste cor/
 //      borda/sombra/vidro/radius/fonte, NUNCA tamanho. Meta zero (sem catraca).
+//  R8. font-size com medida LITERAL (0.8rem, 12px…) em qualquer CSS/TSX do
+//      app — TIPOGRAFIA CENTRAL (31/07): toda letra nasce de um degrau do
+//      hbx-theme/typography.css (var(--fz-*)). Era isto que deixava 2.523
+//      declarações virarem ~70 tamanhos quase iguais, com diferença de meio
+//      pixel entre telas. Falta um tamanho? O degrau nasce no typography.css
+//      e a tela usa o var. Isento: o próprio typography.css e o mundo PÚBLICO
+//      (landing/portal/site de cliente), que tem cena própria em clamp por
+//      viewport e não tem painel de usuário.
 // Regra de CATRACA (migração monitorada):
 //  R4. style inline com propriedade VISUAL (cor/borda/sombra/fonte/radius)
 //      em TSX — contagem NUNCA pode subir; quando cair, o teto desce junto
@@ -79,6 +87,35 @@ const ARBITRARY_RE = /(?:^|[\s"'`{])(?:bg|text|border|shadow|fill|stroke|from|to
 const VISUAL_PROP_RE = /\b(?:background|backgroundColor|backgroundImage|borderColor|borderRadius|boxShadow|textShadow|fontFamily|backdropFilter|WebkitBackdropFilter|border|borderTop|borderRight|borderBottom|borderLeft|color|outline)\s*:/;
 const FONT_SIZE_PX_RE = /font-size\s*:\s*-?\d[\d.]*px/i;
 
+// R8 — tipografia central. Pega a MEDIDA FIXA literal em qualquer lugar do
+// valor (inclusive dentro de calc()/clamp()), tanto em CSS quanto no fontSize
+// do TSX. Passam: var(), `font-size: 0`, `inherit`, `1em` (proporção do pai) e
+// o miolo em vw de um clamp — texto fluido por viewport é RESPONSIVIDADE, não
+// tamanho decidido na tela; o que o fiscal exige é que os LIMITES do clamp
+// sejam degraus do sistema.
+const MEDIDA_FIXA_RE = /(?<![\w.-])\d[\d.]*\s*(?:px|rem|pt)(?![\w-])/i;
+function fontSizeLiteral(line) {
+  for (const m of line.matchAll(/font-size\s*:\s*([^;{}\n]*)/gi)) {
+    if (MEDIDA_FIXA_RE.test(m[1])) return true;
+  }
+  // TSX: só o VALOR da propriedade — senão um `padding: "0 8px"` na mesma
+  // linha reprovava um fontSize que já era var().
+  for (const m of line.matchAll(/fontSize\s*:\s*(["'`])([^"'`]*)\1/g)) {
+    if (MEDIDA_FIXA_RE.test(m[2])) return true;
+  }
+  return /fontSize\s*:\s*\d/.test(line); // número puro em TSX = px
+}
+// O sistema em si + o mundo público (cena própria, hero em clamp de viewport).
+const FONT_SIZE_LITERAL_EXEMPT = [
+  /hbx-theme[\\/]typography\.css$/,
+  /hbx-theme[\\/]public-entry\.css$/,
+  /hbx-theme[\\/]marketing\.css$/,
+  /hbx-theme[\\/]rota-site\.css$/,
+  /hbx-theme[\\/]tracking-publico\.css$/,
+  /app[\\/]page\.client\.tsx$/,
+  /app[\\/]trabalhe-conosco[\\/]/,
+];
+
 // APK (EntregaShell) — ver bloco de comentário no topo do arquivo (R6/R7).
 const ENTREGA_ROOT = join(process.cwd(), "..", "EntregaShell", "app", "src");
 const ENTREGA_EXTS = [".css", ".js", ".html"];
@@ -123,10 +160,12 @@ const visualByFile = new Map();
 for (const file of walk(ROOT, [".css"])) {
   const isThemePele = THEME_PELE_RE.test(file);
   const skipR1 = CSS_ALLOWED.some(re => re.test(file));
+  const isFontSizeExempt = FONT_SIZE_LITERAL_EXEMPT.some(re => re.test(file));
   // R1 (cor) é isenta pra arquivos de pele/contrato (CSS_ALLOWED) — mas R5
-  // (font-size:px) mira EXATAMENTE nas peles de verdade, então não pode dar
-  // `continue` cedo demais: pele passa pelo arquivo, só pula a varredura R1.
-  if (skipR1 && !isThemePele) continue;
+  // (font-size:px) e R8 (tipografia central) miram justamente em arquivos
+  // dessa lista, então não pode dar `continue` cedo demais: eles passam pelo
+  // arquivo, só pulam a varredura R1.
+  if (skipR1 && !isThemePele && isFontSizeExempt) continue;
   let peleOn = true; // false = dentro de bloco isento (pele-allow … pele-allow-end)
   readFileSync(file, "utf8").split(/\r?\n/).forEach((line, i) => {
     // Bloco isento EXPLÍCITO p/ "mundo visual do site público" em evolução (ex.: a
@@ -136,6 +175,9 @@ for (const file of walk(ROOT, [".css"])) {
     if (/pele-allow\b/.test(line)) { peleOn = false; return; }
     if (isThemePele && FONT_SIZE_PX_RE.test(line)) {
       hard.push(`R5 ${rel(file)}:${i + 1}  ${line.trim().slice(0, 80)}`);
+    }
+    if (!isFontSizeExempt && fontSizeLiteral(line)) {
+      hard.push(`R8 ${rel(file)}:${i + 1}  ${line.trim().slice(0, 80)}`);
     }
     if (skipR1 || !peleOn) return;
     for (const m of line.matchAll(COLOR_RE)) {
@@ -148,8 +190,12 @@ for (const file of walk(ROOT, [".css"])) {
 
 for (const file of walk(ROOT, [".tsx", ".ts"])) {
   if (TSX_EXEMPT.some(re => re.test(file))) continue;
+  const isFontSizeExempt = FONT_SIZE_LITERAL_EXEMPT.some(re => re.test(file));
   const lines = readFileSync(file, "utf8").split(/\r?\n/);
   lines.forEach((line, i) => {
+    if (!isFontSizeExempt && fontSizeLiteral(line)) {
+      hard.push(`R8 ${rel(file)}:${i + 1}  ${line.trim().slice(0, 80)}`);
+    }
     for (const m of line.matchAll(COLOR_RE)) {
       if (m[0].startsWith("#") && NEUTRAL.test(m[0])) continue;
       hard.push(`R2 ${rel(file)}:${i + 1}  ${line.trim().slice(0, 80)}`);

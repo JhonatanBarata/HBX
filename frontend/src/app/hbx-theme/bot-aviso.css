@@ -92,7 +92,7 @@
 /* pele-allow-end */
 .bot-aviso__titles { flex: 1; min-width: 0; display: grid; gap: 2px; padding-top: 4px; }
 .bot-aviso__title {
-  font-size: 1.02rem;
+  font-size: var(--fz-n1);
   font-weight: 800;
   font-family: var(--font-display);
   color: var(--text-strong);
@@ -110,7 +110,7 @@
   border-radius: 50%;
   background: transparent;
   color: var(--text-muted);
-  font-size: 0.9rem;
+  font-size: var(--fz-n2);
   transition: background var(--motion-fast), color var(--motion-fast);
 }
 .bot-aviso__close:hover { background: var(--hbx-surface-raised); color: var(--text-strong); }
@@ -123,7 +123,7 @@
 }
 .bot-aviso__message {
   margin: 0;
-  font-size: 0.82rem;
+  font-size: var(--fz-l1);
   line-height: 1.6;
   color: var(--text-body);
 }

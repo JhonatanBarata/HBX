@@ -38,7 +38,7 @@ export function PeleSpecimenClient() {
               <ModeToggle />
             </div>
           </div>
-          <p className="text-ink-muted" style={{ margin: 0, padding: "0 18px 16px", fontSize: "0.8rem", lineHeight: 1.5 }}>
+          <p className="text-ink-muted" style={{ margin: 0, padding: "0 18px 16px", fontSize: "var(--fz-l1)", lineHeight: 1.5 }}>
             Documento vivo do padrão — a vitrine onde as cascas se aprovam ANTES de
             serem espalhadas pelas telas. Troque casca, tema e modo acima: TUDO aqui
             deve vestir junto, porque é o mesmo sistema, só tokens e classes centrais.
@@ -69,13 +69,13 @@ export function PeleSpecimenClient() {
         </Secao>
 
         <Secao titulo="2 · Tipografia">
-          <div className="hbx-display" style={{ fontSize: "2rem" }}>Display — Radar acha, Vendas fecha</div>
-          <div className="font-display text-ink" style={{ fontSize: "1.1rem", fontWeight: 700 }}>Título de painel — Pipeline de vendas</div>
-          <p className="text-ink-soft" style={{ margin: 0, fontSize: "0.86rem", lineHeight: 1.55 }}>
+          <div className="hbx-display" style={{ fontSize: "var(--fz-t3)" }}>Display — Radar acha, Vendas fecha</div>
+          <div className="font-display text-ink" style={{ fontSize: "var(--fz-t8)", fontWeight: 700 }}>Título de painel — Pipeline de vendas</div>
+          <p className="text-ink-soft" style={{ margin: 0, fontSize: "var(--fz-n3)", lineHeight: 1.55 }}>
             Corpo de texto — o lead respondeu no WhatsApp e pediu uma proposta para a
             próxima semana. <span className="text-ink-muted">Texto secundário fica neste tom.</span>
           </p>
-          <div className="hbx-mono text-ink" style={{ fontSize: "0.82rem" }}>MONO 0123456789 · R$ 45,90 · 27,4%</div>
+          <div className="hbx-mono text-ink" style={{ fontSize: "var(--fz-l1)" }}>MONO 0123456789 · R$ 45,90 · 27,4%</div>
           <div className="hbx-overline">Overline · seção</div>
         </Secao>
 
@@ -99,8 +99,8 @@ export function PeleSpecimenClient() {
           ]} />
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <div className="hbx-modal" style={{ display: "grid", gap: 10, padding: 20 }}>
-              <h3 className="font-display text-ink" style={{ margin: 0, fontSize: "1rem", fontWeight: 800 }}>Modal central</h3>
-              <p className="text-ink-muted" style={{ margin: 0, fontSize: "0.78rem" }}>Confirmações e formulários vivem nesta janela.</p>
+              <h3 className="font-display text-ink" style={{ margin: 0, fontSize: "var(--fz-n1)", fontWeight: 800 }}>Modal central</h3>
+              <p className="text-ink-muted" style={{ margin: 0, fontSize: "var(--fz-l2)" }}>Confirmações e formulários vivem nesta janela.</p>
               <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                 <button className="btn-ghost">Cancelar</button>
                 <button className="btn-teal">Confirmar</button>

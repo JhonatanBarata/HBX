@@ -121,7 +121,7 @@
 
 .hbx-panel-context__title {
   color: var(--text-strong);
-  font-size: 0.78rem;
+  font-size: var(--fz-l2);
   font-weight: 750;
 }
 
@@ -165,7 +165,7 @@
 
 .hbx-panel-context__empty strong {
   color: var(--text-strong);
-  font-size: 0.8rem;
+  font-size: var(--fz-l1);
   font-weight: 750;
 }
 
@@ -218,7 +218,7 @@
 
 .hbx-panel-context__hero-copy > strong {
   color: var(--text-strong);
-  font-size: 0.82rem;
+  font-size: var(--fz-l1);
   font-weight: 800;
 }
 
@@ -272,7 +272,7 @@
 .hbx-panel-context__metric > strong {
   color: var(--text-strong);
   font-family: var(--font-mono);
-  font-size: 0.88rem;
+  font-size: var(--fz-n3);
   font-weight: 800;
 }
 

@@ -34,7 +34,7 @@
 .log-triage__head strong,
 .log-board__head strong {
   color: var(--text-strong);
-  font-size: 0.78rem;
+  font-size: var(--fz-l2);
   font-weight: 800;
 }
 
@@ -59,7 +59,7 @@
 .log-triage__limpo {
   margin: 0;
   color: var(--text-muted);
-  font-size: 0.72rem;
+  font-size: var(--fz-m1);
 }
 .log-triage__list { display: grid; gap: 6px; }
 
@@ -88,8 +88,8 @@
 }
 /* A GRAVIDADE é a tarja de 3px + a etiqueta escrita; a cor do texto miúdo não
    carrega o recado sozinha (âmbar em 8px sobre superfície clara dá 2,3:1). */
-.log-triage__what { color: var(--text-strong); font-size: 0.74rem; font-weight: 800; }
-.log-triage__why { color: var(--text-body); font-size: 0.7rem; line-height: 1.45; }
+.log-triage__what { color: var(--text-strong); font-size: var(--fz-l3); font-weight: 800; }
+.log-triage__why { color: var(--text-body); font-size: var(--fz-m2); line-height: 1.45; }
 .log-triage__act { flex: none; justify-self: end; }
 
 /* ── O tabuleiro ───────────────────────────────────────────── */
@@ -136,7 +136,7 @@
 .log-lane__who b {
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 0.74rem;
+  font-size: var(--fz-l3);
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -205,7 +205,7 @@
 .log-strip__main { display: grid; gap: 1px; min-width: 0; }
 .log-strip__main b {
   overflow: hidden;
-  font-size: 0.7rem;
+  font-size: var(--fz-m2);
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -325,7 +325,7 @@
 .log-command__single-view {
   color: var(--text-strong);
   font-family: var(--font-display);
-  font-size: 0.74rem;
+  font-size: var(--fz-l3);
   line-height: 1.15;
 }
 
@@ -389,7 +389,7 @@
   width: 32px;
   min-width: 32px;
   padding: 0;
-  font-size: 0.9rem;
+  font-size: var(--fz-n2);
 }
 
 .log-command__build {
@@ -542,7 +542,7 @@
 }
 
 .log-instruments .log-resumo__num {
-  font-size: 0.82rem;
+  font-size: var(--fz-l1);
   line-height: 1.1;
 }
 
@@ -711,7 +711,7 @@
 }
 
 .log-today-scroll > .emp-empty .emp-empty__title {
-  font-size: 0.7rem;
+  font-size: var(--fz-m2);
 }
 
 .log-today-scroll > .emp-empty .emp-empty__text {
@@ -758,7 +758,7 @@
 }
 
 .log-live-content .log-agenda__head h2 {
-  font-size: 0.82rem;
+  font-size: var(--fz-l1);
 }
 
 .log-live-content .log-agenda__head p {

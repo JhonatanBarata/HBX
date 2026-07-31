@@ -368,7 +368,7 @@ export function CompanyEmailSection() {
 
   const pronto = Boolean(estado?.sender?.ready);
   const ativo = Boolean(estado?.enabled);
-  const lbl = { fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" } as const;
+  const lbl = { fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" } as const;
 
   return (
     <React.Fragment>
@@ -383,15 +383,15 @@ export function CompanyEmailSection() {
             <button className={"sw" + (ativo ? " on" : "")} role="switch" aria-checked={ativo} onClick={alternarAtivo} disabled={busy}><i></i></button>
           </div>
         </div>
-        {loadError && <div style={{ padding: "12px 16px", fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>}
+        {loadError && <div style={{ padding: "12px 16px", fontSize: "var(--fz-l3)", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>}
         {!loadError && (
           <div style={{ padding: 18, display: "grid", gap: 14 }}>
-            <p style={{ margin: 0, fontSize: "0.72rem", lineHeight: 1.55, color: "var(--text-muted)" }}>
+            <p style={{ margin: 0, fontSize: "var(--fz-m1)", lineHeight: 1.55, color: "var(--text-muted)" }}>
               Com o módulo ativo e o envio configurado, os disparos de e-mail do cadastro (boas-vindas e onboarding)
               e o envio avulso ficam disponíveis — sempre pelo remetente da SUA empresa.
             </p>
             {estado?.hbxShared ? (
-              <div style={{ padding: "10px 12px", borderRadius: "var(--radius-sm)", border: "1px solid color-mix(in srgb, var(--hbx-brand) 30%, transparent)", background: "var(--hbx-brand-soft)", fontSize: "0.72rem", lineHeight: 1.5 }}>
+              <div style={{ padding: "10px 12px", borderRadius: "var(--radius-sm)", border: "1px solid color-mix(in srgb, var(--hbx-brand) 30%, transparent)", background: "var(--hbx-brand-soft)", fontSize: "var(--fz-m1)", lineHeight: 1.5 }}>
                 Esta empresa usa o <b>transporte de e-mail da plataforma HBX</b>{estado?.sender?.from ? <> — remetente <b>{estado.sender.from}</b></> : null}. Não há SMTP para configurar aqui.
               </div>
             ) : (
@@ -406,7 +406,7 @@ export function CompanyEmailSection() {
                   <div className="f"><label>Responder para</label><input className="field-dark" type="email" placeholder="opcional" value={smtpForm.replyTo} onChange={e => setSmtpForm(f => ({ ...f, replyTo: e.target.value }))} /></div>
                 </div>
                 {!pronto && (estado?.sender?.missing?.length || 0) > 0 && (
-                  <div style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--hbx-warning)" }}>
+                  <div style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--hbx-warning)" }}>
                     Falta: {(estado?.sender?.missing || []).join(", ")}.
                   </div>
                 )}
@@ -448,7 +448,7 @@ export function CompanyEmailSection() {
                 <div style={{ display: "grid", gap: 6 }}>
                   <label style={lbl}>Corpo</label>
                   <textarea ref={textRef} className="field-dark" rows={12} maxLength={12000} value={tplForm.text}
-                    style={{ resize: "vertical", fontFamily: "var(--font-mono)", fontSize: "0.74rem", lineHeight: 1.55, padding: "10px 12px" }}
+                    style={{ resize: "vertical", fontFamily: "var(--font-mono)", fontSize: "var(--fz-l3)", lineHeight: 1.55, padding: "10px 12px" }}
                     onChange={e => { setTplForm(f => ({ ...f, text: e.target.value })); setTplDirty(true); }} />
                 </div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -469,8 +469,8 @@ export function CompanyEmailSection() {
                 </div>
                 <div className="sep"></div>
                 <div style={{ display: "grid", gap: 8 }}>
-                  <strong style={{ fontSize: "0.78rem" }}>Envio de teste</strong>
-                  {testeMsg && <span style={{ fontSize: "0.7rem", fontWeight: 700, color: testeMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{testeMsg}</span>}
+                  <strong style={{ fontSize: "var(--fz-l2)" }}>Envio de teste</strong>
+                  {testeMsg && <span style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: testeMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{testeMsg}</span>}
                   <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr auto", gap: 8 }}>
                     <input className="field-dark" type="email" placeholder="email de teste" value={teste.to} onChange={e => setTeste(t => ({ ...t, to: e.target.value }))} />
                     <input className="field-dark" placeholder="nome" value={teste.sampleName} onChange={e => setTeste(t => ({ ...t, sampleName: e.target.value }))} />
@@ -483,7 +483,7 @@ export function CompanyEmailSection() {
                 </div>
               </React.Fragment>
             ) : (
-              <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>
+              <span style={{ fontSize: "var(--fz-l3)", color: "var(--text-muted)" }}>
                 {templates === null ? "Carregando…" : "Nenhum template ainda — crie o primeiro no botão “Novo”."}
               </span>
             )}
@@ -495,7 +495,7 @@ export function CompanyEmailSection() {
         <section className="panel">
           <div className="panel-head"><h2>Disparos do cadastro</h2></div>
           <div style={{ padding: 18, display: "grid", gap: 12 }}>
-            <p style={{ margin: 0, fontSize: "0.72rem", lineHeight: 1.55, color: "var(--text-muted)" }}>
+            <p style={{ margin: 0, fontSize: "var(--fz-m1)", lineHeight: 1.55, color: "var(--text-muted)" }}>
               Template usado em cada disparo MANUAL do cadastro de acesso. Boas-vindas exige as variáveis {"{acesso}"} e {"{senha}"}.
             </p>
             <div className="frow">
@@ -536,35 +536,35 @@ export function CompanyEmailSection() {
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <I d={ICONS.clip} size={15} />
               <div style={{ flex: 1, minWidth: 220 }}>
-                <strong style={{ fontSize: "0.76rem" }}>Apresentação (PPTX)</strong>
+                <strong style={{ fontSize: "var(--fz-l2)" }}>Apresentação (PPTX)</strong>
                 <div style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>
                   {estado?.attachment?.originalName ? `${estado.attachment.originalName} ${fmtBytes(estado.attachment.size)}` : "Nenhum arquivo — anexada no envio avulso quando existir."}
                 </div>
               </div>
-              <label className="btn-ghost" style={{ minHeight: 30, fontSize: "0.7rem", cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
+              <label className="btn-ghost" style={{ minHeight: 30, fontSize: "var(--fz-m2)", cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
                 {uploadBusy === "attachment" ? "Enviando…" : "Escolher arquivo"}
                 <input type="file" accept=".pptx" style={{ display: "none" }} disabled={uploadBusy !== null}
                   onChange={e => { uploadAsset("attachment", e.target.files?.[0]); e.target.value = ""; }} />
               </label>
               {estado?.attachment && (
-                <button className="btn-ghost" style={{ minHeight: 30, fontSize: "0.7rem", color: "var(--hbx-danger)" }} disabled={uploadBusy !== null} onClick={() => removerAsset("attachment")}>Remover</button>
+                <button className="btn-ghost" style={{ minHeight: 30, fontSize: "var(--fz-m2)", color: "var(--hbx-danger)" }} disabled={uploadBusy !== null} onClick={() => removerAsset("attachment")}>Remover</button>
               )}
             </div>
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <I d={ICONS.smile} size={15} />
               <div style={{ flex: 1, minWidth: 220 }}>
-                <strong style={{ fontSize: "0.76rem" }}>Cartão de visitas (assinatura)</strong>
+                <strong style={{ fontSize: "var(--fz-l2)" }}>Cartão de visitas (assinatura)</strong>
                 <div style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>
                   {estado?.businessCard?.originalName || "Nenhuma imagem — quando existir, entra como assinatura dos e-mails."}
                 </div>
               </div>
-              <label className="btn-ghost" style={{ minHeight: 30, fontSize: "0.7rem", cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
+              <label className="btn-ghost" style={{ minHeight: 30, fontSize: "var(--fz-m2)", cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
                 {uploadBusy === "business-card" ? "Enviando…" : "Escolher imagem"}
                 <input type="file" accept="image/png,image/jpeg,image/webp" style={{ display: "none" }} disabled={uploadBusy !== null}
                   onChange={e => { uploadAsset("business-card", e.target.files?.[0]); e.target.value = ""; }} />
               </label>
               {estado?.businessCard && (
-                <button className="btn-ghost" style={{ minHeight: 30, fontSize: "0.7rem", color: "var(--hbx-danger)" }} disabled={uploadBusy !== null} onClick={() => removerAsset("business-card")}>Remover</button>
+                <button className="btn-ghost" style={{ minHeight: 30, fontSize: "var(--fz-m2)", color: "var(--hbx-danger)" }} disabled={uploadBusy !== null} onClick={() => removerAsset("business-card")}>Remover</button>
               )}
             </div>
           </div>
@@ -575,10 +575,10 @@ export function CompanyEmailSection() {
         <section className="panel">
           <div className="panel-head"><h2>Envio avulso</h2></div>
           <form onSubmit={enviarAvulso} style={{ padding: 18, display: "grid", gap: 10 }}>
-            <p style={{ margin: 0, fontSize: "0.72rem", lineHeight: 1.5, color: "var(--text-muted)" }}>
+            <p style={{ margin: 0, fontSize: "var(--fz-m1)", lineHeight: 1.5, color: "var(--text-muted)" }}>
               Envia o template selecionado acima ({atual?.label || "—"}) para um contato, com apresentação e cartão quando existirem.
             </p>
-            {envioMsg && <span style={{ fontSize: "0.7rem", fontWeight: 700, color: envioMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{envioMsg}</span>}
+            {envioMsg && <span style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: envioMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{envioMsg}</span>}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 8 }}>
               <input className="field-dark" required maxLength={120} placeholder="Nome do contato" value={envio.recipientName}
                 onChange={e => setEnvio(v => ({ ...v, recipientName: e.target.value }))} />
@@ -597,7 +597,7 @@ export function CompanyEmailSection() {
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setNovoOpen(false); }}>
           <form className="hbx-modal" onSubmit={criarTemplate}
             style={{ width: "min(380px, 100%)", display: "grid", gap: 12, padding: 24 }}>
-            <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "var(--fz-t9)", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Novo template
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setNovoOpen(false)}>✕</span>
             </h3>

@@ -246,7 +246,7 @@ export function JanelaTutorial() {
     return (
       <section className="panel">
         <div className="panel-head"><h2>Tutorial front</h2></div>
-        <div style={{ padding: 20, fontSize: "0.76rem" }}>Carregando…</div>
+        <div style={{ padding: 20, fontSize: "var(--fz-l2)" }}>Carregando…</div>
       </section>
     );
   }
@@ -258,7 +258,7 @@ export function JanelaTutorial() {
         <div className="meta">
           {msg && <span className={"tut-msg " + (msg.kind === "err" ? "is-err" : "is-ok")}>{msg.text}</span>}
           {dirty && <span className="tag warn">alterações não salvas</span>}
-          <button className="btn-teal" style={{ minHeight: 30, fontSize: "0.7rem" }} onClick={() => void salvar()} disabled={busy || !dirty}>
+          <button className="btn-teal" style={{ minHeight: 30, fontSize: "var(--fz-m2)" }} onClick={() => void salvar()} disabled={busy || !dirty}>
             {busy ? "Salvando…" : "Salvar"}
           </button>
         </div>

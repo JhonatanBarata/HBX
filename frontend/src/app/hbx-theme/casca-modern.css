@@ -430,7 +430,7 @@
   font-family: var(--font-display);
   /* ×2 do título da casca ≈ os 28.5px aprovados pelo dono ("50% maior"
      era sobre o título de 19px do entrega — o token central é menor) */
-  font-size: calc(var(--casca-text-title, 1.06rem) * 2);
+  font-size: calc(var(--casca-text-title) * 2);
   font-weight: 800;
   letter-spacing: -0.03em;
   line-height: 1;

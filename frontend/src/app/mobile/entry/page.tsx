@@ -61,16 +61,16 @@ export default function MobileEntryPage() {
   return (
     <main className={styles.entry}>
       <section className={styles.entryCard}>
-        <div style={{ fontSize: "calc(28px * var(--hbx-font-scale))", fontWeight: 800, letterSpacing: ".04em" }}>HBX</div>
+        <div style={{ fontSize: "var(--fz-t3)", fontWeight: 800, letterSpacing: ".04em" }}>HBX</div>
         {error ? (
           <>
-            <h1 style={{ margin: "20px 0 10px", fontSize: "calc(21px * var(--hbx-font-scale))" }}>Não foi possível entrar</h1>
+            <h1 style={{ margin: "20px 0 10px", fontSize: "var(--fz-t6)" }}>Não foi possível entrar</h1>
             <p className={styles.entryError}>{error}</p>
           </>
         ) : (
           <>
             <div aria-label="Carregando" className={styles.spinner} />
-            <h1 style={{ margin: "0 0 8px", fontSize: "calc(21px * var(--hbx-font-scale))" }}>Entrando no HBX…</h1>
+            <h1 style={{ margin: "0 0 8px", fontSize: "var(--fz-t6)" }}>Entrando no HBX…</h1>
             <p className={styles.entryHint}>Validando este aparelho.</p>
           </>
         )}

@@ -43,8 +43,8 @@
   justify-content: space-between;
   gap: 10px;
 }
-.bfc-progress-count { font-family: var(--font-display); font-size: 0.74rem; font-weight: 800; color: var(--text-strong); }
-.bfc-progress-pct { font-size: 0.72rem; font-weight: 700; color: var(--hbx-brand-strong); }
+.bfc-progress-count { font-family: var(--font-display); font-size: var(--fz-l3); font-weight: 800; color: var(--text-strong); }
+.bfc-progress-pct { font-size: var(--fz-m1); font-weight: 700; color: var(--hbx-brand-strong); }
 .bfc-progress-track {
   height: 8px;
   border-radius: 999px;
@@ -186,7 +186,7 @@
   padding: 10px 12px;
 }
 .bfc-node-head strong {
-  font-size: 0.78rem;
+  font-size: var(--fz-l2);
   font-family: var(--font-display);
 }
 
@@ -204,7 +204,7 @@
 
 .bfc-node-body {
   padding: 0 12px 10px;
-  font-size: 0.7rem;
+  font-size: var(--fz-m2);
   color: var(--text-body);
   line-height: 1.45;
   display: -webkit-box;

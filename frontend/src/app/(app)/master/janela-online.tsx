@@ -119,17 +119,17 @@ export function JanelaOnline() {
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <div style={cardStyle}>
           <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Online agora</span>
-          <strong style={{ fontSize: "1.6rem", color: "var(--hbx-brand-strong)" }}>{counters ? counters.onlineNow : "—"}</strong>
+          <strong style={{ fontSize: "var(--fz-t5)", color: "var(--hbx-brand-strong)" }}>{counters ? counters.onlineNow : "—"}</strong>
           <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>ativos nos últimos 5 min</span>
         </div>
         <div style={cardStyle}>
           <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Ativos (15 min)</span>
-          <strong style={{ fontSize: "1.6rem" }}>{counters ? counters.activeLast15Min : "—"}</strong>
+          <strong style={{ fontSize: "var(--fz-t5)" }}>{counters ? counters.activeLast15Min : "—"}</strong>
           <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>movimento recente</span>
         </div>
         <div style={cardStyle}>
           <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: "0.04em" }}>Ativos hoje</span>
-          <strong style={{ fontSize: "1.6rem" }}>{counters ? counters.activeToday : "—"}</strong>
+          <strong style={{ fontSize: "var(--fz-t5)" }}>{counters ? counters.activeToday : "—"}</strong>
           <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>desde a meia-noite</span>
         </div>
       </div>

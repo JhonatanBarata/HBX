@@ -188,7 +188,7 @@
   background: var(--flow-color);
   color: var(--hbx-action-ink);
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: var(--fz-m1);
   font-weight: 800;
   box-shadow: 0 7px 14px -10px var(--flow-color);
 }
@@ -581,14 +581,14 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 .radar-status-preview--live .radar-status-preview__heading h2 {
   color: var(--text-strong);
   font-family: var(--font-display);
-  font-size: 1.08rem;
+  font-size: var(--fz-t9);
   font-weight: 800;
 }
 
 .radar-status-preview--live .radar-status-preview__heading p {
   max-width: 760px;
   color: var(--text-muted);
-  font-size: 0.74rem;
+  font-size: var(--fz-l3);
   line-height: 1.5;
 }
 
@@ -764,7 +764,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 
 .radar-status-preview__result strong {
   color: var(--text-strong);
-  font-size: 0.86rem;
+  font-size: var(--fz-n3);
 }
 
 .radar-status-preview__result em {
@@ -827,7 +827,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   white-space: nowrap;
   color: var(--text-strong);
   font-family: var(--font-display);
-  font-size: 1.05rem;
+  font-size: var(--fz-t9);
   font-weight: 800;
   letter-spacing: -0.025em;
 }
@@ -837,7 +837,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-muted);
-  font-size: 0.7rem;
+  font-size: var(--fz-m2);
 }
 
 .lead-cockpit__badges,
@@ -906,7 +906,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   background: transparent;
   color: var(--text-muted);
   font-family: var(--font-body);
-  font-size: 0.74rem;
+  font-size: var(--fz-l3);
   font-weight: 800;
   cursor: pointer;
 }
@@ -977,7 +977,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   border-bottom: 1px solid var(--border-hairline);
   color: var(--text-strong);
   font-family: var(--font-display);
-  font-size: 0.73rem;
+  font-size: var(--fz-l3);
   font-weight: 800;
   letter-spacing: 0.015em;
 }
@@ -1005,7 +1005,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 .lead-cockpit__txt {
   margin: 0;
   color: var(--text-body);
-  font-size: 0.73rem;
+  font-size: var(--fz-l3);
   line-height: 1.58;
 }
 
@@ -1048,7 +1048,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 .lead-cockpit__saldo-val {
   color: color-mix(in srgb, var(--hbx-success) 72%, var(--text-strong));
   font-family: var(--font-mono);
-  font-size: 1.15rem;
+  font-size: var(--fz-t8);
   font-weight: 800;
 }
 
@@ -1265,7 +1265,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   border-radius: 10px;
   background: var(--hbx-brand-soft);
   color: var(--hbx-brand-strong);
-  font-size: 0.82rem;
+  font-size: var(--fz-l1);
 }
 
 .dn-root--vendas .dn-lock-overlay__cta {
@@ -1353,7 +1353,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 }
 .vnd-layer--buscar .be-search__input {
   width: 100%;
-  font-size: 0.74rem;
+  font-size: var(--fz-l3);
   font-weight: 650;
   line-height: 1.25;
 }
@@ -1402,7 +1402,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 }
 .be-search__menu-head strong {
   color: var(--text-strong);
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
   font-weight: 750;
 }
 .be-search__menu-head small {
@@ -1447,7 +1447,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   border-radius: var(--radius-sm);
   background: var(--hbx-brand);
   color: var(--hbx-brand-contrast);
-  font-size: 0.7rem;
+  font-size: var(--fz-m2);
   font-weight: 800;
 }
 .be-search__intent-copy,
@@ -1459,7 +1459,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 .be-search__intent-copy strong,
 .be-search__opt-copy strong {
   overflow: hidden;
-  font-size: 0.74rem;
+  font-size: var(--fz-l3);
   font-weight: 720;
   line-height: 1.2;
   text-overflow: ellipsis;
@@ -1839,7 +1839,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 }
 .vnd-segbtn__copy strong {
   color: inherit;
-  font-size: 0.7rem;
+  font-size: var(--fz-m2);
   font-weight: 750;
   line-height: 1.15;
   white-space: nowrap;
@@ -2402,7 +2402,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   color: var(--text-muted);
   cursor: pointer;
   font-family: var(--font-body);
-  font-size: 0.85rem;
+  font-size: var(--fz-n3);
 }
 .vnd-sales-row__actions button:hover {
   background: var(--hbx-surface);
@@ -2450,7 +2450,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 }
 .hbx-selection-bar__copy > b {
   color: var(--text-strong);
-  font-size: 0.72rem;
+  font-size: var(--fz-m1);
   font-weight: 760;
   white-space: nowrap;
 }
@@ -2534,7 +2534,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding-bottom: 11px; margin-bottom: 12px;
   border-bottom: 1px solid var(--border-hairline);
-  font-size: 0.8rem;
+  font-size: var(--fz-l1);
 }
 .vnd-colspick__head > span { display: grid; gap: 2px; }
 .vnd-colspick__head small, .vnd-colspick__boardhead small { color: var(--text-muted); font-size: var(--hbx-font-min); font-weight: 500; }
@@ -2545,9 +2545,9 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 .vnd-colspick__boardhead b { color: var(--text-strong); font-size: var(--hbx-font-min); text-transform: uppercase; letter-spacing: 0.04em; }
 .vnd-colspick__boardhead button { border: 0; padding: 2px; background: transparent; color: var(--hbx-brand-strong); cursor: pointer; font: 650 0.62rem/1.2 inherit; white-space: nowrap; }
 .vnd-collist, .vnd-colavailable { min-height: 0; flex: 1; overflow-y: auto; scrollbar-width: thin; }
-.vnd-colrow { position: relative; display: grid; grid-template-columns: 20px 28px minmax(0, 1fr) 24px; align-items: center; min-height: 34px; margin-bottom: 5px; padding: 3px 4px; background: var(--hbx-surface); border: 1px solid var(--border-hairline); border-radius: var(--radius-xs); color: var(--text-strong); font-size: 0.7rem; cursor: grab; }
+.vnd-colrow { position: relative; display: grid; grid-template-columns: 20px 28px minmax(0, 1fr) 24px; align-items: center; min-height: 34px; margin-bottom: 5px; padding: 3px 4px; background: var(--hbx-surface); border: 1px solid var(--border-hairline); border-radius: var(--radius-xs); color: var(--text-strong); font-size: var(--fz-m2); cursor: grab; }
 .vnd-colrow.is-drop::before { content: ""; position: absolute; z-index: 2; top: -4px; left: 3px; right: 3px; height: 2px; border-radius: 2px; background: var(--hbx-brand-strong); box-shadow: 0 0 0 1px color-mix(in srgb, var(--hbx-brand-strong) 18%, transparent); }
-.vnd-colrow__grip { color: var(--text-muted); font-size: 1rem; }
+.vnd-colrow__grip { color: var(--text-muted); font-size: var(--fz-n1); }
 .vnd-colrow__num { color: var(--hbx-brand-strong); font-size: var(--hbx-font-min); font-variant-numeric: tabular-nums; }
 .vnd-colrow__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
 .vnd-colrow button { border: 0; background: transparent; cursor: pointer; border-radius: 50%; color: var(--text-muted); }
@@ -2561,7 +2561,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 .vnd-colgroup > b { padding: 2px 3px; color: var(--text-muted); font-size: var(--hbx-font-min); letter-spacing: 0.07em; text-transform: uppercase; }
 .vnd-colgroup button { display: flex; align-items: center; gap: 8px; min-height: 31px; padding: 5px 8px; border: 1px solid transparent; border-radius: var(--radius-xs); background: transparent; color: var(--text-strong); cursor: grab; text-align: left; font: 600 0.68rem/1.2 inherit; }
 .vnd-colgroup button:hover { border-color: var(--border-hairline); background: var(--hbx-surface); }
-.vnd-colgroup button span { color: var(--text-muted); font-size: 0.9rem; }
+.vnd-colgroup button span { color: var(--text-muted); font-size: var(--fz-n2); }
 .vnd-colpreview { display: flex; gap: 7px; align-items: center; min-width: 0; margin-top: 10px; padding: 8px 10px; border-radius: var(--radius-xs); background: var(--hbx-surface-soft); color: var(--text-muted); font-size: var(--hbx-font-min); }
 .vnd-colpreview b { color: var(--text-strong); }
 .vnd-colpreview span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2586,14 +2586,14 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 .vnd-rowmenu__title {
   padding: 4px 8px 7px; margin-bottom: 3px;
   border-bottom: 1px solid var(--border-hairline);
-  font-size: 0.7rem; font-weight: 700; color: var(--text-muted);
+  font-size: var(--fz-m2); font-weight: 700; color: var(--text-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .vnd-rowmenu button {
   display: flex; align-items: center; gap: 8px;
   padding: 7px 8px; border: 0; border-radius: var(--radius-xs);
   background: transparent; cursor: pointer; text-align: left;
-  font-family: inherit; font-size: 0.75rem; color: var(--text-strong);
+  font-family: inherit; font-size: var(--fz-l3); color: var(--text-strong);
 }
 .vnd-rowmenu button:hover:not(:disabled) { background: var(--hbx-surface-raised); }
 .vnd-rowmenu button:disabled { color: var(--text-muted); cursor: default; }
@@ -2678,7 +2678,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   gap: 8px;
   border-bottom: 1px solid var(--border-hairline);
   color: var(--text-strong);
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
   font-weight: 750;
 }
 .vnd-lead-peek__head-actions {
@@ -2749,7 +2749,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   justify-content: center;
   gap: 8px;
   color: var(--text-strong);
-  font-size: 0.78rem;
+  font-size: var(--fz-l2);
   font-weight: 750;
 }
 .vnd-lead-peek__empty small {
@@ -2782,7 +2782,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   width: 48px !important;
   height: 48px !important;
   border-radius: 14px !important;
-  font-size: 0.86rem !important;
+  font-size: var(--fz-n3) !important;
 }
 .vnd-lead-peek__identity {
   min-width: 0;
@@ -2796,7 +2796,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 }
 .vnd-lead-peek__identity strong {
   color: var(--text-strong);
-  font-size: 0.84rem;
+  font-size: var(--fz-n3);
   font-weight: 800;
 }
 .vnd-lead-peek__identity small {
@@ -2825,7 +2825,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   position: relative;
   color: var(--text-strong);
   font-family: var(--font-mono);
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
   font-weight: 800;
 }
 .vnd-lead-peek__score.is-empty {
@@ -2901,7 +2901,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   overflow: hidden;
   color: var(--hbx-brand);
   font-family: var(--font-mono);
-  font-size: 1rem;
+  font-size: var(--fz-n1);
   font-weight: 820;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2994,7 +2994,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 .vnd-lead-peek__next strong {
   min-width: 0;
   color: var(--text-strong);
-  font-size: 0.7rem;
+  font-size: var(--fz-m2);
   font-weight: 750;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -91,11 +91,11 @@ export function MasterWhatsappChip() {
         </div>
       </div>
       <div style={{ padding: "12px 16px 16px", display: "grid", gap: 12 }}>
-        <span style={{ fontSize: "0.7rem", color: "var(--text-muted)", lineHeight: 1.5 }}>
+        <span style={{ fontSize: "var(--fz-m2)", color: "var(--text-muted)", lineHeight: 1.5 }}>
           Chip do WebWhats que valida se o número existe. A verificação de número de <strong>todas as empresas</strong>
           {" "}passa por este chip — automático, ninguém precisa marcar nada. Conecte uma vez.
         </span>
-        {msg && <div style={{ fontSize: "0.72rem", fontWeight: 700, color: "var(--hbx-warning)" }}>{msg}</div>}
+        {msg && <div style={{ fontSize: "var(--fz-m1)", fontWeight: 700, color: "var(--hbx-warning)" }}>{msg}</div>}
         {!connected && qr && (
           <div style={{ display: "grid", gap: 8, justifyItems: "center" }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}

@@ -1489,7 +1489,7 @@ export function VendasClient() {
                   <div className="work hbx-panel-shell__main hbx-panel-shell__route-work">
             <section className="panel">
               {loadError && (
-                <div style={{ padding: "12px 16px", fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>
+                <div style={{ padding: "12px 16px", fontSize: "var(--fz-l3)", fontWeight: 600, color: "var(--hbx-danger)" }}>
                   {loadError}
                 </div>
               )}
@@ -1805,37 +1805,37 @@ export function VendasClient() {
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) setNovoOpen(false); }}>
           <form className="hbx-modal" onSubmit={criarLead}
             style={{ width: "min(400px, 100%)", display: "grid", gap: 12, padding: 24 }}>
-            <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "var(--fz-t9)", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Novo lead
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setNovoOpen(false)}>✕</span>
             </h3>
             {novoMsg && (
-              <div style={{ fontSize: "0.72rem", fontWeight: 700, color: novoMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{novoMsg}</div>
+              <div style={{ fontSize: "var(--fz-m1)", fontWeight: 700, color: novoMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{novoMsg}</div>
             )}
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Nome / Empresa</label>
+              <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Nome / Empresa</label>
               <input className="field-dark" required maxLength={120} value={novoForm.name}
                 onChange={e => setNovoForm(f => ({ ...f, name: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Telefone</label>
+                <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Telefone</label>
                 <input className="field-dark" maxLength={24} placeholder="(11) 99999-9999" value={novoForm.phone}
                   onChange={e => setNovoForm(f => ({ ...f, phone: e.target.value }))} />
               </div>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>E-mail</label>
+                <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>E-mail</label>
                 <input className="field-dark" type="email" placeholder="opcional" value={novoForm.email}
                   onChange={e => setNovoForm(f => ({ ...f, email: e.target.value }))} />
               </div>
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Próximo passo</label>
+              <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Próximo passo</label>
               <input className="field-dark" maxLength={140} value={novoForm.nextAction}
                 onChange={e => setNovoForm(f => ({ ...f, nextAction: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "0.7rem", fontWeight: 700, color: "var(--text-muted)" }}>Nota</label>
+              <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Nota</label>
               <input className="field-dark" maxLength={280} placeholder="opcional" value={novoForm.shortNote}
                 onChange={e => setNovoForm(f => ({ ...f, shortNote: e.target.value }))} />
             </div>
@@ -1940,7 +1940,7 @@ export function VendasClient() {
       {prospOpen && (
         <div className="hbx-veil to-right" onClick={e => { if (e.target === e.currentTarget) setProspOpen(false); }}>
           <div className="hbx-drawer" style={{ width: 340, height: "100vh", overflowY: "auto", padding: "18px 16px", display: "grid", gap: 14, alignContent: "start" }}>
-            <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "0.9rem", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "var(--fz-n2)", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Automações comerciais
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setProspOpen(false)}>✕</span>
             </h3>
@@ -1950,14 +1950,14 @@ export function VendasClient() {
             <div style={{ display: "grid", gap: 8 }}>
               <div className="field-label">Horário e teto de disparo</div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-                <label style={{ display: "grid", gap: 4, fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                <label style={{ display: "grid", gap: 4, fontSize: "var(--fz-m2)", color: "var(--text-muted)" }}>
                   Início
                   <input className="field-dark" type="time" value={comercialConfigDraft.workingHoursStart}
                     disabled={!podeConfigurarDisparo}
                     onChange={e => setComercialConfigDraft(d => ({ ...d, workingHoursStart: e.target.value }))}
                     aria-label="Início do horário comercial" />
                 </label>
-                <label style={{ display: "grid", gap: 4, fontSize: "0.7rem", color: "var(--text-muted)" }}>
+                <label style={{ display: "grid", gap: 4, fontSize: "var(--fz-m2)", color: "var(--text-muted)" }}>
                   Fim
                   <input className="field-dark" type="time" value={comercialConfigDraft.workingHoursEnd}
                     disabled={!podeConfigurarDisparo}
@@ -1965,7 +1965,7 @@ export function VendasClient() {
                     aria-label="Fim do horário comercial" />
                 </label>
               </div>
-              <label style={{ display: "grid", gap: 4, fontSize: "0.7rem", color: "var(--text-muted)" }}>
+              <label style={{ display: "grid", gap: 4, fontSize: "var(--fz-m2)", color: "var(--text-muted)" }}>
                 Teto de disparos por dia (por vendedor/chip)
                 <input className="field-dark" type="number" min={1} max={200} value={comercialConfigDraft.dailyLimitPerSender}
                   disabled={!podeConfigurarDisparo}
@@ -1977,7 +1977,7 @@ export function VendasClient() {
                   </span>
                 )}
               </label>
-              <label style={{ display: "grid", gap: 4, fontSize: "0.7rem", color: "var(--text-muted)" }}>
+              <label style={{ display: "grid", gap: 4, fontSize: "var(--fz-m2)", color: "var(--text-muted)" }}>
                 Intervalo mínimo entre disparos (minutos)
                 <input className="field-dark" type="number" min={1} max={240} value={comercialConfigDraft.intervalMinutes}
                   disabled={!podeConfigurarDisparo}
@@ -1987,7 +1987,7 @@ export function VendasClient() {
               {podeConfigurarDisparo ? (
                 <React.Fragment>
                   {comercialConfigMsg && (
-                    <span style={{ fontSize: "0.7rem", fontWeight: 700, color: comercialConfigMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{comercialConfigMsg}</span>
+                    <span style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: comercialConfigMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{comercialConfigMsg}</span>
                   )}
                   <button className="btn-ghost" onClick={salvarComercialConfig} disabled={comercialConfigBusy}>
                     {comercialConfigBusy ? "Salvando…" : "Salvar horário e teto"}
@@ -2007,14 +2007,14 @@ export function VendasClient() {
                   {catalogoInfo.pronto ? "Catálogo pronto — a IA pode ofertar" : "Sem catálogo — a IA não oferta produto"}
                 </span>
               )}
-              <label style={{ display: "grid", gap: 4, fontSize: "0.7rem", color: "var(--text-muted)" }}>
+              <label style={{ display: "grid", gap: 4, fontSize: "var(--fz-m2)", color: "var(--text-muted)" }}>
                 O que vendemos (uma linha)
                 <input className="field-dark" maxLength={240} value={catalogoDraft.oQueVendemos}
                   disabled={!podeConfigurarDisparo}
                   onChange={e => setCatalogoDraft(d => ({ ...d, oQueVendemos: e.target.value }))}
                   aria-label="O que a empresa vende" />
               </label>
-              <label style={{ display: "grid", gap: 4, fontSize: "0.7rem", color: "var(--text-muted)" }}>
+              <label style={{ display: "grid", gap: 4, fontSize: "var(--fz-m2)", color: "var(--text-muted)" }}>
                 Capacidades — uma por linha (opcional: "| dores que resolve")
                 <textarea className="field-dark" rows={4} value={catalogoDraft.capacidades}
                   disabled={!podeConfigurarDisparo}
@@ -2022,14 +2022,14 @@ export function VendasClient() {
                   onChange={e => setCatalogoDraft(d => ({ ...d, capacidades: e.target.value }))}
                   aria-label="Capacidades do produto, uma por linha" />
               </label>
-              <label style={{ display: "grid", gap: 4, fontSize: "0.7rem", color: "var(--text-muted)" }}>
+              <label style={{ display: "grid", gap: 4, fontSize: "var(--fz-m2)", color: "var(--text-muted)" }}>
                 Para quem serve (separe por vírgula)
                 <input className="field-dark" value={catalogoDraft.paraQuem}
                   disabled={!podeConfigurarDisparo}
                   onChange={e => setCatalogoDraft(d => ({ ...d, paraQuem: e.target.value }))}
                   aria-label="Para quem o produto serve" />
               </label>
-              <label style={{ display: "grid", gap: 4, fontSize: "0.7rem", color: "var(--text-muted)" }}>
+              <label style={{ display: "grid", gap: 4, fontSize: "var(--fz-m2)", color: "var(--text-muted)" }}>
                 Se perguntarem preço (opcional)
                 <input className="field-dark" maxLength={240} value={catalogoDraft.ancoraDePreco}
                   disabled={!podeConfigurarDisparo}
@@ -2042,7 +2042,7 @@ export function VendasClient() {
                     <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Falta: {catalogoInfo.lacunas.join(" · ")}</span>
                   )}
                   {catalogoMsg && (
-                    <span style={{ fontSize: "0.7rem", fontWeight: 700, color: catalogoMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{catalogoMsg}</span>
+                    <span style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: catalogoMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{catalogoMsg}</span>
                   )}
                   <button className="btn-ghost" onClick={salvarCatalogo} disabled={catalogoBusy}>
                     {catalogoBusy ? "Salvando…" : "Salvar catálogo"}
@@ -2095,12 +2095,12 @@ export function VendasClient() {
       {agendaOpen && (
         <div className="hbx-veil to-right" onClick={e => { if (e.target === e.currentTarget) setAgendaOpen(false); }}>
           <div className="hbx-drawer" style={{ width: 340, height: "100vh", overflowY: "auto", padding: "18px 16px", display: "grid", gap: 14, alignContent: "start" }}>
-            <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "0.9rem", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "var(--fz-n2)", fontWeight: 700, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
               Agenda de retornos
               <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={() => setAgendaOpen(false)}>✕</span>
             </h3>
             {syncMsg && (
-              <div style={{ fontSize: "0.72rem", fontWeight: 700, color: syncMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{syncMsg}</div>
+              <div style={{ fontSize: "var(--fz-m1)", fontWeight: 700, color: syncMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{syncMsg}</div>
             )}
             <button className="btn-teal" onClick={sincronizarHoje} disabled={syncBusy}>
               <WhatsAppMark size={15} /> {syncBusy ? "Sincronizando…" : "Sincronizar hoje no WhatsApp"}
@@ -2108,10 +2108,10 @@ export function VendasClient() {
             {([["Atrasados", board?.blocks?.overdue || []], ["Hoje", board?.blocks?.today || []], ["Agendados", board?.blocks?.scheduled || []]] as [string, VendasLead[]][]).map(([label, cards]) => (
               <div key={label} style={{ display: "grid", gap: 8 }}>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                  <strong style={{ fontSize: "0.8rem" }}>{label}</strong>
+                  <strong style={{ fontSize: "var(--fz-l1)" }}>{label}</strong>
                   <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>{cards.length}</span>
                 </div>
-                {cards.length === 0 && <span style={{ fontSize: "0.7rem", color: "var(--text-muted)" }}>Nenhum retorno.</span>}
+                {cards.length === 0 && <span style={{ fontSize: "var(--fz-m2)", color: "var(--text-muted)" }}>Nenhum retorno.</span>}
                 {cards
                   .slice()
                   .sort((a, b) => String(a.returnAt || "").localeCompare(String(b.returnAt || "")))
@@ -2119,7 +2119,7 @@ export function VendasClient() {
                     <button key={card.id} onClick={() => { setSel(card); setAgendaOpen(false); }}
                       style={{ display: "grid", gap: 3, textAlign: "left", padding: "9px 11px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", cursor: "pointer", fontFamily: "var(--font-body)", color: "var(--text-strong)" }}>
                       <span style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                        <strong style={{ fontSize: "0.76rem" }}>{card.name || "—"}</strong>
+                        <strong style={{ fontSize: "var(--fz-l2)" }}>{card.name || "—"}</strong>
                         <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", whiteSpace: "nowrap" }}>{fmtWhen(card.returnAt)}</span>
                       </span>
                       <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>{card.nextAction || card.statusLabel}</span>
@@ -2155,7 +2155,7 @@ export function VendasClient() {
                     aria-label="Hora do disparo" />
                 </div>
                 {retornoData && retornoHora && (
-                  <span style={{ fontSize: "0.7rem", color: slotPreview?.conflito ? "var(--hbx-warning)" : "var(--text-muted)" }}>
+                  <span style={{ fontSize: "var(--fz-m2)", color: slotPreview?.conflito ? "var(--hbx-warning)" : "var(--text-muted)" }}>
                     {slotPreviewBusy
                       ? "Consultando agenda…"
                       : slotPreview

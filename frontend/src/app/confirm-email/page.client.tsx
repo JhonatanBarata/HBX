@@ -103,7 +103,7 @@ export function ConfirmEmailClient() {
                 value={email} onChange={e => setEmail(e.target.value)} />
             </div>
             {resendMsg && <div className="ok show">{resendMsg}</div>}
-            <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 44, fontSize: "0.84rem" }}>
+            <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 44, fontSize: "var(--fz-n3)" }}>
               {busy ? "Enviando…" : "Reenviar confirmação"}
             </button>
           </form>

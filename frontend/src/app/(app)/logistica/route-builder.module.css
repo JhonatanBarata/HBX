@@ -60,14 +60,14 @@
 .heading h2 {
   color: var(--text-strong);
   font-family: var(--font-display, var(--font-body));
-  font-size: 1.05rem;
+  font-size: var(--fz-t9);
   font-weight: 800;
 }
 
 .heading p {
   margin-top: 3px;
   color: var(--text-muted);
-  font-size: 0.72rem;
+  font-size: var(--fz-m1);
 }
 
 .close {
@@ -78,7 +78,7 @@
   background: var(--hbx-surface-soft);
   color: var(--text-muted);
   font: inherit;
-  font-size: 1.3rem;
+  font-size: var(--fz-t7);
   cursor: pointer;
 }
 
@@ -141,12 +141,12 @@
   width: 40px;
   height: 40px;
   border-radius: 13px;
-  font-size: 1rem;
+  font-size: var(--fz-n1);
   font-weight: 800;
 }
 
 .star {
-  font-size: 1.55rem;
+  font-size: var(--fz-t5);
   line-height: 1;
 }
 
@@ -177,7 +177,7 @@
 .previewCopy strong {
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 0.82rem;
+  font-size: var(--fz-l1);
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -194,7 +194,7 @@
 
 .chevron {
   color: var(--text-muted);
-  font-size: 1.35rem;
+  font-size: var(--fz-t7);
 }
 
 /* 31/07 — sub-rótulo de estado da rota salva ("Na rua com João desde 14:02").
@@ -260,7 +260,7 @@
   background: var(--hbx-surface-soft);
   color: var(--hbx-brand-strong, var(--hbx-brand));
   font: inherit;
-  font-size: 0.74rem;
+  font-size: var(--fz-l3);
   font-weight: 700;
   cursor: pointer;
   transition: border-color 160ms ease, transform 160ms ease, background 160ms ease;
@@ -283,12 +283,12 @@
 
 .dayRow strong {
   color: var(--text-strong);
-  font-size: 0.78rem;
+  font-size: var(--fz-l2);
 }
 
 .dayRow span {
   color: var(--text-muted);
-  font-size: 0.7rem;
+  font-size: var(--fz-m2);
 }
 
 .dayRow.selected {
@@ -312,12 +312,12 @@
   border-radius: 14px;
   background: var(--hbx-brand-soft);
   color: var(--text-muted);
-  font-size: 0.72rem;
+  font-size: var(--fz-m1);
 }
 
 .summary strong {
   color: var(--hbx-brand-strong, var(--hbx-brand));
-  font-size: 1rem;
+  font-size: var(--fz-n1);
 }
 
 .search {
@@ -339,7 +339,7 @@
   background: transparent;
   color: var(--text-strong);
   font: inherit;
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
 }
 
 .search input::placeholder {
@@ -357,7 +357,7 @@
   width: 36px;
   height: 36px;
   border-radius: 12px;
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
   font-weight: 850;
 }
 
@@ -437,7 +437,7 @@
   border-radius: 13px;
   background: color-mix(in srgb, var(--hbx-danger) 10%, transparent);
   color: var(--hbx-danger);
-  font-size: 0.72rem;
+  font-size: var(--fz-m1);
   line-height: 1.45;
 }
 
@@ -445,7 +445,7 @@
   margin: 0;
   padding: 24px 14px;
   color: var(--text-muted);
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
   text-align: center;
 }
 
@@ -468,7 +468,7 @@
   min-height: 44px;
   border-radius: 14px;
   font: inherit;
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
   font-weight: 800;
   cursor: pointer;
 }
@@ -497,7 +497,7 @@
   justify-content: space-between;
   gap: 12px;
   color: var(--text-strong);
-  font-size: 0.74rem;
+  font-size: var(--fz-l3);
   font-weight: 700;
 }
 
@@ -515,7 +515,7 @@
   border-radius: inherit;
   background: color-mix(in srgb, var(--hbx-surface) 84%, transparent);
   color: var(--text-strong);
-  font-size: 0.82rem;
+  font-size: var(--fz-l1);
   font-weight: 800;
   backdrop-filter: blur(4px);
 }
@@ -569,7 +569,7 @@
   border-radius: 16px;
   background: var(--hbx-surface-soft);
   color: var(--text-strong);
-  font-size: 0.82rem;
+  font-size: var(--fz-l1);
   font-weight: 800;
 }
 
@@ -579,7 +579,7 @@
   padding: 10px 13px;
   border: 1px solid var(--border-hairline);
   border-radius: 14px;
-  font-size: 0.74rem;
+  font-size: var(--fz-l3);
   font-weight: 750;
 }
 
@@ -620,7 +620,7 @@
   padding: 14px;
   background: color-mix(in srgb, var(--hbx-surface) 88%, transparent);
   color: var(--text-muted);
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
   font-weight: 750;
   text-align: center;
 }
@@ -636,7 +636,7 @@
   background: var(--hbx-surface-soft);
   color: var(--text-strong);
   font: inherit;
-  font-size: 0.72rem;
+  font-size: var(--fz-m1);
   font-weight: 800;
   cursor: pointer;
 }
@@ -772,7 +772,7 @@
   padding: 0 14px;
   border-radius: 13px;
   font: inherit;
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
   font-weight: 800;
   cursor: pointer;
 }
@@ -828,7 +828,7 @@
   background: var(--hbx-surface-soft);
   color: var(--text-strong);
   font: inherit;
-  font-size: 0.82rem;
+  font-size: var(--fz-l1);
   font-weight: 700;
 }
 
@@ -850,7 +850,7 @@
   background: var(--hbx-surface-soft);
   color: var(--text-muted);
   font: inherit;
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
   font-weight: 800;
   cursor: pointer;
   transition: border-color 160ms ease, color 160ms ease, background 160ms ease;

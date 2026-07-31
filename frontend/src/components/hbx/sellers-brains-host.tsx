@@ -187,7 +187,7 @@ export function SellersBrainsHost() {
       position:fixed;
       left:${from.left + from.width / 2}px;
       top:${from.top + from.height / 2}px;
-      font-size:1.1rem;
+      font-size:var(--fz-t8);
       pointer-events:none;
       z-index:200;
       transform:translate(-50%,-50%);
@@ -213,15 +213,15 @@ export function SellersBrainsHost() {
           <span
             ref={iconRef}
             aria-hidden="true"
-            style={{ fontSize: "1.5rem", lineHeight: 1, flexShrink: 0, marginTop: 2 }}
+            style={{ fontSize: "var(--fz-t6)", lineHeight: 1, flexShrink: 0, marginTop: 2 }}
           >
             {toneIcon(notice.tone)}
           </span>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <strong style={{ display: "block", fontFamily: "var(--font-display)", fontSize: "1rem", fontWeight: 800, marginBottom: 6 }}>
+            <strong style={{ display: "block", fontFamily: "var(--font-display)", fontSize: "var(--fz-n1)", fontWeight: 800, marginBottom: 6 }}>
               {notice.title}
             </strong>
-            <p style={{ margin: 0, fontSize: "0.82rem", lineHeight: 1.55, color: "var(--text-body)", whiteSpace: "pre-line" }}>
+            <p style={{ margin: 0, fontSize: "var(--fz-l1)", lineHeight: 1.55, color: "var(--text-body)", whiteSpace: "pre-line" }}>
               {notice.body.replace(/\*\*/g, "")}
             </p>
           </div>

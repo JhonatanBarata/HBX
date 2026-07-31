@@ -65,11 +65,11 @@
 .fv-title {
   margin: 0;
   font-family: var(--font-display, inherit);
-  font-size: 1.28rem; font-weight: 850; line-height: 1.15; letter-spacing: -.01em;
+  font-size: var(--fz-t7); font-weight: 850; line-height: 1.15; letter-spacing: -.01em;
 }
 .fv-x {
   flex: 0 0 auto; width: 30px; height: 30px; border-radius: 50%;
-  display: grid; place-items: center; cursor: pointer; font-size: 1rem; font-weight: 600;
+  display: grid; place-items: center; cursor: pointer; font-size: var(--fz-n1); font-weight: 600;
   color: #fff; background: rgba(255,255,255,0.16); border: none;
   transition: background .16s, transform .16s;
 }
@@ -81,7 +81,7 @@
 .fv-step.is-active, .fv-step.is-done { opacity: 1; }
 .fv-step-dot {
   width: 26px; height: 26px; border-radius: 50%;
-  display: grid; place-items: center; font-size: 0.72rem; font-weight: 800;
+  display: grid; place-items: center; font-size: var(--fz-m1); font-weight: 800;
   color: #fff; background: rgba(255,255,255,0.22); border: 2px solid rgba(255,255,255,0.5);
   transition: background .3s, transform .3s, border-color .3s;
 }
@@ -94,15 +94,15 @@
 .fv-body { padding: 18px 22px 22px; display: grid; gap: 16px; }
 
 .fv-field { display: grid; gap: 6px; }
-.fv-label { font-size: 0.7rem; font-weight: 800; letter-spacing: .02em; color: #5a5478; text-transform: uppercase; }
+.fv-label { font-size: var(--fz-m2); font-weight: 800; letter-spacing: .02em; color: #5a5478; text-transform: uppercase; }
 .fv-req { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; font-size: var(--hbx-font-min); font-weight: 700; letter-spacing: .03em; color: #b4790a; background: #fbe7c6; }
 .fv-hint { font-size: var(--hbx-font-min); line-height: 1.5; color: #7b7596; }
-.fv-warn { font-size: 0.7rem; line-height: 1.5; font-weight: 600; color: #b4790a; }
+.fv-warn { font-size: var(--fz-m2); line-height: 1.5; font-weight: 600; color: #b4790a; }
 
 .fv-input, .fv-select {
   width: 100%; box-sizing: border-box;
   padding: 11px 13px; border-radius: 13px;
-  font-size: 0.92rem; font-weight: 600; color: #221b3a;
+  font-size: var(--fz-n2); font-weight: 600; color: #221b3a;
   background: #f6f5ff; border: 1.5px solid #e6e2fb;
   transition: border-color .16s, box-shadow .16s, background .16s;
   outline: none;
@@ -112,14 +112,14 @@
 .fv-input-money { position: relative; }
 .fv-input-money .fv-currency {
   position: absolute; left: 13px; top: 50%; transform: translateY(-50%);
-  font-size: 0.86rem; font-weight: 800; color: #8a83ad; pointer-events: none;
+  font-size: var(--fz-n3); font-weight: 800; color: #8a83ad; pointer-events: none;
 }
 .fv-input-money .fv-input { padding-left: 38px; font-variant-numeric: tabular-nums; }
 
 /* Vitrine de planos (referência) */
 .fv-plans { border: 1px dashed #ddd7f7; border-radius: 14px; padding: 12px 14px; background: linear-gradient(180deg, #faf9ff, #f4f2ff); display: grid; gap: 8px; }
 .fv-plans-h { font-size: var(--hbx-font-min); font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #8079a3; }
-.fv-plan-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 0.82rem; }
+.fv-plan-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: var(--fz-l1); }
 .fv-plan-name { font-weight: 700; color: #4a4470; }
 .fv-plan-price { font-weight: 800; color: #6d4bf6; font-variant-numeric: tabular-nums; }
 
@@ -140,15 +140,15 @@
 .fv-spot-h { position: relative; display: flex; align-items: center; gap: 8px; font-size: var(--hbx-font-min); font-weight: 800; text-transform: uppercase; letter-spacing: .12em; color: rgba(255,255,255,0.78); }
 .fv-spot-coin { display: inline-grid; place-items: center; color: #ffd56b; filter: drop-shadow(0 2px 6px rgba(255,180,40,0.5)); animation: fv-coin 3.2s ease-in-out infinite; }
 @keyframes fv-coin { 0%,100% { transform: translateY(0) rotate(0) } 50% { transform: translateY(-3px) rotate(-8deg) } }
-.fv-spot-amount { position: relative; margin: 8px 0 2px; font-family: var(--font-display, inherit); font-weight: 850; font-size: 2.05rem; line-height: 1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
-.fv-spot-amount .fv-per { font-size: 0.9rem; font-weight: 700; color: rgba(255,255,255,0.7); margin-left: 4px; }
+.fv-spot-amount { position: relative; margin: 8px 0 2px; font-family: var(--font-display, inherit); font-weight: 850; font-size: var(--fz-t3); line-height: 1; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.fv-spot-amount .fv-per { font-size: var(--fz-n2); font-weight: 700; color: rgba(255,255,255,0.7); margin-left: 4px; }
 .fv-spot-amount.fv-pop { animation: fv-pop .42s cubic-bezier(.2,1.4,.4,1) both; }
 @keyframes fv-pop { from { transform: scale(.7); opacity: .3 } to { transform: scale(1); opacity: 1 } }
-.fv-spot-meta { position: relative; display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: 0.72rem; }
+.fv-spot-meta { position: relative; display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: var(--fz-m1); }
 .fv-spot-meta b { color: #fff; font-weight: 800; font-variant-numeric: tabular-nums; }
 .fv-spot-meta span { color: rgba(255,255,255,0.72); }
 .fv-spot-chip { position: relative; display: inline-flex; align-items: center; gap: 5px; margin-top: 12px; padding: 5px 10px; border-radius: 999px; font-size: var(--hbx-font-min); font-weight: 800; background: rgba(37, 224, 176, 0.18); color: #6cf3cb; border: 1px solid rgba(37,224,176,0.4); }
-.fv-spot-zero { position: relative; margin-top: 8px; font-size: 0.72rem; line-height: 1.5; color: #ffd9a0; }
+.fv-spot-zero { position: relative; margin-top: 8px; font-size: var(--fz-m1); line-height: 1.5; color: #ffd9a0; }
 /* Linha sutil da cascata (Camada 2): o vendedor vê SÓ o ganho dele em destaque;
    esta linha reconhece, sem números alheios, que a venda também sobe a cadeia. */
 .fv-spot-cascade { position: relative; margin-top: 11px; padding-top: 9px; border-top: 1px solid rgba(255,255,255,0.12); font-size: var(--hbx-font-min); line-height: 1.45; color: rgba(255,255,255,0.58); }
@@ -158,7 +158,7 @@
 .fv-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   padding: 13px 16px; border-radius: 14px; cursor: pointer;
-  font-size: 0.86rem; font-weight: 800; letter-spacing: .01em; border: none;
+  font-size: var(--fz-n3); font-weight: 800; letter-spacing: .01em; border: none;
   transition: transform .14s, box-shadow .2s, filter .2s, background .2s; outline: none;
 }
 .fv-btn:disabled { opacity: .55; cursor: not-allowed; }
@@ -176,7 +176,7 @@
 .fv-btn-ghost:not(:disabled):hover { background: #e9e3ff; }
 .fv-btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
 .fv-foot-note { margin: 2px 0 0; font-size: var(--hbx-font-min); line-height: 1.55; color: #8e88a8; text-align: center; }
-.fv-error { font-size: 0.74rem; font-weight: 700; color: #d23b4e; background: #fdeef0; border: 1px solid #f7ccd3; padding: 9px 12px; border-radius: 11px; }
+.fv-error { font-size: var(--fz-l3); font-weight: 700; color: #d23b4e; background: #fdeef0; border: 1px solid #f7ccd3; padding: 9px 12px; border-radius: 11px; }
 
 /* ── Estado de sucesso (link gerado) ───────────────────────────────────────── */
 .fv-success-burst { position: relative; text-align: center; padding: 6px 0 2px; }
@@ -188,12 +188,12 @@
   animation: fv-badge-in .5s cubic-bezier(.2,1.5,.4,1) both;
 }
 @keyframes fv-badge-in { from { transform: scale(.2) rotate(-25deg); opacity: 0 } to { transform: none; opacity: 1 } }
-.fv-success-title { margin: 0; font-family: var(--font-display, inherit); font-weight: 850; font-size: 1.12rem; color: #1b1635; }
-.fv-success-sub { margin: 4px 0 0; font-size: 0.76rem; color: #6f6991; line-height: 1.5; }
+.fv-success-title { margin: 0; font-family: var(--font-display, inherit); font-weight: 850; font-size: var(--fz-t8); color: #1b1635; }
+.fv-success-sub { margin: 4px 0 0; font-size: var(--fz-l2); color: #6f6991; line-height: 1.5; }
 
 .fv-linkbox { display: grid; gap: 4px; padding: 12px 14px; border-radius: 13px; background: #f6f5ff; border: 1.5px dashed #cdc4f5; }
 .fv-linkbox-h { font-size: var(--hbx-font-min); font-weight: 800; text-transform: uppercase; letter-spacing: .08em; color: #8079a3; }
-.fv-linkbox-url { font-size: 0.74rem; line-height: 1.5; color: #4a3fb0; word-break: break-all; font-weight: 600; }
+.fv-linkbox-url { font-size: var(--fz-l3); line-height: 1.5; color: #4a3fb0; word-break: break-all; font-weight: 600; }
 
 /* confete leve no sucesso */
 .fv-confetti { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
@@ -224,7 +224,7 @@
   background: rgba(255,255,255,0.20); color: #fff;
 }
 .fv-open-cta-txt { flex: 1; display: grid; gap: 1px; line-height: 1.15; }
-.fv-open-cta-txt b { font-size: 0.9rem; font-weight: 850; }
+.fv-open-cta-txt b { font-size: var(--fz-n2); font-weight: 850; }
 .fv-open-cta-txt small { font-size: var(--hbx-font-min); font-weight: 600; color: rgba(255,255,255,0.86); }
 
 /* respeita quem prefere menos movimento */
@@ -235,8 +235,8 @@
 
 /* mobile */
 @media (max-width: 560px) {
-  .fv-title { font-size: 1.12rem; }
-  .fv-spot-amount { font-size: 1.7rem; }
+  .fv-title { font-size: var(--fz-t8); }
+  .fv-spot-amount { font-size: var(--fz-t4); }
   .fv-step-lbl { display: none; }
 }
 

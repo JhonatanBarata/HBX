@@ -1,23 +1,135 @@
 /* ============================================================
-   HBX System — Typography tokens (ESQUELETO)
-   FAMÍLIA é PELE: o esqueleto usa a fonte do sistema; a pele
-   sobrescreve --font-display/--font-body/--font-mono.
-   Escala, pesos e leading são ESTRUTURA (ficam aqui).
+   HBX System — TIPOGRAFIA CENTRAL (padronização 31/07/2026)
+
+   O QUE ISTO RESOLVE
+   Antes desta passada o app tinha 2.523 declarações de font-size espalhadas
+   por ~70 tamanhos diferentes (0.72rem, 0.74rem, 0.76rem, 0.77rem, 0.78rem…
+   diferenças de MEIO PIXEL, invisíveis na tela e caras na edição): mexer no
+   tamanho de uma legenda era caçar arquivo por arquivo, e cada tela decidia
+   sozinha o que era "pequeno". Agora toda letra do app nasce de UM lugar —
+   este arquivo — em 13 degraus, agrupados nos 4 PAPÉIS que o app realmente
+   usa. É o mesmo ideal da casca: a tela pede o PAPEL, o sistema resolve a
+   medida.
+
+   OS 4 PAPÉIS (o que o painel do header edita, 50% a 150% cada)
+     TÍTULOS   t1…t6  — do h1 ao título de card
+     NORMAL    n1…n3  — corpo de tela, linha de lista, botão
+     LEGENDAS  l1…l3  — meta, rótulo, subtítulo de linha
+     MICRO     m1…m2  — chip, tag, contador; m2 é o PISO do app
+
+   COMO SE USA (lei: nenhuma tela escreve rem)
+     font-size: var(--fz-n2);   -> corpo
+     font-size: var(--fz-l2);   -> legenda
+   O fiscal (scripts/check-pele.mjs, R8) reprova font-size literal novo fora
+   deste arquivo. Precisa de um tamanho que não existe? O degrau nasce AQUI.
+
+   QUEM MANDA NO TAMANHO (ordem do dono, 31/07)
+   O painel é da casca PREMIUM. As cascas HBX e Corporativo respeitam a
+   própria casca: os multiplicadores do usuário só são LIDOS dentro de
+   [data-casca="modern"] — nas outras o valor efetivo continua 1, mesmo com
+   preferência salva no navegador. Por isso existem dois nomes por papel:
+     --fz-user-*  = o que o painel grava no <html> (cru, do navegador)
+     --fz-mult-*  = o que o CSS obedece (só a casca Premium liga um no outro)
+
+   FAMÍLIA continua sendo PELE (cada tema tem a sua), mas o painel da casca
+   Premium vence o tema — a escolha da pessoa ganha da decoração.
+
+   MÓDULO COM TAMANHO PRÓPRIO continua tendo o seu (--ent-*, --casca-text-*):
+   eles não somem, passam a NASCER destes degraus. Um lugar pra editar, com
+   apelido local pra quem já usava.
    ============================================================ */
 
 :root {
-  /* ---- Escala escolhida no header ------------------------------------
-     100% é o desenho atual. O inverso mantém intactas as raras medidas de
-     layout escritas em rem; somente font-size acompanha o aumento. */
-  --hbx-font-scale: 1;
-  --hbx-font-scale-inverse: 1;
+  /* ---- 1. FAMÍLIAS ----------------------------------------------------
+     As 3 do painel moram aqui, como token: é a MESMA string que veste o app
+     e que escreve o chip do painel na própria letra (nada de segunda cópia
+     pra sair de sincronia). */
+  --fonte-moderna: "Plus Jakarta Sans", system-ui, sans-serif;
+  --fonte-sistema: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+  --fonte-tecnica: "Sora", system-ui, sans-serif;
 
-  /* ---- Families (esqueleto: sistema; pele sobrescreve) ----------------- */
+  /* O que o app veste (esqueleto: sistema; pele e painel sobrescrevem). */
   --font-display: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
   --font-body: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
   --font-mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 
-  /* ---- Weights -------------------------------------------------------- */
+  /* ---- 2. AJUSTE DO USUÁRIO — EFETIVO (1 = 100%) ----------------------
+     Padrão do sistema. Só a casca Premium troca isto pelo que o painel
+     gravou (bloco [data-casca="modern"], abaixo). */
+  --fz-mult-geral: 1;
+  --fz-mult-titulo: 1;
+  --fz-mult-normal: 1;
+  --fz-mult-legenda: 1;
+  --fz-mult-micro: 1;
+
+  /* A escala GERAL multiplica a raiz (base.css) — por isso ela move tudo de
+     uma vez, inclusive as medidas em rem. O inverso existe pra devolver ao
+     layout as poucas larguras escritas em rem, que não devem crescer. */
+  --hbx-font-scale: var(--fz-mult-geral);
+  --hbx-font-scale-inverse: calc(1 / var(--fz-mult-geral));
+
+  /* ---- 3. A ESCADA — 18 degraus, 4 papéis -----------------------------
+     Os rem ao lado são a medida na raiz de 14px. Os degraus foram tirados
+     dos tamanhos MAIS USADOS de cada faixa (razão ~1.12 entre eles), pra
+     padronizar sem redesenhar: 841 das 1.227 letras migradas não se moveram
+     um pixel, e o maior deslocamento de todo o app foi 1,4px num título.
+     Título tem mais degraus que corpo DE PROPÓSITO — é onde o desenho varia
+     muito (de um número de dashboard a um h4 de card); corpo e legenda vivem
+     em 3 medidas cada, e é assim que se mantêm iguais entre telas. */
+
+  /* TÍTULOS */
+  --fz-t1: calc(2.9rem * var(--fz-mult-titulo));    /* 40.6px — número gigante */
+  --fz-t2: calc(2.45rem * var(--fz-mult-titulo));   /* 34.3px */
+  --fz-t3: calc(2.05rem * var(--fz-mult-titulo));   /* 28.7px */
+  --fz-t4: calc(1.8rem * var(--fz-mult-titulo));    /* 25.2px — h1 */
+  --fz-t5: calc(1.6rem * var(--fz-mult-titulo));    /* 22.4px */
+  --fz-t6: calc(1.45rem * var(--fz-mult-titulo));   /* 20.3px — h2 */
+  --fz-t7: calc(1.3rem * var(--fz-mult-titulo));    /* 18.2px */
+  --fz-t8: calc(1.15rem * var(--fz-mult-titulo));   /* 16.1px — h3 */
+  --fz-t9: calc(1.05rem * var(--fz-mult-titulo));   /* 14.7px — título de card */
+  --fz-t10: calc(0.95rem * var(--fz-mult-titulo));  /* 13.3px — h4 / título miúdo */
+
+  /* NORMAL */
+  --fz-n1: calc(1rem * var(--fz-mult-normal));      /* 14.0px — corpo grande */
+  --fz-n2: calc(0.92rem * var(--fz-mult-normal));   /* 12.9px — corpo */
+  --fz-n3: calc(0.86rem * var(--fz-mult-normal));   /* 12.0px — corpo denso */
+
+  /* LEGENDAS */
+  --fz-l1: calc(0.82rem * var(--fz-mult-legenda));  /* 11.5px */
+  --fz-l2: calc(0.78rem * var(--fz-mult-legenda));  /* 10.9px */
+  --fz-l3: calc(0.74rem * var(--fz-mult-legenda));  /* 10.4px */
+
+  /* MICRO */
+  --fz-m1: calc(0.72rem * var(--fz-mult-micro));    /* 10.1px */
+  --fz-m2: calc(0.7rem * var(--fz-mult-micro));     /* 9.8px — PISO */
+
+  /* HERO — landing/portal público. Fora dos papéis DE PROPÓSITO: o site
+     público não tem painel de usuário e a cena grande tem escala própria
+     (clamp por viewport). */
+  --fz-hero: 3.5rem;
+  --text-display: var(--fz-hero);
+
+  /* ---- 4. PISO -------------------------------------------------------
+     A menor letra que o app tem direito de pintar. Vale pra TODA letra
+     abaixo dele, senão inverte — micro rótulo saindo maior que o nome que
+     ele legenda. Continua sendo o mesmo token de sempre (984 usos), agora
+     como apelido do último degrau do papel MICRO. */
+  --hbx-font-min: var(--fz-m2);
+
+  /* ---- 5. APELIDOS ANTIGOS (compat) ----------------------------------
+     Ninguém precisa reescrever tela por causa da padronização: os nomes
+     antigos viraram apelido do degrau equivalente. Em código NOVO use os
+     degraus (--fz-*); estes ficam pelo legado. */
+  --text-h1: var(--fz-t4);
+  --text-h2: var(--fz-t6);
+  --text-h3: var(--fz-t8);
+  --text-h4: var(--fz-t10);
+  --text-lg: var(--fz-n1);
+  --text-base: var(--fz-n3);
+  --text-sm: var(--fz-l2);
+  --text-xs: var(--fz-m2);
+
+  /* ---- 6. PESOS ------------------------------------------------------- */
   --weight-regular: 400;
   --weight-medium: 500;
   --weight-semibold: 600;
@@ -25,81 +137,64 @@
   --weight-extrabold: 800;
   --weight-black: 900;
 
-  /* ---- Display / heading scale (tight tracking) ----------------------- */
-  --text-display: 3.5rem;     /* 56px — hero numerals / big statements (landing, NÃO mexe) */
-  /* Passe de densidade (LEADS-FINAL/01, 06/07): app fica com cara de ferramenta
-     pro — menos chrome de heading, mais linha de dado por tela. */
-  --text-h1: 1.8rem;          /* 27px (era 2.4rem) */
-  --text-h2: 1.5rem;          /* era 1.9rem */
-  --text-h3: 1.15rem;         /* era 1.35rem */
-  --text-h4: 0.95rem;         /* era 1.05rem */
-
-  /* ---- PISO: a menor letra que o app tem direito de pintar (31/07) -----
-     A escala do header resolvia legibilidade subindo TUDO — e a 120% o
-     texto grande estourava caixa e cortava linha. O problema era o degrau
-     de baixo: a linha meta do cartão de lead media 0.5rem = 7px, e havia
-     letra descendo até 0.38rem = 5,3px.
-
-     PISO É PISO: vale pra TODA letra abaixo dele, senão inverte — micro
-     rótulo saindo maior que o nome que ele legenda. Por isso o token não
-     é decorativo: todo font-size do app que ficava abaixo dele foi
-     trocado por este var(). Mexer aqui move o degrau inteiro de uma vez.
-
-     E o token só entra onde o valor ORIGINAL era menor que ele. Quem já
-     nascia igual ou maior guarda a própria medida — senão baixar o piso
-     deixaria de abaixar um chão e passaria a ENCOLHER texto legível.
-     Foi o que aconteceu no caminho 0.6 → 0.8 → 0.7: na ida pra 0.8 o piso
-     engoliu 812 declarações que já eram maiores que 0.7rem; elas foram
-     devolvidas ao próprio valor antes de o piso descer.
-
-     Ordem do dono (31/07, 3ª passada): 0.8rem → 0.7rem = 9,8px. É rem,
-     então continua obedecendo a porcentagem do header (a 120% vira
-     11,8px); a porcentagem em si não mudou — segue 100/110/120/130. */
-  --hbx-font-min: 0.7rem;     /* 9.8px na raiz de 14px */
-
-  /* ---- Body scale ----------------------------------------------------- */
-  --text-lg: 1rem;            /* 16px */
-  --text-base: 0.88rem;       /* 14px — default UI body */
-  --text-sm: 0.78rem;         /* 10.9px — acima do piso, guarda a própria medida */
-  --text-xs: var(--hbx-font-min);  /* era 0.68rem = 9,5px: caía dentro do piso */
-
-  /* ---- Tracking ------------------------------------------------------- */
+  /* ---- 7. TRACKING ---------------------------------------------------- */
   --tracking-display: -0.06em;
   --tracking-tight: -0.04em;
   --tracking-normal: 0;
   --tracking-overline: 0.18em;   /* eyebrowSpacing */
 
-  /* ---- Line heights --------------------------------------------------- */
+  /* ---- 8. ENTRELINHA -------------------------------------------------- */
   --leading-display: 0.92;
   --leading-heading: 0.98;
   --leading-body: 1.52;
   --leading-tight: 1.1;
 
-  /* ---- CASCA MOBILE (MOBILE-CASCA/W1) — font-size ESTRUTURAL da casca ---
-     Métrica é esqueleto (Lei 1): título do topo = 15px. Pele PROIBIDA de
-     mexer nisto (check-pele R5). Label da tab (9,2px) e stat (9,7px)
-     ficavam abaixo do piso e passaram a ser o piso; sub de linha (10,5px)
-     já nascia acima e guarda a própria medida. */
-  --casca-text-title: 0.95rem;   /* ~15px — título do topo (1 linha) */
-  --casca-text-label: var(--hbx-font-min);   /* era 0.66rem — label da tab bar */
-  --casca-text-stat: var(--hbx-font-min);    /* era 0.69rem — stats 1 linha micro */
-  --casca-text-body: 0.88rem;    /* 14px — corpo de linha de lista */
-  --casca-text-sub: 0.75rem;     /* ~10.5px — subtítulo/meta de linha */
-  --casca-text-pct: 0.8rem;      /* ~13px — % no centro do loading */
-  --casca-loading-mark: 1.62rem; /* ~26px — wordmark HBX no loading (aumentada o pouco, 07/07) */
+  /* ---- 9. CASCA MOBILE — módulo com tamanho próprio, agora DERIVADO ----
+     A métrica da casca é esqueleto (Lei 1) e a pele é proibida de mexer
+     (check-pele R5). O que mudou: em vez de rem soltos, cada linha aponta
+     pro degrau equivalente — quem edita a casca mexe aqui, e quem move o
+     papel no painel move a casca junto. */
+  --casca-text-title: var(--fz-t10);  /* título do topo (1 linha) */
+  --casca-text-label: var(--fz-m2);   /* label da tab bar */
+  --casca-text-stat: var(--fz-m2);    /* stats 1 linha micro */
+  --casca-text-body: var(--fz-n3);    /* corpo de linha de lista */
+  --casca-text-sub: var(--fz-l3);     /* subtítulo/meta de linha */
+  --casca-text-pct: var(--fz-l1);     /* % no centro do loading */
+  --casca-loading-mark: var(--fz-t5); /* wordmark HBX no loading */
 }
 
-html[data-font-scale="110"] {
-  --hbx-font-scale: 1.1;
-  --hbx-font-scale-inverse: 0.909091;
+/* ============================================================
+   O PAINEL É DA CASCA PREMIUM (ordem do dono, 31/07)
+   Aqui — e só aqui — o valor cru gravado pelo painel vira o multiplicador
+   que o CSS obedece. Nas cascas HBX e Corporativo o bloco não casa, o
+   :root acima continua valendo e a tipografia é a da casca.
+   ============================================================ */
+html[data-casca="modern"] {
+  --fz-mult-geral: var(--fz-user-geral, 1);
+  --fz-mult-titulo: var(--fz-user-titulo, 1);
+  --fz-mult-normal: var(--fz-user-normal, 1);
+  --fz-mult-legenda: var(--fz-user-legenda, 1);
+  --fz-mult-micro: var(--fz-user-micro, 1);
 }
 
-html[data-font-scale="120"] {
-  --hbx-font-scale: 1.2;
-  --hbx-font-scale-inverse: 0.833333;
+/* ---- FAMÍLIA escolhida no painel ------------------------------------
+   Vence o tema por especificidade (0,2,1 contra 0,1,0 de [data-theme=…]),
+   não por ordem de import — então continua vencendo mesmo se as folhas
+   trocarem de lugar. Sem escolha, o tema segue mandando: o deploy não muda
+   a letra de ninguém sozinho.
+   As três são as famílias que o app JÁ carrega no <head> (layout.tsx);
+   nenhuma fonte nova entrou. */
+html[data-casca="modern"][data-fonte="moderna"] {
+  --font-display: var(--fonte-moderna);
+  --font-body: var(--fonte-moderna);
 }
-
-html[data-font-scale="130"] {
-  --hbx-font-scale: 1.3;
-  --hbx-font-scale-inverse: 0.769231;
+html[data-casca="modern"][data-fonte="sistema"] {
+  --font-display: var(--fonte-sistema);
+  --font-body: var(--fonte-sistema);
+}
+/* Técnica = Sora no título + Jakarta no corpo. Não é combinação nova: é a que
+   os temas Login, Aurora e Layout já usam há meses — só ganhou nome. */
+html[data-casca="modern"][data-fonte="tecnica"] {
+  --font-display: var(--fonte-tecnica);
+  --font-body: var(--fonte-moderna);
 }

@@ -70,7 +70,7 @@
   border-radius: var(--radius-md);
 }
 .ac-head__text { display: grid; gap: 1px; min-width: 0; flex: 1; }
-.ac-head__text strong { font-size: 0.84rem; color: var(--text-strong); }
+.ac-head__text strong { font-size: var(--fz-n3); color: var(--text-strong); }
 .ac-head__text small { font-size: var(--hbx-font-min); color: var(--text-muted); }
 .ac-close {
   width: 28px;
@@ -92,7 +92,7 @@
   align-items: center;
   gap: 6px;
   margin: 0;
-  font-size: 0.77rem;
+  font-size: var(--fz-l2);
   line-height: 1.45;
   color: var(--text-muted);
 }
@@ -107,10 +107,10 @@
   border: 1px solid color-mix(in srgb, var(--hbx-brand) 26%, transparent);
   border-radius: var(--radius-md);
 }
-.ac-task strong { font-size: 0.84rem; color: var(--text-strong); }
-.ac-task span { font-size: 0.72rem; line-height: 1.45; color: var(--text-muted); }
+.ac-task strong { font-size: var(--fz-n3); color: var(--text-strong); }
+.ac-task span { font-size: var(--fz-m1); line-height: 1.45; color: var(--text-muted); }
 .ac-offer { display: grid; gap: 8px; }
-.ac-offer > p { margin: 0; font-size: 0.74rem; line-height: 1.45; color: var(--text-muted); }
+.ac-offer > p { margin: 0; font-size: var(--fz-l3); line-height: 1.45; color: var(--text-muted); }
 .ac-solutions { display: grid; gap: 6px; }
 .ac-solution {
   width: 100%;
@@ -124,7 +124,7 @@
   border-radius: var(--radius-md);
   cursor: pointer;
 }
-.ac-solution strong { font-size: 0.76rem; }
+.ac-solution strong { font-size: var(--fz-l2); }
 .ac-solution span { font-size: var(--hbx-font-min); line-height: 1.4; color: var(--text-muted); }
 .ac-solution:hover { border-color: color-mix(in srgb, var(--hbx-brand) 36%, var(--border-hairline)); }
 .ac-solution:disabled { opacity: .58; cursor: wait; }
@@ -149,14 +149,14 @@
 .ac-segment-modal { width: min(390px, 100%); display: grid; gap: 13px; padding: 22px; position: relative; }
 .ac-segment-close { position: absolute; top: 8px; right: 8px; }
 .ac-segment-copy { display: grid; gap: 4px; padding-right: 28px; }
-.ac-segment-copy strong { font-size: 0.9rem; color: var(--text-strong); }
-.ac-segment-copy span { font-size: 0.72rem; line-height: 1.45; color: var(--text-muted); }
-.ac-segment-error { font-size: 0.7rem; color: var(--hbx-danger); }
+.ac-segment-copy strong { font-size: var(--fz-n2); color: var(--text-strong); }
+.ac-segment-copy span { font-size: var(--fz-m1); line-height: 1.45; color: var(--text-muted); }
+.ac-segment-error { font-size: var(--fz-m2); color: var(--hbx-danger); }
 .ac-cta {
   justify-self: start;
   min-height: 34px;
   padding: 0 15px;
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
   font-weight: 750;
   color: var(--hbx-brand-contrast);
   background: var(--hbx-brand);

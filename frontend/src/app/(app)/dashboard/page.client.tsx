@@ -208,8 +208,8 @@ export function DashboardClient() {
           {loadError && (user as { isSystemMaster?: boolean } | null)?.isSystemMaster ? (
             <section className="panel">
               <div style={{ padding: 18, display: "grid", gap: 8 }}>
-                <strong style={{ fontSize: "0.86rem" }}>Você está logado como MASTER</strong>
-                <span style={{ fontSize: "0.74rem", color: "var(--text-muted)", lineHeight: 1.55 }}>
+                <strong style={{ fontSize: "var(--fz-n3)" }}>Você está logado como MASTER</strong>
+                <span style={{ fontSize: "var(--fz-l3)", color: "var(--text-muted)", lineHeight: 1.55 }}>
                   A conta master não tem empresa vinculada, e este painel mostra a operação de UMA empresa —
                   por isso as chamadas retornam erro ({loadError}). Para operar o dia a dia, entre com a conta
                   Admin da empresa. A sua casa é o painel Master.
@@ -218,7 +218,7 @@ export function DashboardClient() {
               </div>
             </section>
           ) : loadError ? (
-            <div style={{ fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>
+            <div style={{ fontSize: "var(--fz-l3)", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>
           ) : null}
           <KpiRow items={[
             {
@@ -362,8 +362,8 @@ export function DashboardClient() {
                   <div key={v.seller.id} style={{ display: "grid", gap: 6 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <Av name={v.seller.name} size={22} />
-                      <span style={{ fontSize: "0.78rem", fontWeight: 600 }}>{v.seller.name}</span>
-                      <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: "0.72rem", fontWeight: 700 }}>{v.metrics.closedCards} fechados</span>
+                      <span style={{ fontSize: "var(--fz-l2)", fontWeight: 600 }}>{v.seller.name}</span>
+                      <span style={{ marginLeft: "auto", fontFamily: "var(--font-mono)", fontSize: "var(--fz-m1)", fontWeight: 700 }}>{v.metrics.closedCards} fechados</span>
                     </div>
                     <div className="meter">
                       <div className="meter-fill" style={{ width: `${Math.min(100, Math.round((v.metrics.workRate || 0) * 100))}%`, animationDelay: `${i * 90}ms` }}></div>

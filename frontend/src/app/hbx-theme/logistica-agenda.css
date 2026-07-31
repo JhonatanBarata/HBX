@@ -27,7 +27,7 @@
   border-radius: 12px;
   background: color-mix(in srgb, var(--hbx-danger) 9%, transparent);
   color: var(--text-strong);
-  font-size: 0.8rem;
+  font-size: var(--fz-l1);
 }
 
 .log-negada strong {
@@ -83,7 +83,7 @@
   background: transparent;
   color: var(--text-muted);
   font: inherit;
-  font-size: 0.75rem;
+  font-size: var(--fz-l3);
   font-weight: 750;
   white-space: nowrap;
   cursor: pointer;
@@ -163,14 +163,14 @@
 
 .log-agenda__day strong {
   color: inherit;
-  font-size: 0.72rem;
+  font-size: var(--fz-m1);
   font-weight: 800;
 }
 
 .log-agenda__day-count {
   grid-row: span 2;
   color: var(--text-strong);
-  font-size: 1rem;
+  font-size: var(--fz-n1);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
@@ -220,7 +220,7 @@
 
 .log-agenda-legacy strong {
   color: var(--text-strong);
-  font-size: 0.72rem;
+  font-size: var(--fz-m1);
   font-weight: 800;
 }
 
@@ -287,7 +287,7 @@
 .log-agenda__head h2 {
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 0.96rem;
+  font-size: var(--fz-t10);
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -392,7 +392,7 @@
   background: transparent;
   color: var(--text-strong);
   font: inherit;
-  font-size: 0.75rem;
+  font-size: var(--fz-l3);
 }
 
 .log-agenda__search input::placeholder {
@@ -441,7 +441,7 @@
   background: var(--hbx-brand-soft);
   color: var(--hbx-brand-strong, var(--hbx-brand));
   font: inherit;
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
@@ -466,7 +466,7 @@
 
 .log-agenda-stop__name {
   color: var(--text-strong);
-  font-size: 0.8rem;
+  font-size: var(--fz-l1);
   font-weight: 800;
 }
 
@@ -562,13 +562,13 @@
 
 .log-agenda__feedback strong {
   color: var(--text-strong);
-  font-size: 0.82rem;
+  font-size: var(--fz-l1);
   font-weight: 800;
 }
 
 .log-agenda__feedback span {
   max-width: 360px;
-  font-size: 0.7rem;
+  font-size: var(--fz-m2);
   line-height: 1.45;
 }
 
@@ -658,7 +658,7 @@
 
 .log-agenda-modal__title h2 {
   color: var(--text-strong);
-  font-size: 0.95rem;
+  font-size: var(--fz-t10);
   font-weight: 800;
 }
 
@@ -717,7 +717,7 @@
 .log-agenda-form__section-title {
   margin: 0;
   color: var(--text-strong);
-  font-size: 0.72rem;
+  font-size: var(--fz-m1);
   font-weight: 800;
 }
 
@@ -864,7 +864,7 @@
   background: transparent;
   color: var(--text-muted);
   font: inherit;
-  font-size: 0.7rem;
+  font-size: var(--fz-m2);
   font-weight: 750;
   cursor: pointer;
 }
@@ -896,7 +896,7 @@
 
 .log-agenda-impact__stat strong {
   color: var(--text-strong);
-  font-size: 1rem;
+  font-size: var(--fz-n1);
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
@@ -1005,7 +1005,7 @@
 .log-agenda-import__route-name strong {
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1046,7 +1046,7 @@
 .log-agenda-import__block-head h4 {
   margin: 0;
   color: var(--text-strong);
-  font-size: 0.72rem;
+  font-size: var(--fz-m1);
   font-weight: 800;
 }
 
@@ -1088,7 +1088,7 @@
 .log-agenda-import__row-name {
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 0.7rem;
+  font-size: var(--fz-m2);
   font-weight: 700;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1383,7 +1383,7 @@
   background: transparent;
   color: var(--text-muted);
   font: inherit;
-  font-size: 0.72rem;
+  font-size: var(--fz-m1);
   font-weight: 750;
   white-space: nowrap;
   cursor: pointer;
@@ -1403,7 +1403,7 @@
 
 .log-quar-subhead {
   margin-top: 18px;
-  font-size: 0.8rem;
+  font-size: var(--fz-l1);
 }
 
 /* Linha da lista virou clicável (abre a correção) — só o cursor muda; cor/estado
@@ -1430,8 +1430,8 @@
   background: var(--hbx-brand-soft);
 }
 
-.log-quar-drop__title { font-size: 0.82rem; font-weight: 750; color: var(--text-strong); }
-.log-quar-drop__sub { font-size: 0.72rem; color: var(--text-muted); }
+.log-quar-drop__title { font-size: var(--fz-l1); font-weight: 750; color: var(--text-strong); }
+.log-quar-drop__sub { font-size: var(--fz-m1); color: var(--text-muted); }
 
 .log-quar-textarea {
   min-height: 220px;
@@ -1468,8 +1468,8 @@
 }
 
 .log-quar-lote__main { display: grid; gap: 2px; min-width: 0; }
-.log-quar-lote__title { font-size: 0.78rem; font-weight: 750; color: var(--text-strong); }
-.log-quar-lote__sub { font-size: 0.7rem; color: var(--text-muted); }
+.log-quar-lote__title { font-size: var(--fz-l2); font-weight: 750; color: var(--text-strong); }
+.log-quar-lote__sub { font-size: var(--fz-m2); color: var(--text-muted); }
 
 .emp-role.is-rascunho { color: var(--text-body); border-color: var(--border-hairline); background: color-mix(in srgb, var(--text-muted) 10%, transparent); }
 .emp-role.is-conferido { color: var(--hbx-brand-strong); border-color: color-mix(in srgb, var(--hbx-brand) 40%, transparent); background: var(--hbx-brand-soft); }

@@ -19,7 +19,7 @@
 .tpx-head .tpx-titles > h4 {
   margin: 0;
   font-family: var(--font-display);
-  font-size: 0.84rem;
+  font-size: var(--fz-n3);
   font-weight: 800;
 }
 .tpx-head .tpx-titles > .tp-desc { margin: 0; }
@@ -62,7 +62,7 @@
 .tpx-gcard.part { border-color: color-mix(in srgb, var(--login-accent) 38%, var(--border-hairline)); }
 .tpx-gcard.all { border-color: var(--login-accent); background: var(--hbx-brand-soft); }
 .tpx-gcard .tpx-gtext { display: grid; gap: 2px; min-width: 0; }
-.tpx-gcard .tpx-gtext b { font-size: 0.78rem; font-weight: 800; }
+.tpx-gcard .tpx-gtext b { font-size: var(--fz-l2); font-weight: 800; }
 .tpx-gcard .tpx-gtext small { font-size: var(--hbx-font-min); color: var(--text-muted); line-height: 1.4; }
 
 /* Faixa de status do grupo: contador + sinalizador alterado */

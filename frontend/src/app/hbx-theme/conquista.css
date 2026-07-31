@@ -123,14 +123,14 @@
 .cq-title {
   margin: 0 0 6px;
   font-family: var(--font-display, inherit);
-  font-size: 1.32rem;
+  font-size: var(--fz-t7);
   font-weight: 800;
   line-height: 1.2;
 }
 .cq-sub {
   margin: 0 auto 18px;
   max-width: 30ch;
-  font-size: 0.84rem;
+  font-size: var(--fz-n3);
   line-height: 1.5;
   color: var(--text-muted, #6b6580);
 }
@@ -140,7 +140,7 @@
   justify-content: center;
   min-height: 40px;
   padding: 0 22px;
-  font-size: 0.85rem;
+  font-size: var(--fz-n3);
   font-weight: 700;
   color: #fff;
   background: linear-gradient(135deg, var(--cq-accent), var(--cq-accent-2));

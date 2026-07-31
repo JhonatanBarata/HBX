@@ -218,7 +218,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
   return (
     <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="hbx-modal" style={{ width: "min(420px, 100%)", display: "grid", gap: 14, padding: 24, position: "relative", overflow: "hidden" }}>
-        <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "1.05rem", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "var(--fz-t9)", fontWeight: 800, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           Conexão WhatsApp
           <span style={{ color: "var(--text-muted)", cursor: "pointer", fontWeight: 400 }} onClick={onClose}>✕</span>
         </h3>
@@ -227,7 +227,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
           <span className={"tag" + (connected ? " teal" : status === "error" ? " red" : " warn")}>
             {whatsappModalStatusLabel(status)}
           </span>
-          {prettyPhone(payload?.data?.phone) && <span style={{ fontFamily: "var(--font-mono)", fontSize: "0.74rem" }}>{prettyPhone(payload?.data?.phone)}</span>}
+          {prettyPhone(payload?.data?.phone) && <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--fz-l3)" }}>{prettyPhone(payload?.data?.phone)}</span>}
         </div>
 
         {!connected && (
@@ -238,13 +238,13 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
         )}
 
         {payload?.message && (
-          <p style={{ margin: 0, fontSize: "0.76rem", color: "var(--text-muted)", lineHeight: 1.5 }}>{sanitizeJidsInText(payload.message)}</p>
+          <p style={{ margin: 0, fontSize: "var(--fz-l2)", color: "var(--text-muted)", lineHeight: 1.5 }}>{sanitizeJidsInText(payload.message)}</p>
         )}
         {error && (
-          <p style={{ margin: 0, fontSize: "0.74rem", fontWeight: 700, color: "var(--hbx-danger)" }}>{error}</p>
+          <p style={{ margin: 0, fontSize: "var(--fz-l3)", fontWeight: 700, color: "var(--hbx-danger)" }}>{error}</p>
         )}
         {bootstrapMsg && (
-          <p style={{ margin: 0, fontSize: "0.74rem", fontWeight: 700, color: bootstrapMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{bootstrapMsg}</p>
+          <p style={{ margin: 0, fontSize: "var(--fz-l3)", fontWeight: 700, color: bootstrapMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{bootstrapMsg}</p>
         )}
 
         {method === "qr" && status === "waiting_qr" && (
@@ -252,7 +252,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
             {qr
               // eslint-disable-next-line @next/next/no-img-element
               ? <img src={qr} alt="QR Code do WhatsApp" width={220} height={220} style={{ borderRadius: 8, background: "#fff", padding: 6 }} />
-              : <span style={{ fontSize: "0.74rem", color: "var(--text-muted)" }}>Gerando QR…</span>}
+              : <span style={{ fontSize: "var(--fz-l3)", color: "var(--text-muted)" }}>Gerando QR…</span>}
             <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", textAlign: "center" }}>
               Abra o WhatsApp no celular → Aparelhos conectados → Conectar aparelho.
             </span>
@@ -270,7 +270,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
             />
             {pairing?.code ? (
               <div style={{ display: "grid", justifyItems: "center", gap: 6, padding: 8 }}>
-                <span style={{ fontSize: "1.7rem", fontWeight: 800, letterSpacing: "0.2em" }}>{pairing.code}</span>
+                <span style={{ fontSize: "var(--fz-t4)", fontWeight: 800, letterSpacing: "0.2em" }}>{pairing.code}</span>
                 <span className="badge-win">Código válido por {pairing.expiresInSeconds}s</span>
                 <span className="hint" style={{ textAlign: "center" }}>
                   No celular: WhatsApp → Aparelhos conectados → Conectar aparelho → Conectar com número de telefone, e digite este código.
@@ -294,8 +294,8 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
             <span className="hbx-approve-pulse d2" aria-hidden="true" />
             <span className="badge-win">✓ WhatsApp conectado — pronto para receber e responder aqui</span>
             <div className="kv">
-              <div className="row"><span className="k">Conectado em</span><span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{formatWhatsAppDateTime(payload?.data?.connectedAt)}</span></div>
-              <div className="row"><span className="k">Atualizado em</span><span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: "0.7rem" }}>{formatWhatsAppDateTime(payload?.data?.updatedAt)}</span></div>
+              <div className="row"><span className="k">Conectado em</span><span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: "var(--fz-m2)" }}>{formatWhatsAppDateTime(payload?.data?.connectedAt)}</span></div>
+              <div className="row"><span className="k">Atualizado em</span><span className="v" style={{ fontFamily: "var(--font-mono)", fontSize: "var(--fz-m2)" }}>{formatWhatsAppDateTime(payload?.data?.updatedAt)}</span></div>
             </div>
           </>
         )}
@@ -334,7 +334,7 @@ export function WhatsAppConnectModal({ open, onClose, onConnected, onDisconnecte
             <div style={{ marginTop: 4, paddingTop: 10, borderTop: "1px dashed var(--border-strong)", display: "grid", gap: 6 }}>
               <span style={{ fontSize: "var(--hbx-font-min)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "var(--text-muted)" }}>debug</span>
               {wipeMsg && (
-                <p style={{ margin: 0, fontSize: "0.72rem", color: wipeMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{wipeMsg}</p>
+                <p style={{ margin: 0, fontSize: "var(--fz-m1)", color: wipeMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{wipeMsg}</p>
               )}
               {confirmWipe ? (
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>

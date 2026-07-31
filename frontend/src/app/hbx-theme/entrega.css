@@ -71,18 +71,28 @@
   --ent-font: var(--font-body, "Plus Jakarta Sans", system-ui, sans-serif);
   --ent-font-num: var(--font-display, "Sora", system-ui, sans-serif);
 
-  /* Tipo (mobile-first COMPACTO — dono 07/07 mandou reduzir em todo /entrega) */
-  --ent-text: 15px;
-  --ent-text-sm: 13px;
+  /* ---- Tipo — MÓDULO COM TAMANHO PRÓPRIO (padronização 31/07) ----------
+     /entrega se lê na RUA, no celular, com a mão ocupada: o módulo inteiro
+     nasce maior que o app. Antes isso eram 7 px soltos (15/13/11/19/22/25/48)
+     que ninguém sabia de onde vinham; agora é UM número — --ent-mult — em
+     cima dos degraus centrais (hbx-theme/typography.css). Quer /entrega
+     inteiro maior? Mexe no multiplicador, não em 7 medidas.
+     As medidas resultantes batem as de antes (dono 07/07 mandou reduzir e
+     esse tamanho está aprovado): 15.0 / 12.9 / 11.1 / 19.5 / 21.7 px. */
+  --ent-mult: 1.07;
+  --ent-text: calc(var(--fz-n1) * var(--ent-mult));      /* 15.0px */
+  --ent-text-sm: calc(var(--fz-n3) * var(--ent-mult));   /* 12.9px */
   /* Menor texto de UI (label de tab-bar) — LEADS-FINAL/01 06/07: migração do
      único font-size:px hardcoded do arquivo (fiscal R5, check-pele.mjs). */
-  --ent-text-xs: 11px;
-  --ent-title: 19px;
-  --ent-title-lg: 22px;
-  --ent-num: 25px;
+  --ent-text-xs: calc(var(--fz-l3) * var(--ent-mult));   /* 11.1px */
+  --ent-title: calc(var(--fz-t7) * var(--ent-mult));     /* 19.5px */
+  --ent-title-lg: calc(var(--fz-t6) * var(--ent-mult));  /* 21.7px */
+  /* O número JÁ nasce grande: não leva o engorda do módulo, senão viraria
+     27px e empurraria a linha do cartão. */
+  --ent-num: var(--fz-t4);                               /* 25.2px */
   /* ROTA-AUTOPILOT F1/F3 — número grande do countdown (5→1); token central
      (Lei nº1), não reinfla --ent-num usado em toda a métrica existente. */
-  --ent-num-lg: 48px;
+  --ent-num-lg: calc(var(--fz-t1) * 1.18);               /* 47.9px */
 
   /* Grade de 8 (TASK 11b 08/07: mais um nível compacto — ver nota no topo) */
   --ent-1: 4px;
@@ -496,7 +506,7 @@
   justify-content: center;
   border: none;
   cursor: pointer;
-  font-size: calc(26px * var(--hbx-font-scale));
+  font-size: var(--fz-t4);
   font-weight: 800;
   line-height: 1;
   background: linear-gradient(135deg, var(--ent-brand), var(--ent-accent));
@@ -1916,7 +1926,7 @@
   background: color-mix(in srgb, var(--ent-success) 16%, var(--ent-surface));
   color: var(--ent-success);
   font-family: var(--ent-font-num);
-  font-size: calc(30px * var(--hbx-font-scale));
+  font-size: var(--fz-t3);
   font-weight: 800;
   line-height: 1;
   margin-bottom: var(--ent-3);

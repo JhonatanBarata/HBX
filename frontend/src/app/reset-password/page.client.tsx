@@ -82,9 +82,9 @@ export function ResetPasswordClient() {
             </div>
           )}
           {done ? (
-            <Link href="/login" className="btn-teal" style={{ minHeight: 44, fontSize: "0.84rem", textDecoration: "none" }}>Ir para o login</Link>
+            <Link href="/login" className="btn-teal" style={{ minHeight: 44, fontSize: "var(--fz-n3)", textDecoration: "none" }}>Ir para o login</Link>
           ) : (
-            <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 44, fontSize: "0.84rem" }}>
+            <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 44, fontSize: "var(--fz-n3)" }}>
               {busy ? "Salvando…" : "Redefinir senha"}
             </button>
           )}
@@ -105,7 +105,7 @@ export function ResetPasswordClient() {
               {error}
             </div>
           )}
-          <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 44, fontSize: "0.84rem" }}>
+          <button className="btn-teal" type="submit" disabled={busy} style={{ minHeight: 44, fontSize: "var(--fz-n3)" }}>
             {busy ? "Enviando…" : "Enviar link"}
           </button>
           <div className="alt"><Link href="/login" className="link" style={{ textDecoration: "none" }}>Voltar para o login</Link></div>

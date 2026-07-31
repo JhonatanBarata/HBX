@@ -25,7 +25,7 @@
 
 .eyebrow {
   color: var(--text-muted);
-  font-size: 0.72rem;
+  font-size: var(--fz-m1);
   font-weight: 750;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -34,14 +34,14 @@
 .title {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(1.35rem, calc(7vw * var(--hbx-font-scale)), 2rem);
+  font-size: clamp(var(--fz-t7), calc(7vw * var(--hbx-font-scale)), var(--fz-t3));
   line-height: 1.08;
 }
 
 .subtitle {
   margin: 0;
   color: var(--text-muted);
-  font-size: 0.82rem;
+  font-size: var(--fz-l1);
   line-height: 1.5;
 }
 
@@ -64,7 +64,7 @@
 }
 
 .metric strong {
-  font-size: 1rem;
+  font-size: var(--fz-n1);
   line-height: 1.2;
 }
 
@@ -93,7 +93,7 @@
   border-radius: 14px;
   border: 1px solid transparent;
   font: inherit;
-  font-size: 0.78rem;
+  font-size: var(--fz-l2);
   font-weight: 800;
   cursor: pointer;
 }
@@ -130,7 +130,7 @@
   gap: 10px;
   padding: 12px 14px;
   color: var(--text-muted);
-  font-size: 0.72rem;
+  font-size: var(--fz-m1);
   line-height: 1.45;
 }
 
@@ -157,7 +157,7 @@
 .cardHead h2,
 .cardHead h3 {
   margin: 0;
-  font-size: 0.88rem;
+  font-size: var(--fz-n3);
 }
 
 .cardHead span,
@@ -196,7 +196,7 @@ button.row {
 
 .rowName {
   overflow: hidden;
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
   font-weight: 780;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -238,14 +238,14 @@ button.row {
 
 .stopName {
   font-family: var(--font-display);
-  font-size: 1.15rem;
+  font-size: var(--fz-t8);
   font-weight: 850;
 }
 
 .stopAddress,
 .stopItems {
   color: var(--text-muted);
-  font-size: 0.75rem;
+  font-size: var(--fz-l3);
   line-height: 1.45;
 }
 
@@ -289,7 +289,7 @@ button.row {
   border-radius: 13px;
   background: color-mix(in srgb, var(--hbx-danger) 10%, transparent);
   color: var(--hbx-danger);
-  font-size: 0.72rem;
+  font-size: var(--fz-m1);
   line-height: 1.45;
 }
 
@@ -302,7 +302,7 @@ button.row {
 .sheetIntro {
   margin: 0;
   color: var(--text-muted);
-  font-size: 0.74rem;
+  font-size: var(--fz-l3);
   line-height: 1.55;
 }
 
@@ -373,7 +373,7 @@ button.row {
   border-radius: 16px;
   background: var(--hbx-brand);
   color: var(--hbx-brand-contrast);
-  font-size: 1.45rem;
+  font-size: var(--fz-t6);
   font-weight: 500;
   box-shadow: var(--shadow-md);
   cursor: pointer;

@@ -94,7 +94,7 @@
   margin-left: 5px;
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 0.72rem;
+  font-size: var(--fz-m1);
   font-weight: 800;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -175,7 +175,7 @@
 
 .age-calendar__caption strong {
   color: var(--text-strong);
-  font-size: 0.74rem;
+  font-size: var(--fz-l3);
   font-weight: 850;
 }
 
@@ -297,7 +297,7 @@
   place-items: center;
   border-radius: var(--radius-pill);
   color: var(--text-strong);
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
   font-weight: 850;
 }
 
@@ -674,7 +674,7 @@
 
 .age-calendar-state strong {
   color: var(--text-strong);
-  font-size: 0.76rem;
+  font-size: var(--fz-l2);
 }
 
 .age-calendar-state > span:not(.age-calendar-state__icon) {
@@ -840,7 +840,7 @@
 
 .age-result-panel strong {
   color: var(--text-strong);
-  font-size: 0.7rem;
+  font-size: var(--fz-m2);
 }
 
 .age-result-panel__buttons {

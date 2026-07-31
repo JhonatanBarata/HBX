@@ -95,7 +95,7 @@
 [data-theme="ember"] .btn-teal {
   background: linear-gradient(180deg, var(--hbx-brand), color-mix(in srgb, var(--hbx-brand) 80%, #7C2D12));
   box-shadow: 0 8px 18px -10px color-mix(in srgb, var(--hbx-brand) 80%, transparent);
-  text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.72rem;
+  text-transform: uppercase; letter-spacing: 0.04em; font-size: var(--fz-m1);
 }
 [data-theme="ember"] .kpi-value { letter-spacing: -0.04em; }
 [data-theme="ember"] .tag { border-radius: var(--radius-xs); }

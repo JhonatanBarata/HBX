@@ -73,7 +73,7 @@ export function WebsiteClient() {
   return (
     <div className="work" style={{ flex: 1 }}>
       {loadError && (
-        <div style={{ fontSize: "0.74rem", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>
+        <div style={{ fontSize: "var(--fz-l3)", fontWeight: 600, color: "var(--hbx-danger)" }}>{loadError}</div>
       )}
 
       <section className="panel">
@@ -82,12 +82,12 @@ export function WebsiteClient() {
         </div>
         <div style={{ padding: "16px 18px 20px", display: "grid", gap: 14 }}>
           {loading && !portal && (
-            <span style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>Carregando…</span>
+            <span style={{ fontSize: "var(--fz-l2)", color: "var(--text-muted)" }}>Carregando…</span>
           )}
 
           {!loading && portal && !portal.configured && (
             <React.Fragment>
-              <strong style={{ fontSize: "0.86rem" }}>Site ainda não configurado</strong>
+              <strong style={{ fontSize: "var(--fz-n3)" }}>Site ainda não configurado</strong>
               <p className="muted-note" style={{ margin: 0, lineHeight: 1.55 }}>
                 {portal.message || "Sua empresa ainda não tem um website configurado no HBX."}
                 {" "}Fale com o suporte HBX para configurar o seu site.
@@ -98,7 +98,7 @@ export function WebsiteClient() {
           {!loading && portal && portal.configured && (
             <React.Fragment>
               <div style={{ display: "grid", gap: 4 }}>
-                <strong style={{ fontSize: "0.86rem" }}>{portal.companyName || "Seu site"}</strong>
+                <strong style={{ fontSize: "var(--fz-n3)" }}>{portal.companyName || "Seu site"}</strong>
                 <span className="muted-note" style={{ margin: 0 }}>
                   {portal.websitePublicUrl || "—"}
                 </span>
