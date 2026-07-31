@@ -100,6 +100,7 @@ import {
   type HbxPresentationEmailIntent,
 } from '../mail/hbx-email-intent.util';
 import { CommercialContactControlService } from '../vendas/commercial-contact-control.service';
+import { AgendaDisparoService } from '../vendas/agenda-disparo.service';
 import { VendasContactSuppressionService } from '../vendas/vendas-contact-suppression.service';
 import { InboundRouterService } from '../automation/inbound-router.service';
 import { AgentRuntimeResolver } from '../automation/agent-runtime.resolver';
@@ -293,6 +294,7 @@ type VendasAgendaQueueMetadata = {
 export class MessagingService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MessagingService.name);
   private readonly commercialContactControl: CommercialContactControlService;
+  private readonly agendaDisparo: AgendaDisparoService;
   // RECEPCIONISTA IA (31/07/2026): mesma guarda local — ver tryRecepcionistaGate.
   private readonly recepcionista: RecepcionistaService;
   // ESCRITA DA SUPRESSÃO (30/07/2026): mesmo padrão do commercialContactControl acima
@@ -342,6 +344,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
   ) {
     // Guarda transitoria local: evita ampliar o grafo de DI antes do modelo canonico.
     this.commercialContactControl = new CommercialContactControlService(this.prisma, this.conversations);
+    // CASA DO RISCO (31/07/2026): intervalo/digitação do follow-up comercial leem
+    // VendasComercialConfig — mesma guarda local (plain class, fora do grafo de DI).
+    this.agendaDisparo = new AgendaDisparoService(this.prisma);
     // Recepcionista IA: sem dependência de construtor e sem estado, então segue
     // a mesma guarda local acima — não entra no grafo de DI e os testes que
     // instanciam o serviço direto continuam funcionando.
@@ -2342,7 +2347,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
       select: { id: true, scheduledAt: true },
     });
     if (!nextJob?.id) return null;
-    const fallbackTarget = new Date(now.getTime() + Math.max(1, Number(campaign.intervalMinutes || 15)) * 60000);
+    // CASA DO RISCO (31/07/2026): intervalo mora em VendasComercialConfig, não na campanha.
+    const casa = await this.agendaDisparo.getConfig(Number(campaign.companyId));
+    const fallbackTarget = new Date(now.getTime() + Math.max(1, Number(casa.intervalMinutes || 15)) * 60000);
     const currentTarget = nextJob.scheduledAt instanceof Date && nextJob.scheduledAt.getTime() > now.getTime()
       ? nextJob.scheduledAt
       : fallbackTarget;
@@ -3381,15 +3388,16 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * PR05072026 (timing humano) — fase 3 "digitando": ms de presence "composing"
-   * proporcional ao tamanho de `body`, clampado nos knobs `typingSeconds`/
-   * `typingVarianceSeconds` JÁ EXISTENTES da campanha (mesmos usados pelo delay de
-   * primeiro contato em vendas-automation.service.ts). Sem knobs configurados
-   * (undefined/null) cai no default 8s + variância 12s — mesmo default do primeiro
-   * contato — para não silenciar o typing por omissão em campanhas antigas.
+   * proporcional ao tamanho de `body`. CASA DO RISCO (31/07/2026): os knobs
+   * `typingSeconds`/`typingVarianceSeconds` moram em VendasComercialConfig (a
+   * campanha não os tem mais) — mesmos usados pelo delay de primeiro contato em
+   * vendas-automation.service.ts. Sem linha na casa, o getConfig devolve o
+   * default 8s + variância 12s.
    */
-  private computeVendasFollowUpTypingDelayMs(campaign: any, body: string): number {
-    const typingSecondsKnob = clampTimingInteger(campaign?.typingSeconds, 8, 0, 45);
-    const typingVarianceSecondsKnob = clampTimingInteger(campaign?.typingVarianceSeconds, 12, 0, 30);
+  private async computeVendasFollowUpTypingDelayMs(companyId: number, body: string): Promise<number> {
+    const casa = await this.agendaDisparo.getConfig(Number(companyId)).catch(() => null);
+    const typingSecondsKnob = clampTimingInteger(casa?.typingSeconds, 8, 0, 45);
+    const typingVarianceSecondsKnob = clampTimingInteger(casa?.typingVarianceSeconds, 12, 0, 30);
     const { typingMs } = computeHumanTimingPhases({
       aiElapsedMs: 0,
       responseBody: String(body || ''),
@@ -3835,9 +3843,9 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
             replyKind: input.replyKind || 'positive',
             automaticFollowUp: true,
             // PR05072026 (timing humano): fase 3 "digitando" proporcional ao tamanho
-            // desta resposta, já clampada nos knobs typingSeconds/typingVarianceSeconds
-            // da campanha — o dispatch worker só repassa ao motor (sendText delay).
-            typingDelayMs: this.computeVendasFollowUpTypingDelayMs(job.campaign, followUpMessage),
+            // desta resposta, clampada nos knobs typingSeconds/typingVarianceSeconds
+            // da CASA — o dispatch worker só repassa ao motor (sendText delay).
+            typingDelayMs: await this.computeVendasFollowUpTypingDelayMs(input.companyId, followUpMessage),
           },
           flowState: {
             ...nextState,

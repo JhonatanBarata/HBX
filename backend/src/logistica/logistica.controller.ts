@@ -37,6 +37,7 @@ import { LogisticaConferenciaService } from './logistica-conferencia.service';
 import { LogisticaCustoPreviewService } from './logistica-custo-preview.service';
 import { LogisticaRotaModeloService } from './logistica-rota-modelo.service';
 import { LogisticaRotaIndicadaService } from './logistica-rota-indicada.service';
+import { LogisticaRotaAvisoService } from './logistica-rota-aviso.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaNivelPlanoService } from './logistica-nivel-plano.service';
 import { canonicalRouteDate } from './logistica-route-billing.service';
@@ -148,6 +149,8 @@ export class LogisticaController {
     private readonly passeio: LogisticaPasseioService = null as any,
     // ROTA PRONTA (29/07) — indicação de rota salva. Mesmo padrão de default acima.
     private readonly rotaIndicada: LogisticaRotaIndicadaService = null as any,
+    // 31/07 — recados de rota que morreu no meio. Mesmo padrão de default acima.
+    private readonly rotaAviso: LogisticaRotaAvisoService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -908,7 +911,11 @@ export class LogisticaController {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const actorWhere = await this.operacao.whereForActor(req.user);
     const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
-    return this.rota.encerrarRota(companyId, { date: dto?.date, motivo: dto?.motivo }, entregadorId);
+    const resultado = await this.rota.encerrarRota(companyId, { date: dto?.date, motivo: dto?.motivo }, entregadorId);
+    // 31/07 — encerrar de verdade deixando parada aberta pra trás vira RECADO
+    // no web (0 entregues = "abandonou"; entregou parte = "parou no meio").
+    await this.recadoDeSaida(companyId, entregadorId, dto?.date);
+    return resultado;
   }
 
   /**
@@ -948,7 +955,26 @@ export class LogisticaController {
         this.logger?.warn?.(`[logistica] descarte ok, mas indicacao nao voltou: ${String((e as any)?.message || e)}`);
       }
     }
+    // 31/07 — e o recado de quem SAIU PRA RUA e largou no meio (o de cima só
+    // existe pra rota que veio de indicação; este vale pra rota que a pessoa
+    // montou sozinha). Quem não iniciou não gera recado nenhum — ver o serviço.
+    await this.recadoDeSaida(companyId, entregadorId, dto?.date);
     return resultado;
+  }
+
+  /**
+   * 31/07 — best-effort, sempre DEPOIS do commit: o recado é aviso, nunca pode
+   * derrubar (nem desfazer) a operação que acabou de acontecer. Sem
+   * `entregadorId` não há a quem atribuir a saída — admin encerrando a rota dos
+   * outros não vira recado de ninguém.
+   */
+  private async recadoDeSaida(companyId: number, entregadorId: number | undefined, date?: string) {
+    if (!entregadorId || !this.rotaAviso) return;
+    try {
+      await this.rotaAviso.registrarSaida(companyId, entregadorId, date);
+    } catch (e) {
+      this.logger?.warn?.(`[logistica] recado de saida falhou: ${String((e as any)?.message || e)}`);
+    }
   }
 
   /**
@@ -963,7 +989,26 @@ export class LogisticaController {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const actorWhere = await this.operacao.whereForActor(req.user);
     const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
-    return this.rota.limparDia(companyId, { date: dto?.date, motivo: dto?.motivo }, entregadorId);
+    const resultado = await this.rota.limparDia(companyId, { date: dto?.date, motivo: dto?.motivo }, entregadorId);
+    // 31/07 — "bati o caminhão, limpa tudo" também é rota que morreu no meio:
+    // quem já tinha saído pra rua gera recado igual ao encerrar.
+    await this.recadoDeSaida(companyId, entregadorId, dto?.date);
+    return resultado;
+  }
+
+  // ── 31/07 — RECADOS DE ROTA (abandonada | parou no meio | rota parada) ─────
+  /** WEB: recados ainda não dispensados — alimenta o mesmo banner da negada. */
+  @Get('rota-avisos')
+  listRotaAvisos(@Req() req: any) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.rotaAviso.listar(companyId);
+  }
+
+  /** O × do banner: some da tela, fica no histórico. */
+  @Post('rota-avisos/:id/visto')
+  async rotaAvisoVisto(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return { ok: await this.rotaAviso.visto(companyId, id) };
   }
 
   // ── PR18072026 W1 — rota-modelo (roteiro salvo, aplicado client-side) ──────

@@ -39,6 +39,12 @@ const DEFAULT_WORKING_HOURS_START = '08:00';
 const DEFAULT_WORKING_HOURS_END = '18:00';
 const DEFAULT_DAILY_LIMIT_PER_SENDER = 10;
 const DEFAULT_INTERVAL_MINUTES = 15;
+// Defaults = nível MÉDIO (vendas-nivel-disparo.ts) — mesma régua da migration
+// 20260801000000_casa_risco_identidade.
+const DEFAULT_INTERVAL_VARIANCE_MINUTES = 15;
+const DEFAULT_MAX_ATTEMPTS_PER_LEAD = 1;
+const DEFAULT_TYPING_SECONDS = 8;
+const DEFAULT_TYPING_VARIANCE_SECONDS = 12;
 
 // Horizonte de busca pra frente — evita varrer o calendário pra sempre se a config
 // estiver contraditória (ex.: janela de 1 minuto/dia). Disjuntor da própria conta.
@@ -50,6 +56,13 @@ export type SlotConflictReason = 'fora_da_janela' | 'teto_do_dia' | 'intervalo_m
 export interface VendasComercialConfigDto extends BusinessWindow {
   dailyLimitPerSender: number;
   intervalMinutes: number;
+  // CASA DO RISCO (31/07/2026): os campos abaixo saíram da campanha — risco de
+  // chip é da empresa. Quem só precisa de janela+teto+intervalo continua usando
+  // os 3 de cima; o DTO é um só de propósito (uma leitura, uma verdade).
+  intervalVarianceMinutes: number;
+  maxAttemptsPerLead: number;
+  typingSeconds: number;
+  typingVarianceSeconds: number;
 }
 
 export interface SlotSearchResult {
@@ -189,6 +202,10 @@ export class AgendaDisparoService {
       workingHoursEnd: normalizeTimeHHMM(row?.workingHoursEnd, DEFAULT_WORKING_HOURS_END),
       dailyLimitPerSender: clampPositiveInt(row?.dailyLimitPerSender, DEFAULT_DAILY_LIMIT_PER_SENDER, 1, 200),
       intervalMinutes: clampPositiveInt(row?.intervalMinutes, DEFAULT_INTERVAL_MINUTES, 1, 240),
+      intervalVarianceMinutes: clampPositiveInt(row?.intervalVarianceMinutes, DEFAULT_INTERVAL_VARIANCE_MINUTES, 0, 180),
+      maxAttemptsPerLead: clampPositiveInt(row?.maxAttemptsPerLead, DEFAULT_MAX_ATTEMPTS_PER_LEAD, 1, 3),
+      typingSeconds: clampPositiveInt(row?.typingSeconds, DEFAULT_TYPING_SECONDS, 0, 45),
+      typingVarianceSeconds: clampPositiveInt(row?.typingVarianceSeconds, DEFAULT_TYPING_VARIANCE_SECONDS, 0, 30),
     };
   }
 
@@ -199,6 +216,10 @@ export class AgendaDisparoService {
       workingHoursEnd: dto.workingHoursEnd !== undefined ? normalizeTimeHHMM(dto.workingHoursEnd, current.workingHoursEnd) : current.workingHoursEnd,
       dailyLimitPerSender: dto.dailyLimitPerSender !== undefined ? clampPositiveInt(dto.dailyLimitPerSender, current.dailyLimitPerSender, 1, 200) : current.dailyLimitPerSender,
       intervalMinutes: dto.intervalMinutes !== undefined ? clampPositiveInt(dto.intervalMinutes, current.intervalMinutes, 1, 240) : current.intervalMinutes,
+      intervalVarianceMinutes: dto.intervalVarianceMinutes !== undefined ? clampPositiveInt(dto.intervalVarianceMinutes, current.intervalVarianceMinutes, 0, 180) : current.intervalVarianceMinutes,
+      maxAttemptsPerLead: dto.maxAttemptsPerLead !== undefined ? clampPositiveInt(dto.maxAttemptsPerLead, current.maxAttemptsPerLead, 1, 3) : current.maxAttemptsPerLead,
+      typingSeconds: dto.typingSeconds !== undefined ? clampPositiveInt(dto.typingSeconds, current.typingSeconds, 0, 45) : current.typingSeconds,
+      typingVarianceSeconds: dto.typingVarianceSeconds !== undefined ? clampPositiveInt(dto.typingVarianceSeconds, current.typingVarianceSeconds, 0, 30) : current.typingVarianceSeconds,
     };
     await (this.prisma as any).vendasComercialConfig.upsert({
       where: { companyId },

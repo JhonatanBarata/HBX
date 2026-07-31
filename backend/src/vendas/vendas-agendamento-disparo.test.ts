@@ -28,6 +28,10 @@ const CONFIG: VendasComercialConfigDto = {
   workingHoursEnd: '18:00',
   dailyLimitPerSender: 10,
   intervalMinutes: 15,
+  intervalVarianceMinutes: 15,
+  maxAttemptsPerLead: 1,
+  typingSeconds: 8,
+  typingVarianceSeconds: 12,
 };
 
 // Terça-feira 04/08/2026, 09:00 no fuso do dono (UTC-3) = 12:00 UTC.

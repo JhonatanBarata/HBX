@@ -301,6 +301,8 @@ model Company {
   logisticaRotaModelos   LogisticaRotaModelo[]
   // ROTA PRONTA (29/07) — indicações de rota salva pra equipe.
   logisticaRotasIndicadas LogisticaRotaIndicada[]
+  // 31/07 — recados de rota que morreu no meio (abandonada/parcial/parada).
+  logisticaRotaAvisos    LogisticaRotaAviso[]
   // AGENDA-SEMANAL (23/07) — planos recorrentes, paradas normalizadas e ações
   // auditadas. Tudo aditivo; ClienteProduto/paradasJson continuam compatíveis.
   logisticaPlanosEntrega LogisticaPlanoEntrega[]
@@ -1499,6 +1501,42 @@ model LogisticaRotaIndicada {
 
   @@index([companyId, paraUserId, status])
   @@index([companyId, status, createdAt])
+}
+
+// 31/07 — RECADO DE ROTA QUE MORREU NO MEIO.
+//
+// O `LogisticaRotaIndicada` só sabe da rota que alguém INDICOU: se o motorista
+// montou sozinho, começou e desistiu, o web nunca ficava sabendo. Pior, o
+// abandono SILENCIOSO (dá Iniciar e fecha o app) não chama endpoint nenhum —
+// o painel dizia "na rua" até a meia-noite.
+//
+// Aqui mora o recado, venha ele da saída pela porta (encerrar/descartar/limpar)
+// ou do vigia que varre rota parada. `@@unique` por (empresa, motorista, dia,
+// tipo) é o FREIO: um mesmo abandono nunca vira dois avisos, e o vigia pode
+// rodar de 10 em 10 minutos sem virar spam.
+model LogisticaRotaAviso {
+  id              String   @id @default(cuid())
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId       Int
+  // abandonada = saiu pra rua e não entregou nada · parcial = parou no meio ·
+  // parada = vigia achou rota viva sem sinal de vida.
+  tipo            String   @db.VarChar(20)
+  motoristaUserId Int
+  // Nome congelado: o recado sobrevive a rename/desativação do usuário.
+  motoristaNome   String   @db.VarChar(120)
+  // Rota salva de origem, quando dá pra atribuir (carimbo da Entrega).
+  rotaModeloId    String?
+  rotaNome        String?  @db.VarChar(80)
+  routeDate       String   @db.VarChar(10)
+  total           Int      @default(0)
+  entregues       Int      @default(0)
+  abertas         Int      @default(0)
+  vistoEm         DateTime?
+  createdAt       DateTime @default(now())
+
+  @@unique([companyId, motoristaUserId, routeDate, tipo])
+  @@index([companyId, vistoEm, createdAt])
+  @@index([companyId, rotaModeloId])
 }
 
 // AGENDA-SEMANAL — compromisso recorrente de uma visita. O produto continua
@@ -4396,15 +4434,14 @@ model VendasAutomationCampaign {
   filtersJson                String?
   searchSignature            String?
   messageTemplate            String
-  intervalMinutes            Int      @default(20)
-  dailyLimit                 Int      @default(15)
+  // RISCO MOROU AQUI E SAIU (refatoração casa/campanha, 31/07/2026): teto/dia,
+  // intervalo, variação, tentativas, janela e digitação agora vivem SÓ em
+  // VendasComercialConfig — risco é do CHIP (um por empresa), não da busca.
+  // Duas campanhas de 12/dia somavam 24 no mesmo número porque o teto morava
+  // aqui. Campanha guarda apenas o que muda por busca: alvo, textos, palavras,
+  // estoque de leads, status e triagem.
   minLeadBuffer              Int      @default(15)
   desiredLeadBuffer          Int      @default(60)
-  maxAttemptsPerLead         Int      @default(1)
-  workingHoursStart          String   @default("09:00")
-  workingHoursEnd            String   @default("17:30")
-  typingSeconds              Int      @default(8)
-  typingVarianceSeconds      Int      @default(12)
   positiveIntentKeywordsJson String?
   negativeIntentKeywordsJson String?
   optOutMessage              String?
@@ -4681,6 +4718,26 @@ model VendasComercialConfig {
   workingHoursEnd     String   @default("18:00")
   dailyLimitPerSender Int      @default(10) // teto de disparos por user/chip/dia
   intervalMinutes     Int      @default(15) // intervalo mínimo entre disparos
+  // CASA DO RISCO (31/07/2026) — os campos abaixo saíram de VendasAutomationCampaign:
+  // risco de chip é da EMPRESA (chip é um só), nunca da busca. Defaults = nível MÉDIO
+  // de vendas-nivel-disparo.ts; o freio anti-ban (env) continua teto dos tetos.
+  intervalVarianceMinutes Int  @default(15) // variação humana em cima do intervalo
+  maxAttemptsPerLead  Int      @default(1) // tentativas de 1º contato por lead
+  typingSeconds       Int      @default(8) // "digitando..." antes de enviar
+  typingVarianceSeconds Int    @default(12)
+  // IDENTIDADE ÚNICA DA IA (31/07/2026) — UMA persona por empresa, consumida por
+  // Atendimento, Recovery e Prospecção. O chip é um, o número é um: duas
+  // personalidades no mesmo WhatsApp = teatro que o lead percebe. aiNome é
+  // escolha da EMPRESA. aiIdentidade: 'nome_proprio' (IA se apresenta com aiNome)
+  // | 'se_passa_por' (assina como o usuário aiUserId — IA abre, humano fecha).
+  aiNome              String?
+  aiIdentidade        String   @default("nome_proprio")
+  aiUserId            Int?
+  // ENTREVISTA FORÇADA (31/07/2026) — "o que a empresa faz", em UMA frase, dita
+  // pelo CLIENTE. NULO = entrevista não respondida = nenhum bot liga (fail-closed,
+  // mesma lei do catalogoJson: IA que não sabe o que a empresa faz é IA proibida
+  // de falar em nome dela).
+  empresaFazTexto     String?
   // CATÁLOGO COMERCIAL (30/07/2026) — "o que ESTA empresa vende", em JSON com a
   // forma de vendas-catalogo.ts. NULO é estado legítimo e tem significado duro:
   // sem catálogo a IA é PROIBIDA de afirmar produto/benefício/preço (nasceu do

@@ -13,7 +13,7 @@ import { ConversationsService } from '../messaging/conversations.service';
 import { InboxRealtimeService } from '../messaging/inbox-realtime.service';
 import { buildWhatsAppPhoneCandidates, normalizeBrPhoneDigits } from '../messaging/whatsapp-channel';
 import { WaColdContactGateService } from '../messaging/wa-cold-contact-gate.service';
-import { AgendaDisparoService } from './agenda-disparo.service';
+import { AgendaDisparoService, type VendasComercialConfigDto } from './agenda-disparo.service';
 import {
   NIVEIS_DISPARO,
   detectarNivel,
@@ -624,18 +624,26 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     this.agendaDisparo = new AgendaDisparoService(this.prisma);
   }
 
-  // UMA JANELA SÓ (31/07/2026). A tela de Prospecção editava
-  // `VendasAutomationCampaign.workingHours*` (default 09:00–17:30) enquanto o motor de
-  // slots e a trava de horário obedecem `VendasComercialConfig` (default 08:00–18:00):
-  // o dono mudava o horário na tela e o agendamento seguia com outro. Mesma família do
-  // [[teto-da-tela-mentia]], agora no relógio. Salvar a campanha passa a espelhar a
-  // janela na config comercial — as duas não conseguem mais divergir.
-  private async espelharJanelaNaConfigComercial(companyId: number, data: { workingHoursStart?: string; workingHoursEnd?: string }) {
-    if (!data?.workingHoursStart && !data?.workingHoursEnd) return;
-    await this.agendaDisparo.saveConfig(companyId, {
-      ...(data.workingHoursStart ? { workingHoursStart: data.workingHoursStart } : {}),
-      ...(data.workingHoursEnd ? { workingHoursEnd: data.workingHoursEnd } : {}),
-    });
+  // CASA DO RISCO (31/07/2026). Janela, teto/dia, intervalo, variação, tentativas
+  // e digitação moram SÓ em VendasComercialConfig — risco é do CHIP (um por
+  // empresa), nunca da busca. O espelho de ontem (espelharJanelaNaConfigComercial)
+  // morreu aqui: espelho é a fábrica do "teto tinha 3 números". Cache curto por
+  // empresa porque o ciclo do worker (15s) consulta a casa em vários pontos; o
+  // PATCH de config invalida na hora — a tela nunca "salva e não vale".
+  private readonly casaCache = new Map<number, { at: number; config: VendasComercialConfigDto }>();
+  private static readonly CASA_CACHE_TTL_MS = 15000;
+
+  private async getCasa(companyId: number): Promise<VendasComercialConfigDto> {
+    const key = Number(companyId);
+    const cached = this.casaCache.get(key);
+    if (cached && Date.now() - cached.at < VendasAutomationService.CASA_CACHE_TTL_MS) return cached.config;
+    const config = await this.agendaDisparo.getConfig(key);
+    this.casaCache.set(key, { at: Date.now(), config });
+    return config;
+  }
+
+  private invalidateCasa(companyId: number) {
+    this.casaCache.delete(Number(companyId));
   }
 
   onModuleInit() {
@@ -1510,34 +1518,27 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
+  // RISCO NÃO PASSA MAIS POR AQUI (31/07/2026): teto, intervalo, variação,
+  // tentativas, janela e digitação são da CASA (extrairRiscoDaCasaDoPayload no
+  // PATCH). Este normalize cuida só do que é da BUSCA: alvo, textos, palavras,
+  // estoque e flags de comportamento.
   private normalizeProspectingConfig(
     payload: Partial<UpdateVendasProspectingConfigDto> | null | undefined,
     botConfig?: AtendimentoBotConfig | null,
     existing?: any,
   ) {
-    // NÍVEL DE DISPARO (dono, 31/07 — "qual nível ele está? conservador, médio,
-    // agressivo? tudo isso está muito confuso"). Um clique preenche os 4 campos que
-    // mandam no risco, e VENCE campo solto que venha no mesmo PATCH: escolher "Médio"
-    // e o teto continuar 17 seria a mesma confusão de antes, com botão novo.
-    if (isNivelDisparo(payload?.nivelDisparo)) {
-      payload = { ...(payload || {}), ...valoresDoNivel(payload!.nivelDisparo as NivelDisparo) };
-    }
     const scene = this.getProspectingSceneRules(botConfig);
     const filters = parseJsonObject(payload?.filtersJson ?? existing?.filtersJson);
     const optOutReplyEnabled =
       payload?.optOutReplyEnabled === undefined
         ? Boolean(filters.optOutReplyEnabled ?? scene.optOutReplyEnabled)
         : payload.optOutReplyEnabled === true;
-    const intervalVarianceMinutes = clampInteger(
-      payload?.intervalVarianceMinutes ?? filters.intervalVarianceMinutes,
-      clampInteger((parseJsonObject(existing?.filtersJson) as any).intervalVarianceMinutes, scene.intervalVarianceMinutes, 0, 180),
-      0,
-      180,
-    );
     const nextFilters = {
       ...filters,
       optOutReplyEnabled,
-      intervalVarianceMinutes,
+      // intervalVarianceMinutes saiu de filtersJson: mora na casa. Apagar a chave
+      // aqui impede leitor futuro de ressuscitar o espelho por engano.
+      intervalVarianceMinutes: undefined,
       preMessageEnabled:
         payload?.preMessageEnabled === undefined
           ? Boolean(filters.preMessageEnabled ?? false)
@@ -1622,25 +1623,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           : 'pj',
       filtersJson: JSON.stringify(nextFilters),
       messageTemplate: this.resolveCampaignMessageTemplate(payload, existing),
-      intervalMinutes: clampInteger(
-        payload?.intervalMinutes,
-        existing?.intervalMinutes ?? scene.nextContactDelayMinutes,
-        1,
-        180,
-      ),
-      dailyLimit: clampInteger(payload?.dailyLimit, existing?.dailyLimit ?? DEFAULT_DAILY_LIMIT, 1, ABSOLUTE_DAILY_SEND_CAP),
       minLeadBuffer,
       desiredLeadBuffer,
-      maxAttemptsPerLead: clampInteger(payload?.maxAttemptsPerLead, existing?.maxAttemptsPerLead ?? 1, 1, 3),
-      workingHoursStart: this.normalizeTime(payload?.workingHoursStart || existing?.workingHoursStart, '08:00'),
-      workingHoursEnd: this.normalizeTime(payload?.workingHoursEnd || existing?.workingHoursEnd, '18:00'),
-      typingSeconds: clampInteger(payload?.typingSeconds, existing?.typingSeconds ?? scene.typingSeconds, 0, 45),
-      typingVarianceSeconds: clampInteger(
-        payload?.typingVarianceSeconds,
-        existing?.typingVarianceSeconds ?? scene.typingVarianceSeconds,
-        0,
-        30,
-      ),
       positiveIntentKeywordsJson: JSON.stringify(
         normalizeTextList(payload?.positiveIntentKeywords, parseJsonList(existing?.positiveIntentKeywordsJson, scene.positiveIntentKeywords)),
       ),
@@ -1650,6 +1634,40 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       optOutMessage: trimOrNull(payload?.optOutMessage) || trimOrNull(existing?.optOutMessage) || scene.optOutMessage,
       websiteFallbackEnabled: false,
     };
+  }
+
+  // Traduz o payload da tela (nomes antigos da campanha) para a CASA. O nível de
+  // disparo VENCE campo solto que venha no mesmo PATCH — escolher "Médio" e o teto
+  // continuar 17 seria a mesma confusão de antes, com botão novo. Devolve null
+  // quando o PATCH não toca em risco (aí a casa nem é escrita).
+  private extrairRiscoDaCasaDoPayload(
+    payload: Partial<UpdateVendasProspectingConfigDto> | null | undefined,
+  ): Partial<VendasComercialConfigDto> | null {
+    const risco: Partial<VendasComercialConfigDto> = {};
+    if (isNivelDisparo(payload?.nivelDisparo)) {
+      const valores = valoresDoNivel(payload!.nivelDisparo as NivelDisparo);
+      risco.dailyLimitPerSender = valores.dailyLimit;
+      risco.intervalMinutes = valores.intervalMinutes;
+      risco.intervalVarianceMinutes = valores.intervalVarianceMinutes;
+      risco.maxAttemptsPerLead = valores.maxAttemptsPerLead;
+    } else {
+      if (payload?.dailyLimit !== undefined) risco.dailyLimitPerSender = Number(payload.dailyLimit);
+      if (payload?.intervalMinutes !== undefined) risco.intervalMinutes = Number(payload.intervalMinutes);
+      if (payload?.intervalVarianceMinutes !== undefined) risco.intervalVarianceMinutes = Number(payload.intervalVarianceMinutes);
+      if (payload?.maxAttemptsPerLead !== undefined) risco.maxAttemptsPerLead = Number(payload.maxAttemptsPerLead);
+    }
+    if (payload?.workingHoursStart !== undefined) risco.workingHoursStart = String(payload.workingHoursStart);
+    if (payload?.workingHoursEnd !== undefined) risco.workingHoursEnd = String(payload.workingHoursEnd);
+    if (payload?.typingSeconds !== undefined) risco.typingSeconds = Number(payload.typingSeconds);
+    if (payload?.typingVarianceSeconds !== undefined) risco.typingVarianceSeconds = Number(payload.typingVarianceSeconds);
+    return Object.keys(risco).length ? risco : null;
+  }
+
+  private async salvarRiscoNaCasa(companyId: number, payload: Partial<UpdateVendasProspectingConfigDto> | null | undefined) {
+    const risco = this.extrairRiscoDaCasaDoPayload(payload);
+    if (!risco) return;
+    await this.agendaDisparo.saveConfig(Number(companyId), risco);
+    this.invalidateCasa(companyId);
   }
 
   private resolveCampaignMessageTemplate(payload: any, existing?: any) {
@@ -1821,11 +1839,11 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return this.buildLiveStatus(campaign);
   }
 
-  private inferLiveStatus(campaign: any, counters: Record<string, number>, sendingCount: number): LiveAutomationStatus {
+  private inferLiveStatus(campaign: any, casa: VendasComercialConfigDto, counters: Record<string, number>, sendingCount: number): LiveAutomationStatus {
     if (campaign.status === 'paused') return 'pausado';
     if (campaign.status === 'error') return 'erro';
     if (['canceled', 'done'].includes(String(campaign.status || ''))) return 'parado';
-    if (campaign.status === 'running' && !this.isInsideWorkingHours(new Date(), campaign)) return 'dormindo';
+    if (campaign.status === 'running' && !this.dentroDaJanelaDaCasa(new Date(), casa)) return 'dormindo';
     const statusText = normalizeKey(campaign.lastStatusText);
     if (statusText.includes('buscando')) return 'buscando';
     if (statusText.includes('importando')) return 'importando';
@@ -1836,6 +1854,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async buildLiveStatus(campaign: any) {
+    const casa = await this.getCasa(campaign.companyId);
     const today = getBusinessDateParts(new Date());
     const todayStart = makeBusinessDate(today.year, today.month, today.day, 0, 0);
     const tomorrowStart = makeBusinessDate(today.year, today.month, today.day + 1, 0, 0);
@@ -1870,7 +1889,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         orderBy: { scheduledAt: 'asc' },
         select: { id: true, scheduledAt: true, lead: { select: { name: true } } },
       }),
-      this.countSuccessfulSendsToday(campaign.id, campaign.companyId),
+      this.countSuccessfulSendsToday(campaign.companyId),
       this.prisma.vendasAutomationJob.count({
         where: { campaignId: campaign.id, status: 'skipped', archivedAt: { gte: todayStart, lt: tomorrowStart } },
       }),
@@ -1888,7 +1907,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         orderBy: [{ archivedAt: 'desc' }, { updatedAt: 'desc' }],
         select: { classification: true, errorMessage: true },
       }),
-      this.getLastSuccessfulSendAt(campaign.id, campaign.companyId),
+      this.getLastSuccessfulSendAt(campaign.companyId),
       this.prisma.vendasAutomationJob.count({
         where: {
           campaignId: campaign.id,
@@ -1909,15 +1928,15 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       }),
     ]);
     let nextScheduledAt = nextJob?.scheduledAt instanceof Date ? nextJob.scheduledAt : null;
-    if (nextJob?.id && nextScheduledAt && !this.isInsideWorkingHours(nextScheduledAt, campaign)) {
-      nextScheduledAt = this.moveToWorkingWindow(nextScheduledAt, campaign);
+    if (nextJob?.id && nextScheduledAt && !this.dentroDaJanelaDaCasa(nextScheduledAt, casa)) {
+      nextScheduledAt = this.moverParaJanelaDaCasa(nextScheduledAt, casa);
       await this.prisma.vendasAutomationJob.update({
         where: { id: nextJob.id },
         data: { scheduledAt: nextScheduledAt },
       });
     }
-    const nextAllowedDate = await this.getNextAllowedSendAt(campaign);
-    const dailyLimit = this.getCampaignDailyCapacity(campaign);
+    const nextAllowedDate = await this.getNextAllowedSendAt(campaign.companyId, casa);
+    const dailyLimit = this.capacidadeDiariaDaCasa(casa);
     const pendingJobs = (todayPending || 0) + (overdue || 0) + (future || 0);
     const scheduledJobs = pendingJobs;
     const cooldownActive = Boolean(nextAllowedDate && nextAllowedDate.getTime() > Date.now());
@@ -1942,8 +1961,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       prospectingYellow: yellowCount,
       prospectingRed: redCount,
     };
-    const status = this.inferLiveStatus(campaign, counters, sending);
-    const nextWorkingWindow = status === 'dormindo' ? this.moveToWorkingWindow(new Date(), campaign) : null;
+    const status = this.inferLiveStatus(campaign, casa, counters, sending);
+    const nextWorkingWindow = status === 'dormindo' ? this.moverParaJanelaDaCasa(new Date(), casa) : null;
     const nextScheduledText = nextScheduledAt ? this.formatNextScheduledText(nextScheduledAt) : null;
     const lastStatusText = isStaleProspectingRadarConfigText(campaign.lastStatusText)
       ? null
@@ -1960,7 +1979,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     // nível configurado e o freio anti-ban ao vivo estão juntos. Se a tela montasse
     // essa frase sozinha, existiriam duas versões da mesma verdade — foi assim que
     // nasceu o "teto tinha 3 números".
-    const serialized = this.serializeCampaign(campaign);
+    const serialized = this.serializeCampaign(campaign, casa);
     const tetoEfetivo = coldGate?.enabled && Number.isFinite(Number(coldGate.maxPerDay))
       ? Math.min(dailyLimit, Number(coldGate.maxPerDay))
       : dailyLimit;
@@ -2008,18 +2027,18 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private serializeCampaign(campaign: any) {
+  private serializeCampaign(campaign: any, casa: VendasComercialConfigDto) {
     if (!campaign) return null;
     const filtersJson = parseJsonObject(campaign.filtersJson);
-    // NÍVEL: detectado sobre os valores CRUS da campanha, nunca sobre a capacidade
-    // efetiva (`getCampaignDailyCapacity`, que já desconta horário/ritmo). Detectar
+    // NÍVEL: detectado sobre os valores CRUS da CASA, nunca sobre a capacidade
+    // efetiva (`capacidadeDiariaDaCasa`, que desconta horário/ritmo). Detectar
     // no número derivado faria uma config Médio aparecer como "personalizado" — a
     // tela mentiria sobre a escolha que a própria tela gravou.
     const valoresDeRisco = {
-      dailyLimit: clampInteger(campaign.dailyLimit, DEFAULT_DAILY_LIMIT, 1, ABSOLUTE_DAILY_SEND_CAP),
-      intervalMinutes: clampInteger(campaign.intervalMinutes, 15, 1, 180),
-      intervalVarianceMinutes: clampInteger(filtersJson.intervalVarianceMinutes, DEFAULT_INTERVAL_VARIANCE_MINUTES, 0, 180),
-      maxAttemptsPerLead: clampInteger(campaign.maxAttemptsPerLead, 1, 1, 3),
+      dailyLimit: casa.dailyLimitPerSender,
+      intervalMinutes: casa.intervalMinutes,
+      intervalVarianceMinutes: casa.intervalVarianceMinutes,
+      maxAttemptsPerLead: casa.maxAttemptsPerLead,
     };
     return {
       id: campaign.id,
@@ -2037,22 +2056,24 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       messageTemplate: campaign.messageTemplate,
       preMessageEnabled: filtersJson.preMessageEnabled === true,
       preMessageVariants: normalizeVariantList(filtersJson.preMessageVariants, DEFAULT_PRE_MESSAGE_VARIANTS),
-      intervalMinutes: campaign.intervalMinutes,
-      intervalVarianceMinutes: clampInteger(filtersJson.intervalVarianceMinutes, DEFAULT_INTERVAL_VARIANCE_MINUTES, 0, 180),
+      // Campos de risco continuam SAINDO na API com os nomes que a tela conhece,
+      // mas a fonte é a CASA — o contrato com o front não quebra antes da F4.
+      intervalMinutes: casa.intervalMinutes,
+      intervalVarianceMinutes: casa.intervalVarianceMinutes,
       botReplyIntervalReductionPercent: clampInteger(
         filtersJson.botReplyIntervalReductionPercent,
         DEFAULT_BOT_REPLY_INTERVAL_REDUCTION_PERCENT,
         0,
         100,
       ),
-      dailyLimit: this.getCampaignDailyCapacity(campaign),
+      dailyLimit: this.capacidadeDiariaDaCasa(casa),
       minLeadBuffer: campaign.minLeadBuffer,
       desiredLeadBuffer: campaign.desiredLeadBuffer,
-      maxAttemptsPerLead: campaign.maxAttemptsPerLead,
-      workingHoursStart: campaign.workingHoursStart,
-      workingHoursEnd: campaign.workingHoursEnd,
-      typingSeconds: campaign.typingSeconds,
-      typingVarianceSeconds: campaign.typingVarianceSeconds,
+      maxAttemptsPerLead: casa.maxAttemptsPerLead,
+      workingHoursStart: casa.workingHoursStart,
+      workingHoursEnd: casa.workingHoursEnd,
+      typingSeconds: casa.typingSeconds,
+      typingVarianceSeconds: casa.typingVarianceSeconds,
       positiveIntentKeywords: parseJsonList(campaign.positiveIntentKeywordsJson, DEFAULT_POSITIVE_KEYWORDS),
       negativeIntentKeywords: parseJsonList(campaign.negativeIntentKeywordsJson, DEFAULT_NEGATIVE_KEYWORDS),
       whatIsItIntentKeywords: normalizeTextList(filtersJson.whatIsItIntentKeywords, WHAT_IS_IT_INTENT_KEYWORDS),
@@ -2157,6 +2178,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     await this.botActivation?.putActivation(user, { type: 'prospeccao', live: false });
     const botConfig = await this.inboxService.getBotConfig(user);
     const current = await this.latestCampaign(context.companyId);
+    // Risco (nível, teto, ritmo, janela, digitação) vai pra CASA; o resto (busca,
+    // textos, palavras) segue pra campanha. Uma escrita, uma verdade.
+    await this.salvarRiscoNaCasa(context.companyId, dto || {});
     const data = this.normalizeProspectingConfig(dto || {}, botConfig, current);
     const searchSignature = this.buildSearchSignature(data);
     const searchChanged = this.hasCampaignSearchChanged(current, searchSignature);
@@ -2185,7 +2209,6 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             lastStatusText: 'Configuração salva. Pronta para iniciar.',
           },
         });
-    await this.espelharJanelaNaConfigComercial(context.companyId, data);
     if (searchChanged) {
       await this.cancelQueuedJobsAfterSearchChange(campaign.id, campaign.companyId);
     }
@@ -2258,8 +2281,10 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       return dropPausedVariants(normalizeVariantList(raw, fallback));
     };
 
-    const typingSeconds = clampInteger(cfg.typingSeconds ?? (filters as any).typingSeconds, 8, 0, 45);
-    const typingVarianceSeconds = clampInteger(cfg.typingVarianceSeconds ?? (filters as any).typingVarianceSeconds, 12, 0, 30);
+    // Digitação vem da CASA (o draft da tela pode sobrepor no preview).
+    const casaSim = await this.getCasa(context.companyId);
+    const typingSeconds = clampInteger(cfg.typingSeconds ?? casaSim.typingSeconds, 8, 0, 45);
+    const typingVarianceSeconds = clampInteger(cfg.typingVarianceSeconds ?? casaSim.typingVarianceSeconds, 12, 0, 30);
 
     if ((dto?.mode || 'reply') === 'opener') {
       const preMessageEnabled =
@@ -2386,6 +2411,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     await this.assertEntitlement(user);
     const botConfig = await this.inboxService.getBotConfig(user);
     const current = await this.latestCampaign(context.companyId);
+    await this.salvarRiscoNaCasa(context.companyId, dto || {});
+    const casa = await this.getCasa(context.companyId);
     const data = this.normalizeProspectingConfig(dto || {}, botConfig, current);
     // O clique em "Iniciar" e o ato explicito de armar a campanha. Valida a
     // configuracao efetiva (campanha anterior + DTO normalizado) antes de gravar
@@ -2397,10 +2424,10 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const searchSignature = this.buildSearchSignature(data);
     const searchLabel = this.formatProspectingSearchLabel(data);
     const now = new Date();
-    const startsInsideWorkingHours = this.isInsideWorkingHours(now, data);
+    const startsInsideWorkingHours = this.dentroDaJanelaDaCasa(now, casa);
     const initialStatusText = startsInsideWorkingHours
       ? `Preparando fila de Prospecção${searchLabel ? `: ${searchLabel}` : ''}.`
-      : this.formatSleepingUntilText(this.moveToWorkingWindow(now, data));
+      : this.formatSleepingUntilText(this.moverParaJanelaDaCasa(now, casa));
     const searchChanged = this.hasCampaignSearchChanged(current, searchSignature);
     const campaign = current
       ? await this.prisma.vendasAutomationCampaign.update({
@@ -2504,7 +2531,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     if (!campaign) throw new BadRequestException('Nenhuma campanha de prospecção encontrada.');
     this.assertCanArmProspecting(user, campaign);
     const now = new Date();
-    const nextScheduledAt = this.moveToWorkingWindow(now, campaign);
+    const nextScheduledAt = this.moverParaJanelaDaCasa(now, await this.getCasa(context.companyId));
     const updated = await this.prisma.$transaction(async (tx) => {
       const nextJob = await tx.vendasAutomationJob.findFirst({
         where: { campaignId: campaign.id, status: { in: ['pending', 'scheduled'] } },
@@ -2605,15 +2632,12 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   // (setCampaignStatusForUser) e o painel do front leem daqui, então o que a tela
   // mostra é exatamente o que destrava Automação.
   private computeTriagemChecklist(campaign: any): { key: string; label: string; ok: boolean }[] {
+    // Limite diário e horário saíram do checklist (31/07/2026): moram na CASA
+    // (VendasComercialConfig), que tem default seguro — nunca estão "faltando".
+    // Checklist só cobra o que a campanha realmente pode deixar vazio.
     return [
       { key: 'mensagem', label: 'mensagem de abordagem', ok: Boolean(String(campaign?.messageTemplate || '').trim()) },
       { key: 'optout', label: 'mensagem de saída (opt-out)', ok: Boolean(String(campaign?.optOutMessage || '').trim()) },
-      { key: 'limite', label: 'limite diário de envios', ok: Number(campaign?.dailyLimit || 0) > 0 },
-      {
-        key: 'horario',
-        label: 'horário de funcionamento',
-        ok: Boolean(String(campaign?.workingHoursStart || '').trim()) && Boolean(String(campaign?.workingHoursEnd || '').trim()),
-      },
     ];
   }
 
@@ -2738,12 +2762,11 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return Math.min(cap, maxHourlyCap);
   }
 
-  /** Conta envios bem-sucedidos na última hora para a campanha (anti-ban por hora). */
-  private countSuccessfulSendsThisHour(campaignId: string, companyId: number, now = new Date()) {
+  /** Conta envios bem-sucedidos na última hora POR EMPRESA (anti-ban por hora — o chip é um). */
+  private countSuccessfulSendsThisHour(companyId: number, now = new Date()) {
     const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
     return this.prisma.vendasAutomationJob.count({
       where: {
-        campaignId,
         companyId,
         sentAt: { gte: oneHourAgo, lte: now },
         status: { in: [...SUCCESSFUL_SEND_JOB_STATUSES] as any },
@@ -2922,8 +2945,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       return;
     }
     const now = new Date();
-    if (!this.isInsideWorkingHours(now, campaign)) {
-      const next = this.moveToWorkingWindow(now, campaign);
+    const casaScrape = await this.getCasa(campaign.companyId);
+    if (!this.dentroDaJanelaDaCasa(now, casaScrape)) {
+      const next = this.moverParaJanelaDaCasa(now, casaScrape);
       await this.markCampaignStage(campaign.id, campaign.companyId, 'dormindo', this.formatSleepingUntilText(next), {
         type: 'outside_working_hours',
       });
@@ -3080,46 +3104,47 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return next;
   }
 
-  private moveToWorkingWindow(date: Date, campaign: any) {
+  // Helpers de risco leem a CASA (VendasComercialConfigDto), nunca a campanha.
+  // Nomes novos de propósito: `campaign` circula como `any` e manter o nome
+  // antigo deixaria call site esquecido compilar em silêncio.
+  private moverParaJanelaDaCasa(date: Date, casa: VendasComercialConfigDto) {
     if (!this.isBusinessDay(date)) {
-      return this.parseTimeOnDate(this.moveToBusinessDay(date), campaign.workingHoursStart || '08:00');
+      return this.parseTimeOnDate(this.moveToBusinessDay(date), casa.workingHoursStart);
     }
-    const start = this.parseTimeOnDate(date, campaign.workingHoursStart || '08:00');
-    const end = this.parseTimeOnDate(date, campaign.workingHoursEnd || '18:00');
+    const start = this.parseTimeOnDate(date, casa.workingHoursStart);
+    const end = this.parseTimeOnDate(date, casa.workingHoursEnd);
     if (date.getTime() < start.getTime()) return start;
     if (date.getTime() <= end.getTime()) return date;
     const nextDay = this.addBusinessCalendarDays(date, 1);
-    return this.parseTimeOnDate(this.moveToBusinessDay(nextDay), campaign.workingHoursStart || '08:00');
+    return this.parseTimeOnDate(this.moveToBusinessDay(nextDay), casa.workingHoursStart);
   }
 
-  private getCampaignIntervalMs(campaign: any) {
-    return Math.max(1, Number(campaign.intervalMinutes || DEFAULT_INTERVAL_MINUTES)) * 60000;
+  private intervaloMsDaCasa(casa: VendasComercialConfigDto) {
+    return Math.max(1, Number(casa.intervalMinutes || DEFAULT_INTERVAL_MINUTES)) * 60000;
   }
 
-  private getCampaignIntervalVarianceMinutes(campaign: any) {
-    const filters = parseJsonObject(campaign?.filtersJson);
-    return clampInteger((filters as any).intervalVarianceMinutes, DEFAULT_INTERVAL_VARIANCE_MINUTES, 0, 180);
-  }
-
-  private getRandomizedCampaignIntervalMs(campaign: any) {
-    const baseMinutes = Math.max(1, Number(campaign.intervalMinutes || DEFAULT_INTERVAL_MINUTES));
-    const varianceMinutes = this.getCampaignIntervalVarianceMinutes(campaign);
+  private intervaloAleatorioMsDaCasa(casa: VendasComercialConfigDto) {
+    const baseMinutes = Math.max(1, Number(casa.intervalMinutes || DEFAULT_INTERVAL_MINUTES));
+    const varianceMinutes = Math.max(0, Number(casa.intervalVarianceMinutes || 0));
     const randomizedMinutes = baseMinutes + (varianceMinutes > 0 ? Math.floor(Math.random() * (varianceMinutes + 1)) : 0);
     return randomizedMinutes * 60000;
   }
 
-  private getCampaignDailyCapacity(campaign: any, now = new Date()) {
-    const start = this.parseTimeOnDate(now, campaign.workingHoursStart || '08:00');
-    const end = this.parseTimeOnDate(now, campaign.workingHoursEnd || '18:00');
+  private capacidadeDiariaDaCasa(casa: VendasComercialConfigDto, now = new Date()) {
+    // O teto do dia é o MENOR entre o que o dono pediu (dailyLimitPerSender) e o
+    // que a janela+ritmo fisicamente comportam. Antes só o derivado valia e o
+    // número configurado era decorativo em janela larga.
+    const start = this.parseTimeOnDate(now, casa.workingHoursStart);
+    const end = this.parseTimeOnDate(now, casa.workingHoursEnd);
     const windowMinutes = Math.max(0, Math.floor((end.getTime() - start.getTime()) / 60000));
-    const baseMinutes = Math.max(1, Number(campaign.intervalMinutes || DEFAULT_INTERVAL_MINUTES));
-    const averageInterval = baseMinutes + this.getCampaignIntervalVarianceMinutes(campaign) / 2;
+    const baseMinutes = Math.max(1, Number(casa.intervalMinutes || DEFAULT_INTERVAL_MINUTES));
+    const averageInterval = baseMinutes + Math.max(0, Number(casa.intervalVarianceMinutes || 0)) / 2;
     const capacity = Math.max(1, Math.floor(windowMinutes / Math.max(1, averageInterval)));
-    return Math.min(capacity, ABSOLUTE_DAILY_SEND_CAP);
+    return Math.min(capacity, Math.max(1, Number(casa.dailyLimitPerSender || DEFAULT_DAILY_LIMIT)), ABSOLUTE_DAILY_SEND_CAP);
   }
 
-  private async buildScheduleCursorForCampaign(campaign: any) {
-    const intervalMs = this.getCampaignIntervalMs(campaign);
+  private async buildScheduleCursorForCampaign(campaign: any, casa: VendasComercialConfigDto) {
+    const intervalMs = this.intervaloMsDaCasa(casa);
     const now = new Date();
     const [latestActiveScheduled, lastSuccessfulSendAt] = await Promise.all([
       this.prisma.vendasAutomationJob.findFirst({
@@ -3131,7 +3156,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         orderBy: { scheduledAt: 'desc' },
         select: { scheduledAt: true },
       }),
-      this.getLastSuccessfulSendAt(campaign.id, campaign.companyId),
+      this.getLastSuccessfulSendAt(campaign.companyId),
     ]);
     let firstSlotTime = now.getTime();
     if (latestActiveScheduled?.scheduledAt instanceof Date && latestActiveScheduled.scheduledAt.getTime() > now.getTime()) {
@@ -3140,17 +3165,17 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     if (lastSuccessfulSendAt) {
       firstSlotTime = Math.max(firstSlotTime, lastSuccessfulSendAt.getTime() + intervalMs);
     }
-    const firstSlot = this.moveToWorkingWindow(new Date(firstSlotTime), campaign);
+    const firstSlot = this.moverParaJanelaDaCasa(new Date(firstSlotTime), casa);
     return new Date(firstSlot.getTime() - intervalMs);
   }
 
-  private async getNextAllowedSendAt(campaign: any, currentJobId?: string | null) {
-    const intervalMs = this.getCampaignIntervalMs(campaign);
-    const lastSuccessfulSendAt = await this.getLastSuccessfulSendAt(campaign.id, campaign.companyId, currentJobId);
+  private async getNextAllowedSendAt(companyId: number, casa: VendasComercialConfigDto, currentJobId?: string | null) {
+    const intervalMs = this.intervaloMsDaCasa(casa);
+    const lastSuccessfulSendAt = await this.getLastSuccessfulSendAt(companyId, currentJobId);
     if (!lastSuccessfulSendAt) return null;
     const nextAllowed = new Date(lastSuccessfulSendAt.getTime() + intervalMs);
     if (nextAllowed.getTime() <= Date.now()) return null;
-    return this.moveToWorkingWindow(nextAllowed, campaign);
+    return this.moverParaJanelaDaCasa(nextAllowed, casa);
   }
 
   private async replenishCampaignAfterSkip(campaign: any, statusText: string) {
@@ -3204,10 +3229,11 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     await this.markCampaignStage(campaign.id, campaign.companyId, 'agendando', 'Preparando fila com cards do Vendas que têm WhatsApp...', {
       type: 'schedule_started',
     });
+    const casa = await this.getCasa(campaign.companyId);
     const pendingCount = await this.prisma.vendasAutomationJob.count({
       where: { campaignId: campaign.id, status: { in: [...BUFFER_JOB_STATUSES] as any } },
     });
-    const bufferTarget = Math.min(this.getCampaignDailyCapacity(campaign), Math.max(1, Number(campaign.desiredLeadBuffer || DEFAULT_DAILY_LIMIT)));
+    const bufferTarget = Math.min(this.capacidadeDiariaDaCasa(casa), Math.max(1, Number(campaign.desiredLeadBuffer || DEFAULT_DAILY_LIMIT)));
     const slotsToFill = Math.max(0, bufferTarget - pendingCount);
     if (slotsToFill <= 0) {
       await this.markCampaignStage(campaign.id, campaign.companyId, 'aguardando', `${pendingCount} contatos na fila.`, {
@@ -3249,7 +3275,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         OR: sourceFilters,
         phoneNormalized: { not: null },
         id: { notIn: Array.from(usedLeadIds) },
-        attemptCount: { lt: Math.max(1, Number(campaign.maxAttemptsPerLead || 1)) },
+        attemptCount: { lt: Math.max(1, Number(casa.maxAttemptsPerLead || 1)) },
       },
       orderBy: [{ returnAt: 'asc' }, { updatedAt: 'desc' }],
       take: slotsToFill,
@@ -3272,13 +3298,13 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           OR: broaderSourceFilters,
           phoneNormalized: { not: null },
           id: { notIn: Array.from(usedLeadIds) },
-          attemptCount: { lt: Math.max(1, Number(campaign.maxAttemptsPerLead || 1)) },
+          attemptCount: { lt: Math.max(1, Number(casa.maxAttemptsPerLead || 1)) },
         },
         orderBy: [{ returnAt: 'asc' }, { updatedAt: 'desc' }],
         take: slotsToFill,
       });
     }
-    let cursor = await this.buildScheduleCursorForCampaign(campaign);
+    let cursor = await this.buildScheduleCursorForCampaign(campaign, casa);
     let hasScheduledInBatch = false;
     const data: any[] = [];
     const fallbackLeadIds = new Set<string>();
@@ -3329,8 +3355,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         fallbackLeadIds.add(String(lead.id));
       }
       cursor = hasScheduledInBatch
-        ? this.moveToWorkingWindow(new Date(cursor.getTime() + this.getRandomizedCampaignIntervalMs(campaign)), campaign)
-        : this.moveToWorkingWindow(cursor, campaign);
+        ? this.moverParaJanelaDaCasa(new Date(cursor.getTime() + this.intervaloAleatorioMsDaCasa(casa)), casa)
+        : this.moverParaJanelaDaCasa(cursor, casa);
       hasScheduledInBatch = true;
       data.push({
         campaignId: campaign.id,
@@ -3458,7 +3484,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       take: 10,
     });
     for (const campaign of campaigns) {
-      if (!this.isInsideWorkingHours(now, campaign)) continue;
+      const casa = await this.getCasa(campaign.companyId);
+      if (!this.dentroDaJanelaDaCasa(now, casa)) continue;
       const nextJob = await this.prisma.vendasAutomationJob.findFirst({
         where: {
           campaignId: campaign.id,
@@ -3472,7 +3499,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       const pending = await this.prisma.vendasAutomationJob.count({
         where: { campaignId: campaign.id, status: { in: [...BUFFER_JOB_STATUSES] as any } },
       });
-      const bufferTarget = Math.min(this.getCampaignDailyCapacity(campaign), Math.max(1, Number(campaign.desiredLeadBuffer || DEFAULT_DAILY_LIMIT)));
+      const bufferTarget = Math.min(this.capacidadeDiariaDaCasa(casa), Math.max(1, Number(campaign.desiredLeadBuffer || DEFAULT_DAILY_LIMIT)));
       if (pending >= bufferTarget) continue;
       this.logger.log(
         `[vendas-automation] cooldown active campaignId=${campaign.id} nextAllowedSendAt=${nextJob.scheduledAt.toISOString()} preparingBuffer=true`,
@@ -3555,8 +3582,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         continue;
       }
 
-      if (!this.isInsideWorkingHours(now, campaign)) {
-        const next = this.moveToWorkingWindow(now, campaign);
+      const casaRefill = await this.getCasa(campaign.companyId);
+      if (!this.dentroDaJanelaDaCasa(now, casaRefill)) {
+        const next = this.moverParaJanelaDaCasa(now, casaRefill);
         await this.markCampaignStage(campaign.id, campaign.companyId, 'dormindo', this.formatSleepingUntilText(next), {
           type: 'outside_working_hours',
         }).catch((error) => {
@@ -3724,10 +3752,10 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return true;
   }
 
-  private isInsideWorkingHours(date: Date, campaign: any) {
+  private dentroDaJanelaDaCasa(date: Date, casa: VendasComercialConfigDto) {
     if (!this.isBusinessDay(date)) return false;
-    const start = this.parseTimeOnDate(date, campaign.workingHoursStart || '08:00');
-    const end = this.parseTimeOnDate(date, campaign.workingHoursEnd || '18:00');
+    const start = this.parseTimeOnDate(date, casa.workingHoursStart);
+    const end = this.parseTimeOnDate(date, casa.workingHoursEnd);
     return date.getTime() >= start.getTime() && date.getTime() <= end.getTime();
   }
 
@@ -3740,10 +3768,12 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return makeBusinessDate(parts.year, parts.month, parts.day + 1, 0, 0);
   }
 
-  private countSuccessfulSendsToday(campaignId: string, companyId: number, now = new Date()) {
+  // POR EMPRESA de propósito (31/07/2026): o teto protege o CHIP, e o chip é um.
+  // Contar por campanha era o furo real — duas campanhas de 12/dia somavam 24 no
+  // mesmo número. Mesma regra para o intervalo mínimo (getLastSuccessfulSendAt).
+  private countSuccessfulSendsToday(companyId: number, now = new Date()) {
     return this.prisma.vendasAutomationJob.count({
       where: {
-        campaignId,
         companyId,
         sentAt: { gte: this.startOfDay(now), lt: this.startOfNextDay(now) },
         status: { in: [...SUCCESSFUL_SEND_JOB_STATUSES] as any },
@@ -3886,10 +3916,11 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return messages;
   }
 
-  private async getLastSuccessfulSendAt(campaignId: string, companyId: number, currentJobId?: string | null) {
+  private async getLastSuccessfulSendAt(companyId: number, currentJobId?: string | null) {
+    // POR EMPRESA: o intervalo mínimo é respiro do CHIP. Por campanha, duas
+    // campanhas alternando a cada 15min viravam 7,5min efetivos no mesmo número.
     const latestSent = await this.prisma.vendasAutomationJob.findFirst({
       where: {
-        campaignId,
         companyId,
         ...(currentJobId ? { id: { not: currentJobId } } : {}),
         sentAt: { not: null },
@@ -3967,8 +3998,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       return deferredResult('prospecting_not_live', null);
     }
 
-    if (!this.isInsideWorkingHours(now, campaign)) {
-      const next = this.moveToWorkingWindow(now, campaign);
+    const casa = await this.getCasa(campaign.companyId);
+    if (!this.dentroDaJanelaDaCasa(now, casa)) {
+      const next = this.moverParaJanelaDaCasa(now, casa);
       await this.prisma.vendasAutomationJob.update({
         where: { id: job.id },
         data: { scheduledAt: next },
@@ -3989,7 +4021,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       lead.closedAt ||
       lead.wasClosedBefore ||
       Number(lead.attemptCount || 0) > 0 ||
-      Number(lead.attemptCount || 0) >= Number(campaign.maxAttemptsPerLead || 1)
+      Number(lead.attemptCount || 0) >= Number(casa.maxAttemptsPerLead || 1)
     ) {
       const errorMessage = 'Lead encerrado, bloqueado ou ja contatado.';
       await this.prisma.vendasAutomationJob.update({
@@ -4328,14 +4360,16 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    const sentToday = await this.countSuccessfulSendsToday(campaign.id, campaign.companyId, now);
-    const dailyCapacity = this.getCampaignDailyCapacity(campaign, now);
+    // Teto POR EMPRESA: envios de TODAS as campanhas do tenant contam contra o
+    // mesmo teto — o chip é um só.
+    const sentToday = await this.countSuccessfulSendsToday(campaign.companyId, now);
+    const dailyCapacity = this.capacidadeDiariaDaCasa(casa, now);
     if (sentToday >= dailyCapacity) {
       this.logger.log(
         `[vendas-automation] daily capacity reached campaignId=${campaign.id} sentToday=${sentToday} dailyCapacity=${dailyCapacity}`,
       );
       const nextDay = this.addBusinessCalendarDays(now, 1);
-      const next = this.parseTimeOnDate(this.moveToBusinessDay(nextDay), campaign.workingHoursStart || '08:00');
+      const next = this.parseTimeOnDate(this.moveToBusinessDay(nextDay), casa.workingHoursStart);
       await this.prisma.vendasAutomationJob.update({ where: { id: job.id }, data: { scheduledAt: next } });
       await this.markCampaignStage(campaign.id, campaign.companyId, 'aguardando', 'Capacidade diária da janela atingida. Próximos envios amanhã.', {
         type: 'daily_limit_reached',
@@ -4345,13 +4379,13 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
 
     // Teto de aquecimento por hora: rampa sobre o cap/hora para proteger o chip
     // nos primeiros dias. O teto efetivo é logado para diagnóstico.
-    const warmupHourlyCap = this.computeWarmupHourlyCap(prospectingLiveAt, campaign.dailyLimit || DEFAULT_DAILY_LIMIT, now);
-    const sentThisHour = await this.countSuccessfulSendsThisHour(campaign.id, campaign.companyId, now);
+    const warmupHourlyCap = this.computeWarmupHourlyCap(prospectingLiveAt, casa.dailyLimitPerSender || DEFAULT_DAILY_LIMIT, now);
+    const sentThisHour = await this.countSuccessfulSendsThisHour(campaign.companyId, now);
     this.logger.log(
       `[vendas-automation][warmup] campaignId=${campaign.id} sentThisHour=${sentThisHour} warmupHourlyCap=${warmupHourlyCap} daysLive=${((now.getTime() - prospectingLiveAt.getTime()) / 86400000).toFixed(1)}`,
     );
     if (sentThisHour >= warmupHourlyCap) {
-      const nextHour = this.moveToWorkingWindow(new Date(now.getTime() + 60 * 60 * 1000), campaign);
+      const nextHour = this.moverParaJanelaDaCasa(new Date(now.getTime() + 60 * 60 * 1000), casa);
       await this.prisma.vendasAutomationJob.update({ where: { id: job.id }, data: { scheduledAt: nextHour } });
       await this.markCampaignStage(
         campaign.id,
@@ -4363,7 +4397,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       return deferredResult('warmup_hourly_cap_reached', nextHour);
     }
 
-    const nextAllowedSendAt = await this.getNextAllowedSendAt(campaign, job.id);
+    const nextAllowedSendAt = await this.getNextAllowedSendAt(campaign.companyId, casa, job.id);
     if (nextAllowedSendAt) {
       await this.prisma.vendasAutomationJob.update({
         where: { id: job.id },
@@ -4384,7 +4418,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     if (await this.pauseCampaignIfRealNegativeLimitReached(campaign, now)) {
       await this.prisma.vendasAutomationJob.update({
         where: { id: job.id },
-        data: { scheduledAt: this.moveToWorkingWindow(new Date(now.getTime() + this.getCampaignIntervalMs(campaign)), campaign) },
+        data: { scheduledAt: this.moverParaJanelaDaCasa(new Date(now.getTime() + this.intervaloMsDaCasa(casa)), casa) },
       });
       return deferredResult('real_negative_safety_pause');
     }
@@ -4460,7 +4494,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       type: 'send_started',
     });
     const delayMs =
-      (Number(campaign.typingSeconds || 0) + Math.floor(Math.random() * (Number(campaign.typingVarianceSeconds || 0) + 1))) * 1000;
+      (Number(casa.typingSeconds || 0) + Math.floor(Math.random() * (Number(casa.typingVarianceSeconds || 0) + 1))) * 1000;
     if (delayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
@@ -4568,7 +4602,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       });
       this.logger.log(`[prospeccao] outbound automatico enfileirado, mantendo pipeline inalterado conversation=${Number(queued.conversationId)} job=${job.id}`);
       const sentTodayAfter = sentToday + 1;
-      const nextAllowedAfterSend = this.moveToWorkingWindow(new Date(sentAt.getTime() + this.getCampaignIntervalMs(campaign)), campaign);
+      const nextAllowedAfterSend = this.moverParaJanelaDaCasa(new Date(sentAt.getTime() + this.intervaloMsDaCasa(casa)), casa);
       this.logger.log(
         `[vendas-automation] sent lead campaignId=${campaign.id} jobId=${job.id} leadId=${lead.id} sentToday=${sentTodayAfter} dailyCapacity=${dailyCapacity} nextAllowedSendAt=${nextAllowedAfterSend.toISOString()}`,
       );

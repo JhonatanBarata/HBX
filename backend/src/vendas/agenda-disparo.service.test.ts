@@ -14,6 +14,10 @@ const BASE_CONFIG: VendasComercialConfigDto = {
   workingHoursEnd: '18:00',
   dailyLimitPerSender: 10,
   intervalMinutes: 15,
+  intervalVarianceMinutes: 15,
+  maxAttemptsPerLead: 1,
+  typingSeconds: 8,
+  typingVarianceSeconds: 12,
 };
 
 // Próxima segunda-feira às 10:00 (horário local America/Sao_Paulo) — ponto de partida

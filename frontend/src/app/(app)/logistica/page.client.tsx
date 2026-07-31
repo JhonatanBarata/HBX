@@ -79,6 +79,29 @@ type Entregador = { id: number; nome: string | null; email: string | null };
 // ROTA PRONTA (29/07) — linha de GET /logistica/rota-indicadas (aviso de negada).
 type RotaIndicadaAviso = { id: string; nome: string; status: string; paraNome: string; porNome: string; avisoVisto: boolean };
 
+// 31/07 — linha de GET /logistica/rota-avisos: rota que morreu no meio.
+type RotaAvisoLinha = {
+  id: string;
+  tipo: "abandonada" | "parcial" | "parada";
+  motoristaNome: string;
+  rotaNome: string | null;
+  total: number;
+  entregues: number;
+  abertas: number;
+};
+
+/** A frase do banner. Fato seco: quem, o quê, e quanto ficou pra trás. */
+function fraseDoRecado(aviso: RotaAvisoLinha): string {
+  const rota = aviso.rotaNome ? ` da rota ${aviso.rotaNome}` : "";
+  if (aviso.tipo === "abandonada") {
+    return `${aviso.motoristaNome} saiu pra rua${rota} e encerrou sem entregar nada — ${aviso.abertas} cliente(s) sem atendimento.`;
+  }
+  if (aviso.tipo === "parcial") {
+    return `${aviso.motoristaNome} encerrou${rota} com ${aviso.entregues} de ${aviso.total} entregues — ${aviso.abertas} ficaram pra trás.`;
+  }
+  return `${aviso.motoristaNome} iniciou a rota${rota} e está sem entregar nada há mais de 1h30 — ${aviso.abertas} cliente(s) esperando.`;
+}
+
 type Rota = {
   date: string;
   total: number;
@@ -396,6 +419,8 @@ export function LogisticaClient() {
   const [routeBuilderOpen, setRouteBuilderOpen] = useState(false);
   // ROTA PRONTA (29/07) — avisos de rota indicada negada no celular.
   const [negadas, setNegadas] = useState<RotaIndicadaAviso[]>([]);
+  // 31/07 — recados de rota que morreu no meio (abandonada/parcial/parada).
+  const [rotaAvisos, setRotaAvisos] = useState<RotaAvisoLinha[]>([]);
   const [view, setView] = useState<LogisticsView>("today");
   const viewPill = useGlassPill<HTMLButtonElement>(admin ? view : "today", admin);
 
@@ -449,6 +474,29 @@ export function LogisticaClient() {
   const dispensarNegada = useCallback((id: string) => {
     setNegadas((current) => current.filter((row) => row.id !== id));
     apiFetch(`/logistica/rota-indicadas/${encodeURIComponent(id)}/visto`, { method: "POST", body: JSON.stringify({}) })
+      .catch(() => { /* se falhar, o aviso volta no próximo tick */ });
+  }, []);
+
+  // 31/07 — RECADO DE ROTA QUE MORREU NO MEIO. O banner acima só sabe de rota
+  // INDICADA; este conta o que ninguém contava: quem saiu pra rua e não entregou
+  // nada, quem parou no meio, e a rota que está parada há mais de 1h30 sem sinal
+  // (o motorista que dá Iniciar e fecha o app nunca chamou endpoint nenhum).
+  useEffect(() => {
+    if (!admin) return;
+    let cancelled = false;
+    const carregar = () => {
+      apiFetch<RotaAvisoLinha[]>("/logistica/rota-avisos")
+        .then((rows) => { if (!cancelled) setRotaAvisos(Array.isArray(rows) ? rows : []); })
+        .catch(() => { /* acessório: rede fora não derruba a tela */ });
+    };
+    carregar();
+    const timer = setInterval(carregar, 60000);
+    return () => { cancelled = true; clearInterval(timer); };
+  }, [admin]);
+
+  const dispensarRotaAviso = useCallback((id: string) => {
+    setRotaAvisos((current) => current.filter((row) => row.id !== id));
+    apiFetch(`/logistica/rota-avisos/${encodeURIComponent(id)}/visto`, { method: "POST", body: JSON.stringify({}) })
       .catch(() => { /* se falhar, o aviso volta no próximo tick */ });
   }, []);
 
@@ -643,6 +691,16 @@ export function LogisticaClient() {
               Rota <strong>{aviso.nome}</strong> {aviso.status === "desfeita" ? "devolvida" : "negada"} por {aviso.paraNome}.
             </span>
             <button type="button" className="log-negada__close" aria-label="Dispensar aviso" onClick={() => dispensarNegada(aviso.id)}>×</button>
+          </div>
+        ))}
+
+        {/* 31/07 — O RECADO QUE FALTAVA: começou e desistiu, parou no meio, ou
+            está parado há mais de 1h30 sem ninguém saber. Vale pra QUALQUER
+            rota, não só pras indicadas. */}
+        {admin && rotaAvisos.map((aviso) => (
+          <div className="log-negada" key={aviso.id} role="status">
+            <span>{fraseDoRecado(aviso)}</span>
+            <button type="button" className="log-negada__close" aria-label="Dispensar aviso" onClick={() => dispensarRotaAviso(aviso.id)}>×</button>
           </div>
         ))}
 

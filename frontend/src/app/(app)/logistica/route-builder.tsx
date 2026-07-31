@@ -151,7 +151,10 @@ function estadoDaRota(state: RouteModelState | undefined): { texto: string; aler
     return { texto: `Na rua com ${quem}${inicio} · ${state.entregues} de ${state.comEle} entregues`, alerta: false };
   }
   if (state.estado === "montada") {
-    return { texto: `${state.pessoaEhVoce ? "Você está" : `${quem} está`} com ${state.comEle} de ${state.total} paradas`, alerta: false };
+    // Rota MORTA no nome de alguém: o servidor deixa assumir, então a tela
+    // convida em vez de só informar (era aqui que o dono levava 409).
+    const convite = state.pessoaEhVoce ? "" : " — clique para assumir";
+    return { texto: `${state.pessoaEhVoce ? "Você está" : `${quem} parou`} com ${state.comEle} de ${state.total} paradas${convite}`, alerta: false };
   }
   if (state.estado === "indicada") {
     return { texto: `Aguardando ${quem} aceitar`, alerta: false };

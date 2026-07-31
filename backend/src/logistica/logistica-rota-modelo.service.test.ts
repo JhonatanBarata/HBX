@@ -223,6 +223,7 @@ function buildGerarPrisma(
     planos?: any[];
     users?: any[];
     rotas?: any[];
+    recados?: any[];
     indicacoes?: any[];
   } = {},
 ) {
@@ -366,10 +367,18 @@ function buildGerarPrisma(
         (r: any) => r.companyId === where.companyId && (where.id?.in ?? []).includes(r.id),
       ),
     },
+    logisticaRotaAviso: {
+      findMany: async ({ where }: any) => (seed.recados ?? []).filter((r: any) => r.companyId === where.companyId),
+    },
     logisticaRoute: {
-      findFirst: async ({ where }: any) => (seed.rotas ?? []).find(
-        (r: any) => r.companyId === where.companyId && r.entregadorId === where.entregadorId && r.routeDate === where.routeDate,
-      ) ?? null,
+      findFirst: async ({ where }: any) => (seed.rotas ?? []).find((r: any) => {
+        if (r.companyId !== where.companyId || r.entregadorId !== where.entregadorId || r.routeDate !== where.routeDate) return false;
+        // `estaNaRua` filtra por status VIVO + não encerrada; o `explicarDono`
+        // não filtra nada (quer a rota do dia, viva ou morta).
+        if (where.status?.in && !where.status.in.includes(r.status)) return false;
+        if (where.operationalEndedAt === null && r.operationalEndedAt != null) return false;
+        return true;
+      }) ?? null,
       findMany: async ({ where }: any) => (seed.rotas ?? []).filter((r: any) => (
         r.companyId === where.companyId
         && r.routeDate === where.routeDate
@@ -816,4 +825,78 @@ test('estadoDoDia: multi-tenant — modelo/entrega de outra empresa não vaza', 
   });
   const svc = new LogisticaRotaModeloService(prisma);
   assert.deepEqual(await svc.estadoDoDia(COMPANY, GERAR_DATE, USER), []);
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// 🔴 31/07 (ordem do dono) — SÓ QUEM ESTÁ NA RUA SEGURA A PARADA. O motorista
+// que encerrou às 14h e foi embora deixando cliente sem atendimento não pode
+// manter o dia inteiro refém: rota MORTA devolve a parada pro pote.
+// ══════════════════════════════════════════════════════════════════════════════
+test('gerar: aberta de motorista com rota MORTA → assume a parada e avisa quem estava com ela', async () => {
+  const OUTRO = 42;
+  const { prisma, entregas } = buildGerarPrisma({
+    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Márcia' }],
+    entregas: [
+      { id: 'e-largada', companyId: COMPANY, customerProfileId: 'c1', localId: null, scheduledAt: new Date(2026, 6, 20, 9), status: 'agendada', entregadorId: OUTRO },
+    ],
+    users: [{ id: OUTRO, companyId: COMPANY, name: 'João da Silva', username: 'joao' }],
+    rotas: [{ companyId: COMPANY, entregadorId: OUTRO, routeDate: GERAR_DATE, status: 'ACTIVE', startedAt: new Date(), operationalEndedAt: new Date() }],
+  });
+  const svc = new LogisticaRotaModeloService(prisma);
+  const res = await svc.gerar(COMPANY, 'm1', GERAR_DATE, USER);
+
+  assert.deepEqual(res.deliveryIds, ['e-largada']);
+  assert.equal(entregas.get('e-largada')!.entregadorId, USER, 'a parada passou pra quem montou');
+  assert.equal(res.avisos.length, 1);
+  assert.match(res.avisos[0], /João da Silva/);
+  assert.match(res.avisos[0], /passou pra você/);
+});
+
+test('gerar: motorista SEM rota nenhuma no dia também não segura parada', async () => {
+  const OUTRO = 42;
+  const { prisma, entregas } = buildGerarPrisma({
+    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Márcia' }],
+    entregas: [
+      { id: 'e-orfa', companyId: COMPANY, customerProfileId: 'c1', localId: null, scheduledAt: new Date(2026, 6, 20, 9), status: 'agendada', entregadorId: OUTRO },
+    ],
+    users: [{ id: OUTRO, companyId: COMPANY, name: 'João da Silva', username: 'joao' }],
+  });
+  const svc = new LogisticaRotaModeloService(prisma);
+  const res = await svc.gerar(COMPANY, 'm1', GERAR_DATE, USER);
+
+  assert.deepEqual(res.deliveryIds, ['e-orfa']);
+  assert.equal(entregas.get('e-orfa')!.entregadorId, USER);
+});
+
+test('estadoDoDia: dono com rota MORTA → estado montada e podeMontar=true (o painel convida a assumir)', async () => {
+  const OUTRO = 42;
+  const { prisma } = buildGerarPrisma({
+    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }, { customerProfileId: 'c2' }] }],
+    entregas: [
+      { id: 'e1', companyId: COMPANY, customerProfileId: 'c1', localId: null, scheduledAt: new Date(2026, 6, 20, 9), status: 'agendada', entregadorId: OUTRO },
+    ],
+    users: [{ id: OUTRO, companyId: COMPANY, name: 'João da Silva', username: 'joao' }],
+    rotas: [{ companyId: COMPANY, entregadorId: OUTRO, routeDate: GERAR_DATE, status: 'ACTIVE', startedAt: new Date(), operationalEndedAt: new Date() }],
+  });
+  const svc = new LogisticaRotaModeloService(prisma);
+  const [estado] = await svc.estadoDoDia(COMPANY, GERAR_DATE, USER);
+
+  assert.equal(estado.estado, 'montada');
+  assert.equal(estado.pessoaNome, 'João da Silva');
+  assert.equal(estado.podeMontar, true, 'vitrine e caixa: o gerar deixa assumir, a tela também');
+});
+
+test('estadoDoDia: recado de rota largada aparece mesmo SEM indicação (rota que o motorista montou sozinho)', async () => {
+  const { prisma } = buildGerarPrisma({
+    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    recados: [{ companyId: COMPANY, rotaModeloId: 'm1', motoristaNome: 'João da Silva', entregues: 0, createdAt: new Date(2026, 6, 20, 14, 31) }],
+  });
+  const svc = new LogisticaRotaModeloService(prisma);
+  const [estado] = await svc.estadoDoDia(COMPANY, GERAR_DATE, USER);
+
+  assert.equal(estado.estado, 'devolvida');
+  assert.equal(estado.pessoaNome, 'João da Silva');
+  assert.ok(estado.em, 'a hora do recado alimenta o "às HH:MM" da tela');
 });

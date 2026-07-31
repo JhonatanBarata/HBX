@@ -163,6 +163,11 @@ export class LogisticaRotaModeloService {
     const avisos: string[] = [];
     const deliveryIds: string[] = [];
     const atribuidoAt = new Date();
+    // Caches da volta: "esse motorista está na rua?" e "como ele se chama?".
+    // Uma rota tem dezenas de paradas do mesmo dono — sem isto seria uma query
+    // por parada.
+    const naRua = new Map<number, boolean>();
+    const nomes = new Map<number, string>();
 
     for (const parada of paradas) {
       const customerProfileId = String((parada as any)?.customerProfileId ?? '').trim();
@@ -252,7 +257,36 @@ export class LogisticaRotaModeloService {
       // de verdade pra proteger.
       if (existente && !reabrirId) {
         if (existente.entregadorId != null && existente.entregadorId !== userId) {
-          throw new ConflictException(await this.explicarDono(companyId, cliente.name, existente.entregadorId, routeDate));
+          // 🔴 31/07 — SÓ QUEM ESTÁ NA RUA SEGURA A PARADA (ordem do dono).
+          //
+          // Antes, QUALQUER entrega aberta no nome de outra pessoa era 409 —
+          // inclusive a de um motorista que encerrou a rota às 14h e foi pra
+          // casa deixando 12 clientes sem atender. O dia ficava refém de uma
+          // rota morta e o admin não tinha saída nenhuma pela tela.
+          //
+          // Agora o freio é o que ele protege de verdade: rota VIVA (iniciada
+          // e não encerrada) é trabalho em andamento e continua intocável —
+          // roubar parada de quem está dirigindo quebra o cara na rua. Rota
+          // morta (encerrada, terminal ou que nem existe) devolve a parada pro
+          // pote, e quem está montando assume. O `where` do update carrega o
+          // dono ANTIGO: se ele voltar pra rua no meio do caminho, o update não
+          // pega ninguém e o 409 volta — a corrida perde, não vence.
+          if (await this.estaNaRua(companyId, existente.entregadorId, routeDate, naRua)) {
+            throw new ConflictException(await this.explicarDono(companyId, cliente.name, existente.entregadorId, routeDate));
+          }
+          const donoAntigo = existente.entregadorId;
+          const assumida = await this.prisma.entrega.updateMany({
+            where: { id: existente.id, companyId, entregadorId: donoAntigo },
+            data: { entregadorId: userId, atribuidoPorUserId: userId, atribuidoAt },
+          });
+          if (assumida.count !== 1) {
+            throw new ConflictException(await this.explicarDono(companyId, cliente.name, donoAntigo, routeDate));
+          }
+          avisos.push(
+            `${cliente.name || 'Um cliente'} estava com ${await this.nomeDoUsuario(companyId, donoAntigo, nomes)} (rota parada) e passou pra você.`,
+          );
+          deliveryIds.push(existente.id);
+          continue;
         }
         if (existente.entregadorId == null) {
           const assigned = await this.prisma.entrega.updateMany({
@@ -397,6 +431,58 @@ export class LogisticaRotaModeloService {
   }
 
   /**
+   * "Esse motorista está NA RUA agora?" — régua única do que segura uma parada.
+   * Rota viva = existe LogisticaRoute do dia em ACTIVE/INITIALIZING, ainda não
+   * encerrada operacionalmente. Cacheado por chamada (uma rota tem dezenas de
+   * paradas do mesmo dono).
+   */
+  private async estaNaRua(
+    companyId: number,
+    entregadorId: number,
+    routeDate: string,
+    cache: Map<number, boolean>,
+  ): Promise<boolean> {
+    const memo = cache.get(entregadorId);
+    if (memo !== undefined) return memo;
+    let viva = false;
+    try {
+      const rota = await this.prisma.logisticaRoute.findFirst({
+        where: {
+          companyId,
+          entregadorId,
+          routeDate,
+          status: { in: ['ACTIVE', 'INITIALIZING'] },
+          operationalEndedAt: null,
+        },
+        select: { id: true },
+      });
+      viva = !!rota;
+    } catch (e: any) {
+      // Fail-CLOSED: se não dá pra saber se o cara está na rua, ele CONTINUA
+      // com a parada. Assumir no escuro é o único erro irreversível aqui.
+      this.logger.warn(`[logistica] estaNaRua falhou entregador=${entregadorId}: ${String(e?.message || e)}`);
+      viva = true;
+    }
+    cache.set(entregadorId, viva);
+    return viva;
+  }
+
+  private async nomeDoUsuario(companyId: number, userId: number, cache: Map<number, string>): Promise<string> {
+    const memo = cache.get(userId);
+    if (memo) return memo;
+    let nome = 'outro motorista';
+    try {
+      const pessoa = await this.prisma.user.findFirst({
+        where: { id: userId, companyId },
+        select: { name: true, username: true },
+      });
+      nome = pessoa?.name || pessoa?.username || nome;
+    } catch { /* nome é enfeite do aviso: nunca derruba o gerar */ }
+    cache.set(userId, nome);
+    return nome;
+  }
+
+  /**
    * 31/07 — O 409 ERA UMA PAREDE SEM NOME. "A entrega de Márcia já está
    * atribuída a outro motorista" não dizia QUEM, nem se a rota estava na rua,
    * parada ou já encerrada — o dono levava o erro na cara e não tinha o que
@@ -517,6 +603,16 @@ export class LogisticaRotaModeloService {
       }),
     ]);
 
+    // 31/07 — recado de rota que morreu no meio TAMBÉM alimenta a linha: a rota
+    // que o motorista montou sozinho e largou não tem indicação nenhuma pra
+    // contar a história. Best-effort (tabela nova; ambiente sem migration não
+    // pode derrubar o painel).
+    const recados = await this.prisma.logisticaRotaAviso.findMany({
+      where: { companyId, routeDate, rotaModeloId: { in: modelos.map((m) => m.id) } },
+      orderBy: { createdAt: 'desc' },
+      select: { rotaModeloId: true, motoristaNome: true, entregues: true, createdAt: true },
+    }).catch(() => [] as { rotaModeloId: string | null; motoristaNome: string; entregues: number; createdAt: Date }[]);
+
     // Por cliente, a ABERTA manda (mesma precedência do `gerar`): é ela que
     // decide dono e conflito. Sem aberta, uma 'entregue' conta como atendida.
     const porCliente = new Map<string, { status: string; entregadorId: number | null }>();
@@ -562,29 +658,41 @@ export class LogisticaRotaModeloService {
 
       const viva = indicacoes.find((linha) => linha.rotaModeloId === modelo.id && (linha.status === 'pendente' || linha.status === 'aceita'));
       const devolvida = indicacoes.find((linha) => linha.rotaModeloId === modelo.id && (linha.status === 'desfeita' || linha.status === 'negada'));
+      const largada = recados.find((linha) => linha.rotaModeloId === modelo.id);
 
       let estado: RotaModeloEstado = 'livre';
       if (dono && naRua.has(dono)) estado = 'na_rua';
       else if (dono) estado = 'montada';
       else if (viva) estado = 'indicada';
-      else if (devolvida) estado = 'devolvida';
+      else if (devolvida || largada) estado = 'devolvida';
 
+      const pessoaNome = estado === 'na_rua' || estado === 'montada'
+        ? (dono ? (nomes.get(dono) ?? `Usuário ${dono}`) : null)
+        : estado === 'indicada'
+          ? (nomes.get(viva!.paraUserId) ?? `Usuário ${viva!.paraUserId}`)
+          : estado === 'devolvida'
+            ? (devolvida ? (nomes.get(devolvida.paraUserId) ?? `Usuário ${devolvida.paraUserId}`) : largada!.motoristaNome)
+            : null;
       const pessoaId = estado === 'na_rua' || estado === 'montada'
         ? dono
-        : estado === 'indicada' ? viva!.paraUserId : estado === 'devolvida' ? devolvida!.paraUserId : null;
+        : estado === 'indicada' ? viva!.paraUserId : estado === 'devolvida' && devolvida ? devolvida.paraUserId : null;
 
       return {
         id: modelo.id,
         estado,
-        pessoaNome: pessoaId ? (nomes.get(pessoaId) ?? `Usuário ${pessoaId}`) : null,
-        pessoaEhVoce: pessoaId === userId,
+        pessoaNome,
+        pessoaEhVoce: pessoaId != null && pessoaId === userId,
         comEle,
         total: clientes.length,
         entregues,
         desde: dono && naRua.get(dono) ? (naRua.get(dono) as Date).toISOString() : null,
-        em: estado === 'devolvida' && devolvida?.respondidaEm ? devolvida.respondidaEm.toISOString() : null,
-        // Mesma régua do `gerar`: só entrega ABERTA de outra pessoa trava.
-        podeMontar: outroDono == null,
+        em: estado === 'devolvida'
+          ? (devolvida?.respondidaEm?.toISOString() ?? largada?.createdAt.toISOString() ?? null)
+          : null,
+        // 🔒 MESMA RÉGUA DO `gerar` (vitrine e caixa, um porteiro só): agora só
+        // trava quem está NA RUA. Parada de rota morta é assumível — o painel
+        // libera o clique porque o servidor também libera.
+        podeMontar: outroDono == null || !naRua.has(outroDono),
       };
     });
   }

@@ -145,25 +145,19 @@ export class BotActivationService {
     }
 
     if (type === 'prospeccao') {
-      // Prospecção: mede a config de disparo REAL (espelha isProspConfigComplete do front).
-      // Pega a última vendasAutomationCampaign da empresa e verifica:
-      //   - ≥1 variante de 1º contato não-vazia (firstContactVariants em filtersJson)
-      //   - intervalMinutes numérico
-      //   - dailyLimit numérico
+      // Prospecção: mede a config de disparo REAL. Ritmo/teto/janela saíram da
+      // campanha (CASA DO RISCO, 31/07/2026 — VendasComercialConfig tem default
+      // seguro e nunca está "faltando"); o que a campanha ainda pode deixar
+      // vazio é o TEXTO: ≥1 variante de 1º contato em filtersJson.
       const campaign = await this.prisma.vendasAutomationCampaign
         .findFirst({
           where: { companyId },
           orderBy: { updatedAt: 'desc' },
-          select: { filtersJson: true, intervalMinutes: true, dailyLimit: true },
+          select: { filtersJson: true },
         })
         .catch(() => null);
       if (!campaign) return false;
 
-      // intervalMinutes e dailyLimit estão em colunas diretas da tabela
-      if (typeof campaign.intervalMinutes !== 'number') return false;
-      if (typeof campaign.dailyLimit !== 'number') return false;
-
-      // firstContactVariants fica dentro do JSON filtersJson
       let firstContactVariants: string[] = [];
       try {
         const filters =
