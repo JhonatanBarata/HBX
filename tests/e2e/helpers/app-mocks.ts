@@ -242,9 +242,16 @@ export async function setupCommonMocks(page: Page): Promise<void> {
   await page.route("**/hbx/api/inbox/conversations**", (r) => r.fulfill(json(conversasHostis())));
 
   // ---- endpoints que a /vendas chama no boot ----
-  // Sem eles o catch-all devolve `{}`, o componente lê um campo que não existe
-  // e o TypeError resultante é classificado como "sem rede" (lib/errors.ts,
-  // ramo 3) — a tela vira o popup de erro e o fiscal mede o popup.
+  // Sem eles o catch-all devolve `{}` e a tela monta MUDA — o fiscal mediria
+  // uma /vendas sem dado, que é sempre bonita.
+  //
+  // Até 01/08/2026 era pior que mudo: o `{}` fazia o painel das costas ler um
+  // campo que não existe, o TypeError era classificado como "sem rede"
+  // (lib/errors.ts, ramo 3) e a rota inteira virava popup. Isso está tapado
+  // nos dois pontos — peneira no costas-panel e cerca em volta dele — e a
+  // rede que segura os dois é tests/e2e/costas-resposta-parcial.spec.ts.
+  // Os mocks abaixo continuam necessários: dado de verdade é o que faz o
+  // fiscal enxergar.
   await page.route("**/hbx/api/painel-modulo/**", (r) => {
     const modulo = new URL(r.request().url()).pathname.split("/").pop() ?? "vendas";
     return r.fulfill(json(painelModuloHostil(modulo)));

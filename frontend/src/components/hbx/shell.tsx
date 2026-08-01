@@ -14,6 +14,7 @@ import { createPortal } from "react-dom";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { DisparoSidebarSlot } from "@/components/hbx/disparo-panel";
 import { CostasPainel, toggleCostas, useCostasDisponivel, useCostasLigado } from "@/components/hbx/costas-panel";
+import { CercaDeEnfeite } from "@/components/hbx/error-boundary";
 import { applyThemeSoft, getCascaAtiva, getTemaAtivo, setAparencia, setThemeMode } from "@/components/hbx/theme-attributes";
 import {
   CASCAS, escolheModo, escolheTema, getCasca, resolveModo, resolveTema,
@@ -1259,7 +1260,14 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
         );
       })}
       </div>
-        <CostasPainel modulo={active} disponivel={costasDisponivel} />
+        {/* O verso é DECORAÇÃO: nada aqui é clicável, e nada aqui pode
+            derrubar a tela. A cerca é a garantia estrutural disso — a peneira
+            do costas-panel cuida do dado torto de hoje, a cerca cuida do
+            defeito de amanhã, que ninguém previu. Medido em 01/08: sem ela, um
+            throw aqui zerava a /vendas (0 itens de menu) e virava popup. */}
+        <CercaDeEnfeite resetKey={active} nome="painel das costas">
+          <CostasPainel modulo={active} disponivel={costasDisponivel} />
+        </CercaDeEnfeite>
       </div>
       <div className="side-bottom">
         {/* ORDEM DEFINIDA PELO DONO (31/07): Disparos SÓ na tela de Vendas e

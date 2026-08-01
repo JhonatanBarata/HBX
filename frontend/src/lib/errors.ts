@@ -43,6 +43,7 @@ export function actionLabel(a: ErrorAction): string {
 
 const TITLE: Record<string, string> = {
   NETWORK_DOWN: "Sem conexão com o sistema",
+  CLIENT_ERROR: "Ops, algo deu errado",
   TIMEOUT: "O servidor demorou",
   AUTH_SESSION_EXPIRED: "Sessão expirada",
   PAYMENT_REQUIRED: "Pagamento pendente",
@@ -130,9 +131,30 @@ export function toFriendlyError(err: unknown): FriendlyError {
     return { title: titleFor(code, fb.severity), message, code, action, traceId: p.traceId, severity: fb.severity };
   }
 
-  // 3) Falha de rede (fetch estourou antes de qualquer resposta)
-  if (e instanceof TypeError || (typeof e?.message === "string" && /failed to fetch|networkerror|load failed/i.test(e.message))) {
+  const rawMessage = typeof e?.message === "string" ? e.message : "";
+
+  // 3) Falha de rede (fetch estourou antes de qualquer resposta).
+  //
+  // O que identifica falha de rede é a MENSAGEM, não a classe do erro. Cada
+  // navegador tem a sua: Chrome "Failed to fetch", Firefox "NetworkError...",
+  // Safari "Load failed", undici/SSR "fetch failed".
+  //
+  // Este ramo já testou `e instanceof TypeError` sozinho, e isso era uma
+  // armadilha: TODO crash de render do React é TypeError ("Cannot read
+  // properties of undefined"). Um bug NOSSO virava "Verifique sua internet" —
+  // o usuário reiniciava o roteador e o suporte investigava a rede enquanto o
+  // defeito estava no código. Erro que aponta pro lugar errado é pior que erro
+  // sem explicação: gasta o tempo dos dois lados.
+  if (/failed to fetch|networkerror|load failed|network request failed|fetch failed/i.test(rawMessage)) {
     return { title: TITLE.NETWORK_DOWN, message: "Não foi possível falar com o sistema. Verifique sua internet — se persistir, o técnico já foi avisado.", code: "NETWORK_DOWN", action: "retry", severity: "error" };
+  }
+
+  // 3b) Defeito NOSSO rodando no navegador (crash de render, leitura de campo
+  // que não veio). Ganha código próprio: o usuário lê uma frase honesta, e o
+  // suporte vê CLIENT_ERROR — que manda olhar o console e o release, não a
+  // internet do cliente.
+  if (e instanceof TypeError) {
+    return { title: TITLE.CLIENT_ERROR, message: "A tela encontrou um problema ao montar. Tente de novo — se persistir, o técnico já foi avisado.", code: "CLIENT_ERROR", action: "retry", severity: "error" };
   }
 
   // 4) Abort / timeout
@@ -141,10 +163,9 @@ export function toFriendlyError(err: unknown): FriendlyError {
   }
 
   // 5) Qualquer outra coisa — nunca mostra mensagem crua
-  const msg = typeof e?.message === "string" ? e.message : "";
   return {
     title: "Ops, algo deu errado",
-    message: !msg || looksRaw(msg) ? "Algo não saiu como esperado. Tente de novo." : msg,
+    message: !rawMessage || looksRaw(rawMessage) ? "Algo não saiu como esperado. Tente de novo." : rawMessage,
     code: "UNKNOWN",
     action: "retry",
     severity: "error",
