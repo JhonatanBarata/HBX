@@ -235,8 +235,8 @@ function ComissoesSheet({ open, onClose }: { open: boolean; onClose: () => void 
 export function TemaSection() {
   const cascaKey = useSyncExternalStore(
     subscribeToThemeMode,
-    () => (typeof document !== "undefined" ? getCascaAtiva() : "premium" as const),
-    () => "premium" as const,
+    () => (typeof document !== "undefined" ? getCascaAtiva() : "backup" as const),
+    () => "backup" as const,
   );
   const modeAttr = useSyncExternalStore(
     subscribeToThemeMode,

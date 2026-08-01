@@ -97,7 +97,7 @@ export function useCostasLigado(): boolean {
 
 /** A casca Corporativa não recebe o verso (ordem do dono) — lá o menu é menu. */
 export function useCostasDisponivel(modulo: string): boolean {
-  const casca = useSyncExternalStore(subscribeToThemeMode, getCascaAtiva, () => "premium" as const);
+  const casca = useSyncExternalStore(subscribeToThemeMode, getCascaAtiva, () => "backup" as const);
   const ligado = useCostasLigado();
   return ligado && casca !== "corporativa" && COSTAS_MODULOS.has(modulo);
 }

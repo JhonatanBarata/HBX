@@ -101,35 +101,32 @@
 @import "./hbx-theme/theme-rose.css";
 @import "./hbx-theme/theme-hbx-cyber.css";
 @import "./hbx-theme/theme-login.css";
-/* Paleta da casca CORPORATIVA. Não aparece no seletor de tema (a Corporativa
-   é clara fixa) — existe pra ela vestir as mesmas telas pelo contrato de
-   tokens, como qualquer pele. Depois do skeleton: mesma especificidade que o
-   bloco [data-theme-mode="dark"] de lá, então a ordem da cascata garante que
-   preferência escura antiga fique ignorada na Corporativa. */
+/* Paleta CORPORATIVA — o azul sóbrio de planilha. Desde 31/07 ela É uma opção
+   do seletor (a Corporativa ganhou cor e modo, ordem do dono), e por isso
+   ganhou também o par escuro. Continua importada depois do skeleton: em
+   empate de especificidade com o [data-theme-mode="dark"] de lá, a ordem da
+   cascata faz o tema mandar. */
 @import "./hbx-theme/theme-corporativa.css";
-/* Paleta da casca PREMIUM — a de "Central do Lead — desenho aplicável",
-   literal hex a hex. Ordem do dono 28/07: a Premium não herda cor de tema
-   nenhum; tem a dela, fixa e clara. Os 5 temas clássicos acima passaram a
-   pertencer só à casca Backup. */
-@import "./hbx-theme/theme-premium.css";
+/* Paleta da CENTRAL DO LEAD (.cdl) — era o theme-premium.css, pele da casca
+   HBX, removida em 31/07. Só o alvo .cdl sobreviveu: o desenho da ficha é
+   fechado e vale em qualquer casca. */
+@import "./hbx-theme/theme-central-do-lead.css";
 
 /* ============================================================
-   AS 3 CASCAS (dono 28/07). NÃO são peles: vestem a MESMA estrutura
-   (shell desktop + casca mobile) com outra densidade e outra superfície,
-   derivando TODA cor dos tokens do tema ativo. Importadas DEPOIS das peles
-   de propósito: em empate de especificidade, a casca vence a camada de
-   vestir do tema. Escolha em lib/aparencia.ts → <html data-casca>.
+   AS 2 CASCAS (dono 31/07 — a casca HBX foi removida inteira). NÃO são
+   peles: vestem a MESMA estrutura (shell desktop + casca mobile) com outra
+   densidade e outra superfície, derivando TODA cor dos tokens do tema ativo.
+   Importadas DEPOIS das peles de propósito: em empate de especificidade, a
+   casca vence a camada de vestir do tema. Escolha em lib/aparencia.ts →
+   <html data-casca>. As duas oferecem as MESMAS cores: o que as separa é
+   densidade e geometria.
    ============================================================ */
-/* BACKUP — a casca que estava no ar até 28/07, CONGELADA. Escopo
+/* PREMIUM (attr `modern`) — a casca que estava no ar até 28/07. Escopo
    [data-casca="modern"] (nome do atributo preservado de propósito: mexer
-   nos 75 seletores seria arriscar justamente o fallback). NÃO EDITAR. */
+   nos 75 seletores seria arriscar justamente o fallback). */
 @import "./hbx-theme/casca-modern.css";
-/* PREMIUM — REESCRITA DO ZERO em 28/07 a partir de "Central do Lead —
-   desenho aplicável". A anterior foi deletada por `git rm`: zero linha
-   herdada da Backup, paleta própria em theme-premium.css. */
-@import "./hbx-theme/casca-premium.css";
-/* CORPORATIVA — densa, clara, com grade. Reescreve a escada estrutural do
-   spacing.css; por último pra vencer as outras duas em empate. */
+/* CORPORATIVA — densa, com grade. Reescreve a escada estrutural do
+   spacing.css; por último pra vencer a outra em empate. */
 @import "./hbx-theme/casca-corporativa.css";
 
 /* CENTRAL DO LEAD — o Detalhes do /vendas, desenho fechado e autocontido.

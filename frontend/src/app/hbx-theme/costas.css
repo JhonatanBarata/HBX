@@ -810,10 +810,6 @@
   background: linear-gradient(180deg, var(--mod-glass-hi), var(--mod-glass-lo));
 }
 
-[data-casca="premium"] .costas__brilho {
-  opacity: 0.62;
-}
-
 [data-casca="corporativa"] .costas {
   display: none;
 }

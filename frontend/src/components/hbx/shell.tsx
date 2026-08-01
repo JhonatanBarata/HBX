@@ -1333,7 +1333,7 @@ export function subscribeToThemeMode(callback: () => void) {
 // aberta continuam exatamente onde estavam.
 // ---------------------------------------------------------------
 export function AparenciaSwitch() {
-  const cascaKey = useSyncExternalStore(subscribeToThemeMode, getCascaAtiva, () => "premium" as const);
+  const cascaKey = useSyncExternalStore(subscribeToThemeMode, getCascaAtiva, () => "backup" as const);
   const temaKey = useSyncExternalStore(subscribeToThemeMode, getTemaAtivo, () => "login" as const);
   const modeAttr = useSyncExternalStore(
     subscribeToThemeMode,
@@ -1516,7 +1516,7 @@ function lerTipografiaSnapshot() {
 const TIPOGRAFIA_SNAPSHOT_PADRAO = JSON.stringify(TIPOGRAFIA_PADRAO);
 
 export function TipografiaSwitch() {
-  const cascaKey = useSyncExternalStore(subscribeToThemeMode, getCascaAtiva, () => "premium" as const);
+  const cascaKey = useSyncExternalStore(subscribeToThemeMode, getCascaAtiva, () => "backup" as const);
   // Snapshot é STRING de propósito: getTipografiaAtiva() monta objeto novo a
   // cada leitura, e useSyncExternalStore exige valor estável (senão re-render
   // infinito).
@@ -1625,7 +1625,7 @@ export function TipografiaSwitch() {
  * ia desfazer no próximo boot.
  */
 export function ModeToggle() {
-  const cascaKey = useSyncExternalStore(subscribeToThemeMode, getCascaAtiva, () => "premium" as const);
+  const cascaKey = useSyncExternalStore(subscribeToThemeMode, getCascaAtiva, () => "backup" as const);
   const modeAttr = useSyncExternalStore(
     subscribeToThemeMode,
     () => document.documentElement.getAttribute("data-theme-mode"),

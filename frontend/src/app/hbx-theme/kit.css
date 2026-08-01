@@ -282,11 +282,6 @@ html, body { margin: 0; }
 .disparo-card--hot { animation: disparo-hot-pulse 1.1s ease-in-out infinite; }
 
 /* material por casca — mesma matéria do cartão de créditos vizinho */
-[data-casca="premium"] .side .plan-card.disparo-card {
-  background:
-    radial-gradient(circle at 50% -12%, color-mix(in srgb, var(--disparo-tone) 16%, transparent), transparent 54%),
-    var(--hbx-surface);
-}
 [data-casca="modern"] .side .plan-card.disparo-card {
   background:
     radial-gradient(circle at 100% 0%, var(--mod-flare), transparent 46%),
@@ -2250,7 +2245,6 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .aparencia__dot[data-tema="rose"] { background: var(--swatch-rose); }
 .aparencia__dot[data-tema="hbx-cyber"] { background: var(--swatch-hbx-cyber); }
 .aparencia__dot[data-tema="corporativa"] { background: var(--swatch-corporativa); }
-.aparencia__dot[data-tema="premium"] { background: var(--swatch-premium); }
 
 /* Claro/escuro: segmentado, porque são dois estados de UMA coisa — não duas
    linhas soltas de lista como eram antes. */

@@ -7,15 +7,18 @@
 // destacar. Agora são TRÊS eixos independentes:
 //
 //   CASCA  = a experiência inteira (densidade, superfície, geometria)
-//   TEMA   = a cor (só a Premium escolhe)
-//   MODO   = claro/escuro (só a Premium escolhe)
+//   TEMA   = a cor
+//   MODO   = claro/escuro
 //
-// TRÊS CASCAS (ordem do dono 28/07):
-//   premium      — a casca de alto acabamento, 5 temas × claro/escuro
-//   corporativa  — clara fixa, densa, orientada a dados ("cara de Excel")
-//   backup       — A CASCA DE HOJE, CONGELADA. Escreve data-casca="modern"
-//                  DE PROPÓSITO: assim casca-modern.css continua byte-idêntico
-//                  e o fallback é garantido, não "quase igual".
+// DUAS CASCAS (dono 31/07 — a HBX foi removida inteira):
+//   backup       — lê-se "Premium". Escreve data-casca="modern" DE PROPÓSITO:
+//                  assim casca-modern.css continua byte-idêntico e o fallback
+//                  é garantido, não "quase igual".
+//   corporativa  — densa, orientada a dados ("cara de Excel").
+// As DUAS oferecem as mesmas 5 cores clássicas e os dois modos: a diferença
+// entre elas é DENSIDADE E GEOMETRIA, não paleta. Foi a ordem do dono ao
+// matar a HBX ("implante cores no corporativo, as mesmas cores do premium") e
+// é o que separa casca de tema de vez.
 //
 // ATENÇÃO — ESTE ARQUIVO NÃO PODE IMPORTAR REACT. Ele é importado pelo
 // app/layout.tsx, que é SERVER Component; qualquer hook aqui puxaria o módulo
@@ -24,8 +27,8 @@
 // components/hbx/theme-attributes.tsx.
 // ============================================================
 
-export type CascaKey = "premium" | "corporativa" | "backup";
-export type TemaKey = "login" | "aurora" | "ember" | "rose" | "hbx-cyber" | "corporativa" | "premium";
+export type CascaKey = "corporativa" | "backup";
+export type TemaKey = "login" | "aurora" | "ember" | "rose" | "hbx-cyber" | "corporativa";
 export type Modo = "light" | "dark";
 
 // Chaves de armazenamento — uma por eixo (era `hbx:pele`, combinado).
@@ -38,13 +41,13 @@ export const LEGACY_PELE_STORAGE = "hbx:pele";
 export type TemaDef = { key: TemaKey; label: string };
 
 /**
- * Os 5 temas de cor CLÁSSICOS. Eram os temas da casca `premium` até 28/07;
- * agora pertencem só à casca `backup` — que é a que o usuário lê como
- * "Premium" (ver NOMES, abaixo).
+ * Os 5 temas de cor CLÁSSICOS. Desde 31/07 pertencem às DUAS cascas: a
+ * Premium (chave `backup`) e a Corporativa. Cor é eixo próprio — quem escolhe
+ * a densidade não deveria estar escolhendo a paleta junto.
  *
- * `hbx-cyber` passou a se chamar **Layout** (ordem do dono, 28/07): ele se
- * chamava "HBX" e a casca `premium` virou "HBX" na mesma conversa — dois
- * "HBX" no mesmo menu, um como casca e outro como cor.
+ * `hbx-cyber` se chama **Layout** (dono, 28/07): ele se chamava "HBX" na
+ * mesma conversa em que uma casca também virou "HBX", e ficaram dois "HBX" no
+ * mesmo menu. A casca já morreu; o rótulo Layout fica.
  */
 export const TEMAS_CLASSICOS: readonly TemaDef[] = [
   { key: "login", label: "Login" },
@@ -66,42 +69,33 @@ export type CascaDef = {
 };
 
 // ============================================================
-// NOMES E ORDEM (dono 28/07, ao pé da letra: "HBX, Premium e Corporativo").
-// O RÓTULO mudou, a CHAVE não:
+// NOMES E ORDEM — DUAS cascas (dono 31/07: "remova o tema HBX, inteiro").
 //
-//   chave `premium`     → lê-se "HBX"          (attr premium)
 //   chave `backup`      → lê-se "Premium"      (attr modern)
 //   chave `corporativa` → lê-se "Corporativo"  (attr corporativa)
 //
-// Sim, a chave `premium` mostra "HBX" e a chave `backup` mostra "Premium".
-// É proposital e NÃO deve ser "consertado" renomeando as chaves: `hbx:casca`
-// está gravado no navegador de cada usuário e o `attr` é o que escreve
-// `<html data-casca>`, de onde pendem ~75 seletores de CSS. Renomear obrigaria
-// a migrar storage e reescrever as folhas, sem mudar um pixel na tela.
-// Regra pra quem mexer aqui: leia `label` quando falar com o usuário, leia
-// `key`/`attr` quando falar com o código.
+// Sim, a chave `backup` mostra "Premium". É proposital e NÃO deve ser
+// "consertado" renomeando a chave: `hbx:casca` está gravado no navegador de
+// cada usuário e o `attr` é o que escreve `<html data-casca>`, de onde pendem
+// ~75 seletores de CSS. Renomear obrigaria a migrar storage e reescrever as
+// folhas, sem mudar um pixel na tela. Regra pra quem mexer aqui: leia `label`
+// quando falar com o usuário, leia `key`/`attr` quando falar com o código.
+//
+// A CASCA "HBX" (chave `premium`, attr premium) FOI REMOVIDA em 31/07 —
+// registro, casca-premium.css e a paleta [data-theme="premium"] saíram
+// juntos. O que sobrevive daquele arquivo é SÓ a paleta `.cdl`, que nunca foi
+// da casca: é o desenho fechado da Central do Lead, que vale em qualquer
+// casca (hoje em theme-central-do-lead.css). Quem tinha a casca HBX salva no
+// navegador cai no padrão sozinho — getCasca() já resolve chave desconhecida.
 //
 // Não existe descrição/legenda por casca: o menu mostra só o nome (o dono
 // cortou o subtítulo — "Remova explicações, eu pedi?").
 // ============================================================
 export const CASCAS: readonly CascaDef[] = [
   {
-    key: "premium",
-    label: "HBX",
-    attr: "premium",
-    // Paleta ÚNICA e fixa (theme-premium.css). Não oferece escolha de cor:
-    // a referência é azul + verde-dinheiro, e trocar isso desmancharia o
-    // desenho. Um tema só ⇒ escolheTema()/escolheModo() somem do menu.
-    temas: [{ key: "premium", label: "HBX" }],
-    modos: ["light"],
-    temaPadrao: "premium",
-    modoPadrao: "light",
-  },
-  {
     key: "backup",
     label: "Premium",
     attr: "modern",
-    // Os 5 temas clássicos moram AQUI agora: era a casca que os usava.
     temas: TEMAS_CLASSICOS,
     modos: ["light", "dark"],
     temaPadrao: "login",
@@ -111,16 +105,19 @@ export const CASCAS: readonly CascaDef[] = [
     key: "corporativa",
     label: "Corporativo",
     attr: "corporativa",
-    // A paleta corporativa existe como TEMA fixo só pra continuar usando o
-    // contrato de tokens (theme-corporativa.css). Não é escolha do usuário.
-    temas: [{ key: "corporativa", label: "Corporativo" }],
-    modos: ["light"],
+    // CORES (dono 31/07: "implante cores no corporativo — as mesmas cores do
+    // premium"). A Corporativa deixou de ser clara-fixa-de-uma-cor-só: ela
+    // oferece os MESMOS 5 temas e os dois modos da Premium. O azul sóbrio que
+    // era a cara dela continua aqui como uma das opções, e segue sendo o
+    // padrão — quem nunca escolheu cor não vê nada mudar.
+    temas: [{ key: "corporativa", label: "Corporativo" }, ...TEMAS_CLASSICOS],
+    modos: ["light", "dark"],
     temaPadrao: "corporativa",
     modoPadrao: "light",
   },
 ];
 
-export const CASCA_PADRAO: CascaKey = "premium";
+export const CASCA_PADRAO: CascaKey = "backup";
 
 /** Casca por chave, com queda no padrão (nunca devolve undefined). */
 export function getCasca(key: string | null | undefined): CascaDef {
@@ -136,20 +133,18 @@ export function resolveTema(casca: CascaDef, tema: string | null | undefined): T
   return casca.temas.some(t => t.key === tema) ? (tema as TemaKey) : casca.temaPadrao;
 }
 
-/** Modo válido PRA ESTA casca (a Corporativa ignora `dark` salvo). */
+/** Modo válido PRA ESTA casca (hoje as duas aceitam claro e escuro). */
 export function resolveModo(casca: CascaDef, modo: string | null | undefined): Modo {
   return casca.modos.includes(modo as Modo) ? (modo as Modo) : casca.modoPadrao;
 }
 
 /**
- * Migração do formato antigo: `hbx:pele = "aurora-mod"` → casca Premium,
+ * Migração do formato antigo: `hbx:pele = "aurora-mod"` → casca padrão,
  * guardando `aurora` como tema.
  *
- * A cor guardada NÃO some, mas também não pinta a Premium: a Premium tem
- * paleta própria e fixa, então resolveTema() a devolve como "premium". A cor
- * antiga fica esperando — se a pessoa escolher a casca Backup, acha o Aurora
- * dela do jeito que deixou. É a mesma regra de memória das outras cascas:
- * só se grava o que o usuário ESCOLHE; o aplicado é resolvido na hora.
+ * A cor guardada volta a pintar: com a casca HBX fora, o padrão é a Premium,
+ * que tem justamente os 5 temas clássicos. Regra de sempre: só se grava o que
+ * o usuário ESCOLHE; o aplicado é resolvido na hora contra a casca ativa.
  */
 export function temaDoLegado(pele: string | null | undefined): TemaKey | null {
   if (!pele) return null;

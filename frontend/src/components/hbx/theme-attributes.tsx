@@ -5,7 +5,7 @@ import { useEffect } from "react";
 
 import { HbxMotionRuntime } from "@/components/hbx/motion";
 import {
-  CASCA_STORAGE, CASCAS, LEGACY_PELE_STORAGE, MODE_STORAGE, TEMA_STORAGE,
+  CASCA_PADRAO, CASCA_STORAGE, CASCAS, LEGACY_PELE_STORAGE, MODE_STORAGE, TEMA_STORAGE,
   getCasca, resolveModo, resolveTema, temaDoLegado,
   type CascaDef, type CascaKey, type Modo, type TemaKey,
 } from "@/lib/aparencia";
@@ -54,7 +54,7 @@ export function getAparencia(): Aparencia {
     const legado = ler(LEGACY_PELE_STORAGE);
     if (legado) {
       const tema = temaDoLegado(legado);
-      cascaKey = "premium";
+      cascaKey = CASCA_PADRAO;
       if (tema && !temaSalvo) temaSalvo = tema;
       gravar(CASCA_STORAGE, cascaKey);
       if (temaSalvo) gravar(TEMA_STORAGE, temaSalvo);
@@ -211,7 +211,7 @@ export function setThemeMode(mode: Modo) {
 /** Casca ativa lida do DOM (fonte da verdade do que está na tela). */
 export function getCascaAtiva(): CascaKey {
   const attr = document.documentElement.getAttribute("data-casca");
-  return (CASCAS.find(c => c.attr === attr)?.key ?? "premium");
+  return (CASCAS.find(c => c.attr === attr)?.key ?? CASCA_PADRAO);
 }
 
 /** Tema ativo lido do DOM. */
