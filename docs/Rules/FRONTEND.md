@@ -106,12 +106,31 @@
    reprovado).
 
 ### Estado atual e exceções registradas
-- Peles de COR instaladas (aurora, ember, rose, hbx-cyber) vestem o contrato
-  neutro de tokens; criar/refatorar pele é trabalho autorizado (ver
-  PEDIDO-DE-PELE.md). `skeleton.css` é a base de tokens, não uma opção do
-  seletor. Seletor mostra SÓ os 4 temas "<Nome> Mod" (cor × casca MODERN —
-  ver Lei nº3/CASCAS; padrão = Aurora Mod). Os theme-<cor>.css seguem vivos
-  como fonte de tokens consumida via `base:` — não deletar.
+- **DUAS cascas, as MESMAS cores (dono 31/07).** A casca HBX (chave `premium`)
+  foi REMOVIDA da raiz — registro, `casca-premium.css` e o contrato de cor
+  `[data-theme="premium"]` saíram juntos. Sobram **Premium** (attr `modern`) e
+  **Corporativo**, e as duas oferecem os 5 temas clássicos (Login, Aurora,
+  Ember, Rosé, Layout) + o azul Corporativo, nos modos claro e escuro: o que
+  separa as cascas é **densidade e geometria, nunca paleta**. Casca padrão =
+  `backup` ("Premium"); chave desconhecida no navegador cai nela sozinha
+  (`getCasca`). A escolha de COR é uma só e vale nas duas cascas — quem tinha
+  um tema salvo vê o Corporativo abrir naquela cor.
+- **A paleta `.cdl` não é de casca nenhuma.** Ela morava no `theme-premium.css`
+  e sobreviveu à remoção em `theme-central-do-lead.css`: a ficha do lead é
+  desenho FECHADO e sai igual em qualquer casca/modo, como o app do entregador
+  (`entrega.css`). Manteve o prefixo `theme-` porque é onde o fiscal aceita
+  cor literal. Deletar o arquivo junto com a casca teria despintado a ficha.
+- Peles de COR instaladas (aurora, ember, rose, hbx-cyber, login, corporativa)
+  vestem o contrato neutro de tokens; criar/refatorar pele é trabalho
+  autorizado (ver PEDIDO-DE-PELE.md). `skeleton.css` é a base de tokens, não
+  uma opção do seletor. Os theme-<cor>.css seguem vivos — não deletar.
+- **Contraste medido (31/07, produção, 24 combinações casca × cor × modo):** o
+  tema Corporativo passa AA nos dois modos (pior par 4,54 no claro / 5,65 no
+  escuro). Os 6 pares que reprovam — aurora/escuro, ember/claro,
+  hbx-cyber/escuro, login (os dois), rose/claro — reprovam IGUAL nas duas
+  cascas: é dívida das paletas clássicas, não da Corporativa. Ver
+  `contraste-sempre` antes de "consertar" (o auditor simplista mede `brand`
+  como texto, e em alguns temas ele é só fundo de botão).
 - **Pele noir REMOVIDA (dono 07/07, mesma ordem que criou a casca Modern):**
   theme-noir.css, a vitrine `.vnd-m__vitrine` (screens.css/vendas-funil.tsx)
   e o campo `mobileOnly` do PELES saíram juntos — não reintroduzir.
@@ -169,6 +188,11 @@ ABAIXO do piso (o navegador aplica `smaller`, ~0,83× do pai) — por isso
 `base.css` tem `small { font-size: max(0.83em, var(--hbx-font-min)) }`; e
 `title=` nativo em botão de menu nasce POR CIMA do menu aberto e tapa a
 primeira linha — em trigger de painel, usar só `aria-label`.
+
+Consequência conhecida do `max()`: um `<small>` sem classe pode medir entre
+dois degraus (0,83 × o degrau do pai, nunca abaixo do piso). É proporção com
+chão, de propósito — mandar todo `<small>` para um degrau fixo mudaria o
+tamanho de ~90 textos que hoje herdam do contexto certo.
 
 ## Layout — Zero scroll em desktop (100% zoom)
 
