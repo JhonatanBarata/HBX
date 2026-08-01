@@ -301,8 +301,58 @@ uma variação.
 - Preço/plano só do catálogo da API (`/commercial-plans/me`) — hardcode proibido.
 - Trilha de checkout: aguardando "go checkout" do dono.
 
+## Texto que não cabe — as 3 leis (01/08/2026)
+
+Truncar é **decisão de produto, não acidente de CSS**. Toda caixa que pinta texto
+escolhe uma das três, e escolher é obrigatório — não escolher também é escolha: a de
+cortar no meio da palavra sem avisar ninguém. As classes moram em
+`hbx-theme/hbx-system.css`.
+
+| Lei | Classe | Para quê |
+|---|---|---|
+| 1 linha + reticências | `.hbx-1linha` | texto longo por natureza cujo começo já identifica: razão social, e-mail, endereço |
+| 2 linhas e para | `.hbx-2linhas` | texto corrido que precisa de contexto: observação, descrição, última mensagem |
+| **nunca encurta** | `.hbx-inteiro` | **o dado que DECIDE**: status, valor em R$, telefone, prazo, etapa do funil, rótulo de botão |
+
+**A Lei 3 é a que se esquece.** Um selo de status não pode encurtar: "Aguardando
+resposta" virando "Aguardand" não é feio, é ERRADO — o dado que decide a próxima ação
+do vendedor virou ilegível e a tela não deu sinal de que escondeu algo. Se não cabe,
+quem cede é o layout (a linha que hospeda usa `.hbx-linha-flex`, que quebra).
+
+**`min-width: 0` não é enfeite.** Item de flex tem `min-width: auto` por padrão, que o
+proíbe de encolher abaixo do próprio conteúdo — sem ele as reticências nunca aparecem,
+o texto só empurra o vizinho para fora. É a causa nº1 de corte em layout flex.
+
+**Nunca dimensione caixa de texto com número fixo.** `conversas-live.css` já foi de
+`min-width: 86px` para 104 para 148 — com o comentário registrando a medida exata — e
+ainda cortava. A medida NÃO É CONSTANTE: depende da régua de letra que o usuário
+escolhe (50–150%) e do peso da fonte da pele. Todo px ali é aposta na palavra mais
+curta com a régua padrão. `max-content` não aposta, mede.
+
 ## Checks
 
 - `cd frontend && npm run lint` (eslint + check-pele) → `npm run build`
   antes de entregar. Lint vermelho do check-pele = a entrega está ERRADA —
   corrigir na fonte (token/classe central), nunca contornar o fiscal.
+- **`npm run clip`** (raiz) — fiscal de CORTE. Abre 9 telas × 2 padrões × 3 larguras
+  com **dado hostil** e pergunta a cada elemento se o texto cabe dentro dele. Quatro
+  defeitos: `CORTADO` (texto some), `VAZANDO` (escapa por cima do vizinho), `ESMAGADO`
+  (altura fixa decapitou a linha) e `APERTADO` (texto CURTO que não coube = caixa mal
+  medida, não truncamento).
+  A régua (`tests/e2e/clip-baseline.json`) está **TRAVADA EM ZERO** desde 01/08:
+  qualquer corte novo reprova. Consertou de verdade? `npm run clip:regua`.
+- **`npm run paletas`** — as 6 cores × 2 modos. Prova que nenhuma esqueceu um token
+  (um `var()` órfão pinta **transparente** com o build verde) e mede **contraste WCAG
+  AA** nos pares de leitura. Cor não entra no fiscal de corte de propósito: cor é só
+  token e não mexe em geometria. Cada fiscal responde UMA pergunta.
+- **`npm run retratos`** — 20 PNGs em `visual-check/hbx-system/`, incluindo a
+  prateleira das 6 cores na mesma tela. Não reprova nada: a rede garante que nada
+  SOME, não que ficou bom. Essa segunda pergunta continua sendo humana.
+
+> **LEI: token sem fiscal é decoração.** Medido nesta base: tipografia foi
+> centralizada e **pegou** (2.523 declarações → 18 degraus) porque ganhou o R8.
+> Espaçamento foi centralizado e **morreu** — 3.218 px literais contra 233 usos do
+> token, 6,8% de adoção. Mesmo autor, mesma casa; a única diferença é quem cobrava.
+> Daí nasceram R9 (espaço literal) e R10 (altura travada), como **catraca**: não
+> exigem zero, exigem não piorar. Regra que reprova 3.218 linhas no primeiro dia é
+> desligada na primeira sexta-feira, e aí não sobra nem a regra nem o hábito.
