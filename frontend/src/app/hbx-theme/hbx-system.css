@@ -1,0 +1,380 @@
+/* ============================================================================
+   HBX SYSTEM — a camada que DECIDE (01/08/2026)
+
+   POR QUE ESTE ARQUIVO EXISTE
+   O app tinha tokens bons e nenhum lugar para as REGRAS morarem. Cor nascia
+   em skeleton.css, letra em typography.css, espaço em spacing.css — e aí cada
+   uma das ~40 telas decidia sozinha o que fazer quando o texto não coubesse,
+   quantos pixels tem uma pílula, se um rótulo pode ou não sumir. O resultado
+   medido em 31/07: 125 nomes distintos de badge/pílula, 3.280 espaçamentos em
+   px literal contra 233 usos do token (6,6% de adoção) e 101 defeitos de corte
+   nas 9 telas principais.
+
+   A LIÇÃO QUE ESTE ARQUIVO CARREGA
+   Tipografia foi centralizada e PEGOU: 2.523 declarações viraram 18 degraus.
+   Espaçamento foi centralizado e MORREU: o spacing.css é lindo e ninguém usa.
+   Mesmo autor, mesma casa, mesma intenção. A única diferença é que tipografia
+   ganhou um fiscal (R8 do check-pele.mjs) e espaçamento não.
+
+     Token sem fiscal é decoração.
+     Primitivo é onde o fiscal consegue morar.
+
+   Por isso aqui não nascem nomes novos: aqui os primitivos que JÁ EXISTEM
+   (.tag, .avatar, .panel, .btn-*, .field-*) ganham as defesas que nunca
+   tiveram. Uma tela que já escreve `class="tag warn"` herda a correção sem
+   trocar um caractere — e são 403 seletores de tag no app.
+
+   ORDEM DE IMPORTAÇÃO: depois de kit.css (endurece o que ele definiu), antes
+   das telas (tela consciente ainda pode sobrescrever). Ver globals.css.
+   ============================================================================ */
+
+/* ============================================================================
+   1. TOKENS QUE FALTAVAM
+   ============================================================================ */
+
+:root {
+  /* ---- DENSIDADE ---------------------------------------------------------
+     O único eixo estrutural que separa Premium de Corporativo (decisão do
+     dono, 01/08: "só token — mesma estrutura"). Não existe layout diferente
+     por casca; existe a MESMA tela respirando diferente. Um layout para
+     desenhar, um layout para testar, e trocar de pele não pode fazer nada
+     sumir — é impossível por construção, não por disciplina.
+
+     Premium = 1 (folga). Corporativo = 0.875 (cara de planilha, mais linha
+     na tela). Quem multiplica é o token de controle abaixo, nunca a tela. */
+  --hbx-densidade: 1;
+
+  /* Alturas de controle derivadas da densidade. Os valores-base são os que
+     spacing.css já praticava — a densidade não redesenha nada, só respira. */
+  --hbx-h-controle: calc(28px * var(--hbx-densidade));
+  --hbx-h-controle-sm: calc(24px * var(--hbx-densidade));
+  --hbx-h-campo: calc(32px * var(--hbx-densidade));
+  --hbx-h-linha: calc(36px * var(--hbx-densidade));
+
+  /* ---- FOCO --------------------------------------------------------------
+     Um anel só, em todo lugar. Teclado é acessibilidade e é também o vendedor
+     que trabalha rápido: sem foco visível ele não sabe onde está o Enter. */
+  --hbx-foco: 0 0 0 3px var(--ring-brand);
+  --hbx-foco-erro: 0 0 0 3px color-mix(in srgb, var(--hbx-danger) 35%, transparent);
+
+  /* ---- A PÍLULA ----------------------------------------------------------
+     Medida única para selo/tag/chip. Existia espalhada em 125 nomes. */
+  --hbx-pilula-py: 3px;
+  --hbx-pilula-px: 10px;
+}
+
+/* ============================================================================
+   2. AS TRÊS LEIS DO TEXTO QUE NÃO CABE
+
+   Truncar é DECISÃO DE PRODUTO, não acidente de CSS. Toda caixa que pinta
+   texto tem que escolher uma das três — e escolher é obrigatório, porque não
+   escolher também é uma escolha: é a de cortar no meio da palavra e não
+   avisar ninguém.
+
+   O caso que ensinou isso: "Aguardando resposta" virando "Aguardand" na
+   /vendas. Não é feio — é ERRADO. O dado que decide a próxima ação do
+   vendedor virou ilegível, e a tela não deu nenhum sinal de que escondeu algo.
+   ============================================================================ */
+
+/* LEI 1 — UMA LINHA E RETICÊNCIAS.
+   Para texto que pode ser longo por natureza e cujo começo já identifica:
+   razão social, e-mail, endereço, nome de arquivo.
+   O `min-width: 0` não é enfeite: item de flex tem `min-width: auto` por
+   padrão, o que o proíbe de encolher abaixo do próprio conteúdo — e sem ele
+   as reticências nunca aparecem, o texto só empurra o vizinho para fora.
+   É a causa nº1 de corte em layout flex, e o app tem 959 caixas flex para
+   525 `min-width: 0`. */
+.hbx-1linha {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* LEI 2 — DUAS LINHAS E PARA.
+   Para texto corrido que precisa de contexto, não só de identificação:
+   observação, descrição, última mensagem. */
+.hbx-2linhas {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.hbx-3linhas {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* LEI 3 — NUNCA ENCURTA.
+   Para o dado que DECIDE: status, valor em dinheiro, telefone, prazo, etapa
+   do funil, contador. Se não cabe, quem cede é o layout — nunca o dado.
+
+   `flex: 0 0 auto` tira a caixa da conta de encolhimento do flex;
+   `min-width: max-content` garante que ela nunca fique menor que a palavra.
+   O par é o que faltava no `.tag` e o que produziu o print do dono.
+
+   Onde isto for usado, o PAI precisa poder quebrar linha (`flex-wrap: wrap`),
+   senão o que era corte vira transbordo. Por isso a classe irmã abaixo. */
+.hbx-inteiro {
+  flex: 0 0 auto;
+  min-width: max-content;
+  white-space: nowrap;
+}
+
+/* O par da Lei 3: a linha que hospeda dado-que-não-encurta tem que poder
+   descer para a linha de baixo. */
+.hbx-linha-flex {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* ============================================================================
+   3. NÚMEROS
+
+   `tabular-nums` alinha os dígitos em colunas de largura fixa. É uma linha de
+   CSS e é a diferença visual entre uma tabela de sistema e uma planilha
+   exportada: sem ela, R$ 1.234.567,89 e R$ 98,00 dançam na vertical e o olho
+   não consegue comparar duas linhas.
+
+   Maior retorno visual por caractere digitado que existe no arquivo inteiro.
+   ============================================================================ */
+
+.hbx-num,
+.tbl td,
+.tbl th,
+.kv .v,
+[data-num] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ============================================================================
+   4. OS PRIMITIVOS — ENDURECIDOS
+
+   Nada aqui inventa nome. Cada bloco pega um primitivo que kit.css já definiu
+   e devolve a defesa que faltava.
+   ============================================================================ */
+
+/* ---- SELO / TAG / CHIP --------------------------------------------------
+   A CAUSA RAIZ DOS PRINTS DE 01/08.
+
+   kit.css:806 definia:
+     .tag { display: inline-flex; padding: 3px 10px; ...; width: fit-content; }
+
+   Três defesas ausentes na mesma linha:
+     1. sem `flex: 0 0 auto`   -> numa linha flex a pílula ENCOLHE (o padrão do
+                                  flex é encolher), e `width: fit-content` não
+                                  protege disso;
+     2. sem `min-width`        -> ela pode ficar menor que a própria palavra;
+     3. sem regra de corte     -> quando aperta, o texto sai pela borda em vez
+                                  de virar reticências.
+
+   Selo é rótulo de status: cai na Lei 3, NUNCA encurta. Uma linha aqui cura
+   os 403 seletores de tag do app de uma vez — é exatamente o que "centralizar"
+   deveria ter significado desde o começo. */
+.tag,
+.badge,
+.chip,
+.pill {
+  flex: 0 0 auto;
+  min-width: max-content;
+  white-space: nowrap;
+  align-items: center;
+  gap: 6px;
+  line-height: 1.4;
+}
+
+/* ---- BOTÃO --------------------------------------------------------------
+   Rótulo de botão é promessa de ação: "Salvar alterações" não pode virar
+   "Salvar altera…" — o usuário precisa saber o que vai acontecer ANTES de
+   clicar. Lei 3, sem exceção. */
+.btn-teal,
+.btn-ghost,
+.btn-danger,
+.btn-xs,
+.btn-result {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  min-height: var(--hbx-h-controle);
+}
+
+.btn-teal:focus-visible,
+.btn-ghost:focus-visible,
+.btn-danger:focus-visible,
+.btn-xs:focus-visible,
+.btn-result:focus-visible {
+  outline: none;
+  box-shadow: var(--hbx-foco);
+}
+
+/* Botão desabilitado continua LEGÍVEL. `opacity: .45` sobre texto cinza dá
+   contraste de ~2:1 e reprova em qualquer régua — e o dono já foi mordido por
+   isso antes (ver a armadilha do contraste). Ver-sem-poder-usar é vendedor
+   silencioso: o controle tem que dar para ler. */
+.btn-teal:disabled,
+.btn-ghost:disabled,
+.btn-danger:disabled,
+.btn-xs:disabled,
+.btn-result:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ---- AVATAR -------------------------------------------------------------
+   NADA. E o "nada" aqui é a parte que interessa.
+
+   A primeira versão deste arquivo colocava `overflow: hidden` na inicial do
+   avatar, "por segurança", para o caso da letra crescer até 150% no painel de
+   tipografia. O fiscal mediu o resultado: 48 combinações PIORARAM e nenhuma
+   melhorou — a inicial tem `line-height: 1`, o glifo é ~2px mais alto que a
+   linha, e antes ele simplesmente transbordava sem prejuízo nenhum (o avatar
+   é um círculo com `place-items: center`, sobra espaço de todo lado). O
+   `overflow: hidden` transformou um transbordo inofensivo em CORTE de
+   verdade.
+
+   A lição, que vale para o arquivo inteiro: defesa preventiva contra um
+   problema que não foi MEDIDO cria o problema. Regra nova aqui só entra
+   depois que o fiscal mostrou o defeito que ela conserta.
+*/
+
+/* ---- PAINEL / CARTÃO ----------------------------------------------------
+   `min-width: 0` o kit já tem (é o que permite o conteúdo truncar dentro).
+   O que falta é o cabeçalho: `.panel-head` é flex e o <h2> dentro dele não
+   pode empurrar o `.meta` para fora da tela. */
+.panel-head {
+  min-width: 0;
+}
+
+.panel-head h2 {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-head .meta {
+  flex: 0 0 auto;
+}
+
+/* ---- CAMPO --------------------------------------------------------------
+   Um foco só, e estado de erro que se ANUNCIA sem depender só de cor
+   (daltonismo é ~8% dos homens; borda + anel dão o segundo sinal). */
+.field-dark,
+.field-light,
+input[type="text"],
+input[type="email"],
+input[type="tel"],
+input[type="number"],
+input[type="search"],
+input[type="password"],
+textarea,
+select {
+  min-height: var(--hbx-h-campo);
+}
+
+.field-dark:focus-visible,
+.field-light:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: none;
+  box-shadow: var(--hbx-foco);
+}
+
+[data-erro="1"],
+.field-dark[aria-invalid="true"],
+textarea[aria-invalid="true"] {
+  border-color: var(--hbx-danger);
+  box-shadow: var(--hbx-foco-erro);
+}
+
+/* ---- RÓTULO -------------------------------------------------------------
+   Rótulo é identificador curto. Cair na Lei 1 aqui seria trocar "Créditos
+   restantes" por "Créditos res…", que é o defeito APERTADO. Rótulo quebra
+   linha em vez de encurtar: duas linhas legíveis valem mais que uma mutilada.
+
+   Só `.field-label` — que é do kit. A primeira versão listava aqui também
+   `.costas-metrica > small` e `.costas-fato > span`, e estava errado por dois
+   motivos: (a) não funcionou, porque costas.css é importado DEPOIS e vence a
+   cascata; (b) não deveria funcionar, porque sistema não pode conhecer nome
+   de tela. Sistema oferece a lei; a tela escolhe qual lei segue, no arquivo
+   dela. Quando o sistema começa a citar tela por nome, ele virou mais uma
+   tela — e aí não centraliza nada. */
+.field-label {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+/* ============================================================================
+   5. OS QUATRO ESTADOS
+
+   Sistema de fundo de quintal desenha só o caminho feliz. Depois a tela
+   encontra a lista vazia, a rede lenta, o erro do servidor e o nome de 60
+   caracteres — e nenhum dos quatro tem desenho, então cada tela improvisa o
+   seu. Improviso de estado é o que mais denuncia amadorismo, porque é
+   justamente quando o usuário está inseguro que a tela fica feia.
+   ============================================================================ */
+
+.hbx-vazio {
+  display: grid;
+  place-items: center;
+  gap: var(--space-2);
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+  color: var(--text-muted);
+  min-height: 160px;
+}
+
+.hbx-vazio__titulo {
+  font-size: var(--fz-t9);
+  font-weight: 700;
+  color: var(--text-body);
+}
+
+.hbx-vazio__dica {
+  font-size: var(--fz-l2);
+  max-width: 44ch;
+  text-wrap: balance;
+}
+
+.hbx-erro {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border-radius: var(--panel-radius);
+  border: 1px solid color-mix(in srgb, var(--hbx-danger) 30%, transparent);
+  background: color-mix(in srgb, var(--hbx-danger) 6%, transparent);
+  color: var(--text-body);
+}
+
+/* Carregando: o esqueleto já existe (skeleton.css). Aqui só a garantia de que
+   ele respeita quem pediu menos movimento no sistema operacional. */
+@media (prefers-reduced-motion: reduce) {
+  .hbx-carregando,
+  .skeleton {
+    animation: none !important;
+  }
+}
+
+/* ============================================================================
+   6. A CASCA CORPORATIVA — SÓ DENSIDADE
+
+   Aqui mora a diferença INTEIRA entre as duas peles, no que diz respeito a
+   estrutura. Não é um segundo layout: é o mesmo layout com menos folga.
+   Enquanto isto couber em tokens, trocar de pele não consegue esconder nada —
+   e essa é a garantia que o dono pediu.
+   ============================================================================ */
+
+[data-casca="corporativa"] {
+  --hbx-densidade: 0.875;
+}

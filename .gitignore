@@ -119,3 +119,6 @@ tools/hbx-video-studio/native/*
 # Relatorio do fiscal de corte — regenerado a cada corrida do design-system.spec.
 # A REGUA (clip-baseline.json) e versionada de proposito; o relatorio nao.
 tests/e2e/clip-report.txt
+
+# Acumulado da corrida do fiscal de corte (ver scripts/clip.mjs)
+tests/e2e/clip-medido.jsonl

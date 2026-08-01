@@ -19,8 +19,15 @@
  * que só anda para um lado. É como se conserta base grande sem parar a
  * fábrica: o novo já nasce certo, o velho melhora quando se passa por perto.
  *
- * Atualizar a régua depois de consertar de verdade:
- *   HBX_CLIP_UPDATE=1 npx playwright test design-system
+ * ---- COMO RODAR ----
+ * Medir (reprova se piorou):
+ *   npm run clip
+ * Baixar a régua depois de consertar de verdade:
+ *   npm run clip:regua
+ *
+ * Os dois scripts APAGAM clip-report.txt e clip-medido.jsonl antes de rodar —
+ * os dois são acumulados em disco (ver nota do MEDIDO_PATH) e sem a limpeza a
+ * corrida de hoje leria o achado de ontem.
  */
 
 import fs from "node:fs";
@@ -29,7 +36,7 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 
 import { injectToken, setupCommonMocks } from "./helpers/app-mocks";
-import { coletarCortes, formatarAchados } from "./helpers/clip-detector";
+import { coletarCortes, formatarAchados, type Achado } from "./helpers/clip-detector";
 
 // ---------- configuração ----------
 
@@ -61,6 +68,17 @@ const LARGURAS = [1366, 1440, 1920];
 
 const BASELINE_PATH = path.join(process.cwd(), "tests/e2e/clip-baseline.json");
 const REPORT_PATH = path.join(process.cwd(), "tests/e2e/clip-report.txt");
+/**
+ * O medido vai para DISCO, uma linha por teste, e não para uma variável.
+ *
+ * O Playwright REINICIA O PROCESSO DO WORKER depois de cada teste que falha —
+ * é isolamento de estado, e é o comportamento certo dele. O efeito colateral
+ * aqui é que qualquer acumulador de módulo é zerado junto: a primeira corrida
+ * com falha relatou "2 defeitos em 1 combinações" tendo medido 54. Relatório
+ * que só está certo quando tudo passa é relatório inútil, porque o momento em
+ * que ele importa é exatamente o momento em que algo falhou.
+ */
+const MEDIDO_PATH = path.join(process.cwd(), "tests/e2e/clip-medido.jsonl");
 const ATUALIZAR = process.env.HBX_CLIP_UPDATE === "1";
 
 type Baseline = Record<string, number>;
@@ -74,9 +92,27 @@ function lerBaseline(): Baseline {
 }
 
 const baseline = lerBaseline();
-const medido: Baseline = {};
-/** Detalhe de tudo que foi achado na corrida — vira clip-report.txt. */
-const relatorio: string[] = [];
+
+/** Registra o resultado de UMA combinação, à prova de reinício de worker. */
+function registrar(chave: string, achados: Achado[]): void {
+  fs.appendFileSync(MEDIDO_PATH, `${JSON.stringify({ chave, n: achados.length })}\n`, "utf8");
+  if (achados.length > 0) fs.appendFileSync(REPORT_PATH, `${formatarAchados(achados, chave)}\n`, "utf8");
+}
+
+/** Lê tudo que a corrida gravou. Última linha de cada chave vence. */
+function lerMedido(): Baseline {
+  try {
+    const out: Baseline = {};
+    for (const linha of fs.readFileSync(MEDIDO_PATH, "utf8").split("\n")) {
+      if (!linha.trim()) continue;
+      const { chave, n } = JSON.parse(linha) as { chave: string; n: number };
+      out[chave] = n;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
 
 // ---------- suite ----------
 
@@ -117,8 +153,7 @@ test.describe("design system — nada some da tela", () => {
           await page.waitForTimeout(700);
 
           const achados = await coletarCortes(page);
-          medido[chave] = achados.length;
-          if (achados.length > 0) relatorio.push(formatarAchados(achados, chave));
+          registrar(chave, achados);
 
           if (ATUALIZAR) {
             test.info().annotations.push({ type: "baseline", description: `${chave} = ${achados.length}` });
@@ -144,25 +179,25 @@ test.describe("design system — nada some da tela", () => {
  * acontecer de uma rodada distraída "aprovar" a piora que ela mesma mediu.
  */
 test.afterAll(() => {
-  // O relatório detalhado sai SEMPRE que houve achado — é o mapa de trabalho,
-  // não um subproduto de atualizar a régua.
-  if (relatorio.length > 0) {
-    const total = Object.values(medido).reduce((s, n) => s + n, 0);
-    const cabecalho = [
-      "RELATÓRIO DE CORTE — HBX",
-      `gerado em ${new Date().toISOString()}`,
-      `${total} defeito(s) em ${Object.keys(medido).length} combinações medidas`,
-      "",
-      "CORTADO  = texto some (overflow escondido, sem reticências)",
-      "VAZANDO  = texto escapa da caixa e passa por cima do vizinho",
-      "ESMAGADO = altura fixa decapitou a linha de baixo",
-      "",
-    ].join("\n");
-    fs.writeFileSync(REPORT_PATH, `${cabecalho}${relatorio.join("\n")}\n`, "utf8");
-    console.log(`\n[clip] relatório em ${REPORT_PATH}`);
+  const medido = lerMedido();
+  const total = Object.values(medido).reduce((s, n) => s + n, 0);
+  if (Object.keys(medido).length === 0) return;
+
+  console.log(`\n[clip] ${total} defeito(s) em ${Object.keys(medido).length} combinações — detalhe em ${REPORT_PATH}`);
+
+  if (!ATUALIZAR) {
+    // Placar do que MELHOROU, para a catraca poder descer de propósito.
+    const melhoras = Object.entries(medido).filter(([k, n]) => baseline[k] !== undefined && n < baseline[k]);
+    if (melhoras.length > 0) {
+      const ganho = melhoras.reduce((s, [k, n]) => s + (baseline[k] - n), 0);
+      console.log(
+        `[clip] ${melhoras.length} combinação(ões) melhoraram, -${ganho} defeito(s). ` +
+          `Baixe a régua com: HBX_CLIP_UPDATE=1`
+      );
+    }
+    return;
   }
 
-  if (!ATUALIZAR) return;
   const combinado = { ...baseline, ...medido };
   const ordenado: Baseline = {};
   for (const k of Object.keys(combinado).sort()) ordenado[k] = combinado[k];

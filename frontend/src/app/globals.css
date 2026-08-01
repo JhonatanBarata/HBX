@@ -13,6 +13,13 @@
 @import "./hbx-theme/skeleton.css";
 @import "./hbx-theme/base.css";
 @import "./hbx-theme/kit.css";
+/* HBX SYSTEM — a camada que DECIDE (01/08/2026). Entra DEPOIS do kit porque
+   endurece o que ele definiu (.tag, .btn-*, .panel, .field-*: as defesas de
+   truncamento e de flex que faltavam), e ANTES das telas porque tela
+   consciente ainda tem o direito de sobrescrever. Nasce do diagnóstico de
+   31/07: 125 nomes de pílula, 3.280 espaçamentos em px literal e 101 defeitos
+   de corte medidos pelo fiscal em tests/e2e/design-system.spec.ts. */
+@import "./hbx-theme/hbx-system.css";
 @import "./hbx-theme/panel-shell.css";
 @import "./hbx-theme/errors.css";
 @import "./hbx-theme/screens.css";
