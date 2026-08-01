@@ -253,12 +253,28 @@
   gap: 1px;
 }
 
+/* Título e legenda do verso: duas linhas e param (Lei 2 do hbx-system.css).
+   Eram uma linha com reticências, e o título do painel de vendas — "Disparos
+   da campanha de prospecção" — aparecia como "DISPAROS DA CAMPAN…". O fiscal
+   de corte ACEITA isso (texto longo com reticências é truncamento legítimo,
+   não defeito), e por isso ele nunca ia reclamar: quem tinha que reclamar era
+   o olho, e reclamou.
+
+   Título é o que diz DE QUE painel se trata — mutilado, o cartão vira um
+   gráfico anônimo. Duas linhas cabem de sobra na coluna e param aí; da
+   terceira em diante volta a encurtar, porque um título que empurra o resto
+   do painel para baixo também é defeito. */
 .costas-topo__nome,
 .costas-topo__legenda {
   min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.3;
 }
 
 .costas-topo__nome {
