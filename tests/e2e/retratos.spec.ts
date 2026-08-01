@@ -19,9 +19,12 @@ import { injectToken, setupCommonMocks } from "./helpers/app-mocks";
 const DESTINO = path.join(process.cwd(), "visual-check/hbx-system");
 
 const PADROES = [
-  { casca: "backup", tema: "login", rotulo: "premium" },
+  { casca: "backup", tema: "aurora", rotulo: "premium" },
   { casca: "corporativa", tema: "corporativa", rotulo: "corporativo" },
 ] as const;
+
+/** Varredura de cor: a mesma tela, as 6 paletas, para escolher no olho. */
+const CORES = ["aurora", "hbx-cyber", "corporativa", "rose", "ember", "login"] as const;
 
 const CENAS = [
   { rota: "/vendas", largura: 1366 },
@@ -66,5 +69,32 @@ test.describe("retratos", () => {
         });
       }
     }
+  }
+
+  // ── A prateleira de cores ──
+  // Mesma tela, mesma largura, mesmo dado: só a paleta muda. É assim que se
+  // escolhe cor — comparando o MESMO quadro, não lembrando de telas
+  // diferentes vistas em momentos diferentes.
+  for (const cor of CORES) {
+    test(`cor-${cor}`, async ({ page }, testInfo) => {
+      test.skip(testInfo.project.name !== "chromium", "Retrato de desktop.");
+      fs.mkdirSync(DESTINO, { recursive: true });
+
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await setupCommonMocks(page);
+      await page.addInitScript((tema) => {
+        window.localStorage.setItem("hbx:casca", "backup");
+        window.localStorage.setItem("hbx:tema", tema);
+        window.localStorage.setItem("hbx:mode", "light");
+      }, cor);
+
+      await page.goto("/login");
+      await injectToken(page);
+      await page.goto("/vendas");
+      await page.waitForLoadState("networkidle").catch(() => {});
+      await page.waitForTimeout(900);
+
+      await page.screenshot({ path: path.join(DESTINO, `cor-${cor}.png`) });
+    });
   }
 });

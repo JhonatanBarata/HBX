@@ -53,9 +53,18 @@ const ROTAS = [
   "/configuracoes",
 ];
 
-/** As 2 peles. `backup` lê-se Premium — ver lib/aparencia.ts. */
+/**
+ * Os 2 PADRÕES, cada um no seu padrão de fábrica. `backup` lê-se Premium —
+ * ver lib/aparencia.ts.
+ *
+ * As 6 cores NÃO entram aqui de propósito: cor é só token e não mexe em um
+ * pixel de geometria, então repeti-las multiplicaria 54 testes por 6 sem
+ * descobrir um defeito novo. O que as cores precisam provar (token esquecido,
+ * contraste) mora em paletas.spec.ts. Quem separa os dois arquivos é a
+ * pergunta que cada um responde, não o assunto.
+ */
 const PELES = [
-  { casca: "backup", tema: "login", rotulo: "premium" },
+  { casca: "backup", tema: "aurora", rotulo: "premium" },
   { casca: "corporativa", tema: "corporativa", rotulo: "corporativo" },
 ] as const;
 

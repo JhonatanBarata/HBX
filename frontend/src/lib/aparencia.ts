@@ -29,25 +29,39 @@
 
 export type CascaKey = "corporativa" | "backup";
 /**
- * DOIS PADRÕES, UMA COR CADA (dono, 01/08/2026: "crie 2 padrões só! Premium e
- * Corporativo").
+ * DOIS PADRÕES × SEIS CORES (dono, 01/08/2026, nesta ordem):
+ *   "crie 2 padrões só! Premium e Corporativo"
+ *   ...e depois, vendo a tela: "quero opção de cores, pelo menos as 5".
  *
- * Até 31/07 eram 6 cores × 2 cascas × 2 modos = 24 combinações para manter
- * coerentes. Não era a quantidade de CSS que impedia a garantia de "nada
- * some" — era esse espaço de combinação: ninguém abre 24 telas para conferir
- * um ajuste, e o que ninguém confere ninguém garante. Com 2 padrões × 2 modos
- * são 4, e 4 a máquina confere a cada corrida (tests/e2e/design-system.spec.ts).
+ * As duas ordens não se contradizem, e vale entender por quê — é a lição
+ * central da noite.
  *
- * Saíram Aurora, Ember, Rosé e Layout — 158 seletores de CSS decorativo.
+ * O que impedia a garantia de "nada some" NUNCA foi a quantidade de cor: era
+ * o fato de que 24 combinações não se conferem À MÃO. Ninguém abre 24 telas
+ * para validar um espaçamento, e o que ninguém confere ninguém garante. Cortar
+ * para 4 foi a saída disponível ENQUANTO a conferência era humana.
  *
- * Os NOMES DE ATRIBUTO continuam `login` e `corporativa` de propósito, pelo
- * mesmo motivo que a casca Premium se chama `backup` no código: eles estão
+ * Na mesma noite nasceu a rede (tests/e2e/design-system.spec.ts + npm run
+ * clip): a máquina abre as telas, com dado hostil, e mede elemento por
+ * elemento. A partir daí o custo de manter cor deixou de ser atenção humana e
+ * passou a ser segundos de CPU — e escolha de cor voltou a ser barata.
+ *
+ * Por isso o eixo COR voltou inteiro, e agora vale para os DOIS padrões (lei
+ * do dono: padronizar é IGUALAR — não existe cor que só um padrão tem).
+ * Continua valendo a separação de conceitos:
+ *   PADRÃO (casca) = densidade e geometria  -> o que a rede de corte mede
+ *   COR   (tema)   = paleta, só token       -> não mexe em um pixel de layout
+ * É essa separação que permite as 6 cores custarem zero em risco de corte: se
+ * cor não muda geometria, medir 2 padrões × 3 larguras já cobre a geometria
+ * inteira. O que as cores precisam provar é OUTRA coisa — que nenhuma delas
+ * esqueceu um token —, e disso cuida tests/e2e/paletas.spec.ts.
+ *
+ * Os NOMES DE ATRIBUTO (`login`, `hbx-cyber`…) são os de sempre de propósito,
+ * pelo mesmo motivo que a casca Premium se chama `backup` no código: estão
  * gravados no navegador de cada usuário e pendurados em seletores de CSS.
- * Renomear obrigaria a migrar storage e reescrever folha sem mudar um pixel.
- * Regra de sempre: leia `label` ao falar com o usuário, `key`/`attr` ao falar
- * com o código.
+ * Leia `label` ao falar com o usuário, `key`/`attr` ao falar com o código.
  */
-export type TemaKey = "login" | "corporativa";
+export type TemaKey = "aurora" | "hbx-cyber" | "login" | "ember" | "rose" | "corporativa";
 export type Modo = "light" | "dark";
 
 // Chaves de armazenamento — uma por eixo (era `hbx:pele`, combinado).
@@ -60,19 +74,33 @@ export const LEGACY_PELE_STORAGE = "hbx:pele";
 export type TemaDef = { key: TemaKey; label: string };
 
 /**
- * A paleta de cada padrão. UMA por casca — e é por isso que o seletor de cor
- * some sozinho da interface: `escolheTema()` devolve `temas.length > 1`, o
- * menu em components/hbx/shell.tsx é guiado por este registro, e o rótulo do
- * botão deixa de ser "Premium · Login" para ser só "Premium".
+ * AS 6 CORES — as mesmas para os dois padrões.
  *
- * Nenhuma linha de JSX precisou mudar para isso acontecer. Registro que manda
- * na tela é o que permite mudar produto editando dado.
+ * Ordem do menu = da mais sóbria para a mais quente, porque é assim que se
+ * escolhe: quem abre o seletor num app de trabalho quer primeiro ver o que
+ * não chama atenção. Verde-limão (Índigo era o nome antigo "Login") desceu da
+ * primeira posição de propósito — ele era o padrão de fábrica e o dono
+ * reprovou em 01/08: "esse verde ficou feio demais".
+ *
+ * `hbx-cyber` se chama **Layout** desde 28/07: ele se chamava "HBX" na mesma
+ * conversa em que uma casca também virou "HBX", e ficaram dois "HBX" no mesmo
+ * menu. A casca morreu; o rótulo Layout ficou.
+ *
+ * Nenhuma linha de JSX muda quando esta lista muda: o menu em
+ * components/hbx/shell.tsx é guiado por este registro. Registro que manda na
+ * tela é o que permite mudar produto editando dado.
  */
-const PALETA_PREMIUM: readonly TemaDef[] = [{ key: "login", label: "Premium" }];
-const PALETA_CORPORATIVO: readonly TemaDef[] = [{ key: "corporativa", label: "Corporativo" }];
+const CORES: readonly TemaDef[] = [
+  { key: "aurora", label: "Aurora" },
+  { key: "hbx-cyber", label: "Layout" },
+  { key: "corporativa", label: "Corporativo" },
+  { key: "rose", label: "Rosé" },
+  { key: "ember", label: "Ember" },
+  { key: "login", label: "Lima" },
+];
 
-/** Toda cor que ainda existe. Usada pela migração do formato antigo. */
-const TEMAS_VIVOS: readonly TemaDef[] = [...PALETA_PREMIUM, ...PALETA_CORPORATIVO];
+/** Toda cor que existe. Usada também pela migração do formato antigo. */
+const TEMAS_VIVOS: readonly TemaDef[] = CORES;
 
 export type CascaDef = {
   key: CascaKey;
@@ -113,9 +141,15 @@ export const CASCAS: readonly CascaDef[] = [
     key: "backup",
     label: "Premium",
     attr: "modern",
-    temas: PALETA_PREMIUM,
+    temas: CORES,
     modos: ["light", "dark"],
-    temaPadrao: "login",
+    // PADRÃO DE FÁBRICA — era `login` (verde-limão) e virou `aurora` em
+    // 01/08 por reprovação direta do dono ("esse verde ficou feio demais").
+    // Aurora (roxo → ciano) é também a cor da própria marca no menu lateral,
+    // então o app deixa de abrir discordando de si mesmo.
+    // Trocar de volta = uma palavra nesta linha; quem já escolheu cor não é
+    // afetado, porque só se grava o que o usuário ESCOLHE.
+    temaPadrao: "aurora",
     modoPadrao: "light",
   },
   {
@@ -128,7 +162,7 @@ export const CASCAS: readonly CascaDef[] = [
     // trocar de padrão não CONSEGUE fazer nada sumir — por construção, não
     // por disciplina. Foi a ordem do dono em 01/08 ("só token, mesma
     // estrutura") e é o que torna a garantia verificável.
-    temas: PALETA_CORPORATIVO,
+    temas: CORES,
     modos: ["light", "dark"],
     temaPadrao: "corporativa",
     modoPadrao: "light",
