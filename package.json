@@ -48,7 +48,9 @@
     "owner:agent": "node ./hbx-owner/local-agent/server.js",
     "owner:agent:health": "node ./hbx-owner/local-agent/scripts/health-check.js",
     "clip": "node ./scripts/clip.mjs",
-    "clip:regua": "node ./scripts/clip.mjs --regua"
+    "clip:regua": "node ./scripts/clip.mjs --regua",
+    "paletas": "playwright test paletas --project=chromium",
+    "retratos": "playwright test retratos --project=chromium"
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0"
