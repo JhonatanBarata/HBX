@@ -194,181 +194,10 @@ html, body { margin: 0; }
 .plan-card__meter.is-danger .plan-card__bar-fill { background: var(--hbx-danger); }
 .plan-card__meter.is-danger .plan-card__meter-val { color: var(--hbx-danger); }
 
-/* ── PAINEL DE DISPAROS (30/07) — cartão próprio na sidebar, ACIMA do crédito e
-   só na tela de Vendas (lugar definido pelo dono em 31/07; o revezamento em
-   flip com o cartão de créditos foi removido junto com o CSS dele).
-   COR é a linguagem: --disparo-tone (verde funciona, âmbar atenção, vermelho erro)
-   pinta orb, borda, barra e brilho — a tela nunca escolhe cor, só o estado. */
-.disparo-card.plan-card {
-  --disparo-tone: var(--hbx-success);
-  position: relative;
-  isolation: isolate;
-  display: grid;
-  gap: 8px;
-  align-content: center;
-  min-height: 196px;
-  max-height: 310px;
-  padding: 12px;
-  overflow: hidden;
-  width: 100%;
-  text-align: center;
-  cursor: pointer;
-  color: var(--text-strong);
-  border-color: color-mix(in srgb, var(--disparo-tone) 36%, var(--border-hairline));
-  transition: transform var(--motion-fast), box-shadow var(--motion-base), border-color 600ms;
-}
-.disparo-card.plan-card.is-warn { --disparo-tone: var(--hbx-warning); }
-.disparo-card.plan-card.is-err { --disparo-tone: var(--hbx-danger); }
-.disparo-card.plan-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
-.disparo-card.plan-card::before {
-  content: "";
-  position: absolute;
-  z-index: -1;
-  top: -58px;
-  left: 18%;
-  width: 64%;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--disparo-tone) 26%, transparent);
-  filter: blur(28px);
-  opacity: 0.55;
-  transition: background 600ms;
-}
-.disparo-card__head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: var(--hbx-font-min);
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-.disparo-card__count { margin-left: auto; color: var(--text-strong); font-variant-numeric: tabular-nums; }
-.disparo-card__orb {
-  flex: 0 0 auto;
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--disparo-tone);
-  box-shadow:
-    0 0 0 4px color-mix(in srgb, var(--disparo-tone) 14%, transparent),
-    0 0 14px color-mix(in srgb, var(--disparo-tone) 70%, transparent);
-  animation: disparo-orb 2.2s ease-in-out infinite;
-}
-.disparo-card__timer {
-  font-family: var(--font-display);
-  font-size: var(--fz-t4);
-  font-weight: 750;
-  letter-spacing: -0.045em;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-}
-.disparo-card__next {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--hbx-font-min);
-  color: var(--text-muted);
-}
-.disparo-card__bar {
-  height: 5px;
-  border-radius: 99px;
-  background: color-mix(in srgb, var(--text-muted) 22%, transparent);
-  overflow: hidden;
-}
-.disparo-card__bar-fill { display: block; height: 100%; border-radius: 99px; background: var(--disparo-tone); transition: width 0.5s ease; }
-.disparo-card--hot { animation: disparo-hot-pulse 1.1s ease-in-out infinite; }
-
-/* material por casca — mesma matéria do cartão de créditos vizinho */
-[data-casca="modern"] .side .plan-card.disparo-card {
-  background:
-    radial-gradient(circle at 100% 0%, var(--mod-flare), transparent 46%),
-    linear-gradient(180deg, var(--mod-glass-hi), var(--mod-glass-lo));
-  box-shadow: var(--shadow-inset), var(--shadow-sm);
-}
-[data-casca="corporativa"] .side .plan-card.disparo-card {
-  background:
-    linear-gradient(var(--border-hairline) 1px, transparent 1px),
-    linear-gradient(90deg, var(--border-hairline) 1px, transparent 1px),
-    var(--hbx-surface);
-  background-size: 24px 24px;
-  box-shadow: var(--shadow-xs);
-}
-
-/* central de regras (dentro do .hbx-modal padrão) */
-.disparo-modal { width: min(440px, 92vw); display: grid; gap: 12px; padding: 16px; }
-.disparo-modal__head { --disparo-tone: var(--hbx-success); display: flex; align-items: center; gap: 9px; }
-.disparo-modal__head.is-warn { --disparo-tone: var(--hbx-warning); }
-.disparo-modal__head.is-err { --disparo-tone: var(--hbx-danger); }
-.disparo-modal__head strong { font-family: var(--font-display); font-size: var(--fz-n1); letter-spacing: -0.02em; }
-.disparo-modal__close { margin-left: auto; }
-.disparo-modal__close svg { transform: rotate(45deg); }
-.disparo-modal__next {
-  --disparo-tone: var(--hbx-success);
-  display: grid;
-  gap: 3px;
-  padding: 12px;
-  border: 1px solid color-mix(in srgb, var(--disparo-tone) 32%, var(--border-hairline));
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--disparo-tone) 6%, transparent);
-  text-align: center;
-}
-.disparo-modal__next.is-warn { --disparo-tone: var(--hbx-warning); }
-.disparo-modal__next.is-err { --disparo-tone: var(--hbx-danger); }
-.disparo-modal__next-label { font-size: var(--hbx-font-min); font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase; color: var(--text-muted); }
-.disparo-modal__next-name { font-family: var(--font-display); font-size: var(--fz-t9); letter-spacing: -0.02em; }
-.disparo-modal__next-when { font-size: var(--fz-l3); font-weight: 700; color: var(--disparo-tone); }
-.disparo-modal__rules { display: grid; gap: 6px; }
-.disparo-rule {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-sm);
-  background: var(--hbx-surface);
-  font-size: var(--fz-m1);
-}
-.disparo-rule__icon { display: grid; color: var(--hbx-brand); }
-.disparo-rule__label { font-weight: 600; color: var(--text-muted); white-space: nowrap; }
-.disparo-rule__value { margin-left: auto; min-width: 0; font-weight: 700; color: var(--text-strong); text-align: right; }
-.disparo-rule.is-warn .disparo-rule__value { color: var(--hbx-warning); }
-.disparo-rule.is-err .disparo-rule__value { color: var(--hbx-danger); }
-.disparo-modal__sample {
-  display: grid;
-  gap: 6px;
-  padding: 10px;
-  border: 1px dashed color-mix(in srgb, var(--hbx-brand) 42%, var(--border-hairline));
-  border-radius: var(--radius-md);
-}
-.disparo-modal__sample-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: var(--hbx-font-min);
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-.disparo-modal__sample-text { margin: 0; font-size: var(--fz-l2); line-height: 1.45; color: var(--text-strong); }
-.disparo-modal__error {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 10px;
-  border: 1px solid color-mix(in srgb, var(--hbx-danger) 45%, var(--border-hairline));
-  border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--hbx-danger) 8%, transparent);
-  color: var(--hbx-danger);
-  font-size: var(--fz-m1);
-  font-weight: 600;
-  --disparo-tone: var(--hbx-danger);
-}
-
-/* ── LEAD QUENTE: o sistema respira uma cor por 1s e o aviso sobe no topo ── */
+/* ── LEAD QUENTE: o sistema respira uma cor por 1s e o aviso sobe no topo ──
+   Aqui morava também o cartão de DISPAROS da sidebar e a central de regras que
+   ele abria — cortados pelo dono em 01/08/2026. Sobrou o aviso, que é o que
+   realmente chama o vendedor. */
 body { transition: filter 460ms var(--ease-out-quint); }
 html.hbx-hot-flash body { filter: saturate(1.55) hue-rotate(-22deg) brightness(1.05); }
 .hot-toast {
@@ -405,17 +234,11 @@ html.hbx-hot-flash body { filter: saturate(1.55) hue-rotate(-22deg) brightness(1
   0%, 100% { transform: scale(1); opacity: 1; }
   50% { transform: scale(0.82); opacity: 0.7; }
 }
-@keyframes disparo-hot-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--hbx-success) 55%, transparent); }
-  55% { box-shadow: 0 0 0 10px transparent; }
-}
 @keyframes hot-toast-in {
   from { transform: translate(-50%, -160%); opacity: 0; }
   to { transform: translate(-50%, 0); opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .disparo-card__orb,
-  .disparo-card--hot,
   .hot-toast,
   .hot-toast__flame { animation: none; }
   body { transition: none; }

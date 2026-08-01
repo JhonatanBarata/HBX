@@ -12,7 +12,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import { createPortal } from "react-dom";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
-import { DisparoSidebarSlot } from "@/components/hbx/disparo-panel";
+import { AlertaLeadQuente } from "@/components/hbx/disparo-panel";
 import { CostasPainel, toggleCostas, useCostasDisponivel, useCostasLigado } from "@/components/hbx/costas-panel";
 import { CercaDeEnfeite } from "@/components/hbx/error-boundary";
 import { applyThemeSoft, getCascaAtiva, getTemaAtivo, setAparencia, setThemeMode } from "@/components/hbx/theme-attributes";
@@ -1270,11 +1270,11 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
         </CercaDeEnfeite>
       </div>
       <div className="side-bottom">
-        {/* ORDEM DEFINIDA PELO DONO (31/07): Disparos SÓ na tela de Vendas e
-            sempre ACIMA; Créditos é o último cartão e não sai de lá. O slot de
-            disparos fica montado em toda tela porque é ele quem carrega o
-            alerta de lead quente (pulso + respiro de cor + aviso no topo). */}
-        <DisparoSidebarSlot mostrarCartao={active === "vendas"} />
+        {/* O cartão de Disparos foi CORTADO pelo dono (01/08). Sobrou o alerta
+            de lead quente, que não desenha nada aqui: ele fica montado em toda
+            tela e sobe um aviso no topo quando um lead responde. Créditos é o
+            último cartão e não sai de lá. */}
+        <AlertaLeadQuente />
         {creditsMode ? (
           <CreditsSidebarCard summary={creditsSummary} companyId={user?.company?.id} />
         ) : null}

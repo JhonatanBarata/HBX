@@ -1,26 +1,28 @@
 "use client";
 
-// PAINEL DE DISPAROS (dono, 30/07/2026) — mora na sidebar, ACIMA do cartão de
-// créditos e SÓ na tela de Vendas (lugar definido pelo dono em 31/07). Existe
-// apenas quando o bot de prospecção está ativo.
-// Linguagem: COR diz o estado (verde = funcionando, âmbar = atenção, vermelho =
-// erro) — zero textão. Clique abre a central de regras (.hbx-veil, Lei nº2).
-// O mesmo painel é o dono do ALERTA DE LEAD QUENTE: quando um lead demonstra
-// interesse, o painel pulsa, o sistema inteiro respira uma cor por 1s e um
-// aviso sobe no topo — clicar abre o cliente com o Detalhes aberto (reusa o
-// contrato sessionStorage "hbx:vendas-focus-lead" que a Agenda já usa).
+// ALERTA DE LEAD QUENTE (dono, 30/07/2026 — cartão cortado em 01/08/2026)
+//
+// Aqui morava também o PAINEL DE DISPAROS da barra lateral: um cartão com
+// contador, relógio e barrinha, e uma central de regras que abria no clique.
+// O dono cortou o cartão em 01/08 ("ficou de bad taste" na sidebar) — e a
+// central foi junto, porque o cartão era a ÚNICA porta dela.
+//
+// Ficou o que o cartão guardava de valioso: quando um lead demonstra interesse,
+// o sistema inteiro respira uma cor por 1s e um aviso sobe no topo da tela.
+// Clicar abre o cliente com o Detalhes aberto (reusa o contrato sessionStorage
+// "hbx:vendas-focus-lead" que a Agenda já usa). O aviso não é de vendas: ele
+// precisa chegar onde o vendedor estiver, então o componente fica montado em
+// TODA tela.
 //
 // Dados: GET /vendas/automation/live-status (o MESMO contrato da tela
-// /automacao — nenhum endpoint novo), que já traz nextScheduledAt,
-// nextEligibleLeadName, contadores, campanha (regras), hotLead e coldGate
-// (blindagem do disparo frio). Guardado por BotArmedGuard no backend: 402/403
-// aqui significa "bot não ativo" → o painel simplesmente não existe.
+// /automacao — nenhum endpoint novo). Guardado por BotArmedGuard no backend:
+// 402/403 aqui significa "bot não ativo" → não existe alerta nenhum.
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-import { apiFetch, getToken, type ApiError } from "@/lib/api";
-import { STATUS_LABEL, fmtWhen, type ProspLive, type ProspCampaign } from "@/lib/use-prospecting-config";
+import { apiFetch, getToken } from "@/lib/api";
+import { type ProspLive } from "@/lib/use-prospecting-config";
 import { I, ICONS } from "@/components/hbx/shell";
 
 type ColdGateSnapshot = {
@@ -36,6 +38,7 @@ type ColdGateSnapshot = {
 
 type HotLead = { leadId: string; leadName: string | null; at: string };
 
+/** O que /vendas/automation/live-status devolve além do contrato da /automacao. */
 export type DisparoLive = ProspLive & {
   hotLead?: HotLead | null;
   coldGate?: ColdGateSnapshot | null;
@@ -50,7 +53,6 @@ const POLL_IDLE_MS = 60_000;
 
 function useDisparoLive() {
   const [live, setLive] = useState<DisparoLive | null>(null);
-  const [unavailable, setUnavailable] = useState(false);
 
   useEffect(() => {
     if (!getToken()) return;
@@ -62,15 +64,14 @@ function useDisparoLive() {
         .then((res) => {
           if (!alive) return;
           setLive(res ?? null);
-          setUnavailable(false);
           timer = setTimeout(tick, POLL_ACTIVE_MS);
         })
-        .catch((err: unknown) => {
+        .catch(() => {
+          // 402/403/404 = bot não ativo pra esta conta; qualquer outro erro é
+          // rede. Nos dois casos não há lead quente pra avisar — espaça e tenta
+          // de novo, calado.
           if (!alive) return;
-          const status = Number((err as ApiError)?.status || 0);
-          // 402/403/404 = bot não ativo pra esta conta — painel não existe.
           setLive(null);
-          setUnavailable(status === 402 || status === 403 || status === 404);
           timer = setTimeout(tick, POLL_IDLE_MS);
         });
     };
@@ -81,171 +82,7 @@ function useDisparoLive() {
     };
   }, []);
 
-  return { live, unavailable };
-}
-
-type Tone = "ok" | "warn" | "err";
-
-function deriveTone(live: DisparoLive): Tone {
-  const status = String(live.status || "");
-  if (status === "erro" || live.lastError || live.coldGate?.lastBlock?.reason === "cold_copy_similar") return "err";
-  const filaVazia = (live.pendingJobs ?? 0) === 0;
-  if (status === "dormindo" || filaVazia || live.cooldownActive || live.coldGate?.remainingToday === 0) return "warn";
-  return "ok";
-}
-
-function formatCountdown(targetIso: string | null | undefined, now: number): string | null {
-  if (!targetIso) return null;
-  const target = new Date(targetIso).getTime();
-  if (!Number.isFinite(target)) return null;
-  const delta = Math.max(0, Math.floor((target - now) / 1000));
-  if (delta === 0) return "agora";
-  const h = Math.floor(delta / 3600);
-  const m = Math.floor((delta % 3600) / 60);
-  const s = delta % 60;
-  if (h > 0) return `${h}h${String(m).padStart(2, "0")}`;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
-
-function variantList(live: DisparoLive): string[] {
-  const raw = live.campaign?.firstContactVariants;
-  return Array.isArray(raw) ? raw.filter((v: unknown): v is string => typeof v === "string" && Boolean(String(v).trim())) : [];
-}
-
-// ── O cartão da sidebar ──────────────────────────────────────────────────────
-
-function DisparoSidebarCard({ live, hotPulse, onOpen }: { live: DisparoLive; hotPulse: boolean; onOpen: () => void }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(t);
-  }, []);
-
-  const tone = deriveTone(live);
-  const targetIso =
-    live.cooldownActive && live.nextAllowedSendAt && (!live.nextScheduledAt || live.nextAllowedSendAt > live.nextScheduledAt)
-      ? live.nextAllowedSendAt
-      : live.nextScheduledAt;
-  const countdown = formatCountdown(targetIso, now);
-  const sent = live.sentToday ?? 0;
-  const limit = Math.max(1, live.dailyLimit ?? 1);
-  const pct = Math.min(100, Math.round((sent / limit) * 100));
-
-  return (
-    <button
-      type="button"
-      className={`plan-card disparo-card is-${tone}${hotPulse ? " disparo-card--hot" : ""}`}
-      onClick={onOpen}
-      aria-label={`Painel de disparos. Estado ${STATUS_LABEL[live.status] || live.status}. ${sent} de ${limit} hoje.`}
-    >
-      <span className="disparo-card__head">
-        <span className="disparo-card__orb" aria-hidden="true" />
-        <span className="disparo-card__label">Disparos</span>
-        <strong className="disparo-card__count">{sent}/{limit}</strong>
-      </span>
-      <span className="disparo-card__timer" aria-hidden="true">{countdown ?? "—"}</span>
-      <span className="disparo-card__next">
-        {live.nextEligibleLeadName || STATUS_LABEL[live.status] || live.status}
-      </span>
-      <span className="disparo-card__bar" aria-hidden="true">
-        <span className="disparo-card__bar-fill" style={{ width: `${pct}%` }} />
-      </span>
-    </button>
-  );
-}
-
-// ── Central de regras (overlay) ──────────────────────────────────────────────
-
-function RuleRow({ icon, label, value, tone }: { icon: string[]; label: string; value: React.ReactNode; tone?: Tone }) {
-  return (
-    <div className={"disparo-rule" + (tone ? ` is-${tone}` : "")}>
-      <span className="disparo-rule__icon"><I d={icon} size={15} /></span>
-      <span className="disparo-rule__label">{label}</span>
-      <span className="disparo-rule__value">{value}</span>
-    </div>
-  );
-}
-
-function DisparoRulesModal({ live, onClose }: { live: DisparoLive; onClose: () => void }) {
-  const tone = deriveTone(live);
-  const campaign: ProspCampaign = live.campaign || {};
-  const cold = live.coldGate || null;
-  const variants = variantList(live);
-  const [sampleIndex, setSampleIndex] = useState(() => (variants.length ? Math.floor(Math.random() * variants.length) : 0));
-  const shuffle = useCallback(() => {
-    if (variants.length <= 1) return;
-    setSampleIndex((prev) => {
-      let next = prev;
-      while (next === prev) next = Math.floor(Math.random() * variants.length);
-      return next;
-    });
-  }, [variants.length]);
-
-  const sent = live.sentToday ?? 0;
-  const limit = Math.max(1, live.dailyLimit ?? 1);
-  const proximo = fmtWhen(live.nextScheduledAt);
-  const frioLiberaAs = cold?.nextAllowedColdAt ? fmtWhen(cold.nextAllowedColdAt) : null;
-
-  return (
-    <div className="hbx-veil" onClick={onClose} role="presentation">
-      <div className="hbx-modal disparo-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Regras de disparo">
-        <div className={`disparo-modal__head is-${tone}`}>
-          <span className="disparo-card__orb" aria-hidden="true" />
-          <strong>{STATUS_LABEL[live.status] || live.status}</strong>
-          <button type="button" className="round-btn disparo-modal__close" onClick={onClose} aria-label="Fechar">
-            <I d={ICONS.plus} size={14} />
-          </button>
-        </div>
-
-        <div className={`disparo-modal__next is-${tone}`}>
-          <span className="disparo-modal__next-label">Próximo</span>
-          <strong className="disparo-modal__next-name">{live.nextEligibleLeadName || "—"}</strong>
-          <span className="disparo-modal__next-when">{proximo || "—"}</span>
-        </div>
-
-        <div className="disparo-modal__rules">
-          <RuleRow icon={ICONS.clock} label="Ritmo" value={`~${campaign.intervalMinutes ?? "—"} min ±${campaign.intervalVarianceMinutes ?? 0}`} />
-          <RuleRow icon={ICONS.agenda} label="Janela" value={`${campaign.workingHoursStart || "—"}–${campaign.workingHoursEnd || "—"}`} />
-          <RuleRow icon={ICONS.send} label="Hoje" value={`${sent}/${limit}`} tone={sent >= limit ? "warn" : undefined} />
-          {cold && (
-            <RuleRow
-              icon={ICONS.users}
-              label="1º contato"
-              value={`${cold.sentToday}/${cold.maxPerDay} · ${cold.minSpacingMinutes} min entre${frioLiberaAs ? ` · libera ${frioLiberaAs}` : ""}`}
-              tone={cold.remainingToday === 0 ? "warn" : undefined}
-            />
-          )}
-          {cold && (
-            <RuleRow icon={ICONS.filter} label="Anti-carimbo" value={`≥${cold.similarityPct}% igual = bloqueia`} />
-          )}
-          <RuleRow
-            icon={ICONS.msg}
-            label="Mensagens"
-            value={variants.length > 0 ? `${variants.length} variantes · sorteio sem repetir` : "padrão do motor"}
-          />
-        </div>
-
-        {variants.length > 0 && (
-          <div className="disparo-modal__sample">
-            <div className="disparo-modal__sample-head">
-              <span>Sorteio do momento</span>
-              <button type="button" className="round-btn" onClick={shuffle} aria-label="Sortear outra mensagem">
-                <I d={ICONS.scrape} size={13} />
-              </button>
-            </div>
-            <p className="disparo-modal__sample-text">{variants[sampleIndex] || variants[0]}</p>
-          </div>
-        )}
-
-        {(live.lastError || cold?.lastBlock) && (
-          <div className="disparo-modal__error">
-            <span className="disparo-card__orb" aria-hidden="true" />
-            <span>{live.lastError || `Bloqueio: ${cold?.lastBlock?.reason}`}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  return live;
 }
 
 // ── Alerta de lead quente ────────────────────────────────────────────────────
@@ -282,42 +119,24 @@ function HotLeadToast({ hot, onOpen, onDismiss }: { hot: HotLead; onOpen: () => 
   );
 }
 
-// ── O slot dos disparos na barra lateral ─────────────────────────────────────
-//
-// LUGAR CERTO (dono, 31/07/2026): o cartão de Disparos aparece SÓ na tela de
-// Vendas — antes ele revezava com o cartão de Créditos em qualquer módulo, e o
-// dono cortou o revezamento ("Crédito é o último, sempre visível; Disparos só
-// em vendas"). Quem desenha o crédito é a Sidebar, logo abaixo deste slot.
-//
-// O componente continua montado em TODA tela mesmo sem mostrar cartão: é ele o
-// dono do ALERTA DE LEAD QUENTE (pulso + respiro de cor + aviso no topo), e
-// esse aviso só serve se chegar onde o vendedor estiver — nunca só no /vendas.
-
-export function DisparoSidebarSlot({ mostrarCartao }: { mostrarCartao: boolean }) {
+export function AlertaLeadQuente() {
   const router = useRouter();
-  const { live } = useDisparoLive();
-  const [modalOpen, setModalOpen] = useState(false);
+  const live = useDisparoLive();
   const [hot, setHot] = useState<HotLead | null>(null);
 
-  // S4 CORREÇÃO DO NOTURNO (B11): o painel deixou de depender de campanha rodando.
-  // O modo do dono é MANUAL — a cena Tagliágua (lead perguntou "como que funciona ?"
-  // e ninguém viu) aconteceu com campanha parada. Agora acende também quando existe
-  // disparo AGENDADO no futuro ou lead QUENTE esperando resposta.
-  const panelActive = Boolean(
-    live && (live.campaign?.status === "running" || (live.agendadosFuturos ?? 0) > 0 || live.hotLead),
-  );
-
   // Lead quente novo (mais recente que o último visto) → dispara o ritual:
-  // pulso no painel + respiro de cor no sistema inteiro (1s) + aviso no topo.
+  // respiro de cor no sistema inteiro (1s) + aviso no topo. Não depende de
+  // campanha rodando (correção S4/B11): o modo do dono é MANUAL, e a cena
+  // Tagliágua — lead perguntou "como que funciona ?" e ninguém viu — aconteceu
+  // com a campanha parada.
   // setState dentro do rAF (não no corpo do effect) — regra dura de lint do repo.
   useEffect(() => {
-    if (!panelActive) return;
     const candidate = live?.hotLead;
     if (!candidate?.leadId || !candidate.at) return;
     if (new Date(candidate.at).getTime() <= readHotSeen()) return;
     const id = requestAnimationFrame(() => setHot(candidate));
     return () => cancelAnimationFrame(id);
-  }, [panelActive, live?.hotLead?.at, live?.hotLead]);
+  }, [live?.hotLead?.at, live?.hotLead]);
 
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -346,17 +165,7 @@ export function DisparoSidebarSlot({ mostrarCartao }: { mostrarCartao: boolean }
     setHot(null);
   }, [hot]);
 
-  // Sem bot ativo NÃO existe cartão nenhum — e o alerta também não teria o que
-  // avisar. O slot vira nada e a barra fica com o crédito de sempre.
-  if (!panelActive || !live) return null;
+  if (!hot) return null;
 
-  return (
-    <>
-      {mostrarCartao ? (
-        <DisparoSidebarCard live={live} hotPulse={Boolean(hot)} onOpen={() => setModalOpen(true)} />
-      ) : null}
-      {modalOpen && <DisparoRulesModal live={live} onClose={() => setModalOpen(false)} />}
-      {hot && <HotLeadToast hot={hot} onOpen={openHotLead} onDismiss={dismissHot} />}
-    </>
-  );
+  return <HotLeadToast hot={hot} onOpen={openHotLead} onDismiss={dismissHot} />;
 }
