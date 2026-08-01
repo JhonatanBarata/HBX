@@ -1917,10 +1917,28 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   background: color-mix(in srgb, var(--hbx-brand-soft) 82%, var(--hbx-surface));
   box-shadow: var(--shadow-xs);
 }
-/* O funil é a navegação da tela: as 5 etapas têm que caber SEMPRE. Com o
-   piso de 0.8rem a fita passou a medir 817px numa caixa de 711px e a "05
-   Fechado" saía de vista atrás do scroll (31/07). Agora quem cede é o
-   RÓTULO — encolhe e corta com reticências —, nunca a etapa inteira. */
+/* O funil é a navegação da tela: as 5 etapas têm que caber SEMPRE.
+   (31/07) Com o piso de 0.8rem a fita mediu 817px numa caixa de 711px e a
+   "05 Fechado" saiu de vista atrás do scroll. A saída escolhida foi: quem
+   cede é o RÓTULO — encolhe e corta com reticências —, nunca a etapa.
+
+   (01/08) O fiscal de corte mediu o preço dessa saída: "Sem contato" recebia
+   45px para 59px de texto, e "Fechado" — SETE letras — recebia 17px para
+   41px. As cinco etapas cabiam em GEOMETRIA e morriam em SIGNIFICADO: o
+   vendedor via cinco caixas e não conseguia ler nenhuma, nem distinguir a 04
+   da 05 do próprio funil. 24 dos 101 defeitos do app saíam daqui.
+
+   A correção não é achar mais pixels — é aceitar que rótulo de navegação não
+   tem meia-vida. Ou se lê inteiro, ou não se mostra:
+
+     cabe   -> aparece inteiro, sem reticências (min-width: max-content)
+     aperta -> SOME, e a etapa fica sendo "05" + o contador
+
+   "05" com o número de leads é informação honesta e é o que o vendedor
+   consulta o dia todo; "Fecha…" é um enigma. Quem decide qual dos dois é a
+   largura REAL da fita (container query), não o palpite do viewport — a fita
+   encolhe quando o painel lateral do lead abre, e nenhuma media query
+   enxerga isso. */
 .vnd-stagetab {
   position: relative;
   z-index: 1;
@@ -1947,12 +1965,29 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  /* Lei 3 do hbx-system.css: dado que identifica não encurta. Sem
+     `min-width: max-content` o flex espreme o rótulo abaixo da palavra e as
+     reticências viram enfeite em cima de um texto ilegível. */
+  min-width: max-content;
+  flex: 0 0 auto;
   font-size: var(--hbx-font-min);
   font-weight: 720;
   line-height: 1.1;
+}
+
+/* A fita mede a si mesma para decidir se ainda cabe rótulo. */
+.vnd-stages {
+  container-type: inline-size;
+  container-name: vnd-stages;
+}
+
+/* Abaixo deste ponto os 5 rótulos + números não cabem sem mutilar. Medido:
+   a 1366 a fita fica com ~711px e precisaria de ~817px. O rótulo sai de cena
+   inteiro e a etapa passa a ser o número + o contador. */
+@container vnd-stages (max-width: 780px) {
+  .vnd-stagetab__l {
+    display: none;
+  }
 }
 .vnd-stagetab__step {
   display: inline-grid;

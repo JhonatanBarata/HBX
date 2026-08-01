@@ -546,12 +546,17 @@
   line-height: 1.1;
 }
 
+/* "ENTREGUES HOJE" precisa de 88px e a coluna 1fr dá 79. Com nowrap +
+   reticências virava "ENTREGUES HOJ…", que é rótulo mutilado num painel de
+   três números — e rótulo de indicador não tem meia-vida: ou diz o que o
+   número é, ou não serve. Ele passa a quebrar linha: duas linhas legíveis
+   valem mais que uma cortada, e o painel tem altura de sobra. */
 .log-instruments .log-resumo__lbl {
-  overflow: hidden;
   font-size: var(--hbx-font-min);
   letter-spacing: 0.02em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
 }
 
 .log-instruments .log-resumo__acts {

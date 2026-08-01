@@ -24,6 +24,10 @@
   .a-content .at-opsbar {
     display: flex;
     align-items: center;
+    /* A barra pode descer para uma segunda linha. Era linha única rígida, e
+       por isso cada bloco dela virava uma disputa por pixel — quem perdia
+       cortava o próprio rótulo. Com quebra, ninguém precisa perder. */
+    flex-wrap: wrap;
     gap: 5px;
     min-width: 0;
     min-height: 0;
@@ -32,13 +36,22 @@
     overflow: visible;
   }
 
+  /* HISTÓRICO QUE VALE A PENA LER ANTES DE MEXER AQUI:
+     este bloco já teve `min-width: 86px`, depois 104px, depois `max-width:
+     148px` — e o comentário que ficou registrava a medida exata: "CENTRAL
+     OPERACIONAL no piso de 0.8rem mede 131px + 10px de padding". Mesmo assim
+     o fiscal de 01/08 ainda mediu corte: caixa de 111px para 124px de texto.
+
+     O motivo de nunca acertar é que a medida não é constante. Ela depende da
+     régua de letra que o usuário escolhe no painel de tipografia (50% a 150%)
+     e do peso da fonte que a pele veste. Todo número fixo aqui é uma aposta
+     na palavra mais curta e na régua padrão — e uma hora as duas mudam.
+
+     `max-content` não aposta: mede. */
   .at-opsbar__identity {
     display: grid;
     gap: 0;
-    min-width: 86px;
-    /* "CENTRAL OPERACIONAL" no piso de 0.8rem mede 131px + 10px de padding;
-       em 104px ele cortava com reticências (piso, 31/07). */
-    max-width: 148px;
+    min-width: max-content;
     padding-inline: 3px 7px;
   }
 
@@ -98,9 +111,12 @@
     background: var(--hbx-brand-soft);
   }
 
+  /* Estado do chip é o dado mais crítico desta tela: "Desconectado" cortado
+     em "Desconecta…" é a diferença entre o vendedor saber e não saber que o
+     WhatsApp caiu. Lei 3 — nunca encurta. */
   .at-wa-signal > span:last-child {
     display: grid;
-    min-width: 0;
+    min-width: max-content;
   }
 
   .at-wa-signal small {
@@ -139,14 +155,25 @@
     display: flex;
     align-self: stretch;
     min-width: 0;
+    /* Se as métricas não couberem, a fita ROLA — ela não espreme os números.
+       Quem cede é o espaço, nunca o dado (Lei 3, hbx-system.css). */
+    overflow-x: auto;
+    scrollbar-width: none;
     border-left: 1px solid var(--border-hairline);
   }
+  .at-opsbar__metrics::-webkit-scrollbar { display: none; }
 
   .at-micro {
     display: grid;
     align-content: center;
     gap: 0;
-    min-width: 52px;
+    /* Era `min-width: 52px` — um chute que servia para "Abertas" e mentia para
+       "Conversões", que precisa de 67px. Piso em número fixo é aposta na
+       palavra mais curta: basta um rótulo novo, uma tradução ou o usuário
+       subir a letra no painel de tipografia para o chute virar corte.
+       `max-content` não chuta — mede. */
+    min-width: max-content;
+    flex: 0 0 auto;
     padding-inline: 7px;
     border-right: 1px solid var(--border-hairline);
   }
@@ -180,13 +207,15 @@
     max-width: 126px;
   }
 
+  /* "Todas as filas ▾" é rótulo de BOTÃO: promessa de ação. O usuário precisa
+     saber o que vai acontecer antes de clicar, então não encurta (Lei 3).
+     `height: 32px` fixo virou `min-height`: altura travada em px é a fonte
+     dos defeitos ESMAGADOS quando a régua de letra sobe. */
   .at-opsbar__controls .at-convs-control {
     min-height: 32px;
-    height: 32px;
+    flex: 0 0 auto;
     padding-inline: 7px;
     font-size: var(--hbx-font-min);
-    overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
   }
 
