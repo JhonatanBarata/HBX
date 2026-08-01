@@ -43,7 +43,11 @@ const NOMINATIM_REVERSE_URL = 'https://nominatim.openstreetmap.org/reverse';
 const NOMINATIM_SEARCH_URL = 'https://nominatim.openstreetmap.org/search';
 const BUSCA_CACHE_TTL_MS = 60 * 60 * 1000;
 const BUSCA_CACHE_MAX = 200;
-const BUSCA_LIMIT = 6;
+/** 01/08 — 6 era pouco pra uma lista que ainda vai ser ordenada por distância. */
+const BUSCA_LIMIT = 12;
+/** Busca é INTERATIVA (gente esperando na tela) e o Nominatim público às vezes enfileira.
+ *  2,5 s (teto do reverse) derrubava busca boa; aqui vale esperar um pouco mais. */
+const BUSCA_TIMEOUT_MS = 6000;
 const NOMINATIM_TIMEOUT_MS = 2500;
 // Nominatim exige UA identificável com contato — mesmo motivo de nucleo-geo.util.ts.
 const NOMINATIM_USER_AGENT = 'HBX-Logistica/1.0 (contato@hbxsystem.com.br)';
@@ -91,10 +95,25 @@ export interface BuscaGeoItem {
   distanciaM?: number;
 }
 
+/**
+ * 01/08 — o app precisa saber a DIFERENÇA entre "procurei e não existe" e "a busca não
+ * respondeu". Antes as duas viravam a mesma lista vazia, e a tela ficava em branco sem
+ * explicar nada — foi o que o dono chamou de "tá tudo bugado".
+ */
+export type BuscaGeoStatus = 'ok' | 'vazio' | 'indisponivel';
+
 interface BuscaCacheEntry {
   items: BuscaGeoItem[];
+  status: BuscaGeoStatus;
   expiresAt: number;
 }
+
+/** Resultado bom fica 1h em cache; resultado VAZIO fica pouco (o mapa muda, e sobretudo
+ *  o vazio costuma ser efeito de rate-limit, não de ausência real). */
+const BUSCA_CACHE_TTL_VAZIO_MS = 60 * 1000;
+/** Falha de rede/429 NÃO entra em cache — cachear falha por 1h era o bug que fazia um
+ *  termo "morrer" pro resto do dia depois de um único 429 do Nominatim. */
+const BUSCA_RETRY_BACKOFF_MS = 1200;
 
 @Injectable()
 export class LogisticaGeoService {
@@ -220,12 +239,15 @@ export class LogisticaGeoService {
    * (o app tem fallback client-side). Cache LRU por termo (1h) segura o
    * rate-limit de 1 req/s do Nominatim contra digitação repetida.
    */
-  async busca(qRaw: unknown, latRaw?: unknown, lngRaw?: unknown): Promise<{ items: BuscaGeoItem[] }> {
+  async busca(
+    qRaw: unknown,
+    latRaw?: unknown,
+    lngRaw?: unknown,
+  ): Promise<{ items: BuscaGeoItem[]; status: BuscaGeoStatus }> {
     const qOriginal = String(qRaw ?? '').trim().slice(0, 120);
     if (qOriginal.length < 3) throw new BadRequestException('Digite pelo menos 3 letras.');
-    if (!this.networkEnabled()) return { items: [] };
+    if (!this.networkEnabled()) return { items: [], status: 'indisponivel' };
 
-    const buscaProxima = /\b(perto de mim|pr[oó]xim[oa]s?)\b/i.test(qOriginal);
     const q = this.normalizarConsultaProxima(qOriginal);
     const lat = Number(latRaw);
     const lng = Number(lngRaw);
@@ -233,23 +255,41 @@ export class LogisticaGeoService {
       Number.isFinite(lat) && Math.abs(lat) <= 90 && Number.isFinite(lng) && Math.abs(lng) <= 180
         ? { lat, lng }
         : null;
-    const key = `${q.toLowerCase()}|${centro ? `${centro.lat.toFixed(2)},${centro.lng.toFixed(2)}` : ''}|${buscaProxima ? 'perto' : ''}`;
+    const key = `${q.toLowerCase()}|${centro ? `${centro.lat.toFixed(2)},${centro.lng.toFixed(2)}` : ''}`;
     const now = Date.now();
     const cached = this.buscaCache.get(key);
     if (cached && cached.expiresAt > now) {
       this.buscaCache.delete(key);
       this.buscaCache.set(key, cached);
-      return { items: cached.items.map((item) => ({ ...item })) };
+      return { items: cached.items.map((item) => ({ ...item })), status: cached.status };
     }
 
-    const items = await this.buscarViaNominatim(q, centro, buscaProxima);
-    this.buscaCache.set(key, { items, expiresAt: now + BUSCA_CACHE_TTL_MS });
-    while (this.buscaCache.size > BUSCA_CACHE_MAX) {
-      const oldest = this.buscaCache.keys().next().value;
-      if (oldest === undefined) break;
-      this.buscaCache.delete(oldest);
+    /**
+     * 🔴 01/08 — PERTO É O PADRÃO, não um comando.
+     *
+     * Antes, o raio só apertava quando o texto continha literalmente "perto de mim" /
+     * "próximo" — digitar "padaria" procurava numa caixa de ~20 km. Se o aparelho sabe
+     * onde a pessoa está, a primeira tentativa é SEMPRE colada nela; só quando isso não
+     * devolve nada é que a busca se abre. Duas idas no máximo, pra respeitar o teto de
+     * 1 req/s do Nominatim.
+     */
+    let resultado = await this.buscarViaNominatim(q, centro, centro ? 'perto' : 'livre');
+    if (resultado.status === 'vazio' && centro) {
+      resultado = await this.buscarViaNominatim(q, centro, 'livre');
     }
-    return { items: items.map((item) => ({ ...item })) };
+
+    // Falha de REDE nunca entra no cache: cachear `[]` por 1h fazia um único 429 do
+    // Nominatim (trivial enquanto se digita) matar aquele termo pelo resto do dia.
+    if (resultado.status !== 'indisponivel') {
+      const ttl = resultado.status === 'ok' ? BUSCA_CACHE_TTL_MS : BUSCA_CACHE_TTL_VAZIO_MS;
+      this.buscaCache.set(key, { items: resultado.items, status: resultado.status, expiresAt: now + ttl });
+      while (this.buscaCache.size > BUSCA_CACHE_MAX) {
+        const oldest = this.buscaCache.keys().next().value;
+        if (oldest === undefined) break;
+        this.buscaCache.delete(oldest);
+      }
+    }
+    return { items: resultado.items.map((item) => ({ ...item })), status: resultado.status };
   }
 
   private normalizarConsultaProxima(q: string): string {
@@ -275,8 +315,9 @@ export class LogisticaGeoService {
   private async buscarViaNominatim(
     q: string,
     centro: { lat: number; lng: number } | null,
-    buscaProxima: boolean,
-  ): Promise<BuscaGeoItem[]> {
+    alcanceModo: 'perto' | 'livre',
+    jaTentouDeNovo = false,
+  ): Promise<{ items: BuscaGeoItem[]; status: BuscaGeoStatus }> {
     try {
       const params = new URLSearchParams({
         format: 'jsonv2',
@@ -287,22 +328,31 @@ export class LogisticaGeoService {
         q,
       });
       if (centro) {
-        const alcance = buscaProxima ? 0.07 : 0.18;
+        const alcance = alcanceModo === 'perto' ? 0.07 : 0.18;
         params.set(
           'viewbox',
           `${centro.lng - alcance},${centro.lat + alcance},${centro.lng + alcance},${centro.lat - alcance}`,
         );
-        if (buscaProxima) params.set('bounded', '1');
+        if (alcanceModo === 'perto') params.set('bounded', '1');
       }
       const url = `${NOMINATIM_SEARCH_URL}?${params.toString()}`;
       const res = await fetch(url, {
         headers: { 'User-Agent': NOMINATIM_USER_AGENT, Accept: 'application/json' },
-        signal: AbortSignal.timeout(NOMINATIM_TIMEOUT_MS),
+        signal: AbortSignal.timeout(BUSCA_TIMEOUT_MS),
       });
-      if (!res.ok) return [];
+      if (!res.ok) {
+        // 429 é o caso COMUM (o Nominatim público aceita 1 req/s e a pessoa está
+        // digitando): uma segunda chance depois do respiro resolve a maioria.
+        if ((res.status === 429 || res.status >= 500) && !jaTentouDeNovo) {
+          await new Promise((r) => setTimeout(r, BUSCA_RETRY_BACKOFF_MS));
+          return this.buscarViaNominatim(q, centro, alcanceModo, true);
+        }
+        this.logger.debug(`[logistica] geo/busca HTTP ${res.status} (q="${q}")`);
+        return { items: [], status: 'indisponivel' };
+      }
       const rows = (await res.json()) as Array<Record<string, unknown>>;
-      if (!Array.isArray(rows)) return [];
-      return rows
+      if (!Array.isArray(rows)) return { items: [], status: 'indisponivel' };
+      const items = rows
         .map((row) => {
           const lat = Number(row?.lat);
           const lng = Number(row?.lon);
@@ -324,9 +374,15 @@ export class LogisticaGeoService {
         .sort((a, b) =>
           centro ? Number(a.distanciaM ?? Number.MAX_SAFE_INTEGER) - Number(b.distanciaM ?? Number.MAX_SAFE_INTEGER) : 0,
         );
+      return { items, status: items.length ? 'ok' : 'vazio' };
     } catch (e: any) {
-      this.logger.debug(`[logistica] geo/busca falhou (degradando p/ vazio): ${String(e?.message || e)}`);
-      return [];
+      // Timeout costuma ser fila do Nominatim, não ausência de resposta pra sempre.
+      if (!jaTentouDeNovo) {
+        await new Promise((r) => setTimeout(r, BUSCA_RETRY_BACKOFF_MS));
+        return this.buscarViaNominatim(q, centro, alcanceModo, true);
+      }
+      this.logger.debug(`[logistica] geo/busca falhou (degradando p/ indisponivel): ${String(e?.message || e)}`);
+      return { items: [], status: 'indisponivel' };
     }
   }
 

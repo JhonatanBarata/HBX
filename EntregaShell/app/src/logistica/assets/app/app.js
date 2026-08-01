@@ -6010,9 +6010,12 @@
           : duplicado
             ? `<div class="hbx-aviso hbx-aviso--warn">Já cadastrado: ${H.escape(nomeDaConta(duplicado))}</div>`
             : res
-              ? localizado
-                ? `<div class="hbx-aviso hbx-aviso--ok">Endereço localizado${resumo ? `: ${H.escape(resumo)}` : ""}</div>`
-                : `<div class="hbx-aviso hbx-aviso--warn">Endereço anotado${resumo ? `: ${H.escape(resumo)}` : ""}</div>`
+              ? r.aviso
+                // Pino APROXIMADO (endereço sem número): nunca se vende como localizado.
+                ? `<div class="hbx-aviso hbx-aviso--warn">${H.escape(r.aviso)}</div>`
+                : localizado
+                  ? `<div class="hbx-aviso hbx-aviso--ok">Endereço localizado${resumo ? `: ${H.escape(resumo)}` : ""}</div>`
+                  : `<div class="hbx-aviso hbx-aviso--warn">Endereço anotado${resumo ? `: ${H.escape(resumo)}` : ""}</div>`
               : "";
     const pronto = !!res;
     // 28/07 (dono, item 4) — na tela Rota o "+" é a MESMA Rota rápida, com uma
@@ -6110,7 +6113,7 @@
     if (!r || r.buscando) return;
     const texto = String(r.busca != null ? r.busca : "").trim();
     if (!texto) { r.erro = "Escreva o endereço, o CEP com número, ou cole a localização."; r.resolvido = null; render(); return; }
-    r.buscando = true; r.erro = ""; r.duplicado = null; r.opcoes = null; render();
+    r.buscando = true; r.erro = ""; r.aviso = ""; r.duplicado = null; r.opcoes = null; render();
     try {
       const temLink = /https?:\/\//i.test(texto);
       const temPar = PAR_COORDENADA_COLADA.test(texto);
@@ -6131,8 +6134,22 @@
           r.origem = "cep"; r.cep = cepNumero.cep; r.numero = cepNumero.numero; r.resolvido = res;
         } else { r.resolvido = null; r.erro = "Não encontrei este endereço. Confira o CEP e o número."; }
       } else if (cepNumero) {
-        r.resolvido = null;
-        r.erro = "Falta o número da casa.";
+        // 🔴 01/08 — CEP SEM NÚMERO deixou de ser erro. Metade do país é S/N (posto,
+        // chácara, praça, comércio, estrada) e antes isto travava o motorista na rua com
+        // "Falta o número da casa" num lugar que não tem número. O servidor devolve o
+        // ponto do TRECHO (precisao "cep"); a tela avisa que é aproximado e quem confirma
+        // é a pessoa, olhando o mapa.
+        const res = await H.api(`/logistica/geo/cep?cep=${encodeURIComponent(cepNumero.cep)}`);
+        if (res && validCoordinates(Number(res.lat), Number(res.lng))) {
+          r.origem = "cep"; r.cep = cepNumero.cep; r.numero = ""; r.resolvido = res;
+          r.aviso = "Sem número: o ponto é da rua. Confira no mapa antes de salvar.";
+        } else if (res && (res.endereco || res.cidade)) {
+          r.resolvido = null;
+          r.erro = `${res.endereco || "Esta rua"} — não consegui achar o ponto exato. Informe o número, se houver.`;
+        } else {
+          r.resolvido = null;
+          r.erro = "Não encontrei este CEP. Confira, ou escreva o endereço.";
+        }
       } else {
         // Endereço escrito: devolve opções e QUEM ESCOLHE é ele — endereço parecido
         // demais pra máquina escolher sozinha é como se planta parada no lugar errado.
@@ -9778,7 +9795,7 @@
       // 31/07 — o campo único (busca) segue a MESMA lei: mexeu no que define o
       // lugar, o achado anterior morre (senão o botão adiciona outra parada).
       if ((event.target.name === "cep" || event.target.name === "numero" || event.target.name === "busca") && (r.resolvido || r.duplicado || r.erro || r.opcoes)) {
-        r.resolvido = null; r.duplicado = null; r.erro = ""; r.opcoes = null;
+        r.resolvido = null; r.duplicado = null; r.erro = ""; r.aviso = ""; r.opcoes = null;
         if (event.target.name === "busca") { r.origem = "cep"; r.lat = null; r.lng = null; }
         render();
       }
@@ -10472,35 +10489,44 @@
     state.passeioBusca = { q, rotulo: q, items: [], loading: true, recolhida: false };
     state.passeioOrdemAberta = false;
     render();
-    const posicao = proxima ? await passeioPosicaoParaBusca() : passeioPos;
-    if (proxima && !posicao) {
-      state.passeioBusca = { q, rotulo: q, items: [], loading: false, recolhida: false };
-      toast("Ative a localização para buscar perto de você.", true);
-      return;
-    }
+    // 🔴 01/08 — PERTO É O PADRÃO. Antes só se buscava a posição do aparelho quando o
+    // texto continha "perto de mim"; sem a frase mágica a busca saía do CENTRO DO MAPA,
+    // que é onde o dedo largou o mapa — não onde a pessoa está. Agora sempre tenta a
+    // posição real (e segue sem ela se o GPS estiver desligado, em vez de barrar).
+    const posicao = (await passeioPosicaoParaBusca()) || passeioPos;
     let items = [];
+    let status = "";
     try {
       const geo = posicao && validCoordinates(posicao.lat, posicao.lng)
         ? `&lat=${encodeURIComponent(posicao.lat)}&lng=${encodeURIComponent(posicao.lng)}`
         : "";
       const payload = await H.api(`/logistica/geo/busca?q=${encodeURIComponent(q)}${geo}`);
       items = Array.isArray(payload && payload.items) ? payload.items : [];
-    } catch (_) { items = []; }
+      status = String(payload && payload.status || "");
+    } catch (_) { items = []; status = "indisponivel"; }
     if (!items.length) {
       // Ponte: backend antigo (404 na allowlist/rota) ou flag OFF → Nominatim
       // direto do aparelho, mesmo precedente do lookupClientCep da ficha.
       try { items = await passeioBuscaNominatimDireto(q, posicao, proxima); } catch (_) { items = []; }
     }
     state.passeioBusca = { q, rotulo: q, items, loading: false, recolhida: false };
-    if (!items.length) toast("Nada encontrado.", true);
+    // "não existe" e "não respondeu" são coisas diferentes — dizer "Nada encontrado"
+    // pras duas foi o que fez a tela parecer quebrada.
+    if (!items.length) {
+      if (status === "indisponivel") toast("A busca não respondeu. Tente de novo em alguns segundos.", true);
+      else if (!posicao) toast("Nada encontrado. Ligue a localização pra buscar perto de você.", true);
+      else toast("Nada encontrado por perto.", true);
+    }
     render();
   }
   async function passeioBuscaNominatimDireto(q, posicao, proxima) {
-    const params = new URLSearchParams({ format: "jsonv2", addressdetails: "1", countrycodes: "br", limit: "6", "accept-language": "pt-BR", q: passeioConsultaBusca(q) });
+    const params = new URLSearchParams({ format: "jsonv2", addressdetails: "1", countrycodes: "br", limit: "12", "accept-language": "pt-BR", q: passeioConsultaBusca(q) });
     if (posicao && validCoordinates(posicao.lat, posicao.lng)) {
+      // 01/08 — mesma regra do servidor: com posição conhecida, a caixa fica colada na
+      // pessoa. `proxima` só abre um pouco mais quando ela NÃO pediu "perto de mim".
       const alcance = proxima ? .07 : .18;
       params.set("viewbox", `${posicao.lng - alcance},${posicao.lat + alcance},${posicao.lng + alcance},${posicao.lat - alcance}`);
-      if (proxima) params.set("bounded", "1");
+      params.set("bounded", proxima ? "1" : "0");
     }
     const res = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, { headers: { Accept: "application/json" } });
     if (!res.ok) throw new Error("busca indisponível");
