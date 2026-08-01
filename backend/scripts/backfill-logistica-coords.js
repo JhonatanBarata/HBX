@@ -30,6 +30,10 @@ process.env.HBX_GEO_SERVER_ENABLED = 'true';
 
 const { PrismaClient } = require('@prisma/client');
 const { resolveServerGeo } = require('../dist/nucleo/nucleo-geo.util');
+// 01/08 — via limpa + número separados (mesma preparação do cadastro) e o pino de CEP
+// pro endereço sem número. Ver o comentário em maybeResolveServerGeo.
+const { extrairNumeroPorta, resolverCnefeCep } = require('../dist/nucleo/cnefe-resolver.util');
+const { logradouroDoCadastro } = require('../dist/logistica/logistica-cep.util');
 
 const prisma = new PrismaClient();
 
@@ -92,8 +96,7 @@ async function main() {
 
   const summary = {
     varridos: clientes.length,
-    viaGeocode: 0,
-    viaCidade: 0,
+    porFonte: {},
     semEndereco: 0,
     semMatch: 0,
     erro: 0,
@@ -110,9 +113,16 @@ async function main() {
     if (cliente.lat != null && cliente.lng != null) continue;
 
     const label = `cliente=${cliente.id} company=${cliente.companyId} nome="${cliente.name || ''}"`;
+    // 🔴 01/08 — MESMA preparação de `maybeResolveServerGeo`: o cadastro tem UM campo de
+    // endereço, então o que está gravado é blob ("Jd. Progresso, Av. M55, nº 2101, 2101 -
+    // Jd. Progresso", metade começando pelo BAIRRO). Mandar o blob cru faz a régua de via
+    // reprovar candidato certo. Aqui vai a VIA limpa e o NÚMERO separado, como o resolver
+    // sempre esperou.
+    const via = logradouroDoCadastro(cliente.endereco) || cliente.endereco;
+    const numeroPorta = extrairNumeroPorta({ numero: cliente.numero, endereco: cliente.endereco });
     const enderecoInput = {
-      endereco: cliente.endereco,
-      numero: cliente.numero,
+      endereco: via,
+      numero: numeroPorta == null ? null : String(numeroPorta),
       bairro: cliente.bairro,
       cidade: cliente.cidade,
       uf: cliente.uf,
@@ -128,13 +138,20 @@ async function main() {
     }
 
     try {
-      const resolved = await resolveServerGeo(enderecoInput);
+      let resolved = await resolveServerGeo(enderecoInput);
+      // SEM NÚMERO (01/08) — endereço S/N com CEP ganha o pino do TRECHO, marcado como
+      // aproximado (`cnefe_cep`). A primeira entrega com GPS real sobrescreve.
+      if (!resolved && numeroPorta == null && cliente.cep) {
+        const porCep = await resolverCnefeCep({ cep: cliente.cep, endereco: via, uf: cliente.uf });
+        if (porCep) resolved = { lat: porCep.lat, lng: porCep.lng, geoFonte: 'cnefe_cep' };
+      }
       if (!resolved) {
         summary.semMatch += 1;
         console.log(`[backfill-logistica-coords] nenhum match (Nominatim e cidade) — ${label}`);
       } else {
-        if (resolved.geoFonte === 'geocode') summary.viaGeocode += 1;
-        else summary.viaCidade += 1;
+        // Conta por FONTE de verdade (o rótulo antigo dizia "via_cidade" pra tudo que não
+        // fosse Nominatim — e engolia os acertos do CNEFE no mesmo balde).
+        summary.porFonte[resolved.geoFonte] = (summary.porFonte[resolved.geoFonte] || 0) + 1;
         console.log(
           `[backfill-logistica-coords] resolvido fonte=${resolved.geoFonte} ` +
           `lat=${resolved.lat} lng=${resolved.lng} — ${label}`,
@@ -159,10 +176,14 @@ async function main() {
     }
   }
 
+  const fontes = Object.entries(summary.porFonte)
+    .sort((a, b) => b[1] - a[1])
+    .map(([fonte, n]) => `${fonte}=${n}`)
+    .join(' ') || 'nenhum';
+  const curados = Object.values(summary.porFonte).reduce((soma, n) => soma + n, 0);
   console.log(
-    `[backfill-logistica-coords] fim — varridos=${summary.varridos} ` +
-    `via_geocode=${summary.viaGeocode} via_cidade=${summary.viaCidade} ` +
-    `sem_endereco=${summary.semEndereco} sem_match=${summary.semMatch} erro=${summary.erro}`,
+    `[backfill-logistica-coords] fim — varridos=${summary.varridos} curados=${curados} ` +
+    `(${fontes}) sem_endereco=${summary.semEndereco} sem_match=${summary.semMatch} erro=${summary.erro}`,
   );
 }
 
