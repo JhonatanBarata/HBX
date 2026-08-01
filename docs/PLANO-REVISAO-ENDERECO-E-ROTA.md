@@ -127,6 +127,26 @@ A regra está certa (é ela que protege a cobrança); o que falta é **a saída*
 
 ---
 
+---
+
+## O QUE JÁ ESTÁ EM PRODUÇÃO (01/08)
+
+| commit | o quê | prova |
+|---|---|---|
+| `3ccc8521` | cast do CEP + endereço sem número + via limpa no cadastro | resolver rodado no container: **105 ms** (era timeout de 4 s) |
+| `7cf32715` | backfill manda via limpa + número, e cura o sem-número | **94 → 64** clientes sem mapa na empresa 48 |
+| `b15bba5c` | busca do Modo Viagem + "sem número" na Rota rápida (APK novo) | `padaria` 347 ms/5 itens · `atacadao` 802 m · `farmacia` 12 itens, tudo ordenado por distância |
+
+**Os 64 que sobraram não são bug:** 50 não têm CEP no cadastro, e parte do resto cai em
+buraco do Censo — conferi `Av. M 55`, `Av. M 47` e `Rua 19` (Jd. Progresso / Recanto
+Paraíso): o ViaCEP conhece, o CNEFE **não tem nenhuma delas em Rio Claro**. Para esses o
+caminho é o pino na mão (F1.3) e o GPS da primeira entrega, que o sistema já grava.
+
+⬜ **Decisão do dono:** rodar o backfill nas empresas **39** (204 de 206 sem mapa) e
+**41** (109 de 230) — mesmo bug, dado ainda velho.
+
+---
+
 ## ORDEM DE ATAQUE (o que vale mais por hora de trabalho)
 
 1. **F2.1 + F2.2** — "sem número" para de travar motorista. É o menor conserto com o maior alívio.
