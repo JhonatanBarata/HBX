@@ -4,6 +4,10 @@ import { hasNumericCoord, resolveServerGeo } from './nucleo-geo.util';
 import { normalizeSearch } from './nucleo-search.util';
 // 🔴 28/07 (dono) — régua de "mesma porta" do anti-duplicata de endereço.
 import { mesmaPorta, numeroDaPorta, PortaCadastro } from './endereco-porta.util';
+// 🔴 01/08 — via limpa + número separados do campo único de endereço (ver
+// maybeResolveServerGeo); e o pino de CEP pro endereço SEM número.
+import { extrairNumeroPorta, resolverCnefeCep } from './cnefe-resolver.util';
+import { logradouroDoCadastro } from '../logistica/logistica-cep.util';
 import { decidirGeoFonteCadastro } from '../logistica/logistica-geo-fonte.util';
 
 /**
@@ -1493,18 +1497,52 @@ export class NucleoCadastroService {
       cep?: string | null;
     },
     existing: GeoRecord | null,
-  ): Promise<{ lat: number; lng: number; geoFonte: 'geocode' | 'cnefe' } | null> {
+  ): Promise<{ lat: number; lng: number; geoFonte: 'geocode' | 'cnefe' | 'cnefe_cep' } | null> {
     if (existing && (hasNumericCoord(existing.lat, existing.lng) || existing.geoFonte === 'gps_cadastro')) {
       return null; // já tem pino (qualquer fonte) OU é pino humano protegido — nunca mexe
     }
-    return resolveServerGeo({
-      endereco: input.endereco ?? existing?.endereco,
-      numero: input.numero ?? existing?.numero,
+
+    const enderecoBruto = input.endereco ?? existing?.endereco ?? null;
+    const numeroColuna = input.numero ?? existing?.numero ?? null;
+    const cep = input.cep ?? existing?.cep ?? null;
+    const uf = input.uf ?? existing?.uf ?? null;
+
+    /**
+     * 🔴 01/08 (teste de rota ao vivo) — o cadastro TEM um campo de endereço só
+     * ("Rua, número, bairro"), então o que chega aqui é blob: "Avenida Ápia, 150,
+     * Jardim Paulista". O resolver comparava esse blob INTEIRO contra o logradouro do
+     * CNEFE ("AVENIDA APIA") e a régua de via reprovava — resultado medido em prod: o
+     * cliente nascia sem pino, a rota entrava por texto e o km/ETA saíam errados.
+     *
+     * A correção não é afrouxar a régua (pino errado segue pior que pino vazio): é
+     * entregar pra ela o que ela sempre esperou — a VIA limpa e o NÚMERO separado —
+     * usando os mesmos extratores que o resto do sistema já usa pra decidir "mesma
+     * porta" (`logradouroDoCadastro` + `extrairNumeroPorta`).
+     */
+    const via = logradouroDoCadastro(enderecoBruto) || enderecoBruto;
+    const numeroPorta = extrairNumeroPorta({ numero: numeroColuna, endereco: enderecoBruto });
+
+    const preciso = await resolveServerGeo({
+      endereco: via,
+      numero: numeroPorta == null ? null : String(numeroPorta),
       bairro: input.bairro ?? existing?.bairro,
       cidade: input.cidade ?? existing?.cidade,
-      uf: input.uf ?? existing?.uf,
-      cep: input.cep ?? existing?.cep,
+      uf,
+      cep,
     });
+    if (preciso) return preciso;
+
+    /**
+     * SEM NÚMERO — endereço S/N (posto, chácara, praça, comércio, estrada) nunca teve
+     * pino nenhum porque todo o caminho exigia número. Aqui ele ganha o ponto do TRECHO
+     * do CEP, gravado com fonte PRÓPRIA (`cnefe_cep`) justamente pra tela poder dizer
+     * "confira no mapa" — e pra primeira entrega com GPS real sobrescrever sem dó.
+     */
+    if (numeroPorta == null && cep) {
+      const porCep = await resolverCnefeCep({ cep, endereco: via, uf });
+      if (porCep) return { lat: porCep.lat, lng: porCep.lng, geoFonte: 'cnefe_cep' };
+    }
+    return null;
   }
 
   /**

@@ -34,6 +34,19 @@ const UFS_VALIDAS = new Set([
 export const CNEFE_DISPERSAO_PORTA_M = 250;
 /** Dispersão máxima (m) dos vizinhos de número no fallback de RUA. */
 export const CNEFE_DISPERSAO_RUA_M = 400;
+/**
+ * SEM NÚMERO (01/08, teste de rota ao vivo) — dispersão máxima (m) do pino de CEP.
+ *
+ * Teto FOLGADO de propósito, e isso não afrouxa a Lei nº1: aqui o pino já sai
+ * ROTULADO `precisao:'cep'` ("é nesta rua, confira na tela"), então o erro que ele
+ * pode cometer é o erro que o chamador foi avisado que existe — diferente do pino de
+ * porta, que se apresenta como exato. O que este teto ainda mata é o caso que importa:
+ * cidade de CEP ÚNICO, onde as linhas se espalham por QUILÔMETROS e o "meio" não fica
+ * em rua nenhuma. Avenida longa (o caso real do dono) cabe; cidade inteira não.
+ */
+export const CNEFE_DISPERSAO_CEP_M = 1500;
+/** Teto de linhas lidas pro pino de CEP (o medoide é O(n²) — amostra basta). */
+export const CNEFE_CEP_LIMITE_LINHAS = 200;
 /** Diferença máxima de numeração pro vizinho ainda contar como "mesma altura da rua". */
 export const CNEFE_VIZINHO_DELTA_MAX = 200;
 /** Teto de tempo por consulta — a conferência nunca fica lenta por causa do CNEFE.
@@ -56,7 +69,10 @@ export interface CnefeInput {
 export interface CnefePino {
   lat: number;
   lng: number;
-  precisao: 'porta' | 'rua';
+  /** `porta` = a casa · `rua` = a altura da rua (vizinho de número) · `cep` = o trecho
+   *  de rua do CEP, sem número nenhum (endereço S/N). Quem exibe TEM que diferenciar:
+   *  `cep` é ponto de conferência, não endereço provado. */
+  precisao: 'porta' | 'rua' | 'cep';
   logradouro: string | null;
   municipio: string | null;
 }
@@ -296,6 +312,34 @@ export function escolherPinoRua(rows: CnefeRow[], numeroPedido: number, input: C
   return { lat: vizinho.lat as number, lng: vizinho.lng as number, precisao: 'rua', logradouro: vizinho.logradouro ?? null, municipio: vizinho.municipio ?? null };
 }
 
+/**
+ * CEP — endereço SEM NÚMERO (01/08). Metade do país é S/N (posto, chácara, praça,
+ * comércio, estrada) e até hoje esse endereço não tinha pino nenhum: o resolver exigia
+ * número e devolvia null, e a tela cuspia "Falta o número da casa" num lugar que não
+ * tem número. Aqui o pino sai do PRÓPRIO CEP — o CNEFE já guarda a linha do trecho
+ * (inclusive com `numero` NULL) — e sai rotulado `precisao:'cep'`.
+ *
+ * Continua fail-closed no que importa: cadastro COM logradouro e nenhuma via compatível
+ * → null (mesma régua do porta/rua); linhas espalhadas além do teto → null (CEP de
+ * cidade inteira não vira pino). Puro e testável: quem lê o banco é `resolverCnefeCep`.
+ */
+export function escolherPinoCep(rows: CnefeRow[], input: CnefeInput): CnefePino | null {
+  let candidatos = (Array.isArray(rows) ? rows : []).filter(coordValida);
+  if (!candidatos.length) return null;
+
+  const viaPedida = String(input.endereco ?? '').trim();
+  if (viaPedida) {
+    const compativeis = candidatos.filter((r) => viasCompativeisCnefe(viaPedida, r.logradouro));
+    if (!compativeis.length) return null;
+    candidatos = compativeis;
+  }
+
+  const centro = medoide(candidatos as Array<CnefeRow & { lat: number; lng: number }>);
+  if (!dispersaoOk(candidatos as Array<{ lat: number; lng: number }>, centro, CNEFE_DISPERSAO_CEP_M)) return null;
+
+  return { lat: centro.lat as number, lng: centro.lng as number, precisao: 'cep', logradouro: centro.logradouro ?? null, municipio: centro.municipio ?? null };
+}
+
 // ── acesso ao banco (lazy, best-effort, com cooldown de falha) ───────────────────
 
 function cnefeHabilitado(): boolean {
@@ -316,6 +360,26 @@ function cnefeDatabaseUrl(): string | null {
     return null;
   }
 }
+
+/**
+ * 🔴 01/08 — O CAST QUE FAZIA A BASE INTEIRA SER INÚTIL.
+ *
+ * `cnefe_endereco.cep` é `character(8)` (bpchar). O Prisma manda parâmetro como TEXT,
+ * e `bpchar = text` faz o Postgres converter a COLUNA — o que joga fora
+ * `idx_cnefe_end_cep`/`idx_cnefe_end_cep_numero` e vira Parallel Seq Scan nas 23 milhões
+ * de linhas. Medido em produção, a MESMA consulta:
+ *
+ *   `cep = $1`          → Parallel Seq Scan · **18.832 ms** (estourava o teto de 4 s
+ *                          e o resolver devolvia null, calado, em TODA resolução)
+ *   `cep = $1::bpchar`  → Bitmap Index Scan · **0,285 ms**
+ *
+ * Ou seja: desde a carga da base (27/07) o CNEFE nunca respondeu a tempo — o log só
+ * dizia "consulta estourou 4000ms" e o cadastro seguia sem pino. Era ISSO que enchia o
+ * contador "SEM MAPA" e fazia a rota entrar por texto com km e ETA errados.
+ *
+ * O cast é obrigatório em TODA comparação de `cep` daqui. Não remover.
+ */
+const CEP_PARAM = '$1::bpchar';
 
 type CnefeQueryFn = (sql: string, params: unknown[]) => Promise<any[]>;
 
@@ -423,7 +487,7 @@ export async function resolverCnefe(
 
     const porta = (await cnefeQuery(
       'SELECT logradouro, numero, lat, lng, nivel_geo, municipio FROM cnefe_endereco ' +
-        'WHERE cep = $1 AND numero = $2 AND lat IS NOT NULL AND lng IS NOT NULL LIMIT 200',
+        `WHERE cep = ${CEP_PARAM} AND numero = $2 AND lat IS NOT NULL AND lng IS NOT NULL LIMIT 200`,
       [cep, numero],
       timeoutMs,
     )) as CnefeRow[];
@@ -434,7 +498,7 @@ export async function resolverCnefe(
     if (!String(input.endereco ?? '').trim()) return null;
     const rua = (await cnefeQuery(
       'SELECT logradouro, numero, lat, lng, nivel_geo, municipio FROM cnefe_endereco ' +
-        'WHERE cep = $1 AND numero IS NOT NULL AND lat IS NOT NULL AND lng IS NOT NULL ' +
+        `WHERE cep = ${CEP_PARAM} AND numero IS NOT NULL AND lat IS NOT NULL AND lng IS NOT NULL ` +
         'ORDER BY ABS(numero - $2) ASC LIMIT 40',
       [cep, numero],
       timeoutMs,
@@ -442,6 +506,47 @@ export async function resolverCnefe(
     return escolherPinoRua(rua, numero, input);
   } catch {
     // banco fora/cooldown/URL inválida — silêncio (o Nominatim continua cobrindo).
+    return null;
+  }
+}
+
+/**
+ * Resolve CEP → pino do TRECHO DE RUA, sem número (01/08). Mesmo contrato best-effort
+ * do `resolverCnefe`: nunca lança, UF sem carga marca pendente e devolve null.
+ *
+ * NÃO substitui o `resolverCnefe`: é o caminho de quem não TEM número (S/N). Quem tem
+ * número continua entrando pela porta e só cai aqui se o CEP inteiro não resolver.
+ */
+export async function resolverCnefeCep(
+  input: CnefeInput,
+  opts?: { queryTimeoutMs?: number },
+): Promise<CnefePino | null> {
+  if (!cnefeHabilitado()) return null;
+  const cep = normalizarCep8(input.cep);
+  if (!cep) return null;
+  if (!queryOverride && !cnefeDatabaseUrl()) return null;
+  const timeoutMs = opts?.queryTimeoutMs ?? CNEFE_QUERY_TIMEOUT_MS;
+
+  try {
+    const uf = String(input.uf ?? '').trim().toUpperCase();
+    if (UFS_VALIDAS.has(uf)) {
+      const status = await statusDaUf(uf);
+      if (status !== 'carregada') {
+        if (status === null) await marcarUfPendente(uf);
+        return null;
+      }
+    }
+
+    // Sem filtro de `numero`: a linha do trecho (numero NULL) entra junto com as portas,
+    // e o medoide escolhe um ponto que EXISTE — nunca uma média no meio do nada.
+    const linhas = (await cnefeQuery(
+      'SELECT logradouro, numero, lat, lng, nivel_geo, municipio FROM cnefe_endereco ' +
+        `WHERE cep = ${CEP_PARAM} AND lat IS NOT NULL AND lng IS NOT NULL LIMIT ${CNEFE_CEP_LIMITE_LINHAS}`,
+      [cep],
+      timeoutMs,
+    )) as CnefeRow[];
+    return escolherPinoCep(linhas, input);
+  } catch {
     return null;
   }
 }
@@ -478,7 +583,9 @@ export async function resolverCnefeLote(
       }
     }
     // Placeholders GERADOS (nunca valor interpolado): os CEPs seguem como parâmetro.
-    const marcadores = alvos.map((_, i) => `$${i + 1}`).join(',');
+    // `::bpchar` em cada um pelo mesmo motivo do CEP_PARAM — sem o cast, o IN vira
+    // seq scan de 23M linhas e a consulta inteira estoura o teto.
+    const marcadores = alvos.map((_, i) => `$${i + 1}::bpchar`).join(',');
     const timeoutMs = opts?.queryTimeoutMs ?? CNEFE_QUERY_TIMEOUT_MS;
     /** De qual TRECHO saiu o pino escolhido — é esse CEP que o cadastro merece. */
     const doTrecho = (rows: Array<CnefeRow & { cep?: string | null }>, pino: CnefePino) => {
@@ -536,7 +643,7 @@ export async function aquecerCnefe(): Promise<void> {
   try {
     await cnefeQuery('SELECT status FROM cnefe_uf LIMIT 1', [], 30000);
     await cnefeQuery(
-      'SELECT 1 FROM cnefe_endereco WHERE cep = $1 AND numero = $2 LIMIT 1',
+      `SELECT 1 FROM cnefe_endereco WHERE cep = ${CEP_PARAM} AND numero = $2 LIMIT 1`,
       ['01001000', 1],
       30000,
     );

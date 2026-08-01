@@ -3,11 +3,14 @@ import assert from 'node:assert/strict';
 
 import {
   __setCnefeQueryForTests,
+  escolherPinoCep,
   escolherPinoPorta,
   escolherPinoRua,
   extrairNumeroPorta,
   normalizarViaNumeral,
   resolverCnefe,
+  resolverCnefeCep,
+  resolverCnefeLote,
   type CnefeRow,
 } from './cnefe-resolver.util';
 
@@ -136,6 +139,110 @@ test('rua: vizinho a mais de 200 de numeração NÃO é vizinho → null', () =>
   assert.equal(escolherPinoRua(rows, 752, { cep: '13500000', numero: 752, endereco: 'Rua 12' }), null);
 });
 
+// ── escolherPinoCep / resolverCnefeCep — endereço SEM NÚMERO (01/08) ──────────────
+//
+// O teste de rota ao vivo travou o dono na rua: CEP de lugar SEM número respondia
+// "Falta o número da casa". Estes casos provam que o pino de CEP existe, que ele NÃO
+// se disfarça de porta (precisao:'cep') e que ele continua fail-closed onde importa.
+
+test('cep: linhas do mesmo trecho (inclusive a de numero NULL) → pino de CEP', () => {
+  const rows = [
+    row({ numero: null, lat: -22.419214, lng: -47.580903, logradouro: 'AVENIDA APIA' }),
+    row({ numero: 101, lat: -22.420044, lng: -47.579545, logradouro: 'AVENIDA APIA' }),
+    row({ numero: 164, lat: -22.419127, lng: -47.58226, logradouro: 'AVENIDA APIA' }),
+  ];
+  const pino = escolherPinoCep(rows, { cep: '13503539', endereco: 'Avenida Ápia' });
+  assert.ok(pino, 'endereço sem número TEM que ter pino');
+  assert.equal(pino!.precisao, 'cep', 'nunca pode se vender como porta');
+});
+
+test('cep: sem logradouro no cadastro ainda resolve (o CEP sozinho já é o trecho)', () => {
+  const rows = [row({ numero: null }), row({ numero: 12 })];
+  const pino = escolherPinoCep(rows, { cep: '13500000' });
+  assert.ok(pino);
+  assert.equal(pino!.precisao, 'cep');
+});
+
+test('cep: via incompatível segue vetada ("Av. Brasil" não vira pino num CEP de "Rua 12")', () => {
+  const rows = [row({ numero: null, logradouro: 'RUA DOZE' })];
+  assert.equal(escolherPinoCep(rows, { cep: '13500000', endereco: 'Avenida Brasil' }), null);
+});
+
+test('cep: cidade de CEP ÚNICO — linhas espalhadas por km → null (pino errado é pior)', () => {
+  const rows = [
+    row({ numero: null, lat: -22.4154, lng: -47.5670, logradouro: 'RUA A' }),
+    row({ numero: null, lat: -22.4800, lng: -47.6300, logradouro: 'RUA A' }),
+    row({ numero: null, lat: -22.3600, lng: -47.5000, logradouro: 'RUA A' }),
+  ];
+  assert.equal(escolherPinoCep(rows, { cep: '13500000' }), null);
+});
+
+test('resolverCnefeCep: consulta o CEP INTEIRO (sem filtro de numero) e devolve precisao cep', async () => {
+  let sqlVisto = '';
+  __setCnefeQueryForTests(async (sql, params) => {
+    if (sql.includes('FROM cnefe_uf')) return [{ status: 'carregada' }];
+    sqlVisto = sql;
+    assert.deepEqual(params, ['13503539']);
+    return [row({ numero: null, logradouro: 'AVENIDA APIA' })];
+  });
+  try {
+    const pino = await resolverCnefeCep({ cep: '13503-539', endereco: 'Avenida Ápia', uf: 'SP' });
+    assert.ok(pino);
+    assert.equal(pino!.precisao, 'cep');
+    assert.ok(!sqlVisto.includes('numero = $2'), 'não pode filtrar por número: aqui não existe número');
+  } finally {
+    __setCnefeQueryForTests(null);
+  }
+});
+
+test('resolverCnefeCep: CEP inválido → null SEM consultar; banco quebrado NUNCA lança', async () => {
+  let consultou = false;
+  __setCnefeQueryForTests(async () => {
+    consultou = true;
+    throw new Error('conexão recusada');
+  });
+  try {
+    assert.equal(await resolverCnefeCep({ cep: '1350' }), null);
+    assert.equal(consultou, false);
+    assert.equal(await resolverCnefeCep({ cep: '13500000', uf: 'SP' }), null);
+  } finally {
+    __setCnefeQueryForTests(null);
+  }
+});
+
+// ── 🔴 O CAST DO CEP (01/08) — a rede que impede a base de virar inútil de novo ────
+//
+// `cep` é character(8). Sem `::bpchar` o Postgres converte a COLUNA, perde o índice e
+// varre 23M linhas: 18.832 ms medidos em prod contra 0,285 ms com o cast. Como o
+// resolver é best-effort (engole o timeout e devolve null CALADO), a regressão não
+// aparece em lugar nenhum — só no contador "SEM MAPA" subindo. Por isso o teste olha
+// o SQL: toda comparação de `cep` TEM que levar o cast.
+
+test('CAST DO CEP: toda consulta que compara cep usa ::bpchar (senão vira seq scan de 23M)', async () => {
+  const sqls: string[] = [];
+  __setCnefeQueryForTests(async (sql) => {
+    sqls.push(sql);
+    if (sql.includes('FROM cnefe_uf')) return [{ status: 'carregada' }];
+    return [];
+  });
+  try {
+    await resolverCnefe({ cep: '13500000', numero: 752, endereco: 'Rua 12', uf: 'SP' });
+    await resolverCnefeCep({ cep: '13500000', endereco: 'Rua 12', uf: 'SP' });
+    await resolverCnefeLote(['13500000', '13500100'], { numero: 752, endereco: 'Rua 12', uf: 'SP' });
+
+    const queComparamCep = sqls.filter((s) => /\bcep\s*(=|IN)\s*/i.test(s) && s.includes('cnefe_endereco'));
+    assert.ok(queComparamCep.length >= 3, 'esperava as consultas de porta, rua, cep e lote');
+    for (const sql of queComparamCep) {
+      assert.ok(
+        /cep\s*=\s*\$\d+::bpchar/i.test(sql) || /cep\s+IN\s*\([^)]*::bpchar/i.test(sql),
+        `consulta sem cast de cep (vira seq scan de 23M linhas): ${sql}`,
+      );
+    }
+  } finally {
+    __setCnefeQueryForTests(null);
+  }
+});
+
 // ── resolverCnefe (com query stubada — teste hermético, zero conexão) ─────────────
 
 test('resolverCnefe: UF sem carga → marca pendente em cnefe_uf e devolve null', async () => {
@@ -158,7 +265,7 @@ test('resolverCnefe: UF sem carga → marca pendente em cnefe_uf e devolve null'
 test('resolverCnefe: UF carregada + porta exata → pino porta; consulta usa (cep, numero)', async () => {
   __setCnefeQueryForTests(async (sql, params) => {
     if (sql.includes('FROM cnefe_uf')) return [{ status: 'carregada' }];
-    if (sql.includes('cep = $1 AND numero = $2')) {
+    if (sql.includes('cep = $1::bpchar AND numero = $2')) {
       assert.deepEqual(params, ['13500000', 752]);
       return [row({})];
     }

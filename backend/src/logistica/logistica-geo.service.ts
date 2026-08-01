@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
-import { resolverCnefe } from '../nucleo/cnefe-resolver.util';
+import { resolverCnefe, resolverCnefeCep } from '../nucleo/cnefe-resolver.util';
 import { resolveServerGeo } from '../nucleo/nucleo-geo.util';
 import { consultarCepPublico } from './logistica-cep.util';
 import {
@@ -65,7 +65,8 @@ const VAZIO: ReverseGeoResult = { endereco: '', numero: '', bairro: '', cidade: 
 /** R2 (27/07) — resposta do CEP+número → pino (rota rápida do APK). */
 export interface CepNumeroResult {
   fonte: 'cnefe' | 'geocode' | 'nenhum';
-  precisao?: 'porta' | 'rua';
+  /** `cep` (01/08) = endereço SEM número: ponto do trecho de rua, pra CONFERIR na tela. */
+  precisao?: 'porta' | 'rua' | 'cep';
   lat: number | null;
   lng: number | null;
   endereco: string;
@@ -146,9 +147,13 @@ export class LogisticaGeoService {
     if (cep.length !== 8) throw new BadRequestException('Informe o CEP completo (8 dígitos).');
     const numeroDigits = String(numeroRaw ?? '').replace(/\D+/g, '');
     const numero = Number(numeroDigits);
-    if (!numeroDigits || numeroDigits.length > 6 || !Number.isInteger(numero) || numero <= 0) {
-      throw new BadRequestException('Informe o número do endereço.');
-    }
+    // SEM NÚMERO (01/08) — vazio, "S/N", "SN" ou "0" NÃO são erro do chamador: são o
+    // endereço de metade do país (posto, chácara, praça, comércio, estrada). Antes disto
+    // a rota rápida cuspia "Falta o número da casa" num lugar que não tem número e o
+    // motorista ficava trancado na rua. Só continua 400 o número ABSURDO (>6 dígitos),
+    // que é dedo errado de quem chamou.
+    if (numeroDigits.length > 6) throw new BadRequestException('Informe o número do endereço.');
+    const semNumero = !numeroDigits || !Number.isInteger(numero) || numero <= 0;
     const ufParam = String(ufRaw ?? '').trim().toUpperCase();
 
     const viaCep = await consultarCepPublico(cep);
@@ -159,8 +164,26 @@ export class LogisticaGeoService {
       cidade: viaCep?.localidade ?? '',
       uf,
       cep,
-      numero: String(numero),
+      numero: semNumero ? '' : String(numero),
     };
+
+    if (semNumero) {
+      // Pino do TRECHO do CEP, rotulado `precisao:'cep'` — a tela mostra "confira no
+      // mapa", nunca vende como porta exata.
+      const porCep = await resolverCnefeCep({ cep, endereco: viaCep?.logradouro || null, uf });
+      if (porCep) {
+        return {
+          fonte: 'cnefe',
+          precisao: 'cep',
+          lat: porCep.lat,
+          lng: porCep.lng,
+          ...base,
+          endereco: base.endereco || (porCep.logradouro ?? ''),
+          cidade: base.cidade || (porCep.municipio ?? ''),
+        };
+      }
+      return { fonte: 'nenhum', lat: null, lng: null, ...base };
+    }
 
     const cnefe = await resolverCnefe({ cep, numero, endereco: viaCep?.logradouro || null, uf });
     if (cnefe) {

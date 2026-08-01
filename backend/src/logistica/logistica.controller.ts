@@ -1216,11 +1216,14 @@ export class LogisticaController {
   /**
    * R2/R9 (27/07, frente APK-rota) — CEP + número → pino. Base CNEFE local primeiro
    * (porta/rua do Censo, sem rede externa), Nominatim com freio de reserva; 'nenhum'
-   * ainda devolve o endereço do ViaCEP pro app pré-preencher. 200 sempre; CEP/número
-   * inválidos → 400 (erro de input do chamador).
+   * ainda devolve o endereço do ViaCEP pro app pré-preencher. 200 sempre; CEP
+   * inválido → 400 (erro de input do chamador).
+   *
+   * SEM NÚMERO (01/08) — `numero` é OPCIONAL: vazio/"S/N"/"0" devolve o pino do trecho
+   * do CEP com `precisao:'cep'`. Endereço sem número é endereço, não erro de digitação.
    */
   @Get('geo/cep')
-  geoCep(@Query('cep') cep: string, @Query('numero') numero: string, @Query('uf') uf?: string) {
+  geoCep(@Query('cep') cep: string, @Query('numero') numero?: string, @Query('uf') uf?: string) {
     return this.geo.cepNumero(cep, numero, uf);
   }
 

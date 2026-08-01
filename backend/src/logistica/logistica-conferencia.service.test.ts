@@ -385,7 +385,9 @@ test('cura CNEFE: sem_pino com CEP+número vira pino gravado (fonte cnefe) e a p
   };
   __setCnefeQueryForTests(async (sql: string, params: unknown[]) => {
     if (sql.includes('FROM cnefe_uf')) return [{ status: 'carregada' }];
-    if (sql.includes('cep = $1 AND numero = $2')) {
+    // 01/08 — o SQL passou a levar `::bpchar` (sem o cast o índice morre e a consulta
+    // varre 23M linhas; ver CEP_PARAM em cnefe-resolver.util.ts).
+    if (sql.includes('cep = $1::bpchar AND numero = $2')) {
       const numero = Number(params[1]);
       return [{ logradouro: 'Rua das Flores', numero, lat: -22.41 - numero / 100000, lng: -47.56, nivel_geo: 1, municipio: 'Pinhal' }];
     }

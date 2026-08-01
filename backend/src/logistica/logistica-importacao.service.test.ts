@@ -292,7 +292,7 @@ test('corrigirItem: PATCH revalida na hora e pode virar VERDE quando o CNEFE con
 
   __setCnefeQueryForTests(async (sql: string, params: unknown[]) => {
     if (sql.includes('FROM cnefe_uf')) return [{ status: 'carregada' }];
-    if (sql.includes('cep = $1 AND numero = $2')) {
+    if (sql.includes('cep = $1::bpchar AND numero = $2')) {
       const numero = Number(params[1]);
       return [{ logradouro: 'Rua das Flores', numero, lat: -22.41, lng: -47.56, nivel_geo: 1, municipio: 'Rio Claro' }];
     }

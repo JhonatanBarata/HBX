@@ -76,7 +76,7 @@ test('sanitizarEndereco: sem CEP e sem bairro no cadastro — VERMELHO "Falta o 
 test('sanitizarEndereco: CEP+número achados na base CNEFE → VERDE com pino e geoFonte=cnefe', async () => {
   __setCnefeQueryForTests(async (sql: string, params: unknown[]) => {
     if (sql.includes('FROM cnefe_uf')) return [{ status: 'carregada' }];
-    if (sql.includes('cep = $1 AND numero = $2')) {
+    if (sql.includes('cep = $1::bpchar AND numero = $2')) {
       const numero = Number(params[1]);
       return [{ logradouro: 'Rua das Flores', numero, lat: -22.41, lng: -47.56, nivel_geo: 1, municipio: 'Rio Claro' }];
     }
