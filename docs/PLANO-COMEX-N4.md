@@ -1,6 +1,11 @@
 # PLANO HBX COMEX — N4 em diante
 > Escrito em 31/07/2026, fim do turno que entregou N1+N2+N3 e a demo Ask Crios.
 > **Este arquivo é o ponto de partida da próxima sessão.**
+>
+> ⚠️ **ATUALIZAÇÃO 01/08/2026:** o dono decidiu que o centro do produto NÃO é dossiê/PDF
+> pronto, e sim **uma IA que cruza dados ao vivo**. A Fase A (A1/A2) foi SUBSTITUÍDA pelo
+> **[PLANO-COMEX-ANALISTA.md](PLANO-COMEX-ANALISTA.md)** — ler aquele primeiro. A3, B, C,
+> D e as leis do §5/§6 daqui continuam valendo.
 
 ## Como começar o próximo chat
 

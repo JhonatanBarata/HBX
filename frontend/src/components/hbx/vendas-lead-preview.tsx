@@ -187,7 +187,11 @@ export function VendasLeadPreview({
             <strong>{canViewValues ? dealValue : (lead.product?.name || "—")}</strong>
             <em>{dealSupporting}</em>
           </span>
-          <b><strong>{prioridadeLabel(lead)}</strong><small>prioridade</small></b>
+          {/* Mesma gramática da célula ao lado: rótulo em cima, valor embaixo.
+              Era um círculo de 52px abrigando "AGORA" + "PRIORIDADE" em caixa
+              alta — texto de tamanho variável dentro de caixa de tamanho fixo,
+              que é a definição do defeito. */}
+          <b><small>Prioridade</small><strong>{prioridadeLabel(lead)}</strong></b>
         </section>
 
         <section className="vnd-lead-peek__minis">

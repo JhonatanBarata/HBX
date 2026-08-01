@@ -187,7 +187,11 @@ body { min-height: 100vh; }
 /* ---------- Atendimento.html / Bot.html ---------- */
 html, body { height: 100%; }
 .app.app-viewport { height: 100vh; overflow: hidden; }
-.a-content { display: grid; grid-template-columns: 1fr 345px; flex: 1; min-height: 0; }
+/* 345px cravado virou padrão de uma variável: é ela que a <Divisoria /> move.
+   O `:has()` faz a coluna do meio existir só onde a alça está montada, então
+   nenhuma outra tela que use `.a-content` muda de forma. */
+.a-content { display: grid; grid-template-columns: 1fr var(--a-context-width, 345px); flex: 1; min-height: 0; }
+.a-content:has(> .hbx-divisoria) { grid-template-columns: 1fr auto var(--a-context-width, 345px); }
 .a-left { display: flex; flex-direction: column; min-width: 0; min-height: 0; padding: 18px 0 0 22px; gap: 16px; }
 .a-left .kpis { padding-right: 22px; }
 .a-left .kpi { padding-block: 7px; }

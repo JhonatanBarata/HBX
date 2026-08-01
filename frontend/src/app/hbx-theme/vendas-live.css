@@ -1934,11 +1934,19 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
      cabe   -> aparece inteiro, sem reticências (min-width: max-content)
      aperta -> SOME, e a etapa fica sendo "05" + o contador
 
-   "05" com o número de leads é informação honesta e é o que o vendedor
-   consulta o dia todo; "Fecha…" é um enigma. Quem decide qual dos dois é a
-   largura REAL da fita (container query), não o palpite do viewport — a fita
-   encolhe quando o painel lateral do lead abre, e nenhuma media query
-   enxerga isso. */
+   (01/08, TARDE — o dono viu a tela e reprovou) "01 20 · 02 0 · 03 0" não é
+   informação honesta: é enigma com outra roupa. O vendedor perguntou, com
+   estas palavras, "o que significa número?". E o fiscal marcava ZERO nesta
+   tela, porque `display:none` nunca foi corte para ele — o que fez de
+   ESCONDER O RÓTULO a saída mais barata para passar na régua. A régua
+   aprendeu a enxergar isso (defeito SUMIU no clip-detector.ts); esta regra
+   era a ré número um dela.
+
+   A saída certa é a terceira, e é a que os SaaS de lista usam: quem cede não
+   é o rótulo nem a etapa, é a FITA — ela rola de lado. Os cinco rótulos ficam
+   escritos por inteiro para sempre; quem não couber na largura de hoje está a
+   um arrasto de distância, com sombra na borda avisando que tem mais. Nenhum
+   dado é apagado para o layout fechar a conta. */
 .vnd-stagetab {
   position: relative;
   z-index: 1;
@@ -1946,7 +1954,10 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   align-items: center;
   gap: 4px;
   min-width: 0;
-  flex: 0 1 auto;
+  /* `0 1 auto` deixava o flex espremer a etapa antes de a fita rolar — e
+     espremer é o que produzia o rótulo ilegível. Com `0 0 auto` a etapa
+     mantém o tamanho do que está escrito nela e o excedente vira rolagem. */
+  flex: 0 0 auto;
   min-height: 46px;
   padding: 4px 5px;
   border: 0;
@@ -1975,20 +1986,37 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   line-height: 1.1;
 }
 
-/* A fita mede a si mesma para decidir se ainda cabe rótulo. */
+/* A SOMBRA QUE AVISA QUE TEM MAIS FITA.
+   Rolagem escondida (`scrollbar-width: none`, logo acima) sem nenhum sinal na
+   borda é o mesmo pecado de esconder o rótulo: o dado existe e a tela não
+   conta. As duas primeiras camadas são `local` — andam junto com o conteúdo e
+   tapam a sombra quando a fita está no fim daquele lado. As duas de baixo são
+   `scroll`, ficam paradas na borda. O efeito: sombra só do lado que ainda tem
+   etapa escondida, sem uma linha de JavaScript e sem medir nada. */
 .vnd-stages {
-  container-type: inline-size;
-  container-name: vnd-stages;
+  background-image:
+    linear-gradient(to right, var(--hbx-surface-soft), transparent),
+    linear-gradient(to left, var(--hbx-surface-soft), transparent),
+    radial-gradient(farthest-side at 0 50%, color-mix(in srgb, var(--text-strong) 16%, transparent), transparent),
+    radial-gradient(farthest-side at 100% 50%, color-mix(in srgb, var(--text-strong) 16%, transparent), transparent);
+  background-position: left center, right center, left center, right center;
+  background-size: 26px 100%, 26px 100%, 10px 100%, 10px 100%;
+  background-repeat: no-repeat;
+  background-attachment: local, local, scroll, scroll;
 }
 
-/* Abaixo deste ponto os 5 rótulos + números não cabem sem mutilar. Medido:
-   a 1366 a fita fica com ~711px e precisaria de ~817px. O rótulo sai de cena
-   inteiro e a etapa passa a ser o número + o contador. */
-@container vnd-stages (max-width: 780px) {
-  .vnd-stagetab__l {
-    display: none;
-  }
-}
+/* NÃO PONHA `scroll-behavior: smooth` AQUI. Foi tentado em 01/08 para o
+   movimento não ser um salto seco, e MEDIDO logo depois: com ele, todo scroll
+   programático desta fita vira zero.
+
+     fita.scrollBy({ left: 60 })                      -> scrollLeft 0
+     fita.scrollBy({ left: 60, behavior: 'instant' }) -> scrollLeft 60
+
+   A animação suave é cancelada por algum outro movimento na mesma caixa (a
+   fita vive dentro de um painel com transição correndo e um ResizeObserver do
+   glass-pill remedindo). O efeito prático é que a etapa escolhida deixava de
+   entrar na vista — o enfeite quebrava a função. Mesma lição do avatar em
+   hbx-system.css: defesa/adorno que não foi medido cria o problema. */
 .vnd-stagetab__step {
   display: inline-grid;
   place-items: center;
@@ -2238,18 +2266,97 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   font-weight: 620;
 }
 .vnd-sales-search input::placeholder { color: var(--text-muted); }
+/* ============================================================
+   A GRADE DA LISTA (01/08/2026)
+
+   Eram seis colunas cravadas na folha, e por isso o "Organizar campos"
+   prometia coluna e entregava legenda: o CSS não tinha como saber o que o
+   usuário escolheu. Agora a trilha nasce em JavaScript, da ordem e da largura
+   que ele arrastou, e chega aqui por UMA variável.
+
+   A lista rola de lado quando as colunas não cabem — a mesma decisão da fita
+   de etapas: quem cede é o container, nunca o dado. Cabeçalho e faixa leem a
+   MESMA variável, que é o que impede o clássico "o título saiu de cima da
+   coluna".
+   ============================================================ */
+.vnd-sales-grade {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
 .vnd-sales-head,
 .vnd-sales-row {
   display: grid;
-  grid-template-columns:
-    32px
-    minmax(190px, 1.58fr)
-    minmax(105px, 0.78fr)
-    minmax(145px, 1fr)
-    minmax(90px, 0.68fr)
-    51px;
+  grid-template-columns: var(--vnd-grade-cols, 34px minmax(190px, 1.58fr) 72px);
   align-items: center;
   column-gap: 7px;
+  /* Rolando de lado, a linha tem que ser tão larga quanto a trilha inteira —
+     senão o fundo da faixa selecionada some no meio da rolagem. */
+  min-width: max-content;
+}
+
+/* Uma célula = uma caixa que sabe encolher. Sem `min-width: 0` o conteúdo
+   empurra o vizinho para fora e nenhuma reticência aparece — a causa nº1 de
+   corte em layout flex/grid, e a razão de existir da Lei 1. */
+.vnd-sales-td,
+.vnd-sales-th {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* O TETO DA COLUNA QUE SE MEDE SOZINHA.
+   Coluna sem largura escolhida é `minmax(piso, max-content)` — ela mede o
+   conteúdo em vez de apostar num número. Faltava o freio: uma razão social de
+   cartório faria a coluna crescer até empurrar todas as outras para fora da
+   tela. Capando o FILHO, o `max-content` da célula também fica capado, e o
+   freio mora num lugar só. (Tentar isso na trilha, com `min(max-content,
+   560px)`, invalida a lista de trilhas inteira e a grade colapsa — testado.) */
+.vnd-sales-td > * {
+  max-width: 560px;
+}
+
+/* O cabeçalho da coluna: o botão de ordenar ocupa o espaço todo e a alça de
+   largura fica encostada na borda direita, que é onde a mão procura. */
+.vnd-sales-th {
+  position: relative;
+  padding-right: 7px;
+}
+.vnd-sales-th > button { flex: 1 1 auto; min-width: 0; }
+.vnd-sales-th > button:disabled { cursor: default; }
+
+.vnd-col-alca {
+  position: absolute;
+  top: 0;
+  right: -4px;
+  bottom: 0;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.vnd-col-alca::after {
+  content: "";
+  position: absolute;
+  top: 20%;
+  bottom: 20%;
+  left: 4px;
+  width: 1px;
+  border-radius: 1px;
+  background: var(--border-hairline);
+  transition: background var(--motion-fast), width var(--motion-fast);
+}
+.vnd-col-alca:hover::after {
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  left: 3px;
+  background: var(--hbx-brand);
 }
 .vnd-sales-head {
   min-height: 31px;
@@ -2258,7 +2365,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   border-bottom: 1px solid var(--border-hairline);
   background: var(--hbx-table-head);
 }
-.vnd-sales-head > button {
+.vnd-sales-head .vnd-sales-th > button {
   min-width: 0;
   padding: 0;
   border: 0;
@@ -2273,8 +2380,8 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   text-transform: uppercase;
   white-space: nowrap;
 }
-.vnd-sales-head > button:hover { color: var(--text-strong); }
-.vnd-sales-head > button span { margin-left: 3px; font-size: var(--hbx-font-min); }
+.vnd-sales-head .vnd-sales-th > button:hover:not(:disabled) { color: var(--text-strong); }
+.vnd-sales-head .vnd-sales-th > button > span { margin-left: 3px; font-size: var(--hbx-font-min); }
 .vnd-sales-check {
   min-width: 0;
   display: inline-grid;
@@ -2283,14 +2390,20 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 .vnd-sales-list {
   flex: 1 1 auto;
   min-height: 0;
+  min-width: max-content; /* acompanha a trilha quando a grade rola de lado */
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
 }
 .vnd-sales-row {
   position: relative;
-  min-height: 61px;
-  padding: 5px 7px;
+  /* A tela PEDE a densidade ao sistema (--hbx-espaco-linha, hbx-system.css).
+     61px e 5px eram números fixos: o vendedor de monitor grande queria mais
+     lead por tela e o de notebook queria respiro, e os dois herdavam a mesma
+     conta. Agora Compacto/Normal/Folgado mexem aqui de verdade — foi por isso
+     que o controle só nasceu depois desta linha existir. */
+  min-height: calc(61px * var(--hbx-densidade));
+  padding: var(--hbx-espaco-linha) 7px;
   border-bottom: 1px solid var(--border-hairline);
   background: var(--hbx-surface);
   color: var(--text-body);
@@ -2582,7 +2695,33 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 .vnd-collist, .vnd-colavailable { min-height: 0; flex: 1; overflow-y: auto; scrollbar-width: thin; }
 .vnd-colrow { position: relative; display: grid; grid-template-columns: 20px 28px minmax(0, 1fr) 24px; align-items: center; min-height: 34px; margin-bottom: 5px; padding: 3px 4px; background: var(--hbx-surface); border: 1px solid var(--border-hairline); border-radius: var(--radius-xs); color: var(--text-strong); font-size: var(--fz-m2); cursor: grab; }
 .vnd-colrow.is-drop::before { content: ""; position: absolute; z-index: 2; top: -4px; left: 3px; right: 3px; height: 2px; border-radius: 2px; background: var(--hbx-brand-strong); box-shadow: 0 0 0 1px color-mix(in srgb, var(--hbx-brand-strong) 18%, transparent); }
-.vnd-colrow__grip { color: var(--text-muted); font-size: var(--fz-n1); }
+/* O punho virou alça de verdade em 01/08: além de arrastar, aceita foco e
+   move o campo com ↑/↓. Alça focável sem anel visível é alça invisível para
+   quem trabalha no teclado — o anel é o mesmo do sistema, nada novo. */
+.vnd-colrow__grip {
+  color: var(--text-muted);
+  font-size: var(--fz-n1);
+  border-radius: var(--radius-xs);
+  cursor: grab;
+}
+.vnd-colrow__grip:focus-visible {
+  outline: none;
+  box-shadow: var(--hbx-foco);
+}
+.vnd-colrow__grip:active { cursor: grabbing; }
+
+/* Enquanto o campo está na mão: ele desbota no lugar de origem e a linha de
+   destino ganha a marca. Sem os dois sinais o arrasto por ponteiro fica mudo —
+   o arrasto nativo pelo menos desenhava um fantasma sozinho, e trocar de API
+   sem devolver o retorno visual seria trocar um defeito por outro. */
+.vnd-colrow.is-pegando,
+.vnd-colavailable button.is-pegando {
+  opacity: 0.45;
+}
+.vnd-colrow,
+.vnd-colavailable button {
+  touch-action: none; /* o dedo arrasta o campo, não rola a lista */
+}
 .vnd-colrow__num { color: var(--hbx-brand-strong); font-size: var(--hbx-font-min); font-variant-numeric: tabular-nums; }
 .vnd-colrow__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 650; }
 .vnd-colrow button { border: 0; background: transparent; cursor: pointer; border-radius: 50%; color: var(--text-muted); }
@@ -2662,6 +2801,18 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   grid-template-columns: minmax(0, 1fr) var(--context-width) !important;
   gap: 1px !important;
 }
+/* Com a alça montada, a grade ganha a coluna do meio. O `:has()` mantém a
+   regra valendo SÓ onde a <Divisoria /> existe de fato — e o `!important`
+   acompanha o da regra acima porque, sem ele, a alça ficaria fora da grade e a
+   ficha do lead cairia por baixo dela.
+
+   A tela pede a alça, o sistema fornece. É o caminho certo da dependência: o
+   contrário — o sistema conhecer o nome desta tela — foi o que já apodreceu a
+   regra de rótulo do hbx-system.css. */
+#vendas-panel-funil .content:has(> .hbx-divisoria),
+#vendas-panel-funil .content.vnd-content--detail-open:has(> .hbx-divisoria) {
+  grid-template-columns: minmax(0, 1fr) auto var(--context-width) !important;
+}
 #vendas-panel-funil .content > .work {
   grid-column: 1 !important;
   width: 100% !important;
@@ -2690,7 +2841,10 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 .vnd-lead-peek {
   position: relative;
   z-index: 0;
-  grid-column: 2;
+  /* Sem `grid-column` fixo de propósito (era `2`): com a <Divisoria /> no meio
+     a ficha passou a ser o TERCEIRO filho, e um número cravado aqui a jogaria
+     por baixo da alça. O posicionamento automático acerta os dois casos — com
+     e sem alça — sem a folha precisar saber qual é. */
   min-width: 0;
   height: 100%;
   display: flex;
@@ -2910,7 +3064,9 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   margin: 8px 0;
   padding: 10px 11px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 54px;
+  /* `auto` e não `54px`: quem manda na largura da célula de prioridade é o
+     texto que ela abriga. */
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
   overflow: hidden;
@@ -2950,16 +3106,22 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A CÉLULA DE PRIORIDADE — o círculo que não cabia.
+   Eram 52x52 fixos abrigando "AGORA" + "PRIORIDADE" em caixa alta. Os valores
+   possíveis vão de "Hoje" a "Sem data", e a palavra "prioridade" tem dez
+   letras: nenhuma delas jamais coube ali. O fiscal nunca acusou porque este
+   cartão só existe com o mouse em cima de um lead, e a rede antiga media a
+   tela parada.
+   Agora a caixa é do tamanho do que está escrito nela (`max-content`). */
 .vnd-lead-peek__deal > b {
-  width: 52px;
-  height: 52px;
   display: grid;
-  place-content: center;
   gap: 2px;
+  min-width: max-content;
+  padding: 7px 10px;
   border: 1px solid color-mix(in srgb, var(--hbx-warning) 30%, var(--border-hairline));
-  border-radius: 50%;
+  border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--hbx-warning) 10%, var(--hbx-surface));
-  text-align: center;
+  text-align: right;
 }
 .vnd-lead-peek__deal > b strong {
   color: color-mix(in srgb, var(--hbx-warning) 38%, var(--text-strong));

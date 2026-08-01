@@ -65,6 +65,30 @@ export type TemaKey = "aurora" | "hbx-cyber" | "login" | "ember" | "rose" | "cor
 export type Modo = "light" | "dark";
 
 // Chaves de armazenamento — uma por eixo (era `hbx:pele`, combinado).
+/**
+ * DENSIDADE — a terceira liberdade (decisão do dono, 01/08).
+ *
+ * O token `--hbx-densidade` já existia, mas era refém da casca: Premium 1,
+ * Corporativo 0,875, e o usuário não escolhia nada. Medido antes de expor o
+ * controle: o token alimentava só DOIS lugares no app inteiro (altura de botão
+ * e de campo), o que faria de "Compacto/Normal/Folgado" um botão que quase não
+ * muda nada — exatamente o tipo de controle que ensina o usuário a desconfiar
+ * do resto da tela. Por isso ele só nasceu depois de a densidade passar a
+ * mandar na ALTURA DE LINHA das listas, que é onde "planilha × folga" se sente.
+ *
+ * A casca continua dando o PADRÃO; a escolha do usuário, quando existe, vence.
+ */
+export const DENSIDADE_STORAGE = "hbx:densidade";
+export type DensidadeKey = "compacta" | "normal" | "folgada";
+export const DENSIDADES: ReadonlyArray<{ key: DensidadeKey; label: string }> = [
+  { key: "compacta", label: "Compacto" },
+  { key: "normal", label: "Normal" },
+  { key: "folgada", label: "Folgado" },
+];
+export function resolveDensidade(valor: string | null | undefined): DensidadeKey | null {
+  return DENSIDADES.some(d => d.key === valor) ? (valor as DensidadeKey) : null;
+}
+
 export const CASCA_STORAGE = "hbx:casca";
 export const TEMA_STORAGE = "hbx:tema";
 export const MODE_STORAGE = "hbx:mode";
@@ -242,5 +266,11 @@ export function buildAparenciaBoot(): string {
     + `h.setAttribute("data-casca",d.a);`
     + `h.setAttribute("data-theme",tema);`
     + `h.setAttribute("data-theme-mode",modo);`
+    // Densidade entra no MESMO boot inline que a pele, e pelo mesmo motivo:
+    // ela muda altura de linha, e altura de linha aplicada depois do primeiro
+    // paint é a tela pulando na cara do usuário a cada carregamento.
+    + `var dens=g(${JSON.stringify(DENSIDADE_STORAGE)});`
+    + `if(dens==="compacta"||dens==="normal"||dens==="folgada"){h.setAttribute("data-densidade",dens);}`
+    + `else{h.removeAttribute("data-densidade");}`
     + `}catch(e){}})();`;
 }

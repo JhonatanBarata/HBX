@@ -23,6 +23,8 @@ import { CentralDoLead } from "@/components/hbx/central-do-lead";
 import { VendasLeadPreview } from "@/components/hbx/vendas-lead-preview";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { CanalIcon } from "@/components/hbx/canal-icon";
+import { Divisoria } from "@/components/hbx/divisoria";
+import { esquecerMedida, gravarMedida, lerMedida, useArrastar } from "@/lib/arrastar";
 import { RadarAiBadge } from "@/components/hbx/radar-ai-badge";
 import { LeadsClient } from "../leads/page.client";
 import { apiFetch } from "@/lib/api";
@@ -338,6 +340,10 @@ type GridColumn = {
   text: (c: VendasLead) => string;   // valor cru: ordenação e busca
 };
 
+/** Limites da alça de largura. 72px ainda mostra um rótulo curto inteiro. */
+const COL_MIN = 72;
+const COL_MAX = 560;
+
 const GRID_COLUMNS: GridColumn[] = [
   { key: "name", label: "Empresa", width: 220, text: c => c.name || "" },
   { key: "icons", label: "Ícones", width: 128, text: c => vendasCanais(c).join(" ") },
@@ -377,7 +383,9 @@ function compactGridText(card: VendasLead, visibleKeys: string[], allowedKeys: r
   return visibleKeys
     .filter(key => allowedKeys.includes(key))
     .map(key => GRID_COLUMNS.find(column => column.key === key)?.text(card).trim() || "")
-    .filter(Boolean)
+    // O travessão é o "não tem" das células; numa legenda em linha ele vira
+    // ruído puro ("— · 11"). Vazio e travessão são a mesma coisa aqui.
+    .filter(valor => valor && valor !== "—")
     .join(" · ");
 }
 
@@ -456,6 +464,27 @@ export function VendasClient() {
   // local só (não persiste). Seleção ativa = Glass Pill (Lei nº2).
   const [stageFilter, setStageFilter] = useState<VendasStage | null>(null);
   const stagePill = useGlassPill<HTMLButtonElement>(stageFilter || "todos");
+  // A fita de etapas rola de lado quando os 5 rótulos não cabem (o rótulo
+  // nunca é apagado — ver o bloco .vnd-stages em vendas-live.css). Rolar
+  // sozinho é a metade que falta: sem isto, escolher "05 Fechado" numa tela
+  // estreita deixaria a etapa ativa fora da vista, atrás da borda.
+  //
+  // A conta é feita à mão em vez de `scrollIntoView` de propósito: aquele
+  // método rola TODOS os ancestrais roláveis, e a fita mora dentro do painel
+  // de comando — bastaria um ancestral rolável para a página inteira dar um
+  // pulo ao trocar de etapa. Aqui só a fita se mexe, por construção.
+  useEffect(() => {
+    const fita = document.querySelector<HTMLElement>(".vnd-stages");
+    const ativa = fita?.querySelector<HTMLElement>(".vnd-stagetab.is-on");
+    if (!fita || !ativa) return;
+    const caixa = fita.getBoundingClientRect();
+    const etapa = ativa.getBoundingClientRect();
+    const FOLGA = 10; // não encosta a etapa na borda: encostado parece cortado
+    const passouDireita = etapa.right - caixa.right;
+    const passouEsquerda = caixa.left - etapa.left;
+    if (passouDireita > 0) fita.scrollBy({ left: passouDireita + FOLGA });
+    else if (passouEsquerda > 0) fita.scrollBy({ left: -(passouEsquerda + FOLGA) });
+  }, [stageFilter]);
   // Campos priorizados e ordenação vivem em localStorage por navegador/usuário.
   const [gridKeys, setGridKeys] = useState<string[]>(() => {
     if (typeof window === "undefined") return GRID_DEFAULT_KEYS;
@@ -478,11 +507,40 @@ export function VendasClient() {
     } catch { /* sem storage */ }
     return null;
   });
+  // LARGURA DE CADA COLUNA — a segunda das três liberdades (decisão do dono,
+  // 01/08). O `width` do GRID_COLUMNS deixou de ser lei e virou PADRÃO: a
+  // partir daqui quem manda é a alça no cabeçalho, guardada por navegador.
+  //
+  // É daqui que saía o print do "Aguardand": a coluna Engajamento nascia com
+  // 130px cravados e "Aguardando resposta" precisa de mais. Número cravado por
+  // quem escreveu a tela nunca vai servir para a régua de letra de todo mundo;
+  // o que serve é deixar a régua na mão de quem lê.
+  // Guarda SÓ o que o usuário escolheu de fato. A distinção importa: coluna
+  // sem escolha se mede pelo conteúdo (ver `trilhaDaGrade`), coluna escolhida
+  // obedece o número dele. Se este mapa nascesse cheio de padrões, as duas
+  // situações ficariam indistinguíveis e todo mundo herdaria o palpite.
+  const [larguras, setLarguras] = useState<Record<string, number>>(() => {
+    const escolhidas: Record<string, number> = {};
+    if (typeof window === "undefined") return escolhidas;
+    for (const col of GRID_COLUMNS) {
+      const guardada = window.localStorage.getItem(`hbx:medida:vendas-col-${col.key}`);
+      if (guardada !== null) escolhidas[col.key] = lerMedida(`vendas-col-${col.key}`, col.width, COL_MIN, COL_MAX);
+    }
+    return escolhidas;
+  });
+  const largurasRef = useRef(larguras);
+  largurasRef.current = larguras;
   const [colsOpen, setColsOpen] = useState(false);
   const [columnSearch, setColumnSearch] = useState("");
   const [columnDraft, setColumnDraft] = useState<string[]>(gridKeys);
   const [columnDrag, setColumnDrag] = useState<string | null>(null);
   const [columnDropIndex, setColumnDropIndex] = useState<number | null>(null);
+  // O gesto de arrasto é pendurado uma vez e vive até o dedo soltar; quando
+  // ele termina, o `columnDropIndex` que ele enxerga pelo fechamento é o do
+  // primeiro render. A ref é a cópia que está sempre em dia — quem desenha é
+  // o estado, quem decide na soltura é esta.
+  const columnDropIndexRef = useRef<number | null>(null);
+  columnDropIndexRef.current = columnDropIndex;
   // Menu da faixa (botão ⋯ ou clique-direito): Fechar venda, Retorno,
   // Sem interesse, WhatsApp e Excluir.
   const [rowMenu, setRowMenu] = useState<{ id: string; x: number; y: number } | null>(null);
@@ -1230,6 +1288,194 @@ export function VendasClient() {
   function removeDraftColumn(key: string) {
     setColumnDraft(keys => keys.filter(k => k !== key));
   }
+  /**
+   * REORDENAR CAMPO — por que isto deixou de usar o arrasto nativo do HTML.
+   *
+   * Medido ao vivo em 01/08, com os eventos instrumentados:
+   *
+   *   agarrando pelo PUNHO ⠿ : dragstart -> dragover -> dragend   (sem drop)
+   *   agarrando pelo NOME    : dragstart -> dragover -> drop       (move)
+   *
+   * O único lugar da linha que ANUNCIA "arraste aqui" era o único onde o
+   * arrasto morria — o dono relatou como "a organização parou de funcionar".
+   *
+   * A causa imediata era o `dataTransfer` nascer vazio (sem `setData` o
+   * navegador resolve `dropEffect` como "none" e recusa a soltura em
+   * silêncio). Mas consertar SÓ isso seria consertar o sintoma: a API nativa
+   * de arrasto continua sendo aquela em que um filho focável, um
+   * `user-select` ou um dedo em vez do mouse mudam o gesto — e em que
+   * nenhum teste automatizado consegue provar que funciona. Ela já tinha
+   * cobrado esse preço uma vez.
+   *
+   * Então o gesto passou a ser o MESMO da divisória e da largura de coluna:
+   * `useArrastar`, com `setPointerCapture`. Um gesto, três usos, uma
+   * explicação. Ver lib/arrastar.ts.
+   */
+  const listaCamposRef = useRef<HTMLDivElement | null>(null);
+  const arrastoCampoRef = useRef<{ key: string; origem: "ordem" | "disponivel" } | null>(null);
+
+  /** Entre quais linhas o ponteiro está agora. Devolve índice de INSERÇÃO. */
+  function indiceDeSoltura(y: number): number {
+    const linhas = Array.from(listaCamposRef.current?.querySelectorAll(".vnd-colrow") ?? []);
+    for (let i = 0; i < linhas.length; i++) {
+      const r = linhas[i].getBoundingClientRect();
+      if (y < r.top + r.height / 2) return i;
+    }
+    return linhas.length;
+  }
+
+  /** O ponteiro está sobre a lista de ordem (e não sobre os disponíveis)? */
+  function sobreAListaDeOrdem(x: number, y: number): boolean {
+    const caixa = listaCamposRef.current?.getBoundingClientRect();
+    if (!caixa) return false;
+    const FOLGA = 24; // soltar rente à borda ainda conta como "dentro"
+    return x >= caixa.left - FOLGA && x <= caixa.right + FOLGA && y >= caixa.top - FOLGA && y <= caixa.bottom + FOLGA;
+  }
+
+  const arrastoDeCampo = useArrastar({
+    aoComecar: () => setColumnDrag(arrastoCampoRef.current?.key ?? null),
+    aoMover: ({ x, y }) => {
+      setColumnDropIndex(sobreAListaDeOrdem(x, y) ? indiceDeSoltura(y) : null);
+    },
+    aoSoltar: (arrastou) => {
+      const gesto = arrastoCampoRef.current;
+      const destino = columnDropIndexRef.current;
+      arrastoCampoRef.current = null;
+      setColumnDrag(null);
+      setColumnDropIndex(null);
+      if (!arrastou || !gesto) return;
+      if (destino === null) {
+        // Soltou FORA da lista: sair da lista é remover. Para quem veio dos
+        // disponíveis, soltar fora é simplesmente desistir.
+        if (gesto.origem === "ordem") removeDraftColumn(gesto.key);
+        return;
+      }
+      if (gesto.origem === "disponivel") {
+        setColumnDraft(keys => {
+          const sem = keys.filter(k => k !== gesto.key);
+          sem.splice(Math.max(0, Math.min(destino, sem.length)), 0, gesto.key);
+          return sem;
+        });
+        return;
+      }
+      dropColumnAt(gesto.key, destino);
+    },
+  });
+
+  /** Pendura o gesto numa alça, lembrando de QUEM está sendo arrastado. */
+  function pegarCampo(key: string, origem: "ordem" | "disponivel") {
+    return (evento: React.PointerEvent) => {
+      arrastoCampoRef.current = { key, origem };
+      arrastoDeCampo.onPointerDown(evento);
+    };
+  }
+  // ── A GRADE DE VERDADE ────────────────────────────────────────────────────
+  // Até 01/08 o "Organizar campos" oferecia 24 campos com ordem de prioridade
+  // arrastável e uma prévia com setas — e a lista embaixo tinha QUATRO colunas
+  // fixas que nunca mudavam. Dos 24 campos, 4 viravam a legenda do nome (numa
+  // ordem fixa, que ignorava a prioridade escolhida) e 5 viravam o texto sob
+  // "Próximo passo". Os outros 15 não faziam nada.
+  //
+  // O dono organizou 14 campos, não viu diferença nenhuma e relatou como "a
+  // organização parou de funcionar". Estava certo: o defeito não era o gesto,
+  // era a PROMESSA — o modal prometia coluna e entregava legenda.
+  //
+  // Agora a coluna escolhida é coluna mesmo, na ordem escolhida, com a largura
+  // que o usuário arrastar. As células ricas (avatar, sinais, score, dinheiro)
+  // continuam ricas: cada chave conhecida tem seu desenho e o resto cai no
+  // texto cru que o próprio GRID_COLUMNS já sabia produzir.
+  const larguraDaColuna = (key: string) => larguras[key] ?? GRID_COLUMNS.find(c => c.key === key)?.width ?? 140;
+
+  /**
+   * A trilha da grade. `check` e `ações` são fixas nas pontas; o miolo é o que
+   * o usuário escolheu. A lista ROLA de lado quando não cabe — mesma decisão
+   * da fita de etapas: quem cede é o container, nunca o dado.
+   *
+   * A LARGURA DE FÁBRICA NÃO É UM NÚMERO, É UM PISO.
+   * O `width` do GRID_COLUMNS foi escrito à mão e, medido pelo fiscal com dado
+   * hostil, erra: "R$ 1.234.567,89" pede 125px numa coluna de 110, e
+   * "São José do Rio Preto" pede 142 em 130. É o mesmo defeito que já tinha
+   * cortado a fita de etapas e o cabeçalho da /clientes — palpite de quem
+   * escreveu a tela não sobrevive à régua de letra do usuário, ao peso da
+   * fonte da pele nem ao dado real do cliente.
+   *
+   * Então, enquanto o usuário não arrastar, a coluna é `minmax(piso,
+   * max-content)`: ela MEDE o conteúdo em vez de apostar, com teto para uma
+   * razão social de cartório não empurrar todo o resto para fora da tela.
+   * Assim que ele arrasta, vira o número dele — e aí é escolha, não palpite.
+   */
+  const trilhaDaGrade = [
+    "34px",
+    // ARMADILHA MEDIDA EM 01/08: `minmax(130px, min(max-content, 560px))` é
+    // INVÁLIDO — função matemática não aceita palavra de dimensionamento
+    // intrínseco. O navegador descartou a lista de trilhas inteira, a grade
+    // virou uma coluna só e a tela empilhou tudo na vertical. Sem erro no
+    // console, sem build vermelho: é o "CSS morre calado" de novo.
+    // O teto de largura mora no CSS (`.vnd-sales-td > *`), onde ele funciona.
+    ...gridCols.map(c =>
+      larguras[c.key] !== undefined
+        ? `${larguraDaColuna(c.key)}px`
+        : `minmax(${c.width}px, max-content)`,
+    ),
+    "72px",
+  ].join(" ");
+
+  const arrastoDeColunaRef = useRef<{ key: string; inicial: number } | null>(null);
+  const arrastoDeColuna = useArrastar({
+    eixo: "x",
+    cursor: "col-resize",
+    aoMover: ({ dx }) => {
+      const gesto = arrastoDeColunaRef.current;
+      if (!gesto) return;
+      const nova = Math.min(COL_MAX, Math.max(COL_MIN, gesto.inicial + dx));
+      setLarguras(atual => ({ ...atual, [gesto.key]: nova }));
+    },
+    aoSoltar: (arrastou) => {
+      const gesto = arrastoDeColunaRef.current;
+      arrastoDeColunaRef.current = null;
+      if (arrastou && gesto) gravarMedida(`vendas-col-${gesto.key}`, largurasRef.current[gesto.key]);
+    },
+  });
+
+  function pegarColuna(key: string) {
+    return (evento: React.PointerEvent) => {
+      evento.stopPropagation(); // a alça mora dentro do botão de ordenar
+      // A largura de partida é a que está NA TELA, não a declarada: coluna que
+      // ainda se mede pelo conteúdo pode estar em 142px com 130 declarados, e
+      // partir do declarado faria a coluna dar um salto no primeiro pixel de
+      // arrasto — o gesto tem que continuar de onde o olho está.
+      const cabecalho = (evento.currentTarget as HTMLElement).closest(".vnd-sales-th");
+      const naTela = cabecalho ? Math.round(cabecalho.getBoundingClientRect().width) : larguraDaColuna(key);
+      arrastoDeColunaRef.current = { key, inicial: naTela };
+      arrastoDeColuna.onPointerDown(evento);
+    };
+  }
+
+  /**
+   * Duplo clique devolve a coluna ao padrão — e o padrão é MEDIR o conteúdo,
+   * não voltar ao número escrito à mão. Por isso a chave sai do mapa em vez de
+   * receber o `col.width`.
+   */
+  function restaurarLargura(key: string) {
+    esquecerMedida(`vendas-col-${key}`);
+    setLarguras(atual => {
+      const proximo = { ...atual };
+      delete proximo[key];
+      return proximo;
+    });
+  }
+
+  /** Teclado faz o mesmo que o arrasto — ↑/↓ movem o campo de lugar. */
+  function moverCampo(key: string, passo: -1 | 1) {
+    const atual = columnDraft.indexOf(key);
+    if (atual < 0) return;
+    const destino = atual + passo;
+    if (destino < 0 || destino >= columnDraft.length) return;
+    const ordem = [...columnDraft];
+    ordem.splice(atual, 1);
+    ordem.splice(destino, 0, key);
+    setColumnDraft(ordem);
+  }
   function toggleGridSort(key: string) {
     applyGridSort(gridSort?.key === key ? (gridSort.dir === 1 ? { key, dir: -1 } : null) : { key, dir: 1 });
   }
@@ -1293,31 +1539,40 @@ export function VendasClient() {
           <button type="button" className="icon-ghost" aria-label="Fechar" onClick={cancelColumnPicker}>✕</button>
         </div>
         <div className="vnd-colspick__boards">
-          <section className="vnd-colspick__board" onDragOver={e => e.preventDefault()} onDrop={() => columnDrag && dropColumnAt(columnDrag, columnDraft.length)}>
+          <section className="vnd-colspick__board">
             <div className="vnd-colspick__boardhead"><span><b>Ordem dos campos</b><small>De cima para baixo = maior prioridade</small></span><button type="button" onClick={() => setColumnDraft([])}>Remover todos</button></div>
-            <div className="vnd-collist">
+            <div className="vnd-collist" ref={listaCamposRef}>
               {columnDraft.map((key, i) => {
                 const col = GRID_COLUMNS.find(c => c.key === key);
                 if (!col) return null;
-                return <div key={key} className={"vnd-colrow" + (columnDropIndex === i ? " is-drop" : "")} draggable
-                  onDragStart={() => setColumnDrag(key)} onDragEnd={() => { setColumnDrag(null); setColumnDropIndex(null); }}
-                  onDragOver={e => { e.preventDefault(); e.stopPropagation(); setColumnDropIndex(i); }} onDrop={e => { e.preventDefault(); e.stopPropagation(); columnDrag && dropColumnAt(columnDrag, i); }}>
-                  <span className="vnd-colrow__grip" aria-hidden="true">⠿</span><b className="vnd-colrow__num">{String(i + 1).padStart(2, "0")}</b><span className="vnd-colrow__name">{col.label}</span>
+                return <div key={key} className={"vnd-colrow" + (columnDropIndex === i ? " is-drop" : "") + (columnDrag === key ? " is-pegando" : "")}
+                  onPointerDown={pegarCampo(key, "ordem")}>
+                  <span
+                    className="vnd-colrow__grip"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`${col.label}: posição ${i + 1} de ${columnDraft.length}. Use as setas para cima e para baixo para mover.`}
+                    onKeyDown={e => {
+                      if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+                      e.preventDefault();
+                      moverCampo(key, e.key === "ArrowUp" ? -1 : 1);
+                    }}
+                  >⠿</span><b className="vnd-colrow__num">{String(i + 1).padStart(2, "0")}</b><span className="vnd-colrow__name">{col.label}</span>
                   <button type="button" className="vnd-colrow__remove" onClick={() => removeDraftColumn(key)} aria-label={`Remover ${col.label}`}>✕</button>
                 </div>;
               })}
               {columnDraft.length === 0 && <span className="vnd-colspick__empty">Arraste campos para cá</span>}
             </div>
-            <small className="vnd-colspick__hint">⠿ Arraste para reordenar</small>
+            <small className="vnd-colspick__hint">⠿ Arraste ou use ↑ ↓ para reordenar</small>
           </section>
-          <section className="vnd-colspick__board vnd-colspick__available" onDragOver={e => e.preventDefault()} onDrop={() => columnDrag && removeDraftColumn(columnDrag)}>
+          <section className="vnd-colspick__board vnd-colspick__available">
             <div className="vnd-colspick__boardhead"><span><b>Campos disponíveis</b><small>Arraste ou dê dois cliques para adicionar</small></span><button type="button" onClick={() => setColumnDraft(GRID_COLUMNS.filter(c => c.gate !== "values" || board?.canViewValues).map(c => c.key))}>Adicionar todos</button></div>
             <label className="vnd-colsearch"><span aria-hidden="true">⌕</span><input value={columnSearch} onChange={e => setColumnSearch(e.target.value)} placeholder="Buscar coluna" aria-label="Buscar coluna" /></label>
             <div className="vnd-colavailable">
               {GRID_COLUMN_GROUPS.map(group => {
                 const cols = group.keys.map(key => GRID_COLUMNS.find(c => c.key === key)).filter((c): c is GridColumn => Boolean(c) && !columnDraft.includes(c!.key) && (c!.gate !== "values" || Boolean(board?.canViewValues)) && c!.label.toLocaleLowerCase("pt-BR").includes(columnSearch.trim().toLocaleLowerCase("pt-BR")));
                 if (!cols.length) return null;
-                return <div key={group.label} className="vnd-colgroup"><b>{group.label}</b>{cols.map(col => <button key={col.key} type="button" draggable onDragStart={() => setColumnDrag(col.key)} onDragEnd={() => setColumnDrag(null)} onDoubleClick={() => setColumnDraft(keys => [...keys, col.key])}><span aria-hidden="true">⠿</span>{col.label}</button>)}</div>;
+                return <div key={group.label} className="vnd-colgroup"><b>{group.label}</b>{cols.map(col => <button key={col.key} type="button" className={columnDrag === col.key ? "is-pegando" : undefined} onPointerDown={pegarCampo(col.key, "disponivel")} onDoubleClick={() => setColumnDraft(keys => [...keys, col.key])}><span aria-hidden="true">⠿</span>{col.label}</button>)}</div>;
               })}
             </div>
             <small className="vnd-colspick__hint">Arraste para adicionar</small>
@@ -1566,23 +1821,32 @@ export function VendasClient() {
                     </div>
                   )}
 
+                  <div className="vnd-sales-grade" style={{ "--vnd-grade-cols": trilhaDaGrade } as React.CSSProperties}>
                   <div className="vnd-sales-head" role="row">
                     <span className="vnd-sales-check">
                       <input type="checkbox" checked={todosSelecionados} onChange={toggleTodos}
                         aria-label={todosSelecionados ? "Desmarcar todos" : "Selecionar todos"} />
                     </span>
-                    <button type="button" onClick={() => toggleGridSort("name")} aria-label="Ordenar por lead">
-                      Lead {gridSort?.key === "name" && <span>{gridSort.dir === 1 ? "▲" : "▼"}</span>}
-                    </button>
-                    <button type="button" onClick={() => toggleGridSort("stage")} aria-label="Ordenar por etapa">
-                      Etapa {gridSort?.key === "stage" && <span>{gridSort.dir === 1 ? "▲" : "▼"}</span>}
-                    </button>
-                    <button type="button" onClick={() => toggleGridSort("next")} aria-label="Ordenar por próximo passo">
-                      Próximo passo {gridSort?.key === "next" && <span>{gridSort.dir === 1 ? "▲" : "▼"}</span>}
-                    </button>
-                    <button type="button" onClick={() => toggleGridSort(canViewValues ? "value" : "owner")} aria-label="Ordenar negócio">
-                      Negócio {gridSort && (gridSort.key === "value" || gridSort.key === "owner") && <span>{gridSort.dir === 1 ? "▲" : "▼"}</span>}
-                    </button>
+                    {gridCols.map(col => (
+                      <span key={col.key} className="vnd-sales-th">
+                        <button type="button" onClick={() => !col.nosort && toggleGridSort(col.key)}
+                          disabled={col.nosort} aria-label={col.nosort ? col.label : `Ordenar por ${col.label}`}>
+                          <span className="hbx-1linha">{col.label}</span>
+                          {gridSort?.key === col.key && <span aria-hidden="true">{gridSort.dir === 1 ? "▲" : "▼"}</span>}
+                        </button>
+                        {/* A alça de largura. Fica na borda direita da coluna,
+                            que é onde a mão procura. */}
+                        <span
+                          className="vnd-col-alca"
+                          role="separator"
+                          aria-orientation="vertical"
+                          aria-label={`Largura da coluna ${col.label}. Arraste, ou duplo clique para o padrão.`}
+                          title="Arraste para mudar a largura · duplo clique volta ao padrão"
+                          onPointerDown={pegarColuna(col.key)}
+                          onDoubleClick={event => { event.stopPropagation(); restaurarLargura(col.key); }}
+                        />
+                      </span>
+                    ))}
                     <span aria-hidden="true" />
                   </div>
 
@@ -1593,13 +1857,30 @@ export function VendasClient() {
                       const score = Math.max(0, Math.min(100, Math.round(Number(card.opportunityScore) || 0)));
                       const canais = vendasCanais(card);
                       const location = card.city ? `${card.city}${card.state ? `/${card.state}` : ""}` : card.state || "";
+                      // LEI "mostra num lugar, edita num lugar": com a grade de
+                      // verdade, todo campo escolhido virou COLUNA. Repetir o
+                      // mesmo dado na legenda embaixo do nome seria mostrar
+                      // duas vezes — e dado em dois lugares é bug de produto,
+                      // não de layout. A legenda passou a ser o contrário do
+                      // que era: mostra o que NÃO tem coluna própria hoje.
+                      const semColuna = (key: string) => !gridKeys.includes(key);
                       const identityMeta = [
-                        gridKeys.includes("segment") ? card.segment : null,
-                        (gridKeys.includes("city") || gridKeys.includes("state")) ? location : null,
-                        gridKeys.includes("phone") ? card.phone : null,
-                        gridKeys.includes("email") ? card.email : null,
+                        semColuna("segment") ? card.segment : null,
+                        semColuna("city") && semColuna("state") ? location : null,
+                        semColuna("phone") ? card.phone : null,
+                        semColuna("email") ? card.email : null,
                       ].filter(Boolean).join(" · ");
-                      const nextMeta = compactGridText(card, gridKeys, ["agenda", "engage", "date", "attempts", "note"]);
+                      // A legenda do "Próximo passo" carrega VALOR sem rótulo,
+                      // então só entra aqui o que se explica sozinho. "Hoje" e
+                      // "Sem mensagens" explicam; "11" e "—" não — com a grade
+                      // nova, Contatos e Data ficaram sem coluna nesta seleção
+                      // e a legenda virou "— · 11", que não informa nada.
+                      // Quem quiser esses dois agora tem coluna própria.
+                      const nextMeta = compactGridText(
+                        card,
+                        ["agenda", "engage", "note"].filter(semColuna),
+                        ["agenda", "engage", "note"],
+                      );
                       const dealPrimary = canViewValues ? leadValueLabel(card) : (card.product?.name || "—");
                       const owner = card.owner?.name || "Sem responsável";
                       return (
@@ -1619,38 +1900,81 @@ export function VendasClient() {
                               aria-label={`Selecionar ${card.name || "card"}`} />
                           </span>
 
-                          <span className="vnd-sales-row__lead">
-                            <span className="vnd-sales-row__avatar"><Av name={card.name || "Lead"} size={34} /></span>
-                            <span className="vnd-sales-row__identity">
-                              <span className="vnd-sales-row__name">
-                                <strong>{card.name || "—"}</strong>
-                                {card.saleConfirmedAt && <span className="badge-win">Ganho</span>}
-                              </span>
-                              <small title={identityMeta || undefined}>{identityMeta || "—"}</small>
-                            </span>
-                            <span className="vnd-sales-row__signals" aria-label="Canais encontrados">
-                              {canais.slice(0, 3).map(canal => <CanalIcon key={canal} canal={canal} size="sm" />)}
-                              <RadarAiBadge status={aiStatusMap[card.radarLeadId || ""]} />
-                            </span>
-                          </span>
-
-                          <span className="vnd-sales-row__stage">
-                            <span className={"vnd-sales-score" + (score ? "" : " is-empty")}>{score || "—"}</span>
-                            <span className="vnd-sales-row__stage-copy">
-                              <strong>{STAGE_LABEL[normalizeStage(card.status)]}</strong>
-                              <small>{card.automation ? `Automação · passo ${card.automation.currentStep + 1}` : (card.leadTemperature || ag.label)}</small>
-                            </span>
-                          </span>
-
-                          <span className="vnd-sales-row__next">
-                            <strong>{card.nextAction || "—"}</strong>
-                            <small title={nextMeta || undefined}>{ag.label} · {engagement.label}</small>
-                          </span>
-
-                          <span className="vnd-sales-row__deal">
-                            <strong className={canViewValues ? "hbx-mono" : undefined}>{dealPrimary}</strong>
-                            <small>{owner}</small>
-                          </span>
+                          {gridCols.map(col => {
+                            // As chaves com desenho próprio continuam com ele;
+                            // trocar riqueza por texto cru seria pagar a grade
+                            // com a cara da tela. O resto usa o `text()` que o
+                            // próprio GRID_COLUMNS já definia — é ele, aliás,
+                            // que sempre alimentou busca e ordenação, então o
+                            // que se lê e o que se ordena continuam iguais.
+                            let miolo: React.ReactNode;
+                            switch (col.key) {
+                              case "name":
+                                miolo = (
+                                  <span className="vnd-sales-row__lead">
+                                    <span className="vnd-sales-row__avatar"><Av name={card.name || "Lead"} size={34} /></span>
+                                    <span className="vnd-sales-row__identity">
+                                      <span className="vnd-sales-row__name">
+                                        <strong className="hbx-1linha">{card.name || "—"}</strong>
+                                        {card.saleConfirmedAt && <span className="badge-win">Ganho</span>}
+                                      </span>
+                                      {identityMeta && <small className="hbx-1linha" title={identityMeta}>{identityMeta}</small>}
+                                    </span>
+                                  </span>
+                                );
+                                break;
+                              case "icons":
+                                miolo = (
+                                  <span className="vnd-sales-row__signals" aria-label="Canais encontrados">
+                                    {canais.slice(0, 3).map(canal => <CanalIcon key={canal} canal={canal} size="sm" />)}
+                                  </span>
+                                );
+                                break;
+                              case "status":
+                                miolo = <RadarAiBadge status={aiStatusMap[card.radarLeadId || ""]} />;
+                                break;
+                              case "score":
+                                miolo = <span className={"vnd-sales-score" + (score ? "" : " is-empty")}>{score || "—"}</span>;
+                                break;
+                              case "stage":
+                                miolo = (
+                                  <span className="vnd-sales-row__stage-copy">
+                                    <strong className="hbx-1linha">{STAGE_LABEL[normalizeStage(card.status)]}</strong>
+                                    <small className="hbx-1linha">{card.automation ? `Automação · passo ${card.automation.currentStep + 1}` : (card.leadTemperature || ag.label)}</small>
+                                  </span>
+                                );
+                                break;
+                              case "next":
+                                miolo = (
+                                  <span className="vnd-sales-row__stage-copy">
+                                    <strong className="hbx-1linha">{card.nextAction || "—"}</strong>
+                                    {nextMeta && <small className="hbx-1linha" title={nextMeta}>{nextMeta}</small>}
+                                  </span>
+                                );
+                                break;
+                              case "value":
+                                miolo = <strong className="hbx-mono hbx-1linha">{dealPrimary}</strong>;
+                                break;
+                              case "owner":
+                                miolo = <span className="hbx-1linha">{owner}</span>;
+                                break;
+                              case "engage":
+                                miolo = <span className={engagement.className}>{engagement.label}</span>;
+                                break;
+                              case "agenda":
+                                miolo = <span className={"vnd-chip vnd-chip--" + ag.tone}>{ag.label}</span>;
+                                break;
+                              default: {
+                                const cru = col.text(card).trim();
+                                miolo = (
+                                  <span className={"hbx-1linha" + (col.mono ? " hbx-mono" : "")} title={cru || undefined}>
+                                    {cru || "—"}
+                                  </span>
+                                );
+                              }
+                            }
+                            return <span key={col.key} className="vnd-sales-td" data-col={col.key}>{miolo}</span>;
+                          })}
 
                           <span className="vnd-sales-row__actions" onClick={event => event.stopPropagation()}>
                             <button type="button" aria-label="Ações do lead" title="Ações"
@@ -1667,6 +1991,7 @@ export function VendasClient() {
                       <div className="vnd-sales-list__empty">Nenhum lead encontrado.</div>
                     )}
                   </div>
+                  </div>{/* /vnd-sales-grade */}
 
                   <footer className="vnd-sales-footer">
                     <span><strong>{listLeads.length}</strong> lead{listLeads.length === 1 ? "" : "s"} {listLeads.length === 1 ? "visível" : "visíveis"}</span>
@@ -1770,6 +2095,18 @@ export function VendasClient() {
               })()}
             </section>
           </div>
+
+                  {/* A alça entre a lista e a ficha do lead. O vendedor de
+                      notebook e o de monitor grande param de herdar a mesma
+                      conta de pixels — e cada máquina lembra da sua. */}
+                  <Divisoria
+                    chave="vendas-ficha"
+                    variavel="--context-width"
+                    padrao={345}
+                    min={280}
+                    max={720}
+                    rotulo="Largura da ficha do lead"
+                  />
 
                   <VendasLeadPreview
                     lead={sel}

@@ -4765,6 +4765,297 @@ export class InboxService {
     });
   }
 
+  // ===========================================================================
+  // BUSCA DENTRO DAS CONVERSAS (01/08/2026 — ordem do dono: "fala q procura dentro
+  // das conversas, mas ele só acha o nome da pessoa").
+  //
+  // O campo da caixa filtrava NO NAVEGADOR as conversas já carregadas, olhando só
+  // nome e telefone. Procurar texto de mensagem era IMPOSSÍVEL ali: a lista carrega
+  // apenas a ÚLTIMA mensagem de cada conversa (findConversationRowsByOrderedIds usa
+  // `take: 1`) — ou seja, a tela prometia "buscar conversas" e entregava "filtrar os
+  // nomes da página atual".
+  //
+  // Aqui quem procura é o SERVIDOR, na caixa INTEIRA, em 4 lugares:
+  //   1. TEXTO das mensagens (o que faltava)
+  //   2. telefone do contato
+  //   3. nome cadastrado no HBX (AtendimentoCustomer/CustomerProfile) — a identidade
+  //      que a tela mostra
+  //   4. nome que o cliente se deu no WhatsApp (metadata da conversa)
+  //
+  // O que NÃO muda: escopo de sessão/empresa é o MESMO da lista
+  // (isRowVisibleForWhatsappSessionScope) e conversa LIMPA/apagada da caixa segue
+  // fora — busca não ressuscita o que o operador tirou da frente.
+  // Acento não conta: "orçamento" acha "orcamento" e vice-versa (dobra os dois lados
+  // com `translate`, função nativa do Postgres — sem depender de extensão).
+  // ===========================================================================
+  async searchConversations(
+    user: any,
+    options?: { q?: string | null; take?: string | number | null },
+  ) {
+    const companyId = this.requireCompanyIdFromUser(user);
+    const term = String(options?.q ?? '').replace(/\s+/g, ' ').trim();
+    const take = Math.max(1, Math.min(Number(options?.take || 0) || 40, 60));
+    const empty = { term, conversations: [] as any[], truncated: false, messagesSearched: true };
+    // Piso de 2 caracteres: 1 letra casa com meia caixa e o custo do scan não paga.
+    if (term.length < 2) return empty;
+
+    const userId = Number(user?.id || 0) || undefined;
+    const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, {
+      userId,
+      aggregate: this.isAggregateUser(user),
+      user,
+    });
+    if (!sessionScope.accessible) return empty;
+
+    const startedAt = Date.now();
+    const scanLimit = Math.max(take * 4, 200);
+    const [messageHits, peopleIds] = await Promise.all([
+      this.findInboxSearchMessageHits(companyId, term, scanLimit),
+      this.findInboxSearchPeopleIds(companyId, term, scanLimit),
+    ]);
+
+    // Ordem: quem casou por MENSAGEM vem primeiro (é o que o dono não conseguia achar),
+    // já ordenado por recência do trecho; depois os que casaram por pessoa/telefone.
+    const orderedIds: number[] = [];
+    const seen = new Set<number>();
+    for (const id of [...messageHits.rows.keys(), ...peopleIds]) {
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      orderedIds.push(id);
+    }
+    if (!orderedIds.length) {
+      return { ...empty, messagesSearched: messageHits.ok };
+    }
+
+    const rows = (await this.findConversationRowsByOrderedIds(companyId, orderedIds)).filter((row: any) => {
+      if (!this.isRowVisibleForWhatsappSessionScope(row, sessionScope)) return false;
+      const metadata = this.parseConversationMetadata(row.metadata);
+      if (this.parseBooleanMetadataFlag(metadata.whatsappConversationDeleted || metadata.inboxWhatsAppDeleted)) {
+        return false;
+      }
+      // Limpa pelo operador: continua fora da caixa (mesma regra da lista).
+      if (this.getConversationClearedState(metadata).isCleared) return false;
+      if (this.isConversationGroup(row, metadata)) return false;
+      return true;
+    });
+    const truncated = rows.length > take;
+    const limited = rows.slice(0, take);
+
+    const routingRules = await this.getRecoveryRoutingRules(companyId);
+    const summaries = await this.mapPersistedConversationRowsForCompany(companyId, limited, routingRules);
+    const conversations = summaries.map((conversation: any) => {
+      const hit = messageHits.rows.get(Number(conversation.id));
+      return {
+        ...conversation,
+        // Onde casou — a tela mostra o TRECHO da mensagem no lugar da prévia, senão o
+        // resultado apareceria sem explicar por que está ali.
+        searchMatch: hit
+          ? { field: 'message', messageId: String(hit.messageId), snippet: hit.snippet, at: hit.timestamp }
+          : { field: 'contact', messageId: null, snippet: null, at: null },
+      };
+    });
+
+    const elapsed = Date.now() - startedAt;
+    if (elapsed > 1500) {
+      // Alarme, não silêncio: busca que começa a arrastar aparece no log ANTES de virar
+      // reclamação ("a caixa travou quando eu digito").
+      this.logger.warn(
+        `Busca do inbox lenta: company=${companyId} termo=${term.length}ch ${elapsed}ms resultados=${conversations.length}`,
+      );
+    }
+
+    return { term, conversations, truncated, messagesSearched: messageHits.ok };
+  }
+
+  // Dobra de acento em SQL puro: `translate` é nativo do Postgres (não precisa da
+  // extensão unaccent) e cobre o alfabeto PT-BR — mesma saída do normalizeSearch do JS.
+  private static readonly INBOX_SEARCH_FOLD_FROM = 'áàâãäéèêëíìîïóòôõöúùûüçñ';
+  private static readonly INBOX_SEARCH_FOLD_TO = 'aaaaaeeeeiiiiooooouuuucn';
+
+  private inboxSearchFoldSql(column: string) {
+    return `translate(lower(coalesce(${column}, '')), '${InboxService.INBOX_SEARCH_FOLD_FROM}', '${InboxService.INBOX_SEARCH_FOLD_TO}')`;
+  }
+
+  // O que o dono digitou é DADO, nunca padrão: % e _ viram literais, e o termo entra
+  // sem acento/caixa pra casar com o lado dobrado da coluna.
+  private buildInboxSearchPattern(term: string) {
+    const normalized = term
+      .normalize('NFD')
+      .replace(/\p{Diacritic}/gu, '')
+      .toLowerCase()
+      .replace(/[\\%_]/g, (char) => `\\${char}`);
+    return `%${normalized}%`;
+  }
+
+  // Dobra acento/caixa MANTENDO o mapa pro texto original: `normalize('NFD')` na string
+  // inteira MUDA o tamanho ("café" vira 5 caracteres), então o índice achado no texto
+  // dobrado não serviria pra recortar o original — o trecho sairia deslocado.
+  private foldInboxSearchTextWithMap(value: string) {
+    let folded = '';
+    const map: number[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      const char = value[index].normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+      for (let k = 0; k < char.length; k += 1) map.push(index);
+      folded += char;
+    }
+    map.push(value.length);
+    return { folded, map };
+  }
+
+  // Trecho da mensagem em volta do termo. A linha da lista é ESTREITA e corta o resto com
+  // reticências, então o recorte começa perto do que casou — senão a palavra procurada
+  // ficaria justamente na parte cortada (mensagem curta que "não mostra o que achou").
+  private buildInboxSearchSnippet(body: string, term: string) {
+    const text = String(body || '').replace(/\s+/g, ' ').trim();
+    const { folded, map } = this.foldInboxSearchTextWithMap(text);
+    const foldedTerm = this.foldInboxSearchTextWithMap(term).folded;
+    const at = foldedTerm ? folded.indexOf(foldedTerm) : -1;
+    if (at < 0) return text.length > 90 ? `${text.slice(0, 90)}…` : text;
+    const from = Math.max(0, (map[at] ?? 0) - 24);
+    const to = Math.min(text.length, (map[at + foldedTerm.length] ?? text.length) + 60);
+    if (from === 0 && to >= text.length) return text;
+    return `${from > 0 ? '…' : ''}${text.slice(from, to)}${to < text.length ? '…' : ''}`;
+  }
+
+  // Conversas cujo TEXTO de mensagem casa com o termo. Uma linha por conversa (a
+  // mensagem mais RECENTE que casou), já ordenadas da mais nova pra mais velha.
+  private async findInboxSearchMessageHits(companyId: number, term: string, limit: number) {
+    const rows = new Map<number, { messageId: number; snippet: string; timestamp: Date | null }>();
+    const pattern = this.buildInboxSearchPattern(term);
+    try {
+      const hits = await this.prisma.$queryRawUnsafe<
+        Array<{ conversationId: number; messageId: number; body: string | null; timestamp: Date | null }>
+      >(
+        `SELECT hit."conversationId", hit."messageId", hit.body, hit.timestamp
+           FROM (
+             SELECT DISTINCT ON (m."conversationId")
+               m."conversationId" AS "conversationId",
+               m.id               AS "messageId",
+               m.body             AS body,
+               m.timestamp        AS timestamp
+             FROM "Message" m
+             WHERE m."companyId" = $1
+               AND m.direction IN ('INBOUND', 'OUTBOUND')
+               AND COALESCE(m."messageType", '') <> 'system_event'
+               AND COALESCE(m."senderType", '') <> 'system'
+               AND ${this.inboxSearchFoldSql('m.body')} LIKE $2
+             ORDER BY m."conversationId", m.timestamp DESC, m.id DESC
+           ) hit
+          ORDER BY hit.timestamp DESC
+          LIMIT $3`,
+        companyId,
+        pattern,
+        limit,
+      );
+      for (const hit of hits) {
+        const conversationId = Number(hit.conversationId);
+        if (!conversationId || rows.has(conversationId)) continue;
+        rows.set(conversationId, {
+          messageId: Number(hit.messageId),
+          snippet: this.buildInboxSearchSnippet(String(hit.body || ''), term),
+          timestamp: hit.timestamp ?? null,
+        });
+      }
+      return { ok: true, rows };
+    } catch (error) {
+      // NUNCA devolver "nada encontrado" quando na verdade a varredura FALHOU — a tela
+      // avisa que só nome/telefone foram consultados (ok:false).
+      this.logger.warn(
+        `Busca do inbox: varredura de mensagens falhou company=${companyId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      return { ok: false, rows };
+    }
+  }
+
+  // Conversas que casam por PESSOA: telefone, nome cadastrado no HBX ou nome que o
+  // cliente se deu no WhatsApp (guardado no metadata).
+  private async findInboxSearchPeopleIds(companyId: number, term: string, limit: number) {
+    const pattern = this.buildInboxSearchPattern(term);
+    const digits = term.replace(/\D/g, '');
+    const ids: number[] = [];
+    const push = (value: unknown) => {
+      const id = Number(value);
+      if (id && !ids.includes(id)) ids.push(id);
+    };
+
+    // Nome cadastrado (identidade do HBX) e telefone: casam contra a conversa pelos
+    // últimos 11 dígitos (o mesmo número aparece como "+5519…", "5519…" ou JID).
+    try {
+      const rows = await this.prisma.$queryRawUnsafe<Array<{ id: number }>>(
+        `SELECT c.id
+           FROM "Conversation" c
+          WHERE c."companyId" = $1
+            AND c.channel = 'whatsapp'
+            AND (
+              ($3 <> '' AND regexp_replace(c.contact, '\\D', '', 'g') LIKE '%' || $3 || '%')
+              OR EXISTS (
+                SELECT 1
+                  FROM "AtendimentoCustomer" ac
+                  LEFT JOIN "CustomerProfile" cp ON cp.id = ac."customerProfileId"
+                 WHERE ac."companyId" = c."companyId"
+                   AND (${this.inboxSearchFoldSql('ac.name')} LIKE $2
+                        OR ${this.inboxSearchFoldSql('cp.name')} LIKE $2)
+                   AND right(regexp_replace(ac."phoneNormalized", '\\D', '', 'g'), 11)
+                       = right(regexp_replace(c.contact, '\\D', '', 'g'), 11)
+              )
+            )
+          ORDER BY c."lastMessageAt" DESC
+          LIMIT $4`,
+        companyId,
+        pattern,
+        digits.length >= 3 ? digits : '',
+        limit,
+      );
+      for (const row of rows) push(row.id);
+    } catch (error) {
+      this.logger.warn(
+        `Busca do inbox: varredura de contatos falhou company=${companyId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    // Nome do WhatsApp: mora dentro do metadata, que é TEXTO (JSON serializado). O LIKE
+    // aqui é só PENEIRA barata — quem decide é o parse abaixo, campo a campo. Sem isso,
+    // buscar "vendas" casaria com `sourceModule` e sujaria a lista inteira.
+    try {
+      const candidates = await this.prisma.$queryRawUnsafe<Array<{ id: number; metadata: string | null }>>(
+        `SELECT c.id, c.metadata
+           FROM "Conversation" c
+          WHERE c."companyId" = $1
+            AND c.channel = 'whatsapp'
+            AND ${this.inboxSearchFoldSql('c.metadata')} LIKE $2
+          ORDER BY c."lastMessageAt" DESC
+          LIMIT $3`,
+        companyId,
+        pattern,
+        limit,
+      );
+      const needle = term.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+      for (const candidate of candidates) {
+        const metadata = this.parseConversationMetadata(candidate.metadata);
+        const names = [
+          metadata?.whatsappContactName,
+          metadata?.whatsappProfileName,
+          metadata?.waNickname,
+          metadata?.whatsappName,
+        ];
+        const matches = names.some((name) =>
+          String(name || '')
+            .normalize('NFD')
+            .replace(/\p{Diacritic}/gu, '')
+            .toLowerCase()
+            .includes(needle),
+        );
+        if (matches) push(candidate.id);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Busca do inbox: varredura de apelidos falhou company=${companyId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
+    return ids;
+  }
+
   async startConversation(user: any, input: { phone?: string; name?: string | null }) {
     const companyId = this.requireCompanyIdFromUser(user);
     const sessionScope = await this.resolveInboxWhatsappSessionScope(companyId, { userId: Number(user?.id || 0) || undefined });

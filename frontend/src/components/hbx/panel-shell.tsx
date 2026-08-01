@@ -1,5 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 
+import { Divisoria } from "./divisoria";
+
 type PanelShellBaseProps = {
   main: ReactNode;
   className?: string;
@@ -14,6 +16,7 @@ type PanelShellCommonProps = PanelShellBaseProps & {
   context?: never;
   contextLabel?: never;
   contextClassName?: never;
+  larguraAjustavel?: never;
 };
 
 type PanelShellContextProps = PanelShellBaseProps & {
@@ -21,6 +24,13 @@ type PanelShellContextProps = PanelShellBaseProps & {
   context: ReactNode;
   contextLabel: string;
   contextClassName?: string;
+  /**
+   * Liga a divisória arrastável entre a superfície de trabalho e o painel.
+   * O valor é a IDENTIDADE da medida guardada — telas diferentes guardam
+   * larguras diferentes, e é isso que faz cada uma lembrar da sua.
+   * Sem esta prop a casca fica exatamente como sempre foi.
+   */
+  larguraAjustavel?: string;
 };
 
 export type HbxPanelShellProps = PanelShellCommonProps | PanelShellContextProps;
@@ -55,6 +65,10 @@ export function HbxPanelShell(props: HbxPanelShellProps) {
           {props.main}
         </div>
       </div>
+
+      {props.variant === "context" && props.larguraAjustavel ? (
+        <Divisoria chave={props.larguraAjustavel} rotulo={`Largura do painel: ${props.contextLabel}`} />
+      ) : null}
 
       {contextual ? (
         <aside

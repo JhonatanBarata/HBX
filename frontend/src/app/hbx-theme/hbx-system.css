@@ -378,3 +378,39 @@ textarea[aria-invalid="true"] {
 [data-casca="corporativa"] {
   --hbx-densidade: 0.875;
 }
+
+/* ============================================================================
+   7. DENSIDADE ESCOLHIDA PELO USUÁRIO (01/08/2026)
+
+   A casca dá o PADRÃO; quem escolhe vence. As três regras vêm depois da regra
+   da casca de propósito: as duas têm a mesma especificidade (um seletor de
+   atributo no <html>), então quem está escrito por último ganha — e quem tem
+   que ganhar é a pessoa que clicou.
+
+   Sem `data-densidade` no <html>, nada disto vale e a casca segue mandando.
+   É o mesmo contrato do tema: preferência ausente não é preferência neutra
+   inventada, é a ausência de escolha.
+   ============================================================================ */
+[data-densidade="compacta"] { --hbx-densidade: 0.86; }
+[data-densidade="normal"]   { --hbx-densidade: 1; }
+[data-densidade="folgada"]  { --hbx-densidade: 1.18; }
+
+/* O QUE A DENSIDADE MEXE DE VERDADE.
+   Antes deste bloco o token alimentava dois `min-height` e mais nada — um
+   controle ligado nele seria decoração, e decoração que se apresenta como
+   controle é pior que controle nenhum. Linha de lista é onde densidade se
+   sente: é ela que decide se cabem oito ou doze leads na tela sem rolar.
+
+   `--hbx-espaco-linha` é a oferta do sistema. Quem PEDE é a tela, no arquivo
+   dela — a regra do rótulo em `.field-label` já ensinou que sistema que
+   conhece tela pelo nome vira mais uma tela. A `.tbl` é exceção porque é
+   primitivo do kit, não tela. */
+:root {
+  --hbx-espaco-linha: calc(10px * var(--hbx-densidade));
+  --hbx-espaco-celula: calc(8px * var(--hbx-densidade));
+}
+
+.tbl td,
+.tbl th {
+  padding-block: var(--hbx-espaco-celula);
+}

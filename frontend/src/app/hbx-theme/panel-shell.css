@@ -40,6 +40,80 @@
     var(--hbx-panel-shell-context-width);
 }
 
+/* ============================================================
+   A DIVISÓRIA (01/08/2026)
+
+   Só a casca que REALMENTE tem a alça vira grade de três colunas. Quem não
+   põe a <Divisoria /> continua exatamente como estava — `:has()` é o que
+   permite a alça ser opcional sem inventar um segundo nome de casca.
+
+   A coluna do meio é `auto`: quem define a espessura é o CSS da alça, num
+   lugar só.
+   ============================================================ */
+.hbx-panel-shell--context:has(> .hbx-divisoria) {
+  grid-template-columns:
+    minmax(0, 1fr)
+    auto
+    var(--hbx-panel-shell-context-width);
+}
+
+/* A ALÇA
+   Linha fina em repouso, área de pegada larga. São coisas diferentes de
+   propósito: uma linha de 5px é bonita e é impossível de acertar com o mouse.
+   O `padding` dá 11px de alvo real sem engordar o desenho — regra de ouro de
+   alça, e o motivo pelo qual divisória feia costuma ser divisória que
+   ninguém consegue pegar. */
+.hbx-divisoria {
+  position: relative;
+  z-index: 2;
+  width: 11px;
+  margin: 0 -3px;
+  padding: 0 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: col-resize;
+  background: transparent;
+  touch-action: none; /* sem isto o toque rola a tela em vez de arrastar */
+}
+
+.hbx-divisoria__pega {
+  width: 1px;
+  height: 100%;
+  border-radius: 1px;
+  background: var(--border-hairline);
+  transition:
+    background var(--motion-fast),
+    width var(--motion-fast);
+}
+
+.hbx-divisoria:hover .hbx-divisoria__pega,
+.hbx-divisoria.is-arrastando .hbx-divisoria__pega {
+  width: 3px;
+  background: var(--hbx-brand);
+}
+
+.hbx-divisoria:focus-visible {
+  outline: none;
+}
+
+.hbx-divisoria:focus-visible .hbx-divisoria__pega {
+  width: 3px;
+  background: var(--hbx-brand);
+  box-shadow: var(--hbx-foco);
+}
+
+/* No celular a casca contextual vira uma coluna só (ver a media query da
+   tela). Alça de largura ali não tem o que dividir. */
+@media (max-width: 900px) {
+  .hbx-divisoria {
+    display: none;
+  }
+  .hbx-panel-shell--context:has(> .hbx-divisoria) {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .hbx-panel-shell__main,
 .hbx-panel-shell__context {
   min-width: 0;

@@ -38,6 +38,7 @@ import { decodeAudioBlob, renderVoiceWav, VOICE_MODE_LABEL, VOICE_PRESETS, VOICE
 import { WhatsAppConnectModal } from "@/components/hbx/whatsapp-connect-modal";
 import { ModeloAtendimentoPanel } from "@/components/hbx/modelo-atendimento-panel";
 import { DetalhesNegocio, type NegocioDetail } from "@/components/hbx/detalhes-negocio";
+import { Divisoria } from "@/components/hbx/divisoria";
 import { FecharVendaModal } from "@/components/hbx/fechar-venda-modal";
 import { apiFetch, getApiBase, getToken } from "@/lib/api";
 import { stampOnboardingEvent } from "@/lib/onboarding";
@@ -79,6 +80,16 @@ type InboxMessage = {
   metadata?: MsgMeta;
 };
 
+// Onde o termo da busca casou nesta conversa (GET /inbox/conversations/search).
+// `snippet` é o trecho da mensagem — a lista mostra ele no lugar da prévia, senão o
+// resultado apareceria sem explicar por que está ali.
+type InboxSearchMatch = {
+  field: "message" | "contact";
+  messageId: string | null;
+  snippet: string | null;
+  at: string | null;
+} | null;
+
 type InboxConversation = {
   id: string;
   contact: string | null;
@@ -100,9 +111,18 @@ type InboxConversation = {
     isRegistered?: boolean;
   } | null;
   messages?: InboxMessage[];
+  searchMatch?: InboxSearchMatch;
 };
 
 type MessagesResponse = { messages: InboxMessage[]; hasMore?: boolean; nextBefore?: string | null };
+type InboxSearchResponse = {
+  term: string;
+  conversations: InboxConversation[];
+  truncated?: boolean;
+  // false = a varredura do TEXTO das mensagens falhou no servidor; o resultado veio
+  // só de nome/telefone. Nunca esconder isso: "nada encontrado" mentiria.
+  messagesSearched?: boolean;
+};
 type QuickReply = { id: number | string; title: string; content: string };
 
 // Card de situação do lead (GET/PATCH /inbox/conversations/:id/status-card):
@@ -279,6 +299,41 @@ function isNovaConversa(c: InboxConversation | null | undefined) {
   return Boolean(started) && (c?.messages?.length ?? 0) === 0;
 }
 
+// --- Busca dentro das conversas ------------------------------------------------
+// Dobra acento e caixa MANTENDO o mapa pro texto original: `normalize("NFD")` na
+// string inteira MUDA o tamanho ("café" vira 5 caracteres), então o índice achado no
+// texto dobrado não serviria pra recortar o original — o destaque sairia torto.
+function dobrarComMapa(value: string) {
+  let folded = "";
+  const map: number[] = [];
+  for (let i = 0; i < value.length; i += 1) {
+    const char = value[i].normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+    for (let k = 0; k < char.length; k += 1) map.push(i);
+    folded += char;
+  }
+  map.push(value.length);
+  return { folded, map };
+}
+
+// Marca o pedaço buscado dentro do texto (acento e caixa não contam).
+function Realce({ texto, termo }: { texto: string; termo: string }) {
+  const alvo = termo.trim();
+  if (!alvo) return <>{texto}</>;
+  const { folded, map } = dobrarComMapa(texto);
+  const agulha = dobrarComMapa(alvo).folded;
+  const at = agulha ? folded.indexOf(agulha) : -1;
+  if (at < 0) return <>{texto}</>;
+  const ini = map[at] ?? 0;
+  const fim = map[at + agulha.length] ?? texto.length;
+  return (
+    <>
+      {texto.slice(0, ini)}
+      <mark>{texto.slice(ini, fim)}</mark>
+      {texto.slice(fim)}
+    </>
+  );
+}
+
 function convUnread(c: InboxConversation) {
   const raw = (c.metadata as Record<string, unknown> | null | undefined)?.["whatsappUnreadCount"];
   const n = Number(raw ?? 0);
@@ -445,6 +500,22 @@ export function AtendimentoClient() {
   const [mobileThread, setMobileThread] = useState(false);
   const [tab, setTab] = useTabIndex("tab", 0);
   const [busca, setBusca] = useState("");
+  // BUSCA DE SERVIDOR (01/08/2026 — ordem do dono: "fala q procura dentro das conversas,
+  // mas só acha o nome da pessoa"). O filtro daqui olhava nome+telefone das conversas já
+  // carregadas; o texto das mensagens nem chega na lista (o backend manda só a ÚLTIMA de
+  // cada conversa). Agora quem procura é o /inbox/conversations/search, na caixa inteira.
+  const [buscaRes, setBuscaRes] = useState<{
+    termo: string;
+    convs: InboxConversation[];
+    truncated: boolean;
+    comMensagens: boolean;
+  } | null>(null);
+  // Termo cuja busca no servidor FALHOU (backend velho/fora): a tela cai no filtro local
+  // e avisa, em vez de fingir que não achou nada.
+  const [buscaFalhou, setBuscaFalhou] = useState<string | null>(null);
+  const termoBusca = busca.trim();
+  // Piso de 2 caracteres (o mesmo do backend): 1 letra casa com meia caixa.
+  const buscaAtiva = termoBusca.length >= 2;
   const [thread, setThread] = useState<InboxMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [sendBusy, setSendBusy] = useState(false);
@@ -855,6 +926,31 @@ export function AtendimentoClient() {
     }
   }
 
+  // Pergunta ao servidor a cada 300ms parados de digitação. O resultado fica CARIMBADO
+  // com o termo (`buscaRes.termo`), então resposta atrasada de um termo antigo nunca
+  // pisca na tela — quem chegar fora de hora simplesmente não casa e é ignorado.
+  useEffect(() => {
+    if (termoBusca.length < 2) return;
+    let alive = true;
+    const timer = window.setTimeout(() => {
+      apiFetch<InboxSearchResponse>(`/inbox/conversations/search?q=${encodeURIComponent(termoBusca)}&take=40`)
+        .then(res => {
+          if (!alive) return;
+          setBuscaRes({
+            termo: termoBusca,
+            convs: Array.isArray(res?.conversations) ? res.conversations : [],
+            truncated: Boolean(res?.truncated),
+            comMensagens: res?.messagesSearched !== false,
+          });
+        })
+        .catch(() => {
+          // Nunca deixa a caixa sem busca: cai no filtro local de nome/telefone.
+          if (alive) setBuscaFalhou(termoBusca);
+        });
+    }, 300);
+    return () => { alive = false; window.clearTimeout(timer); };
+  }, [termoBusca]);
+
   const loadThread = useCallback((id: string) => {
     return apiFetch<MessagesResponse>(`/inbox/conversations/${encodeURIComponent(id)}/messages?limit=30`)
       .then(res => {
@@ -1166,7 +1262,13 @@ export function AtendimentoClient() {
   }
 
   // troca de conversa (handler de clique — reset de UI fica fora de efeito)
-  function openConv(id: string) {
+  function openConv(id: string, daBusca?: InboxConversation) {
+    // Resultado de busca pode ser uma conversa que ainda NÃO está na página carregada da
+    // caixa. Sem entrar na lista, o /read, o envio e a guarda de sessão recusariam o id
+    // (`convIdSetRef` / `convs.some`) e a conversa abriria morta.
+    if (daBusca && !convs.some(c => c.id === id)) {
+      setConvs(prev => (prev.some(c => c.id === id) ? prev : [daBusca, ...prev]));
+    }
     setMobileThread(true); // celular: tocar numa conversa abre a thread (mesmo a já selecionada)
     markConvReadLocal(id); // zera o (X) na lista na hora; o efeito do selId manda o /read
     if (id !== selId) {
@@ -1832,15 +1934,25 @@ export function AtendimentoClient() {
   // pra contagem do KPI — tudo deriva daqui.
   const unreadOf = (c: InboxConversation) => (c.id === selId ? 0 : convUnread(c));
   const naoLidas = convs.filter(c => unreadOf(c) > 0);
-  const filtered = convs
+  // Resultado do servidor só vale pro termo que está no campo AGORA.
+  const resultadoBusca = buscaRes && buscaRes.termo === termoBusca ? buscaRes : null;
+  const buscaSemServidor = buscaFalhou === termoBusca;
+  const buscando = buscaAtiva && !resultadoBusca && !buscaSemServidor;
+  // Base da lista: buscando, quem manda é o servidor (varre a caixa inteira, inclusive o
+  // TEXTO das mensagens). Enquanto a resposta não chega — ou se ela falhar — vale o
+  // filtro local de nome/telefone, que é instantâneo e não deixa a tela vazia.
+  const baseLista = !buscaAtiva
+    ? convs
+    : resultadoBusca
+      ? resultadoBusca.convs
+      : convs.filter(c => {
+          const q = termoBusca.toLowerCase();
+          return convName(c).toLowerCase().includes(q) || String(c.contact || "").includes(q);
+        });
+  const filtered = baseLista
     // Aba "Não lidas": só o que falta verificar. A conversa aberta fica visível mesmo
     // já lida (não some debaixo do dedo), mas sem o (X).
     .filter(c => tab === 0 ? true : tab === 1 ? (unreadOf(c) > 0 || c.id === selId) : c.humanAssigned === true)
-    .filter(c => {
-      const q = busca.trim().toLowerCase();
-      if (!q) return true;
-      return convName(c).toLowerCase().includes(q) || String(c.contact || "").includes(q);
-    })
     // Filtro do seletor "Chat": chave de sessão casa pelo chip; chave "u:<id>" (usuário
     // sem chip) casa pela atribuição (assignedUserId) — sem chip nem atribuição = lista
     // vazia, que é o certo (esse usuário ainda não tem conversas).
@@ -2153,17 +2265,30 @@ export function AtendimentoClient() {
                   ))}
                 </div>
                 <div className="at-convs-search" data-tut="atend-busca">
-                  <input className="field-dark" placeholder="Buscar conversas..." value={busca} onChange={e => setBusca(e.target.value)} />
+                  <input className="field-dark" placeholder="Buscar por nome, telefone ou texto da conversa..." value={busca} onChange={e => setBusca(e.target.value)} />
+                  {buscaAtiva && (
+                    <div className="at-busca-info">
+                      {buscando && "Procurando nas mensagens…"}
+                      {buscaSemServidor && "Busca do servidor fora — filtrando só por nome e telefone."}
+                      {/* Sem resultado quem fala é o vazio da lista — a mesma frase em dois
+                          lugares é bug de produto, não de layout. */}
+                      {resultadoBusca && resultadoBusca.convs.length > 0 &&
+                        `${resultadoBusca.convs.length} ${resultadoBusca.convs.length === 1 ? "conversa" : "conversas"}${resultadoBusca.truncated ? " (as mais recentes)" : ""}`}
+                      {resultadoBusca && !resultadoBusca.comMensagens && " — não deu para ler o texto das mensagens agora."}
+                    </div>
+                  )}
                 </div>
                 <div className="conv-list" data-tut="atend-lista">
                   {filtered.length === 0 && (
                     <div className="at-convs-empty">
                       <span>
-                        {loadError || (inboxWaStatus === "connected"
-                          ? "Nenhuma conversa ainda — as mensagens aparecem aqui."
-                          : "WhatsApp ainda não conectado. Vincule o número para receber e responder as conversas aqui.")}
+                        {loadError || (buscaAtiva
+                          ? `Nada encontrado para "${termoBusca}".`
+                          : inboxWaStatus === "connected"
+                            ? "Nenhuma conversa ainda — as mensagens aparecem aqui."
+                            : "WhatsApp ainda não conectado. Vincule o número para receber e responder as conversas aqui.")}
                       </span>
-                      {!loadError && inboxWaStatus !== "connected" && (
+                      {!loadError && !buscaAtiva && inboxWaStatus !== "connected" && (
                         <button className="btn-teal" onClick={() => setWaModalOpen(true)}>
                           <WhatsAppMark size={14} /> Conectar WhatsApp
                         </button>
@@ -2173,13 +2298,20 @@ export function AtendimentoClient() {
                   {filtered.map(c => {
                     const un = unreadOf(c);
                     const lastMsg = (c.messages || [])[(c.messages || []).length - 1] || null;
+                    // Casou pelo TEXTO: a linha mostra o trecho da mensagem, não a prévia —
+                    // senão o resultado apareceria sem dizer por que está ali.
+                    const trecho = buscaAtiva && c.searchMatch?.field === "message" ? c.searchMatch.snippet : null;
                     return (
-                      <button key={c.id} className={"conv" + (selId === c.id ? " sel" : "")} onClick={() => openConv(c.id)}>
+                      <button key={c.id} className={"conv" + (selId === c.id ? " sel" : "")} onClick={() => openConv(c.id, c)}>
                         <Av name={convName(c)} size={36} />
                         <span className="at-conv-copy">
-                          <span className="nm"><strong>{convName(c)}</strong><time>{fmtConvTime(c.lastMessageAt)}</time></span>
+                          <span className="nm"><strong>{buscaAtiva ? <Realce texto={convName(c)} termo={termoBusca} /> : convName(c)}</strong><time>{fmtConvTime(c.lastMessageAt)}</time></span>
                           <span className="pv">
-                            <small>{isNovaConversa(c) ? "Mande a primeira mensagem…" : (lastMsg?.content || "—")}</small>
+                            <small>
+                              {trecho
+                                ? <Realce texto={trecho} termo={termoBusca} />
+                                : isNovaConversa(c) ? "Mande a primeira mensagem…" : (lastMsg?.content || "—")}
+                            </small>
                             {isNovaConversa(c) && <span className="conv-nova">novo</span>}
                             <span className="chan wa">WhatsApp</span>
                             {showNumberFilter && !numberFilter && c.whatsappConnectionSessionId && sessionMap.has(String(c.whatsappConnectionSessionId)) && (
@@ -2193,9 +2325,13 @@ export function AtendimentoClient() {
                   })}
                 </div>
                 <div className="at-convs-foot">
-                  {hasMore
-                    ? <button className="link at-convs-more" onClick={carregarMais}>{moreBusy ? "Carregando…" : "Carregar mais ▾"}</button>
-                    : <span>{convs.length > 0 ? "Fim da caixa" : "—"}</span>}
+                  {/* "Carregar mais" pagina a CAIXA, não a busca — durante a busca ele
+                      abriria mais páginas por trás de um resultado que já veio inteiro. */}
+                  {buscaAtiva
+                    ? <span>Resultado da busca</span>
+                    : hasMore
+                      ? <button className="link at-convs-more" onClick={carregarMais}>{moreBusy ? "Carregando…" : "Carregar mais ▾"}</button>
+                      : <span>{convs.length > 0 ? "Fim da caixa" : "—"}</span>}
                 </div>
               </div>
 
@@ -2511,6 +2647,8 @@ export function AtendimentoClient() {
               </div>
             </div>
           </div>
+
+          <Divisoria chave="atendimento-ficha" variavel="--a-context-width" rotulo="Largura da ficha do negócio" />
 
           <aside className="ctx hbx-panel-shell__context hbx-panel-context--dense" data-tut="atend-painel">
             <DetalhesNegocio

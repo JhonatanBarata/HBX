@@ -5,7 +5,8 @@ import { useEffect } from "react";
 
 import { HbxMotionRuntime } from "@/components/hbx/motion";
 import {
-  CASCA_PADRAO, CASCA_STORAGE, CASCAS, LEGACY_PELE_STORAGE, MODE_STORAGE, TEMA_STORAGE,
+  CASCA_PADRAO, CASCA_STORAGE, CASCAS, DENSIDADE_STORAGE, LEGACY_PELE_STORAGE, MODE_STORAGE, TEMA_STORAGE,
+  resolveDensidade, type DensidadeKey,
   getCasca, resolveModo, resolveTema, temaDoLegado,
   type CascaDef, type CascaKey, type Modo, type TemaKey,
 } from "@/lib/aparencia";
@@ -206,6 +207,27 @@ export function setTema(key: TemaKey) {
 export function setThemeMode(mode: Modo) {
   document.documentElement.setAttribute("data-theme-mode", mode);
   gravar(MODE_STORAGE, mode);
+}
+
+/**
+ * Escrita ÚNICA da densidade. `null` apaga a escolha e devolve o comando à
+ * casca — "sem preferência" é um estado de verdade, não um terceiro valor
+ * inventado no meio do caminho.
+ */
+export function setDensidade(key: DensidadeKey | null) {
+  const html = document.documentElement;
+  if (key) {
+    html.setAttribute("data-densidade", key);
+    gravar(DENSIDADE_STORAGE, key);
+  } else {
+    html.removeAttribute("data-densidade");
+    try { window.localStorage.removeItem(DENSIDADE_STORAGE); } catch { /* sem storage */ }
+  }
+}
+
+/** Densidade escolhida, ou `null` quando quem manda ainda é a casca. */
+export function getDensidadeAtiva(): DensidadeKey | null {
+  return resolveDensidade(document.documentElement.getAttribute("data-densidade"));
 }
 
 /** Casca ativa lida do DOM (fonte da verdade do que está na tela). */

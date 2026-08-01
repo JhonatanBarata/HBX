@@ -331,6 +331,11 @@
     font-size: var(--hbx-font-min);
   }
 
+  /* Linha de resultado da busca: cabe na densidade da casca sem empurrar a lista. */
+  .a-content .at-busca-info {
+    margin-top: 4px;
+  }
+
   .a-content .conv-list {
     min-height: 0;
   }

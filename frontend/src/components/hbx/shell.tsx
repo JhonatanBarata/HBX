@@ -15,10 +15,10 @@ import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { AlertaLeadQuente } from "@/components/hbx/disparo-panel";
 import { CostasPainel, toggleCostas, useCostasDisponivel, useCostasLigado } from "@/components/hbx/costas-panel";
 import { CercaDeEnfeite } from "@/components/hbx/error-boundary";
-import { applyThemeSoft, getCascaAtiva, getTemaAtivo, setAparencia, setThemeMode } from "@/components/hbx/theme-attributes";
+import { applyThemeSoft, getCascaAtiva, getDensidadeAtiva, getTemaAtivo, setAparencia, setDensidade, setThemeMode } from "@/components/hbx/theme-attributes";
 import {
-  CASCAS, escolheModo, escolheTema, getCasca, resolveModo, resolveTema,
-  type CascaDef, type CascaKey, type Modo, type TemaKey,
+  CASCAS, DENSIDADES, escolheModo, escolheTema, getCasca, resolveModo, resolveTema,
+  type CascaDef, type CascaKey, type DensidadeKey, type Modo, type TemaKey,
 } from "@/lib/aparencia";
 import { apiFetch, getToken } from "@/lib/api";
 import { getInitialGeoState, hasStoredGeo, toggleGeoRadar } from "@/lib/geo-radar";
@@ -1350,6 +1350,9 @@ export function AparenciaSwitch() {
   );
   const [open, setOpen] = useState(false);
   const [deep, setDeep] = useState(false);
+  // A densidade não tem rascunho: ela aplica na hora (ver o bloco no menu).
+  // Este estado existe só para o botão aceso acompanhar o clique.
+  const [densidade, setDensidadeLocal] = useState<DensidadeKey | null>(null);
   const [deckH, setDeckH] = useState<number | undefined>(undefined);
   const lvl1Ref = useRef<HTMLDivElement | null>(null);
   const lvl2Ref = useRef<HTMLDivElement | null>(null);
@@ -1380,6 +1383,7 @@ export function AparenciaSwitch() {
     setDraftCasca(cascaKey);
     setDraftTema(temaKey);
     setDraftModo(modeAttr === "dark" ? "dark" : "light");
+    setDensidadeLocal(getDensidadeAtiva());
     setDeep(false);
     setOpen(true);
   }
@@ -1479,6 +1483,23 @@ export function AparenciaSwitch() {
                   </div>
                 </>
               )}
+
+              <div className="aparencia__sep" />
+
+              {/* DENSIDADE — a terceira liberdade (dono, 01/08). Aplica na
+                  hora, sem passar pelo Aplicar: diferente de pele e cor, o
+                  efeito é sutil e só se julga vendo a lista mexer. Guardar
+                  para depois de um botão faria o usuário escolher às cegas. */}
+              <div className="aparencia__cap">Densidade</div>
+              <div className="aparencia__seg" role="group" aria-label="Densidade das listas">
+                {DENSIDADES.map(d => (
+                  <button key={d.key} className={densidade === d.key ? "is-on" : ""} aria-pressed={densidade === d.key}
+                    tabIndex={deep ? 0 : -1}
+                    onClick={() => { setDensidade(densidade === d.key ? null : d.key); setDensidadeLocal(densidade === d.key ? null : d.key); }}>
+                    {d.label}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -1740,39 +1761,18 @@ async function fetchEmailStatusCached(): Promise<SignalState> {
   return state;
 }
 
-type TopbarBotActivation = {
-  // Os 2 bloqueios morreram (31/07/2026): sem `armed` (pino do master) e sem
-  // `masterOff` (chave geral). O que existe é o estado real por tipo + o
-  // motivo escrito quando algo trava (entrevista/chip/config).
-  perfil?: { entrevistaCompleta: boolean; pendencias: string[] } | null;
-  types: {
-    atendimento: { live: boolean; blocked: string | null };
-    recovery: { live: boolean; blocked: string | null };
-    prospeccao: { live: boolean; blocked: string | null };
-  };
-};
-
-let botActivationCache: { at: number; data: TopbarBotActivation } | null = null;
-
-async function fetchBotActivationCached(): Promise<TopbarBotActivation | null> {
-  if (botActivationCache && Date.now() - botActivationCache.at < TOPBAR_CACHE_TTL) return botActivationCache.data;
-  const data = await apiFetch<TopbarBotActivation>("/bot/activation").catch(() => null);
-  if (data) botActivationCache = { at: Date.now(), data };
-  return data;
-}
-
-// SINAL do bot no topo (31/07/2026 — os 2 bloqueios morreram). O ícone virou
-// FAROL + atalho pro /automacao (config centralizada), sem chave nenhuma:
-//   off   (cinza)    = sem acesso ao módulo ou leitura indisponível.
-//   error (vermelho) = nenhum tipo rodando — o tooltip diz o PRIMEIRO motivo
-//                      (entrevista/chip/config), nunca um vermelho mudo.
-//   active (tema)    = algum tipo `live` sem bloqueio.
-function computeBotSignalState(accessible: boolean, act: TopbarBotActivation | null): SignalState {
-  if (!accessible || !act) return "off";
-  const types = [act.types.atendimento, act.types.recovery, act.types.prospeccao];
-  if (types.some(t => t.live && t.blocked === null)) return "active"; // rodando → tema
-  return "error";                                                     // parado → vermelho com motivo
-}
+// O FAROL DO BOT MORREU AQUI (02/08/2026, ordem do dono).
+//
+// Saíram junto com o ícone: o tipo da resposta, o cache, a leitura de
+// `/bot/activation` e o cálculo do estado. Deixar a busca de pé "porque um dia
+// pode servir" seria manter uma chamada de rede por minuto, em toda tela, para
+// alimentar um ícone que não existe mais.
+//
+// A TRAVA CONTINUA VIVA, e isso é de propósito: quem decide se a IA pode
+// disparar é o pré-voo do /automacao (chip conectado, config completa,
+// entrevista feita) mais a trava de horário. Esses são o freio anti-ban e não
+// se encostam num pedido de aparência — o que morreu foi o ANÚNCIO
+// permanente da trava no cabeçalho, não a trava.
 
 async function fetchNoticesCached(force = false): Promise<MasterNotice[]> {
   if (!force && noticesCache && Date.now() - noticesCache.at < TOPBAR_CACHE_TTL) return noticesCache.data;
@@ -1820,18 +1820,9 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
   const [unreadChats, setUnreadChats] = useState(0);
   const [waStatus, setWaStatus] = useState<WaStatus>({ state: "off", phone: null });
   const [emailState, setEmailState] = useState<SignalState>("off");
-  const [botActivation, setBotActivation] = useState<TopbarBotActivation | null>(null);
   const [waMenuOpen, setWaMenuOpen] = useState(false);
   const waMode = useWaOpenMode();
-  const botAccessible = mods.loaded && Boolean(mods.byKey["bot"]?.accessible);
   const emailAccessible = mods.loaded && Boolean(mods.byKey["email"]?.accessible);
-  const botState = computeBotSignalState(botAccessible, botActivation);
-  // Motivo do 1º tipo bloqueado — vira a explicação do tooltip quando o bot está
-  // vermelho (ex.: "Nenhum chip WhatsApp conectado."), pra não ser um vermelho mudo.
-  const botBlockedReason = botActivation
-    ? [botActivation.types.atendimento, botActivation.types.recovery, botActivation.types.prospeccao]
-        .map(t => t.blocked).find(Boolean) || null
-    : null;
   // Localização: fonte ÚNICA em lib/geo-radar.ts (MOBILE-CASCA/FIX3) — o
   // mobile (folha Mais) usa exatamente a mesma toggleGeoRadar/subscribeGeoUpdated,
   // nunca uma 2ª lógica. Estado inicial SEMPRE "off" pra casar com o HTML do
@@ -1873,13 +1864,6 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
     await logout();
   }
 
-  // A chave geral MORREU (31/07/2026): o ícone do bot virou farol + atalho.
-  // Ligar/desligar/configurar mora num lugar só — /automacao (centralização).
-  function abrirAutomacao() {
-    if (!botAccessible) return;
-    router.push("/automacao");
-  }
-
   const prevNaoLidosRef = React.useRef(0);
   const [bellPulse, setBellPulse] = React.useState(false);
   // localUnmuted: true = o usuário clicou "reativar" nesta sessão (override local do perfil)
@@ -1907,7 +1891,6 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
     fetchUnreadChatsCached().then(count => { if (alive) setUnreadChats(count); });
     fetchWaStatusCached().then(s => { if (alive) setWaStatus(s); });
     if (emailAccessible) fetchEmailStatusCached().then(s => { if (alive) setEmailState(s); });
-    if (botAccessible) fetchBotActivationCached().then(s => { if (alive && s) setBotActivation(s); });
     const interval = setInterval(() => {
       if (!alive) return;
       fetchNoticesCached(true).then(data => {
@@ -1924,10 +1907,9 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
       fetchUnreadChatsCached().then(count => { if (alive) setUnreadChats(count); });
       fetchWaStatusCached().then(s => { if (alive) setWaStatus(s); });
       if (emailAccessible) fetchEmailStatusCached().then(s => { if (alive) setEmailState(s); });
-      if (botAccessible) fetchBotActivationCached().then(s => { if (alive && s) setBotActivation(s); });
     }, 60_000);
     return () => { alive = false; clearInterval(interval); };
-  }, [emailAccessible, botAccessible]);
+  }, [emailAccessible]);
 
   const naoLidos = notices.filter(n => !n.acknowledged);
 
@@ -2165,29 +2147,15 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
         >
           <I d={ICONS.mapin} size={17} />
         </button>}
-        {/* Bot: farol de estado + atalho pro /automacao (a chave geral morreu) */}
-        {!soLog && <span className="bot-signal-wrap">
-          <button
-            className={signalBtnClass(botState)}
-            title={botState === "active" ? "IA trabalhando — abrir Automação" : botState === "error" ? `IA parada: ${botBlockedReason || "faltando configuração"} — abrir Automação` : "IA — abrir Automação"}
-            aria-label="IA — abrir Automação"
-            onClick={abrirAutomacao}
-          >
-            <I d={ICONS.bot} size={17} />
-          </button>
-          <span className="bot-type-dots" aria-hidden="true">
-            {(["atendimento", "recovery", "prospeccao"] as const).map(tipo => {
-              const s = botActivation?.types[tipo];
-              return (
-                <span
-                  key={tipo}
-                  className={"bot-type-dot" + (s?.live ? " bot-type-dot--on" : "")}
-                  title={tipo}
-                />
-              );
-            })}
-          </span>
-        </span>}
+        {/* O FAROL DO BOT SAIU DAQUI (02/08/2026, ordem do dono).
+            Era o ícone de robô com os três pontinhos, e ele vivia vermelho
+            anunciando "IA parada: <motivo>" no topo de TODAS as telas. A trava
+            que ele mostrava não é dele — é o pré-voo do /automacao, que segue
+            inteiro no lugar (é ele o freio anti-ban; ver docs/Rules/WHATSAPP).
+            O que morreu foi o ANÚNCIO permanente da trava no cabeçalho: quem
+            precisa saber que a IA está parada é quem abriu a Automação, não
+            quem está fechando uma venda. O atalho para o hub continua na
+            barra lateral ("Automação"). */}
         {!soLog && <button
           className={signalBtnClass(emailState)}
           title={emailState === "active" ? "E-mail ativo" : emailState === "error" ? "E-mail com erro" : "E-mail inativo"}

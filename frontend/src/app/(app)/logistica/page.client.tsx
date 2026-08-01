@@ -25,6 +25,7 @@ import { isTenantAdmin } from "@/lib/roles";
 
 import { RouteBoard } from "./route-board";
 import { RouteBuilderDialog } from "./route-builder";
+import { Divisoria } from "@/components/hbx/divisoria";
 import { RouteCreditPanel } from "./route-credit-panel";
 import { RouteTriage } from "./route-triage";
 import { WeeklyAgenda } from "./weekly-agenda";
@@ -816,6 +817,8 @@ export function LogisticaClient() {
             {admin && view === "saude" && <BaseSaude />}
           </div>
         </div>
+
+        {admin && <Divisoria chave="logistica-motorista" rotulo="Largura do painel do motorista" />}
 
         {admin && (
           <aside className="hbx-panel-shell__context hbx-panel-context--dense" aria-label="Motorista">

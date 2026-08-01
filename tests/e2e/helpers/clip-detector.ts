@@ -25,6 +25,22 @@
  *             foi decapitada. Nasce das 939 alturas fixas em px do tema: a
  *             caixa foi medida para uma letra que o usuário pode aumentar.
  *
+ *   SUMIU     o rótulo existe no HTML, tem texto, e a LARGURA o apagou:
+ *             `display:none` vindo de @media/@container. Este é o defeito que
+ *             o fiscal não sabia enxergar, e a cegueira dele criou um
+ *             incentivo perverso — como esconder não conta como corte, o jeito
+ *             mais barato de zerar a régua é APAGAR O RÓTULO. Foi o que
+ *             aconteceu com a fita de etapas da /vendas: abaixo de 780px os
+ *             cinco rótulos viravam `display:none` e a tela marcava ZERO
+ *             defeito exibindo "01 20 · 02 0 · 03 0" para o vendedor.
+ *
+ *             Não dá para julgar isso olhando UMA largura: menu fechado e aba
+ *             inativa também são `display:none`, e são legítimos. O que
+ *             denuncia é a COMPARAÇÃO — o texto que se lê a 1920 e não se lê a
+ *             1366 não foi escondido por decisão de produto, foi comido pela
+ *             largura. Por isso o censo da largura de referência entra como
+ *             argumento aqui.
+ *
  *   APERTADO  tem reticências — mas o texto era CURTO e mesmo assim não coube.
  *             Este é o defeito que quase escapou. "Fechado", sete letras,
  *             recebendo 28px para 41px de texto: o vendedor deixa de
@@ -51,7 +67,17 @@
 
 import type { Page } from "@playwright/test";
 
-export type TipoDefeito = "CORTADO" | "VAZANDO" | "ESMAGADO" | "APERTADO";
+export type TipoDefeito = "CORTADO" | "VAZANDO" | "ESMAGADO" | "APERTADO" | "SUMIU";
+
+/**
+ * Até quantos caracteres um texto pode ter para valer como RÓTULO no censo.
+ * Acima disso é frase, e frase que some numa largura menor costuma ser
+ * resumo/ajuda — não é o dado que o usuário consulta.
+ */
+const LIMITE_ROTULO = 40;
+
+/** O que se lia numa largura. Comparar dois censos é o que revela o SUMIU. */
+export type Censo = Set<string>;
 
 /**
  * Até quantos caracteres um texto é considerado CURTO — isto é, curto o
@@ -70,13 +96,56 @@ export type Achado = {
 };
 
 /**
+ * O que se LÊ nesta largura: todo texto próprio, curto, de fato visível.
+ *
+ * É a fotografia que a largura de referência tira para as menores compararem.
+ * Só o texto entra — não o seletor. Um rótulo pode trocar de caixa entre duas
+ * larguras (o layout muda de coluna para linha) sem deixar de ser legível, e
+ * comparar caminho de DOM acusaria isso como perda. A pergunta do fiscal é
+ * "ainda dá para ler?", não "continua no mesmo lugar?".
+ */
+export async function coletarCenso(page: Page): Promise<Censo> {
+  const lista = await page.evaluate((LIMITE_ROTULO: number) => {
+    const vistos: string[] = [];
+    for (const el of Array.from(document.body.querySelectorAll("*"))) {
+      const tag = el.tagName.toLowerCase();
+      if (el instanceof SVGElement) continue;
+      if (["script", "style", "svg", "canvas", "img", "video", "input", "textarea", "select"].includes(tag)) continue;
+
+      let texto = "";
+      for (const no of Array.from(el.childNodes)) {
+        if (no.nodeType === Node.TEXT_NODE) texto += no.textContent ?? "";
+      }
+      texto = texto.trim().replace(/\s+/g, " ");
+      if (!texto || texto.length > LIMITE_ROTULO) continue;
+      if (!/[A-Za-zÀ-ÿ]/.test(texto)) continue;
+
+      const cs = getComputedStyle(el);
+      if (cs.display === "none" || cs.visibility === "hidden" || cs.opacity === "0") continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 1 || r.height < 1) continue;
+
+      vistos.push(texto);
+    }
+    return vistos;
+  }, LIMITE_ROTULO);
+  return new Set(lista);
+}
+
+/**
  * Roda no navegador. Precisa ser auto-contido (nada de import aqui dentro:
  * a função é serializada e injetada na página).
+ *
+ * `censoReferencia` é o que se lia na largura mais larga. Passando-o, o fiscal
+ * também acusa SUMIU. Sem ele (a própria largura de referência), o detector se
+ * comporta como antes.
  */
-export async function coletarCortes(page: Page): Promise<Achado[]> {
-  // LIMITE_CURTO entra por argumento: a função abaixo é serializada e roda
+export async function coletarCortes(page: Page, censoReferencia?: Censo): Promise<Achado[]> {
+  // Os limites entram por argumento: a função abaixo é serializada e roda
   // DENTRO do navegador, onde nada deste módulo existe.
-  return page.evaluate((LIMITE_CURTO: number) => {
+  const referencia = censoReferencia ? Array.from(censoReferencia) : null;
+  return page.evaluate(([LIMITE_CURTO, LIMITE_ROTULO, referenciaLista]: [number, number, string[] | null]) => {
+    const lidosNaLarga = referenciaLista ? new Set(referenciaLista) : null;
     const achados: Array<{
       tipo: string;
       seletor: string;
@@ -132,10 +201,40 @@ export async function coletarCortes(page: Page): Promise<Achado[]> {
       if (isentoPorAtributo(el)) continue;
 
       const cs = getComputedStyle(el);
-      if (cs.display === "none" || cs.visibility === "hidden" || cs.opacity === "0") continue;
+
+      // ---- o rótulo que a LARGURA apagou ----
+      // Só interessa o elemento que sumiu SOZINHO: se o pai também está
+      // escondido, quem sumiu foi o painel inteiro (aba fechada, menu
+      // recolhido) e o filho é consequência, não defeito. Reportar os dois
+      // encheria o relatório com o mesmo fato — e relatório com ruído é
+      // relatório ignorado.
+      if (cs.display === "none") {
+        if (!lidosNaLarga) continue;
+        const pai = el.parentElement;
+        const paiVisivel = !pai || getComputedStyle(pai).display !== "none";
+        const curto = texto.length <= LIMITE_ROTULO && /[A-Za-zÀ-ÿ]/.test(texto);
+        if (paiVisivel && curto && lidosNaLarga.has(texto.replace(/\s+/g, " "))) {
+          achados.push({
+            tipo: "SUMIU",
+            seletor: caminho(el),
+            texto: texto.slice(0, 60),
+            caixa: "0x0",
+            conteudo: "lido na largura de referência",
+          });
+        }
+        continue;
+      }
+      if (cs.visibility === "hidden" || cs.opacity === "0") continue;
 
       const r = el.getBoundingClientRect();
-      if (r.width < 1 || r.height < 1) continue;
+      // `<= 1` e não `< 1`: 1x1 com overflow escondido é a assinatura exata do
+      // texto só-para-leitor-de-tela (`.hbx-sr-only`). Ele é 1px DE PROPÓSITO,
+      // e acusá-lo de corte é o fiscal reclamando de que o invisível não cabe
+      // — foi o que ele fez com o <h1> da /entrega assim que passou a
+      // enxergar aquela tela de verdade. Caixa de 1px não mostra texto a
+      // ninguém: ou é sr-only, ou já estava invisível. Nos dois casos, não é
+      // defeito de layout.
+      if (r.width <= 1 || r.height <= 1) continue;
 
       const h = el as HTMLElement;
       const sobraX = h.scrollWidth - h.clientWidth;
@@ -160,6 +259,37 @@ export async function coletarCortes(page: Page): Promise<Achado[]> {
         }
       }
 
+      // ---- VAZANDO PARA FORA DO PAI ----
+      // O detector até aqui pergunta "o que você escreveu cabe dentro de
+      // VOCÊ?". Falta a outra metade: "e você cabe dentro de quem te
+      // hospeda?".
+      //
+      // O caso que ensinou: a pílula "Aguardando resposta" numa célula de
+      // 130px. A pílula tem `min-width: max-content` (Lei 3 — status não
+      // encurta), então ela cabe perfeitamente em si mesma e o fiscal a
+      // aprovava; quem não cabia era a CÉLULA, e a pílula passava por cima da
+      // coluna vizinha. Foi um dos prints do dono, e o fiscal olhou direto
+      // para ele sem ver nada.
+      //
+      // Pai que ROLA está fora: ali passar do limite é navegação, não defeito.
+      const pai = el.parentElement;
+      if (pai && cs.position !== "absolute" && cs.position !== "fixed") {
+        const csPai = getComputedStyle(pai);
+        const paiRola = /auto|scroll/.test(csPai.overflowX);
+        const rp = pai.getBoundingClientRect();
+        const bordaPai = parseFloat(csPai.borderRightWidth) + parseFloat(csPai.paddingRight);
+        const passou = r.right - (rp.right - bordaPai);
+        if (!paiRola && passou > 1 && rp.width > 0) {
+          achados.push({
+            tipo: "VAZANDO",
+            seletor: caminho(el),
+            texto: amostra,
+            caixa: `cabe em si (${caixa})`,
+            conteudo: `passa ${Math.round(passou)}px do pai`,
+          });
+        }
+      }
+
       // ---- vertical ----
       if (sobraY > 1) {
         const escondido = cs.overflowY === "hidden" || cs.overflowY === "clip";
@@ -171,7 +301,7 @@ export async function coletarCortes(page: Page): Promise<Achado[]> {
     }
 
     return achados;
-  }, LIMITE_CURTO) as Promise<Achado[]>;
+  }, [LIMITE_CURTO, LIMITE_ROTULO, referencia] as [number, number, string[] | null]) as Promise<Achado[]>;
 }
 
 /** Relatório legível — é o que aparece quando o build reprova. */

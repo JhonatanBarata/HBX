@@ -140,6 +140,19 @@ export class InboxController {
     return this.inboxService.listConversations(req.user, { take, skip, queue });
   }
 
+  // Busca DENTRO das conversas: texto das mensagens + telefone + nome cadastrado +
+  // apelido do WhatsApp (ver InboxService#searchConversations). Declarada ANTES de
+  // 'conversations/:id' — o Nest casa por ordem, e ali o :id tem ParseIntPipe (a rota
+  // /search cairia como id inválido → 400).
+  @Get('conversations/search')
+  searchConversations(
+    @Req() req: any,
+    @Query('q') q?: string,
+    @Query('take') take?: string,
+  ) {
+    return this.inboxService.searchConversations(req.user, { q, take });
+  }
+
   @Post('conversations/start')
   startConversation(
     @Req() req: any,

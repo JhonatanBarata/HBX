@@ -36,20 +36,51 @@ import path from "node:path";
 import { expect, test } from "@playwright/test";
 
 import { injectToken, setupCommonMocks } from "./helpers/app-mocks";
-import { coletarCortes, formatarAchados, type Achado } from "./helpers/clip-detector";
+import { coletarCenso, coletarCortes, formatarAchados, type Achado, type Censo } from "./helpers/clip-detector";
 
 // ---------- configuração ----------
 
-/** As telas que dão dinheiro primeiro; o resto na sequência. */
+/**
+ * TODAS as rotas de (app), não só as nove que dão dinheiro primeiro.
+ *
+ * Eram 9 de 25 — e o dono cobrou o buraco com um print de cada vez. Cobrir só
+ * o que se lembra de cobrir é o mesmo que não cobrir: o defeito aparece
+ * justamente na tela em que ninguém pensou.
+ *
+ * A ordem continua sendo a do dinheiro, porque é ela que decide o que se
+ * conserta primeiro quando o relatório vem grande.
+ *
+ * Rota que não carrega com os mocks de hoje REPROVA em vez de passar (ver
+ * `exigirTelaDeVerdade`) — é o contrário do que a rede antiga fazia.
+ */
 const ROTAS = [
+  // as que dão dinheiro
   "/vendas",
   "/conversas",
+  "/atendimento",
   "/logistica",
   "/entrega",
   "/dashboard",
   "/leads",
   "/agenda",
   "/relatorios",
+  // o resto do app
+  "/clientes",
+  "/contatos",
+  "/produtos",
+  "/financeiro",
+  "/gerencial",
+  "/automacao",
+  // /automacoes, /assistente e /bot ficam de fora de propósito: as três são
+  // redirecionamentos para /automacao com uma seção diferente na query. Medir
+  // as três seria medir a mesma tela quatro vezes e triplicar a corrida sem
+  // descobrir um pixel novo.
+  "/concierge",
+  "/comex",
+  "/empresas",
+  "/webscraping",
+  "/workspace",
+  "/tutorial",
   "/configuracoes",
 ];
 
@@ -72,8 +103,95 @@ const PELES = [
  * 1366 está aqui de propósito: é a largura onde o cockpit já cortou antes
  * (notebook comum de vendedor). 1920 pega o monitor do escritório; 1440 é o
  * meio de campo e o que vale para o screenshot de referência.
+ *
+ * A ORDEM IMPORTA e é da larga para a estreita. A primeira largura é a
+ * REFERÊNCIA: o censo do que se lê nela é o que as menores usam para provar
+ * que nada foi apagado no caminho (o defeito SUMIU). Invertendo a ordem, o
+ * fiscal compararia a tela cheia contra a tela espremida e não acusaria nada.
  */
-const LARGURAS = [1366, 1440, 1920];
+const LARGURAS = [1920, 1440, 1366];
+
+/**
+ * OS ESTADOS QUE O FISCAL NUNCA TINHA ABERTO.
+ *
+ * A rede antiga fazia `goto` -> espera -> mede, e parava aí. Ela media a tela
+ * EM REPOUSO, e nada mais: nenhum modal, nenhuma gaveta, nenhum card de hover.
+ * O preço disso foi medido em 01/08 — bastou abrir UM modal (o Organizar
+ * campos da /vendas) para aparecerem 35 achados que a régua nunca tinha visto,
+ * numa tela que marcava ZERO. Os dois prints que o dono mandou daquele dia
+ * eram justamente estados fechados: um modal e um cartão que só existe com o
+ * mouse em cima.
+ *
+ * Estado é caro (recarrega a página), então ele é medido nas larguras
+ * EXTREMAS: a de referência, que diz o que deveria dar para ler, e a mais
+ * apertada, que é onde quebra. O meio de campo não descobriu nada que 1366 já
+ * não descubra.
+ *
+ * `precisa` é a rede de segurança contra teste que mente: se o gatilho não
+ * existe naquela tela (dado mockado diferente, módulo desligado), o estado é
+ * PULADO em vez de medir a tela parada achando que mediu o modal.
+ */
+type EstadoDaTela = {
+  nome: string;
+  /** Clicado, em ordem, para chegar no estado. */
+  clicar?: string[];
+  /** Mouse parado em cima — revela cartão de hover. */
+  passarMouse?: string;
+  /** Sem este elemento na tela, o estado não existe: pula. */
+  precisa: string;
+  /** Este elemento prova que o estado ABRIU de verdade. */
+  confirma: string;
+};
+
+const ESTADOS: Record<string, EstadoDaTela[]> = {
+  "/vendas": [
+    {
+      nome: "organizar-campos",
+      clicar: [".vnd-colspick > button"],
+      precisa: ".vnd-colspick > button",
+      confirma: ".vnd-colspick__menu",
+    },
+    {
+      nome: "ficha-do-lead",
+      clicar: [".vnd-sales-row"],
+      precisa: ".vnd-sales-row",
+      confirma: ".vnd-lead-peek.has-lead",
+    },
+    {
+      nome: "quadro",
+      clicar: [".vnd-cmd__acts .seg-toggle .seg:nth-child(2)"],
+      precisa: ".vnd-cmd__acts .seg-toggle .seg:nth-child(2)",
+      confirma: ".vnd-card, .vnd-board, .vnd-col",
+    },
+  ],
+  "/leads": [
+    {
+      nome: "detalhe-do-lead",
+      clicar: ["[data-lead-id], .lead-row, .lds-row"],
+      precisa: "[data-lead-id], .lead-row, .lds-row",
+      confirma: ".hbx-panel-shell__context, .lds-detail",
+    },
+  ],
+  "/logistica": [
+    {
+      nome: "rota-selecionada",
+      clicar: [".log-rota-row, .log-card, [data-rota-id]"],
+      precisa: ".log-rota-row, .log-card, [data-rota-id]",
+      confirma: ".hbx-panel-shell__context",
+    },
+  ],
+  "/conversas": [
+    {
+      nome: "conversa-aberta",
+      clicar: [".at-conv, .conv-row, [data-conv-id]"],
+      precisa: ".at-conv, .conv-row, [data-conv-id]",
+      confirma: ".at-thread, .at-msgs, .conv-thread",
+    },
+  ],
+};
+
+/** Larguras em que os estados são medidos: a referência e a mais apertada. */
+const LARGURAS_DE_ESTADO = new Set([1920, 1366]);
 
 const BASELINE_PATH = path.join(process.cwd(), "tests/e2e/clip-baseline.json");
 const REPORT_PATH = path.join(process.cwd(), "tests/e2e/clip-report.txt");
@@ -126,59 +244,170 @@ function lerMedido(): Baseline {
 // ---------- suite ----------
 
 test.describe("design system — nada some da tela", () => {
+  // Cada teste agora carrega a rota 3 vezes (uma por largura). O teto global
+  // de 30s do playwright.config vale para teste de UMA carga.
+  test.describe.configure({ timeout: 120_000 });
+
   for (const pele of PELES) {
-    for (const largura of LARGURAS) {
-      for (const rota of ROTAS) {
-        const chave = `${rota}|${pele.rotulo}|${largura}`;
+    for (const rota of ROTAS) {
+      // UM teste por rota+pele, com as 3 larguras DENTRO. Antes eram 3 testes
+      // independentes, e por isso nenhum deles conseguia perguntar a única
+      // coisa que denuncia rótulo apagado: "o que eu li na tela larga ainda se
+      // lê aqui?". O custo de carregar a página continua o mesmo (3 idas), só
+      // que agora as 3 medidas conversam entre si.
+      test(`${rota} — ${pele.rotulo}`, async ({ page }, testInfo) => {
+        // `browserName` não separa: o projeto mobile TAMBÉM é chromium. Quem
+        // separa é o nome do projeto — e este fiscal define o próprio
+        // viewport, então rodar no mobile seria medir a mesma coisa 2x.
+        test.skip(testInfo.project.name !== "chromium", "Fiscal de desktop.");
 
-        test(`${rota} — ${pele.rotulo} @${largura}`, async ({ page }, testInfo) => {
-          // `browserName` não separa: o projeto mobile TAMBÉM é chromium. Quem
-          // separa é o nome do projeto — e este fiscal define o próprio
-          // viewport, então rodar no mobile seria medir a mesma coisa 2x.
-          test.skip(testInfo.project.name !== "chromium", "Fiscal de desktop.");
+        await setupCommonMocks(page);
 
-          await page.setViewportSize({ width: largura, height: 900 });
-          await setupCommonMocks(page);
+        // A aparência precisa estar gravada ANTES do primeiro paint: o boot
+        // inline do layout.tsx lê o localStorage e escreve <html data-casca>.
+        // Gravar depois faria o teste medir a pele errada no primeiro frame.
+        await page.addInitScript(
+          ({ casca, tema }) => {
+            window.localStorage.setItem("hbx:casca", casca);
+            window.localStorage.setItem("hbx:tema", tema);
+            window.localStorage.setItem("hbx:mode", "light");
+          },
+          { casca: pele.casca, tema: pele.tema }
+        );
 
-          // A aparência precisa estar gravada ANTES do primeiro paint: o boot
-          // inline do layout.tsx lê o localStorage e escreve <html data-casca>.
-          // Gravar depois faria o teste medir a pele errada no primeiro frame.
-          await page.addInitScript(
-            ({ casca, tema }) => {
-              window.localStorage.setItem("hbx:casca", casca);
-              window.localStorage.setItem("hbx:tema", tema);
-              window.localStorage.setItem("hbx:mode", "light");
-            },
-            { casca: pele.casca, tema: pele.tema }
-          );
+        await page.setViewportSize({ width: LARGURAS[0], height: 900 });
+        await page.goto("/login");
+        await injectToken(page);
 
-          await page.goto("/login");
-          await injectToken(page);
-          await page.goto(rota);
+        // Um censo POR ESTADO: o repouso tem o seu, cada modal tem o seu. Sem
+        // essa separação, tudo que o modal esconde da tela de trás viraria um
+        // "SUMIU" falso, e um fiscal que grita à toa é um fiscal desligado.
+        const referencias = new Map<string, Censo>();
+        const reprovas: string[] = [];
 
+        async function assentar() {
           await page.waitForLoadState("networkidle").catch(() => {
             /* SSE/websocket nunca fica ocioso — seguir mesmo assim */
           });
           await page.waitForTimeout(700);
+        }
 
-          const achados = await coletarCortes(page);
+        /**
+         * A TRAVA CONTRA O FISCAL QUE MEDE A COISA ERRADA.
+         *
+         * A armadilha nº1 desta rede já cobrou meses: um catch-all de mock mal
+         * posicionado fazia toda tela virar o popup "Sem conexão", e o fiscal
+         * passava em 100% das rotas — medindo o popup, com a régua em zero e a
+         * consciência tranquila. Popup de erro em cima da tela significa que a
+         * MEDIDA NÃO VALE; e medida que não vale tem que gritar, nunca passar.
+         */
+        async function exigirTelaDeVerdade(chave: string) {
+          if ((await page.locator(".hbx-error").count()) > 0) {
+            const titulo = await page.locator(".hbx-error__title").first().textContent().catch(() => null);
+            // A MENSAGEM é o que faz esta reprova ser acionável em vez de só
+            // barulhenta: é ela que nomeia a chamada que faltou.
+            const msg = await page.locator(".hbx-error__msg").first().textContent().catch(() => null);
+            reprovas.push(
+              `\n${chave}: a tela não carregou — popup de erro na frente.\n` +
+                `  título: "${titulo ?? "?"}"\n` +
+                `  mensagem: "${msg ?? "?"}"\n` +
+                `  O fiscal NÃO mediu esta combinação. Mock faltando ou tela quebrada.`
+            );
+            return false;
+          }
+          return true;
+        }
+
+        /** Mede, registra e compara com a régua. */
+        async function medir(chave: string, estado: string) {
+          if (!(await exigirTelaDeVerdade(chave))) return;
+          const achados = await coletarCortes(page, referencias.get(estado));
+          if (!referencias.has(estado)) referencias.set(estado, await coletarCenso(page));
+
           registrar(chave, achados);
 
           if (ATUALIZAR) {
             test.info().annotations.push({ type: "baseline", description: `${chave} = ${achados.length}` });
             return;
           }
-
           const teto = baseline[chave];
           if (teto === undefined) {
             // Combinação nova: registra e não reprova — a régua nasce aqui.
             test.info().annotations.push({ type: "novo", description: `${chave} = ${achados.length}` });
             return;
           }
+          // Guarda a reprova em vez de estourar na hora: parar na primeira
+          // largura esconderia o estado das outras, e o padrão do defeito só
+          // aparece quando se vê o conjunto.
+          if (achados.length > teto) {
+            reprovas.push(`${formatarAchados(achados, chave)}\n  (teto da régua: ${teto})`);
+          }
+        }
 
-          expect(achados.length, formatarAchados(achados, chave)).toBeLessThanOrEqual(teto);
-        });
-      }
+        for (const largura of LARGURAS) {
+          // Carrega de novo a cada largura em vez de só redimensionar: tem
+          // tela que mede a si mesma no `mount` e não remede no resize. Medir
+          // depois de um resize acusaria defeito que o usuário não vê ao
+          // ABRIR a tela naquela largura — que é como ele a encontra.
+          await page.setViewportSize({ width: largura, height: 900 });
+          await page.goto(rota);
+          await assentar();
+          await medir(`${rota}|${pele.rotulo}|${largura}`, "repouso");
+
+          if (!LARGURAS_DE_ESTADO.has(largura)) continue;
+
+          for (const estado of ESTADOS[rota] ?? []) {
+            // Cada estado começa de uma tela limpa. Fechar o anterior "na mão"
+            // seria mais rápido e menos confiável: bastaria um modal que não
+            // fecha para o estado seguinte medir o modal errado — e o fiscal
+            // reportaria com toda a confiança do mundo.
+            await page.goto(rota);
+            await assentar();
+
+            if ((await page.locator(estado.precisa).count()) === 0) {
+              test.info().annotations.push({
+                type: "pulado",
+                description: `${rota}|${estado.nome}@${largura}: gatilho "${estado.precisa}" não existe nesta tela`,
+              });
+              continue;
+            }
+
+            for (const alvo of estado.clicar ?? []) {
+              await page.locator(alvo).first().click({ timeout: 4_000 }).catch(() => {
+                /* o `confirma` abaixo é quem decide se o estado abriu */
+              });
+              await page.waitForTimeout(250);
+            }
+            if (estado.passarMouse) {
+              await page.locator(estado.passarMouse).first().hover({ timeout: 4_000 }).catch(() => {});
+              await page.waitForTimeout(250);
+            }
+
+            const abriu = await page
+              .locator(estado.confirma)
+              .first()
+              .waitFor({ state: "visible", timeout: 4_000 })
+              .then(() => true)
+              .catch(() => false);
+
+            if (!abriu) {
+              // Não medir é a resposta certa: medir a tela parada e chamar de
+              // "modal" é como o fiscal antigo passou meses aprovando o popup
+              // de "Sem conexão" achando que aprovava as telas.
+              test.info().annotations.push({
+                type: "pulado",
+                description: `${rota}|${estado.nome}@${largura}: não abriu (${estado.confirma})`,
+              });
+              continue;
+            }
+
+            await page.waitForTimeout(350);
+            await medir(`${rota}|${pele.rotulo}|${largura}|${estado.nome}`, estado.nome);
+          }
+        }
+
+        expect(reprovas.join("\n"), reprovas.join("\n")).toBe("");
+      });
     }
   }
 });

@@ -3720,3 +3720,154 @@ test('LIMPAR CONVERSA: conversa limpa fica invisivel na listagem, e restaurar tr
   assert.equal(restored.hbxClearedByUserId, undefined);
   assert.equal((service as any).getConversationClearedState(restored).isCleared, false);
 });
+
+// ===========================================================================
+// BUSCA DENTRO DAS CONVERSAS (01/08/2026 — ordem do dono: "fala q procura dentro
+// das conversas, mas ele só acha o nome da pessoa"). O campo filtrava no navegador
+// as conversas já carregadas, olhando nome+telefone; o texto das mensagens nem chega
+// na lista (o backend manda só a ÚLTIMA de cada conversa).
+// ===========================================================================
+
+// Serviço de busca com o I/O trocado por dublê: as 3 consultas cruas respondem pelo
+// TRECHO do SQL, o resto (peneira de metadata, escopo, recorte) roda de verdade.
+function createBuscaService(opts: {
+  mensagens?: Array<{ conversationId: number; messageId: number; body: string; timestamp: Date }>;
+  pessoas?: Array<{ id: number }>;
+  apelidos?: Array<{ id: number; metadata: string | null }>;
+  linhas?: Array<Record<string, any>>;
+  falharMensagens?: boolean;
+}) {
+  const service = createBareService();
+  const sqlVistos: Array<{ sql: string; params: unknown[] }> = [];
+
+  service.logger = { warn: () => undefined, log: () => undefined };
+  service.requireCompanyIdFromUser = () => 7;
+  service.isAggregateUser = () => false;
+  service.resolveInboxWhatsappSessionScope = async () => ({ accessible: true, mode: 'company', restricted: false });
+  service.prisma = {
+    $queryRawUnsafe: async (sql: string, ...params: unknown[]) => {
+      sqlVistos.push({ sql, params });
+      if (sql.includes('FROM "Message"')) {
+        if (opts.falharMensagens) throw new Error('scan explodiu');
+        return opts.mensagens || [];
+      }
+      if (sql.includes('"AtendimentoCustomer"')) return opts.pessoas || [];
+      return opts.apelidos || [];
+    },
+  };
+  service.findConversationRowsByOrderedIds = async (_companyId: number, ids: number[]) =>
+    ids.map((id) => (opts.linhas || []).find((row) => Number(row.id) === id)).filter(Boolean);
+  service.getRecoveryRoutingRules = async () => ({});
+  service.mapPersistedConversationRowsForCompany = async (_c: number, rows: any[]) =>
+    rows.map((row) => ({ id: String(row.id), contact: row.contact }));
+
+  return { service, sqlVistos };
+}
+
+function linhaDeConversa(id: number, metadata: Record<string, unknown> = {}) {
+  return { id, contact: '+5519998877766', metadata: JSON.stringify(metadata), messages: [] };
+}
+
+test('BUSCA: acha a conversa pelo TEXTO da mensagem, com o trecho que casou', async () => {
+  const { service } = createBuscaService({
+    mensagens: [{
+      conversationId: 42,
+      messageId: 900,
+      body: 'Olá Mariana! Tudo bem? Como posso te ajudar hoje?',
+      timestamp: new Date('2026-08-01T12:00:00.000Z'),
+    }],
+    linhas: [linhaDeConversa(42)],
+  });
+
+  const res = await service.searchConversations({ id: 6, companyId: 7 }, { q: 'Mariana' });
+
+  assert.equal(res.conversations.length, 1, 'o nome só existe DENTRO da mensagem — era exatamente isso que não achava');
+  assert.equal(res.conversations[0].id, '42');
+  assert.equal(res.conversations[0].searchMatch.field, 'message');
+  assert.match(res.conversations[0].searchMatch.snippet, /Mariana/);
+  assert.equal(res.messagesSearched, true);
+});
+
+test('BUSCA: conversa LIMPA da caixa não volta pelo resultado', async () => {
+  const { service } = createBuscaService({
+    mensagens: [
+      { conversationId: 42, messageId: 900, body: 'orçamento fechado', timestamp: new Date('2026-08-01T12:00:00.000Z') },
+      { conversationId: 43, messageId: 901, body: 'orçamento fechado', timestamp: new Date('2026-08-01T11:00:00.000Z') },
+    ],
+    linhas: [
+      linhaDeConversa(42, { hbxClearedAt: '2026-07-31T12:00:00.000Z' }),
+      linhaDeConversa(43),
+    ],
+  });
+
+  const res = await service.searchConversations({ id: 6, companyId: 7 }, { q: 'orcamento' });
+
+  assert.deepEqual(res.conversations.map((c: any) => c.id), ['43'], 'busca não ressuscita o que o operador tirou da frente');
+});
+
+test('BUSCA: grupo fica de fora (a caixa é 1:1)', async () => {
+  const { service } = createBuscaService({
+    mensagens: [{ conversationId: 44, messageId: 902, body: 'combinado', timestamp: new Date() }],
+    linhas: [{ id: 44, contact: '12036304@g.us', metadata: JSON.stringify({ whatsappIsGroup: true }), messages: [] }],
+  });
+
+  const res = await service.searchConversations({ id: 6, companyId: 7 }, { q: 'combinado' });
+  assert.equal(res.conversations.length, 0);
+});
+
+test('BUSCA: varredura de mensagem que FALHA avisa — não mente "nada encontrado"', async () => {
+  const { service } = createBuscaService({
+    falharMensagens: true,
+    pessoas: [{ id: 42 }],
+    linhas: [linhaDeConversa(42)],
+  });
+
+  const res = await service.searchConversations({ id: 6, companyId: 7 }, { q: 'Mariana' });
+
+  assert.equal(res.messagesSearched, false, 'a tela precisa saber que o texto NÃO foi varrido');
+  assert.equal(res.conversations.length, 1, 'o que deu pra procurar (nome/telefone) continua valendo');
+});
+
+test('BUSCA: apelido do WhatsApp só conta se casar no CAMPO de nome, não em qualquer canto do metadata', async () => {
+  const { service } = createBuscaService({
+    apelidos: [
+      { id: 50, metadata: JSON.stringify({ whatsappContactName: 'Vendas Norte' }) },
+      { id: 51, metadata: JSON.stringify({ sourceModule: 'vendas', whatsappContactName: 'Padaria do Zé' }) },
+    ],
+    linhas: [linhaDeConversa(50), linhaDeConversa(51)],
+  });
+
+  const res = await service.searchConversations({ id: 6, companyId: 7 }, { q: 'vendas' });
+
+  assert.deepEqual(res.conversations.map((c: any) => c.id), ['50'], 'sourceModule:"vendas" não é nome de ninguém');
+});
+
+test('BUSCA: termo de 1 caractere não vai ao banco', async () => {
+  const { service, sqlVistos } = createBuscaService({});
+  const res = await service.searchConversations({ id: 6, companyId: 7 }, { q: 'a' });
+  assert.equal(res.conversations.length, 0);
+  assert.equal(sqlVistos.length, 0, 'meia caixa casaria com 1 letra — não paga o scan');
+});
+
+test('BUSCA: % e _ digitados são LITERAIS, nunca curinga do LIKE', () => {
+  const service = createBareService();
+  assert.equal(service.buildInboxSearchPattern('50% _off'), String.raw`%50\% \_off%`);
+  assert.equal(service.buildInboxSearchPattern('Orçamento'), '%orcamento%', 'acento e caixa somem dos dois lados');
+});
+
+test('BUSCA: o trecho recorta em volta do termo mesmo com acento antes dele', () => {
+  const service = createBareService();
+  const texto = 'Olá! Não é só café — segue o orçamento que você pediu ontem à tarde, com prazo de entrega e condição de pagamento combinada.';
+  const trecho = service.buildInboxSearchSnippet(texto, 'orçamento');
+  assert.match(trecho, /orçamento/, 'NFD na string inteira muda o tamanho — o índice tem que voltar pro texto original');
+});
+
+test('BUSCA: em mensagem curta o trecho ainda começa perto do termo (a linha da lista corta o resto)', () => {
+  const service = createBareService();
+  const trecho = service.buildInboxSearchSnippet(
+    'Claro! Te enviei os detalhes por aqui, qualquer dúvida é só chamar.',
+    'duvida',
+  );
+  assert.ok(trecho.startsWith('…'), 'começou do zero, o "dúvida" cairia na parte cortada pelas reticências do CSS');
+  assert.match(trecho, /dúvida/);
+});

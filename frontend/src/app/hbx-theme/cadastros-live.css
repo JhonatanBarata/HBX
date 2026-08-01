@@ -595,12 +595,19 @@
   text-transform: uppercase;
 }
 
-.ctt-list-head.is-contatos {
-  grid-template-columns: minmax(0, 1fr) 153px 92px;
-}
+/* As colunas da direita são `max-content`, não pixel cravado.
+   Medido pelo fiscal em 01/08, quando a /clientes entrou na cobertura: a
+   última coluna dava 52px para "CONTATOS", que ocupa 58 em caixa alta com
+   `letter-spacing: .06em`. O cabeçalho vazava por cima do vizinho nas duas
+   peles e nas três larguras — e ninguém tinha visto, porque esta tela não
+   estava entre as nove fiscalizadas.
 
+   Número cravado em coluna de cabeçalho nunca sobrevive: a palavra muda com a
+   tradução, a régua de letra do usuário vai de 50% a 150% e cada pele tem seu
+   peso de fonte. `max-content` não aposta — mede. */
+.ctt-list-head.is-contatos,
 .ctt-list-head.is-clientes {
-  grid-template-columns: minmax(0, 1fr) 148px 52px;
+  grid-template-columns: minmax(0, 1fr) max-content max-content;
 }
 
 .ctt-list-head span:nth-child(n + 2) {

@@ -277,6 +277,99 @@ export async function setupCommonMocks(page: Page): Promise<void> {
   await page.route("**/hbx/api/credits/**", (r) => r.fulfill(json({ balance: 49770, history: [] })));
   await page.route("**/hbx/api/onboarding/checklist**", (r) => r.fulfill(json({ steps: [], completed: true })));
   await page.route("**/hbx/api/profile", (r) => r.fulfill(json({ id: 1, name: "Tester", email: "test@hbx.com" })));
+
+  // ---- AS ROTAS QUE O CATCH-ALL DERRUBAVA (01/08/2026) -------------------
+  //
+  // O catch-all devolve `{}`, e `{}` é veneno para toda tela que faz
+  // `resposta.items.map(...)`: a lista vem `undefined`, o componente estoura e
+  // a cerca de erro pinta "Ops, algo deu errado" por cima de tudo.
+  //
+  // O CUSTO DISSO FOI MEDIDO: a /entrega estava na lista das nove telas
+  // fiscalizadas, com a régua cravada em ZERO — e o que o fiscal media, nas
+  // três larguras e nas duas peles, era o POPUP DE ERRO. Popup não tem texto
+  // cortado, então passava sempre. É a armadilha nº1 desta rede acontecendo
+  // pela segunda vez, agora por outra porta: da primeira foi ordem de mock,
+  // desta foi FORMATO de mock.
+  //
+  // A trava contra a terceira vez não é este bloco — é o `exigirTelaDeVerdade`
+  // do design-system.spec.ts, que hoje REPROVA quando acha o popup. Estes
+  // mocks só apagam o incêndio que ela acendeu.
+  //
+  // Regra ao acrescentar aqui: liste os campos de LISTA que a tela percorre.
+  // Não precisa dado bonito — precisa a FORMA certa. Dado hostil de verdade
+  // mora em dados-hostis.ts, e é ele que testa o layout.
+  await page.route("**/hbx/api/logistica/admin-route/route**", (r) =>
+    r.fulfill(json({ date: hoje(), total: 0, effectsEnabled: false, trackingRequired: false, items: [] }))
+  );
+  await page.route("**/hbx/api/logistica/admin-route/adjustments**", (r) =>
+    r.fulfill(
+      json({
+        operationalDate: hoje(),
+        today: { existingStops: 0, expectedStops: 0, totalStops: 0, missingGps: 0 },
+        days: [],
+        pending: [],
+      })
+    )
+  );
+  // A /automacao é o caso extremo do "formato certo importa mais que dado
+  // bonito": ela lê blocos discriminados (`{ ok: true, ... } | { ok: false }`)
+  // e um `types` por tipo de bot. Faltando qualquer um deles a tela estoura no
+  // `mount` e o fiscal media o popup de erro.
+  await page.route("**/hbx/api/automation/overview**", (r) =>
+    r.fulfill(
+      json({
+        companyId: 1,
+        moduleAccess: { atendimento: true, bot: true, vendas: true },
+        botArmed: { armed: false, armedAt: null, armedByUserId: null },
+        atendente: { ok: true, brain: "ia", published: false, updatedAt: null },
+        cobranca: { ok: true, live: false, workerEnabled: false },
+        prospeccao: { ok: true, live: false, campaignId: null, pendingLeads: 0 },
+        regras: { ok: true, gatilhosAtivos: 0, rotinasAtivas: 0 },
+        motor: { ok: true, runnerEnabled: false, publishEnabled: false, chipConectado: false, executores: [] },
+      })
+    )
+  );
+  await page.route("**/hbx/api/vendas/catalogo-comercial**", (r) =>
+    r.fulfill(json({ produtos: [], servicos: [], items: [] }))
+  );
+  await page.route("**/hbx/api/automation/plays**", (r) => r.fulfill(json({ plays: [], items: [] })));
+  await page.route("**/hbx/api/automation/agent/sandbox**", (r) => r.fulfill(json({ messages: [], items: [] })));
+  await page.route("**/hbx/api/automation/agent**", (r) =>
+    r.fulfill(json({ id: null, status: "draft", blocked: false, perguntas: [], campos: [], items: [] }))
+  );
+  // O crachá lê `perfil.persona.nome` sem defesa: `persona` faltando derruba a
+  // /automacao inteira. É o mock que precisa ter a forma certa, não a tela que
+  // precisa de mais `?.` — a tela está certa em confiar no contrato do backend.
+  await page.route("**/hbx/api/automation/perfil-ia**", (r) =>
+    r.fulfill(
+      json({
+        persona: { nome: null, modo: "propria", fonteUserId: null, completa: false },
+        empresaFaz: null,
+        catalogoPronto: false,
+        entrevistaCompleta: false,
+        pendencias: [],
+      })
+    )
+  );
+  await page.route("**/hbx/api/cadencia/gatilhos**", (r) => r.fulfill(json({ gatilhos: [], items: [] })));
+  await page.route("**/hbx/api/cadencia/rotinas**", (r) => r.fulfill(json({ rotinas: [], items: [] })));
+  await page.route("**/hbx/api/cadencia**", (r) => r.fulfill(json({ cadencias: [], passos: [], items: [] })));
+  await page.route("**/hbx/api/hbx-recovery/bot-config**", (r) =>
+    r.fulfill(json({ enabled: false, steps: [], items: [] }))
+  );
+  await page.route("**/hbx/api/bot/activation**", (r) => {
+    const preflight = { chipConectado: false, configCompleta: false, entrevistaCompleta: false };
+    const tipo = { live: false, preflight, blocked: null };
+    return r.fulfill(
+      json({ canAdminToggle: true, types: { atendimento: tipo, recovery: tipo, prospeccao: tipo } })
+    );
+  });
+  await page.route("**/hbx/api/saved-search**", (r) => r.fulfill(json({ searches: [], items: [] })));
+}
+
+/** Data de hoje em ISO curto — as telas de operação comparam com o dia atual. */
+function hoje(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 /** Grava o token falso. Precisa de uma página já na origem certa. */
