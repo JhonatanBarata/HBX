@@ -115,3 +115,7 @@ tools/hbx-video-studio/native/*
 
 # Configuracao local de agentes
 .claude/settings.local.json
+
+# Relatorio do fiscal de corte — regenerado a cada corrida do design-system.spec.
+# A REGUA (clip-baseline.json) e versionada de proposito; o relatorio nao.
+tests/e2e/clip-report.txt
