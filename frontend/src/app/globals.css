@@ -103,16 +103,23 @@
 /* Peles instaladas (tokens + camada de vestir; sempre por último
    para sobrescreverem o esqueleto). Pele nova = 1 arquivo + 1 linha
    + entrada no registry de theme-attributes.tsx. */
-@import "./hbx-theme/theme-aurora.css";
-@import "./hbx-theme/theme-ember.css";
-@import "./hbx-theme/theme-rose.css";
-@import "./hbx-theme/theme-hbx-cyber.css";
+/* ── AS DUAS PALETAS (dono, 01/08/2026: "crie 2 padrões só!") ──────────────
+   Aurora, Ember, Rosé e Layout saíram — 4 arquivos, 615 linhas, 158 seletores
+   de cor decorativa. Não foi corte de gordura: era o espaço de COMBINAÇÃO que
+   impedia a garantia de "nada some". 6 cores × 2 cascas × 2 modos são 24
+   telas para conferir a cada ajuste, e o que ninguém confere ninguém garante.
+   Agora são 4, e quem confere é a máquina (npm run clip).
+
+   Os nomes de arquivo continuam `login` e `corporativa` de propósito: o valor
+   está gravado em `<html data-theme>` e no navegador de cada usuário, e
+   renomear custaria migração de storage sem mudar um pixel. Quem tinha uma
+   cor extinta salva cai no padrão da casca sozinho (lib/aparencia.ts). */
+
+/* PREMIUM — a paleta do padrão Premium. */
 @import "./hbx-theme/theme-login.css";
-/* Paleta CORPORATIVA — o azul sóbrio de planilha. Desde 31/07 ela É uma opção
-   do seletor (a Corporativa ganhou cor e modo, ordem do dono), e por isso
-   ganhou também o par escuro. Continua importada depois do skeleton: em
-   empate de especificidade com o [data-theme-mode="dark"] de lá, a ordem da
-   cascata faz o tema mandar. */
+/* CORPORATIVO — o azul sóbrio de planilha, com o par escuro. Importada depois
+   do skeleton: em empate de especificidade com o [data-theme-mode="dark"] de
+   lá, a ordem da cascata faz o tema mandar. */
 @import "./hbx-theme/theme-corporativa.css";
 /* Paleta da CENTRAL DO LEAD (.cdl) — era o theme-premium.css, pele da casca
    HBX, removida em 31/07. Só o alvo .cdl sobreviveu: o desenho da ficha é

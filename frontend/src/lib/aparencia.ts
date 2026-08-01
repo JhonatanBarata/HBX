@@ -28,7 +28,26 @@
 // ============================================================
 
 export type CascaKey = "corporativa" | "backup";
-export type TemaKey = "login" | "aurora" | "ember" | "rose" | "hbx-cyber" | "corporativa";
+/**
+ * DOIS PADRÕES, UMA COR CADA (dono, 01/08/2026: "crie 2 padrões só! Premium e
+ * Corporativo").
+ *
+ * Até 31/07 eram 6 cores × 2 cascas × 2 modos = 24 combinações para manter
+ * coerentes. Não era a quantidade de CSS que impedia a garantia de "nada
+ * some" — era esse espaço de combinação: ninguém abre 24 telas para conferir
+ * um ajuste, e o que ninguém confere ninguém garante. Com 2 padrões × 2 modos
+ * são 4, e 4 a máquina confere a cada corrida (tests/e2e/design-system.spec.ts).
+ *
+ * Saíram Aurora, Ember, Rosé e Layout — 158 seletores de CSS decorativo.
+ *
+ * Os NOMES DE ATRIBUTO continuam `login` e `corporativa` de propósito, pelo
+ * mesmo motivo que a casca Premium se chama `backup` no código: eles estão
+ * gravados no navegador de cada usuário e pendurados em seletores de CSS.
+ * Renomear obrigaria a migrar storage e reescrever folha sem mudar um pixel.
+ * Regra de sempre: leia `label` ao falar com o usuário, `key`/`attr` ao falar
+ * com o código.
+ */
+export type TemaKey = "login" | "corporativa";
 export type Modo = "light" | "dark";
 
 // Chaves de armazenamento — uma por eixo (era `hbx:pele`, combinado).
@@ -41,21 +60,19 @@ export const LEGACY_PELE_STORAGE = "hbx:pele";
 export type TemaDef = { key: TemaKey; label: string };
 
 /**
- * Os 5 temas de cor CLÁSSICOS. Desde 31/07 pertencem às DUAS cascas: a
- * Premium (chave `backup`) e a Corporativa. Cor é eixo próprio — quem escolhe
- * a densidade não deveria estar escolhendo a paleta junto.
+ * A paleta de cada padrão. UMA por casca — e é por isso que o seletor de cor
+ * some sozinho da interface: `escolheTema()` devolve `temas.length > 1`, o
+ * menu em components/hbx/shell.tsx é guiado por este registro, e o rótulo do
+ * botão deixa de ser "Premium · Login" para ser só "Premium".
  *
- * `hbx-cyber` se chama **Layout** (dono, 28/07): ele se chamava "HBX" na
- * mesma conversa em que uma casca também virou "HBX", e ficaram dois "HBX" no
- * mesmo menu. A casca já morreu; o rótulo Layout fica.
+ * Nenhuma linha de JSX precisou mudar para isso acontecer. Registro que manda
+ * na tela é o que permite mudar produto editando dado.
  */
-export const TEMAS_CLASSICOS: readonly TemaDef[] = [
-  { key: "login", label: "Login" },
-  { key: "aurora", label: "Aurora" },
-  { key: "ember", label: "Ember" },
-  { key: "rose", label: "Rosé" },
-  { key: "hbx-cyber", label: "Layout" },
-];
+const PALETA_PREMIUM: readonly TemaDef[] = [{ key: "login", label: "Premium" }];
+const PALETA_CORPORATIVO: readonly TemaDef[] = [{ key: "corporativa", label: "Corporativo" }];
+
+/** Toda cor que ainda existe. Usada pela migração do formato antigo. */
+const TEMAS_VIVOS: readonly TemaDef[] = [...PALETA_PREMIUM, ...PALETA_CORPORATIVO];
 
 export type CascaDef = {
   key: CascaKey;
@@ -96,7 +113,7 @@ export const CASCAS: readonly CascaDef[] = [
     key: "backup",
     label: "Premium",
     attr: "modern",
-    temas: TEMAS_CLASSICOS,
+    temas: PALETA_PREMIUM,
     modos: ["light", "dark"],
     temaPadrao: "login",
     modoPadrao: "light",
@@ -105,12 +122,13 @@ export const CASCAS: readonly CascaDef[] = [
     key: "corporativa",
     label: "Corporativo",
     attr: "corporativa",
-    // CORES (dono 31/07: "implante cores no corporativo — as mesmas cores do
-    // premium"). A Corporativa deixou de ser clara-fixa-de-uma-cor-só: ela
-    // oferece os MESMOS 5 temas e os dois modos da Premium. O azul sóbrio que
-    // era a cara dela continua aqui como uma das opções, e segue sendo o
-    // padrão — quem nunca escolheu cor não vê nada mudar.
-    temas: [{ key: "corporativa", label: "Corporativo" }, ...TEMAS_CLASSICOS],
+    // O que separa as duas é DENSIDADE, e a densidade é um token só
+    // (--hbx-densidade, em hbx-theme/hbx-system.css). Mesma estrutura, mesma
+    // tela, respirando diferente: um layout para desenhar, um para testar, e
+    // trocar de padrão não CONSEGUE fazer nada sumir — por construção, não
+    // por disciplina. Foi a ordem do dono em 01/08 ("só token, mesma
+    // estrutura") e é o que torna a garantia verificável.
+    temas: PALETA_CORPORATIVO,
     modos: ["light", "dark"],
     temaPadrao: "corporativa",
     modoPadrao: "light",
@@ -139,17 +157,19 @@ export function resolveModo(casca: CascaDef, modo: string | null | undefined): M
 }
 
 /**
- * Migração do formato antigo: `hbx:pele = "aurora-mod"` → casca padrão,
- * guardando `aurora` como tema.
+ * Migração do formato antigo (`hbx:pele = "aurora-mod"`).
  *
- * A cor guardada volta a pintar: com a casca HBX fora, o padrão é a Premium,
- * que tem justamente os 5 temas clássicos. Regra de sempre: só se grava o que
- * o usuário ESCOLHE; o aplicado é resolvido na hora contra a casca ativa.
+ * Quem tinha Aurora, Ember, Rosé ou Layout salvo não vê tela quebrada nem
+ * mensagem de erro: a cor extinta simplesmente não é reconhecida aqui,
+ * `resolveTema` cai no padrão da casca e a pessoa abre o app no Premium. É a
+ * mesma queda macia que já existia para a casca HBX removida em 31/07 — a
+ * regra da casa é que o registro é a fonte da verdade e o que não está nele
+ * não existe, em vez de ficar meio-vivo em algum canto do código.
  */
 export function temaDoLegado(pele: string | null | undefined): TemaKey | null {
   if (!pele) return null;
   const base = String(pele).replace(/-mod$/, "");
-  return TEMAS_CLASSICOS.some(t => t.key === base) ? (base as TemaKey) : null;
+  return TEMAS_VIVOS.some(t => t.key === base) ? (base as TemaKey) : null;
 }
 
 /**
