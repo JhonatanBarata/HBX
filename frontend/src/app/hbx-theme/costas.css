@@ -17,6 +17,18 @@
    COR: nenhuma literal. --costas-tom é o estado (verde funciona, âmbar
    pede atenção, vermelho é problema, cinza é silêncio) e pinta orb, fio,
    gráfico e barra. O resto vem dos tokens da casca ativa.
+   O GUARDA `:has(.costas)` (01/08/2026): TODA regra daqui pede o atributo
+   data-costas="on" E a presença do painel no DOM. O atributo sozinho é só uma
+   INTENÇÃO — o React o liga antes de saber se o módulo tem o que contar, e
+   painel sem dado (endpoint fora do ar, resposta pela metade, módulo mudo)
+   não nasce. Quando as regras dependiam só do atributo, esse caso apagava os
+   módulos (opacity: 0 + pointer-events: none) e não punha painel nenhum no
+   lugar: barra lateral VAZIA, menu só de volta no hover — o contrário exato
+   do que o costas-panel.tsx promete ("falhou, o menu segue normal").
+
+   Quem manda é o DOM, não a intenção: se o painel está na tela, o menu sai de
+   cena; se não está, nada aqui existe e a barra é a de sempre. Um booleano em
+   JS podia mentir sobre o que foi de fato renderizado — o `:has()` não.
    ============================================================ */
 
 /* ---- 1. PALCO ---------------------------------------------------------- */
@@ -43,12 +55,12 @@
    parte visível — nada de rodapé escondido abaixo da dobra — e o cartão de
    créditos não se mexe um pixel quando o mouse entra. Quem rola, se a lista
    não couber, é a própria lista, por dentro. */
-.side[data-costas="on"] .side-stack {
+.side[data-costas="on"]:has(.costas) .side-stack {
   flex: 1 1 auto;
   min-height: 0;
 }
 
-.side[data-costas="on"] .side-nav {
+.side[data-costas="on"]:has(.costas) .side-nav {
   position: absolute;
   inset: 0;
   overflow-y: auto;
@@ -58,26 +70,26 @@
 /* A barrinha existe SEMPRE (largura fixa, nada reflui quando o mouse entra),
    mas só ganha cor junto com os módulos: com o painel à mostra ela apagava um
    risco da cor da marca por cima do verso. */
-.side[data-costas="on"] .side-nav::-webkit-scrollbar { width: 5px; }
-.side[data-costas="on"] .side-nav::-webkit-scrollbar-track { background: transparent; }
-.side[data-costas="on"] .side-nav::-webkit-scrollbar-thumb {
+.side[data-costas="on"]:has(.costas) .side-nav::-webkit-scrollbar { width: 5px; }
+.side[data-costas="on"]:has(.costas) .side-nav::-webkit-scrollbar-track { background: transparent; }
+.side[data-costas="on"]:has(.costas) .side-nav::-webkit-scrollbar-thumb {
   background: transparent;
   border-radius: var(--radius-pill);
   transition: background var(--hbx-motion-list-exit, 120ms) var(--hbx-motion-ease-exit, ease);
 }
 
-.side[data-costas="on"]:hover .side-nav::-webkit-scrollbar-thumb {
+.side[data-costas="on"]:has(.costas):hover .side-nav::-webkit-scrollbar-thumb {
   background: var(--hbx-brand);
 }
 
 /* ---- 2. A VIRADA ------------------------------------------------------- */
 /* Sem verso disponível, nada abaixo existe: a barra é a de sempre. */
 
-.side[data-costas="on"] .side-nav {
+.side[data-costas="on"]:has(.costas) .side-nav {
   pointer-events: none;
 }
 
-.side[data-costas="on"] .side-nav > :is(.nav-item, .nav-group-label) {
+.side[data-costas="on"]:has(.costas) .side-nav > :is(.nav-item, .nav-group-label) {
   opacity: 0;
   translate: -7px 0;
   transition:
@@ -87,16 +99,16 @@
 
 /* O vidro deslizante do item ativo tem transição PRÓPRIA (kit.css) que não
    pode ser sobrescrita — por isso quem apaga é o filho, que não tem nenhuma. */
-.side[data-costas="on"] .glass-pill__glass {
+.side[data-costas="on"]:has(.costas) .glass-pill__glass {
   opacity: 0;
   transition: opacity var(--hbx-motion-list-exit, 120ms) var(--hbx-motion-ease-exit, ease);
 }
 
-.side[data-costas="on"]:hover .side-nav {
+.side[data-costas="on"]:has(.costas):hover .side-nav {
   pointer-events: auto;
 }
 
-.side[data-costas="on"]:hover .side-nav > :is(.nav-item, .nav-group-label) {
+.side[data-costas="on"]:has(.costas):hover .side-nav > :is(.nav-item, .nav-group-label) {
   opacity: 1;
   translate: 0 0;
   transition-duration: var(--hbx-motion-list-enter, 167ms);
@@ -104,7 +116,7 @@
   transition-delay: calc(var(--i, 0) * 18ms);
 }
 
-.side[data-costas="on"]:hover .glass-pill__glass {
+.side[data-costas="on"]:has(.costas):hover .glass-pill__glass {
   opacity: 1;
   transition-duration: var(--hbx-motion-list-enter, 167ms);
   transition-timing-function: var(--hbx-motion-ease-enter, ease);
@@ -174,11 +186,11 @@
 }
 
 /* Sai de cena quando o mouse chega, junto com os blocos. */
-.side[data-costas="on"]:hover .costas {
+.side[data-costas="on"]:has(.costas):hover .costas {
   pointer-events: none;
 }
 
-.side[data-costas="on"]:hover .costas__brilho {
+.side[data-costas="on"]:has(.costas):hover .costas__brilho {
   opacity: 0;
 }
 
@@ -200,14 +212,14 @@
 }
 
 .costas[data-costas-estado="entrando"] .costas-bloco,
-.side[data-costas="on"]:hover .costas-bloco {
+.side[data-costas="on"]:has(.costas):hover .costas-bloco {
   opacity: 0;
   translate: 0 10px;
   scale: 0.985;
 }
 
 /* Saída no hover: mais curta e na ordem invertida (o rodapé some primeiro). */
-.side[data-costas="on"]:hover .costas-bloco {
+.side[data-costas="on"]:has(.costas):hover .costas-bloco {
   transition-duration: var(--hbx-motion-floating-exit, 100ms);
   transition-timing-function: var(--hbx-motion-ease-exit, ease);
   transition-delay: calc(var(--o, 0) * 16ms);
@@ -302,7 +314,15 @@
   font-size: var(--fz-t2);
   font-weight: var(--weight-extrabold);
   letter-spacing: -0.06em;
-  line-height: 0.94;
+  /* Era 0.94 — mais apertado que o próprio glifo. Com `overflow: hidden` ao
+     lado, a caixa media 32px para 38px de altura de letra e DECAPITAVA o
+     número principal do painel (medido pelo fiscal em 15 combinações: era o
+     defeito ESMAGADO mais repetido do app). 1.1 mantém o ar de número grande
+     e cabe: a compressão óptica que se quer aqui vem do letter-spacing, não
+     de espremer a linha abaixo do tamanho da fonte.
+     1.1 ainda deixava 2px de sobra (caixa 38, glifo 40) — a fonte de display
+     desenha mais alto que o corpo nominal. 1.2 fecha com folga. */
+  line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }
 
@@ -455,12 +475,24 @@
   padding-left: 10px;
 }
 
-.costas-metrica > strong,
-.costas-metrica > small {
+/* O NÚMERO encurta com reticências (é curto e tabular, praticamente nunca
+   chega lá). O RÓTULO não: ele é quem diz o que o número significa, e
+   "CRÉDITOS RES…" num painel de indicadores não informa nada — o fiscal media
+   72px de caixa para 114px de texto, e 137px em "BLOQUEIOS REPORTADOS".
+   Rótulo quebra linha; duas linhas legíveis valem mais que uma mutilada, e a
+   coluna do painel tem altura de sobra. */
+.costas-metrica > strong {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.costas-metrica > small {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
 }
 
 .costas-metrica > strong {
@@ -574,11 +606,16 @@
   padding-top: 5px;
 }
 
+/* Mesmo critério do rótulo de métrica: quem nomeia o fato não encurta.
+   "Próxima janela" pedia 66px numa caixa de 63 — três pixels que custavam a
+   palavra inteira. Como o fato é uma linha `flex` com o valor à direita,
+   quebrar aqui empurra a altura da linha, e é por isso que o `min-height`
+   dela virou piso e não teto. */
 .costas-fato > span {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.25;
   color: var(--text-muted);
   font-size: var(--hbx-font-min);
   font-weight: var(--weight-medium);
@@ -814,14 +851,14 @@
   display: none;
 }
 
-[data-casca="corporativa"] .side[data-costas="on"] .side-nav > :is(.nav-item, .nav-group-label),
-[data-casca="corporativa"] .side[data-costas="on"] .glass-pill__glass {
+[data-casca="corporativa"] .side[data-costas="on"]:has(.costas) .side-nav > :is(.nav-item, .nav-group-label),
+[data-casca="corporativa"] .side[data-costas="on"]:has(.costas) .glass-pill__glass {
   opacity: 1;
   translate: none;
   transition: none;
 }
 
-[data-casca="corporativa"] .side[data-costas="on"] .side-nav {
+[data-casca="corporativa"] .side[data-costas="on"]:has(.costas) .side-nav {
   pointer-events: auto;
 }
 
@@ -833,8 +870,8 @@
   .costas-graf__area,
   .costas-graf__ponta,
   .costas-barra__preenche,
-  .side[data-costas="on"] .side-nav > :is(.nav-item, .nav-group-label),
-  .side[data-costas="on"] .glass-pill__glass {
+  .side[data-costas="on"]:has(.costas) .side-nav > :is(.nav-item, .nav-group-label),
+  .side[data-costas="on"]:has(.costas) .glass-pill__glass {
     transition: none;
   }
 
