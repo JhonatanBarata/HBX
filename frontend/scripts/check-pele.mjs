@@ -153,14 +153,72 @@ function* walk(dir, ext) {
 }
 const rel = p => relative(process.cwd(), p).split(sep).join("/");
 
+// ─── R9 e R10 — as duas catracas de LAYOUT (01/08/2026) ────────────────────
+//
+// POR QUE ELAS PRECISAM EXISTIR, em uma medida:
+//   tipografia foi centralizada e PEGOU  — 2.523 declarações viraram 18 degraus
+//   espaçamento foi centralizado e MORREU — 3.280 px literais contra 233 usos
+//                                           do token = 6,6% de adoção
+// Mesmo autor, mesma casa, mesma intenção. A única diferença entre os dois é
+// que tipografia ganhou um fiscal (R8) e espaçamento não. Token sem fiscal é
+// decoração; é essa a lição que estas duas regras existem para não deixar
+// esquecer.
+//
+// R9  padding/margin/gap em px literal fora do spacing.css. O sistema tem uma
+//     escada de 4px pronta (--space-1 … --space-16) e ela é ignorada em 93%
+//     dos casos. Ritmo quebrado é o que o olho lê como amador mesmo sem saber
+//     nomear.
+//
+// R10 `height` TRAVADO em px numa folha de tela. É a fonte dos defeitos
+//     ESMAGADOS que o fiscal de runtime mede: a caixa foi medida para uma
+//     letra que o usuário pode aumentar até 150% no painel de tipografia, e
+//     quando ele aumenta a segunda linha é decapitada. `min-height` passa —
+//     ele cresce junto. O que reprova é a altura que se recusa a crescer.
+//
+// NÃO EXISTE R11 (nowrap sem saída de corte) DE PROPÓSITO. Seria uma
+// aproximação estática pior que a medição que já temos: tests/e2e/
+// design-system.spec.ts abre a tela de verdade, com dado hostil, e pergunta a
+// cada elemento se o texto cabe. Regra estática que erra onde a medição
+// acerta só ensina o time a ignorar o fiscal.
+//
+// AS DUAS NASCEM COMO CATRACA, não como trava. Uma regra que reprova 3.280
+// linhas no primeiro dia é desligada na primeira sexta-feira — e aí não sobra
+// nem a regra nem o hábito. Catraca só anda para um lado: o número de hoje
+// vira o teto de amanhã, e quando alguém melhora, o teto desce sozinho.
+const SPACING_ALLOWED = [
+  /hbx-theme[\\/]spacing\.css$/,
+  /hbx-theme[\\/]skeleton\.css$/,
+  /hbx-theme[\\/]theme\.css$/,
+  /hbx-theme[\\/]typography\.css$/,
+  /hbx-theme[\\/]hbx-system\.css$/,
+];
+// `1px` passa: borda/hairline não é ritmo de espaçamento, é traço. `0` passa.
+const SPACING_LITERAL_RE = /(?:^|[;{\s])(?:padding|margin|gap|row-gap|column-gap)(?:-(?:top|right|bottom|left|inline|block)(?:-(?:start|end))?)?\s*:\s*([^;{}\n]+)/gi;
+const MEDIDA_ESPACO_RE = /(?<![\w.-])(?!1px)(\d[\d.]*)\s*px(?![\w-])/i;
+// `height: 100%`, `height: auto`, `height: var(--x)` e `min/max-height` passam.
+const ALTURA_TRAVADA_RE = /(?:^|[;{\s])height\s*:\s*(\d[\d.]*)px/i;
+
+function contaEspacoLiteral(line) {
+  let n = 0;
+  for (const m of line.matchAll(SPACING_LITERAL_RE)) {
+    if (MEDIDA_ESPACO_RE.test(m[1])) n++;
+  }
+  return n;
+}
+
 const hard = [];
 let visualCount = 0;
 const visualByFile = new Map();
+let espacoCount = 0;
+const espacoByFile = new Map();
+let alturaCount = 0;
+const alturaByFile = new Map();
 
 for (const file of walk(ROOT, [".css"])) {
   const isThemePele = THEME_PELE_RE.test(file);
   const skipR1 = CSS_ALLOWED.some(re => re.test(file));
   const isFontSizeExempt = FONT_SIZE_LITERAL_EXEMPT.some(re => re.test(file));
+  const isSpacingExempt = SPACING_ALLOWED.some(re => re.test(file));
   // R1 (cor) é isenta pra arquivos de pele/contrato (CSS_ALLOWED) — mas R5
   // (font-size:px) e R8 (tipografia central) miram justamente em arquivos
   // dessa lista, então não pode dar `continue` cedo demais: eles passam pelo
@@ -178,6 +236,19 @@ for (const file of walk(ROOT, [".css"])) {
     }
     if (!isFontSizeExempt && fontSizeLiteral(line)) {
       hard.push(`R8 ${rel(file)}:${i + 1}  ${line.trim().slice(0, 80)}`);
+    }
+    // R9/R10 — catracas de layout. Contam em TODA folha que não seja o próprio
+    // sistema de medida (senão o dicionário reprovaria por definir a palavra).
+    if (!isSpacingExempt) {
+      const n = contaEspacoLiteral(line);
+      if (n > 0) {
+        espacoCount += n;
+        espacoByFile.set(rel(file), (espacoByFile.get(rel(file)) || 0) + n);
+      }
+      if (ALTURA_TRAVADA_RE.test(line)) {
+        alturaCount++;
+        alturaByFile.set(rel(file), (alturaByFile.get(rel(file)) || 0) + 1);
+      }
     }
     if (skipR1 || !peleOn) return;
     for (const m of line.matchAll(COLOR_RE)) {
@@ -249,30 +320,82 @@ if (existsSync(ENTREGA_ROOT)) {
   }
 }
 
+// A violação dura é IMPRESSA aqui e a reprovação acontece LÁ EMBAIXO, depois
+// das catracas. Antes o script saía neste ponto, e o efeito colateral era
+// que, com qualquer violação dura aberta, as medidas de catraca nunca eram
+// nem calculadas — quem rodasse o fiscal num dia ruim não via o resto do
+// diagnóstico. Fiscal informa tudo que mediu, depois decide.
 if (hard.length) {
   console.error("\n[check-pele] VIOLAÇÃO DURA — visual fora do design system:");
   for (const v of hard.slice(0, 30)) console.error("  " + v);
   if (hard.length > 30) console.error(`  … e mais ${hard.length - 30}.`);
   console.error("\nCor/estilo é só via token (hbx-theme). Build reprovado.");
-  process.exit(1);
 }
 
-let baseline = null;
+// ─── AS CATRACAS ───────────────────────────────────────────────────────────
+// Três medidas, mesma mecânica: o número de hoje é o teto de amanhã. Subiu,
+// reprova; desceu, o teto desce junto e não volta. Nenhuma delas exige zero
+// no primeiro dia — exigir zero de uma dívida de um ano é como pedir demissão
+// da regra.
+const CATRACAS = [
+  {
+    chave: "tsxVisualStyleProps",
+    valor: visualCount,
+    porArquivo: visualByFile,
+    rotulo: "styles visuais inline em TSX",
+    conselho: "Não se adiciona visual em tela — use classe central/utility.",
+  },
+  {
+    chave: "cssSpacingLiteral",
+    valor: espacoCount,
+    porArquivo: espacoByFile,
+    rotulo: "padding/margin/gap em px literal (R9)",
+    conselho: "O sistema tem a escada de 4px pronta: var(--space-1 … --space-16).",
+  },
+  {
+    chave: "cssFixedHeight",
+    valor: alturaCount,
+    porArquivo: alturaByFile,
+    rotulo: "height travado em px (R10)",
+    conselho: "Troque por min-height: a caixa precisa crescer quando a letra cresce.",
+  },
+];
+
+let salvos = null;
 if (existsSync(BASELINE_PATH)) {
-  try { baseline = JSON.parse(readFileSync(BASELINE_PATH, "utf8")).tsxVisualStyleProps; } catch { baseline = null; }
+  try { salvos = JSON.parse(readFileSync(BASELINE_PATH, "utf8")); } catch { salvos = null; }
 }
-if (baseline === null) {
-  writeFileSync(BASELINE_PATH, JSON.stringify({ tsxVisualStyleProps: visualCount }, null, 2) + "\n");
-  console.log(`[check-pele] baseline da catraca criado: ${visualCount} styles visuais inline em TSX (meta: 0).`);
-} else if (visualCount > baseline) {
-  const top = [...visualByFile.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
-  console.error(`\n[check-pele] CATRACA ESTOUROU: ${visualCount} styles visuais inline (teto: ${baseline}).`);
-  console.error("Não se adiciona visual em tela — use classe central/utility. Piores arquivos:");
-  for (const [f, n] of top) console.error(`  ${n}\t${f}`);
-  process.exit(1);
-} else {
-  if (visualCount < baseline) {
-    writeFileSync(BASELINE_PATH, JSON.stringify({ tsxVisualStyleProps: visualCount }, null, 2) + "\n");
+salvos = salvos && typeof salvos === "object" ? salvos : {};
+
+const proximos = {};
+const resumo = [];
+let estourou = false;
+
+for (const c of CATRACAS) {
+  const teto = typeof salvos[c.chave] === "number" ? salvos[c.chave] : null;
+  if (teto === null) {
+    proximos[c.chave] = c.valor;
+    resumo.push(`${c.rotulo}: ${c.valor} (catraca nova)`);
+    continue;
   }
-  console.log(`[check-pele] ok — 0 violações duras; catraca: ${visualCount}/${baseline} styles visuais inline (meta 0${visualCount < baseline ? ", teto reapertado" : ""}).`);
+  if (c.valor > teto) {
+    estourou = true;
+    const top = [...c.porArquivo.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+    console.error(`\n[check-pele] CATRACA ESTOUROU — ${c.rotulo}: ${c.valor} (teto: ${teto}).`);
+    console.error(c.conselho + " Piores arquivos:");
+    for (const [f, n] of top) console.error(`  ${n}\t${f}`);
+    proximos[c.chave] = teto;
+  } else {
+    proximos[c.chave] = Math.min(c.valor, teto);
+    resumo.push(`${c.rotulo}: ${c.valor}/${teto}${c.valor < teto ? " ↓" : ""}`);
+  }
 }
+
+// Grava só quando NADA reprovou: corrida vermelha nunca afrouxa teto, nem nas
+// medidas que por acaso melhoraram na mesma passada.
+if (!estourou && !hard.length && JSON.stringify(proximos) !== JSON.stringify(salvos)) {
+  writeFileSync(BASELINE_PATH, JSON.stringify(proximos, null, 2) + "\n");
+}
+if (resumo.length) console.log(`[check-pele] catracas: ${resumo.join(" · ")}`);
+if (estourou || hard.length) process.exit(1);
+console.log("[check-pele] ok — 0 violações duras.");
