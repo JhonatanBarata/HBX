@@ -7,7 +7,14 @@
 /* ---- Bloco A · CLARO ---- */
 [data-theme="aurora"] {
   --hbx-brand: #6D28D9; --hbx-brand-strong: #0891B2; --hbx-brand-soft: #EDE9FE; --hbx-brand-contrast: #FAF8FF;
-  --hbx-primary: #6D28D9; --hbx-secondary: #0891B2; --hbx-success: #0D9488; --hbx-accent: #C026D3;
+  /* --hbx-secondary é a ponta CIANO do degradê da ação principal (o par
+     primary→secondary do .btn-teal, da glass pill do menu, do .casca-tab e do
+     .wa-connect-btn). Medido no app: com #0891B2 a tinta --hbx-action-ink em
+     cima dava 3,50:1 no modo CLARO, e AA pede 4,5. Escureci SÓ a luminância —
+     mesmo matiz (191,6°) e mesma saturação (91,4%), lightness 36,5% → 31%.
+     Não é cor nova: é o mesmo ciano um degrau mais fundo. Ver o modo escuro
+     abaixo, que já passava (a tinta de lá é escura) e ficou como estava. */
+  --hbx-primary: #6D28D9; --hbx-secondary: #077B97; --hbx-success: #0D9488; --hbx-accent: #C026D3;
   --hbx-info: #0284C7; --hbx-warning: #D97706; --hbx-danger: #DB2777; --hbx-danger-soft: #FCE7F3;
   --hbx-background: #F6F4FE; --hbx-background-alt: #EDE9FB;
   --hbx-surface: #FFFFFF; --hbx-surface-soft: #F4F1FC; --hbx-surface-raised: #E9E3FA;
