@@ -264,7 +264,7 @@ function EntregaDetail({
         <div className="hbx-drawer-bottom__handle" aria-hidden />
 
         <div className="log-detail__head">
-          <strong className="log-detail__name">{c.nome || "Cliente"}</strong>
+          <strong className="log-detail__name hbx-1linha">{c.nome || "Cliente"}</strong>
           <span className={`log-badge log-badge--${entrega.status}`}>{STATUS_LABEL[entrega.status] || entrega.status}</span>
         </div>
 
@@ -669,7 +669,6 @@ export function LogisticaClient() {
                   className="btn-teal log-command__build"
                   onClick={() => setRouteBuilderOpen(true)}
                   aria-label="Montar rota"
-                  title="Montar rota"
                 >
                   <I d={ICONS.logistica} size={13} />
                   <span>Montar rota</span>

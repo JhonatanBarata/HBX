@@ -221,7 +221,6 @@ export function RouteBoard({
                 role={faixa.entregador ? "button" : undefined}
                 tabIndex={faixa.entregador ? 0 : undefined}
                 aria-label={faixa.entregador ? `Abrir ${faixa.nome}` : undefined}
-                title={faixa.entregador ? `Abrir ${faixa.nome}` : undefined}
                 onClick={() => { if (faixa.entregador) onDriverSelect(faixa.entregador); }}
                 onKeyDown={(event) => {
                   if (!faixa.entregador || (event.key !== "Enter" && event.key !== " ")) return;
@@ -275,9 +274,21 @@ export function RouteBoard({
                       onDragStart={() => setArrastando(stop)}
                       onDragEnd={() => { setArrastando(null); setAlvo(null); }}
                       onClick={() => onOpen(stop)}
-                      title={`${stop.cliente.nome || "Cliente"}${stop.cliente.endereco ? ` — ${stop.cliente.endereco}` : ""}${
-                        stop.somenteCobranca && stop.motivoCobranca ? `\n${stop.motivoCobranca}` : ""
-                      }`}
+                      // `title` nativo em GATILHO DE PAINEL nasce por cima do painel
+                      // que ele abriu: o balão preto do navegador é do sistema
+                      // operacional, ignora z-index e sobreviveu ao clique, tapando a
+                      // linha do produto no cartão de detalhe (print do dono, 02/08).
+                      // Regra já escrita no FRONTEND.md: em gatilho de painel, só
+                      // `aria-label`. O endereço não se perde — é a primeira linha do
+                      // cartão que este clique abre.
+                      aria-label={[
+                        sequencia === "—" ? "Parada sem ordem" : `Parada ${sequencia}`,
+                        stop.cliente.nome || "Cliente",
+                        stop.cliente.endereco,
+                        quando,
+                        stop.produto ? `${stop.quantidade}× ${stop.produto.nome}` : `${stop.quantidade} un`,
+                        stop.somenteCobranca ? stop.motivoCobranca || "só cobrar" : null,
+                      ].filter(Boolean).join(" · ")}
                     >
                       <span
                         className="log-strip__seq"

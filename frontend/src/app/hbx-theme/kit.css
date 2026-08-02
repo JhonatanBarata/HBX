@@ -888,6 +888,48 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .hbx-drawer { border-left: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-lg); }
 /* Cabeçalho de gavetas que usam <h3> diretamente. */
 .hbx-drawer > h3 { margin: 0; font-family: var(--font-display); font-size: var(--text-h4); font-weight: 800; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+
+/* Variante FOLHA DE BAIXO (Lei 2) — `hbx-veil to-bottom` + `.hbx-drawer-bottom`.
+   NASCEU MUDA: as três classes eram usadas por duas telas (detalhe da entrega
+   no /logistica e "Produtos do cliente" no /contatos) e NÃO EXISTIAM em folha
+   nenhuma — só o motion-system as citava, pra animar. Sem fundo, sem borda,
+   sem raio, sem padding e sem largura, o "cartão" era texto solto por cima do
+   véu borrado: foi esse o print do dono. Classe que não existe não avisa —
+   build verde, console limpo, e quem descobre é o dono na tela.
+   A pintura é a MESMA do .hbx-modal (é o mesmo pop-up, só entra por baixo).
+   No computador fica no centro; no celular encosta na borda de baixo e vira
+   folha de largura cheia, que é o que o nome promete e o que o motion-system
+   já anima. Nada de animação aqui: motion-system.css é quem move esta classe. */
+.hbx-drawer-bottom {
+  width: min(420px, 100%);
+  padding: var(--space-4);
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--border-hairline);
+  background: var(--hbx-surface);
+  box-shadow: var(--shadow-md);
+}
+/* Puxador: só existe onde a folha encosta na borda (celular). */
+.hbx-drawer-bottom__handle { display: none; }
+
+@media (max-width: 640px) {
+  .hbx-veil.to-bottom { place-items: end stretch; padding: 0; }
+  .hbx-drawer-bottom {
+    width: 100%;
+    max-height: calc(100dvh - var(--space-12));
+    overflow: auto;
+    border-width: 1px 0 0;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
+  }
+  .hbx-drawer-bottom__handle {
+    display: block;
+    width: var(--casca-handle-w);
+    height: var(--space-1);
+    margin: 0 auto var(--space-3);
+    border-radius: var(--radius-pill);
+    background: var(--border-hairline);
+  }
+}
 /* Aviso transitório (canto inferior). Empilha acima das veils (z 60). */
 .hbx-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 70; max-width: min(420px, calc(100% - 32px)); padding: 11px 16px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface); box-shadow: var(--shadow-lg); color: var(--text-strong); font-size: var(--fz-l2); font-weight: 700; line-height: 1.45; text-align: center; }
 

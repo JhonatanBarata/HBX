@@ -292,7 +292,8 @@
    é a camada que flutua sobre a tela inteira */
 [data-casca="modern"] .hbx-modal,
 [data-casca="modern"] .hbx-pop,
-[data-casca="modern"] .hbx-drawer {
+[data-casca="modern"] .hbx-drawer,
+[data-casca="modern"] .hbx-drawer-bottom {
   border-color: var(--mod-line-strong);
   background: linear-gradient(180deg, color-mix(in srgb, var(--hbx-surface) 92%, transparent), color-mix(in srgb, var(--hbx-surface) 82%, transparent));
   -webkit-backdrop-filter: blur(var(--blur-chrome));

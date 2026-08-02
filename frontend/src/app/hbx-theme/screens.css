@@ -2876,45 +2876,79 @@ html, body { height: 100%; }
 .log-row--entregue { opacity: 0.62; }
 .log-row--cancelada { opacity: 0.5; }
 
+/* Selo de status. LEI 3 (texto que não cabe): o dado que DECIDE nunca encurta —
+   `white-space: nowrap` sozinho não bastava, porque item de flex ainda encolhe a
+   CAIXA e o rótulo escapa por cima do vizinho. `flex: none` tira o selo da conta
+   de encolhimento; quem cede é a linha que hospeda. */
 .log-badge {
-  display: inline-flex; align-items: center;
+  display: inline-flex; align-items: center; flex: none;
   font-size: var(--hbx-font-min); font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase;
   padding: 3px 9px; border-radius: var(--radius-pill); white-space: nowrap;
   border: 1px solid var(--border-hairline); color: var(--text-muted); background: var(--hbx-surface-raised);
 }
 .log-badge--agendada { color: var(--text-body); border-color: var(--border-hairline); background: color-mix(in srgb, var(--text-muted) 10%, transparent); }
-.log-badge--em_rota { color: var(--hbx-brand-strong); border-color: color-mix(in srgb, var(--hbx-brand) 40%, transparent); background: var(--hbx-brand-soft); }
-.log-badge--entregue { color: var(--hbx-ok, var(--hbx-brand-strong)); border-color: color-mix(in srgb, var(--hbx-ok, var(--hbx-brand)) 40%, transparent); background: color-mix(in srgb, var(--hbx-ok, var(--hbx-brand)) 12%, transparent); }
-.log-badge--cancelada { color: var(--hbx-danger, var(--text-muted)); border-color: color-mix(in srgb, var(--hbx-danger, var(--text-muted)) 34%, transparent); background: color-mix(in srgb, var(--hbx-danger, var(--text-muted)) 10%, transparent); }
+/* Matiz CRU como texto sobre tinta do MESMO matiz é o par que mais reprova nesta
+   casa: medido no Aurora claro dava 3,10 (em rota), 3,23 (entregue) e 3,97
+   (cancelada) num selo de 8,8px — precisa de 4,5. O matiz é feito pra PREENCHER,
+   não pra escrever. A cura é a de sempre: mistura com --text-strong, que já vira
+   clara sozinha no escuro, então serve aos dois modos com uma linha só.
+   `--hbx-ok` (que estava aqui) NÃO EXISTE em pele nenhuma — era o FALLBACK que
+   pintava, e o selo "Entregue" saía na cor da marca (ciano no Aurora) em vez de
+   verde. O token de verdade é --hbx-success; --hbx-danger idem, sem fallback. */
+.log-badge--em_rota { color: color-mix(in srgb, var(--hbx-brand-strong) 34%, var(--text-strong)); border-color: color-mix(in srgb, var(--hbx-brand) 40%, transparent); background: var(--hbx-brand-soft); }
+.log-badge--entregue { color: color-mix(in srgb, var(--hbx-success) 34%, var(--text-strong)); border-color: color-mix(in srgb, var(--hbx-success) 40%, transparent); background: color-mix(in srgb, var(--hbx-success) 12%, transparent); }
+.log-badge--cancelada { color: color-mix(in srgb, var(--hbx-danger) 34%, var(--text-strong)); border-color: color-mix(in srgb, var(--hbx-danger) 34%, transparent); background: color-mix(in srgb, var(--hbx-danger) 10%, transparent); }
 
-/* Sheet de detalhe da entrega (usa .hbx-drawer-bottom da central) */
-.log-detail { display: grid; gap: 12px; padding-bottom: 8px; }
-.log-detail__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.log-detail__name { font-size: var(--fz-n1); font-weight: 800; color: var(--text-strong); }
+/* Sheet de detalhe da entrega. A MOLDURA (fundo/borda/raio/sombra/padding/
+   largura) mora em `.hbx-drawer-bottom` no kit.css — aqui só o miolo. O
+   `padding-bottom` que existia aqui era muleta da moldura que não existia. */
+/* `minmax(0, 1fr)` não é enfeite: a coluna implícita de um grid nasce `auto`, e
+   `auto` cresce até o MIN-CONTENT do filho. Como o nome do cliente é `nowrap`
+   (Lei 1), o min-content dele é a frase INTEIRA — medido com nome hostil, a
+   coluna ia a 759px dentro de um cartão de 420px e o cartão vazava pro lado.
+   `min-width: 0` no filho não resolve isso: ele solta o piso do item quando o
+   pai já tem largura, mas não impede o pai de ser MEDIDO pelo min-content. */
+.log-detail { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-3); }
+.log-detail__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-width: 0; }
+/* min-width:0 pra o nome poder encolher e mostrar reticências (a classe
+   .hbx-1linha vem do TSX) — sem ele o nome comprido empurra o selo pra fora. */
+.log-detail__name { min-width: 0; font-size: var(--fz-n1); font-weight: 800; color: var(--text-strong); }
 .log-detail__addr {
-  display: flex; align-items: flex-start; gap: 8px;
+  display: flex; align-items: flex-start; gap: var(--space-2); min-width: 0;
   font-size: var(--fz-l1); line-height: 1.5; color: var(--text-body);
 }
 .log-detail__addr svg { color: var(--hbx-brand-strong); flex: none; margin-top: 2px; }
-.log-detail__meta { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: var(--fz-l2); color: var(--text-muted); }
-.log-detail__notes { font-size: var(--fz-l2); line-height: 1.5; color: var(--text-muted); margin: 0; }
+/* Quantidade, produto e quem recebe é dado que se LÊ, não rótulo: fica em
+   --text-body (--text-muted em texto miúdo já reprovou contraste nesta família
+   de cartões). Cada pedaço quebra dentro de si em vez de vazar por cima do
+   vizinho — o par da LEI 3 é a linha poder descer, e ela pode (flex-wrap). */
+.log-detail__meta { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); font-size: var(--fz-l2); color: var(--text-body); }
+.log-detail__meta > span { min-width: 0; overflow-wrap: break-word; }
+.log-detail__notes { font-size: var(--fz-l2); line-height: 1.5; color: var(--text-body); margin: 0; overflow-wrap: break-word; }
+/* `--border` e `--surface-soft` NÃO EXISTEM no contrato de tokens: os dois var()
+   crus caíam pro inicial e a caixa do entregador ficava sem borda e sem fundo
+   (invisível). Os nomes de verdade são --border-hairline e --surface-recessed. */
 .log-detail__admin {
-  display: grid; gap: 10px; padding: 12px;
-  border: 1px solid var(--border); border-radius: var(--radius-sm);
-  background: var(--surface-soft);
+  display: grid; gap: var(--space-3); padding: var(--space-3);
+  border: 1px solid var(--border-hairline); border-radius: var(--radius-sm);
+  background: var(--surface-recessed);
 }
-.log-detail__admin .f { display: grid; gap: 6px; }
-.log-detail__admin .f > span { font-size: var(--fz-m1); font-weight: 700; color: var(--text-muted); }
-.log-detail__code { display: grid; gap: 8px; justify-items: start; }
+.log-detail__admin .f { display: grid; gap: var(--space-1); }
+.log-detail__admin .f > span { font-size: var(--fz-m1); font-weight: 700; color: var(--text-body); }
+.log-detail__code { display: grid; gap: var(--space-2); justify-items: start; }
 .log-detail__code-value {
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3);
   width: 100%; color: var(--text-body); font-size: var(--fz-l2);
 }
 .log-detail__code-value strong { color: var(--hbx-brand-strong); letter-spacing: 0.18em; }
-.log-detail__ok { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fz-l1); font-weight: 800; color: var(--hbx-ok, var(--hbx-brand-strong)); margin: 0; }
+.log-detail__ok { display: inline-flex; align-items: center; gap: var(--space-1); font-size: var(--fz-l1); font-weight: 800; color: var(--hbx-success); margin: 0; }
 .log-detail__err { margin: 0; }
-.log-detail__acts { display: flex; gap: 10px; }
-.log-nav, .log-confirm { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
+/* LEI 3 outra vez: rótulo de botão é promessa de ação e não encurta. O `flex: 1`
+   sozinho (= 1 1 0%) autorizava a caixa a ficar MENOR que o texto, e com o
+   `white-space: nowrap` central o rótulo escapava por fora do botão. Com
+   `min-width: max-content` + wrap, quem desce de linha é o par de botões. */
+.log-detail__acts { display: flex; flex-wrap: wrap; gap: var(--space-3); }
+.log-nav, .log-confirm { flex: 1 1 auto; min-width: max-content; display: inline-flex; align-items: center; justify-content: center; gap: 7px; }
 .log-detail__close { justify-self: center; margin-top: 2px; }
 
 /* ══════════════════════════════════════════════════════════════════════════
