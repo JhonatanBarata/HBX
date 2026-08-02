@@ -9,7 +9,7 @@
     "start:dev": "ts-node-dev --respawn --transpile-only --require dotenv/config src/main.ts",
     "prisma:generate": "prisma generate --schema=./prisma/schema.prisma --no-hints",
     "prisma:validate": "prisma validate --schema=./prisma/schema.prisma",
-    "test:prisma-contract": "node --test ./scripts/radar-schema-migration.contract.test.js ./scripts/radar-fabrica-prisma.contract.test.js",
+    "test:prisma-contract": "node --test ./scripts/radar-schema-migration.contract.test.js ./scripts/radar-fabrica-prisma.contract.test.js ./scripts/lead-contact-trava-valor-compartilhado.contract.test.js",
     "prebuild": "npm run prisma:generate",
     "build": "tsc -p tsconfig.json",
     "test:purge-stale": "node -e \"const fs=require('fs'),p=require('path');let n=0;(function w(d){if(!fs.existsSync(d))return;for(const e of fs.readdirSync(d,{withFileTypes:true})){const f=p.join(d,e.name);if(e.isDirectory())w(f);else if(/\\.test\\.js(\\.map)?$/.test(e.name)){fs.rmSync(f);n++}}})('dist');console.log('[test] '+n+' artefato(s) de teste antigos removidos do dist')\"",

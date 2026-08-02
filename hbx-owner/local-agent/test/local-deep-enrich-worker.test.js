@@ -830,3 +830,50 @@ test("telefone comum e confirmação inventada pelo 30B não promovem; link ofic
   });
   assert.deepEqual(whatsappPayload.delta.vendasPatch.phone, whatsappPayload.delta.radarPatch.phone);
 });
+
+// --- TRAVA DE DIRETORIO (01/08/2026) -----------------------------------------
+// O crawler tratava diretorio como site da empresa, varria 12 paginas + 24 links
+// e trazia contato das empresas VIZINHAS. O telefone da propria Solutudo ficou
+// colado em 803 leads. Diretorio agora vai pra directory_probe, nunca site_crawl.
+test("classifySourceUrl trata diretorio como diretorio, nao como site da empresa", () => {
+  const { classifySourceUrl } = require("../lib/local-deep-enrich-worker");
+
+  for (const url of [
+    "https://www.solutudo.com.br/empresas/ce/barro/g-d-academia",
+    "https://locaisdobrasil.com.br/empresa/x",
+    "https://www.applocal.com.br/y",
+    "https://listaamarela.com.br/z",
+    "https://paginaamarela.com.br/empresa/w",
+    "https://www.apontador.com.br/local/k",
+    "https://casadosdados.com.br/empresa/1",
+    "https://acara.pa.gov.br/",
+  ]) {
+    assert.equal(classifySourceUrl(url), "directory", `deveria ser diretorio: ${url}`);
+  }
+
+  // Rede social e link encurtado tambem nao sao site da empresa.
+  assert.equal(classifySourceUrl("https://www.messenger.com"), "social");
+  assert.equal(classifySourceUrl("https://linktr.ee/loja"), "directory");
+
+  // Site proprio de verdade segue sendo site.
+  assert.equal(classifySourceUrl("https://www.casadasembalagens.com.br"), "website");
+  assert.equal(classifySourceUrl("https://espacobrunaximenes.com.br/contato"), "website");
+  assert.equal(classifySourceUrl(""), "none");
+});
+
+test("diretorio no sourceUrl nao vira candidato de site_crawl", () => {
+  const alvoDiretorio = buildLabJobInput(mission({
+    payload: { lead: { website: "", sourceUrl: "https://www.solutudo.com.br/empresas/ce/barro/g-d" } },
+  }));
+  assert.deepEqual(alvoDiretorio.providers, ["directory_probe"]);
+  // O ponto que causou o estrago: sem candidato, o crawler nao varre o dominio
+  // do diretorio atras de "mais paginas do mesmo site".
+  assert.deepEqual(alvoDiretorio.candidates, []);
+  assert.deepEqual(alvoDiretorio.directoryUrls, ["https://www.solutudo.com.br/empresas/ce/barro/g-d"]);
+
+  const alvoSiteProprio = buildLabJobInput(mission({
+    payload: { lead: { website: "https://www.casadasembalagens.com.br", sourceUrl: "" } },
+  }));
+  assert.deepEqual(alvoSiteProprio.providers, ["site_crawl"]);
+  assert.equal(alvoSiteProprio.candidates.length, 1);
+});

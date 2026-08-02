@@ -64,8 +64,15 @@ export class LeadContactWriteService {
           },
         });
         written += 1;
-      } catch {
-        // best-effort — LeadContact é índice de consulta, não fonte de verdade
+      } catch (error: any) {
+        // best-effort — LeadContact é índice de consulta, não fonte de verdade.
+        // Mas best-effort que engole erro em silêncio vira bug invisível: desde a
+        // TRAVA DE VALOR COMPARTILHADO (01/08) a recusa do gatilho cai aqui, e o
+        // motivo fica em LeadContactBloqueado. Sem esta linha, some sem rastro.
+        this.logger.warn(
+          `contato não gravado lead=${leadId} ${contact.kind}:${contact.valueNormalized}`
+          + ` — ${String(error?.message || error).slice(0, 180)}`,
+        );
       }
     }
     return { written, skipped, rejected };

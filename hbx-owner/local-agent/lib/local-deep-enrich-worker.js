@@ -195,10 +195,28 @@ function isMissionValidationRetryable(reason) {
   return String(reason || "") !== "lead_invalido";
 }
 
+// Diretorio/agregador NAO e site da empresa. Quando um destes entrava como
+// "website", o crawler varria 12 paginas + 24 links do diretorio e trazia o
+// contato das empresas VIZINHAS: o telefone da propria Solutudo acabou colado em
+// 803 leads (medido 01/08/2026). Lista fechada em 01/08 a partir dos dominios
+// reais que a fila tinha na frente — a rede geral contra diretorio DESCONHECIDO
+// e a trava de valor compartilhado no LeadContact, nao esta lista.
+const DIRECTORY_DOMAINS = [
+  "google.", "guiamais", "telelistas", "yelp", "tripadvisor", "reclameaqui",
+  "solutudo", "locaisdobrasil", "applocal", "listaamarela", "benditoguia",
+  "paginaamarela", "apontador", "casadosdados", "empresafone", "eguias",
+  "guiafacil", "brasillocais", "qualotelefone", "infobel", "mirao",
+  "mestregeo", "superdestaque", "maisdireto", "portalgasperto", "sneps",
+  "boaempresa", "megag", "servicosdetran", "socorroauto", "guinchosbr",
+  "linktr.ee", "cnpj.biz", "econodata", "consultacnpj", "empresascnpj",
+];
+
 function classifySourceUrl(value) {
   const domain = normalizeDomain(value);
   if (/instagram\.com$|facebook\.com$|linkedin\.com$/.test(domain)) return "social";
-  if (/google\.|guiamais|telelistas|yelp|tripadvisor|reclameaqui/.test(domain)) return "directory";
+  if (/(^|\.)(messenger|whatsapp|wa\.me|bit\.ly|t\.me)\b/.test(domain) || domain === "wa.me") return "social";
+  if (DIRECTORY_DOMAINS.some((needle) => domain.includes(needle))) return "directory";
+  if (/\.gov\.br$|\.gov$/.test(domain)) return "directory";
   return domain ? "website" : "none";
 }
 
@@ -1178,6 +1196,7 @@ module.exports = {
   buildLabJobInput,
   buildModelPrompt,
   canonicalJson,
+  classifySourceUrl,
   computeBackoffMs,
   computeHeartbeatIntervalMs,
   createLocalDeepEnrichWorker,

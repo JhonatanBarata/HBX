@@ -3495,6 +3495,28 @@ model LeadContact {
   @@unique([radarLeadId, kind, valueNormalized])
 }
 
+// Tudo que a TRAVA DE VALOR COMPARTILHADO recusou de entrar no LeadContact.
+// LEI: "contato que serve a muitos não é de ninguém" — o enriquecimento profundo
+// crawleava DIRETÓRIO como se fosse o site do lead e colou o telefone da própria
+// Solutudo em 803 leads (medido 01/08/2026). O gatilho
+// `hbx_trava_valor_compartilhado_v1` recusa contato cujo valor já aparece em N+
+// leads e escreve aqui o porquê — trava que engole em silêncio vira bug invisível.
+// Teto vive em `hbx_teto_valor_compartilhado_v1()` (hoje 10).
+model LeadContactBloqueado {
+  id              String   @id
+  radarLeadId     String
+  kind            String
+  value           String
+  valueNormalized String
+  source          String?
+  leadsComOValor  Int
+  motivo          String
+  createdAt       DateTime @default(now())
+
+  @@index([kind, valueNormalized])
+  @@index([createdAt])
+}
+
 // WORM-16 (02/07, docs/PLANEJAMENTOS/worm/16-tela-contatos-empresas-crm.md): contato por PESSOA
 // (nome + cargo), separado do LeadContact (que é por CANAL). O sócio do QSA da Receita
 // (CnpjPublicPartner) é o caso primário — pessoa com NOME e CARGO, mas normalmente SEM
