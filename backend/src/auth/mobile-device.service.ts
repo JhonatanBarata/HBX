@@ -17,8 +17,12 @@ import { withoutTenantScope } from '../prisma/tenant-context';
 // AuthModule — injeção direta, sem forwardRef (só seria preciso se A precisasse
 // de B e B precisasse de A).
 import { AuthService } from './auth.service';
+import { isAdminTierActor, resolveActorKind } from '../access/actor-kind';
 import { resolveCompanyAccessState } from '../modules/company-access-state';
-import { resolveOperationalAccessProjection } from '../team/operational-capabilities';
+import {
+  projectOperationalCapabilitiesFromStoredPolicy,
+  resolveOperationalAccessProjection,
+} from '../team/operational-capabilities';
 import {
   loadUserTeamPolicyRuntime,
   resolveTeamPolicyAccessAllowed,
@@ -72,6 +76,19 @@ type LockedPairingUserRow = {
   companyId: number | null;
   isActive: boolean;
   isSystemMaster: boolean;
+};
+
+/** Conta da empresa que pode receber um código — o próprio usuário ou um membro. */
+type PairingActor = {
+  id: number;
+  companyId: number;
+  name: string | null;
+  username: string | null;
+  email: string | null;
+  role: string | null;
+  canViewBilling: boolean;
+  isSystemMaster: boolean;
+  teamPolicy?: { modulesJson: unknown } | null;
 };
 
 type MobilePairingUserRow = {
@@ -143,7 +160,25 @@ export class MobileDeviceService {
     return normalized.replace(/[^a-z0-9_-]/g, '').slice(0, 32) || 'android';
   }
 
-  private async resolvePairingOwner(userIdInput: unknown) {
+  private static readonly PAIRING_ACTOR_SELECT = {
+    id: true,
+    name: true,
+    username: true,
+    email: true,
+    companyId: true,
+    isActive: true,
+    isSystemMaster: true,
+    role: true,
+    canViewBilling: true,
+    teamPolicy: { select: { modulesJson: true } },
+  } as const;
+
+  /**
+   * Carrega a conta autenticada com o que o painel precisa mostrar (nome e
+   * NÍVEL). O nível não é decidido aqui: ele é lido do cadastro (role +
+   * canViewBilling + política do time), a mesma fonte do Gerencial → Equipe.
+   */
+  private async loadPairingActor(userIdInput: unknown): Promise<PairingActor> {
     const userId = Number(userIdInput || 0);
     if (!Number.isInteger(userId) || userId <= 0) {
       throw new UnauthorizedException('Sessão inválida.');
@@ -153,12 +188,7 @@ export class MobileDeviceService {
       'mobile pairing: carregar o próprio usuário autenticado',
       () => this.prisma.user.findUnique({
         where: { id: userId },
-        select: {
-          id: true,
-          companyId: true,
-          isActive: true,
-          isSystemMaster: true,
-        },
+        select: MobileDeviceService.PAIRING_ACTOR_SELECT,
       }),
     );
 
@@ -169,11 +199,119 @@ export class MobileDeviceService {
       throw new BadRequestException('Vinculação móvel exige uma conta vinculada a uma empresa.');
     }
 
-    return { userId: user.id, companyId: Number(user.companyId) };
+    return { ...user, companyId: Number(user.companyId) } as PairingActor;
   }
 
-  async createPairingCode(userIdInput: unknown) {
-    const owner = await this.resolvePairingOwner(userIdInput);
+  /** Rótulo do nível — mesmo vocabulário do resto do sistema (actor-kind.ts). */
+  private describePairingActor(actor: PairingActor) {
+    const kind = resolveActorKind(actor);
+    const projection = projectOperationalCapabilitiesFromStoredPolicy(
+      actor,
+      actor.teamPolicy?.modulesJson,
+    );
+    const caps = projection.operationalCapabilities;
+    const operationalLabel = caps.includes('SELLER') && caps.includes('DRIVER')
+      ? 'Vendas e Entregas'
+      : caps.includes('DRIVER')
+        ? 'Entregador'
+        : caps.includes('SELLER')
+          ? 'Vendedor'
+          : 'Sem operação liberada';
+    return {
+      id: actor.id,
+      name: actor.name || actor.username || actor.email || `Usuário ${actor.id}`,
+      level: kind,
+      levelLabel: kind === 'dono' ? 'Administrador' : kind === 'gerente' ? 'Gerente' : 'Membro operacional',
+      operationalLabel,
+    };
+  }
+
+  /**
+   * Quem vai RECEBER o código. Sem alvo (ou alvo = eu) segue igual a sempre.
+   * Gerar para outra pessoa é ato de administração: só o eixo administrativo
+   * da MESMA empresa, e nunca para conta inativa/master.
+   */
+  private async resolvePairingTarget(actor: PairingActor, targetUserIdInput: unknown): Promise<PairingActor> {
+    const targetUserId = Number(targetUserIdInput || 0);
+    if (!Number.isInteger(targetUserId) || targetUserId <= 0 || targetUserId === actor.id) {
+      return actor;
+    }
+    if (!isAdminTierActor(actor)) {
+      throw new ForbiddenException('Só um administrador pode gerar o código de outra pessoa da equipe.');
+    }
+
+    const target = await withoutTenantScope(
+      'mobile pairing: carregar o membro alvo da mesma empresa',
+      () => this.prisma.user.findFirst({
+        where: { id: targetUserId, companyId: actor.companyId },
+        select: MobileDeviceService.PAIRING_ACTOR_SELECT,
+      }),
+    );
+
+    if (!target) {
+      throw new NotFoundException('Essa pessoa não está na sua equipe.');
+    }
+    if (target.isActive === false) {
+      throw new BadRequestException('Essa conta está desativada — libere o acesso antes de vincular o celular.');
+    }
+    if (target.isSystemMaster) {
+      throw new ForbiddenException('A conta Master do sistema não pode ser vinculada ao aplicativo móvel.');
+    }
+
+    return { ...target, companyId: Number(target.companyId) } as PairingActor;
+  }
+
+  /** Quantos aparelhos ativos cada pessoa da empresa já tem. */
+  private async countActiveDevicesByUser(companyId: number) {
+    const rows = await withoutTenantScope(
+      'mobile pairing: contar aparelhos ativos da empresa',
+      () => this.prisma.$queryRaw<Array<{ userId: number; count: bigint }>>`
+        SELECT "userId", COUNT(*)::bigint AS "count"
+        FROM "MobileDevice"
+        WHERE "companyId" = ${companyId}
+          AND "revokedAt" IS NULL
+        GROUP BY "userId"
+      `,
+    );
+    return new Map(rows.map((row) => [Number(row.userId), Number(row.count || 0)]));
+  }
+
+  /**
+   * Lista para quem este usuário pode gerar código. Funcionário comum enxerga
+   * só a si mesmo; administrador enxerga a equipe ativa (com o nível de cada
+   * um, para VER quem está entrando como quê antes de gerar).
+   */
+  async listPairingTargets(userIdInput: unknown) {
+    const actor = await this.loadPairingActor(userIdInput);
+    const canPairOthers = isAdminTierActor(actor);
+
+    const rows: PairingActor[] = canPairOthers
+      ? ((await withoutTenantScope(
+          'mobile pairing: listar equipe ativa da própria empresa',
+          () => this.prisma.user.findMany({
+            where: { companyId: actor.companyId, isActive: true, isSystemMaster: false },
+            orderBy: [{ name: 'asc' }, { id: 'asc' }],
+            select: MobileDeviceService.PAIRING_ACTOR_SELECT,
+          }),
+        )) as unknown as PairingActor[])
+      : [actor];
+
+    const counts = await this.countActiveDevicesByUser(actor.companyId);
+    const targets = rows.map((row) => ({
+      ...this.describePairingActor(row),
+      isSelf: row.id === actor.id,
+      activeDevices: counts.get(row.id) || 0,
+    }));
+    // O próprio usuário sempre encabeça a lista — é o caso comum.
+    targets.sort((a, b) => (a.isSelf === b.isSelf ? 0 : a.isSelf ? -1 : 1));
+
+    return { canPairOthers, maxDevicesPerUser: this.maxDevicesPerUser, targets };
+  }
+
+  async createPairingCode(userIdInput: unknown, targetUserIdInput?: unknown) {
+    const actor = await this.loadPairingActor(userIdInput);
+    const target = await this.resolvePairingTarget(actor, targetUserIdInput);
+    const owner = { userId: target.id, companyId: target.companyId };
     const now = new Date();
     const expiresAt = new Date(now.getTime() + this.pairingTtlMs);
 
@@ -201,6 +339,11 @@ export class MobileDeviceService {
             code,
             expiresAt: expiresAt.toISOString(),
             expiresInSeconds: Math.floor(this.pairingTtlMs / 1000),
+            // De quem é este código (e com que nível o celular vai entrar).
+            target: {
+              ...this.describePairingActor(target),
+              isSelf: target.id === actor.id,
+            },
           };
         } catch (error) {
           if (attempt === 4) throw error;
@@ -211,9 +354,18 @@ export class MobileDeviceService {
     });
   }
 
-  async listDevices(userIdInput: unknown) {
-    const owner = await this.resolvePairingOwner(userIdInput);
-    return withoutTenantScope('mobile pairing: listar aparelhos do próprio usuário', async () => {
+  /**
+   * `scope=company` (só administrador) traz os aparelhos de TODA a equipe com o
+   * dono de cada um — sem isso, celular perdido de funcionário só era
+   * desconectável pelo próprio funcionário. Qualquer outro escopo = só os meus.
+   */
+  async listDevices(userIdInput: unknown, scopeInput?: unknown) {
+    const actor = await this.loadPairingActor(userIdInput);
+    const companyWide = String(scopeInput || '').trim().toLowerCase() === 'company'
+      && isAdminTierActor(actor);
+
+    return withoutTenantScope('mobile pairing: listar aparelhos vinculados', async () => {
+      // tenant-raw-allow: escopo travado por companyId do usuário autenticado; o filtro por userId só cai quando a lista é pessoal.
       const rows = await this.prisma.$queryRaw<Array<{
         id: string;
         name: string | null;
@@ -221,26 +373,36 @@ export class MobileDeviceService {
         lastUsedAt: Date | null;
         revokedAt: Date | null;
         createdAt: Date;
+        userId: number;
+        ownerName: string | null;
       }>>`
-        SELECT "id", "name", "platform", "lastUsedAt", "revokedAt", "createdAt"
-        FROM "MobileDevice"
-        WHERE "userId" = ${owner.userId}
-          AND "companyId" = ${owner.companyId}
-        ORDER BY "createdAt" DESC
+        SELECT
+          d."id", d."name", d."platform", d."lastUsedAt", d."revokedAt", d."createdAt",
+          d."userId",
+          COALESCE(NULLIF(u."name", ''), NULLIF(u."username", ''), u."email") AS "ownerName"
+        FROM "MobileDevice" d
+        LEFT JOIN "User" u ON u."id" = d."userId"
+        WHERE d."companyId" = ${actor.companyId}
+          AND (${companyWide}::boolean OR d."userId" = ${actor.id})
+        ORDER BY d."createdAt" DESC
       `;
       return rows.map((row) => ({
         ...row,
         active: !row.revokedAt,
+        isSelf: Number(row.userId) === actor.id,
       }));
     });
   }
 
   async revokeDevice(userIdInput: unknown, deviceId: string) {
-    const owner = await this.resolvePairingOwner(userIdInput);
+    const actor = await this.loadPairingActor(userIdInput);
     const id = String(deviceId || '').trim();
     if (!id) throw new BadRequestException('Aparelho inválido.');
+    // Administrador desconecta qualquer aparelho da própria empresa (celular
+    // perdido do entregador); funcionário comum, só os dele.
+    const companyWide = isAdminTierActor(actor);
 
-    const changed = await withoutTenantScope('mobile pairing: revogar aparelho do próprio usuário', () =>
+    const changed = await withoutTenantScope('mobile pairing: revogar aparelho vinculado', () =>
       this.prisma.$executeRaw`
         UPDATE "MobileDevice"
         SET
@@ -250,8 +412,8 @@ export class MobileDeviceService {
           "tokenVersion" = "tokenVersion" + 1,
           "updatedAt" = CURRENT_TIMESTAMP
         WHERE "id" = ${id}
-          AND "userId" = ${owner.userId}
-          AND "companyId" = ${owner.companyId}
+          AND "companyId" = ${actor.companyId}
+          AND (${companyWide}::boolean OR "userId" = ${actor.id})
           AND "revokedAt" IS NULL
       `,
     );

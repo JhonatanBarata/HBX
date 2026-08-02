@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -12,6 +13,7 @@ import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import {
   ConsumeMobileWebTicketDto,
+  CreateMobilePairingCodeDto,
   GooglePairMobileDeviceDto,
   OpenMobileDeviceSessionDto,
   PairMobileDeviceDto,
@@ -24,15 +26,23 @@ export class MobileDeviceController {
 
   @Post('pairing-code')
   @UseGuards(JwtAuthGuard)
-  @Throttle({ default: { limit: 5, ttl: 60 } })
-  createPairingCode(@Req() req: any) {
-    return this.mobileDevices.createPairingCode(req?.user?.id);
+  // Teto por MINUTO: um admin preparando a equipe gera vários seguidos.
+  @Throttle({ default: { limit: 15, ttl: 60 } })
+  createPairingCode(@Req() req: any, @Body() dto?: CreateMobilePairingCodeDto) {
+    return this.mobileDevices.createPairingCode(req?.user?.id, dto?.targetUserId);
+  }
+
+  // Para QUEM este usuário pode gerar código (com o nível de cada um).
+  @Get('pairing-targets')
+  @UseGuards(JwtAuthGuard)
+  listPairingTargets(@Req() req: any) {
+    return this.mobileDevices.listPairingTargets(req?.user?.id);
   }
 
   @Get()
   @UseGuards(JwtAuthGuard)
-  listDevices(@Req() req: any) {
-    return this.mobileDevices.listDevices(req?.user?.id);
+  listDevices(@Req() req: any, @Query('scope') scope?: string) {
+    return this.mobileDevices.listDevices(req?.user?.id, scope);
   }
 
   @Delete(':deviceId')

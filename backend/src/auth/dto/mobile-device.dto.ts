@@ -1,4 +1,16 @@
-import { IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator';
+import { IsInt, IsOptional, IsString, Length, Matches, MaxLength, Min } from 'class-validator';
+
+// Gerar o código PARA outra pessoa da equipe (decisão do dono 02/08). O NÍVEL
+// (admin/gerente/vendedor) NÃO se escolhe aqui: ele vem do cadastro da pessoa
+// em Gerencial → Equipe. Esta tela só escolhe DE QUEM é o código — "mostra num
+// lugar, edita num lugar". Sem targetUserId = o próprio usuário (comportamento
+// de sempre).
+export class CreateMobilePairingCodeDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  targetUserId?: number;
+}
 
 export class PairMobileDeviceDto {
   @IsString()

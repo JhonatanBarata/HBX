@@ -24,4 +24,11 @@
 .deviceInactive { opacity: .62; }
 .deviceMeta { font-size: var(--fz-l3); }
 .deviceCreated { font-size: var(--fz-m2); }
+.deviceOwner { margin-left: 8px; color: var(--text-muted); font-size: var(--fz-l3); font-weight: 600; }
 .revoke { color: var(--hbx-danger); }
+/* Escolher DE QUEM é o código (admin). O nível vem do cadastro — só é exibido. */
+.targetField { display: grid; gap: 6px; }
+.targetLabel { color: var(--text-muted); font-size: var(--fz-m2); font-weight: 700; }
+.levelLine { margin: 0; color: var(--text-muted); font-size: var(--fz-l3); line-height: 1.5; }
+.levelLink { color: var(--hbx-brand-strong); font-size: var(--fz-m2); font-weight: 700; text-decoration: none; }
+.levelLink:hover { text-decoration: underline; }
