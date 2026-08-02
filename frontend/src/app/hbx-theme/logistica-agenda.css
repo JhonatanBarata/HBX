@@ -1496,3 +1496,47 @@
 @media (max-width: 760px) {
   .log-quar-tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+
+/* AGENDADOR (02/08) — "Missões enviadas": o painel de quem MANDA. Vizinho do
+   .log-negada acima e com a mesma casca, só que neutro: aqui nada deu errado,
+   é acompanhamento. Uma missão por linha de dado, sem parágrafo. */
+.log-missoes {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 12px;
+  background: var(--hbx-surface-soft);
+  color: var(--text-strong);
+  font-size: var(--fz-l1);
+}
+
+.log-missoes__titulo {
+  color: var(--text-muted);
+  font-size: var(--hbx-font-min);
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.log-missoes__linha {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+
+.log-missoes__rota { font-weight: 700; }
+.log-missoes__quem,
+.log-missoes__hora { color: var(--text-muted); }
+.log-missoes__hora { font-variant-numeric: tabular-nums; }
+
+.log-missoes__estado {
+  margin-left: auto;
+  color: var(--hbx-brand-strong, var(--hbx-brand));
+  font-weight: 700;
+}
+
+/* O único estado que precisa gritar: mandei e o aparelho não recebeu. */
+.log-missoes__estado.is-alerta { color: var(--hbx-danger); }

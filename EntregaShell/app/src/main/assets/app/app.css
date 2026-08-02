@@ -887,8 +887,31 @@ html.nav-cheia .route-controls { padding-top: 6px; }
 .route-transmux[data-state="stop"] > .hbx-icon { fill: currentColor; stroke-width: 1.65; }
 /* Satélites têm uma única casca e uma única cor neutra. A semântica de ações
    destrutivas permanece no rótulo acessível e na confirmação já existente. */
-.route-cancel-icon, .route-nav-external { position: relative; flex: 0 0 auto; display: grid; place-items: center; width: 52px; height: 52px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--surface); color: var(--ink); box-shadow: 0 2px 6px rgba(0,0,0,.10); pointer-events: auto; touch-action: manipulation; transition: transform .27s ease, box-shadow .27s ease; }
-.route-cancel-icon:active, .route-nav-external:active { transform: scale(.96); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+.route-cancel-icon, .route-nav-external, .route-avisos-icon { position: relative; flex: 0 0 auto; display: grid; place-items: center; width: 52px; height: 52px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--surface); color: var(--ink); box-shadow: 0 2px 6px rgba(0,0,0,.10); pointer-events: auto; touch-action: manipulation; transition: transform .27s ease, box-shadow .27s ease; }
+.route-cancel-icon:active, .route-nav-external:active, .route-avisos-icon:active { transform: scale(.96); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+/* AGENDADOR (02/08) — o sino das "Rotas recebidas". Mesma casca dos outros
+   satélites (padronizar = IGUALAR); o que muda é o PISCAR, e ele existe por um
+   motivo operacional: missão marcada que ninguém viu é entrega que não sai.
+   Pisca o anel, nunca o ícone — texto piscando é ilegível de relance. */
+.route-avisos-icon.is-piscando { animation: hbx-aviso-pulso 1.5s ease-in-out infinite; }
+@keyframes hbx-aviso-pulso {
+  0%, 100% { border-color: var(--line); box-shadow: 0 2px 6px rgba(0,0,0,.10); }
+  50% { border-color: var(--brand); box-shadow: 0 0 0 6px color-mix(in srgb, var(--brand) 22%, transparent), 0 2px 6px rgba(0,0,0,.10); }
+}
+/* Lei 9 — quem pediu menos movimento no sistema recebe o aviso PARADO, mas com
+   a cor de marca fixa: o recado continua visível, só não pisca. */
+@media (prefers-reduced-motion: reduce) {
+  .route-avisos-icon.is-piscando { animation: none; border-color: var(--brand); }
+}
+.route-avisos-contador { position: absolute; top: -2px; right: -2px; min-width: 20px; height: 20px; display: grid; place-items: center; padding: 0 5px; border-radius: 999px; background: var(--brand); color: var(--on-brand); font-size: .62rem; font-style: normal; font-weight: 900; }
+/* Folha "Rotas recebidas": uma missão por LINHA de dado (Lei 8), nunca parágrafo. */
+.missao-lista { display: grid; gap: 8px; width: 100%; margin: 4px 0 2px; text-align: left; }
+.missao-linha { display: grid; gap: 2px; width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); color: var(--ink); font: inherit; text-align: left; }
+.missao-linha strong { font-size: .92rem; font-weight: 800; }
+.missao-linha span { color: var(--muted); font-size: .78rem; }
+.missao-linha small { color: var(--muted); font-size: .7rem; }
+.missao-linha--agora { border-color: color-mix(in srgb, var(--brand) 45%, var(--line)); cursor: pointer; touch-action: manipulation; transition: transform .18s ease; }
+.missao-linha--agora:active { transform: scale(.985); }
 .leitura-route-controls { width: min(100%, 360px); min-height: 112px; display: grid; grid-template-columns: 82px 112px 82px; align-items: center; justify-content: space-between; gap: 10px; }
 .leitura-route-action, .leitura-route-recording { display: flex; flex-direction: column; align-items: center; justify-content: center; border: 0; font-weight: 800; touch-action: manipulation; transition: transform .16s cubic-bezier(.2,.78,.2,1), filter .16s ease; }
 .leitura-route-action { min-width: 82px; min-height: 74px; gap: 5px; padding: 8px 6px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); font-size: .68rem; }

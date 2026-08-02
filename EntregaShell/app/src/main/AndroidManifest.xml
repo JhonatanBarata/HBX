@@ -225,13 +225,19 @@
         <!-- Reboot apaga todo alarme agendado no sistema. Sem este receiver,
              reiniciar o celular às 14h fazia a missão das 16:00 sumir CALADA.
              exported=true é exigência do BOOT_COMPLETED (quem entrega é o
-             sistema); o filtro aceita só essa ação. -->
+             sistema); o filtro aceita só essas ações.
+
+             MY_PACKAGE_REPLACED entrou em 02/08, medido no aparelho: o
+             auto-update do APK também apaga os alarmes, e o app atualizado só
+             rearmava quando alguém o ABRISSE. Um publish às 15h matava a missão
+             das 16:00 em silêncio — o pior tipo de falha que existe aqui. -->
         <receiver
             android:name=".MissaoBootReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
 

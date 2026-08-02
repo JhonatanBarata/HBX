@@ -438,6 +438,10 @@
     // O "map" (mapa dobrado) virou ícone de mapa ESTÁTICO no mercado e lia
     // como "ver o mapa", não como "abrir a navegação".
     navigation: "<polygon points='3 11 22 2 13 21 11 13 3 11'/>",
+    // AGENDADOR (02/08) — avisos ("Rotas recebidas"). Sino é o glifo universal
+    // de "chegou algo pra você"; nasce aqui no mapa central porque ícone solto
+    // em tela é o que a Lei 2 proíbe. Traço aberto igual aos vizinhos.
+    bell: "<path d='M18 8a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 14 18 8'/><path d='M13.7 20a2 2 0 0 1-3.4 0'/>",
   };
   function icon(name, size) {
     const iconName = Object.prototype.hasOwnProperty.call(paths, name) ? name : "box";
@@ -2290,7 +2294,7 @@
     const checagemOverlay = state.checagem && state.modal !== "client-product" ? `<div class="overlay-host is-opening">${checagemModal()}</div>` : "";
     const standardModal = state.modal && state.modal !== "distance-warning" ? `<div class="overlay-host ${state.openingOverlay === "modal" ? "is-opening" : ""} ${state.closingOverlay === "modal" ? "is-closing" : ""}">${modal()}</div>` : "";
     const distanceModal = state.modal === "distance-warning" ? `<div class="overlay-host is-opening">${modal()}</div>` : "";
-    const overlays = `${floatingAction || ""}${creditsLockOverlay()}${routeNoticeOverlay()}${standardModal}${checagemOverlay}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${dddPromptOverlay()}${leituraPausaOverlay()}${rotaIndicadaOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
+    const overlays = `${floatingAction || ""}${creditsLockOverlay()}${routeNoticeOverlay()}${standardModal}${checagemOverlay}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${dddPromptOverlay()}${leituraPausaOverlay()}${rotaIndicadaOverlay()}${missoesOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
     return H.mobileShell.frame({ appName: "logistica", currentScreen: state.screen, content, icon, motion: state.screenMotion, refreshing: state.refreshing, error: state.error, overlays });
   }
   function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); const ringOffset = (188.5 * count / 5).toFixed(1); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30" style="stroke-dashoffset:${ringOffset}"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Próxima parada</p><h2>${H.escape(client.nome || "Cliente")}</h2><small>${H.escape(address(client))}</small><div class="actions next-stop-actions"><button class="btn btn-primary" data-action="next-stop">Ver rota</button><button class="btn btn-secondary" data-action="cancel-next-stop">Ficar aqui</button></div></section></div>`; }
@@ -2343,6 +2347,35 @@
     }
     const detalhe = `${Number(ind.paradas || 0)} parada${Number(ind.paradas || 0) === 1 ? "" : "s"}${ind.porNome ? ` · por ${H.escape(ind.porNome)}` : ""}`;
     return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm" role="dialog" aria-modal="true" aria-labelledby="rota-ind-title"><div class="app-confirm-icon">${icon("route", 24)}</div><h2 id="rota-ind-title">Rota nova indicada</h2><p><strong>${H.escape(ind.nome || "Rota")}</strong><br><span class="subtitle">${detalhe}</span></p><div class="actions"><button class="btn btn-secondary" type="button" data-action="rota-indicada-negar" ${busy}>Negar</button><button class="btn btn-primary" type="button" data-action="rota-indicada-aceitar" ${busy}>${ind.saving ? "Aguarde…" : "Aceitar"}</button></div></section></div>`;
+  }
+  /**
+   * AGENDADOR (02/08) — "Rotas recebidas", a folha do sino que pisca.
+   *
+   * É a única tela onde o motorista VÊ o que o escritório marcou pra ele antes
+   * do alarme tocar. Cada missão é UMA LINHA de dado (Lei 8): nome, hora,
+   * paradas, quem mandou — nenhum parágrafo.
+   *
+   * Missão com hora AINDA à frente não tem botão de aceitar de propósito: quem
+   * chama pra decidir é o despertador, na hora marcada. Aceitar às 13h uma rota
+   * das 16h montaria a rota agora — o agendamento viraria enfeite. A linha
+   * dessas mostra o horário e se o despertador já está armado neste aparelho.
+   */
+  function missoesOverlay() {
+    if (!state.missoesAberto) return "";
+    const missoes = Array.isArray(state.missoesRecebidas) ? state.missoesRecebidas : [];
+    const linhas = missoes.map((m) => {
+      const paradas = `${Number(m.paradas || 0)} parada${Number(m.paradas || 0) === 1 ? "" : "s"}`;
+      const quem = m.porNome ? ` · ${H.escape(m.porNome)}` : "";
+      const quandoMs = missaoQuandoMs(m);
+      const marcada = missaoEstaMarcadaPraFrente(m);
+      if (marcada) {
+        const hora = new Date(quandoMs).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+        const armado = m.alarmeArmado ? "despertador armado" : "sem despertador neste aparelho";
+        return `<div class="missao-linha"><strong>${H.escape(m.nome || "Rota")}</strong><span>${H.escape(hora)} · ${paradas}${quem}</span><small>${H.escape(armado)}</small></div>`;
+      }
+      return `<button class="missao-linha missao-linha--agora" type="button" data-action="missao-abrir" data-missao="${H.escape(m.id)}"><strong>${H.escape(m.nome || "Rota")}</strong><span>agora · ${paradas}${quem}</span></button>`;
+    }).join("");
+    return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm" role="dialog" aria-modal="true" aria-labelledby="missoes-title"><div class="app-confirm-icon">${icon("bell", 24)}</div><h2 id="missoes-title">Rotas recebidas</h2><div class="missao-lista">${linhas || empty("Nada esperando", "")}</div><div class="actions"><button class="btn btn-secondary btn-block" type="button" data-action="missoes-fechar">Fechar</button></div></section></div>`;
   }
   function empty(title, text) { return `<div class="empty"><strong>${H.escape(title)}</strong>${H.escape(text)}</div>`; }
   function loading() { return `<div class="list"><div class="card loading"></div><div class="card loading"></div><div class="card loading"></div></div>`; }
@@ -4936,7 +4969,7 @@
         <button type="button" class="route-filter-btn ${state.routeFilter === "entregue" ? "active" : ""}" data-action="route-filter" data-filter="entregue" role="tab" aria-selected="${state.routeFilter === "entregue"}">Entregue <b>${done.length}</b></button>
       </div>` : ""}
       ${state.routeFilter === "fila" && next && !showNextPanel ? `<div class="section-title"><strong>Próxima parada</strong><span>${next.etaAt ? H.date(next.etaAt, { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>${stopCard(next, true)}` : ""}
-      ${total ? (filtered.length ? `<div class="list">${filtered.map((item, index) => `${state.routeFilter === "fila" ? routeLegConnector(item) : ""}${stopCard(item, false, index + (state.routeFilter === "fila" ? 2 : 1))}`).join("")}</div>` : state.routeFilter === "fila" && next ? "" : empty("Nada aqui", "")) : ""}`, leituraAtiva ? "" : `<button class="fab" data-action="rota-rapida" aria-label="Rota rápida">${icon("plus", 22)}</button>`);
+      ${total ? (filtered.length ? `<div class="list">${filtered.map((item, index) => `${state.routeFilter === "fila" ? routeLegConnector(item) : ""}${stopCard(item, false, index + (state.routeFilter === "fila" ? 2 : 1))}`).join("")}</div>` : state.routeFilter === "fila" && next ? "" : empty("Nada aqui", "")) : ""}`);
   }
   function leituraRouteControls() {
     const checkpointLabel = state.leituraCapturing ? "Lendo GPS…" : "Checkpoint";
@@ -5040,10 +5073,26 @@
     // Rota pronta: o satélite da direita ADICIONA paradas na rota que já existe
     // (mesma tela de montagem por baixo). 26/07 (dono, 4ª cobrança): o rótulo diz o
     // que o botão FAZ — "Adicionar na rota", nunca "Montar Rota" com rota já montada.
+    //
+    // 02/08 (dono, no aparelho): "corrija esse +". A Rota rápida era o ÚNICO
+    // controle da tela morando num botão flutuante solto no canto — quebrava a
+    // simetria dos satélites e ficava por cima do mapa. Virou satélite padrão à
+    // direita do Montar rota, com a mesma moldura dos outros (padronizar =
+    // IGUALAR, não decorar). Sem rota de pé ela é a ação da direita; com rota de
+    // pé quem manda ali continua sendo "Adicionar".
     const rightIcon = planned
       ? routeSatellite("route-nav-external", "plan-route", "Adicionar na rota", "Adicionar", "route")
+      : routeSatellite("route-nav-external", "rota-rapida", "Rota rápida", "Rota rápida", "plus");
+    // 02/08 (dono) — AVISOS à esquerda, PISCANDO. O slot da esquerda só tem dono
+    // quando existe o que CANCELAR; fora disso ficava vazio. É nele que entra o
+    // recado do escritório: piscar é o ponto (missão marcada que ninguém viu é
+    // entrega que não sai). Some sozinho quando não há nada esperando resposta —
+    // botão que não faz nada é pior que slot vazio.
+    const missoes = Array.isArray(state.missoesRecebidas) ? state.missoesRecebidas : [];
+    const avisoIcon = missoes.length
+      ? `<span class="route-control-unit route-control-unit--satellite"><button class="route-avisos-icon is-piscando" type="button" data-action="missoes-abrir" aria-label="Rotas recebidas: ${missoes.length}">${icon("bell", 21)}${missoes.length > 1 ? `<i class="route-avisos-contador">${missoes.length}</i>` : ""}</button><small class="route-control-label">Rotas recebidas</small></span>`
       : "";
-    return `<div class="route-transmux-wrap"><span class="route-satellite-slot route-satellite-slot--left">${leftIcon}</span><span class="route-control-unit route-control-unit--main" data-state="${main.state}"><button class="route-transmux" type="button" data-action="${main.action}" data-state="${main.state}" aria-label="${main.label}" data-hbx-motion ${state.dayStarting ? "disabled" : ""}>${icon(main.glifo, 44)}</button><small class="route-control-label">${H.escape(main.caption)}</small></span><span class="route-satellite-slot route-satellite-slot--right">${rightIcon}</span></div>`;
+    return `<div class="route-transmux-wrap"><span class="route-satellite-slot route-satellite-slot--left">${leftIcon || avisoIcon}</span><span class="route-control-unit route-control-unit--main" data-state="${main.state}"><button class="route-transmux" type="button" data-action="${main.action}" data-state="${main.state}" aria-label="${main.label}" data-hbx-motion ${state.dayStarting ? "disabled" : ""}>${icon(main.glifo, 44)}</button><small class="route-control-label">${H.escape(main.caption)}</small></span><span class="route-satellite-slot route-satellite-slot--right">${rightIcon}</span></div>`;
   }
   function stopCard(item, featured, sequenceNumber) {
     const c = item.cliente || {}; const done = item.status === "entregue"; const order = sequenceNumber || Math.max(1, orderedItems().indexOf(item) + 1);
@@ -7451,6 +7500,10 @@
       const lista = await H.api("/logistica/rota-indicadas/pendentes?agendadas=1");
       const vivas = Array.isArray(lista) ? lista : [];
       await sincronizarDespertadores(vivas);
+      // O que a tela mostra no aviso "Rotas recebidas": tudo que o escritório
+      // mandou e ainda não teve resposta — a marcada pras 16:00 inclusive.
+      // Sem isto o motorista só descobria a missão quando o alarme tocasse.
+      state.missoesRecebidas = vivas.filter(item => item && item.status === "pendente");
       // Missão marcada pra frente NÃO vira popup — quem chama é o alarme.
       const pendente = vivas.find(item => item && item.status === "pendente" && !missaoEstaMarcadaPraFrente(item)) || null;
       const guardada = vivas.find(item => item && item.status === "aceita") || null;
@@ -9046,6 +9099,25 @@
     // ROTA PRONTA (29/07) — botões do popup impeditivo da rota indicada.
     // Guard de reentrância (padrão accept-confirmation): saving marca ANTES do
     // 1º await e o render síncrono desabilita os botões.
+    // AGENDADOR (02/08) — o sino que pisca e a folha "Rotas recebidas".
+    if (action === "missoes-abrir") {
+      state.missoesAberto = true; render();
+      // Abrir é o gesto de quem quer a verdade AGORA: força o poll em vez de
+      // mostrar a lista do último tick (até 45s velha).
+      void checkRotaIndicada(true);
+      return;
+    }
+    if (action === "missoes-fechar") { state.missoesAberto = false; render(); return; }
+    if (action === "missao-abrir") {
+      const id = target.dataset.missao || (target.closest && target.closest("[data-missao]") || {}).dataset?.missao;
+      const m = (state.missoesRecebidas || []).find(item => item && item.id === id);
+      state.missoesAberto = false;
+      // Cai no MESMO popup Aceitar/Negar do alarme e da indicação imediata —
+      // uma porta só pra decidir (a lição do vitrine-e-caixa-dois-porteiros).
+      if (m) state.rotaIndicada = { ...m, passo: "decisao", saving: false };
+      render();
+      return;
+    }
     if (action === "rota-indicada-negar") {
       await rotaIndicadaResponder(state.rotaIndicada, false);
       return;
@@ -10977,6 +11049,9 @@
         // consumido e NÃO fecha (mesmo contrato do app-update obrigatório;
         // só Aceitar/Negar tiram ele da tela).
         if (state.rotaIndicada) return true;
+        // Lei 10 — popup novo entra aqui. "Rotas recebidas" é consulta, não
+        // decisão: Voltar fecha, ao contrário do popup impeditivo acima.
+        if (state.missoesAberto) { state.missoesAberto = false; render(); return true; }
         if (state.dddPrompt) { state.dddPrompt = null; render(); return true; }
         if (state.confirmation) { state.confirmation = null; render(); return true; }
         // S3.2 — popup de pausa (overlay global, aparece em cima de qualquer

@@ -324,11 +324,21 @@ class MissaoAlarmReceiver : BroadcastReceiver() {
     }
 }
 
-/** Reboot: o sistema esquece todo alarme. Este receiver põe tudo de pé de novo. */
+/**
+ * Reboot **e atualização do app**: nos dois casos o sistema esquece todo alarme
+ * agendado. Este receiver põe tudo de pé de novo.
+ *
+ * `MY_PACKAGE_REPLACED` não é detalhe: o APK se auto-atualiza do próprio VPS, e
+ * sem ele um publish no meio da tarde apagava a missão das 16:00 CALADO — o
+ * despertador só voltaria se alguém abrisse o app por acaso.
+ */
 class MissaoBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val acao = intent.action.orEmpty()
-        if (acao != Intent.ACTION_BOOT_COMPLETED && acao != "android.intent.action.QUICKBOOT_POWERON") return
+        val conhecida = acao == Intent.ACTION_BOOT_COMPLETED ||
+            acao == "android.intent.action.QUICKBOOT_POWERON" ||
+            acao == Intent.ACTION_MY_PACKAGE_REPLACED
+        if (!conhecida) return
         runCatching { MissaoAlarme.rearmarTudo(context) }
     }
 }

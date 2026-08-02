@@ -78,7 +78,28 @@ type Entrega = {
 type Entregador = { id: number; nome: string | null; email: string | null };
 
 // ROTA PRONTA (29/07) — linha de GET /logistica/rota-indicadas (aviso de negada).
-type RotaIndicadaAviso = { id: string; nome: string; status: string; paraNome: string; porNome: string; avisoVisto: boolean };
+type RotaIndicadaAviso = {
+  id: string;
+  nome: string;
+  status: string;
+  paraNome: string;
+  porNome: string;
+  avisoVisto: boolean;
+  // AGENDADOR (02/08) — hora marcada e se o celular da pessoa JÁ armou o
+  // despertador. Sem o segundo campo o painel prometeria um alarme que talvez
+  // nunca toque (aparelho desligado, app nunca aberto).
+  agendadaPara: string | null;
+  alarmeArmado: boolean;
+};
+
+/** Estado da missão em UMA frase — é o que o admin lê pra saber se pode ir embora. */
+function estadoDaMissao(m: RotaIndicadaAviso): { texto: string; alerta: boolean } {
+  if (m.status === "aceita" || m.status === "aplicada") return { texto: "aceita", alerta: false };
+  if (!m.agendadaPara) return { texto: "esperando resposta", alerta: false };
+  return m.alarmeArmado
+    ? { texto: "despertador armado no celular", alerta: false }
+    : { texto: "o celular ainda não recebeu", alerta: true };
+}
 
 // 31/07 — linha de GET /logistica/rota-avisos: rota que morreu no meio.
 type RotaAvisoLinha = {
@@ -420,6 +441,9 @@ export function LogisticaClient() {
   const [routeBuilderOpen, setRouteBuilderOpen] = useState(false);
   // ROTA PRONTA (29/07) — avisos de rota indicada negada no celular.
   const [negadas, setNegadas] = useState<RotaIndicadaAviso[]>([]);
+  // AGENDADOR (02/08) — as missões VIVAS que o escritório mandou: é o painel que
+  // faltava pra quem manda ("mandei, e daí?"). Mesma requisição do banner acima.
+  const [missoes, setMissoes] = useState<RotaIndicadaAviso[]>([]);
   // 31/07 — recados de rota que morreu no meio (abandonada/parcial/parada).
   const [rotaAvisos, setRotaAvisos] = useState<RotaAvisoLinha[]>([]);
   const [view, setView] = useState<LogisticsView>("today");
@@ -461,9 +485,14 @@ export function LogisticaClient() {
           if (cancelled) return;
           // PR29072026 — "desfeita" entra no MESMO banner: aceitou e devolveu é
           // tão importante quanto recusar de cara (quem indicou ficou sem motorista).
-          setNegadas((Array.isArray(rows) ? rows : []).filter(
+          const lista = Array.isArray(rows) ? rows : [];
+          setNegadas(lista.filter(
             (row) => (row.status === "negada" || row.status === "desfeita") && !row.avisoVisto,
           ));
+          // Viva = ainda vai acontecer. `aplicada` sai da lista de propósito:
+          // rota que já virou trabalho na rua se acompanha no painel do dia,
+          // não numa fila de recados (dado em 2 lugares é bug de produto).
+          setMissoes(lista.filter((row) => row.status === "pendente" || row.status === "aceita"));
         })
         .catch(() => { /* aviso é acessório: rede fora não derruba a tela */ });
     };
@@ -704,6 +733,30 @@ export function LogisticaClient() {
             <button type="button" className="log-negada__close" aria-label="Dispensar aviso" onClick={() => dispensarRotaAviso(aviso.id)}>×</button>
           </div>
         ))}
+
+        {/* AGENDADOR (02/08, pedido do dono) — o controle do lado de QUEM MANDA.
+            Ele marca a rota e vai embora; sem esta lista não havia como saber se
+            o celular recebeu, se o despertador está armado e se a pessoa aceitou.
+            Uma missão por LINHA de dado: rota, pessoa, hora, estado. */}
+        {admin && missoes.length > 0 && (
+          <div className="log-missoes" role="status">
+            <strong className="log-missoes__titulo">Missões enviadas</strong>
+            {missoes.map((m) => {
+              const estado = estadoDaMissao(m);
+              const hora = m.agendadaPara
+                ? new Date(m.agendadaPara).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+                : "agora";
+              return (
+                <div className="log-missoes__linha" key={m.id}>
+                  <span className="log-missoes__rota">{m.nome}</span>
+                  <span className="log-missoes__quem">{m.paraNome}</span>
+                  <span className="log-missoes__hora">{hora}</span>
+                  <span className={`log-missoes__estado${estado.alerta ? " is-alerta" : ""}`}>{estado.texto}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {admin && (
           <div className="log-instruments">
