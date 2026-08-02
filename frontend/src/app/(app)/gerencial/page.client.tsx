@@ -13,6 +13,7 @@ import React, { useCallback, useEffect, useState } from "react";
 
 import { CargoAcessosEditor } from "@/components/hbx/cargo-acessos-editor";
 import { NovoAcessoModal } from "@/components/hbx/novo-acesso-modal";
+import { ConviteEquipeModal } from "@/components/hbx/convite-equipe-modal";
 import { TeamPolicyEditor } from "@/components/hbx/team-policy-editor";
 import { Av, I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
@@ -71,6 +72,9 @@ type TeamMember = {
   email?: string | null;
   role?: string | null;
   isActive?: boolean;
+  // MODO PUXAR: veio de conta pessoal (aceitou convite) → pode ser "desligado"
+  // de volta pra conta dele.
+  pulledFromPersonal?: boolean;
   operationalCapabilities?: Array<"SELLER" | "DRIVER"> | null;
 };
 
@@ -343,6 +347,26 @@ export function GerencialClient() {
     return apiFetch<TeamMember[]>("/users/company")
       .then(res => setTeam(Array.isArray(res) ? res : []))
       .catch(() => setTeamDenied(true));
+  }
+
+  // MODO PUXAR (02/08): convite por e-mail + desligar quem veio de conta pessoal.
+  const [conviteOpen, setConviteOpen] = useState(false);
+  const [desligarAlvo, setDesligarAlvo] = useState<TeamMember | null>(null);
+  const [desligarBusy, setDesligarBusy] = useState(false);
+  async function desligarMembro() {
+    if (!desligarAlvo || desligarBusy) return;
+    setDesligarBusy(true);
+    setTeamMsg(null);
+    try {
+      const res = await apiFetch<{ message?: string }>(`/users/${desligarAlvo.id}/release-to-personal`, { method: "POST" });
+      setTeamMsg(`✓ ${res?.message || "Desligado da empresa."}`);
+      setDesligarAlvo(null);
+      await recarregarEquipe();
+    } catch (err) {
+      setTeamMsg(err instanceof Error ? err.message : "Não foi possível desligar.");
+    } finally {
+      setDesligarBusy(false);
+    }
   }
 
   // Excluir vendedor (restaurado 22/06): o backend já tinha DELETE /users/:id/delete
@@ -767,6 +791,9 @@ export function GerencialClient() {
                         {teamMsg && (
                           <span style={{ fontWeight: 700, color: teamMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{teamMsg}</span>
                         )}
+                        <button className="btn-ghost" onClick={() => { setTeamMsg(null); setConviteOpen(true); }} disabled={teamDenied}>
+                          Convidar por e-mail
+                        </button>
                         <button className="btn-teal" onClick={abrirNovoAcesso} disabled={teamDenied}>
                           <I d={ICONS.plus} size={13} /> Novo acesso
                         </button>
@@ -817,6 +844,10 @@ export function GerencialClient() {
                                       onClick={() => { setTeamMsg(null); abrirAcessos(m); }}>Acessos</button>
                                     <button className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }}
                                       onClick={() => { setTeamMsg(null); abrirGerir(m); }}>Gerenciar</button>
+                                    {m.pulledFromPersonal && (
+                                      <button className="btn-ghost" style={{ minHeight: 28, fontSize: "var(--hbx-font-min)" }}
+                                        onClick={() => { setTeamMsg(null); setDesligarAlvo(m); }}>Desligar</button>
+                                    )}
                                   </div>
                                 </td>
                               </tr>
@@ -839,6 +870,35 @@ export function GerencialClient() {
           onDone={msg => { setTeamMsg(msg); recarregarEquipe(); }}
           team={team || []}
         />
+      )}
+
+      {conviteOpen && (
+        <ConviteEquipeModal
+          onClose={() => setConviteOpen(false)}
+          onDone={msg => { setTeamMsg(msg); }}
+        />
+      )}
+
+      {desligarAlvo && (
+        <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget && !desligarBusy) setDesligarAlvo(null); }}>
+          <div className="hbx-modal" style={{ width: "min(440px, 100%)", display: "grid", gap: 14, padding: 24 }}>
+            <h3 style={{ margin: 0, fontFamily: "var(--font-display)", fontSize: "var(--fz-t9)", fontWeight: 800 }}>
+              Desligar da empresa
+            </h3>
+            <p style={{ margin: 0, fontSize: "var(--fz-l2)", lineHeight: 1.5, color: "var(--text-muted)" }}>
+              <b>{desligarAlvo.name || desligarAlvo.username || desligarAlvo.email || `Usuário ${desligarAlvo.id}`}</b> volta
+              para a conta pessoal dele e deixa de acessar a empresa. O histórico do que ele fez aqui permanece.
+            </p>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <button type="button" className="btn-ghost" disabled={desligarBusy} onClick={() => setDesligarAlvo(null)} style={{ minHeight: 40 }}>
+                Cancelar
+              </button>
+              <button type="button" className="btn-ghost btn-danger" disabled={desligarBusy} onClick={desligarMembro} style={{ minHeight: 40 }}>
+                {desligarBusy ? "Desligando…" : "Desligar da empresa"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {gerirMembro && (

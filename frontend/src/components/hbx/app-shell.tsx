@@ -17,6 +17,7 @@ import { SellersBrainsHost } from "@/components/hbx/sellers-brains-host";
 import { ConquistaHost } from "@/components/hbx/conquista-host";
 import { ActivationChecklist } from "@/components/hbx/activation-checklist";
 import { WelcomeCreditPhoneBanner } from "@/components/hbx/welcome-credit-phone-banner";
+import { ConviteEquipeBanner } from "@/components/hbx/convite-equipe-banner";
 import { MobileDeviceTopbarBridge } from "@/components/hbx/mobile-device-topbar";
 import { MobileActionBridgeHost } from "@/components/hbx/mobile-action-bridge-host";
 import { ImpersonationBanner } from "@/components/hbx/impersonation-banner";
@@ -126,6 +127,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {/* F3 (CONFIRMACAO-TELEFONE): confirme o WhatsApp pra liberar o brinde.
               Dormant por default (só renderiza com o gate ON no backend). */}
           <WelcomeCreditPhoneBanner />
+          {/* MODO PUXAR (02/08): convite de equipe pendente pro e-mail logado —
+              aceitar troca a sessão pra empresa. Sem convite, não renderiza. */}
+          <ConviteEquipeBanner />
           <ConquistaHost />
           <MobileActionBridgeHost />
         </div>

@@ -47,6 +47,18 @@ const INDICACAO_REF_KEY = "hbx:indicacao-ref";
 function readIndicacaoRef(): string | null {
   try { return sessionStorage.getItem(INDICACAO_REF_KEY); } catch { return null; }
 }
+
+// MODO PUXAR (02/08) — ?invite= do link de convite de equipe (/convite/<token>
+// manda pra cá). Mesmo padrão do ?ref=: captura no mount e persiste (a
+// alternância Entrar↔Criar apaga a query). Com convite ativo o e-mail fica
+// TRAVADO no do convite e o aceite acontece sozinho após a confirmação.
+const CONVITE_TOKEN_KEY = "hbx:convite-token";
+function readConviteToken(): string | null {
+  try { return sessionStorage.getItem(CONVITE_TOKEN_KEY); } catch { return null; }
+}
+function clearConviteToken() {
+  try { sessionStorage.removeItem(CONVITE_TOKEN_KEY); } catch { /* sem storage */ }
+}
 function clearOnboardingHint() {
   try {
     sessionStorage.removeItem(ONBOARDING_POLL_KEY);
@@ -181,6 +193,38 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
     } catch { /* sem storage */ }
   }, []);
 
+  // MODO PUXAR — captura o ?invite=, valida no backend e TRAVA o e-mail no do
+  // convite. Convite morto → limpa e o cadastro segue normal (aviso curto).
+  const [inviteInfo, setInviteInfo] = useState<{ companyName: string; email: string } | null>(null);
+  const [inviteWarn, setInviteWarn] = useState<string | null>(null);
+  useEffect(() => {
+    let token: string | null = null;
+    try { token = new URLSearchParams(window.location.search).get("invite"); } catch { /* sem url */ }
+    if (token && token.trim()) {
+      try { sessionStorage.setItem(CONVITE_TOKEN_KEY, token.trim()); } catch { /* sem storage */ }
+    }
+    const stored = (token && token.trim()) || readConviteToken();
+    if (!stored) return;
+    let alive = true;
+    apiFetch<{ companyName?: string; email?: string; status?: string }>(`/auth/invites/public/${encodeURIComponent(stored)}`)
+      .then((r) => {
+        if (!alive) return;
+        if (r?.status === "pending" && r.email) {
+          setInviteInfo({ companyName: String(r.companyName || "Empresa"), email: String(r.email) });
+          setEmail(String(r.email));
+        } else {
+          clearConviteToken();
+          setInviteWarn("O convite deste link não está mais disponível — o cadastro segue normal.");
+        }
+      })
+      .catch(() => {
+        if (!alive) return;
+        clearConviteToken();
+        setInviteWarn("O convite deste link não está mais disponível — o cadastro segue normal.");
+      });
+    return () => { alive = false; };
+  }, []);
+
   // Prefill do fechamento: o link de contratação traz ?hbxLead=<token assinado>
   // (leadId.exp.assinatura HMAC; zero PII crua na URL). Buscamos o que o vendedor
   // confirmou no fechamento pra pré-preencher o cadastro (CPF só vem se o token for
@@ -267,6 +311,9 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
       // S5 INDICAÇÃO: envia o ref guardado (se houver) — backend ignora com a
       // flag OFF ou código inválido; o bônus só existe na 1ª recarga paga.
       const indicacaoRef = readIndicacaoRef();
+      // MODO PUXAR: cadastro via link do convite — o backend valida token ×
+      // e-mail e liga o aceite automático pós-confirmação.
+      const inviteToken = inviteInfo ? readConviteToken() : null;
       const res = await apiFetch<SignupResponse>("/auth/signup", {
         method: "POST",
         body: JSON.stringify({
@@ -279,6 +326,7 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
           trialContactPhone: freeTelefone,
           trialTaxDocument: freeCpf || undefined,
           ...(indicacaoRef ? { indicacaoRef } : {}),
+          ...(inviteToken ? { inviteToken } : {}),
         }),
       });
       if (res?.access_token) {
@@ -403,10 +451,12 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
           </h2>
           <p className="sub">
             {done.access_token
-              ? (welcomeCredits > 0 ? `Sua conta está ativa com ${welcomeCredits} créditos grátis.` : "Sua conta está ativa.")
-              : (welcomeCredits > 0
-                ? `Confirme seu email e telefone para liberar seus ${welcomeCredits} créditos.`
-                : "Confirme seu email e telefone para liberar seus créditos.")}
+              ? (welcomeCredits > 0 && !inviteInfo ? `Sua conta está ativa com ${welcomeCredits} créditos grátis.` : "Sua conta está ativa.")
+              : inviteInfo
+                ? `Confirme seu e-mail para entrar na equipe da ${inviteInfo.companyName}.`
+                : (welcomeCredits > 0
+                  ? `Confirme seu email e telefone para liberar seus ${welcomeCredits} créditos.`
+                  : "Confirme seu email e telefone para liberar seus créditos.")}
           </p>
           <div className="ok show">{done.message || `Enviamos um link de confirmação para ${done.email || email}.`}</div>
           {resendMsg && <div className="ok show">{resendMsg}</div>}
@@ -493,12 +543,15 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
         </div>
       ) : (
         <form className="card" onSubmit={onSubmit}>
-          <h2>Criar sua conta grátis</h2>
+          <h2>{inviteInfo ? "Criar sua conta e entrar na equipe" : "Criar sua conta grátis"}</h2>
           <p className="sub">
-            {welcomeCredits > 0
+            {inviteInfo
+              ? <>Convite da <strong>{inviteInfo.companyName}</strong>: crie sua conta com o e-mail do convite e, ao confirmar, você entra na equipe como vendedor.</>
+              : welcomeCredits > 0
               ? <>Confirme email e telefone e ganhe <strong>{welcomeCredits} créditos</strong> grátis. 1 crédito = 1 lead entregue e validado. A busca é grátis. Sem cartão.</>
               : <>Confirme email e telefone e ganhe seus créditos grátis. 1 crédito = 1 lead entregue e validado. A busca é grátis. Sem cartão.</>}
           </p>
+          {inviteWarn && <div className="ok show bad">{inviteWarn}</div>}
           {GOOGLE_CLIENT_ID && (
             <>
               {prefillActive && (
@@ -518,7 +571,7 @@ export function RegisterPanel({ onEntrar }: { onEntrar?: () => void } = {}) {
           <div className="f">
             <label htmlFor="em">E-mail</label>
             <input id="em" className="field-dark" type="email" placeholder="Digite seu e-mail" required autoComplete="email"
-              value={email} onChange={e => setEmail(e.target.value)} />
+              value={email} onChange={e => setEmail(e.target.value)} disabled={Boolean(inviteInfo)} />
           </div>
           <div className="f">
             <label htmlFor="nm">Como deseja ser chamado?</label>
