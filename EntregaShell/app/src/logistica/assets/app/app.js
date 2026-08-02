@@ -7371,6 +7371,71 @@
   let rotaIndicadaTemGuardada = false;
   let rotaIndicadaVibradaId = null;
   const rotaIndicadaAutoTentada = {};
+
+  // ── AGENDADOR DE MISSÃO (02/08) — a rota indicada pode vir com HORA ────────
+  //
+  // Missão marcada NÃO abre popup na hora que chega: ela vira um despertador
+  // NATIVO no aparelho (MissaoAlarme.kt). O motivo de ser nativo e não um
+  // setTimeout aqui é o mesmo do passeio — o JS congela no Doze com a tela
+  // apagada, e o motorista fica com o celular no bolso. Depois de armado, o
+  // alarme toca offline, com o app fechado e até depois de reiniciar o celular.
+  //
+  // Este mapa é só a memória do que JÁ foi armado nesta sessão, pra não
+  // rearmar (nem recarimbar no servidor) a cada tick de 45s.
+  const missoesArmadas = {};
+  const MISSAO_FOLGA_MS = 5000;
+
+  function missaoQuandoMs(item) {
+    if (!item || !item.agendadaPara) return 0;
+    const ms = new Date(item.agendadaPara).getTime();
+    return Number.isFinite(ms) ? ms : 0;
+  }
+
+  /** Missão com hora AINDA no futuro = armada (despertador), não popup. */
+  function missaoEstaMarcadaPraFrente(item) {
+    const ms = missaoQuandoMs(item);
+    return ms > 0 && ms > Date.now() + MISSAO_FOLGA_MS;
+  }
+
+  async function sincronizarDespertadores(vivas) {
+    const marcadas = vivas.filter(item => item && item.status === "pendente" && missaoEstaMarcadaPraFrente(item));
+    const vistos = {};
+    for (const item of marcadas) {
+      vistos[item.id] = true;
+      const quando = missaoQuandoMs(item);
+      if (missoesArmadas[item.id] === quando) continue;
+      const paradas = Number(item.paradas) || 0;
+      const detalhe = paradas ? `${paradas} ${paradas === 1 ? "parada" : "paradas"}` : "Rota do escritório";
+      if (!H.missaoAlarme(item.id, quando, item.nome || "Rota", detalhe)) continue;
+      missoesArmadas[item.id] = quando;
+      // Carimba no servidor que ESTE aparelho vai acordar — sem isso o web
+      // promete um alarme que talvez nunca toque.
+      await H.api(`/logistica/rota-indicadas/${encodeURIComponent(item.id)}/alarme-armado`, { method: "POST", body: {} }).catch(() => {});
+    }
+    // Missão que sumiu do servidor (cancelada/substituída no web) tem que
+    // parar de tocar no bolso da pessoa — a verdade é o motor, nunca o local.
+    Object.keys(missoesArmadas).forEach(id => {
+      if (vistos[id]) return;
+      H.missaoAlarmeCancelar(id);
+      delete missoesArmadas[id];
+    });
+  }
+
+  /**
+   * O que a pessoa apertou NA TELA DO DESPERTADOR (Kotlin guardou no slot).
+   * "Aceitar" ali vale como aceite de verdade: pedir pra ela aceitar de novo
+   * num popup seria dois sins pro mesmo sim.
+   */
+  let missaoRespostaDrenada = null;
+  function drenarRespostaDoDespertador() {
+    const raw = H.missaoRespostaPendente && H.missaoRespostaPendente();
+    if (!raw) return;
+    try {
+      const resposta = JSON.parse(raw);
+      if (resposta && resposta.id && resposta.acao) missaoRespostaDrenada = resposta;
+    } catch (_) { /* slot podre = ignora; o popup normal ainda cobre a missão */ }
+  }
+
   async function checkRotaIndicada(force) {
     if (!moduleActive || rotaIndicadaChecking) return;
     // Com uma aceita guardada o throttle cai: o refresh do fim da rota é quem
@@ -7379,10 +7444,25 @@
     rotaIndicadaChecking = true;
     rotaIndicadaCheckAt = Date.now();
     try {
-      const lista = await H.api("/logistica/rota-indicadas/pendentes");
+      drenarRespostaDoDespertador();
+      // `agendadas=1` é este app dizendo "eu sei armar despertador" — sem o
+      // parâmetro o servidor devolve só o que já está na hora (compatibilidade
+      // com APK antigo, que abriria o popup adiantado).
+      const lista = await H.api("/logistica/rota-indicadas/pendentes?agendadas=1");
       const vivas = Array.isArray(lista) ? lista : [];
-      const pendente = vivas.find(item => item && item.status === "pendente") || null;
+      await sincronizarDespertadores(vivas);
+      // Missão marcada pra frente NÃO vira popup — quem chama é o alarme.
+      const pendente = vivas.find(item => item && item.status === "pendente" && !missaoEstaMarcadaPraFrente(item)) || null;
       const guardada = vivas.find(item => item && item.status === "aceita") || null;
+      // Ela respondeu no despertador: executa a resposta dela aqui, uma vez.
+      if (missaoRespostaDrenada && pendente && pendente.id === missaoRespostaDrenada.id) {
+        const acao = missaoRespostaDrenada.acao;
+        missaoRespostaDrenada = null;
+        state.rotaIndicada = { ...pendente, passo: "decisao", saving: false };
+        render();
+        await rotaIndicadaResponder(state.rotaIndicada, acao === "aceitar");
+        return;
+      }
       rotaIndicadaTemGuardada = !!guardada;
       // Popup aberto que sumiu do servidor (substituída/cancelada no web) fecha
       // sozinho — a verdade é o motor, nunca o estado local.
@@ -7409,6 +7489,56 @@
     } catch (_) { /* rede fora = silêncio; o próximo tick tenta de novo */ }
     finally { rotaIndicadaChecking = false; }
   }
+  /**
+   * Aceitar/Negar da rota indicada — UMA porta só, usada pelos DOIS gestos que
+   * existem: os botões do popup e os botões da tela do despertador. Nasceu
+   * extraída do handler em 02/08, quando o agendador criou o segundo gesto:
+   * duas cópias desta regra é a fábrica de "aceitou no alarme e o servidor não
+   * soube" (mesma família do [[vitrine-e-caixa-dois-porteiros]]).
+   *
+   * Guard de reentrância (padrão accept-confirmation): `saving` marca ANTES do
+   * 1º await e o render síncrono desabilita os botões.
+   */
+  async function rotaIndicadaResponder(ind, aceita) {
+    if (!ind || ind.saving) return;
+    ind.saving = true; render();
+    // O despertador morre no ATO da resposta, antes mesmo da rede: se o POST
+    // falhar, a pessoa já respondeu — insistir no bolso dela seria castigo.
+    H.missaoAlarmeCancelar(ind.id);
+    delete missoesArmadas[ind.id];
+    try {
+      await H.api(`/logistica/rota-indicadas/${encodeURIComponent(ind.id)}/responder`, { method: "POST", body: { aceita: !!aceita } });
+    } catch (error) {
+      // Rede fora: popup fica (é impeditivo) e a pessoa tenta de novo; se a
+      // indicação morreu no servidor, o próximo check fecha o popup sozinho.
+      ind.saving = false;
+      toast(humanApiError(error), true);
+      render();
+      void checkRotaIndicada(true);
+      return;
+    }
+    ind.saving = false;
+    if (!aceita) {
+      state.rotaIndicada = null;
+      toast("Rota recusada.");
+      render();
+      void checkRotaIndicada(true);
+      return;
+    }
+    if (routeActive()) {
+      // Rota de pé: a escolha (refazer × terminar antes) é o passo 2 do MESMO
+      // popup. O servidor já registrou o aceite — se o app morrer aqui, a
+      // guardada aplica sozinha quando a rota atual encerrar.
+      ind.passo = "escolha";
+      state.rotaIndicada = ind;
+      render();
+      return;
+    }
+    state.rotaIndicada = null;
+    render();
+    await aplicarRotaIndicada(ind);
+  }
+
   // Aceite SEM rota de pé (ou guardada aplicando ao fim da atual): mesmíssimo
   // caminho da rota salva escolhida na tela (apply-route-modelo) — materializa
   // no /gerar, seleção+ordem exatas, planeja e cai na conferência. Só depois do
@@ -8917,48 +9047,11 @@
     // Guard de reentrância (padrão accept-confirmation): saving marca ANTES do
     // 1º await e o render síncrono desabilita os botões.
     if (action === "rota-indicada-negar") {
-      const ind = state.rotaIndicada;
-      if (!ind || ind.saving) return;
-      ind.saving = true; render();
-      try {
-        await H.api(`/logistica/rota-indicadas/${encodeURIComponent(ind.id)}/responder`, { method: "POST", body: { aceita: false } });
-        state.rotaIndicada = null;
-        toast("Rota recusada.");
-      } catch (error) {
-        // Rede fora: popup fica (é impeditivo) e a pessoa tenta de novo; se a
-        // indicação morreu no servidor, o próximo check fecha o popup sozinho.
-        ind.saving = false;
-        toast(humanApiError(error), true);
-      }
-      render();
-      void checkRotaIndicada(true);
+      await rotaIndicadaResponder(state.rotaIndicada, false);
       return;
     }
     if (action === "rota-indicada-aceitar") {
-      const ind = state.rotaIndicada;
-      if (!ind || ind.saving) return;
-      ind.saving = true; render();
-      try {
-        await H.api(`/logistica/rota-indicadas/${encodeURIComponent(ind.id)}/responder`, { method: "POST", body: { aceita: true } });
-      } catch (error) {
-        ind.saving = false;
-        toast(humanApiError(error), true);
-        render();
-        void checkRotaIndicada(true);
-        return;
-      }
-      ind.saving = false;
-      if (routeActive()) {
-        // Rota de pé: a escolha (refazer × terminar antes) é o passo 2 do MESMO
-        // popup. O servidor já registrou o aceite — se o app morrer aqui, a
-        // guardada aplica sozinha quando a rota atual encerrar.
-        ind.passo = "escolha";
-        render();
-        return;
-      }
-      state.rotaIndicada = null;
-      render();
-      await aplicarRotaIndicada(ind);
+      await rotaIndicadaResponder(state.rotaIndicada, true);
       return;
     }
     if (action === "rota-indicada-distancia") {

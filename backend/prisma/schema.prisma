@@ -1497,11 +1497,19 @@ model LogisticaRotaIndicada {
   aplicadaEm   DateTime?
   // Aviso de negada dispensado no web (null = ainda aparece no banner).
   avisoVistoEm DateTime?
+  // AGENDADOR (02/08) — hora marcada da missão. NULL = imediata (contrato
+  // antigo: popup no próximo poll). Com hora, a indicação nasce ARMADA: o app
+  // agenda um despertador NATIVO e o popup só existe na hora marcada.
+  agendadaPara DateTime?
+  // Quando o aparelho confirmou que armou o despertador desta indicação — é o
+  // que deixa o web dizer "o celular já sabe" sem inventar.
+  alarmeArmadoEm DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   @@index([companyId, paraUserId, status])
   @@index([companyId, status, createdAt])
+  @@index([companyId, paraUserId, status, agendadaPara], map: "LogisticaRotaIndicada_agendada_idx")
 }
 
 // 31/07 — RECADO DE ROTA QUE MORREU NO MEIO.

@@ -21,10 +21,17 @@ export class LogisticaRotaIndicadaService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async indicar(companyId: number, rotaModeloId: string, paraUserIdRaw: unknown, porUserId: number): Promise<RotaIndicadaDTO> {
+  async indicar(
+    companyId: number,
+    rotaModeloId: string,
+    paraUserIdRaw: unknown,
+    porUserId: number,
+    agendadaParaRaw?: unknown,
+  ): Promise<RotaIndicadaDTO> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const paraUserId = Math.trunc(Number(paraUserIdRaw));
     if (!Number.isInteger(paraUserId) || paraUserId <= 0) throw new BadRequestException('Escolha para quem indicar a rota.');
+    const agendadaPara = parseAgendadaPara(agendadaParaRaw);
 
     const modelo = await this.prisma.logisticaRotaModelo.findFirst({
       where: { id: String(rotaModeloId ?? '').trim(), companyId, tipo: 'LIVRE' },
@@ -52,22 +59,54 @@ export class LogisticaRotaIndicadaService {
         nomeSnapshot: modelo.nome,
         paraUserId,
         porUserId,
+        agendadaPara,
       },
     });
-    this.logger.log(`[logistica] rota indicada company=${companyId} modelo=${modelo.id} para=${paraUserId} por=${porUserId}`);
+    this.logger.log(
+      `[logistica] rota indicada company=${companyId} modelo=${modelo.id} para=${paraUserId} por=${porUserId}` +
+        (agendadaPara ? ` agendada=${agendadaPara.toISOString()}` : ' (imediata)'),
+    );
     return this.toDTO(row, modelo);
   }
 
-  /** Do APP: indicações vivas da pessoa logada (pendente = popup; aceita = guardada pra quando a rota atual encerrar). */
-  async pendentes(companyId: number, userId: number): Promise<RotaIndicadaDTO[]> {
+  /**
+   * Do APP: indicações vivas da pessoa logada (pendente = popup; aceita =
+   * guardada pra quando a rota atual encerrar).
+   *
+   * `incluirAgendadas` é COMPATIBILIDADE, não enfeite: o APK antigo abre o popup
+   * pra qualquer pendente que ele receba. Se a lista devolvesse uma missão
+   * marcada pras 16:00, o aparelho velho perguntaria "aceita?" às 11h — o
+   * agendamento viraria mentira. Só o app que sabe ARMAR despertador pede as
+   * agendadas (`?agendadas=1`); quem não pede recebe só o que já está na hora.
+   */
+  async pendentes(companyId: number, userId: number, incluirAgendadas = false): Promise<RotaIndicadaDTO[]> {
     if (!companyId || !userId) return [];
     const rows = await this.prisma.logisticaRotaIndicada.findMany({
       where: { companyId, paraUserId: userId, status: { in: ['pendente', 'aceita'] } },
       orderBy: { createdAt: 'asc' },
       include: { rotaModelo: { select: { id: true, nome: true, diaSemana: true, paradasJson: true } } },
     });
-    const nomes = await this.nomesPorId(companyId, rows.map((r) => r.porUserId));
-    return rows.map((row) => this.toDTO(row, row.rotaModelo, nomes.get(row.porUserId)));
+    const agora = Date.now();
+    const visiveis = incluirAgendadas
+      ? rows
+      : rows.filter((row) => !row.agendadaPara || row.agendadaPara.getTime() <= agora);
+    const nomes = await this.nomesPorId(companyId, visiveis.map((r) => r.porUserId));
+    return visiveis.map((row) => this.toDTO(row, row.rotaModelo, nomes.get(row.porUserId)));
+  }
+
+  /**
+   * O APP avisa que ARMOU o despertador desta missão. Só isso autoriza o web a
+   * dizer "o celular já sabe" — sem o carimbo o painel ficaria prometendo um
+   * alarme que talvez nunca toque (aparelho desligado, app nunca aberto).
+   * Idempotente: rearmar (troca de horário, reboot) só reescreve a data.
+   */
+  async marcarAlarmeArmado(companyId: number, id: string, userId: number): Promise<{ armado: boolean }> {
+    if (!companyId || !userId) return { armado: false };
+    const res = await this.prisma.logisticaRotaIndicada.updateMany({
+      where: { id: String(id ?? '').trim(), companyId, paraUserId: userId, status: 'pendente' },
+      data: { alarmeArmadoEm: new Date() },
+    });
+    return { armado: res.count > 0 };
   }
 
   async responder(companyId: number, id: string, userId: number, aceita: boolean): Promise<RotaIndicadaDTO> {
@@ -142,6 +181,8 @@ export class LogisticaRotaIndicadaService {
       respondidaEm: row.respondidaEm ? row.respondidaEm.toISOString() : null,
       createdAt: row.createdAt.toISOString(),
       avisoVisto: !!row.avisoVistoEm,
+      agendadaPara: row.agendadaPara ? row.agendadaPara.toISOString() : null,
+      alarmeArmado: !!row.alarmeArmadoEm,
     }));
   }
 
@@ -180,7 +221,15 @@ export class LogisticaRotaIndicadaService {
   }
 
   private toDTO(
-    row: { id: string; rotaModeloId: string; nomeSnapshot: string; status: string; createdAt: Date },
+    row: {
+      id: string;
+      rotaModeloId: string;
+      nomeSnapshot: string;
+      status: string;
+      createdAt: Date;
+      agendadaPara?: Date | null;
+      alarmeArmadoEm?: Date | null;
+    },
     modelo?: { diaSemana: number | null; paradasJson: unknown } | null,
     porNome?: string,
   ): RotaIndicadaDTO {
@@ -193,8 +242,34 @@ export class LogisticaRotaIndicadaService {
       paradas: Array.isArray(modelo?.paradasJson) ? (modelo!.paradasJson as unknown[]).length : 0,
       porNome: porNome ?? null,
       createdAt: row.createdAt.toISOString(),
+      agendadaPara: row.agendadaPara ? row.agendadaPara.toISOString() : null,
+      alarmeArmado: !!row.alarmeArmadoEm,
     };
   }
+}
+
+/**
+ * Hora da missão: ISO do web → Date, ou null (missão imediata, contrato antigo).
+ *
+ * Fail-closed nos três jeitos de estragar um agendador: data podre ("99:99" já
+ * corrompeu a agenda do disparo em 30/07), hora no PASSADO (o despertador nunca
+ * tocaria e o admin acharia que tocou) e data absurda (digitar o ano errado
+ * agenda pra 2027 em silêncio). O minuto de folga existe porque "agendar pra
+ * agora" chega com alguns segundos de atraso de rede — recusar isso seria
+ * pedantismo.
+ */
+function parseAgendadaPara(raw: unknown): Date | null {
+  if (raw === undefined || raw === null || raw === '') return null;
+  const texto = String(raw).trim();
+  if (!texto) return null;
+  const data = new Date(texto);
+  if (Number.isNaN(data.getTime())) throw new BadRequestException('Hora da missão inválida.');
+  const agora = Date.now();
+  if (data.getTime() < agora - 60_000) throw new BadRequestException('Essa hora já passou. Escolha um horário à frente.');
+  if (data.getTime() > agora + 30 * 24 * 60 * 60_000) {
+    throw new BadRequestException('Só dá pra agendar missão até 30 dias à frente.');
+  }
+  return data;
 }
 
 export interface RotaIndicadaDTO {
@@ -206,6 +281,10 @@ export interface RotaIndicadaDTO {
   paradas: number;
   porNome: string | null;
   createdAt: string;
+  /** ISO da hora marcada; null = missão imediata. */
+  agendadaPara: string | null;
+  /** O aparelho confirmou que armou o despertador desta missão. */
+  alarmeArmado: boolean;
 }
 
 export interface RotaIndicadaWebDTO {
@@ -217,4 +296,6 @@ export interface RotaIndicadaWebDTO {
   respondidaEm: string | null;
   createdAt: string;
   avisoVisto: boolean;
+  agendadaPara: string | null;
+  alarmeArmado: boolean;
 }

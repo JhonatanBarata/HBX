@@ -405,6 +405,19 @@
       catch (_) { return false; }
     },
     passeioAlarmeCancelar() { try { bridge && bridge.passeioAlarmeCancelar && bridge.passeioAlarmeCancelar(); } catch (_) {} },
+    // AGENDADOR DE MISSÃO (02/08) — despertador da rota marcada pelo escritório.
+    // Mesmo motivo do passeio pra ser nativo: o alarme tem que tocar com o app
+    // FECHADO e a tela apagada. Rearmar a mesma missão é idempotente.
+    missaoAlarme(id, atMillis, titulo, texto) {
+      try { return !!(bridge && bridge.missaoAlarme && bridge.missaoAlarme(String(id || ""), String(Math.round(Number(atMillis) || 0)), String(titulo || ""), String(texto || ""))); }
+      catch (_) { return false; }
+    },
+    missaoAlarmeCancelar(id) { try { bridge && bridge.missaoAlarmeCancelar && bridge.missaoAlarmeCancelar(String(id || "")); } catch (_) {} },
+    // O que a pessoa apertou na tela do despertador; "" quando não há nada.
+    missaoRespostaPendente() {
+      try { return (bridge && bridge.missaoRespostaPendente && bridge.missaoRespostaPendente()) || ""; }
+      catch (_) { return ""; }
+    },
     activateRoute(payload) { bridge && bridge.activateRoute && bridge.activateRoute(JSON.stringify(payload)); },
     stopRoute() { bridge && bridge.stopRoute && bridge.stopRoute(); },
     requestLocationPermission() { bridge && bridge.requestLocationPermission && bridge.requestLocationPermission(); },

@@ -406,6 +406,10 @@ export function RouteBuilderDialog({
   const [team, setTeam] = useState<Entregador[]>([]);
   const [teamLoading, setTeamLoading] = useState(false);
   const [assigning, setAssigning] = useState(false);
+  // AGENDADOR DE MISSÃO (02/08) — a indicação pode nascer com HORA. "agora" é o
+  // default de propósito: o comportamento antigo continua sendo um clique só.
+  const [assignQuando, setAssignQuando] = useState<"agora" | "marcar">("agora");
+  const [assignHora, setAssignHora] = useState("");
   // PR29072026 — portão de endereços + conferência.
   const [gate, setGate] = useState<{ dias: number[]; dates: string[]; dados: ChecarEnderecosResult } | null>(null);
   // Clientes que o operador mandou ficar fora SÓ HOJE (o dia deles fica salvo).
@@ -740,6 +744,8 @@ export function RouteBuilderDialog({
   function openAssign(model: RouteModel) {
     setError(null);
     setAssignModel(model);
+    setAssignQuando("agora");
+    setAssignHora("");
     setStep("assign");
     if (team.length || teamLoading) return;
     setTeamLoading(true);
@@ -751,14 +757,34 @@ export function RouteBuilderDialog({
 
   async function indicarPara(person: Entregador) {
     if (!assignModel || assigning) return;
+    // A hora se confere ANTES de marcar `assigning`: com hora vazia ou já
+    // passada não existe missão pra mandar, e travar os botões pra depois
+    // mostrar erro é o tipo de tela que parece quebrada.
+    let agendadaPara: string | undefined;
+    if (assignQuando === "marcar") {
+      const quando = assignHora ? new Date(assignHora) : null;
+      if (!quando || Number.isNaN(quando.getTime())) {
+        setError("Escolha o dia e a hora da missão.");
+        return;
+      }
+      if (quando.getTime() < Date.now()) {
+        setError("Essa hora já passou. Escolha um horário à frente.");
+        return;
+      }
+      agendadaPara = quando.toISOString();
+    }
     setAssigning(true);
     setError(null);
     try {
       await apiFetch(`/logistica/rota-modelos/${encodeURIComponent(assignModel.id)}/indicar`, {
         method: "POST",
-        body: JSON.stringify({ paraUserId: person.id }),
+        body: JSON.stringify(agendadaPara ? { paraUserId: person.id, agendadaPara } : { paraUserId: person.id }),
       });
-      onCompleted(`Rota indicada para ${person.nome}.`);
+      onCompleted(
+        agendadaPara
+          ? `Missão marcada para ${person.nome} às ${new Date(agendadaPara).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.`
+          : `Rota indicada para ${person.nome}.`,
+      );
     } catch (assignError: unknown) {
       setError(humanError(assignError));
       setAssigning(false);
@@ -952,6 +978,40 @@ export function RouteBuilderDialog({
 
           {step === "assign" && (
             <div className={styles.list}>
+              {/* AGENDADOR (02/08) — quando e quem no MESMO gesto: escolhe a
+                  hora aqui em cima e toca na pessoa. "Agora" segue sendo um
+                  clique só, igual antes do agendador existir. */}
+              <div className={styles.quickModos}>
+                <button
+                  type="button"
+                  className={`${styles.quickModo} ${assignQuando === "agora" ? styles.quickModoAtivo : ""}`}
+                  aria-pressed={assignQuando === "agora"}
+                  onClick={() => { setAssignQuando("agora"); setError(null); }}
+                  disabled={assigning}
+                >
+                  Agora
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.quickModo} ${assignQuando === "marcar" ? styles.quickModoAtivo : ""}`}
+                  aria-pressed={assignQuando === "marcar"}
+                  onClick={() => { setAssignQuando("marcar"); setError(null); }}
+                  disabled={assigning}
+                >
+                  Marcar hora
+                </button>
+              </div>
+              {assignQuando === "marcar" ? (
+                <label className={styles.quickField}>
+                  <span>Tocar o alarme em</span>
+                  <input
+                    type="datetime-local"
+                    value={assignHora}
+                    onChange={(event) => { setAssignHora(event.target.value); setError(null); }}
+                    disabled={assigning}
+                  />
+                </label>
+              ) : null}
               {teamLoading ? <p className={styles.empty}>Carregando a equipe…</p> : team.length ? team.map((person) => (
                 <button type="button" className={styles.option} key={person.id} onClick={() => void indicarPara(person)} disabled={assigning}>
                   <span className={styles.avatar}>{(person.nome || "?").trim().slice(0, 1).toLocaleUpperCase("pt-BR")}</span>

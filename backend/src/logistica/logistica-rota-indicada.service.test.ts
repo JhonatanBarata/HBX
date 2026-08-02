@@ -243,3 +243,86 @@ test('aviso de DESFEITA pode ser dispensado no web (senão o banner fica pra sem
   assert.equal(await svc.avisoVisto(7, ind.id), true);
   assert.ok(store.get(ind.id)!.avisoVistoEm, 'o × do banner tem que gravar o visto');
 });
+
+// ── AGENDADOR DE MISSÃO (02/08) ───────────────────────────────────────────────
+//
+// A CENA: o admin marca a rota das 16:00 e vai embora. Até as 16:00 o celular
+// NÃO pode perguntar nada — ele fica com um despertador armado. Às 16:00 o
+// alarme toca e aí sim existe popup pra aceitar.
+//
+// O bug que estes testes vacinam é o silencioso: se `pendentes()` devolvesse a
+// missão marcada pra um APK que não sabe armar despertador, ele abriria o popup
+// ÀS 11H — o agendamento viraria mentira e ninguém veria o erro.
+
+const DAQUI_2H = () => new Date(Date.now() + 2 * 60 * 60_000).toISOString();
+
+test('agendar: missão marcada NÃO aparece pro app antigo, aparece pro app que arma despertador', async () => {
+  const { prisma } = buildPrisma({ modelos: [MODELO], users: EQUIPE });
+  const svc = new LogisticaRotaIndicadaService(prisma);
+  const quando = DAQUI_2H();
+
+  const dto = await svc.indicar(7, 'm1', 20, 10, quando);
+  assert.equal(dto.agendadaPara, quando, 'a hora marcada volta pro web');
+
+  // APK antigo (sem `agendadas`): silêncio — senão ele abria o popup adiantado.
+  assert.equal((await svc.pendentes(7, 20)).length, 0);
+
+  // APK novo: recebe a missão pra ARMAR o alarme.
+  const comAgenda = await svc.pendentes(7, 20, true);
+  assert.equal(comAgenda.length, 1);
+  assert.equal(comAgenda[0].agendadaPara, quando);
+  assert.equal(comAgenda[0].alarmeArmado, false, 'nasce sem carimbo — ninguém armou ainda');
+});
+
+test('agendar: chegada a hora, a missão vira popup normal MESMO no app antigo', async () => {
+  const { prisma, store } = buildPrisma({ modelos: [MODELO], users: EQUIPE });
+  const svc = new LogisticaRotaIndicadaService(prisma);
+  const ind = await svc.indicar(7, 'm1', 20, 10, DAQUI_2H());
+
+  // O relógio andou: a hora marcada ficou pra trás.
+  store.get(ind.id)!.agendadaPara = new Date(Date.now() - 60_000);
+
+  const vivas = await svc.pendentes(7, 20);
+  assert.equal(vivas.length, 1, 'passou da hora = popup existe em qualquer versão do app');
+});
+
+test('sem hora, tudo como antes: missão imediata aparece nos dois modos', async () => {
+  const { prisma } = buildPrisma({ modelos: [MODELO], users: EQUIPE });
+  const svc = new LogisticaRotaIndicadaService(prisma);
+  const dto = await svc.indicar(7, 'm1', 20, 10);
+  assert.equal(dto.agendadaPara, null);
+  assert.equal((await svc.pendentes(7, 20)).length, 1);
+  assert.equal((await svc.pendentes(7, 20, true)).length, 1);
+});
+
+test('hora podre não entra: passado, data inválida e ano errado são recusados com texto de gente', async () => {
+  const { prisma } = buildPrisma({ modelos: [MODELO], users: EQUIPE });
+  const svc = new LogisticaRotaIndicadaService(prisma);
+
+  // Passado: o despertador nunca tocaria e o admin acharia que tocou.
+  const ontem = new Date(Date.now() - 24 * 60 * 60_000).toISOString();
+  await assert.rejects(() => svc.indicar(7, 'm1', 20, 10, ontem), /já passou/);
+
+  // "99:99" corrompeu a agenda do disparo em 30/07 — aqui morre na porta.
+  await assert.rejects(() => svc.indicar(7, 'm1', 20, 10, '2026-08-02T99:99'), /inválida/);
+  await assert.rejects(() => svc.indicar(7, 'm1', 20, 10, 'amanhã cedo'), /inválida/);
+
+  // Ano digitado errado agendaria pra 2027 EM SILÊNCIO.
+  const longe = new Date(Date.now() + 400 * 24 * 60 * 60_000).toISOString();
+  await assert.rejects(() => svc.indicar(7, 'm1', 20, 10, longe), /30 dias/);
+});
+
+test('carimbo do alarme: só a própria pessoa arma, e o web passa a saber', async () => {
+  const { prisma, store } = buildPrisma({ modelos: [MODELO], users: EQUIPE });
+  const svc = new LogisticaRotaIndicadaService(prisma);
+  const ind = await svc.indicar(7, 'm1', 20, 10, DAQUI_2H());
+
+  // Outra pessoa da empresa não carimba o alarme de ninguém.
+  assert.deepEqual(await svc.marcarAlarmeArmado(7, ind.id, 10), { armado: false });
+  // Outra empresa também não.
+  assert.deepEqual(await svc.marcarAlarmeArmado(99, ind.id, 20), { armado: false });
+
+  assert.deepEqual(await svc.marcarAlarmeArmado(7, ind.id, 20), { armado: true });
+  assert.ok(store.get(ind.id)!.alarmeArmadoEm, 'sem este carimbo o web promete alarme que talvez não toque');
+  assert.equal((await svc.pendentes(7, 20, true))[0].alarmeArmado, true);
+});

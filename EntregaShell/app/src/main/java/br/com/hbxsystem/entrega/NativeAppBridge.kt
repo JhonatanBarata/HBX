@@ -298,6 +298,37 @@ class NativeAppBridge(
         PasseioAlarme.cancelar(activity)
     }
 
+    // AGENDADOR DE MISSÃO (02/08) — despertador da rota marcada (MissaoAlarme.kt).
+    // Mesmo contrato de coerção do passeio: millis viaja como STRING. Rearmar a
+    // mesma missão é seguro (idempotente) — o app rearma a cada abertura porque
+    // o alarme mora no aparelho e o aparelho pode ter sido limpo/reiniciado.
+    @JavascriptInterface
+    fun missaoAlarme(id: String, atMillis: String, titulo: String, texto: String): Boolean {
+        if (BuildConfig.APP_MODE != "logistica") return false
+        val quando = atMillis.trim().toLongOrNull() ?: return false
+        val safeId = id.filterNot(Char::isISOControl).take(40)
+        val safeTitulo = titulo.filterNot(Char::isISOControl).take(60)
+        val safeTexto = texto.filterNot(Char::isISOControl).take(120)
+        return MissaoAlarme.agendar(activity, safeId, quando, safeTitulo, safeTexto)
+    }
+
+    @JavascriptInterface
+    fun missaoAlarmeCancelar(id: String) {
+        if (BuildConfig.APP_MODE != "logistica") return
+        MissaoAlarme.cancelar(activity, id.filterNot(Char::isISOControl).take(40))
+    }
+
+    /**
+     * Drena o que a pessoa apertou na tela do despertador ("aceitar"/"negar").
+     * Devolve JSON uma única vez — quem executa a resposta de verdade é o
+     * app.js, no fluxo normal da rota indicada.
+     */
+    @JavascriptInterface
+    fun missaoRespostaPendente(): String {
+        if (BuildConfig.APP_MODE != "logistica") return ""
+        return MissaoPendente.drenar().orEmpty()
+    }
+
     @JavascriptInterface
     fun appLoadProgress(value: Int) {
         if (appReadyEnviado.get()) return

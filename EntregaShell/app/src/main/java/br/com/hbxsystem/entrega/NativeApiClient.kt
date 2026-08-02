@@ -347,7 +347,9 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "entregas") && segments[3] in setOf("confirmar", "cancelar", "reabrir", "comprovantes", "chegando") -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "rota-modelos") && segments[3] == "gerar" -> true
         // ROTA PRONTA (29/07) — Aceitar/Negar do popup e o fecho do ciclo do aceite.
-        method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "rota-indicadas") && segments[3] in setOf("responder", "aplicada") -> true
+        // AGENDADOR (02/08) — "alarme-armado" carimba que o despertador desta
+        // missão foi agendado NESTE aparelho.
+        method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "rota-indicadas") && segments[3] in setOf("responder", "aplicada", "alarme-armado") -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("nucleo", "clientes") && segments[3] in setOf("locais", "telefones") -> true
         // PR20072026 W2 — sessão de leitura: parada/finalizar/cancelar por :id.
         // S2 (PR21072026-MONTAR-ROTA-PLAY) — "trilha" soma a trilha GPS ao lote.

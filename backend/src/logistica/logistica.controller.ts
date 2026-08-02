@@ -1082,7 +1082,7 @@ export class LogisticaController {
   indicarRota(@Req() req: any, @Param('id') id: string, @Body() dto: IndicarRotaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const porUserId = this.ensureUserId(req.user);
-    return this.rotaIndicada.indicar(companyId, id, dto.paraUserId, porUserId);
+    return this.rotaIndicada.indicar(companyId, id, dto.paraUserId, porUserId, dto.agendadaPara);
   }
 
   /** WEB: histórico recente (alimenta o banner "Rota X negada por Y"). */
@@ -1092,12 +1092,25 @@ export class LogisticaController {
     return this.rotaIndicada.listar(companyId);
   }
 
-  /** APP: indicações vivas da pessoa logada (pendente = popup; aceita = guardada). */
+  /**
+   * APP: indicações vivas da pessoa logada (pendente = popup; aceita = guardada).
+   * `?agendadas=1` é o app que sabe armar despertador pedindo também as missões
+   * com hora marcada — sem isso, aparelho antigo abriria o popup adiantado.
+   */
   @Get('rota-indicadas/pendentes')
-  listRotasIndicadasPendentes(@Req() req: any) {
+  listRotasIndicadasPendentes(@Req() req: any, @Query('agendadas') agendadas?: string) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const userId = this.ensureUserId(req.user);
-    return this.rotaIndicada.pendentes(companyId, userId);
+    const incluirAgendadas = String(agendadas ?? '') === '1' || String(agendadas ?? '') === 'true';
+    return this.rotaIndicada.pendentes(companyId, userId, incluirAgendadas);
+  }
+
+  /** APP: confirma que o despertador desta missão foi armado no aparelho. */
+  @Post('rota-indicadas/:id/alarme-armado')
+  marcarAlarmeArmado(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const userId = this.ensureUserId(req.user);
+    return this.rotaIndicada.marcarAlarmeArmado(companyId, id, userId);
   }
 
   /** APP: Aceitar/Negar do popup — só a pessoa indicada responde. */

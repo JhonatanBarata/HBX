@@ -18,6 +18,12 @@
          as APIs 31-32 (auto-concedida lá). -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+    <!-- AGENDADOR DE MISSÃO (02/08): é ela que deixa o despertador da rota
+         marcada abrir a tela INTEIRA por cima do bloqueio. Sem ela o alarme
+         vira notificação comum — e notificação comum o motorista não vê no
+         bolso. Em 14+ o sistema só concede sozinho pra quem é alarme/chamada;
+         a notificação leva CATEGORY_ALARM justamente por isso. -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
     <!-- Auto-update (F4): instalar o APK baixado do próprio VPS via PackageInstaller. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
@@ -159,6 +165,21 @@
             android:taskAffinity=""
             android:theme="@style/Theme.EntregaShell.Chegada" />
 
+        <!-- AGENDADOR DE MISSÃO (02/08) — o despertador da rota marcada.
+             Mesma configuração da ChegadaActivity (acorda a tela, aparece por
+             cima do bloqueio, fora dos recentes) porque é o mesmo problema:
+             chamar o motorista que não está olhando pro celular. -->
+        <activity
+            android:name=".MissaoAlarmeActivity"
+            android:exported="false"
+            android:launchMode="singleInstance"
+            android:excludeFromRecents="true"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:screenOrientation="portrait"
+            android:taskAffinity=""
+            android:theme="@style/Theme.EntregaShell.Chegada" />
+
         <service
             android:name=".RotaService"
             android:foregroundServiceType="location"
@@ -194,6 +215,25 @@
         <receiver
             android:name=".PasseioAlarmReceiver"
             android:exported="false" />
+
+        <!-- AGENDADOR DE MISSÃO (02/08): recebe o alarme da hora marcada.
+             exported=false — só o AlarmManager do próprio app dispara. -->
+        <receiver
+            android:name=".MissaoAlarmReceiver"
+            android:exported="false" />
+
+        <!-- Reboot apaga todo alarme agendado no sistema. Sem este receiver,
+             reiniciar o celular às 14h fazia a missão das 16:00 sumir CALADA.
+             exported=true é exigência do BOOT_COMPLETED (quem entrega é o
+             sistema); o filtro aceita só essa ação. -->
+        <receiver
+            android:name=".MissaoBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
 
         <receiver
             android:name=".AppAtualizadoReceiver"
