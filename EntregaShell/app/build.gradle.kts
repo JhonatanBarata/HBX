@@ -63,7 +63,13 @@ plugins {
 // já está no celular, senão o publish carimba um número que ele já roda e a
 // atualização nunca aparece (mesmo caso de 8→15, 15→18, 18→38, 38→60, 60→68,
 // 87→95, 95→110 e 110→117 acima).
-val hbxLogisticaVersionCodeFloor = 123
+// 123 → 131 em 02/08: o publish do AGENDADOR DE MISSÃO carimbou 127 e o moto g15
+// já rodava um 130 sideloadado por outra frente — o APK novo não só deixou de ser
+// ofertado como nem instalava à mão (INSTALL_FAILED_VERSION_DOWNGRADE), e o
+// aparelho ficava sem o despertador da rota marcada. Piso ACIMA do maior número
+// que está no celular é o que destrava (mesmo caso de 8→15, 15→18, 18→38, 38→60,
+// 60→68, 87→95, 95→110, 110→117 e 117→123 acima).
+val hbxLogisticaVersionCodeFloor = 131
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)
