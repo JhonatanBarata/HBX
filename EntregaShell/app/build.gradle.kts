@@ -69,7 +69,11 @@ plugins {
 // aparelho ficava sem o despertador da rota marcada. Piso ACIMA do maior número
 // que está no celular é o que destrava (mesmo caso de 8→15, 15→18, 18→38, 38→60,
 // 60→68, 87→95, 95→110, 110→117 e 117→123 acima).
-val hbxLogisticaVersionCodeFloor = 131
+// 131 → 134 em 02/08 (mesma tarde): o publish carimbou 132 e depois 133 enquanto
+// eu testava no g15, e o build local (piso 131) parou de instalar por downgrade.
+// O piso tem que ficar ACIMA do maior número que já saiu — senão o ciclo
+// "editar → instalar no aparelho" trava no meio do teste.
+val hbxLogisticaVersionCodeFloor = 134
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)

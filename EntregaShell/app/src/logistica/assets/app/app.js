@@ -2355,27 +2355,35 @@
    * do alarme tocar. Cada missão é UMA LINHA de dado (Lei 8): nome, hora,
    * paradas, quem mandou — nenhum parágrafo.
    *
-   * Missão com hora AINDA à frente não tem botão de aceitar de propósito: quem
-   * chama pra decidir é o despertador, na hora marcada. Aceitar às 13h uma rota
-   * das 16h montaria a rota agora — o agendamento viraria enfeite. A linha
-   * dessas mostra o horário e se o despertador já está armado neste aparelho.
+   * DUAS SEÇÕES (ordem do dono, 02/08) porque são duas decisões diferentes:
+   * - **Recebidas**: já é a hora (ou nunca teve hora). Toca na linha e ACEITA.
+   * - **Agendadas**: a hora ainda vem. A linha mostra o horário e se o
+   *   despertador está armado NESTE aparelho, e traz **Adiantar** — o dono
+   *   quis poder começar antes sem esperar o alarme ("adiantar as agendadas se
+   *   eu quiser"). Adiantar mata o despertador e monta a rota na hora.
    */
   function missoesOverlay() {
     if (!state.missoesAberto) return "";
     const missoes = Array.isArray(state.missoesRecebidas) ? state.missoesRecebidas : [];
-    const linhas = missoes.map((m) => {
-      const paradas = `${Number(m.paradas || 0)} parada${Number(m.paradas || 0) === 1 ? "" : "s"}`;
-      const quem = m.porNome ? ` · ${H.escape(m.porNome)}` : "";
-      const quandoMs = missaoQuandoMs(m);
-      const marcada = missaoEstaMarcadaPraFrente(m);
-      if (marcada) {
-        const hora = new Date(quandoMs).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
-        const armado = m.alarmeArmado ? "despertador armado" : "sem despertador neste aparelho";
-        return `<div class="missao-linha"><strong>${H.escape(m.nome || "Rota")}</strong><span>${H.escape(hora)} · ${paradas}${quem}</span><small>${H.escape(armado)}</small></div>`;
-      }
-      return `<button class="missao-linha missao-linha--agora" type="button" data-action="missao-abrir" data-missao="${H.escape(m.id)}"><strong>${H.escape(m.nome || "Rota")}</strong><span>agora · ${paradas}${quem}</span></button>`;
-    }).join("");
-    return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm" role="dialog" aria-modal="true" aria-labelledby="missoes-title"><div class="app-confirm-icon">${icon("bell", 24)}</div><h2 id="missoes-title">Rotas recebidas</h2><div class="missao-lista">${linhas || empty("Nada esperando", "")}</div><div class="actions"><button class="btn btn-secondary btn-block" type="button" data-action="missoes-fechar">Fechar</button></div></section></div>`;
+    const detalhe = (m) => {
+      const n = Number(m.paradas || 0);
+      return `${n} parada${n === 1 ? "" : "s"}${m.porNome ? ` · ${H.escape(m.porNome)}` : ""}`;
+    };
+    const agendadas = missoes.filter(missaoEstaMarcadaPraFrente);
+    const recebidas = missoes.filter(m => !missaoEstaMarcadaPraFrente(m));
+
+    const blocoRecebidas = recebidas.length
+      ? `<strong class="missao-secao">Recebidas</strong>${recebidas.map(m => `<button class="missao-linha missao-linha--agora" type="button" data-action="missao-abrir" data-missao="${H.escape(m.id)}"><strong>${H.escape(m.nome || "Rota")}</strong><span>agora · ${detalhe(m)}</span></button>`).join("")}`
+      : "";
+    const blocoAgendadas = agendadas.length
+      ? `<strong class="missao-secao">Agendadas</strong>${agendadas.map(m => {
+          const hora = new Date(missaoQuandoMs(m)).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+          const armado = m.alarmeArmado ? "despertador armado" : "sem despertador neste aparelho";
+          return `<div class="missao-linha"><strong>${H.escape(m.nome || "Rota")}</strong><span>${H.escape(hora)} · ${detalhe(m)}</span><small>${H.escape(armado)}</small><button class="btn btn-secondary missao-adiantar" type="button" data-action="missao-adiantar" data-missao="${H.escape(m.id)}">Adiantar</button></div>`;
+        }).join("")}`
+      : "";
+    const corpo = blocoRecebidas + blocoAgendadas;
+    return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm" role="dialog" aria-modal="true" aria-labelledby="missoes-title"><div class="app-confirm-icon">${icon("bell", 24)}</div><h2 id="missoes-title">Rotas recebidas</h2><div class="missao-lista">${corpo || empty("Nada esperando", "")}</div><div class="actions"><button class="btn btn-secondary btn-block" type="button" data-action="missoes-fechar">Fechar</button></div></section></div>`;
   }
   function empty(title, text) { return `<div class="empty"><strong>${H.escape(title)}</strong>${H.escape(text)}</div>`; }
   function loading() { return `<div class="list"><div class="card loading"></div><div class="card loading"></div><div class="card loading"></div></div>`; }
@@ -5092,7 +5100,15 @@
     const avisoIcon = missoes.length
       ? `<span class="route-control-unit route-control-unit--satellite"><button class="route-avisos-icon is-piscando" type="button" data-action="missoes-abrir" aria-label="Rotas recebidas: ${missoes.length}">${icon("bell", 21)}${missoes.length > 1 ? `<i class="route-avisos-contador">${missoes.length}</i>` : ""}</button><small class="route-control-label">Rotas recebidas</small></span>`
       : "";
-    return `<div class="route-transmux-wrap"><span class="route-satellite-slot route-satellite-slot--left">${leftIcon || avisoIcon}</span><span class="route-control-unit route-control-unit--main" data-state="${main.state}"><button class="route-transmux" type="button" data-action="${main.action}" data-state="${main.state}" aria-label="${main.label}" data-hbx-motion ${state.dayStarting ? "disabled" : ""}>${icon(main.glifo, 44)}</button><small class="route-control-label">${H.escape(main.caption)}</small></span><span class="route-satellite-slot route-satellite-slot--right">${rightIcon}</span></div>`;
+    // Só existem DOIS satélites, então quando os dois querem a esquerda alguém
+    // cede — e a ordem não é gosto, é urgência:
+    //   rota rodando/montada → Cancelar FICA (controla trabalho em andamento;
+    //                          sumir com ele deixa o motorista sem saída)
+    //   só "limpar o dia"    → o SINO ganha
+    // Sem esta regra o aviso só aparecia com o dia VAZIO — ou seja, quase nunca
+    // num dia de trabalho de verdade, que é justamente quando a missão chega.
+    const esquerda = (avisoIcon && clearDayVisible && !active && !paused && !planned) ? avisoIcon : (leftIcon || avisoIcon);
+    return `<div class="route-transmux-wrap"><span class="route-satellite-slot route-satellite-slot--left">${esquerda}</span><span class="route-control-unit route-control-unit--main" data-state="${main.state}"><button class="route-transmux" type="button" data-action="${main.action}" data-state="${main.state}" aria-label="${main.label}" data-hbx-motion ${state.dayStarting ? "disabled" : ""}>${icon(main.glifo, 44)}</button><small class="route-control-label">${H.escape(main.caption)}</small></span><span class="route-satellite-slot route-satellite-slot--right">${rightIcon}</span></div>`;
   }
   function stopCard(item, featured, sequenceNumber) {
     const c = item.cliente || {}; const done = item.status === "entregue"; const order = sequenceNumber || Math.max(1, orderedItems().indexOf(item) + 1);
@@ -9116,6 +9132,19 @@
       // uma porta só pra decidir (a lição do vitrine-e-caixa-dois-porteiros).
       if (m) state.rotaIndicada = { ...m, passo: "decisao", saving: false };
       render();
+      return;
+    }
+    // "Adiantar" (dono, 02/08): começar a agendada ANTES da hora marcada. É o
+    // mesmo aceite de sempre — `rotaIndicadaResponder` já mata o despertador
+    // antes da rede, então o alarme não toca depois de a rota já estar de pé.
+    if (action === "missao-adiantar") {
+      const id = target.dataset.missao || (target.closest && target.closest("[data-missao]") || {}).dataset?.missao;
+      const m = (state.missoesRecebidas || []).find(item => item && item.id === id);
+      if (!m) return;
+      state.missoesAberto = false;
+      state.rotaIndicada = { ...m, passo: "decisao", saving: false };
+      render();
+      await rotaIndicadaResponder(state.rotaIndicada, true);
       return;
     }
     if (action === "rota-indicada-negar") {
