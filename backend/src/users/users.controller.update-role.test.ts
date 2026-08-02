@@ -24,8 +24,10 @@ function buildController(usersServiceOverrides: Record<string, any> = {}) {
     ...usersServiceOverrides,
   };
   // Demais dependencias nao sao tocadas por updateRole — objetos vazios bastam.
+  // (2º arg = CompanyInviteService, MODO PUXAR 02/08 — updateRole nao toca.)
   const controller = new UsersController(
     usersService as any,
+    {} as any,
     {} as any,
     {} as any,
     {} as any,

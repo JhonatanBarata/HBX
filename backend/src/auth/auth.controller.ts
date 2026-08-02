@@ -1,5 +1,6 @@
-import { Body, Controller, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
+import { CompanyInviteService } from '../users/company-invite.service';
 import { ConfirmEmailDto, GoogleOAuthDto, LoginDto, OnboardingResumeDto, PhoneVerificationStartDto, RecoverPasswordDto, ResendConfirmationDto, ResetPasswordDto, SignupDto, WhatsappConfirmCodeDto, WhatsappConfirmStartDto } from './dto/auth.dto';
 import { ImpersonateUserDto } from './dto/impersonate-user.dto';
 import { Throttle } from '@nestjs/throttler';
@@ -8,7 +9,44 @@ import { MasterGuard } from './guards/master.guard';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly companyInvites: CompanyInviteService,
+  ) {}
+
+  // ── MODO PUXAR (02/08): convite único de equipe ────────────────────────────
+  // Página pública do link /convite/<token> (quem tem o link já recebeu esses
+  // dados no próprio convite — não vaza nada além dele).
+  @Get('invites/public/:token')
+  @Throttle({ default: { limit: 30, ttl: 60 } })
+  publicInvite(@Param('token') token: string) {
+    return this.companyInvites.getPublicInvite(token);
+  }
+
+  // Convites pendentes do usuário logado (por e-mail) — alimenta o banner.
+  @Get('invites/pending')
+  @UseGuards(JwtAuthGuard)
+  pendingInvites(@Req() req: any) {
+    return this.companyInvites.listPendingForUser(Number(req?.user?.id));
+  }
+
+  // Aceite logado: move o usuário e devolve sessão NOVA já na empresa.
+  @Post('invites/:id/accept')
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 10, ttl: 60 } })
+  acceptInvite(@Param('id') id: string, @Req() req: any) {
+    return this.authService.acceptCompanyInvite(Number(req?.user?.id), id, {
+      userAgent: req?.headers?.['user-agent'],
+      ip: req?.ip || req?.headers?.['x-forwarded-for'] || req?.socket?.remoteAddress,
+    });
+  }
+
+  @Post('invites/:id/decline')
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 10, ttl: 60 } })
+  declineInvite(@Param('id') id: string, @Req() req: any) {
+    return this.companyInvites.declineInvite(Number(req?.user?.id), id);
+  }
 
   // MASTER "ENTRAR COMO": emite um token do usuário-alvo (o master VIRA o usuário).
   // Duplo portão — JwtAuthGuard (sessão válida) + MasterGuard (só system master).

@@ -61,8 +61,10 @@ function buildUsersController(overrides: {
     ...overrides.hbxPartnerReferrals,
   };
 
+  // 2º arg = CompanyInviteService (MODO PUXAR 02/08) — fluxo daqui nao toca.
   return new UsersController(
     usersService as any,
+    {} as any,
     { registerSupportAction: async () => ({}) } as any,
     { getConfigurationSummary: () => ({ mode: 'log' }), sendMail: async () => ({ ok: true }) } as any,
     {} as any,

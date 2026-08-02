@@ -129,6 +129,10 @@ model Company {
   dailyDeliveryCapOverride Int?
   creditsEnforceEnabled   Boolean   @default(false)
   seatCap                 Int?     // teto RÍGIDO de assentos por empresa (master) — PR13062026005
+  // MODO PUXAR (02/08): conta PESSOAL congelada enquanto o dono dela trabalha
+  // como vendedor em outra empresa (aceite de convite). null = normal. Congelar
+  // NÃO mexe em status/billing — é só o marcador; "Desligar da empresa" limpa.
+  dormantAt               DateTime?
   commissionDueBusinessDays Int      @default(3)
   // Régua única (PR13062026007 P1): molho de ACESSO do cargo Vendedor (1 por
   // empresa). USER resolve daqui (não mais por-usuário). JSON de chaves de módulo.
@@ -202,6 +206,8 @@ model Company {
   createdAt               DateTime  @default(now())
   products                Product[]
   users                   User[]
+  personalUsers           User[]    @relation("UserPersonalCompany")
+  userInvites             CompanyUserInvite[]
   mobileDevices           MobileDevice[]
   mobilePairingCodes      MobilePairingCode[]
   mobileActions           MobileAction[]
@@ -2571,6 +2577,18 @@ model User {
   // indicação (referredByUserId) é SetNull, então indicações cruzadas viram null, não travam.
   company         Company?         @relation(fields: [companyId], references: [id], onDelete: Cascade)
   companyId       Int?
+  // MODO PUXAR (02/08): empresa PESSOAL de origem de quem aceitou convite de
+  // equipe (congelada via Company.dormantAt no aceite; nada de dado migra).
+  // "Desligar da empresa" devolve o usuário pra ela com o cargo do snapshot.
+  // SetNull: se a conta pessoal for excluída, o vínculo some e o usuário segue
+  // na empresa atual (vira vendedor comum, sem devolução).
+  personalCompany   Company?  @relation("UserPersonalCompany", fields: [personalCompanyId], references: [id], onDelete: SetNull)
+  personalCompanyId Int?
+  personalRoleSnapshot String?
+  pulledIntoCompanyAt  DateTime?
+  companyUserInvitesSent    CompanyUserInvite[] @relation("CompanyUserInviteInvitedBy")
+  companyUserInvitesClaimed CompanyUserInvite[] @relation("CompanyUserInviteClaimedBy")
+  companyUserInvitesAccepted CompanyUserInvite[] @relation("CompanyUserInviteAcceptedBy")
   role            String           @default("USER")
   isSystemMaster  Boolean          @default(false)
   isActive        Boolean          @default(true)
@@ -6214,4 +6232,38 @@ model LogisticaImportacaoItem {
   @@unique([loteId, linha])
   @@index([companyId, loteId, statusSanitizacao])
   @@index([companyId, customerProfileId])
+}
+
+// MODO PUXAR (02/08/2026) — convite único de equipe. O admin convida por e-mail e
+// a resposta pra ele é SEMPRE "convite enviado" (anti-enumeração: o campo nunca
+// revela se o e-mail tem conta HBX). Quem já tem conta vê o convite ao logar e
+// aceita (vira vendedor da empresa; a conta pessoal congela via Company.dormantAt;
+// NADA de dado migra — lead/crédito/histórico ficam na conta pessoal). Quem não
+// tem conta cadastra pelo link (e-mail travado no convidado; aceite automático
+// depois da confirmação do e-mail). Token cru fica na linha de propósito: o admin
+// pode re-copiar o link pra mandar por WhatsApp; aceitar exige provar posse do
+// e-mail (login ou confirmação), o token sozinho não vira conta de ninguém.
+model CompanyUserInvite {
+  id               String    @id @default(cuid())
+  company          Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId        Int
+  email            String
+  token            String    @unique
+  status           String    @default("pending") // pending | accepted | declined | canceled | expired
+  invitedByUser    User?     @relation("CompanyUserInviteInvitedBy", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  invitedByUserId  Int?
+  // Cadastro iniciado pelo LINK do convite (aceite automático pós-confirmação).
+  claimedByUser    User?     @relation("CompanyUserInviteClaimedBy", fields: [claimedByUserId], references: [id], onDelete: SetNull)
+  claimedByUserId  Int?
+  acceptedByUser   User?     @relation("CompanyUserInviteAcceptedBy", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
+  acceptedByUserId Int?
+  createdAt        DateTime  @default(now())
+  expiresAt        DateTime
+  acceptedAt       DateTime?
+  declinedAt       DateTime?
+  canceledAt       DateTime?
+
+  @@index([companyId, status, createdAt])
+  @@index([email, status])
+  @@index([claimedByUserId, status])
 }

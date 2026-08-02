@@ -62,6 +62,13 @@ export class SignupDto {
   @IsOptional()
   username?: string;
 
+  // MODO PUXAR (02/08): cadastro iniciado pelo LINK do convite de equipe.
+  // O e-mail do cadastro tem que ser o do convite; aceite automático depois
+  // da confirmação do e-mail.
+  @IsOptional()
+  @IsString()
+  inviteToken?: string;
+
   @IsEmail()
   email: string;
 

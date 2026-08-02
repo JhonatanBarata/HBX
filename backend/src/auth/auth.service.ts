@@ -10,6 +10,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
+import { CompanyInviteService } from '../users/company-invite.service';
 import { MasterContextService } from '../master-context/master-context.service';
 import * as bcrypt from 'bcryptjs';
 import { JwtService } from '@nestjs/jwt';
@@ -104,6 +105,10 @@ export class AuthService implements OnModuleInit {
     // é importado pelo AuthModule → sem ciclo). Opcional por retrocompat dos testes que
     // constroem o service com menos args; em runtime o Nest sempre injeta.
     private masterContext?: MasterContextService,
+    // MODO PUXAR (02/08): convite de equipe — claim no signup via link + aceite
+    // automático pós-confirmação + aceite logado com sessão nova. Opcional por
+    // retrocompat dos testes com menos args; em runtime o Nest sempre injeta.
+    private companyInvites?: CompanyInviteService,
   ) {}
 
   // F1 (CONFIRMACAO-TELEFONE) — guardrails do envio live do OTP: cooldown 60s por
@@ -1755,12 +1760,20 @@ export class AuthService implements OnModuleInit {
     trialContactPhone?: string;
     acceptedTerms?: boolean;
     username?: string;
+    // MODO PUXAR (02/08): cadastro iniciado pelo link do convite de equipe.
+    inviteToken?: string;
     email: string;
     password: string;
   }, opts?: { ip?: string | null; userAgent?: string | null }) {
     const email = String(data.email || '').trim().toLowerCase();
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!email || !emailRegex.test(email)) throw new BadRequestException('E‑mail inválido. Informe um endereço de e‑mail válido para recuperação.');
+
+    // MODO PUXAR: convite morto ou de outro e-mail barra AQUI, antes de criar
+    // qualquer coisa — a tela mostra o erro e oferece cadastro sem o link.
+    const signupInvite = data.inviteToken && this.companyInvites
+      ? await this.companyInvites.resolveInviteForSignup(data.inviteToken, email)
+      : null;
 
     const username = String(data.username || email).trim().toLowerCase();
 
@@ -1962,6 +1975,12 @@ export class AuthService implements OnModuleInit {
 
     await ensureUserTeamPolicyForUser(this.prisma, (created as any).user?.id, { source: 'auth_signup' });
 
+    // MODO PUXAR: marca o cadastro como vindo do convite — o aceite acontece
+    // sozinho na CONFIRMAÇÃO do e-mail (provar a caixa é o consentimento).
+    if (signupInvite && (created as any).user?.id) {
+      await this.companyInvites!.attachClaim(signupInvite.id, Number((created as any).user.id));
+    }
+
     // CRÉDITOS (cutover 06/07) — o brinde NÃO é mais concedido no signup: passou a nascer na
     // CONFIRMAÇÃO da identidade (email/F6), com dedup por telefone/CPF (regra do dono 06/07 —
     // "50 créditos apenas para email confirmados"). Ver maybeGrantWelcomeAfterConfirm, chamado
@@ -2067,6 +2086,23 @@ export class AuthService implements OnModuleInit {
     });
   }
 
+  // MODO PUXAR (02/08): aceite do convite pela pessoa LOGADA. O serviço move o
+  // usuário (cargo vendedor, conta pessoal congela, sessões antigas mortas) e
+  // aqui a sessão é RE-EMITIDA já na empresa nova — o front troca o token e
+  // recarrega, sem pedir login de novo.
+  async acceptCompanyInvite(userId: number, inviteId: string, opts?: { userAgent?: string; ip?: string }) {
+    if (!this.companyInvites) throw new BadRequestException('Convites indisponíveis.');
+    const result = await this.companyInvites.acceptInvite(Number(userId), String(inviteId || ''));
+    const user = await this.usersService.findById(Number(userId));
+    if (!user) throw new BadRequestException('Usuário não encontrado.');
+    const loginPayload = await this.login(user, {
+      companyId: result.companyId,
+      userAgent: opts?.userAgent,
+      ip: opts?.ip,
+    });
+    return { ...loginPayload, ok: true, message: `Você entrou na equipe da ${result.companyName}.` };
+  }
+
   // Completa a confirmação de identidade — DEPOIS de o canal já ter sido provado
   // (link de e-mail OU código de WhatsApp/F6). Fonte única: confirma o usuário,
   // mantém a empresa em pending_checkout (trial só nasce no checkout, regra do
@@ -2109,7 +2145,18 @@ export class AuthService implements OnModuleInit {
       }
     });
 
-    if (user.companyId) {
+    // MODO PUXAR (02/08): cadastro que nasceu do LINK do convite aceita sozinho
+    // aqui — clicar no link + provar o e-mail É o consentimento. Aceitou → o
+    // login já sai na EMPRESA e a conta pessoal congela SEM welcome nem sync de
+    // comissão (vendedor de empresa não ganha crédito grátis; anti-farm).
+    // Falhou a elegibilidade (convite cancelado no meio etc.) → segue o fluxo
+    // normal de conta nova e o banner decide depois.
+    const pull = this.companyInvites
+      ? await this.companyInvites.acceptClaimedInviteAfterConfirm(user.id).catch(() => null)
+      : null;
+    const pulled = Boolean(pull?.accepted && pull?.companyId);
+
+    if (user.companyId && !pulled) {
       await this.hbxCommissionSync.syncActivatedCompany(Number(user.companyId), {
         source: opts?.source || 'auth_email_confirmed',
       }).catch((error: any) => {
@@ -2120,16 +2167,17 @@ export class AuthService implements OnModuleInit {
       await this.maybeGrantWelcomeAfterConfirm(Number(user.companyId));
     }
 
-    const loginPayload = user.companyId
+    const effectiveCompanyId = pulled ? Number(pull!.companyId) : (user.companyId ? Number(user.companyId) : null);
+    const loginPayload = effectiveCompanyId
       ? await this.login(
           {
             id: user.id,
             email: user.email,
-            companyId: user.companyId,
-            role: user.role,
+            companyId: effectiveCompanyId,
+            role: pulled ? 'USER' : user.role,
             isSystemMaster: user.isSystemMaster,
           },
-          { companyId: Number(user.companyId), userAgent: opts?.userAgent, ip: opts?.ip },
+          { companyId: effectiveCompanyId, userAgent: opts?.userAgent, ip: opts?.ip },
         )
       : null;
     const next = loginPayload?.next || this.pendingCheckoutNextPath();
@@ -2139,9 +2187,11 @@ export class AuthService implements OnModuleInit {
     const creditsFreeConfirm = isCreditsFeatureEnabled();
     return {
       ok: true,
-      status: user.companyId ? (trialEndsAt ? 'active_trial' : creditsFreeConfirm ? 'active' : 'pending_checkout') : 'confirmed',
+      status: pulled ? 'active' : user.companyId ? (trialEndsAt ? 'active_trial' : creditsFreeConfirm ? 'active' : 'pending_checkout') : 'confirmed',
       email: user.email || null,
-      message: user.companyId
+      message: pulled
+        ? `${identityLabel} confirmado! Você entrou na equipe da ${pull?.companyName || 'empresa'}.`
+        : user.companyId
         ? trialEndsAt
           ? `${identityLabel} confirmado. O trial gratuito está ativo até ${trialEndsAt.toLocaleDateString('pt-BR')}.`
           : creditsFreeConfirm

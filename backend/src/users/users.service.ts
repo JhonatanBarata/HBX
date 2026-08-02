@@ -1237,13 +1237,17 @@ export class UsersService {
         deactivatedAt: true,
         retentionUntil: true,
         createdAt: true,
+        // MODO PUXAR: vendedor que veio de conta pessoal (aceitou convite).
+        // A tela usa pra oferecer "Desligar da empresa" (devolve pra conta dele).
+        personalCompanyId: true,
         teamPolicy: {
           select: { modulesJson: true },
         },
       },
     });
-    return rows.map(({ teamPolicy, ...user }) => ({
+    return rows.map(({ teamPolicy, personalCompanyId, ...user }) => ({
       ...user,
+      pulledFromPersonal: personalCompanyId != null,
       ...projectOperationalCapabilitiesFromStoredPolicy(user, teamPolicy?.modulesJson),
     }));
   }

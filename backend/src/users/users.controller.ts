@@ -1,5 +1,6 @@
 import { Controller, Get, Query, NotFoundException, UseGuards, Req, Patch, Param, ParseIntPipe, Body, BadRequestException, ForbiddenException, Post, Logger, Delete } from '@nestjs/common';
 import { UsersService } from './users.service';
+import { CompanyInviteService } from './company-invite.service';
 import { SellerOnboardingService } from '../gerencial/seller-onboarding.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -30,6 +31,12 @@ class UpdateRoleDto {
 	@IsString()
 	@IsIn(['USER', 'ADMIN'])
 	role!: 'USER' | 'ADMIN';
+}
+
+// MODO PUXAR (02/08): convite de equipe por e-mail.
+class InviteTeamMemberDto {
+	@IsEmail()
+	email!: string;
 }
 
 class CreateCompanyUserDto {
@@ -488,6 +495,7 @@ export class UsersController {
 
 	constructor(
 		private readonly usersService: UsersService,
+		private readonly companyInvites: CompanyInviteService,
 		private readonly masterContextService: MasterContextService,
 		private readonly mailService: MailService,
 		private readonly emailTemplates: EmailTemplateService,
@@ -905,6 +913,50 @@ export class UsersController {
 		const companyId = Number(req?.user?.companyId);
 		if (!companyId) throw new ForbiddenException('Company context required');
 		return this.usersService.getCompanySeatBilling(companyId);
+	}
+
+	// MODO PUXAR (02/08): convite único de equipe. A resposta é SEMPRE
+	// "Convite enviado." — nunca revela se o e-mail tem conta HBX
+	// (anti-enumeração). Reenvio pro mesmo e-mail renova prazo e reusa o link.
+	@Post('company/invites')
+	@UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+	@Admin()
+	@ModuleAccess('gerencial')
+	@Throttle({ default: { limit: 20, ttl: 60 } })
+	async createCompanyInvite(@Req() req: any, @Body() dto: InviteTeamMemberDto) {
+		await this.usersService.assertCompanyUserManagementAccess(req.user, 'team.users.create', 'Convidar usuarios esta bloqueado pela politica da equipe.');
+		return this.companyInvites.createInvite(req.user, dto.email);
+	}
+
+	@Get('company/invites')
+	@UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+	@Admin()
+	@ModuleAccess('gerencial')
+	async listCompanyInvites(@Req() req: any) {
+		const companyId = Number(req?.user?.companyId);
+		if (!companyId) throw new ForbiddenException('Company context required');
+		return { invites: await this.companyInvites.listCompanyInvites(companyId) };
+	}
+
+	@Delete('company/invites/:id')
+	@UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+	@Admin()
+	@ModuleAccess('gerencial')
+	async cancelCompanyInvite(@Req() req: any, @Param('id') id: string) {
+		await this.usersService.assertCompanyUserManagementAccess(req.user, 'team.users.create', 'Convidar usuarios esta bloqueado pela politica da equipe.');
+		return this.companyInvites.cancelInvite(req.user, id);
+	}
+
+	// MODO PUXAR: desligar vendedor que veio de conta pessoal — devolve o
+	// usuário pra empresa pessoal dele (descongela) com o cargo do snapshot.
+	// Créditos não renascem (welcome idempotente). Histórico fica na empresa.
+	@Post(':id/release-to-personal')
+	@UseGuards(JwtAuthGuard, RolesGuard, ModuleAccessGuard)
+	@Admin()
+	@ModuleAccess('gerencial')
+	async releaseUserToPersonal(@Req() req: any, @Param('id', ParseIntPipe) id: number) {
+		await this.usersService.assertCompanyUserManagementAccess(req.user, 'team.users.delete', 'Desligar usuarios esta bloqueado pela politica da equipe.');
+		return this.companyInvites.releaseUserToPersonal(req.user, id);
 	}
 
 	@Patch(':id/role')
