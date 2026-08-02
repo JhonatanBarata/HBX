@@ -157,6 +157,10 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'AssistenteConfig',
   'GmailConnection',
   'FiscalInvoice',
+  // MODO PUXAR (02/08): convite de equipe. As leituras por e-mail/claim do
+  // convidado atravessam tenant POR DESIGN (a pessoa ainda está em outra
+  // empresa) — esses call-sites usam withoutTenantScope com motivo.
+  'CompanyUserInvite',
 ]);
 
 // Operações que leem/escrevem em MASSA (não fixam 1 id de PK) — as perigosas quando

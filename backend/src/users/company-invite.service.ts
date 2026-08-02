@@ -3,6 +3,7 @@ import * as crypto from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../mail/mail.service';
 import { ensureUserTeamPolicyForUser } from '../team/team-policy-persistence';
+import { withoutTenantScope } from '../prisma/tenant-context';
 
 // MODO PUXAR (02/08/2026) — convite único de equipe.
 // O admin convida por E-MAIL e a resposta pra ele é SEMPRE "Convite enviado."
@@ -71,11 +72,15 @@ export class CompanyInviteService {
   }
 
   // Varredura preguiçosa: pendente vencido vira 'expired' quando alguém olha.
+  // Cross-tenant consciente: a variante por e-mail roda no request do CONVIDADO
+  // (que está em outra empresa) — bypass com motivo, padrão do tenant-guard.
   private async sweepExpired(where: { companyId?: number; email?: string; claimedByUserId?: number }) {
-    await this.prisma.companyUserInvite.updateMany({
-      where: { ...where, status: 'pending', expiresAt: { lt: new Date() } },
-      data: { status: 'expired' },
-    }).catch(() => undefined);
+    await withoutTenantScope('convite de equipe: expirar convites do e-mail atravessa tenant por design', () =>
+      this.prisma.companyUserInvite.updateMany({
+        where: { ...where, status: 'pending', expiresAt: { lt: new Date() } },
+        data: { status: 'expired' },
+      }),
+    ).catch(() => undefined);
   }
 
   private async sendInviteEmail(input: { to: string; companyName: string; inviteUrl: string }) {
@@ -323,12 +328,14 @@ export class CompanyInviteService {
     const user = await this.loadUserForPull(Number(userId));
     if (!user || !user.email) return { invites: [] };
     await this.sweepExpired({ email: this.normalizeEmail(user.email) });
-    const invites = (await this.prisma.companyUserInvite.findMany({
-      where: { email: this.normalizeEmail(user.email), status: 'pending' },
-      orderBy: { createdAt: 'desc' },
-      include: { company: { select: { id: true, name: true, companyKind: true, seatCap: true } } },
-      take: 5,
-    })) as any as InviteWithCompany[];
+    const invites = (await withoutTenantScope('convite de equipe: convites do e-mail do usuário vêm de outras empresas por design', () =>
+      this.prisma.companyUserInvite.findMany({
+        where: { email: this.normalizeEmail(user.email), status: 'pending' },
+        orderBy: { createdAt: 'desc' },
+        include: { company: { select: { id: true, name: true, companyKind: true, seatCap: true } } },
+        take: 5,
+      }),
+    )) as any as InviteWithCompany[];
     const out = [] as Array<{ id: string; companyName: string; expiresAt: Date; eligible: boolean; blockedReason: string | null }>;
     for (const invite of invites) {
       const eligibility = await this.assessPullEligibility(user, invite);
@@ -367,9 +374,10 @@ export class CompanyInviteService {
     const personalRole = String(user.role || 'ADMIN');
 
     await this.prisma.$transaction(async (tx) => {
-      // Guarda de corrida: só UM aceite resolve o convite.
+      // Guarda de corrida: só UM aceite resolve o convite. companyId no where
+      // também satisfaz o tenant-guard (a empresa do convite é o escopo certo).
       const resolved = await tx.companyUserInvite.updateMany({
-        where: { id: invite.id, status: 'pending' },
+        where: { id: invite.id, companyId: invite.companyId, status: 'pending' },
         data: { status: 'accepted', acceptedAt: now, acceptedByUserId: user.id },
       });
       if (resolved.count !== 1) throw new ConflictException('Este convite já foi resolvido.');
@@ -467,10 +475,12 @@ export class CompanyInviteService {
   // elegibilidade falhar (convite cancelado no meio, etc.), o cadastro segue
   // como conta normal — quem decide depois é o banner.
   async acceptClaimedInviteAfterConfirm(userId: number): Promise<{ accepted: boolean; companyId?: number; companyName?: string; reason?: string } | null> {
-    const invite = await this.prisma.companyUserInvite.findFirst({
-      where: { claimedByUserId: Number(userId), status: 'pending' },
-      orderBy: { createdAt: 'desc' },
-    });
+    const invite = await withoutTenantScope('convite de equipe: claim do cadastro via link aponta pra empresa convidante (cross-tenant por design)', () =>
+      this.prisma.companyUserInvite.findFirst({
+        where: { claimedByUserId: Number(userId), status: 'pending' },
+        orderBy: { createdAt: 'desc' },
+      }),
+    );
     if (!invite) return null;
     try {
       const result = await this.acceptInvite(Number(userId), invite.id);
