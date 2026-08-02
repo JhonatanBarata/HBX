@@ -291,7 +291,7 @@ test('desligar devolve pra conta pessoal: cargo do snapshot, descongela, sessõe
   await service.acceptInvite(2, state.invites[0].id);
 
   const result = await service.releaseUserToPersonal(admin, 2);
-  assert.match(result.message, /voltou para a conta pessoal/);
+  assert.match(result.message, /voltou para a conta pessoal — o acesso à empresa foi encerrado/);
 
   const joao = state.users.find((u) => u.id === 2)!;
   assert.equal(joao.companyId, 20);

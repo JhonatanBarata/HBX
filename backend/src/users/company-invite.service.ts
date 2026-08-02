@@ -565,7 +565,8 @@ export class CompanyInviteService {
 
     return {
       ok: true,
-      message: `${target.name || target.email || 'Usuário'} foi desligado da empresa e voltou para a conta pessoal.`,
+      // Sem marca de gênero de propósito (vale pra qualquer pessoa da equipe).
+      message: `${target.name || target.email || 'Usuário'} voltou para a conta pessoal — o acesso à empresa foi encerrado.`,
     };
   }
 }
