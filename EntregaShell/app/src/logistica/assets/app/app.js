@@ -2294,7 +2294,7 @@
     const checagemOverlay = state.checagem && state.modal !== "client-product" ? `<div class="overlay-host is-opening">${checagemModal()}</div>` : "";
     const standardModal = state.modal && state.modal !== "distance-warning" ? `<div class="overlay-host ${state.openingOverlay === "modal" ? "is-opening" : ""} ${state.closingOverlay === "modal" ? "is-closing" : ""}">${modal()}</div>` : "";
     const distanceModal = state.modal === "distance-warning" ? `<div class="overlay-host is-opening">${modal()}</div>` : "";
-    const overlays = `${floatingAction || ""}${creditsLockOverlay()}${routeNoticeOverlay()}${standardModal}${checagemOverlay}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${dddPromptOverlay()}${leituraPausaOverlay()}${rotaIndicadaOverlay()}${missoesOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
+    const overlays = `${floatingAction || ""}${creditsLockOverlay()}${routeNoticeOverlay()}${standardModal}${checagemOverlay}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${dddPromptOverlay()}${leituraPausaOverlay()}${rotaIndicadaOverlay()}${missoesOverlay()}${recadoPortaoOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
     return H.mobileShell.frame({ appName: "logistica", currentScreen: state.screen, content, icon, motion: state.screenMotion, refreshing: state.refreshing, error: state.error, overlays });
   }
   function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); const ringOffset = (188.5 * count / 5).toFixed(1); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30" style="stroke-dashoffset:${ringOffset}"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Próxima parada</p><h2>${H.escape(client.nome || "Cliente")}</h2><small>${H.escape(address(client))}</small><div class="actions next-stop-actions"><button class="btn btn-primary" data-action="next-stop">Ver rota</button><button class="btn btn-secondary" data-action="cancel-next-stop">Ficar aqui</button></div></section></div>`; }
@@ -2385,6 +2385,26 @@
     const corpo = blocoRecebidas + blocoAgendadas;
     return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm" role="dialog" aria-modal="true" aria-labelledby="missoes-title"><div class="app-confirm-icon">${icon("bell", 24)}</div><h2 id="missoes-title">Rotas recebidas</h2><div class="missao-lista">${corpo || empty("Nada esperando", "")}</div><div class="actions"><button class="btn btn-secondary btn-block" type="button" data-action="missoes-fechar">Fechar</button></div></section></div>`;
   }
+  /**
+   * O PORTÃO DO RECADO (03/08) — a folha que cobra o "Entendi".
+   *
+   * Nasce POR CIMA de tudo (mesma moldura de confirmação do resto do app) e só
+   * tem UM botão: não existe "depois". É o pedido literal do dono — garantir o
+   * clique num nível que atrapalha a rota se ele não clicar — só que cobrado no
+   * momento seguro: ele está parado, na porta do cliente, prestes a confirmar.
+   *
+   * Não tem × nem toque no fundo: fechar sem ler derrotaria o portão inteiro.
+   */
+  function recadoPortaoOverlay() {
+    const recado = state.recadoPortao;
+    if (!recado) return "";
+    const quem = recado.autorNome ? `${H.escape(recado.autorNome)} · ` : "";
+    const hora = recado.criadoEm
+      ? new Date(recado.criadoEm).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+      : "";
+    return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm recado-portao" role="alertdialog" aria-modal="true" aria-labelledby="recado-portao-title"><div class="app-confirm-icon">${icon("bell", 24)}</div><h2 id="recado-portao-title">Recado da central</h2><p class="recado-portao-texto">${H.escape(recado.texto || "")}</p><small class="recado-portao-quem">${quem}${H.escape(hora)}</small><div class="actions"><button class="btn btn-primary btn-block" type="button" data-action="recado-entendi" data-recado="${H.escape(recado.id)}">Entendi</button></div></section></div>`;
+  }
+
   function empty(title, text) { return `<div class="empty"><strong>${H.escape(title)}</strong>${H.escape(text)}</div>`; }
   function loading() { return `<div class="list"><div class="card loading"></div><div class="card loading"></div><div class="card loading"></div></div>`; }
   function statusLabel(status) { return ({ agendada: "Agendada", em_rota: "Em rota", entregue: "Entregue", cancelada: "Cancelada" })[status] || status; }
@@ -7558,6 +7578,102 @@
     } catch (_) { /* rede fora = silêncio; o próximo tick tenta de novo */ }
     finally { rotaIndicadaChecking = false; }
   }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // RECADOS (03/08) — o escritório finalmente fala com quem está na rua.
+  //
+  // Até aqui o único texto que vinha de lá era o NOME de uma rota indicada. A
+  // ESCADA de força é decidida no servidor (`nivel`) e obedecida aqui:
+  //
+  //   normal  → entra na lista do sino. Silencioso.
+  //   urgente → vibra, FALA em voz alta (o motor de TTS que a navegação já usa)
+  //             e trava o PORTÃO: o próximo Confirmar/Cheguei cobra o "Entendi".
+  //   alarme  → dispara o despertador NATIVO (MissaoAlarme), que fura Doze e
+  //             tela bloqueada. Mesmo aparelho, mesma mecânica da missão.
+  //
+  // 🔴 POR QUE NÃO SEQUESTRAR A TELA NO URGENTE: o cara está DIRIGINDO com o
+  // Maps aberto. Tomar a tela é perigoso e o Android moderno nem garante. Então
+  // a cobrança do clique acontece onde ele JÁ vai tocar no celular parado — na
+  // chegada/confirmação. Clique garantido, rota intacta, motorista vivo.
+  let recadosCheckAt = 0;
+  let recadosChecando = false;
+  let recadoFaladoId = null;
+
+  function recadoFala(texto) {
+    // Reusa o TTS da navegação (HbxSoundEngine respeita o mudo do usuário).
+    try { if (H.speak) H.speak(String(texto || "").slice(0, 300)); } catch (_) {}
+  }
+
+  async function checkRecados(force) {
+    if (!moduleActive || recadosChecando) return;
+    if (!force && Date.now() - recadosCheckAt < 45000) return;
+    recadosChecando = true;
+    recadosCheckAt = Date.now();
+    try {
+      const novos = await H.api("/logistica/recados/puxar", { method: "POST", body: {} });
+      const lista = Array.isArray(novos) ? novos : [];
+      if (lista.length) {
+        // A lista do sino guarda o que chegou hoje, mais novo primeiro.
+        state.recados = [...lista.slice().reverse(), ...(Array.isArray(state.recados) ? state.recados : [])].slice(0, 30);
+        for (const recado of lista) {
+          if (recado.nivel === "alarme") {
+            // Despertador nativo daqui a 3s: dá tempo do app terminar o tick e
+            // não colide com o toast. `atMillis` viaja como STRING (contrato).
+            try {
+              if (H.missaoAlarme) {
+                H.missaoAlarme(`recado_${recado.id}`, String(Date.now() + 3000), "Recado da central", String(recado.texto || "").slice(0, 120));
+              }
+            } catch (_) {}
+          } else if (recado.nivel === "urgente") {
+            H.vibrate(300);
+            if (recadoFaladoId !== recado.id) {
+              recadoFaladoId = recado.id;
+              recadoFala(`Recado urgente da central. ${recado.texto}`);
+            }
+          }
+        }
+        // O mais grave manda no toast — dois toasts empilhados ninguém lê.
+        const pior = lista.find(r => r.nivel === "urgente" || r.nivel === "alarme") || lista[lista.length - 1];
+        toast(pior.nivel === "normal" ? `Recado: ${pior.texto}` : `⚠️ ${pior.texto}`, pior.nivel !== "normal");
+        render();
+      }
+    } catch (_) { /* rede fora = silêncio; o próximo tick tenta de novo */ }
+    finally { recadosChecando = false; }
+  }
+
+  /**
+   * O PORTÃO — chamado ANTES de liberar Confirmar/Cheguei.
+   *
+   * Devolve `true` se pode seguir. Recado urgente/alarme que já chegou no
+   * aparelho e não teve "Entendi" abre a folha e SEGURA a ação.
+   *
+   * 🔴 FALHA DE REDE LIBERA. Um portão que fecha quando a internet cai viraria
+   * "o app não deixa eu entregar" no meio da rua — e o recado continua lá pro
+   * próximo toque. Travar a operação por causa da rede é pior que atrasar um
+   * aviso: o cliente está na porta esperando.
+   */
+  async function passarPeloPortao() {
+    try {
+      const pendentes = await H.api("/logistica/recados/portao");
+      const lista = Array.isArray(pendentes) ? pendentes : [];
+      if (!lista.length) return true;
+      state.recadoPortao = lista[0];
+      render();
+      return false;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  /** O "Entendi": destrava e deixa a pessoa seguir. */
+  async function confirmarRecadoDoPortao(id) {
+    try {
+      await H.api(`/logistica/recados/${encodeURIComponent(id)}/entendi`, { method: "POST", body: {} });
+    } catch (_) { /* offline: o portão volta no próximo toque, não trava a rua */ }
+    state.recadoPortao = null;
+    render();
+  }
+
   /**
    * Aceitar/Negar da rota indicada — UMA porta só, usada pelos DOIS gestos que
    * existem: os botões do popup e os botões da tela do despertador. Nasceu
@@ -8205,6 +8321,12 @@
         H.cache.remove(`delivery-confirm:${item.id}`);
         item.status = "agendada";
       }
+      // 🔴 O PORTÃO DO RECADO (03/08) — recado urgente/alarme que chegou e não
+      // teve "Entendi" segura a confirmação aqui. É o ponto exato pedido pelo
+      // dono: "garantir o clique... segundos antes de fechar". Ele está PARADO,
+      // com o celular na mão, prestes a fechar a entrega — é onde cobrar não
+      // atrapalha a rota nem põe ninguém em risco.
+      if (!(await passarPeloPortao())) return;
       const keyName = `delivery-confirm:${item.id}`; let key = H.cache.get(keyName, null); if (!key) { key = H.uuid(); H.cache.set(keyName, key); }
       const draft = deliveryDraftFor(item);
       // `valorUnit` só viaja quando o entregador REALMENTE editou o preço na tela
@@ -9124,6 +9246,12 @@
       return;
     }
     if (action === "missoes-fechar") { state.missoesAberto = false; render(); return; }
+    // O "Entendi" do portão: única saída da folha de recado urgente/alarme.
+    if (action === "recado-entendi") {
+      const id = target.dataset.recado || (target.closest && target.closest("[data-recado]") || {}).dataset?.recado;
+      if (id) void confirmarRecadoDoPortao(id);
+      return;
+    }
     if (action === "missao-abrir") {
       const id = target.dataset.missao || (target.closest && target.closest("[data-missao]") || {}).dataset?.missao;
       const m = (state.missoesRecebidas || []).find(item => item && item.id === id);
@@ -11210,10 +11338,15 @@
   render(); refresh(false, true); state.screenMotion = ""; void restoreLeituraSession(); refreshGpsPerm(); void checkAppUpdate(false);
   // Volta do fundo = nova chance de ver atualização (a trava de 30min dentro
   // de checkAppUpdate segura a frequência; trocar de app não vira enxurrada).
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { retomarUpdatePosPermissao(); void checkAppUpdate(); void checkRotaIndicada(true); } });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { retomarUpdatePosPermissao(); void checkAppUpdate(); void checkRotaIndicada(true); void checkRecados(true); } });
   // ROTA PRONTA (29/07) — tick de 60s do popup de rota indicada (cadência FIXA
   // com throttle interno de 45s; tela escondida não gasta rede).
   setInterval(() => { if (!document.hidden) void checkRotaIndicada(); }, 60000);
+  // RECADOS (03/08) — mesma cadência e mesmo throttle da rota indicada: são a
+  // MESMA pergunta ("o escritório falou comigo?") e dois relógios diferentes
+  // pra isso só dobrariam a rede sem entregar nada mais cedo.
+  setInterval(() => { if (!document.hidden) void checkRecados(); }, 60000);
+  void checkRecados(true);
   // Voltar da tela de permissão do Android nem sempre passa por
   // visibilitychange em toda WebView — o focus da janela é o segundo laço de
   // segurança. retomarUpdatePosPermissao() é idempotente (sai na hora se o
