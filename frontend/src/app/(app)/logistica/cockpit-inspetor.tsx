@@ -96,15 +96,20 @@ export function CockpitInspetor({
     [motorista.id],
   );
 
-  // Tick lento pro ✓✓ e as respostas dele aparecerem sem F5 (o celular
-  // responde longe daqui). NÃO limpa o fio aqui: quem monta este componente
+  // Resposta é conversa, não relatório: enquanto o fio está aberto, busca a
+  // cada 2 s. Antes eram 20 s e o clique certo no celular parecia perdido.
+  // NÃO limpa o fio aqui: quem monta este componente
   // passa `key={motorista.id}`, então trocar de pessoa REMONTA e o estado já
   // nasce vazio — limpar no efeito seria pintar o fio de A antes de apagar.
   useEffect(() => {
     let vivo = true;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar; efeito legítimo, não estado derivado.
     void carregarFio(true);
-    const timer = setInterval(() => { if (vivo) void carregarFio(false); }, 20000);
+    const timer = setInterval(() => {
+      if (vivo && (typeof document === "undefined" || document.visibilityState === "visible")) {
+        void carregarFio(false);
+      }
+    }, 2_000);
     return () => { vivo = false; clearInterval(timer); };
   }, [carregarFio]);
 

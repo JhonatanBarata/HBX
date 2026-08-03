@@ -388,6 +388,10 @@ class MainActivity : AppCompatActivity() {
         // deixou o destino no slot e quem volta pro foco entrega.
         DestinoPendente.drenar()?.let(::entregarDestino)
         if (BuildConfig.APP_MODE == "logistica") {
+            // Push é só campainha: acorda o pull autenticado que já existe no
+            // app.js. Sem esta ponte, o Firebase chegava e a WebView esperava
+            // o relógio de 60 segundos como se nada tivesse acontecido.
+            HbxPushWake.registrar { runOnUiThread { entregarPushWake() } }
             RotaState.registrarListener { paradaId -> runOnUiThread { entregarChegada(paradaId) } }
             RotaState.drenarPendencias().forEach(::entregarChegada)
             // S2 (PR21072026-MONTAR-ROTA-PLAY) — mesmo padrão da chegada acima,
@@ -405,12 +409,21 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         if (BuildConfig.APP_MODE == "logistica") {
+            HbxPushWake.registrar(null)
             RotaState.registrarListener(null)
             RotaState.registrarPausaListener(null)
             RotaState.registrarPontoListener(null)
             RotaState.registrarPosicaoListener(null)
         }
         super.onPause()
+    }
+
+    private fun entregarPushWake() {
+        if (!::webView.isInitialized || isFinishing || isDestroyed) return
+        webView.evaluateJavascript(
+            "document.dispatchEvent(new CustomEvent('hbx:push-wake'));",
+            null,
+        )
     }
 
     override fun onDestroy() {

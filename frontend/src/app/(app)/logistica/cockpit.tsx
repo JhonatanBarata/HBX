@@ -72,6 +72,7 @@ type Palco = "dividido" | "mapa" | "tabuleiro";
 /** Recomendação do fable, aceita pelo dono: Dividido é o default. */
 const PALCO_PADRAO: Palco = "dividido";
 const TICK_AVISOS_MS = 60_000;
+const TICK_RECADOS_MS = 3_000;
 const TICK_MAPA_MS = 20_000;
 
 export type CockpitEntrega = Parada & {
@@ -123,7 +124,7 @@ export function Cockpit({
 
   const palcoPill = useGlassPill<HTMLButtonElement>(palco, true);
 
-  // ── Avisos (vigia + sentinela) e não-lidos: o pulso do cockpit ───────────
+  // ── Avisos (vigia + sentinela): pulso lento do cockpit ──────────────────
   useEffect(() => {
     let vivo = true;
     const carregar = () => {
@@ -133,12 +134,25 @@ export function Cockpit({
       getMissoes()
         .then((linhas) => { if (vivo) setMissoes(Array.isArray(linhas) ? linhas : []); })
         .catch(() => { /* idem */ });
-      getRecadosNaoLidos()
-        .then((mapa) => { if (vivo) setNaoLidos(mapa || {}); })
-        .catch(() => { /* idem */ });
     };
     carregar();
     const timer = setInterval(carregar, TICK_AVISOS_MS);
+    return () => { vivo = false; clearInterval(timer); };
+  }, []);
+
+  // Resposta do motorista é conversa: o badge não pode esperar o relógio de
+  // avisos/rotas (60 s). O fio aberto usa 2 s; o elenco fechado percebe em 3 s.
+  useEffect(() => {
+    let vivo = true;
+    const carregar = () => {
+      getRecadosNaoLidos()
+        .then((mapa) => { if (vivo) setNaoLidos(mapa || {}); })
+        .catch(() => { /* rede fora: mantém o último badge conhecido */ });
+    };
+    carregar();
+    const timer = setInterval(() => {
+      if (typeof document === "undefined" || document.visibilityState === "visible") carregar();
+    }, TICK_RECADOS_MS);
     return () => { vivo = false; clearInterval(timer); };
   }, []);
 

@@ -7644,6 +7644,11 @@
   // Maps aberto. Tomar a tela é perigoso e o Android moderno nem garante. Então
   // a cobrança do clique acontece onde ele JÁ vai tocar no celular parado — na
   // chegada/confirmação. Clique garantido, rota intacta, motorista vivo.
+  // Push é o caminho rápido; 5 s é o paraquedas em primeiro plano quando o
+  // aparelho/servidor está sem Firebase. Antes eram 60 s e a conversa parecia
+  // quebrada mesmo com tudo gravado corretamente.
+  const RECADOS_POLL_MS = 5000;
+  const RECADOS_THROTTLE_MS = 3500;
   let recadosCheckAt = 0;
   let recadosChecando = false;
   let recadoFaladoId = null;
@@ -7655,7 +7660,7 @@
 
   async function checkRecados(force) {
     if (!moduleActive || recadosChecando) return;
-    if (!force && Date.now() - recadosCheckAt < 45000) return;
+    if (!force && Date.now() - recadosCheckAt < RECADOS_THROTTLE_MS) return;
     recadosChecando = true;
     recadosCheckAt = Date.now();
     try {
@@ -11421,10 +11426,10 @@
   // ROTA PRONTA (29/07) — tick de 60s do popup de rota indicada (cadência FIXA
   // com throttle interno de 45s; tela escondida não gasta rede).
   setInterval(() => { if (!document.hidden) void checkRotaIndicada(); }, 60000);
-  // RECADOS (03/08) — mesma cadência e mesmo throttle da rota indicada: são a
-  // MESMA pergunta ("o escritório falou comigo?") e dois relógios diferentes
-  // pra isso só dobrariam a rede sem entregar nada mais cedo.
-  setInterval(() => { if (!document.hidden) void checkRecados(); }, 60000);
+  // RECADOS (03/08) — push entrega na hora; este tick curto é o paraquedas de
+  // primeiro plano. Mensagem não pode herdar o relógio de missão/rota.
+  document.addEventListener("hbx:push-wake", () => { void checkRecados(true); });
+  setInterval(() => { if (!document.hidden) void checkRecados(); }, RECADOS_POLL_MS);
   void checkRecados(true);
   // Voltar da tela de permissão do Android nem sempre passa por
   // visibilitychange em toda WebView — o focus da janela é o segundo laço de
