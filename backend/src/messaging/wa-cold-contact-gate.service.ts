@@ -1,4 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
+import {
+  CHIP_TRUST_BASE_PADRAO,
+  CHIP_TRUST_MAX_PADRAO,
+  espacamentoDoDia,
+  janelaDeTrabalhoMs,
+  tetoDoChip,
+} from './wa-chip-trust';
 
 /**
  * BLINDAGEM DO DISPARO FRIO ("cold contact gate") — incidente 30/07/2026.
@@ -56,7 +63,7 @@ export type WaColdGateDecision =
 const COLD_GATE_UNAVAILABLE_RETRY_MS = 5 * 60 * 1000;
 
 type PrismaLike = {
-  companyMessage: { findFirst: (args: any) => Promise<any> };
+  companyMessage: { findFirst: (args: any) => Promise<any>; findMany?: (args: any) => Promise<any[]> };
   companyConversation: { findMany: (args: any) => Promise<any[]> };
   whatsAppAuditLog: {
     count: (args: any) => Promise<number>;
@@ -65,6 +72,21 @@ type PrismaLike = {
     create: (args: any) => Promise<any>;
   };
 };
+
+/**
+ * 🔴 03/08 — A COTA É DO CHIP, NÃO DA EMPRESA.
+ *
+ * O `tenantKey` já era gravado no metadata deste log desde 30/07, mas ninguém lia:
+ * a contagem era da empresa inteira. Com 5 vendedoras e 5 chips na MESMA empresa,
+ * os cinco dividiriam uma cota só — dois chips novos zerariam o dia do chip bom.
+ *
+ * Esta função é o ÚNICO lugar que sabe o formato do filtro, e o `create` lá embaixo
+ * usa a mesma chave: leitura e escrita não têm como divergir sem quebrar os testes.
+ * (`JSON.stringify` não põe espaço, então o trecho casa exato.)
+ */
+export function coldQuotaTenantFilter(tenantKey: string): { contains: string } {
+  return { contains: `"tenantKey":${JSON.stringify(String(tenantKey))}` };
+}
 
 function integerEnv(name: string, fallback: number): number {
   const parsed = Number.parseInt(String(process.env[name] ?? '').trim(), 10);
@@ -132,7 +154,7 @@ export function coldGateEnabledFromEnv(): boolean {
 }
 
 export function coldGateMaxPerDayFromEnv(): number {
-  return Math.max(1, integerEnv('HBX_WA_COLD_MAX_PER_DAY', 10));
+  return Math.max(1, integerEnv('HBX_WA_COLD_MAX_PER_DAY', CHIP_TRUST_MAX_PADRAO));
 }
 
 @Injectable()
@@ -151,6 +173,73 @@ export class WaColdContactGateService {
 
   minSpacingMs(): number {
     return Math.max(0, integerEnv('HBX_WA_COLD_MIN_SPACING_MINUTES', 10)) * 60 * 1000;
+  }
+
+  /** Piso de chip recém-pareado (env). */
+  basePerChip(): number {
+    return Math.max(1, integerEnv('HBX_WA_COLD_BASE_PER_CHIP', CHIP_TRUST_BASE_PADRAO));
+  }
+
+  /** Janela em que os frios se espalham (env, "HH:MM"). Default 08:00→18:00. */
+  private janelaTrabalhoMs(): number {
+    const inicio = String(process.env.HBX_WA_COLD_WINDOW_START || '08:00').trim();
+    const fim = String(process.env.HBX_WA_COLD_WINDOW_END || '18:00').trim();
+    return janelaDeTrabalhoMs(inicio, fim);
+  }
+
+  /**
+   * CONFIANÇA MEDIDA: quantas conversas DISTINTAS já responderam a este chip.
+   * É o que transforma o teto de 3 em 10 sem ninguém cravar número — e o que faz
+   * a resposta de hoje soltar limite hoje, como o dono pediu.
+   *
+   * Best-effort deliberado: falhar aqui devolve 0, ou seja, o chip cai no piso
+   * (3). Errar pra BAIXO num freio anti-ban é o lado seguro de errar.
+   */
+  private async conversasComResposta(companyId: number, tenantKey: string | null): Promise<number> {
+    if (!tenantKey || typeof this.prisma.companyMessage.findMany !== 'function') return 0;
+    try {
+      const linhas = await this.prisma.companyMessage.findMany({
+        where: { companyId, direction: 'INBOUND', sourceTenantKey: tenantKey },
+        distinct: ['conversationId'],
+        select: { conversationId: true },
+        // Teto de leitura: passou do máximo possível, o resto não muda a conta.
+        take: Math.max(1, this.maxPerDay()),
+      });
+      return Array.isArray(linhas) ? linhas.length : 0;
+    } catch (error) {
+      this.logger.warn(
+        `cold-gate: falha ao medir confiança do chip ${tenantKey} — assumindo chip novo: ${String((error as any)?.message || error)}`,
+      );
+      return 0;
+    }
+  }
+
+  /**
+   * Teto + espaçamento DESTE chip, hoje. Sem `tenantKey` (chamadas legadas) cai no
+   * comportamento antigo: teto do env e espaçamento fixo, empresa inteira.
+   */
+  async planoDoChip(companyId: number, tenantKey: string | null): Promise<{
+    teto: number;
+    espacamentoMs: number;
+    conversasComResposta: number;
+    porChip: boolean;
+  }> {
+    if (!tenantKey) {
+      return {
+        teto: this.maxPerDay(),
+        espacamentoMs: this.minSpacingMs(),
+        conversasComResposta: 0,
+        porChip: false,
+      };
+    }
+    const respostas = await this.conversasComResposta(companyId, tenantKey);
+    const teto = tetoDoChip({ base: this.basePerChip(), conversasComResposta: respostas, max: this.maxPerDay() });
+    return {
+      teto,
+      espacamentoMs: espacamentoDoDia({ teto, janelaMs: this.janelaTrabalhoMs(), minimoMs: this.minSpacingMs() }),
+      conversasComResposta: respostas,
+      porChip: true,
+    };
   }
 
   similarityThreshold(): number {
@@ -266,8 +355,15 @@ export class WaColdContactGateService {
     const now = Date.now();
     const dayStart = businessDayStartUtc(new Date(now));
     const isHuman = String(input.senderType || '').trim().toLowerCase() === 'human';
+    const tenantKey = String(input.tenantKey || '').trim() || null;
 
     try {
+      // ── 0. Teto e espaçamento DESTE chip (03/08) ──
+      // Chip novo entra em 3 e sobe 1 por conversa que responde; o chip com
+      // histórico já nasce no teto. O espaçamento sai da divisão da janela de
+      // trabalho pelo teto, pra não sair tudo numa rajada de manhã.
+      const plano = await this.planoDoChip(input.companyId, tenantKey);
+
       // ── 1. Teto diário ──
       const sentToday = await this.prisma.whatsAppAuditLog.count({
         where: {
@@ -275,15 +371,18 @@ export class WaColdContactGateService {
           scope: 'dispatch',
           event: 'cold_contact_sent',
           createdAt: { gte: dayStart },
+          ...(plano.porChip ? { metadata: coldQuotaTenantFilter(tenantKey!) } : {}),
         },
       });
-      if (sentToday >= this.maxPerDay()) {
+      if (sentToday >= plano.teto) {
         if (isHuman) {
           return {
             allow: false,
             action: 'cancel',
             reason: 'cold_daily_cap',
-            detail: `Teto diário de ${this.maxPerDay()} primeiros contatos atingido (proteção do chip). Amanhã libera de novo.`,
+            detail: plano.porChip
+              ? `Este número já fez os ${plano.teto} primeiros contatos de hoje (proteção do chip). O teto sobe sozinho conforme os leads respondem. Amanhã libera de novo.`
+              : `Teto diário de ${plano.teto} primeiros contatos atingido (proteção do chip). Amanhã libera de novo.`,
           };
         }
         const nextDay = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000 + 8 * 60 * 60 * 1000);
@@ -295,14 +394,19 @@ export class WaColdContactGateService {
         };
       }
 
-      // ── 2. Espaçamento mínimo entre frios ──
+      // ── 2. Espaçamento mínimo entre frios (DESTE chip) ──
       const lastCold = await this.prisma.whatsAppAuditLog.findFirst({
-        where: { companyId: input.companyId, scope: 'dispatch', event: 'cold_contact_sent' },
+        where: {
+          companyId: input.companyId,
+          scope: 'dispatch',
+          event: 'cold_contact_sent',
+          ...(plano.porChip ? { metadata: coldQuotaTenantFilter(tenantKey!) } : {}),
+        },
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true },
       });
       const lastAt = lastCold?.createdAt instanceof Date ? lastCold.createdAt.getTime() : 0;
-      const spacing = this.minSpacingMs();
+      const spacing = plano.espacamentoMs;
       if (lastAt && now - lastAt < spacing) {
         return {
           allow: false,
@@ -355,7 +459,9 @@ export class WaColdContactGateService {
             scope: 'dispatch',
             event: 'cold_contact_sent',
             level: 'INFO',
-            message: `Primeiro contato frio liberado para ${input.to} (${sentToday + 1}/${this.maxPerDay()} hoje)`,
+            message: `Primeiro contato frio liberado para ${input.to} (${sentToday + 1}/${plano.teto} hoje${
+              plano.porChip ? ` · chip ${tenantKey} · ${plano.conversasComResposta} conversa(s) responderam` : ''
+            })`,
             metadata: JSON.stringify({
               extra: {
                 textNorm: bodyNorm.slice(0, 600),
@@ -405,7 +511,7 @@ export class WaColdContactGateService {
    * Snapshot para o painel de disparos (live-status): estado do gate hoje.
    * Leitura pura — nunca consome cota.
    */
-  async snapshotForCompany(companyId: number): Promise<{
+  async snapshotForCompany(companyId: number, tenantKey?: string | null): Promise<{
     enabled: boolean;
     maxPerDay: number;
     minSpacingMinutes: number;
@@ -414,14 +520,20 @@ export class WaColdContactGateService {
     remainingToday: number;
     nextAllowedColdAt: string | null;
     lastBlock: { reason: string; at: string } | null;
+    /** 03/08 — quantas conversas responderam a este chip (o que levantou o teto). */
+    conversasComResposta: number;
+    porChip: boolean;
   }> {
     const dayStart = businessDayStartUtc();
+    const chave = String(tenantKey || '').trim() || null;
+    const plano = await this.planoDoChip(companyId, chave);
+    const filtroChip = plano.porChip ? { metadata: coldQuotaTenantFilter(chave!) } : {};
     const [sentToday, lastCold, lastBlock] = await Promise.all([
       this.prisma.whatsAppAuditLog.count({
-        where: { companyId, scope: 'dispatch', event: 'cold_contact_sent', createdAt: { gte: dayStart } },
+        where: { companyId, scope: 'dispatch', event: 'cold_contact_sent', createdAt: { gte: dayStart }, ...filtroChip },
       }),
       this.prisma.whatsAppAuditLog.findFirst({
-        where: { companyId, scope: 'dispatch', event: 'cold_contact_sent' },
+        where: { companyId, scope: 'dispatch', event: 'cold_contact_sent', ...filtroChip },
         orderBy: { createdAt: 'desc' },
         select: { createdAt: true },
       }),
@@ -437,7 +549,7 @@ export class WaColdContactGateService {
       }),
     ]);
     const lastAt = lastCold?.createdAt instanceof Date ? lastCold.createdAt.getTime() : 0;
-    const nextAllowed = lastAt ? lastAt + this.minSpacingMs() : 0;
+    const nextAllowed = lastAt ? lastAt + plano.espacamentoMs : 0;
     let lastBlockReason: string | null = null;
     if (lastBlock) {
       try {
@@ -448,11 +560,13 @@ export class WaColdContactGateService {
     }
     return {
       enabled: this.isEnabled(),
-      maxPerDay: this.maxPerDay(),
-      minSpacingMinutes: Math.round(this.minSpacingMs() / 60_000),
+      maxPerDay: plano.teto,
+      minSpacingMinutes: Math.round(plano.espacamentoMs / 60_000),
       similarityPct: Math.round(this.similarityThreshold() * 100),
       sentToday,
-      remainingToday: Math.max(0, this.maxPerDay() - sentToday),
+      remainingToday: Math.max(0, plano.teto - sentToday),
+      conversasComResposta: plano.conversasComResposta,
+      porChip: plano.porChip,
       nextAllowedColdAt: nextAllowed > Date.now() ? new Date(nextAllowed).toISOString() : null,
       lastBlock: lastBlock
         ? { reason: lastBlockReason || String(lastBlock.message || 'bloqueio'), at: lastBlock.createdAt.toISOString() }
