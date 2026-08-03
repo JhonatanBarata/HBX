@@ -73,7 +73,15 @@ plugins {
 // eu testava no g15, e o build local (piso 131) parou de instalar por downgrade.
 // O piso tem que ficar ACIMA do maior número que já saiu — senão o ciclo
 // "editar → instalar no aparelho" trava no meio do teste.
-val hbxLogisticaVersionCodeFloor = 137
+// 137 → 140 em 03/08: publiquei o APK do canal de RECADO (139) e, em vez de
+// esperar o aviso de atualização chegar no aparelho, instalei à mão pelo ADB —
+// que é o meu atalho, não o caminho do motorista. Dois estragos: (a) o g15 ficou
+// com 139 sideloadado, então o piso precisa passar dele; (b) atropelei justamente
+// o teste que teria achado o bug do aviso (o modal só aparecia em atualização
+// OBRIGATÓRIA — ver o comentário no `checkAppUpdate` do app.js). Piso ACIMA do
+// maior número que está no celular é o que destrava (mesmo caso de 8→15, 15→18,
+// 18→38, 38→60, 60→68, 87→95, 95→110, 110→117, 117→123 e 131→134 acima).
+val hbxLogisticaVersionCodeFloor = 140
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)

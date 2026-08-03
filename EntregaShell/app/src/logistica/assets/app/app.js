@@ -2724,6 +2724,8 @@
   // Auto-update: cache do appInfo() nativo e trava da rechecagem periódica.
   let appInfoCache;
   let lastUpdateCheckAt = 0;
+  /** Maior versionCode que JÁ virou pop-up neste aparelho (freio do aviso). */
+  const CHAVE_UPDATE_AVISADO = "update-avisado-version-code";
   let hbxLoadingRefs = 0;
   let hbxLoadingTimer = null;
   let hbxLoadingEl = null;
@@ -2996,7 +2998,24 @@
       if (v && Number(v.versionCode) > Number(info.versionCode || 0)) {
         state.updateInfo = { versionName: v.versionName, versionCode: v.versionCode, url: v.url, sha256: v.sha256, obrigatoria: !!v.obrigatoria, nota: v.nota || "", outdated: true };
         syncHeaderChips();
-        if (state.updateInfo.obrigatoria || forced) showModal("app-update");
+        // 🔴 03/08 — ATUALIZAÇÃO NÃO-OBRIGATÓRIA NÃO AVISAVA NADA (bronca do dono).
+        // Este `if` era `obrigatoria || forced`: no check automático de uma versão
+        // opcional o app só repintava um chip discreto no cabeçalho e ficava mudo.
+        // O motorista rodava a versão velha por dias sem saber — foi assim que o
+        // canal de recado ficou invisível no aparelho enquanto o servidor já
+        // servia o APK novo.
+        //
+        // Agora TODA versão nova avisa. O freio contra virar praga não é o
+        // silêncio, é a MEMÓRIA: avisa UMA vez por versionCode. Tocou "Agora
+        // não"? O chip do header continua lá pra quando ele quiser — mas o
+        // pop-up não volta pra ESTA versão. Versão nova depois disso avisa de
+        // novo, porque é outro número.
+        const jaAvisado = Number(H.cache.get(CHAVE_UPDATE_AVISADO, 0) || 0);
+        const precisaAvisar = state.updateInfo.obrigatoria || forced || Number(v.versionCode) > jaAvisado;
+        if (precisaAvisar) {
+          if (!state.updateInfo.obrigatoria) H.cache.set(CHAVE_UPDATE_AVISADO, Number(v.versionCode));
+          showModal("app-update");
+        }
       } else if (forced) {
         toast("Você já está na versão mais recente.");
       }
