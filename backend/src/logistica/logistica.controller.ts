@@ -38,6 +38,7 @@ import { LogisticaCustoPreviewService } from './logistica-custo-preview.service'
 import { LogisticaRotaModeloService } from './logistica-rota-modelo.service';
 import { LogisticaRotaIndicadaService } from './logistica-rota-indicada.service';
 import { LogisticaRotaAvisoService } from './logistica-rota-aviso.service';
+import { LogisticaRecadoService } from './logistica-recado.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaNivelPlanoService } from './logistica-nivel-plano.service';
 import { canonicalRouteDate } from './logistica-route-billing.service';
@@ -64,6 +65,10 @@ import {
   SanitizarRotaDto,
   ChecarEnderecosDto,
   TirarDoDiaDto,
+  EnviarRecadoDto,
+  ResponderRecadoDto,
+  VistoRecadoDto,
+  AtribuirLoteDto,
   ConfirmarEntregaDto,
   CreateClienteProdutoDto,
   CreateEntregaDto,
@@ -151,6 +156,8 @@ export class LogisticaController {
     private readonly rotaIndicada: LogisticaRotaIndicadaService = null as any,
     // 31/07 — recados de rota que morreu no meio. Mesmo padrão de default acima.
     private readonly rotaAviso: LogisticaRotaAvisoService = null as any,
+    // COCKPIT (03/08) — canal de recado escritório ⇄ motorista. Mesmo padrão.
+    private readonly recado: LogisticaRecadoService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -310,6 +317,20 @@ export class LogisticaController {
     const result = await this.operacao.atribuirEntrega(companyId, id, entregadorId, req.user);
     if (!result) throw new NotFoundException('Entrega não encontrada');
     return result;
+  }
+
+  /**
+   * COCKPIT (03/08) — dá N paradas pra UMA pessoa de uma vez (ou tira o dono de
+   * todas, com `entregadorId` null). Não colide com `entregas/:id/atribuir`:
+   * aquele exige 3 segmentos, este tem 2.
+   */
+  @Patch('entregas/atribuir-lote')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  async atribuirLote(@Req() req: any, @Body() dto: AtribuirLoteDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const entregadorId = dto?.entregadorId == null ? null : Number(dto.entregadorId);
+    return this.operacao.atribuirLote(companyId, dto?.ids ?? [], entregadorId, req.user);
   }
 
   @Post('entregas/:id/comprovante-codigo')
@@ -1038,6 +1059,84 @@ export class LogisticaController {
   async rotaAvisoVisto(@Req() req: any, @Param('id') id: string) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     return { ok: await this.rotaAviso.visto(companyId, id) };
+  }
+
+  // ── COCKPIT (03/08) — RECADO escritório ⇄ motorista ────────────────────────
+  // O canal que não existia: até aqui o único texto que saía do escritório pro
+  // celular era o NOME de uma rota indicada.
+  //
+  // 🔴 ORDEM DAS ROTAS IMPORTA: os caminhos LITERAIS do motorista
+  // (`recados/puxar`, `recados/portao`) têm a mesma profundidade de
+  // `recados/:motoristaUserId` e PRECISAM ser declarados antes — o Nest casa na
+  // ordem de declaração, e invertido o `GET recados/portao` cairia no param
+  // (ParseIntPipe → 400 "portao não é número").
+
+  /** APP: puxa o que ainda não chegou e marca ✓✓ no mesmo passo. */
+  @Post('recados/puxar')
+  puxarRecados(@Req() req: any) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.recado.puxar(companyId, this.ensureUserId(req.user));
+  }
+
+  /**
+   * APP: O PORTÃO. Chamado ANTES de liberar Confirmar/Cheguei — lista vazia é
+   * caminho livre. Só cobra recado que JÁ está no aparelho.
+   */
+  @Get('recados/portao')
+  portaoRecados(@Req() req: any) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.recado.portao(companyId, this.ensureUserId(req.user));
+  }
+
+  /** APP: abriu a lista — visto sem exigir o Entendi. */
+  @Post('recados/visto')
+  async vistoRecados(@Req() req: any, @Body() dto: VistoRecadoDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return { marcados: await this.recado.marcarVisto(companyId, this.ensureUserId(req.user), dto?.ids ?? []) };
+  }
+
+  /** APP: responde no mesmo fio (vira balão do outro lado no cockpit). */
+  @Post('recados/responder')
+  responderRecado(@Req() req: any, @Body() dto: ResponderRecadoDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.recado.responder(companyId, this.ensureUserId(req.user), dto?.texto ?? '', dto?.date);
+  }
+
+  /** APP: o "Entendi" que destrava o portão. */
+  @Post('recados/:id/entendi')
+  async entendiRecado(@Req() req: any, @Param('id') id: string) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return { ok: await this.recado.confirmar(companyId, this.ensureUserId(req.user), id) };
+  }
+
+  /** Badge do elenco: quantas respostas não lidas por motorista. */
+  @Get('recados-nao-lidos')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  naoLidosRecados(@Req() req: any) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.recado.naoLidosPorMotorista(companyId);
+  }
+
+  /** WEB: manda recado. Sem `paraUserId` = broadcast pra quem tem trabalho hoje. */
+  @Post('recados')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  async enviarRecado(@Req() req: any, @Body() dto: EnviarRecadoDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const autorId = this.ensureUserId(req.user);
+    const autorNome = String(req.user?.name || req.user?.username || req.user?.email || `Usuário ${autorId}`);
+    return this.recado.enviar(companyId, { id: autorId, nome: autorNome }, dto ?? ({} as EnviarRecadoDto), dto?.date);
+  }
+
+  /** WEB: o fio de UMA pessoa. Abrir já marca as respostas dela como lidas. */
+  @Get('recados/:motoristaUserId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  async fioRecados(@Req() req: any, @Param('motoristaUserId', ParseIntPipe) motoristaUserId: number) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    await this.recado.marcarFioLido(companyId, motoristaUserId);
+    return this.recado.fio(companyId, motoristaUserId);
   }
 
   // ── PR18072026 W1 — rota-modelo (roteiro salvo, aplicado client-side) ──────

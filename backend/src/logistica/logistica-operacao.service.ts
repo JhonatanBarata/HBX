@@ -190,6 +190,61 @@ export class LogisticaOperacaoService {
     };
   }
 
+  /**
+   * COCKPIT (03/08) — atribuição em LOTE. Nasceu da tela do dono com 51 paradas
+   * órfãs: uma por uma eram 51 arrastadas, e arrastar é gesto de MOUSE — não
+   * existia caminho pra "dá tudo pro Marquinhos".
+   *
+   * 🔴 PARCIAL É SUCESSO, NÃO ERRO. Uma entrega que virou 'entregue' ou
+   * 'cancelada' entre a tela pintar e o clique chegar não pode derrubar as
+   * outras 50 — o `updateMany` já filtra por status ABERTO e o resultado conta
+   * quem entrou e quem ficou de fora. Transação tudo-ou-nada aqui só produziria
+   * o pior dos mundos: o operador clica, nada acontece, e a tela não explica.
+   *
+   * A validação do destinatário é a MESMA de `atribuirEntrega` (existe na
+   * empresa, ativo, capacidade DRIVER) — porteiro único: seria bug de produto
+   * o lote aceitar alguém que a atribuição de uma parada recusa.
+   */
+  async atribuirLote(
+    companyId: number,
+    ids: string[],
+    entregadorId: number | null,
+    actor: LogisticaActor,
+  ): Promise<{ atribuidas: number; ignoradas: number; entregador: { id: number; nome: string } | null }> {
+    const lista = [...new Set((Array.isArray(ids) ? ids : []).map((id) => String(id || '').trim()).filter(Boolean))];
+    if (!lista.length) throw new BadRequestException('Selecione ao menos uma parada.');
+
+    let target: any = null;
+    if (entregadorId != null) {
+      target = await this.prisma.user.findFirst({
+        where: { id: Number(entregadorId), companyId, isActive: true, isSystemMaster: false },
+        select: { id: true, name: true, email: true, username: true, role: true, companyId: true, isSystemMaster: true },
+      });
+      if (!target) throw new BadRequestException('Entregador não encontrado nesta empresa.');
+      const caps = await resolveOperationalCapabilities(this.prisma, target);
+      if (!caps.includes('DRIVER')) {
+        throw new BadRequestException('Este usuário não possui a capacidade Entregas.');
+      }
+    }
+
+    const res = await this.prisma.entrega.updateMany({
+      where: { id: { in: lista }, companyId, status: { in: ['agendada', 'em_rota'] } },
+      data: {
+        entregadorId: target?.id ?? null,
+        atribuidoPorUserId: actorId(actor),
+        atribuidoAt: new Date(),
+      },
+    });
+
+    return {
+      atribuidas: res.count,
+      ignoradas: Math.max(0, lista.length - res.count),
+      entregador: target
+        ? { id: target.id, nome: target.name || target.username || target.email || `Usuário ${target.id}` }
+        : null,
+    };
+  }
+
   async gerarCodigo(companyId: number, entregaId: string, actor: LogisticaActor) {
     const entrega = await this.prisma.entrega.findFirst({
       where: { id: String(entregaId || '').trim(), companyId },

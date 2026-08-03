@@ -57,6 +57,8 @@ const jwtSecret = String(process.env.JWT_SECRET || '').trim();
     MobileDevicePresenceController,
     MobileActionController,
   ],
-  exports: [AuthService, MobileDevicePresenceService],
+  // COCKPIT (03/08) — MobilePushService sai daqui pra Logística acordar o
+  // aparelho quando um recado urgente entra (campainha, sem conteúdo no push).
+  exports: [AuthService, MobileDevicePresenceService, MobilePushService],
 })
 export class AuthModule {}

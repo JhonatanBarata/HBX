@@ -15,8 +15,8 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { Av, I, ICONS, type SignalState, subscribeToThemeMode } from "@/components/hbx/shell";
-import { applyThemeSoft, getCascaAtiva, getTemaAtivo, setTema, setThemeMode } from "@/components/hbx/theme-attributes";
-import { escolheModo, escolheTema, getCasca, type TemaKey } from "@/lib/aparencia";
+import { applyThemeSoft, getCascaAtiva, getCorAtiva, getMaterialAtivo, hexDaCor, setCor, setMaterial, setThemeMode } from "@/components/hbx/theme-attributes";
+import { CORES, MATERIAIS, escolheModo, getCasca, type MaterialKey } from "@/lib/aparencia";
 import { apiFetch } from "@/lib/api";
 import { getInitialGeoState, hasStoredGeo, subscribeGeoUpdated, toggleGeoRadar } from "@/lib/geo-radar";
 import { logout } from "@/lib/logout";
@@ -248,22 +248,29 @@ export function TemaSection() {
   const casca = getCasca(cascaKey);
   // lazy init: leitura síncrona do atributo já aplicado no <html> (boot inline
   // do layout.tsx já rodou antes da hidratação) — sem useEffect, sem
-  // set-state-in-effect. Troca local (escolherTema) já mantém o state em dia.
-  const [tema, setTemaLocal] = useState<TemaKey>(() => (typeof document !== "undefined" ? getTemaAtivo() : "login"));
+  // set-state-in-effect. Troca local (escolherCor) já mantém o state em dia.
+  const [cor, setCorLocal] = useState<string | null>(() => (typeof document !== "undefined" ? getCorAtiva() : null));
+  const [material, setMaterialLocal] = useState<MaterialKey>(() => (typeof document !== "undefined" ? getMaterialAtivo() : "vidro"));
+  const [hexLivre, setHexLivre] = useState<string>(() => (typeof document !== "undefined" ? hexDaCor(getCorAtiva()) : "#000000"));
 
   // Seleção ativa = SEMPRE Glass Pill deslizante (Lei nº2, docs/Rules/FRONTEND.md)
   // — mesmo par hook+componente que Conversas (conversas-lista.tsx) já usa.
   const modeGp = useGlassPill<HTMLButtonElement>(modeKey);
-  const temaGp = useGlassPill<HTMLButtonElement>(tema, casca.temas.length);
+  const materialGp = useGlassPill<HTMLButtonElement>(material, MATERIAIS.length);
 
   function flipMode(next: "light" | "dark") {
     if ((next === "dark") === isDark) return;
     applyThemeSoft(() => setThemeMode(next));
   }
 
-  function escolherTema(key: TemaKey) {
-    setTemaLocal(key);
-    setTema(key);
+  function escolherCor(valor: string) {
+    setCorLocal(valor);
+    setCor(valor);
+  }
+
+  function escolherMaterial(key: MaterialKey) {
+    setMaterialLocal(key);
+    setMaterial(key);
   }
 
   return (
@@ -296,27 +303,61 @@ export function TemaSection() {
         </div>
       </div>
       )}
-      {escolheTema(casca) && (
+      {/* COR — a MESMA grade do desktop (classes .aparencia__*), não uma
+          segunda versão dela. A fila de chips com nome que vivia aqui servia
+          6 cores; com a grade livre ela viraria uma tira de 17 nomes rolando
+          de lado. Bolinha resolve em um toque e cabe na largura do celular. */}
+      <div className="mais-m__tema-row is-col">
+        <span className="mais-m__tema-label">Cor</span>
+        <div className="aparencia__grade" role="radiogroup" aria-label="Cor do sistema">
+          {CORES.map(c => (
+            <button
+              type="button"
+              role="radio"
+              aria-checked={c.key === cor}
+              aria-label={c.nome}
+              key={c.key}
+              data-cor-key={c.key}
+              className={"aparencia__cor" + (c.key === cor ? " is-on" : "")}
+              onClick={() => escolherCor(c.key)}
+            />
+          ))}
+        </div>
+        <label className="aparencia__livre">
+          <input
+            type="color"
+            className="aparencia__livre-campo"
+            value={hexLivre}
+            onChange={e => { setHexLivre(e.target.value); escolherCor(e.target.value); }}
+          />
+          <span className="aparencia__livre-nome">Cor livre</span>
+          <span className="aparencia__livre-hex hbx-mono">
+            {cor && !CORES.some(c => c.key === cor) ? cor.toUpperCase() : ""}
+          </span>
+        </label>
+      </div>
+
+      {/* MATERIAL — aqui aplica NA HORA, como o modo. O celular não tem o
+          botão Aplicar do desktop: esta folha é de ajuste direto. */}
       <div className="mais-m__tema-row">
-        <span className="mais-m__tema-label">Tema</span>
-        <div className="mais-m__pele-chips glass-pill-track" role="tablist" aria-label="Tema">
-          <GlassPill {...temaGp} />
-          {casca.temas.map(t => (
+        <span className="mais-m__tema-label">Material</span>
+        <div className="casca-segment mais-m__mode-seg glass-pill-track" role="tablist" aria-label="Material das superfícies">
+          <GlassPill {...materialGp} />
+          {MATERIAIS.map(m => (
             <button
               type="button"
               role="tab"
-              aria-selected={tema === t.key}
-              key={t.key}
-              ref={temaGp.itemRef(t.key)}
-              className={"mais-m__pele-chip glass-pill-item" + (tema === t.key ? " is-on" : "")}
-              onClick={() => escolherTema(t.key)}
+              aria-selected={material === m.key}
+              key={m.key}
+              ref={materialGp.itemRef(m.key)}
+              className={"casca-segment__item glass-pill-item" + (material === m.key ? " is-on" : "")}
+              onClick={() => escolherMaterial(m.key)}
             >
-              {t.label}
+              {m.label}
             </button>
           ))}
         </div>
       </div>
-      )}
     </div>
   );
 }

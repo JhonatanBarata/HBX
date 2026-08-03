@@ -1013,3 +1013,62 @@ export class TirarDoDiaDto {
   @IsArray()
   customerProfileIds?: string[];
 }
+
+/**
+ * COCKPIT (03/08) — recado do escritório pro motorista.
+ * `paraUserId` ausente/null = broadcast pra todo mundo com trabalho hoje.
+ */
+export class EnviarRecadoDto {
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  paraUserId?: number | null;
+
+  @IsString()
+  @MaxLength(500)
+  texto!: string;
+
+  @IsOptional()
+  @IsIn(['normal', 'urgente', 'alarme'])
+  nivel?: 'normal' | 'urgente' | 'alarme';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  date?: string;
+}
+
+/** APK: resposta do motorista no mesmo fio. */
+export class ResponderRecadoDto {
+  @IsString()
+  @MaxLength(500)
+  texto!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  date?: string;
+}
+
+/** APK: "abri a lista" — marca visto sem exigir o Entendi do portão. */
+export class VistoRecadoDto {
+  @IsArray()
+  @ArrayMaxSize(50)
+  ids!: string[];
+}
+
+/**
+ * COCKPIT (03/08) — atribuição em LOTE. Nasceu da tela do dono com 51 paradas
+ * órfãs: uma por uma eram 51 arrastadas. `entregadorId` null desatribui (mesma
+ * semântica do PATCH de uma entrega só).
+ */
+export class AtribuirLoteDto {
+  @IsArray()
+  @ArrayMaxSize(300)
+  ids!: string[];
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  entregadorId?: number | null;
+}

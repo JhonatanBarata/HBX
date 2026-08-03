@@ -103,24 +103,24 @@
 /* Peles instaladas (tokens + camada de vestir; sempre por último
    para sobrescreverem o esqueleto). Pele nova = 1 arquivo + 1 linha
    + entrada no registry de theme-attributes.tsx. */
-/* ── AS 6 CORES ────────────────────────────────────────────────────────────
-   Valem para os DOIS padrões (Premium e Corporativo) — não existe cor que só
-   um deles tenha: padronizar é IGUALAR.
+/* ── A COR ─────────────────────────────────────────────────────────────────
+   UMA folha, qualquer cor (dono 03/08: "remover todas essas cores, deixar um
+   painel, multicor"). A pessoa escolhe um hex, ele chega como `--hbx-cor` e
+   theme-gerado.css constrói os ~60 tokens em OKLCH — usando do hex só MATIZ e
+   CROMA, porque a claridade de cada token é da casa. É a claridade cravada
+   que faz contraste ser consequência da escada, e não da sorte de quem
+   escolheu; tests/e2e/paletas.spec.ts varre matizes e mede.
 
-   Cor aqui é SÓ TOKEN. Nenhum destes arquivos toca em geometria, e é por isso
-   que 6 cores custam zero em risco de corte: quem decide largura, altura e
-   densidade é o padrão (casca) + hbx-system.css, e é isso que `npm run clip`
-   mede. O que as cores precisam provar é outra coisa — que nenhuma esqueceu
-   um token — e disso cuida tests/e2e/paletas.spec.ts.
+   Saíram daqui os 6 theme-<key>.css. Eles não eram cor: cada um carregava um
+   "Bloco B" de vestir, e por isso trocar de cor mudava vidro e canto do app
+   de raspão (medido: Aurora/Layout/Rosé com blur 24px, Ember/Lima/Corporativo
+   sem nenhum, no MESMO padrão). Das ~170 regras daquele bloco, quase todas já
+   eram letra morta — as cascas importam depois e venciam o empate. O que
+   sobrou de vivo virou eixo com botão: material.css.
 
-   Importadas DEPOIS do skeleton de propósito: em empate de especificidade com
+   Importada DEPOIS do skeleton de propósito: em empate de especificidade com
    o [data-theme-mode="dark"] de lá, a ordem da cascata faz o tema mandar. */
-@import "./hbx-theme/theme-aurora.css";
-@import "./hbx-theme/theme-hbx-cyber.css";
-@import "./hbx-theme/theme-corporativa.css";
-@import "./hbx-theme/theme-rose.css";
-@import "./hbx-theme/theme-ember.css";
-@import "./hbx-theme/theme-login.css";
+@import "./hbx-theme/theme-gerado.css";
 /* Paleta da CENTRAL DO LEAD (.cdl) — era o theme-premium.css, pele da casca
    HBX, removida em 31/07. Só o alvo .cdl sobreviveu: o desenho da ficha é
    fechado e vale em qualquer casca. */
@@ -142,6 +142,11 @@
 /* CORPORATIVA — densa, com grade. Reescreve a escada estrutural do
    spacing.css; por último pra vencer a outra em empate. */
 @import "./hbx-theme/casca-corporativa.css";
+
+/* MATERIAL — vidro ou chapado, o eixo que nasceu em 03/08 do efeito colateral
+   que as 6 cores causavam. DEPOIS das duas cascas: empata em especificidade
+   com [data-casca="…"][data-theme] e precisa da ordem pra ganhar. */
+@import "./hbx-theme/material.css";
 
 /* CENTRAL DO LEAD — o Detalhes do /vendas, desenho fechado e autocontido.
    DEPOIS das três cascas de propósito: as cascas mexem em `input`/`.tag` por

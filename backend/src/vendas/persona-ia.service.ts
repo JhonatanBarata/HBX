@@ -157,4 +157,44 @@ export class PersonaIaService {
     const perfil = await this.getPerfil(companyId).catch(() => null);
     return perfil?.persona?.nome || String(fallback || '').trim() || 'time comercial';
   }
+
+  /**
+   * 🔴 03/08 — QUANDO A CONVERSA TEM DONA, A PERSONA É DELA.
+   *
+   * A identidade nasceu por EMPRESA porque naquela época a empresa tinha UM chip:
+   * dois nomes no mesmo número é teatro que o lead percebe, e isso continua
+   * valendo. Só que agora cada vendedora tem o número DELA
+   * (`company-N-user-M`) — e a régua verdadeira nunca foi "uma empresa, um nome",
+   * foi **"um número, um nome"**. Com a identidade presa na empresa, cinco chips
+   * de cinco pessoas assinariam todos "Jhonatan": o lead recebe da Bianca e é
+   * respondido por outro nome, no mesmo número.
+   *
+   * Ordem do dono (03/08): *"a persona tem q puxar o nome da pessoa logada"*.
+   * Então: tendo pessoa atrás do envio (a dona da campanha, que é de quem sai o
+   * chip), o nome é o DELA. Sem pessoa, cai na identidade da empresa exatamente
+   * como antes — nenhum caminho de hoje fica sem nome.
+   *
+   * O nome vem SEMPRE do usuário vivo, nunca de cópia (mesma lei do
+   * `se_passa_por`), e o `where` com companyId é a lei multi-tenant. Login NÃO
+   * serve de nome: "mariaclara" no lugar de "Maria Clara" é o mesmo teatro por
+   * outro caminho — sem `name` preenchido, a empresa responde.
+   */
+  async assinaturaDaPessoa(
+    companyId: number,
+    userId: number | null | undefined,
+    fallback: string,
+  ): Promise<string> {
+    const id = Math.trunc(Number(userId || 0));
+    if (id > 0) {
+      const user = await (this.prisma as any).user
+        ?.findFirst?.({
+          where: { id, companyId: Number(companyId) },
+          select: { name: true },
+        })
+        .catch(() => null);
+      const nome = String(user?.name || '').trim().slice(0, AI_NOME_MAX);
+      if (nome) return nome;
+    }
+    return this.assinatura(companyId, fallback);
+  }
 }

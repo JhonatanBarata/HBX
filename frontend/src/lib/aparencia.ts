@@ -1,24 +1,33 @@
 // ============================================================
-// APARÊNCIA — fonte ÚNICA de CASCA + TEMA + MODO (o contrato).
+// APARÊNCIA — fonte ÚNICA de CASCA + COR + MATERIAL + MODO (o contrato).
 //
-// Antes (até 28/07) os três conceitos viviam grudados num valor só:
-// `hbx:pele = "aurora-mod"` carregava a cor E a casca, o boot do layout.tsx
-// tinha a própria lista duplicada, e `data-pele` existia só pra o seletor se
-// destacar. Agora são TRÊS eixos independentes:
+// Antes (até 28/07) os conceitos viviam grudados num valor só:
+// `hbx:pele = "aurora-mod"` carregava a cor E a casca. Depois viraram três
+// eixos; em 03/08 a COR deixou de ser uma lista fechada e o MATERIAL ganhou
+// dono próprio. Hoje são QUATRO eixos independentes:
 //
-//   CASCA  = a experiência inteira (densidade, superfície, geometria)
-//   TEMA   = a cor
-//   MODO   = claro/escuro
+//   CASCA     = a experiência inteira (densidade, geometria)
+//   COR       = uma cor qualquer, escolhida pela pessoa
+//   MATERIAL  = vidro ou chapado
+//   MODO      = claro/escuro
 //
-// DUAS CASCAS (dono 31/07 — a HBX foi removida inteira):
-//   backup       — lê-se "Premium". Escreve data-casca="modern" DE PROPÓSITO:
-//                  assim casca-modern.css continua byte-idêntico e o fallback
-//                  é garantido, não "quase igual".
-//   corporativa  — densa, orientada a dados ("cara de Excel").
-// As DUAS oferecem as mesmas 5 cores clássicas e os dois modos: a diferença
-// entre elas é DENSIDADE E GEOMETRIA, não paleta. Foi a ordem do dono ao
-// matar a HBX ("implante cores no corporativo, as mesmas cores do premium") e
-// é o que separa casca de tema de vez.
+// POR QUE A LISTA DE 6 CORES MORREU (dono, 03/08: "remover todas essas
+// cores, deixar um painel, multicor").
+//
+// As 6 cores não eram cor: eram meias-peles. Medido em /dev/pele, no MESMO
+// padrão Premium, o `.side` saía assim:
+//
+//   Aurora / Layout / Rosé  →  backdrop-filter: blur(24px)
+//   Ember / Lima / Corporativo →  blur: nenhum
+//
+// Metade tinha vidro e metade não — e ninguém tinha pedido isso. Trocar de
+// COR mudava o MATERIAL do app por acidente, porque cada theme-<key>.css
+// carregava um "Bloco B" de vestir junto com a paleta. O botão Vidro/Chapado
+// deste arquivo é a correção: o que era efeito colateral virou escolha.
+//
+// A troca também matou 170 regras de vestir que já eram letra morta — as duas
+// cascas são importadas DEPOIS das peles e venciam o empate de especificidade.
+// O que sobrou de real virou hbx-theme/material.css.
 //
 // ATENÇÃO — ESTE ARQUIVO NÃO PODE IMPORTAR REACT. Ele é importado pelo
 // app/layout.tsx, que é SERVER Component; qualquer hook aqui puxaria o módulo
@@ -28,55 +37,47 @@
 // ============================================================
 
 export type CascaKey = "corporativa" | "backup";
-/**
- * DOIS PADRÕES × SEIS CORES (dono, 01/08/2026, nesta ordem):
- *   "crie 2 padrões só! Premium e Corporativo"
- *   ...e depois, vendo a tela: "quero opção de cores, pelo menos as 5".
- *
- * As duas ordens não se contradizem, e vale entender por quê — é a lição
- * central da noite.
- *
- * O que impedia a garantia de "nada some" NUNCA foi a quantidade de cor: era
- * o fato de que 24 combinações não se conferem À MÃO. Ninguém abre 24 telas
- * para validar um espaçamento, e o que ninguém confere ninguém garante. Cortar
- * para 4 foi a saída disponível ENQUANTO a conferência era humana.
- *
- * Na mesma noite nasceu a rede (tests/e2e/design-system.spec.ts + npm run
- * clip): a máquina abre as telas, com dado hostil, e mede elemento por
- * elemento. A partir daí o custo de manter cor deixou de ser atenção humana e
- * passou a ser segundos de CPU — e escolha de cor voltou a ser barata.
- *
- * Por isso o eixo COR voltou inteiro, e agora vale para os DOIS padrões (lei
- * do dono: padronizar é IGUALAR — não existe cor que só um padrão tem).
- * Continua valendo a separação de conceitos:
- *   PADRÃO (casca) = densidade e geometria  -> o que a rede de corte mede
- *   COR   (tema)   = paleta, só token       -> não mexe em um pixel de layout
- * É essa separação que permite as 6 cores custarem zero em risco de corte: se
- * cor não muda geometria, medir 2 padrões × 3 larguras já cobre a geometria
- * inteira. O que as cores precisam provar é OUTRA coisa — que nenhuma delas
- * esqueceu um token —, e disso cuida tests/e2e/paletas.spec.ts.
- *
- * Os NOMES DE ATRIBUTO (`login`, `hbx-cyber`…) são os de sempre de propósito,
- * pelo mesmo motivo que a casca Premium se chama `backup` no código: estão
- * gravados no navegador de cada usuário e pendurados em seletores de CSS.
- * Leia `label` ao falar com o usuário, `key`/`attr` ao falar com o código.
- */
-export type TemaKey = "aurora" | "hbx-cyber" | "login" | "ember" | "rose" | "corporativa";
 export type Modo = "light" | "dark";
 
-// Chaves de armazenamento — uma por eixo (era `hbx:pele`, combinado).
+/**
+ * COR — um hex, não uma chave de registro.
+ *
+ * O valor guardado é SÓ a semente. Quem constrói os ~60 tokens da tela é
+ * hbx-theme/theme-gerado.css, em OKLCH, e ele usa da semente apenas MATIZ e
+ * CROMA: a escada de claridade é da casa e é fixa. É isso que torna "qualquer
+ * cor" seguro — contraste vira consequência da escada, não da sorte de quem
+ * escolheu. Cor clara demais para texto branco não existe, porque a claridade
+ * do botão nunca vem do usuário.
+ */
+export type Cor = string;
+
+/** `<html data-theme>` tem UM valor agora. Fica de pé porque ~75 seletores de
+ *  casca casam `[data-casca="…"][data-theme]` e sumiriam sem o atributo. */
+export const TEMA_ATTR = "hbx";
+
+export type MaterialKey = "vidro" | "chapado";
+export const MATERIAIS: ReadonlyArray<{ key: MaterialKey; label: string }> = [
+  { key: "vidro", label: "Vidro" },
+  { key: "chapado", label: "Chapado" },
+];
+
+// Chaves de armazenamento — uma por eixo.
+export const CASCA_STORAGE = "hbx:casca";
+export const COR_STORAGE = "hbx:cor";
+export const MATERIAL_STORAGE = "hbx:material";
+export const MODE_STORAGE = "hbx:mode";
+/** chave ANTIGA de cor (`aurora`, `ember`…) — lida uma vez pra migrar. */
+export const LEGACY_TEMA_STORAGE = "hbx:tema";
+/** chave MAIS antiga (`aurora-mod`) — casca e cor no mesmo valor. */
+export const LEGACY_PELE_STORAGE = "hbx:pele";
+
 /**
  * DENSIDADE — a terceira liberdade (decisão do dono, 01/08).
  *
- * O token `--hbx-densidade` já existia, mas era refém da casca: Premium 1,
- * Corporativo 0,875, e o usuário não escolhia nada. Medido antes de expor o
- * controle: o token alimentava só DOIS lugares no app inteiro (altura de botão
- * e de campo), o que faria de "Compacto/Normal/Folgado" um botão que quase não
- * muda nada — exatamente o tipo de controle que ensina o usuário a desconfiar
- * do resto da tela. Por isso ele só nasceu depois de a densidade passar a
- * mandar na ALTURA DE LINHA das listas, que é onde "planilha × folga" se sente.
- *
  * A casca continua dando o PADRÃO; a escolha do usuário, quando existe, vence.
+ * MATERIAL nasceu copiando este desenho de propósito: `null` = "sem
+ * preferência, quem manda é a casca" é um estado de verdade, não um terceiro
+ * valor inventado no meio do caminho.
  */
 export const DENSIDADE_STORAGE = "hbx:densidade";
 export type DensidadeKey = "compacta" | "normal" | "folgada";
@@ -89,52 +90,115 @@ export function resolveDensidade(valor: string | null | undefined): DensidadeKey
   return DENSIDADES.some(d => d.key === valor) ? (valor as DensidadeKey) : null;
 }
 
-export const CASCA_STORAGE = "hbx:casca";
-export const TEMA_STORAGE = "hbx:tema";
-export const MODE_STORAGE = "hbx:mode";
-/** chave ANTIGA (`aurora-mod`) — lida uma vez pra migrar e apagada. */
-export const LEGACY_PELE_STORAGE = "hbx:pele";
-
-export type TemaDef = { key: TemaKey; label: string };
+export type CorDef = { key: string; nome: string };
 
 /**
- * AS 6 CORES — as mesmas para os dois padrões.
+ * A GRADE — o atalho, não a cerca.
  *
- * Ordem do menu = da mais sóbria para a mais quente, porque é assim que se
- * escolhe: quem abre o seletor num app de trabalho quer primeiro ver o que
- * não chama atenção. Verde-limão (Índigo era o nome antigo "Login") desceu da
- * primeira posição de propósito — ele era o padrão de fábrica e o dono
- * reprovou em 01/08: "esse verde ficou feio demais".
+ * 15 matizes + 2 neutros, todos calculados na MESMA claridade OKLCH (L 0,55) e
+ * no croma MÁXIMO que cabe no sRGB daquele matiz. É por isso que a grade
+ * parece uma família e não um saco de cores: elas só diferem no eixo que a
+ * pessoa está escolhendo. Croma máximo (e não um valor fixo) porque um croma
+ * que caiba no amarelo deixa o vermelho lavado — medido: 0,15 em todos
+ * transformava "Vermelho" num rosa empoeirado.
  *
- * `hbx-cyber` se chama **Layout** desde 28/07: ele se chamava "HBX" na mesma
- * conversa em que uma casca também virou "HBX", e ficaram dois "HBX" no mesmo
- * menu. A casca morreu; o rótulo Layout ficou.
+ * OS HEX NÃO ESTÃO AQUI, e não por acaso: o fiscal (check-pele.mjs, R2) varre
+ * `.ts` junto com `.tsx`, e o bloco `pele-allow` só existe no laço de CSS.
+ * Cor literal mora em pele — os 17 tons vivem em hbx-theme/theme-gerado.css
+ * como `--cor-<key>`, e `[data-cor="<key>"]` de lá é quem resolve o nome em
+ * cor. Guardar o NOME tem um efeito bom de lado: reajustar um tom da grade
+ * alcança quem já o escolheu, porque o atalho é referência viva e não cópia
+ * congelada no navegador de cada um.
  *
- * Nenhuma linha de JSX muda quando esta lista muda: o menu em
- * components/hbx/shell.tsx é guiado por este registro. Registro que manda na
- * tela é o que permite mudar produto editando dado.
+ * Quem quer o azul EXATO da própria marca não usa a grade: usa a cor livre, e
+ * aí sim o hex vai inline no <html>.
  */
-const CORES: readonly TemaDef[] = [
-  { key: "aurora", label: "Aurora" },
-  { key: "hbx-cyber", label: "Layout" },
-  { key: "corporativa", label: "Corporativo" },
-  { key: "rose", label: "Rosé" },
-  { key: "ember", label: "Ember" },
-  { key: "login", label: "Lima" },
+export const CORES: readonly CorDef[] = [
+  { key: "vermelho", nome: "Vermelho" },
+  { key: "laranja", nome: "Laranja" },
+  { key: "ambar", nome: "Âmbar" },
+  { key: "ouro", nome: "Ouro" },
+  { key: "limao", nome: "Limão" },
+  { key: "verde", nome: "Verde" },
+  { key: "esmeralda", nome: "Esmeralda" },
+  { key: "turquesa", nome: "Turquesa" },
+  { key: "ciano", nome: "Ciano" },
+  { key: "azul", nome: "Azul" },
+  { key: "anil", nome: "Anil" },
+  { key: "violeta", nome: "Violeta" },
+  { key: "purpura", nome: "Púrpura" },
+  { key: "magenta", nome: "Magenta" },
+  { key: "rosa", nome: "Rosa" },
+  { key: "ardosia", nome: "Ardósia" },
+  { key: "grafite", nome: "Grafite" },
 ];
 
-/** Toda cor que existe. Usada também pela migração do formato antigo. */
-const TEMAS_VIVOS: readonly TemaDef[] = CORES;
+/** Padrão de fábrica — o violeta que o Aurora ocupava desde 01/08. O VALOR
+ *  dele mora em theme-gerado.css; aqui fica só o nome. */
+export const COR_PADRAO = "violeta";
+
+/** Nome da grade? Devolve a key; senão `null`. */
+export function corDaGrade(valor: string | null | undefined): string | null {
+  return CORES.some(c => c.key === valor) ? String(valor) : null;
+}
+
+/**
+ * Aceita só `#RGB`/`#RRGGBB`. Devolve sempre 6 dígitos maiúsculos, ou `null`.
+ *
+ * Guarda de verdade, não formalidade: o valor vem de localStorage (que
+ * qualquer um edita) e entra numa `style` do <html>. Sem esta peneira,
+ * `#fff;} html{display:none` seria uma "cor" válida.
+ */
+export function normalizarHex(valor: string | null | undefined): string | null {
+  if (typeof valor !== "string") return null;
+  const v = valor.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(v)) return v.toUpperCase();
+  if (/^#[0-9a-fA-F]{3}$/.test(v)) {
+    return ("#" + v.slice(1).split("").map(c => c + c).join("")).toUpperCase();
+  }
+  return null;
+}
+
+/** O que está guardado: um nome da grade, um hex livre, ou nada. */
+export function classificarCor(valor: string | null | undefined):
+  { tipo: "grade"; key: string } | { tipo: "livre"; hex: string } | null {
+  const key = corDaGrade(valor);
+  if (key) return { tipo: "grade", key };
+  const hex = normalizarHex(valor);
+  if (hex) return { tipo: "livre", hex };
+  return null;
+}
+
+/**
+ * As 6 chaves antigas viram o tom mais próximo da grade.
+ *
+ * Ninguém abre o app numa cor que não escolheu: quem estava no Ember acha um
+ * laranja, quem estava no Rosé acha um rosa. A queda macia continua sendo a
+ * regra da casa — chave desconhecida cai no padrão, sem tela quebrada.
+ */
+const LEGADO: Readonly<Record<string, string>> = {
+  aurora: "violeta",
+  "hbx-cyber": "anil",
+  corporativa: "azul",
+  rose: "rosa",
+  ember: "laranja",
+  login: "limao",
+};
+
+export function corDoLegado(tema: string | null | undefined): string | null {
+  if (!tema) return null;
+  return LEGADO[String(tema).replace(/-mod$/, "")] ?? null;
+}
 
 export type CascaDef = {
   key: CascaKey;
   label: string;
-  /** valor escrito em <html data-casca>. Ver nota do `backup` no topo. */
+  /** valor escrito em <html data-casca>. Ver nota do `backup` abaixo. */
   attr: string;
-  temas: readonly TemaDef[];
   modos: readonly Modo[];
-  temaPadrao: TemaKey;
   modoPadrao: Modo;
+  /** material que a casca entrega quando a pessoa não escolheu nada. */
+  materialPadrao: MaterialKey;
 };
 
 // ============================================================
@@ -146,50 +210,29 @@ export type CascaDef = {
 // Sim, a chave `backup` mostra "Premium". É proposital e NÃO deve ser
 // "consertado" renomeando a chave: `hbx:casca` está gravado no navegador de
 // cada usuário e o `attr` é o que escreve `<html data-casca>`, de onde pendem
-// ~75 seletores de CSS. Renomear obrigaria a migrar storage e reescrever as
-// folhas, sem mudar um pixel na tela. Regra pra quem mexer aqui: leia `label`
-// quando falar com o usuário, leia `key`/`attr` quando falar com o código.
+// ~75 seletores de CSS. Regra pra quem mexer aqui: leia `label` quando falar
+// com o usuário, leia `key`/`attr` quando falar com o código.
 //
-// A CASCA "HBX" (chave `premium`, attr premium) FOI REMOVIDA em 31/07 —
-// registro, casca-premium.css e a paleta [data-theme="premium"] saíram
-// juntos. O que sobrevive daquele arquivo é SÓ a paleta `.cdl`, que nunca foi
-// da casca: é o desenho fechado da Central do Lead, que vale em qualquer
-// casca (hoje em theme-central-do-lead.css). Quem tinha a casca HBX salva no
-// navegador cai no padrão sozinho — getCasca() já resolve chave desconhecida.
-//
-// Não existe descrição/legenda por casca: o menu mostra só o nome (o dono
-// cortou o subtítulo — "Remova explicações, eu pedi?").
+// O `materialPadrao` só descreve o que cada casca JÁ fazia antes de o material
+// virar botão: a Premium nasceu de vidro, a Corporativa nasceu chapada. Quem
+// nunca abrir o painel não vê diferença nenhuma.
 // ============================================================
 export const CASCAS: readonly CascaDef[] = [
   {
     key: "backup",
     label: "Premium",
     attr: "modern",
-    temas: CORES,
     modos: ["light", "dark"],
-    // PADRÃO DE FÁBRICA — era `login` (verde-limão) e virou `aurora` em
-    // 01/08 por reprovação direta do dono ("esse verde ficou feio demais").
-    // Aurora (roxo → ciano) é também a cor da própria marca no menu lateral,
-    // então o app deixa de abrir discordando de si mesmo.
-    // Trocar de volta = uma palavra nesta linha; quem já escolheu cor não é
-    // afetado, porque só se grava o que o usuário ESCOLHE.
-    temaPadrao: "aurora",
     modoPadrao: "light",
+    materialPadrao: "vidro",
   },
   {
     key: "corporativa",
     label: "Corporativo",
     attr: "corporativa",
-    // O que separa as duas é DENSIDADE, e a densidade é um token só
-    // (--hbx-densidade, em hbx-theme/hbx-system.css). Mesma estrutura, mesma
-    // tela, respirando diferente: um layout para desenhar, um para testar, e
-    // trocar de padrão não CONSEGUE fazer nada sumir — por construção, não
-    // por disciplina. Foi a ordem do dono em 01/08 ("só token, mesma
-    // estrutura") e é o que torna a garantia verificável.
-    temas: CORES,
     modos: ["light", "dark"],
-    temaPadrao: "corporativa",
     modoPadrao: "light",
+    materialPadrao: "chapado",
   },
 ];
 
@@ -200,34 +243,22 @@ export function getCasca(key: string | null | undefined): CascaDef {
   return CASCAS.find(c => c.key === key) ?? CASCAS.find(c => c.key === CASCA_PADRAO)!;
 }
 
-/** true = o menu Aparência mostra o seletor de tema/modo pra esta casca. */
-export function escolheTema(casca: CascaDef): boolean { return casca.temas.length > 1; }
+/** true = o menu Aparência mostra o seletor de modo pra esta casca. */
 export function escolheModo(casca: CascaDef): boolean { return casca.modos.length > 1; }
-
-/** Tema válido PRA ESTA casca (senão o padrão dela). */
-export function resolveTema(casca: CascaDef, tema: string | null | undefined): TemaKey {
-  return casca.temas.some(t => t.key === tema) ? (tema as TemaKey) : casca.temaPadrao;
-}
 
 /** Modo válido PRA ESTA casca (hoje as duas aceitam claro e escuro). */
 export function resolveModo(casca: CascaDef, modo: string | null | undefined): Modo {
   return casca.modos.includes(modo as Modo) ? (modo as Modo) : casca.modoPadrao;
 }
 
-/**
- * Migração do formato antigo (`hbx:pele = "aurora-mod"`).
- *
- * Quem tinha Aurora, Ember, Rosé ou Layout salvo não vê tela quebrada nem
- * mensagem de erro: a cor extinta simplesmente não é reconhecida aqui,
- * `resolveTema` cai no padrão da casca e a pessoa abre o app no Premium. É a
- * mesma queda macia que já existia para a casca HBX removida em 31/07 — a
- * regra da casa é que o registro é a fonte da verdade e o que não está nele
- * não existe, em vez de ficar meio-vivo em algum canto do código.
- */
-export function temaDoLegado(pele: string | null | undefined): TemaKey | null {
-  if (!pele) return null;
-  const base = String(pele).replace(/-mod$/, "");
-  return TEMAS_VIVOS.some(t => t.key === base) ? (base as TemaKey) : null;
+/** Material escolhido, ou o da casca quando não há escolha. */
+export function resolveMaterial(casca: CascaDef, material: string | null | undefined): MaterialKey {
+  return MATERIAIS.some(m => m.key === material) ? (material as MaterialKey) : casca.materialPadrao;
+}
+
+/** Só a ESCOLHA (sem cair no padrão da casca) — `null` = "quem manda é a casca". */
+export function resolveMaterialEscolhido(valor: string | null | undefined): MaterialKey | null {
+  return MATERIAIS.some(m => m.key === valor) ? (valor as MaterialKey) : null;
 }
 
 /**
@@ -240,32 +271,40 @@ export function buildAparenciaBoot(): string {
   const registro = CASCAS.map(c => ({
     k: c.key,
     a: c.attr,
-    t: c.temas.map(t => t.key),
     m: c.modos,
-    td: c.temaPadrao,
     md: c.modoPadrao,
+    mt: c.materialPadrao,
   }));
-  // `h.removeAttribute("data-engine")` vivia aqui, herdado do boot antigo.
-  // Varredura de 28/07: `data-engine` aparece em ZERO lugares no repositório
-  // inteiro — ninguém nunca seta. Era limpeza de um conceito que já tinha sido
-  // removido, rodando em toda carga de página desde então. Saiu.
   return `(function(){try{`
     + `var h=document.documentElement;`
     + `var C=${JSON.stringify(registro)},P=${JSON.stringify(CASCA_PADRAO)};`
     + `var g=function(k){try{return localStorage.getItem(k);}catch(e){return null;}};`
     + `var casca=g(${JSON.stringify(CASCA_STORAGE)});`
-    + `var tema=g(${JSON.stringify(TEMA_STORAGE)});`
+    + `var cor=g(${JSON.stringify(COR_STORAGE)});`
     + `var modo=g(${JSON.stringify(MODE_STORAGE)});`
-    // migração do valor combinado antigo (só quando ainda não há casca salva)
-    + `if(!casca){var L=g(${JSON.stringify(LEGACY_PELE_STORAGE)});`
-    + `if(L){casca=P;if(!tema){tema=String(L).replace(/-mod$/,"");}}}`
+    // migração 1: o valor combinado antigo (`hbx:pele = "aurora-mod"`)
+    + `if(!casca){var L=g(${JSON.stringify(LEGACY_PELE_STORAGE)});if(L){casca=P;}}`
+    // migração 2: as 6 chaves de cor (`hbx:tema = "ember"`) viram nome da grade
+    + `if(!cor){var T=g(${JSON.stringify(LEGACY_TEMA_STORAGE)})||g(${JSON.stringify(LEGACY_PELE_STORAGE)});`
+    + `if(T){var M=${JSON.stringify(LEGADO)};cor=M[String(T).replace(/-mod$/,"")]||null;}}`
     + `var d=null,i;for(i=0;i<C.length;i++){if(C[i].k===casca){d=C[i];break;}}`
     + `if(!d){for(i=0;i<C.length;i++){if(C[i].k===P){d=C[i];break;}}}`
-    + `if(d.t.indexOf(tema)<0){tema=d.td;}`
     + `if(d.m.indexOf(modo)<0){modo=d.md;}`
+    + `var mat=g(${JSON.stringify(MATERIAL_STORAGE)});`
+    + `if(mat!=="vidro"&&mat!=="chapado"){mat=d.mt;}`
     + `h.setAttribute("data-casca",d.a);`
-    + `h.setAttribute("data-theme",tema);`
+    + `h.setAttribute("data-theme",${JSON.stringify(TEMA_ATTR)});`
     + `h.setAttribute("data-theme-mode",modo);`
+    + `h.setAttribute("data-material",mat);`
+    // COR — dois caminhos, e só um deles vale por vez. Nome da grade vira
+    // atributo (o hex fica na folha); cor livre vai inline. Escrever os dois
+    // deixaria o inline vencendo para sempre e o atalho da grade mudo.
+    + `var G=${JSON.stringify(CORES.map(c => c.key))};`
+    + `if(G.indexOf(cor)>=0){h.setAttribute("data-cor",cor);h.style.removeProperty("--hbx-cor");}`
+    + `else if(/^#[0-9a-fA-F]{6}$/.test(cor||"")){h.removeAttribute("data-cor");h.style.setProperty("--hbx-cor",cor);}`
+    // Sem escolha válida: nenhum dos dois. O padrão de fábrica é a declaração
+    // que já está em theme-gerado.css — o boot não repete o valor.
+    + `else{h.removeAttribute("data-cor");h.style.removeProperty("--hbx-cor");}`
     // Densidade entra no MESMO boot inline que a pele, e pelo mesmo motivo:
     // ela muda altura de linha, e altura de linha aplicada depois do primeiro
     // paint é a tela pulando na cara do usuário a cada carregamento.

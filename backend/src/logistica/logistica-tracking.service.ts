@@ -1110,7 +1110,11 @@ function insertTimelinePoint(timeline: TimelinePoint[], point: NormalizedPoint) 
   timeline.splice(index, 0, point);
 }
 
-function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
+// Exportada desde 03/08: a SENTINELA (logistica-rota-aviso.service) mede "não
+// saiu do lugar" e "está fora de qualquer cliente" com a MESMA régua que o
+// rastreamento usa pra validar ponto — duas fórmulas de distância no módulo
+// seriam duas verdades sobre a mesma pergunta.
+export function haversineMeters(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const radiusM = 6_371_000;
   const dLat = toRadians(lat2 - lat1);
   const dLng = toRadians(lng2 - lng1);

@@ -15,10 +15,10 @@ import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { AlertaLeadQuente } from "@/components/hbx/disparo-panel";
 import { CostasPainel, toggleCostas, useCostasDisponivel, useCostasLigado } from "@/components/hbx/costas-panel";
 import { CercaDeEnfeite } from "@/components/hbx/error-boundary";
-import { applyThemeSoft, getCascaAtiva, getDensidadeAtiva, getTemaAtivo, setAparencia, setDensidade, setThemeMode } from "@/components/hbx/theme-attributes";
+import { applyThemeSoft, getCascaAtiva, getCorAtiva, getDensidadeAtiva, getMaterialAtivo, hexDaCor, setAparencia, setDensidade, setThemeMode } from "@/components/hbx/theme-attributes";
 import {
-  CASCAS, DENSIDADES, escolheModo, escolheTema, getCasca, resolveModo, resolveTema,
-  type CascaDef, type CascaKey, type DensidadeKey, type Modo, type TemaKey,
+  CASCAS, CORES, DENSIDADES, MATERIAIS, escolheModo, getCasca, resolveModo,
+  type CascaKey, type DensidadeKey, type MaterialKey, type Modo,
 } from "@/lib/aparencia";
 import { apiFetch, getToken } from "@/lib/api";
 import { getInitialGeoState, hasStoredGeo, toggleGeoRadar } from "@/lib/geo-radar";
@@ -1325,10 +1325,16 @@ export function subscribeToThemeMode(callback: () => void) {
 //    uma vez e fecha. Desistiu? Clique fora ou Esc: nada aconteceu, porque
 //    nada tinha sido aplicado. É o oposto do menu antigo, que mudava e
 //    fechava no primeiro clique;
-//  · a casca que tem cor/modo pra escolher ganha uma seta e abre um
-//    SEGUNDO NÍVEL que desliza, com "voltar". Quem não tem resolve em um
-//    clique, na mesma lista. Quem decide isso é o CONTRATO
-//    (escolheTema/escolheModo de lib/aparencia.ts), não um `if` daqui.
+//  · cada casca ganha uma seta e abre um SEGUNDO NÍVEL que desliza, com
+//    "voltar".
+//
+// 03/08 — A COR VIROU PAINEL (dono: "remover todas essas cores, deixar um
+// painel, multicor. A pessoa escolhe qual quer e aplica"). No lugar da lista
+// de 6 nomes entram uma GRADE de 17 bolinhas e um campo de COR LIVRE, e os
+// dois gravam no mesmo lugar: a grade manda o NOME (`violeta`, resolvido pela
+// folha) e o campo manda o HEX. Entrou junto o botão VIDRO/CHAPADO — material
+// era efeito colateral da cor até aqui (metade das 6 tinha vidro, metade não,
+// e ninguém tinha escolhido isso), e virou escolha.
 //
 // O rascunho nasce do que está NO AR toda vez que o menu abre, e morre ao
 // fechar sem aplicar — não existe estado meio-aplicado.
@@ -1342,7 +1348,8 @@ export function subscribeToThemeMode(callback: () => void) {
 // ---------------------------------------------------------------
 export function AparenciaSwitch() {
   const cascaKey = useSyncExternalStore(subscribeToThemeMode, getCascaAtiva, () => "backup" as const);
-  const temaKey = useSyncExternalStore(subscribeToThemeMode, getTemaAtivo, () => "login" as const);
+  const corKey = useSyncExternalStore(subscribeToThemeMode, getCorAtiva, () => null);
+  const materialKey = useSyncExternalStore(subscribeToThemeMode, getMaterialAtivo, () => "vidro" as const);
   const modeAttr = useSyncExternalStore(
     subscribeToThemeMode,
     () => document.documentElement.getAttribute("data-theme-mode"),
@@ -1359,37 +1366,44 @@ export function AparenciaSwitch() {
 
   // RASCUNHO — o que está marcado no menu. Nada disso vale até o Aplicar.
   const [draftCasca, setDraftCasca] = useState<CascaKey>(cascaKey);
-  const [draftTema, setDraftTema] = useState<TemaKey>(temaKey);
+  const [draftCor, setDraftCor] = useState<string | null>(corKey);
+  const [draftMaterial, setDraftMaterial] = useState<MaterialKey>(materialKey);
   const [draftModo, setDraftModo] = useState<Modo>(modeAttr === "dark" ? "dark" : "light");
+  // O hex que o campo de cor livre mostra. Nasce do que está no ar e só muda
+  // quando a pessoa mexe NO CAMPO — clicar na grade não reescreve o campo,
+  // senão o valor "de onde eu vim" se perderia a cada bolinha experimentada.
+  const [hexLivre, setHexLivre] = useState<string>("#000000");
 
   const fechar = useCallback(() => { setOpen(false); setDeep(false); }, []);
   const boxRef = useClickAway<HTMLSpanElement>(open, fechar);
 
   const noAr = getCasca(cascaKey);
   const casca = getCasca(draftCasca);
-  const temEscolha = (c: CascaDef) => escolheTema(c) || escolheModo(c);
-  // O rascunho é clampado pela casca escolhida: trocar de casca não pode
-  // deixar uma cor que ela não tem marcada na tela.
-  const temaDraft = resolveTema(casca, draftTema);
   const modoDraft = resolveModo(casca, draftModo);
-  const corNoAr = noAr.temas.find(t => t.key === temaKey) || noAr.temas[0];
+  // Nome do que está no ar, pro rótulo do botão. Cor fora da grade não tem
+  // nome — e inventar um ("Azul-ish") seria pior que dizer a verdade.
+  const nomeNoAr = CORES.find(c => c.key === corKey)?.nome
+    ?? (corKey ? "Personalizada" : CORES.find(c => c.key === "violeta")?.nome ?? "");
 
   const mudou = draftCasca !== cascaKey
-    || temaDraft !== temaKey
+    || draftCor !== corKey
+    || draftMaterial !== materialKey
     || (escolheModo(casca) && modoDraft !== (modeAttr === "dark" ? "dark" : "light"));
 
   // Abrir SEMPRE parte do que está no ar — sem rascunho velho sobrando.
   function abrir() {
     setDraftCasca(cascaKey);
-    setDraftTema(temaKey);
+    setDraftCor(corKey);
+    setDraftMaterial(materialKey);
     setDraftModo(modeAttr === "dark" ? "dark" : "light");
+    setHexLivre(hexDaCor(corKey));
     setDensidadeLocal(getDensidadeAtiva());
     setDeep(false);
     setOpen(true);
   }
 
   function aplicar() {
-    setAparencia(draftCasca, temaDraft, modoDraft);
+    setAparencia(draftCasca, draftCor, modoDraft, draftMaterial);
     fechar();
   }
 
@@ -1398,7 +1412,7 @@ export function AparenciaSwitch() {
     if (!open) return;
     const alvo = deep ? lvl2Ref.current : lvl1Ref.current;
     if (alvo) setDeckH(alvo.offsetHeight);
-  }, [open, deep, draftCasca, temaDraft, modoDraft]);
+  }, [open, deep, draftCasca, draftCor, draftMaterial, modoDraft]);
 
   useEffect(() => {
     if (!open) return;
@@ -1421,8 +1435,8 @@ export function AparenciaSwitch() {
       <button className="btn-ghost aparencia__trigger" onClick={() => (open ? fechar() : abrir())}
         aria-expanded={open} aria-haspopup="menu" aria-label="Escolher aparência"
         data-tut="pele">
-        <span className="aparencia__swatch aparencia__dot" data-tema={temaKey} />
-        {escolheTema(noAr) ? `${noAr.label} · ${corNoAr?.label ?? ""}` : noAr.label}
+        <span className="aparencia__swatch aparencia__cor-viva" />
+        {`${noAr.label} · ${nomeNoAr}`}
         <span className="aparencia__caret" aria-hidden="true">▾</span>
       </button>
 
@@ -1436,37 +1450,62 @@ export function AparenciaSwitch() {
                 <button key={c.key} role="menuitemradio" aria-checked={c.key === draftCasca}
                   className={"aparencia__item" + (c.key === draftCasca ? " is-on" : "")}
                   tabIndex={deep ? -1 : 0}
-                  onClick={() => { setDraftCasca(c.key); if (temEscolha(c)) setDeep(true); }}>
+                  onClick={() => { setDraftCasca(c.key); setDeep(true); }}>
                   <span className="aparencia__mark" aria-hidden="true">{c.key === draftCasca ? "✓" : ""}</span>
                   <span className="aparencia__label">{c.label}</span>
-                  {temEscolha(c) && <span className="aparencia__go" aria-hidden="true">›</span>}
+                  <span className="aparencia__go" aria-hidden="true">›</span>
                 </button>
               ))}
             </div>
 
-            {/* ── NÍVEL 2: cor e modo da casca que os tem ── */}
+            {/* ── NÍVEL 2: cor, material, modo e densidade ── */}
             <div className="aparencia__lvl aparencia__lvl--2" ref={lvl2Ref} aria-hidden={!deep}>
               <button className="aparencia__back" onClick={() => setDeep(false)} tabIndex={deep ? 0 : -1}>
                 <span aria-hidden="true">‹</span> {casca.label}
               </button>
 
-              {escolheTema(casca) && (
-                <>
-                  <div className="aparencia__cap">Cor</div>
-                  {casca.temas.map(t => (
-                    <button key={t.key} role="menuitemradio" aria-checked={t.key === temaDraft}
-                      className={"aparencia__item" + (t.key === temaDraft ? " is-on" : "")}
-                      tabIndex={deep ? 0 : -1}
-                      onClick={() => setDraftTema(t.key)}>
-                      <span className="aparencia__mark" aria-hidden="true">{t.key === temaDraft ? "✓" : ""}</span>
-                      <span className="aparencia__dot" data-tema={t.key} aria-hidden="true" />
-                      <span className="aparencia__label">{t.label}</span>
-                    </button>
-                  ))}
-                </>
-              )}
+              {/* COR — a grade é o atalho; o campo ao lado é a saída pra quem
+                  quer o tom exato da própria marca. Os dois gravam no MESMO
+                  lugar: um manda o nome, o outro manda o hex. */}
+              <div className="aparencia__cap">Cor</div>
+              <div className="aparencia__grade" role="radiogroup" aria-label="Cor do sistema">
+                {CORES.map(c => (
+                  <button key={c.key} type="button" role="radio" aria-checked={c.key === draftCor}
+                    aria-label={c.nome} title={c.nome}
+                    data-cor-key={c.key}
+                    className={"aparencia__cor" + (c.key === draftCor ? " is-on" : "")}
+                    tabIndex={deep ? 0 : -1}
+                    onClick={() => setDraftCor(c.key)} />
+                ))}
+              </div>
+              <label className="aparencia__livre">
+                {/* O próprio input é a amostra: ele já pinta a cor escolhida,
+                    então uma bolinha ao lado seria o mesmo dado em dois lugares. */}
+                <input type="color" className="aparencia__livre-campo" value={hexLivre}
+                  tabIndex={deep ? 0 : -1}
+                  onChange={e => { setHexLivre(e.target.value); setDraftCor(e.target.value); }} />
+                <span className="aparencia__livre-nome">Cor livre</span>
+                <span className="aparencia__livre-hex hbx-mono">
+                  {draftCor && !CORES.some(c => c.key === draftCor) ? draftCor.toUpperCase() : ""}
+                </span>
+              </label>
 
-              {escolheTema(casca) && escolheModo(casca) && <div className="aparencia__sep" />}
+              <div className="aparencia__sep" />
+
+              {/* MATERIAL — o eixo que nasceu do efeito colateral das 6 cores
+                  (metade tinha vidro, metade não, e ninguém tinha escolhido). */}
+              <div className="aparencia__cap">Material</div>
+              <div className="aparencia__seg" role="group" aria-label="Material das superfícies">
+                {MATERIAIS.map(m => (
+                  <button key={m.key} className={draftMaterial === m.key ? "is-on" : ""}
+                    aria-pressed={draftMaterial === m.key} tabIndex={deep ? 0 : -1}
+                    onClick={() => setDraftMaterial(m.key)}>
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+
+              {escolheModo(casca) && <div className="aparencia__sep" />}
 
               {escolheModo(casca) && (
                 <>

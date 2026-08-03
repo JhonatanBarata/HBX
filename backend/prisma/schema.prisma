@@ -310,6 +310,8 @@ model Company {
   logisticaRotasIndicadas LogisticaRotaIndicada[]
   // 31/07 — recados de rota que morreu no meio (abandonada/parcial/parada).
   logisticaRotaAvisos    LogisticaRotaAviso[]
+  // COCKPIT (03/08) — canal de recado escritório ⇄ motorista.
+  logisticaRecados       LogisticaRecado[]
   // AGENDA-SEMANAL (23/07) — planos recorrentes, paradas normalizadas e ações
   // auditadas. Tudo aditivo; ClienteProduto/paradasJson continuam compatíveis.
   logisticaPlanosEntrega LogisticaPlanoEntrega[]
@@ -1546,12 +1548,65 @@ model LogisticaRotaAviso {
   total           Int      @default(0)
   entregues       Int      @default(0)
   abertas         Int      @default(0)
+  // SENTINELA (03/08) — o número que o tipo sozinho não carrega ("22 min sem
+  // andar", "sem sinal desde 15:07"). Frase curta e JÁ PRONTA pra tela: quem
+  // mediu foi o vigia, e recalcular no front daria duas versões do mesmo fato.
+  detalhe         String?  @db.VarChar(160)
   vistoEm         DateTime?
   createdAt       DateTime @default(now())
 
   @@unique([companyId, motoristaUserId, routeDate, tipo])
   @@index([companyId, vistoEm, createdAt])
   @@index([companyId, rotaModeloId])
+}
+
+// COCKPIT (03/08) — RECADO escritório ⇄ motorista. Era o buraco nº1 do módulo:
+// o único texto que saía do escritório pro celular era o NOME de uma rota.
+//
+// 🔴 O FIO É SEMPRE DO MOTORISTA (`motoristaUserId`), nos dois sentidos. Quem
+// escreveu está em `origem`. Modelar assim (em vez de de/para) faz o fio de uma
+// pessoa ser UM findMany por índice, e o não-lido ser UM count — a alternativa
+// (de/para com OR) exigiria varrer os dois lados em toda leitura do cockpit.
+//
+// 🔴 BROADCAST NASCE EXPLODIDO: "todos na rua" grava UMA LINHA POR PESSOA com o
+// mesmo `loteId`. Linha única compartilhada não teria onde guardar o ✓✓ de cada
+// um — e recado sem prova de entrega individual é exatamente o que o dono não
+// pode ter ("mandei, e daí?" foi o que gerou o painel de missões).
+//
+// A ESCADA (`nivel`) decide a força no aparelho, não o texto:
+//   normal  → entra na lista/sino. `vistoEm` basta.
+//   urgente → heads-up + som + voz; e o PORTÃO: o próximo Confirmar/Cheguei
+//             abre o recado por cima e exige "Entendi" (`ackEm`) pra liberar.
+//   alarme  → tela cheia (reusa a MissaoAlarme que já existe).
+// `ackEm` só é COBRADO de urgente/alarme — em normal ele fica null pra sempre e
+// isso não é pendência.
+model LogisticaRecado {
+  id              String   @id @default(cuid())
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId       Int
+  // Dono do FIO — sempre o motorista, mesmo quando é ele que escreve.
+  motoristaUserId Int
+  // 'escritorio' = admin → motorista · 'motorista' = resposta dele.
+  origem          String   @db.VarChar(12)
+  autorUserId     Int
+  // Nome congelado: o fio sobrevive a rename/desativação de quem escreveu.
+  autorNome       String   @db.VarChar(120)
+  texto           String   @db.VarChar(500)
+  nivel           String   @default("normal") @db.VarChar(12)
+  routeDate       String   @db.VarChar(10)
+  // Mesmo disparo em massa (broadcast); null = recado individual.
+  loteId          String?
+  // ✓ enviado é o createdAt. Daqui pra frente é prova de aparelho:
+  entregueEm      DateTime?
+  vistoEm         DateTime?
+  ackEm           DateTime?
+  createdAt       DateTime @default(now())
+
+  // Fio de uma pessoa, mais novo por último (o cockpit e o app leem daqui).
+  @@index([companyId, motoristaUserId, createdAt])
+  // O que o APK ainda não recebeu (pull) e o que o portão precisa cobrar.
+  @@index([companyId, motoristaUserId, entregueEm])
+  @@index([companyId, routeDate, loteId])
 }
 
 // AGENDA-SEMANAL — compromisso recorrente de uma visita. O produto continua
@@ -2160,6 +2215,24 @@ model LogisticaConfig {
   resumoDiarioAtivo     Boolean  @default(false)
   resumoDiarioHora      Int      @default(7)
   resumoDiarioUltimoEnvio DateTime?
+  // COCKPIT/SENTINELA (03/08) — as réguas do que vira aviso. Antes disto,
+  // "Parado" e "Sem sinal" eram RÓTULO CALCULADO NA LEITURA: existiam só
+  // enquanto a tela /rastreamento estava aberta e não viravam evento nenhum.
+  //
+  // Minuto = a régua; **0 DESLIGA aquele alarme sozinho** (empresa que entrega
+  // em prédio com garagem não quer o "sem sinal" tocando o dia todo). Os
+  // defaults saem LIGADOS de propósito: vigia atrás de chavinha é vigia
+  // dormindo — e o custo do feed é zero (leitura da tela que já carrega).
+  sentinelaSemSinalMin  Int      @default(15)
+  // Parado FORA de qualquer cliente da rota (dentro do raio de chegada é
+  // trabalho, não ócio). É onde mora o "almoço longo".
+  sentinelaParadoMin    Int      @default(25)
+  // Atraso contra o ETA que o planejador já calcula.
+  sentinelaAtrasoMin    Int      @default(20)
+  // O ECO no WhatsApp do dono nasce DESLIGADO — mesmo padrão de 2 chaves das
+  // outras features que gastam chip (S2/S3): flag global + toggle do tenant.
+  // Ver a cicatriz em docs/Rules/WHATSAPP.md: nada dispara sozinho.
+  sentinelaWhatsAtiva   Boolean  @default(false)
   // S6 PORTAL-PEDIDO (11/07) — pedido PÚBLICO pelo link /pedido/<token> (o
   // anti-iFood da distribuidora: cliente pede sem login e vira Entrega
   // 'agendada'). Mesmo padrão 2 chaves das features S2/S3: env global

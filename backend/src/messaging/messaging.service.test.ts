@@ -2471,6 +2471,129 @@ test('pitch pos-pre-mensagem assina com a PERSONA da empresa quando ela existe (
 });
 
 // ============================================================================
+// CASA DO RISCO — o "digitando..." dos 2 envios automáticos (03/08/2026)
+//
+// Bug corrigido aqui: os dois call sites de computeVendasFollowUpTypingDelayMs
+// passavam `job.campaign` (objeto) no lugar do companyId e esqueciam o `await`.
+// O objeto virava NaN -> getConfig(NaN) caía no catch -> knobs DEFAULT (8s+12s),
+// e a Promise não-aguardada era serializada como {} no variablesJson. Nada
+// quebrava: o tempo de digitação só ignorava, em silêncio, o ajuste do dono.
+//
+// Como os testes abaixo provam as DUAS coisas de uma vez:
+//   - o mock de vendasComercialConfig só devolve os knobs para companyId === 7
+//     (com NaN devolve null) -> se o companyId errado voltar, caem os defaults;
+//   - a casa é pinada em typingSeconds=3 / variance=0, ou seja teto de 3000ms,
+//     e o corpo é longo o bastante pra que o cálculo por caractere (50-80ms/char)
+//     SEMPRE estoure esse teto -> o valor esperado é exatamente 3000, sem sorteio;
+//   - com o default (8+12 = teto de 20000ms) o mesmo corpo cairia entre ~10s e
+//     ~16s, nunca 3000; e sem `await` o valor nem número seria.
+// ============================================================================
+
+/** Casa do risco pinada: teto de digitação = 3s, sem variância, só para a empresa 7. */
+function vendasComercialConfigDaEmpresa7() {
+  return {
+    findUnique: async ({ where }: any) =>
+      Number(where?.companyId) === 7
+        ? {
+            aiNome: 'Lia',
+            aiIdentidade: 'nome_proprio',
+            aiUserId: null,
+            typingSeconds: 3,
+            typingVarianceSeconds: 0,
+          }
+        : null,
+  };
+}
+
+const TETO_DIGITACAO_DA_EMPRESA_MS = 3000;
+// 200 chars: 200 * 50ms/char = 10000ms de piso -> estoura tanto o teto da empresa
+// (3000) quanto qualquer valor "acidentalmente igual" a ele.
+const CORPO_LONGO = 'a'.repeat(200);
+
+test('continuidade qualificada: typingDelayMs enfileirado sai dos knobs da EMPRESA (numero, nao Promise nem default)', async () => {
+  const metadata = {
+    vendasAgendaQueue: { active: true, leadId: 'lead-1', automationJobId: 'job-email-1' },
+  };
+  const { service, queueCalls } = createService({
+    prisma: {
+      vendasLead: {
+        findFirst: async () => ({
+          qualificacaoJson: null,
+          status: 'contato',
+          closedAt: null,
+          wasClosedBefore: false,
+        }),
+      },
+      vendasComercialConfig: vendasComercialConfigDaEmpresa7(),
+    },
+    intentEngine: {
+      classifyIntentWithFallback: async () => ({ intent: { kind: 'positive' }, autoReply: false }),
+    },
+  });
+
+  // O gerador (catálogo + IA) tem cobertura própria; aqui só o corpo importa.
+  (service as any).generateVendasQualifiedReply = async () => ({ body: CORPO_LONGO });
+  (service as any).persistVendasQualificacaoAfterReply = async () => undefined;
+
+  const result = await (service as any).handleVendasQualifiedContinuation(
+    {
+      companyId: 7,
+      conversationId: 42,
+      inboundMessageId: 88,
+      from: '+5519998877766',
+      text: 'quero saber mais',
+      metadata,
+      setInboundMeta: async () => undefined,
+    },
+    buildVendasEmailJob(),
+  );
+
+  assert.equal(result?.classification, 'qualified_continuation');
+  const typingDelayMs = (queueCalls[0]?.payload as any)?.variables?.typingDelayMs;
+  assert.equal(typeof typingDelayMs, 'number', 'sem await isto seria uma Promise (serializada como {} no variablesJson)');
+  assert.equal(
+    typingDelayMs,
+    TETO_DIGITACAO_DA_EMPRESA_MS,
+    'o teto de digitação tem que vir da casa do risco da empresa 7, não do default 8s+12s',
+  );
+});
+
+test('pitch pos-pre-mensagem: typingDelayMs enfileirado sai dos knobs da EMPRESA (numero, nao Promise nem default)', async () => {
+  const metadata = {
+    vendasAutomation: { jobId: 'job-email-1', leadId: 'lead-1', preMessageAwaitingReply: true },
+    vendasAgendaQueue: { active: true, leadId: 'lead-1', automationJobId: 'job-email-1' },
+  };
+  const { service, queueCalls } = createService({
+    prisma: {
+      company: { findUnique: async () => ({ id: 7, name: 'Padaria do Ze' }) },
+      user: { findFirst: async () => ({ id: 3, name: 'Marcia', companyId: 7 }) },
+      companyConversation: { findFirst: async () => ({ id: 42, metadata: JSON.stringify(metadata) }) },
+      vendasComercialConfig: vendasComercialConfigDaEmpresa7(),
+    },
+  });
+
+  await (service as any).sendVendasPitchAfterPreMessage(
+    { companyId: 7, conversationId: 42, from: '+5519998877766', metadata },
+    {
+      ...buildVendasEmailJob(),
+      campaign: { id: 'campaign-1', companyId: 7, createdByUserId: 3, filtersJson: null },
+    },
+  );
+
+  const body = String((queueCalls[0]?.payload as any)?.body || '');
+  // Guarda da premissa do teto: com menos de 61 chars o cálculo por caractere não
+  // estouraria os 3000ms e o valor esperado deixaria de ser determinístico.
+  assert.ok(body.length > 60, `pitch curto demais (${body.length} chars) para este teste ser determinístico`);
+  const typingDelayMs = (queueCalls[0]?.payload as any)?.variables?.typingDelayMs;
+  assert.equal(typeof typingDelayMs, 'number', 'sem await isto seria uma Promise (serializada como {} no variablesJson)');
+  assert.equal(
+    typingDelayMs,
+    TETO_DIGITACAO_DA_EMPRESA_MS,
+    'o teto de digitação tem que vir da casa do risco da empresa 7, não do default 8s+12s',
+  );
+});
+
+// ============================================================================
 // RECEPCIONISTA IA — 31/07/2026 (ordem do dono).
 // "O cliente entra em contato, se apresenta, ai o IA/bot ja comeca o cadastro."
 // A cena que estes testes travam: desconhecido escreve -> a empresa se

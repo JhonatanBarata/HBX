@@ -20,6 +20,7 @@ import { LogisticaCustoPreviewService } from './logistica-custo-preview.service'
 import { LogisticaRotaModeloService } from './logistica-rota-modelo.service';
 import { LogisticaRotaIndicadaService } from './logistica-rota-indicada.service';
 import { LogisticaRotaAvisoService } from './logistica-rota-aviso.service';
+import { LogisticaRecadoService } from './logistica-recado.service';
 import { LogisticaLeituraService } from './logistica-leitura.service';
 import { LogisticaGeoService } from './logistica-geo.service';
 import { LogisticaOsrmService } from './logistica-osrm.service';
@@ -211,6 +212,7 @@ import { LogisticaEstoqueService } from './logistica-estoque.service';
     LogisticaRotaModeloService,
     LogisticaRotaIndicadaService,
     LogisticaRotaAvisoService,
+    LogisticaRecadoService,
     LogisticaLeituraService,
     LogisticaGeoService,
     LogisticaOsrmService,

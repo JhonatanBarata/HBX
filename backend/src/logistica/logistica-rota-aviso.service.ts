@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { canonicalRouteDate } from './logistica-route-billing.service';
+import { haversineMeters } from './logistica-tracking.service';
 
 /**
  * 31/07 — "COMEÇOU E DESISTIU": o recado que faltava.
@@ -35,17 +36,35 @@ const SILENCIO_MIN = Number(process.env.HBX_ROTA_VIGIA_SILENCIO_MIN || '') || 90
 const STATUS_ABERTO = ['agendada', 'em_rota'] as const;
 const ROTA_VIVA_STATUS = ['ACTIVE', 'INITIALIZING'] as const;
 
-export type RotaAvisoTipo = 'abandonada' | 'parcial' | 'parada';
+/**
+ * SENTINELA (03/08) — o raio que decide "ele não saiu do lugar". Menor que
+ * qualquer raio de chegada de cliente: a pergunta aqui é sobre o VEÍCULO parado,
+ * não sobre estar perto de uma porta.
+ */
+const RAIO_PARADO_M = 80;
+/** Teto de pontos lidos por sessão na checagem de parado (freio de query). */
+const MAX_PONTOS_PARADO = 240;
+
+export type RotaAvisoTipo =
+  | 'abandonada'
+  | 'parcial'
+  | 'parada'
+  // ── SENTINELA (03/08) ──
+  | 'sem_sinal'
+  | 'parado_demais'
+  | 'atraso';
 
 export interface RotaAvisoDTO {
   id: string;
   tipo: RotaAvisoTipo;
   motoristaNome: string;
+  motoristaUserId: number;
   rotaNome: string | null;
   rotaModeloId: string | null;
   total: number;
   entregues: number;
   abertas: number;
+  detalhe: string | null;
   createdAt: string;
 }
 
@@ -155,11 +174,13 @@ export class LogisticaRotaAvisoService implements OnModuleInit, OnModuleDestroy 
       id: row.id,
       tipo: row.tipo as RotaAvisoTipo,
       motoristaNome: row.motoristaNome,
+      motoristaUserId: row.motoristaUserId,
       rotaNome: row.rotaNome,
       rotaModeloId: row.rotaModeloId,
       total: row.total,
       entregues: row.entregues,
       abertas: row.abertas,
+      detalhe: row.detalhe ?? null,
       createdAt: row.createdAt.toISOString(),
     }));
   }
@@ -207,6 +228,7 @@ export class LogisticaRotaAvisoService implements OnModuleInit, OnModuleDestroy 
     routeDate: string,
     tipo: RotaAvisoTipo,
     contagem: { total: number; entregues: number; abertas: number; rotaModeloId: string | null },
+    detalhe?: string | null,
   ): Promise<RotaAvisoTipo | null> {
     const [pessoa, modelo] = await Promise.all([
       this.prisma.user.findFirst({
@@ -233,6 +255,7 @@ export class LogisticaRotaAvisoService implements OnModuleInit, OnModuleDestroy 
           total: contagem.total,
           entregues: contagem.entregues,
           abertas: contagem.abertas,
+          detalhe: detalhe ? String(detalhe).slice(0, 160) : null,
         },
       });
       this.logger.log(

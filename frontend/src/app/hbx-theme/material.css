@@ -1,0 +1,167 @@
+/* ============================================================
+   MATERIAL — VIDRO ou CHAPADO (dono 03/08, junto com o painel multicor).
+
+   POR QUE ISTO EXISTE
+   Material sempre esteve no app; o que não existia era o INTERRUPTOR. Medido
+   em /dev/pele antes da mudança, no MESMO padrão Premium, o `.side` saía:
+
+     Aurora / Layout / Rosé      → backdrop-filter: blur(24px)
+     Ember / Lima / Corporativo  → blur: nenhum
+
+   Metade das cores tinha vidro e metade não, e ninguém tinha escolhido isso:
+   cada theme-<key>.css carregava um "Bloco B" de vestir junto com a paleta,
+   então trocar de COR mudava o MATERIAL de raspão. Aqui o efeito colateral
+   vira botão.
+
+   COMO LIGA
+   <html data-material="vidro|chapado">. A casca dá o padrão (Premium nasce de
+   vidro, Corporativo nasce chapado — `materialPadrao` em lib/aparencia.ts);
+   a escolha da pessoa, quando existe, vence. Quem nunca abrir o painel não vê
+   diferença nenhuma em relação ao que já usava.
+
+   COMO ESTÁ ESCRITO
+   Quase tudo é TOKEN, não regra: as cascas já leem `--blur-chrome`,
+   `--shadow-*` e os `--mod-glass-*`, então zerar o token apaga o vidro em ~75
+   seletores de uma vez. Regra explícita só onde a casca cravou o valor na
+   propriedade (`backdrop-filter: none` da Corporativa) e não há token para
+   girar.
+
+   ⚠️ `--shadow-inset` NUNCA pode virar `none`: várias folhas escrevem
+   `box-shadow: var(--shadow-inset), var(--shadow-xs)`, e `none, <sombra>` é
+   CSS inválido — a regra inteira cai e a sombra some junto. Sombra que se
+   quer invisível é `inset 0 0 0 0 transparent`, não `none`.
+
+   ORDEM: importado DEPOIS das duas cascas, de propósito. Os seletores abaixo
+   empatam em especificidade com `[data-casca="…"][data-theme]` (0,2,0) e é a
+   ordem da cascata que decide o empate.
+   ============================================================ */
+
+/* ============================================================
+   CHAPADO — opaco, sem desfoque, sombra curta.
+   ============================================================ */
+/* `[data-theme]` no seletor NÃO é enfeite: sem ele isto é (0,1,0) e perde do
+   `[data-casca="modern"][data-theme]` que declara --blur-chrome: 24px. Medido
+   — a primeira versão desta folha zerava o token e o computado continuava
+   24px, calado. Com o segundo atributo empata em (0,2,0) e a ordem de import
+   (material.css vem depois das cascas) decide. */
+[data-material="chapado"][data-theme] {
+  --blur-chrome: 0px;
+  --blur-glass: 0px;
+
+  /* invisível SEM ser `none` — ver aviso no topo */
+  --shadow-inset: inset 0 0 0 0 transparent;
+
+  /* sombra de papel, não de vidro flutuando */
+  --shadow-xs: 0 1px 2px color-mix(in srgb, var(--hbx-shadow) 14%, transparent);
+  --shadow-sm: 0 2px 5px color-mix(in srgb, var(--hbx-shadow) 16%, transparent);
+  --shadow-md: 0 4px 10px color-mix(in srgb, var(--hbx-shadow) 18%, transparent);
+  --shadow-lg: 0 8px 20px color-mix(in srgb, var(--hbx-shadow) 22%, transparent);
+
+  /* brilho de marca atrás do painel: é enfeite de vidro, sai junto */
+  --panel-glow: transparent;
+  --hero-glow: transparent;
+}
+
+/* Superfícies de cromo perdem a transparência: sem desfoque por trás, o
+   translúcido só deixa o conteúdo vazar e sujar a leitura. */
+[data-material="chapado"][data-theme] {
+  --hbx-header-surface: oklch(from var(--hbx-cor) 0.985 clamp(0.002, c, 0.010) h);
+  --hbx-nav-surface:    oklch(from var(--hbx-cor) 0.975 clamp(0.002, c, 0.014) h);
+}
+[data-material="chapado"][data-theme][data-theme-mode="dark"] {
+  --hbx-header-surface: oklch(from var(--hbx-cor) 0.180 clamp(0.008, c, 0.032) h);
+  --hbx-nav-surface:    oklch(from var(--hbx-cor) 0.215 clamp(0.008, c, 0.034) h);
+}
+
+/* Os derivados de vidro da Premium viram opacos. Um seletor só apaga o
+   translúcido de painel, cromo e recuo em toda a casca. */
+[data-casca="modern"][data-material="chapado"] {
+  --mod-chrome-hi: var(--hbx-surface);
+  --mod-chrome-lo: var(--hbx-surface);
+  --mod-glass-hi: var(--hbx-surface);
+  --mod-glass-lo: var(--hbx-surface);
+  --mod-glass-recessed: var(--hbx-surface-soft);
+  --mod-flare: transparent;
+  --mod-glow: transparent;
+}
+
+/* Sem vidro, o painel precisa da linha pra existir: era o desfoque que
+   separava painel de fundo, e ele acabou de sair. */
+[data-casca="modern"][data-material="chapado"] .panel,
+[data-casca="modern"][data-material="chapado"] .kpi,
+[data-casca="modern"][data-material="chapado"] .plan-card,
+[data-casca="modern"][data-material="chapado"] .user-card,
+[data-casca="modern"][data-material="chapado"] .hbx-modal {
+  border: 1px solid var(--border-hairline);
+}
+[data-casca="modern"][data-material="chapado"] .side {
+  border-right: 1px solid var(--border-hairline);
+}
+[data-casca="modern"][data-material="chapado"] .topbar {
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+/* O fundo infinito (grade em perspectiva + aurora + névoa) é vidro puro:
+   é a camada que o chapado existe para não ter. */
+[data-casca="modern"][data-material="chapado"] .app::before,
+[data-casca="modern"][data-material="chapado"] .app::after,
+[data-casca="modern"][data-material="chapado"] .casca::before,
+[data-casca="modern"][data-material="chapado"] .casca::after,
+[data-casca="modern"][data-material="chapado"] .casca-stack-layer::before,
+[data-casca="modern"][data-material="chapado"] .casca-stack-layer::after {
+  display: none;
+}
+[data-casca="modern"][data-material="chapado"] .app,
+[data-casca="modern"][data-material="chapado"] .casca,
+[data-casca="modern"][data-material="chapado"] .casca-stack-layer {
+  background: var(--hbx-background);
+}
+
+/* ============================================================
+   VIDRO — translúcido, desfocado, com realce de topo.
+
+   Na Premium o vidro JÁ é o padrão da casca: não há nada a ligar aqui, e por
+   isso não existe bloco `[data-casca="modern"][data-material="vidro"]`. O que
+   segue é a Corporativa, que crava `backdrop-filter: none` na propriedade —
+   sem token para girar, a reversão precisa ser regra.
+   ============================================================ */
+/* ⚠️ SEM backdrop-filter em painel GRANDE. Não é esquecimento: casca-modern.css
+   documenta a regra (dono 07/07, "ficou pesado") — desfoque em .side/.main é
+   re-blur a cada quadro e GPU fraca rasteriza em software. O vidro de painel
+   grande se faz com TRANSLUCIDEZ + realce de topo, que é o que está aqui.
+   Desfoque de verdade fica para superfície pequena e transiente (modal, pop,
+   sheet), que lê --blur-glass.
+
+   Vale registrar: até 03/08 o `.side` da Premium ANDAVA desfocado — mas por
+   engano. O "Bloco B" do theme-aurora.css cravava blur(24px) e atropelava a
+   decisão de performance da casca; como a pele vencia por ordem de import,
+   ninguém via. Apagar as peles devolveu a regra ao dono dela. */
+[data-casca="corporativa"][data-material="vidro"] .side {
+  background: linear-gradient(180deg,
+    color-mix(in srgb, var(--hbx-surface) 88%, transparent),
+    color-mix(in srgb, var(--hbx-surface) 76%, transparent));
+  border-right: 1px solid var(--border-hairline);
+  box-shadow: var(--shadow-inset), var(--shadow-xs);
+}
+[data-casca="corporativa"][data-material="vidro"] .topbar {
+  background: color-mix(in srgb, var(--hbx-header-surface) 88%, transparent);
+  border-bottom: 1px solid var(--border-hairline);
+  box-shadow: var(--shadow-inset);
+}
+[data-casca="corporativa"][data-material="vidro"] .panel,
+[data-casca="corporativa"][data-material="vidro"] .kpi,
+[data-casca="corporativa"][data-material="vidro"] .hbx-pop,
+[data-casca="corporativa"][data-material="vidro"] .modal,
+[data-casca="corporativa"][data-material="vidro"] .drawer {
+  background:
+    radial-gradient(circle at top right, color-mix(in srgb, var(--hbx-brand) 8%, transparent), transparent 46%),
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--hbx-surface) 96%, var(--hbx-background)),
+      color-mix(in srgb, var(--hbx-surface-soft) 90%, var(--hbx-background)));
+  box-shadow: var(--shadow-inset), var(--shadow-sm);
+}
+
+/* A Corporativa é densa de propósito; o vidro não pode devolver o balão. A
+   geometria (raio, altura de linha, ritmo) continua sendo dela — material é
+   SUPERFÍCIE, não forma. É essa fronteira que mantém o eixo barato: quatro
+   eixos só se conferem porque nenhum deles invade a medida do outro. */

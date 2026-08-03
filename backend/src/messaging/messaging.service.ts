@@ -2112,13 +2112,23 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     }
     const veredicto = calcularVeredicto({ ficha, intencao: String(input.replyKind || 'positive') });
     // IDENTIDADE ÚNICA: a IA responde sabendo quem é e o que a empresa faz.
+    // 03/08 — e responde com o nome de QUEM MANDOU a mensagem: este texto sai no
+    // chip da dona da campanha, e o lead que foi abordado pela Bianca não pode
+    // ser respondido por outro nome no MESMO número.
     const perfilIa = await this.personaIa.getPerfil(input.companyId).catch(() => null);
+    const donaDaCampanha = Number(job?.campaign?.createdByUserId || 0) || null;
+    const personaNome = donaDaCampanha
+      ? await this.personaIa.assinaturaDaPessoa(input.companyId, donaDaCampanha, '').catch(() => null)
+      : null;
     const prompt = montarPromptRespostaQualificada({
       catalogo,
       ficha,
       veredicto,
       textoDoLead: String(input.text || ''),
-      personaNome: perfilIa?.persona?.nome || null,
+      // `assinaturaDaPessoa` sem `name` cai na empresa e, em último caso, em
+      // "time comercial" — que aqui NÃO serve de nome próprio (soaria robô com
+      // crachá), então só passa adiante se for gente mesmo.
+      personaNome: (personaNome && personaNome !== 'time comercial' ? personaNome : null) || perfilIa?.persona?.nome || null,
       empresaFaz: perfilIa?.empresaFaz || null,
     });
 
@@ -2263,7 +2273,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           leadId: job.leadId,
           replyKind: 'continuation',
           automaticFollowUp: true,
-          typingDelayMs: this.computeVendasFollowUpTypingDelayMs(job.campaign, geracao.body),
+          typingDelayMs: await this.computeVendasFollowUpTypingDelayMs(input.companyId, geracao.body),
         },
       });
     } catch (error: any) {
@@ -2386,10 +2396,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           }).catch(() => null)
         : Promise.resolve(null),
     ]);
-    // IDENTIDADE ÚNICA (31/07/2026): {{funcionario}} é a PERSONA da empresa
-    // (aiNome ou o vendedor representado); quem criou a campanha vira fallback.
-    const funcionario = await this.personaIa.assinatura(
+    // IDENTIDADE ÚNICA (31/07/2026) + DONA DA CAMPANHA (03/08/2026):
+    // {{funcionario}} é quem MANDA. Com 1 chip por vendedora
+    // (`company-N-user-M`), a régua é "um número, um nome" — quem criou a
+    // campanha é de quem sai o chip, então é o nome dela que assina. Sem pessoa
+    // (ou sem `name` preenchido), cai na persona da empresa como antes.
+    const funcionario = await this.personaIa.assinaturaDaPessoa(
       companyId,
+      Number(job?.campaign?.createdByUserId || 0) || null,
       String(user?.name || user?.username || '').trim() || 'time comercial',
     );
     return {
@@ -2530,7 +2544,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         preMessageFollowUp: true,
         // PR05072026 (timing humano): mesma fase 3 do followUp de interesse — este
         // envio também acontece logo após a IA decidir (resposta humana ao pitch).
-        typingDelayMs: this.computeVendasFollowUpTypingDelayMs(job.campaign, body),
+        typingDelayMs: await this.computeVendasFollowUpTypingDelayMs(input.companyId, body),
       },
       flowState: {
         currentFlow: ATENDIMENTO_FLOW_ID,

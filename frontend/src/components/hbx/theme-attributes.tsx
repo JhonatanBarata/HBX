@@ -5,10 +5,11 @@ import { useEffect } from "react";
 
 import { HbxMotionRuntime } from "@/components/hbx/motion";
 import {
-  CASCA_PADRAO, CASCA_STORAGE, CASCAS, DENSIDADE_STORAGE, LEGACY_PELE_STORAGE, MODE_STORAGE, TEMA_STORAGE,
-  resolveDensidade, type DensidadeKey,
-  getCasca, resolveModo, resolveTema, temaDoLegado,
-  type CascaDef, type CascaKey, type Modo, type TemaKey,
+  CASCA_PADRAO, CASCA_STORAGE, CASCAS, COR_PADRAO, COR_STORAGE, DENSIDADE_STORAGE,
+  LEGACY_PELE_STORAGE, LEGACY_TEMA_STORAGE, MATERIAL_STORAGE, MODE_STORAGE, TEMA_ATTR,
+  classificarCor, corDoLegado, normalizarHex, resolveDensidade, type DensidadeKey,
+  getCasca, resolveMaterial, resolveMaterialEscolhido, resolveModo,
+  type CascaDef, type CascaKey, type MaterialKey, type Modo,
 } from "@/lib/aparencia";
 
 // ================================================================
@@ -16,10 +17,12 @@ import {
 // Aqui só o que precisa do navegador: ler storage, escrever no <html>,
 // migrar o formato antigo e animar a troca.
 //
-// AS 5 LEIS seguem valendo: tema = arquivo theme-<key>.css (tokens) +
-// entrada no registro + import no globals.css. A CASCA é a camada de
-// cima — casca-<key>.css veste a MESMA estrutura com outra densidade
-// e outra superfície. Nenhuma tela sabe qual casca está ativa.
+// AS 5 LEIS seguem valendo. Desde 03/08 a COR não é mais um arquivo por
+// pele: é UMA semente (`--hbx-cor`) que theme-gerado.css transforma nos
+// ~60 tokens, em OKLCH, com a claridade cravada na folha. A CASCA é a
+// camada de cima — casca-<key>.css veste a MESMA estrutura com outra
+// densidade e geometria — e o MATERIAL (vidro/chapado) é o quarto eixo,
+// em material.css. Nenhuma tela sabe qual dos quatro está ativo.
 //
 // O boot inline do layout.tsx é GERADO do mesmo registro
 // (buildAparenciaBoot) — não existe mais lista duplicada pra sair de
@@ -32,7 +35,8 @@ import {
 // escuro do jeito que deixou.
 // ================================================================
 
-export type Aparencia = { casca: CascaDef; tema: TemaKey; modo: Modo };
+/** `cor` = nome da grade OU hex livre. `null` = padrão de fábrica da folha. */
+export type Aparencia = { casca: CascaDef; cor: string | null; modo: Modo; material: MaterialKey };
 
 function ler(key: string): string | null {
   try { return localStorage.getItem(key); } catch { return null; }
@@ -40,43 +44,77 @@ function ler(key: string): string | null {
 function gravar(key: string, value: string) {
   try { localStorage.setItem(key, value); } catch { /* sem storage */ }
 }
+function apagar(key: string) {
+  try { localStorage.removeItem(key); } catch { /* sem storage */ }
+}
 
 /**
  * O que está escolhido (não necessariamente o que está aplicado — a casca
- * pode não suportar o tema/modo guardado; ver `aplicar`).
+ * pode não suportar o modo guardado; ver `aplicar`).
  */
 export function getAparencia(): Aparencia {
   let cascaKey = ler(CASCA_STORAGE);
-  let temaSalvo = ler(TEMA_STORAGE);
+  let corSalva = ler(COR_STORAGE);
 
   // Migração do valor combinado antigo (`hbx:pele = "aurora-mod"`). Roda uma
   // vez: depois de gravar os eixos separados a chave velha é APAGADA.
   if (!cascaKey) {
     const legado = ler(LEGACY_PELE_STORAGE);
     if (legado) {
-      const tema = temaDoLegado(legado);
       cascaKey = CASCA_PADRAO;
-      if (tema && !temaSalvo) temaSalvo = tema;
       gravar(CASCA_STORAGE, cascaKey);
-      if (temaSalvo) gravar(TEMA_STORAGE, temaSalvo);
-      try { localStorage.removeItem(LEGACY_PELE_STORAGE); } catch { /* sem storage */ }
+      apagar(LEGACY_PELE_STORAGE);
     }
+  }
+
+  // Migração das 6 cores fixas (`hbx:tema = "ember"` → `hbx:cor = "laranja"`).
+  // Mesma queda macia de sempre: chave que não existe mais não quebra tela,
+  // vira o tom mais próximo da grade.
+  if (!corSalva) {
+    const antigo = ler(LEGACY_TEMA_STORAGE) ?? ler(LEGACY_PELE_STORAGE);
+    const cor = corDoLegado(antigo);
+    if (cor) {
+      corSalva = cor;
+      gravar(COR_STORAGE, cor);
+    }
+    if (antigo) apagar(LEGACY_TEMA_STORAGE);
   }
 
   const casca = getCasca(cascaKey);
   return {
     casca,
-    tema: resolveTema(casca, temaSalvo),
+    cor: classificarCor(corSalva) ? corSalva : null,
     modo: resolveModo(casca, ler(MODE_STORAGE)),
+    material: resolveMaterial(casca, ler(MATERIAL_STORAGE)),
   };
 }
 
-/** Escreve os 3 atributos no <html>. Escrita ÚNICA de aparência do app. */
-function aplicar({ casca, tema, modo }: Aparencia) {
+/**
+ * Escreve os atributos no <html>. Escrita ÚNICA de aparência do app.
+ *
+ * A COR tem dois caminhos e só um vale por vez: nome da grade vira
+ * `data-cor` (o hex mora na folha) e cor livre vai em `--hbx-cor` inline.
+ * Escrever os dois deixaria o inline vencendo para sempre — o atalho da grade
+ * ficaria mudo e ninguém entenderia por quê. Por isso cada ramo LIMPA o outro.
+ */
+function aplicar({ casca, cor, modo, material }: Aparencia) {
   const html = document.documentElement;
   html.setAttribute("data-casca", casca.attr);
-  html.setAttribute("data-theme", tema);
+  html.setAttribute("data-theme", TEMA_ATTR);
   html.setAttribute("data-theme-mode", modo);
+  html.setAttribute("data-material", material);
+
+  const escolha = classificarCor(cor);
+  if (escolha?.tipo === "grade") {
+    html.setAttribute("data-cor", escolha.key);
+    html.style.removeProperty("--hbx-cor");
+  } else if (escolha?.tipo === "livre") {
+    html.removeAttribute("data-cor");
+    html.style.setProperty("--hbx-cor", escolha.hex);
+  } else {
+    html.removeAttribute("data-cor");
+    html.style.removeProperty("--hbx-cor");
+  }
 }
 
 export function applyThemeForPath(_pathname: string) {
@@ -181,19 +219,32 @@ export function setCasca(key: CascaKey) {
  * então combinação impossível (ex.: escuro numa casca clara fixa) já entra
  * corrigida — a validação é do CONTRATO, não deste botão.
  */
-export function setAparencia(casca: CascaKey, tema: TemaKey, modo: Modo) {
+export function setAparencia(casca: CascaKey, cor: string | null, modo: Modo, material: MaterialKey) {
   applyCascaChange(casca, () => {
     gravar(CASCA_STORAGE, casca);
-    gravar(TEMA_STORAGE, tema);
+    if (cor) gravar(COR_STORAGE, cor); else apagar(COR_STORAGE);
     gravar(MODE_STORAGE, modo);
+    gravar(MATERIAL_STORAGE, material);
     aplicar(getAparencia());
   });
 }
 
-/** Troca o TEMA de cor (só faz sentido em casca que escolhe tema). */
-export function setTema(key: TemaKey) {
+/** Troca só a COR — nome da grade ou hex livre; `null` volta pro padrão. */
+export function setCor(valor: string | null) {
   applyThemeSoft(() => {
-    gravar(TEMA_STORAGE, key);
+    if (valor) gravar(COR_STORAGE, valor); else apagar(COR_STORAGE);
+    aplicar(getAparencia());
+  });
+}
+
+/**
+ * Escrita ÚNICA do material. `null` apaga a escolha e devolve o comando à
+ * casca — o mesmo desenho da densidade, e pelo mesmo motivo: "sem
+ * preferência" é um estado de verdade, não um terceiro valor inventado.
+ */
+export function setMaterial(key: MaterialKey | null) {
+  applyThemeSoft(() => {
+    if (key) gravar(MATERIAL_STORAGE, key); else apagar(MATERIAL_STORAGE);
     aplicar(getAparencia());
   });
 }
@@ -236,9 +287,46 @@ export function getCascaAtiva(): CascaKey {
   return (CASCAS.find(c => c.attr === attr)?.key ?? CASCA_PADRAO);
 }
 
-/** Tema ativo lido do DOM. */
-export function getTemaAtivo(): TemaKey {
-  return (document.documentElement.getAttribute("data-theme") as TemaKey) || "login";
+/**
+ * COR ativa lida do DOM — nome da grade, hex livre, ou `null` (fábrica).
+ * O DOM é a fonte da verdade do que está NA TELA; o storage diz só o que foi
+ * escolhido, e os dois divergem enquanto o rascunho do painel está aberto.
+ */
+export function getCorAtiva(): string | null {
+  const html = document.documentElement;
+  const grade = html.getAttribute("data-cor");
+  if (grade) return grade;
+  const livre = html.style.getPropertyValue("--hbx-cor").trim();
+  return livre || null;
+}
+
+/**
+ * O HEX de qualquer escolha — para o `<input type="color">`, que só fala hex.
+ *
+ * Cor livre já é hex. Nome da grade é resolvido LENDO `--cor-<key>` da folha,
+ * porque é lá que os 17 tons moram (fiscal R2: cor literal não entra em .ts).
+ * Ler do CSS também significa que o campo mostra o tom de verdade se algum dia
+ * um deles for reajustado — não uma cópia que envelhece aqui dentro.
+ */
+export function hexDaCor(cor: string | null): string {
+  const escolha = classificarCor(cor);
+  if (escolha?.tipo === "livre") return escolha.hex;
+  const key = escolha?.tipo === "grade" ? escolha.key : COR_PADRAO;
+  const cs = getComputedStyle(document.documentElement);
+  return normalizarHex(cs.getPropertyValue(`--cor-${key}`))
+    ?? normalizarHex(cs.getPropertyValue(`--cor-${COR_PADRAO}`))
+    ?? "#000000";
+}
+
+/** Material ativo lido do DOM. */
+export function getMaterialAtivo(): MaterialKey {
+  const attr = document.documentElement.getAttribute("data-material");
+  return attr === "chapado" ? "chapado" : "vidro";
+}
+
+/** Só a ESCOLHA de material (`null` = quem manda é a casca). */
+export function getMaterialEscolhido(): MaterialKey | null {
+  return resolveMaterialEscolhido(ler(MATERIAL_STORAGE));
 }
 
 export function ThemeAttributes() {

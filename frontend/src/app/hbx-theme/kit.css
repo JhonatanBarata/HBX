@@ -2097,26 +2097,98 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 }
 .aparencia__sep { height: 1px; margin: 4px 0; background: var(--border-hairline); }
 
-/* Amostra de cor do tema — a cor nasce na PELE dele (--swatch-<key> em
-   theme-<key>.css, num `:root` solto de propósito), então o pontinho existe
-   mesmo com outro tema ligado e aqui não entra um hex sequer. */
-.aparencia__dot {
-  width: 11px; height: 11px; flex: none;
-  border-radius: 50%;
+/* A bolinha do BOTÃO mostra a cor que está no ar — seja ela da grade ou
+   livre. Uma linha só, porque `--hbx-cor` já é a semente resolvida: era isso
+   que os 6 `--swatch-*` faziam à mão, um por cor, e que virava bolinha
+   invisível toda vez que uma pele saía (foi o que aconteceu em 01/08). */
+.aparencia__cor-viva { background: var(--hbx-cor); }
+
+/* ---- A GRADE DE CORES (dono 03/08) --------------------------------------
+   17 bolinhas em 6 colunas. `auto-fit` e não contagem fixa: se a grade
+   crescer ou encolher em lib/aparencia.ts, o painel se reorganiza sozinho —
+   registro que manda na tela não pode ter a largura cravada no CSS. */
+/* O recuo lateral do painel vira token LOCAL: as linhas irmãs
+   (.aparencia__item, __cap, __seg) já usam 11px cada uma por conta própria, e
+   medida repetida em cinco lugares é a que sai de sincronia. Declarar aqui
+   também mantém a catraca R9 parada — `var()` não é px literal. */
+.aparencia { --ap-inset: 11px; }
+.aparencia__grade {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--space-1);
+  padding: 0 var(--ap-inset) var(--space-2);
+}
+/* Teto de 28px + centralizado na célula: sem o teto, `1fr` num painel de
+   250px dava bolinha de 34px — tamanho de botão, não de amostra, e o painel
+   inteiro virava grade de cor. Com o teto, a mesma folha serve o menu do
+   desktop e a folha do celular sem uma segunda medida. */
+.aparencia__cor {
+  aspect-ratio: 1; max-width: 28px; justify-self: center;
+  width: 100%;
+  border: none; border-radius: 50%; padding: 0; cursor: pointer;
+  box-shadow: inset 0 0 0 1px var(--border-hairline);
+  transition: transform var(--motion-fast), box-shadow var(--motion-fast);
+}
+.aparencia__cor:hover { transform: scale(1.14); }
+/* O escolhido ganha ANEL, não borda: borda encolheria a bolinha e a cor
+   pareceria mudar de tom ao ser selecionada. */
+.aparencia__cor.is-on {
+  box-shadow: 0 0 0 2px var(--surface-card), 0 0 0 4px var(--hbx-brand);
+}
+.aparencia__cor:focus-visible {
+  outline: 2px solid var(--hbx-brand); outline-offset: 2px;
+}
+/* Cada bolinha lê o tom da FOLHA (--cor-<key> em theme-gerado.css). Nenhum
+   hex entra aqui, e a lista acompanha a de lib/aparencia.ts.
+   REGRA: quem tira um tom da grade tira a linha daqui junto. Um `var()`
+   apontando pra token que não existe mais não avisa ninguém — pinta
+   transparente, com o build verde. É o "CSS morre calado". */
+.aparencia__cor[data-cor-key="vermelho"]  { background: var(--cor-vermelho); }
+.aparencia__cor[data-cor-key="laranja"]   { background: var(--cor-laranja); }
+.aparencia__cor[data-cor-key="ambar"]     { background: var(--cor-ambar); }
+.aparencia__cor[data-cor-key="ouro"]      { background: var(--cor-ouro); }
+.aparencia__cor[data-cor-key="limao"]     { background: var(--cor-limao); }
+.aparencia__cor[data-cor-key="verde"]     { background: var(--cor-verde); }
+.aparencia__cor[data-cor-key="esmeralda"] { background: var(--cor-esmeralda); }
+.aparencia__cor[data-cor-key="turquesa"]  { background: var(--cor-turquesa); }
+.aparencia__cor[data-cor-key="ciano"]     { background: var(--cor-ciano); }
+.aparencia__cor[data-cor-key="azul"]      { background: var(--cor-azul); }
+.aparencia__cor[data-cor-key="anil"]      { background: var(--cor-anil); }
+.aparencia__cor[data-cor-key="violeta"]   { background: var(--cor-violeta); }
+.aparencia__cor[data-cor-key="purpura"]   { background: var(--cor-purpura); }
+.aparencia__cor[data-cor-key="magenta"]   { background: var(--cor-magenta); }
+.aparencia__cor[data-cor-key="rosa"]      { background: var(--cor-rosa); }
+.aparencia__cor[data-cor-key="ardosia"]   { background: var(--cor-ardosia); }
+.aparencia__cor[data-cor-key="grafite"]   { background: var(--cor-grafite); }
+
+/* ---- COR LIVRE — a saída pra quem tem uma marca ------------------------
+   O `<input type="color">` É a amostra: ele já pinta o valor escolhido, então
+   uma bolinha ao lado seria o mesmo dado em dois lugares (lei da casa:
+   "mostra num lugar, edita num lugar"). O que se desenha aqui é só tirar a
+   moldura de sistema operacional que ele traz de fábrica. */
+.aparencia__livre {
+  display: flex; align-items: center; gap: var(--space-2);
+  margin: 0 var(--ap-inset) var(--space-2); padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface-canvas);
+  cursor: pointer;
+}
+.aparencia__livre-campo {
+  width: 20px; height: 20px; flex: none; padding: 0;
+  border: none; border-radius: 50%; background: none; cursor: pointer;
   box-shadow: inset 0 0 0 1px var(--border-hairline);
 }
-/* Uma bolinha por cor. Cada --swatch-* nasce no theme-<key>.css da própria
-   cor, num `:root` solto de propósito — assim o pontinho existe mesmo com
-   outra cor ligada e aqui não entra um hex sequer.
-   REGRA: quem apaga uma pele apaga o var() junto. Um `var()` apontando para
-   token que não existe mais não avisa ninguém — pinta transparente, com o
-   build verde. É o mesmo silêncio do "CSS morre calado". */
-.aparencia__dot[data-tema="aurora"] { background: var(--swatch-aurora); }
-.aparencia__dot[data-tema="hbx-cyber"] { background: var(--swatch-hbx-cyber); }
-.aparencia__dot[data-tema="corporativa"] { background: var(--swatch-corporativa); }
-.aparencia__dot[data-tema="rose"] { background: var(--swatch-rose); }
-.aparencia__dot[data-tema="ember"] { background: var(--swatch-ember); }
-.aparencia__dot[data-tema="login"] { background: var(--swatch-login); }
+/* Chrome/Safari desenham a cor num "swatch" interno com margem própria —
+   sem estes dois, a bolinha vira um quadradinho com borda branca. */
+.aparencia__livre-campo::-webkit-color-swatch-wrapper { padding: 0; }
+.aparencia__livre-campo::-webkit-color-swatch { border: none; border-radius: 50%; }
+.aparencia__livre-campo::-moz-color-swatch { border: none; border-radius: 50%; }
+.aparencia__livre-nome {
+  flex: 1; min-width: 0;
+  font-family: var(--font-body); font-size: var(--fz-l1);
+  font-weight: var(--weight-semibold); color: var(--text-strong);
+}
+.aparencia__livre-hex { font-size: var(--hbx-font-min); color: var(--text-muted); }
 
 /* Claro/escuro: segmentado, porque são dois estados de UMA coisa — não duas
    linhas soltas de lista como eram antes. */
