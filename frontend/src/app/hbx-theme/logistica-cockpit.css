@@ -1,0 +1,699 @@
+/* ============================================================
+   COCKPIT DA LOGÍSTICA — /logistica (03/08, ordem do dono)
+
+   A tela anterior era uma PILHA vertical: banner de negada, banner
+   de rota morta, missões, resumo financeiro, créditos, triagem,
+   tabuleiro e um painel direito MUDO. Sete seções no mesmo volume,
+   três com texto de manual dentro. O dado não estava errado — a
+   HIERARQUIA estava.
+
+   Aqui ela vira 1 PALCO, 1 ELENCO, 1 INSPETOR:
+     · faixa de topo → 4 números e o sino (o resto foi pro "⋯");
+     · elenco (esq.) → um chip por motorista, com SEMÁFORO;
+     · palco (centro)→ mapa ao vivo + as faixas do tabuleiro;
+     · inspetor (dir)→ só abre quando você clica, e tem MÃOS.
+
+   ZERO cor literal: só var() do contrato (skeleton.css). Modo
+   escuro sai de graça e o check-pele passa. Nenhum font-size em
+   px/rem — só os degraus de typography.css (fiscal R8).
+   ============================================================ */
+
+/* ── A moldura das 3 zonas ─────────────────────────────────── */
+.cok {
+  display: grid;
+  grid-template-columns: var(--cok-elenco, 232px) minmax(0, 1fr) var(--cok-inspetor, 0px);
+  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-areas:
+    "topo topo topo"
+    "elenco palco inspetor";
+  height: 100%;
+  min-height: 0;
+  gap: 0;
+  background: var(--hbx-background);
+}
+/* Sem ninguém selecionado a coluna do inspetor tem largura ZERO — painel
+   que não age não merece pixel fixo (era o defeito do painel antigo). */
+.cok.tem-inspetor {
+  --cok-inspetor: 320px;
+}
+
+/* ── TOPO: 4 números e o sino ──────────────────────────────── */
+.cok__topo {
+  grid-area: topo;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-raised);
+}
+.cok__quem {
+  display: grid;
+  line-height: 1.15;
+  margin-right: var(--space-1);
+}
+.cok__quem b {
+  color: var(--text-strong);
+  font-size: var(--fz-l1);
+  font-weight: 700;
+}
+.cok__quem small {
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
+}
+
+.cok__kpis {
+  display: flex;
+  gap: var(--space-1);
+  margin-left: auto;
+}
+.cok__kpi {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border-radius: 10px;
+  line-height: 1.1;
+  min-width: 62px;
+}
+.cok__kpi b {
+  color: var(--text-strong);
+  font-size: var(--fz-l1);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.cok__kpi span {
+  color: var(--text-muted);
+  font-size: var(--fz-m2);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+/* Só o número que PEDE AÇÃO ganha cor. Pintar os quatro seria pintar
+   nenhum — o olho perde a referência de "isto aqui é o problema". */
+.cok__kpi.is-alerta b { color: var(--hbx-warning); }
+.cok__kpi.is-dinheiro b { color: var(--hbx-success); }
+
+.cok__sino {
+  position: relative;
+  flex: none;
+}
+.cok__sino-bolha {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  min-height: 16px;
+  padding: 0 var(--space-1);
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--hbx-danger);
+  color: var(--text-on-brand);
+  font-size: var(--fz-m2);
+  font-weight: 700;
+}
+
+/* ── Feed de avisos (o que era 3 banners empilhados) ───────── */
+.cok__avisos {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  width: 340px;
+  max-height: 400px;
+  overflow-y: auto;
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: 14px;
+  background: var(--hbx-surface-raised);
+  box-shadow: 0 12px 32px var(--hbx-shadow);
+}
+.cok__avisos-titulo {
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: var(--space-1);
+}
+.cok-aviso {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  padding: var(--space-2) var(--space-3);
+  border-radius: 10px;
+  background: var(--hbx-surface-soft);
+}
+.cok-aviso__pino {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: var(--space-1);
+  border-radius: 50%;
+  background: var(--hbx-muted);
+}
+.cok-aviso.is-atencao { background: var(--hbx-brand-soft); }
+.cok-aviso.is-atencao .cok-aviso__pino { background: var(--hbx-warning); }
+.cok-aviso.is-grave { background: var(--hbx-danger-soft); }
+.cok-aviso.is-grave .cok-aviso__pino { background: var(--hbx-danger); }
+.cok-aviso__corpo { min-width: 0; flex: 1; }
+.cok-aviso__corpo b {
+  display: block;
+  color: var(--text-strong);
+  font-size: var(--fz-m1);
+  font-weight: 600;
+}
+.cok-aviso__corpo span {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
+}
+.cok-aviso__x {
+  flex: none;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: var(--space-1);
+  border-radius: 6px;
+  font-size: var(--fz-m1);
+}
+.cok-aviso__x:hover { color: var(--text-strong); background: var(--hbx-surface); }
+/* O "⋯" reusa a MOLDURA do feed (mesmo pop, mesma sombra, mesmo raio):
+   padronizar é IGUALAR — dois pop-ups diferentes lado a lado no mesmo topo
+   seria a tela dizendo que são coisas de naturezas diferentes. */
+.cok__menu { width: 246px; }
+.cok__menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text-body);
+  font-size: var(--fz-m1);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cok__menu-item:hover { background: var(--hbx-surface-soft); color: var(--text-strong); }
+.cok__menu-item:disabled { opacity: 0.55; cursor: default; }
+
+.cok__avisos-vazio,
+.cok__avisos-rodape {
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
+  padding: var(--space-2) var(--space-1) var(--space-1);
+}
+.cok__avisos-rodape {
+  border-top: 1px solid var(--border-hairline);
+  margin-top: var(--space-2);
+}
+
+/* ── ELENCO ────────────────────────────────────────────────── */
+.cok__elenco {
+  grid-area: elenco;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-raised);
+}
+.cok__elenco-titulo,
+.cok__insp-titulo {
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  padding: var(--space-3) var(--space-4) var(--space-2);
+}
+.cok__elenco-lista {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+.cok-motorista {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-left: 3px solid transparent;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.cok-motorista:hover { background: var(--hbx-surface-soft); }
+.cok-motorista.is-ativo {
+  background: var(--hbx-brand-soft);
+  border-left-color: var(--hbx-brand);
+}
+.cok-motorista__cracha {
+  position: relative;
+  flex: none;
+  width: 32px;
+  min-height: 32px;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-hairline);
+  border-radius: 50%;
+  background: var(--hbx-surface-soft);
+  color: var(--text-strong);
+  font-size: var(--fz-m1);
+  font-weight: 700;
+}
+/* O SEMÁFORO: verde andando no plano, âmbar parado além da régua,
+   vermelho sem sinal. Forma + cor (não só cor) — o pino tem borda
+   que o destaca em qualquer fundo. */
+.cok-motorista__farol {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--hbx-surface-raised);
+  background: var(--hbx-muted);
+}
+.cok-motorista__farol.is-ok { background: var(--hbx-success); }
+.cok-motorista__farol.is-atencao { background: var(--hbx-warning); }
+.cok-motorista__farol.is-grave { background: var(--hbx-danger); }
+.cok-motorista__quem { flex: 1; min-width: 0; }
+.cok-motorista__quem b {
+  display: block;
+  color: var(--text-strong);
+  font-size: var(--fz-m1);
+  font-weight: 600;
+}
+.cok-motorista__quem small {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
+}
+.cok-motorista__quem small.is-atencao { color: var(--hbx-warning); font-weight: 600; }
+.cok-motorista__quem small.is-grave { color: var(--hbx-danger); font-weight: 600; }
+.cok-motorista__barra {
+  height: 3px;
+  margin-top: var(--space-1);
+  border-radius: 2px;
+  background: var(--hbx-line);
+  overflow: hidden;
+}
+.cok-motorista__barra i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--hbx-success);
+}
+.cok-motorista__bolha {
+  flex: none;
+  min-width: 17px;
+  min-height: 17px;
+  padding: 0 var(--space-1);
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-pill, 999px);
+  background: var(--hbx-danger);
+  color: var(--text-on-brand);
+  font-size: var(--fz-m2);
+  font-weight: 700;
+}
+
+/* O balde órfão — onde moram as paradas sem dono. */
+.cok__pote {
+  margin: var(--space-3);
+  padding: var(--space-3);
+  border: 1.5px dashed var(--border-strong);
+  border-radius: 12px;
+  background: var(--hbx-surface-soft);
+}
+.cok__pote b {
+  color: var(--text-strong);
+  font-size: var(--fz-m1);
+  font-weight: 600;
+}
+.cok__pote small {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
+  margin: var(--space-1) 0 var(--space-2);
+}
+/* Botão que ocupa a largura do bloco (pote e rodapé do elenco). Classe em vez
+   de `style={{width:"100%"}}` na tela — Lei nº4: tela não tem visual próprio. */
+.cok__botao-largo {
+  width: 100%;
+  justify-content: center;
+}
+
+.cok__elenco-rodape {
+  margin-top: auto;
+  padding: var(--space-3);
+  border-top: 1px solid var(--border-hairline);
+  display: grid;
+  gap: var(--space-2);
+}
+
+/* ── PALCO ─────────────────────────────────────────────────── */
+.cok__palco {
+  grid-area: palco;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  gap: var(--space-3);
+  padding: var(--space-3);
+}
+.cok__palco-topo {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+.cok__palco-dica {
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
+}
+/* Barra de seleção múltipla — só existe com algo selecionado. */
+.cok__selecao {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
+  border-radius: 10px;
+  background: var(--hbx-foreground);
+  color: var(--hbx-background);
+  font-size: var(--fz-m1);
+  font-weight: 600;
+}
+.cok__selecao-x {
+  border: none;
+  background: none;
+  color: inherit;
+  opacity: 0.75;
+  cursor: pointer;
+  padding: var(--space-1);
+  font-size: var(--fz-l1);
+}
+.cok__selecao-x:hover { opacity: 1; }
+
+.cok__mapa {
+  position: relative;
+  flex: 1.25;
+  min-height: 0;
+  border: 1px solid var(--border-hairline);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--hbx-surface-soft);
+}
+.cok__mapa > * { height: 100%; }
+.cok__faixas {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+}
+/* O mapa some e as faixas tomam tudo (e vice-versa) — mesma tela,
+   três leituras. Sem `display:none` no meio pra não perder o estado. */
+.cok__mapa.is-oculto,
+.cok__faixas.is-oculto { display: none; }
+
+.cok__vazio {
+  display: grid;
+  place-items: center;
+  gap: var(--space-2);
+  padding: var(--space-8) var(--space-4);
+  border: 1px dashed var(--border-hairline);
+  border-radius: 14px;
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
+  text-align: center;
+}
+.cok__vazio strong {
+  color: var(--text-strong);
+  font-size: var(--fz-n1);
+  font-weight: 600;
+}
+
+/* ── INSPETOR ──────────────────────────────────────────────── */
+.cok__inspetor {
+  grid-area: inspetor;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border-left: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-raised);
+}
+.cok__insp-cabeca {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4) var(--space-3);
+  border-bottom: 1px solid var(--border-hairline);
+}
+.cok__insp-cabeca .cok-motorista__cracha { width: 38px; min-height: 38px; }
+.cok__insp-quem { min-width: 0; flex: 1; }
+.cok__insp-quem b {
+  display: block;
+  color: var(--text-strong);
+  font-size: var(--fz-n1);
+  font-weight: 600;
+}
+.cok__insp-quem small {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
+}
+.cok__insp-x {
+  flex: none;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  border-radius: 8px;
+  font-size: var(--fz-l1);
+}
+.cok__insp-x:hover { color: var(--text-strong); background: var(--hbx-surface-soft); }
+.cok__insp-corpo {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  gap: var(--space-3);
+  align-content: start;
+  padding: var(--space-3);
+}
+
+/* "O que ele faz AGORA" — a pergunta nº1 de quem abre o painel. */
+.cok__agora {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-left: 3px solid var(--hbx-brand);
+  border-radius: 0 10px 10px 0;
+  background: var(--hbx-surface-soft);
+}
+.cok__agora small {
+  color: var(--hbx-brand-strong);
+  font-size: var(--fz-m2);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.cok__agora b {
+  display: block;
+  color: var(--text-strong);
+  font-size: var(--fz-m1);
+  font-weight: 600;
+  margin: var(--space-1) 0;
+}
+.cok__agora span {
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
+}
+
+/* A fila DELE, com mãos. */
+.cok__fila-linha {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-1);
+  border-bottom: 1px solid var(--border-hairline);
+}
+.cok__fila-linha:last-child { border-bottom: none; }
+.cok__fila-n {
+  flex: none;
+  width: 18px;
+  min-height: 18px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-hairline);
+  border-radius: 5px;
+  background: var(--hbx-surface-soft);
+  color: var(--text-body);
+  font-size: var(--fz-m2);
+  font-weight: 700;
+}
+.cok__fila-nome {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-body);
+  font-size: var(--fz-m1);
+}
+.cok__fila-nome b {
+  display: block;
+  color: var(--text-strong);
+  font-weight: 600;
+}
+.cok__fila-nome small {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
+}
+.cok__fila-acoes { display: flex; gap: var(--space-1); flex: none; }
+.cok__fila-acoes button {
+  width: 24px;
+  min-height: 24px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 6px;
+  background: var(--hbx-surface-soft);
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: var(--fz-m1);
+}
+.cok__fila-acoes button:hover { color: var(--text-strong); background: var(--hbx-surface); }
+.cok__fila-acoes button.is-perigo:hover { color: var(--hbx-danger); background: var(--hbx-danger-soft); }
+
+/* ── CHAT DE RECADOS ───────────────────────────────────────── */
+.cok__chat {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 46%;
+  border-top: 1px solid var(--border-hairline);
+}
+.cok__chat-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3) var(--space-2);
+}
+.cok__chat-vazio {
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
+  padding: var(--space-2) var(--space-1);
+  text-align: center;
+}
+.cok-balao {
+  max-width: 88%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: 11px;
+  font-size: var(--fz-m1);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.cok-balao.is-nosso {
+  align-self: flex-end;
+  background: var(--hbx-chat-outbound);
+  color: var(--text-strong);
+}
+.cok-balao.is-dele {
+  align-self: flex-start;
+  background: var(--hbx-chat-inbound);
+  color: var(--text-strong);
+}
+.cok-balao__nivel {
+  display: block;
+  font-size: var(--fz-m2);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  margin-bottom: var(--space-1);
+}
+.cok-balao__nivel.is-urgente { color: var(--hbx-danger); }
+.cok-balao__nivel.is-alarme { color: var(--hbx-danger); }
+.cok-balao__estado {
+  display: block;
+  margin-top: var(--space-1);
+  text-align: right;
+  color: var(--text-muted);
+  font-size: var(--fz-m2);
+}
+/* "Entendido" é o único estado que muda de cor: é a prova que o dono
+   pediu — o clique garantido, não só "chegou". */
+.cok-balao__estado.is-entendido { color: var(--hbx-success); font-weight: 700; }
+
+.cok__chat-escrita {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+  border-top: 1px solid var(--border-hairline);
+}
+.cok__niveis { display: flex; gap: var(--space-1); }
+.cok__nivel {
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill, 999px);
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--fz-m2);
+  font-weight: 700;
+  padding: var(--space-1) var(--space-3);
+  cursor: pointer;
+}
+.cok__nivel:hover { color: var(--text-strong); border-color: var(--border-strong); }
+.cok__nivel[aria-pressed="true"] {
+  background: var(--hbx-foreground);
+  border-color: var(--hbx-foreground);
+  color: var(--hbx-background);
+}
+.cok__nivel.is-urgente[aria-pressed="true"] {
+  background: var(--hbx-danger);
+  border-color: var(--hbx-danger);
+  color: var(--text-on-brand);
+}
+.cok__enviar { display: flex; gap: var(--space-2); }
+.cok__enviar input { flex: 1; min-width: 0; }
+
+/* ── Zero-scroll: em tela baixa o cockpit aperta o respiro, nunca
+   o conteúdo (regra do FRONTEND.md). ───────────────────────── */
+@media (max-height: 900px) {
+  .cok__topo { padding: var(--space-2) var(--space-3); }
+  .cok__palco { padding: var(--space-2); gap: var(--space-2); }
+  .cok__elenco-titulo,
+  .cok__insp-titulo { padding: var(--space-2) var(--space-3) var(--space-1); }
+  .cok-motorista { padding: var(--space-2) var(--space-3); }
+  .cok__chat { max-height: 42%; }
+}
+
+/* ── Telas estreitas: o inspetor vira gaveta por cima do palco em
+   vez de espremer as três colunas em nada. ─────────────────── */
+@media (max-width: 1180px) {
+  .cok.tem-inspetor { --cok-inspetor: 0px; }
+  .cok__inspetor {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    width: min(340px, 92vw);
+    box-shadow: -8px 0 28px var(--hbx-shadow);
+  }
+  .cok { position: relative; }
+}

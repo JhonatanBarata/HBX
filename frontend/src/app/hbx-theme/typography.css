@@ -48,10 +48,19 @@
   --fonte-sistema: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
   --fonte-tecnica: "Sora", system-ui, sans-serif;
 
-  /* O que o app veste (esqueleto: sistema; pele e painel sobrescrevem). */
-  --font-display: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
-  --font-body: system-ui, "Segoe UI", Roboto, Arial, sans-serif;
-  --font-mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  /* O QUE O APP VESTE POR PADRÃO.
+     Era `system-ui` porque cada theme-<key>.css declarava a família e vencia
+     esta linha por ordem de import — o esqueleto nunca chegava a aparecer. Em
+     03/08 as peles saíram (a cor virou painel multicor) e a linha ficou EXPOSTA:
+     o app inteiro caiu para a letra do sistema, o que muda a métrica do texto e
+     derrubou a rede de corte. Não é fonte nova — é a mesma Plus Jakarta Sans que
+     o app já carregava e vestia; a diferença é que agora ela mora no dono certo,
+     em vez de ser efeito colateral de um arquivo de COR.
+     `--fonte-*` acima são as 3 famílias do painel de tipografia; o painel
+     sobrescreve estas linhas por especificidade (bloco [data-fonte], abaixo). */
+  --font-display: var(--fonte-moderna);
+  --font-body: var(--fonte-moderna);
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
 
   /* ---- 2. AJUSTE DO USUÁRIO — EFETIVO (1 = 100%) ----------------------
      Padrão do sistema. Só a casca Premium troca isto pelo que o painel

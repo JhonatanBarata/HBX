@@ -5675,22 +5675,12 @@ html, body { height: 100%; }
 .mais-m__tema-row { display: flex; flex-direction: column; gap: 6px; }
 .mais-m__tema-label { font-size: var(--casca-text-label); font-weight: var(--weight-bold); color: var(--text-muted); }
 .mais-m__mode-seg { width: 100%; }
-.mais-m__pele-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-.mais-m__pele-chip {
-  height: 28px;
-  padding: 0 var(--space-3);
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-pill);
-  background: var(--surface-recessed);
-  color: var(--text-body);
-  font-size: var(--casca-text-label);
-  font-weight: var(--weight-bold);
-  cursor: pointer;
-}
-.mais-m__pele-chip.is-on { border-color: var(--hbx-brand-strong); color: var(--hbx-brand-strong); background: color-mix(in srgb, var(--hbx-brand-strong) 14%, transparent); }
-/* Glass Pill (Lei nº2): o vidro por trás já dá fundo+sombra — o chip ativo só
-   troca a cor do texto/borda (senão duplicaria: chip sólido + vidro por cima). */
-.glass-pill-track .mais-m__pele-chip.is-on { background: transparent; }
+/* `.mais-m__pele-chips` / `.mais-m__pele-chip` SAÍRAM em 03/08 com a fila de
+   6 nomes de cor. A folha do celular agora usa a MESMA grade de bolinhas do
+   desktop (.aparencia__grade / .aparencia__cor, em kit.css) — uma cor livre
+   não cabe numa tira de nomes, e duas versões do mesmo controle é o tipo de
+   cópia que sai de sincronia. Apagadas junto com o JSX que as usava: classe
+   sem dono é peso morto que a próxima pessoa lê como se estivesse no ar. */
 
 /* Tela cheia: linha com switch próprio (toggle visual, sem <input>) */
 .mais-m__fs { border-bottom: 1px solid var(--border-hairline); }

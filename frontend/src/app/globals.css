@@ -176,6 +176,11 @@
    token, nenhuma cor literal. Ver logistica-mesa.css. */
 @import "./hbx-theme/logistica-mesa.css";
 
+/* COCKPIT DA LOGÍSTICA (03/08) — as 3 zonas (elenco / palco / inspetor), o
+   feed de avisos e o chat de recados. Reusa .log-lane/.log-strip da mesa
+   acima: o tabuleiro não foi reescrito, foi RE-EMOLDURADO. */
+@import "./hbx-theme/logistica-cockpit.css";
+
 /* CONVERSAS LIVE — comando único + inbox + conversa + contexto, na mesma
    casca compacta dos módulos operacionais. */
 @import "./hbx-theme/conversas-live.css";

@@ -14,20 +14,27 @@
 // POR QUE A LISTA DE 6 CORES MORREU (dono, 03/08: "remover todas essas
 // cores, deixar um painel, multicor").
 //
-// As 6 cores não eram cor: eram meias-peles. Medido em /dev/pele, no MESMO
-// padrão Premium, o `.side` saía assim:
+// As 6 cores não eram cor: eram meias-peles. Cada theme-<key>.css carregava um
+// "Bloco B" de vestir junto com a paleta, então trocar de COR mudava o
+// MATERIAL do app de raspão. Medido em /dev/pele, no MESMO padrão Premium, o
+// `.side` saía assim:
 //
-//   Aurora / Layout / Rosé  →  backdrop-filter: blur(24px)
-//   Ember / Lima / Corporativo →  blur: nenhum
+//   Aurora / Layout / Rosé      →  backdrop-filter: blur(24px)
+//   Ember / Lima / Corporativo  →  blur: nenhum
 //
-// Metade tinha vidro e metade não — e ninguém tinha pedido isso. Trocar de
-// COR mudava o MATERIAL do app por acidente, porque cada theme-<key>.css
-// carregava um "Bloco B" de vestir junto com a paleta. O botão Vidro/Chapado
-// deste arquivo é a correção: o que era efeito colateral virou escolha.
+// Metade tinha vidro e metade não, e ninguém tinha pedido isso. Mas o detalhe
+// que fecha a história é OUTRO, e só apareceu ao apagar as peles: aquele
+// blur(24px) era ERRADO nas três. casca-modern.css proíbe backdrop-filter em
+// painel GRANDE por performance (dono 07/07, "ficou pesado" — GPU fraca
+// rasteriza desfoque em software), e a pele atropelava a proibição vencendo
+// por ordem de import. Ou seja: as cores não só mexiam no material sem
+// avisar — mexiam CONTRA uma decisão que a casca tinha tomado de propósito.
 //
-// A troca também matou 170 regras de vestir que já eram letra morta — as duas
-// cascas são importadas DEPOIS das peles e venciam o empate de especificidade.
-// O que sobrou de real virou hbx-theme/material.css.
+// Por isso a correção não foi mover o Bloco B de lugar. Foi separar os eixos:
+// COR vira só paleta (theme-gerado.css) e MATERIAL vira botão
+// (material.css), com o vidro de painel grande feito por TRANSLUCIDEZ, que é
+// o que a casca sempre mandou. Das ~170 regras do Bloco B, quase todas já
+// eram letra morta — as cascas importam depois e venciam o empate.
 //
 // ATENÇÃO — ESTE ARQUIVO NÃO PODE IMPORTAR REACT. Ele é importado pelo
 // app/layout.tsx, que é SERVER Component; qualquer hook aqui puxaria o módulo
@@ -38,18 +45,6 @@
 
 export type CascaKey = "corporativa" | "backup";
 export type Modo = "light" | "dark";
-
-/**
- * COR — um hex, não uma chave de registro.
- *
- * O valor guardado é SÓ a semente. Quem constrói os ~60 tokens da tela é
- * hbx-theme/theme-gerado.css, em OKLCH, e ele usa da semente apenas MATIZ e
- * CROMA: a escada de claridade é da casa e é fixa. É isso que torna "qualquer
- * cor" seguro — contraste vira consequência da escada, não da sorte de quem
- * escolheu. Cor clara demais para texto branco não existe, porque a claridade
- * do botão nunca vem do usuário.
- */
-export type Cor = string;
 
 /** `<html data-theme>` tem UM valor agora. Fica de pé porque ~75 seletores de
  *  casca casam `[data-casca="…"][data-theme]` e sumiriam sem o atributo. */
@@ -95,12 +90,20 @@ export type CorDef = { key: string; nome: string };
 /**
  * A GRADE — o atalho, não a cerca.
  *
- * 15 matizes + 2 neutros, todos calculados na MESMA claridade OKLCH (L 0,55) e
- * no croma MÁXIMO que cabe no sRGB daquele matiz. É por isso que a grade
- * parece uma família e não um saco de cores: elas só diferem no eixo que a
- * pessoa está escolhendo. Croma máximo (e não um valor fixo) porque um croma
- * que caiba no amarelo deixa o vermelho lavado — medido: 0,15 em todos
- * transformava "Vermelho" num rosa empoeirado.
+ * SÃO CINCO, e o número é decisão do dono (03/08, vendo a grade de 17 na
+ * tela): *"tem muita cor, tem q colocar 5 exemplos bem distintos, e o seletor
+ * de cores"*. A grade cheia virava uma parede de tinta sem escolha óbvia —
+ * atalho que exige comparar 17 opções deixou de ser atalho.
+ *
+ * As 5 são as mais separadas que cabem numa fila: 290° · 240° · 145° · 55° e
+ * um neutro. Todas na MESMA claridade OKLCH do `--hbx-brand` (L 0,50) e no
+ * croma MÁXIMO que cabe no sRGB daquele matiz — croma máximo, e não um valor
+ * fixo, porque um croma que caiba no amarelo deixa o vermelho lavado (medido:
+ * 0,15 em todos transformava "Vermelho" num rosa empoeirado).
+ *
+ * Quem quiser um dos tons que saíram não perdeu nada: eles nunca foram
+ * "opções do sistema", eram só pontos de um contínuo que o seletor livre
+ * cobre inteiro.
  *
  * OS HEX NÃO ESTÃO AQUI, e não por acaso: o fiscal (check-pele.mjs, R2) varre
  * `.ts` junto com `.tsx`, e o bloco `pele-allow` só existe no laço de CSS.
@@ -114,23 +117,11 @@ export type CorDef = { key: string; nome: string };
  * aí sim o hex vai inline no <html>.
  */
 export const CORES: readonly CorDef[] = [
-  { key: "vermelho", nome: "Vermelho" },
-  { key: "laranja", nome: "Laranja" },
-  { key: "ambar", nome: "Âmbar" },
-  { key: "ouro", nome: "Ouro" },
-  { key: "limao", nome: "Limão" },
-  { key: "verde", nome: "Verde" },
-  { key: "esmeralda", nome: "Esmeralda" },
-  { key: "turquesa", nome: "Turquesa" },
-  { key: "ciano", nome: "Ciano" },
-  { key: "azul", nome: "Azul" },
-  { key: "anil", nome: "Anil" },
-  { key: "violeta", nome: "Violeta" },
-  { key: "purpura", nome: "Púrpura" },
-  { key: "magenta", nome: "Magenta" },
-  { key: "rosa", nome: "Rosa" },
-  { key: "ardosia", nome: "Ardósia" },
-  { key: "grafite", nome: "Grafite" },
+  { key: "violeta", nome: "Violeta" },  // 290°
+  { key: "azul", nome: "Azul" },        // 240°
+  { key: "verde", nome: "Verde" },      // 145°
+  { key: "ambar", nome: "Âmbar" },      //  55°
+  { key: "grafite", nome: "Grafite" },  // neutro
 ];
 
 /** Padrão de fábrica — o violeta que o Aurora ocupava desde 01/08. O VALOR
@@ -178,11 +169,11 @@ export function classificarCor(valor: string | null | undefined):
  */
 const LEGADO: Readonly<Record<string, string>> = {
   aurora: "violeta",
-  "hbx-cyber": "anil",
+  "hbx-cyber": "azul",   // era anil (264°) — azul é o vizinho de 240°
   corporativa: "azul",
-  rose: "rosa",
-  ember: "laranja",
-  login: "limao",
+  rose: "violeta",       // era rosa (355°); entre violeta e âmbar, violeta é o mais próximo em tom
+  ember: "ambar",
+  login: "verde",        // era limão (120°) — verde é o vizinho de 145°
 };
 
 export function corDoLegado(tema: string | null | undefined): string | null {
@@ -254,11 +245,6 @@ export function resolveModo(casca: CascaDef, modo: string | null | undefined): M
 /** Material escolhido, ou o da casca quando não há escolha. */
 export function resolveMaterial(casca: CascaDef, material: string | null | undefined): MaterialKey {
   return MATERIAIS.some(m => m.key === material) ? (material as MaterialKey) : casca.materialPadrao;
-}
-
-/** Só a ESCOLHA (sem cair no padrão da casca) — `null` = "quem manda é a casca". */
-export function resolveMaterialEscolhido(valor: string | null | undefined): MaterialKey | null {
-  return MATERIAIS.some(m => m.key === valor) ? (valor as MaterialKey) : null;
 }
 
 /**

@@ -8,7 +8,7 @@ import {
   CASCA_PADRAO, CASCA_STORAGE, CASCAS, COR_PADRAO, COR_STORAGE, DENSIDADE_STORAGE,
   LEGACY_PELE_STORAGE, LEGACY_TEMA_STORAGE, MATERIAL_STORAGE, MODE_STORAGE, TEMA_ATTR,
   classificarCor, corDoLegado, normalizarHex, resolveDensidade, type DensidadeKey,
-  getCasca, resolveMaterial, resolveMaterialEscolhido, resolveModo,
+  getCasca, resolveMaterial, resolveModo,
   type CascaDef, type CascaKey, type MaterialKey, type Modo,
 } from "@/lib/aparencia";
 
@@ -322,11 +322,6 @@ export function hexDaCor(cor: string | null): string {
 export function getMaterialAtivo(): MaterialKey {
   const attr = document.documentElement.getAttribute("data-material");
   return attr === "chapado" ? "chapado" : "vidro";
-}
-
-/** Só a ESCOLHA de material (`null` = quem manda é a casca). */
-export function getMaterialEscolhido(): MaterialKey | null {
-  return resolveMaterialEscolhido(ler(MATERIAL_STORAGE));
 }
 
 export function ThemeAttributes() {

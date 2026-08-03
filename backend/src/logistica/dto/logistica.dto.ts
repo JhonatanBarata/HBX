@@ -560,6 +560,29 @@ export class UpdateLogisticaConfigDto {
   @Max(240)
   tempoParadaMin?: number;
 
+  // SENTINELA (03/08) — réguas do vigia. 0 = desliga aquela pergunta.
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(240)
+  sentinelaSemSinalMin?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(240)
+  sentinelaParadoMin?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(240)
+  sentinelaAtrasoMin?: number;
+
+  @IsOptional()
+  @IsBoolean()
+  sentinelaWhatsAtiva?: boolean;
+
   @IsOptional()
   @IsBoolean()
   cobrancaNaEntrega?: boolean;

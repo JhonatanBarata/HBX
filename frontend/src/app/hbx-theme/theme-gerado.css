@@ -34,7 +34,13 @@
    ============================================================ */
 
 /* ============================================================
-   A GRADE — os 17 atalhos do painel.
+   A GRADE — os 5 atalhos do painel.
+
+   CINCO por ordem do dono (03/08, vendo os 17 na tela): "tem muita cor, tem q
+   colocar 5 exemplos bem distintos, e o seletor de cores". Uma parede de tinta
+   não é atalho: atalho é o que se resolve sem comparar. O contínuo inteiro
+   continua acessível pelo seletor livre — o que saiu foram pontos de amostra,
+   não capacidades.
 
    Os hex moram AQUI e não em lib/aparencia.ts por regra do fiscal: ele varre
    `.ts` junto com `.tsx` (check-pele.mjs, R2) e o bloco `pele-allow` só existe
@@ -55,23 +61,11 @@
    bolinha do painel precisa da cor mesmo com OUTRA cor ligada.
    ============================================================ */
 :root {
-  --cor-vermelho:  #B71C14;
-  --cor-laranja:   #944E13;
-  --cor-ambar:     #835A13;
-  --cor-ouro:      #746214;
-  --cor-limao:     #5C6C14;
-  --cor-verde:     #187726;
-  --cor-esmeralda: #187553;
-  --cor-turquesa:  #187269;
-  --cor-ciano:     #176F7C;
-  --cor-azul:      #166A99;
-  --cor-anil:      #2858CD;
-  --cor-violeta:   #6744C5;
-  --cor-purpura:   #8A34AB;
-  --cor-magenta:   #A32384;
-  --cor-rosa:      #AE1A69;
-  --cor-ardosia:   #576573;
-  --cor-grafite:   #4F5359;
+  --cor-violeta: #6744C5;  /* 290° — padrão de fábrica, cor da marca */
+  --cor-azul:    #166A99;  /* 240° */
+  --cor-verde:   #187726;  /* 145° */
+  --cor-ambar:   #944E13;  /*  55° */
+  --cor-grafite: #4F5359;  /* neutro — croma quase zero */
 }
 
 /* ---- CLARO ---- */
@@ -203,23 +197,11 @@
    grade for reajustado, quem o escolheu recebe o tom novo — o atalho é uma
    referência viva, não uma cópia congelada no navegador de cada um.
    ============================================================ */
-[data-cor="vermelho"]  { --hbx-cor: var(--cor-vermelho); }
-[data-cor="laranja"]   { --hbx-cor: var(--cor-laranja); }
-[data-cor="ambar"]     { --hbx-cor: var(--cor-ambar); }
-[data-cor="ouro"]      { --hbx-cor: var(--cor-ouro); }
-[data-cor="limao"]     { --hbx-cor: var(--cor-limao); }
-[data-cor="verde"]     { --hbx-cor: var(--cor-verde); }
-[data-cor="esmeralda"] { --hbx-cor: var(--cor-esmeralda); }
-[data-cor="turquesa"]  { --hbx-cor: var(--cor-turquesa); }
-[data-cor="ciano"]     { --hbx-cor: var(--cor-ciano); }
-[data-cor="azul"]      { --hbx-cor: var(--cor-azul); }
-[data-cor="anil"]      { --hbx-cor: var(--cor-anil); }
-[data-cor="violeta"]   { --hbx-cor: var(--cor-violeta); }
-[data-cor="purpura"]   { --hbx-cor: var(--cor-purpura); }
-[data-cor="magenta"]   { --hbx-cor: var(--cor-magenta); }
-[data-cor="rosa"]      { --hbx-cor: var(--cor-rosa); }
-[data-cor="ardosia"]   { --hbx-cor: var(--cor-ardosia); }
-[data-cor="grafite"]   { --hbx-cor: var(--cor-grafite); }
+[data-cor="violeta"] { --hbx-cor: var(--cor-violeta); }
+[data-cor="azul"]    { --hbx-cor: var(--cor-azul); }
+[data-cor="verde"]   { --hbx-cor: var(--cor-verde); }
+[data-cor="ambar"]   { --hbx-cor: var(--cor-ambar); }
+[data-cor="grafite"] { --hbx-cor: var(--cor-grafite); }
 
 /* ---- ESCURO ---- */
 [data-theme="hbx"][data-theme-mode="dark"] {

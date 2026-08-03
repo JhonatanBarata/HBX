@@ -307,7 +307,7 @@ export function TemaSection() {
           segunda versão dela. A fila de chips com nome que vivia aqui servia
           6 cores; com a grade livre ela viraria uma tira de 17 nomes rolando
           de lado. Bolinha resolve em um toque e cabe na largura do celular. */}
-      <div className="mais-m__tema-row is-col">
+      <div className="mais-m__tema-row">
         <span className="mais-m__tema-label">Cor</span>
         <div className="aparencia__grade" role="radiogroup" aria-label="Cor do sistema">
           {CORES.map(c => (

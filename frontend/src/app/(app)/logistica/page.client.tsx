@@ -15,7 +15,7 @@
 // Design system (5 Leis): visual todo em classe central (.log-*/.emp-* em
 // screens.css + kit .field-dark/.btn-teal/.btn-ghost). Inline aqui = só layout.
 
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
@@ -23,11 +23,8 @@ import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { isTenantAdmin } from "@/lib/roles";
 
-import { RouteBoard } from "./route-board";
 import { RouteBuilderDialog } from "./route-builder";
-import { Divisoria } from "@/components/hbx/divisoria";
-import { RouteCreditPanel } from "./route-credit-panel";
-import { RouteTriage } from "./route-triage";
+import { Cockpit } from "./cockpit";
 import { WeeklyAgenda } from "./weekly-agenda";
 import { BaseSaude } from "./base-saude";
 
@@ -77,53 +74,6 @@ type Entrega = {
 
 type Entregador = { id: number; nome: string | null; email: string | null };
 
-// ROTA PRONTA (29/07) — linha de GET /logistica/rota-indicadas (aviso de negada).
-type RotaIndicadaAviso = {
-  id: string;
-  nome: string;
-  status: string;
-  paraNome: string;
-  porNome: string;
-  avisoVisto: boolean;
-  // AGENDADOR (02/08) — hora marcada e se o celular da pessoa JÁ armou o
-  // despertador. Sem o segundo campo o painel prometeria um alarme que talvez
-  // nunca toque (aparelho desligado, app nunca aberto).
-  agendadaPara: string | null;
-  alarmeArmado: boolean;
-};
-
-/** Estado da missão em UMA frase — é o que o admin lê pra saber se pode ir embora. */
-function estadoDaMissao(m: RotaIndicadaAviso): { texto: string; alerta: boolean } {
-  if (m.status === "aceita" || m.status === "aplicada") return { texto: "aceita", alerta: false };
-  if (!m.agendadaPara) return { texto: "esperando resposta", alerta: false };
-  return m.alarmeArmado
-    ? { texto: "despertador armado no celular", alerta: false }
-    : { texto: "o celular ainda não recebeu", alerta: true };
-}
-
-// 31/07 — linha de GET /logistica/rota-avisos: rota que morreu no meio.
-type RotaAvisoLinha = {
-  id: string;
-  tipo: "abandonada" | "parcial" | "parada";
-  motoristaNome: string;
-  rotaNome: string | null;
-  total: number;
-  entregues: number;
-  abertas: number;
-};
-
-/** A frase do banner. Fato seco: quem, o quê, e quanto ficou pra trás. */
-function fraseDoRecado(aviso: RotaAvisoLinha): string {
-  const rota = aviso.rotaNome ? ` da rota ${aviso.rotaNome}` : "";
-  if (aviso.tipo === "abandonada") {
-    return `${aviso.motoristaNome} saiu pra rua${rota} e encerrou sem entregar nada — ${aviso.abertas} cliente(s) sem atendimento.`;
-  }
-  if (aviso.tipo === "parcial") {
-    return `${aviso.motoristaNome} encerrou${rota} com ${aviso.entregues} de ${aviso.total} entregues — ${aviso.abertas} ficaram pra trás.`;
-  }
-  return `${aviso.motoristaNome} iniciou a rota${rota} e está sem entregar nada há mais de 1h30 — ${aviso.abertas} cliente(s) esperando.`;
-}
-
 type Rota = {
   date: string;
   total: number;
@@ -143,13 +93,6 @@ const STATUS_LABEL: Record<string, string> = {
 
 function fmtEndereco(c: Cliente): string {
   return [c.endereco, [c.cidade, c.uf].filter(Boolean).join(" - ")].filter(Boolean).join(", ") || "Sem endereço cadastrado";
-}
-
-function fmtHoraLogistica(iso: string | null | undefined): string | null {
-  if (!iso) return null;
-  const data = new Date(iso);
-  if (Number.isNaN(data.getTime())) return null;
-  return data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
 // Deep-link de navegação NATIVO (custo R$0): por coordenada se houver lat/lng,
@@ -353,79 +296,6 @@ type ResumoDia = { date: string; entregues: number; recebidoHoje: number; aReceb
 
 // Resultado do POST /logistica/fechar-mes (R2 — modelo mensal).
 type FecharMesResult = { companyId: number; mesRef: string; faturas: unknown[]; chargesCriados: number };
-
-function fmtMoneyLog(v: number): string {
-  return `R$ ${Number(v || 0).toFixed(2).replace(".", ",")}`;
-}
-
-// M6 — card "Resumo do dia" (admin): entregues / recebido hoje / a receber +
-// botão "Fechar mês" (chama POST /logistica/fechar-mes com confirmação simples).
-function ResumoDiaCard({ onFecharMes }: { onFecharMes: () => void }) {
-  const [resumo, setResumo] = useState<ResumoDia | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [fechando, setFechando] = useState(false);
-  const [fecharMsg, setFecharMsg] = useState<string | null>(null);
-
-  const load = useCallback(() => {
-    setLoading(true);
-    return apiFetch<ResumoDia>("/logistica/resumo-dia")
-      .then((res) => { setResumo(res); setError(null); })
-      .catch((err: unknown) => { setError(err instanceof Error ? err.message : "Não foi possível carregar o resumo."); })
-      .finally(() => setLoading(false));
-  }, []);
-
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar; efeito legítimo, não estado derivado.
-  useEffect(() => { load(); }, [load]);
-
-  const fecharMes = useCallback(() => {
-    if (typeof window !== "undefined" && !window.confirm("Fechar o mês dos clientes mensais? Gera uma fatura por cliente com as entregas do período.")) return;
-    setFechando(true);
-    setFecharMsg(null);
-    apiFetch<FecharMesResult>("/logistica/fechar-mes", { method: "POST", body: JSON.stringify({}) })
-      .then((res) => {
-        setFecharMsg(res.chargesCriados > 0 ? `${res.chargesCriados} fatura(s) gerada(s).` : "Nada a fechar hoje.");
-        onFecharMes();
-        return load();
-      })
-      .catch((err: unknown) => { setFecharMsg(err instanceof Error ? err.message : "Não foi possível fechar o mês."); })
-      .finally(() => setFechando(false));
-  }, [load, onFecharMes]);
-
-  if (error) return null; // resumo é aditivo; se falhar, não polui a tela.
-
-  return (
-    <div className="log-resumo">
-      <div className="log-resumo__stats">
-        <div className="log-resumo__stat">
-          {loading && !resumo
-            ? <span className="log-resumo__num log-resumo__skel" aria-hidden />
-            : <span className="log-resumo__num">{resumo?.entregues ?? 0}</span>}
-          <span className="log-resumo__lbl">Entregues hoje</span>
-        </div>
-        <div className="log-resumo__stat">
-          {loading && !resumo
-            ? <span className="log-resumo__num log-resumo__skel" aria-hidden />
-            : <span className="log-resumo__num is-ok">{fmtMoneyLog(resumo?.recebidoHoje ?? 0)}</span>}
-          <span className="log-resumo__lbl">Recebido hoje</span>
-        </div>
-        <div className="log-resumo__stat">
-          {loading && !resumo
-            ? <span className="log-resumo__num log-resumo__skel" aria-hidden />
-            : <span className="log-resumo__num is-due">{fmtMoneyLog(resumo?.aReceber ?? 0)}</span>}
-          <span className="log-resumo__lbl">A receber</span>
-        </div>
-      </div>
-      <div className="log-resumo__acts">
-        {fecharMsg && <span className="emp-count">{fecharMsg}</span>}
-        <button type="button" className="btn-ghost btn-xs" onClick={fecharMes} disabled={fechando}>
-          <I d={ICONS.check} size={13} /> {fechando ? "Fechando…" : "Fechar mês"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export function LogisticaClient() {
   const user = useCurrentUser();
   const admin = isTenantAdmin(user);
@@ -436,18 +306,13 @@ export function LogisticaClient() {
   const [gerando, setGerando] = useState(false);
   const [gerarMsg, setGerarMsg] = useState<string | null>(null);
   const [entregadores, setEntregadores] = useState<Entregador[]>([]);
-  const [selectedDriverId, setSelectedDriverId] = useState<number | null>(null);
   const [atualizadoEm, setAtualizadoEm] = useState<Date | null>(null);
   const [routeBuilderOpen, setRouteBuilderOpen] = useState(false);
-  // ROTA PRONTA (29/07) — avisos de rota indicada negada no celular.
-  const [negadas, setNegadas] = useState<RotaIndicadaAviso[]>([]);
-  // AGENDADOR (02/08) — as missões VIVAS que o escritório mandou: é o painel que
-  // faltava pra quem manda ("mandei, e daí?"). Mesma requisição do banner acima.
-  const [missoes, setMissoes] = useState<RotaIndicadaAviso[]>([]);
-  // 31/07 — recados de rota que morreu no meio (abandonada/parcial/parada).
-  const [rotaAvisos, setRotaAvisos] = useState<RotaAvisoLinha[]>([]);
+  const [resumo, setResumo] = useState<ResumoDia | null>(null);
+  const [menuAberto, setMenuAberto] = useState(false);
   const [view, setView] = useState<LogisticsView>("today");
   const viewPill = useGlassPill<HTMLButtonElement>(admin ? view : "today", admin);
+  const menuRef = useRef<HTMLSpanElement | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -464,8 +329,21 @@ export function LogisticaClient() {
       .finally(() => setLoading(false));
   }, []);
 
+  // Os 2 números de dinheiro do topo. Antes isto era um CARTÃO inteiro no meio
+  // da tela; virou dois KPIs, e o resto dele (fechar mês) foi pro menu "⋯".
+  const carregarResumo = useCallback(() => {
+    return apiFetch<ResumoDia>("/logistica/resumo-dia")
+      .then(setResumo)
+      .catch(() => { /* aditivo: sem resumo o topo mostra 0, nunca quebra */ });
+  }, []);
+
   // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar; efeito legítimo, não estado derivado.
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!admin) return;
+    void carregarResumo();
+  }, [admin, carregarResumo]);
 
   useEffect(() => {
     if (!admin) return;
@@ -474,67 +352,22 @@ export function LogisticaClient() {
       .catch(() => setEntregadores([]));
   }, [admin]);
 
-  // ROTA PRONTA (29/07) — negadas ainda não vistas viram banner; tick de 60s
-  // enquanto a tela está aberta (a recusa acontece no celular, longe daqui).
+  // Fecha o "⋯" ao clicar fora — menu que não fecha sozinho vira estorvo.
   useEffect(() => {
-    if (!admin) return;
-    let cancelled = false;
-    const carregar = () => {
-      apiFetch<RotaIndicadaAviso[]>("/logistica/rota-indicadas")
-        .then((rows) => {
-          if (cancelled) return;
-          // PR29072026 — "desfeita" entra no MESMO banner: aceitou e devolveu é
-          // tão importante quanto recusar de cara (quem indicou ficou sem motorista).
-          const lista = Array.isArray(rows) ? rows : [];
-          setNegadas(lista.filter(
-            (row) => (row.status === "negada" || row.status === "desfeita") && !row.avisoVisto,
-          ));
-          // Viva = ainda vai acontecer. `aplicada` sai da lista de propósito:
-          // rota que já virou trabalho na rua se acompanha no painel do dia,
-          // não numa fila de recados (dado em 2 lugares é bug de produto).
-          setMissoes(lista.filter((row) => row.status === "pendente" || row.status === "aceita"));
-        })
-        .catch(() => { /* aviso é acessório: rede fora não derruba a tela */ });
+    if (!menuAberto) return undefined;
+    const fora = (ev: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(ev.target as Node)) setMenuAberto(false);
     };
-    carregar();
-    const timer = setInterval(carregar, 60000);
-    return () => { cancelled = true; clearInterval(timer); };
-  }, [admin]);
-
-  const dispensarNegada = useCallback((id: string) => {
-    setNegadas((current) => current.filter((row) => row.id !== id));
-    apiFetch(`/logistica/rota-indicadas/${encodeURIComponent(id)}/visto`, { method: "POST", body: JSON.stringify({}) })
-      .catch(() => { /* se falhar, o aviso volta no próximo tick */ });
-  }, []);
-
-  // 31/07 — RECADO DE ROTA QUE MORREU NO MEIO. O banner acima só sabe de rota
-  // INDICADA; este conta o que ninguém contava: quem saiu pra rua e não entregou
-  // nada, quem parou no meio, e a rota que está parada há mais de 1h30 sem sinal
-  // (o motorista que dá Iniciar e fecha o app nunca chamou endpoint nenhum).
-  useEffect(() => {
-    if (!admin) return;
-    let cancelled = false;
-    const carregar = () => {
-      apiFetch<RotaAvisoLinha[]>("/logistica/rota-avisos")
-        .then((rows) => { if (!cancelled) setRotaAvisos(Array.isArray(rows) ? rows : []); })
-        .catch(() => { /* acessório: rede fora não derruba a tela */ });
-    };
-    carregar();
-    const timer = setInterval(carregar, 60000);
-    return () => { cancelled = true; clearInterval(timer); };
-  }, [admin]);
-
-  const dispensarRotaAviso = useCallback((id: string) => {
-    setRotaAvisos((current) => current.filter((row) => row.id !== id));
-    apiFetch(`/logistica/rota-avisos/${encodeURIComponent(id)}/visto`, { method: "POST", body: JSON.stringify({}) })
-      .catch(() => { /* se falhar, o aviso volta no próximo tick */ });
-  }, []);
+    document.addEventListener("mousedown", fora);
+    return () => document.removeEventListener("mousedown", fora);
+  }, [menuAberto]);
 
   // "Gerar entregas de hoje" (admin): materializa as entregas recorrentes vencidas.
   // Idempotente no backend — clicar 2× não duplica. Recarrega a rota ao terminar.
   const gerarDia = useCallback(() => {
     setGerando(true);
     setGerarMsg(null);
+    setMenuAberto(false);
     apiFetch<GerarDiaResult>("/logistica/gerar-dia", { method: "POST", body: JSON.stringify({}) })
       .then((res) => {
         setGerarMsg(
@@ -552,415 +385,208 @@ export function LogisticaClient() {
       .finally(() => setGerando(false));
   }, [load]);
 
+  const fecharMes = useCallback(() => {
+    setMenuAberto(false);
+    if (typeof window !== "undefined" && !window.confirm("Fechar o mês dos clientes mensais? Gera uma fatura por cliente com as entregas do período.")) return;
+    apiFetch<FecharMesResult>("/logistica/fechar-mes", { method: "POST", body: JSON.stringify({}) })
+      .then((res) => {
+        setGerarMsg(res.chargesCriados > 0 ? `${res.chargesCriados} fatura(s) gerada(s).` : "Nada a fechar hoje.");
+        void carregarResumo();
+        return load();
+      })
+      .catch((err: unknown) => setGerarMsg(err instanceof Error ? err.message : "Não foi possível fechar o mês."));
+  }, [carregarResumo, load]);
+
   const items = rota?.items ?? [];
   const pendentes = items.filter((e) => e.status === "agendada" || e.status === "em_rota").length;
   const isEmpty = !loading && !error && items.length === 0;
-  const selectedDriver = selectedDriverId == null
-    ? null
-    : entregadores.find((driver) => driver.id === selectedDriverId)
-      ?? items.find((item) => item.entregador?.id === selectedDriverId)?.entregador
-      ?? null;
-  const selectedDriverItems = selectedDriver
-    ? items.filter((item) => item.entregador?.id === selectedDriver.id)
-    : [];
-  const selectedDriverDone = selectedDriverItems.filter((item) => item.status === "entregue").length;
-  const selectedDriverOpen = selectedDriverItems.filter((item) => item.status === "agendada" || item.status === "em_rota").length;
-  const selectedDriverCancelled = selectedDriverItems.filter((item) => item.status === "cancelada").length;
-  const selectedDriverProgress = selectedDriverItems.length
-    ? Math.round((selectedDriverDone / selectedDriverItems.length) * 100)
-    : 0;
-  const selectedDriverNext = [...selectedDriverItems]
-    .filter((item) => item.status === "em_rota" || item.status === "agendada")
-    .sort((a, b) => {
-      const statusA = a.status === "em_rota" ? 0 : 1;
-      const statusB = b.status === "em_rota" ? 0 : 1;
-      if (statusA !== statusB) return statusA - statusB;
-      const orderA = typeof a.rotaOrdem === "number" ? a.rotaOrdem : Number.MAX_SAFE_INTEGER;
-      const orderB = typeof b.rotaOrdem === "number" ? b.rotaOrdem : Number.MAX_SAFE_INTEGER;
-      if (orderA !== orderB) return orderA - orderB;
-      return String(a.etaAt || a.scheduledAt || "").localeCompare(String(b.etaAt || b.scheduledAt || ""));
-    })[0] ?? null;
+
+  // As 3 abas entram no MESMO topo do cockpit — duas barras seriam a pilha de
+  // volta. Fora do admin não existe escolha de visão.
+  const abas = admin ? (
+    <div className="log-guide glass-pill-track" role="tablist" aria-label="Visão da logística">
+      <GlassPill {...viewPill} />
+      {(["today", "weekly", "saude"] as LogisticsView[]).map((chave) => (
+        <button
+          key={chave}
+          ref={viewPill.itemRef(chave)}
+          type="button"
+          role="tab"
+          aria-selected={view === chave}
+          tabIndex={view === chave ? 0 : -1}
+          className={`log-guide__tab glass-pill-item${view === chave ? " is-active" : ""}`}
+          onClick={() => setView(chave)}
+        >
+          {chave === "today" ? "Hoje" : chave === "weekly" ? "Semana" : "Saúde"}
+        </button>
+      ))}
+    </div>
+  ) : null;
+
+  // O "⋯": tudo que NÃO é a operação do dia. Antes eram 6 atalhos e um botão de
+  // fechar mês ocupando duas faixas inteiras no meio da tela.
+  const menu = admin ? (
+    <span className="cok__sino" ref={menuRef}>
+      <button
+        type="button"
+        className="btn-ghost btn-xs"
+        aria-label="Mais ações"
+        aria-expanded={menuAberto}
+        onClick={() => setMenuAberto((v) => !v)}
+      >
+        <span aria-hidden>⋯</span>
+      </button>
+      {menuAberto && (
+        <div className="cok__avisos cok__menu" role="menu">
+          <span className="cok__avisos-titulo">Ações</span>
+          <button type="button" className="cok__menu-item" role="menuitem" onClick={gerarDia} disabled={gerando}>
+            <I d={ICONS.plus} size={13} /> {gerando ? "Gerando…" : "Gerar entregas de hoje"}
+          </button>
+          <Link href="/logistica/estoque" className="cok__menu-item" role="menuitem">
+            <I d={ICONS.produtos} size={13} /> Estoque
+          </Link>
+          <Link href="/logistica/importar" className="cok__menu-item" role="menuitem">
+            <I d={ICONS.upload} size={13} /> Importar
+          </Link>
+          <Link href="/logistica/config" className="cok__menu-item" role="menuitem">
+            <I d={ICONS.config} size={13} /> Regras
+          </Link>
+          <Link href="/logistica/instalar" className="cok__menu-item" role="menuitem">
+            <I d={ICONS.phone} size={13} /> App do entregador
+          </Link>
+          <button type="button" className="cok__menu-item" role="menuitem" onClick={fecharMes}>
+            <I d={ICONS.check} size={13} /> Fechar mês
+          </button>
+          {gerarMsg && <span className="cok__avisos-rodape">{gerarMsg}</span>}
+        </div>
+      )}
+    </span>
+  ) : null;
 
   return (
-    <div className="work log-work hbx-panel-shell-host">
-      <div
-        className={`hbx-panel-shell log-live-shell${admin ? " hbx-panel-shell--context" : ""}`}
-        data-variant={admin ? "context" : "common"}
-        aria-label="Operação logística"
-      >
-        <div className="hbx-panel-shell__main">
-          <div className="hbx-panel-shell__content log-live-content">
-            <header className="log-command">
-              <div className="log-command__identity">
-                <span className="log-command__icon" aria-hidden>
-                  <I d={ICONS.logistica} size={17} />
-                </span>
-                <span className="log-command__copy">
-                  <strong>Operação</strong>
-                  <small>{items.length} parada(s) · {pendentes} aberta(s)</small>
-                </span>
-              </div>
+    <div className="work log-work log-cockpit-host">
+      {admin && view === "today" && (
+        <Cockpit
+          stops={items}
+          drivers={entregadores}
+          entreguesHoje={resumo?.entregues ?? 0}
+          aReceber={resumo?.aReceber ?? 0}
+          carregando={loading}
+          atualizadoEm={atualizadoEm}
+          abas={abas}
+          menu={menu}
+          onRecarregar={() => { void load(); void carregarResumo(); }}
+          onAbrirParada={(stop) => setOpen(items.find((item) => item.id === stop.id) ?? null)}
+          onMontarRota={() => setRouteBuilderOpen(true)}
+          onParadaAvulsa={() => setRouteBuilderOpen(true)}
+          onAtribuido={(stopId, entregador) => {
+            setRota((atual) => atual
+              ? { ...atual, items: atual.items.map((item) => item.id === stopId ? { ...item, entregador } : item) }
+              : atual);
+            setOpen((atual) => atual && atual.id === stopId ? { ...atual, entregador } : atual);
+          }}
+        />
+      )}
 
-              {admin ? (
-                <div className="log-guide glass-pill-track" role="tablist" aria-label="Visão da logística">
-                  <GlassPill {...viewPill} />
-                  <button
-                    ref={viewPill.itemRef("today")}
-                    id="log-tab-today"
-                    type="button"
-                    role="tab"
-                    aria-controls="logistica-view-today"
-                    aria-selected={view === "today"}
-                    tabIndex={view === "today" ? 0 : -1}
-                    className={`log-guide__tab glass-pill-item${view === "today" ? " is-active" : ""}`}
-                    onClick={() => setView("today")}
-                  >
-                    Hoje
-                  </button>
-                  <button
-                    ref={viewPill.itemRef("weekly")}
-                    id="log-tab-weekly"
-                    type="button"
-                    role="tab"
-                    aria-controls="logistica-view-weekly"
-                    aria-selected={view === "weekly"}
-                    tabIndex={view === "weekly" ? 0 : -1}
-                    className={`log-guide__tab glass-pill-item${view === "weekly" ? " is-active" : ""}`}
-                    onClick={() => setView("weekly")}
-                  >
-                    Semana
-                  </button>
-                  <button
-                    ref={viewPill.itemRef("saude")}
-                    id="log-tab-saude"
-                    type="button"
-                    role="tab"
-                    aria-controls="logistica-view-saude"
-                    aria-selected={view === "saude"}
-                    tabIndex={view === "saude" ? 0 : -1}
-                    className={`log-guide__tab glass-pill-item${view === "saude" ? " is-active" : ""}`}
-                    onClick={() => setView("saude")}
-                  >
-                    Saúde
-                  </button>
-                </div>
-              ) : (
-                <strong className="log-command__single-view">Rota de hoje</strong>
-              )}
+      {admin && view === "weekly" && (
+        <section className="panel log-today-panel hbx-page-mobile-enter">
+          <header className="log-command">{abas}</header>
+          <WeeklyAgenda onOpenRouteBuilder={() => setRouteBuilderOpen(true)} />
+        </section>
+      )}
 
-              <span className="log-command__updated">
-                {atualizadoEm
-                  ? `às ${atualizadoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`
-                  : loading ? "sincronizando" : "sem leitura"}
+      {admin && view === "saude" && (
+        <section className="panel log-today-panel hbx-page-mobile-enter">
+          <header className="log-command">{abas}</header>
+          <BaseSaude />
+        </section>
+      )}
+
+      {/* O ENTREGADOR (não-admin) continua na LISTA — é a tela dele no celular.
+          UMA representação por público: o cockpit é a mesa de quem despacha. */}
+      {!admin && (
+        <section className="panel log-today-panel hbx-page-mobile-enter">
+          <header className="log-command">
+            <div className="log-command__identity">
+              <span className="log-command__icon" aria-hidden><I d={ICONS.logistica} size={17} /></span>
+              <span className="log-command__copy">
+                <strong>Rota de hoje</strong>
+                <small>{items.length} parada(s) · {pendentes} aberta(s)</small>
               </span>
-              <button
-                type="button"
-                className="btn-ghost log-command__refresh"
-                onClick={() => void load()}
-                disabled={loading}
-                aria-label={loading ? "Atualizando rota" : "Atualizar rota"}
-                title={loading ? "Atualizando rota" : "Atualizar rota"}
-              >
-                <span aria-hidden>↻</span>
-              </button>
-              {admin && (
+            </div>
+            <button
+              type="button"
+              className="btn-ghost log-command__refresh"
+              onClick={() => void load()}
+              disabled={loading}
+              aria-label="Atualizar rota"
+            >
+              <span aria-hidden>↻</span>
+            </button>
+          </header>
+
+          {loading && <div className="emp-empty"><span className="emp-empty__text">Carregando rota…</span></div>}
+
+          {error && (
+            <div className="emp-empty">
+              <strong className="emp-empty__title">Não carregou</strong>
+              <span className="emp-empty__text">{error}</span>
+              <button className="btn-ghost" onClick={() => load()}>Tentar novamente</button>
+            </div>
+          )}
+
+          {isEmpty && (
+            <div className="emp-empty">
+              <strong className="emp-empty__title">Nenhuma entrega hoje</strong>
+              <span className="emp-empty__text">
+                As entregas agendadas para hoje aparecem aqui. Toque numa parada para navegar até o cliente e confirmar a entrega com o GPS.
+              </span>
+            </div>
+          )}
+
+          {!error && items.length > 0 && (
+            <div className="emp-list">
+              {items.map((e) => (
                 <button
                   type="button"
-                  className="btn-teal log-command__build"
-                  onClick={() => setRouteBuilderOpen(true)}
-                  aria-label="Montar rota"
+                  className={`emp-row log-row log-row--${e.status}`}
+                  key={e.id}
+                  onClick={() => setOpen(e)}
                 >
-                  <I d={ICONS.logistica} size={13} />
-                  <span>Montar rota</span>
+                  <span className="emp-row__ico"><I d={ICONS.logistica} size={18} /></span>
+                  <span className="emp-row__main">
+                    <span className="emp-row__name">{e.cliente.nome || "Cliente"}</span>
+                    <span className="emp-row__sub">
+                      {[
+                        fmtEndereco(e.cliente),
+                        e.produto ? `${e.quantidade}× ${e.produto.nome}` : "",
+                      ].filter(Boolean).join("  ·  ")}
+                    </span>
+                  </span>
+                  <span className="emp-row__side">
+                    {/* PR27072026 F2 — parada amarela de devedor: "só cobrar", sem
+                        esconder o cliente. */}
+                    {e.somenteCobranca && (
+                      <span className="tag warn" title={e.motivoCobranca || undefined}>Só cobrar</span>
+                    )}
+                    <span className={`log-badge log-badge--${e.status}`}>{STATUS_LABEL[e.status] || e.status}</span>
+                  </span>
                 </button>
-              )}
-              <span className={`log-command__status${loading ? " is-loading" : ""}`} title={loading ? "Sincronizando" : "Operação sincronizada"}>
-                <i aria-hidden="true" />
-              </span>
-            </header>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
 
-            {(!admin || view === "today") && (
-              <section
-                id="logistica-view-today"
-                className="panel log-today-panel hbx-page-mobile-enter"
-                role={admin ? "tabpanel" : undefined}
-                aria-labelledby={admin ? "log-tab-today" : undefined}
-              >
-                {admin && (
-                  <nav className="log-quickbar" aria-label="Atalhos da logística">
-                    <button type="button" className="log-quickbar__action" onClick={gerarDia} disabled={gerando}>
-                      <I d={ICONS.plus} size={12} /> {gerando ? "Gerando…" : "Gerar entregas"}
-                    </button>
-                    <Link href="/logistica/estoque" className="log-quickbar__action">
-                      <I d={ICONS.produtos} size={12} /> Estoque
-                    </Link>
-                    <Link href="/logistica/importar" className="log-quickbar__action">
-                      <I d={ICONS.upload} size={12} /> Importar
-                    </Link>
-                    <Link href="/logistica/rastreamento" className="log-quickbar__action">
-                      <I d={ICONS.mapin} size={12} /> Ao vivo
-                    </Link>
-                    <Link href="/logistica/config" className="log-quickbar__action">
-                      <I d={ICONS.config} size={12} /> Regras
-                    </Link>
-                    <Link href="/logistica/instalar" className="log-quickbar__action">
-                      <I d={ICONS.phone} size={12} /> App
-                    </Link>
-                    {gerarMsg && <span className="log-quickbar__feedback">{gerarMsg}</span>}
-                  </nav>
-                )}
-
-                <div className="log-today-scroll">
-
-        {/* ROTA PRONTA (29/07) — aviso literal do dono: "Rota X negada por Y".
-            PR29072026 — "desfeita" reusa a MESMA linha: aceitou e devolveu. */}
-        {admin && negadas.map((aviso) => (
-          <div className="log-negada" key={aviso.id} role="status">
-            <span>
-              Rota <strong>{aviso.nome}</strong> {aviso.status === "desfeita" ? "devolvida" : "negada"} por {aviso.paraNome}.
-            </span>
-            <button type="button" className="log-negada__close" aria-label="Dispensar aviso" onClick={() => dispensarNegada(aviso.id)}>×</button>
-          </div>
-        ))}
-
-        {/* 31/07 — O RECADO QUE FALTAVA: começou e desistiu, parou no meio, ou
-            está parado há mais de 1h30 sem ninguém saber. Vale pra QUALQUER
-            rota, não só pras indicadas. */}
-        {admin && rotaAvisos.map((aviso) => (
-          <div className="log-negada" key={aviso.id} role="status">
-            <span>{fraseDoRecado(aviso)}</span>
-            <button type="button" className="log-negada__close" aria-label="Dispensar aviso" onClick={() => dispensarRotaAviso(aviso.id)}>×</button>
-          </div>
-        ))}
-
-        {/* AGENDADOR (02/08, pedido do dono) — o controle do lado de QUEM MANDA.
-            Ele marca a rota e vai embora; sem esta lista não havia como saber se
-            o celular recebeu, se o despertador está armado e se a pessoa aceitou.
-            Uma missão por LINHA de dado: rota, pessoa, hora, estado. */}
-        {admin && missoes.length > 0 && (
-          <div className="log-missoes" role="status">
-            <strong className="log-missoes__titulo">Missões enviadas</strong>
-            {missoes.map((m) => {
-              const estado = estadoDaMissao(m);
-              const hora = m.agendadaPara
-                ? new Date(m.agendadaPara).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
-                : "agora";
-              return (
-                <div className="log-missoes__linha" key={m.id}>
-                  <span className="log-missoes__rota">{m.nome}</span>
-                  <span className="log-missoes__quem">{m.paraNome}</span>
-                  <span className="log-missoes__hora">{hora}</span>
-                  <span className={`log-missoes__estado${estado.alerta ? " is-alerta" : ""}`}>{estado.texto}</span>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        {admin && (
-          <div className="log-instruments">
-            {/* M6 — resumo financeiro do dia + fechar mês (admin). */}
-            <ResumoDiaCard onFecharMes={load} />
-
-            {/* PR29072026 (ordem do dono) — "Motorista X, gasto até agora Y". No
-                celular o crédito mora no topo da tela Rota; no computador não morava
-                em lugar nenhum. Aqui ele volta, quebrado POR motorista.
-                Sem `items.length > 0`: o painel também precisa falar no dia VAZIO —
-                foi o buraco do bug de 29/07 (o dono cancelou tudo, o painel sumiu
-                junto e ele ficou sem enxergar o que faltava). Ele se cala sozinho
-                quando não há nada a dizer. */}
-            {rota && <RouteCreditPanel date={rota.date} stops={items} />}
-          </div>
-        )}
-
-        {/* PR29072026 (MESA DE DESPACHO) — o que TRAVA o dia, junto e por
-            gravidade. Só dado que a tela já tem: endereço sem ponto no mapa,
-            devedor "só cobrar" e entrega que fechou sem o comprovante exigido.
-            Não repete o painel de crédito (parada órfã é dele) nem o banner de
-            rota negada (logo acima). */}
-        {admin && items.length > 0 && (
-          <RouteTriage
-            stops={items}
-            requisitos={rota?.comprovante ?? null}
-            onOpen={(stop) => setOpen(items.find((item) => item.id === stop.id) ?? null)}
-          />
-        )}
-
-        {loading && <div className="emp-empty"><span className="emp-empty__text">Carregando rota…</span></div>}
-
-        {error && (
-          <div className="emp-empty">
-            <strong className="emp-empty__title">Não carregou</strong>
-            <span className="emp-empty__text">{error}</span>
-            <button className="btn-ghost" onClick={() => load()}>Tentar novamente</button>
-          </div>
-        )}
-
-        {isEmpty && (
-          <div className="emp-empty">
-            <strong className="emp-empty__title">Nenhuma entrega hoje</strong>
-            <span className="emp-empty__text">
-              As entregas agendadas para hoje aparecem aqui. Toque numa parada para navegar até o cliente e confirmar a entrega com o GPS.
-            </span>
-          </div>
-        )}
-
-        {/* PR29072026 (MESA DE DESPACHO) — no COMPUTADOR do admin a rota do dia
-            deixa de ser uma lista lisa de 40 linhas e vira O TABULEIRO: uma
-            faixa por motorista, uma tira por parada, na ordem da rota. O
-            entregador (não-admin) continua na lista — é a tela dele no celular.
-            UMA representação por público: as duas juntas seriam o mesmo dado
-            duas vezes na mesma tela. */}
-        {!error && admin && (items.length > 0 || entregadores.length > 0) && (
-          <RouteBoard
-            stops={items}
-            drivers={entregadores}
-            onOpen={(stop) => setOpen(items.find((item) => item.id === stop.id) ?? null)}
-            onDriverSelect={(driver) => setSelectedDriverId(driver.id)}
-            onAssigned={(stopId, entregador) => {
-              setRota((atual) => atual
-                ? { ...atual, items: atual.items.map((item) => item.id === stopId ? { ...item, entregador } : item) }
-                : atual);
-              setOpen((atual) => atual && atual.id === stopId ? { ...atual, entregador } : atual);
-            }}
-          />
-        )}
-
-        {!error && items.length > 0 && !admin && (
-          <div className="emp-list">
-            {items.map((e) => (
-              <button
-                type="button"
-                className={`emp-row log-row log-row--${e.status}`}
-                key={e.id}
-                onClick={() => setOpen(e)}
-              >
-                <span className="emp-row__ico"><I d={ICONS.logistica} size={18} /></span>
-                <span className="emp-row__main">
-                  <span className="emp-row__name">{e.cliente.nome || "Cliente"}</span>
-                  <span className="emp-row__sub">
-                    {[
-                      fmtEndereco(e.cliente),
-                      e.produto ? `${e.quantidade}× ${e.produto.nome}` : "",
-                    ].filter(Boolean).join("  ·  ")}
-                  </span>
-                </span>
-                <span className="emp-row__side">
-                  {/* PR27072026 F2 — parada amarela de devedor: "só cobrar", sem
-                      esconder o cliente. title carrega o motivo (ex.: "R$ 42,50
-                      em aberto") sem textão extra na linha. */}
-                  {e.somenteCobranca && (
-                    <span className="tag warn" title={e.motivoCobranca || undefined}>Só cobrar</span>
-                  )}
-                  <span className={`log-badge log-badge--${e.status}`}>{STATUS_LABEL[e.status] || e.status}</span>
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-                </div>
-              </section>
-            )}
-
-            {admin && view === "weekly" && (
-              <WeeklyAgenda onOpenRouteBuilder={() => setRouteBuilderOpen(true)} />
-            )}
-
-            {admin && view === "saude" && <BaseSaude />}
-          </div>
+      {/* Erro do ADMIN: o cockpit desenha as zonas mesmo sem parada (elenco e
+          mapa continuam valendo), então o recado vem como faixa por baixo. */}
+      {admin && view === "today" && error && (
+        <div className="emp-empty">
+          <strong className="emp-empty__title">Não carregou</strong>
+          <span className="emp-empty__text">{error}</span>
+          <button className="btn-ghost" onClick={() => load()}>Tentar novamente</button>
         </div>
-
-        {admin && <Divisoria chave="logistica-motorista" rotulo="Largura do painel do motorista" />}
-
-        {admin && (
-          <aside className="hbx-panel-shell__context hbx-panel-context--dense" aria-label="Motorista">
-            <header className="hbx-panel-context__header">
-              <div className="hbx-panel-context__header-copy">
-                <span className="hbx-panel-context__eyebrow">Logística</span>
-                <strong className="hbx-panel-context__title">Motorista</strong>
-                <span className="hbx-panel-context__subtitle">
-                  {selectedDriver ? "Resumo da rota de hoje" : "Selecione uma faixa do tabuleiro"}
-                </span>
-              </div>
-            </header>
-
-            {selectedDriver ? (
-              <>
-                <section className="hbx-panel-context__hero">
-                  <span className="hbx-panel-context__hero-visual" aria-hidden>
-                    <I d={ICONS.logistica} size={20} />
-                  </span>
-                  <span className="hbx-panel-context__hero-copy">
-                    <strong>{selectedDriver.nome || `Motorista ${selectedDriver.id}`}</strong>
-                    {selectedDriver.email && <span>{selectedDriver.email}</span>}
-                    <small>{selectedDriverItems.length} parada(s) atribuída(s)</small>
-                  </span>
-                </section>
-
-                <div className="hbx-panel-context__metrics" role="list">
-                  <div className="hbx-panel-context__metric" role="listitem">
-                    <strong>{selectedDriverItems.length}</strong>
-                    <span>Total</span>
-                  </div>
-                  <div className="hbx-panel-context__metric" role="listitem">
-                    <strong>{selectedDriverDone}</strong>
-                    <span>Concluídas</span>
-                  </div>
-                  <div className="hbx-panel-context__metric" role="listitem">
-                    <strong>{selectedDriverOpen}</strong>
-                    <span>Abertas</span>
-                  </div>
-                  <div className="hbx-panel-context__metric" role="listitem">
-                    <strong>{selectedDriverCancelled}</strong>
-                    <span>Canceladas</span>
-                  </div>
-                  <div className="hbx-panel-context__metric" role="listitem">
-                    <strong>{selectedDriverProgress}%</strong>
-                    <span>Progresso</span>
-                  </div>
-                </div>
-
-                <dl className="hbx-panel-context__facts">
-                  <div className="hbx-panel-context__fact">
-                    <dt>Próxima parada</dt>
-                    <dd>{selectedDriverNext?.cliente.nome || "Nenhuma parada aberta"}</dd>
-                  </div>
-                  <div className="hbx-panel-context__fact">
-                    <dt>Situação</dt>
-                    <dd>{selectedDriverNext ? (STATUS_LABEL[selectedDriverNext.status] || selectedDriverNext.status) : "—"}</dd>
-                  </div>
-                  <div className="hbx-panel-context__fact">
-                    <dt>Previsão</dt>
-                    <dd>{fmtHoraLogistica(selectedDriverNext?.etaAt || selectedDriverNext?.scheduledAt) || "Sem horário"}</dd>
-                  </div>
-                  <div className="hbx-panel-context__fact">
-                    <dt>Destino</dt>
-                    <dd>{selectedDriverNext ? fmtEndereco(selectedDriverNext.cliente) : "—"}</dd>
-                  </div>
-                  <div className="hbx-panel-context__fact">
-                    <dt>Carga</dt>
-                    <dd>
-                      {selectedDriverNext
-                        ? selectedDriverNext.produto
-                          ? `${selectedDriverNext.quantidade}× ${selectedDriverNext.produto.nome}`
-                          : `${selectedDriverNext.quantidade} un`
-                        : "—"}
-                    </dd>
-                  </div>
-                </dl>
-              </>
-            ) : (
-              <div className="hbx-panel-context__empty">
-                <span className="hbx-panel-context__empty-icon" aria-hidden>
-                  <I d={ICONS.logistica} size={20} />
-                </span>
-                <strong>Selecione um motorista</strong>
-                <span>Clique no cabeçalho de uma faixa para ver o resumo real da rota de hoje.</span>
-              </div>
-            )}
-          </aside>
-        )}
-      </div>
+      )}
 
       {open && (
         <EntregaDetail
@@ -969,7 +595,7 @@ export function LogisticaClient() {
           entregadores={entregadores}
           codigoObrigatorio={!!rota?.comprovante?.codigoObrigatorio}
           onClose={() => setOpen(null)}
-          onDone={() => { setOpen(null); load(); }}
+          onDone={() => { setOpen(null); load(); void carregarResumo(); }}
           onAssigned={(entregador) => {
             setOpen((atual) => atual ? { ...atual, entregador } : atual);
             setRota((atual) => atual
@@ -987,6 +613,7 @@ export function LogisticaClient() {
             setRouteBuilderOpen(false);
             setGerarMsg(message);
             void load();
+            void carregarResumo();
           }}
         />
       )}
