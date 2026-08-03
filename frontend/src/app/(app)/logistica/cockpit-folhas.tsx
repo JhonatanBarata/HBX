@@ -18,7 +18,7 @@ import React, { useEffect, useRef, useState } from "react";
 
 import { I, ICONS } from "@/components/hbx/shell";
 
-import type { BoardEntregador } from "./route-board";
+import { enviarRecado, type Entregador, type RecadoNivel } from "./cockpit-api";
 
 function iniciais(nome: string): string {
   const partes = nome.trim().split(/\s+/).filter(Boolean);
@@ -27,7 +27,7 @@ function iniciais(nome: string): string {
   return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase();
 }
 
-function nomeDe(motorista: BoardEntregador): string {
+function nomeDe(motorista: Entregador): string {
   return motorista.nome || motorista.email || `Motorista ${motorista.id}`;
 }
 
@@ -57,9 +57,9 @@ export function FolhaEscolherMotorista({
 }: {
   titulo: string;
   descricao: string;
-  motoristas: BoardEntregador[];
+  motoristas: Entregador[];
   ocupado: boolean;
-  onEscolher: (motorista: BoardEntregador) => void;
+  onEscolher: (motorista: Entregador) => void;
   onFechar: () => void;
 }) {
   useEscape(onFechar, ocupado);
@@ -176,6 +176,102 @@ export function FolhaCancelarParada({
             disabled={ocupado || !limpo}
           >
             <I d={ICONS.check} size={14} /> {ocupado ? "Cancelando…" : "Cancelar parada"}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/**
+ * RECADO PRA TODO MUNDO NA RUA (F3, 03/08). O backend já explodia o broadcast
+ * em uma linha por pessoa (mesmo `loteId`, ✓✓ individual) — só não havia botão.
+ * A folha cobra as mesmas decisões do chat individual: texto e força.
+ */
+export function FolhaRecadoTodos({
+  onFechar,
+  onEnviado,
+}: {
+  onFechar: () => void;
+  /** Recebe a frase de resultado ("Recado enviado pra N pessoa(s).") */
+  onEnviado: (mensagem: string) => void;
+}) {
+  const [texto, setTexto] = useState("");
+  const [nivel, setNivel] = useState<RecadoNivel>("normal");
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const campoRef = useRef<HTMLTextAreaElement | null>(null);
+  useEscape(onFechar, enviando);
+
+  useEffect(() => { campoRef.current?.focus(); }, []);
+
+  const limpo = texto.trim();
+
+  function mandar() {
+    if (!limpo || enviando) return;
+    setEnviando(true);
+    setErro(null);
+    // Sem `paraUserId` = broadcast: o servidor decide quem está na rua hoje.
+    enviarRecado({ texto: limpo, nivel })
+      .then((criados) => onEnviado(`Recado enviado pra ${criados.length} pessoa(s).`))
+      .catch((e: unknown) => {
+        setErro(e instanceof Error ? e.message : "Não foi possível mandar o recado.");
+        setEnviando(false);
+      });
+  }
+
+  return (
+    <div
+      className="hbx-veil"
+      onMouseDown={(e) => { if (e.target === e.currentTarget && !enviando) onFechar(); }}
+    >
+      <section className="hbx-modal cok-folha" role="dialog" aria-modal="true" aria-labelledby="cok-todos-titulo">
+        <h3 id="cok-todos-titulo">
+          Recado pra todos na rua
+          <button type="button" className="hbx-x" aria-label="Fechar" onClick={onFechar} disabled={enviando}>×</button>
+        </h3>
+        <p className="cok-folha__sub">
+          Chega no celular de todo motorista com entrega hoje — cada um com a própria confirmação de leitura.
+        </p>
+
+        <label className="cok-folha__campo">
+          <span>Recado</span>
+          <textarea
+            ref={campoRef}
+            className="field-dark"
+            rows={3}
+            maxLength={500}
+            value={texto}
+            placeholder="Ao finalizar, todo mundo passa na central."
+            disabled={enviando}
+            onChange={(e) => setTexto(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey && limpo) { e.preventDefault(); mandar(); }
+            }}
+          />
+        </label>
+
+        <div className="cok__niveis" role="group" aria-label="Força do recado">
+          {(["normal", "urgente", "alarme"] as RecadoNivel[]).map((chave) => (
+            <button
+              type="button"
+              key={chave}
+              className={`cok__nivel${chave === "urgente" ? " is-urgente" : ""}`}
+              aria-pressed={nivel === chave}
+              onClick={() => setNivel(chave)}
+              disabled={enviando}
+            >
+              {chave === "normal" ? "Normal" : chave === "urgente" ? "Urgente" : "Alarme"}
+            </button>
+          ))}
+        </div>
+
+        {erro && <p className="cok-folha__sub" role="status">{erro}</p>}
+
+        <div className="cok-folha__acoes">
+          <button type="button" className="btn-ghost" onClick={onFechar} disabled={enviando}>Voltar</button>
+          <button type="button" className="btn-teal" onClick={mandar} disabled={enviando || !limpo}>
+            <I d={ICONS.check} size={14} /> {enviando ? "Enviando…" : "Enviar pra todos"}
           </button>
         </div>
       </section>

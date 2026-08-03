@@ -16,12 +16,11 @@ import React from "react";
 
 import { I, ICONS } from "@/components/hbx/shell";
 
-import type { AvisoTipo, RotaAviso } from "./cockpit-api";
-import type { BoardEntregador, BoardStop } from "./route-board";
+import type { AvisoTipo, Entregador, Parada, RotaAviso } from "./cockpit-api";
 import type { FarolEstado } from "./cockpit-inspetor";
 
 export type LinhaDoElenco = {
-  motorista: BoardEntregador;
+  motorista: Entregador;
   nome: string;
   total: number;
   feitas: number;
@@ -47,8 +46,8 @@ function iniciais(nome: string): string {
  * seriam duas verdades na mesma tela.
  */
 export function montarLinha(
-  motorista: BoardEntregador,
-  paradas: BoardStop[],
+  motorista: Entregador,
+  paradas: Parada[],
   avisos: RotaAviso[],
   naoLidos: number,
 ): LinhaDoElenco {
@@ -99,7 +98,7 @@ export function CockpitElenco({
   linhas: LinhaDoElenco[];
   selecionado: number | null;
   orfas: number;
-  onSelecionar: (motorista: BoardEntregador) => void;
+  onSelecionar: (motorista: Entregador) => void;
   /** "Atribuir" é o verbo do negócio — ninguém "dá" parada pra ninguém. */
   onAtribuirTodas: () => void;
   onParadaAvulsa: () => void;

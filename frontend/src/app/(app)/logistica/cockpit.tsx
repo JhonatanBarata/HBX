@@ -19,18 +19,22 @@
 //   · painel direito de leitura        → inspetor com MÃOS (cancelar, trocar,
 //                                        recado)
 //
-// 🔴 O TABULEIRO NÃO FOI REESCRITO: `RouteBoard` continua desenhando as faixas
-// e o arrasto (mesmo PATCH de sempre). Ele foi RE-EMOLDURADO. Reescrever
-// jogaria fora a régua de `rotaOrdem` e o drop na faixa órfã, que já custaram
-// bug pra ficar certos.
+// 🔴 03/08, segunda passada — O PALCO FOI REESCRITO. A primeira versão deste
+// arquivo re-emoldurava o `RouteBoard` velho e eu ainda documentei isso como
+// virtude; o dono cobrou ("só realocou as coisas... eu pedi para não usar a
+// base") e ele tinha razão. O tabuleiro agora é próprio (`cockpit-tabuleiro`,
+// com seleção múltipla), o mapa é próprio (`cockpit-mapa`, pinos numerados +
+// trilha + chip de sem-ponto) e o trilho de módulos colapsa sozinho ao entrar.
+// As 3 regras que custaram bug foram COPIADAS pro código novo, não herdadas
+// por import: eixo = rotaOrdem, drop na órfã desatribui, sem ordem = "—".
 // ============================================================================
 
 import dynamic from "next/dynamic";
-import Link from "next/link";
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
-import { I, ICONS } from "@/components/hbx/shell";
+import { getRailSnapshot, I, ICONS, toggleRailState } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 
 import {
@@ -40,14 +44,16 @@ import {
   fraseDoAviso,
   getMissoes,
   getRecadosNaoLidos,
+  type Entregador,
   type LinhaDoFeed,
   type MissaoIndicada,
+  type Parada,
   type RotaAviso,
 } from "./cockpit-api";
 import { CockpitElenco, montarLinha } from "./cockpit-elenco";
-import { FolhaCancelarParada, FolhaEscolherMotorista } from "./cockpit-folhas";
+import { FolhaCancelarParada, FolhaEscolherMotorista, FolhaRecadoTodos } from "./cockpit-folhas";
 import { CockpitInspetor, type FarolEstado } from "./cockpit-inspetor";
-import { RouteBoard, type BoardEntregador, type BoardStop } from "./route-board";
+import { CockpitTabuleiro } from "./cockpit-tabuleiro";
 import {
   getTrackingHistory,
   getTrackingLive,
@@ -55,8 +61,9 @@ import {
   type TrackingLiveResponse,
 } from "./rastreamento/tracking-live-api";
 
-const TrackingLiveMap = dynamic(
-  () => import("./rastreamento/TrackingLiveMap").then((m) => m.TrackingLiveMap),
+// O mapa importa maplibre no topo do módulo — só existe no navegador.
+const CockpitMapa = dynamic(
+  () => import("./cockpit-mapa").then((m) => m.CockpitMapa),
   { ssr: false },
 );
 
@@ -67,8 +74,8 @@ const PALCO_PADRAO: Palco = "dividido";
 const TICK_AVISOS_MS = 60_000;
 const TICK_MAPA_MS = 20_000;
 
-export type CockpitEntrega = BoardStop & {
-  cliente: BoardStop["cliente"] & { nome: string | null };
+export type CockpitEntrega = Parada & {
+  cliente: Parada["cliente"] & { nome: string | null };
 };
 
 function fmtMoeda(v: number): string {
@@ -91,7 +98,7 @@ export function Cockpit({
   onAtribuido,
 }: {
   stops: CockpitEntrega[];
-  drivers: BoardEntregador[];
+  drivers: Entregador[];
   entreguesHoje: number;
   aReceber: number;
   carregando: boolean;
@@ -101,10 +108,10 @@ export function Cockpit({
   /** O "⋯": estoque, importar, regras, app, gerar entregas, fechar mês. */
   menu?: React.ReactNode;
   onRecarregar: () => void;
-  onAbrirParada: (stop: BoardStop) => void;
+  onAbrirParada: (stop: Parada) => void;
   onMontarRota: () => void;
   onParadaAvulsa: () => void;
-  onAtribuido: (stopId: string, entregador: BoardEntregador | null) => void;
+  onAtribuido: (stopId: string, entregador: Entregador | null) => void;
 }) {
   const [palco, setPalco] = useState<Palco>(PALCO_PADRAO);
   const [selecionado, setSelecionado] = useState<number | null>(null);
@@ -165,6 +172,20 @@ export function Cockpit({
     document.addEventListener("mousedown", fora);
     return () => document.removeEventListener("mousedown", fora);
   }, [sinoAberto]);
+
+  // ── O TRILHO DE MÓDULOS COLAPSA SOZINHO (mock, item que faltava) ─────────
+  // Cockpit é tela de dia inteiro: quem está aqui não navega, opera — e os
+  // ~180px do menu aberto fazem falta no palco. A store do rail é a do shell
+  // (localStorage "hbx:rail"), então nada aqui é gambiarra de CSS: é o MESMO
+  // colapso do botão «, só que automático. Quem entrou com o menu já recolhido
+  // fica como estava; quem entrou expandido volta a ficar expandido ao sair.
+  useEffect(() => {
+    if (getRailSnapshot() !== "expanded") return undefined;
+    toggleRailState();
+    return () => {
+      if (getRailSnapshot() === "min") toggleRailState();
+    };
+  }, []);
 
   // ── Derivados ────────────────────────────────────────────────────────────
   const abertas = stops.filter((s) => s.status === "agendada" || s.status === "em_rota");
@@ -246,9 +267,30 @@ export function Cockpit({
    * operacional, ignora a pele, o modo escuro e a régua de letra. Lei nº2 —
    * pop-up é sempre pela central (`.hbx-veil` + `.hbx-modal`).
    */
-  const [alvoDaAtribuicao, setAlvoDaAtribuicao] = useState<"orfas" | BoardStop | null>(null);
-  const [paradaPraCancelar, setParadaPraCancelar] = useState<BoardStop | null>(null);
+  const [alvoDaAtribuicao, setAlvoDaAtribuicao] = useState<"orfas" | "selecao" | Parada | null>(null);
+  const [paradaPraCancelar, setParadaPraCancelar] = useState<Parada | null>(null);
+  const [recadoTodosAberto, setRecadoTodosAberto] = useState(false);
   const [aplicando, setAplicando] = useState(false);
+
+  // ── SELEÇÃO MÚLTIPLA (mock, item que faltava) ────────────────────────────
+  // A bolinha de cada tira marca; a barra "N selecionadas" age. O conjunto
+  // guarda ids, mas quem vale é a INTERSEÇÃO com as paradas abertas de agora —
+  // uma parada que foi entregue no meio tempo sai do lote sozinha, sem estado
+  // fantasma pra limpar.
+  const [selecionadas, setSelecionadas] = useState<ReadonlySet<string>>(new Set());
+  const selecaoViva = useMemo(
+    () => abertas.filter((s) => selecionadas.has(s.id)).map((s) => s.id),
+    [abertas, selecionadas],
+  );
+  const toggleSelecao = useCallback((id: string) => {
+    setSelecionadas((atual) => {
+      const proximo = new Set(atual);
+      if (proximo.has(id)) proximo.delete(id);
+      else proximo.add(id);
+      return proximo;
+    });
+  }, []);
+  const limparSelecao = useCallback(() => setSelecionadas(new Set()), []);
 
   const abrirAtribuicaoDasOrfas = useCallback(() => {
     if (!orfas.length) return;
@@ -256,22 +298,27 @@ export function Cockpit({
     setAlvoDaAtribuicao("orfas");
   }, [orfas.length]);
 
-  const trocarDono = useCallback((stop: BoardStop) => {
+  const trocarDono = useCallback((stop: Parada) => {
     setErro(null);
     setAlvoDaAtribuicao(stop);
   }, []);
 
-  /** Aplica a escolha da folha: lote das órfãs ou a parada única. */
-  const aplicarAtribuicao = useCallback((motorista: BoardEntregador) => {
+  /** Aplica a escolha da folha: órfãs, seleção da barra, ou a parada única. */
+  const aplicarAtribuicao = useCallback((motorista: Entregador) => {
     const alvo = alvoDaAtribuicao;
     if (!alvo || aplicando) return;
-    const ids = alvo === "orfas" ? orfas.map((s) => s.id) : [alvo.id];
+    const ids = alvo === "orfas"
+      ? orfas.map((s) => s.id)
+      : alvo === "selecao"
+        ? selecaoViva
+        : [alvo.id];
     if (!ids.length) { setAlvoDaAtribuicao(null); return; }
     setAplicando(true);
     setErro(null);
     atribuirLote(ids, motorista.id)
       .then((res) => {
         setAlvoDaAtribuicao(null);
+        if (alvo === "selecao") limparSelecao();
         onRecarregar();
         if (res.ignoradas > 0) {
           setErro(`${res.atribuidas} atribuída(s). ${res.ignoradas} ficaram de fora (já concluídas ou canceladas).`);
@@ -279,11 +326,11 @@ export function Cockpit({
       })
       .catch((e: unknown) => setErro(e instanceof Error ? e.message : "Não foi possível atribuir."))
       .finally(() => setAplicando(false));
-  }, [alvoDaAtribuicao, aplicando, onRecarregar, orfas]);
+  }, [alvoDaAtribuicao, aplicando, limparSelecao, onRecarregar, orfas, selecaoViva]);
 
-  /** Quem pode receber: pro lote é todo mundo; pra uma parada, todos menos o dono atual. */
-  const candidatos = alvoDaAtribuicao && alvoDaAtribuicao !== "orfas"
-    ? drivers.filter((d) => d.id !== Number((alvoDaAtribuicao as BoardStop).entregador?.id))
+  /** Quem pode receber: em lote é todo mundo; pra UMA parada, todos menos o dono atual. */
+  const candidatos = alvoDaAtribuicao && alvoDaAtribuicao !== "orfas" && alvoDaAtribuicao !== "selecao"
+    ? drivers.filter((d) => d.id !== Number((alvoDaAtribuicao as Parada).entregador?.id))
     : drivers;
 
   const dispensarAviso = useCallback((id: string) => {
@@ -292,7 +339,7 @@ export function Cockpit({
       .catch(() => { /* se falhar, o aviso volta no próximo tick */ });
   }, []);
 
-  const abrirMotorista = useCallback((motorista: BoardEntregador) => {
+  const abrirMotorista = useCallback((motorista: Entregador) => {
     setSelecionado((atual) => (atual === motorista.id ? null : motorista.id));
   }, []);
 
@@ -387,6 +434,18 @@ export function Cockpit({
           <span aria-hidden>↻</span>
         </button>
 
+        {/* F3 — o broadcast que o backend já sabia fazer e não tinha botão. */}
+        {drivers.length > 0 && (
+          <button
+            type="button"
+            className="btn-ghost btn-xs"
+            onClick={() => setRecadoTodosAberto(true)}
+            title="Recado pra todos na rua"
+          >
+            <I d={ICONS.bell} size={13} /> Recado a todos
+          </button>
+        )}
+
         <button type="button" className="btn-teal btn-xs" onClick={onMontarRota}>
           <I d={ICONS.logistica} size={13} /> Montar rota
         </button>
@@ -426,36 +485,46 @@ export function Cockpit({
           </div>
           <span className="cok__palco-dica">
             {palco === "mapa"
-              ? "posição ao vivo de quem está com rota rastreada"
-              : "arraste uma parada pra trocar de motorista"}
+              ? "toque num pino abre a parada"
+              : "arraste uma tira ou marque várias e atribua de uma vez"}
           </span>
           {erro && <span className="cok__palco-dica" role="status">{erro}</span>}
-        </div>
 
-        <div className={`cok__mapa${palco === "tabuleiro" ? " is-oculto" : ""}`}>
-          {rotaDele || (live?.routes ?? []).length > 0 ? (
-            <TrackingLiveMap
-              sessionId={rotaDele?.sessionId || "cockpit"}
-              driverName={motoristaAtivo?.nome || "Operação"}
-              points={trilhaEmFoco?.points ?? []}
-              currentPosition={rotaDele?.lastPosition ?? null}
-            />
-          ) : (
-            <div className="cok__vazio">
-              <I d={ICONS.mapin} size={20} />
-              <strong>Ninguém emitindo posição agora</strong>
-              <span>
-                Só rota no modo Rastreada manda GPS. O modo trava no dia — trocar agora vale da próxima.
-              </span>
-              <Link href="/logistica/config" className="btn-ghost btn-xs">Ver regras</Link>
-            </div>
+          {/* A barra da SELEÇÃO — só existe com algo marcado. */}
+          {selecaoViva.length > 0 && (
+            <span className="cok__selecao" role="status">
+              {selecaoViva.length} selecionada(s)
+              <button
+                type="button"
+                className="btn-teal btn-xs"
+                onClick={() => { setErro(null); setAlvoDaAtribuicao("selecao"); }}
+              >
+                Atribuir para…
+              </button>
+              <button type="button" className="cok__selecao-x" aria-label="Limpar seleção" onClick={limparSelecao}>×</button>
+            </span>
           )}
         </div>
 
+        <div className={`cok__mapa${palco === "tabuleiro" ? " is-oculto" : ""}`}>
+          <CockpitMapa
+            stops={stops}
+            liveRoutes={live?.routes ?? []}
+            trilha={trilhaEmFoco?.points ?? []}
+            selecionadoId={selecionado}
+            onOpenStop={(id) => {
+              const stop = stops.find((s) => s.id === id);
+              if (stop) onAbrirParada(stop);
+            }}
+          />
+        </div>
+
         <div className={`cok__faixas${palco === "mapa" ? " is-oculto" : ""}`}>
-          <RouteBoard
+          <CockpitTabuleiro
             stops={stops}
             drivers={drivers}
+            selecionadas={selecionadas}
+            onToggleSelecao={toggleSelecao}
             onOpen={onAbrirParada}
             onDriverSelect={abrirMotorista}
             onAssigned={onAtribuido}
@@ -487,12 +556,24 @@ export function Cockpit({
           descricao={
             alvoDaAtribuicao === "orfas"
               ? `${orfas.length} parada(s) sem motorista vão para quem você escolher.`
-              : `${(alvoDaAtribuicao as BoardStop).cliente.nome || "Esta parada"} passa para quem você escolher.`
+              : alvoDaAtribuicao === "selecao"
+                ? `${selecaoViva.length} parada(s) marcada(s) vão para quem você escolher.`
+                : `${(alvoDaAtribuicao as Parada).cliente.nome || "Esta parada"} passa para quem você escolher.`
           }
           motoristas={candidatos}
           ocupado={aplicando}
           onEscolher={aplicarAtribuicao}
           onFechar={() => setAlvoDaAtribuicao(null)}
+        />
+      )}
+
+      {recadoTodosAberto && (
+        <FolhaRecadoTodos
+          onFechar={() => setRecadoTodosAberto(false)}
+          onEnviado={(mensagem) => {
+            setRecadoTodosAberto(false);
+            setErro(mensagem);
+          }}
         />
       )}
 

@@ -54,6 +54,10 @@ type Config = {
   raioChegadaM: number;
   velocidadeMediaKmH: number;
   tempoParadaMin: number;
+  // SENTINELA (03/08) — réguas do vigia. 0 desliga aquela pergunta.
+  sentinelaSemSinalMin: number;
+  sentinelaParadoMin: number;
+  sentinelaAtrasoMin: number;
   cobrancaNaEntrega?: boolean;
   moduloFinanceiroAtivo?: boolean;
   moduloRecoveryAtivo?: boolean;
@@ -517,6 +521,59 @@ export function LogisticaConfigClient() {
                     onChange={(e) => setCfg({ ...cfg, tempoParadaMin: Number(e.target.value) })}
                     onBlur={(e) => patch({ tempoParadaMin: Number(e.target.value) })}
                     aria-label="Tempo de parada em minutos"
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* ── SENTINELA (03/08) — as réguas do aviso automático ─────────────
+                As colunas e o PATCH existiam desde o backend da sentinela; o
+                campo na tela é o que faltava (F3) — sem ele a régua só mudava
+                por SQL, o que não é ajuste, é chamado de suporte. */}
+            <div className="log-cfg__block">
+              <strong className="log-cfg__block-title">Avisos automáticos da rota</strong>
+              <p className="log-cfg__note">
+                O cockpit avisa sozinho quando um motorista some, encosta ou atrasa.
+                Minutos de tolerância — 0 desliga aquele aviso.
+              </p>
+              <div className="log-cfg__grid">
+                <label className="f">
+                  <span>Sem sinal (min)</span>
+                  <input
+                    className="field-dark"
+                    type="number"
+                    min={0}
+                    max={240}
+                    value={cfg.sentinelaSemSinalMin}
+                    onChange={(e) => setCfg({ ...cfg, sentinelaSemSinalMin: Number(e.target.value) })}
+                    onBlur={(e) => patch({ sentinelaSemSinalMin: Number(e.target.value) })}
+                    aria-label="Minutos sem sinal até avisar"
+                  />
+                </label>
+                <label className="f">
+                  <span>Parado fora de cliente (min)</span>
+                  <input
+                    className="field-dark"
+                    type="number"
+                    min={0}
+                    max={240}
+                    value={cfg.sentinelaParadoMin}
+                    onChange={(e) => setCfg({ ...cfg, sentinelaParadoMin: Number(e.target.value) })}
+                    onBlur={(e) => patch({ sentinelaParadoMin: Number(e.target.value) })}
+                    aria-label="Minutos parado fora de cliente até avisar"
+                  />
+                </label>
+                <label className="f">
+                  <span>Atraso no plano (min)</span>
+                  <input
+                    className="field-dark"
+                    type="number"
+                    min={0}
+                    max={240}
+                    value={cfg.sentinelaAtrasoMin}
+                    onChange={(e) => setCfg({ ...cfg, sentinelaAtrasoMin: Number(e.target.value) })}
+                    onBlur={(e) => patch({ sentinelaAtrasoMin: Number(e.target.value) })}
+                    aria-label="Minutos de atraso no plano até avisar"
                   />
                 </label>
               </div>

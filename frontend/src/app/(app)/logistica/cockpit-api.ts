@@ -5,6 +5,41 @@
 
 import { apiFetch } from "@/lib/api";
 
+// ── Tipos de DOMÍNIO do cockpit ──────────────────────────────────────────────
+// Moravam em route-board.tsx (o tabuleiro velho). Quando o palco foi reescrito
+// (03/08, ordem do dono: "eu pedi para não usar a base"), os tipos vieram pra
+// cá — o contrato sobrevive à tela, nunca o contrário.
+
+export type Entregador = { id: number; nome: string | null; email: string | null };
+
+/** Forma mínima de uma parada do dia — o item de GET /logistica/rota é compatível. */
+export type Parada = {
+  id: string;
+  status: string;
+  quantidade: number;
+  scheduledAt: string | null;
+  etaAt?: string | null;
+  /**
+   * 🔴 O EIXO DO PALCO É `rotaOrdem`, NUNCA relógio: `scheduledAt` pode ser
+   * null no dia mais comum (entrega aberta sem hora) e um eixo por hora
+   * nasceria vazio. Sem `rotaOrdem` a sequência mostra "—" — inventar número
+   * pela posição do array seria prometer uma ordem que o entregador não segue.
+   */
+  rotaOrdem?: number | null;
+  somenteCobranca?: boolean;
+  motivoCobranca?: string | null;
+  cliente: {
+    nome: string | null;
+    endereco: string | null;
+    cidade: string | null;
+    uf: string | null;
+    lat: number | null;
+    lng: number | null;
+  };
+  produto: { nome: string; unidade: string | null } | null;
+  entregador: Entregador | null;
+};
+
 export type RecadoNivel = "normal" | "urgente" | "alarme";
 export type RecadoEstado = "enviado" | "no_aparelho" | "visto" | "entendido";
 

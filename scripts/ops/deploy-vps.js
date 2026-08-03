@@ -498,13 +498,24 @@ function resolveVersionJsonPublicUrl(config) {
 }
 
 function publishVersionJson(config, apk, version) {
+  // 🔴 03/08 — `obrigatoria` era um literal `false`. Consequência real: o APK
+  // 141 saiu com o CONSERTO do aviso de atualização preso dentro dele, e os
+  // aparelhos na 139 (cujo bug é justamente "só aviso se for obrigatória")
+  // jamais saberiam. Editar o JSON à mão no VPS não resolve: o publish
+  // seguinte regrava o manifesto inteiro e a flag morre — foi medido nesta
+  // data (a edição viveu ~40min). A alavanca agora é env de UM publish:
+  //   HBX_APK_UPDATE_OBRIGATORIA=1 npm run publish
+  // Default continua false — atualização forçada é exceção, não rotina.
+  const updateObrigatoria = ['1', 'true', 'yes', 'on'].includes(
+    String(process.env.HBX_APK_UPDATE_OBRIGATORIA || '').trim().toLowerCase(),
+  );
   const payload = {
     versionCode: version.versionCode,
     versionName: version.versionName,
     url: config.androidApkUrl,
     sha256: apk.sha256,
-    obrigatoria: false,
-    nota: '',
+    obrigatoria: updateObrigatoria,
+    nota: String(process.env.HBX_APK_UPDATE_NOTA || '').trim(),
     // Digital dos fontes do APK: é ela que o PRÓXIMO publish compara pra saber
     // se precisa (ou não) subir o versionCode. O app ignora este campo.
     fingerprint: version.fingerprint,

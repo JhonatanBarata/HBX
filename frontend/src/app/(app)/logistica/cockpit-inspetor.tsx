@@ -18,14 +18,14 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { I, ICONS } from "@/components/hbx/shell";
 
 import {
-
   enviarRecado,
   getFioRecados,
   rotuloDoEstado,
+  type Entregador,
+  type Parada,
   type Recado,
   type RecadoNivel,
 } from "./cockpit-api";
-import type { BoardEntregador, BoardStop } from "./route-board";
 
 const NIVEIS: Array<{ chave: RecadoNivel; rotulo: string; ajuda: string }> = [
   { chave: "normal", rotulo: "Normal", ajuda: "Entra na lista e no sino do app." },
@@ -46,7 +46,7 @@ function hora(iso: string | null | undefined): string | null {
   return Number.isNaN(data.getTime()) ? null : data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
-function endereco(stop: BoardStop): string {
+function endereco(stop: Parada): string {
   const c = stop.cliente;
   return [c.endereco, [c.cidade, c.uf].filter(Boolean).join(" - ")].filter(Boolean).join(", ") || "Sem endereço";
 }
@@ -63,9 +63,9 @@ export function CockpitInspetor({
   onTrocarDono,
   onCancelarParada,
 }: {
-  motorista: BoardEntregador;
+  motorista: Entregador;
   /** Só as paradas DELE, já na ordem da rota. */
-  paradas: BoardStop[];
+  paradas: Parada[];
   farol: FarolEstado;
   /** Uma frase: "Em rota · há 40 s" / "Parado há 22 min". */
   situacao: string;
@@ -73,9 +73,9 @@ export function CockpitInspetor({
   onde: string | null;
   onFechar: () => void;
   /** Abre a folha de atribuição (quem manda na folha é o cockpit). */
-  onTrocarDono: (stop: BoardStop) => void;
+  onTrocarDono: (stop: Parada) => void;
   /** Abre a folha de cancelamento — o motivo é pedido lá, com campo de verdade. */
-  onCancelarParada: (stop: BoardStop) => void;
+  onCancelarParada: (stop: Parada) => void;
 }) {
   const [fio, setFio] = useState<Recado[]>([]);
   const [carregandoFio, setCarregandoFio] = useState(true);
