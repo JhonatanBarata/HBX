@@ -719,14 +719,24 @@ export class CadenciaService {
    * {{cumprimentacao}} = saudação do fuso. Marcador desconhecido é REMOVIDO:
    * cliente jamais lê "{{...}}" (bug real de 31/07 — o RISSO leu).
    */
-  private async renderCorpoWhats(companyId: number, leadName: string | null, template: string): Promise<string> {
+  // `responsavelId` = a pessoa dona do lead, que é de quem sai o chip (ver
+  // senderUserId em executeWhatsStep). UM NÚMERO, UM NOME (03/08): tendo dona, o
+  // {{funcionario}} é o nome DELA — cinco vendedoras com cinco chips assinando
+  // todas a persona da empresa é o teatro que o lead percebe. Sem dona, cai na
+  // identidade da empresa exatamente como antes.
+  private async renderCorpoWhats(
+    companyId: number,
+    leadName: string | null,
+    template: string,
+    responsavelId?: number | null,
+  ): Promise<string> {
     const texto = String(template || '').trim();
     if (!texto.includes('{{')) return texto;
     const [company, funcionario] = await Promise.all([
       (this.prisma as any).company
         ?.findUnique?.({ where: { id: Number(companyId) }, select: { name: true } })
         .catch(() => null),
-      this.personaIa.assinatura(Number(companyId), 'time comercial'),
+      this.personaIa.assinaturaDaPessoa(Number(companyId), responsavelId, 'time comercial'),
     ]);
     const valores: Record<string, string> = {
       cumprimentacao: this.saudacaoBrasilia(),
@@ -745,7 +755,7 @@ export class CadenciaService {
   // `isAbertura` = este passo é a PRIMEIRA mensagem de WhatsApp da cadência (a
   // abertura). Quando é, o robô confere se um humano já abriu a conversa.
   private async executeWhatsStep(
-    insc: { id: string; companyId: number; leadId: string; aberturaCopy?: string | null },
+    insc: { id: string; companyId: number; leadId: string; aberturaCopy?: string | null; responsavelId?: number | null },
     cadencia: CadenciaRow,
     passo: CadenciaPasso,
     automationStepRunId?: string | null,
@@ -811,7 +821,7 @@ export class CadenciaService {
     // RENDER ANTES DE ENVIAR (31/07/2026): o RISSO recebeu "{{funcionario}}"
     // LITERAL porque este caminho mandava o template cru. {{funcionario}} é a
     // PERSONA da empresa (identidade única); marcador desconhecido NUNCA vaza.
-    const body = await this.renderCorpoWhats(insc.companyId, lead?.name || null, bodyCru);
+    const body = await this.renderCorpoWhats(insc.companyId, lead?.name || null, bodyCru, insc.responsavelId);
     if (!body) return { sent: false, skipReason: 'passo_sem_corpo' };
 
     // MESMO caminho do vendas-automation (queueOutboundForCompany) — disjuntor,
@@ -823,6 +833,12 @@ export class CadenciaService {
       messageType: 'text',
       sourceModule: 'vendas_prospeccao_bot',
       senderType: 'bot',
+      // A CADÊNCIA SAI PELO CHIP DE QUEM É O LEAD (04/08/2026). Mesma lei do
+      // vendas-automation (`senderUserId: campaign.createdByUserId`): sem isto, o
+      // robô da Bianca falava pelo chip do dono e o lead respondia pro número
+      // errado. `responsavelId` é o assignedUserId do lead no momento da inscrição.
+      // Nulo = fallback de sempre (queueOutboundForCompany escolhe a sessão viva).
+      senderUserId: insc.responsavelId || null,
       variables: {
         botType: 'prospeccao',
         cadenciaId: cadencia.id,

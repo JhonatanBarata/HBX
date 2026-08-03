@@ -6144,7 +6144,7 @@ export class VendasService {
     if (copy) await this.assertCopyNaoEhCarimbo(context.companyId, copy);
     // Sem texto explícito (o caso da TELA), reserva uma variante ainda não usada.
     // É isto que impede 10 agendamentos virarem 10 mensagens iguais amanhã.
-    const copyReservada = copy || (await this.reservarCopyDeAberturaAgendada(context.companyId));
+    const copyReservada = copy || (await this.reservarCopyDeAberturaAgendada(context.companyId, lead.assignedUserId));
 
     const attemptEnroll = () =>
       this.commercialContactControl.createCadenciaInscricao({
@@ -6352,15 +6352,29 @@ export class VendasService {
   // livre, o agendamento é RECUSADO com motivo legível (gere mais variações) —
   // recusar hoje é melhor que o freio cancelar amanhã, um por um.
   // Empresa sem copy própria mantém o comportamento antigo (corpo do passo).
-  private async reservarCopyDeAberturaAgendada(companyId: number): Promise<string | null> {
+  //
+  // CADA VENDEDORA TEM A COPY DELA (04/08/2026). A campanha deixou de ser "a da
+  // empresa" e passou a ser a da PESSOA (`createdByUserId`) — é lá que moram as
+  // variantes de 1º contato de cada uma. Com uma campanha só, as cinco sorteavam
+  // do mesmo bolo: cinco números diferentes mandando o mesmo texto no mesmo dia é
+  // carimbo de robô, exatamente o que a régua anti-carimbo existe pra evitar.
+  // Sem campanha da pessoa, cai na da empresa (comportamento de antes) — e isso é
+  // seguro porque a reserva descarta o que já saiu na EMPRESA inteira
+  // (lerCopiasFriasRecentes por companyId): duas pessoas nunca levam o mesmo texto
+  // dentro da janela, com ou sem campanha própria.
+  private async reservarCopyDeAberturaAgendada(
+    companyId: number,
+    responsavelId?: number | null,
+  ): Promise<string | null> {
     if (!this.coldGate.isEnabled()) return null;
-    const campaign = await (this.prisma as any).vendasAutomationCampaign
-      ?.findFirst?.({
-        where: { companyId },
-        orderBy: { updatedAt: 'desc' },
-        select: { filtersJson: true },
-      })
-      .catch(() => null);
+    const dono = Math.trunc(Number(responsavelId || 0));
+    const buscarCampanha = (where: Record<string, unknown>) =>
+      (this.prisma as any).vendasAutomationCampaign
+        ?.findFirst?.({ where, orderBy: { updatedAt: 'desc' }, select: { filtersJson: true } })
+        .catch(() => null);
+    const campaign =
+      (dono > 0 ? await buscarCampanha({ companyId, createdByUserId: dono }) : null) ||
+      (await buscarCampanha({ companyId }));
     const filters = this.parseFiltersJson((campaign as any)?.filtersJson);
     const brutas = Array.isArray(filters?.firstContactVariants) ? filters.firstContactVariants : [];
     // Variante PAUSADA carrega um caractere de controle no início (o dono

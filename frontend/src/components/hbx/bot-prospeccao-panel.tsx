@@ -38,6 +38,19 @@ import {
   type ProspLive,
 } from "@/lib/use-prospecting-config";
 
+// Espelha GET /vendas/automation/prospecting/campanhas (uma linha por pessoa da
+// empresa, com a campanha dela ou `null` quando ainda não foi montada).
+type CampanhasDaEquipe = {
+  euUserId: number;
+  pessoas: Array<{
+    userId: number;
+    nome: string;
+    login: string | null;
+    role: string;
+    campanha: { id: string; status: string; variantesPrimeiroContato: number } | null;
+  }>;
+};
+
 export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
   const [openPiece, setOpenPiece] = useState<PieceKey | null>(null);
   const [variableCatalog, setVariableCatalog] = useState<VarDef[]>([]);
@@ -60,7 +73,22 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
   // onLive: roda a cada carga (no .then do hook). Sem side-effect hoje.
   const onLive = useCallback((_data: ProspLive) => {}, []);
 
-  const cfg = useProspectingConfig({ onLive });
+  // ── DE QUEM É ESTA CAMPANHA (04/08/2026) ────────────────────────────────────
+  // A campanha virou da PESSOA: é `createdByUserId` que decide de qual chip a
+  // mensagem sai e qual nome assina. Sem este seletor, as cinco vendedoras
+  // dividiriam uma linha só — a última salvava por cima e todas disparavam pelo
+  // chip do dono. Só dono/gerente enxerga a lista (o GET responde 403 pra
+  // vendedora); nesse caso o seletor simplesmente não aparece e a tela abre a
+  // campanha de quem está logado, como sempre foi.
+  const [equipe, setEquipe] = useState<CampanhasDaEquipe | null>(null);
+  const [ownerUserId, setOwnerUserId] = useState<number | null>(null);
+  useEffect(() => {
+    apiFetch<CampanhasDaEquipe>("/vendas/automation/prospecting/campanhas")
+      .then(data => { if (data?.pessoas?.length) setEquipe(data); })
+      .catch(() => {});
+  }, []);
+
+  const cfg = useProspectingConfig({ onLive, ownerUserId });
   const { live, loadErr, campaign, draft, busy, saveMsg, canSave, salvar, ciclo, loadLive, piecePreview } = cfg;
 
   // onSaved do pai (recarrega a ativação do bot) — dispara após salvar/ciclo.
@@ -189,6 +217,28 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
       <div className="bot-prosp__toolbar">
         <div className="bot-prosp__toolbar-info">
           <strong className="bot-prosp__toolbar-title">Motor de disparo frio</strong>
+          {equipe && equipe.pessoas.length > 1 && (
+            <label className="bot-prosp__dona">
+              <span className="bot-prosp__dona-label">Campanha de</span>
+              <select
+                className="bot-prosp__dona-select"
+                value={String(ownerUserId ?? equipe.euUserId)}
+                onChange={e => {
+                  const id = Number(e.target.value);
+                  setOwnerUserId(id === equipe.euUserId ? null : id);
+                }}
+              >
+                {equipe.pessoas.map(p => (
+                  <option key={p.userId} value={p.userId}>
+                    {p.nome}
+                    {p.campanha
+                      ? ` — ${p.campanha.variantesPrimeiroContato} texto(s)`
+                      : " — sem campanha"}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
         <div className="bot-prosp__toolbar-actions">
           {saveMsg && (

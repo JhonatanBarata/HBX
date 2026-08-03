@@ -213,7 +213,14 @@ export function isProspConfigComplete(live: ProspLive | null): boolean {
 
 export type ProspConfigApi = ReturnType<typeof useProspectingConfig>;
 
-export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void }) {
+// `ownerUserId` = DE QUEM É A CAMPANHA aberta na tela (04/08/2026). A campanha
+// deixou de ser da empresa e passou a ser da pessoa: é `createdByUserId` que
+// decide de qual chip a mensagem sai e qual nome assina. Ausente = a de quem
+// está logado, exatamente como era. Trocar de pessoa recarrega tudo — e o
+// rascunho é descartado de propósito: texto digitado pra Bianca não pode ser
+// salvo na campanha da Flávia.
+export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void; ownerUserId?: number | null }) {
+  const ownerUserId = Number(opts?.ownerUserId || 0) > 0 ? Number(opts?.ownerUserId) : null;
   const [live, setLive] = useState<ProspLive | null>(null);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [draft, setDraft] = useState<Partial<ProspCfg>>({});
@@ -230,7 +237,8 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
 
   // setState só em callback assíncrono (regra react-hooks/set-state-in-effect).
   const loadLive = useCallback(() => {
-    return apiFetch<ProspLive>("/vendas/automation/live-status")
+    const qs = ownerUserId ? `?ownerUserId=${ownerUserId}` : "";
+    return apiFetch<ProspLive>(`/vendas/automation/live-status${qs}`)
       .then(res => { setLive(res); setLoadErr(null); if (res) onLiveRef.current?.(res); })
       .catch((err: unknown) => {
         const e = err as ApiError;
@@ -238,10 +246,15 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
           ? (e?.message || "Ative o bot pelo Suporte para configurar a Prospecção.")
           : e?.message || "Não foi possível carregar a configuração de Prospecção.");
       });
-  }, []);
+  }, [ownerUserId]);
 
   useEffect(() => {
     let alive = true;
+    // Trocou de pessoa: o rascunho da anterior morre aqui. Salvar o texto da
+    // Bianca dentro da campanha da Flávia é o tipo de erro que só aparece no
+    // dia do disparo, no número errado.
+    setDraft({});
+    setSaveMsg(null);
     loadLive();
     // poll leve: mantém o resumo ao vivo sem atropelar o que o dono edita
     // (o draft sempre vence na leitura).
@@ -306,7 +319,7 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
     try {
       const res = await apiFetch<ProspLive>("/vendas/automation/prospecting/config", {
         method: "PATCH",
-        body: JSON.stringify(draft),
+        body: JSON.stringify(ownerUserId ? { ...draft, ownerUserId } : draft),
       });
       if (res) { setLive(res); setLoadErr(null); onLiveRef.current?.(res); }
       setDraft({});
@@ -319,7 +332,7 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
     } finally {
       setBusy(false);
     }
-  }, [draft, busy]);
+  }, [draft, busy, ownerUserId]);
 
   // NÍVEL DE DISPARO: um clique aplica na hora (não fica esperando "Salvar"). O nível
   // é UMA decisão, não um formulário — e o rascunho dos 4 campos que ele grava é
@@ -332,7 +345,7 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
     try {
       const res = await apiFetch<ProspLive>("/vendas/automation/prospecting/config", {
         method: "PATCH",
-        body: JSON.stringify({ nivelDisparo: nivel }),
+        body: JSON.stringify(ownerUserId ? { nivelDisparo: nivel, ownerUserId } : { nivelDisparo: nivel }),
       });
       if (res) { setLive(res); setLoadErr(null); onLiveRef.current?.(res); }
       setDraft(d => {
@@ -349,7 +362,7 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
     } finally {
       setBusy(false);
     }
-  }, [busy]);
+  }, [busy, ownerUserId]);
 
   const ciclo = useCallback(async (path: "start" | "pause" | "resume" | "cancel") => {
     if (busy) return;
@@ -357,7 +370,10 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
     setBusy(true);
     setSaveMsg(null);
     try {
-      await apiFetch(`/vendas/automation/prospecting/${path}`, { method: "POST", body: JSON.stringify({}) });
+      await apiFetch(`/vendas/automation/prospecting/${path}`, {
+        method: "POST",
+        body: JSON.stringify(ownerUserId ? { ownerUserId } : {}),
+      });
       const shouldBeLive = path === "start" || path === "resume";
       setSaveMsg(shouldBeLive ? "✓ Prospecção ligada." : "✓ Prospecção pausada.");
       await loadLive();
@@ -367,7 +383,7 @@ export function useProspectingConfig(opts?: { onLive?: (live: ProspLive) => void
     } finally {
       setBusy(false);
     }
-  }, [busy, loadLive]);
+  }, [busy, loadLive, ownerUserId]);
 
   // ── Pré-visualização (linha de resumo) por peça ──
   const piecePreview = useCallback((key: PieceKey): string => {

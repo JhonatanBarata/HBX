@@ -13,6 +13,10 @@ import { EmailTemplateService } from '../mail/email-template.service';
 import { sanitizePassos, MAX_WHATS_STEPS_PER_CADENCE } from './cadencia-personas';
 import { AgendaDisparoService } from '../vendas/agenda-disparo.service';
 
+// Quem é quem na empresa falsa — usado pela persona por pessoa (04/08/2026):
+// a cadência da Bianca assina "Bianca", não a persona da empresa.
+const nomesPorUsuario: Record<number, string> = { 59: 'Bianca', 60: 'Maria Clara' };
+
 // Constroi um service "pelado" (prototype) com dependencias falsas, no mesmo
 // padrao dos testes de inbox/conversations.
 const READY_IDENTITY = {
@@ -192,9 +196,15 @@ function makeService(opts: {
   // acima: exercita o algoritmo de slot de verdade (janela/teto/intervalo default,
   // sem VendasComercialConfig na tabela falsa -> cai nos defaults 08:00-18:00/10/15).
   svc.agendaDisparo = new AgendaDisparoService(svc.prisma);
-  // PERSONA (31/07/2026): o render do corpo assina {{funcionario}} com a
-  // identidade única da empresa. Mock com o mesmo contrato do service real.
-  svc.personaIa = { assinatura: async () => 'Jhonatan' };
+  // PERSONA (31/07/2026 → 04/08/2026): o render do corpo assina {{funcionario}}.
+  // Tendo dona do lead (responsavelId), o nome é o DELA — o chip é o dela. Sem
+  // dona, cai na identidade da empresa. Mock com o mesmo contrato do service real
+  // (assinaturaDaPessoa delega em assinatura quando não há pessoa).
+  svc.personaIa = {
+    assinatura: async () => 'Jhonatan',
+    assinaturaDaPessoa: async (_companyId: number, userId?: number | null) =>
+      Number(userId || 0) > 0 ? (nomesPorUsuario[Number(userId)] || 'Jhonatan') : 'Jhonatan',
+  };
 
   return { svc, queueCalls, atividadeCalls, mailerCalls, timelineCalls, updates, inscricoes, suppressionCalls, humanOpeningCalls };
 }
@@ -299,6 +309,64 @@ test('VACINA: abertura com {{funcionario}} sai RENDERIZADA — cliente nunca le 
   assert.ok(body.includes('Jhonatan'), 'o {{funcionario}} e a PERSONA da empresa');
   assert.ok(body.includes('HBX'), 'o {{empresa}} vira o nome real');
   assert.ok(body.includes('Fulano'), 'o {{cliente}} vira o nome do lead');
+});
+
+// ── AS 5 VENDEDORAS (04/08/2026) ─────────────────────────────────────────────
+// Cena que estes 3 testes impedem: a Bianca dispara, o lead recebe do NÚMERO
+// dela e o texto assina "Jhonatan"; o lead responde e cai no chip do dono. Sem
+// isto, cinco chips viram um teatro só — e era exatamente o que acontecia,
+// porque a cadência enfileirava sem `senderUserId` e assinava com a persona da
+// empresa.
+test('🔴 a cadência sai pelo CHIP de quem é o lead (senderUserId = responsável)', async () => {
+  const { svc, queueCalls } = makeService({
+    runnerEnabled: true,
+    cadencia: cadenciaConservador,
+    inscricoes: [
+      {
+        id: 'i1', cadenciaId: 'cad1', companyId: 7, leadId: 'lead1', responsavelId: 59,
+        status: 'ativa', currentStep: 0, nextStepAt: new Date(Date.now() - 1000),
+      },
+    ],
+  });
+  const res = await svc.runDueSteps(new Date());
+  assert.equal((res as any).whatsSent, 1);
+  assert.equal(queueCalls[0]?.payload?.senderUserId, 59, 'tem que sair pelo chip da Bianca, não pelo do dono');
+});
+
+test('🔴 a cadência da vendedora assina com o NOME dela', async () => {
+  const { svc, queueCalls } = makeService({
+    runnerEnabled: true,
+    cadencia: cadenciaConservador,
+    inscricoes: [
+      {
+        id: 'i1', cadenciaId: 'cad1', companyId: 7, leadId: 'lead1', responsavelId: 59,
+        status: 'ativa', currentStep: 0, nextStepAt: new Date(Date.now() - 1000),
+        aberturaCopy: 'Aqui é o {{funcionario}}, da {{empresa}}.',
+      },
+    ],
+  });
+  svc.prisma.company = { findUnique: async () => ({ name: 'HBX' }) };
+  await svc.runDueSteps(new Date());
+  const body = String(queueCalls[0]?.payload?.body || '');
+  assert.ok(body.includes('Bianca'), 'o nome tem que ser o da dona do lead');
+  assert.equal(body.includes('Jhonatan'), false, 'o nome do dono NÃO pode assinar o chip dela');
+});
+
+test('lead sem responsável: chip e nome caem no comportamento antigo (não-regressão)', async () => {
+  const { svc, queueCalls } = makeService({
+    runnerEnabled: true,
+    cadencia: cadenciaConservador,
+    inscricoes: [
+      {
+        id: 'i1', cadenciaId: 'cad1', companyId: 7, leadId: 'lead1', responsavelId: null,
+        status: 'ativa', currentStep: 0, nextStepAt: new Date(Date.now() - 1000),
+        aberturaCopy: 'Aqui é o {{funcionario}}.',
+      },
+    ],
+  });
+  await svc.runDueSteps(new Date());
+  assert.equal(queueCalls[0]?.payload?.senderUserId, null, 'sem dona, quem escolhe a sessão é o outbound de sempre');
+  assert.ok(String(queueCalls[0]?.payload?.body || '').includes('Jhonatan'), 'sem dona, assina a persona da empresa');
 });
 
 // FREIO DA SUPRESSÃO (30/07/2026) — cena real do dia de vendedor: hoje `isSuppressed`

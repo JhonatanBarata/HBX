@@ -816,6 +816,16 @@ export class ImportWebscrapingLeadsDto {
 }
 
 export class UpdateVendasProspectingConfigDto {
+  // DE QUEM É ESTA CAMPANHA (04/08/2026). A campanha deixou de ser da empresa e
+  // passou a ser da PESSOA — é `createdByUserId` que decide de qual chip a
+  // mensagem sai e qual nome assina. Ausente = a campanha de quem está logado
+  // (comportamento de sempre). Apontar pra outra pessoa é só de dono/gerente, e o
+  // service confere que ela é da mesma empresa.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  ownerUserId?: number;
+
   @IsOptional()
   @IsString()
   @MaxLength(120)
@@ -1075,6 +1085,13 @@ export class SimulateProspectingDto {
   @IsOptional()
   @IsObject()
   config?: Record<string, unknown>;
+
+  // De quem é a campanha aberta na tela — o preview tem que assinar com o nome
+  // DELA, senão o dono revisa os textos da Bianca vendo o nome dele.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  ownerUserId?: number;
 }
 
 export class UpdateSalesProfileDto {

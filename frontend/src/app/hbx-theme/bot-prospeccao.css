@@ -37,6 +37,20 @@
 .bot-prosp__toolbar-info { display: grid; gap: 2px; flex: 1; min-width: 200px; }
 .bot-prosp__toolbar-title { font-family: var(--font-display); font-size: var(--fz-n2); font-weight: 800; color: var(--text-strong); }
 .bot-prosp__toolbar-hint { font-size: var(--hbx-font-min); color: var(--text-muted); line-height: 1.4; }
+/* DE QUEM É ESTA CAMPANHA (04/08/2026): a campanha é da PESSOA — o chip e a
+   assinatura saem de quem é dona dela. Só dono/gerente vê este seletor. */
+.bot-prosp__dona { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.bot-prosp__dona-label { font-size: var(--hbx-font-min); color: var(--text-muted); font-weight: 700; }
+.bot-prosp__dona-select {
+  font-size: var(--hbx-font-min);
+  font-weight: 700;
+  color: var(--text-strong);
+  background: var(--hbx-surface);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  max-width: 260px;
+}
 .bot-prosp__toolbar-actions { display: flex; align-items: center; gap: 8px; }
 .bot-prosp__msg { font-size: var(--hbx-font-min); font-weight: 700; }
 .bot-prosp__msg.is-ok { color: var(--hbx-success); }

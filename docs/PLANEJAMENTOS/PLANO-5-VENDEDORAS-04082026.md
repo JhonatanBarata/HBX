@@ -62,36 +62,74 @@ cairia de volta em "Jhonatan").
 
 ## 3. O QUE FALTA — em ordem
 
-### 3.1 🔴 MONTAR AS 5 CAMPANHAS (é o que destrava tudo)
+### 3.0 🔴 O QUE O PLANO NÃO SABIA (medido em 04/08, com código na mão)
 
-Uma campanha **por vendedora**, porque é `campaign.createdByUserId` que define de qual
-chip a mensagem sai e qual nome assina.
+O passo 3.1 original era **impossível de executar** por dois motivos, e o terceiro
+muda o entendimento da frente inteira:
 
-Para cada uma das 5 (ids 59–63):
+1. **Vendedora não configura disparo.** `assertCanManageProspecting`
+   (`vendas-automation.service.ts`) recusa quem não é ADMIN/USERMASTER/master. As 5
+   são `USER` no banco → entrar como elas e salvar dá **403**.
+2. **Só existia UMA campanha por empresa.** `latestCampaign` era
+   `findFirst({ where: { companyId } })`, e os dois caminhos de escrita fazem
+   *update-or-create* em cima dela. As 5 escreveriam na mesma linha: a última
+   sobrescreveria as outras e todas disparariam pelo chip do dono.
+3. **A campanha não é mais quem dispara.** `startProspectingForUser` e
+   `resumeProspectingForUser` começam com `refuseAutomaticProspectingCreation()` —
+   prospecção automática por campanha foi **aposentada em 25/07** por ordem do dono.
+   Quem envia hoje é a **cadência por lead** (o "robozinho", `cadencia.service.ts`).
+   A campanha sobreviveu como **DEPÓSITO DE TEXTO**: é de
+   `VendasAutomationCampaign.filtersJson` que `reservarCopyDeAberturaAgendada` tira a
+   variante de abertura de cada disparo agendado.
 
-1. Entrar como ela (`{login}` / `{login}123`) em `https://www.hbxsystem.com.br`.
-2. `/automacao` → **Prospecção** → **Disparo frio**.
-3. Colar as **5 mensagens dela** (seção 4) em "Primeiro contato (frio)".
-4. Colar o **roteiro** em "Passar pro gerente" e "E logo depois" (seção 4).
-5. Segmento/região: **DDD 19** (Rio Claro e região).
-6. Deixar **pausada**.
+Então "montar as 5 campanhas" **não** é armar 5 motores — é dar a cada vendedora o
+**bolo de texto dela**, e fazer o motor vivo respeitar de quem é o lead.
 
-⚠️ O campo `preMessageVariants` manda um "oi" curto ANTES — por isso **nenhuma das 25
-cumprimenta de novo**. Não adicionar saudação.
+### 3.1 ✅ CAMPANHA POR PESSOA (feito em 04/08 — falta publicar)
+
+Decisão do dono: **campanha por pessoa, mas só o dono configura** (as vendedoras não
+mexem em disparo; o 5º muro fica de pé). O que mudou:
+
+| onde | o quê |
+|---|---|
+| `vendas-automation.service.ts` | `latestCampaign(companyId, ownerUserId)` + `resolveCampaignOwnerId` — a campanha passa a ser achada pela DONA |
+| idem | `GET /vendas/automation/prospecting/campanhas` — a lista da equipe, com quem ainda não tem campanha |
+| idem | `buildAutomationUser` assina com `assinaturaDaPessoa` (era a persona da empresa) |
+| `cadencia.service.ts` | o envio leva `senderUserId = insc.responsavelId` → **sai pelo chip de quem é o lead** |
+| idem | `renderCorpoWhats` assina com o nome da dona do lead |
+| `vendas.service.ts` | `reservarCopyDeAberturaAgendada(companyId, responsavelId)` → cada uma sorteia do bolo DELA |
+| `bot-prospeccao-panel.tsx` | seletor **"Campanha de …"** na barra (só dono/gerente vê) |
+
+Provas: 14 testes novos (`campanha-por-pessoa.test.ts` 11/11 + 3 em
+`cadencia.service.test.ts`), typecheck limpo nos dois lados.
+
+**Montar as 5 (depois do publish):**
+
+```bash
+docker exec hbx-backend node scripts/criar-campanhas-vendedoras.js --apply
+```
+
+Dry-run sem `--apply`. É idempotente (quem já tem campanha é pulada, nada é
+sobrescrito) e nasce **pausada e sem triagem** — não dispara sozinha.
+
+> ⚠️ **ORDEM OBRIGATÓRIA:** o script só pode rodar **depois** do publish do código
+> acima. Com o código velho, seis campanhas na empresa 5 fariam o app pegar "a mais
+> recente" — a tela do dono abriria a campanha de uma vendedora qualquer e a reserva
+> de copy sortearia texto de outra pessoa.
+
+⚠️ **A pré-mensagem não existe no motor vivo.** O "oi" curto do `preMessageVariants` é
+do caminho de campanha (aposentado); a cadência manda a abertura direto. Ou seja: **as
+25 chegam sem saudação nenhuma**. Decisão de copy pendente se isso incomodar.
 
 ⚠️ O sistema recusa textos com **>85% de semelhança** entre si. As 25 já foram medidas
 contra a régua real (`coldTextSimilarity`): pior par **48,1%**, todas ≤176 caracteres,
 sem link, sem prova social inventada.
 
-### 3.2 Resolver a colisão do telefone no roteiro
+### 3.2 ✅ Telefone no roteiro — RESOLVIDO (dono, 04/08)
 
-O roteiro diz *"o telefone dele é 19 997024884"* — que é **o próprio número do único
-chip vivo hoje** (`company-5-user-6`). Campanha que dispare desse chip **não pode**
-mandar o lead ligar pra ele mesmo.
+> *"não, avisa o lead QUE O GERENTE VAI LIGAR, não é para fazer o interessado ligar"*
 
-- Campanhas das vendedoras (chip próprio): texto **como está**.
-- Campanha que saia do …884: trocar a frase para *"meu gerente já vai te chamar por
-  aqui"*, sem número. **Pendente de confirmação do dono.**
+O número saiu de **todas** as mensagens. Texto novo na seção 4.
 
 ### 3.3 Chips (o dono compra e pareia — a IA não pareia chip)
 
@@ -129,10 +167,13 @@ então construir só o encaminhamento e não mexer em dinheiro sem ordem dele.
 
 ## 4. A COPY APROVADA
 
-### Roteiro de passagem pro gerente (aprovado)
+### Roteiro de passagem pro gerente (aprovado; telefone removido em 04/08)
 
 **Mensagem 1:**
-> fico muito feliz que tenha interesse, vc não vai se arrepender! daqui pra frente meu gerente vai entrar em contato, o telefone dele é 19 997024884, nome dele é Jhonatan
+> fico muito feliz que tenha interesse, vc não vai se arrepender! daqui pra frente meu gerente vai entrar em contato, o nome dele é Jhonatan — ele vai te ligar
+
+*(a versão anterior mandava o lead ligar pro 19 997024884 — que é o número do chip do
+próprio dono. Ordem dele em 04/08: quem liga é o gerente.)*
 
 **Mensagem 2** (sai sozinha ~8s depois, pela fila durável):
 > se tiver alguma dúvida, qualquer coisa só chamar!

@@ -67,9 +67,18 @@ export class VendasController {
     return this.vendasService.getMyCommissionProfileForUser(req.user);
   }
 
+  // `ownerUserId` = de quem é a campanha que a tela está abrindo (campanha é da
+  // PESSOA desde 04/08). Ausente = a de quem está logado, como sempre foi.
   @Get('automation/live-status')
-  getAutomationLiveStatus(@Req() req: any) {
-    return this.vendasAutomationService.getLiveStatusForUser(req.user);
+  getAutomationLiveStatus(@Req() req: any, @Query('ownerUserId') ownerUserId?: string) {
+    return this.vendasAutomationService.getLiveStatusForUser(req.user, ownerUserId);
+  }
+
+  // As campanhas da equipe (uma linha por pessoa, com a dela ou `null`). Só
+  // dono/gerente — é a tela onde ele monta a campanha de cada vendedora.
+  @Get('automation/prospecting/campanhas')
+  listProspectingCampaigns(@Req() req: any) {
+    return this.vendasAutomationService.listProspectingCampaignsForUser(req.user);
   }
 
   @Post('automation/prospecting/start')
@@ -78,18 +87,18 @@ export class VendasController {
   }
 
   @Post('automation/prospecting/pause')
-  pauseProspecting(@Req() req: any) {
-    return this.vendasAutomationService.pauseProspectingForUser(req.user);
+  pauseProspecting(@Req() req: any, @Body() dto?: { ownerUserId?: number }) {
+    return this.vendasAutomationService.pauseProspectingForUser(req.user, dto?.ownerUserId);
   }
 
   @Post('automation/prospecting/resume')
-  resumeProspecting(@Req() req: any) {
-    return this.vendasAutomationService.resumeProspectingForUser(req.user);
+  resumeProspecting(@Req() req: any, @Body() dto?: { ownerUserId?: number }) {
+    return this.vendasAutomationService.resumeProspectingForUser(req.user, dto?.ownerUserId);
   }
 
   @Post('automation/prospecting/cancel')
-  cancelProspecting(@Req() req: any) {
-    return this.vendasAutomationService.cancelProspectingForUser(req.user);
+  cancelProspecting(@Req() req: any, @Body() dto?: { ownerUserId?: number }) {
+    return this.vendasAutomationService.cancelProspectingForUser(req.user, dto?.ownerUserId);
   }
 
   @Patch('automation/prospecting/config')

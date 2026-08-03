@@ -1764,11 +1764,48 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return `Bot dormindo. Fora do horário operacional; retomamos ${dayLabel} às ${time}.`;
   }
 
-  private async latestCampaign(companyId: number) {
+  // ── CAMPANHA É DA PESSOA, NÃO DA EMPRESA (04/08/2026) ─────────────────────
+  // Era `findFirst({ companyId })`: UMA campanha por empresa. Só que é
+  // `createdByUserId` que decide de qual chip a mensagem sai (senderUserId no
+  // envio) e qual nome assina — então, com cinco vendedoras, as cinco escreviam
+  // na MESMA linha: a última salvava por cima das outras e todas disparavam pelo
+  // chip do dono, assinando o nome dele. A chave passa a ser a PESSOA.
+  // `ownerUserId` ausente = a empresa inteira (comportamento antigo), preservado
+  // pros caminhos que não têm dona.
+  private async latestCampaign(companyId: number, ownerUserId?: number | null) {
+    const owner = Math.trunc(Number(ownerUserId || 0));
     return this.prisma.vendasAutomationCampaign.findFirst({
-      where: { companyId },
+      where: { companyId, ...(owner > 0 ? { createdByUserId: owner } : {}) },
       orderBy: [{ updatedAt: 'desc' }, { createdAt: 'desc' }],
     });
+  }
+
+  /**
+   * De quem é a campanha desta chamada.
+   *
+   * Sem `requested`, é de quem está logado — é assim que a tela do dono continua
+   * abrindo a campanha dele sem mudar nada. Com `requested`, só dono/gerente pode
+   * apontar pra outra pessoa: decisão do dono (04/08) foi **campanha por pessoa,
+   * mas só o dono configura** — as vendedoras não mexem em disparo, e o 5º muro
+   * (triagem confirmada por dono/gerente) fica intacto.
+   *
+   * O `where` com companyId é a lei multi-tenant: ninguém aponta pra fora da
+   * própria empresa, nem o system master.
+   */
+  private async resolveCampaignOwnerId(
+    user: any,
+    context: { companyId: number; userId: number },
+    requested?: unknown,
+  ): Promise<number> {
+    const pedido = Math.trunc(Number(requested || 0));
+    if (!(pedido > 0) || pedido === context.userId) return context.userId;
+    this.assertCanManageProspecting(user);
+    const alvo = await this.prisma.user.findFirst({
+      where: { id: pedido, companyId: context.companyId },
+      select: { id: true },
+    });
+    if (!alvo) throw new BadRequestException('Essa pessoa não faz parte desta empresa.');
+    return alvo.id;
   }
 
   // S4 CORREÇÃO DO NOTURNO (B11): painel de disparos e alerta de lead quente NÃO
@@ -1828,10 +1865,11 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return { hotLead, coldGate, agendadosFuturos: Number(agendadosFuturos || 0), proximoAgendadoAt };
   }
 
-  async getLiveStatusForUser(user: any) {
+  async getLiveStatusForUser(user: any, ownerUserId?: unknown) {
     const context = this.resolveUserContext(user);
     await this.assertEntitlement(user);
-    const campaign = await this.latestCampaign(context.companyId);
+    const owner = await this.resolveCampaignOwnerId(user, context, ownerUserId);
+    const campaign = await this.latestCampaign(context.companyId, owner);
     if (!campaign) {
       // Sem campanha o painel CONTINUA existindo quando há disparo agendado ou lead
       // quente esperando — antes daqui, o modo manual ficava mudo (B11).
@@ -1849,6 +1887,78 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       };
     }
     return this.buildLiveStatus(campaign);
+  }
+
+  /**
+   * AS CAMPANHAS DA EQUIPE (04/08/2026) — uma linha por pessoa da empresa, com a
+   * campanha dela quando existe. É o que a tela do dono usa pra trocar de
+   * vendedora sem adivinhar id: campanha por pessoa só serve se der pra VER as
+   * cinco num lugar só.
+   *
+   * Só dono/gerente enxerga a lista (mesma régua de quem pode configurar). A
+   * pessoa sem campanha aparece com `campanha: null` — é assim que o dono sabe de
+   * quem falta montar, em vez de descobrir no dia do disparo.
+   */
+  async listProspectingCampaignsForUser(user: any) {
+    const context = this.resolveUserContext(user);
+    await this.assertEntitlement(user);
+    this.assertCanManageProspecting(user);
+    const [pessoas, campanhas] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { companyId: context.companyId },
+        select: { id: true, name: true, username: true, email: true, role: true },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      }),
+      this.prisma.vendasAutomationCampaign.findMany({
+        where: { companyId: context.companyId },
+        orderBy: [{ updatedAt: 'desc' }],
+      }),
+    ]);
+    const porDono = new Map<number, any>();
+    for (const c of campanhas) {
+      const dono = Number(c.createdByUserId || 0);
+      // A mais recente de cada pessoa vence (a lista já vem ordenada).
+      if (dono > 0 && !porDono.has(dono)) porDono.set(dono, c);
+    }
+    const contarVariantes = (campanha: any): number => {
+      const filtros = parseJsonObject(campanha?.filtersJson);
+      const brutas = Array.isArray((filtros as any)?.firstContactVariants) ? (filtros as any).firstContactVariants : [];
+      // Variante PAUSADA carrega um caractere de controle no início — não conta
+      // como texto pronto, senão a tela promete 5 e o motor tem 2.
+      return brutas.filter((v: unknown) => {
+        const s = String(v || '');
+        return s.trim() && s.charCodeAt(0) !== 1;
+      }).length;
+    };
+    return {
+      // Quem está pedindo — a tela abre na campanha dele por default e precisa
+      // saber qual linha marcar sem ter que perguntar de novo quem sou eu.
+      euUserId: context.userId,
+      pessoas: pessoas.map((p) => {
+        const campanha = porDono.get(p.id) || null;
+        return {
+          userId: p.id,
+          nome: String(p.name || '').trim() || String(p.username || '').trim() || `#${p.id}`,
+          login: String(p.username || p.email || '').trim() || null,
+          role: p.role,
+          campanha: campanha
+            ? {
+                id: campanha.id,
+                status: campanha.status,
+                city: campanha.city || null,
+                segment: campanha.segment || null,
+                variantesPrimeiroContato: contarVariantes(campanha),
+                updatedAt: campanha.updatedAt instanceof Date ? campanha.updatedAt.toISOString() : null,
+              }
+            : null,
+        };
+      }),
+      // Campanha sem dono (herança de quando a campanha era da empresa): aparece
+      // à parte pra não sumir da tela sem ninguém perceber.
+      semDono: campanhas
+        .filter((c) => !Number(c.createdByUserId || 0))
+        .map((c) => ({ id: c.id, status: c.status, variantesPrimeiroContato: contarVariantes(c) })),
+    };
   }
 
   private inferLiveStatus(campaign: any, casa: VendasComercialConfigDto, counters: Record<string, number>, sendingCount: number): LiveAutomationStatus {
@@ -2193,7 +2303,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     this.assertCanManageProspecting(user);
     await this.botActivation?.putActivation(user, { type: 'prospeccao', live: false });
     const botConfig = await this.inboxService.getBotConfig(user);
-    const current = await this.latestCampaign(context.companyId);
+    const owner = await this.resolveCampaignOwnerId(user, context, (dto as any)?.ownerUserId);
+    const current = await this.latestCampaign(context.companyId, owner);
     // Risco (nível, teto, ritmo, janela, digitação) vai pra CASA; o resto (busca,
     // textos, palavras) segue pra campanha. Uma escrita, uma verdade.
     await this.salvarRiscoNaCasa(context.companyId, dto || {});
@@ -2208,7 +2319,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             ...data,
             searchSignature,
             status: 'paused',
-            createdByUserId: current.createdByUserId || context.userId,
+            createdByUserId: current.createdByUserId || owner,
             lastStatusText: savedStatusText,
             lastError: null,
             triagemConfirmedAt: null,
@@ -2220,7 +2331,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             ...data,
             searchSignature,
             companyId: context.companyId,
-            createdByUserId: context.userId,
+            createdByUserId: owner,
             status: 'paused',
             lastStatusText: 'Configuração salva. Pronta para iniciar.',
           },
@@ -2253,17 +2364,22 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   // campanha salva; e cada lista cai no default do motor quando vazia.
   async simulateProspectingForUser(
     user: any,
-    dto: { mode?: 'opener' | 'reply'; text?: string; config?: Record<string, unknown> },
+    dto: { mode?: 'opener' | 'reply'; text?: string; config?: Record<string, unknown>; ownerUserId?: number },
   ) {
     const context = this.resolveUserContext(user);
-    const campaign = await this.latestCampaign(context.companyId);
+    // Preview da campanha QUE ESTÁ ABERTA na tela: sem isto, o dono revisando os
+    // textos da Bianca via o preview assinado com o nome dele.
+    const owner = await this.resolveCampaignOwnerId(user, context, dto?.ownerUserId);
+    const campaign = await this.latestCampaign(context.companyId, owner);
     const runtimeUser = campaign
       ? await this.buildAutomationUser(campaign)
       : {
-          id: context.userId,
-          // Preview fiel ao disparo real: assina com a PERSONA da empresa.
-          name: await this.personaIa.assinatura(
+          id: owner,
+          // Preview fiel ao disparo real: assina com o nome de QUEM VAI DISPARAR
+          // (dona da campanha aberta); sem dona, cai na persona da empresa.
+          name: await this.personaIa.assinaturaDaPessoa(
             context.companyId,
+            owner,
             trimOrNull(user?.name) || trimOrNull(user?.fullName) || 'time comercial',
           ),
           companyId: context.companyId,
@@ -2430,7 +2546,8 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     const context = this.resolveUserContext(user);
     await this.assertEntitlement(user);
     const botConfig = await this.inboxService.getBotConfig(user);
-    const current = await this.latestCampaign(context.companyId);
+    const owner = await this.resolveCampaignOwnerId(user, context, (dto as any)?.ownerUserId);
+    const current = await this.latestCampaign(context.companyId, owner);
     await this.salvarRiscoNaCasa(context.companyId, dto || {});
     const casa = await this.getCasa(context.companyId);
     const data = this.normalizeProspectingConfig(dto || {}, botConfig, current);
@@ -2456,7 +2573,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             ...data,
             searchSignature,
             status: 'running',
-            createdByUserId: current.createdByUserId || context.userId,
+            createdByUserId: current.createdByUserId || owner,
             lastStatusText: initialStatusText,
             lastError: null,
             triagemConfirmedAt: now,
@@ -2468,7 +2585,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
             ...data,
             searchSignature,
             companyId: context.companyId,
-            createdByUserId: context.userId,
+            createdByUserId: owner,
             status: 'running',
             lastStatusText: initialStatusText,
             triagemConfirmedAt: now,
@@ -2524,11 +2641,12 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return this.buildLiveStatus(campaign);
   }
 
-  async pauseProspectingForUser(user: any) {
-    const status = await this.setCampaignStatusForUser(user, 'paused', 'Campanha pausada.', 'campaign_paused');
+  async pauseProspectingForUser(user: any, ownerUserId?: unknown) {
+    const status = await this.setCampaignStatusForUser(user, 'paused', 'Campanha pausada.', 'campaign_paused', ownerUserId);
     await this.botActivation?.putActivation(user, { type: 'prospeccao', live: false });
     const context = this.resolveUserContext(user);
-    const campaign = await this.latestCampaign(context.companyId);
+    const owner = await this.resolveCampaignOwnerId(user, context, ownerUserId);
+    const campaign = await this.latestCampaign(context.companyId, owner);
     if (campaign) {
       await this.commercialContactControl.setAutomationDefinitionStatus({
         companyId: context.companyId,
@@ -2541,13 +2659,14 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return status;
   }
 
-  async resumeProspectingForUser(user: any) {
+  async resumeProspectingForUser(user: any, ownerUserId?: unknown) {
     // S7 LEAD-CENTRICO: "retomada" é o mesmo "puxa→dispara" pela porta de trás
     // (ver refuseAutomaticProspectingCreation acima) — aposentada junto.
     this.refuseAutomaticProspectingCreation();
     const context = this.resolveUserContext(user);
     await this.assertEntitlement(user);
-    const campaign = await this.latestCampaign(context.companyId);
+    const owner = await this.resolveCampaignOwnerId(user, context, ownerUserId);
+    const campaign = await this.latestCampaign(context.companyId, owner);
     if (!campaign) throw new BadRequestException('Nenhuma campanha de prospecção encontrada.');
     this.assertCanArmProspecting(user, campaign);
     const now = new Date();
@@ -2615,10 +2734,11 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return status;
   }
 
-  async cancelProspectingForUser(user: any) {
+  async cancelProspectingForUser(user: any, ownerUserId?: unknown) {
     const context = this.resolveUserContext(user);
     await this.assertEntitlement(user);
-    const campaign = await this.latestCampaign(context.companyId);
+    const owner = await this.resolveCampaignOwnerId(user, context, ownerUserId);
+    const campaign = await this.latestCampaign(context.companyId, owner);
     if (!campaign) throw new BadRequestException('Nenhuma campanha de prospecção encontrada.');
     const updated = await this.prisma.$transaction(async (tx) => {
       await tx.vendasAutomationJob.updateMany({
@@ -2692,10 +2812,17 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  private async setCampaignStatusForUser(user: any, status: 'running' | 'paused', text: string, type: string) {
+  private async setCampaignStatusForUser(
+    user: any,
+    status: 'running' | 'paused',
+    text: string,
+    type: string,
+    ownerUserId?: unknown,
+  ) {
     const context = this.resolveUserContext(user);
     await this.assertEntitlement(user);
-    const campaign = await this.latestCampaign(context.companyId);
+    const owner = await this.resolveCampaignOwnerId(user, context, ownerUserId);
+    const campaign = await this.latestCampaign(context.companyId, owner);
     if (!campaign) throw new BadRequestException('Nenhuma campanha de prospecção encontrada.');
     // 5º muro fail-closed (PR13062026007): ligar a prospecção exige TRIAGEM.
     // Só dono/gerente (ADMIN) ou master arma; vendedor (USER) NUNCA. E só com a
@@ -2732,12 +2859,14 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
           include: { company: true },
         })
       : null;
-    // IDENTIDADE ÚNICA (31/07/2026): o {{funcionario}} dos textos automáticos é a
-    // PERSONA da empresa (aiNome, ou o vendedor que ela representa) — não mais
-    // quem criou a campanha. Fallback = comportamento antigo, pros caminhos
-    // manuais que rodam antes da entrevista.
-    const assinatura = await this.personaIa.assinatura(
+    // UM NÚMERO, UM NOME (03/08 → 04/08/2026). A identidade nasceu por EMPRESA
+    // quando a empresa tinha UM chip. Agora a campanha é da PESSOA e sai pelo chip
+    // dela (senderUserId = createdByUserId): o nome tem que ser o dela, senão a
+    // Bianca manda do número dela assinando "Jhonatan". Sem dona, cai na persona
+    // da empresa exatamente como antes.
+    const assinatura = await this.personaIa.assinaturaDaPessoa(
       Number(campaign.companyId),
+      Number(campaign.createdByUserId || 0) || null,
       String(user?.name || '').trim() || 'time comercial',
     );
     if (user?.id) return { ...user, name: assinatura };
