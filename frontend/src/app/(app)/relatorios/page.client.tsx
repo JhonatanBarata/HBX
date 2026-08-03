@@ -281,8 +281,9 @@ export function RelatoriosClient() {
     URL.revokeObjectURL(url);
   }
 
-  async function toggleBotAccess(sellerId: number, value: boolean) {
-    if (botAccessBusy[sellerId]) return;
+  /** Devolve se DEU CERTO — o lote acima precisa saber, não pode adivinhar. */
+  async function toggleBotAccess(sellerId: number, value: boolean): Promise<boolean> {
+    if (botAccessBusy[sellerId]) return false;
     setBotAccessBusy(prev => ({ ...prev, [sellerId]: true }));
     setBotAccessMsg(null);
     // optimistic
@@ -293,22 +294,34 @@ export function RelatoriosClient() {
         body: JSON.stringify({ botAccess: value }),
       });
       setBotAccessMsg(value ? "✓ Bot liberado para o vendedor." : "✓ Acesso ao bot removido.");
+      return true;
     } catch (err) {
       // reverte se falhar
       setBotAccessMap(prev => ({ ...prev, [sellerId]: !value }));
       setBotAccessMsg(err instanceof Error ? err.message : "Não foi possível atualizar o acesso ao bot.");
+      return false;
     } finally {
       setBotAccessBusy(prev => ({ ...prev, [sellerId]: false }));
     }
   }
 
+  // 🔴 03/08 — O LOTE DIZIA "✓ liberado para todos" MESMO FALHANDO TUDO.
+  // `toggleBotAccess` engole o próprio erro, então o `Promise.all` nunca rejeita;
+  // a linha de sucesso vinha DEPOIS, incondicional, e ainda apagava a mensagem de
+  // erro que a chamada individual tinha escrito. Foi assim que a tela mostrou
+  // "✓ Bot liberado para todos os vendedores" com 403 no console e o
+  // `botAccessEnabled` de todo mundo em `false` no banco. Agora o texto conta o
+  // que realmente passou — a mesma lei do "best-effort que engole erro precisa
+  // de alarme".
   async function liberarTodos() {
     const ids = (audit?.rows || []).map(r => r.seller.id);
     if (ids.length === 0) return;
     setBotAccessMsg(null);
-    // dispara todos em paralelo
-    await Promise.all(ids.map(id => toggleBotAccess(id, true)));
-    setBotAccessMsg("✓ Bot liberado para todos os vendedores.");
+    const resultados = await Promise.all(ids.map(id => toggleBotAccess(id, true)));
+    const ok = resultados.filter(Boolean).length;
+    if (ok === ids.length) setBotAccessMsg("✓ Bot liberado para todos os vendedores.");
+    else if (ok === 0) setBotAccessMsg("Não foi possível liberar o bot para ninguém.");
+    else setBotAccessMsg(`Bot liberado para ${ok} de ${ids.length}. O resto não passou.`);
   }
 
   const m = report?.metrics;
@@ -461,7 +474,13 @@ export function RelatoriosClient() {
               <div className="panel-head">
                 <h2>Desempenho por vendedor</h2>
                 <div className="meta">
-                  {sellers.length > 0 && (
+                  {/* 03/08 — governar a EQUIPE é de quem manda nela. A vendedora
+                      vê o próprio desempenho aqui (e deve ver), mas o botão de
+                      liberar bot pra todo mundo aparecia pra ela também: clicava e
+                      levava 403 do backend. O guard era só "existe vendedor" — e a
+                      régua de papel já estava calculada nesta tela, três linhas
+                      acima, sem ninguém usar. */}
+                  {sellers.length > 0 && !isSeller && (
                     <button className="btn-ghost" style={{ fontSize: "var(--hbx-font-min)", padding: "4px 10px" }}
                       onClick={liberarTodos}
                       title="Libera o bot para todos os vendedores da equipe de uma vez">
