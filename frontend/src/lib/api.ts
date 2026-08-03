@@ -104,6 +104,41 @@ export function clearToken() {
   sessionStorage.removeItem("accessToken");
 }
 
+/**
+ * 🔴 03/08/2026 — "A TELA FICOU PRESA EM 'Preparando seu espaço de trabalho…'".
+ *
+ * O guard antigo era só `!isTokenLive()`: deslogava apenas com token VENCIDO pelo
+ * `exp`. Só que a morte mais comum da sessão aqui não vence o `exp` — é o servidor
+ * REVOGANDO (login único: entrar numa segunda máquina derruba a primeira). O token
+ * continuava "vivo" no relógio, o guard nunca disparava, e a pessoa ficava olhando
+ * um carregando eterno enquanto TODA chamada voltava 401. Medido em produção
+ * (03/08, 19:28): `GET /profile/current-user -> 401 AUTH_SESSION_EXPIRED :: Sessão
+ * revogada`, dezenas de vezes, tela congelada.
+ *
+ * É o MESMO bug que o comentário abaixo diz ter matado em 12/06 — o conserto do
+ * "poll de fundo expulsava todo mundo" reabriu o caso original justamente pro
+ * login único, que era a cena de origem.
+ *
+ * O servidor já dizia a diferença e o front jogava fora: o corpo do 401 traz
+ * `code` do catálogo (`AUTH_SESSION_EXPIRED`) e `action: 'login'`. Então:
+ *  · servidor diz que a SESSÃO morreu → desloga, mesmo com token no prazo;
+ *  · 401 sem esse selo + token vivo → é daquele endpoint (permissão, token de
+ *    celular, transiente): NÃO derruba o app, exatamente como hoje;
+ *  · token morto no relógio → desloga, como já fazia.
+ *
+ * Vale pros 5 acessos de vendedora em 5 navegadores: sem isto, qualquer uma que
+ * perdesse a sessão veria a tela congelar sem uma palavra do que aconteceu.
+ */
+export function sessaoMorreu(payload: unknown, tokenVivo: boolean): boolean {
+  if (!tokenVivo) return true;
+  const corpo = (payload ?? {}) as { code?: unknown; error?: unknown; action?: unknown };
+  return (
+    corpo.code === "AUTH_SESSION_EXPIRED" ||
+    corpo.error === "AUTH_SESSION_EXPIRED" ||
+    corpo.action === "login"
+  );
+}
+
 export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
   const headers = new Headers(init.headers);
   // FormData define o próprio Content-Type (boundary do multipart)
@@ -165,9 +200,7 @@ export async function apiFetch<T = unknown>(path: string, init: RequestInit = {}
       !path.startsWith("/auth/") &&
       typeof window !== "undefined" &&
       window.location.pathname !== "/" &&
-      !isTokenLive()   // token vivo → o 401 é DAQUELE endpoint (permissão/token de celular/
-                       // transiente), não morte de sessão. Não derruba o app (bug do poll
-                       // de fundo que expulsava todo mundo). Só desloga com token morto/ausente.
+      sessaoMorreu(data, isTokenLive())
     ) {
       try { sessionStorage.setItem("hbx:session-notice", "expired"); } catch { /* sem storage */ }
       clearToken();
