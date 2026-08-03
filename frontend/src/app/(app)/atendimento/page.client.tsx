@@ -523,6 +523,16 @@ export function AtendimentoClient() {
   const endRef = useRef<HTMLDivElement | null>(null);
   const draftRef = useRef<HTMLTextAreaElement | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  // Foco da prévia do anexo: ref ESTÁVEL, então só roda quando a prévia aparece.
+  // (Antes era um `ref={el => el.focus()}` inline: o React recria a função a cada
+  // render, refaz o attach e chamava .focus() a CADA tecla digitada — o foco fugia
+  // do campo de texto e o dono não conseguia continuar escrevendo. 03/08.)
+  // E se o cursor já está no campo de texto (caso do Ctrl+V), não roubamos o foco.
+  const attachPreviewRef = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return;
+    if (typeof document !== "undefined" && document.activeElement === draftRef.current) return;
+    el.focus();
+  }, []);
   const atBottomRef = useRef(true);
   // Abrir conversa = SEMPRE colar no fim (mesmo que o usuário tivesse rolado pra cima
   // na conversa anterior). Mídia do WhatsApp cresce a altura depois do render, então
@@ -2487,7 +2497,7 @@ export function AtendimentoClient() {
                   {pendingFile && (
                     <div className="attach-preview"
                       tabIndex={-1}
-                      ref={el => { if (el) el.focus(); }}
+                      ref={attachPreviewRef}
                       onKeyDown={e => {
                         if (e.key === "Enter") { e.preventDefault(); void confirmPendingFile(); }
                         else if (e.key === "Escape") { e.preventDefault(); cancelPendingFile(); }

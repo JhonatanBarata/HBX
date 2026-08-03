@@ -136,9 +136,25 @@
   animation: emp-live-pulse 0.9s ease-in-out infinite alternate;
 }
 
+/* A última coluna é `max-content`, não um número (corrigido 03/08).
+   Ela era `58px` — medida a olho para caber "CONTATOS" em caixa alta, peso 800
+   e letter-spacing 0,06em. Nunca coube: medido no estilo exato da regra, a
+   palavra ocupa 59,27px com system-ui e 59,81px com Plus Jakarta Sans. Faltava
+   ~2px desde sempre, nas três larguras de tela, e a rede de corte acusava.
+
+   Número fixo aqui nunca ia dar certo, e não é questão de escolher um maior:
+   `--hbx-font-min` é multiplicado pelo painel de tipografia, que vai até 150%.
+   Qualquer largura cravada quebra assim que alguém aumenta a letra — é o mesmo
+   defeito que a catraca R10 do check-pele existe para pegar. `max-content`
+   cresce junto.
+
+   Alinhamento preservado: da 2ª coluna em diante o texto é `text-align: right`
+   (regra abaixo) e esta é a ÚLTIMA — quem encosta no padding direito é a borda
+   dela, que não se move. O que cede é o `1fr` de "Empresa", que é flexível
+   justamente para isso. */
 .emp-list-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 170px 58px;
+  grid-template-columns: minmax(0, 1fr) 170px max-content;
   align-items: center;
   gap: 8px;
   min-width: 0;
@@ -358,8 +374,9 @@
     min-width: 104px;
   }
 
+  /* mesma razão da regra base: 52px também nunca coube em "CONTATOS" */
   .emp-list-head {
-    grid-template-columns: minmax(0, 1fr) 146px 52px;
+    grid-template-columns: minmax(0, 1fr) 146px max-content;
   }
 
   .emp-live .emp-row {
@@ -386,8 +403,10 @@
     padding: 0;
   }
 
+  /* aqui "Papéis" some (regra logo abaixo), então sobram 2 colunas — mas a de
+     "Contatos" continua sendo a mesma palavra, e continua precisando crescer */
   .emp-list-head {
-    grid-template-columns: minmax(0, 1fr) 52px;
+    grid-template-columns: minmax(0, 1fr) max-content;
   }
 
   .emp-list-head span:nth-child(2),
