@@ -34,7 +34,7 @@ import dynamic from "next/dynamic";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
-import { getRailSnapshot, I, ICONS, toggleRailState } from "@/components/hbx/shell";
+import { I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 
 import {
@@ -89,7 +89,6 @@ export function Cockpit({
   aReceber,
   carregando,
   atualizadoEm,
-  abas,
   menu,
   onRecarregar,
   onAbrirParada,
@@ -103,8 +102,6 @@ export function Cockpit({
   aReceber: number;
   carregando: boolean;
   atualizadoEm: Date | null;
-  /** Hoje/Semana/Saúde — entram no MESMO topo: duas barras seriam a pilha de volta. */
-  abas?: React.ReactNode;
   /** O "⋯": estoque, importar, regras, app, gerar entregas, fechar mês. */
   menu?: React.ReactNode;
   onRecarregar: () => void;
@@ -172,20 +169,6 @@ export function Cockpit({
     document.addEventListener("mousedown", fora);
     return () => document.removeEventListener("mousedown", fora);
   }, [sinoAberto]);
-
-  // ── O TRILHO DE MÓDULOS COLAPSA SOZINHO (mock, item que faltava) ─────────
-  // Cockpit é tela de dia inteiro: quem está aqui não navega, opera — e os
-  // ~180px do menu aberto fazem falta no palco. A store do rail é a do shell
-  // (localStorage "hbx:rail"), então nada aqui é gambiarra de CSS: é o MESMO
-  // colapso do botão «, só que automático. Quem entrou com o menu já recolhido
-  // fica como estava; quem entrou expandido volta a ficar expandido ao sair.
-  useEffect(() => {
-    if (getRailSnapshot() !== "expanded") return undefined;
-    toggleRailState();
-    return () => {
-      if (getRailSnapshot() === "min") toggleRailState();
-    };
-  }, []);
 
   // ── Derivados ────────────────────────────────────────────────────────────
   const abertas = stops.filter((s) => s.status === "agendada" || s.status === "em_rota");
@@ -357,8 +340,6 @@ export function Cockpit({
               : carregando ? "sincronizando…" : "sem leitura"}
           </small>
         </span>
-
-        {abas}
 
         <div className="cok__kpis" role="list" aria-label="Números do dia">
           <div className="cok__kpi" role="listitem">

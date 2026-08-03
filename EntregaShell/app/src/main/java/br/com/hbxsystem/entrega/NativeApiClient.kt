@@ -311,6 +311,14 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         method == "GET" && segments.size == 4 && segments.take(2) == listOf("logistica", "clientes") && segments[3] == "historico" -> true
         // ROTA PRONTA (29/07) — indicações de rota vivas da pessoa logada (popup Aceitar/Negar).
         method == "GET" && segments == listOf("logistica", "rota-indicadas", "pendentes") -> true
+        // 🔴 RECADOS (03/08) — o PORTÃO: o que já chegou e ainda trava o Confirmar.
+        // Faltava esta linha (e as duas do POST logo abaixo): o app 141 chamava
+        // os três, e o cliente nativo barrava ANTES de sair do aparelho
+        // ("Esta operação não pertence ao logistica"). O recado nunca chegava
+        // porque o pedido nunca era feito — deploy de backend não conserta isso.
+        // Regra que custou o bug (memory/hbxapk.md §6): endpoint novo no app.js
+        // = allowlist no Kotlin + REBUILD do APK, sempre.
+        method == "GET" && segments == listOf("logistica", "recados", "portao") -> true
         method == "POST" && segments in listOf(
             listOf("financeiro", "credits", "recharge"),
             listOf("logistica", "gerar-dia"),
@@ -343,6 +351,11 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             // MODO PASSEIO (29/07) — iniciar (e cobrar) o passeio; gate
             // admin×passeioEquipe e idempotência por tourId moram no backend.
             listOf("logistica", "passeio", "iniciar"),
+            // RECADOS (03/08) — o sino do entregador e os dois retornos diretos
+            // previstos pelo contrato do canal. Ver nota no GET acima.
+            listOf("logistica", "recados", "puxar"),
+            listOf("logistica", "recados", "visto"),
+            listOf("logistica", "recados", "responder"),
         ) -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "entregas") && segments[3] in setOf("confirmar", "cancelar", "reabrir", "comprovantes", "chegando") -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "rota-modelos") && segments[3] == "gerar" -> true
@@ -350,6 +363,9 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         // AGENDADOR (02/08) — "alarme-armado" carimba que o despertador desta
         // missão foi agendado NESTE aparelho.
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "rota-indicadas") && segments[3] in setOf("responder", "aplicada", "alarme-armado") -> true
+        // RECADOS (03/08) — o "Entendi" do portão: POST /logistica/recados/:id/entendi.
+        // O id fica no terceiro segmento; a ação, no quarto.
+        method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "recados") && segments[3] == "entendi" -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("nucleo", "clientes") && segments[3] in setOf("locais", "telefones") -> true
         // PR20072026 W2 — sessão de leitura: parada/finalizar/cancelar por :id.
         // S2 (PR21072026-MONTAR-ROTA-PLAY) — "trilha" soma a trilha GPS ao lote.

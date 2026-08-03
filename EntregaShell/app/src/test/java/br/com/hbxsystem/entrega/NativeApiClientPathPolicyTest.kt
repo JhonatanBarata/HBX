@@ -117,6 +117,34 @@ class NativeApiClientPathPolicyTest {
         assertFalse(isMobileEndpointAllowed("vendas", "POST", "/logistica/leitura/iniciar"))
     }
 
+    /**
+     * 03/08 — O TESTE QUE GRITA PELO RECADO QUE NÃO CHEGAVA.
+     *
+     * O app.js chamava os três caminhos abaixo e o cliente nativo barrava ANTES
+     * de sair do aparelho ("Esta operação não pertence ao logistica"): não havia
+     * uma linha sequer com "recados" na allowlist. O sintoma no aparelho era
+     * "recado não chega" e nada aparecia no log do backend — porque o pedido
+     * nunca foi feito. Se alguém apagar as linhas de novo, é AQUI que quebra,
+     * sem precisar de aparelho no cabo.
+     */
+    @Test
+    fun logisticaAllowsTheRecadoContract() {
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/recados/puxar"))
+        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/recados/portao"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/recados/visto"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/recados/responder"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/recados/recado-1/entendi"))
+        // Método trocado não passa (a política é por método, não por caminho).
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/recados/puxar"))
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/recados/portao"))
+        // Caminho incompleto e leitura avulsa continuam fora.
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/recados"))
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/recados/9"))
+        // E nada disso vaza pro módulo de vendas.
+        assertFalse(isMobileEndpointAllowed("vendas", "POST", "/logistica/recados/puxar"))
+        assertFalse(isMobileEndpointAllowed("vendas", "GET", "/logistica/recados/portao"))
+    }
+
     @Test
     fun vendasCannotAccessNucleoOrLogistica() {
         assertTrue(isMobileEndpointAllowed("vendas", "GET", "/vendas/board"))

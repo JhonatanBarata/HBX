@@ -31,6 +31,11 @@ import type { TrackingHistoryPoint, TrackingLiveRoute } from "./rastreamento/tra
 const TRILHA_SOURCE = "cok-trilha";
 const TRILHA_LAYER = "cok-trilha-linha";
 
+/** Teto de aproximação (uma parada só não vira zoom de telhado). */
+const ZOOM_MAXIMO = 15.5;
+/** Piso de afastamento: ~nível de cidade. Ver "FREIO DO AFASTAMENTO" abaixo. */
+const ZOOM_MINIMO = 9.5;
+
 type PinoDado = {
   id: string;
   lat: number;
@@ -39,6 +44,16 @@ type PinoDado = {
   estado: "feita" | "agora" | "fila" | "cobranca";
   nome: string;
 };
+
+/** Centro robusto a outlier: mediana de cada eixo, não média nem meio do retângulo. */
+function medianaDe(pinos: PinoDado[]): [number, number] {
+  const meio = (valores: number[]) => {
+    const ordenados = [...valores].sort((a, b) => a - b);
+    const m = Math.floor(ordenados.length / 2);
+    return ordenados.length % 2 ? ordenados[m] : (ordenados[m - 1] + ordenados[m]) / 2;
+  };
+  return [meio(pinos.map((p) => p.lng)), meio(pinos.map((p) => p.lat))];
+}
 
 function iniciaisDe(nome: string): string {
   const partes = nome.trim().split(/\s+/).filter(Boolean);
@@ -118,9 +133,20 @@ export function CockpitMapa({
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "top-right");
     // Os efeitos de pintura abaixo se penduram no "load" quando chegam cedo
     // demais — aqui só vira a chave de pronto.
-    map.on("load", () => { prontoRef.current = true; });
+    map.on("load", () => { prontoRef.current = true; map.resize(); });
     mapRef.current = map;
+
+    // 🔴 O MAPA MEDE O HOST UMA VEZ, NO NASCIMENTO. Enquanto o host do cockpit
+    // não tinha altura (a classe `.log-cockpit-host` era referenciada e não
+    // existia), o canvas nascia com ~90px e continuava desenhando nessa medida
+    // mesmo depois do CSS certo — pino no lugar errado sem nada no console.
+    // O observador cobre também o inspetor abrindo/fechando e o menu lateral
+    // colapsando, que mudam a largura do palco sem passar por window.resize.
+    const observador = new ResizeObserver(() => map.resize());
+    observador.observe(host);
+
     return () => {
+      observador.disconnect();
       prontoRef.current = false;
       pinosRef.current.forEach((m) => m.remove());
       pinosRef.current.clear();
@@ -144,7 +170,15 @@ export function CockpitMapa({
         if (existente) {
           existente.setLngLat([pino.lng, pino.lat]);
           const el = existente.getElement();
-          el.className = `cok-pino is-${pino.estado}`;
+          // 🔴 NUNCA `el.className = …` aqui: o elemento é do maplibre, e é a
+          // classe `maplibregl-marker` (que ele põe) que carrega o
+          // `position:absolute` do posicionamento. Sobrescrever a className
+          // apagava ela — os pinos largavam o mapa e empilhavam em coluna no
+          // canto (print do dono, 03/08 19h). Elemento entregue a uma lib que
+          // o posiciona por classe própria não é meu: eu só ADICIONO e REMOVO
+          // as MINHAS classes nele.
+          el.classList.remove("is-feita", "is-agora", "is-fila", "is-cobranca");
+          el.classList.add(`is-${pino.estado}`);
           el.textContent = pino.rotulo;
           continue;
         }
@@ -169,7 +203,19 @@ export function CockpitMapa({
         assinaturaRef.current = assinatura;
         const bounds = new maplibregl.LngLatBounds();
         pinos.forEach((p) => bounds.extend([p.lng, p.lat]));
-        map.fitBounds(bounds, { padding: 56, maxZoom: 15.5, duration: 700 });
+        const camera = map.cameraForBounds(bounds, { padding: 56, maxZoom: ZOOM_MAXIMO });
+        if (camera) {
+          // FREIO DO AFASTAMENTO. Um cadastro com coordenada errada (ou o seed
+          // de teste, que espalha paradas de Curitiba a Mar del Plata) faz o
+          // enquadro honesto virar mapa do CONTINENTE — e aí ninguém enxerga
+          // rua nenhuma. O mapa continua obedecendo ao dado, mas não afasta
+          // além do nível de cidade; quando o freio pega, o centro é a MEDIANA
+          // dos pinos (não o meio do retângulo, que num par de outliers cai no
+          // vazio entre eles).
+          const zoom = Math.max(Number(camera.zoom ?? ZOOM_MAXIMO), ZOOM_MINIMO);
+          const centro = zoom > Number(camera.zoom ?? ZOOM_MAXIMO) ? medianaDe(pinos) : camera.center;
+          map.easeTo({ center: centro, zoom, duration: 700 });
+        }
       }
     };
 
@@ -192,14 +238,14 @@ export function CockpitMapa({
       vivos.add(rota.driver.id);
       const selecionado = rota.driver.id === selecionadoId;
       const existente = motoristasRef.current.get(rota.driver.id);
-      const classe = `cok-pino-motorista${selecionado ? " is-foco" : ""}`;
       if (existente) {
         existente.setLngLat([pos.longitude, pos.latitude]);
-        existente.getElement().className = classe;
+        // Mesma regra do pino da parada: só as MINHAS classes (ver comentário lá).
+        existente.getElement().classList.toggle("is-foco", selecionado);
         continue;
       }
       const el = document.createElement("span");
-      el.className = classe;
+      el.className = `cok-pino-motorista${selecionado ? " is-foco" : ""}`;
       el.textContent = iniciaisDe(rota.driver.nome || `M${rota.driver.id}`);
       motoristasRef.current.set(
         rota.driver.id,

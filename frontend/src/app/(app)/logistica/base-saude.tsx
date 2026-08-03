@@ -73,9 +73,9 @@ type Filtro = "todos" | Semaforo;
 
 const FILTROS: Array<{ key: Filtro; label: string }> = [
   { key: "todos", label: "Todos" },
-  { key: "vermelho", label: "Vermelho" },
-  { key: "amarelo", label: "Amarelo" },
-  { key: "verde", label: "Verde" },
+  { key: "vermelho", label: "Corrigir" },
+  { key: "amarelo", label: "Revisar" },
+  { key: "verde", label: "Prontos" },
 ];
 
 function motivosTexto(motivos: Motivo[]): string {
@@ -111,67 +111,75 @@ export function BaseSaude() {
   }, [dados, filtro]);
 
   return (
-    <section id="logistica-view-saude" className="log-agenda hbx-page-mobile-enter" role="tabpanel" aria-labelledby="log-tab-saude">
-      <div className="log-agenda__surface">
-        <header className="log-agenda__head">
-          <div className="log-agenda__head-main">
-            <div className="log-agenda__head-copy">
-              <h2>Saúde da base</h2>
-              <p>Quanto da base inteira está com o GPS pronto pra não falhar na entrega.</p>
-            </div>
-          </div>
-          <div className="log-agenda__actions">
-            <button type="button" className="btn-ghost btn-xs" onClick={() => void load()} disabled={loading}>
-              <span aria-hidden>↻</span> {loading ? "Atualizando…" : "Atualizar"}
-            </button>
-          </div>
-        </header>
-
-        {loading && !dados && (
+    <section id="logistica-view-saude" className="log-agenda log-saude hbx-page-mobile-enter" role="tabpanel" aria-labelledby="log-tab-saude">
+      {loading && !dados && (
+        <div className="log-agenda__surface log-saude__loading">
           <div className="log-agenda__feedback">
-            <strong>Calculando a saúde da base…</strong>
+            <strong>Conferindo os endereços…</strong>
           </div>
-        )}
+        </div>
+      )}
 
-        {error && (
+      {error && (
+        <div className="log-agenda__surface log-saude__loading">
           <div className="log-agenda__feedback is-error">
             <strong>Não carregou</strong>
             <span>{error}</span>
+            <button type="button" className="btn-ghost" onClick={() => void load()}>Tentar novamente</button>
           </div>
-        )}
+        </div>
+      )}
 
-        {dados && !error && (
-          <>
+      {dados && !error && (
+        <div className="log-saude__workspace">
+          <aside className="log-agenda__surface log-saude__overview">
+            <header className="log-agenda__head">
+              <div className="log-agenda__head-main">
+                <div className="log-agenda__head-copy">
+                  <h2>Base pronta para rota</h2>
+                  <p>{dados.totalClientes} cliente(s) conferidos antes de sair pra rua.</p>
+                </div>
+              </div>
+            </header>
+
             <div className="log-saude__stats">
               <div className="log-agenda-impact__stat">
-                <strong>{dados.totalClientes}</strong>
-                <span>Clientes na base</span>
-              </div>
-              <div className="log-agenda-impact__stat">
                 <strong className="is-ok">{dados.verdes}</strong>
-                <span>Verde · pino confiável</span>
-              </div>
-              <div className="log-agenda-impact__stat">
-                <strong className="is-warn">{dados.amarelos}</strong>
-                <span>Amarelo · atenção</span>
+                <span>Prontos · {dados.percentVerde}%</span>
               </div>
               <div className="log-agenda-impact__stat">
                 <strong className="is-danger">{dados.vermelhos}</strong>
-                <span>Vermelho · precisa de pino</span>
+                <span>Corrigir agora</span>
               </div>
               <div className="log-agenda-impact__stat">
-                <strong className="is-ok">{dados.percentVerde}%</strong>
-                <span>Da base pronta</span>
+                <strong className="is-warn">{dados.amarelos}</strong>
+                <span>Revisar</span>
               </div>
             </div>
 
             {dados.resolvemSozinhos > 0 && (
               <p className="log-agenda-form__success">
-                {dados.resolvemSozinhos} cliente(s) se resolvem sozinhos na próxima entrega — o GPS da entrega grava a porta certa sem precisar mexer no cadastro.
+                {dados.resolvemSozinhos} se confirmam sozinhos na próxima entrega pelo GPS do motorista.
               </p>
             )}
+          </aside>
 
-            <div className="log-saude__filtro glass-pill-track" role="tablist" aria-label="Filtrar por semáforo">
+          <main className="log-agenda__surface log-saude__queue">
+            <header className="log-agenda__head">
+              <div className="log-agenda__head-main">
+                <div className="log-agenda__head-copy">
+                  <h2>Endereços que precisam de atenção</h2>
+                  <p>Corrija os vermelhos primeiro; os verdes já estão prontos.</p>
+                </div>
+              </div>
+              <div className="log-agenda__actions">
+                <button type="button" className="btn-ghost btn-xs" onClick={() => void load()} disabled={loading}>
+                  <span aria-hidden>↻</span> {loading ? "Atualizando…" : "Atualizar"}
+                </button>
+              </div>
+            </header>
+
+            <div className="log-saude__filtro glass-pill-track" role="tablist" aria-label="Filtrar endereços">
               <GlassPill {...filtroPill} />
               {FILTROS.map((f) => (
                 <button
@@ -191,7 +199,7 @@ export function BaseSaude() {
             {clientesFiltrados.length === 0 ? (
               <div className="log-agenda__feedback">
                 <strong>Nada por aqui</strong>
-                <span>Nenhum cliente neste semáforo.</span>
+                <span>Nenhum endereço neste filtro.</span>
               </div>
             ) : (
               <div className="log-saude__lista">
@@ -205,19 +213,19 @@ export function BaseSaude() {
                       </span>
                       <span className="log-agenda-import__row-sub">
                         {motivosTexto(c.motivos)}
-                        {c.resolveSozinho ? " · resolve sozinho na próxima entrega" : ""}
+                        {c.resolveSozinho ? " · confirma pelo GPS na próxima entrega" : ""}
                       </span>
                     </span>
                     {/* Link pro cadastro JÁ existente (aba Clientes) — só linkar, não
                         criar editor novo (S7-SAUDE-DA-BASE.md). */}
-                    <Link href="/clientes" className="btn-ghost btn-xs">Ver cadastro</Link>
+                    <Link href="/clientes" className="btn-ghost btn-xs">Abrir cadastro</Link>
                   </div>
                 ))}
               </div>
             )}
-          </>
-        )}
-      </div>
+          </main>
+        </div>
+      )}
     </section>
   );
 }

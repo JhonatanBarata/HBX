@@ -18,6 +18,114 @@
    px/rem — só os degraus de typography.css (fiscal R8).
    ============================================================ */
 
+/* ── DE ONDE VEM A ALTURA ──────────────────────────────────
+   🔴 03/08 — esta classe era REFERENCIADA pela tela e não existia em CSS
+   nenhum (grep vazio). Sem ela o `.work` seguia com `align-content: start`,
+   a linha do grid media o CONTEÚDO, o `height: 100%` do `.cok` resolvia
+   contra altura automática e o cockpit inteiro colapsava: mapa virava tira
+   de ~90px, faixas ~60px, página acabava em 300px. Todo o "ficou horrível"
+   do print saiu desta linha faltando — não de cor, de sombra nem de raio.
+
+   O mecanismo é o MESMO da casca antiga (`.log-work.hbx-panel-shell-host`):
+   uma linha só, esticada, sem rolagem no host. Quem rola é cada zona por
+   dentro (lei do zero-scroll: a página nunca rola, a coluna rola).
+   ============================================================ */
+.log-cockpit-host {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  align-content: stretch;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+/* ── A ESTAÇÃO ÚNICA: Hoje / Semana / Endereços ──────────────
+   A navegação pertence à página, não a uma das visões. Assim ela não some ao
+   trocar de aba e o menu lateral permanece recolhido durante a operação. */
+.log-admin-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--hbx-background);
+}
+
+.log-admin-shell__nav {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto minmax(180px, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--border-hairline);
+  background: var(--hbx-surface-raised);
+}
+
+.log-admin-shell__identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.log-admin-shell__identity > span:last-child {
+  display: grid;
+  min-width: 0;
+}
+
+.log-admin-shell__identity strong,
+.log-admin-shell__identity small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-admin-shell__identity strong {
+  color: var(--text-strong);
+  font-size: var(--fz-l1);
+  font-weight: 750;
+}
+
+.log-admin-shell__identity small {
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
+}
+
+.log-admin-shell__nav .log-guide {
+  margin: 0;
+}
+
+.log-admin-shell__content {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.log-admin-shell__content > :is(.cok, .log-agenda) {
+  height: 100%;
+}
+
+.log-admin-shell.is-weekly .log-agenda {
+  grid-template-rows: auto minmax(0, 1fr);
+  padding: var(--space-3);
+  overflow: hidden;
+}
+
+.log-admin-shell.is-weekly .log-agenda__surface {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.log-admin-shell__error {
+  position: absolute;
+  inset: auto var(--space-3) var(--space-3);
+  z-index: 10;
+  background: var(--hbx-surface-raised);
+}
+
 /* ── A moldura das 3 zonas ─────────────────────────────────── */
 .cok {
   display: grid;
@@ -696,6 +804,33 @@
     box-shadow: -8px 0 28px var(--hbx-shadow);
   }
   .cok { position: relative; }
+
+  .log-admin-shell__nav {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .log-admin-shell__nav .log-guide {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    justify-self: stretch;
+    width: 100%;
+  }
+}
+
+@media (max-width: 760px) {
+  .log-admin-shell__nav {
+    grid-template-columns: minmax(0, 1fr);
+    padding: var(--space-2);
+  }
+
+  .log-admin-shell__identity {
+    display: none;
+  }
+
+  .log-admin-shell__nav .log-guide {
+    grid-column: 1;
+    grid-row: 1;
+  }
 }
 
 /* ── AS FOLHAS (Lei nº2) ───────────────────────────────────

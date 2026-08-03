@@ -19,7 +19,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
-import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
+import { getRailSnapshot, I, ICONS, toggleRailState, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { isTenantAdmin } from "@/lib/roles";
 
@@ -352,6 +352,21 @@ export function LogisticaClient() {
       .catch(() => setEntregadores([]));
   }, [admin]);
 
+  // O cockpit inteiro (Hoje, Semana e Endereços) é uma única estação de
+  // trabalho. Antes o recolhimento do menu morava dentro de <Cockpit>, que só
+  // existe em "Hoje": ao clicar Semana/Saúde ele desmontava, reabria o menu e
+  // mostrava o painel informativo da logística por cima da navegação. Era a
+  // repetição do print e a sensação real de "não consigo voltar". O dono da
+  // estação é esta página, então o menu permanece recolhido nas três visões e
+  // volta ao estado anterior somente ao sair de /logistica.
+  useEffect(() => {
+    if (!admin || getRailSnapshot() !== "expanded") return undefined;
+    toggleRailState();
+    return () => {
+      if (getRailSnapshot() === "min") toggleRailState();
+    };
+  }, [admin]);
+
   // Fecha o "⋯" ao clicar fora — menu que não fecha sozinho vira estorvo.
   useEffect(() => {
     if (!menuAberto) return undefined;
@@ -401,8 +416,9 @@ export function LogisticaClient() {
   const pendentes = items.filter((e) => e.status === "agendada" || e.status === "em_rota").length;
   const isEmpty = !loading && !error && items.length === 0;
 
-  // As 3 abas entram no MESMO topo do cockpit — duas barras seriam a pilha de
-  // volta. Fora do admin não existe escolha de visão.
+  // Uma navegação só, persistente nas três visões. O id é o contrato dos
+  // tabpanels de Semana/Endereços; antes o aria-labelledby apontava para um
+  // elemento que não existia.
   const abas = admin ? (
     <div className="log-guide glass-pill-track" role="tablist" aria-label="Visão da logística">
       <GlassPill {...viewPill} />
@@ -410,6 +426,7 @@ export function LogisticaClient() {
         <button
           key={chave}
           ref={viewPill.itemRef(chave)}
+          id={`log-tab-${chave}`}
           type="button"
           role="tab"
           aria-selected={view === chave}
@@ -417,11 +434,17 @@ export function LogisticaClient() {
           className={`log-guide__tab glass-pill-item${view === chave ? " is-active" : ""}`}
           onClick={() => setView(chave)}
         >
-          {chave === "today" ? "Hoje" : chave === "weekly" ? "Semana" : "Saúde"}
+          {chave === "today" ? "Hoje" : chave === "weekly" ? "Semana" : "Endereços"}
         </button>
       ))}
     </div>
   ) : null;
+
+  const contextoDaVisao = view === "today"
+    ? `${items.length} parada(s) hoje · ${pendentes} aberta(s)`
+    : view === "weekly"
+      ? "Planejamento recorrente por dia"
+      : "Pinos e endereços antes da rota";
 
   // O "⋯": tudo que NÃO é a operação do dia. Antes eram 6 atalhos e um botão de
   // fechar mês ocupando duas faixas inteiras no meio da tela.
@@ -465,40 +488,56 @@ export function LogisticaClient() {
 
   return (
     <div className="work log-work log-cockpit-host">
-      {admin && view === "today" && (
-        <Cockpit
-          stops={items}
-          drivers={entregadores}
-          entreguesHoje={resumo?.entregues ?? 0}
-          aReceber={resumo?.aReceber ?? 0}
-          carregando={loading}
-          atualizadoEm={atualizadoEm}
-          abas={abas}
-          menu={menu}
-          onRecarregar={() => { void load(); void carregarResumo(); }}
-          onAbrirParada={(stop) => setOpen(items.find((item) => item.id === stop.id) ?? null)}
-          onMontarRota={() => setRouteBuilderOpen(true)}
-          onParadaAvulsa={() => setRouteBuilderOpen(true)}
-          onAtribuido={(stopId, entregador) => {
-            setRota((atual) => atual
-              ? { ...atual, items: atual.items.map((item) => item.id === stopId ? { ...item, entregador } : item) }
-              : atual);
-            setOpen((atual) => atual && atual.id === stopId ? { ...atual, entregador } : atual);
-          }}
-        />
-      )}
+      {admin && (
+        <section className={`log-admin-shell is-${view}`}>
+          <header className="log-admin-shell__nav">
+            <span className="log-admin-shell__identity">
+              <span className="log-command__icon" aria-hidden><I d={ICONS.logistica} size={17} /></span>
+              <span>
+                <strong>Logística</strong>
+                <small>{contextoDaVisao}</small>
+              </span>
+            </span>
+            {abas}
+          </header>
 
-      {admin && view === "weekly" && (
-        <section className="panel log-today-panel hbx-page-mobile-enter">
-          <header className="log-command">{abas}</header>
-          <WeeklyAgenda onOpenRouteBuilder={() => setRouteBuilderOpen(true)} />
-        </section>
-      )}
+          <div className="log-admin-shell__content">
+            {view === "today" && (
+              <Cockpit
+                stops={items}
+                drivers={entregadores}
+                entreguesHoje={resumo?.entregues ?? 0}
+                aReceber={resumo?.aReceber ?? 0}
+                carregando={loading}
+                atualizadoEm={atualizadoEm}
+                menu={menu}
+                onRecarregar={() => { void load(); void carregarResumo(); }}
+                onAbrirParada={(stop) => setOpen(items.find((item) => item.id === stop.id) ?? null)}
+                onMontarRota={() => setRouteBuilderOpen(true)}
+                onParadaAvulsa={() => setRouteBuilderOpen(true)}
+                onAtribuido={(stopId, entregador) => {
+                  setRota((atual) => atual
+                    ? { ...atual, items: atual.items.map((item) => item.id === stopId ? { ...item, entregador } : item) }
+                    : atual);
+                  setOpen((atual) => atual && atual.id === stopId ? { ...atual, entregador } : atual);
+                }}
+              />
+            )}
 
-      {admin && view === "saude" && (
-        <section className="panel log-today-panel hbx-page-mobile-enter">
-          <header className="log-command">{abas}</header>
-          <BaseSaude />
+            {view === "weekly" && (
+              <WeeklyAgenda onOpenRouteBuilder={() => setRouteBuilderOpen(true)} />
+            )}
+
+            {view === "saude" && <BaseSaude />}
+
+            {view === "today" && error && (
+              <div className="emp-empty log-admin-shell__error">
+                <strong className="emp-empty__title">Não carregou</strong>
+                <span className="emp-empty__text">{error}</span>
+                <button className="btn-ghost" onClick={() => load()}>Tentar novamente</button>
+              </div>
+            )}
+          </div>
         </section>
       )}
 
@@ -576,16 +615,6 @@ export function LogisticaClient() {
             </div>
           )}
         </section>
-      )}
-
-      {/* Erro do ADMIN: o cockpit desenha as zonas mesmo sem parada (elenco e
-          mapa continuam valendo), então o recado vem como faixa por baixo. */}
-      {admin && view === "today" && error && (
-        <div className="emp-empty">
-          <strong className="emp-empty__title">Não carregou</strong>
-          <span className="emp-empty__text">{error}</span>
-          <button className="btn-ghost" onClick={() => load()}>Tentar novamente</button>
-        </div>
       )}
 
       {open && (

@@ -81,7 +81,10 @@ plugins {
 // OBRIGATÓRIA — ver o comentário no `checkAppUpdate` do app.js). Piso ACIMA do
 // maior número que está no celular é o que destrava (mesmo caso de 8→15, 15→18,
 // 18→38, 38→60, 60→68, 87→95, 95→110, 110→117, 117→123 e 131→134 acima).
-val hbxLogisticaVersionCodeFloor = 140
+// 140 → 142 em 03/08 (noite): o reparo da allowlist dos recados precisa ser
+// instalado no g15 durante a prova. O piso fica acima do build local 141 para
+// que o próximo publish nunca repita a versão que já parou no aparelho.
+val hbxLogisticaVersionCodeFloor = 142
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)

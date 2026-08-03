@@ -1262,9 +1262,38 @@
    estado já usados no resto do arquivo (--hbx-success/warning/danger).
    ================================================================ */
 
+.log-saude {
+  min-height: 0;
+  padding: var(--space-3);
+  overflow: hidden;
+}
+
+.log-saude__workspace {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.52fr) minmax(0, 1.48fr);
+  gap: var(--space-3);
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.log-saude__overview {
+  align-content: start;
+}
+
+.log-saude__queue {
+  grid-template-rows: auto auto minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.log-saude__loading {
+  height: 100%;
+}
+
 .log-saude__stats {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 7px;
 }
 
@@ -1279,6 +1308,7 @@
   position: relative;
   display: inline-grid;
   grid-template-columns: repeat(4, minmax(76px, 1fr));
+  width: 100%;
   gap: 3px;
   padding: 4px;
   border: 1px solid var(--border-hairline);
@@ -1310,8 +1340,9 @@
 .log-saude__lista {
   display: grid;
   gap: 7px;
-  max-height: 460px;
+  min-height: 0;
   overflow-y: auto;
+  align-content: start;
 }
 
 .log-saude__row {
@@ -1343,8 +1374,21 @@
 .log-saude__semaforo--vermelho { background: var(--hbx-danger); }
 
 @media (max-width: 760px) {
-  .log-saude__stats {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .log-saude {
+    overflow-y: auto;
+  }
+
+  .log-saude__workspace {
+    grid-template-columns: minmax(0, 1fr);
+    height: auto;
+  }
+
+  .log-saude__queue {
+    overflow: visible;
+  }
+
+  .log-saude__lista {
+    overflow: visible;
   }
 }
 
