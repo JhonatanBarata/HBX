@@ -1,5 +1,15 @@
 # COCKPIT DA LOGÍSTICA — repasse e plano de continuação
 
+> ⚡ **ATUALIZAÇÃO 03/08 (mesma noite):** o dono mandou executar aqui mesmo.
+> **F0, F2 e F3 estão FEITOS e publicados** (commit `106019fb` + publish com
+> `HBX_APK_UPDATE_OBRIGATORIA=1` — manifesto confirmado `obrigatoria:true`).
+> Palco reescrito sem RouteBoard (tabuleiro próprio + seleção múltipla + mapa
+> com pinos numerados + trilho colapsando sozinho + legado deletado), réguas
+> da sentinela na tela de Regras, botão "Recado a todos". Provado no Chrome em
+> produção, console limpo. **Resta: F1** (prova no aparelho, sem cabo — abrir o
+> app e ver "Atualizar app" aparecer sozinho, depois recado urgente/portão) e a
+> **decisão 4** do §7 (Rastreada por padrão — muda cobrança, é do dono).
+
 > Handoff da sessão de 03/08/2026 (Opus). Escrito para ser lido em OUTRO chat,
 > do zero, sem depender do histórico. Contém o que está no ar, **o que eu errei**,
 > e o que fazer em seguida.
