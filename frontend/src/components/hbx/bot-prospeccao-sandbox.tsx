@@ -49,6 +49,7 @@ function buildConfigPayload(cfg: ProspConfigApi): Record<string, unknown> {
   const listKeys: (keyof ProspCfg)[] = [
     "preMessageVariants", "firstContactVariants", "positiveReplyVariants", "whatIsItReplyVariants",
     "scheduledReplyVariants", "optOutVariants", "neutralHandoffVariants",
+    "handoffGerenteVariants", "handoffGerenteFollowUpVariants",
     "positiveIntentKeywords", "negativeIntentKeywords", "whatIsItIntentKeywords",
     "callbackIntentKeywords", "humanHandoffIntentKeywords",
   ];

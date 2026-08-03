@@ -2282,6 +2282,82 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     return this.renderVendasVariant(variant, job, extraValues);
   }
 
+  // ================================================================
+  // 🔴 ROTEIRO DE PASSAGEM PRO GERENTE (03/08/2026)
+  //
+  // O dono não confia o fechamento ao bot ainda ("até eu confiar 100% no HBX
+  // bot"). A cena que ele cravou: o lead diz que tem interesse, e o robô NÃO
+  // tenta vender — ele comemora, entrega o nome e o telefone de quem vai
+  // assumir, e alguns segundos depois manda o arremate. A partir daí o card já
+  // está em "Respondeu — sua vez" e quem fala é gente.
+  //
+  // Duas listas de copy na campanha (`handoffGerenteVariants` e
+  // `handoffGerenteFollowUpVariants`), pelas MESMAS portas de sempre: mesma tela,
+  // mesmo filtersJson, mesmos {{tokens}}, mesmo sorteio anti-repetição. Nada de
+  // texto cravado no código — nome e telefone de gente moram no tenant de quem
+  // escreveu (o pitch padrão com "Jhonatan" literal vazando pra todo mundo já
+  // custou um fix em 30/07).
+  //
+  // Lista vazia = DESARMADO, e desarmado é o caminho de hoje inteiro, intacto.
+  // Quem pergunta "o que é?" não entra: ainda não é hora de passar, é hora de
+  // explicar.
+  // ================================================================
+  private async buildVendasHandoffGerente(
+    job: any,
+    replyKind?: string,
+  ): Promise<{ primeira: string; segunda: string | null } | null> {
+    if (replyKind === 'what_is_it') return null;
+    const primeiraLista = this.readVendasVariantList(job?.campaign, 'handoffGerenteVariants', []);
+    if (!primeiraLista.length) return null;
+    const extraValues = await this.buildVendasTemplateExtraValues(job);
+    const sortear = (lista: string[]) => lista[Math.floor(Math.random() * lista.length)] || lista[0] || '';
+    const primeira = this.renderVendasVariant(sortear(primeiraLista), job, extraValues);
+    if (!primeira) return null;
+    const segundaLista = this.readVendasVariantList(job?.campaign, 'handoffGerenteFollowUpVariants', []);
+    const segunda = segundaLista.length
+      ? this.renderVendasVariant(sortear(segundaLista), job, extraValues)
+      : '';
+    return { primeira, segunda: segunda || null };
+  }
+
+  /**
+   * "Alguns segundos depois" pela outbox DURÁVEL, não por timer de processo:
+   * `at` vira `nextAttemptAt`, e o `processDueMessages` só pega o que já venceu,
+   * em ordem de id. Assim a 2ª mensagem nunca ultrapassa a 1ª e sobrevive a um
+   * restart no meio (timer em memória morreria calado no `npm run publish`).
+   */
+  private vendasHandoffSegundaMsgMs(): number {
+    const raw = Number(process.env.HBX_VENDAS_HANDOFF_SEGUNDA_MSG_MS || 8000);
+    if (!Number.isFinite(raw)) return 8000;
+    return Math.max(2000, Math.min(60000, Math.trunc(raw)));
+  }
+
+  private async queueVendasHandoffSegundaMensagem(input: any, job: any, body: string) {
+    // Sem `flowState` de propósito: o estado da conversa já foi escrito pela 1ª
+    // mensagem, e reescrevê-lo aqui atropelaria um humano que assumiu a conversa
+    // nesses segundos de intervalo.
+    await this.conversations.queueOutboundForCompany(input.companyId, {
+      conversationId: input.conversationId,
+      to: input.from,
+      contactId: input.from,
+      body,
+      at: new Date(Date.now() + this.vendasHandoffSegundaMsgMs()),
+      messageType: 'text',
+      sourceModule: 'vendas_prospeccao_bot',
+      senderType: 'bot',
+      variables: {
+        purpose: 'conversation_reply',
+        botType: 'prospeccao',
+        campaignId: job.campaignId,
+        jobId: job.id,
+        leadId: job.leadId,
+        replyKind: 'handoff_gerente_arremate',
+        automaticFollowUp: true,
+        handoffGerente: true,
+      },
+    });
+  }
+
   private pickVendasScheduledReplyVariant(job: any, label: string, extraValues: Record<string, string> = {}) {
     const fallback = [
       'Perfeito, {{retorno_label}} eu te chamo por aqui ou te ligo rapidinho.',
@@ -3756,15 +3832,27 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     const queue = this.readJsonRecord(input.metadata?.vendasAgendaQueue);
     const automation = this.readJsonRecord(input.metadata?.vendasAutomation);
     const prospeccao = this.readJsonRecord(input.metadata?.vendasProspeccao);
+    // 🔴 03/08 — ROTEIRO DE PASSAGEM PRO GERENTE. Quando a empresa escreveu o
+    // roteiro, ELE é a resposta do interesse: o robô para de vender e entrega o
+    // lead pra uma pessoa (nome + telefone), porque o dono ainda não confia o
+    // fechamento ao bot. Roteiro vazio = nada muda; o caminho de sempre continua.
+    const roteiroGerente = await this.buildVendasHandoffGerente(job, input.replyKind).catch((error: any) => {
+      this.logger.warn(`[prospeccao] roteiro do gerente falhou job=${job.id}: ${String(error?.message || error)}`);
+      return null;
+    });
     // 2º período 30/07 ("classificar ≠ conversar"): com catálogo PRONTO + IA local
     // de pé, a resposta é GERADA (ficha + objetivo do veredito) em vez de sorteada.
     // Qualquer falha/recusa devolve null e o sorteio de sempre responde — o gerador
     // nunca é motivo de lead sem resposta.
-    const geracao = await this.generateVendasQualifiedReply(input, job).catch((error: any) => {
-      this.logger.warn(`[prospeccao] gerador de resposta falhou job=${job.id}: ${String(error?.message || error)}`);
-      return null;
-    });
-    const followUpMessage = geracao?.body || this.pickVendasVariant(
+    // Com roteiro armado nem se chama a IA: o texto já está decidido, e gerar uma
+    // pergunta que ninguém vai enviar ainda gravaria ficha de uma pergunta não feita.
+    const geracao = roteiroGerente
+      ? null
+      : await this.generateVendasQualifiedReply(input, job).catch((error: any) => {
+          this.logger.warn(`[prospeccao] gerador de resposta falhou job=${job.id}: ${String(error?.message || error)}`);
+          return null;
+        });
+    const followUpMessage = roteiroGerente?.primeira || geracao?.body || this.pickVendasVariant(
       job.campaign,
       job,
       input.replyKind === 'what_is_it' ? 'whatIsItReplyVariants' : 'positiveReplyVariants',
@@ -3814,9 +3902,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         queueTarget: 'prospeccao',
         routeTarget: 'prospeccao',
         status: 'contato',
-        nextAction: followUpMessage
-          ? 'Prospecção: resposta automática enviada, aguardando retorno'
-          : 'Prospecção: interessado aguardando operador',
+        nextAction: roteiroGerente
+          ? 'Prospecção: passado pro gerente, ligar pro lead'
+          : followUpMessage
+            ? 'Prospecção: resposta automática enviada, aguardando retorno'
+            : 'Prospecção: interessado aguardando operador',
         draftMessage: null,
         draftPending: false,
         botEligible: false,
@@ -3880,6 +3970,14 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         if (geracao) {
           await this.persistVendasQualificacaoAfterReply(input, job, geracao).catch((error: any) =>
             this.logger.warn(`[prospeccao] gravar ficha falhou lead=${job.leadId}: ${String(error?.message || error)}`),
+          );
+        }
+        // A 2ª mensagem do roteiro, alguns segundos depois — SÓ com a 1ª já
+        // enfileirada. Best-effort: o "qualquer coisa só chamar" é um arremate;
+        // perder ele nunca pode virar erro em cima de uma passagem que já saiu.
+        if (roteiroGerente?.segunda) {
+          await this.queueVendasHandoffSegundaMensagem(input, job, roteiroGerente.segunda).catch((error: any) =>
+            this.logger.warn(`[prospeccao] 2a mensagem do roteiro falhou job=${job.id}: ${String(error?.message || error)}`),
           );
         }
       } catch (error: any) {

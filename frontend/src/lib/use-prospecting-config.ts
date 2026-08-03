@@ -36,6 +36,8 @@ export type ProspCfg = {
   scheduledReplyVariants: string[];
   optOutVariants: string[];
   neutralHandoffVariants: string[];
+  handoffGerenteVariants: string[];
+  handoffGerenteFollowUpVariants: string[];
   positiveIntentKeywords: string[];
   negativeIntentKeywords: string[];
   whatIsItIntentKeywords: string[];
@@ -129,6 +131,8 @@ export const PROSP_DEFAULTS: ProspCfg = {
   scheduledReplyVariants: [],
   optOutVariants: [],
   neutralHandoffVariants: [],
+  handoffGerenteVariants: [],
+  handoffGerenteFollowUpVariants: [],
   positiveIntentKeywords: [],
   negativeIntentKeywords: [],
   whatIsItIntentKeywords: [],
@@ -172,6 +176,10 @@ export const PIECE_FIELDS: Record<"ritmo" | "digitacao" | "limite" | "alvo", (ke
 // Listas de variantes da peça "Mensagens alternadas" (cada lista = um grupo).
 export const VARIANT_LISTS: { key: keyof ProspCfg; label: string; max: number }[] = [
   { key: "firstContactVariants",  label: "Primeiro contato (frio)",       max: 20 },
+  // Passagem pro gerente (03/08): escrito aqui, o robô para de vender e entrega o
+  // lead. Vazio = o robô continua a conversa como sempre fez.
+  { key: "handoffGerenteVariants", label: "Passar pro gerente",           max: 20 },
+  { key: "handoffGerenteFollowUpVariants", label: "E logo depois",        max: 20 },
   { key: "positiveReplyVariants", label: "Quando responde com interesse", max: 20 },
   { key: "whatIsItReplyVariants", label: "Quando pergunta “o que é?”",    max: 20 },
   { key: "scheduledReplyVariants", label: "Quando pede pra falar depois", max: 20 },

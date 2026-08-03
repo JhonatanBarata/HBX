@@ -1015,6 +1015,23 @@ export class UpdateVendasProspectingConfigDto {
   @IsString({ each: true })
   neutralHandoffVariants?: string[];
 
+  // 🔴 03/08 — ROTEIRO DE PASSAGEM PRO GERENTE. Não é "mais uma variante de
+  // resposta": é o momento em que o robô PARA de vender e entrega o lead pra uma
+  // pessoa, com nome e telefone. Vazio = desarmado (o caminho de hoje segue
+  // intacto). Duas listas porque o dono cravou DUAS mensagens, a 2ª alguns
+  // segundos depois — texto de gente não vem tudo num balão só.
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  handoffGerenteVariants?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsString({ each: true })
+  handoffGerenteFollowUpVariants?: string[];
+
   @IsOptional()
   @IsString()
   @MaxLength(1000)

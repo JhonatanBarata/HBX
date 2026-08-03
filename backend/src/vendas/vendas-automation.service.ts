@@ -1579,6 +1579,21 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         hasOwnValue(payload, 'neutralHandoffVariants') ? payload?.neutralHandoffVariants : filters.neutralHandoffVariants,
         normalizeVariantList((parseJsonObject(existing?.filtersJson) as any).neutralHandoffVariants, DEFAULT_NEUTRAL_HANDOFF_VARIANTS),
       ),
+      // 🔴 03/08 — ROTEIRO DE PASSAGEM PRO GERENTE. Default VAZIO de propósito:
+      // este texto carrega nome e telefone de gente, e default com nome dentro já
+      // custou caro aqui (30/07: "Jhonatan" literal no pitch padrão vazou pra todo
+      // tenant sem firstContactVariants próprio). Quem escreve o roteiro é o dono
+      // da empresa, na tela dele — vazio = o caminho de hoje, intacto.
+      handoffGerenteVariants: normalizeVariantList(
+        hasOwnValue(payload, 'handoffGerenteVariants') ? (payload as any)?.handoffGerenteVariants : filters.handoffGerenteVariants,
+        normalizeVariantList((parseJsonObject(existing?.filtersJson) as any).handoffGerenteVariants, []),
+      ),
+      handoffGerenteFollowUpVariants: normalizeVariantList(
+        hasOwnValue(payload, 'handoffGerenteFollowUpVariants')
+          ? (payload as any)?.handoffGerenteFollowUpVariants
+          : filters.handoffGerenteFollowUpVariants,
+        normalizeVariantList((parseJsonObject(existing?.filtersJson) as any).handoffGerenteFollowUpVariants, []),
+      ),
       whatIsItIntentKeywords: normalizeTextList(
         hasOwnValue(payload, 'whatIsItIntentKeywords') ? (payload as any)?.whatIsItIntentKeywords : filters.whatIsItIntentKeywords,
         normalizeTextList((parseJsonObject(existing?.filtersJson) as any).whatIsItIntentKeywords, scene.whatIsItIntentKeywords),
@@ -2083,6 +2098,10 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
       scheduledReplyVariants: normalizeVariantList(filtersJson.scheduledReplyVariants, DEFAULT_SCHEDULED_REPLY_VARIANTS),
       optOutVariants: normalizeVariantList(filtersJson.optOutVariants, DEFAULT_OPT_OUT_VARIANTS),
       neutralHandoffVariants: normalizeVariantList(filtersJson.neutralHandoffVariants, DEFAULT_NEUTRAL_HANDOFF_VARIANTS),
+      // Roteiro de passagem pro gerente (03/08) — sem default: a tela mostra vazio
+      // até o dono escrever, e vazio significa "não passa ninguém automaticamente".
+      handoffGerenteVariants: normalizeVariantList(filtersJson.handoffGerenteVariants, []),
+      handoffGerenteFollowUpVariants: normalizeVariantList(filtersJson.handoffGerenteFollowUpVariants, []),
       optOutMessage: campaign.optOutMessage || DEFAULT_OPT_OUT_MESSAGE,
       optOutReplyEnabled: filtersJson.optOutReplyEnabled === true,
       websiteFallbackEnabled: false,
