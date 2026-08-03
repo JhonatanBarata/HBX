@@ -60,6 +60,26 @@ export class ComexDataService implements OnModuleDestroy {
   }
 
   /**
+   * Tabela opcional (matrizes de afinidade do matriz_cnae_ncm.py): o parquet
+   * pode não existir no ambiente — registra a view sob demanda e devolve se
+   * está utilizável. Dado ausente nunca derruba endpoint.
+   */
+  async ensureOptional(table: string): Promise<boolean> {
+    if (!/^[a-z0-9_]+$/.test(table)) return false;
+    const file = path.join(this.dataDir(), `${table}.parquet`);
+    try {
+      if (!fs.existsSync(file)) return false;
+      const conn = await this.connect();
+      await conn.run(
+        `CREATE VIEW IF NOT EXISTS ${table} AS SELECT * FROM read_parquet('${file.replace(/\\/g, '/')}')`,
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Consulta com resultado JSON-safe (BIGINT→Number via CAST nas queries; aqui
    * só normaliza o que sobrar). Inputs são validados ANTES pelos chamadores —
    * este serviço não recebe texto cru do usuário sem sanitização.

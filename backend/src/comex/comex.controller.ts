@@ -4,6 +4,10 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ComexCambioService } from './comex-cambio.service';
+import {
+  ComexDetectoresService,
+  parseComexAchadosParams,
+} from './comex-detectores.service';
 import { ComexNewsService } from './comex-news.service';
 import { ComexService } from './comex.service';
 
@@ -21,7 +25,29 @@ export class ComexController {
     private readonly comex: ComexService,
     private readonly news: ComexNewsService,
     private readonly cambioService: ComexCambioService,
+    private readonly detectores: ComexDetectoresService,
   ) {}
+
+  /**
+   * F1 do Analista — biblioteca de detectores (achados rankeados, sem IA).
+   * Alvos combináveis: sh4 (mercado) · produto/cnae (gigante escondido via
+   * matrizes de afinidade) · municipio+uf (vizinhança SECEX) · preco (régua C1).
+   */
+  @Get('achados')
+  achados(
+    @Query('sh4') sh4: string,
+    @Query('fluxo') fluxo: string,
+    @Query('uf') uf: string,
+    @Query('municipio') municipio: string,
+    @Query('cnae') cnae: string,
+    @Query('produto') produto: string,
+    @Query('excluir') excluir: string,
+    @Query('preco') preco: string,
+  ) {
+    return this.detectores.achados(
+      parseComexAchadosParams({ sh4, fluxo, uf, municipio, cnae, produto, excluir, preco }),
+    );
+  }
 
   @Get('status')
   status() {

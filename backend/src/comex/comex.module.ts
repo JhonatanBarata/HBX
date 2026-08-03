@@ -5,6 +5,7 @@ import { ModulesAccessModule } from '../modules/modules.module';
 import { ComexCambioService } from './comex-cambio.service';
 import { ComexController } from './comex.controller';
 import { ComexDataService } from './comex-data.service';
+import { ComexDetectoresService } from './comex-detectores.service';
 import { ComexNewsService } from './comex-news.service';
 import { ComexService } from './comex.service';
 
@@ -13,6 +14,12 @@ import { ComexService } from './comex.service';
 @Module({
   imports: [ModulesAccessModule, AuthModule],
   controllers: [ComexController],
-  providers: [ComexDataService, ComexService, ComexNewsService, ComexCambioService],
+  providers: [
+    ComexDataService,
+    ComexService,
+    ComexNewsService,
+    ComexCambioService,
+    ComexDetectoresService,
+  ],
 })
 export class ComexModule {}

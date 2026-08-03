@@ -104,8 +104,42 @@ de busca no `NCM.csv` resolve de graça**.
 
 ## 3. Arquitetura — 4 peças
 
+### 3.0 🔒 O DESENHO CRAVADO (03/08): a IA não dirige a investigação — ela INTERPRETA
+
+Fazendo a conta com os números do §2, o agente com tool-use livre não fecha: 12,7 tok/s
+com contexto povoado = ~55–60s por turno de LLM → investigação de 4–6 turnos = 4–6 minutos;
+o 30b não cabe no VPS, então o cérebro do produto moraria no PC do dono (cliente às 14h,
+PC desligado); e o tool-calling multi-turno do 30b é justamente a parte nunca testada.
+A LEI 4 levada até o fim dá o desenho:
+
+- **A investigação é um PIPELINE DETERMINÍSTICO em código** (CNPJ → ficha RFB → SECEX →
+  NCMs prováveis → detectores → achados rankeados) — é o que o `demo_empresa.py` já faz,
+  roda em **segundos** (SQL sobre parquet) e os cards aparecem conforme o pipeline anda.
+- **A IA entra em DOIS pontos só:** ① deduzir substâncias quando a tabela curada não cobre
+  o CNAE (1 chamada; `busca_ncm` converte em código — LEI 1); ② narrar o resumo final sobre
+  os achados pré-digeridos (1 chamada, streaming — a linha "perfeito em 55s" do §2.1).
+- **O chat livre é um ROTEADOR DE INTENÇÕES** sobre ~6 receitas de investigação ("dossiê do
+  CNPJ", "quem importa X na região Y", "eu pago caro?"...). Pergunta sem receita recebe um
+  honesto "ainda não sei fazer esse cruzamento" e **fica logada** — a fila de perguntas não
+  atendidas é o backlog de receitas novas (flywheel nº 3).
+- **Matriz CNAE×SH4 estatística (mata o buraco do MDI sem modelo grande):** o cadastro
+  SECEX (CNPJ+CNAE+município) × flow_mun (município×SH4) revela o que os municípios das
+  empresas de cada CNAE movimentam desproporcionalmente. Os importadores REAIS de MDI com
+  CNAE 20.72 estão no cadastro — a matriz acha o padrão sem IA. O 30b deixa de ter que
+  LEMBRAR (recall — falha) e passa a JULGAR candidatos (verificação — fácil).
+  ⚠️ Armadilha: cidade portuária contamina (Santos importa de tudo) — pesar por
+  sobre-representação vs base nacional e exigir ≥3 municípios votando, nunca volume bruto.
+- **Fábrica noturna:** com os 64GB, o 30b roda de madrugada semeando a `cnae_ncm.json`
+  (~500 CNAEs industriais × ~90s = 1–2 noites). O caminho interativo do cliente vira
+  tabela + SQL + narração leve — servível do VPS, concorrente, instantâneo.
+  **O PC do dono é fábrica, nunca servidor de produto.**
+- **Escada de degradação (o produto nunca quebra):** ① cards + frase-template (zero IA,
+  sempre) → ② narração pelo 4b no VPS (se passar no A/B cego de narração) → ③ 30b pra
+  dedução noturna/casos novos → ④ API paga, só por decisão do dono.
+
 ### 3.1 Ferramentas (tools) — porta o que já existe, zero dado novo
-A IA nunca toca SQL nem inventa número; ela chama ferramentas do `ComexService`:
+No desenho cravado, "ferramenta" = passo do pipeline (código chama, não a IA).
+A IA nunca toca SQL nem inventa número:
 
 - `ficha_empresa(cnpj)` — RFB 28M: CNAE, capital, sócios, unidades, contato
 - `confirma_secex(cnpj|nome)` — cadastro Wayback 2018–2020 (traz o **nome antigo**)
@@ -154,9 +188,12 @@ codifica NCM. Custo marginal zero. API paga fica como plano B (§2.4).
 
 ## 4. Ordem de construção
 ```
-F1  detectores em SQL puro          → testável SEM IA nenhuma
-F2  busca_ncm + ferramentas + cérebro + guarda-corpo + SSE   → CLI/rota primeiro
-F3  aba Analista no /comex (chat + cards com fonte)
+F1  detectores em SQL puro + MATRIZ CNAE×SH4 estatística     → testável SEM IA nenhuma
+F2  busca_ncm + pipeline determinístico + 2 pontos de IA + guarda-corpo + SSE
+    (+ A/B cego de NARRAÇÃO 30b×4b sobre 20 investigações pré-digeridas)
+F2.5 fábrica noturna: 30b semeia cnae_ncm.json dos ~500 CNAEs industriais
+    (depende só do upgrade de RAM de 05–08/08)
+F3  aba Analista no /comex (chat por receitas + cards com fonte)
 F4  Prospectar de dentro do chat (= A3 do N4: lead no /vendas via API pública
     + 1ª mensagem já escrita com o achado mais forte)
 F5  Vigia: os MESMOS detectores em modo diff + cron mensal (= B do N4)
