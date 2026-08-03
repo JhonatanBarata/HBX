@@ -2443,7 +2443,18 @@ test('pitch pos-pre-mensagem nao se apresenta com nome de outro tenant (fim do "
   assert.ok(body.includes('Padaria do Ze'), 'nome da empresa entra via {{empresa}}');
 });
 
-test('pitch pos-pre-mensagem assina com a PERSONA da empresa quando ela existe (identidade unica)', async () => {
+// 🔴 03/08/2026 — REGRA VIRADA PELO DONO: "a persona tem q puxar o nome da
+// pessoa logada". Este teste cobrava o contrário (persona da empresa ganhando de
+// quem criou a campanha) e agora cobra o novo.
+//
+// O que mudou no MUNDO, não no código: a empresa passou a ter um chip POR
+// vendedora (`company-N-user-M`). A lei nunca foi "uma empresa, um nome" — é
+// "UM NÚMERO, UM NOME". Com a identidade presa à empresa, cinco vendedoras
+// assinariam todas "Jhonatan": o lead abordado pela Bianca seria respondido por
+// outro nome, no mesmo número. A persona da empresa continua valendo onde não há
+// pessoa atrás do envio (Atendimento, Recovery) — coberto em
+// persona-ia-por-pessoa.test.ts.
+test('pitch pos-pre-mensagem assina com a DONA DA CAMPANHA, mesmo com persona de empresa', async () => {
   const metadata = {
     vendasAutomation: { jobId: 'job-email-1', leadId: 'lead-1', preMessageAwaitingReply: true },
     vendasAgendaQueue: { active: true, leadId: 'lead-1', automationJobId: 'job-email-1' },
@@ -2466,8 +2477,8 @@ test('pitch pos-pre-mensagem assina com a PERSONA da empresa quando ela existe (
   );
 
   const body = String((queueCalls[0] as any)?.payload?.body || '');
-  assert.ok(body.includes('Lia'), 'a persona da empresa assina o {{funcionario}}');
-  assert.equal(body.includes('Marcia'), false, 'com persona, o criador da campanha nao assina mais');
+  assert.ok(body.includes('Marcia'), 'quem manda a mensagem e quem assina — o chip e dela');
+  assert.equal(body.includes('Lia'), false, 'a persona da empresa nao fala pelo numero de uma pessoa');
 });
 
 // ============================================================================
