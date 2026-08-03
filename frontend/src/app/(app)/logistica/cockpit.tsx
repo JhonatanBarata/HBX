@@ -35,6 +35,7 @@ import { apiFetch } from "@/lib/api";
 
 import {
   atribuirLote,
+  cancelarEntrega,
   fraseDaMissao,
   fraseDoAviso,
   getMissoes,
@@ -44,6 +45,7 @@ import {
   type RotaAviso,
 } from "./cockpit-api";
 import { CockpitElenco, montarLinha } from "./cockpit-elenco";
+import { FolhaCancelarParada, FolhaEscolherMotorista } from "./cockpit-folhas";
 import { CockpitInspetor, type FarolEstado } from "./cockpit-inspetor";
 import { RouteBoard, type BoardEntregador, type BoardStop } from "./route-board";
 import {
@@ -236,45 +238,53 @@ export function Cockpit({
 
   // ── Ações ────────────────────────────────────────────────────────────────
   /**
-   * "Dar todas para…" — o que mata as 51 arrastadas da tela do dono.
-   * Pergunta quem pelo mesmo `prompt` simples do resto do módulo: um seletor
-   * bonito aqui seria a 4ª forma de escolher motorista na mesma tela.
+   * A folha de escolher motorista serve aos DOIS gestos — atribuir as órfãs
+   * em lote e passar UMA parada. `alvo` guarda qual deles está aberto: null =
+   * folha fechada; `"orfas"` = o lote; um stop = aquela parada.
+   *
+   * 🔴 Diálogo nativo (`window.prompt`) NÃO entra aqui: é caixa do sistema
+   * operacional, ignora a pele, o modo escuro e a régua de letra. Lei nº2 —
+   * pop-up é sempre pela central (`.hbx-veil` + `.hbx-modal`).
    */
-  const darTodasPara = useCallback(() => {
-    if (typeof window === "undefined" || !orfas.length) return;
-    if (!drivers.length) { setErro("Ninguém com capacidade de entrega pra receber as paradas."); return; }
-    const menu = drivers.map((d, i) => `${i + 1}) ${d.nome || d.email || `Motorista ${d.id}`}`).join("\n");
-    const escolha = window.prompt(`Dar as ${orfas.length} paradas sem dono para quem?\n\n${menu}\n\nDigite o número:`);
-    if (escolha === null) return;
-    const indice = Math.trunc(Number(escolha.trim())) - 1;
-    const alvo = drivers[indice];
-    if (!alvo) { setErro("Número inválido — ninguém foi escolhido."); return; }
+  const [alvoDaAtribuicao, setAlvoDaAtribuicao] = useState<"orfas" | BoardStop | null>(null);
+  const [paradaPraCancelar, setParadaPraCancelar] = useState<BoardStop | null>(null);
+  const [aplicando, setAplicando] = useState(false);
+
+  const abrirAtribuicaoDasOrfas = useCallback(() => {
+    if (!orfas.length) return;
     setErro(null);
-    atribuirLote(orfas.map((s) => s.id), alvo.id)
+    setAlvoDaAtribuicao("orfas");
+  }, [orfas.length]);
+
+  const trocarDono = useCallback((stop: BoardStop) => {
+    setErro(null);
+    setAlvoDaAtribuicao(stop);
+  }, []);
+
+  /** Aplica a escolha da folha: lote das órfãs ou a parada única. */
+  const aplicarAtribuicao = useCallback((motorista: BoardEntregador) => {
+    const alvo = alvoDaAtribuicao;
+    if (!alvo || aplicando) return;
+    const ids = alvo === "orfas" ? orfas.map((s) => s.id) : [alvo.id];
+    if (!ids.length) { setAlvoDaAtribuicao(null); return; }
+    setAplicando(true);
+    setErro(null);
+    atribuirLote(ids, motorista.id)
       .then((res) => {
+        setAlvoDaAtribuicao(null);
         onRecarregar();
         if (res.ignoradas > 0) {
           setErro(`${res.atribuidas} atribuída(s). ${res.ignoradas} ficaram de fora (já concluídas ou canceladas).`);
         }
       })
-      .catch((e: unknown) => setErro(e instanceof Error ? e.message : "Não foi possível atribuir as paradas."));
-  }, [drivers, onRecarregar, orfas]);
+      .catch((e: unknown) => setErro(e instanceof Error ? e.message : "Não foi possível atribuir."))
+      .finally(() => setAplicando(false));
+  }, [alvoDaAtribuicao, aplicando, onRecarregar, orfas]);
 
-  /** ⇄ do inspetor: passa UMA parada pra outra pessoa. */
-  const trocarDono = useCallback((stop: BoardStop) => {
-    if (typeof window === "undefined") return;
-    const outros = drivers.filter((d) => d.id !== Number(stop.entregador?.id));
-    if (!outros.length) { setErro("Não há outro motorista pra receber esta parada."); return; }
-    const menu = outros.map((d, i) => `${i + 1}) ${d.nome || d.email || `Motorista ${d.id}`}`).join("\n");
-    const escolha = window.prompt(`Passar ${stop.cliente.nome || "esta parada"} para quem?\n\n${menu}\n\nDigite o número:`);
-    if (escolha === null) return;
-    const alvo = outros[Math.trunc(Number(escolha.trim())) - 1];
-    if (!alvo) { setErro("Número inválido — ninguém foi escolhido."); return; }
-    setErro(null);
-    atribuirLote([stop.id], alvo.id)
-      .then(() => onRecarregar())
-      .catch((e: unknown) => setErro(e instanceof Error ? e.message : "Não foi possível trocar o motorista."));
-  }, [drivers, onRecarregar]);
+  /** Quem pode receber: pro lote é todo mundo; pra uma parada, todos menos o dono atual. */
+  const candidatos = alvoDaAtribuicao && alvoDaAtribuicao !== "orfas"
+    ? drivers.filter((d) => d.id !== Number((alvoDaAtribuicao as BoardStop).entregador?.id))
+    : drivers;
 
   const dispensarAviso = useCallback((id: string) => {
     setAvisos((atual) => atual.filter((a) => a.id !== id));
@@ -390,7 +400,7 @@ export function Cockpit({
         selecionado={selecionado}
         orfas={orfas.length}
         onSelecionar={abrirMotorista}
-        onDarTodas={darTodasPara}
+        onAtribuirTodas={abrirAtribuicaoDasOrfas}
         onParadaAvulsa={onParadaAvulsa}
       />
 
@@ -466,7 +476,39 @@ export function Cockpit({
           onde={ondeEstaEle}
           onFechar={() => setSelecionado(null)}
           onTrocarDono={trocarDono}
-          onMudou={onRecarregar}
+          onCancelarParada={setParadaPraCancelar}
+        />
+      )}
+
+      {/* ── FOLHAS (Lei nº2: pop-up é sempre pela central) ──────────────── */}
+      {alvoDaAtribuicao && (
+        <FolhaEscolherMotorista
+          titulo="Atribuir para qual motorista?"
+          descricao={
+            alvoDaAtribuicao === "orfas"
+              ? `${orfas.length} parada(s) sem motorista vão para quem você escolher.`
+              : `${(alvoDaAtribuicao as BoardStop).cliente.nome || "Esta parada"} passa para quem você escolher.`
+          }
+          motoristas={candidatos}
+          ocupado={aplicando}
+          onEscolher={aplicarAtribuicao}
+          onFechar={() => setAlvoDaAtribuicao(null)}
+        />
+      )}
+
+      {paradaPraCancelar && (
+        <FolhaCancelarParada
+          clienteNome={paradaPraCancelar.cliente.nome || "Este cliente"}
+          ocupado={aplicando}
+          onFechar={() => setParadaPraCancelar(null)}
+          onConfirmar={(motivo) => {
+            setAplicando(true);
+            setErro(null);
+            cancelarEntrega(paradaPraCancelar.id, motivo)
+              .then(() => { setParadaPraCancelar(null); onRecarregar(); })
+              .catch((e: unknown) => setErro(e instanceof Error ? e.message : "Não foi possível cancelar a parada."))
+              .finally(() => setAplicando(false));
+          }}
         />
       )}
     </div>

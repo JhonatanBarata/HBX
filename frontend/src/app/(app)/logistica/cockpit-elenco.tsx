@@ -93,14 +93,15 @@ export function CockpitElenco({
   selecionado,
   orfas,
   onSelecionar,
-  onDarTodas,
+  onAtribuirTodas,
   onParadaAvulsa,
 }: {
   linhas: LinhaDoElenco[];
   selecionado: number | null;
   orfas: number;
   onSelecionar: (motorista: BoardEntregador) => void;
-  onDarTodas: () => void;
+  /** "Atribuir" é o verbo do negócio — ninguém "dá" parada pra ninguém. */
+  onAtribuirTodas: () => void;
   onParadaAvulsa: () => void;
 }) {
   return (
@@ -146,9 +147,9 @@ export function CockpitElenco({
       {orfas > 0 && (
         <div className="cok__pote">
           <b>Sem motorista</b>
-          <small>{orfas} parada(s) esperando dono</small>
-          <button type="button" className="btn-ghost btn-xs cok__botao-largo" onClick={onDarTodas}>
-            Dar todas para…
+          <small>{orfas} parada(s) sem atribuição</small>
+          <button type="button" className="btn-ghost btn-xs cok__botao-largo" onClick={onAtribuirTodas}>
+            Atribuir as {orfas}
           </button>
         </div>
       )}

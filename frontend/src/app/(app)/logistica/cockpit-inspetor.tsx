@@ -18,7 +18,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { I, ICONS } from "@/components/hbx/shell";
 
 import {
-  cancelarEntrega,
+
   enviarRecado,
   getFioRecados,
   rotuloDoEstado,
@@ -61,7 +61,7 @@ export function CockpitInspetor({
   onde,
   onFechar,
   onTrocarDono,
-  onMudou,
+  onCancelarParada,
 }: {
   motorista: BoardEntregador;
   /** Só as paradas DELE, já na ordem da rota. */
@@ -72,9 +72,10 @@ export function CockpitInspetor({
   /** Endereço/última posição conhecida, quando existe. */
   onde: string | null;
   onFechar: () => void;
+  /** Abre a folha de atribuição (quem manda na folha é o cockpit). */
   onTrocarDono: (stop: BoardStop) => void;
-  /** Avisa a página que a rota mudou (cancelou parada) pra recarregar. */
-  onMudou: () => void;
+  /** Abre a folha de cancelamento — o motivo é pedido lá, com campo de verdade. */
+  onCancelarParada: (stop: BoardStop) => void;
 }) {
   const [fio, setFio] = useState<Recado[]>([]);
   const [carregandoFio, setCarregandoFio] = useState(true);
@@ -82,7 +83,6 @@ export function CockpitInspetor({
   const [nivel, setNivel] = useState<RecadoNivel>("normal");
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  const [cancelando, setCancelando] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
 
   const carregarFio = useCallback(
@@ -100,9 +100,9 @@ export function CockpitInspetor({
   // responde longe daqui). NÃO limpa o fio aqui: quem monta este componente
   // passa `key={motorista.id}`, então trocar de pessoa REMONTA e o estado já
   // nasce vazio — limpar no efeito seria pintar o fio de A antes de apagar.
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar; efeito legítimo, não estado derivado.
   useEffect(() => {
     let vivo = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar; efeito legítimo, não estado derivado.
     void carregarFio(true);
     const timer = setInterval(() => { if (vivo) void carregarFio(false); }, 20000);
     return () => { vivo = false; clearInterval(timer); };
@@ -128,28 +128,6 @@ export function CockpitInspetor({
       .catch((e: unknown) => setErro(e instanceof Error ? e.message : "Não foi possível mandar o recado."))
       .finally(() => setEnviando(false));
   }, [enviando, motorista.id, nivel, texto]);
-
-  const cancelarParada = useCallback(
-    (stop: BoardStop) => {
-      if (typeof window === "undefined") return;
-      const motivo = window.prompt(
-        `Cancelar a parada de ${stop.cliente.nome || "este cliente"}?\n\nEscreva o motivo (fica no histórico da entrega):`,
-        "Cliente ligou e cancelou",
-      );
-      // `null` = clicou em Cancelar no diálogo. String vazia também não vale:
-      // cancelamento sem motivo é o que faz ninguém entender o dia seguinte.
-      if (motivo === null) return;
-      const limpo = motivo.trim();
-      if (!limpo) { setErro("Escreva o motivo do cancelamento."); return; }
-      setCancelando(stop.id);
-      setErro(null);
-      cancelarEntrega(stop.id, limpo)
-        .then(() => onMudou())
-        .catch((e: unknown) => setErro(e instanceof Error ? e.message : "Não foi possível cancelar a parada."))
-        .finally(() => setCancelando(null));
-    },
-    [onMudou],
-  );
 
   const abertas = paradas.filter((p) => p.status === "agendada" || p.status === "em_rota");
   const agora = abertas.find((p) => p.status === "em_rota") ?? abertas[0] ?? null;
@@ -229,8 +207,7 @@ export function CockpitInspetor({
                   type="button"
                   className="is-perigo"
                   aria-label={`Cancelar a parada de ${stop.cliente.nome || "este cliente"}`}
-                  disabled={cancelando === stop.id}
-                  onClick={() => cancelarParada(stop)}
+                  onClick={() => onCancelarParada(stop)}
                 >
                   ✕
                 </button>

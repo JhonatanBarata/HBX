@@ -697,3 +697,75 @@
   }
   .cok { position: relative; }
 }
+
+/* ── AS FOLHAS (Lei nº2) ───────────────────────────────────
+   Substituíram window.prompt/confirm no mesmo dia em que
+   nasceram: diálogo nativo é caixa do SISTEMA OPERACIONAL —
+   ignora a pele, o modo escuro e a régua de letra do usuário.
+   A moldura (véu, centro, sombra, raio) vem de .hbx-veil +
+   .hbx-modal; aqui só a LARGURA e o miolo. */
+.cok-folha {
+  width: min(420px, 92vw);
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+.cok-folha__sub {
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
+  margin: 0;
+}
+.cok-folha__lista {
+  display: grid;
+  gap: var(--space-1);
+  max-height: 46vh;
+  overflow-y: auto;
+}
+.cok-folha__vazio {
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
+  text-align: center;
+  padding: var(--space-4) 0;
+}
+.cok-folha__pessoa {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid var(--border-hairline);
+  border-radius: 12px;
+  background: var(--hbx-surface-soft);
+  text-align: left;
+  cursor: pointer;
+}
+.cok-folha__pessoa:hover:not(:disabled) {
+  border-color: var(--hbx-brand);
+  background: var(--hbx-brand-soft);
+}
+.cok-folha__pessoa:disabled { opacity: 0.55; cursor: default; }
+.cok-folha__pessoa-quem { flex: 1; min-width: 0; }
+.cok-folha__pessoa-quem b {
+  display: block;
+  color: var(--text-strong);
+  font-size: var(--fz-m1);
+  font-weight: 600;
+}
+.cok-folha__pessoa-quem small {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
+}
+.cok-folha__chevron { flex: none; color: var(--text-muted); }
+.cok-folha__campo { display: grid; gap: var(--space-1); }
+.cok-folha__campo > span {
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
+  font-weight: 600;
+}
+.cok-folha__campo textarea { width: 100%; resize: vertical; font-family: inherit; }
+.cok-folha__acoes {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
