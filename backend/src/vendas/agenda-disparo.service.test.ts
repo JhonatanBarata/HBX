@@ -175,6 +175,8 @@ test('AgendaDisparoService.getConfig: sem linha no banco -> defaults (08:00-18:0
     maxAttemptsPerLead: 1,
     typingSeconds: 8,
     typingVarianceSeconds: 12,
+    // Trava de aquecimento (04/08): default LIGADA — remover é ato explícito.
+    coldWarmupOff: false,
   });
 });
 

@@ -63,6 +63,11 @@ export interface VendasComercialConfigDto extends BusinessWindow {
   maxAttemptsPerLead: number;
   typingSeconds: number;
   typingVarianceSeconds: number;
+  // TRAVA DE AQUECIMENTO REMOVÍVEL (04/08/2026): true = a pessoa forçou o limite
+  // configurado cheio; a rampa do chip novo (6→12, metade do teto) não opina.
+  // Opcional no tipo (ausente = trava ligada) pra não obrigar todo construtor
+  // de config de teste a conhecer a trava — o getConfig sempre preenche.
+  coldWarmupOff?: boolean;
 }
 
 export interface SlotSearchResult {
@@ -171,6 +176,9 @@ export class AgendaDisparoService {
   // Sem env de freio (ou com ele desligado), nada muda.
   private comTetoEfetivo(config: VendasComercialConfigDto): VendasComercialConfigDto {
     if (!coldGateEnabledFromEnv()) return config;
+    // Trava removida (04/08): direito da pessoa — a agenda reserva o limite
+    // configurado CHEIO, sem o teto físico da rampa por cima.
+    if (config.coldWarmupOff === true) return config;
     const fisico = coldGateMaxPerDayFromEnv();
     if (!Number.isFinite(fisico) || fisico >= config.dailyLimitPerSender) return config;
     return { ...config, dailyLimitPerSender: fisico };
@@ -206,6 +214,7 @@ export class AgendaDisparoService {
       maxAttemptsPerLead: clampPositiveInt(row?.maxAttemptsPerLead, DEFAULT_MAX_ATTEMPTS_PER_LEAD, 1, 3),
       typingSeconds: clampPositiveInt(row?.typingSeconds, DEFAULT_TYPING_SECONDS, 0, 45),
       typingVarianceSeconds: clampPositiveInt(row?.typingVarianceSeconds, DEFAULT_TYPING_VARIANCE_SECONDS, 0, 30),
+      coldWarmupOff: row?.coldWarmupOff === true,
     };
   }
 
@@ -220,6 +229,7 @@ export class AgendaDisparoService {
       maxAttemptsPerLead: dto.maxAttemptsPerLead !== undefined ? clampPositiveInt(dto.maxAttemptsPerLead, current.maxAttemptsPerLead, 1, 3) : current.maxAttemptsPerLead,
       typingSeconds: dto.typingSeconds !== undefined ? clampPositiveInt(dto.typingSeconds, current.typingSeconds, 0, 45) : current.typingSeconds,
       typingVarianceSeconds: dto.typingVarianceSeconds !== undefined ? clampPositiveInt(dto.typingVarianceSeconds, current.typingVarianceSeconds, 0, 30) : current.typingVarianceSeconds,
+      coldWarmupOff: dto.coldWarmupOff !== undefined ? dto.coldWarmupOff === true : current.coldWarmupOff,
     };
     await (this.prisma as any).vendasComercialConfig.upsert({
       where: { companyId },

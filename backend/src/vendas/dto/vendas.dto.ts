@@ -279,6 +279,13 @@ export class AgendarDisparoDto {
 // campos + salvar (a UI é mínima de propósito; horário validado/normalizado no
 // service via normalizeTimeHHMM, então aqui basta string).
 export class UpdateVendasComercialConfigDto {
+  // TRAVA DE AQUECIMENTO REMOVÍVEL (04/08/2026): true = a pessoa forçou o limite
+  // configurado cheio pro disparo automático; a rampa do chip novo não opina.
+  // Direito dela — o gate só volta a mandar quando ela religar a trava.
+  @IsOptional()
+  @IsBoolean()
+  coldWarmupOff?: boolean;
+
   @IsOptional()
   @IsString()
   @MaxLength(5)

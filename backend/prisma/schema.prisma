@@ -4859,6 +4859,11 @@ model VendasComercialConfig {
   // mesma lei do catalogoJson: IA que não sabe o que a empresa faz é IA proibida
   // de falar em nome dela).
   empresaFazTexto     String?
+  // TRAVA DE AQUECIMENTO REMOVÍVEL (04/08/2026) — chip novo roda METADE do
+  // dailyLimitPerSender (rampa 6→12), mas remover a trava é DIREITO da pessoa:
+  // true = o limite configurado vale cheio, a rampa não opina. Default false =
+  // freio ligado (o lado seguro de errar).
+  coldWarmupOff       Boolean  @default(false)
   // CATÁLOGO COMERCIAL (30/07/2026) — "o que ESTA empresa vende", em JSON com a
   // forma de vendas-catalogo.ts. NULO é estado legítimo e tem significado duro:
   // sem catálogo a IA é PROIBIDA de afirmar produto/benefício/preço (nasceu do

@@ -497,6 +497,10 @@ input.auto-casa__campo {
 }
 .auto-casa__nota { margin: 0; font-size: var(--fz-l3); color: var(--text-body); line-height: 1.4; }
 .auto-casa__erro { margin: 0; font-size: var(--fz-l3); font-weight: 700; color: var(--hbx-danger); }
+/* Trava de aquecimento removível (04/08): chavinha com o estado escrito por extenso. */
+.auto-casa__trava { display: flex; align-items: center; gap: 8px; font-size: var(--fz-l3); color: var(--text-body); cursor: pointer; }
+.auto-casa__trava input { accent-color: var(--hbx-brand); }
+.auto-casa__trava:has(input:checked) span { color: var(--hbx-danger); font-weight: 700; }
 
 /* ── 4. TRÊS TURNOS ──────────────────────────────────────────────────────── */
 .aut-fn-grid {

@@ -26,10 +26,10 @@
  * aritmética, que é a parte que precisa de teste barato e determinístico.
  */
 
-/** Teto de quem acabou de parear: ninguém nasce com 10. */
-export const CHIP_TRUST_BASE_PADRAO = 3;
-/** Teto máximo por chip/dia — o número do dono (30/07), agora como TETO, não cota fixa. */
-export const CHIP_TRUST_MAX_PADRAO = 10;
+/** Teto de quem acabou de parear: 3 de manhã + 3 à tarde (dono, 04/08). */
+export const CHIP_TRUST_BASE_PADRAO = 6;
+/** Teto máximo da rampa de aquecimento por chip/dia (dono, 04/08: "até 12"). */
+export const CHIP_TRUST_MAX_PADRAO = 12;
 
 export interface TetoDoChipInput {
   /** Piso de chip novo (env `HBX_WA_COLD_BASE_PER_CHIP`). */
@@ -38,20 +38,39 @@ export interface TetoDoChipInput {
   conversasComResposta?: number;
   /** Teto máximo por dia (env `HBX_WA_COLD_MAX_PER_DAY`). */
   max?: number;
+  /**
+   * O limite/dia que a PESSOA configurou (VendasComercialConfig.dailyLimitPerSender).
+   * Chip em aquecimento roda METADE disso (dono, 04/08: "sempre dividir no meio o
+   * limite q a pessoa colocar, para chips novos"), respeitando piso e teto da rampa.
+   */
+  limiteConfigurado?: number;
+  /**
+   * A pessoa REMOVEU a trava de aquecimento (direito dela, dono 04/08: "ter como
+   * remover essa trava... se a pessoa quiser forçar"). Com a trava fora, vale o
+   * limite configurado CHEIO — a rampa não opina mais.
+   */
+  travaRemovida?: boolean;
 }
 
 /**
- * base + 1 por conversa que respondeu, limitado ao teto.
+ * base + 1 por conversa que respondeu, limitado ao teto do dia.
  *
  * Conta o histórico INTEIRO (não só hoje) de propósito: o dono pediu que a
  * resposta de hoje solte limite HOJE, e uma janela "só hoje" faria o chip bom
- * amanhecer todo dia valendo 3 de novo — o contrário de confiança acumulada.
+ * amanhecer todo dia valendo a base de novo — o contrário de confiança acumulada.
+ *
+ * O teto do dia (04/08): metade do limite que a pessoa configurou, nunca abaixo
+ * da base (6) nem acima da rampa (12). Sem limite configurado, vale só a rampa.
+ * Trava removida = o limite configurado cheio, sem rampa.
  */
 export function tetoDoChip(input: TetoDoChipInput = {}): number {
   const max = inteiroSeguro(input.max, CHIP_TRUST_MAX_PADRAO, 1);
   const base = Math.min(max, inteiroSeguro(input.base, CHIP_TRUST_BASE_PADRAO, 1));
+  const configurado = inteiroSeguro(input.limiteConfigurado, 0, 1);
+  if (input.travaRemovida === true && configurado > 0) return configurado;
+  const tetoDaRampa = configurado > 0 ? Math.min(max, Math.max(base, Math.floor(configurado / 2))) : max;
   const ganho = inteiroSeguro(input.conversasComResposta, 0, 0);
-  return Math.min(max, base + ganho);
+  return Math.min(tetoDaRampa, base + ganho);
 }
 
 export interface EspacamentoInput {

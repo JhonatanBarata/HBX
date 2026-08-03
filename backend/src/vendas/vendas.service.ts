@@ -6498,7 +6498,7 @@ export class VendasService {
   // anti-ban entregava 10. Teto EXIBIDO passa a ser o menor entre o que o tenant
   // configurou e o que o freio físico deixa sair — a config continua valendo pro
   // espaçamento da agenda, mas ninguém mais promete o que não sai.
-  private tetoEfetivoDoDia(dailyLimitPerSender: number): {
+  private tetoEfetivoDoDia(dailyLimitPerSender: number, coldWarmupOff = false): {
     tetoEfetivoPorDia: number;
     coldGateAtivo: boolean;
     coldGateMaxPorDia: number;
@@ -6508,17 +6508,19 @@ export class VendasService {
     return {
       coldGateAtivo,
       coldGateMaxPorDia,
-      tetoEfetivoPorDia: coldGateAtivo ? Math.min(dailyLimitPerSender, coldGateMaxPorDia) : dailyLimitPerSender,
+      // Trava removida (04/08): direito da pessoa — o teto exibido é o que ela
+      // configurou, cheio. Com a trava, vale o menor entre config e rampa.
+      tetoEfetivoPorDia: coldGateAtivo && !coldWarmupOff ? Math.min(dailyLimitPerSender, coldGateMaxPorDia) : dailyLimitPerSender,
     };
   }
 
   async getComercialConfigForUser(user: any) {
     const context = await this.resolveVendasUserContext(user);
     const config = await this.agendaDisparo.getConfig(context.companyId);
-    return { ...config, ...this.tetoEfetivoDoDia(config.dailyLimitPerSender) };
+    return { ...config, ...this.tetoEfetivoDoDia(config.dailyLimitPerSender, config.coldWarmupOff) };
   }
 
-  async updateComercialConfigForUser(user: any, dto: { workingHoursStart?: string; workingHoursEnd?: string; dailyLimitPerSender?: number; intervalMinutes?: number }) {
+  async updateComercialConfigForUser(user: any, dto: { workingHoursStart?: string; workingHoursEnd?: string; dailyLimitPerSender?: number; intervalMinutes?: number; coldWarmupOff?: boolean }) {
     const context = await this.resolveVendasUserContext(user);
     this.assertCanManageAgendaDisparo(context);
     const config = await this.agendaDisparo.saveConfig(context.companyId, dto || {});
@@ -6526,7 +6528,7 @@ export class VendasService {
     // a Prospecção lê a MESMA VendasComercialConfig que acabou de ser salva.
     // O espelho de ontem morreu junto com as colunas (migration
     // 20260801000000_casa_risco_identidade).
-    return { ...config, ...this.tetoEfetivoDoDia(config.dailyLimitPerSender) };
+    return { ...config, ...this.tetoEfetivoDoDia(config.dailyLimitPerSender, config.coldWarmupOff) };
   }
 
   // Catálogo comercial (30/07): ler é do time; escrever é do mesmo gate do
@@ -6551,7 +6553,7 @@ export class VendasService {
       requested: result.requested.toISOString(),
       conflito: result.conflito,
       motivoConflito: result.motivoConflito,
-      config: { ...result.config, ...this.tetoEfetivoDoDia(result.config.dailyLimitPerSender) },
+      config: { ...result.config, ...this.tetoEfetivoDoDia(result.config.dailyLimitPerSender, result.config.coldWarmupOff) },
       // Frase pronta pra tela não ter que remontar a explicação (e divergir dela).
       resumo: explicarSlot(result),
     };

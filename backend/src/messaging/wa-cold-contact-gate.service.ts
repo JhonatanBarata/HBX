@@ -232,14 +232,46 @@ export class WaColdContactGateService {
         porChip: false,
       };
     }
-    const respostas = await this.conversasComResposta(companyId, tenantKey);
-    const teto = tetoDoChip({ base: this.basePerChip(), conversasComResposta: respostas, max: this.maxPerDay() });
+    const [respostas, casa] = await Promise.all([
+      this.conversasComResposta(companyId, tenantKey),
+      this.casaDoRisco(companyId),
+    ]);
+    const teto = tetoDoChip({
+      base: this.basePerChip(),
+      conversasComResposta: respostas,
+      max: this.maxPerDay(),
+      limiteConfigurado: casa.limiteConfigurado,
+      travaRemovida: casa.travaRemovida,
+    });
     return {
       teto,
       espacamentoMs: espacamentoDoDia({ teto, janelaMs: this.janelaTrabalhoMs(), minimoMs: this.minSpacingMs() }),
       conversasComResposta: respostas,
       porChip: true,
     };
+  }
+
+  /**
+   * O que a PESSOA configurou (04/08): chip em aquecimento roda metade do
+   * dailyLimitPerSender dela, e a trava é removível (coldWarmupOff) — direito
+   * dela. Best-effort: falhar aqui devolve "sem config", ou seja, só a rampa
+   * padrão manda — errar pra BAIXO num freio anti-ban é o lado seguro de errar.
+   */
+  private async casaDoRisco(companyId: number): Promise<{ limiteConfigurado: number; travaRemovida: boolean }> {
+    try {
+      const row = await (this.prisma as any).vendasComercialConfig
+        ?.findUnique?.({
+          where: { companyId },
+          select: { dailyLimitPerSender: true, coldWarmupOff: true },
+        })
+        .catch(() => null);
+      return {
+        limiteConfigurado: Math.max(0, Math.trunc(Number(row?.dailyLimitPerSender)) || 0),
+        travaRemovida: row?.coldWarmupOff === true,
+      };
+    } catch {
+      return { limiteConfigurado: 0, travaRemovida: false };
+    }
   }
 
   similarityThreshold(): number {

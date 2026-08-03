@@ -38,9 +38,12 @@ type CasaConfig = {
   tetoEfetivoPorDia?: number;
   coldGateAtivo?: boolean;
   coldGateMaxPorDia?: number;
+  // TRAVA DE AQUECIMENTO REMOVÍVEL (04/08): true = a pessoa forçou o limite
+  // configurado cheio; o freio de chip novo (rampa 6→12) sai da frente.
+  coldWarmupOff?: boolean;
 };
 
-type CampoCasa = "workingHoursStart" | "workingHoursEnd" | "dailyLimitPerSender" | "intervalMinutes";
+type CampoCasa = "workingHoursStart" | "workingHoursEnd" | "dailyLimitPerSender" | "intervalMinutes" | "coldWarmupOff";
 
 export function RegrasDaCasa({ podeEditar }: { podeEditar: boolean }) {
   const [casa, setCasa] = useState<CasaConfig | null>(null);
@@ -62,7 +65,7 @@ export function RegrasDaCasa({ podeEditar }: { podeEditar: boolean }) {
     void carregar();
   }, [carregar]);
 
-  const salvarCampo = useCallback(async (campo: CampoCasa, valor: string | number) => {
+  const salvarCampo = useCallback(async (campo: CampoCasa, valor: string | number | boolean) => {
     if (busy) return;
     setBusy(true);
     try {
@@ -141,6 +144,31 @@ export function RegrasDaCasa({ podeEditar }: { podeEditar: boolean }) {
         <p className="auto-casa__nota">
           Na prática saem {casa.tetoEfetivoPorDia ?? freioMax} primeiros contatos por dia.
         </p>
+      )}
+
+      {/* TRAVA DE AQUECIMENTO (04/08): chip novo roda metade do teto acima
+          (mínimo 6, máximo 12) e vai soltando conforme recebe resposta. Remover
+          é DIREITO da pessoa — o aviso diz o risco, a escolha é dela. */}
+      {freioAtivo && podeEditar && (
+        <label className="auto-casa__trava">
+          <input
+            type="checkbox"
+            checked={casa.coldWarmupOff === true}
+            disabled={busy}
+            onChange={(e) => {
+              const forcar = e.target.checked;
+              if (forcar && !window.confirm(
+                "Remover a trava de aquecimento? Chip novo vai disparar o limite cheio desde o primeiro dia — número sem histórico disparando muito é o padrão que a Meta bloqueia. A responsabilidade passa a ser sua.",
+              )) return;
+              void salvarCampo("coldWarmupOff", forcar);
+            }}
+          />
+          <span>
+            {casa.coldWarmupOff
+              ? "Trava de aquecimento REMOVIDA — chip novo dispara o limite cheio."
+              : "Chip novo aquece devagar: metade do limite, soltando conforme recebe resposta."}
+          </span>
+        </label>
       )}
       {!podeEditar && <p className="auto-casa__nota">Só o dono ou o gerente muda estes números.</p>}
       {erro && <p className="auto-casa__erro">{erro}</p>}
