@@ -914,7 +914,8 @@ export class LogisticaController {
     const resultado = await this.rota.encerrarRota(companyId, { date: dto?.date, motivo: dto?.motivo }, entregadorId);
     // 31/07 — encerrar de verdade deixando parada aberta pra trás vira RECADO
     // no web (0 entregues = "abandonou"; entregou parte = "parou no meio").
-    await this.recadoDeSaida(companyId, entregadorId, dto?.date);
+    // 03/08 — a identidade do recado é QUEM SAIU, não o escopo (ver `quemDirigiu`).
+    await this.recadoDeSaida(companyId, this.quemDirigiu(req.user, entregadorId), dto?.date);
     return resultado;
   }
 
@@ -942,15 +943,12 @@ export class LogisticaController {
     // pé com um motorista que já tinha cancelado. Vira 'desfeita' e aparece no
     // MESMO banner da negada.
     //
-    // Fail-closed: só quando dá pra ATRIBUIR o descarte a uma pessoa. Admin
-    // descartando (sem entregadorId) não mexe em indicação de ninguém — cancelar
-    // o recado de um motorista que eu não sei identificar seria pior que o bug.
-    //
     // Best-effort DEPOIS do commit: falha aqui não pode desfazer a devolução das
     // ocorrências da agenda, que é a parte irreversível do descarte.
-    if (entregadorId && this.rotaIndicada) {
+    const motorista = this.quemDirigiu(req.user, entregadorId);
+    if (motorista && this.rotaIndicada) {
       try {
-        await this.rotaIndicada.desfazerDoMotorista(companyId, entregadorId);
+        await this.rotaIndicada.desfazerDoMotorista(companyId, motorista);
       } catch (e) {
         this.logger?.warn?.(`[logistica] descarte ok, mas indicacao nao voltou: ${String((e as any)?.message || e)}`);
       }
@@ -958,15 +956,45 @@ export class LogisticaController {
     // 31/07 — e o recado de quem SAIU PRA RUA e largou no meio (o de cima só
     // existe pra rota que veio de indicação; este vale pra rota que a pessoa
     // montou sozinha). Quem não iniciou não gera recado nenhum — ver o serviço.
-    await this.recadoDeSaida(companyId, entregadorId, dto?.date);
+    await this.recadoDeSaida(companyId, motorista, dto?.date);
     return resultado;
   }
 
   /**
+   * 🔴 03/08 — QUEM DIRIGE SENDO ADMIN TAMBÉM PRECISA GERAR AVISO.
+   *
+   * `whereForActor` devolve `{}` pro admin DE PROPÓSITO ("admin preserva visão da
+   * empresa inteira"), e os avisos de desistência liam esse `{}` como *"não dá pra
+   * saber quem foi"* — então ficavam MUDOS. Numa distribuidora pequena o dono é o
+   * admin E o motorista: em 02/08 ele aceitou a missão às 20:53, desistiu às
+   * 21:00, as 3 entregas foram canceladas e NENHUM aviso nasceu ("só sumiu tarefa
+   * e aí?? completo??"). O guarda confundia *"enxerga a empresa toda"* com *"não
+   * dá pra identificar"* — mas quem desistiu É o autenticado.
+   *
+   * Separa os dois papéis que estavam grudados num `entregadorId` só:
+   *  - ESCOPO DE ESCRITA (o que apagar) continua sendo o do ator — admin desfaz a
+   *    montagem da empresa inteira, e isso NÃO muda aqui;
+   *  - IDENTIDADE DO AVISO (a quem atribuir) é quem autenticou.
+   *
+   * Continua fail-closed pro admin que descarta a rota DE OUTRA PESSOA, porque as
+   * duas redes já são escopadas por este id: `desfazerDoMotorista` só mexe em
+   * indicação com `paraUserId` = ele, e `registrarSaida` só acha `LogisticaRoute`
+   * com `entregadorId` = ele. Admin que não dirigiu não casa com nada e nenhum
+   * aviso nasce no nome de quem não desistiu.
+   */
+  private quemDirigiu(user: any, entregadorId?: number): number | undefined {
+    if (entregadorId) return entregadorId;
+    const id = Math.trunc(Number(user?.id || 0));
+    return id > 0 ? id : undefined;
+  }
+
+  /**
    * 31/07 — best-effort, sempre DEPOIS do commit: o recado é aviso, nunca pode
-   * derrubar (nem desfazer) a operação que acabou de acontecer. Sem
-   * `entregadorId` não há a quem atribuir a saída — admin encerrando a rota dos
-   * outros não vira recado de ninguém.
+   * derrubar (nem desfazer) a operação que acabou de acontecer. Sem identidade
+   * não há a quem atribuir a saída. 03/08: a identidade vem do `quemDirigiu` —
+   * admin que dirige gera recado igual ao motorista, e admin encerrando a rota
+   * dos outros continua não virando recado de ninguém (o serviço só acha rota
+   * com `entregadorId` igual a este id).
    */
   private async recadoDeSaida(companyId: number, entregadorId: number | undefined, date?: string) {
     if (!entregadorId || !this.rotaAviso) return;
@@ -992,7 +1020,8 @@ export class LogisticaController {
     const resultado = await this.rota.limparDia(companyId, { date: dto?.date, motivo: dto?.motivo }, entregadorId);
     // 31/07 — "bati o caminhão, limpa tudo" também é rota que morreu no meio:
     // quem já tinha saído pra rua gera recado igual ao encerrar.
-    await this.recadoDeSaida(companyId, entregadorId, dto?.date);
+    // 03/08 — mesma identidade das outras duas portas (ver `quemDirigiu`).
+    await this.recadoDeSaida(companyId, this.quemDirigiu(req.user, entregadorId), dto?.date);
     return resultado;
   }
 
