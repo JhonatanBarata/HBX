@@ -143,8 +143,9 @@ Hoje há **6 variantes, todas de pitch** ("Posso te mostrar rapidinho?").
 Eu propus 10 no tom suave que o dono pediu (seleção + teste grátis + pergunta leve).
 **NÃO foram salvas** — ele não aprovou o texto, e copy de venda é a voz dele.
 
-⚠️ **O sistema recusa textos com >85% de semelhança entre si.** Não é frescura: foi
-copy quase idêntica 3× em 3 min que fez a Meta remover o dispositivo em 30/07.
+⚠️ **O sistema recusa textos com >85% de semelhança entre si.** (Correção do dono, 03/08:
+o bloqueio de 30/07 veio das TENTATIVAS REPETIDAS DE CONEXÃO do chip — a fábrica de
+re-links —, não dos disparos. Não usar aquele episódio como prova de que disparo bana.)
 
 ---
 
