@@ -89,11 +89,14 @@ class MissaoAlarmeActivity : AppCompatActivity() {
     }
 
     private val missaoId: String by lazy { intent.getStringExtra(MissaoAlarme.EXTRA_ID).orEmpty() }
+    private val ehRecado: Boolean by lazy { ehAlarmeDeRecado(missaoId) }
     private val titulo: String by lazy {
-        intent.getStringExtra(MissaoAlarme.EXTRA_TITULO)?.takeIf(String::isNotBlank) ?: "Missão agendada"
+        intent.getStringExtra(MissaoAlarme.EXTRA_TITULO)?.takeIf(String::isNotBlank)
+            ?: if (ehRecado) "Recado da central" else "Missão agendada"
     }
     private val texto: String by lazy {
-        intent.getStringExtra(MissaoAlarme.EXTRA_TEXTO)?.takeIf(String::isNotBlank) ?: "Rota marcada pelo escritório"
+        intent.getStringExtra(MissaoAlarme.EXTRA_TEXTO)?.takeIf(String::isNotBlank)
+            ?: if (ehRecado) "A central enviou uma mensagem" else "Rota marcada pelo escritório"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -129,7 +132,7 @@ class MissaoAlarmeActivity : AppCompatActivity() {
             this,
             object : OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
-                    /* de propósito: só Aceitar / Adiar / Negar saem daqui */
+                    /* de propósito: só uma resposta explícita sai daqui */
                 }
             },
         )
@@ -183,7 +186,7 @@ class MissaoAlarmeActivity : AppCompatActivity() {
         // Lei 8 do [[hbxapk]]: DADO em linha, nunca parágrafo. A tela toda é
         // hora + nome + tamanho da rota — o motorista decide sem ler texto.
         val etiqueta = TextView(this).apply {
-            text = "MISSÃO AGENDADA"
+            text = if (ehRecado) "RECADO DA CENTRAL" else "MISSÃO AGENDADA"
             setTextColor(corAcento)
             gravity = Gravity.CENTER
             letterSpacing = 0.18f
@@ -217,8 +220,8 @@ class MissaoAlarmeActivity : AppCompatActivity() {
             setPadding(0, dpParaPx(8), 0, 0)
         }
 
-        val botaoAceitar = Button(this).apply {
-            text = "ACEITAR"
+        val botaoPrincipal = Button(this).apply {
+            text = if (ehRecado) "RESPONDER" else "ACEITAR"
             setTextColor(Color.WHITE)
             setTypeface(typeface, Typeface.BOLD)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
@@ -232,7 +235,7 @@ class MissaoAlarmeActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dpParaPx(84),
             ).apply { topMargin = dpParaPx(40) }
-            setOnClickListener { responder("aceitar") }
+            setOnClickListener { responder(if (ehRecado) "responder" else "aceitar") }
         }
 
         val botaoAdiar = Button(this).apply {
@@ -251,26 +254,26 @@ class MissaoAlarmeActivity : AppCompatActivity() {
             setOnClickListener { adiar() }
         }
 
-        val botaoNegar = TextView(this).apply {
-            text = "Não vou conseguir"
+        val botaoSecundario = TextView(this).apply {
+            text = if (ehRecado) "Entendi" else "Não vou conseguir"
             setTextColor(corSecundaria)
             gravity = Gravity.CENTER
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             setPadding(dpParaPx(24), dpParaPx(26), dpParaPx(24), dpParaPx(10))
             isClickable = true
             isFocusable = true
-            setOnClickListener { responder("negar") }
+            setOnClickListener { responder(if (ehRecado) "entendi" else "negar") }
         }
 
         coluna.addView(etiqueta)
         coluna.addView(relogio)
         coluna.addView(txtTitulo)
         coluna.addView(txtDetalhe)
-        coluna.addView(botaoAceitar)
-        coluna.addView(botaoAdiar)
+        coluna.addView(botaoPrincipal)
+        if (!ehRecado) coluna.addView(botaoAdiar)
         root.addView(coluna)
         root.addView(
-            botaoNegar,
+            botaoSecundario,
             FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -312,7 +315,12 @@ class MissaoAlarmeActivity : AppCompatActivity() {
         pararSomEVibracao()
         runCatching {
             MissaoPendente.guardar(
-                JSONObject().put("id", missaoId).put("acao", acao).put("titulo", titulo).toString(),
+                JSONObject()
+                    .put("id", missaoId)
+                    .put("acao", acao)
+                    .put("titulo", titulo)
+                    .put("texto", texto)
+                    .toString(),
             )
         }
         abrirAppDerrubandoOCadeado()
@@ -465,7 +473,9 @@ class MissaoAlarmeActivity : AppCompatActivity() {
                             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                             .build(),
                     )
-                    tts?.speak("Missão agendada. $titulo. $texto", TextToSpeech.QUEUE_ADD, null, "missao")
+                    val chamada = if (ehRecado) "Recado da central" else "Missão agendada"
+                    val fala = if (ehRecado) "$chamada. $texto" else "$chamada. $titulo. $texto"
+                    tts?.speak(fala, TextToSpeech.QUEUE_ADD, null, "missao")
                 }
             }
             tts = motor
@@ -497,3 +507,11 @@ class MissaoAlarmeActivity : AppCompatActivity() {
         vibrator = null
     }
 }
+
+internal const val PREFIXO_ALARME_RECADO = "recado_"
+
+internal fun ehAlarmeDeRecado(id: String): Boolean =
+    id.startsWith(PREFIXO_ALARME_RECADO) && id.length > PREFIXO_ALARME_RECADO.length
+
+internal fun idRecadoDoAlarme(id: String): String? =
+    id.takeIf(::ehAlarmeDeRecado)?.removePrefix(PREFIXO_ALARME_RECADO)

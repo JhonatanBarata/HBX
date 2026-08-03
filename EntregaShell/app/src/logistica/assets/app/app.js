@@ -2402,7 +2402,13 @@
     const hora = recado.criadoEm
       ? new Date(recado.criadoEm).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
       : "";
-    return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm recado-portao" role="alertdialog" aria-modal="true" aria-labelledby="recado-portao-title"><div class="app-confirm-icon">${icon("bell", 24)}</div><h2 id="recado-portao-title">Recado da central</h2><p class="recado-portao-texto">${H.escape(recado.texto || "")}</p><small class="recado-portao-quem">${quem}${H.escape(hora)}</small><div class="actions"><button class="btn btn-primary btn-block" type="button" data-action="recado-entendi" data-recado="${H.escape(recado.id)}">Entendi</button></div></section></div>`;
+    const resposta = recado.respondendo
+      ? `<textarea id="recado-resposta-input" class="recado-resposta-input" maxlength="500" rows="3" placeholder="Digite sua resposta…" aria-label="Responder à central"></textarea>`
+      : "";
+    const acaoResponder = recado.respondendo
+      ? `<button class="btn btn-primary" type="button" data-action="recado-responder" data-recado="${H.escape(recado.id)}">Responder</button>`
+      : `<button class="btn btn-primary" type="button" data-action="recado-abrir-resposta" data-recado="${H.escape(recado.id)}">Responder</button>`;
+    return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm recado-portao" role="alertdialog" aria-modal="true" aria-labelledby="recado-portao-title"><div class="app-confirm-icon">${icon("bell", 24)}</div><h2 id="recado-portao-title">Recado da central</h2><p class="recado-portao-texto">${H.escape(recado.texto || "")}</p><small class="recado-portao-quem">${quem}${H.escape(hora)}</small>${resposta}<div class="actions"><button class="btn btn-secondary" type="button" data-action="recado-entendi" data-recado="${H.escape(recado.id)}">Entendi</button>${acaoResponder}</div></section></div>`;
   }
 
   function empty(title, text) { return `<div class="empty"><strong>${H.escape(title)}</strong>${H.escape(text)}</div>`; }
@@ -7531,12 +7537,16 @@
    * num popup seria dois sins pro mesmo sim.
    */
   let missaoRespostaDrenada = null;
+  let recadoRespostaDrenada = null;
   function drenarRespostaDoDespertador() {
     const raw = H.missaoRespostaPendente && H.missaoRespostaPendente();
     if (!raw) return;
     try {
       const resposta = JSON.parse(raw);
-      if (resposta && resposta.id && resposta.acao) missaoRespostaDrenada = resposta;
+      if (resposta && resposta.id && resposta.acao) {
+        if (String(resposta.id).startsWith("recado_")) recadoRespostaDrenada = resposta;
+        else missaoRespostaDrenada = resposta;
+      }
     } catch (_) { /* slot podre = ignora; o popup normal ainda cobre a missão */ }
   }
 
@@ -7549,6 +7559,26 @@
     rotaIndicadaCheckAt = Date.now();
     try {
       drenarRespostaDoDespertador();
+      // Recado é mensagem, não rota. A tela nativa só escolhe entre responder
+      // e confirmar leitura; o app executa a ação autenticada no fio certo.
+      if (recadoRespostaDrenada) {
+        const resposta = recadoRespostaDrenada;
+        recadoRespostaDrenada = null;
+        const recadoId = String(resposta.id).replace(/^recado_/, "");
+        H.missaoAlarmeCancelar(resposta.id);
+        if (resposta.acao === "entendi") {
+          await confirmarRecadoDoPortao(recadoId);
+        } else {
+          state.recadoPortao = {
+            id: recadoId,
+            texto: resposta.texto || "",
+            autorNome: "Central",
+            respondendo: true,
+          };
+          render();
+        }
+        return;
+      }
       // `agendadas=1` é este app dizendo "eu sei armar despertador" — sem o
       // parâmetro o servidor devolve só o que já está na hora (compatibilidade
       // com APK antigo, que abriria o popup adiantado).
@@ -7691,6 +7721,25 @@
     } catch (_) { /* offline: o portão volta no próximo toque, não trava a rua */ }
     state.recadoPortao = null;
     render();
+  }
+
+  async function responderRecadoDoPortao(id) {
+    const input = document.getElementById("recado-resposta-input");
+    const texto = String(input && input.value || "").trim();
+    if (!texto) {
+      toast("Escreva a resposta.", true);
+      if (input) input.focus();
+      return;
+    }
+    try {
+      await H.api("/logistica/recados/responder", { method: "POST", body: { texto } });
+      await H.api(`/logistica/recados/${encodeURIComponent(id)}/entendi`, { method: "POST", body: {} });
+      state.recadoPortao = null;
+      toast("Resposta enviada.");
+      render();
+    } catch (error) {
+      toast(humanApiError(error), true);
+    }
   }
 
   /**
@@ -9269,6 +9318,17 @@
     if (action === "recado-entendi") {
       const id = target.dataset.recado || (target.closest && target.closest("[data-recado]") || {}).dataset?.recado;
       if (id) void confirmarRecadoDoPortao(id);
+      return;
+    }
+    if (action === "recado-abrir-resposta") {
+      if (state.recadoPortao) state.recadoPortao.respondendo = true;
+      render();
+      requestAnimationFrame(() => document.getElementById("recado-resposta-input")?.focus());
+      return;
+    }
+    if (action === "recado-responder") {
+      const id = target.dataset.recado || (target.closest && target.closest("[data-recado]") || {}).dataset?.recado;
+      if (id) void responderRecadoDoPortao(id);
       return;
     }
     if (action === "missao-abrir") {

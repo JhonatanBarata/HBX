@@ -265,10 +265,11 @@ object MissaoAlarme {
             telaIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        val ehRecado = ehAlarmeDeRecado(id)
         val notif = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle(titulo.ifBlank { "Missão agendada" })
-            .setContentText(texto.ifBlank { "Toque para aceitar" })
+            .setContentText(texto.ifBlank { if (ehRecado) "Toque para responder" else "Toque para aceitar" })
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
