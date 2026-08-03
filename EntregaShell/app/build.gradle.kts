@@ -73,7 +73,7 @@ plugins {
 // eu testava no g15, e o build local (piso 131) parou de instalar por downgrade.
 // O piso tem que ficar ACIMA do maior número que já saiu — senão o ciclo
 // "editar → instalar no aparelho" trava no meio do teste.
-val hbxLogisticaVersionCodeFloor = 134
+val hbxLogisticaVersionCodeFloor = 137
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)

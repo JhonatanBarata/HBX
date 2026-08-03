@@ -130,8 +130,21 @@
             android:exported="false"
             android:launchMode="singleTask"
             android:screenOrientation="portrait"
+            android:showWhenLocked="true"
             android:theme="@style/Theme.EntregaShell.NoActionBar"
             android:windowSoftInputMode="adjustResize" />
+
+        <!-- `showWhenLocked` na tela principal (02/08, decisão do dono: "faz a 2,
+             o celular é de trabalho mesmo").
+             Cena: o alarme da missão abre POR CIMA do cadeado, mas o Aceitar caía
+             na MainActivity — que ficava presa ATRÁS do bloqueio, sem o sistema
+             pedir nada. Da mão do motorista parecia que o botão não fez nada.
+             Agora a rota abre direto, sem desbloquear, e voltar pro app com a
+             tela apagada também cai na rota.
+             ⚠️ TROCA CONSCIENTE, não descuido: quem pegar o aparelho bloqueado vê
+             clientes, endereços e a rota do dia. Vale num celular de trabalho
+             (foi essa a escolha); num celular pessoal seria vazamento. Se um dia
+             o app rodar em aparelho pessoal, esta linha volta a ser decisão. -->
 
         <!-- Checkout isolado: WebView privada, sem a bridge ampla do shell principal. -->
         <activity

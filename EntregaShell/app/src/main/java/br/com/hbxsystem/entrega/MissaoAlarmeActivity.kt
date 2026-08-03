@@ -1,5 +1,6 @@
 package br.com.hbxsystem.entrega
 
+import android.app.KeyguardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -314,6 +315,52 @@ class MissaoAlarmeActivity : AppCompatActivity() {
                 JSONObject().put("id", missaoId).put("acao", acao).put("titulo", titulo).toString(),
             )
         }
+        abrirAppDerrubandoOCadeado()
+    }
+
+    /**
+     * 02/08, cena do dono no aparelho: *"quando eu aceito, não tenta abrir o
+     * app... ele nem pede pra desbloquear a tela"*.
+     *
+     * Esta Activity aparece POR CIMA do cadeado (`showWhenLocked`), mas a
+     * MainActivity não — e o Android não desbloqueia sozinho: ele segura o app
+     * atrás do keyguard, sem pedir nada, e a impressão é que o Aceitar não fez
+     * nada. Quem pede o desbloqueio é `requestDismissKeyguard`, e ele TEM que
+     * ser chamado enquanto esta tela ainda está viva (por isso o `finish()`
+     * mudou de lugar: era ele que matava o pedido antes da resposta chegar).
+     *
+     * Aparelho sem bloqueio cai direto no `onDismissSucceeded`. Se a pessoa
+     * desistir do PIN, a tela do alarme CONTINUA de pé — ela já respondeu, o
+     * servidor já vai saber pelo app quando abrir, e insistir no bolso dela
+     * seria castigo.
+     */
+    private fun abrirAppDerrubandoOCadeado() {
+        val keyguard = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+        if (keyguard == null || !keyguard.isKeyguardLocked) {
+            abrirApp()
+            return
+        }
+        val pedido = runCatching {
+            keyguard.requestDismissKeyguard(
+                this,
+                object : KeyguardManager.KeyguardDismissCallback() {
+                    override fun onDismissSucceeded() = abrirApp()
+                    // Erro do sistema não pode virar beco sem saída: tenta abrir
+                    // do mesmo jeito (no pior caso o app espera atrás do cadeado,
+                    // que é exatamente o comportamento de antes desta correção).
+                    override fun onDismissError() = abrirApp()
+                    override fun onDismissCancelled() {
+                        // Desistiu de desbloquear: sai da tela do alarme sem
+                        // barulho. A resposta dela já está guardada.
+                        finish()
+                    }
+                },
+            )
+        }
+        if (pedido.isFailure) abrirApp()
+    }
+
+    private fun abrirApp() {
         runCatching {
             startActivity(
                 Intent(this, MainActivity::class.java).addFlags(
