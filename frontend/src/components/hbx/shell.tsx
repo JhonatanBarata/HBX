@@ -17,7 +17,7 @@ import { CostasPainel, toggleCostas, useCostasDisponivel, useCostasLigado } from
 import { CercaDeEnfeite } from "@/components/hbx/error-boundary";
 import { applyThemeSoft, getCascaAtiva, getCorAtiva, getDensidadeAtiva, getMaterialAtivo, hexDaCor, setAparencia, setDensidade, setThemeMode } from "@/components/hbx/theme-attributes";
 import {
-  CASCAS, CORES, DENSIDADES, MATERIAIS, escolheModo, getCasca, resolveModo,
+  CASCAS, COR_PADRAO, CORES, DENSIDADES, MATERIAIS, TEMA_ATTR, escolheModo, getCasca, resolveModo,
   type CascaKey, type DensidadeKey, type MaterialKey, type Modo,
 } from "@/lib/aparencia";
 import { apiFetch, getToken } from "@/lib/api";
@@ -1346,6 +1346,14 @@ export function subscribeToThemeMode(callback: () => void) {
 // Aplicar NÃO navega e NÃO recarrega: busca, filtros, abas e dados da tela
 // aberta continuam exatamente onde estavam.
 // ---------------------------------------------------------------
+// Snapshot é STRING de propósito: getTipografiaAtiva() monta objeto novo a
+// cada leitura, e useSyncExternalStore exige valor estável (senão re-render
+// infinito). Vieram junto com a coluna de letras, do painel que foi fundido.
+function lerTipografiaSnapshot() {
+  return JSON.stringify(getTipografiaAtiva());
+}
+const TIPOGRAFIA_SNAPSHOT_PADRAO = JSON.stringify(TIPOGRAFIA_PADRAO);
+
 export function AparenciaSwitch() {
   const cascaKey = useSyncExternalStore(subscribeToThemeMode, getCascaAtiva, () => "backup" as const);
   const corKey = useSyncExternalStore(subscribeToThemeMode, getCorAtiva, () => null);
@@ -1377,9 +1385,36 @@ export function AparenciaSwitch() {
   const fechar = useCallback(() => { setOpen(false); setDeep(false); }, []);
   const boxRef = useClickAway<HTMLSpanElement>(open, fechar);
 
+  // TIPOGRAFIA — o painel "Aa" separado foi engolido por este (dono 03/08,
+  // "crie um painel só"). Continua aplicando NA HORA: é ajuste de leitura, e
+  // quem mexe numa régua está olhando o efeito. Só cor e material esperam.
+  const snapshotTipo = useSyncExternalStore(
+    subscribeToThemeMode,
+    lerTipografiaSnapshot,
+    () => TIPOGRAFIA_SNAPSHOT_PADRAO,
+  );
+  const tipografia = useMemo(() => JSON.parse(snapshotTipo) as TipografiaNaTela, [snapshotTipo]);
+
   const noAr = getCasca(cascaKey);
   const casca = getCasca(draftCasca);
   const modoDraft = resolveModo(casca, draftModo);
+  const corEhLivre = !!draftCor && !CORES.some(c => c.key === draftCor);
+
+  // A PRÉVIA veste o RASCUNHO, não o que está no ar.
+  //
+  // Ela é uma MINI-RAIZ: carrega os quatro data-* que normalmente vivem no
+  // <html>. Funciona porque toda a paleta é escrita em seletor de ATRIBUTO
+  // (`[data-theme="hbx"]`, `[data-material="chapado"][data-theme]`…), nunca
+  // preso a `html` — então os mesmos blocos re-declaram os tokens aqui dentro
+  // e param neste nó. É o design system inteiro em miniatura, sem nenhuma
+  // regra duplicada só pra prévia (que é o que sairia de sincronia depois).
+  //
+  // Só a cor precisa de style inline: ela pode ser um hex qualquer, e hex não
+  // vira atributo. Nome da grade entra como `var(--cor-<key>)`, então os dois
+  // caminhos chegam no mesmo lugar.
+  const previaStyle = useMemo(() => ({
+    "--hbx-cor": corEhLivre ? draftCor : `var(--cor-${draftCor ?? COR_PADRAO})`,
+  }) as React.CSSProperties, [corEhLivre, draftCor]);
   // Nome do que está no ar, pro rótulo do botão. Cor fora da grade não tem
   // nome — e inventar um ("Azul-ish") seria pior que dizer a verdade.
   const nomeNoAr = CORES.find(c => c.key === corKey)?.nome
@@ -1441,7 +1476,7 @@ export function AparenciaSwitch() {
       </button>
 
       {open && (
-        <div className="hbx-pop aparencia__menu" role="menu" aria-label="Aparência">
+        <div className="hbx-pop aparencia__menu aparencia__menu--unico" role="menu" aria-label="Aparência">
           <div className={"aparencia__deck" + (deep ? " is-deep" : "")} style={{ height: deckH }}>
 
             {/* ── NÍVEL 1: as cascas ── */}
@@ -1458,93 +1493,163 @@ export function AparenciaSwitch() {
               ))}
             </div>
 
-            {/* ── NÍVEL 2: cor, material, modo e densidade ── */}
+            {/* ── NÍVEL 2: TUDO num painel só (dono 03/08) ──
+                Duas colunas com assuntos separados: à esquerda o que a tela
+                VESTE, à direita o que ela DIZ. Numa coluna só isto viraria uma
+                torre de ~800px, que não cabe em 768 de altura. */}
             <div className="aparencia__lvl aparencia__lvl--2" ref={lvl2Ref} aria-hidden={!deep}>
               <button className="aparencia__back" onClick={() => setDeep(false)} tabIndex={deep ? 0 : -1}>
                 <span aria-hidden="true">‹</span> {casca.label}
               </button>
 
-              {/* COR — a grade é o atalho; o campo ao lado é a saída pra quem
-                  quer o tom exato da própria marca. Os dois gravam no MESMO
-                  lugar: um manda o nome, o outro manda o hex. */}
-              <div className="aparencia__cap">Cor</div>
-              <div className="aparencia__grade" role="radiogroup" aria-label="Cor do sistema">
-                {CORES.map(c => (
-                  <button key={c.key} type="button" role="radio" aria-checked={c.key === draftCor}
-                    aria-label={c.nome} title={c.nome}
-                    data-cor-key={c.key}
-                    className={"aparencia__cor" + (c.key === draftCor ? " is-on" : "")}
-                    tabIndex={deep ? 0 : -1}
-                    onClick={() => setDraftCor(c.key)} />
-                ))}
-              </div>
-              <label className="aparencia__livre">
-                {/* O próprio input é a amostra: ele já pinta a cor escolhida,
-                    então uma bolinha ao lado seria o mesmo dado em dois lugares. */}
-                <input type="color" className="aparencia__livre-campo" value={hexLivre}
-                  tabIndex={deep ? 0 : -1}
-                  onChange={e => { setHexLivre(e.target.value); setDraftCor(e.target.value); }} />
-                <span className="aparencia__livre-nome">Cor livre</span>
-                <span className="aparencia__livre-hex hbx-mono">
-                  {draftCor && !CORES.some(c => c.key === draftCor) ? draftCor.toUpperCase() : ""}
-                </span>
-              </label>
-
-              <div className="aparencia__sep" />
-
-              {/* MATERIAL — o eixo que nasceu do efeito colateral das 6 cores
-                  (metade tinha vidro, metade não, e ninguém tinha escolhido). */}
-              <div className="aparencia__cap">Material</div>
-              <div className="aparencia__seg" role="group" aria-label="Material das superfícies">
-                {MATERIAIS.map(m => (
-                  <button key={m.key} className={draftMaterial === m.key ? "is-on" : ""}
-                    aria-pressed={draftMaterial === m.key} tabIndex={deep ? 0 : -1}
-                    onClick={() => setDraftMaterial(m.key)}>
-                    {m.label}
-                  </button>
-                ))}
-              </div>
-
-              {escolheModo(casca) && <div className="aparencia__sep" />}
-
-              {escolheModo(casca) && (
-                <>
-                  <div className="aparencia__cap">Modo</div>
-                  <div className="aparencia__seg" role="group" aria-label="Modo claro ou escuro">
-                    <button className={modoDraft === "light" ? "is-on" : ""} aria-pressed={modoDraft === "light"}
-                      tabIndex={deep ? 0 : -1} onClick={() => setDraftModo("light")}>
-                      <I d={ICONS.sun} size={14} /> Claro
-                    </button>
-                    <button className={modoDraft === "dark" ? "is-on" : ""} aria-pressed={modoDraft === "dark"}
-                      tabIndex={deep ? 0 : -1} onClick={() => setDraftModo("dark")}>
-                      <I d={ICONS.moon} size={14} /> Escuro
-                    </button>
+              <div className="aparencia__colunas">
+                {/* ── COLUNA 1 — a superfície ── */}
+                <div className="aparencia__coluna">
+                  {/* COR — a fila de 5 é o atalho; a 6ª bolinha (roda de cores)
+                      é o seletor livre, na MESMA fila de propósito: quem tem
+                      marca própria não está usando recurso avançado. Os dois
+                      gravam no MESMO lugar — um manda o nome, outro o hex. */}
+                  <div className="aparencia__cap">Cor</div>
+                  <div className="aparencia__grade" role="radiogroup" aria-label="Cor do sistema">
+                    {CORES.map(c => (
+                      <button key={c.key} type="button" role="radio" aria-checked={c.key === draftCor}
+                        aria-label={c.nome} title={c.nome}
+                        data-cor-key={c.key}
+                        className={"aparencia__cor" + (c.key === draftCor ? " is-on" : "")}
+                        tabIndex={deep ? 0 : -1}
+                        onClick={() => setDraftCor(c.key)} />
+                    ))}
+                    <span className={"aparencia__cor aparencia__cor--livre" + (corEhLivre ? " is-on" : "")}
+                      title="Escolher outra cor">
+                      <input type="color" value={hexLivre} aria-label="Escolher outra cor"
+                        tabIndex={deep ? 0 : -1}
+                        onChange={e => { setHexLivre(e.target.value); setDraftCor(e.target.value); }} />
+                    </span>
+                    {corEhLivre && <span className="aparencia__cor-hex hbx-mono">{draftCor?.toUpperCase()}</span>}
                   </div>
-                </>
-              )}
 
-              <div className="aparencia__sep" />
+                  {/* MATERIAL — o eixo que nasceu do efeito colateral das 6
+                      cores (metade tinha vidro, metade não, sem ninguém pedir). */}
+                  <div className="aparencia__cap">Material</div>
+                  <div className="aparencia__seg" role="group" aria-label="Material das superfícies">
+                    {MATERIAIS.map(m => (
+                      <button key={m.key} className={draftMaterial === m.key ? "is-on" : ""}
+                        aria-pressed={draftMaterial === m.key} tabIndex={deep ? 0 : -1}
+                        onClick={() => setDraftMaterial(m.key)}>
+                        {m.label}
+                      </button>
+                    ))}
+                  </div>
 
-              {/* DENSIDADE — a terceira liberdade (dono, 01/08). Aplica na
-                  hora, sem passar pelo Aplicar: diferente de pele e cor, o
-                  efeito é sutil e só se julga vendo a lista mexer. Guardar
-                  para depois de um botão faria o usuário escolher às cegas. */}
-              <div className="aparencia__cap">Densidade</div>
-              <div className="aparencia__seg" role="group" aria-label="Densidade das listas">
-                {DENSIDADES.map(d => (
-                  <button key={d.key} className={densidade === d.key ? "is-on" : ""} aria-pressed={densidade === d.key}
-                    tabIndex={deep ? 0 : -1}
-                    onClick={() => { setDensidade(densidade === d.key ? null : d.key); setDensidadeLocal(densidade === d.key ? null : d.key); }}>
-                    {d.label}
-                  </button>
-                ))}
+                  {escolheModo(casca) && (
+                    <>
+                      <div className="aparencia__cap">Modo</div>
+                      <div className="aparencia__seg" role="group" aria-label="Modo claro ou escuro">
+                        <button className={modoDraft === "light" ? "is-on" : ""} aria-pressed={modoDraft === "light"}
+                          tabIndex={deep ? 0 : -1} onClick={() => setDraftModo("light")}>
+                          <I d={ICONS.sun} size={14} /> Claro
+                        </button>
+                        <button className={modoDraft === "dark" ? "is-on" : ""} aria-pressed={modoDraft === "dark"}
+                          tabIndex={deep ? 0 : -1} onClick={() => setDraftModo("dark")}>
+                          <I d={ICONS.moon} size={14} /> Escuro
+                        </button>
+                      </div>
+                    </>
+                  )}
+
+                  {/* DENSIDADE — aplica NA HORA, sem passar pelo Aplicar:
+                      diferente de cor e material, o efeito é sutil e só se
+                      julga vendo a lista mexer de verdade, na tela cheia. */}
+                  <div className="aparencia__cap">Densidade</div>
+                  <div className="aparencia__seg" role="group" aria-label="Densidade das listas">
+                    {DENSIDADES.map(d => (
+                      <button key={d.key} className={densidade === d.key ? "is-on" : ""} aria-pressed={densidade === d.key}
+                        tabIndex={deep ? 0 : -1}
+                        onClick={() => { setDensidade(densidade === d.key ? null : d.key); setDensidadeLocal(densidade === d.key ? null : d.key); }}>
+                        {d.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ── COLUNA 2 — o texto (era o painel "Aa" separado, no topo) ──
+                    FONTE e TAMANHO aplicam NA HORA, como sempre aplicaram: são
+                    ajuste de leitura, e quem mexe está olhando o efeito. Só cor
+                    e material esperam o Aplicar. */}
+                <div className="aparencia__coluna">
+                  <div className="aparencia__cap">Fonte</div>
+                  <div className="aparencia__seg" role="group" aria-label="Fonte do sistema">
+                    {FONTES.map(f => (
+                      <button key={f.key} className={f.key === tipografia.fonte ? "is-on" : ""}
+                        aria-pressed={f.key === tipografia.fonte} data-familia={f.key}
+                        tabIndex={deep ? 0 : -1} onClick={() => setFonte(f.key)}>
+                        {f.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="aparencia__cap">Tamanho da letra</div>
+                  {PAPEIS.map(papel => (
+                    <div className="tipografia__linha" key={papel.key}>
+                      <span className="tipografia__nome">
+                        {papel.label}
+                        <span className="tipografia__amostra" aria-hidden="true" data-papel={papel.key}>Aa</span>
+                      </span>
+                      <input
+                        className="tipografia__range"
+                        type="range"
+                        min={TAMANHO_MIN}
+                        max={TAMANHO_MAX}
+                        step={TAMANHO_PASSO}
+                        value={tipografia.tamanhos[papel.key]}
+                        aria-label={"Tamanho \u2014 " + papel.label}
+                        tabIndex={deep ? 0 : -1}
+                        onChange={e => setTamanho(papel.key, Number(e.target.value))}
+                      />
+                      <span className="tipografia__pct">{tipografia.tamanhos[papel.key]}%</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* PRÉVIA — a tela atrás fica parada até o Aplicar; aqui o
+                  rascunho já vale. É o que impede "escolher às cegas" quando a
+                  cor é livre e não tem nome. Vestida pelo rascunho por variável
+                  CSS inline: isso é DADO chegando na folha, não aparência
+                  decidida na tela (a mesma isenção que o fiscal já reconhece). */}
+              <div className="aparencia__previa" style={previaStyle}
+                data-theme={TEMA_ATTR}
+                data-casca={casca.attr}
+                data-material={draftMaterial}
+                data-theme-mode={modoDraft}>
+                <div className="aparencia__previa-barra">
+                  <span className="aparencia__previa-ponto" />
+                  <span className="aparencia__previa-tit">Prévia</span>
+                  <span className="aparencia__previa-tag">no ar</span>
+                </div>
+                <div className="aparencia__previa-corpo">
+                  <div className="aparencia__previa-linha"><strong>Padaria Aurora</strong><span>Curitiba</span></div>
+                  <div className="aparencia__previa-linha"><strong>Mercadinho Lima</strong><span>São José</span></div>
+                  {/* decorativo: a prévia MOSTRA, não age — por isso fora da ordem de foco. */}
+                  <button type="button" className="aparencia__previa-cta" tabIndex={-1} aria-hidden="true">Abrir conversa</button>
+                </div>
               </div>
             </div>
           </div>
 
           {/* RODAPÉ — fora da gaveta de propósito: some quem desliza, o
               Aplicar fica parado no mesmo lugar nos dois níveis. */}
+          {/* RODAPÉ — fora da gaveta de propósito: some quem desliza, os dois
+              botões ficam parados no mesmo lugar nos dois níveis.
+              "Restaurar padrão" é da TIPOGRAFIA (que aplica na hora, então o
+              desfazer também é na hora); "Aplicar" é de cor e material. Dois
+              verbos porque são dois tempos — juntá-los num só faria o botão
+              mentir sobre metade do que faz. */}
           <footer className="aparencia__foot">
+            <button type="button" className="btn-ghost tipografia__reset"
+              disabled={ehPadrao(tipografia)} onClick={() => restaurarTipografia()}>
+              Restaurar letra
+            </button>
             <button type="button" className="btn-teal aparencia__apply" disabled={!mudou} onClick={aplicar}>
               Aplicar
             </button>
@@ -1556,135 +1661,17 @@ export function AparenciaSwitch() {
 }
 
 // ---------------------------------------------------------------
-// PAINEL DE TIPOGRAFIA (dono 31/07) — FONTE e TAMANHO, os dois eixos que
-// faltavam ter dono. O contrato mora em lib/tipografia.ts, os degraus em
-// hbx-theme/typography.css; aqui é só a mesa de controle.
+// O PAINEL DE TIPOGRAFIA (dono 31/07) DEIXOU DE SER UM PAINEL.
 //
-// O QUE MUDOU E POR QUÊ
-//  · Era uma listinha de 100/110/120/130 que mexia em TUDO junto. Agora são
-//    3 famílias + 5 réguas de 50% a 150%: "Tudo" (a tela inteira) e um
-//    ajuste fino por papel — títulos, normal, legendas, micro;
-//  · O `title="Tamanho das letras"` SAIU do botão: o balãozinho nativo do
-//    navegador nascia por cima do menu aberto e tapava a primeira linha
-//    ("essa sobreposição insuportável"). Quem diz o que o botão é agora é o
-//    aria-label — leitor de tela continua atendido, e nada mais flutua sobre
-//    o painel;
-//  · O painel é da casca PREMIUM. Nas cascas HBX e Corporativo ele nem
-//    aparece: cada uma respeita a própria casca (o CSS ignora a preferência
-//    fora de [data-casca="modern"], então o botão sumir não é um segundo
-//    porteiro — é o mesmo).
-//
-// Mexer numa régua vale NA HORA, na tela aberta (é ajuste de leitura: quem
-// mexe está olhando o efeito). Não existe "Aplicar" aqui — diferente do menu
-// Aparência, onde a troca é de casca inteira.
+// Ele virou a COLUNA DIREITA do menu Aparencia em 03/08, por ordem do dono
+// ("crie um painel so"). Nada da mecanica mudou: o contrato segue em
+// lib/tipografia.ts, os degraus em hbx-theme/typography.css, FONTE e
+// TAMANHO seguem aplicando NA HORA (e ajuste de leitura -- quem mexe esta
+// olhando o efeito) e as classes .tipografia__* continuam servindo as
+// reguas la dentro. O que sumiu foi o BOTAO "Aa" do topo e o segundo
+// pop-up: dois menus vizinhos para decidir a mesma coisa -- "como esta tela
+// fica" -- eram dois lugares para a mesma pergunta.
 // ---------------------------------------------------------------
-function lerTipografiaSnapshot() {
-  return JSON.stringify(getTipografiaAtiva());
-}
-const TIPOGRAFIA_SNAPSHOT_PADRAO = JSON.stringify(TIPOGRAFIA_PADRAO);
-
-export function TipografiaSwitch() {
-  const cascaKey = useSyncExternalStore(subscribeToThemeMode, getCascaAtiva, () => "backup" as const);
-  // Snapshot é STRING de propósito: getTipografiaAtiva() monta objeto novo a
-  // cada leitura, e useSyncExternalStore exige valor estável (senão re-render
-  // infinito).
-  const snapshot = useSyncExternalStore(
-    subscribeToThemeMode,
-    lerTipografiaSnapshot,
-    () => TIPOGRAFIA_SNAPSHOT_PADRAO,
-  );
-  const tipografia = useMemo(() => JSON.parse(snapshot) as TipografiaNaTela, [snapshot]);
-  const [open, setOpen] = useState(false);
-  const fechar = useCallback(() => setOpen(false), []);
-  const boxRef = useClickAway<HTMLSpanElement>(open, fechar);
-
-  useEffect(() => {
-    if (!open) return;
-    const aoTeclar = (e: KeyboardEvent) => { if (e.key === "Escape") fechar(); };
-    window.addEventListener("keydown", aoTeclar);
-    return () => window.removeEventListener("keydown", aoTeclar);
-  }, [fechar, open]);
-
-  // Só a casca Premium (chave `backup`) tem este painel — ver bloco acima.
-  if (cascaKey !== "backup") return null;
-
-  const geral = tipografia.tamanhos.geral;
-  const noPadrao = ehPadrao(tipografia);
-
-  return (
-    <span ref={boxRef} className="tipografia">
-      <button
-        className="btn-ghost tipografia__trigger"
-        type="button"
-        onClick={() => setOpen(value => !value)}
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        aria-label={`Letras do sistema: ${geral}%`}
-        data-tut="tipografia"
-      >
-        <span className="tipografia__aa" aria-hidden="true">Aa</span>
-        <span className="tipografia__value">{geral}%</span>
-        <span className="aparencia__caret" aria-hidden="true">▾</span>
-      </button>
-
-      {open && (
-        <div className="hbx-pop tipografia__menu" role="dialog" aria-label="Letras do sistema">
-          {/* ── FONTE — as 3 famílias, cada chip escrito na própria letra ── */}
-          <div className="tipografia__linha tipografia__linha--fonte">
-            <span className="tipografia__nome">Fonte</span>
-            <span className="tipografia__fontes" role="group" aria-label="Fonte do sistema">
-              {FONTES.map(f => (
-                <button
-                  key={f.key}
-                  type="button"
-                  className={"tipografia__fonte" + (f.key === tipografia.fonte ? " is-on" : "")}
-                  aria-pressed={f.key === tipografia.fonte}
-                  data-familia={f.key}
-                  onClick={() => setFonte(f.key)}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </span>
-          </div>
-
-          {/* ── TAMANHO — uma linha por papel, 50% a 150% ── */}
-          {PAPEIS.map(papel => (
-            <div className="tipografia__linha" key={papel.key}>
-              {/* Sem `title`: balão nativo é justamente o que tapava o painel. */}
-              <span className="tipografia__nome">
-                {papel.label}
-                <span className="tipografia__amostra" aria-hidden="true" data-papel={papel.key}>Aa</span>
-              </span>
-              <input
-                className="tipografia__range"
-                type="range"
-                min={TAMANHO_MIN}
-                max={TAMANHO_MAX}
-                step={TAMANHO_PASSO}
-                value={tipografia.tamanhos[papel.key]}
-                aria-label={`Tamanho — ${papel.label}`}
-                onChange={e => setTamanho(papel.key, Number(e.target.value))}
-              />
-              <span className="tipografia__pct">{tipografia.tamanhos[papel.key]}%</span>
-            </div>
-          ))}
-
-          <footer className="aparencia__foot">
-            <button
-              type="button"
-              className="btn-ghost tipografia__reset"
-              disabled={noPadrao}
-              onClick={() => restaurarTipografia()}
-            >
-              Restaurar padrão
-            </button>
-          </footer>
-        </div>
-      )}
-    </span>
-  );
-}
 
 /**
  * Atalho sol/lua. Continua existindo para as telas que têm chrome próprio
@@ -2048,7 +2035,6 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
           </button>
         )}
         <AparenciaSwitch />
-        <TipografiaSwitch />
         {podeNovoLead && (
           <button className="round-btn add" title="Novo lead" aria-label="Novo lead" onClick={abrirNovoLead} data-tut="novo-lead"><I d={ICONS.plus} size={16} /></button>
         )}

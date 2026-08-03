@@ -2103,92 +2103,166 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
    invisível toda vez que uma pele saía (foi o que aconteceu em 01/08). */
 .aparencia__cor-viva { background: var(--hbx-cor); }
 
-/* ---- A GRADE DE CORES (dono 03/08) --------------------------------------
-   17 bolinhas em 6 colunas. `auto-fit` e não contagem fixa: se a grade
-   crescer ou encolher em lib/aparencia.ts, o painel se reorganiza sozinho —
-   registro que manda na tela não pode ter a largura cravada no CSS. */
-/* O recuo lateral do painel vira token LOCAL: as linhas irmãs
-   (.aparencia__item, __cap, __seg) já usam 11px cada uma por conta própria, e
-   medida repetida em cinco lugares é a que sai de sincronia. Declarar aqui
-   também mantém a catraca R9 parada — `var()` não é px literal. */
+/* ---- A FILA DE CORES (dono 03/08) ---------------------------------------
+   5 tons + o seletor livre, TUDO numa fila so. Era uma grade de 17 em 6
+   colunas; o dono viu na tela e cortou ("tem muita cor, tem q colocar 5
+   exemplos bem distintos, e o seletor de cores"). Uma fila se le de olhada;
+   uma parede de 17 exige comparar, e comparar e o oposto de atalho.
+
+   O recuo lateral e token LOCAL: as linhas irmas (.aparencia__item, __cap,
+   __seg) usam 11px cada uma por conta propria, e medida repetida em cinco
+   lugares e a que sai de sincronia. Declarar aqui tambem mantem a catraca R9
+   parada -- `var()` nao e px literal. */
 .aparencia { --ap-inset: 11px; }
 .aparencia__grade {
-  display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: var(--space-1);
-  padding: 0 var(--ap-inset) var(--space-2);
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: 0 var(--ap-inset) var(--space-3);
 }
-/* Teto de 28px + centralizado na célula: sem o teto, `1fr` num painel de
-   250px dava bolinha de 34px — tamanho de botão, não de amostra, e o painel
-   inteiro virava grade de cor. Com o teto, a mesma folha serve o menu do
-   desktop e a folha do celular sem uma segunda medida. */
 .aparencia__cor {
-  aspect-ratio: 1; max-width: 28px; justify-self: center;
-  width: 100%;
+  /* `aspect-ratio` em vez de `height`: a altura DERIVA da largura, então o
+     circulo continua circulo e a catraca R10 (altura travada em px) nao anda.
+     Altura que se recusa a crescer e o defeito que o R10 existe pra pegar. */
+  width: 30px; aspect-ratio: 1; flex: none;
   border: none; border-radius: 50%; padding: 0; cursor: pointer;
   box-shadow: inset 0 0 0 1px var(--border-hairline);
   transition: transform var(--motion-fast), box-shadow var(--motion-fast);
 }
-.aparencia__cor:hover { transform: scale(1.14); }
-/* O escolhido ganha ANEL, não borda: borda encolheria a bolinha e a cor
+.aparencia__cor:hover { transform: scale(1.12); }
+/* O escolhido ganha ANEL, nao borda: borda encolheria a bolinha e a cor
    pareceria mudar de tom ao ser selecionada. */
 .aparencia__cor.is-on {
   box-shadow: 0 0 0 2px var(--surface-card), 0 0 0 4px var(--hbx-brand);
 }
-.aparencia__cor:focus-visible {
-  outline: 2px solid var(--hbx-brand); outline-offset: 2px;
-}
-/* Cada bolinha lê o tom da FOLHA (--cor-<key> em theme-gerado.css). Nenhum
+.aparencia__cor:focus-visible { outline: 2px solid var(--hbx-brand); outline-offset: 2px; }
+/* Cada bolinha le o tom da FOLHA (--cor-<key> em theme-gerado.css). Nenhum
    hex entra aqui, e a lista acompanha a de lib/aparencia.ts.
    REGRA: quem tira um tom da grade tira a linha daqui junto. Um `var()`
-   apontando pra token que não existe mais não avisa ninguém — pinta
-   transparente, com o build verde. É o "CSS morre calado". */
-.aparencia__cor[data-cor-key="vermelho"]  { background: var(--cor-vermelho); }
-.aparencia__cor[data-cor-key="laranja"]   { background: var(--cor-laranja); }
-.aparencia__cor[data-cor-key="ambar"]     { background: var(--cor-ambar); }
-.aparencia__cor[data-cor-key="ouro"]      { background: var(--cor-ouro); }
-.aparencia__cor[data-cor-key="limao"]     { background: var(--cor-limao); }
-.aparencia__cor[data-cor-key="verde"]     { background: var(--cor-verde); }
-.aparencia__cor[data-cor-key="esmeralda"] { background: var(--cor-esmeralda); }
-.aparencia__cor[data-cor-key="turquesa"]  { background: var(--cor-turquesa); }
-.aparencia__cor[data-cor-key="ciano"]     { background: var(--cor-ciano); }
-.aparencia__cor[data-cor-key="azul"]      { background: var(--cor-azul); }
-.aparencia__cor[data-cor-key="anil"]      { background: var(--cor-anil); }
-.aparencia__cor[data-cor-key="violeta"]   { background: var(--cor-violeta); }
-.aparencia__cor[data-cor-key="purpura"]   { background: var(--cor-purpura); }
-.aparencia__cor[data-cor-key="magenta"]   { background: var(--cor-magenta); }
-.aparencia__cor[data-cor-key="rosa"]      { background: var(--cor-rosa); }
-.aparencia__cor[data-cor-key="ardosia"]   { background: var(--cor-ardosia); }
-.aparencia__cor[data-cor-key="grafite"]   { background: var(--cor-grafite); }
+   apontando pra token que nao existe mais nao avisa ninguem -- pinta
+   transparente, com o build verde. E o "CSS morre calado". */
+.aparencia__cor[data-cor-key="violeta"] { background: var(--cor-violeta); }
+.aparencia__cor[data-cor-key="azul"]    { background: var(--cor-azul); }
+.aparencia__cor[data-cor-key="verde"]   { background: var(--cor-verde); }
+.aparencia__cor[data-cor-key="ambar"]   { background: var(--cor-ambar); }
+.aparencia__cor[data-cor-key="grafite"] { background: var(--cor-grafite); }
 
-/* ---- COR LIVRE — a saída pra quem tem uma marca ------------------------
-   O `<input type="color">` É a amostra: ele já pinta o valor escolhido, então
-   uma bolinha ao lado seria o mesmo dado em dois lugares (lei da casa:
-   "mostra num lugar, edita num lugar"). O que se desenha aqui é só tirar a
-   moldura de sistema operacional que ele traz de fábrica. */
-.aparencia__livre {
-  display: flex; align-items: center; gap: var(--space-2);
-  margin: 0 var(--ap-inset) var(--space-2); padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
-  background: var(--surface-canvas);
-  cursor: pointer;
+/* ---- COR LIVRE -- a 6a bolinha, nao um controle de segunda --------------
+   Ela entra na MESMA fila, com a MESMA forma. Quem tem marca propria nao esta
+   usando um recurso avancado: esta usando o principal. Pendurada numa linha
+   "Cor livre" embaixo da grade, ela dizia o contrario.
+
+   O anel e a roda de cores com o miolo vazado -- DESENHO, nao dado: as paradas
+   do gradiente sao um icone de "qualquer cor", nao uma paleta que alguem possa
+   escolher. O gradiente em si mora em theme-gerado.css (--roda-de-cores):
+   cor literal so vive em PELE, e kit.css nao e pele. */
+.aparencia__cor--livre {
+  position: relative; display: grid; place-items: center;
+  background: var(--roda-de-cores);
 }
-.aparencia__livre-campo {
-  width: 20px; height: 20px; flex: none; padding: 0;
-  border: none; border-radius: 50%; background: none; cursor: pointer;
+/* miolo vazado deixa o anel com ~6px: grosso o bastante pra ler como roda de
+   cores num alvo de 30px, fino o bastante pra nao virar um botao colorido */
+.aparencia__cor--livre::after {
+  content: ""; position: absolute; inset: 6px; border-radius: 50%;
+  background: var(--surface-card);
   box-shadow: inset 0 0 0 1px var(--border-hairline);
 }
-/* Chrome/Safari desenham a cor num "swatch" interno com margem própria —
-   sem estes dois, a bolinha vira um quadradinho com borda branca. */
-.aparencia__livre-campo::-webkit-color-swatch-wrapper { padding: 0; }
-.aparencia__livre-campo::-webkit-color-swatch { border: none; border-radius: 50%; }
-.aparencia__livre-campo::-moz-color-swatch { border: none; border-radius: 50%; }
-.aparencia__livre-nome {
-  flex: 1; min-width: 0;
-  font-family: var(--font-body); font-size: var(--fz-l1);
-  font-weight: var(--weight-semibold); color: var(--text-strong);
+/* O <input type="color"> real fica invisivel POR CIMA de tudo: e ele que abre
+   o seletor nativo e recebe clique e foco. Nada de pointer-events ou click()
+   simulado -- o controle nativo continua sendo o controle, so que vestido. */
+.aparencia__cor--livre input {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  margin: 0; padding: 0; border: none; background: none;
+  opacity: 0; cursor: pointer; z-index: 1;
 }
-.aparencia__livre-hex { font-size: var(--hbx-font-min); color: var(--text-muted); }
+.aparencia__cor--livre:focus-within { outline: 2px solid var(--hbx-brand); outline-offset: 2px; }
+.aparencia__cor-hex {
+  font-size: var(--hbx-font-min); color: var(--text-muted); margin-left: auto;
+}
+
+/* ---- PRÉVIA — o que torna o "só o Aplicar muda" honesto -----------------
+   A lei do painel é que clicar NÃO mexe na tela; só o Aplicar mexe (dono,
+   28/07). Com 6 cores nomeadas isso bastava — o nome já dizia o que ia
+   acontecer. Com cor LIVRE a mesma lei vira escolher às cegas: um hex qualquer
+   que a pessoa pinça na roda não diz nada sobre o app inteiro.
+
+   A prévia resolve os dois sem escolher entre eles: a tela atrás continua
+   parada, e aqui dentro cor, material, densidade e letra aparecem juntos, já
+   valendo. Ela lê os MESMOS tokens que o app — não é uma imitação pintada à
+   parte, é o design system em miniatura, e por isso não sai de sincronia. */
+.aparencia__previa {
+  margin: 0 var(--ap-inset) var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: var(--hbx-background);
+}
+.aparencia__previa-barra {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: 0 var(--space-2); min-height: var(--control-height, 30px);
+  background: color-mix(in srgb, var(--hbx-surface) 82%, transparent);
+  border-bottom: 1px solid var(--border-hairline);
+  -webkit-backdrop-filter: blur(var(--blur-chrome));
+  backdrop-filter: blur(var(--blur-chrome));
+  box-shadow: var(--shadow-inset);
+}
+.aparencia__previa-ponto {
+  width: 7px; aspect-ratio: 1; flex: none; border-radius: 50%; background: var(--hbx-brand);
+}
+.aparencia__previa-tit {
+  flex: 1; font-size: var(--fz-l3); font-weight: var(--weight-bold); color: var(--text-strong);
+}
+.aparencia__previa-tag {
+  font-size: var(--hbx-font-min); font-weight: var(--weight-bold);
+  padding: 1px var(--space-2); border-radius: var(--radius-pill);
+  background: var(--hbx-brand-soft); color: var(--hbx-brand-strong);
+}
+.aparencia__previa-corpo { padding: var(--space-2); display: grid; gap: var(--space-2); }
+/* min-height (não height): a densidade manda na altura, mas quem aumentou a
+   letra pra 150% no painel ao lado precisa que a linha CRESÇA junto — altura
+   travada aqui decapitaria o texto, que é exatamente o defeito que o R10 e a
+   rede de corte existem pra pegar. */
+.aparencia__previa-linha {
+  display: flex; align-items: center; gap: var(--space-2);
+  min-height: var(--row-height, 32px); padding: var(--space-1) var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--border-hairline) 80%, transparent);
+  border-radius: var(--radius-xs);
+  background: var(--hbx-surface);
+  box-shadow: var(--shadow-inset);
+}
+.aparencia__previa-linha strong {
+  flex: 1; min-width: 0; font-size: var(--fz-l3);
+  font-weight: var(--weight-bold); color: var(--text-strong);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.aparencia__previa-linha span { font-size: var(--hbx-font-min); color: var(--text-muted); }
+.aparencia__previa-cta {
+  min-height: var(--control-height, 30px); padding: var(--space-1) var(--space-2);
+  border: none; border-radius: var(--radius-xs);
+  background: linear-gradient(140deg, var(--hbx-primary), var(--hbx-secondary));
+  color: var(--hbx-action-ink);
+  font-family: var(--font-body); font-size: var(--fz-l3); font-weight: var(--weight-bold);
+  box-shadow: var(--shadow-inset);
+}
+
+/* ---- DUAS COLUNAS — o que a tela VESTE × o que a tela DIZ ---------------
+   O painel nasceu com 250px e uma coluna; ao engolir o painel de letras
+   (dono 03/08, "crie um painel só") viraria uma torre de ~800px que não cabe
+   na janela. Em duas colunas ele fica em ~560 de largura e cada metade tem um
+   assunto: à esquerda superfície (cor, material, modo, densidade), à direita
+   texto (fonte e os 5 tamanhos). */
+.aparencia__menu--unico { width: 560px; }
+.aparencia__colunas { display: grid; grid-template-columns: 1fr 1fr; }
+.aparencia__coluna { min-width: 0; }
+.aparencia__coluna + .aparencia__coluna { border-left: 1px solid var(--border-hairline); }
+/* Janela baixa (1366×768 é o piso medido do parque) ou estreita: vira uma
+   coluna e o painel rola por dentro, em vez de vazar pra fora da tela. */
+@media (max-height: 780px), (max-width: 640px) {
+  .aparencia__menu--unico { width: 290px; }
+  .aparencia__colunas { grid-template-columns: 1fr; }
+  .aparencia__coluna + .aparencia__coluna {
+    border-left: none; border-top: 1px solid var(--border-hairline);
+  }
+  .aparencia__deck { max-height: 60vh; overflow-y: auto; }
+}
 
 /* Claro/escuro: segmentado, porque são dois estados de UMA coisa — não duas
    linhas soltas de lista como eram antes. */

@@ -322,19 +322,22 @@ export function TemaSection() {
               onClick={() => escolherCor(c.key)}
             />
           ))}
-        </div>
-        <label className="aparencia__livre">
-          <input
-            type="color"
-            className="aparencia__livre-campo"
-            value={hexLivre}
-            onChange={e => { setHexLivre(e.target.value); escolherCor(e.target.value); }}
-          />
-          <span className="aparencia__livre-nome">Cor livre</span>
-          <span className="aparencia__livre-hex hbx-mono">
-            {cor && !CORES.some(c => c.key === cor) ? cor.toUpperCase() : ""}
+          {/* A 6ª bolinha: o seletor livre, na MESMA fila (ver kit.css). */}
+          <span
+            className={"aparencia__cor aparencia__cor--livre" + (cor && !CORES.some(c => c.key === cor) ? " is-on" : "")}
+            title="Escolher outra cor"
+          >
+            <input
+              type="color"
+              value={hexLivre}
+              aria-label="Escolher outra cor"
+              onChange={e => { setHexLivre(e.target.value); escolherCor(e.target.value); }}
+            />
           </span>
-        </label>
+          {cor && !CORES.some(c => c.key === cor) && (
+            <span className="aparencia__cor-hex hbx-mono">{cor.toUpperCase()}</span>
+          )}
+        </div>
       </div>
 
       {/* MATERIAL — aqui aplica NA HORA, como o modo. O celular não tem o

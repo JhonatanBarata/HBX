@@ -39,11 +39,14 @@ import { expect, test } from "@playwright/test";
 
 import { injectToken, setupCommonMocks } from "./helpers/app-mocks";
 
-/** Tem que bater com CORES em lib/aparencia.ts (e com os --cor-* da folha). */
-const GRADE = [
-  "vermelho", "laranja", "ambar", "ouro", "limao", "verde", "esmeralda", "turquesa",
-  "ciano", "azul", "anil", "violeta", "purpura", "magenta", "rosa", "ardosia", "grafite",
-] as const;
+/**
+ * As 5 do painel — tem que bater com CORES em lib/aparencia.ts e com os
+ * `--cor-*` de theme-gerado.css. Eram 17 até o dono ver na tela ("tem muita
+ * cor, tem q colocar 5 exemplos bem distintos"): 290° · 240° · 145° · 55° e um
+ * neutro. O contínuo inteiro segue coberto pelo seletor livre — que é o que a
+ * lista LIVRES abaixo maltrata.
+ */
+const GRADE = ["violeta", "azul", "verde", "ambar", "grafite"] as const;
 
 /**
  * Cor livre — os casos que a grade nunca produz. Cada um existe por um motivo:

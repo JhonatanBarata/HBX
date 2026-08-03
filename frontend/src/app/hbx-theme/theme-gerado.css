@@ -66,6 +66,14 @@
   --cor-verde:   #187726;  /* 145° */
   --cor-ambar:   #944E13;  /*  55° */
   --cor-grafite: #4F5359;  /* neutro — croma quase zero */
+
+  /* A RODA DE CORES do seletor livre (a 6ª bolinha do painel). É DESENHO, não
+     paleta: as 6 paradas são um ícone de "qualquer cor", e ninguém pode
+     escolher nenhuma delas. Mora aqui e não em kit.css porque cor literal só
+     vive em pele — o fiscal (R1) isenta `theme-*.css` e reprova o resto, e
+     estava certo em me reprovar quando tentei declará-la lá. */
+  --roda-de-cores: conic-gradient(from 0deg,
+    #E11D48, #F59E0B, #16A34A, #0891B2, #4F46E5, #C026D3, #E11D48);
 }
 
 /* ---- CLARO ---- */
