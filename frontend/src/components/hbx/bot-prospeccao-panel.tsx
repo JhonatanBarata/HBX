@@ -84,7 +84,18 @@ export function BotProspeccaoPanel({ onSaved }: { onSaved?: () => void }) {
   const [ownerUserId, setOwnerUserId] = useState<number | null>(null);
   useEffect(() => {
     apiFetch<CampanhasDaEquipe>("/vendas/automation/prospecting/campanhas")
-      .then(data => { if (data?.pessoas?.length) setEquipe(data); })
+      .then(data => {
+        if (!data?.pessoas?.length) return;
+        setEquipe(data);
+        // MASTER NO CONTEXTO DE OUTRA EMPRESA: quem está logado não aparece na
+        // lista da empresa, então o <select> caía sozinho na PRIMEIRA pessoa
+        // enquanto o painel continuava carregando a campanha de ninguém — a
+        // barra dizia "Campanha de Ana Júlia" com "Nenhuma campanha ativa" ao
+        // lado. Rótulo e dado têm que apontar pra mesma pessoa.
+        if (!data.pessoas.some(p => p.userId === data.euUserId)) {
+          setOwnerUserId(data.pessoas[0].userId);
+        }
+      })
       .catch(() => {});
   }, []);
 
