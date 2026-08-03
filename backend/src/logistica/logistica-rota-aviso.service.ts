@@ -1,10 +1,11 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { ConversationsService } from '../messaging/conversations.service';
-import { normalizeBrPhoneE164 } from '../messaging/whatsapp-channel';
+
+
+import { MobilePushService } from '../auth/mobile-push.service';
 import { canonicalRouteDate } from './logistica-route-billing.service';
 import { haversineMeters } from './logistica-tracking.service';
-import { isSentinelaWhatsEnabled } from './sentinela.flags';
+
 
 /**
  * 31/07 — "COMEÇOU E DESISTIU": o recado que faltava.
@@ -79,9 +80,10 @@ export class LogisticaRotaAvisoService implements OnModuleInit, OnModuleDestroy 
 
   constructor(
     private readonly prisma: PrismaService,
-    // Opcional: sem mensageria injetada (testes, boot parcial) a sentinela
-    // continua alimentando o feed. O eco no WhatsApp é aditivo, nunca requisito.
-    @Optional() private readonly conversations?: ConversationsService,
+    // Opcional: sem push configurado (testes, Firebase ausente) a sentinela
+    // continua alimentando o feed do cockpit. A campainha é aceleração, nunca
+    // o transporte — mesma lei do canal de recado.
+    @Optional() private readonly push?: MobilePushService,
   ) {}
 
   onModuleInit() {
@@ -480,16 +482,10 @@ export class LogisticaRotaAvisoService implements OnModuleInit, OnModuleDestroy 
         `[logistica] recado de rota ${tipo} company=${companyId} motorista=${motoristaUserId} dia=${routeDate}` +
           ` (${contagem.entregues}/${contagem.total} entregues, ${contagem.abertas} abertas)`,
       );
-      // Só ecoa aviso que ACABOU de nascer — o P2002 abaixo é justamente o que
-      // impede o mesmo fato de virar WhatsApp de 10 em 10 minutos. O freio do
-      // spam é o índice único, não um contador em memória que o restart zera.
-      void this.ecoarNoWhatsApp(
-        companyId,
-        tipo,
-        (pessoa?.name || pessoa?.username || `Usuário ${motoristaUserId}`).slice(0, 120),
-        detalhe ?? null,
-        contagem.abertas,
-      ).catch(() => undefined);
+      // Só cutuca em aviso que ACABOU de nascer — o P2002 abaixo é o que impede
+      // o mesmo fato de tocar de 10 em 10 minutos. O freio do spam é o índice
+      // único, não um contador em memória que o restart zera.
+      void this.acordarQuemPrecisaVer(companyId).catch(() => undefined);
       return tipo;
     } catch (e: any) {
       // P2002 = já existe recado deste tipo pra este motorista HOJE. É o freio
@@ -500,64 +496,58 @@ export class LogisticaRotaAvisoService implements OnModuleInit, OnModuleDestroy 
   }
 
   /**
-   * ECO NO WHATSAPP DO DONO — o que faz o aviso existir fora da tela aberta.
+   * AVISO É DO HBX, DENTRO DO HBX (ordem do dono, 03/08).
    *
-   * ── REGRAS DURAS (mesmas do resumo-diário; cicatriz de chip banido) ────────
-   * · 2 CHAVES: env global HBX_SENTINELA_WHATS_ENABLED **E**
-   *   LogisticaConfig.sentinelaWhatsAtiva (por tenant, default false).
-   * · DESTINO = Company.contactPhone SOMENTE com contactPhoneVerifiedAt != null.
-   *   Sem telefone verificado → pula em SILÊNCIO. Zero fallback pro User.
-   * · Envio exclusivamente por `queueOutboundForCompany` com senderType
-   *   'system' — disjuntor, outbox e 1-número=1-conexão são de lá. Nunca bridge
-   *   cru.
-   * · TETO POR CONSTRUÇÃO: uma linha de aviso = no máximo um WhatsApp, porque
-   *   só o caminho que venceu o `create` chega aqui.
-   * · Falhar aqui NUNCA desfaz o aviso: o feed do cockpit é a entrega primária,
-   *   o WhatsApp é o eco.
+   * 🔴 A primeira versão disto mandava WhatsApp pelo chip da empresa. Erro de
+   * desenho meu: fui atrás do canal que as OUTRAS features de aviso usam
+   * (cobrança, resumo diário) sem enxergar que aqui a pergunta é outra. Aquelas
+   * falam com o CLIENTE, que só existe do lado de fora. Esta fala com o DONO —
+   * que já está dentro do sistema, com sino no cockpit e o app no bolso.
+   * Chip é caro, tem disjuntor, arrisca ban e depende de número verificado:
+   * gastar isso pra avisar quem já é usuário do HBX é dar a volta no mundo pra
+   * atravessar a rua.
+   *
+   * Então o aviso tem DUAS entregas, as duas internas:
+   *   1) o FEED do sino no cockpit — já gravado pelo `create` acima, é a
+   *      entrega primária e não custa nada;
+   *   2) a CAMPAINHA no aparelho de quem administra — o mesmo `sendWake` do
+   *      canal de recado: push muda, sem conteúdo, que só manda o app buscar.
+   *      Assim o dono é avisado mesmo com o cockpit fechado.
+   *
+   * Best-effort de ponta a ponta: falhar aqui nunca desfaz o aviso do feed.
    */
-  private async ecoarNoWhatsApp(
-    companyId: number,
-    tipo: RotaAvisoTipo,
-    motoristaNome: string,
-    detalhe: string | null,
-    abertas: number,
-  ): Promise<void> {
-    if (!this.conversations || !isSentinelaWhatsEnabled()) return;
+  private async acordarQuemPrecisaVer(companyId: number): Promise<void> {
+    if (!this.push) return;
+    // Quem administra a empresa — são eles que resolvem rota parada. Motorista
+    // não precisa ser avisado de que ele mesmo sumiu do mapa.
+    const admins = await this.prisma.user.findMany({
+      where: {
+        companyId,
+        isActive: true,
+        isSystemMaster: false,
+        role: { in: ['ADMIN', 'USERMASTER'] },
+      },
+      select: { id: true },
+      take: 20,
+    });
+    if (!admins.length) return;
 
-    const [cfg, company] = await Promise.all([
-      this.prisma.logisticaConfig.findUnique({
-        where: { companyId },
-        select: { sentinelaWhatsAtiva: true },
-      }),
-      this.prisma.company.findUnique({
-        where: { id: companyId },
-        select: { contactPhone: true, contactPhoneVerifiedAt: true },
-      }),
-    ]);
-    if (!cfg?.sentinelaWhatsAtiva) return;
-
-    const telefone = String(company?.contactPhone || '').trim();
-    if (!telefone || !company?.contactPhoneVerifiedAt) return;
-
-    const body = frasePraWhatsApp(tipo, motoristaNome, detalhe, abertas);
-    if (!body) return;
-
-    const to = normalizeBrPhoneE164(telefone) || telefone;
-    try {
-      await this.conversations.queueOutboundForCompany(companyId, {
-        to,
-        contactId: to,
-        body,
-        messageType: 'text',
-        sourceModule: 'logistica_sentinela',
-        senderType: 'system',
-        variables: { module: 'logistica', event: 'sentinela', tipo },
-        flowState: { botActive: false, humanAssigned: false, flowResult: null },
-      });
-    } catch (e: any) {
-      // Sem chip conectado (ou disjuntor aberto) o aviso continua no feed —
-      // e o vigia NÃO reenfileira: o índice único já consumiu este fato.
-      this.logger.warn(`[logistica] eco da sentinela company=${companyId} falhou: ${String(e?.message || e)}`);
+    const aparelhos = await this.prisma.mobileDevice.findMany({
+      where: {
+        companyId,
+        userId: { in: admins.map((a) => a.id) },
+        revokedAt: null,
+        pushToken: { not: null },
+      },
+      select: { pushToken: true },
+      take: 20,
+    });
+    for (const aparelho of aparelhos) {
+      try {
+        await this.push.sendWake(aparelho.pushToken);
+      } catch {
+        // Campainha muda não invalida o aviso: ele já está no feed do cockpit.
+      }
     }
   }
 
@@ -585,35 +575,4 @@ function horaLocal(data: Date): string {
     minute: '2-digit',
     timeZone: 'America/Sao_Paulo',
   });
-}
-
-/**
- * A frase do WhatsApp. Curta, sem jargão, e SEMPRE com nome + o número que
- * decide — é lida no celular, no meio da rua, por quem tem 3 segundos.
- * Tipo desconhecido devolve null: melhor não mandar nada que mandar "undefined".
- */
-function frasePraWhatsApp(
-  tipo: RotaAvisoTipo,
-  motoristaNome: string,
-  detalhe: string | null,
-  abertas: number,
-): string | null {
-  const cauda = abertas > 0 ? ` ${abertas} cliente(s) ainda esperando.` : '';
-  const medida = detalhe ? ` (${detalhe})` : '';
-  switch (tipo) {
-    case 'sem_sinal':
-      return `⚠️ HBX Logística: ${motoristaNome} sumiu do mapa${medida}.${cauda}`;
-    case 'parado_demais':
-      return `⚠️ HBX Logística: ${motoristaNome} está parado fora de cliente${medida}.${cauda}`;
-    case 'atraso':
-      return `⏱️ HBX Logística: ${motoristaNome} está atrasado no plano${medida}.${cauda}`;
-    case 'abandonada':
-      return `🔴 HBX Logística: ${motoristaNome} saiu pra rua e encerrou sem entregar nada.${cauda}`;
-    case 'parcial':
-      return `🔴 HBX Logística: ${motoristaNome} encerrou a rota no meio.${cauda}`;
-    case 'parada':
-      return `🔴 HBX Logística: ${motoristaNome} iniciou a rota e está sem entregar nada.${cauda}`;
-    default:
-      return null;
-  }
 }

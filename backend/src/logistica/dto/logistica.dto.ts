@@ -581,7 +581,6 @@ export class UpdateLogisticaConfigDto {
 
   @IsOptional()
   @IsBoolean()
-  sentinelaWhatsAtiva?: boolean;
 
   @IsOptional()
   @IsBoolean()

@@ -1,0 +1,20 @@
+-- SENTINELA — O AVISO É DO HBX, DENTRO DO HBX (ordem do dono, 03/08).
+--
+-- A migration anterior (20260803120000) criou `sentinelaWhatsAtiva`: eu tinha
+-- desenhado o aviso da sentinela para ecoar no WhatsApp pelo chip da empresa.
+-- Erro de desenho meu — fui atrás do canal que as OUTRAS features de aviso usam
+-- (cobrança, resumo diário) sem enxergar que a pergunta aqui é diferente:
+-- aquelas falam com o CLIENTE, que só existe do lado de fora; esta fala com o
+-- DONO, que já está dentro do sistema, com sino no cockpit e o app no bolso.
+-- Chip é caro, tem disjuntor, arrisca ban e depende de telefone verificado.
+--
+-- O aviso passou a ter duas entregas, as duas internas: o feed do sino no
+-- cockpit e a campainha (push do próprio HBX) no aparelho de quem administra.
+--
+-- Esta coluna some porque não tem mais quem a leia. A migration de origem NÃO
+-- foi editada de propósito: ela já rodou em produção e mexer no arquivo aplicado
+-- quebra o checksum do `migrate deploy`. Desfazer é migration nova, sempre.
+--
+-- Idempotente (IF EXISTS): o banco de quem nunca aplicou a 20260803120000 —
+-- ou já rodou esta — passa reto.
+ALTER TABLE "LogisticaConfig" DROP COLUMN IF EXISTS "sentinelaWhatsAtiva";

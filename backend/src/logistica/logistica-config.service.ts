@@ -224,7 +224,6 @@ export class LogisticaConfigService {
     if (input.sentinelaSemSinalMin !== undefined) data.sentinelaSemSinalMin = clampInt(input.sentinelaSemSinalMin, 0, 240, 15);
     if (input.sentinelaParadoMin !== undefined) data.sentinelaParadoMin = clampInt(input.sentinelaParadoMin, 0, 240, 25);
     if (input.sentinelaAtrasoMin !== undefined) data.sentinelaAtrasoMin = clampInt(input.sentinelaAtrasoMin, 0, 240, 20);
-    if (input.sentinelaWhatsAtiva !== undefined) data.sentinelaWhatsAtiva = !!input.sentinelaWhatsAtiva;
     if (input.cobrancaNaEntrega !== undefined) data.cobrancaNaEntrega = !!input.cobrancaNaEntrega;
     if (input.moduloFinanceiroAtivo !== undefined) {
       // PR27072026 F1 — GATE de uso: financeiro real é Advanced+ na matriz do
@@ -632,7 +631,6 @@ function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = 
     sentinelaSemSinalMin: c.sentinelaSemSinalMin,
     sentinelaParadoMin: c.sentinelaParadoMin,
     sentinelaAtrasoMin: c.sentinelaAtrasoMin,
-    sentinelaWhatsAtiva: !!c.sentinelaWhatsAtiva,
     gerarDiaAutomatico: !!c.gerarDiaAutomatico,
     diasTrabalho: c.diasTrabalho ?? null,
     avisoChegandoEnabled: !!c.avisoChegandoEnabled,
@@ -795,7 +793,6 @@ export interface UpdateLogisticaConfigInput {
   sentinelaSemSinalMin?: number;
   sentinelaParadoMin?: number;
   sentinelaAtrasoMin?: number;
-  sentinelaWhatsAtiva?: boolean;
   cobrancaNaEntrega?: boolean;
   moduloFinanceiroAtivo?: boolean;
   moduloRecoveryAtivo?: boolean;
@@ -845,7 +842,6 @@ export interface LogisticaConfigDTO {
   sentinelaSemSinalMin: number;
   sentinelaParadoMin: number;
   sentinelaAtrasoMin: number;
-  sentinelaWhatsAtiva: boolean;
   cobrancaNaEntrega?: boolean;
   moduloRecoveryAtivo?: boolean;
   gerarDiaAutomatico: boolean;

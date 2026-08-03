@@ -2232,7 +2232,6 @@ model LogisticaConfig {
   // O ECO no WhatsApp do dono nasce DESLIGADO — mesmo padrão de 2 chaves das
   // outras features que gastam chip (S2/S3): flag global + toggle do tenant.
   // Ver a cicatriz em docs/Rules/WHATSAPP.md: nada dispara sozinho.
-  sentinelaWhatsAtiva   Boolean  @default(false)
   // S6 PORTAL-PEDIDO (11/07) — pedido PÚBLICO pelo link /pedido/<token> (o
   // anti-iFood da distribuidora: cliente pede sem login e vira Entrega
   // 'agendada'). Mesmo padrão 2 chaves das features S2/S3: env global
