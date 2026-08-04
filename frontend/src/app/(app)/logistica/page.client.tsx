@@ -19,7 +19,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
-import { getRailSnapshot, I, ICONS, toggleRailState, useCurrentUser } from "@/components/hbx/shell";
+import { ConfirmDialog, getRailSnapshot, I, ICONS, toggleRailState, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { isTenantAdmin } from "@/lib/roles";
 
@@ -83,6 +83,20 @@ type Rota = {
 };
 
 type LogisticsView = "today" | "weekly" | "saude";
+
+const VIEW_QUERY: Record<LogisticsView, string> = {
+  today: "hoje",
+  weekly: "semana",
+  saude: "enderecos",
+};
+
+function viewFromUrl(): LogisticsView {
+  if (typeof window === "undefined") return "today";
+  const valor = new URLSearchParams(window.location.search).get("visao");
+  if (valor === "semana") return "weekly";
+  if (valor === "enderecos") return "saude";
+  return "today";
+}
 
 const STATUS_LABEL: Record<string, string> = {
   agendada: "Agendada",
@@ -311,8 +325,36 @@ export function LogisticaClient() {
   const [resumo, setResumo] = useState<ResumoDia | null>(null);
   const [menuAberto, setMenuAberto] = useState(false);
   const [view, setView] = useState<LogisticsView>("today");
+  const [viewsVisitadas, setViewsVisitadas] = useState<Set<LogisticsView>>(() => new Set(["today"]));
+  const [acaoPendente, setAcaoPendente] = useState<"gerar" | "fechar" | null>(null);
+  const [fechando, setFechando] = useState(false);
   const viewPill = useGlassPill<HTMLButtonElement>(admin ? view : "today", admin);
   const menuRef = useRef<HTMLSpanElement | null>(null);
+
+  // A visão faz parte da URL: refresh mantém a tela e Voltar desfaz a troca.
+  // As visões já abertas continuam montadas, preservando mapa, dia, filtros e
+  // inspetor; uma tela pesada só nasce depois da primeira visita.
+  useEffect(() => {
+    const sincronizar = () => {
+      const next = viewFromUrl();
+      setView(next);
+      setViewsVisitadas((atuais) => atuais.has(next) ? atuais : new Set(atuais).add(next));
+    };
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sincroniza estado com a URL ao montar/voltar.
+    sincronizar();
+    window.addEventListener("popstate", sincronizar);
+    return () => window.removeEventListener("popstate", sincronizar);
+  }, []);
+
+  const abrirVisao = useCallback((next: LogisticsView) => {
+    setView(next);
+    setViewsVisitadas((atuais) => atuais.has(next) ? atuais : new Set(atuais).add(next));
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    if (next === "today") url.searchParams.delete("visao");
+    else url.searchParams.set("visao", VIEW_QUERY[next]);
+    window.history.pushState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  }, []);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -379,38 +421,46 @@ export function LogisticaClient() {
 
   // "Gerar entregas de hoje" (admin): materializa as entregas recorrentes vencidas.
   // Idempotente no backend — clicar 2× não duplica. Recarrega a rota ao terminar.
-  const gerarDia = useCallback(() => {
+  const gerarDia = useCallback(async () => {
     setGerando(true);
     setGerarMsg(null);
-    setMenuAberto(false);
-    apiFetch<GerarDiaResult>("/logistica/gerar-dia", { method: "POST", body: JSON.stringify({}) })
-      .then((res) => {
-        setGerarMsg(
-          res.criadas > 0
-            ? `${res.criadas} entrega(s) gerada(s).`
-            : res.candidatos > 0
-              ? "Nada novo a gerar hoje (já estava tudo criado)."
-              : "Nenhum produto recorrente vencido hoje.",
-        );
-        return load();
-      })
-      .catch((err: unknown) => {
-        setGerarMsg(err instanceof Error ? err.message : "Não foi possível gerar as entregas.");
-      })
-      .finally(() => setGerando(false));
+    try {
+      const res = await apiFetch<GerarDiaResult>("/logistica/gerar-dia", { method: "POST", body: JSON.stringify({}) });
+      setGerarMsg(
+        res.criadas > 0
+          ? `${res.criadas} entrega(s) gerada(s).`
+          : res.candidatos > 0
+            ? "Nada novo a gerar hoje (já estava tudo criado)."
+            : "Nenhum produto recorrente vencido hoje.",
+      );
+      await load();
+    } catch (err: unknown) {
+      setGerarMsg(err instanceof Error ? err.message : "Não foi possível gerar as entregas.");
+    } finally {
+      setGerando(false);
+    }
   }, [load]);
 
-  const fecharMes = useCallback(() => {
-    setMenuAberto(false);
-    if (typeof window !== "undefined" && !window.confirm("Fechar o mês dos clientes mensais? Gera uma fatura por cliente com as entregas do período.")) return;
-    apiFetch<FecharMesResult>("/logistica/fechar-mes", { method: "POST", body: JSON.stringify({}) })
-      .then((res) => {
-        setGerarMsg(res.chargesCriados > 0 ? `${res.chargesCriados} fatura(s) gerada(s).` : "Nada a fechar hoje.");
-        void carregarResumo();
-        return load();
-      })
-      .catch((err: unknown) => setGerarMsg(err instanceof Error ? err.message : "Não foi possível fechar o mês."));
+  const fecharMes = useCallback(async () => {
+    setFechando(true);
+    setGerarMsg(null);
+    try {
+      const res = await apiFetch<FecharMesResult>("/logistica/fechar-mes", { method: "POST", body: JSON.stringify({}) });
+      setGerarMsg(res.chargesCriados > 0 ? `${res.chargesCriados} fatura(s) gerada(s).` : "Nada a fechar hoje.");
+      await carregarResumo();
+      await load();
+    } catch (err: unknown) {
+      setGerarMsg(err instanceof Error ? err.message : "Não foi possível fechar o mês.");
+    } finally {
+      setFechando(false);
+    }
   }, [carregarResumo, load]);
+
+  const executarAcaoPendente = useCallback(async () => {
+    if (acaoPendente === "gerar") await gerarDia();
+    if (acaoPendente === "fechar") await fecharMes();
+    setAcaoPendente(null);
+  }, [acaoPendente, fecharMes, gerarDia]);
 
   const items = rota?.items ?? [];
   const pendentes = items.filter((e) => e.status === "agendada" || e.status === "em_rota").length;
@@ -432,7 +482,7 @@ export function LogisticaClient() {
           aria-selected={view === chave}
           tabIndex={view === chave ? 0 : -1}
           className={`log-guide__tab glass-pill-item${view === chave ? " is-active" : ""}`}
-          onClick={() => setView(chave)}
+          onClick={() => abrirVisao(chave)}
         >
           {chave === "today" ? "Hoje" : chave === "weekly" ? "Semana" : "Endereços"}
         </button>
@@ -462,7 +512,7 @@ export function LogisticaClient() {
       {menuAberto && (
         <div className="cok__avisos cok__menu" role="menu">
           <span className="cok__avisos-titulo">Ações</span>
-          <button type="button" className="cok__menu-item" role="menuitem" onClick={gerarDia} disabled={gerando}>
+          <button type="button" className="cok__menu-item" role="menuitem" onClick={() => { setMenuAberto(false); setAcaoPendente("gerar"); }} disabled={gerando}>
             <I d={ICONS.plus} size={13} /> {gerando ? "Gerando…" : "Gerar entregas de hoje"}
           </button>
           <Link href="/logistica/estoque" className="cok__menu-item" role="menuitem">
@@ -477,10 +527,9 @@ export function LogisticaClient() {
           <Link href="/logistica/instalar" className="cok__menu-item" role="menuitem">
             <I d={ICONS.phone} size={13} /> App do entregador
           </Link>
-          <button type="button" className="cok__menu-item" role="menuitem" onClick={fecharMes}>
+          <button type="button" className="cok__menu-item" role="menuitem" onClick={() => { setMenuAberto(false); setAcaoPendente("fechar"); }} disabled={fechando}>
             <I d={ICONS.check} size={13} /> Fechar mês
           </button>
-          {gerarMsg && <span className="cok__avisos-rodape">{gerarMsg}</span>}
         </div>
       )}
     </span>
@@ -502,8 +551,9 @@ export function LogisticaClient() {
           </header>
 
           <div className="log-admin-shell__content">
-            {view === "today" && (
-              <Cockpit
+            {viewsVisitadas.has("today") && (
+              <div className="log-admin-shell__view" hidden={view !== "today"}>
+                <Cockpit
                 stops={items}
                 drivers={entregadores}
                 entreguesHoje={resumo?.entregues ?? 0}
@@ -521,20 +571,26 @@ export function LogisticaClient() {
                     : atual);
                   setOpen((atual) => atual && atual.id === stopId ? { ...atual, entregador } : atual);
                 }}
-              />
+                />
+                {error && (
+                  <div className="emp-empty log-admin-shell__error">
+                    <strong className="emp-empty__title">Não carregou</strong>
+                    <span className="emp-empty__text">{error}</span>
+                    <button className="btn-ghost" onClick={() => load()}>Tentar novamente</button>
+                  </div>
+                )}
+              </div>
             )}
 
-            {view === "weekly" && (
-              <WeeklyAgenda onOpenRouteBuilder={() => setRouteBuilderOpen(true)} />
+            {viewsVisitadas.has("weekly") && (
+              <div className="log-admin-shell__view" hidden={view !== "weekly"}>
+                <WeeklyAgenda onOpenRouteBuilder={() => setRouteBuilderOpen(true)} />
+              </div>
             )}
 
-            {view === "saude" && <BaseSaude />}
-
-            {view === "today" && error && (
-              <div className="emp-empty log-admin-shell__error">
-                <strong className="emp-empty__title">Não carregou</strong>
-                <span className="emp-empty__text">{error}</span>
-                <button className="btn-ghost" onClick={() => load()}>Tentar novamente</button>
+            {viewsVisitadas.has("saude") && (
+              <div className="log-admin-shell__view" hidden={view !== "saude"}>
+                <BaseSaude />
               </div>
             )}
           </div>
@@ -646,6 +702,24 @@ export function LogisticaClient() {
           }}
         />
       )}
+
+      {gerarMsg && (
+        <div className="hbx-toast" role="status" aria-live="polite" data-hbx-motion="toast">
+          {gerarMsg}
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={acaoPendente !== null}
+        title={acaoPendente === "fechar" ? "Fechar o mês?" : "Gerar entregas de hoje?"}
+        message={acaoPendente === "fechar"
+          ? "Será criada uma fatura por cliente mensal com as entregas do período."
+          : "Serão criadas agora as entregas recorrentes vencidas que ainda não existem na rota de hoje."}
+        confirmLabel={acaoPendente === "fechar" ? "Fechar mês" : "Gerar entregas"}
+        busy={gerando || fechando}
+        onConfirm={() => { void executarAcaoPendente(); }}
+        onCancel={() => setAcaoPendente(null)}
+      />
     </div>
   );
 }

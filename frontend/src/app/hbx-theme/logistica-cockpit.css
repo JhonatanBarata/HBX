@@ -104,7 +104,17 @@
   overflow: hidden;
 }
 
-.log-admin-shell__content > :is(.cok, .log-agenda) {
+.log-admin-shell__view {
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.log-admin-shell__view[hidden] {
+  display: none;
+}
+
+.log-admin-shell__view > :is(.cok, .log-agenda) {
   height: 100%;
 }
 

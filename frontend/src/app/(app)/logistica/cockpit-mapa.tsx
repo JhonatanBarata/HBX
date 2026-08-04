@@ -33,8 +33,6 @@ const TRILHA_LAYER = "cok-trilha-linha";
 
 /** Teto de aproximação (uma parada só não vira zoom de telhado). */
 const ZOOM_MAXIMO = 15.5;
-/** Piso de afastamento: ~nível de cidade. Ver "FREIO DO AFASTAMENTO" abaixo. */
-const ZOOM_MINIMO = 9.5;
 
 type PinoDado = {
   id: string;
@@ -44,16 +42,6 @@ type PinoDado = {
   estado: "feita" | "agora" | "fila" | "cobranca";
   nome: string;
 };
-
-/** Centro robusto a outlier: mediana de cada eixo, não média nem meio do retângulo. */
-function medianaDe(pinos: PinoDado[]): [number, number] {
-  const meio = (valores: number[]) => {
-    const ordenados = [...valores].sort((a, b) => a - b);
-    const m = Math.floor(ordenados.length / 2);
-    return ordenados.length % 2 ? ordenados[m] : (ordenados[m - 1] + ordenados[m]) / 2;
-  };
-  return [meio(pinos.map((p) => p.lng)), meio(pinos.map((p) => p.lat))];
-}
 
 function iniciaisDe(nome: string): string {
   const partes = nome.trim().split(/\s+/).filter(Boolean);
@@ -83,6 +71,11 @@ export function CockpitMapa({
   const pinosRef = useRef(new Map<string, maplibregl.Marker>());
   const motoristasRef = useRef(new Map<number, maplibregl.Marker>());
   const assinaturaRef = useRef("");
+  const onOpenStopRef = useRef(onOpenStop);
+
+  useEffect(() => {
+    onOpenStopRef.current = onOpenStop;
+  }, [onOpenStop]);
 
   // ── Derivar os pinos (fora do ciclo do mapa) ─────────────────────────────
   const abertas = useMemo(
@@ -180,6 +173,7 @@ export function CockpitMapa({
           el.classList.remove("is-feita", "is-agora", "is-fila", "is-cobranca");
           el.classList.add(`is-${pino.estado}`);
           el.textContent = pino.rotulo;
+          el.setAttribute("aria-label", `Abrir ${pino.nome}`);
           continue;
         }
         const el = document.createElement("button");
@@ -187,7 +181,9 @@ export function CockpitMapa({
         el.className = `cok-pino is-${pino.estado}`;
         el.textContent = pino.rotulo;
         el.setAttribute("aria-label", `Abrir ${pino.nome}`);
-        el.addEventListener("click", () => onOpenStop(pino.id));
+        // O listener vive tanto quanto o marker; o callback, não. O ref garante
+        // que um pino antigo sempre abre os dados mais novos da parada.
+        el.addEventListener("click", () => onOpenStopRef.current(pino.id));
         pinosRef.current.set(
           pino.id,
           new maplibregl.Marker({ element: el, anchor: "center" }).setLngLat([pino.lng, pino.lat]).addTo(map),
@@ -199,22 +195,17 @@ export function CockpitMapa({
 
       // A câmera: só quando o CONJUNTO de coordenadas muda.
       const assinatura = pinos.map((p) => `${p.id}:${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join("|");
-      if (assinatura && assinatura !== assinaturaRef.current) {
+      if (assinatura !== assinaturaRef.current) {
         assinaturaRef.current = assinatura;
+        if (!assinatura) return;
         const bounds = new maplibregl.LngLatBounds();
         pinos.forEach((p) => bounds.extend([p.lng, p.lat]));
         const camera = map.cameraForBounds(bounds, { padding: 56, maxZoom: ZOOM_MAXIMO });
         if (camera) {
-          // FREIO DO AFASTAMENTO. Um cadastro com coordenada errada (ou o seed
-          // de teste, que espalha paradas de Curitiba a Mar del Plata) faz o
-          // enquadro honesto virar mapa do CONTINENTE — e aí ninguém enxerga
-          // rua nenhuma. O mapa continua obedecendo ao dado, mas não afasta
-          // além do nível de cidade; quando o freio pega, o centro é a MEDIANA
-          // dos pinos (não o meio do retângulo, que num par de outliers cai no
-          // vazio entre eles).
-          const zoom = Math.max(Number(camera.zoom ?? ZOOM_MAXIMO), ZOOM_MINIMO);
-          const centro = zoom > Number(camera.zoom ?? ZOOM_MAXIMO) ? medianaDe(pinos) : camera.center;
-          map.easeTo({ center: centro, zoom, duration: 700 });
+          // O enquadramento precisa mostrar TODOS os pontos. Forçar um zoom
+          // mínimo de cidade escondia justamente os cadastros distantes que o
+          // operador precisa localizar e corrigir.
+          map.easeTo({ center: camera.center, zoom: camera.zoom, duration: 700 });
         }
       }
     };
@@ -225,7 +216,7 @@ export function CockpitMapa({
     }
     map.once("load", pintar);
     return () => { map.off("load", pintar); };
-  }, [onOpenStop, pinos]);
+  }, [pinos]);
 
   // ── Pinos dos MOTORISTAS (posição ao vivo) ───────────────────────────────
   useEffect(() => {

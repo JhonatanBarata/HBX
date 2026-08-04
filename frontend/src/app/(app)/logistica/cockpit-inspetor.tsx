@@ -79,25 +79,37 @@ export function CockpitInspetor({
 }) {
   const [fio, setFio] = useState<Recado[]>([]);
   const [carregandoFio, setCarregandoFio] = useState(true);
+  const [erroFio, setErroFio] = useState<string | null>(null);
   const [texto, setTexto] = useState("");
   const [nivel, setNivel] = useState<RecadoNivel>("normal");
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
   const fioRequestRef = useRef(0);
+  const fioEmVooRef = useRef(false);
 
   const carregarFio = useCallback(
-    (comLoading: boolean) => {
+    async (comLoading: boolean) => {
+      // Nunca sobrepõe uma leitura ainda em andamento. Com intervalo menor que
+      // a latência, criar uma requisição nova a cada tic invalidava TODAS as
+      // respostas e deixava o fio preso em "Carregando…" para sempre.
+      if (fioEmVooRef.current) return;
+      fioEmVooRef.current = true;
       const requestId = ++fioRequestRef.current;
       if (comLoading) setCarregandoFio(true);
-      return getFioRecados(motorista.id)
-        .then((linhas) => {
-          if (requestId === fioRequestRef.current) setFio(Array.isArray(linhas) ? linhas : []);
-        })
-        .catch(() => { /* fio é acessório: rede fora não derruba o painel */ })
-        .finally(() => {
-          if (requestId === fioRequestRef.current) setCarregandoFio(false);
-        });
+      try {
+        const linhas = await getFioRecados(motorista.id);
+        if (requestId !== fioRequestRef.current) return;
+        setFio(Array.isArray(linhas) ? linhas : []);
+        setErroFio(null);
+      } catch {
+        if (requestId === fioRequestRef.current) {
+          setErroFio("Não foi possível atualizar os recados. Tentando novamente…");
+        }
+      } finally {
+        if (requestId === fioRequestRef.current) setCarregandoFio(false);
+        fioEmVooRef.current = false;
+      }
     },
     [motorista.id],
   );
@@ -232,7 +244,8 @@ export function CockpitInspetor({
         <h3 className="cok__insp-titulo">Recados</h3>
         <div className="cok__chat-log" ref={logRef}>
           {carregandoFio && fio.length === 0 && <p className="cok__chat-vazio">Carregando…</p>}
-          {!carregandoFio && fio.length === 0 && (
+          {erroFio && <p className="cok__chat-vazio" role="status">{erroFio}</p>}
+          {!carregandoFio && !erroFio && fio.length === 0 && (
             <p className="cok__chat-vazio">Nenhum recado ainda. O que você escrever chega no celular dele.</p>
           )}
           {fio.map((recado) => (
