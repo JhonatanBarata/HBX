@@ -28,7 +28,7 @@ html, body { margin: 0; }
    Backup (7px) e Premium (10px) declaram o seu com especificidade de casca e
    continuam idênticos; a Corporativa cai no token (0px, painéis encostam) e
    qualquer casca futura passa a ter um lugar certo pra essa medida. */
-.app { display: grid; grid-template-columns: var(--rail-width) 1fr; height: 100dvh; overflow: clip; padding: var(--shell-gap); gap: var(--shell-gap); transition: grid-template-columns var(--motion-base) var(--ease-out-quint); }
+.app { display: grid; grid-template-columns: var(--rail-width) 1fr; height: 100dvh; overflow: clip; padding: var(--shell-gap); gap: var(--shell-gap); transition: grid-template-columns var(--motion-base); }
 .app[data-rail="min"] { grid-template-columns: var(--rail-width-min) 1fr; }
 
 /* ---------- Sidebar ---------- */
@@ -39,53 +39,146 @@ html, body { margin: 0; }
    vazando reta pelos cantos arredondados da casca modern (30px). Um wrapper
    que rola por dentro de um pai overflow:hidden é recortado igual qualquer
    outro conteúdo, sem depender do Chrome respeitar o raio no scrollbar. */
-.side { position: relative; display: flex; flex-direction: column; background: var(--hbx-nav-surface); border-right: 1px solid var(--border-hairline); min-height: 0; overflow: hidden; }
+/* z-index 45 é PERMANENTE, não só no hover: enquanto a coluna da grade cresce
+   (fixar) ou encolhe (desfixar), a barra fica mais larga que o próprio trilho
+   por 340ms. Se a elevação viesse junto com o hover, ela sumiria no clique e o
+   conteúdo pintaria POR CIMA da barra durante todo esse trecho. Acima do
+   topbar (30), abaixo dos avisos fixos (.hot-toast, 80). */
+.side { position: relative; z-index: 45; display: flex; flex-direction: column; background: var(--hbx-nav-surface); border-right: 1px solid var(--border-hairline); min-height: 0; overflow: hidden; }
 .side-scroll { position: relative; flex: 1 1 auto; display: flex; flex-direction: column; gap: 2px; padding: 8px 8px 8px; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 /* Barrinha fina na cor da marca (pedido do dono 07/07) em vez do cinza/bege
    genérico do scrollbar global — só na sidebar, escopo próprio. */
 .side-scroll::-webkit-scrollbar { width: 5px; }
 .side-scroll::-webkit-scrollbar-track { background: transparent; }
 .side-scroll::-webkit-scrollbar-thumb { background: var(--hbx-brand); border-radius: 999px; }
-/* Rail colapsado: nav vira coluna de ícones — esconde texto (label vira title/
-   tooltip via TSX), centraliza ícone, aperta padding. Zero visual novo, só layout. */
-.app[data-rail="min"] .side-scroll { padding-left: 8px; padding-right: 8px; }
-.app[data-rail="min"] .nav-item { justify-content: center; padding: 9px 0; gap: 0; }
-.app[data-rail="min"] .nav-item span.nav-item__label { max-width: 0; opacity: 0; }
-.app[data-rail="min"] .logo strong { max-width: 0; opacity: 0; }
-.app[data-rail="min"] .nav-group-label { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
-.app[data-rail="min"] .plan-card { max-height: 0; opacity: 0; padding: 0; border-width: 0; pointer-events: none; }
-.app[data-rail="min"] .user-card small,
-.app[data-rail="min"] .user-card strong { max-height: 0; opacity: 0; }
-.app[data-rail="min"] .side-head { flex-direction: column; gap: 6px; }
-.app[data-rail="min"] .logo { justify-content: center; padding-left: 0; padding-right: 0; }
-.app[data-rail="min"] .user-card { justify-content: center; }
-.app[data-rail="min"] .rail-toggle { margin-left: auto; margin-right: auto; }
-/* Cabeçalho da sidebar (07/07): logo + toggle do rail na MESMA linha — antes o
-   botão ficava numa linha própria abaixo da marca, empurrando o menu pra baixo
-   à toa. Colapsado (regra acima) volta a empilhar (ícone só, sem texto ao lado). */
-.side-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 2px 4px 6px 7px; }
-/* Toggle do rail (LEADS-FINAL/01): botão redondo central (.round-btn), só a
-   posição é própria daqui. */
-.rail-toggle { flex: 0 0 auto; }
-/* Blink do ícone ao clicar (07/07): em vez de trocar a seta na hora, encolhe
-   devagar até sumir e cresce devagar de volta já apontando pro lado novo —
-   key={rail} no TSX remonta o <span> a cada clique, disparando a animação. */
-.rail-toggle__icon { display: inline-flex; animation: hbx-rail-icon-blink var(--motion-base); }
-@keyframes hbx-rail-icon-blink {
-  0% { transform: scale(1); opacity: 1; }
-  45% { transform: scale(0.1); opacity: 0.2; }
-  100% { transform: scale(1); opacity: 1; }
+/* ══════════════════════════════════════════════════════════════════════════
+   A BARRA SE RECOLHE SOZINHA (dono, 04/08/2026)
+   ──────────────────────────────────────────────────────────────────────────
+   Dois estados e UM dono (o pino da marca — chave hbx:costas, costas-panel.tsx;
+   o botão de recolher morreu junto com a store "hbx:rail"):
+
+     data-rail="min"       SOLTA — trilho de ícones. Encostou o mouse (ou o
+                           foco), ela abre POR CIMA do conteúdo; saiu, recolhe.
+     data-rail="expanded"  FIXA  — aberta de verdade, ocupando a coluna, com o
+                           painel do módulo na frente.
+
+   Por que SOBREPÕE em vez de empurrar: empurrando, a grade da tela inteira
+   muda de 56 pra 200px toda vez que o mouse raspa na barra — o conteúdo dança
+   e o custo é de LAYOUT, não de pintura. Sobrepondo, nada fora da barra se
+   mexe. Fixar, aí sim, muda a grade: fixar é decisão, não esbarrão.
+
+   Os 90ms de atraso moram SÓ na regra de hover, então valem na abertura e não
+   na saída — fechar tem que ser imediato, senão parece travado.
+
+   Os estilos de "recolhida" abaixo levam todos o mesmo guarda
+   `:not(:has(.side:is(:hover,:focus-within)))`: é ele que faz a abertura ser a
+   AUSÊNCIA da regra, e não um segundo bloco desfazendo o primeiro. Bloco que
+   desfaz bloco exige repetir aqui os valores do estado aberto — duas listas
+   pra manter, que é como se perde a mão de qualquer casca. */
+/* FIXAR NÃO MEXE NA BARRA — mexe no CONTEÚDO. Esta é a regra que dá semântica
+   ao gesto: aberta no hover ela já está em --rail-width; fixar mantém o MESMO
+   valor e quem anima é a COLUNA da grade (56 → 200), então os dados escorregam
+   pra caber e a barra não pisca. Desfixar é o inverso: a coluna devolve o
+   espaço e a barra só recolhe quando o mouse sai.
+   O erro que isso corrige: a largura tinha DOIS donos. Solta ela vinha de
+   `width:100%` (100% de um trilho de 56) e fixa vinha do estiramento da grade.
+   Ao fixar, a fonte trocava no mesmo frame — a barra caía pra 56 e voltava a
+   crescer. Era o "fecha e abre de novo": não é tempo de animação, é a largura
+   trocando de origem no meio do gesto.
+
+   ENTRAR E SAIR NA MESMA VELOCIDADE (ordem do dono): as duas direções usam
+   --motion-base e nenhuma tem atraso. Tinha ficado 340ms pra abrir (com 90ms
+   de espera) contra 150ms pra fechar — abrir e fechar em ritmos diferentes faz
+   o menu parecer que hesita numa direção e foge na outra.
+
+   O GATILHO: mouse na barra INTEIRA, mas foco só na PILHA. O `:focus-within`
+   na barra toda era o "não recolhe nunca": clicar no pino deixa o foco NELE, e
+   como o pino mora dentro da barra, ela se segurava aberta para sempre — tirar
+   o mouse não adiantava, porque não era o mouse que estava segurando. Foco na
+   pilha (menu) ainda abre, que é o que o teclado precisa. */
+.side { width: var(--rail-width); }
+.app[data-rail="min"] .side {
+  width: var(--rail-width-min);
+  transition: width var(--motion-base), box-shadow var(--motion-base);
 }
+.app[data-rail="min"]:has(.side:hover, .side-stack:focus-within) .side {
+  width: var(--rail-width);
+  box-shadow: var(--shadow-lg);
+  transition: width var(--motion-base), box-shadow var(--motion-base);
+}
+.app[data-rail="min"] .side-scroll { padding-left: 8px; padding-right: 8px; }
+.app[data-rail="min"]:not(:has(.side:hover, .side-stack:focus-within)) .nav-item { justify-content: center; padding: 9px 0; gap: 0; }
+.app[data-rail="min"]:not(:has(.side:hover, .side-stack:focus-within)) .nav-item span.nav-item__label { max-width: 0; opacity: 0; }
+.app[data-rail="min"]:not(:has(.side:hover, .side-stack:focus-within)) .logo strong { max-width: 0; opacity: 0; }
+.app[data-rail="min"]:not(:has(.side:hover, .side-stack:focus-within)) .nav-group-label { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
+.app[data-rail="min"]:not(:has(.side:hover, .side-stack:focus-within)) .plan-card { max-height: 0; opacity: 0; padding: 0; border-width: 0; pointer-events: none; }
+.app[data-rail="min"]:not(:has(.side:hover, .side-stack:focus-within)) .user-card small,
+.app[data-rail="min"]:not(:has(.side:hover, .side-stack:focus-within)) .user-card strong { max-height: 0; opacity: 0; }
+/* O "AD" ficava 5,8px à ESQUERDA do eixo (medido: avatar em 40,8 num trilho
+   cujo centro é 35). Causa: o cartão do usuário mantinha 166,7px de largura
+   dentro de um trilho de 56 — o texto ao lado do avatar zera a ALTURA quando a
+   barra recolhe, mas continuava reservando LARGURA, e o `overflow:hidden` da
+   barra escondia o estrago em vez de mostrá-lo. Centralizar um cartão que
+   transborda não centraliza nada: o eixo dele estava fora da tela.
+   Agora o cartão obedece ao trilho (largura 100%, min-width 0), o bloco de
+   texto para de reservar largura (max-width 0, que ainda anima) e o vão de 8px
+   entre avatar e texto some — sem isso o vão fantasma reempurra o avatar, que
+   é o mesmo defeito do "»" no cabeçalho. */
+.app[data-rail="min"]:not(:has(.side:hover, .side-stack:focus-within)) .user-card {
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+  gap: 0;
+  padding-left: 0;
+  padding-right: 0;
+  overflow: hidden;
+}
+.app[data-rail="min"]:not(:has(.side:hover, .side-stack:focus-within)) .user-card > div { max-width: 0; overflow: hidden; }
+/* Recolhido, o pino vira uma CAIXA do mesmo tamanho do item de menu e centra o
+   ícone dentro dela — é o que alinha o "»" com a coluna de ícones de baixo.
+   Com respiro lateral só (a 1ª tentativa) ele continuava torto, e o motivo é
+   invisível: o `gap: 8px` da marca separa o ícone de um <strong> que está com
+   max-width:0. Largura zero, mas o VÃO continua contando, e são esses 8px
+   fantasmas que empurravam o "»" pra esquerda do eixo. */
+.app[data-rail="min"]:not(:has(.side:hover, .side-stack:focus-within)) .logo-pino {
+  width: 100%;
+  justify-content: center;
+  gap: 0;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* Cabeçalho da sidebar: só a marca desde 04/08 (o botão de recolher saiu), e
+   ela é CENTRALIZADA — pedido do dono. Centralizado nos dois estados: o
+   trilho já centralizava, e a barra aberta passou a acompanhar. */
+.side-head { display: flex; align-items: center; justify-content: center; gap: 6px; padding: 2px 4px 6px; }
 
 /* marca persistente entre rotas (View Transitions): a logo MORFA de
    posição em vez de piscar — site → login → sistema parece a mesma página. */
 .logo { display: flex; align-items: center; gap: 8px; padding: 0; view-transition-name: hbx-brand; }
-.logo strong { display: inline-block; max-width: 80px; overflow: hidden; white-space: nowrap; font-family: var(--font-display); font-size: var(--fz-t7); font-weight: 800; letter-spacing: 0.01em; color: var(--text-strong); transition: max-width var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast); }
+.logo strong { display: inline-block; max-width: 80px; overflow: hidden; white-space: nowrap; font-family: var(--font-display); font-size: var(--fz-t7); font-weight: 800; letter-spacing: 0.01em; color: var(--text-strong); transition: max-width var(--motion-base), opacity var(--motion-fast); }
 /* S1 MODO DISTRIBUIDORA: marca da sidebar = NOME DA EMPRESA quando o tenant é
    só-logística (de-HBX) — precisa de mais que os 80px do "HBX" e corta com
    reticências. O rail colapsado segue zerando (a regra [data-rail="min"] acima
    ganha na especificidade). */
 .logo--empresa strong { max-width: 156px; text-overflow: ellipsis; }
+/* O PINO — a marca é o único botão do cabeçalho. O contorno existe pra dizer
+   "isto se clica" (marca não se clica em lugar nenhum, então sem ele ninguém
+   tentaria) e o PESO dele diz o estado: contorno vazado = solta, preenchido na
+   cor da marca = fixa. O "»" mudo de antes não sabia responder isso.
+   Vem DEPOIS de `.logo` de propósito: as duas têm a mesma especificidade, e
+   `.logo` zera o padding — de cima, o respiro do contorno morria calado. */
+.logo-pino {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-soft);
+  padding: 4px 9px;
+  cursor: pointer;
+  transition: background var(--motion-fast), border-color var(--motion-fast), box-shadow var(--motion-fast), padding var(--motion-base);
+}
+.logo-pino:hover { background: var(--surface-raised); border-color: var(--border-strong); }
+.logo-pino:focus-visible { outline: 2px solid var(--hbx-brand); outline-offset: 2px; }
+.logo-pino[aria-pressed="true"] { background: var(--hbx-brand-soft); border-color: var(--hbx-brand); box-shadow: var(--shadow-xs); }
 /* Rótulo de guia/seção do menu (pedido do dono 07/07 — agrupar módulos por
    intenção: Informações/Comunicação/Cadastros/Facilidades/Logística).
    Estrutural só: tamanho+espaçamento próprios, cor vem de --text-muted (mesmo
@@ -94,13 +187,13 @@ html, body { margin: 0; }
    da transição vira "elegível pra encolher" pro flex column .side — sem o shrink:0,
    quando a lista de módulos não cabe no rail, o navegador espreme o rótulo até sumir
    (o texto virava um tracinho residual) em vez de deixar o `.side` rolar. */
-.nav-group-label { flex-shrink: 0; max-height: 30px; padding: 8px 9px 2px; font-family: var(--font-body); font-size: var(--hbx-font-min); font-weight: var(--weight-medium); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); overflow: hidden; transition: max-height var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast), padding var(--motion-base) var(--ease-out-quint); }
+.nav-group-label { flex-shrink: 0; max-height: 30px; padding: 8px 9px 2px; font-family: var(--font-body); font-size: var(--hbx-font-min); font-weight: var(--weight-medium); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); overflow: hidden; transition: max-height var(--motion-base), opacity var(--motion-fast), padding var(--motion-base); }
 .nav-group-label:first-child { padding-top: 2px; }
 /* Ida e volta do recolhe/expande (07/07): padding+gap animam junto com o rail
    (mesma easing do grid-template-columns em .app) — sem isso os ícones "pulavam"
    de posição no instante do toggle, em vez de deslizar. */
-.nav-item { position: relative; z-index: 1; display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 9px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-body); font-family: var(--font-body); font-size: var(--fz-l1); font-weight: var(--weight-medium); cursor: pointer; text-align: left; text-decoration: none; transition: background var(--motion-fast), color var(--motion-fast), transform var(--motion-fast), padding var(--motion-base) var(--ease-out-quint), gap var(--motion-base) var(--ease-out-quint); }
-.nav-item__label { display: inline-block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: max-width var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast); }
+.nav-item { position: relative; z-index: 1; display: flex; align-items: center; gap: 9px; width: 100%; padding: 6px 9px; border: none; border-radius: var(--radius-sm); background: transparent; color: var(--text-body); font-family: var(--font-body); font-size: var(--fz-l1); font-weight: var(--weight-medium); cursor: pointer; text-align: left; text-decoration: none; transition: background var(--motion-fast), color var(--motion-fast), transform var(--motion-fast), padding var(--motion-base), gap var(--motion-base); }
+.nav-item__label { display: inline-block; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; transition: max-width var(--motion-base), opacity var(--motion-fast); }
 /* hover = mesma linguagem de vidro (não mais um retângulo chapado): brilho no
    topo + leve elevação, some macio quando o mouse sai. No item já ATIVO o
    próprio vidro deslizante (.nav-pill) já cobre o recado — hover não soma em cima. */
@@ -180,7 +273,7 @@ html, body { margin: 0; }
 /* Ida e volta do recolhe/expande (07/07): cartão de créditos e nome do usuário
    também animam (antes cortavam seco via display:none) — mesma linguagem do
    menu acima, transição na barra inteira. */
-.plan-card { max-height: 240px; opacity: 1; overflow: hidden; padding: 12px; border-width: 1px; border-style: solid; border-radius: var(--radius-md); border-color: var(--border-hairline); background: var(--hbx-surface); display: grid; gap: 8px; transition: max-height var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast), padding var(--motion-base) var(--ease-out-quint), border-width var(--motion-fast); }
+.plan-card { max-height: 240px; opacity: 1; overflow: hidden; padding: 12px; border-width: 1px; border-style: solid; border-radius: var(--radius-md); border-color: var(--border-hairline); background: var(--hbx-surface); display: grid; gap: 8px; transition: max-height var(--motion-base), opacity var(--motion-fast), padding var(--motion-base), border-width var(--motion-fast); }
 .plan-card strong { font-size: var(--fz-l1); }
 .plan-card small { font-size: var(--hbx-font-min); color: var(--text-muted); }
 .plan-card button { min-height: var(--control-height-sm); border-radius: var(--radius-xs); border: 1px solid var(--hbx-brand); background: transparent; color: var(--hbx-brand); font-family: var(--font-body); font-size: var(--fz-l3); font-weight: 700; cursor: pointer; }
@@ -244,8 +337,8 @@ html.hbx-hot-flash body { filter: saturate(1.55) hue-rotate(-22deg) brightness(1
   body { transition: none; }
 }
 .user-card { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--radius-md); border: 1px solid var(--border-hairline); background: var(--hbx-surface); }
-.user-card strong { display: block; max-height: 20px; overflow: hidden; opacity: 1; font-size: var(--fz-l2); transition: max-height var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast); }
-.user-card small { display: block; max-height: 16px; overflow: hidden; opacity: 1; font-size: var(--hbx-font-min); color: var(--text-muted); transition: max-height var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast); }
+.user-card strong { display: block; max-height: 20px; overflow: hidden; opacity: 1; font-size: var(--fz-l2); transition: max-height var(--motion-base), opacity var(--motion-fast); }
+.user-card small { display: block; max-height: 16px; overflow: hidden; opacity: 1; font-size: var(--hbx-font-min); color: var(--text-muted); transition: max-height var(--motion-base), opacity var(--motion-fast); }
 .user-card .dots { margin-left: auto; color: var(--text-muted); cursor: pointer; }
 
 /* --avatar-size chega do componente (o diâmetro varia por lugar); a inicial é
@@ -1061,8 +1154,8 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
    entrada E na saída; o resto das transições do .nav-item continua rápido. */
 .nav-item--radar {
   transition: color 700ms var(--ease-out-quint), background var(--motion-fast),
-              transform var(--motion-fast), padding var(--motion-base) var(--ease-out-quint),
-              gap var(--motion-base) var(--ease-out-quint);
+              transform var(--motion-fast), padding var(--motion-base),
+              gap var(--motion-base);
 }
 .nav-item--radar-working { color: var(--radar-menu-working) !important; }
 .nav-item--radar-paused  { color: var(--radar-menu-paused)  !important; }

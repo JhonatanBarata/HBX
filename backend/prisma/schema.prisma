@@ -6117,6 +6117,58 @@ model FiscalDocumento {
   @@index([companyId, competencia])
 }
 
+// FISCAL F3 — ESTOQUE de produto único (1–5 SKUs). HBX controla QUANTIDADE;
+// contabilidade é do contador do tenant. Saldos são 100% DERIVADOS da soma dos
+// movimentos — nunca coluna editável. 3 estados: Disponível | Reservado (claim
+// da carga do caminhão) | Faturado (baixa definitiva na entrega confirmada).
+model EstoqueProduto {
+  id                 String   @id @default(cuid())
+  companyId          Int
+  nome               String
+  unidade            String?
+  ncm                String?
+  cest               String?
+  cfopSaida          String?
+  csosn              String?
+  // Link com o Product da logística: é por AQUI que a entrega confirmada acha
+  // o produto de estoque pra dar a baixa (e a carga do caminhão, a reserva).
+  logisticaProductId Int?
+  ativo              Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([companyId, logisticaProductId])
+  @@index([companyId, ativo])
+}
+
+// Trilha IMUTÁVEL de movimentos — corrigir = lançar movimento novo, nunca editar.
+// quantidade é POSITIVA em todo tipo, exceto INVENTARIO/AJUSTE (a diferença
+// lançada pode ser +/-). Matemática dos saldos (estoque.service.ts):
+//   físico     = entradas + devoluções + reversas ± inventário ± ajuste
+//                − baixas − saídas − perdas
+//   reservado  = max(0, RESERVA − LIBERA_RESERVA − BAIXA_ENTREGA)
+//   disponível = físico − reservado · faturado = BAIXA_ENTREGA + SAIDA_EMISSAO
+model EstoqueMovimento {
+  id             String   @id @default(cuid())
+  companyId      Int
+  produtoId      String
+  tipo           String // ENTRADA_XML | ENTRADA_MANUAL | RESERVA | LIBERA_RESERVA |
+  //                       BAIXA_ENTREGA | SAIDA_EMISSAO | PERDA | INVENTARIO |
+  //                       DEVOLUCAO | AJUSTE | REVERSA_CANCELAMENTO
+  quantidade     Float
+  refDocumentoId String? // FiscalDocumento (NF-e do fechamento concilia, não baixa)
+  refEntregaId   String? // Entrega da logística (BAIXA_ENTREGA)
+  refChaveNfe    String? // chave da NF-e de COMPRA (ENTRADA_XML — dedup)
+  refCargaDia    String? // 'YYYY-MM-DD[:entregadorId]' da carga (RESERVA/LIBERA_RESERVA)
+  motivo         String? // OBRIGATÓRIO em PERDA e AJUSTE; livre nos demais
+  createdAt      DateTime @default(now())
+
+  // XML da mesma compra 2× não duplica; a mesma entrega não baixa 2×.
+  @@unique([companyId, tipo, refChaveNfe, produtoId])
+  @@unique([companyId, tipo, refEntregaId, produtoId])
+  @@index([companyId, produtoId, createdAt])
+}
+
 // GLOBAL (sem companyId) — allowlist de municípios: cidade nova só liga depois
 // de validar 1 nota em produção-restrita. rotaNfse muda pra PROVEDOR quando a
 // cidade "desmoronar" (decisão do dono) — migração por CONFIG, sem código.

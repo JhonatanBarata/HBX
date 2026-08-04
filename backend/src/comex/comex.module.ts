@@ -23,5 +23,8 @@ import { ComexService } from './comex.service';
     ComexDetectoresService,
     ComexAnalistaService,
   ],
+  // Só o câmbio sai daqui (painel das costas do módulo Comex). Cache de 1h é
+  // desta instância — quem consome tem que reusar ESTA, nunca instanciar outra.
+  exports: [ComexCambioService],
 })
 export class ComexModule {}

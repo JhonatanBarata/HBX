@@ -10,7 +10,8 @@
 import { usePathname } from "next/navigation";
 import React from "react";
 
-import { ICONS, Sidebar, Topbar, toggleRailState, useRailState } from "@/components/hbx/shell";
+import { ICONS, RAIL_KEY_MORTA, Sidebar, Topbar } from "@/components/hbx/shell";
+import { useCostasLigado } from "@/components/hbx/costas-panel";
 import { SoLogisticaGate } from "@/components/hbx/so-logistica-gate";
 import { TutorialCoachHost } from "@/components/hbx/tutorial-coach-host";
 import { SellersBrainsHost } from "@/components/hbx/sellers-brains-host";
@@ -83,9 +84,20 @@ const META: Record<string, Meta> = {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "";
-  // Rail colapsável (LEADS-FINAL/01, 06/07): mesma store/padrão do tema
-  // (useSyncExternalStore, shell.tsx) — default EXPANDIDA, SSR-safe.
-  const rail = useRailState();
+  // A barra tem dois estados e UM dono: o pino da marca (hbx:costas).
+  //  · solta  → data-rail="min": trilho de ícones que abre no hover (CSS puro);
+  //  · FIXA   → data-rail="expanded": aberta de verdade, ocupando espaço, com
+  //             o painel do módulo na frente.
+  // Os nomes dos valores ficaram os de antes de propósito: todo o CSS de rail
+  // colapsado (kit.css, 06/07) continua valendo sem uma linha reescrita.
+  const fixado = useCostasLigado();
+
+  // Enterro da chave antiga do rail (06/07–04/08). Sem isto ela fica no
+  // navegador de todo mundo guardando uma escolha que ninguém mais lê — e
+  // qualquer código futuro que a encontrasse ressuscitaria um estado de julho.
+  React.useEffect(() => {
+    try { localStorage.removeItem(RAIL_KEY_MORTA); } catch { /* sem storage */ }
+  }, []);
 
   // /master tem chrome PRÓPRIO (janelas do master + topbar própria): passa direto,
   // sem o shell padrão por cima (senão viraria menu duplicado).
@@ -106,8 +118,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <>
       <MobileShell>
-        <div className="app app-shell-root" data-rail={rail}>
-          <Sidebar active={meta.active} rail={rail} onToggleRail={toggleRailState} />
+        <div className="app app-shell-root" data-rail={fixado ? "expanded" : "min"}>
+          <Sidebar active={meta.active} />
           <div className="main">
             {/* MASTER "entrar como": faixa de retorno acima do topo, visível em
                 toda tela enquanto o master vê o app como outro usuário. */}

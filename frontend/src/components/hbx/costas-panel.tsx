@@ -10,20 +10,20 @@
 //
 // Regras que o dono cravou:
 //  · o painel é SÓ VISUAL — nada aqui é clicável;
-//  · /dashboard e /relatórios NÃO têm verso (o menu fica como sempre foi);
 //  · Créditos é o último cartão e aparece SEMPRE; Disparos só em Vendas;
-//  · casca CORPORATIVA não recebe este tratamento — lá o menu é menu;
-//  · liga/desliga em Aparência → "Painel do módulo" (mudou de casa em 04/08;
-//    era o "»" da marca HBX, que tinha o MESMO desenho do botão de recolher a
-//    barra bem ao lado — e ficava mudo com a barra recolhida, porque rail
-//    "min" desliga o verso por regra).
+//  · casca CORPORATIVA não recebe este tratamento — lá o menu é menu.
 //
-// 04/08 — A ALÇA. O menu que este painel cobre ficava em opacidade 0 e
-// pointer-events none, no mesmo retângulo, SEM nada avisar (medido: 15 itens
-// invisíveis na /logistica). A /logistica tapava isso recolhendo a barra
-// sozinha ao entrar — tapume removido. Agora o aviso é explícito: a alça
-// "Módulos" no rodapé da barra, que o shell monta FORA deste componente (aqui
-// dentro nada é clicável nem focável, e o painel segue aria-hidden).
+// 04/08 (tarde) — O PAINEL VIROU ESCOLHA. Antes ele nascia por cima do menu em
+// toda tela com verso; agora só existe quando o usuário FIXA a barra no
+// contorno da marca HBX. Duas consequências que valem mais que a aparência:
+//  · o painel deixou de roubar a navegação de quem não pediu por ela — que era
+//    a origem do "não consigo voltar" (medido: 15 itens de menu em opacidade 0
+//    no mesmo retângulo do painel, na /logistica);
+//  · com isso, TODOS os módulos ganharam verso (antes /dashboard e /relatorios
+//    ficavam de fora justamente porque lá o menu não podia ser coberto).
+// A alça "Módulos" continua existindo pra quando a barra está fixa: aí o
+// painel está na frente de propósito, e ela é o caminho de volta pro menu sem
+// depender de hover (quem chega de teclado não tem hover).
 //
 // O movimento reusa o contrato central (hbx-theme/motion-system.css): as
 // mesmas curvas e a mesma ideia de transição (não animação com fill-mode), pra
@@ -57,12 +57,20 @@ type PainelModulo = {
   rodape: string | null;
 };
 
-/** Módulos com verso. Fora desta lista o menu continua exatamente como está. */
+/**
+ * Módulos com verso — TODOS os do menu desde 04/08 (espelha
+ * PainelModuloService.MODULOS no backend; módulo fora da lista de lá volta
+ * `null` e o verso simplesmente não aparece).
+ */
 export const COSTAS_MODULOS = new Set([
+  "dash",
+  "relat",
   "financeiro",
+  "fiscal",
   "vendas",
   "agenda",
   "atend",
+  "website",
   "empresas",
   "contatos",
   "produtos",
@@ -70,25 +78,55 @@ export const COSTAS_MODULOS = new Set([
   "automacaoHub",
   "logistica",
   "clientes",
+  "comex",
+  "config",
 ]);
 
-// ── Liga/desliga (o "»" da marca) ───────────────────────────────────────────
-// Mesmo padrão do rail colapsável: store externa + useSyncExternalStore, sem
-// Context e SSR-safe (o servidor sempre responde "ligado", que é o default).
+// ── O PINO (o contorno da marca HBX) ────────────────────────────────────────
+// Uma chave só manda em DUAS coisas, porque para o usuário é uma coisa só:
+// solto = a barra vira trilho de ícones e se abre no mouse; FIXO = a barra
+// fica aberta e o painel do módulo aparece. Ter duas chaves (uma pro rail,
+// outra pro painel) era o que fazia dois botões idênticos, lado a lado, com
+// significados diferentes — o defeito que esta entrega veio matar.
 
 const COSTAS_KEY = "hbx:costas";
+const APRESENTADO_KEY = "hbx:costas:apresentado";
 const ouvintes = new Set<() => void>();
 
-function lerLigado(): boolean {
-  try {
-    return localStorage.getItem(COSTAS_KEY) !== "0";
-  } catch {
-    return true;
-  }
+// getSnapshot do useSyncExternalStore roda VÁRIAS vezes por render e tem que
+// devolver o mesmo valor entre notificações. Por isso a regra da primeira
+// visita é resolvida UMA vez e memorizada aqui: resolvê-la lá dentro (com
+// escrita no localStorage) seria efeito colateral em render — e valor novo a
+// cada chamada é laço infinito no React, não bug sutil.
+let memo: boolean | null = null;
+
+function resolver(): boolean {
+  const escolha = localStorage.getItem(COSTAS_KEY);
+  if (escolha === "1") return true;
+  if (escolha === "0") return false;
+  // Sem escolha do usuário, o painel se APRESENTA uma vez: painel que só abre
+  // no clique e nunca se mostra é recurso secreto — ninguém descobre que a
+  // marca é clicável. Da segunda carga em diante, fica recolhido.
+  if (localStorage.getItem(APRESENTADO_KEY) === "1") return false;
+  localStorage.setItem(APRESENTADO_KEY, "1");
+  return true;
 }
 
+function lerLigado(): boolean {
+  if (memo === null) {
+    try { memo = resolver(); } catch { memo = false; }
+  }
+  return memo;
+}
+
+/**
+ * O servidor não sabe do navegador: responde SEMPRE "solto", que é o estado
+ * da maioria — assim a carga de página não pisca a barra larga antes de
+ * recolher. Quem fixou vê a barra ABRIR na hidratação, que é o movimento que
+ * ele mesmo pediu (e não o contrário, que pareceria defeito).
+ */
 function ligadoServidor(): boolean {
-  return true;
+  return false;
 }
 
 function assinar(cb: () => void) {
@@ -98,10 +136,15 @@ function assinar(cb: () => void) {
 
 export function toggleCostas() {
   const proximo = lerLigado() ? "0" : "1";
-  try { localStorage.setItem(COSTAS_KEY, proximo); } catch { /* sem storage */ }
+  try {
+    localStorage.setItem(COSTAS_KEY, proximo);
+    localStorage.setItem(APRESENTADO_KEY, "1");
+  } catch { /* sem storage */ }
+  memo = proximo === "1";
   ouvintes.forEach((cb) => cb());
 }
 
+/** A barra está FIXA aberta? (o mesmo estado que liga o painel do módulo) */
 export function useCostasLigado(): boolean {
   return useSyncExternalStore(assinar, lerLigado, ligadoServidor);
 }

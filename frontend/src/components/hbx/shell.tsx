@@ -112,22 +112,8 @@ export const ICONS: Record<string, string[]> = {
   phone: ["M5 4h4l1.5 4.5L8 10a13 13 0 0 0 6 6l1.5-2.5L20 15v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z"],
   mapin: ["M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11Z", "M12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"],
   arrow: ["M5 12h14", "m13 6 6 6-6 6"],
-  // Toggle do rail (LEADS-FINAL/01). ERA duplo-chevron ("«" recolhe, "»"
-  // expande) e o dono mandou MATAR em 04/08: a marca HBX ao lado é desenhada
-  // com o MESMO duplo-chevron, então com a barra recolhida ficavam dois "»"
-  // idênticos lado a lado — um era a logo, o outro dobrava o menu.
-  //
-  // Agora são DUAS formas diferentes, não duas setas: a BARRA (o traço vertical,
-  // que é o próprio rail) e UM chevron dizendo pra onde. Marca nenhuma é um
-  // traço com uma seta, então a confusão morre na origem.
-  //
-  // Tentei antes a moldura de janela + divisória + seta (convenção do VS Code):
-  // MEDIDO, não deu — o botão renderiza a 16px, e num viewBox de 24 a seta
-  // sobrava com 2 unidades, ou seja 1,3px na tela. Ícone que só funciona grande
-  // não serve pro lugar onde ele mora. Aqui o chevron tem 4,5 unidades e o
-  // traço vai de ponta a ponta: as duas formas continuam legíveis a 16px.
-  railCollapse: ["M4 5v14", "m14.5 7-4.5 5 4.5 5"],
-  railExpand: ["M4 5v14", "m10 7 4.5 5-4.5 5"],
+  // (railCollapse/railExpand saíram em 04/08 com o botão de recolher: a barra
+  // se recolhe sozinha e o pino da marca é quem a fixa.)
   // Chevron pra baixo — seta de combobox/dropdown (ex.: busca de segmento no Radar).
   chevronDown: ["m6 9 6 6 6-6"],
   // Voltar (casca mobile — FIX2/V5): chevron pra ESQUERDA. `arrow` acima aponta
@@ -1118,44 +1104,21 @@ function useRadarNavState(): RadarNavState {
 }
 
 // ---------------------------------------------------------------
-// Sidebar colapsável — rail de ícones (LEADS-FINAL/01, 06/07).
-// Mesmo padrão de subscribeToThemeMode/useSyncExternalStore (tema): store
-// mínima sem useEffect+setState (evita cascading render / lint
-// react-hooks/set-state-in-effect). localStorage("hbx:rail") persiste;
-// default EXPANDIDA (decisão 3 do PLANO.md); getServerSnapshot fixo
-// "expanded" evita hydration mismatch.
+// A BARRA SE RECOLHE SOZINHA (dono, 04/08). A store própria do rail
+// ("hbx:rail", de 06/07) MORREU junto com o botão de recolher: quem manda no
+// estado da barra agora é o PINO da marca, que é a mesma chave do painel do
+// módulo (hbx:costas, em costas-panel.tsx). Duas chaves para o que o usuário
+// enxerga como uma coisa só era o que produzia dois botões parecidos com
+// significados diferentes.
+//
+// Solta, a barra é trilho de ícones e abre no hover — isso é CSS puro
+// (kit.css), sem estado no React: hover que re-renderiza 17 links a cada
+// entrada e saída do mouse é caro e não compra nada.
 // ---------------------------------------------------------------
-export const RAIL_KEY = "hbx:rail";
-const railListeners = new Set<() => void>();
+/** Chave morta do rail — limpar evita que uma escolha de julho ressuscite. */
+export const RAIL_KEY_MORTA = "hbx:rail";
 
-export function getRailSnapshot(): "expanded" | "min" {
-  try {
-    return localStorage.getItem(RAIL_KEY) === "min" ? "min" : "expanded";
-  } catch {
-    return "expanded";
-  }
-}
-
-function getRailServerSnapshot(): "expanded" | "min" {
-  return "expanded";
-}
-
-export function subscribeRail(cb: () => void) {
-  railListeners.add(cb);
-  return () => railListeners.delete(cb);
-}
-
-export function toggleRailState() {
-  const next = getRailSnapshot() === "min" ? "expanded" : "min";
-  try { localStorage.setItem(RAIL_KEY, next); } catch { /* sem storage */ }
-  railListeners.forEach(cb => cb());
-}
-
-export function useRailState(): "expanded" | "min" {
-  return useSyncExternalStore(subscribeRail, getRailSnapshot, getRailServerSnapshot);
-}
-
-export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: string; rail?: "expanded" | "min"; onToggleRail?: () => void }) {
+export function Sidebar({ active }: { active: string }) {
   const user = useCurrentUser();
   const ent = useEntitlements();
   const mods = useMyModules();
@@ -1181,9 +1144,13 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
     (n.id !== "automacaoHub" || automacaoHubOk)
   );
   const visibleKey = visible.map(n => n.id).join(",");
-  // rail entra como dep extra (useGlassPill já aceita ...deps): a pílula
-  // precisa re-medir quando o rail colapsa/expande (a largura do item muda).
-  const gp = useGlassPill<HTMLAnchorElement>(active, visibleKey, rail);
+  // A barra FIXA (pino da marca) entra como dep extra do useGlassPill: fixar
+  // muda a largura do item, e a pílula precisa re-medir. A abertura por HOVER
+  // não passa por aqui de propósito — quem cuida dela é o ResizeObserver que o
+  // próprio hook já mantém no item e no pai (glass-pill.tsx), então o vidro
+  // acompanha a barra abrindo sem um único render a mais.
+  const fixado = useCostasLigado();
+  const gp = useGlassPill<HTMLAnchorElement>(active, visibleKey, fixado);
   // Modelo crédito (S6: default é conta de crédito): o card da sidebar mostra
   // SALDO de crédito. Conta empresarial (não-crédito) não tem card — o mais
   // simples (W3/PR10072026); a cota de plano ("Leads do mês") morreu com o plano.
@@ -1197,7 +1164,7 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
   // esta tela, a barra nasce mostrando o PAINEL; passar o mouse devolve os
   // módulos (o resto é CSS puro — hover na própria barra, sem re-render).
   // Rail colapsado não tem verso: lá só cabe ícone.
-  const costasDisponivel = useCostasDisponivel(active) && rail !== "min";
+  const costasDisponivel = useCostasDisponivel(active);
 
   return (
     <aside className="side" data-costas={costasDisponivel ? "on" : "off"}>
@@ -1208,45 +1175,33 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
           overflow:hidden + o raio) corta a barra igual corta qualquer outro
           conteúdo, sem depender do Chrome respeitar o raio no scrollbar. */}
       <div className="side-scroll">
-        {/* A MARCA VOLTOU A SER MARCA (dono, 04/08). De 31/07 a 04/08 o logo era
-            o interruptor do verso dos módulos — e o desenho dele é o MESMO "»"
-            do botão que recolhe a barra, logo ao lado. Com a barra recolhida
-            ficavam dois "»" idênticos fazendo coisas sem relação nenhuma, e o
-            da marca ainda ficava MUDO (rail "min" desliga o verso por regra:
-            useCostasDisponivel). O liga/desliga do painel mudou de casa: agora
-            é a linha "Painel do módulo" no menu Aparência, junto de Densidade —
-            que é onde moram as escolhas de aparência gravadas no navegador. */}
+        {/* A MARCA É O PINO (dono, 04/08 — tarde). O botão de recolher morreu:
+            a barra se recolhe sozinha e abre no mouse, então um botão só pra
+            "esconder o menu" não tinha mais o que fazer ali. Com ele fora, a
+            marca pôde voltar a ser o interruptor SEM a confusão que a tirou
+            desse posto de manhã (dois "»" idênticos, lado a lado, fazendo
+            coisas sem relação).
+            O contorno não é enfeite: é o que diz "isto se clica" — e ele muda
+            de peso conforme o estado, então também RESPONDE "está fixo?", que
+            é o que o "»" mudo nunca soube dizer. */}
       <div className="side-head">
-        <div className={"logo" + (soLog ? " logo--empresa" : "")}>
-          {/* S1 MODO DISTRIBUIDORA: marca = nome da empresa (de-HBX). */}
-          {soLog ? (
-            <strong>{currentCompanyName(user)}</strong>
-          ) : (
-            <>
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg>
-              <strong>HBX</strong>
-            </>
-          )}
-        </div>
-        {/* Toggle do rail (LEADS-FINAL/01): colapsa pra --rail-width-min (só ícone).
-            Botão central existente (round-btn) — zero visual novo. Fica ao lado
-            da marca (07/07): libera a linha inteira que sobrava abaixo do logo. */}
-        {onToggleRail && (
-          <button
-            type="button"
-            className="round-btn rail-toggle"
-            onClick={onToggleRail}
-            aria-label={rail === "min" ? "Expandir menu" : "Recolher menu"}
-            title={rail === "min" ? "Expandir menu" : "Recolher menu"}
-          >
-            {/* key={rail} força remount a cada clique (07/07): o ícone troca de
-                direção JÁ na primeira animation-frame, então o "blink" CSS
-                (encolhe → cresce) sempre nasce mostrando a seta nova. */}
-            <span className="rail-toggle__icon" key={rail}>
-              <I d={rail === "min" ? ICONS.railExpand : ICONS.railCollapse} size={16} />
-            </span>
-          </button>
-        )}
+        <button
+          type="button"
+          className={"logo logo-pino" + (soLog ? " logo--empresa" : "")}
+          aria-pressed={fixado}
+          /* NENHUM texto além da marca (ordem do dono, 04/08). Saiu o `title`
+             (balãozinho preto por cima do menu) e saiu junto o `aria-label`,
+             que repetia a MESMA frase — o botão se anuncia pelo próprio
+             conteúdo ("HBX") e o estado vai no aria-pressed. */
+          onClick={toggleCostas}
+        >
+          {/* S1 MODO DISTRIBUIDORA: marca = nome da empresa (de-HBX). O ">>" fica
+              MESMO ASSIM: sem ele o botão perderia o único desenho que insinua
+              "abre/fecha", e a distribuidora ficaria com um retângulo de texto
+              contornado sem explicação nenhuma. */}
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg>
+          <strong>{soLog ? currentCompanyName(user) : "HBX"}</strong>
+        </button>
       </div>
       {/* A pilha é o palco das duas faces: os MÓDULOS (o menu de sempre) e as
           COSTAS (o painel do módulo aberto). Quem troca uma pela outra é o
@@ -1275,7 +1230,11 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
         return (
           <React.Fragment key={n.id}>
             {showGroupLabel && <div className="nav-group-label" style={passo}>{n.group}</div>}
-            <Link ref={gp.itemRef(n.id)} className={cls} style={passo} href={n.href} data-tut={"nav-" + n.id} title={rail === "min" ? n.label : undefined}>
+            {/* Sem `title` (04/08): ele existia pro rail de ícones, onde o rótulo
+                ficava escondido. Agora encostar o mouse na barra JÁ abre os
+                rótulos — o balãozinho nativo só apareceria por cima de um texto
+                que já está lendo. */}
+            <Link ref={gp.itemRef(n.id)} className={cls} style={passo} href={n.href} data-tut={"nav-" + n.id}>
               <I d={ICONS[n.id]} />
               <span className="nav-item__label">{n.label}</span>
             </Link>
@@ -1545,27 +1504,24 @@ export function AparenciaSwitch() {
                     ))}
                   </div>
 
-                  {/* PAINEL DO MÓDULO — mudou de casa em 04/08 (ordem do dono).
-                      Morava no "»" da marca, na barra lateral, com o mesmo
-                      desenho do botão de recolher ao lado. É escolha de
-                      APARÊNCIA gravada no navegador, igual a Densidade — então
-                      mora aqui, e aplica NA HORA pelo mesmo motivo dela: o
-                      efeito só se julga vendo a barra de verdade.
-                      Bônus de ter saído da barra: no modo distribuidora a marca
-                      é o nome da empresa e não tem SVG, então o sinal de estado
-                      (.logo-switch:not(.is-on) svg) simplesmente não existia —
-                      o interruptor era invisível justo pra quem só usa entrega. */}
-                  <div className="aparencia__cap">Painel do módulo</div>
-                  <div className="aparencia__seg" role="group" aria-label="Painel do módulo na barra lateral">
+                  {/* BARRA LATERAL — é a MESMA chave do pino da marca (hbx:costas),
+                      não uma segunda preferência: fixar a barra e mostrar o
+                      painel do módulo viraram uma coisa só em 04/08. Dois
+                      controles pro mesmo estado não brigam (a chave é uma), e
+                      cada um serve a um momento: o pino pra quem está na barra,
+                      esta linha pra quem veio procurar em Aparência. O rótulo
+                      diz o que a barra FAZ, não o nome interno do painel. */}
+                  <div className="aparencia__cap">Barra lateral</div>
+                  <div className="aparencia__seg" role="group" aria-label="Comportamento da barra lateral">
                     <button className={costasLigado ? "is-on" : ""} aria-pressed={costasLigado}
                       tabIndex={open ? 0 : -1}
                       onClick={() => { if (!costasLigado) toggleCostas(); }}>
-                      Ligado
+                      Fixa aberta
                     </button>
                     <button className={!costasLigado ? "is-on" : ""} aria-pressed={!costasLigado}
                       tabIndex={open ? 0 : -1}
                       onClick={() => { if (costasLigado) toggleCostas(); }}>
-                      Desligado
+                      Oculta sozinha
                     </button>
                   </div>
                 </div>
