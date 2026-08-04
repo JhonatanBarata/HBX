@@ -201,7 +201,7 @@ teste roda restrita; tenant real sobe pra producao no gate do cert).
 | Fatia | Entrega visível | Prova |
 |---|---|---|
 | **F1a** ✅ 04/08 | Schema + perfil + cofre + catálogo + tela config + emissão avulsa | EXECUTADA e provada AO VIVO no localhost (Chrome): perfil+Rio Claro salvos, serviço no catálogo, .pfx de teste no cofre (OpenSSL no container), emissão real na Sefin com cert não-ICP → ERRO 'timeout' limpo na tela + Reemitir, disjuntor pausou em 3 e rearmau pela tela, PDF 200 %PDF, numeração 1/1→1/4. Testes 114/114 (contabil+fiscal, NODE_ENV=test). Nota AUTORIZADA de verdade = F1c (cert ICP real, gate do dono). |
-| **F1b** | E-mail/Whats opt-in + disjuntor + cancelamento | e-mail chega com PDF+XML; disjuntor testado |
+| **F1b** ✅ 04/08 | Envio do PDF+XML ao tomador (e-mail POR EMPRESA via CompanyMailer + WhatsApp document via WebwhatsBridge; auto por opt-in pós-AUTORIZADA fire-and-forget + reenvio manual; falha POR CANAL isolada, trilha envio* no doc e na tela; tomadorFone novo c/ auto-fill RFB) + reconciliação pós-timeout "Conferir na Sefin" (chave oficial da DPS 45c + GET /dps → achou = doc recuperado AUTORIZADA + disjuntor desarmado + envio auto; 404 = reemissão liberada com erroMsg reescrito; guard CNPJ-trocado recusa) | EXECUTADA e provada no Chrome/localhost: botão Conferir na Sefin em doc ERRO timeout devolveu "Sefin não respondeu" limpo na tela (cert não-ICP não fecha mTLS — achou/404 provados na suíte); Enviar em doc AUTORIZADA gravou e MOSTROU a trilha "E-mail da empresa não configurado" na linha, Whats nem tentou sem fone, status fiscal intacto. Testes 128/128. Commits c09a9f32+94e10cf8 (locais). Envio com SUCESSO real (SMTP/chip) = uso real, coberto por teste. |
 | **F1c** | 🔒 GATE: cert A1 real + Rio Claro → producao | 1 nota real no portal gov.br/nfse |
 | **F2a** | Comprovante sem valor fiscal na entrega + config fechamento×entrega | comprovante no Whats |
 | **F2b** | 🔒 GATE: contratar provedor → adapter NF-e + emissão consolidada no fechamento | NF-e homologação do provedor na tela |
@@ -223,8 +223,12 @@ teste da cena (fixture de DPS do tenant + transporte mockado — padrão `nfse-t
 - **Da revisão adversarial de 04/08** (corrigidos na hora: A2 snapshot prestador, A3 aviso
   timeout, A4 amarra cidade×CNPJ, M2 senha fora do cofre, M3 throttle consulta-CNPJ, M4 teto
   valor, M5 comentário honesto do originKey, B5 controle no esc). Ficam com moradia:
-  - **A3-completo**: reconciliação por consulta à Sefin depois de timeout (reusar o padrão
-    `reconciliar` do nfse-emitter do contabil) — F1b.
+  - **A3-completo**: ✅ RESOLVIDO na F1b (04/08) — "Conferir na Sefin" consulta GET /dps/{chave}
+    com a chave oficial da DPS; recuperação/liberação com rastro. Ficou pra F1c validar LIVE:
+    (a) caminho real dos endpoints (`/nfse`, `/dps/{id}` sobre a base Sefin — a convenção veio
+    do S6 e nunca fechou mTLS com cert de teste); (b) o Id INTERNO da assinatura (`montarInfId`
+    hash) não segue o pattern oficial de Id da DPS — o validador oficial pode rejeitar; trocar
+    no client (contabil+fiscal juntos) se a 1ª nota real recusar.
   - **M1**: chave de cofre SEPARADA pro fiscal do tenant (`HBX_FISCAL_VAULT_KEY` + versão de
     chave no envelope; hoje divide `HBX_CONTABIL_VAULT_KEY` com o cofre do dono) — blast radius.
   - **B1**: sanitizar `erroMsg` antes de devolver pra tela (hoje mensagem técnica crua em 200).
