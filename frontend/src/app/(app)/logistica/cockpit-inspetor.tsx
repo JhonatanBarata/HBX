@@ -19,7 +19,10 @@ import { I, ICONS } from "@/components/hbx/shell";
 
 import {
   enviarRecado,
+  ehParadaAberta,
   getFioRecados,
+  ordenarParadas,
+  proximaParada,
   rotuloDoEstado,
   type Entregador,
   type Parada,
@@ -54,21 +57,21 @@ function endereco(stop: Parada): string {
 export type FarolEstado = "ok" | "atencao" | "grave";
 
 export function CockpitInspetor({
+  ativo,
   motorista,
   paradas,
   farol,
-  situacao,
   onde,
   onFechar,
   onTrocarDono,
   onCancelarParada,
 }: {
+  /** Mantém rascunho/histórico montados, mas pausa a leitura quando Hoje não está visível. */
+  ativo: boolean;
   motorista: Entregador;
   /** Só as paradas DELE, já na ordem da rota. */
   paradas: Parada[];
   farol: FarolEstado;
-  /** Uma frase: "Em rota · há 40 s" / "Parado há 22 min". */
-  situacao: string;
   /** Endereço/última posição conhecida, quando existe. */
   onde: string | null;
   onFechar: () => void;
@@ -89,7 +92,7 @@ export function CockpitInspetor({
   const fioEmVooRef = useRef(false);
 
   const carregarFio = useCallback(
-    async (comLoading: boolean) => {
+    async (comLoading: boolean, signal?: AbortSignal) => {
       // Nunca sobrepõe uma leitura ainda em andamento. Com intervalo menor que
       // a latência, criar uma requisição nova a cada tic invalidava TODAS as
       // respostas e deixava o fio preso em "Carregando…" para sempre.
@@ -98,7 +101,7 @@ export function CockpitInspetor({
       const requestId = ++fioRequestRef.current;
       if (comLoading) setCarregandoFio(true);
       try {
-        const linhas = await getFioRecados(motorista.id);
+        const linhas = await getFioRecados(motorista.id, signal);
         if (requestId !== fioRequestRef.current) return;
         setFio(Array.isArray(linhas) ? linhas : []);
         setErroFio(null);
@@ -115,21 +118,28 @@ export function CockpitInspetor({
   );
 
   // Resposta é conversa, não relatório: enquanto o fio está aberto, busca a
-  // cada 2 s. Antes eram 20 s e o clique certo no celular parecia perdido.
+  // a cada 1 s. Antes eram 20 s e o clique certo no celular parecia perdido.
   // NÃO limpa o fio aqui: quem monta este componente
   // passa `key={motorista.id}`, então trocar de pessoa REMONTA e o estado já
   // nasce vazio — limpar no efeito seria pintar o fio de A antes de apagar.
   useEffect(() => {
+    if (!ativo) return undefined;
     let vivo = true;
+    const controller = new AbortController();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar; efeito legítimo, não estado derivado.
-    void carregarFio(true);
+    void carregarFio(true, controller.signal);
     const timer = setInterval(() => {
       if (vivo && (typeof document === "undefined" || document.visibilityState === "visible")) {
-        void carregarFio(false);
+        void carregarFio(false, controller.signal);
       }
     }, 1_000);
-    return () => { vivo = false; fioRequestRef.current += 1; clearInterval(timer); };
-  }, [carregarFio]);
+    return () => {
+      vivo = false;
+      fioRequestRef.current += 1;
+      controller.abort();
+      clearInterval(timer);
+    };
+  }, [ativo, carregarFio]);
 
   // Rolar pro fim quando chega mensagem — conversa se lê pelo pé.
   useEffect(() => {
@@ -152,8 +162,8 @@ export function CockpitInspetor({
       .finally(() => setEnviando(false));
   }, [enviando, motorista.id, nivel, texto]);
 
-  const abertas = paradas.filter((p) => p.status === "agendada" || p.status === "em_rota");
-  const agora = abertas.find((p) => p.status === "em_rota") ?? abertas[0] ?? null;
+  const abertas = ordenarParadas(paradas.filter(ehParadaAberta));
+  const agora = proximaParada(abertas);
   const fila = abertas.filter((p) => p.id !== agora?.id);
   const feitas = paradas.filter((p) => p.status === "entregue").length;
   const nome = motorista.nome || motorista.email || `Motorista ${motorista.id}`;
@@ -167,14 +177,14 @@ export function CockpitInspetor({
         </span>
         <span className="cok__insp-quem">
           <b className="hbx-1linha">{nome}</b>
-          <small className="hbx-1linha">{situacao}</small>
+          <small className="hbx-1linha">Chat da central</small>
         </span>
         <button type="button" className="cok__insp-x" aria-label="Fechar painel" onClick={onFechar}>×</button>
       </header>
 
       <div className="cok__insp-corpo">
         <div className="cok__agora">
-          <small>Agora</small>
+          <small>Próxima parada</small>
           {agora ? (
             <>
               <b className="hbx-1linha">{agora.cliente.nome || "Cliente"}</b>
@@ -182,8 +192,17 @@ export function CockpitInspetor({
                 {[
                   hora(agora.etaAt) ? `ETA ${hora(agora.etaAt)}` : null,
                   agora.produto ? `${agora.quantidade}× ${agora.produto.nome}` : `${agora.quantidade} un`,
+                  fila.length > 0 ? `${fila.length} depois` : "última da fila",
                 ].filter(Boolean).join(" · ")}
               </span>
+              <div className="cok__agora-acoes">
+                <button type="button" className="btn-ghost btn-xs" onClick={() => onTrocarDono(agora)}>
+                  Trocar motorista
+                </button>
+                <button type="button" className="btn-ghost btn-xs is-perigo" onClick={() => onCancelarParada(agora)}>
+                  Cancelar parada
+                </button>
+              </div>
             </>
           ) : (
             <>
@@ -202,42 +221,6 @@ export function CockpitInspetor({
         )}
 
         {erro && <p className="hint">{erro}</p>}
-
-        <div>
-          <h3 className="cok__insp-titulo">Fila · {fila.length} depois desta</h3>
-          {fila.length === 0 && <p className="cok__chat-vazio">Nada na fila.</p>}
-          {fila.map((stop) => (
-            <div className="cok__fila-linha" key={stop.id}>
-              <span className="cok__fila-n" aria-hidden>
-                {typeof stop.rotaOrdem === "number" ? stop.rotaOrdem + 1 : "—"}
-              </span>
-              <span className="cok__fila-nome">
-                <b className="hbx-1linha">{stop.cliente.nome || "Cliente"}</b>
-                <small className="hbx-1linha">
-                  {stop.produto ? `${stop.quantidade}× ${stop.produto.nome}` : `${stop.quantidade} un`}
-                  {stop.somenteCobranca ? " · só cobrar" : ""}
-                </small>
-              </span>
-              <span className="cok__fila-acoes">
-                <button
-                  type="button"
-                  aria-label={`Passar ${stop.cliente.nome || "esta parada"} para outro motorista`}
-                  onClick={() => onTrocarDono(stop)}
-                >
-                  ⇄
-                </button>
-                <button
-                  type="button"
-                  className="is-perigo"
-                  aria-label={`Cancelar a parada de ${stop.cliente.nome || "este cliente"}`}
-                  onClick={() => onCancelarParada(stop)}
-                >
-                  ✕
-                </button>
-              </span>
-            </div>
-          ))}
-        </div>
       </div>
 
       <section className="cok__chat" aria-label={`Recados com ${nome}`}>

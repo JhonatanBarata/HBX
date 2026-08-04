@@ -2012,20 +2012,12 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .dn-convo__body > .btn-teal { box-shadow: 0 10px 22px -12px color-mix(in srgb, var(--hbx-primary) 55%, transparent); }
 
 /* ============================================================
-   MENU APARÊNCIA (dono 28/07) — o modo de seleção aprovado (mock
-   docs/mockups/aparencia-selecao.html, opção A: gaveta que desliza).
+   MENU APARÊNCIA — mock vivo em
+   docs/mockups/aparencia-painel-unico.html.
 
-   O QUE ELE CONSERTA
-   Antes: um clique aplicava E FECHAVA o menu ("tá bagunçado", palavras do
-   dono), e as 3 cascas vinham sob um rótulo "Casca" que não dizia nada.
-   Agora: escolher aplica NA HORA e o menu FICA ABERTO — quem fecha é o
-   usuário (clique fora, Esc ou o próprio botão). A casca que tem cor e
-   modo pra escolher ganha uma seta e desliza pro segundo nível, com
-   "voltar"; as que não têm resolvem em um clique só, na mesma lista.
-
-   Um painel, dois níveis, um de cada vez. A altura do painel acompanha o
-   nível ativo (medida em JS, ver AparenciaSwitch) — sem isso a gaveta
-   pularia de tamanho no meio do deslize.
+   04/08 — o nível de seleção Premium/Corporativo morreu por ordem do dono.
+   O clique no header abre direto o painel final; fechar usa a volta real do
+   motion floating central, sem desmontar o DOM antes da transição acabar.
    ============================================================ */
 .aparencia { position: relative; display: inline-flex; }
 .aparencia__trigger { min-height: 32px; gap: 7px; }
@@ -2038,64 +2030,15 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 
 .aparencia__menu {
   position: absolute; right: 0; top: calc(100% + 8px); z-index: 30;
-  width: 250px; padding: 0; overflow: hidden;
+  width: 560px; padding: 0; overflow: hidden;
 }
-.aparencia__deck {
-  position: relative;
-  overflow: hidden;
-  transition: height var(--motion-base) var(--ease-out-quint);
-}
-.aparencia__lvl {
-  position: absolute; inset: 0 0 auto 0;
-  padding: 5px 0 6px;
-  background: var(--surface-card);
-  transition: transform var(--motion-base) var(--ease-out-quint), opacity var(--motion-fast);
-}
-/* Nível 1 no lugar, nível 2 esperando fora da moldura, à direita. */
-.aparencia__lvl--2 { transform: translateX(100%); opacity: 0; pointer-events: none; }
-.aparencia__deck.is-deep .aparencia__lvl--1 { transform: translateX(-14%); opacity: 0; pointer-events: none; }
-.aparencia__deck.is-deep .aparencia__lvl--2 { transform: none; opacity: 1; pointer-events: auto; }
-
-.aparencia__item {
-  width: 100%;
-  display: flex; align-items: center; gap: 9px;
-  padding: 9px 11px;
-  border: none; background: none; cursor: pointer; text-align: left;
-  font-family: var(--font-body); font-size: var(--fz-l1); font-weight: var(--weight-semibold);
-  line-height: 1.2; color: var(--text-strong);
-  transition: background var(--motion-fast), color var(--motion-fast);
-}
-.aparencia__item:hover { background: var(--hbx-brand-soft); color: var(--hbx-brand-strong); }
-.aparencia__item.is-on { color: var(--hbx-brand-strong); }
-/* A marca de escolhido tem largura fixa: sem ela o texto pulava 15px de
-   lado a cada troca, que é ruído puro num menu de 3 linhas. */
-.aparencia__mark { width: 15px; flex: none; color: var(--hbx-brand); font-size: var(--fz-m1); line-height: 1; }
-/* Só o NOME por linha. O subtítulo explicando cada casca foi cortado pelo
-   dono ("Remova explicações, eu pedi?") — não reintroduzir. */
-.aparencia__label { flex: 1; min-width: 0; }
-.aparencia__go { flex: none; color: var(--text-muted); font-size: var(--fz-n3); line-height: 1; }
-.aparencia__item:hover .aparencia__go { color: var(--hbx-brand-strong); }
-
-.aparencia__back {
-  width: 100%;
-  display: flex; align-items: center; gap: 9px;
-  padding: 10px 11px;
-  border: none; border-bottom: 1px solid var(--border-hairline);
-  background: none; cursor: pointer;
-  font-family: var(--font-body); font-size: var(--fz-l1); font-weight: var(--weight-bold);
-  color: var(--text-strong);
-  transition: color var(--motion-fast);
-}
-.aparencia__back:hover { color: var(--hbx-brand-strong); }
-.aparencia__back span { color: var(--text-muted); font-size: var(--fz-t10); line-height: 1; }
-.aparencia__back:hover span { color: var(--hbx-brand-strong); }
+.aparencia__panel { background: var(--surface-card); }
 
 .aparencia__cap {
-  padding: 9px 11px 4px;
+  padding: 7px 10px 3px;
   font-size: var(--hbx-font-min); font-weight: var(--weight-bold);
   letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted);
 }
-.aparencia__sep { height: 1px; margin: 4px 0; background: var(--border-hairline); }
 
 /* A bolinha do BOTÃO mostra a cor que está no ar — seja ela da grade ou
    livre. Uma linha só, porque `--hbx-cor` já é a semente resolvida: era isso
@@ -2109,20 +2052,20 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
    exemplos bem distintos, e o seletor de cores"). Uma fila se le de olhada;
    uma parede de 17 exige comparar, e comparar e o oposto de atalho.
 
-   O recuo lateral e token LOCAL: as linhas irmas (.aparencia__item, __cap,
-   __seg) usam 11px cada uma por conta propria, e medida repetida em cinco
+   O recuo lateral e token LOCAL: as linhas irmas (__grade, __cap, __seg)
+   usam o mesmo recuo, e medida repetida em cinco
    lugares e a que sai de sincronia. Declarar aqui tambem mantem a catraca R9
    parada -- `var()` nao e px literal. */
-.aparencia { --ap-inset: 11px; }
+.aparencia { --ap-inset: 10px; }
 .aparencia__grade {
   display: flex; align-items: center; gap: var(--space-2);
-  padding: 0 var(--ap-inset) var(--space-3);
+  padding: 0 var(--ap-inset) var(--space-2);
 }
 .aparencia__cor {
   /* `aspect-ratio` em vez de `height`: a altura DERIVA da largura, então o
      circulo continua circulo e a catraca R10 (altura travada em px) nao anda.
      Altura que se recusa a crescer e o defeito que o R10 existe pra pegar. */
-  width: 30px; aspect-ratio: 1; flex: none;
+  width: 28px; aspect-ratio: 1; flex: none;
   border: none; border-radius: 50%; padding: 0; cursor: pointer;
   box-shadow: inset 0 0 0 1px var(--border-hairline);
   transition: transform var(--motion-fast), box-shadow var(--motion-fast);
@@ -2189,7 +2132,7 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
    valendo. Ela lê os MESMOS tokens que o app — não é uma imitação pintada à
    parte, é o design system em miniatura, e por isso não sai de sincronia. */
 .aparencia__previa {
-  margin: 0 var(--ap-inset) var(--space-3);
+  margin: 2px var(--ap-inset) var(--space-2);
   border: 1px solid var(--border-hairline);
   border-radius: var(--radius-sm);
   overflow: hidden;
@@ -2215,14 +2158,14 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
   padding: 1px var(--space-2); border-radius: var(--radius-pill);
   background: var(--hbx-brand-soft); color: var(--hbx-brand-strong);
 }
-.aparencia__previa-corpo { padding: var(--space-2); display: grid; gap: var(--space-2); }
+.aparencia__previa-corpo { padding: 6px; display: grid; gap: 5px; }
 /* min-height (não height): a densidade manda na altura, mas quem aumentou a
    letra pra 150% no painel ao lado precisa que a linha CRESÇA junto — altura
    travada aqui decapitaria o texto, que é exatamente o defeito que o R10 e a
    rede de corte existem pra pegar. */
 .aparencia__previa-linha {
   display: flex; align-items: center; gap: var(--space-2);
-  min-height: var(--row-height, 32px); padding: var(--space-1) var(--space-2);
+  min-height: var(--row-height, 30px); padding: 2px var(--space-2);
   border: 1px solid color-mix(in srgb, var(--border-hairline) 80%, transparent);
   border-radius: var(--radius-xs);
   background: var(--hbx-surface);
@@ -2249,7 +2192,6 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
    na janela. Em duas colunas ele fica em ~560 de largura e cada metade tem um
    assunto: à esquerda superfície (cor, material, modo, densidade), à direita
    texto (fonte e os 5 tamanhos). */
-.aparencia__menu--unico { width: 560px; }
 .aparencia__colunas { display: grid; grid-template-columns: 1fr 1fr; }
 .aparencia__coluna { min-width: 0; }
 .aparencia__coluna + .aparencia__coluna { border-left: 1px solid var(--border-hairline); }
@@ -2261,41 +2203,42 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
   .aparencia__coluna + .aparencia__coluna {
     border-left: none; border-top: 1px solid var(--border-hairline);
   }
-  .aparencia__deck { max-height: 60vh; overflow-y: auto; }
+  .aparencia__panel { max-height: 60vh; overflow-y: auto; }
 }
 
 /* Claro/escuro: segmentado, porque são dois estados de UMA coisa — não duas
    linhas soltas de lista como eram antes. */
 .aparencia__seg {
   display: flex; gap: 4px;
-  margin: 2px 9px 8px; padding: 4px;
+  margin: 1px 8px 6px; padding: 3px;
   border-radius: var(--radius-sm);
-  background: var(--surface-canvas);
+  background: color-mix(in srgb, var(--surface-canvas) 76%, var(--surface-card));
 }
 .aparencia__seg button {
   flex: 1;
   display: flex; align-items: center; justify-content: center; gap: 6px;
-  padding: 7px 0;
+  padding: 6px 0;
   border: none; border-radius: var(--radius-xs); background: none; cursor: pointer;
   font-family: var(--font-body); font-size: var(--fz-l3); font-weight: var(--weight-semibold);
   color: var(--text-muted);
   transition: background var(--motion-fast), color var(--motion-fast);
 }
 .aparencia__seg button.is-on {
-  background: var(--surface-card);
-  color: var(--text-strong);
+  background: color-mix(in srgb, var(--hbx-brand-soft) 48%, var(--surface-card));
+  color: var(--hbx-brand-strong);
   font-weight: var(--weight-bold);
   box-shadow: var(--shadow-xs);
 }
 
-/* RODAPÉ — fora da gaveta: o Aplicar não desliza junto com os níveis, fica
-   parado no mesmo lugar nos dois. É ele que troca a aparência; clicar na
-   lista só marca. Desabilitado enquanto nada mudou, pra não prometer ação
-   que não tem efeito. */
+/* RODAPÉ — os dois verbos na MESMA linha. Aplicar fica desabilitado enquanto
+   cor/material/modo não mudaram, sem prometer uma ação que não tem efeito. */
 .aparencia__foot {
-  padding: 8px 9px 9px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--ap-inset);
   border-top: 1px solid var(--border-hairline);
-  background: var(--surface-card);
+  background: color-mix(in srgb, var(--surface-canvas) 44%, var(--surface-card));
 }
 .aparencia__apply {
   width: 100%;
@@ -2304,10 +2247,6 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
   font-size: var(--fz-l2);
 }
 .aparencia__apply:disabled { opacity: 0.45; cursor: default; box-shadow: none; }
-
-@media (prefers-reduced-motion: reduce) {
-  .aparencia__deck, .aparencia__lvl { transition: none; }
-}
 
 /* ============================================================
    PAINEL DE TIPOGRAFIA (dono 31/07) — fonte + tamanho por papel, ao lado
@@ -2349,14 +2288,14 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
    (quem fecha o painel é o rodapé). */
 .tipografia__linha {
   display: grid;
-  grid-template-columns: 5.6rem 1fr 3.2rem;
+  grid-template-columns: 5rem 1fr 2.8rem;
   align-items: center;
-  gap: 8px;
-  padding: 8px 11px;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--border-hairline);
   /* Miolo OPACO — a casca Premium veste .hbx-pop com vidro (82% + blur), o
      que deixava a lista do funil aparecer ATRAVÉS das réguas. Mesma solução
-     do menu Aparência (.aparencia__lvl): o vidro fica na moldura, o conteúdo
+     do menu Aparência (.aparencia__panel): o vidro fica na moldura, o conteúdo
      é sólido. Painel de ajuste fino não pode competir com o fundo. */
   background: var(--surface-card);
 }

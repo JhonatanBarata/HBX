@@ -20,9 +20,15 @@
 
 import React, { useCallback, useMemo, useState } from "react";
 
-import { atribuirLote, type Entregador, type Parada } from "./cockpit-api";
+import {
+  atribuirLote,
+  ehParadaAberta,
+  ordenarParadas,
+  proximaParada,
+  type Entregador,
+  type Parada,
+} from "./cockpit-api";
 
-const ABERTO = ["agendada", "em_rota"] as const;
 const ORFA = "sem-motorista";
 
 type Faixa = {
@@ -53,25 +59,8 @@ function hora(iso: string | null | undefined): string | null {
     : data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
-function aberta(parada: Parada): boolean {
-  return (ABERTO as readonly string[]).includes(parada.status);
-}
-
 function semPino(parada: Parada): boolean {
   return typeof parada.cliente.lat !== "number" || typeof parada.cliente.lng !== "number";
-}
-
-/** Regra 1: rotaOrdem manda; empate por ETA/hora; id estabiliza. */
-function ordenar(paradas: Parada[]): Parada[] {
-  return [...paradas].sort((a, b) => {
-    const oa = typeof a.rotaOrdem === "number" ? a.rotaOrdem : Number.MAX_SAFE_INTEGER;
-    const ob = typeof b.rotaOrdem === "number" ? b.rotaOrdem : Number.MAX_SAFE_INTEGER;
-    if (oa !== ob) return oa - ob;
-    const qa = a.etaAt || a.scheduledAt || "";
-    const qb = b.etaAt || b.scheduledAt || "";
-    if (qa !== qb) return qa.localeCompare(qb);
-    return a.id.localeCompare(b.id);
-  });
 }
 
 export function CockpitTabuleiro({
@@ -125,7 +114,7 @@ export function CockpitTabuleiro({
       mapa.set(chave, faixa);
     }
     const lista = [...mapa.values()];
-    for (const faixa of lista) faixa.paradas = ordenar(faixa.paradas);
+    for (const faixa of lista) faixa.paradas = ordenarParadas(faixa.paradas);
     // Órfã SEMPRE por último: é o balde do problema, não um motorista.
     return lista.sort((a, b) => {
       if (a.chave === ORFA) return 1;
@@ -160,9 +149,7 @@ export function CockpitTabuleiro({
       {faixas.map((faixa) => {
         const feitas = faixa.paradas.filter((p) => p.status === "entregue").length;
         const orfa = faixa.chave === ORFA;
-        const agora = orfa
-          ? null
-          : faixa.paradas.find((p) => p.status === "em_rota") ?? faixa.paradas.find((p) => p.status === "agendada") ?? null;
+        const agora = orfa ? null : proximaParada(faixa.paradas);
         const podeReceber = !!arrastando && (
           orfa ? !!arrastando.entregador : Number(arrastando.entregador?.id) !== faixa.entregador?.id
         );
@@ -233,7 +220,7 @@ export function CockpitTabuleiro({
                     {/* A bolinha da SELEÇÃO — só em parada aberta (entregue/
                         cancelada não entra em lote; o backend ignoraria e a
                         tela prometeria o que não faz). */}
-                    {aberta(stop) ? (
+                    {ehParadaAberta(stop) ? (
                       <input
                         type="checkbox"
                         className="cok-tira__marca"

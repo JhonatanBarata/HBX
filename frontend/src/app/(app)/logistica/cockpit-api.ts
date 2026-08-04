@@ -40,6 +40,29 @@ export type Parada = {
   entregador: Entregador | null;
 };
 
+/** Seletores canônicos da operação. Mapa, tabuleiro e inspetor não decidem
+ * separadamente qual parada está aberta, em qual ordem ou qual é a próxima. */
+export function ehParadaAberta(parada: Parada): boolean {
+  return parada.status === "agendada" || parada.status === "em_rota";
+}
+
+export function ordenarParadas(paradas: Parada[]): Parada[] {
+  return [...paradas].sort((a, b) => {
+    const ordemA = typeof a.rotaOrdem === "number" ? a.rotaOrdem : Number.MAX_SAFE_INTEGER;
+    const ordemB = typeof b.rotaOrdem === "number" ? b.rotaOrdem : Number.MAX_SAFE_INTEGER;
+    if (ordemA !== ordemB) return ordemA - ordemB;
+    const quandoA = a.etaAt || a.scheduledAt || "";
+    const quandoB = b.etaAt || b.scheduledAt || "";
+    if (quandoA !== quandoB) return quandoA.localeCompare(quandoB);
+    return a.id.localeCompare(b.id);
+  });
+}
+
+export function proximaParada(paradas: Parada[]): Parada | null {
+  const abertas = ordenarParadas(paradas.filter(ehParadaAberta));
+  return abertas.find((parada) => parada.status === "em_rota") ?? abertas[0] ?? null;
+}
+
 export type RecadoNivel = "normal" | "urgente" | "alarme";
 export type RecadoEstado = "enviado" | "no_aparelho" | "visto" | "entendido";
 
@@ -173,8 +196,8 @@ export function enviarRecado(input: {
   });
 }
 
-export function getFioRecados(motoristaUserId: number): Promise<Recado[]> {
-  return apiFetch<Recado[]>(`/logistica/recados/${motoristaUserId}`);
+export function getFioRecados(motoristaUserId: number, signal?: AbortSignal): Promise<Recado[]> {
+  return apiFetch<Recado[]>(`/logistica/recados/${motoristaUserId}`, { signal });
 }
 
 export function getRecadosNaoLidos(): Promise<Record<string, number>> {

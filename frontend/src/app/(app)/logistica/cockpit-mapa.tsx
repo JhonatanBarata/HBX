@@ -25,7 +25,7 @@ import React, { useEffect, useMemo, useRef } from "react";
 
 import { isValidMapCoordinate, OPENFREEMAP_STYLE_URL } from "@/lib/openfreemap";
 
-import type { Parada } from "./cockpit-api";
+import { ehParadaAberta, proximaParada, type Parada } from "./cockpit-api";
 import type { TrackingHistoryPoint, TrackingLiveRoute } from "./rastreamento/tracking-live-api";
 
 const TRILHA_SOURCE = "cok-trilha";
@@ -79,7 +79,7 @@ export function CockpitMapa({
 
   // ── Derivar os pinos (fora do ciclo do mapa) ─────────────────────────────
   const abertas = useMemo(
-    () => stops.filter((s) => s.status === "agendada" || s.status === "em_rota"),
+    () => stops.filter(ehParadaAberta),
     [stops],
   );
   const semPonto = useMemo(
@@ -88,10 +88,10 @@ export function CockpitMapa({
   );
   const pinos = useMemo<PinoDado[]>(() => {
     const agoraPorMotorista = new Map<number, string>();
-    for (const stop of abertas) {
-      const dono = Number(stop.entregador?.id);
-      if (!dono || agoraPorMotorista.has(dono)) continue;
-      agoraPorMotorista.set(dono, stop.id);
+    const motoristas = new Set(abertas.map((stop) => Number(stop.entregador?.id)).filter((id) => id > 0));
+    for (const motoristaId of motoristas) {
+      const agora = proximaParada(abertas.filter((stop) => Number(stop.entregador?.id) === motoristaId));
+      if (agora) agoraPorMotorista.set(motoristaId, agora.id);
     }
     return stops
       .filter((s) => s.status !== "cancelada")
@@ -116,6 +116,8 @@ export function CockpitMapa({
   useEffect(() => {
     const host = hostRef.current;
     if (!host || mapRef.current) return;
+    const pinosMontados = pinosRef.current;
+    const motoristasMontados = motoristasRef.current;
     const map = new maplibregl.Map({
       container: host,
       style: OPENFREEMAP_STYLE_URL,
@@ -141,10 +143,10 @@ export function CockpitMapa({
     return () => {
       observador.disconnect();
       prontoRef.current = false;
-      pinosRef.current.forEach((m) => m.remove());
-      pinosRef.current.clear();
-      motoristasRef.current.forEach((m) => m.remove());
-      motoristasRef.current.clear();
+      pinosMontados.forEach((m) => m.remove());
+      pinosMontados.clear();
+      motoristasMontados.forEach((m) => m.remove());
+      motoristasMontados.clear();
       map.remove();
       mapRef.current = null;
     };

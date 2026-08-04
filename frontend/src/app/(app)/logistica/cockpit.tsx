@@ -40,6 +40,7 @@ import { apiFetch } from "@/lib/api";
 import {
   atribuirLote,
   cancelarEntrega,
+  ehParadaAberta,
   fraseDaMissao,
   fraseDoAviso,
   getMissoes,
@@ -79,11 +80,13 @@ export type CockpitEntrega = Parada & {
   cliente: Parada["cliente"] & { nome: string | null };
 };
 
-function fmtMoeda(v: number): string {
+function fmtMoeda(v: number | null): string {
+  if (v === null) return "—";
   return `R$ ${Number(v || 0).toFixed(2).replace(".", ",")}`;
 }
 
 export function Cockpit({
+  ativo,
   stops,
   drivers,
   entreguesHoje,
@@ -97,10 +100,12 @@ export function Cockpit({
   onParadaAvulsa,
   onAtribuido,
 }: {
+  /** A visão continua montada ao trocar de aba, mas só trabalha quando Hoje está visível. */
+  ativo: boolean;
   stops: CockpitEntrega[];
   drivers: Entregador[];
-  entreguesHoje: number;
-  aReceber: number;
+  entreguesHoje: number | null;
+  aReceber: number | null;
   carregando: boolean;
   atualizadoEm: Date | null;
   /** O "⋯": estoque, importar, regras, app, gerar entregas, fechar mês. */
@@ -112,7 +117,9 @@ export function Cockpit({
   onAtribuido: (stopId: string, entregador: Entregador | null) => void;
 }) {
   const [palco, setPalco] = useState<Palco>(PALCO_PADRAO);
-  const [selecionado, setSelecionado] = useState<number | null>(null);
+  // `undefined` = ainda não houve escolha manual; nesse estado o primeiro
+  // motorista com rota já nasce aberto. `null` = o operador fechou o painel.
+  const [selecionado, setSelecionado] = useState<number | null | undefined>(undefined);
   const [avisos, setAvisos] = useState<RotaAviso[]>([]);
   const [missoes, setMissoes] = useState<MissaoIndicada[]>([]);
   const [naoLidos, setNaoLidos] = useState<Record<string, number>>({});
@@ -126,6 +133,7 @@ export function Cockpit({
 
   // ── Avisos (vigia + sentinela): pulso lento do cockpit ──────────────────
   useEffect(() => {
+    if (!ativo) return undefined;
     let vivo = true;
     const carregar = () => {
       apiFetch<RotaAviso[]>("/logistica/rota-avisos")
@@ -138,11 +146,12 @@ export function Cockpit({
     carregar();
     const timer = setInterval(carregar, TICK_AVISOS_MS);
     return () => { vivo = false; clearInterval(timer); };
-  }, []);
+  }, [ativo]);
 
   // Resposta do motorista é conversa: o badge não pode esperar o relógio de
   // avisos/rotas (60 s). O fio aberto usa 2 s; o elenco fechado percebe em 3 s.
   useEffect(() => {
+    if (!ativo) return undefined;
     let vivo = true;
     let emVoo = false;
     const carregar = () => {
@@ -158,11 +167,11 @@ export function Cockpit({
       if (typeof document === "undefined" || document.visibilityState === "visible") carregar();
     }, TICK_RECADOS_MS);
     return () => { vivo = false; clearInterval(timer); };
-  }, []);
+  }, [ativo]);
 
   // ── Mapa ao vivo: só busca quando o palco mostra mapa (a página de
   // rastreamento morreu, mas o custo dela não pode vir junto de graça). ────
-  const precisaDeMapa = palco === "dividido" || palco === "mapa";
+  const precisaDeMapa = ativo && (palco === "dividido" || palco === "mapa");
   useEffect(() => {
     if (!precisaDeMapa) return undefined;
     let vivo = true;
@@ -189,7 +198,7 @@ export function Cockpit({
   }, [sinoAberto]);
 
   // ── Derivados ────────────────────────────────────────────────────────────
-  const abertas = stops.filter((s) => s.status === "agendada" || s.status === "em_rota");
+  const abertas = stops.filter(ehParadaAberta);
   const orfas = abertas.filter((s) => !s.entregador?.id);
 
   const linhas = useMemo(
@@ -220,13 +229,19 @@ export function Cockpit({
     return [...doVigia, ...dasMissoes].sort((a, b) => Number(b.grave) - Number(a.grave));
   }, [avisos, missoes]);
 
-  const motoristaAtivo = selecionado == null
+  const selecionadoEfetivo = selecionado === undefined
+    ? (drivers.find((driver) => stops.some((stop) => Number(stop.entregador?.id) === driver.id))
+      ?? drivers[0]
+      ?? null)?.id ?? null
+    : selecionado;
+
+  const motoristaAtivo = selecionadoEfetivo == null
     ? null
-    : drivers.find((d) => d.id === selecionado)
-      ?? stops.find((s) => s.entregador?.id === selecionado)?.entregador
+    : drivers.find((d) => d.id === selecionadoEfetivo)
+      ?? stops.find((s) => s.entregador?.id === selecionadoEfetivo)?.entregador
       ?? null;
 
-  const linhaAtiva = linhas.find((l) => l.motorista.id === selecionado) ?? null;
+  const linhaAtiva = linhas.find((l) => l.motorista.id === selecionadoEfetivo) ?? null;
   const paradasDele = motoristaAtivo
     ? stops.filter((s) => Number(s.entregador?.id) === motoristaAtivo.id)
     : [];
@@ -341,7 +356,7 @@ export function Cockpit({
   }, []);
 
   const abrirMotorista = useCallback((motorista: Entregador) => {
-    setSelecionado((atual) => (atual === motorista.id ? null : motorista.id));
+    setSelecionado(motorista.id);
   }, []);
 
   const farolAtivo: FarolEstado = linhaAtiva?.farol ?? "ok";
@@ -350,35 +365,26 @@ export function Cockpit({
     <div className={`cok${motoristaAtivo ? " tem-inspetor" : ""}`}>
       {/* ── TOPO ───────────────────────────────────────────────────────── */}
       <header className="cok__topo">
-        <span className="cok__quem">
-          <b>Operação</b>
-          <small>
-            {atualizadoEm
-              ? `atualizado às ${atualizadoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`
-              : carregando ? "sincronizando…" : "sem leitura"}
-          </small>
-        </span>
-
         <div className="cok__kpis" role="list" aria-label="Números do dia">
           <div className="cok__kpi" role="listitem">
-            <b>{entreguesHoje}</b>
+            <b>{entreguesHoje ?? "—"}</b>
             <span>entregues</span>
           </div>
           <div className="cok__kpi" role="listitem">
             <b>{abertas.length}</b>
             <span>abertas</span>
           </div>
-          {orfas.length > 0 && (
-            <div className="cok__kpi is-alerta" role="listitem">
-              <b>{orfas.length}</b>
-              <span>sem dono</span>
-            </div>
-          )}
           <div className="cok__kpi is-dinheiro" role="listitem">
             <b>{fmtMoeda(aReceber)}</b>
             <span>a receber</span>
           </div>
         </div>
+
+        <span className="cok__sync" role="status">
+          {atualizadoEm
+            ? `Atualizado às ${atualizadoEm.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`
+            : carregando ? "Sincronizando…" : "Sem leitura"}
+        </span>
 
         <span className="cok__sino" ref={sinoRef}>
           <button
@@ -455,7 +461,7 @@ export function Cockpit({
       {/* ── ELENCO ─────────────────────────────────────────────────────── */}
       <CockpitElenco
         linhas={linhas}
-        selecionado={selecionado}
+        selecionado={selecionadoEfetivo}
         orfas={orfas.length}
         onSelecionar={abrirMotorista}
         onAtribuirTodas={abrirAtribuicaoDasOrfas}
@@ -510,7 +516,7 @@ export function Cockpit({
             stops={stops}
             liveRoutes={live?.routes ?? []}
             trilha={trilhaEmFoco?.points ?? []}
-            selecionadoId={selecionado}
+            selecionadoId={selecionadoEfetivo}
             onOpenStop={(id) => {
               const stop = stops.find((s) => s.id === id);
               if (stop) onAbrirParada(stop);
@@ -537,10 +543,10 @@ export function Cockpit({
           /* `key` REMONTA ao trocar de pessoa: o fio de recados nasce vazio
              sem precisar limpar estado dentro de efeito. */
           key={motoristaAtivo.id}
+          ativo={ativo}
           motorista={motoristaAtivo}
           paradas={paradasDele}
           farol={farolAtivo}
-          situacao={linhaAtiva?.situacao || "Sem rota hoje"}
           onde={ondeEstaEle}
           onFechar={() => setSelecionado(null)}
           onTrocarDono={trocarDono}

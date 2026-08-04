@@ -8,17 +8,18 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { AlertaLeadQuente } from "@/components/hbx/disparo-panel";
 import { CostasPainel, toggleCostas, useCostasDisponivel, useCostasLigado } from "@/components/hbx/costas-panel";
 import { CercaDeEnfeite } from "@/components/hbx/error-boundary";
+import { useHbxPresence } from "@/components/hbx/motion";
 import { applyThemeSoft, getCascaAtiva, getCorAtiva, getDensidadeAtiva, getMaterialAtivo, hexDaCor, setAparencia, setDensidade, setThemeMode } from "@/components/hbx/theme-attributes";
 import {
-  CASCAS, COR_PADRAO, CORES, DENSIDADES, MATERIAIS, TEMA_ATTR, escolheModo, getCasca, resolveModo,
-  type CascaKey, type DensidadeKey, type MaterialKey, type Modo,
+  COR_PADRAO, CORES, DENSIDADES, MATERIAIS, TEMA_ATTR, escolheModo, getCasca, resolveModo,
+  type DensidadeKey, type MaterialKey, type Modo,
 } from "@/lib/aparencia";
 import { apiFetch, getToken } from "@/lib/api";
 import { getInitialGeoState, hasStoredGeo, toggleGeoRadar } from "@/lib/geo-radar";
@@ -1311,40 +1312,15 @@ export function subscribeToThemeMode(callback: () => void) {
 }
 
 // ---------------------------------------------------------------
-// APARÊNCIA (dono 28/07, refeito na mesma noite) — UM menu para CASCA,
-// COR e MODO, no modo de seleção aprovado no mock
-// (docs/mockups/aparencia-selecao.html, opção A: gaveta que desliza).
+// APARÊNCIA — 04/08: o clique no header abre DIRETO o painel final.
+// A primeira tela (Premium/Corporativo), a seta de voltar e o segundo nível
+// morreram por ordem do dono. Cor e material continuam em rascunho até
+// Aplicar; fonte, tamanhos e densidade continuam aplicando na hora.
 //
-// O QUE MUDOU E POR QUÊ (palavras do dono: "agora vc clica, o negócio já
-// altera e fechar, tá bagunçado" e, depois, "crie um aplicar no final"):
-//  · o rótulo "Casca" SAIU — a lista já é a primeira coisa do menu, e cada
-//    linha é SÓ o nome: HBX, Premium, Corporativo. Nada de subtítulo
-//    explicando a casca ("Remova explicações, eu pedi?");
-//  · CLICAR NÃO MUDA NADA. O clique só marca a escolha; quem troca a
-//    aparência é o botão APLICAR do rodapé, que aplica os três eixos de
-//    uma vez e fecha. Desistiu? Clique fora ou Esc: nada aconteceu, porque
-//    nada tinha sido aplicado. É o oposto do menu antigo, que mudava e
-//    fechava no primeiro clique;
-//  · cada casca ganha uma seta e abre um SEGUNDO NÍVEL que desliza, com
-//    "voltar".
-//
-// 03/08 — A COR VIROU PAINEL (dono: "remover todas essas cores, deixar um
-// painel, multicor. A pessoa escolhe qual quer e aplica"). No lugar da lista
-// de 6 nomes entram uma GRADE de 17 bolinhas e um campo de COR LIVRE, e os
-// dois gravam no mesmo lugar: a grade manda o NOME (`violeta`, resolvido pela
-// folha) e o campo manda o HEX. Entrou junto o botão VIDRO/CHAPADO — material
-// era efeito colateral da cor até aqui (metade das 6 tinha vidro, metade não,
-// e ninguém tinha escolhido isso), e virou escolha.
-//
-// O rascunho nasce do que está NO AR toda vez que o menu abre, e morre ao
-// fechar sem aplicar — não existe estado meio-aplicado.
-//
-// A altura da gaveta acompanha o nível ativo — medida aqui e escrita como
-// `height` inline (layout, não aparência: Lei nº4 permite). Sem isso o
-// painel pularia de tamanho no meio do deslize.
-//
-// Aplicar NÃO navega e NÃO recarrega: busca, filtros, abas e dados da tela
-// aberta continuam exatamente onde estavam.
+// Entrada E saída consomem o motion `floating` central. `useHbxPresence`
+// mantém o DOM montado durante `exiting`; sem isso o fechamento desaparece
+// antes dos 100 ms e só a animação de abertura fica visível.
+// Aplicar não navega nem recarrega: a tela aberta continua onde estava.
 // ---------------------------------------------------------------
 // Snapshot é STRING de propósito: getTipografiaAtiva() monta objeto novo a
 // cada leitura, e useSyncExternalStore exige valor estável (senão re-render
@@ -1364,16 +1340,11 @@ export function AparenciaSwitch() {
     () => null,
   );
   const [open, setOpen] = useState(false);
-  const [deep, setDeep] = useState(false);
   // A densidade não tem rascunho: ela aplica na hora (ver o bloco no menu).
   // Este estado existe só para o botão aceso acompanhar o clique.
   const [densidade, setDensidadeLocal] = useState<DensidadeKey | null>(null);
-  const [deckH, setDeckH] = useState<number | undefined>(undefined);
-  const lvl1Ref = useRef<HTMLDivElement | null>(null);
-  const lvl2Ref = useRef<HTMLDivElement | null>(null);
 
   // RASCUNHO — o que está marcado no menu. Nada disso vale até o Aplicar.
-  const [draftCasca, setDraftCasca] = useState<CascaKey>(cascaKey);
   const [draftCor, setDraftCor] = useState<string | null>(corKey);
   const [draftMaterial, setDraftMaterial] = useState<MaterialKey>(materialKey);
   const [draftModo, setDraftModo] = useState<Modo>(modeAttr === "dark" ? "dark" : "light");
@@ -1382,8 +1353,11 @@ export function AparenciaSwitch() {
   // senão o valor "de onde eu vim" se perderia a cada bolinha experimentada.
   const [hexLivre, setHexLivre] = useState<string>("#000000");
 
-  const fechar = useCallback(() => { setOpen(false); setDeep(false); }, []);
+  const fechar = useCallback(() => { setOpen(false); }, []);
   const boxRef = useClickAway<HTMLSpanElement>(open, fechar);
+  // O contrato central mantém o popover montado até a transição de SAÍDA
+  // terminar. Sem presença, `open &&` desmonta na hora e a volta nunca existe.
+  const presence = useHbxPresence(open, { kind: "floating" });
 
   // TIPOGRAFIA — o painel "Aa" separado foi engolido por este (dono 03/08,
   // "crie um painel só"). Continua aplicando NA HORA: é ajuste de leitura, e
@@ -1396,7 +1370,7 @@ export function AparenciaSwitch() {
   const tipografia = useMemo(() => JSON.parse(snapshotTipo) as TipografiaNaTela, [snapshotTipo]);
 
   const noAr = getCasca(cascaKey);
-  const casca = getCasca(draftCasca);
+  const casca = getCasca(cascaKey);
   const modoDraft = resolveModo(casca, draftModo);
   const corEhLivre = !!draftCor && !CORES.some(c => c.key === draftCor);
 
@@ -1420,45 +1394,24 @@ export function AparenciaSwitch() {
   const nomeNoAr = CORES.find(c => c.key === corKey)?.nome
     ?? (corKey ? "Personalizada" : CORES.find(c => c.key === "violeta")?.nome ?? "");
 
-  const mudou = draftCasca !== cascaKey
-    || draftCor !== corKey
+  const mudou = draftCor !== corKey
     || draftMaterial !== materialKey
     || (escolheModo(casca) && modoDraft !== (modeAttr === "dark" ? "dark" : "light"));
 
   // Abrir SEMPRE parte do que está no ar — sem rascunho velho sobrando.
   function abrir() {
-    setDraftCasca(cascaKey);
     setDraftCor(corKey);
     setDraftMaterial(materialKey);
     setDraftModo(modeAttr === "dark" ? "dark" : "light");
     setHexLivre(hexDaCor(corKey));
     setDensidadeLocal(getDensidadeAtiva());
-    setDeep(false);
     setOpen(true);
   }
 
   function aplicar() {
-    setAparencia(draftCasca, draftCor, modoDraft, draftMaterial);
+    setAparencia(cascaKey, draftCor, modoDraft, draftMaterial);
     fechar();
   }
-
-  // A gaveta cresce/encolhe junto com o nível que está à mostra.
-  useLayoutEffect(() => {
-    if (!open) return;
-    const alvo = deep ? lvl2Ref.current : lvl1Ref.current;
-    if (alvo) setDeckH(alvo.offsetHeight);
-  }, [open, deep, draftCasca, draftCor, draftMaterial, modoDraft]);
-
-  useEffect(() => {
-    if (!open) return;
-    const aoTeclar = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      if (deep) setDeep(false);
-      else fechar();
-    };
-    window.addEventListener("keydown", aoTeclar);
-    return () => window.removeEventListener("keydown", aoTeclar);
-  }, [deep, fechar, open]);
 
   return (
     <span ref={boxRef} className="aparencia">
@@ -1475,34 +1428,14 @@ export function AparenciaSwitch() {
         <span className="aparencia__caret" aria-hidden="true">▾</span>
       </button>
 
-      {open && (
-        <div className="hbx-pop aparencia__menu aparencia__menu--unico" role="menu" aria-label="Aparência">
-          <div className={"aparencia__deck" + (deep ? " is-deep" : "")} style={{ height: deckH }}>
-
-            {/* ── NÍVEL 1: as cascas ── */}
-            <div className="aparencia__lvl aparencia__lvl--1" ref={lvl1Ref} aria-hidden={deep}>
-              {CASCAS.map(c => (
-                <button key={c.key} role="menuitemradio" aria-checked={c.key === draftCasca}
-                  className={"aparencia__item" + (c.key === draftCasca ? " is-on" : "")}
-                  tabIndex={deep ? -1 : 0}
-                  onClick={() => { setDraftCasca(c.key); setDeep(true); }}>
-                  <span className="aparencia__mark" aria-hidden="true">{c.key === draftCasca ? "✓" : ""}</span>
-                  <span className="aparencia__label">{c.label}</span>
-                  <span className="aparencia__go" aria-hidden="true">›</span>
-                </button>
-              ))}
-            </div>
-
-            {/* ── NÍVEL 2: TUDO num painel só (dono 03/08) ──
-                Duas colunas com assuntos separados: à esquerda o que a tela
-                VESTE, à direita o que ela DIZ. Numa coluna só isto viraria uma
-                torre de ~800px, que não cabe em 768 de altura. */}
-            <div className="aparencia__lvl aparencia__lvl--2" ref={lvl2Ref} aria-hidden={!deep}>
-              <button className="aparencia__back" onClick={() => setDeep(false)} tabIndex={deep ? 0 : -1}>
-                <span aria-hidden="true">‹</span> {casca.label}
-              </button>
-
-              <div className="aparencia__colunas">
+      {presence.mounted && (
+        <div {...presence.motionProps}
+          className="hbx-pop aparencia__menu aparencia__menu--unico"
+          role="menu" aria-label="Aparência">
+          {/* A primeira tela morreu: o clique no header já abre o painel final.
+              Não há nível, volta ou seleção de casca no caminho. */}
+          <div className="aparencia__panel">
+            <div className="aparencia__colunas">
                 {/* ── COLUNA 1 — a superfície ── */}
                 <div className="aparencia__coluna">
                   {/* COR — a fila de 5 é o atalho; a 6ª bolinha (roda de cores)
@@ -1516,13 +1449,13 @@ export function AparenciaSwitch() {
                         aria-label={c.nome} title={c.nome}
                         data-cor-key={c.key}
                         className={"aparencia__cor" + (c.key === draftCor ? " is-on" : "")}
-                        tabIndex={deep ? 0 : -1}
+                        tabIndex={open ? 0 : -1}
                         onClick={() => setDraftCor(c.key)} />
                     ))}
                     <span className={"aparencia__cor aparencia__cor--livre" + (corEhLivre ? " is-on" : "")}
                       title="Escolher outra cor">
                       <input type="color" value={hexLivre} aria-label="Escolher outra cor"
-                        tabIndex={deep ? 0 : -1}
+                        tabIndex={open ? 0 : -1}
                         onChange={e => { setHexLivre(e.target.value); setDraftCor(e.target.value); }} />
                     </span>
                     {corEhLivre && <span className="aparencia__cor-hex hbx-mono">{draftCor?.toUpperCase()}</span>}
@@ -1534,7 +1467,7 @@ export function AparenciaSwitch() {
                   <div className="aparencia__seg" role="group" aria-label="Material das superfícies">
                     {MATERIAIS.map(m => (
                       <button key={m.key} className={draftMaterial === m.key ? "is-on" : ""}
-                        aria-pressed={draftMaterial === m.key} tabIndex={deep ? 0 : -1}
+                        aria-pressed={draftMaterial === m.key} tabIndex={open ? 0 : -1}
                         onClick={() => setDraftMaterial(m.key)}>
                         {m.label}
                       </button>
@@ -1546,11 +1479,11 @@ export function AparenciaSwitch() {
                       <div className="aparencia__cap">Modo</div>
                       <div className="aparencia__seg" role="group" aria-label="Modo claro ou escuro">
                         <button className={modoDraft === "light" ? "is-on" : ""} aria-pressed={modoDraft === "light"}
-                          tabIndex={deep ? 0 : -1} onClick={() => setDraftModo("light")}>
+                          tabIndex={open ? 0 : -1} onClick={() => setDraftModo("light")}>
                           <I d={ICONS.sun} size={14} /> Claro
                         </button>
                         <button className={modoDraft === "dark" ? "is-on" : ""} aria-pressed={modoDraft === "dark"}
-                          tabIndex={deep ? 0 : -1} onClick={() => setDraftModo("dark")}>
+                          tabIndex={open ? 0 : -1} onClick={() => setDraftModo("dark")}>
                           <I d={ICONS.moon} size={14} /> Escuro
                         </button>
                       </div>
@@ -1564,7 +1497,7 @@ export function AparenciaSwitch() {
                   <div className="aparencia__seg" role="group" aria-label="Densidade das listas">
                     {DENSIDADES.map(d => (
                       <button key={d.key} className={densidade === d.key ? "is-on" : ""} aria-pressed={densidade === d.key}
-                        tabIndex={deep ? 0 : -1}
+                        tabIndex={open ? 0 : -1}
                         onClick={() => { setDensidade(densidade === d.key ? null : d.key); setDensidadeLocal(densidade === d.key ? null : d.key); }}>
                         {d.label}
                       </button>
@@ -1582,7 +1515,7 @@ export function AparenciaSwitch() {
                     {FONTES.map(f => (
                       <button key={f.key} className={f.key === tipografia.fonte ? "is-on" : ""}
                         aria-pressed={f.key === tipografia.fonte} data-familia={f.key}
-                        tabIndex={deep ? 0 : -1} onClick={() => setFonte(f.key)}>
+                        tabIndex={open ? 0 : -1} onClick={() => setFonte(f.key)}>
                         {f.label}
                       </button>
                     ))}
@@ -1603,7 +1536,7 @@ export function AparenciaSwitch() {
                         step={TAMANHO_PASSO}
                         value={tipografia.tamanhos[papel.key]}
                         aria-label={"Tamanho \u2014 " + papel.label}
-                        tabIndex={deep ? 0 : -1}
+                        tabIndex={open ? 0 : -1}
                         onChange={e => setTamanho(papel.key, Number(e.target.value))}
                       />
                       <span className="tipografia__pct">{tipografia.tamanhos[papel.key]}%</span>
@@ -1634,26 +1567,19 @@ export function AparenciaSwitch() {
                   <button type="button" className="aparencia__previa-cta" tabIndex={-1} aria-hidden="true">Abrir conversa</button>
                 </div>
               </div>
-            </div>
-          </div>
 
-          {/* RODAPÉ — fora da gaveta de propósito: some quem desliza, o
-              Aplicar fica parado no mesmo lugar nos dois níveis. */}
-          {/* RODAPÉ — fora da gaveta de propósito: some quem desliza, os dois
-              botões ficam parados no mesmo lugar nos dois níveis.
-              "Restaurar padrão" é da TIPOGRAFIA (que aplica na hora, então o
-              desfazer também é na hora); "Aplicar" é de cor e material. Dois
-              verbos porque são dois tempos — juntá-los num só faria o botão
-              mentir sobre metade do que faz. */}
-          <footer className="aparencia__foot">
-            <button type="button" className="btn-ghost tipografia__reset"
-              disabled={ehPadrao(tipografia)} onClick={() => restaurarTipografia()}>
-              Restaurar letra
-            </button>
-            <button type="button" className="btn-teal aparencia__apply" disabled={!mudou} onClick={aplicar}>
-              Aplicar
-            </button>
-          </footer>
+            {/* Dois verbos porque são dois tempos: letra aplica na hora;
+                cor/material só mudam no Aplicar. Agora dividem UMA linha. */}
+            <footer className="aparencia__foot">
+              <button type="button" className="btn-ghost tipografia__reset"
+                disabled={ehPadrao(tipografia)} onClick={() => restaurarTipografia()}>
+                Restaurar letra
+              </button>
+              <button type="button" className="btn-teal aparencia__apply" disabled={!mudou} onClick={aplicar}>
+                Aplicar
+              </button>
+            </footer>
+          </div>
         </div>
       )}
     </span>

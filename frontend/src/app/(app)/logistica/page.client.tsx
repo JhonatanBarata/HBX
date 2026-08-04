@@ -325,6 +325,7 @@ export function LogisticaClient() {
   const [resumo, setResumo] = useState<ResumoDia | null>(null);
   const [menuAberto, setMenuAberto] = useState(false);
   const [view, setView] = useState<LogisticsView>("today");
+  const [urlSincronizada, setUrlSincronizada] = useState(false);
   const [viewsVisitadas, setViewsVisitadas] = useState<Set<LogisticsView>>(() => new Set(["today"]));
   const [acaoPendente, setAcaoPendente] = useState<"gerar" | "fechar" | null>(null);
   const [fechando, setFechando] = useState(false);
@@ -339,8 +340,8 @@ export function LogisticaClient() {
       const next = viewFromUrl();
       setView(next);
       setViewsVisitadas((atuais) => atuais.has(next) ? atuais : new Set(atuais).add(next));
+      setUrlSincronizada(true);
     };
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- sincroniza estado com a URL ao montar/voltar.
     sincronizar();
     window.addEventListener("popstate", sincronizar);
     return () => window.removeEventListener("popstate", sincronizar);
@@ -366,7 +367,6 @@ export function LogisticaClient() {
       })
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : "Não foi possível carregar a rota.");
-        setRota(null);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -376,7 +376,7 @@ export function LogisticaClient() {
   const carregarResumo = useCallback(() => {
     return apiFetch<ResumoDia>("/logistica/resumo-dia")
       .then(setResumo)
-      .catch(() => { /* aditivo: sem resumo o topo mostra 0, nunca quebra */ });
+      .catch(() => { /* preserva a última leitura; sem leitura inicial o topo mostra “—” */ });
   }, []);
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- fetch/sync com API ao montar; efeito legítimo, não estado derivado.
@@ -391,7 +391,7 @@ export function LogisticaClient() {
     if (!admin) return;
     apiFetch<Entregador[]>("/logistica/entregadores")
       .then(setEntregadores)
-      .catch(() => setEntregadores([]));
+      .catch(() => { /* mantém a última equipe conhecida; falha não vira equipe vazia */ });
   }, [admin]);
 
   // O cockpit inteiro (Hoje, Semana e Endereços) é uma única estação de
@@ -490,12 +490,6 @@ export function LogisticaClient() {
     </div>
   ) : null;
 
-  const contextoDaVisao = view === "today"
-    ? `${items.length} parada(s) hoje · ${pendentes} aberta(s)`
-    : view === "weekly"
-      ? "Planejamento recorrente por dia"
-      : "Pinos e endereços antes da rota";
-
   // O "⋯": tudo que NÃO é a operação do dia. Antes eram 6 atalhos e um botão de
   // fechar mês ocupando duas faixas inteiras no meio da tela.
   const menu = admin ? (
@@ -540,13 +534,6 @@ export function LogisticaClient() {
       {admin && (
         <section className={`log-admin-shell is-${view}`}>
           <header className="log-admin-shell__nav">
-            <span className="log-admin-shell__identity">
-              <span className="log-command__icon" aria-hidden><I d={ICONS.logistica} size={17} /></span>
-              <span>
-                <strong>Logística</strong>
-                <small>{contextoDaVisao}</small>
-              </span>
-            </span>
             {abas}
           </header>
 
@@ -554,23 +541,24 @@ export function LogisticaClient() {
             {viewsVisitadas.has("today") && (
               <div className="log-admin-shell__view" hidden={view !== "today"}>
                 <Cockpit
-                stops={items}
-                drivers={entregadores}
-                entreguesHoje={resumo?.entregues ?? 0}
-                aReceber={resumo?.aReceber ?? 0}
-                carregando={loading}
-                atualizadoEm={atualizadoEm}
-                menu={menu}
-                onRecarregar={() => { void load(); void carregarResumo(); }}
-                onAbrirParada={(stop) => setOpen(items.find((item) => item.id === stop.id) ?? null)}
-                onMontarRota={() => setRouteBuilderOpen(true)}
-                onParadaAvulsa={() => setRouteBuilderOpen(true)}
-                onAtribuido={(stopId, entregador) => {
-                  setRota((atual) => atual
-                    ? { ...atual, items: atual.items.map((item) => item.id === stopId ? { ...item, entregador } : item) }
-                    : atual);
-                  setOpen((atual) => atual && atual.id === stopId ? { ...atual, entregador } : atual);
-                }}
+                  ativo={urlSincronizada && view === "today"}
+                  stops={items}
+                  drivers={entregadores}
+                  entreguesHoje={resumo?.entregues ?? null}
+                  aReceber={resumo?.aReceber ?? null}
+                  carregando={loading}
+                  atualizadoEm={atualizadoEm}
+                  menu={menu}
+                  onRecarregar={() => { void load(); void carregarResumo(); }}
+                  onAbrirParada={(stop) => setOpen(items.find((item) => item.id === stop.id) ?? null)}
+                  onMontarRota={() => setRouteBuilderOpen(true)}
+                  onParadaAvulsa={() => setRouteBuilderOpen(true)}
+                  onAtribuido={(stopId, entregador) => {
+                    setRota((atual) => atual
+                      ? { ...atual, items: atual.items.map((item) => item.id === stopId ? { ...item, entregador } : item) }
+                      : atual);
+                    setOpen((atual) => atual && atual.id === stopId ? { ...atual, entregador } : atual);
+                  }}
                 />
                 {error && (
                   <div className="emp-empty log-admin-shell__error">

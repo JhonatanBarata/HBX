@@ -1564,10 +1564,7 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
     [summary],
   );
   const selectedSummary: AgendaDaySummary | null = summaryByDay.get(selectedDay) || null;
-  const planById = useMemo(
-    () => new Map((detail?.planos || []).map((plan) => [plan.id, plan])),
-    [detail],
-  );
+  const planById = new Map((detail?.planos || []).map((plan) => [plan.id, plan]));
   const visibleStops = useMemo(() => {
     const query = search.trim().toLocaleLowerCase("pt-BR");
     if (!query) return detail?.paradas || [];
@@ -1655,8 +1652,8 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
         <header className="log-agenda__head">
           <div className="log-agenda__head-main">
             <div className="log-agenda__head-copy">
-              <h2>{detail?.nome || selectedSummary?.nome || dayLabel(selectedDay)}</h2>
-              <p>{detail?.totais.paradas ?? selectedSummary?.totalParadas ?? 0} paradas · {detail?.totais.clientes ?? selectedSummary?.totalClientes ?? 0} clientes</p>
+              <h2>Sequência recorrente</h2>
+              <p>{detail?.totais.clientes ?? selectedSummary?.totalClientes ?? 0} clientes na ordem abaixo</p>
             </div>
             {/* S3 — zero divergência = nada na tela; badge só existe quando há o que conferir. */}
             {!!divergencias && divergencias.total > 0 && (
@@ -1674,9 +1671,6 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
                 {etaConflitosCount} {etaConflitosCount === 1 ? "conflito" : "conflitos"} de horário
               </span>
             )}
-            <span className={`log-agenda__state ${detail?.ativo === false ? "is-paused" : "is-active"}`}>
-              {detail?.ativo === false ? "Pausado" : "Ativo"}
-            </span>
           </div>
           <div className="log-agenda__actions">
             {!legacyMode && (
@@ -1700,16 +1694,20 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
           </div>
         </header>
 
-        <div className="log-agenda__tools">
-          <label className="log-agenda__search">
-            <I d={ICONS.search} size={14} />
-            <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar cliente ou produto" />
-          </label>
-          <div className="log-agenda__meta" role="status">
-            {message && <span>{message}</span>}
-            {!message && detail?.rota && <span>Versão {detail.rota.versao}</span>}
+        {(message || (detail?.paradas.length ?? 0) > 0) && (
+          <div className="log-agenda__tools">
+            {(detail?.paradas.length ?? 0) > 0 && (
+              <label className="log-agenda__search">
+                <I d={ICONS.search} size={14} />
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar cliente ou produto" />
+              </label>
+            )}
+            <div className="log-agenda__meta" role="status">
+              {message && <span>{message}</span>}
+              {!message && detail?.rota && <span>Versão {detail.rota.versao}</span>}
+            </div>
           </div>
-        </div>
+        )}
 
         {summaryError && !summary && (
           <div className="log-agenda__feedback is-error">
