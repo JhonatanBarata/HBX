@@ -775,6 +775,26 @@ export const RADAR_BLOCKED_OFFICIAL_WEBSITE_DOMAINS = [
   'locaisdobrasil.com.br',
   'directmap.biz',
   'listaamarela.com.br',
+  // MEDIDOS EM 04/08/2026 direto no pool de produção: cada um destes aparece
+  // como "site oficial" de VÁRIAS empresas diferentes ao mesmo tempo — e site
+  // que serve a muitos não é de ninguém. O número ao lado é quantos leads
+  // carregavam o host como se fosse o site deles.
+  'portalgasperto.com.br',            // 36 — guia de revendedores de gás
+  'mestregeo.com.br',                 // 14 — ferramenta de prospecção (concorrente)
+  'distribuidorasdealimentos.com.br', // 13 — "93.686 Empresas no Brasil"
+  'maisdireto.com.br',                // 12 — guia de empresas por cidade
+  'sneps.com.br',                     //  9 — serviço de posicionamento em buscas
+  'superdestaque.com.br',             //  7 — 7 empresas distintas, 5 cidades
+  // Família "<cidade>facil.com.br": guia de cidade em ASP, e a MESMA fonte que
+  // publica nome mutilado no próprio HTML (`alt="Logo Pereira gua e Gs"`).
+  'indaiatubafacil.com.br',
+  'campinasfacil.com.br',
+  'piracicabafacil.com.br',
+  'tatuifacil.com.br',
+  // NÃO entra aqui: guinchosbr.com.br. Os 7 leads dele são a MESMA empresa
+  // ("Guinchos BR") em 7 cidades — o site é legítimo, e bloquear tiraria de
+  // uma empresa real o site dela. Compartilhar host só condena quando os
+  // NOMES também são diferentes; foi conferido um a um.
   'paginasamarelas.cybo.com',
   'cybo.com',
   'gupy.io',

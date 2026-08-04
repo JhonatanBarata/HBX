@@ -1395,7 +1395,14 @@ export class RadarCoreDeliveryMixin {
         segment: segmentValue,
         normalizedSegment: normalizeLookupValue(segmentValue || ''),
         businessCategory: derived.category,
-        website: String(candidate.website || '').trim() || null,
+        // A MESMA TRAVA DO CAMINHO PRINCIPAL (04/08/2026). Ela existia, era
+        // aplicada no merge lá embaixo, e NÃO era aplicada aqui — por isso
+        // `listaamarela.com.br` entrou em 5 leads entre 17/07 e 31/07, DEPOIS
+        // de já estar na lista de bloqueio desde 02/07. Trava que vale numa
+        // porta e não vale na outra não é trava, é decoração.
+        website: this.isBlockedLeadOfficialWebsite(candidate.website)
+          ? null
+          : String(candidate.website || '').trim() || null,
         email: String(candidate.email || '').trim() || null,
         instagramUrl: String(candidate.instagramUrl || '').trim() || null,
         facebookUrl: String(candidate.facebookUrl || '').trim() || null,
@@ -1487,7 +1494,13 @@ export class RadarCoreDeliveryMixin {
         normalizedCity: normalizeLookupValue(city || existing?.city || ''),
         segment: String(run.segment || '').trim() || existing?.segment || null,
         normalizedSegment: normalizeLookupValue(String(run.segment || '').trim() || existing?.segment || ''),
-        website: contact.website || existing?.website || null,
+        // Idem à porta do rejeitado: o resgate também gravava o site cru. E
+        // aqui a peneira precisa passar nos DOIS lados — o `existing` pode ter
+        // sido gravado antes da trava existir, e reaproveitá-lo republicaria
+        // o diretório como se fosse achado novo.
+        website: (!this.isBlockedLeadOfficialWebsite(contact.website) ? contact.website : null)
+          || (!this.isBlockedLeadOfficialWebsite(existing?.website) ? existing?.website : null)
+          || null,
         email: contact.email || existing?.email || null,
         instagramUrl: contact.instagramUrl || existing?.instagramUrl || null,
         facebookUrl: contact.facebookUrl || existing?.facebookUrl || null,
