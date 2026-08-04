@@ -461,9 +461,10 @@ function WizardGestaoFiscal({
           <>
             <div className="fis-aviso fis-aviso--atencao">
               <span>
-                Este modo liga Produtos, estoque, entrada de notas por XML e emissão fiscal.
-                Depois do PRIMEIRO lançamento (nota de entrada ou movimento de estoque), o modo
-                não pode mais ser desligado — o histórico vira parte da escrituração da empresa.
+                Este modo liga o estoque (com o cadastro de produtos), a entrada de notas por XML
+                e a emissão fiscal. Depois do PRIMEIRO lançamento (nota de entrada ou movimento de
+                estoque), o modo não pode mais ser desligado — o histórico vira parte da
+                escrituração da empresa.
               </span>
             </div>
             <div className="fis-modal-acoes">
@@ -1058,7 +1059,7 @@ function PainelConfig({
               <Fato rotulo="Modo" valor="HBX Comum" />
             </div>
             <div className="fis-dica">
-              Produtos, estoque, entrada de notas por XML e nota de produto moram no modo HBX Gestão Fiscal.
+              Estoque (com o cadastro de produtos), entrada de notas por XML e nota de produto moram no modo HBX Gestão Fiscal.
             </div>
             <div className="fis-linha-acoes">
               <button
@@ -2013,7 +2014,7 @@ function BlocoEstoque() {
   return (
     <section className="panel fis-bloco">
       <header className="fis-bloco-head">
-        <h2>Produtos</h2>
+        <h2>Estoque</h2>
         <label className="btn-ghost fis-upload-xml">
           <input
             ref={xmlRef}

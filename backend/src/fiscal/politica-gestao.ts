@@ -20,7 +20,7 @@ export const POLITICA_GESTAO = {
     {
       titulo: 'O que este modo faz',
       texto:
-        'Liga o controle de Produtos e estoque com trilha de movimentos, a entrada de notas de compra por XML e a emissão de documentos fiscais conforme a configuração da empresa. Documentos e movimentos ficam guardados como registro permanente da empresa, com exportação para o contador (malote).',
+        'Liga o controle de estoque (com o cadastro de produtos e a trilha de movimentos), a entrada de notas de compra por XML e a emissão de documentos fiscais conforme a configuração da empresa. Documentos e movimentos ficam guardados como registro permanente da empresa, com exportação para o contador (malote).',
     },
     {
       titulo: 'O que este modo NÃO é',

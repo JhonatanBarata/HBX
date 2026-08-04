@@ -65,10 +65,12 @@ BALCÃO da vertical distribuidora** (água/gás/bebidas/depósito), a perna que 
 12. **DOIS MODOS + RITO DE ATIVAÇÃO (3ª rodada do dono, 04/08 — aprovado a+b):**
     - Nomes: **"HBX Comum"** (padrão) × **"HBX Gestão Fiscal"** (avançado). NUNCA usar a
       palavra "Simples" pra modo — colide com Simples Nacional na cabeça do cliente.
-    - "Estoque" está com nome errado: **o módulo é PRODUTOS** (padrão de mercado — estoque é
-      comportamento do produto, não módulo). Rename na UI já; **unificação dos DOIS cadastros
-      (Product da logística × EstoqueProduto) é FASE PRÓPRIA com pesquisa profunda** — cirurgia
-      de coração, não se faz no braço quente (rota/entrega/carga usam o Product em produção).
+    - **Nomenclatura (4ª rodada do dono, 04/08): o módulo chama ESTOQUE; DENTRO dele moram
+      os produtos.** (O rename pra "Produtos" foi feito e DESFEITO a pedido — o título do
+      bloco é Estoque; produto é o item do cadastro lá dentro.) O ponto conceitual fica:
+      **unificação dos DOIS cadastros de produto (Product da logística × EstoqueProduto) é
+      FASE PRÓPRIA com pesquisa profunda** — cirurgia de coração, não se faz no braço quente
+      (rota/entrega/carga usam o Product em produção).
     - **Rito de ativação (ordem EXATA do dono):** ① AVISO da irreversibilidade → ② POLÍTICA
       nova versionada explicando o modo (sem enfeitar, resumida, protege o HBX pela lei;
       aceite gravado com usuário/data/versão) → ③ **EXIGIR E CONFERIR CNPJ** (dígito
