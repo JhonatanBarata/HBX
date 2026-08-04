@@ -1,5 +1,32 @@
 # PLANO — 5 vendedoras no ar (escrito 03/08/2026, para executar em 04/08)
 
+> ## 🔴 REALINHAMENTO DO DONO (04/08, à noite) — LEIA ANTES DE TUDO
+>
+> Este plano nasceu apontando pro lugar errado: a tela de Disparo frio, que o dono
+> quer **aposentar**. A ordem dele: **TUDO NO /VENDAS**, e a fase atual **NÃO é
+> automação** — é a IA fazendo o papel de vendedora humana, em treino.
+>
+> **As 3 fases:** (1) IA-como-vendedora nos chats de treino — lead na cara da
+> vendedora na Central do Lead, envio manual SÓ com aprovação do dono no chat;
+> (2) vendedoras humanas entram no fluxo lapidado; (3) só então automação — o
+> Disparo frio vira o motor, usando as campanhas-depósito já montadas.
+>
+> **Decisões do dono em 04/08:**
+> - Teto de chip novo: base **6** (3 manhã + 3 tarde), rampa até **12**; chip novo
+>   roda **metade do limite configurado**; trava **removível** pela pessoa
+>   (chavinha nas Regras da casa) — TUDO EM PROD.
+> - Leads: 26 novos puxados do Radar (DDD 19, curadoria manual — zero lixo).
+>   **5 selecionados pra disparo** (celulares com WhatsApp): MDXS (Campinas,
+>   19 99215-9959, score 68), Big Park (Campinas, 19 97417-4661), Água Manancial
+>   (Sumaré, 19 99155-6318), PIZANI (Limeira, 19 99297-9519), Pereira Água e Gás
+>   (Indaiatuba, 19 98919-3427). Reservas: RCS e Borges (Piracicaba).
+> - Distribuição: **cada vendedora PUXA no 1º turno de treino** (modelo pull
+>   intacto; push não volta). Os 26 estão na carteira do Jhonatan como referência.
+> - Treino: dono abre ~5 chats (1 por vendedora); permissão de envio é SEMPRE no
+>   chat; workers corrigem produto no meio do turno e publicam com `npm run new`.
+> - Quando ficar liso: dono para de aprovar → disparos automáticos assumem →
+>   vendedoras-IA diminuem.
+
 Quem pegar isto executa **sem re-decidir nada**. As decisões já foram tomadas pelo dono
 e estão na seção 1. O que falta está na seção 3, em ordem, com o passo exato.
 
