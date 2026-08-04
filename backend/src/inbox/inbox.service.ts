@@ -8941,7 +8941,7 @@ export class InboxService {
       }
       try {
         await this.prisma.companyConversation.updateMany({
-          where: { id: conversation.id, whatsappConnectionSessionId: null },
+          where: { id: conversation.id, companyId, whatsappConnectionSessionId: null },
           data: {
             whatsappConnectionSessionId: String(viewerSession.id),
             sourceTenantKey: viewerSession.tenantKey || null,

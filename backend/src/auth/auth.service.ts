@@ -1598,6 +1598,7 @@ export class AuthService implements OnModuleInit {
     // 2. Busca por e-mail (case-insensitive — `email` é @unique mas sensível a
     // maiúsculas no legado) e vincula, só quando for a ÚNICA conta com este
     // e-mail e ela ainda não tiver outra identidade Google.
+    // tenant-scope-allow: identidade Google verificada ainda não possui companyId; a empresa vem da única conta encontrada.
     const byEmail = await this.prisma.user.findMany({
       where: { email: { equals: email, mode: 'insensitive' } },
       orderBy: { id: 'asc' },

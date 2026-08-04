@@ -241,7 +241,7 @@ export class LogisticaLeituraService {
     const customerIds = Array.from(new Set(paradas.map((p) => p.customerProfileId).filter(Boolean))) as string[];
     const perfis = customerIds.length
       ? await this.prisma.customerProfile.findMany({
-          where: { id: { in: customerIds } },
+          where: { id: { in: customerIds }, companyId },
           select: { id: true, name: true },
         })
       : [];

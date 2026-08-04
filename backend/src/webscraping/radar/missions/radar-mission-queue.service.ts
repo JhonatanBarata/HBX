@@ -728,6 +728,7 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
     };
     const canaryIds = canaryLeadIds === null ? null : [...canaryLeadIds];
     const rows = cursor.phase === 'backfill'
+      // tenant-scope-allow: produtor global da fila local varre o pool inteiro (backfill); tenant não participa da seleção.
       ? await db.radarLeadPool.findMany({
           where: canaryIds === null
             ? (cursor.afterId ? { id: { gt: cursor.afterId } } : {})
@@ -736,6 +737,7 @@ export class RadarMissionQueueService implements OnModuleInit, OnModuleDestroy {
           take: batchSize,
           select,
         })
+      // tenant-scope-allow: produtor global da fila local varre o pool inteiro (watermark); tenant não participa da seleção.
       : await db.radarLeadPool.findMany({
           where: {
             ...(canaryIds === null ? {} : { id: { in: canaryIds } }),

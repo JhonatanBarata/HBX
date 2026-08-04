@@ -9472,7 +9472,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           data: { status: 'PENDING', nextAttemptAt: next },
         });
         await this.prisma.companyMessage.updateMany({
-          where: { outboundMessageId: msg.id },
+          where: { outboundMessageId: msg.id, companyId: msg.companyId },
           data: { status: 'QUEUED' },
         });
         await this.commercialContactControl.syncAutomationStepFromOutbound({
@@ -9608,7 +9608,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
         });
         // O detalhe humano vence o código de máquina na bolha da conversa.
         await this.prisma.companyMessage.updateMany({
-          where: { outboundMessageId: msg.id },
+          where: { outboundMessageId: msg.id, companyId: msg.companyId },
           data: { error: coldGateDecision.detail },
         });
         await this.logWhatsAppEvent({
@@ -9637,7 +9637,7 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
           data: { status: 'PENDING', nextAttemptAt: next },
         });
         await this.prisma.companyMessage.updateMany({
-          where: { outboundMessageId: msg.id },
+          where: { outboundMessageId: msg.id, companyId: msg.companyId },
           data: { status: 'QUEUED' },
         });
         await this.commercialContactControl.syncAutomationStepFromOutbound({

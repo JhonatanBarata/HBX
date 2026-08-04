@@ -155,8 +155,9 @@ export class PainelModuloService {
 
   // ── FINANCEIRO ────────────────────────────────────────────────────────────
   private async financeiro(ator: Ator, agora: Date): Promise<PainelModulo> {
+    const companyId = ator.companyId;
     const base = {
-      companyId: ator.companyId,
+      companyId,
       sourceModule: { in: [...TENANT_FINANCE_SOURCE_MODULES] },
     };
 
@@ -182,30 +183,30 @@ export class PainelModuloService {
 
     const [aberto, vencidas, venceHoje, recebidoMes, clientesDevendo, serie] = await Promise.all([
       this.prisma.financeiroCharge.aggregate({
-        where: { ...base, status: 'pending' },
+        where: { companyId, ...base, status: 'pending' },
         _sum: { amount: true },
         _count: { _all: true },
       }),
       this.prisma.financeiroCharge.aggregate({
-        where: { ...base, status: 'pending', dueDate: { lt: hoje.gte } },
+        where: { companyId, ...base, status: 'pending', dueDate: { lt: hoje.gte } },
         _sum: { amount: true },
         _count: { _all: true },
       }),
       this.prisma.financeiroCharge.count({
-        where: { ...base, status: 'pending', dueDate: hoje },
+        where: { companyId, ...base, status: 'pending', dueDate: hoje },
       }),
       this.prisma.financeiroCharge.aggregate({
-        where: { ...base, status: 'approved', paidAt: { gte: mes } },
+        where: { companyId, ...base, status: 'approved', paidAt: { gte: mes } },
         _sum: { amount: true },
       }),
       this.prisma.financeiroCharge.findMany({
-        where: { ...base, status: 'pending', customerProfileId: { not: null } },
+        where: { companyId, ...base, status: 'pending', customerProfileId: { not: null } },
         select: { customerProfileId: true },
         distinct: ['customerProfileId'],
         take: 500,
       }),
       this.serie7(agora, -6, (janela) =>
-        this.prisma.financeiroCharge.count({ where: { ...base, createdAt: janela } }),
+        this.prisma.financeiroCharge.count({ where: { companyId, ...base, createdAt: janela } }),
       ),
     ]);
 
@@ -251,9 +252,9 @@ export class PainelModuloService {
     const mes = inicioDoMes(agora);
 
     const [ativos, porStatus, quentes, retornosHoje, ganhosMes, ultimoContato, serie] = await Promise.all([
-      this.prisma.vendasLead.count({ where: vivos }),
-      this.prisma.vendasLead.groupBy({ by: ['status'], where: vivos, _count: { _all: true } }),
-      this.prisma.vendasLead.count({ where: { ...vivos, leadTemperature: 'quente' } }),
+      this.prisma.vendasLead.count({ where: { companyId, ...vivos } }),
+      this.prisma.vendasLead.groupBy({ by: ['status'], where: { companyId, ...vivos }, _count: { _all: true } }),
+      this.prisma.vendasLead.count({ where: { companyId, ...vivos, leadTemperature: 'quente' } }),
       this.prisma.vendasLead.count({ where: { companyId, returnAt: hoje } }),
       this.prisma.vendasLead.count({ where: { companyId, closureReason: 'convertido', closedAt: { gte: mes } } }),
       this.prisma.vendasLead.findFirst({
@@ -432,13 +433,13 @@ export class PainelModuloService {
     const mes = inicioDoMes(agora);
 
     const [total, clientes, leads, fornecedores, comCnpj, novasMes, serie] = await Promise.all([
-      this.prisma.customerProfile.count({ where: pj }),
-      this.prisma.customerProfile.count({ where: { ...pj, isCliente: true } }),
-      this.prisma.customerProfile.count({ where: { ...pj, isLead: true } }),
-      this.prisma.customerProfile.count({ where: { ...pj, isFornecedor: true } }),
-      this.prisma.customerProfile.count({ where: { ...pj, cnpj: { not: null } } }),
-      this.prisma.customerProfile.count({ where: { ...pj, createdAt: { gte: mes } } }),
-      this.serie7(agora, -6, (janela) => this.prisma.customerProfile.count({ where: { ...pj, createdAt: janela } })),
+      this.prisma.customerProfile.count({ where: { companyId, ...pj } }),
+      this.prisma.customerProfile.count({ where: { companyId, ...pj, isCliente: true } }),
+      this.prisma.customerProfile.count({ where: { companyId, ...pj, isLead: true } }),
+      this.prisma.customerProfile.count({ where: { companyId, ...pj, isFornecedor: true } }),
+      this.prisma.customerProfile.count({ where: { companyId, ...pj, cnpj: { not: null } } }),
+      this.prisma.customerProfile.count({ where: { companyId, ...pj, createdAt: { gte: mes } } }),
+      this.serie7(agora, -6, (janela) => this.prisma.customerProfile.count({ where: { companyId, ...pj, createdAt: janela } })),
     ]);
 
     return {
@@ -524,13 +525,13 @@ export class PainelModuloService {
     const meus = { companyId, kind: 'tenant_product' };
 
     const [ativos, total, naLogistica, semPreco, porCategoria] = await Promise.all([
-      this.prisma.product.count({ where: { ...meus, status: 'active' } }),
-      this.prisma.product.count({ where: meus }),
-      this.prisma.product.count({ where: { ...meus, usaLogistica: true } }),
-      this.prisma.product.count({ where: { ...meus, price: { lte: 0 } } }),
+      this.prisma.product.count({ where: { companyId, ...meus, status: 'active' } }),
+      this.prisma.product.count({ where: { companyId, ...meus } }),
+      this.prisma.product.count({ where: { companyId, ...meus, usaLogistica: true } }),
+      this.prisma.product.count({ where: { companyId, ...meus, price: { lte: 0 } } }),
       this.prisma.product.groupBy({
         by: ['category'],
-        where: { ...meus, status: 'active' },
+        where: { companyId, ...meus, status: 'active' },
         _count: { _all: true },
       }),
     ]);
@@ -725,14 +726,14 @@ export class PainelModuloService {
     const mes = inicioDoMes(agora);
 
     const [total, novosMes, mensal, aberto, naHora, pendura, semEndereco, serie] = await Promise.all([
-      this.prisma.customerProfile.count({ where: base }),
-      this.prisma.customerProfile.count({ where: { ...base, createdAt: { gte: mes } } }),
-      this.prisma.customerProfile.count({ where: { ...base, formaPagamento: 'mensal' } }),
-      this.prisma.customerProfile.count({ where: { ...base, formaPagamento: 'aberto' } }),
-      this.prisma.customerProfile.count({ where: { ...base, formaPagamento: 'na_hora' } }),
-      this.prisma.customerProfile.count({ where: { ...base, formaPagamento: 'pendura' } }),
-      this.prisma.customerProfile.count({ where: { ...base, lat: null } }),
-      this.serie7(agora, -6, (janela) => this.prisma.customerProfile.count({ where: { ...base, createdAt: janela } })),
+      this.prisma.customerProfile.count({ where: { companyId, ...base } }),
+      this.prisma.customerProfile.count({ where: { companyId, ...base, createdAt: { gte: mes } } }),
+      this.prisma.customerProfile.count({ where: { companyId, ...base, formaPagamento: 'mensal' } }),
+      this.prisma.customerProfile.count({ where: { companyId, ...base, formaPagamento: 'aberto' } }),
+      this.prisma.customerProfile.count({ where: { companyId, ...base, formaPagamento: 'na_hora' } }),
+      this.prisma.customerProfile.count({ where: { companyId, ...base, formaPagamento: 'pendura' } }),
+      this.prisma.customerProfile.count({ where: { companyId, ...base, lat: null } }),
+      this.serie7(agora, -6, (janela) => this.prisma.customerProfile.count({ where: { companyId, ...base, createdAt: janela } })),
     ]);
 
     return {

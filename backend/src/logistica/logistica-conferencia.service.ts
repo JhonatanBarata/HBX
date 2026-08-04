@@ -465,7 +465,7 @@ export class LogisticaConferenciaService implements OnModuleInit {
       if (cura.cepDescoberto) {
         const onde = { companyId, OR: [{ cep: null }, { cep: '' }] };
         if (noLocal) await this.prisma.localEntrega.updateMany({ where: { id: row.localId as string, ...onde }, data: { cep: cura.cepDescoberto } });
-        else await this.prisma.customerProfile.updateMany({ where: { id: row.customerProfileId, ...onde }, data: { cep: cura.cepDescoberto } });
+        else await this.prisma.customerProfile.updateMany({ where: { id: row.customerProfileId, companyId, ...onde }, data: { cep: cura.cepDescoberto } });
       }
       if (!cura.pino) return false;
       const dados = { lat: cura.pino.lat, lng: cura.pino.lng, geoFonte: 'cnefe' };

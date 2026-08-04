@@ -229,7 +229,7 @@ export class RadarSearchSessionService implements OnModuleInit, OnModuleDestroy 
       // 1) run em voo → só age quando ele fecha (o pump/stale-requeue cuidam do meio)
       if (currentRunId) {
         const run = await this.prisma.webscrapingSearchRun.findFirst({
-          where: { id: currentRunId },
+          where: { id: currentRunId, companyId: session.companyId },
           select: { id: true, status: true, foundCount: true, errorMessage: true },
         });
         const runStatus = String(run?.status || '');

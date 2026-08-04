@@ -321,6 +321,7 @@ export class RadarPostDeliveryAiSaneamentoService implements OnModuleInit, OnMod
     const tenantWhere = this.buildAiSaneamentoTenantWhere(input.radarLeadId, input.companyId);
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
+      // tenant-scope-allow: escopo deliberado do 4B em buildAiSaneamentoTenantWhere (pool global sem dono OU card da empresa da missão).
       const latest = await prisma.radarLeadPool.findFirst({
         where: tenantWhere,
         select: { metadataJson: true },
@@ -335,6 +336,7 @@ export class RadarPostDeliveryAiSaneamentoService implements OnModuleInit, OnMod
         ...current,
         aiSaneamento: desired.aiSaneamento,
       });
+      // tenant-scope-allow: CAS sobre o mesmo tenantWhere deliberado do 4B (pool global sem dono OU card da empresa da missão).
       const updated = await prisma.radarLeadPool.updateMany({
         where: {
           ...tenantWhere,
@@ -373,6 +375,7 @@ export class RadarPostDeliveryAiSaneamentoService implements OnModuleInit, OnMod
       : null;
     const lastLeadId = canaryLeadIds !== null ? null : compact(cursor?.lastRunId) || null;
     const updatedAt = { gte: new Date(Date.now() - lookbackHours * 60 * 60_000) };
+    // tenant-scope-allow: reconciler global do 4B varre o pool inteiro; cada missão preserva o ownerCompanyId do card.
     const readBatch = (afterId?: string | null) => prisma.radarLeadPool.findMany({
       where: {
         status: 'sent_to_vendas',
