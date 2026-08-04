@@ -2195,29 +2195,29 @@ export function VendasClient() {
               <div style={{ fontSize: "var(--fz-m1)", fontWeight: 700, color: novoMsg.startsWith("✓") ? "var(--hbx-brand-strong)" : "var(--hbx-danger)" }}>{novoMsg}</div>
             )}
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Nome / Empresa</label>
+              <label className="field-label">Nome / Empresa</label>
               <input className="field-dark" required maxLength={120} value={novoForm.name}
                 onChange={e => setNovoForm(f => ({ ...f, name: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Telefone</label>
+                <label className="field-label">Telefone</label>
                 <input className="field-dark" maxLength={24} placeholder="(11) 99999-9999" value={novoForm.phone}
                   onChange={e => setNovoForm(f => ({ ...f, phone: e.target.value }))} />
               </div>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>E-mail</label>
+                <label className="field-label">E-mail</label>
                 <input className="field-dark" type="email" placeholder="opcional" value={novoForm.email}
                   onChange={e => setNovoForm(f => ({ ...f, email: e.target.value }))} />
               </div>
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Próximo passo</label>
+              <label className="field-label">Próximo passo</label>
               <input className="field-dark" maxLength={140} value={novoForm.nextAction}
                 onChange={e => setNovoForm(f => ({ ...f, nextAction: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Nota</label>
+              <label className="field-label">Nota</label>
               <input className="field-dark" maxLength={280} placeholder="opcional" value={novoForm.shortNote}
                 onChange={e => setNovoForm(f => ({ ...f, shortNote: e.target.value }))} />
             </div>

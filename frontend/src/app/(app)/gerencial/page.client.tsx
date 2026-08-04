@@ -970,7 +970,7 @@ export function GerencialClient() {
               <div style={{ fontSize: "var(--fz-m1)", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{payoutMsg}</div>
             )}
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Vendedor</label>
+              <label className="field-label">Vendedor</label>
               <select className="select-dark" value={payoutForm.sellerUserId}
                 onChange={e => setPayoutForm(f => ({ ...f, sellerUserId: e.target.value }))} style={{ width: "100%" }}>
                 <option value="">Todos os vendedores</option>
@@ -988,7 +988,7 @@ export function GerencialClient() {
                 onClick={() => setPayoutForm(f => ({ ...f, includeNotYetDue: !f.includeNotYetDue }))}><i></i></button>
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Referência</label>
+              <label className="field-label">Referência</label>
               <input className="field-dark" maxLength={120}
                 value={payoutForm.referenceLabel} onChange={e => setPayoutForm(f => ({ ...f, referenceLabel: e.target.value }))} />
             </div>
@@ -1011,18 +1011,18 @@ export function GerencialClient() {
               <div style={{ fontSize: "var(--fz-m1)", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{msg}</div>
             )}
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Nome *</label>
+              <label className="field-label">Nome *</label>
               <input className="field-dark" required maxLength={140} value={form.name}
                 onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Código (SKU)</label>
+                <label className="field-label">Código (SKU)</label>
                 <input className="field-dark" maxLength={80} placeholder="opcional" value={form.sku}
                   onChange={e => setForm(f => ({ ...f, sku: e.target.value }))} />
               </div>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Preço (R$) *</label>
+                <label className="field-label">Preço (R$) *</label>
                 <input className="field-dark" type="number" min={0} step="0.01" required value={form.preco}
                   onChange={e => setForm(f => ({ ...f, preco: e.target.value }))} />
               </div>
@@ -1033,7 +1033,7 @@ export function GerencialClient() {
               calculado sobre o que o cliente pagou de verdade.
             </p>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Descrição</label>
+              <label className="field-label">Descrição</label>
               <textarea className="field-dark" rows={3} maxLength={1000} style={{ resize: "vertical", padding: "9px 12px" }}
                 value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} />
             </div>

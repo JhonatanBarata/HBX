@@ -550,7 +550,7 @@ export function ConfiguracoesClient() {
                       )}
                       {entitlementsAtivos.length > 0 && (
                         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-                          <span style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Módulos liberados:</span>
+                          <span className="field-label">Módulos liberados:</span>
                           {entitlementsAtivos.map(k => <span key={k} className="tag teal">{entitlementLabel(k)}</span>)}
                         </div>
                       )}

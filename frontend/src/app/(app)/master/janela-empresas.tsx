@@ -1813,17 +1813,17 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
             {provStep === 1 && (
               <div style={{ display: "grid", gap: 10 }}>
                 <div style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Nome da empresa *</label>
+                  <label className="field-label">Nome da empresa *</label>
                   <input className="field-dark" maxLength={140} autoFocus value={provForm.companyName}
                     onChange={e => setProvForm(f => ({ ...f, companyName: e.target.value }))} />
                 </div>
                 <div style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Slug (opcional)</label>
+                  <label className="field-label">Slug (opcional)</label>
                   <input className="field-dark" maxLength={80} placeholder="gerado do nome se vazio" value={provForm.slug}
                     onChange={e => setProvForm(f => ({ ...f, slug: e.target.value }))} />
                 </div>
                 <div style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>CNPJ / CPF (opcional)</label>
+                  <label className="field-label">CNPJ / CPF (opcional)</label>
                   <input className="field-dark" maxLength={20} placeholder="apenas dígitos ou com pontuação" value={provForm.taxDocument}
                     onChange={e => setProvForm(f => ({ ...f, taxDocument: e.target.value }))} />
                   <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Opcional agora — exigido no caminho de cobrança (F6).</span>
@@ -1840,24 +1840,24 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                   Deixe o e-mail vazio para criar a empresa sem usuário.
                 </span>
                 <div style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>E-mail do admin</label>
+                  <label className="field-label">E-mail do admin</label>
                   <input className="field-dark" type="email" maxLength={180} value={provForm.adminEmail}
                     onChange={e => setProvForm(f => ({ ...f, adminEmail: e.target.value }))} />
                 </div>
                 <div style={{ display: "grid", gap: 6 }}>
-                  <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Senha (opcional — vazio = temporária)</label>
+                  <label className="field-label">Senha (opcional — vazio = temporária)</label>
                   <input className="field-dark" type="text" autoComplete="new-password" maxLength={72} placeholder="deixe vazio para gerar automática"
                     value={provForm.adminPassword} onChange={e => setProvForm(f => ({ ...f, adminPassword: e.target.value }))} />
                   <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>Mínimo 6 caracteres. Se você definir a senha, o admin NÃO é obrigado a trocá-la no primeiro login.</span>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                   <div style={{ display: "grid", gap: 6 }}>
-                    <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Nome</label>
+                    <label className="field-label">Nome</label>
                     <input className="field-dark" maxLength={120} value={provForm.adminName}
                       onChange={e => setProvForm(f => ({ ...f, adminName: e.target.value }))} />
                   </div>
                   <div style={{ display: "grid", gap: 6 }}>
-                    <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Telefone</label>
+                    <label className="field-label">Telefone</label>
                     <input className="field-dark" maxLength={30} value={provForm.adminPhone}
                       onChange={e => setProvForm(f => ({ ...f, adminPhone: e.target.value }))} />
                   </div>
@@ -1942,7 +1942,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               ["taxDocument", "CNPJ / documento"],
             ] as [keyof typeof EMP_VAZIO, string][]).map(([k, label]) => (
               <div key={k} style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>{label}</label>
+                <label className="field-label">{label}</label>
                 <input className="field-dark" maxLength={200} value={empForm[k]}
                   onChange={e => setEmpForm(f => ({ ...f, [k]: e.target.value }))} />
               </div>
@@ -1967,24 +1967,24 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
             )}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Valor (R$) *</label>
+                <label className="field-label">Valor (R$) *</label>
                 <input className="field-dark" required inputMode="decimal" placeholder="0,00" value={pagForm.value}
                   onChange={e => setPagForm(f => ({ ...f, value: e.target.value }))} />
               </div>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Competência</label>
+                <label className="field-label">Competência</label>
                 <input className="field-dark" placeholder="AAAA-MM" maxLength={20} value={pagForm.competence}
                   onChange={e => setPagForm(f => ({ ...f, competence: e.target.value }))} />
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Pago em</label>
+                <label className="field-label">Pago em</label>
                 <input className="field-dark" type="date" value={pagForm.paidAt}
                   onChange={e => setPagForm(f => ({ ...f, paidAt: e.target.value }))} />
               </div>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Método</label>
+                <label className="field-label">Método</label>
                 <select className="field-dark" value={pagForm.paymentMethod} onChange={e => setPagForm(f => ({ ...f, paymentMethod: e.target.value }))}>
                   <option value="PIX">PIX</option>
                   <option value="BOLETO">Boleto</option>
@@ -1995,7 +1995,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               </div>
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Observação</label>
+              <label className="field-label">Observação</label>
               <input className="field-dark" maxLength={280} value={pagForm.observation}
                 onChange={e => setPagForm(f => ({ ...f, observation: e.target.value }))} />
             </div>
@@ -2022,12 +2022,12 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               <div style={{ fontSize: "var(--fz-m1)", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{walletGrantMsg}</div>
             )}
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Quantidade de créditos *</label>
+              <label className="field-label">Quantidade de créditos *</label>
               <input className="field-dark" type="number" min={1} required value={walletGrantForm.amount}
                 onChange={e => setWalletGrantForm(f => ({ ...f, amount: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Tipo</label>
+              <label className="field-label">Tipo</label>
               <select className="field-dark" value={walletGrantForm.grantType}
                 onChange={e => setWalletGrantForm(f => ({ ...f, grantType: e.target.value as typeof f.grantType }))}>
                 <option value="courtesy_internal">Concessão interna (grátis)</option>
@@ -2036,7 +2036,7 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               </select>
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Motivo (opcional)</label>
+              <label className="field-label">Motivo (opcional)</label>
               <input className="field-dark" maxLength={200}
                 value={walletGrantForm.reason} onChange={e => setWalletGrantForm(f => ({ ...f, reason: e.target.value }))} />
             </div>
@@ -2059,30 +2059,30 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
               <div style={{ fontSize: "var(--fz-m1)", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{userMsg}</div>
             )}
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Nome</label>
+              <label className="field-label">Nome</label>
               <input className="field-dark" maxLength={120} value={userEdit.name}
                 onChange={e => setUserEdit(u => u && ({ ...u, name: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>E-mail</label>
+              <label className="field-label">E-mail</label>
               <input className="field-dark" type="email" maxLength={180} value={userEdit.email}
                 onChange={e => setUserEdit(u => u && ({ ...u, email: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Username</label>
+                <label className="field-label">Username</label>
                 <input className="field-dark" maxLength={120} value={userEdit.username}
                   onChange={e => setUserEdit(u => u && ({ ...u, username: e.target.value }))} />
               </div>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Telefone</label>
+                <label className="field-label">Telefone</label>
                 <input className="field-dark" maxLength={30} value={userEdit.phone}
                   onChange={e => setUserEdit(u => u && ({ ...u, phone: e.target.value }))} />
               </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Papel</label>
+                <label className="field-label">Papel</label>
                 <select className="field-dark" value={userEdit.role} onChange={e => setUserEdit(u => u && ({ ...u, role: e.target.value }))}>
                   <option value="USER">Vendedor</option>
                   <option value="ADMIN">Admin</option>

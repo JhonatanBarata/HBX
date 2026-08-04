@@ -2844,7 +2844,7 @@ export function AtendimentoClient() {
             </h3>
             {novaMsg && <div style={{ fontSize: "var(--fz-m1)", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{novaMsg}</div>}
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Telefone (com DDD) *</label>
+              <label className="field-label">Telefone (com DDD) *</label>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ fontWeight: 700, color: "var(--text-muted)" }}>+55</span>
                 <input className="field-dark" style={{ flex: 1 }} type="tel" inputMode="tel" required autoFocus maxLength={16} placeholder="(  )  ____-____" value={novaForm.phone}
@@ -2852,7 +2852,7 @@ export function AtendimentoClient() {
               </div>
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Nome (opcional)</label>
+              <label className="field-label">Nome (opcional)</label>
               <input className="field-dark" type="text" maxLength={120} value={novaForm.name}
                 onChange={e => setNovaForm(f => ({ ...f, name: e.target.value }))} />
             </div>

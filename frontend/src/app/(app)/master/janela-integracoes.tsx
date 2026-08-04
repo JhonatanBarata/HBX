@@ -147,7 +147,7 @@ export function JanelaIntegracoes({ companies }: { companies: MasterCompany[] | 
         </div>
         <div style={{ padding: "12px 16px", display: "flex", gap: 10, alignItems: "end" }}>
           <div style={{ display: "grid", gap: 6 }}>
-            <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Empresa</label>
+            <label className="field-label">Empresa</label>
             <select className="field-dark" style={{ minWidth: 220 }} value={companyId} onChange={e => trocarEmpresa(e.target.value)}>
               <option value="">Escolha…</option>
               {(companies || []).map(c => <option key={c.id} value={String(c.id)}>{c.name}</option>)}
@@ -237,7 +237,7 @@ export function JanelaIntegracoes({ companies }: { companies: MasterCompany[] | 
             {msg && <div style={{ fontSize: "var(--fz-m1)", fontWeight: 700, color: "var(--hbx-warning)", lineHeight: 1.5 }}>{msg}</div>}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Provider</label>
+                <label className="field-label">Provider</label>
                 <select className="field-dark" value={form.provider} onChange={e => setForm(f => ({ ...f, provider: e.target.value }))}>
                   {PROVIDERS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
                 </select>
@@ -248,24 +248,24 @@ export function JanelaIntegracoes({ companies }: { companies: MasterCompany[] | 
               </label>
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Nome da instância *</label>
+              <label className="field-label">Nome da instância *</label>
               <input className="field-dark" required minLength={2} maxLength={120} value={form.instanceName}
                 onChange={e => setForm(f => ({ ...f, instanceName: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gap: 6 }}>
-              <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Base URL</label>
+              <label className="field-label">Base URL</label>
               <input className="field-dark" maxLength={500} placeholder="https://…" value={form.baseUrl}
                 onChange={e => setForm(f => ({ ...f, baseUrl: e.target.value }))} />
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>App key</label>
+                <label className="field-label">App key</label>
                 <input className="field-dark" maxLength={4000} value={form.appKey}
                   placeholder={form.id ? "manter atual" : ""}
                   onChange={e => setForm(f => ({ ...f, appKey: e.target.value }))} />
               </div>
               <div style={{ display: "grid", gap: 6 }}>
-                <label style={{ fontSize: "var(--fz-m2)", fontWeight: 700, color: "var(--text-muted)" }}>Secret</label>
+                <label className="field-label">Secret</label>
                 <input className="field-dark" type="password" maxLength={4000} value={form.secret}
                   placeholder={form.id ? "manter atual" : ""}
                   onChange={e => setForm(f => ({ ...f, secret: e.target.value }))} />
