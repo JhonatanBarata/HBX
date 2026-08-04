@@ -418,6 +418,14 @@
       try { return (bridge && bridge.missaoRespostaPendente && bridge.missaoRespostaPendente()) || ""; }
       catch (_) { return ""; }
     },
+    recadoRespostaPendente() {
+      try { return (bridge && bridge.recadoRespostaPendente && bridge.recadoRespostaPendente()) || ""; }
+      catch (_) { return ""; }
+    },
+    recadoRespostaConcluir(id) {
+      try { bridge && bridge.recadoRespostaConcluir && bridge.recadoRespostaConcluir(String(id || "")); }
+      catch (_) {}
+    },
     activateRoute(payload) { bridge && bridge.activateRoute && bridge.activateRoute(JSON.stringify(payload)); },
     stopRoute() { bridge && bridge.stopRoute && bridge.stopRoute(); },
     requestLocationPermission() { bridge && bridge.requestLocationPermission && bridge.requestLocationPermission(); },

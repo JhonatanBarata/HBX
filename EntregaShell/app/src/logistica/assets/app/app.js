@@ -75,6 +75,16 @@
     refreshing: false,
     error: null,
     toast: null,
+    // Caixa persistente de mensagens. Recado é conversa, não missão/rota:
+    // tem sino próprio, histórico e Responder — nunca “Aceitar”.
+    recados: [],
+    recadosAberto: false,
+    recadosCarregando: false,
+    recadosErro: null,
+    recadoRespostaDraft: "",
+    recadoEnviando: false,
+    recadoEnvioPendente: null,
+    recadoPortao: null,
     screenMotion: new URLSearchParams(window.location.search).get("motion") || "",
     navMotionFrom: null,
     closingOverlay: null,
@@ -2294,7 +2304,7 @@
     const checagemOverlay = state.checagem && state.modal !== "client-product" ? `<div class="overlay-host is-opening">${checagemModal()}</div>` : "";
     const standardModal = state.modal && state.modal !== "distance-warning" ? `<div class="overlay-host ${state.openingOverlay === "modal" ? "is-opening" : ""} ${state.closingOverlay === "modal" ? "is-closing" : ""}">${modal()}</div>` : "";
     const distanceModal = state.modal === "distance-warning" ? `<div class="overlay-host is-opening">${modal()}</div>` : "";
-    const overlays = `${floatingAction || ""}${creditsLockOverlay()}${routeNoticeOverlay()}${standardModal}${checagemOverlay}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${dddPromptOverlay()}${leituraPausaOverlay()}${rotaIndicadaOverlay()}${missoesOverlay()}${recadoPortaoOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
+    const overlays = `${floatingAction || ""}${creditsLockOverlay()}${routeNoticeOverlay()}${standardModal}${checagemOverlay}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${dddPromptOverlay()}${leituraPausaOverlay()}${rotaIndicadaOverlay()}${missoesOverlay()}${recadosOverlay()}${recadoPortaoOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
     return H.mobileShell.frame({ appName: "logistica", currentScreen: state.screen, content, icon, motion: state.screenMotion, refreshing: state.refreshing, error: state.error, overlays });
   }
   function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); const ringOffset = (188.5 * count / 5).toFixed(1); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30" style="stroke-dashoffset:${ringOffset}"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Próxima parada</p><h2>${H.escape(client.nome || "Cliente")}</h2><small>${H.escape(address(client))}</small><div class="actions next-stop-actions"><button class="btn btn-primary" data-action="next-stop">Ver rota</button><button class="btn btn-secondary" data-action="cancel-next-stop">Ficar aqui</button></div></section></div>`; }
@@ -2385,6 +2395,26 @@
     const corpo = blocoRecebidas + blocoAgendadas;
     return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm" role="dialog" aria-modal="true" aria-labelledby="missoes-title"><div class="app-confirm-icon">${icon("bell", 24)}</div><h2 id="missoes-title">Rotas recebidas</h2><div class="missao-lista">${corpo || empty("Nada esperando", "")}</div><div class="actions"><button class="btn btn-secondary btn-block" type="button" data-action="missoes-fechar">Fechar</button></div></section></div>`;
   }
+  /** Caixa de mensagens: histórico + resposta, separada das rotas recebidas. */
+  function recadosOverlay() {
+    if (!state.recadosAberto) return "";
+    const lista = Array.isArray(state.recados) ? state.recados : [];
+    const mensagens = lista.map(recado => {
+      const ehMeu = recado.origem === "motorista";
+      const hora = recado.criadoEm
+        ? new Date(recado.criadoEm).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+        : "";
+      const nivel = recado.origem === "escritorio" && recado.nivel !== "normal"
+        ? `<small class="recados-nivel is-${H.escape(recado.nivel)}">${recado.nivel === "alarme" ? "Alarme" : "Urgente"}</small>`
+        : "";
+      return `<article class="recados-balao ${ehMeu ? "is-meu" : "is-central"}">${nivel}<p>${H.escape(recado.texto || "")}</p><small>${ehMeu ? "Você" : H.escape(recado.autorNome || "Central")} · ${H.escape(hora)}</small></article>`;
+    }).join("");
+    const corpo = mensagens || (state.recadosCarregando
+      ? `<p class="recados-vazio">Carregando mensagens…</p>`
+      : `<p class="recados-vazio">Nenhum recado ainda.</p>`);
+    const erro = state.recadosErro ? `<p class="field-error">${H.escape(state.recadosErro)}</p>` : "";
+    return `<div class="modal-wrap recados-wrap"><section class="modal recados-caixa" role="dialog" aria-modal="true" aria-labelledby="recados-title"><header class="recados-cabeca"><div><small>Central ⇄ você</small><h2 id="recados-title">Recados</h2></div><button class="icon-btn" type="button" data-action="recados-fechar" aria-label="Fechar recados">${icon("close", 18)}</button></header><div class="recados-log" data-recados-log>${corpo}</div><div class="recados-composer"><textarea id="recados-composer" maxlength="500" rows="2" placeholder="Responder à central…" aria-label="Responder à central" ${state.recadoEnviando ? "disabled" : ""}>${H.escape(state.recadoRespostaDraft || "")}</textarea><button class="btn btn-primary" type="button" data-action="recados-enviar" ${state.recadoEnviando || !String(state.recadoRespostaDraft || "").trim() ? "disabled" : ""}>${state.recadoEnviando ? "Enviando…" : "Responder"}</button></div>${erro}</section></div>`;
+  }
   /**
    * O PORTÃO DO RECADO (03/08) — a folha que cobra o "Entendi".
    *
@@ -2403,10 +2433,10 @@
       ? new Date(recado.criadoEm).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
       : "";
     const resposta = recado.respondendo
-      ? `<textarea id="recado-resposta-input" class="recado-resposta-input" maxlength="500" rows="3" placeholder="Digite sua resposta…" aria-label="Responder à central"></textarea>`
+      ? `<textarea id="recado-resposta-input" class="recado-resposta-input" maxlength="500" rows="3" placeholder="Digite sua resposta…" aria-label="Responder à central" ${state.recadoEnviando ? "disabled" : ""}>${H.escape(recado.respostaDraft || "")}</textarea>`
       : "";
     const acaoResponder = recado.respondendo
-      ? `<button class="btn btn-primary" type="button" data-action="recado-responder" data-recado="${H.escape(recado.id)}">Responder</button>`
+      ? `<button class="btn btn-primary" type="button" data-action="recado-responder" data-recado="${H.escape(recado.id)}" ${state.recadoEnviando ? "disabled" : ""}>${state.recadoEnviando ? "Enviando…" : "Responder"}</button>`
       : `<button class="btn btn-primary" type="button" data-action="recado-abrir-resposta" data-recado="${H.escape(recado.id)}">Responder</button>`;
     return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm recado-portao" role="alertdialog" aria-modal="true" aria-labelledby="recado-portao-title"><div class="app-confirm-icon">${icon("bell", 24)}</div><h2 id="recado-portao-title">Recado da central</h2><p class="recado-portao-texto">${H.escape(recado.texto || "")}</p><small class="recado-portao-quem">${quem}${H.escape(hora)}</small>${resposta}<div class="actions"><button class="btn btn-secondary" type="button" data-action="recado-entendi" data-recado="${H.escape(recado.id)}">Entendi</button>${acaoResponder}</div></section></div>`;
   }
@@ -2933,6 +2963,10 @@
     if (!state.routeEngine || (state.routeEngine === "haversine" && state.routeDegradedReason === "coords_invalidas")) return "is-warn";
     return motorDegradadoPorRede() ? "is-off" : "is-ok";
   }
+  function quantidadeRecadosNaoLidos() {
+    return (Array.isArray(state.recados) ? state.recados : [])
+      .filter(item => item && item.origem === "escritorio" && !item.vistoEm).length;
+  }
   function syncHeaderChips() {
     const toolbar = document.querySelector(".topbar .toolbar");
     if (!toolbar) return;
@@ -2944,8 +2978,10 @@
     }
     const net = netOnline();
     const upd = state.updateInfo && state.updateInfo.outdated;
+    const naoLidos = quantidadeRecadosNaoLidos();
     box.innerHTML =
       (upd ? `<button class="hbx-chip hbx-chip-update" data-action="app-update" aria-label="Atualizar aplicativo">${icon("download", 13)}<span>Atualizar</span></button>` : "") +
+      `<button class="hbx-chip hbx-chip-recados ${naoLidos ? "is-warn" : ""}" data-action="recados-abrir" aria-label="Recados${naoLidos ? `, ${naoLidos} não lido${naoLidos === 1 ? "" : "s"}` : ""}">${icon("bell", 15)}${naoLidos ? `<i>${Math.min(naoLidos, 99)}</i>` : ""}</button>` +
       // R6 — chip "Motor" (verde/vermelho) no lugar da faixa técnica que morreu.
       `<button class="hbx-chip ${motorChipClass()}" data-action="chip-motor" aria-label="Motor de rotas">${icon("route", 15)}</button>` +
       // S5 — chip "Som" ENTRA à esquerda do GPS (S5-PREFERENCIA.md, "Porta 1").
@@ -6918,6 +6954,13 @@
     syncChromeMetrics();
     stabilizeRouteMapLayout();
     syncHeaderChips();
+    const recadosLog = app.querySelector("[data-recados-log]");
+    const ultimoRecado = (state.recados || [])[state.recados.length - 1];
+    const marcadorRecados = state.recadosAberto ? `${ultimoRecado?.id || "vazio"}:${state.recados.length}` : "";
+    if (recadosLog && marcadorRecados !== recadosScrollMarker) {
+      recadosScrollMarker = marcadorRecados;
+      requestAnimationFrame(() => { if (recadosLog.isConnected) recadosLog.scrollTop = recadosLog.scrollHeight; });
+    }
     // O WebView de alguns aparelhos não entrega de forma confiável o toque
     // destes chips ao listener delegado do shell. O listener direto mantém a
     // montagem da rota operável sem duplicar o clique no listener global.
@@ -7539,15 +7582,22 @@
   let missaoRespostaDrenada = null;
   let recadoRespostaDrenada = null;
   function drenarRespostaDoDespertador() {
-    const raw = H.missaoRespostaPendente && H.missaoRespostaPendente();
-    if (!raw) return;
-    try {
-      const resposta = JSON.parse(raw);
-      if (resposta && resposta.id && resposta.acao) {
-        if (String(resposta.id).startsWith("recado_")) recadoRespostaDrenada = resposta;
-        else missaoRespostaDrenada = resposta;
-      }
-    } catch (_) { /* slot podre = ignora; o popup normal ainda cobre a missão */ }
+    const rawMissao = H.missaoRespostaPendente && H.missaoRespostaPendente();
+    if (rawMissao) {
+      try {
+        const resposta = JSON.parse(rawMissao);
+        if (resposta && resposta.id && resposta.acao) missaoRespostaDrenada = resposta;
+      } catch (_) { /* slot podre = ignora; o popup normal ainda cobre a missão */ }
+    }
+    // Recado fica persistido no Android até este JS confirmar sucesso no
+    // servidor. Ler não remove: rede ruim ou processo morto não perde resposta.
+    const rawRecado = H.recadoRespostaPendente && H.recadoRespostaPendente();
+    if (rawRecado && !recadoRespostaDrenada) {
+      try {
+        const resposta = JSON.parse(rawRecado);
+        if (resposta && resposta.id && resposta.acao) recadoRespostaDrenada = resposta;
+      } catch (_) {}
+    }
   }
 
   async function checkRotaIndicada(force) {
@@ -7567,7 +7617,8 @@
         const recadoId = String(resposta.id).replace(/^recado_/, "");
         H.missaoAlarmeCancelar(resposta.id);
         if (resposta.acao === "entendi") {
-          await confirmarRecadoDoPortao(recadoId);
+          const confirmado = await confirmarRecadoDoPortao(recadoId);
+          if (confirmado && H.recadoRespostaConcluir) H.recadoRespostaConcluir(recadoId);
         } else {
           state.recadoPortao = {
             id: recadoId,
@@ -7652,10 +7703,110 @@
   let recadosCheckAt = 0;
   let recadosChecando = false;
   let recadoFaladoId = null;
+  let recadosHistoricoCarregado = false;
+  let recadosScrollMarker = "";
 
   function recadoFala(texto) {
     // Reusa o TTS da navegação (HbxSoundEngine respeita o mudo do usuário).
     try { if (H.speak) H.speak(String(texto || "").slice(0, 300)); } catch (_) {}
+  }
+
+  function mesclarRecados(lista) {
+    const mapa = new Map();
+    (Array.isArray(state.recados) ? state.recados : []).forEach(item => {
+      if (item && item.id) mapa.set(String(item.id), item);
+    });
+    (Array.isArray(lista) ? lista : []).forEach(item => {
+      if (!item || !item.id) return;
+      const id = String(item.id);
+      mapa.set(id, { ...(mapa.get(id) || {}), ...item });
+    });
+    state.recados = [...mapa.values()]
+      .sort((a, b) => new Date(a.criadoEm || 0).getTime() - new Date(b.criadoEm || 0).getTime())
+      .slice(-50);
+  }
+
+  async function confirmarRecebimentoRecados(lista) {
+    const ids = [...new Set((Array.isArray(lista) ? lista : [])
+      .filter(item => item && item.origem === "escritorio" && !item.entregueEm)
+      .map(item => String(item.id || "")).filter(Boolean))];
+    if (!ids.length) return;
+    await H.api("/logistica/recados/recebidos", { method: "POST", body: { ids } });
+    const agora = new Date().toISOString();
+    state.recados = (state.recados || []).map(item => ids.includes(String(item.id)) ? { ...item, entregueEm: item.entregueEm || agora, estado: item.vistoEm ? "visto" : "no_aparelho" } : item);
+  }
+
+  async function carregarHistoricoRecados(comLoading) {
+    if (!moduleActive || state.recadosCarregando) return;
+    if (comLoading) { state.recadosCarregando = true; state.recadosErro = null; render(); }
+    try {
+      const historico = await H.api("/logistica/recados/me");
+      const lista = Array.isArray(historico) ? historico : [];
+      mesclarRecados(lista);
+      recadosHistoricoCarregado = true;
+      await confirmarRecebimentoRecados(lista).catch(() => {});
+    } catch (error) {
+      if (comLoading) state.recadosErro = humanApiError(error);
+    } finally {
+      state.recadosCarregando = false;
+      render();
+    }
+  }
+
+  async function marcarRecadosAbertosComoVistos() {
+    const ids = (state.recados || [])
+      .filter(item => item && item.origem === "escritorio" && !item.vistoEm)
+      .map(item => String(item.id));
+    if (!ids.length) return;
+    try {
+      await H.api("/logistica/recados/visto", { method: "POST", body: { ids } });
+      const agora = new Date().toISOString();
+      state.recados = (state.recados || []).map(item => ids.includes(String(item.id)) ? { ...item, vistoEm: agora, estado: item.ackEm ? "entendido" : "visto" } : item);
+      render();
+    } catch (_) { /* mantém o badge: sem confirmação do servidor não finge leitura */ }
+  }
+
+  async function abrirRecados() {
+    state.recadosAberto = true;
+    state.recadosErro = null;
+    recadosScrollMarker = "";
+    render();
+    await carregarHistoricoRecados(!recadosHistoricoCarregado);
+    await marcarRecadosAbertosComoVistos();
+  }
+
+  function chaveMensagem(prefix) {
+    let miolo = "";
+    try { miolo = window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID() : ""; } catch (_) {}
+    if (!miolo) miolo = `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+    return `${prefix}_${miolo}`.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 64);
+  }
+
+  async function enviarRespostaDaCaixa() {
+    const texto = String(state.recadoRespostaDraft || "").trim();
+    if (!texto || state.recadoEnviando) return;
+    const anterior = state.recadoEnvioPendente;
+    const clientMessageId = anterior && anterior.texto === texto ? anterior.clientMessageId : chaveMensagem("msg");
+    state.recadoEnvioPendente = { texto, clientMessageId };
+    state.recadoEnviando = true;
+    state.recadosErro = null;
+    render();
+    const recadoAlvo = [...(state.recados || [])].reverse().find(item => item && item.origem === "escritorio");
+    try {
+      const criado = await H.api("/logistica/recados/responder", {
+        method: "POST",
+        body: { texto, clientMessageId, ...(recadoAlvo ? { recadoId: recadoAlvo.id } : {}) },
+      });
+      mesclarRecados([criado]);
+      state.recadoRespostaDraft = "";
+      state.recadoEnvioPendente = null;
+      if (recadoAlvo && H.recadoRespostaConcluir) H.recadoRespostaConcluir(recadoAlvo.id);
+    } catch (error) {
+      state.recadosErro = humanApiError(error);
+    } finally {
+      state.recadoEnviando = false;
+      render();
+    }
   }
 
   async function checkRecados(force) {
@@ -7664,18 +7815,21 @@
     recadosChecando = true;
     recadosCheckAt = Date.now();
     try {
-      const novos = await H.api("/logistica/recados/puxar", { method: "POST", body: {} });
+      const novos = await H.api("/logistica/recados/pendentes", { method: "POST", body: {} });
       const lista = Array.isArray(novos) ? novos : [];
       if (lista.length) {
-        // A lista do sino guarda o que chegou hoje, mais novo primeiro.
-        state.recados = [...lista.slice().reverse(), ...(Array.isArray(state.recados) ? state.recados : [])].slice(0, 30);
-        for (const recado of lista) {
+        const conhecidos = new Set((state.recados || []).map(item => String(item.id)));
+        mesclarRecados(lista);
+        const realmenteNovos = lista.filter(item => item && !conhecidos.has(String(item.id)));
+        let indiceAlarme = 0;
+        for (const recado of realmenteNovos) {
           if (recado.nivel === "alarme") {
             // Despertador nativo daqui a 3s: dá tempo do app terminar o tick e
             // não colide com o toast. `atMillis` viaja como STRING (contrato).
             try {
               if (H.missaoAlarme) {
-                H.missaoAlarme(`recado_${recado.id}`, String(Date.now() + 3000), "Recado da central", String(recado.texto || "").slice(0, 120));
+                H.missaoAlarme(`recado_${recado.id}`, String(Date.now() + 3000 + indiceAlarme * 7000), "Recado da central", String(recado.texto || ""));
+                indiceAlarme += 1;
               }
             } catch (_) {}
           } else if (recado.nivel === "urgente") {
@@ -7686,13 +7840,24 @@
             }
           }
         }
+        // O ✓✓ vem DEPOIS de o conteúdo existir no estado do app. Se esta
+        // chamada cair, o servidor repete e o Set acima impede alerta duplicado.
+        await confirmarRecebimentoRecados(lista).catch(() => {});
         // O mais grave manda no toast — dois toasts empilhados ninguém lê.
-        const pior = lista.find(r => r.nivel === "urgente" || r.nivel === "alarme") || lista[lista.length - 1];
-        toast(pior.nivel === "normal" ? `Recado: ${pior.texto}` : `⚠️ ${pior.texto}`, pior.nivel !== "normal");
+        const pior = realmenteNovos.find(r => r.nivel === "urgente" || r.nivel === "alarme") || realmenteNovos[realmenteNovos.length - 1];
+        if (pior) toast(pior.nivel === "normal" ? `Recado: ${pior.texto}` : `⚠️ ${pior.texto}`, pior.nivel !== "normal");
         render();
       }
     } catch (_) { /* rede fora = silêncio; o próximo tick tenta de novo */ }
     finally { recadosChecando = false; }
+  }
+
+  async function iniciarCanalDeRecados() {
+    // Ordem importa: primeiro os PENDENTES (que ainda precisam alertar), só
+    // depois o histórico. Fazer os dois em paralelo podia o histórico gerar
+    // ✓✓ antes do pull e engolir um urgente/alarme silenciosamente.
+    await checkRecados(true);
+    await carregarHistoricoRecados(false);
   }
 
   /**
@@ -7722,10 +7887,20 @@
   /** O "Entendi": destrava e deixa a pessoa seguir. */
   async function confirmarRecadoDoPortao(id) {
     try {
-      await H.api(`/logistica/recados/${encodeURIComponent(id)}/entendi`, { method: "POST", body: {} });
-    } catch (_) { /* offline: o portão volta no próximo toque, não trava a rua */ }
+      const resultado = await H.api(`/logistica/recados/${encodeURIComponent(id)}/entendi`, { method: "POST", body: {} });
+      if (!resultado || resultado.ok !== true) throw new Error("Recado ainda não confirmado.");
+      const agora = new Date().toISOString();
+      state.recados = (state.recados || []).map(item => String(item.id) === String(id) ? { ...item, ackEm: agora, vistoEm: agora, estado: "entendido" } : item);
+      state.recadoPortao = null;
+      render();
+      return true;
+    } catch (_) {
+      // Offline: fecha pra não travar a entrega, mas a resposta nativa continua
+      // persistida e tenta novamente quando a rede voltar.
+    }
     state.recadoPortao = null;
     render();
+    return false;
   }
 
   async function responderRecadoDoPortao(id) {
@@ -7736,14 +7911,24 @@
       if (input) input.focus();
       return;
     }
+    if (state.recadoEnviando) return;
+    state.recadoEnviando = true;
+    if (state.recadoPortao) state.recadoPortao.respostaDraft = texto;
+    render();
     try {
-      await H.api("/logistica/recados/responder", { method: "POST", body: { texto } });
-      await H.api(`/logistica/recados/${encodeURIComponent(id)}/entendi`, { method: "POST", body: {} });
+      const criado = await H.api("/logistica/recados/responder", {
+        method: "POST",
+        body: { texto, recadoId: id, clientMessageId: `reply_${String(id)}`.slice(0, 64) },
+      });
+      mesclarRecados([criado]);
+      if (H.recadoRespostaConcluir) H.recadoRespostaConcluir(id);
       state.recadoPortao = null;
       toast("Resposta enviada.");
-      render();
     } catch (error) {
       toast(humanApiError(error), true);
+    } finally {
+      state.recadoEnviando = false;
+      render();
     }
   }
 
@@ -9319,6 +9504,14 @@
       return;
     }
     if (action === "missoes-fechar") { state.missoesAberto = false; render(); return; }
+    if (action === "recados-abrir") { void abrirRecados(); return; }
+    if (action === "recados-fechar") {
+      state.recadosAberto = false;
+      state.recadosErro = null;
+      render();
+      return;
+    }
+    if (action === "recados-enviar") { void enviarRespostaDaCaixa(); return; }
     // O "Entendi" do portão: única saída da folha de recado urgente/alarme.
     if (action === "recado-entendi") {
       const id = target.dataset.recado || (target.closest && target.closest("[data-recado]") || {}).dataset?.recado;
@@ -10178,6 +10371,17 @@
   app.addEventListener("touchcancel", () => { if (rmeParadaHold) { clearTimeout(rmeParadaHold.timer); rmeParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeParadaHold = null; if (rmeItemHold) { clearTimeout(rmeItemHold.timer); rmeItemHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeItemHold = null; if (routeModeloHold) { clearTimeout(routeModeloHold.timer); routeModeloHold.el.classList.remove("is-hold-arming", "is-holding"); } routeModeloHold = null; if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-hold-arming", "is-holding"); } routeStopHold = null; if (productHold) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); } productHold = null; if (lrtParadaHold) { clearTimeout(lrtParadaHold.timer); lrtParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtParadaHold = null; if (lrtItemHold) { clearTimeout(lrtItemHold.timer); lrtItemHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtItemHold = null; if (historicoHold) { clearTimeout(historicoHold.timer); historicoHold.el.classList.remove("is-hold-arming", "is-holding"); } historicoHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
   app.addEventListener("contextmenu", event => { if (event.target.closest("[data-client],[data-client-product-id],[data-route-stop],[data-product-id]")) event.preventDefault(); });
   app.addEventListener("input", event => {
+    if (event.target.id === "recados-composer") {
+      state.recadoRespostaDraft = event.target.value;
+      if (state.recadoEnvioPendente && state.recadoEnvioPendente.texto !== String(event.target.value).trim()) state.recadoEnvioPendente = null;
+      const enviar = app.querySelector('[data-action="recados-enviar"]');
+      if (enviar) enviar.disabled = state.recadoEnviando || !String(event.target.value).trim();
+      return;
+    }
+    if (event.target.id === "recado-resposta-input") {
+      if (state.recadoPortao) state.recadoPortao.respostaDraft = event.target.value;
+      return;
+    }
     if (event.target.form && event.target.form.id === "edit-product-form" && event.target.name) {
       state.editProductDraft = { ...(state.editProductDraft || {}), [event.target.name]: event.target.value };
       return;
@@ -11290,6 +11494,8 @@
         // consumido e NÃO fecha (mesmo contrato do app-update obrigatório;
         // só Aceitar/Negar tiram ele da tela).
         if (state.rotaIndicada) return true;
+        if (state.recadoPortao) return true;
+        if (state.recadosAberto) { state.recadosAberto = false; state.recadosErro = null; render(); return true; }
         // Lei 10 — popup novo entra aqui. "Rotas recebidas" é consulta, não
         // decisão: Voltar fecha, ao contrário do popup impeditivo acima.
         if (state.missoesAberto) { state.missoesAberto = false; render(); return true; }
@@ -11420,6 +11626,9 @@
   if (!["route", "clients", "products", "settings"].includes(state.screen)) state.screen = "route";
   restoreRouteEngineState(state.route);
   render(); refresh(false, true); state.screenMotion = ""; void restoreLeituraSession(); refreshGpsPerm(); void checkAppUpdate(false);
+  // A resposta dada na tela nativa pode ter acordado um processo frio. Drena
+  // agora — não espera o relógio de 60 s das rotas.
+  void checkRotaIndicada(true);
   // Volta do fundo = nova chance de ver atualização (a trava de 30min dentro
   // de checkAppUpdate segura a frequência; trocar de app não vira enxurrada).
   document.addEventListener("visibilitychange", () => { if (!document.hidden) { retomarUpdatePosPermissao(); void checkAppUpdate(); void checkRotaIndicada(true); void checkRecados(true); } });
@@ -11429,8 +11638,9 @@
   // RECADOS (03/08) — push entrega na hora; este tick curto é o paraquedas de
   // primeiro plano. Mensagem não pode herdar o relógio de missão/rota.
   document.addEventListener("hbx:push-wake", () => { void checkRecados(true); });
+  document.addEventListener("hbx:open-recados", () => { void abrirRecados(); });
   setInterval(() => { if (!document.hidden) void checkRecados(); }, RECADOS_POLL_MS);
-  void checkRecados(true);
+  void iniciarCanalDeRecados();
   // Voltar da tela de permissão do Android nem sempre passa por
   // visibilitychange em toda WebView — o focus da janela é o segundo laço de
   // segurança. retomarUpdatePosPermissao() é idempotente (sai na hora se o

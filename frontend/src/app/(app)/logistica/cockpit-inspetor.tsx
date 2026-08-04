@@ -30,7 +30,7 @@ import {
 const NIVEIS: Array<{ chave: RecadoNivel; rotulo: string; ajuda: string }> = [
   { chave: "normal", rotulo: "Normal", ajuda: "Entra na lista e no sino do app." },
   { chave: "urgente", rotulo: "Urgente", ajuda: "Toca, fala em voz alta e trava a próxima confirmação até ele tocar em Entendi." },
-  { chave: "alarme", rotulo: "Alarme", ajuda: "Toma a tela do celular, como a missão de rota." },
+  { chave: "alarme", rotulo: "Alarme", ajuda: "Abre um alerta de tela cheia no celular para ele responder ou confirmar leitura." },
 ];
 
 function iniciais(nome: string): string {
@@ -84,14 +84,20 @@ export function CockpitInspetor({
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
+  const fioRequestRef = useRef(0);
 
   const carregarFio = useCallback(
     (comLoading: boolean) => {
+      const requestId = ++fioRequestRef.current;
       if (comLoading) setCarregandoFio(true);
       return getFioRecados(motorista.id)
-        .then((linhas) => setFio(Array.isArray(linhas) ? linhas : []))
+        .then((linhas) => {
+          if (requestId === fioRequestRef.current) setFio(Array.isArray(linhas) ? linhas : []);
+        })
         .catch(() => { /* fio é acessório: rede fora não derruba o painel */ })
-        .finally(() => setCarregandoFio(false));
+        .finally(() => {
+          if (requestId === fioRequestRef.current) setCarregandoFio(false);
+        });
     },
     [motorista.id],
   );
@@ -109,8 +115,8 @@ export function CockpitInspetor({
       if (vivo && (typeof document === "undefined" || document.visibilityState === "visible")) {
         void carregarFio(false);
       }
-    }, 2_000);
-    return () => { vivo = false; clearInterval(timer); };
+    }, 1_000);
+    return () => { vivo = false; fioRequestRef.current += 1; clearInterval(timer); };
   }, [carregarFio]);
 
   // Rolar pro fim quando chega mensagem — conversa se lê pelo pé.

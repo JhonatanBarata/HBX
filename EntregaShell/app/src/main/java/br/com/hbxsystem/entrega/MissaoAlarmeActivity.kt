@@ -314,14 +314,14 @@ class MissaoAlarmeActivity : AppCompatActivity() {
         MissaoAlarme.cancelar(this, missaoId)
         pararSomEVibracao()
         runCatching {
-            MissaoPendente.guardar(
-                JSONObject()
-                    .put("id", missaoId)
-                    .put("acao", acao)
-                    .put("titulo", titulo)
-                    .put("texto", texto)
-                    .toString(),
-            )
+            val resposta = JSONObject()
+                .put("id", missaoId)
+                .put("acao", acao)
+                .put("titulo", titulo)
+                .put("texto", texto)
+                .toString()
+            if (ehRecado) RecadoPendente.guardar(this, resposta)
+            else MissaoPendente.guardar(resposta)
         }
         abrirAppDerrubandoOCadeado()
     }

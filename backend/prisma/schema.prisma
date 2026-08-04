@@ -1594,6 +1594,12 @@ model LogisticaRecado {
   texto           String   @db.VarChar(500)
   nivel           String   @default("normal") @db.VarChar(12)
   routeDate       String   @db.VarChar(10)
+  // Identidade criada pelo aparelho. Retry de rede/toque duplo devolve a
+  // MESMA resposta em vez de criar dois balões na central.
+  clientMessageId String?  @db.VarChar(64)
+  // Recado do escritório ao qual esta resposta pertence. Quando preenchido,
+  // criar a resposta e confirmar o recado acontece na mesma transação.
+  respostaAoId    String?  @db.VarChar(64)
   // Mesmo disparo em massa (broadcast); null = recado individual.
   loteId          String?
   // ✓ enviado é o createdAt. Daqui pra frente é prova de aparelho:
@@ -1606,7 +1612,10 @@ model LogisticaRecado {
   @@index([companyId, motoristaUserId, createdAt])
   // O que o APK ainda não recebeu (pull) e o que o portão precisa cobrar.
   @@index([companyId, motoristaUserId, entregueEm])
+  // Badge da central: respostas do motorista que ninguém abriu ainda.
+  @@index([companyId, origem, vistoEm, motoristaUserId])
   @@index([companyId, routeDate, loteId])
+  @@unique([companyId, motoristaUserId, clientMessageId])
 }
 
 // AGENDA-SEMANAL — compromisso recorrente de uma visita. O produto continua

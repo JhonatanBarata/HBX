@@ -29,10 +29,15 @@ import java.util.UUID
  */
 object HbxMobileBridge {
     const val CHANNEL_ID = "hbx_sales_actions"
+    const val EXTRA_OPEN_RECADOS = "hbx_open_recados"
     private const val PREFS = "hbx_mobile_bridge"
     private const val PENDING_EVENTS = "pending_events"
     private const val REJECTED_EVENTS = "rejected_events"
     private const val MAX_REJECTED_EVENTS = 50
+    private const val LOGISTICA_RECADO_CACHE = "logistica_recados_recebidos"
+    private const val LOGISTICA_RECADO_CACHE_MAX = 50
+    private const val RECADO_CHANNEL_NORMAL = "hbx_logistica_recados"
+    private const val RECADO_CHANNEL_URGENTE = "hbx_logistica_recados_urgentes"
 
     const val EXTRA_ACTION_ID = "hbx_action_id"
     const val EXTRA_KIND = "hbx_action_kind"
@@ -97,7 +102,13 @@ object HbxMobileBridge {
 
     fun onPushWake(context: Context) {
         val app = context.applicationContext
-        executor.execute { syncNow(app, allowBackground = true) }
+        executor.execute {
+            // No primeiro plano a WebView tem JWT e atualiza a conversa na hora.
+            // Fora dele, a credencial duradoura do aparelho puxa e persiste o
+            // recado antes de confirmar ✓✓ ao servidor.
+            if (BuildConfig.APP_MODE == "logistica") syncLogisticaRecados(app)
+            syncNow(app, allowBackground = true)
+        }
     }
 
     /** Heartbeat adicional da operação logística; a fila de Vendas segue na ponte compartilhada. */
@@ -163,6 +174,152 @@ object HbxMobileBridge {
                 removePendingEvent(context, deliveryEventId)
             }
         }
+    }
+
+    /** Entrega nativa de recados quando o HBX está fechado ou atrás do Maps. */
+    private fun syncLogisticaRecados(context: Context) {
+        if (appInForeground) return
+        val credentials = credentialPayload(context) ?: return
+        val response = runCatching {
+            postJson("/mobile/logistica/recados/pull", JSONObject(credentials.toString()))
+        }.getOrElse { error ->
+            if (error is MobileBridgeHttpException && error.statusCode == 401) {
+                DeviceCredentialStore(context).clearDeviceToken()
+            }
+            return
+        }
+        val recados = response.optJSONArray("recados") ?: JSONArray()
+        if (recados.length() == 0) return
+
+        val recebidos = JSONArray()
+        var novosAlarmes = 0
+        for (index in 0 until recados.length()) {
+            val item = recados.optJSONObject(index) ?: continue
+            val id = item.optString("id").trim()
+            if (id.isBlank()) continue
+            val jaGuardado = recadoGuardado(context, id)
+            if (!jaGuardado) {
+                guardarRecado(context, item)
+                val nivel = item.optString("nivel", "normal").lowercase()
+                val texto = item.optString("texto").filterNot(Char::isISOControl).take(500)
+                val titulo = when (nivel) {
+                    "alarme" -> "ALARME · Recado da central"
+                    "urgente" -> "URGENTE · Recado da central"
+                    else -> "Recado da central"
+                }
+                if (nivel == "alarme") {
+                    // Vários alarmes não disputam a mesma janela: cada novo
+                    // recado ganha um pequeno degrau e continua persistido no
+                    // AlarmManager até a pessoa responder.
+                    val quando = System.currentTimeMillis() + 1_800L + (novosAlarmes * 7_000L)
+                    novosAlarmes += 1
+                    val armado = MissaoAlarme.agendar(
+                        context,
+                        "$PREFIXO_ALARME_RECADO$id",
+                        quando,
+                        titulo,
+                        texto,
+                    )
+                    if (!armado) mostrarNotificacaoRecado(context, id, titulo, texto, urgente = true)
+                } else {
+                    mostrarNotificacaoRecado(context, id, titulo, texto, urgente = nivel == "urgente")
+                }
+            }
+            // Novo ou repetido por falha do ack: o conteúdo já está durável no
+            // aparelho, então é seguro confirmar sem tocar duas vezes.
+            recebidos.put(id)
+        }
+        if (recebidos.length() == 0) return
+        val ack = JSONObject(credentials.toString()).put("ids", recebidos)
+        runCatching { postJson("/mobile/logistica/recados/recebidos", ack) }
+    }
+
+    @Synchronized
+    private fun recadoGuardado(context: Context, id: String): Boolean {
+        val raw = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(LOGISTICA_RECADO_CACHE, "[]")
+        val lista = runCatching { JSONArray(raw) }.getOrElse { JSONArray() }
+        return (0 until lista.length()).any { lista.optJSONObject(it)?.optString("id") == id }
+    }
+
+    /** Cache curto: prova local e dedupe sobrevivem à morte do processo. */
+    @Synchronized
+    private fun guardarRecado(context: Context, item: JSONObject) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val atual = runCatching { JSONArray(prefs.getString(LOGISTICA_RECADO_CACHE, "[]")) }
+            .getOrElse { JSONArray() }
+        val id = item.optString("id")
+        val retidos = mutableListOf<JSONObject>()
+        for (index in 0 until atual.length()) {
+            val salvo = atual.optJSONObject(index) ?: continue
+            if (salvo.optString("id") != id) retidos.add(JSONObject(salvo.toString()))
+        }
+        retidos.add(JSONObject(item.toString()).put("recebidoNoAparelhoEm", System.currentTimeMillis()))
+        val saida = JSONArray()
+        retidos.takeLast(LOGISTICA_RECADO_CACHE_MAX).forEach { saida.put(it) }
+        prefs.edit().putString(LOGISTICA_RECADO_CACHE, saida.toString()).commit()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun mostrarNotificacaoRecado(
+        context: Context,
+        id: String,
+        titulo: String,
+        texto: String,
+        urgente: Boolean,
+    ): Boolean {
+        val channelId = if (urgente) RECADO_CHANNEL_URGENTE else RECADO_CHANNEL_NORMAL
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channel = NotificationChannel(
+                channelId,
+                if (urgente) "Recados urgentes da central" else "Recados da central",
+                if (urgente) NotificationManager.IMPORTANCE_HIGH else NotificationManager.IMPORTANCE_DEFAULT,
+            ).apply {
+                description = "Mensagens da central do HBX Logística"
+                enableVibration(urgente)
+            }
+            manager.createNotificationChannel(channel)
+        }
+        // Mesmo sem permissão, o recado já está no cache e aparecerá no sino
+        // ao abrir. Não fingimos que a notificação do sistema foi exibida.
+        if (!notificationsAvailableForChannel(context, channelId)) return false
+        val intent = Intent(context, MainActivity::class.java).apply {
+            putExtra(EXTRA_OPEN_RECADOS, true)
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+        val pending = PendingIntent.getActivity(
+            context,
+            id.hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle(titulo)
+            .setContentText(texto)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(texto))
+            .setPriority(if (urgente) NotificationCompat.PRIORITY_MAX else NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setAutoCancel(true)
+            .setContentIntent(pending)
+            .build()
+        return runCatching {
+            NotificationManagerCompat.from(context).notify(id.hashCode(), notification)
+        }.isSuccess
+    }
+
+    private fun notificationsAvailableForChannel(context: Context, channelId: String): Boolean {
+        val managerCompat = NotificationManagerCompat.from(context)
+        val permissionGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        if (!permissionGranted || !managerCompat.areNotificationsEnabled()) return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (manager.getNotificationChannel(channelId)?.importance == NotificationManager.IMPORTANCE_NONE) return false
+        }
+        return true
     }
 
     private fun requestAndRegisterPushToken(context: Context, force: Boolean) {

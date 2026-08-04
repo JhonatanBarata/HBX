@@ -144,10 +144,14 @@ export function Cockpit({
   // avisos/rotas (60 s). O fio aberto usa 2 s; o elenco fechado percebe em 3 s.
   useEffect(() => {
     let vivo = true;
+    let emVoo = false;
     const carregar = () => {
+      if (emVoo) return;
+      emVoo = true;
       getRecadosNaoLidos()
         .then((mapa) => { if (vivo) setNaoLidos(mapa || {}); })
-        .catch(() => { /* rede fora: mantém o último badge conhecido */ });
+        .catch(() => { /* rede fora: mantém o último badge conhecido */ })
+        .finally(() => { emVoo = false; });
     };
     carregar();
     const timer = setInterval(() => {

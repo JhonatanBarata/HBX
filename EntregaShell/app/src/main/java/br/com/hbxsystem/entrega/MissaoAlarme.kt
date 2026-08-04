@@ -242,8 +242,8 @@ object MissaoAlarme {
         val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
         val som = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
             ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-        val channel = NotificationChannel(CHANNEL_ID, "Missão agendada", NotificationManager.IMPORTANCE_HIGH).apply {
-            description = "Despertador da rota marcada pelo escritório"
+        val channel = NotificationChannel(CHANNEL_ID, "Alarmes do HBX", NotificationManager.IMPORTANCE_HIGH).apply {
+            description = "Rotas agendadas e recados de alarme enviados pela central"
             setSound(
                 som,
                 AudioAttributes.Builder()
@@ -307,6 +307,57 @@ object MissaoPendente {
         val atual = json
         json = null
         return atual
+    }
+}
+
+/**
+ * Resposta de RECADO é persistente e só sai depois do POST confirmado.
+ *
+ * A Activity pode acordar um processo novo, abrir o app e a rede cair entre os
+ * dois passos. Um slot apenas em memória perdia justamente esse “Responder”.
+ */
+object RecadoPendente {
+    private const val PREFS = "hbx_missoes"
+    private const val KEY = "recado_respostas_pendentes"
+    private const val MAX = 20
+
+    @Synchronized
+    fun guardar(context: Context, valor: String) {
+        val novo = runCatching { JSONObject(valor) }.getOrNull() ?: return
+        val id = novo.optString("id").trim()
+        if (!ehAlarmeDeRecado(id)) return
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val atual = runCatching { JSONArray(prefs.getString(KEY, "[]")) }.getOrElse { JSONArray() }
+        val itens = mutableListOf<JSONObject>()
+        for (index in 0 until atual.length()) {
+            val item = atual.optJSONObject(index) ?: continue
+            if (item.optString("id") != id) itens.add(JSONObject(item.toString()))
+        }
+        itens.add(novo)
+        val saida = JSONArray()
+        itens.takeLast(MAX).forEach { saida.put(it) }
+        prefs.edit().putString(KEY, saida.toString()).commit()
+    }
+
+    @Synchronized
+    fun ler(context: Context): String? {
+        val raw = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY, "[]")
+        val atual = runCatching { JSONArray(raw) }.getOrElse { JSONArray() }
+        return atual.optJSONObject(0)?.toString()
+    }
+
+    @Synchronized
+    fun concluir(context: Context, recadoId: String) {
+        val alarmeId = "$PREFIXO_ALARME_RECADO${recadoId.trim()}"
+        val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val atual = runCatching { JSONArray(prefs.getString(KEY, "[]")) }.getOrElse { JSONArray() }
+        val saida = JSONArray()
+        for (index in 0 until atual.length()) {
+            val item = atual.optJSONObject(index) ?: continue
+            if (item.optString("id") != alarmeId) saida.put(item)
+        }
+        prefs.edit().putString(KEY, saida.toString()).commit()
     }
 }
 

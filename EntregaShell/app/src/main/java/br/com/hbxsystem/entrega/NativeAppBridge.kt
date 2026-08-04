@@ -308,7 +308,8 @@ class NativeAppBridge(
         val quando = atMillis.trim().toLongOrNull() ?: return false
         val safeId = id.filterNot(Char::isISOControl).take(40)
         val safeTitulo = titulo.filterNot(Char::isISOControl).take(60)
-        val safeTexto = texto.filterNot(Char::isISOControl).take(120)
+        val limiteTexto = if (ehAlarmeDeRecado(safeId)) 500 else 120
+        val safeTexto = texto.filterNot(Char::isISOControl).take(limiteTexto)
         return MissaoAlarme.agendar(activity, safeId, quando, safeTitulo, safeTexto)
     }
 
@@ -327,6 +328,19 @@ class NativeAppBridge(
     fun missaoRespostaPendente(): String {
         if (BuildConfig.APP_MODE != "logistica") return ""
         return MissaoPendente.drenar().orEmpty()
+    }
+
+    /** Recado não é drenado até o servidor confirmar o POST. */
+    @JavascriptInterface
+    fun recadoRespostaPendente(): String {
+        if (BuildConfig.APP_MODE != "logistica") return ""
+        return RecadoPendente.ler(activity).orEmpty()
+    }
+
+    @JavascriptInterface
+    fun recadoRespostaConcluir(recadoId: String) {
+        if (BuildConfig.APP_MODE != "logistica") return
+        RecadoPendente.concluir(activity, recadoId.filterNot(Char::isISOControl).take(64))
     }
 
     @JavascriptInterface

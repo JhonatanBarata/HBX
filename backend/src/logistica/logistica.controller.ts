@@ -66,6 +66,7 @@ import {
   ChecarEnderecosDto,
   TirarDoDiaDto,
   EnviarRecadoDto,
+  RecebidosRecadoDto,
   ResponderRecadoDto,
   VistoRecadoDto,
   AtribuirLoteDto,
@@ -1071,11 +1072,45 @@ export class LogisticaController {
   // ordem de declaração, e invertido o `GET recados/portao` cairia no param
   // (ParseIntPipe → 400 "portao não é número").
 
-  /** APP: puxa o que ainda não chegou e marca ✓✓ no mesmo passo. */
+  /**
+   * APP legado (até 145): não conhece confirmação em duas fases. Mantém o
+   * contrato antigo durante a atualização da frota; aparelhos novos usam
+   * `pendentes` + `recebidos` e só então geram ✓✓ verdadeiro.
+   */
   @Post('recados/puxar')
-  puxarRecados(@Req() req: any) {
+  async puxarRecados(@Req() req: any) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    const userId = this.ensureUserId(req.user);
+    const lista = await this.recado.puxar(companyId, userId);
+    await this.recado.marcarRecebidos(companyId, userId, lista.map((item) => item.id));
+    return lista;
+  }
+
+  /** APP atual: lê pendentes sem alterar o banco; confirma depois de persistir. */
+  @Post('recados/pendentes')
+  puxarRecadosSeguro(@Req() req: any) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     return this.recado.puxar(companyId, this.ensureUserId(req.user));
+  }
+
+  /** APP: histórico persistente do próprio fio (caixa de recados/sino). */
+  @Get('recados/me')
+  meusRecados(@Req() req: any) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.recado.fio(companyId, this.ensureUserId(req.user));
+  }
+
+  /** APP: confirma que os recados chegaram e foram guardados no aparelho. */
+  @Post('recados/recebidos')
+  async recebidosRecados(@Req() req: any, @Body() dto: RecebidosRecadoDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return {
+      marcados: await this.recado.marcarRecebidos(
+        companyId,
+        this.ensureUserId(req.user),
+        dto?.ids ?? [],
+      ),
+    };
   }
 
   /**
@@ -1099,7 +1134,13 @@ export class LogisticaController {
   @Post('recados/responder')
   responderRecado(@Req() req: any, @Body() dto: ResponderRecadoDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
-    return this.recado.responder(companyId, this.ensureUserId(req.user), dto?.texto ?? '', dto?.date);
+    return this.recado.responder(
+      companyId,
+      this.ensureUserId(req.user),
+      dto?.texto ?? '',
+      dto?.date,
+      { clientMessageId: dto?.clientMessageId, recadoId: dto?.recadoId },
+    );
   }
 
   /** APP: o "Entendi" que destrava o portão. */

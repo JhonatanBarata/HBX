@@ -156,6 +156,7 @@ export class LogisticaRecadoService {
     motoristaUserId: number,
     texto: string,
     dateInput?: string,
+    options: { clientMessageId?: string; recadoId?: string } = {},
   ): Promise<RecadoDTO> {
     if (!companyId || !motoristaUserId) throw new BadRequestException('Sessão inválida.');
     const limpo = String(texto ?? '').trim();
@@ -166,23 +167,76 @@ export class LogisticaRecadoService {
       where: { id: motoristaUserId, companyId },
       select: { name: true, username: true, email: true },
     });
-    const row = await this.prisma.logisticaRecado.create({
-      data: {
+    const clientMessageId = String(options?.clientMessageId || '').trim() || null;
+    const recadoId = String(options?.recadoId || '').trim() || null;
+    const autorNome = (pessoa?.name || pessoa?.username || pessoa?.email || `Usuário ${motoristaUserId}`).slice(0, 120);
+    const routeDate = this.diaSeguro(dateInput);
+
+    return this.prisma.$transaction(async (tx) => {
+      const original = recadoId
+        ? await tx.logisticaRecado.findFirst({
+            where: {
+              id: recadoId,
+              companyId,
+              motoristaUserId,
+              origem: ORIGEM_ESCRITORIO,
+            },
+            select: { id: true, nivel: true },
+          })
+        : null;
+      if (recadoId && !original) {
+        throw new NotFoundException('Recado não encontrado neste aparelho.');
+      }
+
+      const data = {
         companyId,
         motoristaUserId,
         origem: ORIGEM_MOTORISTA,
         autorUserId: motoristaUserId,
-        autorNome: (pessoa?.name || pessoa?.username || pessoa?.email || `Usuário ${motoristaUserId}`).slice(0, 120),
+        autorNome,
         texto: limpo,
         nivel: 'normal',
-        routeDate: this.diaSeguro(dateInput),
-        // A resposta nasce ENTREGUE e VISTA: ela veio do aparelho, não faz
-        // sentido cobrar prova de entrega de quem escreveu.
+        routeDate,
+        clientMessageId,
+        respostaAoId: original?.id ?? null,
+        // A mensagem já chegou AO SERVIDOR, mas a central ainda não abriu.
+        // `vistoEm` precisa ficar null para o badge avisar quem está no PC.
         entregueEm: new Date(),
-        vistoEm: new Date(),
-      },
+        vistoEm: null,
+      };
+      const row = clientMessageId
+        ? await tx.logisticaRecado.upsert({
+            where: {
+              companyId_motoristaUserId_clientMessageId: {
+                companyId,
+                motoristaUserId,
+                clientMessageId,
+              },
+            },
+            create: data,
+            update: {},
+          })
+        : await tx.logisticaRecado.create({ data });
+
+      // Responder e confirmar são UMA gravação lógica. Se qualquer passo
+      // falhar, a transação não deixa metade do gesto no banco.
+      if (original) {
+        const agora = new Date();
+        await tx.logisticaRecado.updateMany({
+          where: {
+            id: original.id,
+            companyId,
+            motoristaUserId,
+            origem: ORIGEM_ESCRITORIO,
+          },
+          data: {
+            vistoEm: agora,
+            ...(NIVEL_COBRA_ACK.includes(original.nivel) ? { ackEm: agora } : {}),
+          },
+        });
+      }
+      return this.toDTO(row);
     });
-    return this.toDTO(row);
   }
 
   // ── LEITURA (cockpit) ─────────────────────────────────────────────────────
@@ -225,7 +279,8 @@ export class LogisticaRecadoService {
 
   // ── APK ───────────────────────────────────────────────────────────────────
   /**
-   * O aparelho puxa o que ainda não recebeu e JÁ marca como entregue (✓✓).
+   * O aparelho puxa o que ainda não recebeu. O ✓✓ só nasce no endpoint
+   * `recebidos`, DEPOIS de a resposta HTTP chegar e ser persistida no aparelho.
    *
    * Marcar na entrega — e não no "abriu" — é o que separa "chegou no aparelho"
    * de "a pessoa leu": são dois estados diferentes e o dono precisa dos dois
@@ -238,13 +293,24 @@ export class LogisticaRecadoService {
       orderBy: { createdAt: 'asc' },
       take: 20,
     });
-    if (rows.length) {
-      await this.prisma.logisticaRecado.updateMany({
-        where: { id: { in: rows.map((row) => row.id) }, companyId, entregueEm: null },
-        data: { entregueEm: new Date() },
-      });
-    }
-    return rows.map((row) => this.toDTO({ ...row, entregueEm: row.entregueEm ?? new Date() }));
+    return rows.map((row) => this.toDTO(row));
+  }
+
+  /** Confirma o recebimento somente depois de o conteúdo estar no aparelho. */
+  async marcarRecebidos(companyId: number, motoristaUserId: number, ids: string[]): Promise<number> {
+    const lista = this.idsSeguros(ids);
+    if (!companyId || !motoristaUserId || !lista.length) return 0;
+    const res = await this.prisma.logisticaRecado.updateMany({
+      where: {
+        id: { in: lista },
+        companyId,
+        motoristaUserId,
+        origem: ORIGEM_ESCRITORIO,
+        entregueEm: null,
+      },
+      data: { entregueEm: new Date() },
+    });
+    return res.count;
   }
 
   /**
@@ -276,7 +342,15 @@ export class LogisticaRecadoService {
     if (!companyId || !motoristaUserId || !id) return false;
     const agora = new Date();
     const res = await this.prisma.logisticaRecado.updateMany({
-      where: { id: String(id).trim(), companyId, motoristaUserId, ackEm: null },
+      where: {
+        id: String(id).trim(),
+        companyId,
+        motoristaUserId,
+        origem: ORIGEM_ESCRITORIO,
+        nivel: { in: [...NIVEL_COBRA_ACK] },
+        entregueEm: { not: null },
+        ackEm: null,
+      },
       data: { ackEm: agora, vistoEm: agora },
     });
     return res.count > 0;
@@ -284,7 +358,7 @@ export class LogisticaRecadoService {
 
   /** Abriu a lista no app: marca visto sem exigir "Entendi". */
   async marcarVisto(companyId: number, motoristaUserId: number, ids: string[]): Promise<number> {
-    const lista = (Array.isArray(ids) ? ids : []).map((id) => String(id || '').trim()).filter(Boolean).slice(0, 50);
+    const lista = this.idsSeguros(ids);
     if (!companyId || !motoristaUserId || !lista.length) return 0;
     const res = await this.prisma.logisticaRecado.updateMany({
       where: { id: { in: lista }, companyId, motoristaUserId, vistoEm: null },
@@ -359,6 +433,13 @@ export class LogisticaRecadoService {
   private nivelSeguro(valor: unknown): RecadoNivel {
     const limpo = String(valor ?? 'normal').trim().toLowerCase();
     return (NIVEIS as readonly string[]).includes(limpo) ? (limpo as RecadoNivel) : 'normal';
+  }
+
+  private idsSeguros(ids: string[]): string[] {
+    return [...new Set((Array.isArray(ids) ? ids : [])
+      .map((id) => String(id || '').trim())
+      .filter((id) => id.length > 0 && id.length <= 64))]
+      .slice(0, 50);
   }
 
   private diaSeguro(dateInput?: string): string {

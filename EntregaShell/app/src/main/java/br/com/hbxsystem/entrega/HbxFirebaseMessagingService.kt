@@ -58,3 +58,29 @@ object HbxPushWake {
         if (tocarAgora) novo?.invoke()
     }
 }
+
+/** Abre a caixa de recados quando a pessoa toca a notificação do sistema. */
+object HbxRecadoUiWake {
+    private val lock = Any()
+    private var listener: (() -> Unit)? = null
+    private var pendente = false
+
+    fun sinalizar() {
+        val destino = synchronized(lock) {
+            val atual = listener
+            if (atual == null) pendente = true
+            atual
+        }
+        destino?.invoke()
+    }
+
+    fun registrar(novo: (() -> Unit)?) {
+        val tocarAgora = synchronized(lock) {
+            listener = novo
+            val deveTocar = novo != null && pendente
+            if (deveTocar) pendente = false
+            deveTocar
+        }
+        if (tocarAgora) novo?.invoke()
+    }
+}

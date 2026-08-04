@@ -71,6 +71,8 @@ class MainActivity : AppCompatActivity() {
     private var readyRevealScheduled = false
     private var mainHandoffVisibleAt = 0L
     private var visualStateRequestId = 1L
+    private var pendingPushWake = false
+    private var pendingOpenRecados = false
 
     private val localizacaoLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -243,6 +245,7 @@ class MainActivity : AppCompatActivity() {
             insets
         }
         setContentView(root)
+        consumirIntentDeRecados(intent)
         openingProgress = intent.getIntExtra(OpeningActivity.EXTRA_OPENING_PROGRESS, 42).coerceIn(0, 95)
         mountOpeningOverlay(assetLoader)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -338,6 +341,14 @@ class MainActivity : AppCompatActivity() {
         // — evento disparado no vazio se perde, e o dono ficaria olhando pro app
         // sem entender por que o endereço não veio junto.
         DestinoPendente.drenar()?.let(::entregarDestino)
+        if (pendingPushWake) {
+            pendingPushWake = false
+            entregarPushWake()
+        }
+        if (pendingOpenRecados) {
+            pendingOpenRecados = false
+            entregarAberturaDeRecados()
+        }
         openingWebView?.evaluateJavascript(
             "window.HBXOpening&&window.HBXOpening.complete('app','${if (theme == "light") "light" else "dark"}')",
             null,
@@ -392,6 +403,7 @@ class MainActivity : AppCompatActivity() {
             // app.js. Sem esta ponte, o Firebase chegava e a WebView esperava
             // o relógio de 60 segundos como se nada tivesse acontecido.
             HbxPushWake.registrar { runOnUiThread { entregarPushWake() } }
+            HbxRecadoUiWake.registrar { runOnUiThread { entregarAberturaDeRecados() } }
             RotaState.registrarListener { paradaId -> runOnUiThread { entregarChegada(paradaId) } }
             RotaState.drenarPendencias().forEach(::entregarChegada)
             // S2 (PR21072026-MONTAR-ROTA-PLAY) — mesmo padrão da chegada acima,
@@ -410,6 +422,7 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         if (BuildConfig.APP_MODE == "logistica") {
             HbxPushWake.registrar(null)
+            HbxRecadoUiWake.registrar(null)
             RotaState.registrarListener(null)
             RotaState.registrarPausaListener(null)
             RotaState.registrarPontoListener(null)
@@ -420,10 +433,39 @@ class MainActivity : AppCompatActivity() {
 
     private fun entregarPushWake() {
         if (!::webView.isInitialized || isFinishing || isDestroyed) return
+        if (!appRevealed) {
+            pendingPushWake = true
+            return
+        }
         webView.evaluateJavascript(
             "document.dispatchEvent(new CustomEvent('hbx:push-wake'));",
             null,
         )
+    }
+
+    private fun entregarAberturaDeRecados() {
+        if (!::webView.isInitialized || isFinishing || isDestroyed) return
+        if (!appRevealed) {
+            pendingOpenRecados = true
+            return
+        }
+        webView.evaluateJavascript(
+            "document.dispatchEvent(new CustomEvent('hbx:open-recados'));",
+            null,
+        )
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumirIntentDeRecados(intent)
+    }
+
+    private fun consumirIntentDeRecados(intent: Intent?) {
+        if (BuildConfig.APP_MODE != "logistica") return
+        if (intent?.getBooleanExtra(HbxMobileBridge.EXTRA_OPEN_RECADOS, false) != true) return
+        intent.removeExtra(HbxMobileBridge.EXTRA_OPEN_RECADOS)
+        HbxRecadoUiWake.sinalizar()
     }
 
     override fun onDestroy() {

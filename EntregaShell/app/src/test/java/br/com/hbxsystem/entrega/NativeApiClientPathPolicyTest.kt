@@ -130,6 +130,9 @@ class NativeApiClientPathPolicyTest {
     @Test
     fun logisticaAllowsTheRecadoContract() {
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/recados/puxar"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/recados/pendentes"))
+        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/recados/me"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/recados/recebidos"))
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/recados/portao"))
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/recados/visto"))
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/recados/responder"))

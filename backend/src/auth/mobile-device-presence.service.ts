@@ -172,6 +172,17 @@ export class MobileDevicePresenceService {
     return device;
   }
 
+  /** Credencial nativa do entregador, sem exigir o módulo/cargo de Vendas. */
+  async authenticateLogisticaDevice(
+    dto: OpenMobileDeviceSessionDto,
+    options: { touch?: boolean } = {},
+  ): Promise<AuthenticatedMobileDevice> {
+    const device = await this.authenticateDeviceCredential(dto, { touch: false });
+    await this.assertUserCanUseLogistica(device.userId, device.companyId);
+    if (options.touch !== false) await this.touchAuthenticatedDevice(device);
+    return device;
+  }
+
   async touchAuthenticatedDevice(device: AuthenticatedMobileDevice): Promise<void> {
     const now = new Date();
     await withoutTenantScope('mobile presence: atualizar aparelho autenticado', () =>

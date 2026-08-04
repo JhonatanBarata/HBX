@@ -318,7 +318,10 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         // porque o pedido nunca era feito — deploy de backend não conserta isso.
         // Regra que custou o bug (memory/hbxapk.md §6): endpoint novo no app.js
         // = allowlist no Kotlin + REBUILD do APK, sempre.
-        method == "GET" && segments == listOf("logistica", "recados", "portao") -> true
+        method == "GET" && segments in listOf(
+            listOf("logistica", "recados", "portao"),
+            listOf("logistica", "recados", "me"),
+        ) -> true
         method == "POST" && segments in listOf(
             listOf("financeiro", "credits", "recharge"),
             listOf("logistica", "gerar-dia"),
@@ -354,6 +357,8 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             // RECADOS (03/08) — o sino do entregador e os dois retornos diretos
             // previstos pelo contrato do canal. Ver nota no GET acima.
             listOf("logistica", "recados", "puxar"),
+            listOf("logistica", "recados", "pendentes"),
+            listOf("logistica", "recados", "recebidos"),
             listOf("logistica", "recados", "visto"),
             listOf("logistica", "recados", "responder"),
         ) -> true

@@ -9,6 +9,7 @@ import {
   IsString,
   Max,
   MaxLength,
+  Matches,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -1066,6 +1067,19 @@ export class ResponderRecadoDto {
   @MaxLength(500)
   texto!: string;
 
+  /** Identidade estável gerada pelo aparelho para retry/toque duplo. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  @Matches(/^[A-Za-z0-9_-]{8,64}$/)
+  clientMessageId?: string;
+
+  /** Recado que será confirmado atomicamente junto com a resposta. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  recadoId?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(10)
@@ -1076,6 +1090,15 @@ export class ResponderRecadoDto {
 export class VistoRecadoDto {
   @IsArray()
   @ArrayMaxSize(50)
+  ids!: string[];
+}
+
+/** APK: confirma que o lote chegou e foi persistido no aparelho. */
+export class RecebidosRecadoDto {
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  @MaxLength(64, { each: true })
   ids!: string[];
 }
 
