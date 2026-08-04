@@ -209,6 +209,18 @@ teste da cena (fixture de DPS do tenant + transporte mockado — padrão `nfse-t
 - **Vasilhame/comodato** (saldo de garrafão por cliente) — extensão do estoque p/ água.
 - **NFC-e na entrega** (modo nota-a-nota de varejo) — se algum tenant pedir.
 - **Retenções avançadas** (INSS/IRRF em NFS-e p/ tomador PJ) — v1 só ISS (retido ou não).
+- **Da revisão adversarial de 04/08** (corrigidos na hora: A2 snapshot prestador, A3 aviso
+  timeout, A4 amarra cidade×CNPJ, M2 senha fora do cofre, M3 throttle consulta-CNPJ, M4 teto
+  valor, M5 comentário honesto do originKey, B5 controle no esc). Ficam com moradia:
+  - **A3-completo**: reconciliação por consulta à Sefin depois de timeout (reusar o padrão
+    `reconciliar` do nfse-emitter do contabil) — F1b.
+  - **M1**: chave de cofre SEPARADA pro fiscal do tenant (`HBX_FISCAL_VAULT_KEY` + versão de
+    chave no envelope; hoje divide `HBX_CONTABIL_VAULT_KEY` com o cofre do dono) — blast radius.
+  - **B1**: sanitizar `erroMsg` antes de devolver pra tela (hoje mensagem técnica crua em 200).
+  - **B3**: trilha do tenant divide o `FiscalAutomationLog` do dono sem companyId — separar
+    quando a trilha do tenant ganhar tela.
+  - **B4**: abrir `producao` no perfil é HOJE código morto de propósito (nenhuma rota escreve
+    `ambiente`) — abrir só via gate F1c com A2/A3/A4 já resolvidos.
 
 ## 7. Armadilhas conhecidas (o porquê mora na memória/docs)
 

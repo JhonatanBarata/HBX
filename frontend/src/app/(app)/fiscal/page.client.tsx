@@ -979,6 +979,7 @@ function BlocoEmitir({
                 ) : null}
               </div>
               <span>{resultado.erroMsg || "A nota não foi autorizada."}</span>
+              {resultado.aviso ? <strong className="hbx-inteiro">{resultado.aviso}</strong> : null}
             </div>
           )
         ) : null}

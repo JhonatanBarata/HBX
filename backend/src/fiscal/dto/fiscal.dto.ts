@@ -87,7 +87,7 @@ export class EmitirNfseAvulsaDto {
   @IsString() @IsNotEmpty()
   servicoId!: string;
 
-  @IsInt() @Min(1)
+  @IsInt() @Min(1) @Max(2_000_000_000) // teto do int4 com folga (M4) — não queima nDPS em INSERT que vai falhar
   valorCents!: number;
 
   @IsOptional() @IsString() @MaxLength(1000)

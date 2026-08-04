@@ -16,6 +16,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Throttle } from '@nestjs/throttler';
 import { memoryStorage } from 'multer';
 import { Admin } from '../auth/admin.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -102,8 +103,14 @@ export class FiscalController {
 
   // -------------------------------------------------------- APOIO (tela)
 
-  /** Auto-fill do tomador na emissão avulsa — base RFB local (28M CNPJs). */
+  /**
+   * Auto-fill do tomador na emissão avulsa — base RFB local (28M CNPJs).
+   * Throttle próprio (revisão adversarial M3): sem ele esta rota vira porta de
+   * enumeração da base enriquecida por fora do módulo de prospecção ("vitrine e
+   * caixa: dois porteiros"). 10/min cobre digitação humana com folga.
+   */
   @Get('consulta-cnpj')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   consultaCnpj(@Query('cnpj') cnpj: string) {
     return this.profile.consultaCnpj(cnpj);
   }
@@ -161,7 +168,12 @@ export class FiscalController {
     const pdf = await renderNfsePdf({
       ambiente: doc.ambiente,
       status: doc.status,
-      prestador: { razaoSocial: perfil.razaoSocial, cnpj: perfil.cnpj, municipio: perfil.municipio ? `${perfil.municipio.nome}/${perfil.municipio.uf}` : null },
+      // Snapshot da emissão manda (A2); perfil de hoje é só fallback de docs antigos.
+      prestador: {
+        razaoSocial: doc.prestadorRazaoSocial || perfil.razaoSocial,
+        cnpj: doc.prestadorCnpj || perfil.cnpj,
+        municipio: doc.prestadorMunicipio || (perfil.municipio ? `${perfil.municipio.nome}/${perfil.municipio.uf}` : null),
+      },
       tomador: { nome: doc.tomadorNome, doc: doc.tomadorDoc },
       descricao: doc.descricao,
       valorCents: doc.valorCents,

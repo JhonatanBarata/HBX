@@ -6078,6 +6078,11 @@ model FiscalDocumento {
   tomadorDoc         String? // CNPJ/CPF só dígitos (snapshot)
   tomadorNome        String?
   tomadorEmail       String?
+  // Snapshot do PRESTADOR na emissão (revisão adversarial A2, 04/08): a DANFSe
+  // é retrato do XML assinado — se o perfil mudar depois, o PDF antigo NÃO muda.
+  prestadorRazaoSocial String?
+  prestadorCnpj        String?
+  prestadorMunicipio   String? // "Nome/UF" exibível
   servicoId          String? // FiscalServicoCatalogo.id (FK lógica)
   descricao          String?
   valorCents         Int

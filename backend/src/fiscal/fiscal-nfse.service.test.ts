@@ -106,11 +106,14 @@ function makeFakePrisma() {
 
 class FakeTransport implements NfseTransport {
   calls = 0;
-  constructor(private readonly modo: 'ok' | 'falha') {}
+  constructor(private readonly modo: 'ok' | 'falha' | 'timeout') {}
   async postNfse(): Promise<NfseTransportResult> {
     this.calls += 1;
     if (this.modo === 'ok') {
       return { httpStatus: 201, ok: true, chaveAcesso: 'NFS'.padEnd(50, '0'), xmlRetornoGzB64: null, erro: null };
+    }
+    if (this.modo === 'timeout') {
+      return { httpStatus: 0, ok: false, chaveAcesso: null, xmlRetornoGzB64: null, erro: 'timeout' };
     }
     return { httpStatus: 500, ok: false, chaveAcesso: null, xmlRetornoGzB64: null, erro: 'indisponivel' };
   }
@@ -118,7 +121,7 @@ class FakeTransport implements NfseTransport {
 
 const trilhaFake = { registrar: async () => undefined } as any;
 
-async function montarCenario(modo: 'ok' | 'falha', overridesPerfil: Record<string, any> = {}) {
+async function montarCenario(modo: 'ok' | 'falha' | 'timeout', overridesPerfil: Record<string, any> = {}) {
   const prisma = makeFakePrisma();
   const profile = new FiscalProfileService(prisma as any);
   const transport = new FakeTransport(modo);
@@ -277,6 +280,28 @@ test('cancelamento exige motivo e só AUTORIZADA; rastro fica no documento', asy
   assert.equal(cancelada.status, 'CANCELADA');
   assert.equal(cancelada.motivoCancelamento, 'Cliente pediu o serviço de volta');
   await assert.rejects(() => service.cancelar(7, doc.id, 'De novo'), /AUTORIZADA/);
+});
+
+// ---------------------------------------------------------------------------
+// A3 — timeout não prova falha: aviso anti-duplicata + snapshot do prestador
+// ---------------------------------------------------------------------------
+
+test('timeout carrega aviso anti-duplicata; erro comum não; snapshot do prestador fica no doc', async () => {
+  const cenTimeout = await montarCenario('timeout');
+  const docTimeout = await cenTimeout.service.emitirAvulsa(7, null, inputBase(cenTimeout.servico.id));
+  assert.equal(docTimeout.status, 'ERRO');
+  assert.match(String((docTimeout as any).aviso || ''), /PODE ter sido emitida/i);
+
+  const cenFalha = await montarCenario('falha');
+  const docFalha = await cenFalha.service.emitirAvulsa(7, null, inputBase(cenFalha.servico.id));
+  assert.equal(docFalha.status, 'ERRO');
+  assert.equal((docFalha as any).aviso, undefined);
+
+  // A2: snapshot do prestador gravado na emissão (a DANFSe não muda com o perfil).
+  const raw = cenTimeout.prisma._data.documentos[0];
+  assert.equal(raw.prestadorRazaoSocial, 'Manutencao Rio Claro LTDA');
+  assert.equal(raw.prestadorCnpj, '11222333000181');
+  assert.equal(raw.prestadorMunicipio, 'Rio Claro/SP');
 });
 
 // ---------------------------------------------------------------------------

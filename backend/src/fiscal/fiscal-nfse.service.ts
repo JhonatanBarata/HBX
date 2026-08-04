@@ -46,7 +46,7 @@ export class FiscalNfseService {
   // -------------------------------------------------------------------------
 
   async emitirAvulsa(companyId: number, userId: number | null, input: EmitirAvulsaInput) {
-    const perfil = await this.validarPerfilProntoParaEmitir(companyId);
+    const { perfil, municipio } = await this.validarPerfilProntoParaEmitir(companyId);
 
     const tomadorDoc = String(input.tomadorDoc || '').replace(/\D/g, '');
     if (![11, 14].includes(tomadorDoc.length)) {
@@ -56,6 +56,9 @@ export class FiscalNfseService {
     if (!tomadorNome) throw new BadRequestException('Nome do tomador é obrigatório.');
     const valorCents = Math.trunc(Number(input.valorCents));
     if (!Number.isFinite(valorCents) || valorCents <= 0) throw new BadRequestException('Valor da nota deve ser maior que zero.');
+    // Teto do int4 (revisão adversarial M4): valor além disso estouraria o INSERT
+    // DEPOIS de queimar número de DPS. Nota acima de R$ 21 milhões não é caso da v1.
+    if (valorCents > 2_000_000_000) throw new BadRequestException('Valor acima do suportado (R$ 20.000.000,00). Fale com o suporte.');
 
     const servico = await (this.prisma as any).fiscalServicoCatalogo.findFirst({
       where: { id: String(input.servicoId || ''), companyId, ativo: true },
@@ -63,6 +66,10 @@ export class FiscalNfseService {
     if (!servico) throw new BadRequestException('Serviço não encontrado no catálogo da empresa.');
 
     // Documento nasce PENDENTE com numeração reservada atomicamente.
+    // ⚠️ originKey aqui NÃO é dedup de conteúdo (o número é único por construção):
+    // dois pedidos idênticos geram DUAS notas — igual a dois cliques no emissor da
+    // prefeitura. Idempotência REAL por origem entra quando FECHAMENTO/OS plugarem
+    // (originKey = 'fechamento:<chargeId>' etc., aí sim o UNIQUE morde).
     const numero = await this.reservarNumero(companyId);
     const doc = await (this.prisma as any).fiscalDocumento.create({
       data: {
@@ -70,6 +77,10 @@ export class FiscalNfseService {
         tipo: 'NFSE',
         origem: 'AVULSA',
         originKey: `avulsa:${companyId}:${perfil.serieDps}:${numero}`,
+        // Snapshot do prestador (A2): a DANFSe desta nota nunca muda com o perfil.
+        prestadorRazaoSocial: perfil.razaoSocial,
+        prestadorCnpj: perfil.cnpj,
+        prestadorMunicipio: municipio ? `${municipio.nome}/${municipio.uf}` : null,
         status: 'PENDENTE',
         tomadorDoc,
         tomadorNome,
@@ -291,7 +302,7 @@ export class FiscalNfseService {
       // Tomada da F2b — stub honesto (adapter do provedor ainda não contratado).
       throw new BadRequestException('Cidade roteada para o provedor pago, que ainda não está contratado (PROVEDOR_NAO_CONTRATADO).');
     }
-    return perfil;
+    return { perfil, municipio };
   }
 
   /** Competência no fuso do BRASIL (America/Sao_Paulo) — teste verde em UTC não vale. */
@@ -304,6 +315,17 @@ export class FiscalNfseService {
   }
 
   private serializeDocumento(d: any, extra: Record<string, unknown> = {}) {
+    // A3 (revisão adversarial): timeout NÃO prova falha — a Sefin pode ter
+    // autorizado sem a resposta chegar. Avisar ANTES que o tenant emita duplicata.
+    const timeoutSuspeito =
+      ['ERRO', 'REJEITADA'].includes(d.status) && /timeout/i.test(String(d.erroMsg || ''));
+    if (timeoutSuspeito && extra.aviso == null) {
+      extra = {
+        ...extra,
+        aviso:
+          'A transmissão não respondeu a tempo — a nota PODE ter sido emitida mesmo assim. Confira no portal gov.br/nfse antes de emitir outra.',
+      };
+    }
     return {
       id: d.id,
       tipo: d.tipo,

@@ -108,6 +108,21 @@ export class FiscalProfileService implements OnModuleInit {
     if (dto.municipioIbge !== undefined) {
       const ibge = String(dto.municipioIbge || '').replace(/\D/g, '');
       if (ibge && ibge.length !== 7) throw new BadRequestException('Código IBGE do município deve ter 7 dígitos.');
+      // Revisão adversarial A4: a allowlist gate a CIDADE; isto amarra a EMPRESA à
+      // cidade dela. Cruza com a base RFB (best-effort COM VOZ: base ausente no
+      // ambiente = deixa passar e loga; divergência confirmada = recusa).
+      if (ibge) {
+        const atual = await (this.prisma as any).fiscalTenantProfile.findUnique({ where: { companyId } });
+        const cnpjPerfil = String((dto.cnpj !== undefined ? dto.cnpj : atual?.cnpj) || '').replace(/\D/g, '');
+        if (cnpjPerfil.length === 14) {
+          const divergencia = await this.municipioDivergeDaRfb(cnpjPerfil, ibge);
+          if (divergencia) {
+            throw new BadRequestException(
+              `O CNPJ informado está registrado na Receita em ${divergencia}. Selecione o município do próprio CNPJ — emissão em outra cidade não é permitida.`,
+            );
+          }
+        }
+      }
       data.municipioIbge = ibge || null;
     }
     for (const k of ['escopoServico', 'escopoProduto', 'emailAutoEnvio', 'whatsAutoEnvio', 'estoqueAtivo'] as const) {
@@ -165,11 +180,12 @@ export class FiscalProfileService implements OnModuleInit {
       throw new BadRequestException(`Certificado já expirou (validade ${material.expiresAt.toISOString().slice(0, 10)}).`);
     }
 
+    // Revisão adversarial M2: a senha do .pfx NÃO é guardada — a chave PEM já sai
+    // sem senha (-nodes) e ninguém a lê depois. Segredo sem função é só risco.
     const envelope = JSON.stringify({
       v: 1,
       certPem: vaultEncrypt(material.certPem),
       keyPem: vaultEncrypt(material.keyPem),
-      senha: vaultEncrypt(pass),
     });
     await (this.prisma as any).fiscalTenantProfile.update({
       where: { companyId },
@@ -286,6 +302,30 @@ export class FiscalProfileService implements OnModuleInit {
   }
 
   // -------------------------------------------------------------------------
+
+  /**
+   * A4 — retorna a cidade da RFB ("Nome/UF") se ela EXISTIR e divergir do
+   * município escolhido; null = sem divergência comprovável (bate, ou base/dado
+   * indisponível — nunca travar cadastro por falta de base no ambiente).
+   */
+  private async municipioDivergeDaRfb(cnpj: string, ibge: string): Promise<string | null> {
+    try {
+      const [rfb, municipio] = await Promise.all([
+        (this.prisma as any).cnpjPublicCompany.findFirst({ where: { cnpj }, select: { city: true, state: true } }),
+        (this.prisma as any).fiscalMunicipio.findUnique({ where: { ibge } }),
+      ]);
+      if (!rfb?.city || !municipio?.nome) return null;
+      const norm = (s: string) =>
+        String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+      const bateCidade = norm(rfb.city) === norm(municipio.nome);
+      const bateUf = !rfb.state || norm(rfb.state) === norm(municipio.uf);
+      if (bateCidade && bateUf) return null;
+      return `${rfb.city}${rfb.state ? `/${rfb.state}` : ''}`;
+    } catch (err) {
+      this.logger.warn(`[fiscal] cruzamento município×RFB indisponível: ${String((err as Error)?.message || err).slice(0, 120)}`);
+      return null;
+    }
+  }
 
   private serializePerfil(p: any, municipio: any): PerfilPublico {
     const expiresAt: Date | null = p.certA1ExpiresAt ? new Date(p.certA1ExpiresAt) : null;

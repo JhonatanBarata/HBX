@@ -288,6 +288,9 @@ export class NfseNationalClient {
 
   private esc(v: string): string {
     return String(v ?? '')
+      // Caractere de controle é ILEGAL em XML 1.0 (revisão 04/08): sem esta faxina,
+      // um \x0B em nome/descrição vira DPS rejeitada queimando número.
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
