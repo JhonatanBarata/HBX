@@ -395,6 +395,16 @@ test('conferir na Sefin: consulta indisponível não muda o documento; AUTORIZAD
   await assert.rejects(() => svcOk.conferirNaSefin(7, null, docOk.id), /ERRO/);
 });
 
+test('perfil trocou de CNPJ depois do timeout → conferência recusa (chave sairia errada; 404 falso = duplicata)', async () => {
+  const cenario = await montarCenario('timeout');
+  const docTimeout = await cenario.service.emitirAvulsa(7, null, inputBase(cenario.servico.id));
+
+  cenario.prisma._data.profiles[0].cnpj = '19131243000197'; // trocou depois da emissão
+  const svc = serviceComConsulta(cenario, 'nao-achou');
+  await assert.rejects(() => svc.conferirNaSefin(7, null, docTimeout.id), /portal gov\.br\/nfse/);
+  assert.equal(cenario.prisma._data.documentos[0].status, 'ERRO', 'documento fica como estava');
+});
+
 test('emissão AUTORIZADA dispara o envio automático (fire-and-forget) com a empresa e o doc certos', async () => {
   const cenario = await montarCenario('ok');
   const chamadas: any[] = [];

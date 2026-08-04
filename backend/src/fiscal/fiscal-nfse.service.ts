@@ -196,6 +196,16 @@ export class FiscalNfseService {
     if (cnpj.length !== 14 || !perfil.municipioIbge) {
       throw new BadRequestException('Perfil fiscal sem CNPJ/município — complete antes de consultar.');
     }
+    // A chave da DPS mistura o CNPJ do SNAPSHOT com o município ATUAL do perfil
+    // (o doc não guarda IBGE). Se o perfil trocou de CNPJ depois do timeout, a
+    // chave sai errada e um 404 falso viraria "reemitir é seguro" — convite à
+    // duplicata. Divergiu → conferência manual no portal, nunca resposta errada.
+    const cnpjPerfilAtual = String(perfil.cnpj || '').replace(/\D/g, '');
+    if (doc.prestadorCnpj && cnpjPerfilAtual && cnpjPerfilAtual !== cnpj) {
+      throw new BadRequestException(
+        'O CNPJ do perfil mudou depois desta emissão — confira esta nota direto no portal gov.br/nfse.',
+      );
+    }
     const cert = await this.profile.getSigningMaterial(companyId);
     const ambiente = (doc.ambiente === 'producao' ? 'producao' : 'restrita') as NfseAmbiente;
     const chaveDps = NfseNationalClient.chaveDps({
