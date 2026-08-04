@@ -320,7 +320,12 @@ export function TemaSection() {
               data-cor-key={c.key}
               className={"aparencia__cor" + (c.key === cor ? " is-on" : "")}
               onClick={() => escolherCor(c.key)}
-            />
+            >
+              {/* O ✓ da escolhida é o MESMO do desktop (04/08): anel sozinho
+                  sobre bolinha colorida some quando o tom é vizinho da marca.
+                  Padronizar é IGUALAR — não repetir só a metade fácil. */}
+              {c.key === cor && <I d={ICONS.check} size={15} />}
+            </button>
           ))}
           {/* A 6ª bolinha: o seletor livre, na MESMA fila (ver kit.css). */}
           <span
@@ -333,6 +338,7 @@ export function TemaSection() {
               aria-label="Escolher outra cor"
               onChange={e => { setHexLivre(e.target.value); escolherCor(e.target.value); }}
             />
+            {cor && !CORES.some(c => c.key === cor) && <I d={ICONS.check} size={15} />}
           </span>
           {cor && !CORES.some(c => c.key === cor) && (
             <span className="aparencia__cor-hex hbx-mono">{cor.toUpperCase()}</span>

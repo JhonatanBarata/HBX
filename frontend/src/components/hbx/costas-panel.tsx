@@ -134,14 +134,27 @@ function assinar(cb: () => void) {
   return () => ouvintes.delete(cb);
 }
 
-export function toggleCostas() {
-  const proximo = lerLigado() ? "0" : "1";
+function gravarLigado(ligado: boolean) {
   try {
-    localStorage.setItem(COSTAS_KEY, proximo);
+    localStorage.setItem(COSTAS_KEY, ligado ? "1" : "0");
+    // Escolher já é ter visto: a apresentação de primeira visita não volta.
     localStorage.setItem(APRESENTADO_KEY, "1");
   } catch { /* sem storage */ }
-  memo = proximo === "1";
+  memo = ligado;
   ouvintes.forEach((cb) => cb());
+}
+
+export function toggleCostas() {
+  gravarLigado(!lerLigado());
+}
+
+/**
+ * Escrita DIRETA — o "Resetar padrões" do painel Aparência precisa de um
+ * VALOR, não de um giro: girar a chave num estado que já era o certo
+ * desfazia justamente o que o reset queria devolver.
+ */
+export function setCostas(ligado: boolean) {
+  if (lerLigado() !== ligado) gravarLigado(ligado);
 }
 
 /** A barra está FIXA aberta? (o mesmo estado que liga o painel do módulo) */

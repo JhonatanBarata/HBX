@@ -85,6 +85,21 @@ export function resolveDensidade(valor: string | null | undefined): DensidadeKey
   return DENSIDADES.some(d => d.key === valor) ? (valor as DensidadeKey) : null;
 }
 
+/**
+ * A densidade que a casca ENTREGA quando ninguém escolheu — o número real de
+ * `--hbx-densidade` em hbx-system.css: Premium nasce em 1 (= "normal"),
+ * Corporativa em 0,875 (o vizinho de "compacta", 0,86).
+ *
+ * Existe porque o painel precisa MOSTRAR o que está valendo (dono 04/08: "não
+ * dá pra saber o q está selecionado"). Antes, "sem escolha" deixava os três
+ * botões apagados enquanto a tela obviamente tinha UMA densidade — a marcação
+ * falava da chave guardada, não do que a pessoa está vendo. Continua sem
+ * gravar nada: quem manda enquanto não há escolha é a casca.
+ */
+export function densidadeDaCasca(casca: CascaDef): DensidadeKey {
+  return casca.key === "corporativa" ? "compacta" : "normal";
+}
+
 export type CorDef = { key: string; nome: string };
 
 /**
@@ -118,15 +133,16 @@ export type CorDef = { key: string; nome: string };
  */
 export const CORES: readonly CorDef[] = [
   { key: "violeta", nome: "Violeta" },  // 290°
-  { key: "azul", nome: "Azul" },        // 240°
+  { key: "azul", nome: "Azul" },        // 258° — ver a nota do croma em theme-gerado.css
   { key: "verde", nome: "Verde" },      // 145°
   { key: "ambar", nome: "Âmbar" },      //  55°
   { key: "grafite", nome: "Grafite" },  // neutro
 ];
 
-/** Padrão de fábrica — o violeta que o Aurora ocupava desde 01/08. O VALOR
- *  dele mora em theme-gerado.css; aqui fica só o nome. */
-export const COR_PADRAO = "violeta";
+/** Padrão de fábrica — o AZUL HBX (dono 04/08: "o padrão vai ser azul HBX").
+ *  É o mesmo tom que o botão "Resetar padrões" do painel devolve. O VALOR dele
+ *  mora em theme-gerado.css; aqui fica só o nome. */
+export const COR_PADRAO = "azul";
 
 /** Nome da grade? Devolve a key; senão `null`. */
 export function corDaGrade(valor: string | null | undefined): string | null {

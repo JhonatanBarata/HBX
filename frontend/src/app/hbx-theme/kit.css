@@ -2087,12 +2087,20 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 .dn-convo__body > .btn-teal { box-shadow: 0 10px 22px -12px color-mix(in srgb, var(--hbx-primary) 55%, transparent); }
 
 /* ============================================================
-   MENU APARÊNCIA — mock vivo em
-   docs/mockups/aparencia-painel-unico.html.
+   MENU APARÊNCIA
 
    04/08 — o nível de seleção Premium/Corporativo morreu por ordem do dono.
    O clique no header abre direto o painel final; fechar usa a volta real do
    motion floating central, sem desmontar o DOM antes da transição acabar.
+
+   04/08 (mais tarde) — TUDO passou a aplicar na hora. Sumiram o rodapé
+   (Aplicar + Restaurar letra) e a prévia; entrou UM botão no canto superior
+   direito, "Resetar padrões". A razão de cada corte está no componente
+   (components/hbx/shell.tsx, AparenciaSwitch).
+
+   ⚠️ docs/mockups/aparencia-painel-unico.html é o mock de ANTES deste corte
+   (ainda tem prévia e Aplicar). Vale como registro da etapa, não como
+   desenho corrente — quem for mexer confere aqui e no componente.
    ============================================================ */
 .aparencia { position: relative; display: inline-flex; }
 .aparencia__trigger { min-height: 32px; gap: 7px; }
@@ -2109,8 +2117,58 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 }
 .aparencia__panel { background: var(--surface-card); }
 
+/* ---- CANTO SUPERIOR DIREITO (dono 04/08) -------------------------------
+   O painel tinha um RODAPÉ com dois verbos ("Restaurar letra" e "Aplicar").
+   Com tudo aplicando na hora sobrou UM, e ele mudou de natureza: não fecha
+   mais um fluxo, é a saída de quem mexeu demais — por isso subiu pro topo,
+   onde se enxerga antes de mexer, em vez de esperar no fim da rolagem.
+
+   `justify-content: flex-end` e não `text-align`: o dia em que entrar um
+   título à esquerda desta linha, ela já está pronta. */
+.aparencia__topo {
+  display: flex; align-items: center; justify-content: flex-end;
+  padding: var(--space-2) var(--ap-inset);
+  /* Em janela baixa o painel rola por dentro (ver o @media das colunas) — sem
+     `sticky` a saída sairia da vista justo em quem tem menos tela. Precisa do
+     fundo do painel junto: colado sobre conteúdo transparente ele viraria
+     texto por cima de texto. */
+  position: sticky; top: 0; z-index: 2;
+  background: var(--surface-card);
+  border-bottom: 1px solid var(--border-hairline);
+}
+.aparencia__reset {
+  min-height: 28px;
+  font-size: var(--fz-l3);
+}
+/* Apagado quando não há o que resetar: botão aceso é promessa de efeito. */
+.aparencia__reset:disabled { opacity: 0.45; cursor: default; }
+
+/* ---- BLOCO — a junta que faltava (dono 04/08, "deixar melhor as divisões")
+   Cada assunto (Cor, Material, Modo…) é uma peça fechada por um fio, e não
+   mais rótulo + faixa soltos numa fila contínua. O último de cada metade não
+   leva fio: risco embaixo do fim da coluna vira sublinhado sem função. */
+.aparencia__bloco {
+  padding: var(--space-2) var(--ap-inset);
+  border-bottom: 1px solid var(--border-hairline);
+}
+.aparencia__coluna > .aparencia__bloco:last-child { border-bottom: none; }
+/* As réguas já vêm com fio entre si (.tipografia__linha) — o recuo lateral
+   aqui é zero pra elas encostarem no mesmo prumo dos outros blocos. */
+.aparencia__bloco--reguas {
+  padding-left: 0; padding-right: 0; padding-bottom: 0;
+  /* Este bloco é o que ABSORVE a folga da coluna (ver .aparencia__colunas):
+     as 5 linhas dividem a sobra entre si em vez de deixar um vazio no pé. */
+  flex: 1; display: flex; flex-direction: column;
+}
+.aparencia__bloco--reguas .tipografia__linha { flex: 1; }
+.aparencia__bloco--reguas .tipografia__linha:last-child { border-bottom: none; }
+
+/* CENTRALIZADO (dono 04/08, "centralize"): rótulo no eixo do controle que ele
+   nomeia. Com o rótulo à esquerda e a faixa ocupando a largura inteira, as
+   duas metades do painel não tinham eixo nenhum em comum. */
 .aparencia__cap {
-  padding: 7px 10px 3px;
+  padding: 0 0 6px;
+  text-align: center;
   font-size: var(--hbx-font-min); font-weight: var(--weight-bold);
   letter-spacing: 0.1em; text-transform: uppercase; color: var(--text-muted);
 }
@@ -2133,35 +2191,73 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
    parada -- `var()` nao e px literal. */
 .aparencia { --ap-inset: 10px; }
 .aparencia__grade {
-  display: flex; align-items: center; gap: var(--space-2);
-  padding: 0 var(--ap-inset) var(--space-2);
+  display: flex; align-items: center; justify-content: center; gap: var(--space-2);
 }
 .aparencia__cor {
   /* `aspect-ratio` em vez de `height`: a altura DERIVA da largura, então o
      circulo continua circulo e a catraca R10 (altura travada em px) nao anda.
      Altura que se recusa a crescer e o defeito que o R10 existe pra pegar. */
-  width: 28px; aspect-ratio: 1; flex: none;
+  width: 30px; aspect-ratio: 1; flex: none;
   border: none; border-radius: 50%; padding: 0; cursor: pointer;
-  box-shadow: inset 0 0 0 1px var(--border-hairline);
-  transition: transform var(--motion-fast), box-shadow var(--motion-fast);
+  display: grid; place-items: center;
+  color: var(--hbx-action-ink);
+  /* Padrão do tom — a bolinha da COR LIVRE não tem `--chip` próprio (a roda de
+     cores é desenho, não um tom). Sem esta linha o `color-mix` dela ficaria
+     com var() vazia e a sombra sumiria calada: é o "CSS morre calado". */
+  --chip: var(--hbx-cor);
+  /* A BOLINHA É O BOTÃO QUE ELA VAI VIRAR, não uma amostra de tinta.
+     Antes era `background: var(--cor-x)` — um disco chapado, e o dono leu
+     exatamente como o que era: "parece q dei zoom nelas". O app não pinta
+     nada chapado: botão de marca é `linear-gradient(140deg, primary,
+     secondary)` com brilho por cima. Aqui a bolinha refaz ESSE material a
+     partir do proprio tom (`--chip`), pela MESMA receita de theme-gerado.css
+     (L cravado, croma com teto, +18° no segundo ponto) — então ela não é
+     parecida com o resultado, ela é o resultado em miniatura. */
+  background:
+    radial-gradient(120% 130% at 30% 12%, color-mix(in srgb, #fff 34%, transparent), transparent 58%),
+    linear-gradient(140deg,
+      oklch(from var(--chip) 0.50 clamp(0.02, c, 0.19) h),
+      oklch(from var(--chip) 0.42 clamp(0.02, c, 0.17) calc(h + 18)));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 45%, transparent),
+    inset 0 0 0 1px color-mix(in srgb, #000 12%, transparent),
+    0 4px 10px -6px color-mix(in srgb, var(--chip) 70%, transparent);
+  transition: transform var(--motion-fast) cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow var(--motion-fast);
 }
-.aparencia__cor:hover { transform: scale(1.12); }
-/* O escolhido ganha ANEL, nao borda: borda encolheria a bolinha e a cor
-   pareceria mudar de tom ao ser selecionada. */
+.aparencia__cor:hover { transform: scale(1.14) translateY(-1px); }
+/* Feedback de PRESSÃO: sem isto o clique não tem retorno nenhum — o efeito
+   acontece no app inteiro, longe do dedo. */
+.aparencia__cor:active { transform: scale(0.9); }
+/* O escolhido ganha ANEL + ✓, nao borda: borda encolheria a bolinha e a cor
+   pareceria mudar de tom ao ser selecionada. O ✓ existe porque anel de marca
+   sobre bolinha COLORIDA se perde — em tom vizinho ao da marca, some. */
 .aparencia__cor.is-on {
-  box-shadow: 0 0 0 2px var(--surface-card), 0 0 0 4px var(--hbx-brand);
+  transform: scale(1.08);
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, #fff 45%, transparent),
+    0 0 0 2px var(--surface-card),
+    0 0 0 4px var(--hbx-brand),
+    0 6px 14px -6px color-mix(in srgb, var(--chip) 80%, transparent);
 }
-.aparencia__cor:focus-visible { outline: 2px solid var(--hbx-brand); outline-offset: 2px; }
-/* Cada bolinha le o tom da FOLHA (--cor-<key> em theme-gerado.css). Nenhum
-   hex entra aqui, e a lista acompanha a de lib/aparencia.ts.
+.aparencia__cor.is-on:active { transform: scale(0.94); }
+.aparencia__cor svg { animation: aparencia-cor-check var(--motion-normal) cubic-bezier(0.22, 1, 0.36, 1); }
+@keyframes aparencia-cor-check {
+  from { opacity: 0; transform: scale(0.4); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.aparencia__cor:focus-visible { outline: 2px solid var(--hbx-brand); outline-offset: 3px; }
+/* Cada bolinha le o tom da FOLHA (--cor-<key> em theme-gerado.css) por UMA
+   variavel (`--chip`), que o material acima consome. Nenhum hex entra aqui, e
+   a lista acompanha a de lib/aparencia.ts.
    REGRA: quem tira um tom da grade tira a linha daqui junto. Um `var()`
    apontando pra token que nao existe mais nao avisa ninguem -- pinta
    transparente, com o build verde. E o "CSS morre calado". */
-.aparencia__cor[data-cor-key="violeta"] { background: var(--cor-violeta); }
-.aparencia__cor[data-cor-key="azul"]    { background: var(--cor-azul); }
-.aparencia__cor[data-cor-key="verde"]   { background: var(--cor-verde); }
-.aparencia__cor[data-cor-key="ambar"]   { background: var(--cor-ambar); }
-.aparencia__cor[data-cor-key="grafite"] { background: var(--cor-grafite); }
+.aparencia__cor[data-cor-key="violeta"] { --chip: var(--cor-violeta); }
+.aparencia__cor[data-cor-key="azul"]    { --chip: var(--cor-azul); }
+.aparencia__cor[data-cor-key="verde"]   { --chip: var(--cor-verde); }
+.aparencia__cor[data-cor-key="ambar"]   { --chip: var(--cor-ambar); }
+.aparencia__cor[data-cor-key="grafite"] { --chip: var(--cor-grafite); }
 
 /* ---- COR LIVRE -- a 6a bolinha, nao um controle de segunda --------------
    Ela entra na MESMA fila, com a MESMA forma. Quem tem marca propria nao esta
@@ -2191,137 +2287,134 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
   margin: 0; padding: 0; border: none; background: none;
   opacity: 0; cursor: pointer; z-index: 1;
 }
-.aparencia__cor--livre:focus-within { outline: 2px solid var(--hbx-brand); outline-offset: 2px; }
-.aparencia__cor-hex {
-  font-size: var(--hbx-font-min); color: var(--text-muted); margin-left: auto;
+.aparencia__cor--livre:focus-within { outline: 2px solid var(--hbx-brand); outline-offset: 3px; }
+/* O ✓ da cor livre anda POR CIMA do miolo vazado (que é ::after, z-index 0). */
+.aparencia__cor--livre svg { position: relative; z-index: 1; color: var(--text-strong); }
+/* RASCUNHO NA RODA — anel TRACEJADO, não o anel cheio do escolhido: a roda é
+   a única peça do painel que espera um Aplicar (ver AparenciaSwitch), e
+   "escolhido" e "escolhido mas ainda não vale" não podem ter a mesma cara. */
+.aparencia__cor--livre.is-pendente {
+  transform: scale(1.08);
+  box-shadow: 0 0 0 2px var(--surface-card);
+  outline: 2px dashed var(--hbx-brand); outline-offset: 3px;
 }
 
-/* ---- PRÉVIA — o que torna o "só o Aplicar muda" honesto -----------------
-   A lei do painel é que clicar NÃO mexe na tela; só o Aplicar mexe (dono,
-   28/07). Com 6 cores nomeadas isso bastava — o nome já dizia o que ia
-   acontecer. Com cor LIVRE a mesma lei vira escolher às cegas: um hex qualquer
-   que a pessoa pinça na roda não diz nada sobre o app inteiro.
-
-   A prévia resolve os dois sem escolher entre eles: a tela atrás continua
-   parada, e aqui dentro cor, material, densidade e letra aparecem juntos, já
-   valendo. Ela lê os MESMOS tokens que o app — não é uma imitação pintada à
-   parte, é o design system em miniatura, e por isso não sai de sincronia. */
-.aparencia__previa {
-  margin: 2px var(--ap-inset) var(--space-2);
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
-  background: var(--hbx-background);
+/* A LINHA DO HEX / APLICAR — mesmo lugar, dois tempos. */
+.aparencia__cor-linha {
+  display: flex; align-items: center; justify-content: center;
+  gap: var(--space-2); margin-top: 8px;
 }
-.aparencia__previa-barra {
-  display: flex; align-items: center; gap: var(--space-2);
-  padding: 0 var(--space-2); min-height: var(--control-height, 30px);
-  background: color-mix(in srgb, var(--hbx-surface) 82%, transparent);
-  border-bottom: 1px solid var(--border-hairline);
-  -webkit-backdrop-filter: blur(var(--blur-chrome));
-  backdrop-filter: blur(var(--blur-chrome));
-  box-shadow: var(--shadow-inset);
-}
-.aparencia__previa-ponto {
-  width: 7px; aspect-ratio: 1; flex: none; border-radius: 50%; background: var(--hbx-brand);
-}
-.aparencia__previa-tit {
-  flex: 1; font-size: var(--fz-l3); font-weight: var(--weight-bold); color: var(--text-strong);
-}
-.aparencia__previa-tag {
-  font-size: var(--hbx-font-min); font-weight: var(--weight-bold);
-  padding: 1px var(--space-2); border-radius: var(--radius-pill);
-  background: var(--hbx-brand-soft); color: var(--hbx-brand-strong);
-}
-.aparencia__previa-corpo { padding: 6px; display: grid; gap: 5px; }
-/* min-height (não height): a densidade manda na altura, mas quem aumentou a
-   letra pra 150% no painel ao lado precisa que a linha CRESÇA junto — altura
-   travada aqui decapitaria o texto, que é exatamente o defeito que o R10 e a
-   rede de corte existem pra pegar. */
-.aparencia__previa-linha {
-  display: flex; align-items: center; gap: var(--space-2);
-  min-height: var(--row-height, 30px); padding: 2px var(--space-2);
-  border: 1px solid color-mix(in srgb, var(--border-hairline) 80%, transparent);
-  border-radius: var(--radius-xs);
-  background: var(--hbx-surface);
-  box-shadow: var(--shadow-inset);
-}
-.aparencia__previa-linha strong {
-  flex: 1; min-width: 0; font-size: var(--fz-l3);
-  font-weight: var(--weight-bold); color: var(--text-strong);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.aparencia__previa-linha span { font-size: var(--hbx-font-min); color: var(--text-muted); }
-.aparencia__previa-cta {
-  min-height: var(--control-height, 30px); padding: var(--space-1) var(--space-2);
-  border: none; border-radius: var(--radius-xs);
-  background: linear-gradient(140deg, var(--hbx-primary), var(--hbx-secondary));
-  color: var(--hbx-action-ink);
-  font-family: var(--font-body); font-size: var(--fz-l3); font-weight: var(--weight-bold);
-  box-shadow: var(--shadow-inset);
+.aparencia__cor-hex { font-size: var(--hbx-font-min); color: var(--text-muted); }
+.aparencia__aplicar {
+  min-height: 26px;
+  padding: 0 var(--space-3);
+  justify-content: center;
+  font-size: var(--fz-l3);
 }
 
-/* ---- DUAS COLUNAS — o que a tela VESTE × o que a tela DIZ ---------------
+/* A PRÉVIA MORREU AQUI (dono 04/08). Ela existia pra tornar honesta a lei do
+   "só o Aplicar muda": mostrava o rascunho enquanto a tela atrás ficava
+   parada. Com tudo aplicando na hora, a tela atrás É a prévia, em tamanho
+   real — e uma miniatura escrita "no ar" ao lado do app no ar é o mesmo dado
+   em dois lugares. */
+
+/* ---- AS DUAS METADES — o que a tela VESTE × o que a tela DIZ ------------
    O painel nasceu com 250px e uma coluna; ao engolir o painel de letras
    (dono 03/08, "crie um painel só") viraria uma torre de ~800px que não cabe
-   na janela. Em duas colunas ele fica em ~560 de largura e cada metade tem um
-   assunto: à esquerda superfície (cor, material, modo, densidade), à direita
-   texto (fonte e os 5 tamanhos). */
-.aparencia__colunas { display: grid; grid-template-columns: 1fr 1fr; }
-.aparencia__coluna { min-width: 0; }
-.aparencia__coluna + .aparencia__coluna { border-left: 1px solid var(--border-hairline); }
+   na janela. Em duas metades ele fica em ~560 de largura e cada uma tem um
+   assunto: à esquerda superfície (cor, material, modo, densidade, barra), à
+   direita texto (fonte e os 5 tamanhos).
+
+   A DIVISÓRIA É UMA PEÇA, não um fio de 1px (dono 04/08: "divida em 2"). Um
+   hairline entre duas colunas cheias de outros hairlines não divide nada —
+   fica igualzinho às juntas internas dos blocos. Aqui ela é uma calha de
+   fundo rebaixado com fio dos dois lados: a fronteira entre as metades tem
+   que se ler ANTES das juntas de dentro delas. */
+.aparencia__colunas {
+  display: grid;
+  grid-template-columns: 1fr 9px 1fr;
+  /* `stretch` (não `start`): as duas metades terminam na MESMA linha de base.
+     Com cada uma na altura natural, a direita parava 110px acima e sobrava um
+     buraco embaixo da divisória — metade cheia, metade pela metade. Quem
+     ocupa a folga é a régua (ver .aparencia__bloco--reguas), que fica mais
+     alta e mais fácil de pegar; não é ar esticado. */
+  align-items: stretch;
+}
+/* As TRÊS peças são colocadas À MÃO, e não por auto-placement: o `::before` é
+   o primeiro filho na ordem do DOM, então ele consumia a célula 1 e empurrava
+   as metades pra direita — a da esquerda ficava vazia e a de baixo caía numa
+   segunda linha. Posição explícita não depende da ordem de quem entrou. */
+.aparencia__coluna { min-width: 0; grid-row: 1; display: flex; flex-direction: column; }
+.aparencia__coluna:nth-of-type(1) { grid-column: 1; }
+.aparencia__coluna:nth-of-type(2) { grid-column: 3; }
+/* A CALHA — canal rebaixado com fio dos DOIS lados. Um hairline solto no meio
+   de uma coluna cheia de hairlines (um por bloco) não se lê como fronteira:
+   fica idêntico às juntas internas. Aqui a fronteira tem largura, fundo mais
+   fundo e dois fios — hierarquia, não mais uma linha. */
+.aparencia__colunas::before {
+  content: ""; grid-column: 2; grid-row: 1; align-self: stretch;
+  background: color-mix(in srgb, var(--surface-canvas) 70%, var(--surface-card));
+  box-shadow: inset 1px 0 0 var(--border-hairline),
+              inset -1px 0 0 var(--border-hairline);
+}
 /* Janela baixa (1366×768 é o piso medido do parque) ou estreita: vira uma
-   coluna e o painel rola por dentro, em vez de vazar pra fora da tela. */
+   coluna e o painel rola por dentro, em vez de vazar pra fora da tela. A
+   calha vira um fio horizontal — divisória continua sendo divisória. */
 @media (max-height: 780px), (max-width: 640px) {
   .aparencia__menu--unico { width: 290px; }
   .aparencia__colunas { grid-template-columns: 1fr; }
-  .aparencia__coluna + .aparencia__coluna {
-    border-left: none; border-top: 1px solid var(--border-hairline);
+  /* Empilhado: a calha vira o fio ENTRE as duas metades (linha 2), e não uma
+     tampa no topo — que é onde a ordem do DOM a colocaria sozinha.
+     `min-height` e não `height`: a catraca R10 conta altura travada em px, e
+     ela está certa em contar — a exceção "é só um fio" é como toda catraca
+     começa a andar pra trás. Sem conteúdo dentro, o fio fica com 1px igual. */
+  .aparencia__coluna:nth-of-type(1) { grid-column: 1; grid-row: 1; }
+  .aparencia__colunas::before {
+    grid-column: 1; grid-row: 2; min-height: 9px; align-self: auto;
+    box-shadow: inset 0 1px 0 var(--border-hairline),
+                inset 0 -1px 0 var(--border-hairline);
   }
+  .aparencia__coluna:nth-of-type(2) { grid-column: 1; grid-row: 3; }
   .aparencia__panel { max-height: 60vh; overflow-y: auto; }
 }
 
-/* Claro/escuro: segmentado, porque são dois estados de UMA coisa — não duas
-   linhas soltas de lista como eram antes. */
+/* ---- SEGMENTOS — Lei nº2: a seleção é a PÍLULA DE VIDRO que desliza -----
+   Estes grupos trocavam um `background` na hora, que é exatamente o que a Lei
+   nº2 proíbe — e o resultado foi o dono não achar o que estava selecionado.
+   Agora usam o mesmo par `.glass-pill-track` + `<GlassPill>` do menu lateral,
+   das abas e do celular: o vidro MEDE o item ativo, desliza até ele e dá a
+   chacoalhada de pouso. O clique voltou a ter resposta no lugar do dedo, e
+   não só no app inteiro. */
 .aparencia__seg {
   display: flex; gap: 4px;
-  margin: 1px 8px 6px; padding: 3px;
+  padding: 3px;
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--surface-canvas) 76%, var(--surface-card));
+  box-shadow: inset 0 1px 2px -1px color-mix(in srgb, #000 22%, transparent);
+  --glass-pill-radius: var(--radius-xs);
 }
 .aparencia__seg button {
   flex: 1;
   display: flex; align-items: center; justify-content: center; gap: 6px;
-  padding: 6px 0;
+  padding: 7px 0;
   border: none; border-radius: var(--radius-xs); background: none; cursor: pointer;
   font-family: var(--font-body); font-size: var(--fz-l3); font-weight: var(--weight-semibold);
   color: var(--text-muted);
-  transition: background var(--motion-fast), color var(--motion-fast);
+  transition: color var(--motion-fast), transform var(--motion-fast);
 }
+.aparencia__seg button:hover { color: var(--text-strong); }
+/* pressão: o botão afunda um fio. Sem isso, clicar no que JÁ está ligado não
+   dá retorno nenhum e parece que o painel travou. */
+.aparencia__seg button:active { transform: scale(0.97); }
+/* Sem `background` aqui de propósito: quem pinta o ativo é a pílula por baixo
+   (z-index 0). Repintar o botão taparia o vidro e quebraria o deslize. */
 .aparencia__seg button.is-on {
-  background: color-mix(in srgb, var(--hbx-brand-soft) 48%, var(--surface-card));
   color: var(--hbx-brand-strong);
   font-weight: var(--weight-bold);
-  box-shadow: var(--shadow-xs);
 }
 
-/* RODAPÉ — os dois verbos na MESMA linha. Aplicar fica desabilitado enquanto
-   cor/material/modo não mudaram, sem prometer uma ação que não tem efeito. */
-.aparencia__foot {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--ap-inset);
-  border-top: 1px solid var(--border-hairline);
-  background: color-mix(in srgb, var(--surface-canvas) 44%, var(--surface-card));
-}
-.aparencia__apply {
-  width: 100%;
-  min-height: 34px;
-  justify-content: center;
-  font-size: var(--fz-l2);
-}
-.aparencia__apply:disabled { opacity: 0.45; cursor: default; box-shadow: none; }
+/* (O RODAPÉ saiu em 04/08 junto com o Aplicar: o verbo que sobrou mora no
+   canto superior direito — ver .aparencia__topo lá em cima.) */
 
 /* ============================================================
    PAINEL DE TIPOGRAFIA (dono 31/07) — fonte + tamanho por papel, ao lado
@@ -2359,14 +2452,15 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
 }
 
 /* A LINHA — nome à esquerda, régua no meio, porcentagem à direita.
-   O fio de baixo é o divisor pedido: um por linha, e o último não tem
-   (quem fecha o painel é o rodapé). */
+   O fio de baixo é o divisor pedido: um por linha, e o último não tem (o
+   bloco de réguas é o último da metade direita, e fio no fim de coluna vira
+   sublinhado sem função). */
 .tipografia__linha {
   display: grid;
   grid-template-columns: 5rem 1fr 2.8rem;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-1) var(--space-2);
+  padding: var(--space-1) var(--ap-inset, var(--space-2));
   border-bottom: 1px solid var(--border-hairline);
   /* Miolo OPACO — a casca Premium veste .hbx-pop com vidro (82% + blur), o
      que deixava a lista do funil aparecer ATRAVÉS das réguas. Mesma solução
@@ -2481,10 +2575,5 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
   box-shadow: var(--shadow-xs);
 }
 
-.tipografia__reset {
-  width: 100%;
-  min-height: 30px;
-  justify-content: center;
-  font-size: var(--fz-l2);
-}
-.tipografia__reset:disabled { opacity: 0.45; cursor: default; }
+/* (`.tipografia__reset` saiu em 04/08 com o botão "Restaurar letra": a letra
+   voltou a ser padrão pelo "Resetar padrões" do painel, um verbo só.) */

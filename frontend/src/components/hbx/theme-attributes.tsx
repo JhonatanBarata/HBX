@@ -208,23 +208,28 @@ export function setCasca(key: CascaKey) {
 }
 
 /**
- * Aplica os TRÊS eixos de uma vez — é o botão "Aplicar" do menu Aparência
- * (dono 28/07: escolher no menu não muda nada; só o Aplicar muda).
+ * RESETAR PADRÕES — apaga a ESCOLHA dos quatro eixos que o painel controla
+ * (cor, material, modo, densidade) numa pintura só.
  *
- * Uma chamada só, de propósito: chamar setCasca + setTema + setThemeMode em
- * sequência dispararia TRÊS cross-fades encavalados e a troca ficaria
- * tremida. Aqui grava os três e pinta uma vez.
+ * Apagar, e não gravar o valor de fábrica: "sem escolha" é um estado de
+ * verdade e é ele que faz a pessoa herdar o padrão vivo — se o azul HBX for
+ * reajustado amanhã, quem resetou hoje recebe o tom novo em vez de ficar com
+ * uma cópia congelada no navegador. É a mesma razão de a grade guardar NOME e
+ * não hex.
  *
- * `getAparencia()` relê o storage e resolve contra as capacidades da casca,
- * então combinação impossível (ex.: escuro numa casca clara fixa) já entra
- * corrigida — a validação é do CONTRATO, não deste botão.
+ * Uma chamada só, de propósito: quatro escritas em sequência dispariam quatro
+ * cross-fades encavalados e a volta ficaria tremida.
+ *
+ * A CASCA fica de fora: ela não é escolha deste painel (o nível
+ * Premium/Corporativo morreu em 04/08), e resetar o que não está à vista
+ * seria o botão fazendo mais do que diz.
  */
-export function setAparencia(casca: CascaKey, cor: string | null, modo: Modo, material: MaterialKey) {
-  applyCascaChange(casca, () => {
-    gravar(CASCA_STORAGE, casca);
-    if (cor) gravar(COR_STORAGE, cor); else apagar(COR_STORAGE);
-    gravar(MODE_STORAGE, modo);
-    gravar(MATERIAL_STORAGE, material);
+export function resetarAparencia() {
+  applyThemeSoft(() => {
+    apagar(COR_STORAGE);
+    apagar(MATERIAL_STORAGE);
+    apagar(MODE_STORAGE);
+    setDensidade(null);
     aplicar(getAparencia());
   });
 }

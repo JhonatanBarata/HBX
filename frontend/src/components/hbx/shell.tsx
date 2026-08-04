@@ -13,13 +13,13 @@ import { createPortal } from "react-dom";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { AlertaLeadQuente } from "@/components/hbx/disparo-panel";
-import { CostasPainel, toggleCostas, useCostasDisponivel, useCostasLigado } from "@/components/hbx/costas-panel";
+import { CostasPainel, setCostas, toggleCostas, useCostasDisponivel, useCostasLigado } from "@/components/hbx/costas-panel";
 import { CercaDeEnfeite } from "@/components/hbx/error-boundary";
 import { useHbxPresence } from "@/components/hbx/motion";
-import { applyThemeSoft, getCascaAtiva, getCorAtiva, getDensidadeAtiva, getMaterialAtivo, hexDaCor, setAparencia, setDensidade, setThemeMode } from "@/components/hbx/theme-attributes";
+import { applyThemeSoft, getCascaAtiva, getCorAtiva, getDensidadeAtiva, getMaterialAtivo, hexDaCor, resetarAparencia, setCor, setDensidade, setMaterial, setThemeMode } from "@/components/hbx/theme-attributes";
 import {
-  COR_PADRAO, CORES, DENSIDADES, MATERIAIS, TEMA_ATTR, escolheModo, getCasca, resolveModo,
-  type DensidadeKey, type MaterialKey, type Modo,
+  COR_PADRAO, CORES, DENSIDADES, MATERIAIS, densidadeDaCasca, escolheModo, getCasca, resolveModo,
+  type Modo,
 } from "@/lib/aparencia";
 import { apiFetch, getToken } from "@/lib/api";
 import { getInitialGeoState, hasStoredGeo, toggleGeoRadar } from "@/lib/geo-radar";
@@ -363,7 +363,7 @@ export const NAV_LINKS = [
   { id: "contatos", label: "Contatos", href: "/contatos", group: "Cadastros" },
   // NÚCLEO-CRM N5: catálogo "Produtos" — o que o vendedor vende/entrega (galão
   // 20L etc.), com unidade/preço + flag Logística. Kill-switch, não paywall (null).
-  { id: "produtos", label: "Produtos", href: "/produtos", group: "Cadastros" },
+  { id: "produtos", label: "Estoque", href: "/produtos", group: "Cadastros" },
   // MISSÃO F (RELEASE-20X S5): Concierge IA — busca do Radar guiada por conversa.
   // Gate próprio 'concierge' (defaultEnabled=false, master liga por empresa).
   { id: "concierge", label: "Concierge IA", href: "/concierge", group: "Facilidades" },
@@ -1305,20 +1305,41 @@ export function subscribeToThemeMode(callback: () => void) {
   const obs = new MutationObserver(callback);
   // data-casca entrou na lista (28/07): trocar de casca precisa re-renderizar
   // o menu Aparência (a Corporativa esconde tema e modo) e o ModeToggle.
-  obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-casca", "data-theme", "data-theme-mode", "data-fonte", "style"] });
+  //
+  // data-cor, data-material e data-densidade entraram em 04/08, quando o painel
+  // passou a aplicar NA HORA. Antes ele guardava rascunho e se enxergava
+  // sozinho; agora ele lê o <html>, e atributo fora desta lista é mudança que
+  // acontece de verdade e não avisa ninguém — o botão certo não acenderia
+  // (`style` cobria só a cor LIVRE, que é inline; a cor da grade é atributo).
+  obs.observe(document.documentElement, { attributes: true, attributeFilter: ["data-casca", "data-theme", "data-theme-mode", "data-fonte", "data-cor", "data-material", "data-densidade", "style"] });
   return () => obs.disconnect();
 }
 
 // ---------------------------------------------------------------
 // APARÊNCIA — 04/08: o clique no header abre DIRETO o painel final.
 // A primeira tela (Premium/Corporativo), a seta de voltar e o segundo nível
-// morreram por ordem do dono. Cor e material continuam em rascunho até
-// Aplicar; fonte, tamanhos e densidade continuam aplicando na hora.
+// morreram por ordem do dono.
+//
+// TUDO APLICA NA HORA (dono 04/08: "metade q eu atualizo é automático e
+// metade não; deixe tudo automático"). O rascunho de cor/material/modo e o
+// botão Aplicar morreram junto: metade dos controles mexia na tela na hora e
+// a outra metade esperava um botão — o painel ensinava duas regras pro mesmo
+// gesto. Quem já fazia certo era o celular (mais-sheet.tsx, TemaSection), que
+// nunca teve Aplicar; agora o desktop fala a mesma língua.
+//
+// Isto matou a PRÉVIA junto, e sem dó: ela existia pra "tornar o só-o-Aplicar
+// honesto" — mostrar o rascunho enquanto a tela atrás ficava parada. Sem
+// rascunho, a tela atrás É a prévia, em tamanho real. Uma caixinha escrita
+// "no ar" ao lado do app no ar é o mesmo dado em dois lugares.
+//
+// Sobrou UM verbo, no canto superior direito: "Resetar padrões" (era
+// "Restaurar letra" + "Aplicar" no rodapé). Ele devolve tudo o que este painel
+// controla — cor, material, modo, densidade, barra lateral, fonte e tamanhos.
 //
 // Entrada E saída consomem o motion `floating` central. `useHbxPresence`
 // mantém o DOM montado durante `exiting`; sem isso o fechamento desaparece
 // antes dos 100 ms e só a animação de abertura fica visível.
-// Aplicar não navega nem recarrega: a tela aberta continua onde estava.
+// Nada aqui navega ou recarrega: a tela aberta continua onde estava.
 // ---------------------------------------------------------------
 // Snapshot é STRING de propósito: getTipografiaAtiva() monta objeto novo a
 // cada leitura, e useSyncExternalStore exige valor estável (senão re-render
@@ -1337,21 +1358,28 @@ export function AparenciaSwitch() {
     () => document.documentElement.getAttribute("data-theme-mode"),
     () => null,
   );
+  // Densidade agora também vem do <html>: com tudo aplicando na hora, manter
+  // um espelho em state só criaria uma segunda verdade pra sair de sincronia.
+  const densidade = useSyncExternalStore(subscribeToThemeMode, getDensidadeAtiva, () => null);
   const [open, setOpen] = useState(false);
-  // A densidade não tem rascunho: ela aplica na hora (ver o bloco no menu).
-  // Este estado existe só para o botão aceso acompanhar o clique.
-  const [densidade, setDensidadeLocal] = useState<DensidadeKey | null>(null);
   // Painel do módulo (o verso da barra lateral): store própria, aplica na hora.
   const costasLigado = useCostasLigado();
 
-  // RASCUNHO — o que está marcado no menu. Nada disso vale até o Aplicar.
-  const [draftCor, setDraftCor] = useState<string | null>(corKey);
-  const [draftMaterial, setDraftMaterial] = useState<MaterialKey>(materialKey);
-  const [draftModo, setDraftModo] = useState<Modo>(modeAttr === "dark" ? "dark" : "light");
-  // O hex que o campo de cor livre mostra. Nasce do que está no ar e só muda
-  // quando a pessoa mexe NO CAMPO — clicar na grade não reescreve o campo,
-  // senão o valor "de onde eu vim" se perderia a cada bolinha experimentada.
+  // O hex que o campo de cor livre mostra. Nasce do que está no ar.
   const [hexLivre, setHexLivre] = useState<string>("#000000");
+  // A RODA É A ÚNICA COISA DO PAINEL QUE ESPERA UM "APLICAR" (dono 04/08:
+  // "essa parte aqui tem q ter o aplicar, trava muito ao arrastar as cores…
+  // só aquela parte").
+  //
+  // E o motivo é técnico, não de gosto: o `<input type="color">` nativo dispara
+  // um evento por PIXEL arrastado. Com aplicação na hora, cada um desses
+  // eventos repintava o app inteiro dentro de um `startViewTransition` — o
+  // navegador tirando um retrato da página dezenas de vezes por segundo. As 5
+  // bolinhas da grade continuam instantâneas porque são UM clique, não um
+  // arrasto: o custo alto só existe onde o gesto é contínuo.
+  //
+  // Enquanto arrasta, só este estado anda (nada de tema, nada de transição).
+  const [livrePendente, setLivrePendente] = useState<string | null>(null);
 
   const fechar = useCallback(() => { setOpen(false); }, []);
   const boxRef = useClickAway<HTMLSpanElement>(open, fechar);
@@ -1369,48 +1397,101 @@ export function AparenciaSwitch() {
   );
   const tipografia = useMemo(() => JSON.parse(snapshotTipo) as TipografiaNaTela, [snapshotTipo]);
 
-  const noAr = getCasca(cascaKey);
   const casca = getCasca(cascaKey);
-  const modoDraft = resolveModo(casca, draftModo);
-  const corEhLivre = !!draftCor && !CORES.some(c => c.key === draftCor);
+  const modo = resolveModo(casca, modeAttr);
+  // A densidade que ESTÁ valendo: a escolha, ou a que a casca entrega. Ver
+  // densidadeDaCasca — o grupo nunca fica com os três botões apagados.
+  const densidadeNaTela = densidade ?? densidadeDaCasca(casca);
 
-  // A PRÉVIA veste o RASCUNHO, não o que está no ar.
+  // GLASS PILL — Lei nº2 do Design System: grupo com um "ativo" por vez usa a
+  // pílula de vidro que MEDE o item e desliza até ele. Os quatro grupos daqui
+  // trocavam a cor de fundo na hora, sem pílula: eram a exceção à lei da casa,
+  // e foi exatamente isso que o dono viu ("não dá pra saber o q está
+  // selecionado", "retorne o efeito ao clicar"). O celular já fazia certo.
   //
-  // Ela é uma MINI-RAIZ: carrega os quatro data-* que normalmente vivem no
-  // <html>. Funciona porque toda a paleta é escrita em seletor de ATRIBUTO
-  // (`[data-theme="hbx"]`, `[data-material="chapado"][data-theme]`…), nunca
-  // preso a `html` — então os mesmos blocos re-declaram os tokens aqui dentro
-  // e param neste nó. É o design system inteiro em miniatura, sem nenhuma
-  // regra duplicada só pra prévia (que é o que sairia de sincronia depois).
-  //
-  // Só a cor precisa de style inline: ela pode ser um hex qualquer, e hex não
-  // vira atributo. Nome da grade entra como `var(--cor-<key>)`, então os dois
-  // caminhos chegam no mesmo lugar.
-  const previaStyle = useMemo(() => ({
-    "--hbx-cor": corEhLivre ? draftCor : `var(--cor-${draftCor ?? COR_PADRAO})`,
-  }) as React.CSSProperties, [corEhLivre, draftCor]);
+  // `presence.mounted` é DEPENDÊNCIA de propósito: o hook mede no efeito, e os
+  // botões só existem no DOM depois que o popover monta. Sem essa dep o efeito
+  // não roda de novo na abertura (a chave ativa não mudou) e a pílula nasce
+  // sem retângulo — grupo inteiro apagado justo na primeira olhada.
+  const materialGp = useGlassPill<HTMLButtonElement>(materialKey, presence.mounted, MATERIAIS.length);
+  const modoGp = useGlassPill<HTMLButtonElement>(modo, presence.mounted);
+  const densidadeGp = useGlassPill<HTMLButtonElement>(densidadeNaTela, presence.mounted, DENSIDADES.length);
+  const barraGp = useGlassPill<HTMLButtonElement>(costasLigado ? "fixa" : "solta", presence.mounted);
+  const fonteGp = useGlassPill<HTMLButtonElement>(tipografia.fonte ?? "", presence.mounted, FONTES.length);
+  const corEhLivre = !!corKey && !CORES.some(c => c.key === corKey);
+  // Sem escolha, quem está pintando é o padrão de fábrica — e ele É uma
+  // bolinha da grade. Marcar `null` como "nada selecionado" deixava a fila
+  // inteira apagada com o app claramente azul na tela: a marcação estaria
+  // falando da CHAVE guardada, não da cor que a pessoa está vendo.
+  const corNaGrade = corKey ?? COR_PADRAO;
+
   // Nome do que está no ar, pro rótulo do botão. Cor fora da grade não tem
   // nome — e inventar um ("Azul-ish") seria pior que dizer a verdade.
   const nomeNoAr = CORES.find(c => c.key === corKey)?.nome
-    ?? (corKey ? "Personalizada" : CORES.find(c => c.key === "violeta")?.nome ?? "");
+    ?? (corKey ? "Personalizada" : CORES.find(c => c.key === COR_PADRAO)?.nome ?? "");
 
-  const mudou = draftCor !== corKey
-    || draftMaterial !== materialKey
-    || (escolheModo(casca) && modoDraft !== (modeAttr === "dark" ? "dark" : "light"));
+  // "Já está tudo de fábrica?" — o Resetar fica apagado quando não teria o que
+  // fazer, pela mesma regra que apagava o Aplicar: botão aceso é promessa de
+  // efeito. Cor de fábrica conta tanto como "ninguém escolheu" quanto como
+  // "escolheu o azul HBX na grade": são o mesmo pixel na tela, e um botão que
+  // acende por causa de uma diferença invisível parece defeito.
+  const tudoPadrao = (corKey === null || corKey === COR_PADRAO)
+    && materialKey === casca.materialPadrao
+    && modo === casca.modoPadrao
+    && densidadeNaTela === densidadeDaCasca(casca)
+    && !costasLigado
+    && ehPadrao(tipografia);
 
-  // Abrir SEMPRE parte do que está no ar — sem rascunho velho sobrando.
+  // Abrir só realinha o campo da cor livre com o que está no ar — e joga fora
+  // rascunho de roda que tenha sobrado da última vez.
   function abrir() {
-    setDraftCor(corKey);
-    setDraftMaterial(materialKey);
-    setDraftModo(modeAttr === "dark" ? "dark" : "light");
-    setHexLivre(hexDaCor(corKey));
-    setDensidadeLocal(getDensidadeAtiva());
+    setHexLivre(hexDaCor(getCorAtiva()));
+    setLivrePendente(null);
     setOpen(true);
   }
 
-  function aplicar() {
-    setAparencia(cascaKey, draftCor, modoDraft, draftMaterial);
-    fechar();
+  /** Arrastar na roda: guarda o rascunho e NÃO encosta no tema. */
+  function arrastarNaRoda(valor: string) {
+    setHexLivre(valor);
+    // Voltar exatamente pra cor que já está no ar não é mudança — e um
+    // "Aplicar" que não aplicaria nada é a mesma promessa vazia que o botão
+    // desabilitado existe pra evitar.
+    setLivrePendente(hexDaCor(getCorAtiva()) === valor.toUpperCase() ? null : valor);
+  }
+
+  /** O único "Aplicar" que sobrou no painel. */
+  function aplicarCorLivre() {
+    if (!livrePendente) return;
+    setCor(livrePendente);
+    setLivrePendente(null);
+  }
+
+  /** Bolinha da grade: aplica na hora E descarta o rascunho da roda — a
+   *  escolha nova é a verdade, deixar o "Aplicar" aceso ao lado dela ofereceria
+   *  desfazer o que a pessoa acabou de fazer. */
+  function escolherDaGrade(key: string) {
+    setCor(key);
+    setHexLivre(hexDaCor(key));
+    setLivrePendente(null);
+  }
+
+  /** Modo aplica na hora, com o mesmo cross-fade do sol/lua do header. */
+  function escolherModo(next: Modo) {
+    if (next === modo) return;
+    applyThemeSoft(() => setThemeMode(next));
+  }
+
+  /**
+   * RESETAR PADRÕES — o único verbo que sobrou. Devolve TUDO o que este painel
+   * controla, inclusive o que mora em outras lojas (letra e barra lateral):
+   * um botão que diz "padrões" e deixa a letra em 130% estaria mentindo.
+   */
+  function resetar() {
+    resetarAparencia();
+    restaurarTipografia();
+    setCostas(false);
+    setHexLivre(hexDaCor(null));
+    setLivrePendente(null);
   }
 
   return (
@@ -1424,7 +1505,7 @@ export function AparenciaSwitch() {
         aria-expanded={open} aria-haspopup="menu" aria-label="Escolher aparência"
         data-tut="pele">
         <span className="aparencia__swatch aparencia__cor-viva" />
-        {`${noAr.label} · ${nomeNoAr}`}
+        {`${casca.label} · ${nomeNoAr}`}
         <span className="aparencia__caret" aria-hidden="true">▾</span>
       </button>
 
@@ -1435,73 +1516,126 @@ export function AparenciaSwitch() {
           {/* A primeira tela morreu: o clique no header já abre o painel final.
               Não há nível, volta ou seleção de casca no caminho. */}
           <div className="aparencia__panel">
+            {/* CANTO SUPERIOR DIREITO (dono 04/08) — o único botão do painel.
+                Fica no topo, e não no rodapé de onde saiu, porque não é mais o
+                fecho de um fluxo ("escolhi, agora aplico"): é a saída de
+                emergência de quem mexeu demais, e saída se enxerga de cara. */}
+            <div className="aparencia__topo">
+              <button type="button" className="btn-ghost aparencia__reset"
+                disabled={tudoPadrao} tabIndex={open ? 0 : -1} onClick={resetar}>
+                Resetar padrões
+              </button>
+            </div>
             <div className="aparencia__colunas">
-                {/* ── COLUNA 1 — a superfície ── */}
+                {/* ── METADE 1 — a SUPERFÍCIE (o que a tela veste) ──
+                    Cada assunto é um BLOCO fechado por fio (.aparencia__bloco).
+                    Antes eram rótulo e faixa soltos em fila, e o painel virava
+                    uma lista sem junta nenhuma — foi o "deixar melhor as
+                    divisões" do dono (04/08). */}
                 <div className="aparencia__coluna">
                   {/* COR — a fila de 5 é o atalho; a 6ª bolinha (roda de cores)
                       é o seletor livre, na MESMA fila de propósito: quem tem
                       marca própria não está usando recurso avançado. Os dois
-                      gravam no MESMO lugar — um manda o nome, outro o hex. */}
-                  <div className="aparencia__cap">Cor</div>
-                  <div className="aparencia__grade" role="radiogroup" aria-label="Cor do sistema">
-                    {CORES.map(c => (
-                      <button key={c.key} type="button" role="radio" aria-checked={c.key === draftCor}
-                        aria-label={c.nome} title={c.nome}
-                        data-cor-key={c.key}
-                        className={"aparencia__cor" + (c.key === draftCor ? " is-on" : "")}
-                        tabIndex={open ? 0 : -1}
-                        onClick={() => setDraftCor(c.key)} />
-                    ))}
-                    <span className={"aparencia__cor aparencia__cor--livre" + (corEhLivre ? " is-on" : "")}
-                      title="Escolher outra cor">
-                      <input type="color" value={hexLivre} aria-label="Escolher outra cor"
-                        tabIndex={open ? 0 : -1}
-                        onChange={e => { setHexLivre(e.target.value); setDraftCor(e.target.value); }} />
-                    </span>
-                    {corEhLivre && <span className="aparencia__cor-hex hbx-mono">{draftCor?.toUpperCase()}</span>}
+                      gravam no MESMO lugar — um manda o nome, outro o hex.
+                      A escolhida leva ANEL + ✓: anel sozinho, numa fila de
+                      bolinhas coloridas, some no meio da cor. */}
+                  <div className="aparencia__bloco">
+                    <div className="aparencia__cap">Cor</div>
+                    <div className="aparencia__grade" role="radiogroup" aria-label="Cor do sistema">
+                      {CORES.map(c => (
+                        <button key={c.key} type="button" role="radio" aria-checked={c.key === corNaGrade}
+                          aria-label={c.nome} title={c.nome}
+                          data-cor-key={c.key}
+                          className={"aparencia__cor" + (c.key === corNaGrade ? " is-on" : "")}
+                          tabIndex={open ? 0 : -1}
+                          onClick={() => escolherDaGrade(c.key)}>
+                          {c.key === corNaGrade && <I d={ICONS.check} size={15} />}
+                        </button>
+                      ))}
+                      <span className={"aparencia__cor aparencia__cor--livre"
+                        + (corEhLivre && !livrePendente ? " is-on" : "")
+                        + (livrePendente ? " is-pendente" : "")}
+                        title="Escolher outra cor">
+                        <input type="color" value={hexLivre} aria-label="Escolher outra cor"
+                          tabIndex={open ? 0 : -1}
+                          onChange={e => arrastarNaRoda(e.target.value)} />
+                        {corEhLivre && !livrePendente && <I d={ICONS.check} size={15} />}
+                      </span>
+                    </div>
+                    {/* A linha do hex vira a linha do APLICAR enquanto houver
+                        rascunho: mesmo lugar, dois tempos. */}
+                    {(livrePendente || corEhLivre) && (
+                      <div className="aparencia__cor-linha">
+                        <span className="aparencia__cor-hex hbx-mono">
+                          {(livrePendente ?? corKey ?? "").toUpperCase()}
+                        </span>
+                        {livrePendente && (
+                          <button type="button" className="btn-teal aparencia__aplicar"
+                            tabIndex={open ? 0 : -1} onClick={aplicarCorLivre}>
+                            Aplicar
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* MATERIAL — o eixo que nasceu do efeito colateral das 6
                       cores (metade tinha vidro, metade não, sem ninguém pedir). */}
-                  <div className="aparencia__cap">Material</div>
-                  <div className="aparencia__seg" role="group" aria-label="Material das superfícies">
-                    {MATERIAIS.map(m => (
-                      <button key={m.key} className={draftMaterial === m.key ? "is-on" : ""}
-                        aria-pressed={draftMaterial === m.key} tabIndex={open ? 0 : -1}
-                        onClick={() => setDraftMaterial(m.key)}>
-                        {m.label}
-                      </button>
-                    ))}
+                  <div className="aparencia__bloco">
+                    <div className="aparencia__cap">Material</div>
+                    <div className="aparencia__seg glass-pill-track" role="group" aria-label="Material das superfícies">
+                      <GlassPill {...materialGp} />
+                      {MATERIAIS.map(m => (
+                        <button key={m.key} ref={materialGp.itemRef(m.key)}
+                          className={"glass-pill-item" + (materialKey === m.key ? " is-on" : "")}
+                          aria-pressed={materialKey === m.key} tabIndex={open ? 0 : -1}
+                          onClick={() => setMaterial(m.key)}>
+                          {m.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   {escolheModo(casca) && (
-                    <>
+                    <div className="aparencia__bloco">
                       <div className="aparencia__cap">Modo</div>
-                      <div className="aparencia__seg" role="group" aria-label="Modo claro ou escuro">
-                        <button className={modoDraft === "light" ? "is-on" : ""} aria-pressed={modoDraft === "light"}
-                          tabIndex={open ? 0 : -1} onClick={() => setDraftModo("light")}>
+                      <div className="aparencia__seg glass-pill-track" role="group" aria-label="Modo claro ou escuro">
+                        <GlassPill {...modoGp} />
+                        <button ref={modoGp.itemRef("light")}
+                          className={"glass-pill-item" + (modo === "light" ? " is-on" : "")}
+                          aria-pressed={modo === "light"}
+                          tabIndex={open ? 0 : -1} onClick={() => escolherModo("light")}>
                           <I d={ICONS.sun} size={14} /> Claro
                         </button>
-                        <button className={modoDraft === "dark" ? "is-on" : ""} aria-pressed={modoDraft === "dark"}
-                          tabIndex={open ? 0 : -1} onClick={() => setDraftModo("dark")}>
+                        <button ref={modoGp.itemRef("dark")}
+                          className={"glass-pill-item" + (modo === "dark" ? " is-on" : "")}
+                          aria-pressed={modo === "dark"}
+                          tabIndex={open ? 0 : -1} onClick={() => escolherModo("dark")}>
                           <I d={ICONS.moon} size={14} /> Escuro
                         </button>
                       </div>
-                    </>
+                    </div>
                   )}
 
-                  {/* DENSIDADE — aplica NA HORA, sem passar pelo Aplicar:
-                      diferente de cor e material, o efeito é sutil e só se
-                      julga vendo a lista mexer de verdade, na tela cheia. */}
-                  <div className="aparencia__cap">Densidade</div>
-                  <div className="aparencia__seg" role="group" aria-label="Densidade das listas">
-                    {DENSIDADES.map(d => (
-                      <button key={d.key} className={densidade === d.key ? "is-on" : ""} aria-pressed={densidade === d.key}
-                        tabIndex={open ? 0 : -1}
-                        onClick={() => { setDensidade(densidade === d.key ? null : d.key); setDensidadeLocal(densidade === d.key ? null : d.key); }}>
-                        {d.label}
-                      </button>
-                    ))}
+                  {/* DENSIDADE — o grupo mostra o que ESTÁ valendo, inclusive
+                      quando ninguém escolheu (aí quem manda é a casca). Clicar
+                      sempre ESCOLHE: o "clicar no aceso pra desligar" era um
+                      gesto secreto que deixava os três apagados, e ninguém
+                      adivinha que a saída pro padrão é o Resetar. */}
+                  <div className="aparencia__bloco">
+                    <div className="aparencia__cap">Densidade</div>
+                    <div className="aparencia__seg glass-pill-track" role="group" aria-label="Densidade das listas">
+                      <GlassPill {...densidadeGp} />
+                      {DENSIDADES.map(d => (
+                        <button key={d.key} ref={densidadeGp.itemRef(d.key)}
+                          className={"glass-pill-item" + (densidadeNaTela === d.key ? " is-on" : "")}
+                          aria-pressed={densidadeNaTela === d.key}
+                          tabIndex={open ? 0 : -1}
+                          onClick={() => setDensidade(d.key)}>
+                          {d.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   {/* BARRA LATERAL — é a MESMA chave do pino da marca (hbx:costas),
@@ -1511,95 +1645,72 @@ export function AparenciaSwitch() {
                       cada um serve a um momento: o pino pra quem está na barra,
                       esta linha pra quem veio procurar em Aparência. O rótulo
                       diz o que a barra FAZ, não o nome interno do painel. */}
-                  <div className="aparencia__cap">Barra lateral</div>
-                  <div className="aparencia__seg" role="group" aria-label="Comportamento da barra lateral">
-                    <button className={costasLigado ? "is-on" : ""} aria-pressed={costasLigado}
-                      tabIndex={open ? 0 : -1}
-                      onClick={() => { if (!costasLigado) toggleCostas(); }}>
-                      Fixa aberta
-                    </button>
-                    <button className={!costasLigado ? "is-on" : ""} aria-pressed={!costasLigado}
-                      tabIndex={open ? 0 : -1}
-                      onClick={() => { if (costasLigado) toggleCostas(); }}>
-                      Oculta sozinha
-                    </button>
+                  <div className="aparencia__bloco">
+                    <div className="aparencia__cap">Barra lateral</div>
+                    <div className="aparencia__seg glass-pill-track" role="group" aria-label="Comportamento da barra lateral">
+                      <GlassPill {...barraGp} />
+                      <button ref={barraGp.itemRef("fixa")}
+                        className={"glass-pill-item" + (costasLigado ? " is-on" : "")} aria-pressed={costasLigado}
+                        tabIndex={open ? 0 : -1} onClick={() => setCostas(true)}>
+                        Fixa aberta
+                      </button>
+                      <button ref={barraGp.itemRef("solta")}
+                        className={"glass-pill-item" + (!costasLigado ? " is-on" : "")} aria-pressed={!costasLigado}
+                        tabIndex={open ? 0 : -1} onClick={() => setCostas(false)}>
+                        Oculta sozinha
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                {/* ── COLUNA 2 — o texto (era o painel "Aa" separado, no topo) ──
+                {/* ── METADE 2 — o TEXTO (era o painel "Aa" separado, no topo) ──
                     FONTE e TAMANHO aplicam NA HORA, como sempre aplicaram: são
-                    ajuste de leitura, e quem mexe está olhando o efeito. Só cor
-                    e material esperam o Aplicar. */}
+                    ajuste de leitura, e quem mexe está olhando o efeito. Desde
+                    04/08 a metade da esquerda faz o mesmo. */}
                 <div className="aparencia__coluna">
-                  <div className="aparencia__cap">Fonte</div>
-                  <div className="aparencia__seg" role="group" aria-label="Fonte do sistema">
-                    {FONTES.map(f => (
-                      <button key={f.key} className={f.key === tipografia.fonte ? "is-on" : ""}
-                        aria-pressed={f.key === tipografia.fonte} data-familia={f.key}
-                        tabIndex={open ? 0 : -1} onClick={() => setFonte(f.key)}>
-                        {f.label}
-                      </button>
+                  <div className="aparencia__bloco">
+                    <div className="aparencia__cap">Fonte</div>
+                    <div className="aparencia__seg glass-pill-track" role="group" aria-label="Fonte do sistema">
+                      <GlassPill {...fonteGp} />
+                      {FONTES.map(f => (
+                        <button key={f.key} ref={fonteGp.itemRef(f.key)}
+                          className={"glass-pill-item" + (f.key === tipografia.fonte ? " is-on" : "")}
+                          aria-pressed={f.key === tipografia.fonte} data-familia={f.key}
+                          tabIndex={open ? 0 : -1} onClick={() => setFonte(f.key)}>
+                          {f.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="aparencia__bloco aparencia__bloco--reguas">
+                    <div className="aparencia__cap">Tamanho da letra</div>
+                    {PAPEIS.map(papel => (
+                      <div className="tipografia__linha" key={papel.key}>
+                        <span className="tipografia__nome">
+                          {papel.label}
+                          <span className="tipografia__amostra" aria-hidden="true" data-papel={papel.key}>Aa</span>
+                        </span>
+                        <input
+                          className="tipografia__range"
+                          type="range"
+                          min={TAMANHO_MIN}
+                          max={TAMANHO_MAX}
+                          step={TAMANHO_PASSO}
+                          value={tipografia.tamanhos[papel.key]}
+                          aria-label={"Tamanho \u2014 " + papel.label}
+                          tabIndex={open ? 0 : -1}
+                          onChange={e => setTamanho(papel.key, Number(e.target.value))}
+                        />
+                        <span className="tipografia__pct">{tipografia.tamanhos[papel.key]}%</span>
+                      </div>
                     ))}
                   </div>
-
-                  <div className="aparencia__cap">Tamanho da letra</div>
-                  {PAPEIS.map(papel => (
-                    <div className="tipografia__linha" key={papel.key}>
-                      <span className="tipografia__nome">
-                        {papel.label}
-                        <span className="tipografia__amostra" aria-hidden="true" data-papel={papel.key}>Aa</span>
-                      </span>
-                      <input
-                        className="tipografia__range"
-                        type="range"
-                        min={TAMANHO_MIN}
-                        max={TAMANHO_MAX}
-                        step={TAMANHO_PASSO}
-                        value={tipografia.tamanhos[papel.key]}
-                        aria-label={"Tamanho \u2014 " + papel.label}
-                        tabIndex={open ? 0 : -1}
-                        onChange={e => setTamanho(papel.key, Number(e.target.value))}
-                      />
-                      <span className="tipografia__pct">{tipografia.tamanhos[papel.key]}%</span>
-                    </div>
-                  ))}
                 </div>
               </div>
 
-              {/* PRÉVIA — a tela atrás fica parada até o Aplicar; aqui o
-                  rascunho já vale. É o que impede "escolher às cegas" quando a
-                  cor é livre e não tem nome. Vestida pelo rascunho por variável
-                  CSS inline: isso é DADO chegando na folha, não aparência
-                  decidida na tela (a mesma isenção que o fiscal já reconhece). */}
-              <div className="aparencia__previa" style={previaStyle}
-                data-theme={TEMA_ATTR}
-                data-casca={casca.attr}
-                data-material={draftMaterial}
-                data-theme-mode={modoDraft}>
-                <div className="aparencia__previa-barra">
-                  <span className="aparencia__previa-ponto" />
-                  <span className="aparencia__previa-tit">Prévia</span>
-                  <span className="aparencia__previa-tag">no ar</span>
-                </div>
-                <div className="aparencia__previa-corpo">
-                  <div className="aparencia__previa-linha"><strong>Padaria Aurora</strong><span>Curitiba</span></div>
-                  <div className="aparencia__previa-linha"><strong>Mercadinho Lima</strong><span>São José</span></div>
-                  {/* decorativo: a prévia MOSTRA, não age — por isso fora da ordem de foco. */}
-                  <button type="button" className="aparencia__previa-cta" tabIndex={-1} aria-hidden="true">Abrir conversa</button>
-                </div>
-              </div>
-
-            {/* Dois verbos porque são dois tempos: letra aplica na hora;
-                cor/material só mudam no Aplicar. Agora dividem UMA linha. */}
-            <footer className="aparencia__foot">
-              <button type="button" className="btn-ghost tipografia__reset"
-                disabled={ehPadrao(tipografia)} onClick={() => restaurarTipografia()}>
-                Restaurar letra
-              </button>
-              <button type="button" className="btn-teal aparencia__apply" disabled={!mudou} onClick={aplicar}>
-                Aplicar
-              </button>
-            </footer>
+            {/* Sem rodapé: o único verbo do painel subiu pro canto superior
+                direito. A PRÉVIA saiu com ele — ver o bloco de cima. */}
           </div>
         </div>
       )}

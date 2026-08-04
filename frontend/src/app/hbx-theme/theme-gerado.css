@@ -61,8 +61,19 @@
    bolinha do painel precisa da cor mesmo com OUTRA cor ligada.
    ============================================================ */
 :root {
-  --cor-violeta: #6744C5;  /* 290° — padrão de fábrica, cor da marca */
-  --cor-azul:    #166A99;  /* 240° */
+  --cor-violeta: #6744C5;  /* 290° — croma 0,19 (teto) */
+  /* AZUL HBX — PADRÃO DE FÁBRICA (dono 04/08).
+     ⚠️ ESTE TOM É MEDIDO, NÃO ESCOLHIDO NO OLHO. Ele nasceu no matiz 240 e o
+     dono reprovou na hora ("baixíssima qualidade… parece fundo de quintal") —
+     com razão, e dá pra provar: varrendo o croma MÁXIMO que cabe no sRGB a
+     L 0,50 (a claridade cravada da marca), a roda tem um poço bem onde o 240
+     mora — 180°:0,091 · 200°:0,085 · 240°:0,115 · 258°:0,185 · 270°:0,281.
+     O 240 não estava "sem graça" por gosto: ele é quase o tom mais fraco que
+     existe naquela claridade, e o app inteiro herda isso porque toda superfície
+     é tingida pela mesma semente. Mudando pro 258 o MESMO pipeline entrega
+     croma 0,185 (+61%) sem tocar em uma linha da escada.
+     Contraste medido do par botão/tinta: 5,94:1 no claro, 7,11:1 no escuro. */
+  --cor-azul:    #005DCA;  /* 258° — croma 0,185 (o máximo do matiz) */
   --cor-verde:   #187726;  /* 145° */
   --cor-ambar:   #944E13;  /*  55° */
   --cor-grafite: #4F5359;  /* neutro — croma quase zero */
@@ -78,14 +89,16 @@
 
 /* ---- CLARO ---- */
 [data-theme="hbx"] {
-  /* Semente PADRÃO DE FÁBRICA — o violeta que o Aurora ocupava desde 01/08.
-     Continua sendo a cor da marca no menu lateral: o app não abre discordando
-     de si mesmo. Trocar de fábrica = uma palavra nesta linha.
+  /* Semente PADRÃO DE FÁBRICA — o AZUL HBX (dono 04/08). Era o violeta desde
+     01/08. É a cor com que o app abre pra quem nunca escolheu nada, e é a
+     mesma que o "Resetar padrões" do painel devolve — as duas leem ESTA linha,
+     não uma cópia cada uma. Trocar de fábrica = uma palavra aqui (o nome
+     gêmeo mora em COR_PADRAO, lib/aparencia.ts).
 
      Quem escolheu vence esta linha por um de dois caminhos: `data-cor="…"`
      (atalho da grade, bloco logo abaixo) ou `style="--hbx-cor: #…"` (cor
      livre, inline, e inline vence sempre). */
-  --hbx-cor: var(--cor-violeta);
+  --hbx-cor: var(--cor-azul);
 
   /* MARCA — L cravado; do hex vêm matiz e croma (croma com teto pra que um
      neon não vire tela vibrando, e com piso pra que um cinza ainda tenha
