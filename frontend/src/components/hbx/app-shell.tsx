@@ -41,6 +41,9 @@ const META: Record<string, Meta> = {
   // FINANCEIRO-UNIVERSAL: sem esta linha a rota caía no fallback title:"HBX"
   // (topo mudo e pill da sidebar apagada) — vazava "HBX" até no modo distribuidora.
   "/financeiro": { active: "financeiro", title: "Financeiro", crumbs: crumb("Financeiro") },
+  // FISCAL DO TENANT (F1a): mesma armadilha do financeiro — sem esta linha a rota
+  // cai no fallback title:"HBX" e a pílula da sidebar não acende.
+  "/fiscal": { active: "fiscal", title: "Fiscal", crumbs: crumb("Fiscal") },
   // 2 lugares, não 3 ilhas (27/06): VENDAS = funil (caçar+fechar numa tela só, o
   // Radar é a boca dele) e CONVERSAS = a caixa de WhatsApp. /leads é a boca do funil
   // ("Buscar empresas"), acessada de dentro de Vendas — não é mais irmã no menu.

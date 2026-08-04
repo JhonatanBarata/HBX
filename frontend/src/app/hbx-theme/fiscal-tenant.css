@@ -1,0 +1,613 @@
+/* ============================================================
+   FISCAL DO TENANT (PR04082026-FISCAL-TENANT, F1a) — a tela /fiscal dentro da
+   casca operacional compartilhada. Irmã do financeiro-tenant.css: só ESTRUTURA
+   por token; cor, borda, sombra e letra saem do contrato ativo (5 Leis).
+
+   Espaço nasce da escada de 4px (--space-*) e altura é sempre min-height — a
+   caixa precisa crescer quando a régua de letra do usuário cresce (R9/R10).
+   ============================================================ */
+
+/* ---------------------------------------------------------------- SUPERFÍCIE */
+
+/* A superfície de trabalho não rola: quem rola é a lista de notas, por dentro
+   (zero-scroll em desktop — FRONTEND.md). */
+.fis-shell-content {
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+
+.fis-work {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--space-3);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--space-3);
+  color: var(--text-body);
+}
+
+.fis-restrito {
+  width: 100%;
+  min-height: 260px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.fis-restrito-icone {
+  width: 42px;
+  min-height: 42px;
+  margin-bottom: var(--space-1);
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--hbx-brand) 20%, var(--border-hairline));
+  border-radius: var(--radius-md);
+  background: var(--hbx-brand-soft);
+  color: color-mix(in srgb, var(--hbx-brand) 44%, var(--text-strong));
+}
+
+.fis-restrito strong {
+  color: var(--text-strong);
+  font-size: var(--fz-n3);
+}
+
+.fis-restrito > span:last-child {
+  font-size: var(--hbx-font-min);
+}
+
+/* ------------------------------------------------------------------- BLOCOS */
+
+/* Pilha em COLUNA, não grade de linhas fixas: o bloco das notas ganha um aviso
+   no meio quando o backend manda um (rito do cancelamento) e a área que rola
+   continua sendo a última — sem uma linha de grade sobrando. */
+.fis-bloco {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.fis-bloco-head {
+  flex: 0 0 auto;
+  min-width: 0;
+  min-height: 42px;
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.fis-bloco-head > h2 {
+  min-width: 0;
+  margin: 0;
+  margin-right: auto;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-size: var(--fz-t10);
+  font-weight: 780;
+  letter-spacing: var(--tracking-tight);
+}
+
+/* Filtro na faixa do cabeçalho: .field-dark nasce 100% de largura (é campo de
+   formulário) e ali dentro isso jogaria cada um pra uma linha própria. */
+.fis-bloco-head .field-dark {
+  width: auto;
+  min-width: 128px;
+  flex: 0 0 auto;
+}
+
+.fis-bloco-aviso {
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: var(--space-3) var(--space-3) var(--space-0);
+}
+
+.fis-bloco-corpo {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--space-3);
+  display: grid;
+  align-content: start;
+  gap: var(--space-3);
+}
+
+/* ------------------------------------------------------------------- CAMPOS */
+
+.fis-grade {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--space-2) var(--space-3);
+}
+
+.fis-grade--largo {
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.fis-campo {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+  align-content: start;
+}
+
+.fis-campo--inteiro {
+  grid-column: 1 / -1;
+}
+
+.fis-campo > .field-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fis-campo textarea.field-dark {
+  min-height: 66px;
+  padding: var(--space-2) var(--space-3);
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.fis-campo select.field-dark {
+  cursor: pointer;
+}
+
+/* Campo de arquivo: o seletor nativo não cabe na altura de um input de texto. */
+.fis-campo input[type="file"].field-dark {
+  padding-block: var(--space-1);
+  cursor: pointer;
+}
+
+.fis-dica {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: var(--hbx-font-min);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.fis-linha-acoes {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.fis-linha-acoes > .fis-dica {
+  margin-right: auto;
+}
+
+/* ------------------------------------------------------------------- SELOS */
+
+.fis-selo {
+  min-width: 0;
+  min-height: 21px;
+  padding: 0 var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-pill);
+  background: var(--surface-recessed);
+  color: var(--text-body);
+  font-size: var(--hbx-font-min);
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.fis-selo--teste {
+  border-color: color-mix(in srgb, var(--hbx-warning) 34%, var(--border-hairline));
+  background: color-mix(in srgb, var(--hbx-warning) 12%, var(--hbx-surface));
+  color: color-mix(in srgb, var(--hbx-warning) 38%, var(--text-strong));
+}
+
+.fis-selo--ok {
+  border-color: color-mix(in srgb, var(--hbx-success) 34%, var(--border-hairline));
+  background: color-mix(in srgb, var(--hbx-success) 12%, var(--hbx-surface));
+  color: color-mix(in srgb, var(--hbx-success) 38%, var(--text-strong));
+}
+
+.fis-selo--erro {
+  border-color: color-mix(in srgb, var(--hbx-danger) 32%, var(--border-hairline));
+  background: color-mix(in srgb, var(--hbx-danger) 10%, var(--hbx-surface));
+  color: color-mix(in srgb, var(--hbx-danger) 36%, var(--text-strong));
+}
+
+.fis-selo--espera {
+  border-color: color-mix(in srgb, var(--hbx-info) 32%, var(--border-hairline));
+  background: color-mix(in srgb, var(--hbx-info) 10%, var(--hbx-surface));
+  color: color-mix(in srgb, var(--hbx-info) 38%, var(--text-strong));
+}
+
+/* --------------------------------------------------------------- RESULTADO */
+
+.fis-aviso {
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  display: grid;
+  gap: var(--space-2);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-recessed);
+  color: var(--text-body);
+  font-size: var(--hbx-font-min);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.fis-aviso strong {
+  color: var(--text-strong);
+  font-size: var(--fz-l1);
+  font-weight: 780;
+}
+
+.fis-aviso--ok {
+  border-color: color-mix(in srgb, var(--hbx-success) 32%, var(--border-hairline));
+  background: color-mix(in srgb, var(--hbx-success) 9%, var(--hbx-surface));
+}
+
+.fis-aviso--ok strong {
+  color: color-mix(in srgb, var(--hbx-success) 40%, var(--text-strong));
+}
+
+.fis-aviso--erro {
+  border-color: color-mix(in srgb, var(--hbx-danger) 30%, var(--border-hairline));
+  background: color-mix(in srgb, var(--hbx-danger) 9%, var(--hbx-surface));
+}
+
+.fis-aviso--erro strong {
+  color: color-mix(in srgb, var(--hbx-danger) 38%, var(--text-strong));
+}
+
+.fis-aviso--atencao {
+  border-color: color-mix(in srgb, var(--hbx-warning) 32%, var(--border-hairline));
+  background: color-mix(in srgb, var(--hbx-warning) 10%, var(--hbx-surface));
+}
+
+.fis-aviso--atencao strong {
+  color: color-mix(in srgb, var(--hbx-warning) 38%, var(--text-strong));
+}
+
+.fis-aviso-topo {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.fis-aviso-topo > strong {
+  margin-right: auto;
+}
+
+.fis-aviso-fatos {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+}
+
+.fis-aviso-fatos > span {
+  min-width: 0;
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.fis-aviso-fatos b {
+  color: var(--text-strong);
+  font-weight: 780;
+}
+
+/* -------------------------------------------------------------- NOTAS (tbl) */
+
+.fis-tabela-scroll {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+.fis-tabela {
+  min-width: 760px;
+}
+
+.fis-tabela tbody tr {
+  cursor: default;
+}
+
+/* Status empilha o selo do estado e o do ambiente — lado a lado a coluna
+   dobraria de largura e o dado que DECIDE é o de cima. */
+.fis-col-status {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-1);
+}
+
+.fis-tabela .fis-col-valor {
+  font-family: var(--font-mono);
+  font-weight: 800;
+  text-align: right;
+}
+
+.fis-tabela th.fis-col-valor {
+  text-align: right;
+}
+
+.fis-tomador {
+  min-width: 0;
+  max-width: 260px;
+  display: grid;
+}
+
+.fis-tomador > strong,
+.fis-tomador > small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fis-tomador > strong {
+  color: var(--text-strong);
+  font-size: var(--hbx-font-min);
+  font-weight: 740;
+}
+
+.fis-tomador > small {
+  color: var(--text-body);
+  font-size: var(--hbx-font-min);
+  font-weight: 620;
+}
+
+.fis-acoes-linha {
+  min-width: 0;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.fis-erro-linha {
+  display: block;
+  max-width: 240px;
+  color: color-mix(in srgb, var(--hbx-danger) 36%, var(--text-strong));
+  font-size: var(--hbx-font-min);
+  font-weight: 650;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.fis-vazio {
+  min-width: 0;
+  min-height: 120px;
+  padding: var(--space-6) var(--space-4);
+  display: grid;
+  place-items: center;
+  gap: var(--space-1);
+  color: var(--text-body);
+  font-size: var(--hbx-font-min);
+  text-align: center;
+}
+
+.fis-vazio strong {
+  color: var(--text-strong);
+  font-size: var(--fz-l1);
+  font-weight: 750;
+}
+
+/* ------------------------------------------------------- PAINEL DE CONFIG */
+
+.fis-cfg {
+  min-width: 0;
+  display: grid;
+  gap: 0;
+  align-content: start;
+}
+
+.fis-cfg-sec {
+  min-width: 0;
+  padding: var(--space-3);
+  display: grid;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.fis-cfg-sec > h3 {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--hbx-font-min);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.fis-cfg-fatos {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.fis-cfg-fato {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--hbx-font-min);
+}
+
+.fis-cfg-fato > span {
+  color: var(--text-muted);
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.fis-cfg-fato > strong {
+  min-width: 0;
+  color: var(--text-strong);
+  font-weight: 760;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fis-chave {
+  min-width: 0;
+  color: var(--text-body);
+  font-family: var(--font-mono);
+  font-size: var(--hbx-font-min);
+  overflow-wrap: anywhere;
+}
+
+/* Interruptor: caixa nativa + rótulo em duas linhas (padrão .log-cfg__switch). */
+.fis-switch {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.fis-switch input {
+  width: 15px;
+  min-height: 15px;
+  margin-top: var(--space-1);
+  flex: none;
+  accent-color: var(--hbx-brand);
+  cursor: pointer;
+}
+
+.fis-switch input:disabled {
+  cursor: not-allowed;
+}
+
+.fis-switch-txt {
+  min-width: 0;
+  display: grid;
+}
+
+.fis-switch-nome {
+  color: var(--text-body);
+  font-size: var(--fz-l1);
+  font-weight: 700;
+}
+
+.fis-switch-dica {
+  color: var(--text-muted);
+  font-size: var(--hbx-font-min);
+  line-height: 1.4;
+}
+
+/* ------------------------------------------------------------- CATÁLOGO */
+
+.fis-servicos {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.fis-servico {
+  min-width: 0;
+  padding: var(--space-2);
+  display: grid;
+  gap: var(--space-1);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-recessed);
+}
+
+.fis-servico.is-inativo {
+  opacity: 0.62;
+}
+
+.fis-servico-topo {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.fis-servico-topo > strong {
+  min-width: 0;
+  color: var(--text-strong);
+  font-size: var(--hbx-font-min);
+  font-weight: 750;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fis-servico-meta {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  color: var(--text-body);
+  font-size: var(--hbx-font-min);
+  font-weight: 620;
+}
+
+/* -------------------------------------------------------------- POP-UPS */
+
+.fis-modal {
+  width: min(460px, 100%);
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.fis-modal-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* --------------------------------------------------------------- DENSIDADE */
+
+@media (max-width: 900px) {
+  .fis-work {
+    padding: var(--space-2);
+    gap: var(--space-2);
+  }
+
+  .fis-bloco-corpo {
+    padding: var(--space-2);
+    gap: var(--space-2);
+  }
+}
+
+@media (max-height: 760px) {
+  .fis-work {
+    padding-block: var(--space-2);
+    gap: var(--space-2);
+  }
+
+  .fis-bloco-corpo {
+    padding-block: var(--space-2);
+    gap: var(--space-2);
+  }
+
+  .fis-cfg-sec {
+    padding-block: var(--space-2);
+  }
+}

@@ -173,6 +173,10 @@ export const ICONS: Record<string, string[]> = {
   // pessoas e empresas=prédio). A chave PRECISA existir — nav id sem ICONS
   // derruba a Sidebar (P0 do "assistente").
   clientes: ["M12 12.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z", "M5.5 20a6.5 6.5 0 0 1 13 0"],
+  // FISCAL DO TENANT (F1a) — nota fiscal: recibo com a base serrilhada e as
+  // linhas do corpo. A chave PRECISA existir — nav id sem ICONS derruba a
+  // Sidebar (P0 do "assistente", 02/07).
+  fiscal: ["M6 3h12v18l-3-2-3 2-3-2-3 2z", "M9 8h6M9 12h6M9 16h3"],
   // LEADS-FINAL/02 — toggle Linhas|Cards da lista densa: 3 linhas empilhadas
   // (lista) vs. grade 2x2 (cards). Reutilizável por qualquer lista com 2 vistas.
   list: ["M4 6h16", "M4 12h16", "M4 18h16"],
@@ -347,6 +351,10 @@ export const NAV_LINKS = [
   // preso ao app de entrega. Kill-switch, não paywall (null nos 2 gates); a tela
   // trava @Admin (LEI DO VENDEDOR: vendedor vê estado neutro, sem valores).
   { id: "financeiro", label: "Financeiro", href: "/financeiro", group: "Informações" },
+  // FISCAL DO TENANT (PR04082026-FISCAL-TENANT, F1a): NFS-e avulsa + configuração
+  // fiscal (cofre do A1, catálogo de serviços). Irmã do Financeiro — mesma regra:
+  // kill-switch, não paywall (null nos 2 gates); a tela e o backend travam @Admin.
+  { id: "fiscal", label: "Fiscal", href: "/fiscal", group: "Informações" },
   // 2 LUGARES, não 3 ilhas (27/06, ordem do dono). O vendedor tem 2 modos: CAÇAR
   // (achar empresa → trabalhar → fechar = um movimento só) e ATENDER (responder
   // quem chama no WhatsApp). Então: VENDAS = o funil inteiro (o Radar/"Buscar
@@ -928,6 +936,9 @@ const NAV_ENTITLEMENT: Record<string, string | null> = {
   // Financeiro do tenant = kill-switch, NÃO paywall (null). A trava real é @Admin
   // na tela + backend (LEI DO VENDEDOR), não um tier de plano.
   financeiro: null,
+  // Fiscal do tenant: mesma decisão do financeiro — o paywall do módulo fiscal é
+  // decisão comercial pendente do dono (o backend também nasceu sem @ModuleAccess).
+  fiscal: null,
   // Website não é um tier de plano (webscraping/vendas/atendimento_chat) — é
   // módulo companyAssignable ligado pelo MASTER por empresa (monthlyPrice: 0
   // hoje). O gate real vive em NAV_MODULE_KEY (/modules/me), não em entitlement.
@@ -980,6 +991,8 @@ const NAV_MODULE_KEY: Record<string, string | null> = {
   // ROLE (@Admin) e o backend é @Admin. Visível pra admin de tenant vendas OU
   // logística; vendedor vê o item mas a tela mostra estado neutro sem valores.
   financeiro: null,
+  // Fiscal do tenant: idem — quem barra é o @Admin da tela e do controller.
+  fiscal: null,
   website: "website",
   config: null,
 };
