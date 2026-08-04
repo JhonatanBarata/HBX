@@ -525,10 +525,10 @@
       navigation(appName, currentScreen, icon) {
         const items = appName === "vendas"
           ? [["vendas", "funnel", "sales", "Vendas"], ["vendas", "chat", "wa", "WhatsApp"], ["vendas", "agenda", "calendar", "Agenda"], ["vendas", "more", "gear", "Ajustes"]]
-          : [["logistica", "route", "route", "Rota"], ["logistica", "clients", "users", "Clientes"], ["logistica", "products", "box", "Produtos"], ["logistica", "settings", "gear", "Ajustes"]];
+          : [["logistica", "route", "route", "Rota"], ["logistica", "clients", "users", "Clientes"], ["logistica", "products", "box", "Produtos"], ["logistica", "chat", "chat", "Chat"], ["logistica", "settings", "gear", "Ajustes"]];
         const activeIndex = Math.max(0, items.findIndex(([itemApp, screen]) => itemApp === appName && screen === currentScreen));
         const indicator = HBX.navIndicator(activeIndex);
-        return `<nav class="bottom-nav is-centered" style="--nav-count:${items.length};--nav-from:${indicator.from};--nav-to:${indicator.to}" aria-label="Navegação principal"><i class="nav-water ${indicator.moving ? "is-moving" : ""}" aria-hidden="true"></i>${items.map(([itemApp, screen, iconName, label]) => {
+        return `<nav class="bottom-nav is-centered nav-count-${items.length}" style="--nav-count:${items.length};--nav-from:${indicator.from};--nav-to:${indicator.to}" aria-label="Navegação principal"><i class="nav-water ${indicator.moving ? "is-moving" : ""}" aria-hidden="true"></i>${items.map(([itemApp, screen, iconName, label]) => {
           const active = itemApp === appName && currentScreen === screen;
           return `<button type="button" class="nav-btn ${active ? "active" : ""}" data-destination="${itemApp}:${screen}"${active ? ` aria-current="page"` : ""}>${icon(iconName)}<span>${label}</span></button>`;
         }).join("")}</nav>`;
@@ -717,7 +717,7 @@
         const context = this.context; if (!context) return;
         const screens = context.appName === "vendas"
           ? [["vendas", "funnel"], ["vendas", "chat"], ["vendas", "agenda"], ["vendas", "more"]]
-          : [["logistica", "route"], ["logistica", "clients"], ["logistica", "products"], ["logistica", "settings"]];
+          : [["logistica", "route"], ["logistica", "clients"], ["logistica", "products"], ["logistica", "chat"], ["logistica", "settings"]];
         const index = Math.max(0, screens.findIndex(([appName, screen]) => appName === context.appName && screen === context.currentScreen));
         const next = screens[(index + direction + screens.length) % screens.length]; const motion = direction > 0 ? "forward" : "back";
         context.navigate(next[1], motion);

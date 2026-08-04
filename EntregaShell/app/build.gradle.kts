@@ -84,7 +84,10 @@ plugins {
 // 140 → 142 em 03/08 (noite): o reparo da allowlist dos recados precisa ser
 // instalado no g15 durante a prova. O piso fica acima do build local 141 para
 // que o próximo publish nunca repita a versão que já parou no aparelho.
-val hbxLogisticaVersionCodeFloor = 142
+// 142 → 148 em 03/08 (noite): o canal de recados foi provado até o build 147.
+// O módulo Chat e o fluxo suportado de aviso precisam nascer acima da versão
+// que já está no aparelho para a atualização normal realmente ser oferecida.
+val hbxLogisticaVersionCodeFloor = 148
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)

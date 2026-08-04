@@ -42,6 +42,8 @@ function harness(opts: { linhas?: Linha[]; motoristas?: number[]; entregasPorDon
         if (where.companyId != null && row.companyId !== where.companyId) return false;
         if (where.motoristaUserId != null && row.motoristaUserId !== where.motoristaUserId) return false;
         if (where.origem != null && row.origem !== where.origem) return false;
+        if (where.entregueEm?.not === null && row.entregueEm === null) return false;
+        if (where.nivel?.in && !where.nivel.in.includes(row.nivel)) return false;
         return true;
       }) ?? null,
       upsert: async ({ where, create }: any) => {
@@ -169,13 +171,26 @@ test('PORTÃO: recado que ainda NÃO chegou no aparelho não pode travar a rua',
   assert.equal((await h.service.portao(1, 7)).length, 0);
 });
 
-test('PORTÃO: o "Entendi" libera e não conta duas vezes', async () => {
+test('PORTÃO: o "Entendi" libera e retry devolve sucesso sem recontar', async () => {
   const h = harness({
     linhas: [{ id: 'r1', companyId: 1, motoristaUserId: 7, origem: 'escritorio', nivel: 'urgente', autorNome: 'D', texto: 'x', loteId: null, createdAt: new Date(), entregueEm: new Date(), vistoEm: null, ackEm: null }],
   });
   assert.equal(await h.service.confirmar(1, 7, 'r1'), true);
   assert.equal((await h.service.portao(1, 7)).length, 0, 'depois do Entendi o caminho abre');
-  assert.equal(await h.service.confirmar(1, 7, 'r1'), false, 'segundo clique não reconta');
+  const primeiroAck = h.linhas[0].ackEm;
+  assert.equal(await h.service.confirmar(1, 7, 'r1'), true, 'retry confirma o mesmo gesto');
+  assert.equal(h.linhas[0].ackEm, primeiroAck, 'retry não regrava nem reconta');
+});
+
+test('PORTÃO: normal ou ainda não entregue nunca aceita "Entendi"', async () => {
+  const h = harness({
+    linhas: [
+      { id: 'normal', companyId: 1, motoristaUserId: 7, origem: 'escritorio', nivel: 'normal', createdAt: new Date(), entregueEm: new Date(), vistoEm: null, ackEm: null },
+      { id: 'nao-entregue', companyId: 1, motoristaUserId: 7, origem: 'escritorio', nivel: 'alarme', createdAt: new Date(), entregueEm: null, vistoEm: null, ackEm: null },
+    ],
+  });
+  assert.equal(await h.service.confirmar(1, 7, 'normal'), false);
+  assert.equal(await h.service.confirmar(1, 7, 'nao-entregue'), false);
 });
 
 test('multi-tenant: "Entendi" de outra empresa não altera nada', async () => {
@@ -192,6 +207,18 @@ test('responder: a resposta nasce NÃO LIDA para acender o badge da central', as
   assert.equal(row.origem, 'motorista');
   assert.equal(row.vistoEm, null);
   assert.deepEqual(await h.service.naoLidosPorMotorista(1), { 7: 1 });
+});
+
+test('abrir o Chat no aparelho marca só mensagens da Central como vistas', async () => {
+  const h = harness({
+    linhas: [
+      { id: 'central', companyId: 1, motoristaUserId: 7, origem: 'escritorio', nivel: 'normal', createdAt: new Date(), entregueEm: new Date(), vistoEm: null, ackEm: null },
+      { id: 'motorista', companyId: 1, motoristaUserId: 7, origem: 'motorista', nivel: 'normal', createdAt: new Date(), entregueEm: new Date(), vistoEm: null, ackEm: null },
+    ],
+  });
+  assert.equal(await h.service.marcarVisto(1, 7, ['central', 'motorista']), 1);
+  assert.ok(h.linhas.find((row) => row.id === 'central')?.vistoEm);
+  assert.equal(h.linhas.find((row) => row.id === 'motorista')?.vistoEm, null, 'a Central ainda não abriu a resposta');
 });
 
 test('responder: retry é idempotente e confirma o recado na mesma transação', async () => {

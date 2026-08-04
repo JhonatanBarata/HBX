@@ -340,10 +340,23 @@ export class LogisticaRecadoService {
   /** "Entendi" do portão (e o visto que vem junto — ele leu pra poder clicar). */
   async confirmar(companyId: number, motoristaUserId: number, id: string): Promise<boolean> {
     if (!companyId || !motoristaUserId || !id) return false;
-    const agora = new Date();
-    const res = await this.prisma.logisticaRecado.updateMany({
+    const recadoId = String(id).trim();
+    const existente = await this.prisma.logisticaRecado.findFirst({
       where: {
-        id: String(id).trim(),
+        id: recadoId,
+        companyId,
+        motoristaUserId,
+        origem: ORIGEM_ESCRITORIO,
+        nivel: { in: [...NIVEL_COBRA_ACK] },
+        entregueEm: { not: null },
+      },
+      select: { id: true },
+    });
+    if (!existente) return false;
+    const agora = new Date();
+    await this.prisma.logisticaRecado.updateMany({
+      where: {
+        id: recadoId,
         companyId,
         motoristaUserId,
         origem: ORIGEM_ESCRITORIO,
@@ -353,7 +366,10 @@ export class LogisticaRecadoService {
       },
       data: { ackEm: agora, vistoEm: agora },
     });
-    return res.count > 0;
+    // Retry do mesmo gesto também é sucesso: o aparelho mantém a resposta
+    // nativa até receber `ok`, então rede interrompida não pode transformar um
+    // "Entendi" já gravado em erro na tentativa seguinte.
+    return true;
   }
 
   /** Abriu a lista no app: marca visto sem exigir "Entendi". */
@@ -361,7 +377,7 @@ export class LogisticaRecadoService {
     const lista = this.idsSeguros(ids);
     if (!companyId || !motoristaUserId || !lista.length) return 0;
     const res = await this.prisma.logisticaRecado.updateMany({
-      where: { id: { in: lista }, companyId, motoristaUserId, vistoEm: null },
+      where: { id: { in: lista }, companyId, motoristaUserId, origem: ORIGEM_ESCRITORIO, vistoEm: null },
       data: { vistoEm: new Date() },
     });
     return res.count;

@@ -78,10 +78,10 @@
     // Caixa persistente de mensagens. Recado é conversa, não missão/rota:
     // tem sino próprio, histórico e Responder — nunca “Aceitar”.
     recados: [],
-    recadosAberto: false,
     recadosCarregando: false,
     recadosErro: null,
     recadoRespostaDraft: "",
+    recadoRespostaAlvoId: null,
     recadoEnviando: false,
     recadoEnvioPendente: null,
     recadoPortao: null,
@@ -410,6 +410,7 @@
     moon: "<path d='M21 12.7A8.5 8.5 0 1 1 11.3 3 6.5 6.5 0 0 0 21 12.7z'/>",
     phone: "<path d='M22 17v3a2 2 0 0 1-2 2A19 19 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2c.1 1 .4 2 .7 2.8a2 2 0 0 1-.5 2L8 10a16 16 0 0 0 6 6l1.2-1.2a2 2 0 0 1 2-.5c.8.3 1.8.6 2.8.7a2 2 0 0 1 2 2z'/>",
     wa: "<path d='M21 11.5a8.5 8.5 0 0 1-12.5 7.5L3 21l2-5.3A8.5 8.5 0 1 1 21 11.5z'/><path d='M8.5 8.5c.7 3 2 4.3 5 5'/>",
+    chat: "<path d='M21 15a4 4 0 0 1-4 4H8l-5 3V7a4 4 0 0 1 4-4h10a4 4 0 0 1 4 4z'/>",
     map: "<polygon points='1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6'/><path d='M8 2v16M16 6v16'/>",
     plus: "<path d='M12 5v14M5 12h14'/>",
     close: "<path d='m6 6 12 12M18 6 6 18'/>",
@@ -2304,7 +2305,7 @@
     const checagemOverlay = state.checagem && state.modal !== "client-product" ? `<div class="overlay-host is-opening">${checagemModal()}</div>` : "";
     const standardModal = state.modal && state.modal !== "distance-warning" ? `<div class="overlay-host ${state.openingOverlay === "modal" ? "is-opening" : ""} ${state.closingOverlay === "modal" ? "is-closing" : ""}">${modal()}</div>` : "";
     const distanceModal = state.modal === "distance-warning" ? `<div class="overlay-host is-opening">${modal()}</div>` : "";
-    const overlays = `${floatingAction || ""}${creditsLockOverlay()}${routeNoticeOverlay()}${standardModal}${checagemOverlay}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${dddPromptOverlay()}${leituraPausaOverlay()}${rotaIndicadaOverlay()}${missoesOverlay()}${recadosOverlay()}${recadoPortaoOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
+    const overlays = `${floatingAction || ""}${creditsLockOverlay()}${routeNoticeOverlay()}${standardModal}${checagemOverlay}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${dddPromptOverlay()}${leituraPausaOverlay()}${rotaIndicadaOverlay()}${missoesOverlay()}${recadoPortaoOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
     return H.mobileShell.frame({ appName: "logistica", currentScreen: state.screen, content, icon, motion: state.screenMotion, refreshing: state.refreshing, error: state.error, overlays });
   }
   function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); const ringOffset = (188.5 * count / 5).toFixed(1); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30" style="stroke-dashoffset:${ringOffset}"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Próxima parada</p><h2>${H.escape(client.nome || "Cliente")}</h2><small>${H.escape(address(client))}</small><div class="actions next-stop-actions"><button class="btn btn-primary" data-action="next-stop">Ver rota</button><button class="btn btn-secondary" data-action="cancel-next-stop">Ficar aqui</button></div></section></div>`; }
@@ -2395,9 +2396,8 @@
     const corpo = blocoRecebidas + blocoAgendadas;
     return `<div class="modal-wrap app-confirm-wrap"><section class="modal app-confirm" role="dialog" aria-modal="true" aria-labelledby="missoes-title"><div class="app-confirm-icon">${icon("bell", 24)}</div><h2 id="missoes-title">Rotas recebidas</h2><div class="missao-lista">${corpo || empty("Nada esperando", "")}</div><div class="actions"><button class="btn btn-secondary btn-block" type="button" data-action="missoes-fechar">Fechar</button></div></section></div>`;
   }
-  /** Caixa de mensagens: histórico + resposta, separada das rotas recebidas. */
-  function recadosOverlay() {
-    if (!state.recadosAberto) return "";
+  /** Módulo Chat: histórico + resposta, separado das rotas recebidas. */
+  function chatScreen() {
     const lista = Array.isArray(state.recados) ? state.recados : [];
     const mensagens = lista.map(recado => {
       const ehMeu = recado.origem === "motorista";
@@ -2413,7 +2413,14 @@
       ? `<p class="recados-vazio">Carregando mensagens…</p>`
       : `<p class="recados-vazio">Nenhum recado ainda.</p>`);
     const erro = state.recadosErro ? `<p class="field-error">${H.escape(state.recadosErro)}</p>` : "";
-    return `<div class="modal-wrap recados-wrap"><section class="modal recados-caixa" role="dialog" aria-modal="true" aria-labelledby="recados-title"><header class="recados-cabeca"><div><small>Central ⇄ você</small><h2 id="recados-title">Recados</h2></div><button class="icon-btn" type="button" data-action="recados-fechar" aria-label="Fechar recados">${icon("close", 18)}</button></header><div class="recados-log" data-recados-log>${corpo}</div><div class="recados-composer"><textarea id="recados-composer" maxlength="500" rows="2" placeholder="Responder à central…" aria-label="Responder à central" ${state.recadoEnviando ? "disabled" : ""}>${H.escape(state.recadoRespostaDraft || "")}</textarea><button class="btn btn-primary" type="button" data-action="recados-enviar" ${state.recadoEnviando || !String(state.recadoRespostaDraft || "").trim() ? "disabled" : ""}>${state.recadoEnviando ? "Enviando…" : "Responder"}</button></div>${erro}</section></div>`;
+    const alvo = state.recadoRespostaAlvoId
+      ? lista.find(item => item && String(item.id) === String(state.recadoRespostaAlvoId) && item.origem === "escritorio")
+      : null;
+    const contexto = state.recadoRespostaAlvoId
+      ? `<div class="recados-alvo"><span>Respondendo a este recado</span><p>${H.escape(alvo?.texto || "Recado aberto pelo aviso")}</p><button class="icon-btn" type="button" data-action="recados-limpar-alvo" aria-label="Remover referência ao recado">${icon("close", 15)}</button></div>`
+      : "";
+    const conteudo = `<section class="chat-screen" aria-labelledby="chat-title"><header class="screen-head chat-screen__head"><div><small class="chat-screen__head-kicker">Central ⇄ você</small><h1 id="chat-title">Chat</h1><p class="subtitle">Mensagens da Central e suas respostas.</p></div><button class="icon-btn" type="button" data-action="recados-atualizar" aria-label="Atualizar conversa" ${state.recadosCarregando ? "disabled" : ""}>${icon("refresh", 18)}</button></header><section class="card recados-caixa chat-caixa" aria-label="Conversa com a Central"><div class="recados-log" data-recados-log>${corpo}</div>${contexto}<div class="recados-composer"><textarea id="recados-composer" maxlength="500" rows="2" placeholder="Escreva para a Central…" aria-label="Mensagem para a Central" ${state.recadoEnviando ? "disabled" : ""}>${H.escape(state.recadoRespostaDraft || "")}</textarea><button class="btn btn-primary" type="button" data-action="recados-enviar" ${state.recadoEnviando || !String(state.recadoRespostaDraft || "").trim() ? "disabled" : ""}>${state.recadoEnviando ? "Enviando…" : "Enviar"}</button></div>${erro}</section></section>`;
+    return shell(conteudo);
   }
   /**
    * O PORTÃO DO RECADO (03/08) — a folha que cobra o "Entendi".
@@ -2732,11 +2739,14 @@
     // folga normal de rodapé, senão o último card da lista encostaria na nav.
     const content = app.querySelector(".content");
     const rotaSolo = state.screen === "route" && !items().length;
-    if (content) content.classList.toggle("is-rota", rotaSolo);
+    if (content) {
+      content.classList.toggle("is-rota", rotaSolo);
+      content.classList.toggle("is-chat", state.screen === "chat");
+    }
     // Sem paradas a tela fecha na altura exata: trava o arrasto vertical pra não
     // sobrar aquele resto de rolagem (o padding do topo aparecendo). Com rota
     // traçada volta ao normal, senão a lista não rolaria.
-    document.body.style.overflowY = rotaSolo ? "hidden" : "";
+    document.body.style.overflowY = rotaSolo || state.screen === "chat" ? "hidden" : "";
     // 🔴 FREIO 2 (28/07) — travar o arrasto com a página JÁ rolada CONGELA o corte
     // pra sempre: o dedo não desfaz (não há rolagem) e o fitRouteMap não age (pra
     // ele "há o que rolar"). Trava e rolagem-zero andam JUNTAS, sempre. Com o
@@ -2979,6 +2989,13 @@
     const net = netOnline();
     const upd = state.updateInfo && state.updateInfo.outdated;
     const naoLidos = quantidadeRecadosNaoLidos();
+    const chatNav = document.querySelector('[data-destination="logistica:chat"]');
+    if (chatNav) {
+      chatNav.classList.toggle("has-unread", naoLidos > 0);
+      if (naoLidos) chatNav.dataset.unread = String(Math.min(naoLidos, 99));
+      else delete chatNav.dataset.unread;
+      chatNav.setAttribute("aria-label", naoLidos ? `Chat, ${naoLidos} não lido${naoLidos === 1 ? "" : "s"}` : "Chat");
+    }
     box.innerHTML =
       (upd ? `<button class="hbx-chip hbx-chip-update" data-action="app-update" aria-label="Atualizar aplicativo">${icon("download", 13)}<span>Atualizar</span></button>` : "") +
       `<button class="hbx-chip hbx-chip-recados ${naoLidos ? "is-warn" : ""}" data-action="recados-abrir" aria-label="Recados${naoLidos ? `, ${naoLidos} não lido${naoLidos === 1 ? "" : "s"}` : ""}">${icon("bell", 15)}${naoLidos ? `<i>${Math.min(naoLidos, 99)}</i>` : ""}</button>` +
@@ -6945,7 +6962,7 @@
     const passeioNaTela = state.screen === "route" && passeioModoAtivo();
     document.body.classList.toggle("pss-active", passeioNaTela);
     if (!passeioNaTela) disposePasseioMap();
-    const screens = { route: routeScreen, clients: clientsScreen, products: productsScreen, settings: settingsScreen };
+    const screens = { route: routeScreen, clients: clientsScreen, products: productsScreen, chat: chatScreen, settings: settingsScreen };
     H.mobileShell.mount(app, (screens[state.screen] || routeScreen)());
     enhancePaymentForms();
     enhanceMoneyInputs();
@@ -6956,7 +6973,7 @@
     syncHeaderChips();
     const recadosLog = app.querySelector("[data-recados-log]");
     const ultimoRecado = (state.recados || [])[state.recados.length - 1];
-    const marcadorRecados = state.recadosAberto ? `${ultimoRecado?.id || "vazio"}:${state.recados.length}` : "";
+    const marcadorRecados = state.screen === "chat" ? `${ultimoRecado?.id || "vazio"}:${state.recados.length}` : "";
     if (recadosLog && marcadorRecados !== recadosScrollMarker) {
       recadosScrollMarker = marcadorRecados;
       requestAnimationFrame(() => { if (recadosLog.isConnected) recadosLog.scrollTop = recadosLog.scrollHeight; });
@@ -7617,9 +7634,8 @@
         const recadoId = String(resposta.id).replace(/^recado_/, "");
         H.missaoAlarmeCancelar(resposta.id);
         if (resposta.acao === "entendi") {
-          const confirmado = await confirmarRecadoDoPortao(recadoId);
-          if (confirmado && H.recadoRespostaConcluir) H.recadoRespostaConcluir(recadoId);
-        } else await abrirRecados(true);
+          await confirmarRecadoDoPortao(recadoId);
+        } else await abrirRecados(true, recadoId);
         return;
       }
       // `agendadas=1` é este app dizendo "eu sei armar despertador" — sem o
@@ -7737,6 +7753,7 @@
       mesclarRecados(lista);
       recadosHistoricoCarregado = true;
       await confirmarRecebimentoRecados(lista).catch(() => {});
+      if (state.screen === "chat") await marcarRecadosAbertosComoVistos();
     } catch (error) {
       if (comLoading) state.recadosErro = humanApiError(error);
     } finally {
@@ -7767,15 +7784,28 @@
     }));
   }
 
-  async function abrirRecados(focarResposta) {
-    state.recadosAberto = true;
+  async function sincronizarChat(focarResposta) {
+    if (state.screen !== "chat") return;
     state.recadosErro = null;
-    recadosScrollMarker = "";
-    render();
-    if (focarResposta) focarRespostaDosRecados();
     await carregarHistoricoRecados(!recadosHistoricoCarregado);
+    if (state.screen !== "chat") return;
+    // Regra do dono (03/08): abrir a conversa silencia TODA repetição forte;
+    // o portão continua cobrando Entendi/Resposta, mas som daqui em diante é
+    // só a voz lendo. Cancelar pelo identificador oficial mantém uma única
+    // corrente nativa — não existe Activity disparada por fora.
+    (state.recados || [])
+      .filter(item => item && item.origem === "escritorio" && item.nivel === "alarme" && !item.ackEm)
+      .forEach(item => H.missaoAlarmeCancelar(`recado_${item.id}`));
     await marcarRecadosAbertosComoVistos();
     if (focarResposta) focarRespostaDosRecados();
+  }
+
+  async function abrirRecados(focarResposta, recadoId) {
+    if (recadoId) state.recadoRespostaAlvoId = String(recadoId);
+    recadosScrollMarker = "";
+    if (state.screen !== "chat") navigateTo("chat", undefined, { chatSyncHandled: true });
+    else render();
+    await sincronizarChat(!!focarResposta);
   }
 
   function chaveMensagem(prefix) {
@@ -7788,22 +7818,28 @@
   async function enviarRespostaDaCaixa() {
     const texto = String(state.recadoRespostaDraft || "").trim();
     if (!texto || state.recadoEnviando) return;
+    const recadoMaisRecente = [...(state.recados || [])].reverse().find(item => item && item.origem === "escritorio");
+    const recadoAlvoId = String(state.recadoRespostaAlvoId || recadoMaisRecente?.id || "");
     const anterior = state.recadoEnvioPendente;
-    const clientMessageId = anterior && anterior.texto === texto ? anterior.clientMessageId : chaveMensagem("msg");
-    state.recadoEnvioPendente = { texto, clientMessageId };
+    const podeRepetir = anterior && anterior.texto === texto && String(anterior.recadoId || "") === recadoAlvoId;
+    const clientMessageId = podeRepetir ? anterior.clientMessageId : chaveMensagem("msg");
+    state.recadoEnvioPendente = { texto, clientMessageId, recadoId: recadoAlvoId || null };
     state.recadoEnviando = true;
     state.recadosErro = null;
     render();
-    const recadoAlvo = [...(state.recados || [])].reverse().find(item => item && item.origem === "escritorio");
     try {
       const criado = await H.api("/logistica/recados/responder", {
         method: "POST",
-        body: { texto, clientMessageId, ...(recadoAlvo ? { recadoId: recadoAlvo.id } : {}) },
+        body: { texto, clientMessageId, ...(recadoAlvoId ? { recadoId: recadoAlvoId } : {}) },
       });
       mesclarRecados([criado]);
       state.recadoRespostaDraft = "";
       state.recadoEnvioPendente = null;
-      if (recadoAlvo && H.recadoRespostaConcluir) H.recadoRespostaConcluir(recadoAlvo.id);
+      if (recadoAlvoId) {
+        H.missaoAlarmeCancelar(`recado_${recadoAlvoId}`);
+        if (H.recadoRespostaConcluir) H.recadoRespostaConcluir(recadoAlvoId);
+      }
+      state.recadoRespostaAlvoId = null;
     } catch (error) {
       state.recadosErro = humanApiError(error);
     } finally {
@@ -7827,6 +7863,15 @@
         let indiceAlarme = 0;
         for (const recado of realmenteNovos) {
           if (recado.nivel === "alarme") {
+            if (state.screen === "chat") {
+              // A conversa já está aberta: não arma sirene por baixo da tela.
+              // Lê em voz alta e deixa o recado visível no fio.
+              if (recadoFaladoId !== recado.id) {
+                recadoFaladoId = recado.id;
+                recadoFala(`Alarme da central. ${recado.texto}`);
+              }
+              continue;
+            }
             // O identificador `recado_` manda a ponte nativa tocar agora; o
             // horário continua no contrato apenas para não misturar a API de
             // recado com a de missão agendada.
@@ -7847,6 +7892,7 @@
         // O ✓✓ vem DEPOIS de o conteúdo existir no estado do app. Se esta
         // chamada cair, o servidor repete e o Set acima impede alerta duplicado.
         await confirmarRecebimentoRecados(lista).catch(() => {});
+        if (state.screen === "chat") await marcarRecadosAbertosComoVistos();
         // O mais grave manda no toast — dois toasts empilhados ninguém lê.
         const pior = realmenteNovos.find(r => r.nivel === "urgente" || r.nivel === "alarme") || realmenteNovos[realmenteNovos.length - 1];
         if (pior) toast(pior.nivel === "normal" ? `Recado: ${pior.texto}` : `⚠️ ${pior.texto}`, pior.nivel !== "normal");
@@ -7861,7 +7907,14 @@
     // depois o histórico. Fazer os dois em paralelo podia o histórico gerar
     // ✓✓ antes do pull e engolir um urgente/alarme silenciosamente.
     await checkRecados(true);
-    await carregarHistoricoRecados(false);
+    if (state.screen === "chat") await sincronizarChat(false);
+    else await carregarHistoricoRecados(false);
+  }
+
+  async function sincronizarRecadosAoRetomar() {
+    await checkRecados(true);
+    if (state.screen === "chat") await sincronizarChat(false);
+    else await carregarHistoricoRecados(false);
   }
 
   /**
@@ -7895,6 +7948,8 @@
       if (!resultado || resultado.ok !== true) throw new Error("Recado ainda não confirmado.");
       const agora = new Date().toISOString();
       state.recados = (state.recados || []).map(item => String(item.id) === String(id) ? { ...item, ackEm: agora, vistoEm: agora, estado: "entendido" } : item);
+      H.missaoAlarmeCancelar(`recado_${id}`);
+      if (H.recadoRespostaConcluir) H.recadoRespostaConcluir(id);
       state.recadoPortao = null;
       render();
       return true;
@@ -7925,6 +7980,7 @@
         body: { texto, recadoId: id, clientMessageId: `reply_${String(id)}`.slice(0, 64) },
       });
       mesclarRecados([criado]);
+      H.missaoAlarmeCancelar(`recado_${id}`);
       if (H.recadoRespostaConcluir) H.recadoRespostaConcluir(id);
       state.recadoPortao = null;
       toast("Resposta enviada.");
@@ -8837,8 +8893,8 @@
     } catch (error) { toast(humanApiError(error), true); }
   }
   function clientById(id) { return (state.clients || []).find(c => String(c.id) === String(id)); }
-  function navigateTo(nextScreen, motion) {
-    const screens = ["route", "clients", "products", "settings"];
+  function navigateTo(nextScreen, motion, options) {
+    const screens = ["route", "clients", "products", "chat", "settings"];
     const currentIndex = screens.indexOf(state.screen);
     const nextIndex = screens.indexOf(nextScreen);
     state.navMotionFrom = currentIndex === -1 || nextIndex === -1 || currentIndex === nextIndex ? null : currentIndex;
@@ -8853,6 +8909,7 @@
     // Entrando nos Ajustes: pergunta ao aparelho quanto de mapa já está guardado
     // e quanto pesa o download do raio escolhido (número medido, nunca chutado).
     if (nextScreen === "settings") void mapaOfflineSincronizar();
+    if (nextScreen === "chat" && !(options && options.chatSyncHandled)) void sincronizarChat(false);
     state.screenMotion = "";
     clearTimeout(navMotionTimer);
     navMotionTimer = setTimeout(() => { state.navMotionFrom = null; }, 360);
@@ -9509,12 +9566,8 @@
     }
     if (action === "missoes-fechar") { state.missoesAberto = false; render(); return; }
     if (action === "recados-abrir") { void abrirRecados(); return; }
-    if (action === "recados-fechar") {
-      state.recadosAberto = false;
-      state.recadosErro = null;
-      render();
-      return;
-    }
+    if (action === "recados-atualizar") { recadosHistoricoCarregado = false; void sincronizarChat(false); return; }
+    if (action === "recados-limpar-alvo") { state.recadoRespostaAlvoId = null; state.recadoEnvioPendente = null; render(); return; }
     if (action === "recados-enviar") { void enviarRespostaDaCaixa(); return; }
     // O "Entendi" do portão: única saída da folha de recado urgente/alarme.
     if (action === "recado-entendi") {
@@ -11499,7 +11552,6 @@
         // só Aceitar/Negar tiram ele da tela).
         if (state.rotaIndicada) return true;
         if (state.recadoPortao) return true;
-        if (state.recadosAberto) { state.recadosAberto = false; state.recadosErro = null; render(); return true; }
         // Lei 10 — popup novo entra aqui. "Rotas recebidas" é consulta, não
         // decisão: Voltar fecha, ao contrário do popup impeditivo acima.
         if (state.missoesAberto) { state.missoesAberto = false; render(); return true; }
@@ -11627,7 +11679,7 @@
       else { state.newClientGpsLoading = false; state.newClientCepStatus = "Permita a localização para usar este atalho."; render(); }
     }
   };
-  if (!["route", "clients", "products", "settings"].includes(state.screen)) state.screen = "route";
+  if (!["route", "clients", "products", "chat", "settings"].includes(state.screen)) state.screen = "route";
   restoreRouteEngineState(state.route);
   render(); refresh(false, true); state.screenMotion = ""; void restoreLeituraSession(); refreshGpsPerm(); void checkAppUpdate(false);
   // A resposta dada na tela nativa pode ter acordado um processo frio. Drena
@@ -11635,13 +11687,13 @@
   void checkRotaIndicada(true);
   // Volta do fundo = nova chance de ver atualização (a trava de 30min dentro
   // de checkAppUpdate segura a frequência; trocar de app não vira enxurrada).
-  document.addEventListener("visibilitychange", () => { if (!document.hidden) { retomarUpdatePosPermissao(); void checkAppUpdate(); void checkRotaIndicada(true); void checkRecados(true); } });
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) { retomarUpdatePosPermissao(); void checkAppUpdate(); void checkRotaIndicada(true); void sincronizarRecadosAoRetomar(); } });
   // ROTA PRONTA (29/07) — tick de 60s do popup de rota indicada (cadência FIXA
   // com throttle interno de 45s; tela escondida não gasta rede).
   setInterval(() => { if (!document.hidden) void checkRotaIndicada(); }, 60000);
   // RECADOS (03/08) — push entrega na hora; este tick curto é o paraquedas de
   // primeiro plano. Mensagem não pode herdar o relógio de missão/rota.
-  document.addEventListener("hbx:push-wake", () => { void checkRecados(true); });
+  document.addEventListener("hbx:push-wake", () => { void sincronizarRecadosAoRetomar(); });
   document.addEventListener("hbx:open-recados", () => { void abrirRecados(true); });
   setInterval(() => { if (!document.hidden) void checkRecados(); }, RECADOS_POLL_MS);
   void iniciarCanalDeRecados();
