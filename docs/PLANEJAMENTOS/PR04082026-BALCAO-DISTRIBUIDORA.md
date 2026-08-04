@@ -21,9 +21,18 @@ BALCÃO da vertical distribuidora** (água/gás/bebidas/depósito), a perna que 
    - Cadastro de produto: campo "Código de barras" preenchível BIPANDO (foca o campo e bipa).
    - Venda: bip acha o produto pelo GTIN e soma 1 unidade; botões grandes CONTINUAM
      (bip e botão convivem — galão retornável às vezes não tem etiqueta).
-   - Entrada por XML: parser passa a ler o `cEAN` de cada item → casamento item↔produto por
-     GTIN (match EXATO, antes do match por NCM/nome) e auto-preenche o gtin de produto criado
-     na conferência. ⚠️ HOJE o parser NÃO lê cEAN (conferido 04/08) — é trabalho novo do B1.
+   - **Entrada por XML = PRÉ-CADASTRO pela nota (refino do dono 04/08 — "passa a nota apenas
+     com pré cadastro"):** parser passa a ler o `cEAN` de cada item. Item cujo EAN casa com
+     `gtin` existente → entra SOZINHO (match exato, antes do match por NCM/nome). Item novo →
+     a conferência já vem com o cadastro PRONTO (nome do `xProd`, unidade do `uCom`, NCM, EAN)
+     — um clique confirma e o produto NASCE amarrado ao bip. Cadastrar produto na mão vira
+     exceção, não regra — o caminho normal é: chegou mercadoria, passou a nota, estoque
+     cadastrado e bipável. Zera o erro de digitação de código.
+     ⚠️ HOJE o parser NÃO lê cEAN (conferido 04/08) — é trabalho novo do B1.
+     ⚠️ `cEAN` pode vir com o literal `"SEM GTIN"` (produto sem código de barras) → tratar
+     como vazio, nunca gravar essa string como gtin.
+     ⚠️ O XML traz preço de COMPRA (`vUnCom`), não de venda — o pré-cadastro nasce SEM preço
+     de venda (dono põe a margem dele); o balcão avisa "produto sem preço" na hora de vender.
 3. **Reuso máximo do que está no ar:** baixa da venda = movimento `SAIDA_EMISSAO` (já existe
    no motor do estoque, esperando exatamente isso); cliente vem da base; FIADO vira cobrança
    no financeiro existente; comprovante SEM VALOR FISCAL reusa o padrão da F2a.
@@ -85,7 +94,7 @@ EstoqueMovimento += refVendaId?  — dedup @@unique([companyId, tipo, refVendaId
 
 | Fatia | Entrega visível | Gate |
 |---|---|---|
-| **B1** | Tela `/balcao` completa: bip (GTIN) + botões grandes + carrinho + 4 formas de pagamento + baixa `SAIDA_EMISSAO` + fiado→financeiro + comprovante F2a + cancelamento com rito. Cadastro de produto ganha código de barras (bipável) e preço. Parser do XML lê `cEAN` e casa por GTIN. | nenhum |
+| **B1** | Tela `/balcao` completa: bip (GTIN) + botões grandes + carrinho + 4 formas de pagamento + baixa `SAIDA_EMISSAO` + fiado→financeiro + comprovante F2a + cancelamento com rito. Cadastro de produto ganha código de barras (bipável) e preço. **Entrada por XML vira PRÉ-CADASTRO**: parser lê `cEAN`, EAN conhecido entra sozinho, item novo confirma com 1 clique e nasce amarrado ao bip. | nenhum |
 | **B2** | Pix dinâmico + maquininha smart POS pelo adapter (stub `NAO_CONTRATADO` no ar desde o B1; 1ª real: MP Point — cobrança aparece na maquininha, webhook confirma na tela) | ⬜ dono confirma MP Point; conta MP do tenant |
 | **B3** | NFC-e da venda de balcão (nota-a-nota, o modo varejo que já tinha moradia no plano fiscal) | 🔒 F2b — provedor |
 
@@ -102,6 +111,8 @@ EstoqueMovimento += refVendaId?  — dedup @@unique([companyId, tipo, refVendaId
 
 ## 6. Armadilhas conhecidas
 - EAN é STRING (zero à esquerda) — nunca Number() no GTIN.
+- `cEAN = "SEM GTIN"` (literal do layout da NF-e) → é AUSÊNCIA de código, tratar como null.
+- Preço de venda NÃO vem no XML da compra (só o de custo) — pré-cadastro sem preço + aviso no balcão.
 - Leitor manda sufixo Enter (às vezes Tab) — listener da tela trata os dois.
 - Bip só entra com a tela focada — listener global no `/balcao`, não input escondido.
 - Fuso: venda entra na competência do dia LOCAL do tenant (container UTC × dono -03).
