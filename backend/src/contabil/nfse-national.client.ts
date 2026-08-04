@@ -338,6 +338,12 @@ export class NfseNationalClient {
 // nativo p/ poder passar cert/key do cofre (mTLS) sem novo npm dep.
 // ===========================================================================
 export class RealNfseTransport implements NfseTransport {
+  // timeoutMs parametrizável (default preserva o comportamento do S6). O fiscal
+  // do tenant usa 15s: resposta síncrona na tela precisa voltar ANTES do teto do
+  // proxy do Next (~30s), senão o navegador vê 500 cru do proxy e o resultado
+  // real (doc ERRO com motivo) se perde — visto ao vivo em 04/08.
+  constructor(private readonly timeoutMs = 30_000) {}
+
   async postNfse(input: { baseUrl: string; payloadJson: string; cert: CertSigningMaterial }): Promise<NfseTransportResult> {
     const https = await import('https');
     const url = new URL('/nfse', input.baseUrl);
@@ -352,7 +358,7 @@ export class RealNfseTransport implements NfseTransport {
           cert: input.cert.certPem,
           key: input.cert.keyPem,
           headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(input.payloadJson) },
-          timeout: 30_000,
+          timeout: this.timeoutMs,
         },
         (res) => {
           const chunks: Buffer[] = [];

@@ -189,7 +189,7 @@ teste roda restrita; tenant real sobe pra producao no gate do cert).
 
 | Fatia | Entrega visível | Prova |
 |---|---|---|
-| **F1a** | Schema + perfil + cofre + catálogo + tela config + emissão avulsa em RESTRITA | 3 notas restrita na tela, PDF+XML baixáveis |
+| **F1a** ✅ 04/08 | Schema + perfil + cofre + catálogo + tela config + emissão avulsa | EXECUTADA e provada AO VIVO no localhost (Chrome): perfil+Rio Claro salvos, serviço no catálogo, .pfx de teste no cofre (OpenSSL no container), emissão real na Sefin com cert não-ICP → ERRO 'timeout' limpo na tela + Reemitir, disjuntor pausou em 3 e rearmau pela tela, PDF 200 %PDF, numeração 1/1→1/4. Testes 114/114 (contabil+fiscal, NODE_ENV=test). Nota AUTORIZADA de verdade = F1c (cert ICP real, gate do dono). |
 | **F1b** | E-mail/Whats opt-in + disjuntor + cancelamento | e-mail chega com PDF+XML; disjuntor testado |
 | **F1c** | 🔒 GATE: cert A1 real + Rio Claro → producao | 1 nota real no portal gov.br/nfse |
 | **F2a** | Comprovante sem valor fiscal na entrega + config fechamento×entrega | comprovante no Whats |

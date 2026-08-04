@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ContabilModule } from '../contabil/contabil.module';
-import { NfseNationalClient } from '../contabil/nfse-national.client';
+import { NfseNationalClient, RealNfseTransport } from '../contabil/nfse-national.client';
 import { FiscalController } from './fiscal.controller';
 import { FiscalProfileService } from './fiscal-profile.service';
 import { FiscalNfseService } from './fiscal-nfse.service';
@@ -17,7 +17,13 @@ import { FiscalNfseService } from './fiscal-nfse.service';
 @Module({
   imports: [PrismaModule, ContabilModule],
   controllers: [FiscalController],
-  providers: [NfseNationalClient, FiscalProfileService, FiscalNfseService],
+  providers: [
+    // Timeout de 15s (< teto do proxy do Next): o resultado da emissão — inclusive
+    // ERRO com motivo — sempre chega de volta na tela em vez de virar 500 do proxy.
+    { provide: NfseNationalClient, useFactory: () => new NfseNationalClient(new RealNfseTransport(15_000)) },
+    FiscalProfileService,
+    FiscalNfseService,
+  ],
   exports: [FiscalProfileService, FiscalNfseService],
 })
 export class FiscalModule {}
