@@ -3,6 +3,7 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
+import { ComexAnalistaService } from './comex-analista.service';
 import { ComexCambioService } from './comex-cambio.service';
 import {
   ComexDetectoresService,
@@ -26,7 +27,23 @@ export class ComexController {
     private readonly news: ComexNewsService,
     private readonly cambioService: ComexCambioService,
     private readonly detectores: ComexDetectoresService,
+    private readonly analista: ComexAnalistaService,
   ) {}
+
+  /**
+   * F2a do Analista — o dossiê da demo Ask Crios virando rota: pipeline
+   * determinístico CNPJ → SECEX → RFB → NCMs prováveis → mercados → achados.
+   */
+  @Get('dossie')
+  dossie(@Query('cnpj') cnpj: string, @Query('fluxo') fluxo: string) {
+    return this.analista.dossie(cnpj, fluxo);
+  }
+
+  // LEI 1 — substância/descrição → código NCM oficial (PT/EN, 13,7k linhas).
+  @Get('busca-ncm')
+  buscaNcm(@Query('q') q: string) {
+    return this.analista.buscaNcmOficial(q || '');
+  }
 
   /**
    * F1 do Analista — biblioteca de detectores (achados rankeados, sem IA).

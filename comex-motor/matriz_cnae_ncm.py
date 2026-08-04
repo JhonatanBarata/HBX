@@ -143,13 +143,15 @@ def aceite(con) -> None:
     """).fetchall():
         print(f"  {r[0]}  votos {r[1]:>3}  lift~{r[2]:>5}  score {r[3]:>7}  {r[4]}")
 
-    print("\n== cnae_sh4 2072 IMP (v2) — top 12")
+    # ⚠️ resinas termofixas = CNAE 2032 (2072 é tintas de impressão — pegadinha
+    # que veio dos testes de 01/08 e foi corrigida pelo cadastro do próprio CNPJ).
+    print("\n== cnae_sh4 2032 IMP (v2, resinas termofixas) — top 12")
     for r in con.execute(f"""
         SELECT m.sh4, m.votos, m.mediana_lift, m.score,
                any_value(s.NO_SH4_POR)[:55] AS d
         FROM read_parquet('{OUT_CNAE}') m
         LEFT JOIN aux_ncm_sh s ON s.CO_SH4 = m.sh4
-        WHERE m.cnae4 = '2072' AND m.fluxo = 'IMP'
+        WHERE m.cnae4 = '2032' AND m.fluxo = 'IMP'
         GROUP BY ALL ORDER BY m.score DESC LIMIT 12
     """).fetchall():
         print(f"  {r[0]}  votos {r[1]:>3}  lift~{r[2]:>5}  score {r[3]:>7}  {r[4]}")

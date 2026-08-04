@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
 import { ModulesAccessModule } from '../modules/modules.module';
+import { ComexAnalistaService } from './comex-analista.service';
 import { ComexCambioService } from './comex-cambio.service';
 import { ComexController } from './comex.controller';
 import { ComexDataService } from './comex-data.service';
@@ -20,6 +21,7 @@ import { ComexService } from './comex.service';
     ComexNewsService,
     ComexCambioService,
     ComexDetectoresService,
+    ComexAnalistaService,
   ],
 })
 export class ComexModule {}

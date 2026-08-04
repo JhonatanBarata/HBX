@@ -74,7 +74,7 @@ export class ComexDetectoresService {
 
   /** Carimbo de janela do dado ("jan/2024–jun/2026"), cacheado por processo. */
   private janela: string | null = null;
-  private async fonteStat(): Promise<string> {
+  async fonteStat(): Promise<string> {
     if (!this.janela) {
       const [r] = await this.data.query(`
         SELECT min(CO_ANO * 100 + CO_MES) AS ini, max(CO_ANO * 100 + CO_MES) AS fim FROM flow_mun
@@ -126,8 +126,8 @@ export class ComexDetectoresService {
     return { disponivel: true, fonteJanela: fonte, achados };
   }
 
-  /** Top origens do SH4 com preço — insumo comum a vários detectores. */
-  private async origens(sh4: string, fluxo: string, limite = 8) {
+  /** Top origens do SH4 com preço — insumo comum a vários detectores (e ao dossiê). */
+  async origens(sh4: string, fluxo: string, limite = 8) {
     return this.data.query(`
       SELECT any_value(p.NO_PAIS) AS pais, any_value(p.CO_PAIS_ISOA3) AS iso3,
              CAST(sum(f.VL_FOB) AS DOUBLE) AS fobUsd,
