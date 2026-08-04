@@ -375,7 +375,7 @@ function PainelConfig({
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- estado do semáforo acompanha o perfil salvo
     void carregarChecklist();
-  }, [carregarChecklist, perfilId]);
+  }, [carregarChecklist, perfil]);
 
   const atestarContador = useCallback(async (aprovado: boolean) => {
     setLiberacaoOcupada(true);
