@@ -414,6 +414,87 @@
   color: color-mix(in srgb, var(--hbx-danger) 36%, var(--text-strong));
 }
 
+/* F3 — SEMÁFORO DE LIBERAÇÃO: checklist LT/TEC/OP no painel de config. */
+.fis-checklist {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.fis-check-item {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  color: var(--text-body);
+  font-size: var(--hbx-font-min);
+}
+
+.fis-check-item.is-ok {
+  color: color-mix(in srgb, var(--hbx-success) 46%, var(--text-body));
+}
+
+.fis-check-marca {
+  flex: none;
+  font-weight: 740;
+}
+
+.fis-check-txt {
+  min-width: 0;
+  display: grid;
+}
+
+.fis-check-txt > small {
+  color: var(--text-body);
+  opacity: 0.8;
+}
+
+/* F3 — ESTOQUE: botão de upload do XML (label com input escondido) e a
+   conferência de mapeamento item-do-XML → produto. */
+.fis-upload-xml {
+  cursor: pointer;
+}
+
+.fis-upload-xml > input[type='file'] {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.fis-xml-conferencia {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--radius-md);
+}
+
+.fis-xml-item {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.fis-xml-item-nome {
+  min-width: 0;
+  display: grid;
+}
+
+.fis-xml-item-nome > small {
+  color: var(--text-body);
+  font-size: var(--hbx-font-min);
+}
+
+.fis-modal--largo {
+  width: min(680px, 92vw);
+}
+
 .fis-vazio {
   min-width: 0;
   min-height: 120px;

@@ -103,29 +103,34 @@ html, body { margin: 0; }
    de espera) contra 150ms pra fechar — abrir e fechar em ritmos diferentes faz
    o menu parecer que hesita numa direção e foge na outra.
 
-   O GATILHO: mouse na barra INTEIRA, mas foco só na PILHA. O `:focus-within`
-   na barra toda era o "não recolhe nunca": clicar no pino deixa o foco NELE, e
-   como o pino mora dentro da barra, ela se segurava aberta para sempre — tirar
-   o mouse não adiantava, porque não era o mouse que estava segurando. Foco na
-   pilha (menu) ainda abre, que é o que o teclado precisa. */
+   O GATILHO: mouse na barra inteira, e do foco só o `:focus-visible`.
+   `:focus-within` (qualquer foco) foi o "TIREI O MOUSE E NÃO RECOLHE": clicar
+   deixa o foco no que foi clicado — o pino, ou o módulo que você acabou de
+   abrir —, e como eles moram dentro da barra, ela ficava presa aberta até um
+   clique em outro lugar. Não era o mouse que segurava, por isso tirar o mouse
+   não resolvia nada.
+   `:has(:focus-visible)` separa as duas coisas na origem: o navegador só marca
+   focus-visible quando o foco veio do TECLADO. Clique com mouse não abre nem
+   segura; Tab abre e segura, que é o que o teclado precisa pra enxergar onde
+   está pisando. */
 .side { width: var(--rail-width); }
 .app[data-rail="min"] .side {
   width: var(--rail-width-min);
   transition: width var(--motion-base), box-shadow var(--motion-base);
 }
-.app[data-rail="min"]:has(.side:hover, .side-stack:focus-within) .side {
+.app[data-rail="min"]:has(.side:hover, .side-stack:has(:focus-visible)) .side {
   width: var(--rail-width);
   box-shadow: var(--shadow-lg);
   transition: width var(--motion-base), box-shadow var(--motion-base);
 }
 .app[data-rail="min"] .side-scroll { padding-left: 8px; padding-right: 8px; }
-.app[data-rail="min"]:not(:has(.side:hover, .side-stack:focus-within)) .nav-item { justify-content: center; padding: 9px 0; gap: 0; }
-.app[data-rail="min"]:not(:has(.side:hover, .side-stack:focus-within)) .nav-item span.nav-item__label { max-width: 0; opacity: 0; }
-.app[data-rail="min"]:not(:has(.side:hover, .side-stack:focus-within)) .logo strong { max-width: 0; opacity: 0; }
-.app[data-rail="min"]:not(:has(.side:hover, .side-stack:focus-within)) .nav-group-label { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
-.app[data-rail="min"]:not(:has(.side:hover, .side-stack:focus-within)) .plan-card { max-height: 0; opacity: 0; padding: 0; border-width: 0; pointer-events: none; }
-.app[data-rail="min"]:not(:has(.side:hover, .side-stack:focus-within)) .user-card small,
-.app[data-rail="min"]:not(:has(.side:hover, .side-stack:focus-within)) .user-card strong { max-height: 0; opacity: 0; }
+.app[data-rail="min"]:not(:has(.side:hover, .side-stack:has(:focus-visible))) .nav-item { justify-content: center; padding: 9px 0; gap: 0; }
+.app[data-rail="min"]:not(:has(.side:hover, .side-stack:has(:focus-visible))) .nav-item span.nav-item__label { max-width: 0; opacity: 0; }
+.app[data-rail="min"]:not(:has(.side:hover, .side-stack:has(:focus-visible))) .logo strong { max-width: 0; opacity: 0; }
+.app[data-rail="min"]:not(:has(.side:hover, .side-stack:has(:focus-visible))) .nav-group-label { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
+.app[data-rail="min"]:not(:has(.side:hover, .side-stack:has(:focus-visible))) .plan-card { max-height: 0; opacity: 0; padding: 0; border-width: 0; pointer-events: none; }
+.app[data-rail="min"]:not(:has(.side:hover, .side-stack:has(:focus-visible))) .user-card small,
+.app[data-rail="min"]:not(:has(.side:hover, .side-stack:has(:focus-visible))) .user-card strong { max-height: 0; opacity: 0; }
 /* O "AD" ficava 5,8px à ESQUERDA do eixo (medido: avatar em 40,8 num trilho
    cujo centro é 35). Causa: o cartão do usuário mantinha 166,7px de largura
    dentro de um trilho de 56 — o texto ao lado do avatar zera a ALTURA quando a
@@ -136,7 +141,7 @@ html, body { margin: 0; }
    texto para de reservar largura (max-width 0, que ainda anima) e o vão de 8px
    entre avatar e texto some — sem isso o vão fantasma reempurra o avatar, que
    é o mesmo defeito do "»" no cabeçalho. */
-.app[data-rail="min"]:not(:has(.side:hover, .side-stack:focus-within)) .user-card {
+.app[data-rail="min"]:not(:has(.side:hover, .side-stack:has(:focus-visible))) .user-card {
   justify-content: center;
   width: 100%;
   min-width: 0;
@@ -145,14 +150,14 @@ html, body { margin: 0; }
   padding-right: 0;
   overflow: hidden;
 }
-.app[data-rail="min"]:not(:has(.side:hover, .side-stack:focus-within)) .user-card > div { max-width: 0; overflow: hidden; }
+.app[data-rail="min"]:not(:has(.side:hover, .side-stack:has(:focus-visible))) .user-card > div { max-width: 0; overflow: hidden; }
 /* Recolhido, o pino vira uma CAIXA do mesmo tamanho do item de menu e centra o
    ícone dentro dela — é o que alinha o "»" com a coluna de ícones de baixo.
    Com respiro lateral só (a 1ª tentativa) ele continuava torto, e o motivo é
    invisível: o `gap: 8px` da marca separa o ícone de um <strong> que está com
    max-width:0. Largura zero, mas o VÃO continua contando, e são esses 8px
    fantasmas que empurravam o "»" pra esquerda do eixo. */
-.app[data-rail="min"]:not(:has(.side:hover, .side-stack:focus-within)) .logo-pino {
+.app[data-rail="min"]:not(:has(.side:hover, .side-stack:has(:focus-visible))) .logo-pino {
   width: 100%;
   justify-content: center;
   gap: 0;

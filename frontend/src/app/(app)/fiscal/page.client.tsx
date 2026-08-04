@@ -52,12 +52,80 @@ type PerfilFiscal = {
   modoEmissaoProduto: string;
   comprovanteEntrega: boolean;
   disjuntorPausado: boolean;
+  endereco: {
+    cep: string | null;
+    logradouro: string | null;
+    numero: string | null;
+    complemento: string | null;
+    bairro: string | null;
+    completo: boolean;
+  };
+  contadorAprovou: boolean;
+  contadorAprovouEm: string | null;
+  producaoAtivadaEm: string | null;
   cert: {
     configurado: boolean;
     expiresAt: string | null;
     diasParaExpirar: number | null;
     expirado: boolean;
   };
+};
+
+type ItemChecklist = {
+  grupo: "LT" | "TEC" | "OP";
+  chave: string;
+  rotulo: string;
+  ok: boolean;
+  detalhe: string | null;
+};
+
+type ChecklistLiberacao = {
+  ambiente: string;
+  producaoAtivadaEm: string | null;
+  percentual: number;
+  prontoParaProducao: boolean;
+  itens: ItemChecklist[];
+};
+
+type SaldoEstoque = { fisico: number; reservado: number; disponivel: number; faturado: number };
+
+type EstoqueProdutoT = {
+  id: string;
+  nome: string;
+  unidade: string | null;
+  ncm: string | null;
+  logisticaProductId: number | null;
+  ativo: boolean;
+  saldo: SaldoEstoque;
+};
+
+type ProdutoLogisticaT = { id: number; name: string; unidade: string | null };
+
+type MovimentoEstoqueT = {
+  id: string;
+  produtoId: string;
+  tipo: string;
+  quantidade: number;
+  motivo: string | null;
+  refChaveNfe: string | null;
+  createdAt: string;
+};
+
+type PreviewXmlItem = {
+  cProd: string;
+  nome: string;
+  ncm: string | null;
+  unidade: string | null;
+  quantidade: number;
+  sugestaoProdutoId: string | null;
+  sugestaoProdutoNome: string | null;
+};
+
+type PreviewXml = {
+  chaveAcesso: string;
+  emitenteNome: string | null;
+  jaLancada: boolean;
+  itens: PreviewXmlItem[];
 };
 
 type ServicoFiscal = {
@@ -126,6 +194,11 @@ type FormPerfil = {
   estoqueNegativo: string;
   modoEmissaoProduto: string;
   comprovanteEntrega: boolean;
+  endCep: string;
+  endLogradouro: string;
+  endNumero: string;
+  endComplemento: string;
+  endBairro: string;
 };
 
 // ------------------------------------------------------------------ RÓTULOS
@@ -206,6 +279,11 @@ function formPerfilDe(p: PerfilFiscal | null): FormPerfil {
     estoqueNegativo: p?.estoqueNegativo || "avisar",
     modoEmissaoProduto: p?.modoEmissaoProduto || "fechamento",
     comprovanteEntrega: Boolean(p?.comprovanteEntrega),
+    endCep: p?.endereco?.cep || "",
+    endLogradouro: p?.endereco?.logradouro || "",
+    endNumero: p?.endereco?.numero || "",
+    endComplemento: p?.endereco?.complemento || "",
+    endBairro: p?.endereco?.bairro || "",
   };
 }
 
@@ -281,6 +359,52 @@ function PainelConfig({
   const [salvandoServico, setSalvandoServico] = useState(false);
   const [erroServico, setErroServico] = useState<string | null>(null);
 
+  // SEMÁFORO DE LIBERAÇÃO (B4): checklist derivado do estado real do servidor.
+  const [checklist, setChecklist] = useState<ChecklistLiberacao | null>(null);
+  const [liberacaoOcupada, setLiberacaoOcupada] = useState(false);
+  const [erroLiberacao, setErroLiberacao] = useState<string | null>(null);
+
+  const carregarChecklist = useCallback(async () => {
+    try {
+      setChecklist(await apiFetch<ChecklistLiberacao>("/fiscal/liberacao"));
+    } catch {
+      setChecklist(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- estado do semáforo acompanha o perfil salvo
+    void carregarChecklist();
+  }, [carregarChecklist, perfilId]);
+
+  const atestarContador = useCallback(async (aprovado: boolean) => {
+    setLiberacaoOcupada(true);
+    setErroLiberacao(null);
+    try {
+      setChecklist(await apiFetch<ChecklistLiberacao>("/fiscal/liberacao/contador", {
+        method: "POST",
+        body: JSON.stringify({ aprovado }),
+      }));
+    } catch (e) {
+      setErroLiberacao(mensagemDe(e, "Falha ao registrar a aprovação do contador."));
+    } finally {
+      setLiberacaoOcupada(false);
+    }
+  }, []);
+
+  const mudarAmbiente = useCallback(async (rota: "ativar-producao" | "voltar-restrita") => {
+    setLiberacaoOcupada(true);
+    setErroLiberacao(null);
+    try {
+      setChecklist(await apiFetch<ChecklistLiberacao>(`/fiscal/liberacao/${rota}`, { method: "POST" }));
+      onPerfilSalvo(await apiFetch<PerfilFiscal>("/fiscal/perfil"));
+    } catch (e) {
+      setErroLiberacao(mensagemDe(e, "Falha ao mudar o ambiente."));
+    } finally {
+      setLiberacaoOcupada(false);
+    }
+  }, [onPerfilSalvo]);
+
   // A identidade inclui os campos que o BACKEND pode corrigir sozinho (o gate
   // "produto exige estoque" desliga escopoProduto e devolve erro): sem isso a
   // caixinha continuaria marcada na tela e o servidor diria outra coisa.
@@ -299,6 +423,11 @@ function PainelConfig({
         perfil.estoqueNegativo,
         perfil.modoEmissaoProduto,
         perfil.comprovanteEntrega,
+        perfil.endereco?.cep,
+        perfil.endereco?.logradouro,
+        perfil.endereco?.numero,
+        perfil.endereco?.complemento,
+        perfil.endereco?.bairro,
       ].join("|")
     : "";
   useEffect(() => {
@@ -328,6 +457,11 @@ function PainelConfig({
           estoqueNegativo: form.estoqueNegativo,
           modoEmissaoProduto: form.modoEmissaoProduto,
           comprovanteEntrega: form.comprovanteEntrega,
+          endCep: form.endCep.replace(/\D/g, ""),
+          endLogradouro: form.endLogradouro.trim(),
+          endNumero: form.endNumero.trim(),
+          endComplemento: form.endComplemento.trim(),
+          endBairro: form.endBairro.trim(),
         }),
       });
       onPerfilSalvo(atualizado);
@@ -530,6 +664,52 @@ function PainelConfig({
               ))}
             </select>
           </label>
+          <label className="fis-campo">
+            <span className="field-label">CEP</span>
+            <input
+              className="field-dark"
+              inputMode="numeric"
+              value={form.endCep}
+              maxLength={9}
+              onChange={(e) => setForm((f) => ({ ...f, endCep: e.target.value.replace(/[^\d-]/g, "") }))}
+            />
+          </label>
+          <label className="fis-campo">
+            <span className="field-label">Número</span>
+            <input
+              className="field-dark"
+              value={form.endNumero}
+              maxLength={20}
+              onChange={(e) => setForm((f) => ({ ...f, endNumero: e.target.value }))}
+            />
+          </label>
+          <label className="fis-campo fis-campo--inteiro">
+            <span className="field-label">Logradouro</span>
+            <input
+              className="field-dark"
+              value={form.endLogradouro}
+              maxLength={200}
+              onChange={(e) => setForm((f) => ({ ...f, endLogradouro: e.target.value }))}
+            />
+          </label>
+          <label className="fis-campo">
+            <span className="field-label">Bairro</span>
+            <input
+              className="field-dark"
+              value={form.endBairro}
+              maxLength={100}
+              onChange={(e) => setForm((f) => ({ ...f, endBairro: e.target.value }))}
+            />
+          </label>
+          <label className="fis-campo">
+            <span className="field-label">Complemento</span>
+            <input
+              className="field-dark"
+              value={form.endComplemento}
+              maxLength={100}
+              onChange={(e) => setForm((f) => ({ ...f, endComplemento: e.target.value }))}
+            />
+          </label>
         </div>
 
         <div className="fis-cfg-fatos">
@@ -673,6 +853,58 @@ function PainelConfig({
           </>
         )}
         {erroCert ? <div className="fis-aviso fis-aviso--erro"><span>{erroCert}</span></div> : null}
+      </section>
+
+      <section className="fis-cfg-sec">
+        <h3>Liberação de produção</h3>
+        {checklist ? (
+          <>
+            <div className="fis-cfg-fatos">
+              <Fato rotulo="Ambiente" valor={checklist.ambiente === "producao" ? "PRODUÇÃO" : "Teste (restrita)"} />
+              <Fato rotulo="Checklist" valor={`${checklist.percentual}%`} />
+            </div>
+            <div className="fis-checklist">
+              {checklist.itens.map((item) => (
+                <div key={item.chave} className={"fis-check-item" + (item.ok ? " is-ok" : "")}>
+                  <span className="fis-check-marca">{item.ok ? "✓" : "•"}</span>
+                  <span className="fis-check-txt">
+                    <span>[{item.grupo}] {item.rotulo}</span>
+                    {item.detalhe ? <small>{item.detalhe}</small> : null}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <Interruptor
+              nome="Contador do tenant aprovou o enquadramento"
+              dica="Atestado com data — aprovação final é dele."
+              ligado={Boolean(checklist.itens.find((i) => i.chave === "contador")?.ok)}
+              disabled={liberacaoOcupada}
+              onChange={(v) => void atestarContador(v)}
+            />
+            <div className="fis-linha-acoes">
+              {checklist.ambiente === "producao" ? (
+                <button type="button" className="btn-ghost danger" disabled={liberacaoOcupada} onClick={() => void mudarAmbiente("voltar-restrita")}>
+                  {liberacaoOcupada ? "Mudando…" : "Voltar para teste"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="btn-teal"
+                  disabled={liberacaoOcupada || !checklist.prontoParaProducao}
+                  onClick={() => void mudarAmbiente("ativar-producao")}
+                >
+                  {liberacaoOcupada ? "Ativando…" : "Ativar emissão em produção"}
+                </button>
+              )}
+            </div>
+            {checklist.producaoAtivadaEm ? (
+              <div className="fis-dica">Produção ativada em {fmtData(checklist.producaoAtivadaEm)}.</div>
+            ) : null}
+          </>
+        ) : (
+          <div className="fis-dica">Carregando checklist…</div>
+        )}
+        {erroLiberacao ? <div className="fis-aviso fis-aviso--erro"><span>{erroLiberacao}</span></div> : null}
       </section>
 
       <section className="fis-cfg-sec">
@@ -1086,6 +1318,7 @@ function BlocoNotas({
   onCancelar,
   onEnviar,
   onConferirSefin,
+  onMalote,
   ocupadoId,
   aviso,
   onFecharAviso,
@@ -1101,6 +1334,7 @@ function BlocoNotas({
   onCancelar: (doc: DocumentoFiscal) => void;
   onEnviar: (doc: DocumentoFiscal) => void;
   onConferirSefin: (doc: DocumentoFiscal) => void;
+  onMalote: () => void;
   ocupadoId: string | null;
   aviso: string | null;
   onFecharAviso: () => void;
@@ -1121,6 +1355,10 @@ function BlocoNotas({
           value={filtroCompetencia}
           onChange={(e) => onFiltroCompetencia(e.target.value)}
         />
+        <button type="button" className="btn-ghost" onClick={onMalote}>
+          <I d={ICONS.download} size={14} />
+          Malote do contador
+        </button>
       </header>
       {aviso ? (
         <div className="fis-bloco-aviso">
@@ -1228,6 +1466,390 @@ function BlocoNotas({
           </table>
         )}
       </div>
+    </section>
+  );
+}
+
+// =========================================================================
+// BLOCO 4 — ESTOQUE (F3; aparece só com o controle ligado na config)
+// =========================================================================
+
+const TIPO_MOVIMENTO: Record<string, string> = {
+  ENTRADA_XML: "Entrada (XML compra)",
+  ENTRADA_MANUAL: "Entrada manual",
+  RESERVA: "Reserva (carga)",
+  LIBERA_RESERVA: "Liberação (carga)",
+  BAIXA_ENTREGA: "Baixa (entrega)",
+  SAIDA_EMISSAO: "Saída (emissão)",
+  PERDA: "Perda",
+  INVENTARIO: "Inventário",
+  DEVOLUCAO: "Devolução",
+  AJUSTE: "Ajuste",
+  REVERSA_CANCELAMENTO: "Reversa (cancelamento)",
+};
+
+type MovimentoAcao = "entrada-manual" | "perda" | "inventario" | "ajuste" | "devolucao";
+
+const ACAO_MOVIMENTO: Record<MovimentoAcao, { rotulo: string; motivoObrigatorio: boolean; campoQtd: string }> = {
+  "entrada-manual": { rotulo: "Entrada manual", motivoObrigatorio: false, campoQtd: "Quantidade" },
+  perda: { rotulo: "Perda", motivoObrigatorio: true, campoQtd: "Quantidade perdida" },
+  inventario: { rotulo: "Inventário", motivoObrigatorio: false, campoQtd: "Contagem física TOTAL" },
+  ajuste: { rotulo: "Ajuste (+/−)", motivoObrigatorio: true, campoQtd: "Quantidade (use − pra tirar)" },
+  devolucao: { rotulo: "Devolução", motivoObrigatorio: false, campoQtd: "Quantidade devolvida" },
+};
+
+function BlocoEstoque() {
+  const [produtos, setProdutos] = useState<EstoqueProdutoT[]>([]);
+  const [logistica, setLogistica] = useState<ProdutoLogisticaT[]>([]);
+  const [erro, setErro] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const [ocupado, setOcupado] = useState(false);
+
+  const [novoAberto, setNovoAberto] = useState(false);
+  const [novo, setNovo] = useState({ nome: "", unidade: "", ncm: "", logisticaProductId: "" });
+
+  const [mov, setMov] = useState<{ acao: MovimentoAcao; produto: EstoqueProdutoT } | null>(null);
+  const [movQtd, setMovQtd] = useState("");
+  const [movMotivo, setMovMotivo] = useState("");
+
+  const [extratoDe, setExtratoDe] = useState<EstoqueProdutoT | null>(null);
+  const [extrato, setExtrato] = useState<MovimentoEstoqueT[]>([]);
+
+  const xmlRef = useRef<HTMLInputElement | null>(null);
+  const [xmlTexto, setXmlTexto] = useState<string | null>(null);
+  const [preview, setPreview] = useState<PreviewXml | null>(null);
+  const [mapa, setMapa] = useState<Record<string, string>>({});
+
+  const carregar = useCallback(async () => {
+    setErro(null);
+    try {
+      const [p, l] = await Promise.all([
+        apiFetch<EstoqueProdutoT[]>("/fiscal/estoque/produtos"),
+        apiFetch<ProdutoLogisticaT[]>("/fiscal/estoque/produtos-logistica"),
+      ]);
+      setProdutos(Array.isArray(p) ? p : []);
+      setLogistica(Array.isArray(l) ? l : []);
+    } catch (e) {
+      setErro(mensagemDe(e, "Falha ao carregar o estoque."));
+    }
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- carga inicial do bloco
+    void carregar();
+  }, [carregar]);
+
+  const criarProduto = useCallback(async () => {
+    setOcupado(true);
+    setErro(null);
+    try {
+      await apiFetch("/fiscal/estoque/produtos", {
+        method: "POST",
+        body: JSON.stringify({
+          nome: novo.nome.trim(),
+          unidade: novo.unidade.trim() || undefined,
+          ncm: novo.ncm.replace(/\D/g, "") || undefined,
+          logisticaProductId: novo.logisticaProductId ? Number(novo.logisticaProductId) : undefined,
+        }),
+      });
+      setNovo({ nome: "", unidade: "", ncm: "", logisticaProductId: "" });
+      setNovoAberto(false);
+      await carregar();
+    } catch (e) {
+      setErro(mensagemDe(e, "Falha ao criar o produto."));
+    } finally {
+      setOcupado(false);
+    }
+  }, [novo, carregar]);
+
+  const lancarMovimento = useCallback(async () => {
+    if (!mov) return;
+    setOcupado(true);
+    setErro(null);
+    try {
+      const qtd = Number(movQtd.replace(",", "."));
+      const body =
+        mov.acao === "inventario"
+          ? { produtoId: mov.produto.id, contagem: qtd, motivo: movMotivo.trim() || undefined }
+          : { produtoId: mov.produto.id, quantidade: qtd, motivo: movMotivo.trim() || undefined };
+      const r = await apiFetch<any>(`/fiscal/estoque/${mov.acao}`, { method: "POST", body: JSON.stringify(body) });
+      setAviso(mov.acao === "inventario" && r?.lancado === false ? r.aviso : null);
+      setMov(null);
+      setMovQtd("");
+      setMovMotivo("");
+      await carregar();
+    } catch (e) {
+      setErro(mensagemDe(e, "Falha ao lançar o movimento."));
+    } finally {
+      setOcupado(false);
+    }
+  }, [mov, movQtd, movMotivo, carregar]);
+
+  const abrirExtrato = useCallback(async (p: EstoqueProdutoT) => {
+    setExtratoDe(p);
+    setExtrato([]);
+    try {
+      const rows = await apiFetch<MovimentoEstoqueT[]>(`/fiscal/estoque/extrato?produtoId=${encodeURIComponent(p.id)}`);
+      setExtrato(Array.isArray(rows) ? rows : []);
+    } catch (e) {
+      setErro(mensagemDe(e, "Falha ao carregar o extrato."));
+    }
+  }, []);
+
+  const lerXml = useCallback(async (file: File | null) => {
+    if (!file) return;
+    setErro(null);
+    setAviso(null);
+    setOcupado(true);
+    try {
+      const texto = await file.text();
+      const p = await apiFetch<PreviewXml>("/fiscal/estoque/entrada-xml/preview", {
+        method: "POST",
+        body: JSON.stringify({ xml: texto }),
+      });
+      setXmlTexto(texto);
+      setPreview(p);
+      const inicial: Record<string, string> = {};
+      for (const item of p.itens) inicial[item.cProd] = item.sugestaoProdutoId || "__novo";
+      setMapa(inicial);
+    } catch (e) {
+      setErro(mensagemDe(e, "Falha ao ler o XML."));
+    } finally {
+      setOcupado(false);
+      if (xmlRef.current) xmlRef.current.value = "";
+    }
+  }, []);
+
+  const confirmarXml = useCallback(async () => {
+    if (!preview || !xmlTexto) return;
+    setOcupado(true);
+    setErro(null);
+    try {
+      const mapeamentos = preview.itens.map((item) => {
+        const escolha = mapa[item.cProd] || "__ignorar";
+        if (escolha === "__ignorar") return { cProd: item.cProd, ignorar: true };
+        if (escolha === "__novo") {
+          return { cProd: item.cProd, novoProduto: { nome: item.nome, unidade: item.unidade || undefined, ncm: item.ncm || undefined } };
+        }
+        return { cProd: item.cProd, produtoId: escolha };
+      });
+      const r = await apiFetch<{ lancados: number; duplicados: number; ignorados: number }>(
+        "/fiscal/estoque/entrada-xml/confirmar",
+        { method: "POST", body: JSON.stringify({ xml: xmlTexto, mapeamentos }) },
+      );
+      setAviso(`Entrada lançada: ${r.lancados} item(ns)` + (r.duplicados ? ` · ${r.duplicados} já lançado(s)` : "") + (r.ignorados ? ` · ${r.ignorados} ignorado(s)` : ""));
+      setPreview(null);
+      setXmlTexto(null);
+      await carregar();
+    } catch (e) {
+      setErro(mensagemDe(e, "Falha ao confirmar a entrada."));
+    } finally {
+      setOcupado(false);
+    }
+  }, [preview, xmlTexto, mapa, carregar]);
+
+  const nomeLogistica = useCallback(
+    (id: number | null) => (id == null ? null : logistica.find((l) => l.id === id)?.name || `#${id}`),
+    [logistica],
+  );
+
+  return (
+    <section className="panel fis-bloco">
+      <header className="fis-bloco-head">
+        <h2>Estoque</h2>
+        <label className="btn-ghost fis-upload-xml">
+          <input
+            ref={xmlRef}
+            type="file"
+            accept=".xml,text/xml"
+            onChange={(e) => void lerXml(e.target.files?.[0] || null)}
+          />
+          <I d={ICONS.upload} size={14} />
+          XML da compra
+        </label>
+        <button type="button" className="btn-ghost" onClick={() => setNovoAberto((v) => !v)}>
+          <I d={ICONS.plus} size={14} />
+          Produto
+        </button>
+      </header>
+      <div className="fis-bloco-corpo">
+        {aviso ? (
+          <div className="fis-aviso fis-aviso--atencao">
+            <div className="fis-aviso-topo">
+              <span>{aviso}</span>
+              <button type="button" className="btn-ghost btn-xs" onClick={() => setAviso(null)}>Entendi</button>
+            </div>
+          </div>
+        ) : null}
+        {erro ? <div className="fis-aviso fis-aviso--erro"><span>{erro}</span></div> : null}
+
+        {novoAberto ? (
+          <div className="fis-grade">
+            <label className="fis-campo">
+              <span className="field-label">Nome</span>
+              <input className="field-dark" value={novo.nome} maxLength={200} onChange={(e) => setNovo((n) => ({ ...n, nome: e.target.value }))} />
+            </label>
+            <label className="fis-campo">
+              <span className="field-label">Unidade</span>
+              <input className="field-dark" placeholder="galão, un, cx" value={novo.unidade} maxLength={20} onChange={(e) => setNovo((n) => ({ ...n, unidade: e.target.value }))} />
+            </label>
+            <label className="fis-campo">
+              <span className="field-label">NCM</span>
+              <input className="field-dark" inputMode="numeric" value={novo.ncm} maxLength={8} onChange={(e) => setNovo((n) => ({ ...n, ncm: e.target.value }))} />
+            </label>
+            <label className="fis-campo">
+              <span className="field-label">Produto da logística (vínculo)</span>
+              <select className="field-dark" value={novo.logisticaProductId} onChange={(e) => setNovo((n) => ({ ...n, logisticaProductId: e.target.value }))}>
+                <option value="">Sem vínculo</option>
+                {logistica.map((l) => (
+                  <option key={l.id} value={String(l.id)}>{l.name}</option>
+                ))}
+              </select>
+            </label>
+            <div className="fis-linha-acoes fis-campo--inteiro">
+              <button type="button" className="btn-teal" disabled={ocupado || !novo.nome.trim()} onClick={criarProduto}>
+                {ocupado ? "Salvando…" : "Salvar"}
+              </button>
+              <button type="button" className="btn-ghost" onClick={() => setNovoAberto(false)}>Cancelar</button>
+            </div>
+          </div>
+        ) : null}
+
+        {preview ? (
+          <div className="fis-xml-conferencia">
+            <strong className="hbx-inteiro">
+              NF-e de {preview.emitenteNome || "fornecedor"} — confira o destino de cada item
+            </strong>
+            {preview.jaLancada ? (
+              <div className="fis-aviso fis-aviso--atencao"><span>Esta nota JÁ teve entrada lançada — itens repetidos serão ignorados.</span></div>
+            ) : null}
+            {preview.itens.map((item) => (
+              <div key={item.cProd} className="fis-xml-item">
+                <span className="fis-xml-item-nome">
+                  <strong>{item.nome}</strong>
+                  <small>{item.quantidade} {item.unidade || "un"}{item.ncm ? ` · NCM ${item.ncm}` : ""}</small>
+                </span>
+                <select
+                  className="field-dark"
+                  value={mapa[item.cProd] || "__ignorar"}
+                  onChange={(e) => setMapa((m) => ({ ...m, [item.cProd]: e.target.value }))}
+                >
+                  {produtos.map((p) => (
+                    <option key={p.id} value={p.id}>→ {p.nome}</option>
+                  ))}
+                  <option value="__novo">Criar produto novo</option>
+                  <option value="__ignorar">Ignorar este item</option>
+                </select>
+              </div>
+            ))}
+            <div className="fis-linha-acoes">
+              <button type="button" className="btn-teal" disabled={ocupado} onClick={confirmarXml}>
+                {ocupado ? "Lançando…" : "Lançar entrada"}
+              </button>
+              <button type="button" className="btn-ghost" onClick={() => { setPreview(null); setXmlTexto(null); }}>Cancelar</button>
+            </div>
+          </div>
+        ) : null}
+
+        {produtos.length === 0 ? (
+          <div className="fis-vazio">
+            <strong>Nenhum produto no estoque</strong>
+            <span>Crie o produto (1–5 itens) ou suba o XML da primeira compra.</span>
+          </div>
+        ) : (
+          <div className="fis-servicos">
+            {produtos.map((p) => (
+              <div key={p.id} className="fis-servico">
+                <div className="fis-servico-topo">
+                  <strong>{p.nome}</strong>
+                </div>
+                <div className="fis-servico-meta">
+                  <span>Disponível <b>{p.saldo.disponivel}</b></span>
+                  <span>Reservado <b>{p.saldo.reservado}</b></span>
+                  <span>Faturado <b>{p.saldo.faturado}</b></span>
+                  <span>Físico <b>{p.saldo.fisico}</b></span>
+                  {p.logisticaProductId != null ? <span>↔ {nomeLogistica(p.logisticaProductId)}</span> : <span>Sem vínculo com a rota</span>}
+                </div>
+                {p.saldo.fisico < 0 ? (
+                  <div className="fis-aviso fis-aviso--erro"><span>Estoque NEGATIVO — confira entradas ou faça o inventário.</span></div>
+                ) : null}
+                <div className="fis-linha-acoes">
+                  {(Object.keys(ACAO_MOVIMENTO) as MovimentoAcao[]).map((acao) => (
+                    <button
+                      key={acao}
+                      type="button"
+                      className="btn-ghost btn-xs"
+                      onClick={() => { setMov({ acao, produto: p }); setMovQtd(""); setMovMotivo(""); }}
+                    >
+                      {ACAO_MOVIMENTO[acao].rotulo}
+                    </button>
+                  ))}
+                  <button type="button" className="btn-ghost btn-xs" onClick={() => void abrirExtrato(p)}>Extrato</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {mov ? (
+        <div className="hbx-veil" onClick={(e) => { if (e.target === e.currentTarget && !ocupado) setMov(null); }}>
+          <div className="hbx-modal fis-modal" role="dialog" aria-label={ACAO_MOVIMENTO[mov.acao].rotulo}>
+            <h3>{ACAO_MOVIMENTO[mov.acao].rotulo} — {mov.produto.nome}</h3>
+            <label className="fis-campo">
+              <span className="field-label">{ACAO_MOVIMENTO[mov.acao].campoQtd}</span>
+              <input className="field-dark" inputMode="decimal" value={movQtd} onChange={(e) => setMovQtd(e.target.value.replace(/[^\d.,-]/g, ""))} />
+            </label>
+            <label className="fis-campo">
+              <span className="field-label">{ACAO_MOVIMENTO[mov.acao].motivoObrigatorio ? "Motivo (obrigatório)" : "Motivo"}</span>
+              <input className="field-dark" value={movMotivo} maxLength={300} onChange={(e) => setMovMotivo(e.target.value)} />
+            </label>
+            <div className="fis-modal-acoes">
+              <button type="button" className="btn-ghost" disabled={ocupado} onClick={() => setMov(null)}>Voltar</button>
+              <button
+                type="button"
+                className="btn-teal"
+                disabled={ocupado || !movQtd.trim() || (ACAO_MOVIMENTO[mov.acao].motivoObrigatorio && movMotivo.trim().length < 3)}
+                onClick={lancarMovimento}
+              >
+                {ocupado ? "Lançando…" : "Lançar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {extratoDe ? (
+        <div className="hbx-veil" onClick={(e) => { if (e.target === e.currentTarget) setExtratoDe(null); }}>
+          <div className="hbx-modal fis-modal fis-modal--largo" role="dialog" aria-label="Extrato do estoque">
+            <h3>Extrato — {extratoDe.nome}</h3>
+            <div className="fis-tabela-scroll">
+              {extrato.length === 0 ? (
+                <div className="fis-vazio"><span>Nenhum movimento.</span></div>
+              ) : (
+                <table className="tbl fis-tabela">
+                  <thead>
+                    <tr><th>Data</th><th>Movimento</th><th className="fis-col-valor">Qtd</th><th>Motivo</th></tr>
+                  </thead>
+                  <tbody>
+                    {extrato.map((m) => (
+                      <tr key={m.id}>
+                        <td>{fmtData(m.createdAt)}</td>
+                        <td>{TIPO_MOVIMENTO[m.tipo] || m.tipo}</td>
+                        <td className="fis-col-valor">{m.quantidade}</td>
+                        <td>{m.motivo || (m.refChaveNfe ? `NF-e ${m.refChaveNfe.slice(0, 10)}…` : "—")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="fis-modal-acoes">
+              <button type="button" className="btn-ghost" onClick={() => setExtratoDe(null)}>Fechar</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -1371,6 +1993,26 @@ export function FiscalClient() {
     }
   }, [carregarDocumentos]);
 
+  // MALOTE DO CONTADOR — zip da competência do filtro (default: mês atual).
+  const baixarMalote = useCallback(async () => {
+    const competencia = filtroCompetencia || new Date().toISOString().slice(0, 7);
+    try {
+      const res = await fetch(`${getApiBase()}/fiscal/malote/${encodeURIComponent(competencia)}`, {
+        headers: { Authorization: `Bearer ${getToken() || ""}` },
+      });
+      if (!res.ok) throw new Error("malote falhou");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `malote-fiscal-${competencia}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setAvisoNotas("Falha ao gerar o malote do contador.");
+    }
+  }, [filtroCompetencia]);
+
   const confirmarCancelamento = useCallback(async () => {
     if (!cancelando) return;
     setCancelaOcupado(true);
@@ -1444,10 +2086,12 @@ export function FiscalClient() {
               }}
               onEnviar={enviarDoc}
               onConferirSefin={conferirSefinDoc}
+              onMalote={baixarMalote}
               ocupadoId={ocupadoId}
               aviso={avisoNotas}
               onFecharAviso={() => setAvisoNotas(null)}
             />
+            {perfil?.estoqueAtivo ? <BlocoEstoque /> : null}
           </div>
         )}
         context={(
