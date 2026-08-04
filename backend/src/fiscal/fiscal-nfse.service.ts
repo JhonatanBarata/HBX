@@ -1,9 +1,10 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { gzipSync } from 'zlib';
 import { PrismaService } from '../prisma/prisma.service';
 import { NfseNationalClient, type DpsInput, type NfseAmbiente } from '../contabil/nfse-national.client';
 import { FiscalAutomationLogService } from '../contabil/fiscal-automation-log.service';
 import { FiscalProfileService } from './fiscal-profile.service';
+import { FiscalEnvioService } from './fiscal-envio.service';
 
 // ===========================================================================
 // FISCAL DO TENANT — emissão AVULSA de NFS-e na API nacional (Sefin), F1a.
@@ -25,6 +26,7 @@ export interface EmitirAvulsaInput {
   tomadorDoc: string;
   tomadorNome: string;
   tomadorEmail?: string | null;
+  tomadorFone?: string | null; // WhatsApp do tomador (F1b) — destino do envio auto
   servicoId: string;
   valorCents: number;
   descricao?: string | null;
@@ -39,6 +41,8 @@ export class FiscalNfseService {
     private readonly profile: FiscalProfileService,
     private readonly client: NfseNationalClient,
     private readonly trilha: FiscalAutomationLogService,
+    // Opcional: testes montam o serviço sem envio; no app o módulo sempre provê.
+    @Optional() private readonly envio?: FiscalEnvioService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -54,6 +58,10 @@ export class FiscalNfseService {
     }
     const tomadorNome = String(input.tomadorNome || '').trim();
     if (!tomadorNome) throw new BadRequestException('Nome do tomador é obrigatório.');
+    const tomadorFone = String(input.tomadorFone || '').replace(/\D/g, '');
+    if (tomadorFone && tomadorFone.length < 10) {
+      throw new BadRequestException('WhatsApp do tomador incompleto — informe DDD + número (ou deixe vazio).');
+    }
     const valorCents = Math.trunc(Number(input.valorCents));
     if (!Number.isFinite(valorCents) || valorCents <= 0) throw new BadRequestException('Valor da nota deve ser maior que zero.');
     // Teto do int4 (revisão adversarial M4): valor além disso estouraria o INSERT
@@ -85,6 +93,7 @@ export class FiscalNfseService {
         tomadorDoc,
         tomadorNome,
         tomadorEmail: String(input.tomadorEmail || '').trim() || null,
+        tomadorFone: tomadorFone || null,
         servicoId: servico.id,
         descricao: String(input.descricao || '').trim() || servico.descricao,
         valorCents,
@@ -166,6 +175,101 @@ export class FiscalNfseService {
   }
 
   // -------------------------------------------------------------------------
+  // RECONCILIAÇÃO PÓS-TIMEOUT (F1b, A3-completo) — timeout não prova falha:
+  // a consulta por chave da DPS pergunta À SEFIN se a nota existe, tirando a
+  // dúvida ANTES de o tenant emitir duplicata.
+  // -------------------------------------------------------------------------
+
+  async conferirNaSefin(companyId: number, userId: number | null, documentoId: string) {
+    const doc = await (this.prisma as any).fiscalDocumento.findFirst({ where: { id: documentoId, companyId } });
+    if (!doc) throw new NotFoundException('Documento não encontrado.');
+    if (doc.status !== 'ERRO') {
+      throw new BadRequestException('Conferência na Sefin é para documento em ERRO (dúvida pós-timeout).');
+    }
+    if (doc.emissorRota !== 'NACIONAL_DIRETO') {
+      throw new BadRequestException('Conferência direta na Sefin só vale para a rota nacional.');
+    }
+    if (!doc.numero) throw new BadRequestException('Documento sem número de DPS reservado.');
+
+    const perfil = await this.profile.getOrCreatePerfil(companyId);
+    const cnpj = String(doc.prestadorCnpj || perfil.cnpj || '').replace(/\D/g, '');
+    if (cnpj.length !== 14 || !perfil.municipioIbge) {
+      throw new BadRequestException('Perfil fiscal sem CNPJ/município — complete antes de consultar.');
+    }
+    const cert = await this.profile.getSigningMaterial(companyId);
+    const ambiente = (doc.ambiente === 'producao' ? 'producao' : 'restrita') as NfseAmbiente;
+    const chaveDps = NfseNationalClient.chaveDps({
+      municipioIbge: perfil.municipioIbge,
+      documento: cnpj,
+      serie: doc.serie || perfil.serieDps,
+      numero: doc.numero,
+    });
+
+    const consulta = await this.client.consultarDps({ ambiente, chaveDps }, cert);
+    await this.trilha.registrar({
+      sistema: 'NFSE',
+      operacao: 'CONSULTAR_DPS_TENANT',
+      requestResumo: `company=${companyId} doc=${doc.id} chaveDps=${chaveDps} ambiente=${ambiente}`,
+      httpStatus: consulta.httpStatus || null,
+      sucesso: consulta.encontrada || consulta.httpStatus === 404,
+      resultRef: consulta.chaveAcesso,
+      aprovadoPor: userId != null ? String(userId) : null,
+    });
+
+    if (consulta.encontrada && consulta.chaveAcesso) {
+      // A nota EXISTE — o timeout era só a resposta que não chegou. Recupera o
+      // XML best-effort (a chave já resolve a dúvida mesmo sem ele).
+      let xmlGzB64: string | null = null;
+      try {
+        const nfse = await this.client.consultarNfse({ ambiente, chaveAcesso: consulta.chaveAcesso }, cert);
+        xmlGzB64 = nfse.xmlGzB64;
+      } catch (err) {
+        this.logger.warn(`[fiscal] XML da nota recuperada não veio (company ${companyId}, doc ${doc.id}): ${String((err as Error)?.message || err).slice(0, 120)}`);
+      }
+      const updated = await (this.prisma as any).fiscalDocumento.update({
+        where: { id: doc.id },
+        data: {
+          status: 'AUTORIZADA',
+          chaveAcesso: consulta.chaveAcesso,
+          ...(xmlGzB64 ? { xmlGzB64 } : {}),
+          emitidaEm: new Date(),
+          erroMsg: null,
+        },
+      });
+      // A emissão comprovadamente FUNCIONOU: o erro que armou o disjuntor era
+      // falso alarme. Zera e desarma — a conferência já é gesto consciente do admin.
+      await (this.prisma as any).fiscalTenantProfile.update({
+        where: { companyId },
+        data: { errosConsecutivos: 0, disjuntorPausado: false },
+      });
+      this.dispararEnvioAutomatico(companyId, doc.id, userId);
+      return this.serializeDocumento(updated, {
+        sefinTemNota: true,
+        aviso: 'A Sefin confirmou: a nota FOI autorizada (o timeout era só a resposta que não chegou). Documento recuperado — NÃO reemita.',
+      });
+    }
+
+    if (consulta.httpStatus === 404) {
+      // Sefin respondeu: a DPS nunca virou nota. Reescreve o erro SEM a palavra
+      // "timeout" — o aviso anti-duplicata sai de cena e a reemissão fica liberada.
+      const quando = new Date().toISOString().slice(0, 16).replace('T', ' ');
+      const updated = await (this.prisma as any).fiscalDocumento.update({
+        where: { id: doc.id },
+        data: { erroMsg: `Transmissão sem resposta; Sefin conferida em ${quando} UTC: nota NÃO consta — reemitir é seguro.` },
+      });
+      return this.serializeDocumento(updated, {
+        sefinTemNota: false,
+        aviso: 'A Sefin confirmou: a nota NÃO existe lá. Pode reemitir com segurança.',
+      });
+    }
+
+    return this.serializeDocumento(doc, {
+      sefinTemNota: null,
+      aviso: `A Sefin não respondeu a consulta agora (${consulta.erro || `HTTP ${consulta.httpStatus}`}). Tente de novo em instantes.`,
+    });
+  }
+
+  // -------------------------------------------------------------------------
   // MIOLO — transmissão com disjuntor
   // -------------------------------------------------------------------------
 
@@ -229,6 +333,10 @@ export class FiscalNfseService {
           },
         });
         await (this.prisma as any).fiscalTenantProfile.update({ where: { companyId }, data: { errosConsecutivos: 0 } });
+        // F1b: envio automático do PDF+XML ao tomador (opt-in do perfil).
+        // Fire-and-forget de propósito: SMTP lento não pode segurar a resposta
+        // da emissão além do teto do proxy — o resultado fica na trilha envio*.
+        this.dispararEnvioAutomatico(companyId, doc.id, userId);
         return this.serializeDocumento(updated);
       }
 
@@ -262,6 +370,14 @@ export class FiscalNfseService {
       this.logger.warn(`[fiscal] DISJUNTOR: emissão pausada para company ${companyId} após ${perfil.errosConsecutivos} erros consecutivos.`);
     }
     return updated;
+  }
+
+  /** Envio automático F1b — nunca derruba o fluxo fiscal; falha vira log + trilha envio* no doc. */
+  private dispararEnvioAutomatico(companyId: number, documentoId: string, userId: number | null): void {
+    if (!this.envio) return;
+    void this.envio.enviarAutomatico(companyId, documentoId, userId).catch((err) => {
+      this.logger.warn(`[fiscal] envio automático falhou (company ${companyId}, doc ${documentoId}): ${String((err as Error)?.message || err).slice(0, 160)}`);
+    });
   }
 
   /** Reserva de numeração ATÔMICA (increment do Prisma — sem corrida). */
@@ -323,7 +439,7 @@ export class FiscalNfseService {
       extra = {
         ...extra,
         aviso:
-          'A transmissão não respondeu a tempo — a nota PODE ter sido emitida mesmo assim. Confira no portal gov.br/nfse antes de emitir outra.',
+          'A transmissão não respondeu a tempo — a nota PODE ter sido emitida mesmo assim. Use "Conferir na Sefin" antes de emitir outra.',
       };
     }
     return {
@@ -334,6 +450,11 @@ export class FiscalNfseService {
       tomadorDoc: d.tomadorDoc,
       tomadorNome: d.tomadorNome,
       tomadorEmail: d.tomadorEmail,
+      tomadorFone: d.tomadorFone || null,
+      envioEmailEm: d.envioEmailEm || null,
+      envioEmailErro: d.envioEmailErro || null,
+      envioWhatsEm: d.envioWhatsEm || null,
+      envioWhatsErro: d.envioWhatsErro || null,
       descricao: d.descricao,
       valorCents: d.valorCents,
       competencia: d.competencia,

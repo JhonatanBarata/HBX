@@ -23,12 +23,14 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { FiscalProfileService } from './fiscal-profile.service';
 import { FiscalNfseService } from './fiscal-nfse.service';
+import { FiscalEnvioService } from './fiscal-envio.service';
 import { renderNfsePdf } from './nfse-pdf.util';
 import {
   AtualizarServicoFiscalDto,
   CancelarDocumentoDto,
   CriarServicoFiscalDto,
   EmitirNfseAvulsaDto,
+  EnviarDocumentoDto,
   UpdatePerfilFiscalDto,
   UploadCertificadoFiscalDto,
 } from './dto/fiscal.dto';
@@ -48,6 +50,7 @@ export class FiscalController {
   constructor(
     private readonly profile: FiscalProfileService,
     private readonly nfse: FiscalNfseService,
+    private readonly envio: FiscalEnvioService,
   ) {}
 
   private companyIdFromUser(user: any): number {
@@ -136,6 +139,24 @@ export class FiscalController {
   @Post('documentos/:id/cancelar')
   cancelar(@Req() req: any, @Param('id') id: string, @Body() dto: CancelarDocumentoDto) {
     return this.nfse.cancelar(this.companyIdFromUser(req.user), id, dto?.motivo);
+  }
+
+  /** F1b — reenvio manual do PDF+XML ao tomador (e-mail e/ou WhatsApp). */
+  @Post('documentos/:id/enviar')
+  enviar(@Req() req: any, @Param('id') id: string, @Body() dto: EnviarDocumentoDto) {
+    return this.envio.enviar(
+      this.companyIdFromUser(req.user),
+      id,
+      { email: dto?.email, whats: dto?.whats },
+      Number(req.user?.id) || null,
+      'manual',
+    );
+  }
+
+  /** F1b — reconciliação pós-timeout: pergunta à Sefin se a nota existe. */
+  @Post('documentos/:id/conferir-sefin')
+  conferirSefin(@Req() req: any, @Param('id') id: string) {
+    return this.nfse.conferirNaSefin(this.companyIdFromUser(req.user), Number(req.user?.id) || null, id);
   }
 
   @Get('documentos')

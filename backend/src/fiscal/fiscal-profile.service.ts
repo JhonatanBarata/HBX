@@ -279,7 +279,7 @@ export class FiscalProfileService implements OnModuleInit {
     try {
       const row = await (this.prisma as any).cnpjPublicCompany.findFirst({
         where: { cnpj },
-        select: { razaoSocial: true, nomeFantasia: true, situacao: true, city: true, state: true, email: true, address: true, simples: true, mei: true },
+        select: { razaoSocial: true, nomeFantasia: true, situacao: true, city: true, state: true, email: true, phoneDigits: true, address: true, simples: true, mei: true },
       });
       if (!row) return { encontrada: false, cnpj };
       return {
@@ -291,6 +291,7 @@ export class FiscalProfileService implements OnModuleInit {
         municipio: row.city || null,
         uf: row.state || null,
         email: row.email || null,
+        telefone: row.phoneDigits || null, // auto-fill do WhatsApp do tomador (F1b)
         endereco: row.address || null,
         simples: row.simples ?? null,
         mei: row.mei ?? null,

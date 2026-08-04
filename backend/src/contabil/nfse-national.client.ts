@@ -70,6 +70,13 @@ export interface NfseTransportResult {
   erro?: string | null;
 }
 
+/** Resultado de consulta GET (F1b — reconciliação pós-timeout do fiscal do tenant). */
+export interface NfseGetResult {
+  httpStatus: number;
+  bodyJson: unknown | null;
+  erro?: string | null;
+}
+
 /** Transporte HTTP (mTLS + POST). Injetável p/ mockar em teste (nenhuma rede real no teste). */
 export interface NfseTransport {
   postNfse(input: {
@@ -77,6 +84,11 @@ export interface NfseTransport {
     payloadJson: string;
     cert: CertSigningMaterial;
   }): Promise<NfseTransportResult>;
+  /**
+   * GET autenticado (mTLS) — consulta de DPS/NFS-e (F1b). OPCIONAL de propósito:
+   * mocks existentes do contabil seguem válidos sem implementar.
+   */
+  getJson?(input: { baseUrl: string; path: string; cert: CertSigningMaterial }): Promise<NfseGetResult>;
 }
 
 export const NFSE_ENABLED_ENV = 'HBX_CONTABIL_NFSE_ENABLED';
@@ -265,6 +277,67 @@ export class NfseNationalClient {
   }
 
   // -------------------------------------------------------------------------
+  // CONSULTA (F1b — reconciliação pós-timeout do fiscal do tenant).
+  // Timeout na emissão NÃO prova falha: a Sefin pode ter autorizado sem a
+  // resposta chegar. A consulta por chave da DPS tira a dúvida ANTES de o
+  // tenant emitir duplicata.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Chave (Id) oficial da DPS no layout nacional — derivável dos dados que já
+   * temos, independente do Id interno usado na assinatura do XML:
+   * "DPS" + cMun(7) + tpInsc(1: 1=CPF, 2=CNPJ) + inscrição(14, zero à esquerda)
+   * + série(5) + nDPS(15). Total 45 caracteres.
+   */
+  static chaveDps(input: { municipioIbge: string; documento: string; serie: string; numero: number }): string {
+    const digits = String(input.documento || '').replace(/\D/g, '');
+    const tpInsc = digits.length === 14 ? '2' : '1';
+    const mun = String(input.municipioIbge || '').replace(/\D/g, '').padStart(7, '0');
+    const serie = String(input.serie || '').replace(/\D/g, '').padStart(5, '0');
+    const numero = String(Math.max(1, Math.trunc(input.numero || 0))).padStart(15, '0');
+    return `DPS${mun}${tpInsc}${digits.padStart(14, '0')}${serie}${numero}`;
+  }
+
+  /** GET /dps/{chave} — 200 devolve a chave de acesso da NFS-e gerada; 404 = DPS nunca virou nota. */
+  async consultarDps(
+    input: { ambiente: NfseAmbiente; chaveDps: string },
+    cert: CertSigningMaterial,
+  ): Promise<{ httpStatus: number; encontrada: boolean; chaveAcesso: string | null; erro: string | null }> {
+    const r = await this.getViaTransport(`/dps/${encodeURIComponent(input.chaveDps)}`, input.ambiente, cert);
+    const body: any = r.bodyJson;
+    const chaveAcesso = body?.chaveAcesso ?? body?.nfse?.chaveAcesso ?? null;
+    return {
+      httpStatus: r.httpStatus,
+      encontrada: r.httpStatus >= 200 && r.httpStatus < 300 && Boolean(chaveAcesso),
+      chaveAcesso: chaveAcesso ? String(chaveAcesso) : null,
+      erro: r.erro ?? (r.httpStatus >= 200 && r.httpStatus < 300 ? null : `HTTP ${r.httpStatus}`),
+    };
+  }
+
+  /** GET /nfse/{chaveAcesso} — recupera o XML autorizado (GZip+Base64) da nota. */
+  async consultarNfse(
+    input: { ambiente: NfseAmbiente; chaveAcesso: string },
+    cert: CertSigningMaterial,
+  ): Promise<{ httpStatus: number; encontrada: boolean; xmlGzB64: string | null; erro: string | null }> {
+    const r = await this.getViaTransport(`/nfse/${encodeURIComponent(input.chaveAcesso)}`, input.ambiente, cert);
+    const body: any = r.bodyJson;
+    const xmlGzB64 = body?.nfseXmlGZipB64 ?? null;
+    return {
+      httpStatus: r.httpStatus,
+      encontrada: r.httpStatus >= 200 && r.httpStatus < 300,
+      xmlGzB64: xmlGzB64 ? String(xmlGzB64) : null,
+      erro: r.erro ?? (r.httpStatus >= 200 && r.httpStatus < 300 ? null : `HTTP ${r.httpStatus}`),
+    };
+  }
+
+  private async getViaTransport(path: string, ambiente: NfseAmbiente, cert: CertSigningMaterial): Promise<NfseGetResult> {
+    if (!this.transport.getJson) {
+      throw new Error('Transporte NFS-e sem suporte a consulta (getJson) — reconciliação indisponível neste ambiente.');
+    }
+    return this.transport.getJson({ baseUrl: NfseNationalClient.baseUrl(ambiente), path, cert });
+  }
+
+  // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
 
@@ -389,6 +462,39 @@ export class RealNfseTransport implements NfseTransport {
       req.on('timeout', () => { req.destroy(new Error('timeout')); });
       req.on('error', (err) => resolve({ httpStatus: 0, ok: false, erro: String(err?.message || err) }));
       req.end(input.payloadJson);
+    });
+  }
+
+  /** GET autenticado (mTLS) — consulta de DPS/NFS-e (F1b). Mesmo timeout do POST. */
+  async getJson(input: { baseUrl: string; path: string; cert: CertSigningMaterial }): Promise<NfseGetResult> {
+    const https = await import('https');
+    const url = new URL(input.path, input.baseUrl);
+    return new Promise<NfseGetResult>((resolve) => {
+      const req = https.request(
+        {
+          method: 'GET',
+          hostname: url.hostname,
+          path: url.pathname,
+          port: url.port || 443,
+          cert: input.cert.certPem,
+          key: input.cert.keyPem,
+          headers: { Accept: 'application/json' },
+          timeout: this.timeoutMs,
+        },
+        (res) => {
+          const chunks: Buffer[] = [];
+          res.on('data', (c) => chunks.push(c as Buffer));
+          res.on('end', () => {
+            const body = Buffer.concat(chunks).toString('utf8');
+            let bodyJson: unknown | null = null;
+            try { bodyJson = JSON.parse(body); } catch { /* corpo não-JSON: mantém null */ }
+            resolve({ httpStatus: res.statusCode || 0, bodyJson, erro: null });
+          });
+        },
+      );
+      req.on('timeout', () => { req.destroy(new Error('timeout')); });
+      req.on('error', (err) => resolve({ httpStatus: 0, bodyJson: null, erro: String(err?.message || err) }));
+      req.end();
     });
   }
 }

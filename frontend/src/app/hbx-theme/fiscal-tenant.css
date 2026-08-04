@@ -394,6 +394,26 @@
   overflow-wrap: anywhere;
 }
 
+/* F1b — estado do envio ao tomador (e-mail/Whats) embaixo do nome: uma linha
+   por canal, verde quando foi, tom de perigo quando o último envio falhou. */
+.fis-envio-linha {
+  display: block;
+  max-width: 240px;
+  color: var(--text-body);
+  font-size: var(--hbx-font-min);
+  font-weight: 620;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.fis-envio-linha--ok {
+  color: color-mix(in srgb, var(--hbx-success) 46%, var(--text-body));
+}
+
+.fis-envio-linha--erro {
+  color: color-mix(in srgb, var(--hbx-danger) 36%, var(--text-strong));
+}
+
 .fis-vazio {
   min-width: 0;
   min-height: 120px;

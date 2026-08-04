@@ -76,6 +76,11 @@ type DocumentoFiscal = {
   tomadorDoc: string | null;
   tomadorNome: string | null;
   tomadorEmail: string | null;
+  tomadorFone: string | null;
+  envioEmailEm: string | null;
+  envioEmailErro: string | null;
+  envioWhatsEm: string | null;
+  envioWhatsErro: string | null;
   descricao: string | null;
   valorCents: number;
   competencia: string | null;
@@ -101,6 +106,7 @@ type ConsultaCnpj = {
   municipio?: string | null;
   uf?: string | null;
   email?: string | null;
+  telefone?: string | null;
   aviso?: string;
 };
 
@@ -756,6 +762,7 @@ function BlocoEmitir({
   const [doc, setDoc] = useState("");
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
+  const [fone, setFone] = useState("");
   const [servicoId, setServicoId] = useState("");
   const [valorDigitos, setValorDigitos] = useState("");
   const [descricao, setDescricao] = useState("");
@@ -765,6 +772,8 @@ function BlocoEmitir({
   const [consulta, setConsulta] = useState<string | null>(null);
 
   const nomeManualRef = useRef(false);
+  const emailManualRef = useRef(false);
+  const foneManualRef = useRef(false);
   const ultimaConsultaRef = useRef("");
 
   const ativos = useMemo(() => servicos.filter((s) => s.ativo), [servicos]);
@@ -785,6 +794,9 @@ function BlocoEmitir({
       if (res?.encontrada) {
         const achado = res.razaoSocial || res.nomeFantasia || "";
         if (achado && !nomeManualRef.current) setNome(achado);
+        // F1b: contatos da RFB entram como sugestão — nunca por cima do que a pessoa digitou.
+        if (res.email && !emailManualRef.current) setEmail(res.email);
+        if (res.telefone && !foneManualRef.current) setFone(String(res.telefone).replace(/\D/g, ""));
         setConsulta(res.municipio ? `${res.municipio}${res.uf ? `/${res.uf}` : ""}` : null);
       } else {
         setConsulta(res?.aviso || "CNPJ não encontrado na base — preencha o nome.");
@@ -819,6 +831,7 @@ function BlocoEmitir({
           tomadorDoc: doc.replace(/\D/g, ""),
           tomadorNome: nome.trim(),
           tomadorEmail: email.trim() || undefined,
+          tomadorFone: fone.replace(/\D/g, "") || undefined,
           servicoId,
           valorCents: Number(valorDigitos || "0"),
           descricao: descricao.trim() || undefined,
@@ -831,7 +844,7 @@ function BlocoEmitir({
     } finally {
       setEmitindo(false);
     }
-  }, [doc, nome, email, servicoId, valorDigitos, descricao, onEmitida]);
+  }, [doc, nome, email, fone, servicoId, valorDigitos, descricao, onEmitida]);
 
   const reemitir = useCallback(async () => {
     if (!resultado) return;
@@ -846,6 +859,25 @@ function BlocoEmitir({
       onEmitida();
     } catch (e) {
       setErro(mensagemDe(e, "Falha ao reemitir."));
+    } finally {
+      setEmitindo(false);
+    }
+  }, [resultado, onEmitida]);
+
+  // F1b — timeout deixa dúvida; a conferência pergunta à Sefin ANTES de reemitir.
+  const conferirSefin = useCallback(async () => {
+    if (!resultado) return;
+    setEmitindo(true);
+    setErro(null);
+    try {
+      const nota = await apiFetch<DocumentoFiscal>(
+        `/fiscal/documentos/${encodeURIComponent(resultado.id)}/conferir-sefin`,
+        { method: "POST" },
+      );
+      setResultado(nota);
+      onEmitida();
+    } catch (e) {
+      setErro(mensagemDe(e, "Falha ao conferir na Sefin."));
     } finally {
       setEmitindo(false);
     }
@@ -897,7 +929,24 @@ function BlocoEmitir({
               type="email"
               value={email}
               maxLength={200}
-              onChange={(e) => setEmail(e.target.value)}
+              onChange={(e) => {
+                emailManualRef.current = true;
+                setEmail(e.target.value);
+              }}
+            />
+          </label>
+          <label className="fis-campo">
+            <span className="field-label">WhatsApp do tomador</span>
+            <input
+              className="field-dark"
+              inputMode="numeric"
+              placeholder="DDD + número"
+              value={fone}
+              maxLength={13}
+              onChange={(e) => {
+                foneManualRef.current = true;
+                setFone(e.target.value.replace(/\D/g, ""));
+              }}
             />
           </label>
           <label className="fis-campo">
@@ -967,11 +1016,17 @@ function BlocoEmitir({
                 <span>Competência <b>{fmtCompetencia(resultado.competencia)}</b></span>
               </div>
               {resultado.chaveAcesso ? <span className="fis-chave">{resultado.chaveAcesso}</span> : null}
+              {resultado.aviso ? <strong className="hbx-inteiro">{resultado.aviso}</strong> : null}
             </div>
           ) : (
             <div className="fis-aviso fis-aviso--erro">
               <div className="fis-aviso-topo">
                 <strong className="hbx-inteiro">{STATUS_DOC[resultado.status] || resultado.status}</strong>
+                {resultado.status === "ERRO" && /timeout/i.test(resultado.erroMsg || "") ? (
+                  <button type="button" className="btn-ghost" disabled={emitindo} onClick={conferirSefin}>
+                    {emitindo ? "Conferindo…" : "Conferir na Sefin"}
+                  </button>
+                ) : null}
                 {(resultado.status === "ERRO" || resultado.status === "REJEITADA") && resultado.tentativas < 3 ? (
                   <button type="button" className="btn-ghost" disabled={emitindo} onClick={reemitir}>
                     {emitindo ? "Reemitindo…" : "Reemitir"}
@@ -1002,6 +1057,9 @@ function BlocoNotas({
   onFiltroCompetencia,
   onBaixar,
   onCancelar,
+  onEnviar,
+  onConferirSefin,
+  ocupadoId,
   aviso,
   onFecharAviso,
 }: {
@@ -1014,6 +1072,9 @@ function BlocoNotas({
   onFiltroCompetencia: (v: string) => void;
   onBaixar: (doc: DocumentoFiscal, tipo: "pdf" | "xml") => void;
   onCancelar: (doc: DocumentoFiscal) => void;
+  onEnviar: (doc: DocumentoFiscal) => void;
+  onConferirSefin: (doc: DocumentoFiscal) => void;
+  ocupadoId: string | null;
   aviso: string | null;
   onFecharAviso: () => void;
 }) {
@@ -1081,6 +1142,16 @@ function BlocoNotas({
                       <strong>{d.tomadorNome || "—"}</strong>
                       <small>{formatBrDoc(d.tomadorDoc)}</small>
                     </span>
+                    {d.envioEmailEm ? (
+                      <span className="fis-envio-linha fis-envio-linha--ok">E-mail enviado {fmtData(d.envioEmailEm)}</span>
+                    ) : d.envioEmailErro ? (
+                      <span className="fis-envio-linha fis-envio-linha--erro">E-mail: {d.envioEmailErro}</span>
+                    ) : null}
+                    {d.envioWhatsEm ? (
+                      <span className="fis-envio-linha fis-envio-linha--ok">WhatsApp enviado {fmtData(d.envioWhatsEm)}</span>
+                    ) : d.envioWhatsErro ? (
+                      <span className="fis-envio-linha fis-envio-linha--erro">WhatsApp: {d.envioWhatsErro}</span>
+                    ) : null}
                   </td>
                   <td className="fis-col-valor">{brlDeCents(d.valorCents)}</td>
                   <td>{d.numero != null ? `${d.serie || "—"}/${d.numero}` : "—"}</td>
@@ -1097,6 +1168,26 @@ function BlocoNotas({
                       >
                         XML
                       </button>
+                      {d.status === "AUTORIZADA" ? (
+                        <button
+                          type="button"
+                          className="btn-ghost btn-xs"
+                          disabled={ocupadoId === d.id}
+                          onClick={() => onEnviar(d)}
+                        >
+                          {ocupadoId === d.id ? "Enviando…" : "Enviar"}
+                        </button>
+                      ) : null}
+                      {d.status === "ERRO" && /timeout/i.test(d.erroMsg || "") ? (
+                        <button
+                          type="button"
+                          className="btn-ghost btn-xs"
+                          disabled={ocupadoId === d.id}
+                          onClick={() => onConferirSefin(d)}
+                        >
+                          {ocupadoId === d.id ? "Conferindo…" : "Conferir na Sefin"}
+                        </button>
+                      ) : null}
                       {d.status === "AUTORIZADA" ? (
                         <button type="button" className="btn-ghost btn-xs danger" onClick={() => onCancelar(d)}>
                           Cancelar
@@ -1215,6 +1306,44 @@ export function FiscalClient() {
     }
   }, []);
 
+  // F1b — reenvio manual e conferência pós-timeout, direto da lista.
+  const [ocupadoId, setOcupadoId] = useState<string | null>(null);
+
+  const enviarDoc = useCallback(async (d: DocumentoFiscal) => {
+    setOcupadoId(d.id);
+    try {
+      const r = await apiFetch<{ email: { tentado: boolean; ok: boolean; erro: string | null }; whats: { tentado: boolean; ok: boolean; erro: string | null } }>(
+        `/fiscal/documentos/${encodeURIComponent(d.id)}/enviar`,
+        { method: "POST", body: JSON.stringify({}) },
+      );
+      const partes: string[] = [];
+      if (r.email.tentado) partes.push(r.email.ok ? "E-mail enviado." : `E-mail: ${r.email.erro}`);
+      if (r.whats.tentado) partes.push(r.whats.ok ? "WhatsApp enviado." : `WhatsApp: ${r.whats.erro}`);
+      setAvisoNotas(partes.join(" ") || null);
+    } catch (e) {
+      setAvisoNotas(mensagemDe(e, "Falha ao enviar ao tomador."));
+    } finally {
+      setOcupadoId(null);
+      await carregarDocumentos();
+    }
+  }, [carregarDocumentos]);
+
+  const conferirSefinDoc = useCallback(async (d: DocumentoFiscal) => {
+    setOcupadoId(d.id);
+    try {
+      const nota = await apiFetch<DocumentoFiscal>(
+        `/fiscal/documentos/${encodeURIComponent(d.id)}/conferir-sefin`,
+        { method: "POST" },
+      );
+      setAvisoNotas(nota?.aviso || null);
+    } catch (e) {
+      setAvisoNotas(mensagemDe(e, "Falha ao conferir na Sefin."));
+    } finally {
+      setOcupadoId(null);
+      await carregarDocumentos();
+    }
+  }, [carregarDocumentos]);
+
   const confirmarCancelamento = useCallback(async () => {
     if (!cancelando) return;
     setCancelaOcupado(true);
@@ -1286,6 +1415,9 @@ export function FiscalClient() {
                 setMotivo("");
                 setErroCancela(null);
               }}
+              onEnviar={enviarDoc}
+              onConferirSefin={conferirSefinDoc}
+              ocupadoId={ocupadoId}
               aviso={avisoNotas}
               onFecharAviso={() => setAvisoNotas(null)}
             />

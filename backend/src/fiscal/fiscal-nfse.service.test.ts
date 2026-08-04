@@ -7,8 +7,8 @@ process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { gunzipSync } from 'node:zlib';
-import { NfseNationalClient, type NfseTransport, type NfseTransportResult } from '../contabil/nfse-national.client';
+import { gunzipSync, gzipSync } from 'node:zlib';
+import { NfseNationalClient, type NfseGetResult, type NfseTransport, type NfseTransportResult } from '../contabil/nfse-national.client';
 import { TEST_CERT_PEM, TEST_KEY_PEM } from '../contabil/nfse-test-cert.fixture';
 import { vaultEncrypt } from '../contabil/contabil-vault.util';
 import { FiscalProfileService } from './fiscal-profile.service';
@@ -106,7 +106,7 @@ function makeFakePrisma() {
 
 class FakeTransport implements NfseTransport {
   calls = 0;
-  constructor(private readonly modo: 'ok' | 'falha' | 'timeout') {}
+  constructor(protected readonly modo: 'ok' | 'falha' | 'timeout') {}
   async postNfse(): Promise<NfseTransportResult> {
     this.calls += 1;
     if (this.modo === 'ok') {
@@ -302,6 +302,117 @@ test('timeout carrega aviso anti-duplicata; erro comum não; snapshot do prestad
   assert.equal(raw.prestadorRazaoSocial, 'Manutencao Rio Claro LTDA');
   assert.equal(raw.prestadorCnpj, '11222333000181');
   assert.equal(raw.prestadorMunicipio, 'Rio Claro/SP');
+});
+
+// ---------------------------------------------------------------------------
+// F1b — RECONCILIAÇÃO PÓS-TIMEOUT (conferir na Sefin) + envio automático
+// ---------------------------------------------------------------------------
+
+/** Transporte que também responde a CONSULTA (getJson) — cenário da reconciliação. */
+class FakeTransportConsulta extends FakeTransport {
+  constructor(modo: 'ok' | 'falha' | 'timeout', private readonly consulta: 'achou' | 'nao-achou' | 'indisponivel') {
+    super(modo);
+  }
+  async getJson(input: { path: string }): Promise<NfseGetResult> {
+    if (this.consulta === 'indisponivel') return { httpStatus: 0, bodyJson: null, erro: 'timeout' };
+    if (input.path.startsWith('/dps/')) {
+      if (this.consulta === 'achou') return { httpStatus: 200, bodyJson: { chaveAcesso: 'NFS'.padEnd(50, '9') }, erro: null };
+      return { httpStatus: 404, bodyJson: null, erro: null };
+    }
+    if (input.path.startsWith('/nfse/')) {
+      return { httpStatus: 200, bodyJson: { nfseXmlGZipB64: gzipSync(Buffer.from('<nfse-recuperada/>')).toString('base64') }, erro: null };
+    }
+    return { httpStatus: 500, bodyJson: null, erro: 'HTTP 500' };
+  }
+}
+
+/** Monta um 2º service sobre o MESMO estado fake, trocando só o transporte. */
+function serviceComConsulta(cenario: Awaited<ReturnType<typeof montarCenario>>, consulta: 'achou' | 'nao-achou' | 'indisponivel') {
+  const transport = new FakeTransportConsulta('timeout', consulta);
+  const client = new NfseNationalClient(transport);
+  return new FiscalNfseService(cenario.prisma as any, cenario.profile, client, trilhaFake);
+}
+
+test('chave da DPS segue o layout nacional (45 chars, derivável dos dados do doc)', () => {
+  const chave = NfseNationalClient.chaveDps({ municipioIbge: '3543907', documento: '11222333000181', serie: '1', numero: 7 });
+  assert.equal(chave, 'DPS3543907211222333000181' + '00001' + '000000000000007');
+  assert.equal(chave.length, 45);
+});
+
+test('conferir na Sefin: nota EXISTE → doc recuperado como AUTORIZADA, XML salvo, disjuntor desarmado, sem reemissão', async () => {
+  const cenario = await montarCenario('timeout');
+  const docTimeout = await cenario.service.emitirAvulsa(7, null, inputBase(cenario.servico.id));
+  assert.equal(docTimeout.status, 'ERRO');
+
+  // Simula o pior caso: os timeouts armaram o disjuntor antes da conferência.
+  cenario.prisma._data.profiles[0].errosConsecutivos = 3;
+  cenario.prisma._data.profiles[0].disjuntorPausado = true;
+
+  const svc = serviceComConsulta(cenario, 'achou');
+  const conferido = await svc.conferirNaSefin(7, 42, docTimeout.id);
+  assert.equal(conferido.status, 'AUTORIZADA');
+  assert.ok(conferido.chaveAcesso);
+  assert.equal((conferido as any).sefinTemNota, true);
+  assert.match(String((conferido as any).aviso || ''), /NÃO reemita/i);
+
+  const raw = cenario.prisma._data.documentos[0];
+  assert.equal(gunzipSync(Buffer.from(raw.xmlGzB64, 'base64')).toString('utf8'), '<nfse-recuperada/>');
+  assert.equal(raw.erroMsg, null);
+  // Falso alarme comprovado: contador zerado e disjuntor desarmado.
+  assert.equal(cenario.prisma._data.profiles[0].errosConsecutivos, 0);
+  assert.equal(cenario.prisma._data.profiles[0].disjuntorPausado, false);
+});
+
+test('conferir na Sefin: nota NÃO existe → segue ERRO, aviso anti-duplicata sai de cena e reemitir fica liberado', async () => {
+  const cenario = await montarCenario('timeout');
+  const docTimeout = await cenario.service.emitirAvulsa(7, null, inputBase(cenario.servico.id));
+
+  const svc = serviceComConsulta(cenario, 'nao-achou');
+  const conferido = await svc.conferirNaSefin(7, null, docTimeout.id);
+  assert.equal(conferido.status, 'ERRO');
+  assert.equal((conferido as any).sefinTemNota, false);
+  assert.match(String((conferido as any).aviso || ''), /reemitir com segurança/i);
+
+  // erroMsg reescrito SEM "timeout": na listagem o aviso anti-duplicata some.
+  const listado = (await svc.listarDocumentos(7))[0];
+  assert.equal((listado as any).aviso, undefined);
+  assert.match(String(listado.erroMsg || ''), /não consta/i);
+});
+
+test('conferir na Sefin: consulta indisponível não muda o documento; AUTORIZADA recusa conferência', async () => {
+  const cenario = await montarCenario('timeout');
+  const docTimeout = await cenario.service.emitirAvulsa(7, null, inputBase(cenario.servico.id));
+
+  const svc = serviceComConsulta(cenario, 'indisponivel');
+  const conferido = await svc.conferirNaSefin(7, null, docTimeout.id);
+  assert.equal(conferido.status, 'ERRO');
+  assert.equal((conferido as any).sefinTemNota, null);
+  assert.match(String((conferido as any).aviso || ''), /não respondeu/i);
+
+  const cenOk = await montarCenario('ok');
+  const docOk = await cenOk.service.emitirAvulsa(7, null, inputBase(cenOk.servico.id));
+  const svcOk = serviceComConsulta(cenOk, 'achou');
+  await assert.rejects(() => svcOk.conferirNaSefin(7, null, docOk.id), /ERRO/);
+});
+
+test('emissão AUTORIZADA dispara o envio automático (fire-and-forget) com a empresa e o doc certos', async () => {
+  const cenario = await montarCenario('ok');
+  const chamadas: any[] = [];
+  const envioFake = { enviarAutomatico: async (...args: any[]) => { chamadas.push(args); return null; } } as any;
+  const service = new FiscalNfseService(cenario.prisma as any, cenario.profile, cenario.client, trilhaFake, envioFake);
+
+  const doc = await service.emitirAvulsa(7, 42, { ...inputBase(cenario.servico.id), tomadorFone: '19998887766' });
+  assert.equal(doc.status, 'AUTORIZADA');
+  assert.equal((doc as any).tomadorFone, '19998887766');
+  await new Promise((r) => setImmediate(r));
+  assert.equal(chamadas.length, 1);
+  assert.deepEqual(chamadas[0], [7, doc.id, 42]);
+
+  // Fone torto recusa ANTES de reservar numeração.
+  await assert.rejects(
+    () => service.emitirAvulsa(7, null, { ...inputBase(cenario.servico.id), tomadorFone: '999' }),
+    /WhatsApp do tomador/,
+  );
 });
 
 // ---------------------------------------------------------------------------

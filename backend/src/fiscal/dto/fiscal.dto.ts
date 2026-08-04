@@ -84,6 +84,9 @@ export class EmitirNfseAvulsaDto {
   @IsOptional() @IsString() @MaxLength(200)
   tomadorEmail?: string;
 
+  @IsOptional() @IsString() @MaxLength(20)
+  tomadorFone?: string; // WhatsApp do tomador (F1b) — DDD + número
+
   @IsString() @IsNotEmpty()
   servicoId!: string;
 
@@ -97,4 +100,13 @@ export class EmitirNfseAvulsaDto {
 export class CancelarDocumentoDto {
   @IsString() @IsNotEmpty() @MaxLength(500)
   motivo!: string;
+}
+
+export class EnviarDocumentoDto {
+  // Sem canal explícito, o service decide pelos dados do doc (tela manda os dois).
+  @IsOptional() @IsBoolean()
+  email?: boolean;
+
+  @IsOptional() @IsBoolean()
+  whats?: boolean;
 }
