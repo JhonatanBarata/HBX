@@ -6160,11 +6160,19 @@ model EstoqueProduto {
   // Link com o Product da logística: é por AQUI que a entrega confirmada acha
   // o produto de estoque pra dar a baixa (e a carga do caminhão, a reserva).
   logisticaProductId Int?
+  // B1 BALCÃO — código de barras (o Bip): SEMPRE string (EAN tem zero à esquerda;
+  // "SEM GTIN" literal do XML NUNCA entra aqui — vira null). Chave do casamento
+  // bip↔produto e XML↔produto (match exato antes de NCM/nome).
+  gtin               String?
+  // Preço de venda no balcão (cents). null = cai no price do Product vinculado;
+  // sem nenhum dos dois o balcão AVISA "produto sem preço" e recusa a venda.
+  precoBalcaoCents   Int?
   ativo              Boolean  @default(true)
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
   @@unique([companyId, logisticaProductId])
+  @@unique([companyId, gtin])
   @@index([companyId, ativo])
 }
 
@@ -6187,13 +6195,61 @@ model EstoqueMovimento {
   refEntregaId   String? // Entrega da logística (BAIXA_ENTREGA)
   refChaveNfe    String? // chave da NF-e de COMPRA (ENTRADA_XML — dedup)
   refCargaDia    String? // 'YYYY-MM-DD[:entregadorId]' da carga (RESERVA/LIBERA_RESERVA)
+  refVendaId     String? // B1 — BalcaoVenda (SAIDA_EMISSAO na venda; REVERSA no cancelar)
   motivo         String? // OBRIGATÓRIO em PERDA e AJUSTE; livre nos demais
   createdAt      DateTime @default(now())
 
-  // XML da mesma compra 2× não duplica; a mesma entrega não baixa 2×.
+  // XML da mesma compra 2× não duplica; a mesma entrega não baixa 2×;
+  // a mesma venda de balcão não baixa nem reverte 2×.
   @@unique([companyId, tipo, refChaveNfe, produtoId])
   @@unique([companyId, tipo, refEntregaId, produtoId])
+  @@unique([companyId, tipo, refVendaId, produtoId])
   @@index([companyId, produtoId, createdAt])
+}
+
+// ===========================================================================
+// B1 BALCÃO (PR04082026-BALCAO-DISTRIBUIDORA) — frente de caixa da vertical.
+// A venda é o REGISTRO (à vista mora aqui; FIADO adicionalmente vira
+// FinanceiroCharge do cliente). Cancelar segue o rito: motivo + REVERSA de
+// estoque com rastro — status muda, linha NUNCA some.
+// ===========================================================================
+
+model BalcaoVenda {
+  id                 String   @id @default(cuid())
+  companyId          Int
+  // CustomerProfile (mesmo cliente da logística/fiado) — OBRIGATÓRIO no FIADO.
+  clienteId          String?
+  byUserId           Int?
+  pagamento          String // DINHEIRO | PIX | CARTAO | FIADO
+  totalCents         Int
+  status             String   @default("CONCLUIDA") // CONCLUIDA | CANCELADA
+  canceladaEm        DateTime?
+  canceladaPorId     Int?
+  motivoCancelamento String?
+  financeChargeId    String? // FinanceiroCharge do FIADO
+  // Idempotência do clique (gerada pela tela por venda) — double-submit não
+  // cria duas vendas nem baixa o estoque duas vezes.
+  idempotencyKey     String?
+  createdAt          DateTime @default(now())
+  itens              BalcaoVendaItem[]
+
+  @@unique([companyId, idempotencyKey])
+  @@index([companyId, createdAt])
+  @@index([companyId, status, createdAt])
+}
+
+model BalcaoVendaItem {
+  id            String      @id @default(cuid())
+  companyId     Int
+  venda         BalcaoVenda @relation(fields: [vendaId], references: [id], onDelete: Cascade)
+  vendaId       String
+  produtoId     String // EstoqueProduto
+  produtoNome   String // snapshot — renomear o produto não reescreve venda antiga
+  quantidade    Float
+  precoCents    Int
+  subtotalCents Int
+
+  @@index([companyId, vendaId])
 }
 
 // MALOTE DO CONTADOR (decisão 10): o XML da NF-e de COMPRA fica GUARDADO

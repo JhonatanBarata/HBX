@@ -67,6 +67,7 @@ const META: Record<string, Meta> = {
   "/empresas": { active: "empresas", title: "Empresas", crumbs: crumb("Empresas") },
   "/contatos": { active: "contatos", title: "Contatos", crumbs: crumb("Contatos") },
   "/produtos": { active: "produtos", title: "Estoque", crumbs: crumb("Estoque") },
+  "/balcao": { active: "balcao", title: "Balcão", crumbs: crumb("Balcão") },
   "/logistica": { active: "logistica", title: "Logística", crumbs: crumb("Logística") },
   // Logística → Clientes (07/07): reusa a gestão de clientes de Contatos (modo
   // clientesOnly). Match é EXATO aqui, então a sub-rota precisa da própria linha

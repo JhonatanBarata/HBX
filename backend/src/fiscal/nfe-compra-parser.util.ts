@@ -13,6 +13,18 @@ export interface NfeCompraItem {
   unidade: string | null;
   quantidade: number;
   valorUnit: number | null;
+  // B1 BALCÃO — código de barras do item (o elo do PRÉ-CADASTRO pela nota).
+  // null quando o XML traz o literal "SEM GTIN" (produto sem código) ou lixo.
+  cEAN: string | null;
+}
+
+/** "SEM GTIN" literal do layout = AUSÊNCIA de código; EAN válido tem 8–14 dígitos. */
+function eanDe(raw: string | null): string | null {
+  const v = String(raw || '').trim();
+  if (!v || /sem\s*gtin/i.test(v)) return null;
+  const digits = v.replace(/\D/g, '');
+  if (digits.length < 8 || digits.length > 14) return null;
+  return digits;
 }
 
 export interface NfeCompraParsed {
@@ -89,6 +101,7 @@ export function parseNfeCompra(xmlRaw: string): NfeCompraParsed {
       unidade: tag(prod, 'uCom'),
       quantidade: quantidade ?? 0,
       valorUnit: num(tag(prod, 'vUnCom')),
+      cEAN: eanDe(tag(prod, 'cEAN')),
     });
   }
   if (itens.length === 0) throw new Error('XML de NF-e sem itens (<det>/<prod>).');

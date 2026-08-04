@@ -12,6 +12,7 @@ import { FiscalComprovanteEntregaService } from './fiscal-comprovante-entrega.se
 import { FiscalLiberacaoService } from './fiscal-liberacao.service';
 import { FiscalMaloteService } from './fiscal-malote.service';
 import { EstoqueService } from './estoque.service';
+import { BalcaoService } from './balcao.service';
 
 // FISCAL DO TENANT (PR04082026-FISCAL-TENANT F1a) — módulo do TENANT, irmão do
 // financeiro-tenant. O contabil/ (robô do dono) fica INTOCADO: importamos o
@@ -38,6 +39,7 @@ import { EstoqueService } from './estoque.service';
     FiscalEnvioService,
     FiscalComprovanteEntregaService,
     EstoqueService,
+    BalcaoService,
     FiscalMaloteService,
     FiscalLiberacaoService,
   ],

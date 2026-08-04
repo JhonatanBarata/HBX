@@ -23,6 +23,8 @@ type EstoqueProdutoT = {
   unidade: string | null;
   ncm: string | null;
   logisticaProductId: number | null;
+  gtin: string | null;
+  precoBalcaoCents: number | null;
   ativo: boolean;
   saldo: SaldoEstoque;
 };
@@ -84,6 +86,12 @@ const ACAO_MOVIMENTO: Record<MovimentoAcao, { rotulo: string; motivoObrigatorio:
 
 // ------------------------------------------------------------------ AJUDANTES
 
+/** Dígitos → "1.234,56" enquanto digita (mesmo ajudante da tela fiscal). */
+function textoDeCentavos(digitos: string): string {
+  const n = Number(digitos || "0");
+  return (n / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
 function fmtData(iso: string | null | undefined): string {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -129,7 +137,9 @@ export function BlocoEstoque() {
   const [ocupado, setOcupado] = useState(false);
 
   const [novoAberto, setNovoAberto] = useState(false);
-  const [novo, setNovo] = useState({ nome: "", unidade: "", ncm: "", logisticaProductId: "" });
+  // editandoId: o MESMO formulário cria (null) ou edita (id) — B1: gtin bipável + preço.
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [novo, setNovo] = useState({ nome: "", unidade: "", ncm: "", logisticaProductId: "", gtin: "", preco: "" });
 
   const [mov, setMov] = useState<{ acao: MovimentoAcao; produto: EstoqueProdutoT } | null>(null);
   const [movQtd, setMovQtd] = useState("");
@@ -163,28 +173,48 @@ export function BlocoEstoque() {
     void carregar();
   }, [carregar]);
 
-  const criarProduto = useCallback(async () => {
+  const salvarProduto = useCallback(async () => {
     setOcupado(true);
     setErro(null);
     try {
-      await apiFetch("/fiscal/estoque/produtos", {
-        method: "POST",
-        body: JSON.stringify({
-          nome: novo.nome.trim(),
-          unidade: novo.unidade.trim() || undefined,
-          ncm: novo.ncm.replace(/\D/g, "") || undefined,
-          logisticaProductId: novo.logisticaProductId ? Number(novo.logisticaProductId) : undefined,
-        }),
-      });
-      setNovo({ nome: "", unidade: "", ncm: "", logisticaProductId: "" });
+      const precoDigits = novo.preco.replace(/\D/g, "");
+      const body = {
+        nome: novo.nome.trim(),
+        unidade: novo.unidade.trim() || undefined,
+        ncm: novo.ncm.replace(/\D/g, "") || undefined,
+        logisticaProductId: novo.logisticaProductId ? Number(novo.logisticaProductId) : undefined,
+        // B1 — gtin bipável (foca o campo e bipa) + preço de balcão em cents.
+        gtin: novo.gtin.replace(/\D/g, "") || (editandoId ? null : undefined),
+        precoBalcaoCents: precoDigits ? Number(precoDigits) : editandoId ? null : undefined,
+      };
+      if (editandoId) {
+        await apiFetch(`/fiscal/estoque/produtos/${encodeURIComponent(editandoId)}`, { method: "PATCH", body: JSON.stringify(body) });
+      } else {
+        await apiFetch("/fiscal/estoque/produtos", { method: "POST", body: JSON.stringify(body) });
+      }
+      setNovo({ nome: "", unidade: "", ncm: "", logisticaProductId: "", gtin: "", preco: "" });
       setNovoAberto(false);
+      setEditandoId(null);
       await carregar();
     } catch (e) {
-      setErro(mensagemDe(e, "Falha ao criar o produto."));
+      setErro(mensagemDe(e, "Falha ao salvar o produto."));
     } finally {
       setOcupado(false);
     }
-  }, [novo, carregar]);
+  }, [novo, editandoId, carregar]);
+
+  const abrirEdicao = useCallback((p: EstoqueProdutoT) => {
+    setEditandoId(p.id);
+    setNovoAberto(true);
+    setNovo({
+      nome: p.nome,
+      unidade: p.unidade || "",
+      ncm: p.ncm || "",
+      logisticaProductId: p.logisticaProductId != null ? String(p.logisticaProductId) : "",
+      gtin: p.gtin || "",
+      preco: p.precoBalcaoCents != null ? textoDeCentavos(String(p.precoBalcaoCents)) : "",
+    });
+  }, []);
 
   const lancarMovimento = useCallback(async () => {
     if (!mov) return;
@@ -292,7 +322,15 @@ export function BlocoEstoque() {
           <I d={ICONS.upload} size={14} />
           XML da compra
         </label>
-        <button type="button" className="btn-ghost" onClick={() => setNovoAberto((v) => !v)}>
+        <button
+          type="button"
+          className="btn-ghost"
+          onClick={() => {
+            setEditandoId(null);
+            setNovo({ nome: "", unidade: "", ncm: "", logisticaProductId: "", gtin: "", preco: "" });
+            setNovoAberto((v) => !v);
+          }}
+        >
           <I d={ICONS.plus} size={14} />
           Produto
         </button>
@@ -331,11 +369,31 @@ export function BlocoEstoque() {
                 ))}
               </select>
             </label>
+            <label className="fis-campo">
+              <span className="field-label">Código de barras (bipe aqui)</span>
+              <input
+                className="field-dark"
+                inputMode="numeric"
+                placeholder="foque e bipe, ou digite o EAN"
+                value={novo.gtin}
+                maxLength={14}
+                onChange={(e) => setNovo((n) => ({ ...n, gtin: e.target.value.replace(/\D/g, "") }))}
+              />
+            </label>
+            <label className="fis-campo">
+              <span className="field-label">Preço no balcão (R$)</span>
+              <input
+                className="field-dark"
+                inputMode="numeric"
+                value={novo.preco}
+                onChange={(e) => setNovo((n) => ({ ...n, preco: textoDeCentavos(e.target.value.replace(/\D/g, "")) }))}
+              />
+            </label>
             <div className="fis-linha-acoes fis-campo--inteiro">
-              <button type="button" className="btn-teal" disabled={ocupado || !novo.nome.trim()} onClick={criarProduto}>
-                {ocupado ? "Salvando…" : "Salvar"}
+              <button type="button" className="btn-teal" disabled={ocupado || !novo.nome.trim()} onClick={salvarProduto}>
+                {ocupado ? "Salvando…" : editandoId ? "Salvar alterações" : "Salvar"}
               </button>
-              <button type="button" className="btn-ghost" onClick={() => setNovoAberto(false)}>Cancelar</button>
+              <button type="button" className="btn-ghost" onClick={() => { setNovoAberto(false); setEditandoId(null); }}>Cancelar</button>
             </div>
           </div>
         ) : null}
@@ -401,6 +459,8 @@ export function BlocoEstoque() {
                   <span>Faturado <b>{p.saldo.faturado}</b></span>
                   <span>Físico <b>{p.saldo.fisico}</b></span>
                   {p.logisticaProductId != null ? <span>↔ {nomeLogistica(p.logisticaProductId)}</span> : <span>Sem vínculo com a rota</span>}
+                  <span>{p.gtin ? <>‖ <b>{p.gtin}</b></> : "Sem código de barras"}</span>
+                  <span>{p.precoBalcaoCents != null ? <>Balcão <b>R$ {textoDeCentavos(String(p.precoBalcaoCents))}</b></> : "Sem preço de balcão"}</span>
                 </div>
                 {p.saldo.fisico < 0 ? (
                   <div className="fis-aviso fis-aviso--erro"><span>Estoque NEGATIVO — confira entradas ou faça o inventário.</span></div>
@@ -417,6 +477,7 @@ export function BlocoEstoque() {
                     </button>
                   ))}
                   <button type="button" className="btn-ghost btn-xs" onClick={() => void abrirExtrato(p)}>Extrato</button>
+                  <button type="button" className="btn-ghost btn-xs" onClick={() => abrirEdicao(p)}>Editar</button>
                 </div>
               </div>
             ))}

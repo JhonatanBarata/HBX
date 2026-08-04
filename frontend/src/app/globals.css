@@ -171,6 +171,7 @@
 /* FISCAL DO TENANT (F1a) — tela /fiscal: configuração fiscal, emissão avulsa de
    NFS-e e as notas emitidas. Irmã da folha acima; só estrutura por token. */
 @import "./hbx-theme/fiscal-tenant.css";
+@import "./hbx-theme/balcao.css";
 
 /* TUTORIAL FRONT — painel de upload no /master. Só layout + token. */
 @import "./hbx-theme/tutorial-admin.css";
@@ -210,3 +211,4 @@
 /* MOVIMENTO CENTRAL — precisa ser a última camada: transforma os overlays,
    listas, abas e páginas legados sem cada módulo inventar keyframe/timer. */
 @import "./hbx-theme/motion-system.css";
+

@@ -176,6 +176,13 @@ export class CriarEstoqueProdutoDto {
 
   @IsOptional() @IsInt()
   logisticaProductId?: number;
+
+  // B1 — código de barras (bipável) + preço de venda no balcão.
+  @IsOptional() @IsString() @MaxLength(20)
+  gtin?: string;
+
+  @IsOptional() @IsInt() @Min(0) @Max(100_000_000)
+  precoBalcaoCents?: number;
 }
 
 export class AtualizarEstoqueProdutoDto {
@@ -202,6 +209,12 @@ export class AtualizarEstoqueProdutoDto {
 
   @IsOptional() @IsBoolean()
   ativo?: boolean;
+
+  @IsOptional() @IsString() @MaxLength(20)
+  gtin?: string | null;
+
+  @IsOptional() @IsInt() @Min(0) @Max(100_000_000)
+  precoBalcaoCents?: number | null;
 }
 
 export class MovimentoEstoqueDto {
@@ -273,4 +286,34 @@ export class EntradaXmlConfirmarDto {
 export class AtestarContadorDto {
   @IsBoolean()
   aprovado!: boolean;
+}
+
+// ── B1 BALCÃO ──────────────────────────────────────────────────────────────
+
+export class BalcaoItemDto {
+  @IsString() @IsNotEmpty()
+  produtoId!: string;
+
+  @IsNumber() @Min(0.001) @Max(10_000)
+  quantidade!: number;
+}
+
+export class CriarVendaBalcaoDto {
+  @IsArray() @ValidateNested({ each: true }) @Type(() => BalcaoItemDto)
+  itens!: BalcaoItemDto[];
+
+  @IsIn(['DINHEIRO', 'PIX', 'CARTAO', 'FIADO'])
+  pagamento!: string;
+
+  @IsOptional() @IsString() @MaxLength(60)
+  clienteId?: string; // obrigatório no FIADO (regra no service)
+
+  // Gerada pela tela por venda — double-submit devolve a MESMA venda.
+  @IsOptional() @IsString() @MaxLength(60)
+  idempotencyKey?: string;
+}
+
+export class CancelarVendaBalcaoDto {
+  @IsString() @IsNotEmpty() @MaxLength(500)
+  motivo!: string;
 }

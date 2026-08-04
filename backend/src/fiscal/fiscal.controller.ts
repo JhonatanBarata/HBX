@@ -28,6 +28,7 @@ import { FiscalEnvioService } from './fiscal-envio.service';
 import { FiscalLiberacaoService } from './fiscal-liberacao.service';
 import { FiscalMaloteService } from './fiscal-malote.service';
 import { EstoqueService } from './estoque.service';
+import { BalcaoService } from './balcao.service';
 import { renderNfsePdf } from './nfse-pdf.util';
 import {
   AtestarContadorDto,
@@ -35,7 +36,9 @@ import {
   AtualizarEstoqueProdutoDto,
   AtualizarServicoFiscalDto,
   CancelarDocumentoDto,
+  CancelarVendaBalcaoDto,
   ConferirCnpjGestaoDto,
+  CriarVendaBalcaoDto,
   CriarEstoqueProdutoDto,
   CriarServicoFiscalDto,
   EmitirNfseAvulsaDto,
@@ -66,6 +69,7 @@ export class FiscalController {
     private readonly nfse: FiscalNfseService,
     private readonly envio: FiscalEnvioService,
     private readonly estoque: EstoqueService,
+    private readonly balcao: BalcaoService,
     private readonly malote: FiscalMaloteService,
     private readonly liberacao: FiscalLiberacaoService,
     private readonly prisma: PrismaService,
@@ -321,6 +325,43 @@ export class FiscalController {
   @Post('liberacao/voltar-restrita')
   liberacaoVoltar(@Req() req: any) {
     return this.liberacao.voltarRestrita(this.companyIdFromUser(req.user), Number(req.user?.id) || null);
+  }
+
+  // ------------------------------------------------------- B1 BALCÃO
+
+  @Get('balcao/produtos')
+  balcaoProdutos(@Req() req: any) {
+    return this.balcao.listarProdutos(this.companyIdFromUser(req.user));
+  }
+
+  @Get('balcao/vendas')
+  balcaoVendas(@Req() req: any, @Query('limite') limite?: string) {
+    return this.balcao.listarVendas(this.companyIdFromUser(req.user), { limite: limite ? Number(limite) : undefined });
+  }
+
+  @Post('balcao/vendas')
+  balcaoCriarVenda(@Req() req: any, @Body() dto: CriarVendaBalcaoDto) {
+    return this.balcao.criarVenda(this.companyIdFromUser(req.user), Number(req.user?.id) || null, dto);
+  }
+
+  @Post('balcao/vendas/:id/cancelar')
+  balcaoCancelarVenda(@Req() req: any, @Param('id') id: string, @Body() dto: CancelarVendaBalcaoDto) {
+    return this.balcao.cancelarVenda(this.companyIdFromUser(req.user), Number(req.user?.id) || null, id, dto?.motivo);
+  }
+
+  @Get('balcao/vendas/:id/comprovante.pdf')
+  async balcaoComprovante(@Req() req: any, @Param('id') id: string, @Res() res: any) {
+    const { filename, pdf } = await this.balcao.comprovantePdf(this.companyIdFromUser(req.user), id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+    res.send(pdf);
+  }
+
+  /** Busca de cliente pro FIADO — digitação humana; mesmo espírito do throttle da consulta-CNPJ. */
+  @Get('balcao/clientes')
+  @Throttle({ default: { limit: 30, ttl: 60_000 } })
+  balcaoClientes(@Req() req: any, @Query('q') q?: string) {
+    return this.balcao.buscarClientes(this.companyIdFromUser(req.user), String(q || ''));
   }
 
   @Get('documentos/:id/pdf')

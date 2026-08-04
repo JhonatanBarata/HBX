@@ -1,0 +1,227 @@
+/* =========================================================================
+   B1 BALCÃO (PR04082026-BALCAO-DISTRIBUIDORA) — frente de caixa da vertical.
+   Tela de OPERAÇÃO contínua: botões grandes (bip e dedo convivem), carrinho
+   sempre à vista, total gritante. 100% token central (5 Leis): cor, borda e
+   sombra herdam dos tokens hbx/text/border; espaçamento em space-N; fonte nos
+   degraus fz. ZERO hex, ZERO px de espaçamento literal.
+   (Cuidado: "asterisco+barra" dentro de comentário FECHA o comentário — nunca
+   escrever padrões de token com asterisco aqui.)
+   ========================================================================= */
+
+.bal-wrap {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  min-height: 0;
+}
+
+.bal-topo {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.bal-topo h1 {
+  font-size: var(--fz-l3);
+  color: var(--text-strong);
+}
+
+.bal-dia {
+  margin-left: auto;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--fz-n2);
+}
+
+.bal-dia strong {
+  font-size: var(--fz-l2);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.bal-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem);
+  gap: var(--space-3);
+  align-items: start;
+}
+
+/* ── botões grandes de produto ─────────────────────────────────────────── */
+.bal-produtos {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: var(--space-2);
+}
+
+.bal-prod {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  text-align: left;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--hbx-surface);
+  color: var(--text-body);
+  cursor: pointer;
+  min-height: 6.5rem;
+}
+
+.bal-prod:hover { border-color: var(--hbx-brand); }
+
+.bal-prod strong {
+  font-size: var(--fz-l1);
+  color: var(--text-strong);
+}
+
+.bal-prod-preco {
+  font-size: var(--fz-l2);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.bal-prod-meta {
+  display: flex;
+  gap: var(--space-2);
+  font-size: var(--fz-m1);
+  color: var(--text-muted);
+}
+
+.bal-prod--sem-preco { opacity: 0.55; cursor: not-allowed; }
+.bal-prod--sem-preco .bal-prod-preco { color: var(--hbx-warning); font-size: var(--fz-n2); }
+
+/* ── carrinho ──────────────────────────────────────────────────────────── */
+.bal-carrinho {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--hbx-surface);
+  position: sticky;
+  top: var(--space-3);
+}
+
+.bal-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--fz-n2);
+}
+
+.bal-item-nome { color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bal-item small { color: var(--text-muted); display: block; }
+
+.bal-qtd {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.bal-qtd b { min-width: 2ch; text-align: center; font-variant-numeric: tabular-nums; }
+
+.bal-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  border-top: 1px solid var(--border-hairline);
+  padding-top: var(--space-2);
+}
+
+.bal-total strong {
+  font-size: var(--fz-t7);
+  color: var(--text-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── pagamento ─────────────────────────────────────────────────────────── */
+.bal-pagamentos {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-1);
+}
+
+.bal-pag {
+  padding-block: var(--space-2);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-recessed);
+  color: var(--text-body);
+  font-size: var(--fz-n2);
+  cursor: pointer;
+}
+
+.bal-pag.is-active {
+  border-color: var(--hbx-brand);
+  color: var(--text-strong);
+  background: var(--hbx-surface);
+  box-shadow: inset 0 0 0 1px var(--hbx-brand);
+}
+
+/* ── busca de cliente (fiado) ──────────────────────────────────────────── */
+.bal-cliente { display: grid; gap: var(--space-1); position: relative; }
+
+.bal-cliente-lista {
+  display: grid;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--hbx-surface);
+  overflow: hidden;
+}
+
+.bal-cliente-lista button {
+  text-align: left;
+  padding: var(--space-2);
+  background: none;
+  border: 0;
+  color: var(--text-body);
+  cursor: pointer;
+  font-size: var(--fz-n2);
+}
+
+.bal-cliente-lista button:hover { background: var(--surface-recessed); }
+
+.bal-cliente-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  color: var(--text-strong);
+  font-size: var(--fz-n2);
+}
+
+/* ── vendas do dia ─────────────────────────────────────────────────────── */
+.bal-vendas { display: grid; gap: var(--space-2); }
+
+.bal-venda {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: var(--space-2);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  font-size: var(--fz-n2);
+  color: var(--text-body);
+}
+
+.bal-venda strong { color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.bal-venda--cancelada { opacity: 0.6; }
+.bal-venda-acoes { margin-left: auto; display: flex; gap: var(--space-1); }
+
+.bal-bip-dica {
+  font-size: var(--fz-m1);
+  color: var(--text-muted);
+}
+
+@media (max-width: 900px) {
+  .bal-main { grid-template-columns: 1fr; }
+  .bal-carrinho { position: static; }
+}
+

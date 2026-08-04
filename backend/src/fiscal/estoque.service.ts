@@ -77,22 +77,33 @@ export class EstoqueService {
     cfopSaida?: string | null;
     csosn?: string | null;
     logisticaProductId?: number | null;
+    gtin?: string | null;
+    precoBalcaoCents?: number | null;
   }) {
     const nome = String(dto.nome || '').trim();
     if (!nome) throw new BadRequestException('Nome do produto é obrigatório.');
     const logisticaProductId = await this.validarVinculoLogistica(companyId, dto.logisticaProductId);
-    return (this.prisma as any).estoqueProduto.create({
-      data: {
-        companyId,
-        nome,
-        unidade: String(dto.unidade || '').trim() || null,
-        ncm: String(dto.ncm || '').replace(/\D/g, '') || null,
-        cest: String(dto.cest || '').replace(/\D/g, '') || null,
-        cfopSaida: String(dto.cfopSaida || '').replace(/\D/g, '') || null,
-        csosn: String(dto.csosn || '').replace(/\D/g, '') || null,
-        logisticaProductId,
-      },
-    });
+    try {
+      return await (this.prisma as any).estoqueProduto.create({
+        data: {
+          companyId,
+          nome,
+          unidade: String(dto.unidade || '').trim() || null,
+          ncm: String(dto.ncm || '').replace(/\D/g, '') || null,
+          cest: String(dto.cest || '').replace(/\D/g, '') || null,
+          cfopSaida: String(dto.cfopSaida || '').replace(/\D/g, '') || null,
+          csosn: String(dto.csosn || '').replace(/\D/g, '') || null,
+          logisticaProductId,
+          gtin: this.normalizarGtin(dto.gtin),
+          precoBalcaoCents: this.normalizarPrecoCents(dto.precoBalcaoCents),
+        },
+      });
+    } catch (err: any) {
+      if (String(err?.code) === 'P2002') {
+        throw new BadRequestException('Este código de barras já está em outro produto desta empresa.');
+      }
+      throw err;
+    }
   }
 
   async atualizarProduto(companyId: number, id: string, dto: {
@@ -104,6 +115,8 @@ export class EstoqueService {
     csosn?: string | null;
     logisticaProductId?: number | null;
     ativo?: boolean;
+    gtin?: string | null;
+    precoBalcaoCents?: number | null;
   }) {
     const existing = await (this.prisma as any).estoqueProduto.findFirst({ where: { id, companyId } });
     if (!existing) throw new NotFoundException('Produto de estoque não encontrado.');
@@ -123,7 +136,35 @@ export class EstoqueService {
       data.logisticaProductId = await this.validarVinculoLogistica(companyId, dto.logisticaProductId, existing.id);
     }
     if (dto.ativo !== undefined) data.ativo = Boolean(dto.ativo);
-    return (this.prisma as any).estoqueProduto.update({ where: { id: existing.id }, data });
+    if (dto.gtin !== undefined) data.gtin = this.normalizarGtin(dto.gtin);
+    if (dto.precoBalcaoCents !== undefined) data.precoBalcaoCents = this.normalizarPrecoCents(dto.precoBalcaoCents);
+    try {
+      return await (this.prisma as any).estoqueProduto.update({ where: { id: existing.id }, data });
+    } catch (err: any) {
+      if (String(err?.code) === 'P2002') {
+        throw new BadRequestException('Este código de barras já está em outro produto desta empresa.');
+      }
+      throw err;
+    }
+  }
+
+  /** EAN sempre STRING (zero à esquerda); "SEM GTIN"/lixo = null; 8–14 dígitos. */
+  private normalizarGtin(raw: string | null | undefined): string | null {
+    const v = String(raw || '').trim();
+    if (!v || /sem\s*gtin/i.test(v)) return null;
+    const digits = v.replace(/\D/g, '');
+    if (!digits) return null;
+    if (digits.length < 8 || digits.length > 14) {
+      throw new BadRequestException('Código de barras inválido — EAN tem de 8 a 14 dígitos.');
+    }
+    return digits;
+  }
+
+  private normalizarPrecoCents(raw: number | null | undefined): number | null {
+    if (raw == null) return null;
+    const n = Math.trunc(Number(raw));
+    if (!Number.isFinite(n) || n < 0) throw new BadRequestException('Preço de balcão inválido.');
+    return n || null;
   }
 
   /** Vínculo com o Product da logística: precisa existir NESTA empresa e não estar em outro estoque. */
@@ -274,14 +315,16 @@ export class EstoqueService {
     const produtos = await (this.prisma as any).estoqueProduto.findMany({ where: { companyId, ativo: true } });
     const norm = (s: string) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
     const itens = parsed.itens.map((item) => {
-      // Sugestão: NCM igual primeiro (dado forte), senão nome contido/contendo.
+      // B1 — sugestão: GTIN igual PRIMEIRO (match exato do bip — zera erro),
+      // depois NCM igual (dado forte), senão nome contido/contendo.
+      const porGtin = item.cEAN ? produtos.find((p: any) => p.gtin && p.gtin === item.cEAN) : null;
       const porNcm = item.ncm ? produtos.find((p: any) => p.ncm && p.ncm === item.ncm) : null;
       const porNome = produtos.find((p: any) => {
         const a = norm(p.nome);
         const b = norm(item.nome);
         return a && b && (a.includes(b) || b.includes(a));
       });
-      const sugestao = porNcm || porNome || null;
+      const sugestao = porGtin || porNcm || porNome || null;
       return { ...item, sugestaoProdutoId: sugestao?.id ?? null, sugestaoProdutoNome: sugestao?.nome ?? null };
     });
     return {
@@ -350,10 +393,14 @@ export class EstoqueService {
       }
       let produtoId = String(m.produtoId || '').trim() || null;
       if (!produtoId && m.novoProduto?.nome) {
+        // B1 — PRÉ-CADASTRO pela nota: o gtin vem do PRÓPRIO XML (item parseado
+        // no servidor), nunca do cliente — o produto nasce amarrado ao bip.
+        // XML só traz preço de CUSTO → pré-cadastro nasce SEM preço de venda.
         const novo = await this.criarProduto(companyId, {
           nome: m.novoProduto.nome,
           unidade: m.novoProduto.unidade ?? item.unidade,
           ncm: m.novoProduto.ncm ?? item.ncm,
+          gtin: item.cEAN,
         });
         produtoId = novo.id;
       }
