@@ -204,9 +204,9 @@ teste roda restrita; tenant real sobe pra producao no gate do cert).
 | **F1b** ✅ 04/08 | Envio do PDF+XML ao tomador (e-mail POR EMPRESA via CompanyMailer + WhatsApp document via WebwhatsBridge; auto por opt-in pós-AUTORIZADA fire-and-forget + reenvio manual; falha POR CANAL isolada, trilha envio* no doc e na tela; tomadorFone novo c/ auto-fill RFB) + reconciliação pós-timeout "Conferir na Sefin" (chave oficial da DPS 45c + GET /dps → achou = doc recuperado AUTORIZADA + disjuntor desarmado + envio auto; 404 = reemissão liberada com erroMsg reescrito; guard CNPJ-trocado recusa) | EXECUTADA e provada no Chrome/localhost: botão Conferir na Sefin em doc ERRO timeout devolveu "Sefin não respondeu" limpo na tela (cert não-ICP não fecha mTLS — achou/404 provados na suíte); Enviar em doc AUTORIZADA gravou e MOSTROU a trilha "E-mail da empresa não configurado" na linha, Whats nem tentou sem fone, status fiscal intacto. Testes 128/128. Commits c09a9f32+94e10cf8 (locais). Envio com SUCESSO real (SMTP/chip) = uso real, coberto por teste. |
 | **F1c** | 🔒 GATE: cert A1 real + Rio Claro → producao | 1 nota real no portal gov.br/nfse |
 | **F2a** ✅ 04/08 | Comprovante SEM VALOR FISCAL na entrega + config fechamento×entrega. Perfil ganhou `modoEmissaoProduto` (fechamento\|entrega) e `comprovanteEntrega` (default OFF — mensagem LIVE pra cliente final, tenant liga na tela). O PDF pega carona na MESMA mensagem do aviso "entregue" que já existia (queueOutboundForCompany — caminho blindado; texto vira caption; reenvio manual herda). Gate por empresa DENTRO do FiscalComprovanteEntregaService; falha do papel nunca derruba o aviso (best-effort com voz). M4 respeitado: financeiro OFF = comprovante sem dinheiro nenhum. | EXECUTADA: 138/138 testes (render + serviço + gancho da logística com zero regressão no texto puro); toggle salvo e persistido provado no Chrome; PDF de amostra do build real conferido (rodapé SEM VALOR FISCAL + explicação da NF mensal). Envio REAL no Whats do cliente final = quando um tenant ligar e confirmar entrega (gates de aviso global/cliente continuam mandando). |
-| **F2b** | 🔒 GATE: contratar provedor → adapter NF-e + emissão consolidada no fechamento | NF-e homologação do provedor na tela |
+| **F2b** | 🔒 GATE: contratar provedor → adapter NF-e + emissão consolidada no fechamento (decisão do dono 04/08: "contrato quando eu ter clientes" — stub honesto segue no ar; `verificarDisponibilidade` do estoque já pronto pro gate avisar×travar) | NF-e homologação do provedor na tela |
 | **F2c** | Remessa diária opcional (da carga do caminhão) | 🔒 GATE: CFOP validado com contador |
-| **F3** | Estoque completo (entrada XML, baixa, devolução, reversa, aviso) | ciclo completo na tela |
+| **F3** ✅ 04/08 | Estoque COMPLETO sem depender de gate: EstoqueProduto (vínculo com o Product da logística) + EstoqueMovimento (trilha imutável; saldo 100% DERIVADO — físico/reservado/disponível/faturado). Entrada por XML da NF-e de compra (parser próprio + conferência de mapeamento por NCM/nome + dedup por chave+produto + XML GUARDADO em FiscalCompraXml), entrada manual, PERDA/AJUSTE com motivo obrigatório, INVENTÁRIO lança a diferença, devolução. Ganchos: entrega confirmada = BAIXA definitiva (dedup entrega+produto; rua não trava, negativo avisa); carga declarada = RESERVA; conferência do retorno = LIBERA (matemática fecha entre dias). Tela no /fiscal (bloco Estoque + modais + extrato). **BÔNUS executados junto:** MALOTE DO CONTADOR (zip vendas.csv+XMLs+compras.csv+XMLs por competência — PKZIP próprio, sem dep) · SEMÁFORO DE PRODUÇÃO (B4 morto: checklist LT/TEC/OP derivado + atestado do contador + Ativar produção com trilha) · M1 (HBX_FISCAL_VAULT_KEY injetada na VPS, gerada lá; fallback v1 sem quebra) · B1 (erro em português na tela) · issRetido→tpRetISSQN e endereço do prestador na DPS (opcionais — XML do contabil intacto). | 152/152 testes; cena no Chrome: produto criado, entrada 100 lançada, 4 saldos na tela; malote validado com unzip real (CRC ok); checklist 71% bloqueando produção pelos itens certos (contador + homologação). **PUBLICADO pelo dono em 04/08 ~18:07 (-03) — VPS conferida: commit e20554e9, backend Up 0 erros, 25+ rotas /fiscal mapeadas, 6 migrations fiscais aplicadas.** |
 
 Cada fatia: commit local imediato ao fechar (publish só quando o dono mandar). F1a começa com o
 teste da cena (fixture de DPS do tenant + transporte mockado — padrão `nfse-test-cert.fixture.ts`).
@@ -229,13 +229,16 @@ teste da cena (fixture de DPS do tenant + transporte mockado — padrão `nfse-t
     do S6 e nunca fechou mTLS com cert de teste); (b) o Id INTERNO da assinatura (`montarInfId`
     hash) não segue o pattern oficial de Id da DPS — o validador oficial pode rejeitar; trocar
     no client (contabil+fiscal juntos) se a 1ª nota real recusar.
-  - **M1**: chave de cofre SEPARADA pro fiscal do tenant (`HBX_FISCAL_VAULT_KEY` + versão de
-    chave no envelope; hoje divide `HBX_CONTABIL_VAULT_KEY` com o cofre do dono) — blast radius.
-  - **B1**: sanitizar `erroMsg` antes de devolver pra tela (hoje mensagem técnica crua em 200).
+  - **M1**: ✅ RESOLVIDO (04/08) — `fiscal-vault.util.ts`: `HBX_FISCAL_VAULT_KEY` (prefixo
+    `f1`) com fallback transparente pro envelope `v1` do contabil. Env INJETADA no .env da
+    VPS (gerada lá via openssl, nunca passou por chat) — vale a partir do próximo restart
+    do backend; até lá o fallback v1 segura sem quebra.
+  - **B1**: ✅ RESOLVIDO (04/08) — `erroAmigavel` no serialize: padrão técnico vira frase em
+    português ('timeout' preservado pro botão Conferir na Sefin); original intacto no banco.
   - **B3**: trilha do tenant divide o `FiscalAutomationLog` do dono sem companyId — separar
     quando a trilha do tenant ganhar tela.
-  - **B4**: abrir `producao` no perfil é HOJE código morto de propósito (nenhuma rota escreve
-    `ambiente`) — abrir só via gate F1c com A2/A3/A4 já resolvidos.
+  - **B4**: ✅ RESOLVIDO (04/08) — SEMÁFORO DE LIBERAÇÃO na tela (checklist LT/TEC/OP,
+    atestado do contador, Ativar produção com trilha de usuário/data). O UPDATE manual morreu.
 
 ## 6b. AUDITORIA contra o "Checklist mínimo para liberar emissão fiscal" (pesquisa do dono, 04/08)
 
