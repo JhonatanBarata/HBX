@@ -4,6 +4,8 @@
 // clica) — não passa pelo motor/Webwhats, zero risco de ban (docs/PLANEJAMENTOS/hot/
 // 05-links-whatsapp-1clique.md). Cópia irmã no backend: backend/src/webscraping/radar/shared/
 // wa-link.util.ts (mesma assinatura/regra de normalização).
+import { formatCityName } from "@/lib/br-cidade";
+import { formatCompanyName } from "@/lib/br-empresa";
 import { categoryOfSegment } from "@/lib/radar-segments";
 import waMessageTemplatesRaw from "@/lib/wa-message-templates.json";
 
@@ -69,9 +71,16 @@ export function buildWaMessage(params: {
 }): string {
   const key = normalizeTemplateCategory(params.segment);
   const template = TEMPLATES[key] || TEMPLATES.default;
-  const nome = params.name ? ` ${params.name}` : "";
+  // O saneamento mora AQUI, e não nos 7 lugares que chamam esta função.
+  // Este texto não fica na tela: ele sai pelo WhatsApp, na cara do cliente.
+  // "Olá VEGAS DISTRIBUIDORA DE ALIMENTOS LTDA em CAMPINAS" é o vendedor
+  // gritando com quem ele quer atender — e cada chamador consertando por
+  // conta própria é a garantia de que o próximo vai esquecer.
+  const nomeLimpo = formatCompanyName(params.name);
+  const cidadeLimpa = formatCityName(params.city);
+  const nome = nomeLimpo ? ` ${nomeLimpo}` : "";
   const segmento = params.segment ? params.segment.toLowerCase() : "sua área";
-  const cidade = params.city ? ` em ${params.city}` : "";
+  const cidade = cidadeLimpa ? ` em ${cidadeLimpa}` : "";
   return template
     .replace("{nome}", nome)
     .replace("{segmento}", segmento)

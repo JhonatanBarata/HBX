@@ -6,8 +6,10 @@ import type { VendasLead } from "@/app/(app)/vendas/page.client";
 import { CANAL_LABEL, CanalIcon } from "@/components/hbx/canal-icon";
 import { vendasEngagementMeta } from "@/components/hbx/detalhes-negocio";
 import { Av, I, ICONS } from "@/components/hbx/shell";
-import { formatBrPhone, onlyDigits } from "@/lib/br-phone";
+import { formatBrPhoneDisplay, onlyDigits } from "@/lib/br-phone";
 import { formatBrCnpj } from "@/lib/br-document";
+import { formatCityName, formatCityUf } from "@/lib/br-cidade";
+import { formatCompanyName } from "@/lib/br-empresa";
 import type { RadarChannel } from "@/lib/radar-channel-presence";
 import { vendasCanais } from "@/lib/vendas-channels";
 import { buildWaLink } from "@/lib/wa-link";
@@ -119,7 +121,10 @@ export function VendasLeadPreview({
 
   const score = Math.max(0, Math.min(100, Math.round(Number(lead.opportunityScore) || 0)));
   const scoreStyle = { "--vnd-lead-score-angle": `${score * 3.6}deg` } as CSSProperties;
-  const cidade = lead.city ? `${lead.city}${lead.state ? `/${lead.state}` : ""}` : "—";
+  // Mesma régua da lista (LEI "padronizar = IGUALAR"): a cidade sai saneada
+  // pelo catálogo do IBGE e o telefone pela máscara única de leitura.
+  const cidade = formatCityUf(lead.city, lead.state) || "—";
+  const cidadeSo = formatCityName(lead.city, lead.state) || "—";
   const meta = [lead.segment, cidade !== "—" ? cidade : null].filter(Boolean).join(" · ") || "Empresa";
   const cnpj = lead.cnpj ? (formatBrCnpj(lead.cnpj) || lead.cnpj) : "—";
   const etapa = etapaLabel(lead.status);
@@ -127,9 +132,10 @@ export function VendasLeadPreview({
   const dealValue = lead.product?.priceLabel || valorNegocio(lead.saleValue) || "—";
   const dealSupporting = lead.product?.name || lead.nextAction || "—";
   const lastRecord = lead.lastResult || lead.shortNote || null;
+  const nome = formatCompanyName(lead.name);
 
   return (
-    <aside className="vnd-lead-peek hbx-panel-shell__context has-lead" aria-label={lead.name || "Lead"} aria-live="polite">
+    <aside className="vnd-lead-peek hbx-panel-shell__context has-lead" aria-label={nome || "Lead"} aria-live="polite">
       <header className="vnd-lead-peek__head">
         <span>Lead</span>
         <span className="vnd-lead-peek__head-actions">
@@ -140,9 +146,9 @@ export function VendasLeadPreview({
 
       <div className="vnd-lead-peek__body">
         <section className="vnd-lead-peek__hero">
-          <Av name={lead.name || "Lead"} size={48} />
+          <Av name={nome || "Lead"} size={48} />
           <span className="vnd-lead-peek__identity">
-            <strong title={lead.name || undefined}>{lead.name || "—"}</strong>
+            <strong title={nome || undefined}>{nome || "—"}</strong>
             <small title={meta}>{meta}</small>
           </span>
           <span
@@ -212,8 +218,8 @@ export function VendasLeadPreview({
 
         <section className="vnd-lead-peek__facts">
           <span><small>CNPJ</small><strong className="hbx-mono">{cnpj}</strong></span>
-          <span><small>Cidade</small><strong>{cidade}</strong></span>
-          {telefone && <span><small>Telefone</small><strong className="hbx-mono">{formatBrPhone(telefone)}</strong></span>}
+          <span><small>Cidade</small><strong>{cidadeSo}</strong></span>
+          {telefone && <span><small>Telefone</small><strong className="hbx-mono">{formatBrPhoneDisplay(telefone)}</strong></span>}
           <span><small>Temperatura</small><strong>{temperaturaLabel(lead.leadTemperature)}</strong></span>
         </section>
 

@@ -27,6 +27,31 @@ export function formatBrPhone(raw: string | null | undefined): string {
   return `(${ddd})${sub.slice(0, -4)}-${sub.slice(-4)}`;
 }
 
+// LEITURA (lista, ficha, card) — (19) 99155-6318, com espaço depois do DDD.
+// É irmã da máscara de DIGITAÇÃO acima, e é separada DE PROPÓSITO: ali cada
+// caractere entra enquanto o dedo digita (espaço atrapalharia o cursor); aqui o
+// número já existe e o espaço é o que separa DDD de assinante no olho.
+//
+// O que NÃO tem cara de telefone brasileiro sai como veio. Enfiar máscara BR
+// num número estrangeiro (ou num campo com dois telefones colados) inventa um
+// dado que não existe — pior que não formatar.
+export function formatBrPhoneDisplay(raw: string | null | undefined): string {
+  const bruto = String(raw ?? "").trim();
+  const cru = onlyDigits(bruto);
+  if (!cru) return bruto;
+  // O "+" DECLARA um DDI, e DDI que não é 55 encerra o assunto. Sem esta linha
+  // "+1 415 555 2671" (EUA) vira "(14) 15555-2671": 11 dígitos com um DDD 14
+  // plausível na frente, e a máscara passa a mentir com cara de certeza.
+  if (bruto.startsWith("+") && !cru.startsWith("55")) return bruto;
+  // +55 só é DDI quando sobra número BR embaixo dele (12 ou 13 dígitos).
+  const d = (cru.length === 12 || cru.length === 13) && cru.startsWith("55") ? cru.slice(2) : cru;
+  // DDD brasileiro vai de 11 a 99 — nenhum tem 0 em qualquer das duas casas.
+  if ((d.length === 10 || d.length === 11) && /^[1-9][1-9]/.test(d)) {
+    return `(${d.slice(0, 2)}) ${d.slice(2, -4)}-${d.slice(-4)}`;
+  }
+  return bruto;
+}
+
 // Completo = 10 (fixo) ou 11 (celular) dígitos locais, DDD começando em 1–9.
 export function isBrPhoneComplete(raw: string | null | undefined): boolean {
   const d = toLocalDigits(raw);

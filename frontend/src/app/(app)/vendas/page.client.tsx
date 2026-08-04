@@ -30,6 +30,9 @@ import { LeadsClient } from "../leads/page.client";
 import { apiFetch } from "@/lib/api";
 
 import { useTabParam } from "@/lib/use-tab-param";
+import { formatBrPhoneDisplay } from "@/lib/br-phone";
+import { formatCityName, formatCityUf } from "@/lib/br-cidade";
+import { formatCompanyName } from "@/lib/br-empresa";
 import { useRadarAiStatusPoll } from "@/lib/radar-ai-status";
 import { vendasCanais } from "@/lib/vendas-channels";
 import { buildWaLink, buildWaMessage } from "@/lib/wa-link";
@@ -345,11 +348,14 @@ const COL_MIN = 72;
 const COL_MAX = 560;
 
 const GRID_COLUMNS: GridColumn[] = [
-  { key: "name", label: "Empresa", width: 220, text: c => c.name || "" },
+  { key: "name", label: "Empresa", width: 220, text: c => formatCompanyName(c.name) },
   { key: "icons", label: "Ícones", width: 128, text: c => vendasCanais(c).join(" ") },
   { key: "status", label: "Status", width: 140, nosort: true, text: () => "" },
-  { key: "phone", label: "Telefone", width: 140, mono: true, text: c => c.phone || "" },
-  { key: "city", label: "Cidade", width: 130, text: c => c.city || "" },
+  // Telefone e Cidade saem SANEADOS daqui, e não do JSX: este `text()` é o
+  // mesmo que alimenta ordenação, busca e legenda. Formatar só na pintura
+  // deixaria a tela bonita e a ordenação separando "CAMPINAS" de "Campinas".
+  { key: "phone", label: "Telefone", width: 148, mono: true, text: c => formatBrPhoneDisplay(c.phone) },
+  { key: "city", label: "Cidade", width: 140, text: c => formatCityName(c.city, c.state) },
   { key: "state", label: "UF", width: 52, text: c => c.state || "" },
   { key: "segment", label: "Segmento", width: 160, text: c => c.segment || "" },
   { key: "stage", label: "Etapa", width: 130, text: c => STAGE_LABEL[normalizeStage(c.status)] },
@@ -363,7 +369,7 @@ const GRID_COLUMNS: GridColumn[] = [
   { key: "email", label: "E-mail", width: 200, text: c => c.email || "" },
   { key: "address", label: "Endereço", width: 220, text: c => c.address || "" },
   { key: "cnpj", label: "CNPJ", width: 150, mono: true, text: c => c.cnpj || "" },
-  { key: "razao", label: "Razão social", width: 200, text: c => c.razaoSocial || "" },
+  { key: "razao", label: "Razão social", width: 200, text: c => formatCompanyName(c.razaoSocial) },
   { key: "score", label: "Score", width: 70, mono: true, text: c => (c.opportunityScore != null ? String(c.opportunityScore) : "") },
   { key: "temp", label: "Temperatura", width: 110, text: c => c.leadTemperature || "" },
   { key: "attempts", label: "Contatos", width: 80, mono: true, text: c => String(c.attemptCount ?? 0) },
@@ -531,6 +537,8 @@ export function VendasClient() {
   const largurasRef = useRef(larguras);
   largurasRef.current = larguras;
   const [colsOpen, setColsOpen] = useState(false);
+  /** Onde o menu de campos abre — canto do botão, medido no clique. */
+  const [colsAnchor, setColsAnchor] = useState<{ x: number; y: number } | null>(null);
   const [columnSearch, setColumnSearch] = useState("");
   const [columnDraft, setColumnDraft] = useState<string[]>(gridKeys);
   const [columnDrag, setColumnDrag] = useState<string | null>(null);
@@ -1202,11 +1210,21 @@ export function VendasClient() {
     }
   }
 
+  // A busca do funil é a do TOPO da casca (hbx:search-query) — a faixa de
+  // métricas que trazia um segundo campo morreu em 04/08. Por isso ela tem que
+  // achar o lead do jeito que ele aparece na tela E do jeito que está no banco:
+  // quem lê "(19) 99155-6318" digita com parêntese, quem colou do WhatsApp
+  // digita só dígito, e "CAMPINAS" tem que responder por "Campinas".
   function matchSearch(card: VendasLead): boolean {
     if (!searchQuery) return true;
-    const q = searchQuery.toLowerCase();
-    return [card.name, card.phone, card.email, card.segment, card.city, card.state, card.nextAction, card.shortNote]
-      .some(v => v?.toLowerCase().includes(q));
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    const digitos = q.replace(/\D/g, "");
+    if (digitos.length >= 3 && String(card.phone || "").replace(/\D/g, "").includes(digitos)) return true;
+    return [
+      card.name, card.phone, card.email, card.segment, card.city, card.state, card.nextAction, card.shortNote,
+      formatBrPhoneDisplay(card.phone), formatCityName(card.city, card.state),
+    ].some(v => v?.toLowerCase().includes(q));
   }
 
   // Ordenação da grade: numérica quando a coluna é numérica, senão alfabética
@@ -1249,8 +1267,7 @@ export function VendasClient() {
 
   const roboAtivo = flatLeads.filter(c => c.automation).length;
   const canViewValues = Boolean(board?.canViewValues);
-  const carteiraValue = flatLeads.reduce((total, card) => total + (Number(card.saleValue) || 0), 0);
-  const carteiraValueLabel = canViewValues ? (fmtMoney(carteiraValue) || "—") : "—";
+  // (o total da carteira morreu junto com a faixa de métricas, em 04/08)
 
   // O status pertence ao Radar. O id comercial de Vendas nunca é usado como radarLeadId.
   const aiStatusMap = useRadarAiStatusPoll(flatLeads.map(card => card.radarLeadId || ""), {
@@ -1263,7 +1280,17 @@ export function VendasClient() {
     .map(k => GRID_COLUMNS.find(c => c.key === k))
     .filter((c): c is GridColumn => Boolean(c) && (c!.gate !== "values" || Boolean(board?.canViewValues)));
 
-  function openColumnPicker() {
+  // O menu do editor abre ANCORADO no botão, em coordenada de tela.
+  //
+  // Ele não pode ser filho da grade (ela rola de lado — `overflow-x: auto` —
+  // e corta caixa flutuante), nem se contentar com `absolute` dentro do wrap:
+  // o wrap tem `overflow: hidden` e o menu tem uns 540px de altura, então em
+  // janela baixa (o 1368x768 que já mordeu o cockpit) ele apareceria cortado
+  // pela metade. Medindo o botão na hora do clique, o menu vira `fixed` e não
+  // depende de nenhum pai — e ainda cabe sozinho quando a janela é curta.
+  function openColumnPicker(botao?: HTMLElement | null) {
+    const r = botao?.getBoundingClientRect();
+    if (r) setColsAnchor({ x: Math.round(r.left), y: Math.round(r.bottom + 6) });
     setColumnDraft(gridKeys);
     setColumnSearch("");
     setColsOpen(true);
@@ -1405,17 +1432,29 @@ export function VendasClient() {
    * Assim que ele arrasta, vira o número dele — e aí é escolha, não palpite.
    */
   const trilhaDaGrade = [
-    "34px",
+    // 56px e não 34: a primeira trilha agora carrega o seletor de marcar tudo
+    // MAIS o editor de campos, que veio morar colado nele (04/08).
+    "56px",
     // ARMADILHA MEDIDA EM 01/08: `minmax(130px, min(max-content, 560px))` é
     // INVÁLIDO — função matemática não aceita palavra de dimensionamento
     // intrínseco. O navegador descartou a lista de trilhas inteira, a grade
     // virou uma coluna só e a tela empilhou tudo na vertical. Sem erro no
     // console, sem build vermelho: é o "CSS morre calado" de novo.
     // O teto de largura mora no CSS (`.vnd-sales-td > *`), onde ele funciona.
+    //
+    // ARMADILHA MEDIDA EM 04/08 — E ESTA ERA GRAVE: a trilha da coluna sem
+    // largura escolhida era `minmax(Xpx, max-content)`, e `max-content` mede
+    // O CONTEÚDO DO PRÓPRIO CONTAINER. Cabeçalho e faixas são grades
+    // SEPARADAS (um `display:grid` por linha), então cada faixa media o nome
+    // que ela tinha dentro e parava num lugar: a coluna Segmento começava em
+    // X=427 numa faixa, 484 na seguinte, 300 na outra — e o cabeçalho em 300.
+    // Não era coluna, era coincidência. Ninguém tinha visto porque quem já
+    // arrastou as alças tem tudo em px (o `larguras` acima), e aí alinha; a
+    // tela torta era a de quem NUNCA arrastou.
+    // Trilha de grade que se repete linha a linha tem que ser DEFINIDA. O
+    // padrão do campo já é um número — agora ele vale como número.
     ...gridCols.map(c =>
-      larguras[c.key] !== undefined
-        ? `${larguraDaColuna(c.key)}px`
-        : `minmax(${c.width}px, max-content)`,
+      `${larguras[c.key] !== undefined ? larguraDaColuna(c.key) : c.width}px`,
     ),
     "72px",
   ].join(" ");
@@ -1683,15 +1722,11 @@ export function VendasClient() {
                     <button type="button" className={"seg" + (view === "list" ? " on" : "")} onClick={() => setView("list")} aria-pressed={view === "list"}>Lista</button>
                     <button type="button" className={"seg" + (view === "board" ? " on" : "")} onClick={() => setView("board")} aria-pressed={view === "board"}>Quadro</button>
                   </span>
-                  {view === "list" && (
-                    <div className="vnd-colspick">
-                      <button type="button" className="icon-ghost" aria-haspopup="menu" aria-expanded={colsOpen}
-                        onClick={() => colsOpen ? cancelColumnPicker() : openColumnPicker()} title="Escolher e ordenar os campos" aria-label={`Campos da lista: ${gridCols.length} visíveis`}>
-                        <I d={ICONS.edit} size={16} />
-                      </button>
-                      {colsOpen && columnPicker}
-                    </div>
-                  )}
+                  {/* O editor de campos MUDOU DE CASA (04/08/2026): saiu daqui,
+                      colado no "Quadro", e foi pro cabeçalho da própria lista,
+                      encostado no seletor de marcar tudo. Ele edita a grade —
+                      tem que morar na grade, não a duas faixas de distância
+                      dela. Ver `.vnd-sales-fields`. */}
                   <button type="button" className="icon-ghost" title="Automações comerciais" aria-label="Automações comerciais" data-tut="vendas-prosp" onClick={() => setProspOpen(true)}>
                     <I d={ICONS.bot} size={16} />
                   </button>
@@ -1782,7 +1817,16 @@ export function VendasClient() {
                   decidir. Primeiro clique abre a prévia; repetir abre a ficha. */}
               {view === "list" && board && (summary?.total ?? 0) > 0 && (
                 <div className={"vnd-sales-list-wrap" + (selecionados.size > 0 ? " is-bulk" : "")}>
-                  {selecionados.size > 0 ? (
+                  {/* A FAIXA DE MÉTRICAS MORREU (04/08/2026).
+                      Eram 3 cartões e um segundo campo de busca ocupando uma
+                      linha inteira acima da tabela — e os três números já
+                      estavam na tela: "47 leads" é o rodapé, "0 chamou" é o
+                      número da etapa Respondeu, e a busca é a do topo da casca
+                      (o funil já escutava `hbx:search-query`). Faixa que só
+                      repete o que a tela abaixo dela diz é altura roubada do
+                      dado. Sobrou aqui só a barra de SELEÇÃO, que não repete
+                      nada: ela nasce do que o usuário marcou. */}
+                  {selecionados.size > 0 && (
                     <div className="vnd-sales-toolbar vnd-sales-toolbar--bulk">
                       <span className="hbx-selection-bar__copy">
                         <b>{selecionados.size} selecionado{selecionados.size === 1 ? "" : "s"}</b>
@@ -1795,30 +1839,6 @@ export function VendasClient() {
                       </button>
                       </span>
                     </div>
-                  ) : (
-                    <div className="vnd-sales-toolbar">
-                      <span className="vnd-sales-metric">
-                        <span className="vnd-sales-metric__icon"><I d={ICONS.leads} size={15} /></span>
-                        <span><strong>{flatLeads.length} lead{flatLeads.length === 1 ? "" : "s"}</strong><small>carteira ativa</small></span>
-                      </span>
-                      <span className="vnd-sales-metric">
-                        <span className="vnd-sales-metric__icon"><I d={ICONS.money} size={15} /></span>
-                        <span><strong>{carteiraValueLabel}</strong><small>{canViewValues ? "potencial" : "valores restritos"}</small></span>
-                      </span>
-                      <span className={"vnd-sales-metric" + (stageCounts.retorno > 0 ? " is-hot" : "")}>
-                        <span className="vnd-sales-metric__icon"><I d={ICONS.msg} size={15} /></span>
-                        <span><strong>{stageCounts.retorno} chamou</strong><small>responder agora</small></span>
-                      </span>
-                      <label className="vnd-sales-search">
-                        <I d={ICONS.search} size={15} />
-                        <input
-                          value={searchQuery}
-                          onChange={event => setSearchQuery(event.target.value)}
-                          placeholder="Buscar no funil…"
-                          aria-label="Buscar no funil"
-                        />
-                      </label>
-                    </div>
                   )}
 
                   <div className="vnd-sales-grade" style={{ "--vnd-grade-cols": trilhaDaGrade } as React.CSSProperties}>
@@ -1826,6 +1846,11 @@ export function VendasClient() {
                     <span className="vnd-sales-check">
                       <input type="checkbox" checked={todosSelecionados} onChange={toggleTodos}
                         aria-label={todosSelecionados ? "Desmarcar todos" : "Selecionar todos"} />
+                      <button type="button" className="vnd-sales-fields" aria-haspopup="menu" aria-expanded={colsOpen}
+                        onClick={event => colsOpen ? cancelColumnPicker() : openColumnPicker(event.currentTarget)}
+                        title="Escolher e ordenar os campos" aria-label={`Campos da lista: ${gridCols.length} visíveis`}>
+                        <I d={ICONS.edit} size={14} />
+                      </button>
                     </span>
                     {gridCols.map(col => (
                       <span key={col.key} className="vnd-sales-th">
@@ -1856,7 +1881,7 @@ export function VendasClient() {
                       const ag = agendaInfo(card);
                       const score = Math.max(0, Math.min(100, Math.round(Number(card.opportunityScore) || 0)));
                       const canais = vendasCanais(card);
-                      const location = card.city ? `${card.city}${card.state ? `/${card.state}` : ""}` : card.state || "";
+                      const location = formatCityUf(card.city, card.state);
                       // LEI "mostra num lugar, edita num lugar": com a grade de
                       // verdade, todo campo escolhido virou COLUNA. Repetir o
                       // mesmo dado na legenda embaixo do nome seria mostrar
@@ -1867,7 +1892,7 @@ export function VendasClient() {
                       const identityMeta = [
                         semColuna("segment") ? card.segment : null,
                         semColuna("city") && semColuna("state") ? location : null,
-                        semColuna("phone") ? card.phone : null,
+                        semColuna("phone") ? formatBrPhoneDisplay(card.phone) : null,
                         semColuna("email") ? card.email : null,
                       ].filter(Boolean).join(" · ");
                       // A legenda do "Próximo passo" carrega VALOR sem rótulo,
@@ -1915,7 +1940,7 @@ export function VendasClient() {
                                     <span className="vnd-sales-row__avatar"><Av name={card.name || "Lead"} size={34} /></span>
                                     <span className="vnd-sales-row__identity">
                                       <span className="vnd-sales-row__name">
-                                        <strong className="hbx-1linha">{card.name || "—"}</strong>
+                                        <strong className="hbx-1linha">{formatCompanyName(card.name) || "—"}</strong>
                                         {card.saleConfirmedAt && <span className="badge-win">Ganho</span>}
                                       </span>
                                       {identityMeta && <small className="hbx-1linha" title={identityMeta}>{identityMeta}</small>}
@@ -1993,6 +2018,22 @@ export function VendasClient() {
                   </div>
                   </div>{/* /vnd-sales-grade */}
 
+                  {/* O menu do editor mora FORA da grade de propósito (ver
+                      `openColumnPicker`): ele é `fixed` na coordenada do botão,
+                      então nem a rolagem lateral da grade nem o `overflow:
+                      hidden` do wrap conseguem cortá-lo. */}
+                  {colsOpen && (
+                    <div
+                      className="vnd-colspick vnd-colspick--grade"
+                      style={{
+                        "--vnd-colspick-x": `${colsAnchor?.x ?? 16}px`,
+                        "--vnd-colspick-y": `${colsAnchor?.y ?? 120}px`,
+                      } as React.CSSProperties}
+                    >
+                      {columnPicker}
+                    </div>
+                  )}
+
                   <footer className="vnd-sales-footer">
                     <span><strong>{listLeads.length}</strong> lead{listLeads.length === 1 ? "" : "s"} {listLeads.length === 1 ? "visível" : "visíveis"}</span>
                     <span aria-hidden="true">•</span>
@@ -2059,10 +2100,10 @@ export function VendasClient() {
                                 >
                                   <span className="vnd-card__grip" aria-hidden="true" />
                                   <div className="vnd-card__top">
-                                    <strong className="vnd-card__name">{card.name || "—"}</strong>
+                                    <strong className="vnd-card__name">{formatCompanyName(card.name) || "—"}</strong>
                                     {card.saleConfirmedAt && <span className="badge-win">Ganho</span>}
                                   </div>
-                                  <span className="vnd-card__sub">{card.segment || card.city || card.phone || "—"}</span>
+                                  <span className="vnd-card__sub">{card.segment || formatCityName(card.city, card.state) || formatBrPhoneDisplay(card.phone) || "—"}</span>
                                   <RadarAiBadge status={aiStatusMap[card.radarLeadId || ""]} />
                                   <div className="vnd-card__row">
                                     <Termometro score={therm.score} why={therm.why} />
@@ -2108,7 +2149,11 @@ export function VendasClient() {
                     rotulo="Largura da ficha do lead"
                   />
 
+                  {/* A `key` é o que faz a cascata REPETIR a cada lead: sem ela
+                      o React reaproveita o mesmo nó, e animação de CSS só toca
+                      quando o elemento nasce. Trocar de lead = nascer de novo. */}
                   <VendasLeadPreview
+                    key={sel?.id ?? "vazio"}
                     lead={sel}
                     canViewValues={canViewValues}
                     onClose={() => setSel(null)}
@@ -2211,7 +2256,7 @@ export function VendasClient() {
                 el.style.left = `${x}px`;
                 el.style.top = `${y}px`;
               }}>
-              <span className="vnd-rowmenu__title">{card.name || "Lead"}</span>
+              <span className="vnd-rowmenu__title">{formatCompanyName(card.name) || "Lead"}</span>
               <button type="button" role="menuitem" onClick={() => { fechar(); setSel(card); setCockpitOpen(true); }}>
                 Abrir
               </button>
@@ -2456,7 +2501,7 @@ export function VendasClient() {
                     <button key={card.id} onClick={() => { setSel(card); setAgendaOpen(false); }}
                       style={{ display: "grid", gap: 3, textAlign: "left", padding: "9px 11px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", cursor: "pointer", fontFamily: "var(--font-body)", color: "var(--text-strong)" }}>
                       <span style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                        <strong style={{ fontSize: "var(--fz-l2)" }}>{card.name || "—"}</strong>
+                        <strong style={{ fontSize: "var(--fz-l2)" }}>{formatCompanyName(card.name) || "—"}</strong>
                         <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--hbx-font-min)", color: "var(--text-muted)", whiteSpace: "nowrap" }}>{fmtWhen(card.returnAt)}</span>
                       </span>
                       <span style={{ fontSize: "var(--hbx-font-min)", color: "var(--text-muted)" }}>{card.nextAction || card.statusLabel}</span>

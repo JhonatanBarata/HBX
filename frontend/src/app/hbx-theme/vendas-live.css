@@ -2153,6 +2153,14 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
    priorizáveis no organizador. Zero cor literal: só token central.
    ============================================================ */
 .vnd-sales-list-wrap {
+  /* A DIVISÓRIA DA GRADE — um valor só (04/08/2026).
+     Cabeçalho, colunas, faixas e rodapé leem esta linha; mexer aqui move as
+     quatro de uma vez. Nasce entre a hairline e a borda forte: precisa
+     APARECER numa tabela de 14 colunas sem virar gradezinha de planilha.
+     Mora no wrap, e não na grade, porque o rodapé é irmão da grade — variável
+     declarada só na grade não chega nele. */
+  --vnd-grade-linha: color-mix(in srgb, var(--border-strong) 38%, var(--border-hairline));
+  position: relative;
   display: flex;
   flex: 1 1 auto;
   min-width: 0;
@@ -2161,17 +2169,19 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   overflow: hidden;
   background: var(--hbx-surface);
 }
+/* A faixa só existe para a SELEÇÃO (04/08/2026). Os 3 cartões de métrica e o
+   segundo campo de busca que moravam aqui foram apagados: repetiam o rodapé, o
+   número da etapa e a busca do topo da casca. Junto foram-se `.vnd-sales-metric`
+   e `.vnd-sales-search`, que não tinham outro dono. */
 .vnd-sales-toolbar {
-  min-height: 54px;
+  min-height: 46px;
   display: flex;
   flex: 0 0 auto;
   align-items: center;
   gap: 6px;
-  padding: 7px 9px;
+  padding: 6px 9px;
   border-bottom: 1px solid var(--border-hairline);
-  background:
-    radial-gradient(circle at 100% 0, color-mix(in srgb, var(--hbx-brand) 7%, transparent), transparent 34%),
-    var(--hbx-surface);
+  background: var(--hbx-surface);
 }
 .vnd-sales-toolbar--bulk {
   justify-content: space-between;
@@ -2182,90 +2192,6 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   align-items: center;
   gap: 6px;
 }
-.vnd-sales-metric {
-  min-width: 98px;
-  min-height: 38px;
-  display: inline-flex;
-  flex: 0 1 auto;
-  align-items: center;
-  gap: 7px;
-  padding: 4px 8px;
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-md);
-  background: var(--hbx-surface-soft);
-  box-shadow: var(--shadow-xs);
-}
-.vnd-sales-metric.is-hot {
-  border-color: color-mix(in srgb, var(--hbx-danger) 24%, var(--border-hairline));
-  background: color-mix(in srgb, var(--hbx-danger) 7%, var(--hbx-surface));
-}
-.vnd-sales-metric__icon {
-  width: 27px;
-  height: 27px;
-  display: inline-grid;
-  place-items: center;
-  flex: none;
-  border-radius: var(--radius-sm);
-  background: var(--hbx-brand-soft);
-  color: var(--hbx-brand);
-}
-.vnd-sales-metric.is-hot .vnd-sales-metric__icon {
-  background: color-mix(in srgb, var(--hbx-danger) 12%, transparent);
-  color: var(--hbx-danger);
-}
-.vnd-sales-metric > span:last-child {
-  min-width: 0;
-  display: grid;
-  gap: 1px;
-}
-.vnd-sales-metric strong,
-.vnd-sales-metric small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.vnd-sales-metric strong {
-  color: var(--text-strong);
-  font-size: var(--hbx-font-min);
-  font-weight: 780;
-  line-height: 1.1;
-}
-.vnd-sales-metric small {
-  color: color-mix(in srgb, var(--text-body) 45%, var(--text-strong));
-  font-size: var(--hbx-font-min);
-  font-weight: 620;
-  line-height: 1.1;
-}
-.vnd-sales-search {
-  min-width: 130px;
-  min-height: 38px;
-  display: flex;
-  flex: 1 1 210px;
-  align-items: center;
-  gap: 7px;
-  padding: 0 10px;
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-md);
-  background: var(--hbx-field-surface);
-  color: var(--text-muted);
-  box-shadow: var(--shadow-inset);
-}
-.vnd-sales-search:focus-within {
-  border-color: color-mix(in srgb, var(--hbx-brand) 46%, var(--border-hairline));
-  box-shadow: 0 0 0 3px var(--ring-brand);
-}
-.vnd-sales-search input {
-  width: 100%;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--text-strong);
-  font-family: var(--font-body);
-  font-size: var(--hbx-font-min);
-  font-weight: 620;
-}
-.vnd-sales-search input::placeholder { color: var(--text-muted); }
 /* ============================================================
    A GRADE DA LISTA (01/08/2026)
 
@@ -2292,9 +2218,18 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 .vnd-sales-head,
 .vnd-sales-row {
   display: grid;
-  grid-template-columns: var(--vnd-grade-cols, 34px minmax(190px, 1.58fr) 72px);
-  align-items: center;
-  column-gap: 7px;
+  grid-template-columns: var(--vnd-grade-cols, 56px minmax(190px, 1.58fr) 72px);
+  /* `stretch` e não `center`: com as células centralizadas, cada uma ficava só
+     da altura do próprio texto e a divisória vertical saía como um risquinho
+     no meio da faixa. Agora a célula ocupa a faixa inteira e a linha vai de
+     ponta a ponta — o conteúdo continua centrado, mas dentro dela (cada
+     célula é um flex com `align-items: center`). */
+  align-items: stretch;
+  /* Gap ZERO de propósito: com folga entre as trilhas, a divisória do
+     cabeçalho e a da faixa caem em X diferentes e a linha vertical sai
+     quebrada. Sem gap, as duas nascem na MESMA borda; o respiro passou a ser
+     padding DENTRO da célula, que anda junto com ela. */
+  column-gap: 0;
   /* Rolando de lado, a linha tem que ser tão larga quanto a trilha inteira —
      senão o fundo da faixa selecionada some no meio da rolagem. */
   min-width: max-content;
@@ -2309,6 +2244,11 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   display: flex;
   align-items: center;
   gap: 6px;
+  padding-inline: 9px;
+  /* A DIVISÃO VERTICAL. Vale da primeira coluna em diante — inclusive entre o
+     seletor e "Empresa" —, e é a mesma no cabeçalho e na faixa porque as duas
+     usam este par de seletores. */
+  border-left: 1px solid var(--vnd-grade-linha);
 }
 
 /* O TETO DA COLUNA QUE SE MEDE SOZINHA.
@@ -2326,7 +2266,6 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
    largura fica encostada na borda direita, que é onde a mão procura. */
 .vnd-sales-th {
   position: relative;
-  padding-right: 7px;
 }
 .vnd-sales-th > button { flex: 1 1 auto; min-width: 0; }
 .vnd-sales-th > button:disabled { cursor: default; }
@@ -2340,6 +2279,9 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   cursor: col-resize;
   touch-action: none;
 }
+/* A alça parou de DESENHAR a divisória (04/08): quem divide coluna agora é a
+   borda da célula, e duas linhas de 1px no mesmo X só somavam sujeira. Ela
+   ficou com o papel que é dela — o realce de "dá pra arrastar aqui". */
 .vnd-col-alca::after {
   content: "";
   position: absolute;
@@ -2348,7 +2290,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   left: 4px;
   width: 1px;
   border-radius: 1px;
-  background: var(--border-hairline);
+  background: transparent;
   transition: background var(--motion-fast), width var(--motion-fast);
 }
 .vnd-col-alca:hover::after {
@@ -2358,11 +2300,29 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   left: 3px;
   background: var(--hbx-brand);
 }
+/* ── A ESCADA DA LISTA (04/08/2026) ───────────────────────────────────────
+   O defeito era este: o nome da empresa estava escrito no PISO da tipografia
+   (--hbx-font-min = 9,8px, o menor tamanho que o app tem direito de pintar),
+   enquanto Cidade, Telefone, Segmento e E-mail não declaravam tamanho nenhum
+   e herdavam o do ambiente — 12px. Resultado: a legenda saía MAIOR que o dado
+   que ela legenda, exatamente a inversão contra a qual typography.css avisa.
+   Não era "letra grande demais" nem "pequena demais": era letra sem ordem.
+
+   Agora são três degraus e uma regra: quanto mais decide, maior.
+     nome da empresa  --fz-n2  (12,9px)  ← manda na leitura
+     célula comum     --fz-n3  (12,0px)  ← Cidade, Telefone, Etapa, Valor…
+     legenda / rótulo --fz-l2/l3 (10,9 / 10,4px)
+   Nenhum tamanho literal: só degraus da escada central.                    */
+.vnd-sales-td {
+  color: var(--text-body);
+  font-size: var(--fz-n3);
+  font-weight: 600;
+}
 .vnd-sales-head {
-  min-height: 31px;
+  min-height: 32px;
   flex: 0 0 auto;
   padding: 0 7px;
-  border-bottom: 1px solid var(--border-hairline);
+  border-bottom: 1px solid var(--vnd-grade-linha);
   background: var(--hbx-table-head);
 }
 .vnd-sales-head .vnd-sales-th > button {
@@ -2373,7 +2333,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   color: var(--text-muted);
   cursor: pointer;
   font-family: var(--font-body);
-  font-size: var(--hbx-font-min);
+  font-size: var(--fz-l3);
   font-weight: 760;
   letter-spacing: 0.045em;
   text-align: left;
@@ -2381,12 +2341,37 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   white-space: nowrap;
 }
 .vnd-sales-head .vnd-sales-th > button:hover:not(:disabled) { color: var(--text-strong); }
-.vnd-sales-head .vnd-sales-th > button > span { margin-left: 3px; font-size: var(--hbx-font-min); }
+.vnd-sales-head .vnd-sales-th > button > span { margin-left: 3px; font-size: var(--fz-l3); }
 .vnd-sales-check {
   min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 4px;
+  padding-inline: 7px 0;
+}
+/* O EDITOR DE CAMPOS, encostado no seletor (04/08/2026). Ele edita a grade —
+   morava a duas faixas de distância dela, do lado do botão "Quadro". */
+.vnd-sales-fields {
+  width: 22px;
+  height: 22px;
   display: inline-grid;
   place-items: center;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background var(--motion-fast), color var(--motion-fast);
 }
+.vnd-sales-fields:hover,
+.vnd-sales-fields[aria-expanded="true"] {
+  background: var(--hbx-brand-soft);
+  color: var(--hbx-brand);
+}
+.vnd-sales-fields:focus-visible { box-shadow: 0 0 0 2px var(--ring-brand); }
 .vnd-sales-list {
   flex: 1 1 auto;
   min-height: 0;
@@ -2404,7 +2389,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
      que o controle só nasceu depois desta linha existir. */
   min-height: calc(61px * var(--hbx-densidade));
   padding: var(--hbx-espaco-linha) 7px;
-  border-bottom: 1px solid var(--border-hairline);
+  border-bottom: 1px solid var(--vnd-grade-linha);
   background: var(--hbx-surface);
   color: var(--text-body);
   cursor: pointer;
@@ -2471,15 +2456,16 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 .vnd-sales-row__name strong {
   min-width: 0;
   color: var(--text-strong);
-  font-size: var(--hbx-font-min);
-  font-weight: 760;
+  font-size: var(--fz-n2);
+  font-weight: 720;
+  letter-spacing: -0.005em;
 }
 .vnd-sales-row__identity > small,
 .vnd-sales-row__next small,
 .vnd-sales-row__deal small,
 .vnd-sales-row__stage-copy small {
   color: color-mix(in srgb, var(--text-body) 45%, var(--text-strong));
-  font-size: var(--hbx-font-min);
+  font-size: var(--fz-l2);
   font-weight: 600;
 }
 .vnd-sales-row__signals {
@@ -2500,16 +2486,18 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   gap: 6px;
 }
 .vnd-sales-score {
-  min-width: 23px;
+  min-width: 25px;
   height: 22px;
   display: inline-grid;
   place-items: center;
+  padding-inline: 4px;
   border: 1px solid color-mix(in srgb, var(--hbx-brand) 24%, var(--border-hairline));
   border-radius: var(--radius-sm);
   background: var(--hbx-brand-soft);
   color: var(--hbx-brand);
   font-family: var(--font-mono);
-  font-size: var(--hbx-font-min);
+  font-size: var(--fz-l1);
+  font-variant-numeric: tabular-nums;
   font-weight: 800;
 }
 .vnd-sales-score.is-empty {
@@ -2528,15 +2516,37 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 .vnd-sales-row__next strong,
 .vnd-sales-row__deal strong {
   color: var(--text-strong);
-  font-size: var(--hbx-font-min);
-  font-weight: 730;
+  font-size: var(--fz-n3);
+  font-weight: 700;
 }
 .vnd-sales-row__deal { text-align: right; }
+
+/* TELEFONE: coluna de número, não de texto. Mono + tabular alinha dígito com
+   dígito de faixa em faixa — é o que faz 14 telefones virarem uma coluna só
+   em vez de 14 comprimentos diferentes. O `nowrap` impede que a máscara quebre
+   entre o DDD e o assinante quando a coluna é estreitada na alça. */
+.vnd-sales-td[data-col="phone"] > *,
+.vnd-sales-td[data-col="cnpj"] > *,
+.vnd-sales-td[data-col="value"],
+.vnd-sales-td[data-col="date"] > *,
+.vnd-sales-td[data-col="created"] > * {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+/* Cidade e Segmento: texto de uma linha só, com reticência honesta. */
+.vnd-sales-td[data-col="city"] > *,
+.vnd-sales-td[data-col="segment"] > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .vnd-sales-row__actions {
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
   gap: 2px;
+  padding-inline: 4px;
 }
 .vnd-sales-row__actions button {
   width: 23px;
@@ -2561,7 +2571,7 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   display: grid;
   place-items: center;
   color: var(--text-body);
-  font-size: var(--hbx-font-min);
+  font-size: var(--fz-n2);
   font-weight: 650;
 }
 .vnd-sales-footer {
@@ -2571,10 +2581,10 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   align-items: center;
   gap: 7px;
   padding: 0 10px;
-  border-top: 1px solid var(--border-hairline);
+  border-top: 1px solid var(--vnd-grade-linha);
   background: var(--hbx-surface-soft);
   color: color-mix(in srgb, var(--text-body) 45%, var(--text-strong));
-  font-size: var(--hbx-font-min);
+  font-size: var(--fz-l2);
   font-weight: 620;
 }
 .vnd-sales-footer strong {
@@ -2672,6 +2682,28 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 /* Organização de campos: a lista vertical define a prioridade de leitura
    usada nas faixas comerciais. */
 .vnd-colspick { position: relative; display: inline-flex; }
+/* Variante da GRADE (04/08): o botão vive no cabeçalho da lista, mas o menu
+   não pode viver lá dentro — a grade rola de lado (`overflow-x: auto`) e o
+   wrap tem `overflow: hidden`; caixa flutuante dentro de container que corta
+   é caixa cortada. Ele abre em coordenada de TELA, medida no botão na hora do
+   clique (`openColumnPicker`), e por isso nenhum pai consegue mais cortá-lo.
+   `min` segura o menu dentro da janela quando o clique é lá na direita ou a
+   tela é curta — é o que impede o 1368x768 de comer o rodapé do menu. */
+.vnd-colspick--grade {
+  /* Altura de referência do menu: cabeçalho + 2 quadros + prévia + ações. */
+  --vnd-colspick-alt: 560px;
+  position: static;
+  display: block;
+}
+.vnd-colspick--grade .vnd-colspick__menu {
+  position: fixed;
+  z-index: 60;
+  top: clamp(16px, var(--vnd-colspick-y, 120px), max(16px, calc(100dvh - 16px - var(--vnd-colspick-alt))));
+  left: clamp(8px, var(--vnd-colspick-x, 16px), max(8px, calc(100vw - 16px - min(780px, 88vw))));
+  right: auto;
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+}
 .vnd-colspick__menu {
   position: absolute; top: calc(100% + 6px); right: 0; z-index: 40;
   width: min(780px, 88vw); padding: 14px;
@@ -2928,6 +2960,53 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
+}
+
+/* ── A CASCATA DA FICHA (devolvida em 04/08/2026) ─────────────────────────
+   Trocar de lead na lista trocava o conteúdo da ficha num piscar seco: a
+   coluna inteira mudava de uma vez e o olho não sabia que tinha mudado.
+   Os blocos voltam a entrar em sequência — sobem 6px e acendem, um logo
+   atrás do outro — e a ficha parece estar sendo ESCRITA na hora.
+
+   Quem faz repetir a cada lead é a `key={sel.id}` no componente: animação de
+   CSS só toca quando o elemento nasce, e sem `key` o React reaproveita o
+   mesmo nó pra sempre (a razão nº1 de "coloquei a animação e não roda").
+
+   O atraso cresce com o degrau e para no 6º: fila longa demais faz o último
+   bloco chegar depois do próximo clique, e aí a animação atrapalha em vez
+   de contar. `both` segura o estado inicial antes do atraso — sem ele os
+   blocos aparecem inteiros e SÓ DEPOIS somem pra animar (o pisca-pisca). */
+@keyframes vnd-peek-escrever {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+/* ARMADILHA MEDIDA AQUI (04/08): `--motion-base` NÃO é só duração — ela vale
+   "340ms cubic-bezier(0.22,1,0.36,1)", duração E curva no mesmo token. Somar
+   `var(--ease-out-quint)` depois dela põe DUAS curvas no atalho, o atalho fica
+   inválido e o navegador joga a regra inteira fora sem dizer nada: a animação
+   ficava declarada na folha e `animation-name` computava `none`. É o "CSS
+   morre calado" — só apareceu porque a opacidade foi MEDIDA quadro a quadro. */
+.vnd-modehost[data-fx="on"] .vnd-lead-peek.has-lead .vnd-lead-peek__body > section {
+  animation: vnd-peek-escrever var(--motion-base) both;
+}
+.vnd-modehost[data-fx="on"] .vnd-lead-peek.has-lead .vnd-lead-peek__body > section:nth-child(1) { animation-delay: 0.02s; }
+.vnd-modehost[data-fx="on"] .vnd-lead-peek.has-lead .vnd-lead-peek__body > section:nth-child(2) { animation-delay: 0.06s; }
+.vnd-modehost[data-fx="on"] .vnd-lead-peek.has-lead .vnd-lead-peek__body > section:nth-child(3) { animation-delay: 0.10s; }
+.vnd-modehost[data-fx="on"] .vnd-lead-peek.has-lead .vnd-lead-peek__body > section:nth-child(4) { animation-delay: 0.14s; }
+.vnd-modehost[data-fx="on"] .vnd-lead-peek.has-lead .vnd-lead-peek__body > section:nth-child(5) { animation-delay: 0.18s; }
+.vnd-modehost[data-fx="on"] .vnd-lead-peek.has-lead .vnd-lead-peek__body > section:nth-child(n+6) { animation-delay: 0.22s; }
+/* O cabeçalho e o rodapé são MOLDURA, não conteúdo: eles não mudam de lead
+   pra lead, então animá-los seria mentir sobre o que chegou de novo. Só a
+   etiqueta da etapa, que muda, acompanha a cascata. */
+.vnd-modehost[data-fx="on"] .vnd-lead-peek.has-lead .vnd-lead-peek__state {
+  animation: vnd-peek-escrever var(--motion-fast) both;
+}
+/* Quem pediu menos movimento ao sistema recebe o dado direto, sem fila. */
+@media (prefers-reduced-motion: reduce) {
+  .vnd-modehost[data-fx="on"] .vnd-lead-peek.has-lead .vnd-lead-peek__body > section,
+  .vnd-modehost[data-fx="on"] .vnd-lead-peek.has-lead .vnd-lead-peek__state {
+    animation: none;
+  }
 }
 .vnd-lead-peek__empty {
   flex: 1 1 auto;
