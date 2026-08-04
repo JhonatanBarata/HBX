@@ -126,7 +126,7 @@ export class FiscalNfseService {
   // CANCELAMENTO — rito legal com rastro; nada some.
   // -------------------------------------------------------------------------
 
-  async cancelar(companyId: number, documentoId: string, motivo: string) {
+  async cancelar(companyId: number, documentoId: string, motivo: string, userId: number | null = null) {
     const motivoLimpo = String(motivo || '').trim();
     if (motivoLimpo.length < 5) throw new BadRequestException('Motivo do cancelamento é obrigatório (mínimo 5 caracteres).');
     const doc = await (this.prisma as any).fiscalDocumento.findFirst({ where: { id: documentoId, companyId } });
@@ -135,6 +135,16 @@ export class FiscalNfseService {
     const updated = await (this.prisma as any).fiscalDocumento.update({
       where: { id: doc.id },
       data: { status: 'CANCELADA', canceladaEm: new Date(), motivoCancelamento: motivoLimpo },
+    });
+    // Auditoria 04/08: cancelamento é ato FISCAL — trilha com QUEM/quando, igual
+    // às demais operações (antes só motivo+data no doc; o "quem" se perdia).
+    await this.trilha.registrar({
+      sistema: 'NFSE',
+      operacao: 'CANCELAR_NFSE_TENANT',
+      requestResumo: `company=${companyId} doc=${doc.id} serie=${doc.serie} nDPS=${doc.numero} motivo=${motivoLimpo.slice(0, 80)}`,
+      sucesso: true,
+      resultRef: doc.chaveAcesso || null,
+      aprovadoPor: userId != null ? String(userId) : null,
     });
     // Cancelamento no Sistema Nacional segue MANUAL (mesma lei do S6 — nunca
     // automatizado no F1a); aqui fica o estado + rastro, a tela instrui o portal.

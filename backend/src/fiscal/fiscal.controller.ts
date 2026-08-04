@@ -154,7 +154,7 @@ export class FiscalController {
 
   @Post('documentos/:id/cancelar')
   cancelar(@Req() req: any, @Param('id') id: string, @Body() dto: CancelarDocumentoDto) {
-    return this.nfse.cancelar(this.companyIdFromUser(req.user), id, dto?.motivo);
+    return this.nfse.cancelar(this.companyIdFromUser(req.user), id, dto?.motivo, Number(req.user?.id) || null);
   }
 
   /** F1b — reenvio manual do PDF+XML ao tomador (e-mail e/ou WhatsApp). */
