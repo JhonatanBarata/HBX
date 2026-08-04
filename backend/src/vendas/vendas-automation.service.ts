@@ -1812,15 +1812,20 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
   // podem depender de campanha rodando. O modo noturno é manual — a cena Tagliágua
   // (lead respondeu "como que funciona ?" e ninguém viu) aconteceu com campanha
   // PARADA. Estes três dados existem com ou sem campanha, então saem daqui.
-  private async buildPainelDisparos(companyId: number) {
+  // `soDoUserId` (04/08, "cada vendedor com seu lead"): a Tagliágua respondeu (lead
+  // do Jhonatan) e o toast acendeu pra MARIACLARA — o lead quente era da empresa
+  // inteira. Vendedora (USER) só é avisada de lead ATRIBUÍDO A ELA; dono/gerente
+  // continua vendo tudo (null = sem filtro, comportamento de antes).
+  private async buildPainelDisparos(companyId: number, soDoUserId: number | null = null) {
     const agora = new Date();
+    const filtroLead = soDoUserId ? { companyId, assignedUserId: soDoUserId } : { companyId };
     const [hotTimeline, hotJob, coldGate, agendadosFuturos, proximoAgendado] = await Promise.all([
       this.prisma.vendasLeadTimelineEvent
         .findFirst({
           where: {
             eventType: 'inbound_reply',
             resultLabel: 'human_inbound_validated',
-            lead: { companyId },
+            lead: filtroLead,
           },
           orderBy: { createdAt: 'desc' },
           select: { leadId: true, createdAt: true, lead: { select: { name: true } } },
@@ -1828,7 +1833,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         .catch(() => null),
       this.prisma.vendasAutomationJob
         .findFirst({
-          where: { companyId, status: 'replied_positive' },
+          where: { companyId, status: 'replied_positive', ...(soDoUserId ? { lead: { assignedUserId: soDoUserId } } : {}) },
           orderBy: { updatedAt: 'desc' },
           select: { leadId: true, updatedAt: true, lead: { select: { name: true } } },
         })
@@ -1865,15 +1870,25 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return { hotLead, coldGate, agendadosFuturos: Number(agendadosFuturos || 0), proximoAgendadoAt };
   }
 
+  // "CADA VENDEDOR COM SEU LEAD" (04/08): quem NÃO é dono/gerente só é avisado de
+  // lead atribuído a ele. É o filtro do toast de lead quente — sem isto a
+  // mariaclara recebeu o aviso da Tagliágua, lead do Jhonatan.
+  private hotLeadViewerFilter(user: any, context: { userId: number }): number | null {
+    const role = String(user?.role || '').trim().toUpperCase();
+    const ehGestor = Boolean(user?.isSystemMaster) || role === 'ADMIN' || role === 'USERMASTER';
+    return ehGestor ? null : context.userId;
+  }
+
   async getLiveStatusForUser(user: any, ownerUserId?: unknown) {
     const context = this.resolveUserContext(user);
     await this.assertEntitlement(user);
     const owner = await this.resolveCampaignOwnerId(user, context, ownerUserId);
+    const soDoUserId = this.hotLeadViewerFilter(user, context);
     const campaign = await this.latestCampaign(context.companyId, owner);
     if (!campaign) {
       // Sem campanha o painel CONTINUA existindo quando há disparo agendado ou lead
       // quente esperando — antes daqui, o modo manual ficava mudo (B11).
-      const painel = await this.buildPainelDisparos(context.companyId);
+      const painel = await this.buildPainelDisparos(context.companyId, soDoUserId);
       return {
         ...painel,
         status: 'parado' satisfies LiveAutomationStatus,
@@ -1886,7 +1901,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
         nextScheduledAt: painel.proximoAgendadoAt,
       };
     }
-    return this.buildLiveStatus(campaign);
+    return this.buildLiveStatus(campaign, soDoUserId);
   }
 
   /**
@@ -1975,7 +1990,9 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     return 'aguardando';
   }
 
-  private async buildLiveStatus(campaign: any) {
+  // `hotSoDoUserId`: filtro do toast de lead quente por espectador ("cada vendedor
+  // com seu lead", 04/08). null = sem filtro (dono/gerente e caminhos internos).
+  private async buildLiveStatus(campaign: any, hotSoDoUserId: number | null = null) {
     const casa = await this.getCasa(campaign.companyId);
     const today = getBusinessDateParts(new Date());
     const todayStart = makeBusinessDate(today.year, today.month, today.day, 0, 0);
@@ -2095,7 +2112,7 @@ export class VendasAutomationService implements OnModuleInit, OnModuleDestroy {
     // Painel de disparos (30/07): lead QUENTE mais recente (interesse validado),
     // estado do gate de contato frio e disparos agendados. Best-effort: falha aqui
     // nunca derruba o status. Mesma função do caminho SEM campanha (S4/B11).
-    const painel = await this.buildPainelDisparos(campaign.companyId);
+    const painel = await this.buildPainelDisparos(campaign.companyId, hotSoDoUserId);
     const { hotLead, coldGate, agendadosFuturos, proximoAgendadoAt } = painel;
     // A frase do nível é montada AQUI, no servidor, porque é o único lugar onde o
     // nível configurado e o freio anti-ban ao vivo estão juntos. Se a tela montasse

@@ -2049,11 +2049,24 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
             style={bellMuted ? { color: "var(--hbx-danger)" } : bellPulse ? { transform: "scale(1.18)", transition: "transform .18s" } : undefined}
           >
             <I d={ICONS.bell} size={17} />
-            {naoLidos.length > 0 && <span className="bub">{naoLidos.length}</span>}
+            {naoLidos.length + unreadChats > 0 && <span className="bub">{naoLidos.length + unreadChats}</span>}
           </button>
           {bellOpen && (
             <div className="hbx-pop" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30, width: 320, maxHeight: 380, overflowY: "auto", padding: 10, display: "grid", gap: 8 }}>
               <strong style={{ fontFamily: "var(--font-display)", fontSize: "var(--fz-l1)" }}>Avisos</strong>
+              {/* AVISO É AVISO (dono, 04/08): o balão do Atendimento morreu — conversa
+                  não lida entra aqui como a primeira linha do sino, um lugar só. */}
+              {podeAtendimento && unreadChats > 0 && (
+                <div role="button" tabIndex={0}
+                  title="Abrir o Atendimento"
+                  onClick={() => { setBellOpen(false); router.push("/conversas"); }}
+                  style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "space-between", padding: "9px 10px", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-hairline)", background: "var(--hbx-surface-soft)", cursor: "pointer" }}>
+                  <strong style={{ fontSize: "var(--fz-l3)" }}>
+                    {unreadChats} conversa{unreadChats > 1 ? "s" : ""} aguardando no Atendimento
+                  </strong>
+                  <span className="link" style={{ fontSize: "var(--hbx-font-min)" }}>Abrir →</span>
+                </div>
+              )}
               {bellMuted && (
                 <button
                   style={{ textAlign: "left", background: "var(--hbx-danger-soft)", borderRadius: "var(--radius-sm)", border: "none", padding: "8px 10px", fontSize: "var(--fz-m2)", color: "var(--hbx-danger)", cursor: "pointer", lineHeight: 1.4 }}
@@ -2118,13 +2131,8 @@ export function Topbar({ title, crumbs }: { title: string; crumbs: React.ReactNo
             </div>
           )}
         </span>
-        {/* Chat interno (restaurado): abre o Atendimento. Gated pelo acesso, como antes. */}
-        {podeAtendimento && (
-          <button className="round-btn" title="Atendimento" aria-label="Atendimento" onClick={() => router.push("/conversas")}>
-            <I d={ICONS.msg} size={17} />
-            {unreadChats > 0 && <span className="bub">{unreadChats}</span>}
-          </button>
-        )}
+        {/* O balão do Atendimento MORREU (dono, 04/08: "aviso é aviso, junta os 2") —
+            conversa não lida agora é a primeira linha do sino, e o badge soma lá. */}
         {/* ── Sinalizadores: sempre visíveis (encher o olho), acendem quando ativos, vermelhos no erro ──
             S1 MODO DISTRIBUIDORA: só-logística não vê sinal de módulo alheio (WhatsApp/geo/Bot/e-mail). */}
         {/* WhatsApp: popup define o PADRÃO de abertura (interno/externo) usado pelos ícones
