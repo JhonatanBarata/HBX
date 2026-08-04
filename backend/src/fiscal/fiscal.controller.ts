@@ -31,9 +31,11 @@ import { EstoqueService } from './estoque.service';
 import { renderNfsePdf } from './nfse-pdf.util';
 import {
   AtestarContadorDto,
+  AtivarGestaoFiscalDto,
   AtualizarEstoqueProdutoDto,
   AtualizarServicoFiscalDto,
   CancelarDocumentoDto,
+  ConferirCnpjGestaoDto,
   CriarEstoqueProdutoDto,
   CriarServicoFiscalDto,
   EmitirNfseAvulsaDto,
@@ -101,6 +103,25 @@ export class FiscalController {
   @Post('disjuntor/rearmar')
   rearmarDisjuntor(@Req() req: any) {
     return this.profile.rearmarDisjuntor(this.companyIdFromUser(req.user));
+  }
+
+  // ----------------------- MODO HBX GESTÃO FISCAL (B0 — rito de ativação)
+
+  @Get('gestao/politica')
+  politicaGestao() {
+    return this.profile.politicaGestao();
+  }
+
+  /** Mesmo throttle da consulta de tomador — porta da base RFB continua com porteiro. */
+  @Post('gestao/conferir-cnpj')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  conferirCnpjGestao(@Body() dto: ConferirCnpjGestaoDto) {
+    return this.profile.conferirCnpjGestao(dto?.cnpj);
+  }
+
+  @Post('gestao/ativar')
+  ativarGestao(@Req() req: any, @Body() dto: AtivarGestaoFiscalDto) {
+    return this.profile.ativarGestao(this.companyIdFromUser(req.user), Number(req.user?.id) || null, dto);
   }
 
   // --------------------------------------------------------------- CATÁLOGO

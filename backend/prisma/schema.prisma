@@ -6060,6 +6060,19 @@ model FiscalTenantProfile {
   // emissão até o admin rearmar — nunca 4ª tentativa às cegas.
   errosConsecutivos  Int       @default(0)
   disjuntorPausado   Boolean   @default(false)
+  // B0 BALCÃO (decisão 12) — rito de ativação do modo HBX Gestão Fiscal: aviso →
+  // política aceita (versão/quem/quando) → CNPJ conferido na RFB → tipo de empresa →
+  // ativa. estoqueAtivo só vira true por este rito; desligar é BLOQUEADO após o
+  // primeiro lançamento (movimento/XML) — histórico é escrituração, não preferência.
+  tipoEmpresa             String? // agua | gas | bebidas | deposito | outro
+  gestaoPoliticaVersao    String?
+  gestaoPoliticaAceiteEm  DateTime?
+  gestaoPoliticaAceitePor String? // userId de quem aceitou a política
+  gestaoAtivadaEm         DateTime?
+  gestaoAtivadaPor        String? // userId de quem ativou o modo
+  cnpjConferidoEm         DateTime?
+  cnpjSituacaoRfb         String? // situação cadastral vista na conferência
+  cnpjRfbAviso            String? // CNPJ fora da base local na ativação — rastro do aviso
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 }

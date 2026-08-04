@@ -66,6 +66,25 @@ export class UploadCertificadoFiscalDto {
   senha!: string;
 }
 
+// ── B0 — RITO DE ATIVAÇÃO DO MODO HBX GESTÃO FISCAL ────────────────────────
+
+export class ConferirCnpjGestaoDto {
+  @IsString() @IsNotEmpty() @MaxLength(20)
+  cnpj!: string;
+}
+
+export class AtivarGestaoFiscalDto {
+  @IsString() @IsNotEmpty() @MaxLength(20)
+  cnpj!: string;
+
+  // Versão da política aceita — tem que bater com a vigente (aceite consciente).
+  @IsString() @IsNotEmpty() @MaxLength(20)
+  politicaVersao!: string;
+
+  @IsIn(['agua', 'gas', 'bebidas', 'deposito', 'outro'])
+  tipoEmpresa!: string;
+}
+
 export class CriarServicoFiscalDto {
   @IsString() @IsNotEmpty() @MaxLength(300)
   descricao!: string;

@@ -62,6 +62,26 @@ BALCÃO da vertical distribuidora** (água/gás/bebidas/depósito), a perna que 
 11. **Leis herdadas:** multi-tenant (nada atravessa empresa) · código financeiro = eu edito +
     verificação adversarial antes do publish · cancelamento com rito e rastro (nunca apagar) ·
     entregar LIGADO (gate natural = estoque ativo + produto com preço) · IA nunca calcula imposto.
+12. **DOIS MODOS + RITO DE ATIVAÇÃO (3ª rodada do dono, 04/08 — aprovado a+b):**
+    - Nomes: **"HBX Comum"** (padrão) × **"HBX Gestão Fiscal"** (avançado). NUNCA usar a
+      palavra "Simples" pra modo — colide com Simples Nacional na cabeça do cliente.
+    - "Estoque" está com nome errado: **o módulo é PRODUTOS** (padrão de mercado — estoque é
+      comportamento do produto, não módulo). Rename na UI já; **unificação dos DOIS cadastros
+      (Product da logística × EstoqueProduto) é FASE PRÓPRIA com pesquisa profunda** — cirurgia
+      de coração, não se faz no braço quente (rota/entrega/carga usam o Product em produção).
+    - **Rito de ativação (ordem EXATA do dono):** ① AVISO da irreversibilidade → ② POLÍTICA
+      nova versionada explicando o modo (sem enfeitar, resumida, protege o HBX pela lei;
+      aceite gravado com usuário/data/versão) → ③ **EXIGIR E CONFERIR CNPJ** (dígito
+      verificador de verdade + base RFB 28M: situação precisa ser ATIVA; coisa que o HBX
+      Comum não faz) → ④ dados PUXADOS e mostrados (razão social, CNAE, porte, natureza,
+      Simples/MEI → sugere CRT, abertura, endereço) + menu do TIPO DE EMPRESA
+      (água/gás/bebidas/depósito/outro) → ⑤ ativa o modo, com trilha.
+    - **TRAVA IRREVERSÍVEL:** existiu lançamento (movimento de estoque OU XML de compra) →
+      o modo NUNCA mais desliga (o histórico é parte da escrituração — desligar destruiria a
+      defesa contra presunção de omissão de entrada). Virgem (zero lançamento) → pode desligar.
+      Ligar por fora do rito (PUT perfil) = recusado.
+    - CNPJ não encontrado na base local: NÃO bloqueia (base pode estar defasada; empresa
+      recém-aberta) — ativa COM aviso gravado no perfil e na trilha.
 
 ---
 
@@ -94,12 +114,16 @@ EstoqueMovimento += refVendaId?  — dedup @@unique([companyId, tipo, refVendaId
 
 | Fatia | Entrega visível | Gate |
 |---|---|---|
+| **B0** | **A CHAVE BEM FEITA (decisão 12):** wizard de ativação do modo HBX Gestão Fiscal (aviso → política com aceite → CNPJ com DV + conferido na RFB + dados puxados → tipo de empresa → ativar com trilha) + trava irreversível pós-lançamento + rename Estoque→Produtos na UI | nenhum |
 | **B1** | Tela `/balcao` completa: bip (GTIN) + botões grandes + carrinho + 4 formas de pagamento + baixa `SAIDA_EMISSAO` + fiado→financeiro + comprovante F2a + cancelamento com rito. Cadastro de produto ganha código de barras (bipável) e preço. **Entrada por XML vira PRÉ-CADASTRO**: parser lê `cEAN`, EAN conhecido entra sozinho, item novo confirma com 1 clique e nasce amarrado ao bip. | nenhum |
 | **B2** | Pix dinâmico + maquininha smart POS pelo adapter (stub `NAO_CONTRATADO` no ar desde o B1; 1ª real: MP Point — cobrança aparece na maquininha, webhook confirma na tela) | ⬜ dono confirma MP Point; conta MP do tenant |
 | **B3** | NFC-e da venda de balcão (nota-a-nota, o modo varejo que já tinha moradia no plano fiscal) | 🔒 F2b — provedor |
 
 ## 4. Pendências COM MORADIA (lei: sem moradia = nunca)
 
+- **UNIFICAÇÃO Product×EstoqueProduto → cadastro único "Produtos"** (pilar 1 da decisão 12) —
+  fase própria com pesquisa profunda + plano dedicado ANTES de codar; a logística usa o
+  Product dela em rota/entrega/carga em produção — migração tem que ser aditiva e por etapas.
 - **TEF de cabo** (SiTef/PayGo) — só se cliente grande exigir; até lá, smart POS cobre.
 - **Impressora térmica ESC/POS** — se tenant pedir; v1 imprime do navegador/manda no Whats.
 - **Caixa por operador** (abertura/fechamento/sangria) — quando houver tenant com 2+ atendentes.

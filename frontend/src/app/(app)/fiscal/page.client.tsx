@@ -15,6 +15,7 @@
 // kit + a família .fis-* de hbx-theme/fiscal-tenant.css. ZERO style inline.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { HbxPanelShell } from "@/components/hbx/panel-shell";
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
@@ -69,6 +70,46 @@ type PerfilFiscal = {
     diasParaExpirar: number | null;
     expirado: boolean;
   };
+  // B0 — modo da empresa (nomes do dono): HBX Comum × HBX Gestão Fiscal.
+  modo: "comum" | "gestao";
+  tipoEmpresa: string | null;
+  gestao: {
+    ativadaEm: string | null;
+    politicaVersao: string | null;
+    politicaAceiteEm: string | null;
+    cnpjConferidoEm: string | null;
+    cnpjSituacaoRfb: string | null;
+    cnpjRfbAviso: string | null;
+  };
+};
+
+type PoliticaGestao = {
+  versao: string;
+  titulo: string;
+  secoes: Array<{ titulo: string; texto: string }>;
+  tiposEmpresa: string[];
+};
+
+type ConferenciaCnpj = {
+  cnpj: string;
+  encontrada: boolean;
+  aviso?: string | null;
+  razaoSocial?: string | null;
+  nomeFantasia?: string | null;
+  situacao?: string | null;
+  situacaoAtiva?: boolean | null;
+  municipio?: string | null;
+  uf?: string | null;
+  endereco?: string | null;
+  simples?: boolean | null;
+  mei?: boolean | null;
+  crtSugerido?: number | null;
+  cnae?: string | null;
+  cnaeDescricao?: string | null;
+  porte?: string | null;
+  naturezaJuridica?: string | null;
+  abertura?: string | null;
+  municipioAllowlist?: { ibge: string; nome: string; uf: string; status: string } | null;
 };
 
 type ItemChecklist = {
@@ -190,7 +231,8 @@ type FormPerfil = {
   escopoProduto: boolean;
   emailAutoEnvio: boolean;
   whatsAutoEnvio: boolean;
-  estoqueAtivo: boolean;
+  // estoqueAtivo saiu do formulário: liga pelo RITO (wizard) e desliga pelo botão
+  // próprio — o PUT do perfil recusa a transição (B0, decisão 12).
   estoqueNegativo: string;
   modoEmissaoProduto: string;
   comprovanteEntrega: boolean;
@@ -223,6 +265,14 @@ const STATUS_MUNICIPIO: Record<string, string> = {
   HOMOLOGADO: "Liberado",
   EM_VALIDACAO: "Em validação",
   BLOQUEADO: "Bloqueado",
+};
+
+const TIPO_EMPRESA_ROTULO: Record<string, string> = {
+  agua: "Distribuidora de água",
+  gas: "Distribuidora de gás",
+  bebidas: "Distribuidora de bebidas",
+  deposito: "Depósito / atacarejo",
+  outro: "Outro ramo",
 };
 
 const FILTRO_STATUS = ["AUTORIZADA", "PENDENTE", "REJEITADA", "ERRO", "CANCELADA"];
@@ -276,7 +326,6 @@ function formPerfilDe(p: PerfilFiscal | null): FormPerfil {
     escopoProduto: Boolean(p?.escopoProduto),
     emailAutoEnvio: Boolean(p?.emailAutoEnvio),
     whatsAutoEnvio: Boolean(p?.whatsAutoEnvio),
-    estoqueAtivo: Boolean(p?.estoqueAtivo),
     estoqueNegativo: p?.estoqueNegativo || "avisar",
     modoEmissaoProduto: p?.modoEmissaoProduto || "fechamento",
     comprovanteEntrega: Boolean(p?.comprovanteEntrega),
@@ -323,6 +372,214 @@ function Fato({ rotulo, valor }: { rotulo: string; valor: React.ReactNode }) {
   );
 }
 
+/** 'YYYY-MM-DD' → 'DD/MM/YYYY' SEM passar por Date (fuso -03 comeria um dia). */
+function dataCurta(iso: string | null | undefined): string {
+  const v = String(iso || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return v || "—";
+  return v.split("-").reverse().join("/");
+}
+
+// =========================================================================
+// B0 — WIZARD DE ATIVAÇÃO DO MODO HBX GESTÃO FISCAL (rito da decisão 12)
+// Ordem EXATA do dono: ① aviso → ② política com aceite → ③ CNPJ exigido e
+// CONFERIDO na Receita (dados puxados na tela) → ④ tipo de empresa → ativa.
+// =========================================================================
+
+function WizardGestaoFiscal({
+  cnpjInicial,
+  onAtivado,
+  onFechar,
+}: {
+  cnpjInicial: string;
+  onAtivado: (p: PerfilFiscal, aviso: string | null) => void;
+  onFechar: () => void;
+}) {
+  const [passo, setPasso] = useState(1);
+  const [politica, setPolitica] = useState<PoliticaGestao | null>(null);
+  const [erroPolitica, setErroPolitica] = useState<string | null>(null);
+  const [aceite, setAceite] = useState(false);
+  const [cnpj, setCnpj] = useState(cnpjInicial);
+  const [conferindo, setConferindo] = useState(false);
+  const [conf, setConf] = useState<ConferenciaCnpj | null>(null);
+  const [tipoEmpresa, setTipoEmpresa] = useState("");
+  const [ativando, setAtivando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+
+  useEffect(() => {
+    let vivo = true;
+    apiFetch<PoliticaGestao>("/fiscal/gestao/politica")
+      .then((p) => { if (vivo) setPolitica(p); })
+      .catch(() => { if (vivo) setErroPolitica("Falha ao carregar a política — feche e tente de novo."); });
+    return () => { vivo = false; };
+  }, []);
+
+  const conferir = useCallback(async () => {
+    setConferindo(true);
+    setErro(null);
+    setConf(null);
+    try {
+      setConf(await apiFetch<ConferenciaCnpj>("/fiscal/gestao/conferir-cnpj", {
+        method: "POST",
+        body: JSON.stringify({ cnpj: cnpj.replace(/\D/g, "") }),
+      }));
+    } catch (e) {
+      setErro(mensagemDe(e, "Falha ao conferir o CNPJ."));
+    } finally {
+      setConferindo(false);
+    }
+  }, [cnpj]);
+
+  const ativar = useCallback(async () => {
+    if (!politica) return;
+    setAtivando(true);
+    setErro(null);
+    try {
+      const r = await apiFetch<{ ativado: boolean; aviso: string | null; perfil: PerfilFiscal }>("/fiscal/gestao/ativar", {
+        method: "POST",
+        body: JSON.stringify({ cnpj: cnpj.replace(/\D/g, ""), politicaVersao: politica.versao, tipoEmpresa }),
+      });
+      onAtivado(r.perfil, r.aviso);
+    } catch (e) {
+      setErro(mensagemDe(e, "Falha ao ativar o modo."));
+    } finally {
+      setAtivando(false);
+    }
+  }, [politica, cnpj, tipoEmpresa, onAtivado]);
+
+  const situacaoReprova = conf?.encontrada === true && conf?.situacaoAtiva === false;
+  const podeIrAoTipo = Boolean(conf) && !situacaoReprova;
+
+  // O wizard mora no painel de contexto (ancestral com transform) — sem portal
+  // pro <body>, o position:fixed ancora no painel e o modal é RECORTADO (mesma
+  // armadilha do CascaPortal, bug ao vivo de 07/07).
+  const conteudo = (
+    <div className="hbx-veil" onClick={(e) => { if (e.target === e.currentTarget && !ativando) onFechar(); }}>
+      <div className="hbx-modal fis-modal" role="dialog" aria-label="Ativar HBX Gestão Fiscal">
+        <h3>Ativar HBX Gestão Fiscal — passo {passo} de 4</h3>
+
+        {passo === 1 ? (
+          <>
+            <div className="fis-aviso fis-aviso--atencao">
+              <span>
+                Este modo liga Produtos, estoque, entrada de notas por XML e emissão fiscal.
+                Depois do PRIMEIRO lançamento (nota de entrada ou movimento de estoque), o modo
+                não pode mais ser desligado — o histórico vira parte da escrituração da empresa.
+              </span>
+            </div>
+            <div className="fis-modal-acoes">
+              <button type="button" className="btn-ghost" onClick={onFechar}>Cancelar</button>
+              <button type="button" className="btn-teal" onClick={() => setPasso(2)}>Entendi, continuar</button>
+            </div>
+          </>
+        ) : null}
+
+        {passo === 2 ? (
+          <>
+            {politica ? (
+              <div className="fis-politica">
+                {politica.secoes.map((s) => (
+                  <div key={s.titulo} className="fis-politica-sec">
+                    <strong>{s.titulo}</strong>
+                    <p>{s.texto}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="fis-vazio"><span>{erroPolitica || "Carregando a política…"}</span></div>
+            )}
+            <Interruptor
+              nome={`Li e aceito a política (versão ${politica?.versao || "—"})`}
+              ligado={aceite}
+              onChange={setAceite}
+              disabled={!politica}
+            />
+            <div className="fis-modal-acoes">
+              <button type="button" className="btn-ghost" onClick={() => setPasso(1)}>Voltar</button>
+              <button type="button" className="btn-teal" disabled={!aceite || !politica} onClick={() => setPasso(3)}>Continuar</button>
+            </div>
+          </>
+        ) : null}
+
+        {passo === 3 ? (
+          <>
+            <label className="fis-campo">
+              <span className="field-label">CNPJ da empresa</span>
+              <input
+                className="field-dark"
+                value={cnpj}
+                inputMode="numeric"
+                placeholder="00.000.000/0000-00"
+                onChange={(e) => { setCnpj(formatBrCnpj(e.target.value)); setConf(null); }}
+              />
+            </label>
+            <div className="fis-linha-acoes">
+              <button type="button" className="btn-ghost" disabled={conferindo || cnpj.replace(/\D/g, "").length !== 14} onClick={conferir}>
+                {conferindo ? "Conferindo…" : "Conferir na Receita"}
+              </button>
+            </div>
+            {conf?.encontrada ? (
+              <div className="fis-cfg-fatos">
+                <Fato rotulo="Razão social" valor={conf.razaoSocial || "—"} />
+                <Fato rotulo="Situação" valor={conf.situacao || "—"} />
+                <Fato rotulo="Cidade" valor={conf.municipio ? `${conf.municipio}${conf.uf ? `/${conf.uf}` : ""}` : "—"} />
+                <Fato rotulo="CNAE" valor={conf.cnaeDescricao || conf.cnae || "—"} />
+                <Fato rotulo="Porte" valor={conf.porte || "—"} />
+                <Fato rotulo="Natureza" valor={conf.naturezaJuridica || "—"} />
+                <Fato rotulo="Abertura" valor={dataCurta(conf.abertura)} />
+                <Fato
+                  rotulo="Regime"
+                  valor={conf.mei ? "MEI" : conf.simples ? "Simples Nacional" : conf.simples === false ? "Fora do Simples" : "—"}
+                />
+              </div>
+            ) : null}
+            {situacaoReprova ? (
+              <div className="fis-aviso fis-aviso--erro">
+                <span>{`Situação "${conf?.situacao}" na Receita — só empresa ATIVA pode ativar o modo.`}</span>
+              </div>
+            ) : null}
+            {conf && !conf.encontrada ? (
+              <div className="fis-aviso fis-aviso--atencao"><span>{conf.aviso || "CNPJ não localizado na base local."}</span></div>
+            ) : null}
+            {erro ? <div className="fis-aviso fis-aviso--erro"><span>{erro}</span></div> : null}
+            <div className="fis-modal-acoes">
+              <button type="button" className="btn-ghost" onClick={() => setPasso(2)}>Voltar</button>
+              <button type="button" className="btn-teal" disabled={!podeIrAoTipo} onClick={() => setPasso(4)}>Continuar</button>
+            </div>
+          </>
+        ) : null}
+
+        {passo === 4 ? (
+          <>
+            <label className="fis-campo">
+              <span className="field-label">Tipo de empresa</span>
+              <select className="field-dark" value={tipoEmpresa} onChange={(e) => setTipoEmpresa(e.target.value)}>
+                <option value="">Escolha…</option>
+                {(politica?.tiposEmpresa || []).map((t) => (
+                  <option key={t} value={t}>{TIPO_EMPRESA_ROTULO[t] || t}</option>
+                ))}
+              </select>
+            </label>
+            <div className="fis-cfg-fatos">
+              <Fato rotulo="CNPJ" valor={formatBrCnpj(cnpj)} />
+              <Fato rotulo="Razão social" valor={conf?.razaoSocial || "—"} />
+              <Fato rotulo="Política aceita" valor={`versão ${politica?.versao || "—"}`} />
+            </div>
+            {erro ? <div className="fis-aviso fis-aviso--erro"><span>{erro}</span></div> : null}
+            <div className="fis-modal-acoes">
+              <button type="button" className="btn-ghost" disabled={ativando} onClick={() => setPasso(3)}>Voltar</button>
+              <button type="button" className="btn-teal" disabled={!tipoEmpresa || ativando} onClick={ativar}>
+                {ativando ? "Ativando…" : "Ativar HBX Gestão Fiscal"}
+              </button>
+            </div>
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+  if (typeof document === "undefined") return conteudo;
+  return createPortal(conteudo, document.body);
+}
+
 // =========================================================================
 // BLOCO 1 — CONFIGURAÇÃO FISCAL (painel contextual)
 // =========================================================================
@@ -354,6 +611,33 @@ function PainelConfig({
   const arquivoRef = useRef<HTMLInputElement | null>(null);
 
   const [rearmando, setRearmando] = useState(false);
+
+  // B0 — modo HBX Gestão Fiscal: liga pelo wizard (rito), desliga com trava no backend.
+  // Confirmação INLINE (2 cliques) — confirm() nativo congela o renderer e foge do padrão da casa.
+  const [wizardAberto, setWizardAberto] = useState(false);
+  const [confirmaDesligar, setConfirmaDesligar] = useState(false);
+  const [desligandoGestao, setDesligandoGestao] = useState(false);
+  const [erroGestao, setErroGestao] = useState<string | null>(null);
+  const [okGestao, setOkGestao] = useState<string | null>(null);
+
+  const desligarGestao = useCallback(async () => {
+    setConfirmaDesligar(false);
+    setDesligandoGestao(true);
+    setErroGestao(null);
+    setOkGestao(null);
+    try {
+      const atualizado = await apiFetch<PerfilFiscal>("/fiscal/perfil", {
+        method: "PUT",
+        body: JSON.stringify({ estoqueAtivo: false }),
+      });
+      onPerfilSalvo(atualizado);
+      setOkGestao("Modo desligado — a empresa voltou ao HBX Comum.");
+    } catch (e) {
+      setErroGestao(mensagemDe(e, "Não foi possível desligar o modo."));
+    } finally {
+      setDesligandoGestao(false);
+    }
+  }, [onPerfilSalvo]);
 
   const [novoAberto, setNovoAberto] = useState(false);
   const [novo, setNovo] = useState({ descricao: "", codigo: "", cnae: "", aliquota: "", issRetido: false });
@@ -454,7 +738,6 @@ function PainelConfig({
           escopoProduto: form.escopoProduto,
           emailAutoEnvio: form.emailAutoEnvio,
           whatsAutoEnvio: form.whatsAutoEnvio,
-          estoqueAtivo: form.estoqueAtivo,
           estoqueNegativo: form.estoqueNegativo,
           modoEmissaoProduto: form.modoEmissaoProduto,
           comprovanteEntrega: form.comprovanteEntrega,
@@ -726,6 +1009,82 @@ function PainelConfig({
           />
         </div>
 
+        {/* B0 — MODO DA EMPRESA (decisão 12): HBX Comum × HBX Gestão Fiscal.
+            Liga pelo RITO (wizard); depois do 1º lançamento o backend recusa desligar. */}
+        <h3>Modo da empresa</h3>
+        {perfil?.modo === "gestao" ? (
+          <>
+            <div className="fis-cfg-fatos">
+              <Fato rotulo="Modo" valor="HBX Gestão Fiscal" />
+              <Fato rotulo="Ativado em" valor={fmtData(perfil.gestao?.ativadaEm)} />
+              <Fato rotulo="Tipo de empresa" valor={TIPO_EMPRESA_ROTULO[perfil.tipoEmpresa || ""] || "—"} />
+              <Fato
+                rotulo="CNPJ conferido"
+                valor={
+                  perfil.gestao?.cnpjConferidoEm
+                    ? `${fmtData(perfil.gestao.cnpjConferidoEm)} · ${perfil.gestao.cnpjSituacaoRfb || "fora da base"}`
+                    : "—"
+                }
+              />
+            </div>
+            {perfil.gestao?.cnpjRfbAviso ? (
+              <div className="fis-aviso fis-aviso--atencao"><span>{perfil.gestao.cnpjRfbAviso}</span></div>
+            ) : null}
+            {confirmaDesligar ? (
+              <div className="fis-aviso fis-aviso--atencao">
+                <span>Desligar o modo HBX Gestão Fiscal? Só é possível enquanto não existe nenhum lançamento.</span>
+              </div>
+            ) : null}
+            <div className="fis-linha-acoes">
+              {confirmaDesligar ? (
+                <>
+                  <button type="button" className="btn-ghost" disabled={desligandoGestao} onClick={() => setConfirmaDesligar(false)}>
+                    Manter ligado
+                  </button>
+                  <button type="button" className="btn-ghost danger" disabled={desligandoGestao} onClick={desligarGestao}>
+                    {desligandoGestao ? "Desligando…" : "Confirmar desligamento"}
+                  </button>
+                </>
+              ) : (
+                <button type="button" className="btn-ghost danger" disabled={desligandoGestao} onClick={() => setConfirmaDesligar(true)}>
+                  Desligar modo
+                </button>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="fis-cfg-fatos">
+              <Fato rotulo="Modo" valor="HBX Comum" />
+            </div>
+            <div className="fis-dica">
+              Produtos, estoque, entrada de notas por XML e nota de produto moram no modo HBX Gestão Fiscal.
+            </div>
+            <div className="fis-linha-acoes">
+              <button
+                type="button"
+                className="btn-teal"
+                onClick={() => { setErroGestao(null); setOkGestao(null); setWizardAberto(true); }}
+              >
+                Ativar HBX Gestão Fiscal
+              </button>
+            </div>
+          </>
+        )}
+        {erroGestao ? <div className="fis-aviso fis-aviso--erro"><span>{erroGestao}</span></div> : null}
+        {okGestao ? <div className="fis-dica">{okGestao}</div> : null}
+        {wizardAberto ? (
+          <WizardGestaoFiscal
+            cnpjInicial={form.cnpj}
+            onFechar={() => setWizardAberto(false)}
+            onAtivado={(p, aviso) => {
+              onPerfilSalvo(p);
+              setOkGestao(aviso || "Modo HBX Gestão Fiscal ativado.");
+              setWizardAberto(false);
+            }}
+          />
+        ) : null}
+
         {/* Mesma seção de propósito: é UM formulário e UM "Salvar" (um PUT
             /fiscal/perfil). Separar em duas caixas daria a impressão de dois
             botões e o campo lá de cima ficaria sem dono. */}
@@ -737,7 +1096,7 @@ function PainelConfig({
         />
         <Interruptor
           nome="Emitir nota de produto"
-          dica="Exige o controle de estoque ligado."
+          dica="Exige o modo HBX Gestão Fiscal (estoque ligado)."
           ligado={form.escopoProduto}
           onChange={(v) => setForm((f) => ({ ...f, escopoProduto: v }))}
         />
@@ -768,11 +1127,6 @@ function PainelConfig({
             <option value="entrega">A cada entrega</option>
           </select>
         </label>
-        <Interruptor
-          nome="Controlar estoque"
-          ligado={form.estoqueAtivo}
-          onChange={(v) => setForm((f) => ({ ...f, estoqueAtivo: v }))}
-        />
         <label className="fis-campo">
           <span className="field-label">Estoque negativo</span>
           <select
@@ -1659,7 +2013,7 @@ function BlocoEstoque() {
   return (
     <section className="panel fis-bloco">
       <header className="fis-bloco-head">
-        <h2>Estoque</h2>
+        <h2>Produtos</h2>
         <label className="btn-ghost fis-upload-xml">
           <input
             ref={xmlRef}

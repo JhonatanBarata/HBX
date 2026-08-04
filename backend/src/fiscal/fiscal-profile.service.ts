@@ -1,10 +1,13 @@
-import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 // M1: cofre com chave PRÓPRIA do fiscal (HBX_FISCAL_VAULT_KEY, prefixo f1) e
 // fallback transparente pro envelope legado v1 (chave do contabil).
 import { fiscalVaultEncrypt, fiscalVaultDecrypt } from './fiscal-vault.util';
 import type { CertSigningMaterial } from '../contabil/nfse-cert.service';
 import { extrairMaterialDoPfx, MAX_PFX_BYTES } from './pfx.util';
+import { FiscalAutomationLogService } from '../contabil/fiscal-automation-log.service';
+import { cnpjDvValido } from './cnpj-dv.util';
+import { POLITICA_GESTAO, TIPOS_EMPRESA } from './politica-gestao';
 
 // ===========================================================================
 // FISCAL DO TENANT — perfil fiscal POR EMPRESA + cofre A1 + catálogo de
@@ -44,13 +47,28 @@ export interface PerfilPublico {
   contadorAprovouEm: string | null;
   producaoAtivadaEm: string | null;
   cert: { configurado: boolean; expiresAt: string | null; diasParaExpirar: number | null; expirado: boolean };
+  // B0 — modo da empresa (nomes do dono): 'comum' = HBX Comum · 'gestao' = HBX Gestão Fiscal
+  modo: 'comum' | 'gestao';
+  tipoEmpresa: string | null;
+  gestao: {
+    ativadaEm: string | null;
+    politicaVersao: string | null;
+    politicaAceiteEm: string | null;
+    cnpjConferidoEm: string | null;
+    cnpjSituacaoRfb: string | null;
+    cnpjRfbAviso: string | null;
+  };
 }
 
 @Injectable()
 export class FiscalProfileService implements OnModuleInit {
   private readonly logger = new Logger(FiscalProfileService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  // trilha @Optional no FIM do construtor — testes posicionais (new FiscalProfileService(prisma)) intactos.
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly trilha: FiscalAutomationLogService | null = null,
+  ) {}
 
   /** Seed idempotente da allowlist (upsert — boot nunca duplica nem sobrescreve status). */
   async onModuleInit() {
@@ -110,12 +128,29 @@ export class FiscalProfileService implements OnModuleInit {
     endComplemento?: string | null;
     endBairro?: string | null;
   }): Promise<PerfilPublico> {
-    await this.getOrCreatePerfil(companyId);
+    const atual = await this.getOrCreatePerfil(companyId);
+    // B0 (decisão 12): o modo HBX Gestão Fiscal LIGA só pelo rito (ativarGestao) e,
+    // depois do primeiro lançamento, NUNCA mais desliga — histórico é escrituração.
+    if (dto.estoqueAtivo !== undefined) {
+      const quer = Boolean(dto.estoqueAtivo);
+      if (quer && !atual.estoqueAtivo) {
+        throw new BadRequestException(
+          'O modo HBX Gestão Fiscal é ativado pelo rito próprio (aviso → política → CNPJ conferido) — use "Ativar HBX Gestão Fiscal" na tela fiscal.',
+        );
+      }
+      if (!quer && atual.estoqueAtivo) await this.exigirDesligavel(companyId);
+    }
     const data: Record<string, unknown> = {};
     if (dto.cnpj !== undefined) {
       const digits = String(dto.cnpj || '').replace(/\D/g, '');
       if (digits && digits.length !== 14) throw new BadRequestException('CNPJ deve ter 14 dígitos.');
       data.cnpj = digits || null;
+      // CNPJ mudou → a conferência antiga não vale mais (o carimbo é do número conferido).
+      if (digits !== String(atual.cnpj || '')) {
+        data.cnpjConferidoEm = null;
+        data.cnpjSituacaoRfb = null;
+        data.cnpjRfbAviso = null;
+      }
     }
     if (dto.razaoSocial !== undefined) data.razaoSocial = String(dto.razaoSocial || '').trim() || null;
     if (dto.inscricaoMunicipal !== undefined) data.inscricaoMunicipal = String(dto.inscricaoMunicipal || '').trim() || null;
@@ -131,7 +166,6 @@ export class FiscalProfileService implements OnModuleInit {
       // cidade dela. Cruza com a base RFB (best-effort COM VOZ: base ausente no
       // ambiente = deixa passar e loga; divergência confirmada = recusa).
       if (ibge) {
-        const atual = await (this.prisma as any).fiscalTenantProfile.findUnique({ where: { companyId } });
         const cnpjPerfil = String((dto.cnpj !== undefined ? dto.cnpj : atual?.cnpj) || '').replace(/\D/g, '');
         if (cnpjPerfil.length === 14) {
           const divergencia = await this.municipioDivergeDaRfb(cnpjPerfil, ibge);
@@ -187,6 +221,180 @@ export class FiscalProfileService implements OnModuleInit {
       data: { disjuntorPausado: false, errosConsecutivos: 0 },
     });
     return { rearmado: true };
+  }
+
+  // -------------------------------------------------------------------------
+  // MODO HBX GESTÃO FISCAL — rito de ativação (B0, decisão 12 do plano BALCÃO)
+  // Ordem EXATA do dono: ① aviso da irreversibilidade → ② política aceita
+  // (versão/quem/quando) → ③ CNPJ EXIGIDO e CONFERIDO → ④ dados puxados + tipo
+  // de empresa → ⑤ ativa. Desligar morre no primeiro lançamento (escrituração).
+  // -------------------------------------------------------------------------
+
+  politicaGestao() {
+    return { ...POLITICA_GESTAO, tiposEmpresa: TIPOS_EMPRESA };
+  }
+
+  /**
+   * EXIGIR E CONFERIR: dígito verificador de verdade (antes só checava tamanho)
+   * + base RFB local (28M). Devolve TUDO que a base tem pro wizard mostrar.
+   */
+  async conferirCnpjGestao(cnpjRaw: string) {
+    const cnpj = String(cnpjRaw || '').replace(/\D/g, '');
+    if (!cnpjDvValido(cnpj)) {
+      throw new BadRequestException('CNPJ inválido — o dígito verificador não confere. Confira o número digitado.');
+    }
+    let row: any = null;
+    let baseIndisponivel = false;
+    try {
+      row = await (this.prisma as any).cnpjPublicCompany.findFirst({
+        where: { cnpj },
+        select: {
+          razaoSocial: true, nomeFantasia: true, situacao: true, city: true, state: true,
+          address: true, email: true, phoneDigits: true, simples: true, mei: true,
+          cnae: true, cnaeDescription: true, porte: true, naturezaJuridica: true,
+          openedAt: true, matrizFilial: true,
+        },
+      });
+    } catch (err) {
+      baseIndisponivel = true;
+      this.logger.warn(`[fiscal] conferência de CNPJ indisponível: ${String((err as Error)?.message || err).slice(0, 120)}`);
+    }
+    if (!row) {
+      // Não encontrado NÃO bloqueia (base local pode estar defasada; empresa
+      // recém-aberta) — mas o aviso fica GRAVADO no perfil e na trilha.
+      return {
+        cnpj,
+        encontrada: false,
+        aviso: baseIndisponivel
+          ? 'Base da Receita indisponível neste ambiente — a ativação registra este aviso no perfil.'
+          : 'CNPJ não localizado na base local da Receita (base pode estar defasada ou empresa recém-aberta). A ativação registra este aviso no perfil — confirme o número com seu contador.',
+      };
+    }
+    const situacao = String(row.situacao || '').trim();
+    // CRT sugerido pelos dados públicos: MEI→4, Simples→1, fora do Simples→3.
+    // SUGESTÃO cadastral, não enquadramento — o contador do tenant confirma (decisão 11).
+    const crtSugerido = row.mei === true ? 4 : row.simples === true ? 1 : row.simples === false ? 3 : null;
+    return {
+      cnpj,
+      encontrada: true,
+      razaoSocial: row.razaoSocial || row.nomeFantasia || null,
+      nomeFantasia: row.nomeFantasia || null,
+      situacao: situacao || null,
+      situacaoAtiva: this.situacaoRfbAtiva(situacao),
+      municipio: row.city || null,
+      uf: row.state || null,
+      endereco: row.address || null,
+      email: row.email || null,
+      telefone: row.phoneDigits || null,
+      simples: row.simples ?? null,
+      mei: row.mei ?? null,
+      crtSugerido,
+      cnae: row.cnae || null,
+      cnaeDescricao: row.cnaeDescription || null,
+      porte: row.porte || null,
+      naturezaJuridica: row.naturezaJuridica || null,
+      abertura: row.openedAt ? new Date(row.openedAt).toISOString().slice(0, 10) : null,
+      matrizFilial: row.matrizFilial || null,
+      municipioAllowlist: await this.municipioAllowlistDaCidade(row.city, row.state),
+    };
+  }
+
+  async ativarGestao(companyId: number, userId: number | null, dto: { cnpj?: string; politicaVersao?: string; tipoEmpresa?: string }) {
+    const perfil = await this.getOrCreatePerfil(companyId);
+    if (perfil.estoqueAtivo) throw new BadRequestException('O modo HBX Gestão Fiscal já está ativo nesta empresa.');
+    if (String(dto?.politicaVersao || '') !== POLITICA_GESTAO.versao) {
+      throw new BadRequestException('A política do modo mudou — leia e aceite a versão atual antes de ativar.');
+    }
+    const tipoEmpresa = String(dto?.tipoEmpresa || '');
+    if (!(TIPOS_EMPRESA as readonly string[]).includes(tipoEmpresa)) {
+      throw new BadRequestException('Escolha o tipo de empresa.');
+    }
+    const conferencia = await this.conferirCnpjGestao(dto?.cnpj || ''); // DV valida aqui dentro
+    const cnpj = conferencia.cnpj;
+    if (conferencia.encontrada && conferencia.situacaoAtiva === false) {
+      throw new BadRequestException(
+        `Este CNPJ consta na Receita como "${conferencia.situacao}" — só empresa ATIVA pode ativar o modo. Regularize a situação ou confira o número.`,
+      );
+    }
+    // A4: empresa amarrada à cidade do próprio CNPJ (mesma trava do perfil).
+    if (perfil.municipioIbge) {
+      const divergencia = await this.municipioDivergeDaRfb(cnpj, perfil.municipioIbge);
+      if (divergencia) {
+        throw new BadRequestException(
+          `O CNPJ informado está registrado na Receita em ${divergencia}, mas o perfil aponta outro município. Acerte o município antes de ativar.`,
+        );
+      }
+    }
+    const agora = new Date();
+    const data: Record<string, unknown> = {
+      cnpj,
+      estoqueAtivo: true,
+      tipoEmpresa,
+      gestaoPoliticaVersao: POLITICA_GESTAO.versao,
+      gestaoPoliticaAceiteEm: agora,
+      gestaoPoliticaAceitePor: userId != null ? String(userId) : null,
+      gestaoAtivadaEm: agora,
+      gestaoAtivadaPor: userId != null ? String(userId) : null,
+      cnpjConferidoEm: agora,
+      cnpjSituacaoRfb: conferencia.encontrada ? conferencia.situacao || null : null,
+      cnpjRfbAviso: conferencia.encontrada ? null : conferencia.aviso || null,
+    };
+    if (conferencia.encontrada) {
+      if (conferencia.razaoSocial) data.razaoSocial = conferencia.razaoSocial;
+      if (conferencia.crtSugerido != null) data.regimeCrt = conferencia.crtSugerido;
+      if (!perfil.municipioIbge && conferencia.municipioAllowlist) data.municipioIbge = conferencia.municipioAllowlist.ibge;
+    }
+    const next = await (this.prisma as any).fiscalTenantProfile.update({ where: { companyId }, data });
+    await this.trilha?.registrar({
+      sistema: 'NFSE',
+      operacao: 'ATIVAR_GESTAO_FISCAL',
+      requestResumo:
+        `company=${companyId} cnpj=${cnpj} tipo=${tipoEmpresa} politica=${POLITICA_GESTAO.versao}` +
+        (conferencia.encontrada ? ` situacao=${conferencia.situacao || '?'}` : ' AVISO_RFB=fora_da_base'),
+      sucesso: true,
+      resultRef: null,
+      aprovadoPor: userId != null ? String(userId) : null,
+    });
+    const municipio = next.municipioIbge
+      ? await (this.prisma as any).fiscalMunicipio.findUnique({ where: { ibge: next.municipioIbge } })
+      : null;
+    return {
+      ativado: true,
+      aviso: conferencia.encontrada ? null : conferencia.aviso || null,
+      perfil: this.serializePerfil(next, municipio),
+    };
+  }
+
+  /** Trava da decisão 12: existiu lançamento → o modo NUNCA mais desliga. */
+  private async exigirDesligavel(companyId: number) {
+    const [movimentos, xmls] = await Promise.all([
+      (this.prisma as any).estoqueMovimento.count({ where: { companyId } }),
+      (this.prisma as any).fiscalCompraXml.count({ where: { companyId } }),
+    ]);
+    if (movimentos > 0 || xmls > 0) {
+      throw new BadRequestException(
+        `O modo HBX Gestão Fiscal não pode mais ser desligado: já existem lançamentos (${movimentos} movimento(s) de estoque, ${xmls} nota(s) de compra) — o histórico faz parte da escrituração da empresa. Errou um lançamento? Corrija com movimento novo (ajuste/estorno), com rastro.`,
+      );
+    }
+  }
+
+  /** null = base não afirma nada (situação vazia) — não bloqueia por dado incompleto. */
+  private situacaoRfbAtiva(situacao: string): boolean | null {
+    const s = String(situacao || '').trim().toUpperCase();
+    if (!s) return null;
+    return s === '02' || s.includes('ATIVA');
+  }
+
+  private async municipioAllowlistDaCidade(city?: string | null, uf?: string | null) {
+    if (!city) return null;
+    try {
+      const lista = await (this.prisma as any).fiscalMunicipio.findMany();
+      const norm = (s: string) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase();
+      const m = (lista || []).find((x: any) => norm(x.nome) === norm(city) && (!uf || norm(x.uf) === norm(uf)));
+      return m ? { ibge: m.ibge, nome: m.nome, uf: m.uf, status: m.status } : null;
+    } catch {
+      return null;
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -411,6 +619,16 @@ export class FiscalProfileService implements OnModuleInit {
         expiresAt: expiresAt ? expiresAt.toISOString() : null,
         diasParaExpirar: dias,
         expirado: dias != null && dias < 0,
+      },
+      modo: p.estoqueAtivo ? 'gestao' : 'comum',
+      tipoEmpresa: p.tipoEmpresa || null,
+      gestao: {
+        ativadaEm: p.gestaoAtivadaEm ? new Date(p.gestaoAtivadaEm).toISOString() : null,
+        politicaVersao: p.gestaoPoliticaVersao || null,
+        politicaAceiteEm: p.gestaoPoliticaAceiteEm ? new Date(p.gestaoPoliticaAceiteEm).toISOString() : null,
+        cnpjConferidoEm: p.cnpjConferidoEm ? new Date(p.cnpjConferidoEm).toISOString() : null,
+        cnpjSituacaoRfb: p.cnpjSituacaoRfb || null,
+        cnpjRfbAviso: p.cnpjRfbAviso || null,
       },
     };
   }

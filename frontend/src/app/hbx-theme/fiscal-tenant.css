@@ -683,6 +683,21 @@
   gap: var(--space-2);
 }
 
+/* B0 — política do modo HBX Gestão Fiscal (wizard de ativação): só layout,
+   cores/fontes herdam do modal. Rola dentro do modal, nunca estoura a tela. */
+.fis-politica {
+  display: grid;
+  gap: var(--space-3);
+  max-height: 44vh;
+  overflow-y: auto;
+  padding-right: var(--space-2);
+}
+
+.fis-politica-sec {
+  display: grid;
+  gap: var(--space-1);
+}
+
 /* --------------------------------------------------------------- DENSIDADE */
 
 @media (max-width: 900px) {

@@ -529,7 +529,11 @@ test('gate duro: escopoProduto sem estoqueAtivo é recusado e NÃO fica ligado',
   await assert.rejects(() => profile.updatePerfil(7, { escopoProduto: true }), /estoque/i);
   assert.equal(prisma._data.profiles[0].escopoProduto, false);
 
-  const ok = await profile.updatePerfil(7, { estoqueAtivo: true, escopoProduto: true });
+  // B0 (decisão 12): ligar estoque por PUT de perfil morreu — só pelo rito de ativação.
+  await assert.rejects(() => profile.updatePerfil(7, { estoqueAtivo: true }), /rito|Ativar HBX/i);
+  // Rito concluído (simulado direto no banco fake) → escopoProduto destrava.
+  prisma._data.profiles[0].estoqueAtivo = true;
+  const ok = await profile.updatePerfil(7, { escopoProduto: true });
   assert.equal(ok.escopoProduto, true);
 });
 
