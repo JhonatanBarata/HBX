@@ -21,6 +21,7 @@ import { memoryStorage } from 'multer';
 import { Admin } from '../auth/admin.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
+import { PrismaService } from '../prisma/prisma.service';
 import { FiscalProfileService } from './fiscal-profile.service';
 import { FiscalNfseService } from './fiscal-nfse.service';
 import { FiscalEnvioService } from './fiscal-envio.service';
@@ -65,6 +66,7 @@ export class FiscalController {
     private readonly estoque: EstoqueService,
     private readonly malote: FiscalMaloteService,
     private readonly liberacao: FiscalLiberacaoService,
+    private readonly prisma: PrismaService,
   ) {}
 
   private companyIdFromUser(user: any): number {
@@ -214,14 +216,13 @@ export class FiscalController {
 
   /** Catálogo da logística pro VÍNCULO (é por ele que entrega baixa e carga reserva). */
   @Get('estoque/produtos-logistica')
-  async estoqueProdutosLogistica(@Req() req: any) {
+  estoqueProdutosLogistica(@Req() req: any) {
     const companyId = this.companyIdFromUser(req.user);
-    const rows = await (this.profile as any)['prisma'].product.findMany({
+    return (this.prisma as any).product.findMany({
       where: { companyId, status: 'active' },
       select: { id: true, name: true, unidade: true },
       orderBy: { name: 'asc' },
     });
-    return rows;
   }
 
   @Get('estoque/extrato')

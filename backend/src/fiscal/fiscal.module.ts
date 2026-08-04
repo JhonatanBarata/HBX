@@ -9,6 +9,9 @@ import { FiscalProfileService } from './fiscal-profile.service';
 import { FiscalNfseService } from './fiscal-nfse.service';
 import { FiscalEnvioService } from './fiscal-envio.service';
 import { FiscalComprovanteEntregaService } from './fiscal-comprovante-entrega.service';
+import { FiscalLiberacaoService } from './fiscal-liberacao.service';
+import { FiscalMaloteService } from './fiscal-malote.service';
+import { EstoqueService } from './estoque.service';
 
 // FISCAL DO TENANT (PR04082026-FISCAL-TENANT F1a) — módulo do TENANT, irmão do
 // financeiro-tenant. O contabil/ (robô do dono) fica INTOCADO: importamos o
@@ -34,7 +37,16 @@ import { FiscalComprovanteEntregaService } from './fiscal-comprovante-entrega.se
     FiscalNfseService,
     FiscalEnvioService,
     FiscalComprovanteEntregaService,
+    EstoqueService,
+    FiscalMaloteService,
+    FiscalLiberacaoService,
   ],
-  exports: [FiscalProfileService, FiscalNfseService, FiscalEnvioService, FiscalComprovanteEntregaService],
+  exports: [
+    FiscalProfileService,
+    FiscalNfseService,
+    FiscalEnvioService,
+    FiscalComprovanteEntregaService,
+    EstoqueService,
+  ],
 })
 export class FiscalModule {}
