@@ -168,7 +168,7 @@
 .bfc-node--lit {
   opacity: 1;
   border-color: color-mix(in srgb, var(--bfc-node-color, var(--hbx-brand)) 45%, var(--border-hairline));
-  animation: bfc-node-light-up var(--motion-base) var(--ease-out-quint);
+  animation: bfc-node-light-up var(--motion-base);
 }
 .bfc-node--lit .bfc-node-icon { animation: bfc-node-pulse 2.8s ease-in-out infinite; will-change: transform; }
 

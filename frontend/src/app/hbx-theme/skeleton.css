@@ -140,7 +140,16 @@
   /* ---- Movimento (esqueleto: curto e seco — pele dá a personalidade) ----- */
   --motion-fast: 120ms ease;
   --motion-base: 180ms ease;
-  --motion-slow: 260ms ease;
+  /* --motion-slow-dur é a MESMA duração, sozinha — para as propriedades que só
+     aceitam tempo (`animation-duration`, `transition-delay`…). Sem ele, quem
+     precisava do ritmo lento escrevia `animation-duration: var(--motion-slow)`
+     e recebia "260ms ease" numa propriedade que só aceita <time>: inválido na
+     substituição, cai pro inicial (0s) e a animação morre calada — a LEI DA
+     CURVA DUPLA de transitions.css na forma LONGHAND. Fica aqui grudado e
+     `--motion-slow` nasce DELE: a duração tem um lugar só, não dá pra uma
+     mudar e a outra ficar pra trás. */
+  --motion-slow-dur: 260ms;
+  --motion-slow: var(--motion-slow-dur) ease;
   --ease-out-quint: ease-out;
 
   /* ---- CASCA MOBILE — movimento das transições IR/VOLTAR (MOBILE-CASCA/W1)
@@ -155,8 +164,14 @@
   --casca-view-dur: 320ms;
 
   /* ---- Estrutura de entrada de página (a pele troca os 3) --------------- */
+  /* --enter-duration é SÓ duração. Não apontar pra --motion-* aqui: aquele
+     token já embute a curva ("180ms ease"), e transitions.css soma
+     --enter-ease depois dele — duas curvas no atalho `animation` = declaração
+     inválida, descartada em silêncio (ver LEI DA CURVA DUPLA em
+     transitions.css). Era o que matava a entrada de página na casca
+     Corporativa, que não sobrescreve --enter-duration. */
   --enter-name: hbx-enter-fade;        /* keyframe (transitions.css)        */
-  --enter-duration: var(--motion-base);
+  --enter-duration: 180ms;             /* mesmo tempo do --motion-base daqui */
   --enter-ease: var(--ease-out-quint);
   --enter-stagger: 0ms;                /* atraso por filho (cascata)        */
 

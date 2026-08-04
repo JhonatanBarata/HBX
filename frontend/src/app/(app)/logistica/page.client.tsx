@@ -19,7 +19,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
-import { ConfirmDialog, getRailSnapshot, I, ICONS, toggleRailState, useCurrentUser } from "@/components/hbx/shell";
+import { ConfirmDialog, I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 import { isTenantAdmin } from "@/lib/roles";
 
@@ -394,20 +394,13 @@ export function LogisticaClient() {
       .catch(() => { /* mantém a última equipe conhecida; falha não vira equipe vazia */ });
   }, [admin]);
 
-  // O cockpit inteiro (Hoje, Semana e Endereços) é uma única estação de
-  // trabalho. Antes o recolhimento do menu morava dentro de <Cockpit>, que só
-  // existe em "Hoje": ao clicar Semana/Saúde ele desmontava, reabria o menu e
-  // mostrava o painel informativo da logística por cima da navegação. Era a
-  // repetição do print e a sensação real de "não consigo voltar". O dono da
-  // estação é esta página, então o menu permanece recolhido nas três visões e
-  // volta ao estado anterior somente ao sair de /logistica.
-  useEffect(() => {
-    if (!admin || getRailSnapshot() !== "expanded") return undefined;
-    toggleRailState();
-    return () => {
-      if (getRailSnapshot() === "min") toggleRailState();
-    };
-  }, [admin]);
+  // 04/08 — O MENU NÃO SE RECOLHE MAIS SOZINHO AQUI (ordem do dono).
+  // Esta tela recolhia o rail ao montar e devolvia ao sair. Duas coisas davam
+  // errado: o estado do menu é ESCOLHA do usuário (mora em localStorage
+  // "hbx:rail") e uma tela não pode mexer nele por conta própria; e, com o rail
+  // em "min", o verso dos módulos some (useCostasDisponivel exige rail !== min),
+  // então o interruptor "»" da marca ficava mudo justamente na Logística.
+  // Quem quiser mais palco recolhe no botão «/» — como em qualquer outra tela.
 
   // Fecha o "⋯" ao clicar fora — menu que não fecha sozinho vira estorvo.
   useEffect(() => {

@@ -78,7 +78,7 @@
   transition: background var(--hbx-motion-list-exit, 120ms) var(--hbx-motion-ease-exit, ease);
 }
 
-.side[data-costas="on"]:has(.costas):hover .side-nav::-webkit-scrollbar-thumb {
+.side[data-costas="on"]:has(.costas):is(:hover, :focus-within) .side-nav::-webkit-scrollbar-thumb {
   background: var(--hbx-brand);
 }
 
@@ -104,11 +104,16 @@
   transition: opacity var(--hbx-motion-list-exit, 120ms) var(--hbx-motion-ease-exit, ease);
 }
 
-.side[data-costas="on"]:has(.costas):hover .side-nav {
+/* :focus-within entra ao lado do :hover em TODA a virada (04/08). Sem ele, quem
+   navega por teclado tabulava para dentro de 15 links com opacidade 0 — foco
+   invisível, que é pior que link ausente. Agora o foco acende a mesma face que
+   o mouse acende, e é ele que faz a alça funcionar no clique sem estado novo
+   no React. */
+.side[data-costas="on"]:has(.costas):is(:hover, :focus-within) .side-nav {
   pointer-events: auto;
 }
 
-.side[data-costas="on"]:has(.costas):hover .side-nav > :is(.nav-item, .nav-group-label) {
+.side[data-costas="on"]:has(.costas):is(:hover, :focus-within) .side-nav > :is(.nav-item, .nav-group-label) {
   opacity: 1;
   translate: 0 0;
   transition-duration: var(--hbx-motion-list-enter, 167ms);
@@ -116,7 +121,7 @@
   transition-delay: calc(var(--i, 0) * 18ms);
 }
 
-.side[data-costas="on"]:has(.costas):hover .glass-pill__glass {
+.side[data-costas="on"]:has(.costas):is(:hover, :focus-within) .glass-pill__glass {
   opacity: 1;
   transition-duration: var(--hbx-motion-list-enter, 167ms);
   transition-timing-function: var(--hbx-motion-ease-enter, ease);
@@ -186,11 +191,11 @@
 }
 
 /* Sai de cena quando o mouse chega, junto com os blocos. */
-.side[data-costas="on"]:has(.costas):hover .costas {
+.side[data-costas="on"]:has(.costas):is(:hover, :focus-within) .costas {
   pointer-events: none;
 }
 
-.side[data-costas="on"]:has(.costas):hover .costas__brilho {
+.side[data-costas="on"]:has(.costas):is(:hover, :focus-within) .costas__brilho {
   opacity: 0;
 }
 
@@ -212,14 +217,14 @@
 }
 
 .costas[data-costas-estado="entrando"] .costas-bloco,
-.side[data-costas="on"]:has(.costas):hover .costas-bloco {
+.side[data-costas="on"]:has(.costas):is(:hover, :focus-within) .costas-bloco {
   opacity: 0;
   translate: 0 10px;
   scale: 0.985;
 }
 
 /* Saída no hover: mais curta e na ordem invertida (o rodapé some primeiro). */
-.side[data-costas="on"]:has(.costas):hover .costas-bloco {
+.side[data-costas="on"]:has(.costas):is(:hover, :focus-within) .costas-bloco {
   transition-duration: var(--hbx-motion-floating-exit, 100ms);
   transition-timing-function: var(--hbx-motion-ease-exit, ease);
   transition-delay: calc(var(--o, 0) * 16ms);
@@ -819,35 +824,73 @@
   pointer-events: none;
 }
 
-/* ---- 11. O INTERRUPTOR NA MARCA ---------------------------------------- */
-/* O "»" do HBX vira botão: liga e desliga o verso de todos os módulos. Ele
-   continua sendo a marca — só ganha alvo de clique e um sinal de estado. */
+/* ---- 11. A ALÇA — o aviso de que o menu está atrás --------------------- */
+/* O interruptor saiu da marca (04/08) e foi pro menu Aparência. No lugar dele,
+   aqui, o problema que ele nunca resolveu: com o painel na frente, os itens do
+   menu ficam em opacidade 0 e pointer-events none, NO MESMO retângulo do
+   painel. Nada na tela dizia que eles estavam ali — medido em /logistica: 15
+   itens invisíveis. A alça é esse aviso, e é o único elemento clicável desta
+   face (o painel segue aria-hidden e decorativo).
 
-.logo-switch {
+   Ela mora no rodapé da pilha, sobre o fecho do painel, e sai de cena junto
+   com ele quando os módulos voltam. */
+
+/* O MESMO GUARDA do resto do arquivo (`:has(.costas)`, doutrina do topo): a
+   alça só existe se o painel ESTÁ no DOM. O React a monta pela INTENÇÃO
+   (costasDisponivel), mas o painel não nasce quando o endpoint falha ou o
+   módulo não tem o que contar — e aí o menu já está normal, visível. Sem este
+   guarda sobraria um "Módulos" boiando por cima de um menu que ninguém
+   escondeu: uma dica mentindo, que é pior que dica nenhuma. */
+.costas-alca {
+  display: none;
+}
+
+.side[data-costas="on"]:has(.costas) .costas-alca {
+  position: absolute;
+  z-index: 3;
+  inset-inline: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 8px 6px;
   border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
   border-radius: var(--radius-sm);
-  transition: opacity var(--motion-fast), transform var(--motion-fast);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--hbx-font-min);
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  /* SEM opacidade de repouso. A primeira versão tinha `opacity: .72` pra deixar
+     a alça discreta — e isso QUEBRA o token: --text-muted já nasce calibrado pra
+     contraste em cada modo, e multiplicar ele por 0,72 desfaz a calibração.
+     Medido: 5,28 no claro (passa) e 1,92 no escuro (reprova os 3:1 e os 4,5:1).
+     Quem faz o papel de "discreto" é o token, não uma opacidade por cima dele.
+     A opacidade fica só pra SAÍDA (1 → 0 quando os módulos voltam). */
+  opacity: 1;
+  transition: opacity var(--hbx-motion-list-enter, 167ms) var(--hbx-motion-ease-enter, ease);
 }
 
-.logo-switch:hover {
-  transform: translateY(-1px);
-}
-
-.logo-switch:not(.is-on) svg {
-  opacity: 0.42;
-}
-
-.logo-switch svg {
-  transition: opacity var(--motion-base) var(--ease-out-quint);
-}
-
-.logo-switch:focus-visible {
+/* NÃO existe `:hover` na alça, de propósito. Chegar com o mouse NELA é chegar
+   com o mouse na barra — e isso já acende os módulos e apaga a alça. Um estado
+   de hover aqui seria código que nunca roda (e, com o guarda acima, nem venceria
+   a especificidade). Mouse resolve pelo menu; a alça serve pra AVISAR em
+   repouso e pra dar uma porta a quem chega de teclado, que não tem hover. */
+.side[data-costas="on"]:has(.costas) .costas-alca:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--hbx-brand) 60%, transparent);
   outline-offset: 2px;
+  color: var(--hbx-brand);
+}
+
+/* Com os módulos à mostra a alça não tem mais o que avisar. Sai rápido (mesma
+   duração da saída dos blocos) e para de receber clique — senão viraria um
+   alvo invisível por cima do último item do menu. */
+.side[data-costas="on"]:has(.costas):is(:hover, :focus-within) .costas-alca {
+  opacity: 0;
+  pointer-events: none;
+  transition-duration: var(--hbx-motion-list-exit, 120ms);
 }
 
 /* ---- 12. MATERIAL POR CASCA -------------------------------------------- */

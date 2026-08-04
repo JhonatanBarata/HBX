@@ -14,7 +14,7 @@
   background: var(--hbx-surface);
   color: var(--text-title);
   box-shadow: var(--shadow-md);
-  animation: mobileBridgeIn var(--motion-base) var(--ease-out-quint);
+  animation: mobileBridgeIn var(--motion-base);
 }
 
 .icon {

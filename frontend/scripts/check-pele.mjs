@@ -21,6 +21,8 @@
 //  R4. style inline com propriedade VISUAL (cor/borda/sombra/fonte/radius)
 //      em TSX — contagem NUNCA pode subir; quando cair, o teto desce junto
 //      (pele-baseline.json). Meta: ZERO.
+//  R11. LEI DA CURVA DUPLA — `var(--motion-*)` + uma segunda curva no mesmo
+//      atalho `animation`. Nasce em ZERO (ver bloco próprio, mais abaixo).
 //
 // Isenções (mundo visual do site público, decisão registrada):
 //  - src/app/hbx-theme/skeleton.css, theme.css, theme-*.css (peles/contrato)
@@ -206,6 +208,135 @@ function contaEspacoLiteral(line) {
   return n;
 }
 
+// ─── R11 — LEI DA CURVA DUPLA (04/08/2026) ─────────────────────────────────
+//
+// `--motion-fast/base/slow` NÃO é só duração: o valor traz tempo E curva no
+// mesmo token (`340ms cubic-bezier(0.22, 1, 0.36, 1)` em casca-modern.css,
+// `180ms ease` em skeleton.css, idem theme-gerado.css). Somar uma curva depois
+// dele no atalho — `animation: nome var(--motion-base) var(--ease-out-quint)
+// both` — entrega DUAS timing-functions para a mesma animação.
+//
+// E o estrago é PIOR que uma declaração ignorada. Atalho com `var()` é VÁLIDO
+// na hora de ler a folha, então GANHA a cascata; só depois, na substituição
+// dos tokens, vira inválido — e a regra manda a propriedade para o valor
+// INICIAL (`animation-name: none`). Ou seja: além de não animar, ela APAGA a
+// animação que uma regra anterior já entregava. Zero linha no console, regra
+// bonita no DevTools; a prova só aparece medida com getComputedStyle. Custou
+// 12 animações mortas em silêncio (transitions, concierge, bot-aviso,
+// bot-builder, bot-flow, bot-terms, kit, screens, skeleton e 2 *.module.css de
+// componente) — por isso a varredura é do frontend INTEIRO, não do hbx-theme.
+//
+// O que PASSA, de propósito:
+//  - `transition:` — a sintaxe dela aceita duração + curva; não tem o defeito.
+//  - fallback de duração LITERAL (`var(--enter-duration, 180ms)` em
+//    transitions.css) — é justamente o jeito CERTO de deixar curva no atalho.
+//  - token de duração pura sozinho (`var(--ent-motion)` em entrega.css,
+//    `var(--casca-motion-dur)` + `var(--casca-motion-ease)` em casca.css).
+//
+// Nasce em ZERO (os 12 já foram corrigidos): aqui a catraca não é dívida em
+// migração, é linha de contenção — token sem fiscal é decoração, e este defeito
+// não avisa quando volta.
+//
+// O R11 tem DUAS cabeças, porque o veneno tem duas formas (a 2ª custou a
+// travessia site→login→sistema, instantânea em silêncio até 04/08):
+//  (a) ATALHO — `animation: nome var(--motion-base) var(--ease-out-quint)`.
+//      Duas curvas; morre como descrito acima.
+//  (b) LONGHAND — `animation-duration: var(--motion-slow)`. A propriedade só
+//      aceita <time> e recebe "560ms cubic-bezier(...)": mesma invalidez na
+//      substituição, mesmo tombo pro valor inicial, mesmo silêncio. Aqui NÃO
+//      precisa de segunda curva pra reprovar — a mera presença do token
+//      composto numa propriedade de uma parte só JÁ é o defeito. Vale para
+//      `transition-*` também: `transition-duration: var(--motion-fast)` quebra
+//      igual (o atalho `transition:` é que aceita os dois, e esse passa).
+//      A cura é o token de duração pura (`--motion-slow-dur`, skeleton.css).
+const CURVA_DECL_RE = /(?<![\w-])(?:-(?:webkit|moz|ms|o)-)?animation\s*:\s*([^;{}]*)/gi;
+// Cabeça (b): propriedades que aceitam SÓ UMA das duas partes do token.
+const UMA_PARTE_RE = /(?<![\w-])(?:-(?:webkit|moz|ms|o)-)?(?:animation|transition)-(?:duration|delay|timing-function)\s*:\s*([^;{}]*)/gi;
+// Só os 3 tokens que embutem curva. `--casca-motion-dur`/`--ent-motion` não
+// batem aqui (não começam em `--motion-`) — e são duração pura mesmo.
+// A fronteira é `(?![\w-])`, NÃO `\b`: em `--motion-slow-dur` existe fronteira
+// de palavra entre `slow` e `-`, então `\b` casava o token de DURAÇÃO PURA como
+// se fosse o composto e reprovava a própria cura. (O fiscal pegou isso na
+// primeira rodada depois da correção — vale a piada e vale a lição.)
+const MOTION_TOKEN_FONTE = "var\\(\\s*--motion-(?:fast|base|slow)(?![\\w-])";
+const MOTION_TOKEN_RE = new RegExp(MOTION_TOKEN_FONTE, "i");
+// Segunda curva: token de easing (qualquer `--*ease*`), função ou palavra-chave.
+const CURVA_RE = /var\(\s*--[\w-]*ease[\w-]*|(?<![\w-])(?:cubic-bezier|steps|linear)\s*\(|(?<![\w-])(?:ease-in-out|ease-in|ease-out|ease|linear|step-start|step-end)(?![\w-])/i;
+
+// Tira a referência `var(--motion-*)` inteira (com o fallback dela) antes de
+// procurar a segunda curva — senão `var(--motion-base, 180ms ease)`, que é
+// legítimo, se acusaria sozinho.
+function semTokenDeMotion(valor) {
+  const re = new RegExp(MOTION_TOKEN_FONTE, "gi");
+  let fora = "", cursor = 0, m;
+  while ((m = re.exec(valor))) {
+    fora += valor.slice(cursor, m.index);
+    let i = valor.indexOf("(", m.index), nivel = 0;
+    for (; i < valor.length; i++) {
+      if (valor[i] === "(") nivel++;
+      else if (valor[i] === ")" && --nivel === 0) { i++; break; }
+    }
+    cursor = i;
+    re.lastIndex = i;
+  }
+  return fora + valor.slice(cursor);
+}
+// O atalho aceita LISTA (`animation: a var(--motion-base) both, b 2s ease`).
+// Cada item é uma animação independente: julgar o valor inteiro de uma vez
+// acusaria o `2s ease` legítimo do segundo por causa do token do primeiro.
+function itensDoAtalho(valor) {
+  const itens = [];
+  let nivel = 0, atual = "";
+  for (const ch of valor) {
+    if (ch === "(") nivel++;
+    else if (ch === ")") nivel--;
+    if (ch === "," && nivel === 0) { itens.push(atual); atual = ""; continue; }
+    atual += ch;
+  }
+  itens.push(atual);
+  return itens;
+}
+// Comentário vira espaço (e não some): o número da linha continua batendo.
+const semComentario = t => t.replace(/\/\*[\s\S]*?\*\//g, m => m.replace(/[^\n]/g, " "));
+const temCurvaDupla = item => MOTION_TOKEN_RE.test(item) && CURVA_RE.test(semTokenDeMotion(item));
+
+function achaCurvaDupla(texto, cabecas) {
+  const achados = [];
+  const limpo = semComentario(texto);
+  for (const { re, tag, culpado } of cabecas) {
+    for (const m of limpo.matchAll(re)) {
+      const valor = m[1] ?? "";
+      if (!MOTION_TOKEN_RE.test(valor)) continue;
+      if (!culpado(valor)) continue;
+      const linha = texto.slice(0, m.index).split("\n").length;
+      achados.push({ linha, tag, trecho: valor.trim().replace(/\s+/g, " ").slice(0, 76) });
+    }
+  }
+  return achados.sort((a, b) => a.linha - b.linha);
+}
+// (a) atalho: só reprova se houver uma SEGUNDA curva junto do token.
+// (b) uma-parte: o token composto sozinho já reprova.
+const CABECAS_CSS = [
+  { re: CURVA_DECL_RE, tag: "R11a", culpado: v => itensDoAtalho(v).some(temCurvaDupla) },
+  { re: UMA_PARTE_RE, tag: "R11b", culpado: () => true },
+];
+// TSX: só o VALOR entre aspas (`style={{ animation: "…" }}`). Varrer até o `;`
+// como no CSS arrastaria as propriedades vizinhas do objeto JS junto. Em camelCase
+// não existe atalho vs longhand no mesmo nome, então as duas cabeças aqui são
+// separadas pelo próprio nome da propriedade.
+const CABECAS_TSX = [
+  {
+    re: /(?<![\w$])animation\s*:\s*(?:["'`])([^"'`]*)(?:["'`])/g,
+    tag: "R11a",
+    culpado: v => itensDoAtalho(v).some(temCurvaDupla),
+  },
+  {
+    re: /(?<![\w$])(?:animation|transition)(?:Duration|Delay|TimingFunction)\s*:\s*(?:["'`])([^"'`]*)(?:["'`])/g,
+    tag: "R11b",
+    culpado: () => true,
+  },
+];
+
 const hard = [];
 let visualCount = 0;
 const visualByFile = new Map();
@@ -213,19 +344,35 @@ let espacoCount = 0;
 const espacoByFile = new Map();
 let alturaCount = 0;
 const alturaByFile = new Map();
+let curvaCount = 0;
+const curvaByFile = new Map();
+const curvaDetalhes = [];
+
+function contaCurvaDupla(file, texto, cabecas) {
+  for (const h of achaCurvaDupla(texto, cabecas)) {
+    curvaCount++;
+    curvaByFile.set(rel(file), (curvaByFile.get(rel(file)) || 0) + 1);
+    curvaDetalhes.push(`${h.tag} ${rel(file)}:${h.linha}  ${h.trecho}`);
+  }
+}
 
 for (const file of walk(ROOT, [".css"])) {
   const isThemePele = THEME_PELE_RE.test(file);
   const skipR1 = CSS_ALLOWED.some(re => re.test(file));
   const isFontSizeExempt = FONT_SIZE_LITERAL_EXEMPT.some(re => re.test(file));
   const isSpacingExempt = SPACING_ALLOWED.some(re => re.test(file));
+  const texto = readFileSync(file, "utf8");
+  // R11 antes de qualquer isenção: curva dupla não é escolha de estilo, é
+  // DEFEITO — nem a pele nem o mundo público têm direito a ela. E é declaração
+  // que pode quebrar em várias linhas (ver casca.css), então lê o texto todo.
+  contaCurvaDupla(file, texto, CABECAS_CSS);
   // R1 (cor) é isenta pra arquivos de pele/contrato (CSS_ALLOWED) — mas R5
   // (font-size:px) e R8 (tipografia central) miram justamente em arquivos
   // dessa lista, então não pode dar `continue` cedo demais: eles passam pelo
   // arquivo, só pulam a varredura R1.
   if (skipR1 && !isThemePele && isFontSizeExempt) continue;
   let peleOn = true; // false = dentro de bloco isento (pele-allow … pele-allow-end)
-  readFileSync(file, "utf8").split(/\r?\n/).forEach((line, i) => {
+  texto.split(/\r?\n/).forEach((line, i) => {
     // Bloco isento EXPLÍCITO p/ "mundo visual do site público" em evolução (ex.: a
     // ENTRADA V1.0 / portal — cores cinematográficas que ainda mudam). Reversível:
     // ao assentar, remover os marcadores e tokenizar. Regra não engessa evolução.
@@ -260,9 +407,13 @@ for (const file of walk(ROOT, [".css"])) {
 }
 
 for (const file of walk(ROOT, [".tsx", ".ts"])) {
+  const textoTsx = readFileSync(file, "utf8");
+  // R11 também no TSX: style inline pode montar o mesmo atalho envenenado.
+  // Fora do TSX_EXEMPT porque a isenção de lá é de COR (landing), não de bug.
+  contaCurvaDupla(file, textoTsx, CABECAS_TSX);
   if (TSX_EXEMPT.some(re => re.test(file))) continue;
   const isFontSizeExempt = FONT_SIZE_LITERAL_EXEMPT.some(re => re.test(file));
-  const lines = readFileSync(file, "utf8").split(/\r?\n/);
+  const lines = textoTsx.split(/\r?\n/);
   lines.forEach((line, i) => {
     if (!isFontSizeExempt && fontSizeLiteral(line)) {
       hard.push(`R8 ${rel(file)}:${i + 1}  ${line.trim().slice(0, 80)}`);
@@ -359,6 +510,17 @@ const CATRACAS = [
     rotulo: "height travado em px (R10)",
     conselho: "Troque por min-height: a caixa precisa crescer quando a letra cresce.",
   },
+  {
+    chave: "cssCurvaDupla",
+    valor: curvaCount,
+    porArquivo: curvaByFile,
+    // Esta é a única catraca que nasce ZERADA, então ela nunca aponta "os 8
+    // piores arquivos" — aponta a LINHA. Defeito que não avisa no console
+    // precisa chegar com endereço, senão o fiscal só troca um silêncio por outro.
+    detalhes: curvaDetalhes,
+    rotulo: "curva dupla no atalho animation (R11)",
+    conselho: "var(--motion-*) JÁ traz tempo E curva — não some var(--ease-*)/cubic-bezier() nele. Quer curva própria? Use duração literal (ex.: 0.2s ease).",
+  },
 ];
 
 let salvos = null;
@@ -380,10 +542,16 @@ for (const c of CATRACAS) {
   }
   if (c.valor > teto) {
     estourou = true;
-    const top = [...c.porArquivo.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
     console.error(`\n[check-pele] CATRACA ESTOUROU — ${c.rotulo}: ${c.valor} (teto: ${teto}).`);
-    console.error(c.conselho + " Piores arquivos:");
-    for (const [f, n] of top) console.error(`  ${n}\t${f}`);
+    if (c.detalhes) {
+      console.error(c.conselho + " Onde:");
+      for (const d of c.detalhes.slice(0, 30)) console.error("  " + d);
+      if (c.detalhes.length > 30) console.error(`  … e mais ${c.detalhes.length - 30}.`);
+    } else {
+      const top = [...c.porArquivo.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8);
+      console.error(c.conselho + " Piores arquivos:");
+      for (const [f, n] of top) console.error(`  ${n}\t${f}`);
+    }
     proximos[c.chave] = teto;
   } else {
     proximos[c.chave] = Math.min(c.valor, teto);

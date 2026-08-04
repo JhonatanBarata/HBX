@@ -112,9 +112,22 @@ export const ICONS: Record<string, string[]> = {
   phone: ["M5 4h4l1.5 4.5L8 10a13 13 0 0 0 6 6l1.5-2.5L20 15v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z"],
   mapin: ["M12 21s7-5.5 7-11a7 7 0 1 0-14 0c0 5.5 7 11 7 11Z", "M12 12.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z"],
   arrow: ["M5 12h14", "m13 6 6 6-6 6"],
-  // Duplo-chevron (rail toggle, LEADS-FINAL/01): "«" recolhe, "»" expande.
-  railCollapse: ["m10 6-6 6 6 6", "m17 6-6 6 6 6"],
-  railExpand: ["m7 6 6 6-6 6", "m14 6 6 6-6 6"],
+  // Toggle do rail (LEADS-FINAL/01). ERA duplo-chevron ("«" recolhe, "»"
+  // expande) e o dono mandou MATAR em 04/08: a marca HBX ao lado é desenhada
+  // com o MESMO duplo-chevron, então com a barra recolhida ficavam dois "»"
+  // idênticos lado a lado — um era a logo, o outro dobrava o menu.
+  //
+  // Agora são DUAS formas diferentes, não duas setas: a BARRA (o traço vertical,
+  // que é o próprio rail) e UM chevron dizendo pra onde. Marca nenhuma é um
+  // traço com uma seta, então a confusão morre na origem.
+  //
+  // Tentei antes a moldura de janela + divisória + seta (convenção do VS Code):
+  // MEDIDO, não deu — o botão renderiza a 16px, e num viewBox de 24 a seta
+  // sobrava com 2 unidades, ou seja 1,3px na tela. Ícone que só funciona grande
+  // não serve pro lugar onde ele mora. Aqui o chevron tem 4,5 unidades e o
+  // traço vai de ponta a ponta: as duas formas continuam legíveis a 16px.
+  railCollapse: ["M4 5v14", "m14.5 7-4.5 5 4.5 5"],
+  railExpand: ["M4 5v14", "m10 7 4.5 5-4.5 5"],
   // Chevron pra baixo — seta de combobox/dropdown (ex.: busca de segmento no Radar).
   chevronDown: ["m6 9 6 6 6-6"],
   // Voltar (casca mobile — FIX2/V5): chevron pra ESQUERDA. `arrow` acima aponta
@@ -1171,7 +1184,6 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
   // esta tela, a barra nasce mostrando o PAINEL; passar o mouse devolve os
   // módulos (o resto é CSS puro — hover na própria barra, sem re-render).
   // Rail colapsado não tem verso: lá só cabe ícone.
-  const costasLigado = useCostasLigado();
   const costasDisponivel = useCostasDisponivel(active) && rail !== "min";
 
   return (
@@ -1183,29 +1195,26 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
           overflow:hidden + o raio) corta a barra igual corta qualquer outro
           conteúdo, sem depender do Chrome respeitar o raio no scrollbar. */}
       <div className="side-scroll">
-        {/* O "»" da marca é o INTERRUPTOR do verso (ordem do dono 31/07): clicar
-            liga/desliga o painel de costas de TODOS os módulos, e a escolha
-            fica gravada no navegador. Sem verso disponível (casca corporativa,
-            /dashboard, /relatórios) o botão continua ali, só não muda nada
-            visível naquela tela. */}
+        {/* A MARCA VOLTOU A SER MARCA (dono, 04/08). De 31/07 a 04/08 o logo era
+            o interruptor do verso dos módulos — e o desenho dele é o MESMO "»"
+            do botão que recolhe a barra, logo ao lado. Com a barra recolhida
+            ficavam dois "»" idênticos fazendo coisas sem relação nenhuma, e o
+            da marca ainda ficava MUDO (rail "min" desliga o verso por regra:
+            useCostasDisponivel). O liga/desliga do painel mudou de casa: agora
+            é a linha "Painel do módulo" no menu Aparência, junto de Densidade —
+            que é onde moram as escolhas de aparência gravadas no navegador. */}
       <div className="side-head">
-        <button
-          type="button"
-          className={"logo logo-switch" + (soLog ? " logo--empresa" : "") + (costasLigado ? " is-on" : "")}
-          onClick={toggleCostas}
-          aria-pressed={costasLigado}
-          title={costasLigado ? "Painel do módulo ligado" : "Painel do módulo desligado"}
-        >
+        <div className={"logo" + (soLog ? " logo--empresa" : "")}>
           {/* S1 MODO DISTRIBUIDORA: marca = nome da empresa (de-HBX). */}
           {soLog ? (
             <strong>{currentCompanyName(user)}</strong>
           ) : (
             <>
-              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg>
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--hbx-brand)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 6l6 6-6 6M11 6l6 6-6 6" /></svg>
               <strong>HBX</strong>
             </>
           )}
-        </button>
+        </div>
         {/* Toggle do rail (LEADS-FINAL/01): colapsa pra --rail-width-min (só ícone).
             Botão central existente (round-btn) — zero visual novo. Fica ao lado
             da marca (07/07): libera a linha inteira que sobrava abaixo do logo. */}
@@ -1269,6 +1278,23 @@ export function Sidebar({ active, rail = "expanded", onToggleRail }: { active: s
         <CercaDeEnfeite resetKey={active} nome="painel das costas">
           <CostasPainel modulo={active} disponivel={costasDisponivel} />
         </CercaDeEnfeite>
+        {/* A ALÇA (dono, 04/08) — o painel continua NA FRENTE, mas o menu para
+            de ser invisível-sem-aviso. Medido em /logistica antes disto: 15
+            itens de menu no DOM com opacidade 0 e pointer-events none, no MESMO
+            retângulo do painel, sem nada na tela dizendo que estavam ali. Era o
+            "não consigo voltar" — e valia pros 11 módulos com verso, não só a
+            Logística (o auto-recolhimento de lá era tapume disso, já removido).
+
+            É <button> de propósito, não enfeite: quem chega de teclado não tem
+            hover. O foco nele acende o menu pelo :focus-within que entrou junto
+            no costas.css — então clicar OU tabular resolve, sem estado novo no
+            React. O painel segue aria-hidden e sem nada focável dentro. */}
+        {costasDisponivel && (
+          <button type="button" className="costas-alca" aria-label="Mostrar os módulos">
+            <I d={ICONS.grid} size={12} />
+            <span>Módulos</span>
+          </button>
+        )}
       </div>
       <div className="side-bottom">
         {/* O cartão de Disparos foi CORTADO pelo dono (01/08). Sobrou o alerta
@@ -1343,6 +1369,8 @@ export function AparenciaSwitch() {
   // A densidade não tem rascunho: ela aplica na hora (ver o bloco no menu).
   // Este estado existe só para o botão aceso acompanhar o clique.
   const [densidade, setDensidadeLocal] = useState<DensidadeKey | null>(null);
+  // Painel do módulo (o verso da barra lateral): store própria, aplica na hora.
+  const costasLigado = useCostasLigado();
 
   // RASCUNHO — o que está marcado no menu. Nada disso vale até o Aplicar.
   const [draftCor, setDraftCor] = useState<string | null>(corKey);
@@ -1502,6 +1530,30 @@ export function AparenciaSwitch() {
                         {d.label}
                       </button>
                     ))}
+                  </div>
+
+                  {/* PAINEL DO MÓDULO — mudou de casa em 04/08 (ordem do dono).
+                      Morava no "»" da marca, na barra lateral, com o mesmo
+                      desenho do botão de recolher ao lado. É escolha de
+                      APARÊNCIA gravada no navegador, igual a Densidade — então
+                      mora aqui, e aplica NA HORA pelo mesmo motivo dela: o
+                      efeito só se julga vendo a barra de verdade.
+                      Bônus de ter saído da barra: no modo distribuidora a marca
+                      é o nome da empresa e não tem SVG, então o sinal de estado
+                      (.logo-switch:not(.is-on) svg) simplesmente não existia —
+                      o interruptor era invisível justo pra quem só usa entrega. */}
+                  <div className="aparencia__cap">Painel do módulo</div>
+                  <div className="aparencia__seg" role="group" aria-label="Painel do módulo na barra lateral">
+                    <button className={costasLigado ? "is-on" : ""} aria-pressed={costasLigado}
+                      tabIndex={open ? 0 : -1}
+                      onClick={() => { if (!costasLigado) toggleCostas(); }}>
+                      Ligado
+                    </button>
+                    <button className={!costasLigado ? "is-on" : ""} aria-pressed={!costasLigado}
+                      tabIndex={open ? 0 : -1}
+                      onClick={() => { if (costasLigado) toggleCostas(); }}>
+                      Desligado
+                    </button>
                   </div>
                 </div>
 

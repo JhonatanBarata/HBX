@@ -32,7 +32,8 @@
   border: 1px solid var(--border-hairline);
   background: var(--hbx-surface);
   box-shadow: var(--shadow-lg);
-  animation: hbx-overlay-in var(--motion-base) var(--ease-out-quint) both;
+  /* `backwards`, nunca `both` — ver LEI DO FILL em transitions.css. */
+  animation: hbx-overlay-in var(--motion-base) backwards;
 }
 .bot-terms__dialog:focus { outline: none; }
 

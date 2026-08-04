@@ -70,7 +70,7 @@ html, body { margin: 0; }
 /* Blink do ícone ao clicar (07/07): em vez de trocar a seta na hora, encolhe
    devagar até sumir e cresce devagar de volta já apontando pro lado novo —
    key={rail} no TSX remonta o <span> a cada clique, disparando a animação. */
-.rail-toggle__icon { display: inline-flex; animation: hbx-rail-icon-blink var(--motion-base) var(--ease-out-quint); }
+.rail-toggle__icon { display: inline-flex; animation: hbx-rail-icon-blink var(--motion-base); }
 @keyframes hbx-rail-icon-blink {
   0% { transform: scale(1); opacity: 1; }
   45% { transform: scale(0.1); opacity: 0.2; }

@@ -64,7 +64,12 @@
 
   /* movimento: curva do mockup (ease-out longa) + entrada com blur */
   --motion-base: 340ms cubic-bezier(0.22, 1, 0.36, 1);
-  --motion-slow: 620ms cubic-bezier(0.22, 1, 0.36, 1);
+  /* par LEI DA CURVA DUPLA (ver skeleton.css): a duração mora no `-dur` e o
+     token composto nasce dela. Os dois no MESMO bloco de propósito — assim a
+     casca que ganha `--motion-slow` ganha `--motion-slow-dur` junto, e nunca
+     sobra um par cruzado (620ms daqui com a curva de outra pele). */
+  --motion-slow-dur: 620ms;
+  --motion-slow: var(--motion-slow-dur) cubic-bezier(0.22, 1, 0.36, 1);
   --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
   --enter-name: hbx-enter-modern;
   --enter-duration: 560ms;

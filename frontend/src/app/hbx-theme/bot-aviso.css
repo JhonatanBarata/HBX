@@ -34,7 +34,10 @@
   border: 1px solid var(--border-hairline);
   background: var(--hbx-surface);
   box-shadow: var(--shadow-lg);
-  animation: hbx-overlay-in var(--motion-base) var(--ease-out-quint) both;
+  /* `backwards`, nunca `both` (LEI DO FILL, transitions.css): o `to` já é o
+     estilo natural, e `both` deixaria transform residual — o diálogo viraria
+     containing-block de qualquer filho `position: fixed`. */
+  animation: hbx-overlay-in var(--motion-base) backwards;
 }
 .bot-aviso__dialog:focus { outline: none; }
 

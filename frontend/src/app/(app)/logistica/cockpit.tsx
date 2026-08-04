@@ -24,7 +24,8 @@
 // virtude; o dono cobrou ("só realocou as coisas... eu pedi para não usar a
 // base") e ele tinha razão. O tabuleiro agora é próprio (`cockpit-tabuleiro`,
 // com seleção múltipla), o mapa é próprio (`cockpit-mapa`, pinos numerados +
-// trilha + chip de sem-ponto) e o trilho de módulos colapsa sozinho ao entrar.
+// trilha + chip de sem-ponto). O trilho de módulos NÃO colapsa mais sozinho ao
+// entrar (removido em 04/08): o estado do menu é escolha do usuário.
 // As 3 regras que custaram bug foram COPIADAS pro código novo, não herdadas
 // por import: eixo = rotaOrdem, drop na órfã desatribui, sem ordem = "—".
 // ============================================================================

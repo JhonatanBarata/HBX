@@ -13,7 +13,17 @@
 //  · /dashboard e /relatórios NÃO têm verso (o menu fica como sempre foi);
 //  · Créditos é o último cartão e aparece SEMPRE; Disparos só em Vendas;
 //  · casca CORPORATIVA não recebe este tratamento — lá o menu é menu;
-//  · liga/desliga no "»" da marca HBX, no topo da barra.
+//  · liga/desliga em Aparência → "Painel do módulo" (mudou de casa em 04/08;
+//    era o "»" da marca HBX, que tinha o MESMO desenho do botão de recolher a
+//    barra bem ao lado — e ficava mudo com a barra recolhida, porque rail
+//    "min" desliga o verso por regra).
+//
+// 04/08 — A ALÇA. O menu que este painel cobre ficava em opacidade 0 e
+// pointer-events none, no mesmo retângulo, SEM nada avisar (medido: 15 itens
+// invisíveis na /logistica). A /logistica tapava isso recolhendo a barra
+// sozinha ao entrar — tapume removido. Agora o aviso é explícito: a alça
+// "Módulos" no rodapé da barra, que o shell monta FORA deste componente (aqui
+// dentro nada é clicável nem focável, e o painel segue aria-hidden).
 //
 // O movimento reusa o contrato central (hbx-theme/motion-system.css): as
 // mesmas curvas e a mesma ideia de transição (não animação com fill-mode), pra

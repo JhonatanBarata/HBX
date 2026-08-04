@@ -45,7 +45,9 @@
    o véu volta a cobrir a tela inteira. Mesmo visual, zero resíduo. */
 /* Telas fora do app (login / site / fluxos soltos): o wrapper inteiro entra. */
 .hbx-page {
-  animation: var(--enter-name, hbx-enter-fade) var(--enter-duration, var(--motion-base)) var(--enter-ease, var(--ease-out-quint)) backwards;
+  /* fallback de duração é LITERAL de propósito: `var(--motion-base)` aqui
+     reintroduziria a curva dupla da lei acima se --enter-duration sumisse. */
+  animation: var(--enter-name, hbx-enter-fade) var(--enter-duration, 180ms) var(--enter-ease, var(--ease-out-quint)) backwards;
 }
 
 /* CARA DE SISTEMA (ordem do dono 14/06): dentro do app o chrome — menu lateral e
@@ -58,7 +60,9 @@
    LEI DO FILL acima). Assim o slot NÃO vira containing-block de position:fixed
    depois da entrada — os modais (.hbx-veil) cobrem a tela inteira. */
 .app-page {
-  animation: var(--enter-name, hbx-enter-fade) var(--enter-duration, var(--motion-base)) var(--enter-ease, var(--ease-out-quint)) backwards;
+  /* fallback de duração é LITERAL de propósito: `var(--motion-base)` aqui
+     reintroduziria a curva dupla da lei acima se --enter-duration sumisse. */
+  animation: var(--enter-name, hbx-enter-fade) var(--enter-duration, 180ms) var(--enter-ease, var(--ease-out-quint)) backwards;
 }
 
 /* ---------- micro-transições discretas ---------- */
@@ -82,13 +86,20 @@ button, a, .nav-item, .tag, .deal, .conv {
    ============================================================ */
 @view-transition { navigation: auto; }
 
+/* ⚠️ A CURVA DUPLA TAMBÉM MATA NO LONGHAND (04/08 — medido: `duration=0s`).
+   Aqui estava `animation-duration: var(--motion-slow)`. Como o token vale
+   "560ms cubic-bezier(...)" e `animation-duration` só aceita <time>, ele ficava
+   inválido na substituição e caía pro inicial: a travessia site→login→sistema
+   era INSTANTÂNEA, exatamente o "fecha e abre" que este bloco existe pra
+   evitar. Duração pura pede token de duração pura (--motion-slow-dur); a curva
+   entra na propriedade dela, embaixo. Fallback literal = valor do esqueleto. */
 ::view-transition-old(root),
 ::view-transition-new(root) {
-  animation-duration: var(--motion-slow);
+  animation-duration: var(--motion-slow-dur, 260ms);
   animation-timing-function: var(--enter-ease, var(--ease-out-quint));
 }
 ::view-transition-group(hbx-brand) {
-  animation-duration: var(--motion-slow);
+  animation-duration: var(--motion-slow-dur, 260ms);
   animation-timing-function: var(--enter-ease, var(--ease-out-quint));
 }
 
@@ -129,9 +140,23 @@ html.hbx-leaving body { opacity: 0; transition: opacity 0.3s var(--ease-out-quin
    `backwards` (LEI DO FILL): o modal/gaveta também não pode ficar com transform
    residual — senão vira containing-block dos filhos `position: fixed` (ex.: o
    popover de Agenda do cockpit) e eles deixam de se centralizar na tela. */
+/* ⚠️ LEI DA CURVA DUPLA (04/08, custou 12 animações mortas em silêncio):
+   `--motion-*` NÃO é só duração — vale "340ms cubic-bezier(...)", tempo E curva
+   no mesmo valor (ver casca-modern.css, skeleton.css, theme-gerado.css). Somar
+   `var(--ease-*)` depois dele no atalho `animation` entrega DUAS curvas.
+   E o estrago é PIOR que uma declaração ignorada: atalho com `var()` é VÁLIDO
+   na hora de ler a folha, então ele GANHA a cascata; só depois, ao substituir
+   os tokens, vira inválido — e a regra manda a propriedade pro valor INICIAL
+   (`animation-name: none`). Ou seja: além de não animar, ele APAGA a animação
+   que uma regra anterior já entregava (era o caso de `.hbx-modal`, que perdia
+   o `hbx-modal-in` de kit.css). Tudo isso sem UMA linha no console e com a
+   regra bonita no DevTools. A prova é MEDIDA com getComputedStyle:
+   `animation-name` = `none`, `animation-duration` = `0s`.
+   Quem usa `--motion-*` no atalho NÃO acrescenta curva; quem quer curva usa
+   duração literal (ex.: `.hbx-veil` aqui embaixo). */
 .hbx-veil { animation: hbx-enter-fade 0.2s ease backwards; }
-.hbx-modal, .hbx-pop { animation: hbx-overlay-in var(--motion-base) var(--ease-out-quint) backwards; }
-.hbx-drawer { animation: hbx-drawer-in var(--motion-base) var(--ease-out-quint) backwards; }
+.hbx-modal, .hbx-pop { animation: hbx-overlay-in var(--motion-base) backwards; }
+.hbx-drawer { animation: hbx-drawer-in var(--motion-base) backwards; }
 @keyframes hbx-overlay-in {
   from { opacity: 0; transform: translateY(8px) scale(0.985); }
   to { opacity: 1; transform: none; }

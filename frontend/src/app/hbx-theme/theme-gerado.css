@@ -180,7 +180,10 @@
   /* MOVIMENTO — igual para toda cor (cor não tem opinião sobre tempo). */
   --motion-fast: 160ms ease;
   --motion-base: 320ms cubic-bezier(0.22, 1, 0.36, 1);
-  --motion-slow: 560ms cubic-bezier(0.22, 1, 0.36, 1);
+  /* par LEI DA CURVA DUPLA (ver skeleton.css): duração pura + token composto
+     que nasce dela, sempre no mesmo bloco. */
+  --motion-slow-dur: 560ms;
+  --motion-slow: var(--motion-slow-dur) cubic-bezier(0.22, 1, 0.36, 1);
   --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
 
   /* base.css lê este token e nenhuma outra folha o define. */

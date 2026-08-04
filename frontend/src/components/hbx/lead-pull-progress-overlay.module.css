@@ -6,7 +6,7 @@
   background: color-mix(in srgb, var(--hbx-background) 54%, transparent);
   -webkit-backdrop-filter: blur(10px) saturate(120%);
   backdrop-filter: blur(10px) saturate(120%);
-  animation: leadPullVeilIn var(--motion-base) var(--ease-out-quint) both;
+  animation: leadPullVeilIn var(--motion-base) both;
 }
 
 .leaving {
