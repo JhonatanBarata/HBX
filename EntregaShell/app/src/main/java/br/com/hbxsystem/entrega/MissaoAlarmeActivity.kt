@@ -105,10 +105,10 @@ class MissaoAlarmeActivity : AppCompatActivity() {
         setContentView(montarLayout())
         travarVoltar()
         garantirVolumeDeAlarme()
-        iniciarSom()
-        iniciarVibracao()
+        // O som forte já cumpriu o papel de chamar. Com a tela aberta ele
+        // para imediatamente e deixa a voz ler o recado sem sobreposição.
+        MissaoAlarme.silenciarNotificacao(this, missaoId)
         falar()
-        handler.postDelayed(rampaRunnable, RAMPA_PASSO_MS)
     }
 
     override fun onPause() {
@@ -371,11 +371,13 @@ class MissaoAlarmeActivity : AppCompatActivity() {
     private fun abrirApp() {
         runCatching {
             startActivity(
-                Intent(this, MainActivity::class.java).addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
-                ),
+                Intent(this, MainActivity::class.java)
+                    .putExtra(HbxMobileBridge.EXTRA_OPEN_RECADOS, ehRecado)
+                    .addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                    ),
             )
         }
         finish()

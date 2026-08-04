@@ -7619,15 +7619,7 @@
         if (resposta.acao === "entendi") {
           const confirmado = await confirmarRecadoDoPortao(recadoId);
           if (confirmado && H.recadoRespostaConcluir) H.recadoRespostaConcluir(recadoId);
-        } else {
-          state.recadoPortao = {
-            id: recadoId,
-            texto: resposta.texto || "",
-            autorNome: "Central",
-            respondendo: true,
-          };
-          render();
-        }
+        } else await abrirRecados(true);
         return;
       }
       // `agendadas=1` é este app dizendo "eu sei armar despertador" — sem o
@@ -7766,13 +7758,24 @@
     } catch (_) { /* mantém o badge: sem confirmação do servidor não finge leitura */ }
   }
 
-  async function abrirRecados() {
+  function focarRespostaDosRecados() {
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const campo = document.getElementById("recados-composer");
+      if (!campo) return;
+      campo.focus();
+      try { campo.scrollIntoView({ block: "end", behavior: "smooth" }); } catch (_) {}
+    }));
+  }
+
+  async function abrirRecados(focarResposta) {
     state.recadosAberto = true;
     state.recadosErro = null;
     recadosScrollMarker = "";
     render();
+    if (focarResposta) focarRespostaDosRecados();
     await carregarHistoricoRecados(!recadosHistoricoCarregado);
     await marcarRecadosAbertosComoVistos();
+    if (focarResposta) focarRespostaDosRecados();
   }
 
   function chaveMensagem(prefix) {
@@ -7824,8 +7827,9 @@
         let indiceAlarme = 0;
         for (const recado of realmenteNovos) {
           if (recado.nivel === "alarme") {
-            // Despertador nativo daqui a 3s: dá tempo do app terminar o tick e
-            // não colide com o toast. `atMillis` viaja como STRING (contrato).
+            // O identificador `recado_` manda a ponte nativa tocar agora; o
+            // horário continua no contrato apenas para não misturar a API de
+            // recado com a de missão agendada.
             try {
               if (H.missaoAlarme) {
                 H.missaoAlarme(`recado_${recado.id}`, String(Date.now() + 3000 + indiceAlarme * 7000), "Recado da central", String(recado.texto || ""));
@@ -11638,7 +11642,7 @@
   // RECADOS (03/08) — push entrega na hora; este tick curto é o paraquedas de
   // primeiro plano. Mensagem não pode herdar o relógio de missão/rota.
   document.addEventListener("hbx:push-wake", () => { void checkRecados(true); });
-  document.addEventListener("hbx:open-recados", () => { void abrirRecados(); });
+  document.addEventListener("hbx:open-recados", () => { void abrirRecados(true); });
   setInterval(() => { if (!document.hidden) void checkRecados(); }, RECADOS_POLL_MS);
   void iniciarCanalDeRecados();
   // Voltar da tela de permissão do Android nem sempre passa por

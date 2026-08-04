@@ -88,17 +88,39 @@ object MissaoAlarme {
         return armarRodada(context, missaoId, atMillis, titulo, texto, rodada = 0)
     }
 
+    /**
+     * Recado de alarme acabou de chegar por push: toca agora, sem passar pelo
+     * relógio inexato do Android. O AlarmManager continua responsável apenas
+     * pelas cutucadas seguintes, caso ninguém responda.
+     */
+    fun dispararAgora(context: Context, id: String, titulo: String, texto: String): Boolean {
+        val missaoId = id.trim()
+        if (missaoId.isEmpty()) return false
+        val proximaRodada = System.currentTimeMillis() + RODADA_INTERVALO_MS
+        guardar(context, missaoId, proximaRodada, titulo, texto)
+        armarRodada(context, missaoId, proximaRodada, titulo, texto, rodada = 1)
+        tocar(context, missaoId, titulo, texto, rodada = 0)
+        return true
+    }
+
     /** A pessoa respondeu (ou a missão morreu no servidor): mata a corrente inteira. */
     fun cancelar(context: Context, id: String) {
         val missaoId = id.trim()
         if (missaoId.isEmpty()) return
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
         runCatching { alarmManager?.cancel(pendingIntent(context, missaoId, "", "", 0)) }
+        silenciarNotificacao(context, missaoId)
+        esquecer(context, missaoId)
+    }
+
+    /** A tela já abriu: encerra o toque forte, sem apagar a próxima cutucada. */
+    fun silenciarNotificacao(context: Context, id: String) {
+        val missaoId = id.trim()
+        if (missaoId.isEmpty()) return
         runCatching {
             val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
             manager?.cancel(NOTIF_BASE + requestCode(missaoId) % 1000)
         }
-        esquecer(context, missaoId)
     }
 
     /** Alarme tocou e ninguém respondeu ainda: agenda a cutucada seguinte. */

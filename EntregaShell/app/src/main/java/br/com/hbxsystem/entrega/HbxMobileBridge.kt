@@ -192,7 +192,6 @@ object HbxMobileBridge {
         if (recados.length() == 0) return
 
         val recebidos = JSONArray()
-        var novosAlarmes = 0
         for (index in 0 until recados.length()) {
             val item = recados.optJSONObject(index) ?: continue
             val id = item.optString("id").trim()
@@ -208,15 +207,12 @@ object HbxMobileBridge {
                     else -> "Recado da central"
                 }
                 if (nivel == "alarme") {
-                    // Vários alarmes não disputam a mesma janela: cada novo
-                    // recado ganha um pequeno degrau e continua persistido no
-                    // AlarmManager até a pessoa responder.
-                    val quando = System.currentTimeMillis() + 1_800L + (novosAlarmes * 7_000L)
-                    novosAlarmes += 1
-                    val armado = MissaoAlarme.agendar(
+                    // O push já acordou o processo: tocar agora evita a janela
+                    // inexata que atrasava o alerta em ~16 s no Android 14+.
+                    // As repetições continuam persistidas no AlarmManager.
+                    val armado = MissaoAlarme.dispararAgora(
                         context,
                         "$PREFIXO_ALARME_RECADO$id",
-                        quando,
                         titulo,
                         texto,
                     )

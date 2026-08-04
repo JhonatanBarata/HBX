@@ -310,6 +310,11 @@ class NativeAppBridge(
         val safeTitulo = titulo.filterNot(Char::isISOControl).take(60)
         val limiteTexto = if (ehAlarmeDeRecado(safeId)) 500 else 120
         val safeTexto = texto.filterNot(Char::isISOControl).take(limiteTexto)
+        if (ehAlarmeDeRecado(safeId)) {
+            // Recado chegou agora; esperar AlarmManager aqui introduzia uma
+            // janela de vários segundos nos aparelhos sem permissão exata.
+            return MissaoAlarme.dispararAgora(activity, safeId, safeTitulo, safeTexto)
+        }
         return MissaoAlarme.agendar(activity, safeId, quando, safeTitulo, safeTexto)
     }
 
