@@ -32,7 +32,7 @@
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
-      .replace(/'/g, "&#039;");
+      .replace(/'/g, "&#39;");
   }
 
   function onlyDigits(value) { return String(value ?? "").replace(/\D/g, ""); }
@@ -316,16 +316,24 @@
     }
   }
 
+  // O campo seguro do MP vive num IFRAME: var() do app não atravessa, o SDK
+  // exige valor literal. A cor então é LIDA do token computado na hora — o
+  // tema (linha do dataset.theme, acima) já virou antes de o SDK montar.
+  function tokenValue(name, fallback) {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || fallback;
+  }
+
   function secureFieldStyle() {
     return {
-      color: isDark ? "#edf4e9" : "#172116",
+      color: tokenValue("--ink", "black"),
       fontFamily: "Inter, system-ui, -apple-system, Segoe UI, sans-serif",
       fontSize: "13px",
       fontWeight: "620",
       height: "46px",
       width: "100%",
       padding: "13px 0",
-      placeholderColor: isDark ? "#8e9b89" : "#7d8979",
+      placeholderColor: tokenValue("--muted", "gray"),
     };
   }
 

@@ -78,7 +78,7 @@
   transition: background var(--hbx-motion-list-exit, 120ms) var(--hbx-motion-ease-exit, ease);
 }
 
-.side[data-costas="on"]:has(.costas):has(.side-stack:is(:hover, :has(:focus-visible))) .side-nav::-webkit-scrollbar-thumb {
+.side[data-costas="on"]:has(.costas):has(.side-stack:hover) .side-nav::-webkit-scrollbar-thumb {
   background: var(--hbx-brand);
 }
 
@@ -116,11 +116,11 @@
    usuário clicava pra ver o painel e via o menu — e o foco do botão fazia isso
    PERSISTIR mesmo depois de tirar o mouse. Cabeçalho e rodapé ficam fora do
    gatilho; a pilha (menu + painel + alça) é que responde. */
-.side[data-costas="on"]:has(.costas):has(.side-stack:is(:hover, :has(:focus-visible))) .side-nav {
+.side[data-costas="on"]:has(.costas):has(.side-stack:hover) .side-nav {
   pointer-events: auto;
 }
 
-.side[data-costas="on"]:has(.costas):has(.side-stack:is(:hover, :has(:focus-visible))) .side-nav > :is(.nav-item, .nav-group-label) {
+.side[data-costas="on"]:has(.costas):has(.side-stack:hover) .side-nav > :is(.nav-item, .nav-group-label) {
   opacity: 1;
   translate: 0 0;
   transition-duration: var(--hbx-motion-list-enter, 167ms);
@@ -128,7 +128,7 @@
   transition-delay: calc(var(--i, 0) * 18ms);
 }
 
-.side[data-costas="on"]:has(.costas):has(.side-stack:is(:hover, :has(:focus-visible))) .glass-pill__glass {
+.side[data-costas="on"]:has(.costas):has(.side-stack:hover) .glass-pill__glass {
   opacity: 1;
   transition-duration: var(--hbx-motion-list-enter, 167ms);
   transition-timing-function: var(--hbx-motion-ease-enter, ease);
@@ -198,11 +198,11 @@
 }
 
 /* Sai de cena quando o mouse chega, junto com os blocos. */
-.side[data-costas="on"]:has(.costas):has(.side-stack:is(:hover, :has(:focus-visible))) .costas {
+.side[data-costas="on"]:has(.costas):has(.side-stack:hover) .costas {
   pointer-events: none;
 }
 
-.side[data-costas="on"]:has(.costas):has(.side-stack:is(:hover, :has(:focus-visible))) .costas__brilho {
+.side[data-costas="on"]:has(.costas):has(.side-stack:hover) .costas__brilho {
   opacity: 0;
 }
 
@@ -224,14 +224,14 @@
 }
 
 .costas[data-costas-estado="entrando"] .costas-bloco,
-.side[data-costas="on"]:has(.costas):has(.side-stack:is(:hover, :has(:focus-visible))) .costas-bloco {
+.side[data-costas="on"]:has(.costas):has(.side-stack:hover) .costas-bloco {
   opacity: 0;
   translate: 0 10px;
   scale: 0.985;
 }
 
 /* Saída no hover: mais curta e na ordem invertida (o rodapé some primeiro). */
-.side[data-costas="on"]:has(.costas):has(.side-stack:is(:hover, :has(:focus-visible))) .costas-bloco {
+.side[data-costas="on"]:has(.costas):has(.side-stack:hover) .costas-bloco {
   transition-duration: var(--hbx-motion-floating-exit, 100ms);
   transition-timing-function: var(--hbx-motion-ease-exit, ease);
   transition-delay: calc(var(--o, 0) * 16ms);
@@ -894,7 +894,7 @@
 /* Com os módulos à mostra a alça não tem mais o que avisar. Sai rápido (mesma
    duração da saída dos blocos) e para de receber clique — senão viraria um
    alvo invisível por cima do último item do menu. */
-.side[data-costas="on"]:has(.costas):has(.side-stack:is(:hover, :has(:focus-visible))) .costas-alca {
+.side[data-costas="on"]:has(.costas):has(.side-stack:hover) .costas-alca {
   opacity: 0;
   pointer-events: none;
   transition-duration: var(--hbx-motion-list-exit, 120ms);

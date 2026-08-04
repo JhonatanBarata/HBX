@@ -5,7 +5,7 @@
   display: grid;
   place-items: center;
   padding: 22px;
-  background: color-mix(in srgb, #05070b 62%, transparent);
+  background: var(--hbx-overlay);
   backdrop-filter: blur(6px);
 }
 
@@ -19,7 +19,7 @@
   border-radius: 24px;
   background: var(--hbx-surface);
   color: var(--text-strong);
-  box-shadow: var(--shadow-xl, 0 24px 70px rgba(0, 0, 0, 0.32));
+  box-shadow: var(--shadow-lg);
 }
 
 .header {

@@ -40,10 +40,13 @@
 // Isenções do R6 (e a (d), do R7 — DECLARADAS aqui porque foi
 // exatamente a falta dessa trava que deixou 45 hex entrarem sem ninguém ver,
 // ver docs/PLANEJAMENTOS/PR22072026-APK-PROFISSIONAL/FASE2-VARREDURA-DE-CONTRATO.md):
-//  (a) os blocos de definição de token PUROS — `:root { ... }` e
-//      `:root[data-theme="dark"] { ... }` — de main/assets/app/app.css. NÃO
-//      cobre seletores compostos tipo `:root[data-theme="dark"] .chip{...}`:
-//      aquilo é regra de componente, não dicionário de token.
+//  (a) os blocos de definição de token PUROS — `:root { ... }`,
+//      `:root[data-theme="dark"] { ... }` e as combinações com
+//      `[data-app="..."]` (dicionário do FLAVOR, ex.: o acabamento do HBX
+//      Logística em `:root[data-app="logistica"]{...}`) — de
+//      main/assets/app/app.css. NÃO cobre seletores compostos tipo
+//      `:root[data-theme="dark"] .chip{...}`: aquilo é regra de componente,
+//      não dicionário de token.
 //  (b) a paleta da CASCA DE ABERTURA declarada no `:root{...}` do <style> dos
 //      dois opening.html (oobe-casca-isolada — visual próprio, não usa token
 //      do app).
@@ -62,6 +65,9 @@
 //      Sem esta isenção a trava nasceria vermelha PARA SEMPRE nos 4 usos
 //      legítimos que já existem, e trava que sempre reprova vira ruído que
 //      todo mundo aprende a ignorar — que é como os 45 hex entraram.
+//  (e) R6+R7: `vendor/` dentro dos assets (maplibre-gl) — biblioteca de
+//      TERCEIRO, entregue minificada. Não é aparência decidida em tela e não
+//      tem como nascer de token; código NOSSO nunca mora em vendor/.
 import { readdirSync, readFileSync, statSync, writeFileSync, existsSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
@@ -123,7 +129,8 @@ const ENTREGA_ROOT = join(process.cwd(), "..", "EntregaShell", "app", "src");
 const ENTREGA_EXTS = [".css", ".js", ".html"];
 const ENTREGA_APP_CSS_RE = /assets[\\/]app[\\/]app\.css$/;
 const ENTREGA_OPENING_HTML_RE = /assets[\\/]app[\\/]opening\.html$/;
-const ENTREGA_TOKEN_BLOCK_OPEN_RE = /^:root(\[data-theme=["']dark["']\])?\s*\{/;
+const ENTREGA_TOKEN_BLOCK_OPEN_RE = /^:root(\[data-(?:theme|app)=["'][\w-]+["']\])*\s*\{/;
+const ENTREGA_VENDOR_RE = /[\\/]vendor[\\/]/; // isenção (e) — ver topo
 const ENTREGA_META_THEME_RE = /<meta\s+name=["']theme-color["']/;
 const ENTREGA_HEX_RE = /#[0-9a-fA-F]{3,8}\b/g;
 const ENTREGA_STYLE_ATTR_RE = /[\s"'`]style\s*=\s*["']/;
@@ -436,6 +443,7 @@ for (const file of walk(ROOT, [".tsx", ".ts"])) {
 // (../EntregaShell a partir de frontend/, onde este script roda).
 if (existsSync(ENTREGA_ROOT)) {
   for (const file of walk(ENTREGA_ROOT, ENTREGA_EXTS)) {
+    if (ENTREGA_VENDOR_RE.test(file)) continue; // isenção (e) — terceiro
     const relFile = rel(file);
     const hasTokenException = ENTREGA_APP_CSS_RE.test(file) || ENTREGA_OPENING_HTML_RE.test(file);
     let depth = 0;

@@ -10,7 +10,7 @@ import styles from "./impersonation-banner.module.css";
 // Snapshot client-only da impersonação por storage. useSyncExternalStore é a via
 // sancionada pro SSR: no 1º render do cliente usa o getServerSnapshot (false),
 // batendo com o servidor (nada renderizado), e só DEPOIS troca pro valor real do
-// cliente — mata o mismatch de hidratação (React #418) sem setState em efeito.
+// cliente — mata o mismatch de hidratação (erro React 418) sem setState em efeito.
 // enter/exitImpersonation fazem hard-nav (a página recarrega), então não há mudança
 // viva a assinar: subscribe é no-op.
 const subscribeNoop = () => () => {};

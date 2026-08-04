@@ -274,7 +274,7 @@ export function CockpitMapa({
       // Cor via token computado: camada WebGL não lê var() — mesma lição do
       // TrackingLiveMap. Lida UMA vez na criação; a trilha é enfeite de rota,
       // não precisa reagir a troca de tema ao vivo.
-      const cor = getComputedStyle(document.documentElement).getPropertyValue("--hbx-teal").trim() || "#0f766e";
+      const cor = getComputedStyle(document.documentElement).getPropertyValue("--hbx-teal").trim() || "teal";
       map.addLayer({
         id: TRILHA_LAYER,
         type: "line",
