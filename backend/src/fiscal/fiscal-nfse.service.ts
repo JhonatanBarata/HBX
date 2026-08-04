@@ -89,6 +89,7 @@ export class FiscalNfseService {
         prestadorRazaoSocial: perfil.razaoSocial,
         prestadorCnpj: perfil.cnpj,
         prestadorMunicipio: municipio ? `${municipio.nome}/${municipio.uf}` : null,
+        prestadorMunicipioIbge: perfil.municipioIbge, // M1: a chave da DPS da reconciliação usa ISTO
         status: 'PENDENTE',
         tomadorDoc,
         tomadorNome,
@@ -108,18 +109,29 @@ export class FiscalNfseService {
     return this.transmitir(companyId, userId, doc.id);
   }
 
-  /** Reemissão de documento em ERRO/REJEITADA (mesmo número — a DPS não foi aceita). */
+  /**
+   * Reemissão de documento em ERRO/REJEITADA (mesmo número — a DPS não foi
+   * aceita). M5: PENDENTE/TRANSMITINDO "velho" (restart no meio do POST) também
+   * pode — é ERRO de transporte sem carimbo.
+   */
   async reemitir(companyId: number, userId: number | null, documentoId: string) {
     const doc = await (this.prisma as any).fiscalDocumento.findFirst({ where: { id: documentoId, companyId } });
     if (!doc) throw new NotFoundException('Documento não encontrado.');
-    if (!['ERRO', 'REJEITADA'].includes(doc.status)) {
-      throw new BadRequestException('Só documento em ERRO ou REJEITADA pode ser reemitido.');
+    if (!['ERRO', 'REJEITADA'].includes(doc.status) && !this.transmissaoTravada(doc)) {
+      throw new BadRequestException('Só documento em ERRO ou REJEITADA (ou com transmissão travada) pode ser reemitido.');
     }
     if (doc.tentativas >= MAX_TENTATIVAS) {
       throw new BadRequestException(`Máximo de ${MAX_TENTATIVAS} tentativas atingido — revise o erro antes de insistir (disjuntor).`);
     }
     await this.validarPerfilProntoParaEmitir(companyId);
     return this.transmitir(companyId, userId, doc.id);
+  }
+
+  /** M5 — PENDENTE/TRANSMITINDO parado há >5min = restart no meio do POST. */
+  private transmissaoTravada(doc: any): boolean {
+    if (!['PENDENTE', 'TRANSMITINDO'].includes(doc.status)) return false;
+    const idade = Date.now() - new Date(doc.updatedAt || doc.createdAt || 0).getTime();
+    return idade > 5 * 60 * 1000;
   }
 
   // -------------------------------------------------------------------------
@@ -193,8 +205,11 @@ export class FiscalNfseService {
   async conferirNaSefin(companyId: number, userId: number | null, documentoId: string) {
     const doc = await (this.prisma as any).fiscalDocumento.findFirst({ where: { id: documentoId, companyId } });
     if (!doc) throw new NotFoundException('Documento não encontrado.');
-    if (doc.status !== 'ERRO') {
-      throw new BadRequestException('Conferência na Sefin é para documento em ERRO (dúvida pós-timeout).');
+    // M2/M5: além do ERRO clássico, REJEITADA também confere (o caso "reemiti
+    // sem conferir → Sefin recusou por duplicidade" ficava SEM SAÍDA) e
+    // PENDENTE/TRANSMITINDO travado idem (restart no meio do POST).
+    if (!['ERRO', 'REJEITADA'].includes(doc.status) && !this.transmissaoTravada(doc)) {
+      throw new BadRequestException('Conferência na Sefin é para documento com transmissão em dúvida (ERRO, REJEITADA ou travado).');
     }
     if (doc.emissorRota !== 'NACIONAL_DIRETO') {
       throw new BadRequestException('Conferência direta na Sefin só vale para a rota nacional.');
@@ -218,8 +233,10 @@ export class FiscalNfseService {
     }
     const cert = await this.profile.getSigningMaterial(companyId);
     const ambiente = (doc.ambiente === 'producao' ? 'producao' : 'restrita') as NfseAmbiente;
+    // M1: o IBGE da chave é o do SNAPSHOT da emissão — perfil que trocou de
+    // cidade depois não gera 404 falso (doc antigo sem snapshot cai no perfil).
     const chaveDps = NfseNationalClient.chaveDps({
-      municipioIbge: perfil.municipioIbge,
+      municipioIbge: doc.prestadorMunicipioIbge || perfil.municipioIbge,
       documento: cnpj,
       serie: doc.serie || perfil.serieDps,
       numero: doc.numero,
@@ -301,6 +318,25 @@ export class FiscalNfseService {
       : null;
     if (!servico) throw new BadRequestException('Serviço do documento não existe mais no catálogo.');
 
+    // M2 (revisão adversarial) — GUARDA DE CORRIDA: claim atômico do documento.
+    // Dois cliques concorrentes em Reemitir faziam 2 POSTs e o segundo
+    // SOBRESCREVIA a AUTORIZADA do primeiro com REJEITADA. Agora só sai de
+    // PENDENTE/ERRO/REJEITADA (ou TRANSMITINDO travado >5min — restart no meio).
+    const claim = await (this.prisma as any).fiscalDocumento.updateMany({
+      where: {
+        id: doc.id,
+        companyId,
+        OR: [
+          { status: { in: ['PENDENTE', 'ERRO', 'REJEITADA'] } },
+          { status: 'TRANSMITINDO', updatedAt: { lt: new Date(Date.now() - 5 * 60 * 1000) } },
+        ],
+      },
+      data: { status: 'TRANSMITINDO' },
+    });
+    if (!claim.count) {
+      throw new BadRequestException('Este documento já está em transmissão ou finalizado — atualize a lista antes de agir de novo.');
+    }
+
     const ambiente = (perfil.ambiente === 'producao' ? 'producao' : 'restrita') as NfseAmbiente;
     const dps: DpsInput = {
       serie: doc.serie || perfil.serieDps,
@@ -353,6 +389,12 @@ export class FiscalNfseService {
       });
 
       if (result.ok) {
+        // M4 (revisão adversarial): reemissão pós-edição do perfil transmite os
+        // dados ATUAIS — o snapshot precisa virar retrato do XML QUE FOI, senão
+        // a DANFSe (e o PDF enviado ao tomador) diverge do autorizado.
+        const municipioRow = perfil.municipioIbge
+          ? await (this.prisma as any).fiscalMunicipio.findUnique({ where: { ibge: perfil.municipioIbge } })
+          : null;
         updated = await (this.prisma as any).fiscalDocumento.update({
           where: { id: doc.id },
           data: {
@@ -363,6 +405,10 @@ export class FiscalNfseService {
             emitidaEm: new Date(),
             tentativas: doc.tentativas + 1,
             erroMsg: null,
+            prestadorRazaoSocial: perfil.razaoSocial,
+            prestadorCnpj: perfil.cnpj,
+            prestadorMunicipio: municipioRow ? `${municipioRow.nome}/${municipioRow.uf}` : doc.prestadorMunicipio,
+            prestadorMunicipioIbge: perfil.municipioIbge,
           },
         });
         await (this.prisma as any).fiscalTenantProfile.update({ where: { companyId }, data: { errosConsecutivos: 0 } });

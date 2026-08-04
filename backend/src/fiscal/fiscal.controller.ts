@@ -265,7 +265,9 @@ export class FiscalController {
 
   @Post('estoque/entrada-xml/confirmar')
   estoqueEntradaXmlConfirmar(@Req() req: any, @Body() dto: EntradaXmlConfirmarDto) {
-    return this.estoque.confirmarEntradaXml(this.companyIdFromUser(req.user), dto.xml, dto.mapeamentos || []);
+    return this.estoque.confirmarEntradaXml(this.companyIdFromUser(req.user), dto.xml, dto.mapeamentos || [], {
+      permitirRelancamento: Boolean(dto.permitirRelancamento),
+    });
   }
 
   // ------------------------------------------------- MALOTE DO CONTADOR

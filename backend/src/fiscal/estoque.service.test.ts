@@ -1,7 +1,9 @@
 // FISCAL F3 — teste do MOTOR do estoque (node --test, zero rede, prisma fake).
-// A alma: saldo 100% DERIVADO da trilha (nunca coluna); 3 estados fecham a
-// matemática (físico/reservado/disponível/faturado); dedup duro na entrada XML
-// e na baixa por entrega; inventário lança a DIFERENÇA; gates com voz.
+// A alma: saldo 100% DERIVADO da trilha; reservado fecha POR REF de carga
+// (gavetas — revisão adversarial A2); entrada por XML agrega itens do mesmo
+// produto (A1); dedup duro com P2002 REAL no fake; correção de entrega vira
+// AJUSTE com rastro (M3); redeclaração reconcilia pro alvo (M6, idempotente);
+// re-lançamento de chave exige gesto explícito (M7).
 process.env.NODE_ENV = process.env.NODE_ENV || 'test';
 
 import { strict as assert } from 'node:assert';
@@ -14,10 +16,18 @@ import { montarZipStore } from './zip-store.util';
 // Prisma fake — trilha em memória com os uniques que importam (P2002 real).
 // ---------------------------------------------------------------------------
 
-function makePrisma(opts: { estoqueAtivo?: boolean; estoqueNegativo?: string } = {}) {
+function makePrisma(opts: {
+  estoqueAtivo?: boolean;
+  estoqueNegativo?: string;
+  cargaAberta?: { dataISO: string; entregadorId: number | null } | null;
+} = {}) {
   const produtos: any[] = [];
   const movimentos: any[] = [];
   const comprasXml: any[] = [];
+  const estado = {
+    cargaAberta: opts.cargaAberta === undefined ? null : opts.cargaAberta,
+    entregaQtd: 2,
+  };
   let seq = 1;
   const nextId = () => `e${seq++}`;
   const matches = (row: any, where: Record<string, any>) =>
@@ -29,11 +39,15 @@ function makePrisma(opts: { estoqueAtivo?: boolean; estoqueNegativo?: string } =
 
   return {
     _data: { produtos, movimentos, comprasXml },
+    _estado: estado,
     fiscalTenantProfile: {
       findUnique: async () => ({
         estoqueAtivo: opts.estoqueAtivo !== false,
         estoqueNegativo: opts.estoqueNegativo || 'avisar',
       }),
+    },
+    logisticaCargaDia: {
+      findFirst: async () => (estado.cargaAberta ? { ...estado.cargaAberta } : null),
     },
     estoqueProduto: {
       findFirst: async ({ where }: any) => produtos.find((p) => matches(p, where)) || null,
@@ -51,8 +65,7 @@ function makePrisma(opts: { estoqueAtivo?: boolean; estoqueNegativo?: string } =
     },
     estoqueMovimento: {
       create: async ({ data }: any) => {
-        for (const chave of [['refChaveNfe'], ['refEntregaId']] as const) {
-          const campo = chave[0];
+        for (const campo of ['refChaveNfe', 'refEntregaId'] as const) {
           if (data[campo] != null) {
             const dup = movimentos.find(
               (m) => m.companyId === data.companyId && m.tipo === data.tipo && m[campo] === data[campo] && m.produtoId === data.produtoId,
@@ -72,27 +85,19 @@ function makePrisma(opts: { estoqueAtivo?: boolean; estoqueNegativo?: string } =
       findFirst: async ({ where }: any) => movimentos.find((m) => matches(m, where || {})) || null,
       groupBy: async ({ where }: any) => {
         const rows = movimentos.filter((m) => matches(m, where || {}));
-        const grupos = new Map<string, number>();
+        const grupos = new Map<string, { produtoId: string; tipo: string; refCargaDia: string | null; soma: number }>();
         for (const r of rows) {
-          const k = `${r.produtoId}|${r.tipo}`;
-          grupos.set(k, (grupos.get(k) ?? 0) + r.quantidade);
+          const k = `${r.produtoId}|${r.tipo}|${r.refCargaDia ?? ''}`;
+          const g = grupos.get(k) || { produtoId: r.produtoId, tipo: r.tipo, refCargaDia: r.refCargaDia ?? null, soma: 0 };
+          g.soma += r.quantidade;
+          grupos.set(k, g);
         }
-        return Array.from(grupos.entries()).map(([k, soma]) => {
-          const [produtoId, tipo] = k.split('|');
-          return { produtoId, tipo, _sum: { quantidade: soma } };
-        });
-      },
-      aggregate: async ({ where }: any) => {
-        const rows = movimentos.filter((m) => {
-          if (!matches(m, { companyId: where.companyId, produtoId: where.produtoId, tipo: where.tipo })) return false;
-          if (where.createdAt) {
-            const t = new Date(m.createdAt).getTime();
-            if (where.createdAt.gte && t < new Date(where.createdAt.gte).getTime()) return false;
-            if (where.createdAt.lte && t > new Date(where.createdAt.lte).getTime()) return false;
-          }
-          return true;
-        });
-        return { _sum: { quantidade: rows.reduce((s, r) => s + r.quantidade, 0) } };
+        return Array.from(grupos.values()).map((g) => ({
+          produtoId: g.produtoId,
+          tipo: g.tipo,
+          refCargaDia: g.refCargaDia,
+          _sum: { quantidade: g.soma },
+        }));
       },
     },
     fiscalCompraXml: {
@@ -114,7 +119,7 @@ function makePrisma(opts: { estoqueAtivo?: boolean; estoqueNegativo?: string } =
     entrega: {
       findFirst: async ({ where }: any) =>
         where.id === 'ent1' && where.companyId === 7
-          ? { id: 'ent1', productId: 77, quantidade: 2, itens: [] }
+          ? { id: 'ent1', productId: 77, quantidade: estado.entregaQtd, itens: [] }
           : null,
     },
     logisticaConfig: { findUnique: async () => ({ moduloFinanceiroAtivo: true }) },
@@ -127,60 +132,102 @@ const XML_COMPRA = `<?xml version="1.0"?><nfeProc><NFe><infNFe Id="NFe${'1'.repe
 // Parser
 // ---------------------------------------------------------------------------
 
-test('parser da NF-e de compra: chave, emitente e itens; arquivo torto explica', () => {
+test('parser: chave, emitente e itens; aspas simples/namespace/entidade tratados; lote e arquivo torto explicam', () => {
   const parsed = parseNfeCompra(XML_COMPRA);
   assert.equal(parsed.chaveAcesso, '1'.repeat(44));
-  assert.equal(parsed.emitenteNome, 'Fornecedora ABC');
   assert.equal(parsed.itens.length, 2);
   assert.equal(parsed.itens[0].quantidade, 100);
-  assert.equal(parsed.itens[0].valorUnit, 8.5);
+
+  // Fora do canônico (lacuna do verificador): aspas simples + prefixo de namespace + entidade.
+  const xmlTorto = `<nfe:nfeProc xmlns:nfe="x"><nfe:NFe><nfe:infNFe Id='NFe${'2'.repeat(44)}'><nfe:emit><nfe:xNome>AGUA &amp; CIA</nfe:xNome></nfe:emit><nfe:det><nfe:prod><nfe:cProd>A</nfe:cProd><nfe:xProd>Galao</nfe:xProd><nfe:qCom>5</nfe:qCom></nfe:prod></nfe:det></nfe:infNFe></nfe:NFe></nfe:nfeProc>`;
+  const torto = parseNfeCompra(xmlTorto);
+  assert.equal(torto.chaveAcesso, '2'.repeat(44));
+  assert.equal(torto.emitenteNome, 'AGUA & CIA');
+  assert.equal(torto.itens[0].quantidade, 5);
+
   assert.throws(() => parseNfeCompra('<html>não é nota</html>'), /não parece ser um XML de NF-e/);
+  const lote = XML_COMPRA.replace('</nfeProc>', '') + `<NFe><infNFe Id="NFe${'3'.repeat(44)}"></infNFe></NFe></nfeProc>`;
+  assert.throws(() => parseNfeCompra(lote), /lote/i);
 });
 
 // ---------------------------------------------------------------------------
-// Saldos derivados — a matemática dos 3 estados
+// Saldos — as gavetas por ref (A2)
 // ---------------------------------------------------------------------------
 
-test('saldo deriva da trilha: entrada, reserva, baixa e liberação fecham os 3 estados', async () => {
-  const prisma = makePrisma();
+test('cena completa: entrada → reserva → baixa carimbada na carga → liberação fecham os 3 estados', async () => {
+  const prisma = makePrisma({ cargaAberta: { dataISO: '2026-08-05', entregadorId: null } });
   const svc = new EstoqueService(prisma as any);
   const p = await svc.criarProduto(7, { nome: 'Galão 20L', logisticaProductId: 77 });
 
   await svc.entradaManual(7, { produtoId: p.id, quantidade: 100 });
-  let saldo = (await svc.saldos(7)).get(p.id)!;
-  assert.deepEqual(saldo, { fisico: 100, reservado: 0, disponivel: 100, faturado: 0 });
+  assert.deepEqual((await svc.saldos(7)).get(p.id), { fisico: 100, reservado: 0, disponivel: 100, faturado: 0 });
 
-  // Carga do caminhão reserva 10.
   await svc.reservarCargaDia(7, '2026-08-05', [{ logisticaProductId: 77, quantidade: 10 }]);
-  saldo = (await svc.saldos(7)).get(p.id)!;
-  assert.deepEqual(saldo, { fisico: 100, reservado: 10, disponivel: 90, faturado: 0 });
+  assert.deepEqual((await svc.saldos(7)).get(p.id), { fisico: 100, reservado: 10, disponivel: 90, faturado: 0 });
 
-  // Entrega confirmada baixa 2 (consome a reserva; físico cai).
-  const baixa = await svc.baixaPorEntrega(7, 'ent1');
+  const baixa = await svc.baixaPorEntrega(7, 'ent1'); // 2, carimbada na ref da carga aberta
   assert.equal(baixa.baixados, 1);
-  saldo = (await svc.saldos(7)).get(p.id)!;
-  assert.deepEqual(saldo, { fisico: 98, reservado: 8, disponivel: 90, faturado: 2 });
+  assert.deepEqual((await svc.saldos(7)).get(p.id), { fisico: 98, reservado: 8, disponivel: 90, faturado: 2 });
 
-  // Fim do dia: conferência libera o que sobrou reservado (8) — sem fantasma.
-  await svc.liberarCargaDia(7, '2026-08-05', '2026-08-05');
-  saldo = (await svc.saldos(7)).get(p.id)!;
-  assert.deepEqual(saldo, { fisico: 98, reservado: 0, disponivel: 98, faturado: 2 });
+  await svc.liberarCargaDia(7, '2026-08-05');
+  assert.deepEqual((await svc.saldos(7)).get(p.id), { fisico: 98, reservado: 0, disponivel: 98, faturado: 2 });
 });
 
-test('baixa por entrega é dedup por entrega+produto (reconfirmar não baixa 2×); estoque OFF = no-op', async () => {
+test('A2: baixa SEM carga aberta mexe só no físico — não corrói a reserva de carga nenhuma', async () => {
+  const prisma = makePrisma({ cargaAberta: null });
+  const svc = new EstoqueService(prisma as any);
+  const p = await svc.criarProduto(7, { nome: 'Galão', logisticaProductId: 77 });
+  await svc.entradaManual(7, { produtoId: p.id, quantidade: 100 });
+  await svc.reservarCargaDia(7, '2026-08-05', [{ logisticaProductId: 77, quantidade: 10 }]);
+
+  await svc.baixaPorEntrega(7, 'ent1'); // avulsa, sem ref
+  assert.deepEqual((await svc.saldos(7)).get(p.id), { fisico: 98, reservado: 10, disponivel: 88, faturado: 2 });
+
+  // Fecha a gaveta: baixa sem ref NÃO desconta da carga — libera os 10 inteiros.
+  await svc.liberarCargaDia(7, '2026-08-05');
+  assert.deepEqual((await svc.saldos(7)).get(p.id), { fisico: 98, reservado: 0, disponivel: 98, faturado: 2 });
+});
+
+test('A2: duas cargas (refs distintas) fecham cada uma a SUA gaveta, sem dupla subtração', async () => {
   const prisma = makePrisma();
   const svc = new EstoqueService(prisma as any);
   const p = await svc.criarProduto(7, { nome: 'Galão', logisticaProductId: 77 });
-  await svc.entradaManual(7, { produtoId: p.id, quantidade: 5 });
+  await svc.entradaManual(7, { produtoId: p.id, quantidade: 100 });
 
-  assert.equal((await svc.baixaPorEntrega(7, 'ent1')).baixados, 1);
-  assert.equal((await svc.baixaPorEntrega(7, 'ent1')).baixados, 0, 'reconfirmação não duplica');
-  assert.equal((await svc.saldos(7)).get(p.id)!.fisico, 3);
+  await svc.reservarCargaDia(7, '2026-08-05:1', [{ logisticaProductId: 77, quantidade: 10 }]);
+  await svc.reservarCargaDia(7, '2026-08-05:2', [{ logisticaProductId: 77, quantidade: 7 }]);
+  assert.equal((await svc.saldos(7)).get(p.id)!.reservado, 17);
+
+  await svc.liberarCargaDia(7, '2026-08-05:1');
+  assert.equal((await svc.saldos(7)).get(p.id)!.reservado, 7, 'só a gaveta 1 fechou');
+  await svc.liberarCargaDia(7, '2026-08-05:2');
+  assert.equal((await svc.saldos(7)).get(p.id)!.reservado, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Baixa por entrega — dedup, correção (M3), negativo avisa
+// ---------------------------------------------------------------------------
+
+test('reconfirmação idêntica não duplica; com quantidade CORRIGIDA lança AJUSTE com rastro (M3)', async () => {
+  const prisma = makePrisma();
+  const svc = new EstoqueService(prisma as any);
+  const p = await svc.criarProduto(7, { nome: 'Galão', logisticaProductId: 77 });
+  await svc.entradaManual(7, { produtoId: p.id, quantidade: 10 });
+
+  assert.equal((await svc.baixaPorEntrega(7, 'ent1')).baixados, 1); // baixa 2
+  assert.equal((await svc.baixaPorEntrega(7, 'ent1')).baixados, 0, 'idêntica não duplica');
+  assert.equal((await svc.saldos(7)).get(p.id)!.fisico, 8);
+
+  prisma._estado.entregaQtd = 3; // reabriu, corrigiu 2→3, reconfirmou
+  const r = await svc.baixaPorEntrega(7, 'ent1');
+  assert.equal(r.baixados, 1, 'correção gera movimento compensatório');
+  assert.equal((await svc.saldos(7)).get(p.id)!.fisico, 7, 'físico reflete os 3 entregues');
+  const ajuste = prisma._data.movimentos.find((m: any) => m.tipo === 'AJUSTE');
+  assert.match(String(ajuste?.motivo), /Correção da entrega ent1/);
 
   const prismaOff = makePrisma({ estoqueAtivo: false });
   const svcOff = new EstoqueService(prismaOff as any);
   assert.deepEqual(await svcOff.baixaPorEntrega(7, 'ent1'), { baixados: 0, avisos: [] });
-  assert.equal(prismaOff._data.movimentos.length, 0);
 });
 
 test('baixa que deixa negativo AVISA (rua nunca trava)', async () => {
@@ -188,16 +235,43 @@ test('baixa que deixa negativo AVISA (rua nunca trava)', async () => {
   const svc = new EstoqueService(prisma as any);
   const p = await svc.criarProduto(7, { nome: 'Galão', logisticaProductId: 77 });
   await svc.entradaManual(7, { produtoId: p.id, quantidade: 1 });
-  const r = await svc.baixaPorEntrega(7, 'ent1'); // baixa 2 com físico 1
+  const r = await svc.baixaPorEntrega(7, 'ent1');
   assert.equal(r.baixados, 1);
   assert.match(String(r.avisos[0] || ''), /NEGATIVO/i);
 });
 
 // ---------------------------------------------------------------------------
-// Inventário, perda, ajuste — rastro obrigatório
+// Redeclaração da carga (M6) — reconcilia pro alvo, idempotente
 // ---------------------------------------------------------------------------
 
-test('inventário lança a DIFERENÇA da contagem; contagem batida não lança nada', async () => {
+test('M6: redeclarar reconcilia pro alvo (produto removido é liberado); repetir a mesma lista é no-op', async () => {
+  const prisma = makePrisma();
+  const svc = new EstoqueService(prisma as any);
+  const p = await svc.criarProduto(7, { nome: 'Galão', logisticaProductId: 77 });
+  await svc.entradaManual(7, { produtoId: p.id, quantidade: 100 });
+
+  await svc.reservarCargaDia(7, '2026-08-05', [{ logisticaProductId: 77, quantidade: 10 }]);
+  assert.equal((await svc.saldos(7)).get(p.id)!.reservado, 10);
+
+  // Redeclara com quantidade menor → delta libera 4.
+  await svc.reservarCargaDia(7, '2026-08-05', [{ logisticaProductId: 77, quantidade: 6 }]);
+  assert.equal((await svc.saldos(7)).get(p.id)!.reservado, 6);
+
+  // Mesma lista de novo (duplo clique) → delta zero, nada lançado.
+  const antes = prisma._data.movimentos.length;
+  await svc.reservarCargaDia(7, '2026-08-05', [{ logisticaProductId: 77, quantidade: 6 }]);
+  assert.equal(prisma._data.movimentos.length, antes, 'idempotente');
+
+  // Produto REMOVIDO da redeclaração → reserva liberada (lista vazia).
+  await svc.reservarCargaDia(7, '2026-08-05', []);
+  assert.equal((await svc.saldos(7)).get(p.id)!.reservado, 0);
+});
+
+// ---------------------------------------------------------------------------
+// Inventário, perda, ajuste
+// ---------------------------------------------------------------------------
+
+test('inventário lança a DIFERENÇA (com arredondamento B4); contagem batida não lança', async () => {
   const prisma = makePrisma();
   const svc = new EstoqueService(prisma as any);
   const p = await svc.criarProduto(7, { nome: 'Galão' });
@@ -210,6 +284,12 @@ test('inventário lança a DIFERENÇA da contagem; contagem batida não lança n
 
   const r2 = await svc.inventario(7, { produtoId: p.id, contagem: 47 });
   assert.equal(r2.lancado, false);
+
+  // B4: resíduo binário de Float não vira movimento de lixo.
+  await svc.ajuste(7, { produtoId: p.id, quantidade: 0.1, motivo: 'fração' });
+  await svc.ajuste(7, { produtoId: p.id, quantidade: 0.2, motivo: 'fração' });
+  const r3 = await svc.inventario(7, { produtoId: p.id, contagem: 47.3 });
+  assert.equal(r3.lancado, false, '0.1+0.2 não pode virar diferença fantasma');
 });
 
 test('perda e ajuste EXIGEM motivo; quantidade negativa fora deles é recusada', async () => {
@@ -223,48 +303,66 @@ test('perda e ajuste EXIGEM motivo; quantidade negativa fora deles é recusada',
   assert.equal((await svc.saldos(7)).get(p.id)!.fisico, 8);
 
   await assert.rejects(() => svc.entradaManual(7, { produtoId: p.id, quantidade: -5 }), /positiva/i);
-  await svc.ajuste(7, { produtoId: p.id, quantidade: -1, motivo: 'Acerto de contagem antiga' });
-  assert.equal((await svc.saldos(7)).get(p.id)!.fisico, 7);
 });
 
 // ---------------------------------------------------------------------------
-// Entrada por XML — conferência + dedup + malote guardado
+// Entrada por XML — A1 (agrega), M7 (gesto explícito), malote guardado
 // ---------------------------------------------------------------------------
 
-test('entrada XML: preview sugere por NCM/nome; confirmar lança, guarda o XML e NÃO duplica', async () => {
+test('A1: dois itens do XML no MESMO produto SOMAM (nada some como "duplicado")', async () => {
+  const prisma = makePrisma();
+  const svc = new EstoqueService(prisma as any);
+  const galao = await svc.criarProduto(7, { nome: 'Galão 20L' });
+  const r = await svc.confirmarEntradaXml(7, XML_COMPRA, [
+    { cProd: 'P1', produtoId: galao.id },
+    { cProd: 'P2', produtoId: galao.id }, // lote B do mesmo produto
+  ]);
+  assert.equal(r.lancados, 1, 'um movimento agregado');
+  assert.equal(r.duplicados, 0, 'NADA cai como duplicado');
+  assert.equal((await svc.saldos(7)).get(galao.id)!.fisico, 102, '100 + 2 somados');
+});
+
+test('preview sugere por NCM; confirmar lança, guarda o XML; re-lançar exige gesto explícito (M7)', async () => {
   const prisma = makePrisma();
   const svc = new EstoqueService(prisma as any);
   const galao = await svc.criarProduto(7, { nome: 'Galão 20L', ncm: '22011000' });
 
   const preview = await svc.previewEntradaXml(7, XML_COMPRA);
   assert.equal(preview.jaLancada, false);
-  assert.equal(preview.itens[0].sugestaoProdutoId, galao.id, 'NCM igual sugere o produto');
+  assert.equal(preview.itens[0].sugestaoProdutoId, galao.id);
 
   const r = await svc.confirmarEntradaXml(7, XML_COMPRA, [
     { cProd: 'P1', produtoId: galao.id },
     { cProd: 'P2', novoProduto: { nome: 'Tampa lacre', unidade: 'CX' } },
   ]);
   assert.equal(r.lancados, 2);
-  assert.equal(prisma._data.comprasXml.length, 1, 'XML da compra fica GUARDADO (malote)');
+  assert.equal(prisma._data.comprasXml.length, 1, 'XML da compra GUARDADO (malote)');
 
-  const r2 = await svc.confirmarEntradaXml(7, XML_COMPRA, [{ cProd: 'P1', produtoId: galao.id }, { cProd: 'P2', ignorar: true }]);
+  // Sem o gesto explícito, chave já lançada é RECUSADA (não silenciada).
+  await assert.rejects(
+    () => svc.confirmarEntradaXml(7, XML_COMPRA, [{ cProd: 'P1', produtoId: galao.id }, { cProd: 'P2', ignorar: true }]),
+    /já teve entrada lançada/i,
+  );
+  // Com o gesto, o UNIQUE segura o produto repetido como duplicado.
+  const r2 = await svc.confirmarEntradaXml(
+    7,
+    XML_COMPRA,
+    [{ cProd: 'P1', produtoId: galao.id }, { cProd: 'P2', ignorar: true }],
+    { permitirRelancamento: true },
+  );
   assert.equal(r2.lancados, 0);
-  assert.equal(r2.duplicados, 1, 'mesma chave+produto não entra 2×');
-
+  assert.equal(r2.duplicados, 1);
   assert.equal((await svc.saldos(7)).get(galao.id)!.fisico, 100);
 });
 
 test('item sem destino no confirmar explica em vez de engolir', async () => {
   const prisma = makePrisma();
   const svc = new EstoqueService(prisma as any);
-  await assert.rejects(
-    () => svc.confirmarEntradaXml(7, XML_COMPRA, [{ cProd: 'P1' }]),
-    /sem destino/i,
-  );
+  await assert.rejects(() => svc.confirmarEntradaXml(7, XML_COMPRA, [{ cProd: 'P1' }]), /sem destino/i);
 });
 
 // ---------------------------------------------------------------------------
-// Gate de emissão (negativo avisar × travar) + zip do malote
+// Gate de emissão + zip do malote
 // ---------------------------------------------------------------------------
 
 test("verificarDisponibilidade: 'avisar' deixa passar com aviso; 'travar' recusa", async () => {

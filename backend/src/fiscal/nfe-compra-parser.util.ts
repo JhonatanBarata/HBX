@@ -22,9 +22,21 @@ export interface NfeCompraParsed {
   itens: NfeCompraItem[];
 }
 
+// Tags podem vir com prefixo de namespace (<nfe:det>) — o regex aceita ambos.
 function tag(src: string, nome: string): string | null {
-  const m = new RegExp(`<${nome}(?:\\s[^>]*)?>([\\s\\S]*?)</${nome}>`).exec(src);
-  return m ? m[1].trim() : null;
+  const m = new RegExp(`<(?:\\w+:)?${nome}(?:\\s[^>]*)?>([\\s\\S]*?)</(?:\\w+:)?${nome}>`).exec(src);
+  return m ? unescapeXml(m[1].trim()) : null;
+}
+
+// B3 (revisão adversarial): sem isto, "AGUA &amp; CIA" ficava literal no nome
+// do fornecedor, na trilha e no CSV do malote.
+function unescapeXml(v: string): string {
+  return v
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&(?:apos|#39);/g, "'")
+    .replace(/&amp;/g, '&');
 }
 
 function num(v: string | null): number | null {
@@ -40,12 +52,18 @@ function num(v: string | null): number | null {
  */
 export function parseNfeCompra(xmlRaw: string): NfeCompraParsed {
   const xml = String(xmlRaw || '');
-  if (!/<(?:nfeProc|NFe)[\s>]/.test(xml)) {
+  if (!/<(?:\w+:)?(?:nfeProc|NFe)[\s>]/.test(xml)) {
     throw new Error('O arquivo não parece ser um XML de NF-e (esperado nfeProc/NFe da SEFAZ).');
+  }
+  // B3: arquivo-LOTE com várias NF-e misturaria os itens de todas sob a chave
+  // da primeira — recusa com voz (suba uma nota por vez).
+  const totalNotas = (xml.match(/<(?:\w+:)?infNFe[\s>]/g) || []).length;
+  if (totalNotas > 1) {
+    throw new Error(`O arquivo tem ${totalNotas} NF-e (lote). Suba uma nota por vez.`);
   }
 
   let chave: string | null = null;
-  const idMatch = /<infNFe[^>]*Id="NFe(\d{44})"/.exec(xml);
+  const idMatch = /<(?:\w+:)?infNFe[^>]*Id=["']NFe(\d{44})["']/.exec(xml);
   if (idMatch) chave = idMatch[1];
   if (!chave) {
     const ch = tag(xml, 'chNFe');
@@ -58,7 +76,7 @@ export function parseNfeCompra(xmlRaw: string): NfeCompraParsed {
   const emitenteCnpj = tag(emitBloco, 'CNPJ');
 
   const itens: NfeCompraItem[] = [];
-  const detRe = /<det[^>]*>([\s\S]*?)<\/det>/g;
+  const detRe = /<(?:\w+:)?det[^>]*>([\s\S]*?)<\/(?:\w+:)?det>/g;
   let m: RegExpExecArray | null;
   while ((m = detRe.exec(xml)) !== null) {
     const prod = tag(m[1], 'prod');

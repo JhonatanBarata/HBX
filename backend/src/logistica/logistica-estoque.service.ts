@@ -355,7 +355,7 @@ export class LogisticaEstoqueService {
     // (as baixas das entregas já saíram na derivação). Best-effort com voz.
     if (this.fiscalEstoque) {
       await this.fiscalEstoque
-        .liberarCargaDia(companyId, this.refCargaDia(dataISO, entregadorId), dataISO)
+        .liberarCargaDia(companyId, this.refCargaDia(dataISO, entregadorId))
         .catch((e: any) => {
           this.logger.warn(`[logistica] liberação de estoque da carga ${dataISO} falhou: ${String(e?.message || e)}`);
         });

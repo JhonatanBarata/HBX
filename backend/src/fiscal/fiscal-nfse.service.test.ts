@@ -39,21 +39,31 @@ function makeFakePrisma() {
   };
   const matches = (row: any, where: Record<string, any>) => Object.entries(where || {}).every(([k, v]) => row[k] === v);
 
+  const criarPerfil = (data: Record<string, any>) => {
+    const row = {
+      id: nextId(), regimeCrt: 1, ambiente: 'restrita', serieDps: '1', proximoNumeroDps: 1,
+      escopoServico: false, escopoProduto: false, emailAutoEnvio: false, whatsAutoEnvio: false,
+      estoqueAtivo: false, estoqueNegativo: 'avisar', errosConsecutivos: 0, disjuntorPausado: false,
+      cnpj: null, razaoSocial: null, inscricaoMunicipal: null, municipioIbge: null,
+      certA1Encrypted: null, certA1ExpiresAt: null, createdAt: new Date(), updatedAt: new Date(),
+      ...data,
+    };
+    profiles.push(row);
+    return row;
+  };
+
   return {
     _data: { profiles, servicos, documentos, municipios },
     fiscalTenantProfile: {
       findUnique: async ({ where }: any) => profiles.find((p) => p.companyId === where.companyId) || null,
-      create: async ({ data }: any) => {
-        const row = {
-          id: nextId(), regimeCrt: 1, ambiente: 'restrita', serieDps: '1', proximoNumeroDps: 1,
-          escopoServico: false, escopoProduto: false, emailAutoEnvio: false, whatsAutoEnvio: false,
-          estoqueAtivo: false, estoqueNegativo: 'avisar', errosConsecutivos: 0, disjuntorPausado: false,
-          cnpj: null, razaoSocial: null, inscricaoMunicipal: null, municipioIbge: null,
-          certA1Encrypted: null, certA1ExpiresAt: null, createdAt: new Date(), updatedAt: new Date(),
-          ...data,
-        };
-        profiles.push(row);
-        return { ...row };
+      create: async ({ data }: any) => ({ ...criarPerfil(data) }),
+      upsert: async ({ where, create, update }: any) => {
+        const row = profiles.find((p) => p.companyId === where.companyId);
+        if (row) {
+          if (update && Object.keys(update).length) applyData(row, update);
+          return { ...row };
+        }
+        return { ...criarPerfil(create) };
       },
       update: async ({ where, data }: any) => {
         const row = profiles.find((p) => p.companyId === where.companyId);
@@ -78,6 +88,15 @@ function makeFakePrisma() {
       findFirst: async ({ where }: any) => documentos.find((d) => matches(d, where)) || null,
       findMany: async ({ where }: any) => documentos.filter((d) => matches(d, where)),
       create: async ({ data }: any) => {
+        // UNIQUEs do schema (originKey/chaveAcesso) — o dedup do FECHAMENTO vai
+        // depender do P2002; fake sem unique seria teatro (achado do verificador).
+        for (const campo of ['originKey', 'chaveAcesso'] as const) {
+          if (data[campo] != null && documentos.some((d) => d[campo] === data[campo])) {
+            const err: any = new Error('unique');
+            err.code = 'P2002';
+            throw err;
+          }
+        }
         const row = { id: nextId(), status: 'PENDENTE', tentativas: 0, chaveAcesso: null, xmlGzB64: null, erroMsg: null, emitidaEm: null, canceladaEm: null, motivoCancelamento: null, createdAt: new Date(), updatedAt: new Date(), ...data };
         documentos.push(row);
         return { ...row };
@@ -85,6 +104,28 @@ function makeFakePrisma() {
       update: async ({ where, data }: any) => {
         const row = documentos.find((d) => d.id === where.id);
         return { ...applyData(row, data) };
+      },
+      updateMany: async ({ where, data }: any) => {
+        const rows = documentos.filter((d) => {
+          if (where.id != null && d.id !== where.id) return false;
+          if (where.companyId != null && d.companyId !== where.companyId) return false;
+          if (where.OR) {
+            return where.OR.some((cond: any) => {
+              if (cond.status && typeof cond.status === 'object' && 'in' in cond.status) {
+                return cond.status.in.includes(d.status);
+              }
+              if (typeof cond.status === 'string') {
+                if (d.status !== cond.status) return false;
+                if (cond.updatedAt?.lt) return new Date(d.updatedAt).getTime() < new Date(cond.updatedAt.lt).getTime();
+                return true;
+              }
+              return false;
+            });
+          }
+          return true;
+        });
+        for (const r of rows) applyData(r, data);
+        return { count: rows.length };
       },
     },
     fiscalMunicipio: {
@@ -395,6 +436,49 @@ test('conferir na Sefin: consulta indisponível não muda o documento; AUTORIZAD
   await assert.rejects(() => svcOk.conferirNaSefin(7, null, docOk.id), /ERRO/);
 });
 
+test('M2: guarda de corrida — transmitir por cima de AUTORIZADA é recusado (2º clique não sobrescreve)', async () => {
+  const cenario = await montarCenario('ok');
+  const doc = await cenario.service.emitirAvulsa(7, null, inputBase(cenario.servico.id));
+  assert.equal(doc.status, 'AUTORIZADA');
+  await assert.rejects(
+    () => (cenario.service as any).transmitir(7, null, doc.id),
+    /em transmissão ou finalizado/,
+  );
+  assert.equal(cenario.prisma._data.documentos[0].status, 'AUTORIZADA', 'nada sobrescreveu');
+});
+
+test('M5: PENDENTE/TRANSMITINDO travado (>5min — restart no meio do POST) pode reemitir', async () => {
+  const cenario = await montarCenario('ok');
+  const velho = new Date(Date.now() - 10 * 60 * 1000);
+  cenario.prisma._data.documentos.push({
+    id: 'travado', companyId: 7, tipo: 'NFSE', origem: 'AVULSA', originKey: 'avulsa:travado',
+    status: 'TRANSMITINDO', tentativas: 1, serie: '1', numero: 99, competencia: '2026-08',
+    tomadorDoc: '19131243000197', tomadorNome: 'Empresa Grande SA', tomadorEmail: null, tomadorFone: null,
+    servicoId: cenario.servico.id, descricao: 'Instalação', valorCents: 45000, ambiente: 'restrita',
+    chaveAcesso: null, xmlGzB64: null, erroMsg: null, emitidaEm: null, canceladaEm: null,
+    motivoCancelamento: null, createdAt: velho, updatedAt: velho,
+  });
+  const re = await cenario.service.reemitir(7, null, 'travado');
+  assert.equal(re.status, 'AUTORIZADA', 'doc travado destravou pela reemissão');
+});
+
+test('M2: REJEITADA (reemiti sem conferir → Sefin recusou duplicidade) TEM saída — conferir recupera a nota', async () => {
+  const cenario = await montarCenario('timeout');
+  const doc = await cenario.service.emitirAvulsa(7, null, inputBase(cenario.servico.id));
+  cenario.prisma._data.documentos[0].status = 'REJEITADA'; // desfecho do reemitir às cegas
+  const svc = serviceComConsulta(cenario, 'achou');
+  const conferido = await svc.conferirNaSefin(7, null, doc.id);
+  assert.equal(conferido.status, 'AUTORIZADA');
+  assert.equal((conferido as any).sefinTemNota, true);
+});
+
+test('município BLOQUEADO recusa emissão antes do transporte (cidade "desmoronada")', async () => {
+  const { prisma, service, transport, servico } = await montarCenario('ok');
+  prisma._data.municipios.find((m: any) => m.ibge === '3543907').status = 'BLOQUEADO';
+  await assert.rejects(() => service.emitirAvulsa(7, null, inputBase(servico.id)), /não liberado/);
+  assert.equal(transport.calls, 0);
+});
+
 test('perfil trocou de CNPJ depois do timeout → conferência recusa (chave sairia errada; 404 falso = duplicata)', async () => {
   const cenario = await montarCenario('timeout');
   const docTimeout = await cenario.service.emitirAvulsa(7, null, inputBase(cenario.servico.id));
@@ -403,6 +487,17 @@ test('perfil trocou de CNPJ depois do timeout → conferência recusa (chave sai
   const svc = serviceComConsulta(cenario, 'nao-achou');
   await assert.rejects(() => svc.conferirNaSefin(7, null, docTimeout.id), /portal gov\.br\/nfse/);
   assert.equal(cenario.prisma._data.documentos[0].status, 'ERRO', 'documento fica como estava');
+});
+
+test('M1: município trocado pós-timeout NÃO gera 404 falso — a chave usa o IBGE do SNAPSHOT', async () => {
+  const cenario = await montarCenario('timeout');
+  const docTimeout = await cenario.service.emitirAvulsa(7, null, inputBase(cenario.servico.id));
+  assert.equal(cenario.prisma._data.documentos[0].prestadorMunicipioIbge, '3543907', 'snapshot gravado na emissão');
+
+  cenario.prisma._data.profiles[0].municipioIbge = '3550308'; // mudança cadastral legítima (mesmo CNPJ)
+  const svc = serviceComConsulta(cenario, 'achou');
+  const conferido = await svc.conferirNaSefin(7, null, docTimeout.id);
+  assert.equal(conferido.status, 'AUTORIZADA', 'nota recuperada pela chave do snapshot — sem "reemitir é seguro" falso');
 });
 
 test('emissão AUTORIZADA dispara o envio automático (fire-and-forget) com a empresa e o doc certos', async () => {

@@ -141,25 +141,43 @@ export class EstoqueService {
   }
 
   // ── SALDOS (derivados — a única fonte é a trilha) ─────────────────────────
+  // Revisão adversarial A2 (04/08): o reservado NÃO pode subtrair a BAIXA
+  // acumulada da vida inteira (baixa sem carga, atrasada ou de 2 cargas no
+  // mesmo dia corrompia o número pra sempre). Agora o reservado fecha POR REF
+  // de carga: cada ref é uma "gaveta" (RESERVA − LIBERA − BAIXA daquela ref,
+  // clampada em zero) e o total é a soma das gavetas. Baixa SEM ref (entrega
+  // fora de carga) mexe só no físico — nunca na reserva de ninguém.
   async saldos(companyId: number): Promise<Map<string, SaldoProduto>> {
     const grupos = await (this.prisma as any).estoqueMovimento.groupBy({
-      by: ['produtoId', 'tipo'],
+      by: ['produtoId', 'tipo', 'refCargaDia'],
       where: { companyId },
       _sum: { quantidade: true },
     });
-    const porProduto = new Map<string, Record<string, number>>();
+    const totais = new Map<string, Record<string, number>>(); // produto → tipo → soma (todas as refs)
+    const porRef = new Map<string, Map<string, Record<string, number>>>(); // produto → ref → tipo → soma
     for (const g of grupos) {
-      const atual = porProduto.get(g.produtoId) || {};
-      atual[g.tipo] = Number(g._sum?.quantidade) || 0;
-      porProduto.set(g.produtoId, atual);
+      const soma = Number(g._sum?.quantidade) || 0;
+      const t = totais.get(g.produtoId) || {};
+      t[g.tipo] = (t[g.tipo] || 0) + soma;
+      totais.set(g.produtoId, t);
+      if (g.refCargaDia != null) {
+        const refs = porRef.get(g.produtoId) || new Map();
+        const r = refs.get(g.refCargaDia) || {};
+        r[g.tipo] = (r[g.tipo] || 0) + soma;
+        refs.set(g.refCargaDia, r);
+        porRef.set(g.produtoId, refs);
+      }
     }
     const out = new Map<string, SaldoProduto>();
-    for (const [produtoId, t] of porProduto) {
+    for (const [produtoId, t] of totais) {
       const entradas = (t.ENTRADA_XML || 0) + (t.ENTRADA_MANUAL || 0) + (t.DEVOLUCAO || 0) + (t.REVERSA_CANCELAMENTO || 0);
       const sinalizados = (t.INVENTARIO || 0) + (t.AJUSTE || 0);
       const baixas = (t.BAIXA_ENTREGA || 0) + (t.SAIDA_EMISSAO || 0);
       const fisico = entradas + sinalizados - baixas - (t.PERDA || 0);
-      const reservado = Math.max(0, (t.RESERVA || 0) - (t.LIBERA_RESERVA || 0) - (t.BAIXA_ENTREGA || 0));
+      let reservado = 0;
+      for (const r of (porRef.get(produtoId) || new Map()).values()) {
+        reservado += Math.max(0, (r.RESERVA || 0) - (r.LIBERA_RESERVA || 0) - (r.BAIXA_ENTREGA || 0));
+      }
       out.set(produtoId, {
         fisico,
         reservado,
@@ -216,7 +234,8 @@ export class EstoqueService {
     if (!Number.isFinite(contagem) || contagem < 0) throw new BadRequestException('Contagem física inválida.');
     const saldos = await this.saldos(companyId);
     const fisicoAtual = saldos.get(String(dto.produtoId))?.fisico ?? 0;
-    const diff = contagem - fisicoAtual;
+    // B4: resíduo binário de Float (2e-15) não vira movimento de lixo na trilha.
+    const diff = Math.round((contagem - fisicoAtual) * 1000) / 1000;
     if (diff === 0) {
       return { lancado: false, diferenca: 0, aviso: 'Contagem bate com o saldo — nada a lançar.' };
     }
@@ -275,11 +294,29 @@ export class EstoqueService {
   }
 
   /** 2º passo: confirma com os mapeamentos — dedup DURO por chave+produto. */
-  async confirmarEntradaXml(companyId: number, xml: string, mapeamentos: MapeamentoEntradaXml[]) {
+  async confirmarEntradaXml(
+    companyId: number,
+    xml: string,
+    mapeamentos: MapeamentoEntradaXml[],
+    opts: { permitirRelancamento?: boolean } = {},
+  ) {
     await this.requireEstoqueAtivo(companyId);
     const parsed = parseNfeCompra(xml);
     const mapa = new Map<string, MapeamentoEntradaXml>();
     for (const m of mapeamentos || []) mapa.set(String(m.cProd), m);
+
+    // M7 (revisão adversarial): re-lançar a MESMA chave mapeando pra outro
+    // produto duplicaria a compra em silêncio. Chave já lançada exige gesto
+    // explícito — e quem re-lança assume estornar o lançamento errado.
+    const jaLancada = await (this.prisma as any).estoqueMovimento.findFirst({
+      where: { companyId, tipo: 'ENTRADA_XML', refChaveNfe: parsed.chaveAcesso },
+      select: { id: true },
+    });
+    if (jaLancada && !opts.permitirRelancamento) {
+      throw new BadRequestException(
+        'Esta NF-e já teve entrada lançada. Se for intencional (ex.: corrigir mapeamento), marque "lançar mesmo assim" — e estorne o lançamento anterior com um ajuste.',
+      );
+    }
 
     // MALOTE (decisão 10): o XML da compra fica GUARDADO — upsert idempotente
     // por (empresa, chave). Competência = mês do upload (fuso do Brasil).
@@ -299,9 +336,12 @@ export class EstoqueService {
       update: {}, // reenvio do mesmo XML não reescreve o guardado
     });
 
-    let lancados = 0;
-    let duplicados = 0;
+    // A1 (revisão adversarial): 2 itens da MESMA NF-e apontando pro MESMO
+    // produto (lotes/preços diferentes) SOMAM — antes o 2º caía no UNIQUE como
+    // "duplicado" e a quantidade sumia em silêncio. Fase 1 resolve destinos;
+    // fase 2 agrega por produto; fase 3 lança UM movimento por produto.
     let ignorados = 0;
+    const porProduto = new Map<string, { quantidade: number; nomes: string[] }>();
     for (const item of parsed.itens) {
       const m = mapa.get(String(item.cProd));
       if (!m || m.ignorar) {
@@ -326,20 +366,30 @@ export class EstoqueService {
         ignorados += 1;
         continue;
       }
+      const atual = porProduto.get(produtoId) || { quantidade: 0, nomes: [] };
+      atual.quantidade += item.quantidade;
+      atual.nomes.push(item.nome);
+      porProduto.set(produtoId, atual);
+    }
+
+    let lancados = 0;
+    let duplicados = 0;
+    for (const [produtoId, agg] of porProduto) {
       try {
         await (this.prisma as any).estoqueMovimento.create({
           data: {
             companyId,
             produtoId,
             tipo: 'ENTRADA_XML',
-            quantidade: item.quantidade,
+            quantidade: agg.quantidade,
             refChaveNfe: parsed.chaveAcesso,
-            motivo: `NF-e compra ${parsed.emitenteNome || ''} — ${item.nome}`.trim(),
+            motivo: `NF-e compra ${parsed.emitenteNome || ''} — ${agg.nomes.join(' + ')}`.trim().slice(0, 300),
           },
         });
         lancados += 1;
       } catch (err: any) {
-        // P2002 = o UNIQUE (chave+produto) mordeu — a mesma compra 2× não duplica.
+        // P2002 aqui é SÓ reenvio da mesma chave (o agrupamento acima eliminou
+        // a colisão interna do próprio XML).
         if (String(err?.code) === 'P2002') duplicados += 1;
         else throw err;
       }
@@ -385,6 +435,24 @@ export class EstoqueService {
     const vinculados = await (this.prisma as any).estoqueProduto.findMany({
       where: { companyId, logisticaProductId: { in: Array.from(porLogistica.keys()) } },
     });
+
+    // A2: a baixa que veio de um caminhão CARREGADO carimba a ref da carga
+    // ABERTA — é isso que faz a gaveta do reservado fechar por ref. Entrega
+    // fora de carga (avulsa/fim de semana) fica sem ref e só mexe no físico.
+    let refCargaDia: string | null = null;
+    try {
+      const cargaAberta = await (this.prisma as any).logisticaCargaDia.findFirst({
+        where: { companyId, status: 'ABERTA' },
+        orderBy: { dataISO: 'desc' },
+        select: { dataISO: true, entregadorId: true },
+      });
+      if (cargaAberta) {
+        refCargaDia = cargaAberta.entregadorId != null ? `${cargaAberta.dataISO}:${cargaAberta.entregadorId}` : cargaAberta.dataISO;
+      }
+    } catch {
+      /* modelo indisponível no ambiente — baixa segue sem ref */
+    }
+
     const saldos = await this.saldos(companyId);
     let baixados = 0;
     const avisos: string[] = [];
@@ -393,7 +461,7 @@ export class EstoqueService {
       if (!(qtd > 0)) continue;
       try {
         await (this.prisma as any).estoqueMovimento.create({
-          data: { companyId, produtoId: produto.id, tipo: 'BAIXA_ENTREGA', quantidade: qtd, refEntregaId: entregaId },
+          data: { companyId, produtoId: produto.id, tipo: 'BAIXA_ENTREGA', quantidade: qtd, refEntregaId: entregaId, refCargaDia },
         });
         baixados += 1;
         const fisico = (saldos.get(produto.id)?.fisico ?? 0) - qtd;
@@ -403,17 +471,39 @@ export class EstoqueService {
           this.logger.warn(`[estoque] company=${companyId} ${aviso}`);
         }
       } catch (err: any) {
-        if (String(err?.code) === 'P2002') continue; // reconfirmação — já baixado
-        throw err;
+        if (String(err?.code) !== 'P2002') throw err;
+        // M3 (revisão adversarial): reconfirmação com quantidade DIFERENTE
+        // (reabrir → corrigir → reconfirmar) lançava só a cobrança — o físico
+        // ficava errado pra sempre. Agora a diferença vira AJUSTE com rastro.
+        const existente = await (this.prisma as any).estoqueMovimento.findFirst({
+          where: { companyId, tipo: 'BAIXA_ENTREGA', refEntregaId: entregaId, produtoId: produto.id },
+          select: { id: true, quantidade: true },
+        });
+        const anterior = Number(existente?.quantidade) || 0;
+        const delta = Math.round((anterior - qtd) * 1000) / 1000; // entregou menos → devolve ao físico (+)
+        if (existente && delta !== 0) {
+          await (this.prisma as any).estoqueMovimento.create({
+            data: {
+              companyId,
+              produtoId: produto.id,
+              tipo: 'AJUSTE',
+              quantidade: delta,
+              motivo: `Correção da entrega ${entregaId}: baixa de ${anterior} → ${qtd}`,
+            },
+          });
+          baixados += 1;
+        }
       }
     }
     return { baixados, avisos };
   }
 
   /**
-   * RESERVA da carga do caminhão (declarar/redeclarar): re-reserva a ref do dia
-   * — libera o que a ref tinha e reserva a lista nova (trilha imutável e
-   * auditável; nada é apagado).
+   * RESERVA da carga (declarar/redeclarar) — RECONCILIA a ref pro ALVO da lista
+   * (revisão adversarial M6): lê o líquido atual de CADA produto que já mexeu
+   * na ref (união com a lista nova — produto REMOVIDO da redeclaração é
+   * liberado) e lança só o DELTA. Idempotente por construção: duplo clique com
+   * a mesma lista converge pra delta zero em vez de duplicar liberação.
    */
   async reservarCargaDia(companyId: number, refCargaDia: string, itens: Array<{ logisticaProductId: number; quantidade: number }>): Promise<{ reservados: number }> {
     if (!(await this.estoqueLigado(companyId))) return { reservados: 0 };
@@ -422,61 +512,51 @@ export class EstoqueService {
     });
     const porLogistica = new Map<number, any>(vinculados.map((p: any) => [p.logisticaProductId, p]));
 
-    let reservados = 0;
+    // Alvo por produto de ESTOQUE (itens sem vínculo ficam de fora — sem trilha fantasma).
+    const alvo = new Map<string, number>();
     for (const item of itens) {
       const produto = porLogistica.get(Math.trunc(Number(item.logisticaProductId)));
       const qtd = Number(item.quantidade) || 0;
-      if (!produto || !(qtd >= 0)) continue;
-      const anterior = await this.reservaAtualDaRef(companyId, produto.id, refCargaDia);
-      if (anterior > 0) {
+      if (produto && qtd >= 0) alvo.set(produto.id, (alvo.get(produto.id) ?? 0) + qtd);
+    }
+    const liquidoAtual = await this.liquidoDaRef(companyId, refCargaDia);
+    const produtos = new Set<string>([...alvo.keys(), ...liquidoAtual.keys()]);
+
+    let reservados = 0;
+    for (const produtoId of produtos) {
+      const target = alvo.get(produtoId) ?? 0;
+      const atual = liquidoAtual.get(produtoId) ?? 0;
+      const delta = Math.round((target - atual) * 1000) / 1000;
+      if (delta > 0) {
         await (this.prisma as any).estoqueMovimento.create({
-          data: { companyId, produtoId: produto.id, tipo: 'LIBERA_RESERVA', quantidade: anterior, refCargaDia, motivo: 'Redeclaração da carga' },
-        });
-      }
-      if (qtd > 0) {
-        await (this.prisma as any).estoqueMovimento.create({
-          data: { companyId, produtoId: produto.id, tipo: 'RESERVA', quantidade: qtd, refCargaDia },
+          data: { companyId, produtoId, tipo: 'RESERVA', quantidade: delta, refCargaDia },
         });
         reservados += 1;
+      } else if (delta < 0) {
+        await (this.prisma as any).estoqueMovimento.create({
+          data: { companyId, produtoId, tipo: 'LIBERA_RESERVA', quantidade: -delta, refCargaDia, motivo: 'Redeclaração da carga' },
+        });
       }
     }
     return { reservados };
   }
 
   /**
-   * Fim do dia (conferência do retorno): libera o remanescente reservado da ref
-   * DESCONTANDO as baixas de entrega do dia — o saldo fecha sem fantasma
-   * (faltou/sobrou continua visível na conferência da carga e no físico;
-   * perda/ajuste é decisão humana na tela).
+   * Fim do dia (conferência do retorno): fecha a GAVETA da ref — libera o
+   * líquido remanescente (RESERVA − LIBERA − BAIXA **desta ref**; as baixas
+   * chegam carimbadas com a ref da carga aberta). Sem range de data, sem
+   * vazamento entre cargas/dias (revisão adversarial A2).
    */
-  async liberarCargaDia(companyId: number, refCargaDia: string, dataISO: string): Promise<{ liberados: number }> {
+  async liberarCargaDia(companyId: number, refCargaDia: string): Promise<{ liberados: number }> {
     if (!(await this.estoqueLigado(companyId))) return { liberados: 0 };
-    const reservas = await (this.prisma as any).estoqueMovimento.findMany({
-      where: { companyId, refCargaDia, tipo: { in: ['RESERVA', 'LIBERA_RESERVA'] } },
-      select: { produtoId: true, tipo: true, quantidade: true },
-    });
-    const porProduto = new Map<string, number>();
-    for (const r of reservas) {
-      const sinal = r.tipo === 'RESERVA' ? 1 : -1;
-      porProduto.set(r.produtoId, (porProduto.get(r.produtoId) ?? 0) + sinal * (Number(r.quantidade) || 0));
-    }
-    // Baixas do DIA civil SP (o vendido da rota já saiu do reservado na derivação).
-    const start = new Date(`${dataISO}T00:00:00-03:00`);
-    const end = new Date(start.getTime() + 24 * 60 * 60 * 1000 - 1);
+    const liquido = await this.liquidoDaRef(companyId, refCargaDia, { comBaixas: true });
     let liberados = 0;
-    for (const [produtoId, reservaLiquida] of porProduto) {
-      if (!(reservaLiquida > 0)) continue;
-      const baixasDia = await (this.prisma as any).estoqueMovimento.aggregate({
-        where: { companyId, produtoId, tipo: 'BAIXA_ENTREGA', createdAt: { gte: start, lte: end } },
-        _sum: { quantidade: true },
+    for (const [produtoId, restante] of liquido) {
+      if (!(restante > 0)) continue;
+      await (this.prisma as any).estoqueMovimento.create({
+        data: { companyId, produtoId, tipo: 'LIBERA_RESERVA', quantidade: restante, refCargaDia, motivo: 'Retorno da carga (conferência do dia)' },
       });
-      const liberar = Math.max(0, reservaLiquida - (Number(baixasDia?._sum?.quantidade) || 0));
-      if (liberar > 0) {
-        await (this.prisma as any).estoqueMovimento.create({
-          data: { companyId, produtoId, tipo: 'LIBERA_RESERVA', quantidade: liberar, refCargaDia, motivo: 'Retorno da carga (conferência do dia)' },
-        });
-        liberados += 1;
-      }
+      liberados += 1;
     }
     return { liberados };
   }
@@ -488,12 +568,19 @@ export class EstoqueService {
     }
   }
 
-  private async reservaAtualDaRef(companyId: number, produtoId: string, refCargaDia: string): Promise<number> {
+  /** Líquido da ref por produto: RESERVA − LIBERA (− BAIXA da ref quando `comBaixas`). */
+  private async liquidoDaRef(companyId: number, refCargaDia: string, opts: { comBaixas?: boolean } = {}): Promise<Map<string, number>> {
+    const tipos = opts.comBaixas ? ['RESERVA', 'LIBERA_RESERVA', 'BAIXA_ENTREGA'] : ['RESERVA', 'LIBERA_RESERVA'];
     const rows = await (this.prisma as any).estoqueMovimento.findMany({
-      where: { companyId, produtoId, refCargaDia, tipo: { in: ['RESERVA', 'LIBERA_RESERVA'] } },
-      select: { tipo: true, quantidade: true },
+      where: { companyId, refCargaDia, tipo: { in: tipos } },
+      select: { produtoId: true, tipo: true, quantidade: true },
     });
-    return rows.reduce((s: number, r: any) => s + (r.tipo === 'RESERVA' ? 1 : -1) * (Number(r.quantidade) || 0), 0);
+    const out = new Map<string, number>();
+    for (const r of rows) {
+      const sinal = r.tipo === 'RESERVA' ? 1 : -1;
+      out.set(r.produtoId, (out.get(r.produtoId) ?? 0) + sinal * (Number(r.quantidade) || 0));
+    }
+    return out;
   }
 
   private async lancar(

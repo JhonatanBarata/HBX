@@ -4,6 +4,7 @@ import type { Server } from 'http';
 import type { Socket } from 'net';
 import type { Request, Response } from 'express';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { ValidationPipe, BadRequestException } from '@nestjs/common';
@@ -127,7 +128,14 @@ function assertJwtSecretStrength() {
 async function bootstrap() {
   assertJwtSecretStrength();
   warnIfIntegrationSecretKeyMissing();
-  const app = await NestFactory.create(AppModule, { rawBody: true });
+  // B2 (revisão adversarial fiscal, 04/08): o default de 100kb do body JSON
+  // derrubava com 413 o upload do XML de NF-e de compra grande (distribuidor
+  // com muitos itens vira >100KB com escape JSON). 3mb cobre com folga e fica
+  // abaixo do teto de 10mb do proxy do Next. rawBody segue preservado (o
+  // useBodyParser do Nest repassa a opção — webhooks com assinatura intactos).
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true, bodyParser: false });
+  app.useBodyParser('json', { limit: '3mb' });
+  app.useBodyParser('urlencoded', { extended: true, limit: '3mb' });
   // Helmet — headers de segurança baratos e seguros (nosniff, X-Frame-Options,
   // Referrer-Policy, HSTS em HTTPS/producao, remove X-Powered-By, etc.).
   // Aplicado ANTES do CORS manual pra valer em toda resposta. Escopo estreito:

@@ -9,7 +9,7 @@ import { FiscalLiberacaoService } from './fiscal-liberacao.service';
 import { fiscalVaultEncrypt, fiscalVaultDecrypt } from './fiscal-vault.util';
 import { vaultEncrypt } from '../contabil/contabil-vault.util';
 
-function makePrisma(overrides: Record<string, any> = {}) {
+function makePrisma(overrides: Record<string, any> = {}, opts: { municipioStatus?: string } = {}) {
   const perfil = {
     companyId: 7,
     cnpj: '11222333000181',
@@ -34,8 +34,9 @@ function makePrisma(overrides: Record<string, any> = {}) {
     fiscalTenantProfile: {
       findUnique: async () => ({ ...perfil }),
       update: async ({ data }: any) => Object.assign(perfil, data),
+      upsert: async ({ update, create }: any) => Object.assign(perfil, Object.keys(update || {}).length ? update : create),
     },
-    fiscalMunicipio: { findUnique: async () => ({ ibge: '3543907', nome: 'Rio Claro', uf: 'SP', status: 'HOMOLOGADO' }) },
+    fiscalMunicipio: { findUnique: async () => ({ ibge: '3543907', nome: 'Rio Claro', uf: 'SP', status: opts.municipioStatus || 'HOMOLOGADO' }) },
     fiscalServicoCatalogo: { count: async () => 1 },
     fiscalDocumento: { findFirst: async () => ({ id: 'd1', numero: 4 }) },
   };
@@ -71,6 +72,17 @@ test('checklist incompleto BLOQUEIA produção listando o que falta; [OP] não b
   const soOp = makePrisma({ estoqueAtivo: false });
   const c2 = await new FiscalLiberacaoService(soOp as any, trilhaFake).checklist(7);
   assert.equal(c2.prontoParaProducao, true);
+});
+
+test('município EM_VALIDACAO reprova o item [TEC] e BLOQUEIA a produção (lacuna do verificador)', async () => {
+  const prisma = makePrisma({}, { municipioStatus: 'EM_VALIDACAO' });
+  const svc = new FiscalLiberacaoService(prisma as any, trilhaFake);
+  const c = await svc.checklist(7);
+  const item = c.itens.find((i) => i.chave === 'municipio')!;
+  assert.equal(item.ok, false);
+  assert.match(String(item.detalhe), /EM_VALIDACAO/);
+  assert.equal(c.prontoParaProducao, false);
+  await assert.rejects(() => svc.ativarProducao(7, 42), /homologado/i);
 });
 
 test('voltar pra restrita é sempre permitido (sentido seguro)', async () => {

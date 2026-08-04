@@ -212,6 +212,7 @@ const REGIME_CRT: Array<{ valor: string; rotulo: string }> = [
 
 const STATUS_DOC: Record<string, string> = {
   PENDENTE: "Pendente",
+  TRANSMITINDO: "Transmitindo…",
   AUTORIZADA: "Autorizada",
   REJEITADA: "Rejeitada",
   CANCELADA: "Cancelada",
@@ -256,7 +257,7 @@ function fmtCompetencia(valor: string | null | undefined): string {
 function seloDoStatus(status: string): string {
   if (status === "AUTORIZADA") return "fis-selo fis-selo--ok";
   if (status === "REJEITADA" || status === "ERRO") return "fis-selo fis-selo--erro";
-  if (status === "PENDENTE") return "fis-selo fis-selo--espera";
+  if (status === "PENDENTE" || status === "TRANSMITINDO") return "fis-selo fis-selo--espera";
   return "fis-selo";
 }
 
@@ -1519,6 +1520,7 @@ function BlocoEstoque() {
   const [xmlTexto, setXmlTexto] = useState<string | null>(null);
   const [preview, setPreview] = useState<PreviewXml | null>(null);
   const [mapa, setMapa] = useState<Record<string, string>>({});
+  const [relancar, setRelancar] = useState(false);
 
   const carregar = useCallback(async () => {
     setErro(null);
@@ -1609,6 +1611,7 @@ function BlocoEstoque() {
       });
       setXmlTexto(texto);
       setPreview(p);
+      setRelancar(false);
       const inicial: Record<string, string> = {};
       for (const item of p.itens) inicial[item.cProd] = item.sugestaoProdutoId || "__novo";
       setMapa(inicial);
@@ -1635,7 +1638,7 @@ function BlocoEstoque() {
       });
       const r = await apiFetch<{ lancados: number; duplicados: number; ignorados: number }>(
         "/fiscal/estoque/entrada-xml/confirmar",
-        { method: "POST", body: JSON.stringify({ xml: xmlTexto, mapeamentos }) },
+        { method: "POST", body: JSON.stringify({ xml: xmlTexto, mapeamentos, permitirRelancamento: relancar }) },
       );
       setAviso(`Entrada lançada: ${r.lancados} item(ns)` + (r.duplicados ? ` · ${r.duplicados} já lançado(s)` : "") + (r.ignorados ? ` · ${r.ignorados} ignorado(s)` : ""));
       setPreview(null);
@@ -1721,7 +1724,14 @@ function BlocoEstoque() {
               NF-e de {preview.emitenteNome || "fornecedor"} — confira o destino de cada item
             </strong>
             {preview.jaLancada ? (
-              <div className="fis-aviso fis-aviso--atencao"><span>Esta nota JÁ teve entrada lançada — itens repetidos serão ignorados.</span></div>
+              <>
+                <div className="fis-aviso fis-aviso--atencao"><span>Esta nota JÁ teve entrada lançada. Re-lançar duplica o estoque — só siga se for corrigir um mapeamento (e estorne o lançamento anterior com um ajuste).</span></div>
+                <Interruptor
+                  nome="Sei que já foi lançada — lançar mesmo assim"
+                  ligado={relancar}
+                  onChange={setRelancar}
+                />
+              </>
             ) : null}
             {preview.itens.map((item) => (
               <div key={item.cProd} className="fis-xml-item">

@@ -73,9 +73,11 @@ export class FiscalLiberacaoService {
 
   /** Atestado da aprovação do contador (LT) — carimbo de quem/quando na trilha. */
   async atestarContador(companyId: number, userId: number | null, aprovado: boolean) {
-    await (this.prisma as any).fiscalTenantProfile.update({
+    // B1: upsert — primeira visita da empresa à tela sem perfil não vira 500.
+    await (this.prisma as any).fiscalTenantProfile.upsert({
       where: { companyId },
-      data: { contadorAprovou: aprovado, contadorAprovouEm: aprovado ? new Date() : null },
+      create: { companyId, contadorAprovou: aprovado, contadorAprovouEm: aprovado ? new Date() : null },
+      update: { contadorAprovou: aprovado, contadorAprovouEm: aprovado ? new Date() : null },
     });
     await this.trilha.registrar({
       sistema: 'NFSE',
@@ -118,9 +120,10 @@ export class FiscalLiberacaoService {
 
   /** Voltar pra restrita — sentido SEGURO, sempre permitido (com trilha). */
   async voltarRestrita(companyId: number, userId: number | null) {
-    await (this.prisma as any).fiscalTenantProfile.update({
+    await (this.prisma as any).fiscalTenantProfile.upsert({
       where: { companyId },
-      data: { ambiente: 'restrita' },
+      create: { companyId, ambiente: 'restrita' },
+      update: { ambiente: 'restrita' },
     });
     await this.trilha.registrar({
       sistema: 'NFSE',

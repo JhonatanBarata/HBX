@@ -243,6 +243,10 @@ export class EntradaXmlConfirmarDto {
 
   @IsArray() @ValidateNested({ each: true }) @Type(() => MapeamentoEntradaXmlDto)
   mapeamentos!: MapeamentoEntradaXmlDto[];
+
+  // M7 — chave já lançada exige gesto explícito (re-lançamento consciente).
+  @IsOptional() @IsBoolean()
+  permitirRelancamento?: boolean;
 }
 
 // ── LIBERAÇÃO DE PRODUÇÃO ──────────────────────────────────────────────────

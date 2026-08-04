@@ -73,9 +73,13 @@ export class FiscalProfileService implements OnModuleInit {
   // -------------------------------------------------------------------------
 
   async getOrCreatePerfil(companyId: number) {
-    const existing = await (this.prisma as any).fiscalTenantProfile.findUnique({ where: { companyId } });
-    if (existing) return existing;
-    return (this.prisma as any).fiscalTenantProfile.create({ data: { companyId } });
+    // B5 (revisão adversarial): upsert — duas primeiras visitas simultâneas não
+    // estouram P2002/500 na corrida find→create.
+    return (this.prisma as any).fiscalTenantProfile.upsert({
+      where: { companyId },
+      create: { companyId },
+      update: {},
+    });
   }
 
   async getPerfilPublico(companyId: number): Promise<PerfilPublico> {
@@ -242,8 +246,17 @@ export class FiscalProfileService implements OnModuleInit {
     } catch {
       throw new BadRequestException('Envelope do certificado corrompido no cofre.');
     }
-    const certPem = fiscalVaultDecrypt(env?.certPem);
-    const keyPem = fiscalVaultDecrypt(env?.keyPem);
+    let certPem: string | null;
+    let keyPem: string | null;
+    try {
+      certPem = fiscalVaultDecrypt(env?.certPem);
+      keyPem = fiscalVaultDecrypt(env?.keyPem);
+    } catch (err) {
+      // Voz em vez de 500 cru (achado do verificador): chave do cofre ausente/
+      // trocada no servidor não pode virar erro mudo na emissão.
+      this.logger.error(`[fiscal] cofre indisponível (company ${companyId}): ${String((err as Error)?.message || err).slice(0, 120)}`);
+      throw new BadRequestException('Cofre fiscal indisponível no servidor (chave do cofre ausente ou trocada) — avise o suporte.');
+    }
     if (!certPem || !keyPem) throw new BadRequestException('Material do certificado ausente no cofre.');
     return { certPem, keyPem };
   }

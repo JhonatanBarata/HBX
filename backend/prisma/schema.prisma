@@ -6107,6 +6107,7 @@ model FiscalDocumento {
   prestadorRazaoSocial String?
   prestadorCnpj        String?
   prestadorMunicipio   String? // "Nome/UF" exibível
+  prestadorMunicipioIbge String? // IBGE 7 díg. na EMISSÃO — a chave da DPS da reconciliação usa ISTO (M1)
   servicoId          String? // FiscalServicoCatalogo.id (FK lógica)
   descricao          String?
   valorCents         Int
