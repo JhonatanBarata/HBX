@@ -66,7 +66,7 @@ const META: Record<string, Meta> = {
   // correspondente nunca acendia na sidebar (nenhum highlight, sem transição).
   "/empresas": { active: "empresas", title: "Empresas", crumbs: crumb("Empresas") },
   "/contatos": { active: "contatos", title: "Contatos", crumbs: crumb("Contatos") },
-  "/produtos": { active: "produtos", title: "Produtos", crumbs: crumb("Produtos") },
+  "/produtos": { active: "produtos", title: "Estoque", crumbs: crumb("Estoque") },
   "/logistica": { active: "logistica", title: "Logística", crumbs: crumb("Logística") },
   // Logística → Clientes (07/07): reusa a gestão de clientes de Contatos (modo
   // clientesOnly). Match é EXATO aqui, então a sub-rota precisa da própria linha

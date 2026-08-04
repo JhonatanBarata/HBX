@@ -45,7 +45,7 @@ const TITLE_FALLBACK: Record<string, string> = {
   "/automacoes": "Automações",
   "/clientes": "Clientes",
   "/contatos": "Contatos",
-  "/produtos": "Produtos",
+  "/produtos": "Estoque",
   "/logistica": "Logística",
   "/bot": "Bot",
   "/assistente": "Assistente IA",

@@ -27,6 +27,7 @@ import {
   HbxContextMetrics,
   HbxPanelShell,
 } from "@/components/hbx/panel-shell";
+import { BlocoEstoque } from "@/components/hbx/bloco-estoque";
 import { I, ICONS, useCurrentUser } from "@/components/hbx/shell";
 import {
   ImportPlanilhaModal,
@@ -35,6 +36,7 @@ import {
   type ImportSchema,
 } from "@/components/hbx/import-planilha-modal";
 import { apiFetch } from "@/lib/api";
+import { isTenantAdmin } from "@/lib/roles";
 
 // Importação em massa (planilha): A nome (obrigatório) · B preço · C unidade ·
 // D usa_logistica · E sku · F descrição. Só nome é obrigatório. Cada linha roda o
@@ -220,7 +222,19 @@ function ProdutoModal({
 }
 
 export function ProdutosClient() {
-  useCurrentUser();
+  const user = useCurrentUser();
+  // Estoque fiscal mora AQUI (04/08, dono: "dentro do estoque tem os produtos") —
+  // bloco compartilhado, só para admin com o modo HBX Gestão Fiscal ativo.
+  const admin = isTenantAdmin(user);
+  const [estoqueAtivo, setEstoqueAtivo] = useState(false);
+  useEffect(() => {
+    if (!admin) return;
+    let vivo = true;
+    apiFetch<{ estoqueAtivo?: boolean }>("/fiscal/perfil")
+      .then((p) => { if (vivo) setEstoqueAtivo(Boolean(p?.estoqueAtivo)); })
+      .catch(() => { /* sem perfil fiscal (ou sem acesso) = sem bloco; catálogo segue */ });
+    return () => { vivo = false; };
+  }, [admin]);
   const [items, setItems] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -283,6 +297,7 @@ export function ProdutosClient() {
   const isEmpty = !loading && !error && filtered.length === 0;
 
   const main = (
+    <>
     <section className="prod-live">
       <header className="prod-command">
         <div className="prod-command__identity">
@@ -417,6 +432,8 @@ export function ProdutosClient() {
         )}
       </div>
     </section>
+    {admin && estoqueAtivo ? <BlocoEstoque /> : null}
+    </>
   );
 
   const context = selected ? (

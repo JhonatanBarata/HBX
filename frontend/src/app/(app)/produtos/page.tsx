@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 
 import { ProdutosClient } from "./page.client";
 
-export const metadata: Metadata = { title: "HBX — Produtos" };
+export const metadata: Metadata = { title: "HBX — Estoque" };
 
 // NÚCLEO-CRM N5 — catálogo de produtos do tenant (o que o vendedor vende/entrega:
 // galão 20L, etc.). Reusa o módulo backend /products (kind='tenant_product') +
