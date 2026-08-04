@@ -6008,6 +6008,114 @@ model FiscalAutomationLog {
   @@index([createdAt])
 }
 
+// ===========================================================================
+// FISCAL DO TENANT (PR04082026-FISCAL-TENANT, F1a) — emissão de NFS-e do
+// TENANT direto na API nacional (Sefin), gratuita. Modelos ADITIVOS.
+// Difere do CONTABIL acima (robô do dono, FiscalProfile singleton id=1):
+// aqui é 1 perfil POR EMPRESA (companyId @unique). Certificado A1 no MESMO
+// padrão de cofre (envelope JSON, partes AES-256-GCM via contabil-vault.util)
+// — segredo NUNCA em log/response/seed. Modelos com companyId registrados no
+// tenant-guard (extensão + lint check-tenant-scope). FiscalMunicipio é GLOBAL
+// (allowlist de cidades homologadas — decisão do plano: rollout por cidade é
+// GOVERNANÇA, nunca integração por cidade).
+// ===========================================================================
+
+model FiscalTenantProfile {
+  id                 String    @id @default(cuid())
+  companyId          Int       @unique
+  cnpj               String? // só dígitos
+  razaoSocial        String?
+  inscricaoMunicipal String?
+  regimeCrt          Int       @default(1) // CRT: 1=Simples Nacional
+  municipioIbge      String? // IBGE 7 dígitos do prestador
+  ambiente           String    @default("restrita") // restrita | producao (gate do dono sobe p/ producao)
+  certA1Encrypted    String? // envelope JSON do cofre — NUNCA em log
+  certA1ExpiresAt    DateTime?
+  serieDps           String    @default("1")
+  proximoNumeroDps   Int       @default(1) // incrementado DENTRO de transação (colisão = rejeição)
+  escopoServico      Boolean   @default(false)
+  escopoProduto      Boolean   @default(false) // F2 — GATE DURO: exige estoqueAtivo=true
+  emailAutoEnvio     Boolean   @default(false)
+  whatsAutoEnvio     Boolean   @default(false)
+  estoqueAtivo       Boolean   @default(false)
+  estoqueNegativo    String    @default("avisar") // avisar | travar
+  // Disjuntor por empresa (mesma lei do S6): 3 ERROs consecutivos pausam a
+  // emissão até o admin rearmar — nunca 4ª tentativa às cegas.
+  errosConsecutivos  Int       @default(0)
+  disjuntorPausado   Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+}
+
+// Catálogo de serviços do tenant — montado 1x com o contador dele; a emissão
+// avulsa só ESCOLHE daqui (IA/tela nunca inventa código de tributação).
+model FiscalServicoCatalogo {
+  id                       String   @id @default(cuid())
+  companyId                Int
+  descricao                String
+  codigoTributacaoNacional String // 'XX.XX' (item LC 116 no layout nacional)
+  cnae                     String // 7 dígitos
+  aliquotaIss              Float? // fração 0..1 — contador confirma; null = 0 na DPS
+  issRetido                Boolean  @default(false)
+  ativo                    Boolean  @default(true)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  @@index([companyId, ativo])
+}
+
+// 1 documento fiscal por emissão. `origem` já nasce com OS (plano: OS pluga
+// sem reforma no 3º cliente de manutenção). originKey = idempotência dura
+// (mesma origem nunca vira 2 notas). FK lógica por ids soltos (padrão do
+// schema fiscal, como FiscalLedgerEntry.refId).
+model FiscalDocumento {
+  id                 String    @id @default(cuid())
+  companyId          Int
+  tipo               String // NFSE | NFE | NFCE | NFE_REMESSA
+  origem             String // AVULSA | FECHAMENTO | ENTREGA | OS
+  originKey          String    @unique // 'avulsa:<cuid>' | 'fechamento:<chargeId>' | 'remessa:<data>:<veiculo>'
+  status             String    @default("PENDENTE") // PENDENTE | AUTORIZADA | REJEITADA | ERRO | CANCELADA
+  tomadorDoc         String? // CNPJ/CPF só dígitos (snapshot)
+  tomadorNome        String?
+  tomadorEmail       String?
+  servicoId          String? // FiscalServicoCatalogo.id (FK lógica)
+  descricao          String?
+  valorCents         Int
+  competencia        String // 'YYYY-MM'
+  emissorRota        String    @default("NACIONAL_DIRETO") // NACIONAL_DIRETO | PROVEDOR
+  ambiente           String? // snapshot da emissão (restrita | producao)
+  serie              String?
+  numero             Int?
+  chaveAcesso        String?   @unique
+  xmlGzB64           String? // XML autorizado (GZip+Base64) — auditoria/download
+  erroMsg            String?
+  tentativas         Int       @default(0)
+  emitidaEm          DateTime?
+  canceladaEm        DateTime?
+  motivoCancelamento String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([companyId, status])
+  @@index([companyId, createdAt])
+  @@index([companyId, competencia])
+}
+
+// GLOBAL (sem companyId) — allowlist de municípios: cidade nova só liga depois
+// de validar 1 nota em produção-restrita. rotaNfse muda pra PROVEDOR quando a
+// cidade "desmoronar" (decisão do dono) — migração por CONFIG, sem código.
+model FiscalMunicipio {
+  id        String   @id @default(cuid())
+  ibge      String   @unique // 7 dígitos
+  nome      String
+  uf        String
+  rotaNfse  String   @default("NACIONAL_DIRETO") // NACIONAL_DIRETO | PROVEDOR
+  status    String   @default("EM_VALIDACAO") // EM_VALIDACAO | HOMOLOGADO | BLOQUEADO
+  obs       String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 // CRÉDITOS S1 (docs/PLANEJAMENTOS/CREDITOS/S1-SPEC.md) — fundação da carteira de crédito.
 // Sprint 0 fechado 04/07: 1 crédito = 1 lead; saldo em LOTES com expiração FIFO; fail-closed
 // nunca negativo; idempotência por usageKey. Migration ADITIVA (só estas 2 tabelas). Atrás de

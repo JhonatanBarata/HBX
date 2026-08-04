@@ -52,6 +52,7 @@ import { CreditsModule } from './credits/credits.module';
 import { UploadsModule } from './uploads/uploads.module';
 import { TutorialMediaModule } from './tutorial-media/tutorial-media.module';
 import { FinanceiroTenantModule } from './financeiro-tenant/financeiro-tenant.module';
+import { FiscalModule } from './fiscal/fiscal.module';
 import { AutomationModule } from './automation/automation.module';
 import { PainelModuloModule } from './painel-modulo/painel-modulo.module';
 import { ComexModule } from './comex/comex.module';
@@ -117,6 +118,7 @@ import { ComexModule } from './comex/comex.module';
     LogisticaModule,
     CreditsModule,
     FinanceiroTenantModule,
+    FiscalModule,
     TutorialMediaModule,
     AutomationModule,
     PainelModuloModule,

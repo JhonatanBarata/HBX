@@ -40,6 +40,7 @@ const TENANT_MODELS = new Set(
     'NightOrderDelivery', 'CompanyCommercialEntitlement', 'CompanyCommercialUsageLog',
     'EnrichmentCostLedger', 'TrialPhoneUsage', 'CompanyWhatsAppEndpoint', 'CompanySubscription',
     'HbxRecoveryCustomer', 'HbxRecoveryPayment', 'HbxRecoveryPaymentEvent', 'FinanceiroCharge',
+    'FiscalTenantProfile', 'FiscalServicoCatalogo', 'FiscalDocumento',
     'RecoveryDebtItem', 'RecoveryDebtAllocation', 'RecoveryAutomationStepRun', 'EntregaComprovante', 'HbxRecoveryFlowStage',
     'CompanyConversation', 'AtendimentoAppointment', 'InboxTrashMeticulousPurgeJob', 'CompanyMessage',
     'AtendimentoCustomer', 'AtendimentoQuickReply', 'CustomerProfile', 'DebtCase', 'IntegrationConnection',
