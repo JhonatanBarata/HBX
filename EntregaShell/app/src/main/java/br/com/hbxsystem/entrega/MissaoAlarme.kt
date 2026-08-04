@@ -1,6 +1,7 @@
 package br.com.hbxsystem.entrega
 
 import android.app.AlarmManager
+import android.app.Activity
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -303,8 +304,12 @@ object MissaoAlarme {
             .build()
         runCatching { manager.notify(NOTIF_BASE + requestCode(id) % 1000, notif) }
 
-        // Via 2: com o app em primeiro plano é ela que abre a tela na hora.
-        runCatching { context.startActivity(telaIntent) }
+        // Via 2 existe apenas quando a chamada nasceu de uma Activity visível.
+        // Em background o Android exige o full-screen intent acima; tentar
+        // startActivity daqui cria uma segunda rota que o sistema bloqueia.
+        if (context is Activity && !context.isFinishing && !context.isDestroyed) {
+            runCatching { context.startActivity(telaIntent) }
+        }
     }
 }
 
