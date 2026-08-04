@@ -50,7 +50,18 @@ Método: fable.md (Encomenda com Foto) — progresso se mede por CENA funcionand
    **REFINO DO DONO:** OS é toggle Sim/Não por empresa — e a NFS-e avulsa **emite de qualquer
    jeito**, com OS ligada ou desligada (o contrário do gate do estoque: serviço não tem baixa
    física, nota avulsa nunca depende de controle operacional).
-9. **Leis herdadas:** copiloto-não-piloto (sistema NUNCA transmite sozinho — clique do dono do
+9. **CORREÇÃO TRIBUTÁRIA do dono (04/08, 2º chat): água NÃO é mais ICMS-ST.** O regime mudou:
+   água agora é tributação NORMAL com REDUÇÃO de base de cálculo (não mais substituição
+   recolhida na indústria). Consequências: (a) o argumento antigo "receita ST segregada abaixa
+   o Simples" NÃO vale mais — não usar em venda; (b) perfil fiscal do produto na F2 nasce com
+   CST/CSOSN + redução de base como caso default de água, não CEST/ST; (c) como sempre, o
+   contador do tenant CONFIRMA o enquadramento por estado — IA nunca calcula imposto.
+10. **F2 = BÁSICO DO BÁSICO (ordem do dono, 04/08).** Emissão de NF simples, sem sofisticação
+   tributária embutida — o sistema executa, o contador enquadra. E entra o **MALOTE DO
+   CONTADOR**: relatórios de COMPRAS (entradas por XML) e VENDAS (notas emitidas) SALVOS,
+   sem perder nada, exportáveis pro contador (XML + planilha por competência). É feature de
+   retenção barata: o sistema vira a pasta fiscal permanente da empresa.
+11. **Leis herdadas:** copiloto-não-piloto (sistema NUNCA transmite sozinho — clique do dono do
    tenant); IA nunca calcula imposto (perfil fiscal = tabela curada + contador); multi-tenant
    (nada atravessa empresa); código financeiro/fiscal = eu edito + **verificação adversarial
    independente antes de publicar**; cancelamento de nota segue rito legal com rastro — nada de
