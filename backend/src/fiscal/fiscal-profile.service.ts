@@ -34,6 +34,8 @@ export interface PerfilPublico {
   whatsAutoEnvio: boolean;
   estoqueAtivo: boolean;
   estoqueNegativo: string;
+  modoEmissaoProduto: string;
+  comprovanteEntrega: boolean;
   disjuntorPausado: boolean;
   cert: { configurado: boolean; expiresAt: string | null; diasParaExpirar: number | null; expirado: boolean };
 }
@@ -90,6 +92,8 @@ export class FiscalProfileService implements OnModuleInit {
     whatsAutoEnvio?: boolean;
     estoqueAtivo?: boolean;
     estoqueNegativo?: string;
+    modoEmissaoProduto?: string;
+    comprovanteEntrega?: boolean;
   }): Promise<PerfilPublico> {
     await this.getOrCreatePerfil(companyId);
     const data: Record<string, unknown> = {};
@@ -125,7 +129,7 @@ export class FiscalProfileService implements OnModuleInit {
       }
       data.municipioIbge = ibge || null;
     }
-    for (const k of ['escopoServico', 'escopoProduto', 'emailAutoEnvio', 'whatsAutoEnvio', 'estoqueAtivo'] as const) {
+    for (const k of ['escopoServico', 'escopoProduto', 'emailAutoEnvio', 'whatsAutoEnvio', 'estoqueAtivo', 'comprovanteEntrega'] as const) {
       if (dto[k] !== undefined) data[k] = Boolean(dto[k]);
     }
     if (dto.estoqueNegativo !== undefined) {
@@ -133,6 +137,12 @@ export class FiscalProfileService implements OnModuleInit {
         throw new BadRequestException("estoqueNegativo deve ser 'avisar' ou 'travar'.");
       }
       data.estoqueNegativo = dto.estoqueNegativo;
+    }
+    if (dto.modoEmissaoProduto !== undefined) {
+      if (!['fechamento', 'entrega'].includes(String(dto.modoEmissaoProduto))) {
+        throw new BadRequestException("modoEmissaoProduto deve ser 'fechamento' ou 'entrega'.");
+      }
+      data.modoEmissaoProduto = dto.modoEmissaoProduto;
     }
     // GATE DURO do plano: NF-e de produto exige controle de estoque ligado.
     const next = await (this.prisma as any).fiscalTenantProfile.update({ where: { companyId }, data });
@@ -350,6 +360,8 @@ export class FiscalProfileService implements OnModuleInit {
       whatsAutoEnvio: p.whatsAutoEnvio,
       estoqueAtivo: p.estoqueAtivo,
       estoqueNegativo: p.estoqueNegativo,
+      modoEmissaoProduto: p.modoEmissaoProduto || 'fechamento',
+      comprovanteEntrega: Boolean(p.comprovanteEntrega),
       disjuntorPausado: p.disjuntorPausado,
       cert: {
         configurado: Boolean(p.certA1Encrypted),

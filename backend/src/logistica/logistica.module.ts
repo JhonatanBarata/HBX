@@ -10,6 +10,10 @@ import { AuthModule } from '../auth/auth.module';
 // F4 (27/07) — quarentena de importação reusa o cadastro idempotente do NÚCLEO-CRM
 // (NucleoCadastroService#createConta) pra virar CustomerProfile na efetivação.
 import { NucleoModule } from '../nucleo/nucleo.module';
+// FISCAL F2a (04/08): FiscalComprovanteEntregaService (exportado pelo FiscalModule)
+// gera o comprovante SEM VALOR FISCAL que pega carona no aviso "entregue".
+// Sem ciclo: o fiscal não importa logistica.
+import { FiscalModule } from '../fiscal/fiscal.module';
 import { LogisticaService } from './logistica.service';
 import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
 import { LogisticaRecorrenciaOccurrenceService } from './logistica-recorrencia-occurrence.service';
@@ -178,7 +182,7 @@ import { LogisticaEstoqueService } from './logistica-estoque.service';
  * mentir no dia em que o dono mudasse o valor.
  */
 @Module({
-  imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule, NucleoModule],
+  imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule, NucleoModule, FiscalModule],
   controllers: [
     LogisticaController,
     LogisticaRecadoMobileController,

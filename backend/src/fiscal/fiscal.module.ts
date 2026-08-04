@@ -8,6 +8,7 @@ import { FiscalController } from './fiscal.controller';
 import { FiscalProfileService } from './fiscal-profile.service';
 import { FiscalNfseService } from './fiscal-nfse.service';
 import { FiscalEnvioService } from './fiscal-envio.service';
+import { FiscalComprovanteEntregaService } from './fiscal-comprovante-entrega.service';
 
 // FISCAL DO TENANT (PR04082026-FISCAL-TENANT F1a) — módulo do TENANT, irmão do
 // financeiro-tenant. O contabil/ (robô do dono) fica INTOCADO: importamos o
@@ -32,7 +33,8 @@ import { FiscalEnvioService } from './fiscal-envio.service';
     FiscalProfileService,
     FiscalNfseService,
     FiscalEnvioService,
+    FiscalComprovanteEntregaService,
   ],
-  exports: [FiscalProfileService, FiscalNfseService, FiscalEnvioService],
+  exports: [FiscalProfileService, FiscalNfseService, FiscalEnvioService, FiscalComprovanteEntregaService],
 })
 export class FiscalModule {}

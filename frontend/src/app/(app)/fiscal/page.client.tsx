@@ -49,6 +49,8 @@ type PerfilFiscal = {
   whatsAutoEnvio: boolean;
   estoqueAtivo: boolean;
   estoqueNegativo: string;
+  modoEmissaoProduto: string;
+  comprovanteEntrega: boolean;
   disjuntorPausado: boolean;
   cert: {
     configurado: boolean;
@@ -122,6 +124,8 @@ type FormPerfil = {
   whatsAutoEnvio: boolean;
   estoqueAtivo: boolean;
   estoqueNegativo: string;
+  modoEmissaoProduto: string;
+  comprovanteEntrega: boolean;
 };
 
 // ------------------------------------------------------------------ RÓTULOS
@@ -200,6 +204,8 @@ function formPerfilDe(p: PerfilFiscal | null): FormPerfil {
     whatsAutoEnvio: Boolean(p?.whatsAutoEnvio),
     estoqueAtivo: Boolean(p?.estoqueAtivo),
     estoqueNegativo: p?.estoqueNegativo || "avisar",
+    modoEmissaoProduto: p?.modoEmissaoProduto || "fechamento",
+    comprovanteEntrega: Boolean(p?.comprovanteEntrega),
   };
 }
 
@@ -291,6 +297,8 @@ function PainelConfig({
         perfil.whatsAutoEnvio,
         perfil.estoqueAtivo,
         perfil.estoqueNegativo,
+        perfil.modoEmissaoProduto,
+        perfil.comprovanteEntrega,
       ].join("|")
     : "";
   useEffect(() => {
@@ -318,6 +326,8 @@ function PainelConfig({
           whatsAutoEnvio: form.whatsAutoEnvio,
           estoqueAtivo: form.estoqueAtivo,
           estoqueNegativo: form.estoqueNegativo,
+          modoEmissaoProduto: form.modoEmissaoProduto,
+          comprovanteEntrega: form.comprovanteEntrega,
         }),
       });
       onPerfilSalvo(atualizado);
@@ -560,6 +570,23 @@ function PainelConfig({
           ligado={form.whatsAutoEnvio}
           onChange={(v) => setForm((f) => ({ ...f, whatsAutoEnvio: v }))}
         />
+        <Interruptor
+          nome="Comprovante de entrega no WhatsApp"
+          dica="PDF sem valor fiscal quando a entrega é confirmada na rota."
+          ligado={form.comprovanteEntrega}
+          onChange={(v) => setForm((f) => ({ ...f, comprovanteEntrega: v }))}
+        />
+        <label className="fis-campo">
+          <span className="field-label">Nota de produto emitida</span>
+          <select
+            className="field-dark"
+            value={form.modoEmissaoProduto}
+            onChange={(e) => setForm((f) => ({ ...f, modoEmissaoProduto: e.target.value }))}
+          >
+            <option value="fechamento">No fechamento do mês</option>
+            <option value="entrega">A cada entrega</option>
+          </select>
+        </label>
         <Interruptor
           nome="Controlar estoque"
           ligado={form.estoqueAtivo}

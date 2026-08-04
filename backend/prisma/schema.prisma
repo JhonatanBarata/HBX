@@ -6039,6 +6039,10 @@ model FiscalTenantProfile {
   whatsAutoEnvio     Boolean   @default(false)
   estoqueAtivo       Boolean   @default(false)
   estoqueNegativo    String    @default("avisar") // avisar | travar
+  // F2a — água/produto: quando emite a NF-e (fechamento mensal × por entrega) e
+  // se a entrega confirmada manda o comprovante SEM VALOR FISCAL no WhatsApp.
+  modoEmissaoProduto String    @default("fechamento") // fechamento | entrega
+  comprovanteEntrega Boolean   @default(false)
   // Disjuntor por empresa (mesma lei do S6): 3 ERROs consecutivos pausam a
   // emissão até o admin rearmar — nunca 4ª tentativa às cegas.
   errosConsecutivos  Int       @default(0)

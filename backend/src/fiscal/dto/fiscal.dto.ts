@@ -36,6 +36,12 @@ export class UpdatePerfilFiscalDto {
 
   @IsOptional() @IsIn(['avisar', 'travar'])
   estoqueNegativo?: string;
+
+  @IsOptional() @IsIn(['fechamento', 'entrega'])
+  modoEmissaoProduto?: string; // F2a — quando a NF-e de produto é emitida
+
+  @IsOptional() @IsBoolean()
+  comprovanteEntrega?: boolean; // F2a — PDF sem valor fiscal no aviso de entrega
 }
 
 export class UploadCertificadoFiscalDto {

@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConversationsService } from '../messaging/conversations.service';
 import { CreditActionUsageService } from '../credits/credit-action-usage.service';
+import { FiscalComprovanteEntregaService } from '../fiscal/fiscal-comprovante-entrega.service';
 import { LogisticaRotaService, haversineKm, hasCoord, type Coord } from './logistica-rota.service';
 import { LogisticaConfigService, renderTemplateAviso, storedNivel } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
@@ -92,6 +93,10 @@ export class LogisticaService {
     // Cobrança fail-closed da Rota Rastreada. Optional só mantém os testes
     // legados com `new LogisticaService(...)`; no módulo HTTP sempre existe.
     @Optional() private readonly trackedBilling?: LogisticaTrackedBillingService,
+    // FISCAL F2a — comprovante SEM VALOR FISCAL pega carona no aviso "entregue"
+    // (gate por empresa DENTRO do serviço fiscal). @Optional() (ausente nos
+    // testes = texto puro). Sem ciclo: o fiscal não injeta LogisticaService.
+    @Optional() private readonly fiscalComprovante?: FiscalComprovanteEntregaService,
   ) {}
 
   /**
@@ -1839,6 +1844,17 @@ export class LogisticaService {
     // Guard defensivo: template que renderiza vazio não vira mensagem em branco.
     const finalBody = body.trim() || 'Sua entrega foi concluída. Obrigado pela preferência!';
 
+    // FISCAL F2a — comprovante SEM VALOR FISCAL (PDF) na MESMA mensagem (vira
+    // documento com o texto de caption). O gate por empresa mora no serviço
+    // fiscal; falha na geração vira log e o texto segue sozinho.
+    let anexoComprovante: Record<string, unknown> | null = null;
+    if (this.fiscalComprovante) {
+      anexoComprovante = await this.fiscalComprovante.anexoParaEntrega(companyId, entrega.id).catch((e: any) => {
+        this.logger.warn(`[logistica] comprovante fiscal entrega=${entrega.id} falhou: ${String(e?.message || e)}`);
+        return null;
+      });
+    }
+
     // MESMO caminho da cadência (queueOutboundForCompany) — disjuntor, 1-número=1-conexão,
     // gate de conexão viva, warmup e outbox com retry. NUNCA API crua, NUNCA socket novo.
     await this.conversations.queueOutboundForCompany(companyId, {
@@ -1848,7 +1864,12 @@ export class LogisticaService {
       messageType: 'text',
       sourceModule: 'logistica_entrega',
       senderType: 'system',
-      variables: { module: 'logistica', event: 'entregue', entregaId: entrega.id },
+      variables: {
+        module: 'logistica',
+        event: 'entregue',
+        entregaId: entrega.id,
+        ...(anexoComprovante ? { attachment: anexoComprovante } : {}),
+      },
       flowState: { botActive: false, humanAssigned: false, flowResult: null },
     });
     return { status: 'enviado', motivo: null };
