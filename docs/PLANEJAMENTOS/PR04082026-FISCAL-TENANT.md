@@ -222,6 +222,40 @@ teste da cena (fixture de DPS do tenant + transporte mockado — padrão `nfse-t
   - **B4**: abrir `producao` no perfil é HOJE código morto de propósito (nenhuma rota escreve
     `ambiente`) — abrir só via gate F1c com A2/A3/A4 já resolvidos.
 
+## 6b. AUDITORIA contra o "Checklist mínimo para liberar emissão fiscal" (pesquisa do dono, 04/08)
+
+Documento avaliado: correto em ~95% (fontes CONFAZ/SEFAZ-SP/portal nacional; o ponto "CSC é
+da NFC-e 65, não da NF-e 55" está CERTO e é pegadinha comum). Ressalvas: (a) "NFS-e por
+município, não integração única" envelheceu pro NOSSO público — Simples é obrigado no Emissor
+Nacional desde 01/09/2026 (CGSN 189/2026), então p/ Simples a integração É uma (Sefin) +
+parâmetros por cidade (exatamente nossa allowlist); (b) Portaria SRE 80/2025 (credenciamento
+SP) citada sem eu ter conferido o número — confirmar na F2 (provedor absorve).
+
+**Mapa do checklist → nosso estado** (✅ F1a no ar · 🟡 já planejado · 🔴 gap novo COM moradia):
+- ✅ Cadastro emitente NFS-e (CNPJ/razão/IM/município), CRT, cofre ICP-Brasil, autorizador
+  nacional + ambientes, série/numeração DPS atômica (nº final é do autorizador — guardamos
+  chave), catálogo LC116+CNAE+alíquota, XML/protocolo armazenados, cancelamento com rito.
+- 🟡 F2 (NF-e produto, provedor): IE + credenciamento estadual, NCM/CEST/unidade/CFOP/CSOSN,
+  contingência SVC/EPEC, DANFE, homologação→produção. F3 (estoque): saldo inicial datado =
+  nosso INVENTÁRIO; estoque em veículo = carga do caminhão; entrada por XML antes da baixa;
+  reversão no cancelamento. Teste final de produção = nosso gate F1c.
+- 🔴 Gaps que o documento EXPÔS (moradia = itens novos abaixo):
+  1. **Endereço completo do prestador** no FiscalTenantProfile (doc pede; DPS real pode exigir
+     na validação live) — entra na F1c.
+  2. **issRetido existe no catálogo mas NÃO vai pra DPS**; deduções idem — junta com a
+     pendência "retenções avançadas" (F1b/F2).
+  3. **Tomador estendido** (endereço/IM/indicador IE p/ NF-e; endereço p/ NFS-e com retenção)
+     — F1c valida o mínimo real exigido; F2 precisa do indicador de IE do destinatário.
+  4. **Local da prestação ≠ sede** (exceções LC 116 — obra/instalação) — hoje cLocIncid =
+     município do prestador; abrir campo quando OS chegar.
+  5. **F2 ganha itens**: origem da mercadoria, GTIN quando existir, CC-e, inutilização por
+     quebra de sequência, endereço de entrega ≠ cobrança.
+  6. **SEMÁFORO DE LIBERAÇÃO** (a "Regra de uso" do doc — adotada como DESENHO DO GATE F1c):
+     tela com % de conclusão por item [LT]/[TEC]/[OP]; "Ativar emissão em produção" bloqueado
+     até LT+TEC completos; [OP] bloqueia só baixa de estoque; ativação REGISTRA usuário, data,
+     ambiente e responsável; aprovação final é do contador do tenant. Substitui o "UPDATE
+     manual no banco" que hoje é o único jeito de abrir producao (de propósito — B4).
+
 ## 7. Armadilhas conhecidas (o porquê mora na memória/docs)
 
 - `migrate dev` quebrado → `db execute` + `migrate resolve`.
