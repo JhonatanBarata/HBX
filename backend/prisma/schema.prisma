@@ -6043,6 +6043,19 @@ model FiscalTenantProfile {
   // se a entrega confirmada manda o comprovante SEM VALOR FISCAL no WhatsApp.
   modoEmissaoProduto String    @default("fechamento") // fechamento | entrega
   comprovanteEntrega Boolean   @default(false)
+  // F1c/6b — endereço completo do PRESTADOR (o checklist do dono apontou; a DPS
+  // real pode exigir na validação live). Entra no XML só quando completo.
+  endCep             String?
+  endLogradouro      String?
+  endNumero          String?
+  endComplemento     String?
+  endBairro          String?
+  // SEMÁFORO DE LIBERAÇÃO (B4 → gate F1c): produção abre pela TELA com trilha,
+  // nunca mais UPDATE manual no banco. Aprovação final é do contador do tenant.
+  contadorAprovou    Boolean   @default(false)
+  contadorAprovouEm  DateTime?
+  producaoAtivadaEm  DateTime?
+  producaoAtivadaPor String? // userId de quem clicou "Ativar produção"
   // Disjuntor por empresa (mesma lei do S6): 3 ERROs consecutivos pausam a
   // emissão até o admin rearmar — nunca 4ª tentativa às cegas.
   errosConsecutivos  Int       @default(0)
@@ -6167,6 +6180,22 @@ model EstoqueMovimento {
   @@unique([companyId, tipo, refChaveNfe, produtoId])
   @@unique([companyId, tipo, refEntregaId, produtoId])
   @@index([companyId, produtoId, createdAt])
+}
+
+// MALOTE DO CONTADOR (decisão 10): o XML da NF-e de COMPRA fica GUARDADO
+// ("sem perder nada") — a entrada de estoque só parseia; quem preserva é aqui.
+model FiscalCompraXml {
+  id           String   @id @default(cuid())
+  companyId    Int
+  chaveAcesso  String // 44 dígitos da NF-e de compra
+  emitenteNome String?
+  emitenteCnpj String?
+  competencia  String // 'YYYY-MM' (mês do UPLOAD — organização do malote)
+  xmlGzB64     String
+  createdAt    DateTime @default(now())
+
+  @@unique([companyId, chaveAcesso])
+  @@index([companyId, competencia])
 }
 
 // GLOBAL (sem companyId) — allowlist de municípios: cidade nova só liga depois

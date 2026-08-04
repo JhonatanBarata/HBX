@@ -24,13 +24,24 @@ import { RolesGuard } from '../auth/roles.guard';
 import { FiscalProfileService } from './fiscal-profile.service';
 import { FiscalNfseService } from './fiscal-nfse.service';
 import { FiscalEnvioService } from './fiscal-envio.service';
+import { FiscalLiberacaoService } from './fiscal-liberacao.service';
+import { FiscalMaloteService } from './fiscal-malote.service';
+import { EstoqueService } from './estoque.service';
 import { renderNfsePdf } from './nfse-pdf.util';
 import {
+  AtestarContadorDto,
+  AtualizarEstoqueProdutoDto,
   AtualizarServicoFiscalDto,
   CancelarDocumentoDto,
+  CriarEstoqueProdutoDto,
   CriarServicoFiscalDto,
   EmitirNfseAvulsaDto,
+  EntradaXmlConfirmarDto,
+  EntradaXmlPreviewDto,
   EnviarDocumentoDto,
+  InventarioEstoqueDto,
+  MovimentoEstoqueDto,
+  PerdaAjusteEstoqueDto,
   UpdatePerfilFiscalDto,
   UploadCertificadoFiscalDto,
 } from './dto/fiscal.dto';
@@ -51,6 +62,9 @@ export class FiscalController {
     private readonly profile: FiscalProfileService,
     private readonly nfse: FiscalNfseService,
     private readonly envio: FiscalEnvioService,
+    private readonly estoque: EstoqueService,
+    private readonly malote: FiscalMaloteService,
+    private readonly liberacao: FiscalLiberacaoService,
   ) {}
 
   private companyIdFromUser(user: any): number {
@@ -179,6 +193,110 @@ export class FiscalController {
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(xml);
+  }
+
+  // ------------------------------------------------------- F3 ESTOQUE
+
+  @Get('estoque/produtos')
+  estoqueProdutos(@Req() req: any, @Query('inativos') inativos?: string) {
+    return this.estoque.listarProdutos(this.companyIdFromUser(req.user), inativos === '1');
+  }
+
+  @Post('estoque/produtos')
+  estoqueCriarProduto(@Req() req: any, @Body() dto: CriarEstoqueProdutoDto) {
+    return this.estoque.criarProduto(this.companyIdFromUser(req.user), dto);
+  }
+
+  @Patch('estoque/produtos/:id')
+  estoqueAtualizarProduto(@Req() req: any, @Param('id') id: string, @Body() dto: AtualizarEstoqueProdutoDto) {
+    return this.estoque.atualizarProduto(this.companyIdFromUser(req.user), id, dto || {});
+  }
+
+  /** Catálogo da logística pro VÍNCULO (é por ele que entrega baixa e carga reserva). */
+  @Get('estoque/produtos-logistica')
+  async estoqueProdutosLogistica(@Req() req: any) {
+    const companyId = this.companyIdFromUser(req.user);
+    const rows = await (this.profile as any)['prisma'].product.findMany({
+      where: { companyId, status: 'active' },
+      select: { id: true, name: true, unidade: true },
+      orderBy: { name: 'asc' },
+    });
+    return rows;
+  }
+
+  @Get('estoque/extrato')
+  estoqueExtrato(@Req() req: any, @Query('produtoId') produtoId?: string, @Query('limite') limite?: string) {
+    return this.estoque.extrato(this.companyIdFromUser(req.user), {
+      produtoId: produtoId || undefined,
+      limite: limite ? Number(limite) : undefined,
+    });
+  }
+
+  @Post('estoque/entrada-manual')
+  estoqueEntradaManual(@Req() req: any, @Body() dto: MovimentoEstoqueDto) {
+    return this.estoque.entradaManual(this.companyIdFromUser(req.user), dto);
+  }
+
+  @Post('estoque/perda')
+  estoquePerda(@Req() req: any, @Body() dto: PerdaAjusteEstoqueDto) {
+    return this.estoque.perda(this.companyIdFromUser(req.user), dto);
+  }
+
+  @Post('estoque/ajuste')
+  estoqueAjuste(@Req() req: any, @Body() dto: PerdaAjusteEstoqueDto) {
+    return this.estoque.ajuste(this.companyIdFromUser(req.user), dto);
+  }
+
+  @Post('estoque/devolucao')
+  estoqueDevolucao(@Req() req: any, @Body() dto: MovimentoEstoqueDto) {
+    return this.estoque.devolucao(this.companyIdFromUser(req.user), dto);
+  }
+
+  @Post('estoque/inventario')
+  estoqueInventario(@Req() req: any, @Body() dto: InventarioEstoqueDto) {
+    return this.estoque.inventario(this.companyIdFromUser(req.user), dto);
+  }
+
+  @Post('estoque/entrada-xml/preview')
+  estoqueEntradaXmlPreview(@Req() req: any, @Body() dto: EntradaXmlPreviewDto) {
+    return this.estoque.previewEntradaXml(this.companyIdFromUser(req.user), dto.xml);
+  }
+
+  @Post('estoque/entrada-xml/confirmar')
+  estoqueEntradaXmlConfirmar(@Req() req: any, @Body() dto: EntradaXmlConfirmarDto) {
+    return this.estoque.confirmarEntradaXml(this.companyIdFromUser(req.user), dto.xml, dto.mapeamentos || []);
+  }
+
+  // ------------------------------------------------- MALOTE DO CONTADOR
+
+  @Get('malote/:competencia')
+  async maloteContador(@Req() req: any, @Param('competencia') competencia: string, @Res() res: any) {
+    const { filename, zip } = await this.malote.gerarMalote(this.companyIdFromUser(req.user), competencia);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(zip);
+  }
+
+  // -------------------------------------------- LIBERAÇÃO DE PRODUÇÃO (B4)
+
+  @Get('liberacao')
+  liberacaoChecklist(@Req() req: any) {
+    return this.liberacao.checklist(this.companyIdFromUser(req.user));
+  }
+
+  @Post('liberacao/contador')
+  liberacaoContador(@Req() req: any, @Body() dto: AtestarContadorDto) {
+    return this.liberacao.atestarContador(this.companyIdFromUser(req.user), Number(req.user?.id) || null, Boolean(dto?.aprovado));
+  }
+
+  @Post('liberacao/ativar-producao')
+  liberacaoAtivar(@Req() req: any) {
+    return this.liberacao.ativarProducao(this.companyIdFromUser(req.user), Number(req.user?.id) || null);
+  }
+
+  @Post('liberacao/voltar-restrita')
+  liberacaoVoltar(@Req() req: any) {
+    return this.liberacao.voltarRestrita(this.companyIdFromUser(req.user), Number(req.user?.id) || null);
   }
 
   @Get('documentos/:id/pdf')

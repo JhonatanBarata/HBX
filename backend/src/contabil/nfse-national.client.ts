@@ -30,12 +30,23 @@ import type { CertSigningMaterial } from './nfse-cert.service';
 
 export type NfseAmbiente = 'restrita' | 'producao';
 
+export interface NfsePrestadorEndereco {
+  cep: string; // só dígitos (8)
+  logradouro: string;
+  numero: string;
+  complemento?: string | null;
+  bairro: string;
+}
+
 export interface NfsePrestador {
   cnpj: string; // só dígitos
   razaoSocial: string;
   inscricaoMunicipal?: string | null;
   codigoMunicipio: string; // IBGE 7 dígitos
   regimeTributario?: string | null;
+  // Endereço completo (checklist 6b do fiscal do tenant) — opcional de propósito:
+  // ausente = XML idêntico ao que o contabil sempre gerou.
+  endereco?: NfsePrestadorEndereco | null;
 }
 
 export interface NfseTomador {
@@ -50,6 +61,9 @@ export interface NfseServico {
   cnae: string; // '6203100' (CNAE 6203-1/00 sem máscara)
   codigoMunicipio: string; // IBGE do local do serviço
   aliquotaIss?: number | null; // fração (0..1); default 0 (fora do escopo do dono)
+  // ISS retido pelo TOMADOR (tpRetISSQN=2) — opcional: ausente/false mantém o
+  // XML idêntico ao histórico do contabil (retenção nunca foi o caso dele).
+  issRetido?: boolean;
 }
 
 export interface DpsInput {
@@ -149,6 +163,7 @@ export class NfseNationalClient {
       `<CNPJ>${this.digits(p.cnpj)}</CNPJ>` +
       (p.inscricaoMunicipal ? `<IM>${this.esc(p.inscricaoMunicipal)}</IM>` : '') +
       `<xNome>${this.esc(p.razaoSocial)}</xNome>` +
+      this.montarEnderecoPrestador(p) +
       (p.regimeTributario ? `<regTrib>${this.esc(p.regimeTributario)}</regTrib>` : '') +
       `</prest>` +
       `<toma>` +
@@ -165,7 +180,7 @@ export class NfseNationalClient {
       `</serv>` +
       `<valores>` +
       `<vServPrest><vServ>${valorReais}</vServ></vServPrest>` +
-      `<trib><tribMun><tribISSQN>1</tribISSQN><pAliq>${((s.aliquotaIss ?? 0) * 100).toFixed(2)}</pAliq></tribMun></trib>` +
+      `<trib><tribMun><tribISSQN>1</tribISSQN>${s.issRetido ? '<tpRetISSQN>2</tpRetISSQN>' : ''}<pAliq>${((s.aliquotaIss ?? 0) * 100).toFixed(2)}</pAliq></tribMun></trib>` +
       `</valores>` +
       `</infDPS>` +
       `</DPS>`;
@@ -340,6 +355,23 @@ export class NfseNationalClient {
   // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
+
+  /** Endereço nacional do prestador — só quando COMPLETO (cep+logradouro+número+bairro). */
+  private montarEnderecoPrestador(p: NfsePrestador): string {
+    const e = p.endereco;
+    if (!e) return '';
+    const cep = this.digits(e.cep);
+    if (cep.length !== 8 || !e.logradouro || !e.numero || !e.bairro) return '';
+    return (
+      `<end>` +
+      `<endNac><cMun>${this.digits(p.codigoMunicipio)}</cMun><CEP>${cep}</CEP></endNac>` +
+      `<xLgr>${this.esc(e.logradouro)}</xLgr>` +
+      `<nro>${this.esc(e.numero)}</nro>` +
+      (e.complemento ? `<xCpl>${this.esc(e.complemento)}</xCpl>` : '') +
+      `<xBairro>${this.esc(e.bairro)}</xBairro>` +
+      `</end>`
+    );
+  }
 
   private montarInfId(input: DpsInput): string {
     // Id determinístico e único por (prestador, série, número) — vira o Reference URI.

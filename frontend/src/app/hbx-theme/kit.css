@@ -28,7 +28,19 @@ html, body { margin: 0; }
    Backup (7px) e Premium (10px) declaram o seu com especificidade de casca e
    continuam idênticos; a Corporativa cai no token (0px, painéis encostam) e
    qualquer casca futura passa a ter um lugar certo pra essa medida. */
-.app { display: grid; grid-template-columns: var(--rail-width) 1fr; height: 100dvh; overflow: clip; padding: var(--shell-gap); gap: var(--shell-gap); transition: grid-template-columns var(--motion-base); }
+/* SEM transição em grid-template-columns (04/08). Ela estava aqui desde 06/07 e
+   nunca rodou: a curva dupla (`var(--motion-base) var(--ease-out-quint)`) a
+   deixava inválida, então a coluna trocava de valor SECA e ninguém notou.
+   Ao consertar a curva, a transição ACORDOU — e o Chrome não consegue rodá-la:
+   nasce uma CSSTransition presa em `currentTime: 0` com `fill: backwards`, que
+   CONGELA a coluna no valor antigo. Medido em produção: barra fixa em 200px e
+   a coluna parada em 56px por 7s; `getAnimations()[0].cancel()` e a coluna vai
+   pra 200px na hora. Animação vence até estilo inline — por isso nem
+   `element.style` corrigia, e a busca começou na cascata, no lugar errado.
+   Consequência prática: fixar/soltar move o conteúdo NA HORA (sem deslizar).
+   Ressuscitar animação velha exige olhar se ela ainda funciona — "estava no
+   código" não é o mesmo que "funcionava". */
+.app { display: grid; grid-template-columns: var(--rail-width) 1fr; height: 100dvh; overflow: clip; padding: var(--shell-gap); gap: var(--shell-gap); }
 .app[data-rail="min"] { grid-template-columns: var(--rail-width-min) 1fr; }
 
 /* ---------- Sidebar ---------- */

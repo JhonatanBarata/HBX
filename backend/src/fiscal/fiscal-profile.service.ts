@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { vaultEncrypt, vaultDecrypt } from '../contabil/contabil-vault.util';
+// M1: cofre com chave PRÓPRIA do fiscal (HBX_FISCAL_VAULT_KEY, prefixo f1) e
+// fallback transparente pro envelope legado v1 (chave do contabil).
+import { fiscalVaultEncrypt, fiscalVaultDecrypt } from './fiscal-vault.util';
 import type { CertSigningMaterial } from '../contabil/nfse-cert.service';
 import { extrairMaterialDoPfx, MAX_PFX_BYTES } from './pfx.util';
 
@@ -37,6 +39,10 @@ export interface PerfilPublico {
   modoEmissaoProduto: string;
   comprovanteEntrega: boolean;
   disjuntorPausado: boolean;
+  endereco: { cep: string | null; logradouro: string | null; numero: string | null; complemento: string | null; bairro: string | null; completo: boolean };
+  contadorAprovou: boolean;
+  contadorAprovouEm: string | null;
+  producaoAtivadaEm: string | null;
   cert: { configurado: boolean; expiresAt: string | null; diasParaExpirar: number | null; expirado: boolean };
 }
 
@@ -94,6 +100,11 @@ export class FiscalProfileService implements OnModuleInit {
     estoqueNegativo?: string;
     modoEmissaoProduto?: string;
     comprovanteEntrega?: boolean;
+    endCep?: string | null;
+    endLogradouro?: string | null;
+    endNumero?: string | null;
+    endComplemento?: string | null;
+    endBairro?: string | null;
   }): Promise<PerfilPublico> {
     await this.getOrCreatePerfil(companyId);
     const data: Record<string, unknown> = {};
@@ -143,6 +154,14 @@ export class FiscalProfileService implements OnModuleInit {
         throw new BadRequestException("modoEmissaoProduto deve ser 'fechamento' ou 'entrega'.");
       }
       data.modoEmissaoProduto = dto.modoEmissaoProduto;
+    }
+    if (dto.endCep !== undefined) {
+      const cep = String(dto.endCep || '').replace(/\D/g, '');
+      if (cep && cep.length !== 8) throw new BadRequestException('CEP deve ter 8 dígitos.');
+      data.endCep = cep || null;
+    }
+    for (const k of ['endLogradouro', 'endNumero', 'endComplemento', 'endBairro'] as const) {
+      if (dto[k] !== undefined) data[k] = String(dto[k] || '').trim() || null;
     }
     // GATE DURO do plano: NF-e de produto exige controle de estoque ligado.
     const next = await (this.prisma as any).fiscalTenantProfile.update({ where: { companyId }, data });
@@ -194,8 +213,8 @@ export class FiscalProfileService implements OnModuleInit {
     // sem senha (-nodes) e ninguém a lê depois. Segredo sem função é só risco.
     const envelope = JSON.stringify({
       v: 1,
-      certPem: vaultEncrypt(material.certPem),
-      keyPem: vaultEncrypt(material.keyPem),
+      certPem: fiscalVaultEncrypt(material.certPem),
+      keyPem: fiscalVaultEncrypt(material.keyPem),
     });
     await (this.prisma as any).fiscalTenantProfile.update({
       where: { companyId },
@@ -223,8 +242,8 @@ export class FiscalProfileService implements OnModuleInit {
     } catch {
       throw new BadRequestException('Envelope do certificado corrompido no cofre.');
     }
-    const certPem = vaultDecrypt(env?.certPem);
-    const keyPem = vaultDecrypt(env?.keyPem);
+    const certPem = fiscalVaultDecrypt(env?.certPem);
+    const keyPem = fiscalVaultDecrypt(env?.keyPem);
     if (!certPem || !keyPem) throw new BadRequestException('Material do certificado ausente no cofre.');
     return { certPem, keyPem };
   }
@@ -363,6 +382,17 @@ export class FiscalProfileService implements OnModuleInit {
       modoEmissaoProduto: p.modoEmissaoProduto || 'fechamento',
       comprovanteEntrega: Boolean(p.comprovanteEntrega),
       disjuntorPausado: p.disjuntorPausado,
+      endereco: {
+        cep: p.endCep || null,
+        logradouro: p.endLogradouro || null,
+        numero: p.endNumero || null,
+        complemento: p.endComplemento || null,
+        bairro: p.endBairro || null,
+        completo: Boolean(p.endCep && p.endLogradouro && p.endNumero && p.endBairro),
+      },
+      contadorAprovou: Boolean(p.contadorAprovou),
+      contadorAprovouEm: p.contadorAprovouEm ? new Date(p.contadorAprovouEm).toISOString() : null,
+      producaoAtivadaEm: p.producaoAtivadaEm ? new Date(p.producaoAtivadaEm).toISOString() : null,
       cert: {
         configurado: Boolean(p.certA1Encrypted),
         expiresAt: expiresAt ? expiresAt.toISOString() : null,

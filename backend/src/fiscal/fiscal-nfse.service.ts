@@ -303,6 +303,17 @@ export class FiscalNfseService {
         inscricaoMunicipal: perfil.inscricaoMunicipal || null,
         codigoMunicipio: perfil.municipioIbge,
         regimeTributario: String(perfil.regimeCrt || 1),
+        // Endereço entra no XML só quando COMPLETO (checklist 6b — o client valida).
+        endereco:
+          perfil.endCep && perfil.endLogradouro && perfil.endNumero && perfil.endBairro
+            ? {
+                cep: perfil.endCep,
+                logradouro: perfil.endLogradouro,
+                numero: perfil.endNumero,
+                complemento: perfil.endComplemento || null,
+                bairro: perfil.endBairro,
+              }
+            : null,
       },
       tomador: { documento: doc.tomadorDoc, nome: doc.tomadorNome },
       servico: {
@@ -312,6 +323,8 @@ export class FiscalNfseService {
         cnae: servico.cnae,
         codigoMunicipio: perfil.municipioIbge,
         aliquotaIss: servico.aliquotaIss ?? null,
+        // Gap 2 do checklist: o issRetido do catálogo agora VAI pra DPS (tpRetISSQN=2).
+        issRetido: Boolean(servico.issRetido),
       },
     };
 
@@ -440,6 +453,28 @@ export class FiscalNfseService {
     return `${y}-${m}`;
   }
 
+  /**
+   * B1 — a TELA nunca vê mensagem técnica crua: padrão conhecido vira frase em
+   * português; o resto é truncado. O erro ORIGINAL segue intacto no banco/log.
+   * ⚠️ A palavra "timeout" é PRESERVADA quando for o caso — é ela que acende o
+   * botão "Conferir na Sefin" na tela.
+   */
+  private erroAmigavel(raw: string | null | undefined): string | null {
+    const msg = String(raw || '').trim();
+    if (!msg) return null;
+    if (/nota NÃO consta|não consta/i.test(msg)) return msg; // já é amigável (reconciliação)
+    if (/timeout/i.test(msg)) return 'A Sefin não respondeu a tempo (timeout).';
+    if (/ECONNREFUSED|ENOTFOUND|EAI_AGAIN|ECONNRESET|socket|network/i.test(msg)) {
+      return 'Falha de conexão com a Sefin — tente de novo em instantes.';
+    }
+    if (/certificate|CERT_|SSL|TLS|handshake/i.test(msg)) {
+      return 'A Sefin recusou a conexão do certificado digital — confira o A1 no cofre.';
+    }
+    if (/^HTTP 4\d\d/.test(msg)) return `A Sefin rejeitou a nota (${msg}). Revise os dados e o catálogo.`;
+    if (/^HTTP 5\d\d/.test(msg)) return `A Sefin está instável (${msg}) — tente de novo em instantes.`;
+    return msg.slice(0, 200);
+  }
+
   private serializeDocumento(d: any, extra: Record<string, unknown> = {}) {
     // A3 (revisão adversarial): timeout NÃO prova falha — a Sefin pode ter
     // autorizado sem a resposta chegar. Avisar ANTES que o tenant emita duplicata.
@@ -472,7 +507,7 @@ export class FiscalNfseService {
       serie: d.serie,
       numero: d.numero,
       chaveAcesso: d.chaveAcesso || null,
-      erroMsg: d.erroMsg || null,
+      erroMsg: this.erroAmigavel(d.erroMsg),
       tentativas: d.tentativas,
       emitidaEm: d.emitidaEm || null,
       canceladaEm: d.canceladaEm || null,

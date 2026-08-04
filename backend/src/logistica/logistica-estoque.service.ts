@@ -1,6 +1,7 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, Optional } from '@nestjs/common';
 import type { ActorKindUserLike } from '../access/actor-kind';
 import { PrismaService } from '../prisma/prisma.service';
+import { EstoqueService } from '../fiscal/estoque.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { addCivilDays } from './logistica-occurrence.service';
 import { canonicalRouteDate } from './logistica-route-billing.service';
@@ -35,7 +36,17 @@ export class LogisticaEstoqueService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: LogisticaConfigService,
+    // FISCAL F3 — a carga declarada RESERVA o estoque (claim do caminhão) e a
+    // conferência do retorno LIBERA o que voltou. Gate estoqueAtivo + vínculo
+    // de produto moram DENTRO do serviço fiscal. @Optional() (testes = no-op);
+    // best-effort: estoque NUNCA derruba a operação da carga.
+    @Optional() private readonly fiscalEstoque?: EstoqueService,
   ) {}
+
+  /** Ref única da carga no estoque: dia civil + entregador (null = caminhão único). */
+  private refCargaDia(dataISO: string, entregadorId: number | null): string {
+    return entregadorId != null ? `${dataISO}:${entregadorId}` : dataISO;
+  }
 
   // ── gate de nível (ADVANCED+) ────────────────────────────────────────────────
   private async gateNivel(companyId: number, actor?: ActorKindUserLike | null): Promise<void> {
@@ -267,6 +278,20 @@ export class LogisticaEstoqueService {
       });
     }
 
+    // FISCAL F3 — (re)declarar a carga (re)reserva o estoque dos produtos
+    // vinculados. Best-effort com voz: falha vira log, a carga segue.
+    if (this.fiscalEstoque) {
+      await this.fiscalEstoque
+        .reservarCargaDia(
+          companyId,
+          this.refCargaDia(dataISO, entregadorId),
+          itensCreate.map((it) => ({ logisticaProductId: it.productId, quantidade: it.qtdCarregada })),
+        )
+        .catch((e: any) => {
+          this.logger.warn(`[logistica] reserva de estoque da carga ${dataISO} falhou: ${String(e?.message || e)}`);
+        });
+    }
+
     const row = await this.findRow(companyId, dataISO, entregadorId);
     return this.montarDTO(companyId, dataISO, entregadorId, row);
   }
@@ -325,6 +350,16 @@ export class LogisticaEstoqueService {
         data: { status: 'CONFERIDA', conferidaAt: new Date() },
       });
     });
+
+    // FISCAL F3 — o caminhão voltou: libera o remanescente reservado do dia
+    // (as baixas das entregas já saíram na derivação). Best-effort com voz.
+    if (this.fiscalEstoque) {
+      await this.fiscalEstoque
+        .liberarCargaDia(companyId, this.refCargaDia(dataISO, entregadorId), dataISO)
+        .catch((e: any) => {
+          this.logger.warn(`[logistica] liberação de estoque da carga ${dataISO} falhou: ${String(e?.message || e)}`);
+        });
+    }
 
     const atualizado = await this.findRow(companyId, dataISO, entregadorId);
     return this.montarDTO(companyId, dataISO, entregadorId, atualizado);

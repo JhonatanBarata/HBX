@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ConversationsService } from '../messaging/conversations.service';
 import { CreditActionUsageService } from '../credits/credit-action-usage.service';
 import { FiscalComprovanteEntregaService } from '../fiscal/fiscal-comprovante-entrega.service';
+import { EstoqueService } from '../fiscal/estoque.service';
 import { LogisticaRotaService, haversineKm, hasCoord, type Coord } from './logistica-rota.service';
 import { LogisticaConfigService, renderTemplateAviso, storedNivel } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
@@ -97,6 +98,11 @@ export class LogisticaService {
     // (gate por empresa DENTRO do serviço fiscal). @Optional() (ausente nos
     // testes = texto puro). Sem ciclo: o fiscal não injeta LogisticaService.
     @Optional() private readonly fiscalComprovante?: FiscalComprovanteEntregaService,
+    // FISCAL F3 — baixa DEFINITIVA de estoque quando o motorista conclui a
+    // entrega (decisão do dono: baixa na entrega, não na emissão; a NF-e do
+    // fechamento CONCILIA). Gate estoqueAtivo + dedup por entrega+produto moram
+    // DENTRO do serviço. @Optional() (ausente nos testes = no-op).
+    @Optional() private readonly fiscalEstoque?: EstoqueService,
   ) {}
 
   /**
@@ -1167,6 +1173,16 @@ export class LogisticaService {
 
     // F0 (27/07) — extrato do avanço do cursor, pós-commit, prisma raiz.
     await this.registrarAvancoAgendaPosCommit(companyId, entrega, avancoAgenda, actorIdOrNull(actor));
+
+    // FISCAL F3 — baixa de estoque da entrega confirmada. Best-effort: rua
+    // NUNCA trava por estoque (negativo vira aviso no log do serviço). O dedup
+    // interno (entrega+produto) torna seguro rodar também na reconfirmação —
+    // item NOVO de uma correção baixa; item já baixado não baixa 2×.
+    if (this.fiscalEstoque) {
+      await this.fiscalEstoque.baixaPorEntrega(companyId, entrega.id).catch((e: any) => {
+        this.logger.warn(`[logistica] baixa de estoque entrega=${entrega.id} falhou: ${String(e?.message || e)}`);
+      });
+    }
 
     // HISTÓRICO DO CLIENTE (22/07) — a linha que o entregador mostra na porta.
     // Best-effort por decisão: registro NUNCA pode derrubar operação de rua.

@@ -1,4 +1,5 @@
-import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Max, MaxLength, Min } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsArray, IsBoolean, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 
 // DTOs do módulo fiscal do tenant (F1a). Validação de FORMA aqui; regra de
 // negócio (gates, allowlist, disjuntor) mora nos services.
@@ -42,6 +43,22 @@ export class UpdatePerfilFiscalDto {
 
   @IsOptional() @IsBoolean()
   comprovanteEntrega?: boolean; // F2a — PDF sem valor fiscal no aviso de entrega
+
+  // Endereço do prestador (checklist 6b) — entra na DPS quando completo.
+  @IsOptional() @IsString() @MaxLength(10)
+  endCep?: string;
+
+  @IsOptional() @IsString() @MaxLength(200)
+  endLogradouro?: string;
+
+  @IsOptional() @IsString() @MaxLength(20)
+  endNumero?: string;
+
+  @IsOptional() @IsString() @MaxLength(100)
+  endComplemento?: string;
+
+  @IsOptional() @IsString() @MaxLength(100)
+  endBairro?: string;
 }
 
 export class UploadCertificadoFiscalDto {
@@ -115,4 +132,122 @@ export class EnviarDocumentoDto {
 
   @IsOptional() @IsBoolean()
   whats?: boolean;
+}
+
+// ── F3 ESTOQUE ──────────────────────────────────────────────────────────────
+
+export class CriarEstoqueProdutoDto {
+  @IsString() @IsNotEmpty() @MaxLength(200)
+  nome!: string;
+
+  @IsOptional() @IsString() @MaxLength(20)
+  unidade?: string;
+
+  @IsOptional() @IsString() @MaxLength(10)
+  ncm?: string;
+
+  @IsOptional() @IsString() @MaxLength(10)
+  cest?: string;
+
+  @IsOptional() @IsString() @MaxLength(6)
+  cfopSaida?: string;
+
+  @IsOptional() @IsString() @MaxLength(4)
+  csosn?: string;
+
+  @IsOptional() @IsInt()
+  logisticaProductId?: number;
+}
+
+export class AtualizarEstoqueProdutoDto {
+  @IsOptional() @IsString() @MaxLength(200)
+  nome?: string;
+
+  @IsOptional() @IsString() @MaxLength(20)
+  unidade?: string;
+
+  @IsOptional() @IsString() @MaxLength(10)
+  ncm?: string;
+
+  @IsOptional() @IsString() @MaxLength(10)
+  cest?: string;
+
+  @IsOptional() @IsString() @MaxLength(6)
+  cfopSaida?: string;
+
+  @IsOptional() @IsString() @MaxLength(4)
+  csosn?: string;
+
+  @IsOptional() @IsInt()
+  logisticaProductId?: number | null;
+
+  @IsOptional() @IsBoolean()
+  ativo?: boolean;
+}
+
+export class MovimentoEstoqueDto {
+  @IsString() @IsNotEmpty()
+  produtoId!: string;
+
+  @IsNumber()
+  quantidade!: number;
+
+  @IsOptional() @IsString() @MaxLength(300)
+  motivo?: string;
+}
+
+export class PerdaAjusteEstoqueDto {
+  @IsString() @IsNotEmpty()
+  produtoId!: string;
+
+  @IsNumber()
+  quantidade!: number;
+
+  @IsString() @IsNotEmpty() @MaxLength(300)
+  motivo!: string;
+}
+
+export class InventarioEstoqueDto {
+  @IsString() @IsNotEmpty()
+  produtoId!: string;
+
+  @IsNumber() @Min(0)
+  contagem!: number;
+
+  @IsOptional() @IsString() @MaxLength(300)
+  motivo?: string;
+}
+
+export class EntradaXmlPreviewDto {
+  @IsString() @IsNotEmpty()
+  xml!: string;
+}
+
+export class MapeamentoEntradaXmlDto {
+  @IsString()
+  cProd!: string;
+
+  @IsOptional() @IsString()
+  produtoId?: string;
+
+  @IsOptional()
+  novoProduto?: { nome: string; unidade?: string; ncm?: string } | null;
+
+  @IsOptional() @IsBoolean()
+  ignorar?: boolean;
+}
+
+export class EntradaXmlConfirmarDto {
+  @IsString() @IsNotEmpty()
+  xml!: string;
+
+  @IsArray() @ValidateNested({ each: true }) @Type(() => MapeamentoEntradaXmlDto)
+  mapeamentos!: MapeamentoEntradaXmlDto[];
+}
+
+// ── LIBERAÇÃO DE PRODUÇÃO ──────────────────────────────────────────────────
+
+export class AtestarContadorDto {
+  @IsBoolean()
+  aprovado!: boolean;
 }
