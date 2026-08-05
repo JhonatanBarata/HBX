@@ -1281,7 +1281,25 @@ export class VenderCadernetaDto {
   @MaxLength(20)
   numero?: string;
 
+  // CADERNETA 7 DIAS (05/08) — a página aberta quando ele registrou (1=seg..7=dom).
+  // Ausente (APK velho) = o dia real em SP. É etiqueta de organização, nunca data
+  // de dinheiro: deliveredAt segue "agora" sempre.
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(7)
+  diaSemana?: number;
+
   @IsString()
   @MaxLength(80)
   idempotencyKey!: string;
+}
+
+// FINALIZAR O DIA da caderneta (05/08): "qual dia podemos registrar?" — o dia
+// escolhido registra a página e salva a "Caderneta de <dia>" nas Rotas salvas.
+export class FinalizarCadernetaDto {
+  @IsInt()
+  @Min(1)
+  @Max(7)
+  dia!: number;
 }

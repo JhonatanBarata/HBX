@@ -4,7 +4,7 @@ import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { LogisticaCadernetaService } from './logistica-caderneta.service';
 import { LogisticaOperacaoService } from './logistica-operacao.service';
-import { ApagarVendaCadernetaDto, VenderCadernetaDto } from './dto/logistica.dto';
+import { ApagarVendaCadernetaDto, FinalizarCadernetaDto, VenderCadernetaDto } from './dto/logistica.dto';
 
 /**
  * MODO CADERNETA (PR04082026) — rotas do APK. Mesmo guard/kill-switch do
@@ -28,11 +28,27 @@ export class LogisticaCadernetaController {
     return companyId;
   }
 
-  /** Medidor "Mapa: X de N" + fechamento do dia por forma de pagamento. */
+  /**
+   * O resumo da caderneta: medidores (APK velho), fechamento do dia, e — 7 DIAS
+   * (05/08) — a PÁGINA pedida (`?dia=1..7`, ausente = dia real do date) + o
+   * convite do GPS. userId viaja só pro nome do aviso ("Olá, {Nome}…").
+   */
   @Get('caderneta/resumo')
-  async resumo(@Req() req: any, @Query('date') date?: string) {
+  async resumo(@Req() req: any, @Query('date') date?: string, @Query('dia') dia?: string) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
-    return this.caderneta.resumo(companyId, date);
+    return this.caderneta.resumo(companyId, date, { dia, userId: Number(req.user?.id) || null });
+  }
+
+  /**
+   * FINALIZAR O DIA (05/08): registra o dia da semana escolhido e salva a
+   * "Caderneta de <dia>" nas Rotas salvas. Mesma capacidade do vender — fechar
+   * o dia é gesto de quem vendeu o dia.
+   */
+  @Post('caderneta/finalizar')
+  async finalizar(@Req() req: any, @Body() dto: FinalizarCadernetaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    if (this.operacao) await this.operacao.assertCapacidade(req.user, 'SELLER');
+    return this.caderneta.finalizar(companyId, dto.dia);
   }
 
   /** Vendeu: entrega de hoje já entregue + cobrança + GPS calado. Nunca debita. */

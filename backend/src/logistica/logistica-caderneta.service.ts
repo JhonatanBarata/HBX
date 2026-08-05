@@ -4,7 +4,8 @@ import { LogisticaService } from './logistica.service';
 import type { LogisticaActor } from './logistica-operacao.service';
 import { isoWeekdayForDate, saoPauloDateKey } from './logistica-occurrence.service';
 import { saoPauloMidnight } from './logistica-agenda-cursor.util';
-import { resolveValorUnit } from './logistica-recorrencia.service';
+import { LogisticaRecorrenciaService, resolveValorUnit } from './logistica-recorrencia.service';
+import { LogisticaAgendaService } from './logistica-agenda.service';
 import type { VenderCadernetaDto } from './dto/logistica.dto';
 
 /**
@@ -13,9 +14,15 @@ import type { VenderCadernetaDto } from './dto/logistica.dto';
  *
  * Nasceu do André (company 41): ele abandonou a ROTA (pinos podres), não o app —
  * usa a tela de Clientes como caderneta. Aqui a venda registrada é a MESMA
- * máquina do confirmar da rota (cobrança, comprovante, GPS de ouro realimenta o
- * pino ≤60m) — cada venda registrada conserta um pino, e o medidor "Mapa: X de N"
- * mostra o GPS sendo reconstruído até o dia liberar a rota de volta.
+ * máquina do confirmar da rota (cobrança, comprovante, idempotência).
+ *
+ * CADERNETA 7 DIAS (05/08, PR05082026-CADERNETA-7-DIAS): a caderneta virou a de
+ * papel — 7 páginas, uma por dia da semana. Cada venda leva a etiqueta da página
+ * (`cadernetaDiaSemana`); o dinheiro NUNCA muda de dia (deliveredAt = agora,
+ * sempre). Do que ele anota o sistema tira ouro sozinho: o dia do cliente se
+ * preenche pela porta canônica (2 anotações na mesma página), o sumiço ganha
+ * chip, e na virada da semana as páginas viram "Caderneta de Segunda…Domingo"
+ * nas Rotas salvas (o aprendiz). Tudo best-effort: ouro nunca derruba venda.
  *
  * Reuso deliberado: `vender` = createEntrega + confirmarEntrega EXISTENTES —
  * nenhuma regra de dinheiro nova mora aqui (código financeiro tem dono).
@@ -53,6 +60,53 @@ export interface CadernetaResumo {
   // duas fontes (agenda do dia + entregas de hoje) e o "Deve" tem de valer pras
   // duas. Vazio com financeiro OFF: sem cobrança não existe devedor.
   devedores: Record<string, number>;
+  // CADERNETA 7 DIAS — a página pedida (`?dia=`; ausente = dia real do date).
+  // ADITIVO: APK velho nunca manda `dia` e ignora os campos novos.
+  pagina: CadernetaPagina;
+  // Os dias da janela que TÊM venda (a seção Histórico no pé da tela).
+  historicoDias: CadernetaHistoricoDia[];
+  // O aviso do GPS: elegível quando a semana FECHADA tem vendas e as Cadernetas
+  // salvas existem. O teto de 1×/dia é do APK (marca d'água ao APARECER).
+  conviteGps: { elegivel: boolean; nome: string | null };
+}
+
+export interface CadernetaPaginaVenda {
+  entregaId: string;
+  clienteId: string;
+  localId: string | null;
+  nome: string;
+  itens: Array<{ productId: number | null; nome: string; qtd: number; valorUnit: number | null }>;
+  metodo: string | null;
+  total: number | null;
+  // Ouro nº1b — o cliente vendido 2+ vezes nesta página mas cadastrado em OUTRO
+  // dia: vira chip "+ dia" (sugestão; nunca sobrescreve calado). `diasAtuais`
+  // viaja junto pro APK montar o PATCH aditivo (dias atuais + este).
+  sugerirDia?: boolean;
+  diasAtuais?: number[];
+}
+
+export interface CadernetaPagina {
+  diaSemana: number;
+  // A DATA da página dentro da janela ("qua · 05/08/2026" no cabeçalho da tela).
+  dateKey: string;
+  // As vendas DA PÁGINA na janela de 7 dias civis SP terminando no `date` —
+  // cada dia da semana aparece exatamente 1× na janela. Ordem = ordem de
+  // registro (a sequência dele).
+  vendas: CadernetaPaginaVenda[];
+  // Fechamento DA PÁGINA (mesma forma do fechamento do dia; null sem financeiro).
+  fechamento: CadernetaResumo['fechamento'];
+  // Ouro nº2 — clientes do dia que compravam nesta página e faltaram as últimas
+  // 2 semanas (precisa de histórico: sem compra ANTIGA não há sumiço).
+  sumidos: string[];
+}
+
+// O HISTÓRICO da caderneta (ordem do dono 05/08): "SEG a DOM bem bonito, só o
+// que realmente tiver dados" — 1 linha por dia da janela COM venda, com a data.
+export interface CadernetaHistoricoDia {
+  diaSemana: number;
+  dateKey: string;
+  vendas: number;
+  totalCents: number | null;
 }
 
 export interface CadernetaVendaResult {
@@ -79,6 +133,43 @@ function dateKeyValida(v: unknown): string {
   return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : saoPauloDateKey(new Date());
 }
 
+function diaSemanaValido(v: unknown): number | null {
+  const n = Math.trunc(Number(v));
+  return Number.isInteger(n) && n >= 1 && n <= 7 ? n : null;
+}
+
+/** Soma dias a um dateKey (meio-dia UTC — o mesmo truque do isoWeekdayForDate). */
+function somarDiasKey(dateKey: string, dias: number): string {
+  const [y, m, d] = dateKey.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d, 12));
+  dt.setUTCDate(dt.getUTCDate() + dias);
+  return dt.toISOString().slice(0, 10);
+}
+
+/**
+ * A página de uma venda: a etiqueta quando existe; sem etiqueta (legado/rota),
+ * o dia REAL do deliveredAt em SP. Sem data nenhuma → null (fica fora de tudo).
+ */
+function paginaDaVenda(e: { cadernetaDiaSemana?: number | null; deliveredAt?: Date | null }): number | null {
+  const etiqueta = diaSemanaValido(e.cadernetaDiaSemana);
+  if (etiqueta) return etiqueta;
+  const key = saoPauloDateKey(e.deliveredAt ?? null);
+  return key ? isoWeekdayForDate(key) : null;
+}
+
+// O nome que o aprendiz grava nas Rotas salvas — 1 por dia da semana, atualizado
+// na virada da semana. Renomeou? A renomeada vira DELE (a próxima semana cria a
+// "Caderneta de X" de novo do zero).
+const NOME_CADERNETA_DIA: Record<number, string> = {
+  1: 'Caderneta de Segunda',
+  2: 'Caderneta de Terça',
+  3: 'Caderneta de Quarta',
+  4: 'Caderneta de Quinta',
+  5: 'Caderneta de Sexta',
+  6: 'Caderneta de Sábado',
+  7: 'Caderneta de Domingo',
+};
+
 @Injectable()
 export class LogisticaCadernetaService {
   private readonly logger = new Logger(LogisticaCadernetaService.name);
@@ -86,6 +177,11 @@ export class LogisticaCadernetaService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly logistica: LogisticaService,
+    // Opcionais com default null: preservam os testes de mesa (mesmo padrão do
+    // controller com o operacao). No Nest o DI injeta sempre; sem eles o ouro
+    // nº1 (dia aprendido) fica quieto — nunca quebra a venda.
+    private readonly recorrencia: LogisticaRecorrenciaService = null as any,
+    private readonly agenda: LogisticaAgendaService = null as any,
   ) {}
 
   private async configRow(companyId: number) {
@@ -93,7 +189,11 @@ export class LogisticaCadernetaService {
   }
 
   /** Medidor do dia + fechamento por forma — o contrato da tela caderneta do APK. */
-  async resumo(companyId: number, dateInput?: unknown): Promise<CadernetaResumo> {
+  async resumo(
+    companyId: number,
+    dateInput?: unknown,
+    opts?: { dia?: unknown; userId?: number | null },
+  ): Promise<CadernetaResumo> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const dateKey = dateKeyValida(dateInput);
     const cfg = await this.configRow(companyId);
@@ -153,7 +253,410 @@ export class LogisticaCadernetaService {
       fechamento = { totalCents, vendas: entregues.length, formas };
     }
 
-    return { ativo: !!cfg?.modoCaderneta, dia, base, fechamento, devedores };
+    // ── CADERNETA 7 DIAS: a página pedida (default = dia real do date).
+    const paginaDia = diaSemanaValido(opts?.dia) ?? diaSemana;
+    const { pagina, historicoDias } = await this.montarPagina(
+      companyId,
+      dateKey,
+      paginaDia,
+      !!cfg?.moduloFinanceiroAtivo,
+    );
+
+    // ── O aprendiz + o aviso do GPS. Fail-closed num bloco só: se a geração das
+    // Cadernetas salvas falhar, o convite NÃO sai (abriria uma lista vazia) e o
+    // próximo resumo tenta de novo. Nunca derruba a tela do dia.
+    let conviteGps: CadernetaResumo['conviteGps'] = { elegivel: false, nome: null };
+    if (cfg?.modoCaderneta) {
+      try {
+        conviteGps = await this.aprenderEConvidar(companyId, dateKey, opts?.userId ?? null);
+      } catch (e: any) {
+        this.logger.warn(`[caderneta] aprendiz company=${companyId} falhou: ${String(e?.message || e)}`);
+      }
+    }
+
+    return { ativo: !!cfg?.modoCaderneta, dia, base, fechamento, devedores, pagina, historicoDias, conviteGps };
+  }
+
+  /**
+   * A PÁGINA da caderneta: vendas da janela de 7 dias civis SP (cada dia da
+   * semana cabe 1× na janela) + fechamento por forma DA página + sumidos.
+   * Venda sem etiqueta (legado) cai no dia real do deliveredAt.
+   */
+  private async montarPagina(
+    companyId: number,
+    dateKey: string,
+    paginaDia: number,
+    financeiro: boolean,
+  ): Promise<{ pagina: CadernetaPagina; historicoDias: CadernetaHistoricoDia[] }> {
+    const fim = saoPauloMidnight(somarDiasKey(dateKey, 1));
+    const inicioJanela = saoPauloMidnight(somarDiasKey(dateKey, -6));
+    // 3 janelas (21 dias) na MESMA busca: a corrente alimenta a lista; as duas
+    // anteriores alimentam o "Sumiu" e a contagem da sugestão de dia.
+    const inicioHistorico = saoPauloMidnight(somarDiasKey(dateKey, -20));
+
+    const [entregues, historico, planosDoDia] = await Promise.all([
+      this.prisma.entrega.findMany({
+        where: { companyId, status: 'entregue', deliveredAt: { gte: inicioJanela, lt: fim } },
+        select: {
+          id: true,
+          customerProfileId: true,
+          localId: true,
+          valor: true,
+          receiptMethod: true,
+          deliveredAt: true,
+          cadernetaDiaSemana: true,
+          // O principal ESCALAR (multi-produto: 1º produto na Entrega, extras
+          // em EntregaItem — o merge abaixo devolve o principal à lista).
+          productId: true,
+          quantidade: true,
+          product: { select: { name: true } },
+          customerProfile: { select: { name: true } },
+          itens: {
+            select: {
+              productId: true,
+              qtdPrevista: true,
+              qtdEntregue: true,
+              valorUnit: true,
+              product: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: [{ deliveredAt: 'asc' }],
+      }),
+      this.prisma.entrega.findMany({
+        where: { companyId, status: 'entregue', deliveredAt: { gte: inicioHistorico, lt: fim } },
+        select: { customerProfileId: true, deliveredAt: true, cadernetaDiaSemana: true },
+      }),
+      this.prisma.logisticaPlanoEntrega.findMany({
+        where: {
+          companyId,
+          ativo: true,
+          diaSemana: paginaDia,
+          customerProfile: { status: 'active', isCliente: true },
+        },
+        select: { customerProfileId: true },
+      }),
+    ]);
+
+    const daPagina = entregues.filter((e) => paginaDaVenda(e) === paginaDia);
+    const vendas: CadernetaPaginaVenda[] = daPagina.map((e) => {
+      const itens = (e.itens || []).map((i) => ({
+        productId: i.productId ?? null,
+        nome: i.product?.name || '',
+        qtd: Math.max(1, Number(i.qtdEntregue ?? i.qtdPrevista) || 1),
+        // Sem financeiro, número de dinheiro não viaja (mesma régua do fechamento).
+        valorUnit: financeiro && Number.isFinite(Number(i.valorUnit)) ? Number(i.valorUnit) : null,
+      }));
+      // Merge do principal escalar (mesma regra do registrarHistorico): o 1º
+      // produto da venda multi-produto não vira EntregaItem — entra na frente,
+      // com unitário derivado do total MENOS os extras (nunca do catálogo).
+      if (e.product && !itens.some((i) => i.productId === e.productId)) {
+        const qtd = Math.max(1, Number(e.quantidade) || 1);
+        const valorExtras = (e.itens || []).reduce(
+          (s, i) => s + Math.max(0, Number(i.valorUnit) || 0) * Math.max(0, Number(i.qtdEntregue ?? i.qtdPrevista) || 0),
+          0,
+        );
+        const totalPrincipal = Number(e.valor) - valorExtras;
+        itens.unshift({
+          productId: e.productId ?? null,
+          nome: e.product.name || '',
+          qtd,
+          valorUnit:
+            financeiro && Number.isFinite(totalPrincipal) && totalPrincipal > 0
+              ? Math.round((totalPrincipal / qtd) * 100) / 100
+              : null,
+        });
+      }
+      return {
+        entregaId: e.id,
+        clienteId: e.customerProfileId,
+        localId: e.localId ?? null,
+        nome: e.customerProfile?.name || 'Cliente',
+        itens,
+        metodo: financeiro ? (e.receiptMethod ?? null) : null,
+        total: financeiro && Number.isFinite(Number(e.valor)) ? Number(e.valor) : null,
+      };
+    });
+
+    let fechamento: CadernetaResumo['fechamento'] = null;
+    if (financeiro) {
+      const formas = { dinheiroCents: 0, pixCents: 0, cartaoCents: 0, fiadoCents: 0 };
+      let totalCents = 0;
+      for (const e of daPagina) {
+        const c = cents(e.valor);
+        totalCents += c;
+        if (e.receiptMethod === 'dinheiro') formas.dinheiroCents += c;
+        else if (e.receiptMethod === 'pix') formas.pixCents += c;
+        else if (e.receiptMethod === 'cartao') formas.cartaoCents += c;
+        else formas.fiadoCents += c;
+      }
+      fechamento = { totalCents, vendas: daPagina.length, formas };
+    }
+
+    // Histórico DA página, por cliente: última compra + datas distintas.
+    const doDia = historico.filter((e) => paginaDaVenda(e) === paginaDia);
+    const porCliente = new Map<string, { ultima: Date; datas: Set<string> }>();
+    for (const e of doDia) {
+      if (!e.deliveredAt) continue;
+      const atual = porCliente.get(e.customerProfileId) ?? { ultima: e.deliveredAt, datas: new Set<string>() };
+      if (e.deliveredAt > atual.ultima) atual.ultima = e.deliveredAt;
+      const key = saoPauloDateKey(e.deliveredAt);
+      if (key) atual.datas.add(key);
+      porCliente.set(e.customerProfileId, atual);
+    }
+
+    // Ouro nº2 — sumiu: é do dia, comprava ANTES das 2 últimas semanas e não
+    // comprou nelas. Sem histórico antigo não há sumiço (senão a 1ª semana de
+    // uso pintaria a base inteira — regra que pinta tudo é bug de produto).
+    const corte = saoPauloMidnight(somarDiasKey(dateKey, -13));
+    const rosterIds = new Set(planosDoDia.map((p) => p.customerProfileId));
+    const sumidos: string[] = [];
+    for (const clienteId of rosterIds) {
+      const h = porCliente.get(clienteId);
+      if (h && h.ultima < corte) sumidos.push(clienteId);
+    }
+
+    // Ouro nº1b — sugestão de dia: vendido 2+ datas nesta página, fora do dia e
+    // COM outro dia cadastrado (sem dia nenhum é caso do preenchimento automático
+    // do vender). O APK manda o PATCH aditivo com diasAtuais + este.
+    const candidatos = [...new Set(daPagina.map((e) => e.customerProfileId))].filter(
+      (id) => !rosterIds.has(id) && (porCliente.get(id)?.datas.size ?? 0) >= 2,
+    );
+    if (candidatos.length) {
+      const planosDeles = await this.prisma.logisticaPlanoEntrega.findMany({
+        where: { companyId, ativo: true, customerProfileId: { in: candidatos } },
+        select: { customerProfileId: true, diaSemana: true },
+      });
+      const diasPor = new Map<string, number[]>();
+      for (const p of planosDeles) {
+        const dias = diasPor.get(p.customerProfileId) ?? [];
+        if (diaSemanaValido(p.diaSemana) && !dias.includes(p.diaSemana)) dias.push(p.diaSemana);
+        diasPor.set(p.customerProfileId, dias);
+      }
+      for (const venda of vendas) {
+        const dias = diasPor.get(venda.clienteId);
+        if (dias && dias.length) {
+          venda.sugerirDia = true;
+          venda.diasAtuais = [...dias].sort((a, b) => a - b);
+        }
+      }
+    }
+
+    // A data de cada dia da janela (cada dia da semana cabe 1×) + o histórico:
+    // só dia COM venda entra ("o q realmente tiver dados"), ordenado SEG→DOM.
+    const diaHoje = isoWeekdayForDate(dateKey);
+    const dataDoDia = (d: number) => somarDiasKey(dateKey, -(((diaHoje - d) % 7 + 7) % 7));
+    const historicoDias: CadernetaHistoricoDia[] = [];
+    for (let d = 1; d <= 7; d += 1) {
+      const doDiaD = entregues.filter((e) => paginaDaVenda(e) === d);
+      if (!doDiaD.length) continue;
+      historicoDias.push({
+        diaSemana: d,
+        dateKey: dataDoDia(d),
+        vendas: doDiaD.length,
+        totalCents: financeiro ? doDiaD.reduce((s, e) => s + cents(e.valor), 0) : null,
+      });
+    }
+
+    return {
+      pagina: { diaSemana: paginaDia, dateKey: dataDoDia(paginaDia), vendas, fechamento, sumidos },
+      historicoDias,
+    };
+  }
+
+  /**
+   * O APRENDIZ + o aviso: na virada da semana, as vendas da semana FECHADA
+   * (segunda→domingo) viram/atualizam as "Caderneta de <dia>" nas Rotas salvas.
+   * Elegível pro convite = semana fechada COM vendas e cadernetas geradas.
+   */
+  private async aprenderEConvidar(
+    companyId: number,
+    dateKey: string,
+    userId: number | null,
+  ): Promise<{ elegivel: boolean; nome: string | null }> {
+    const diaHoje = isoWeekdayForDate(dateKey);
+    const inicioSemanaAtual = saoPauloMidnight(somarDiasKey(dateKey, -(diaHoje - 1)));
+    const inicioSemanaPassada = saoPauloMidnight(somarDiasKey(dateKey, -(diaHoje - 1) - 7));
+
+    const vendasSemana = await this.prisma.entrega.findMany({
+      where: {
+        companyId,
+        status: 'entregue',
+        deliveredAt: { gte: inicioSemanaPassada, lt: inicioSemanaAtual },
+      },
+      select: { customerProfileId: true, localId: true, deliveredAt: true, cadernetaDiaSemana: true },
+      orderBy: [{ deliveredAt: 'asc' }],
+    });
+    if (!vendasSemana.length) return { elegivel: false, nome: null };
+
+    await this.gerarCadernetasSalvas(companyId, inicioSemanaAtual, vendasSemana);
+
+    let nome: string | null = null;
+    if (userId) {
+      const user = await this.prisma.user.findFirst({ where: { id: userId }, select: { name: true } });
+      nome = String(user?.name || '').trim() || null;
+    }
+    return { elegivel: true, nome };
+  }
+
+  /**
+   * Gera/atualiza 1 rota salva por dia da semana com vendas ("Caderneta de X",
+   * tipo LIVRE — é o tipo que a lista de Rotas salvas do APK mostra). Ordem =
+   * ordem de registro; dedupe por cliente+local; só cliente vivo. Idempotente
+   * por semana: a caderneta mais nova com updatedAt já DESTA semana = feito.
+   */
+  private async gerarCadernetasSalvas(
+    companyId: number,
+    inicioSemanaAtual: Date,
+    vendasSemana: Array<{
+      customerProfileId: string;
+      localId: string | null;
+      deliveredAt: Date | null;
+      cadernetaDiaSemana: number | null;
+    }>,
+  ): Promise<void> {
+    const nomes = Object.values(NOME_CADERNETA_DIA);
+    const maisNova = await this.prisma.logisticaRotaModelo.findFirst({
+      where: { companyId, tipo: 'LIVRE', nome: { in: nomes, mode: 'insensitive' } },
+      orderBy: [{ updatedAt: 'desc' }],
+      select: { updatedAt: true },
+    });
+    if (maisNova && maisNova.updatedAt >= inicioSemanaAtual) return;
+
+    const ids = [...new Set(vendasSemana.map((v) => v.customerProfileId))];
+    const vivos = new Set(
+      (
+        await this.prisma.customerProfile.findMany({
+          where: { companyId, id: { in: ids }, status: 'active', isCliente: true },
+          select: { id: true },
+        })
+      ).map((c) => c.id),
+    );
+
+    const porDia = new Map<number, Array<{ customerProfileId: string; localId: string | null }>>();
+    for (const v of vendasSemana) {
+      if (!vivos.has(v.customerProfileId)) continue;
+      const dia = paginaDaVenda(v);
+      if (!dia) continue;
+      const lista = porDia.get(dia) ?? [];
+      const chave = `${v.customerProfileId}:${v.localId ?? ''}`;
+      if (!lista.some((p) => `${p.customerProfileId}:${p.localId ?? ''}` === chave)) {
+        lista.push({ customerProfileId: v.customerProfileId, localId: v.localId ?? null });
+      }
+      porDia.set(dia, lista);
+    }
+
+    for (const [dia, paradas] of porDia) {
+      await this.salvarCadernetaDia(companyId, dia, paradas);
+    }
+  }
+
+  /**
+   * Upsert de UMA "Caderneta de <dia>" nas Rotas salvas (tipo LIVRE — o tipo que
+   * a lista do APK mostra). Sem mudança o update roda mesmo assim: o @updatedAt
+   * é o carimbo "semana feita" do aprendiz — sem ele a semana recontaria a cada
+   * resumo. Mudou → versao sobe (o guia tem versão, como toda rota salva).
+   */
+  private async salvarCadernetaDia(
+    companyId: number,
+    dia: number,
+    paradas: Array<{ customerProfileId: string; localId: string | null }>,
+  ): Promise<void> {
+    const nome = NOME_CADERNETA_DIA[dia];
+    const existente = await this.prisma.logisticaRotaModelo.findFirst({
+      where: { companyId, tipo: 'LIVRE', nome: { equals: nome, mode: 'insensitive' } },
+      select: { id: true, paradasJson: true },
+    });
+    if (!existente) {
+      await this.prisma.logisticaRotaModelo.create({
+        data: { companyId, nome, diaSemana: dia, paradasJson: paradas as any },
+      });
+      this.logger.log(`[caderneta] salvou "${nome}" company=${companyId} paradas=${paradas.length}`);
+      return;
+    }
+    const igual = JSON.stringify(existente.paradasJson ?? []) === JSON.stringify(paradas);
+    await this.prisma.logisticaRotaModelo.update({
+      where: { id: existente.id },
+      data: igual
+        ? { diaSemana: dia }
+        : { diaSemana: dia, paradasJson: paradas as any, versao: { increment: 1 } },
+    });
+    if (!igual) {
+      this.logger.log(`[caderneta] atualizou "${nome}" company=${companyId} paradas=${paradas.length}`);
+    }
+  }
+
+  /**
+   * 🔴 FINALIZAR O DIA (ordem do dono 05/08): "qual dia podemos registrar?" —
+   * fecha a caderneta do dia, registra o dia da semana escolhido e salva a
+   * "Caderneta de <dia>" nas Rotas salvas NA HORA (sem esperar a virada da
+   * semana do aprendiz).
+   *
+   * Dia escolhido ≠ hoje = passar a limpo a caderneta de papel: a SESSÃO de
+   * hoje (vendas de hoje na página de hoje, etiqueta explícita ou vazia) é
+   * re-etiquetada pro dia escolhido. Venda feita hoje DENTRO de um dia do
+   * histórico (etiqueta ≠ hoje) não se move — foi edição de outro dia.
+   * O dinheiro NUNCA muda de dia (deliveredAt intocado — contrato da frente).
+   */
+  async finalizar(companyId: number, diaInput: unknown): Promise<{ ok: true; dia: number; clientes: number }> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const cfg = await this.configRow(companyId);
+    if (!cfg?.modoCaderneta) {
+      throw new BadRequestException('O modo caderneta está desligado nos Ajustes.');
+    }
+    const diaAlvo = diaSemanaValido(diaInput);
+    if (!diaAlvo) throw new BadRequestException('Escolha o dia da semana.');
+
+    const hojeKey = dateKeyValida(null);
+    const diaHoje = isoWeekdayForDate(hojeKey);
+    const inicioHoje = saoPauloMidnight(hojeKey);
+    const fimHoje = saoPauloMidnight(somarDiasKey(hojeKey, 1));
+
+    if (diaAlvo !== diaHoje) {
+      await this.prisma.entrega.updateMany({
+        where: {
+          companyId,
+          status: 'entregue',
+          deliveredAt: { gte: inicioHoje, lt: fimHoje },
+          OR: [{ cadernetaDiaSemana: diaHoje }, { cadernetaDiaSemana: null }],
+        },
+        data: { cadernetaDiaSemana: diaAlvo },
+      });
+    }
+
+    // A página do dia alvo (janela de 7 dias) vira a Caderneta salva.
+    const inicioJanela = saoPauloMidnight(somarDiasKey(hojeKey, -6));
+    const vendas = await this.prisma.entrega.findMany({
+      where: { companyId, status: 'entregue', deliveredAt: { gte: inicioJanela, lt: fimHoje } },
+      select: { customerProfileId: true, localId: true, deliveredAt: true, cadernetaDiaSemana: true },
+      orderBy: [{ deliveredAt: 'asc' }],
+    });
+    const daPagina = vendas.filter((v) => paginaDaVenda(v) === diaAlvo);
+    if (!daPagina.length) {
+      throw new BadRequestException('Nada registrado neste dia ainda.');
+    }
+
+    const ids = [...new Set(daPagina.map((v) => v.customerProfileId))];
+    const vivos = new Set(
+      (
+        await this.prisma.customerProfile.findMany({
+          where: { companyId, id: { in: ids }, status: 'active', isCliente: true },
+          select: { id: true },
+        })
+      ).map((c) => c.id),
+    );
+    const paradas: Array<{ customerProfileId: string; localId: string | null }> = [];
+    for (const v of daPagina) {
+      if (!vivos.has(v.customerProfileId)) continue;
+      const chave = `${v.customerProfileId}:${v.localId ?? ''}`;
+      if (!paradas.some((p) => `${p.customerProfileId}:${p.localId ?? ''}` === chave)) {
+        paradas.push({ customerProfileId: v.customerProfileId, localId: v.localId ?? null });
+      }
+    }
+    if (!paradas.length) throw new BadRequestException('Nada registrado neste dia ainda.');
+
+    await this.salvarCadernetaDia(companyId, diaAlvo, paradas);
+    return { ok: true, dia: diaAlvo, clientes: paradas.length };
   }
 
   /**
@@ -283,6 +786,29 @@ export class LogisticaCadernetaService {
       },
       null,
     );
+
+    // ── CADERNETA 7 DIAS: a etiqueta da página (explícita do APK novo; APK velho
+    // não manda e cai no dia real em SP). Best-effort: sem etiqueta a página se
+    // resolve pelo deliveredAt — a venda nunca trava por causa de organização.
+    const paginaDia = diaSemanaValido(dto.diaSemana) ?? isoWeekdayForDate(dateKeyValida(null));
+    try {
+      await this.prisma.entrega.update({
+        where: { id: criada.id },
+        data: { cadernetaDiaSemana: paginaDia },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[caderneta] etiqueta dia venda=${criada.id} falhou: ${String(e?.message || e)}`);
+    }
+
+    // ── Ouro nº1: cliente SEM dia nenhum vendido em 2 datas distintas na MESMA
+    // página → o dia dele vira esta página, pela porta canônica (a MESMA dança
+    // do PATCH /clientes/:id/dias: definirDias + espelho da agenda). Cliente com
+    // dia diferente NUNCA é reescrito calado (vira sugestão na página).
+    try {
+      await this.aprenderDiaDoCliente(companyId, dto.clienteId, paginaDia, primeiro.productId);
+    } catch (e: any) {
+      this.logger.warn(`[caderneta] dia aprendido cliente=${dto.clienteId} falhou: ${String(e?.message || e)}`);
+    }
 
     // 🔴 O PREÇO EDITADO FICA (ordem do dono: "ficar o preço fixo até a
     // próxima"). Só o que ele TOCOU vira combinado — venda com preço herdado
@@ -428,6 +954,82 @@ export class LogisticaCadernetaService {
         proximaData: null,
       },
     });
+  }
+
+  /**
+   * Ouro nº1 — o dia do cliente se preenche sozinho. Régua aprovada pelo dono
+   * (05/08): SÓ cliente sem dia NENHUM (nem plano, nem vínculo com dia), com 2+
+   * datas distintas anotadas na MESMA página em 28 dias. Escrita pela porta
+   * canônica: garante 1 vínculo, definirDiasDoCliente + espelho da agenda — a
+   * MESMA sequência do PATCH /clientes/:id/dias (nunca uma 2ª verdade de dia).
+   */
+  private async aprenderDiaDoCliente(
+    companyId: number,
+    clienteId: string,
+    dia: number,
+    productIdDaVenda: number,
+  ): Promise<void> {
+    if (!this.recorrencia || !this.agenda) return;
+
+    const [planos, vinculosComDia] = await Promise.all([
+      this.prisma.logisticaPlanoEntrega.count({
+        where: { companyId, customerProfileId: clienteId, ativo: true },
+      }),
+      this.prisma.clienteProduto.count({
+        where: { companyId, customerProfileId: clienteId, ativo: true, NOT: { diasSemana: null } },
+      }),
+    ]);
+    // Qualquer dia já cadastrado (mesmo com espelho quebrado) = decisão dele; não sobrescrever.
+    if (planos > 0 || vinculosComDia > 0) return;
+
+    const desde = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000);
+    const vendas = await this.prisma.entrega.findMany({
+      where: {
+        companyId,
+        customerProfileId: clienteId,
+        status: 'entregue',
+        cadernetaDiaSemana: dia,
+        deliveredAt: { gte: desde },
+      },
+      select: { deliveredAt: true },
+    });
+    const datas = new Set(vendas.map((v) => saoPauloDateKey(v.deliveredAt)).filter(Boolean));
+    if (datas.size < 2) return;
+
+    // Sem vínculo o definirDias não tem onde escrever — nasce um SEM DIA com o
+    // produto da venda (mesma forma do gravarPrecoCombinado: nada de recorrência
+    // inventada; o dia entra logo abaixo pela porta canônica).
+    const vinculos = await this.prisma.clienteProduto.count({
+      where: { companyId, customerProfileId: clienteId, ativo: true },
+    });
+    if (!vinculos) {
+      await this.prisma.clienteProduto.create({
+        data: {
+          companyId,
+          customerProfileId: clienteId,
+          productId: productIdDaVenda,
+          qtdPadrao: 1,
+          diasSemana: null,
+          frequenciaDias: null,
+          proximaData: null,
+        },
+      });
+    }
+
+    // Snapshots ANTES da mutação (contrato do espelho: mover, nunca duplicar).
+    const ativos = await this.prisma.clienteProduto.findMany({
+      where: { companyId, customerProfileId: clienteId, ativo: true },
+      select: { id: true },
+    });
+    const anteriores = await Promise.all(
+      ativos.map((v) => this.recorrencia.vinculoEspelhoSnapshot(companyId, v.id)),
+    );
+    const res = await this.recorrencia.definirDiasDoCliente(companyId, clienteId, [dia]);
+    for (const vinculoId of res.vinculoIds) {
+      const anterior = anteriores.find((s: any) => s && String(s.id) === String(vinculoId)) ?? null;
+      await this.agenda.espelharVinculoCadastro(companyId, vinculoId, anterior);
+    }
+    this.logger.log(`[caderneta] dia aprendido cliente=${clienteId} dia=${dia} company=${companyId}`);
   }
 
   /**

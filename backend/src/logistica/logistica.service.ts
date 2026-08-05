@@ -2995,7 +2995,7 @@ export class LogisticaService {
       if (input.entregaId) {
         const itens = await this.prisma.entregaItem.findMany({
           where: { entregaId: input.entregaId },
-          select: { qtdEntregue: true, qtdPrevista: true, valorUnit: true, product: { select: { name: true } } },
+          select: { productId: true, qtdEntregue: true, qtdPrevista: true, valorUnit: true, product: { select: { name: true } } },
           take: 12,
         });
         let linhas: Array<{ qtd: number; nome: string; valorUnit: number | null }> = itens.map((it) => ({
@@ -3003,23 +3003,33 @@ export class LogisticaService {
           nome: String(it.product?.name || 'item').trim(),
           valorUnit: typeof it.valorUnit === 'number' ? it.valorUnit : null,
         }));
-        if (!linhas.length) {
-          // Fallback escalar: a entrega de 1 produto (caderneta, rota rápida,
-          // agendamento avulso) vive nas colunas da própria Entrega.
-          const escalar = await this.prisma.entrega.findFirst({
-            where: { id: input.entregaId, companyId },
-            select: { quantidade: true, valor: true, product: { select: { name: true } } },
-          });
-          if (escalar?.product) {
-            const qtd = Math.max(0, Number(escalar.quantidade) || 0);
-            linhas = [{
+        // Principal ESCALAR: a venda multi-produto da caderneta guarda o 1º
+        // produto nas colunas da Entrega e só os EXTRAS em EntregaItem
+        // (novosItens do confirmar) — "só itens OU só escalar" perdia o
+        // principal. Ele entra na FRENTE quando o produto dele não está entre
+        // os itens; sem item nenhum, vira o fallback escalar de sempre.
+        const escalar = await this.prisma.entrega.findFirst({
+          where: { id: input.entregaId, companyId },
+          select: { productId: true, quantidade: true, valor: true, product: { select: { name: true } } },
+        });
+        if (escalar?.product && !itens.some((it) => it.productId === escalar.productId)) {
+          const qtd = Math.max(0, Number(escalar.quantidade) || 0);
+          // O unitário se deriva do TOTAL da entrega MENOS os extras — nunca do
+          // catálogo: o catálogo muda amanhã e o passado não se reescreve.
+          const valorExtras = itens.reduce(
+            (s, it) => s + Math.max(0, Number(it.valorUnit) || 0) * Math.max(0, it.qtdEntregue ?? it.qtdPrevista ?? 0),
+            0,
+          );
+          const totalPrincipal = Number(escalar.valor) - valorExtras;
+          linhas = [
+            {
               qtd,
               nome: String(escalar.product.name || 'item').trim(),
-              // O unitário se deriva do TOTAL da entrega — nunca do catálogo:
-              // o catálogo muda amanhã e o passado não se reescreve.
-              valorUnit: qtd > 0 && Number.isFinite(Number(escalar.valor)) ? round2(Number(escalar.valor) / qtd) : null,
-            }];
-          }
+              valorUnit:
+                qtd > 0 && Number.isFinite(totalPrincipal) && totalPrincipal > 0 ? round2(totalPrincipal / qtd) : null,
+            },
+            ...linhas,
+          ];
         }
         const partes = linhas
           .filter((l) => l.qtd > 0)

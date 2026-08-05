@@ -1294,6 +1294,10 @@ model Entrega {
   avisoChegandoAt   DateTime?
   recebidoNaHora    Boolean?
   receiptMethod     String?  // pix | dinheiro | fiado | null
+  // CADERNETA 7 DIAS (05/08) — a PÁGINA da caderneta onde a venda foi anotada
+  // (1=seg..7=dom). É organização, nunca dinheiro: deliveredAt segue o dia real.
+  // Null = venda fora da caderneta (o dia real em SP decide a página no resumo).
+  cadernetaDiaSemana Int?
   idempotencyKey    String?
   // Chave da ocorrência recorrente, separada da idempotência offline usada na
   // confirmação. Uma não pode ocupar nem apagar o contrato da outra.
@@ -1349,6 +1353,8 @@ model Entrega {
   // mesmo dia (a checagem real é feita no serviço; este índice acelera a varredura).
   @@index([companyId, customerProfileId, scheduledAt])
   @@index([companyId, entregadorId, status, scheduledAt])
+  // CADERNETA 7 DIAS — varredura da janela por página (etiqueta + data).
+  @@index([companyId, cadernetaDiaSemana, deliveredAt])
   @@index([companyId, planoEntregaId, scheduledAt])
   @@index([companyId, rotaModeloId, scheduledAt])
 }
