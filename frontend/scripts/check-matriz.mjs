@@ -71,6 +71,16 @@ if (semSpan > TETO_ROTULO_SEM_SPAN) {
   console.log(`✅ check-matriz: rótulo sem span desceu (${semSpan} < teto ${TETO_ROTULO_SEM_SPAN}) — baixe o teto no mesmo commit.`);
 }
 
+// ---- 3b. atributo de gesto tem UM dono (defeito medido 05/08) --------------
+// `data-day` é do Gerenciador de Rota. Um botão que traz `data-day` E
+// `data-action` é sequestrado pelo despacho (que testa data-day primeiro) e o
+// seu handler vira código morto — foi o filtro de Clientes "abrindo rota".
+for (const linha of ler(APP).split("\n")) {
+  if (/data-day=/.test(linha) && /data-action=/.test(linha)) {
+    erro(`${APP}: botão com data-day E data-action na mesma linha — o despacho testa data-day ANTES do data-action e sequestra o toque. Filtro usa data-filtro (HBXMatriz.chips).`);
+  }
+}
+
 // ---- 4. paridade APK×web dos rótulos de dinheiro ---------------------------
 // APK: mapa `botoes` do matriz.js. Web: FORMAS do balcão. Mesmas 4 palavras.
 const mapaMatriz = {};

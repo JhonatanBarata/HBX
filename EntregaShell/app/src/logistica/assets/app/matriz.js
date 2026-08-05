@@ -89,10 +89,26 @@
   }
 
   // ---- chips de filtro (Lei 7 — colunas iguais, contagem dentro) ------------
+  /**
+   * `ativo` aceita valor único (caderneta) ou ARRAY (Clientes é multi-dia:
+   * "quem eu atendo no começo da semana?" é pergunta legítima).
+   * Cada chip: { valor, rotulo, contagem } — ou `sub` pra texto livre ("…"
+   * enquanto carrega) e `inativo` pro dia sem ninguém (fica na linha, apagado:
+   * chip que some faz os dias dançarem de lugar a cada carga).
+   *
+   * 🔴 A MARCAÇÃO É `data-filtro`, NUNCA `data-day` (05/08, defeito medido no
+   * g15): o despacho de cliques testa `data-day` ANTES de `data-action` e
+   * mandava o chip da tela Clientes pro Gerenciador de Rota — o filtro "abria
+   * rota" e o handler `clients-dia` era código morto. Atributo de gesto é
+   * exclusivo do dono dele.
+   */
   function chips(lista, ativo, action, classe) {
-    return `<div class="day-chips mtz-chips${classe ? ` ${classe}` : ""}">${lista.map(c =>
-      `<button type="button" class="montagem-dia${ativo === c.valor ? " active" : ""}" data-action="${H.escape(action)}" data-filtro="${H.escape(c.valor)}" aria-pressed="${ativo === c.valor}"><strong>${H.escape(c.rotulo)}</strong><small>${Number(c.contagem) || 0}</small></button>`,
-    ).join("")}</div>`;
+    const ligado = valor => (Array.isArray(ativo) ? ativo.includes(valor) : ativo === valor);
+    return `<div class="day-chips mtz-chips${classe ? ` ${classe}` : ""}">${lista.map(c => {
+      const on = ligado(c.valor);
+      const sub = c.sub !== undefined ? c.sub : String(Number(c.contagem) || 0);
+      return `<button type="button" class="montagem-dia${on ? " active" : ""}${c.inativo && !on ? " is-inactive" : ""}" data-action="${H.escape(action)}" data-filtro="${H.escape(c.valor)}" aria-pressed="${on}"><strong>${H.escape(c.rotulo)}</strong><small>${H.escape(sub)}</small></button>`;
+    }).join("")}</div>`;
   }
 
   // ---- gestos: segurar = excluir · arrastar = pelo número -------------------

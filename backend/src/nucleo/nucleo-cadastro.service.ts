@@ -714,10 +714,9 @@ export class NucleoCadastroService {
    * W5 (10/07) — campos ADITIVOS do card de clientes do /entrega, calculados pra
    * página inteira sem N+1 (escala single-driver — centenas de clientes):
    *   pendencias[]  = o que falta no cadastro (ordem fixa endereco→numero→gps→dia→whatsapp);
-   *   diasEntrega[] = união ISO (1=seg…7=dom) dos diasSemana dos vínculos ATIVOS;
-   *                   PONTE CADASTRO→AGENDA (26/07): com agendaV2Ativa a fonte
-   *                   vira o PLANO ativo (LogisticaPlanoEntrega.diaSemana) —
-   *                   é o que o generateDay materializa de verdade;
+   *   diasEntrega[] = união ISO (1=seg…7=dom) dos dias do PLANO ativo do cliente
+   *                   (LogisticaPlanoEntrega.diaSemana) — fonte ÚNICA do dia,
+   *                   a mesma que o generateDay materializa e que o filtro usa;
    *   duplicataDe   = par duplicado COMPANY-WIDE (não por página): nome normalizado
    *                   idêntico OU endereco+numero normalizados idênticos, só entre
    *                   clientes ativos — sem fuzzy, os DOIS lados apontam um pro outro;
@@ -742,11 +741,9 @@ export class NucleoCadastroService {
     if (!companyId || !rows.length) return result;
     const pageIds = rows.map((r) => r.id);
 
-    const [vinculos, entregasAgg, config, dupUniverse, locaisAtivos, planosAgenda] = await Promise.all([
-      this.prisma.clienteProduto.findMany({
-        where: { companyId, customerProfileId: { in: pageIds }, ativo: true },
-        select: { customerProfileId: true, diasSemana: true, frequenciaDias: true },
-      }),
+    // A query do ClienteProduto MORREU aqui (05/08): ela só existia pra ler dia
+    // de produto. Uma ida a menos ao banco por página de clientes.
+    const [entregasAgg, config, dupUniverse, locaisAtivos, planosAgenda] = await Promise.all([
       this.prisma.entrega.groupBy({
         by: ['customerProfileId'],
         where: { companyId, customerProfileId: { in: pageIds }, status: { not: 'cancelada' } },
@@ -754,7 +751,7 @@ export class NucleoCadastroService {
       }),
       this.prisma.logisticaConfig.findFirst({
         where: { companyId },
-        select: { moduloFinanceiroAtivo: true, agendaV2Ativa: true },
+        select: { moduloFinanceiroAtivo: true },
       }),
       // Duplicidade é COMPANY-WIDE: o universo é TODO cliente ativo do tenant, não
       // só a página (senão o par que caiu em outra página passaria batido).
@@ -770,9 +767,8 @@ export class NucleoCadastroService {
         orderBy: [{ isPrincipal: 'desc' }, { createdAt: 'asc' }],
         select: { customerProfileId: true, endereco: true, numero: true, lat: true, lng: true },
       }),
-      // PONTE CADASTRO→AGENDA (26/07) — com a Agenda V2 ativa, o dia do cliente
-      // é o do PLANO (LogisticaPlanoEntrega), não mais o do vínculo de produto.
-      // A query roda sempre (barata, indexada); só é USADA quando agendaV2Ativa.
+      // O DIA DO CLIENTE — fonte ÚNICA (05/08). Não há mais fallback nem flag:
+      // quem manda no dia é o plano de entrega do cliente.
       this.prisma.logisticaPlanoEntrega.findMany({
         where: { companyId, customerProfileId: { in: pageIds }, ativo: true },
         select: { customerProfileId: true, diaSemana: true },
@@ -800,37 +796,26 @@ export class NucleoCadastroService {
       ? await this.debitoAbertoPorClientes(companyId, pageIds)
       : new Map<string, number>();
 
-    // vínculos ativos por cliente: dias da semana + "tem recorrência configurada?"
+    // 🔴 O DIA É DO CLIENTE, PONTO (ordem do dono, 05/08: "o dia, ou os dias de
+    // entrega do CLIENTE. não é o produto quem decide"). A fonte é ÚNICA:
+    // LogisticaPlanoEntrega — a mesma que o filtro por dia usa, a mesma que o
+    // traçar rota lê, a mesma que o generateDay materializa.
+    //
+    // MORREU AQUI o fallback pro ClienteProduto.diasSemana (a "ponte" de 26/07,
+    // que só valia com agendaV2Ativa). Ele era a 2ª verdade que fazia a tela
+    // Clientes MENTIR: filtrando por SEG a lista vinha certa do servidor e as
+    // legendas diziam "Entrega SEX/QUI/SÁB", porque legenda e filtro liam
+    // tabelas diferentes.
     const vincByCliente = new Map<string, { dias: Set<number>; temDia: boolean }>();
-    for (const v of vinculos) {
-      let entry = vincByCliente.get(v.customerProfileId);
+    for (const p of planosAgenda) {
+      let entry = vincByCliente.get(p.customerProfileId);
       if (!entry) {
         entry = { dias: new Set<number>(), temDia: false };
-        vincByCliente.set(v.customerProfileId, entry);
+        vincByCliente.set(p.customerProfileId, entry);
       }
-      const dias = parseDiasSemana(v.diasSemana);
-      for (const d of dias) entry.dias.add(d);
-      if (dias.length > 0 || (Number(v.frequenciaDias) || 0) > 0) entry.temDia = true;
-    }
-
-    // PONTE CADASTRO→AGENDA (26/07) — com a V2 ativa a fonte do "Dia" é o PLANO:
-    // é ele que o generateDay materializa. Cliente com dia só no vínculo (dado
-    // gravado depois do flip de 25/07, antes da ponte) acende pendência "dia"
-    // HONESTA — ele realmente não entra na rota até o vínculo ser re-salvo ou o
-    // plano criado na Agenda. Mesma lei do pino: dado que mente é pior que vazio.
-    const agendaV2Ativa = Boolean((config as any)?.agendaV2Ativa);
-    if (agendaV2Ativa) {
-      vincByCliente.clear();
-      for (const p of planosAgenda) {
-        let entry = vincByCliente.get(p.customerProfileId);
-        if (!entry) {
-          entry = { dias: new Set<number>(), temDia: false };
-          vincByCliente.set(p.customerProfileId, entry);
-        }
-        const dia = Math.trunc(Number(p.diaSemana));
-        if (dia >= 1 && dia <= 7) entry.dias.add(dia);
-        entry.temDia = true;
-      }
+      const dia = Math.trunc(Number(p.diaSemana));
+      if (dia >= 1 && dia <= 7) entry.dias.add(dia);
+      entry.temDia = true;
     }
 
     const entregasCountMap = new Map<string, number>();
@@ -2299,14 +2284,6 @@ export function enderecoDupKey(
 // debitoAbertoPorClientes).
 function round2(value: number): number {
   return Math.round((Number(value) || 0) * 100) / 100;
-}
-
-// CSV ISO "1,3,5" (1=seg…7=dom, convenção de ClienteProduto.diasSemana) → int[].
-function parseDiasSemana(csv: string | null | undefined): number[] {
-  return String(csv ?? '')
-    .split(',')
-    .map((s) => Math.trunc(Number(s.trim())))
-    .filter((n) => Number.isInteger(n) && n >= 1 && n <= 7);
 }
 
 // LOGÍSTICA-MOBILE B1 (07/07) — 'geocode' | 'gps_cadastro' passam pelo cadastro vindos

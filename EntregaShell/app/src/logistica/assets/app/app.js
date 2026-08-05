@@ -5397,15 +5397,25 @@
    * onde tem gente); aqui a linha é um filtro fixo de segunda a domingo — chip
    * sumindo faria os dias dançarem de lugar a cada carga.
    */
+  /**
+   * 🔴 05/08 — ESTE FILTRO ABRIA A ROTA (defeito medido no g15, cena do dono:
+   * "está com filtros, mas eles abrem rota"). O chip nascia com `data-day`, e o
+   * despacho de cliques testa `data-day` ANTES de `data-action`
+   * (`toggleManagedRouteDay`, o Gerenciador de Rota) — então o toque saía desta
+   * tela e o handler `clients-dia` nunca rodava. Agora o chip é o `chips()` da
+   * MATRIZ, que marca `data-filtro`: atributo de gesto pertence a UM dono só.
+   */
   function clientsDiaChips() {
     const selecionados = state.clientsDias || [];
-    return `<div class="day-chips clients-dias">${weekDays.map(day => {
+    return HBXMatriz.chips(weekDays.map(day => {
       const count = state.dayCounts ? state.dayCounts[day.n] : undefined;
-      const ativo = selecionados.includes(day.n);
-      const vazio = count === 0;
-      const sub = count === undefined ? "…" : count === null ? "" : `${count}`;
-      return `<button type="button" class="montagem-dia${ativo ? " active" : ""}${vazio && !ativo ? " is-inactive" : ""}" data-action="clients-dia" data-day="${day.n}" aria-pressed="${ativo}"><strong>${day.label}</strong><small>${H.escape(sub)}</small></button>`;
-    }).join("")}</div>`;
+      return {
+        valor: String(day.n),
+        rotulo: day.label,
+        sub: count === undefined ? "…" : count === null ? "" : `${count}`,
+        inativo: count === 0,
+      };
+    }), selecionados.map(String), "clients-dia", "clients-dias");
   }
   function clientsScreen() {
     const list = state.clients || [];
@@ -9539,7 +9549,7 @@
       return;
     }
     if (action === "clients-dia") {
-      const dia = Number(target.dataset.day);
+      const dia = Number(target.dataset.filtro);
       if (!Number.isInteger(dia) || dia < 1 || dia > 7) return;
       const atuais = state.clientsDias || [];
       state.clientsDias = atuais.includes(dia) ? atuais.filter(d => d !== dia) : [...atuais, dia].sort((a, b) => a - b);
