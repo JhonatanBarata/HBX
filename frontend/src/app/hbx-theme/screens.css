@@ -6282,12 +6282,17 @@ html, body { height: 100%; }
   gap: 1px;
   min-width: 0;
 }
+/* Descrição de CNAE é longa e as diferenças moram no FIM ("...novos" x "...usados"):
+   cortar em uma linha só fazia dois alvos diferentes virarem dois cards idênticos na
+   tela. Duas linhas mostram a diferença; o title do botão guarda o texto inteiro. */
 .be-segment-option__copy strong {
+  display: -webkit-box;
   overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   color: inherit;
   font-size: var(--hbx-font-min);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.25;
 }
 .be-segment-option__copy small {
   overflow: hidden;

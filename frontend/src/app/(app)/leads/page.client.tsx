@@ -648,6 +648,23 @@ const RADAR_SEGMENT_CATALOG: SegmentSuggestion[] = RADAR_SEGMENT_CATEGORIES.flat
   category.segments.map(segment => ({ value: segment, label: segment, category: category.label })),
 );
 
+// 🔴 05/08 — A LISTA DE ATIVIDADES MOSTRAVA A MESMA COISA DUAS VEZES.
+// Ela é a soma de dois lugares: o catálogo curado (com categoria: Saúde, Automotivo…)
+// e o que existe na base do cliente (sem categoria). A deduplicação era por texto EXATO,
+// então "auto center" e "auto centers", "clínica" e "clínicas", "clínica de estética" e
+// "clínicas de estética" ficavam lado a lado como se fossem alvos diferentes. Esta chave
+// ignora acento, pontuação e plural simples do português — quem sobrevive é a entrada
+// CURADA (a que sabe dizer a categoria). Para a busca dá no mesmo: o servidor casa por
+// radical (segmentPhraseTokenGroups), singular e plural encontram as mesmas empresas.
+function segmentDedupKey(label: string): string {
+  return normCity(label)
+    .replace(/[^a-z0-9\s]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map(word => (word.length > 3 ? word.replace(/(oes|aes|ns|es|s)$/, "") : word))
+    .join(" ");
+}
+
 function segmentSearchScore(label: string, query: string): number {
   const normalizedLabel = normCity(label);
   const normalizedQuery = normCity(query);
@@ -2241,10 +2258,13 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
   const byLabel = (a: { label: string }, b: { label: string }) => a.label.localeCompare(b.label, "pt-BR");
   const segOptions = (filters?.segments || []).sort(byLabel);
   const segmentOptionMap = new Map<string, SegmentSuggestion>();
-  for (const option of RADAR_SEGMENT_CATALOG) segmentOptionMap.set(normCity(option.label), option);
+  for (const option of RADAR_SEGMENT_CATALOG) segmentOptionMap.set(segmentDedupKey(option.label), option);
   for (const option of segOptions) {
-    const key = normCity(option.label);
-    segmentOptionMap.set(key, { ...segmentOptionMap.get(key), ...option });
+    const key = segmentDedupKey(option.label);
+    const curado = segmentOptionMap.get(key);
+    // O curado manda no rótulo e na categoria; o da base só entra quando é alvo NOVO
+    // (senão "clínica" da base sobrescrevia "clínicas" do catálogo e a categoria sumia).
+    if (!curado) segmentOptionMap.set(key, option);
   }
   const segmentSuggestions = Array.from(segmentOptionMap.values())
     .map(option => ({ option, score: segmentSearchScore(option.label, segmentDraft) }))
@@ -2264,7 +2284,7 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
     }] : []),
     ...segmentSuggestions,
   ].filter((option, index, options) =>
-    options.findIndex(current => normCity(current.label) === normCity(option.label)) === index,
+    options.findIndex(current => segmentDedupKey(current.label) === segmentDedupKey(option.label)) === index,
   ).slice(0, MAX_SEGMENT_INTERPRETATIONS);
   const selectedSegmentOption = segmentCandidates.find(option =>
     normCity(option.label) === normCity(segmentCandidate),
@@ -3614,11 +3634,14 @@ export function LeadsClient({ embedded = false, onLeadPulled }: {
                         aria-selected={on}
                         className={"be-cities__opt be-segment-option" + (on ? " is-on" : "")}
                         onClick={() => setSegmentCandidate(option.label)}
+                        title={option.label}
                       >
                         <span className="be-cities__check" aria-hidden="true">{on && <I d={ICONS.check} size={13} />}</span>
                         <span className="be-segment-option__copy">
                           <strong>{option.label}</strong>
-                          <small>{option.category || "Atividade"}</small>
+                          {/* Sem categoria conhecida NÃO vira "Atividade": o painel inteiro já é
+                              Atividade, então a palavra só ocupava linha sem informar nada. */}
+                          {option.category ? <small>{option.category}</small> : null}
                         </span>
                       </button>
                     );
