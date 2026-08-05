@@ -9555,8 +9555,18 @@
       state.clientsDias = atuais.includes(dia) ? atuais.filter(d => d !== dia) : [...atuais, dia].sort((a, b) => a - b);
       H.cache.set("logistica-clients-dias", state.clientsDias);
       H.vibrate(8);
+      // 🔴 A LISTA VELHA SAI NO MESMO TOQUE (05/08, cena do dono: "clico em QUA
+      // e ele abre SEX, um monte de coisa"). Duas coisas erradas ao mesmo tempo:
+      // (1) a lista do filtro ANTERIOR continuava na tela durante o ~1-4s da
+      // busca — chip dizendo um dia, lista mostrando outro; (2) a carga era
+      // SILENCIOSA, e `loadClients` só renderiza no fim quando NÃO é silenciosa
+      // (`if (!silent) render()`), então a lista nova nem aparecia sozinha.
+      // Agora: limpa na hora + carga não-silenciosa, que redesenha ao chegar.
+      state.clients = [];
+      state.clientsPage = 0;
+      state.clientsTotal = 0;
       render();
-      void loadClients(true, true);
+      void loadClients(true, false);
       return;
     }
     if (action === "caderneta-vender") {

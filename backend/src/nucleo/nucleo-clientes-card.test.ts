@@ -207,7 +207,7 @@ test('MULTILOCAL card: SEM local ativo → acende endereco+numero+gps (ignora o 
     pageRows: [row],
     universe: [row],
     principalLocais: [], // nenhum local ativo
-    vinculos: [{ customerProfileId: 'c1', diasSemana: '1', frequenciaDias: null }], // limpa "dia"
+    planosAgenda: [{ customerProfileId: 'c1', diaSemana: 1 }], // limpa "dia" (fonte única)
   });
   const res = await new NucleoCadastroService(prisma).listClientes(7, {});
   assert.deepEqual(res.items[0].pendencias, ['endereco', 'numero', 'gps'], 'sem local → as 3, na ordem');
@@ -223,7 +223,7 @@ test('MULTILOCAL card: pendências olham o LOCAL principal, não o perfil', asyn
     principalLocais: [
       { customerProfileId: 'c1', endereco: 'Rua Nova', numero: '99', lat: -3, lng: -39, isPrincipal: true, createdAt: new Date() },
     ],
-    vinculos: [{ customerProfileId: 'c1', diasSemana: '1', frequenciaDias: null }],
+    planosAgenda: [{ customerProfileId: 'c1', diaSemana: 1 }],
   });
   const res = await new NucleoCadastroService(prisma).listClientes(7, {});
   assert.deepEqual(res.items[0].pendencias, [], 'local completo → nenhuma das 3 acende');
@@ -238,20 +238,22 @@ test('MULTILOCAL card: local principal com endereço PARCIAL acende só o que fa
     principalLocais: [
       { customerProfileId: 'c1', endereco: 'Rua Nova', numero: null, lat: null, lng: null, isPrincipal: true, createdAt: new Date() },
     ],
-    vinculos: [{ customerProfileId: 'c1', diasSemana: '1', frequenciaDias: null }],
+    planosAgenda: [{ customerProfileId: 'c1', diaSemana: 1 }],
   });
   const res = await new NucleoCadastroService(prisma).listClientes(7, {});
   assert.deepEqual(res.items[0].pendencias, ['numero', 'gps']);
 });
 
-test('W5 listClientes: vínculo ativo com diasSemana limpa pendência "dia" e une os dias', async () => {
+// ── O DIA É DO CLIENTE (05/08) — plano de entrega é a fonte ÚNICA ─────────────
+test('DIA: plano ativo limpa a pendência e une os dias, ordenado', async () => {
   const row = baseRow();
   const { prisma } = buildPrismaMock({
     pageRows: [row],
     universe: [row],
-    vinculos: [
-      { customerProfileId: 'c1', diasSemana: '5,1', frequenciaDias: null },
-      { customerProfileId: 'c1', diasSemana: '3', frequenciaDias: null },
+    planosAgenda: [
+      { customerProfileId: 'c1', diaSemana: 5 },
+      { customerProfileId: 'c1', diaSemana: 1 },
+      { customerProfileId: 'c1', diaSemana: 3 },
     ],
     entregasAgg: [{ customerProfileId: 'c1', _count: { _all: 12 } }],
   });
@@ -262,35 +264,21 @@ test('W5 listClientes: vínculo ativo com diasSemana limpa pendência "dia" e un
   assert.equal(res.items[0].entregasCount, 12);
 });
 
-test('W5 listClientes: frequenciaDias > 0 também limpa "dia" (sem diasSemana)', async () => {
+// 🔴 REGRESSÃO (05/08, cena do dono: filtrei SEG e a lista mostrou "Entrega
+// SEX/QUI/SÁB"). O produto NÃO decide dia: dia só no vínculo de produto tem de
+// acender a pendência, senão o filtro e a legenda leem tabelas diferentes e a
+// tela mente. Sem flag nenhuma — não existe mais caminho legado.
+test('DIA: produto NÃO decide dia — vínculo com diasSemana não limpa nada', async () => {
   const row = baseRow();
   const { prisma } = buildPrismaMock({
     pageRows: [row],
     universe: [row],
-    vinculos: [{ customerProfileId: 'c1', diasSemana: null, frequenciaDias: 7 }],
-  });
-  const service = new NucleoCadastroService(prisma);
-  const res = await service.listClientes(7, {});
-  assert.ok(!res.items[0].pendencias.includes('dia'));
-  assert.deepEqual(res.items[0].diasEntrega, []);
-});
-
-// ── PONTE CADASTRO→AGENDA (26/07) — com agendaV2Ativa o "dia" vem do PLANO ─────
-test('AGENDA V2: dia só no vínculo NÃO limpa a pendência — plano é a fonte (honestidade)', async () => {
-  const row = baseRow();
-  const { prisma } = buildPrismaMock({
-    pageRows: [row],
-    universe: [row],
-    config: { agendaV2Ativa: true },
-    // Dado gravado depois do flip de 25/07, antes da ponte: dia no vínculo,
-    // NENHUM plano — o generateDay não enxerga este cliente, então o card
-    // precisa acender "dia" em vez de fingir que está tudo certo.
-    vinculos: [{ customerProfileId: 'c1', diasSemana: '3', frequenciaDias: null }],
+    vinculos: [{ customerProfileId: 'c1', diasSemana: '3', frequenciaDias: 7 }],
     planosAgenda: [],
   });
   const res = await new NucleoCadastroService(prisma).listClientes(7, {});
-  assert.ok(res.items[0].pendencias.includes('dia'));
-  assert.deepEqual(res.items[0].diasEntrega, []);
+  assert.ok(res.items[0].pendencias.includes('dia'), 'sem plano = pendência honesta');
+  assert.deepEqual(res.items[0].diasEntrega, [], 'dia do produto nunca vira dia do cliente');
 });
 
 test('AGENDA V2: plano ativo limpa "dia" e diasEntrega une os dias dos planos', async () => {
@@ -310,7 +298,10 @@ test('AGENDA V2: plano ativo limpa "dia" e diasEntrega une os dias dos planos', 
   assert.deepEqual(res.items[0].diasEntrega, [2, 6]);
 });
 
-test('AGENDA V2 desligada: comportamento legado intacto (vínculo manda no dia)', async () => {
+// A flag `agendaV2Ativa` não decide mais nada aqui: com ou sem ela, o dia sai
+// do PLANO. Este teste provava o caminho legado (vínculo mandando no dia) e
+// morreu junto com ele em 05/08 — o substituto é o par de testes "DIA:" acima.
+test('DIA: a flag agendaV2Ativa não muda mais a fonte — plano sempre vence', async () => {
   const row = baseRow();
   const { prisma } = buildPrismaMock({
     pageRows: [row],
@@ -321,7 +312,7 @@ test('AGENDA V2 desligada: comportamento legado intacto (vínculo manda no dia)'
   });
   const res = await new NucleoCadastroService(prisma).listClientes(7, {});
   assert.ok(!res.items[0].pendencias.includes('dia'));
-  assert.deepEqual(res.items[0].diasEntrega, [3]);
+  assert.deepEqual(res.items[0].diasEntrega, [6], 'o 3 do produto é ignorado; vale o 6 do plano');
 });
 
 test('W5 listClientes: duplicata por NOME normalizado marca os dois lados', async () => {
