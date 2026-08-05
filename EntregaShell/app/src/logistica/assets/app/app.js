@@ -9744,7 +9744,22 @@
       return;
     }
     // PREÇO DE HOJE: toca no valor → vira campo; confirma → fica só nesta entrega.
-    if (action === "delivery-price" && state.selected) { state.deliveryPriceEdit = target.dataset.draftItem || null; state.deliveryProductPicker = false; render(); return; }
+    if (action === "delivery-price" && state.selected) {
+      const chave = target.dataset.draftItem || null;
+      state.deliveryPriceEdit = chave;
+      state.deliveryProductPicker = false;
+      render();
+      // O campo NASCE no render deste clique — sem focar aqui, o primeiro toque
+      // só trocava o botão pelo input e o teclado esperava um SEGUNDO toque.
+      // `focusKeyboardField` é o mesmo caminho do resto do app (caret no fim,
+      // rolagem pro campo). rAF porque o nó ainda não existe nesta linha.
+      requestAnimationFrame(() => {
+        const campo = chave && [...document.querySelectorAll("[data-chegada-preco]")]
+          .find(el => el.dataset.chegadaPreco === chave);
+        if (campo) focusKeyboardField(campo);
+      });
+      return;
+    }
     if (action === "delivery-price-save" && state.selected) { event.preventDefault(); salvarPrecoDeHoje(target.closest("[data-preco-form]")); return; }
     if (action === "delivery-not-delivered") { state.deliveryNotDelivered = true; state.deliveryReason = ""; render(); return; }
     if (action === "delivery-reason") { state.deliveryReason = target.dataset.reason || ""; render(); return; }
@@ -12308,9 +12323,36 @@
   let espelhoEnviando = false;
   let espelhoPrecisaCss = false;
 
+  /**
+   * 🔴 O ESPELHO ESTAVA DESENHANDO O HTML NOVO COM O CSS VELHO (05/08).
+   *
+   * O servidor só pede CSS quando a VERSÃO do app muda, e `appVersion` é o
+   * versionName ("beta1.3.2") — que não muda entre builds. Resultado no painel
+   * do dono: os 4 botões da venda apareciam quebrados em 3+1, com a regra antiga
+   * de 3 colunas, enquanto no celular estavam certos numa linha. Espelho que
+   * mostra outra tela é pior que espelho nenhum.
+   *
+   * Cura: quem decide passa a ser o CONTEÚDO. O app guarda uma marca barata do
+   * próprio CSS (tamanho + hash) e reenvia sempre que ela muda — sem depender de
+   * nome de versão, sem coluna nova no banco e sem campo novo no contrato.
+   */
+  const ESPELHO_CSS_MARCA = "espelho-css-marca";
+  function espelhoMarcaDoCss(css) {
+    let h = 0;
+    for (let i = 0; i < css.length; i++) h = (Math.imul(h, 31) + css.charCodeAt(i)) | 0;
+    return `${css.length}:${h}`;
+  }
   function espelhoSincronizar(ativo, precisaCss) {
     espelhoPrecisaCss = !!precisaCss;
     if (ativo && !espelhoTimer) {
+      // Uma leitura do CSSOM por ativação (não por quadro): o CSS tem ~200 KB e
+      // ler isso a cada 2s seria pagar caro por uma pergunta que quase sempre
+      // dá "não mudou".
+      try {
+        if (!espelhoPrecisaCss && espelhoMarcaDoCss(espelhoCss()) !== H.cache.get(ESPELHO_CSS_MARCA, "")) {
+          espelhoPrecisaCss = true;
+        }
+      } catch (_) { /* CSSOM indisponível: segue a régua do servidor */ }
       espelhoTimer = setInterval(() => { void espelhoMandarQuadro(); }, ESPELHO_MS);
       void espelhoMandarQuadro();
       return;
@@ -12391,9 +12433,11 @@
         bodyClass: document.body.className || "",
       };
       // O CSS é grande (~200 KB) e não muda entre quadros: só viaja quando o
-      // servidor avisa que ainda não tem o desta versão.
+      // servidor avisa que falta, ou quando a marca do conteúdo mudou.
+      let marcaEnviada = "";
       if (espelhoPrecisaCss) {
         const css = espelhoCss();
+        marcaEnviada = css ? espelhoMarcaDoCss(css) : "";
         // O cliente nativo recusa corpo acima de ~512 mil caracteres. CSS que
         // não cabe é DESISTIDO (o espelho sai cru), nunca reenviado: senão o
         // app entraria num laço de requisição gigante recusada a cada 2s —
@@ -12402,8 +12446,12 @@
         else espelhoPrecisaCss = false;
       }
       const saida = await H.api("/logistica/espelho/quadro", { method: "POST", body: corpo });
-      // Servidor aceitou o quadro com CSS: para de mandar os 200 KB.
-      if (saida && saida.ok && espelhoPrecisaCss) espelhoPrecisaCss = false;
+      // Servidor aceitou o quadro com CSS: para de mandar os 200 KB e GRAVA a
+      // marca do que subiu — é ela que decide o próximo reenvio.
+      if (saida && saida.ok && espelhoPrecisaCss) {
+        espelhoPrecisaCss = false;
+        if (marcaEnviada) H.cache.set(ESPELHO_CSS_MARCA, marcaEnviada);
+      }
       // Recusa (janela fechou no meio) = para o loop na hora, sem esperar o
       // próximo poll: enfeite de suporte não fica batendo à toa.
       if (saida && saida.ok === false) espelhoSincronizar(false, false);
