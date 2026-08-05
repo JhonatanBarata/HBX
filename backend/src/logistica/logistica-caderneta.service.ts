@@ -27,11 +27,14 @@ const FONTES_PROVADAS = new Set(['gps_entrega', 'gps_cadastro']);
 export interface CadernetaResumo {
   ativo: boolean;
   dia: { total: number; provados: number; pronto: boolean };
+  // null quando o módulo financeiro do tenant está OFF — sem financeiro não
+  // existe "quanto entrou por forma"; número inventado em tela de dinheiro é
+  // mentira (o APK esconde o card quando vem null).
   fechamento: {
     totalCents: number;
     vendas: number;
     formas: { dinheiroCents: number; pixCents: number; cartaoCents: number; fiadoCents: number };
-  };
+  } | null;
 }
 
 export interface CadernetaVendaResult {
@@ -105,27 +108,32 @@ export class LogisticaCadernetaService {
     // ── Fechamento do dia: a conta que o dono faz de cabeça hoje (quanto entrou
     // em dinheiro/pix/cartão + quanto ficou fiado). Fonte = Entrega entregue no
     // dia civil SP; método imediato soma na forma, o resto é fiado do dia.
-    const inicio = saoPauloMidnight(dateKey);
-    const fim = new Date(inicio.getTime() + 24 * 60 * 60 * 1000);
-    const entregues = await this.prisma.entrega.findMany({
-      where: { companyId, status: 'entregue', deliveredAt: { gte: inicio, lt: fim } },
-      select: { valor: true, receiptMethod: true },
-    });
-    const formas = { dinheiroCents: 0, pixCents: 0, cartaoCents: 0, fiadoCents: 0 };
-    let totalCents = 0;
-    for (const e of entregues) {
-      const c = cents(e.valor);
-      totalCents += c;
-      if (e.receiptMethod === 'dinheiro') formas.dinheiroCents += c;
-      else if (e.receiptMethod === 'pix') formas.pixCents += c;
-      else if (e.receiptMethod === 'cartao') formas.cartaoCents += c;
-      else formas.fiadoCents += c;
+    // Financeiro OFF → null (sem cobrança não há forma; o card nem aparece).
+    let fechamento: CadernetaResumo['fechamento'] = null;
+    if (cfg?.moduloFinanceiroAtivo) {
+      const inicio = saoPauloMidnight(dateKey);
+      const fim = new Date(inicio.getTime() + 24 * 60 * 60 * 1000);
+      const entregues = await this.prisma.entrega.findMany({
+        where: { companyId, status: 'entregue', deliveredAt: { gte: inicio, lt: fim } },
+        select: { valor: true, receiptMethod: true },
+      });
+      const formas = { dinheiroCents: 0, pixCents: 0, cartaoCents: 0, fiadoCents: 0 };
+      let totalCents = 0;
+      for (const e of entregues) {
+        const c = cents(e.valor);
+        totalCents += c;
+        if (e.receiptMethod === 'dinheiro') formas.dinheiroCents += c;
+        else if (e.receiptMethod === 'pix') formas.pixCents += c;
+        else if (e.receiptMethod === 'cartao') formas.cartaoCents += c;
+        else formas.fiadoCents += c;
+      }
+      fechamento = { totalCents, vendas: entregues.length, formas };
     }
 
     return {
       ativo: !!cfg?.modoCaderneta,
       dia: { total, provados, pronto: total > 0 && provados >= total },
-      fechamento: { totalCents, vendas: entregues.length, formas },
+      fechamento,
     };
   }
 
@@ -147,7 +155,10 @@ export class LogisticaCadernetaService {
     if (itens.length === 0) throw new BadRequestException('Escolha ao menos um produto.');
     const desfecho = String(dto.desfecho || '').trim();
     const metodo = String(dto.metodo || '').trim() || null;
-    if (desfecho === 'pagou' && !metodo) {
+    // Método só é exigível quando existe FINANCEIRO pra registrá-lo. Com o módulo
+    // OFF a folha tem um botão só ("Entregue") e não manda método — exigir aqui
+    // travaria TODA venda do tenant sem financeiro.
+    if (desfecho === 'pagou' && !metodo && cfg.moduloFinanceiroAtivo) {
       throw new BadRequestException('Escolha como recebeu: dinheiro, Pix ou cartão.');
     }
     const key = String(dto.idempotencyKey || '').trim().slice(0, 80);
@@ -188,7 +199,7 @@ export class LogisticaCadernetaService {
         lat: dto.gps?.lat,
         lng: dto.gps?.lng,
         accuracy: dto.gps?.accuracy,
-        receiptMethod: desfecho === 'pagou' ? (metodo as string) : 'fiado',
+        receiptMethod: desfecho === 'pagou' ? (metodo ?? undefined) : 'fiado',
         novosItens: resto.map((i) => ({ productId: i.productId, qtdEntregue: i.quantidade })),
         idempotencyKey: key,
       },

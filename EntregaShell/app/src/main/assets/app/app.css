@@ -2013,3 +2013,7 @@ html[data-theme="dark"] .pss-montagem-dica { color: var(--brand); }
 .caderneta-total b { color: var(--ink); font-size: 1.35rem; }
 .caderneta-numero { margin-top: 14px; }
 .caderneta-numero .field { margin: 0; }
+/* Venda: os 3 métodos do "pagou" lado a lado; o rótulo em cima é o verbo. */
+.caderneta-pagto { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.caderneta-pagto .chegada-btn { padding-inline: 6px; }
+.caderneta-pagto-titulo { margin: 0 2px; }

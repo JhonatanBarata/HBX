@@ -5460,7 +5460,7 @@
     // 22/07 (dono) — o método vinha CRU do banco e escrevia "fiado" na tela, do
     // lado de um título que já dizia a mesma coisa. Pix/Dinheiro viram nome
     // próprio; "fiado" não vira palavra nenhuma (o título já diz "a receber").
-    const metodo = { pix: "Pix", dinheiro: "Dinheiro" }[String(linha.receiptMethod || "").toLowerCase()] || "";
+    const metodo = { pix: "Pix", dinheiro: "Dinheiro", cartao: "Cartão" }[String(linha.receiptMethod || "").toLowerCase()] || "";
     const detalhe = [linha.itensResumo, metodo, linha.motivo].filter(Boolean).join(" · ");
     const pago = linha.tipo === "pago";
     const valor = Number(linha.valorEvento || 0);
@@ -5588,7 +5588,12 @@
         ? `<button class="chegada-btn-sem" type="button" data-action="cancel-delivery-edit">Voltar sem alterar</button>`
         : `<button class="chegada-btn-sem" type="button" data-action="delivery-not-delivered">Não entregue</button><button class="chegada-btn-sem" type="button" data-action="confirm-sem-atendimento">Não atendeu</button>`;
     const acoes = financeiroAtivo
-      ? `<div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Entregue e quitou</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue, ficou devendo</button>${rodapeSem}</div>${editando || venda ? "" : `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-detail">Ver detalhes</button>`}`
+      ? venda
+        // VENDA (caderneta): o "pagou" escolhe o MÉTODO no mesmo toque — é o que
+        // faz o fechamento do dia (dinheiro × pix × cartão) sair certo. Sem isto
+        // tudo caía em "dinheiro" e a conta que o dono faz de cabeça não batia.
+        ? `<div class="chegada-acoes"><span class="subtitle caderneta-pagto-titulo">Entregue e pagou</span><div class="caderneta-pagto"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago-metodo" data-metodo="dinheiro" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 18)} Dinheiro</button><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago-metodo" data-metodo="pix" ${state.deliveryConfirming ? "disabled" : ""}>Pix</button><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago-metodo" data-metodo="cartao" ${state.deliveryConfirming ? "disabled" : ""}>${icon("card", 18)} Cartão</button></div><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue, ficou devendo</button>${rodapeSem}</div>`
+        : `<div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Entregue e quitou</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue, ficou devendo</button>${rodapeSem}</div>${editando ? "" : `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-detail">Ver detalhes</button>`}`
       : venda
         ? `<div class="delivery-hero-actions"><button class="btn btn-primary delivery-confirm delivery-big-btn" type="button" data-action="confirm-entregue-simples" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button></div><button class="link-btn delivery-detail-link" type="button" data-action="caderneta-cadastro">Cadastro</button>`
         : `<div class="delivery-hero-actions"><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="delivery-not-delivered">${icon("close", 20)} Não entregue</button><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="confirm-sem-atendimento">${icon("phone", 20)} Não atendeu</button><button class="btn btn-primary delivery-confirm delivery-big-btn" type="button" data-action="confirm-entregue-simples" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button></div>`;
@@ -5603,6 +5608,10 @@
     return deliverySimpleSheet(item);
   }
   function deliverySheet(item) {
+    // MODO CADERNETA — a venda usa SEMPRE a folha simples, independente do nível
+    // do financeiro: a folha completa tem ações de PARADA (Não entregue, motivo,
+    // comprovante, reabrir) que não existem num item sintético de venda.
+    if (item && item.caderneta) return deliverySimpleSheet(item);
     if (offlineModeActive(item)) return deliveryOfflineSheet(item);
     if (simpleModeActive(item)) return deliverySimpleSheet(item);
     const c = item.cliente || {}; const phone = c.phone || item.contato && (item.contato.whatsapp || item.contato.phone) || "";
@@ -9307,6 +9316,8 @@
     // é o que fecha as cobranças antigas; sem ele o app quitava só a de hoje e a
     // dívida velha ficava órfã no financeiro (buraco achado em 22/07).
     if (action === "confirm-pago" && state.selected) { const client = state.selected.cliente || {}; const method = ["pix", "dinheiro"].includes(client.metodoPadrao) ? client.metodoPadrao : "dinheiro"; confirmDelivery(state.selected, { receiptMethod: method, quitarAberto: true }); return; }
+    // MODO CADERNETA — "Entregue e pagou" com o método escolhido no toque.
+    if (action === "confirm-pago-metodo" && state.selected) { confirmDelivery(state.selected, { receiptMethod: target.dataset.metodo }); return; }
     // [Entregue] — só soma o que saiu do caminhão e vai pra próxima parada.
     if (action === "confirm-proximo" && state.selected) { confirmDelivery(state.selected, { receiptMethod: "fiado" }); return; }
     if (action === "confirm-sem-atendimento" && state.selected) {

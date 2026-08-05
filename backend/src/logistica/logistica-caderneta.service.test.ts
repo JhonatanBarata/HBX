@@ -10,7 +10,7 @@ type Fn = (...args: any[]) => any;
 
 function prismaMock(overrides: Record<string, Record<string, Fn>> = {}) {
   const base: any = {
-    logisticaConfig: { findUnique: async () => ({ modoCaderneta: true }) },
+    logisticaConfig: { findUnique: async () => ({ modoCaderneta: true, moduloFinanceiroAtivo: true }) },
     logisticaPlanoEntrega: { findMany: async () => [] },
     customerProfile: { findMany: async () => [], updateMany: async () => ({ count: 0 }) },
     localEntrega: { updateMany: async () => ({ count: 0 }) },
@@ -181,4 +181,35 @@ test('resumo: dia vazio nunca é "pronto" (0 de 0 não libera GPS)', async () =>
   const r = await svc.resumo(5, '2026-08-05');
   assert.equal(r.dia.pronto, false);
   assert.equal(r.ativo, true);
+});
+
+test("vender: financeiro OFF → 'pagou' SEM método passa (folha de 1 botão) e confirma sem receiptMethod", async () => {
+  const capturado: any[] = [];
+  const logistica = {
+    createEntrega: async () => ({ id: 'ent-1' }),
+    confirmarEntrega: async (_c: number, _id: string, gps: any) => {
+      capturado.push(gps.receiptMethod);
+      return { id: 'ent-1', status: 'entregue' };
+    },
+  } as any;
+  const svc = new LogisticaCadernetaService(
+    prismaMock({
+      logisticaConfig: { findUnique: async () => ({ modoCaderneta: true, moduloFinanceiroAtivo: false }) },
+    }) as any,
+    logistica,
+  );
+  const r = await svc.vender(5, { ...DTO_BASE, metodo: undefined });
+  assert.equal(r.ok, true);
+  assert.equal(capturado[0], undefined);
+});
+
+test('resumo: financeiro OFF → fechamento null (número de dinheiro não se inventa)', async () => {
+  const svc = new LogisticaCadernetaService(
+    prismaMock({
+      logisticaConfig: { findUnique: async () => ({ modoCaderneta: true, moduloFinanceiroAtivo: false }) },
+    }) as any,
+    logisticaMock() as any,
+  );
+  const r = await svc.resumo(5, '2026-08-05');
+  assert.equal(r.fechamento, null);
 });
