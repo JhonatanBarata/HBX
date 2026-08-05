@@ -158,6 +158,9 @@ class NativeApiClientPathPolicyTest {
     fun logisticaAllowsCadernetaAndEspelho() {
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/caderneta/resumo"))
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/caderneta/vender"))
+        // 05/08 — apagar a venda errada pelo toque-longo na linha do dia.
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/caderneta/apagar-venda"))
+        assertFalse(isMobileEndpointAllowed("vendas", "POST", "/logistica/caderneta/apagar-venda"))
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/espelho/quadro"))
         // Espelho é só ESCRITA do aparelho: quem lê é o master, pela web.
         assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/espelho/quadro"))

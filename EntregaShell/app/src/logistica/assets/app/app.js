@@ -329,6 +329,10 @@
   // 22/07 — 8º hold: linha do histórico do cliente (Lei 1 — excluir é segurar,
   // nunca lixeira). Tem confirmação porque a linha já está persistida no servidor.
   let historicoHold = null;
+  // MODO CADERNETA (05/08) — 9º hold: linha do dia com venda registrada. Tem
+  // confirmação porque desfaz DINHEIRO (entrega + cobrança + histórico).
+  let cadernetaHold = null;
+  let ignoredCadernetaClickId = null;
   let dayPreviewRequestId = 0;
   let navMotionTimer = null;
   let nextStopTimer = null;
@@ -5753,11 +5757,11 @@
     const produtosParaAdicionar = produtosDisponiveis.filter(p => !produtosNaEntrega.has(String(p.id)));
     const linhas = linhasVisiveis.map(row => {
       const preco = financeiroAtivo ? unitPriceFor(item, row) : 0;
-      // MODO CADERNETA — o preço aqui é SÓ leitura: a venda manda produto e
-      // quantidade, e quem faz a conta é o catálogo no servidor (lei "cobrança
-      // lê o CATÁLOGO"). Preço editável que o envio ignora seria número que
-      // muda na tela e não muda no dinheiro — pior que não ter o campo.
-      const editandoPreco = financeiroAtivo && !venda && state.deliveryPriceEdit === row.key;
+      // MODO CADERNETA (05/08) — o preço aqui EDITA, igual ao da chegada. Era só
+      // leitura porque a venda não mandava valor nenhum; agora manda o que o
+      // dono tocou, e o servidor grava o combinado desse cliente ("ficar o preço
+      // fixo até a próxima"). Preço na tela e preço no dinheiro são o mesmo.
+      const editandoPreco = financeiroAtivo && state.deliveryPriceEdit === row.key;
       // Layout escolhido pelo dono (22/07, "opção A"): SEM moldura nenhuma. As três
       // caixas com borda (setas / produto / valor) dentro da caixa do bloco eram o
       // que deixava a chegada pesada. Aqui é uma linha só, centralizada: setas
@@ -5772,9 +5776,7 @@
         ${financeiroAtivo
           ? editandoPreco
             ? `<form id="chegada-preco-form" class="chegada-preco-form" data-preco-form data-draft-item="${H.escape(row.key)}"><input class="chegada-preco-input lrt-produto-valor-input" name="preco" type="text" inputmode="numeric" autocomplete="off" data-chegada-preco="${H.escape(row.key)}" value="${H.escape(H.money(preco))}" aria-label="Valor da entrega" data-enter-action="delivery-price-save"><button type="submit" class="chegada-preco-ok" data-action="delivery-price-save" data-draft-item="${H.escape(row.key)}" aria-label="Confirmar valor">${icon("check", 18)}</button></form>`
-            : venda
-              ? `<span class="chegada-sep" aria-hidden="true">·</span><span class="chegada-preco">${H.escape(H.money(preco))}</span>`
-              : `<span class="chegada-sep" aria-hidden="true">·</span><button type="button" class="chegada-preco" data-action="delivery-price" data-draft-item="${H.escape(row.key)}">${H.escape(H.money(preco))}</button>`
+            : `<span class="chegada-sep" aria-hidden="true">·</span><button type="button" class="chegada-preco" data-action="delivery-price" data-draft-item="${H.escape(row.key)}">${H.escape(H.money(preco))}</button>`
           : ""}
       </div>`;
     }).join("");
@@ -9437,7 +9439,15 @@
     if (action && action.indexOf("pss-") === 0) { await handlePasseioAction(action, target); return; }
     // MODO CADERNETA (04/08) — 1 gancho só; tudo mora no bloco CADERNETA no fim
     // do arquivo. O toque no cliente da lista do dia abre a MESMA folha de chegada.
-    if (action === "caderneta-vender") { cadernetaVenderChave(target.dataset.cadernetaChave); return; }
+    if (action === "caderneta-vender") {
+      // Clique fantasma do toque-longo: soltar o dedo depois de segurar dispara
+      // um click na MESMA linha. Sem esta trava a folha de venda abria por cima
+      // da confirmação de apagar (mesmo guard dos outros holds).
+      const chaveTocada = target.dataset.cadernetaChave;
+      if (ignoredCadernetaClickId && ignoredCadernetaClickId === chaveTocada) { ignoredCadernetaClickId = null; return; }
+      cadernetaVenderChave(chaveTocada);
+      return;
+    }
     if (action === "caderneta-cadastro") { await cadernetaAbrirCadastro(); return; }
     if (action === "recarga-select-pack") { beginRecargaCheckout(target.dataset.packKey); return; }
     if (action === "recarga-reload") { openRecarga(); return; }
@@ -9670,6 +9680,7 @@
       if (confirmation.type === "limpar-dia") await performLimparDia();
       if (confirmation.type === "sem-atendimento") await performOfflineNotDelivered(items().find(item => item.id === confirmation.itemId));
       if (confirmation.type === "apagar-historico") await performApagarHistorico(confirmation.itemId);
+      if (confirmation.type === "caderneta-apagar-venda") await cadernetaApagarVenda(confirmation.itemId);
       if (confirmation.type === "limpar-historico") await performLimparHistorico();
       if (confirmation.type === "delete-route-modelo") await performDeleteRouteModelo(confirmation.itemId);
       if (confirmation.type === "cancel-leitura") await performCancelLeitura();
@@ -10597,6 +10608,17 @@
     // input de texto; segurar nele é seleção de texto do teclado, não exclusão).
     // Linha do histórico (modal "historico"): segurar 950ms abre a confirmação de
     // apagar. Mesmo gesto dos outros 7 holds.
+    // MODO CADERNETA (05/08) — segurar a linha do dia apaga a venda errada.
+    // Mesma máquina dos outros 8 holds. Só arma na tela da caderneta e fora de
+    // qualquer folha/popup: a lista é a única dona deste gesto.
+    const cadernetaRow = target.closest("[data-caderneta-hold]");
+    if (cadernetaRow && event.touches.length === 1 && cadernetaTelaAtiva() && !state.modal && !state.selected) {
+      ignoredCadernetaClickId = null;
+      const touch = event.touches[0]; const hold = { id: cadernetaRow.dataset.cadernetaHold, chave: cadernetaRow.dataset.cadernetaChave || "", el: cadernetaRow, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
+      hold.el.classList.add("is-hold-arming");
+      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
+      cadernetaHold = hold;
+    }
     const historicoRow = target.closest("[data-historico-hold]");
     if (historicoRow && event.touches.length === 1 && state.modal === "historico") {
       const touch = event.touches[0]; const hold = { id: historicoRow.dataset.historicoHold, el: historicoRow, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
@@ -10628,6 +10650,7 @@
     if (lrtParadaHold && (Math.abs(touch.clientX - lrtParadaHold.x) > 12 || Math.abs(touch.clientY - lrtParadaHold.y) > 12)) { clearTimeout(lrtParadaHold.timer); lrtParadaHold.el.classList.remove("is-hold-arming", "is-holding"); lrtParadaHold = null; }
     if (lrtItemHold && (Math.abs(touch.clientX - lrtItemHold.x) > 12 || Math.abs(touch.clientY - lrtItemHold.y) > 12)) { clearTimeout(lrtItemHold.timer); lrtItemHold.el.classList.remove("is-hold-arming", "is-holding"); lrtItemHold = null; }
     if (historicoHold && (Math.abs(touch.clientX - historicoHold.x) > 12 || Math.abs(touch.clientY - historicoHold.y) > 12)) { clearTimeout(historicoHold.timer); historicoHold.el.classList.remove("is-hold-arming", "is-holding"); historicoHold = null; }
+    if (cadernetaHold && (Math.abs(touch.clientX - cadernetaHold.x) > 12 || Math.abs(touch.clientY - cadernetaHold.y) > 12)) { clearTimeout(cadernetaHold.timer); cadernetaHold.el.classList.remove("is-hold-arming", "is-holding"); cadernetaHold = null; }
     if (pssHold && (Math.abs(touch.clientX - pssHold.x) > 12 || Math.abs(touch.clientY - pssHold.y) > 12)) { clearTimeout(pssHold.timer); pssHold.el.classList.remove("is-hold-arming", "is-holding"); pssHold = null; }
     if (touchStart && touchStart.currentStopId) {
       const current = document.querySelector(`[data-route-current="${touchStart.currentStopId}"]`);
@@ -10639,6 +10662,28 @@
       clearTimeout(pssHold.timer);
       const hold = pssHold; pssHold = null; hold.el.classList.remove("is-hold-arming", "is-holding");
       if (hold.triggered) { ignoredPssClickId = hold.id; passeioHoldExcluir(hold.id); return; }
+    }
+    if (cadernetaHold) {
+      clearTimeout(cadernetaHold.timer);
+      const hold = cadernetaHold; cadernetaHold = null; hold.el.classList.remove("is-hold-arming", "is-holding");
+      if (hold.triggered) {
+        // O guard do clique fantasma vale pela CHAVE da linha (é ela que o
+        // clique de venda carrega) — sem isso soltar o dedo abria a folha de
+        // venda por cima da confirmação de apagar.
+        ignoredCadernetaClickId = hold.chave;
+        const linha = cadernetaLinhaPorChave(hold.chave);
+        state.confirmation = {
+          type: "caderneta-apagar-venda",
+          itemId: hold.id,
+          title: "Apagar esta entrega?",
+          message: `${(linha && linha.nome) || "Este cliente"} — sai da lista de hoje, do fechamento e do histórico.`,
+          confirmLabel: "Apagar",
+          danger: true,
+          icon: "sales",
+        };
+        render();
+        return;
+      }
     }
     if (historicoHold) {
       clearTimeout(historicoHold.timer);
@@ -10750,8 +10795,8 @@
       return;
     }
   }, { passive: true });
-  app.addEventListener("touchcancel", () => { if (rmeParadaHold) { clearTimeout(rmeParadaHold.timer); rmeParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeParadaHold = null; if (rmeItemHold) { clearTimeout(rmeItemHold.timer); rmeItemHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeItemHold = null; if (routeModeloHold) { clearTimeout(routeModeloHold.timer); routeModeloHold.el.classList.remove("is-hold-arming", "is-holding"); } routeModeloHold = null; if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-hold-arming", "is-holding"); } routeStopHold = null; if (productHold) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); } productHold = null; if (lrtParadaHold) { clearTimeout(lrtParadaHold.timer); lrtParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtParadaHold = null; if (lrtItemHold) { clearTimeout(lrtItemHold.timer); lrtItemHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtItemHold = null; if (historicoHold) { clearTimeout(historicoHold.timer); historicoHold.el.classList.remove("is-hold-arming", "is-holding"); } historicoHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
-  app.addEventListener("contextmenu", event => { if (event.target.closest("[data-client],[data-client-product-id],[data-route-stop],[data-product-id]")) event.preventDefault(); });
+  app.addEventListener("touchcancel", () => { if (rmeParadaHold) { clearTimeout(rmeParadaHold.timer); rmeParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeParadaHold = null; if (rmeItemHold) { clearTimeout(rmeItemHold.timer); rmeItemHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeItemHold = null; if (routeModeloHold) { clearTimeout(routeModeloHold.timer); routeModeloHold.el.classList.remove("is-hold-arming", "is-holding"); } routeModeloHold = null; if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-hold-arming", "is-holding"); } routeStopHold = null; if (productHold) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); } productHold = null; if (lrtParadaHold) { clearTimeout(lrtParadaHold.timer); lrtParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtParadaHold = null; if (lrtItemHold) { clearTimeout(lrtItemHold.timer); lrtItemHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtItemHold = null; if (historicoHold) { clearTimeout(historicoHold.timer); historicoHold.el.classList.remove("is-hold-arming", "is-holding"); } historicoHold = null; if (cadernetaHold) { clearTimeout(cadernetaHold.timer); cadernetaHold.el.classList.remove("is-hold-arming", "is-holding"); } cadernetaHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
+  app.addEventListener("contextmenu", event => { if (event.target.closest("[data-client],[data-client-product-id],[data-route-stop],[data-product-id],[data-caderneta-hold]")) event.preventDefault(); });
   app.addEventListener("input", event => {
     if (event.target.id === "recados-composer") {
       state.recadoRespostaDraft = event.target.value;
@@ -11356,8 +11401,14 @@
         observacoes: cliente.observacoes || "",
         lat: cliente.lat ?? null,
         lng: cliente.lng ?? null,
-        itens: (cliente.itens || []).filter(x => x && x.productId != null).map(x => ({ productId: x.productId, nome: x.nome || "", qtd: Math.max(1, Number(x.qtd) || 1) })),
+        // `valorUnit` = o preço COMBINADO com este cliente, já resolvido pelo
+        // servidor (precoAcordado > catálogo > precoPadrao). Antes de 05/08 o
+        // dia-preview não mandava preço nenhum e a folha caía no catálogo —
+        // cliente de R$11 era cobrado R$13.
+        itens: (cliente.itens || []).filter(x => x && x.productId != null).map(x => ({ productId: x.productId, nome: x.nome || "", qtd: Math.max(1, Number(x.qtd) || 1), valorUnit: Number.isFinite(Number(x.valorUnit)) ? Number(x.valorUnit) : null })),
         status: "",
+        entregaId: null,
+        metodo: "",
       });
     });
     allRouteItems().filter(item => item && item.status !== "cancelada").forEach(item => {
@@ -11366,7 +11417,9 @@
       if (!clienteId) return;
       const chave = cadernetaChave(clienteId, item.localId || c.localId);
       const linha = linhas.get(chave) || linhas.get(cadernetaChave(clienteId, null));
-      if (linha) { linha.status = item.status || ""; return; }
+      // `entregaId` é o que o toque-longo apaga; `metodo` é o que a linha mostra
+      // no lugar de um "Entregue" que não diz se o dinheiro entrou.
+      if (linha) { linha.status = item.status || ""; linha.entregaId = item.id || null; linha.metodo = item.receiptMethod || ""; return; }
       linhas.set(chave, {
         chave,
         clienteId,
@@ -11376,8 +11429,10 @@
         observacoes: c.observacoes || "",
         lat: c.lat ?? null,
         lng: c.lng ?? null,
-        itens: (item.itens || []).filter(x => x && (x.produto || x.produtoId)).map(x => ({ productId: (x.produto && x.produto.id) || x.produtoId, nome: (x.produto && x.produto.nome) || "", qtd: Math.max(1, Number(x.qtdPrevista ?? x.qtdEntregue) || 1) })),
+        itens: (item.itens || []).filter(x => x && (x.produto || x.produtoId)).map(x => ({ productId: (x.produto && x.produto.id) || x.produtoId, nome: (x.produto && x.produto.nome) || "", qtd: Math.max(1, Number(x.qtdPrevista ?? x.qtdEntregue) || 1), valorUnit: Number.isFinite(Number(x.valorUnit)) ? Number(x.valorUnit) : null })),
         status: item.status || "",
+        entregaId: item.id || null,
+        metodo: item.receiptMethod || "",
       });
     });
     return [...linhas.values()];
@@ -11447,11 +11502,24 @@
     });
   }
 
+  // O selo da linha atendida DIZ O DESFECHO, não só "Entregue" (05/08): sete
+  // "Entregue" iguais em cima de um fechamento que dizia "Pix R$11" não deixavam
+  // ninguém saber quem pagou. Fiado é o único que não é verde — é o que falta
+  // receber. Sem financeiro, o servidor não manda método e volta o "Entregue".
+  const CADERNETA_METODO_ROTULO = { dinheiro: "Dinheiro", pix: "Pix", cartao: "Cartão", fiado: "Fiado" };
   function cadernetaClienteCard(linha, ordem) {
     const atendido = linha.status === "entregue";
     const itens = (linha.itens || []).map(x => `${x.qtd}× ${x.nome || "item"}`).join(", ");
     const titulo = `${linha.nome}${linha.localApelido ? ` · ${linha.localApelido}` : ""}`;
-    return `<article class="stop-card" data-action="caderneta-vender" data-caderneta-chave="${H.escape(linha.chave)}" role="button" tabindex="0"><div class="stop-top"><div class="order">${atendido ? icon("check", 16) : ordem}</div><div class="card-main"><strong>${H.escape(titulo)}</strong>${itens ? `<small>${H.escape(itens)}</small>` : ""}${linha.observacoes ? `<small class="stop-obs">${H.escape(linha.observacoes)}</small>` : ""}</div>${atendido ? `<span class="badge success">Entregue</span>` : ""}</div></article>`;
+    const rotulo = CADERNETA_METODO_ROTULO[String(linha.metodo || "").toLowerCase()] || "";
+    const selo = atendido
+      ? `<span class="badge ${rotulo === "Fiado" ? "warning" : "success"}">${H.escape(rotulo || "Entregue")}</span>`
+      : "";
+    // Segurar pressionado apaga a venda errada (Lei 1 da UI: excluir é segurar,
+    // nunca lixeira). Só entra na linha que TEM entrega — não há o que apagar em
+    // cliente que ainda não foi atendido.
+    const hold = linha.entregaId ? ` data-caderneta-hold="${H.escape(linha.entregaId)}"` : "";
+    return `<article class="stop-card" data-action="caderneta-vender" data-caderneta-chave="${H.escape(linha.chave)}"${hold} role="button" tabindex="0"><div class="stop-top"><div class="order">${atendido ? icon("check", 16) : ordem}</div><div class="card-main"><strong>${H.escape(titulo)}</strong>${itens ? `<small>${H.escape(itens)}</small>` : ""}${linha.observacoes ? `<small class="stop-obs">${H.escape(linha.observacoes)}</small>` : ""}</div>${selo}</div></article>`;
   }
   function cadernetaFechamento() {
     const fechamento = state.cadernetaResumo && state.cadernetaResumo.fechamento;
@@ -11484,6 +11552,10 @@
       id: `caderneta-item-${index}`,
       produto: { id: x.productId, nome: x.nome || cadernetaNomeProduto(x.productId) },
       qtdPrevista: Math.max(1, Number(x.qtd) || 1),
+      // O preço COMBINADO com este cliente. Vira `valorUnitOriginal` no rascunho
+      // (makeDeliveryDraft), que é o 2º degrau do unitPriceFor — então a folha
+      // abre com o preço DELE, e o catálogo só entra quando não há combinado.
+      valorUnit: Number.isFinite(Number(x.valorUnit)) ? Number(x.valorUnit) : 0,
     }));
     return {
       id: `caderneta:${linha.chave}`,
@@ -11514,6 +11586,21 @@
   function cadernetaVenderChave(chave) {
     const linha = cadernetaLinhaPorChave(chave);
     if (linha) cadernetaAbrirVenda(linha);
+  }
+  /**
+   * APAGAR A VENDA ERRADA (05/08). Uma chamada desfaz os três lugares onde ela
+   * aparece — lista do dia, fechamento e histórico do cliente —, porque desfazer
+   * pela metade é o que fazia o dono ter de caçar a linha no histórico depois.
+   */
+  async function cadernetaApagarVenda(entregaId) {
+    if (!entregaId) return;
+    try {
+      await H.api("/logistica/caderneta/apagar-venda", { method: "POST", body: { entregaId } });
+      await refresh(true);
+      void carregarCadernetaResumo();
+      H.vibrate(12);
+      toast("Entrega apagada.");
+    } catch (error) { toast(humanApiError(error), true); }
   }
   /** Toque no cliente da tela Clientes: mesma venda, com o que o dia já sabe dele. */
   function cadernetaVenderCliente(cliente) {
@@ -11567,7 +11654,17 @@
       if (!venda || venda.clienteId !== clienteId || !state.selected || !state.selected.caderneta) return;
       const itens = vinculos
         .filter(vinculo => vinculo && vinculo.ativo !== false && vinculo.produto && vinculo.produto.id != null)
-        .map(vinculo => ({ productId: vinculo.produto.id, nome: vinculo.produto.nome || "", qtd: Math.max(1, Number(vinculo.qtdPadrao) || 1) }));
+        // `precoAcordado` é o preço combinado com o cliente; sem ele, o de
+        // catálogo do próprio vínculo. Ignorar os dois era o que fazia a folha
+        // abrir com o preço de tabela pra quem tem preço próprio.
+        .map(vinculo => ({
+          productId: vinculo.produto.id,
+          nome: vinculo.produto.nome || "",
+          qtd: Math.max(1, Number(vinculo.qtdPadrao) || 1),
+          valorUnit: Number.isFinite(Number(vinculo.precoAcordado))
+            ? Number(vinculo.precoAcordado)
+            : (Number.isFinite(Number(vinculo.produto.precoCatalogo)) ? Number(vinculo.produto.precoCatalogo) : null),
+        }));
       if (!itens.length) return;
       const item = cadernetaItemDeVenda({ ...linha, itens });
       state.selected = item;
@@ -11628,7 +11725,15 @@
     const draft = deliveryDraftFor(item);
     const itens = (draft.items || [])
       .filter(row => row && row.productId != null && !row.zeradoPorTroca && Number(row.qtd) > 0)
-      .map(row => ({ productId: Number(row.productId), quantidade: Math.max(1, Math.trunc(Number(row.qtd) || 1)) }));
+      // `valorUnit` SÓ viaja quando o dono tocou no preço nesta folha
+      // (`row.valorUnit` só nasce em salvarPrecoDeHoje). Sem edição o servidor
+      // resolve sozinho e NADA no cadastro é reescrito — é essa diferença que
+      // faz "o preço fica" sem transformar toda venda em edição de cadastro.
+      .map(row => ({
+        productId: Number(row.productId),
+        quantidade: Math.max(1, Math.trunc(Number(row.qtd) || 1)),
+        ...(row.valorUnit !== undefined && row.valorUnit !== null ? { valorUnit: Number(row.valorUnit) } : {}),
+      }));
     if (!itens.length) { toast("Escolha o produto da venda.", true); return; }
     const metodo = ["dinheiro", "pix", "cartao"].includes(opts.receiptMethod) ? opts.receiptMethod : null;
     const body = {

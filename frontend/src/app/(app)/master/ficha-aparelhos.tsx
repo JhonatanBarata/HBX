@@ -307,7 +307,7 @@ export function FichaAparelhos({ companyId }: { companyId: number }) {
                   </tr>
                   {aberto === "trilha" && (
                     <tr>
-                      <td colSpan={6}>
+                      <td colSpan={6} className="ckm-detalhe-cell">
                         {trilha === null && <span className="ckm-muted-cell">Carregando a trilha…</span>}
                         {trilha !== null && trilha.length === 0 && (
                           <span className="ckm-muted-cell">Sem trilha hoje.</span>
@@ -322,7 +322,7 @@ export function FichaAparelhos({ companyId }: { companyId: number }) {
                   )}
                   {aberto === "erros" && (
                     <tr>
-                      <td colSpan={6}>
+                      <td colSpan={6} className="ckm-detalhe-cell">
                         {erros === null && <span className="ckm-muted-cell">Carregando os erros…</span>}
                         {erros !== null && erros.length === 0 && (
                           <span className="ckm-muted-cell">Nenhum erro apareceu pro cliente nos últimos 7 dias.</span>
@@ -330,7 +330,10 @@ export function FichaAparelhos({ companyId }: { companyId: number }) {
                         {erros !== null && erros.length > 0 && (
                           <div style={{ display: "grid", gap: 4 }}>
                             {erros.map((e, i) => (
-                              <div key={`${e.at}-${i}`} style={{ display: "flex", gap: 8, fontSize: "var(--hbx-font-min)" }}>
+                              // flexWrap + minWidth:0 = mensagem longa quebra em
+                              // vez de esticar a linha (a mesma causa do
+                              // transbordo da trilha, só que dentro do flex).
+                              <div key={`${e.at}-${i}`} style={{ display: "flex", gap: 8, flexWrap: "wrap", minWidth: 0, fontSize: "var(--hbx-font-min)" }}>
                                 <span className="ckm-feed-meta">{diaMes(e.at)} {hora(e.at)}</span>
                                 <span className="ckm-feed-meta">{e.tela}</span>
                                 <span>{e.msg}</span>

@@ -714,12 +714,30 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
     const dayEnd = endOfDay(dia);
     const dow = isoDow(dia);
 
+    // MODO CADERNETA (05/08) — o preço do item sai pra QUALQUER ator quando o
+    // tenant tem financeiro ligado, e não só pro dono. Mesma régua do
+    // `debitoAtual`/`valorHoje` do listRota, pelo mesmo motivo: quem cobra na
+    // porta é o entregador. Gatear por PAPEL aqui criaria o pior dos mundos —
+    // o funcionário veria o preço de tabela na tela e a venda registraria o
+    // preço combinado do cliente, tela e dinheiro discordando em silêncio.
+    let financeiroOn = false;
+    try {
+      const cfg = await this.prisma.logisticaConfig.findUnique({
+        where: { companyId },
+        select: { moduloFinanceiroAtivo: true },
+      });
+      financeiroOn = cfg?.moduloFinanceiroAtivo ?? false;
+    } catch {
+      // Config ilegível = default seguro (sem preço na prévia). Nunca derruba o dia.
+    }
+    const comPreco = isBillingOwnerActor(actor) || financeiroOn;
+
     const { porCliente } = await this.buscarVencidosPorCliente(
       companyId,
       dia,
       dayEnd,
       dow,
-      isBillingOwnerActor(actor),
+      comPreco,
     );
 
     const clientes: DiaPreviewClienteDTO[] = [];
@@ -756,6 +774,17 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
             productId: v.productId,
             nome: String(v.product?.name ?? '').trim(),
             qtd: Math.max(1, Math.trunc(Number(v.qtdPadrao) || 1)),
+            // MESMA função que o gerarDia usa pra gravar o EntregaItem: a tela do
+            // dia e a entrega materializada nunca podem mostrar preços diferentes.
+            ...(comPreco
+              ? {
+                  valorUnit: resolveValorUnit({
+                    precoAcordado: (v as any).precoAcordado ?? null,
+                    product: v.product ?? null,
+                    customerProfile: v.customerProfile ?? null,
+                  }),
+                }
+              : {}),
           })),
           // PR18072026 W1 — observação livre sobre o cliente.
           observacoes: vencidosDoLocal[0]?.customerProfile?.observacoes ?? null,
@@ -1025,6 +1054,14 @@ export interface DiaPreviewItemDTO {
   productId: number;
   nome: string;
   qtd: number;
+  // MODO CADERNETA (05/08) — o preço UNITÁRIO já resolvido pela régua de sempre
+  // (precoAcordado > catálogo > precoPadrao), o MESMO `resolveValorUnit` que o
+  // gerarDia grava no EntregaItem. Existia no banco e morria aqui: o preview
+  // mandava só productId/nome/qtd, então a caderneta do APK caía no preço de
+  // CATÁLOGO e cobrava R$13 de quem tem R$11 acordado (caso Larissa, cia 41,
+  // 05/08). Aditivo e gateado pela MESMA audiência de cobrança do resto do
+  // preview (`includeBillingInputs`): sem ela o campo simplesmente não vem.
+  valorUnit?: number;
 }
 
 export interface DiaPreviewClienteDTO {

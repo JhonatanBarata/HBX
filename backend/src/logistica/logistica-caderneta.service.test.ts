@@ -12,9 +12,20 @@ function prismaMock(overrides: Record<string, Record<string, Fn>> = {}) {
   const base: any = {
     logisticaConfig: { findUnique: async () => ({ modoCaderneta: true, moduloFinanceiroAtivo: true }) },
     logisticaPlanoEntrega: { findMany: async () => [] },
-    customerProfile: { findMany: async () => [], updateMany: async () => ({ count: 0 }) },
+    customerProfile: {
+      findMany: async () => [],
+      findFirst: async () => ({ precoPadrao: null }),
+      updateMany: async () => ({ count: 0 }),
+    },
     localEntrega: { updateMany: async () => ({ count: 0 }) },
-    entrega: { findFirst: async () => null, findMany: async () => [] },
+    entrega: { findFirst: async () => null, findMany: async () => [], update: async () => ({}) },
+    // PREÇO POR CLIENTE (05/08) — as três fontes que o resolverPrecos consulta.
+    clienteProduto: { findMany: async () => [], findFirst: async () => null, create: async () => ({}), update: async () => ({}) },
+    product: { findMany: async () => [] },
+    financeiroCharge: { findMany: async () => [], updateMany: async () => ({ count: 0 }) },
+    clienteHistorico: { deleteMany: async () => ({ count: 0 }) },
+    deletionRecord: { create: async () => ({}) },
+    $transaction: async (fn: any) => fn(base),
   };
   for (const [model, fns] of Object.entries(overrides)) {
     base[model] = { ...base[model], ...fns };
@@ -25,7 +36,8 @@ function prismaMock(overrides: Record<string, Record<string, Fn>> = {}) {
 function logisticaMock(calls: string[] = []) {
   return {
     createEntrega: async (_c: number, input: any) => {
-      calls.push(`create:${input.productId}x${input.quantidade}`);
+      // `@valor` = o TOTAL que a entrega nasce valendo (preço resolvido × qtd).
+      calls.push(`create:${input.productId}x${input.quantidade}@${input.valor}`);
       return { id: 'ent-1' };
     },
     confirmarEntrega: async (_c: number, id: string, gps: any) => {
@@ -74,7 +86,7 @@ test('vender: cria + confirma com o método imediato e a MESMA key (cartao passa
     logisticaMock(calls) as any,
   );
   const r = await svc.vender(5, DTO_BASE);
-  assert.deepEqual(calls, ['create:7x2', 'confirm:ent-1:cartao:key-abc']);
+  assert.deepEqual(calls, ['create:7x2@0', 'confirm:ent-1:cartao:key-abc']);
   assert.equal(r.entregaId, 'ent-1');
   assert.equal(r.totalCents, 3000);
 });
@@ -118,7 +130,143 @@ test('vender: itens extras viram novosItens do confirmar (multi-produto)', async
       { productId: 9, quantidade: 3 },
     ],
   });
-  assert.deepEqual(capturado[0], [{ productId: 9, qtdEntregue: 3 }]);
+  // O item extra leva o preço JÁ RESOLVIDO (sem catálogo nem combinado no mock,
+  // dá 0) — antes de 05/08 ele ia sem preço e o confirmar caía no catálogo.
+  assert.deepEqual(capturado[0], [{ productId: 9, qtdEntregue: 3, valorUnit: 0 }]);
+});
+
+// ── PREÇO POR CLIENTE (05/08) ────────────────────────────────────────────────
+// 🔴 A VACINA DO CASO REAL (cia 41, 05/08): Larissa tem R$11 combinado no
+// ClienteProduto e a caderneta registrou R$13 — o preço de CATÁLOGO do produto.
+// O combinado estava no banco desde 24/07 e nenhum caminho da venda o lia.
+test('vender: o preço COMBINADO com o cliente vence o catálogo (caso Larissa: 11, não 13)', async () => {
+  const calls: string[] = [];
+  const svc = new LogisticaCadernetaService(
+    prismaMock({
+      clienteProduto: { findMany: async () => [{ productId: 7, precoAcordado: 11 }] },
+      product: { findMany: async () => [{ id: 7, price: 13, priceCents: 1300 }] },
+    }) as any,
+    logisticaMock(calls) as any,
+  );
+  await svc.vender(5, { ...DTO_BASE, itens: [{ productId: 7, quantidade: 1 }] });
+  assert.equal(calls[0], 'create:7x1@11');
+});
+
+test('vender: SEM combinado, o preço é o do catálogo × quantidade', async () => {
+  const calls: string[] = [];
+  const svc = new LogisticaCadernetaService(
+    prismaMock({ product: { findMany: async () => [{ id: 7, price: 13, priceCents: 1300 }] } }) as any,
+    logisticaMock(calls) as any,
+  );
+  await svc.vender(5, { ...DTO_BASE, itens: [{ productId: 7, quantidade: 2 }] });
+  assert.equal(calls[0], 'create:7x2@26');
+});
+
+test('vender: preço EDITADO na tela vence tudo E vira o combinado do cliente', async () => {
+  const calls: string[] = [];
+  const gravados: any[] = [];
+  const svc = new LogisticaCadernetaService(
+    prismaMock({
+      clienteProduto: {
+        findMany: async () => [{ productId: 7, precoAcordado: 11 }],
+        findFirst: async () => ({ id: 'cp-1', precoAcordado: 11 }),
+        update: async (args: any) => { gravados.push(args); return {}; },
+      },
+      product: { findMany: async () => [{ id: 7, price: 13, priceCents: 1300 }] },
+    }) as any,
+    logisticaMock(calls) as any,
+  );
+  await svc.vender(5, { ...DTO_BASE, itens: [{ productId: 7, quantidade: 2, valorUnit: 12 }] });
+  assert.equal(calls[0], 'create:7x2@24', 'a venda cobra o preço editado');
+  assert.equal(gravados.length, 1, 'e o preço FICA pra próxima');
+  assert.equal(gravados[0].where.id, 'cp-1');
+  assert.equal(gravados[0].data.precoAcordado, 12);
+});
+
+test('vender: preço NÃO editado nunca reescreve o cadastro do cliente', async () => {
+  const gravados: any[] = [];
+  const svc = new LogisticaCadernetaService(
+    prismaMock({
+      clienteProduto: {
+        findMany: async () => [{ productId: 7, precoAcordado: 11 }],
+        findFirst: async () => ({ id: 'cp-1', precoAcordado: 11 }),
+        update: async (args: any) => { gravados.push(args); return {}; },
+        create: async (args: any) => { gravados.push(args); return {}; },
+      },
+    }) as any,
+    logisticaMock() as any,
+  );
+  await svc.vender(5, { ...DTO_BASE, itens: [{ productId: 7, quantidade: 1 }] });
+  assert.equal(gravados.length, 0);
+});
+
+test('vender: preço editado em cliente SEM vínculo cria o combinado sem dia (não inventa recorrência)', async () => {
+  const criados: any[] = [];
+  const svc = new LogisticaCadernetaService(
+    prismaMock({
+      clienteProduto: {
+        findMany: async () => [],
+        findFirst: async () => null,
+        create: async (args: any) => { criados.push(args.data); return {}; },
+      },
+    }) as any,
+    logisticaMock() as any,
+  );
+  await svc.vender(5, { ...DTO_BASE, itens: [{ productId: 7, quantidade: 1, valorUnit: 9.5 }] });
+  assert.equal(criados.length, 1);
+  assert.equal(criados[0].precoAcordado, 9.5);
+  assert.equal(criados[0].diasSemana, null, 'sem dia = invisível pro gerar-dia');
+  assert.equal(criados[0].proximaData, null);
+});
+
+// ── APAGAR A VENDA ERRADA (05/08) ────────────────────────────────────────────
+function prismaApagar(entrega: any, extra: Record<string, Record<string, Fn>> = {}) {
+  const trilha: string[] = [];
+  const prisma = prismaMock({
+    entrega: {
+      findFirst: async () => entrega,
+      update: async (args: any) => { trilha.push(`entrega:${args.data.status}`); return {}; },
+      findMany: async () => [],
+    },
+    financeiroCharge: {
+      findMany: async () => [{ id: 'chg-1', amount: 13, status: 'approved', lifecycle: 'paid', paidAt: new Date() }],
+      updateMany: async (args: any) => { trilha.push(`charge:${args.data.status}`); return { count: 1 }; },
+    },
+    clienteHistorico: { deleteMany: async () => { trilha.push('historico:apagado'); return { count: 1 }; } },
+    deletionRecord: { create: async () => { trilha.push('snapshot'); return {}; } },
+    ...extra,
+  });
+  return { prisma, trilha };
+}
+
+test('apagar-venda: desfaz nos TRÊS lugares — entrega, cobrança e histórico', async () => {
+  const { prisma, trilha } = prismaApagar({ id: 'ent-9', status: 'entregue', notes: null, valor: 13 });
+  const svc = new LogisticaCadernetaService(prisma as any, logisticaMock() as any);
+  const r = await svc.apagarVenda(5, 'ent-9', { deletedByUserId: 3 });
+  assert.equal(r!.entregaId, 'ent-9');
+  assert.deepEqual(trilha, ['snapshot', 'charge:cancelled', 'entrega:cancelada', 'historico:apagado']);
+});
+
+test('apagar-venda: entrega de outra empresa (ou inexistente) → null, nada é tocado', async () => {
+  const { prisma, trilha } = prismaApagar(null);
+  const svc = new LogisticaCadernetaService(prisma as any, logisticaMock() as any);
+  assert.equal(await svc.apagarVenda(5, 'ent-de-outro'), null);
+  assert.deepEqual(trilha, []);
+});
+
+test('apagar-venda: entrega JÁ FATURADA no mês é recusada (fatura fechada não some por toque-longo)', async () => {
+  const { prisma, trilha } = prismaApagar({ id: 'ent-9', status: 'entregue', cobrancaStatus: 'faturada', notes: null, valor: 13 });
+  const svc = new LogisticaCadernetaService(prisma as any, logisticaMock() as any);
+  await assert.rejects(() => svc.apagarVenda(5, 'ent-9'), /fechamento do mês/);
+  assert.deepEqual(trilha, []);
+});
+
+test('apagar-venda: 2º toque é idempotente e AINDA limpa o histórico que sobrou', async () => {
+  const { prisma, trilha } = prismaApagar({ id: 'ent-9', status: 'cancelada', notes: null, valor: 13 });
+  const svc = new LogisticaCadernetaService(prisma as any, logisticaMock() as any);
+  const r = await svc.apagarVenda(5, 'ent-9');
+  assert.equal(r!.jaApagada, true);
+  assert.deepEqual(trilha, ['historico:apagado']);
 });
 
 test('resumo: medidor conta pino PROVADO (local principal vence; geocode não conta)', async () => {

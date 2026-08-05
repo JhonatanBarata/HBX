@@ -196,6 +196,10 @@ export class LogisticaService {
         deliveredAt: true,
         deliveredLat: true,
         deliveredLng: true,
+        // MODO CADERNETA (05/08) — COMO foi recebida. Lido sempre (a config do
+        // tenant só é carregada DEPOIS desta query); quem gateia a SAÍDA é o
+        // moduloFinanceiroAtivoConfig lá embaixo, igual ao debitoAtual.
+        receiptMethod: true,
         ...(billingAudience ? { cobrancaStatus: true as const } : {}),
         notes: true,
         updatedAt: true,
@@ -514,6 +518,11 @@ export class LogisticaService {
         deliveredAt: r.deliveredAt ? r.deliveredAt.toISOString() : null,
         deliveredLat: r.deliveredLat ?? null,
         deliveredLng: r.deliveredLng ?? null,
+        // MODO CADERNETA (05/08) — 'dinheiro'|'pix'|'cartao'|'fiado'|null. Mesmo
+        // gate ADITIVO do metodoPadrao/debitoAtual (config do tenant, não papel
+        // do ator): é o que a lista do dia usa pra dizer quem PAGOU e quem ficou
+        // devendo, em vez de sete "Entregue" iguais.
+        ...(moduloFinanceiroAtivoConfig ? { receiptMethod: r.receiptMethod ?? null } : {}),
         ...(billingAudience ? { cobrancaStatus: r.cobrancaStatus } : {}),
         // PR27072026 F2 — chip "Só cobrar" da parada amarela de devedor (ver
         // resolverDevedorNaRota). somenteCobranca sempre presente (boolean estável,

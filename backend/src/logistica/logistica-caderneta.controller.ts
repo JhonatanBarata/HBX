@@ -1,10 +1,10 @@
-import { Body, Controller, ForbiddenException, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, NotFoundException, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { LogisticaCadernetaService } from './logistica-caderneta.service';
 import { LogisticaOperacaoService } from './logistica-operacao.service';
-import { VenderCadernetaDto } from './dto/logistica.dto';
+import { ApagarVendaCadernetaDto, VenderCadernetaDto } from './dto/logistica.dto';
 
 /**
  * MODO CADERNETA (PR04082026) — rotas do APK. Mesmo guard/kill-switch do
@@ -42,5 +42,21 @@ export class LogisticaCadernetaController {
     // Mesma régua do createEntrega: vender é capacidade de VENDEDOR.
     if (this.operacao) await this.operacao.assertCapacidade(req.user, 'SELLER');
     return this.caderneta.vender(companyId, dto, req.user);
+  }
+
+  /**
+   * Apaga a venda errada (segurar pressionado na linha do dia). Quem vende
+   * desfaz: a MESMA capacidade do vender — exigir admin aqui deixaria o
+   * motorista com o erro na tela e sem saída.
+   */
+  @Post('caderneta/apagar-venda')
+  async apagarVenda(@Req() req: any, @Body() dto: ApagarVendaCadernetaDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    if (this.operacao) await this.operacao.assertCapacidade(req.user, 'SELLER');
+    const res = await this.caderneta.apagarVenda(companyId, dto.entregaId, {
+      deletedByUserId: Number(req.user?.id) || null,
+    });
+    if (!res) throw new NotFoundException('Entrega não encontrada');
+    return res;
   }
 }

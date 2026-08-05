@@ -1201,6 +1201,26 @@ export class VenderCadernetaItemDto {
   @Min(1)
   @Max(9999)
   quantidade!: number;
+
+  // PREÇO COMBINADO COM ESTE CLIENTE (05/08) — só chega quando o dono TOCOU no
+  // valor na folha da venda. Mesma abertura consciente do
+  // ConfirmarEntregaItemDto.valorUnit (quem negocia na porta é quem vende), com
+  // UMA diferença deliberada: na caderneta o preço editado FICA
+  // (ClienteProduto.precoAcordado), porque foi isso que o dono pediu — "ficar o
+  // preço fixo até a próxima". Ausente = o servidor resolve sozinho
+  // (precoAcordado > catálogo > precoPadrao) e NADA no cadastro é reescrito.
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(999999)
+  valorUnit?: number;
+}
+
+/** Apagar a venda errada da caderneta (segurar pressionado na linha do dia). */
+export class ApagarVendaCadernetaDto {
+  @IsString()
+  @MaxLength(60)
+  entregaId!: string;
 }
 
 export class VenderCadernetaGpsDto {
@@ -1231,7 +1251,8 @@ export class VenderCadernetaDto {
   @MaxLength(60)
   localId?: string;
 
-  // Preço NUNCA vem daqui (regra de ouro): o serviço resolve pelo catálogo.
+  // O preço do item é OPCIONAL e só existe quando o dono editou na tela; sem
+  // ele o serviço resolve pela régua de sempre (ver VenderCadernetaItemDto).
   @IsArray()
   @ArrayMaxSize(30)
   @ValidateNested({ each: true })

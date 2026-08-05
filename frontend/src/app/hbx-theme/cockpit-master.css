@@ -274,6 +274,18 @@
 /* Célula de tabela em estado vazio/carregando (texto esmaecido). */
 .ckm-muted-cell { color: var(--text-muted); }
 
+/* 05/08 — LINHA DE DETALHE dentro da tabela (trilha do dia, erros do cliente).
+   `.tbl td` é `white-space: nowrap` de propósito (coluna de tabela não quebra);
+   numa célula que abre TEXTO CORRIDO isso empurrava a tabela pra fora do painel
+   e o /master nascia com barra horizontal — o "transbordando pra direita" que o
+   dono viu na ficha de Aparelhos. Aqui o texto volta a quebrar e a palavra longa
+   (URL, mensagem de erro) quebra dentro da largura em vez de esticar a coluna. */
+.ckm-detalhe-cell {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
 /* Detalhe de empresa no /master: sai do fluxo da página e vira modal operacional. */
 .master-company-detail-veil {
   align-items: center;

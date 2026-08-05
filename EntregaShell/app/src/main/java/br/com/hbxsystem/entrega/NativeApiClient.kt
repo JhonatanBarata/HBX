@@ -369,6 +369,11 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             // e sem débito). Regra da casa: endpoint novo no app.js = allowlist
             // aqui + rebuild do APK, os TRÊS ou nada.
             listOf("logistica", "caderneta", "vender"),
+            // 05/08 — apagar a venda errada (segurar pressionado na linha do
+            // dia). Sem esta linha o gesto morreria DENTRO do aparelho com
+            // "Esta operação não pertence ao logistica", e o dono continuaria
+            // sem conseguir excluir — que é exatamente o defeito que ele relatou.
+            listOf("logistica", "caderneta", "apagar-venda"),
             // 🔴 VER TELA (05/08) — um QUADRO do espelho do próprio app, mandado
             // só enquanto o painel do master mantém a janela de 60s aberta. Sem
             // esta linha o app barraria a chamada AQUI, dentro do aparelho, e o
