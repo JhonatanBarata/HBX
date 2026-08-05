@@ -52,6 +52,10 @@ const os = require('os');
 const readline = require('readline');
 const { Transform } = require('stream');
 const { spawn, spawnSync } = require('child_process');
+// FREIO DO DISCO (05/08): os zips da Receita são ~7 GB por mês e o job mensal
+// nunca apagava nada. A limpeza roda SÓ depois do aceite da carga — teto,
+// garantias e histórico em scripts/lib/rfb-disk-guard.js.
+const { pruneRfbDownloads, evaluateLoadHealth } = require('./lib/rfb-disk-guard');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CLI helpers
@@ -161,6 +165,12 @@ const STAGING_TABLE = {
   Municipios: 'stg_rfb_municipios',
   Qualificacoes: 'stg_rfb_qualificacoes',
 };
+
+// Lista ÚNICA pro TRUNCATE do staging — derivada de STAGING_TABLE pra nunca
+// dessincronizar. Antes o passo 5 truncava só 3 das 7 tabelas (empresas,
+// estabelecimentos, socios) e as outras 4 (simples/cnaes/municipios/
+// qualificacoes) ficavam com a carga inteira até a rodada seguinte.
+const STAGING_TRUNCATE_LIST = Object.values(STAGING_TABLE).join(', ');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // psql via docker exec (sem dependência nova: backend não tem driver pg)
@@ -436,7 +446,8 @@ DROP INDEX IF EXISTS "CnpjPublicCompany_normalizedCity_state_idx";
 DROP INDEX IF EXISTS "CnpjPublicCompany_normalizedCity_cnae_idx";
 DROP INDEX IF EXISTS "CnpjPublicCompany_state_cnae_idx";
 DROP INDEX IF EXISTS "CnpjPublicCompany_phoneDigits_idx";
-DROP INDEX IF EXISTS "CnpjPublicCompany_searchText_trgm_idx";`;
+DROP INDEX IF EXISTS "CnpjPublicCompany_searchText_trgm_idx";
+DROP INDEX IF EXISTS "CnpjPublicCompany_cnaeSecundarias_gin_idx";`;
 
 // Telefone: ddd1+telefone1 só dígitos; celular legado 10-dig (3º dígito 6-9) ganha o 9 da Anatel
 // (mesma regra de normalizeLegacyBrCellphone do backend). `pd.d`/`pd2.d` vêm do LATERAL no FROM.
@@ -543,7 +554,13 @@ ON CONFLICT ("cnpj") DO UPDATE SET
   "cnaeSecundarias" = COALESCE(EXCLUDED."cnaeSecundarias", "CnpjPublicCompany"."cnaeSecundarias"),
   "importedAt" = now(),
   "updatedAt" = now();
--- website e rawJson preservados de propósito: acumulados pelo L4/BrasilAPI, o dump não os tem.
+-- website e rawJson preservados de propósito: o dump não os tem, e o upsert nunca os apaga.
+-- rawJson É acumulado pelo L4 (cacheIntoLocal em radar-cnpj-l4-enrichment.service.ts).
+-- ⚠️ website NÃO É: nem o dump da RFB nem a BrasilAPI o fornecem (lookupBrasilApi devolve
+-- website=null cravado). A única fonte que grava essa coluna é o MODO LEGADO (arquivo
+-- avulso JSONL/CSV). Por isso ela está 100% NULL em prod — medido 05/08, 28M linhas.
+-- Preservar a coluna é correto; esperar que o enriquecimento a preencha, não. Site de
+-- empresa hoje só vem pelo crawler (LeadContact), que é outro pipeline.
 -- regimeTributario fica de fora (dataset separado da RFB, não vem neste dump) — fase 2.
 -- firstSeenAt só entra no INSERT (default now()); update de conflito nunca o toca de propósito
 -- (é a data em que o HBX viu o CNPJ pela 1ª vez, não a data do dump).`;
@@ -622,6 +639,45 @@ FROM email_counts ec
 WHERE lower(c."email") = ec.key AND c."situacao" = 'ativa'
   AND c."emailShareCount" IS DISTINCT FROM ec.n;`;
 
+// ITEM 5 (05/08): GRUPO ECONÔMICO — o anti-contador aplicado ao SÓCIO. Mesma lei da casa que
+// nasceu do telefone de diretório em 803 leads: sócio que assina 500 empresas é escritório de
+// contabilidade / administrador profissional, não é o decisor que a HBX aborda no WhatsApp.
+// Tabela LATERAL (CnpjPublicSocioStats) e não UPDATE na CnpjPublicPartner: UPDATE em 14,3M
+// linhas reescreve a tabela e gera bloat. Roda DEPOIS de transform:partners (precisa da tabela
+// final já recarregada) — a Partner é TRUNCATE+reload todo mês, então isto é obrigatório na
+// carga ou a tabela lateral fica apontando pro mês passado.
+// GUARDA SÓ cnpjCount >= 2: ausência = 1 empresa (77,9% da base, 7,88M linhas sem informação).
+//   full = 2.249 MB · só 2+ = 341 MB (MEDIDO).
+// cnpjCount conta cnpjBasico DISTINTO (o subselect agrupa por sócio+empresa antes) — contar
+// linha daria número inflado quando o mesmo sócio tem 2 qualificações na mesma empresa.
+// Corte de escritório = 21 CNPJs E pessoa física: é onde a razão de decaimento da distribuição
+// vira platô (~0,90; era 0,288 em n=3), entre o p99,9 (=15) e o p99,99 (=50). PJ nunca é
+// marcada — holding com 50 subsidiárias é grupo econômico legítimo.
+const SQL_SOCIO_STATS = `${TUNING}
+TRUNCATE "CnpjPublicSocioStats";
+INSERT INTO "CnpjPublicSocioStats"
+  ("identificador", "documento", "nome", "cnpjCount", "adminCount", "isProvavelEscritorio", "importedAt")
+SELECT identificador, documento, nome,
+       count(*)::int      AS "cnpjCount",
+       sum(is_admin)::int AS "adminCount",
+       (identificador = '2' AND count(*) >= 21) AS "isProvavelEscritorio",
+       now()
+FROM (
+  SELECT coalesce("identificador", '') AS identificador,
+         coalesce("documento", '')     AS documento,
+         -- PJ: nome fora da chave. A grafia da razão social varia entre empresas; agrupar por
+         -- nome fragmentaria o mesmo sócio PJ em vários. O CNPJ de 14 dígitos já é a chave.
+         CASE WHEN "identificador" = '1' THEN '' ELSE "nome" END AS nome,
+         "cnpjBasico",
+         max(CASE WHEN "qualificationCode" IN
+              ('49','05','16','10','65','28','74','70','78','50','31') THEN 1 ELSE 0 END) AS is_admin
+  FROM "CnpjPublicPartner"
+  GROUP BY 1, 2, 3, 4
+) d
+GROUP BY 1, 2, 3
+HAVING count(*) >= 2;
+ANALYZE "CnpjPublicSocioStats";`;
+
 // HOT-02: contagem por opção de filtro (estilo "Empresário (Individual) (44.889.600)"), cacheada
 // na tabela CnpjBaseStats — o endpoint /modules/owner/cnpj-base/stats só LÊ esta tabela, nunca
 // faz GROUP BY ao vivo em 28M linhas. Roda 1x pós-import, junto do anti-contador.
@@ -683,7 +739,28 @@ CREATE INDEX IF NOT EXISTS "CnpjPublicCompany_searchText_trgm_idx"
   ON "CnpjPublicCompany" USING gin ("searchText" gin_trgm_ops);
 -- HOT-02: picker de CNAE por texto livre (ex. "salao de beleza" → lista de códigos).
 CREATE INDEX IF NOT EXISTS "CnpjPublicCnae_descricao_trgm_idx"
-  ON "CnpjPublicCnae" USING gin ("descricao" gin_trgm_ops);`;
+  ON "CnpjPublicCnae" USING gin ("descricao" gin_trgm_ops);
+-- ITEM 4 (05/08): CNAE SECUNDARIO pesquisavel. A coluna cnaeSecundarias e CSV de codigos de
+-- 7 digitos; sem este indice o filtro por CNAE secundario virava LIKE '%codigo%' = seq scan de
+-- 41 GB (medido: 88s). Indice de EXPRESSAO (string_to_array e IMMUTABLE) — nao cria coluna e
+-- nao reescreve a tabela, ao contrario de coluna GENERATED STORED. Consulta com && / @>.
+-- Fora do modelo Prisma de proposito (Prisma nao modela indice de expressao), igual ao trgm
+-- de searchText acima; migration espelho em prisma/migrations/20260805160000_cnae_secundaria_gin.
+CREATE INDEX IF NOT EXISTS "CnpjPublicCompany_cnaeSecundarias_gin_idx"
+  ON "CnpjPublicCompany" USING gin (string_to_array(btrim("cnaeSecundarias"), ',') array_ops);
+-- ITEM 5 (05/08): GRUPO ECONOMICO — busca reversa socio -> empresas. TRUNCATE preserva indice,
+-- entao em producao estes dois sao no-op; existem aqui pra ambiente novo/reset nao ficar sem.
+-- (nome, documento) porque o CPF do dump vem MASCARADO: 6 digitos = 1M valores possiveis, a base
+-- saturou 995.529 deles, cada mascara serve 9,93 pessoas. Mascara como coluna lider e prefixo
+-- inutil. NAO indexar rfb_norm(nome): medido que nao colapsa nada (o dump ja vem sem acento).
+CREATE INDEX IF NOT EXISTS "CnpjPublicPartner_nome_documento_idx"
+  ON "CnpjPublicPartner"("nome", "documento");
+-- Socio PESSOA JURIDICA traz o CNPJ completo = unica ligacao DETERMINISTICA do dump. Parcial
+-- porque e so 3,52% das linhas: 9,4 MB contra 636 MB do indice cheio. Fora do modelo Prisma
+-- (Prisma nao modela WHERE em indice), igual ao GIN acima; migration espelho em
+-- prisma/migrations/20260805180000_cnpj_socio_grupo_economico.
+CREATE INDEX IF NOT EXISTS "CnpjPublicPartner_documento_pj_idx"
+  ON "CnpjPublicPartner"("documento") WHERE "identificador" = '1';`;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Pipeline RFB
@@ -701,6 +778,10 @@ async function runRfb() {
   const noDownload = hasFlag('no-download');
   const force = hasFlag('force');
   const keepStaging = hasFlag('keep-staging');
+  // --keep-zips: escape do freio de disco (ver pruneRfbDownloads). Serve pra
+  // depurar uma carga sem re-baixar 7 GB. Default é APAGAR: os zips são fonte
+  // fria e reconstruível, e guardá-los custava ~7 GB por mês, pra sempre.
+  const keepZips = hasFlag('keep-zips') || downloadOnly;
   const verifyOnly = hasFlag('verify');
 
   // 0. mês de referência
@@ -778,6 +859,10 @@ async function runRfb() {
     // HOT-02: contagem por opção de filtro cacheada (CnpjBaseStats) — mesma lógica, roda
     // depois dos índices pelo mesmo motivo (GROUP BY em cima da tabela final indexada).
     ['transform:base_stats', SQL_BASE_STATS],
+    // ITEM 5: grupo econômico (CnpjPublicSocioStats). Roda depois de transform:partners, que
+    // dá TRUNCATE na CnpjPublicPartner — sem esta fase a tabela lateral fica do mês passado.
+    // MEDIDO: ~3m35s pro INSERT em 14,3M linhas (2.232.960 sócios com 2+ empresas).
+    ['transform:socio_stats', SQL_SOCIO_STATS],
   ];
   for (const [step, sql] of phases) {
     if (ledgerDone(month, step)) { log(`pulo ${step} (já feito)`); continue; }
@@ -800,11 +885,48 @@ async function runRfb() {
   // 5. staging fora (libera ~25GB) — a menos que --keep-staging
   if (!keepStaging) {
     log('derrubando staging (use --keep-staging pra manter)');
-    psql('TRUNCATE stg_rfb_empresas, stg_rfb_estabelecimentos, stg_rfb_socios;');
+    psql(`TRUNCATE ${STAGING_TRUNCATE_LIST};`);
+    // stg_rfb_owner é tabela DERIVADA criada pelo SQL_OWNER_STAGING (CREATE
+    // TABLE AS) — TRUNCATE na lista acima não a alcança porque ela não é
+    // staging de arquivo. Ela sozinha ficava com 1,9 GB de lixo permanente
+    // entre uma rodada e a seguinte. DROP e não TRUNCATE: o próprio
+    // SQL_OWNER_STAGING começa com `DROP TABLE IF EXISTS stg_rfb_owner`, então
+    // a próxima rodada a recria do zero de qualquer jeito.
+    psql('DROP TABLE IF EXISTS stg_rfb_owner;');
   }
 
+  // 6. ACEITE — roda ANTES de qualquer arquivo ser apagado.
   verifyAcceptance(month);
+
+  // 7. FREIO DO DISCO (05/08/2026): só DEPOIS do aceite os zips saem. O porquê,
+  //    o teto e as garantias moram em scripts/lib/rfb-disk-guard.js.
+  if (keepZips) {
+    log('[freio-disco] --keep-zips (ou --download-only): zips mantidos no disco de proposito.');
+  } else if (loadLooksHealthy(month)) {
+    pruneRfbDownloads(baseDir, { currentMonth: month, log });
+  }
+
   log(`FIM em ${((Date.now() - startedAt) / 60000).toFixed(1)} min`);
+}
+
+// GUARDA DURA DO FREIO DE DISCO — a condição REAL pra apagar os zips (05/08/2026).
+//
+// POR QUE ISTO EXISTE (armadilha pega na revisão do próprio freio): o passo 7
+// apaga ~7 GB "depois do aceite". Só que `verifyAcceptance()` NÃO É UM ACEITE
+// QUE REPROVA — foi conferido linha por linha e tem ZERO `throw`: ele MEDE e
+// LOGA ("OK <500ms", "ATENCAO <7") e segue em frente de qualquer jeito. Uma
+// carga com 0 empresa passaria batido e o freio apagaria a fonte em cima de uma
+// base vazia. É a armadilha do CNEFE outra vez, quase entrando junto com o
+// conserto: quem decide apagar não pode ser um log, tem que ser NÚMERO.
+//
+// A regra e os limiares moram em scripts/lib/rfb-disk-guard.js (testados sem
+// banco); aqui só injetamos as duas leituras reais.
+function loadLooksHealthy(month) {
+  return evaluateLoadHealth(month, {
+    log,
+    ledgerDone,
+    countCompanies: () => psqlValue('SELECT count(*) FROM "CnpjPublicCompany";'),
+  }).healthy;
 }
 
 /** Aceite do sprint: contagens + SELECT cidade+segmento com timing. */
@@ -816,8 +938,23 @@ function verifyAcceptance(month) {
   const withShareCount = psqlValue('SELECT count(*) FROM "CnpjPublicCompany" WHERE "phoneShareCount" IS NOT NULL;');
   const partners = psqlValue('SELECT count(*) FROM "CnpjPublicPartner";');
   const cnaes = psqlValue('SELECT count(*) FROM "CnpjPublicCnae";');
+  // ITEM 5: grupo econômico. Se a fase socio_stats não rodar, esta tabela fica apontando pro mês
+  // passado e ninguém percebe — a Partner é TRUNCATE+reload, então a lateral SEMPRE tem que ser
+  // refeita. Zero aqui = fase não rodou. Referência 08/2026: 2.232.960 sócios com 2+ empresas,
+  // 5.051 marcados como provável escritório.
+  const socioStats = psqlValue('SELECT count(*) FROM "CnpjPublicSocioStats";');
+  const socioEscritorio = psqlValue('SELECT count(*) FROM "CnpjPublicSocioStats" WHERE "isProvavelEscritorio";');
   const size = psqlValue(`SELECT pg_size_pretty(pg_total_relation_size('"CnpjPublicCompany"') + pg_total_relation_size('"CnpjPublicPartner"'));`);
+  log(`mês ${month} → CnpjPublicSocioStats=${Number(socioStats).toLocaleString('pt-BR')} sócios com 2+ CNPJs (prováveis escritórios: ${Number(socioEscritorio).toLocaleString('pt-BR')})`);
+  if (Number(socioStats) === 0) log('AVISO: CnpjPublicSocioStats vazia — a fase transform:socio_stats não rodou; grupo econômico fica sem resposta.');
   log(`mês ${month} → CnpjPublicCompany=${Number(companies).toLocaleString('pt-BR')} (com dono: ${Number(withOwner).toLocaleString('pt-BR')}, capital: ${Number(withCapital).toLocaleString('pt-BR')}, simples/mei: ${Number(withSimples).toLocaleString('pt-BR')}, phoneShareCount: ${Number(withShareCount).toLocaleString('pt-BR')}) | CnpjPublicPartner=${Number(partners).toLocaleString('pt-BR')} | CnpjPublicCnae=${Number(cnaes).toLocaleString('pt-BR')} | tamanho=${size}`);
+
+  // As 7 dimensões do CnpjBaseStats (naturezaJuridica, porte, situacao, matrizFilial, state,
+  // mei, simples) são as contagens que a tela lê — GROUP BY ao vivo em 28M não responde <1s.
+  // Se a fase base_stats não rodar, o filtro fica sem contagem e ninguém percebe: o aceite
+  // não olhava esta tabela até 05/08. Conferido aqui pra não faltar em silêncio.
+  const statGroups = psqlValue('SELECT count(DISTINCT "group") FROM "CnpjBaseStats";');
+  log(`aceite CnpjBaseStats: ${statGroups} dimensoes ${Number(statGroups) >= 7 ? 'OK >=7' : 'ATENCAO <7 — filtro sem contagem cacheada'}`);
 
   // Timing medido NO SERVIDOR (EXPLAIN ANALYZE) — sem o overhead do docker exec (~200ms).
   const timingSamples = [
@@ -1030,7 +1167,8 @@ async function main() {
   const file = arg('file');
   if (!file || file === true) {
     console.error('Uso:');
-    console.error('  node scripts/import-cnpj-dataset.js rfb [--month AAAA-MM] [--dir <pasta>] [--download-only|--no-download] [--force] [--verify] [--keep-staging]');
+    console.error('  node scripts/import-cnpj-dataset.js rfb [--month AAAA-MM] [--dir <pasta>] [--download-only|--no-download] [--force] [--verify] [--keep-staging] [--keep-zips]');
+    console.error('    --keep-zips  não apaga os zips baixados depois do aceite (default APAGA: ~7 GB/mês de freio de disco; env HBX_RFB_KEEP_MONTHS guarda N meses)');
     console.error('  node scripts/import-cnpj-dataset.js --file <jsonl|csv> [--only-active]');
     process.exit(1);
   }

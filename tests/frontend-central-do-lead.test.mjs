@@ -23,8 +23,13 @@ const read = (path) => readFileSync(url(path), "utf8");
 const central = read("frontend/src/components/hbx/central-do-lead.tsx");
 const conversa = read("frontend/src/components/hbx/central-do-lead-conversa.tsx");
 const css = read("frontend/src/app/hbx-theme/central-do-lead.css");
-const cascaPremium = read("frontend/src/app/hbx-theme/casca-premium.css");
-const temaPremium = read("frontend/src/app/hbx-theme/theme-premium.css");
+// 03/08 a reforma das peles matou casca-premium.css e theme-premium.css; a paleta
+// da ficha migrou pra theme-central-do-lead.css, declarada NO PRÓPRIO `.cdl` (alvo
+// único — imune a casca e a modo escuro por construção, não por override). Este
+// teste apontava pros arquivos mortos e CRASHAVA no import — ou seja, TODAS as
+// âncoras abaixo ficaram desligadas de 03/08 a 05/08 sem ninguém ver. Teste que
+// não carrega não protege nada.
+const temaCdl = read("frontend/src/app/hbx-theme/theme-central-do-lead.css");
 const globals = read("frontend/src/app/globals.css");
 const vendas = read("frontend/src/app/(app)/vendas/page.client.tsx");
 
@@ -47,28 +52,36 @@ test("o Detalhes velho não existe mais em lugar nenhum", () => {
   }
 });
 
-test("a Premium tem paleta própria — não herda cor de tema nenhum", () => {
+test("a ficha tem paleta própria — não herda cor de tema nenhum", () => {
   // A cor mora SÓ na pele (é onde o check-pele permite literal).
-  assert.doesNotMatch(cascaPremium, /#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i);
   assert.doesNotMatch(css, /#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i);
-  // E a paleta é a da referência, declarada nos DOIS alvos: o app inteiro
-  // sob [data-theme="premium"], e a ficha em si (pra sair igual mesmo se a
-  // pessoa estiver na casca Backup ou Corporativa).
-  assert.match(temaPremium, /\[data-theme="premium"\],\s*\n\.cdl \{/);
-  assert.match(temaPremium, /--cdl-brand:\s*#2E6BFF/i);
-  assert.match(temaPremium, /--cdl-money:\s*#0FA968/i);
-  assert.match(temaPremium, /--cdl-amber:\s*#E8960C/i);
-  assert.match(temaPremium, /--cdl-dark:\s*#0E1729/i);
-  assert.match(temaPremium, /--cdl-paper:\s*#EEF1F8/i);
-  // A Premium é clara fixa: modo escuro salvo de outra casca é ignorado.
-  assert.match(temaPremium, /\[data-theme="premium"\]\[data-theme-mode="dark"\]/);
-  // A casca não vaza pra dentro da ficha (ela tem régua tipográfica própria).
-  assert.match(cascaPremium, /:not\(\.cdl, \.cdl \*\)/);
-  // Ordem de import: a folha da ficha entra DEPOIS das três cascas.
-  const iPremium = globals.indexOf("casca-premium.css");
+  // A paleta da referência agora tem UM alvo só: declarada no PRÓPRIO `.cdl`,
+  // a ficha sai igual em qualquer casca e em qualquer modo — não existe mais
+  // o override de [data-theme] pra dar errado. As cores-âncora do desenho
+  // aprovado (28/07) seguem valendo, byte a byte:
+  assert.match(temaCdl, /\.cdl \{/);
+  assert.match(temaCdl, /--cdl-brand:\s*#2E6BFF/i);
+  assert.match(temaCdl, /--cdl-money:\s*#0FA968/i);
+  assert.match(temaCdl, /--cdl-amber:\s*#E8960C/i);
+  assert.match(temaCdl, /--cdl-dark:\s*#0E1729/i);
+  assert.match(temaCdl, /--cdl-paper:\s*#EEF1F8/i);
+  // Os arquivos mortos da reforma de 03/08 não podem voltar num merge.
+  for (const morto of [
+    "frontend/src/app/hbx-theme/casca-premium.css",
+    "frontend/src/app/hbx-theme/theme-premium.css",
+  ]) {
+    assert.equal(existsSync(url(morto)), false, `${morto} morreu na reforma das peles (03/08)`);
+  }
+  // Ordem de import: o tema da ficha antes das cascas, a folha da ficha DEPOIS
+  // de todas (é a ordem real do globals.css — quem inverter quebra a cascata).
+  const iTema = globals.indexOf("theme-central-do-lead.css");
+  const iModern = globals.indexOf("casca-modern.css");
   const iCorp = globals.indexOf("casca-corporativa.css");
-  const iCdl = globals.indexOf("central-do-lead.css");
-  assert.ok(iPremium > 0 && iCorp > iPremium && iCdl > iCorp, "central-do-lead.css deve vir por último");
+  // A barra na âncora é obrigatória: "central-do-lead.css" é SUBSTRING de
+  // "theme-central-do-lead.css" e sem ela o indexOf casa no import errado.
+  const iCdl = globals.indexOf("/central-do-lead.css");
+  assert.ok(iTema > 0 && iModern > iTema && iCorp > iModern && iCdl > iCorp,
+    "ordem: theme-central-do-lead → cascas → central-do-lead.css por último");
 });
 
 test("o desenho da referência está na tela, medida por medida", () => {
@@ -82,8 +95,10 @@ test("o desenho da referência está na tela, medida por medida", () => {
   assert.match(css, /\.cdl-vit\.is-now/);
   assert.match(central, /Prontidão/);
   assert.match(central, /Último contato/);
-  // 3 · aba 13,5px peso 650 com régua de 3px deslizante.
-  assert.match(css, /\.cdl-tab\s*\{[\s\S]*?font-size:\s*13\.5px[\s\S]*?font-weight:\s*650/);
+  // 3 · aba no degrau t10 (o 13,5px de antes da tipografia central) peso 650,
+  //     com régua de 3px deslizante. O pino mudou de px pra TOKEN em 04/08:
+  //     a medida agora mora em typography.css e a tela só aponta pro degrau.
+  assert.match(css, /\.cdl-tab\s*\{[\s\S]*?font-size:\s*var\(--fz-t10\)[\s\S]*?font-weight:\s*650/);
   assert.match(css, /\.cdl-tabs \.glass-pill__glass\s*\{[\s\S]*?height:\s*3px/);
   // 4 · ícone de 24px na caixa de 40 (60% — regra ótica).
   assert.match(css, /\.cdl-chan\s*\{[\s\S]*?width:\s*40px[\s\S]*?height:\s*40px/);

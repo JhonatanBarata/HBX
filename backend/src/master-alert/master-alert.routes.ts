@@ -46,6 +46,16 @@ export const MASTER_ALERT_ROUTES: Record<string, MasterAlertRoute> = {
   // cockpit quando quiser). Nada de zap: chip do dono não é mural de aviso.
   'ai.concierge_review': { channels: ['sino'], throttleMinutes: 12 * 60, digest: false },
 
+  // VIGIA DO DISCO (05/08): a VPS chegou a 84% de disco e ninguém soube — o dono
+  // descobriu por acaso. Disco cheio em produção PARA o Postgres de escrever, e
+  // só o dono resolve (faxina/upgrade), então o crítico leva zap. O aviso de 80%
+  // é informação com tempo de sobra: e-mail + sino, sem zap, 1x por dia no
+  // máximo — o chip do dono não é mural de aviso.
+  'host.disk_critical': { channels: ['email', 'whatsapp', 'sino'], throttleMinutes: 6 * 60, digest: false },
+  'host.disk_warning': { channels: ['email', 'sino'], throttleMinutes: 24 * 60, digest: false },
+  // Voltou ao normal: só sino, pro dono ver no cockpit que a faxina resolveu.
+  'host.disk_recovered': { channels: ['sino'], throttleMinutes: 60, digest: false },
+
   // Novos (Sprint 3 — watcher de transições).
   'chip.dropped': { channels: ['email', 'whatsapp', 'sino'], throttleMinutes: 60, digest: false },
   'billing.webhook_stale': { channels: ['email', 'whatsapp'], throttleMinutes: 24 * 60, digest: false },

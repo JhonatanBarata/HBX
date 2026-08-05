@@ -55,21 +55,33 @@ test("fases internas convergem para as quatro cores públicas", () => {
   }
 });
 
-test("quatro cores locais são distintas e legíveis nos temas claro e escuro", () => {
-  const states = ["queued", "processing", "released", "invalidated"];
-  for (const theme of ["light", "dark"]) {
-    const foregrounds = states.map(state => statusToken(state, theme, "fg"));
-    const backgrounds = states.map(state => statusToken(state, theme, "bg"));
-    assert.equal(new Set(foregrounds).size, 4, `${theme} deve ter quatro cores de texto distintas`);
-    assert.equal(new Set(backgrounds).size, 4, `${theme} deve ter quatro fundos distintos`);
-    states.forEach((state, index) => {
-      assert.ok(
-        contrast(foregrounds[index], backgrounds[index]) >= 4.5,
-        `${state}/${theme} deve cumprir contraste WCAG AA`,
-      );
-    });
+test("quatro estados, quatro tokens distintos — cor local morreu com a reforma das peles", () => {
+  // Este teste guardava hex locais por estado/tema e PROIBIA usar os tokens
+  // semânticos do app. A reforma das peles (03/08) inverteu a lei: hex solto
+  // em kit.css é o que o check-pele REPROVA, e o contraste dos 4 semânticos
+  // passou a ser garantido NA FONTE (paleta OKLCH central, medida nos 2 modos
+  // — L 0,50 = zero reprovações WCAG). O teste ficou guardando a lei revogada.
+  // O que segue valendo — e é o que se pina agora:
+  // 1 · cada estado aponta pra um token semântico DIFERENTE (4 estados, 4 cores);
+  const mapa = {
+    queued: "warning",
+    processing: "info",
+    released: "success",
+    invalidated: "danger",
+  };
+  for (const [state, token] of Object.entries(mapa)) {
+    assert.match(
+      kitSource,
+      new RegExp(`\\.radar-ai-badge--${state}[^}]*--radar-ai-status:\\s*var\\(--hbx-${token}\\)`, "s"),
+      `${state} deve apontar pra --hbx-${token}`,
+    );
   }
-  assert.doesNotMatch(kitSource, /radar-ai-badge--(?:queued|processing|released|invalidated)[^{]*\{[^}]*--hbx-(?:warning|info|success|danger)/s);
+  // 2 · a pintura inteira do badge deriva de UM custom property — trocar a
+  //     paleta troca o badge junto, sem cor órfã;
+  assert.match(kitSource, /\.radar-ai-badge\s*\{[^}]*color:\s*var\(--radar-ai-status\)/s);
+  assert.match(kitSource, /\.radar-ai-badge\s*\{[^}]*color-mix\(in srgb, var\(--radar-ai-status\)/s);
+  // 3 · nenhum hex cru voltou pros blocos dos 4 estados (a lei nova).
+  assert.doesNotMatch(kitSource, /radar-ai-badge--(?:queued|processing|released|invalidated)[^{]*\{[^}]*#[0-9a-fA-F]{3,8}\b/s);
 });
 
 test("polling não encerra em none ou resposta vazia", () => {

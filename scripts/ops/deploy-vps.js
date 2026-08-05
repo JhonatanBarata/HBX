@@ -11,6 +11,9 @@ const {
   resolveOperationsEnv,
   run,
 } = require('../lib/runtime');
+// FREIO DE DISCO (05/08): a sujeira do build nasce neste publish, então morre
+// neste publish. Teto, garantias e o porquê de cada número: scripts/lib/vps-disk-guard.js.
+const { buildDiskGuardShellLines } = require('../lib/vps-disk-guard');
 
 const remote = 'origin';
 const branch = 'master';
@@ -394,6 +397,8 @@ function buildRemoteScript(config, fullDeploy, services) {
   }
 
   lines.push('docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}"');
+  // Faxina por ÚLTIMO: só depois de os serviços estarem de pé e respondendo.
+  lines.push(...buildDiskGuardShellLines());
   return lines.join('\n');
 }
 

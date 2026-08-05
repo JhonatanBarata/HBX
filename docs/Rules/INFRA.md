@@ -23,6 +23,9 @@
 | `npm run force` | recuperação/rebuild completo COM backup prévio em `backups/ops/<timestamp>` e dump de produção quando possível |
 | `npm run verify:prod` | verificação de produção (health backend, e-mail, WhatsApp, banco, frontend) — separada do publish |
 | `npm run engines:up` / `engines:down` | frota local de motores numerados (ver docs/Rules/MOTOR.md) |
+| `npm run db:tune` | **fiscal** do tuning do Postgres de produção: compara a VPS com o repo (read-only, sai ≠ 0 se houver desvio) |
+| `npm run db:tune:apply` | reaplica o tuning (ALTER SYSTEM + reload + autovacuum por tabela) — **sem** reiniciar nada |
+| `npm run db:tune:restart` | idem + restart do `hbx-postgres` (**DOWNTIME**, só com autorização do dono) |
 
 Flags úteis do `up`: `HBX_UP_BUILD=auto|always|never`, `HBX_UP_SYNC_BACKEND_DEPS=true`,
 `HBX_UP_STUDIO=false`.
@@ -41,6 +44,29 @@ Env de produção: `.env.production.local` / `.env.ops.local` / `.env.operations
 com `PROD_BACKEND_URL`, `PROD_FRONTEND_URL`, `HOSTINGER_SSH_HOST`, `HOSTINGER_SSH_USER`,
 `HOSTINGER_APP_DIR`. `verify:prod` recusa targets locais.
 Bootstrap do master: produção mantém `BOOTSTRAP_SYSTEM_MASTER=false`.
+
+## Postgres de produção (`hbx-postgres`) — tuning e por que ele NÃO está no compose do publish
+
+Rodou 3 meses no **default de fábrica** (`shared_buffers` 128 MB num banco de 66 GB). Tunado em
+05/08/2026. Fonte da verdade dos valores: **`deploy/postgres/hbx-prod-tuning.conf`** (cada número
+com a justificativa do porquê nesta máquina); autovacuum por tabela em
+**`deploy/postgres/hbx-prod-tabelas.sql`**.
+
+- **O `publish` não toca no Postgres.** Ele roda `docker compose -f docker-compose.hostinger.yml
+  up -d --force-recreate`, e o `hbx-postgres` **não está** nesse arquivo. **NÃO adicione** — todo
+  publish passaria a recriar o banco de produção (downtime a cada deploy + risco de o volume
+  trocar de nome).
+- Os parâmetros vivem em `postgresql.auto.conf` **dentro do volume** `hbx_postgres_data`
+  (gravados por `ALTER SYSTEM`). Sobrevivem a restart, a recriação do container e ao publish.
+  Só se perdem se o volume for destruído — nesse caso, `npm run db:tune:apply` reconstrói.
+- A forma do **container** (o que não cabe em `ALTER SYSTEM`) mora em
+  **`docker-compose.postgres.yml`**, aplicado **à mão** e fora do publish de propósito.
+- ⚠️ **`shm_size` (`/dev/shm`)**: o default do Docker é 64 MB e **query paralela morre** nele
+  (`could not resize shared memory segment`) agora que `work_mem` subiu pra 32 MB. Está em 1 GB
+  **ao vivo** (remount), mas o `ShmSize` do container segue 64 MB até alguém recriar — ou seja,
+  **um `docker restart` reverte em silêncio**. `npm run db:tune` reprova se cair abaixo de 1 GB.
+- Observabilidade: `pg_stat_statements` está instalado. Query lenta e quem derrama em disco
+  saem dele, não de log (`log_min_duration_statement` fica desligado de propósito).
 
 ## Ops Control (`ops-control/`)
 

@@ -88,6 +88,21 @@ services:
       - ./comex-motor/data/parquet:/comex-motor/data/parquet:ro
       # Socket do Docker do host montado — dá ao backend o mesmo caminho "docker local" do governor de motores.
       - /var/run/docker.sock:/var/run/docker.sock
+      # VIGIA DO DISCO (05/08) — leitura READ-ONLY das pastas do host que crescem,
+      # pro alarme poder dizer O QUÊ encheu e não só "disco cheio" (alarme sem causa
+      # vira alarme ignorado). O container já vê disco/RAM/swap do host por
+      # statfs('/') e /proc/meminfo; o que falta é o tamanho POR PASTA.
+      # Montagem CIRÚRGICA de propósito: `/root` inteiro exporia .ssh e .env.bak
+      # sem necessidade. Só entra o que pode encher:
+      #   hbx-data → zips da RFB (~7 GB/mês) e do CNEFE (~1 GB/UF)
+      #   osrm     → grafo do roteador (5,8 GB, dado QUENTE lido em runtime)
+      #   var-log  → journal + nginx
+      #   hbx-backups → backups ad-hoc de operação
+      # Sem estes mounts o alarme continua funcionando — só não lista as pastas.
+      - /root/hbx-data:/hostfs/hbx-data:ro
+      - /root/osrm:/hostfs/osrm:ro
+      - /var/log:/hostfs/var-log:ro
+      - /root/hbx-backups:/hostfs/hbx-backups:ro
     networks:
       - hbx_net
 

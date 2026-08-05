@@ -372,7 +372,13 @@ export class RadarCnpjL4EnrichmentService {
    */
   private async cacheIntoLocal(prisma: any, r: CnpjL4Result): Promise<void> {
     if (!prisma?.cnpjPublicCompany?.findUnique || !r.cnpj || !r.razaoSocial) return;
-    const rawJson = JSON.stringify({ qsa: (r.ownerNames || []).map((nome) => ({ nome })) });
+    // Só materializa o rawJson quando há sócio de verdade. Medido 05/08 em prod: a coluna tinha
+    // `n_distinct = 1` — TODO valor gravado era a mesma string `{"qsa":[]}`, porque esta linha
+    // serializava o array vazio. Gravar QSA vazio não é cache, é lixo. `null` é o que os leitores
+    // já esperam (parseRawJson devolve null pra não-string) e o `fillIfEmpty` do update ignora.
+    const rawJson = (r.ownerNames || []).length
+      ? JSON.stringify({ qsa: (r.ownerNames || []).map((nome) => ({ nome })) })
+      : null;
     const phoneDigits = String(r.phone || '').replace(/\D/g, '') || null;
     const normalizedCity = normalizeSearchText(r.city);
     const searchText = normalizeSearchText(
@@ -410,6 +416,21 @@ export class RadarCnpjL4EnrichmentService {
           if (current == null || current === '') {
             fillIfEmpty[key] = value;
           }
+        }
+        // ÚNICA EXCEÇÃO à regra do "preenche só o vazio" acima, e ela é deliberada: o
+        // `searchText` gravado foi montado com o que a linha TINHA na época. Se um campo que o
+        // compõe entrou agora, ele ficou velho — e como o loop só toca coluna vazia, ninguém o
+        // recalcularia. Medido 05/08 em prod: ~1.000 linhas em 28M com `nomeFantasia` FORA do
+        // `searchText` (ex.: cnpj 49961145000148, fantasia "DI MATTEO ACAI", searchText só com a
+        // razão social). Efeito: a busca por token não acha a empresa pelo nome que acabamos de
+        // gravar, e o WHERE cai no par ILIKE sem índice. Recompõe do estado FINAL da linha, na
+        // mesma composição do `baseData` acima — sobrescrever aqui é o conserto, não o bug.
+        const partesDoSearchText = ['nomeFantasia', 'razaoSocial', 'cnae', 'cnaeDescription'];
+        if (partesDoSearchText.some((campo) => campo in fillIfEmpty)) {
+          const final = { ...(existing as Record<string, any>), ...fillIfEmpty };
+          fillIfEmpty.searchText = normalizeSearchText(
+            [final.nomeFantasia, final.razaoSocial, final.cnae, final.cnaeDescription].filter(Boolean).join(' '),
+          );
         }
         if (Object.keys(fillIfEmpty).length && prisma.cnpjPublicCompany.update) {
           await prisma.cnpjPublicCompany.update({ where: { cnpj: r.cnpj }, data: fillIfEmpty }).catch(() => null);

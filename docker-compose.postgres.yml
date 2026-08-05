@@ -1,0 +1,102 @@
+# ============================================================================
+# POSTGRES DE PRODUCAO — forma declarada do container hbx-postgres
+# ============================================================================
+# ⚠️ ESTE ARQUIVO **NAO** ENTRA NO `npm run publish`. E DE PROPOSITO.
+#
+# O publish roda (scripts/ops/deploy-vps.js):
+#     docker compose --env-file .env -f docker-compose.hostinger.yml up -d --force-recreate
+# Se o hbx-postgres estivesse NAQUELE arquivo, TODO deploy iria force-recreate o
+# banco de producao — downtime a cada publish, e risco de o volume trocar de nome.
+# Por isso o Postgres mora AQUI, num compose separado, aplicado A MAO e so quando
+# o dono autorizar downtime. NAO FUNDIR ESTE SERVICO NO docker-compose.hostinger.yml.
+#
+# PRA QUE ESTE ARQUIVO EXISTE (2 motivos):
+#   1. `shm_size` NAO tem como ser mudado num container que ja existe: nem
+#      `docker restart` nem `docker update` aplicam. So RECRIANDO. Este arquivo e o
+#      lugar onde esse valor sobrevive no repo ate a proxima recriacao.
+#   2. Hoje o container foi criado a mao (`docker inspect` mostra Labels vazios, ou
+#      seja: nao ha compose gerenciando). Consequencia ruim: se o container for
+#      removido, o fallback dos scripts de deploy
+#      (`compose -f docker-compose.hostinger.yml up -d hbx-postgres`, em
+#      scripts/deploy-hostinger.js:490 e scripts/release.js:460) FALHA, porque esse
+#      servico nao existe la. Este arquivo e a rede de seguranca pra esse caso.
+#
+# COMO APLICAR (recria o container — DOWNTIME de ~5-15s, exige autorizacao do dono):
+#     cd /root/HBX
+#     docker compose --env-file .env -f docker-compose.postgres.yml up -d
+# Depois OBRIGATORIAMENTE revalidar (lei "build verde != boot ok"):
+#     docker exec hbx-postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+#     docker exec hbx-postgres df -h /dev/shm          # tem que dar 1.0G
+#     node scripts/ops/pg-tune-vps.js                  # tuning tem que continuar OK
+#     curl -fsS http://127.0.0.1:3000/health
+#
+# O TUNING DE PARAMETROS **NAO** MORA AQUI: mora em postgresql.auto.conf, dentro do
+# volume, gravado por ALTER SYSTEM. Ver deploy/postgres/hbx-prod-tuning.conf.
+# Recriar o container NAO perde o tuning (o volume e que guarda).
+# ============================================================================
+
+services:
+  hbx-postgres:
+    container_name: hbx-postgres
+    image: postgres:15-alpine
+    restart: unless-stopped
+
+    # ------------------------------------------------------------------------
+    # POR QUE 1 GB DE /dev/shm
+    # ------------------------------------------------------------------------
+    # O default do DOCKER e 64 MB (nao e default do Postgres). Com
+    # dynamic_shared_memory_type=posix, o Postgres usa /dev/shm pra memoria
+    # compartilhada DINAMICA — o canal por onde workers paralelos trocam dados
+    # (hash join paralelo, bitmap paralelo, GROUP BY paralelo).
+    #
+    # Medido em 05/08/2026: um GROUP BY paralelo morreu com
+    #   "could not resize shared memory segment ... No space left on device"
+    # Isso NAO e lentidao: e ERRO em query de producao.
+    #
+    # A conta do teto: um no de hash paralelo pode pedir
+    #   work_mem (32MB) x hash_mem_multiplier (2) x participantes (2 workers + leader)
+    #   = 192 MB   >>   64 MB
+    # Com max_parallel_workers=4, no pior caso ~2 gathers paralelos simultaneos
+    # → ~384 MB. 1 GB cobre isso com folga.
+    #
+    # CUSTO DE RAM DISSO: ZERO enquanto nao usar. /dev/shm e tmpfs — so ocupa RAM
+    # pelas paginas efetivamente escritas. Subir o LIMITE e de graca; o consumo
+    # real fica limitado por work_mem x paralelismo, que estao sob controle em
+    # deploy/postgres/hbx-prod-tuning.conf. Por isso 1 GB e seguro mesmo nesta
+    # maquina apertada (15,6 GiB com llama-server levando 3,5 GB).
+    shm_size: 1g
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?defina POSTGRES_USER no .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina POSTGRES_PASSWORD no .env}
+      POSTGRES_DB: ${POSTGRES_DB:?defina POSTGRES_DB no .env}
+
+    volumes:
+      # Volume EXISTENTE de producao (66 GB de dados). Declarado external mais
+      # abaixo pra o compose NUNCA criar um volume novo com nome prefixado de
+      # projeto — isso subiria um banco VAZIO por cima do sistema no ar.
+      - ${POSTGRES_DATA_VOLUME:-hbx_postgres_data}:/var/lib/postgresql/data
+
+    # SEM `ports:` DE PROPOSITO. Hoje o container nao publica 5432 no host
+    # (docker inspect: PortBindings={}) — o Postgres so e alcancavel pela rede
+    # interna do Docker. Publicar a porta exporia o banco; nao fazer.
+
+    networks:
+      - hbx_net
+
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"']
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  hbx_postgres_data:
+    external: true
+    name: hbx_postgres_data
+
+networks:
+  hbx_net:
+    name: ${HBX_DOCKER_NETWORK:-hbx_net}
+    external: true

@@ -14,6 +14,11 @@ const {
   isWebwhatsRepoAvailable,
   resolveWebwhatsRepoPath,
 } = require('./lib/webwhats-release');
+// FREIO DE DISCO (05/08) — MESMO freio do caminho novo (scripts/ops/deploy-vps.js).
+// Antes daqui saía `docker builder prune -f` sem teto, que zerava o cache inteiro
+// (publish seguinte recompilava tudo) e só rodava no modo force. Agora os dois
+// caminhos de deploy usam a mesma regra: scripts/lib/vps-disk-guard.js.
+const { buildDiskGuardShellLines } = require('./lib/vps-disk-guard');
 
 const remote = 'origin';
 const branch = 'master';
@@ -708,8 +713,6 @@ function buildRemoteDeployScript(config, mode) {
       'run_filtered $DC --env-file .env -f docker-compose.hostinger.yml up -d --build --no-deps webscraping',
       'verify_hbx_engines',
       'deploy_frontend_docker',
-      'docker image prune -f',
-      'docker builder prune -f || true',
       'if [ "$FORCE_REBOOT_HOSTINGER" = "true" ]; then echo "FORCE_REBOOT_HOSTINGER=true: reiniciando VPS."; (sudo reboot || reboot); else echo "Reboot da VPS ignorado. Defina FORCE_REBOOT_HOSTINGER=true para habilitar."; fi',
     );
   } else {
@@ -738,6 +741,9 @@ function buildRemoteDeployScript(config, mode) {
     'echo "Ultimos logs frontend Docker:"',
     'docker logs --tail 80 hbx-frontend 2>&1 || true',
   );
+
+  // Faxina por ÚLTIMO, nos DOIS modos (antes só o force limpava — e sem teto).
+  lines.push(...buildDiskGuardShellLines());
 
   return lines.join('\n');
 }

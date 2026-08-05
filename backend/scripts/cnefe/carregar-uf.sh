@@ -131,4 +131,34 @@ LINHAS=$(psql_cnefe -tAc "SELECT count(*) FROM cnefe_endereco WHERE uf='$UF';")
 psql_cnefe -qc "UPDATE cnefe_uf SET status='carregada', linhas=$LINHAS, carregado_em=now(), erro=NULL WHERE uf='$UF';"
 
 echo "[$UF] OK: $LINHAS linhas em ${DUR}s ($(date -Is))"
+
+# ── 6. FREIO DE DISCO (05/08/2026) ─────────────────────────────────────────────
+# O zip da UF é fonte FRIA e RECONSTRUÍVEL: mora no FTP do IBGE e o download é
+# re-executável (basta rodar este script de novo). Depois da carga aceita, ele
+# não serve mais pra nada — só ocupa disco.
+#
+# POR QUE ISTO ENTROU: em 05/08 a VPS estava em 84% de disco e o 35_SP.zip
+# (1,03 GB), importado em 27/07, ainda estava lá. Só SP. Este script roda por UF
+# e há 27 UFs no mapa COD_UF: ligar o hbx-cnefe.timer sem este freio significaria
+# até ~27 GB de zips parados no disco de produção. O timer AINDA NÃO está
+# instalado na VPS (conferido em 05/08) — o freio entra ANTES dele, não depois.
+#
+# A CONDIÇÃO É O SUCESSO: este bloco só é alcançado depois de
+#   • o COPY ter terminado sem erro (`|| falha` acima),
+#   • a contagem de linhas ser > 0,
+#   • o status ter virado 'carregada' no cnefe_uf.
+# Qualquer falha antes disso cai no trap ERR/`falha` e sai — com o zip INTACTO,
+# pra a próxima tentativa não re-baixar 1 GB.
+#
+# TETO/ESCAPE: apaga UM arquivo, o zip DESTA UF, com caminho literal. Não varre
+# pasta, não usa glob, não toca no municipios_*.json (284 KB de cache útil, que
+# evita depender da API do IBGE). Pra manter o zip: CNEFE_KEEP_ZIP=1.
+if [[ "${CNEFE_KEEP_ZIP:-0}" == "1" ]]; then
+  echo "[$UF] [freio-disco] CNEFE_KEEP_ZIP=1: zip mantido em $ZIP ($(du -h "$ZIP" | cut -f1))"
+elif [[ -f "$ZIP" ]]; then
+  ZIP_HUMAN="$(du -h "$ZIP" | cut -f1)"
+  rm -f "$ZIP"
+  echo "[$UF] [freio-disco] apagado $ZIP ($ZIP_HUMAN) — carga aceita com $LINHAS linhas; fonte segue no FTP do IBGE"
+fi
+
 df -h / | tail -1
