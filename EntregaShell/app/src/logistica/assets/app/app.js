@@ -9598,6 +9598,15 @@
       return;
     }
     if (action === "caderneta-finalizar-fechar") { void closeOverlay("modal"); return; }
+    // Desfazer o fechamento: só tira a marca da tela. Nada de dinheiro se move —
+    // as vendas nunca saíram do lugar, o que estava trancado era o botão.
+    if (action === "caderneta-reabrir-dia") {
+      H.cache.remove(`caderneta-fechada-${operationalDate()}`);
+      H.vibrate(12);
+      render();
+      toast("Dia reaberto.");
+      return;
+    }
     if (action === "caderneta-finalizar-confirmar") {
       if (state.cadernetaFinalizando) return;
       // Guard de reentrância antes do 1º await (§4 do guia).
@@ -11934,10 +11943,25 @@
     return `<section class="card flat caderneta-cabecalho"><div class="card-main"><strong>${wd ? H.escape(wd.nome) : ""}${hoje ? " · hoje" : ""}</strong><small>${H.escape(cadernetaDataBR(vista.dateKey))}</small></div>${fechado ? `<span class="badge success">Dia fechado</span>` : ""}${hoje ? "" : `<button class="link-btn caderneta-hoje-btn" type="button" data-action="caderneta-voltar-hoje">Hoje ›</button>`}</section>`;
   }
   /** Finalizar: só na página de HOJE, com venda registrada e o dia ainda aberto. */
+  /**
+   * 🔴 O BOTÃO NÃO SOME MAIS (05/08). O dia fechado apagava o Finalizar da tela
+   * e o dono ficava sem saída nenhuma: terminou o dia, foi fechar, e não havia
+   * botão — nem pra fechar, nem pra desfazer. Sumiço não é resposta (a mesma
+   * lição do selo "Dia fechado" no cabeçalho). Fechado, ele vira a VOLTA.
+   */
   function cadernetaFinalizarBotao(lista) {
-    if (state.cadernetaDiaVisto || cadernetaFechadaHoje()) return "";
+    if (state.cadernetaDiaVisto) return "";
     if (!lista.some(linha => linha.entregaId)) return "";
-    return `<button class="btn btn-primary btn-block caderneta-finalizar-btn" type="button" data-action="caderneta-finalizar-abrir">${icon("check", 18)} Finalizar</button>`;
+    // 🔴 O RÓTULO VAI NUM <span> — não é enfeite, é o que faz ele MUDAR.
+    // O reconciliador do mount() só sincroniza texto em nó FOLHA; este botão
+    // tem ícone + texto, então ele recursa no ícone e o texto solto fica pra
+    // trás. Visto na tela: o botão virou verde com ✓ e continuou escrito
+    // "Reabrir dia". Dentro do span o rótulo é folha e troca. Mesmo remédio que
+    // a barra de navegação já usa (`button.querySelector("span")`).
+    if (cadernetaFechadaHoje()) {
+      return `<button class="btn btn-secondary btn-block caderneta-finalizar-btn" type="button" data-action="caderneta-reabrir-dia">${icon("refresh", 18)}<span>Reabrir dia</span></button>`;
+    }
+    return `<button class="btn btn-primary btn-block caderneta-finalizar-btn" type="button" data-action="caderneta-finalizar-abrir">${icon("check", 18)}<span>Finalizar</span></button>`;
   }
   /**
    * HISTÓRICO (ordem do dono 05/08): "SEG a DOM bem bonito, só o que realmente
