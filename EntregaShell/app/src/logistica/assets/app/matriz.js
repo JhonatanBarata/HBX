@@ -72,6 +72,9 @@
    * venda no meio, Total Marcado embaixo — e valor que não soma não aparece.
    */
   function linha(d) {
+    // O desfecho é COLUNA própria do grid do card (não mora na linha do
+    // título): centralizado na altura, sempre na mesma ponta — ordem do dono
+    // 05/08 ("centralize os pix e marcou").
     const desfecho = d.desfecho
       ? `<span class="mtz-desfecho${d.desfechoTom ? ` is-${d.desfechoTom}` : ""}">${H.escape(d.desfecho)}</span>`
       : "";
@@ -82,7 +85,7 @@
     if (d.extrasHtml) partes.push(d.extrasHtml);
     const alca = d.alca ? ` data-matriz-alca="${H.escape(d.alca)}"` : "";
     const apagar = d.apagar ? ` data-matriz-apagar="${H.escape(d.apagar)}" data-matriz-chave="${H.escape(d.chave || "")}"` : "";
-    return `<article class="stop-card mtz-linha${d.classe || ""}"${d.attrs || ""}${apagar} role="button" tabindex="0"><div class="stop-top"><div class="order${d.feito ? " is-feito" : ""}"${alca}>${d.ordem}</div><div class="card-main"><div class="mtz-topo"><strong>${H.escape(d.titulo)}</strong>${desfecho}</div>${partes.join("")}</div>${d.trailingHtml || ""}</div></article>`;
+    return `<article class="stop-card mtz-linha${d.classe || ""}"${d.attrs || ""}${apagar} role="button" tabindex="0"><div class="stop-top"><div class="order${d.feito ? " is-feito" : ""}"${alca}>${d.ordem}</div><div class="card-main"><div class="mtz-topo"><strong>${H.escape(d.titulo)}</strong></div>${partes.join("")}</div>${desfecho}${d.trailingHtml || ""}</div></article>`;
   }
 
   // ---- chips de filtro (Lei 7 — colunas iguais, contagem dentro) ------------

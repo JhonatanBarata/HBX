@@ -2088,15 +2088,18 @@ html[data-theme="dark"] .pss-montagem-dica { color: var(--brand); }
    da ponta direita (Lei 8 — um desfecho = uma palavra). */
 .mtz-topo { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
 .mtz-topo strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.mtz-desfecho { flex: none; color: var(--success); font-weight: 800; font-size: .72rem; }
+/* ⚠️ Especificidade MEDIDA na tela (05/08): `.card-main span/small` (classe+
+   elemento) GANHA de `.mtz-*` (classe só) — o Pix saiu --muted em vez de
+   --success no g15. Por isso o pai entra no seletor (css-morre-calado nº1). */
+.card-main .mtz-desfecho, .mtz-desfecho { flex: none; margin-top: 0; overflow: visible; color: var(--success); font-weight: 800; font-size: .72rem; }
 /* "Marcou" usa --warning (falta receber), nunca --danger: marcar não bloqueia
    nada, é a caderneta funcionando. */
-.mtz-desfecho.is-marcou { color: var(--warning); }
+.card-main .mtz-desfecho.is-marcou, .mtz-desfecho.is-marcou { color: var(--warning); }
 .mtz-conta { font-variant-numeric: tabular-nums; }
 /* Anterior (o que já devia) é contexto discreto; Total Marcado (Anterior+Agora)
    é o número que muda a conversa na porta — ele leva o --warning. */
 .mtz-anterior { color: var(--muted); }
-.mtz-total-marcado { color: var(--warning); font-weight: 800; }
+.card-main .mtz-total-marcado, .client-balance .mtz-total-marcado, .mtz-total-marcado { color: var(--warning); font-weight: 800; }
 /* 1 item: nome trunca, a conta NUNCA quebra (Lei 8). 2+ itens correm soltos. */
 .mtz-itens.is-um { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
 .mtz-itens.is-um .mtz-nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
