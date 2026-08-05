@@ -111,6 +111,11 @@ export class NucleoController {
     @Query('uf') uf?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    // FILTRO POR DIA (05/08) — chips SEG…DOM da tela Clientes do APK.
+    // "2" ou "2,4"; ADITIVO (ausente = base inteira, como sempre). Vem como
+    // texto porque query string não tem tipo — a validação de faixa mora no
+    // serviço, junto da regra.
+    @Query('diasSemana') diasSemana?: string,
   ) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     return this.service.listClientes(companyId, {
@@ -118,6 +123,10 @@ export class NucleoController {
       uf,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
+      diasSemana: String(diasSemana || '')
+        .split(',')
+        .map((parte) => Number(String(parte).trim()))
+        .filter((n) => Number.isFinite(n)),
     });
   }
 

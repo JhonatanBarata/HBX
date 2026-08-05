@@ -34,6 +34,10 @@
     clientsTotalPages: 1,
     clientsLoading: false,
     clientsError: null,
+    // Dias (1=seg…7=dom) marcados nos chips da tela Clientes. Filtro de SERVIDOR
+    // (a lista é paginada — filtrar a página carregada esconderia cliente).
+    // Sobrevive ao fechar o app: quem trabalha na segunda abre na segunda.
+    clientsDias: H.cache.get("logistica-clients-dias", []),
     config: H.cache.get("logistica-config", null),
     companyName: H.cache.get("logistica-company-name", ""),
     statement: null,
@@ -5362,12 +5366,46 @@
     return `<${tag} class="lead-card${selection ? " hbx-selection-item" : ""}${archived ? " hbx-dimmed" : ""}" ${attrs}><div class="avatar">${icon("box", 19)}</div><div class="card-main"><strong>${H.escape(product.nome || product.name)}</strong><span>${subtitle}${archived ? ` · <span class="badge">Arquivado</span>` : ""}</span></div>${selection || admin ? `<span class="selection-mode-chevron">${icon("chevronRight", 18)}</span>` : ""}</${tag}>`;
   }
 
+  /**
+   * FILTRO POR DIA DA TELA CLIENTES (05/08, ordem do dono: "Remover 'Clientes',
+   * colocar botões de filtro, de segunda a domingo (o q estiver de cliente
+   * ativos, igual é feito no traçar rota)").
+   *
+   * "Igual é feito no traçar rota" é literal em três pontos: a MESMA classe de
+   * chip (`montagem-dia` dentro de `.day-chips`), a MESMA contagem por dia
+   * (`state.dayCounts`, que sai da agenda) e a MESMA fonte do dia no servidor
+   * (LogisticaPlanoEntrega). Uma 2ª régua de "quem é da segunda" seria a tela
+   * discordando da rota.
+   *
+   * Diferença deliberada do traçar rota: aqui o dia SEM cliente CONTINUA na
+   * linha, apagado. Lá o chip some porque a lista é de MONTAGEM (só interessa
+   * onde tem gente); aqui a linha é um filtro fixo de segunda a domingo — chip
+   * sumindo faria os dias dançarem de lugar a cada carga.
+   */
+  function clientsDiaChips() {
+    const selecionados = state.clientsDias || [];
+    return `<div class="day-chips clients-dias">${weekDays.map(day => {
+      const count = state.dayCounts ? state.dayCounts[day.n] : undefined;
+      const ativo = selecionados.includes(day.n);
+      const vazio = count === 0;
+      const sub = count === undefined ? "…" : count === null ? "" : `${count}`;
+      return `<button type="button" class="montagem-dia${ativo ? " active" : ""}${vazio && !ativo ? " is-inactive" : ""}" data-action="clients-dia" data-day="${day.n}" aria-pressed="${ativo}"><strong>${day.label}</strong><small>${H.escape(sub)}</small></button>`;
+    }).join("")}</div>`;
+  }
   function clientsScreen() {
     const list = state.clients || [];
     const total = Number(state.clientsTotal || 0);
     const firstLoad = state.clientsLoading && state.clientsPage === 0;
-    const emptyText = state.clientsError || (state.query.trim() ? "Nenhum resultado." : "");
-    return shell(`<div class="screen-head"><div><h1>Clientes</h1></div></div><label class="search">${icon("search", 18)}<input id="client-search" aria-label="Buscar clientes" placeholder="Buscar" value="${H.escape(state.query)}"></label><div class="section-title"><strong>Cadastros</strong><span>${list.length}${total > list.length ? ` de ${total}` : ""}</span></div>${firstLoad ? loading() : `<div class="list">${list.length ? list.map(c => clientCatalogCard(c)).join("") : empty(state.clientsError ? "Não foi possível carregar" : "Nenhum cliente", emptyText)}</div>`}${clientsAutoLoad()}`, `<button class="fab" data-action="new-client" aria-label="Novo cliente">${icon("plus", 22)}</button>`);
+    const dias = state.clientsDias || [];
+    const emptyText = state.clientsError
+      || (state.query.trim() ? "Nenhum resultado." : dias.length ? "Nenhum cliente nesse dia." : "");
+    // O cabeçalho "Clientes" saiu (a aba de baixo já diz onde você está) e a
+    // linha de dias tomou o lugar dele. O contador do dia filtrado é o único
+    // texto que sobra — é ele que responde "quantos tem na segunda?".
+    const titulo = dias.length
+      ? weekDays.filter(day => dias.includes(day.n)).map(day => day.nome).join(" · ")
+      : "Cadastros";
+    return shell(`${clientsDiaChips()}<label class="search">${icon("search", 18)}<input id="client-search" aria-label="Buscar clientes" placeholder="Buscar" value="${H.escape(state.query)}"></label><div class="section-title"><strong>${H.escape(titulo)}</strong><span>${list.length}${total > list.length ? ` de ${total}` : ""}</span></div>${firstLoad ? loading() : `<div class="list">${list.length ? list.map(c => clientCatalogCard(c)).join("") : empty(state.clientsError ? "Não foi possível carregar" : "Nenhum cliente", emptyText)}</div>`}${clientsAutoLoad()}`, `<button class="fab" data-action="new-client" aria-label="Novo cliente">${icon("plus", 22)}</button>`);
   }
   function productsScreen() {
     const all = state.products || [];
@@ -7296,6 +7334,10 @@
     const params = new URLSearchParams({ page: String(page), pageSize: "50" });
     const query = state.query.trim();
     if (query) params.set("query", query);
+    // Filtro por dia (05/08): vai pro SERVIDOR junto com a paginação. Filtrar no
+    // aparelho esconderia todo cliente que ainda não desceu — a lista tem 235.
+    const dias = state.clientsDias || [];
+    if (dias.length) params.set("diasSemana", dias.join(","));
     state.clientsLoading = true;
     state.clientsError = null;
     if (reset) {
@@ -8438,6 +8480,10 @@
     }
     if (state.screen === "clients") {
       await loadClients(true, true);
+      // O número dentro de cada chip de dia sai da MESMA contagem do traçar rota
+      // (agenda → dayCounts). Fire-and-forget e cacheado por sessão: a lista de
+      // clientes nunca espera pela contagem.
+      void loadDayCounts();
       if (boot) H.boot.step("logistica");
     }
     state.loading = false; state.refreshing = false; render();
@@ -9209,6 +9255,10 @@
     // Lista e busca são as MESMAS do seletor da rota: entrar em Clientes com o
     // termo herdado de lá mostraria a lista já filtrada. Chega sempre limpa.
     if (nextScreen === "clients" && (state.clientsPage === 0 || state.query !== "")) { state.query = ""; loadClients(true); }
+    // O número dentro dos chips de dia (05/08). Fora do `if` acima de propósito:
+    // a lista pode já estar carregada e a contagem não — aí a linha de dias
+    // ficaria com "…" pra sempre. `loadDayCounts` é idempotente por sessão.
+    if (nextScreen === "clients") void loadDayCounts();
   }
   function closeOverlay(kind) {
     if (state.closingOverlay) return Promise.resolve();
@@ -9439,6 +9489,20 @@
     if (action && action.indexOf("pss-") === 0) { await handlePasseioAction(action, target); return; }
     // MODO CADERNETA (04/08) — 1 gancho só; tudo mora no bloco CADERNETA no fim
     // do arquivo. O toque no cliente da lista do dia abre a MESMA folha de chegada.
+    // Chip de dia da tela Clientes: liga/desliga o dia e recarrega do servidor.
+    // Multi-seleção igual aos chips do traçar rota (SEG+QUA é uma pergunta
+    // legítima: "quem eu atendo no começo da semana?").
+    if (action === "clients-dia") {
+      const dia = Number(target.dataset.day);
+      if (!Number.isInteger(dia) || dia < 1 || dia > 7) return;
+      const atuais = state.clientsDias || [];
+      state.clientsDias = atuais.includes(dia) ? atuais.filter(d => d !== dia) : [...atuais, dia].sort((a, b) => a - b);
+      H.cache.set("logistica-clients-dias", state.clientsDias);
+      H.vibrate(8);
+      render();
+      void loadClients(true, true);
+      return;
+    }
     if (action === "caderneta-vender") {
       // Clique fantasma do toque-longo: soltar o dedo depois de segurar dispara
       // um click na MESMA linha. Sem esta trava a folha de venda abria por cima

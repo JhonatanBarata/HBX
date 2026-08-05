@@ -679,6 +679,12 @@ h3 { font-size: .95rem; }
    quebrava em 2 linhas e era cortado pelo vizinho. Duas opções, duas colunas. */
 .day-chips.rapida-modo, .day-chips.rapida-posicao { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .day-chips.rapida-modo .montagem-dia, .day-chips.rapida-posicao .montagem-dia { min-width: 0; text-align: center; }
+/* 05/08 — os 7 dias da tela Clientes. Mesma armadilha do bloco acima, ao
+   contrário: aqui são 7 chips DE VERDADE, e o `min-width: 62px` do
+   .montagem-dia (que nasceu pra linha ROLÁVEL do traçar rota) soma 470px numa
+   tela de 360. Numa grade de 7 colunas quem manda é a coluna, não o chip. */
+.day-chips.clients-dias { gap: 5px; margin-top: 0; }
+.day-chips.clients-dias .montagem-dia { min-width: 0; padding: 7px 2px; text-align: center; }
 .day-chip { min-height: 38px; border: 1px solid var(--line); border-radius: 11px; color: var(--muted); background: var(--surface-2); font-size: .62rem; font-weight: 800; }
 .day-chip.active { border-color: color-mix(in srgb, var(--brand) 55%, var(--line)); color: var(--on-brand); background: var(--brand); }
 .client-product-list .row-card { transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .16s ease; -webkit-user-select: none; user-select: none; }

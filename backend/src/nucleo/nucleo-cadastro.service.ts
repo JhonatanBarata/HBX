@@ -589,6 +589,29 @@ export class NucleoCadastroService {
     // Recorte por PAPEL (não por tipo): "Clientes" = mesma base, isCliente=true.
     const where: any = { companyId, isCliente: true };
     if (uf) where.uf = uf;
+
+    // FILTRO POR DIA DE ENTREGA (05/08, pedido do dono na tela Clientes do APK:
+    // "botões de filtro, de segunda a domingo, igual é feito no traçar rota").
+    //
+    // A fonte é `LogisticaPlanoEntrega` — a MESMA que o traçar rota lê. É lei da
+    // casa: o dia é do CLIENTE (visita/plano), NUNCA do produto; filtrar por
+    // ClienteProduto.diasSemana aqui daria uma 2ª verdade de dia, e é
+    // exatamente assim que a tela começa a discordar da rota.
+    //
+    // Vários dias = OU (quem entrega na segunda OU na quarta), igual aos chips
+    // do traçar rota. Dia inválido é IGNORADO, nunca vira lista vazia calada.
+    const dias = Array.from(
+      new Set(
+        (Array.isArray(params.diasSemana) ? params.diasSemana : [])
+          .map((d) => Math.trunc(Number(d)))
+          .filter((d) => Number.isInteger(d) && d >= 1 && d <= 7),
+      ),
+    );
+    if (dias.length) {
+      where.logisticaPlanosEntrega = {
+        some: { companyId, ativo: true, diaSemana: { in: dias } },
+      };
+    }
     if (query) {
       // Só trata como telefone/documento quando a consulta inteira é numérica
       // (aceitando a pontuação usual). Em "123teste", aproveitar apenas "123"
@@ -2479,6 +2502,9 @@ export interface ListEmpresasParams {
   uf?: string;
   page?: number;
   pageSize?: number;
+  // Só o listClientes usa: dias da semana (1=seg … 7=dom) do plano de entrega.
+  // Vazio/ausente = a base inteira, como sempre foi.
+  diasSemana?: number[];
 }
 
 export interface EmpresaListItem {
