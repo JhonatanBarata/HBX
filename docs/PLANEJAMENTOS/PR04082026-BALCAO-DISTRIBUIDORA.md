@@ -121,13 +121,59 @@ EstoqueMovimento += refVendaId?  — dedup @@unique([companyId, tipo, refVendaId
 | **B2** | Pix dinâmico + maquininha smart POS pelo adapter (stub `NAO_CONTRATADO` no ar desde o B1; 1ª real: MP Point — cobrança aparece na maquininha, webhook confirma na tela) | ⬜ dono confirma MP Point; conta MP do tenant |
 | **B3** | NFC-e da venda de balcão (nota-a-nota, o modo varejo que já tinha moradia no plano fiscal) | 🔒 F2b — provedor |
 
+## 3b. REVISÃO DO CICLO DO ESTOQUE (pedido do dono 04/08 — "estamos assim?")
+
+Verificado NO CÓDIGO (logistica-estoque.service.ts + estoque.service.ts). Estado REAL:
+
+| O que o dono descreveu | Hoje | Onde |
+|---|---|---|
+| Balcão dá baixa NA HORA | ✅ SIM | B1 — `SAIDA_EMISSAO` na venda |
+| .apk reserva ao CRIAR A ROTA | ❌ NÃO — a reserva é na **DECLARAÇÃO DA CARGA** (tela "estoque de carga": "carregou X no caminhão", ação manual, plano Advanced+) | `declararCarga` → `reservarCargaDia` |
+| Libera a reserva ao CANCELAR A ROTA | ❌ NÃO — a liberação é na **CONFERÊNCIA DO RETORNO** (fim do dia) e na redeclaração; cancelar rota não mexe em estoque | `conferirRetorno` → `liberarCargaDia` |
+| Baixa no reservado ao ENTREGAR | ✅ SIM | entrega confirmada → `BAIXA_ENTREGA` com a ref da carga (sai da "gaveta" da reserva do dia) |
+
+**Fatia B4 — AMARRAR A RESERVA AO CICLO DA ROTA (planejada, NÃO executada):**
+- Criar/iniciar a rota (admin ou .apk) → RESERVA automática dos itens previstos da rota
+  (EntregaItem.qtdPrevista), na MESMA gaveta `refCargaDia` de hoje.
+- Cancelar a rota → LIBERA_RESERVA do remanescente da gaveta.
+- Entrega confirmada → baixa (já existe, intocada).
+- ⚠️ ARMADILHA CENTRAL a resolver no desenho: HOJE a declaração manual da carga também
+  reserva — rota reservando junto = **DUPLA RESERVA** do mesmo dia. A fatia precisa cravar
+  fonte única (rota declara a carga automaticamente? declaração manual vira exceção/ajuste?).
+  Decisão de produto COM o dono antes de codar. Conferência do retorno continua existindo
+  (é o "bateu/sobrou/faltou" — snapshot imutável).
+
+## 4b. APP INSTALÁVEL DO BALCÃO — .exe (pedido do dono 04/08; irmão do .apk)
+
+> "o app vai ter q ser empacotado tudo q vai ser necessário para usar o HBX pelo .exe"
+
+**Fatia B5 — HBX Desktop (.exe):** mesmo desenho do .apk (casca que carrega o HBX
+hospedado), empacotado pra Windows:
+- Wrapper desktop (decisão técnica Electron × Tauri — recomendação na hora de executar;
+  Tauri = binário menor/menos RAM, Electron = auto-update maduro/ecossistema) apontando
+  pro HBX; abre DIRETO no /balcao (modo caixa), com a casa toda acessível.
+- O que o .exe dá que o navegador não dá: atalho na área de trabalho + abrir no boot,
+  tela cheia/kiosk (caixa não "perde" a aba), leitor de código de barras sempre capturado,
+  e a PORTA pra impressão térmica silenciosa (ESC/POS — a moradia da térmica muda pra cá).
+- Auto-update (o publish do HBX já atualiza o web; o wrapper se atualiza sozinho —
+  padrão electron-updater/tauri-updater).
+- 🔒 GATES do dono: certificado de code-signing Windows (sem assinar, SmartScreen
+  assusta o cliente — custo anual, decisão de compra) · instalador hospedado onde
+  (site/painel).
+- Entrega em 2 passos: B5a = wrapper funcional sem assinatura (uso interno/beta);
+  B5b = assinado + auto-update + página de download.
+
 ## 4. Pendências COM MORADIA (lei: sem moradia = nunca)
 
+- **B4 — reserva amarrada ao ciclo da ROTA** (seção 3b) — ⬜ decisão do dono sobre a
+  fonte única da reserva (rota × declaração manual da carga) ANTES de codar.
+- **B5 — HBX Desktop .exe** (seção 4b) — 🔒 gates: code-signing + onde hospedar o instalador.
 - **UNIFICAÇÃO Product×EstoqueProduto → cadastro único "Produtos"** (pilar 1 da decisão 12) —
   fase própria com pesquisa profunda + plano dedicado ANTES de codar; a logística usa o
   Product dela em rota/entrega/carga em produção — migração tem que ser aditiva e por etapas.
 - **TEF de cabo** (SiTef/PayGo) — só se cliente grande exigir; até lá, smart POS cobre.
-- **Impressora térmica ESC/POS** — se tenant pedir; v1 imprime do navegador/manda no Whats.
+- **Impressora térmica ESC/POS** — moradia mudou pro B5 (.exe imprime silencioso); até lá,
+  v1 imprime do navegador/manda no Whats.
 - **Caixa por operador** (abertura/fechamento/sangria) — quando houver tenant com 2+ atendentes.
 - **Multi-balcão simultâneo** — junto com caixa por operador.
 
