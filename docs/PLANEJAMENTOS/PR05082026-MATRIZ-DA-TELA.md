@@ -5,7 +5,7 @@ com o q for devido. (…) a matriz: PRESSIONAR PRA EXCLUIR, pressionar o da esqu
 arrastar… PREÇOS, pagou, pix, marcou, cartão, mesma coisa. (…) me ajuda criar um padrão,
 para não acontecer de novo isso? por exemplo o excluir, isso tinha q vir junto."
 
-**Status:** BRAINSTORM APROVÁVEL — aguarda GO do dono. Nada aqui foi implementado.
+**Status:** 🟢 GO do dono 05/08 (mock a mock). Padrão cravado na seção 2b. M0 em execução.
 
 ---
 
@@ -47,6 +47,51 @@ entrega o resto pronto: hold com vermelho progressivo, guard de clique fantasma,
 confirmação, arraste com transform, filtros de largura certa, vocabulário do dinheiro.
 É por isso que "o excluir vem junto": **não dá pra desenhar uma linha apagável sem
 ganhar o gesto de graça.**
+
+## 2b. O PADRÃO CRAVADO (GO 05/08, mock a mock — palavras do dono são literais)
+
+### Lei 8 — TELEGRAMA (a densidade que faltava nas 7 Leis)
+
+1. **Coisa antes de conta.** `Galão 20 Litros 4×11,00 = R$44,00` — nome puxa, número fecha.
+2. **`R$` uma vez, no ÚLTIMO valor** (correção literal do dono: "só movimento o R$ para o
+   último valor"). Unitário sem R$.
+3. **Rótulo que se deduz, morre**: Un, Total:, Ficou, dois-pontos depois de palavra.
+4. **1 item = conta cheia** (`Nome 1×11,00 = R$11,00`) · **2+ itens = só quantidades**
+   (`Nome 6× · Nome2 2× = R$82,00`) · sem financeiro/preço = `Nome 2×`.
+5. **Um desfecho = uma palavra**, na ponta direita da 1ª linha: Dinheiro · Pix · Cartão ·
+   **Marcou** (era "Ficou Pendente" — morto pelo dono). Botão manda no infinitivo (Marcar),
+   linha conta no passado (Marcou).
+6. Nome trunca com `…`; a conta nunca quebra. Números com `tabular-nums` (já é token).
+
+### O bloco do dinheiro na linha (correções 05/08, à tarde)
+
+```
+[2] Maik · Casa                     Marcou
+    Anterior R$27,00                ← o que já devia ANTES de hoje (só se > 0)
+    Galão 20 Litros 1×11,00 = R$11,00
+    Total Marcado R$38,00           ← Anterior+Agora; SÓ quando marcou hoje E havia Anterior
+```
+- Pagou hoje (Pix/Dinheiro/Cartão) mas tem pendência antiga → aparece SÓ `Anterior R$X`.
+- Cliente ainda não atendido com pendência → SÓ `Anterior R$X`.
+- **"Sem repetir informações"** (dono): valor que não soma nada não aparece.
+- Tela Clientes (sem "hoje"): o saldo do cliente chama **`Total Marcado R$X`**, só pra quem tem.
+- Vocabulário final: **Anterior** (antes de hoje) · **Total Marcado** (consolidado) ·
+  **Marcado** (linha do fechamento = o que marcou NO dia) · **Marcou/Pagou** (desfechos).
+
+### Decisões fechadas mock a mock
+
+- **Chips da caderneta**: `Todos / Pagou / Marcou` (chaves internas todos/pago/pendente ficam).
+- **Fechamento**: grade 2×2 (Dinheiro·Cartão / Pix·Marcado) + Total na barra; R$ só no Total.
+- **Alça = o NÚMERO, em toda tela de ordem do usuário.** SEM ícone de pontinhos (dono: "se
+  fizer, tem q ser em todos" — então não faz; o número já é a alça cravada da opção A).
+  Segurar o corpo = excluir, IGUAL em todas.
+- **Conferência lista SÓ problema** (dono: "o q está ok não aparece — não me vá fazer cagada,
+  demorou pra ficar bom"). O comportamento atual é LEI; a matriz não encosta nisso.
+- **Rotas salvas TEM a caderneta** ("Caderneta de <dia>") — a linha() precisa vesti-la também.
+- **Telas web (balcão/logística/clientes) são ESPELHO do celular**: mesmas informações e
+  MESMOS acessos de edição; o desenho pode diferir, o dado e o poder de editar NÃO.
+- Folha da venda: conta vira `Anterior / Venda / Total Marcado` (mesma língua da linha).
+- Rota do dia (M3): o selo "Entregue" morre — vira a palavra do desfecho (Pix/Marcou/…).
 
 ### As 7 Leis da Matriz
 

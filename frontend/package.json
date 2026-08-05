@@ -11,7 +11,7 @@
     "build": "node ./scripts/run-next-build.js",
     "start": "next start -H 0.0.0.0 -p 3001",
     "prelint": "node ./scripts/apply-vendas-detail-card-polish.mjs",
-    "lint": "eslint && node ./scripts/check-pele.mjs"
+    "lint": "eslint && node ./scripts/check-pele.mjs && node ./scripts/check-matriz.mjs"
   },
   "dependencies": {
     "flag-icons": "^7.5.0",

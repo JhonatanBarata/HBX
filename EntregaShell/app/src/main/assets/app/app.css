@@ -2044,12 +2044,8 @@ html[data-theme="dark"] .pss-montagem-dica { color: var(--brand); }
    VIZINHOS — o card do dedo tem de acompanhar o toque sem atraso nenhum. */
 .caderneta-lista .stop-card { transition: transform .14s ease; }
 .caderneta-lista .stop-card.is-arrastando { position: relative; z-index: 3; transition: none; box-shadow: 0 10px 24px rgba(0, 0, 0, .18); }
-.caderneta-desfecho { color: var(--success); font-weight: 800; }
-.caderneta-desfecho.is-devendo { color: var(--warning); }
-/* "Deve: R$ X" — dívida ANTERIOR do cliente, no topo do card. --warning (falta
-   receber), nunca --danger: o vermelho da casa BLOQUEIA, e dever não bloqueia
-   venda nenhuma na caderneta. */
-.caderneta-deve { color: var(--warning); font-weight: 800; }
+/* .caderneta-desfecho e .caderneta-deve MORRERAM em 05/08 — viraram
+   .mtz-desfecho / .mtz-conta no bloco MATRIZ (fim do arquivo). */
 /* CADERNETA 7 DIAS (05/08) — cabeçalho do dia visto ("Quarta · hoje" + data),
    histórico no pé (só dias com venda), chip "+ DIA" da sugestão e o "Sumiu".
    Tudo por token; --warning nos avisos (atenção que não bloqueia, Lei 2c). */
@@ -2084,3 +2080,27 @@ html[data-theme="dark"] .pss-montagem-dica { color: var(--brand); }
    palavra é o que importa. */
 .caderneta-pagto { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
 .caderneta-pagto .chegada-btn { padding-inline: 2px; font-size: .92rem; }
+
+/* MATRIZ (PR05082026, GO 05/08) — a linha canônica que toda lista veste.
+   Tudo por token; nada de hex novo. Números com tabular-nums pra coluna de
+   dinheiro alinhar sozinha (mesmo recurso que a recarga já usa). */
+/* Título + desfecho na MESMA linha: nome trunca com …, o desfecho nunca sai
+   da ponta direita (Lei 8 — um desfecho = uma palavra). */
+.mtz-topo { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+.mtz-topo strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.mtz-desfecho { flex: none; color: var(--success); font-weight: 800; font-size: .72rem; }
+/* "Marcou" usa --warning (falta receber), nunca --danger: marcar não bloqueia
+   nada, é a caderneta funcionando. */
+.mtz-desfecho.is-marcou { color: var(--warning); }
+.mtz-conta { font-variant-numeric: tabular-nums; }
+/* Anterior (o que já devia) é contexto discreto; Total Marcado (Anterior+Agora)
+   é o número que muda a conversa na porta — ele leva o --warning. */
+.mtz-anterior { color: var(--muted); }
+.mtz-total-marcado { color: var(--warning); font-weight: 800; }
+/* 1 item: nome trunca, a conta NUNCA quebra (Lei 8). 2+ itens correm soltos. */
+.mtz-itens.is-um { display: flex; align-items: baseline; gap: 5px; min-width: 0; }
+.mtz-itens.is-um .mtz-nome { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.mtz-itens .mtz-valor, .mtz-itens.is-um b { flex: none; white-space: nowrap; }
+/* Fechamento em grade 2×2 (mock aprovado): valores sem R$, o R$ mora no Total. */
+.mtz-fechamento-grade { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 18px; }
+.mtz-fechamento-grade .chegada-conta-linha b { font-variant-numeric: tabular-nums; }

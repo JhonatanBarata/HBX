@@ -344,10 +344,9 @@
   // 22/07 — 8º hold: linha do histórico do cliente (Lei 1 — excluir é segurar,
   // nunca lixeira). Tem confirmação porque a linha já está persistida no servidor.
   let historicoHold = null;
-  // MODO CADERNETA (05/08) — 9º hold: linha do dia com venda registrada. Tem
-  // confirmação porque desfaz DINHEIRO (entrega + cobrança + histórico).
-  let cadernetaHold = null;
-  let ignoredCadernetaClickId = null;
+  // MODO CADERNETA (05/08) — o 9º hold MIGROU pra matriz (PR05082026-MATRIZ):
+  // segurar/arrastar da caderneta agora é HBXMatriz.gestos (registro no fim
+  // dos listeners). Cada tela migrada apaga a sua cópia da máquina.
   let dayPreviewRequestId = 0;
   let navMotionTimer = null;
   let nextStopTimer = null;
@@ -5367,7 +5366,7 @@
     const attrs = selection
       ? `type="button" data-action="leitura-escolher-cliente" data-client-id="${H.escape(client.id)}" data-selection-search="${H.escape(searchText)}"${opts.hidden ? " hidden" : ""}`
       : `data-client="${H.escape(client.id)}"`;
-    return `<button class="lead-card ${pendingHasBlocking(pending) ? "has-pending" : ""}${selection ? " hbx-selection-item lrt-client-row" : ""}${distance !== null && distance <= 200 ? " lrt-client-near" : ""}" ${attrs}><div class="avatar">${H.escape(initials(name))}</div><div class="card-main"><strong>${H.escape(name)}</strong><span>${H.escape(subtitle)}</span>${selection ? "" : `<div class="client-balance">${configFlag("moduloFinanceiroAtivo") ? `<small>Saldo ${H.money(Number(client.debitoAtual || 0))}</small>` : ""}${clientMissingLabels(client)}</div>`}</div>${trailing}</button>`;
+    return `<button class="lead-card ${pendingHasBlocking(pending) ? "has-pending" : ""}${selection ? " hbx-selection-item lrt-client-row" : ""}${distance !== null && distance <= 200 ? " lrt-client-near" : ""}" ${attrs}><div class="avatar">${H.escape(initials(name))}</div><div class="card-main"><strong>${H.escape(name)}</strong><span>${H.escape(subtitle)}</span>${selection ? "" : `<div class="client-balance">${configFlag("moduloFinanceiroAtivo") && Number(client.debitoAtual || 0) > 0 ? `<small class="mtz-conta mtz-total-marcado">${HBXMatriz.rotulos.conta.totalMarcado} ${HBXMatriz.rs(Number(client.debitoAtual))}</small>` : ""}${clientMissingLabels(client)}</div>`}</div>${trailing}</button>`;
   }
   function productCatalogCard(product, options) {
     const opts = options || {};
@@ -5862,14 +5861,19 @@
         // Os quatro desfechos passam a ser o MESMO botão, no MESMO tamanho, na
         // mesma grade — antes eram 3 verdes numa linha e um quarto solto,
         // maior, embaixo, como se fosse outra coisa.
-        ? `<div class="chegada-acoes"><div class="caderneta-pagto"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago-metodo" data-metodo="dinheiro" ${state.deliveryConfirming ? "disabled" : ""}>Dinheiro</button><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago-metodo" data-metodo="pix" ${state.deliveryConfirming ? "disabled" : ""}>Pix</button><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago-metodo" data-metodo="cartao" ${state.deliveryConfirming ? "disabled" : ""}>Cartão</button><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>Marcar</button></div>${rodapeSem}</div>`
+        // Os rótulos dos 4 vêm do mapa ÚNICO da matriz (Lei 4 — dinheiro é um
+        // bloco só): mudar a palavra num lugar muda em todas as telas.
+        ? `<div class="chegada-acoes"><div class="caderneta-pagto">${["dinheiro", "pix", "cartao"].map(m => `<button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago-metodo" data-metodo="${m}" ${state.deliveryConfirming ? "disabled" : ""}>${HBXMatriz.rotulos.botoes[m]}</button>`).join("")}<button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${HBXMatriz.rotulos.botoes.marcar}</button></div>${rodapeSem}</div>`
         : `<div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Entregue e quitou</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue, marcar</button>${rodapeSem}</div>${editando ? "" : `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-detail">Ver detalhes</button>`}`
       : venda
         ? `<div class="delivery-hero-actions"><button class="btn btn-primary delivery-confirm delivery-big-btn" type="button" data-action="confirm-entregue-simples" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button></div><button class="link-btn delivery-detail-link" type="button" data-action="caderneta-cadastro">Cadastro</button>`
         : `<div class="delivery-hero-actions"><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="delivery-not-delivered">${icon("close", 20)} Não entregue</button><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="confirm-sem-atendimento">${icon("phone", 20)} Não atendeu</button><button class="btn btn-primary delivery-confirm delivery-big-btn" type="button" data-action="confirm-entregue-simples" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button></div>`;
+    // A conta fala a língua da MATRIZ (GO 05/08): Anterior (o que já devia) /
+    // Venda (a de agora) / Total Marcado (Anterior+Agora). R$ uma vez por
+    // valor de conta fechada; a mesma língua da linha da caderneta.
     const conta = !financeiroAtivo ? "" : cobrancaSimples
-      ? `<div class="chegada-conta"><div class="chegada-conta-linha chegada-conta-total"><span>Marcado</span><b>${H.money(valorAntigo + valorAgora)}</b></div></div>`
-      : `<div class="chegada-conta"><div class="chegada-conta-linha"><span>Valor antigo</span><b>${H.money(valorAntigo)}</b></div><div class="chegada-conta-linha"><span>Valor entrega</span><b>${H.money(valorAgora)}</b></div><div class="chegada-conta-linha chegada-conta-total"><span>Valor total</span><b>${H.money(valorAntigo + valorAgora)}</b></div></div>`;
+      ? `<div class="chegada-conta"><div class="chegada-conta-linha chegada-conta-total"><span>${HBXMatriz.rotulos.conta.totalMarcado}</span><b>${HBXMatriz.rs(valorAntigo + valorAgora)}</b></div></div>`
+      : `<div class="chegada-conta"><div class="chegada-conta-linha"><span>${HBXMatriz.rotulos.conta.anterior}</span><b>${HBXMatriz.num(valorAntigo)}</b></div><div class="chegada-conta-linha"><span>${HBXMatriz.rotulos.conta.venda}</span><b>${HBXMatriz.num(valorAgora)}</b></div><div class="chegada-conta-linha chegada-conta-total"><span>${HBXMatriz.rotulos.conta.totalMarcado}</span><b>${HBXMatriz.rs(valorAntigo + valorAgora)}</b></div></div>`;
     return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet delivery-sheet-simple"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div></div><button class="close" type="button" data-action="close-sheet">${icon("close", 18)}</button></div><div class="delivery-hero"><h1 class="delivery-hero-name">${editando ? "Editando" : "Chegou em"} <b>${H.escape(c.nome || "Cliente")}</b></h1>${c.observacoes ? `<p class="subtitle delivery-hero-obs">${H.escape(c.observacoes)}</p>` : ""}<div class="chegada-box"><div class="chegada-lista">${linhas}</div>${picker}</div>${conta}${venda ? cadernetaNumeroCampo() : ""}</div>${acoes}</section></div>`;
   }
   // Financeiro OFF reutiliza a chegada já existente, com produto, quantidade,
@@ -9550,7 +9554,7 @@
       // um click na MESMA linha. Sem esta trava a folha de venda abria por cima
       // da confirmação de apagar (mesmo guard dos outros holds).
       const chaveTocada = target.dataset.cadernetaChave;
-      if (ignoredCadernetaClickId && ignoredCadernetaClickId === chaveTocada) { ignoredCadernetaClickId = null; return; }
+      if (window.HBXMatriz && HBXMatriz.consumirCliqueFantasma(chaveTocada)) return;
       cadernetaVenderChave(chaveTocada);
       return;
     }
@@ -10825,30 +10829,9 @@
     // input de texto; segurar nele é seleção de texto do teclado, não exclusão).
     // Linha do histórico (modal "historico"): segurar 950ms abre a confirmação de
     // apagar. Mesmo gesto dos outros 7 holds.
-    // MODO CADERNETA (05/08) — segurar a linha do dia apaga a venda errada.
-    // Mesma máquina dos outros 8 holds. Só arma na tela da caderneta e fora de
-    // qualquer folha/popup: a lista é a única dona deste gesto.
-    // ARRASTE PELO NÚMERO (05/08): pega na hora, sem os 950ms do apagar — é o
-    // que separa os dois gestos pro dedo, não só pro código.
-    const cadernetaAlca = event.target.closest("[data-caderneta-arrastar]");
-    if (cadernetaAlca && event.touches.length === 1 && cadernetaTelaAtiva() && !state.modal && !state.selected) {
-      if (cadernetaArrastoIniciar(cadernetaAlca.dataset.cadernetaArrastar, event.touches[0])) {
-        ignoredCadernetaClickId = cadernetaAlca.dataset.cadernetaArrastar;
-      }
-    }
-    // ZONA DE EXCLUSÃO DO APAGAR (05/08): o dedo no NÚMERO é arraste, não
-    // exclusão. Sem isto os dois gestos nasciam do mesmo toque — o card ficava
-    // vermelho durante o arraste e os 950ms iniciais eram idênticos. Mesmo
-    // padrão que a seta ↑↓ do card de produto e o campo de preço da leitura já
-    // usam pra não armar o hold do vizinho.
-    const cadernetaRow = event.target.closest("[data-caderneta-arrastar]") ? null : target.closest("[data-caderneta-hold]");
-    if (cadernetaRow && event.touches.length === 1 && cadernetaTelaAtiva() && !state.modal && !state.selected) {
-      ignoredCadernetaClickId = null;
-      const touch = event.touches[0]; const hold = { id: cadernetaRow.dataset.cadernetaHold, chave: cadernetaRow.dataset.cadernetaChave || "", el: cadernetaRow, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
-      hold.el.classList.add("is-hold-arming");
-      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
-      cadernetaHold = hold;
-    }
+    // MODO CADERNETA (05/08) — segurar/arrastar da caderneta MIGROU pra
+    // HBXMatriz.gestos (data-matriz-apagar / data-matriz-alca): a zona de
+    // exclusão da alça, os 950ms e o guard do clique fantasma moram lá.
     const historicoRow = target.closest("[data-historico-hold]");
     if (historicoRow && event.touches.length === 1 && state.modal === "historico") {
       const touch = event.touches[0]; const hold = { id: historicoRow.dataset.historicoHold, el: historicoRow, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
@@ -10880,8 +10863,6 @@
     if (lrtParadaHold && (Math.abs(touch.clientX - lrtParadaHold.x) > 12 || Math.abs(touch.clientY - lrtParadaHold.y) > 12)) { clearTimeout(lrtParadaHold.timer); lrtParadaHold.el.classList.remove("is-hold-arming", "is-holding"); lrtParadaHold = null; }
     if (lrtItemHold && (Math.abs(touch.clientX - lrtItemHold.x) > 12 || Math.abs(touch.clientY - lrtItemHold.y) > 12)) { clearTimeout(lrtItemHold.timer); lrtItemHold.el.classList.remove("is-hold-arming", "is-holding"); lrtItemHold = null; }
     if (historicoHold && (Math.abs(touch.clientX - historicoHold.x) > 12 || Math.abs(touch.clientY - historicoHold.y) > 12)) { clearTimeout(historicoHold.timer); historicoHold.el.classList.remove("is-hold-arming", "is-holding"); historicoHold = null; }
-    if (cadernetaHold && (Math.abs(touch.clientX - cadernetaHold.x) > 12 || Math.abs(touch.clientY - cadernetaHold.y) > 12)) { clearTimeout(cadernetaHold.timer); cadernetaHold.el.classList.remove("is-hold-arming", "is-holding"); cadernetaHold = null; }
-    if (cadernetaArrasto) { cadernetaArrastoMover(touch); return; }
     if (pssHold && (Math.abs(touch.clientX - pssHold.x) > 12 || Math.abs(touch.clientY - pssHold.y) > 12)) { clearTimeout(pssHold.timer); pssHold.el.classList.remove("is-hold-arming", "is-holding"); pssHold = null; }
     if (touchStart && touchStart.currentStopId) {
       const current = document.querySelector(`[data-route-current="${touchStart.currentStopId}"]`);
@@ -10889,33 +10870,10 @@
     }
   }, { passive: true });
   app.addEventListener("touchend", event => {
-    if (cadernetaArrasto) { cadernetaArrastoSoltar(false); return; }
     if (pssHold) {
       clearTimeout(pssHold.timer);
       const hold = pssHold; pssHold = null; hold.el.classList.remove("is-hold-arming", "is-holding");
       if (hold.triggered) { ignoredPssClickId = hold.id; passeioHoldExcluir(hold.id); return; }
-    }
-    if (cadernetaHold) {
-      clearTimeout(cadernetaHold.timer);
-      const hold = cadernetaHold; cadernetaHold = null; hold.el.classList.remove("is-hold-arming", "is-holding");
-      if (hold.triggered) {
-        // O guard do clique fantasma vale pela CHAVE da linha (é ela que o
-        // clique de venda carrega) — sem isso soltar o dedo abria a folha de
-        // venda por cima da confirmação de apagar.
-        ignoredCadernetaClickId = hold.chave;
-        const linha = cadernetaLinhaPorChave(hold.chave);
-        state.confirmation = {
-          type: "caderneta-apagar-venda",
-          itemId: hold.id,
-          title: "Apagar esta entrega?",
-          message: `${(linha && linha.nome) || "Este cliente"} — sai da lista de hoje, do fechamento e do histórico.`,
-          confirmLabel: "Apagar",
-          danger: true,
-          icon: "sales",
-        };
-        render();
-        return;
-      }
     }
     if (historicoHold) {
       clearTimeout(historicoHold.timer);
@@ -11027,8 +10985,34 @@
       return;
     }
   }, { passive: true });
-  app.addEventListener("touchcancel", () => { if (rmeParadaHold) { clearTimeout(rmeParadaHold.timer); rmeParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeParadaHold = null; if (rmeItemHold) { clearTimeout(rmeItemHold.timer); rmeItemHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeItemHold = null; if (routeModeloHold) { clearTimeout(routeModeloHold.timer); routeModeloHold.el.classList.remove("is-hold-arming", "is-holding"); } routeModeloHold = null; if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-hold-arming", "is-holding"); } routeStopHold = null; if (productHold) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); } productHold = null; if (lrtParadaHold) { clearTimeout(lrtParadaHold.timer); lrtParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtParadaHold = null; if (lrtItemHold) { clearTimeout(lrtItemHold.timer); lrtItemHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtItemHold = null; if (historicoHold) { clearTimeout(historicoHold.timer); historicoHold.el.classList.remove("is-hold-arming", "is-holding"); } historicoHold = null; if (cadernetaHold) { clearTimeout(cadernetaHold.timer); cadernetaHold.el.classList.remove("is-hold-arming", "is-holding"); } cadernetaHold = null; if (cadernetaArrasto) cadernetaArrastoSoltar(true); document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
-  app.addEventListener("contextmenu", event => { if (event.target.closest("[data-client],[data-client-product-id],[data-route-stop],[data-product-id],[data-caderneta-hold]")) event.preventDefault(); });
+  app.addEventListener("touchcancel", () => { if (rmeParadaHold) { clearTimeout(rmeParadaHold.timer); rmeParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeParadaHold = null; if (rmeItemHold) { clearTimeout(rmeItemHold.timer); rmeItemHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeItemHold = null; if (routeModeloHold) { clearTimeout(routeModeloHold.timer); routeModeloHold.el.classList.remove("is-hold-arming", "is-holding"); } routeModeloHold = null; if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-hold-arming", "is-holding"); } routeStopHold = null; if (productHold) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); } productHold = null; if (lrtParadaHold) { clearTimeout(lrtParadaHold.timer); lrtParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtParadaHold = null; if (lrtItemHold) { clearTimeout(lrtItemHold.timer); lrtItemHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtItemHold = null; if (historicoHold) { clearTimeout(historicoHold.timer); historicoHold.el.classList.remove("is-hold-arming", "is-holding"); } historicoHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
+  app.addEventListener("contextmenu", event => { if (event.target.closest("[data-client],[data-client-product-id],[data-route-stop],[data-product-id]")) event.preventDefault(); });
+  // MATRIZ (PR05082026) — UM registro de gesto pra linha canônica: segurar =
+  // excluir (950ms + confirmação, porque desfaz DINHEIRO), nº = alça do
+  // arraste. A tela só DECLARA os callbacks; a máquina mora no matriz.js.
+  HBXMatriz.gestos({
+    raiz: app,
+    podeGesto: () => cadernetaTelaAtiva() && !state.modal && !state.selected,
+    arrasto: {
+      iniciar: (chave, toque) => cadernetaArrastoIniciar(chave, toque),
+      mover: toque => cadernetaArrastoMover(toque),
+      soltar: cancelado => cadernetaArrastoSoltar(cancelado),
+      ativo: () => !!cadernetaArrasto,
+    },
+    apagar: (entregaId, chave) => {
+      const linha = cadernetaLinhaPorChave(chave);
+      state.confirmation = {
+        type: "caderneta-apagar-venda",
+        itemId: entregaId,
+        title: "Apagar esta entrega?",
+        message: `${(linha && linha.nome) || "Este cliente"} — sai da lista de hoje, do fechamento e do histórico.`,
+        confirmLabel: "Apagar",
+        danger: true,
+        icon: "sales",
+      };
+      render();
+    },
+  });
   app.addEventListener("input", event => {
     if (event.target.id === "recados-composer") {
       state.recadoRespostaDraft = event.target.value;
@@ -11879,19 +11863,21 @@
 
   // ---- a tela do dia (medidor + lista + fechamento) -------------------------
   /**
-   * FILTRO DA PÁGINA (05/08, ordem do dono): "Todos {qtd} / Devendo {qtd} /
-   * Pago {qtd}". A régua é o DESFECHO da venda, não o saldo do cliente:
-   *   • Pago    = recebeu na hora (dinheiro, Pix ou cartão);
-   *   • Devendo = ficou pendurado hoje;
-   *   • Todos   = a página inteira, incluindo quem ainda não foi atendido —
+   * FILTRO DA PÁGINA: "Todos / Pagou / Marcou" (rótulos da MATRIZ, GO 05/08).
+   * A régua é o DESFECHO da venda, não o saldo do cliente:
+   *   • Pagou  = recebeu na hora (dinheiro, Pix ou cartão);
+   *   • Marcou = ficou pendurado hoje;
+   *   • Todos  = a página inteira, incluindo quem ainda não foi atendido —
    *     que de propósito não entra em nenhum dos outros dois: sem venda não há
-   *     desfecho, e classificá-lo como "devendo" seria inventar dívida.
+   *     desfecho, e classificá-lo como marcado seria inventar dívida.
+   * As chaves internas ("pendente", "pago") são só do código; o `receiptMethod`
+   * do banco continua 'fiado' — trocar o DADO quebraria histórico e fechamento.
    */
-  // VOCABULÁRIO CRAVADO PELO DONO (05/08): não existe "fiado", "deve" nem
-  // "devendo" em tela. O que existe é MARCAR / MARCADO / PENDENTE. As chaves
-  // internas ("pendente", "pago") são só do código; o `receiptMethod` do banco
-  // continua 'fiado' — trocar o DADO quebraria histórico e fechamento.
-  const CADERNETA_FILTROS = [["todos", "Todos"], ["pendente", "Pendente"], ["pago", "Pago"]];
+  const CADERNETA_FILTROS = [
+    ["todos", HBXMatriz.rotulos.filtros.todos],
+    ["pago", HBXMatriz.rotulos.filtros.pago],
+    ["pendente", HBXMatriz.rotulos.filtros.pendente],
+  ];
   function cadernetaDesfechoDaLinha(linha) {
     if (linha.status !== "entregue") return "";
     // Só método IMEDIATO é "pago" — a mesma régua do Fechamento, que soma em
@@ -11911,9 +11897,14 @@
       const desfecho = cadernetaDesfechoDaLinha(linha);
       if (desfecho) contagem[desfecho] += 1;
     });
-    return `<div class="day-chips caderneta-filtros">${CADERNETA_FILTROS.map(([valor, rotulo]) =>
-      `<button type="button" class="montagem-dia${filtro === valor ? " active" : ""}" data-action="caderneta-filtro" data-filtro="${valor}" aria-pressed="${filtro === valor}"><strong>${rotulo}</strong><small>${contagem[valor]}</small></button>`,
-    ).join("")}</div>`;
+    // Lei 7 da Matriz: ninguém mais escreve grade de chip (o min-width de 62px
+    // já estourou esta tela uma vez).
+    return HBXMatriz.chips(
+      CADERNETA_FILTROS.map(([valor, rotulo]) => ({ valor, rotulo, contagem: contagem[valor] })),
+      filtro,
+      "caderneta-filtro",
+      "caderneta-filtros",
+    );
   }
   function cadernetaConteudo() {
     const lista = cadernetaLista();
@@ -12068,56 +12059,23 @@
 
   // O selo da linha atendida DIZ O DESFECHO, não só "Entregue" (05/08): sete
   // "Entregue" iguais em cima de um fechamento que dizia "Pix R$11" não deixavam
-  // ninguém saber quem pagou. Fiado é o único que não é verde — é o que falta
+  // ninguém saber quem pagou. "Marcou" é o único que não é verde — é o que falta
   // receber. Sem financeiro, o servidor não manda método e volta o "Entregue".
-  const CADERNETA_METODO_ROTULO = { dinheiro: "Dinheiro", pix: "Pix", cartao: "Cartão", fiado: "Ficou Pendente" };
+  // Vocabulário e formato agora são da MATRIZ (Lei 8 — Telegrama): a caderneta
+  // só aponta pro mapa único; mudar palavra de dinheiro é mudar no matriz.js.
+  const CADERNETA_METODO_ROTULO = HBXMatriz.rotulos.metodo;
   /**
-   * A linha do produto no formato que o dono cravou (05/08, literal):
-   *   "1× Galão 20 Litros - Un R$ 11,00 = Total: R$ 11,00"
-   * Sem financeiro (ou sem preço conhecido) sobra só "1× Galão 20 Litros" —
-   * número de dinheiro não se inventa. O unitário de quem não enxerga catálogo
-   * sai por RATEIO do total da entrega, a mesma conta do unitPriceFor.
-   */
-  function cadernetaLinhaItens(linha) {
-    const itens = linha.itens || [];
-    if (!itens.length) return "";
-    const financeiro = configFlag("moduloFinanceiroAtivo");
-    const somaQtd = itens.reduce((s, x) => s + Math.max(0, Number(x.qtd) || 0), 0);
-    return itens.map(x => {
-      const qtd = Math.max(1, Number(x.qtd) || 1);
-      const nome = x.nome || "item";
-      if (!financeiro) return `${qtd}× ${nome}`;
-      let unit = Number.isFinite(Number(x.valorUnit)) ? Number(x.valorUnit) : null;
-      // 🔴 ZERO NÃO É PREÇO, É "NÃO SEI" (05/08, cena do dono: venda de R$ 22
-      // aparecendo como "Un R$ 0,00 = Total: R$ 0,00"). O servidor mandava zero
-      // fixo na entrega de 1 produto; consertei lá, e aqui fica o freio pro
-      // aparelho que ainda fala com servidor velho. Zero COM total zerado
-      // continua valendo — cortesia/brinde é preço legítimo.
-      if ((unit === null || unit === 0) && linha.total != null && Number(linha.total) > 0 && somaQtd > 0) {
-        unit = Number(linha.total) / somaQtd;
-      }
-      if (unit === null) return `${qtd}× ${nome}`;
-      return `${qtd}× ${nome} - Un ${H.money(unit)} = Total: ${H.money(unit * qtd)}`;
-    }).join(" · ");
-  }
-  /**
-   * "Deve: R$ X" — o que o cliente já devia, do resumo do dia. Só aparece pra
-   * QUEM DEVE (ordem do dono: "{Devedor?} S/N? Caso sim: Deve: {valor}"): linha
-   * de dívida em cliente sem dívida é ruído em cima do que importa.
-   */
-  /**
-   * "Marcado: R$ X" — o que o cliente já devia ANTES desta venda.
+   * "Anterior R$X" — o que o cliente já devia ANTES desta venda.
    *
    * 🔴 05/08 — o número estava somando a venda de HOJE. O saldo que o servidor
-   * manda é o TOTAL em aberto, e a venda pendente de hoje já entrou nele: o
-   * Maik aparecia "Marcado: R$ 27,00" logo acima de "= Total: R$ 27,00", como
-   * se fossem duas coisas, quando eram a MESMA. Aqui a venda desta linha sai da
-   * conta — em cima fica o passado, embaixo fica o de hoje, e os dois se somam
-   * na cabeça sem contar nada duas vezes.
+   * manda é o TOTAL em aberto, e a venda pendente de hoje já entrou nele. Aqui
+   * a venda desta linha sai da conta — em cima fica o passado (Anterior),
+   * embaixo o consolidado (Total Marcado = Anterior + hoje), sem contar nada
+   * duas vezes ("sem repetir informações", ordem literal do dono).
    *
    * Só desconta o que ficou PENDENTE: venda paga na hora nunca entrou no saldo.
    */
-  function cadernetaMarcado(linha) {
+  function cadernetaAnterior(linha) {
     const mapa = state.cadernetaResumo && state.cadernetaResumo.devedores;
     const cents = mapa && Number(mapa[String(linha.clienteId)]);
     const total = Number.isFinite(cents) && cents > 0 ? cents / 100 : 0;
@@ -12128,23 +12086,19 @@
   }
   function cadernetaClienteCard(linha, ordem) {
     const atendido = linha.status === "entregue";
-    const itens = cadernetaLinhaItens(linha);
-    const deve = configFlag("moduloFinanceiroAtivo") ? cadernetaMarcado(linha) : 0;
+    const financeiro = configFlag("moduloFinanceiroAtivo");
     const titulo = `${linha.nome}${linha.localApelido ? ` · ${linha.localApelido}` : ""}`;
-    // O desfecho fecha a linha do dono ("{Modopagamento, ou se ficou devendo}").
-    // Fica NA LINHA, não num selo à parte: o mesmo dado em dois lugares é bug de
-    // produto — e no selo não cabia "Ficou devendo".
+    // O desfecho fecha a linha do dono, NA ponta direita da 1ª linha (mock
+    // aprovado 05/08) — o mesmo dado em dois lugares é bug de produto.
     const rotulo = atendido ? (CADERNETA_METODO_ROTULO[String(linha.metodo || "").toLowerCase()] || "Entregue") : "";
-    // Segurar pressionado apaga a venda errada (Lei 1 da UI: excluir é segurar,
-    // nunca lixeira). Só entra na linha que TEM entrega — não há o que apagar em
-    // cliente que ainda não foi atendido.
-    const hold = linha.entregaId ? ` data-caderneta-hold="${H.escape(linha.entregaId)}"` : "";
-    const desfecho = rotulo
-      ? `<small class="caderneta-desfecho ${rotulo === "Ficou Pendente" ? "is-devendo" : ""}">${H.escape(rotulo)}</small>`
-      : "";
-    // A dívida vem ANTES do produto: é a primeira coisa que muda a conversa na
-    // porta ("você tá devendo 33"), e o produto de hoje é o de sempre.
-    const deveLinha = deve > 0 ? `<small class="caderneta-deve">Marcado: ${H.escape(H.money(deve))}</small>` : "";
+    const desfecho = cadernetaDesfechoDaLinha(linha);
+    // O bloco do dinheiro (correção literal do dono, 05/08): Anterior em cima,
+    // venda no meio, Total Marcado (Anterior+Agora) embaixo — e SÓ quando
+    // marcou hoje E havia Anterior; valor que não soma nada não aparece.
+    const anterior = financeiro ? cadernetaAnterior(linha) : 0;
+    const hoje = desfecho === "pendente" && Number.isFinite(Number(linha.total)) ? Math.max(0, Number(linha.total)) : 0;
+    const totalMarcado = hoje > 0 && anterior > 0 ? anterior + hoje : 0;
+    const itensLista = linha.itens || [];
     // Ouro nº2 — sumiu: cliente do dia sem compra há 2 semanas (o servidor
     // decide; chip neutro de atenção — dever/sumir não BLOQUEIA nada, Lei 2c).
     const sumiu = !atendido && cadernetaSumidos().has(String(linha.clienteId))
@@ -12157,11 +12111,28 @@
     const sugestao = linha.sugerirDia && wdVisto
       ? `<button type="button" class="caderneta-dia-chip" data-action="caderneta-adicionar-dia" data-cliente-id="${H.escape(linha.clienteId)}" data-dias="${H.escape((linha.diasAtuais || []).join(","))}">+ ${H.escape(wdVisto.label)}</button>`
       : "";
-    // O NÚMERO no lugar do ✓ (05/08, ordem do dono): a sequência do dia tem de
-    // aparecer em todo mundo, inclusive em quem já foi atendido — quem diz que
-    // está feito é o círculo cheio e a linha do desfecho, não um símbolo que
-    // ocupa o lugar do número. O número é TAMBÉM a alça do arraste.
-    return `<article class="stop-card${state.cadernetaArrastando === linha.chave ? " is-arrastando" : ""}" data-action="caderneta-vender" data-caderneta-chave="${H.escape(linha.chave)}"${hold} role="button" tabindex="0"><div class="stop-top"><div class="order${atendido ? " is-feito" : ""}" data-caderneta-arrastar="${H.escape(linha.chave)}">${ordem}</div><div class="card-main"><strong>${H.escape(titulo)}</strong>${deveLinha}${sumiu}${itens ? `<small>${H.escape(itens)}</small>` : ""}${desfecho}${linha.observacoes ? `<small class="stop-obs">${H.escape(linha.observacoes)}</small>` : ""}</div>${sugestao}</div></article>`;
+    // O NÚMERO no lugar do ✓ (05/08, ordem do dono): a sequência aparece em
+    // todo mundo; quem diz "feito" é o círculo cheio e o desfecho. O número é
+    // TAMBÉM a alça do arraste (data-matriz-alca). Segurar o corpo apaga a
+    // venda (data-matriz-apagar) — só na linha que TEM entrega.
+    return HBXMatriz.linha({
+      ordem,
+      feito: atendido,
+      alca: linha.chave,
+      apagar: linha.entregaId || null,
+      chave: linha.chave,
+      classe: state.cadernetaArrastando === linha.chave ? " is-arrastando" : "",
+      attrs: ` data-action="caderneta-vender" data-caderneta-chave="${H.escape(linha.chave)}"`,
+      titulo,
+      desfecho: rotulo,
+      desfechoTom: rotulo ? (desfecho === "pendente" ? "marcou" : "pago") : "",
+      anterior,
+      itensHtml: HBXMatriz.itens(itensLista, { financeiro, total: linha.total }),
+      itensUm: itensLista.length === 1 && financeiro,
+      totalMarcado,
+      extrasHtml: `${sumiu}${linha.observacoes ? `<small class="stop-obs">${H.escape(linha.observacoes)}</small>` : ""}`,
+      trailingHtml: sugestao,
+    });
   }
   /** Os sumidos DA página vista (Set de clienteIds do resumo). */
   function cadernetaSumidos() {
@@ -12179,15 +12150,20 @@
       : (cadernetaVendoHoje() ? resumo && resumo.fechamento : null);
     if (!fechamento) return "";
     const formas = fechamento.formas || {};
-    const reais = cents => H.money(Math.max(0, Number(cents) || 0) / 100);
+    // Telegrama (Lei 8): grade 2×2 com os valores sem R$ — o R$ aparece UMA
+    // vez, no Total. Rótulos do mapa único da matriz.
+    const R = HBXMatriz.rotulos;
+    const num = cents => HBXMatriz.num(Math.max(0, Number(cents) || 0) / 100);
     const vendas = Math.max(0, Number(fechamento.vendas) || 0);
     return `<div class="section-title"><strong>Fechamento</strong><span>${vendas} venda${vendas === 1 ? "" : "s"}</span></div>
       <section class="card flat chegada-conta caderneta-fechamento">
-        <div class="chegada-conta-linha"><span>Dinheiro</span><b>${reais(formas.dinheiroCents)}</b></div>
-        <div class="chegada-conta-linha"><span>Pix</span><b>${reais(formas.pixCents)}</b></div>
-        <div class="chegada-conta-linha"><span>Cartão</span><b>${reais(formas.cartaoCents)}</b></div>
-        <div class="chegada-conta-linha"><span>Marcado</span><b>${reais(formas.fiadoCents)}</b></div>
-        <div class="chegada-conta-linha caderneta-total"><span>Total</span><b>${reais(fechamento.totalCents)}</b></div>
+        <div class="mtz-fechamento-grade">
+          <div class="chegada-conta-linha"><span>${R.metodo.dinheiro}</span><b>${num(formas.dinheiroCents)}</b></div>
+          <div class="chegada-conta-linha"><span>${R.metodo.cartao}</span><b>${num(formas.cartaoCents)}</b></div>
+          <div class="chegada-conta-linha"><span>${R.metodo.pix}</span><b>${num(formas.pixCents)}</b></div>
+          <div class="chegada-conta-linha"><span>${R.conta.marcado}</span><b>${num(formas.fiadoCents)}</b></div>
+        </div>
+        <div class="chegada-conta-linha caderneta-total"><span>${R.conta.total}</span><b>${HBXMatriz.rs(Math.max(0, Number(fechamento.totalCents) || 0) / 100)}</b></div>
       </section>`;
   }
 
