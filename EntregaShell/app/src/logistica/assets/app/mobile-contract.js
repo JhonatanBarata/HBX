@@ -122,7 +122,7 @@
           <span>Obrigatório para fechar o financeiro</span>
         </div>
         <div class="hbx-receipt-options">
-          ${[["pix", "Pix"], ["dinheiro", "Dinheiro"], ["fiado", "Fiado"]]
+          ${[["pix", "Pix"], ["dinheiro", "Dinheiro"], ["fiado", "Marcar"]]
             .map(([value, label]) => `<button type="button" class="hbx-receipt-option ${selected === value ? "active" : ""}" data-hbx-receipt="${value}">${label}</button>`)
             .join("")}
         </div>
@@ -185,7 +185,7 @@
       const receipt = receipts.get(deliveryId) || (bodyMethod ? String(bodyMethod) : "");
       if (paymentRequired(deliveryId) && !receipt) {
         refreshVisibleSheet();
-        throw new Error("Escolha Pix, Dinheiro ou Fiado antes de confirmar.");
+        throw new Error("Escolha Pix, Dinheiro ou Marcar antes de confirmar.");
       }
       const result = await originalApi(path, receipt
         ? { ...(options || {}), body: { ...((options && options.body) || {}), receiptMethod: receipt } }

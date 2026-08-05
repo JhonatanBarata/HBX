@@ -142,7 +142,7 @@ export function EntregaFinanceiro() {
           <div className="ent-empty-icon" aria-hidden="true">
             <I d={ICON_PATHS.financeiro} size={40} />
           </div>
-          <div className="ent-empty-title">Ninguém devendo</div>
+          <div className="ent-empty-title">Ninguém pendente</div>
         </div>
       ) : (
         <SaldosLista

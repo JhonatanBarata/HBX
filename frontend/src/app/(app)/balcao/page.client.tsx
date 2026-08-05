@@ -54,7 +54,7 @@ const PAGAMENTOS: Array<{ id: string; rotulo: string }> = [
   { id: "DINHEIRO", rotulo: "Dinheiro" },
   { id: "PIX", rotulo: "Pix" },
   { id: "CARTAO", rotulo: "Cartão" },
-  { id: "FIADO", rotulo: "Fiado" },
+  { id: "FIADO", rotulo: "Marcar" },
 ];
 
 function brl(cents: number | null | undefined): string {
@@ -315,7 +315,7 @@ export function BalcaoClient() {
     <div className="hbx-veil" onClick={(e) => { if (e.target === e.currentTarget && !cancelOcupado) setCancelando(null); }}>
       <div className="hbx-modal fis-modal" role="dialog" aria-label="Cancelar venda">
         <h3>Cancelar venda de {brl(cancelando.totalCents)}</h3>
-        <div className="fis-dica">O estoque volta com rastro (reversa). Fiado ainda não pago é cancelado junto.</div>
+        <div className="fis-dica">O estoque volta com rastro (reversa). Marcado ainda não pago é cancelado junto.</div>
         <label className="fis-campo">
           <span className="field-label">Motivo (obrigatório)</span>
           <input className="field-dark" value={motivoCancel} maxLength={500} onChange={(e) => setMotivoCancel(e.target.value)} />
@@ -429,7 +429,7 @@ export function BalcaoClient() {
               ) : (
                 <>
                   <label className="fis-campo">
-                    <span className="field-label">Cliente do fiado</span>
+                    <span className="field-label">Cliente do marcado</span>
                     <input
                       className="field-dark"
                       placeholder="Nome ou telefone…"

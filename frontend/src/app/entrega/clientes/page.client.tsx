@@ -93,7 +93,7 @@ const FORMAS: Array<{ v: FormaPagamento; label: string }> = [
   { v: "aberto", label: "Pergunta na hora" },
   { v: "na_hora", label: "Na hora" },
   { v: "mensal", label: "Mensal" },
-  { v: "pendura", label: "Fiado" },
+  { v: "pendura", label: "Marcar" },
 ];
 
 /**
@@ -1304,7 +1304,7 @@ export function ClienteEditor({
 
         {/* F1 — teto de fiado: acima disso, a chegada avisa o entregador a cobrar. */}
         <label className="ent-field">
-          <span className="ent-field-label">Limite de fiado (R$)</span>
+          <span className="ent-field-label">Limite para marcar (R$)</span>
           <input
             className="ent-input"
             type="text"

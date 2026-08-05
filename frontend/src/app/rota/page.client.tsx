@@ -77,10 +77,10 @@ const RECURSOS: Array<{ label: string; minimo: NivelKey }> = [
   { label: "Recebimento na porta: Pix, dinheiro ou anotado", minimo: "BASIC" },
   { label: "Aviso \"tô chegando\" no WhatsApp do cliente", minimo: "BASIC" },
   { label: "App do motorista funcionando sem sinal, sincroniza depois", minimo: "BASIC" },
-  { label: "Financeiro de verdade: saldo, fiado, limite e fechamento de caixa", minimo: "ADVANCED" },
+  { label: "Financeiro de verdade: saldo, marcado, limite e fechamento de caixa", minimo: "ADVANCED" },
   { label: "Cobrança automática e educada no WhatsApp", minimo: "ADVANCED" },
   { label: "Estoque de carga: carregou, vendeu, voltou — bateu ou faltou", minimo: "ADVANCED" },
-  { label: "Devedor vira parada de cobrança na montagem da rota", minimo: "ADVANCED" },
+  { label: "Pendente vira parada de cobrança na montagem da rota", minimo: "ADVANCED" },
   { label: "Rastreamento ao vivo e link \"acompanhe sua entrega\"", minimo: "FULL" },
 ];
 
@@ -92,7 +92,7 @@ const RANK: Record<NivelKey, number> = { BASIC: 0, ADVANCED: 1, FULL: 2 };
 // reconhece como a própria operação.
 const PARA_QUEM: Record<NivelKey, string> = {
   BASIC: "Para quem ainda anota no caderno e quer parar de perder endereço, dia e histórico.",
-  ADVANCED: "Para quem vende fiado e cansou de descobrir no fim do mês quem ficou devendo.",
+  ADVANCED: "Para quem vende marcado e cansou de descobrir no fim do mês quem ficou pendente.",
   FULL: "Para quem quer que o cliente veja o caminhão chegando, como no delivery.",
 };
 
@@ -133,7 +133,7 @@ function contaDeVenda(nivel: NivelKey, preco: number): string {
     return `O mês inteiro custa o preço de ${galoes} galões. Uma entrega perdida por endereço errado custa mais.`;
   }
   if (nivel === "ADVANCED") {
-    return `1 galão ≈ R$ ${moeda(PRECO_GALAO)}. Recuperou ${galoes} fiados esquecidos no mês? O plano já se pagou.`;
+    return `1 galão ≈ R$ ${moeda(PRECO_GALAO)}. Recuperou ${galoes} marcados esquecidos no mês? O plano já se pagou.`;
   }
   return "Só o rastreador avulso do caminhão custa R$ 60 a R$ 90 por mês — e ele não agenda, não cobra e não fala com o cliente.";
 }
@@ -164,7 +164,7 @@ function TelaCobranca() {
   return (
     <div className="rt-tela rt-tela--cobranca">
       <header className="rt-tela__head">
-        <span><small>Fiado em aberto</small><strong>R$ 240,00</strong></span>
+        <span><small>Marcado em aberto</small><strong>R$ 240,00</strong></span>
         <b>3 clientes</b>
       </header>
       <div className="rt-bolha">

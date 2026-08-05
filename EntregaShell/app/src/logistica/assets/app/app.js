@@ -4053,7 +4053,7 @@
     const options = [
       configFlag("aceitaNaHora") ? ["na_hora", "Na hora"] : null,
       configFlag("aceitaMensal") ? ["mensal", "Mensal"] : null,
-      configFlag("aceitaFiado") ? ["pendura", "Fiado"] : null,
+      configFlag("aceitaFiado") ? ["pendura", "Marcar"] : null,
     ].filter(Boolean);
     const formaSelector = options.length ? `<div class="section-title"><strong>Forma de pagamento</strong></div><div class="recurrence-modes">${options.map(([id, label]) => `<button type="button" class="recurrence-mode ${form === id ? "active" : ""}" data-payment-form="${id}" data-payment-target="${target}">${label}</button>`).join("")}</div>` : "";
     const naHoraDisponivel = options.some(([id]) => id === "na_hora");
@@ -5862,13 +5862,13 @@
         // Os quatro desfechos passam a ser o MESMO botão, no MESMO tamanho, na
         // mesma grade — antes eram 3 verdes numa linha e um quarto solto,
         // maior, embaixo, como se fosse outra coisa.
-        ? `<div class="chegada-acoes"><div class="caderneta-pagto"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago-metodo" data-metodo="dinheiro" ${state.deliveryConfirming ? "disabled" : ""}>Dinheiro</button><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago-metodo" data-metodo="pix" ${state.deliveryConfirming ? "disabled" : ""}>Pix</button><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago-metodo" data-metodo="cartao" ${state.deliveryConfirming ? "disabled" : ""}>Cartão</button><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>Fiado</button></div>${rodapeSem}</div>`
-        : `<div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Entregue e quitou</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue, ficou devendo</button>${rodapeSem}</div>${editando ? "" : `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-detail">Ver detalhes</button>`}`
+        ? `<div class="chegada-acoes"><div class="caderneta-pagto"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago-metodo" data-metodo="dinheiro" ${state.deliveryConfirming ? "disabled" : ""}>Dinheiro</button><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago-metodo" data-metodo="pix" ${state.deliveryConfirming ? "disabled" : ""}>Pix</button><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago-metodo" data-metodo="cartao" ${state.deliveryConfirming ? "disabled" : ""}>Cartão</button><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>Marcar</button></div>${rodapeSem}</div>`
+        : `<div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Entregue e quitou</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue, marcar</button>${rodapeSem}</div>${editando ? "" : `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-detail">Ver detalhes</button>`}`
       : venda
         ? `<div class="delivery-hero-actions"><button class="btn btn-primary delivery-confirm delivery-big-btn" type="button" data-action="confirm-entregue-simples" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button></div><button class="link-btn delivery-detail-link" type="button" data-action="caderneta-cadastro">Cadastro</button>`
         : `<div class="delivery-hero-actions"><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="delivery-not-delivered">${icon("close", 20)} Não entregue</button><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="confirm-sem-atendimento">${icon("phone", 20)} Não atendeu</button><button class="btn btn-primary delivery-confirm delivery-big-btn" type="button" data-action="confirm-entregue-simples" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button></div>`;
     const conta = !financeiroAtivo ? "" : cobrancaSimples
-      ? `<div class="chegada-conta"><div class="chegada-conta-linha chegada-conta-total"><span>Deve</span><b>${H.money(valorAntigo + valorAgora)}</b></div></div>`
+      ? `<div class="chegada-conta"><div class="chegada-conta-linha chegada-conta-total"><span>Marcado</span><b>${H.money(valorAntigo + valorAgora)}</b></div></div>`
       : `<div class="chegada-conta"><div class="chegada-conta-linha"><span>Valor antigo</span><b>${H.money(valorAntigo)}</b></div><div class="chegada-conta-linha"><span>Valor entrega</span><b>${H.money(valorAgora)}</b></div><div class="chegada-conta-linha chegada-conta-total"><span>Valor total</span><b>${H.money(valorAntigo + valorAgora)}</b></div></div>`;
     return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet delivery-sheet-simple"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div></div><button class="close" type="button" data-action="close-sheet">${icon("close", 18)}</button></div><div class="delivery-hero"><h1 class="delivery-hero-name">${editando ? "Editando" : "Chegou em"} <b>${H.escape(c.nome || "Cliente")}</b></h1>${c.observacoes ? `<p class="subtitle delivery-hero-obs">${H.escape(c.observacoes)}</p>` : ""}<div class="chegada-box"><div class="chegada-lista">${linhas}</div>${picker}</div>${conta}${venda ? cadernetaNumeroCampo() : ""}</div>${acoes}</section></div>`;
   }
@@ -5893,7 +5893,7 @@
     const itemRows = draft.items.map(row => `<div class="delivery-item"><div><strong>${H.escape(row.nome)}</strong><small>${H.money(unitPriceFor(item, row))}${row.novo ? " · Novo na entrega" : ""}</small></div><div class="delivery-stepper"><button data-action="delivery-qty" data-draft-item="${H.escape(row.key)}" data-delta="-1" ${finished ? "disabled" : ""}>−</button><b>${row.qtd}</b><button data-action="delivery-qty" data-draft-item="${H.escape(row.key)}" data-delta="1" ${finished ? "disabled" : ""}>+</button></div></div>`).join("") || empty("Sem itens", "Adicione o que foi entregue.");
     const reasonPanel = `<div class="delivery-reason"><strong>Por que não foi entregue?</strong><div class="delivery-reason-options">${[["ausente","Ausente"],["recusou","Recusou"],["reagendar","Reagendar"]].map(([id,label]) => `<button class="${reason === id ? "active" : ""}" data-action="delivery-reason" data-reason="${id}">${label}</button>`).join("")}</div><button class="btn btn-danger delivery-confirm" data-action="confirm-not-delivered" ${reason ? "" : "disabled"}>Confirmar não entregue</button><button class="btn btn-secondary" data-action="delivery-back">Voltar</button></div>`;
     const editor = `<div class="delivery-editor"><div class="delivery-editor-head"><strong>Quantidade entregue</strong></div>${itemRows}${!finished && availableProducts.length ? (!state.deliveryProductPicker ? `<button class="delivery-add" data-action="delivery-add-product">${icon("plus", 17)} Adicionar produto</button>` : `<div class="delivery-picker"><strong>Adicionar produto</strong>${availableProducts.map(p => `<button data-action="delivery-product" data-product-id="${H.escape(p.id)}">${H.escape(p.nome || p.name || "Produto")}</button>`).join("")}<button class="btn btn-secondary" data-action="delivery-close-picker">Fechar</button></div>`) : ""}</div>`;
-    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><h2>${H.escape(c.nome || "Cliente")}</h2><p class="subtitle">${H.escape(address(c))}</p></div><button class="close" data-action="close-sheet" aria-label="Fechar">${icon("close", 18)}</button></div>${c.observacoes ? `<div class="card flat delivery-obs-card"><strong>Observações</strong><p class="subtitle">${H.escape(c.observacoes)}</p></div>` : ""}${notDelivered ? reasonPanel : editor}${item.status === "entregue" ? `<button class="btn btn-secondary btn-block delivery-reopen" data-action="reopen-delivery">${icon("refresh", 17)} Reabrir entrega</button>` : ""}${!finished && !notDelivered ? `<div class="delivery-tools"><button class="btn btn-secondary" data-action="maps">${icon("route", 17)} Continuar navegação</button><button class="btn btn-secondary" data-action="call" ${phone ? "" : "disabled"}>${icon("phone", 17)} Ligar</button><button class="btn btn-secondary" data-action="whatsapp" ${phone ? "" : "disabled"}>${icon("wa", 17)} WhatsApp</button></div><div class="section-title"><strong>Comprovante</strong><span>opcional</span></div><div class="actions"><input class="sr-only" id="proof-photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><button class="btn btn-secondary" data-action="photo">${proof.fotoEnviada ? icon("check",17) : icon("plus",17)} Foto</button></div><div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Entregue e quitou</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue, ficou devendo</button><button class="chegada-btn-sem" type="button" data-action="delivery-not-delivered">Não entregue</button><button class="chegada-btn-sem" type="button" data-action="confirm-sem-atendimento">Não atendeu</button></div>${state.deliverySimpleDetail ? `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-back">Voltar para exibição simples</button>` : ""}` : ""}</section></div>`;
+    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><h2>${H.escape(c.nome || "Cliente")}</h2><p class="subtitle">${H.escape(address(c))}</p></div><button class="close" data-action="close-sheet" aria-label="Fechar">${icon("close", 18)}</button></div>${c.observacoes ? `<div class="card flat delivery-obs-card"><strong>Observações</strong><p class="subtitle">${H.escape(c.observacoes)}</p></div>` : ""}${notDelivered ? reasonPanel : editor}${item.status === "entregue" ? `<button class="btn btn-secondary btn-block delivery-reopen" data-action="reopen-delivery">${icon("refresh", 17)} Reabrir entrega</button>` : ""}${!finished && !notDelivered ? `<div class="delivery-tools"><button class="btn btn-secondary" data-action="maps">${icon("route", 17)} Continuar navegação</button><button class="btn btn-secondary" data-action="call" ${phone ? "" : "disabled"}>${icon("phone", 17)} Ligar</button><button class="btn btn-secondary" data-action="whatsapp" ${phone ? "" : "disabled"}>${icon("wa", 17)} WhatsApp</button></div><div class="section-title"><strong>Comprovante</strong><span>opcional</span></div><div class="actions"><input class="sr-only" id="proof-photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><button class="btn btn-secondary" data-action="photo">${proof.fotoEnviada ? icon("check",17) : icon("plus",17)} Foto</button></div><div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Entregue e quitou</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue, marcar</button><button class="chegada-btn-sem" type="button" data-action="delivery-not-delivered">Não entregue</button><button class="chegada-btn-sem" type="button" data-action="confirm-sem-atendimento">Não atendeu</button></div>${state.deliverySimpleDetail ? `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-back">Voltar para exibição simples</button>` : ""}` : ""}</section></div>`;
   }
   function newClientProductFields() {
     const draft = state.clientProductDraft;
@@ -6224,7 +6224,7 @@
   function financeiroModal() {
     const ativo = configFlag("moduloFinanceiroAtivo");
     const sub = (key, label, hint) => `<button class="settings-row" type="button" data-action="toggle-config-flag" data-config-key="${key}" role="switch" aria-checked="${configFlag(key)}"><div class="settings-copy"><strong>${label}</strong>${hint ? `<span>${hint}</span>` : ""}</div><span class="module-switch ${configFlag(key) ? "active" : ""}" aria-hidden="true"><i></i></span></button>`;
-    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("wallet", 18)}</div><div><h2>Financeiro</h2></div><button class="close" data-action="close-modal" aria-label="Fechar">${icon("close", 18)}</button></div><section class="card flat"><button class="settings-row" type="button" data-action="toggle-config-flag" data-config-key="moduloFinanceiroAtivo" role="switch" aria-checked="${ativo}"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Ativar financeiro</strong></div><span class="module-switch ${ativo ? "active" : ""}" aria-hidden="true"><i></i></span></button></section>${ativo ? `<section class="card flat">${sub("cobrancaSimples", "Cobrança simples na chegada")}${sub("aceitaNaHora", "Na hora")}${sub("aceitaMensal", "Mensal")}${sub("aceitaFiado", "Fiado")}${sub("precoPorClienteAtivo", "Preço por cliente")}</section>` : ""}</section></div>`;
+    return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("wallet", 18)}</div><div><h2>Financeiro</h2></div><button class="close" data-action="close-modal" aria-label="Fechar">${icon("close", 18)}</button></div><section class="card flat"><button class="settings-row" type="button" data-action="toggle-config-flag" data-config-key="moduloFinanceiroAtivo" role="switch" aria-checked="${ativo}"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Ativar financeiro</strong></div><span class="module-switch ${ativo ? "active" : ""}" aria-hidden="true"><i></i></span></button></section>${ativo ? `<section class="card flat">${sub("cobrancaSimples", "Cobrança simples na chegada")}${sub("aceitaNaHora", "Na hora")}${sub("aceitaMensal", "Mensal")}${sub("aceitaFiado", "Marcar")}${sub("precoPorClienteAtivo", "Preço por cliente")}</section>` : ""}</section></div>`;
   }
   // "Avançado" (Ajustes › Administração): estrutura pronta pra crescer com
   // mais toggles operacionais, sem precisar de tela nova a cada item.
@@ -11887,14 +11887,18 @@
    *     que de propósito não entra em nenhum dos outros dois: sem venda não há
    *     desfecho, e classificá-lo como "devendo" seria inventar dívida.
    */
-  const CADERNETA_FILTROS = [["todos", "Todos"], ["devendo", "Devendo"], ["pago", "Pago"]];
+  // VOCABULÁRIO CRAVADO PELO DONO (05/08): não existe "fiado", "deve" nem
+  // "devendo" em tela. O que existe é MARCAR / MARCADO / PENDENTE. As chaves
+  // internas ("pendente", "pago") são só do código; o `receiptMethod` do banco
+  // continua 'fiado' — trocar o DADO quebraria histórico e fechamento.
+  const CADERNETA_FILTROS = [["todos", "Todos"], ["pendente", "Pendente"], ["pago", "Pago"]];
   function cadernetaDesfechoDaLinha(linha) {
     if (linha.status !== "entregue") return "";
     // Só método IMEDIATO é "pago" — a mesma régua do Fechamento, que soma em
     // Fiado tudo que não é dinheiro/Pix/cartão. Antes bastava "não ser fiado":
     // venda sem método (legado, financeiro OFF) caía em Pago na contagem e em
     // Fiado no total, e os dois números da mesma tela não fechavam.
-    return ["dinheiro", "pix", "cartao"].includes(String(linha.metodo || "").toLowerCase()) ? "pago" : "devendo";
+    return ["dinheiro", "pix", "cartao"].includes(String(linha.metodo || "").toLowerCase()) ? "pago" : "pendente";
   }
   function cadernetaFiltroAtual() {
     const atual = String(state.cadernetaFiltro || "todos");
@@ -11902,7 +11906,7 @@
   }
   function cadernetaFiltroChips(lista) {
     const filtro = cadernetaFiltroAtual();
-    const contagem = { todos: lista.length, devendo: 0, pago: 0 };
+    const contagem = { todos: lista.length, pendente: 0, pago: 0 };
     lista.forEach(linha => {
       const desfecho = cadernetaDesfechoDaLinha(linha);
       if (desfecho) contagem[desfecho] += 1;
@@ -12066,7 +12070,7 @@
   // "Entregue" iguais em cima de um fechamento que dizia "Pix R$11" não deixavam
   // ninguém saber quem pagou. Fiado é o único que não é verde — é o que falta
   // receber. Sem financeiro, o servidor não manda método e volta o "Entregue".
-  const CADERNETA_METODO_ROTULO = { dinheiro: "Dinheiro", pix: "Pix", cartao: "Cartão", fiado: "Ficou devendo" };
+  const CADERNETA_METODO_ROTULO = { dinheiro: "Dinheiro", pix: "Pix", cartao: "Cartão", fiado: "Ficou Pendente" };
   /**
    * A linha do produto no formato que o dono cravou (05/08, literal):
    *   "1× Galão 20 Litros - Un R$ 11,00 = Total: R$ 11,00"
@@ -12101,15 +12105,31 @@
    * QUEM DEVE (ordem do dono: "{Devedor?} S/N? Caso sim: Deve: {valor}"): linha
    * de dívida em cliente sem dívida é ruído em cima do que importa.
    */
-  function cadernetaDeve(clienteId) {
+  /**
+   * "Marcado: R$ X" — o que o cliente já devia ANTES desta venda.
+   *
+   * 🔴 05/08 — o número estava somando a venda de HOJE. O saldo que o servidor
+   * manda é o TOTAL em aberto, e a venda pendente de hoje já entrou nele: o
+   * Maik aparecia "Marcado: R$ 27,00" logo acima de "= Total: R$ 27,00", como
+   * se fossem duas coisas, quando eram a MESMA. Aqui a venda desta linha sai da
+   * conta — em cima fica o passado, embaixo fica o de hoje, e os dois se somam
+   * na cabeça sem contar nada duas vezes.
+   *
+   * Só desconta o que ficou PENDENTE: venda paga na hora nunca entrou no saldo.
+   */
+  function cadernetaMarcado(linha) {
     const mapa = state.cadernetaResumo && state.cadernetaResumo.devedores;
-    const cents = mapa && Number(mapa[String(clienteId)]);
-    return Number.isFinite(cents) && cents > 0 ? cents / 100 : 0;
+    const cents = mapa && Number(mapa[String(linha.clienteId)]);
+    const total = Number.isFinite(cents) && cents > 0 ? cents / 100 : 0;
+    const hoje = cadernetaDesfechoDaLinha(linha) === "pendente" && Number.isFinite(Number(linha.total))
+      ? Math.max(0, Number(linha.total))
+      : 0;
+    return Math.max(0, total - hoje);
   }
   function cadernetaClienteCard(linha, ordem) {
     const atendido = linha.status === "entregue";
     const itens = cadernetaLinhaItens(linha);
-    const deve = configFlag("moduloFinanceiroAtivo") ? cadernetaDeve(linha.clienteId) : 0;
+    const deve = configFlag("moduloFinanceiroAtivo") ? cadernetaMarcado(linha) : 0;
     const titulo = `${linha.nome}${linha.localApelido ? ` · ${linha.localApelido}` : ""}`;
     // O desfecho fecha a linha do dono ("{Modopagamento, ou se ficou devendo}").
     // Fica NA LINHA, não num selo à parte: o mesmo dado em dois lugares é bug de
@@ -12120,11 +12140,11 @@
     // cliente que ainda não foi atendido.
     const hold = linha.entregaId ? ` data-caderneta-hold="${H.escape(linha.entregaId)}"` : "";
     const desfecho = rotulo
-      ? `<small class="caderneta-desfecho ${rotulo === "Ficou devendo" ? "is-devendo" : ""}">${H.escape(rotulo)}</small>`
+      ? `<small class="caderneta-desfecho ${rotulo === "Ficou Pendente" ? "is-devendo" : ""}">${H.escape(rotulo)}</small>`
       : "";
     // A dívida vem ANTES do produto: é a primeira coisa que muda a conversa na
     // porta ("você tá devendo 33"), e o produto de hoje é o de sempre.
-    const deveLinha = deve > 0 ? `<small class="caderneta-deve">Deve: ${H.escape(H.money(deve))}</small>` : "";
+    const deveLinha = deve > 0 ? `<small class="caderneta-deve">Marcado: ${H.escape(H.money(deve))}</small>` : "";
     // Ouro nº2 — sumiu: cliente do dia sem compra há 2 semanas (o servidor
     // decide; chip neutro de atenção — dever/sumir não BLOQUEIA nada, Lei 2c).
     const sumiu = !atendido && cadernetaSumidos().has(String(linha.clienteId))
@@ -12166,7 +12186,7 @@
         <div class="chegada-conta-linha"><span>Dinheiro</span><b>${reais(formas.dinheiroCents)}</b></div>
         <div class="chegada-conta-linha"><span>Pix</span><b>${reais(formas.pixCents)}</b></div>
         <div class="chegada-conta-linha"><span>Cartão</span><b>${reais(formas.cartaoCents)}</b></div>
-        <div class="chegada-conta-linha"><span>Fiado</span><b>${reais(formas.fiadoCents)}</b></div>
+        <div class="chegada-conta-linha"><span>Marcado</span><b>${reais(formas.fiadoCents)}</b></div>
         <div class="chegada-conta-linha caderneta-total"><span>Total</span><b>${reais(fechamento.totalCents)}</b></div>
       </section>`;
   }

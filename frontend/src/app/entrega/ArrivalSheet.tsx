@@ -376,7 +376,7 @@ function ArrivalSheetBody({
       {/* F1 — o "quanto deve" na cara do entregador; estourou o teto = cobrar. */}
       {divida > 0 ? (
         <div className={`ent-divida${estourouFiado ? " is-over" : ""}`} role="status">
-          <span className="ent-divida-label">Deve</span>
+          <span className="ent-divida-label">Marcado</span>
           <b>{fmtMoney(divida)}</b>
           {estourouFiado ? <span className="ent-divida-acao">cobrar</span> : null}
         </div>
@@ -481,7 +481,7 @@ function ArrivalSheetBody({
                   onClick={() => setReceipt("fiado")}
                   disabled={submitting}
                 >
-                  Pendura
+                  Marcar
                 </button>
               </div>
             </>

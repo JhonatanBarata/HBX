@@ -217,7 +217,7 @@ function formaPagamentoLabel(value: string | null | undefined): string {
     aberto: "Em aberto",
     na_hora: "Na hora",
     mensal: "Mensal",
-    fiado: "Fiado",
+    fiado: "Marcado",
   };
   const key = String(value || "").trim().toLowerCase();
   return labels[key] || (key ? key.replaceAll("_", " ") : "Não definida");
@@ -332,7 +332,7 @@ const FORMA_LABEL: Record<string, string> = {
   aberto: "Escolhe na hora",
   mensal: "Fecha no mês",
   na_hora: "Sempre na hora",
-  pendura: "Pendura (fiado)",
+  pendura: "Marcar",
 };
 
 const CHARGE_STATUS_LABEL: Record<string, string> = {
@@ -417,7 +417,7 @@ function FinanceiroEditor({ clienteId }: { clienteId: string }) {
           <option value="aberto">Escolhe na hora (avulso)</option>
           <option value="na_hora">Sempre na hora (forma fixa)</option>
           <option value="mensal">Fecha no mês</option>
-          <option value="pendura">Pendura (fiado)</option>
+          <option value="pendura">Marcar</option>
         </select>
       </div>
 
@@ -1525,7 +1525,7 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
           value={clienteDetailLoading ? "Carregando…" : clienteDetail?.diaFechamento ? `Dia ${clienteDetail.diaFechamento}` : "Sem fechamento mensal"}
         />
         <HbxContextFact
-          label="Limite fiado"
+          label="Limite para marcar"
           value={clienteDetailLoading
             ? "Carregando…"
             : clienteDetail?.limiteFiado != null

@@ -146,7 +146,7 @@ const FORMA_RECEBIDA: Record<string, string> = {
   pix: "Pix",
   dinheiro: "Dinheiro",
   cartao: "Cartão",
-  fiado: "Fiado (ficou anotado)",
+  fiado: "Marcado",
 };
 /** O combinado da conta do cliente (formaPagamento) — não é o recebimento. */
 const COMBINADO: Record<string, string> = {
@@ -541,7 +541,7 @@ export function FinanceiroClient() {
         </article>
         <article className="fin-metric" role="listitem">
           <span className="fin-metric-icon"><I d={ICONS.users} size={15} /></span>
-          <span className="fin-metric-label">Clientes devendo</span>
+          <span className="fin-metric-label">Clientes pendentes</span>
           <strong>{loading ? "—" : String(clientes.length)}</strong>
           <small>na carteira atual</small>
         </article>
@@ -623,7 +623,7 @@ export function FinanceiroClient() {
           {!loading && !erro && clientesVisiveis.length === 0 && (
             <div className="fin-empty-state">
               <span className="fin-empty-icon"><I d={ICONS.check} size={18} /></span>
-              <strong>{busca ? "Nenhum cliente encontrado." : "Ninguém devendo."}</strong>
+              <strong>{busca ? "Nenhum cliente encontrado." : "Ninguém pendente."}</strong>
             </div>
           )}
 

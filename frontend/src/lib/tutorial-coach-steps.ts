@@ -74,7 +74,7 @@ const MODULE_STEPS: Array<{ id: string; title: string; body: string }> = [
   {
     id: "automacaoHub",
     title: "Automação: bot, IA e cadências num só lugar",
-    body: "Aqui você liga o atendimento automático (roteiro ou IA), cobra quem ficou devendo, dispara cadências pra buscar clientes e organiza gatilhos e rotinas — tudo no mesmo painel.",
+    body: "Aqui você liga o atendimento automático (roteiro ou IA), cobra quem ficou pendente, dispara cadências pra buscar clientes e organiza gatilhos e rotinas — tudo no mesmo painel.",
   },
   {
     id: "logistica",

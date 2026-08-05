@@ -256,7 +256,7 @@ const BOT_BTN_GROUPS: { key: BotaoGrupo; label: string }[] = [
 const BOT_RULES: { key: keyof RoutingRules; label: string }[] = [
   { key: "globalBotEnabled", label: "Roteiro ligado" },
   { key: "checkRecoveryBeforeReply", label: "Checar Recovery antes" },
-  { key: "autoRouteDebtorsToRecovery", label: "Devedor vai pro Recovery" },
+  { key: "autoRouteDebtorsToRecovery", label: "Pendente vai pro Recovery" },
   { key: "autoReopenClosedConversation", label: "Reabrir conversa fechada" },
   { key: "notifyOnNewInbound", label: "Avisar nova mensagem" },
 ];
