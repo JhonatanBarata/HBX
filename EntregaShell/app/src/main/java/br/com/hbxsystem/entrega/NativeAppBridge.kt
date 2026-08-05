@@ -53,6 +53,17 @@ class NativeAppBridge(
     private val onRechargeCheckoutRequested: (String) -> Unit,
 ) {
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
+
+    /**
+     * 🔴 F4 (mapa PMTiles) — FILA SEPARADA DO MAPA. O `executor` acima tem UMA
+     * thread e é a mesma de `request()`: com o download do mapa lá dentro, todo
+     * o app ficava esperando o mapa terminar. Aqui só entra baixar/apagar mapa —
+     * uma coisa por vez —, e o paralelismo real mora no pool próprio do
+     * MapaOffline. Lazy: quem nunca abre o mapa não paga thread nenhuma.
+     */
+    private val mapaExecutor: ExecutorService by lazy {
+        Executors.newSingleThreadExecutor { corpo -> Thread(corpo, "hbx-mapa-ponte").apply { isDaemon = true } }
+    }
     private val api = NativeApiClient(activity, ticket)
     private val operational = OperationalStore(activity)
     private val navigation = NavigationLauncher(activity)
@@ -689,70 +700,113 @@ class NativeAppBridge(
      * senão a bateria some com o app aberto parado.
      */
     /**
-     * 🔴 31/07 (dono: "opção download do mapa no ajustes") — MAPA OFFLINE.
-     * `mapaOfflineEstado` responde o que já está guardado (bytes) e o tamanho
-     * estimado do que falta; `mapaOfflineBaixar` enche a despensa em segundo
-     * plano avisando o progresso; `mapaOfflineApagar` devolve o espaço.
-     * Detalhe e guardas em MapaOffline.kt.
+     * 🔴 05/08 (PR05082026-MAPA-PMTILES, F4) — MAPA SEM INTERNET.
+     * `mapaOfflineEstado` responde o retrato (o que está guardado, se está
+     * baixando, quando foi a última vez, últimas falhas); `mapaOfflineBaixar`
+     * enche a despensa em segundo plano avisando o progresso EM BYTES;
+     * `mapaOfflineApagar` devolve o espaço. Detalhe e guardas em MapaOffline.kt.
+     *
+     * 🔴 TODO CAMINHO DE SAÍDA EMITE EVENTO, inclusive os de recusa. O `return`
+     * mudo de antes (sem lat/lng, ou já baixando) deixava a tela presa em
+     * "Baixando · 0%" PARA SEMPRE — o app esperava um fim que nunca chegava.
      */
     @JavascriptInterface
     fun mapaOfflineEstado(lat: String, lng: String, raioKm: String): String {
         if (BuildConfig.APP_MODE != "logistica") return "{}"
-        val latitude = lat.toDoubleOrNull()
-        val longitude = lng.toDoubleOrNull()
-        val raio = raioKm.toDoubleOrNull()?.coerceIn(2.0, 120.0) ?: 30.0
-        val estimativa = if (latitude != null && longitude != null) {
-            MapaOffline.estimativa(latitude, longitude, raio)
-        } else {
-            0 to 0L
-        }
-        return JSONObject()
-            .put("guardadoBytes", MapaOffline.tamanhoBytes(activity))
-            .put("tiles", estimativa.first)
-            .put("estimadoBytes", estimativa.second)
-            .put("baixando", MapaOffline.estaBaixando())
-            .put("falhas", MapaOffline.falhas)
-            .put("erro", MapaOffline.ultimoErro)
-            .toString()
+        // `raioKm` chega da tela mas quem manda no raio guardado é o carimbo em
+        // disco (o do último download). Aqui ele não decide nada — está na
+        // assinatura porque o wrapper do native.js já passa 3 argumentos.
+        val estado = MapaOffline.estado(activity, lat.toDoubleOrNull(), lng.toDoubleOrNull())
+        return mapaJson(estado).toString()
     }
 
     @JavascriptInterface
-    fun mapaOfflineBaixar(estiloUrl: String, lat: String, lng: String, raioKm: String) {
+    fun mapaOfflineBaixar(lat: String, lng: String, raioKm: String, permitirDadosMoveis: Boolean) {
         if (BuildConfig.APP_MODE != "logistica") return
-        val latitude = lat.toDoubleOrNull() ?: return
-        val longitude = lng.toDoubleOrNull() ?: return
-        val raio = raioKm.toDoubleOrNull()?.coerceIn(2.0, 120.0) ?: 30.0
-        val estilo = estiloUrl.takeIf { it.startsWith("https://tiles.openfreemap.org/") } ?: return
-        if (MapaOffline.estaBaixando()) return
-        executor.execute {
-            val guardados = MapaOffline.baixarRegiao(activity, estilo, latitude, longitude, raio) { feitos, total ->
-                emitirMapaProgresso(feitos, total, false)
+        val latitude = lat.toDoubleOrNull()
+        val longitude = lng.toDoubleOrNull()
+        if (latitude == null || longitude == null) {
+            emitirMapaFim(MapaOffline.Motivo.SEM_COORDENADA)
+            return
+        }
+        val raio = raioKm.toDoubleOrNull() ?: MapaOffline.RAIO_PADRAO_KM
+        if (MapaOffline.estaBaixando()) {
+            emitirMapaFim(MapaOffline.Motivo.JA_BAIXANDO)
+            return
+        }
+        // 🔴 NUNCA o `executor`: ele tem UMA thread e é a mesma de request() —
+        // baixar mapa por lá congelava toda chamada de API do app. O paralelismo
+        // de verdade é do pool próprio do MapaOffline; esta thread só orquestra.
+        mapaExecutor.execute {
+            val resultado = MapaOffline.baixarRegiao(activity, latitude, longitude, raio, permitirDadosMoveis) { feitos, total ->
+                emitirMapaProgresso(feitos, total)
             }
-            emitirMapaProgresso(guardados, guardados, true)
+            emitirMapaFim(resultado.motivo)
         }
     }
 
     @JavascriptInterface
     fun mapaOfflineApagar() {
         if (BuildConfig.APP_MODE != "logistica") return
-        executor.execute {
+        mapaExecutor.execute {
             MapaOffline.apagar(activity)
-            emitirMapaProgresso(0, 0, true)
+            emitirMapaFim(MapaOffline.Motivo.OK)
         }
     }
 
-    private fun emitirMapaProgresso(feitos: Int, total: Int, fim: Boolean) {
-        val detalhe = JSONObject()
-            .put("feitos", feitos)
-            .put("total", total)
-            .put("fim", fim)
-            .put("falhas", MapaOffline.falhas)
-            .put("erro", MapaOffline.ultimoErro)
-            .put("guardadoBytes", MapaOffline.tamanhoBytes(activity))
-            .toString()
+    /** Um retrato só, montado num lugar só — estado e evento falam a mesma língua. */
+    private fun mapaJson(estado: MapaOffline.Estado): JSONObject = JSONObject()
+        .put("guardadoBytes", estado.guardadoBytes)
+        .put("guardadoTiles", estado.guardadoTiles)
+        .put("baixando", estado.baixando)
+        .put("bytesFeitos", estado.bytesFeitos)
+        .put("bytesTotais", estado.bytesTotais)
+        .put("atualizadoEm", estado.atualizadoEm)
+        .put("baseLat", estado.baseLat)
+        .put("baseLon", estado.baseLon)
+        .put("raioKm", estado.raioKm)
+        .put("planejadoBytes", estado.planejadoBytes)
+        .put("cobreAqui", estado.cobreAqui)
+        .put("distanciaDaBaseKm", estado.distanciaDaBaseKm)
+        .put("wifi", estado.wifi)
+        .put("online", estado.online)
+        .put("falhasRede", estado.falhasRede)
+        .put("falhasDisco", estado.falhasDisco)
+        .put("erroRede", estado.erroRede)
+        .put("erroDisco", estado.erroDisco)
+        .put("identidade", estado.identidade)
+
+    /**
+     * Aviso de ANDAMENTO: só o progresso, e de propósito. Ele chega uma vez por
+     * faixa (dezenas de vezes) e vem das threads do pool de download — montar o
+     * retrato completo aqui obrigaria cada aviso a reandar os milhares de arquivos
+     * da pasta, 5 threads ao mesmo tempo, pra informar o que o próprio laço já
+     * sabe. O retrato inteiro vem no evento de FIM, que acontece uma vez só.
+     */
+    private fun emitirMapaProgresso(feitos: Long, total: Long) {
+        emitirMapa(
+            JSONObject()
+                .put("fim", false)
+                .put("motivo", "andando")
+                .put("baixando", true)
+                .put("bytesFeitos", feitos)
+                .put("bytesTotais", total)
+        )
+    }
+
+    private fun emitirMapaFim(motivo: MapaOffline.Motivo) {
+        emitirMapa(
+            mapaJson(MapaOffline.estado(activity, null, null))
+                .put("fim", true)
+                .put("motivo", motivo.chave)
+        )
+    }
+
+    private fun emitirMapa(detalhe: JSONObject) {
+        val texto = detalhe.toString()
         activity.runOnUiThread {
             webView.evaluateJavascript(
-                "document.dispatchEvent(new CustomEvent('hbx:mapa-offline',{detail:${JSONObject.quote(detalhe)}}));",
+                "document.dispatchEvent(new CustomEvent('hbx:mapa-offline',{detail:${JSONObject.quote(texto)}}));",
                 null,
             )
         }
@@ -993,6 +1047,10 @@ class NativeAppBridge(
 
     fun close() {
         executor.shutdownNow()
+        // Fila do mapa morre junto: thread daemon vazada com download em curso
+        // continuaria queimando bateria depois que o app fechou. (Se ninguém
+        // abriu o mapa, o lazy só cria o objeto — thread só nasce com tarefa.)
+        mapaExecutor.shutdownNow()
         if (BuildConfig.APP_MODE == "logistica") {
             runCatching { activity.unregisterReceiver(updateReceiver) }
         }

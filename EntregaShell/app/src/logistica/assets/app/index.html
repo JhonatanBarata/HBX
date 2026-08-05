@@ -3,7 +3,14 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src https://viacep.com.br https://nominatim.openstreetmap.org https://tiles.openfreemap.org https://router.project-osrm.org https://www.hbxsystem.com.br https://api.hbxsystem.com.br; worker-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <!-- 🔴 05/08 (PR05082026-MAPA-PMTILES, F5) — o mapa deixou de ser host de fora.
+       o host de tiles do openfreemap SAIU do connect-src: estilo, letras, ícones e tiles
+       agora moram no aparelho e são pedidos na MESMA origem da página
+       (appassets.androidplatform.net) — por isso entrou `'self'`, que o
+       connect-src não tinha (a lista era só de hosts, e sem ele o `fetch` do
+       estilo local e o pedido de tile morreriam calados no CSP).
+       viacep/nominatim/osrm continuam porque continuam sendo usados. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://viacep.com.br https://nominatim.openstreetmap.org https://router.project-osrm.org https://www.hbxsystem.com.br https://api.hbxsystem.com.br; worker-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="theme-color" content="#f4f7f0" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#0d120d" media="(prefers-color-scheme: dark)">
   <title>HBX Logística</title>

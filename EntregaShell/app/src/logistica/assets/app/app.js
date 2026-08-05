@@ -646,7 +646,62 @@
     return routeMapLibraryPromise;
   }
   function currentMapTheme() { return document.documentElement.dataset.theme === "dark" ? "dark" : "light"; }
-  function currentMapStyle() { return `https://tiles.openfreemap.org/styles/${currentMapTheme() === "dark" ? "fiord" : "liberty"}`; }
+  // ==========================================================================
+  // 🔴 05/08 (PR05082026-MAPA-PMTILES, F5) — O MAPA VEM DO APARELHO.
+  // O estilo era uma URL do openfreemap: sem sinal, o desenho ia embora e as
+  // LETRAS (nome de rua) iam junto, porque fontes e ícones também vinham de
+  // fora. Agora os três moram no APK (`assets/app/mapa/`, ver o README de lá) e
+  // os tiles são servidos pelo próprio aparelho em `/tiles/{z}/{x}/{y}.pbf` —
+  // MESMA origem da página, então CORS e CSP deixam de existir em vez de serem
+  // contornados (quem atende é o shouldInterceptRequest da MainActivity).
+  // O estilo guarda o marcador `__HBX_TILES__` no lugar da URL de tiles; aqui
+  // ele vira `tiles: [...]` e o objeto pronto vai direto pro maplibre (ele
+  // aceita objeto, não só URL) — assim não existe uma segunda requisição de
+  // TileJSON pra falhar offline.
+  // ==========================================================================
+  const MAPA_TILES_URL = "https://appassets.androidplatform.net/tiles/{z}/{x}/{y}.pbf";
+  // 🔴 `maxzoom: 14` NÃO É DETALHE. O basemap acaba no z14; sem declarar o teto
+  // o maplibre pede z15+ e não acha nada — a tela fica VAZIA no zoom de rua, que
+  // é justamente onde o motorista olha. Com o teto, o z14 é esticado (overzoom),
+  // que é o comportamento certo.
+  const MAPA_ZOOM_MAX = 14;
+  // Texto do estilo JÁ transformado, por tema — o fetch acontece uma vez por
+  // tema na vida do app. Guardo TEXTO e devolvo um JSON.parse novo a cada mapa
+  // porque o maplibre mexe no objeto que recebe: três mapas dividindo o mesmo
+  // objeto é um contaminando o estilo do outro.
+  const mapaEstiloTexto = {};
+  const mapaEstiloEmVoo = {};
+  function mapaEstiloComTilesLocais(cru) {
+    const estilo = JSON.parse(cru);
+    const fonte = estilo && estilo.sources && estilo.sources.protomaps;
+    if (!fonte) throw new Error("Estilo do mapa sem a fonte protomaps.");
+    // Some com o `url` (era o marcador) e descreve a fonte na mão. `attribution`
+    // fica como está: é o crédito ODbL do OpenStreetMap, obrigatório por licença.
+    delete fonte.url;
+    fonte.type = "vector";
+    fonte.tiles = [MAPA_TILES_URL];
+    fonte.minzoom = 0;
+    fonte.maxzoom = MAPA_ZOOM_MAX;
+    return JSON.stringify(estilo);
+  }
+  async function currentMapStyle() {
+    const tema = currentMapTheme();
+    if (!mapaEstiloTexto[tema]) {
+      // Um fetch por tema mesmo com os três mapas pedindo ao mesmo tempo.
+      if (!mapaEstiloEmVoo[tema]) {
+        mapaEstiloEmVoo[tema] = (async () => {
+          const resposta = await fetch(`mapa/style-${tema}.json`);
+          if (!resposta.ok) throw new Error(`Estilo do mapa não abriu (HTTP ${resposta.status}).`);
+          mapaEstiloTexto[tema] = mapaEstiloComTilesLocais(await resposta.text());
+        })();
+        // Falhou? esquece a promessa, senão o erro de uma vez congela o mapa
+        // pra sempre — a próxima montagem tem que poder tentar de novo.
+        mapaEstiloEmVoo[tema].catch(() => { mapaEstiloEmVoo[tema] = null; });
+      }
+      await mapaEstiloEmVoo[tema];
+    }
+    return JSON.parse(mapaEstiloTexto[tema]);
+  }
   // Fase 2 C7 22/07 (APK-PROFISSIONAL) — paint de camada MapLibre é WebGL puro
   // (setPaintProperty/addLayer), NÃO aceita `var(--token)`: só DOM/CSS aceita.
   // mapPaintToken lê o valor JÁ resolvido do token no :root em runtime
@@ -662,29 +717,24 @@
       return value || fallback;
     } catch (_) { return fallback; }
   }
-  function applyDarkMapStreetContrast(map) {
-    if (currentMapTheme() !== "dark" || !map || !map.getStyle) return;
-    const layers = (map.getStyle() && map.getStyle().layers) || [];
-    layers.filter(layer => layer.type === "symbol" && /^highway_name/.test(layer.id)).forEach(layer => {
-      try {
-        // A cor antiga deste rótulo não duplicava nenhum token existente com
-        // exatidão; a mais próxima no :root é --glass-ink (mesma família
-        // "tinta sobre o mapa" do chip/botão de GPS) — registrado no
-        // RESULTADO, não existe token dedicado a rótulo de rua.
-        map.setPaintProperty(layer.id, "text-color", mapPaintToken("--glass-ink", "rgb(247,249,255)"));
-        map.setPaintProperty(layer.id, "text-halo-color", "rgba(24,32,51,.96)");
-        map.setPaintProperty(layer.id, "text-halo-width", 1.6);
-        map.setPaintProperty(layer.id, "text-halo-blur", .35);
-      } catch (_) {}
-    });
-  }
+  // 🔴 05/08 (F5) — ESTA FUNÇÃO NÃO PINTA MAIS NADA, E ISSO É DE PROPÓSITO.
+  // Ela existia porque o mapa escuro do openfreemap (`fiord`) era o estilo claro
+  // com outra paleta: o nome de rua saía cinza sobre cinza e precisava de tinta
+  // e halo na marra, camada por camada (`highway_name*`). O basemap do Protomaps
+  // tem um tema ESCURO de verdade — os rótulos de rua (`roads_labels_minor`/
+  // `roads_labels_major`) já nascem com cor e halo pensados pro fundo escuro.
+  // Repintar por cima seria brigar com o estilo, não corrigi-lo. Fica como
+  // no-op declarado (em vez de sumir com os 4 call sites, que são coreografia de
+  // montagem) e como AVISO: se um dia o estilo voltar a mentir no escuro, o
+  // conserto é aqui — mas medindo o contraste, nunca chutando cor.
+  function applyDarkMapStreetContrast(_map) {}
   // Fase 2 C7 22/07 — troca de tema (Ajustes → data-action="theme") pode
   // acontecer com o mapa da Rota/Leitura JÁ montado (instância viva sobrevive
   // à troca de tela, ver comentário do L4-D em disposeRouteMap). Sem isto a
   // trilha/pernas/precisão ficavam pintadas com a cor do tema ANTERIOR até o
   // próximo remount. setPaintProperty só nas camadas que existirem agora
-  // (map.getLayer ausente lança) — a BASE de tiles (fiord/liberty) troca
-  // sozinha no próprio fluxo de remount de cada mapa (mountMap já detecta
+  // (map.getLayer ausente lança) — a BASE do desenho (style-light/style-dark do
+  // Protomaps, 05/08) troca sozinha no fluxo de remount de cada mapa (mountMap já detecta
   // parts.mapTheme !== theme e chama setStyle); aqui é só a TINTA das
   // camadas próprias, pra não depender de um remount acontecer primeiro.
   function repaintThemedMapLayers() {
@@ -2159,6 +2209,12 @@
         if (parts.mapTheme !== theme) {
           parts.mapTheme = theme;
           parts.pendingPoints = points;
+          // O estilo agora é lido do aparelho (assíncrono na 1ª vez de cada
+          // tema, instantâneo depois). Resolve ANTES de armar o `style.load`:
+          // esperar no meio deixaria o handler pendurado num mapa que a troca
+          // de tela pode ter descartado nesse intervalo.
+          const estiloTema = await currentMapStyle();
+          if (!host.__hbxMap || routeMap !== host.__hbxMap || routeMapHost !== host) return;
           host.__hbxMap.once("style.load", async () => {
             if (routeMap !== host.__hbxMap || routeMapHost !== host) return;
             const latest = (host.__hbxMapParts && host.__hbxMapParts.pendingPoints) || points;
@@ -2169,7 +2225,7 @@
             host.__hbxMap.resize();
             await applyRouteLine(host, host.__hbxMap, latest);
           });
-          host.__hbxMap.setStyle(currentMapStyle(), { diff: true });
+          host.__hbxMap.setStyle(estiloTema, { diff: true });
           return;
         }
         const styleLoaded = !host.__hbxMap.isStyleLoaded || host.__hbxMap.isStyleLoaded();
@@ -2193,13 +2249,14 @@
       const readingPoint = routeLivePoint(liveMode);
       const center = readingPoint || points[0] || { lat: -14.235, lng: -51.9253 };
       const maplibregl = await loadRouteMapLibrary();
+      const estilo = await currentMapStyle();
       if (!host.isConnected || host !== document.getElementById(hostId)) return;
       if (host.querySelector(".route-map-unavailable")) {
         host.classList.remove("is-ready");
         host.innerHTML = `<span class="route-map-loading">Carregando mapa…</span>`;
       }
       disposeRouteMap(); routeMapHost = host;
-      const map = new maplibregl.Map({ container: host, style: currentMapStyle(), center: [center.lng, center.lat], zoom: readingPoint ? 16.6 : points.length ? 12 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false, maxPitch: 60 });
+      const map = new maplibregl.Map({ container: host, style: estilo, center: [center.lng, center.lat], zoom: readingPoint ? 16.6 : points.length ? 12 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false, maxPitch: 60 });
       // Mapa nascendo (boot do app): entra com a MESMA coreografia da volta.
       routeMap = map; host.__hbxMap = map; host.__hbxMapParts = { markers: [], mapTheme: currentMapTheme(), entradaPendente: true, animarMarcadores: true };
       wireMapTap(host, map, opts);
@@ -2287,6 +2344,7 @@
         return;
       }
       const maplibregl = await loadRouteMapLibrary();
+      const estilo = await currentMapStyle();
       if (!host.isConnected || host !== document.getElementById("leitura-live-map")) return;
       if (host.querySelector(".route-map-unavailable")) {
         host.classList.remove("is-ready");
@@ -2296,7 +2354,7 @@
       leituraLiveMapHost = host;
       const last = leituraLiveLastPoint();
       const center = last || { lat: -14.235, lng: -51.9253 };
-      const map = new maplibregl.Map({ container: host, style: currentMapStyle(), center: [center.lng, center.lat], zoom: last ? 16 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false });
+      const map = new maplibregl.Map({ container: host, style: estilo, center: [center.lng, center.lat], zoom: last ? 16 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false });
       leituraLiveMap = map; host.__hbxMap = map; host.__hbxLeituraMarker = null;
       map.on("load", () => {
         if (leituraLiveMap !== map || leituraLiveMapHost !== host) return;
@@ -5345,55 +5403,190 @@
   // O mapa vem da internet; em estrada e sítio o sinal cai e a tela ficava cinza
   // no meio da rota. Aqui ele guarda a região no aparelho. Mesma forma das outras
   // seções de Ajustes (section-title + settings-row), nada de tela nova.
-  // O tamanho é MEDIDO (32 KB por pedaço, média real de Rio Claro), não chutado —
-  // número redondo inventado em tela de download é mentira que o dono descobre
-  // sozinho quando o download termina no dobro.
+  //
+  // 🔴 05/08 (PR05082026-MAPA-PMTILES, F5) — MORREU O BOTÃO, NASCEU A LINHA.
+  // Ordem do dono, literal: *"prefiro sobrecarregar o celular do cliente"*,
+  // *"meio q o cliente se vira"*. Sumiram os chips 10/30/60 km e o botão "Baixar
+  // mapa desta região": ninguém escolhe nada, o aparelho se vira sozinho (ver
+  // mapaOfflineAutoCuidar). Aqui sobrou o que é DADO — em que pé está o mapa —
+  // e o único gesto que ainda é do dono: apagar, porque é o que devolve espaço.
   // ==========================================================================
-  const MAPA_RAIOS = [10, 30, 60];
+  /** Raio guardado em volta da base. É o RAIO_PADRAO_KM do MapaOffline.kt — 60 km
+   *  custam 17,9 MB medidos (F0), não estimados. */
+  const MAPA_RAIO_KM = 60;
   function mapaOfflineEstado() {
-    return state.mapaOffline || { guardadoBytes: 0, tiles: 0, estimadoBytes: 0, baixando: false, feitos: 0, total: 0 };
-  }
-  function mapaOfflineRaio() {
-    const salvo = Number(H.cache.get("mapaRaioKm", 30));
-    return MAPA_RAIOS.includes(salvo) ? salvo : 30;
+    return state.mapaOffline || { guardadoBytes: 0, guardadoTiles: 0, baixando: false, bytesFeitos: 0, bytesTotais: 0, atualizadoEm: 0 };
   }
   function formatarBytes(bytes) {
     const valor = Number(bytes) || 0;
+    // Zero é ZERO. O `Math.max(1, …)` abaixo existe pra 300 bytes não virarem
+    // "0 KB"; sem esta linha ele fazia o contrário — dizia "1 KB no aparelho"
+    // com o aparelho vazio, que é número inventado em tela de estado.
+    if (valor <= 0) return "0 KB";
     if (valor < 1024 * 1024) return `${Math.max(1, Math.round(valor / 1024))} KB`;
     if (valor < 1024 * 1024 * 1024) return `${(valor / (1024 * 1024)).toFixed(valor < 10 * 1024 * 1024 ? 1 : 0)} MB`;
     return `${(valor / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   }
+  /** Data curta do carimbo (dd/mm) — mesmo formato do nome de rota salva. */
+  function mapaOfflineData(millis) {
+    const d = new Date(Number(millis) || 0);
+    return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }
+  // 🔴 Lei 6 do APK — MOTIVO CRU NUNCA VAI PRA TELA. O nativo fala em
+  // `falhaRede`/`precisaWifi`; o motorista lê o que aconteceu com ELE.
+  function mapaOfflineMotivoHumano(motivo) {
+    if (motivo === "semCoordenada") return "Ainda não sei onde você está.";
+    if (motivo === "jaBaixando") return "Já estou baixando o mapa.";
+    if (motivo === "semRede") return "Sem internet agora.";
+    if (motivo === "precisaWifi") return "O mapa só desce no wi-fi.";
+    if (motivo === "falhaRede") return "A internet caiu no meio do download.";
+    if (motivo === "falhaDisco") return "Não coube no aparelho.";
+    return "";
+  }
   function mapaOfflineSettingsSection() {
     if (!H.mapaOfflineDisponivel()) return "";
     const estado = mapaOfflineEstado();
-    const raio = mapaOfflineRaio();
     const baixando = !!estado.baixando;
-    const pronto = Number(estado.guardadoBytes) > 0;
-    const progresso = baixando && estado.total ? Math.min(100, Math.round((estado.feitos / estado.total) * 100)) : 0;
-    const chips = `<div class="day-chips mapa-raios">${MAPA_RAIOS.map(km => `<button type="button" class="montagem-dia${km === raio ? " active" : ""}" data-action="mapa-offline-raio" data-raio="${km}" aria-pressed="${km === raio}" ${baixando ? "disabled" : ""}><strong>${km} km</strong></button>`).join("")}</div>`;
-    // Uma linha SÓ, que muda de texto (nunca troca <button> por <div>): o
-    // reconciliador de tela mistura os dois estados quando a estrutura muda, e a
-    // tela mostrava "Baixar" com a barra andando embaixo.
-    const linhaBaixar = `<button class="settings-row" data-action="mapa-offline-baixar" ${baixando ? "disabled" : ""}><div class="avatar">${icon("download", 18)}</div><div class="settings-copy"><strong>${baixando ? `Baixando o mapa · ${progresso}%` : "Baixar mapa desta região"}</strong><span>${baixando ? `${estado.feitos} de ${estado.total} pedaços` : `${raio} km em volta · cerca de ${formatarBytes(estado.estimadoBytes)}`}</span></div>${icon("chevronRight", 18)}</button>${baixando ? `<div class="progress"><i style="width:${progresso}%"></i></div>` : ""}`;
-    // Falha do último download fica NA LINHA (aviso que some não conserta nada e
+    const guardado = Number(estado.guardadoBytes) || 0;
+    const quando = Number(estado.atualizadoEm) || 0;
+    // 🔴 PROGRESSO POR BYTES, NUNCA POR CONTAGEM DE PEDAÇOS. Medido na F0: um
+    // tile de São Paulo capital pesa 205× um do interior (28 KB contra 436 B) —
+    // barra por contagem mostraria "90%" com metade do download pela frente.
+    // E `0/0` (o nativo ainda não mediu, ou nada faltava) é divisão por zero:
+    // vira 0%, nunca NaN% na cara do motorista.
+    const feitos = Number(estado.bytesFeitos) || 0;
+    const totais = Number(estado.bytesTotais) || 0;
+    const progresso = baixando && totais > 0 ? Math.min(100, Math.round((feitos / totais) * 100)) : 0;
+    const titulo = baixando
+      ? `Baixando o mapa · ${progresso}%`
+      : (guardado > 0 ? `Mapa da região${quando ? ` · atualizado em ${mapaOfflineData(quando)}` : ""}` : "Sem mapa guardado");
+    // Baixando com `0/0` (o nativo ainda está lendo os diretórios do PMTiles):
+    // mostra o que JÁ está no aparelho, nunca "0 KB de 0 KB" nem a frase de
+    // quem não está baixando — dado que se contradiz é pior que dado nenhum.
+    const detalhe = baixando
+      ? (totais > 0 ? `${formatarBytes(feitos)} de ${formatarBytes(totais)}` : `${formatarBytes(guardado)} no aparelho`)
+      : (guardado > 0 ? `${formatarBytes(guardado)} no aparelho` : "Baixa sozinho no wi-fi");
+    // 🔴 A LINHA E A BARRA NUNCA TROCAM DE ELEMENTO entre os estados: o
+    // reconciliador de tela costura por posição/classe, e quando a estrutura
+    // muda ele mistura os dois estados — a tela chegou a mostrar "Baixar" com a
+    // barra andando embaixo. Por isso a barra existe SEMPRE e só se esconde
+    // (`hidden`), em vez de aparecer e sumir do bloco.
+    const linhaStatus = `<div class="settings-row"><div class="avatar">${icon("download", 18)}</div><div class="settings-copy"><strong>${H.escape(titulo)}</strong><span>${H.escape(detalhe)}</span></div></div><div class="progress mapa-medidor"${baixando ? "" : " hidden"}><i style="width:${progresso}%"></i></div>`;
+    // Falha do último download fica NA SEÇÃO (aviso que some não conserta nada e
     // não deixa o dono saber por que o mapa não baixou).
-    const falhou = !baixando && Number(estado.falhas) > 0
-      ? `<div class="hbx-aviso hbx-aviso--warn">Faltaram ${Number(estado.falhas)} pedaços${estado.erro ? ` · ${H.escape(String(estado.erro).slice(0, 60))}` : ""}</div>`
+    const problema = baixando ? "" : mapaOfflineMotivoHumano(estado.motivo);
+    const falhou = problema ? `<div class="hbx-aviso hbx-aviso--warn">${H.escape(problema)}</div>` : "";
+    const linhaGuardado = guardado > 0
+      ? `<button class="settings-row" data-action="mapa-offline-apagar"><div class="avatar">${icon("trash", 18)}</div><div class="settings-copy"><strong>Apagar mapa baixado</strong></div>${icon("chevronRight", 18)}</button>`
       : "";
-    const linhaGuardado = pronto
-      ? `<button class="settings-row" data-action="mapa-offline-apagar"><div class="avatar">${icon("trash", 18)}</div><div class="settings-copy"><strong>Apagar mapa baixado</strong><span>${formatarBytes(estado.guardadoBytes)} no aparelho</span></div>${icon("chevronRight", 18)}</button>`
-      : "";
-    return `<div class="section-title"><strong>Mapa sem internet</strong></div><section class="card flat">${chips}${linhaBaixar}${falhou}${linhaGuardado}</section>`;
+    return `<div class="section-title"><strong>Mapa sem internet</strong></div><section class="card flat">${linhaStatus}${falhou}${linhaGuardado}</section>`;
   }
   async function mapaOfflineSincronizar() {
     if (!H.mapaOfflineDisponivel()) return;
     const eu = state.idlePosicao || lastKnownPosition;
     const lat = eu && validCoordinates(eu.lat, eu.lng) ? eu.lat : null;
     const lng = eu && validCoordinates(eu.lat, eu.lng) ? eu.lng : null;
-    const dados = H.mapaOfflineEstado(lat, lng, mapaOfflineRaio());
+    const dados = H.mapaOfflineEstado(lat, lng, MAPA_RAIO_KM);
     if (!dados) return;
     state.mapaOffline = { ...(state.mapaOffline || {}), ...dados };
     render();
+  }
+
+  // ==========================================================================
+  // 🔴 05/08 (F5) — O CELULAR SE VIRA SOZINHO. Três gatilhos, nenhum com botão,
+  // no padrão de mercado (Google Maps / Spotify):
+  //   1. PRIMEIRA VEZ — nunca baixou e o app descobriu onde o motorista está;
+  //   2. AO INICIAR ROTA — a rota sai da área guardada (o nativo devolve
+  //      `cobreAqui` pra posição atual; pras paradas a conta é aqui, contra a
+  //      base do carimbo);
+  //   3. RENOVAÇÃO — o mapa guardado passou do prazo e ele está no wi-fi.
+  // As três regras duras: roda em SEGUNDO PLANO (o app segue funcionando online
+  // enquanto baixa, zero tela de "aguarde"); SÓ NO WI-FI por padrão; e um
+  // download por vez.
+  // ==========================================================================
+  /**
+   * 90 dias. Por quê: o arquivo do Brasil no R2 carrega a data do build no nome
+   * e é regerado em meses, não em dias — renovar antes disso baixaria de novo a
+   * MESMA rua. Do outro lado, deixar passar de um trimestre acumula rua nova de
+   * loteamento que o motorista não acha. 4 renovações por ano, ~18 MB cada, e
+   * SÓ no wi-fi: ~72 MB/ano que não custam nada ao dono.
+   */
+  const MAPA_VALIDADE_MS = 90 * 24 * 60 * 60 * 1000;
+  /** Freio do gatilho de posição: o GPS ocioso dispara a cada fix. */
+  const MAPA_AUTO_INTERVALO_MS = 10 * 60 * 1000;
+  /** ~20 MB é o círculo de 60 km MEDIDO na F0 (17,9 MB), arredondado pra cima. */
+  const MAPA_CUSTO_4G = "~20 MB";
+  /**
+   * 🔴 VIGIA DO "EM VOO". O guard de reentrância é JS e o `fim` é do nativo: se
+   * um dia um caminho de saída de lá voltar a ser mudo, o app ficaria travado
+   * em "baixando" PARA SEMPRE e nunca mais tentaria — foi exatamente esse defeito
+   * (tela presa em "Baixando · 0%") que custou a frente anterior. Passado o teto,
+   * o flag cai e quem responde a verdade é o próprio nativo (mapaOfflineEstado).
+   */
+  const MAPA_AUTO_TETO_MS = 15 * 60 * 1000;
+  let mapaAutoEmVoo = false;
+  let mapaAutoUltimoOlhar = 0;
+  let mapaAutoVigia = 0;
+  /** Qual gesto do dono está esperando resposta — só ele fala por toast. */
+  let mapaOfflineGesto = "";
+  function mapaOfflineJaPerguntouDados() { return H.cache.get("mapaPerguntou4g", 0) === 1; }
+  function mapaOfflineDispararDownload(eu, permitirDadosMoveis) {
+    mapaAutoEmVoo = true;
+    mapaAutoUltimoOlhar = Date.now();
+    clearTimeout(mapaAutoVigia);
+    mapaAutoVigia = setTimeout(() => { mapaAutoEmVoo = false; void mapaOfflineSincronizar(); }, MAPA_AUTO_TETO_MS);
+    // A tela já entra em "Baixando": o primeiro aviso de progresso do nativo
+    // pode demorar (ele lê os diretórios do PMTiles antes de puxar byte de tile).
+    state.mapaOffline = { ...mapaOfflineEstado(), baixando: true, motivo: "", bytesFeitos: 0, bytesTotais: 0 };
+    render();
+    H.mapaOfflineBaixar(eu.lat, eu.lng, MAPA_RAIO_KM, !!permitirDadosMoveis);
+  }
+  /**
+   * `gatilho` é "posicao" (GPS ocioso) ou "rota" (a rota começou). O de posição
+   * tem freio de tempo; o de rota é raro e sempre olha.
+   */
+  async function mapaOfflineAutoCuidar(gatilho) {
+    if (!H.mapaOfflineDisponivel() || mapaAutoEmVoo) return;
+    if (gatilho !== "rota" && Date.now() - mapaAutoUltimoOlhar < MAPA_AUTO_INTERVALO_MS) return;
+    const eu = state.idlePosicao || lastKnownPosition;
+    if (!eu || !validCoordinates(eu.lat, eu.lng)) return; // "quando o app souber onde ele está"
+    mapaAutoUltimoOlhar = Date.now();
+    const estado = H.mapaOfflineEstado(eu.lat, eu.lng, MAPA_RAIO_KM);
+    if (!estado) return;
+    state.mapaOffline = { ...(state.mapaOffline || {}), ...estado };
+    if (estado.baixando || !estado.online) return;
+    const nunca = !(Number(estado.atualizadoEm) > 0) || !(Number(estado.guardadoTiles) > 0);
+    const vencido = !nunca && Date.now() - Number(estado.atualizadoEm) > MAPA_VALIDADE_MS;
+    // Fora da área: o nativo já responde pela posição ATUAL (`cobreAqui`); as
+    // paradas da rota a gente mede aqui contra a base do carimbo, porque é o
+    // destino que fica sem mapa, não o ponto de partida.
+    const fora = !nunca && (!estado.cobreAqui || (gatilho === "rota" && mapaOfflineRotaSaiDaArea(estado)));
+    if (!nunca && !vencido && !fora) return;
+    if (estado.wifi) { mapaOfflineDispararDownload(eu, false); return; }
+    // Sem wi-fi: renovação PODE esperar (o mapa velho ainda desenha). O que não
+    // pode esperar é sair pra rua sem mapa nenhum na região — aí, uma vez só na
+    // vida do aparelho, pergunta. "Não" é resposta final: nunca mais pergunta.
+    if (gatilho !== "rota" || !(nunca || fora) || mapaOfflineJaPerguntouDados()) return;
+    // Nunca por cima de um popup que ele já está respondendo — e sem queimar a
+    // única pergunta da vida do aparelho num popup que ele não chegou a ver.
+    if (state.confirmation) return;
+    H.cache.set("mapaPerguntou4g", 1);
+    state.confirmation = {
+      type: "mapa-offline-dados",
+      title: `Usar ${MAPA_CUSTO_4G} de dados?`,
+      message: "Você está sem wi-fi e esta rota sai da área que está guardada no aparelho.",
+      confirmLabel: "Baixar",
+      icon: "download",
+    };
+    render();
+  }
+  /** Alguma parada da rota cai fora do círculo guardado? */
+  function mapaOfflineRotaSaiDaArea(estado) {
+    const raio = Number(estado.raioKm) || 0;
+    const baseLat = Number(estado.baseLat);
+    const baseLon = Number(estado.baseLon);
+    if (!raio || !validCoordinates(baseLat, baseLon)) return false;
+    return routeMapPoints().some(p => distanceMeters({ lat: baseLat, lng: baseLon }, { lat: p.lat, lng: p.lng }) / 1000 > raio);
   }
   // 28/07 (dono: "bati o olho e achei q a rota estava sem sinal") — o preparo da
   // rota offline era um cartão SOLTO que o offline-controls.js injetava ACIMA do
@@ -8259,6 +8452,13 @@
     const next = open.find(item => validCoordinates(item.cliente && item.cliente.lat, item.cliente && item.cliente.lng));
     const stops = next ? [{ id: next.id, nome: next.cliente.nome || "Cliente", lat: Number(next.cliente.lat), lng: Number(next.cliente.lng) }] : [];
     if (inicioReal) H.sound("route_start");
+    // 05/08 (F5) — GATILHO 2 do mapa offline: a rota começou de verdade. Espera
+    // uns segundos de propósito — o início dispara vários pedidos ao VPS
+    // (iniciar + refresh) e o mapa não pode roubar a banda deles; de quebra, o
+    // refresh já pousou e as paradas da rota estão frescas pra conta do
+    // "sai da área guardada". Antes de `!stops.length`: rota sem parada
+    // geolocalizada também é rota, e o mapa da região serve do mesmo jeito.
+    if (inicioReal) setTimeout(() => { void mapaOfflineAutoCuidar("rota"); }, 8000);
     if (!stops.length) return;
     // S4 22/07 (PR22072026-APP-SOUNDS) — esta função é o gate único de "a rota
     // REALMENTE começou a rodar": todo caminho que inicia rota de verdade
@@ -8388,6 +8588,10 @@
       lastKnownPosition = { lat: point.lat, lng: point.lng, accuracy: point.accuracyM };
       if (routeMap && routeMapHost) updateRouteReadingMap(routeMapHost, routeMap);
       void resolverEnderecoOcioso(point);
+      // 05/08 (F5) — GATILHOS 1 e 3 do mapa offline: é aqui que o app descobre
+      // pela primeira vez ONDE o motorista está. A função tem freio próprio de
+      // 10 min e só sai do lugar no wi-fi (ver mapaOfflineAutoCuidar).
+      void mapaOfflineAutoCuidar("posicao");
     }, err => { markGpsError(err); }, { enableHighAccuracy: false, timeout: 12000, maximumAge: 30000 });
   }
   function stopIdleWatch() {
@@ -9413,7 +9617,15 @@
       state.confirmation = null;
       render();
       if (!confirmation) return;
-      if (confirmation.type === "mapa-offline-apagar") H.mapaOfflineApagar();
+      // Gesto do dono: só ele fala por toast quando o nativo devolver o `fim`
+      // (o download automático é mudo de propósito — ver o handler hbx:mapa-offline).
+      if (confirmation.type === "mapa-offline-apagar") { mapaOfflineGesto = "apagar"; H.mapaOfflineApagar(); }
+      // 05/08 (F5) — ele autorizou gastar 4G desta vez. `true` no último
+      // argumento é o ÚNICO caminho que fura o "só no wi-fi" do nativo.
+      if (confirmation.type === "mapa-offline-dados") {
+        const eu = state.idlePosicao || lastKnownPosition;
+        if (eu && validCoordinates(eu.lat, eu.lng)) { mapaOfflineGesto = "baixar"; mapaOfflineDispararDownload(eu, true); }
+      }
       if (confirmation.type === "checagem-remover") await checagemRemoverTodos();
       if (confirmation.type === "delete-client") await performDeleteClient(clientById(confirmation.itemId));
       if (confirmation.type === "delete-client-product") await performDeleteClientProduct(state.clientProducts.find(item => item.id === confirmation.itemId));
@@ -9817,19 +10029,8 @@
     // ganha o "No caminho × Primeira parada" e encaixa na rota que está de pé.
     if (action === "rota-rapida") { state.montagemRapida = { origem: "cep", contexto: "rota", posicao: "perto", busca: "", opcoes: null, cep: "", numero: "", nome: "", lat: null, lng: null, resolvido: null, buscando: false, checando: false, salvando: false, erro: "", duplicado: null }; showModal("rota-rapida"); return; }
     if (action === "montagem-rapida-escolher") { await montagemRapidaEscolherOpcao(target.dataset.indice); return; }
-    if (action === "mapa-offline-raio") {
-      const km = Number(target.dataset.raio);
-      if (MAPA_RAIOS.includes(km)) { H.cache.set("mapaRaioKm", km); await mapaOfflineSincronizar(); }
-      return;
-    }
-    if (action === "mapa-offline-baixar") {
-      const eu = state.idlePosicao || lastKnownPosition;
-      if (!eu || !validCoordinates(eu.lat, eu.lng)) { toast("Preciso saber onde você está pra escolher o pedaço do mapa.", true); return; }
-      state.mapaOffline = { ...mapaOfflineEstado(), baixando: true, feitos: 0, total: 0 };
-      render();
-      H.mapaOfflineBaixar(currentMapStyle(), eu.lat, eu.lng, mapaOfflineRaio());
-      return;
-    }
+    // 05/08 (F5) — os chips de raio e o "Baixar mapa desta região" MORRERAM aqui:
+    // ninguém escolhe mais nada, quem decide baixar é mapaOfflineAutoCuidar.
     if (action === "mapa-offline-apagar") {
       // Apagar mapa é o gesto que devolve espaço do aparelho: confirma antes,
       // como toda exclusão de peso (Lei nº1 do APK).
@@ -10979,32 +11180,36 @@
     }
   }
   document.addEventListener("hbx:destino", event => { void receberDestinoExterno(event.detail); });
-  // Progresso do download do mapa (ver MapaOffline.kt): barra anda sem render em
-  // laço — o nativo avisa a cada 10 pedaços.
+  // Download do mapa (ver MapaOffline.kt). O nativo manda DOIS tipos de aviso: o
+  // de ANDAMENTO (só bytes, uma vez por faixa) e o de FIM, que traz o retrato
+  // inteiro e VEM SEMPRE — inclusive quando ele recusou (sem rede, sem wi-fi, já
+  // baixando). Foi a falta desse fim de recusa que deixava a tela presa em
+  // "Baixando · 0%" pra sempre.
   document.addEventListener("hbx:mapa-offline", event => {
     let dados = null;
     try { dados = typeof event.detail === "string" ? JSON.parse(event.detail) : event.detail; } catch (_) { dados = null; }
     if (!dados) return;
     const fim = !!dados.fim;
-    state.mapaOffline = {
-      ...(state.mapaOffline || {}),
-      guardadoBytes: Number(dados.guardadoBytes) || 0,
-      feitos: Number(dados.feitos) || 0,
-      total: Number(dados.total) || 0,
-      falhas: Number(dados.falhas) || 0,
-      erro: dados.erro || "",
-      baixando: !fim,
-    };
-    if (fim) {
-      void mapaOfflineSincronizar();
-      const falhas = Number(dados.falhas) || 0;
-      const guardado = Number(dados.guardadoBytes) || 0;
-      // Erro de verdade na tela: "não deu certo" sem número é o que me fez
-      // perder tempo adivinhando. Aqui aparece quantos pedaços faltaram e por quê.
-      if (falhas > 0) toast(`Faltaram ${falhas} pedaços do mapa${dados.erro ? ` (${String(dados.erro).slice(0, 40)})` : ""}.`, true);
-      else toast(guardado > 0 ? "Mapa pronto pra usar sem internet." : "Mapa apagado.");
-    }
-    else render();
+    state.mapaOffline = { ...(state.mapaOffline || {}), ...dados, baixando: !fim };
+    // Andamento só redesenha se a linha estiver À VISTA. O download roda em
+    // segundo plano com o motorista dirigindo: repintar a tela de Rota dezenas
+    // de vezes por causa de uma barra que ninguém está olhando é o oposto de
+    // "nunca trava o app".
+    if (!fim) { if (state.screen === "settings") render(); return; }
+    mapaAutoEmVoo = false;
+    clearTimeout(mapaAutoVigia);
+    void mapaOfflineSincronizar();
+    // 🔴 DOWNLOAD AUTOMÁTICO É MUDO. Ele acontece com o motorista dirigindo:
+    // toast de "mapa pronto" no meio da rota é ruído, e toast de erro é pior —
+    // ele não pediu nada e não pode fazer nada. O estado mora na linha de
+    // Ajustes, que é onde ele olha quando quer saber. Fala só quem foi TOCADO.
+    const gesto = mapaOfflineGesto;
+    mapaOfflineGesto = "";
+    if (gesto === "apagar") { toast("Mapa apagado."); return; }
+    if (gesto !== "baixar") return;
+    const problema = mapaOfflineMotivoHumano(dados.motivo);
+    if (problema) toast(problema, true);
+    else toast("Mapa pronto pra usar sem internet.");
   });
   document.addEventListener("hbx:theme", render);
   // Fix visual de alta frequência (~3s): move posição/precisão/câmera, mas não
@@ -12118,6 +12323,7 @@
     if (!host) { disposePasseioMap(); return; }
     try {
       const maplibregl = await loadRouteMapLibrary();
+      const estilo = await currentMapStyle();
       if (!host.isConnected || host !== document.getElementById("pss-map")) return;
       if (!pssMapObj || pssMapHost !== host) {
         disposePasseioMap();
@@ -12125,7 +12331,7 @@
         const pontos = passeioMapPontos();
         const sugestoes = passeioSugestoesBusca();
         const centro = pontos[0] || sugestoes[0] || (passeioPos && validCoordinates(passeioPos.lat, passeioPos.lng) ? passeioPos : { lat: -14.235, lng: -51.9253 });
-        const map = new maplibregl.Map({ container: host, style: currentMapStyle(), center: [centro.lng, centro.lat], zoom: pontos.length || sugestoes.length ? 13 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false, doubleClickZoom: false });
+        const map = new maplibregl.Map({ container: host, style: estilo, center: [centro.lng, centro.lat], zoom: pontos.length || sugestoes.length ? 13 : 3.5, attributionControl: { compact: true }, cooperativeGestures: false, doubleClickZoom: false });
         pssMapObj = map;
         host.__hbxMap = map;
         map.on("load", () => {

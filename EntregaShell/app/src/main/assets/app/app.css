@@ -981,6 +981,13 @@ html.keyboard-open .content.is-chat { height: calc(var(--hbx-visible-height) - 6
 @keyframes leitura-recording-morph { from { opacity: .7; transform: scale(.82); border-radius: 38%; } to { opacity: 1; transform: scale(1); border-radius: 50%; } }
 .progress { height: 6px; overflow: hidden; margin-top: 12px; border-radius: 99px; background: rgba(255,255,255,.12); }
 .progress i { display: block; height: 100%; border-radius: inherit; background: var(--brand); }
+/* 05/08 (PR05082026-MAPA-PMTILES, F5) — a barra do download do mapa mora DENTRO
+   do cartão claro de Ajustes, e a .progress nasceu pro hero ESCURO do mapa: sem
+   trocar o fundo por um token de superfície ela simplesmente some no tema claro
+   (mesma lição já paga pelo .caderneta-medidor). Margem lateral igual à do
+   .settings-row, pra barra e linha de status começarem no mesmo lugar. Nenhuma
+   moldura nova: só posição e fundo. */
+.mapa-medidor { margin: 0 12px 11px; background: var(--surface-3); }
 .stop-card { display: grid; gap: 9px; transition: transform .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease, opacity .16s ease; -webkit-user-select: none; user-select: none; touch-action: pan-y; }
 .stop-card.is-holding { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--surface)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 24%, transparent); }
 .client-product-list .row-card.is-holding { border-color: var(--danger); color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--surface)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 24%, transparent); transform: scale(.985); }

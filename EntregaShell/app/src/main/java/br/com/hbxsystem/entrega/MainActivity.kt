@@ -192,9 +192,13 @@ class MainActivity : AppCompatActivity() {
             webViewClient = object : WebViewClient() {
                 override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
                     val url = request?.url ?: return null
-                    // 🔴 31/07 — MAPA OFFLINE: pedaço de mapa que já está no aparelho
-                    // é servido do disco, sem tocar na rede (ver MapaOffline.kt).
-                    // Só o mapa passa por aqui; o resto segue o caminho de sempre.
+                    // 🔴 05/08 (F4, PR05082026-MAPA-PMTILES) — MAPA SEM INTERNET.
+                    // O tile é pedido em `/tiles/{z}/{x}/{y}.pbf` na MESMA ORIGEM da
+                    // página (appassets): sem host de fora, CORS e CSP deixam de
+                    // existir em vez de serem contornados. Tem que vir ANTES do
+                    // assetLoader — `/tiles/` não é asset do APK, mora em filesDir e
+                    // é escrito pelo download (ver MapaOffline.kt). Qualquer outro
+                    // caminho devolve null aqui e segue o fluxo de sempre.
                     if (BuildConfig.APP_MODE == "logistica") {
                         MapaOffline.resposta(this@MainActivity, url.toString())?.let { return it }
                     }

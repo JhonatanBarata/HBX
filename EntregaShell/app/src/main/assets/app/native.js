@@ -355,15 +355,25 @@
     manterTelaAcesa(ligado) { try { bridge && bridge.manterTelaAcesa && bridge.manterTelaAcesa(!!ligado); } catch (_) {} },
     // 31/07 — mapa offline (ver MapaOffline.kt). Sem ponte (preview no navegador)
     // a seção inteira some da tela, em vez de mostrar botão que não faz nada.
+    // 🔴 05/08 (PR05082026-MAPA-PMTILES, F5) — `mapaOfflineBaixar` TROCOU DE
+    // ASSINATURA. O 1º argumento era a URL do estilo (o nativo baixava o mapa
+    // lendo o TileJSON do openfreemap); agora o mapa vem de um PMTiles único e
+    // quem manda no gasto de 4G é a tela, então a ponte passa
+    // (lat, lng, raioKm, permitirDadosMoveis). Não é shim: manter o argumento
+    // velho faria o nativo ler a URL como latitude e TODO pedido cairia em
+    // `motivo:"semCoordenada"` — nada baixaria, calado.
     mapaOfflineDisponivel() { return !!(bridge && bridge.mapaOfflineBaixar && bridge.mapaOfflineEstado); },
     mapaOfflineEstado(lat, lng, raioKm) {
       if (!this.mapaOfflineDisponivel()) return null;
-      try { return JSON.parse(bridge.mapaOfflineEstado(String(lat == null ? "" : lat), String(lng == null ? "" : lng), String(raioKm || 30))); }
+      try { return JSON.parse(bridge.mapaOfflineEstado(String(lat == null ? "" : lat), String(lng == null ? "" : lng), String(raioKm || 60))); }
       catch (_) { return null; }
     },
-    mapaOfflineBaixar(estiloUrl, lat, lng, raioKm) {
+    // `permitirDadosMoveis` é EXPLÍCITO e nasce FALSO: o padrão é só wi-fi, e
+    // quem pergunta ao motorista antes de gastar 4G é o app.js — o nativo nunca
+    // decide isso sozinho (ver MapaOffline.baixarRegiao).
+    mapaOfflineBaixar(lat, lng, raioKm, permitirDadosMoveis) {
       if (!this.mapaOfflineDisponivel()) return;
-      try { bridge.mapaOfflineBaixar(String(estiloUrl || ""), String(lat), String(lng), String(raioKm || 30)); } catch (_) {}
+      try { bridge.mapaOfflineBaixar(String(lat), String(lng), String(raioKm || 60), !!permitirDadosMoveis); } catch (_) {}
     },
     mapaOfflineApagar() { try { bridge && bridge.mapaOfflineApagar && bridge.mapaOfflineApagar(); } catch (_) {} },
     speakStop() { bridge && bridge.speakStop && bridge.speakStop(); },
