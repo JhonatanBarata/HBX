@@ -150,6 +150,8 @@ export const ICONS: Record<string, string[]> = {
   // NÚCLEO-CRM N5 — catálogo "Produtos": caixa/pacote. A chave PRECISA existir
   // (nav id sem entrada em ICONS derruba a Sidebar — foi o P0 do "assistente").
   produtos: ["M21 8v8a2 2 0 0 1-1 1.73l-7 4a2 2 0 0 1-2 0l-7-4A2 2 0 0 1 3 16V8a2 2 0 0 1 1-1.73l7-4a2 2 0 0 1 2 0l7 4A2 2 0 0 1 21 8Z", "M3.3 7 12 12l8.7-5", "M12 22V12"],
+  // B1 BALCÃO — caixa registradora simplificada (frente de caixa da vertical).
+  balcao: ["M4 10h16", "M6 10V6.5A1.5 1.5 0 0 1 7.5 5h9A1.5 1.5 0 0 1 18 6.5V10", "M4 10v8.5A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5V10", "M9 15h6"],
   // NÚCLEO-CRM N6 — módulo "Logística": caminhão de entrega. A chave PRECISA
   // existir (nav id sem entrada em ICONS derruba a Sidebar — P0 do "assistente").
   logistica: ["M3 6a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v9H3z", "M14 9h3.6a1 1 0 0 1 .8.4l2.4 3.1a1 1 0 0 1 .2.6V15h-7z", "M7.5 20a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6Z", "M17.5 20a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6Z"],
@@ -385,6 +387,10 @@ export const NAV_LINKS = [
   // Reusa ContatosClient em modo clientesOnly (rota /clientes). Kill-switch
   // (gates null abaixo), mesmo grupo que "Entregas" pra não repetir a guia.
   { id: "clientes", label: "Clientes", href: "/clientes", group: "Logística" },
+  // B1 BALCÃO (PR04082026-BALCAO-DISTRIBUIDORA): frente de caixa da vertical —
+  // venda no balcão com bip, baixa no estoque e fiado. A TELA gateia no modo
+  // HBX Gestão Fiscal (backend @Admin); aqui é kill-switch, não paywall (null).
+  { id: "balcao", label: "Balcão", href: "/balcao", group: "Logística" },
   // COMEX (31/07): vendas/radar internacional — mapa do mercado por NCM/SH4 +
   // prováveis importadores/exportadores. Módulo próprio 'comex' (defaultEnabled
   // =true, "nasce ligado"); kill-switch do master, não paywall (null no
@@ -1380,6 +1386,12 @@ export function AparenciaSwitch() {
   //
   // Enquanto arrasta, só este estado anda (nada de tema, nada de transição).
   const [livrePendente, setLivrePendente] = useState<string | null>(null);
+  // O hex do que está NO AR, tirado uma vez e guardado. `hexDaCor` chama
+  // `getComputedStyle` na RAIZ, e isso força o navegador a recalcular o estilo
+  // do documento inteiro — barato uma vez ao abrir, caro sessenta vezes por
+  // segundo no meio de um arrasto. Ele só muda quando a cor no ar muda, e
+  // todos esses pontos passam por aqui.
+  const hexNoArRef = useRef<string>("#000000");
 
   const fechar = useCallback(() => { setOpen(false); }, []);
   const boxRef = useClickAway<HTMLSpanElement>(open, fechar);
@@ -1445,9 +1457,17 @@ export function AparenciaSwitch() {
   // Abrir só realinha o campo da cor livre com o que está no ar — e joga fora
   // rascunho de roda que tenha sobrado da última vez.
   function abrir() {
-    setHexLivre(hexDaCor(getCorAtiva()));
+    fixarHexNoAr(getCorAtiva());
     setLivrePendente(null);
     setOpen(true);
+  }
+
+  /** Anota a cor no ar (uma leitura de estilo) e alinha o campo com ela. */
+  function fixarHexNoAr(cor: string | null) {
+    const hex = hexDaCor(cor);
+    hexNoArRef.current = hex;
+    setHexLivre(hex);
+    return hex;
   }
 
   /** Arrastar na roda: guarda o rascunho e NÃO encosta no tema. */
@@ -1455,14 +1475,17 @@ export function AparenciaSwitch() {
     setHexLivre(valor);
     // Voltar exatamente pra cor que já está no ar não é mudança — e um
     // "Aplicar" que não aplicaria nada é a mesma promessa vazia que o botão
-    // desabilitado existe pra evitar.
-    setLivrePendente(hexDaCor(getCorAtiva()) === valor.toUpperCase() ? null : valor);
+    // desabilitado existe pra evitar. A comparação usa o hex ANOTADO: ler o
+    // estilo computado aqui custaria um recálculo do documento por pixel
+    // arrastado, que é a doença que este Aplicar veio curar.
+    setLivrePendente(valor.toUpperCase() === hexNoArRef.current ? null : valor);
   }
 
   /** O único "Aplicar" que sobrou no painel. */
   function aplicarCorLivre() {
     if (!livrePendente) return;
     setCor(livrePendente);
+    hexNoArRef.current = livrePendente.toUpperCase();
     setLivrePendente(null);
   }
 
@@ -1471,7 +1494,7 @@ export function AparenciaSwitch() {
    *  desfazer o que a pessoa acabou de fazer. */
   function escolherDaGrade(key: string) {
     setCor(key);
-    setHexLivre(hexDaCor(key));
+    fixarHexNoAr(key);
     setLivrePendente(null);
   }
 
@@ -1490,7 +1513,7 @@ export function AparenciaSwitch() {
     resetarAparencia();
     restaurarTipografia();
     setCostas(false);
-    setHexLivre(hexDaCor(null));
+    fixarHexNoAr(null);
     setLivrePendente(null);
   }
 
