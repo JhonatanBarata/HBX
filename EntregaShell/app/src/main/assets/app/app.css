@@ -2031,6 +2031,19 @@ html[data-theme="dark"] .pss-montagem-dica { color: var(--brand); }
    produto. Verde é dinheiro que ENTROU; o fiado usa o --warning, que é o token
    de "falta receber" (nunca --danger: fiado não bloqueia nada, é a caderneta
    funcionando). Fonte e peso vêm do .card-main small; aqui só a cor. */
+/* SEQUÊNCIA DA PÁGINA (05/08) — o número é a alça do arraste.
+   `touch-action: none` é o que impede a PÁGINA de rolar junto com o dedo: os
+   listeners de toque são passivos (não dá pra preventDefault), então quem
+   segura a rolagem tem de ser o CSS. Vale só no número — o resto do card rola
+   normal. `user-select: none` evita o balão de seleção de texto no toque longo. */
+.caderneta-lista .order { touch-action: none; -webkit-user-select: none; user-select: none; }
+/* Atendido = círculo CHEIO com o número em branco (o ✓ saiu daqui: a sequência
+   do dia tem de aparecer em todo mundo). */
+.caderneta-lista .order.is-feito { color: var(--on-brand); background: var(--brand-strong); }
+/* Card levantado: sai do fluxo visual sem sair do DOM. A transição fica só nos
+   VIZINHOS — o card do dedo tem de acompanhar o toque sem atraso nenhum. */
+.caderneta-lista .stop-card { transition: transform .14s ease; }
+.caderneta-lista .stop-card.is-arrastando { position: relative; z-index: 3; transition: none; box-shadow: 0 10px 24px rgba(0, 0, 0, .18); }
 .caderneta-desfecho { color: var(--success); font-weight: 800; }
 .caderneta-desfecho.is-devendo { color: var(--warning); }
 /* "Deve: R$ X" — dívida ANTERIOR do cliente, no topo do card. --warning (falta

@@ -192,6 +192,8 @@
     // Filtro da página: "todos" | "devendo" | "pago". Não é cacheado de
     // propósito — abrir o app filtrado em "Pago" esconderia quem falta atender.
     cadernetaFiltro: "todos",
+    // A chave da linha sendo arrastada pelo número (null = ninguém).
+    cadernetaArrastando: null,
     // CADERNETA 7 DIAS (05/08) — dia do HISTÓRICO aberto ({diaSemana, dateKey})
     // ou null = hoje. `cadernetaFinalizarDia` vive só com o popup Finalizar.
     cadernetaDiaVisto: null,
@@ -10817,7 +10819,20 @@
     // MODO CADERNETA (05/08) — segurar a linha do dia apaga a venda errada.
     // Mesma máquina dos outros 8 holds. Só arma na tela da caderneta e fora de
     // qualquer folha/popup: a lista é a única dona deste gesto.
-    const cadernetaRow = target.closest("[data-caderneta-hold]");
+    // ARRASTE PELO NÚMERO (05/08): pega na hora, sem os 950ms do apagar — é o
+    // que separa os dois gestos pro dedo, não só pro código.
+    const cadernetaAlca = event.target.closest("[data-caderneta-arrastar]");
+    if (cadernetaAlca && event.touches.length === 1 && cadernetaTelaAtiva() && !state.modal && !state.selected) {
+      if (cadernetaArrastoIniciar(cadernetaAlca.dataset.cadernetaArrastar, event.touches[0])) {
+        ignoredCadernetaClickId = cadernetaAlca.dataset.cadernetaArrastar;
+      }
+    }
+    // ZONA DE EXCLUSÃO DO APAGAR (05/08): o dedo no NÚMERO é arraste, não
+    // exclusão. Sem isto os dois gestos nasciam do mesmo toque — o card ficava
+    // vermelho durante o arraste e os 950ms iniciais eram idênticos. Mesmo
+    // padrão que a seta ↑↓ do card de produto e o campo de preço da leitura já
+    // usam pra não armar o hold do vizinho.
+    const cadernetaRow = event.target.closest("[data-caderneta-arrastar]") ? null : target.closest("[data-caderneta-hold]");
     if (cadernetaRow && event.touches.length === 1 && cadernetaTelaAtiva() && !state.modal && !state.selected) {
       ignoredCadernetaClickId = null;
       const touch = event.touches[0]; const hold = { id: cadernetaRow.dataset.cadernetaHold, chave: cadernetaRow.dataset.cadernetaChave || "", el: cadernetaRow, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
@@ -10857,6 +10872,7 @@
     if (lrtItemHold && (Math.abs(touch.clientX - lrtItemHold.x) > 12 || Math.abs(touch.clientY - lrtItemHold.y) > 12)) { clearTimeout(lrtItemHold.timer); lrtItemHold.el.classList.remove("is-hold-arming", "is-holding"); lrtItemHold = null; }
     if (historicoHold && (Math.abs(touch.clientX - historicoHold.x) > 12 || Math.abs(touch.clientY - historicoHold.y) > 12)) { clearTimeout(historicoHold.timer); historicoHold.el.classList.remove("is-hold-arming", "is-holding"); historicoHold = null; }
     if (cadernetaHold && (Math.abs(touch.clientX - cadernetaHold.x) > 12 || Math.abs(touch.clientY - cadernetaHold.y) > 12)) { clearTimeout(cadernetaHold.timer); cadernetaHold.el.classList.remove("is-hold-arming", "is-holding"); cadernetaHold = null; }
+    if (cadernetaArrasto) { cadernetaArrastoMover(touch); return; }
     if (pssHold && (Math.abs(touch.clientX - pssHold.x) > 12 || Math.abs(touch.clientY - pssHold.y) > 12)) { clearTimeout(pssHold.timer); pssHold.el.classList.remove("is-hold-arming", "is-holding"); pssHold = null; }
     if (touchStart && touchStart.currentStopId) {
       const current = document.querySelector(`[data-route-current="${touchStart.currentStopId}"]`);
@@ -10864,6 +10880,7 @@
     }
   }, { passive: true });
   app.addEventListener("touchend", event => {
+    if (cadernetaArrasto) { cadernetaArrastoSoltar(false); return; }
     if (pssHold) {
       clearTimeout(pssHold.timer);
       const hold = pssHold; pssHold = null; hold.el.classList.remove("is-hold-arming", "is-holding");
@@ -11001,7 +11018,7 @@
       return;
     }
   }, { passive: true });
-  app.addEventListener("touchcancel", () => { if (rmeParadaHold) { clearTimeout(rmeParadaHold.timer); rmeParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeParadaHold = null; if (rmeItemHold) { clearTimeout(rmeItemHold.timer); rmeItemHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeItemHold = null; if (routeModeloHold) { clearTimeout(routeModeloHold.timer); routeModeloHold.el.classList.remove("is-hold-arming", "is-holding"); } routeModeloHold = null; if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-hold-arming", "is-holding"); } routeStopHold = null; if (productHold) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); } productHold = null; if (lrtParadaHold) { clearTimeout(lrtParadaHold.timer); lrtParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtParadaHold = null; if (lrtItemHold) { clearTimeout(lrtItemHold.timer); lrtItemHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtItemHold = null; if (historicoHold) { clearTimeout(historicoHold.timer); historicoHold.el.classList.remove("is-hold-arming", "is-holding"); } historicoHold = null; if (cadernetaHold) { clearTimeout(cadernetaHold.timer); cadernetaHold.el.classList.remove("is-hold-arming", "is-holding"); } cadernetaHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
+  app.addEventListener("touchcancel", () => { if (rmeParadaHold) { clearTimeout(rmeParadaHold.timer); rmeParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeParadaHold = null; if (rmeItemHold) { clearTimeout(rmeItemHold.timer); rmeItemHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeItemHold = null; if (routeModeloHold) { clearTimeout(routeModeloHold.timer); routeModeloHold.el.classList.remove("is-hold-arming", "is-holding"); } routeModeloHold = null; if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-hold-arming", "is-holding"); } routeStopHold = null; if (productHold) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); } productHold = null; if (lrtParadaHold) { clearTimeout(lrtParadaHold.timer); lrtParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtParadaHold = null; if (lrtItemHold) { clearTimeout(lrtItemHold.timer); lrtItemHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtItemHold = null; if (historicoHold) { clearTimeout(historicoHold.timer); historicoHold.el.classList.remove("is-hold-arming", "is-holding"); } historicoHold = null; if (cadernetaHold) { clearTimeout(cadernetaHold.timer); cadernetaHold.el.classList.remove("is-hold-arming", "is-holding"); } cadernetaHold = null; if (cadernetaArrasto) cadernetaArrastoSoltar(true); document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
   app.addEventListener("contextmenu", event => { if (event.target.closest("[data-client],[data-client-product-id],[data-route-stop],[data-product-id],[data-caderneta-hold]")) event.preventDefault(); });
   app.addEventListener("input", event => {
     if (event.target.id === "recados-composer") {
@@ -11729,9 +11746,106 @@
         metodo: item.receiptMethod || "",
       });
     });
-    return [...linhas.values()];
+    return cadernetaAplicarOrdem([...linhas.values()]);
   }
   function cadernetaLinhaPorChave(chave) { return cadernetaLista().find(linha => linha.chave === String(chave || "")) || null; }
+
+  // ==========================================================================
+  // SEQUÊNCIA DA PÁGINA (05/08) — arrastar pelo NÚMERO.
+  //
+  // A ordem é DO APARELHO, por página: é a sequência de quem dirige, e o
+  // servidor não tem opinião sobre ela (a agenda ordena por cadastro, a venda
+  // por hora de registro). Guardar aqui é o que faz o gesto valer HOJE, sem
+  // coluna nova, sem endpoint novo e sem esperar deploy.
+  //
+  // Chave que não está na ordem salva vai pro FIM — cliente novo e venda nova
+  // entram embaixo em vez de embaralhar o que ele já arrumou.
+  // ==========================================================================
+  function cadernetaOrdemChave() { return `caderneta-ordem-${cadernetaPaginaVista().dateKey}`; }
+  function cadernetaOrdemSalva() {
+    const salva = H.cache.get(cadernetaOrdemChave(), null);
+    return Array.isArray(salva) ? salva.map(String) : [];
+  }
+  function cadernetaAplicarOrdem(linhas) {
+    const ordem = cadernetaOrdemSalva();
+    if (!ordem.length) return linhas;
+    const posicao = new Map(ordem.map((chave, index) => [chave, index]));
+    return linhas
+      .map((linha, index) => ({ linha, index, pos: posicao.has(linha.chave) ? posicao.get(linha.chave) : Number.MAX_SAFE_INTEGER }))
+      // O `index` desempata: sem ele, duas linhas fora da ordem salva trocariam
+      // de lugar entre renders (sort instável) e a tela piscaria sozinha.
+      .sort((a, b) => (a.pos - b.pos) || (a.index - b.index))
+      .map(x => x.linha);
+  }
+  function cadernetaGravarOrdem(chaves) {
+    H.cache.set(cadernetaOrdemChave(), chaves.map(String));
+  }
+
+  /**
+   * O ARRASTE. Nada de mexer no DOM durante o gesto: quem move nós no meio de um
+   * arraste briga com o reconciliador do mount() e a linha some na mão do dono.
+   * Aqui só entram TRANSFORMS (o card levantado segue o dedo, os vizinhos abrem
+   * espaço) e, ao soltar, UM render com a ordem nova.
+   *
+   * Rolagem automática de propósito NÃO existe: a página inteira cabe em poucas
+   * telas e `scroll` durante `touchmove` no WebView é a receita do arraste que
+   * "foge". Chegou na borda, solta e segura de novo.
+   */
+  let cadernetaArrasto = null;
+
+  function cadernetaCards() {
+    return [...document.querySelectorAll(".caderneta-lista [data-caderneta-chave]")];
+  }
+  function cadernetaArrastoIniciar(chave, toque) {
+    const cards = cadernetaCards();
+    const de = cards.findIndex(el => el.dataset.cadernetaChave === chave);
+    if (de < 0 || cards.length < 2) return false;
+    const alturas = cards.map(el => el.getBoundingClientRect().height);
+    cadernetaArrasto = {
+      chave,
+      de,
+      para: de,
+      y0: toque.clientY,
+      cards,
+      // Passo = altura do card + o respiro entre eles. Medido, nunca chutado:
+      // o card muda de altura conforme tem "Deve", "Sumiu" ou observação.
+      passo: alturas[de] + (cards[1].getBoundingClientRect().top - cards[0].getBoundingClientRect().bottom),
+    };
+    state.cadernetaArrastando = chave;
+    cards[de].classList.add("is-arrastando");
+    H.vibrate(12);
+    return true;
+  }
+  function cadernetaArrastoMover(toque) {
+    const a = cadernetaArrasto;
+    if (!a) return;
+    const delta = toque.clientY - a.y0;
+    const passo = a.passo || 1;
+    const para = Math.max(0, Math.min(a.cards.length - 1, a.de + Math.round(delta / passo)));
+    a.para = para;
+    a.cards.forEach((el, index) => {
+      if (index === a.de) { el.style.transform = `translateY(${delta}px)`; return; }
+      // Quem está ENTRE a origem e o destino cede um passo; o resto fica parado.
+      let desloca = 0;
+      if (para > a.de && index > a.de && index <= para) desloca = -passo;
+      if (para < a.de && index < a.de && index >= para) desloca = passo;
+      el.style.transform = desloca ? `translateY(${desloca}px)` : "";
+    });
+  }
+  function cadernetaArrastoSoltar(cancelado) {
+    const a = cadernetaArrasto;
+    cadernetaArrasto = null;
+    state.cadernetaArrastando = null;
+    if (!a) return;
+    a.cards.forEach(el => { el.style.transform = ""; el.classList.remove("is-arrastando"); });
+    if (cancelado || a.para === a.de) { render(); return; }
+    const chaves = cadernetaLista().map(linha => linha.chave);
+    const [movida] = chaves.splice(a.de, 1);
+    chaves.splice(a.para, 0, movida);
+    cadernetaGravarOrdem(chaves);
+    H.vibrate(20);
+    render();
+  }
 
   /** O que a ENTREGA realmente levou (quantidade CONFIRMADA vence a prevista). */
   function cadernetaItensDaEntrega(item) {
@@ -11801,7 +11915,7 @@
     // de dono — quem convida agora é a semana fechada, não uma barra na tela.
     return `${cadernetaCabecalho()}
       ${cadernetaFiltroChips(lista)}
-      ${carregando ? loading() : visiveis.length ? `<div class="list">${visiveis.map((linha, index) => cadernetaClienteCard(linha, index + 1)).join("")}</div>` : vazio}
+      ${carregando ? loading() : visiveis.length ? `<div class="list caderneta-lista">${visiveis.map((linha, index) => cadernetaClienteCard(linha, index + 1)).join("")}</div>` : vazio}
       ${cadernetaFechamento()}
       ${cadernetaFinalizarBotao(lista)}
       ${cadernetaHistorico()}`;
@@ -11999,7 +12113,11 @@
     const sugestao = linha.sugerirDia && wdVisto
       ? `<button type="button" class="caderneta-dia-chip" data-action="caderneta-adicionar-dia" data-cliente-id="${H.escape(linha.clienteId)}" data-dias="${H.escape((linha.diasAtuais || []).join(","))}">+ ${H.escape(wdVisto.label)}</button>`
       : "";
-    return `<article class="stop-card" data-action="caderneta-vender" data-caderneta-chave="${H.escape(linha.chave)}"${hold} role="button" tabindex="0"><div class="stop-top"><div class="order">${atendido ? icon("check", 16) : ordem}</div><div class="card-main"><strong>${H.escape(titulo)}</strong>${deveLinha}${sumiu}${itens ? `<small>${H.escape(itens)}</small>` : ""}${desfecho}${linha.observacoes ? `<small class="stop-obs">${H.escape(linha.observacoes)}</small>` : ""}</div>${sugestao}</div></article>`;
+    // O NÚMERO no lugar do ✓ (05/08, ordem do dono): a sequência do dia tem de
+    // aparecer em todo mundo, inclusive em quem já foi atendido — quem diz que
+    // está feito é o círculo cheio e a linha do desfecho, não um símbolo que
+    // ocupa o lugar do número. O número é TAMBÉM a alça do arraste.
+    return `<article class="stop-card${state.cadernetaArrastando === linha.chave ? " is-arrastando" : ""}" data-action="caderneta-vender" data-caderneta-chave="${H.escape(linha.chave)}"${hold} role="button" tabindex="0"><div class="stop-top"><div class="order${atendido ? " is-feito" : ""}" data-caderneta-arrastar="${H.escape(linha.chave)}">${ordem}</div><div class="card-main"><strong>${H.escape(titulo)}</strong>${deveLinha}${sumiu}${itens ? `<small>${H.escape(itens)}</small>` : ""}${desfecho}${linha.observacoes ? `<small class="stop-obs">${H.escape(linha.observacoes)}</small>` : ""}</div>${sugestao}</div></article>`;
   }
   /** Os sumidos DA página vista (Set de clienteIds do resumo). */
   function cadernetaSumidos() {
