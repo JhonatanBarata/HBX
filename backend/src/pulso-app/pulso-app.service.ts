@@ -43,28 +43,8 @@ const TRILHA_DIAS = 1;
 /** Uma faxina a cada N trocas de tela — barato e sem cron. */
 const FAXINA_A_CADA = 50;
 
-/** Teto de aparelhos no painel: é visão de plataforma, não relatório. */
-const PAINEL_TAKE = 100;
-
 /** Teto de pontos numa trilha do dia (o dia inteiro de um aparelho). */
 const TRILHA_TAKE = 500;
-
-export interface PulsoAparelho {
-  deviceId: string;
-  companyId: number;
-  companyName: string;
-  userName: string;
-  // O NOME DO APARELHO ("Motorola moto g15") + quando pareou — sem isso, 4
-  // aparelhos da mesma pessoa viram 4 linhas idênticas e o dono não distingue
-  // o celular de teste dele do celular real do cliente (aconteceu 04/08).
-  deviceName: string | null;
-  pareadoEm: string | null;
-  ultimaTela: string | null;
-  ultimaTelaAt: string | null;
-  /** Servidor decide: nunca deixar o painel calcular com relógio de terceiro. */
-  abertoAgora: boolean;
-  appVersion: string | null;
-}
 
 export interface PulsoTrilhaPonto {
   tela: string;
@@ -209,51 +189,6 @@ export class PulsoAppService {
   }
 
   // ── LEITURA (painel do /master) ───────────────────────────────────────────
-
-  /**
-   * Uma linha por aparelho pareado e vivo. Visão de PLATAFORMA: quem chama é
-   * só o master (guard no controller), nunca admin de tenant.
-   */
-  async listarAparelhos(agoraInput?: Date): Promise<PulsoAparelho[]> {
-    const agora = agoraInput ?? new Date();
-    // tenant-scope-allow: painel do MASTER — a leitura é cross-company por
-    // definição (é o dono da plataforma olhando a frota inteira).
-    const linhas = await withoutTenantScope('pulso: painel master lê a frota inteira', () =>
-      this.prisma.mobileDevice.findMany({
-        where: { revokedAt: null },
-        orderBy: { ultimaTelaAt: { sort: 'desc', nulls: 'last' } },
-        take: PAINEL_TAKE,
-        select: {
-          id: true,
-          companyId: true,
-          name: true,
-          createdAt: true,
-          appVersion: true,
-          ultimaTela: true,
-          ultimaTelaAt: true,
-          company: { select: { name: true } },
-          user: { select: { name: true, username: true, email: true } },
-        },
-      }),
-    );
-
-    return linhas.map((linha) => {
-      const at = linha.ultimaTelaAt ? new Date(linha.ultimaTelaAt) : null;
-      return {
-        deviceId: linha.id,
-        companyId: Number(linha.companyId),
-        companyName: linha.company?.name || `Empresa #${linha.companyId}`,
-        userName:
-          linha.user?.name || linha.user?.username || linha.user?.email || 'Sem nome',
-        deviceName: linha.name ?? null,
-        pareadoEm: linha.createdAt ? new Date(linha.createdAt).toISOString() : null,
-        ultimaTela: linha.ultimaTela ?? null,
-        ultimaTelaAt: at ? at.toISOString() : null,
-        abertoAgora: Boolean(at && agora.getTime() - at.getTime() < PULSO_ABERTO_MS),
-        appVersion: linha.appVersion ?? null,
-      };
-    });
-  }
 
   /**
    * A trilha de UM aparelho num dia, na ordem em que aconteceu. Dia inválido

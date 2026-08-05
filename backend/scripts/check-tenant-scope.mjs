@@ -46,7 +46,7 @@ const TENANT_MODELS = new Set(
     'AtendimentoCustomer', 'AtendimentoQuickReply', 'CustomerProfile', 'DebtCase', 'IntegrationConnection',
     'IntegrationSyncRun', 'ExternalWebhookEvent', 'MetaLeadConnection', 'AuvoExternalRecord', 'Conversation',
     'ConversationSession', 'OrderDraft', 'MobileDevice', 'MobilePairingCode', 'MobileAction',
-    'MobileTelaTrilha',
+    'MobileTelaTrilha', 'MobileEspelhoQuadro', 'MobileErroTrilha',
     'LogisticaRoute', 'LogisticaRouteStop', 'LogisticaEssentialCreditClaim',
     'LogisticaTrackingSession', 'LogisticaTrackingPoint', 'LogisticaTrackingEvent',
     'LogisticaTrackedCreditClaim', 'LogisticaTrackingBonusGrant',

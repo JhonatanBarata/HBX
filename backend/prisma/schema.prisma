@@ -2773,6 +2773,16 @@ model MobileDevice {
   // recados. Painel master lê daqui; trilha do dia vive em MobileTelaTrilha.
   ultimaTela         String?  @db.VarChar(40)
   ultimaTelaAt       DateTime?
+  // PAINEL DO CLIENTE (PR05082026-VER-TELA, 05/08) — "Remover" do painel do
+  // master ESCONDE o aparelho da lista sem apagar a linha: trilha, erros e
+  // hardwareId ficam, e o mesmo celular re-pareando volta pra ESTA vaga
+  // (lei "1 celular = 1 vaga"). Re-pareamento limpa a coluna.
+  ocultoEm           DateTime?
+  // VER TELA (PR05082026-VER-TELA, 05/08) — janela em que o aparelho manda o
+  // ESPELHO da tela (só o nosso app, nunca o celular inteiro). Vive 60s e o
+  // painel renova enquanto está aberto: fechar a aba apaga sozinho, e um
+  // navegador que morreu no meio nunca deixa a câmera ligada.
+  espelhoAte         DateTime?
   expiresAt          DateTime?
   revokedAt          DateTime?
   webTicketHash      String?  @unique
@@ -2804,6 +2814,44 @@ model MobileTelaTrilha {
   deviceId  String
   userId    Int
   tela      String   @db.VarChar(40)
+  at        DateTime @default(now())
+
+  @@index([deviceId, at])
+  @@index([companyId, at])
+}
+
+// VER TELA (PR05082026-VER-TELA, 05/08) — o ÚLTIMO quadro do espelho de um
+// aparelho. Uma linha por aparelho (o id É o deviceId): espelho é AO VIVO, não
+// gravação — guardar histórico de tela de gente seria outro produto e outra
+// conversa de privacidade. A digitação chega já mascarada do aparelho.
+model MobileEspelhoQuadro {
+  deviceId  String   @id
+  companyId Int
+  tela      String   @db.VarChar(40)
+  html      String
+  // Sem estes dois o espelho renderiza no tema errado: o CSS do app é todo
+  // `:root[data-theme=…]` + classes de `body` (teclado aberto, modo passeio).
+  tema      String?  @db.VarChar(20)
+  bodyClass String?  @db.VarChar(160)
+  // O CSS do app viaja UMA vez por versão (é grande e não muda entre quadros):
+  // o servidor só pede de novo quando `cssVersao` != a versão instalada.
+  css       String?
+  cssVersao String?  @db.VarChar(40)
+  at        DateTime @default(now())
+
+  @@index([companyId, at])
+}
+
+// ERROS QUE O CLIENTE VIU (PR05082026-VER-TELA V3, 05/08) — Sentry-lite: SÓ o
+// que apareceu na cara do usuário (toast vermelho / erro de JS), com tela e
+// hora. Chega de carona no poll e é apagado depois de 7 dias.
+model MobileErroTrilha {
+  id        String   @id @default(cuid())
+  companyId Int
+  deviceId  String
+  userId    Int
+  tela      String   @db.VarChar(40)
+  msg       String   @db.VarChar(300)
   at        DateTime @default(now())
 
   @@index([deviceId, at])

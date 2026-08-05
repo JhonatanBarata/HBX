@@ -60,6 +60,9 @@ import {
 import { LogisticaPasseioService } from './logistica-passeio.service';
 // PULSO DO APP (04/08) — a tela atual do aparelho pega carona no poll dos recados.
 import { PulsoAppService } from '../pulso-app/pulso-app.service';
+// VER TELA + ERROS DO CLIENTE (05/08) — os dois entram pelo mesmo poll.
+import { EspelhoAppService } from '../pulso-app/espelho-app.service';
+import { ErrosAppService } from '../pulso-app/erros-app.service';
 import {
   AtribuirEntregaDto,
   CancelarEntregaDto,
@@ -88,6 +91,7 @@ import {
   LimparDiaDto,
   PlanejarRotaDto,
   PulsoRecadosDto,
+  EspelhoQuadroDto,
   SetAvisarClienteDto,
   SetLogisticaNivelDto,
   UpdateClienteProdutoDto,
@@ -165,6 +169,11 @@ export class LogisticaController {
     // PULSO DO APP (04/08) — telemetria de tela que pega carona no poll dos
     // recados. Mesmo padrão de default acima; ausente, o poll segue igual.
     private readonly pulso: PulsoAppService = null as any,
+    // VER TELA (05/08) — o outro lado do espelho: o app manda quadro e o poll
+    // pergunta se a janela do master está aberta. Mesmo padrão de default.
+    private readonly espelho: EspelhoAppService = null as any,
+    // ERROS QUE O CLIENTE VIU (05/08) — de carona no poll. Mesmo padrão.
+    private readonly erros: ErrosAppService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -1107,8 +1116,48 @@ export class LogisticaController {
   async puxarRecadosSeguro(@Req() req: any, @Body() dto?: PulsoRecadosDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const userId = this.ensureUserId(req.user);
+    const deviceId = this.pulso ? this.pulso.resolveDeviceIdDaSessao(req.user) : null;
     if (this.pulso) await this.pulso.registrarDoPoll(req.user, companyId, userId, dto?.tela);
-    return this.recado.puxar(companyId, userId);
+    // ERROS QUE O CLIENTE VIU (05/08) — de carona, e só quando o app mandou
+    // novidade. Engole tudo por dentro: erro de suporte não derruba a rota.
+    if (this.erros && dto?.erros) await this.erros.registrarDoPoll(companyId, deviceId, userId, dto.erros);
+
+    const lista = await this.recado.puxar(companyId, userId);
+
+    // 🔴 CONTRATO DE RESPOSTA (05/08). APK sem `v` recebe a LISTA CRUA — é o que
+    // todo aparelho instalado espera, e mudar isso quebraria o canal de recado do
+    // mundo inteiro num deploy. Só quem PEDE (`v: 2`, o app novo) recebe o
+    // envelope com o estado do espelho junto. Ver PulsoRecadosDto.
+    // O teste é `>= 2`, NUNCA `< 2`: sem o campo, `Number(undefined)` é NaN e
+    // toda comparação com NaN é falsa — `if (Number(v) < 2) return lista` daria o
+    // envelope justamente pra quem não sabe lê-lo.
+    if (!(Number(dto?.v) >= 2)) return lista;
+    const espelho = this.espelho
+      ? await this.espelho.estado(deviceId)
+      : { ativo: false, precisaCss: false };
+    return { v: 2, recados: lista, espelho: espelho.ativo, espelhoCss: espelho.precisaCss };
+  }
+
+  /**
+   * VER TELA (05/08) — um quadro do espelho, mandado pelo aparelho a cada ~2s
+   * ENQUANTO a janela de 60s do master estiver aberta. Fora da janela o serviço
+   * recusa em silêncio (`ok:false`) e o app para de mandar.
+   *
+   * Resposta sempre 200: um 4xx aqui viraria toast vermelho na mão de quem está
+   * na rua por causa de uma ferramenta de suporte.
+   */
+  @Post('espelho/quadro')
+  async espelhoQuadro(@Req() req: any, @Body() dto?: EspelhoQuadroDto) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    if (!this.espelho || !this.pulso) return { ok: false };
+    const deviceId = this.pulso.resolveDeviceIdDaSessao(req.user);
+    if (!deviceId) return { ok: false };
+    try {
+      return await this.espelho.gravarQuadro(companyId, deviceId, dto || {});
+    } catch (e: any) {
+      this.logger.warn(`[espelho] quadro recusado: ${String(e?.message || e)}`);
+      return { ok: false };
+    }
   }
 
   /** APP: histórico persistente do próprio fio (caixa de recados/sino). */

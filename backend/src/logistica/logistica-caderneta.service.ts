@@ -24,9 +24,20 @@ import type { VenderCadernetaDto } from './dto/logistica.dto';
 // (GEOFONTES_PROVADAS em logistica-conferencia.util.ts): geocode não conta.
 const FONTES_PROVADAS = new Set(['gps_entrega', 'gps_cadastro']);
 
+export interface CadernetaMedida {
+  total: number;
+  provados: number;
+  pronto: boolean;
+}
+
 export interface CadernetaResumo {
   ativo: boolean;
-  dia: { total: number; provados: number; pronto: boolean };
+  dia: CadernetaMedida;
+  // A BASE DA AGENDA (PR05082026-VER-TELA V4, 05/08): todos os clientes com dia
+  // de entrega cadastrado, não só os de hoje. É ELA que decide quando o convite
+  // do GPS aparece — emenda 3 do dono: cliente avulso, sem dia, nunca trava o
+  // GPS de ninguém. Campo ADITIVO: APK velho simplesmente ignora.
+  base: CadernetaMedida;
   // null quando o módulo financeiro do tenant está OFF — sem financeiro não
   // existe "quanto entrou por forma"; número inventado em tela de dinheiro é
   // mentira (o APK esconde o card quando vem null).
@@ -73,37 +84,16 @@ export class LogisticaCadernetaService {
     const dateKey = dateKeyValida(dateInput);
     const cfg = await this.configRow(companyId);
 
-    // ── Medidor: clientes do DIA (dia é do CLIENTE — LogisticaPlanoEntrega é a
-    // verdade) × quantos têm localização PROVADA no campo. Read-only: nunca
-    // materializa entrega nem avança proximaData (mesma lei do dia-preview).
+    // ── Medidores: clientes × quantos têm localização PROVADA no campo. Dois
+    // recortes da MESMA conta (dia é do CLIENTE — LogisticaPlanoEntrega é a
+    // verdade): o DIA (só quem entrega hoje) e a BASE (todo mundo com dia
+    // cadastrado). Read-only: nunca materializa entrega nem avança proximaData
+    // (mesma lei do dia-preview).
     const diaSemana = isoWeekdayForDate(dateKey);
-    const planos = await this.prisma.logisticaPlanoEntrega.findMany({
-      // Cliente morto não conta (mesma régua CLIENTE_VIVO da agenda).
-      where: { companyId, diaSemana, ativo: true, customerProfile: { status: 'active', isCliente: true } },
-      select: { customerProfileId: true },
-    });
-    const clienteIds = [...new Set(planos.map((p) => p.customerProfileId))];
-
-    let provados = 0;
-    if (clienteIds.length) {
-      const contas = await this.prisma.customerProfile.findMany({
-        where: { companyId, id: { in: clienteIds } },
-        select: {
-          geoFonte: true,
-          // O pino que a rota USA é o do local principal (multilocal); perfil é fallback.
-          locais: {
-            where: { ativo: true, isPrincipal: true },
-            select: { geoFonte: true },
-            take: 1,
-          },
-        },
-      });
-      for (const conta of contas) {
-        const fonte = conta.locais[0]?.geoFonte ?? conta.geoFonte;
-        if (fonte && FONTES_PROVADAS.has(fonte)) provados += 1;
-      }
-    }
-    const total = clienteIds.length;
+    const [dia, base] = await Promise.all([
+      this.medir(companyId, diaSemana),
+      this.medir(companyId, null),
+    ]);
 
     // ── Fechamento do dia: a conta que o dono faz de cabeça hoje (quanto entrou
     // em dinheiro/pix/cartão + quanto ficou fiado). Fonte = Entrega entregue no
@@ -130,11 +120,50 @@ export class LogisticaCadernetaService {
       fechamento = { totalCents, vendas: entregues.length, formas };
     }
 
-    return {
-      ativo: !!cfg?.modoCaderneta,
-      dia: { total, provados, pronto: total > 0 && provados >= total },
-      fechamento,
-    };
+    return { ativo: !!cfg?.modoCaderneta, dia, base, fechamento };
+  }
+
+  /**
+   * Quantos clientes com plano de entrega ativo, e quantos deles já têm o
+   * endereço PROVADO em campo. `diaSemana = null` mede a BASE inteira (o
+   * recorte do convite do GPS); com um dia, mede só quem entrega naquele dia.
+   *
+   * "Pronto" exige total > 0: base vazia não é base provada — oferecer o GPS
+   * pra quem não tem cliente nenhum seria convite pra tela vazia.
+   */
+  private async medir(companyId: number, diaSemana: number | null): Promise<CadernetaMedida> {
+    const planos = await this.prisma.logisticaPlanoEntrega.findMany({
+      // Cliente morto não conta (mesma régua CLIENTE_VIVO da agenda).
+      where: {
+        companyId,
+        ativo: true,
+        ...(diaSemana === null ? {} : { diaSemana }),
+        customerProfile: { status: 'active', isCliente: true },
+      },
+      select: { customerProfileId: true },
+    });
+    const clienteIds = [...new Set(planos.map((p) => p.customerProfileId))];
+    if (!clienteIds.length) return { total: 0, provados: 0, pronto: false };
+
+    const contas = await this.prisma.customerProfile.findMany({
+      where: { companyId, id: { in: clienteIds } },
+      select: {
+        geoFonte: true,
+        // O pino que a rota USA é o do local principal (multilocal); perfil é fallback.
+        locais: {
+          where: { ativo: true, isPrincipal: true },
+          select: { geoFonte: true },
+          take: 1,
+        },
+      },
+    });
+    let provados = 0;
+    for (const conta of contas) {
+      const fonte = conta.locais[0]?.geoFonte ?? conta.geoFonte;
+      if (fonte && FONTES_PROVADAS.has(fonte)) provados += 1;
+    }
+    const total = clienteIds.length;
+    return { total, provados, pronto: total > 0 && provados >= total };
   }
 
   /**

@@ -148,6 +148,24 @@ class NativeApiClientPathPolicyTest {
         assertFalse(isMobileEndpointAllowed("vendas", "GET", "/logistica/recados/portao"))
     }
 
+    /**
+     * MODO CADERNETA (04/08) e VER TELA (05/08) — o mesmo teste que gritou pelo
+     * recado, agora pelos dois caminhos novos. Sem a linha da allowlist, o
+     * painel do master ficaria "Aguardando o aparelho…" com o servidor 100% ok,
+     * e a venda por toque morreria dentro do celular.
+     */
+    @Test
+    fun logisticaAllowsCadernetaAndEspelho() {
+        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/caderneta/resumo"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/caderneta/vender"))
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/espelho/quadro"))
+        // Espelho é só ESCRITA do aparelho: quem lê é o master, pela web.
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/espelho/quadro"))
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/espelho"))
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/master/aparelhos/dev-1/espelho"))
+        assertFalse(isMobileEndpointAllowed("vendas", "POST", "/logistica/espelho/quadro"))
+    }
+
     @Test
     fun vendasCannotAccessNucleoOrLogistica() {
         assertTrue(isMobileEndpointAllowed("vendas", "GET", "/vendas/board"))

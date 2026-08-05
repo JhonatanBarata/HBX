@@ -1,6 +1,10 @@
 import { Module } from '@nestjs/common';
 import { MasterGuard } from '../auth/guards/master.guard';
 import { PrismaModule } from '../prisma/prisma.module';
+import { ErrosAppService } from './erros-app.service';
+import { EspelhoAppService } from './espelho-app.service';
+import { MasterAparelhosController } from './master-aparelhos.controller';
+import { MasterAparelhosService } from './master-aparelhos.service';
 import { MasterPulsoController } from './master-pulso.controller';
 import { PulsoAppService } from './pulso-app.service';
 
@@ -15,8 +19,10 @@ import { PulsoAppService } from './pulso-app.service';
  */
 @Module({
   imports: [PrismaModule],
-  controllers: [MasterPulsoController],
-  providers: [PulsoAppService, MasterGuard],
-  exports: [PulsoAppService],
+  controllers: [MasterPulsoController, MasterAparelhosController],
+  providers: [PulsoAppService, MasterAparelhosService, EspelhoAppService, ErrosAppService, MasterGuard],
+  // Espelho e erros são exportados porque o outro lado deles (o APK) entra pelo
+  // poll e pelo `/logistica/espelho/quadro`, que moram no LogisticaController.
+  exports: [PulsoAppService, EspelhoAppService, ErrosAppService],
 })
 export class PulsoAppModule {}

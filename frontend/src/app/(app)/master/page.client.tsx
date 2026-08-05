@@ -19,8 +19,6 @@ import { JanelaContabil } from "./janela-contabil";
 import { JanelaCreditos } from "./janela-creditos";
 import { JanelaEmails } from "./janela-emails";
 import { JanelaEmpresas } from "./janela-empresas";
-import { JanelaOnline } from "./janela-online";
-import { JanelaPulso } from "./janela-pulso";
 import { JanelaIntegracoes } from "./janela-integracoes";
 import { JanelaSistema } from "./janela-sistema";
 import { JanelaTickets } from "./janela-tickets";
@@ -126,14 +124,15 @@ export function fmtDataHora(iso?: string | null) {
     : `${d.toLocaleDateString("pt-BR")} ${d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}`;
 }
 
+// PR05082026-VER-TELA (05/08) — duas janelas MORRERAM aqui:
+//   • "Quem está online" MENTIA: lia sessão WEB, e o cliente que importa (o
+//     André) só vive no APK — ele aparecia como ausente o dia inteiro.
+//   • "Pulso" (frota inteira numa tabela solta) virou a aba "Aparelhos" DENTRO
+//     da ficha da empresa, onde a pergunta realmente nasce.
+// A presença agora tem uma fonte só: o pulso do aplicativo.
 const JANELAS = [
   { id: "cockpit", label: "Cockpit", icon: "vendas" },
   { id: "empresas", label: "Empresas", icon: "users" },
-  { id: "online", label: "Quem está online", icon: "clock" },
-  // PULSO DO APP (04/08) — quem está com o APP aberto agora e em qual tela.
-  // Vizinho de "Quem está online" de propósito: um lê sessão web, o outro lê
-  // aparelho. São perguntas diferentes e o dono faz as duas seguidas.
-  { id: "pulso", label: "Pulso", icon: "phone" },
   { id: "creditos", label: "Créditos", icon: "money" },
   { id: "integracoes", label: "Integrações", icon: "config" },
   { id: "emails", label: "E-mails", icon: "mail" },
@@ -381,8 +380,6 @@ export function MasterClient() {
           {janela === "empresas" && (
             <JanelaEmpresas companies={companies} error={companiesError} reload={reloadCompanies} assumirContexto={assumirContexto} />
           )}
-          {janela === "online" && <JanelaOnline />}
-          {janela === "pulso" && <JanelaPulso />}
           {janela === "creditos" && <JanelaCreditos companies={companies} reload={reloadCompanies} />}
           {janela === "integracoes" && <JanelaIntegracoes companies={companies} />}
           {janela === "emails" && <JanelaEmails />}

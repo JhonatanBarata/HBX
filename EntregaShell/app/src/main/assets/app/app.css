@@ -2004,8 +2004,9 @@ html[data-theme="dark"] .pss-montagem-dica { color: var(--brand); }
 .caderneta-medidor-linha { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .caderneta-medidor-linha strong { font-size: .96rem; }
 .caderneta-medidor .progress { margin-top: 0; background: var(--surface-3); }
-.caderneta-selo { display: flex; justify-content: center; margin: 2px 0 8px; }
-.caderneta-selo .badge { gap: 5px; }
+/* .caderneta-selo morreu em 05/08 (PR05082026-VER-TELA V4): o selo "Mapa
+   pronto" existia porque o DIA provado devolvia a Rota sozinho. Agora quem
+   devolve o GPS é o convite da base — a Rota não volta pelas costas. */
 .caderneta-fechamento { margin-top: 0; }
 /* Total do dia é NEUTRO: o vermelho do .chegada-conta-total é a dívida da
    chegada, e fechamento de caixa não é dívida. */

@@ -149,6 +149,42 @@ test('resumo: medidor conta pino PROVADO (local principal vence; geocode não co
   assert.equal(r.dia.pronto, false);
 });
 
+// PR05082026-VER-TELA V4 — a BASE é o recorte do CONVITE do GPS: todo mundo com
+// dia cadastrado, não só quem entrega hoje (emenda 3 do dono).
+test('resumo: base mede a AGENDA INTEIRA, o dia mede só hoje', async () => {
+  const provados: Record<string, boolean> = { a: true, b: true, c: false };
+  const svc = new LogisticaCadernetaService(
+    prismaMock({
+      logisticaPlanoEntrega: {
+        // Com diaSemana no where = clientes de hoje (a, b). Sem ele = a base (a, b, c).
+        findMany: async (args: any) =>
+          args?.where?.diaSemana === undefined
+            ? [{ customerProfileId: 'a' }, { customerProfileId: 'b' }, { customerProfileId: 'c' }]
+            : [{ customerProfileId: 'a' }, { customerProfileId: 'b' }],
+      },
+      customerProfile: {
+        findMany: async (args: any) =>
+          (args.where.id.in as string[]).map((id) => ({
+            geoFonte: provados[id] ? 'gps_entrega' : 'geocode',
+            locais: [],
+          })),
+        updateMany: async () => ({ count: 0 }),
+      },
+    }) as any,
+    logisticaMock() as any,
+  );
+
+  const r = await svc.resumo(5, '2026-08-05');
+  assert.deepEqual(r.dia, { total: 2, provados: 2, pronto: true }, 'hoje já está provado');
+  assert.deepEqual(r.base, { total: 3, provados: 2, pronto: false }, 'a base ainda não — sem convite');
+});
+
+test('resumo: base vazia NUNCA é pronta (0 de 0 não convida ninguém pro GPS)', async () => {
+  const svc = new LogisticaCadernetaService(prismaMock() as any, logisticaMock() as any);
+  const r = await svc.resumo(5, '2026-08-05');
+  assert.deepEqual(r.base, { total: 0, provados: 0, pronto: false });
+});
+
 test('resumo: fechamento quebra por forma e o sem-método-imediato vira fiado do dia', async () => {
   const svc = new LogisticaCadernetaService(
     prismaMock({

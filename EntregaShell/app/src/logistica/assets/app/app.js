@@ -559,6 +559,11 @@
   function toast(message, error, opts) {
     const options = opts || {};
     if (!options.mudo) H.sound(options.warn ? "warning" : (error ? "error" : "success"));
+    // ERROS QUE O CLIENTE VIU (05/08) — o ponto ÚNICO de captura. Todo erro que
+    // chega na cara do usuário passa por aqui (Lei 6: catch → toast(humanApiError,
+    // true)); pendurar a captura em cada catch seria esquecer no primeiro
+    // caminho novo. Só o VERMELHO entra: sucesso e aviso não são erro.
+    if (error) registrarErroDoCliente(message);
     state.toast = { message, error: !!error }; render(); clearTimeout(toast.timer); toast.timer = setTimeout(() => { state.toast = null; render(); }, 2600);
   }
   function validCoordinates(latValue, lngValue) { const lat = Number(latValue); const lng = Number(lngValue); return Number.isFinite(lat) && Math.abs(lat) <= 90 && Number.isFinite(lng) && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0); }
@@ -2314,7 +2319,11 @@
     const standardModal = state.modal && state.modal !== "distance-warning" ? `<div class="overlay-host ${state.openingOverlay === "modal" ? "is-opening" : ""} ${state.closingOverlay === "modal" ? "is-closing" : ""}">${modal()}</div>` : "";
     const distanceModal = state.modal === "distance-warning" ? `<div class="overlay-host is-opening">${modal()}</div>` : "";
     const overlays = `${floatingAction || ""}${creditsLockOverlay()}${routeNoticeOverlay()}${standardModal}${checagemOverlay}${state.selected ? `<div class="overlay-host ${state.openingOverlay === "sheet" ? "is-opening" : ""} ${state.closingOverlay === "sheet" ? "is-closing" : ""}">${deliverySheet(state.selected)}</div>` : ""}${distanceModal}${state.nextStop ? nextStopOverlay(state.nextStop) : ""}${confirmationOverlay()}${dddPromptOverlay()}${leituraPausaOverlay()}${rotaIndicadaOverlay()}${missoesOverlay()}${recadoPortaoOverlay()}${state.toast ? `<div class="toast ${state.toast.error ? "error" : ""}">${H.escape(state.toast.message)}</div>` : ""}`;
-    return H.mobileShell.frame({ appName: "logistica", currentScreen: state.screen, content, icon, motion: state.screenMotion, refreshing: state.refreshing, error: state.error, overlays });
+    // MODO CADERNETA (05/08) — ordem do dono: "Rota some com o modo caderneta
+    // ligado". Sumir aqui é trocar o RÓTULO mantendo posição e ícone (lei das
+    // MESMAS TELAS) — a tela do dia É aquela aba.
+    const navLabels = cadernetaTelaAtiva() ? { route: "Caderneta" } : null;
+    return H.mobileShell.frame({ appName: "logistica", currentScreen: state.screen, content, icon, motion: state.screenMotion, refreshing: state.refreshing, error: state.error, overlays, navLabels });
   }
   function nextStopOverlay(item) { const client = item.cliente || {}; const count = Math.max(0, Number(state.nextCountdown || 0)); const ringOffset = (188.5 * count / 5).toFixed(1); return `<div class="next-stop-overlay"><section class="next-stop-card"><span class="hero-kicker">Entrega confirmada</span><div class="next-stop-count"><svg viewBox="0 0 70 70" aria-hidden="true"><circle class="next-stop-track" cx="35" cy="35" r="30"/><circle class="next-stop-progress" cx="35" cy="35" r="30" style="stroke-dashoffset:${ringOffset}"/></svg><i>${count || "✓"}</i></div><p class="subtitle">Próxima parada</p><h2>${H.escape(client.nome || "Cliente")}</h2><small>${H.escape(address(client))}</small><div class="actions next-stop-actions"><button class="btn btn-primary" data-action="next-stop">Ver rota</button><button class="btn btn-secondary" data-action="cancel-next-stop">Ficar aqui</button></div></section></div>`; }
   function confirmationOverlay() {
@@ -5089,7 +5098,7 @@
     // S2 21/07 — "has-next-panel" empurra route-gps-status/route-follow-control
     // (agora também usados pela navegação normal, não só Leitura) pra baixo do
     // painel "Próxima parada" quando os dois aparecem juntos (ver app.css).
-    return shell(`${creditosDiaPanel()}${cadernetaSeloPronto()}<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="${mapLabel}"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : routeTransmuxControl(planned, paused)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
+    return shell(`${creditosDiaPanel()}<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="${mapLabel}"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : routeTransmuxControl(planned, paused)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
       ${total ? `<div class="route-filter" role="tablist" aria-label="Filtros da rota">
         <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila" role="tab" aria-selected="${state.routeFilter === "fila"}">Fila <b>${open.length}</b></button>
         <button type="button" class="route-filter-btn ${state.routeFilter === "entregue" ? "active" : ""}" data-action="route-filter" data-filter="entregue" role="tab" aria-selected="${state.routeFilter === "entregue"}">Entregue <b>${done.length}</b></button>
@@ -5693,6 +5702,8 @@
     return `<div class="modal-wrap" data-action="close-modal"><section class="modal client-edit-modal"><div class="sheet-head ${pendingHasBlocking(pending) ? "client-head-pending" : ""}"><div class="avatar">${icon("users", 18)}</div><div><h2>${isNew ? "Novo cliente" : "Editar cliente"}</h2>${isNew ? "" : `<p class="subtitle">${H.escape(client.nome || client.name || "Cliente")}</p>`}</div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="client-editor-body">${customerForm}${isNew ? "" : productPart}</div></section></div>`;
   }
   function modal() {
+    // MODO CADERNETA (05/08) — o convite pro GPS quando a base da agenda prova.
+    if (state.modal === "caderneta-convite") return cadernetaConviteModal();
     if (state.modal === "client-product") return clientEditorModal(false);
     if (state.modal === "new-client") return clientEditorModal(true);
     if (state.modal === "new-product") return `<div class="modal-wrap day-home-wrap product-edit-wrap" data-action="close-modal"><section class="modal day-home center-modal product-edit-modal" role="dialog" aria-modal="true" aria-labelledby="new-product-title"><div class="center-modal-head"><div class="day-home-icon">${icon("box", 22)}</div><h2 id="new-product-title">Novo produto</h2><button class="close center-modal-close" type="button" data-action="close-modal" aria-label="Fechar">${icon("close", 16)}</button></div><div class="center-modal-body product-edit-body"><form id="new-product-form"><div class="form-grid"><div class="field"><label>Nome</label><input name="name" required maxlength="140"></div><div class="field"><label>Unidade</label><input name="unidade" maxlength="60" placeholder="galão, caixa, unidade"></div><div class="field"><label>Preço</label><input name="price" type="text" inputmode="numeric" data-product-price="new"></div><div class="field"><label>Estoque</label><input name="stock" type="number" min="0" step="1"></div></div><button class="btn btn-primary btn-block product-edit-save" type="submit">Cadastrar</button></form></div></section></div>`;
@@ -7909,8 +7920,20 @@
       // PR04082026-PULSO-DO-APP): zero requisição nova, zero conteúdo, só o NOME
       // da tela. Campo OPCIONAL no backend (@Allow) — APK velho não manda e nada
       // quebra. Ver telaAtualDoPulso(): ponto ÚNICO de leitura da tela.
-      const novos = await H.api("/logistica/recados/pendentes", { method: "POST", body: { tela: telaAtualDoPulso() } });
-      const lista = Array.isArray(novos) ? novos : [];
+      // 05/08 — `v: 2` PEDE o envelope `{recados, espelho, espelhoCss}`. Sem
+      // esse campo o servidor responde a LISTA CRUA de sempre (é o que todo APK
+      // já instalado espera). Os erros que o cliente VIU vão junto, e só quando
+      // existem. Ver PulsoRecadosDto no backend.
+      const corpo = { tela: telaAtualDoPulso(), v: 2 };
+      const errosPendentes = errosParaMandar();
+      if (errosPendentes.length) corpo.erros = errosPendentes;
+      const novos = await H.api("/logistica/recados/pendentes", { method: "POST", body: corpo });
+      // O servidor CONFIRMOU o recebimento respondendo: só agora o buffer local
+      // pode esvaziar (senão uma resposta perdida apagaria erro que ninguém viu).
+      if (errosPendentes.length) errosConfirmados(errosPendentes.length);
+      const envelope = novos && !Array.isArray(novos) && typeof novos === "object" ? novos : null;
+      if (envelope) espelhoSincronizar(!!envelope.espelho, !!envelope.espelhoCss);
+      const lista = Array.isArray(novos) ? novos : (envelope && Array.isArray(envelope.recados) ? envelope.recados : []);
       if (lista.length) {
         const conhecidos = new Set((state.recados || []).map(item => String(item.id)));
         mesclarRecados(lista);
@@ -9228,6 +9251,27 @@
     }
     if (action === "open-financeiro") { if (!isAdmin()) return; showModal("financeiro"); return; }
     if (action === "open-avancado") { if (!isAdmin()) return; showModal("avancado"); return; }
+    // MODO CADERNETA (05/08) — as duas saídas do convite. "Agora não" só fecha:
+    // a marca d'água já foi gravada quando ele apareceu, então ele não volta até
+    // a base crescer.
+    if (action === "caderneta-convite-depois") { void closeOverlay("modal"); return; }
+    if (action === "caderneta-ativar-gps") {
+      if (!isAdmin() || state.cadernetaConviteSalvando) return;
+      // Guard de reentrância antes do 1º await (§4 do guia): o toque duplo no
+      // "Ativar GPS" mandaria dois PATCH.
+      state.cadernetaConviteSalvando = true;
+      render();
+      try {
+        await H.api("/logistica/config", { method: "PATCH", body: { modoCaderneta: false } });
+        state.config = { ...(state.config || {}), modoCaderneta: false };
+        H.cache.set("logistica-config", state.config);
+        await closeOverlay("modal");
+        await refresh(true);
+        toast("GPS ligado. A Rota voltou.");
+      } catch (error) { toast(humanApiError(error), true); }
+      finally { state.cadernetaConviteSalvando = false; render(); }
+      return;
+    }
     if (action === "toggle-config-flag") {
       if (!isAdmin()) return;
       const key = target.dataset.configKey;
@@ -11038,13 +11082,24 @@
   let cadernetaRosterEmVoo = false;
 
   function cadernetaModoAtivo() { return configFlag("modoCaderneta"); }
-  function cadernetaDia() {
-    const dia = state.cadernetaResumo && state.cadernetaResumo.dia;
-    const total = Math.max(0, Number(dia && dia.total) || 0);
-    return { total, provados: Math.max(0, Math.min(total, Number(dia && dia.provados) || 0)), pronto: !!(dia && dia.pronto) };
+  function cadernetaMedida(qual) {
+    const medida = state.cadernetaResumo && state.cadernetaResumo[qual];
+    const total = Math.max(0, Number(medida && medida.total) || 0);
+    return { total, provados: Math.max(0, Math.min(total, Number(medida && medida.provados) || 0)), pronto: !!(medida && medida.pronto) };
   }
-  /** A tela Rota vira caderneta enquanto o dia não prova o mapa. */
-  function cadernetaTelaAtiva() { return cadernetaModoAtivo() && !cadernetaDia().pronto; }
+  /** A BASE da agenda (todo cliente COM dia cadastrado) — a régua do convite. */
+  function cadernetaBase() { return cadernetaMedida("base"); }
+  /**
+   * 🔴 A tela Rota vira caderneta enquanto o MODO estiver ligado — ponto.
+   *
+   * Era `modo && !dia.pronto` até 05/08: o dia provado devolvia o GPS sozinho
+   * por um dia e o tirava de novo no dia seguinte. O dono cravou uma régua só
+   * ("Rota some com o modo caderneta ligado" + "convite quando a base provar"),
+   * então quem devolve o GPS é o CONVITE (ou o toggle de Ajustes), nunca um dia
+   * bom. O medidor da tela mede a BASE, e é a base que abre a porta: duas
+   * réguas na mesma tela é o jeito clássico de a tela mentir.
+   */
+  function cadernetaTelaAtiva() { return cadernetaModoAtivo(); }
   function cadernetaChave(clienteId, localId) { return `${String(clienteId || "")}:${String(localId || "")}`; }
 
   async function carregarCadernetaResumo() {
@@ -11052,7 +11107,7 @@
     cadernetaResumoEmVoo = true;
     try {
       const resumo = await H.api(`/logistica/caderneta/resumo?date=${encodeURIComponent(operationalDate())}`);
-      if (resumo && typeof resumo === "object") { state.cadernetaResumo = resumo; render(); }
+      if (resumo && typeof resumo === "object") { state.cadernetaResumo = resumo; cadernetaTalvezConvidar(); render(); }
     } catch (_) {
       // Rede fora não apaga o número que já está na tela (mesmo contrato do
       // checkRotaIndicada): o próximo refresh tenta de novo.
@@ -11136,18 +11191,57 @@
       ${carregando ? loading() : lista.length ? `<div class="list">${lista.map((linha, index) => cadernetaClienteCard(linha, index + 1)).join("")}</div>` : vazio}
       ${cadernetaFechamento()}`;
   }
+  /**
+   * O medidor mede a BASE (05/08): é ela que libera o GPS, então é ela que
+   * precisa aparecer subindo. Medir o dia aqui seria mostrar um número que
+   * termina e não abre porta nenhuma. A palavra "pino" é PROIBIDA (Lei 8).
+   */
   function cadernetaMedidor() {
-    const dia = cadernetaDia();
-    const pct = dia.total ? Math.round(dia.provados / dia.total * 100) : 0;
-    // Só o que falta provar mora aqui: com o dia pronto esta tela nem existe
-    // (quem anuncia o "Mapa pronto" é o selo, na Rota que voltou).
-    return `<section class="card flat caderneta-medidor"><div class="caderneta-medidor-linha"><strong>Mapa: ${dia.provados} de ${dia.total}</strong></div><div class="progress"><i style="width:${pct}%"></i></div></section>`;
+    const base = cadernetaBase();
+    const pct = base.total ? Math.round(base.provados / base.total * 100) : 0;
+    return `<section class="card flat caderneta-medidor"><div class="caderneta-medidor-linha"><strong>Mapa: ${base.provados} de ${base.total}</strong></div><div class="progress"><i style="width:${pct}%"></i></div></section>`;
   }
-  /** Selo do dia provado na tela Rota normal (o Iniciar já voltou junto com ela). */
-  function cadernetaSeloPronto() {
-    if (!cadernetaModoAtivo() || !cadernetaDia().pronto) return "";
-    return `<div class="caderneta-selo"><span class="badge success">${icon("check", 13)} Mapa pronto</span></div>`;
+  // ---- o convite pro GPS (a saída do modo caderneta) ------------------------
+  //
+  // A régua é a BASE DA AGENDA, não o dia (emenda 3 do dono): cliente avulso,
+  // sem dia cadastrado, nunca deve travar o GPS de ninguém. O convite sai 1×
+  // POR ATINGIMENTO — a marca d'água guarda quantos estavam provados quando ele
+  // apareceu, então ele só volta se a base CRESCER e for provada de novo.
+  //
+  // A marca é gravada na HORA DE APARECER, não na resposta: "Agora não", o X, o
+  // toque no fundo e o Voltar do Android são quatro saídas, e o convite não
+  // pode renascer a cada refresh do resumo por causa de uma delas.
+  const CADERNETA_CONVITE_MARCA = "caderneta-convite-base";
+  function cadernetaTalvezConvidar() {
+    if (!cadernetaModoAtivo() || !isAdmin()) return;
+    const base = cadernetaBase();
+    if (!base.pronto) return;
+    if (Number(H.cache.get(CADERNETA_CONVITE_MARCA, -1)) >= base.provados) return;
+    // Nunca por cima de outra decisão: folha aberta, popup impeditivo, portão de
+    // recado ou confirmação em tela mandam mais que um convite.
+    if (state.modal || state.selected || state.confirmation || state.rotaIndicada || state.recadoPortao) return;
+    H.cache.set(CADERNETA_CONVITE_MARCA, base.provados);
+    showModal("caderneta-convite");
   }
+  function cadernetaConviteModal() {
+    const base = cadernetaBase();
+    const salvando = !!state.cadernetaConviteSalvando;
+    return centerModal({
+      icon: "gps",
+      // Texto CRAVADO pelo dono — literal, sem reescrever (Lei 8).
+      title: "Clientes estão ok, gostaria de ativar o modo comum, e começar utilizar nosso GPS?",
+      resumo: `Mapa: ${base.provados} de ${base.total}`,
+      closeAction: "caderneta-convite-depois",
+      closeButtonAction: "caderneta-convite-depois",
+      backAction: "caderneta-convite-depois",
+      backLabel: "Agora não",
+      backGlyph: "×",
+      nextAction: "caderneta-ativar-gps",
+      nextLabel: salvando ? "Aguarde…" : "Ativar GPS",
+      nextDisabled: salvando,
+    });
+  }
+
   function cadernetaClienteCard(linha, ordem) {
     const atendido = linha.status === "entregue";
     const itens = (linha.itens || []).map(x => `${x.qtd}× ${x.nome || "item"}`).join(", ");
@@ -11384,6 +11478,159 @@
     }
     return { clients: "clientes", products: "produtos", chat: "chat", settings: "ajustes" }[state.screen] || "rota";
   }
+
+  // ==========================================================================
+  // VER TELA — o espelho do NOSSO app (05/08, plano PR05082026-VER-TELA)
+  //
+  // NÃO é print do sistema nem MediaProjection: é session replay do próprio
+  // aplicativo (padrão LogRocket/Smartlook/UXCam). Sai daqui a MARCAÇÃO da tela
+  // do HBX — nunca o WhatsApp, a galeria ou a tela de bloqueio de ninguém.
+  //
+  // Três invariantes:
+  //  1. Só liga quando o SERVIDOR manda (`espelho: true` no envelope do poll), e
+  //     a janela dele dura 60s. Fechou o painel, o app para sozinho.
+  //  2. DIGITAÇÃO SAI MASCARADA daqui — mascarar do outro lado é tarde demais.
+  //  3. Quadro é enfeite de suporte: falha de rede é silêncio, nunca toast na
+  //     mão de quem está na rua.
+  // ==========================================================================
+  const ESPELHO_MS = 2000;
+  /** Tetos que espelham os do servidor (espelho-app.service.ts). */
+  const ESPELHO_HTML_MAX = 400000;
+  const ESPELHO_CSS_MAX = 300000;
+  let espelhoTimer = null;
+  let espelhoEnviando = false;
+  let espelhoPrecisaCss = false;
+
+  function espelhoSincronizar(ativo, precisaCss) {
+    espelhoPrecisaCss = !!precisaCss;
+    if (ativo && !espelhoTimer) {
+      espelhoTimer = setInterval(() => { void espelhoMandarQuadro(); }, ESPELHO_MS);
+      void espelhoMandarQuadro();
+      return;
+    }
+    if (!ativo && espelhoTimer) { clearInterval(espelhoTimer); espelhoTimer = null; }
+  }
+
+  /** O CSS do app inteiro, lido do CSSOM (a página é https://appassets…, mesma origem). */
+  function espelhoCss() {
+    try {
+      return [...document.styleSheets]
+        .map(folha => { try { return [...folha.cssRules].map(regra => regra.cssText).join("\n"); } catch (_) { return ""; } })
+        .join("\n");
+    } catch (_) { return ""; }
+  }
+
+  /**
+   * A tela como MARCAÇÃO: sem script, sem mapa (canvas WebGL não viaja) e com
+   * todo campo digitável mascarado. O clone é feito ANTES de qualquer edição —
+   * mexer no DOM vivo aqui seria mexer na tela de quem está trabalhando.
+   */
+  function espelhoMarcacao() {
+    const raiz = document.getElementById("app");
+    if (!raiz) return "";
+    const copia = raiz.cloneNode(true);
+    copia.querySelectorAll("script,iframe,object,embed,link,noscript").forEach(el => el.remove());
+    // O mapa é canvas WebGL: no clone ele vem em branco. Vira uma caixa com
+    // rótulo, pra tela do painel não parecer quebrada.
+    copia.querySelectorAll("canvas").forEach(el => {
+      const caixa = document.createElement("div");
+      caixa.className = el.className;
+      caixa.textContent = "mapa";
+      el.replaceWith(caixa);
+    });
+    // Digitação mascarada: a ORDEM do querySelectorAll é a mesma no clone e no
+    // vivo (clone profundo), então dá pra parear por índice.
+    const vivos = raiz.querySelectorAll("input,textarea");
+    copia.querySelectorAll("input,textarea").forEach((el, indice) => {
+      const vivo = vivos[indice];
+      const digitado = vivo ? String(vivo.value || "") : String(el.getAttribute("value") || "");
+      const mascara = digitado ? "•••" : "";
+      if (el.tagName === "TEXTAREA") el.textContent = mascara;
+      else el.setAttribute("value", mascara);
+    });
+    copia.querySelectorAll("[contenteditable]").forEach(el => {
+      if (String(el.textContent || "").trim()) el.textContent = "•••";
+    });
+    return copia.outerHTML;
+  }
+
+  async function espelhoMandarQuadro() {
+    if (espelhoEnviando) return;
+    espelhoEnviando = true;
+    try {
+      const marcacao = espelhoMarcacao();
+      if (!marcacao) return;
+      // Tela maior que o teto do servidor: manda UMA LINHA dizendo isso, em vez
+      // de um quadro que vai ser recusado. Recusa em série pararia o espelho e o
+      // painel ficaria "aguardando o aparelho…" sem ninguém saber por quê.
+      const html = marcacao.length <= ESPELHO_HTML_MAX
+        ? marcacao
+        : `<div class="app"><section class="card flat">Tela grande demais para o espelho (${Math.round(marcacao.length / 1024)} KB).</section></div>`;
+      const corpo = {
+        tela: telaAtualDoPulso(),
+        html,
+        tema: document.documentElement.dataset.theme || "",
+        bodyClass: document.body.className || "",
+      };
+      // O CSS é grande (~200 KB) e não muda entre quadros: só viaja quando o
+      // servidor avisa que ainda não tem o desta versão.
+      if (espelhoPrecisaCss) {
+        const css = espelhoCss();
+        // O cliente nativo recusa corpo acima de ~512 mil caracteres. CSS que
+        // não cabe é DESISTIDO (o espelho sai cru), nunca reenviado: senão o
+        // app entraria num laço de requisição gigante recusada a cada 2s —
+        // laço livre no cliente é sempre bug (lei do disjuntor).
+        if (css && css.length <= ESPELHO_CSS_MAX) corpo.css = css;
+        else espelhoPrecisaCss = false;
+      }
+      const saida = await H.api("/logistica/espelho/quadro", { method: "POST", body: corpo });
+      // Servidor aceitou o quadro com CSS: para de mandar os 200 KB.
+      if (saida && saida.ok && espelhoPrecisaCss) espelhoPrecisaCss = false;
+      // Recusa (janela fechou no meio) = para o loop na hora, sem esperar o
+      // próximo poll: enfeite de suporte não fica batendo à toa.
+      if (saida && saida.ok === false) espelhoSincronizar(false, false);
+    } catch (_) { /* rede fora = silêncio; o próximo tick tenta de novo */ }
+    finally { espelhoEnviando = false; }
+  }
+
+  // ==========================================================================
+  // ERROS QUE O CLIENTE VIU (05/08) — "Sentry-lite" do app
+  //
+  // Só entra aqui o que apareceu NA CARA do usuário: toast vermelho e erro de
+  // JS que estourou. Warning de console e retry que deu certo não são erro do
+  // cliente. O buffer vive na memória (máx 20), vai de carona no poll e só
+  // esvazia quando o servidor RESPONDE — resposta perdida não apaga o que
+  // ninguém viu ainda.
+  // ==========================================================================
+  const ERROS_MAX = 20;
+  let errosBuffer = [];
+
+  function registrarErroDoCliente(msg) {
+    // TUDO em try/catch: este é o caminho do window.onerror. Um erro AQUI
+    // dispararia o próprio listener de novo — o loop mais bobo que existe.
+    try {
+      const texto = String(msg || "").trim().slice(0, 300);
+      if (!texto) return;
+      const ultimo = errosBuffer[errosBuffer.length - 1];
+      // Erro que se repete em loop (render em laço, poll caindo) não vira 20
+      // linhas iguais no painel: o repetido colado é o mesmo evento.
+      if (ultimo && ultimo.msg === texto && Date.now() - new Date(ultimo.at).getTime() < 3000) return;
+      let tela = "app";
+      try { tela = telaAtualDoPulso(); } catch (_) { /* erro cedo demais: o state pode nem existir */ }
+      errosBuffer.push({ tela, msg: texto, at: new Date().toISOString() });
+      if (errosBuffer.length > ERROS_MAX) errosBuffer = errosBuffer.slice(-ERROS_MAX);
+    } catch (_) { /* nunca deixar o registro de erro virar erro */ }
+  }
+  function errosParaMandar() { return errosBuffer.slice(0, ERROS_MAX); }
+  function errosConfirmados(quantos) { errosBuffer = errosBuffer.slice(Math.max(0, Number(quantos) || 0)); }
+
+  window.addEventListener("error", event => {
+    registrarErroDoCliente(`JS: ${(event && (event.message || (event.error && event.error.message))) || "erro desconhecido"}`);
+  });
+  window.addEventListener("unhandledrejection", event => {
+    const razao = event && event.reason;
+    registrarErroDoCliente(`Promise: ${(razao && (razao.message || razao)) || "erro desconhecido"}`);
+  });
 
   // ==========================================================================
   // MODO PASSEIO — CORRIGIR-O-LIXO (29/07, veredito do dono: a v1 de telas e

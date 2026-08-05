@@ -369,6 +369,12 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             // e sem débito). Regra da casa: endpoint novo no app.js = allowlist
             // aqui + rebuild do APK, os TRÊS ou nada.
             listOf("logistica", "caderneta", "vender"),
+            // 🔴 VER TELA (05/08) — um QUADRO do espelho do próprio app, mandado
+            // só enquanto o painel do master mantém a janela de 60s aberta. Sem
+            // esta linha o app barraria a chamada AQUI, dentro do aparelho, e o
+            // painel ficaria "Aguardando o aparelho…" pra sempre com o servidor
+            // 100% ok. Regra da casa: app.js + allowlist + rebuild, os TRÊS.
+            listOf("logistica", "espelho", "quadro"),
         ) -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "entregas") && segments[3] in setOf("confirmar", "cancelar", "reabrir", "comprovantes", "chegando") -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "rota-modelos") && segments[3] == "gerar" -> true

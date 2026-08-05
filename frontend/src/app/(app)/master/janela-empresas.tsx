@@ -36,6 +36,7 @@ import { apiFetch } from "@/lib/api";
 import { enterImpersonation } from "@/lib/impersonation";
 import { useTabParam } from "@/lib/use-tab-param";
 
+import { FichaAparelhos } from "./ficha-aparelhos";
 import { accountTypeLabel, accountTypeTagClass, fmtData, fmtDataHora, statusLabel, statusTagClass, type MasterCompany } from "./page.client";
 
 type DetailUser = {
@@ -145,7 +146,11 @@ type UserEditForm = { id: number; name: string; email: string; username: string;
 const EMP_VAZIO = { name: "", primaryContactName: "", contactEmail: "", contactPhone: "", taxDocument: "", paymentMethod: "", billingProvider: "" };
 const PAG_VAZIO = { value: "", competence: "", paidAt: "", paymentMethod: "PIX", observation: "", settlePending: true };
 
-const DETAIL_TABS = ["Usuários", "Comercial", "Financeiro", "Implantação", "Website", "Auditoria"] as const;
+// PR05082026-VER-TELA (05/08) — "Aparelhos" entra ao lado de Usuários: é a
+// mesma pergunta ("quem é essa empresa por dentro?"), só que do lado do APK.
+// A janela "Pulso" (frota inteira) e a "Quem está online" (que lia sessão WEB e
+// por isso mentia sobre quem só vive no app) morreram nesta mesma frente.
+const DETAIL_TABS = ["Usuários", "Aparelhos", "Comercial", "Financeiro", "Implantação", "Website", "Auditoria"] as const;
 
 
 type WalletLot = { id: string; amount: number; remaining: number; expiresAt?: string | null; grantType?: string | null };
@@ -1314,6 +1319,11 @@ export function JanelaEmpresas({ companies, error, reload, assumirContexto }: {
                     </div>
                   </React.Fragment>
                 )}
+
+                {/* PR05082026-VER-TELA — o painel do cliente do lado do APK.
+                    Monta só quando a aba abre (lazy, item 5 do plano): a lista
+                    de aparelhos e a trilha nunca rodam em segundo plano. */}
+                {detailTab === "Aparelhos" && c.id != null && <FichaAparelhos companyId={Number(c.id)} />}
 
                 {detailTab === "Comercial" && (
                   <div style={{ padding: "12px 16px 16px", display: "grid", gap: 14 }}>

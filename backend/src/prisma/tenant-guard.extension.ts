@@ -92,6 +92,11 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   // regra dos outros. A faxina e o painel master leem cross-tenant DE PROPÓSITO
   // e usam withoutTenantScope com motivo (pulso-app.service.ts).
   'MobileTelaTrilha',
+  // VER TELA + ERROS (05/08): mesma regra — companyId escalar. As leituras do
+  // painel master são cross-tenant DE PROPÓSITO (withoutTenantScope com motivo,
+  // espelho-app.service.ts) e a faxina dos erros é da plataforma inteira.
+  'MobileEspelhoQuadro',
+  'MobileErroTrilha',
   'LogisticaRoute',
   'LogisticaRouteStop',
   'LogisticaEssentialCreditClaim',

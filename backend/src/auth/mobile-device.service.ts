@@ -598,6 +598,10 @@ export class MobileDeviceService {
           "lastUsedAt" = ${now},
           "expiresAt" = NULL,
           "revokedAt" = NULL,
+          -- PAINEL DO CLIENTE (05/08): "Remover" só ESCONDE a vaga. O mesmo
+          -- celular voltando desfaz o esconderijo — senão o aparelho reconectava
+          -- de verdade e continuava invisível no painel do master.
+          "ocultoEm" = NULL,
           "webTicketHash" = NULL,
           "webTicketExpiresAt" = NULL,
           "updatedAt" = ${now}
@@ -624,6 +628,8 @@ export class MobileDeviceService {
         "lastUsedAt" = EXCLUDED."lastUsedAt",
         "expiresAt" = NULL,
         "revokedAt" = NULL,
+        -- Ver nota do UPDATE acima: re-parear desfaz o "Remover" do painel.
+        "ocultoEm" = NULL,
         "webTicketHash" = NULL,
         "webTicketExpiresAt" = NULL,
         "updatedAt" = EXCLUDED."updatedAt"

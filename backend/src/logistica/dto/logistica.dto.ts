@@ -1125,6 +1125,54 @@ export class RecebidosRecadoDto {
 export class PulsoRecadosDto {
   @Allow()
   tela?: unknown;
+
+  /**
+   * VERSÃO DO CONTRATO DE RESPOSTA (PR05082026-VER-TELA, 05/08).
+   *
+   * Este poll respondia — e continua respondendo — uma LISTA CRUA de recados.
+   * Envelopar a resposta pra caber o espelho quebraria todo APK já instalado no
+   * mundo. Então quem pede o envelope é o APP: `v: 2` no corpo significa "eu sei
+   * ler `{recados, espelho, ...}`". Sem `v`, a resposta é a lista de sempre,
+   * byte por byte. É o mesmo padrão de content negotiation, só que no corpo.
+   */
+  @Allow()
+  v?: unknown;
+
+  /**
+   * ERROS QUE O CLIENTE VIU (V3) — só chega quando há novidade; poll normal não
+   * carrega o campo. Mesma regra do `tela`: validador estrito aqui derrubaria a
+   * campainha da rota por causa de um enfeite de suporte.
+   */
+  @Allow()
+  erros?: unknown;
+}
+
+/**
+ * VER TELA (PR05082026-VER-TELA V2, 05/08) — um QUADRO do espelho do app.
+ *
+ * Mesmo contrato frouxo do poll (`@Allow`), pela mesma razão: o espelho é
+ * suporte, e um 400 aqui vira ruído no aparelho de quem está trabalhando. O que
+ * presta é decidido no serviço (teto de tamanho, janela aberta, empresa do JWT).
+ * A marcação chega SANITIZADA do aparelho — sem script e com digitação
+ * mascarada; quem mascara é o app.js, antes de sair de lá.
+ */
+export class EspelhoQuadroDto {
+  @Allow()
+  tela?: unknown;
+
+  @Allow()
+  html?: unknown;
+
+  /** Tema e classes do body — sem eles o espelho renderiza no tema errado. */
+  @Allow()
+  tema?: unknown;
+
+  @Allow()
+  bodyClass?: unknown;
+
+  /** O CSS do app viaja 1× por versão, só quando o servidor pede. */
+  @Allow()
+  css?: unknown;
 }
 
 /**

@@ -522,7 +522,12 @@
     mobileShell: {
       context: null,
       setContext(context) { this.context = context; },
-      navigation(appName, currentScreen, icon) {
+      // `rotulos` (opcional) troca só o TEXTO de um item, por tela:
+      // { route: "Caderneta" }. MODO CADERNETA (PR05082026-VER-TELA V4, 05/08):
+      // o dono pediu que "Rota" SUMISSE com o modo ligado — sumir aqui é trocar
+      // o RÓTULO, mantendo posição e ícone (lei das MESMAS TELAS: a tela do dia
+      // mora ali; virar aba nova seria um app diferente pro mesmo motorista).
+      navigation(appName, currentScreen, icon, rotulos) {
         const items = appName === "vendas"
           ? [["vendas", "funnel", "sales", "Vendas"], ["vendas", "chat", "wa", "WhatsApp"], ["vendas", "agenda", "calendar", "Agenda"], ["vendas", "more", "gear", "Ajustes"]]
           : [["logistica", "route", "route", "Rota"], ["logistica", "clients", "users", "Clientes"], ["logistica", "products", "box", "Produtos"], ["logistica", "chat", "chat", "Chat"], ["logistica", "settings", "gear", "Ajustes"]];
@@ -530,7 +535,8 @@
         const indicator = HBX.navIndicator(activeIndex);
         return `<nav class="bottom-nav is-centered nav-count-${items.length}" style="--nav-count:${items.length};--nav-from:${indicator.from};--nav-to:${indicator.to}" aria-label="Navegação principal"><i class="nav-water ${indicator.moving ? "is-moving" : ""}" aria-hidden="true"></i>${items.map(([itemApp, screen, iconName, label]) => {
           const active = itemApp === appName && currentScreen === screen;
-          return `<button type="button" class="nav-btn ${active ? "active" : ""}" data-destination="${itemApp}:${screen}"${active ? ` aria-current="page"` : ""}>${icon(iconName)}<span>${label}</span></button>`;
+          const texto = (rotulos && rotulos[screen]) || label;
+          return `<button type="button" class="nav-btn ${active ? "active" : ""}" data-destination="${itemApp}:${screen}"${active ? ` aria-current="page"` : ""}>${icon(iconName)}<span>${HBX.escape(texto)}</span></button>`;
         }).join("")}</nav>`;
       },
       frame(options) {
@@ -543,7 +549,7 @@
         // (o patch fino do topbar não reconcilia botões novos); quem mostra/esconde
         // é o CSS via body.pss-active. Só logistica.
         const passeioSair = options.appName === "logistica" ? `<button class="icon-btn pss-modo-sair" data-action="pss-trabalho" aria-label="Voltar ao modo trabalho">${options.icon("route", 18)}</button>` : "";
-        return `<header class="topbar"><div class="topbar-spacer"></div><div class="brand"><div class="brand-mark">${brandMark}</div><div class="brand-copy"><strong>${HBX.escape(brandName)}</strong></div></div><div class="toolbar">${syncStatus}<button class="icon-btn" data-action="theme" aria-label="${themeLabel}">${options.icon("moon", 18)}</button><button class="icon-btn" data-action="refresh" aria-label="Atualizar" ${options.refreshing ? "disabled" : ""}>${options.icon("refresh", 18)}</button>${passeioSair}</div></header><main class="content ${motion}">${options.content}</main>${this.navigation(options.appName, options.currentScreen, options.icon)}${options.overlays || ""}`;
+        return `<header class="topbar"><div class="topbar-spacer"></div><div class="brand"><div class="brand-mark">${brandMark}</div><div class="brand-copy"><strong>${HBX.escape(brandName)}</strong></div></div><div class="toolbar">${syncStatus}<button class="icon-btn" data-action="theme" aria-label="${themeLabel}">${options.icon("moon", 18)}</button><button class="icon-btn" data-action="refresh" aria-label="Atualizar" ${options.refreshing ? "disabled" : ""}>${options.icon("refresh", 18)}</button>${passeioSair}</div></header><main class="content ${motion}">${options.content}</main>${this.navigation(options.appName, options.currentScreen, options.icon, options.navLabels)}${options.overlays || ""}`;
       },
       mount(root, markup) {
         if (!root.querySelector(":scope > .topbar") || !root.querySelector(":scope > .content") || !root.querySelector(":scope > .bottom-nav")) {
@@ -652,6 +658,14 @@
               button.className = nextButtons[index].className;
               const current = nextButtons[index].getAttribute("aria-current");
               if (current) button.setAttribute("aria-current", current); else button.removeAttribute("aria-current");
+              // 05/08 — o RÓTULO também é reconciliado. As chaves da barra são o
+              // `data-destination`, que NÃO muda quando só o texto muda ("Rota"
+              // → "Caderneta"): sem esta linha o rótulo novo só apareceria
+              // depois de um render que trocasse a barra inteira, e o modo
+              // caderneta ligado ficaria escrito "Rota" pra sempre.
+              const rotulo = button.querySelector("span");
+              const proximo = nextButtons[index].querySelector("span");
+              if (rotulo && proximo && rotulo.textContent !== proximo.textContent) rotulo.textContent = proximo.textContent;
             });
             const water = nav.querySelector(".nav-water");
             const nextWater = nextNav.querySelector(".nav-water");

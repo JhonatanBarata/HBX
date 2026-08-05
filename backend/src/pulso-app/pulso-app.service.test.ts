@@ -248,26 +248,8 @@ test('faxina lazy: só entra depois de 50 trocas e guarda hoje + D-1', async () 
   assert.ok(h.trilha.some((t) => t.tela === 'ontem'), 'D-1 fica');
 });
 
-test('painel master: aberto AGORA é < 15s e nunca vem do relógio do aparelho', async () => {
-  const agora = new Date('2026-08-04T21:02:00.000Z');
-  const h = harness({
-    aparelhos: [
-      { id: 'dev-1', companyId: 1, userId: 7, revokedAt: null, ultimaTela: 'clientes', ultimaTelaAt: new Date(agora.getTime() - 5_000), appVersion: '117' },
-      { id: 'dev-2', companyId: 2, userId: 8, revokedAt: null, ultimaTela: 'rota', ultimaTelaAt: new Date(agora.getTime() - 60_000), appVersion: '116' },
-      { id: 'dev-3', companyId: 3, userId: 9, revokedAt: null, ultimaTela: null, ultimaTelaAt: null, appVersion: null },
-    ],
-  });
-
-  const linhas = await h.service.listarAparelhos(agora);
-  assert.deepEqual(linhas.map((l) => l.deviceId), ['dev-1', 'dev-2', 'dev-3'], 'mais recente primeiro');
-  assert.equal(linhas[0].abertoAgora, true);
-  assert.equal(linhas[1].abertoAgora, false, 'fora do app — nunca "offline"');
-  assert.equal(linhas[2].abertoAgora, false);
-  assert.equal(linhas[2].ultimaTelaAt, null, 'aparelho que nunca pulsou não inventa hora');
-  assert.equal(linhas[0].companyName, 'Empresa 1');
-  assert.equal(linhas[0].userName, 'Pessoa 7');
-  assert.equal(linhas[0].appVersion, '117');
-});
+// A LISTA de aparelhos saiu daqui em 05/08 (PR05082026-VER-TELA): virou lista
+// POR EMPRESA, dentro da ficha do cliente — ver master-aparelhos.service.test.ts.
 
 test('trilha do dia: só o aparelho pedido, do mais antigo pro mais novo', async () => {
   const h = harness();
