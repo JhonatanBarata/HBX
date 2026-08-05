@@ -286,6 +286,19 @@
   line-height: 1.5;
 }
 
+/* VER TELA (05/08) — a moldura do espelho 1:1. O iframe nasce do TAMANHO do
+   celular (ex.: 360×800) e é ampliado por `transform: scale`, então só a
+   largura, a altura e o fator de escala são inline: são valores DINÂMICOS, que
+   mudam com o aparelho e com o tamanho da janela. Tudo que é aparência mora
+   aqui. `transform-origin: top left` é o que ancora a ampliação no canto —
+   sem ela o quadro cresce a partir do centro e sai da caixa. */
+.ckm-espelho-frame {
+  flex: 0 0 auto;
+  border: none;
+  border-radius: var(--radius-sm);
+  transform-origin: top left;
+}
+
 /* Detalhe de empresa no /master: sai do fluxo da página e vira modal operacional. */
 .master-company-detail-veil {
   align-items: center;

@@ -97,15 +97,55 @@ function attr(valor: string | null): string {
 }
 
 /**
+ * A MEDIDA DA TELA DO APARELHO (05/08) — o que faz o espelho ser 1:1.
+ *
+ * Sem ela o painel desenhava o app na largura do MONITOR: o dono via 4 clientes
+ * onde o motorista via 6, e "ver a tela do cliente" mostrava OUTRA tela. O app
+ * carimba `data-espelho-vw/vh/sy` na raiz da marcação; aqui a gente lê e passa
+ * a desenhar num viewport do tamanho exato do celular, escalado pra caber.
+ *
+ * Aparelho velho não manda nada → 360×800, o retrato Android mais comum. É
+ * palpite declarado, e um palpite de tamanho é melhor que o tamanho do monitor.
+ */
+export const ESPELHO_PADRAO = { vw: 360, vh: 800, sy: 0 };
+
+export function lerMedidasEspelho(html: string | null): { vw: number; vh: number; sy: number } {
+  const ler = (nome: string, fallback: number, teto: number) => {
+    const achado = new RegExp(`data-espelho-${nome}="(-?[\\d.]+)"`).exec(String(html || ""));
+    const n = achado ? Math.round(Number(achado[1])) : NaN;
+    return Number.isFinite(n) && n >= 0 && n <= teto && n > 0 ? n : fallback;
+  };
+  return {
+    vw: ler("vw", ESPELHO_PADRAO.vw, 4000),
+    vh: ler("vh", ESPELHO_PADRAO.vh, 4000),
+    // Rolagem pode ser 0 legitimamente (topo da tela) — por isso lê separado.
+    sy: (() => {
+      const achado = /data-espelho-sy="(\d+)"/.exec(String(html || ""));
+      const n = achado ? Math.round(Number(achado[1])) : NaN;
+      return Number.isFinite(n) && n >= 0 && n <= 200000 ? n : 0;
+    })(),
+  };
+}
+
+/**
  * A réplica da tela, montada como documento completo. Vai num iframe
  * `sandbox=""` — sem script, sem formulário, sem navegação: o quadro é
  * MARCAÇÃO, e marcação de terceiro só é segura dentro de uma caixa fechada.
+ *
+ * A rolagem do aparelho é reproduzida com `margin-top` negativo no `html`:
+ * dentro de um sandbox sem script não há como chamar `scrollTo`, e o negativo
+ * empurra só o conteúdo do fluxo — a barra de cima e as abas de baixo são
+ * `position: fixed` e ficam onde estão, exatamente como no celular.
  */
 export function montarEspelho(q: Quadro): string {
   const html = q.html || "";
   const css = q.css || "";
+  const { vw, sy } = lerMedidasEspelho(q.html);
+  const ajuste = `html{width:${vw}px;overflow:hidden;}`
+    + (sy > 0 ? `html{margin-top:-${sy}px;}` : "");
   return `<!doctype html><html data-theme="${attr(q.tema)}"><head><meta charset="utf-8">`
-    + `<style>${css}</style></head><body class="${attr(q.bodyClass)}">${html}</body></html>`;
+    + `<style>${css}</style><style>${ajuste}</style></head>`
+    + `<body class="${attr(q.bodyClass)}">${html}</body></html>`;
 }
 
 type Expandido = { deviceId: string; modo: "trilha" | "erros" } | null;
@@ -124,6 +164,21 @@ export function FichaAparelhos({ companyId }: { companyId: number }) {
   const [espelhando, setEspelhando] = useState<Aparelho | null>(null);
   const [quadro, setQuadro] = useState<Quadro | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
+  // A caixa onde o espelho cabe. Medida de verdade (ResizeObserver) porque a
+  // escala do 1:1 é uma DIVISÃO: sem o tamanho real não dá pra saber o quanto
+  // aumentar sem cortar. Redimensionar a janela do navegador reescala sozinho.
+  const caixaEspelho = useRef<HTMLDivElement | null>(null);
+  const [caixa, setCaixa] = useState<{ w: number; h: number } | null>(null);
+  useEffect(() => {
+    const el = caixaEspelho.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const obs = new ResizeObserver(entradas => {
+      const r = entradas[0]?.contentRect;
+      if (r) setCaixa({ w: Math.floor(r.width), h: Math.floor(r.height) });
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [espelhando, quadro?.html ? true : false]);
 
   // Nada de setState síncrono aqui (só dentro do then/catch), pra rodar dentro
   // de efeito/intervalo sem cascading render — mesmo padrão das outras janelas.
@@ -355,28 +410,53 @@ export function FichaAparelhos({ companyId }: { companyId: number }) {
         reconecta nesta vaga quando parear de novo.
       </div>
 
-      {espelhando && (
+      {espelhando && (() => {
+        // 1:1 COM O CELULAR (05/08): o iframe tem o tamanho EXATO do viewport
+        // dele (ex.: 360×800) e é ampliado por `transform: scale`. Escalar em
+        // vez de alargar é o ponto — alargar mudaria a quebra de linha e o
+        // número de cartões visíveis, que é justamente o que o dono precisa ver
+        // igual. Como o conteúdo é DOM (não imagem), ampliar não borra: o texto
+        // é redesenhado no tamanho novo — daí a "resolução" que ele pediu.
+        const medidas = lerMedidasEspelho(quadro?.html || null);
+        const escala = caixa
+          ? Math.max(0.3, Math.min(caixa.w / medidas.vw, caixa.h / medidas.vh))
+          : 1;
+        // A janela nasce com a FORMA do aparelho e cresce até o limite da tela.
+        const alturaMax = "calc(100dvh - 132px)";
+        return (
         <div className="hbx-veil" onClick={e => { if (e.target === e.currentTarget) fecharEspelho(); }}>
           <div className="hbx-modal" role="dialog" aria-modal="true" aria-label={`Tela de ${nomeDoAparelho(espelhando)}`}
-            style={{ width: "min(440px, calc(100vw - 24px))", maxHeight: "calc(100dvh - 24px)", display: "flex", flexDirection: "column" }}>
+            style={{
+              // Largura = altura disponível × a proporção do aparelho. É o que
+              // faz a janela ser um celular na tela, sem tarja preta dos lados.
+              width: `min(calc(${alturaMax} * ${medidas.vw} / ${medidas.vh}), calc(100vw - 24px))`,
+              maxHeight: "calc(100dvh - 24px)",
+              display: "flex",
+              flexDirection: "column",
+            }}>
             <header className="panel-head">
               <h2>{nomeDoAparelho(espelhando)}</h2>
               <div className="meta" style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <span className="ckm-feed-meta">
-                  {quadro?.html ? `${quadro.tela || "tela"} · ${haQuantoTempo(quadro.at)}` : "aguardando o aparelho…"}
+                  {quadro?.html
+                    ? `${quadro.tela || "tela"} · ${medidas.vw}×${medidas.vh} · ${haQuantoTempo(quadro.at)}`
+                    : "aguardando o aparelho…"}
                 </span>
                 <button type="button" className="btn-ghost" style={acaoStyle} onClick={fecharEspelho}>Fechar</button>
               </div>
             </header>
-            <div style={{ padding: "0 12px 12px", flex: 1, minHeight: 0, display: "flex" }}>
+            <div ref={caixaEspelho} style={{ padding: "0 12px 12px", flex: 1, minHeight: 0, height: alturaMax, display: "flex", overflow: "hidden" }}>
               {quadro?.html ? (
                 <iframe
                   // sandbox="" = sem script, sem form, sem navegação. O quadro é
                   // marcação de terceiro: só entra em caixa fechada.
                   sandbox=""
+                  className="ckm-espelho-frame"
                   title={`Espelho de ${nomeDoAparelho(espelhando)}`}
                   srcDoc={montarEspelho(quadro)}
-                  style={{ width: "100%", height: "min(720px, calc(100dvh - 140px))", border: "none", borderRadius: "var(--radius-sm)" }}
+                  // Só valor DINÂMICO inline (a aparência vive em .ckm-espelho-frame):
+                  // o tamanho é o do aparelho e a escala vem da caixa medida.
+                  style={{ width: medidas.vw, height: medidas.vh, transform: `scale(${escala})` }}
                 />
               ) : (
                 <div className="ckm-muted-cell" style={{ padding: "24px 6px", lineHeight: 1.6 }}>
@@ -391,7 +471,8 @@ export function FichaAparelhos({ companyId }: { companyId: number }) {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
     </React.Fragment>
   );
 }
