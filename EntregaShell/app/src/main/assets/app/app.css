@@ -2036,6 +2036,24 @@ html[data-theme="dark"] .pss-montagem-dica { color: var(--brand); }
    receber), nunca --danger: o vermelho da casa BLOQUEIA, e dever não bloqueia
    venda nenhuma na caderneta. */
 .caderneta-deve { color: var(--warning); font-weight: 800; }
+/* CADERNETA 7 DIAS (05/08) — cabeçalho do dia visto ("Quarta · hoje" + data),
+   histórico no pé (só dias com venda), chip "+ DIA" da sugestão e o "Sumiu".
+   Tudo por token; --warning nos avisos (atenção que não bloqueia, Lei 2c). */
+.caderneta-cabecalho { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 14px; }
+.caderneta-cabecalho .card-main small { color: var(--muted); }
+.caderneta-hoje-btn { white-space: nowrap; }
+.caderneta-sumiu { color: var(--warning); font-weight: 800; }
+.caderneta-dia-chip { align-self: center; flex: 0 0 auto; min-height: 30px; padding: 4px 10px; border: 1px solid color-mix(in srgb, var(--brand) 55%, var(--line)); border-radius: 999px; background: var(--brand-soft); color: var(--brand-strong); font-size: .68rem; font-weight: 850; }
+.caderneta-finalizar-btn { margin-top: 14px; }
+.rota-finalizar-btn { margin-top: 14px; }
+.caderneta-historico .caderneta-hist-row { display: flex; align-items: center; gap: 12px; }
+.caderneta-hist-dia { display: flex; flex-direction: column; align-items: flex-start; min-width: 74px; }
+.caderneta-hist-dia strong { font-weight: 850; }
+.caderneta-hist-dia small { color: var(--muted); }
+.caderneta-hist-total { white-space: nowrap; }
+.caderneta-hist-row.is-atual { border-color: color-mix(in srgb, var(--brand) 55%, var(--line)); background: var(--brand-soft); }
+/* O popup Finalizar reusa a grade de 7 colunas dos chips de dia. */
+.caderneta-finalizar-dias { margin-top: 4px; }
 .caderneta-numero { margin-top: 14px; }
 .caderneta-numero .field { margin: 0; }
 /* Venda: os 3 métodos do "pagou" lado a lado; o rótulo em cima é o verbo. */

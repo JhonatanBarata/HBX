@@ -161,6 +161,9 @@ class NativeApiClientPathPolicyTest {
         // 05/08 — apagar a venda errada pelo toque-longo na linha do dia.
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/caderneta/apagar-venda"))
         assertFalse(isMobileEndpointAllowed("vendas", "POST", "/logistica/caderneta/apagar-venda"))
+        // CADERNETA 7 DIAS (05/08) — Finalizar o dia ("qual dia podemos registrar?").
+        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/caderneta/finalizar"))
+        assertFalse(isMobileEndpointAllowed("vendas", "POST", "/logistica/caderneta/finalizar"))
         assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/espelho/quadro"))
         // Espelho é só ESCRITA do aparelho: quem lê é o master, pela web.
         assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/espelho/quadro"))

@@ -374,6 +374,11 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             // "Esta operação não pertence ao logistica", e o dono continuaria
             // sem conseguir excluir — que é exatamente o defeito que ele relatou.
             listOf("logistica", "caderneta", "apagar-venda"),
+            // CADERNETA 7 DIAS (05/08) — Finalizar o dia ("qual dia podemos
+            // registrar?"): registra o dia da semana e salva a Caderneta nas
+            // Rotas salvas. Mesma regra dos vizinhos: sem esta linha o botão
+            // morre dentro do aparelho.
+            listOf("logistica", "caderneta", "finalizar"),
             // 🔴 VER TELA (05/08) — um QUADRO do espelho do próprio app, mandado
             // só enquanto o painel do master mantém a janela de 60s aberta. Sem
             // esta linha o app barraria a chamada AQUI, dentro do aparelho, e o

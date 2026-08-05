@@ -192,6 +192,12 @@
     // Filtro da página: "todos" | "devendo" | "pago". Não é cacheado de
     // propósito — abrir o app filtrado em "Pago" esconderia quem falta atender.
     cadernetaFiltro: "todos",
+    // CADERNETA 7 DIAS (05/08) — dia do HISTÓRICO aberto ({diaSemana, dateKey})
+    // ou null = hoje. `cadernetaFinalizarDia` vive só com o popup Finalizar.
+    cadernetaDiaVisto: null,
+    cadernetaFinalizarDia: null,
+    cadernetaFinalizando: false,
+    cadernetaSalvasFoco: null,
     nextStop: null,
     nextCountdown: 5,
     nextStopOpening: false,
@@ -3710,6 +3716,10 @@
     state.daySelection = routePlanned() ? [...diasAdicionados()] : [];
     state.dayPreview = []; state.dayPreviewEnteringIds = []; state.dayPreviewLeavingIds = []; state.daySourceDates = {}; state.dayPreviewError = null; state.openingOverlay = "modal"; state.modal = "manage-day";
     state.dayOrderStep = null; state.dayOrderMode = "app"; state.dayManualOrder = []; state.dayManualSave = false; state.dayAgendaOrderOriginal = [];
+    // CADERNETA 7 DIAS — o pino "caderneta do dia na frente" vale só pra entrada
+    // pelo convite (que o re-seta logo depois desta chamada); toda outra abertura
+    // volta à ordem de sempre.
+    state.cadernetaSalvasFoco = null;
     // S1 21/07 — contagem por dia (S1.2) zera a cada abertura.
     state.dayCounts = {}; state.dayCountsLoaded = false;
     render();
@@ -5173,7 +5183,8 @@
         <button type="button" class="route-filter-btn ${state.routeFilter === "entregue" ? "active" : ""}" data-action="route-filter" data-filter="entregue" role="tab" aria-selected="${state.routeFilter === "entregue"}">Entregue <b>${done.length}</b></button>
       </div>` : ""}
       ${state.routeFilter === "fila" && next && !showNextPanel ? `<div class="section-title"><strong>Próxima parada</strong><span>${next.etaAt ? H.date(next.etaAt, { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>${stopCard(next, true)}` : ""}
-      ${total ? (filtered.length ? `<div class="list">${filtered.map((item, index) => `${state.routeFilter === "fila" ? routeLegConnector(item) : ""}${stopCard(item, false, index + (state.routeFilter === "fila" ? 2 : 1))}`).join("")}</div>` : state.routeFilter === "fila" && next ? "" : empty("Nada aqui", "")) : ""}`);
+      ${total ? (filtered.length ? `<div class="list">${filtered.map((item, index) => `${state.routeFilter === "fila" ? routeLegConnector(item) : ""}${stopCard(item, false, index + (state.routeFilter === "fila" ? 2 : 1))}`).join("")}</div>` : state.routeFilter === "fila" && next ? "" : empty("Nada aqui", "")) : ""}
+      ${(routeActive() || paused) ? `<button class="btn btn-primary btn-block rota-finalizar-btn" type="button" data-action="finalizar-rota">${icon("check", 18)} Finalizar</button>` : ""}`);
   }
   function leituraRouteControls() {
     const checkpointLabel = state.leituraCapturing ? "Lendo GPS…" : "Checkpoint";
@@ -5938,8 +5949,11 @@
     return `<div class="modal-wrap" data-action="close-modal"><section class="modal client-edit-modal"><div class="sheet-head ${pendingHasBlocking(pending) ? "client-head-pending" : ""}"><div class="avatar">${icon("users", 18)}</div><div><h2>${isNew ? "Novo cliente" : "Editar cliente"}</h2>${isNew ? "" : `<p class="subtitle">${H.escape(client.nome || client.name || "Cliente")}</p>`}</div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><div class="client-editor-body">${customerForm}${isNew ? "" : productPart}</div></section></div>`;
   }
   function modal() {
-    // MODO CADERNETA (05/08) — o convite pro GPS quando a base da agenda prova.
-    if (state.modal === "caderneta-convite") return cadernetaConviteModal();
+    // CADERNETA 7 DIAS (05/08) — convite semanal do GPS + Finalizar do dia.
+    if (state.modal === "caderneta-convite-gps") return cadernetaConviteGpsModal();
+    if (state.modal === "caderneta-finalizar") return cadernetaFinalizarModal();
+    // FINALIZAR da rota normal (mesma ordem do dono): salvar/descartar pendências.
+    if (state.modal === "finalizar-rota") return finalizarRotaModal();
     if (state.modal === "client-product") return clientEditorModal(false);
     if (state.modal === "new-client") return clientEditorModal(true);
     if (state.modal === "new-product") return `<div class="modal-wrap day-home-wrap product-edit-wrap" data-action="close-modal"><section class="modal day-home center-modal product-edit-modal" role="dialog" aria-modal="true" aria-labelledby="new-product-title"><div class="center-modal-head"><div class="day-home-icon">${icon("box", 22)}</div><h2 id="new-product-title">Novo produto</h2><button class="close center-modal-close" type="button" data-action="close-modal" aria-label="Fechar">${icon("close", 16)}</button></div><div class="center-modal-body product-edit-body"><form id="new-product-form"><div class="form-grid"><div class="field"><label>Nome</label><input name="name" required maxlength="140"></div><div class="field"><label>Unidade</label><input name="unidade" maxlength="60" placeholder="galão, caixa, unidade"></div><div class="field"><label>Preço</label><input name="price" type="text" inputmode="numeric" data-product-price="new"></div><div class="field"><label>Estoque</label><input name="stock" type="number" min="0" step="1"></div></div><button class="btn btn-primary btn-block product-edit-save" type="submit">Cadastrar</button></form></div></section></div>`;
@@ -7088,6 +7102,11 @@
     // primeiro" (todas iguais, por nome). Lixeira só pro admin (reusa a ação
     // delete-route-modelo). Container + 2 botões (button aninhado é inválido).
     const modelos = [...(state.routeModelos || [])].sort((a, b) => String(a.nome || "").localeCompare(String(b.nome || "")));
+    // CADERNETA 7 DIAS (05/08) — entrada pelo convite ("…caderneta e dia
+    // respectivo"): a Caderneta de HOJE sobe pra frente SÓ nesta abertura; a
+    // ordem alfabética de sempre (contrato F1/F2) segue valendo no resto.
+    const foco = String(state.cadernetaSalvasFoco || "").trim().toLowerCase();
+    if (foco) modelos.sort((a, b) => Number(String(b.nome || "").trim().toLowerCase() === foco) - Number(String(a.nome || "").trim().toLowerCase() === foco));
     const admin = isAdmin();
     // Excluir rota é SEGURAR PRESSIONADO — sem lixeira, igual ao resto do app.
     const rows = modelos.map(modelo => {
@@ -9538,25 +9557,105 @@
     }
     if (action === "open-financeiro") { if (!isAdmin()) return; showModal("financeiro"); return; }
     if (action === "open-avancado") { if (!isAdmin()) return; showModal("avancado"); return; }
-    // MODO CADERNETA (05/08) — as duas saídas do convite. "Agora não" só fecha:
-    // a marca d'água já foi gravada quando ele apareceu, então ele não volta até
-    // a base crescer.
+    // CADERNETA 7 DIAS (05/08) — as saídas do convite semanal. "Agora não" só
+    // fecha: a marca de 1×/dia já foi gravada quando ele APARECEU.
     if (action === "caderneta-convite-depois") { void closeOverlay("modal"); return; }
-    if (action === "caderneta-ativar-gps") {
-      if (!isAdmin() || state.cadernetaConviteSalvando) return;
-      // Guard de reentrância antes do 1º await (§4 do guia): o toque duplo no
-      // "Ativar GPS" mandaria dois PATCH.
-      state.cadernetaConviteSalvando = true;
+    if (action === "caderneta-convite-abrir-salvas") {
+      // "aí vai abrir: Rotas salvas, caderneta e dia respectivo" (ordem literal):
+      // o Gerenciador abre já no passo Rotas salvas, com a Caderneta do dia de
+      // HOJE pinada na frente (só nesta entrada — a ordem normal não muda).
+      await closeOverlay("modal");
+      const wd = weekDays.find(d => d.n === todayIso());
+      openDayManager("start");
+      state.cadernetaSalvasFoco = wd ? `Caderneta de ${wd.nome}` : null;
+      state.dayOrderStep = "saved";
+      render();
+      return;
+    }
+    // ---- Finalizar o dia da caderneta -------------------------------------
+    if (action === "caderneta-finalizar-abrir") {
+      state.cadernetaFinalizarDia = todayIso();
+      showModal("caderneta-finalizar");
+      return;
+    }
+    if (action === "caderneta-finalizar-dia") {
+      state.cadernetaFinalizarDia = Number(target.dataset.dia) || todayIso();
+      render();
+      return;
+    }
+    if (action === "caderneta-finalizar-fechar") { void closeOverlay("modal"); return; }
+    if (action === "caderneta-finalizar-confirmar") {
+      if (state.cadernetaFinalizando) return;
+      // Guard de reentrância antes do 1º await (§4 do guia).
+      state.cadernetaFinalizando = true;
       render();
       try {
-        await H.api("/logistica/config", { method: "PATCH", body: { modoCaderneta: false } });
-        state.config = { ...(state.config || {}), modoCaderneta: false };
-        H.cache.set("logistica-config", state.config);
+        await H.api("/logistica/caderneta/finalizar", { method: "POST", body: { dia: Number(state.cadernetaFinalizarDia) || todayIso() } });
+        H.cache.set(`caderneta-fechada-${operationalDate()}`, true);
+        state.cadernetaDiaVisto = null;
         await closeOverlay("modal");
+        H.vibrate(20);
+        toast("Dia fechado.");
         await refresh(true);
-        toast("GPS ligado. A Rota voltou.");
+        void carregarCadernetaResumo();
       } catch (error) { toast(humanApiError(error), true); }
-      finally { state.cadernetaConviteSalvando = false; render(); }
+      finally { state.cadernetaFinalizando = false; render(); }
+      return;
+    }
+    // ---- Histórico de 7 dias ----------------------------------------------
+    if (action === "caderneta-abrir-dia") {
+      const dia = Number(target.dataset.dia);
+      const date = String(target.dataset.date || "");
+      if (!Number.isInteger(dia) || dia < 1 || dia > 7 || !date) return;
+      state.cadernetaDiaVisto = date === operationalDate() ? null : { diaSemana: dia, dateKey: date };
+      state.cadernetaFiltro = "todos";
+      render();
+      void carregarCadernetaResumo();
+      void carregarCadernetaRoster(true);
+      return;
+    }
+    if (action === "caderneta-voltar-hoje") {
+      state.cadernetaDiaVisto = null;
+      state.cadernetaFiltro = "todos";
+      render();
+      void carregarCadernetaResumo();
+      void carregarCadernetaRoster(true);
+      return;
+    }
+    // ---- Ouro nº1b: "+ dia" adiciona esta página aos dias do cliente -------
+    if (action === "caderneta-adicionar-dia") {
+      const clienteId = String(target.dataset.clienteId || "");
+      if (!clienteId) return;
+      const atuais = String(target.dataset.dias || "").split(",").map(Number).filter(n => Number.isInteger(n) && n >= 1 && n <= 7);
+      const dias = [...new Set([...atuais, cadernetaPaginaVista().diaSemana])].sort((a, b) => a - b);
+      try {
+        await H.api(`/logistica/clientes/${encodeURIComponent(clienteId)}/dias`, { method: "PATCH", body: { dias } });
+        toast("Dia adicionado.");
+        void carregarCadernetaResumo();
+        void carregarCadernetaRoster(true);
+      } catch (error) { toast(humanApiError(error), true); }
+      return;
+    }
+    // ---- FINALIZAR da rota normal (mesma ordem do dono, 05/08) -------------
+    if (action === "finalizar-rota") {
+      if (!routeActive() && !state.routePaused) return;
+      if (openItems().length > 0) { showModal("finalizar-rota"); return; }
+      await performEncerrarRota("Rota finalizada.", { playSound: true });
+      return;
+    }
+    if (action === "finalizar-rota-fechar") { void closeOverlay("modal"); return; }
+    if (action === "finalizar-rota-salvar") {
+      // Salvar = as abertas viram PENDÊNCIA e ficam salvas na rota até a pessoa
+      // terminar (máquina do rota/encerrar de sempre; o próximo Iniciar as pega
+      // sem re-cobrar).
+      await closeOverlay("modal");
+      await performEncerrarRota("Rota finalizada.", { playSound: true });
+      return;
+    }
+    if (action === "finalizar-rota-descartar") {
+      // Descartar = o limpar-dia de sempre (cancela o que faltou; entregue fica).
+      await closeOverlay("modal");
+      await performLimparDia();
       return;
     }
     if (action === "toggle-config-flag") {
@@ -11388,30 +11487,33 @@
   // chegada por config (deliverySimpleSheet aqui, cobrancaSimples) É a folha da
   // venda; muda o motor, não a moldura.
   //
-  // O GPS fica trancado enquanto o mapa do dia não se prova: o medidor
-  // "Mapa: X de N" ocupa o lugar do Iniciar e, quando o dia inteiro tem endereço
-  // provado (`dia.pronto` do servidor), o selo "Mapa pronto" aparece e a tela
-  // volta a ser a Rota de sempre. A palavra "pino" é PROIBIDA em tela (Lei 8) —
-  // o medidor fala "Mapa".
+  // CADERNETA 7 DIAS (05/08, PR05082026-CADERNETA-7-DIAS): a caderneta é a de
+  // PAPEL — 7 páginas, uma por dia da semana, zero GPS ("só vai gastar
+  // energia"). A tela abre na página de HOJE (cabeçalho com dia + data); o
+  // HISTÓRICO no pé lista os dias da janela de 7 dias COM venda, e tocar reabre
+  // aquele dia NA MESMA tela, editável (vender + segurar pra apagar). O botão
+  // Finalizar fecha o dia ("qual dia podemos registrar?") e salva a
+  // "Caderneta de <dia>" nas Rotas salvas na hora.
   //
-  // Fontes de dados (nenhuma tela nova, nenhum endpoint inventado pra lista):
-  //   • roster do dia = GET /logistica/dia-preview?date= (o MESMO da montagem;
-  //     read-only, NÃO materializa entrega nem avança proximaData);
-  //   • status de quem já foi atendido = as entregas de hoje que a Rota já
-  //     carrega (allRouteItems), cruzadas por cliente+local;
-  //   • medidor e fechamento = GET /logistica/caderneta/resumo?date=.
+  // Fontes de dados:
+  //   • roster do dia visto = GET /logistica/dia-preview?date=;
+  //   • vendas da página/fechamento/histórico/convite = GET
+  //     /logistica/caderneta/resumo?date=&dia= (pagina/historicoDias/conviteGps);
+  //   • status fresquinho de HOJE = allRouteItems() (só na página de hoje).
   // ==========================================================================
   let cadernetaResumoEmVoo = false;
+  let cadernetaResumoPendente = false;
   let cadernetaRosterEmVoo = false;
 
   function cadernetaModoAtivo() { return configFlag("modoCaderneta"); }
-  function cadernetaMedida(qual) {
-    const medida = state.cadernetaResumo && state.cadernetaResumo[qual];
-    const total = Math.max(0, Number(medida && medida.total) || 0);
-    return { total, provados: Math.max(0, Math.min(total, Number(medida && medida.provados) || 0)), pronto: !!(medida && medida.pronto) };
+  /** O dia sendo visto: o do histórico aberto, ou hoje. */
+  function cadernetaPaginaVista() {
+    return state.cadernetaDiaVisto || { diaSemana: todayIso(), dateKey: operationalDate() };
   }
-  /** A BASE da agenda (todo cliente COM dia cadastrado) — a régua do convite. */
-  function cadernetaBase() { return cadernetaMedida("base"); }
+  function cadernetaVendoHoje() { return !state.cadernetaDiaVisto || state.cadernetaDiaVisto.dateKey === operationalDate(); }
+  /** "Finalizar" fechou o dia: a tela limpa até uma venda nova reabrir. */
+  function cadernetaFechadaHoje() { return !!H.cache.get(`caderneta-fechada-${operationalDate()}`, false); }
+  function cadernetaDataBR(dateKey) { return String(dateKey || "").split("-").reverse().join("/"); }
   /**
    * 🔴 A tela Rota vira caderneta enquanto o MODO estiver ligado — ponto.
    *
@@ -11426,19 +11528,29 @@
   function cadernetaChave(clienteId, localId) { return `${String(clienteId || "")}:${String(localId || "")}`; }
 
   async function carregarCadernetaResumo() {
-    if (!cadernetaModoAtivo() || cadernetaResumoEmVoo) return;
+    if (!cadernetaModoAtivo()) return;
+    // Em voo: marca a pendência e o finally re-dispara — trocar de dia do
+    // histórico no meio de uma resposta não pode deixar a página velha na tela.
+    if (cadernetaResumoEmVoo) { cadernetaResumoPendente = true; return; }
     cadernetaResumoEmVoo = true;
+    const vistoNoPedido = cadernetaPaginaVista().diaSemana;
     try {
-      const resumo = await H.api(`/logistica/caderneta/resumo?date=${encodeURIComponent(operationalDate())}`);
-      if (resumo && typeof resumo === "object") { state.cadernetaResumo = resumo; cadernetaTalvezConvidar(); render(); }
+      const resumo = await H.api(`/logistica/caderneta/resumo?date=${encodeURIComponent(operationalDate())}&dia=${vistoNoPedido}`);
+      if (resumo && typeof resumo === "object") { state.cadernetaResumo = resumo; cadernetaTalvezConvidarGps(); render(); }
     } catch (_) {
       // Rede fora não apaga o número que já está na tela (mesmo contrato do
       // checkRotaIndicada): o próximo refresh tenta de novo.
-    } finally { cadernetaResumoEmVoo = false; }
+    } finally {
+      cadernetaResumoEmVoo = false;
+      if (cadernetaResumoPendente || cadernetaPaginaVista().diaSemana !== vistoNoPedido) {
+        cadernetaResumoPendente = false;
+        void carregarCadernetaResumo();
+      }
+    }
   }
   async function carregarCadernetaRoster(force) {
     if (!cadernetaModoAtivo() || cadernetaRosterEmVoo) return;
-    const dia = operationalDate();
+    const dia = cadernetaPaginaVista().dateKey;
     const atual = state.caderneta;
     const mesmoDia = atual && atual.dia === dia;
     if (!force && mesmoDia && !atual.erro && Array.isArray(atual.clientes)) return;
@@ -11450,17 +11562,27 @@
       state.caderneta = { dia, clientes: Array.isArray(preview && preview.clientes) ? preview.clientes : [], carregando: false, erro: "" };
     } catch (error) {
       state.caderneta = { dia, clientes: (mesmoDia && atual.clientes) || [], carregando: false, erro: humanApiError(error) };
-    } finally { cadernetaRosterEmVoo = false; render(); }
+    } finally {
+      cadernetaRosterEmVoo = false;
+      render();
+      // Trocou de dia do histórico com este pedido em voo → busca o dia certo.
+      if (cadernetaPaginaVista().dateKey !== dia) void carregarCadernetaRoster(true);
+    }
   }
 
   /**
-   * A lista do dia: roster da agenda + o que a Rota já sabe de hoje. O roster
-   * manda na ORDEM e nos itens; a entrega materializada manda no STATUS (quem já
-   * foi atendido aparece com ✓ no mesmo lugar, sem sumir da lista).
+   * A lista do dia visto: roster da agenda + as vendas DA PÁGINA (resumo) +,
+   * só na página de hoje, o que a Rota já sabe fresquinho (allRouteItems — é
+   * quem atualiza no instante da venda, antes do resumo voltar). O roster manda
+   * na ORDEM e nos itens; a venda manda no STATUS e no que FOI vendido.
+   * Dia fechado pelo Finalizar = tela limpa (vendas suprimidas até venda nova).
    */
   function cadernetaLista() {
     const linhas = new Map();
-    const roster = state.caderneta && Array.isArray(state.caderneta.clientes) ? state.caderneta.clientes : [];
+    const vista = cadernetaPaginaVista();
+    const roster = state.caderneta && Array.isArray(state.caderneta.clientes) && state.caderneta.dia === vista.dateKey
+      ? state.caderneta.clientes
+      : [];
     roster.forEach(cliente => {
       const clienteId = String((cliente && cliente.customerProfileId) || "");
       if (!clienteId) return;
@@ -11484,7 +11606,52 @@
         metodo: "",
       });
     });
-    allRouteItems().filter(item => item && item.status !== "cancelada").forEach(item => {
+    // Dia fechado pelo Finalizar: a tela do dia volta limpa (só roster). As
+    // vendas continuam no Histórico — venda NOVA reabre o dia (o vender limpa a
+    // marca). Dia de histórico aberto SEMPRE mostra tudo.
+    const suprimirVendas = cadernetaVendoHoje() && !state.cadernetaDiaVisto && cadernetaFechadaHoje();
+    // As vendas DA PÁGINA (resumo?dia=): é o que faz o histórico ser editável —
+    // um dia reaberto mostra o que foi vendido nele, com toque-longo pra apagar.
+    const pagina = state.cadernetaResumo && state.cadernetaResumo.pagina;
+    const vendasPagina = !suprimirVendas && pagina && Number(pagina.diaSemana) === vista.diaSemana && Array.isArray(pagina.vendas)
+      ? pagina.vendas
+      : [];
+    vendasPagina.forEach(v => {
+      const clienteId = String(v.clienteId || "");
+      if (!clienteId) return;
+      const chave = cadernetaChave(clienteId, v.localId);
+      const linha = linhas.get(chave) || linhas.get(cadernetaChave(clienteId, null));
+      const itens = (v.itens || []).filter(x => x && x.productId != null).map(x => ({ productId: x.productId, nome: x.nome || "", qtd: Math.max(1, Number(x.qtd) || 1), valorUnit: Number.isFinite(Number(x.valorUnit)) ? Number(x.valorUnit) : null }));
+      const total = Number.isFinite(Number(v.total)) ? Number(v.total) : null;
+      if (linha) {
+        linha.status = "entregue";
+        linha.entregaId = v.entregaId || null;
+        linha.metodo = v.metodo || "";
+        if (itens.length) linha.itens = itens;
+        if (total != null) linha.total = total;
+        linha.sugerirDia = !!v.sugerirDia;
+        linha.diasAtuais = Array.isArray(v.diasAtuais) ? v.diasAtuais : [];
+        return;
+      }
+      linhas.set(chave, {
+        chave,
+        clienteId,
+        localId: v.localId || null,
+        nome: v.nome || "Cliente",
+        localApelido: null,
+        observacoes: "",
+        lat: null,
+        lng: null,
+        itens,
+        total,
+        status: "entregue",
+        entregaId: v.entregaId || null,
+        metodo: v.metodo || "",
+        sugerirDia: !!v.sugerirDia,
+        diasAtuais: Array.isArray(v.diasAtuais) ? v.diasAtuais : [],
+      });
+    });
+    if (cadernetaVendoHoje() && !suprimirVendas) allRouteItems().filter(item => item && item.status !== "cancelada").forEach(item => {
       const c = item.cliente || {};
       const clienteId = String(item.customerProfileId || c.id || "");
       if (!clienteId) return;
@@ -11587,9 +11754,45 @@
     // O medidor "Mapa: X de N" e o título "Clientes de hoje" saíram (ordem do
     // dono, 05/08): a linha de filtros já dá a contagem, e a régua do GPS mudou
     // de dono — quem convida agora é a semana fechada, não uma barra na tela.
-    return `${cadernetaFiltroChips(lista)}
+    return `${cadernetaCabecalho()}
+      ${cadernetaFiltroChips(lista)}
       ${carregando ? loading() : visiveis.length ? `<div class="list">${visiveis.map((linha, index) => cadernetaClienteCard(linha, index + 1)).join("")}</div>` : vazio}
-      ${cadernetaFechamento()}`;
+      ${cadernetaFechamento()}
+      ${cadernetaFinalizarBotao(lista)}
+      ${cadernetaHistorico()}`;
+  }
+  /**
+   * O dia na cara da página ("Quarta · 05/08/2026") — mesma tela pra hoje e pro
+   * histórico reaberto; o que muda é a data. Folheado, aparece a volta pra hoje.
+   */
+  function cadernetaCabecalho() {
+    const vista = cadernetaPaginaVista();
+    const wd = weekDays.find(d => d.n === Number(vista.diaSemana));
+    const hoje = cadernetaVendoHoje() && !state.cadernetaDiaVisto;
+    return `<section class="card flat caderneta-cabecalho"><div class="card-main"><strong>${wd ? H.escape(wd.nome) : ""}${hoje ? " · hoje" : ""}</strong><small>${H.escape(cadernetaDataBR(vista.dateKey))}</small></div>${hoje ? "" : `<button class="link-btn caderneta-hoje-btn" type="button" data-action="caderneta-voltar-hoje">Hoje ›</button>`}</section>`;
+  }
+  /** Finalizar: só na página de HOJE, com venda registrada e o dia ainda aberto. */
+  function cadernetaFinalizarBotao(lista) {
+    if (state.cadernetaDiaVisto || cadernetaFechadaHoje()) return "";
+    if (!lista.some(linha => linha.entregaId)) return "";
+    return `<button class="btn btn-primary btn-block caderneta-finalizar-btn" type="button" data-action="caderneta-finalizar-abrir">${icon("check", 18)} Finalizar</button>`;
+  }
+  /**
+   * HISTÓRICO (ordem do dono 05/08): "SEG a DOM bem bonito, só o que realmente
+   * tiver dados", com a data. Toque reabre a caderneta daquele dia na MESMA
+   * tela, editável por até 7 dias (a janela do servidor).
+   */
+  function cadernetaHistorico() {
+    const dias = (state.cadernetaResumo && state.cadernetaResumo.historicoDias) || [];
+    if (!Array.isArray(dias) || !dias.length) return "";
+    const vistaKey = cadernetaPaginaVista().dateKey;
+    const rows = dias.map(h => {
+      const wd = weekDays.find(d => d.n === Number(h.diaSemana));
+      const vendas = Math.max(0, Number(h.vendas) || 0);
+      const total = h.totalCents != null ? H.money(Math.max(0, Number(h.totalCents) || 0) / 100) : "";
+      return `<button type="button" class="row-card caderneta-hist-row${h.dateKey === vistaKey ? " is-atual" : ""}" data-action="caderneta-abrir-dia" data-dia="${Number(h.diaSemana)}" data-date="${H.escape(h.dateKey)}"><span class="caderneta-hist-dia"><strong>${wd ? H.escape(wd.label) : ""}</strong><small>${H.escape(cadernetaDataBR(h.dateKey))}</small></span><span class="card-main"><small>${vendas} venda${vendas === 1 ? "" : "s"}</small></span>${total ? `<b class="caderneta-hist-total">${H.escape(total)}</b>` : ""}<span class="rp2-mode-chev">${icon("chevronRight", 18)}</span></button>`;
+    }).join("");
+    return `<div class="section-title"><strong>Histórico</strong></div><div class="list caderneta-historico">${rows}</div>`;
   }
   // `cadernetaMedidor` ("Mapa: X de N") MORREU em 05/08, ordem do dono. Ela era
   // a régua visível do convite do GPS; a régua mudou de dono (a semana fechada)
@@ -11597,42 +11800,79 @@
   // contagem que sobrou é a dos filtros Todos/Devendo/Pago.
   // ---- o convite pro GPS (a saída do modo caderneta) ------------------------
   //
-  // A régua é a BASE DA AGENDA, não o dia (emenda 3 do dono): cliente avulso,
-  // sem dia cadastrado, nunca deve travar o GPS de ninguém. O convite sai 1×
-  // POR ATINGIMENTO — a marca d'água guarda quantos estavam provados quando ele
-  // apareceu, então ele só volta se a base CRESCER e for provada de novo.
-  //
-  // A marca é gravada na HORA DE APARECER, não na resposta: "Agora não", o X, o
-  // toque no fundo e o Voltar do Android são quatro saídas, e o convite não
-  // pode renascer a cada refresh do resumo por causa de uma delas.
-  const CADERNETA_CONVITE_MARCA = "caderneta-convite-base";
-  function cadernetaTalvezConvidar() {
+  // CADERNETA 7 DIAS (05/08): a régua do convite mudou de dono — saiu a "base
+  // provada" (morreu junto com o GPS da venda) e entrou a SEMANA FECHADA: o
+  // servidor manda `conviteGps.elegivel` quando a semana passada tem vendas e as
+  // Cadernetas salvas existem. Teto de 1×/DIA (ordem literal do dono), com a
+  // marca gravada na HORA DE APARECER — "Agora não", o X, o fundo e o Voltar são
+  // quatro saídas, e o convite não pode renascer a cada refresh por causa delas.
+  const CADERNETA_CONVITE_GPS_MARCA = "caderneta-convite-gps-dia";
+  function cadernetaTalvezConvidarGps() {
     if (!cadernetaModoAtivo() || !isAdmin()) return;
-    const base = cadernetaBase();
-    if (!base.pronto) return;
-    if (Number(H.cache.get(CADERNETA_CONVITE_MARCA, -1)) >= base.provados) return;
+    const convite = state.cadernetaResumo && state.cadernetaResumo.conviteGps;
+    if (!convite || !convite.elegivel) return;
+    if (H.cache.get(CADERNETA_CONVITE_GPS_MARCA, "") === operationalDate()) return;
     // Nunca por cima de outra decisão: folha aberta, popup impeditivo, portão de
     // recado ou confirmação em tela mandam mais que um convite.
     if (state.modal || state.selected || state.confirmation || state.rotaIndicada || state.recadoPortao) return;
-    H.cache.set(CADERNETA_CONVITE_MARCA, base.provados);
-    showModal("caderneta-convite");
+    H.cache.set(CADERNETA_CONVITE_GPS_MARCA, operationalDate());
+    showModal("caderneta-convite-gps");
   }
-  function cadernetaConviteModal() {
-    const base = cadernetaBase();
-    const salvando = !!state.cadernetaConviteSalvando;
+  function cadernetaConviteGpsModal() {
+    const convite = (state.cadernetaResumo && state.cadernetaResumo.conviteGps) || {};
+    const nome = String(convite.nome || "").trim();
     return centerModal({
       icon: "gps",
-      // Texto CRAVADO pelo dono — literal, sem reescrever (Lei 8).
-      title: "Clientes estão ok, gostaria de ativar o modo comum, e começar utilizar nosso GPS?",
-      resumo: `Mapa: ${base.provados} de ${base.total}`,
+      // Texto CRAVADO pelo dono (05/08) — literal, sem reescrever (Lei 8).
+      title: `Olá${nome ? `, ${nome}` : ""}, já temos seu histórico de semana passada, que tal tentar pelo GPS?`,
       closeAction: "caderneta-convite-depois",
       closeButtonAction: "caderneta-convite-depois",
       backAction: "caderneta-convite-depois",
       backLabel: "Agora não",
       backGlyph: "×",
-      nextAction: "caderneta-ativar-gps",
-      nextLabel: salvando ? "Aguarde…" : "Ativar GPS",
+      nextAction: "caderneta-convite-abrir-salvas",
+      nextLabel: "Rotas salvas",
+    });
+  }
+  /** Finalizar o dia: "Qual dia podemos registrar?" (copy CRAVADA), hoje marcado. */
+  function cadernetaFinalizarModal() {
+    const hoje = todayIso();
+    const escolhido = Number(state.cadernetaFinalizarDia) || hoje;
+    const salvando = !!state.cadernetaFinalizando;
+    const body = `<div class="day-chips clients-dias caderneta-finalizar-dias">${weekDays.map(d =>
+      `<button type="button" class="montagem-dia${escolhido === d.n ? " active" : ""}" data-action="caderneta-finalizar-dia" data-dia="${d.n}" aria-pressed="${escolhido === d.n}"><strong>${d.label}</strong><small>${d.n === hoje ? "hoje" : ""}</small></button>`,
+    ).join("")}</div>`;
+    return centerModal({
+      icon: "check",
+      title: "Qual dia podemos registrar?",
+      body,
+      closeAction: "caderneta-finalizar-fechar",
+      closeButtonAction: "caderneta-finalizar-fechar",
+      backAction: "caderneta-finalizar-fechar",
+      backLabel: "Voltar",
+      nextAction: "caderneta-finalizar-confirmar",
+      nextLabel: salvando ? "Aguarde…" : "Finalizar",
       nextDisabled: salvando,
+    });
+  }
+  /**
+   * FINALIZAR da rota normal (ordem do dono 05/08, copy CRAVADA): com parada
+   * aberta, "Salvar ou descartar pendências?" — Salvar = viram pendência e
+   * ficam salvas na rota até terminar; Descartar = o limpar-dia de sempre.
+   * Fundo/X/Voltar = desiste (nenhum dos dois é destino de toque acidental).
+   */
+  function finalizarRotaModal() {
+    const abertas = openItems().length;
+    return centerModal({
+      icon: "check",
+      title: "Salvar ou descartar pendências?",
+      resumo: `${abertas} parada${abertas === 1 ? "" : "s"} aberta${abertas === 1 ? "" : "s"}`,
+      closeAction: "finalizar-rota-fechar",
+      closeButtonAction: "finalizar-rota-fechar",
+      backAction: "finalizar-rota-descartar",
+      backLabel: "Descartar",
+      nextAction: "finalizar-rota-salvar",
+      nextLabel: "Salvar",
     });
   }
 
@@ -11699,10 +11939,34 @@
     // A dívida vem ANTES do produto: é a primeira coisa que muda a conversa na
     // porta ("você tá devendo 33"), e o produto de hoje é o de sempre.
     const deveLinha = deve > 0 ? `<small class="caderneta-deve">Deve: ${H.escape(H.money(deve))}</small>` : "";
-    return `<article class="stop-card" data-action="caderneta-vender" data-caderneta-chave="${H.escape(linha.chave)}"${hold} role="button" tabindex="0"><div class="stop-top"><div class="order">${atendido ? icon("check", 16) : ordem}</div><div class="card-main"><strong>${H.escape(titulo)}</strong>${deveLinha}${itens ? `<small>${H.escape(itens)}</small>` : ""}${desfecho}${linha.observacoes ? `<small class="stop-obs">${H.escape(linha.observacoes)}</small>` : ""}</div></div></article>`;
+    // Ouro nº2 — sumiu: cliente do dia sem compra há 2 semanas (o servidor
+    // decide; chip neutro de atenção — dever/sumir não BLOQUEIA nada, Lei 2c).
+    const sumiu = !atendido && cadernetaSumidos().has(String(linha.clienteId))
+      ? `<small class="caderneta-sumiu">Sumiu</small>`
+      : "";
+    // Ouro nº1b — sugestão: vendido aqui 2+ vezes, cadastrado em OUTRO dia.
+    // Um toque ADICIONA este dia (nunca sobrescreve calado).
+    const diaVisto = cadernetaPaginaVista().diaSemana;
+    const wdVisto = weekDays.find(d => d.n === diaVisto);
+    const sugestao = linha.sugerirDia && wdVisto
+      ? `<button type="button" class="caderneta-dia-chip" data-action="caderneta-adicionar-dia" data-cliente-id="${H.escape(linha.clienteId)}" data-dias="${H.escape((linha.diasAtuais || []).join(","))}">+ ${H.escape(wdVisto.label)}</button>`
+      : "";
+    return `<article class="stop-card" data-action="caderneta-vender" data-caderneta-chave="${H.escape(linha.chave)}"${hold} role="button" tabindex="0"><div class="stop-top"><div class="order">${atendido ? icon("check", 16) : ordem}</div><div class="card-main"><strong>${H.escape(titulo)}</strong>${deveLinha}${sumiu}${itens ? `<small>${H.escape(itens)}</small>` : ""}${desfecho}${linha.observacoes ? `<small class="stop-obs">${H.escape(linha.observacoes)}</small>` : ""}</div>${sugestao}</div></article>`;
+  }
+  /** Os sumidos DA página vista (Set de clienteIds do resumo). */
+  function cadernetaSumidos() {
+    const pagina = state.cadernetaResumo && state.cadernetaResumo.pagina;
+    if (!pagina || Number(pagina.diaSemana) !== cadernetaPaginaVista().diaSemana) return new Set();
+    return new Set((pagina.sumidos || []).map(String));
   }
   function cadernetaFechamento() {
-    const fechamento = state.cadernetaResumo && state.cadernetaResumo.fechamento;
+    // O card é DA PÁGINA vista (histórico reaberto mostra o fechamento daquele
+    // dia). Servidor velho (sem `pagina`) cai no fechamento do dia civil.
+    const resumo = state.cadernetaResumo;
+    const pagina = resumo && resumo.pagina;
+    const fechamento = pagina && Number(pagina.diaSemana) === cadernetaPaginaVista().diaSemana
+      ? pagina.fechamento
+      : (cadernetaVendoHoje() ? resumo && resumo.fechamento : null);
     if (!fechamento) return "";
     const formas = fechamento.formas || {};
     const reais = cents => H.money(Math.max(0, Number(cents) || 0) / 100);
@@ -11926,13 +12190,10 @@
     if (metodo) body.metodo = metodo;
     const numero = String(venda.numero || "").trim();
     if (numero) body.numero = numero;
-    // GPS CALADO (regra do plano): sem aviso, sem bloqueio, sem "você não está no
-    // local". Negado/indisponível → a venda vai sem gps e o mapa se prova depois.
-    const posicao = await currentPosition();
-    if (posicao && validCoordinates(posicao.lat, posicao.lng)) {
-      body.gps = { lat: posicao.lat, lng: posicao.lng };
-      if (Number.isFinite(Number(posicao.accuracy))) body.gps.accuracy = Number(posicao.accuracy);
-    }
+    // CADERNETA 7 DIAS (05/08): a venda leva a ETIQUETA da página vista —
+    // registrar dentro de um dia do histórico anota NAQUELE dia. E o GPS MORREU
+    // da venda (ordem do dono: "não pegue localização, só vai gastar energia").
+    body.diaSemana = cadernetaPaginaVista().diaSemana;
     // O PORTÃO DO RECADO (03/08) vale igual aqui: fechar a venda É o momento em
     // que ele está parado com o celular na mão. Falha de rede LIBERA (o portão
     // já é fail-open por dentro) — recado nunca segura venda por causa do sinal.
@@ -11940,6 +12201,9 @@
     try {
       await H.api("/logistica/caderneta/vender", { method: "POST", body });
       state.cadernetaVenda = null;
+      // Venda nova em dia fechado REABRE o dia (a marca do Finalizar cai) —
+      // só quando a venda é DE hoje; editar o histórico não mexe no dia atual.
+      if (cadernetaVendoHoje()) H.cache.remove(`caderneta-fechada-${operationalDate()}`);
       await closeOverlay("sheet");
       await refresh(true);
       void carregarCadernetaResumo();
@@ -12019,6 +12283,17 @@
     const raiz = document.getElementById("app");
     if (!raiz) return "";
     const copia = raiz.cloneNode(true);
+    // 🔴 A MEDIDA DA TELA DELE (05/08) — sem isto o painel desenhava o app no
+    // tamanho do MONITOR: o dono via 4 clientes onde o motorista via 6, e o
+    // "ver a tela do cliente" mostrava outra tela. Vão como atributo DENTRO da
+    // marcação de propósito: o quadro já viaja inteiro, então a medida não
+    // custa coluna nova no banco, campo novo no DTO nem versão nova de contrato
+    // — e aparelho velho, que não manda nada, cai no palpite do painel.
+    // `scrollY` é o que faz o painel ver a MESMA parte da lista.
+    copia.dataset.espelhoVw = String(Math.round(window.innerWidth || 0));
+    copia.dataset.espelhoVh = String(Math.round(window.innerHeight || 0));
+    copia.dataset.espelhoDpr = String(window.devicePixelRatio || 1);
+    copia.dataset.espelhoSy = String(Math.round(window.scrollY || 0));
     copia.querySelectorAll("script,iframe,object,embed,link,noscript").forEach(el => el.remove());
     // O mapa é canvas WebGL: no clone ele vem em branco. Vira uma caixa com
     // rótulo, pra tela do painel não parecer quebrada.
@@ -12836,6 +13111,16 @@
         // CORRIGIR-O-LIXO (29/07) — Lei 10 na pele do passeio: Voltar volta ao
         // MODO TRABALHO (tour ativo continua vivo em fundo, alarme nativo idem).
         if (state.screen === "route" && passeioModoAtivo()) { passeioDesligarModo(); return true; }
+        // CADERNETA 7 DIAS (05/08) — Lei 10: dia do histórico aberto volta pra
+        // página de HOJE antes de sair do app.
+        if (state.screen === "route" && cadernetaTelaAtiva() && state.cadernetaDiaVisto) {
+          state.cadernetaDiaVisto = null;
+          state.cadernetaFiltro = "todos";
+          render();
+          void carregarCadernetaResumo();
+          void carregarCadernetaRoster(true);
+          return true;
+        }
         if (state.screen !== "route") { navigateTo("route", "back"); return true; }
         return false;
       } catch (error) {
