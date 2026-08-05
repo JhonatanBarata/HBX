@@ -189,6 +189,9 @@
     caderneta: null,
     cadernetaResumo: null,
     cadernetaVenda: null,
+    // Filtro da página: "todos" | "devendo" | "pago". Não é cacheado de
+    // propósito — abrir o app filtrado em "Pago" esconderia quem falta atender.
+    cadernetaFiltro: "todos",
     nextStop: null,
     nextCountdown: 5,
     nextStopOpening: false,
@@ -9492,6 +9495,12 @@
     // Chip de dia da tela Clientes: liga/desliga o dia e recarrega do servidor.
     // Multi-seleção igual aos chips do traçar rota (SEG+QUA é uma pergunta
     // legítima: "quem eu atendo no começo da semana?").
+    if (action === "caderneta-filtro") {
+      state.cadernetaFiltro = String(target.dataset.filtro || "todos");
+      H.vibrate(8);
+      render();
+      return;
+    }
     if (action === "clients-dia") {
       const dia = Number(target.dataset.day);
       if (!Number.isInteger(dia) || dia < 1 || dia > 7) return;
@@ -11538,27 +11547,54 @@
   }
 
   // ---- a tela do dia (medidor + lista + fechamento) -------------------------
+  /**
+   * FILTRO DA PÁGINA (05/08, ordem do dono): "Todos {qtd} / Devendo {qtd} /
+   * Pago {qtd}". A régua é o DESFECHO da venda, não o saldo do cliente:
+   *   • Pago    = recebeu na hora (dinheiro, Pix ou cartão);
+   *   • Devendo = ficou pendurado hoje;
+   *   • Todos   = a página inteira, incluindo quem ainda não foi atendido —
+   *     que de propósito não entra em nenhum dos outros dois: sem venda não há
+   *     desfecho, e classificá-lo como "devendo" seria inventar dívida.
+   */
+  const CADERNETA_FILTROS = [["todos", "Todos"], ["devendo", "Devendo"], ["pago", "Pago"]];
+  function cadernetaDesfechoDaLinha(linha) {
+    if (linha.status !== "entregue") return "";
+    return String(linha.metodo || "").toLowerCase() === "fiado" ? "devendo" : "pago";
+  }
+  function cadernetaFiltroAtual() {
+    const atual = String(state.cadernetaFiltro || "todos");
+    return CADERNETA_FILTROS.some(([valor]) => valor === atual) ? atual : "todos";
+  }
+  function cadernetaFiltroChips(lista) {
+    const filtro = cadernetaFiltroAtual();
+    const contagem = { todos: lista.length, devendo: 0, pago: 0 };
+    lista.forEach(linha => {
+      const desfecho = cadernetaDesfechoDaLinha(linha);
+      if (desfecho) contagem[desfecho] += 1;
+    });
+    return `<div class="day-chips caderneta-filtros">${CADERNETA_FILTROS.map(([valor, rotulo]) =>
+      `<button type="button" class="montagem-dia${filtro === valor ? " active" : ""}" data-action="caderneta-filtro" data-filtro="${valor}" aria-pressed="${filtro === valor}"><strong>${rotulo}</strong><small>${contagem[valor]}</small></button>`,
+    ).join("")}</div>`;
+  }
   function cadernetaConteudo() {
     const lista = cadernetaLista();
+    const filtro = cadernetaFiltroAtual();
+    const visiveis = filtro === "todos" ? lista : lista.filter(linha => cadernetaDesfechoDaLinha(linha) === filtro);
     const carregando = !!(state.caderneta && state.caderneta.carregando) && !lista.length;
     const vazio = state.caderneta && state.caderneta.erro
       ? empty("Não foi possível carregar", state.caderneta.erro)
-      : empty("Nenhum cliente hoje", "");
-    return `${cadernetaMedidor()}
-      <div class="section-title"><strong>Clientes de hoje</strong><span>${lista.length}</span></div>
-      ${carregando ? loading() : lista.length ? `<div class="list">${lista.map((linha, index) => cadernetaClienteCard(linha, index + 1)).join("")}</div>` : vazio}
+      : empty(filtro === "todos" ? "Nenhum cliente hoje" : "Ninguém aqui", "");
+    // O medidor "Mapa: X de N" e o título "Clientes de hoje" saíram (ordem do
+    // dono, 05/08): a linha de filtros já dá a contagem, e a régua do GPS mudou
+    // de dono — quem convida agora é a semana fechada, não uma barra na tela.
+    return `${cadernetaFiltroChips(lista)}
+      ${carregando ? loading() : visiveis.length ? `<div class="list">${visiveis.map((linha, index) => cadernetaClienteCard(linha, index + 1)).join("")}</div>` : vazio}
       ${cadernetaFechamento()}`;
   }
-  /**
-   * O medidor mede a BASE (05/08): é ela que libera o GPS, então é ela que
-   * precisa aparecer subindo. Medir o dia aqui seria mostrar um número que
-   * termina e não abre porta nenhuma. A palavra "pino" é PROIBIDA (Lei 8).
-   */
-  function cadernetaMedidor() {
-    const base = cadernetaBase();
-    const pct = base.total ? Math.round(base.provados / base.total * 100) : 0;
-    return `<section class="card flat caderneta-medidor"><div class="caderneta-medidor-linha"><strong>Mapa: ${base.provados} de ${base.total}</strong></div><div class="progress"><i style="width:${pct}%"></i></div></section>`;
-  }
+  // `cadernetaMedidor` ("Mapa: X de N") MORREU em 05/08, ordem do dono. Ela era
+  // a régua visível do convite do GPS; a régua mudou de dono (a semana fechada)
+  // e uma barra que não abre porta nenhuma só ocupava o topo da página. A
+  // contagem que sobrou é a dos filtros Todos/Devendo/Pago.
   // ---- o convite pro GPS (a saída do modo caderneta) ------------------------
   //
   // A régua é a BASE DA AGENDA, não o dia (emenda 3 do dono): cliente avulso,
@@ -11622,7 +11658,14 @@
       const nome = x.nome || "item";
       if (!financeiro) return `${qtd}× ${nome}`;
       let unit = Number.isFinite(Number(x.valorUnit)) ? Number(x.valorUnit) : null;
-      if (unit === null && linha.total != null && somaQtd > 0) unit = Number(linha.total) / somaQtd;
+      // 🔴 ZERO NÃO É PREÇO, É "NÃO SEI" (05/08, cena do dono: venda de R$ 22
+      // aparecendo como "Un R$ 0,00 = Total: R$ 0,00"). O servidor mandava zero
+      // fixo na entrega de 1 produto; consertei lá, e aqui fica o freio pro
+      // aparelho que ainda fala com servidor velho. Zero COM total zerado
+      // continua valendo — cortesia/brinde é preço legítimo.
+      if ((unit === null || unit === 0) && linha.total != null && Number(linha.total) > 0 && somaQtd > 0) {
+        unit = Number(linha.total) / somaQtd;
+      }
       if (unit === null) return `${qtd}× ${nome}`;
       return `${qtd}× ${nome} - Un ${H.money(unit)} = Total: ${H.money(unit * qtd)}`;
     }).join(" · ");

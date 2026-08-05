@@ -623,7 +623,16 @@ export class LogisticaService {
                     id: r.id,
                     qtdPrevista: r.quantidade,
                     qtdEntregue: null,
-                    ...(billingAudience ? { valorUnit: 0 } : {}),
+                    // 🔴 05/08 — era `valorUnit: 0` FIXO, e é por isso que a linha
+                    // da caderneta escrevia "Un R$ 0,00 = Total: R$ 0,00" numa
+                    // venda de R$ 22 (cena do dono). Este ramo é a entrega de UM
+                    // produto, que vive nas colunas da própria Entrega e não tem
+                    // EntregaItem nenhum — o zero era um "não sei" disfarçado de
+                    // número. O unitário sai do TOTAL da entrega dividido pela
+                    // quantidade: o único número honesto que existe aqui.
+                    ...(billingAudience
+                      ? { valorUnit: r.quantidade > 0 ? round2(Number(r.valor || 0) / r.quantidade) : 0 }
+                      : {}),
                     produto: { id: r.product.id, nome: r.product.name, unidade: r.product.unidade ?? null },
                   },
                 ]

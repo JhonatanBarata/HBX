@@ -685,6 +685,9 @@ h3 { font-size: .95rem; }
    tela de 360. Numa grade de 7 colunas quem manda é a coluna, não o chip. */
 .day-chips.clients-dias { gap: 5px; margin-top: 0; }
 .day-chips.clients-dias .montagem-dia { min-width: 0; padding: 7px 2px; text-align: center; }
+/* Todos / Devendo / Pago da caderneta — 3 colunas, mesma correção de largura. */
+.day-chips.caderneta-filtros { grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 0; }
+.day-chips.caderneta-filtros .montagem-dia { min-width: 0; text-align: center; }
 .day-chip { min-height: 38px; border: 1px solid var(--line); border-radius: 11px; color: var(--muted); background: var(--surface-2); font-size: .62rem; font-weight: 800; }
 .day-chip.active { border-color: color-mix(in srgb, var(--brand) 55%, var(--line)); color: var(--on-brand); background: var(--brand); }
 .client-product-list .row-card { transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .16s ease; -webkit-user-select: none; user-select: none; }
@@ -2013,10 +2016,8 @@ html[data-theme="dark"] .pss-montagem-dica { color: var(--brand); }
    barra (a .progress nasceu pro hero escuro do mapa e some sobre o cartão
    claro). Zero cor solta — só tokens.
    ========================================================================== */
-.caderneta-medidor { display: grid; gap: 9px; }
-.caderneta-medidor-linha { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.caderneta-medidor-linha strong { font-size: .96rem; }
-.caderneta-medidor .progress { margin-top: 0; background: var(--surface-3); }
+/* .caderneta-medidor ("Mapa: X de N") morreu em 05/08 junto com a barra —
+   ordem do dono. A régua do convite do GPS mudou de dono (a semana fechada). */
 /* .caderneta-selo morreu em 05/08 (PR05082026-VER-TELA V4): o selo "Mapa
    pronto" existia porque o DIA provado devolvia a Rota sozinho. Agora quem
    devolve o GPS é o convite da base — a Rota não volta pelas costas. */
