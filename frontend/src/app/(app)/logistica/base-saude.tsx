@@ -5,7 +5,7 @@
 // Ao selecionar um cliente, a ficha completa vem de GET /nucleo/clientes/:id:
 // assim nenhum LocalEntrega secundário some e a correção grava no local exato.
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   criarLocal,
@@ -15,7 +15,7 @@ import {
   type CriarLocalPayload,
   type LocalCliente,
 } from "@/app/entrega/clientes-api";
-import { formatarCep, geocodar, reverseGeocodar } from "@/app/entrega/geo";
+import { buscarCep, formatarCep, geocodar, reverseGeocodar, soDigitos } from "@/app/entrega/geo";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
@@ -239,6 +239,59 @@ export function BaseSaude() {
   const setCampo = useCallback((campo: keyof LocalDraft, valor: string) => {
     setDraft((atual) => atual ? { ...atual, [campo]: valor } : atual);
     setMensagem(null);
+  }, []);
+
+  // BUG 04/08 (dono): corrigir o CEP AQUI gravava só o TEXTO — o pino ficava o
+  // velho e o semáforo seguia vermelho no APK; no celular, digitar o CEP refaz
+  // o pino (lookupClientCep). Espelho do comportamento do aparelho: ViaCEP
+  // preenche as partes, o pino velho MORRE (pino errado é pior que pino vazio)
+  // e o geocode fail-closed tenta provar um novo. Sem prova → fica sem ponto e
+  // a tela mostra "Sem ponto confirmado" (Localizar/posição atual resolvem).
+  const cepReqRef = useRef(0);
+  const resolverCep = useCallback(async (cepValor: string, numeroAtual: string) => {
+    const requestId = ++cepReqRef.current;
+    setMensagem("Buscando CEP…");
+    setDetalheError(null);
+    const end = await buscarCep(cepValor);
+    if (requestId !== cepReqRef.current) return;
+    if (!end) {
+      setMensagem(null);
+      setDetalheError("CEP não encontrado. Confira os campos ou use Localizar endereço.");
+      return;
+    }
+    setDraft((atual) => atual ? {
+      ...atual,
+      endereco: end.logradouro || atual.endereco,
+      bairro: end.bairro || atual.bairro,
+      cidade: end.cidade || atual.cidade,
+      uf: end.uf || atual.uf,
+      lat: "",
+      lng: "",
+      geoFonte: "",
+      gpsAccuracy: null,
+    } : atual);
+    setMensagem("Endereço preenchido pelo CEP. Localizando o ponto…");
+    const ponto = await geocodar({
+      logradouro: end.logradouro,
+      numero: numeroAtual,
+      bairro: end.bairro,
+      cidade: end.cidade,
+      uf: end.uf,
+      cep: end.cep,
+    });
+    if (requestId !== cepReqRef.current) return;
+    if (ponto) {
+      setDraft((atual) => atual ? {
+        ...atual,
+        lat: String(ponto.lat),
+        lng: String(ponto.lng),
+        geoFonte: "geocode",
+        gpsAccuracy: null,
+      } : atual);
+      setMensagem("Ponto localizado pelo CEP. Salve para confirmar a alteração.");
+    } else {
+      setMensagem("CEP preenchido, mas sem ponto provado — use Localizar endereço ou a posição atual antes de salvar.");
+    }
   }, []);
 
   const localizarPeloEndereco = useCallback(async () => {
@@ -528,7 +581,18 @@ export function BaseSaude() {
                       </label>
                       <label className="log-agenda-form__field log-saude__field-wide">
                         <span>CEP</span>
-                        <input className="field-dark" inputMode="numeric" value={draft.cep} onChange={(event) => setCampo("cep", formatarCep(event.target.value))} />
+                        <input
+                          className="field-dark"
+                          inputMode="numeric"
+                          value={draft.cep}
+                          onChange={(event) => {
+                            const f = formatarCep(event.target.value);
+                            const antes = soDigitos(draft.cep);
+                            setCampo("cep", f);
+                            // Mesmo gatilho do APK: CEP completo E diferente do que estava → refaz o pino.
+                            if (soDigitos(f).length === 8 && soDigitos(f) !== antes) void resolverCep(f, draft.numero);
+                          }}
+                        />
                       </label>
                     </div>
 
