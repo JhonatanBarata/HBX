@@ -219,6 +219,34 @@ test('estoque negativo: travar RECUSA antes de gravar; avisar vende COM aviso', 
   assert.equal(prisma._data.movimentos.filter((m: any) => m.tipo === 'SAIDA_EMISSAO').length, 1);
 });
 
+test('B4: RESERVADO com a rota TRAVA SEMPRE (mesmo no modo avisar) — a loja não vende o que está com o entregador', async () => {
+  // físico 10, TUDO reservado na gaveta da rota → disponível 0. A cena do dono:
+  // "existem 10 galões reservados, a loja tenta faturar +1 → trava e dá
+  // problema no caixa" — independe do estoqueNegativo (que é pra falta FÍSICA).
+  const reservaRota = { id: 'seed-reserva', companyId: 7, produtoId: 'p1', tipo: 'RESERVA', quantidade: 10, refCargaDia: '2026-08-05' };
+  const prisma = makePrisma({ produtos: [GALAO], movimentos: [comEstoque('p1', 10), reservaRota], estoqueNegativo: 'avisar' });
+  const service = makeService(prisma);
+  await assert.rejects(
+    () => service.criarVenda(7, 42, { itens: [{ produtoId: 'p1', quantidade: 1 }], pagamento: 'DINHEIRO' }),
+    /reservado com a rota/i,
+  );
+  assert.equal(prisma._data.movimentos.filter((m: any) => m.tipo === 'SAIDA_EMISSAO').length, 0, 'travou ANTES de gravar');
+
+  // reserva PARCIAL: 4 reservados de 10 → disponível 6; vender 6 passa, 7 trava.
+  const parcial = makePrisma({
+    produtos: [GALAO],
+    movimentos: [comEstoque('p1', 10), { ...reservaRota, quantidade: 4 }],
+    estoqueNegativo: 'avisar',
+  });
+  const svc2 = makeService(parcial);
+  const ok = await svc2.criarVenda(7, 42, { itens: [{ produtoId: 'p1', quantidade: 6 }], pagamento: 'DINHEIRO' });
+  assert.equal(ok.venda.status, 'CONCLUIDA');
+  await assert.rejects(
+    () => svc2.criarVenda(7, 42, { itens: [{ produtoId: 'p1', quantidade: 1 }], pagamento: 'DINHEIRO' }),
+    /reservado com a rota/i,
+  );
+});
+
 test('FIADO: exige cliente; cria charge ONCE/MANUAL pending linkada; teto limiteFiado morde', async () => {
   const cliente = { id: 'c1', companyId: 7, name: 'Dona Maria', limiteFiado: 100 };
   const prisma = makePrisma({ produtos: [GALAO], movimentos: [comEstoque('p1', 10)], clientes: [cliente] });

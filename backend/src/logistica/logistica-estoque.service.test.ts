@@ -14,6 +14,7 @@ type FakeCargaRow = {
   dataISO: string;
   entregadorId: number | null;
   status: string;
+  origem: string;
   conferidaAt: Date | null;
   itens: Array<{
     id: string;
@@ -28,6 +29,7 @@ type FakeCargaRow = {
 function buildPrisma(opts: {
   produtos?: Array<{ id: number; name?: string; unidade?: string }>;
   entregas?: Array<any>;
+  estoqueAtivo?: boolean;
 } = {}) {
   const produtos = opts.produtos ?? [];
   const entregasRows = opts.entregas ?? [];
@@ -50,8 +52,20 @@ function buildPrisma(opts: {
         return produtos.filter((p) => ids.includes(p.id)).map((p) => ({ id: p.id }));
       },
     },
+    // B4 — o reconciliar checa o modo Gestão Fiscal antes de reservar.
+    fiscalTenantProfile: {
+      findUnique: async () => ({ estoqueAtivo: opts.estoqueAtivo !== false }),
+    },
     entrega: {
-      findMany: async () => entregasRows,
+      // WHERE mínimo que o serviço realmente usa: vendidoPorProduto filtra
+      // status 'entregue' (linhas SEM status contam como entregues — os testes
+      // antigos só passavam vendidos); o reconciliar B4 filtra as ABERTAS.
+      findMany: async ({ where }: any = {}) => {
+        const st = where?.status;
+        if (st === 'entregue') return entregasRows.filter((r: any) => (r.status ?? 'entregue') === 'entregue');
+        if (st?.in) return entregasRows.filter((r: any) => st.in.includes(r.status));
+        return entregasRows;
+      },
     },
     logisticaCargaDia: {
       findFirst: async ({ where, select }: any) => {
@@ -59,7 +73,7 @@ function buildPrisma(opts: {
           (r) => r.companyId === where.companyId && r.dataISO === where.dataISO && r.entregadorId === where.entregadorId,
         );
         if (!row) return null;
-        if (!select?.itens) return { id: row.id, status: row.status };
+        if (!select?.itens) return { id: row.id, status: row.status, origem: row.origem };
         return comProduto(row);
       },
       create: async ({ data }: any) => {
@@ -78,6 +92,7 @@ function buildPrisma(opts: {
           dataISO: data.dataISO,
           entregadorId: data.entregadorId ?? null,
           status: data.status ?? 'ABERTA',
+          origem: data.origem ?? 'MANUAL',
           conferidaAt: null,
           itens,
         };
@@ -89,6 +104,11 @@ function buildPrisma(opts: {
         if (!row) throw new Error('carga não encontrada');
         Object.assign(row, data);
         return row;
+      },
+      delete: async ({ where }: any) => {
+        const idx = cargaRows.findIndex((r) => r.id === where.id);
+        if (idx < 0) throw new Error('carga não encontrada');
+        return cargaRows.splice(idx, 1)[0];
       },
     },
     logisticaCargaDiaItem: {
@@ -320,4 +340,134 @@ test('getCargaDia (CONFERIDA): devolve o snapshot congelado, não recalcula vend
   assert.equal(dto.itens[0].qtdVendida, 3);
   assert.equal(dto.itens[0].qtdRetorno, 7);
   assert.equal(dto.itens[0].resultado, 'bateu');
+});
+
+// ── B4: reserva amarrada ao ciclo da rota (PR04082026-BALCAO) ────────────────
+
+function fiscalRecorder() {
+  const calls: Array<{ ref: string; itens: Array<{ logisticaProductId: number; quantidade: number }> }> = [];
+  const svc = {
+    reservarCargaDia: async (_companyId: number, ref: string, itens: any[]) => {
+      calls.push({ ref, itens });
+      return { reservados: itens.length };
+    },
+  } as any;
+  return { calls, svc };
+}
+
+test('B4 iniciar: cria gaveta ROTA com vendido+previsto e reserva; fora-de-rota não conta; 2ª chamada converge', async () => {
+  const entregas = [
+    // vendido do dia: 3 do produto 1
+    { status: 'entregue', productId: null, quantidade: 0, itens: [{ productId: 1, qtdEntregue: 3, qtdPrevista: 3 }] },
+    // abertas NA rota: 5 do produto 1 + 4 do produto 2 (legada sem EntregaItem)
+    { status: 'em_rota', rotaOrdem: 1, etaAt: null, startedAt: null, productId: null, quantidade: 0, itens: [{ productId: 1, qtdPrevista: 5 }] },
+    { status: 'agendada', rotaOrdem: 0, etaAt: null, startedAt: null, productId: 2, quantidade: 4, itens: [] },
+    // aberta FORA da rota (sem sinal nenhum) → NÃO entra na reserva
+    { status: 'agendada', rotaOrdem: null, etaAt: null, startedAt: null, productId: 1, quantidade: 99, itens: [] },
+  ];
+  const { prisma, cargaRows } = buildPrisma({ produtos: [{ id: 1 }, { id: 2 }], entregas });
+  const fiscal = fiscalRecorder();
+  const svc = new LogisticaEstoqueService(prisma, fakeConfig('BASIC'), fiscal.svc);
+
+  const r = await svc.reconciliarReservaRota(7, '2026-07-27');
+  assert.equal(r.fonte, 'ROTA', 'sem gate de nível: BASIC também reserva pela rota');
+  assert.equal(r.produtos, 2);
+  assert.equal(cargaRows.length, 1);
+  assert.equal(cargaRows[0].origem, 'ROTA');
+  assert.equal(cargaRows[0].entregadorId, null, 'gaveta ÚNICA do dia — a dupla reserva morre aqui');
+  const qtd = (pid: number) => cargaRows[0].itens.find((i) => i.productId === pid)?.qtdCarregada;
+  assert.equal(qtd(1), 8, 'vendido 3 + previsto 5');
+  assert.equal(qtd(2), 4, 'legada pelo productId/quantidade da Entrega');
+  assert.deepEqual(fiscal.calls[0], {
+    ref: '2026-07-27',
+    itens: [{ logisticaProductId: 1, quantidade: 8 }, { logisticaProductId: 2, quantidade: 4 }],
+  });
+
+  // replanejar/2ª chamada com o mesmo mundo → MESMO alvo (o delta é do fiscal)
+  await svc.reconciliarReservaRota(7, '2026-07-27');
+  assert.equal(cargaRows.length, 1);
+  assert.deepEqual(fiscal.calls[1].itens, fiscal.calls[0].itens);
+});
+
+test('B4 quem declarou manda: gaveta MANUAL não é tocada pela rota', async () => {
+  const entregas = [
+    { status: 'em_rota', rotaOrdem: 0, etaAt: null, startedAt: null, productId: null, quantidade: 0, itens: [{ productId: 1, qtdPrevista: 5 }] },
+  ];
+  const { prisma, cargaRows } = buildPrisma({ produtos: [{ id: 1 }], entregas });
+  const fiscal = fiscalRecorder();
+  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'), fiscal.svc);
+
+  // operador contou na mão: 50 (levou galão extra pra venda avulsa)
+  await svc.declararCarga(7, { dataISO: '2026-07-27', itens: [{ productId: 1, qtdCarregada: 50 }] }, ADMIN);
+  const chamadasAntes = fiscal.calls.length;
+
+  const r = await svc.reconciliarReservaRota(7, '2026-07-27');
+  assert.equal(r.fonte, 'MANUAL');
+  assert.equal(cargaRows[0].origem, 'MANUAL');
+  assert.equal(cargaRows[0].itens[0].qtdCarregada, 50, 'a contagem física NUNCA é sobrescrita pelo previsto');
+  assert.equal(fiscal.calls.length, chamadasAntes, 'a rota não relançou reserva em cima da contagem');
+});
+
+test('B4 encerrar devolve: previsto zerou → gaveta ROTA some e a reserva é liberada (lista vazia)', async () => {
+  const entregas: any[] = [
+    { status: 'em_rota', rotaOrdem: 0, etaAt: null, startedAt: null, productId: null, quantidade: 0, itens: [{ productId: 1, qtdPrevista: 5 }] },
+  ];
+  const { prisma, cargaRows } = buildPrisma({ produtos: [{ id: 1 }], entregas });
+  const fiscal = fiscalRecorder();
+  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'), fiscal.svc);
+
+  await svc.reconciliarReservaRota(7, '2026-07-27'); // iniciar: reserva 5
+  // encerrarRota devolveu a parada pra pendência (sinais de rota zerados)
+  Object.assign(entregas[0], { status: 'agendada', rotaOrdem: null, etaAt: null, startedAt: null });
+
+  const r = await svc.reconciliarReservaRota(7, '2026-07-27');
+  assert.equal(r.fonte, 'ROTA');
+  assert.equal(r.produtos, 0);
+  assert.equal(cargaRows.length, 0, 'gaveta da rota sem nada previsto nem vendido some da tela');
+  assert.deepEqual(fiscal.calls[fiscal.calls.length - 1]?.itens, [], 'alvo vazio = reconciliação LIBERA o que sobrou na ref');
+});
+
+test('B4 takeover: redeclarar na tela em cima da gaveta ROTA vira MANUAL (e a rota para de mexer)', async () => {
+  const entregas = [
+    { status: 'em_rota', rotaOrdem: 0, etaAt: null, startedAt: null, productId: null, quantidade: 0, itens: [{ productId: 1, qtdPrevista: 5 }] },
+  ];
+  const { prisma, cargaRows } = buildPrisma({ produtos: [{ id: 1 }], entregas });
+  const fiscal = fiscalRecorder();
+  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'), fiscal.svc);
+
+  await svc.reconciliarReservaRota(7, '2026-07-27');
+  assert.equal(cargaRows[0].origem, 'ROTA');
+  await svc.declararCarga(7, { dataISO: '2026-07-27', itens: [{ productId: 1, qtdCarregada: 20 }] }, ADMIN);
+  assert.equal(cargaRows[0].origem, 'MANUAL', 'humano redeclarou = takeover');
+
+  const r = await svc.reconciliarReservaRota(7, '2026-07-27');
+  assert.equal(r.fonte, 'MANUAL');
+  assert.equal(cargaRows[0].itens[0].qtdCarregada, 20);
+});
+
+test('B4 gates: estoque desligado é no-op; CONFERIDA é imutável', async () => {
+  // estoque desligado → nada acontece
+  const off = buildPrisma({ produtos: [{ id: 1 }], estoqueAtivo: false, entregas: [
+    { status: 'em_rota', rotaOrdem: 0, etaAt: null, startedAt: null, productId: 1, quantidade: 5, itens: [] },
+  ] });
+  const fiscalOff = fiscalRecorder();
+  const svcOff = new LogisticaEstoqueService(off.prisma, fakeConfig('ADVANCED'), fiscalOff.svc);
+  const rOff = await svcOff.reconciliarReservaRota(7, '2026-07-27');
+  assert.equal(rOff.fonte, null);
+  assert.equal(off.cargaRows.length, 0);
+  assert.equal(fiscalOff.calls.length, 0);
+
+  // CONFERIDA (dia fechado pelo humano) → intocada
+  const entregas = [
+    { status: 'em_rota', rotaOrdem: 0, etaAt: null, startedAt: null, productId: null, quantidade: 0, itens: [{ productId: 1, qtdPrevista: 5 }] },
+  ];
+  const { prisma, cargaRows } = buildPrisma({ produtos: [{ id: 1 }], entregas });
+  const fiscal = fiscalRecorder();
+  const svc = new LogisticaEstoqueService(prisma, fakeConfig('ADVANCED'), fiscal.svc);
+  await svc.reconciliarReservaRota(7, '2026-07-27');
+  cargaRows[0].status = 'CONFERIDA';
+  const chamadas = fiscal.calls.length;
+  const r = await svc.reconciliarReservaRota(7, '2026-07-27');
+  assert.equal(r.fonte, null);
+  assert.equal(fiscal.calls.length, chamadas, 'dia conferido não relança reserva');
 });

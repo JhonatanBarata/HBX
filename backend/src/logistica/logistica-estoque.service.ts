@@ -271,10 +271,17 @@ export class LogisticaEstoqueService {
         this.prisma.logisticaCargaDiaItem.createMany({
           data: itensCreate.map((it) => ({ ...it, cargaDiaId: existente.id })),
         }),
+        // B4 — redeclarar na tela é TAKEOVER humano: a gaveta vira MANUAL e a
+        // rota para de reconciliá-la (a contagem física manda; muitas vezes o
+        // caminhão leva MAIS que o previsto, galão extra pra venda avulsa).
+        this.prisma.logisticaCargaDia.update({
+          where: { id: existente.id },
+          data: { origem: 'MANUAL' },
+        }),
       ]);
     } else {
       await this.prisma.logisticaCargaDia.create({
-        data: { companyId, dataISO, entregadorId, status: 'ABERTA', itens: { create: itensCreate } },
+        data: { companyId, dataISO, entregadorId, status: 'ABERTA', origem: 'MANUAL', itens: { create: itensCreate } },
       });
     }
 
@@ -363,6 +370,119 @@ export class LogisticaEstoqueService {
 
     const atualizado = await this.findRow(companyId, dataISO, entregadorId);
     return this.montarDTO(companyId, dataISO, entregadorId, atualizado);
+  }
+
+  // ── B4: RESERVA AMARRADA AO CICLO DA ROTA (PR04082026-BALCAO) ───────────────
+  /**
+   * Chamada pelo INICIAR (caminhão saiu = estoque preso) e pelo ENCERRAR
+   * (paradas devolvidas = reserva devolvida) da rota — nunca pelo planejar
+   * (plano é especulação; decisão do dono 04/08: reserva ao INICIAR). UMA
+   * função, que RECALCULA o alvo da gaveta do dia a partir da VERDADE do banco:
+   *
+   *   alvo = vendido do dia (entregas 'entregue') + previsto das paradas
+   *          ABERTAS com sinal de rota (mesmo `estavaNaRota` do encerrarRota)
+   *
+   * Por construção: replanejar/2ª leva convergem (reservarCargaDia já é
+   * reconciliação por delta), encerrar libera o remanescente sozinho (o
+   * previsto cai a zero) e multi-caminhão soma na MESMA gaveta do dia — a
+   * DUPLA RESERVA morre porque a gaveta é uma só.
+   *
+   * QUEM DECLAROU MANDA: gaveta MANUAL (contagem física do operador) NUNCA é
+   * sobrescrita pela rota; CONFERIDA é imutável. Gate: só com estoqueAtivo (a
+   * reserva é do modo Gestão Fiscal). SEM gate de nível de propósito — a TELA
+   * de carga é Advanced+, a reserva automática da rota é de todo mundo.
+   */
+  async reconciliarReservaRota(
+    companyId: number,
+    dataISOInput?: string,
+  ): Promise<{ fonte: 'MANUAL' | 'ROTA' | null; produtos: number }> {
+    if (!companyId) return { fonte: null, produtos: 0 };
+    // Erro de banco aqui PROPAGA (não vira "estoque desligado" mudo — lição
+    // CNEFE); o embrulho best-effort com voz é do chamador na rota.
+    const perfil = await (this.prisma as any).fiscalTenantProfile.findUnique({
+      where: { companyId },
+      select: { estoqueAtivo: true },
+    });
+    if (!perfil?.estoqueAtivo) return { fonte: null, produtos: 0 };
+
+    const dataISO = this.normalizeDataISO(dataISOInput);
+    const gaveta = await (this.prisma as any).logisticaCargaDia.findFirst({
+      where: { companyId, dataISO, entregadorId: null },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, status: true, origem: true },
+    });
+    if (gaveta?.status === 'CONFERIDA') return { fonte: null, produtos: 0 };
+    if (gaveta && gaveta.origem !== 'ROTA') return { fonte: 'MANUAL', produtos: 0 };
+
+    // Alvo da gaveta: o que já saiu (vendido) + o que ainda está no caminhão
+    // (previsto das abertas em rota). A reconciliação com baixas carimbadas
+    // deixa o reservado líquido = previsto aberto.
+    const alvo = await this.vendidoPorProduto(companyId, dataISO, null);
+    const { start, end } = this.dataRangeCivilSP(dataISO);
+    const abertas = await this.prisma.entrega.findMany({
+      where: {
+        companyId,
+        status: { in: ['agendada', 'em_rota'] },
+        OR: [{ scheduledAt: { gte: start, lte: end } }, { scheduledAt: null }],
+      },
+      select: {
+        status: true,
+        rotaOrdem: true,
+        etaAt: true,
+        startedAt: true,
+        productId: true,
+        quantidade: true,
+        itens: { select: { productId: true, qtdPrevista: true } },
+      },
+    });
+    const soma = (productId: number | null | undefined, qtd: number) => {
+      const pid = Math.trunc(Number(productId));
+      if (!Number.isInteger(pid) || pid <= 0) return;
+      alvo.set(pid, (alvo.get(pid) ?? 0) + Math.max(0, qtd));
+    };
+    for (const e of abertas) {
+      const naRota = e.status === 'em_rota' || e.rotaOrdem != null || e.etaAt != null || e.startedAt != null;
+      if (!naRota) continue;
+      if (e.itens.length > 0) {
+        for (const it of e.itens) soma(it.productId, it.qtdPrevista ?? 0);
+      } else {
+        soma(e.productId, e.quantidade ?? 0);
+      }
+    }
+    const itens = Array.from(alvo.entries())
+      .filter(([, qtd]) => qtd > 0)
+      .map(([productId, qtdCarregada]) => ({ productId, qtdCarregada }));
+
+    if (!gaveta && itens.length === 0) return { fonte: null, produtos: 0 };
+    if (gaveta) {
+      if (itens.length === 0) {
+        // Rota sem nada previsto nem vendido no dia: a gaveta da rota some da
+        // tela (o histórico de RESERVA/LIBERA fica no estoque, nada se apaga).
+        await (this.prisma as any).logisticaCargaDia.delete({ where: { id: gaveta.id } });
+      } else {
+        await this.prisma.$transaction([
+          this.prisma.logisticaCargaDiaItem.deleteMany({ where: { cargaDiaId: gaveta.id } }),
+          this.prisma.logisticaCargaDiaItem.createMany({
+            data: itens.map((it) => ({ ...it, cargaDiaId: gaveta.id })),
+          }),
+        ]);
+      }
+    } else {
+      await (this.prisma as any).logisticaCargaDia.create({
+        data: { companyId, dataISO, entregadorId: null, status: 'ABERTA', origem: 'ROTA', itens: { create: itens } },
+      });
+    }
+
+    // Reconciliação fiscal por delta (idempotente); lista vazia LIBERA o que
+    // sobrou na ref. Aqui NÃO é best-effort — quem embrulha com voz é a rota.
+    if (this.fiscalEstoque) {
+      await this.fiscalEstoque.reservarCargaDia(
+        companyId,
+        this.refCargaDia(dataISO, null),
+        itens.map((it) => ({ logisticaProductId: it.productId, quantidade: it.qtdCarregada })),
+      );
+    }
+    return { fonte: 'ROTA', produtos: itens.length };
   }
 }
 

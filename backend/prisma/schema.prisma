@@ -2320,6 +2320,11 @@ model LogisticaCargaDia {
   dataISO      String    @db.VarChar(10) // dia civil SP (YYYY-MM-DD) — canonicalRouteDate/saoPauloDateKey
   entregadorId Int?
   status       String    @default("ABERTA") @db.VarChar(12) // ABERTA | CONFERIDA
+  // B4 (PR04082026-BALCAO) — quem declarou a carga manda na reserva: MANUAL =
+  // contagem física do operador (a rota NUNCA sobrescreve); ROTA = declarada
+  // sozinha pelo iniciar/encerrar rota (reconciliada da verdade do banco).
+  // Redeclarar na tela vira MANUAL (takeover humano).
+  origem       String    @default("MANUAL") @db.VarChar(8) // MANUAL | ROTA
   conferidaAt  DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt

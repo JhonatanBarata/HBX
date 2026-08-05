@@ -132,16 +132,35 @@ Verificado NO CÓDIGO (logistica-estoque.service.ts + estoque.service.ts). Estad
 | Libera a reserva ao CANCELAR A ROTA | ❌ NÃO — a liberação é na **CONFERÊNCIA DO RETORNO** (fim do dia) e na redeclaração; cancelar rota não mexe em estoque | `conferirRetorno` → `liberarCargaDia` |
 | Baixa no reservado ao ENTREGAR | ✅ SIM | entrega confirmada → `BAIXA_ENTREGA` com a ref da carga (sai da "gaveta" da reserva do dia) |
 
-**Fatia B4 — AMARRAR A RESERVA AO CICLO DA ROTA (planejada, NÃO executada):**
-- Criar/iniciar a rota (admin ou .apk) → RESERVA automática dos itens previstos da rota
-  (EntregaItem.qtdPrevista), na MESMA gaveta `refCargaDia` de hoje.
-- Cancelar a rota → LIBERA_RESERVA do remanescente da gaveta.
-- Entrega confirmada → baixa (já existe, intocada).
-- ⚠️ ARMADILHA CENTRAL a resolver no desenho: HOJE a declaração manual da carga também
-  reserva — rota reservando junto = **DUPLA RESERVA** do mesmo dia. A fatia precisa cravar
-  fonte única (rota declara a carga automaticamente? declaração manual vira exceção/ajuste?).
-  Decisão de produto COM o dono antes de codar. Conferência do retorno continua existindo
-  (é o "bateu/sobrou/faltou" — snapshot imutável).
+**Fatia B4 — RESERVA AMARRADA AO CICLO DA ROTA — ✅ EXECUTADA 05/08:**
+
+Decisão do dono (05/08, no chat): *"ao sair na rota, reserva — a loja NÃO vende o que está
+com o motorista; se está reservado pelo motorista, TRAVA e dá problema no caixa"* +
+momento = **ao INICIAR** (não ao planejar). Desenho aprovado: rota preenche, contagem manda.
+
+- **Fonte única = a GAVETA DO DIA é uma só** (`LogisticaCargaDia` + coluna nova `origem
+  MANUAL|ROTA`). `iniciarRota`/`encerrarRota` chamam UMA reconciliação
+  (`reconciliarReservaRota`) que recalcula o alvo da gaveta a partir da VERDADE do banco:
+  `alvo = vendido do dia + previsto das paradas abertas em rota` (mesmo sinal
+  `estavaNaRota` do encerrar). Dupla reserva morre por construção; replanejar/2ª leva
+  convergem (reconciliação por delta já era idempotente); multi-caminhão soma na mesma gaveta.
+- **Quem declarou manda:** gaveta `MANUAL` (contagem física — caminhão muitas vezes leva
+  MAIS que o previsto) NUNCA é sobrescrita pela rota; redeclarar na tela é TAKEOVER
+  (gaveta `ROTA` vira `MANUAL`). `CONFERIDA` é imutável.
+- **Encerrar rota devolve sozinho:** paradas voltam pra pendência → previsto cai → a
+  reconciliação libera o remanescente (gaveta ROTA). Gaveta MANUAL continua fechando SÓ
+  na conferência do retorno ("bateu/sobrou/faltou" — snapshot imutável, intocado).
+- **Entrega confirmada → baixa** (já existia, intocada — desconta da gaveta pela ref).
+- **BALCÃO TRAVA SEMPRE por reserva** (a cena do dono): falta causada por RESERVA (tem
+  físico, mas o galão está no caminhão) recusa a venda INDEPENDENTE do `estoqueNegativo`;
+  a config travar/avisar continua valendo só pra falta FÍSICA (inventário furado).
+- Gates: reserva automática só com `estoqueAtivo` (Gestão Fiscal); SEM gate de nível
+  (a TELA de carga é Advanced+, a reserva da rota é de todo mundo). Best-effort COM VOZ
+  na rota (falha de estoque nunca derruba iniciar/encerrar, mas loga — lição CNEFE).
+- Migration aditiva `20260805130000_logistica_carga_origem_b4`.
+- ⚠️ Moradia (edge não coberto): declaração manual COM `entregadorId` (a tela hoje nem
+  manda) cria gaveta própria fora da reconciliação da rota — se o multi-caminhão real
+  chegar, revisitar a chave da gaveta.
 
 ## 4b. APP INSTALÁVEL DO BALCÃO — .exe (pedido do dono 04/08; irmão do .apk)
 
@@ -165,8 +184,8 @@ hospedado), empacotado pra Windows:
 
 ## 4. Pendências COM MORADIA (lei: sem moradia = nunca)
 
-- **B4 — reserva amarrada ao ciclo da ROTA** (seção 3b) — ⬜ decisão do dono sobre a
-  fonte única da reserva (rota × declaração manual da carga) ANTES de codar.
+- ~~B4 — reserva amarrada ao ciclo da ROTA~~ — ✅ executada 05/08 (seção 3b; decisão do
+  dono cravada: reserva ao INICIAR + balcão TRAVA o reservado).
 - **B5 — HBX Desktop .exe** (seção 4b) — 🔒 gates: code-signing + onde hospedar o instalador.
 - **UNIFICAÇÃO Product×EstoqueProduto → cadastro único "Produtos"** (pilar 1 da decisão 12) —
   fase própria com pesquisa profunda + plano dedicado ANTES de codar; a logística usa o

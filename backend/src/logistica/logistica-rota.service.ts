@@ -10,6 +10,7 @@ import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
 import { stopDeRotaMorta } from './logistica-rota-viva.util';
 import { diagnosticarMotoristaUnico } from './logistica-motorista-unico.util';
 import { LogisticaOsrmService } from './logistica-osrm.service';
+import { LogisticaEstoqueService } from './logistica-estoque.service';
 import { sourceDateFromOccurrenceKey, saoPauloMidnight } from './logistica-agenda-cursor.util';
 import { registrarEventoAgenda, formatDDMM } from './logistica-agenda-evento.util';
 
@@ -62,7 +63,29 @@ export class LogisticaRotaService {
     // sem o proxy — planRouteByRoads simplesmente pula pro degrau 2 (público
     // direto), mesmo comportamento de antes desta sprint.
     @Optional() private readonly osrm?: LogisticaOsrmService,
+    // B4 (PR04082026-BALCAO) — reserva amarrada ao ciclo da rota: iniciar
+    // reserva o previsto na gaveta do dia, encerrar devolve o remanescente.
+    // @Optional() e por ÚLTIMO: instanciações diretas em teste continuam
+    // válidas; sem o serviço, a rota funciona exatamente como antes.
+    @Optional() private readonly cargaEstoque?: LogisticaEstoqueService,
   ) {}
+
+  /**
+   * B4 — reconcilia a reserva da rota na gaveta do dia. Best-effort COM VOZ
+   * (lição CNEFE: best-effort que engole erro precisa de alarme): estoque NUNCA
+   * derruba o iniciar/encerrar da rota, mas falha nunca é muda.
+   */
+  private async reconciliarReservaRotaBestEffort(companyId: number, date: string | undefined, contexto: string): Promise<void> {
+    if (!this.cargaEstoque) return;
+    try {
+      const r = await this.cargaEstoque.reconciliarReservaRota(companyId, date);
+      if (r.fonte === 'ROTA') {
+        this.logger.log(`[logistica] B4 ${contexto}: reserva da rota reconciliada (${r.produtos} produto(s)) company=${companyId}.`);
+      }
+    } catch (e: any) {
+      this.logger.warn(`[logistica] B4 ${contexto}: reserva da rota FALHOU company=${companyId}: ${String(e?.message || e)}`);
+    }
+  }
 
   // ── PLANEJAR ROTA ────────────────────────────────────────────────────────────
   /**
@@ -305,6 +328,9 @@ export class LogisticaRotaService {
         data: { operationalEndedAt: null },
       })
       .catch(() => undefined);
+    // B4 — o caminhão SAIU: reserva o previsto da rota na gaveta do dia (fonte
+    // única com a declaração manual — quem declarou manda, ver o serviço).
+    await this.reconciliarReservaRotaBestEffort(companyId, input.date, 'iniciar');
     const operational = this.tracking
       ? await this.tracking.getOperationalRouteMetadata(
           companyId,
@@ -493,6 +519,11 @@ export class LogisticaRotaService {
         `: total=${resumo.total} entregues=${resumo.entregues} naoEntregues=${resumo.naoEntregues} pendentes=${resumo.pendentes}` +
         (input.motivo ? ` motivo="${String(input.motivo).slice(0, 200)}"` : ''),
     );
+
+    // B4 — paradas devolvidas pra pendência = previsto caiu: a reconciliação
+    // devolve o remanescente da reserva sozinha (gaveta MANUAL fica intocada —
+    // essa fecha só na conferência do retorno, como sempre).
+    await this.reconciliarReservaRotaBestEffort(companyId, input.date, 'encerrar');
 
     return { ok: true, resumo };
   }

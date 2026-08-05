@@ -165,12 +165,29 @@ export class BalcaoService {
     }
     if (totalCents <= 0) throw new BadRequestException('Total da venda inválido.');
 
-    // Estoque: 'travar' recusa ANTES de gravar; 'avisar' deixa e devolve o aviso.
+    // Estoque — DUAS naturezas de falta (B4, ordem do dono 04/08):
+    //  1) RESERVADO com a rota (tem físico, mas o galão está no caminhão) →
+    //     TRAVA SEMPRE, independente da configuração — a loja não vende o que
+    //     saiu com o entregador.
+    //  2) Falta FÍSICA (inventário furado) → segue estoqueNegativo: 'travar'
+    //     recusa ANTES de gravar; 'avisar' deixa e devolve o aviso.
     const saldos = await this.estoque.saldos(companyId);
+    const reservados: string[] = [];
     const negativos: string[] = [];
     for (const item of itens) {
-      const disponivel = saldos.get(item.produtoId)?.disponivel ?? 0;
-      if (disponivel - item.quantidade < 0) negativos.push(`${item.produtoNome} (disponível ${disponivel}, pedido ${item.quantidade})`);
+      const s = saldos.get(item.produtoId) || { fisico: 0, reservado: 0, disponivel: 0 };
+      const disponivel = s.disponivel ?? 0;
+      if (disponivel - item.quantidade >= 0) continue;
+      if ((s.fisico ?? 0) - item.quantidade >= 0) {
+        reservados.push(`${item.produtoNome} (reservado na rota ${s.reservado}, disponível ${disponivel}, pedido ${item.quantidade})`);
+      } else {
+        negativos.push(`${item.produtoNome} (disponível ${disponivel}, pedido ${item.quantidade})`);
+      }
+    }
+    if (reservados.length > 0) {
+      throw new BadRequestException(
+        `Estoque reservado com a rota: ${reservados.join(' · ')}. A loja não vende o que está com o entregador — confirme a entrega ou encerre a rota para liberar.`,
+      );
     }
     if (negativos.length > 0 && perfil.estoqueNegativo === 'travar') {
       throw new BadRequestException(`Estoque insuficiente: ${negativos.join(' · ')}. A empresa configurou TRAVAR venda sem saldo.`);
