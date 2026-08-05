@@ -397,3 +397,54 @@ test('countBase: chamadas simultaneas iguais compartilham uma unica consulta', a
   assert.equal(calls, 1);
   assert.deepEqual(results.map((result) => result.count), [6068, 6068, 6068]);
 });
+
+// ── VACINA 05/08 — a vitrine que morria de 504 ao filtrar segmento ───────────────
+// Cena real (medida em prod): vendedora abre /vendas → Buscar empresas → filtra
+// "distribuidora de água". O WHERE do keyword tinha um ILIKE em razaoSocial/nomeFantasia
+// (sem índice) dentro do MESMO OR do searchText (com GIN trgm) — o Postgres varria os
+// 39M/61GB, o count passava de 60s e o nginx respondia 504 com a lista já pronta.
+
+test('keyword: com token, o WHERE só usa searchText (o ILIKE sem índice não volta)', async () => {
+  const service = new CnpjBaseQueryService(makeMockPrisma());
+  const where = (service as any).buildWhere({ keyword: 'distribuidora de água' });
+  const clausulas = JSON.stringify(where.AND || []);
+
+  assert.ok(clausulas.includes('searchText'), 'o match por token de searchText tem que continuar');
+  assert.ok(!clausulas.includes('razaoSocial'), 'razaoSocial no OR faz seq scan de 61GB — 504 na cara do vendedor');
+  assert.ok(!clausulas.includes('nomeFantasia'), 'nomeFantasia no OR faz seq scan de 61GB — 504 na cara do vendedor');
+});
+
+test('keyword sem token nenhum: o par ILIKE continua sendo a rede de segurança', async () => {
+  const service = new CnpjBaseQueryService(makeMockPrisma());
+  const where = (service as any).buildWhere({ keyword: '@' });
+  const clausulas = JSON.stringify(where.AND || []);
+
+  assert.ok(clausulas.includes('razaoSocial'), 'sem token, busca por nome não pode sumir');
+  assert.ok(clausulas.includes('nomeFantasia'));
+});
+
+test('countBase: count lento devolve "não sei" no orçamento — nunca segura a tela', async () => {
+  const prisma = makeMockPrisma();
+  let liberar: (() => void) | null = null;
+  prisma.cnpjPublicCompany.count = async () => {
+    await new Promise<void>((resolve) => { liberar = resolve; });
+    return 3989;
+  };
+  process.env.HBX_RFB_COUNT_BUDGET_MS = '40';
+  try {
+    const service = new CnpjBaseQueryService(prisma);
+    const comecou = Date.now();
+    const result = await service.countBase({ keyword: 'distribuidora de agua' });
+
+    assert.deepEqual(result, { available: false, count: null }, 'estourou o orçamento = responde sem o total');
+    assert.ok(Date.now() - comecou < 2000, 'a resposta não pode esperar o count inteiro');
+
+    // O count segue vivo por baixo: quando termina, o cache guarda o número real e a
+    // próxima abertura da tela já acha pronto (é o que torna o degradê barato).
+    liberar?.();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.deepEqual(await service.countBase({ keyword: 'distribuidora de agua' }), { available: true, count: 3989 });
+  } finally {
+    delete process.env.HBX_RFB_COUNT_BUDGET_MS;
+  }
+});

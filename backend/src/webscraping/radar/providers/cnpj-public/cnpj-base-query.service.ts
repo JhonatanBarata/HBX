@@ -131,6 +131,19 @@ function selarQualidade(row: { phone: string | null; email: string | null; phone
   return 'sem_contato';
 }
 
+// Orçamento do COUNT da base RFB (ver `comOrcamento`). Default 8s: o proxy corta em 60s e
+// o count pelo trigram mede ~4,7s em prod — 8s cobre o caminho bom com folga e ainda deixa a
+// tela abrir em tempo de gente quando o filtro é ruim. `0` desliga o orçamento (volta ao
+// comportamento antigo: espera o count o tempo que for).
+const COUNT_BUDGET_PADRAO_MS = 8000;
+const ORCAMENTO_ESTOUROU = Symbol('cnpj-base-count-orcamento');
+
+function countBudgetMs(): number {
+  const raw = Number(String(process.env.HBX_RFB_COUNT_BUDGET_MS ?? '').trim());
+  if (Number.isFinite(raw) && raw >= 0) return Math.trunc(raw);
+  return COUNT_BUDGET_PADRAO_MS;
+}
+
 @Injectable()
 export class CnpjBaseQueryService {
   private readonly logger = new Logger(CnpjBaseQueryService.name);
@@ -206,15 +219,25 @@ export class CnpjBaseQueryService {
       // radical da MESMA palavra, em OR interno). O OR plano antigo fazia "distribuidora de
       // agua" contar a cidade inteira de Aguai ("agua" batia em "AGUAI" no nome de qualquer
       // empresa local). Frase inteira em razao/fantasia segue valendo.
+      // 🔴 05/08 — POR QUE razaoSocial/nomeFantasia SAÍRAM DO OR quando há token:
+      // só `searchText` tem índice (GIN trgm). Um `ILIKE '%...%'` em razaoSocial ou
+      // nomeFantasia dentro do MESMO OR obriga o Postgres a varrer a tabela inteira
+      // (61 GB / 39M linhas) — medido em prod: o count do segmento passava de 60s e o
+      // nginx devolvia 504 na cara de quem filtrou "distribuidora de água" na vitrine.
+      // Pelo trigram o mesmo count sai em ~4,7s. Não se perde alcance: `searchText` É
+      // fantasia + razão + cnae + descrição normalizados (radar-cnpj-l4-enrichment), então
+      // quem casava pela razão social casa pelos tokens dela. Sem token nenhum (keyword
+      // só de stopword) o par ILIKE volta a ser a única rede — aí é raro e curto.
       const phraseGroups = segmentPhraseTokenGroups(keyword, { withRadical: true });
       and.push({
-        OR: [
-          { razaoSocial: { contains: keyword, mode: 'insensitive' } },
-          { nomeFantasia: { contains: keyword, mode: 'insensitive' } },
-          ...phraseGroups.map((groups) => ({
+        OR: phraseGroups.length
+          ? phraseGroups.map((groups) => ({
             AND: groups.map((group) => ({ OR: group.map((token) => ({ searchText: { contains: token } })) })),
-          })),
-        ],
+          }))
+          : [
+            { razaoSocial: { contains: keyword, mode: 'insensitive' } },
+            { nomeFantasia: { contains: keyword, mode: 'insensitive' } },
+          ],
       });
     }
 
@@ -310,7 +333,7 @@ export class CnpjBaseQueryService {
     // cada request fazia seu proprio COUNT(*) sobre a base Receita (dezenas de GB) e ocupava
     // todas as conexoes do Prisma ate derrubar endpoints sem relacao com o Radar.
     const pending = this.pendingCounts.get(cacheKey);
-    if (pending) return pending;
+    if (pending) return this.comOrcamento(pending, cacheKey);
 
     const operation = (async () => {
       let count: number | null = null;
@@ -343,10 +366,46 @@ export class CnpjBaseQueryService {
     })();
 
     this.pendingCounts.set(cacheKey, operation);
+    // O single-flight só pode sair do mapa quando o COUNT terminar de verdade — nunca
+    // quando o orçamento estoura. Soltar antes faria a próxima requisição abrir OUTRO
+    // count sobre os 39M (a tempestade de pool que este mapa existe pra evitar).
+    void operation.catch(() => null).finally(() => this.pendingCounts.delete(cacheKey));
+    return this.comOrcamento(operation, cacheKey);
+  }
+
+  /**
+   * 🔴 05/08 — O TOTAL DA BASE É ENFEITE; A LISTA É O PRODUTO.
+   *
+   * `countBase` alimenta o "total no Brasil" do topo do Buscar empresas. Quando ele
+   * demora, quem morre é a TELA INTEIRA: o proxy corta em 60s e o vendedor leva 504
+   * com a lista dele já pronta do outro lado (medido em prod em 05/08, filtrando
+   * "distribuidora de água" na vitrine). Então o count ganha ORÇAMENTO: estourou, esta
+   * resposta sai sem o número (`available:false` — o front já cai no total do pool) e o
+   * COUNT continua rodando por baixo pra popular o cache; a próxima abertura da tela já
+   * acha o número pronto. Errar pro lado do "não sei" é barato; derrubar a tela não é.
+   */
+  private async comOrcamento(
+    operation: Promise<{ available: boolean; count: number | null }>,
+    cacheKey: string,
+  ): Promise<{ available: boolean; count: number | null }> {
+    const budget = countBudgetMs();
+    if (budget <= 0) return operation;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const estouro = new Promise<{ available: boolean; count: number | null } | typeof ORCAMENTO_ESTOUROU>((resolve) => {
+      timer = setTimeout(() => resolve(ORCAMENTO_ESTOUROU), budget);
+      (timer as any)?.unref?.();
+    });
     try {
-      return await operation;
+      const resultado = await Promise.race([operation, estouro]);
+      if (resultado === ORCAMENTO_ESTOUROU) {
+        this.logger.warn(
+          `[cnpj-base] count passou de ${budget}ms — respondendo sem o total (o count segue por baixo). filtro=${cacheKey.slice(0, 200)}`,
+        );
+        return { available: false, count: null };
+      }
+      return resultado;
     } finally {
-      this.pendingCounts.delete(cacheKey);
+      if (timer) clearTimeout(timer);
     }
   }
 
