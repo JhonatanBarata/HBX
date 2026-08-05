@@ -14,6 +14,10 @@ import { NucleoModule } from '../nucleo/nucleo.module';
 // gera o comprovante SEM VALOR FISCAL que pega carona no aviso "entregue".
 // Sem ciclo: o fiscal não importa logistica.
 import { FiscalModule } from '../fiscal/fiscal.module';
+// PULSO DO APP (04/08): PulsoAppService (exportado pelo PulsoAppModule) grava a
+// tela atual do aparelho de carona no poll dos recados. Sem ciclo: o pulso só
+// depende de Prisma.
+import { PulsoAppModule } from '../pulso-app/pulso-app.module';
 import { LogisticaService } from './logistica.service';
 import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
 import { LogisticaRecorrenciaOccurrenceService } from './logistica-recorrencia-occurrence.service';
@@ -60,6 +64,8 @@ import { LogisticaAgendaController } from './logistica-agenda.controller';
 import { LogisticaAgendaService } from './logistica-agenda.service';
 import { LogisticaBaseSaudeController } from './logistica-base-saude.controller';
 import { LogisticaBaseSaudeService } from './logistica-base-saude.service';
+import { LogisticaCadernetaController } from './logistica-caderneta.controller';
+import { LogisticaCadernetaService } from './logistica-caderneta.service';
 import { LogisticaImportacaoController } from './logistica-importacao.controller';
 import { LogisticaImportacaoService } from './logistica-importacao.service';
 import { LogisticaEstoqueController } from './logistica-estoque.controller';
@@ -182,7 +188,7 @@ import { LogisticaEstoqueService } from './logistica-estoque.service';
  * mentir no dia em que o dono mudasse o valor.
  */
 @Module({
-  imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule, NucleoModule, FiscalModule],
+  imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule, NucleoModule, FiscalModule, PulsoAppModule],
   controllers: [
     LogisticaController,
     LogisticaRecadoMobileController,
@@ -196,6 +202,7 @@ import { LogisticaEstoqueService } from './logistica-estoque.service';
     LogisticaOsrmController,
     LogisticaAgendaController,
     LogisticaBaseSaudeController,
+    LogisticaCadernetaController,
     LogisticaImportacaoController,
     LogisticaEstoqueController,
     LogisticaNivelMasterController,
@@ -243,6 +250,7 @@ import { LogisticaEstoqueService } from './logistica-estoque.service';
     LogisticaTrackingBonusService,
     LogisticaAgendaService,
     LogisticaBaseSaudeService,
+    LogisticaCadernetaService,
     LogisticaImportacaoService,
     LogisticaEstoqueService,
   ],

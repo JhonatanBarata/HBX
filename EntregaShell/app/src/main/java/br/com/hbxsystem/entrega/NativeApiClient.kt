@@ -311,6 +311,10 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         method == "GET" && segments.size == 4 && segments.take(2) == listOf("logistica", "clientes") && segments[3] == "historico" -> true
         // ROTA PRONTA (29/07) — indicações de rota vivas da pessoa logada (popup Aceitar/Negar).
         method == "GET" && segments == listOf("logistica", "rota-indicadas", "pendentes") -> true
+        // 🔴 MODO CADERNETA (04/08) — medidor do mapa do dia + fechamento (a data
+        // vai na query, não no path). Sem esta linha o app barra a chamada AQUI,
+        // dentro do aparelho, e a tela do dia nasceria zerada com o servidor OK.
+        method == "GET" && segments == listOf("logistica", "caderneta", "resumo") -> true
         // 🔴 RECADOS (03/08) — o PORTÃO: o que já chegou e ainda trava o Confirmar.
         // Faltava esta linha (e as duas do POST logo abaixo): o app 141 chamava
         // os três, e o cliente nativo barrava ANTES de sair do aparelho
@@ -361,6 +365,10 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "recados", "recebidos"),
             listOf("logistica", "recados", "visto"),
             listOf("logistica", "recados", "responder"),
+            // 🔴 MODO CADERNETA (04/08) — a VENDA por toque no cliente (sem rota
+            // e sem débito). Regra da casa: endpoint novo no app.js = allowlist
+            // aqui + rebuild do APK, os TRÊS ou nada.
+            listOf("logistica", "caderneta", "vender"),
         ) -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "entregas") && segments[3] in setOf("confirmar", "cancelar", "reabrir", "comprovantes", "chegando") -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "rota-modelos") && segments[3] == "gerar" -> true

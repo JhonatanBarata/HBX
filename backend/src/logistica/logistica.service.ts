@@ -866,7 +866,7 @@ export class LogisticaService {
         receiptMethod = metodoPadrao;
       }
     }
-    const recebidoNaHora = receiptMethod === 'pix' || receiptMethod === 'dinheiro' ? true : undefined;
+    const recebidoNaHora = metodoImediato(receiptMethod) ? true : undefined;
 
     // Passo 1 (SEMPRE): grava status/GPS + as quantidades por item numa MESMA TRANSAÇÃO.
     // R3 — atomicidade do NÚCLEO do confirmar: ou o status 'entregue'/GPS E as qtd dos
@@ -1146,7 +1146,7 @@ export class LogisticaService {
     // gancho do recovery vem junto. Best-effort: falhar aqui não desfaz a entrega.
     let quitadas = 0;
     let valorQuitado = 0;
-    if (gps.quitarAberto === true && (receiptMethod === 'pix' || receiptMethod === 'dinheiro')) {
+    if (gps.quitarAberto === true && metodoImediato(receiptMethod)) {
       try {
         const pendentes = await this.prisma.financeiroCharge.findMany({
           where: {
@@ -1189,12 +1189,12 @@ export class LogisticaService {
     await this.registrarHistorico(companyId, {
       customerProfileId: entrega.customerProfileId,
       entregaId: entrega.id,
-      tipo: receiptMethod === 'pix' || receiptMethod === 'dinheiro' ? 'pago' : 'entregue',
+      tipo: metodoImediato(receiptMethod) ? 'pago' : 'entregue',
       valorAnterior: saldoAntes,
       valorEvento: round2(valorCobranca),
       // Pago quita o total (saldo velho + hoje) → sobra zero. Entregue soma.
       valorTotal:
-        receiptMethod === 'pix' || receiptMethod === 'dinheiro'
+        metodoImediato(receiptMethod)
           ? gps.quitarAberto === true
             ? 0
             : round2(saldoAntes)
@@ -2125,7 +2125,7 @@ export class LogisticaService {
   private async lancarCobranca(
     companyId: number,
     entrega: { id: string; customerProfileId: string; valor: number; cobrancaStatus: string },
-    receiptMethod?: 'pix' | 'dinheiro' | 'fiado' | null,
+    receiptMethod?: 'pix' | 'dinheiro' | 'cartao' | 'fiado' | null,
   ): Promise<CobrancaResult> {
     // Camada 1: status já-resolvido (lançada/isenta/aguardando/nao_contabilizado) = no-op.
     // R4 — espelha o desfecho JÁ resolvido (mapeia p/ o vocabulário do outcome).
@@ -2183,8 +2183,7 @@ export class LogisticaService {
     // M6 — PAGO NA HORA: 'aberto'/'na_hora' + método imediato ('pix'|'dinheiro') →
     // o charge nasce QUITADO. 'pendura' é fiado por definição (nunca pago na hora).
     // 'fiado' como receiptMethod também NÃO quita (é a marcação de "deixou pendurado").
-    const pagoNaHora =
-      forma !== 'pendura' && (receiptMethod === 'pix' || receiptMethod === 'dinheiro');
+    const pagoNaHora = forma !== 'pendura' && metodoImediato(receiptMethod);
     const now = new Date();
 
     const nome = String(conta?.name || 'cliente').trim();
@@ -3428,9 +3427,17 @@ function normalizeIdempotencyKey(v: string | null | undefined): string | null {
 }
 
 // M4 — só um dos métodos de recebimento aceitos passa; qualquer outro vira null.
-function normalizeReceipt(v: string | null | undefined): 'pix' | 'dinheiro' | 'fiado' | null {
+// CADERNETA (04/08) — 'cartao' entrou junto com o modo caderneta (maquininha na
+// rua/balcão): aditivo — o app antigo nunca manda 'cartao', zero mudança pra quem roda.
+function normalizeReceipt(v: string | null | undefined): 'pix' | 'dinheiro' | 'cartao' | 'fiado' | null {
   const s = String(v || '').trim().toLowerCase();
-  return s === 'pix' || s === 'dinheiro' || s === 'fiado' ? s : null;
+  return s === 'pix' || s === 'dinheiro' || s === 'cartao' || s === 'fiado' ? s : null;
+}
+
+// CADERNETA (04/08) — método IMEDIATO = dinheiro em mãos na hora (quita o charge).
+// Fonte única: os 5 pontos do confirmar que decidiam por "pix||dinheiro" leem daqui.
+function metodoImediato(v: string | null | undefined): boolean {
+  return v === 'pix' || v === 'dinheiro' || v === 'cartao';
 }
 
 // M6 — forma de pagamento aceita (fonte da verdade do fluxo). Fora do conjunto = null.

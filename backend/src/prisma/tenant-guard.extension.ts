@@ -88,6 +88,10 @@ export const TENANT_SCOPED_MODELS: ReadonlySet<string> = new Set([
   'MobileDevice',
   'MobilePairingCode',
   'MobileAction',
+  // PULSO DO APP (04/08): tem companyId escalar, então entra na lista pela mesma
+  // regra dos outros. A faxina e o painel master leem cross-tenant DE PROPÓSITO
+  // e usam withoutTenantScope com motivo (pulso-app.service.ts).
+  'MobileTelaTrilha',
   'LogisticaRoute',
   'LogisticaRouteStop',
   'LogisticaEssentialCreditClaim',

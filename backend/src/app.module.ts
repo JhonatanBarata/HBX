@@ -56,6 +56,7 @@ import { FiscalModule } from './fiscal/fiscal.module';
 import { AutomationModule } from './automation/automation.module';
 import { PainelModuloModule } from './painel-modulo/painel-modulo.module';
 import { ComexModule } from './comex/comex.module';
+import { PulsoAppModule } from './pulso-app/pulso-app.module';
 
 @Module({
   imports: [
@@ -123,6 +124,7 @@ import { ComexModule } from './comex/comex.module';
     AutomationModule,
     PainelModuloModule,
     ComexModule,
+    PulsoAppModule,
   ],
   controllers: [AppController],
   providers: [

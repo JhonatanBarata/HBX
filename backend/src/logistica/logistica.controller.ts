@@ -58,6 +58,8 @@ import {
   UpdateLeituraParadaDto,
 } from './dto/logistica-leitura.dto';
 import { LogisticaPasseioService } from './logistica-passeio.service';
+// PULSO DO APP (04/08) — a tela atual do aparelho pega carona no poll dos recados.
+import { PulsoAppService } from '../pulso-app/pulso-app.service';
 import {
   AtribuirEntregaDto,
   CancelarEntregaDto,
@@ -85,6 +87,7 @@ import {
   ResponderRotaIndicadaDto,
   LimparDiaDto,
   PlanejarRotaDto,
+  PulsoRecadosDto,
   SetAvisarClienteDto,
   SetLogisticaNivelDto,
   UpdateClienteProdutoDto,
@@ -159,6 +162,9 @@ export class LogisticaController {
     private readonly rotaAviso: LogisticaRotaAvisoService = null as any,
     // COCKPIT (03/08) — canal de recado escritório ⇄ motorista. Mesmo padrão.
     private readonly recado: LogisticaRecadoService = null as any,
+    // PULSO DO APP (04/08) — telemetria de tela que pega carona no poll dos
+    // recados. Mesmo padrão de default acima; ausente, o poll segue igual.
+    private readonly pulso: PulsoAppService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -1086,11 +1092,23 @@ export class LogisticaController {
     return lista;
   }
 
-  /** APP atual: lê pendentes sem alterar o banco; confirma depois de persistir. */
+  /**
+   * APP atual: lê pendentes sem alterar o banco; confirma depois de persistir.
+   *
+   * PULSO DO APP (04/08): este poll de 5s é o ÚNICO lugar do produto que já
+   * bate no servidor enquanto o app está aberto — então o pulso pega carona
+   * aqui em vez de inventar requisição nova. O `tela` é OPCIONAL e o serviço
+   * engole qualquer erro: APK velho não manda o campo, APK novo pode mandar
+   * uma tela que ainda não existe do lado de cá, e nos dois casos o recado
+   * continua chegando na rua. Por isso o BACKEND sobe primeiro (ver o plano):
+   * com `forbidNonWhitelisted`, campo desconhecido no DTO viraria 400.
+   */
   @Post('recados/pendentes')
-  puxarRecadosSeguro(@Req() req: any) {
+  async puxarRecadosSeguro(@Req() req: any, @Body() dto?: PulsoRecadosDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
-    return this.recado.puxar(companyId, this.ensureUserId(req.user));
+    const userId = this.ensureUserId(req.user);
+    if (this.pulso) await this.pulso.registrarDoPoll(req.user, companyId, userId, dto?.tela);
+    return this.recado.puxar(companyId, userId);
   }
 
   /** APP: histórico persistente do próprio fio (caixa de recados/sino). */

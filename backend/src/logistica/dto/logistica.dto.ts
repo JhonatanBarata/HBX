@@ -1,4 +1,5 @@
 import {
+  Allow,
   ArrayMaxSize,
   IsArray,
   IsBoolean,
@@ -119,8 +120,9 @@ export class ConfirmarEntregaDto {
   @IsOptional()
   @IsString()
   @MaxLength(20)
-  @IsIn(['pix', 'dinheiro', 'fiado'])
-  receiptMethod?: string; // pix | dinheiro | fiado
+  // CADERNETA (04/08) — 'cartao' aditivo (maquininha); app antigo nunca manda.
+  @IsIn(['pix', 'dinheiro', 'cartao', 'fiado'])
+  receiptMethod?: string; // pix | dinheiro | cartao | fiado
 
   // M4 — quantidades efetivamente entregues (stepper por item). Best-effort:
   // se ausente, mantém a qtdPrevista de cada EntregaItem (M6 reconcilia).
@@ -597,6 +599,11 @@ export class UpdateLogisticaConfigDto {
   @IsOptional()
   @IsBoolean()
   passeioEquipe?: boolean;
+
+  // MODO CADERNETA (PR04082026) — operacional, padrão do cobrancaSimples.
+  @IsOptional()
+  @IsBoolean()
+  modoCaderneta?: boolean;
 
   @IsOptional()
   @IsBoolean()
@@ -1103,6 +1110,24 @@ export class RecebidosRecadoDto {
 }
 
 /**
+ * PULSO DO APP (PR04082026-PULSO-DO-APP, 04/08) — body do poll de 5s dos
+ * recados. O aparelho manda de carona o NOME da tela aberta; nenhuma
+ * requisição nova nasce por causa disso.
+ *
+ * 🔴 `@Allow()` e não `@IsString()/@MaxLength()` DE PROPÓSITO: com
+ * `forbidNonWhitelisted` global, campo não declarado vira 400 — mas campo
+ * declarado com validador vira 400 do MESMO jeito quando o valor não bate.
+ * Os dois derrubariam o poll do app, que é a campainha da rota. Aqui o
+ * contrato é: aceita QUALQUER coisa e o serviço decide o que presta
+ * (`sanitizarTela`); lixo é ignorado em silêncio, o poll responde 200 sempre.
+ * APK velho não manda o campo — `undefined` também é caminho normal.
+ */
+export class PulsoRecadosDto {
+  @Allow()
+  tela?: unknown;
+}
+
+/**
  * COCKPIT (03/08) — atribuição em LOTE. Nasceu da tela do dono com 51 paradas
  * órfãs: uma por uma eram 51 arrastadas. `entregadorId` null desatribui (mesma
  * semântica do PATCH de uma entrega só).
@@ -1116,4 +1141,78 @@ export class AtribuirLoteDto {
   @IsInt()
   @Min(1)
   entregadorId?: number | null;
+}
+
+// ── MODO CADERNETA (PR04082026) — vender por toque, sem rota ─────────────────
+export class VenderCadernetaItemDto {
+  @IsInt()
+  @Min(1)
+  productId!: number;
+
+  @IsInt()
+  @Min(1)
+  @Max(9999)
+  quantidade!: number;
+}
+
+export class VenderCadernetaGpsDto {
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  lat!: number;
+
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  lng!: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(100000)
+  accuracy?: number;
+}
+
+export class VenderCadernetaDto {
+  @IsString()
+  @MaxLength(60)
+  clienteId!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  localId?: string;
+
+  // Preço NUNCA vem daqui (regra de ouro): o serviço resolve pelo catálogo.
+  @IsArray()
+  @ArrayMaxSize(30)
+  @ValidateNested({ each: true })
+  @Type(() => VenderCadernetaItemDto)
+  itens!: VenderCadernetaItemDto[];
+
+  // 'pagou' exige metodo; 'deveu' vira fiado (charge pendente, se financeiro ON).
+  @IsString()
+  @IsIn(['pagou', 'deveu'])
+  desfecho!: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['dinheiro', 'pix', 'cartao'])
+  metodo?: string;
+
+  // GPS calado — realimenta o pino (<=60m); ausência nunca trava a venda.
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => VenderCadernetaGpsDto)
+  gps?: VenderCadernetaGpsDto;
+
+  // Número da casa, opcional, só quando o cadastro não tem (a venda nunca trava).
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  numero?: string;
+
+  @IsString()
+  @MaxLength(80)
+  idempotencyKey!: string;
 }

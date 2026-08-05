@@ -20,6 +20,7 @@ import { JanelaCreditos } from "./janela-creditos";
 import { JanelaEmails } from "./janela-emails";
 import { JanelaEmpresas } from "./janela-empresas";
 import { JanelaOnline } from "./janela-online";
+import { JanelaPulso } from "./janela-pulso";
 import { JanelaIntegracoes } from "./janela-integracoes";
 import { JanelaSistema } from "./janela-sistema";
 import { JanelaTickets } from "./janela-tickets";
@@ -129,6 +130,10 @@ const JANELAS = [
   { id: "cockpit", label: "Cockpit", icon: "vendas" },
   { id: "empresas", label: "Empresas", icon: "users" },
   { id: "online", label: "Quem está online", icon: "clock" },
+  // PULSO DO APP (04/08) — quem está com o APP aberto agora e em qual tela.
+  // Vizinho de "Quem está online" de propósito: um lê sessão web, o outro lê
+  // aparelho. São perguntas diferentes e o dono faz as duas seguidas.
+  { id: "pulso", label: "Pulso", icon: "phone" },
   { id: "creditos", label: "Créditos", icon: "money" },
   { id: "integracoes", label: "Integrações", icon: "config" },
   { id: "emails", label: "E-mails", icon: "mail" },
@@ -377,6 +382,7 @@ export function MasterClient() {
             <JanelaEmpresas companies={companies} error={companiesError} reload={reloadCompanies} assumirContexto={assumirContexto} />
           )}
           {janela === "online" && <JanelaOnline />}
+          {janela === "pulso" && <JanelaPulso />}
           {janela === "creditos" && <JanelaCreditos companies={companies} reload={reloadCompanies} />}
           {janela === "integracoes" && <JanelaIntegracoes companies={companies} />}
           {janela === "emails" && <JanelaEmails />}

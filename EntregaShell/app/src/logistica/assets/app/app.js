@@ -177,6 +177,14 @@
     // HISTÓRICO DO CLIENTE — {clienteId, items, loading, erro}. Carregado sob
     // demanda ao abrir o modal; nunca vive no cache junto com a rota.
     historico: null,
+    // MODO CADERNETA (04/08) — ver o bloco "MODO CADERNETA" no fim do arquivo.
+    // `caderneta` é o roster do dia ({dia, clientes, carregando, erro});
+    // `cadernetaResumo` é a resposta de /logistica/caderneta/resumo (medidor do
+    // mapa + fechamento); `cadernetaVenda` só existe enquanto a folha da venda
+    // está aberta ({chave, clienteId, localId, numero, cadastro, idempotencyKey}).
+    caderneta: null,
+    cadernetaResumo: null,
+    cadernetaVenda: null,
     nextStop: null,
     nextCountdown: 5,
     nextStopOpening: false,
@@ -2738,7 +2746,11 @@
     // visível (play encostado na nav, nada pra rolar). Com rota traçada volta a
     // folga normal de rodapé, senão o último card da lista encostaria na nav.
     const content = app.querySelector(".content");
-    const rotaSolo = state.screen === "route" && !items().length;
+    // MODO CADERNETA (04/08) — a tela do dia SEMPRE rola (lista + fechamento no
+    // rodapé), mesmo com zero entrega materializada: sem esta exceção a trava de
+    // rolagem do "rota sem paradas" congelava a tela e o fechamento ficava
+    // inalcançável (mesma armadilha da "rota cortada").
+    const rotaSolo = state.screen === "route" && !items().length && !cadernetaTelaAtiva();
     if (content) {
       content.classList.toggle("is-rota", rotaSolo);
       content.classList.toggle("is-chat", state.screen === "chat");
@@ -5051,6 +5063,14 @@
     // desta tela, não um app: hero fica, o resto vira busca + mapa + cartão.
     if (passeioModoAtivo()) return shell(passeioConteudo());
     if (state.loading) return shell(loading());
+    // MODO CADERNETA (04/08) — MESMA tela, motor diferente: enquanto o mapa do
+    // dia não está provado, aqui não existe montar/iniciar rota. No lugar do
+    // Iniciar entra o medidor, a lista do dia vira a caderneta e o rodapé é o
+    // fechamento. Dia provado → cai no fluxo GPS de sempre, logo abaixo.
+    // Vem ANTES do "Rota indisponível" de propósito: a caderneta não depende da
+    // rota do dia (tem roster e estados próprios) — cair na tela de erro da rota
+    // deixaria o vendedor sem vender por causa de uma chamada que ele não usa.
+    if (cadernetaTelaAtiva()) return shell(cadernetaConteudo());
     if (!state.route) return shell(empty("Rota indisponível", state.error || "Atualize para tentar novamente."));
     const open = openItems(); const done = deliveredItems(); const total = items().length; const next = open[0];
     const progress = total ? Math.round(done.length / total * 100) : 0;
@@ -5069,7 +5089,7 @@
     // S2 21/07 — "has-next-panel" empurra route-gps-status/route-follow-control
     // (agora também usados pela navegação normal, não só Leitura) pra baixo do
     // painel "Próxima parada" quando os dois aparecem juntos (ver app.css).
-    return shell(`${creditosDiaPanel()}<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="${mapLabel}"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : routeTransmuxControl(planned, paused)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
+    return shell(`${creditosDiaPanel()}${cadernetaSeloPronto()}<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="${mapLabel}"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : routeTransmuxControl(planned, paused)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
       ${total ? `<div class="route-filter" role="tablist" aria-label="Filtros da rota">
         <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila" role="tab" aria-selected="${state.routeFilter === "fila"}">Fila <b>${open.length}</b></button>
         <button type="button" class="route-filter-btn ${state.routeFilter === "entregue" ? "active" : ""}" data-action="route-filter" data-filter="entregue" role="tab" aria-selected="${state.routeFilter === "entregue"}">Entregue <b>${done.length}</b></button>
@@ -5304,6 +5324,7 @@
     const chevron = icon("chevronRight", 18);
     return shell(`<div class="screen-head"><div><h1>Ajustes</h1></div></div>
       ${isAdmin() ? `<div class="section-title"><strong>Administração</strong></div><section class="card flat"><button class="settings-row" data-action="arrival-radius"><div class="avatar">${icon("gps", 18)}</div><div class="settings-copy"><strong>Avisar chegada</strong></div><strong>${Math.max(20, Number(cfg.raioChegadaM || 60))} m</strong>${chevron}</button><button class="settings-row" data-action="statement"><div class="avatar">${icon("sales", 18)}</div><div class="settings-copy"><strong>Consumo e bônus</strong></div>${chevron}</button><button class="settings-row" data-action="toggle-creditos-panel" role="switch" aria-checked="${!creditosPanelOculto()}"><div class="avatar">${icon("calendar", 18)}</div><div class="settings-copy"><strong>Painel de créditos do dia</strong></div><span class="module-switch ${!creditosPanelOculto() ? "active" : ""}" aria-hidden="true"><i></i></span></button><button class="settings-row" data-action="open-recarga"><div class="avatar">${icon("card", 18)}</div><div class="settings-copy"><strong>Recarga de créditos</strong></div>${chevron}</button><button class="settings-row" data-action="open-financeiro"><div class="avatar">${icon("wallet", 18)}</div><div class="settings-copy"><strong>Financeiro</strong></div>${chevron}</button><button class="settings-row" data-action="open-avancado"><div class="avatar">${icon("gear", 18)}</div><div class="settings-copy"><strong>Avançado</strong></div>${chevron}</button></section>` : ""}
+      ${cadernetaSettingsSection()}
       ${offlineSettingsSection()}
       ${mapaOfflineSettingsSection()}
       ${passeioSettingsSection()}
@@ -5512,6 +5533,11 @@
     //   • "Não entregue" pede o motivo; "Não atendeu" mantém o atalho direto.
   function deliverySimpleSheet(item) {
     const c = item.cliente || {};
+    // MODO CADERNETA (04/08) — a MESMA folha é a folha da VENDA. Só duas coisas
+    // mudam: não existe "Não entregue"/"Não atendeu" (não há parada pra deixar
+    // de entregar) e o "Ver detalhes" vira a porta do Cadastro, que na caderneta
+    // é o único caminho pra ficha (o toque no cliente vende).
+    const venda = !!item.caderneta;
     const editando = state.deliveryEditingId === item.id;
     const debitoAtual = c.debitoAtual;
     const financeiroAtivo = configFlag("moduloFinanceiroAtivo") && debitoAtual !== null && debitoAtual !== undefined;
@@ -5525,7 +5551,11 @@
     const produtosParaAdicionar = produtosDisponiveis.filter(p => !produtosNaEntrega.has(String(p.id)));
     const linhas = linhasVisiveis.map(row => {
       const preco = financeiroAtivo ? unitPriceFor(item, row) : 0;
-      const editandoPreco = financeiroAtivo && state.deliveryPriceEdit === row.key;
+      // MODO CADERNETA — o preço aqui é SÓ leitura: a venda manda produto e
+      // quantidade, e quem faz a conta é o catálogo no servidor (lei "cobrança
+      // lê o CATÁLOGO"). Preço editável que o envio ignora seria número que
+      // muda na tela e não muda no dinheiro — pior que não ter o campo.
+      const editandoPreco = financeiroAtivo && !venda && state.deliveryPriceEdit === row.key;
       // Layout escolhido pelo dono (22/07, "opção A"): SEM moldura nenhuma. As três
       // caixas com borda (setas / produto / valor) dentro da caixa do bloco eram o
       // que deixava a chegada pesada. Aqui é uma linha só, centralizada: setas
@@ -5540,7 +5570,9 @@
         ${financeiroAtivo
           ? editandoPreco
             ? `<form id="chegada-preco-form" class="chegada-preco-form" data-preco-form data-draft-item="${H.escape(row.key)}"><input class="chegada-preco-input lrt-produto-valor-input" name="preco" type="text" inputmode="numeric" autocomplete="off" data-chegada-preco="${H.escape(row.key)}" value="${H.escape(H.money(preco))}" aria-label="Valor da entrega" data-enter-action="delivery-price-save"><button type="submit" class="chegada-preco-ok" data-action="delivery-price-save" data-draft-item="${H.escape(row.key)}" aria-label="Confirmar valor">${icon("check", 18)}</button></form>`
-            : `<span class="chegada-sep" aria-hidden="true">·</span><button type="button" class="chegada-preco" data-action="delivery-price" data-draft-item="${H.escape(row.key)}">${H.escape(H.money(preco))}</button>`
+            : venda
+              ? `<span class="chegada-sep" aria-hidden="true">·</span><span class="chegada-preco">${H.escape(H.money(preco))}</span>`
+              : `<span class="chegada-sep" aria-hidden="true">·</span><button type="button" class="chegada-preco" data-action="delivery-price" data-draft-item="${H.escape(row.key)}">${H.escape(H.money(preco))}</button>`
           : ""}
       </div>`;
     }).join("");
@@ -5550,13 +5582,20 @@
       : produtosParaAdicionar.length
         ? `<button type="button" class="chegada-add" data-action="delivery-add-product">${icon("plus", 18)} Adicionar produto</button>`
         : "";
+    const rodapeSem = venda
+      ? `<button class="chegada-btn-sem" type="button" data-action="caderneta-cadastro">Cadastro</button>`
+      : editando
+        ? `<button class="chegada-btn-sem" type="button" data-action="cancel-delivery-edit">Voltar sem alterar</button>`
+        : `<button class="chegada-btn-sem" type="button" data-action="delivery-not-delivered">Não entregue</button><button class="chegada-btn-sem" type="button" data-action="confirm-sem-atendimento">Não atendeu</button>`;
     const acoes = financeiroAtivo
-      ? `<div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Entregue e quitou</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue, ficou devendo</button>${editando ? `<button class="chegada-btn-sem" type="button" data-action="cancel-delivery-edit">Voltar sem alterar</button>` : `<button class="chegada-btn-sem" type="button" data-action="delivery-not-delivered">Não entregue</button><button class="chegada-btn-sem" type="button" data-action="confirm-sem-atendimento">Não atendeu</button>`}</div>${editando ? "" : `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-detail">Ver detalhes</button>`}`
-      : `<div class="delivery-hero-actions"><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="delivery-not-delivered">${icon("close", 20)} Não entregue</button><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="confirm-sem-atendimento">${icon("phone", 20)} Não atendeu</button><button class="btn btn-primary delivery-confirm delivery-big-btn" type="button" data-action="confirm-entregue-simples" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button></div>`;
+      ? `<div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Entregue e quitou</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue, ficou devendo</button>${rodapeSem}</div>${editando || venda ? "" : `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-detail">Ver detalhes</button>`}`
+      : venda
+        ? `<div class="delivery-hero-actions"><button class="btn btn-primary delivery-confirm delivery-big-btn" type="button" data-action="confirm-entregue-simples" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button></div><button class="link-btn delivery-detail-link" type="button" data-action="caderneta-cadastro">Cadastro</button>`
+        : `<div class="delivery-hero-actions"><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="delivery-not-delivered">${icon("close", 20)} Não entregue</button><button class="btn btn-secondary delivery-confirm delivery-big-btn" type="button" data-action="confirm-sem-atendimento">${icon("phone", 20)} Não atendeu</button><button class="btn btn-primary delivery-confirm delivery-big-btn" type="button" data-action="confirm-entregue-simples" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button></div>`;
     const conta = !financeiroAtivo ? "" : cobrancaSimples
       ? `<div class="chegada-conta"><div class="chegada-conta-linha chegada-conta-total"><span>Deve</span><b>${H.money(valorAntigo + valorAgora)}</b></div></div>`
       : `<div class="chegada-conta"><div class="chegada-conta-linha"><span>Valor antigo</span><b>${H.money(valorAntigo)}</b></div><div class="chegada-conta-linha"><span>Valor entrega</span><b>${H.money(valorAgora)}</b></div><div class="chegada-conta-linha chegada-conta-total"><span>Valor total</span><b>${H.money(valorAntigo + valorAgora)}</b></div></div>`;
-    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet delivery-sheet-simple"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><p class="subtitle delivery-hero-kicker">${editando ? "Editando entrega" : "Chegada"}</p></div><button class="close" type="button" data-action="close-sheet">${icon("close", 18)}</button></div><div class="delivery-hero"><h1 class="delivery-hero-name">${editando ? "Editando" : "Chegou em"} <b>${H.escape(c.nome || "Cliente")}</b></h1>${c.observacoes ? `<p class="subtitle delivery-hero-obs">${H.escape(c.observacoes)}</p>` : ""}<div class="chegada-box"><span class="subtitle chegada-box-titulo">Entregar</span><div class="chegada-lista">${linhas}</div>${picker}</div>${conta}</div>${acoes}</section></div>`;
+    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet delivery-sheet-simple"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><p class="subtitle delivery-hero-kicker">${editando ? "Editando entrega" : "Chegada"}</p></div><button class="close" type="button" data-action="close-sheet">${icon("close", 18)}</button></div><div class="delivery-hero"><h1 class="delivery-hero-name">${editando ? "Editando" : "Chegou em"} <b>${H.escape(c.nome || "Cliente")}</b></h1>${c.observacoes ? `<p class="subtitle delivery-hero-obs">${H.escape(c.observacoes)}</p>` : ""}<div class="chegada-box"><span class="subtitle chegada-box-titulo">Entregar</span><div class="chegada-lista">${linhas}</div>${picker}</div>${conta}${venda ? cadernetaNumeroCampo() : ""}</div>${acoes}</section></div>`;
   }
   // Financeiro OFF reutiliza a chegada já existente, com produto, quantidade,
   // troca e adição. A própria folha esconde preço/conta/Pago neste modo.
@@ -6946,7 +6985,10 @@
     const montagemMapaAberta = state.modal === "manage-day" && state.dayOrderStep !== "saved";
     // Em modo passeio o singleton da Rota NÃO monta (vai pra garagem) — o host
     // dele nem existe na marcação da pele.
-    const willShowRouteMap = state.screen === "route" && !montagemMapaAberta && !passeioModoAtivo();
+    // MODO CADERNETA (04/08) — a tela do dia não tem mapa (o mapa é justamente o
+    // que ainda não está provado): o singleton vai pra GARAGEM, igual à troca de
+    // aba, e volta inteiro quando o dia fica pronto e a Rota reaparece.
+    const willShowRouteMap = state.screen === "route" && !montagemMapaAberta && !passeioModoAtivo() && !cadernetaTelaAtiva();
     // Item 8 (28/07) — sair da tela Rota ESTACIONA o mapa em vez de destruí-lo
     // (ver garagemDoMapa): voltar não recarrega tile nenhum.
     if (!willShowRouteMap && !montagemMapaAberta) estacionarRouteMap();
@@ -7854,7 +7896,11 @@
     recadosChecando = true;
     recadosCheckAt = Date.now();
     try {
-      const novos = await H.api("/logistica/recados/pendentes", { method: "POST", body: {} });
+      // PULSO DO APP (04/08) — a tela atual pega CARONA neste poll (plano
+      // PR04082026-PULSO-DO-APP): zero requisição nova, zero conteúdo, só o NOME
+      // da tela. Campo OPCIONAL no backend (@Allow) — APK velho não manda e nada
+      // quebra. Ver telaAtualDoPulso(): ponto ÚNICO de leitura da tela.
+      const novos = await H.api("/logistica/recados/pendentes", { method: "POST", body: { tela: telaAtualDoPulso() } });
       const lista = Array.isArray(novos) ? novos : [];
       if (lista.length) {
         const conhecidos = new Set((state.recados || []).map(item => String(item.id)));
@@ -8130,6 +8176,10 @@
     // sem ele a retry escolheria a rota errada e repetiria o mesmo erro pra sempre.
     if (results[1].status === "fulfilled") { state.products = normalizeCatalogProducts(results[1].value); H.cache.set("logistica-products", state.products); }
     if (results[2].status === "fulfilled") { state.config = results[2].value; H.cache.set("logistica-config", state.config); }
+    // MODO CADERNETA (04/08) — medidor/fechamento e o roster do dia entram DEPOIS
+    // do config (é ele quem diz se o modo está ligado). Fire-and-forget: cada um
+    // tem guard próprio de chamada em voo e nenhum atrasa a tela da rota.
+    if (cadernetaModoAtivo()) { void carregarCadernetaResumo(); void carregarCadernetaRoster(false); }
     if (results[0].status === "fulfilled") {
       state.route = results[0].value;
       H.cache.set("logistica-route", state.route);
@@ -8621,6 +8671,11 @@
     state.deliveryConfirming = true; render();
     const opts = options || {};
     try {
+      // MODO CADERNETA (04/08) — venda sem rota. Entra DEPOIS do guard de
+      // reentrância de propósito: a venda também espera GPS + rede, e o segundo
+      // toque tem que morrer aqui como no confirmar de sempre. Sai por este
+      // return; o finally abaixo destrava os botões nos dois caminhos.
+      if (item && item.caderneta) { await cadernetaVender(item, opts, { efeitos: true }); return; }
       const requirements = state.route && state.route.comprovante || {};
       const proof = item.comprovante || {};
       if (requirements.fotoObrigatoria && !proof.fotoId) throw new Error("Anexe a foto obrigatória antes de confirmar.");
@@ -8964,7 +9019,10 @@
       else if (limpaConferenciaMontagem) state.rotaConferencia = null;
       // 22/07 — fechar a folha zera TUDO da chegada editável (picker, preço aberto,
       // modo edição). Sem isso, a próxima parada abriria com o estado da anterior.
-      if (kind === "sheet") { state.selected = null; state.deliveryProductPicker = false; state.deliverySwapKey = null; state.deliveryPriceEdit = null; state.deliveryEditingId = null; }
+      // MODO CADERNETA — a venda vive enquanto a folha vive. Fechar por QUALQUER
+      // caminho (×, fundo, Voltar do Android via handleBack) mata o rascunho:
+      // sem isto o próximo cliente abriria com o número digitado no anterior.
+      if (kind === "sheet") { state.selected = null; state.deliveryProductPicker = false; state.deliverySwapKey = null; state.deliveryPriceEdit = null; state.deliveryEditingId = null; state.cadernetaVenda = null; }
       state.closingOverlay = null;
       if (voltaParaConferencia) void reabrirConferenciaAposEdicao();
       // Item 1 — saiu do cadastro aberto pela tela de erros: volta pra ela JÁ
@@ -9121,7 +9179,14 @@
     if (target.matches(".modal-wrap,.sheet-wrap") && event.target !== target) return;
     if (target.dataset.screen) { navigateTo(target.dataset.screen); return; }
     if (target.dataset.delivery) { if (ignoredRouteStopClickId === target.dataset.delivery) { ignoredRouteStopClickId = null; return; } const item = items().find(i => i.id === target.dataset.delivery) || null; if (item) showSheet(item); return; }
-    if (target.dataset.client) { if (ignoredClientClickId === target.dataset.client) { ignoredClientClickId = null; return; } openClientEditor(clientById(target.dataset.client)); return; }
+    if (target.dataset.client) {
+      if (ignoredClientClickId === target.dataset.client) { ignoredClientClickId = null; return; }
+      const clienteTocado = clientById(target.dataset.client);
+      // MODO CADERNETA (04/08) — na tela Clientes o toque VENDE (mesma folha de
+      // chegada). O cadastro continua a um toque: é o "Cadastro" da própria folha.
+      if (cadernetaModoAtivo() && state.screen === "clients" && clienteTocado) { cadernetaVenderCliente(clienteTocado); return; }
+      openClientEditor(clienteTocado); return;
+    }
     if (target.dataset.day) { void toggleManagedRouteDay(Number(target.dataset.day)); return; }
     if (target.dataset.clientDay) { const day = Number(target.dataset.clientDay); state.clientDaysTouched = true; state.clientProductDays = state.clientProductDays.includes(day) ? state.clientProductDays.filter(value => value !== day) : [...state.clientProductDays, day].sort((a, b) => a - b); render(); return; }
     if (target.dataset.clientProductId) { if (ignoredClientProductClickId === target.dataset.clientProductId) { ignoredClientProductClickId = null; return; } const item = state.clientProducts.find(product => product.id === target.dataset.clientProductId); if (item) editClientProduct(item); return; }
@@ -9134,6 +9199,10 @@
     // MODO PASSEIO (29/07) — 1 gancho só; todas as ações moram no bloco PASSEIO
     // no fim do arquivo (handlePasseioAction).
     if (action && action.indexOf("pss-") === 0) { await handlePasseioAction(action, target); return; }
+    // MODO CADERNETA (04/08) — 1 gancho só; tudo mora no bloco CADERNETA no fim
+    // do arquivo. O toque no cliente da lista do dia abre a MESMA folha de chegada.
+    if (action === "caderneta-vender") { cadernetaVenderChave(target.dataset.cadernetaChave); return; }
+    if (action === "caderneta-cadastro") { await cadernetaAbrirCadastro(); return; }
     if (action === "recarga-select-pack") { beginRecargaCheckout(target.dataset.packKey); return; }
     if (action === "recarga-reload") { openRecarga(); return; }
     // S5 21/07 (PR21072026-NAVEGAÇÃO-HBX) — mudo do painel de navegação:
@@ -10439,6 +10508,13 @@
       if (state.recadoPortao) state.recadoPortao.respostaDraft = event.target.value;
       return;
     }
+    // MODO CADERNETA — o número da casa é rascunho da VENDA (state), não do DOM:
+    // um render de toast/poll no meio da digitação apagaria o campo. Sem render()
+    // aqui de propósito (o valor já está na tela; re-render só brigaria com o foco).
+    if (event.target.id === "caderneta-numero") {
+      if (state.cadernetaVenda) state.cadernetaVenda.numero = event.target.value;
+      return;
+    }
     if (event.target.form && event.target.form.id === "edit-product-form" && event.target.name) {
       state.editProductDraft = { ...(state.editProductDraft || {}), [event.target.name]: event.target.value };
       return;
@@ -10612,6 +10688,10 @@
       // valor digitado se perdia.
       if (form.id === "chegada-preco-form") { salvarPrecoDeHoje(form); return; }
       if (form.id === "pss-busca-form") { void passeioBuscar(data.q); return; }
+      // MODO CADERNETA — Enter no "Número" só fecha o teclado (Lei 5: no último
+      // campo o Enter CONFIRMA o que há pra confirmar; aqui o número já está no
+      // rascunho da venda e quem grava é o botão da venda).
+      if (form.id === "caderneta-numero-form") { if (state.cadernetaVenda) state.cadernetaVenda.numero = String(data.numero || "").trim(); const campo = form.querySelector("#caderneta-numero"); if (campo) campo.blur(); return; }
       if (form.id === "company-name-form") { state.companyName = String(data.companyName || "").trim().slice(0, 80); H.cache.set("logistica-company-name", state.companyName); render(); toast(state.companyName ? "Nome da empresa atualizado." : "Nome da empresa removido."); }
       if (form.id === "arrival-radius-form") { const radius = Math.max(20, Math.min(1000, Number(data.raioChegadaM))); if (!Number.isFinite(radius)) throw new Error("Informe um raio entre 20 e 1000 metros."); await H.api("/logistica/config", { method: "PATCH", body: { raioChegadaM: radius } }); await closeOverlay("modal"); await refresh(true); toast(`Aviso de chegada ajustado para ${radius} m.`); }
       if (form.id === "new-client-form") {
@@ -10920,6 +11000,380 @@
   });
   window.addEventListener("online", () => { refresh(true); void flushLeituraQueue(); syncHeaderChips(); });
   window.addEventListener("offline", syncHeaderChips);
+
+  // ==========================================================================
+  // MODO CADERNETA (04/08 — GO do dono, plano PR04082026-MODO-CADERNETA)
+  //
+  // O cliente que abandonou a ROTA (mapa podre) usa o app como CADERNETA: vende
+  // no TOQUE do cliente, sem montar rota e SEM debitar crédito — débito continua
+  // sendo só do "Iniciar rota". São as MESMAS telas do fluxo GPS: a folha de
+  // chegada por config (deliverySimpleSheet aqui, cobrancaSimples) É a folha da
+  // venda; muda o motor, não a moldura.
+  //
+  // O GPS fica trancado enquanto o mapa do dia não se prova: o medidor
+  // "Mapa: X de N" ocupa o lugar do Iniciar e, quando o dia inteiro tem endereço
+  // provado (`dia.pronto` do servidor), o selo "Mapa pronto" aparece e a tela
+  // volta a ser a Rota de sempre. A palavra "pino" é PROIBIDA em tela (Lei 8) —
+  // o medidor fala "Mapa".
+  //
+  // Fontes de dados (nenhuma tela nova, nenhum endpoint inventado pra lista):
+  //   • roster do dia = GET /logistica/dia-preview?date= (o MESMO da montagem;
+  //     read-only, NÃO materializa entrega nem avança proximaData);
+  //   • status de quem já foi atendido = as entregas de hoje que a Rota já
+  //     carrega (allRouteItems), cruzadas por cliente+local;
+  //   • medidor e fechamento = GET /logistica/caderneta/resumo?date=.
+  // ==========================================================================
+  let cadernetaResumoEmVoo = false;
+  let cadernetaRosterEmVoo = false;
+
+  function cadernetaModoAtivo() { return configFlag("modoCaderneta"); }
+  function cadernetaDia() {
+    const dia = state.cadernetaResumo && state.cadernetaResumo.dia;
+    const total = Math.max(0, Number(dia && dia.total) || 0);
+    return { total, provados: Math.max(0, Math.min(total, Number(dia && dia.provados) || 0)), pronto: !!(dia && dia.pronto) };
+  }
+  /** A tela Rota vira caderneta enquanto o dia não prova o mapa. */
+  function cadernetaTelaAtiva() { return cadernetaModoAtivo() && !cadernetaDia().pronto; }
+  function cadernetaChave(clienteId, localId) { return `${String(clienteId || "")}:${String(localId || "")}`; }
+
+  async function carregarCadernetaResumo() {
+    if (!cadernetaModoAtivo() || cadernetaResumoEmVoo) return;
+    cadernetaResumoEmVoo = true;
+    try {
+      const resumo = await H.api(`/logistica/caderneta/resumo?date=${encodeURIComponent(operationalDate())}`);
+      if (resumo && typeof resumo === "object") { state.cadernetaResumo = resumo; render(); }
+    } catch (_) {
+      // Rede fora não apaga o número que já está na tela (mesmo contrato do
+      // checkRotaIndicada): o próximo refresh tenta de novo.
+    } finally { cadernetaResumoEmVoo = false; }
+  }
+  async function carregarCadernetaRoster(force) {
+    if (!cadernetaModoAtivo() || cadernetaRosterEmVoo) return;
+    const dia = operationalDate();
+    const atual = state.caderneta;
+    const mesmoDia = atual && atual.dia === dia;
+    if (!force && mesmoDia && !atual.erro && Array.isArray(atual.clientes)) return;
+    cadernetaRosterEmVoo = true;
+    state.caderneta = { dia, clientes: (mesmoDia && atual.clientes) || [], carregando: true, erro: "" };
+    render();
+    try {
+      const preview = await H.api(`/logistica/dia-preview?date=${encodeURIComponent(dia)}`);
+      state.caderneta = { dia, clientes: Array.isArray(preview && preview.clientes) ? preview.clientes : [], carregando: false, erro: "" };
+    } catch (error) {
+      state.caderneta = { dia, clientes: (mesmoDia && atual.clientes) || [], carregando: false, erro: humanApiError(error) };
+    } finally { cadernetaRosterEmVoo = false; render(); }
+  }
+
+  /**
+   * A lista do dia: roster da agenda + o que a Rota já sabe de hoje. O roster
+   * manda na ORDEM e nos itens; a entrega materializada manda no STATUS (quem já
+   * foi atendido aparece com ✓ no mesmo lugar, sem sumir da lista).
+   */
+  function cadernetaLista() {
+    const linhas = new Map();
+    const roster = state.caderneta && Array.isArray(state.caderneta.clientes) ? state.caderneta.clientes : [];
+    roster.forEach(cliente => {
+      const clienteId = String((cliente && cliente.customerProfileId) || "");
+      if (!clienteId) return;
+      const chave = cadernetaChave(clienteId, cliente.localId);
+      linhas.set(chave, {
+        chave,
+        clienteId,
+        localId: cliente.localId || null,
+        nome: cliente.nome || "Cliente",
+        localApelido: cliente.localApelido || null,
+        observacoes: cliente.observacoes || "",
+        lat: cliente.lat ?? null,
+        lng: cliente.lng ?? null,
+        itens: (cliente.itens || []).filter(x => x && x.productId != null).map(x => ({ productId: x.productId, nome: x.nome || "", qtd: Math.max(1, Number(x.qtd) || 1) })),
+        status: "",
+      });
+    });
+    allRouteItems().filter(item => item && item.status !== "cancelada").forEach(item => {
+      const c = item.cliente || {};
+      const clienteId = String(item.customerProfileId || c.id || "");
+      if (!clienteId) return;
+      const chave = cadernetaChave(clienteId, item.localId || c.localId);
+      const linha = linhas.get(chave) || linhas.get(cadernetaChave(clienteId, null));
+      if (linha) { linha.status = item.status || ""; return; }
+      linhas.set(chave, {
+        chave,
+        clienteId,
+        localId: item.localId || c.localId || null,
+        nome: c.nome || "Cliente",
+        localApelido: item.localApelido || null,
+        observacoes: c.observacoes || "",
+        lat: c.lat ?? null,
+        lng: c.lng ?? null,
+        itens: (item.itens || []).filter(x => x && (x.produto || x.produtoId)).map(x => ({ productId: (x.produto && x.produto.id) || x.produtoId, nome: (x.produto && x.produto.nome) || "", qtd: Math.max(1, Number(x.qtdPrevista ?? x.qtdEntregue) || 1) })),
+        status: item.status || "",
+      });
+    });
+    return [...linhas.values()];
+  }
+  function cadernetaLinhaPorChave(chave) { return cadernetaLista().find(linha => linha.chave === String(chave || "")) || null; }
+
+  // ---- a tela do dia (medidor + lista + fechamento) -------------------------
+  function cadernetaConteudo() {
+    const lista = cadernetaLista();
+    const carregando = !!(state.caderneta && state.caderneta.carregando) && !lista.length;
+    const vazio = state.caderneta && state.caderneta.erro
+      ? empty("Não foi possível carregar", state.caderneta.erro)
+      : empty("Nenhum cliente hoje", "");
+    return `${cadernetaMedidor()}
+      <div class="section-title"><strong>Clientes de hoje</strong><span>${lista.length}</span></div>
+      ${carregando ? loading() : lista.length ? `<div class="list">${lista.map((linha, index) => cadernetaClienteCard(linha, index + 1)).join("")}</div>` : vazio}
+      ${cadernetaFechamento()}`;
+  }
+  function cadernetaMedidor() {
+    const dia = cadernetaDia();
+    const pct = dia.total ? Math.round(dia.provados / dia.total * 100) : 0;
+    // Só o que falta provar mora aqui: com o dia pronto esta tela nem existe
+    // (quem anuncia o "Mapa pronto" é o selo, na Rota que voltou).
+    return `<section class="card flat caderneta-medidor"><div class="caderneta-medidor-linha"><strong>Mapa: ${dia.provados} de ${dia.total}</strong></div><div class="progress"><i style="width:${pct}%"></i></div></section>`;
+  }
+  /** Selo do dia provado na tela Rota normal (o Iniciar já voltou junto com ela). */
+  function cadernetaSeloPronto() {
+    if (!cadernetaModoAtivo() || !cadernetaDia().pronto) return "";
+    return `<div class="caderneta-selo"><span class="badge success">${icon("check", 13)} Mapa pronto</span></div>`;
+  }
+  function cadernetaClienteCard(linha, ordem) {
+    const atendido = linha.status === "entregue";
+    const itens = (linha.itens || []).map(x => `${x.qtd}× ${x.nome || "item"}`).join(", ");
+    const titulo = `${linha.nome}${linha.localApelido ? ` · ${linha.localApelido}` : ""}`;
+    return `<article class="stop-card" data-action="caderneta-vender" data-caderneta-chave="${H.escape(linha.chave)}" role="button" tabindex="0"><div class="stop-top"><div class="order">${atendido ? icon("check", 16) : ordem}</div><div class="card-main"><strong>${H.escape(titulo)}</strong>${itens ? `<small>${H.escape(itens)}</small>` : ""}${linha.observacoes ? `<small class="stop-obs">${H.escape(linha.observacoes)}</small>` : ""}</div>${atendido ? `<span class="badge success">Entregue</span>` : ""}</div></article>`;
+  }
+  function cadernetaFechamento() {
+    const fechamento = state.cadernetaResumo && state.cadernetaResumo.fechamento;
+    if (!fechamento) return "";
+    const formas = fechamento.formas || {};
+    const reais = cents => H.money(Math.max(0, Number(cents) || 0) / 100);
+    const vendas = Math.max(0, Number(fechamento.vendas) || 0);
+    return `<div class="section-title"><strong>Fechamento</strong><span>${vendas} venda${vendas === 1 ? "" : "s"}</span></div>
+      <section class="card flat chegada-conta caderneta-fechamento">
+        <div class="chegada-conta-linha"><span>Dinheiro</span><b>${reais(formas.dinheiroCents)}</b></div>
+        <div class="chegada-conta-linha"><span>Pix</span><b>${reais(formas.pixCents)}</b></div>
+        <div class="chegada-conta-linha"><span>Cartão</span><b>${reais(formas.cartaoCents)}</b></div>
+        <div class="chegada-conta-linha"><span>Fiado</span><b>${reais(formas.fiadoCents)}</b></div>
+        <div class="chegada-conta-linha caderneta-total"><span>Total</span><b>${reais(fechamento.totalCents)}</b></div>
+      </section>`;
+  }
+
+  // ---- Ajustes (mesma forma do Modo Passeio: settings-row + module-switch) ---
+  function cadernetaSettingsSection() {
+    if (!isAdmin()) return "";
+    const ligado = cadernetaModoAtivo();
+    return `<div class="section-title"><strong>Caderneta</strong></div><section class="card flat"><button class="settings-row" data-action="toggle-config-flag" data-config-key="modoCaderneta" role="switch" aria-checked="${ligado ? "true" : "false"}"><div class="avatar">${icon("sales", 18)}</div><div class="settings-copy"><strong>Modo caderneta</strong></div><span class="module-switch ${ligado ? "active" : ""}" aria-hidden="true"><i></i></span></button></section>`;
+  }
+
+  // ---- a venda (mesma folha de chegada, endpoint próprio) --------------------
+  /** Item SINTÉTICO no formato que a folha de chegada já sabe desenhar. */
+  function cadernetaItemDeVenda(linha) {
+    const cadastro = clientById(linha.clienteId) || {};
+    const itens = (linha.itens || []).filter(x => x.productId != null).map((x, index) => ({
+      id: `caderneta-item-${index}`,
+      produto: { id: x.productId, nome: x.nome || cadernetaNomeProduto(x.productId) },
+      qtdPrevista: Math.max(1, Number(x.qtd) || 1),
+    }));
+    return {
+      id: `caderneta:${linha.chave}`,
+      caderneta: true,
+      status: "agendada",
+      customerProfileId: linha.clienteId,
+      localId: linha.localId || null,
+      localApelido: linha.localApelido || null,
+      itens,
+      cliente: {
+        id: linha.clienteId,
+        nome: linha.nome || "Cliente",
+        observacoes: linha.observacoes || "",
+        lat: linha.lat ?? null,
+        lng: linha.lng ?? null,
+        // A folha só mostra dinheiro com débito conhecido. Na caderneta o que se
+        // cobra é a venda de AGORA — dívida antiga é assunto do financeiro, e
+        // número inventado em tela de dinheiro é mentira que o dono descobre.
+        debitoAtual: configFlag("moduloFinanceiroAtivo") ? 0 : null,
+        metodoPadrao: cadastro.metodoPadrao || "",
+      },
+    };
+  }
+  function cadernetaNomeProduto(productId) {
+    const produto = (state.products || []).find(p => String(p.id) === String(productId));
+    return (produto && (produto.nome || produto.name)) || "Produto";
+  }
+  function cadernetaVenderChave(chave) {
+    const linha = cadernetaLinhaPorChave(chave);
+    if (linha) cadernetaAbrirVenda(linha);
+  }
+  /** Toque no cliente da tela Clientes: mesma venda, com o que o dia já sabe dele. */
+  function cadernetaVenderCliente(cliente) {
+    if (!cliente || !cliente.id) return;
+    const clienteId = String(cliente.id);
+    const doDia = cadernetaLista().find(linha => linha.clienteId === clienteId);
+    cadernetaAbrirVenda(doDia || {
+      chave: cadernetaChave(clienteId, null),
+      clienteId,
+      localId: null,
+      nome: cliente.name || cliente.nome || "Cliente",
+      localApelido: null,
+      observacoes: cliente.observacoes || "",
+      lat: cliente.lat ?? null,
+      lng: cliente.lng ?? null,
+      itens: [],
+      status: "",
+    });
+  }
+  function cadernetaAbrirVenda(linha) {
+    if (!linha || !linha.clienteId) return;
+    const item = cadernetaItemDeVenda(linha);
+    state.cadernetaVenda = {
+      chave: linha.chave,
+      clienteId: linha.clienteId,
+      localId: linha.localId || null,
+      numero: "",
+      cadastro: null,
+      // Chave de idempotência da TENTATIVA: erro de rede repetido no mesmo
+      // cliente não vira venda dobrada; folha nova = venda nova.
+      idempotencyKey: H.uuid(),
+    };
+    showSheet(item);
+    if (!item.itens.length) {
+      // Sem itens conhecidos (cliente aberto pela tela Clientes): a folha nasce
+      // com o seletor de produto ABERTO — nunca com a linha fantasma "Entrega".
+      state.deliveryDraft = { deliveryId: item.id, items: [] };
+      state.deliveryProductPicker = true;
+      render();
+      void cadernetaCarregarProdutos(linha);
+    }
+    void cadernetaCarregarCadastro(linha.clienteId);
+  }
+  /** Produtos recorrentes do cliente (mesmo endpoint da ficha). */
+  async function cadernetaCarregarProdutos(linha) {
+    const clienteId = linha.clienteId;
+    try {
+      const resultado = await H.api(`/logistica/cliente-produtos?customerProfileId=${encodeURIComponent(clienteId)}`);
+      const vinculos = Array.isArray(resultado) ? resultado : (resultado && (resultado.items || resultado.data)) || [];
+      const venda = state.cadernetaVenda;
+      if (!venda || venda.clienteId !== clienteId || !state.selected || !state.selected.caderneta) return;
+      const itens = vinculos
+        .filter(vinculo => vinculo && vinculo.ativo !== false && vinculo.produto && vinculo.produto.id != null)
+        .map(vinculo => ({ productId: vinculo.produto.id, nome: vinculo.produto.nome || "", qtd: Math.max(1, Number(vinculo.qtdPadrao) || 1) }));
+      if (!itens.length) return;
+      const item = cadernetaItemDeVenda({ ...linha, itens });
+      state.selected = item;
+      state.deliveryDraft = makeDeliveryDraft(item);
+      state.deliveryProductPicker = false;
+      render();
+    } catch (_) {
+      // Sem os produtos salvos a venda continua possível pelo seletor — cadastro
+      // NUNCA trava a venda (regra do plano).
+    }
+  }
+  /**
+   * Número da casa: só entra na folha quando o cadastro REALMENTE não tem.
+   * Fire-and-forget — a resposta pode nem chegar, e a venda segue sem o campo.
+   */
+  async function cadernetaCarregarCadastro(clienteId) {
+    if (!clienteId) return;
+    try {
+      const detalhe = await H.api(`/nucleo/clientes/${encodeURIComponent(clienteId)}`);
+      const venda = state.cadernetaVenda;
+      if (!venda || venda.clienteId !== clienteId) return;
+      const locais = Array.isArray(detalhe && detalhe.locais) ? detalhe.locais : [];
+      const local = (venda.localId && locais.find(item => String(item.id) === String(venda.localId)))
+        || locais.find(item => item && item.isPrincipal)
+        || locais[0]
+        || null;
+      venda.cadastro = { numero: String((local && local.numero) || (detalhe && detalhe.numero) || "").trim() };
+      render();
+    } catch (_) { /* cadastro é opcional aqui, por decisão do plano */ }
+  }
+  function cadernetaFaltaNumero() {
+    const venda = state.cadernetaVenda;
+    return !!(venda && venda.cadastro && !venda.cadastro.numero);
+  }
+  function cadernetaNumeroCampo() {
+    if (!cadernetaFaltaNumero()) return "";
+    const valor = (state.cadernetaVenda && state.cadernetaVenda.numero) || "";
+    return `<form id="caderneta-numero-form" class="caderneta-numero"><div class="field"><label for="caderneta-numero">Número</label><input id="caderneta-numero" name="numero" type="text" inputmode="numeric" autocomplete="off" maxlength="12" value="${H.escape(valor)}"></div><button type="submit" hidden aria-hidden="true"></button></form>`;
+  }
+  /** A porta do cadastro dentro da folha — na caderneta é o caminho da ficha. */
+  async function cadernetaAbrirCadastro() {
+    const venda = state.cadernetaVenda;
+    if (!venda) return;
+    const cliente = clientById(venda.clienteId) || { id: venda.clienteId, name: (state.selected && state.selected.cliente && state.selected.cliente.nome) || "Cliente" };
+    await closeOverlay("sheet");
+    openClientEditor(cliente);
+  }
+  /**
+   * A VENDA. Chamada só pelo confirmDelivery (que já segura o segundo toque).
+   * `opcoes.efeitos` é opt-in e default MUDO: som/vibração pertencem ao gesto
+   * humano, não à função — chamador novo que esqueça a flag fica calado, que é o
+   * erro barato (§4 do guia do APK: efeito em função reusada dispara 2×).
+   */
+  async function cadernetaVender(item, options, opcoes) {
+    const venda = state.cadernetaVenda;
+    if (!item || !venda) return;
+    const opts = options || {};
+    const draft = deliveryDraftFor(item);
+    const itens = (draft.items || [])
+      .filter(row => row && row.productId != null && !row.zeradoPorTroca && Number(row.qtd) > 0)
+      .map(row => ({ productId: Number(row.productId), quantidade: Math.max(1, Math.trunc(Number(row.qtd) || 1)) }));
+    if (!itens.length) { toast("Escolha o produto da venda.", true); return; }
+    const metodo = ["dinheiro", "pix", "cartao"].includes(opts.receiptMethod) ? opts.receiptMethod : null;
+    const body = {
+      clienteId: venda.clienteId,
+      itens,
+      desfecho: opts.receiptMethod === "fiado" ? "deveu" : "pagou",
+      idempotencyKey: venda.idempotencyKey,
+    };
+    if (venda.localId) body.localId = venda.localId;
+    if (metodo) body.metodo = metodo;
+    const numero = String(venda.numero || "").trim();
+    if (numero) body.numero = numero;
+    // GPS CALADO (regra do plano): sem aviso, sem bloqueio, sem "você não está no
+    // local". Negado/indisponível → a venda vai sem gps e o mapa se prova depois.
+    const posicao = await currentPosition();
+    if (posicao && validCoordinates(posicao.lat, posicao.lng)) {
+      body.gps = { lat: posicao.lat, lng: posicao.lng };
+      if (Number.isFinite(Number(posicao.accuracy))) body.gps.accuracy = Number(posicao.accuracy);
+    }
+    // O PORTÃO DO RECADO (03/08) vale igual aqui: fechar a venda É o momento em
+    // que ele está parado com o celular na mão. Falha de rede LIBERA (o portão
+    // já é fail-open por dentro) — recado nunca segura venda por causa do sinal.
+    if (!(await passarPeloPortao())) return;
+    try {
+      await H.api("/logistica/caderneta/vender", { method: "POST", body });
+      state.cadernetaVenda = null;
+      await closeOverlay("sheet");
+      await refresh(true);
+      void carregarCadernetaResumo();
+      if (opcoes && opcoes.efeitos) { H.sound("delivery_complete"); H.vibrate(12); }
+      toast("Venda registrada.", false, { mudo: true });
+    } catch (error) { toast(humanApiError(error), true); }
+  }
+
+  // ==========================================================================
+  // PULSO DO APP (04/08 — plano PR04082026-PULSO-DO-APP)
+  //
+  // A tela atual viaja de CARONA no poll de 5s dos recados. Ponto ÚNICO: só o
+  // poll lê daqui e só esta função escreve o nome da tela — telemetria que
+  // depende de alguém "lembrar de setar" mente no primeiro caminho novo. Não
+  // captura imagem, digitação nem conteúdo: só o NOME da tela.
+  // ==========================================================================
+  function telaAtualDoPulso() {
+    if (state.selected) return state.selected.caderneta ? "caderneta-venda" : "chegada";
+    if (state.modal === "client-product") return "cliente-ficha";
+    if (state.modal === "financeiro") return "financeiro";
+    if (state.modal === "manage-day") return "montagem";
+    if (state.modal === "rota-conferencia") return "conferencia";
+    if (state.screen === "route") {
+      if (passeioModoAtivo()) return "passeio";
+      return cadernetaTelaAtiva() ? "caderneta" : "rota";
+    }
+    return { clients: "clientes", products: "produtos", chat: "chat", settings: "ajustes" }[state.screen] || "rota";
+  }
+
   // ==========================================================================
   // MODO PASSEIO — CORRIGIR-O-LIXO (29/07, veredito do dono: a v1 de telas e
   // formulários morreu). O passeio é uma PELE da tela Rota: hero + busca +

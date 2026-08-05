@@ -1992,3 +1992,24 @@ html[data-theme="dark"] .pss-montagem-dica { color: var(--brand); }
   .pss-tempo { grid-template-columns: minmax(72px, 1fr) repeat(4, auto); gap: 4px; }
   .pss-tempo button { min-width: 37px; padding: 0 5px; }
 }
+
+/* ==========================================================================
+   MODO CADERNETA (04/08) — a tela do dia da caderneta e o campo de número da
+   folha da venda. Nenhuma moldura nova: .card.flat, .progress, .chegada-conta,
+   .badge e .field já existem; aqui só entram POSIÇÃO e o ajuste de fundo da
+   barra (a .progress nasceu pro hero escuro do mapa e some sobre o cartão
+   claro). Zero cor solta — só tokens.
+   ========================================================================== */
+.caderneta-medidor { display: grid; gap: 9px; }
+.caderneta-medidor-linha { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.caderneta-medidor-linha strong { font-size: .96rem; }
+.caderneta-medidor .progress { margin-top: 0; background: var(--surface-3); }
+.caderneta-selo { display: flex; justify-content: center; margin: 2px 0 8px; }
+.caderneta-selo .badge { gap: 5px; }
+.caderneta-fechamento { margin-top: 0; }
+/* Total do dia é NEUTRO: o vermelho do .chegada-conta-total é a dívida da
+   chegada, e fechamento de caixa não é dívida. */
+.caderneta-total { margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.caderneta-total b { color: var(--ink); font-size: 1.35rem; }
+.caderneta-numero { margin-top: 14px; }
+.caderneta-numero .field { margin: 0; }
