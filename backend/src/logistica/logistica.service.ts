@@ -2446,7 +2446,10 @@ export class LogisticaService {
    * ROTA (badge da chegada) e pelo EXTRATO (ficha) — a regra vive SÓ aqui pra os
    * dois nunca divergirem. Read-only, company-scoped.
    */
-  private async saldoAbertoPorClientes(
+  // PÚBLICA desde 05/08 — a caderneta precisa do MESMO número pra escrever
+  // "Deve: R$ X" na linha do dia. Reusar é o ponto: uma 2ª conta de dívida em
+  // outro serviço é como a tela começa a discordar do extrato.
+  async saldoAbertoPorClientes(
     companyId: number,
     clienteIds: string[],
   ): Promise<Map<string, { pendente: number; aguardando: number }>> {
@@ -2968,23 +2971,55 @@ export class LogisticaService {
           : input.tipo === 'entregue'
             ? 'Entregue, a receber'
             : 'Sem atendimento';
-      // Resumo dos itens: a MESMA frase que o app mostrou na chegada ("1× Galão
-      // 20L"), congelada. Sem isto o histórico de amanhã leria o produto de hoje.
+      // Resumo dos itens: a MESMA frase que o app mostra na linha do dia,
+      // congelada. Formato CRAVADO pelo dono (05/08):
+      //   "1× Galão 20Litros - Un R$ 11,00 = Total: R$ 11,00"
+      //
+      // 🔴 DOIS defeitos corrigidos aqui em 05/08, medidos na produção (cia 41):
+      //  (1) o histórico das 7 vendas da caderneta saiu com itensResumo VAZIO —
+      //      venda de 1 produto nasce pelo createEntrega, que grava
+      //      productId/quantidade NA Entrega e não cria EntregaItem nenhum. Só
+      //      olhar EntregaItem era garantir histórico em branco. Agora há o
+      //      MESMO fallback escalar que o listRota já fazia.
+      //  (2) faltava o dinheiro: sem Un e Total, "1× Galão" não conta a venda.
       let itensResumo: string | null = null;
       if (input.entregaId) {
         const itens = await this.prisma.entregaItem.findMany({
           where: { entregaId: input.entregaId },
-          select: { qtdEntregue: true, qtdPrevista: true, product: { select: { name: true } } },
+          select: { qtdEntregue: true, qtdPrevista: true, valorUnit: true, product: { select: { name: true } } },
           take: 12,
         });
-        const partes = itens
-          .map((it) => {
-            const qtd = Math.max(0, it.qtdEntregue ?? it.qtdPrevista ?? 0);
-            const nome = String(it.product?.name || 'item').trim();
-            return qtd > 0 ? `${qtd}× ${nome}` : '';
-          })
-          .filter(Boolean);
-        itensResumo = partes.length ? partes.join(', ').slice(0, 240) : null;
+        let linhas: Array<{ qtd: number; nome: string; valorUnit: number | null }> = itens.map((it) => ({
+          qtd: Math.max(0, it.qtdEntregue ?? it.qtdPrevista ?? 0),
+          nome: String(it.product?.name || 'item').trim(),
+          valorUnit: typeof it.valorUnit === 'number' ? it.valorUnit : null,
+        }));
+        if (!linhas.length) {
+          // Fallback escalar: a entrega de 1 produto (caderneta, rota rápida,
+          // agendamento avulso) vive nas colunas da própria Entrega.
+          const escalar = await this.prisma.entrega.findFirst({
+            where: { id: input.entregaId, companyId },
+            select: { quantidade: true, valor: true, product: { select: { name: true } } },
+          });
+          if (escalar?.product) {
+            const qtd = Math.max(0, Number(escalar.quantidade) || 0);
+            linhas = [{
+              qtd,
+              nome: String(escalar.product.name || 'item').trim(),
+              // O unitário se deriva do TOTAL da entrega — nunca do catálogo:
+              // o catálogo muda amanhã e o passado não se reescreve.
+              valorUnit: qtd > 0 && Number.isFinite(Number(escalar.valor)) ? round2(Number(escalar.valor) / qtd) : null,
+            }];
+          }
+        }
+        const partes = linhas
+          .filter((l) => l.qtd > 0)
+          .map((l) =>
+            l.valorUnit != null && l.valorUnit > 0
+              ? `${l.qtd}× ${l.nome} - Un ${moedaBR(l.valorUnit)} = Total: ${moedaBR(round2(l.valorUnit * l.qtd))}`
+              : `${l.qtd}× ${l.nome}`,
+          );
+        itensResumo = partes.length ? partes.join(' · ').slice(0, 240) : null;
       }
       await this.prisma.clienteHistorico.create({
         data: {
@@ -3471,6 +3506,20 @@ function clampDiaFechamento(v: number): number {
 // R2 — dinheiro é sempre 2 casas (evita 19.999999 virar cobrança).
 function round2(v: number): number {
   return Math.round((Number(v) || 0) * 100) / 100;
+}
+
+/**
+ * "R$ 11,00" — o dinheiro do TEXTO CONGELADO do histórico (05/08).
+ *
+ * Escrito à mão de propósito, sem `toLocaleString`: o texto do histórico é
+ * gravado UMA vez e lido pra sempre, e um container sem ICU completo formataria
+ * diferente do resto do app sem ninguém perceber. Aqui o resultado é o mesmo em
+ * qualquer máquina.
+ */
+function moedaBR(v: number): string {
+  const n = Math.max(0, round2(Number(v) || 0));
+  const [inteiro, centavos] = n.toFixed(2).split('.');
+  return `R$ ${inteiro.replace(/\B(?=(\d{3})+(?!\d))/g, '.')},${centavos}`;
 }
 
 // PREÇO DE HOJE (22/07) — normaliza o valorUnit opcional que a folha de chegada

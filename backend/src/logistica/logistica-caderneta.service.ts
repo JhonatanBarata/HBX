@@ -47,6 +47,12 @@ export interface CadernetaResumo {
     vendas: number;
     formas: { dinheiroCents: number; pixCents: number; cartaoCents: number; fiadoCents: number };
   } | null;
+  // QUEM DEVE (05/08, ordem do dono: `{Devedor?} S/N? Caso sim: "Deve: {valor}"`)
+  // — só quem tem saldo em aberto entra, em centavos, indexado pelo id do
+  // cliente. Vem no resumo (e não no roster) porque a lista da caderneta mistura
+  // duas fontes (agenda do dia + entregas de hoje) e o "Deve" tem de valer pras
+  // duas. Vazio com financeiro OFF: sem cobrança não existe devedor.
+  devedores: Record<string, number>;
 }
 
 export interface CadernetaVendaResult {
@@ -107,6 +113,25 @@ export class LogisticaCadernetaService {
     // em dinheiro/pix/cartão + quanto ficou fiado). Fonte = Entrega entregue no
     // dia civil SP; método imediato soma na forma, o resto é fiado do dia.
     // Financeiro OFF → null (sem cobrança não há forma; o card nem aparece).
+    // "Deve: R$ X" da linha do dia. REUSA `saldosFinanceiro` — a mesma visão
+    // "quem me deve" da web, que por sua vez lê a fonte única
+    // `saldoAbertoPorClientes`. Escrever uma 2ª conta de dívida aqui seria a
+    // receita pronta pro APK e o extrato discordarem. Best-effort: dívida é
+    // enfeite da linha; falha dela nunca pode derrubar a tela do dia.
+    let devedores: Record<string, number> = {};
+    if (cfg?.moduloFinanceiroAtivo) {
+      try {
+        const saldos = await this.logistica.saldosFinanceiro(companyId);
+        for (const row of saldos.clientes || []) {
+          const c = cents(row.saldoAberto);
+          if (c > 0) devedores[row.customerProfileId] = c;
+        }
+      } catch (e: any) {
+        this.logger.warn(`[caderneta] devedores company=${companyId} falhou: ${String(e?.message || e)}`);
+        devedores = {};
+      }
+    }
+
     let fechamento: CadernetaResumo['fechamento'] = null;
     if (cfg?.moduloFinanceiroAtivo) {
       const inicio = saoPauloMidnight(dateKey);
@@ -128,7 +153,7 @@ export class LogisticaCadernetaService {
       fechamento = { totalCents, vendas: entregues.length, formas };
     }
 
-    return { ativo: !!cfg?.modoCaderneta, dia, base, fechamento };
+    return { ativo: !!cfg?.modoCaderneta, dia, base, fechamento, devedores };
   }
 
   /**

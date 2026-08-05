@@ -11563,9 +11563,20 @@
       return `${qtd}× ${nome} - Un ${H.money(unit)} = Total: ${H.money(unit * qtd)}`;
     }).join(" · ");
   }
+  /**
+   * "Deve: R$ X" — o que o cliente já devia, do resumo do dia. Só aparece pra
+   * QUEM DEVE (ordem do dono: "{Devedor?} S/N? Caso sim: Deve: {valor}"): linha
+   * de dívida em cliente sem dívida é ruído em cima do que importa.
+   */
+  function cadernetaDeve(clienteId) {
+    const mapa = state.cadernetaResumo && state.cadernetaResumo.devedores;
+    const cents = mapa && Number(mapa[String(clienteId)]);
+    return Number.isFinite(cents) && cents > 0 ? cents / 100 : 0;
+  }
   function cadernetaClienteCard(linha, ordem) {
     const atendido = linha.status === "entregue";
     const itens = cadernetaLinhaItens(linha);
+    const deve = configFlag("moduloFinanceiroAtivo") ? cadernetaDeve(linha.clienteId) : 0;
     const titulo = `${linha.nome}${linha.localApelido ? ` · ${linha.localApelido}` : ""}`;
     // O desfecho fecha a linha do dono ("{Modopagamento, ou se ficou devendo}").
     // Fica NA LINHA, não num selo à parte: o mesmo dado em dois lugares é bug de
@@ -11578,7 +11589,10 @@
     const desfecho = rotulo
       ? `<small class="caderneta-desfecho ${rotulo === "Ficou devendo" ? "is-devendo" : ""}">${H.escape(rotulo)}</small>`
       : "";
-    return `<article class="stop-card" data-action="caderneta-vender" data-caderneta-chave="${H.escape(linha.chave)}"${hold} role="button" tabindex="0"><div class="stop-top"><div class="order">${atendido ? icon("check", 16) : ordem}</div><div class="card-main"><strong>${H.escape(titulo)}</strong>${itens ? `<small>${H.escape(itens)}</small>` : ""}${desfecho}${linha.observacoes ? `<small class="stop-obs">${H.escape(linha.observacoes)}</small>` : ""}</div></div></article>`;
+    // A dívida vem ANTES do produto: é a primeira coisa que muda a conversa na
+    // porta ("você tá devendo 33"), e o produto de hoje é o de sempre.
+    const deveLinha = deve > 0 ? `<small class="caderneta-deve">Deve: ${H.escape(H.money(deve))}</small>` : "";
+    return `<article class="stop-card" data-action="caderneta-vender" data-caderneta-chave="${H.escape(linha.chave)}"${hold} role="button" tabindex="0"><div class="stop-top"><div class="order">${atendido ? icon("check", 16) : ordem}</div><div class="card-main"><strong>${H.escape(titulo)}</strong>${deveLinha}${itens ? `<small>${H.escape(itens)}</small>` : ""}${desfecho}${linha.observacoes ? `<small class="stop-obs">${H.escape(linha.observacoes)}</small>` : ""}</div></div></article>`;
   }
   function cadernetaFechamento() {
     const fechamento = state.cadernetaResumo && state.cadernetaResumo.fechamento;

@@ -2025,6 +2025,10 @@ html[data-theme="dark"] .pss-montagem-dica { color: var(--brand); }
    funcionando). Fonte e peso vêm do .card-main small; aqui só a cor. */
 .caderneta-desfecho { color: var(--success); font-weight: 800; }
 .caderneta-desfecho.is-devendo { color: var(--warning); }
+/* "Deve: R$ X" — dívida ANTERIOR do cliente, no topo do card. --warning (falta
+   receber), nunca --danger: o vermelho da casa BLOQUEIA, e dever não bloqueia
+   venda nenhuma na caderneta. */
+.caderneta-deve { color: var(--warning); font-weight: 800; }
 .caderneta-numero { margin-top: 14px; }
 .caderneta-numero .field { margin: 0; }
 /* Venda: os 3 métodos do "pagou" lado a lado; o rótulo em cima é o verbo. */
