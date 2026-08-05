@@ -1387,7 +1387,9 @@ html.keyboard-open .modal form > .client-primary-actions:last-child {
 .hbx-dimmed { opacity: .45; }
 /* Chegada simples/offline (deliverySimpleSheet/deliveryOfflineSheet) — bloco
    "hero" com nome grande, "Deve R$" e botões grandes de ação. */
-.delivery-hero-kicker { margin: 0; }
+/* .delivery-hero-kicker e .chegada-box-titulo morreram em 05/08: eram RÓTULOS
+   ("Editando entrega", "Entregar") em cima de coisa que já se explica. PROIBIDO
+   rótulo em tela — lei do dono. */
 .delivery-hero { text-align: center; padding: 4px 4px 18px; }
 .delivery-hero-name { font-size: 1.85rem; line-height: 1.15; margin: 0; }
 .delivery-hero-obs { margin: 8px 0 0; font-weight: 700; color: var(--brand-strong); }
@@ -1436,7 +1438,6 @@ html.leitura-route-active .content.is-rota { padding-top: 10px; padding-bottom: 
    número grande, produto · valor no mesmo peso. Alvo de toque vem do padding,
    não de borda. */
 .chegada-box { margin: 18px 0 0; padding: 0; border: 0; background: none; }
-.chegada-box-titulo { display: block; margin-bottom: 8px; text-align: center; }
 .chegada-lista { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .chegada-linha { display: flex; align-items: center; justify-content: center; gap: 10px; min-height: 82px; padding: 8px 0; }
 .chegada-linha + .chegada-linha { border-top: 1px solid var(--line); }
@@ -2056,7 +2057,15 @@ html[data-theme="dark"] .pss-montagem-dica { color: var(--brand); }
 .caderneta-finalizar-dias { margin-top: 4px; }
 .caderneta-numero { margin-top: 14px; }
 .caderneta-numero .field { margin: 0; }
-/* Venda: os 3 métodos do "pagou" lado a lado; o rótulo em cima é o verbo. */
-.caderneta-pagto { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-.caderneta-pagto .chegada-btn { padding-inline: 6px; }
-.caderneta-pagto-titulo { margin: 0 2px; }
+/* Venda: os 4 desfechos, MESMO botão e MESMO tamanho, em 2×2 (05/08, ordem do
+   dono: "coloque 4 botões iguais"). Em 4 colunas "Dinheiro" com ícone não cabe
+   numa tela de 360; em 2×2 os quatro ficam idênticos e grandes de dedo.
+   O `.caderneta-pagto-titulo` morreu junto com o rótulo "Entregue e pagou" —
+   PROIBIDO rótulo em tela (lei do dono, 05/08). */
+/* `grid-column: 1 / -1` é o que tira os 4 botões da PRIMEIRA COLUNA: o
+   .chegada-acoes é uma grade de 2 colunas, e sem isto os quatro se espremiam na
+   metade esquerda da folha. Aqui eles ocupam a largura toda, 4 iguais numa
+   linha. Sem ícone: em 4 colunas de ~78px "Dinheiro" com ícone não cabe, e a
+   palavra é o que importa. */
+.caderneta-pagto { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.caderneta-pagto .chegada-btn { padding-inline: 2px; font-size: .92rem; }

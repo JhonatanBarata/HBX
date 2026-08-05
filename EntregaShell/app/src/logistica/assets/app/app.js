@@ -5796,10 +5796,17 @@
     // de entregar) e o "Ver detalhes" vira a porta do Cadastro, que na caderneta
     // é o único caminho pra ficha (o toque no cliente vende).
     const venda = !!item.caderneta;
-    const editando = state.deliveryEditingId === item.id;
+    // Na caderneta, "editando" é a venda que veio de uma linha JÁ vendida: a
+    // folha tem de dizer CORRIGINDO, senão o dono confirma achando que está
+    // registrando outra entrega.
+    const editando = state.deliveryEditingId === item.id
+      || !!(item.caderneta && state.cadernetaVenda && state.cadernetaVenda.substituir);
     const debitoAtual = c.debitoAtual;
     const financeiroAtivo = configFlag("moduloFinanceiroAtivo") && debitoAtual !== null && debitoAtual !== undefined;
-    const cobrancaSimples = financeiroAtivo && !editando && !!(state.config && state.config.cobrancaSimples);
+    // Na VENDA a conta é sempre a linha única ("Deve R$ X"): corrigir uma venda
+    // não é motivo pra abrir três linhas de valor — e "Valor antigo R$ 0,00"
+    // numa correção é número que não quer dizer nada.
+    const cobrancaSimples = financeiroAtivo && (venda || !editando) && !!(state.config && state.config.cobrancaSimples);
     const valorAntigo = financeiroAtivo ? Number(debitoAtual || 0) : 0;
     const valorAgora = draftValorAgora(item);
     const draft = deliveryDraftFor(item);
@@ -5848,7 +5855,12 @@
         // VENDA (caderneta): o "pagou" escolhe o MÉTODO no mesmo toque — é o que
         // faz o fechamento do dia (dinheiro × pix × cartão) sair certo. Sem isto
         // tudo caía em "dinheiro" e a conta que o dono faz de cabeça não batia.
-        ? `<div class="chegada-acoes"><span class="subtitle caderneta-pagto-titulo">Entregue e pagou</span><div class="caderneta-pagto"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago-metodo" data-metodo="dinheiro" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 18)} Dinheiro</button><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago-metodo" data-metodo="pix" ${state.deliveryConfirming ? "disabled" : ""}>Pix</button><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago-metodo" data-metodo="cartao" ${state.deliveryConfirming ? "disabled" : ""}>${icon("card", 18)} Cartão</button></div><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue, ficou devendo</button>${rodapeSem}</div>`
+        // 4 BOTÕES IGUAIS (05/08, ordem literal do dono). O rótulo "Entregue e
+        // pagou" MORREU: era texto que ninguém pediu, e a folha já diz o que é.
+        // Os quatro desfechos passam a ser o MESMO botão, no MESMO tamanho, na
+        // mesma grade — antes eram 3 verdes numa linha e um quarto solto,
+        // maior, embaixo, como se fosse outra coisa.
+        ? `<div class="chegada-acoes"><div class="caderneta-pagto"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago-metodo" data-metodo="dinheiro" ${state.deliveryConfirming ? "disabled" : ""}>Dinheiro</button><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago-metodo" data-metodo="pix" ${state.deliveryConfirming ? "disabled" : ""}>Pix</button><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago-metodo" data-metodo="cartao" ${state.deliveryConfirming ? "disabled" : ""}>Cartão</button><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>Fiado</button></div>${rodapeSem}</div>`
         : `<div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Entregue e quitou</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue, ficou devendo</button>${rodapeSem}</div>${editando ? "" : `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-detail">Ver detalhes</button>`}`
       : venda
         ? `<div class="delivery-hero-actions"><button class="btn btn-primary delivery-confirm delivery-big-btn" type="button" data-action="confirm-entregue-simples" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue</button></div><button class="link-btn delivery-detail-link" type="button" data-action="caderneta-cadastro">Cadastro</button>`
@@ -5856,7 +5868,7 @@
     const conta = !financeiroAtivo ? "" : cobrancaSimples
       ? `<div class="chegada-conta"><div class="chegada-conta-linha chegada-conta-total"><span>Deve</span><b>${H.money(valorAntigo + valorAgora)}</b></div></div>`
       : `<div class="chegada-conta"><div class="chegada-conta-linha"><span>Valor antigo</span><b>${H.money(valorAntigo)}</b></div><div class="chegada-conta-linha"><span>Valor entrega</span><b>${H.money(valorAgora)}</b></div><div class="chegada-conta-linha chegada-conta-total"><span>Valor total</span><b>${H.money(valorAntigo + valorAgora)}</b></div></div>`;
-    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet delivery-sheet-simple"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><p class="subtitle delivery-hero-kicker">${editando ? "Editando entrega" : "Chegada"}</p></div><button class="close" type="button" data-action="close-sheet">${icon("close", 18)}</button></div><div class="delivery-hero"><h1 class="delivery-hero-name">${editando ? "Editando" : "Chegou em"} <b>${H.escape(c.nome || "Cliente")}</b></h1>${c.observacoes ? `<p class="subtitle delivery-hero-obs">${H.escape(c.observacoes)}</p>` : ""}<div class="chegada-box"><span class="subtitle chegada-box-titulo">Entregar</span><div class="chegada-lista">${linhas}</div>${picker}</div>${conta}${venda ? cadernetaNumeroCampo() : ""}</div>${acoes}</section></div>`;
+    return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet delivery-sheet-simple"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div></div><button class="close" type="button" data-action="close-sheet">${icon("close", 18)}</button></div><div class="delivery-hero"><h1 class="delivery-hero-name">${editando ? "Editando" : "Chegou em"} <b>${H.escape(c.nome || "Cliente")}</b></h1>${c.observacoes ? `<p class="subtitle delivery-hero-obs">${H.escape(c.observacoes)}</p>` : ""}<div class="chegada-box"><div class="chegada-lista">${linhas}</div>${picker}</div>${conta}${venda ? cadernetaNumeroCampo() : ""}</div>${acoes}</section></div>`;
   }
   // Financeiro OFF reutiliza a chegada já existente, com produto, quantidade,
   // troca e adição. A própria folha esconde preço/conta/Pago neste modo.
@@ -9610,6 +9622,12 @@
       state.cadernetaDiaVisto = date === operationalDate() ? null : { diaSemana: dia, dateKey: date };
       state.cadernetaFiltro = "todos";
       render();
+      // 🔴 05/08 — SEM ISTO O TOQUE NÃO FAZIA NADA VISÍVEL. O Histórico mora no
+      // FIM da página; abrir um dia trocava a lista lá em cima e a tela não se
+      // mexia — no g15 o dono tocou em "QUA" e continuou olhando exatamente o
+      // mesmo pedaço de tela ("não está abrindo o histórico"). Abrir uma página
+      // é ir pro começo dela.
+      voltarAoTopoDaPagina();
       void carregarCadernetaResumo();
       void carregarCadernetaRoster(true);
       return;
@@ -9618,6 +9636,7 @@
       state.cadernetaDiaVisto = null;
       state.cadernetaFiltro = "todos";
       render();
+      voltarAoTopoDaPagina();
       void carregarCadernetaResumo();
       void carregarCadernetaRoster(true);
       return;
@@ -11606,14 +11625,21 @@
         metodo: "",
       });
     });
-    // Dia fechado pelo Finalizar: a tela do dia volta limpa (só roster). As
-    // vendas continuam no Histórico — venda NOVA reabre o dia (o vender limpa a
-    // marca). Dia de histórico aberto SEMPRE mostra tudo.
-    const suprimirVendas = cadernetaVendoHoje() && !state.cadernetaDiaVisto && cadernetaFechadaHoje();
-    // As vendas DA PÁGINA (resumo?dia=): é o que faz o histórico ser editável —
-    // um dia reaberto mostra o que foi vendido nele, com toque-longo pra apagar.
+    // 🔴 05/08 — FINALIZAR NÃO APAGA O DIA DA TELA (bug visto no g15).
+    //
+    // Havia aqui um `suprimirVendas` que, com o dia fechado, jogava a lista de
+    // volta pro ROSTER. O resultado na tela do dono foi este: os 5 clientes
+    // apareciam com o que a AGENDA planejou (Hilton "1× — R$ 11") no lugar do
+    // que ele VENDEU (2× — R$ 22), os filtros marcavam "Devendo 0 · Pago 0", e
+    // logo abaixo o Fechamento dizia "7 vendas · R$ 110,00". A mesma tela
+    // afirmando duas coisas diferentes.
+    //
+    // Fechar o dia é CONFERIR o caixa, não apagar a página — caderneta de papel
+    // fechada continua escrita. E a página nem precisava ser limpa: ela é por
+    // DIA DA SEMANA dentro de uma janela de 7 dias civis, então na próxima
+    // quarta a lista já nasce vazia sozinha, pela data.
     const pagina = state.cadernetaResumo && state.cadernetaResumo.pagina;
-    const vendasPagina = !suprimirVendas && pagina && Number(pagina.diaSemana) === vista.diaSemana && Array.isArray(pagina.vendas)
+    const vendasPagina = pagina && Number(pagina.diaSemana) === vista.diaSemana && Array.isArray(pagina.vendas)
       ? pagina.vendas
       : [];
     vendasPagina.forEach(v => {
@@ -11651,7 +11677,7 @@
         diasAtuais: Array.isArray(v.diasAtuais) ? v.diasAtuais : [],
       });
     });
-    if (cadernetaVendoHoje() && !suprimirVendas) allRouteItems().filter(item => item && item.status !== "cancelada").forEach(item => {
+    if (cadernetaVendoHoje()) allRouteItems().filter(item => item && item.status !== "cancelada").forEach(item => {
       const c = item.cliente || {};
       const clienteId = String(item.customerProfileId || c.id || "");
       if (!clienteId) return;
@@ -11726,7 +11752,11 @@
   const CADERNETA_FILTROS = [["todos", "Todos"], ["devendo", "Devendo"], ["pago", "Pago"]];
   function cadernetaDesfechoDaLinha(linha) {
     if (linha.status !== "entregue") return "";
-    return String(linha.metodo || "").toLowerCase() === "fiado" ? "devendo" : "pago";
+    // Só método IMEDIATO é "pago" — a mesma régua do Fechamento, que soma em
+    // Fiado tudo que não é dinheiro/Pix/cartão. Antes bastava "não ser fiado":
+    // venda sem método (legado, financeiro OFF) caía em Pago na contagem e em
+    // Fiado no total, e os dois números da mesma tela não fechavam.
+    return ["dinheiro", "pix", "cartao"].includes(String(linha.metodo || "").toLowerCase()) ? "pago" : "devendo";
   }
   function cadernetaFiltroAtual() {
     const atual = String(state.cadernetaFiltro || "todos");
@@ -11769,7 +11799,10 @@
     const vista = cadernetaPaginaVista();
     const wd = weekDays.find(d => d.n === Number(vista.diaSemana));
     const hoje = cadernetaVendoHoje() && !state.cadernetaDiaVisto;
-    return `<section class="card flat caderneta-cabecalho"><div class="card-main"><strong>${wd ? H.escape(wd.nome) : ""}${hoje ? " · hoje" : ""}</strong><small>${H.escape(cadernetaDataBR(vista.dateKey))}</small></div>${hoje ? "" : `<button class="link-btn caderneta-hoje-btn" type="button" data-action="caderneta-voltar-hoje">Hoje ›</button>`}</section>`;
+    // Dia fechado precisa DIZER que está fechado: antes o Finalizar só fazia o
+    // botão sumir, e sumiço não é resposta — "cliquei e não salvou".
+    const fechado = hoje && cadernetaFechadaHoje();
+    return `<section class="card flat caderneta-cabecalho"><div class="card-main"><strong>${wd ? H.escape(wd.nome) : ""}${hoje ? " · hoje" : ""}</strong><small>${H.escape(cadernetaDataBR(vista.dateKey))}</small></div>${fechado ? `<span class="badge success">Dia fechado</span>` : ""}${hoje ? "" : `<button class="link-btn caderneta-hoje-btn" type="button" data-action="caderneta-voltar-hoje">Hoje ›</button>`}</section>`;
   }
   /** Finalizar: só na página de HOJE, com venda registrada e o dia ainda aberto. */
   function cadernetaFinalizarBotao(lista) {
@@ -12029,7 +12062,11 @@
   }
   function cadernetaVenderChave(chave) {
     const linha = cadernetaLinhaPorChave(chave);
-    if (linha) cadernetaAbrirVenda(linha);
+    // 🔴 05/08 — TOCAR NUMA LINHA JÁ VENDIDA É CORRIGIR, NÃO VENDER DE NOVO
+    // (dono: "ao clicar em quarta, eu deveria conseguir editar tbm, deletar").
+    // Antes o toque abria SEMPRE uma venda nova: o dono ia "arrumar o 1× que
+    // era 2×" e saía com duas vendas na página e o dobro no fechamento.
+    if (linha) cadernetaAbrirVenda(linha, { substituir: linha.entregaId || null });
   }
   /**
    * APAGAR A VENDA ERRADA (05/08). Uma chamada desfaz os três lugares onde ela
@@ -12064,7 +12101,7 @@
       status: "",
     });
   }
-  function cadernetaAbrirVenda(linha) {
+  function cadernetaAbrirVenda(linha, opcoes) {
     if (!linha || !linha.clienteId) return;
     const item = cadernetaItemDeVenda(linha);
     state.cadernetaVenda = {
@@ -12073,6 +12110,12 @@
       localId: linha.localId || null,
       numero: "",
       cadastro: null,
+      // CORREÇÃO (05/08): a entrega que esta folha vai SUBSTITUIR. Quando existe,
+      // confirmar registra a venda nova e só então apaga a velha — nessa ordem de
+      // propósito: se a segunda chamada falhar sobra uma venda DUPLICADA, que
+      // aparece na lista e o dono apaga com o dedo. A ordem inversa perderia o
+      // dinheiro em silêncio, que é o erro caro.
+      substituir: (opcoes && opcoes.substituir) || null,
       // Chave de idempotência da TENTATIVA: erro de rede repetido no mesmo
       // cliente não vira venda dobrada; folha nova = venda nova.
       idempotencyKey: H.uuid(),
@@ -12200,7 +12243,17 @@
     if (!(await passarPeloPortao())) return;
     try {
       await H.api("/logistica/caderneta/vender", { method: "POST", body });
+      // CORREÇÃO: a venda nova já está gravada — agora a velha sai. Nesta ordem
+      // o pior caso é uma linha duplicada na tela (que o dono apaga segurando),
+      // nunca uma venda que sumiu. `catch` próprio: falhar em apagar a antiga
+      // NÃO pode virar "erro" pra quem acabou de registrar a nova certinha.
+      const substituida = venda.substituir;
       state.cadernetaVenda = null;
+      if (substituida) {
+        try {
+          await H.api("/logistica/caderneta/apagar-venda", { method: "POST", body: { entregaId: substituida } });
+        } catch (_) { toast("Corrigido, mas a linha antiga continuou. Segure nela para apagar.", true); }
+      }
       // Venda nova em dia fechado REABRE o dia (a marca do Finalizar cai) —
       // só quando a venda é DE hoje; editar o histórico não mexe no dia atual.
       if (cadernetaVendoHoje()) H.cache.remove(`caderneta-fechada-${operationalDate()}`);
@@ -12208,7 +12261,7 @@
       await refresh(true);
       void carregarCadernetaResumo();
       if (opcoes && opcoes.efeitos) { H.sound("delivery_complete"); H.vibrate(12); }
-      toast("Venda registrada.", false, { mudo: true });
+      toast(substituida ? "Venda corrigida." : "Venda registrada.", false, { mudo: true });
     } catch (error) { toast(humanApiError(error), true); }
   }
 

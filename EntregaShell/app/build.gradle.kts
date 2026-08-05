@@ -87,7 +87,13 @@ plugins {
 // 142 → 148 em 03/08 (noite): o canal de recados foi provado até o build 147.
 // O módulo Chat e o fluxo suportado de aviso precisam nascer acima da versão
 // que já está no aparelho para a atualização normal realmente ser oferecida.
-val hbxLogisticaVersionCodeFloor = 148
+// 148 → 156 em 05/08: o publish da CADERNETA 7 DIAS carimbou 154 e o piso ficou
+// em 148 — o build local parou de instalar no g15 por downgrade no meio do teste
+// que o dono pediu ("abra o celular e teste tudo"). Piso ACIMA do maior número
+// que já saiu, senão o ciclo "editar → instalar no aparelho" trava (mesmo caso
+// de 8→15, 15→18, 18→38, 38→60, 60→68, 87→95, 95→110, 110→117, 117→123,
+// 123→131 e 131→134 acima).
+val hbxLogisticaVersionCodeFloor = 156
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)
