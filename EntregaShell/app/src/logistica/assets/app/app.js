@@ -11418,8 +11418,20 @@
       const chave = cadernetaChave(clienteId, item.localId || c.localId);
       const linha = linhas.get(chave) || linhas.get(cadernetaChave(clienteId, null));
       // `entregaId` é o que o toque-longo apaga; `metodo` é o que a linha mostra
-      // no lugar de um "Entregue" que não diz se o dinheiro entrou.
-      if (linha) { linha.status = item.status || ""; linha.entregaId = item.id || null; linha.metodo = item.receiptMethod || ""; return; }
+      // no lugar de um "Entregue" que não diz se o dinheiro entrou. Os ITENS
+      // passam a vir da ENTREGA quando ela existe: depois de vendida, a linha
+      // tem de mostrar o que FOI vendido (quantidade e preço confirmados na
+      // folha), não o que a agenda tinha planejado ontem.
+      const vendidos = cadernetaItensDaEntrega(item);
+      const total = cadernetaTotalDaEntrega(item);
+      if (linha) {
+        linha.status = item.status || "";
+        linha.entregaId = item.id || null;
+        linha.metodo = item.receiptMethod || "";
+        if (vendidos.length) linha.itens = vendidos;
+        if (total != null) linha.total = total;
+        return;
+      }
       linhas.set(chave, {
         chave,
         clienteId,
@@ -11429,7 +11441,8 @@
         observacoes: c.observacoes || "",
         lat: c.lat ?? null,
         lng: c.lng ?? null,
-        itens: (item.itens || []).filter(x => x && (x.produto || x.produtoId)).map(x => ({ productId: (x.produto && x.produto.id) || x.produtoId, nome: (x.produto && x.produto.nome) || "", qtd: Math.max(1, Number(x.qtdPrevista ?? x.qtdEntregue) || 1), valorUnit: Number.isFinite(Number(x.valorUnit)) ? Number(x.valorUnit) : null })),
+        itens: vendidos,
+        total,
         status: item.status || "",
         entregaId: item.id || null,
         metodo: item.receiptMethod || "",
@@ -11438,6 +11451,27 @@
     return [...linhas.values()];
   }
   function cadernetaLinhaPorChave(chave) { return cadernetaLista().find(linha => linha.chave === String(chave || "")) || null; }
+
+  /** O que a ENTREGA realmente levou (quantidade CONFIRMADA vence a prevista). */
+  function cadernetaItensDaEntrega(item) {
+    return (item.itens || [])
+      .filter(x => x && (x.produto || x.produtoId))
+      .map(x => ({
+        productId: (x.produto && x.produto.id) || x.produtoId,
+        nome: (x.produto && x.produto.nome) || "",
+        qtd: Math.max(1, Number(x.qtdEntregue ?? x.qtdPrevista) || 1),
+        valorUnit: Number.isFinite(Number(x.valorUnit)) ? Number(x.valorUnit) : null,
+      }));
+  }
+  /**
+   * O total DA ENTREGA — o número que o cliente pagou, direto do servidor.
+   * `valor` só chega pra quem enxerga cobrança; `valorHoje` é o total seguro do
+   * entregador comum. Sem os dois, devolve null e a linha soma item a item.
+   */
+  function cadernetaTotalDaEntrega(item) {
+    const doServidor = [item.valor, item.valorHoje].find(v => Number.isFinite(Number(v)));
+    return doServidor === undefined ? null : Number(doServidor);
+  }
 
   // ---- a tela do dia (medidor + lista + fechamento) -------------------------
   function cadernetaConteudo() {
@@ -11506,20 +11540,45 @@
   // "Entregue" iguais em cima de um fechamento que dizia "Pix R$11" não deixavam
   // ninguém saber quem pagou. Fiado é o único que não é verde — é o que falta
   // receber. Sem financeiro, o servidor não manda método e volta o "Entregue".
-  const CADERNETA_METODO_ROTULO = { dinheiro: "Dinheiro", pix: "Pix", cartao: "Cartão", fiado: "Fiado" };
+  const CADERNETA_METODO_ROTULO = { dinheiro: "Dinheiro", pix: "Pix", cartao: "Cartão", fiado: "Ficou devendo" };
+  /**
+   * A linha do produto no formato que o dono cravou (05/08, literal):
+   *   "1× Galão 20 Litros - Un R$ 11,00 = Total: R$ 11,00"
+   * Sem financeiro (ou sem preço conhecido) sobra só "1× Galão 20 Litros" —
+   * número de dinheiro não se inventa. O unitário de quem não enxerga catálogo
+   * sai por RATEIO do total da entrega, a mesma conta do unitPriceFor.
+   */
+  function cadernetaLinhaItens(linha) {
+    const itens = linha.itens || [];
+    if (!itens.length) return "";
+    const financeiro = configFlag("moduloFinanceiroAtivo");
+    const somaQtd = itens.reduce((s, x) => s + Math.max(0, Number(x.qtd) || 0), 0);
+    return itens.map(x => {
+      const qtd = Math.max(1, Number(x.qtd) || 1);
+      const nome = x.nome || "item";
+      if (!financeiro) return `${qtd}× ${nome}`;
+      let unit = Number.isFinite(Number(x.valorUnit)) ? Number(x.valorUnit) : null;
+      if (unit === null && linha.total != null && somaQtd > 0) unit = Number(linha.total) / somaQtd;
+      if (unit === null) return `${qtd}× ${nome}`;
+      return `${qtd}× ${nome} - Un ${H.money(unit)} = Total: ${H.money(unit * qtd)}`;
+    }).join(" · ");
+  }
   function cadernetaClienteCard(linha, ordem) {
     const atendido = linha.status === "entregue";
-    const itens = (linha.itens || []).map(x => `${x.qtd}× ${x.nome || "item"}`).join(", ");
+    const itens = cadernetaLinhaItens(linha);
     const titulo = `${linha.nome}${linha.localApelido ? ` · ${linha.localApelido}` : ""}`;
-    const rotulo = CADERNETA_METODO_ROTULO[String(linha.metodo || "").toLowerCase()] || "";
-    const selo = atendido
-      ? `<span class="badge ${rotulo === "Fiado" ? "warning" : "success"}">${H.escape(rotulo || "Entregue")}</span>`
-      : "";
+    // O desfecho fecha a linha do dono ("{Modopagamento, ou se ficou devendo}").
+    // Fica NA LINHA, não num selo à parte: o mesmo dado em dois lugares é bug de
+    // produto — e no selo não cabia "Ficou devendo".
+    const rotulo = atendido ? (CADERNETA_METODO_ROTULO[String(linha.metodo || "").toLowerCase()] || "Entregue") : "";
     // Segurar pressionado apaga a venda errada (Lei 1 da UI: excluir é segurar,
     // nunca lixeira). Só entra na linha que TEM entrega — não há o que apagar em
     // cliente que ainda não foi atendido.
     const hold = linha.entregaId ? ` data-caderneta-hold="${H.escape(linha.entregaId)}"` : "";
-    return `<article class="stop-card" data-action="caderneta-vender" data-caderneta-chave="${H.escape(linha.chave)}"${hold} role="button" tabindex="0"><div class="stop-top"><div class="order">${atendido ? icon("check", 16) : ordem}</div><div class="card-main"><strong>${H.escape(titulo)}</strong>${itens ? `<small>${H.escape(itens)}</small>` : ""}${linha.observacoes ? `<small class="stop-obs">${H.escape(linha.observacoes)}</small>` : ""}</div>${selo}</div></article>`;
+    const desfecho = rotulo
+      ? `<small class="caderneta-desfecho ${rotulo === "Ficou devendo" ? "is-devendo" : ""}">${H.escape(rotulo)}</small>`
+      : "";
+    return `<article class="stop-card" data-action="caderneta-vender" data-caderneta-chave="${H.escape(linha.chave)}"${hold} role="button" tabindex="0"><div class="stop-top"><div class="order">${atendido ? icon("check", 16) : ordem}</div><div class="card-main"><strong>${H.escape(titulo)}</strong>${itens ? `<small>${H.escape(itens)}</small>` : ""}${desfecho}${linha.observacoes ? `<small class="stop-obs">${H.escape(linha.observacoes)}</small>` : ""}</div></div></article>`;
   }
   function cadernetaFechamento() {
     const fechamento = state.cadernetaResumo && state.cadernetaResumo.fechamento;

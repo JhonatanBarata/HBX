@@ -2019,6 +2019,12 @@ html[data-theme="dark"] .pss-montagem-dica { color: var(--brand); }
    chegada, e fechamento de caixa não é dívida. */
 .caderneta-total { margin-top: 6px; padding-top: 8px; border-top: 1px dashed var(--line); }
 .caderneta-total b { color: var(--ink); font-size: 1.35rem; }
+/* Desfecho da linha do dia (05/08) — "Pix" / "Ficou devendo", logo abaixo do
+   produto. Verde é dinheiro que ENTROU; o fiado usa o --warning, que é o token
+   de "falta receber" (nunca --danger: fiado não bloqueia nada, é a caderneta
+   funcionando). Fonte e peso vêm do .card-main small; aqui só a cor. */
+.caderneta-desfecho { color: var(--success); font-weight: 800; }
+.caderneta-desfecho.is-devendo { color: var(--warning); }
 .caderneta-numero { margin-top: 14px; }
 .caderneta-numero .field { margin: 0; }
 /* Venda: os 3 métodos do "pagou" lado a lado; o rótulo em cima é o verbo. */
