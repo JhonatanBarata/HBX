@@ -2190,6 +2190,11 @@ model LogisticaConfig {
   // (ADMIN/USERMASTER) usa sempre; funcionário só com esta chave ligada, porque
   // iniciar passeio DEBITA crédito da empresa. Default false = dormente.
   passeioEquipe         Boolean  @default(false)
+  // MODO CADERNETA (PR04082026-MODO-CADERNETA, 04/08) — venda registrada por
+  // toque no cliente SEM rota e SEM debitar (débito segue exclusivo do Iniciar
+  // rota); GPS trancado até o dia ter todos os pinos provados. Toggle em
+  // Ajustes do APK (padrão Modo Passeio). Default false = plataforma intacta.
+  modoCaderneta         Boolean  @default(false)
   // TASK 4 (08/07) — dias da semana em que a empresa TRABALHA (CSV ISO "1,2,3,4,5,6,7",
   // 1=segunda…7=domingo; mesma convenção de ClienteProduto.diasSemana). null = default
   // (sem restrição configurada). Usado pelo pop-up "Gerar entregas" do app pra sugerir
@@ -2758,6 +2763,11 @@ model MobileDevice {
   pushUpdatedAt      DateTime?
   appVersion         String?
   lastUsedAt         DateTime?
+  // PULSO DO APP (PR04082026-PULSO-DO-APP, 04/08) — última tela vista no
+  // aparelho (nome curto, ex. "rota"/"clientes"), carona no poll de 5s dos
+  // recados. Painel master lê daqui; trilha do dia vive em MobileTelaTrilha.
+  ultimaTela         String?  @db.VarChar(40)
+  ultimaTelaAt       DateTime?
   expiresAt          DateTime?
   revokedAt          DateTime?
   webTicketHash      String?  @unique
@@ -2777,6 +2787,22 @@ model MobileDevice {
   @@index([userId, hardwareId])
   @@index([companyId, pushToken])
   @@index([userId, companyId, pushUpdatedAt])
+}
+
+// PULSO DO APP (PR04082026-PULSO-DO-APP, 04/08) — trilha do dia: 1 linha por
+// TROCA de tela (nunca por poll — 5s viraria lixão). Colunas SOLTAS de
+// propósito (sem @relation/FK, mesmo padrão de LogisticaCargaDia.entregadorId):
+// aparelho apagado não apaga a trilha do dia. Faxina lazy guarda hoje + D-1.
+model MobileTelaTrilha {
+  id        String   @id @default(cuid())
+  companyId Int
+  deviceId  String
+  userId    Int
+  tela      String   @db.VarChar(40)
+  at        DateTime @default(now())
+
+  @@index([deviceId, at])
+  @@index([companyId, at])
 }
 
 model MobilePairingCode {
