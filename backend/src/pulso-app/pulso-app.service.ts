@@ -54,6 +54,11 @@ export interface PulsoAparelho {
   companyId: number;
   companyName: string;
   userName: string;
+  // O NOME DO APARELHO ("Motorola moto g15") + quando pareou — sem isso, 4
+  // aparelhos da mesma pessoa viram 4 linhas idênticas e o dono não distingue
+  // o celular de teste dele do celular real do cliente (aconteceu 04/08).
+  deviceName: string | null;
+  pareadoEm: string | null;
   ultimaTela: string | null;
   ultimaTelaAt: string | null;
   /** Servidor decide: nunca deixar o painel calcular com relógio de terceiro. */
@@ -221,6 +226,8 @@ export class PulsoAppService {
         select: {
           id: true,
           companyId: true,
+          name: true,
+          createdAt: true,
           appVersion: true,
           ultimaTela: true,
           ultimaTelaAt: true,
@@ -238,6 +245,8 @@ export class PulsoAppService {
         companyName: linha.company?.name || `Empresa #${linha.companyId}`,
         userName:
           linha.user?.name || linha.user?.username || linha.user?.email || 'Sem nome',
+        deviceName: linha.name ?? null,
+        pareadoEm: linha.createdAt ? new Date(linha.createdAt).toISOString() : null,
         ultimaTela: linha.ultimaTela ?? null,
         ultimaTelaAt: at ? at.toISOString() : null,
         abertoAgora: Boolean(at && agora.getTime() - at.getTime() < PULSO_ABERTO_MS),
