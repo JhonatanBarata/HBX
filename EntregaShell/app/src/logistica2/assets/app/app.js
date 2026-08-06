@@ -7342,59 +7342,24 @@
     });
   }
   // ==========================================================================
-  // PELE 2.0 — o mock manda na aparência (06/08)
+  // CASCA LOGÍSTICA — por que NÃO existe mais um `pintarPele20` aqui (06/08)
   // ==========================================================================
-  // Regra do dono: "exibição é 100% o q quero". Então a tela NÃO é imitada
-  // aqui — ela é RENDERIZADA pelo template do próprio mock, carregado de
-  // pele20.js (extração verbatim de docs/mockups/logistica2.0). Medido: as 33
-  // telas saem byte a byte iguais às do mock.
+  // Existiu: um caminho de render PARALELO, que pegava a tela pronta do mock
+  // (`pele20.js`) e jogava no lugar da tela do app. Deu dois defeitos de uma vez:
   //
-  // Este mapa é a única coisa que é minha: dizer QUAL tela do mock responde
-  // por cada estado do app. Estado sem dono aqui = tela ainda não portada, e
-  // cai no caminho antigo em vez de renderizar errado.
-  function pele20Para() {
-    const P = window.HBX20;
-    if (!P || !P.T) return null;
-    if (state.modal || state.selected || state.confirmation) return null; // folhas/modais: 2ª leva
-    if (state.screen === "route") {
-      // A tela cheia do GPS é a mesma decisão do syncNavWatch (nav-cheia).
-      if (document.documentElement.classList.contains("nav-cheia")) return "mapa";
-      if (cadernetaTelaAtiva()) return "caderneta";
-      return "rota";
-    }
-    if (state.screen === "clients") return "clientes";
-    if (state.screen === "products") return "produtos";
-    if (state.screen === "chat") return "chat";
-    if (state.screen === "settings") return "ajustes";
-    return null;
-  }
-  let pele20Atual = null;
-  function pintarPele20() {
-    const chave = pele20Para();
-    if (!chave) { pele20Atual = null; document.documentElement.classList.remove("pele20"); return false; }
-    const P = window.HBX20;
-    document.documentElement.classList.add("pele20");
-    // Sem re-render inútil: a mesma tela não é repintada (o mock troca camada
-    // por camada, e repintar mataria a animação de entrada no meio).
-    // 🔴 A LUZ FAZ PARTE DA IDENTIDADE DA TELA. `T.ajustes` desenha a chave
-    // "Tema escuro" já ligada ou desligada — o HTML MUDA com o tema. Guardando
-    // só o nome da tela, trocar de tema não repintava nada e a chave ficava
-    // mentindo até o dono trocar de aba. Com a luz na marca, qualquer origem da
-    // troca (dedo, virada de turno, aparelho) repinta sozinha, porque
-    // `hbx:theme` já chama render().
-    const marca = `${chave}:${document.documentElement.dataset.luz || ""}`;
-    if (pele20Atual === marca && app.querySelector(".tela")) return true;
-    pele20Atual = marca;
-    app.innerHTML = "";
-    const camada = document.createElement("div");
-    camada.className = "tela";
-    camada.innerHTML = P.T[chave].render();
-    // Numerar é o que dá a ORDEM de entrada das linhas (lei 3 do mock).
-    try { P.numerarItens(camada); } catch (_) {}
-    app.appendChild(camada);
-    requestAnimationFrame(() => camada.classList.add("entra"));
-    return true;
-  }
+  //   1. QUEBROU O COMPORTAMENTO. A tela do mock traz o DADO DE EXEMPLO dele,
+  //      então a Rota do motorista passou a mostrar "João da Silva" e
+  //      "R$ 184,00" por cima do dia real. Casca não pode custar o dado.
+  //   2. CRIOU DUAS PELES. Tela sem tradução pronta caía na marcação velha —
+  //      metade do app com uma cara, metade com outra.
+  //
+  // A correção não é melhorar esse caminho, é NÃO TER esse caminho. O app tem
+  // UM render só, o dele. A casca entra como FOLHA DE ESTILO + vocabulário de
+  // classe (`pele20.css`), e a marcação das telas do app é reescrita pra usar
+  // esse vocabulário, leva a leva — sem tocar em comportamento.
+  //
+  // 🔴 As 33 telas do mock são RÉGUA DE CONFERÊNCIA, nunca código de produção.
+  // Plano e leis: docs/PLANEJAMENTOS/cascalogistica.md
   function render() {
     // S2 21/07 (PR21072026-NAVEGAÇÃO) — sincroniza o watch da navegação a
     // CADA render (o pulso central do app, roda depois de qualquer ação que
@@ -7440,12 +7405,6 @@
     const passeioNaTela = state.screen === "route" && passeioModoAtivo();
     document.body.classList.toggle("pss-active", passeioNaTela);
     if (!passeioNaTela) disposePasseioMap();
-    // 🔴 PELE 2.0 (06/08) — quando a tela tem dono no MOCK, quem desenha é o
-    // mock. A casca dele é a tela INTEIRA (barra de status, cabeçalho e menu
-    // vêm dentro), então ela NÃO passa pelo H.mobileShell.mount — o shell
-    // montaria a moldura velha por fora e o resultado seria duas cascas
-    // empilhadas. O que ainda não foi portado segue no caminho antigo.
-    if (pintarPele20()) return;
     const screens = { route: routeScreen, clients: clientsScreen, products: productsScreen, chat: chatScreen, settings: settingsScreen };
     H.mobileShell.mount(app, (screens[state.screen] || routeScreen)());
     enhancePaymentForms();
@@ -9738,19 +9697,6 @@
   app.addEventListener("click", async event => {
     if (!moduleActive) return;
     if (event.detail === 0) replayIconMotion(event.target);
-    // 🔴 PELE 2.0 — a marcação do mock é INTOCÁVEL: é ela que faz o HTML sair
-    // idêntico, e a única regra de aprovação que o dono cravou. Então o gancho
-    // NÃO pode ser um data-action novo enfiado no template; é por ESTRUTURA,
-    // exatamente como o próprio mock faz na chave do tema. Vem antes do
-    // `closest([data-…])` porque a linha do mock não tem nenhum desses.
-    if (pele20Atual) {
-      const linhaCfg = event.target.closest(".linha-cfg");
-      if (linhaCfg && /Tema escuro/.test(linhaCfg.textContent || "")) {
-        H.theme.toggle();
-        repaintThemedMapLayers();
-        return; // o hbx:theme do toggle já chama render(), e a marca traz a luz
-      }
-    }
     const target = event.target.closest("[data-screen],[data-action],[data-delivery],[data-client],[data-mode],[data-day],[data-client-day],[data-client-product-mode],[data-client-product-id],[data-payment-form],[data-payment-method]"); if (!target) return;
     // O wrapper fecha somente pelo toque no fundo. Controles dentro do modal não
     // podem herdar o data-action="close-modal" do wrapper.

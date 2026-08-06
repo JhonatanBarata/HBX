@@ -1,17 +1,22 @@
 /* ==========================================================================
-   PELE 2.0 — EXTRAÍDA DO MOCK, NÃO REESCRITA.  ⚠️ ARQUIVO GERADO.
+   CASCA LOGÍSTICA — EXTRAÍDA DO MOCK, NÃO REESCRITA.  ⚠️ ARQUIVO GERADO.
 
    Fonte: docs/mockups/logistica2.0/logistica-2.0.html
    Gerador: scripts/pele20-gerar.js   (rode ele; não edite este arquivo)
-   Conferência: node scripts/pele20-conferir.js  (33/33, nos DOIS modos)
+   Conferência: node scripts/pele20-conferir.js
 
-   Os templates são os MESMOS do mock, palavra por palavra — é isso que faz o
-   HTML sair idêntico por CONSTRUÇÃO, e não por semelhança. Editar aqui à mão
-   quebra a única regra de aprovação que o dono cravou, e some na próxima
-   regeração.
+   Esta folha é a CASCA: tokens, componentes, tipografia e as 7 leis de
+   movimento do mock. É ela que o app veste — a marcação das telas do app é
+   reescrita pra usar este vocabulário, leva a leva, SEM tocar em comportamento.
+
+   🔴 As 33 telas do mock NÃO viram código: são régua de conferência. Já foram
+   copiadas pra cá uma vez e custaram caro (a tela do mock trouxe o dado de
+   exemplo dele por cima do dia real do motorista). Ver o plano.
 
    O gerador NÃO conserta cor: ele confere e reprova. Aparência se corrige no
    MOCK — é ele que manda.
+
+   Plano e leis: docs/PLANEJAMENTOS/cascalogistica.md
    ========================================================================== */
 .app button{-webkit-tap-highlight-color:transparent}
 .app button:focus{outline:none}

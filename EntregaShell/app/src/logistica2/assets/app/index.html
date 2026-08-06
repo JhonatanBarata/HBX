@@ -15,13 +15,15 @@
   <meta name="theme-color" content="#0d120d" media="(prefers-color-scheme: dark)">
   <title>HBX Logística</title>
   <link rel="stylesheet" href="app.css">
-  <!-- PELE 2.0 (06/08): a casca do mock entra DEPOIS da pele velha pra vencer
-       as 11 classes que colidem. As outras 228 do mock são vocabulário novo. -->
+  <!-- CASCA LOGÍSTICA: a folha do mock, extraída verbatim. Entra DEPOIS da pele
+       velha pra vencer as 11 classes que colidem; as outras 228 são vocabulário
+       novo, que a marcação do app vai adotando leva a leva.
+       O `pele20.js` NÃO entra: as 33 telas do mock são régua de conferência,
+       nunca código de produção. Ver docs/PLANEJAMENTOS/cascalogistica.md -->
   <link rel="stylesheet" href="pele20.css">
 </head>
 <body>
   <div id="app" class="app" aria-live="polite"></div>
-  <script src="pele20.js"></script>
   <script src="native.js"></script>
   <script src="mobile-contract.js"></script>
   <script src="matriz.js"></script>

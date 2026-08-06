@@ -122,70 +122,60 @@ if (!/\[data-luz="claro"\]/.test(cssAdaptado)) {
 }
 
 // ---------------------------------------------------------------------------
-// VIEW (JS)
+// 🔴 O QUE ESTE GERADOR **NÃO** FAZ MAIS: extrair as telas.
 // ---------------------------------------------------------------------------
-// Do dicionário de ícones até os listeners do VISUALIZADOR (que não vão).
-const js = fatiar(fonte, 'const I = {', "document.addEventListener('click',e=>{", 'view da pele');
-
-// O bloco traz declarações que o visualizador usa pra trocar de tela. Aqui quem
-// manda na navegação é o app, então elas viram inertes — mas `pintar`/`numerarItens`
-// FICAM: são as leis de movimento que o mock mandou copiar daqui.
-let jsAdaptado = js
-  .replace(/^const ORDEM=\[[\s\S]*?\];$/m, 'const ORDEM=[];')
-  .replace(/^const GRUPOS=\[[^\]]*\];$/m, 'const GRUPOS=[];')
-  .replace(/^let atual='[a-z]+';$/m, "let atual='rota';")
-  .replace(/^function pintarRail\(\)\{[\s\S]*?\n\}$/m, 'function pintarRail(){}')
-  .replace(/^function ir\(k\)\{[\s\S]*?\n\}$/m, 'function ir(){}');
-
-// 🔴 A LUZ é do mock, o REPINTE é do app. `trocarLuz` resolve escuro/claro/
-// sistema (isso é lei e fica), mas as duas últimas linhas dele falavam com o
-// visualizador: acendiam o botão do topo e chamavam `pintar`, que redesenha a
-// tela do MOCK por cima. No aparelho isso apagaria a tela de verdade do app.
-// Quem repinta lá é o `render()` do app.js, avisado por este gancho.
-const ACENDE_BOTAO = /^ {2}document\.querySelectorAll\('#luz button'\)[^\n]*\n/m;
-const REPINTA_MOCK = /^ {2}const chave=document\.querySelector\('#app \.chave'\);\n {2}if\(chave\) pintar\(false\);\n/m;
-if (!ACENDE_BOTAO.test(jsAdaptado)) throw new Error('[pele20] trocarLuz mudou: não achei o acender do botão do visualizador');
-if (!REPINTA_MOCK.test(jsAdaptado)) throw new Error('[pele20] trocarLuz mudou: não achei a chamada de pintar() do visualizador');
-jsAdaptado = jsAdaptado
-  .replace(ACENDE_BOTAO, '')
-  .replace(REPINTA_MOCK, '  if(typeof window.HBX20_REPINTAR==="function") window.HBX20_REPINTAR();\n');
-
-if (/#luz\b/.test(jsAdaptado)) throw new Error('[pele20] sobrou cromo do visualizador (#luz) na view');
+// Ele emitia também um `pele20.js` com as 33 `T.*` do mock, e o app renderizava
+// aquelas telas no lugar das dele. Custou caro e foi revertido (06/08):
+//
+//   · a tela do mock traz o DADO DE EXEMPLO do mock, então a Rota do motorista
+//     passou a mostrar "João da Silva" por cima do dia real — casca não pode
+//     custar o dado;
+//   · tela sem tradução caía na marcação velha → duas peles no mesmo app.
+//
+// A raiz foi extrair a SAÍDA do mock (as telas) em vez da ENTRADA (o
+// vocabulário: tokens, componentes, tipografia, movimento). A saída dá
+// fidelidade uma vez e trava tudo; a entrada dá fidelidade E deixa a próxima
+// casca barata — que é o objetivo do dono ("trocar a casca inteira, fácil").
+//
+// Então a casca é UMA FOLHA DE ESTILO. As 33 telas do mock continuam no mock,
+// como RÉGUA DE CONFERÊNCIA. Plano: docs/PLANEJAMENTOS/cascalogistica.md
 
 const cabecalho = `/* ==========================================================================
-   PELE 2.0 — EXTRAÍDA DO MOCK, NÃO REESCRITA.  ⚠️ ARQUIVO GERADO.
+   CASCA LOGÍSTICA — EXTRAÍDA DO MOCK, NÃO REESCRITA.  ⚠️ ARQUIVO GERADO.
 
    Fonte: docs/mockups/logistica2.0/logistica-2.0.html
    Gerador: scripts/pele20-gerar.js   (rode ele; não edite este arquivo)
-   Conferência: node scripts/pele20-conferir.js  (33/33, nos DOIS modos)
+   Conferência: node scripts/pele20-conferir.js
 
-   Os templates são os MESMOS do mock, palavra por palavra — é isso que faz o
-   HTML sair idêntico por CONSTRUÇÃO, e não por semelhança. Editar aqui à mão
-   quebra a única regra de aprovação que o dono cravou, e some na próxima
-   regeração.
+   Esta folha é a CASCA: tokens, componentes, tipografia e as 7 leis de
+   movimento do mock. É ela que o app veste — a marcação das telas do app é
+   reescrita pra usar este vocabulário, leva a leva, SEM tocar em comportamento.
+
+   🔴 As 33 telas do mock NÃO viram código: são régua de conferência. Já foram
+   copiadas pra cá uma vez e custaram caro (a tela do mock trouxe o dado de
+   exemplo dele por cima do dia real do motorista). Ver o plano.
 
    O gerador NÃO conserta cor: ele confere e reprova. Aparência se corrige no
    MOCK — é ele que manda.
+
+   Plano e leis: docs/PLANEJAMENTOS/cascalogistica.md
    ========================================================================== */
 `;
 
 fs.writeFileSync(path.join(DESTINO, 'pele20.css'), cabecalho + cssAdaptado);
-fs.writeFileSync(path.join(DESTINO, 'pele20.js'),
-  cabecalho + '(function(){\n"use strict";\n' + jsAdaptado +
-  `
-window.HBX20 = { T: T, ic: ic, hdr: hdr, nav: nav, status: status, logo: logo,
-  stop: stop, transmux: transmux, mapa: mapa, mapaGps: mapaGps, telaGps: telaGps,
-  folhaCompleta: folhaCompleta, shellRota: shellRota, listaParadas: listaParadas,
-  AVISOS: AVISOS, PORTOES: PORTOES, avisar: avisar, portao: portao, erro: erro,
-  fechar: fechar, confirmar: confirmar, ligarGestos: ligarGestos,
-  numerarItens: numerarItens, DUR: DUR, ROTA_ESTADOS: ROTA_ESTADOS, PARADAS: PARADAS,
-  trocarLuz: trocarLuz };
-})();
-`);
+
+// Portão de higiene: se alguém reintroduzir o arquivo de telas, o gerador avisa.
+const telasNoApp = path.join(DESTINO, 'pele20.js');
+if (fs.existsSync(telasNoApp)) {
+  throw new Error(
+    '[casca] existe um pele20.js em produção. As telas do mock são RÉGUA, não código.\n' +
+    '  → apague o arquivo e vista a tela do app com as classes da casca.\n' +
+    '  → docs/PLANEJAMENTOS/cascalogistica.md',
+  );
+}
 
 const telas = [...fonte.matchAll(/^T\.([a-z0-9]+)=\{nome:'([^']+)'/gm)];
-console.log(`[pele20] css: ${cssAdaptado.split('\n').length} linhas`);
-console.log(`[pele20] js : ${jsAdaptado.split('\n').length} linhas`);
-console.log(`[pele20] telas no mock: ${telas.length}`);
-console.log('[pele20] portões estruturais: caixa do app, .notch, data-cta, modo claro, #luz — OK');
-console.log('[pele20] cor e HTML idêntico se provam MEDINDO: node scripts/pele20-conferir.js');
+console.log(`[casca] pele20.css: ${cssAdaptado.split('\n').length} linhas`);
+console.log(`[casca] telas de referência no mock: ${telas.length} (ficam no mock, não viram código)`);
+console.log('[casca] portões estruturais: caixa do app, .notch, data-cta, modo claro — OK');
+console.log('[casca] fidelidade se prova MEDINDO: node scripts/pele20-conferir.js');
