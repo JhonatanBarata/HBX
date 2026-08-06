@@ -242,6 +242,8 @@ export class LogisticaController {
       comprovanteFotoId: dto?.comprovanteFotoId,
       comprovanteAssinaturaId: dto?.comprovanteAssinaturaId,
       comprovanteCodigo: dto?.comprovanteCodigo,
+      // Etapa B (06/08) — hora de CHEGADA medida no celular; o serviço apara.
+      arrivedAt: dto?.arrivedAt,
     }, req.user);
     if (!res) throw new NotFoundException('Entrega não encontrada');
     return res;
@@ -251,7 +253,7 @@ export class LogisticaController {
   @Post('entregas/:id/cancelar')
   async cancelar(@Req() req: any, @Param('id') id: string, @Body() dto: CancelarEntregaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
-    const res = await this.service.cancelarEntrega(companyId, id, dto?.motivo, req.user);
+    const res = await this.service.cancelarEntrega(companyId, id, dto?.motivo, req.user, dto?.arrivedAt);
     if (!res) throw new NotFoundException('Entrega não encontrada');
     return res;
   }

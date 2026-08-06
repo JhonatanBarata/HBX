@@ -9220,6 +9220,10 @@
       if (novosItens.length) body.novosItens = novosItens;
       if (opts.receiptMethod) body.receiptMethod = opts.receiptMethod;
       if (opts.quitarAberto) body.quitarAberto = true;
+      // Etapa B (06/08) — a chegada viaja junto do desfecho (ver marcarChegada).
+      // O servidor apara relógio de celular e só grava a 1ª vez.
+      const chegouEm = chegadaDe(item);
+      if (chegouEm) body.arrivedAt = chegouEm;
       if (proof.fotoId) body.comprovanteFotoId = proof.fotoId;
       if (proof.assinaturaId) body.comprovanteAssinaturaId = proof.assinaturaId;
       if (requirements.codigoObrigatorio) {
@@ -9242,7 +9246,7 @@
       // no catch e só o "error" do gate central de toast() toca.
       const confirmResult = await H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/confirmar`, { method: "POST", body });
       state.deliveryEditingId = null;
-      H.cache.remove(keyName); await closeOverlay("sheet"); await refresh(true);
+      H.cache.remove(keyName); limparChegada(item); await closeOverlay("sheet"); await refresh(true);
       // S3 22/07 — o nativo (OperationalStore.interceptMutation) pode ter
       // respondido 202 LOCAL, sem chegar no servidor ainda (rota preparada
       // offline); nesse caso o corpo vem com offline:true/pendingSync:true.
@@ -9430,7 +9434,11 @@
     const reason = state.deliveryReason;
     if (!item || !reason) return;
     try {
-      await H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/cancelar`, { method: "POST", body: { motivo: reason } });
+      // Etapa B (06/08) — "não entregue" É visita: ele esteve lá. Esta é a
+      // parada que mais vira discussão depois; sem hora, a discussão não tem juiz.
+      const chegouEm = chegadaDe(item);
+      await H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/cancelar`, { method: "POST", body: { motivo: reason, ...(chegouEm ? { arrivedAt: chegouEm } : {}) } });
+      limparChegada(item);
       await closeOverlay("sheet"); await refresh(true); toast("Entrega retirada da rota.");
       const next = openItems()[0]; if (next) showNextStop(next);
     } catch (error) { toast(humanApiError(error), true); }
@@ -9442,7 +9450,10 @@
   async function performOfflineNotDelivered(item) {
     if (!item) return;
     try {
-      await H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/cancelar`, { method: "POST", body: { motivo: "Não atendeu." } });
+      // Etapa B (06/08) — "não atendeu" também é visita (mesmo motivo do markNotDelivered).
+      const chegouEm = chegadaDe(item);
+      await H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/cancelar`, { method: "POST", body: { motivo: "Não atendeu.", ...(chegouEm ? { arrivedAt: chegouEm } : {}) } });
+      limparChegada(item);
       await closeOverlay("sheet"); await refresh(true); toast("Marcado como não atendido.");
       const next = openItems()[0]; if (next) showNextStop(next);
     } catch (error) { toast(humanApiError(error), true); }
@@ -9606,7 +9617,37 @@
     state.nextStopOpening = false;
   }
   function showNextStop(item) { clearInterval(nextStopTimer); state.screen = "route"; state.nextStop = item; state.nextCountdown = 5; state.nextStopOpening = false; render(); nextStopTimer = setInterval(() => { if (!state.nextStop) return clearInterval(nextStopTimer); state.nextCountdown = Math.max(0, state.nextCountdown - 1); if (state.nextCountdown === 0) { clearInterval(nextStopTimer); openNextStop(); return; } const label = document.querySelector(".next-stop-count i"); if (label) label.textContent = String(state.nextCountdown); const ring = document.querySelector(".next-stop-progress"); if (ring) ring.style.strokeDashoffset = (188.5 * state.nextCountdown / 5).toFixed(1); }, 1000); }
-  function showSheet(item, arrived) { clearInterval(nextStopTimer); state.nextStop = null; state.openingOverlay = "sheet"; state.selected = item; state.deliveryDraft = makeDeliveryDraft(item); state.deliveryReason = ""; state.deliveryNotDelivered = false; state.deliveryArrived = !!arrived; state.deliveryProductPicker = false; state.deliverySimpleDetail = false; render(); }
+  // ==========================================================================
+  // CARIMBO DE CHEGADA (06/08 — PR06082026 etapa B)
+  // ==========================================================================
+  // A hora de SAÍDA já existia (o servidor grava `deliveredAt` no desfecho da
+  // folha). Faltava a CHEGADA — e sem as duas não dá pra responder "quanto tempo
+  // ele ficou nesta parada", que é a pergunta que o dono faz quando o cliente
+  // reclama.
+  //
+  // Por que a hora nasce AQUI e não num POST no toque do "Cheguei": a folha de
+  // chegada tem que abrir SEM REDE. Um endpoint próprio ou morre offline (e o
+  // carimbo se perde justamente na rua, que é onde ele importa) ou vira mais uma
+  // fila offline pra manter viva. O desfecho — confirmar ou não-entregue — já é
+  // idempotente e já drena da fila; a chegada pega carona nele.
+  //
+  // CHEGADA = a 1ª vez que a folha abriu com a parada ainda EM ABERTO. Isso pega
+  // os quatro caminhos (botão Cheguei, cerca do GPS, toque no card, toque no
+  // pino) e deixa de fora o único que não é visita: abrir uma entrega JÁ
+  // concluída pra corrigir item. Fica no cache persistido porque o app pode
+  // morrer entre a chegada e o desfecho — e aí a hora não pode morrer junto.
+  const chegadaKey = (item) => `delivery-arrived:${item && item.id}`;
+  function marcarChegada(item) {
+    if (!item || !item.id) return;
+    if (item.status === "entregue" || item.status === "cancelada") return;
+    const key = chegadaKey(item);
+    if (H.cache.get(key, null)) return; // 1ª chegada vence, igual ao servidor
+    H.cache.set(key, new Date().toISOString());
+  }
+  const chegadaDe = (item) => (item && item.id ? H.cache.get(chegadaKey(item), null) : null);
+  const limparChegada = (item) => { if (item && item.id) H.cache.remove(chegadaKey(item)); };
+
+  function showSheet(item, arrived) { clearInterval(nextStopTimer); state.nextStop = null; state.openingOverlay = "sheet"; state.selected = item; state.deliveryDraft = makeDeliveryDraft(item); state.deliveryReason = ""; state.deliveryNotDelivered = false; state.deliveryArrived = !!arrived; state.deliveryProductPicker = false; state.deliverySimpleDetail = false; marcarChegada(item); render(); }
 
   function stopLeituraObsCountdown() {
     if (state.leituraStep !== "observacoes" || state.leituraObsTyped) return;

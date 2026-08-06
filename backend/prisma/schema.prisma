@@ -1267,6 +1267,15 @@ model Entrega {
   origem            String?
   scheduledAt       DateTime?
   startedAt         DateTime?
+  // CARIMBO DE CHEGADA (06/08, PR06082026-GPS-FULLSCREEN etapa B) — a hora em que
+  // o entregador CHEGOU na parada. Faz par com deliveredAt, que é a SAÍDA (o
+  // desfecho da folha): sem os dois não dá pra responder "quanto tempo ele ficou".
+  // NÃO confundir com avisoChegandoAt, que é a hora em que o CLIENTE foi avisado
+  // a ~500m — aquilo é mensageria, isto é auditoria da visita.
+  // O relógio é o do CELULAR (a folha tem que abrir offline), então o servidor
+  // TRATA COMO SUSPEITO: aparado pra nunca ser futuro nem anterior à criação da
+  // entrega, e a 1ª gravação vence (reconfirmar não reescreve a chegada).
+  arrivedAt         DateTime?
   deliveredAt       DateTime?
   deliveredLat      Float?
   deliveredLng      Float?

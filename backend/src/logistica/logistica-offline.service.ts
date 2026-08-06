@@ -235,6 +235,10 @@ export class LogisticaOfflineService {
         command.deliveryId,
         reason,
         context.actor,
+        // CARIMBO DE CHEGADA (06/08) — este repasse é LISTA BRANCA: campo que não
+        // é citado aqui some calado. E é justamente aqui que a chegada mais
+        // importa, porque a fila offline é o caminho de quem trabalhou sem rede.
+        optionalText((command.payload as any)?.arrivedAt, 40),
       );
       return { commandId: command.commandId, status: 'ACK' };
     }
@@ -260,6 +264,9 @@ export class LogisticaOfflineService {
         comprovanteFotoId: optionalText(payload.comprovanteFotoId, 60),
         comprovanteAssinaturaId: optionalText(payload.comprovanteAssinaturaId, 60),
         comprovanteCodigo: optionalText(payload.comprovanteCodigo, 12),
+        // CARIMBO DE CHEGADA (06/08) — lista branca: sem esta linha a chegada
+        // sumia justamente no caminho de quem trabalhou sem rede.
+        arrivedAt: optionalText(payload.arrivedAt, 40),
       } as any,
       context.actor,
     );

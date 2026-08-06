@@ -178,6 +178,21 @@ export class ConfirmarEntregaDto {
   @IsOptional()
   @IsBoolean()
   quitarAberto?: boolean;
+
+  // CARIMBO DE CHEGADA (06/08, etapa B do PR06082026) — hora em que o entregador
+  // CHEGOU na parada, medida no CELULAR quando a folha de chegada abriu.
+  //
+  // Por que viaja no desfecho em vez de ter endpoint próprio: a folha de chegada
+  // tem que abrir SEM REDE. Um POST no toque do "Cheguei" ou morre offline (e o
+  // carimbo se perde) ou vira mais uma fila offline pra manter. O desfecho já é
+  // idempotente e já drena da fila — a chegada pega carona nele e chega junto.
+  //
+  // 🔴 RELÓGIO DE CLIENTE NÃO É FONTE DE VERDADE. O servidor apara (nunca futuro,
+  // nunca antes de a entrega existir) e a 1ª gravação vence. Ver aparaChegada().
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  arrivedAt?: string;
 }
 
 // Um item confirmado no stepper (id do EntregaItem + qtd entregue).
@@ -232,6 +247,15 @@ export class CancelarEntregaDto {
   @IsString()
   @MaxLength(300)
   motivo?: string;
+
+  // CARIMBO DE CHEGADA (06/08) — "não entregue"/"não atendeu" TAMBÉM é desfecho
+  // de visita: o entregador chegou lá. Sem este campo aqui, a parada visitada e
+  // não entregue ficaria sem hora de chegada — justamente a que mais interessa
+  // quando o cliente reclama. Mesmo tratamento do confirmar (ver ali).
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  arrivedAt?: string;
 }
 
 // ── Operação por entregador ─────────────────────────────────────────────────

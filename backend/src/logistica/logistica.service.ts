@@ -809,6 +809,9 @@ export class LogisticaService {
         // MULTILOCAL (10/07) — o local da entrega decide ONDE o GPS de ouro converge.
         localId: true,
         cobrancaStatus: true, idempotencyKey: true, whatsappStatus: true, cobrancaOutcome: true, deliveredAt: true,
+        // CARIMBO DE CHEGADA (06/08) — `arrivedAt` pra 1ª gravação vencer;
+        // `createdAt` é o CHÃO de sanidade da hora que vem do celular.
+        arrivedAt: true, createdAt: true,
         comprovanteCodigoHash: true, comprovanteCodigoSalt: true,
         // F0 (27/07) — precisa pra avançar o cursor da Agenda no desfecho.
         agendaOcorrenciaKey: true, planoEntregaId: true,
@@ -943,10 +946,17 @@ export class LogisticaService {
         if (trackedCharge && this.trackedBilling) {
           await this.trackedBilling.completeWithinTransaction(tx, trackedCharge, confirmadoAt);
         }
+        // CARIMBO DE CHEGADA (06/08) — a 1ª gravação VENCE. Reconfirmar (correção
+        // de itens, replay da fila offline) não reescreve a chegada: a visita
+        // aconteceu uma vez só, por mais vezes que o desfecho seja reenviado.
+        const chegouAt = entrega.arrivedAt
+          ? undefined
+          : aparaChegada(gps.arrivedAt, confirmadoAt, entrega.createdAt) ?? undefined;
         await tx.entrega.update({
           where: { id: entrega.id },
           data: {
             status: 'entregue',
+            arrivedAt: chegouAt,
             deliveredAt: confirmadoAt,
             deliveredLat: lat,
             deliveredLng: lng,
@@ -1671,6 +1681,10 @@ export class LogisticaService {
     id: string,
     motivo?: string,
     actor?: LogisticaActor | null,
+    // CARIMBO DE CHEGADA (06/08) — opcional e no FIM da lista de propósito: este
+    // método é chamado de vários lugares (fila offline do APK, encerrar rota,
+    // limpar dia) e nenhum deles precisa saber de chegada. Quem não passa, não muda.
+    arrivedAtBruto?: string | null,
   ): Promise<{ id: string; cobrancaCancelada?: boolean } | null> {
     if (!companyId || !id) return null;
     const actorWhere = actor ? await this.requireOperacao().whereForActor(actor) : {};
@@ -1678,6 +1692,9 @@ export class LogisticaService {
       where: { id: String(id).trim(), companyId, ...actorWhere },
       select: {
         id: true, status: true, notes: true, customerProfileId: true,
+        // CARIMBO DE CHEGADA — mesma dupla do confirmar: 1ª gravação vence,
+        // createdAt é o chão de sanidade.
+        arrivedAt: true, createdAt: true,
         // F0 (27/07) — precisa pra avançar o cursor da Agenda no desfecho.
         agendaOcorrenciaKey: true, planoEntregaId: true,
       },
@@ -1712,11 +1729,18 @@ export class LogisticaService {
         data: { status: 'cancelled', lifecycle: 'cancelled' },
       });
       const cobrancaCancelada = cobranca.count > 0;
+      // CARIMBO DE CHEGADA (06/08) — "não entregue"/"não atendeu" é VISITA: o
+      // entregador esteve lá. Justamente a parada que mais vira discussão depois
+      // ("vocês nunca vieram") é a que precisa da hora. 1ª gravação vence.
+      const chegouAt = entrega.arrivedAt
+        ? undefined
+        : aparaChegada(arrivedAtBruto, new Date(), entrega.createdAt) ?? undefined;
       await tx.entrega.update({
         where: { id: entrega.id },
         data: {
           status: 'cancelada',
           notes,
+          arrivedAt: chegouAt,
           // Sem charge viva, o status da cobrança volta pro neutro — deixar
           // 'lancada' numa entrega cancelada é a mentira que gerou o caso.
           ...(cobrancaCancelada ? { cobrancaStatus: 'pendente' } : {}),
@@ -3489,6 +3513,40 @@ function normalizeIdempotencyKey(v: string | null | undefined): string | null {
   return s.length > 0 ? s : null;
 }
 
+/**
+ * CARIMBO DE CHEGADA (06/08) — apara a hora que veio do CELULAR.
+ *
+ * 🔴 O relógio do aparelho não é fonte de verdade: ele atrasa, adianta, e o
+ * motorista pode mexer nele. Mas a folha de chegada TEM que abrir sem rede, então
+ * a hora só pode nascer no celular mesmo. A saída é tratar como suspeito:
+ *
+ *   - lixo (vazio, não-data) → null. Hora inventada é pior que hora ausente.
+ *   - FUTURO → aparado pra `agora`. Um relógio adiantado não pode registrar
+ *     chegada depois da saída (deliveredAt = agora do SERVIDOR, na mesma tx).
+ *   - antes de a entrega EXISTIR → null. Chegar numa parada que ainda não tinha
+ *     sido criada é impossível; isso é relógio quebrado, não atraso de fila.
+ *
+ * A tolerância de 2 min pro futuro é o desencontro normal entre dois relógios —
+ * sem ela, todo celular levemente adiantado teria a chegada aparada e o número
+ * ficaria colado no `agora` do servidor, escondendo o problema real.
+ */
+export function aparaChegada(
+  bruto: string | null | undefined,
+  agora: Date,
+  criadaEm: Date | null | undefined,
+): Date | null {
+  const s = String(bruto || '').trim();
+  if (!s) return null;
+  const t = new Date(s);
+  const ms = t.getTime();
+  if (!Number.isFinite(ms)) return null;
+  const TOLERANCIA_FUTURO_MS = 2 * 60 * 1000;
+  if (ms > agora.getTime() + TOLERANCIA_FUTURO_MS) return agora;
+  if (ms > agora.getTime()) return agora;
+  if (criadaEm && ms < criadaEm.getTime()) return null;
+  return t;
+}
+
 // M4 — só um dos métodos de recebimento aceitos passa; qualquer outro vira null.
 // CADERNETA (04/08) — 'cartao' entrou junto com o modo caderneta (maquininha na
 // rua/balcão): aditivo — o app antigo nunca manda 'cartao', zero mudança pra quem roda.
@@ -3835,6 +3893,9 @@ export interface ConfirmarGps {
   comprovanteFotoId?: string;
   comprovanteAssinaturaId?: string;
   comprovanteCodigo?: string;
+  // CARIMBO DE CHEGADA (06/08) — ISO medido no CELULAR quando a folha abriu.
+  // Aparado no servidor (ver aparaChegada) e gravado só na 1ª vez.
+  arrivedAt?: string;
 }
 
 export interface ConfirmarResult {

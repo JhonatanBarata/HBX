@@ -3039,3 +3039,70 @@ test('REABERTA: valor corrigido pra ZERO (cortesia) cancela a cobrança em vez d
   if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;
   else process.env.HBX_LOGISTICA_ENABLED = prev;
 });
+
+// ===========================================================================
+// CARIMBO DE CHEGADA (06/08 — PR06082026 etapa B)
+// ===========================================================================
+// A regra de APARAR a hora do celular tem teste próprio (carimbo-chegada.test.ts).
+// Aqui se prova o que só aparece no SERVIÇO: quando a chegada é gravada e quando
+// ela é deliberadamente deixada quieta.
+
+test('confirmarEntrega: grava a chegada que veio do celular', async () => {
+  const criadaEm = new Date(Date.now() - 6 * 60 * 60 * 1000);
+  const chegada = new Date(Date.now() - 15 * 60 * 1000);
+  const { prisma, entregaUpdates } = buildPrismaMock(
+    buildEntrega({ createdAt: criadaEm, arrivedAt: null }),
+    { id: 'conta-1', name: 'Dona Maria', formaPagamento: 'avulso', contabilizar: true },
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+  const service = new LogisticaService(prisma, conversations, rota, config);
+
+  await service.confirmarEntrega(1, 'entrega-1', { arrivedAt: chegada.toISOString() });
+
+  const update = entregaUpdates.find((u) => u.status === 'entregue');
+  assert.deepEqual(update?.arrivedAt, chegada, 'a hora da rua tem que chegar no banco');
+  assert.ok(update?.deliveredAt instanceof Date, 'a saída continua sendo o agora do servidor');
+  assert.ok(
+    update.arrivedAt.getTime() <= update.deliveredAt.getTime(),
+    'chegada nunca pode ser depois da saída',
+  );
+});
+
+test('confirmarEntrega: a 1ª chegada VENCE — reconfirmar não reescreve a visita', async () => {
+  // Cenário real: replay da fila offline, ou o dono reabrindo pra corrigir item.
+  // A visita aconteceu UMA vez; o desfecho pode ser reenviado várias.
+  const chegadaOriginal = new Date(Date.now() - 90 * 60 * 1000);
+  const { prisma, entregaUpdates } = buildPrismaMock(
+    buildEntrega({ createdAt: new Date(Date.now() - 6 * 60 * 60 * 1000), arrivedAt: chegadaOriginal }),
+    { id: 'conta-1', name: 'Dona Maria', formaPagamento: 'avulso', contabilizar: true },
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+  const service = new LogisticaService(prisma, conversations, rota, config);
+
+  await service.confirmarEntrega(1, 'entrega-1', { arrivedAt: new Date().toISOString() });
+
+  const update = entregaUpdates.find((u) => u.status === 'entregue');
+  assert.equal(update?.arrivedAt, undefined, 'não pode reescrever a chegada já gravada');
+});
+
+test('confirmarEntrega: sem chegada no corpo, a coluna não é tocada', async () => {
+  // O app velho (produção congelada) e a venda de balcão não mandam o campo —
+  // e "não sei quando chegou" é null, nunca uma hora inventada pelo servidor.
+  const { prisma, entregaUpdates } = buildPrismaMock(
+    buildEntrega({ createdAt: new Date(Date.now() - 6 * 60 * 60 * 1000), arrivedAt: null }),
+    { id: 'conta-1', name: 'Dona Maria', formaPagamento: 'avulso', contabilizar: true },
+  );
+  const { conversations } = buildConversationsMock();
+  const { rota } = buildRotaStub();
+  const { config } = buildConfigMock();
+  const service = new LogisticaService(prisma, conversations, rota, config);
+
+  await service.confirmarEntrega(1, 'entrega-1', { lat: -4.9, lng: -38.3 });
+
+  const update = entregaUpdates.find((u) => u.status === 'entregue');
+  assert.equal(update?.arrivedAt, undefined, 'sem carimbo no corpo, a coluna fica intacta');
+});
