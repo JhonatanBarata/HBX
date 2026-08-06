@@ -139,7 +139,7 @@ export class LogisticaConferenciaService implements OnModuleInit {
         where: { companyId, id: { in: [...new Set([...alvos.values()].map((a) => a.customerProfileId))] } },
         select: {
           id: true, name: true, lat: true, lng: true, geoFonte: true,
-          cep: true, endereco: true, numero: true, bairro: true, cidade: true, uf: true,
+          cep: true, endereco: true, numero: true, complemento: true, bairro: true, cidade: true, uf: true,
           sanitizadoEm: true, updatedAt: true,
         },
       }),
@@ -150,7 +150,7 @@ export class LogisticaConferenciaService implements OnModuleInit {
         },
         select: {
           id: true, apelido: true, lat: true, lng: true, geoFonte: true,
-          cep: true, endereco: true, numero: true, bairro: true, cidade: true, uf: true,
+          cep: true, endereco: true, numero: true, complemento: true, bairro: true, cidade: true, uf: true,
           sanitizadoEm: true, updatedAt: true,
         },
       }),
@@ -320,6 +320,9 @@ export class LogisticaConferenciaService implements OnModuleInit {
         // Custo zero e sem rede: roda SEMPRE (mesmo com ViaCEP fora, mesmo quando a
         // checagem de CEP nem consultou).
         enderecoSemNumero: enderecoSemNumero(cadastroPorParada.get(p.id) ?? {}),
+        // 06/08 — mesma fonte do pino (multilocal): é o que separa "duas contas na
+        // mesma porta" de "o ponto não distingue estas casas".
+        porta: cadastroPorParada.get(p.id) ?? null,
       };
     });
 
@@ -627,14 +630,14 @@ export class LogisticaConferenciaService implements OnModuleInit {
         local: {
           select: {
             apelido: true, lat: true, lng: true, geoFonte: true,
-            cep: true, endereco: true, numero: true, bairro: true, cidade: true, uf: true,
+            cep: true, endereco: true, numero: true, complemento: true, bairro: true, cidade: true, uf: true,
             sanitizadoEm: true, updatedAt: true,
           },
         },
         customerProfile: {
           select: {
             name: true, lat: true, lng: true, geoFonte: true,
-            cep: true, endereco: true, numero: true, bairro: true, cidade: true, uf: true,
+            cep: true, endereco: true, numero: true, complemento: true, bairro: true, cidade: true, uf: true,
             sanitizadoEm: true, updatedAt: true,
           },
         },
@@ -888,6 +891,7 @@ function enderecoDe(fonte: EnderecoCadastrado | null | undefined): EnderecoCadas
     cep: fonte?.cep ?? null,
     endereco: fonte?.endereco ?? null,
     numero: fonte?.numero ?? null,
+    complemento: fonte?.complemento ?? null,
     bairro: fonte?.bairro ?? null,
     cidade: fonte?.cidade ?? null,
     uf: fonte?.uf ?? null,

@@ -7643,7 +7643,10 @@
   const CONFERENCIA_MOTIVO_FRASE = {
     cep_endereco_divergente: "CEP e endereço não batem",
     sem_pino: "Não sei onde fica este endereço",
-    pino_compartilhado: "Endereço igual ao de outro cliente",
+    // 06/08 — separado do "mesmo ponto": endereço repetido é MESMO número sem
+    // apartamento (cadastro); ponto repetido com endereços diferentes é o mapa.
+    endereco_repetido: "Mesmo endereço de outro cliente",
+    pino_compartilhado: "O mapa não separa esta casa da vizinha",
     diverge_gps_ouro: "Diferente de onde você já entregou",
     // Padronizar é IGUALAR: pro motorista os dois motivos de distância dizem a
     // mesma coisa, então dizem com a MESMA frase (o dedupe abaixo evita repetir

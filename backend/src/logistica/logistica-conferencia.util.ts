@@ -1,4 +1,10 @@
 import { haversineKm, type Coord, type RouteEngine } from './logistica-rota.service';
+// A régua de "é a mesma porta?" é UMA só no sistema (nasceu em 28/07 pra barrar
+// duplicata na Rota rápida do APK): número + via compatível + CEP/cidade, agora com a
+// unidade (apto/bloco) como veto. Reimplementar aqui criaria uma segunda verdade —
+// e é justamente o desencontro entre "mesmo ponto" e "mesmo endereço" que este
+// arquivo passou a distinguir em 06/08.
+import { mesmaPorta, numeroDaPorta, type PortaCadastro } from '../nucleo/endereco-porta.util';
 
 /**
  * S3 (25/07, PR25072026-ROTA-CONFERIDA) — SEMÁFORO de confiança do pino, matemática
@@ -74,6 +80,7 @@ export type SemaforoCor = 'verde' | 'vermelho';
 export type MotivoConferencia =
   | 'sem_pino'
   | 'pino_compartilhado'
+  | 'endereco_repetido'
   | 'cep_endereco_divergente'
   | 'endereco_sem_numero'
   | 'fora_do_casulo'
@@ -92,6 +99,7 @@ export type MotivoConferencia =
 const MOTIVOS_IMPEDITIVOS = new Set<MotivoConferencia>([
   'sem_pino',
   'pino_compartilhado',
+  'endereco_repetido',
   'cep_endereco_divergente',
   'endereco_sem_numero',
   'fora_do_casulo',
@@ -139,6 +147,10 @@ export const ORDEM_GRAVIDADE_IMPEDITIVOS: readonly MotivoConferencia[] = [
   // mais estraga entrega — endereço sem número manda o entregador pro meio da rua.
   'endereco_sem_numero',
   'sem_pino',
+  // Antes do pino: "duas contas na mesma porta" é problema de CADASTRO e tem resposta
+  // curta do dono (é o apartamento tal, ou é cadastro repetido). O pino grosseiro é
+  // trabalho de mapa, vem depois.
+  'endereco_repetido',
   'pino_compartilhado',
   'diverge_gps_ouro',
   'fora_do_casulo',
@@ -186,6 +198,11 @@ export interface ParadaConferenciaInput {
    *  texto composto `endereco` do legado) — ver `enderecoSemNumero` em
    *  logistica-cep.util.ts. NÃO depende de rede: vale com o ViaCEP fora do ar. */
   enderecoSemNumero: boolean;
+  /** O ENDEREÇO da fonte escolhida (mesma fonte da coordenada), pra decidir se duas
+   *  paradas no mesmo ponto são a mesma PORTA ou casas diferentes. Ausente = o
+   *  chamador não sabe o endereço: aí duas paradas no mesmo ponto nunca provam
+   *  duplicata e a acusação fica na mais branda (`pino_compartilhado`). */
+  porta?: PortaCadastro | null;
 }
 
 export interface ConferenciaContexto {
@@ -251,30 +268,106 @@ function motivoDeGeoFonte(geoFonte: string | null): 'geocode_nao_provado_em_camp
 }
 
 /**
- * COM QUEM cada parada divide o pino: id → ids dos OUTROS na mesma célula (só
- * quem realmente divide entra no mapa). É a matéria-prima de `pino_compartilhado`.
+ * 🔴 DUAS COISAS DIFERENTES QUE CAÍAM NO MESMO SACO (06/08, ordem do dono).
  *
- * Exportada porque o painel de saúde precisa DIZER o nome do outro cliente
- * (06/08, dono: "não sei o que ele tem de errado, e se é repetido o que tem de
- * repetido" — "igual à de outro cliente" sem dizer QUAL não dá pra corrigir), e
- * reimplementar o agrupamento lá seria uma segunda verdade da mesma regra: quem
- * decide o que é "mesmo ponto" continua sendo esta função, aqui.
+ * A régua velha dizia "localização igual à de outro cliente" para QUALQUER par no
+ * mesmo quadradinho de ~11m. Medido na base real (company 41, 171 clientes com pino):
+ * 47 acusados, e **31 deles tinham números de casa DIFERENTES na mesma avenida** —
+ * cinco casas da Avenida 74 (nº 188, 197, 228, 232, 282) empilhadas num ponto só.
+ * Isso não é endereço repetido: é o PINO que não distingue as casas (geocode caiu no
+ * trecho da via). Chamar de "igual a de outro cliente" mandava o dono procurar uma
+ * duplicata que não existe.
+ *
+ * Agora saem separados, porque a AÇÃO é outra em cada caso:
+ *  · `mesmaPorta`  — número (e unidade) provadamente iguais: ou é apartamento sem o
+ *                    complemento preenchido, ou é cadastro repetido. Pergunta curta.
+ *  · `outraPorta`  — mesmo ponto, endereços que se distinguem: marcar o ponto certo.
+ *
+ * Condomínio com apartamento declarado em cada conta NÃO cai em nenhum dos dois — a
+ * unidade veta a igualdade (ver `mesmaPorta` em nucleo/endereco-porta.util.ts) e as
+ * duas contas ficam limpas, que é o comportamento que o dono pediu.
+ *
+ * CUSTO: agrupa por célula (O(n)) e só compara par a par DENTRO do mesmo número da
+ * casa — o incidente 25/07 (154 clientes no mesmo centroide) não vira 154² chamadas
+ * de régua, porque números diferentes se separam antes de qualquer comparação.
  */
-export function vizinhosDePino(paradas: ParadaConferenciaInput[]): Map<string, string[]> {
-  const porCelula = new Map<string, string[]>();
+export interface MesmoPontoResultado {
+  /** id → ids que provaram ser a MESMA porta (duplicata ou unidade não informada). */
+  mesmaPorta: Map<string, string[]>;
+  /** id → ids no mesmo ponto que são OUTRA porta (o ponto não separa as casas). */
+  outraPorta: Map<string, string[]>;
+}
+
+export function analisarMesmoPonto(paradas: ParadaConferenciaInput[]): MesmoPontoResultado {
+  const porCelula = new Map<string, ParadaConferenciaInput[]>();
   for (const p of paradas) {
     if (!temCoordenadaValida(p.lat, p.lng)) continue;
     const chave = celulaPino(p.lat as number, p.lng as number);
     const lista = porCelula.get(chave);
-    if (lista) lista.push(p.id);
-    else porCelula.set(chave, [p.id]);
+    if (lista) lista.push(p);
+    else porCelula.set(chave, [p]);
   }
-  const saida = new Map<string, string[]>();
-  for (const ids of porCelula.values()) {
-    if (ids.length < 2) continue;
-    for (const id of ids) saida.set(id, ids.filter((outro) => outro !== id));
+
+  const mesmaPortaMap = new Map<string, string[]>();
+  const outraPortaMap = new Map<string, string[]>();
+  const empurrar = (mapa: Map<string, string[]>, id: string, outro: string) => {
+    const atual = mapa.get(id);
+    if (atual) atual.push(outro);
+    else mapa.set(id, [outro]);
+  };
+
+  for (const naCelula of porCelula.values()) {
+    if (naCelula.length < 2) continue;
+
+    // Pré-corte por número: quem tem número diferente (ou não tem número) nunca é a
+    // mesma porta — `mesmaPorta` já responderia false, e assim nem é chamada.
+    const porNumero = new Map<number, ParadaConferenciaInput[]>();
+    for (const p of naCelula) {
+      const numero = p.porta ? numeroDaPorta(p.porta) : null;
+      if (!numero) continue;
+      const lista = porNumero.get(numero);
+      if (lista) lista.push(p);
+      else porNumero.set(numero, [p]);
+    }
+
+    const gemeos = new Map<string, Set<string>>();
+    // CONDOMÍNIO: mesmo endereço de rua, unidades diferentes. Um ponto só é o
+    // CERTO aqui (o prédio é um só), então este par não é problema de ninguém —
+    // não vira endereço repetido nem pino que não distingue.
+    const mesmoPredio = new Map<string, Set<string>>();
+    const marcar = (mapa: Map<string, Set<string>>, a: string, b: string) => {
+      if (!mapa.has(a)) mapa.set(a, new Set());
+      if (!mapa.has(b)) mapa.set(b, new Set());
+      mapa.get(a)!.add(b);
+      mapa.get(b)!.add(a);
+    };
+    for (const candidatos of porNumero.values()) {
+      if (candidatos.length < 2) continue;
+      for (let i = 0; i < candidatos.length; i += 1) {
+        for (let j = i + 1; j < candidatos.length; j += 1) {
+          const a = candidatos[i].porta as PortaCadastro;
+          const b = candidatos[j].porta as PortaCadastro;
+          // Sem a unidade, é o mesmo endereço de rua? (mesmo número + via + CEP/cidade)
+          if (!mesmaPorta({ ...a, complemento: null }, { ...b, complemento: null })) continue;
+          if (mesmaPorta(a, b)) marcar(gemeos, candidatos[i].id, candidatos[j].id);
+          else marcar(mesmoPredio, candidatos[i].id, candidatos[j].id);
+        }
+      }
+    }
+
+    for (const p of naCelula) {
+      const meusGemeos = gemeos.get(p.id);
+      const meusVizinhosDePredio = mesmoPredio.get(p.id);
+      for (const outro of naCelula) {
+        if (outro.id === p.id) continue;
+        if (meusGemeos?.has(outro.id)) empurrar(mesmaPortaMap, p.id, outro.id);
+        else if (meusVizinhosDePredio?.has(outro.id)) continue;
+        else empurrar(outraPortaMap, p.id, outro.id);
+      }
+    }
   }
-  return saida;
+
+  return { mesmaPorta: mesmaPortaMap, outraPorta: outraPortaMap };
 }
 
 /**
@@ -287,11 +380,11 @@ export function conferirParadas(paradas: ParadaConferenciaInput[], contexto: Con
 
   const centroCasulo = pontoMedianoCasulo(comCoord.map((p) => ({ lat: p.lat as number, lng: p.lng as number })));
 
-  // pino_compartilhado: agrupa por célula: qualquer célula com ≥2 paradas marca TODAS
-  // as paradas daquela célula (não só a "segunda" — nenhuma delas provou ser a dona
-  // exclusiva do pino). Uma regra só, em `vizinhosDePino` — o painel de saúde lê a
-  // MESMA função pra escrever com quem o ponto é dividido.
-  const idsCompartilhados = new Set(vizinhosDePino(comCoord).keys());
+  // Mesmo ponto: qualquer célula com ≥2 paradas marca TODAS as paradas daquela célula
+  // (não só a "segunda" — nenhuma delas provou ser a dona exclusiva do pino), agora
+  // separando endereço REPETIDO de ponto que não distingue as casas. Uma regra só, em
+  // `analisarMesmoPonto` — o painel de saúde lê a MESMA função pra escrever os nomes.
+  const mesmoPonto = analisarMesmoPonto(comCoord);
 
   // perna_outlier: mediana só das pernas MEDÍVEIS (null fica de fora — 1ª parada sem
   // origem, ou parada sem coordenada já é sem_pino por outro motivo).
@@ -321,7 +414,8 @@ export function conferirParadas(paradas: ParadaConferenciaInput[], contexto: Con
       // ainda se aplica (é sobre o MOTOR, não sobre esta parada).
       motivos.push('sem_pino');
     } else {
-      if (idsCompartilhados.has(p.id)) motivos.push('pino_compartilhado');
+      if (mesmoPonto.mesmaPorta.has(p.id)) motivos.push('endereco_repetido');
+      if (mesmoPonto.outraPorta.has(p.id)) motivos.push('pino_compartilhado');
       if (centroCasulo && haversineKm({ lat: p.lat as number, lng: p.lng as number }, centroCasulo) > TETO_CASULO_KM) {
         motivos.push('fora_do_casulo');
       }

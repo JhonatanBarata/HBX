@@ -961,6 +961,8 @@ export class NucleoCadastroService {
         // B3 — partes do endereço (número/bairro) pra o editor pré-preencher os
         // campos próprios e a reedição parar de degradar o texto composto.
         numero: true,
+        // 06/08 — apartamento/bloco: o editor precisa dele pra responder "é apartamento?".
+        complemento: true,
         bairro: true,
         cidade: true,
         uf: true,
@@ -996,7 +998,7 @@ export class NucleoCadastroService {
           where: { ativo: true },
           orderBy: [{ isPrincipal: 'desc' }, { createdAt: 'asc' }],
           select: {
-            id: true, apelido: true, endereco: true, numero: true, bairro: true,
+            id: true, apelido: true, endereco: true, numero: true, complemento: true, bairro: true,
             cidade: true, uf: true, cep: true, lat: true, lng: true, geoFonte: true,
             isPrincipal: true, ativo: true,
           },
@@ -1016,6 +1018,7 @@ export class NucleoCadastroService {
       document: row.document ?? null,
       endereco: row.endereco ?? null,
       numero: row.numero ?? null,
+      complemento: row.complemento ?? null,
       bairro: row.bairro ?? null,
       cidade: row.cidade ?? null,
       uf: row.uf ?? null,
@@ -1045,6 +1048,7 @@ export class NucleoCadastroService {
         apelido: l.apelido ?? null,
         endereco: l.endereco ?? null,
         numero: l.numero ?? null,
+        complemento: l.complemento ?? null,
         bairro: l.bairro ?? null,
         cidade: l.cidade ?? null,
         uf: l.uf ?? null,
@@ -1251,6 +1255,7 @@ export class NucleoCadastroService {
           ...(input.email !== undefined ? { email: input.email || null } : {}),
           ...(input.endereco !== undefined ? { endereco: input.endereco || null } : {}),
           ...(input.numero !== undefined ? { numero: input.numero || null } : {}),
+          ...(input.complemento !== undefined ? { complemento: input.complemento || null } : {}),
           ...(input.bairro !== undefined ? { bairro: input.bairro || null } : {}),
           ...(input.cidade !== undefined ? { cidade: input.cidade || null } : {}),
           ...(input.uf !== undefined ? { uf: (input.uf || '').toUpperCase() || null } : {}),
@@ -1294,6 +1299,7 @@ export class NucleoCadastroService {
           email: input.email || null,
           endereco: input.endereco || null,
           numero: input.numero || null,
+          complemento: input.complemento || null,
           bairro: input.bairro || null,
           cidade: input.cidade || null,
           uf: (input.uf || '').toUpperCase() || null,
@@ -1424,6 +1430,7 @@ export class NucleoCadastroService {
     }
     if (input.endereco !== undefined) data.endereco = input.endereco || null;
     if (input.numero !== undefined) data.numero = input.numero || null;
+    if (input.complemento !== undefined) data.complemento = input.complemento || null;
     if (input.bairro !== undefined) data.bairro = input.bairro || null;
     if (input.cidade !== undefined) data.cidade = input.cidade || null;
     if (input.uf !== undefined) data.uf = (input.uf || '').toUpperCase() || null;
@@ -1748,6 +1755,7 @@ export class NucleoCadastroService {
           apelido: input.apelido?.trim() || null,
           endereco: input.endereco || null,
           numero: input.numero || null,
+          complemento: input.complemento || null,
           bairro: input.bairro || null,
           cidade: input.cidade || null,
           uf: (input.uf || '').toUpperCase() || null,
@@ -1784,6 +1792,7 @@ export class NucleoCadastroService {
     if (input.apelido !== undefined) data.apelido = input.apelido?.trim() || null;
     if (input.endereco !== undefined) data.endereco = input.endereco || null;
     if (input.numero !== undefined) data.numero = input.numero || null;
+    if (input.complemento !== undefined) data.complemento = input.complemento || null;
     if (input.bairro !== undefined) data.bairro = input.bairro || null;
     if (input.cidade !== undefined) data.cidade = input.cidade || null;
     if (input.uf !== undefined) data.uf = (input.uf || '').toUpperCase() || null;
@@ -2311,6 +2320,8 @@ function normalizeGeoFonteInput(
 function hasAnyEnderecoField(input: {
   endereco?: string | null;
   numero?: string | null;
+  /** 06/08 — apartamento/bloco/sala (o que separa duas contas na mesma porta). */
+  complemento?: string | null;
   bairro?: string | null;
   cidade?: string | null;
   uf?: string | null;
@@ -2336,6 +2347,8 @@ function hasAnyEnderecoField(input: {
 function enderecoFieldsTouched(input: {
   endereco?: string | null;
   numero?: string | null;
+  /** 06/08 — apartamento/bloco/sala (o que separa duas contas na mesma porta). */
+  complemento?: string | null;
   bairro?: string | null;
   cidade?: string | null;
   uf?: string | null;
@@ -2592,6 +2605,8 @@ export interface ClienteDetail {
   endereco: string | null;
   // B3 — partes do endereço (o texto composto `endereco` continua vindo tb).
   numero: string | null;
+  /** 06/08 — apartamento/bloco/sala (separa duas contas na mesma porta). */
+  complemento: string | null;
   bairro: string | null;
   cidade: string | null;
   uf: string | null;
@@ -2627,6 +2642,8 @@ export interface LocalEntregaDTO {
   apelido: string | null;
   endereco: string | null;
   numero: string | null;
+  /** 06/08 — apartamento/bloco/sala (separa duas contas na mesma porta). */
+  complemento: string | null;
   bairro: string | null;
   cidade: string | null;
   uf: string | null;
@@ -2651,6 +2668,8 @@ export interface LocalInput {
   apelido?: string | null;
   endereco?: string | null;
   numero?: string | null;
+  /** 06/08 — apartamento/bloco/sala (o que separa duas contas na mesma porta). */
+  complemento?: string | null;
   bairro?: string | null;
   cidade?: string | null;
   uf?: string | null;
@@ -2727,6 +2746,8 @@ export interface CreateContaInput {
   endereco?: string | null;
   // B3 — partes do endereço (dupla escrita: o texto composto vem em `endereco`).
   numero?: string | null;
+  /** 06/08 — apartamento/bloco/sala (o que separa duas contas na mesma porta). */
+  complemento?: string | null;
   bairro?: string | null;
   cidade?: string | null;
   uf?: string | null;
@@ -2800,6 +2821,8 @@ export interface UpdateContaInput {
   endereco?: string | null;
   // B3 — partes do endereço (dupla escrita: o texto composto vem em `endereco`).
   numero?: string | null;
+  /** 06/08 — apartamento/bloco/sala (o que separa duas contas na mesma porta). */
+  complemento?: string | null;
   bairro?: string | null;
   cidade?: string | null;
   uf?: string | null;

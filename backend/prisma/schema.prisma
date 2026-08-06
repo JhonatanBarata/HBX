@@ -1104,6 +1104,9 @@ model CustomerProfile {
   // ESCRITA: `endereco` segue composto e gravado como hoje (rota/deep-link/telas
   // antigas leem `endereco` inteiro) — estas são aditivas, opcionais, legado = null.
   numero               String?
+  /// 06/08 — apartamento/bloco/sala. É o que distingue duas contas na MESMA porta
+  /// (condomínio); sem ele, prédio inteiro parecia cadastro repetido.
+  complemento          String?
   bairro               String?
   cidade               String?
   uf                   String?
@@ -2117,6 +2120,8 @@ model LocalEntrega {
   apelido           String?  // "Casa" | "Loja" | "Depósito" — rótulo curto, opcional
   endereco          String?
   numero            String?
+  /// 06/08 — apartamento/bloco/sala desta porta (ver CustomerProfile.complemento).
+  complemento       String?
   bairro            String?
   cidade            String?
   uf                String?

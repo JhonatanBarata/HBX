@@ -192,7 +192,12 @@ export async function getRoadGeometry(points: Array<{ lat: number; lng: number }
 const MOTIVO_FRASE: Record<string, string> = {
   cep_endereco_divergente: "CEP e endereço não batem",
   sem_pino: "Não sei onde fica este endereço",
-  pino_compartilhado: "Endereço igual ao de outro cliente",
+  // 06/08 — duas coisas que caíam na mesma frase: o ENDEREÇO se repetir (mesmo
+  // número, sem apartamento) é cadastro; o PONTO se repetir com endereços
+  // diferentes é o mapa que não separa as casas. Dizer "endereço igual" no
+  // segundo caso mandava caçar uma duplicata que não existe.
+  endereco_repetido: "Mesmo endereço de outro cliente",
+  pino_compartilhado: "O mapa não separa esta casa da vizinha",
   diverge_gps_ouro: "Diferente de onde você já entregou",
   // Os dois motivos de distância dizem a MESMA coisa pro operador — então dizem
   // com a MESMA frase (o dedupe abaixo evita repetir quando a parada acumula os dois).

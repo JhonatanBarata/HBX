@@ -50,6 +50,9 @@ export interface EnderecoCadastrado {
   endereco?: string | null;
   /** Coluna própria (LOGÍSTICA-MOBILE B3, dupla escrita). Legado = null. */
   numero?: string | null;
+  /** Apartamento/bloco (06/08). Não entra em nenhuma regra de CEP — viaja junto porque
+   *  é o mesmo endereço, e a régua de PORTA (endereco-porta.util) precisa dele. */
+  complemento?: string | null;
   bairro?: string | null;
   cidade?: string | null;
   uf?: string | null;

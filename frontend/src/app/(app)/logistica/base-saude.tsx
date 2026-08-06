@@ -24,6 +24,7 @@ type Semaforo = "verde" | "amarelo" | "vermelho";
 type Motivo =
   | "sem_pino"
   | "pino_compartilhado"
+  | "endereco_repetido"
   | "fora_do_casulo"
   | "perna_outlier"
   | "diverge_gps_ouro"
@@ -40,9 +41,12 @@ type BaseSaudeCliente = {
   localId: string | null;
   localApelido: string | null;
   resolveSozinho: boolean;
-  /** Nomes dos OUTROS clientes no mesmo ponto (backend, até 5). */
-  compartilhaCom?: string[];
-  compartilhaComTotal?: number;
+  /** Outras contas na MESMA PORTA (mesmo número, sem apartamento que as separe). */
+  mesmaPortaCom?: string[];
+  mesmaPortaComTotal?: number;
+  /** Quem cai no mesmo PONTO com endereço diferente (o mapa não separa as casas). */
+  mesmoPontoCom?: string[];
+  mesmoPontoComTotal?: number;
 };
 
 type BaseSaudeResult = {
@@ -59,6 +63,7 @@ type LocalDraft = {
   apelido: string;
   endereco: string;
   numero: string;
+  complemento: string;
   bairro: string;
   cidade: string;
   uf: string;
@@ -82,7 +87,10 @@ const FILTROS: Array<{ key: Filtro; label: string }> = [
 
 const MOTIVO_LABEL: Record<Motivo, string> = {
   sem_pino: "Sem localização cadastrada",
-  pino_compartilhado: "Localização igual à de outro cliente",
+  // 06/08: "igual à de outro cliente" era mentira na maioria dos casos — o endereço
+  // é DIFERENTE (números diferentes da mesma rua); quem é igual é o ponto do mapa.
+  pino_compartilhado: "O mapa não separa esta casa da vizinha",
+  endereco_repetido: "Mesmo endereço de outro cliente",
   fora_do_casulo: "Fora do agrupamento do dia",
   perna_outlier: "Trecho fora do padrão",
   diverge_gps_ouro: "Local diverge da última entrega",
@@ -104,12 +112,15 @@ function motivosTexto(motivos: Motivo[]): string {
 // conferência da rota já tinha matado em 26/07. Aqui a tela passa a separar:
 // o que ele precisa CORRIGIR na frente, o que é normal fica embaixo, escrito
 // como aviso e não como defeito. A COR continua sendo a do servidor.
-const MOTIVOS_CORRIGIR: Motivo[] = ["sem_pino", "pino_compartilhado", "diverge_gps_ouro"];
+const MOTIVOS_CORRIGIR: Motivo[] = ["sem_pino", "endereco_repetido", "pino_compartilhado", "diverge_gps_ouro"];
 
 /** Cada motivo em duas partes: o que é + o que fazer. Sem jargão (nada de "pino"). */
 const MOTIVO_AJUDA: Partial<Record<Motivo, string>> = {
   sem_pino: "Localize pelo endereço ou use a posição atual e salve.",
-  pino_compartilhado: "Confira o número da casa e marque o ponto certo deste cliente.",
+  // Duas coisas diferentes, duas ações diferentes (06/08): endereço repetido se
+  // resolve no CADASTRO (apartamento ou duplicata); ponto grudado se resolve no MAPA.
+  endereco_repetido: "Mesmo número, sem apartamento. Se for prédio, escreva o apartamento no Complemento; se não for, um dos dois cadastros está repetido.",
+  pino_compartilhado: "O endereço é outro, mas o ponto do mapa é o mesmo. Marque o ponto certo desta casa.",
   diverge_gps_ouro: "A última entrega foi longe daqui — confirme o endereço.",
   geocode_nao_provado_em_campo: "Normal em cliente novo: a 1ª entrega confirma sozinha.",
   fonte_nao_confiavel: "O ponto veio de uma origem sem confirmação.",
@@ -120,21 +131,23 @@ const MOTIVO_AJUDA: Partial<Record<Motivo, string>> = {
 };
 
 /** "Adriana e Marcos" · "Adriana, Marcos e mais 3" — nome é o que resolve. */
-function nomesMesmoPonto(cliente: BaseSaudeCliente): string {
-  const nomes = cliente.compartilhaCom ?? [];
+function listaDeNomes(nomes: string[], total: number): string {
   if (!nomes.length) return "";
-  const total = cliente.compartilhaComTotal ?? nomes.length;
   const sobra = Math.max(0, total - nomes.length);
   if (sobra > 0) return `${nomes.join(", ")} e mais ${sobra}`;
   if (nomes.length === 1) return nomes[0];
   return `${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1]}`;
 }
 
-/** O título do motivo já com o NOME do repetido dentro, quando existe. */
+/** O título do motivo já com o NOME de quem está junto, quando existe. */
 function tituloDoMotivo(motivo: Motivo, cliente: BaseSaudeCliente): string {
+  if (motivo === "endereco_repetido") {
+    const nomes = listaDeNomes(cliente.mesmaPortaCom ?? [], cliente.mesmaPortaComTotal ?? 0);
+    return nomes ? `Mesmo endereço de ${nomes}` : MOTIVO_LABEL[motivo];
+  }
   if (motivo === "pino_compartilhado") {
-    const nomes = nomesMesmoPonto(cliente);
-    return nomes ? `Mesmo ponto de ${nomes}` : MOTIVO_LABEL[motivo];
+    const nomes = listaDeNomes(cliente.mesmoPontoCom ?? [], cliente.mesmoPontoComTotal ?? 0);
+    return nomes ? `Mesmo ponto no mapa de ${nomes}` : MOTIVO_LABEL[motivo];
   }
   return MOTIVO_LABEL[motivo] || motivo;
 }
@@ -162,6 +175,7 @@ function draftDoLocal(detalhe: ClienteDetail, local: LocalCliente | null): Local
     apelido: local?.apelido || "",
     endereco: (local ? local.endereco : detalhe.endereco) || "",
     numero: (local ? local.numero : detalhe.numero) || "",
+    complemento: (local ? local.complemento : detalhe.complemento) || "",
     bairro: (local ? local.bairro : detalhe.bairro) || "",
     cidade: (local ? local.cidade : detalhe.cidade) || "",
     uf: ((local ? local.uf : detalhe.uf) || "").toUpperCase(),
@@ -181,6 +195,7 @@ function payloadDoDraft(draft: LocalDraft): CriarLocalPayload {
     apelido: draft.apelido.trim(),
     endereco: draft.endereco.trim(),
     numero: draft.numero.trim(),
+    complemento: draft.complemento.trim(),
     bairro: draft.bairro.trim(),
     cidade: draft.cidade.trim(),
     uf: draft.uf.trim().toUpperCase(),
@@ -656,6 +671,18 @@ export function BaseSaude() {
                       <label className="log-agenda-form__field">
                         <span>Número</span>
                         <input className="field-dark" value={draft.numero} onChange={(event) => setCampo("numero", event.target.value)} />
+                      </label>
+                      {/* 06/08 (dono): é aqui que se responde "é apartamento?" —
+                          sem este campo, dois vizinhos de prédio ficavam
+                          indistinguíveis e o condomínio inteiro virava defeito. */}
+                      <label className="log-agenda-form__field">
+                        <span>Complemento</span>
+                        <input
+                          className="field-dark"
+                          value={draft.complemento}
+                          onChange={(event) => setCampo("complemento", event.target.value)}
+                          placeholder="Apto, bloco, sala…"
+                        />
                       </label>
                       <label className="log-agenda-form__field">
                         <span>Bairro</span>

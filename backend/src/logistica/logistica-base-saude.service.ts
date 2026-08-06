@@ -2,11 +2,12 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
 import {
+  analisarMesmoPonto,
   conferirParadas,
-  vizinhosDePino,
   type MotivoConferencia,
   type ParadaConferenciaInput,
 } from './logistica-conferencia.util';
+import type { PortaCadastro } from '../nucleo/endereco-porta.util';
 
 /**
  * Semáforo PRÓPRIO do painel de saúde da base (26/07). A conferência da ROTA perdeu o
@@ -34,6 +35,44 @@ const TETO_CLIENTES_BASE_SAUDE = 20_000;
 /** Quantos NOMES de "mesmo ponto" viajam por cliente (o resto vira "e mais N"). */
 const TETO_NOMES_MESMO_PONTO = 5;
 
+/** Campos de endereço de qualquer das duas fontes do multilocal (perfil ou local). */
+type FonteEndereco = {
+  endereco?: string | null;
+  numero?: string | null;
+  complemento?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  uf?: string | null;
+  cep?: string | null;
+} | null;
+
+/** O endereço vem inteiro da fonte que tem endereço — nunca meio de cada. */
+function portaDaFonteEscolhida(local: FonteEndereco, perfil: FonteEndereco): PortaCadastro {
+  const doLocal = local
+    ? {
+        endereco: local.endereco ?? null,
+        numero: local.numero ?? null,
+        complemento: local.complemento ?? null,
+        bairro: local.bairro ?? null,
+        cidade: local.cidade ?? null,
+        uf: local.uf ?? null,
+        cep: local.cep ?? null,
+      }
+    : null;
+  const temEndereco = doLocal
+    && Boolean(String(doLocal.endereco ?? '').trim() || String(doLocal.cep ?? '').trim() || String(doLocal.cidade ?? '').trim());
+  if (temEndereco && doLocal) return doLocal;
+  return {
+    endereco: perfil?.endereco ?? null,
+    numero: perfil?.numero ?? null,
+    complemento: perfil?.complemento ?? null,
+    bairro: perfil?.bairro ?? null,
+    cidade: perfil?.cidade ?? null,
+    uf: perfil?.uf ?? null,
+    cep: perfil?.cep ?? null,
+  };
+}
+
 // conferirParadas (S3) nasceu pra rodar em CIMA de uma rota do dia — duas das
 // suas regras são sobre o TRAJETO, não sobre o pino:
 //   - fora_do_casulo: compara contra a mediana geográfica das paradas do MOTOR do
@@ -59,6 +98,10 @@ const MOTIVOS_DE_ROTA_FORA_DE_ESCOPO = new Set<MotivoConferencia>([
 const MOTIVOS_VERMELHOS_BASE_SAUDE = new Set<MotivoConferencia>([
   'sem_pino',
   'pino_compartilhado',
+  // 06/08: duas contas na MESMA porta pede a mesma urgência do pino duplicado — ou
+  // falta o apartamento, ou um dos dois cadastros está sobrando. Os dois estragam
+  // entrega, e os dois se resolvem numa edição de cadastro.
+  'endereco_repetido',
   'diverge_gps_ouro',
 ]);
 
@@ -96,7 +139,13 @@ export class LogisticaBaseSaudeService {
     // filtro usado em logistica-agenda.service.ts (isCliente:true, status:'active').
     const clientes = await this.prisma.customerProfile.findMany({
       where: { companyId, isCliente: true, status: 'active' },
-      select: { id: true, name: true, lat: true, lng: true, geoFonte: true },
+      // O ENDEREÇO entra no select desde 06/08: sem ele não dá pra saber se duas
+      // paradas no mesmo ponto são a mesma porta (duplicata/apartamento) ou casas
+      // diferentes que o pino não separa — ver `analisarMesmoPonto`.
+      select: {
+        id: true, name: true, lat: true, lng: true, geoFonte: true,
+        endereco: true, numero: true, complemento: true, bairro: true, cidade: true, uf: true, cep: true,
+      },
       orderBy: { name: 'asc' },
       take: TETO_CLIENTES_BASE_SAUDE,
     });
@@ -116,7 +165,10 @@ export class LogisticaBaseSaudeService {
     // um marcado — mesmo critério informal do cadastro).
     const locais = await this.prisma.localEntrega.findMany({
       where: { companyId, customerProfileId: { in: clienteIds }, ativo: true },
-      select: { id: true, apelido: true, lat: true, lng: true, geoFonte: true, customerProfileId: true, isPrincipal: true },
+      select: {
+        id: true, apelido: true, lat: true, lng: true, geoFonte: true, customerProfileId: true, isPrincipal: true,
+        endereco: true, numero: true, complemento: true, bairro: true, cidade: true, uf: true, cep: true,
+      },
     });
     const localPorCliente = new Map<string, (typeof locais)[number]>();
     for (const local of locais) {
@@ -186,6 +238,10 @@ export class LogisticaBaseSaudeService {
         // aqui muda a contagem do painel (verdes/amarelos) e o contrato que o front já
         // consome. Fica pra sprint própria deste painel, não de carona nesta.
         enderecoSemNumero: false,
+        // O endereço vem da MESMA fonte da coordenada (multilocal) — misturar o CEP
+        // de um com a rua do outro é o "Frankenstein" que logistica-geo-fonte.util
+        // existe pra impedir. Local sem endereço próprio cai pro perfil.
+        porta: portaDaFonteEscolhida(local, cliente),
       };
     });
 
@@ -194,11 +250,12 @@ export class LogisticaBaseSaudeService {
     // nenhum, isto é só a entrada "neutra" que a S7 pede.
     const conferidas = conferirParadas(inputs, { engine: 'osrm' });
 
-    // COM QUEM o ponto é dividido (06/08, dono): "localização igual à de outro
-    // cliente" sem dizer QUAL outro não dá pra corrigir — ele teria que caçar o
-    // gêmeo na mão numa base de milhares. Mesma função que decide o motivo
-    // (`vizinhosDePino`), então a lista nunca discorda do semáforo.
-    const vizinhos = vizinhosDePino(inputs);
+    // COM QUEM (06/08, dono): "igual à de outro cliente" sem dizer QUAL não dá pra
+    // corrigir — ele teria que caçar o gêmeo na mão numa base de milhares. Mesma
+    // função que decide o motivo, então a lista nunca discorda do semáforo. São dois
+    // grupos porque são dois problemas: mesma PORTA (é apartamento? é duplicata?) e
+    // mesmo PONTO com endereços diferentes (o mapa não separa as casas).
+    const mesmoPonto = analisarMesmoPonto(inputs);
 
     let verdes = 0;
     let amarelos = 0;
@@ -229,7 +286,12 @@ export class LogisticaBaseSaudeService {
 
       // Só quem REALMENTE ficou com o motivo leva a lista (o filtro de motivo de
       // rota acima pode ter mudado o veredito) — nome na tela nunca sem acusação.
-      const gemeos = motivos.includes('pino_compartilhado') ? (vizinhos.get(c.id) ?? []) : [];
+      const naMesmaPorta = motivos.includes('endereco_repetido') ? (mesmoPonto.mesmaPorta.get(c.id) ?? []) : [];
+      const noMesmoPonto = motivos.includes('pino_compartilhado') ? (mesmoPonto.outraPorta.get(c.id) ?? []) : [];
+      // Teto de nomes: o incidente 25/07 (empresa 41) colapsou 154 clientes no MESMO
+      // centroide de via — mandar 154 nomes por linha é um payload inútil.
+      const nomesDe = (ids: string[]) =>
+        ids.slice(0, TETO_NOMES_MESMO_PONTO).map((id) => clientePorId.get(id)?.name || 'Cliente');
 
       return {
         id: c.id,
@@ -239,10 +301,10 @@ export class LogisticaBaseSaudeService {
         localId: local?.id ?? null,
         localApelido: local?.apelido ?? null,
         resolveSozinho,
-        // Teto de nomes: o incidente 25/07 (empresa 41) colapsou 154 clientes no
-        // MESMO centroide de via — mandar 154 nomes por linha é um payload inútil.
-        compartilhaCom: gemeos.slice(0, TETO_NOMES_MESMO_PONTO).map((id) => clientePorId.get(id)?.name || 'Cliente'),
-        compartilhaComTotal: gemeos.length,
+        mesmaPortaCom: nomesDe(naMesmaPorta),
+        mesmaPortaComTotal: naMesmaPorta.length,
+        mesmoPontoCom: nomesDe(noMesmoPonto),
+        mesmoPontoComTotal: noMesmoPonto.length,
       };
     });
 
@@ -277,11 +339,14 @@ export interface BaseSaudeCliente {
    *  marca por linha os mesmos clientes já contados em `resolvemSozinhos`, pra
    *  o front destacar a linha sem precisar recalcular a regra sozinho. */
   resolveSozinho: boolean;
-  /** Nomes dos OUTROS clientes no MESMO ponto (até 5) — vazio quando o cliente não
-   *  tem `pino_compartilhado`. É o "qual é o repetido" que a tela precisa dizer. */
-  compartilhaCom: string[];
-  /** Quantos são no total (pode ser maior que `compartilhaCom.length`). */
-  compartilhaComTotal: number;
+  /** Nomes (até 5) das outras contas na MESMA PORTA — mesmo número, sem apartamento
+   *  que as separe. Vazio quando o cliente não tem `endereco_repetido`. */
+  mesmaPortaCom: string[];
+  mesmaPortaComTotal: number;
+  /** Nomes (até 5) de quem cai no mesmo PONTO com endereço DIFERENTE — o pino é que
+   *  não distingue. Vazio quando o cliente não tem `pino_compartilhado`. */
+  mesmoPontoCom: string[];
+  mesmoPontoComTotal: number;
 }
 
 export interface BaseSaudeResult {

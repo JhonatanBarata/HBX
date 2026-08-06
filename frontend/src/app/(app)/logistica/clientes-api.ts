@@ -92,6 +92,8 @@ export interface LocalCliente {
   apelido: string | null;
   endereco: string | null;
   numero: string | null;
+  /** 06/08 — apartamento/bloco/sala: o que separa duas contas na mesma porta. */
+  complemento: string | null;
   bairro: string | null;
   cidade: string | null;
   uf: string | null;
@@ -113,6 +115,8 @@ export interface ClienteDetail {
   endereco: string | null;
   // B3 — partes do endereço em coluna própria (o texto composto vem em `endereco`).
   numero: string | null;
+  /** 06/08 — apartamento/bloco/sala: o que separa duas contas na mesma porta. */
+  complemento: string | null;
   bairro: string | null;
   cidade: string | null;
   uf: string | null;
@@ -153,6 +157,7 @@ export interface CriarClientePayload {
   endereco?: string;
   // B3 — partes do endereço (dupla escrita: `endereco` composto continua indo tb).
   numero?: string;
+  complemento?: string;
   bairro?: string;
   cidade?: string;
   uf?: string;
@@ -187,6 +192,7 @@ export interface EditarClientePayload {
   endereco?: string;
   // B3 — partes do endereço (dupla escrita: `endereco` composto continua indo tb).
   numero?: string;
+  complemento?: string;
   bairro?: string;
   cidade?: string;
   uf?: string;
@@ -303,6 +309,7 @@ export interface CriarLocalPayload {
   apelido?: string;
   endereco?: string;
   numero?: string;
+  complemento?: string;
   bairro?: string;
   cidade?: string;
   uf?: string;

@@ -118,3 +118,57 @@ test('sem cidade e sem CEP: não decide (fail-closed)', () => {
     false,
   );
 });
+
+// ── UNIDADE / CONDOMÍNIO (06/08, ordem do dono) ────────────────────────────────
+// "Os clientes podem ter o mesmo CEP (morar no mesmo condomínio); o que difere um do
+// outro é o número. E se repetir, tem que dar o erro e perguntar se é apartamento."
+
+test('apartamentos DIFERENTES no mesmo número não são a mesma porta', () => {
+  assert.equal(
+    mesmaPorta(
+      { endereco: 'Avenida 96', numero: '405', complemento: 'Apto 32', cidade: 'Rio Claro' },
+      { endereco: 'Avenida 96', numero: '405', complemento: 'Apto 45', cidade: 'Rio Claro' },
+    ),
+    false,
+  );
+});
+
+test('mesma unidade escrita de outro jeito ("Apto 32" ≡ "AP. 32") continua sendo a mesma porta', () => {
+  assert.equal(
+    mesmaPorta(
+      { endereco: 'Avenida 96', numero: '405', complemento: 'Apto 32', cidade: 'Rio Claro' },
+      { endereco: 'Avenida 96', numero: '405', complemento: 'ap. 32', cidade: 'Rio Claro' },
+    ),
+    true,
+  );
+});
+
+test('unidade em branco de um lado NÃO prova unidade diferente — segue mesma porta (é o caso que o dono quer ver perguntado)', () => {
+  assert.equal(
+    mesmaPorta(
+      { endereco: 'Avenida 96', numero: '405', complemento: 'Apto 32', cidade: 'Rio Claro' },
+      { endereco: 'Avenida 96', numero: '405', complemento: null, cidade: 'Rio Claro' },
+    ),
+    true,
+  );
+});
+
+test('unidade sem número ("Fundos" vs "Casa 2") também separa', () => {
+  assert.equal(
+    mesmaPorta(
+      { endereco: 'Rua 8', numero: '601', complemento: 'Fundos', cidade: 'Rio Claro' },
+      { endereco: 'Rua 8', numero: '601', complemento: 'Casa 2', cidade: 'Rio Claro' },
+    ),
+    false,
+  );
+});
+
+test('unidade NUNCA salva número diferente: apto igual em casas diferentes segue porta diferente', () => {
+  assert.equal(
+    mesmaPorta(
+      { endereco: 'Rua 8', numero: '601', complemento: 'Apto 32', cidade: 'Rio Claro' },
+      { endereco: 'Rua 8', numero: '607', complemento: 'Apto 32', cidade: 'Rio Claro' },
+    ),
+    false,
+  );
+});

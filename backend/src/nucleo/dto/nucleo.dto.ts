@@ -76,6 +76,13 @@ export class CreateContaDto {
   @MaxLength(30)
   numero?: string;
 
+  // 06/08 — apartamento/bloco/sala: é o que separa duas contas na MESMA porta
+  // (condomínio). Sem ele, prédio inteiro parecia cadastro repetido.
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  complemento?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(120)
@@ -186,6 +193,13 @@ export class UpdateContaDto {
   @IsString()
   @MaxLength(30)
   numero?: string;
+
+  // 06/08 — apartamento/bloco/sala: é o que separa duas contas na MESMA porta
+  // (condomínio). Sem ele, prédio inteiro parecia cadastro repetido.
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  complemento?: string;
 
   @IsOptional()
   @IsString()
@@ -431,6 +445,13 @@ export class CreateLocalDto {
   @MaxLength(30)
   numero?: string;
 
+  // 06/08 — apartamento/bloco/sala: é o que separa duas contas na MESMA porta
+  // (condomínio). Sem ele, prédio inteiro parecia cadastro repetido.
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  complemento?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(120)
@@ -495,6 +516,13 @@ export class UpdateLocalDto {
   @IsString()
   @MaxLength(30)
   numero?: string;
+
+  // 06/08 — apartamento/bloco/sala: é o que separa duas contas na MESMA porta
+  // (condomínio). Sem ele, prédio inteiro parecia cadastro repetido.
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  complemento?: string;
 
   @IsOptional()
   @IsString()

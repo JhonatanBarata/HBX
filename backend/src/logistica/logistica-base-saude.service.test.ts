@@ -23,15 +23,28 @@ import { LogisticaBaseSaudeService } from './logistica-base-saude.service';
  *                  → resolve sozinho pelo outro caminho (entrega no pipeline).
  */
 
+// 06/08 — endereço entrou na fixture: sem ele não dá pra distinguir "mesma porta"
+// (duplicata/apartamento) de "mesmo ponto, casas diferentes" (pino grosseiro).
+// cli-1/cli-2 ficam no MESMO ponto e no MESMO número, sem apartamento: é o caso que o
+// dono quer ver perguntado ("é apartamento?"). Os prédios entram em cli-9/10/11/12.
+const END = { endereco: 'Avenida 74', bairro: 'Jd. Santa Maria', cidade: 'Rio Claro', uf: 'SP', cep: '13504726' };
 const CLIENTES = [
-  { id: 'cli-1', name: 'Ana', lat: -22.4, lng: -47.55, geoFonte: 'gps_entrega' },
-  { id: 'cli-2', name: 'Bruno', lat: -22.4, lng: -47.55, geoFonte: 'gps_entrega' },
+  { id: 'cli-1', name: 'Ana', lat: -22.4, lng: -47.55, geoFonte: 'gps_entrega', ...END, numero: '197', complemento: null },
+  { id: 'cli-2', name: 'Bruno', lat: -22.4, lng: -47.55, geoFonte: 'gps_entrega', ...END, numero: '197', complemento: null },
   { id: 'cli-3', name: 'Carla', lat: null, lng: null, geoFonte: null },
   { id: 'cli-4', name: 'Duda', lat: null, lng: null, geoFonte: null },
   { id: 'cli-5', name: 'Elis', lat: 2.8, lng: -60.7, geoFonte: 'gps_cadastro' },
   { id: 'cli-6', name: 'Fabio', lat: -22.41, lng: -47.56, geoFonte: 'geocode' },
   { id: 'cli-7', name: 'Gustavo', lat: null, lng: null, geoFonte: null },
   { id: 'cli-8', name: 'Helo', lat: null, lng: null, geoFonte: null },
+  // PRÉDIO (o caso do dono): mesmo ponto, mesma porta, APARTAMENTOS diferentes →
+  // nenhum dos dois é defeito. Antes de 06/08 os dois saíam vermelhos.
+  { id: 'cli-9', name: 'Ivo', lat: -22.42, lng: -47.58, geoFonte: 'gps_entrega', ...END, numero: '405', complemento: 'Apto 32' },
+  { id: 'cli-10', name: 'Joana', lat: -22.42, lng: -47.58, geoFonte: 'gps_entrega', ...END, numero: '405', complemento: 'AP. 45' },
+  // MESMO PONTO, NÚMEROS DIFERENTES: o pino é que não separa as casas (31 dos 47
+  // acusados na company 41 eram assim) — nunca "endereço repetido".
+  { id: 'cli-11', name: 'Kelly', lat: -22.43, lng: -47.59, geoFonte: 'gps_entrega', ...END, numero: '188', complemento: null },
+  { id: 'cli-12', name: 'Lucas', lat: -22.43, lng: -47.59, geoFonte: 'gps_entrega', ...END, numero: '282', complemento: null },
 ];
 
 const LOCAIS = [
@@ -46,8 +59,10 @@ const LOCAIS = [
   },
 ];
 
-// entregas 'entregue': cli-1,2,5,6,7 já receberam alguma vez (cli-3/4/8 nunca).
-const ENTREGUES = ['cli-1', 'cli-2', 'cli-5', 'cli-6', 'cli-7'];
+// entregas 'entregue': cli-1,2,5,6,7 e os do prédio/rua já receberam alguma vez
+// (cli-3/4/8 nunca). Os novos entram aqui pra isolar a régua de PORTA: sem isto eles
+// carregariam `nunca_entregue` junto e o teste mediria duas coisas ao mesmo tempo.
+const ENTREGUES = ['cli-1', 'cli-2', 'cli-5', 'cli-6', 'cli-7', 'cli-9', 'cli-10', 'cli-11', 'cli-12'];
 // entrega ABERTA (agendada/em_rota) já no pipeline: só cli-8.
 const ABERTAS = ['cli-8'];
 // recorrência ATIVA (LogisticaPlanoEntrega): só cli-3.
@@ -106,45 +121,78 @@ test('agregado: totais batem, percentVerde arredonda a 1 casa, resolvemSozinhos 
   const service = new LogisticaBaseSaudeService(buildPrismaMock() as any);
   const resultado = await service.getBaseSaude(41);
 
-  assert.equal(resultado.totalClientes, 8);
+  assert.equal(resultado.totalClientes, 12);
   assert.equal(resultado.verdes + resultado.amarelos + resultado.vermelhos, resultado.totalClientes);
-  // verdes: cli-5 (longe, mas coordenada provada) + cli-7 (local válido) = 2/8 = 25%.
-  assert.equal(resultado.verdes, 2);
+  // verdes: cli-5 (longe, mas coordenada provada) + cli-7 (local válido) + o PRÉDIO
+  // (cli-9/cli-10: apartamentos diferentes não são defeito) = 4/12 = 33,3%.
+  assert.equal(resultado.verdes, 4);
   assert.equal(resultado.amarelos, 1);
-  assert.equal(resultado.vermelhos, 5);
-  assert.equal(resultado.percentVerde, 25);
+  // 5 de antes + cli-11/cli-12 (mesmo ponto, números diferentes) = 7.
+  assert.equal(resultado.vermelhos, 7);
+  assert.equal(resultado.percentVerde, 33.3);
   // cli-3 (recorrência) + cli-8 (entrega aberta) — cli-4 fica de fora (nenhum dos dois).
   assert.equal(resultado.resolvemSozinhos, 2);
 });
 
-test('pino_compartilhado: cli-1/cli-2 no MESMO lat/lng viram vermelho os dois, motivo único', async () => {
+test('MESMA PORTA (mesmo número, sem apartamento): vira endereco_repetido nos dois, com o NOME do outro', async () => {
   const service = new LogisticaBaseSaudeService(buildPrismaMock() as any);
   const resultado = await service.getBaseSaude(41);
 
   const cli1 = resultado.clientes.find((c) => c.id === 'cli-1')!;
   const cli2 = resultado.clientes.find((c) => c.id === 'cli-2')!;
-  assert.deepEqual(cli1.motivos, ['pino_compartilhado']);
-  assert.deepEqual(cli2.motivos, ['pino_compartilhado']);
+  assert.deepEqual(cli1.motivos, ['endereco_repetido']);
+  assert.deepEqual(cli2.motivos, ['endereco_repetido']);
   assert.equal(cli1.semaforo, 'vermelho');
   assert.equal(cli2.semaforo, 'vermelho');
+  assert.deepEqual(cli1.mesmaPortaCom, ['Bruno']);
+  assert.equal(cli1.mesmaPortaComTotal, 1);
+  assert.deepEqual(cli2.mesmaPortaCom, ['Ana']);
+  // Mesma porta NÃO é "mesmo ponto com endereço diferente": os campos não se misturam.
+  assert.deepEqual(cli1.mesmoPontoCom, []);
+  assert.equal(cli1.mesmoPontoComTotal, 0);
 });
 
-test('mesmo ponto diz COM QUEM: cada um recebe o NOME do outro, e quem não divide vem vazio', async () => {
+test('PRÉDIO (mesma porta, apartamentos DIFERENTES): ninguém é acusado — é condomínio, não defeito', async () => {
   const service = new LogisticaBaseSaudeService(buildPrismaMock() as any);
   const resultado = await service.getBaseSaude(41);
 
-  const cli1 = resultado.clientes.find((c) => c.id === 'cli-1')!;
-  const cli2 = resultado.clientes.find((c) => c.id === 'cli-2')!;
-  assert.deepEqual(cli1.compartilhaCom, ['Bruno']);
-  assert.equal(cli1.compartilhaComTotal, 1);
-  assert.deepEqual(cli2.compartilhaCom, ['Ana']);
-  assert.equal(cli2.compartilhaComTotal, 1);
+  const ivo = resultado.clientes.find((c) => c.id === 'cli-9')!;
+  const joana = resultado.clientes.find((c) => c.id === 'cli-10')!;
+  assert.deepEqual(ivo.motivos, []);
+  assert.deepEqual(joana.motivos, []);
+  assert.equal(ivo.semaforo, 'verde');
+  assert.equal(joana.semaforo, 'verde');
+  assert.deepEqual(ivo.mesmaPortaCom, []);
+  assert.deepEqual(ivo.mesmoPontoCom, []);
+});
 
-  // Sem o motivo, nenhum nome viaja — nome na tela é sempre acusação com prova.
+test('MESMO PONTO, NÚMEROS DIFERENTES: é o pino que não separa as casas — nunca endereço repetido', async () => {
+  const service = new LogisticaBaseSaudeService(buildPrismaMock() as any);
+  const resultado = await service.getBaseSaude(41);
+
+  const kelly = resultado.clientes.find((c) => c.id === 'cli-11')!;
+  const lucas = resultado.clientes.find((c) => c.id === 'cli-12')!;
+  assert.deepEqual(kelly.motivos, ['pino_compartilhado']);
+  assert.deepEqual(lucas.motivos, ['pino_compartilhado']);
+  assert.deepEqual(kelly.mesmoPontoCom, ['Lucas']);
+  assert.equal(kelly.mesmoPontoComTotal, 1);
+  assert.deepEqual(kelly.mesmaPortaCom, []);
+  assert.equal(kelly.mesmaPortaComTotal, 0);
+});
+
+test('nome na tela é sempre acusação com prova: sem o motivo, nenhuma lista viaja', async () => {
+  const service = new LogisticaBaseSaudeService(buildPrismaMock() as any);
+  const resultado = await service.getBaseSaude(41);
+
   for (const cliente of resultado.clientes) {
-    if (cliente.motivos.includes('pino_compartilhado')) continue;
-    assert.deepEqual(cliente.compartilhaCom, []);
-    assert.equal(cliente.compartilhaComTotal, 0);
+    if (!cliente.motivos.includes('endereco_repetido')) {
+      assert.deepEqual(cliente.mesmaPortaCom, []);
+      assert.equal(cliente.mesmaPortaComTotal, 0);
+    }
+    if (!cliente.motivos.includes('pino_compartilhado')) {
+      assert.deepEqual(cliente.mesmoPontoCom, []);
+      assert.equal(cliente.mesmoPontoComTotal, 0);
+    }
   }
 });
 
