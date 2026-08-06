@@ -1629,22 +1629,112 @@ function mapa(){
 }
 
 /* ==========================================================================
+   DADOS — o QUE a tela mostra, separado de COMO ela mostra.
+   ==========================================================================
+   Até aqui cada template carregava os próprios literais ("João da Silva",
+   "R$ 336,00", "Água 20L 128 un."). Isso deixava o mock lindo e o app CEGO: a
+   pele foi pro aparelho com a exibição ligada e a fiação não, porque não havia
+   por onde o dado de verdade entrar.
+
+   🔴 O ACORDO QUE MANTÉM A REGRA DO DONO ("o html gerado tem que ser idêntico"):
+   os valores daqui são EXATAMENTE os literais que estavam dentro dos templates,
+   movidos, não reescritos. Sem ninguém injetar nada, o mock renderiza igualzinho
+   — e é isso que `node scripts/pele20-conferir.js` continua medindo, 66/66.
+
+   No aparelho, `window.HBX20.usarDados('produtos', {...})` troca UMA seção por
+   dado real. Seção não trocada continua com o dado do mock e AVISA no console:
+   enfeite silencioso já enganou uma vez nesta frente, não engana de novo.
+   ========================================================================== */
+const DADOS_MOCK={
+  rota:{
+    estado:'rodando',
+    paradas:[
+      {n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro • SP',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['A caminho','blue','nav'],perna:''},
+      {n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin • SP',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',pill:['A caminho','blue','nav'],perna:'850 m · 4 min'},
+      {n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema • SP',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Chegou','lime','check'],perna:'1,2 km · 6 min'},
+      {n:4,hora:'10:45',cor:'lime',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema • SP',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['Chegou','lime','check'],perna:'620 m · 3 min'},
+      {n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara • SP',tags:[['20L x3','blue'],['Vasilhame']],marcado:'63,00',pill:['Pendente','amber','clock'],perna:'2,1 km · 9 min'},
+      {n:6,hora:'12:15',cor:'off',nome:'Mercado Estrela',rua:'R. Aracanguá, 210',bairro:'Jabaquara • SP',tags:[['20L x4','blue'],['Chip dia','lime']],marcado:'84,00',pill:['Pendente','mute','clock'],perna:'sem trajeto — não sei onde fica'},
+    ],
+    kpi:{paradas:'12',entregues:'6',saldo:'184,00',dinheiro:'132,00',pix:'52,00'},
+    progresso:{feitas:'3',total:'14',marcado:'336,00',pct:'21%'},
+    filtro:{fila:'8',entregue:'6'},
+    creditos:{saldo:'240',debita:'Iniciar debita 12'},
+    resumo:{produtos:'20',marcado:'336,00'},
+  },
+  produtos:{
+    categorias:['Todos','Água','Vasilhames','Acessórios','Kits'],
+    lista:[
+      {nome:'Água 20L',estoque:'128',preco:'18,00',cor:'azul'},
+      {nome:'Água 10L',estoque:'86',preco:'12,00',cor:'azul'},
+      {nome:'Vasilhame',estoque:'64',preco:'42,00',cor:'azul-escuro'},
+      {nome:'Chip dia',estoque:'210',preco:'2,00',cor:'lima'},
+      {nome:'Caixa térmica',estoque:'18',preco:'85,00',cor:'cinza'},
+      {nome:'Kit entrega',estoque:'32',preco:'35,00',cor:'azul'},
+      {nome:'Água c/ gás 1,5L',estoque:'54',preco:'24,00',cor:'azul'},
+      {nome:'Suporte de galão',estoque:'12',preco:'69,00',cor:'cinza'},
+    ],
+    resumo:{ativos:'8',baixo:'2',valor:'194,00'},
+  },
+  clientes:{
+    subtitulo:'14 na rota de hoje',
+    dias:['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'],
+    diaAtivo:'Qua',
+    lista:[
+      {ini:'JS',nome:'João da Silva',end:'R. das Palmeiras, 145 • Santo Amaro',dia:'Chip dia',valor:'42,00',lime:0,alerta:''},
+      {ini:'MB',nome:'Mercadinho Bom Preço',end:'Av. João Dias, 890 • Brooklin',dia:'',valor:'84,00',lime:0,alerta:''},
+      {ini:'MA',nome:'Maria Aparecida',end:'R. Sargento Silva Nunes, 72 • Moema',dia:'Chip dia',valor:'21,00',lime:1,alerta:''},
+      {ini:'PN',nome:'Padaria Pão Nosso',end:'Av. Ibirapuera, 2331 • Moema',dia:'',valor:'42,00',lime:0,alerta:''},
+      {ini:'LY',nome:'Larissa Ypê',end:'Rua 3a, 1354 • Jd. Ypê',dia:'',valor:'',lime:0,alerta:'sem número'},
+      {ini:'BZ',nome:'Bar do Zé',end:'R. dos Otonis, 317 • Jabaquara',dia:'',valor:'63,00',lime:0,alerta:''},
+      {ini:'ME',nome:'Mercado Estrela',end:'R. Aracanguá, 210 • Jabaquara',dia:'',valor:'84,00',lime:1,alerta:''},
+      {ini:'QB',nome:'Quitanda do Bairro',end:'R. das Orquídeas, 55 • Campo Belo',dia:'Chip dia',valor:'42,00',lime:0,alerta:''},
+      {ini:'DC',nome:'Depósito Central',end:'R. Dr. Jesuíno Maciel, 980 • Santo Amaro',dia:'',valor:'126,00',lime:0,alerta:''},
+    ],
+    resumo:{total:'128',semEndereco:'3',marcado:'336,00'},
+  },
+  // A caderneta mostra as MESMAS paradas do dia (por isso lê `rota.paradas`) —
+  // eram 5 cópias literais aqui, palavra por palavra iguais às da rota. Dado
+  // repetido é dado que um dia diverge; a caderneta só corta em quantas cabem.
+  caderneta:{
+    kpi:{paradas:'12',entregues:'6',saldo:'184,00'},
+    quantasParadas:5,
+    selo:'Tudo certo!',
+    formas:[
+      {nome:'Dinheiro',valor:'132,00',icone:'cash',cor:'var(--lime)'},
+      {nome:'Pix',valor:'52,00',icone:'pix',cor:'var(--blue-l)'},
+      {nome:'Cartão',valor:'84,00',icone:'card',cor:'var(--purple)'},
+      {nome:'Caderneta',valor:'68,00',icone:'note',cor:'var(--amber)'},
+    ],
+    total:'336,00',
+    resumo:{clientes:'14',produtos:'20',marcado:'336,00'},
+  },
+};
+
+/* Cópia rasa: `usarDados` troca a seção INTEIRA, então raso basta — e o
+   DADOS_MOCK original fica intocado pra conferência poder comparar sempre
+   contra o mesmo ponto de partida. */
+let D=Object.assign({},DADOS_MOCK);
+const secoesReais=new Set();
+/** Troca UMA seção por dado de verdade. Seção desconhecida é ERRO ALTO: nome
+ *  errado viraria tela em branco silenciosa, que é o pior desfecho possível. */
+function usarDados(secao,valor){
+  if(!(secao in DADOS_MOCK)) throw new Error('[pele20] seção de dados desconhecida: '+secao);
+  D[secao]=valor; secoesReais.add(secao);
+}
+/** Volta TUDO pro dado do mock (é o que o conferidor usa entre uma tela e outra). */
+function dadosDoMock(){ D=Object.assign({},DADOS_MOCK); secoesReais.clear(); }
+/** Quais seções ainda são enfeite. Barulhento no console, invisível na tela. */
+function secoesDeMock(){ return Object.keys(DADOS_MOCK).filter(k=>!secoesReais.has(k)); }
+
+/* ==========================================================================
    TELAS
    ========================================================================== */
 const T={};
 
 /* 1 — ROTA DO MOTORISTA, com os 7 estados que o app tem de verdade --------- */
-let estadoRota='rodando';
-const PARADAS=[
-  {n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro • SP',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['A caminho','blue','nav'],perna:''},
-  {n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin • SP',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',pill:['A caminho','blue','nav'],perna:'850 m · 4 min'},
-  {n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema • SP',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Chegou','lime','check'],perna:'1,2 km · 6 min'},
-  {n:4,hora:'10:45',cor:'lime',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema • SP',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['Chegou','lime','check'],perna:'620 m · 3 min'},
-  {n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara • SP',tags:[['20L x3','blue'],['Vasilhame']],marcado:'63,00',pill:['Pendente','amber','clock'],perna:'2,1 km · 9 min'},
-  {n:6,hora:'12:15',cor:'off',nome:'Mercado Estrela',rua:'R. Aracanguá, 210',bairro:'Jabaquara • SP',tags:[['20L x4','blue'],['Chip dia','lime']],marcado:'84,00',pill:['Pendente','mute','clock'],perna:'sem trajeto — não sei onde fica'},
-];
 function listaParadas(comPerna){
-  return PARADAS.map(p=>`${comPerna&&p.perna?`<div class="perna"><span>${p.perna.startsWith('sem')?p.perna:'↓ '+p.perna}</span></div>`:''}${stop(p)}`).join('');
+  return D.rota.paradas.map(p=>`${comPerna&&p.perna?`<div class="perna"><span>${p.perna.startsWith('sem')?p.perna:'↓ '+p.perna}</span></div>`:''}${stop(p)}`).join('');
 }
 function shellRota(conteudo,sub,dock){
   return `${status}${hdr({sub:sub||'Rota do motorista'})}
@@ -1652,7 +1742,7 @@ function shellRota(conteudo,sub,dock){
     ${dock?`<div class="tmx-dock">${dock}</div>`:''}${nav('rota')}`;
 }
 T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
-  const e=estadoRota;
+  const e=D.rota.estado;
 
   if(e==='carregando') return shellRota(`
     <div class="kpis"><div class="kpi esq" style="height:47px;border:0"></div><div class="kpi esq" style="height:47px;border:0"></div>
@@ -1670,31 +1760,32 @@ T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
 
   const rodando=e==='rodando', pausada=e==='pausada', montada=e==='pronta';
   const emCurso=rodando||pausada;
+  const k=D.rota.kpi, pr=D.rota.progresso, ft=D.rota.filtro, cr=D.rota.creditos, rs=D.rota.resumo;
   return shellRota(`
   <div class="kpis">
-    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">12</b><span class="l">paradas</span></span></div>
-    <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">${emCurso?6:0}</b><span class="l">entregues</span></span></div>
-    <div class="kpi money"><span class="l">Saldo</span><b class="v">R$ 184,00</b><span class="go">${ic('chev',15)}</span></div>
+    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${k.paradas}</b><span class="l">paradas</span></span></div>
+    <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">${emCurso?k.entregues:0}</b><span class="l">entregues</span></span></div>
+    <div class="kpi money"><span class="l">Saldo</span><b class="v">R$ ${k.saldo}</b><span class="go">${ic('chev',15)}</span></div>
     <div class="kpi split">
-      <span class="ln"><span style="color:var(--lime)">${ic('cash',16)}</span><span><span class="t" style="color:var(--lime)">Dinheiro</span><span class="m">R$ 132,00</span></span></span>
-      <span class="ln"><span style="color:var(--blue-l)">${ic('pix',16)}</span><span><span class="t" style="color:var(--blue-l)">Pix</span><span class="m">R$ 52,00</span></span></span>
+      <span class="ln"><span style="color:var(--lime)">${ic('cash',16)}</span><span><span class="t" style="color:var(--lime)">Dinheiro</span><span class="m">R$ ${k.dinheiro}</span></span></span>
+      <span class="ln"><span style="color:var(--blue-l)">${ic('pix',16)}</span><span><span class="t" style="color:var(--blue-l)">Pix</span><span class="m">R$ ${k.pix}</span></span></span>
     </div>
   </div>
   ${e==='semsinal'?`<div class="banner alerta">${ic('alert',16)}<span><b>Sem sinal.</b> A rota está guardada no aparelho.</span><button>Sincronizar</button></div>`:''}
   ${pausada?`<div class="banner pausa">${ic('pause',16)}<span><b>Rota pausada.</b> Os dados ficam guardados.</span></div>`:''}
   <div class="bar"><span class="t">${ic('list',17)} Sua rota de hoje</span>
     <button class="ghost" data-ir="mapa">${ic('map',15)} Ver mapa</button></div>
-  ${emCurso?`<div class="dia-bar"><small>3 de 14</small><span class="trilho"><i style="width:21%"></i></span><b>R$ 336,00</b><small>marcado</small></div>`:''}
+  ${emCurso?`<div class="dia-bar"><small>${pr.feitas} de ${pr.total}</small><span class="trilho"><i style="width:${pr.pct}"></i></span><b>R$ ${pr.marcado}</b><small>marcado</small></div>`:''}
   ${emCurso?`<div class="filtro">
-      <button class="on">Fila <b>8</b></button><button>Entregue <b>6</b></button></div>`:''}
+      <button class="on">Fila <b>${ft.fila}</b></button><button>Entregue <b>${ft.entregue}</b></button></div>`:''}
   ${montada||e==='montar'?`<div class="creditos">${ic('card',17)}
-      <span><b class="v">240</b> <small>créditos hoje</small></span>
-      <span class="debita">${montada?'Iniciar debita 12':'monte a rota pra saber'}</span></div>`:''}
+      <span><b class="v">${cr.saldo}</b> <small>créditos hoje</small></span>
+      <span class="debita">${montada?cr.debita:'monte a rota pra saber'}</span></div>`:''}
   <div class="stops">${listaParadas(emCurso)}</div>
   <div class="sum">
-    <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>20</b><small>produtos</small></span></span>
-    <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>R$ 336,00</b><small>marcado</small></span></span>
-    <span class="c"><span style="color:var(--lime)">${ic('check',17)}</span><span><b>${emCurso?6:0}</b><small>entregas</small></span></span>
+    <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>${rs.produtos}</b><small>produtos</small></span></span>
+    <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>R$ ${rs.marcado}</b><small>marcado</small></span></span>
+    <span class="c"><span style="color:var(--lime)">${ic('check',17)}</span><span><b>${emCurso?k.entregues:0}</b><small>entregas</small></span></span>
     <span class="go">${ic('chev',15)}</span>
   </div>
   ${emCurso?`<button class="act full" style="margin-top:8px;justify-content:center">${ic('check',18)}<b>Finalizar</b></button>`
@@ -1953,18 +2044,14 @@ T.caderneta={nome:'Caderneta · fechamento',grupo:'Caderneta',render(){return `$
 ${hdr({sub:'Caderneta'})}
 <div class="body">
   <div class="kpis">
-    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">12</b><span class="l">paradas</span></span></div>
-    <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">6</b><span class="l">entregues</span></span></div>
-    <div class="kpi money"><span class="l">Saldo</span><b class="v">R$ 184,00</b><span class="go">${ic('chev',15)}</span></div>
+    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${D.caderneta.kpi.paradas}</b><span class="l">paradas</span></span></div>
+    <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">${D.caderneta.kpi.entregues}</b><span class="l">entregues</span></span></div>
+    <div class="kpi money"><span class="l">Saldo</span><b class="v">R$ ${D.caderneta.kpi.saldo}</b><span class="go">${ic('chev',15)}</span></div>
   </div>
   <div class="bar"><span class="t">${ic('list',17)} Paradas de hoje</span>
-    <button class="ghost" data-ir="mapa">${ic('map',15)} Ver mapa</button></div>
+    <button class="ghost" data-ir="mapa" data-acao="ver-mapa">${ic('map',15)} Ver mapa</button></div>
   <div class="stops">
-    ${stop({n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro • SP',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['A caminho','blue','nav']})}
-    ${stop({n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin • SP',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',pill:['A caminho','blue','nav']})}
-    ${stop({n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema • SP',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Chegou','lime','check']})}
-    ${stop({n:4,hora:'10:45',cor:'lime',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema • SP',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['Chegou','lime','check']})}
-    ${stop({n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara • SP',tags:[['20L x3','blue'],['Vasilhame']],marcado:'63,00',pill:['Pendente','amber','clock']})}
+    ${D.rota.paradas.slice(0,D.caderneta.quantasParadas).map(p=>stop(p)).join('')}
   </div>
 </div>
 <div class="sheet" style="max-height:52%">
@@ -1973,23 +2060,20 @@ ${hdr({sub:'Caderneta'})}
       <span class="round" style="border-color:var(--line-2)">${ic('lock',18)}</span>
       <span><b style="font-size:16px;font-weight:500;display:block">Fechamento do dia</b>
         <small style="font-size:11px;color:var(--ink-2)">Confira seu resumo e feche o dia</small></span></span>
-    <span class="pill mute">Tudo certo! ${ic('check',14)}</span>
+    <span class="pill mute">${D.caderneta.selo} ${ic('check',14)}</span>
   </div>
   <div class="forms">
-    <div class="form-c"><span style="color:var(--lime)">${ic('cash',19)}</span><small>Dinheiro</small><b>R$ 132,00</b></div>
-    <div class="form-c"><span style="color:var(--blue-l)">${ic('pix',19)}</span><small>Pix</small><b>R$ 52,00</b></div>
-    <div class="form-c"><span style="color:var(--purple)">${ic('card',19)}</span><small>Cartão</small><b>R$ 84,00</b></div>
-    <div class="form-c"><span style="color:var(--amber)">${ic('note',19)}</span><small>Caderneta</small><b>R$ 68,00</b></div>
-    <div class="form-c total"><small style="margin-top:0">Total</small><b>R$ 336,00</b></div>
+    ${D.caderneta.formas.map(f=>`<div class="form-c"><span style="color:${f.cor}">${ic(f.icone,19)}</span><small>${f.nome}</small><b>R$ ${f.valor}</b></div>`).join('')}
+    <div class="form-c total"><small style="margin-top:0">Total</small><b>R$ ${D.caderneta.total}</b></div>
   </div>
   <div class="sum">
-    <span class="c"><span style="color:var(--ink-2)">${ic('users',17)}</span><span><b>14</b><small>clientes</small></span></span>
-    <span class="c"><span style="color:var(--ink-2)">${ic('box',17)}</span><span><b>20</b><small>produtos</small></span></span>
-    <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>R$ 336,00</b><small>marcado</small></span></span>
+    <span class="c"><span style="color:var(--ink-2)">${ic('users',17)}</span><span><b>${D.caderneta.resumo.clientes}</b><small>clientes</small></span></span>
+    <span class="c"><span style="color:var(--ink-2)">${ic('box',17)}</span><span><b>${D.caderneta.resumo.produtos}</b><small>produtos</small></span></span>
+    <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>R$ ${D.caderneta.resumo.marcado}</b><small>marcado</small></span></span>
   </div>
   <div class="acts">
-    <button class="act go" style="justify-content:center">${ic('check',19)}<b>Fechar o dia</b></button>
-    <button class="act" style="justify-content:center" data-ir="semana">${ic('chart',17)}<b>Ver detalhes</b></button>
+    <button class="act go" style="justify-content:center" data-acao="caderneta-fechar">${ic('check',19)}<b>Fechar o dia</b></button>
+    <button class="act" style="justify-content:center" data-ir="semana" data-acao="caderneta-detalhes">${ic('chart',17)}<b>Ver detalhes</b></button>
   </div>
 </div>
 ${nav('caderneta')}`;}};
@@ -2148,7 +2232,7 @@ ${nav('rota')}`;}};
 T.produtos={nome:'Produtos',grupo:'Cadastro',render(){
   // A cor do produto vira CLASSE, não hex inline: o hex era do tema escuro e
   // no claro virava ícone claro sobre fundo claro (1,43:1, medido).
-  const p=(nome,est,preco,cor)=>`<div class="prod">
+  const p=(nome,est,preco,cor)=>`<div class="prod" data-acao="produto-abrir" data-valor="${nome}">
     <span class="thumb t-${cor}" style="width:46px;height:46px;flex:0 0 46px">${ic('gallon',24)}</span>
     <span><span class="nm">${nome}</span><span class="st">${ic('box',13)} Estoque: ${est} un.</span></span>
     <span class="price">R$ ${preco}</span></div>`;
@@ -2161,29 +2245,21 @@ ${hdr({semChat:1,badge:3})}
     <label class="search">${ic('search',17)}<input placeholder="Buscar produto"></label>
     <button class="filt">${ic('sliders',18)}</button></div>
   <div class="chips">
-    <button class="chip on">Todos</button><button class="chip">Água</button><button class="chip">Vasilhames</button>
-    <button class="chip">Acessórios</button><button class="chip">Kits</button></div>
+    ${D.produtos.categorias.map((cat,i)=>`<button class="chip${i===0?' on':''}" data-acao="produtos-categoria" data-valor="${cat}">${cat}</button>`).join('')}</div>
   <div class="lista-card">
-    ${p('Água 20L','128','18,00','azul')}
-    ${p('Água 10L','86','12,00','azul')}
-    ${p('Vasilhame','64','42,00','azul-escuro')}
-    ${p('Chip dia','210','2,00','lima')}
-    ${p('Caixa térmica','18','85,00','cinza')}
-    ${p('Kit entrega','32','35,00','azul')}
-    ${p('Água c/ gás 1,5L','54','24,00','azul')}
-    ${p('Suporte de galão','12','69,00','cinza')}
+    ${D.produtos.lista.map(x=>p(x.nome,x.estoque,x.preco,x.cor)).join('')}
   </div>
   <div class="sum">
-    <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>8</b><small>produtos ativos</small></span></span>
-    <span class="c"><span style="color:var(--amber)">${ic('alert',17)}</span><span><b>2</b><small style="color:var(--amber)">estoque baixo</small></span></span>
-    <span class="c"><span style="color:var(--blue-l)">${ic('cash',17)}</span><span><b>R$ 194,00</b><small>valor estimado</small></span></span>
+    <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>${D.produtos.resumo.ativos}</b><small>produtos ativos</small></span></span>
+    <span class="c"><span style="color:var(--amber)">${ic('alert',17)}</span><span><b>${D.produtos.resumo.baixo}</b><small style="color:var(--amber)">estoque baixo</small></span></span>
+    <span class="c"><span style="color:var(--blue-l)">${ic('cash',17)}</span><span><b>R$ ${D.produtos.resumo.valor}</b><small>valor estimado</small></span></span>
   </div>
 </div>
 ${nav('produtos')}`;}};
 
 /* 11 — CLIENTES ----------------------------------------------------------- */
 T.clientes={nome:'Clientes',grupo:'Cadastro',render(){
-  const c=(ini,nome,end,dia,valor,tomLime,alerta)=>`<div class="cli">
+  const c=(ini,nome,end,dia,valor,tomLime,alerta)=>`<div class="cli" data-acao="cliente-abrir" data-valor="${nome}">
     <span class="ava ${tomLime?'lime':''}">${ini}</span>
     <span><strong>${nome}</strong><span>${end}</span>
       <span class="tags">${dia?`<b class="tag lime">${dia}</b>`:''}${alerta?`<b class="tag" style="border-color:rgba(245,165,36,.55);color:var(--amber)">${alerta}</b>`:''}</span></span>
@@ -2192,28 +2268,19 @@ T.clientes={nome:'Clientes',grupo:'Cadastro',render(){
 ${hdr({semChat:1,badge:3})}
 <div class="body">
   <div class="screen-head"><span style="color:var(--lime)">${ic('users',30)}</span>
-    <span><h2>Clientes</h2><p>14 na rota de hoje</p></span></div>
+    <span><h2>Clientes</h2><p>${D.clientes.subtitulo}</p></span></div>
   <div class="searchrow">
     <label class="search">${ic('search',17)}<input placeholder="Buscar cliente"></label>
     <button class="filt">${ic('sliders',18)}</button></div>
   <div class="chips">
-    <button class="chip">Seg</button><button class="chip">Ter</button><button class="chip on">Qua</button>
-    <button class="chip">Qui</button><button class="chip">Sex</button><button class="chip">Sáb</button><button class="chip">Dom</button></div>
+    ${D.clientes.dias.map(d=>`<button class="chip${d===D.clientes.diaAtivo?' on':''}" data-acao="clientes-dia" data-valor="${d}">${d}</button>`).join('')}</div>
   <div class="lista-card">
-    ${c('JS','João da Silva','R. das Palmeiras, 145 • Santo Amaro','Chip dia','42,00',0,'')}
-    ${c('MB','Mercadinho Bom Preço','Av. João Dias, 890 • Brooklin','','84,00',0,'')}
-    ${c('MA','Maria Aparecida','R. Sargento Silva Nunes, 72 • Moema','Chip dia','21,00',1,'')}
-    ${c('PN','Padaria Pão Nosso','Av. Ibirapuera, 2331 • Moema','','42,00',0,'')}
-    ${c('LY','Larissa Ypê','Rua 3a, 1354 • Jd. Ypê','','',0,'sem número')}
-    ${c('BZ','Bar do Zé','R. dos Otonis, 317 • Jabaquara','','63,00',0,'')}
-    ${c('ME','Mercado Estrela','R. Aracanguá, 210 • Jabaquara','','84,00',1,'')}
-    ${c('QB','Quitanda do Bairro','R. das Orquídeas, 55 • Campo Belo','Chip dia','42,00',0,'')}
-    ${c('DC','Depósito Central','R. Dr. Jesuíno Maciel, 980 • Santo Amaro','','126,00',0,'')}
+    ${D.clientes.lista.map(x=>c(x.ini,x.nome,x.end,x.dia,x.valor,x.lime,x.alerta)).join('')}
   </div>
   <div class="sum">
-    <span class="c"><span style="color:var(--lime)">${ic('users',17)}</span><span><b>128</b><small>clientes</small></span></span>
-    <span class="c"><span style="color:var(--amber)">${ic('alert',17)}</span><span><b>3</b><small style="color:var(--amber)">sem endereço</small></span></span>
-    <span class="c"><span style="color:var(--lime)">${ic('cash',17)}</span><span><b>R$ 336,00</b><small>marcado hoje</small></span></span>
+    <span class="c"><span style="color:var(--lime)">${ic('users',17)}</span><span><b>${D.clientes.resumo.total}</b><small>clientes</small></span></span>
+    <span class="c"><span style="color:var(--amber)">${ic('alert',17)}</span><span><b>${D.clientes.resumo.semEndereco}</b><small style="color:var(--amber)">sem endereço</small></span></span>
+    <span class="c"><span style="color:var(--lime)">${ic('cash',17)}</span><span><b>R$ ${D.clientes.resumo.marcado}</b><small>marcado hoje</small></span></span>
   </div>
 </div>
 ${nav('clientes')}`;}};
@@ -3383,7 +3450,7 @@ document.addEventListener('click',e=>{
   }
   const er=e.target.closest('#estadorota [data-er]');
   if(er){
-    estadoRota=er.dataset.er;
+    D.rota.estado=er.dataset.er;
     document.querySelectorAll('#estadorota button').forEach(b=>b.classList.toggle('on',b===er));
     if(atual==='rota'){ pintar(false); } else ir('rota');
     return;

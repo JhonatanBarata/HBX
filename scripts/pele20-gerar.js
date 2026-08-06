@@ -178,7 +178,8 @@ window.HBX20 = { T: T, ic: ic, hdr: hdr, nav: nav, status: status, logo: logo,
   folhaCompleta: folhaCompleta, shellRota: shellRota, listaParadas: listaParadas,
   AVISOS: AVISOS, PORTOES: PORTOES, avisar: avisar, portao: portao, erro: erro,
   fechar: fechar, confirmar: confirmar, ligarGestos: ligarGestos,
-  numerarItens: numerarItens, DUR: DUR, ROTA_ESTADOS: ROTA_ESTADOS, PARADAS: PARADAS,
+  numerarItens: numerarItens, DUR: DUR, ROTA_ESTADOS: ROTA_ESTADOS,
+  DADOS_MOCK: DADOS_MOCK, usarDados: usarDados, dadosDoMock: dadosDoMock, secoesDeMock: secoesDeMock,
   trocarLuz: trocarLuz };
 })();
 `);

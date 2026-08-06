@@ -7368,6 +7368,136 @@
     if (state.screen === "settings") return "ajustes";
     return null;
   }
+
+  // ==========================================================================
+  // FIAÇÃO DA PELE 2.0 — o dado de VERDADE entrando na tela do mock (06/08)
+  // ==========================================================================
+  // Até aqui a pele era exibição pura: o template carregava "João da Silva" e
+  // "R$ 336,00" dentro dele, então o aparelho mostrava a maquete, não o dia do
+  // motorista. O mock ganhou um seam (`DADOS_MOCK` + `usarDados`), e é por aqui
+  // que ele é alimentado.
+  //
+  // 🔴 A REGRA DESTAS FUNÇÕES: elas TRADUZEM, não decidem. Nenhum número nasce
+  // aqui — tudo vem do mesmo `items()`/`state` que a tela velha já usava. Se um
+  // valor não existe, ele vai VAZIO; inventar um número numa tela de dinheiro
+  // seria mentir com cara de app pronto.
+  const brl = (v) => Math.max(0, Number(v) || 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const horaDe = (iso) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    return Number.isFinite(d.getTime()) ? d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }) : "";
+  };
+
+  /** Uma parada do app no formato que o `stop()` do mock entende. */
+  function paradaPele20(item, indice) {
+    const c = item.cliente || {};
+    const entregue = item.status === "entregue";
+    const emRota = item.status === "em_rota";
+    const itens = Array.isArray(item.itens) ? item.itens : [];
+    return {
+      n: indice + 1,
+      hora: horaDe(item.etaAt || item.scheduledAt),
+      cor: entregue ? "lime" : (item.status === "cancelada" ? "off" : ""),
+      nome: c.nome || "Cliente",
+      rua: c.endereco || "Sem endereço cadastrado",
+      bairro: [c.cidade, c.uf].filter(Boolean).join(" • "),
+      tags: itens.slice(0, 3).map(x => [`${x.nome || "item"} x${Math.max(1, Number(x.qtd) || 1)}`, "blue"]),
+      marcado: Number(item.valor) > 0 ? brl(item.valor) : "",
+      pill: entregue ? ["Chegou", "lime", "check"] : (emRota ? ["A caminho", "blue", "nav"] : ["Pendente", "amber", "clock"]),
+      perna: "",
+    };
+  }
+
+  /** Injeta no mock as seções que já sabemos traduzir. O resto continua maquete. */
+  function alimentarPele20() {
+    const P = window.HBX20;
+    if (!P || !P.usarDados) return;
+    const todas = items();
+    const feitas = todas.filter(i => i.status === "entregue");
+    const abertas = todas.filter(i => i.status === "agendada" || i.status === "em_rota");
+    const soma = (lista) => lista.reduce((t, i) => t + (Number(i.valor) || 0), 0);
+    const porMetodo = (m) => soma(feitas.filter(i => i.receiptMethod === m));
+    const total = soma(todas);
+
+    P.usarDados("rota", {
+      estado: state.route && state.route.status === "paused" ? "pausada" : "rodando",
+      paradas: todas.map(paradaPele20),
+      kpi: {
+        paradas: String(todas.length), entregues: String(feitas.length),
+        saldo: brl(soma(feitas)), dinheiro: brl(porMetodo("dinheiro")), pix: brl(porMetodo("pix")),
+      },
+      progresso: {
+        feitas: String(feitas.length), total: String(todas.length), marcado: brl(total),
+        pct: `${todas.length ? Math.round((feitas.length / todas.length) * 100) : 0}%`,
+      },
+      filtro: { fila: String(abertas.length), entregue: String(feitas.length) },
+      // Créditos e contagem de produtos ainda não têm fonte única no app: VAZIO
+      // é honesto, número chutado numa tela de crédito não é.
+      creditos: { saldo: "", debita: "" },
+      resumo: { produtos: String(todas.reduce((t, i) => t + (Array.isArray(i.itens) ? i.itens.length : 0), 0)), marcado: brl(total) },
+    });
+
+    P.usarDados("caderneta", {
+      kpi: { paradas: String(todas.length), entregues: String(feitas.length), saldo: brl(soma(feitas)) },
+      quantasParadas: todas.length,
+      selo: abertas.length ? `${abertas.length} em aberto` : "Tudo certo!",
+      formas: [
+        { nome: "Dinheiro", valor: brl(porMetodo("dinheiro")), icone: "cash", cor: "var(--lime)" },
+        { nome: "Pix", valor: brl(porMetodo("pix")), icone: "pix", cor: "var(--blue-l)" },
+        { nome: "Cartão", valor: brl(porMetodo("cartao")), icone: "card", cor: "var(--purple)" },
+        { nome: "Caderneta", valor: brl(porMetodo("fiado")), icone: "note", cor: "var(--amber)" },
+      ],
+      total: brl(total),
+      resumo: {
+        clientes: String(new Set(todas.map(i => i.cliente && i.cliente.id).filter(Boolean)).size),
+        produtos: String(todas.reduce((t, i) => t + (Array.isArray(i.itens) ? i.itens.length : 0), 0)),
+        marcado: brl(total),
+      },
+    });
+
+    const produtos = (state.products || []).filter(p => p && p.ativo !== false);
+    P.usarDados("produtos", {
+      // O mock tem chips de categoria que o app ainda não modela: só "Todos".
+      categorias: ["Todos"],
+      lista: produtos.map(p => ({
+        nome: p.nome || "", estoque: p.estoque != null ? String(p.estoque) : "—",
+        preco: p.precoCatalogo != null ? brl(p.precoCatalogo) : "", cor: "azul",
+      })),
+      resumo: {
+        ativos: String(produtos.length),
+        baixo: String(produtos.filter(p => p.estoque != null && Number(p.estoque) <= 10).length),
+        valor: brl(produtos.reduce((t, p) => t + (Number(p.precoCatalogo) || 0), 0)),
+      },
+    });
+
+    const clientes = state.clients || [];
+    const naRota = new Set(todas.map(i => i.cliente && i.cliente.id).filter(Boolean));
+    P.usarDados("clientes", {
+      subtitulo: `${naRota.size} na rota de hoje`,
+      dias: ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"],
+      diaAtivo: ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"][new Date().getDay()],
+      lista: clientes.map(c => {
+        const doDia = todas.find(i => i.cliente && String(i.cliente.id) === String(c.id));
+        const faltando = clientPendingKeys(c);
+        return {
+          ini: initials(c.nome), nome: c.nome || "Cliente", end: address(c),
+          dia: "", valor: doDia && Number(doDia.valor) > 0 ? brl(doDia.valor) : "",
+          lime: doDia && doDia.status === "entregue" ? 1 : 0,
+          alerta: faltando.length ? faltando.join(" · ") : "",
+        };
+      }),
+      resumo: {
+        total: String(clientes.length),
+        semEndereco: String(clientes.filter(c => clientPendingKeys(c).includes("End")).length),
+        marcado: brl(total),
+      },
+    });
+
+    // Barulhento onde desenvolvedor olha, invisível na tela: enfeite que não se
+    // anuncia foi o defeito que trouxe esta frente até aqui.
+    const faltam = P.secoesDeMock ? P.secoesDeMock() : [];
+    if (faltam.length) console.warn(`[pele20] seções ainda em DADO DE MOCK: ${faltam.join(", ")}`);
+  }
   let pele20Atual = null;
   function pintarPele20() {
     const chave = pele20Para();
@@ -7385,6 +7515,21 @@
     const marca = `${chave}:${document.documentElement.dataset.luz || ""}`;
     if (pele20Atual === marca && app.querySelector(".tela")) return true;
     pele20Atual = marca;
+    // O dado entra ANTES do render: o template lê `D` na hora de montar a
+    // string, então alimentar depois pintaria a maquete e só corrigiria no
+    // próximo render — a piscada clássica de dado falso virando verdadeiro.
+    // Se a tradução quebrar, a pele SAI DE CENA inteira e o caminho antigo
+    // assume: melhor a tela velha funcionando que a nova bonita com dado da
+    // maquete. Desfaz a marca e a classe, senão o próximo render acharia que
+    // já pintou e o motorista ficaria olhando a maquete achando que é o dia dele.
+    try {
+      alimentarPele20();
+    } catch (erro) {
+      console.error("[pele20] fiação falhou — caindo pro caminho antigo:", erro);
+      pele20Atual = null;
+      document.documentElement.classList.remove("pele20");
+      return false;
+    }
     app.innerHTML = "";
     const camada = document.createElement("div");
     camada.className = "tela";
