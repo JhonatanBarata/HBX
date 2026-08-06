@@ -13,6 +13,7 @@ import { normalizeBrPhoneDigits, normalizeBrPhoneE164 } from '../messaging/whats
 import { buildMotorStateByCompanyUser, isMetaConnected } from '../messaging/whatsapp-connection-state';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolveVendasAccessContext, type VendasAccessContext } from '../team/team-access-runtime';
+import { planejarContatoManual } from './vendas-contato-manual';
 import { VendasLeadCockpitProjectorService } from './vendas-lead-cockpit-projector.service';
 
 type AccessibleLead = {
@@ -23,6 +24,8 @@ type AccessibleLead = {
   name: string | null;
   phone: string | null;
   phoneNormalized: string | null;
+  status: string | null;
+  pipelineStage: string | null;
 };
 
 type ResolvedConversation = {
@@ -79,6 +82,8 @@ export class VendasConversationService {
         name: true,
         phone: true,
         phoneNormalized: true,
+        status: true,
+        pipelineStage: true,
       },
     });
     if (!lead) throw new NotFoundException('Lead nao encontrado.');
@@ -452,11 +457,24 @@ export class VendasConversationService {
     // (senão o cliente recebe a mensagem e o vendedor vê "falhou" → reenvio → mensagem duplicada).
     // rebuildLead é projeção do cockpit (também é refeita no webhook de entrada); o front
     // repolla o thread em 1,5s, então uma falha aqui só perde o refresh imediato da resposta.
+    let snapshot: any = null;
     try {
-      await this.cockpitProjector.rebuildLead(context.companyId, lead.id, linked.id);
+      snapshot = await this.cockpitProjector.rebuildLead(context.companyId, lead.id, linked.id);
     } catch (err) {
       this.logger.warn(
         `[vendas-send] rebuildLead pós-envio falhou (lead=${lead.id}, conversation=${linked.id}): ${err instanceof Error ? err.message : err}`,
+      );
+    }
+
+    // A MENSAGEM QUE EU MANDO TAMBÉM MOVE O CARD (06/08/2026). Sem isto o lead
+    // contactado continua em "Sem contato" e a vendedora manda de novo pra quem
+    // já recebeu — mensagem repetida no mesmo contato frio é a máquina de ban.
+    // Best-effort pelo mesmo motivo do rebuild: a mensagem JÁ SAIU.
+    try {
+      await this.registrarContatoManual(context.companyId, lead, snapshot);
+    } catch (err) {
+      this.logger.warn(
+        `[vendas-send] marca de contato pós-envio falhou (lead=${lead.id}): ${err instanceof Error ? err.message : err}`,
       );
     }
     try {
@@ -469,5 +487,58 @@ export class VendasConversationService {
       // otimista na tela (não zera o thread) e o poll periódico reconcilia o estado real.
       return { conversation: { id: String(linked.id), exists: true } };
     }
+  }
+
+  /**
+   * Marca no LEAD que a mensagem manual saiu: `lastContactAt`, tentativa e —
+   * quando ele ainda estava em "Sem contato" — a subida pra "Contato feito".
+   *
+   * A decisão mora em `vendas-contato-manual.ts` (puro, testado); aqui é só I/O.
+   * O `updateMany` com `status` no `where` é a trava de corrida: se o webhook de
+   * uma resposta chegar entre a leitura e a escrita, ele já moveu o card pra
+   * "Respondeu" e este update simplesmente não casa — nunca rebaixa.
+   */
+  private async registrarContatoManual(companyId: number, lead: AccessibleLead, snapshot: any) {
+    const plano = planejarContatoManual({
+      status: lead.status,
+      pipelineStage: lead.pipelineStage,
+      jaRespondeu: snapshot?.engagement?.hasInboundReply === true,
+    });
+    const now = new Date();
+
+    await this.prisma.vendasLead.updateMany({
+      where: {
+        id: lead.id,
+        companyId,
+        ...(plano.novoStatus ? { status: String(lead.status || 'novo') } : {}),
+      },
+      data: {
+        lastContactAt: now,
+        ...(plano.contaTentativa ? { attemptCount: { increment: 1 } } : {}),
+        ...(plano.novoStatus ? { status: plano.novoStatus } : {}),
+        ...(plano.novoPipelineStage ? { pipelineStage: plano.novoPipelineStage } : {}),
+        ...(plano.novoLastResult ? { lastResult: plano.novoLastResult } : {}),
+      },
+    });
+
+    if (!plano.novoStatus) return;
+    // Rastro na ficha: o vendedor tem que ver POR QUE o card andou.
+    // `skipDuplicates` + chave por dia deixa o reenvio no mesmo dia mudo.
+    const timeline = (this.prisma as any).vendasLeadTimelineEvent;
+    if (typeof timeline?.createMany !== 'function') return;
+    await timeline.createMany({
+      data: [{
+        leadId: lead.id,
+        eventType: 'stage_changed',
+        title: 'Contato feito pelo WhatsApp',
+        description: 'Mensagem enviada pela Central do Lead.',
+        sourceType: 'vendas_human',
+        statusFrom: String(lead.status || 'novo'),
+        statusTo: plano.novoStatus,
+        resultLabel: plano.novoLastResult,
+        idempotencyKey: `vendas-manual:contato:${lead.id}:${now.toISOString().slice(0, 10)}`,
+      }],
+      skipDuplicates: true,
+    });
   }
 }
