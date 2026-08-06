@@ -129,6 +129,13 @@ function clarearCorpo(corpo) {
 // escopo — prefixa os seletores sem quebrar @media/@keyframes
 // ---------------------------------------------------------------------------
 function escopar(css, prefixo) {
+  // 🔴 COMENTÁRIO NÃO É SELETOR. O que vem antes de um `{` era tratado como
+  // seletor cru — e a casca é cheia de comentário explicativo COM VÍRGULA.
+  // Resultado: `split(',')` picava a frase e enfiava o prefixo no meio do
+  // texto ("no ar,html:not([data-luz=...]) a que sai"), o comentário deixava de
+  // fechar e a REGRA SEGUINTE saía sem prefixo — foi assim que a pastilha do
+  // menu ativo ficou azul-escura no claro. Fora os comentários antes de tudo.
+  css = css.replace(/\/\*[\s\S]*?\*\//g, '');
   const saida = [];
   let i = 0;
   while (i < css.length) {
