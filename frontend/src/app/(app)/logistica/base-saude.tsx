@@ -40,6 +40,9 @@ type BaseSaudeCliente = {
   localId: string | null;
   localApelido: string | null;
   resolveSozinho: boolean;
+  /** Nomes dos OUTROS clientes no mesmo ponto (backend, até 5). */
+  compartilhaCom?: string[];
+  compartilhaComTotal?: number;
 };
 
 type BaseSaudeResult = {
@@ -92,6 +95,57 @@ const MOTIVO_LABEL: Record<Motivo, string> = {
 function motivosTexto(motivos: Motivo[]): string {
   if (motivos.length === 0) return "Sem pendência";
   return motivos.map((motivo) => MOTIVO_LABEL[motivo] || motivo).join(" · ");
+}
+
+// 06/08 (dono, olhando a Adriana): "eu não sei o q ele tem de errado, e se é
+// repetido o q tem de repetido". A linha mostrava as 3 frases empilhadas, com o
+// mesmo peso — e duas delas ("nunca confirmado no campo", "nunca recebeu
+// entrega") são o estado NORMAL de cliente novo, exatamente o ruído que a
+// conferência da rota já tinha matado em 26/07. Aqui a tela passa a separar:
+// o que ele precisa CORRIGIR na frente, o que é normal fica embaixo, escrito
+// como aviso e não como defeito. A COR continua sendo a do servidor.
+const MOTIVOS_CORRIGIR: Motivo[] = ["sem_pino", "pino_compartilhado", "diverge_gps_ouro"];
+
+/** Cada motivo em duas partes: o que é + o que fazer. Sem jargão (nada de "pino"). */
+const MOTIVO_AJUDA: Partial<Record<Motivo, string>> = {
+  sem_pino: "Localize pelo endereço ou use a posição atual e salve.",
+  pino_compartilhado: "Confira o número da casa e marque o ponto certo deste cliente.",
+  diverge_gps_ouro: "A última entrega foi longe daqui — confirme o endereço.",
+  geocode_nao_provado_em_campo: "Normal em cliente novo: a 1ª entrega confirma sozinha.",
+  fonte_nao_confiavel: "O ponto veio de uma origem sem confirmação.",
+  nunca_entregue: "Ainda não houve entrega neste endereço.",
+  fora_do_casulo: "Fica longe do agrupamento do dia.",
+  perna_outlier: "O trecho até aqui foge do padrão da rota.",
+  rota_degradada: "A rota do dia foi calculada sem o motor de ruas.",
+};
+
+/** "Adriana e Marcos" · "Adriana, Marcos e mais 3" — nome é o que resolve. */
+function nomesMesmoPonto(cliente: BaseSaudeCliente): string {
+  const nomes = cliente.compartilhaCom ?? [];
+  if (!nomes.length) return "";
+  const total = cliente.compartilhaComTotal ?? nomes.length;
+  const sobra = Math.max(0, total - nomes.length);
+  if (sobra > 0) return `${nomes.join(", ")} e mais ${sobra}`;
+  if (nomes.length === 1) return nomes[0];
+  return `${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1]}`;
+}
+
+/** O título do motivo já com o NOME do repetido dentro, quando existe. */
+function tituloDoMotivo(motivo: Motivo, cliente: BaseSaudeCliente): string {
+  if (motivo === "pino_compartilhado") {
+    const nomes = nomesMesmoPonto(cliente);
+    return nomes ? `Mesmo ponto de ${nomes}` : MOTIVO_LABEL[motivo];
+  }
+  return MOTIVO_LABEL[motivo] || motivo;
+}
+
+/** A linha da fila: só o que precisa de mão. Sem nada a corrigir, o aviso mais
+ *  brando — nunca as duas coisas juntas com o mesmo peso. */
+function resumoDaLinha(cliente: BaseSaudeCliente): string {
+  const corrigir = cliente.motivos.filter((motivo) => MOTIVOS_CORRIGIR.includes(motivo));
+  if (corrigir.length) return corrigir.map((motivo) => tituloDoMotivo(motivo, cliente)).join(" · ");
+  if (!cliente.motivos.length) return "Endereço pronto";
+  return cliente.motivos.map((motivo) => MOTIVO_LABEL[motivo] || motivo).join(" · ");
 }
 
 function humanError(error: unknown, fallback: string): string {
@@ -169,6 +223,23 @@ export function BaseSaude() {
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- leitura inicial da API.
   useEffect(() => { void load(); }, [load]);
+
+  // DEEP-LINK `?cliente=<id>` (06/08): o portão "Endereços com erro" da montagem
+  // manda o operador PRA CÁ já no cliente que ele clicou. Sem isto ele cairia na
+  // primeira linha da fila e teria que caçar o nome numa lista de centenas — e o
+  // cliente pode nem estar na primeira página, por isso a página vai junto.
+  const alvoDaUrlAplicado = useRef(false);
+  useEffect(() => {
+    if (alvoDaUrlAplicado.current || !dados || typeof window === "undefined") return;
+    alvoDaUrlAplicado.current = true;
+    const id = new URLSearchParams(window.location.search).get("cliente");
+    if (!id) return;
+    const indice = (dados.clientes ?? []).findIndex((cliente) => cliente.id === id);
+    if (indice < 0) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- seleção vinda da URL, uma vez só, depois que a fila carregou.
+    setSelecionadoId(id);
+    setPagina(Math.floor(indice / TAMANHO_PAGINA));
+  }, [dados]);
 
   const clientesFiltrados = useMemo(() => {
     const termo = busca.trim().toLocaleLowerCase("pt-BR");
@@ -490,7 +561,7 @@ export function BaseSaude() {
                           {cliente.nome || "Cliente"}{cliente.localApelido ? ` · ${cliente.localApelido}` : ""}
                         </span>
                         <span className="log-agenda-import__row-sub hbx-2linhas">
-                          {motivosTexto(cliente.motivos)}{cliente.resolveSozinho ? " · confirma pelo GPS" : ""}
+                          {resumoDaLinha(cliente)}{cliente.resolveSozinho ? " · confirma pelo GPS" : ""}
                         </span>
                       </span>
                       <span className="log-saude__chevron" aria-hidden>›</span>
@@ -536,7 +607,7 @@ export function BaseSaude() {
                   <header className="log-agenda__head">
                     <div className="log-agenda__head-copy">
                       <h2>{detalheAtual.name || clienteSelecionado.nome || "Cliente"}</h2>
-                      <p>{motivosTexto(clienteSelecionado.motivos)}</p>
+                      <p>{resumoDaLinha(clienteSelecionado)}</p>
                     </div>
                   </header>
 
@@ -554,6 +625,25 @@ export function BaseSaude() {
                   )}
 
                   <div className="log-saude__editor-scroll">
+                    {/* O QUE ESTÁ ERRADO, item a item — dentro da área que já rola
+                        (o grid do editor tem linhas fixas; filho novo lá fora
+                        desalinharia a linha flexível e cortaria os botões). */}
+                    {clienteSelecionado.motivos.length > 0 && (
+                      <ul className="log-saude__pendencias" aria-label="O que está errado neste endereço">
+                        {[...clienteSelecionado.motivos]
+                          .sort((a, b) => Number(MOTIVOS_CORRIGIR.includes(b)) - Number(MOTIVOS_CORRIGIR.includes(a)))
+                          .map((motivo) => (
+                            <li
+                              key={motivo}
+                              className={`log-saude__pendencia${MOTIVOS_CORRIGIR.includes(motivo) ? " is-corrigir" : " is-aviso"}`}
+                            >
+                              <b>{tituloDoMotivo(motivo, clienteSelecionado)}</b>
+                              {MOTIVO_AJUDA[motivo] ? <small>{MOTIVO_AJUDA[motivo]}</small> : null}
+                            </li>
+                          ))}
+                      </ul>
+                    )}
+
                     <div className="log-saude__fields">
                       <label className="log-agenda-form__field log-saude__field-wide">
                         <span>Nome do local</span>

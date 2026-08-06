@@ -12,6 +12,12 @@
 .dialog {
   position: relative;
   display: grid;
+  /* MEDIDO 06/08 (dono travado em "Por dia · SÁB, 98 clientes"): sem as linhas
+     declaradas, o grid dava ao corpo o tamanho do CONTEÚDO (1772px num diálogo
+     de 765px) e o rodapé com "Próximo ›" caía FORA do `overflow: hidden` — a
+     tela ficava sem saída. Linha do meio flexível (`minmax(0, 1fr)`) é o que
+     faz o corpo encolher e rolar; `auto` sozinho nunca encolhe. */
+  grid-template-rows: auto minmax(0, 1fr) auto;
   width: min(700px, 100%);
   max-height: min(820px, calc(100dvh - 44px));
   overflow: hidden;
@@ -760,6 +766,12 @@
 .gateRuim {
   color: var(--hbx-danger);
   font-weight: 850;
+}
+
+.gateDica {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
 }
 
 .gateAcoes {

@@ -1,7 +1,12 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
-import { conferirParadas, type MotivoConferencia, type ParadaConferenciaInput } from './logistica-conferencia.util';
+import {
+  conferirParadas,
+  vizinhosDePino,
+  type MotivoConferencia,
+  type ParadaConferenciaInput,
+} from './logistica-conferencia.util';
 
 /**
  * Semáforo PRÓPRIO do painel de saúde da base (26/07). A conferência da ROTA perdeu o
@@ -25,6 +30,9 @@ const STATUS_ABERTO_BASE_SAUDE = ['agendada', 'em_rota'] as const;
 // MUITO folgado aqui; se algum dia bater, fica LOGADO (resultado parcial visível
 // em log, nunca um corte silencioso).
 const TETO_CLIENTES_BASE_SAUDE = 20_000;
+
+/** Quantos NOMES de "mesmo ponto" viajam por cliente (o resto vira "e mais N"). */
+const TETO_NOMES_MESMO_PONTO = 5;
 
 // conferirParadas (S3) nasceu pra rodar em CIMA de uma rota do dia — duas das
 // suas regras são sobre o TRAJETO, não sobre o pino:
@@ -186,6 +194,12 @@ export class LogisticaBaseSaudeService {
     // nenhum, isto é só a entrada "neutra" que a S7 pede.
     const conferidas = conferirParadas(inputs, { engine: 'osrm' });
 
+    // COM QUEM o ponto é dividido (06/08, dono): "localização igual à de outro
+    // cliente" sem dizer QUAL outro não dá pra corrigir — ele teria que caçar o
+    // gêmeo na mão numa base de milhares. Mesma função que decide o motivo
+    // (`vizinhosDePino`), então a lista nunca discorda do semáforo.
+    const vizinhos = vizinhosDePino(inputs);
+
     let verdes = 0;
     let amarelos = 0;
     let vermelhos = 0;
@@ -213,6 +227,10 @@ export class LogisticaBaseSaudeService {
         motivos.includes('sem_pino') && (temRecorrenciaAtiva.has(c.id) || temEntregaAberta.has(c.id));
       if (resolveSozinho) resolvemSozinhos++;
 
+      // Só quem REALMENTE ficou com o motivo leva a lista (o filtro de motivo de
+      // rota acima pode ter mudado o veredito) — nome na tela nunca sem acusação.
+      const gemeos = motivos.includes('pino_compartilhado') ? (vizinhos.get(c.id) ?? []) : [];
+
       return {
         id: c.id,
         nome: cliente.name,
@@ -221,6 +239,10 @@ export class LogisticaBaseSaudeService {
         localId: local?.id ?? null,
         localApelido: local?.apelido ?? null,
         resolveSozinho,
+        // Teto de nomes: o incidente 25/07 (empresa 41) colapsou 154 clientes no
+        // MESMO centroide de via — mandar 154 nomes por linha é um payload inútil.
+        compartilhaCom: gemeos.slice(0, TETO_NOMES_MESMO_PONTO).map((id) => clientePorId.get(id)?.name || 'Cliente'),
+        compartilhaComTotal: gemeos.length,
       };
     });
 
@@ -255,6 +277,11 @@ export interface BaseSaudeCliente {
    *  marca por linha os mesmos clientes já contados em `resolvemSozinhos`, pra
    *  o front destacar a linha sem precisar recalcular a regra sozinho. */
   resolveSozinho: boolean;
+  /** Nomes dos OUTROS clientes no MESMO ponto (até 5) — vazio quando o cliente não
+   *  tem `pino_compartilhado`. É o "qual é o repetido" que a tela precisa dizer. */
+  compartilhaCom: string[];
+  /** Quantos são no total (pode ser maior que `compartilhaCom.length`). */
+  compartilhaComTotal: number;
 }
 
 export interface BaseSaudeResult {

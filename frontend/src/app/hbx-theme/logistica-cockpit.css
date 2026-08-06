@@ -1331,6 +1331,50 @@
   padding-right: var(--space-1);
 }
 
+/* O QUE ESTÁ ERRADO neste endereço (06/08) — uma linha por pendência, com o que
+   fazer embaixo. `is-corrigir` é o que pede mão; `is-aviso` é estado normal de
+   cliente novo e não pode ter o mesmo peso visual do defeito. */
+.log-saude__pendencias {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.log-saude__pendencia {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--hbx-surface-soft);
+}
+
+.log-saude__pendencia b {
+  color: var(--text-strong);
+  font-size: var(--fz-m1);
+  font-weight: 700;
+}
+
+.log-saude__pendencia small {
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
+}
+
+.log-saude__pendencia.is-corrigir {
+  border-left-color: var(--hbx-danger);
+}
+
+.log-saude__pendencia.is-corrigir b {
+  color: var(--hbx-danger);
+}
+
+.log-saude__pendencia.is-aviso {
+  border-left-color: var(--hbx-warning);
+}
+
 .log-saude__fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

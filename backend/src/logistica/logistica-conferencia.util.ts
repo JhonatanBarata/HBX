@@ -251,6 +251,33 @@ function motivoDeGeoFonte(geoFonte: string | null): 'geocode_nao_provado_em_camp
 }
 
 /**
+ * COM QUEM cada parada divide o pino: id → ids dos OUTROS na mesma célula (só
+ * quem realmente divide entra no mapa). É a matéria-prima de `pino_compartilhado`.
+ *
+ * Exportada porque o painel de saúde precisa DIZER o nome do outro cliente
+ * (06/08, dono: "não sei o que ele tem de errado, e se é repetido o que tem de
+ * repetido" — "igual à de outro cliente" sem dizer QUAL não dá pra corrigir), e
+ * reimplementar o agrupamento lá seria uma segunda verdade da mesma regra: quem
+ * decide o que é "mesmo ponto" continua sendo esta função, aqui.
+ */
+export function vizinhosDePino(paradas: ParadaConferenciaInput[]): Map<string, string[]> {
+  const porCelula = new Map<string, string[]>();
+  for (const p of paradas) {
+    if (!temCoordenadaValida(p.lat, p.lng)) continue;
+    const chave = celulaPino(p.lat as number, p.lng as number);
+    const lista = porCelula.get(chave);
+    if (lista) lista.push(p.id);
+    else porCelula.set(chave, [p.id]);
+  }
+  const saida = new Map<string, string[]>();
+  for (const ids of porCelula.values()) {
+    if (ids.length < 2) continue;
+    for (const id of ids) saida.set(id, ids.filter((outro) => outro !== id));
+  }
+  return saida;
+}
+
+/**
  * Classifica TODAS as paradas do dia de uma vez (precisa do conjunto inteiro pra
  * calcular a mediana/casulo/células compartilhadas — não dá pra decidir 1 parada
  * isolada dessas 3 regras). Pura: mesma entrada sempre produz a mesma saída.
@@ -262,18 +289,9 @@ export function conferirParadas(paradas: ParadaConferenciaInput[], contexto: Con
 
   // pino_compartilhado: agrupa por célula: qualquer célula com ≥2 paradas marca TODAS
   // as paradas daquela célula (não só a "segunda" — nenhuma delas provou ser a dona
-  // exclusiva do pino).
-  const porCelula = new Map<string, string[]>();
-  for (const p of comCoord) {
-    const chave = celulaPino(p.lat as number, p.lng as number);
-    const lista = porCelula.get(chave);
-    if (lista) lista.push(p.id);
-    else porCelula.set(chave, [p.id]);
-  }
-  const idsCompartilhados = new Set<string>();
-  for (const ids of porCelula.values()) {
-    if (ids.length >= 2) ids.forEach((id) => idsCompartilhados.add(id));
-  }
+  // exclusiva do pino). Uma regra só, em `vizinhosDePino` — o painel de saúde lê a
+  // MESMA função pra escrever com quem o ponto é dividido.
+  const idsCompartilhados = new Set(vizinhosDePino(comCoord).keys());
 
   // perna_outlier: mediana só das pernas MEDÍVEIS (null fica de fora — 1ª parada sem
   // origem, ou parada sem coordenada já é sem_pino por outro motivo).

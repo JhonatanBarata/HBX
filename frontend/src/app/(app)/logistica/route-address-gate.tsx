@@ -14,8 +14,6 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 
-import { EditarContaModal, type EditarContaInicial } from "@/components/hbx/editar-nucleo-modais";
-
 import styles from "./route-builder.module.css";
 import {
   checarEnderecos,
@@ -51,7 +49,6 @@ export function RouteAddressGate({
   const [carregando, setCarregando] = useState(false);
   const [removendo, setRemovendo] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
-  const [editando, setEditando] = useState<EditarContaInicial | null>(null);
 
   const problemas = resultado.problemas || [];
   const ids = [...new Set(problemas.map((item) => String(item.customerProfileId)).filter(Boolean))];
@@ -94,22 +91,16 @@ export function RouteAddressGate({
     }
   }
 
-  function abrirCadastro(item: ChecagemEnderecoCliente) {
-    // Multilocal: o endereço quebrado é do LOCAL, não da conta — editar a conta
-    // aqui corrigiria o registro errado, calado. A ficha do cliente é o lugar.
-    if (item.localId) {
-      window.open("/clientes", "_blank", "noopener");
-      return;
-    }
-    setEditando({
-      id: item.customerProfileId,
-      nome: item.nome,
-      endereco: item.endereco.logradouro,
-      cidade: item.endereco.cidade,
-      uf: item.endereco.uf,
-      cep: item.endereco.cep,
-      isCliente: true,
-    });
+  // "DIRECIONANDO JÁ PRA CORREÇÃO" (dono, 06/08): clicar no cliente abre a aba
+  // Endereços JÁ NELE — que é a única tela que conserta o endereço INTEIRO
+  // (campos + CEP que refaz o ponto + Localizar/posição atual), no local certo
+  // do multilocal. Antes isto jogava o operador em /clientes, sem cliente
+  // nenhum selecionado, ou num editor de CONTA que nem toca no ponto.
+  // Aba NOVA de propósito: o portão fica vivo atrás pra ele voltar e apertar
+  // "Verificar de novo" sem remontar a rota.
+  function abrirCorrecao(item: ChecagemEnderecoCliente) {
+    const alvo = `/logistica?visao=enderecos&cliente=${encodeURIComponent(item.customerProfileId)}`;
+    window.open(alvo, "_blank", "noopener");
   }
 
   return (
@@ -121,12 +112,14 @@ export function RouteAddressGate({
           <p className={styles.empty}>Conferindo os endereços…</p>
         ) : (
           <div className={styles.list}>
+            <p className={styles.gateDica}>Clique no cliente para corrigir o endereço.</p>
             {problemas.map((item) => (
               <button
                 type="button"
                 className={styles.gateRow}
                 key={`${item.customerProfileId}:${item.localId || ""}`}
-                onClick={() => abrirCadastro(item)}
+                onClick={() => abrirCorrecao(item)}
+                title={`Corrigir o endereço de ${item.nome || "este cliente"}`}
                 disabled={travado}
               >
                 <span className={styles.previewCopy}>
@@ -174,14 +167,6 @@ export function RouteAddressGate({
           </button>
         </div>
       </footer>
-
-      {editando && (
-        <EditarContaModal
-          conta={editando}
-          onClose={() => setEditando(null)}
-          onSaved={() => { setEditando(null); void verificar(); }}
-        />
-      )}
     </>
   );
 }

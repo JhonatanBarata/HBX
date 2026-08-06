@@ -129,6 +129,25 @@ test('pino_compartilhado: cli-1/cli-2 no MESMO lat/lng viram vermelho os dois, m
   assert.equal(cli2.semaforo, 'vermelho');
 });
 
+test('mesmo ponto diz COM QUEM: cada um recebe o NOME do outro, e quem não divide vem vazio', async () => {
+  const service = new LogisticaBaseSaudeService(buildPrismaMock() as any);
+  const resultado = await service.getBaseSaude(41);
+
+  const cli1 = resultado.clientes.find((c) => c.id === 'cli-1')!;
+  const cli2 = resultado.clientes.find((c) => c.id === 'cli-2')!;
+  assert.deepEqual(cli1.compartilhaCom, ['Bruno']);
+  assert.equal(cli1.compartilhaComTotal, 1);
+  assert.deepEqual(cli2.compartilhaCom, ['Ana']);
+  assert.equal(cli2.compartilhaComTotal, 1);
+
+  // Sem o motivo, nenhum nome viaja — nome na tela é sempre acusação com prova.
+  for (const cliente of resultado.clientes) {
+    if (cliente.motivos.includes('pino_compartilhado')) continue;
+    assert.deepEqual(cliente.compartilhaCom, []);
+    assert.equal(cliente.compartilhaComTotal, 0);
+  }
+});
+
 test('fora_do_casulo NUNCA aparece base-a-base — cli-5 mora a centenas de km e ainda assim é verde', async () => {
   const service = new LogisticaBaseSaudeService(buildPrismaMock() as any);
   const resultado = await service.getBaseSaude(41);
