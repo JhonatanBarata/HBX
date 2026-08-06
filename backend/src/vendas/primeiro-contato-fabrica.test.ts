@@ -40,6 +40,23 @@ const FISCALIZADAS = new Set([
   'DEFAULT_FIRST_CONTACT_VARIANTS',
 ]);
 
+// ── 3ª SUPERFÍCIE: os templates do link wa.me, por categoria de segmento ──────
+//
+// As duas consts acima são a copy que o MOTOR dispara. Mas existe uma terceira
+// porta por onde sai primeiro contato, e ela não passava por régua nenhuma: os
+// templates do `?text=` do link wa.me (o vendedor clica no telefone do card e o
+// WhatsApp abre com a mensagem pronta). Quem lê não sabe se veio de robô ou de
+// clique — pro lead é a mesma primeira mensagem, e a régua do dono é a mesma.
+//
+// O arquivo é DUPLICADO de propósito (não há infra de monorepo pra o front
+// importar do backend), e o `_comment` dos dois manda "mantenha em sincronia" —
+// pedido que, até aqui, nada obrigava. Divergência aqui é do pior tipo: a tela
+// mostra um texto e o cliente recebe outro.
+const WA_TEMPLATES_ARQUIVOS = {
+  backend: '../../src/webscraping/radar/shared/wa-message-templates.json',
+  frontend: '../../../frontend/src/lib/wa-message-templates.json',
+} as const;
+
 /**
  * Comprimento se mede RENDERIZADO. `{{cumprimentacao}}` tem 18 caracteres no código
  * e vira "Bom dia" (7) no celular do lead — cobrar o teto no texto cru reprovaria
@@ -61,6 +78,45 @@ function lerFonte(arquivo: string): string {
   const fs = require('node:fs') as typeof import('node:fs');
   const path = require('node:path') as typeof import('node:path');
   return fs.readFileSync(path.resolve(__dirname, '../../src/vendas', arquivo), 'utf8');
+}
+
+/**
+ * Lê o JSON de templates do FONTE (não do dist): é o arquivo que a pessoa edita
+ * que precisa ser fiscalizado, e o do front nem chega a passar por tsc daqui.
+ */
+function lerTemplatesWa(lado: keyof typeof WA_TEMPLATES_ARQUIVOS): Record<string, string> {
+  const fs = require('node:fs') as typeof import('node:fs');
+  const path = require('node:path') as typeof import('node:path');
+  const caminho = path.resolve(__dirname, WA_TEMPLATES_ARQUIVOS[lado]);
+  return JSON.parse(fs.readFileSync(caminho, 'utf8')) as Record<string, string>;
+}
+
+/** As chaves que são template de verdade — `_comment` é documentação, não mensagem. */
+function chavesDeTemplate(json: Record<string, string>): string[] {
+  return Object.keys(json).filter((chave) => chave !== '_comment');
+}
+
+// O lead da fixture é REAL, da base da empresa 5 — e isso é de propósito. Régua
+// medida com "João"/"SP" prova só que o texto cabe pra um lead que não existe.
+const LEAD_FIXTURE = {
+  nome: 'Água Santo Agostinho',
+  segmento: 'Distribuidoras de agua',
+  cidade: 'Valinhos',
+};
+
+/**
+ * Espelha `buildWaMessage` (radar-core-shared.ts / frontend wa-link.ts) — inclusive
+ * o `.replace` de string, que troca só a PRIMEIRA ocorrência de cada marcador.
+ *
+ * ⚠️ Aqui o marcador é `{chave}`, chave simples — NÃO o `{{chave}}` do resto do
+ * módulo. Reaproveitar o `renderizar()` de cima mediria o teto no texto CRU e o
+ * fiscal julgaria um tamanho que ninguém recebe.
+ */
+function renderizarWa(template: string): string {
+  return String(template || '')
+    .replace('{nome}', LEAD_FIXTURE.nome ? ` ${LEAD_FIXTURE.nome}` : '')
+    .replace('{segmento}', LEAD_FIXTURE.segmento ? LEAD_FIXTURE.segmento.toLowerCase() : 'sua área')
+    .replace('{cidade}', LEAD_FIXTURE.cidade ? ` em ${LEAD_FIXTURE.cidade}` : '');
 }
 
 /** Extrai os literais de um `const NOME = [...]` direto do fonte. */
@@ -116,4 +172,79 @@ test('nenhuma copy de 1º contato nasce fora do fiscal', () => {
         'ou em FINGERPRINTS_LEGADOS (se só serve pra reconhecer campanha antiga).',
     );
   }
+});
+
+test('template do link wa.me passa na régua do 1º contato — nos DOIS arquivos', () => {
+  // Não há lista de chaves fiscalizadas aqui de propósito: o teste varre TODAS as
+  // chaves do arquivo. Template de categoria nova já nasce medido, sem ninguém
+  // precisar lembrar de cadastrar em lugar nenhum.
+  for (const lado of Object.keys(WA_TEMPLATES_ARQUIVOS) as (keyof typeof WA_TEMPLATES_ARQUIVOS)[]) {
+    const json = lerTemplatesWa(lado);
+    const chaves = chavesDeTemplate(json);
+    // Mesma trava do fiscal de cima: o pior modo de falha é varrer 0 item e ficar verde.
+    assert.ok(
+      chaves.length >= 10,
+      `${lado}: esperava as 10 categorias de wa-message-templates.json, li ${chaves.length}. ` +
+        'Se o arquivo mudou de forma, conserte a leitura — não este número.',
+    );
+
+    for (const chave of chaves) {
+      const renderizado = renderizarWa(json[chave]);
+
+      // Marcador que sobrou é o {{funcionario}} cru de 31/07 nascendo de novo em
+      // outra porta: chega literal no WhatsApp do lead. Como `buildWaMessage` troca
+      // só a 1ª ocorrência, isto pega tanto marcador novo ({empresa}) quanto
+      // marcador repetido ({nome} duas vezes na mesma frase).
+      const sobrou = renderizado.match(/\{[a-zA-Z0-9_]+\}/);
+      assert.equal(
+        sobrou,
+        null,
+        `wa-message-templates[${lado}].${chave}: marcador ${sobrou?.[0]} chega CRU no lead — ` +
+          'buildWaMessage só conhece {nome}, {segmento} e {cidade}, e troca a primeira ocorrência de cada.',
+      );
+
+      const motivo = reprovarPrimeiroContato(renderizado, {
+        tetoChars: VARIACAO_MAX_CHARS,
+        exigirConvite: true, // é copy de fábrica: aqui não existe "a pessoa escolheu outro estilo"
+      });
+      assert.equal(
+        motivo,
+        null,
+        `wa-message-templates[${lado}].${chave}: reprovado na régua do 1º contato.\n` +
+          `Motivo: ${motivo}\nRenderizado (${renderizado.length} chars): ${renderizado}`,
+      );
+    }
+  }
+});
+
+test('as duas cópias de wa-message-templates.json não podem divergir', () => {
+  // O `_comment` dos dois arquivos PEDE sincronia e nada obrigava — pedido escrito
+  // em comentário é torcida, não regra. Divergência aqui é do tipo que só aparece
+  // quando o cliente recebe um texto diferente do que a tela mostrou.
+  //
+  // O `_comment` em si fica de fora da comparação: ele descreve o caminho do
+  // arquivo IRMÃO, então é legítimo que os dois textos sejam diferentes.
+  const backend = lerTemplatesWa('backend');
+  const frontend = lerTemplatesWa('frontend');
+
+  const chavesBackend = chavesDeTemplate(backend).sort();
+  const chavesFrontend = chavesDeTemplate(frontend).sort();
+  assert.deepEqual(
+    chavesFrontend,
+    chavesBackend,
+    'wa-message-templates.json: as duas cópias têm categorias diferentes.\n' +
+      `só no backend:  ${chavesBackend.filter((c) => !chavesFrontend.includes(c)).join(', ') || '—'}\n` +
+      `só no frontend: ${chavesFrontend.filter((c) => !chavesBackend.includes(c)).join(', ') || '—'}`,
+  );
+
+  const divergentes = chavesBackend.filter((chave) => backend[chave] !== frontend[chave]);
+  assert.deepEqual(
+    divergentes,
+    [],
+    'wa-message-templates.json: mesma categoria com TEXTO diferente nas duas cópias — ' +
+      'o lead recebe uma coisa e a outra superfície manda outra.\n' +
+      divergentes
+        .map((c) => `[${c}]\n  backend:  ${backend[c]}\n  frontend: ${frontend[c]}`)
+        .join('\n'),
+  );
 });
