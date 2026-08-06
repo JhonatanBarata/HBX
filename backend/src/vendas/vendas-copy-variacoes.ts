@@ -86,8 +86,14 @@ const PROVA_SOCIAL_RE = /\bmais de\s+\d+\s+(clientes|empresas|distribuidoras|loj
 // Então a régua é positiva — tem que HAVER convite — em vez de uma lista infinita de
 // vocabulário de operação, que muda a cada segmento (galão, rota, entregador...) e
 // nunca ficaria completa.
+//
+// ⚠️ A lista nasceu ESTREITA e o próprio sistema provou (06/08): pedi 4 variações,
+// a IA devolveu "Podemos ver juntos?" e "Podemos trocar umas ideias?" — convite dos
+// bons — e a régua recusou as duas. Régua que mata o que serve é régua quebrada
+// (mesma lição do teto de tamanho, logo acima). Por isso ela é larga de propósito:
+// o trabalho dela é separar CONVITE de INTERROGATÓRIO, não julgar estilo.
 const CONVITE_RE =
-  /(interesse|conhecer|apresentar|explicar|mostrar|demonstra|\bdemo\b|fazer um teste|\bteste\b|testar|experimentar|dar uma olhada|uma olhadinha|ideia (curta|rapida|breve)|mandar uma ideia)/;
+  /(interesse|conhec(er|e|em|endo)|apresentar|explicar|mostrar|demonstra|\bdemo\b|\btest(e|es|ar|ando|ei|amos)\b|experimentar|dar uma olhada|uma olhadinha|\bideias?\b|ver junto|podemos (ver|conversar|falar|trocar|marcar)|bater um papo)/;
 
 function semAcento(texto: string): string {
   return String(texto || '')
@@ -163,13 +169,27 @@ export function extrairPlaceholders(texto: string): string[] {
 export function montarPromptVariacoes(base: string, quantidade: number): { role: string; content: string }[] {
   const n = Math.max(1, Math.min(VARIACOES_QUANTIDADE_MAX, Math.trunc(quantidade || VARIACOES_QUANTIDADE_DEFAULT)));
   const placeholders = extrairPlaceholders(base);
+  const listaMarcadores = placeholders.map((p) => `{{${p}}}`).join(', ');
+  // MEDIDO em 06/08 com o modelo de produção (qwen3:4b-instruct): com esta regra
+  // no FIM do prompt, o modelo escreveu 4 variações ótimas e perdeu o
+  // {{cumprimentacao}} nas 4 — o botão devolvia ZERO. Regra que o modelo precisa
+  // obedecer vai no COMEÇO (e se repete no fim), não no rodapé de uma parede de
+  // texto. Não é enfeite: {{cumprimentacao}} é o que faz a mensagem dizer "Boa
+  // tarde" às 15h — variação com "Bom dia" cravado manda bom dia de tarde.
   const regraPlaceholders = placeholders.length
-    ? `Mantenha EXATAMENTE estes marcadores, sem criar novos: ${placeholders.map((p) => `{{${p}}}`).join(', ')}.`
-    : 'NÃO use marcadores {{...}}.';
+    ? `REGRA Nº 1, ACIMA DE QUALQUER OUTRA: copie estes marcadores para dentro de CADA variação, ` +
+      `exatamente assim, com as duas chaves: ${listaMarcadores}. ` +
+      `Não traduza, não substitua por texto ("Bom dia", "Oi"), não invente marcador novo. ` +
+      `Variação sem ${listaMarcadores} é descartada. `
+    : 'NÃO use marcadores {{...}}. ';
+  const lembreteMarcadores = placeholders.length
+    ? `Cada uma das ${n} tem que conter ${listaMarcadores} literalmente.`
+    : '';
   return [
     {
       role: 'system',
       content:
+        regraPlaceholders +
         'Você escreve mensagens de PRIMEIRO CONTATO no WhatsApp, em português do Brasil. ' +
         'Elas têm que parecer GENTE mandando mensagem, não empresa mandando folheto. ' +
         // ── A MISSÃO (06/08) — o que estava faltando e produzia a mensagem errada ──
@@ -199,7 +219,7 @@ export function montarPromptVariacoes(base: string, quantidade: number): { role:
         'o jeito de fazer a pergunta) — não troque só uma palavra da mesma frase. ' +
         'Mas a MISSÃO das mensagens é a mesma em todas: convidar. ' +
         regraPlaceholders +
-        ' Responda SOMENTE um JSON array de strings, sem comentários.',
+        'Responda SOMENTE um JSON array de strings, sem comentários.',
     },
     {
       role: 'user',
@@ -207,7 +227,8 @@ export function montarPromptVariacoes(base: string, quantidade: number): { role:
         `Frase original:\n${String(base || '').trim()}\n\n` +
         `Gere ${n} variações curtas, todas convidando a conhecer, com ganchos diferentes entre si. ` +
         `Nenhuma pode passar de ${VARIACAO_MAX_CHARS} caracteres. ` +
-        'Nenhuma pode perguntar como é a operação da pessoa.',
+        'Nenhuma pode perguntar como é a operação da pessoa. ' +
+        lembreteMarcadores,
     },
   ];
 }

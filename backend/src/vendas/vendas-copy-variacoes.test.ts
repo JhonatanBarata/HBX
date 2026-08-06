@@ -188,6 +188,28 @@ test('o modelo do dono PASSA — a régua não pode matar o que ele mandou fazer
   assert.equal(aprovadas.length, 1, `recusou o molde do dono: ${JSON.stringify(recusadas)}`);
 });
 
+// Fixtures REAIS: saíram do próprio "Gerar variações (IA)" em 06/08 (qwen3:4b-instruct,
+// frase-base = o modelo do dono). A primeira versão da régua do convite recusou as duas
+// primeiras — convite legítimo morto por lista estreita. Ficam aqui pra isso não voltar.
+const CONVITES_QUE_A_IA_GEROU = [
+  '{{cumprimentacao}}, tô testando distribuidoras de água com meu sistema de logística. Podemos ver juntos? É só 1 minuto.',
+  '{{cumprimentacao}}, preciso de feedbacks com distribuidoras de água. Podemos trocar umas ideias? Leva 1 minuto.',
+  '{{cumprimentacao}}, estou montando um teste com distribuidoras de água. Deseja conhecer o que é? É bem rápido.',
+];
+
+test('convite de verdade não pode morrer na régua — os que a própria IA gerou passam', () => {
+  const { aprovadas, recusadas } = validarLoteVariacoes(
+    `{{cumprimentacao}}, ${MODELO_DO_DONO.replace(/^Bom dia, /, '')}`,
+    CONVITES_QUE_A_IA_GEROU,
+    85,
+  );
+  assert.equal(
+    aprovadas.length,
+    CONVITES_QUE_A_IA_GEROU.length,
+    `régua matou convite legítimo: ${JSON.stringify(recusadas)}`,
+  );
+});
+
 test('convite só é cobrado quando a frase-base convida — régua não briga com quem escreveu', () => {
   // A pessoa escreveu uma base que já é pergunta de operação: a IA acompanha o
   // estilo dela. Cobrar o convite aqui mataria o botão pra quem escolheu outro jeito.
