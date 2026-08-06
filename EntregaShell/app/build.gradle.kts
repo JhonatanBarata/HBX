@@ -125,11 +125,20 @@ val logistica2Props = Properties().apply {
 fun logistica2Url(propertyName: String, fallback: String): String =
     logistica2Props.getProperty(propertyName).orEmpty().trim().ifBlank { fallback }.trimEnd('/')
 
-// 127.0.0.1 no celular = o notebook, via `adb reverse tcp:3000 tcp:3000`.
+// localhost no celular = o notebook, via `adb reverse tcp:3000 tcp:3000`.
 // Backend local é o container `backend` (porta 3000); o Next fica no 3001.
 // Sem cabo, apontar para o IP da rede em logistica2.properties.
-val logistica2ApiBaseUrl = logistica2Url("apiBaseUrl", "http://127.0.0.1:3000")
-val logistica2WebBaseUrl = logistica2Url("webBaseUrl", "http://127.0.0.1:3001")
+//
+// 🔴 É "localhost" e NÃO "127.0.0.1" de propósito (custou o 1º pareamento da
+// bancada, 06/08): depois de vincular, o backend devolve um `entryUrl` montado
+// com a URL web dele — que localmente é `http://localhost:3001/mobile/entry`.
+// O `MobileEntrySession.validatedEntryUri` compara HOST com HOST contra o
+// WEB_BASE_URL do APK, e "localhost" != "127.0.0.1" para essa comparação: o
+// pareamento passava no servidor, o app recusava a entrada e voltava pra tela
+// de vínculo como se o código estivesse errado. Os dois lados falam o mesmo
+// nome ou o aparelho nunca entra.
+val logistica2ApiBaseUrl = logistica2Url("apiBaseUrl", "http://localhost:3000")
+val logistica2WebBaseUrl = logistica2Url("webBaseUrl", "http://localhost:3001")
 
 val keystorePropsFile = rootProject.file("keystore.properties")
 val keystoreProps = Properties().apply {

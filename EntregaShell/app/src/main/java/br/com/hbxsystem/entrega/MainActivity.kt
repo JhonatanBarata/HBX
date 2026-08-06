@@ -14,6 +14,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.MediaStore
 import android.provider.Settings
+import android.view.WindowManager
 import android.webkit.GeolocationPermissions
 import android.webkit.PermissionRequest
 import android.webkit.ValueCallback
@@ -32,7 +33,9 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.webkit.WebViewAssetLoader
 import org.json.JSONObject
 import java.io.File
@@ -53,6 +56,13 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var webView: WebView
     private lateinit var root: FrameLayout
+    // GPS FULL SCREEN (06/08): o host precisa virar campo porque quem liga/
+    // desliga o modo navegação tem que mandar o Android RECALCULAR o padding
+    // das barras depois — `requestApplyInsets` age sobre esta view.
+    private var appHost: FrameLayout? = null
+    // 🔴 Enquanto isto for false, TUDO abaixo se comporta exatamente como antes
+    // (o app de produção é o mesmo binário Kotlin — ver o flavor logistica2).
+    private var modoNavegacaoAtivo = false
     private lateinit var nativeBridge: NativeAppBridge
     private lateinit var routeBridge: HBXShellBridge
     private var fileChooserCallback: ValueCallback<Array<Uri>>? = null
@@ -232,6 +242,7 @@ class MainActivity : AppCompatActivity() {
             onAppLoadProgress = ::updateOpeningProgress,
             onAppReady = ::revealReadyApp,
             onRechargeCheckoutRequested = ::openRechargeCheckout,
+            onModoNavegacao = ::aplicarModoNavegacao,
         )
         webView.addJavascriptInterface(nativeBridge, "HBXAndroid")
 
@@ -239,13 +250,21 @@ class MainActivity : AppCompatActivity() {
             setBackgroundColor(Color.parseColor("#0B1020"))
             addView(webView, FrameLayout.LayoutParams(-1, -1))
         }
+        this.appHost = appHost
         root = FrameLayout(this).apply {
             setBackgroundColor(Color.parseColor("#0B1020"))
             addView(appHost, FrameLayout.LayoutParams(-1, -1))
         }
         ViewCompat.setOnApplyWindowInsetsListener(appHost) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            // Navegando, o mapa tem que ENCOSTAR nos 4 lados: sobra de padding
+            // aqui vira tarja preta em cima e embaixo do mapa. Fora do modo
+            // navegação nada muda — este ramo é o comportamento de sempre.
+            if (modoNavegacaoAtivo) {
+                view.setPadding(0, 0, 0, 0)
+            } else {
+                val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+                view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            }
             insets
         }
         setContentView(root)
@@ -264,6 +283,48 @@ class MainActivity : AppCompatActivity() {
             }
         })
         webView.loadUrl(LOCAL_ENTRY)
+    }
+
+    /**
+     * GPS FULL SCREEN (PR06082026) — navegando, as barras do sistema saem e a
+     * tela inteira vira mapa. É o mesmo imersivo que a ChegadaActivity já usa
+     * em produção: barra volta por arrasto (BEHAVIOR_SHOW_TRANSIENT_BARS), que
+     * é o comportamento do Waze e o que o dono validou no brainstorm.
+     *
+     * Sair tem que devolver a tela ANTERIOR EXATA — por isso o ramo desligado
+     * refaz `decorFitsSystemWindows`, mostra as barras, volta o recorte ao
+     * padrão e manda o Android reentregar os insets (é o `requestApplyInsets`
+     * que devolve o padding do topo/rodapé ao appHost).
+     */
+    private fun aplicarModoNavegacao(ligado: Boolean) {
+        if (isFinishing || isDestroyed) return
+        modoNavegacaoAtivo = ligado
+        try {
+            WindowCompat.setDecorFitsSystemWindows(window, !ligado)
+            WindowInsetsControllerCompat(window, window.decorView).let { controller ->
+                if (ligado) {
+                    controller.hide(WindowInsetsCompat.Type.systemBars())
+                    controller.systemBarsBehavior =
+                        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                } else {
+                    controller.show(WindowInsetsCompat.Type.systemBars())
+                }
+            }
+            // Recorte da câmera: só navegando o mapa passa por baixo dele. Fora
+            // disso volta ao padrão, senão sobraria tarja em aparelho com notch.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                window.attributes = window.attributes.apply {
+                    layoutInDisplayCutoutMode = if (ligado) {
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    } else {
+                        WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+                    }
+                }
+            }
+        } catch (_: Throwable) {
+            // Imersivo é cosmético — nunca pode derrubar a navegação em si.
+        }
+        appHost?.let(ViewCompat::requestApplyInsets)
     }
 
     private fun openRechargeCheckout(packKey: String) {
@@ -402,6 +463,10 @@ class MainActivity : AppCompatActivity() {
         // Localização aberta com o app JÁ vivo: a porta (OfflineLauncherActivity)
         // deixou o destino no slot e quem volta pro foco entrega.
         DestinoPendente.drenar()?.let(::entregarDestino)
+        // Voltar de uma ligação, do bloqueio ou de outro app derruba o imersivo:
+        // sem reaplicar, o motorista voltava pro mapa com as barras do sistema
+        // de novo por cima. Só age se o modo já estava ligado.
+        if (modoNavegacaoAtivo) aplicarModoNavegacao(true)
         if (BuildConfig.APP_MODE == "logistica") {
             // Push é só campainha: acorda o pull autenticado que já existe no
             // app.js. Sem esta ponte, o Firebase chegava e a WebView esperava

@@ -854,15 +854,64 @@ html.leitura-route-active .route-map-shell { border-color: color-mix(in srgb, va
    de meia tela com a lista de paradas embaixo: dirigindo, metade do celular
    mostrava coisa que ninguém lê a 60 km/h. Com `nav-cheia` (classe posta em
    syncNavWatch) some o cromo e sobra mapa + a manobra em cima + os controles
-   embaixo. Sem tela nova: é a MESMA tela Rota, com menos coisa. */
-html.nav-cheia .route-map-shell { height: calc(100dvh - 268px); max-height: none; }
+   embaixo. Sem tela nova: é a MESMA tela Rota, com menos coisa.
+   🔴 06/08 (PR06082026 — GPS FULL SCREEN): aquilo era o mapa AMPLIADO, não a
+   tela cheia — sobravam topbar, barra de baixo e controles, e o mapa parava a
+   268px do fim. Agora o mapa ENCOSTA NOS 4 LADOS e o que sobra FLUTUA por cima
+   dele: manobra no topo, parada da vez na base, recentralizar na lateral. As
+   barras do SISTEMA quem tira é o nativo (H.modoNavegacao → MainActivity).
+   🔴 NADA de `position: fixed` aqui: as transições de tela usam `transform`
+   (screen-enter-*) e fixed sob ancestral transformado quebra — armadilha já
+   documentada. Com o cromo escondido, o fluxo normal já ocupa 100dvh sozinho. */
+html.nav-cheia .topbar,
+html.nav-cheia .bottom-nav,
 html.nav-cheia .creditos-dia,
 html.nav-cheia .route-filter,
 html.nav-cheia .route-hero > .progress,
+html.nav-cheia .route-hero > .route-controls,
 html.nav-cheia .section-title,
 html.nav-cheia .list,
+html.nav-cheia .rota-finalizar-btn,
 html.nav-cheia .fab { display: none; }
-html.nav-cheia .route-controls { padding-top: 6px; }
+html.nav-cheia .content,
+html.nav-cheia .content.is-rota { padding: 0; }
+/* Altura CRAVADA (não `var()`): o --hbx-route-hero-h é escrito inline pelo
+   fitRouteMap e inline vence folha de estilo. Aqui a conta não é medida, é a
+   tela inteira — e o fitRouteMap sai de cena enquanto isto vale (ver o guard
+   em app.js), senão ele mediria uma .bottom-nav escondida e devolveria lixo. */
+html.nav-cheia .route-hero { height: 100dvh; border-radius: 0; }
+html.nav-cheia .route-hero > .route-map-shell,
+html.nav-cheia .route-map-shell { height: 100dvh; min-height: 0; max-height: none; border: 0; border-radius: 0; box-shadow: none; }
+/* O recorte da câmera e a barra de gestos entram na conta pelo env() — é o que
+   impede a manobra de nascer debaixo do relógio e o Cheguei debaixo da barra. */
+html.nav-cheia .route-next-panel { top: calc(12px + env(safe-area-inset-top)); }
+html.nav-cheia .route-next-panel.has-manobra .route-next-panel-title { font-size: 1.22rem; }
+html.nav-cheia .route-map-shell.has-next-panel .route-gps-status { top: calc(84px + env(safe-area-inset-top)); }
+/* Recentralizar vai pra LATERAL (meio da altura) navegando: no rodapé ele
+   brigaria com o cartão da base, que muda de altura ao recolher. */
+html.nav-cheia .route-follow-control { top: 50%; bottom: auto; transform: translateY(-50%); }
+html.nav-cheia .route-follow-control:active { transform: translateY(-50%) scale(.94); }
+/* 🔴 06/08 — HUD DA BASE: a parada da vez ao alcance do polegar. Só tokens
+   (Lei 2). Vive DENTRO do .route-map-shell como irmão do mapa — nunca filho do
+   host transplantado, que é do MapLibre. */
+.route-nav-hud { position: absolute; z-index: 6; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); left: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 88%, transparent); box-shadow: var(--shadow); backdrop-filter: blur(10px); transition: padding .24s cubic-bezier(.2,.82,.2,1); }
+.route-nav-hud-info { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; }
+.route-nav-hud-info b { flex: 0 0 auto; color: var(--ink); font-size: .8rem; font-weight: 800; }
+.route-nav-hud-nome { flex: 1 1 auto; min-width: 0; overflow: hidden; color: var(--ink); font-size: .95rem; font-weight: 800; letter-spacing: -.01em; text-overflow: ellipsis; white-space: nowrap; }
+.route-nav-hud-eta { flex: 0 0 auto; color: var(--muted); font-size: .78rem; font-weight: 700; }
+.route-nav-hud-cta { display: block; width: 100%; min-height: 54px; max-height: 60px; margin-top: 10px; overflow: hidden; font-size: 1.04rem; transition: min-height .24s cubic-bezier(.2,.82,.2,1), max-height .24s cubic-bezier(.2,.82,.2,1), margin-top .24s cubic-bezier(.2,.82,.2,1), opacity .18s ease; }
+/* Andando (≥ ~9 km/h, mesmo limiar do rumo confiável) o cartão vira UMA LINHA:
+   dirigindo o que se olha é mapa. Parou, ele volta inteiro. */
+.route-nav-hud.is-recolhido { padding: 9px 14px; }
+.route-nav-hud.is-recolhido .route-nav-hud-cta { min-height: 0; max-height: 0; margin-top: 0; opacity: 0; pointer-events: none; }
+/* A volta pra tela cheia depois do Voltar do Android. Só existe nesse estado
+   (navegando E fora do cheio) — é o outro ramo do interruptor, não um botão
+   permanente. Mesma pele de vidro dos controles do mapa. */
+.route-nav-voltar-cheia { position: absolute; z-index: 6; bottom: 12px; left: 50%; display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 8px 14px; border: 1px solid var(--glass-border); border-radius: 999px; color: var(--glass-ink); background: var(--glass-surface); box-shadow: 0 6px 18px rgba(17,28,43,.22); backdrop-filter: blur(10px); font-size: .78rem; font-weight: 800; transform: translateX(-50%); }
+.route-nav-voltar-cheia:active { transform: translateX(-50%) scale(.94); }
+@media (prefers-reduced-motion: reduce) {
+  .route-nav-hud, .route-nav-hud-cta { transition: none; }
+}
 /* S3 21/07 — mapa vivo da tela "Leitura de rota" (state.modal === "leitura-ativa"):
    mesma moldura do mapa da Rota (.route-map-shell/.route-live-map, reaproveitados
    via classe), só mais baixo pra caber no cartão central junto do cabeçalho/CTA/

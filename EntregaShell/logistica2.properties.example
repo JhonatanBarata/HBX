@@ -9,8 +9,16 @@
 # Aí o 127.0.0.1 do celular vira o do notebook e o app acha o backend local
 # (container `backend`, porta 3000; o Next fica no 3001).
 #
+# 🔴 O `webBaseUrl` tem que usar o MESMO NOME DE HOST que o backend usa pra
+# montar o link de entrada dele. Depois de vincular, o servidor devolve um
+# `entryUrl` (ex.: http://localhost:3001/mobile/entry?ticket=...) e o app
+# compara host com host: "localhost" e "127.0.0.1" contam como DIFERENTES. Se
+# não baterem, o pareamento passa no servidor e mesmo assim o app volta pra
+# tela de vínculo. Por isso o padrão é `localhost`, não `127.0.0.1`.
+#
 # Sem cabo, aponte para o IP do notebook na rede — e lembre que ele muda quando
-# o roteador renova o DHCP:
+# o roteador renova o DHCP (aí o backend local também precisa anunciar esse
+# mesmo IP na URL web dele):
 #
 #     apiBaseUrl=http://192.168.0.10:3000
 #     webBaseUrl=http://192.168.0.10:3001
@@ -21,5 +29,5 @@
 #     apiBaseUrl=https://api.hbxsystem.com.br
 #     webBaseUrl=https://www.hbxsystem.com.br
 
-apiBaseUrl=http://127.0.0.1:3000
-webBaseUrl=http://127.0.0.1:3001
+apiBaseUrl=http://localhost:3000
+webBaseUrl=http://localhost:3001

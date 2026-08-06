@@ -208,6 +208,10 @@
     routePaused: H.cache.get("logistica-route-paused", false) === true,
     distanceWarning: null,
     distanceOverrideDeliveryId: null,
+    // 06/08 (Etapa C) — {itemId, codigo, options}: o código do comprovante
+    // digitado na moldura da casa. Mesmo mecanismo do distanceWarning acima —
+    // guarda as `options` da confirmação e reexecuta confirmDelivery com elas.
+    codigoComprovante: null,
     confirmation: null,
     // PR20072026 W2 — Leitura de Rota (wizard GPS + fila offline). `leitura` é a
     // sessão ativa ({id, modo, startedAt, count}) — sobrevive a restart do app
@@ -288,6 +292,13 @@
     // ponto em que navRota zera — ver performEncerrarRota/performLimparDia).
     navMudo: H.cache.get("nav-mudo", false) || false,
     navVoice: null,
+    // 🔴 06/08 (PR06082026 — GPS FULL SCREEN) — o Voltar do Android sai da TELA
+    // CHEIA sem matar a rota (Lei 10). É por isso que "está navegando" e "está
+    // em tela cheia" viraram DUAS coisas: o GPS, a voz e a tela acesa seguem
+    // ligados; só a pele full screen recolhe. NÃO é preferência persistida —
+    // vale para a navegação atual e zera sozinho quando ela termina, senão o
+    // motorista que espiou a lista uma vez nunca mais veria a tela cheia.
+    navCheiaSaiu: false,
     // S5 22/07 (PR22072026-APP-SOUNDS) — Central de Sons: lido 1x aqui do
     // SharedPreferences nativo via H.soundPrefs.get() (leitura SÍNCRONA pela
     // ponte, mesmo padrão de H.info()/H.offline.status() acima). state.soundPrefs
@@ -2738,6 +2749,12 @@
   // (getBoundingClientRect) em vez de descontar altura chutada, então funciona em
   // qualquer resolução/densidade e depois de girar a tela.
   function fitRouteMap() {
+    // 🔴 06/08 (GPS FULL SCREEN) — em navegação cheia NÃO há o que medir: o mapa
+    // é 100dvh puro no CSS. Pior, medir aqui daria LIXO — a .bottom-nav está
+    // display:none, o getBoundingClientRect().top dela vira 0 e a "altura livre"
+    // sairia negativa, encolhendo o mapa justamente na tela que devia ser cheia.
+    // Sair do modo dispara render() → esta função roda de novo e remede tudo.
+    if (document.documentElement.classList.contains("nav-cheia")) return;
     const shell = app.querySelector(".route-hero > .route-map-shell");
     const controls = app.querySelector(".route-hero > .route-controls");
     const nav = app.querySelector(".bottom-nav");
@@ -5178,7 +5195,7 @@
     // S2 21/07 — "has-next-panel" empurra route-gps-status/route-follow-control
     // (agora também usados pela navegação normal, não só Leitura) pra baixo do
     // painel "Próxima parada" quando os dois aparecem juntos (ver app.css).
-    return shell(`${creditosDiaPanel()}<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="${mapLabel}"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : routeTransmuxControl(planned, paused)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
+    return shell(`${creditosDiaPanel()}<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="${mapLabel}"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}${showNextPanel && navModeActive() && !state.navCheiaSaiu ? routeNavHud(next) : ""}${navModeActive() && state.navCheiaSaiu ? `<button type="button" class="route-nav-voltar-cheia" data-action="nav-cheia-voltar">${icon("navigation", 15)} Tela cheia</button>` : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : routeTransmuxControl(planned, paused)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
       ${total ? `<div class="route-filter" role="tablist" aria-label="Filtros da rota">
         <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila" role="tab" aria-selected="${state.routeFilter === "fila"}">Fila <b>${open.length}</b></button>
         <button type="button" class="route-filter-btn ${state.routeFilter === "entregue" ? "active" : ""}" data-action="route-filter" data-filter="entregue" role="tab" aria-selected="${state.routeFilter === "entregue"}">Entregue <b>${done.length}</b></button>
@@ -5252,6 +5269,31 @@
     // rota só montada), a linha 1 volta a ser a parada, como sempre foi.
     const textos = routeNextPanelTextos(next);
     return `<div class="route-next-panel${textos.manobra ? " has-manobra" : ""}"><button type="button" class="route-next-panel-open" data-delivery="${H.escape(next.id)}" aria-label="Ver próxima parada"><strong class="route-next-panel-title">${H.escape(textos.titulo)}</strong><span class="route-next-panel-sub">${H.escape(textos.sub)}</span></button>${muteBtn}</div>`;
+  }
+  // 🔴 06/08 (PR06082026 — GPS FULL SCREEN) — HUD da BASE, irmão do
+  // routeNextStopPanel (que é o HUD do topo, com a manobra). Navegando, os
+  // .route-controls somem e este cartão é o que sobra ao alcance do polegar:
+  // a parada da vez em UMA linha (Lei 8 — dado em linha, nunca parágrafo) e o
+  // "Cheguei" largo. O toque NÃO cria folha nova: cai no mesmo showSheet que a
+  // config já escolhe (offline / simples / completa), via data-delivery — o
+  // mesmo dispatcher dos stopCard.
+  function routeNavHud(next) {
+    const c = next.cliente || {};
+    const n = orderedItems().indexOf(next) + 1;
+    const total = items().length;
+    return `<div class="route-nav-hud">
+      <button type="button" class="route-nav-hud-info" data-action="nav-hud-toque" aria-label="Ver a parada de ${H.escape(c.nome || "Cliente")}">
+        <b>Parada ${n} de ${total}</b>
+        <span class="route-nav-hud-nome">${H.escape(c.nome || "Cliente")}</span>
+        <span class="route-nav-hud-eta">${H.escape(navHudEtaTexto(next))}</span>
+      </button>
+      <button type="button" class="btn btn-primary route-nav-hud-cta" data-delivery="${H.escape(next.id)}">Cheguei</button>
+    </div>`;
+  }
+  // "~HH:MM" (o `~` é a exceção de horário já aberta na Lei 8). Vazio sem ETA:
+  // hora inventada em tela de navegação é pior que hora nenhuma.
+  function navHudEtaTexto(next) {
+    return next && next.etaAt ? `~${H.date(next.etaAt, { hour: "2-digit", minute: "2-digit" })}` : "";
   }
   function routeTransmuxControl(planned, paused) {
     const active = routeActive();
@@ -5905,10 +5947,29 @@
     const productIds = new Set(draft.items.map(x => String(x.productId)).filter(Boolean));
     const availableProducts = (state.products || []).filter(p => p && p.id != null && p.ativo !== false && !productIds.has(String(p.id)));
     const itemRows = draft.items.map(row => `<div class="delivery-item"><div><strong>${H.escape(row.nome)}</strong><small>${H.money(unitPriceFor(item, row))}${row.novo ? " · Novo na entrega" : ""}</small></div><div class="delivery-stepper"><button data-action="delivery-qty" data-draft-item="${H.escape(row.key)}" data-delta="-1" ${finished ? "disabled" : ""}>−</button><b>${row.qtd}</b><button data-action="delivery-qty" data-draft-item="${H.escape(row.key)}" data-delta="1" ${finished ? "disabled" : ""}>+</button></div></div>`).join("") || empty("Sem itens", "Adicione o que foi entregue.");
-    const reasonPanel = `<div class="delivery-reason"><strong>Por que não foi entregue?</strong><div class="delivery-reason-options">${[["ausente","Ausente"],["recusou","Recusou"],["reagendar","Reagendar"]].map(([id,label]) => `<button class="${reason === id ? "active" : ""}" data-action="delivery-reason" data-reason="${id}">${label}</button>`).join("")}</div><button class="btn btn-danger delivery-confirm" data-action="confirm-not-delivered" ${reason ? "" : "disabled"}>Confirmar não entregue</button><button class="btn btn-secondary" data-action="delivery-back">Voltar</button></div>`;
+    const reasonPanel = `<div class="delivery-reason"><strong>Por que não foi entregue?</strong><div class="delivery-reason-options">${MOTIVOS_NAO_ENTREGA.map(([id,label]) => `<button class="${reason === id ? "active" : ""}" data-action="delivery-reason" data-reason="${id}">${label}</button>`).join("")}</div><button class="btn btn-danger delivery-confirm" data-action="confirm-not-delivered" ${reason ? "" : "disabled"}>Confirmar não entregue</button><button class="btn btn-secondary" data-action="delivery-back">Voltar</button></div>`;
     const editor = `<div class="delivery-editor"><div class="delivery-editor-head"><strong>Quantidade entregue</strong></div>${itemRows}${!finished && availableProducts.length ? (!state.deliveryProductPicker ? `<button class="delivery-add" data-action="delivery-add-product">${icon("plus", 17)} Adicionar produto</button>` : `<div class="delivery-picker"><strong>Adicionar produto</strong>${availableProducts.map(p => `<button data-action="delivery-product" data-product-id="${H.escape(p.id)}">${H.escape(p.nome || p.name || "Produto")}</button>`).join("")}<button class="btn btn-secondary" data-action="delivery-close-picker">Fechar</button></div>`) : ""}</div>`;
     return `<div class="sheet-wrap" data-action="close-sheet"><section class="sheet delivery-sheet"><div class="handle"></div>${state.deliveryArrived ? `<div class="delivery-arrived">${icon("gps", 14)} Você chegou no endereço</div>` : ""}<div class="sheet-head"><div class="avatar">${H.escape(initials(c.nome))}</div><div><h2>${H.escape(c.nome || "Cliente")}</h2><p class="subtitle">${H.escape(address(c))}</p></div><button class="close" data-action="close-sheet" aria-label="Fechar">${icon("close", 18)}</button></div>${c.observacoes ? `<div class="card flat delivery-obs-card"><strong>Observações</strong><p class="subtitle">${H.escape(c.observacoes)}</p></div>` : ""}${notDelivered ? reasonPanel : editor}${item.status === "entregue" ? `<button class="btn btn-secondary btn-block delivery-reopen" data-action="reopen-delivery">${icon("refresh", 17)} Reabrir entrega</button>` : ""}${!finished && !notDelivered ? `<div class="delivery-tools"><button class="btn btn-secondary" data-action="maps">${icon("route", 17)} Continuar navegação</button><button class="btn btn-secondary" data-action="call" ${phone ? "" : "disabled"}>${icon("phone", 17)} Ligar</button><button class="btn btn-secondary" data-action="whatsapp" ${phone ? "" : "disabled"}>${icon("wa", 17)} WhatsApp</button></div><div class="section-title"><strong>Comprovante</strong><span>opcional</span></div><div class="actions"><input class="sr-only" id="proof-photo" type="file" accept="image/jpeg,image/png,image/webp" capture="environment"><button class="btn btn-secondary" data-action="photo">${proof.fotoEnviada ? icon("check",17) : icon("plus",17)} Foto</button></div><div class="chegada-acoes"><button class="btn delivery-confirm chegada-btn chegada-btn-pago" type="button" data-action="confirm-pago" ${state.deliveryConfirming ? "disabled" : ""}>${icon("wallet", 20)} Entregue e quitou</button><button class="btn delivery-confirm chegada-btn chegada-btn-entregue" type="button" data-action="confirm-proximo" ${state.deliveryConfirming ? "disabled" : ""}>${icon("check", 20)} Entregue, marcar</button><button class="chegada-btn-sem" type="button" data-action="delivery-not-delivered">Não entregue</button><button class="chegada-btn-sem" type="button" data-action="confirm-sem-atendimento">Não atendeu</button></div>${state.deliverySimpleDetail ? `<button class="link-btn delivery-detail-link" type="button" data-action="delivery-simple-back">Voltar para exibição simples</button>` : ""}` : ""}</section></div>`;
   }
+  // 🔴 06/08 (PR06082026 — Etapa B) — MOTIVOS DE NÃO-ENTREGA. Eram 3 (Ausente,
+  // Recusou, Reagendar) e faltava metade do que acontece na rua: porta fechada,
+  // endereço errado, o cliente sem dinheiro na hora, pedido divergente, o
+  // próprio veículo. Sem o motivo certo o entregador escolhia o "mais parecido"
+  // e o relatório do dono virava ficção.
+  // O motivo viaja como TEXTO LIVRE (o backend não tem enum aqui, conferido no
+  // schema), então ampliar a lista é mudança só de tela — nenhuma migration.
+  // Os 3 primeiros seguem em 1º de propósito: são os do dia a dia.
+  const MOTIVOS_NAO_ENTREGA = [
+    ["ausente", "Ausente"],
+    ["recusou", "Recusou"],
+    ["reagendar", "Reagendar"],
+    ["fechado", "Fechado"],
+    ["endereco_errado", "Endereço errado"],
+    ["sem_pagamento", "Sem pagamento"],
+    ["divergente", "Divergente"],
+    ["veiculo", "Veículo"],
+    ["outro", "Outro"],
+  ];
   function newClientProductFields() {
     const draft = state.clientProductDraft;
     // 27/07 (ordem do dono, cobrança final) — produto NÃO tem tipo, NÃO tem dia e não
@@ -6034,6 +6095,24 @@
     // que o servidor devolve em state.config/state.route — nunca escolhe.
     if (state.modal === "arrival-radius") { const radius = Math.max(20, Number(state.config && state.config.raioChegadaM || 60)); return `<div class="sheet-wrap" data-action="close-modal"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("gps", 18)}</div><div><h2>Avisar chegada</h2></div><button class="close" data-action="close-modal">${icon("close", 18)}</button></div><form id="arrival-radius-form"><div class="field"><label>Metros</label><input name="raioChegadaM" type="number" min="20" max="1000" step="10" inputmode="numeric" value="${radius}" required></div><button class="btn btn-primary btn-block" type="submit">Salvar</button></form></section></div>`; }
     if (state.modal === "distance-warning") { const warning = state.distanceWarning || {}; return `<div class="sheet-wrap"><section class="sheet"><div class="handle"></div><div class="sheet-head"><div class="avatar">${icon("gps", 18)}</div><div><h2>Você está longe do endereço</h2><p class="subtitle">Confira a entrega antes de continuar</p></div></div><div class="card flat distance-warning-card"><strong class="distance-warning-value">${Math.round(Number(warning.distance || 0))} m</strong><p class="subtitle distance-warning-sub">do endereço de ${H.escape(warning.clientName || "este cliente")}</p></div><p class="subtitle">A entrega só deve ser confirmada de longe se você tiver certeza de que está no local correto.</p><div class="actions"><button class="btn btn-secondary" data-action="cancel-distance-confirm">Voltar</button><button class="btn btn-primary" data-action="confirm-distance-delivery">Confirmar mesmo assim</button></div></section></div>`; }
+    // 🔴 06/08 (PR06082026 — Etapa C) — o CÓDIGO DO COMPROVANTE saiu do
+    // `prompt()` do navegador. O Kotlin não implementa `onJsPrompt`, então o
+    // prompt nativo simplesmente NÃO ABRIA no aparelho: entrega com código
+    // obrigatório era impossível de fechar — e no navegador o `prompt` congela
+    // o JS inteiro, o que num app com GPS e fila de envio é pior ainda.
+    // Moldura única (Lei 3 — decisão = cartão CENTRAL) e Enter confirma
+    // (Lei 5, via data-enter-action no campo).
+    if (state.modal === "codigo-comprovante") {
+      const p = state.codigoComprovante || {};
+      const codigo = String(p.codigo || "");
+      return centerModal({
+        icon: "check",
+        title: "Código do comprovante",
+        closeAction: "cancel-codigo-comprovante",
+        closeButtonAction: "cancel-codigo-comprovante",
+        body: `<div class="field"><label for="codigo-comprovante-input">6 dígitos</label><input id="codigo-comprovante-input" data-enter-action="confirm-codigo-comprovante" inputmode="numeric" autocomplete="one-time-code" maxlength="6" value="${H.escape(codigo)}" placeholder="000000" aria-label="Código de 6 dígitos do comprovante"></div><div class="actions"><button class="btn btn-secondary" type="button" data-action="cancel-codigo-comprovante">Cancelar</button><button class="btn btn-primary" type="button" data-action="confirm-codigo-comprovante" ${codigo.length === 6 ? "" : "disabled"}>Confirmar</button></div>`,
+      });
+    }
     if (state.modal === "statement") {
       // PR18072026 — o extrato real do backend (getAdminStatement) devolve saldo,
       // totals.{bonusCredits,trackedDeliveries}, usage.{hoje,semana,mes} e a lista
@@ -8609,6 +8688,25 @@
     if (painel) painel.classList.toggle("has-manobra", !!textos.manobra);
     // 29/07 — a hora de chegada anda no mesmo tique do painel.
     atualizarEtaAoVivo();
+    // 06/08 — o HUD da base anda no MESMO tique (ETA + recolher em movimento).
+    atualizarNavHud(next);
+  }
+  // 🔴 06/08 (PR06082026) — EM MOVIMENTO O CARTÃO DA BASE RECOLHE pra uma linha:
+  // dirigindo, o que importa é ver mapa. Parou (farol, porta do cliente), ele
+  // volta inteiro com o "Cheguei" grande. O limiar é o MESMO do rumo confiável
+  // (BEARING_VELOCIDADE_MIN_MPS, ~9 km/h) — padronizar é IGUALAR, não ter dois
+  // números de "está andando" no mesmo arquivo.
+  // Expandir na mão VENCE a velocidade (marca is-aberto-na-mao), senão o cartão
+  // fecharia na cara do motorista no primeiro fix depois do toque.
+  function atualizarNavHud(next) {
+    const hud = app.querySelector(".route-nav-hud");
+    if (!hud) return;
+    const eta = hud.querySelector(".route-nav-hud-eta");
+    if (eta) eta.textContent = navHudEtaTexto(next);
+    if (hud.classList.contains("is-aberto-na-mao")) return;
+    const velocidade = Number(state.navPosicao && state.navPosicao.speedMps);
+    const andando = Number.isFinite(velocidade) && velocidade >= BEARING_VELOCIDADE_MIN_MPS;
+    hud.classList.toggle("is-recolhido", andando);
   }
   // S2 21/07 (PR21072026-NAVEGAÇÃO) — watch da navegação normal (rota já em
   // execução, sem app externo). Mesmas options de currentPosition() (spec S2
@@ -8738,7 +8836,26 @@
     H.manterTelaAcesa(navegando);
     // 🔴 31/07 (item 2) — navegando, o mapa toma a tela e o resto do cromo some
     // (regra no app.css). Quem dirige olha UMA coisa.
-    document.documentElement.classList.toggle("nav-cheia", navegando);
+    // Navegação acabou: a saída da tela cheia morre com ela (senão a próxima
+    // rota nasceria sem tela cheia porque ele espiou a lista na rota passada).
+    if (!navegando && state.navCheiaSaiu) state.navCheiaSaiu = false;
+    // 🔴 06/08 — "navegando" e "em tela cheia" são coisas DIFERENTES: o Voltar
+    // recolhe a pele cheia e o GPS/voz/tela acesa continuam de pé (Lei 10).
+    const cheia = navegando && !state.navCheiaSaiu;
+    const raiz = document.documentElement;
+    const jaEstavaCheia = raiz.classList.contains("nav-cheia");
+    raiz.classList.toggle("nav-cheia", cheia);
+    // 🔴 06/08 (PR06082026) — o CSS acima some com o cromo DO APP; só o nativo
+    // some com as BARRAS DO SISTEMA e devolve os últimos centímetros de tela.
+    // Mesmo estado, mesmo dono: quem manda continua sendo esta função.
+    H.modoNavegacao(cheia);
+    // O mapa é TRANSPLANTADO (__hbxMap): mudar o tamanho do container não chega
+    // nele sozinho, e sem este aviso ele segue desenhando no tamanho velho
+    // (tarja preta de um lado, tile cortado do outro). resize() no mapa que JÁ
+    // existe — recriar seria piscada + tiles de novo.
+    if (jaEstavaCheia !== cheia && routeMap) {
+      requestAnimationFrame(() => { try { routeMap.resize(); } catch (_) {} });
+    }
   }
   // ==========================================================================
   // ROTA-CONFERIDA — S5 (25/07): "aprovar congela". A ordem aprovada em
@@ -9046,9 +9163,18 @@
       if (proof.fotoId) body.comprovanteFotoId = proof.fotoId;
       if (proof.assinaturaId) body.comprovanteAssinaturaId = proof.assinaturaId;
       if (requirements.codigoObrigatorio) {
-        const code = prompt("Digite o código de 6 dígitos do comprovante:");
-        if (!code) return;
-        body.comprovanteCodigo = code.trim();
+        // 🔴 06/08 (Etapa C) — era `prompt()` do navegador, que o WebView do app
+        // NUNCA abriu (o Kotlin não implementa onJsPrompt): a entrega com código
+        // obrigatório não fechava no aparelho de jeito nenhum. Agora pede na
+        // moldura da casa e REEXECUTA esta mesma função com o código em mãos —
+        // mesmo mecanismo do aviso de distância logo acima.
+        const codigoInformado = String(opts.comprovanteCodigo || "").trim();
+        if (codigoInformado.length !== 6) {
+          state.codigoComprovante = { itemId: item.id, codigo: "", options: opts };
+          showModal("codigo-comprovante");
+          return;
+        }
+        body.comprovanteCodigo = codigoInformado;
       }
       if (position) Object.assign(body, position);
       // Regra de ouro do S3: som toca no FATO (aqui, depois do await abaixo),
@@ -9349,7 +9475,7 @@
       // 28/07 (item 4) — a Rota rápida da tela Rota morre com o modal dela (senão
       // o próximo "+" abriria com o CEP da vez passada preenchido).
       if (kind === "modal" && state.modal === "rota-rapida") state.montagemRapida = null;
-      if (kind === "modal") { state.modal = null; state.modalClient = null; state.editProductDraft = null; state.clientProductFormOpen = false; state.dddPrompt = null; state.historico = null; }
+      if (kind === "modal") { state.modal = null; state.modalClient = null; state.editProductDraft = null; state.clientProductFormOpen = false; state.dddPrompt = null; state.historico = null; state.codigoComprovante = null; }
       // Passos que vivem DENTRO da montagem morrem com ela (senão o próximo
       // "Montar rota" abriria direto no nome da rota da vez passada).
       if (limpaConferenciaMontagem || abandonaConferencia) { state.montagemSalvar = null; state.montagemRapida = null; }
@@ -9591,6 +9717,26 @@
       H.cache.set("nav-mudo", state.navMudo);
       if (state.navMudo) H.speakStop();
       render();
+      return;
+    }
+    // 06/08 (PR06082026) — o toque na linha do HUD tem DOIS destinos, e o
+    // recolhido decide qual: recolhido, o toque só ABRE o cartão de volta (ele
+    // encolheu sozinho por velocidade, o motorista está pedindo pra ver); já
+    // aberto, o toque leva pra folha da parada, igual ao stopCard. Sem isto o
+    // cartão de 1 linha viraria um botão gigante que abre folha no meio da rua.
+    // O outro ramo do Voltar acima: sem esta volta, quem saiu da tela cheia
+    // ficaria preso na tela normal até encerrar a rota — meio interruptor.
+    if (action === "nav-cheia-voltar") { state.navCheiaSaiu = false; render(); return; }
+    if (action === "nav-hud-toque") {
+      const hud = app.querySelector(".route-nav-hud");
+      if (hud && hud.classList.contains("is-recolhido")) {
+        hud.classList.remove("is-recolhido");
+        hud.classList.add("is-aberto-na-mao");
+        H.vibrate(12);
+        return;
+      }
+      const alvo = openItems()[0];
+      if (alvo) showSheet(alvo);
       return;
     }
     if (action === "open-financeiro") { if (!isAdmin()) return; showModal("financeiro"); return; }
@@ -10030,6 +10176,21 @@
     if (action === "complete-ddd") { openDddPrompt(); return; }
     if (action === "cancel-ddd") { state.dddPrompt = null; render(); return; }
     if (action === "confirm-ddd") { await confirmDddPrompt(); return; }
+    // Etapa C (06/08) — as duas saídas do código do comprovante. Cancelar não
+    // confirma nada (a entrega fica como estava); Confirmar reexecuta a MESMA
+    // confirmDelivery levando o código nas options.
+    if (action === "cancel-codigo-comprovante") { state.codigoComprovante = null; await closeOverlay("modal"); return; }
+    if (action === "confirm-codigo-comprovante") {
+      const pedido = state.codigoComprovante;
+      const codigo = String(pedido && pedido.codigo || "").trim();
+      if (codigo.length !== 6) return;
+      const item = items().find(row => row.id === pedido.itemId);
+      const pendingOptions = { ...(pedido.options || {}), comprovanteCodigo: codigo };
+      state.codigoComprovante = null;
+      await closeOverlay("modal");
+      if (item) await confirmDelivery(item, pendingOptions);
+      return;
+    }
     if (action === "cancel-distance-confirm") { state.distanceWarning = null; state.distanceOverrideDeliveryId = null; await closeOverlay("modal"); return; }
     if (action === "confirm-distance-delivery") { const warning = state.distanceWarning; const item = warning && items().find(row => row.id === warning.itemId); const pendingOptions = warning && warning.options; state.distanceWarning = null; state.distanceOverrideDeliveryId = item && item.id || null; await closeOverlay("modal"); if (item) await confirmDelivery(item, pendingOptions); return; }
     if (action === "arrival-radius") { if (!isAdmin()) return; showModal("arrival-radius"); }
@@ -11109,6 +11270,19 @@
     // DDD do pop-up: mantém só dígitos e guarda no estado (pra não perder o que
     // foi digitado se a sugestão do CEP chegar e re-renderizar).
     if (event.target.id === "ddd-input") { const v = onlyDigits(event.target.value).slice(0, 2); event.target.value = v; if (state.dddPrompt) state.dddPrompt.ddd = v; return; }
+    // Etapa C (06/08) — só dígito, teto de 6. O render() é preciso porque é ele
+    // que solta o botão Confirmar ao completar os 6 (o campo focado sobrevive
+    // ao re-render pelo snapshot de foco, ver §4 do guia).
+    if (event.target.id === "codigo-comprovante-input") {
+      const v = onlyDigits(event.target.value).slice(0, 6);
+      event.target.value = v;
+      if (state.codigoComprovante) {
+        const mudouValidade = (state.codigoComprovante.codigo || "").length === 6 !== (v.length === 6);
+        state.codigoComprovante.codigo = v;
+        if (mudouValidade) render();
+      }
+      return;
+    }
     // Seletor de cliente da rota = MESMA busca da tela Clientes (pedido do dono,
     // 21/07). O filtro local é só o alívio imediato enquanto o servidor responde;
     // sozinho ele só enxergava a página já carregada e "sumia" com o resto.
@@ -13417,6 +13591,16 @@
         if (state.modal) { void closeOverlay("modal"); return true; }
         if (state.deliveryProductPicker) { state.deliveryProductPicker = false; render(); return true; }
         if (state.selected) { void closeOverlay("sheet"); return true; }
+        // 🔴 06/08 (PR06082026) — Lei 10 na TELA CHEIA do GPS: Voltar sai da
+        // pele cheia e devolve a tela Rota inteira (lista, controles, barra),
+        // e a ROTA CONTINUA — GPS, voz e tela acesa não param. Rota debitada
+        // não morre por um toque; encerrar segue sendo ação explícita. Entra
+        // ANTES do fallback "sai do app": nunca se sai do app direto daqui.
+        if (state.screen === "route" && navModeActive() && !state.navCheiaSaiu) {
+          state.navCheiaSaiu = true;
+          render();
+          return true;
+        }
         // CORRIGIR-O-LIXO (29/07) — Lei 10 na pele do passeio: Voltar volta ao
         // MODO TRABALHO (tour ativo continua vivo em fundo, alarme nativo idem).
         if (state.screen === "route" && passeioModoAtivo()) { passeioDesligarModo(); return true; }

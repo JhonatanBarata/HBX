@@ -353,6 +353,10 @@
     // 31/07 — tela acesa enquanto guia (ver syncNavWatch). Sem ponte (preview no
     // navegador) é no-op, igual speak/vibrate.
     manterTelaAcesa(ligado) { try { bridge && bridge.manterTelaAcesa && bridge.manterTelaAcesa(!!ligado); } catch (_) {} },
+    // GPS FULL SCREEN (06/08) — irmão do de cima: o CSS faz o cromo do app sumir,
+    // isto faz sumir as BARRAS DO SISTEMA. Feature-detect de propósito: APK velho
+    // não tem o método, e sem ele o CSS sozinho já entrega quase tudo.
+    modoNavegacao(ligado) { try { bridge && bridge.modoNavegacao && bridge.modoNavegacao(!!ligado); } catch (_) {} },
     // 31/07 — mapa offline (ver MapaOffline.kt). Sem ponte (preview no navegador)
     // a seção inteira some da tela, em vez de mostrar botão que não faz nada.
     // 🔴 05/08 (PR05082026-MAPA-PMTILES, F5) — `mapaOfflineBaixar` TROCOU DE

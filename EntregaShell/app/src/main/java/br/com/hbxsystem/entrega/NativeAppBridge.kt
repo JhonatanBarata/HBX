@@ -51,6 +51,7 @@ class NativeAppBridge(
     private val onAppLoadProgress: (Int) -> Unit,
     private val onAppReady: (String) -> Unit,
     private val onRechargeCheckoutRequested: (String) -> Unit,
+    private val onModoNavegacao: (Boolean) -> Unit,
 ) {
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
 
@@ -820,6 +821,20 @@ class NativeAppBridge(
                 if (ligado) activity.window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
                 else activity.window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             } catch (_: Throwable) {}
+        }
+    }
+
+    /**
+     * GPS FULL SCREEN (PR06082026) — irmão do `manterTelaAcesa` acima: o app.js
+     * já tem UM dono do estado de navegação (`syncNavWatch`), então esta ponte
+     * apenas leva o mesmo liga/desliga pro lado nativo, onde mora o que o CSS
+     * não alcança: as barras do sistema e o padding dos insets.
+     */
+    @JavascriptInterface
+    fun modoNavegacao(ligado: Boolean) {
+        if (BuildConfig.APP_MODE != "logistica") return
+        activity.runOnUiThread {
+            try { onModoNavegacao(ligado) } catch (_: Throwable) {}
         }
     }
 
