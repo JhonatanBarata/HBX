@@ -260,7 +260,7 @@ applicationId/assinatura, André atualiza pelo aviso sem reparear. Só com ordem
 
 | Fase | Estado | Prova |
 |---|---|---|
-| F0 casca no vidro | ⬜ | foto do g15 + conferidor verde |
+| F0 casca no vidro | 🔶 iniciada 06/08 (`624461d5`) — 2 defeitos de vidro achados e mortos: cortina nativa congelada em 42% (mock não chamava `appReady`; no V2 a cortina antiga nem sobe) e barra de status DUPLA ("9:41" de maquete sob a barra real → 5ª adaptação). App instala, abre e navega (Chat visto na tela). Falta: varrer as 33 telas nos 2 modos no vidro. | foto do g15 + conferidor verde |
 | F1 casca trocável | ⬜ | casca de prova trocando o ambiente |
 | F2 ponte e porta | ⬜ | pareado no g15, Rota real vazia |
 | L1…L11 | ⬜ | cena de cada leva na tela |
