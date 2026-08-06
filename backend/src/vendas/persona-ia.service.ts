@@ -15,6 +15,7 @@
 // CommercialContactControlService) — sem grafo de DI, qualquer módulo faz
 // `new PersonaIaService(this.prisma)`.
 
+import { parseMotorInstanceKey } from '../messaging/whatsapp-connection-state';
 import { PrismaService } from '../prisma/prisma.service';
 import { catalogoEstaPronto, normalizeCatalogo } from './vendas-catalogo';
 
@@ -196,5 +197,70 @@ export class PersonaIaService {
       if (nome) return nome;
     }
     return this.assinatura(companyId, fallback);
+  }
+
+  /**
+   * 🔴 06/08 — O NOME SEGUE O CHIP, NÃO A CAMPANHA. (aprovado pelo dono)
+   *
+   * `assinaturaDaPessoa` já existia (03/08) e resolvia a dona pela CAMPANHA
+   * (`campaign.createdByUserId`). Isso cobre o disparo automático e deixa um
+   * buraco justamente onde a fase de treino vive: **contato manual não tem
+   * campanha**. Medido em prod hoje: a Maria Clara manda do chip
+   * `company-5-user-60` e, sem campanha, a resposta cairia na persona da
+   * EMPRESA — que é `se_passa_por` → `aiUserId=6` → assina **"Jhonatan"**. O
+   * lead que ela abordou seria respondido por outro nome, no mesmo número.
+   *
+   * A régua verdadeira sempre foi **"um número, um nome"**, e quem sabe de quem
+   * é o número não é a campanha: é o próprio chip. `company-5-user-60` carrega
+   * a dona no nome. Então a ordem de resolução passa a ser:
+   *
+   *   1. dono do CHIP (tenantKey `company-N-user-M`)
+   *   2. quem o chamador sabia (dona da campanha) — comportamento de antes
+   *   3. persona da EMPRESA — comportamento de sempre
+   *
+   * Chip principal da empresa (`company-N`, sem `-user-`) não tem dona: cai no
+   * passo 2 e nada muda pra quem não usa chip por vendedora.
+   *
+   * Multi-tenant: chip de OUTRA empresa nunca assina aqui, nem por engano.
+   */
+  async assinaturaDoChip(
+    companyId: number,
+    tenantKey: string | null | undefined,
+    fallbackUserId: number | null | undefined,
+    fallback: string,
+  ): Promise<string> {
+    return this.assinaturaDaPessoa(companyId, this.donoDoChip(companyId, tenantKey) ?? fallbackUserId ?? null, fallback);
+  }
+
+  /**
+   * Mesma regra, quando o chamador tem a CONVERSA em vez da chave do chip —
+   * que é o caso do webhook de resposta. Uma leitura barata: a conversa guarda
+   * `sourceTenantKey` desde o pareamento por vendedora.
+   */
+  async assinaturaDaConversa(
+    companyId: number,
+    conversationId: number | null | undefined,
+    fallbackUserId: number | null | undefined,
+    fallback: string,
+  ): Promise<string> {
+    const id = Math.trunc(Number(conversationId || 0));
+    if (id > 0) {
+      const conversa = await (this.prisma as any).companyConversation
+        ?.findFirst?.({
+          where: { id, companyId: Number(companyId) },
+          select: { sourceTenantKey: true },
+        })
+        .catch(() => null);
+      const dono = this.donoDoChip(companyId, conversa?.sourceTenantKey);
+      if (dono) return this.assinaturaDaPessoa(companyId, dono, fallback);
+    }
+    return this.assinaturaDaPessoa(companyId, fallbackUserId ?? null, fallback);
+  }
+
+  /** userId dono do chip `company-N-user-M`, só se for da MESMA empresa. */
+  private donoDoChip(companyId: number, tenantKey: unknown): number | null {
+    const chave = parseMotorInstanceKey(String(tenantKey || ''));
+    if (!chave || chave.companyId !== Number(companyId)) return null;
+    return chave.userId;
   }
 }

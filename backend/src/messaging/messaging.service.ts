@@ -2115,11 +2115,13 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     // 03/08 — e responde com o nome de QUEM MANDOU a mensagem: este texto sai no
     // chip da dona da campanha, e o lead que foi abordado pela Bianca não pode
     // ser respondido por outro nome no MESMO número.
+    // 06/08 — e o nome vem do CHIP antes da campanha: contato manual não tem
+    // campanha nenhuma, e é dele que sai a conversa da fase de treino.
     const perfilIa = await this.personaIa.getPerfil(input.companyId).catch(() => null);
     const donaDaCampanha = Number(job?.campaign?.createdByUserId || 0) || null;
-    const personaNome = donaDaCampanha
-      ? await this.personaIa.assinaturaDaPessoa(input.companyId, donaDaCampanha, '').catch(() => null)
-      : null;
+    const personaNome = await this.personaIa
+      .assinaturaDaConversa(input.companyId, Number(input?.conversationId || 0) || null, donaDaCampanha, '')
+      .catch(() => null);
     const prompt = montarPromptRespostaQualificada({
       catalogo,
       ficha,
@@ -2401,8 +2403,11 @@ export class MessagingService implements OnModuleInit, OnModuleDestroy {
     // (`company-N-user-M`), a régua é "um número, um nome" — quem criou a
     // campanha é de quem sai o chip, então é o nome dela que assina. Sem pessoa
     // (ou sem `name` preenchido), cai na persona da empresa como antes.
-    const funcionario = await this.personaIa.assinaturaDaPessoa(
+    // 06/08 — o CHIP manda no nome: `company-N-user-M` já diz de quem é o
+    // número. Sem chip por vendedora, cai na dona da campanha como antes.
+    const funcionario = await this.personaIa.assinaturaDaConversa(
       companyId,
+      Number(job?.conversationId || 0) || null,
       Number(job?.campaign?.createdByUserId || 0) || null,
       String(user?.name || user?.username || '').trim() || 'time comercial',
     );
