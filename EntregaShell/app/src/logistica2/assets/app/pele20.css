@@ -1036,3 +1036,668 @@
 .cli span{display:block;font-size:11px;color:var(--ink-2);margin-top:1px}
 .cli .rgt small{display:block;font-size:10px;color:var(--ink-2)}
 .cli .rgt b{display:block;font-size:13.5px;color:var(--lime);font-weight:500}
+
+/* ==== MODO CLARO (gerado por scripts/pele20-claro.js) ==== */
+/* Derivado da casca escura por regra de matiz — ver o script. O app segue o
+   sistema por padrão (prefers-color-scheme) e o dono pode cravar no dedo com
+   data-luz="claro" | "escuro". */
+[data-luz="claro"] .app{
+  position:relative;width:412px;height:940px;border-radius:38px;overflow:hidden;
+  display:flex;flex-direction:column;
+
+  --bg:#d2dbee; --bg-2:#cad5eb; --card:#c3d1e9; --line:#becbe4; --line-2:#becbe4;
+  --ink:#141c29; --ink-2:#40506c; --ink-3:#596a87;
+  --lime:#8ecb1f; --blue:#095ee2; --blue-l:#005eeb; --amber:#e08e0a; --purple:#780be0;
+
+  background:radial-gradient(560px 300px at 50% -8%,rgba(47,126,247,.10),transparent 70%),
+             linear-gradient(180deg,var(--bg-2),var(--bg) 34%);
+  color:var(--ink);font-size:13px;
+
+  /* TIPOGRAFIA PREMIUM — fonte VARIÁVEL (Segoe UI Variable no Windows, SF no
+     Mac): dá peso 300/350/450 de verdade, sem engrossar sintético. A hierarquia
+     vem de TAMANHO e COR, nunca de negrito — é isso que tira o ar de "letra
+     grossa". `font-synthesis:none` proíbe o navegador de fabricar bold falso. */
+  font-family:"Segoe UI Variable Display","Segoe UI Variable Text",Inter,
+              "SF Pro Display","Segoe UI",system-ui,-apple-system,sans-serif;
+  font-weight:350;
+  font-optical-sizing:auto;
+  font-synthesis:none;
+  letter-spacing:.002em;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+[data-luz="claro"] .notch{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:104px;height:28px;background:#f0f0f0;border-radius:16px;z-index:60}
+[data-luz="claro"] .notch::after{content:"";position:absolute;right:11px;top:9px;width:9px;height:9px;border-radius:50%;
+  background:radial-gradient(circle at 35% 35%,#bfcce3,#dde3f1 70%)}
+[data-luz="claro"] /* ==========================================================================
+   TROCA DE TELA — 5 transições pra escolher UMA.
+   Cada tela vira uma camada (.tela) sobreposta: durante a troca existem DUAS
+   no ar,[data-luz="claro"] a que sai e a que entra. É isso que permite empurrão de verdade,[data-luz="claro"] e
+   não só um fade disfarçado.
+   ========================================================================== */
+.tela{
+  position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden;
+  background:radial-gradient(560px 300px at 50% -8%,rgba(47,126,247,.10),transparent 70%),
+             linear-gradient(180deg,var(--bg-2),var(--bg) 34%);
+  will-change:transform,opacity;
+}
+[data-luz="claro"] /* ==========================================================================
+   ABERTURA — a primeira impressão do cliente.
+
+   A ideia: a marca não "some pra dar lugar ao app" — ela VIRA o cabeçalho.
+   O logo grande do meio da tela viaja até o slot do topo e vira o logo de lá.
+   🔴 O percurso NÃO é só vertical: o logo do cabeçalho parece centralizado,[data-luz="claro"] mas
+   os dois botões redondos da direita o empurram 21px pra esquerda (medido). Sem
+   o desvio horizontal ele aterrissava torto. Deslocamento e escala são MEDIDOS
+   em tempo de execução (mesma lição do sino: origem chutada nasce torta) — e
+   como o cabeçalho muda entre telas,[data-luz="claro"] a conta é refeita a cada abertura.
+   ========================================================================== */
+/* A CENA,[data-luz="claro"] em 6 atos (3,[data-luz="claro"] 4 s até entregar o app):
+   1. o vazio respira            0,[data-luz="claro"] 00–1,[data-luz="claro"] 60  brilho de fundo abre
+   2. a rota se desenha          0,[data-luz="claro"] 25–1,[data-luz="claro"] 45  traço lima subindo,[data-luz="claro"] 3 pinos acendendo
+   3. o cometa percorre a rota   0,[data-luz="claro"] 30–1,[data-luz="claro"] 50  a luz chega exatamente onde o X nasce
+   4. a marca se monta           1,[data-luz="claro"] 35–2,[data-luz="claro"] 25  H · B · X com peso,[data-luz="claro"] anel no cruzamento
+   5. o brilho varre o logotipo  1,[data-luz="claro"] 95–2,[data-luz="claro"] 75  e LOGÍSTICA abre o espaçamento
+   6. a batida e a entrega       2,[data-luz="claro"] 55–3,[data-luz="claro"] 40  o conjunto pulsa uma vez,[data-luz="claro"] barra completa */
+.splash{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:linear-gradient(180deg,#cad5eb,#dae1f1);overflow:hidden}
+[data-luz="claro"] .splash-fundo{position:absolute;inset:0;
+  background:radial-gradient(430px 330px at 50% 44%,rgba(47,126,247,.20),transparent 70%);
+  animation:spFundo 1.7s var(--cv-entra) both}
+[data-luz="claro"] .splash-xis line{stroke:var(--lime);stroke-width:5;stroke-linecap:round;filter:drop-shadow(0 0 7px rgba(158,222,42,.75))}
+[data-luz="claro"] /* Clarão no cruzamento,[data-luz="claro"] no instante exato do encontro. */
+.splash-flash{position:absolute;left:50%;top:0;width:96px;height:96px;margin-left:-48px;border-radius:50%;
+  background:radial-gradient(circle,rgba(214,255,150,.85),rgba(158,222,42,0) 68%);pointer-events:none;
+  animation:spFlash .55s ease-out 1.4s both}
+[data-luz="claro"] .splash-logo .w b{color:#000000;font-weight:600;display:inline-block}
+[data-luz="claro"] .splash-brilho{position:absolute;top:-25%;left:-45%;width:26%;height:150%;pointer-events:none;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.42),transparent);
+  transform:skewX(-18deg);animation:spBrilho .82s ease-in-out 1.95s both}
+[data-luz="claro"] .splash-logo small{display:block;font-size:11px;color:#0f1622;margin-top:11px;padding-left:10px;
+  animation:spLetras .85s var(--cv-entra) 2.05s both}
+[data-luz="claro"] .splash-barra{width:96px;height:2px;background:#bdcbe5;border-radius:2px;overflow:hidden;margin-top:16px}
+[data-luz="claro"] .splash-barra i{display:block;height:100%;background:var(--lime);transform-origin:left;
+  box-shadow:0 0 8px rgba(158,222,42,.8);animation:spCarrega 2.6s var(--cv-entra) .6s both}
+[data-luz="claro"] /* ==========================================================================
+   ERRO — lei 5: entra na cara. Cresce com ultrapassagem e SACODE.
+   ========================================================================== */
+.erro-wrap{position:absolute;inset:0;z-index:60;display:grid;place-items:center;padding:0 22px;
+  background:rgba(4,7,13,.72);animation:mvScrim 160ms ease-out both}
+[data-luz="claro"] .erro{
+  width:100%;background:#d9d4de;border:.7px solid #e5bdbd;border-radius:16px;padding:16px 15px 14px;
+  box-shadow:0 20px 50px rgba(20,32,54,0.16);text-align:center;
+  animation:mvErro 320ms var(--cv-mola) both, mvSacode 340ms 300ms both;
+}
+[data-luz="claro"] .erro .ico{width:44px;height:44px;border-radius:50%;margin:0 auto 10px;display:grid;place-items:center;
+  background:#e5bfc2;color:#d60000;animation:mvPop var(--mv-normal) var(--cv-mola) .1s both}
+[data-luz="claro"] .erro .acoes .principal{background:#8f2d2d;border-color:#8f2d2d;color:#000000}
+[data-luz="claro"] /* ==========================================================================
+   CONFIRMAÇÃO — cartão central,[data-luz="claro"] sem drama: cresce 6% e assenta.
+   ========================================================================== */
+.conf-wrap{position:absolute;inset:0;z-index:58;display:grid;place-items:center;padding:0 24px;
+  background:rgba(4,7,13,.66);animation:mvScrim 160ms ease-out both}
+[data-luz="claro"] .conf{width:100%;background:var(--card);border:.7px solid var(--line);border-radius:16px;padding:16px 15px 14px;
+  box-shadow:0 20px 50px rgba(20,32,54,0.16);animation:mvConf var(--mv-normal) var(--cv-entra) both}
+[data-luz="claro"] .conf .acoes .principal{background:linear-gradient(180deg,#85c723,#68b019);border:0;color:#000000}
+[data-luz="claro"] /* ==========================================================================
+   PORTÕES — as telas que PARAM o motorista pra decidir. Três tons,[data-luz="claro"] e o tom diz
+   o que está em jogo: âmbar pede decisão,[data-luz="claro"] vermelho bloqueia,[data-luz="claro"] azul informa.
+   O que BLOQUEIA entra com a curva dura do erro (lei 5); o que só pergunta
+   entra macio. Portão sem saída é armadilha: só o update obrigatório não fecha.
+   ========================================================================== */
+.portao-wrap{position:absolute;inset:0;z-index:59;display:grid;place-items:center;padding:0 20px;
+  background:rgba(4,7,13,.7);animation:mvScrim 160ms ease-out both}
+[data-luz="claro"] .portao{width:100%;max-height:82%;overflow:auto;scrollbar-width:none;background:var(--card);
+  border:.7px solid var(--line);border-radius:17px;padding:15px 14px 13px;
+  box-shadow:0 22px 54px rgba(20,32,54,0.16);animation:mvConf var(--mv-normal) var(--cv-entra) both}
+[data-luz="claro"] .portao.trava{border-color:#e5bdbd;background:#d9d4de;animation:mvErro 320ms var(--cv-mola) both,mvSacode 340ms 300ms both}
+[data-luz="claro"] .portao.alerta .ico{background:#e8dac2;color:var(--amber)}
+[data-luz="claro"] .portao.trava .ico{background:#e5bfc2;color:#d60000}
+[data-luz="claro"] .portao.info .ico{background:#bccee6;color:var(--blue-l)}
+[data-luz="claro"] .portao.ok .ico{background:#d5e8c6;color:var(--lime)}
+[data-luz="claro"] .portao .acoes .principal{background:linear-gradient(180deg,#85c723,#68b019);border:0;color:#000000}
+[data-luz="claro"] .portao .acoes .perigo{color:var(--red);border-color:#e4bebe}
+[data-luz="claro"] .portao .acoes .azul{background:linear-gradient(180deg,#005eeb,#1d5ece);border:0;color:#000000}
+[data-luz="claro"] /* linha de problema: o nome,[data-luz="claro"] o que falta,[data-luz="claro"] e a seta que leva ao conserto */
+.pt-linha{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:9px 10px;
+  border-radius:12px;border:.7px solid var(--line);background:#c6d3ea;margin-bottom:6px;cursor:pointer}
+[data-luz="claro"] .pt-linha .m{width:26px;height:26px;border-radius:9px;display:grid;place-items:center;background:#e8dac2;color:var(--amber)}
+[data-luz="claro"] .pt-nums{display:flex;gap:0;background:#c6d3ea;border:.7px solid var(--line);border-radius:12px;overflow:hidden}
+[data-luz="claro"] .pt-campo input{width:74px;height:42px;border-radius:11px;border:.7px solid var(--line);background:#c6d3ea;
+  text-align:center;font-size:17px;color:var(--ink);outline:0}
+[data-luz="claro"] .pt-campo .resto{flex:1;height:42px;border-radius:11px;border:.7px solid var(--line);background:#c6d3ea;
+  display:flex;align-items:center;padding:0 12px;font-size:15px;color:var(--ink-2)}
+[data-luz="claro"] /* ==========================================================================
+   AVISO — a peça que o dono usa pra impressionar cliente. Ele não "aparece":
+   ele CHEGA. Três entradas pra escolher; a barrinha embaixo drena o tempo de
+   vida,[data-luz="claro"] então o aviso nunca some sem explicação.
+   ========================================================================== */
+.aviso{
+  position:absolute;left:10px;right:10px;top:46px;z-index:55;
+  display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center;
+  padding:10px 12px 13px;border-radius:14px;
+  background:#bdcce7;border:.7px solid #bdcbe5;box-shadow:0 14px 34px rgba(20,32,54,0.16);
+}
+[data-luz="claro"] .aviso .ico{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;
+  background:#bccee6;color:var(--blue-l)}
+[data-luz="claro"] .aviso.ok .ico{background:#d5e8c6;color:var(--lime)}
+[data-luz="claro"] .aviso.alerta .ico{background:#e8dac2;color:var(--amber)}
+[data-luz="claro"] .aviso .barra{position:absolute;left:12px;right:12px;bottom:6px;height:2px;border-radius:2px;background:#bdcbe5;overflow:hidden}
+[data-luz="claro"] .bars i{width:2.4px;background:#1f1f1f;border-radius:1px}
+[data-luz="claro"] .batt{width:19px;height:9.5px;border:1.2px solid rgba(255,255,255,.85);border-radius:3px;position:relative}
+[data-luz="claro"] .batt::before{content:"";position:absolute;inset:1.3px;background:#1f1f1f;border-radius:1.2px}
+[data-luz="claro"] .batt::after{content:"";position:absolute;right:-2.8px;top:2.8px;width:1.7px;height:3.8px;background:rgba(255,255,255,.6);border-radius:0 2px 2px 0}
+[data-luz="claro"] .round{width:35px;height:35px;border-radius:50%;border:.7px solid var(--line);background:#bdcce7;
+  display:grid;place-items:center;cursor:pointer;position:relative;color:var(--ink);flex:0 0 35px}
+[data-luz="claro"] .round .cnt{position:absolute;top:-3px;right:-3px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;
+  background:var(--blue);color:#000000;font-size:10px;font-weight:500;display:grid;place-items:center;border:1.5px solid var(--bg)}
+[data-luz="claro"] .logo .w b{color:#000000;font-weight:600}
+[data-luz="claro"] .logo small{font-size:8px;letter-spacing:4.6px;color:#0f1622;margin-top:4px;padding-left:5px}
+[data-luz="claro"] .pill-live{display:flex;align-items:center;gap:6px;padding:8px 13px;border-radius:999px;
+  background:#bdcce7;border:.7px solid var(--line);font-size:12.5px}
+[data-luz="claro"] .stop.on{background:#bccce6;border-color:#829cc1}
+[data-luz="claro"] /* O bloco do número+hora ganha o painel mais claro da foto. */
+.numwrap{background:#bccce6;border-radius:9px;padding:4px 2px}
+[data-luz="claro"] .grip{width:9px;height:14px;margin-top:9px;color:#3d4e71;
+  background-image:radial-gradient(currentColor 1.05px,transparent 1.15px);background-size:4.5px 4.5px}
+[data-luz="claro"] /* O halo do anel existe na foto — é brilho,[data-luz="claro"] não vidro: nada atrás dele
+   aparece através. Fica. */
+.num{width:31px;height:31px;border-radius:50%;display:grid;place-items:center;font-size:13.5px;font-weight:400;
+  border:1.1px solid var(--blue);color:#000000;background:#c5d4ea;box-shadow:0 0 9px rgba(47,126,247,.28)}
+[data-luz="claro"] .num.lime{border-color:var(--lime);background:#d7eacb;box-shadow:0 0 9px rgba(158,222,42,.25)}
+[data-luz="claro"] .num.off{border-color:#c3cde0;background:transparent;color:var(--ink-2);box-shadow:none}
+[data-luz="claro"] .tag.blue{border-color:#829cc1;color:var(--blue-l);background:#bccde6}
+[data-luz="claro"] .tag.lime{border-color:#d6e6bc;color:var(--lime);background:#d8e9ca}
+[data-luz="claro"] .pill.blue{background:#bccee6;border-color:#829cc1;color:var(--blue-l)}
+[data-luz="claro"] .pill.lime{background:#d5e8c6;border-color:#d6e6bc;color:var(--lime)}
+[data-luz="claro"] .pill.amber{background:#e8dac2;border-color:#e6d7bc;color:var(--amber)}
+[data-luz="claro"] /* Botão principal: verde vivo com TEXTO BRANCO,[data-luz="claro"] como nas fotos. Ver a nota de
+   contraste no fim do arquivo — é a única peça do mock em que a foto e a régua
+   de legibilidade discordam,[data-luz="claro"] e a escolha é do dono. */
+.act.go{background:linear-gradient(180deg,#85c723,#68b019);border:0;color:#12200a;box-shadow:0 7px 18px rgba(122,190,30,.26)}
+[data-luz="claro"] .act.go b,[data-luz="claro"] .act.go small{color:#12200a}
+[data-luz="claro"] /* A alternativa: mesma cor de fundo,[data-luz="claro"] tinta escura. Branco na foto mede 1,[data-luz="claro"] 8:1;
+   a tinta escura mede 8,[data-luz="claro"] 6:1. Toque no seletor do topo pra comparar na tela. */
+[data-luz="claro"] .nav button.on{color:var(--lime);background:#bccae6}
+[data-luz="claro"] .tmx-sat.perigo button{color:var(--red);border-color:#e4bebe}
+[data-luz="claro"] .tmx-sat.info button{color:var(--blue-l);border-color:#bccde6}
+[data-luz="claro"] .tmx-sat.aviso button{color:var(--amber);border-color:#e6d7bc;animation:tmxPisca 1.15s ease-in-out infinite}
+[data-luz="claro"] .tmx-sat .cont{position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;border-radius:9px;background:var(--amber);
+  color:#231805;font-size:10px;font-weight:500;display:grid;place-items:center;border:1.5px solid var(--bg)}
+[data-luz="claro"] .tmx-main button{width:82px;height:82px;border-radius:30px;border:0;cursor:pointer;display:grid;place-items:center;
+  color:#000000;background:linear-gradient(180deg,#85c723,#68b019);box-shadow:0 10px 26px rgba(122,190,30,.3)}
+[data-luz="claro"] .tmx-main button[data-estado="pausar"]{background:linear-gradient(180deg,#eb9b00,#e08a00);color:#291800;
+  box-shadow:0 10px 26px rgba(224,138,0,.3)}
+[data-luz="claro"] .tmx-main button[data-estado="montar"]{background:linear-gradient(180deg,#0061eb,#1d5ece);
+  box-shadow:0 10px 26px rgba(47,126,247,.32)}
+[data-luz="claro"] .dia-bar .trilho{flex:1;height:6px;border-radius:4px;background:#bccbe6;overflow:hidden}
+[data-luz="claro"] .dia-bar .trilho i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,#74b81b,#90d01b)}
+[data-luz="claro"] .filtro button.on{border-color:#d6e6bc;background:#d8e9ca;color:var(--lime)}
+[data-luz="claro"] .banner.alerta{background:#e8dac2;border:.7px solid #e6d7bc;color:var(--amber)}
+[data-luz="claro"] .banner.pausa{background:#bccee6;border:.7px solid #829cc1;color:var(--blue-l)}
+[data-luz="claro"] .esq{background:linear-gradient(90deg,#c3d1e9 25%,#bccbe6 50%,#c3d1e9 75%);background-size:280% 100%;
+  border-radius:11px;animation:esqOnda 1.5s linear infinite}
+[data-luz="claro"] .map-chip{display:flex;align-items:center;gap:9px;padding:8px 12px;border-radius:12px;
+  background:#c8d4eb;border:.7px solid var(--line)}
+[data-luz="claro"] .map-ctrl button{width:40px;height:40px;border-radius:50%;border:.7px solid var(--line);background:#c8d4eb;
+  color:var(--blue-l);display:grid;place-items:center;cursor:pointer}
+[data-luz="claro"] .next-card{position:absolute;left:9px;right:9px;bottom:72px;z-index:35;border-radius:15px;padding:11px 12px;
+  background:#c3d1e9;border:.7px solid var(--line);display:flex;align-items:center;gap:10px}
+[data-luz="claro"] .next-card .handle{position:absolute;top:5px;left:50%;transform:translateX(-50%);width:36px;height:3px;border-radius:2px;background:#c1cce1}
+[data-luz="claro"] .btn-blue{display:flex;align-items:center;gap:7px;padding:11px 15px;border-radius:12px;border:0;cursor:pointer;
+  background:linear-gradient(180deg,#005eeb,#1d5ece);color:#000000;font-size:13px;font-weight:500;
+  box-shadow:0 7px 18px rgba(47,126,247,.3)}
+[data-luz="claro"] /* ==========================================================================
+   GPS EM NAVEGAÇÃO — o que todo navegador de rua faz e eu não tinha feito:
+
+   1. O CARRO NÃO FICA NO MEIO: fica a ~68% da altura. O que interessa é a rua
+      À FRENTE,[data-luz="claro"] então sobra tela pra cima e quase nada pra trás.
+   2. O mapa é RODADO pelo rumo (heading-up): a direção em que se anda aponta
+      sempre pra cima. Por isso existe a bússola — é ela que diz onde é o norte.
+   3. O mapa é INCLINADO (~50°): a rua foge pro horizonte. Vista de cima (2D)
+      é mapa de planejamento,[data-luz="claro"] não de direção.
+   4. A MANOBRA manda na tela e mora no TOPO: distância + verbo,[data-luz="claro"] corpo grande.
+      A rua e a manobra seguinte vêm na linha de baixo,[data-luz="claro"] pequenas.
+   5. O rodapé é o CONTRATO da viagem: chegada,[data-luz="claro"] tempo,[data-luz="claro"] distância e a saída.
+   6. Velocímetro embaixo à esquerda; recentralizar só faz sentido perto do
+      polegar,[data-luz="claro"] do lado direito.
+   ========================================================================== */
+.gps{position:absolute;inset:0;overflow:hidden;background:#d2dcee}
+[data-luz="claro"] /* Névoa do horizonte: sem ela a borda do mapa aparece como um corte reto no
+   meio da tela — é o detalhe que denuncia mapa falso. */
+.gps-horizonte{position:absolute;left:0;right:0;top:0;height:44%;pointer-events:none;
+  background:linear-gradient(180deg,#d2dcee 22%,rgba(7,13,24,.72) 58%,transparent)}
+[data-luz="claro"] .gps-facho{position:absolute;left:-46px;top:-96px;width:92px;height:104px;
+  background:conic-gradient(from 180deg at 50% 100%,transparent 28%,rgba(91,157,255,.34) 40%,rgba(91,157,255,.34) 60%,transparent 72%);
+  filter:blur(1px)}
+[data-luz="claro"] .gps-seta{position:absolute;left:-17px;top:-19px;width:34px;height:38px;
+  filter:drop-shadow(0 3px 7px rgba(20,32,54,0.16))}
+[data-luz="claro"] .gps-manobra{position:absolute;left:9px;right:9px;top:6px;z-index:20;border-radius:15px;
+  background:#c3d1e9;border:.7px solid var(--line);box-shadow:0 12px 30px rgba(20,32,54,0.16);overflow:hidden}
+[data-luz="claro"] .gps-manobra .seta{width:48px;height:48px;border-radius:13px;background:#bccee6;color:var(--blue-l);
+  display:grid;place-items:center;flex:0 0 48px}
+[data-luz="claro"] .gps-manobra .baixo{display:flex;align-items:center;gap:7px;padding:7px 13px;border-top:.7px solid var(--line);
+  background:#c8d4eb;font-size:11.5px;color:var(--ink-2)}
+[data-luz="claro"] .gps-manobra.chegou .seta{background:#d5e8c6;color:var(--lime)}
+[data-luz="claro"] .gps-bussola{position:absolute;right:11px;top:96px;z-index:20;width:38px;height:38px;border-radius:50%;
+  background:#c8d4eb;border:.7px solid var(--line);display:grid;place-items:center;color:var(--ink-2);font-size:9.5px}
+[data-luz="claro"] .gps-vel{position:absolute;left:11px;bottom:104px;z-index:20;width:56px;height:56px;border-radius:50%;
+  background:#c8d4eb;border:.7px solid var(--line);display:grid;place-items:center;text-align:center;line-height:1}
+[data-luz="claro"] .gps-lado button{width:40px;height:40px;border-radius:50%;border:.7px solid var(--line);background:#c8d4eb;
+  color:var(--blue-l);display:grid;place-items:center;cursor:pointer}
+[data-luz="claro"] .gps-rodape{position:absolute;left:0;right:0;bottom:0;z-index:20;background:#c8d4eb;
+  border-top:.7px solid var(--line);padding:9px 12px 12px}
+[data-luz="claro"] .gps-rodape .sair{height:42px;padding:0 15px;border-radius:12px;border:.7px solid #e5bdbd;background:#e2d2d8;
+  color:#d60b00;font-size:13.5px;cursor:pointer}
+[data-luz="claro"] /* ---------- folha ---------- */
+.scrim{position:absolute;inset:0;background:rgba(3,7,14,.72);z-index:40}
+[data-luz="claro"] .sheet{position:absolute;left:0;right:0;bottom:0;z-index:41;border-radius:22px 22px 0 0;
+  background:linear-gradient(180deg,#becde7,#cad5eb 30%);border:.7px solid var(--line);border-bottom:0;
+  padding:10px 12px 72px;max-height:88%;overflow:auto;scrollbar-width:none;box-shadow:0 -18px 44px rgba(20,32,54,0.16)}
+[data-luz="claro"] .sheet .handle{width:36px;height:3px;border-radius:2px;background:#c1cce1;margin:0 auto 10px}
+[data-luz="claro"] .thumb{width:56px;height:56px;border-radius:11px;background:linear-gradient(160deg,#bccce6,#bccde6);
+  border:1px solid #bccce6;display:grid;place-items:center;flex:0 0 56px;color:var(--blue-l)}
+[data-luz="claro"] .pay{display:flex;align-items:center;gap:8px;padding:10px;border-radius:11px;cursor:pointer;text-align:left;
+  border:.7px solid var(--line-2);background:#c6d3ea;color:var(--ink);position:relative}
+[data-luz="claro"] .pay.sel{border-color:var(--lime);background:#d8eaca}
+[data-luz="claro"] .pay.blue{border-color:rgba(47,126,247,.5)}
+[data-luz="claro"] .form-c.total{background:#d8eaca}
+[data-luz="claro"] .prog-b{height:5px;border-radius:3px;background:#bccbe6;margin-top:7px;overflow:hidden}
+[data-luz="claro"] .prog-b i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#74b81b,#90d01b)}
+[data-luz="claro"] .chip.on{border-color:var(--lime);color:var(--lime);background:#d8eaca}
+[data-luz="claro"] .prod{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 2px;
+  border-bottom:.6px solid rgba(26,39,64,.95)}
+[data-luz="claro"] .price{position:relative;border:.9px solid var(--lime);border-radius:9px;padding:7px 12px;
+  color:var(--lime);font-size:15px;font-weight:400;background:#d4e3d2}
+[data-luz="claro"] .price::after{content:"";position:absolute;left:50%;bottom:-5px;transform:translateX(-50%) rotate(45deg);
+  width:8px;height:8px;background:#cad5eb;border-right:.9px solid var(--lime);border-bottom:.9px solid var(--lime)}
+[data-luz="claro"] .rowcard .ico{width:36px;height:36px;border-radius:10px;background:#bccde6;
+  border:.7px solid var(--line-2);display:grid;place-items:center;color:var(--blue-l)}
+[data-luz="claro"] .rowcard .ico.lime{background:#d8e9ca;color:var(--lime)}
+[data-luz="claro"] .week .mk{border:1px solid #d6e6bc;background:#d9e9d0;border-radius:9px;padding:6px 8px;display:flex;align-items:center;gap:6px}
+[data-luz="claro"] .campo input,[data-luz="claro"] .campo textarea{width:100%;height:38px;border-radius:11px;border:.7px solid var(--line);
+  background:#c6d3ea;padding:0 11px;outline:0;font-size:13px;color:var(--ink)}
+[data-luz="claro"] .campo.erro input{border-color:#e6cabc;background:#eedfd0}
+[data-luz="claro"] .dias button.on{border-color:var(--lime);background:#d8e9ca;color:var(--lime)}
+[data-luz="claro"] /* ---------- stepper de quantidade ---------- */
+.item-linha{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;
+  padding:9px 0;border-bottom:.6px solid rgba(26,39,64,.95)}
+[data-luz="claro"] .motivo{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center;padding:10px 11px;
+  border-radius:12px;border:.7px solid var(--line);background:#c6d3ea;color:var(--ink);
+  font-size:13px;text-align:left;cursor:pointer}
+[data-luz="claro"] .motivo.on{border-color:#e6d7bc;background:#ece1cd}
+[data-luz="claro"] /* ---------- comprovante ---------- */
+.foto{display:grid;grid-template-columns:auto 1fr;gap:11px;align-items:center;margin-top:9px;
+  padding:11px;border-radius:13px;border:.7px dashed var(--line-2);background:#c6d3ea}
+[data-luz="claro"] .foto .quadro{width:56px;height:56px;border-radius:11px;background:#bccde6;display:grid;place-items:center;color:var(--blue-l)}
+[data-luz="claro"] .previa.entra{border-color:#d6e6bc}
+[data-luz="claro"] .previa.entra .marca{background:#d5e8c6;color:var(--lime)}
+[data-luz="claro"] .previa.sai .marca{background:#e2d2d8;color:var(--red)}
+[data-luz="claro"] .pacote.on{border-color:var(--lime);background:#d8eaca}
+[data-luz="claro"] .pacote .selo{position:absolute;top:-7px;left:50%;transform:translateX(-50%);font-size:9.5px;padding:2px 8px;
+  border-radius:999px;background:var(--lime);color:#12200a}
+[data-luz="claro"] .ext-linha{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:9px 0;
+  border-bottom:.6px solid rgba(26,39,64,.95)}
+[data-luz="claro"] .ext-linha .m.mais{background:#d5e8c6;color:var(--lime)}
+[data-luz="claro"] .ext-linha .m.menos{background:#e2d2d8;color:var(--red)}
+[data-luz="claro"] .tempo button.on{border-color:var(--lime);background:#d8e9ca;color:var(--lime)}
+[data-luz="claro"] /* ---------- leitura de rota (gravando) ---------- */
+.gravando{display:grid;grid-template-columns:auto 1fr auto;gap:11px;align-items:center;margin-top:6px;
+  padding:11px;border-radius:14px;border:.7px solid #e5bdbd;background:#d9d4de}
+[data-luz="claro"] .gravando .bola{width:12px;height:12px;border-radius:50%;background:#eb0000;animation:gravPulsa 1.1s ease-in-out infinite}
+[data-luz="claro"] .gesto-item::after{content:"";position:absolute;inset:0;width:0;background:rgba(242,85,90,.22);
+  pointer-events:none;transition:width 0s}
+[data-luz="claro"] .gesto-item.pronto{border-color:var(--red);background:#e2d2d8}
+[data-luz="claro"] .gesto-item.pronto::after{width:100%;background:rgba(242,85,90,.3)}
+[data-luz="claro"] .gesto-item.arrastando{z-index:5;box-shadow:0 12px 28px rgba(20,32,54,0.16);border-color:#829cc1;
+  transform:scale(1.015);transition:transform .12s}
+[data-luz="claro"] /* ---------- chat da Central ---------- */
+.recado{border:.7px solid #e6d7bc;background:#eee4d0;border-radius:14px;padding:11px;margin-top:6px}
+[data-luz="claro"] .recado .ico{width:34px;height:34px;border-radius:11px;background:#e8dac2;color:var(--amber);display:grid;place-items:center}
+[data-luz="claro"] .recado .acoes .principal{background:linear-gradient(180deg,#85c723,#68b019);border:0;color:#000000}
+[data-luz="claro"] .msg.minha{background:#d5e8c6;border:.7px solid #d6e6bc;border-bottom-right-radius:5px;align-self:flex-end}
+[data-luz="claro"] .escrever .enviar{width:30px;height:30px;border-radius:10px;border:0;background:var(--lime);color:#12200a;
+  display:grid;place-items:center;cursor:pointer}
+[data-luz="claro"] .linha-cfg{width:100%;display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;
+  padding:10px 11px;border:0;border-bottom:.6px solid rgba(26,39,64,.95);background:transparent;
+  color:var(--ink);text-align:left;cursor:pointer}
+[data-luz="claro"] .linha-cfg .ico{width:30px;height:30px;border-radius:10px;background:#bccce6;color:var(--ink-2);display:grid;place-items:center}
+[data-luz="claro"] .chave{width:38px;height:22px;border-radius:999px;background:#becce4;position:relative;flex:0 0 38px}
+[data-luz="claro"] .chave.on i{left:18.5px;background:#d6ebca}
+[data-luz="claro"] /* ---------- clientes ---------- */
+.cli{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;
+  padding:8px 2px;border-bottom:.6px solid rgba(26,39,64,.95)}
+[data-luz="claro"] .ava{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:500;
+  background:#bccee6;border:1px solid #829cc1;color:var(--blue-l)}
+[data-luz="claro"] .ava.lime{background:#d5e8c6;border-color:#d6e6bc;color:var(--lime)}
+@media (prefers-color-scheme: light){
+html:not([data-luz="escuro"]) .app{
+  position:relative;width:412px;height:940px;border-radius:38px;overflow:hidden;
+  display:flex;flex-direction:column;
+
+  --bg:#d2dbee; --bg-2:#cad5eb; --card:#c3d1e9; --line:#becbe4; --line-2:#becbe4;
+  --ink:#141c29; --ink-2:#40506c; --ink-3:#596a87;
+  --lime:#8ecb1f; --blue:#095ee2; --blue-l:#005eeb; --amber:#e08e0a; --purple:#780be0;
+
+  background:radial-gradient(560px 300px at 50% -8%,rgba(47,126,247,.10),transparent 70%),
+             linear-gradient(180deg,var(--bg-2),var(--bg) 34%);
+  color:var(--ink);font-size:13px;
+
+  /* TIPOGRAFIA PREMIUM — fonte VARIÁVEL (Segoe UI Variable no Windows, SF no
+     Mac): dá peso 300/350/450 de verdade, sem engrossar sintético. A hierarquia
+     vem de TAMANHO e COR, nunca de negrito — é isso que tira o ar de "letra
+     grossa". `font-synthesis:none` proíbe o navegador de fabricar bold falso. */
+  font-family:"Segoe UI Variable Display","Segoe UI Variable Text",Inter,
+              "SF Pro Display","Segoe UI",system-ui,-apple-system,sans-serif;
+  font-weight:350;
+  font-optical-sizing:auto;
+  font-synthesis:none;
+  letter-spacing:.002em;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+html:not([data-luz="escuro"]) .notch{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:104px;height:28px;background:#f0f0f0;border-radius:16px;z-index:60}
+html:not([data-luz="escuro"]) .notch::after{content:"";position:absolute;right:11px;top:9px;width:9px;height:9px;border-radius:50%;
+  background:radial-gradient(circle at 35% 35%,#bfcce3,#dde3f1 70%)}
+html:not([data-luz="escuro"]) /* ==========================================================================
+   TROCA DE TELA — 5 transições pra escolher UMA.
+   Cada tela vira uma camada (.tela) sobreposta: durante a troca existem DUAS
+   no ar,html:not([data-luz="escuro"]) a que sai e a que entra. É isso que permite empurrão de verdade,html:not([data-luz="escuro"]) e
+   não só um fade disfarçado.
+   ========================================================================== */
+.tela{
+  position:absolute;inset:0;display:flex;flex-direction:column;overflow:hidden;
+  background:radial-gradient(560px 300px at 50% -8%,rgba(47,126,247,.10),transparent 70%),
+             linear-gradient(180deg,var(--bg-2),var(--bg) 34%);
+  will-change:transform,opacity;
+}
+html:not([data-luz="escuro"]) /* ==========================================================================
+   ABERTURA — a primeira impressão do cliente.
+
+   A ideia: a marca não "some pra dar lugar ao app" — ela VIRA o cabeçalho.
+   O logo grande do meio da tela viaja até o slot do topo e vira o logo de lá.
+   🔴 O percurso NÃO é só vertical: o logo do cabeçalho parece centralizado,html:not([data-luz="escuro"]) mas
+   os dois botões redondos da direita o empurram 21px pra esquerda (medido). Sem
+   o desvio horizontal ele aterrissava torto. Deslocamento e escala são MEDIDOS
+   em tempo de execução (mesma lição do sino: origem chutada nasce torta) — e
+   como o cabeçalho muda entre telas,html:not([data-luz="escuro"]) a conta é refeita a cada abertura.
+   ========================================================================== */
+/* A CENA,html:not([data-luz="escuro"]) em 6 atos (3,html:not([data-luz="escuro"]) 4 s até entregar o app):
+   1. o vazio respira            0,html:not([data-luz="escuro"]) 00–1,html:not([data-luz="escuro"]) 60  brilho de fundo abre
+   2. a rota se desenha          0,html:not([data-luz="escuro"]) 25–1,html:not([data-luz="escuro"]) 45  traço lima subindo,html:not([data-luz="escuro"]) 3 pinos acendendo
+   3. o cometa percorre a rota   0,html:not([data-luz="escuro"]) 30–1,html:not([data-luz="escuro"]) 50  a luz chega exatamente onde o X nasce
+   4. a marca se monta           1,html:not([data-luz="escuro"]) 35–2,html:not([data-luz="escuro"]) 25  H · B · X com peso,html:not([data-luz="escuro"]) anel no cruzamento
+   5. o brilho varre o logotipo  1,html:not([data-luz="escuro"]) 95–2,html:not([data-luz="escuro"]) 75  e LOGÍSTICA abre o espaçamento
+   6. a batida e a entrega       2,html:not([data-luz="escuro"]) 55–3,html:not([data-luz="escuro"]) 40  o conjunto pulsa uma vez,html:not([data-luz="escuro"]) barra completa */
+.splash{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:linear-gradient(180deg,#cad5eb,#dae1f1);overflow:hidden}
+html:not([data-luz="escuro"]) .splash-fundo{position:absolute;inset:0;
+  background:radial-gradient(430px 330px at 50% 44%,rgba(47,126,247,.20),transparent 70%);
+  animation:spFundo 1.7s var(--cv-entra) both}
+html:not([data-luz="escuro"]) .splash-xis line{stroke:var(--lime);stroke-width:5;stroke-linecap:round;filter:drop-shadow(0 0 7px rgba(158,222,42,.75))}
+html:not([data-luz="escuro"]) /* Clarão no cruzamento,html:not([data-luz="escuro"]) no instante exato do encontro. */
+.splash-flash{position:absolute;left:50%;top:0;width:96px;height:96px;margin-left:-48px;border-radius:50%;
+  background:radial-gradient(circle,rgba(214,255,150,.85),rgba(158,222,42,0) 68%);pointer-events:none;
+  animation:spFlash .55s ease-out 1.4s both}
+html:not([data-luz="escuro"]) .splash-logo .w b{color:#000000;font-weight:600;display:inline-block}
+html:not([data-luz="escuro"]) .splash-brilho{position:absolute;top:-25%;left:-45%;width:26%;height:150%;pointer-events:none;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.42),transparent);
+  transform:skewX(-18deg);animation:spBrilho .82s ease-in-out 1.95s both}
+html:not([data-luz="escuro"]) .splash-logo small{display:block;font-size:11px;color:#0f1622;margin-top:11px;padding-left:10px;
+  animation:spLetras .85s var(--cv-entra) 2.05s both}
+html:not([data-luz="escuro"]) .splash-barra{width:96px;height:2px;background:#bdcbe5;border-radius:2px;overflow:hidden;margin-top:16px}
+html:not([data-luz="escuro"]) .splash-barra i{display:block;height:100%;background:var(--lime);transform-origin:left;
+  box-shadow:0 0 8px rgba(158,222,42,.8);animation:spCarrega 2.6s var(--cv-entra) .6s both}
+html:not([data-luz="escuro"]) /* ==========================================================================
+   ERRO — lei 5: entra na cara. Cresce com ultrapassagem e SACODE.
+   ========================================================================== */
+.erro-wrap{position:absolute;inset:0;z-index:60;display:grid;place-items:center;padding:0 22px;
+  background:rgba(4,7,13,.72);animation:mvScrim 160ms ease-out both}
+html:not([data-luz="escuro"]) .erro{
+  width:100%;background:#d9d4de;border:.7px solid #e5bdbd;border-radius:16px;padding:16px 15px 14px;
+  box-shadow:0 20px 50px rgba(20,32,54,0.16);text-align:center;
+  animation:mvErro 320ms var(--cv-mola) both, mvSacode 340ms 300ms both;
+}
+html:not([data-luz="escuro"]) .erro .ico{width:44px;height:44px;border-radius:50%;margin:0 auto 10px;display:grid;place-items:center;
+  background:#e5bfc2;color:#d60000;animation:mvPop var(--mv-normal) var(--cv-mola) .1s both}
+html:not([data-luz="escuro"]) .erro .acoes .principal{background:#8f2d2d;border-color:#8f2d2d;color:#000000}
+html:not([data-luz="escuro"]) /* ==========================================================================
+   CONFIRMAÇÃO — cartão central,html:not([data-luz="escuro"]) sem drama: cresce 6% e assenta.
+   ========================================================================== */
+.conf-wrap{position:absolute;inset:0;z-index:58;display:grid;place-items:center;padding:0 24px;
+  background:rgba(4,7,13,.66);animation:mvScrim 160ms ease-out both}
+html:not([data-luz="escuro"]) .conf{width:100%;background:var(--card);border:.7px solid var(--line);border-radius:16px;padding:16px 15px 14px;
+  box-shadow:0 20px 50px rgba(20,32,54,0.16);animation:mvConf var(--mv-normal) var(--cv-entra) both}
+html:not([data-luz="escuro"]) .conf .acoes .principal{background:linear-gradient(180deg,#85c723,#68b019);border:0;color:#000000}
+html:not([data-luz="escuro"]) /* ==========================================================================
+   PORTÕES — as telas que PARAM o motorista pra decidir. Três tons,html:not([data-luz="escuro"]) e o tom diz
+   o que está em jogo: âmbar pede decisão,html:not([data-luz="escuro"]) vermelho bloqueia,html:not([data-luz="escuro"]) azul informa.
+   O que BLOQUEIA entra com a curva dura do erro (lei 5); o que só pergunta
+   entra macio. Portão sem saída é armadilha: só o update obrigatório não fecha.
+   ========================================================================== */
+.portao-wrap{position:absolute;inset:0;z-index:59;display:grid;place-items:center;padding:0 20px;
+  background:rgba(4,7,13,.7);animation:mvScrim 160ms ease-out both}
+html:not([data-luz="escuro"]) .portao{width:100%;max-height:82%;overflow:auto;scrollbar-width:none;background:var(--card);
+  border:.7px solid var(--line);border-radius:17px;padding:15px 14px 13px;
+  box-shadow:0 22px 54px rgba(20,32,54,0.16);animation:mvConf var(--mv-normal) var(--cv-entra) both}
+html:not([data-luz="escuro"]) .portao.trava{border-color:#e5bdbd;background:#d9d4de;animation:mvErro 320ms var(--cv-mola) both,mvSacode 340ms 300ms both}
+html:not([data-luz="escuro"]) .portao.alerta .ico{background:#e8dac2;color:var(--amber)}
+html:not([data-luz="escuro"]) .portao.trava .ico{background:#e5bfc2;color:#d60000}
+html:not([data-luz="escuro"]) .portao.info .ico{background:#bccee6;color:var(--blue-l)}
+html:not([data-luz="escuro"]) .portao.ok .ico{background:#d5e8c6;color:var(--lime)}
+html:not([data-luz="escuro"]) .portao .acoes .principal{background:linear-gradient(180deg,#85c723,#68b019);border:0;color:#000000}
+html:not([data-luz="escuro"]) .portao .acoes .perigo{color:var(--red);border-color:#e4bebe}
+html:not([data-luz="escuro"]) .portao .acoes .azul{background:linear-gradient(180deg,#005eeb,#1d5ece);border:0;color:#000000}
+html:not([data-luz="escuro"]) /* linha de problema: o nome,html:not([data-luz="escuro"]) o que falta,html:not([data-luz="escuro"]) e a seta que leva ao conserto */
+.pt-linha{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:9px 10px;
+  border-radius:12px;border:.7px solid var(--line);background:#c6d3ea;margin-bottom:6px;cursor:pointer}
+html:not([data-luz="escuro"]) .pt-linha .m{width:26px;height:26px;border-radius:9px;display:grid;place-items:center;background:#e8dac2;color:var(--amber)}
+html:not([data-luz="escuro"]) .pt-nums{display:flex;gap:0;background:#c6d3ea;border:.7px solid var(--line);border-radius:12px;overflow:hidden}
+html:not([data-luz="escuro"]) .pt-campo input{width:74px;height:42px;border-radius:11px;border:.7px solid var(--line);background:#c6d3ea;
+  text-align:center;font-size:17px;color:var(--ink);outline:0}
+html:not([data-luz="escuro"]) .pt-campo .resto{flex:1;height:42px;border-radius:11px;border:.7px solid var(--line);background:#c6d3ea;
+  display:flex;align-items:center;padding:0 12px;font-size:15px;color:var(--ink-2)}
+html:not([data-luz="escuro"]) /* ==========================================================================
+   AVISO — a peça que o dono usa pra impressionar cliente. Ele não "aparece":
+   ele CHEGA. Três entradas pra escolher; a barrinha embaixo drena o tempo de
+   vida,html:not([data-luz="escuro"]) então o aviso nunca some sem explicação.
+   ========================================================================== */
+.aviso{
+  position:absolute;left:10px;right:10px;top:46px;z-index:55;
+  display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center;
+  padding:10px 12px 13px;border-radius:14px;
+  background:#bdcce7;border:.7px solid #bdcbe5;box-shadow:0 14px 34px rgba(20,32,54,0.16);
+}
+html:not([data-luz="escuro"]) .aviso .ico{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;
+  background:#bccee6;color:var(--blue-l)}
+html:not([data-luz="escuro"]) .aviso.ok .ico{background:#d5e8c6;color:var(--lime)}
+html:not([data-luz="escuro"]) .aviso.alerta .ico{background:#e8dac2;color:var(--amber)}
+html:not([data-luz="escuro"]) .aviso .barra{position:absolute;left:12px;right:12px;bottom:6px;height:2px;border-radius:2px;background:#bdcbe5;overflow:hidden}
+html:not([data-luz="escuro"]) .bars i{width:2.4px;background:#1f1f1f;border-radius:1px}
+html:not([data-luz="escuro"]) .batt{width:19px;height:9.5px;border:1.2px solid rgba(255,255,255,.85);border-radius:3px;position:relative}
+html:not([data-luz="escuro"]) .batt::before{content:"";position:absolute;inset:1.3px;background:#1f1f1f;border-radius:1.2px}
+html:not([data-luz="escuro"]) .batt::after{content:"";position:absolute;right:-2.8px;top:2.8px;width:1.7px;height:3.8px;background:rgba(255,255,255,.6);border-radius:0 2px 2px 0}
+html:not([data-luz="escuro"]) .round{width:35px;height:35px;border-radius:50%;border:.7px solid var(--line);background:#bdcce7;
+  display:grid;place-items:center;cursor:pointer;position:relative;color:var(--ink);flex:0 0 35px}
+html:not([data-luz="escuro"]) .round .cnt{position:absolute;top:-3px;right:-3px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;
+  background:var(--blue);color:#000000;font-size:10px;font-weight:500;display:grid;place-items:center;border:1.5px solid var(--bg)}
+html:not([data-luz="escuro"]) .logo .w b{color:#000000;font-weight:600}
+html:not([data-luz="escuro"]) .logo small{font-size:8px;letter-spacing:4.6px;color:#0f1622;margin-top:4px;padding-left:5px}
+html:not([data-luz="escuro"]) .pill-live{display:flex;align-items:center;gap:6px;padding:8px 13px;border-radius:999px;
+  background:#bdcce7;border:.7px solid var(--line);font-size:12.5px}
+html:not([data-luz="escuro"]) .stop.on{background:#bccce6;border-color:#829cc1}
+html:not([data-luz="escuro"]) /* O bloco do número+hora ganha o painel mais claro da foto. */
+.numwrap{background:#bccce6;border-radius:9px;padding:4px 2px}
+html:not([data-luz="escuro"]) .grip{width:9px;height:14px;margin-top:9px;color:#3d4e71;
+  background-image:radial-gradient(currentColor 1.05px,transparent 1.15px);background-size:4.5px 4.5px}
+html:not([data-luz="escuro"]) /* O halo do anel existe na foto — é brilho,html:not([data-luz="escuro"]) não vidro: nada atrás dele
+   aparece através. Fica. */
+.num{width:31px;height:31px;border-radius:50%;display:grid;place-items:center;font-size:13.5px;font-weight:400;
+  border:1.1px solid var(--blue);color:#000000;background:#c5d4ea;box-shadow:0 0 9px rgba(47,126,247,.28)}
+html:not([data-luz="escuro"]) .num.lime{border-color:var(--lime);background:#d7eacb;box-shadow:0 0 9px rgba(158,222,42,.25)}
+html:not([data-luz="escuro"]) .num.off{border-color:#c3cde0;background:transparent;color:var(--ink-2);box-shadow:none}
+html:not([data-luz="escuro"]) .tag.blue{border-color:#829cc1;color:var(--blue-l);background:#bccde6}
+html:not([data-luz="escuro"]) .tag.lime{border-color:#d6e6bc;color:var(--lime);background:#d8e9ca}
+html:not([data-luz="escuro"]) .pill.blue{background:#bccee6;border-color:#829cc1;color:var(--blue-l)}
+html:not([data-luz="escuro"]) .pill.lime{background:#d5e8c6;border-color:#d6e6bc;color:var(--lime)}
+html:not([data-luz="escuro"]) .pill.amber{background:#e8dac2;border-color:#e6d7bc;color:var(--amber)}
+html:not([data-luz="escuro"]) /* Botão principal: verde vivo com TEXTO BRANCO,html:not([data-luz="escuro"]) como nas fotos. Ver a nota de
+   contraste no fim do arquivo — é a única peça do mock em que a foto e a régua
+   de legibilidade discordam,html:not([data-luz="escuro"]) e a escolha é do dono. */
+.act.go{background:linear-gradient(180deg,#85c723,#68b019);border:0;color:#12200a;box-shadow:0 7px 18px rgba(122,190,30,.26)}
+html:not([data-luz="escuro"]) .act.go b,html:not([data-luz="escuro"]) .act.go small{color:#12200a}
+html:not([data-luz="escuro"]) /* A alternativa: mesma cor de fundo,html:not([data-luz="escuro"]) tinta escura. Branco na foto mede 1,html:not([data-luz="escuro"]) 8:1;
+   a tinta escura mede 8,html:not([data-luz="escuro"]) 6:1. Toque no seletor do topo pra comparar na tela. */
+html:not([data-luz="escuro"]) .nav button.on{color:var(--lime);background:#bccae6}
+html:not([data-luz="escuro"]) .tmx-sat.perigo button{color:var(--red);border-color:#e4bebe}
+html:not([data-luz="escuro"]) .tmx-sat.info button{color:var(--blue-l);border-color:#bccde6}
+html:not([data-luz="escuro"]) .tmx-sat.aviso button{color:var(--amber);border-color:#e6d7bc;animation:tmxPisca 1.15s ease-in-out infinite}
+html:not([data-luz="escuro"]) .tmx-sat .cont{position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;border-radius:9px;background:var(--amber);
+  color:#231805;font-size:10px;font-weight:500;display:grid;place-items:center;border:1.5px solid var(--bg)}
+html:not([data-luz="escuro"]) .tmx-main button{width:82px;height:82px;border-radius:30px;border:0;cursor:pointer;display:grid;place-items:center;
+  color:#000000;background:linear-gradient(180deg,#85c723,#68b019);box-shadow:0 10px 26px rgba(122,190,30,.3)}
+html:not([data-luz="escuro"]) .tmx-main button[data-estado="pausar"]{background:linear-gradient(180deg,#eb9b00,#e08a00);color:#291800;
+  box-shadow:0 10px 26px rgba(224,138,0,.3)}
+html:not([data-luz="escuro"]) .tmx-main button[data-estado="montar"]{background:linear-gradient(180deg,#0061eb,#1d5ece);
+  box-shadow:0 10px 26px rgba(47,126,247,.32)}
+html:not([data-luz="escuro"]) .dia-bar .trilho{flex:1;height:6px;border-radius:4px;background:#bccbe6;overflow:hidden}
+html:not([data-luz="escuro"]) .dia-bar .trilho i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,#74b81b,#90d01b)}
+html:not([data-luz="escuro"]) .filtro button.on{border-color:#d6e6bc;background:#d8e9ca;color:var(--lime)}
+html:not([data-luz="escuro"]) .banner.alerta{background:#e8dac2;border:.7px solid #e6d7bc;color:var(--amber)}
+html:not([data-luz="escuro"]) .banner.pausa{background:#bccee6;border:.7px solid #829cc1;color:var(--blue-l)}
+html:not([data-luz="escuro"]) .esq{background:linear-gradient(90deg,#c3d1e9 25%,#bccbe6 50%,#c3d1e9 75%);background-size:280% 100%;
+  border-radius:11px;animation:esqOnda 1.5s linear infinite}
+html:not([data-luz="escuro"]) .map-chip{display:flex;align-items:center;gap:9px;padding:8px 12px;border-radius:12px;
+  background:#c8d4eb;border:.7px solid var(--line)}
+html:not([data-luz="escuro"]) .map-ctrl button{width:40px;height:40px;border-radius:50%;border:.7px solid var(--line);background:#c8d4eb;
+  color:var(--blue-l);display:grid;place-items:center;cursor:pointer}
+html:not([data-luz="escuro"]) .next-card{position:absolute;left:9px;right:9px;bottom:72px;z-index:35;border-radius:15px;padding:11px 12px;
+  background:#c3d1e9;border:.7px solid var(--line);display:flex;align-items:center;gap:10px}
+html:not([data-luz="escuro"]) .next-card .handle{position:absolute;top:5px;left:50%;transform:translateX(-50%);width:36px;height:3px;border-radius:2px;background:#c1cce1}
+html:not([data-luz="escuro"]) .btn-blue{display:flex;align-items:center;gap:7px;padding:11px 15px;border-radius:12px;border:0;cursor:pointer;
+  background:linear-gradient(180deg,#005eeb,#1d5ece);color:#000000;font-size:13px;font-weight:500;
+  box-shadow:0 7px 18px rgba(47,126,247,.3)}
+html:not([data-luz="escuro"]) /* ==========================================================================
+   GPS EM NAVEGAÇÃO — o que todo navegador de rua faz e eu não tinha feito:
+
+   1. O CARRO NÃO FICA NO MEIO: fica a ~68% da altura. O que interessa é a rua
+      À FRENTE,html:not([data-luz="escuro"]) então sobra tela pra cima e quase nada pra trás.
+   2. O mapa é RODADO pelo rumo (heading-up): a direção em que se anda aponta
+      sempre pra cima. Por isso existe a bússola — é ela que diz onde é o norte.
+   3. O mapa é INCLINADO (~50°): a rua foge pro horizonte. Vista de cima (2D)
+      é mapa de planejamento,html:not([data-luz="escuro"]) não de direção.
+   4. A MANOBRA manda na tela e mora no TOPO: distância + verbo,html:not([data-luz="escuro"]) corpo grande.
+      A rua e a manobra seguinte vêm na linha de baixo,html:not([data-luz="escuro"]) pequenas.
+   5. O rodapé é o CONTRATO da viagem: chegada,html:not([data-luz="escuro"]) tempo,html:not([data-luz="escuro"]) distância e a saída.
+   6. Velocímetro embaixo à esquerda; recentralizar só faz sentido perto do
+      polegar,html:not([data-luz="escuro"]) do lado direito.
+   ========================================================================== */
+.gps{position:absolute;inset:0;overflow:hidden;background:#d2dcee}
+html:not([data-luz="escuro"]) /* Névoa do horizonte: sem ela a borda do mapa aparece como um corte reto no
+   meio da tela — é o detalhe que denuncia mapa falso. */
+.gps-horizonte{position:absolute;left:0;right:0;top:0;height:44%;pointer-events:none;
+  background:linear-gradient(180deg,#d2dcee 22%,rgba(7,13,24,.72) 58%,transparent)}
+html:not([data-luz="escuro"]) .gps-facho{position:absolute;left:-46px;top:-96px;width:92px;height:104px;
+  background:conic-gradient(from 180deg at 50% 100%,transparent 28%,rgba(91,157,255,.34) 40%,rgba(91,157,255,.34) 60%,transparent 72%);
+  filter:blur(1px)}
+html:not([data-luz="escuro"]) .gps-seta{position:absolute;left:-17px;top:-19px;width:34px;height:38px;
+  filter:drop-shadow(0 3px 7px rgba(20,32,54,0.16))}
+html:not([data-luz="escuro"]) .gps-manobra{position:absolute;left:9px;right:9px;top:6px;z-index:20;border-radius:15px;
+  background:#c3d1e9;border:.7px solid var(--line);box-shadow:0 12px 30px rgba(20,32,54,0.16);overflow:hidden}
+html:not([data-luz="escuro"]) .gps-manobra .seta{width:48px;height:48px;border-radius:13px;background:#bccee6;color:var(--blue-l);
+  display:grid;place-items:center;flex:0 0 48px}
+html:not([data-luz="escuro"]) .gps-manobra .baixo{display:flex;align-items:center;gap:7px;padding:7px 13px;border-top:.7px solid var(--line);
+  background:#c8d4eb;font-size:11.5px;color:var(--ink-2)}
+html:not([data-luz="escuro"]) .gps-manobra.chegou .seta{background:#d5e8c6;color:var(--lime)}
+html:not([data-luz="escuro"]) .gps-bussola{position:absolute;right:11px;top:96px;z-index:20;width:38px;height:38px;border-radius:50%;
+  background:#c8d4eb;border:.7px solid var(--line);display:grid;place-items:center;color:var(--ink-2);font-size:9.5px}
+html:not([data-luz="escuro"]) .gps-vel{position:absolute;left:11px;bottom:104px;z-index:20;width:56px;height:56px;border-radius:50%;
+  background:#c8d4eb;border:.7px solid var(--line);display:grid;place-items:center;text-align:center;line-height:1}
+html:not([data-luz="escuro"]) .gps-lado button{width:40px;height:40px;border-radius:50%;border:.7px solid var(--line);background:#c8d4eb;
+  color:var(--blue-l);display:grid;place-items:center;cursor:pointer}
+html:not([data-luz="escuro"]) .gps-rodape{position:absolute;left:0;right:0;bottom:0;z-index:20;background:#c8d4eb;
+  border-top:.7px solid var(--line);padding:9px 12px 12px}
+html:not([data-luz="escuro"]) .gps-rodape .sair{height:42px;padding:0 15px;border-radius:12px;border:.7px solid #e5bdbd;background:#e2d2d8;
+  color:#d60b00;font-size:13.5px;cursor:pointer}
+html:not([data-luz="escuro"]) /* ---------- folha ---------- */
+.scrim{position:absolute;inset:0;background:rgba(3,7,14,.72);z-index:40}
+html:not([data-luz="escuro"]) .sheet{position:absolute;left:0;right:0;bottom:0;z-index:41;border-radius:22px 22px 0 0;
+  background:linear-gradient(180deg,#becde7,#cad5eb 30%);border:.7px solid var(--line);border-bottom:0;
+  padding:10px 12px 72px;max-height:88%;overflow:auto;scrollbar-width:none;box-shadow:0 -18px 44px rgba(20,32,54,0.16)}
+html:not([data-luz="escuro"]) .sheet .handle{width:36px;height:3px;border-radius:2px;background:#c1cce1;margin:0 auto 10px}
+html:not([data-luz="escuro"]) .thumb{width:56px;height:56px;border-radius:11px;background:linear-gradient(160deg,#bccce6,#bccde6);
+  border:1px solid #bccce6;display:grid;place-items:center;flex:0 0 56px;color:var(--blue-l)}
+html:not([data-luz="escuro"]) .pay{display:flex;align-items:center;gap:8px;padding:10px;border-radius:11px;cursor:pointer;text-align:left;
+  border:.7px solid var(--line-2);background:#c6d3ea;color:var(--ink);position:relative}
+html:not([data-luz="escuro"]) .pay.sel{border-color:var(--lime);background:#d8eaca}
+html:not([data-luz="escuro"]) .pay.blue{border-color:rgba(47,126,247,.5)}
+html:not([data-luz="escuro"]) .form-c.total{background:#d8eaca}
+html:not([data-luz="escuro"]) .prog-b{height:5px;border-radius:3px;background:#bccbe6;margin-top:7px;overflow:hidden}
+html:not([data-luz="escuro"]) .prog-b i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#74b81b,#90d01b)}
+html:not([data-luz="escuro"]) .chip.on{border-color:var(--lime);color:var(--lime);background:#d8eaca}
+html:not([data-luz="escuro"]) .prod{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 2px;
+  border-bottom:.6px solid rgba(26,39,64,.95)}
+html:not([data-luz="escuro"]) .price{position:relative;border:.9px solid var(--lime);border-radius:9px;padding:7px 12px;
+  color:var(--lime);font-size:15px;font-weight:400;background:#d4e3d2}
+html:not([data-luz="escuro"]) .price::after{content:"";position:absolute;left:50%;bottom:-5px;transform:translateX(-50%) rotate(45deg);
+  width:8px;height:8px;background:#cad5eb;border-right:.9px solid var(--lime);border-bottom:.9px solid var(--lime)}
+html:not([data-luz="escuro"]) .rowcard .ico{width:36px;height:36px;border-radius:10px;background:#bccde6;
+  border:.7px solid var(--line-2);display:grid;place-items:center;color:var(--blue-l)}
+html:not([data-luz="escuro"]) .rowcard .ico.lime{background:#d8e9ca;color:var(--lime)}
+html:not([data-luz="escuro"]) .week .mk{border:1px solid #d6e6bc;background:#d9e9d0;border-radius:9px;padding:6px 8px;display:flex;align-items:center;gap:6px}
+html:not([data-luz="escuro"]) .campo input,html:not([data-luz="escuro"]) .campo textarea{width:100%;height:38px;border-radius:11px;border:.7px solid var(--line);
+  background:#c6d3ea;padding:0 11px;outline:0;font-size:13px;color:var(--ink)}
+html:not([data-luz="escuro"]) .campo.erro input{border-color:#e6cabc;background:#eedfd0}
+html:not([data-luz="escuro"]) .dias button.on{border-color:var(--lime);background:#d8e9ca;color:var(--lime)}
+html:not([data-luz="escuro"]) /* ---------- stepper de quantidade ---------- */
+.item-linha{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;
+  padding:9px 0;border-bottom:.6px solid rgba(26,39,64,.95)}
+html:not([data-luz="escuro"]) .motivo{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center;padding:10px 11px;
+  border-radius:12px;border:.7px solid var(--line);background:#c6d3ea;color:var(--ink);
+  font-size:13px;text-align:left;cursor:pointer}
+html:not([data-luz="escuro"]) .motivo.on{border-color:#e6d7bc;background:#ece1cd}
+html:not([data-luz="escuro"]) /* ---------- comprovante ---------- */
+.foto{display:grid;grid-template-columns:auto 1fr;gap:11px;align-items:center;margin-top:9px;
+  padding:11px;border-radius:13px;border:.7px dashed var(--line-2);background:#c6d3ea}
+html:not([data-luz="escuro"]) .foto .quadro{width:56px;height:56px;border-radius:11px;background:#bccde6;display:grid;place-items:center;color:var(--blue-l)}
+html:not([data-luz="escuro"]) .previa.entra{border-color:#d6e6bc}
+html:not([data-luz="escuro"]) .previa.entra .marca{background:#d5e8c6;color:var(--lime)}
+html:not([data-luz="escuro"]) .previa.sai .marca{background:#e2d2d8;color:var(--red)}
+html:not([data-luz="escuro"]) .pacote.on{border-color:var(--lime);background:#d8eaca}
+html:not([data-luz="escuro"]) .pacote .selo{position:absolute;top:-7px;left:50%;transform:translateX(-50%);font-size:9.5px;padding:2px 8px;
+  border-radius:999px;background:var(--lime);color:#12200a}
+html:not([data-luz="escuro"]) .ext-linha{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:9px 0;
+  border-bottom:.6px solid rgba(26,39,64,.95)}
+html:not([data-luz="escuro"]) .ext-linha .m.mais{background:#d5e8c6;color:var(--lime)}
+html:not([data-luz="escuro"]) .ext-linha .m.menos{background:#e2d2d8;color:var(--red)}
+html:not([data-luz="escuro"]) .tempo button.on{border-color:var(--lime);background:#d8e9ca;color:var(--lime)}
+html:not([data-luz="escuro"]) /* ---------- leitura de rota (gravando) ---------- */
+.gravando{display:grid;grid-template-columns:auto 1fr auto;gap:11px;align-items:center;margin-top:6px;
+  padding:11px;border-radius:14px;border:.7px solid #e5bdbd;background:#d9d4de}
+html:not([data-luz="escuro"]) .gravando .bola{width:12px;height:12px;border-radius:50%;background:#eb0000;animation:gravPulsa 1.1s ease-in-out infinite}
+html:not([data-luz="escuro"]) .gesto-item::after{content:"";position:absolute;inset:0;width:0;background:rgba(242,85,90,.22);
+  pointer-events:none;transition:width 0s}
+html:not([data-luz="escuro"]) .gesto-item.pronto{border-color:var(--red);background:#e2d2d8}
+html:not([data-luz="escuro"]) .gesto-item.pronto::after{width:100%;background:rgba(242,85,90,.3)}
+html:not([data-luz="escuro"]) .gesto-item.arrastando{z-index:5;box-shadow:0 12px 28px rgba(20,32,54,0.16);border-color:#829cc1;
+  transform:scale(1.015);transition:transform .12s}
+html:not([data-luz="escuro"]) /* ---------- chat da Central ---------- */
+.recado{border:.7px solid #e6d7bc;background:#eee4d0;border-radius:14px;padding:11px;margin-top:6px}
+html:not([data-luz="escuro"]) .recado .ico{width:34px;height:34px;border-radius:11px;background:#e8dac2;color:var(--amber);display:grid;place-items:center}
+html:not([data-luz="escuro"]) .recado .acoes .principal{background:linear-gradient(180deg,#85c723,#68b019);border:0;color:#000000}
+html:not([data-luz="escuro"]) .msg.minha{background:#d5e8c6;border:.7px solid #d6e6bc;border-bottom-right-radius:5px;align-self:flex-end}
+html:not([data-luz="escuro"]) .escrever .enviar{width:30px;height:30px;border-radius:10px;border:0;background:var(--lime);color:#12200a;
+  display:grid;place-items:center;cursor:pointer}
+html:not([data-luz="escuro"]) .linha-cfg{width:100%;display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;
+  padding:10px 11px;border:0;border-bottom:.6px solid rgba(26,39,64,.95);background:transparent;
+  color:var(--ink);text-align:left;cursor:pointer}
+html:not([data-luz="escuro"]) .linha-cfg .ico{width:30px;height:30px;border-radius:10px;background:#bccce6;color:var(--ink-2);display:grid;place-items:center}
+html:not([data-luz="escuro"]) .chave{width:38px;height:22px;border-radius:999px;background:#becce4;position:relative;flex:0 0 38px}
+html:not([data-luz="escuro"]) .chave.on i{left:18.5px;background:#d6ebca}
+html:not([data-luz="escuro"]) /* ---------- clientes ---------- */
+.cli{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;
+  padding:8px 2px;border-bottom:.6px solid rgba(26,39,64,.95)}
+html:not([data-luz="escuro"]) .ava{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:500;
+  background:#bccee6;border:1px solid #829cc1;color:var(--blue-l)}
+html:not([data-luz="escuro"]) .ava.lime{background:#d5e8c6;border-color:#d6e6bc;color:var(--lime)}
+}

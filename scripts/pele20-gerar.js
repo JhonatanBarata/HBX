@@ -48,13 +48,22 @@ const cssAdaptado = css
            'position:relative;width:100%;height:100dvh;border-radius:0;overflow:hidden;')
   // O recorte da câmera é do celular DESENHADO, não do app.
   .replace(/^\.notch[^\n]*\n/gm, '')
-  // REGRA DO DONO: verde limão forte = texto escuro legível.
-  .replace('.act.go{background:linear-gradient(180deg,#8fd626,#68b019);border:0;color:#fff;',
-           '.act.go{background:linear-gradient(180deg,#8fd626,#68b019);border:0;color:#12200a;')
-  .replace('.act.go b,.act.go small{color:#fff}', '.act.go b,.act.go small{color:#12200a}')
+  // 🔴 REGRA DO DONO, aplicada como LEI e não como remendo: em QUALQUER regra
+  // que fale do botão limão, `color` é #12200a. Antes eu trocava três textos
+  // exatos — e o modo claro gerou cópias com seletor prefixado e `#fff` de três
+  // dígitos que passaram por baixo dos três. Quem acusou foi o portão do fim
+  // deste mesmo arquivo; a lição virou esta varredura por regra, nos dois modos.
+  .replace(/([^{}]*\.act\.go[^{]*\{[^}]*\})/g, (regra) =>
+    regra.replace(/color:\s*#[0-9a-fA-F]{3,8}/g, 'color:#12200a'))
   .replace('.act.go small{opacity:.9}', '.act.go small{opacity:.72}')
-  // O interruptor branco/escuro morre: no app não existe variante branca.
-  .replace(/^\[data-cta="escuro"\][^\n]*\n/gm, '');
+  // O interruptor branco/escuro morre: no app não existe variante branca. Pega
+  // em QUALQUER posição do seletor — o modo claro gera cópias prefixadas
+  // (`[data-luz="claro"] [data-cta="escuro"] ...`) e uma âncora de início de
+  // linha deixava essas passarem. Foi o próprio portão do fim que acusou.
+  .replace(/^[^\n{}]*\[data-cta[^\n{}]*\{[^}]*\}\n?/gm, '')
+  // ...e o limão no CLARO segue a mesma lei: texto escuro, nunca branco.
+  .replace(/(\[data-luz="claro"\][^{]*\.act\.go\{[^}]*?)color:#[0-9a-f]{6}/gi, '$1color:#12200a')
+  .replace(/(html:not\(\[data-luz="escuro"\]\)[^{]*\.act\.go\{[^}]*?)color:#[0-9a-f]{6}/gi, '$1color:#12200a');
 
 // ---------------------------------------------------------------------------
 // VIEW (JS)
