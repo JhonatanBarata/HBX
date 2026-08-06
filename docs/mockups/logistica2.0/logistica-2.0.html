@@ -551,7 +551,6 @@ button,input{font:inherit;color:inherit}
 .logo .w b{color:var(--white);font-weight:600}
 .logo .w em{color:var(--lime);font-style:normal;font-weight:600;font-size:28px;display:inline-block;transform:skewX(-8deg)}
 .logo small{font-size:8px;letter-spacing:4.6px;color:#dbe4f2;margin-top:4px;padding-left:5px}
-.hdr .sub{text-align:center;font-size:12.5px;color:var(--ink-2);margin-top:4px}
 .pill-live{display:flex;align-items:center;gap:6px;padding:8px 13px;border-radius:999px;
   background:#101a2c;border:.7px solid var(--line);font-size:12.5px}
 .pill-live i{width:7px;height:7px;border-radius:50%;background:var(--lime);box-shadow:0 0 7px var(--lime)}
@@ -1580,7 +1579,7 @@ function hdr(o={}){
   // tela (medido: sem isto o logo passeava 143↔164 entre abas).
   return `<header class="hdr"><div class="hdr-row">
       <div class="hdr-flanco">${esq}</div>${logo}<div class="hdr-flanco dir">${dir}</div>
-    </div>${o.sub?`<div class="sub">${o.sub}</div>`:''}</header>`;
+    </div></header>`;
 }
 
 function nav(ativo){
@@ -1710,8 +1709,8 @@ function listaParadas(comPerna){
     return `${comPerna&&p.perna?`<div class="perna${semRota?' alerta':''}"><span>${semRota?p.perna:'↓ '+p.perna}</span></div>`:''}${stop(p)}`;
   }).join('');
 }
-function shellRota(conteudo,sub,dock){
-  return `${status}${hdr({sub})}
+function shellRota(conteudo,dock){
+  return `${status}${hdr({})}
     <div class="body${dock?' com-dock':''}">${conteudo}</div>
     ${dock?`<div class="tmx-dock">${dock}</div>`:''}${nav('rota')}`;
 }
@@ -1763,7 +1762,7 @@ T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
   </div>
   ${emCurso?`<button class="act full" style="margin-top:8px;justify-content:center">${ic('check',18)}<b>Finalizar</b></button>`
            :`<button class="act full" style="margin-top:8px;justify-content:center" data-ir="caderneta">${ic('note',17)}<b>Abrir caderneta</b></button>`}
-  `,null, transmux(e==='semsinal'?'pronta':e));
+  `, transmux(e==='semsinal'?'pronta':e));
 }};
 
 /* versão antiga da tela (mantida como referência das fotos) --------------- */
@@ -2014,7 +2013,7 @@ ${nav('rota')}`;}};
 
 /* 5 — CADERNETA + FECHAMENTO --------------------------------------------- */
 T.caderneta={nome:'Caderneta · fechamento',grupo:'Caderneta',render(){return `${status}
-${hdr({sub:'Caderneta'})}
+${hdr({})}
 <div class="body">
   <div class="kpis">
     <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">12</b><span class="l">paradas</span></span></div>
@@ -2111,7 +2110,7 @@ T.conferencia={nome:'Conferência da carga',grupo:'Rota',render(){
       <span class="side" style="min-width:0;justify-content:center"><span class="pill ${pill[1]}">${ic(pill[2],14)}${pill[0]}</span></span>
       <span style="color:var(--ink-3);align-self:center;padding-left:4px">${ic('chev',15)}</span></div>`;
   return `${status}
-${hdr({sub:'Conferência'})}
+${hdr({})}
 <div class="body">
   <div class="sum" style="margin-top:2px">
     <span class="c"><span style="color:var(--lime)">${ic('route',18)}</span><span><b style="font-size:16px">12</b><small>paradas</small></span></span>
@@ -2186,7 +2185,7 @@ T.salvas={nome:'Rotas salvas',grupo:'Rota',render(){
           <span class="mini"><span class="c">${ic('copy',17)}</span>Duplicar</span>
           <span class="mini" style="align-self:center">${ic('dots',16)}</span></span></span></div>`;
   return `${status}
-${hdr({sub:'Rotas salvas'})}
+${hdr({})}
 <div class="body">
   <div class="searchrow">
     <label class="search">${ic('search',17)}<input placeholder="Buscar rotas salvas"></label>
@@ -2331,7 +2330,7 @@ function ajustarHastes(camada){
 
 /* 19 — SUB-TELAS DOS AJUSTES ---------------------------------------------- */
 const telaAjuste=(titulo,corpo,rodape)=>`${status}
-${hdr({sub:titulo,voltar:'ajustes',semChat:1})}
+${hdr({voltar:'ajustes',semChat:1})}
 <div class="body${rodape?' com-dock':''}">${corpo}</div>
 ${rodape?`<div class="tmx-dock">${rodape}</div>`:''}${nav('ajustes')}`;
 
@@ -2494,7 +2493,7 @@ T.rapida={nome:'Rota rápida',grupo:'Rota',render(){
   const ex=(icone,t,s)=>`<div class="previa" style="border-style:dashed"><span class="marca info">${ic(icone,13)}</span>
     <span><strong>${t}</strong><span>${s}</span></span></div>`;
   return `${status}
-${hdr({sub:'Rota rápida',voltar:'rota'})}
+${hdr({voltar:'rota'})}
 <div class="body">
   <label class="search" style="height:48px;margin-top:4px">${ic('search',18)}
     <input placeholder="Endereço, CEP, coordenada ou link" value="Rua 14 JP, 1682"></label>
@@ -2531,7 +2530,7 @@ ${nav('rota')}`;}};
 
 /* 21 — FICHA DO PRODUTO ---------------------------------------------------- */
 T.fichaproduto={nome:'Ficha do produto',grupo:'Cadastro',render(){return `${status}
-${hdr({sub:'Ficha do produto',voltar:'produtos',semChat:1})}
+${hdr({voltar:'produtos',semChat:1})}
 <div class="body">
   <div class="stop-top" style="margin:2px 0 10px;grid-template-columns:auto 1fr auto">
     <span class="thumb" style="width:52px;height:52px;flex:0 0 52px">${ic('gallon',26)}</span>
@@ -2561,7 +2560,7 @@ ${nav('produtos')}`;}};
 
 /* 22 — MODO PASSEIO -------------------------------------------------------- */
 T.passeio={nome:'Modo Passeio',grupo:'Sistema',render(){return `${status}
-${hdr({sub:'Passeio',voltar:'ajustes'})}
+${hdr({voltar:'ajustes'})}
 <div class="body com-dock">
   <div class="banner pausa" style="margin-top:2px">${ic('spark',15)}
     <span><b>Seu caminho, do seu jeito.</b> Sem cliente, sem cobrança, sem crédito.</span></div>
@@ -2598,7 +2597,7 @@ ${nav('rota')}`;}};
 
 /* 23 — LEITURA DE ROTA (gravando o caminho) -------------------------------- */
 T.leitura={nome:'Leitura de rota',grupo:'Sistema',render(){return `${status}
-${hdr({sub:'Registrando o caminho',voltar:'rota'})}
+${hdr({voltar:'rota'})}
 <div class="body com-dock">
   <div class="gravando">
     <span class="bola"></span>
@@ -2647,7 +2646,7 @@ T.gestos={nome:'Gestos: segurar e arrastar',grupo:'Sistema',render(){
       <span class="side"><span class="marc"><small>Marcado</small><b>R$ ${40+n*7},00</b></span></span>
     </article>`;
   return `${status}
-${hdr({sub:'Gestos'})}
+${hdr({})}
 <div class="body">
   <div class="box" style="margin-top:2px">
     <div class="box-t">Dois gestos, duas zonas</div>
@@ -2679,7 +2678,7 @@ T.portoes={nome:'Portões e bloqueios',grupo:'Sistema',render(){
       <span><strong>${nome}</strong><span>${quando}</span></span>
       <button class="ghost" data-portao="${chave}">ver</button></div>`;
   return `${status}
-${hdr({sub:'Portões e bloqueios'})}
+${hdr({})}
 <div class="body">
   <div class="box" style="margin-top:2px">
     <div class="box-t">A regra dos três tons</div>
@@ -2714,7 +2713,7 @@ ${nav('rota')}`;}};
 T.ficha={nome:'Ficha do cliente',grupo:'Cadastro',render(){
   const dia=(l,n,on)=>`<button class="${on?'on':''}"><b>${l}</b><small>${n}</small></button>`;
   return `${status}
-${hdr({sub:'Ficha do cliente',voltar:'clientes',semChat:1})}
+${hdr({voltar:'clientes',semChat:1})}
 <div class="body">
   <div class="stop-top" style="margin:2px 0 10px;grid-template-columns:auto 1fr auto">
     <span class="ava lime">LY</span>
@@ -2868,7 +2867,7 @@ T.folhanao={nome:'Chegada — não entregue',grupo:'Rota',render:()=>folhaComple
 T.gerenciador={nome:'Gerenciador de rota',grupo:'Rota',render(){
   const dia=(l,n,on,vazio)=>`<button class="${on?'on':''}" ${vazio?'style="opacity:.42"':''}><b>${l}</b><small>${n}</small></button>`;
   return `${status}
-${hdr({sub:'Montar o dia',voltar:'rota'})}
+${hdr({voltar:'rota'})}
 <div class="body com-dock">
   <div class="grupo">Dias que entram na rota</div>
   <div class="dias">
@@ -2913,7 +2912,7 @@ ${nav('rota')}`;}};
 
 /* 12 — CHAT COM A CENTRAL (aba nova) -------------------------------------- */
 T.chat={nome:'Chat com a Central',grupo:'Rota',render(){return `${status}
-${hdr({sub:'Central · Jhonatan'})}
+${hdr({})}
 <div class="body">
   <div class="recado">
     <div class="topo">
@@ -2943,7 +2942,7 @@ T.ajustes={nome:'Ajustes',grupo:'Cadastro',render(){
     <span><strong>${titulo}</strong>${sub?`<span>${sub}</span>`:''}</span>
     <span class="chave ${on?'on':''}"><i></i></span></button>`;
   return `${status}
-${hdr({sub:'Ajustes',semChat:1})}
+${hdr({semChat:1})}
 <div class="body">
   <div class="grupo">Administração</div>
   <div class="cartao-lista">
@@ -2991,7 +2990,7 @@ T.padroes={nome:'Padrões de movimento',grupo:'Sistema',render(){
         <span class="meta"><i>${tempo}</i><i>${curva}</i></span></span>
       ${acao?`<button class="ghost" ${acao}>ver</button>`:`<span class="tag">automático</span>`}</div>`;
   return `${status}
-${hdr({sub:'Padrões de movimento'})}
+${hdr({})}
 <div class="body">
   <div class="box" style="margin-top:2px">
     <div class="box-t">As 7 leis</div>
