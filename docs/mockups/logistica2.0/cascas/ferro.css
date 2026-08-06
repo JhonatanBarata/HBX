@@ -1,0 +1,91 @@
+/* ==========================================================================
+   CASCA "FERRO" — prova viva de que a casca é TROCÁVEL.
+
+       node scripts/casca-injetar.js --casca ferro     (volta: sem --casca)
+
+   Grafite quente + âmbar no lugar do azul-noite + limão. É só ISTO: um arquivo
+   que REDECLARA token. Nenhuma tela foi tocada, nenhum seletor de componente
+   aparece aqui — se aparecer, a casca virou remendo e o contrato quebrou.
+
+   REGRA DA CASCA (vale pra qualquer uma, inclusive a que vier depois):
+     1. Só `--token: valor` dentro de `.app` e de `[data-luz="claro"] .app`.
+     2. Os DOIS modos, sempre. Casca que só pensa no escuro nasce ilegível de dia.
+     3. Contraste é medido, não achado — `node scripts/casca-prova.js ferro`.
+     4. A LEI DO LIMÃO vira lei da MARCA: sobre a cor viva da marca, a tinta é
+        `--go-ink` (escura), nunca branco.
+   ========================================================================== */
+
+.app{
+  /* --- superfícies: o grafite quente ------------------------------------- */
+  --bg:#141210; --bg-2:#1a1714; --card:#201c18; --line:#332c25; --line-2:#4a4036;
+  --ink:#f6f1ea; --ink-2:#b6a897; --ink-3:#9b8d7c;
+
+  /* --- marca: âmbar (ocupa o lugar que era do limão) --------------------- */
+  --lime:#f5a623; --lima-viva:#ffc247;
+  --blue:#4fb0c6; --blue-l:#7fd0e2;
+  --amber:#e2963c; --purple:#b07de0; --red:#e8555a;
+
+  /* --- botão principal --------------------------------------------------- */
+  --go-1:#ffc247; --go-2:#d98c0a; --go-ink:#2a1c00;
+  --btn-blue-1:#4fb0c6; --btn-blue-2:#2a7f93; --white:#fff;
+
+  /* --- famílias tonais --------------------------------------------------- */
+  --lime-bg:#251b0c; --lime-bg-2:#2c2110; --lime-line:#6b4d13; --sel-bg:#2a1e0c;
+  --blue-bg:#122a30; --blue-bg-2:#0f242a; --blue-line:#2c5a66;
+  --amber-bg:#2c1f0c; --amber-line:#7a5411;
+  --red-bg:#241417; --red-bg-2:#2a171a; --red-bg-3:#241316;
+  --red-line:#5e2a2c; --red-line-2:#6d3033;
+
+  /* --- peças ------------------------------------------------------------- */
+  --glass:#1b1713; --field:#191512; --chip-bg:#241f1a; --trilho:#332c25;
+  --prog-1:#d98c0a; --prog-2:#ffc247; --handle:#4a4036; --fog:#100e0c;
+  --danger-ico-bg:#2a1315; --danger-ico:#ff7b7b; --danger-btn:#8f3d2d;
+  --barra-trilho:#3a3128; --logo-sub:#e8dcc9;
+
+  /* --- mapa: o ambiente também é o mapa ---------------------------------- */
+  --map-fundo:#171410; --map-quadra:#1e1a15; --map-rua:#332c23; --map-rua2:#2a241d;
+  --map-parque:#1c2416; --map-rotulo:#9b8d7c; --map-pino:#1a1611; --map-pino-tinta:#ffe3ab;
+  --map-rota:#ffc247; --map-rota-borda:#a8690a; --map-leito:#243040;
+  --map-carro:#f2ece2; --map-carro-borda:#b8ab99; --map-carro-vidro:#a3927c; --map-carro-2:#cfc3b2;
+  --map-bandeira:#efe4d2; --map-bandeira-2:#2a1c00; --map-partida:#4fb0c6;
+}
+
+[data-luz="claro"] .app{
+  --bg:#f5f1ea; --bg-2:#fbf8f3; --card:#fffdfa; --line:#e4dbcd; --line-2:#cbbfab;
+  --ink:#241d15; --ink-2:#6b5f50; --ink-3:#7b6e5d;
+
+  --lime:#8a5200; --lima-viva:#d98c0a;
+  --blue:#0f6b80; --blue-l:#0f6b80; --amber:#8a5200; --purple:#6d28d9; --red:#b8231f;
+
+  --go-1:#ffc247; --go-2:#d98c0a; --go-ink:#2a1c00;
+  --btn-blue-1:#0f6b80; --btn-blue-2:#0b5566; --white:#fff;
+
+  --lime-bg:#fdf3e0; --lime-bg-2:#faead2; --lime-line:#dcb774; --sel-bg:#fdf3e0;
+  --blue-bg:#e4f2f5; --blue-bg-2:#daecf0; --blue-line:#96c6d1;
+  --amber-bg:#fdf1de; --amber-line:#e0b978;
+  --red-bg:#fbe6e6; --red-bg-2:#fff5f5; --red-bg-3:#fbe6e6;
+  --red-line:#e6a3a3; --red-line-2:#e6a3a3;
+
+  --glass:#fffdfa; --field:#fffdfa; --chip-bg:#f2ece2; --trilho:#e4dbcd;
+  --prog-1:#d98c0a; --prog-2:#ffc247; --handle:#cbbfab; --fog:#f5f1ea;
+  --danger-ico-bg:#fbe6e6; --danger-ico:#a01a16; --danger-btn:#a83a2a;
+  --barra-trilho:#e4dbcd; --logo-sub:#4a3f31;
+
+  --map-fundo:#efe8dd; --map-quadra:#e5dccd; --map-rua:#fffdfa; --map-rua2:#f7f2e9;
+  --map-parque:#e0e8d6; --map-rotulo:#6b5f50; --map-pino:#fffdfa; --map-pino-tinta:#3d2600;
+  --map-rota:#a8690a; --map-rota-borda:#7a4a00; --map-leito:#d5dde6;
+  --map-carro:#3a2f22; --map-carro-borda:#241d15; --map-carro-vidro:#8a7c69; --map-carro-2:#5c4d3c;
+  --map-bandeira:#241d15; --map-bandeira-2:#fffdfa; --map-partida:#0f6b80;
+}
+
+/* --- abertura (F1 leva 5): a 1ª tela também é ambiente --------------------- */
+.app{
+  --splash-bg-1:#151210; --splash-bg-2:#0d0b09;
+  --splash-marca:#f5a623; --splash-marca-2:#f5a623;
+  --splash-tinta:#f6f1ea; --splash-sub:#b6a897; --splash-trilho:#332c25;
+}
+[data-luz="claro"] .app{
+  --splash-bg-1:#fbf8f3; --splash-bg-2:#efe8dd;
+  --splash-marca:#a8690a; --splash-marca-2:#d98c0a;
+  --splash-tinta:#241d15; --splash-sub:#6b5f50; --splash-trilho:#e4dbcd;
+}

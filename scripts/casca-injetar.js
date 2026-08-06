@@ -51,7 +51,26 @@ const path = require('path');
 const raiz = path.join(__dirname, '..');
 const MOCK = path.join(raiz, 'docs/mockups/logistica2.0/logistica-2.0.html');
 const DESTINO = path.join(raiz, 'EntregaShell/app/src/logistica2/assets/app');
+const CASCAS = path.join(raiz, 'docs/mockups/logistica2.0/cascas');
 const fonte = fs.readFileSync(MOCK, 'utf8');
+
+// --------------------------------------------------------------------------
+// QUAL CASCA? `--casca <nome>` lê `cascas/<nome>.css` e a gruda no FIM da folha.
+// A casca só REDECLARA token (mesma especificidade, mais tarde ⇒ vence). Ela
+// não conhece tela nenhuma: é por isso que trocar de casca não reescreve tela.
+// Sem `--casca`, sai a padrão — os tokens do próprio mock, byte a byte.
+// --------------------------------------------------------------------------
+const iCasca = process.argv.indexOf('--casca');
+const nomeCasca = iCasca > -1 ? process.argv[iCasca + 1] : null;
+let folhaCasca = '';
+if (nomeCasca) {
+  const arq = path.join(CASCAS, `${nomeCasca}.css`);
+  if (!fs.existsSync(arq)) {
+    const tem = fs.existsSync(CASCAS) ? fs.readdirSync(CASCAS).map((f) => f.replace(/\.css$/, '')).join(', ') : '(nenhuma)';
+    throw new Error(`[casca] não existe a casca "${nomeCasca}". Disponíveis: ${tem}`);
+  }
+  folhaCasca = fs.readFileSync(arq, 'utf8');
+}
 
 /** Falha ALTA: front pela metade abre e engana. */
 function fatiar(de, ate, nome) {
@@ -151,7 +170,11 @@ const aviso = (nome) => `/* ====================================================
    ========================================================================== */
 `;
 
-fs.writeFileSync(path.join(DESTINO, 'mock.css'), aviso('FOLHA DO MOCK') + css);
+// A casca entra por ÚLTIMO: ela só redeclara token, nunca toca em tela.
+const folhaFinal = css + (folhaCasca
+  ? `\n/* ==== CASCA "${nomeCasca}" — docs/mockups/logistica2.0/cascas/${nomeCasca}.css ==== */\n${folhaCasca}`
+  : '');
+fs.writeFileSync(path.join(DESTINO, 'mock.css'), aviso('FOLHA DO MOCK') + folhaFinal);
 fs.writeFileSync(path.join(DESTINO, 'mock.js'), aviso('SCRIPT DO MOCK') + js);
 
 fs.writeFileSync(path.join(DESTINO, 'index.html'), `<!doctype html>
@@ -173,7 +196,8 @@ fs.writeFileSync(path.join(DESTINO, 'index.html'), `<!doctype html>
 `);
 
 const telas = [...fonte.matchAll(/^T\.([a-z0-9]+)=\{nome:'([^']+)'/gm)];
-console.log(`[casca] mock.css : ${css.split('\n').length} linhas`);
+console.log(`[casca] casca    : ${nomeCasca || 'padrão (tokens do próprio mock)'}`);
+console.log(`[casca] mock.css : ${folhaFinal.split('\n').length} linhas`);
 console.log(`[casca] mock.js  : ${js.split('\n').length} linhas`);
 console.log(`[casca] telas    : ${telas.length}`);
 console.log('[casca] cromo do visualizador fora; caixa virou tela; script em arquivo (CSP)');

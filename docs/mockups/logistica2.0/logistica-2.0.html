@@ -100,6 +100,10 @@ button,input{font:inherit;color:inherit}
   --danger-ico:#ff6b6b;
   --danger-btn:#8f2d2d;
   --barra-trilho:#1b2a45;
+  /* abertura — F1 leva 5 (a 1ª tela também é da casca) */
+  --splash-bg-1:#0a1020; --splash-bg-2:#070c18;
+  --splash-marca:#9ede2a; --splash-marca-2:#9ede2a;
+  --splash-tinta:#fff; --splash-sub:#93a3bf; --splash-trilho:#1b2a45;
   --logo-sub:#dbe4f2;
   /* O mapa também é pele: sem token aqui ele fica escuro no tema claro — e
      mapa que não acompanha o tema é o buraco clássico da troca de pele. */
@@ -300,7 +304,7 @@ button,input{font:inherit;color:inherit}
   animation:spBatida .62s var(--cv-mola) 2.55s both}
 @keyframes spBatida{0%{transform:scale(1)}38%{transform:scale(1.028)}100%{transform:scale(1)}}
 .splash-anel{position:absolute;top:2px;left:50%;margin-left:-59px;width:118px;height:118px;border-radius:50%;
-  border:1px solid var(--lime);pointer-events:none;animation:spAnel 1.05s ease-out 1.46s both}
+  border:1px solid var(--splash-marca-2);pointer-events:none;animation:spAnel 1.05s ease-out 1.46s both}
 @keyframes spAnel{from{opacity:.6;transform:scale(.3)}to{opacity:0;transform:scale(2.4)}}
 
 .splash-logo{position:relative;display:flex;flex-direction:column;align-items:center;line-height:1;will-change:transform}
@@ -311,7 +315,7 @@ button,input{font:inherit;color:inherit}
 /* O glifo do X ACENDE no lugar das hastes (sem escala nem giro): a forma já
    está na tela, o que muda é quem a desenha. Salto de tamanho aqui delataria
    que são duas peças diferentes. */
-.splash-logo .w em{color:var(--lime);font-style:normal;font-weight:600;font-size:52px;
+.splash-logo .w em{color:var(--splash-marca);font-style:normal;font-weight:600;font-size:52px;
   display:inline-block;transform:skewX(-8deg);animation:spAcende .5s ease-out 1.5s both}
 @keyframes spAcende{from{opacity:0}to{opacity:1}}
 .splash-brilho{position:absolute;top:-25%;left:-45%;width:26%;height:150%;pointer-events:none;
@@ -322,7 +326,7 @@ button,input{font:inherit;color:inherit}
   animation:spLetras .85s var(--cv-entra) 2.05s both}
 .splash-empresa{margin-top:26px;font-size:13px;color:var(--ink-2);animation:spSobe .55s var(--cv-entra) 2.35s both}
 .splash-barra{width:96px;height:2px;background:var(--barra-trilho);border-radius:2px;overflow:hidden;margin-top:16px}
-.splash-barra i{display:block;height:100%;background:var(--lime);transform-origin:left;
+.splash-barra i{display:block;height:100%;background:var(--splash-marca);transform-origin:left;
   box-shadow:0 0 8px rgba(158,222,42,.8);animation:spCarrega 2.6s var(--cv-entra) .6s both}
 @keyframes spSobe{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
 @keyframes spLetras{from{opacity:0;letter-spacing:18px}to{opacity:1;letter-spacing:9px}}
@@ -1215,6 +1219,9 @@ button,input{font:inherit;color:inherit}
   --lime:#3f7a00; --lima-viva:#8fd626;
   --blue:#1257c8; --blue-l:#1257c8; --amber:#8a5200; --purple:#6d28d9; --red:#c0201b;
   --lime-bg:#f0f8e4; /* F1 leva 3: cobertura 5/5 medida */
+  --splash-bg-1:#f7f9fc; --splash-bg-2:#e9eef6;
+  --splash-marca:#5a9c10; --splash-marca-2:#7bc020;
+  --splash-tinta:#0f1726; --splash-sub:#55637d; --splash-trilho:#d5dded;
   background:linear-gradient(180deg,var(--bg-2),var(--bg) 34%);
   color:var(--ink);
 }
@@ -1304,7 +1311,7 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .chave.on i{background:#1e3406}
 [data-luz="claro"] .dia-bar .trilho,[data-luz="claro"] .prog-b{background:#e2e8f2}
 [data-luz="claro"] .dia-bar .trilho i,[data-luz="claro"] .prog-b i,
-[data-luz="claro"] .splash-barra i{background:linear-gradient(90deg,#5a9c10,#7bc020)}
+[data-luz="claro"] .splash-barra i{background:linear-gradient(90deg,var(--splash-marca),var(--splash-marca-2))}
 [data-luz="claro"] .perna span{background:var(--bg);border-color:var(--line-2);color:var(--ink-2)}
 /* Fundos escuros cravados que ficaram pra trás na 1ª passada — cada um destes
    era uma caixa preta no meio da tela clara. Achados pela varredura, não a olho. */
@@ -1348,9 +1355,9 @@ button,input{font:inherit;color:inherit}
 /* 2. Brilho vira sombra. */
 [data-luz="claro"] .gps-puck .gps-seta{filter:drop-shadow(0 2px 5px rgba(15,23,38,.35))}
 [data-luz="claro"] .splash-barra i{box-shadow:none}
-[data-luz="claro"] .splash-xis line{filter:drop-shadow(0 1px 3px rgba(63,122,0,.35));stroke:#5a9c10}
+[data-luz="claro"] .splash-xis line{filter:drop-shadow(0 1px 3px rgba(63,122,0,.35));stroke:var(--splash-marca)}
 [data-luz="claro"] .splash-flash{background:radial-gradient(circle,rgba(122,192,32,.5),rgba(122,192,32,0) 68%)}
-[data-luz="claro"] .splash-anel{border-color:#7bc020}
+[data-luz="claro"] .splash-anel{border-color:var(--splash-marca-2)}
 [data-luz="claro"] .gravando .bola{background:#c0201b}
 
 /* 3. Fundos de estado — tinta clara, borda visível. */
@@ -1418,13 +1425,13 @@ button,input{font:inherit;color:inherit}
 }
 [data-luz="claro"] .gps{background:#e8edf5}
 [data-luz="claro"] .gps-horizonte{background:linear-gradient(180deg,#e8edf5 22%,rgba(232,237,245,.72) 58%,transparent)}
-[data-luz="claro"] .splash{background:linear-gradient(180deg,#f7f9fc,#e9eef6)}
+[data-luz="claro"] .splash{background:linear-gradient(180deg,var(--splash-bg-1),var(--splash-bg-2))}
 [data-luz="claro"] .splash-fundo{background:radial-gradient(430px 330px at 50% 44%,rgba(47,126,247,.12),transparent 70%)}
-[data-luz="claro"] .splash-logo .w b{color:#0f1726}
-[data-luz="claro"] .splash-logo .w em{color:#5a9c10}
-[data-luz="claro"] .splash-logo small,[data-luz="claro"] .splash-empresa{color:#55637d}
+[data-luz="claro"] .splash-logo .w b{color:var(--splash-tinta)}
+[data-luz="claro"] .splash-logo .w em{color:var(--splash-marca)}
+[data-luz="claro"] .splash-logo small,[data-luz="claro"] .splash-empresa{color:var(--splash-sub)}
 [data-luz="claro"] .splash-brilho{background:linear-gradient(90deg,transparent,rgba(15,23,38,.10),transparent)}
-[data-luz="claro"] .splash-barra{background:#d5dded}
+[data-luz="claro"] .splash-barra{background:var(--splash-trilho)}
 </style>
 </head>
 <body>
