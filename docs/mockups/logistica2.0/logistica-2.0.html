@@ -1,0 +1,1003 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HBX Logística 2.0 — front novo</title>
+<style>
+/* ==========================================================================
+   HBX LOGÍSTICA 2.0 — front NOVO, desenhado a partir das imagens de referência
+   de docs/mockups/logistica2.0. Nada aqui reaproveita o app atual.
+
+   DENSIDADE: o app é desenhado em 400x900 (medida lógica de celular) e o
+   quadro inteiro é ampliado por `zoom` — o texto continua vetorial, então
+   ganha resolução sem virar zoom de imagem. É isso que faz caber a MESMA
+   quantidade de linhas das fotos (9 a 10 paradas + rodapé + botões).
+   ========================================================================== */
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{
+  background:#06090f;color:#e8eefb;overflow:hidden;display:flex;flex-direction:column;
+  font-family:Inter,"SF Pro Display","Segoe UI",system-ui,-apple-system,sans-serif;
+  -webkit-font-smoothing:antialiased;
+}
+button,input{font:inherit;color:inherit}
+
+/* ---------- cromo do documento ---------- */
+.doc-top{display:flex;align-items:center;gap:16px;padding:10px 18px;border-bottom:1px solid #141c2c;background:#0a0f18}
+.doc-top h1{margin:0;font-size:14px;font-weight:500}
+.doc-top h1 small{display:block;font-size:11px;font-weight:400;color:#7b89a5;margin-top:2px}
+.doc-top .sp{flex:1}
+.seg{display:flex;gap:3px;background:#080d16;border:1px solid #17203200;border-color:#172032;border-radius:9px;padding:3px}
+.seg button{border:0;background:transparent;color:#8496b3;padding:5px 10px;border-radius:7px;font-size:12px;cursor:pointer}
+.seg button.on{background:#182644;color:#fff}
+.doc-body{flex:1;display:flex;min-height:0}
+.rail{width:214px;flex:0 0 214px;border-right:1px solid #141c2c;background:#0a0f18;padding:12px 9px;overflow:auto}
+.rail h2{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:#5d6b86;margin:14px 8px 5px}
+.rail h2:first-child{margin-top:0}
+.rail button{width:100%;display:flex;align-items:center;gap:8px;text-align:left;border:0;background:transparent;
+  color:#c3cee2;padding:8px 9px;border-radius:8px;cursor:pointer;font-size:12.5px}
+.rail button:hover{background:#121b2b}
+.rail button.on{background:#132038;color:#fff;box-shadow:inset 0 0 0 1px #1f3255}
+.rail button i{width:6px;height:6px;border-radius:50%;background:#2c3c5c;flex:0 0 6px}
+.rail button.on i{background:#9ede2a}
+.stage{flex:1;display:flex;align-items:flex-start;justify-content:center;padding:18px;overflow:auto;
+  background:radial-gradient(800px 500px at 50% 0%,rgba(47,126,247,.09),transparent 70%)}
+
+/* ==========================================================================
+   O CELULAR — 400x900 lógico, ampliado por zoom (padrão 1.7)
+   ========================================================================== */
+.phone{
+  width:426px;height:954px;flex:0 0 426px;position:relative;padding:7px;border-radius:44px;
+  zoom:var(--z,1.7);
+  background:linear-gradient(150deg,#3a4356,#12161f 55%,#2a3140);
+  box-shadow:0 18px 46px rgba(0,0,0,.65),0 0 0 1px rgba(255,255,255,.05);
+}
+.app{
+  position:relative;width:412px;height:940px;border-radius:38px;overflow:hidden;
+  display:flex;flex-direction:column;
+
+  --bg:#080d17; --bg-2:#0a1120; --card:#0d1626; --line:#1a2740; --line-2:#26375a;
+  --ink:#eef3fb; --ink-2:#93a3bf; --ink-3:#7889a6;
+  --lime:#9ede2a; --blue:#2f7ef7; --blue-l:#5b9dff; --amber:#f5a524; --purple:#a855f7;
+
+  background:radial-gradient(560px 300px at 50% -8%,rgba(47,126,247,.10),transparent 70%),
+             linear-gradient(180deg,var(--bg-2),var(--bg) 34%);
+  color:var(--ink);font-size:13px;
+
+  /* TIPOGRAFIA PREMIUM — fonte VARIÁVEL (Segoe UI Variable no Windows, SF no
+     Mac): dá peso 300/350/450 de verdade, sem engrossar sintético. A hierarquia
+     vem de TAMANHO e COR, nunca de negrito — é isso que tira o ar de "letra
+     grossa". `font-synthesis:none` proíbe o navegador de fabricar bold falso. */
+  font-family:"Segoe UI Variable Display","Segoe UI Variable Text",Inter,
+              "SF Pro Display","Segoe UI",system-ui,-apple-system,sans-serif;
+  font-weight:350;
+  font-optical-sizing:auto;
+  font-synthesis:none;
+  letter-spacing:.002em;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+/* Negrito do navegador (700) é o que dava o "soco" na leitura. Dentro do app
+   NENHUM texto passa de 500 — inclusive <b> e <strong>, que vinham 700 de
+   fábrica. Peso alto fica só no logotipo, que é marca, não texto. */
+.app b,.app strong{font-weight:500}
+.app h2{font-weight:400;letter-spacing:-.018em}
+.app .v,.app .eta b,.app .price,.app .form-c.total b{letter-spacing:-.02em}
+.notch{position:absolute;top:8px;left:50%;transform:translateX(-50%);width:104px;height:28px;background:#000;border-radius:16px;z-index:60}
+.notch::after{content:"";position:absolute;right:11px;top:9px;width:9px;height:9px;border-radius:50%;
+  background:radial-gradient(circle at 35% 35%,#22314d,#05070c 70%)}
+
+/* barra de status */
+.status{height:40px;flex:0 0 40px;display:flex;align-items:center;justify-content:space-between;
+  padding:0 20px;font-size:12.5px;font-weight:500;letter-spacing:.2px;z-index:50}
+.status .right{display:flex;align-items:center;gap:5px}
+.bars{display:flex;align-items:flex-end;gap:1.6px;height:9px}
+.bars i{width:2.4px;background:#fff;border-radius:1px}
+.bars i:nth-child(1){height:3.4px}.bars i:nth-child(2){height:5px}
+.bars i:nth-child(3){height:7px}.bars i:nth-child(4){height:9px}
+.batt{width:19px;height:9.5px;border:1.2px solid rgba(255,255,255,.85);border-radius:3px;position:relative}
+.batt::before{content:"";position:absolute;inset:1.3px;background:#fff;border-radius:1.2px}
+.batt::after{content:"";position:absolute;right:-2.8px;top:2.8px;width:1.7px;height:3.8px;background:rgba(255,255,255,.6);border-radius:0 2px 2px 0}
+
+/* ---------- cabeçalho ---------- */
+.hdr{padding:0 13px 8px;flex:0 0 auto;position:relative;z-index:40}
+.hdr-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.round{width:35px;height:35px;border-radius:50%;border:.7px solid var(--line);background:#101a2c;
+  display:grid;place-items:center;cursor:pointer;position:relative;color:var(--ink);flex:0 0 35px}
+.round.sm{width:30px;height:30px;flex:0 0 30px}
+.round .ping{position:absolute;top:0;right:0;width:7px;height:7px;border-radius:50%;background:var(--blue);border:1.5px solid var(--bg)}
+.round .cnt{position:absolute;top:-3px;right:-3px;min-width:17px;height:17px;padding:0 4px;border-radius:9px;
+  background:var(--blue);color:#fff;font-size:10px;font-weight:500;display:grid;place-items:center;border:1.5px solid var(--bg)}
+.logo{display:flex;flex-direction:column;align-items:center;line-height:1}
+.logo .w{font-size:22px;font-weight:600;letter-spacing:.4px}
+.logo .w b{color:#fff;font-weight:600}
+.logo .w em{color:var(--lime);font-style:normal;font-weight:600;font-size:25px;display:inline-block;transform:skewX(-8deg)}
+.logo small{font-size:7.5px;letter-spacing:4px;color:#dbe4f2;margin-top:3px;padding-left:4px}
+.hdr .sub{text-align:center;font-size:12.5px;color:var(--ink-2);margin-top:4px}
+.pill-live{display:flex;align-items:center;gap:6px;padding:8px 13px;border-radius:999px;
+  background:#101a2c;border:.7px solid var(--line);font-size:12.5px}
+.pill-live i{width:7px;height:7px;border-radius:50%;background:var(--lime);box-shadow:0 0 7px var(--lime)}
+
+/* ---------- corpo ---------- */
+.body{flex:1;min-height:0;overflow:auto;padding:0 11px 64px;scrollbar-width:none;position:relative;z-index:20}
+.body::-webkit-scrollbar{display:none}
+.body.flush{padding:0 0 64px}
+
+/* ---------- KPIs ---------- */
+.kpis{display:flex;gap:7px;margin-top:2px}
+.kpi{flex:1;background:var(--card);border:.7px solid var(--line);border-radius:12px;padding:8px 9px;
+  display:flex;align-items:center;gap:8px;min-width:0}
+.kpi .v{font-size:17px;font-weight:500;line-height:1.05}
+.kpi .l{font-size:10.5px;color:var(--ink-2);margin-top:1px}
+.kpi.money{flex-direction:column;align-items:stretch;gap:1px;position:relative;justify-content:center}
+.kpi.money .l{font-size:11.5px}
+.kpi.money .v{font-size:16px;color:var(--lime)}
+.kpi.money .go{position:absolute;right:8px;top:50%;transform:translateY(-50%);color:var(--ink-2)}
+.kpi.split{flex-direction:column;align-items:stretch;gap:5px;padding:7px 9px}
+.kpi.split .ln{display:flex;align-items:center;gap:6px}
+.kpi.split .ln:first-child{border-bottom:.7px solid var(--line);padding-bottom:5px}
+.kpi.split .ln .t{font-size:11.5px;font-weight:500;line-height:1.1}
+.kpi.split .ln .m{font-size:10.5px;color:var(--ink-2)}
+
+/* ---------- barra de seção ---------- */
+.bar{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:6px;
+  background:var(--card);border:.7px solid var(--line);border-radius:12px;padding:7px 10px}
+.bar .t{display:flex;align-items:center;gap:8px;font-size:13.5px}
+.ghost{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:9px;
+  border:.7px solid var(--line-2);background:transparent;color:var(--ink);font-size:11.5px;cursor:pointer}
+
+/* ---------- linha de parada ---------- */
+.stops{margin-top:4px;display:flex;flex-direction:column}
+.stop{display:grid;grid-template-columns:10px 40px minmax(0,1fr) auto;gap:7px;align-items:start;
+  padding:4px;border-bottom:.6px solid rgba(26,39,64,.95);position:relative}
+.stop.on{background:#0f1c31;border-radius:10px}
+.stop.on::before{content:"";position:absolute;left:0;top:6px;bottom:6px;width:2.5px;border-radius:2px;background:var(--blue)}
+.grip{width:9px;height:14px;margin-top:9px;color:#3b4c6d;
+  background-image:radial-gradient(currentColor 1.05px,transparent 1.15px);background-size:4.5px 4.5px}
+.numwrap{display:flex;flex-direction:column;align-items:center;gap:3px}
+.num{width:33px;height:33px;border-radius:50%;display:grid;place-items:center;font-size:14px;font-weight:400;
+  border:1.1px solid var(--blue);color:#fff;background:#0f1c31}
+.num.lime{border-color:var(--lime);background:#16220e}
+.num.off{border-color:#31415e;background:transparent;color:var(--ink-2);box-shadow:none}
+.hh{font-size:10px;color:var(--blue-l)}
+.hh.lime{color:var(--lime)}
+.hh.off{color:var(--ink-3)}
+.who{min-width:0;overflow-wrap:anywhere}
+.who strong{display:block;font-size:13.5px;font-weight:500;line-height:1.26;letter-spacing:-.008em}
+.who span{display:block;font-size:11px;color:var(--ink-2);line-height:1.36}
+.tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:3px}
+.tag{font-size:10px;padding:2px 6px;border-radius:6px;border:.7px solid var(--line-2);color:var(--ink-2);white-space:nowrap}
+.tag.blue{border-color:#2b5490;color:var(--blue-l);background:#0e1c31}
+.tag.lime{border-color:#4d6b1c;color:var(--lime);background:#151f0d}
+.side{display:flex;flex-direction:column;gap:5px;align-items:stretch;min-width:96px}
+.marc{border:.7px solid var(--line-2);border-radius:8px;padding:4px 8px;background:var(--card)}
+.marc small{display:block;font-size:10px;color:var(--ink-2)}
+.marc b{display:block;font-size:13.5px;color:var(--lime);font-weight:500;margin-top:1px}
+.pill{display:flex;align-items:center;justify-content:center;gap:5px;padding:6px 9px;border-radius:8px;
+  font-size:11.5px;font-weight:500;border:1px solid transparent;white-space:nowrap}
+.pill.blue{background:#12253f;border-color:#2b5490;color:var(--blue-l)}
+.pill.lime{background:#17230e;border-color:#4d6b1c;color:var(--lime)}
+.pill.amber{background:#2a1e0b;border-color:#7a5411;color:var(--amber)}
+.pill.mute{background:var(--card);border-color:var(--line-2);color:var(--ink-2)}
+
+/* ---------- rodapé de resumo ---------- */
+.sum{display:flex;align-items:center;background:var(--card);border:.7px solid var(--line);
+  border-radius:12px;padding:8px 4px;margin-top:6px}
+.sum .c{flex:1;display:flex;align-items:center;gap:7px;justify-content:center;border-right:.7px solid var(--line)}
+.sum .c:last-of-type{border-right:0}
+.sum .c b{display:block;font-size:13.5px;font-weight:500}
+.sum .c small{display:block;font-size:10.5px;color:var(--ink-2)}
+.sum .go{padding:0 6px;color:var(--ink-2)}
+
+/* ---------- ações ---------- */
+.acts{display:flex;gap:7px;margin-top:7px}
+.act{flex:1;display:flex;align-items:center;gap:9px;padding:10px 11px;border-radius:12px;cursor:pointer;
+  border:.7px solid var(--line);background:var(--card);color:var(--ink);text-align:left}
+.act b{display:block;font-size:13px;font-weight:500;line-height:1.15}
+.act small{display:block;font-size:10.5px;color:var(--ink-2);margin-top:1px}
+/* Botão principal: verde vivo com TEXTO BRANCO, como nas fotos. Ver a nota de
+   contraste no fim do arquivo — é a única peça do mock em que a foto e a régua
+   de legibilidade discordam, e a escolha é do dono. */
+.act.go{background:linear-gradient(180deg,#8fd626,#68b019);border:0;color:#fff;box-shadow:0 7px 18px rgba(122,190,30,.26)}
+.act.go b,.act.go small{color:#fff}
+.act.go b{font-weight:500}
+.act.go small{opacity:.9}
+/* A alternativa: mesma cor de fundo, tinta escura. Branco na foto mede 1,8:1;
+   a tinta escura mede 8,6:1. Toque no seletor do topo pra comparar na tela. */
+[data-cta="escuro"] .act.go{color:#12200a}
+[data-cta="escuro"] .act.go b,[data-cta="escuro"] .act.go small{color:#12200a}
+[data-cta="escuro"] .act.go small{opacity:.72}
+.act.wide{flex:1.15}
+.act.full{width:100%}
+.act .chev{margin-left:auto;opacity:.65}
+
+/* ---------- navegação ---------- */
+.nav{position:absolute;left:0;right:0;bottom:0;height:62px;display:grid;grid-template-columns:repeat(4,1fr);
+  align-items:center;padding:0 5px 9px;z-index:45;
+  background:var(--bg);border-top:.7px solid var(--line)}
+.nav button{border:0;background:transparent;color:var(--ink-3);display:flex;flex-direction:column;align-items:center;
+  gap:3px;padding:7px 0 4px;font-size:10px;cursor:pointer;border-radius:12px;position:relative;margin-top:8px}
+.nav button.on{color:var(--lime);background:#182642}
+.nav button.on .ping{position:absolute;top:4px;right:22%;width:6px;height:6px;border-radius:50%;background:var(--blue)}
+
+/* ---------- mapa ---------- */
+.mapwrap{position:absolute;inset:0;z-index:10}
+.mapwrap svg{width:100%;height:100%;display:block}
+.map-float{position:absolute;left:12px;z-index:30}
+.map-chip{display:flex;align-items:center;gap:9px;padding:8px 12px;border-radius:12px;
+  background:#0b1322;border:.7px solid var(--line)}
+.map-chip .d{display:flex;align-items:center;gap:7px}
+.map-chip small{display:block;font-size:10.5px;color:var(--ink-2)}
+.map-chip b{display:block;font-size:12.5px;font-weight:500}
+.map-chip .vr{width:1px;height:20px;background:var(--line)}
+.map-ctrl{position:absolute;right:12px;display:flex;flex-direction:column;gap:8px;z-index:30}
+.map-ctrl button{width:40px;height:40px;border-radius:50%;border:.7px solid var(--line);background:#0b1322;
+  color:var(--blue-l);display:grid;place-items:center;cursor:pointer}
+.next-card{position:absolute;left:9px;right:9px;bottom:72px;z-index:35;border-radius:15px;padding:11px 12px;
+  background:#0d1626;border:.7px solid var(--line);display:flex;align-items:center;gap:10px}
+.next-card .handle{position:absolute;top:5px;left:50%;transform:translateX(-50%);width:36px;height:3px;border-radius:2px;background:#2b3a58}
+.next-card .info{flex:1;min-width:0;padding-top:3px}
+.next-card .lb{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--lime);margin-bottom:2px}
+.next-card .lb .n{width:19px;height:19px;border-radius:50%;border:.9px solid var(--lime);display:grid;place-items:center;font-size:10px}
+.next-card strong{display:block;font-size:15px;font-weight:500;line-height:1.2}
+.next-card span{display:block;font-size:10.5px;color:var(--ink-2);margin-top:1px}
+.next-card .eta{padding:0 9px;border-left:.7px solid var(--line)}
+.next-card .eta small{display:block;font-size:10px;color:var(--blue-l)}
+.next-card .eta b{display:block;font-size:17px;font-weight:500;line-height:1.2}
+.next-card .eta i{display:block;font-size:10.5px;color:var(--ink-2);font-style:normal}
+.btn-blue{display:flex;align-items:center;gap:7px;padding:11px 15px;border-radius:12px;border:0;cursor:pointer;
+  background:linear-gradient(180deg,#3d8bff,#1f66e0);color:#fff;font-size:13px;font-weight:500;
+  box-shadow:0 7px 18px rgba(47,126,247,.3)}
+
+/* ---------- folha ---------- */
+.scrim{position:absolute;inset:0;background:rgba(3,7,14,.72);z-index:40}
+.sheet{position:absolute;left:0;right:0;bottom:0;z-index:41;border-radius:22px 22px 0 0;
+  background:linear-gradient(180deg,#0f1a2c,#0a1120 30%);border:.7px solid var(--line);border-bottom:0;
+  padding:10px 12px 72px;max-height:88%;overflow:auto;scrollbar-width:none;box-shadow:0 -18px 44px rgba(0,0,0,.6)}
+.sheet::-webkit-scrollbar{display:none}
+.sheet .handle{width:36px;height:3px;border-radius:2px;background:#2b3a58;margin:0 auto 10px}
+.sheet-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
+.sheet-head h2{margin:0;font-size:21px;font-weight:500;letter-spacing:-.3px}
+.sheet-head p{margin:2px 0 0;font-size:12px;color:var(--ink-2)}
+.box{background:var(--card);border:.7px solid var(--line);border-radius:13px;padding:10px}
+.box+.box{margin-top:8px}
+.box-t{font-size:13.5px;font-weight:500}
+.box-s{font-size:11px;color:var(--ink-2);margin-top:1px}
+.thumb{width:56px;height:56px;border-radius:11px;background:linear-gradient(160deg,#12305f,#0a1a33);
+  border:1px solid #1d3a6b;display:grid;place-items:center;flex:0 0 56px;color:var(--blue-l)}
+.pays{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px}
+.pay{display:flex;align-items:center;gap:8px;padding:10px;border-radius:11px;cursor:pointer;text-align:left;
+  border:.7px solid var(--line-2);background:#0b1424;color:var(--ink);position:relative}
+.pay b{display:block;font-size:13px;font-weight:500}
+.pay small{display:block;font-size:10px;color:var(--ink-2);margin-top:1px}
+.pay.sel{border-color:var(--lime);background:#141f0c}
+.pay.sel .ok{position:absolute;top:8px;right:8px;color:var(--lime)}
+.pay.blue{border-color:rgba(47,126,247,.5)}
+.rowline{display:flex;align-items:center;justify-content:space-between;padding:9px 0;font-size:12.5px}
+.rowline+.rowline{border-top:1px dashed var(--line-2)}
+.rowline b{color:var(--lime);font-size:13.5px;font-weight:500}
+.foot2{display:grid;grid-template-columns:1.1fr .9fr;gap:8px;margin-top:10px}
+
+/* ---------- fechamento ---------- */
+.forms{display:flex;background:var(--card);border:.7px solid var(--line);border-radius:12px;overflow:hidden}
+.form-c{flex:1;padding:9px 4px;text-align:center;border-right:.7px solid var(--line)}
+.form-c:last-child{border-right:0}
+.form-c small{display:block;font-size:10.5px;color:var(--ink-2);margin-top:4px}
+.form-c b{display:block;font-size:12.5px;font-weight:500;margin-top:1px}
+.form-c.total{background:#141f0c}
+.form-c.total b{color:var(--lime);font-size:15px}
+
+/* ---------- progresso ---------- */
+.prog{background:var(--card);border:.7px solid var(--line);border-radius:12px;padding:9px 11px;margin-top:8px}
+.prog-l{display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink-2)}
+.prog-l b{color:var(--lime)}
+.prog-b{height:5px;border-radius:3px;background:#182741;margin-top:7px;overflow:hidden}
+.prog-b i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#74b81b,#a4e42f)}
+
+/* ---------- busca / chips ---------- */
+.searchrow{display:flex;gap:7px;margin-top:7px}
+.search{flex:1;display:flex;align-items:center;gap:8px;height:38px;padding:0 12px;border-radius:12px;
+  background:var(--card);border:.7px solid var(--line);color:var(--ink-3)}
+.search input{flex:1;border:0;background:transparent;outline:0;font-size:13px;color:var(--ink)}
+.filt{width:38px;height:38px;border-radius:12px;background:var(--card);border:.7px solid var(--line);
+  display:grid;place-items:center;color:var(--ink-2);cursor:pointer}
+.chips{display:flex;gap:6px;margin-top:9px;overflow:auto;padding-bottom:2px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{padding:8px 13px;border-radius:10px;border:.7px solid var(--line-2);background:transparent;
+  color:var(--ink);font-size:12.5px;white-space:nowrap;cursor:pointer}
+.chip.on{border-color:var(--lime);color:var(--lime);background:#141f0c}
+
+/* ---------- título de tela ---------- */
+.screen-head{display:flex;align-items:center;gap:10px;margin:2px 0 0}
+.screen-head h2{margin:0;font-size:21px;font-weight:500;letter-spacing:-.3px}
+.screen-head p{margin:1px 0 0;font-size:11.5px;color:var(--ink-2)}
+
+/* ---------- produto ---------- */
+.prod{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:8px 2px;
+  border-bottom:.6px solid rgba(26,39,64,.95)}
+.prod .nm{font-size:14px;font-weight:500}
+.prod .st{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-2);margin-top:3px}
+.price{position:relative;border:.9px solid var(--lime);border-radius:9px;padding:7px 12px;
+  color:var(--lime);font-size:15px;font-weight:400;background:#111a10}
+.price::after{content:"";position:absolute;left:50%;bottom:-5px;transform:translateX(-50%) rotate(45deg);
+  width:8px;height:8px;background:#0a1120;border-right:.9px solid var(--lime);border-bottom:.9px solid var(--lime)}
+
+/* ---------- rotas salvas ---------- */
+.rowcard{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:9px;align-items:center;
+  background:var(--card);border:.7px solid var(--line);border-radius:12px;padding:6px 9px;margin-bottom:5px;cursor:pointer}
+.rowcard .ico{width:36px;height:36px;border-radius:10px;background:#0e1c31;
+  border:.7px solid var(--line-2);display:grid;place-items:center;color:var(--blue-l)}
+.rowcard .ico.lime{background:#151f0d;color:var(--lime)}
+.rowcard strong{display:block;font-size:13px;font-weight:500}
+.rowcard span{display:block;font-size:10px;color:var(--ink-2)}
+.rowcard .meta{display:flex;gap:9px;margin-top:2px;font-size:10px;color:var(--ink-2)}
+.rowcard .meta i{font-style:normal;display:inline-flex;align-items:center;gap:4px}
+.rowcard .rgt{text-align:right}
+.rowcard .rgt small{display:block;font-size:10.5px;color:var(--ink-2)}
+.rowcard .rgt b{display:block;font-size:13.5px;color:var(--lime);font-weight:500;margin-top:1px}
+.mini-acts{display:flex;gap:9px;align-items:center;padding-left:8px;border-left:.7px solid var(--line)}
+.mini{display:flex;flex-direction:column;align-items:center;gap:2px;font-size:9.5px;color:var(--ink-2);cursor:pointer}
+.mini .c{color:var(--blue-l)}
+
+/* ---------- semana ---------- */
+.week{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:8px;align-items:center;
+  background:var(--card);border:.7px solid var(--line);border-radius:12px;padding:9px;margin-bottom:7px}
+.week .d strong{display:block;font-size:13px;font-weight:500}
+.week .d span{display:block;font-size:10.5px;color:var(--ink-2)}
+.week .q i{display:flex;align-items:center;gap:5px;font-size:10.5px;color:var(--ink-2);font-style:normal}
+.week .q i+i{margin-top:3px}
+.week .r small{display:block;font-size:10.5px;color:var(--ink-2)}
+.week .r b{display:block;font-size:13px;color:var(--lime);font-weight:500}
+.week .mk{border:1px solid #4d6b1c;background:#111a0c;border-radius:9px;padding:6px 8px;display:flex;align-items:center;gap:6px}
+.week .mk small{display:block;font-size:10px;color:var(--ink-2)}
+.week .mk b{display:block;font-size:13px;color:var(--lime);font-weight:500}
+
+/* ---------- clientes ---------- */
+.cli{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;
+  padding:8px 2px;border-bottom:.6px solid rgba(26,39,64,.95)}
+.ava{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:500;
+  background:#12253f;border:1px solid #2b5490;color:var(--blue-l)}
+.ava.lime{background:#17230e;border-color:#4d6b1c;color:var(--lime)}
+.cli strong{display:block;font-size:13.5px;font-weight:500}
+.cli span{display:block;font-size:11px;color:var(--ink-2);margin-top:1px}
+.cli .rgt small{display:block;font-size:10px;color:var(--ink-2)}
+.cli .rgt b{display:block;font-size:13.5px;color:var(--lime);font-weight:500}
+</style>
+</head>
+<body>
+
+<header class="doc-top">
+  <h1>HBX Logística 2.0<small>front novo · densidade e telas copiadas das imagens de referência</small></h1>
+  <div class="sp"></div>
+  <div class="seg" id="zoom">
+    <button data-z="1.3">1,3×</button><button data-z="1.7" class="on">1,7×</button><button data-z="2.2">2,2×</button>
+  </div>
+  <div class="seg" id="cta">
+    <button data-cta="branco" class="on">Botão: branco (foto)</button><button data-cta="escuro">escuro (legível)</button>
+  </div>
+</header>
+
+<div class="doc-body">
+  <nav class="rail" id="rail"></nav>
+  <main class="stage">
+    <div class="phone" id="phone">
+      <div class="notch"></div>
+      <div class="app" id="app"></div>
+    </div>
+  </main>
+</div>
+
+<script>
+/* ==========================================================================
+   ÍCONES
+   ========================================================================== */
+const I = {
+menu:'<path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+bell:'<path d="M7 17V11a5 5 0 0 1 10 0v6M5.5 17h13M10 20h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+chat:'<path d="M4.5 5.5h15v10h-9l-6 4.5v-14.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+route:'<circle cx="6" cy="18" r="2.6" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="18" cy="6" r="2.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.6 18h5.4a3.4 3.4 0 0 0 0-6.8H10a3.4 3.4 0 0 1 0-6.8h5.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-dasharray="1 3.2"/>',
+check:'<circle cx="12" cy="12" r="8.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.2 12.3l2.6 2.6 5-5.4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>',
+list:'<path d="M4 6.5h.01M4 12h.01M4 17.5h.01M8.5 6.5H20M8.5 12H20M8.5 17.5H20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+map:'<path d="M3.5 6.5l5.5-2.5 6 2.5 5.5-2.5v13.5l-5.5 2.5-6-2.5-5.5 2.5V6.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9 4v13.5M15 6.5V20" fill="none" stroke="currentColor" stroke-width="1.8"/>',
+box:'<path d="M12 3l8 4.3v9.4L12 21l-8-4.3V7.3L12 3z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M4 7.3l8 4.4 8-4.4M12 11.7V21" fill="none" stroke="currentColor" stroke-width="1.8"/>',
+note:'<rect x="6" y="3.5" width="13" height="17" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6 7.5H4M6 12H4M6 16.5H4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M10 8.5h5M10 12.5h5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
+users:'<circle cx="10" cy="8" r="3.3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 19.5c0-3.4 2.7-5.3 6-5.3s6 1.9 6 5.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="17.4" cy="9.4" r="2.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M20.5 18.4c0-2.3-1.1-3.7-3-4.1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
+play:'<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 8.4l6 3.6-6 3.6V8.4z" fill="currentColor"/>',
+nav:'<path d="M20 4L4 10.6l7 2.6 2.4 7L20 4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+clock:'<circle cx="12" cy="12" r="8.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.6V12l3 1.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+alert:'<path d="M12 4l8.5 15h-17L12 4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 10v3.6M12 16.4h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+chev:'<path d="M9.5 5.5L16 12l-6.5 6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+search:'<circle cx="11" cy="11" r="6.3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M15.6 15.6L20 20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+sliders:'<path d="M4 8h9M17 8h3M4 16h3M11 16h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="15" cy="8" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="16" r="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/>',
+cash:'<rect x="2.8" y="6" width="18.4" height="12" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M6 9.5v5M18 9.5v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+pix:'<path d="M12 3.6l3.4 3.4H8.6L12 3.6zM3.6 12L7 8.6v6.8L3.6 12zM20.4 12L17 15.4V8.6L20.4 12zM12 20.4L8.6 17h6.8L12 20.4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>',
+card:'<rect x="3" y="6" width="18" height="12" rx="2.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3 10.2h18" stroke="currentColor" stroke-width="1.8"/>',
+lock:'<rect x="4.5" y="10" width="15" height="10" rx="2.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.4 10V7.6a3.6 3.6 0 0 1 7.2 0V10" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10.4 15h3.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+chart:'<path d="M4.5 19V11M9.5 19V5M14.5 19v-5M19.5 19v-9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+receipt:'<path d="M6 3.5h12v17l-2.4-1.6-2.4 1.6-2.4-1.6L8.4 20.5 6 18.9V3.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M9.2 8.5h5.6M9.2 12.2h5.6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
+close:'<path d="M6.5 6.5l11 11M17.5 6.5l-11 11" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>',
+back:'<path d="M20 12H5M11 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+enter:'<path d="M15 4h4v16h-4M12 8l4 4-4 4M4 12h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+copy:'<rect x="8" y="8" width="12" height="12" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" fill="none" stroke="currentColor" stroke-width="1.8"/>',
+dots:'<circle cx="6" cy="12" r="1.6" fill="currentColor"/><circle cx="12" cy="12" r="1.6" fill="currentColor"/><circle cx="18" cy="12" r="1.6" fill="currentColor"/>',
+target:'<circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="2.4" fill="currentColor"/><path d="M12 2.6v2.6M12 18.8v2.6M2.6 12h2.6M18.8 12h2.6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+layers:'<path d="M12 3.5l8.5 4.3-8.5 4.3-8.5-4.3L12 3.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M4 12.4l8 4 8-4M4 16.6l8 4 8-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+plus:'<path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>',
+minus:'<path d="M5 12h14" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>',
+gallon:'<path d="M10 3.5h4v2.2l2.4 1.6c.9.6 1.4 1.6 1.4 2.7v7.6c0 1.6-1.3 2.9-2.9 2.9H9.1A2.9 2.9 0 0 1 6.2 17.6V10c0-1.1.5-2.1 1.4-2.7L10 5.7V3.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8.6 12.4h6.8" stroke="currentColor" stroke-width="1.5"/>',
+edit:'<path d="M4 20h4l10-10-4-4L4 16v4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+flag:'<path d="M6 21V4M6 4h11l-2 3.5L17 11H6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+save:'<path d="M5 5.5h11l3 3V19H5V5.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.5 5.5v4.5h6V5.5M8 19v-4.5h8V19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>',
+spark:'<path d="M12 4l1.6 4.7L18 10.3l-4.4 1.6L12 16.6l-1.6-4.7L6 10.3l4.4-1.6L12 4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M18.5 15.5l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2z" fill="currentColor"/>',
+};
+/* Traço FINO: os ícones nasceram em 1,7–2,6 (grosso demais ao lado de texto
+   leve). Aqui o traço é afinado num ponto só — 0,72 do original — em vez de
+   reescrever 40 desenhos. Ícone e letra passam a ter o mesmo peso na tela. */
+const afinar = svg => svg.replace(/stroke-width="([\d.]+)"/g,(m,w)=>`stroke-width="${(+w*0.72).toFixed(2)}"`);
+const ic=(n,s=18)=>`<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" aria-hidden="true">${afinar(I[n]||'')}</svg>`;
+
+/* ==========================================================================
+   PEÇAS COMUNS
+   ========================================================================== */
+const status = `<div class="status"><span>9:41</span><span class="right">
+  <span class="bars"><i></i><i></i><i></i><i></i></span>
+  <svg viewBox="0 0 24 24" width="13" height="13" fill="none"><path d="M3 9.5a13 13 0 0 1 18 0M6 13a8.6 8.6 0 0 1 12 0M9.4 16.4a3.8 3.8 0 0 1 5.2 0" stroke="#fff" stroke-width="1.35" stroke-linecap="round"/><circle cx="12" cy="19.4" r="1.1" fill="#fff"/></svg>
+  <span class="batt"></span></span></div>`;
+
+const logo = `<div class="logo"><div class="w"><b>HB</b><em>X</em></div><small>LOGÍSTICA</small></div>`;
+
+function hdr(o={}){
+  const dir = o.live
+    ? `<div class="pill-live"><i></i>${o.live}</div>`
+    : `<div style="display:flex;gap:7px">
+        <button class="round">${ic('bell',17)}<i class="cnt">${o.badge||2}</i></button>
+        ${o.semChat?'':`<button class="round">${ic('chat',17)}</button>`}</div>`;
+  return `<header class="hdr"><div class="hdr-row">
+      <button class="round">${ic('menu',18)}<i class="ping"></i></button>${logo}${dir}
+    </div>${o.sub?`<div class="sub">${o.sub}</div>`:''}</header>`;
+}
+
+function nav(ativo){
+  const it=[['caderneta','Caderneta','note'],['clientes','Clientes','users'],['rota','Rota','map'],['produtos','Produtos','box']];
+  return `<nav class="nav">${it.map(([k,l,i])=>
+    `<button data-nav="${k}" class="${ativo===k?'on':''}">${ic(i,20)}<span>${l}</span>${ativo===k?'<i class="ping"></i>':''}</button>`
+  ).join('')}</nav>`;
+}
+
+function stop(o){
+  const cor=o.cor||'blue';
+  return `<div class="stop ${o.on?'on':''}">
+    <span class="grip"></span>
+    <span class="numwrap"><span class="num ${cor==='lime'?'lime':cor==='off'?'off':''}">${o.n}</span>
+      <span class="hh ${cor==='lime'?'lime':cor==='off'?'off':''}">${o.hora}</span></span>
+    <span class="who"><strong>${o.nome}</strong><span>${o.rua}</span><span>${o.bairro}</span>
+      <span class="tags">${(o.tags||[]).map(t=>`<b class="tag ${t[1]||''}">${t[0]}</b>`).join('')}</span></span>
+    <span class="side">
+      ${o.marcado?`<span class="marc"><small>Marcado</small><b>R$ ${o.marcado}</b></span>`:''}
+      ${o.pill?`<span class="pill ${o.pill[1]}">${o.pill[2]?ic(o.pill[2],14):''}${o.pill[0]}</span>`:''}</span>
+  </div>`;
+}
+
+function mapa(){
+  return `<div class="mapwrap"><svg viewBox="0 0 400 900" preserveAspectRatio="xMidYMid slice">
+    <defs>
+      <filter id="gl" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      <filter id="gls" x="-80%" y="-80%" width="260%" height="260%">
+        <feGaussianBlur stdDeviation="8" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      <linearGradient id="carc" x1="232" y1="396" x2="232" y2="470" gradientUnits="userSpaceOnUse">
+        <stop offset="0" stop-color="#5b9dff" stop-opacity=".5"/><stop offset="1" stop-color="#5b9dff" stop-opacity="0"/></linearGradient>
+    </defs>
+    <rect width="400" height="900" fill="#0a1120"/>
+    <path d="M246 160h160v180H246z" fill="#0f2418" opacity=".85"/>
+    <text x="296" y="218" fill="#4b7a52" font-size="10" font-family="Inter">Parque do</text>
+    <text x="296" y="231" fill="#4b7a52" font-size="10" font-family="Inter">Ibirapuera</text>
+    <g stroke="#1b2740" stroke-width="6" opacity=".9" stroke-linecap="round">
+      <path d="M-20 190H420M-20 320H420M-20 460H420M-20 600H420M-20 740H420"/>
+      <path d="M56 -20V920M144 -20V920M232 -20V920M318 -20V920"/></g>
+    <g stroke="#16223a" stroke-width="2.2" opacity=".95">
+      <path d="M-20 120H420M-20 255H420M-20 390H420M-20 530H420M-20 670H420M-20 806H420"/>
+      <path d="M20 -20V920M100 -20V920M188 -20V920M276 -20V920M360 -20V920"/>
+      <path d="M-20 66L420 320M420 66L-20 366"/></g>
+    <!-- TRAÇADO: segue as ruas do desenho, sem cruzar consigo mesmo.
+         Ordem visitada: bandeira → 1 → 2 → 3 (atual) → 4 → 5 → 6. -->
+    <g filter="url(#gl)">
+      <path d="M56 190 H144 V320 H232 V600 H318 V740 H56"
+        fill="none" stroke="#9ede2a" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <g font-family="Inter" font-size="10" fill="#5c6d8c" letter-spacing="1">
+      <text x="14" y="150">SANTO AMARO</text><text x="256" y="286">BROOKLIN</text>
+      <text x="60" y="430">CAMPO BELO</text><text x="300" y="530">MOEMA</text><text x="150" y="800">JABAQUARA</text></g>
+    <g filter="url(#gls)">
+      <circle cx="56" cy="190" r="13" fill="#0d1a2f" stroke="#3d8bff" stroke-width="2.4"/>
+      <path d="M51 185h10v10h-10z" fill="#dbe6f7"/><path d="M51 185h5v5h-5zM56 190h5v5h-5z" fill="#0d1a2f"/></g>
+    ${[[144,190,'1'],[232,320,'2'],[318,600,'4'],[144,740,'5'],[56,740,'6']].map(([x,y,t])=>
+      `<g filter="url(#gl)"><circle cx="${x}" cy="${y}" r="13" fill="#0c1526" stroke="#9ede2a" stroke-width="2.2"/>
+       <text x="${x}" y="${y+4.5}" text-anchor="middle" font-size="12" font-weight="600" fill="#eaf6d5" font-family="Inter">${t}</text></g>`).join('')}
+    <g filter="url(#gls)">
+      <circle cx="232" cy="460" r="28" fill="#9ede2a" opacity=".16"/>
+      <circle cx="232" cy="460" r="19" fill="#0c1526" stroke="#9ede2a" stroke-width="2.6"/>
+      <text x="232" y="466" text-anchor="middle" font-size="16" font-weight="600" fill="#fff" font-family="Inter">3</text></g>
+    <!-- eu, descendo a rua rumo à parada 3 -->
+    <path d="M232 396 l-38 62 h76 z" fill="url(#carc)"/>
+    <g transform="translate(232 396) rotate(180)">
+      <rect x="-11" y="-17" width="22" height="34" rx="5" fill="#e9eef7" stroke="#aebbcf"/>
+      <rect x="-7.5" y="-12" width="15" height="10" rx="2.5" fill="#8fa6c4"/>
+      <rect x="-7.5" y="5" width="15" height="7.5" rx="2" fill="#c3cede"/></g>
+  </svg></div>`;
+}
+
+/* ==========================================================================
+   TELAS
+   ========================================================================== */
+const T={};
+
+/* 1 — ROTA DO MOTORISTA --------------------------------------------------- */
+T.rota={nome:'Rota do motorista',grupo:'Rota',render(){return `${status}
+${hdr({sub:'Rota do motorista'})}
+<div class="body">
+  <div class="kpis">
+    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">12</b><span class="l">paradas</span></span></div>
+    <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">6</b><span class="l">entregues</span></span></div>
+    <div class="kpi money"><span class="l">Saldo</span><b class="v">R$ 184,00</b><span class="go">${ic('chev',15)}</span></div>
+    <div class="kpi split">
+      <span class="ln"><span style="color:var(--lime)">${ic('cash',16)}</span><span><span class="t" style="color:var(--lime)">Dinheiro</span><span class="m">R$ 132,00</span></span></span>
+      <span class="ln"><span style="color:var(--blue-l)">${ic('pix',16)}</span><span><span class="t" style="color:var(--blue-l)">Pix</span><span class="m">R$ 52,00</span></span></span>
+    </div>
+  </div>
+  <div class="bar"><span class="t">${ic('list',17)} Sua rota de hoje</span>
+    <button class="ghost" data-ir="mapa">${ic('map',15)} Ver mapa</button></div>
+  <div class="stops">
+    ${stop({n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro • SP',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['A caminho','blue','nav']})}
+    ${stop({n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin • SP',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',pill:['A caminho','blue','nav']})}
+    ${stop({n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema • SP',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Chegou','lime','check']})}
+    ${stop({n:4,hora:'10:45',cor:'lime',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema • SP',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['Chegou','lime','check']})}
+    ${stop({n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara • SP',tags:[['20L x3','blue'],['Vasilhame']],marcado:'63,00',pill:['Pendente','amber','clock']})}
+    ${stop({n:6,hora:'12:15',cor:'off',nome:'Mercado Estrela',rua:'R. Aracanguá, 210',bairro:'Jabaquara • SP',tags:[['20L x4','blue'],['Chip dia','lime']],marcado:'84,00',pill:['Pendente','mute','clock']})}
+  </div>
+  <div class="sum">
+    <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>20</b><small>produtos</small></span></span>
+    <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>R$ 336,00</b><small>marcado</small></span></span>
+    <span class="c"><span style="color:var(--lime)">${ic('check',17)}</span><span><b>6</b><small>entregas</small></span></span>
+    <span class="go">${ic('chev',15)}</span>
+  </div>
+  <div class="acts">
+    <button class="act go wide" data-ir="venda">${ic('play',21)}<span><b>Iniciar próxima parada</b><small>João da Silva</small></span></button>
+    <button class="act" data-ir="caderneta">${ic('note',19)}<span><b>Abrir caderneta</b><small>Ver lançamentos</small></span></button>
+  </div>
+</div>
+${nav('rota')}`;}};
+
+/* 2 — ROTA INICIADA = GPS ------------------------------------------------
+   Ordem do dono (06/08): "suma tudo ao redor, ficar igual GPS". Aqui não
+   existe cabeçalho, abas nem cartão de resumo — só o mapa, a parada da vez e
+   UMA ação. O "Chegou" não fica aceso: ele nasce quando o aparelho chega
+   (regra que já existe no app hoje, pelo raio de chegada).
+   -------------------------------------------------------------------------- */
+function telaGps(chegou){
+  return `${status}
+<div class="body flush" style="overflow:hidden;padding:0">
+  ${mapa()}
+  <button class="round" style="position:absolute;left:12px;top:6px;z-index:30">${ic('back',18)}</button>
+  <div class="map-ctrl" style="bottom:${chegou?188:170}px">
+    <button>${ic('target',18)}</button><button>${ic('layers',18)}</button></div>
+  <div class="next-card" style="bottom:14px">
+    <span class="info"><span class="lb"><span class="n">3</span> ${chegou?'Você chegou':'Próxima parada'}</span>
+      <strong>Mercado São Judas</strong><span>R. São Judas, 142 • São Paulo, SP</span></span>
+    ${chegou
+      ? `<span class="eta"><small style="color:var(--lime)">PARADA</small><b>3</b><i>de 8</i></span>
+         <button class="act go" style="padding:11px 15px;flex:0 0 auto">${ic('check',19)}<b>Chegou</b></button>`
+      : `<span class="eta"><small>ETA</small><b>12:26</b><i>45 min</i></span>
+         <button class="btn-blue">${ic('nav',16)} Seguir</button>`}
+  </div>
+</div>`;
+}
+T.mapa={nome:'Rota iniciada (GPS)',grupo:'Rota',render:()=>telaGps(false)};
+T.mapachegou={nome:'GPS · chegou na porta',grupo:'Rota',render:()=>telaGps(true)};
+
+/* 3 — MAPA + FILA --------------------------------------------------------- */
+T.mapalista={nome:'Mapa + fila',grupo:'Rota',render(){
+  const l=(n,h,nome,end,tags,pill,cor)=>`
+    <div class="stop ${n===3?'on':''}" style="grid-template-columns:10px 36px minmax(0,1fr) auto">
+      <span class="grip" style="margin-top:6px"></span>
+      <span class="numwrap"><span class="num ${cor}" style="width:29px;height:29px;font-size:12.5px">${n}</span>
+        <span class="hh ${cor}">${h}</span></span>
+      <span class="who"><strong style="font-size:12.5px">${nome}</strong><span style="font-size:10.5px">${end}</span>
+        <span class="tags">${tags.map(t=>`<b class="tag ${t.startsWith('20L')?'blue':t==='Chip dia'?'lime':''}">${t}</b>`).join('')}</span></span>
+      <span class="side" style="min-width:0"><span class="pill ${pill[1]}">${ic(pill[2],14)}${pill[0]}</span></span>
+    </div>`;
+  return `${status}
+${hdr({})}
+<div class="body flush" style="position:relative">
+  <div style="padding:0 11px 7px;display:flex;gap:7px">
+    <div class="kpi" style="flex:0 0 auto"><span style="color:var(--ink-2)">${ic('box',18)}</span><span><b class="v">8</b><span class="l">paradas</span></span></div>
+    <div class="kpi"><span class="num lime" style="width:26px;height:26px;font-size:12px;border-width:1px">3</span>
+      <span><span class="l">próxima</span><b style="font-size:12.5px;font-weight:500;display:block">Mercado São Judas</b></span></div>
+    <div class="kpi" style="flex:0 0 auto"><span style="width:7px;height:7px;border-radius:50%;background:var(--lime);box-shadow:0 0 7px var(--lime)"></span>
+      <span><b style="font-size:12.5px;font-weight:500;display:block;color:var(--lime)">Rota ativa</b><span class="l">ETA 12:26</span></span></div>
+  </div>
+  <div style="position:relative;height:282px;overflow:hidden">${mapa()}
+    <div class="map-ctrl" style="top:10px">
+      <button style="width:34px;height:34px">${ic('target',16)}</button>
+      <button style="width:34px;height:34px;background:#12253f">${ic('layers',16)}</button>
+      <button style="width:34px;height:34px">${ic('plus',16)}</button>
+      <button style="width:34px;height:34px">${ic('minus',16)}</button></div>
+  </div>
+  <div style="position:relative;z-index:20;background:linear-gradient(180deg,#0b1322,#080d17 34px);
+              border-radius:18px 18px 0 0;border-top:.7px solid var(--line);padding:9px 10px 0;margin-top:-16px">
+    <span style="display:block;width:36px;height:3px;border-radius:2px;background:#2b3a58;margin:0 auto 7px"></span>
+    ${l(1,'08:30','João da Silva','R. das Palmeiras, 145 • Santo Amaro • SP',['20L x2','Vasilhame','Chip dia'],['A caminho','lime','nav'],'lime')}
+    ${l(2,'09:15','Mercadinho Bom Preço','Av. João Dias, 890 • Brooklin • SP',['20L x4','Vasilhame'],['Chegou','lime','check'],'lime')}
+    ${l(3,'10:05','Mercado São Judas','R. São Judas, 142 • São Paulo • SP',['20L x2','Vasilhame','Chip dia'],['Próxima parada','blue','nav'],'')}
+    ${l(4,'10:45','Padaria Pão Nosso','Av. Ibirapuera, 2331 • Moema • SP',['20L x1','Vasilhame'],['Entregue','lime','check'],'lime')}
+    ${l(5,'11:30','Bar do Zé','R. dos Otonis, 317 • Jabaquara • SP',['20L x3','Vasilhame'],['Pendente','amber','clock'],'off')}
+    ${l(6,'12:15','Mercado Estrela','R. Aracanguá, 210 • Jabaquara • SP',['20L x4','Vasilhame'],['Pendente','mute','clock'],'off')}
+    ${l(7,'13:00','Quitanda do Bairro','R. das Orquídeas, 55 • Campo Belo • SP',['20L x2','Vasilhame'],['Pendente','mute','clock'],'off')}
+    ${l(8,'13:45','Depósito Central','R. Dr. Jesuíno Maciel, 980 • Santo Amaro • SP',['20L x6','Vasilhame'],['Pendente','mute','clock'],'off')}
+  </div>
+</div>
+${nav('rota')}`;}};
+
+/* 4 — FOLHA DA VENDA ------------------------------------------------------ */
+T.venda={nome:'Folha da venda',grupo:'Rota',render(){return `${status}
+${hdr({})}
+<div class="body flush" style="overflow:hidden">
+  ${mapa()}<div class="scrim"></div>
+  <div class="sheet">
+    <span class="handle"></span>
+    <div class="sheet-head"><div><h2>Folha da venda</h2><p>Chegada / venda</p></div>
+      <button class="round sm" data-ir="rota">${ic('close',16)}</button></div>
+    <div class="box" style="display:flex;align-items:center;gap:10px">
+      <span class="num lime" style="width:36px;height:36px">3</span>
+      <span style="flex:1"><span class="box-t">Parada 3 • Maria Aparecida</span>
+        <span class="box-s">R. Sargento Silva Nunes, 72 • Moema • SP</span></span>
+      <span class="pill lime">${ic('check',14)}Chegou</span>
+    </div>
+    <div class="box">
+      <div style="display:flex;gap:11px;align-items:flex-start">
+        <span class="thumb">${ic('gallon',30)}</span>
+        <span style="flex:1"><span class="box-t">Água Mineral HBX</span>
+          <span class="tags" style="margin-top:6px"><b class="tag blue">20L x1</b><b class="tag">Vasilhame</b><b class="tag lime">Chip dia</b></span></span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
+        <span style="font-size:12.5px;color:var(--ink-2)">Conta do item</span>
+        <b style="font-size:18px;color:var(--lime);font-weight:500">R$ 21,00</b></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
+      <div class="box" style="display:flex;align-items:center;justify-content:space-between;margin:0">
+        <span><span class="box-s">Conta da chegada</span><b style="display:block;font-size:15px;color:var(--lime);margin-top:2px">R$ 21,00</b></span>
+        <span style="color:var(--lime)">${ic('check',19)}</span></div>
+      <div class="box" style="display:flex;align-items:center;justify-content:space-between;margin:0">
+        <span><span class="box-s">Lançamento na caderneta</span><b style="display:block;font-size:15px;color:var(--lime);margin-top:2px">R$ 21,00</b></span>
+        <span style="color:var(--blue-l)">${ic('note',19)}</span></div>
+    </div>
+    <div class="box">
+      <div class="box-t">Forma de pagamento</div>
+      <div class="box-s">Selecione como o cliente irá pagar esta venda.</div>
+      <div class="pays">
+        <button class="pay sel"><span style="color:var(--lime)">${ic('cash',21)}</span><span><b>Dinheiro</b><small>Pagamento em espécie</small></span><i class="ok">${ic('check',15)}</i></button>
+        <button class="pay blue"><span style="color:var(--blue-l)">${ic('pix',21)}</span><span><b>Pix</b><small>Transferência instantânea</small></span></button>
+        <button class="pay"><span style="color:var(--ink-2)">${ic('card',21)}</span><span><b>Cartão</b><small>Débito ou crédito</small></span></button>
+        <button class="pay"><span style="color:var(--ink-2)">${ic('note',21)}</span><span><b>Caderneta</b><small>Lançar na caderneta</small></span></button>
+      </div>
+    </div>
+    <div class="box">
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <span class="box-t">Resumo do recebimento</span>
+        <button class="ghost">${ic('edit',13)} Editar valores</button></div>
+      <div class="rowline"><span>Recebido hoje</span><b>R$ 21,00</b></div>
+      <div class="rowline"><span>Vai para caderneta</span><b>R$ 21,00</b></div>
+    </div>
+    <div class="foot2">
+      <button class="act go" style="justify-content:center">${ic('check',19)}<b>Confirmar venda</b></button>
+      <button class="act" style="justify-content:center" data-ir="rota">${ic('enter',17)}<b>Voltar para rota</b></button>
+    </div>
+  </div>
+</div>
+${nav('rota')}`;}};
+
+/* 5 — CADERNETA + FECHAMENTO --------------------------------------------- */
+T.caderneta={nome:'Caderneta · fechamento',grupo:'Caderneta',render(){return `${status}
+${hdr({sub:'Caderneta'})}
+<div class="body">
+  <div class="kpis">
+    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">12</b><span class="l">paradas</span></span></div>
+    <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">6</b><span class="l">entregues</span></span></div>
+    <div class="kpi money"><span class="l">Saldo</span><b class="v">R$ 184,00</b><span class="go">${ic('chev',15)}</span></div>
+  </div>
+  <div class="bar"><span class="t">${ic('list',17)} Paradas de hoje</span>
+    <button class="ghost" data-ir="mapa">${ic('map',15)} Ver mapa</button></div>
+  <div class="stops">
+    ${stop({n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro • SP',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['A caminho','blue','nav']})}
+    ${stop({n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin • SP',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',pill:['A caminho','blue','nav']})}
+    ${stop({n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema • SP',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Chegou','lime','check']})}
+    ${stop({n:4,hora:'10:45',cor:'lime',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema • SP',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['Chegou','lime','check']})}
+    ${stop({n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara • SP',tags:[['20L x3','blue'],['Vasilhame']],marcado:'63,00',pill:['Pendente','amber','clock']})}
+  </div>
+</div>
+<div class="sheet" style="max-height:52%">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+    <span style="display:flex;align-items:center;gap:10px">
+      <span class="round" style="border-color:var(--line-2)">${ic('lock',18)}</span>
+      <span><b style="font-size:16px;font-weight:500;display:block">Fechamento do dia</b>
+        <small style="font-size:11px;color:var(--ink-2)">Confira seu resumo e feche o dia</small></span></span>
+    <span class="pill mute">Tudo certo! ${ic('check',14)}</span>
+  </div>
+  <div class="forms">
+    <div class="form-c"><span style="color:var(--lime)">${ic('cash',19)}</span><small>Dinheiro</small><b>R$ 132,00</b></div>
+    <div class="form-c"><span style="color:var(--blue-l)">${ic('pix',19)}</span><small>Pix</small><b>R$ 52,00</b></div>
+    <div class="form-c"><span style="color:var(--purple)">${ic('card',19)}</span><small>Cartão</small><b>R$ 84,00</b></div>
+    <div class="form-c"><span style="color:var(--amber)">${ic('note',19)}</span><small>Caderneta</small><b>R$ 68,00</b></div>
+    <div class="form-c total"><small style="margin-top:0">Total</small><b>R$ 336,00</b></div>
+  </div>
+  <div class="sum">
+    <span class="c"><span style="color:var(--ink-2)">${ic('users',17)}</span><span><b>14</b><small>clientes</small></span></span>
+    <span class="c"><span style="color:var(--ink-2)">${ic('box',17)}</span><span><b>20</b><small>produtos</small></span></span>
+    <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>R$ 336,00</b><small>marcado</small></span></span>
+  </div>
+  <div class="acts">
+    <button class="act go" style="justify-content:center">${ic('check',19)}<b>Fechar o dia</b></button>
+    <button class="act" style="justify-content:center" data-ir="semana">${ic('chart',17)}<b>Ver detalhes</b></button>
+  </div>
+</div>
+${nav('caderneta')}`;}};
+
+/* 6 — HISTÓRICO DA SEMANA ------------------------------------------------- */
+T.semana={nome:'Histórico da semana',grupo:'Caderneta',render(){
+  const dia=(d,dt,cli,prod,rec,mk)=>`<div class="week">
+    <span class="d"><strong>${d}</strong><span>${dt}</span></span>
+    <span class="q"><i>${ic('users',14)} <b style="color:var(--ink);font-weight:500">${cli}</b> clientes</i>
+      <i>${ic('box',14)} <b style="color:var(--ink);font-weight:500">${prod}</b> produtos</i></span>
+    <span class="r"><small>Recebido</small><b>R$ ${rec}</b></span>
+    <span class="mk"><span><small>Marcado</small><b>R$ ${mk}</b></span>${ic('chev',14)}</span></div>`;
+  return `${status}
+${hdr({sub:'Rota do motorista'})}
+<div class="body" style="opacity:.4;pointer-events:none">
+  <div class="kpis">
+    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">12</b><span class="l">paradas</span></span></div>
+    <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">6</b><span class="l">entregues</span></span></div>
+  </div>
+  <div class="stops">${stop({n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro • SP',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['A caminho','blue','nav']})}</div>
+</div>
+<div class="scrim"></div>
+<div class="sheet" style="max-height:80%">
+  <span class="handle"></span>
+  <div style="display:flex;align-items:center;justify-content:center;position:relative;margin-bottom:12px">
+    <h2 style="margin:0;font-size:20px;font-weight:500">Histórico da semana</h2>
+    <button class="round sm" style="position:absolute;right:0" data-ir="caderneta">${ic('close',15)}</button></div>
+  ${dia('Segunda','04/08','10','32','380,00','420,00')}
+  ${dia('Terça','05/08','11','36','412,00','468,00')}
+  ${dia('Quarta','06/08','9','28','301,00','340,00')}
+  ${dia('Quinta','07/08','12','40','478,00','512,00')}
+  ${dia('Sexta','08/08','13','44','560,00','620,00')}
+  ${dia('Sábado','09/08','8','24','260,00','288,00')}
+  <div class="box" style="margin-top:9px">
+    <div class="box-t" style="margin-bottom:7px">Resumo da semana</div>
+    <div style="display:flex;align-items:center">
+      <span style="flex:1;border-right:.7px solid var(--line)"><small style="display:block;font-size:10.5px;color:var(--ink-2)">Marcado da semana</small>
+        <b style="font-size:15px;color:var(--lime);font-weight:500">R$ 2.648,00</b></span>
+      <span style="flex:1;padding-left:11px;border-right:.7px solid var(--line)"><small style="display:block;font-size:10.5px;color:var(--ink-2)">Recebido</small>
+        <b style="font-size:15px;color:var(--blue-l);font-weight:500">R$ 2.391,00</b></span>
+      <span style="flex:1;padding-left:11px"><small style="display:block;font-size:10.5px;color:var(--ink-2)">Pendência</small>
+        <b style="font-size:15px;color:var(--amber);font-weight:500">R$ 257,00</b></span>
+      <span style="color:var(--ink-2);padding-left:5px">${ic('chev',15)}</span></div>
+  </div>
+</div>
+${nav('caderneta')}`;}};
+
+/* 7 — CONFERÊNCIA --------------------------------------------------------- */
+T.conferencia={nome:'Conferência da carga',grupo:'Rota',render(){
+  const l=(n,h,nome,rua,bairro,tags,pill,cor)=>`
+    <div class="stop" style="grid-template-columns:40px minmax(0,1fr) auto auto">
+      <span class="numwrap"><span class="num ${cor}">${n}</span><span class="hh ${cor}">${h}</span></span>
+      <span class="who"><strong>${nome}</strong><span>${rua}</span><span>${bairro}</span>
+        <span class="tags">${tags.map(t=>`<b class="tag ${t.startsWith('20L')?'blue':t==='Chip dia'?'lime':''}">${t}</b>`).join('')}</span></span>
+      <span class="side" style="min-width:0;justify-content:center"><span class="pill ${pill[1]}">${ic(pill[2],14)}${pill[0]}</span></span>
+      <span style="color:var(--ink-3);align-self:center;padding-left:4px">${ic('chev',15)}</span></div>`;
+  return `${status}
+${hdr({sub:'Conferência'})}
+<div class="body">
+  <div class="sum" style="margin-top:2px">
+    <span class="c"><span style="color:var(--lime)">${ic('route',18)}</span><span><b style="font-size:16px">12</b><small>paradas</small></span></span>
+    <span class="c"><span style="color:var(--blue-l)">${ic('box',18)}</span><span><b style="font-size:16px">20</b><small>produtos</small></span></span>
+    <span class="c"><span style="color:var(--lime)">${ic('check',18)}</span><span><b style="font-size:16px">6</b><small>conferidos</small></span></span>
+  </div>
+  <div class="stops">
+    ${l(1,'08:30','João da Silva','R. das Palmeiras, 145','Santo Amaro • SP',['20L x2','Vasilhame','Chip dia'],['Conferido','lime','check'],'')}
+    ${l(2,'09:15','Mercadinho Bom Preço','Av. João Dias, 890','Brooklin • SP',['20L x4','Vasilhame'],['Falta 1','amber','alert'],'')}
+    ${l(3,'10:05','Maria Aparecida','R. Sargento Silva Nunes, 72','Moema • SP',['20L x1','Chip dia'],['Conferido','lime','check'],'lime')}
+    ${l(4,'10:45','Padaria Pão Nosso','Av. Ibirapuera, 2331','Moema • SP',['20L x2','Vasilhame'],['Conferido','lime','check'],'lime')}
+    ${l(5,'11:30','Bar do Zé','R. dos Otonis, 317','Jabaquara • SP',['20L x3','Vasilhame'],['Separado','blue','box'],'')}
+    ${l(6,'12:15','Mercado Estrela','R. Aracanguá, 210','Jabaquara • SP',['20L x4','Chip dia'],['Pendente','mute','clock'],'off')}
+  </div>
+  <div class="prog">
+    <span class="prog-l"><span><b>6</b> de <b>12</b> paradas conferidas</span><span><b>50%</b> concluído</span></span>
+    <span class="prog-b"><i style="width:50%"></i></span></div>
+  <button class="act go full" style="margin-top:9px" data-ir="mapa">${ic('check',21)}
+    <span><b>Confirmar carga</b><small>Concluir conferência e iniciar rota</small></span><span class="chev">${ic('chev',16)}</span></button>
+  <button class="act full" style="margin-top:7px" data-ir="rota">${ic('back',18)}
+    <span><b>Voltar</b><small>Retornar para a rota</small></span><span class="chev">${ic('chev',16)}</span></button>
+</div>
+${nav('rota')}`;}};
+
+/* 8 — MONTAGEM DE ROTA ---------------------------------------------------- */
+T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
+  const l=(n,h,nome,rua,bairro,tags,valor,cor)=>`
+    <div class="stop">
+      <span class="grip"></span>
+      <span class="numwrap"><span class="num ${cor}">${n}</span><span class="hh ${cor}">${h}</span></span>
+      <span class="who"><strong>${nome}</strong><span>${rua}</span><span>${bairro}</span>
+        <span class="tags">${tags.map(t=>`<b class="tag ${t.startsWith('20L')?'blue':t==='Chip dia'?'lime':''}">${t}</b>`).join('')}</span></span>
+      <span class="side"><span class="marc"><small>Marcado</small><b>R$ ${valor}</b></span></span></div>`;
+  return `${status}
+${hdr({})}
+<div class="body">
+  <h2 style="font-size:23px;font-weight:500;margin:4px 0 2px;letter-spacing:-.4px">Montagem de rota</h2>
+  <p style="margin:0 0 4px;font-size:12.5px;color:var(--lime);display:flex;align-items:center;gap:7px">${ic('dots',15)} Segure e arraste para ordenar</p>
+  <div class="stops">
+    ${l(1,'08:30','João da Silva','R. das Palmeiras, 145','Santo Amaro • SP',['20L x2','Vasilhame','Chip dia'],'42,00','')}
+    ${l(2,'09:15','Mercadinho Bom Preço','Av. João Dias, 890','Brooklin • SP',['20L x4','Vasilhame'],'84,00','')}
+    ${l(3,'10:05','Maria Aparecida','R. Sargento Silva Nunes, 72','Moema • SP',['20L x1','Chip dia'],'21,00','lime')}
+    ${l(4,'10:45','Padaria Pão Nosso','Av. Ibirapuera, 2331','Moema • SP',['20L x2','Vasilhame'],'42,00','')}
+    ${l(5,'11:30','Bar do Zé','R. dos Otonis, 317','Jabaquara • SP',['20L x3','Vasilhame'],'63,00','')}
+    ${l(6,'12:15','Mercado Estrela','R. Aracanguá, 210','Jabaquara • SP',['20L x4','Chip dia'],'84,00','off')}
+  </div>
+  <div class="sum">
+    <span class="c"><span style="color:var(--lime)">${ic('route',17)}</span><span><b>6</b><small>paradas</small></span></span>
+    <span class="c"><span style="color:var(--blue-l)">${ic('box',17)}</span><span><b>20</b><small>produtos</small></span></span>
+    <span class="c"><span style="color:var(--lime)">${ic('cash',17)}</span><span><b>R$ 336,00</b><small>valor marcado</small></span></span>
+  </div>
+  <button class="act full" style="margin-top:9px;background:linear-gradient(180deg,#3d8bff,#1f66e0);border:0;color:#fff;justify-content:center;box-shadow:0 7px 18px rgba(47,126,247,.3)">
+    ${ic('save',19)}<b style="font-size:14px">Salvar rota</b></button>
+  <button class="act full" style="margin-top:7px;justify-content:center">${ic('spark',17)}
+    <span style="text-align:center"><b>Otimizar ordem</b><small>Sugerir melhor sequência</small></span></button>
+  <button class="act go full" style="margin-top:7px;justify-content:center" data-ir="conferencia">${ic('play',19)}
+    <span style="text-align:center"><b>Iniciar rota</b><small>João da Silva</small></span></button>
+</div>
+${nav('rota')}`;}};
+
+/* 9 — ROTAS SALVAS -------------------------------------------------------- */
+T.salvas={nome:'Rotas salvas',grupo:'Rota',render(){
+  const r=(nome,data,paradas,prod,valor,icone,tomLime)=>`
+    <div class="rowcard">
+      <span class="ico ${tomLime?'lime':''}">${ic(icone,20)}</span>
+      <span><strong>${nome}</strong><span>${data}</span>
+        <span class="meta"><i>${ic('list',12)} ${paradas} paradas</i><i>${ic('box',12)} ${prod} produtos</i></span></span>
+      <span style="display:flex;align-items:center;gap:9px">
+        <span class="rgt"><small>Marcado</small><b>R$ ${valor}</b></span>
+        <span class="mini-acts">
+          <span class="mini"><span class="c">${ic('play',19)}</span>Abrir</span>
+          <span class="mini"><span class="c">${ic('copy',17)}</span>Duplicar</span>
+          <span class="mini" style="align-self:center">${ic('dots',16)}</span></span></span></div>`;
+  return `${status}
+${hdr({sub:'Rotas salvas'})}
+<div class="body">
+  <div class="searchrow">
+    <label class="search">${ic('search',17)}<input placeholder="Buscar rotas salvas"></label>
+    <button class="filt">${ic('sliders',18)}</button></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin:8px 2px 6px;font-size:12px">
+    <span style="color:var(--ink-2)">6 rotas salvas</span>
+    <span style="color:var(--ink-2)">Ordenar por: <b style="color:var(--lime);font-weight:500">Mais recentes</b></span></div>
+  ${r('Zona Sul manhã','23 de maio, 2025','15','20','184,00','map',0)}
+  ${r('Centro tarde','22 de maio, 2025','12','18','152,40','route',0)}
+  ${r('Sábado água 20L','17 de maio, 2025','18','1','98,00','gallon',0)}
+  ${r('Rota Moema','16 de maio, 2025','14','17','126,30','flag',1)}
+  ${r('Rota Brooklin','15 de maio, 2025','11','16','110,20','map',0)}
+  ${r('Rota clientes fiéis','10 de maio, 2025','9','14','87,60','users',1)}
+  <div class="box" style="display:flex;align-items:center;gap:10px;margin-top:2px;padding:8px">
+    <span style="width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:#151f0d;color:var(--lime)">${ic('save',19)}</span>
+    <span style="flex:1"><b style="display:block;font-size:13.5px;font-weight:500">Use uma rota salva hoje</b>
+      <small style="font-size:11px;color:var(--ink-2)">Mantenha suas entregas organizadas.</small></span>
+    <button class="ghost" style="border-color:var(--lime);color:var(--lime)">Usar hoje</button></div>
+</div>
+${nav('rota')}`;}};
+
+/* 10 — PRODUTOS ----------------------------------------------------------- */
+T.produtos={nome:'Produtos',grupo:'Cadastro',render(){
+  const p=(nome,est,preco,cor)=>`<div class="prod">
+    <span class="thumb" style="width:46px;height:46px;flex:0 0 46px;color:${cor}">${ic('gallon',24)}</span>
+    <span><span class="nm">${nome}</span><span class="st">${ic('box',13)} Estoque: ${est} un.</span></span>
+    <span class="price">R$ ${preco}</span></div>`;
+  return `${status}
+${hdr({semChat:1,badge:3})}
+<div class="body">
+  <div class="screen-head"><span style="color:var(--lime)">${ic('box',30)}</span>
+    <span><h2>Produtos</h2><p>Gerencie seus produtos e preços</p></span></div>
+  <div class="searchrow">
+    <label class="search">${ic('search',17)}<input placeholder="Buscar produto"></label>
+    <button class="filt">${ic('sliders',18)}</button></div>
+  <div class="chips">
+    <button class="chip on">Todos</button><button class="chip">Água</button><button class="chip">Vasilhames</button>
+    <button class="chip">Acessórios</button><button class="chip">Kits</button></div>
+  <div style="margin-top:4px">
+    ${p('Água 20L','128','18,00','#5b9dff')}
+    ${p('Água 10L','86','12,00','#5b9dff')}
+    ${p('Vasilhame','64','42,00','#3d6fbf')}
+    ${p('Chip dia','210','2,00','#9ede2a')}
+    ${p('Caixa térmica','18','85,00','#8fa6c4')}
+    ${p('Kit entrega','32','35,00','#5b9dff')}
+    ${p('Água c/ gás 1,5L','54','24,00','#5b9dff')}
+    ${p('Suporte de galão','12','69,00','#8fa6c4')}
+  </div>
+  <div class="sum">
+    <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>8</b><small>produtos ativos</small></span></span>
+    <span class="c"><span style="color:var(--amber)">${ic('alert',17)}</span><span><b>2</b><small style="color:var(--amber)">estoque baixo</small></span></span>
+    <span class="c"><span style="color:var(--blue-l)">${ic('cash',17)}</span><span><b>R$ 194,00</b><small>valor estimado</small></span></span>
+  </div>
+</div>
+${nav('produtos')}`;}};
+
+/* 11 — CLIENTES ----------------------------------------------------------- */
+T.clientes={nome:'Clientes',grupo:'Cadastro',render(){
+  const c=(ini,nome,end,dia,valor,tomLime,alerta)=>`<div class="cli">
+    <span class="ava ${tomLime?'lime':''}">${ini}</span>
+    <span><strong>${nome}</strong><span>${end}</span>
+      <span class="tags">${dia?`<b class="tag lime">${dia}</b>`:''}${alerta?`<b class="tag" style="border-color:rgba(245,165,36,.55);color:var(--amber)">${alerta}</b>`:''}</span></span>
+    <span class="rgt">${valor?`<small>Marcado</small><b>R$ ${valor}</b>`:`<span style="color:var(--ink-3)">${ic('chev',15)}</span>`}</span></div>`;
+  return `${status}
+${hdr({semChat:1,badge:3})}
+<div class="body">
+  <div class="screen-head"><span style="color:var(--lime)">${ic('users',30)}</span>
+    <span><h2>Clientes</h2><p>14 na rota de hoje</p></span></div>
+  <div class="searchrow">
+    <label class="search">${ic('search',17)}<input placeholder="Buscar cliente"></label>
+    <button class="filt">${ic('sliders',18)}</button></div>
+  <div class="chips">
+    <button class="chip">Seg</button><button class="chip">Ter</button><button class="chip on">Qua</button>
+    <button class="chip">Qui</button><button class="chip">Sex</button><button class="chip">Sáb</button><button class="chip">Dom</button></div>
+  <div style="margin-top:4px">
+    ${c('JS','João da Silva','R. das Palmeiras, 145 • Santo Amaro','Chip dia','42,00',0,'')}
+    ${c('MB','Mercadinho Bom Preço','Av. João Dias, 890 • Brooklin','','84,00',0,'')}
+    ${c('MA','Maria Aparecida','R. Sargento Silva Nunes, 72 • Moema','Chip dia','21,00',1,'')}
+    ${c('PN','Padaria Pão Nosso','Av. Ibirapuera, 2331 • Moema','','42,00',0,'')}
+    ${c('LY','Larissa Ypê','Rua 3a, 1354 • Jd. Ypê','','',0,'sem número')}
+    ${c('BZ','Bar do Zé','R. dos Otonis, 317 • Jabaquara','','63,00',0,'')}
+    ${c('ME','Mercado Estrela','R. Aracanguá, 210 • Jabaquara','','84,00',1,'')}
+    ${c('QB','Quitanda do Bairro','R. das Orquídeas, 55 • Campo Belo','Chip dia','42,00',0,'')}
+    ${c('DC','Depósito Central','R. Dr. Jesuíno Maciel, 980 • Santo Amaro','','126,00',0,'')}
+  </div>
+  <div class="sum">
+    <span class="c"><span style="color:var(--lime)">${ic('users',17)}</span><span><b>128</b><small>clientes</small></span></span>
+    <span class="c"><span style="color:var(--amber)">${ic('alert',17)}</span><span><b>3</b><small style="color:var(--amber)">sem endereço</small></span></span>
+    <span class="c"><span style="color:var(--lime)">${ic('cash',17)}</span><span><b>R$ 336,00</b><small>marcado hoje</small></span></span>
+  </div>
+</div>
+${nav('clientes')}`;}};
+
+/* ==========================================================================
+   MONTAGEM
+   ========================================================================== */
+const ORDEM=['rota','mapa','mapachegou','mapalista','montagem','conferencia','venda','salvas','caderneta','semana','clientes','produtos'];
+const GRUPOS=['Rota','Caderneta','Cadastro'];
+let atual='rota';
+
+function pintar(){
+  document.getElementById('app').innerHTML=T[atual].render();
+  document.getElementById('rail').innerHTML=GRUPOS.map(g=>{
+    const itens=ORDEM.filter(k=>T[k].grupo===g);
+    return itens.length?`<h2>${g}</h2>`+itens.map(k=>
+      `<button data-tela="${k}" class="${k===atual?'on':''}"><i></i>${T[k].nome}</button>`).join(''):'';
+  }).join('');
+}
+function ir(k){ if(T[k]){ atual=k; pintar(); } }
+
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-tela]'); if(t) return ir(t.dataset.tela);
+  const g=e.target.closest('[data-ir]');  if(g) return ir(g.dataset.ir);
+  const n=e.target.closest('[data-nav]'); if(n) return ir(n.dataset.nav);
+  const z=e.target.closest('#zoom [data-z]');
+  if(z){
+    document.getElementById('phone').style.setProperty('--z',z.dataset.z);
+    document.querySelectorAll('#zoom button').forEach(b=>b.classList.toggle('on',b===z));
+    return;
+  }
+  const c=e.target.closest('#cta [data-cta]');
+  if(c){
+    document.documentElement.dataset.cta=c.dataset.cta;
+    document.querySelectorAll('#cta button').forEach(b=>b.classList.toggle('on',b===c));
+  }
+});
+pintar();
+</script>
+</body>
+</html>
