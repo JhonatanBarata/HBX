@@ -40,13 +40,13 @@ button,input{font:inherit;color:inherit}
 
   --bg:#080d17; --bg-2:#0a1120; --card:#0d1626; --line:#1a2740; --line-2:#26375a;
   --ink:#eef3fb; --ink-2:#93a3bf; --ink-3:#7889a6;
-  --lime:#9ede2a; --lima-viva:#9ede2a; --blue:#2f7ef7; --blue-l:#5b9dff;
+  --lime:#9ede2a; --lima-viva:var(--lime); --blue:#2f7ef7; --blue-l:#5b9dff;
   --amber:#f5a524; --purple:#a855f7; --red:#f2555a;
   /* O mapa também é pele: sem token aqui ele fica escuro no tema claro — e
      mapa que não acompanha o tema é o buraco clássico da troca de pele. */
-  --map-fundo:#0a1120; --map-quadra:#0d1727; --map-rua:#1b2740; --map-rua2:#16223a;
+  --map-fundo:var(--bg-2); --map-quadra:#0d1727; --map-rua:#1b2740; --map-rua2:#16223a;
   --map-parque:#0f2418; --map-rotulo:#5c6d8c; --map-pino:#0c1526; --map-pino-tinta:#eaf6d5;
-  --map-rota:#9ede2a; --map-rota-borda:#4f8f14; --map-leito:#1d2c47;
+  --map-rota:var(--lime); --map-rota-borda:#4f8f14; --map-leito:#1d2c47;
   --map-carro:#e9eef7; --map-carro-borda:#aebbcf; --map-carro-vidro:#8fa6c4; --map-carro-2:#c3cede;
   --map-bandeira:#dbe6f7; --map-bandeira-2:#0d1a2f; --map-partida:#3d8bff;
 
@@ -204,7 +204,7 @@ button,input{font:inherit;color:inherit}
    5. o brilho varre o logotipo  1,95–2,75  e LOGÍSTICA abre o espaçamento
    6. a batida e a entrega       2,55–3,40  o conjunto pulsa uma vez, barra completa */
 .splash{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-  background:linear-gradient(180deg,#0a1120,#05080f);overflow:hidden}
+  background:linear-gradient(180deg,var(--bg-2),#05080f);overflow:hidden}
 .splash-fundo{position:absolute;inset:0;
   background:radial-gradient(430px 330px at 50% 44%,rgba(47,126,247,.20),transparent 70%);
   animation:spFundo 1.7s var(--cv-entra) both}
@@ -487,6 +487,9 @@ button,input{font:inherit;color:inherit}
 /* ---------- cabeçalho ---------- */
 .hdr{padding:0 13px 7px;flex:0 0 auto;position:relative;z-index:40}
 .hdr-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+/* flancos gêmeos: mesma largura mínima ⇒ o logo não anda entre telas */
+.hdr-flanco{flex:0 0 76px;display:flex;justify-content:flex-start}
+.hdr-flanco.dir{justify-content:flex-end}
 .round{width:35px;height:35px;border-radius:50%;border:.7px solid var(--line);background:#101a2c;
   display:grid;place-items:center;cursor:pointer;position:relative;color:var(--ink);flex:0 0 35px}
 .round.sm{width:30px;height:30px;flex:0 0 30px}
@@ -726,7 +729,7 @@ button,input{font:inherit;color:inherit}
 .vazio strong{display:block;font-size:15px;font-weight:500}
 .vazio span{display:block;font-size:12px;color:var(--ink-2);margin-top:4px}
 .vazio .ghost{margin-top:14px}
-.esq{background:linear-gradient(90deg,#0d1626 25%,#16233a 50%,#0d1626 75%);background-size:280% 100%;
+.esq{background:linear-gradient(90deg,var(--card) 25%,#16233a 50%,var(--card) 75%);background-size:280% 100%;
   border-radius:11px;animation:esqOnda 1.5s linear infinite}
 @keyframes esqOnda{to{background-position:-280% 0}}
 .esq-linha{height:62px;margin-bottom:6px}
@@ -745,7 +748,7 @@ button,input{font:inherit;color:inherit}
 .map-ctrl button{width:40px;height:40px;border-radius:50%;border:.7px solid var(--line);background:#0b1322;
   color:var(--blue-l);display:grid;place-items:center;cursor:pointer}
 .next-card{position:absolute;left:9px;right:9px;bottom:72px;z-index:35;border-radius:15px;padding:11px 12px;
-  background:#0d1626;border:.7px solid var(--line);display:flex;align-items:center;gap:10px}
+  background:var(--card);border:.7px solid var(--line);display:flex;align-items:center;gap:10px}
 .next-card .handle{position:absolute;top:5px;left:50%;transform:translateX(-50%);width:36px;height:3px;border-radius:2px;background:#2b3a58}
 .next-card .info{flex:1;min-width:0;padding-top:3px}
 .next-card .lb{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--lime);margin-bottom:2px}
@@ -795,7 +798,7 @@ button,input{font:inherit;color:inherit}
   filter:drop-shadow(0 3px 7px rgba(0,0,0,.65))}
 
 .gps-manobra{position:absolute;left:9px;right:9px;top:6px;z-index:20;border-radius:15px;
-  background:#0d1626;border:.7px solid var(--line);box-shadow:0 12px 30px rgba(0,0,0,.5);overflow:hidden}
+  background:var(--card);border:.7px solid var(--line);box-shadow:0 12px 30px rgba(0,0,0,.5);overflow:hidden}
 .gps-manobra .cima{display:flex;align-items:center;gap:12px;padding:11px 13px}
 .gps-manobra .seta{width:48px;height:48px;border-radius:13px;background:#12253f;color:var(--blue-l);
   display:grid;place-items:center;flex:0 0 48px}
@@ -831,7 +834,7 @@ button,input{font:inherit;color:inherit}
 /* ---------- folha ---------- */
 .scrim{position:absolute;inset:0;background:rgba(3,7,14,.72);z-index:40}
 .sheet{position:absolute;left:0;right:0;bottom:0;z-index:41;border-radius:22px 22px 0 0;
-  background:linear-gradient(180deg,#0f1a2c,#0a1120 30%);border:.7px solid var(--line);border-bottom:0;
+  background:linear-gradient(180deg,#0f1a2c,var(--bg-2) 30%);border:.7px solid var(--line);border-bottom:0;
   padding:10px 12px 72px;max-height:88%;overflow:auto;scrollbar-width:none;box-shadow:0 -18px 44px rgba(0,0,0,.6)}
 .sheet::-webkit-scrollbar{display:none}
 .sheet .handle{width:36px;height:3px;border-radius:2px;background:#2b3a58;margin:0 auto 10px}
@@ -910,7 +913,7 @@ button,input{font:inherit;color:inherit}
 .price{position:relative;border:.9px solid var(--lime);border-radius:9px;padding:7px 12px;
   color:var(--lime);font-size:15px;font-weight:400;background:#111a10}
 .price::after{content:"";position:absolute;left:50%;bottom:-5px;transform:translateX(-50%) rotate(45deg);
-  width:8px;height:8px;background:#0a1120;border-right:.9px solid var(--lime);border-bottom:.9px solid var(--lime)}
+  width:8px;height:8px;background:var(--bg-2);border-right:.9px solid var(--lime);border-bottom:.9px solid var(--lime)}
 
 /* ---------- rotas salvas ---------- */
 .rowcard{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:9px;align-items:center;
@@ -1103,7 +1106,7 @@ button,input{font:inherit;color:inherit}
 .chave{width:38px;height:22px;border-radius:999px;background:#22314c;border:1px solid #5c6f92;
   position:relative;flex:0 0 38px;box-sizing:border-box}
 .chave i{position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;
-  background:#93a3bf;transition:left .2s,background .2s}
+  background:var(--ink-2);transition:left .2s,background .2s}
 .chave.on{background:var(--lime);border-color:#c6f27a}
 .chave.on i{left:18px;background:#12200a}
 

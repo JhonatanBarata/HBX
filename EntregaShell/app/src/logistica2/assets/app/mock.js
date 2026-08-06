@@ -113,8 +113,11 @@ function hdr(o={}){
   const esq = o.voltar
     ? `<button class="round" data-ir="${o.voltar}" aria-label="Voltar">${ic('back',18)}</button>`
     : `<button class="round">${ic('menu',18)}<i class="ping"></i></button>`;
+  // 🔴 O LOGO NÃO ANDA. Os flancos entram EMBRULHADOS com a mesma largura
+  // mínima: com 1 ou 2 ícones do lado, o HBX fica cravado no centro em toda
+  // tela (medido: sem isto o logo passeava 143↔164 entre abas).
   return `<header class="hdr"><div class="hdr-row">
-      ${esq}${logo}${dir}
+      <div class="hdr-flanco">${esq}</div>${logo}<div class="hdr-flanco dir">${dir}</div>
     </div>${o.sub?`<div class="sub">${o.sub}</div>`:''}</header>`;
 }
 
