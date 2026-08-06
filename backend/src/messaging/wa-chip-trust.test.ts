@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   CHIP_TRUST_BASE_PADRAO,
   CHIP_TRUST_MAX_PADRAO,
+  contatoContaConfianca,
   espacamentoDoDia,
   janelaDeTrabalhoMs,
   tetoDoChip,
@@ -131,7 +132,12 @@ function buildGate(seed: {
       findFirst: async () => null,
       findMany: async ({ where }: any) => {
         const n = seed.respostasPorChip?.[String(where?.sourceTenantKey)] ?? 0;
-        return Array.from({ length: n }, (_, i) => ({ conversationId: i + 1 }));
+        // Contato de PESSOA de verdade: desde 06/08 grupo (@g.us) e lixo não
+        // contam confiança, então o harness precisa entregar um telefone 1:1.
+        return Array.from({ length: n }, (_, i) => ({
+          conversationId: i + 1,
+          conversation: { contact: `55199${String(90000000 + i).slice(0, 8)}` },
+        }));
       },
     },
     companyConversation: { findMany: async () => [] },
@@ -235,4 +241,96 @@ test('banco fora ao medir confiança = chip tratado como novo (erra pro lado seg
 
   const plano = await gate.planoDoChip(5, 'company-5-user-6');
   assert.equal(plano.teto, 6, 'sem conseguir medir, o chip vale o piso — nunca o teto');
+});
+
+// ── 7. GRUPO NÃO É RESPOSTA (06/08/2026) ────────────────────────────────────
+// Medido em prod, empresa 5: 19 das 67 "conversas que responderam" do chip
+// company-5-user-28 eram GRUPOS (@g.us) — avisos de igreja, escala, nota de
+// falecimento. E a ÚNICA "resposta" do chip novo da Maria Clara (user 60) era
+// `contact = "0"` com o texto "Welcome to WhatsApp Business", que o próprio
+// WhatsApp manda ao parear: o chip ganhou confiança de si mesmo.
+test('confiança: grupo, broadcast e lixo NÃO contam como resposta', () => {
+  assert.equal(contatoContaConfianca('5519996106268-1569892875@g.us'), false, 'grupo de WhatsApp');
+  assert.equal(contatoContaConfianca('120363041327423981@g.us'), false, 'grupo novo (id longo)');
+  assert.equal(contatoContaConfianca('status@broadcast'), false, 'lista de transmissão');
+  assert.equal(contatoContaConfianca('0'), false, 'o "Welcome to WhatsApp Business" do pareamento');
+  assert.equal(contatoContaConfianca(''), false);
+  assert.equal(contatoContaConfianca(null), false);
+  assert.equal(contatoContaConfianca(undefined), false);
+});
+
+test('confiança: pessoa de verdade CONTA — telefone 1:1 e LID (telefone oculto)', () => {
+  assert.equal(contatoContaConfianca('+5519989431379'), true);
+  assert.equal(contatoContaConfianca('5519989431379'), true);
+  assert.equal(contatoContaConfianca('5519989431379@s.whatsapp.net'), true);
+  assert.equal(contatoContaConfianca('72481901699271:1@lid'), true, 'o caso Atacadão: gente real com número oculto');
+  assert.equal(contatoContaConfianca('224485642866739@lid'), true);
+});
+
+test('🔴 o teto anti-ban NÃO sobe por causa de grupo (a cena medida em prod)', async () => {
+  const prisma: any = {
+    companyMessage: {
+      findFirst: async () => null,
+      findMany: async () => [
+        { conversationId: 1, conversation: { contact: '5519996106268-1569892875@g.us' } },
+        { conversationId: 2, conversation: { contact: '120363041327423981@g.us' } },
+        { conversationId: 3, conversation: { contact: '0' } },
+        { conversationId: 4, conversation: { contact: '+5519989431379' } },
+      ],
+    },
+    companyConversation: { findMany: async () => [] },
+    vendasComercialConfig: { findUnique: async () => null },
+    whatsAppAuditLog: { count: async () => 0, findFirst: async () => null, findMany: async () => [], create: async () => ({}) },
+  };
+  const gate = new WaColdContactGateService(prisma);
+
+  const plano = await gate.planoDoChip(5, 'company-5-user-60');
+  assert.equal(plano.conversasComResposta, 1, '3 grupos/lixo descartados, 1 pessoa de verdade');
+  assert.equal(plano.teto, CHIP_TRUST_BASE_PADRAO + 1, 'teto sobe SÓ pela conversa que existiu');
+});
+
+test('chip só de grupo continua valendo o piso (não é chip querido, é chip em grupo)', async () => {
+  const prisma: any = {
+    companyMessage: {
+      findFirst: async () => null,
+      findMany: async () => Array.from({ length: 40 }, (_, i) => ({
+        conversationId: i,
+        conversation: { contact: `12036304132742398${i}@g.us` },
+      })),
+    },
+    companyConversation: { findMany: async () => [] },
+    vendasComercialConfig: { findUnique: async () => null },
+    whatsAppAuditLog: { count: async () => 0, findFirst: async () => null, findMany: async () => [], create: async () => ({}) },
+  };
+  const gate = new WaColdContactGateService(prisma);
+
+  const plano = await gate.planoDoChip(5, 'company-5-user-28');
+  assert.equal(plano.conversasComResposta, 0);
+  assert.equal(plano.teto, CHIP_TRUST_BASE_PADRAO, 'nada de 40 grupos virarem teto 12');
+});
+
+test('a leitura de confiança pede a conversa junto e vem do mais recente', async () => {
+  const argsVistos: any[] = [];
+  const prisma: any = {
+    companyMessage: {
+      findFirst: async () => null,
+      findMany: async (args: any) => {
+        argsVistos.push(args);
+        return [];
+      },
+    },
+    companyConversation: { findMany: async () => [] },
+    vendasComercialConfig: { findUnique: async () => null },
+    whatsAppAuditLog: { count: async () => 0, findFirst: async () => null, findMany: async () => [], create: async () => ({}) },
+  };
+  const gate = new WaColdContactGateService(prisma);
+  await gate.planoDoChip(5, 'company-5-user-60');
+
+  const args = argsVistos[0];
+  assert.ok(args?.select?.conversation, 'sem o contato da conversa não dá pra separar grupo de pessoa');
+  assert.equal(args?.orderBy?.timestamp, 'desc', 'confiança é sinal de agora');
+  assert.ok(
+    args.take > CHIP_TRUST_MAX_PADRAO,
+    'o corte de leitura precisa de folga: grupo é descartado DEPOIS de ler',
+  );
 });

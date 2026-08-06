@@ -73,6 +73,40 @@ export function tetoDoChip(input: TetoDoChipInput = {}): number {
   return Math.min(tetoDaRampa, base + ganho);
 }
 
+/**
+ * ESSA "RESPOSTA" VEIO DE UMA PESSOA PRA MIM? (06/08/2026)
+ *
+ * Medido em produção, empresa 5: a confiança do chip estava sendo inflada por
+ * conversa que não é conversa.
+ * - `company-5-user-28`: **19 das 67** "conversas que responderam" eram GRUPOS
+ *   (`...@g.us`) — avisos de igreja, escala de reunião, nota de falecimento.
+ * - `company-5-user-60` (chip novo da Maria Clara): a ÚNICA "resposta" dela era
+ *   `contact = "0"` com o texto *"Welcome to WhatsApp Business"* — mensagem que
+ *   o próprio WhatsApp manda ao parear. O chip ganhou +1 de confiança de si mesmo.
+ *
+ * Isso quebra a premissa inteira do arquivo: o teto sobe porque *"gente está
+ * conversando de volta"*. Mensagem que alguém postou num grupo de igreja não é
+ * ninguém querendo falar com este chip, e mensagem do WhatsApp pra ele mesmo,
+ * muito menos. Um freio anti-ban que erra pra CIMA é o único erro caro aqui —
+ * o próprio comentário do gate diz que o lado seguro de errar é pra baixo.
+ *
+ * Régua deliberadamente de ALLOWLIST (o que eu não reconheço, não conta):
+ * telefone 1:1 conta; LID conta (é gente de verdade, só com o número oculto —
+ * ver o caso do Atacadão); grupo, broadcast e lixo não contam.
+ */
+export function contatoContaConfianca(contactRaw: unknown): boolean {
+  const contact = String(contactRaw ?? '').trim().toLowerCase();
+  if (!contact) return false;
+  // Grupo (@g.us) e lista de transmissão: muita gente falando entre si, nenhuma
+  // delas respondendo a este chip.
+  if (contact.includes('@g.us') || contact.includes('@broadcast')) return false;
+  // LID: pessoa real com o telefone oculto pelo WhatsApp.
+  if (contact.includes('@lid')) return /\d{6,}/.test(contact);
+  // Telefone 1:1 (com ou sem "+", com ou sem sufixo de device/servidor).
+  const digitos = contact.replace(/\D/g, '');
+  return digitos.length >= 10 && digitos.length <= 15;
+}
+
 export interface EspacamentoInput {
   /** Teto de hoje para este chip (saída de `tetoDoChip`). */
   teto: number;

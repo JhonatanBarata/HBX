@@ -4,6 +4,7 @@ import {
   CHIP_TRUST_MAX_PADRAO,
   espacamentoDoDia,
   janelaDeTrabalhoMs,
+  contatoContaConfianca,
   tetoDoChip,
 } from './wa-chip-trust';
 
@@ -201,11 +202,18 @@ export class WaColdContactGateService {
       const linhas = await this.prisma.companyMessage.findMany({
         where: { companyId, direction: 'INBOUND', sourceTenantKey: tenantKey },
         distinct: ['conversationId'],
-        select: { conversationId: true },
-        // Teto de leitura: passou do máximo possível, o resto não muda a conta.
-        take: Math.max(1, this.maxPerDay()),
+        select: { conversationId: true, conversation: { select: { contact: true } } },
+        // Mais recente primeiro: confiança é sinal de AGORA, e o corte de leitura
+        // abaixo tem que cair no histórico velho, nunca no engajamento de hoje.
+        orderBy: { timestamp: 'desc' },
+        // Teto de leitura FOLGADO (06/08): antes era o próprio máximo, porque toda
+        // linha lida virava +1. Agora grupo/lixo é descartado depois da leitura —
+        // ler só o máximo faria um chip cheio de grupo parecer chip novo.
+        take: Math.max(1, this.maxPerDay()) * 5,
       });
-      return Array.isArray(linhas) ? linhas.length : 0;
+      if (!Array.isArray(linhas)) return 0;
+      // GRUPO NÃO É RESPOSTA (06/08): ver `contatoContaConfianca` em wa-chip-trust.
+      return linhas.filter((linha: any) => contatoContaConfianca(linha?.conversation?.contact)).length;
     } catch (error) {
       this.logger.warn(
         `cold-gate: falha ao medir confiança do chip ${tenantKey} — assumindo chip novo: ${String((error as any)?.message || error)}`,
