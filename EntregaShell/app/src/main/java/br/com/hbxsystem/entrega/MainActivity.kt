@@ -270,7 +270,8 @@ class MainActivity : AppCompatActivity() {
         setContentView(root)
         consumirIntentDeRecados(intent)
         openingProgress = intent.getIntExtra(OpeningActivity.EXTRA_OPENING_PROGRESS, 42).coerceIn(0, 95)
-        mountOpeningOverlay(assetLoader)
+        // V2 (bancada): a abertura é a do próprio front — a cortina antiga não sobe.
+        if (!BuildConfig.HBX_V2) mountOpeningOverlay(assetLoader)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (saidaEmAndamento) return
@@ -377,6 +378,11 @@ class MainActivity : AppCompatActivity() {
         if (appRevealed || isFinishing || isDestroyed) return
         pendingReadyTheme = theme
         openingProgress = 100
+        // V2: sem cortina montada não há coreografia de overlay — revela direto.
+        if (BuildConfig.HBX_V2) {
+            performReadyReveal(theme)
+            return
+        }
         if (!openingOverlayReady || readyRevealScheduled) return
         val overlay = openingWebView ?: return
         readyRevealScheduled = true

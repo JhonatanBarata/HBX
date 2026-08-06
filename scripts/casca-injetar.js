@@ -17,7 +17,7 @@
  * Mexeu no mock? Roda de novo. O front acompanha.
  *
  * ---------------------------------------------------------------------------
- * AS ÚNICAS 3 ADAPTAÇÕES, e cada uma tem motivo duro:
+ * AS ÚNICAS 5 ADAPTAÇÕES, e cada uma tem motivo duro:
  *
  * 1. O SCRIPT SAI PRA ARQUIVO. O `index.html` do app roda sob CSP
  *    `script-src 'self'` — script inline simplesmente NÃO EXECUTA, e morreria
@@ -31,6 +31,16 @@
  *
  * 3. A CAIXA VIRA TELA. No mock o `.app` é uma maquete de 412x940 com canto
  *    arredondado. No aparelho ele É a tela: 100% / 100dvh, sem canto.
+ *
+ * 4. O APP AVISA QUE SUBIU. O aparelho segura uma cortina nativa até a página
+ *    chamar `HBXAndroid.appReady()` — sem o aviso, a cortina fica PRA SEMPRE
+ *    (medido no g15: opening congelado em "42%"). No navegador não há ponte e
+ *    o aviso é inofensivo.
+ *
+ * 5. A BARRA DE STATUS DESENHADA MORRE. `.status` ("9:41", wifi e bateria de
+ *    mentira) é a barra do celular DESENHADO, irmã do `.notch`: no aparelho a
+ *    barra de verdade já está ali em cima — ficavam DUAS, e a falsa mentindo a
+ *    hora (visto no g15). O conferidor esconde `.status` dos dois lados.
  *
  * Tudo o mais — tipografia, cor, movimento, abertura, os dois modos de luz,
  * as 33 telas e a navegação entre elas — entra IGUAL, sem uma linha reescrita.
@@ -83,6 +93,11 @@ css = css.replace(/^body\{[^}]*\}/m,
 if (/width:412px|height:940px/.test(css)) throw new Error('[casca] sobrou a caixa do celular DESENHADO');
 if (!/\[data-luz="claro"\]/.test(css)) throw new Error('[casca] a folha saiu SEM modo claro');
 
+// 5ª adaptação: a barra de status de MENTIRA sai de cena — a de verdade já
+// está no vidro. Regra ADICIONADA no fim (vence por ordem), nunca editando as
+// regras do mock.
+css += '\n/* aparelho: a barra de status desenhada ("9:41") morre — a real já existe. */\n.status{display:none!important}\n';
+
 // ---------------------------------------------------------------------------
 // SCRIPT
 // ---------------------------------------------------------------------------
@@ -100,6 +115,17 @@ js = js.replace(/document\.getElementById\('phone'\)\.style\.setProperty\([^)]*\
 if (/getElementById\('rail'\)|getElementById\('phone'\)/.test(js)) {
   throw new Error('[casca] sobrou acesso ao cromo do visualizador (#rail/#phone) no script');
 }
+
+// 4ª adaptação: o aparelho segura a cortina nativa até o app avisar que subiu.
+js += `
+/* aparelho: avisa a ponte que o app SUBIU — sem isto a cortina nativa nunca cai. */
+try{
+  var __ponte=window.HBXAndroid;
+  if(__ponte&&__ponte.appReady){
+    __ponte.appReady(document.documentElement.dataset.luz==='claro'?'light':'dark');
+  }
+}catch(_){/* no navegador não há ponte — o mock segue maquete */}
+`;
 
 // ---------------------------------------------------------------------------
 // ESCRITA

@@ -1998,3 +1998,11 @@ document.addEventListener('click',e=>{
   if(fec){ fechar(fec.closest('.erro-wrap,.conf-wrap,.portao-wrap')); }
 });
 pintar(false);
+
+/* aparelho: avisa a ponte que o app SUBIU — sem isto a cortina nativa nunca cai. */
+try{
+  var __ponte=window.HBXAndroid;
+  if(__ponte&&__ponte.appReady){
+    __ponte.appReady(document.documentElement.dataset.luz==='claro'?'light':'dark');
+  }
+}catch(_){/* no navegador não há ponte — o mock segue maquete */}

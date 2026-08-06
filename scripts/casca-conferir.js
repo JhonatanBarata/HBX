@@ -39,6 +39,7 @@ body{margin:0;display:block;overflow:hidden;background:#06090f}
 .doc-top,.rail{display:none!important}
 .stage{padding:0;background:none;overflow:visible}
 .notch{display:none!important}
+.status{display:none!important}
 .app{position:fixed;top:0;left:0;width:412px!important;height:940px!important;border-radius:0!important}`;
 
 (async () => {

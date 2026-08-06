@@ -1359,3 +1359,6 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .splash-logo small,[data-luz="claro"] .splash-empresa{color:#55637d}
 [data-luz="claro"] .splash-brilho{background:linear-gradient(90deg,transparent,rgba(15,23,38,.10),transparent)}
 [data-luz="claro"] .splash-barra{background:#d5dded}
+
+/* aparelho: a barra de status desenhada ("9:41") morre — a real já existe. */
+.status{display:none!important}
