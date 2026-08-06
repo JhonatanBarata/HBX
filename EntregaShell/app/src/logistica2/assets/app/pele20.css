@@ -1,12 +1,16 @@
 /* ==========================================================================
-   PELE 2.0 — CASCA EXTRAÍDA DO MOCK, NÃO REESCRITA.
-   Gerada de docs/mockups/logistica2.0/logistica-2.0.html (congelado 06/08
-   05:30). Carregada DEPOIS do app.css pra vencer as 11 classes que colidem
-   com a pele velha (app, chip, chips, handle, js, kpi, kpis, screen-head,
-   search, sheet, sheet-head). O resto do vocabulário é novo — 228 de 239.
+   PELE 2.0 — EXTRAÍDA DO MOCK, NÃO REESCRITA.  ⚠️ ARQUIVO GERADO.
 
-   REGRA DO DONO: onde tem verde limão forte, o texto é ESCURO LEGÍVEL
-   (#12200a), nunca branco. No mock era interruptor; aqui é lei.
+   Fonte: docs/mockups/logistica2.0/logistica-2.0.html
+   Gerador: scripts/pele20-gerar.js   (rode ele; não edite este arquivo)
+
+   Os templates são os MESMOS do mock, palavra por palavra — é isso que faz o
+   HTML sair idêntico por CONSTRUÇÃO, e não por semelhança. Editar aqui à mão
+   quebra a única regra de aprovação que o dono cravou, e some na próxima
+   regeração.
+
+   Única adaptação: o verde limão forte leva texto escuro legível (#12200a),
+   nunca branco — ordem do dono. No mock era interruptor; aqui é lei.
    ========================================================================== */
 .app{
   position:relative;width:100%;height:100dvh;border-radius:0;overflow:hidden;
@@ -39,6 +43,8 @@
 .app b,.app strong{font-weight:500}
 .app h2{font-weight:400;letter-spacing:-.018em}
 .app .v,.app .eta b,.app .price,.app .form-c.total b{letter-spacing:-.02em}
+  background:radial-gradient(circle at 35% 35%,#22314d,#05070c 70%)}
+
 /* ==========================================================================
    PADRÕES DE MOVIMENTO — as 7 leis. Nada nesta casca aparece do nada.
    Quem for implementar no app.js copia DAQUI; não inventa duração nem curva.

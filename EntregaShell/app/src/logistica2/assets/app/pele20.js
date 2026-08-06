@@ -1,23 +1,19 @@
 /* ==========================================================================
-   PELE 2.0 — EXTRAÍDA DO MOCK, NÃO REESCRITA.
+   PELE 2.0 — EXTRAÍDA DO MOCK, NÃO REESCRITA.  ⚠️ ARQUIVO GERADO.
 
-   Gerado de docs/mockups/logistica2.0/logistica-2.0.html (3.079 linhas,
-   congelado 06/08 05:30). Os templates são os MESMOS do mock, palavra por
-   palavra — é isso que faz o HTML sair idêntico por CONSTRUÇÃO, e não por
-   imitação. Mudou a aparência? Mexe no MOCK e regera. Editar este arquivo
-   à mão quebra a única regra de aprovação que o dono cravou.
+   Fonte: docs/mockups/logistica2.0/logistica-2.0.html
+   Gerador: scripts/pele20-gerar.js   (rode ele; não edite este arquivo)
+
+   Os templates são os MESMOS do mock, palavra por palavra — é isso que faz o
+   HTML sair idêntico por CONSTRUÇÃO, e não por semelhança. Editar aqui à mão
+   quebra a única regra de aprovação que o dono cravou, e some na próxima
+   regeração.
 
    Única adaptação: o verde limão forte leva texto escuro legível (#12200a),
    nunca branco — ordem do dono. No mock era interruptor; aqui é lei.
    ========================================================================== */
 (function(){
-  "use strict";
-  var atual = "rota", anterior = null, limpezaTimer = null, aberturaTimer = null;
-  var ORDEM = [], GRUPOS = [];
-  function ir(){}
-/* ==========================================================================
-   ÍCONES
-   ========================================================================== */
+"use strict";
 const I = {
 menu:'<path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
 bell:'<path d="M7 17V11a5 5 0 0 1 10 0v6M5.5 17h13M10 20h4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
@@ -55,6 +51,23 @@ minus:'<path d="M5 12h14" stroke="currentColor" stroke-width="1.9" stroke-lineca
 gallon:'<path d="M10 3.5h4v2.2l2.4 1.6c.9.6 1.4 1.6 1.4 2.7v7.6c0 1.6-1.3 2.9-2.9 2.9H9.1A2.9 2.9 0 0 1 6.2 17.6V10c0-1.1.5-2.1 1.4-2.7L10 5.7V3.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8.6 12.4h6.8" stroke="currentColor" stroke-width="1.5"/>',
 edit:'<path d="M4 20h4l10-10-4-4L4 16v4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
 photo:'<rect x="3" y="7" width="18" height="13" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="13.5" r="3.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M8.5 7l1.4-2.5h4.2L15.5 7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+/* Os 10 que faltavam — sem eles o transmux perdia justo o Pausar e o Cancelar,
+   e 32 das 33 telas tinham buraco. Ver a trava em `ic()` logo abaixo. */
+pause:'<rect x="7.5" y="5" width="3.4" height="14" rx="1.4" fill="currentColor"/><rect x="13.1" y="5" width="3.4" height="14" rx="1.4" fill="currentColor"/>',
+stop:'<rect x="6" y="6" width="12" height="12" rx="2.6" fill="currentColor"/>',
+gear:'<circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2.6v2.4M12 19v2.4M2.6 12h2.4M19 12h2.4M5.2 5.2l1.7 1.7M17.1 17.1l1.7 1.7M18.8 5.2l-1.7 1.7M6.9 17.1l-1.7 1.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+gps:'<circle cx="12" cy="12" r="2.8" fill="currentColor"/><circle cx="12" cy="12" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v2.6M12 19.4V22M2 12h2.6M19.4 12H22" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+volume:'<path d="M4.5 9.2h3.2L12 5.6v12.8L7.7 14.8H4.5V9.2z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M15.4 9.4a3.7 3.7 0 0 1 0 5.2M17.9 6.9a7.2 7.2 0 0 1 0 10.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+trash:'<path d="M4.5 7h15M9.6 7V4.8h4.8V7M6.6 7l.9 12.4h9l.9-12.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M10.4 10.6v6M13.6 10.6v6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
+refresh:'<path d="M20.2 12a8.2 8.2 0 1 1-2.5-5.9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M20.4 3.4V9h-5.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+calendar:'<rect x="3.4" y="5.2" width="17.2" height="15.4" rx="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M3.4 10h17.2M8.2 3v4M15.8 3v4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M7.6 13.8h2M11 13.8h2M14.4 13.8h2M7.6 17h2M11 17h2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>',
+download:'<path d="M12 3.6v10.8M7.6 10.4L12 14.8l4.4-4.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M4.6 17.4v1.4a1.6 1.6 0 0 0 1.6 1.6h11.6a1.6 1.6 0 0 0 1.6-1.6v-1.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
+logout:'<path d="M14.6 4.6H6.4a1.8 1.8 0 0 0-1.8 1.8v11.2a1.8 1.8 0 0 0 1.8 1.8h8.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M18.8 12H10M15.6 8.4L19.2 12l-3.6 3.6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
+/* Mais 3 que o grep não enxergava: são passados como VARIÁVEL (`linha('sales')`),
+   não como literal dentro de ic(). Quem achou foi a caixa vermelha na tela. */
+sales:'<path d="M4 19.4V11M9.4 19.4V5M14.8 19.4v-6M20.2 19.4V9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M3 21.4h18" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
+wallet:'<path d="M3.4 8.2a2.6 2.6 0 0 1 2.6-2.6h10.8a2 2 0 0 1 2 2v1.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><rect x="3.4" y="8.2" width="17.2" height="11.2" rx="2.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M16.4 13.8h1.8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>',
+moon:'<path d="M20 14.6A8.4 8.4 0 0 1 9.4 4 8.6 8.6 0 1 0 20 14.6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
 flag:'<path d="M6 21V4M6 4h11l-2 3.5L17 11H6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
 save:'<path d="M5 5.5h11l3 3V19H5V5.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.5 5.5v4.5h6V5.5M8 19v-4.5h8V19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>',
 spark:'<path d="M12 4l1.6 4.7L18 10.3l-4.4 1.6L12 16.6l-1.6-4.7L6 10.3l4.4-1.6L12 4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M18.5 15.5l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2z" fill="currentColor"/>',
@@ -63,7 +76,24 @@ spark:'<path d="M12 4l1.6 4.7L18 10.3l-4.4 1.6L12 16.6l-1.6-4.7L6 10.3l4.4-1.6L1
    leve). Aqui o traço é afinado num ponto só — 0,72 do original — em vez de
    reescrever 40 desenhos. Ícone e letra passam a ter o mesmo peso na tela. */
 const afinar = svg => svg.replace(/stroke-width="([\d.]+)"/g,(m,w)=>`stroke-width="${(+w*0.72).toFixed(2)}"`);
-const ic=(n,s=18)=>`<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" aria-hidden="true">${afinar(I[n]||'')}</svg>`;
+
+/* 🔴 ÍCONE QUE NÃO EXISTE NÃO SAI CALADO (06/08).
+   O `I[n] || ''` devolvia um <svg> VAZIO: o botão continuava lá, do tamanho
+   certo, sem desenho nenhum. Foram 65 buracos em 32 das 33 telas — e o
+   transmux perdeu justamente o Pausar e o Cancelar sem uma linha de erro.
+   Nenhuma medida de layout pega isso, porque o layout está perfeito.
+   Agora o nome errado vira uma CAIXA VERMELHA na tela e um aviso no console:
+   mesma lei do CNEFE — best-effort que engole erro precisa de alarme. */
+const ic=(n,s=18)=>{
+  const desenho=I[n];
+  if(!desenho){
+    console.warn('[HBX 2.0] ícone inexistente no dicionário:',n);
+    return `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" aria-label="ícone ${n} não existe">
+      <rect x="2.5" y="2.5" width="19" height="19" rx="4" fill="none" stroke="#f2555a" stroke-width="2"/>
+      <path d="M8 8l8 8M16 8l-8 8" stroke="#f2555a" stroke-width="2" stroke-linecap="round"/></svg>`;
+  }
+  return `<svg viewBox="0 0 24 24" width="${s}" height="${s}" fill="none" aria-hidden="true">${afinar(desenho)}</svg>`;
+};
 
 /* ==========================================================================
    PEÇAS COMUNS
@@ -1515,17 +1545,20 @@ ${hdr({sub:'Padrões de movimento'})}
 </div>
 ${nav('rota')}`;}};
 
+/* ==========================================================================
+   MONTAGEM
+   ========================================================================== */
+const ORDEM=[];
+const GRUPOS=[];
+let atual='rota';
+
+/* Quanto tempo a camada que SAI ainda precisa ficar viva, por transição.
+   Tirar antes da hora corta a animação no meio — o defeito clássico. */
 const DUR={escalonado:200,desfoque:180,molinha:180,eixoz:320,eixox:300,conteudo:30,nenhuma:0};
 /** Telas que TOMAM o aparelho inteiro — entram e saem por outro padrão. */
 const TELA_CHEIA=['mapa','mapachegou'];
 
-function pintarRail(){
-  document.getElementById('rail').innerHTML=GRUPOS.map(g=>{
-    const itens=ORDEM.filter(k=>T[k].grupo===g);
-    return itens.length?`<h2>${g}</h2>`+itens.map(k=>
-      `<button data-tela="${k}" class="${k===atual?'on':''}"><i></i>${T[k].nome}</button>`).join(''):'';
-  }).join('');
-}
+function pintarRail(){}
 
 /** Marca e numera as peças do corpo — é o que dá a ORDEM de entrada. Teto de
  *  14 pra tela cheia não terminar de entrar depois do dedo já ter rolado. */
@@ -1534,7 +1567,7 @@ function numerarItens(tela){
       .forEach((el,i)=>{el.classList.add('anim-item');el.style.setProperty('--i',Math.min(i,14));});
 }
 
-
+let limpezaTimer=null;
 function pintar(animar,dir){
   const app=document.getElementById('app');
   const tr=document.documentElement.dataset.tr||'escalonado';
@@ -1612,8 +1645,9 @@ function pintar(animar,dir){
   clearTimeout(aberturaTimer);
   if(atual==='entrada') aberturaTimer=setTimeout(()=>ir('rota'),3400);
 }
-
-
+let aberturaTimer=null;
+let anterior=null;
+function ir(){}
 
 /* ==========================================================================
    AVISOS — o cartão não "aparece", ele CHEGA. Um por vez: aviso empilhado é
@@ -1883,10 +1917,11 @@ function confirmar(){
   camada.appendChild(w);
 }
 
-  window.HBX20 = { T: T, ic: ic, hdr: hdr, nav: nav, status: status, logo: logo,
-    stop: stop, transmux: transmux, mapa: mapa, mapaGps: mapaGps, telaGps: telaGps,
-    folhaCompleta: folhaCompleta, shellRota: shellRota, listaParadas: listaParadas,
-    AVISOS: AVISOS, PORTOES: PORTOES, avisar: avisar, portao: portao, erro: erro,
-    fechar: fechar, confirmar: confirmar, ligarGestos: ligarGestos,
-    numerarItens: numerarItens, DUR: DUR, ROTA_ESTADOS: ROTA_ESTADOS, PARADAS: PARADAS };
+
+window.HBX20 = { T: T, ic: ic, hdr: hdr, nav: nav, status: status, logo: logo,
+  stop: stop, transmux: transmux, mapa: mapa, mapaGps: mapaGps, telaGps: telaGps,
+  folhaCompleta: folhaCompleta, shellRota: shellRota, listaParadas: listaParadas,
+  AVISOS: AVISOS, PORTOES: PORTOES, avisar: avisar, portao: portao, erro: erro,
+  fechar: fechar, confirmar: confirmar, ligarGestos: ligarGestos,
+  numerarItens: numerarItens, DUR: DUR, ROTA_ESTADOS: ROTA_ESTADOS, PARADAS: PARADAS };
 })();
