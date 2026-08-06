@@ -477,9 +477,9 @@ ${hdr({})}
       <button style="width:34px;height:34px">${ic('plus',16)}</button>
       <button style="width:34px;height:34px">${ic('minus',16)}</button></div>
   </div>
-  <div style="position:relative;z-index:20;background:linear-gradient(180deg,#0b1322,#080d17 34px);
+  <div style="position:relative;z-index:20;background:linear-gradient(180deg,var(--glass),var(--bg) 34px);
               border-radius:18px 18px 0 0;border-top:.7px solid var(--line);padding:9px 10px 0;margin-top:-16px">
-    <span style="display:block;width:36px;height:3px;border-radius:2px;background:#2b3a58;margin:0 auto 7px"></span>
+    <span style="display:block;width:36px;height:3px;border-radius:2px;background:var(--handle);margin:0 auto 7px"></span>
     ${l(1,'08:30','João da Silva','R. das Palmeiras, 145 • Santo Amaro',['20L x2','Vasilhame','Chip dia'],['A caminho','lime','nav'],'lime')}
     ${l(2,'09:15','Mercadinho Bom Preço','Av. João Dias, 890 • Brooklin',['20L x4','Vasilhame'],['Chegou','lime','check'],'lime')}
     ${l(3,'10:05','Mercado São Judas','R. São Judas, 142 • São Paulo',['20L x2','Vasilhame','Chip dia'],['Próxima parada','blue','nav'],'')}
@@ -701,7 +701,7 @@ ${hdr({})}
     <span class="c"><span style="color:var(--blue-l)">${ic('box',17)}</span><span><b>20</b><small>produtos</small></span></span>
     <span class="c"><span style="color:var(--lime)">${ic('cash',17)}</span><span><b>R$ 336,00</b><small>valor marcado</small></span></span>
   </div>
-  <button class="act full" style="margin-top:9px;background:linear-gradient(180deg,#3d8bff,#1f66e0);border:0;color:#fff;justify-content:center;box-shadow:0 7px 18px rgba(47,126,247,.3)">
+  <button class="act full" style="margin-top:9px;background:linear-gradient(180deg,var(--btn-blue-1),var(--btn-blue-2));border:0;color:var(--white);justify-content:center;box-shadow:0 7px 18px rgba(47,126,247,.3)">
     ${ic('save',19)}<b style="font-size:14px">Salvar rota</b></button>
   <button class="act full" style="margin-top:7px;justify-content:center">${ic('spark',17)}
     <span style="text-align:center"><b>Otimizar ordem</b><small>Sugerir melhor sequência</small></span></button>
@@ -739,7 +739,7 @@ ${hdr({})}
   ${r('Rota Brooklin','15 de maio, 2025','11','16','110,20','map',0)}
   ${r('Rota clientes fiéis','10 de maio, 2025','9','14','87,60','users',1)}
   <div class="box" style="display:flex;align-items:center;gap:10px;margin-top:2px;padding:8px">
-    <span style="width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:#151f0d;color:var(--lime)">${ic('save',19)}</span>
+    <span style="width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:var(--lime-bg);color:var(--lime)">${ic('save',19)}</span>
     <span style="flex:1"><b style="display:block;font-size:13.5px;font-weight:500">Use uma rota salva hoje</b>
       <small style="font-size:11px;color:var(--ink-2)">Mantenha suas entregas organizadas.</small></span>
     <button class="ghost" style="border-color:var(--lime);color:var(--lime)">Usar hoje</button></div>
@@ -950,11 +950,11 @@ T.avancado={nome:'Ajustes · Avançado',grupo:'Ajustes',render(){
     </div>
     <div class="grupo">Zona de perigo</div>
     <div class="cartao-lista">
-      <button class="linha-cfg"><span class="ico" style="background:#1a1114;color:var(--red)">${ic('trash',16)}</span>
+      <button class="linha-cfg"><span class="ico" style="background:var(--red-bg);color:var(--red)">${ic('trash',16)}</span>
         <span><strong style="color:var(--red)">Limpar dados do aparelho</strong>
           <span>a rota do dia se perde se não estiver sincronizada</span></span>
         <span style="color:var(--ink-3)">${ic('chev',15)}</span></button>
-      <button class="linha-cfg" data-superficie="confirmar"><span class="ico" style="background:#1a1114;color:var(--red)">${ic('logout',16)}</span>
+      <button class="linha-cfg" data-superficie="confirmar"><span class="ico" style="background:var(--red-bg);color:var(--red)">${ic('logout',16)}</span>
         <span><strong style="color:var(--red)">Desvincular este aparelho</strong>
           <span>libera a vaga da empresa pra outro celular</span></span>
         <span style="color:var(--ink-3)">${ic('chev',15)}</span></button>
@@ -969,7 +969,7 @@ T.sons={nome:'Ajustes · Sons',grupo:'Ajustes',render(){
       <span class="chave ${on?'on':''}"><i></i></span></span></button>`;
   return telaAjuste('Sons e voz',`
     <div class="cartao-lista" style="margin-top:2px">
-      <button class="linha-cfg"><span class="ico" style="background:#17230e;color:var(--lime)">${ic('volume',16)}</span>
+      <button class="linha-cfg"><span class="ico" style="background:var(--lime-bg-2);color:var(--lime)">${ic('volume',16)}</span>
         <span><strong>Todos os sons</strong><span>desligar aqui cala o app inteiro</span></span>
         <span class="chave on"><i></i></span></button>
     </div>
@@ -1212,7 +1212,7 @@ ${nav('rota')}`;}};
 T.portoes={nome:'Portões e bloqueios',grupo:'Sistema',render(){
   const p=(chave,nome,quando,tom)=>`
     <div class="rowcard">
-      <span class="ico ${tom==='trava'?'':'lime'}" style="${tom==='trava'?'background:#2a1113;color:#ff6b6b':''}">
+      <span class="ico ${tom==='trava'?'':'lime'}" style="${tom==='trava'?'background:var(--danger-ico-bg);color:var(--danger-ico)':''}">
         ${ic(tom==='trava'?'lock':'alert',18)}</span>
       <span><strong>${nome}</strong><span>${quando}</span></span>
       <button class="ghost" data-portao="${chave}">ver</button></div>`;

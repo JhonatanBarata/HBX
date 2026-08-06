@@ -87,6 +87,20 @@ button,input{font:inherit;color:inherit}
   --red-bg-2:#17141a;
   --glass:#0b1322;
   --field:#0b1424;
+  /* papéis do rabo — F1 leva 4 */
+  --chip-bg:#101a2c;
+  --blue-bg-2:#0e1c31;
+  --red-bg-3:#1f0f11;
+  --trilho:#182741;
+  --prog-1:#74b81b;
+  --prog-2:#a4e42f;
+  --handle:#2b3a58;
+  --fog:#070d18;
+  --danger-ico-bg:#2a1113;
+  --danger-ico:#ff6b6b;
+  --danger-btn:#8f2d2d;
+  --barra-trilho:#1b2a45;
+  --logo-sub:#dbe4f2;
   /* O mapa também é pele: sem token aqui ele fica escuro no tema claro — e
      mapa que não acompanha o tema é o buraco clássico da troca de pele. */
   --map-fundo:var(--bg-2); --map-quadra:#0d1727; --map-rua:#1b2740; --map-rua2:#16223a;
@@ -304,10 +318,10 @@ button,input{font:inherit;color:inherit}
   background:linear-gradient(90deg,transparent,rgba(255,255,255,.42),transparent);
   transform:skewX(-18deg);animation:spBrilho .82s ease-in-out 1.95s both}
 @keyframes spBrilho{from{left:-45%}to{left:125%}}
-.splash-logo small{display:block;font-size:11px;color:#dbe4f2;margin-top:11px;padding-left:10px;
+.splash-logo small{display:block;font-size:11px;color:var(--logo-sub);margin-top:11px;padding-left:10px;
   animation:spLetras .85s var(--cv-entra) 2.05s both}
 .splash-empresa{margin-top:26px;font-size:13px;color:var(--ink-2);animation:spSobe .55s var(--cv-entra) 2.35s both}
-.splash-barra{width:96px;height:2px;background:#1b2a45;border-radius:2px;overflow:hidden;margin-top:16px}
+.splash-barra{width:96px;height:2px;background:var(--barra-trilho);border-radius:2px;overflow:hidden;margin-top:16px}
 .splash-barra i{display:block;height:100%;background:var(--lime);transform-origin:left;
   box-shadow:0 0 8px rgba(158,222,42,.8);animation:spCarrega 2.6s var(--cv-entra) .6s both}
 @keyframes spSobe{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
@@ -379,14 +393,14 @@ button,input{font:inherit;color:inherit}
   animation:mvErro 320ms var(--cv-mola) both, mvSacode 340ms 300ms both;
 }
 .erro .ico{width:44px;height:44px;border-radius:50%;margin:0 auto 10px;display:grid;place-items:center;
-  background:#2a1113;color:#ff6b6b;animation:mvPop var(--mv-normal) var(--cv-mola) .1s both}
+  background:var(--danger-ico-bg);color:var(--danger-ico);animation:mvPop var(--mv-normal) var(--cv-mola) .1s both}
 .erro strong{display:block;font-size:16px;font-weight:500;animation:trItem .3s var(--cv-entra) .16s both}
 .erro .sub{display:block;font-size:12.5px;color:var(--ink-2);margin-top:4px;animation:trItem .3s var(--cv-entra) .22s both}
 .erro .acoes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px;
   animation:trItem .3s var(--cv-entra) .28s both}
 .erro .acoes button{height:40px;border-radius:11px;border:.7px solid var(--line-2);background:var(--card);
   color:var(--ink);font-size:13.5px;cursor:pointer}
-.erro .acoes .principal{background:#8f2d2d;border-color:#8f2d2d;color:var(--white)}
+.erro .acoes .principal{background:var(--danger-btn);border-color:var(--danger-btn);color:var(--white)}
 @keyframes mvErro{from{opacity:0;transform:scale(.84)}to{opacity:1;transform:none}}
 @keyframes mvSacode{0%,100%{margin-left:0}15%{margin-left:-7px}35%{margin-left:6px}55%{margin-left:-4px}75%{margin-left:2px}}
 
@@ -423,7 +437,7 @@ button,input{font:inherit;color:inherit}
 .portao .ico{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;margin-bottom:11px;
   animation:mvPop var(--mv-normal) var(--cv-mola) .08s both}
 .portao.alerta .ico{background:var(--amber-bg);color:var(--amber)}
-.portao.trava .ico{background:#2a1113;color:#ff6b6b}
+.portao.trava .ico{background:var(--danger-ico-bg);color:var(--danger-ico)}
 .portao.info .ico{background:var(--blue-bg);color:var(--blue-l)}
 .portao.ok .ico{background:var(--lime-bg-2);color:var(--lime)}
 .portao h3{margin:0;font-size:17px;font-weight:500;letter-spacing:-.01em;
@@ -477,7 +491,7 @@ button,input{font:inherit;color:inherit}
 .aviso.alerta .ico{background:var(--amber-bg);color:var(--amber)}
 .aviso strong{display:block;font-size:13px;font-weight:500;line-height:1.25}
 .aviso .sub{display:block;font-size:11px;color:var(--ink-2);line-height:1.3;margin-top:1px}
-.aviso .barra{position:absolute;left:12px;right:12px;bottom:6px;height:2px;border-radius:2px;background:#1b2a45;overflow:hidden}
+.aviso .barra{position:absolute;left:12px;right:12px;bottom:6px;height:2px;border-radius:2px;background:var(--barra-trilho);overflow:hidden}
 .aviso .barra i{display:block;height:100%;background:var(--blue-l);transform-origin:left;animation:avDrena 3.4s linear both}
 .aviso.ok .barra i{background:var(--lime)}
 .aviso.alerta .barra i{background:var(--amber)}
@@ -538,7 +552,7 @@ button,input{font:inherit;color:inherit}
 /* flancos gêmeos: mesma largura mínima ⇒ o logo não anda entre telas */
 .hdr-flanco{flex:0 0 76px;display:flex;justify-content:flex-start}
 .hdr-flanco.dir{justify-content:flex-end}
-.round{width:35px;height:35px;border-radius:50%;border:.7px solid var(--line);background:#101a2c;
+.round{width:35px;height:35px;border-radius:50%;border:.7px solid var(--line);background:var(--chip-bg);
   display:grid;place-items:center;cursor:pointer;position:relative;color:var(--ink);flex:0 0 35px}
 .round.sm{width:30px;height:30px;flex:0 0 30px}
 .round .ping{position:absolute;top:0;right:0;width:7px;height:7px;border-radius:50%;background:var(--blue);border:1.5px solid var(--bg)}
@@ -550,9 +564,9 @@ button,input{font:inherit;color:inherit}
 .logo .w{font-size:25px;font-weight:600;letter-spacing:.4px;line-height:1}
 .logo .w b{color:var(--white);font-weight:600}
 .logo .w em{color:var(--lime);font-style:normal;font-weight:600;font-size:28px;display:inline-block;transform:skewX(-8deg)}
-.logo small{font-size:8px;letter-spacing:4.6px;color:#dbe4f2;margin-top:4px;padding-left:5px}
+.logo small{font-size:8px;letter-spacing:4.6px;color:var(--logo-sub);margin-top:4px;padding-left:5px}
 .pill-live{display:flex;align-items:center;gap:6px;padding:8px 13px;border-radius:999px;
-  background:#101a2c;border:.7px solid var(--line);font-size:12.5px}
+  background:var(--chip-bg);border:.7px solid var(--line);font-size:12.5px}
 .pill-live i{width:7px;height:7px;border-radius:50%;background:var(--lime);box-shadow:0 0 7px var(--lime)}
 
 /* ---------- corpo ---------- */
@@ -623,7 +637,7 @@ button,input{font:inherit;color:inherit}
 .who span{display:block;font-size:11px;color:var(--ink-2);line-height:1.3}
 .tags{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px}
 .tag{font-size:10px;padding:2px 6px;border-radius:6px;border:.7px solid var(--line-2);color:var(--ink-2);white-space:nowrap}
-.tag.blue{border-color:var(--blue-line);color:var(--blue-l);background:#0e1c31}
+.tag.blue{border-color:var(--blue-line);color:var(--blue-l);background:var(--blue-bg-2)}
 .tag.lime{border-color:var(--lime-line);color:var(--lime);background:var(--lime-bg)}
 /* 🔴 COR É INFORMAÇÃO, e faltavam dois tons. Ao vestir a Rota do app com este
    vocabulário (leva 1), "janela rígida" perdeu o VERMELHO e "horário" perdeu o
@@ -631,7 +645,7 @@ button,input{font:inherit;color:inherit}
    cor antes de ler a palavra. Mesma receita dos dois de cima — borda, tinta e
    fundo do próprio tom. */
 .tag.amber{border-color:var(--amber-line);color:var(--amber);background:#231805}
-.tag.red{border-color:var(--red-line);color:var(--red);background:#1f0f11}
+.tag.red{border-color:var(--red-line);color:var(--red);background:var(--red-bg-3)}
 /* Observação do cliente NÃO é o endereço: "cachorro solto no pátio" tem que
    pesar mais que a rua. Era `.stop-obs` na pele velha e virou linha muda. */
 .who span.nota{color:var(--amber);font-weight:500}
@@ -731,8 +745,8 @@ button,input{font:inherit;color:inherit}
 /* ---------- progresso do dia ---------- */
 .dia-bar{display:flex;align-items:center;gap:9px;margin-top:7px;padding:8px 11px;border-radius:12px;
   background:var(--card);border:.7px solid var(--line)}
-.dia-bar .trilho{flex:1;height:6px;border-radius:4px;background:#182741;overflow:hidden}
-.dia-bar .trilho i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,#74b81b,#a4e42f)}
+.dia-bar .trilho{flex:1;height:6px;border-radius:4px;background:var(--trilho);overflow:hidden}
+.dia-bar .trilho i{display:block;height:100%;border-radius:4px;background:linear-gradient(90deg,var(--prog-1),var(--prog-2))}
 .dia-bar small{font-size:10.5px;color:var(--ink-2);white-space:nowrap}
 .dia-bar b{font-size:12.5px;white-space:nowrap}
 
@@ -752,7 +766,7 @@ button,input{font:inherit;color:inherit}
    normal diz quanto falta; este diz que o app NÃO SABE onde fica o endereço —
    e sem tom próprio ele saía com a mesma cara de "850 m · 4 min", que é
    exatamente a leitura errada. */
-.perna.alerta span{color:var(--red);border-color:var(--red-line);background:#1f0f11}
+.perna.alerta span{color:var(--red);border-color:var(--red-line);background:var(--red-bg-3)}
 
 /* ---------- painel de créditos do dia ---------- */
 .creditos{display:flex;align-items:center;gap:9px;margin-top:7px;padding:8px 11px;border-radius:12px;
@@ -796,7 +810,7 @@ button,input{font:inherit;color:inherit}
   color:var(--blue-l);display:grid;place-items:center;cursor:pointer}
 .next-card{position:absolute;left:9px;right:9px;bottom:72px;z-index:35;border-radius:15px;padding:11px 12px;
   background:var(--card);border:.7px solid var(--line);display:flex;align-items:center;gap:10px}
-.next-card .handle{position:absolute;top:5px;left:50%;transform:translateX(-50%);width:36px;height:3px;border-radius:2px;background:#2b3a58}
+.next-card .handle{position:absolute;top:5px;left:50%;transform:translateX(-50%);width:36px;height:3px;border-radius:2px;background:var(--handle)}
 .next-card .info{flex:1;min-width:0;padding-top:3px}
 .next-card .lb{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--lime);margin-bottom:2px}
 .next-card .lb .n{width:19px;height:19px;border-radius:50%;border:.9px solid var(--lime);display:grid;place-items:center;font-size:10px}
@@ -825,14 +839,14 @@ button,input{font:inherit;color:inherit}
    6. Velocímetro embaixo à esquerda; recentralizar só faz sentido perto do
       polegar, do lado direito.
    ========================================================================== */
-.gps{position:absolute;inset:0;overflow:hidden;background:#070d18}
+.gps{position:absolute;inset:0;overflow:hidden;background:var(--fog)}
 .gps-mundo{position:absolute;left:-42%;right:-42%;top:-52%;bottom:-6%;
   transform:perspective(640px) rotateX(51deg);transform-origin:50% 74%}
 .gps-mundo svg{width:100%;height:100%;display:block}
 /* Névoa do horizonte: sem ela a borda do mapa aparece como um corte reto no
    meio da tela — é o detalhe que denuncia mapa falso. */
 .gps-horizonte{position:absolute;left:0;right:0;top:0;height:44%;pointer-events:none;
-  background:linear-gradient(180deg,#070d18 22%,rgba(7,13,24,.72) 58%,transparent)}
+  background:linear-gradient(180deg,var(--fog) 22%,rgba(7,13,24,.72) 58%,transparent)}
 
 .gps-puck{position:absolute;left:50%;top:68%;width:0;height:0;z-index:12}
 /* O facho é um CONE recortado, não um gradiente cônico: o `conic-gradient`
@@ -884,7 +898,7 @@ button,input{font:inherit;color:inherit}
   background:linear-gradient(180deg,#0f1a2c,var(--bg-2) 30%);border:.7px solid var(--line);border-bottom:0;
   padding:10px 12px 72px;max-height:88%;overflow:auto;scrollbar-width:none;box-shadow:0 -18px 44px rgba(0,0,0,.6)}
 .sheet::-webkit-scrollbar{display:none}
-.sheet .handle{width:36px;height:3px;border-radius:2px;background:#2b3a58;margin:0 auto 10px}
+.sheet .handle{width:36px;height:3px;border-radius:2px;background:var(--handle);margin:0 auto 10px}
 .sheet-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
 .sheet-head h2{margin:0;font-size:21px;font-weight:500;letter-spacing:-.3px}
 .sheet-head p{margin:2px 0 0;font-size:12px;color:var(--ink-2)}
@@ -927,8 +941,8 @@ button,input{font:inherit;color:inherit}
 .prog{background:var(--card);border:.7px solid var(--line);border-radius:12px;padding:9px 11px;margin-top:8px}
 .prog-l{display:flex;justify-content:space-between;font-size:11.5px;color:var(--ink-2)}
 .prog-l b{color:var(--lime)}
-.prog-b{height:5px;border-radius:3px;background:#182741;margin-top:7px;overflow:hidden}
-.prog-b i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#74b81b,#a4e42f)}
+.prog-b{height:5px;border-radius:3px;background:var(--trilho);margin-top:7px;overflow:hidden}
+.prog-b i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,var(--prog-1),var(--prog-2))}
 
 /* ---------- busca / chips ---------- */
 .searchrow{display:flex;gap:7px;margin-top:7px}
@@ -965,7 +979,7 @@ button,input{font:inherit;color:inherit}
 /* ---------- rotas salvas ---------- */
 .rowcard{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:9px;align-items:center;
   background:var(--card);border:.7px solid var(--line);border-radius:12px;padding:6px 9px;margin-bottom:5px;cursor:pointer}
-.rowcard .ico{width:36px;height:36px;border-radius:10px;background:#0e1c31;
+.rowcard .ico{width:36px;height:36px;border-radius:10px;background:var(--blue-bg-2);
   border:.7px solid var(--line-2);display:grid;place-items:center;color:var(--blue-l)}
 .rowcard .ico.lime{background:var(--lime-bg);color:var(--lime)}
 .rowcard strong{display:block;font-size:13px;font-weight:500}
@@ -1938,9 +1952,9 @@ ${hdr({})}
       <button style="width:34px;height:34px">${ic('plus',16)}</button>
       <button style="width:34px;height:34px">${ic('minus',16)}</button></div>
   </div>
-  <div style="position:relative;z-index:20;background:linear-gradient(180deg,#0b1322,#080d17 34px);
+  <div style="position:relative;z-index:20;background:linear-gradient(180deg,var(--glass),var(--bg) 34px);
               border-radius:18px 18px 0 0;border-top:.7px solid var(--line);padding:9px 10px 0;margin-top:-16px">
-    <span style="display:block;width:36px;height:3px;border-radius:2px;background:#2b3a58;margin:0 auto 7px"></span>
+    <span style="display:block;width:36px;height:3px;border-radius:2px;background:var(--handle);margin:0 auto 7px"></span>
     ${l(1,'08:30','João da Silva','R. das Palmeiras, 145 • Santo Amaro',['20L x2','Vasilhame','Chip dia'],['A caminho','lime','nav'],'lime')}
     ${l(2,'09:15','Mercadinho Bom Preço','Av. João Dias, 890 • Brooklin',['20L x4','Vasilhame'],['Chegou','lime','check'],'lime')}
     ${l(3,'10:05','Mercado São Judas','R. São Judas, 142 • São Paulo',['20L x2','Vasilhame','Chip dia'],['Próxima parada','blue','nav'],'')}
@@ -2162,7 +2176,7 @@ ${hdr({})}
     <span class="c"><span style="color:var(--blue-l)">${ic('box',17)}</span><span><b>20</b><small>produtos</small></span></span>
     <span class="c"><span style="color:var(--lime)">${ic('cash',17)}</span><span><b>R$ 336,00</b><small>valor marcado</small></span></span>
   </div>
-  <button class="act full" style="margin-top:9px;background:linear-gradient(180deg,#3d8bff,#1f66e0);border:0;color:#fff;justify-content:center;box-shadow:0 7px 18px rgba(47,126,247,.3)">
+  <button class="act full" style="margin-top:9px;background:linear-gradient(180deg,var(--btn-blue-1),var(--btn-blue-2));border:0;color:var(--white);justify-content:center;box-shadow:0 7px 18px rgba(47,126,247,.3)">
     ${ic('save',19)}<b style="font-size:14px">Salvar rota</b></button>
   <button class="act full" style="margin-top:7px;justify-content:center">${ic('spark',17)}
     <span style="text-align:center"><b>Otimizar ordem</b><small>Sugerir melhor sequência</small></span></button>
@@ -2200,7 +2214,7 @@ ${hdr({})}
   ${r('Rota Brooklin','15 de maio, 2025','11','16','110,20','map',0)}
   ${r('Rota clientes fiéis','10 de maio, 2025','9','14','87,60','users',1)}
   <div class="box" style="display:flex;align-items:center;gap:10px;margin-top:2px;padding:8px">
-    <span style="width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:#151f0d;color:var(--lime)">${ic('save',19)}</span>
+    <span style="width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:var(--lime-bg);color:var(--lime)">${ic('save',19)}</span>
     <span style="flex:1"><b style="display:block;font-size:13.5px;font-weight:500">Use uma rota salva hoje</b>
       <small style="font-size:11px;color:var(--ink-2)">Mantenha suas entregas organizadas.</small></span>
     <button class="ghost" style="border-color:var(--lime);color:var(--lime)">Usar hoje</button></div>
@@ -2411,11 +2425,11 @@ T.avancado={nome:'Ajustes · Avançado',grupo:'Ajustes',render(){
     </div>
     <div class="grupo">Zona de perigo</div>
     <div class="cartao-lista">
-      <button class="linha-cfg"><span class="ico" style="background:#1a1114;color:var(--red)">${ic('trash',16)}</span>
+      <button class="linha-cfg"><span class="ico" style="background:var(--red-bg);color:var(--red)">${ic('trash',16)}</span>
         <span><strong style="color:var(--red)">Limpar dados do aparelho</strong>
           <span>a rota do dia se perde se não estiver sincronizada</span></span>
         <span style="color:var(--ink-3)">${ic('chev',15)}</span></button>
-      <button class="linha-cfg" data-superficie="confirmar"><span class="ico" style="background:#1a1114;color:var(--red)">${ic('logout',16)}</span>
+      <button class="linha-cfg" data-superficie="confirmar"><span class="ico" style="background:var(--red-bg);color:var(--red)">${ic('logout',16)}</span>
         <span><strong style="color:var(--red)">Desvincular este aparelho</strong>
           <span>libera a vaga da empresa pra outro celular</span></span>
         <span style="color:var(--ink-3)">${ic('chev',15)}</span></button>
@@ -2430,7 +2444,7 @@ T.sons={nome:'Ajustes · Sons',grupo:'Ajustes',render(){
       <span class="chave ${on?'on':''}"><i></i></span></span></button>`;
   return telaAjuste('Sons e voz',`
     <div class="cartao-lista" style="margin-top:2px">
-      <button class="linha-cfg"><span class="ico" style="background:#17230e;color:var(--lime)">${ic('volume',16)}</span>
+      <button class="linha-cfg"><span class="ico" style="background:var(--lime-bg-2);color:var(--lime)">${ic('volume',16)}</span>
         <span><strong>Todos os sons</strong><span>desligar aqui cala o app inteiro</span></span>
         <span class="chave on"><i></i></span></button>
     </div>
@@ -2673,7 +2687,7 @@ ${nav('rota')}`;}};
 T.portoes={nome:'Portões e bloqueios',grupo:'Sistema',render(){
   const p=(chave,nome,quando,tom)=>`
     <div class="rowcard">
-      <span class="ico ${tom==='trava'?'':'lime'}" style="${tom==='trava'?'background:#2a1113;color:#ff6b6b':''}">
+      <span class="ico ${tom==='trava'?'':'lime'}" style="${tom==='trava'?'background:var(--danger-ico-bg);color:var(--danger-ico)':''}">
         ${ic(tom==='trava'?'lock':'alert',18)}</span>
       <span><strong>${nome}</strong><span>${quando}</span></span>
       <button class="ghost" data-portao="${chave}">ver</button></div>`;

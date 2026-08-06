@@ -93,6 +93,16 @@ css = css.replace(/^body\{[^}]*\}/m,
 if (/width:412px|height:940px/.test(css)) throw new Error('[casca] sobrou a caixa do celular DESENHADO');
 if (!/\[data-luz="claro"\]/.test(css)) throw new Error('[casca] a folha saiu SEM modo claro');
 
+// 🔴 TOKEN CIRCULAR (`--x:var(--x)`) NÃO É ERRO DE SINTAXE — é herança silenciosa:
+// o valor vira vazio e a propriedade some sem uma linha no console. Custou duas
+// recaídas na tokenização (--white e --chip-bg): nas duas, um comentário grudado
+// na 1ª declaração enganou o detector de `--prop` do script de troca. O portão
+// mora AQUI porque a folha é o produto — nenhuma casca pode sair assim.
+const circulares = [...css.matchAll(/(--[a-z0-9-]+)\s*:\s*var\(\1\)/g)].map((m) => m[1]);
+if (circulares.length) {
+  throw new Error(`[casca] token CIRCULAR (vira vazio, some calado): ${circulares.join(', ')}`);
+}
+
 // 5ª adaptação: a barra de status de MENTIRA sai de cena — a de verdade já
 // está no vidro. Regra ADICIONADA no fim (vence por ordem), nunca editando as
 // regras do mock.
