@@ -3,7 +3,7 @@
  * MATRIZ DA TELA (PR05082026, GO 05/08) — a caderneta é a matriz; toda lista
  * vira espelho dela. AQUI mora o que existe em 2+ telas: a linha canônica, o
  * vocabulário do dinheiro, o telegrama da conta, os chips de filtro e o gesto
- * de segurar-pra-apagar / arrastar-pelo-número. Tela NÃO escreve gesto nem
+ * de segurar-pra-apagar / arrastar-pelo-punho. Tela NÃO escreve gesto nem
  * palavra de dinheiro — ela DECLARA dados e a matriz entrega o resto.
  *
  * Freio do plano: só entra o que JÁ vive em 2+ telas. Peça de tela única fica
@@ -65,11 +65,17 @@
 
   // ---- a linha canônica -----------------------------------------------------
   /**
-   * Todo card de lista é linha(): nº à esquerda (alça quando a ordem é do
-   * usuário), título com o DESFECHO na ponta direita, sub-linhas de dinheiro
-   * (Anterior / itens / Total Marcado), extras (Sumiu, obs) e nada fora disso.
-   * O bloco do dinheiro segue a correção do dono (05/08): Anterior em cima,
-   * venda no meio, Total Marcado embaixo — e valor que não soma não aparece.
+   * Todo card de lista é linha(): alça à esquerda, título com o DESFECHO na
+   * ponta direita, sub-linhas de dinheiro (Anterior / itens / Total Marcado),
+   * extras (Sumiu, obs) e nada fora disso. O bloco do dinheiro segue a correção
+   * do dono (05/08): Anterior em cima, venda no meio, Total Marcado embaixo — e
+   * valor que não soma não aparece.
+   *
+   * 🔴 O NÚMERO É CARIMBO, NÃO ENUMERAÇÃO (06/08, ordem do dono). Linha SEM
+   * número mostra o PUNHO — os 6 pontinhos que anunciam "arraste aqui". Antes a
+   * lista nascia numerada de 1 a N e o número era a única alça: a página da
+   * quinta abria com 74 linhas numeradas, parecendo inteira preenchida sem nada
+   * ter acontecido, e ninguém via onde pegar pra mudar a sequência.
    */
   function linha(d) {
     // O desfecho é COLUNA própria do grid do card (não mora na linha do
@@ -85,7 +91,14 @@
     if (d.extrasHtml) partes.push(d.extrasHtml);
     const alca = d.alca ? ` data-matriz-alca="${H.escape(d.alca)}"` : "";
     const apagar = d.apagar ? ` data-matriz-apagar="${H.escape(d.apagar)}" data-matriz-chave="${H.escape(d.chave || "")}"` : "";
-    return `<article class="stop-card mtz-linha${d.classe || ""}"${d.attrs || ""}${apagar} role="button" tabindex="0"><div class="stop-top"><div class="order${d.feito ? " is-feito" : ""}"${alca}>${d.ordem}</div><div class="card-main"><div class="mtz-topo"><strong>${H.escape(d.titulo)}</strong></div>${partes.join("")}</div>${desfecho}${d.trailingHtml || ""}</div></article>`;
+    // Vazio/0 = ainda não anotado → punho. A alça (data-matriz-alca) é a MESMA
+    // nos dois estados: mudar a sequência nunca depende de já ter anotado. E o
+    // nó continua FOLHA de propósito — o punho é pintado pelo CSS, sem filho
+    // novo: o reconciliador troca texto de folha sem recriar o nó, e recriar o
+    // nó no meio do gesto soltaria o card do dedo do dono.
+    const numero = d.ordem == null || d.ordem === 0 || d.ordem === "" ? "" : String(d.ordem);
+    const slot = `<div class="order${numero ? "" : " is-punho"}${d.feito ? " is-feito" : ""}"${alca}>${H.escape(numero)}</div>`;
+    return `<article class="stop-card mtz-linha${d.classe || ""}"${d.attrs || ""}${apagar} role="button" tabindex="0"><div class="stop-top">${slot}<div class="card-main"><div class="mtz-topo"><strong>${H.escape(d.titulo)}</strong></div>${partes.join("")}</div>${desfecho}${d.trailingHtml || ""}</div></article>`;
   }
 
   // ---- chips de filtro (Lei 7 — colunas iguais, contagem dentro) ------------
@@ -111,7 +124,7 @@
     }).join("")}</div>`;
   }
 
-  // ---- gestos: segurar = excluir · arrastar = pelo número -------------------
+  // ---- gestos: segurar = excluir · arrastar = pelo punho --------------------
   // UM registro por data-matriz-*. A tela declara os callbacks; a máquina
   // (950ms, vermelho progressivo, vibração, zona de exclusão da alça, guard do
   // clique fantasma) mora AQUI — é o que faz "o excluir vir junto" de graça.
@@ -130,7 +143,7 @@
     raiz.addEventListener("touchstart", event => {
       if (event.touches.length !== 1 || !config.podeGesto()) return;
       const toque = event.touches[0];
-      // ARRASTE PELO NÚMERO: pega na hora, sem os 950ms do apagar — é o que
+      // ARRASTE PELO PUNHO: pega na hora, sem os 950ms do apagar — é o que
       // separa os dois gestos pro dedo, não só pro código.
       const alca = event.target.closest("[data-matriz-alca]");
       if (alca) {

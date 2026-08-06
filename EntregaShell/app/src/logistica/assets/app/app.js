@@ -11687,7 +11687,7 @@
     const vendasPagina = pagina && Number(pagina.diaSemana) === vista.diaSemana && Array.isArray(pagina.vendas)
       ? pagina.vendas
       : [];
-    vendasPagina.forEach(v => {
+    vendasPagina.forEach((v, registroIdx) => {
       const clienteId = String(v.clienteId || "");
       if (!clienteId) return;
       const chave = cadernetaChave(clienteId, v.localId);
@@ -11696,6 +11696,9 @@
       const total = Number.isFinite(Number(v.total)) ? Number(v.total) : null;
       if (linha) {
         linha.status = "entregue";
+        // A POSIÇÃO NESTA LISTA É A HORA DO REGISTRO: o servidor devolve as
+        // vendas da página por `deliveredAt asc`. É daqui que sai o número.
+        linha.registroIdx = registroIdx;
         linha.entregaId = v.entregaId || null;
         linha.metodo = v.metodo || "";
         if (itens.length) linha.itens = itens;
@@ -11716,6 +11719,7 @@
         itens,
         total,
         status: "entregue",
+        registroIdx,
         entregaId: v.entregaId || null,
         metodo: v.metodo || "",
         sugerirDia: !!v.sugerirDia,
@@ -11735,8 +11739,14 @@
       // folha), não o que a agenda tinha planejado ontem.
       const vendidos = cadernetaItensDaEntrega(item);
       const total = cadernetaTotalDaEntrega(item);
+      // A venda recém-feita chega AQUI antes de chegar no resumo (o snapshot da
+      // rota é o mais fresco). Ela ainda não tem posição na lista do servidor,
+      // então carrega a própria hora e entra no fim da numeração — que é onde
+      // ela pertence: é a mais nova.
+      const registroEm = item.status === "entregue" ? (Date.parse(item.deliveredAt || "") || 0) : null;
       if (linha) {
         linha.status = item.status || "";
+        if (registroEm != null) linha.registroEm = registroEm;
         linha.entregaId = item.id || null;
         linha.metodo = item.receiptMethod || "";
         if (vendidos.length) linha.itens = vendidos;
@@ -11755,16 +11765,41 @@
         itens: vendidos,
         total,
         status: item.status || "",
+        registroEm,
         entregaId: item.id || null,
         metodo: item.receiptMethod || "",
       });
     });
-    return cadernetaAplicarOrdem([...linhas.values()]);
+    return cadernetaNumerar(cadernetaAplicarOrdem([...linhas.values()]));
+  }
+
+  /**
+   * 🔴 O NÚMERO É CARIMBO DE REGISTRO (06/08, ordem do dono): a página nasce
+   * SEM número nenhum. Quem for anotado ganha o 1, o seguinte ganha o 2 —
+   * esteja ele onde estiver na lista. Era `index + 1` na hora de desenhar: a
+   * quinta abria com 74 linhas numeradas de 1 a 74 e a página parecia inteira
+   * preenchida sem uma venda ter acontecido.
+   *
+   * A ordem vem do SERVIDOR (as vendas da página voltam por `deliveredAt asc`);
+   * a linha que só existe no snapshot da rota entra depois, pela própria hora.
+   * Filtro e arraste não renumeram: o número é do REGISTRO, não da posição na
+   * tela — Maik é o 1 do dia mesmo depois de ele arrastar Maik pro fim.
+   */
+  function cadernetaNumerar(linhas) {
+    linhas
+      .filter(linha => linha.status === "entregue")
+      .sort((a, b) => {
+        const ia = Number.isFinite(a.registroIdx) ? a.registroIdx : Number.MAX_SAFE_INTEGER;
+        const ib = Number.isFinite(b.registroIdx) ? b.registroIdx : Number.MAX_SAFE_INTEGER;
+        return (ia - ib) || ((a.registroEm || 0) - (b.registroEm || 0));
+      })
+      .forEach((linha, index) => { linha.seq = index + 1; });
+    return linhas;
   }
   function cadernetaLinhaPorChave(chave) { return cadernetaLista().find(linha => linha.chave === String(chave || "")) || null; }
 
   // ==========================================================================
-  // SEQUÊNCIA DA PÁGINA (05/08) — arrastar pelo NÚMERO.
+  // SEQUÊNCIA DA PÁGINA (05/08) — arrastar pelo PUNHO (os 6 pontinhos, 06/08).
   //
   // A ordem é DO APARELHO, por página: é a sequência de quem dirige, e o
   // servidor não tem opinião sobre ela (a agenda ordena por cadastro, a venda
@@ -11852,9 +11887,18 @@
     if (!a) return;
     a.cards.forEach(el => { el.style.transform = ""; el.classList.remove("is-arrastando"); });
     if (cancelado || a.para === a.de) { render(); return; }
-    const chaves = cadernetaLista().map(linha => linha.chave);
-    const [movida] = chaves.splice(a.de, 1);
-    chaves.splice(a.para, 0, movida);
+    // 🔴 O ÍNDICE DO DEDO É DA LISTA VISÍVEL, não da completa (06/08). Com um
+    // chip de filtro ligado, `a.de`/`a.para` contam só os cards na tela — dar
+    // splice na lista inteira com eles movia OUTRA linha, uma que ele nem
+    // estava vendo. Reordena o que está visível e recosta na ordem completa:
+    // linha escondida NÃO se mexe, fica exatamente na vaga onde estava.
+    const lista = cadernetaLista();
+    const visiveis = cadernetaVisiveis(lista).map(linha => linha.chave);
+    const naTela = new Set(visiveis);
+    const [movida] = visiveis.splice(a.de, 1);
+    visiveis.splice(a.para, 0, movida);
+    let vaga = 0;
+    const chaves = lista.map(linha => (naTela.has(linha.chave) ? visiveis[vaga++] : linha.chave));
     cadernetaGravarOrdem(chaves);
     H.vibrate(20);
     render();
@@ -11926,10 +11970,15 @@
       "caderneta-filtros",
     );
   }
+  /** As linhas que estão MESMO na tela (o chip de filtro esconde as outras). */
+  function cadernetaVisiveis(lista) {
+    const filtro = cadernetaFiltroAtual();
+    return filtro === "todos" ? lista : lista.filter(linha => cadernetaDesfechoDaLinha(linha) === filtro);
+  }
   function cadernetaConteudo() {
     const lista = cadernetaLista();
     const filtro = cadernetaFiltroAtual();
-    const visiveis = filtro === "todos" ? lista : lista.filter(linha => cadernetaDesfechoDaLinha(linha) === filtro);
+    const visiveis = cadernetaVisiveis(lista);
     const carregando = !!(state.caderneta && state.caderneta.carregando) && !lista.length;
     const vazio = state.caderneta && state.caderneta.erro
       ? empty("Não foi possível carregar", state.caderneta.erro)
@@ -11939,7 +11988,7 @@
     // de dono — quem convida agora é a semana fechada, não uma barra na tela.
     return `${cadernetaCabecalho()}
       ${cadernetaFiltroChips(lista)}
-      ${carregando ? loading() : visiveis.length ? `<div class="list caderneta-lista">${visiveis.map((linha, index) => cadernetaClienteCard(linha, index + 1)).join("")}</div>` : vazio}
+      ${carregando ? loading() : visiveis.length ? `<div class="list caderneta-lista">${visiveis.map(linha => cadernetaClienteCard(linha, linha.seq || 0)).join("")}</div>` : vazio}
       ${cadernetaFechamento()}
       ${cadernetaFinalizarBotao(lista)}
       ${cadernetaHistorico()}`;
@@ -12131,10 +12180,11 @@
     const sugestao = linha.sugerirDia && wdVisto
       ? `<button type="button" class="caderneta-dia-chip" data-action="caderneta-adicionar-dia" data-cliente-id="${H.escape(linha.clienteId)}" data-dias="${H.escape((linha.diasAtuais || []).join(","))}">+ ${H.escape(wdVisto.label)}</button>`
       : "";
-    // O NÚMERO no lugar do ✓ (05/08, ordem do dono): a sequência aparece em
-    // todo mundo; quem diz "feito" é o círculo cheio e o desfecho. O número é
-    // TAMBÉM a alça do arraste (data-matriz-alca). Segurar o corpo apaga a
-    // venda (data-matriz-apagar) — só na linha que TEM entrega.
+    // A ALÇA (06/08): quem ainda não foi anotado mostra o PUNHO — os 6
+    // pontinhos que dizem "arraste aqui"; quem já foi anotado mostra o NÚMERO
+    // do registro (1º anotado = 1) num círculo cheio. Arrastar funciona nos
+    // dois (data-matriz-alca). Segurar o corpo apaga a venda
+    // (data-matriz-apagar) — só na linha que TEM entrega.
     return HBXMatriz.linha({
       ordem,
       feito: atendido,

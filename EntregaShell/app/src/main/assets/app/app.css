@@ -2031,14 +2031,31 @@ html[data-theme="dark"] .pss-montagem-dica { color: var(--brand); }
    produto. Verde é dinheiro que ENTROU; o fiado usa o --warning, que é o token
    de "falta receber" (nunca --danger: fiado não bloqueia nada, é a caderneta
    funcionando). Fonte e peso vêm do .card-main small; aqui só a cor. */
-/* SEQUÊNCIA DA PÁGINA (05/08) — o número é a alça do arraste.
+/* SEQUÊNCIA DA PÁGINA (05/08) — a alça do arraste.
    `touch-action: none` é o que impede a PÁGINA de rolar junto com o dedo: os
    listeners de toque são passivos (não dá pra preventDefault), então quem
-   segura a rolagem tem de ser o CSS. Vale só no número — o resto do card rola
+   segura a rolagem tem de ser o CSS. Vale só na alça — o resto do card rola
    normal. `user-select: none` evita o balão de seleção de texto no toque longo. */
 .caderneta-lista .order { touch-action: none; -webkit-user-select: none; user-select: none; }
-/* Atendido = círculo CHEIO com o número em branco (o ✓ saiu daqui: a sequência
-   do dia tem de aparecer em todo mundo). */
+/* PUNHO ⠿ (06/08, ordem do dono) — quem ainda NÃO foi anotado não tem número,
+   tem alça. Os 6 pontinhos saem do próprio box: a trama é uma grade de 4px e o
+   `background-clip/origin: content-box` + padding recortam a área pintada em
+   8×12 — exatamente 2 colunas × 3 linhas. Sem ícone novo, sem fonte (o ⠿ vira
+   tofu em WebView velho) e sem filho novo (o `.order` PRECISA continuar folha
+   pro reconciliador trocar o texto sem recriar o nó no meio do gesto).
+   Sem pastilha de fundo de propósito: punho é convite pra pegar, não medalha. */
+.caderneta-lista .order.is-punho {
+  padding: 9px 11px;
+  color: var(--muted);
+  background-color: transparent;
+  background-image: radial-gradient(currentColor 1.1px, transparent 1.4px);
+  background-size: 4px 4px;
+  background-origin: content-box;
+  background-clip: content-box;
+}
+/* Na mão do dono o punho acende — o card levantado precisa dizer quem ele é. */
+.caderneta-lista .stop-card.is-arrastando .order.is-punho { color: var(--brand); }
+/* Anotado = círculo CHEIO com o NÚMERO do registro (1º anotado = 1). */
 .caderneta-lista .order.is-feito { color: var(--on-brand); background: var(--brand-strong); }
 /* Card levantado: sai do fluxo visual sem sair do DOM. A transição fica só nos
    VIZINHOS — o card do dedo tem de acompanhar o toque sem atraso nenhum. */

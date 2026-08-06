@@ -1132,7 +1132,11 @@ html, body { height: 100%; }
 .vnd-card.is-locked { cursor: pointer; }
 .vnd-card.is-locked .vnd-card__grip { display: none; }
 .vnd-pipe.is-dragging .vnd-card.is-locked { cursor: pointer; }
-.vnd-card__grip { position: absolute; top: 9px; right: 8px; width: 11px; height: 14px; opacity: 0.32; color: var(--text-muted); background-image: radial-gradient(currentColor 1px, transparent 1.4px); background-size: 4px 4px; }
+/* PUNHO ⠿ — 6 pontinhos (2 col × 3 lin), o MESMO desenho do punho da caderneta
+   no APK e do ⠿ do Organizar campos logo aqui do lado. Era 11×14, que na grade
+   de 4px pinta 3×3 = 9 pontos: alça parecida não é alça igual, e o dono pediu
+   um jeito só de dizer "arraste aqui" (06/08). */
+.vnd-card__grip { position: absolute; top: 9px; right: 8px; width: 8px; height: 12px; opacity: 0.32; color: var(--text-muted); background-image: radial-gradient(currentColor 1px, transparent 1.4px); background-size: 4px 4px; }
 .vnd-card:hover .vnd-card__grip { opacity: 0.6; }
 .vnd-card__top { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding-right: 16px; }
 .vnd-card__name { font-size: var(--fz-l1); font-weight: 700; color: var(--text-strong); line-height: 1.2; }
