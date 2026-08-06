@@ -51,16 +51,104 @@ const MARCAS_DE_FOLHETO = [
   'nao perca',
 ];
 
+// ── A 1ª MENSAGEM DESPERTA INTERESSE (06/08/2026) ───────────────────────────
+// O dono reprovou 6 textos que passaram inteiros nesta régua: *"vc está muito
+// 'pra frente' nessas mensagens, esses pitch são segunda mensagem já, a primeira
+// vc tem q despertar interesse"*. E corrigiu o próprio modelo minutos depois:
+// **"remova o grátis"**, trocando o barato do "sim" de PREÇO por TEMPO
+// ("é bem rápido").
+//
+// A régua que já morava aqui — "fale da ROTINA de quem vai ler" — não estava
+// errada: estava na MENSAGEM ERRADA. Ela é da 2ª (depois do "sim"), e o prompt
+// a ensinava na 1ª. Resultado: a IA gerava, com nota máxima, exatamente o que
+// ele acabou de reprovar.
+//
+// Preço no 1º contato é PROIBIDO em qualquer forma — inclusive "grátis". Isto
+// reprova até eco das copies antigas ("pra testar sem pagar nada", "o teste não
+// custa nada"), e é de propósito: aquelas frases são anteriores à ordem dele.
+const PRECO_RE =
+  /(gr[áa]tis|gratuit[ao]s?|de gra[çc]a|sem custo|sem pagar( nada)?|n[ãa]o (custa|paga|pagam) nada|cortesia|por minha conta|desconto|promo[çc][ãa]o|R\$\s*\d|\bpre[çc]o\b)/i;
+
 const LINK_RE = /(https?:\/\/|www\.|wa\.me\/|bit\.ly|encurta)/i;
 // Prova social inventada: a IA não sabe quantos clientes a empresa tem, então
 // qualquer número aqui é mentira que o lead pode cobrar na cara do vendedor.
 const PROVA_SOCIAL_RE = /\bmais de\s+\d+\s+(clientes|empresas|distribuidoras|lojas)/i;
+
+// O CONVITE — o que separa mecanicamente a 1ª mensagem da 2ª.
+//
+// Os 6 textos que o dono reprovou não tinham NENHUM defeito de forma: tamanho ok,
+// ganchos diferentes, sem link, sem preço. O defeito era de FASE — todos abriam
+// interrogando a operação de um desconhecido ("vai pro caderno ou já cai na rota?",
+// "o entregador sai com a lista no papel?"). Isso é 2ª mensagem.
+//
+// A diferença que dá pra medir: a pergunta da 1ª é sobre o INTERESSE de quem lê
+// ("Teria interesse de conhecer?"); a pergunta da 2ª é sobre a OPERAÇÃO de quem lê.
+// Então a régua é positiva — tem que HAVER convite — em vez de uma lista infinita de
+// vocabulário de operação, que muda a cada segmento (galão, rota, entregador...) e
+// nunca ficaria completa.
+const CONVITE_RE =
+  /(interesse|conhecer|apresentar|explicar|mostrar|demonstra|\bdemo\b|fazer um teste|\bteste\b|testar|experimentar|dar uma olhada|uma olhadinha|ideia (curta|rapida|breve)|mandar uma ideia)/;
 
 function semAcento(texto: string): string {
   return String(texto || '')
     .toLowerCase()
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '');
+}
+
+/** A mensagem CONVIDA a conhecer (marca da 1ª), ou só interroga a operação (marca da 2ª)? */
+export function temConviteDePrimeiroContato(texto: string): boolean {
+  return CONVITE_RE.test(semAcento(texto));
+}
+
+export interface ReguaPrimeiroContatoOpts {
+  /**
+   * Teto de caracteres. Na geração de variações vale o teto da frase-base (a régua
+   * não briga com quem escreveu); na copy de FÁBRICA vale o teto duro.
+   */
+  tetoChars?: number;
+  /**
+   * Exigir o convite. LIGADO na copy de fábrica (é o que o sistema entrega quando
+   * ninguém escreveu nada — ali só a régua do dono manda) e na variação de uma
+   * frase-base QUE JÁ CONVIDA: a IA pode variar o fraseado, não pode PERDER o
+   * convite e virar interrogatório. DESLIGADO quando a própria pessoa escreveu uma
+   * base sem convite — senão o botão "Gerar variações" morre pra quem escolheu
+   * outro estilo, e régua que mata o que serve é régua quebrada.
+   */
+  exigirConvite?: boolean;
+}
+
+/**
+ * RÉGUA DE CONTEÚDO DO 1º CONTATO — uma função só, usada pela IA de variações E pelo
+ * fiscal das copies de fábrica. Duas réguas pra mesma pergunta é como nasce "passou
+ * no preparo e morreu no envio" (mesma decisão do vendas-copy-reserva).
+ *
+ * Devolve o MOTIVO legível da recusa, ou `null` se o texto serve.
+ */
+export function reprovarPrimeiroContato(texto: string, opts: ReguaPrimeiroContatoOpts = {}): string | null {
+  const limpo = String(texto || '').trim();
+  const teto = Math.max(1, opts.tetoChars || VARIACAO_MAX_CHARS);
+  if (limpo.length > teto) {
+    return `Textão (${limpo.length} caracteres). Primeiro contato é 1 a 2 linhas — até ${teto}.`;
+  }
+  if (LINK_RE.test(limpo)) {
+    return 'Tem link. Link no primeiro contato é cara de spam e queima o número.';
+  }
+  if (PRECO_RE.test(limpo)) {
+    return 'Fala de preço (ou de "grátis") no primeiro contato. O barato do "sim" é o TEMPO — "é bem rápido".';
+  }
+  if (PROVA_SOCIAL_RE.test(limpo)) {
+    return 'Inventou prova social ("mais de N clientes"). A IA não sabe esse número.';
+  }
+  const semAcentoTexto = semAcento(limpo);
+  const folheto = MARCAS_DE_FOLHETO.find((marca) => semAcentoTexto.includes(marca));
+  if (folheto) {
+    return `Voz de folheto ("${folheto}"). Escreva como gente escreve no celular.`;
+  }
+  if (opts.exigirConvite && !temConviteDePrimeiroContato(limpo)) {
+    return 'Não convida a conhecer nada — só pergunta da operação de um desconhecido. Isso é a SEGUNDA mensagem; a primeira desperta interesse.';
+  }
+  return null;
 }
 
 /** Placeholders `{{...}}` da frase, como conjunto ordenado (ex.: {{cumprimentacao}}). */
@@ -84,18 +172,32 @@ export function montarPromptVariacoes(base: string, quantidade: number): { role:
       content:
         'Você escreve mensagens de PRIMEIRO CONTATO no WhatsApp, em português do Brasil. ' +
         'Elas têm que parecer GENTE mandando mensagem, não empresa mandando folheto. ' +
+        // ── A MISSÃO (06/08) — o que estava faltando e produzia a mensagem errada ──
+        'A PRIMEIRA MENSAGEM TEM UM TRABALHO SÓ: DESPERTAR INTERESSE. ' +
+        'Não é vender, não é diagnosticar, não é qualificar. ' +
+        'O MOLDE (siga a forma, invente as palavras): ' +
+        '<cumprimento> + <em 1ª pessoa, o que você está fazendo> + ' +
+        '<convite pra conhecer/ver o que é> + <pergunta de sim ou não> + <deixar claro que é rápido>. ' +
+        'Quem barateia o "sim" é o TEMPO ("é bem rápido", "leva 1 minuto"), NUNCA o preço. ' +
         'REGRAS DURAS: ' +
         `no máximo 2 linhas (até ${VARIACAO_MAX_CHARS} caracteres); ` +
         'UMA ideia só por mensagem; ' +
-        'termine numa pergunta fácil de responder (que se responde com "sim", "sou eu" ou um número); ' +
-        'fale da ROTINA de quem vai ler, não do seu produto; ' +
+        'termine numa pergunta fácil de responder com "sim" ou "não"; ' +
+        'toda mensagem precisa CONVIDAR a conhecer alguma coisa; ' +
         'pode escrever em tom informal, como se fosse no celular. ' +
         'É PROIBIDO: link, preço, prazo, promessa, mais de um emoji, ' +
+        'a palavra "grátis" e qualquer sinônimo dela ("de graça", "sem custo", "não custa nada", "cortesia"), ' +
         'palavra de folheto ("prezado", "somos referência", "soluções integradas", "otimizar processos"), ' +
         'inventar cliente, número de clientes ou qualquer prova social, ' +
         'e inventar produto ou benefício que não esteja na frase original. ' +
-        'Varie o GANCHO entre as mensagens (pergunta sobre a rotina, pedido de permissão, ' +
-        'procurar o responsável, oferta direta) — não troque só as palavras da mesma frase. ' +
+        // O erro que o dono reprovou com nome e sobrenome.
+        'PROIBIDO TAMBÉM, e este é o erro mais comum: PERGUNTAR COMO FUNCIONA A OPERAÇÃO de quem vai ler — ' +
+        'como anotam os pedidos, se usam caderno ou sistema, como montam a rota, quem responde o WhatsApp, ' +
+        'o que acontece no fim do dia. Isso é a SEGUNDA mensagem, e só depois que a pessoa disser "sim". ' +
+        'Na primeira você ainda não tem licença pra perguntar nada disso. ' +
+        'Varie o GANCHO entre as mensagens (o cumprimento, a ordem das partes, o jeito de convidar, ' +
+        'o jeito de fazer a pergunta) — não troque só uma palavra da mesma frase. ' +
+        'Mas a MISSÃO das mensagens é a mesma em todas: convidar. ' +
         regraPlaceholders +
         ' Responda SOMENTE um JSON array de strings, sem comentários.',
     },
@@ -103,7 +205,9 @@ export function montarPromptVariacoes(base: string, quantidade: number): { role:
       role: 'user',
       content:
         `Frase original:\n${String(base || '').trim()}\n\n` +
-        `Gere ${n} variações curtas, com ganchos diferentes entre si. Nenhuma pode passar de ${VARIACAO_MAX_CHARS} caracteres.`,
+        `Gere ${n} variações curtas, todas convidando a conhecer, com ganchos diferentes entre si. ` +
+        `Nenhuma pode passar de ${VARIACAO_MAX_CHARS} caracteres. ` +
+        'Nenhuma pode perguntar como é a operação da pessoa.',
     },
   ];
 }
@@ -153,6 +257,8 @@ export function validarLoteVariacoes(
   const basePlaceholders = extrairPlaceholders(base).join('|');
   // Teto de tamanho: nunca menor que a frase que a própria pessoa escreveu.
   const tetoChars = Math.max(VARIACAO_MAX_CHARS, String(base || '').trim().length);
+  // O convite só é cobrado se a frase-base convida (ver ReguaPrimeiroContatoOpts).
+  const exigirConvite = temConviteDePrimeiroContato(base);
   const aprovadas: string[] = [];
   const aprovadasNorm: string[] = [];
   const recusadas: VariacaoRecusada[] = [];
@@ -168,26 +274,11 @@ export function validarLoteVariacoes(
       recusadas.push({ texto, motivo: 'Mudou os marcadores {{...}} da frase original.' });
       continue;
     }
-    // ── RÉGUA HUMANA (31/07) — antes disto, textão de folheto passava inteiro ──
-    if (texto.length > tetoChars) {
-      recusadas.push({
-        texto,
-        motivo: `Textão (${texto.length} caracteres). Primeiro contato é 1 a 2 linhas — até ${tetoChars}.`,
-      });
-      continue;
-    }
-    if (LINK_RE.test(texto)) {
-      recusadas.push({ texto, motivo: 'Tem link. Link no primeiro contato é cara de spam e queima o número.' });
-      continue;
-    }
-    if (PROVA_SOCIAL_RE.test(texto)) {
-      recusadas.push({ texto, motivo: 'Inventou prova social ("mais de N clientes"). A IA não sabe esse número.' });
-      continue;
-    }
-    const semAcentoTexto = semAcento(texto);
-    const folheto = MARCAS_DE_FOLHETO.find((marca) => semAcentoTexto.includes(marca));
-    if (folheto) {
-      recusadas.push({ texto, motivo: `Voz de folheto ("${folheto}"). Escreva como gente escreve no celular.` });
+    // ── RÉGUA DE CONTEÚDO (31/07 humana + 06/08 fase da mensagem) ──────────────
+    // Mesma função que o fiscal das copies de fábrica usa.
+    const reprovado = reprovarPrimeiroContato(texto, { tetoChars, exigirConvite });
+    if (reprovado) {
+      recusadas.push({ texto, motivo: reprovado });
       continue;
     }
     const norm = normalizeColdText(texto);
