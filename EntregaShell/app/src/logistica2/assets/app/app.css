@@ -863,15 +863,31 @@ html.leitura-route-active .route-map-shell { border-color: color-mix(in srgb, va
    🔴 NADA de `position: fixed` aqui: as transições de tela usam `transform`
    (screen-enter-*) e fixed sob ancestral transformado quebra — armadilha já
    documentada. Com o cromo escondido, o fluxo normal já ocupa 100dvh sozinho. */
+/* 🔴 CASCA LOGÍSTICA leva 1 (06/08) — esta lista é REGRA DE COMPORTAMENTO
+   ("navegando, isto some"), não decoração: ela é escrita por NOME DE CLASSE, e
+   a leva 1 trocou os nomes da tela Rota. Sem esta linha, vestir a tela fazia o
+   painel de créditos, o filtro, o progresso, a lista e o Finalizar VOLTAREM a
+   aparecer por cima do mapa a 60 km/h — o defeito exato que o bloco acima
+   existe pra matar. Os nomes velhos ficam: eles ainda cobrem as telas que
+   ainda não foram vestidas. Toda leva que renomear classe daqui tem que
+   passar por esta lista. */
 html.nav-cheia .topbar,
 html.nav-cheia .bottom-nav,
 html.nav-cheia .creditos-dia,
+html.nav-cheia .creditos,
 html.nav-cheia .route-filter,
+html.nav-cheia .filtro,
 html.nav-cheia .route-hero > .progress,
+html.nav-cheia .route-hero > .dia-bar,
 html.nav-cheia .route-hero > .route-controls,
 html.nav-cheia .section-title,
+html.nav-cheia .bar,
 html.nav-cheia .list,
+html.nav-cheia .stops,
+html.nav-cheia .perna,
+html.nav-cheia .vazio,
 html.nav-cheia .rota-finalizar-btn,
+html.nav-cheia .act.full,
 html.nav-cheia .fab { display: none; }
 html.nav-cheia .content,
 html.nav-cheia .content.is-rota { padding: 0; }
