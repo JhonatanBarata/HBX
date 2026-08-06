@@ -7341,6 +7341,53 @@
       card.querySelector(".client-balance")?.insertAdjacentHTML("afterend", `<small>${H.escape(line)}</small>`);
     });
   }
+  // ==========================================================================
+  // PELE 2.0 — o mock manda na aparência (06/08)
+  // ==========================================================================
+  // Regra do dono: "exibição é 100% o q quero". Então a tela NÃO é imitada
+  // aqui — ela é RENDERIZADA pelo template do próprio mock, carregado de
+  // pele20.js (extração verbatim de docs/mockups/logistica2.0). Medido: as 33
+  // telas saem byte a byte iguais às do mock.
+  //
+  // Este mapa é a única coisa que é minha: dizer QUAL tela do mock responde
+  // por cada estado do app. Estado sem dono aqui = tela ainda não portada, e
+  // cai no caminho antigo em vez de renderizar errado.
+  function pele20Para() {
+    const P = window.HBX20;
+    if (!P || !P.T) return null;
+    if (state.modal || state.selected || state.confirmation) return null; // folhas/modais: 2ª leva
+    if (state.screen === "route") {
+      // A tela cheia do GPS é a mesma decisão do syncNavWatch (nav-cheia).
+      if (document.documentElement.classList.contains("nav-cheia")) return "mapa";
+      if (cadernetaTelaAtiva()) return "caderneta";
+      return "rota";
+    }
+    if (state.screen === "clients") return "clientes";
+    if (state.screen === "products") return "produtos";
+    if (state.screen === "chat") return "chat";
+    if (state.screen === "settings") return "ajustes";
+    return null;
+  }
+  let pele20Atual = null;
+  function pintarPele20() {
+    const chave = pele20Para();
+    if (!chave) { pele20Atual = null; document.documentElement.classList.remove("pele20"); return false; }
+    const P = window.HBX20;
+    document.documentElement.classList.add("pele20");
+    // Sem re-render inútil: a mesma tela não é repintada (o mock troca camada
+    // por camada, e repintar mataria a animação de entrada no meio).
+    if (pele20Atual === chave && app.querySelector(".tela")) return true;
+    pele20Atual = chave;
+    app.innerHTML = "";
+    const camada = document.createElement("div");
+    camada.className = "tela";
+    camada.innerHTML = P.T[chave].render();
+    // Numerar é o que dá a ORDEM de entrada das linhas (lei 3 do mock).
+    try { P.numerarItens(camada); } catch (_) {}
+    app.appendChild(camada);
+    requestAnimationFrame(() => camada.classList.add("entra"));
+    return true;
+  }
   function render() {
     // S2 21/07 (PR21072026-NAVEGAÇÃO) — sincroniza o watch da navegação a
     // CADA render (o pulso central do app, roda depois de qualquer ação que
@@ -7386,6 +7433,12 @@
     const passeioNaTela = state.screen === "route" && passeioModoAtivo();
     document.body.classList.toggle("pss-active", passeioNaTela);
     if (!passeioNaTela) disposePasseioMap();
+    // 🔴 PELE 2.0 (06/08) — quando a tela tem dono no MOCK, quem desenha é o
+    // mock. A casca dele é a tela INTEIRA (barra de status, cabeçalho e menu
+    // vêm dentro), então ela NÃO passa pelo H.mobileShell.mount — o shell
+    // montaria a moldura velha por fora e o resultado seria duas cascas
+    // empilhadas. O que ainda não foi portado segue no caminho antigo.
+    if (pintarPele20()) return;
     const screens = { route: routeScreen, clients: clientsScreen, products: productsScreen, chat: chatScreen, settings: settingsScreen };
     H.mobileShell.mount(app, (screens[state.screen] || routeScreen)());
     enhancePaymentForms();
