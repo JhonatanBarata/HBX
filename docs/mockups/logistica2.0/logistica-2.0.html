@@ -1201,6 +1201,7 @@ button,input{font:inherit;color:inherit}
   /* o verde que ESCREVE é escuro; o vivo sobrou pra preencher (--lima-viva) */
   --lime:#3f7a00; --lima-viva:#8fd626;
   --blue:#1257c8; --blue-l:#1257c8; --amber:#8a5200; --purple:#6d28d9; --red:#c0201b;
+  --lime-bg:#f0f8e4; /* F1 leva 3: cobertura 5/5 medida */
   background:linear-gradient(180deg,var(--bg-2),var(--bg) 34%);
   color:var(--ink);
 }
@@ -1300,7 +1301,7 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .pt-nums,[data-luz="claro"] .pt-campo input,
 [data-luz="claro"] .pt-campo .resto{background:#f7f9fc;border-color:var(--line)}
 [data-luz="claro"] .tmx-sat .cont{border-color:#fff;color:#2b1a00}
-[data-luz="claro"] .tmx-sat button{background:#fff}
+
 /* 🔴 BRANQUEAR "TODO BOTÃO" APAGA O BOTÃO QUE IMPORTA. Esta regra existe pro
    botão FANTASMA (o secundário, que no escuro era transparente ou cor de
    cartão). Só que `[data-luz] .portao .acoes button` é mais forte que
@@ -1355,7 +1356,7 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .scrim,[data-luz="claro"] .portao-wrap,
 [data-luz="claro"] .conf-wrap,[data-luz="claro"] .erro-wrap{background:rgba(20,28,45,.42)}
 [data-luz="claro"] .sheet{background:linear-gradient(180deg,#fff,#fbfcfe 30%);border-color:var(--line)}
-[data-luz="claro"] .conf,[data-luz="claro"] .portao{background:#fff}
+
 [data-luz="claro"] .erro,[data-luz="claro"] .portao.trava{background:#fff5f5;border-color:#e6a3a3}
 [data-luz="claro"] .erro .ico,[data-luz="claro"] .portao.trava .ico{background:#fbe3e3;color:#b3211c}
 [data-luz="claro"] .erro .acoes .principal{background:#b3211c;border-color:#b3211c;color:#fff}
