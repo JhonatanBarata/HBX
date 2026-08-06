@@ -222,6 +222,12 @@ function collectApkInputFiles(absolute, collected) {
     // `build`/`.gradle` são SAÍDA do compilador — entrariam na conta e fariam
     // a digital mudar sozinha a cada build, quebrando a regra inteira.
     if (entry === 'build' || entry === '.gradle') continue;
+    // `logistica2` é a BANCADA do app novo (06/08/2026): flavor separado, que
+    // roda contra o localhost e que o publish nem compila (buildTasks monta só
+    // Logistica e Vendas). Se ele entrasse na digital, cada canetada no app
+    // novo carimbaria uma versão nova no APK de PRODUÇÃO e mandaria todo
+    // motorista baixar 2 MB por uma mudança que não existe no aparelho dele.
+    if (entry === 'logistica2') continue;
     collectApkInputFiles(path.join(absolute, entry), collected);
   }
   return collected;
@@ -624,4 +630,7 @@ if (require.main === module) {
   }
 }
 
-module.exports = { main };
+// `computeApkFingerprint` sai exportado pra que o freio da bancada
+// (logistica2 fora da digital) possa ser MEDIDO, não confiado: basta comparar
+// a digital com e sem a pasta no disco e provar que ela não se mexe.
+module.exports = { main, computeApkFingerprint };

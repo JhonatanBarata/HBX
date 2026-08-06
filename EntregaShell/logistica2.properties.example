@@ -1,0 +1,25 @@
+# Bancada do Loghbx 2 — para onde o app novo fala.
+#
+# Copie este arquivo para `logistica2.properties` (ao lado, fora do git) só
+# quando precisar mudar o endereço. Sem o arquivo valem os padrões abaixo, que
+# já servem para o caso normal: celular no CABO com
+#
+#     adb reverse tcp:3000 tcp:3000
+#
+# Aí o 127.0.0.1 do celular vira o do notebook e o app acha o backend local
+# (container `backend`, porta 3000; o Next fica no 3001).
+#
+# Sem cabo, aponte para o IP do notebook na rede — e lembre que ele muda quando
+# o roteador renova o DHCP:
+#
+#     apiBaseUrl=http://192.168.0.10:3000
+#     webBaseUrl=http://192.168.0.10:3001
+#
+# Na fase final, quando o pacote estiver pronto e for a hora de provar contra o
+# servidor de verdade antes da troca:
+#
+#     apiBaseUrl=https://api.hbxsystem.com.br
+#     webBaseUrl=https://www.hbxsystem.com.br
+
+apiBaseUrl=http://127.0.0.1:3000
+webBaseUrl=http://127.0.0.1:3001

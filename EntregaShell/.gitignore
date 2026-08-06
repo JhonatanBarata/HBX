@@ -11,3 +11,9 @@ keystore/
 
 # Artefatos de build/distribuição não são versionados (Play recebe o .aab)
 dist/
+
+# Endereço da bancada do Loghbx 2 (o IP do notebook muda; ver .example ao lado).
+# Fica fora do git de propósito: build.gradle.kts entra na digital que decide o
+# versionCode do APK de PRODUÇÃO, então trocar o IP lá dentro mandaria todo
+# motorista baixar APK novo à toa.
+logistica2.properties

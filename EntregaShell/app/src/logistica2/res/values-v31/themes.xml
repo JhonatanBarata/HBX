@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <style name="Theme.EntregaShell.NoActionBar" parent="Theme.EntregaShell">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:windowBackground">#050713</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:statusBarColor">#050713</item>
+        <item name="android:navigationBarColor">#02040B</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+
+    <!-- O Android desenha este quadro uma única vez, apenas na porta do APK. -->
+    <style name="Theme.EntregaShell.Launcher" parent="Theme.EntregaShell.NoActionBar">
+        <item name="android:windowSplashScreenBackground">#050713</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="android:windowSplashScreenAnimationDuration">420</item>
+    </style>
+
+</resources>
