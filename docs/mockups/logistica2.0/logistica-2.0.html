@@ -602,6 +602,16 @@ button,input{font:inherit;color:inherit}
 .tag{font-size:10px;padding:2px 6px;border-radius:6px;border:.7px solid var(--line-2);color:var(--ink-2);white-space:nowrap}
 .tag.blue{border-color:#2b5490;color:var(--blue-l);background:#0e1c31}
 .tag.lime{border-color:#4d6b1c;color:var(--lime);background:#151f0d}
+/* 🔴 COR É INFORMAÇÃO, e faltavam dois tons. Ao vestir a Rota do app com este
+   vocabulário (leva 1), "janela rígida" perdeu o VERMELHO e "horário" perdeu o
+   ÂMBAR: a tela passou a dizer MENOS do que dizia. O motorista lia o risco pela
+   cor antes de ler a palavra. Mesma receita dos dois de cima — borda, tinta e
+   fundo do próprio tom. */
+.tag.amber{border-color:#7a5411;color:var(--amber);background:#231805}
+.tag.red{border-color:#5b2626;color:var(--red);background:#1f0f11}
+/* Observação do cliente NÃO é o endereço: "cachorro solto no pátio" tem que
+   pesar mais que a rua. Era `.stop-obs` na pele velha e virou linha muda. */
+.who span.nota{color:var(--amber);font-weight:500}
 .side{display:flex;flex-direction:column;gap:5px;align-items:stretch;min-width:96px}
 .marc{border:.7px solid var(--line-2);border-radius:8px;padding:4px 8px;background:var(--card)}
 .marc small{display:block;font-size:10px;color:var(--ink-2)}
@@ -715,6 +725,11 @@ button,input{font:inherit;color:inherit}
 .perna{display:flex;justify-content:center;margin:-1px 0 1px}
 .perna span{font-size:10px;color:var(--ink-3);background:var(--bg);padding:1px 9px;border-radius:999px;
   border:.7px solid var(--line)}
+/* 🔴 "SEM TRAJETO" NÃO É UMA DISTÂNCIA A MENOS, É UM PINO FALTANDO. O trecho
+   normal diz quanto falta; este diz que o app NÃO SABE onde fica o endereço —
+   e sem tom próprio ele saía com a mesma cara de "850 m · 4 min", que é
+   exatamente a leitura errada. */
+.perna.alerta span{color:var(--red);border-color:#5b2626;background:#1f0f11}
 
 /* ---------- painel de créditos do dia ---------- */
 .creditos{display:flex;align-items:center;gap:9px;margin-top:7px;padding:8px 11px;border-radius:12px;
@@ -1200,6 +1215,12 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .tag.lime{border-color:#a8cc6e;color:var(--lime);background:#f0f8e4}
 [data-luz="claro"] .tag.blue{border-color:#9dbdf0;color:var(--blue);background:#eaf1fe}
 [data-luz="claro"] .tag{border-color:var(--line-2);color:var(--ink-2)}
+/* Os dois tons novos no claro: mesma regra das peles de cima — preenchimento
+   pálido, borda que define o limite, tinta escura o bastante pra ler em 10px. */
+[data-luz="claro"] .tag.amber{border-color:#e0b978;color:var(--amber);background:#fdf3e0}
+[data-luz="claro"] .tag.red{border-color:#e6a3a3;color:var(--red);background:#fff5f5}
+[data-luz="claro"] .who span.nota{color:#7a4a00}
+[data-luz="claro"] .perna.alerta span{color:var(--red);border-color:#e6a3a3;background:#fff5f5}
 [data-luz="claro"] .pill.lime{background:#eef7e2;border-color:#a8cc6e;color:var(--lime)}
 [data-luz="claro"] .pill.blue{background:#eaf1fe;border-color:#9dbdf0;color:var(--blue)}
 [data-luz="claro"] .pill.amber{background:#fdf1de;border-color:#e0b978;color:var(--amber)}
@@ -1573,6 +1594,7 @@ function stop(o){
     <span class="numwrap"><span class="num ${cor==='lime'?'lime':cor==='off'?'off':''}">${o.n}</span>
       <span class="hh ${cor==='lime'?'lime':cor==='off'?'off':''}">${o.hora}</span></span>
     <span class="who"><strong>${o.nome}</strong><span>${o.rua}</span><span>${o.bairro}</span>
+      ${o.nota?`<span class="nota">${o.nota}</span>`:''}
       <span class="tags">${(o.tags||[]).map(t=>`<b class="tag ${t[1]||''}">${t[0]}</b>`).join('')}</span></span>
     <span class="side">
       ${o.marcado?`<span class="marc"><small>Marcado</small><b>R$ ${o.marcado}</b></span>`:''}
@@ -1640,11 +1662,16 @@ const PARADAS=[
   {n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin • SP',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',pill:['A caminho','blue','nav'],perna:'850 m · 4 min'},
   {n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema • SP',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Chegou','lime','check'],perna:'1,2 km · 6 min'},
   {n:4,hora:'10:45',cor:'lime',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema • SP',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['Chegou','lime','check'],perna:'620 m · 3 min'},
-  {n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara • SP',tags:[['20L x3','blue'],['Vasilhame']],marcado:'63,00',pill:['Pendente','amber','clock'],perna:'2,1 km · 9 min'},
+  {n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara • SP',nota:'cachorro solto no pátio',tags:[['20L x3','blue'],['Vasilhame'],['15 min','amber'],['Janela rígida','red']],marcado:'63,00',pill:['Pendente','amber','clock'],perna:'2,1 km · 9 min'},
   {n:6,hora:'12:15',cor:'off',nome:'Mercado Estrela',rua:'R. Aracanguá, 210',bairro:'Jabaquara • SP',tags:[['20L x4','blue'],['Chip dia','lime']],marcado:'84,00',pill:['Pendente','mute','clock'],perna:'sem trajeto — não sei onde fica'},
 ];
 function listaParadas(comPerna){
-  return PARADAS.map(p=>`${comPerna&&p.perna?`<div class="perna"><span>${p.perna.startsWith('sem')?p.perna:'↓ '+p.perna}</span></div>`:''}${stop(p)}`).join('');
+  // "sem trajeto" ganha o tom de ALERTA: não é uma distância a menos, é um pino
+  // faltando. Com a mesma cara do "850 m · 4 min" ele passava batido.
+  return PARADAS.map(p=>{
+    const semRota=p.perna&&p.perna.startsWith('sem');
+    return `${comPerna&&p.perna?`<div class="perna${semRota?' alerta':''}"><span>${semRota?p.perna:'↓ '+p.perna}</span></div>`:''}${stop(p)}`;
+  }).join('');
 }
 function shellRota(conteudo,sub,dock){
   return `${status}${hdr({sub:sub||'Rota do motorista'})}

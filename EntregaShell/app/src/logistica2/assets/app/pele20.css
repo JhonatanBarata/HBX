@@ -563,6 +563,16 @@
 .tag{font-size:10px;padding:2px 6px;border-radius:6px;border:.7px solid var(--line-2);color:var(--ink-2);white-space:nowrap}
 .tag.blue{border-color:#2b5490;color:var(--blue-l);background:#0e1c31}
 .tag.lime{border-color:#4d6b1c;color:var(--lime);background:#151f0d}
+/* 🔴 COR É INFORMAÇÃO, e faltavam dois tons. Ao vestir a Rota do app com este
+   vocabulário (leva 1), "janela rígida" perdeu o VERMELHO e "horário" perdeu o
+   ÂMBAR: a tela passou a dizer MENOS do que dizia. O motorista lia o risco pela
+   cor antes de ler a palavra. Mesma receita dos dois de cima — borda, tinta e
+   fundo do próprio tom. */
+.tag.amber{border-color:#7a5411;color:var(--amber);background:#231805}
+.tag.red{border-color:#5b2626;color:var(--red);background:#1f0f11}
+/* Observação do cliente NÃO é o endereço: "cachorro solto no pátio" tem que
+   pesar mais que a rua. Era `.stop-obs` na pele velha e virou linha muda. */
+.who span.nota{color:var(--amber);font-weight:500}
 .side{display:flex;flex-direction:column;gap:5px;align-items:stretch;min-width:96px}
 .marc{border:.7px solid var(--line-2);border-radius:8px;padding:4px 8px;background:var(--card)}
 .marc small{display:block;font-size:10px;color:var(--ink-2)}
@@ -676,6 +686,11 @@
 .perna{display:flex;justify-content:center;margin:-1px 0 1px}
 .perna span{font-size:10px;color:var(--ink-3);background:var(--bg);padding:1px 9px;border-radius:999px;
   border:.7px solid var(--line)}
+/* 🔴 "SEM TRAJETO" NÃO É UMA DISTÂNCIA A MENOS, É UM PINO FALTANDO. O trecho
+   normal diz quanto falta; este diz que o app NÃO SABE onde fica o endereço —
+   e sem tom próprio ele saía com a mesma cara de "850 m · 4 min", que é
+   exatamente a leitura errada. */
+.perna.alerta span{color:var(--red);border-color:#5b2626;background:#1f0f11}
 
 /* ---------- painel de créditos do dia ---------- */
 .creditos{display:flex;align-items:center;gap:9px;margin-top:7px;padding:8px 11px;border-radius:12px;
@@ -1160,6 +1175,12 @@
 [data-luz="claro"] .tag.lime{border-color:#a8cc6e;color:var(--lime);background:#f0f8e4}
 [data-luz="claro"] .tag.blue{border-color:#9dbdf0;color:var(--blue);background:#eaf1fe}
 [data-luz="claro"] .tag{border-color:var(--line-2);color:var(--ink-2)}
+/* Os dois tons novos no claro: mesma regra das peles de cima — preenchimento
+   pálido, borda que define o limite, tinta escura o bastante pra ler em 10px. */
+[data-luz="claro"] .tag.amber{border-color:#e0b978;color:var(--amber);background:#fdf3e0}
+[data-luz="claro"] .tag.red{border-color:#e6a3a3;color:var(--red);background:#fff5f5}
+[data-luz="claro"] .who span.nota{color:#7a4a00}
+[data-luz="claro"] .perna.alerta span{color:var(--red);border-color:#e6a3a3;background:#fff5f5}
 [data-luz="claro"] .pill.lime{background:#eef7e2;border-color:#a8cc6e;color:var(--lime)}
 [data-luz="claro"] .pill.blue{background:#eaf1fe;border-color:#9dbdf0;color:var(--blue)}
 [data-luz="claro"] .pill.amber{background:#fdf1de;border-color:#e0b978;color:var(--amber)}
