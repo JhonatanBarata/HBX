@@ -233,12 +233,12 @@ const T={};
 /* 1 — ROTA DO MOTORISTA, com os 7 estados que o app tem de verdade --------- */
 let estadoRota='rodando';
 const PARADAS=[
-  {n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro • SP',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['A caminho','blue','nav'],perna:''},
-  {n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin • SP',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',pill:['A caminho','blue','nav'],perna:'850 m · 4 min'},
-  {n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema • SP',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Chegou','lime','check'],perna:'1,2 km · 6 min'},
-  {n:4,hora:'10:45',cor:'lime',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema • SP',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['Chegou','lime','check'],perna:'620 m · 3 min'},
-  {n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara • SP',nota:'cachorro solto no pátio',tags:[['20L x3','blue'],['Vasilhame'],['15 min','amber'],['Janela rígida','red']],marcado:'63,00',pill:['Pendente','amber','clock'],perna:'2,1 km · 9 min'},
-  {n:6,hora:'12:15',cor:'off',nome:'Mercado Estrela',rua:'R. Aracanguá, 210',bairro:'Jabaquara • SP',tags:[['20L x4','blue'],['Chip dia','lime']],marcado:'84,00',pill:['Pendente','mute','clock'],perna:'sem trajeto — não sei onde fica'},
+  {n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['A caminho','blue','nav'],perna:''},
+  {n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',pill:['A caminho','blue','nav'],perna:'850 m · 4 min'},
+  {n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Chegou','lime','check'],perna:'1,2 km · 6 min'},
+  {n:4,hora:'10:45',cor:'lime',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['Chegou','lime','check'],perna:'620 m · 3 min'},
+  {n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara',nota:'cachorro solto no pátio',tags:[['20L x3','blue'],['Vasilhame'],['15 min','amber'],['Janela rígida','red']],marcado:'63,00',pill:['Pendente','amber','clock'],perna:'2,1 km · 9 min'},
+  {n:6,hora:'12:15',cor:'off',nome:'Mercado Estrela',rua:'R. Aracanguá, 210',bairro:'Jabaquara',tags:[['20L x4','blue'],['Chip dia','lime']],marcado:'84,00',pill:['Pendente','mute','clock'],perna:'sem trajeto — não sei onde fica'},
 ];
 function listaParadas(comPerna){
   // "sem trajeto" ganha o tom de ALERTA: não é uma distância a menos, é um pino
@@ -249,7 +249,7 @@ function listaParadas(comPerna){
   }).join('');
 }
 function shellRota(conteudo,sub,dock){
-  return `${status}${hdr({sub:sub||'Rota do motorista'})}
+  return `${status}${hdr({sub})}
     <div class="body${dock?' com-dock':''}">${conteudo}</div>
     ${dock?`<div class="tmx-dock">${dock}</div>`:''}${nav('rota')}`;
 }
@@ -268,7 +268,7 @@ T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
       <strong>Rota indisponível</strong>
       <span>Não consegui carregar o dia de hoje.</span>
       <button class="ghost">${ic('refresh',15)} Tentar de novo</button>
-    </div>`,'Rota do motorista');
+    </div>`);
 
   const rodando=e==='rodando', pausada=e==='pausada', montada=e==='pronta';
   const emCurso=rodando||pausada;
@@ -301,12 +301,12 @@ T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
   </div>
   ${emCurso?`<button class="act full" style="margin-top:8px;justify-content:center">${ic('check',18)}<b>Finalizar</b></button>`
            :`<button class="act full" style="margin-top:8px;justify-content:center" data-ir="caderneta">${ic('note',17)}<b>Abrir caderneta</b></button>`}
-  `,'Rota do motorista', transmux(e==='semsinal'?'pronta':e));
+  `,null, transmux(e==='semsinal'?'pronta':e));
 }};
 
 /* versão antiga da tela (mantida como referência das fotos) --------------- */
 T.rotafoto={nome:'Rota — igual à foto',grupo:'Rota',render(){return `${status}
-${hdr({sub:'Rota do motorista'})}
+${hdr({})}
 <div class="body">
   <div class="kpis">
     <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">12</b><span class="l">paradas</span></span></div>
@@ -320,12 +320,12 @@ ${hdr({sub:'Rota do motorista'})}
   <div class="bar"><span class="t">${ic('list',17)} Sua rota de hoje</span>
     <button class="ghost" data-ir="mapa">${ic('map',15)} Ver mapa</button></div>
   <div class="stops">
-    ${stop({n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro • SP',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['A caminho','blue','nav']})}
-    ${stop({n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin • SP',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',pill:['A caminho','blue','nav']})}
-    ${stop({n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema • SP',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Chegou','lime','check']})}
-    ${stop({n:4,hora:'10:45',cor:'lime',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema • SP',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['Chegou','lime','check']})}
-    ${stop({n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara • SP',tags:[['20L x3','blue'],['Vasilhame']],marcado:'63,00',pill:['Pendente','amber','clock']})}
-    ${stop({n:6,hora:'12:15',cor:'off',nome:'Mercado Estrela',rua:'R. Aracanguá, 210',bairro:'Jabaquara • SP',tags:[['20L x4','blue'],['Chip dia','lime']],marcado:'84,00',pill:['Pendente','mute','clock']})}
+    ${stop({n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['A caminho','blue','nav']})}
+    ${stop({n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',pill:['A caminho','blue','nav']})}
+    ${stop({n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Chegou','lime','check']})}
+    ${stop({n:4,hora:'10:45',cor:'lime',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['Chegou','lime','check']})}
+    ${stop({n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara',tags:[['20L x3','blue'],['Vasilhame']],marcado:'63,00',pill:['Pendente','amber','clock']})}
+    ${stop({n:6,hora:'12:15',cor:'off',nome:'Mercado Estrela',rua:'R. Aracanguá, 210',bairro:'Jabaquara',tags:[['20L x4','blue'],['Chip dia','lime']],marcado:'84,00',pill:['Pendente','mute','clock']})}
   </div>
   <div class="sum">
     <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>20</b><small>produtos</small></span></span>
@@ -480,14 +480,14 @@ ${hdr({})}
   <div style="position:relative;z-index:20;background:linear-gradient(180deg,#0b1322,#080d17 34px);
               border-radius:18px 18px 0 0;border-top:.7px solid var(--line);padding:9px 10px 0;margin-top:-16px">
     <span style="display:block;width:36px;height:3px;border-radius:2px;background:#2b3a58;margin:0 auto 7px"></span>
-    ${l(1,'08:30','João da Silva','R. das Palmeiras, 145 • Santo Amaro • SP',['20L x2','Vasilhame','Chip dia'],['A caminho','lime','nav'],'lime')}
-    ${l(2,'09:15','Mercadinho Bom Preço','Av. João Dias, 890 • Brooklin • SP',['20L x4','Vasilhame'],['Chegou','lime','check'],'lime')}
-    ${l(3,'10:05','Mercado São Judas','R. São Judas, 142 • São Paulo • SP',['20L x2','Vasilhame','Chip dia'],['Próxima parada','blue','nav'],'')}
-    ${l(4,'10:45','Padaria Pão Nosso','Av. Ibirapuera, 2331 • Moema • SP',['20L x1','Vasilhame'],['Entregue','lime','check'],'lime')}
-    ${l(5,'11:30','Bar do Zé','R. dos Otonis, 317 • Jabaquara • SP',['20L x3','Vasilhame'],['Pendente','amber','clock'],'off')}
-    ${l(6,'12:15','Mercado Estrela','R. Aracanguá, 210 • Jabaquara • SP',['20L x4','Vasilhame'],['Pendente','mute','clock'],'off')}
-    ${l(7,'13:00','Quitanda do Bairro','R. das Orquídeas, 55 • Campo Belo • SP',['20L x2','Vasilhame'],['Pendente','mute','clock'],'off')}
-    ${l(8,'13:45','Depósito Central','R. Dr. Jesuíno Maciel, 980 • Santo Amaro • SP',['20L x6','Vasilhame'],['Pendente','mute','clock'],'off')}
+    ${l(1,'08:30','João da Silva','R. das Palmeiras, 145 • Santo Amaro',['20L x2','Vasilhame','Chip dia'],['A caminho','lime','nav'],'lime')}
+    ${l(2,'09:15','Mercadinho Bom Preço','Av. João Dias, 890 • Brooklin',['20L x4','Vasilhame'],['Chegou','lime','check'],'lime')}
+    ${l(3,'10:05','Mercado São Judas','R. São Judas, 142 • São Paulo',['20L x2','Vasilhame','Chip dia'],['Próxima parada','blue','nav'],'')}
+    ${l(4,'10:45','Padaria Pão Nosso','Av. Ibirapuera, 2331 • Moema',['20L x1','Vasilhame'],['Entregue','lime','check'],'lime')}
+    ${l(5,'11:30','Bar do Zé','R. dos Otonis, 317 • Jabaquara',['20L x3','Vasilhame'],['Pendente','amber','clock'],'off')}
+    ${l(6,'12:15','Mercado Estrela','R. Aracanguá, 210 • Jabaquara',['20L x4','Vasilhame'],['Pendente','mute','clock'],'off')}
+    ${l(7,'13:00','Quitanda do Bairro','R. das Orquídeas, 55 • Campo Belo',['20L x2','Vasilhame'],['Pendente','mute','clock'],'off')}
+    ${l(8,'13:45','Depósito Central','R. Dr. Jesuíno Maciel, 980 • Santo Amaro',['20L x6','Vasilhame'],['Pendente','mute','clock'],'off')}
   </div>
 </div>
 ${nav('rota')}`;}};
@@ -504,7 +504,7 @@ ${hdr({})}
     <div class="box" style="display:flex;align-items:center;gap:10px">
       <span class="num lime" style="width:36px;height:36px">3</span>
       <span style="flex:1"><span class="box-t">Parada 3 • Maria Aparecida</span>
-        <span class="box-s">R. Sargento Silva Nunes, 72 • Moema • SP</span></span>
+        <span class="box-s">R. Sargento Silva Nunes, 72 • Moema</span></span>
       <span class="pill lime">${ic('check',14)}Chegou</span>
     </div>
     <div class="box">
@@ -562,11 +562,11 @@ ${hdr({sub:'Caderneta'})}
   <div class="bar"><span class="t">${ic('list',17)} Paradas de hoje</span>
     <button class="ghost" data-ir="mapa">${ic('map',15)} Ver mapa</button></div>
   <div class="stops">
-    ${stop({n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro • SP',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['A caminho','blue','nav']})}
-    ${stop({n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin • SP',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',pill:['A caminho','blue','nav']})}
-    ${stop({n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema • SP',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Chegou','lime','check']})}
-    ${stop({n:4,hora:'10:45',cor:'lime',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema • SP',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['Chegou','lime','check']})}
-    ${stop({n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara • SP',tags:[['20L x3','blue'],['Vasilhame']],marcado:'63,00',pill:['Pendente','amber','clock']})}
+    ${stop({n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['A caminho','blue','nav']})}
+    ${stop({n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',pill:['A caminho','blue','nav']})}
+    ${stop({n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Chegou','lime','check']})}
+    ${stop({n:4,hora:'10:45',cor:'lime',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['Chegou','lime','check']})}
+    ${stop({n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara',tags:[['20L x3','blue'],['Vasilhame']],marcado:'63,00',pill:['Pendente','amber','clock']})}
   </div>
 </div>
 <div class="sheet" style="max-height:52%">
@@ -605,13 +605,13 @@ T.semana={nome:'Histórico da semana',grupo:'Caderneta',render(){
     <span class="r"><small>Recebido</small><b>R$ ${rec}</b></span>
     <span class="mk"><span><small>Marcado</small><b>R$ ${mk}</b></span>${ic('chev',14)}</span></div>`;
   return `${status}
-${hdr({sub:'Rota do motorista'})}
+${hdr({})}
 <div class="body" style="opacity:.4;pointer-events:none">
   <div class="kpis">
     <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">12</b><span class="l">paradas</span></span></div>
     <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">6</b><span class="l">entregues</span></span></div>
   </div>
-  <div class="stops">${stop({n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro • SP',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['A caminho','blue','nav']})}</div>
+  <div class="stops">${stop({n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['A caminho','blue','nav']})}</div>
 </div>
 <div class="scrim"></div>
 <div class="sheet" style="max-height:80%">
@@ -657,12 +657,12 @@ ${hdr({sub:'Conferência'})}
     <span class="c"><span style="color:var(--lime)">${ic('check',18)}</span><span><b style="font-size:16px">6</b><small>conferidos</small></span></span>
   </div>
   <div class="stops">
-    ${l(1,'08:30','João da Silva','R. das Palmeiras, 145','Santo Amaro • SP',['20L x2','Vasilhame','Chip dia'],['Conferido','lime','check'],'')}
-    ${l(2,'09:15','Mercadinho Bom Preço','Av. João Dias, 890','Brooklin • SP',['20L x4','Vasilhame'],['Falta 1','amber','alert'],'')}
-    ${l(3,'10:05','Maria Aparecida','R. Sargento Silva Nunes, 72','Moema • SP',['20L x1','Chip dia'],['Conferido','lime','check'],'lime')}
-    ${l(4,'10:45','Padaria Pão Nosso','Av. Ibirapuera, 2331','Moema • SP',['20L x2','Vasilhame'],['Conferido','lime','check'],'lime')}
-    ${l(5,'11:30','Bar do Zé','R. dos Otonis, 317','Jabaquara • SP',['20L x3','Vasilhame'],['Separado','blue','box'],'')}
-    ${l(6,'12:15','Mercado Estrela','R. Aracanguá, 210','Jabaquara • SP',['20L x4','Chip dia'],['Pendente','mute','clock'],'off')}
+    ${l(1,'08:30','João da Silva','R. das Palmeiras, 145','Santo Amaro',['20L x2','Vasilhame','Chip dia'],['Conferido','lime','check'],'')}
+    ${l(2,'09:15','Mercadinho Bom Preço','Av. João Dias, 890','Brooklin',['20L x4','Vasilhame'],['Falta 1','amber','alert'],'')}
+    ${l(3,'10:05','Maria Aparecida','R. Sargento Silva Nunes, 72','Moema',['20L x1','Chip dia'],['Conferido','lime','check'],'lime')}
+    ${l(4,'10:45','Padaria Pão Nosso','Av. Ibirapuera, 2331','Moema',['20L x2','Vasilhame'],['Conferido','lime','check'],'lime')}
+    ${l(5,'11:30','Bar do Zé','R. dos Otonis, 317','Jabaquara',['20L x3','Vasilhame'],['Separado','blue','box'],'')}
+    ${l(6,'12:15','Mercado Estrela','R. Aracanguá, 210','Jabaquara',['20L x4','Chip dia'],['Pendente','mute','clock'],'off')}
   </div>
   <div class="prog">
     <span class="prog-l"><span><b>6</b> de <b>12</b> paradas conferidas</span><span><b>50%</b> concluído</span></span>
@@ -689,12 +689,12 @@ ${hdr({})}
   <h2 style="font-size:23px;font-weight:500;margin:4px 0 2px;letter-spacing:-.4px">Montagem de rota</h2>
   <p style="margin:0 0 4px;font-size:12.5px;color:var(--lime);display:flex;align-items:center;gap:7px">${ic('dots',15)} Segure e arraste para ordenar</p>
   <div class="stops">
-    ${l(1,'08:30','João da Silva','R. das Palmeiras, 145','Santo Amaro • SP',['20L x2','Vasilhame','Chip dia'],'42,00','')}
-    ${l(2,'09:15','Mercadinho Bom Preço','Av. João Dias, 890','Brooklin • SP',['20L x4','Vasilhame'],'84,00','')}
-    ${l(3,'10:05','Maria Aparecida','R. Sargento Silva Nunes, 72','Moema • SP',['20L x1','Chip dia'],'21,00','lime')}
-    ${l(4,'10:45','Padaria Pão Nosso','Av. Ibirapuera, 2331','Moema • SP',['20L x2','Vasilhame'],'42,00','')}
-    ${l(5,'11:30','Bar do Zé','R. dos Otonis, 317','Jabaquara • SP',['20L x3','Vasilhame'],'63,00','')}
-    ${l(6,'12:15','Mercado Estrela','R. Aracanguá, 210','Jabaquara • SP',['20L x4','Chip dia'],'84,00','off')}
+    ${l(1,'08:30','João da Silva','R. das Palmeiras, 145','Santo Amaro',['20L x2','Vasilhame','Chip dia'],'42,00','')}
+    ${l(2,'09:15','Mercadinho Bom Preço','Av. João Dias, 890','Brooklin',['20L x4','Vasilhame'],'84,00','')}
+    ${l(3,'10:05','Maria Aparecida','R. Sargento Silva Nunes, 72','Moema',['20L x1','Chip dia'],'21,00','lime')}
+    ${l(4,'10:45','Padaria Pão Nosso','Av. Ibirapuera, 2331','Moema',['20L x2','Vasilhame'],'42,00','')}
+    ${l(5,'11:30','Bar do Zé','R. dos Otonis, 317','Jabaquara',['20L x3','Vasilhame'],'63,00','')}
+    ${l(6,'12:15','Mercado Estrela','R. Aracanguá, 210','Jabaquara',['20L x4','Chip dia'],'84,00','off')}
   </div>
   <div class="sum">
     <span class="c"><span style="color:var(--lime)">${ic('route',17)}</span><span><b>6</b><small>paradas</small></span></span>
