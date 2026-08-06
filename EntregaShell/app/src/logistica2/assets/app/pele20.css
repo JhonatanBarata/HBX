@@ -1096,8 +1096,17 @@
 .chave.on i{left:18px;background:#12200a}
 
 /* ---------- clientes ---------- */
+/* 🔴 A LINHA DE CLIENTE TAMBÉM É BOTÃO. No mock ela é `<div>` (nada clica), mas
+   no app ela ABRE A FICHA — e aí o navegador devolve o botão de fábrica por
+   baixo: fundo cinza, borda de 2px, texto centralizado, largura encolhida. Foi
+   medido ao vestir a tela (leva 2): a lista inteira virou caixa cinza.
+   O `.linha-cfg` já nasceu com esse desarme; o `.cli` não tinha. Sem ele aqui,
+   quem veste é obrigado a desarmar INLINE no app — e estilo inline vence a
+   folha, então o fundo do `.gesto-item.pronto` (segurar pra apagar) nunca
+   chegava. Componente que pode ser botão desarma o botão ELE MESMO. */
 .cli{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;
-  padding:8px 2px;border-bottom:.6px solid rgba(26,39,64,.95)}
+  padding:8px 2px;border:0;border-bottom:.6px solid rgba(26,39,64,.95);
+  width:100%;background:transparent;color:var(--ink);text-align:left;font:inherit}
 .ava{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:500;
   background:#12253f;border:1px solid #2b5490;color:var(--blue-l)}
 .ava.lime{background:#17230e;border-color:#4d6b1c;color:var(--lime)}

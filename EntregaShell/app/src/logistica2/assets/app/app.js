@@ -5451,6 +5451,19 @@
     return `<div class="perna"><span>↓ ${distTxt}${minTxt}</span></div>`;
   }
 
+  /**
+   * CASCA LOGÍSTICA leva 2 (06/08) — a linha de cliente é `<button>` no app (é
+   * ela que ABRE a ficha; virar `<div>` custaria foco de teclado e Enter, isto
+   * é, comportamento). No mock o `.cli` é `<div>`, então a folha nunca tinha
+   * precisado desarmar o botão de fábrica — e sem desarme a lista saía em
+   * caixas cinzas.
+   *
+   * O desarme já foi levado pro MOCK (o `.cli` agora nasce com o mesmo tratamento
+   * do `.linha-cfg`), então aqui não sobra estilo inline nenhum. Isso importa
+   * além da limpeza: inline vencia a folha e barrava o `background` que a casca
+   * põe no `.gesto-item.pronto` — o fim do "segurar pra apagar". Com o desarme
+   * na folha, o gesto acende inteiro de novo.
+   */
   // Os catálogos e o wizard usam o mesmo cartão. Em modo seleção, só mudam a
   // ação e o complemento contextual (distância/selecionar); cadastro e edição
   // continuam pertencendo às telas administrativas reais.
@@ -5470,7 +5483,41 @@
     const attrs = selection
       ? `type="button" data-action="leitura-escolher-cliente" data-client-id="${H.escape(client.id)}" data-selection-search="${H.escape(searchText)}"${opts.hidden ? " hidden" : ""}`
       : `data-client="${H.escape(client.id)}"`;
-    return `<button class="lead-card ${pendingHasBlocking(pending) ? "has-pending" : ""}${selection ? " hbx-selection-item lrt-client-row" : ""}${distance !== null && distance <= 200 ? " lrt-client-near" : ""}" ${attrs}><div class="avatar">${H.escape(initials(name))}</div><div class="card-main"><strong>${H.escape(name)}</strong><span>${H.escape(subtitle)}</span>${selection ? "" : `<div class="client-balance">${configFlag("moduloFinanceiroAtivo") && Number(client.debitoAtual || 0) > 0 ? `<small class="mtz-conta mtz-total-marcado">${HBXMatriz.rotulos.conta.totalMarcado} ${HBXMatriz.rs(Number(client.debitoAtual))}</small>` : ""}${clientMissingLabels(client)}</div>`}</div>${trailing}</button>`;
+    // 🔴 CASCA LOGÍSTICA leva 2 (06/08) — o CATÁLOGO (a tela Clientes) veste o
+    // `.cli` do mock: `.ava` (iniciais), a coluna do meio com nome + endereço +
+    // `.tags`, e `.rgt` na ponta direita. `.gesto-item` é o componente de gesto
+    // da casca — é ele que pinta o vermelho progressivo do "segurar pra apagar"
+    // (`armando`/`pronto`), que na pele velha morava em `.lead-card.is-hold-arming`.
+    //
+    // O MODO SELEÇÃO (leitura de rota e o escolhedor do editor de rota) FICA na
+    // pele velha de propósito: ele não é desta tela — vive dentro de folhas e
+    // modais, que o plano põe numa leva posterior. Vestir aqui trocaria a roupa
+    // de duas telas fora do escopo, e é justamente o "duas peles" que o plano
+    // manda evitar. Ver cascalogistica.md §6.
+    //
+    // ⚠️ A coluna do meio leva a classe `.who` (a mesma peça do `.stop`: nome +
+    // endereço + sub-linhas). No mock ela é um `<span>` pelado, mas a linha de
+    // agenda é ENXERTADA depois do render (enhancePaymentForms) e precisava de
+    // uma âncora com NOME — âncora por posição quebra calada na próxima leva.
+    // Medido: dentro do `.cli`, `.who` só acrescenta `min-width:0` e
+    // `overflow-wrap:anywhere` (`.cli span` vence o resto por ser mais tarde na
+    // folha), então a coluna pinta igual à do mock e ainda para de estourar a
+    // grade com nome comprido.
+    if (selection) {
+      return `<button class="lead-card ${pendingHasBlocking(pending) ? "has-pending" : ""} hbx-selection-item lrt-client-row${distance !== null && distance <= 200 ? " lrt-client-near" : ""}" ${attrs}><div class="avatar">${H.escape(initials(name))}</div><div class="card-main"><strong>${H.escape(name)}</strong><span>${H.escape(subtitle)}</span></div>${trailing}</button>`;
+    }
+    // O valor em aberto vira o par `<small>`/`<b>` do `.rgt` (é a forma do mock:
+    // rótulo em cima, dinheiro embaixo). As MESMAS palavras da matriz, na mesma
+    // ordem — só deixaram de morar dentro de um `<small>` só.
+    const marcado = configFlag("moduloFinanceiroAtivo") && Number(client.debitoAtual || 0) > 0
+      ? `<small>${H.escape(HBXMatriz.rotulos.conta.totalMarcado)}</small><b>${HBXMatriz.rs(Number(client.debitoAtual))}</b>`
+      : "";
+    // A seta FICA mesmo quando há valor (no mock ela só aparece sem valor). Ela
+    // é a única coisa que anuncia "isto abre a ficha" — esconder num cliente
+    // que deve seria a tela dizer MENOS do que dizia. Cor por TOKEN, no molde
+    // do próprio mock (que também resolve a seta do `.cli` com estilo inline).
+    const seta = `<span style="color:var(--ink-3)">${icon("chevronRight", 18)}</span>`;
+    return `<button class="cli gesto-item" ${attrs}><span class="ava">${H.escape(initials(name))}</span><span class="who"><strong>${H.escape(name)}</strong><span>${H.escape(subtitle)}</span>${clientMissingLabels(client)}</span><span class="rgt">${marcado}${seta}</span></button>`;
   }
   function productCatalogCard(product, options) {
     const opts = options || {};
@@ -5509,17 +5556,36 @@
    * tela e o handler `clients-dia` nunca rodava. Agora o chip é o `chips()` da
    * MATRIZ, que marca `data-filtro`: atributo de gesto pertence a UM dono só.
    */
+  /**
+   * 🔴 CASCA LOGÍSTICA leva 2 (06/08) — a linha de dias vestida com `.dias` do
+   * mock (o mesmo componente do Gerenciador de Rota: 7 colunas, rótulo em cima,
+   * CONTAGEM embaixo, `.on` no selecionado). Escolhi `.dias` e NÃO o `.chip` da
+   * tela Clientes do mock por um motivo medido: `.chip` é uma pílula de texto
+   * único numa linha que ROLA — ele não empilha rótulo e número (o `<small>`
+   * ficaria colado do lado, o mesmo defeito que o mock documenta no `.kpi`), e
+   * a rolagem devolveria o problema que o app já pagou pra resolver (o
+   * `.montagem-dia` da pele velha somava 470px e não cabia nos 7 dias). A
+   * contagem é o dado que o dono pediu em 05/08 — ela manda no componente.
+   *
+   * ⚠️ SAIU DA MATRIZ, de propósito. `HBXMatriz.chips` é compartilhado com a
+   * Caderneta, que ainda não foi vestida; vestir lá dentro trocaria a roupa de
+   * uma tela fora desta leva. A marcação nasce aqui até a leva da Caderneta
+   * decidir onde o chip vestido vai morar. O `data-filtro` (nunca `data-day`)
+   * continua igualzinho — ele é o gancho do despacho de cliques, não roupa.
+   */
   function clientsDiaChips() {
-    const selecionados = state.clientsDias || [];
-    return HBXMatriz.chips(weekDays.map(day => {
+    const selecionados = (state.clientsDias || []).map(String);
+    return `<div class="dias">${weekDays.map(day => {
       const count = state.dayCounts ? state.dayCounts[day.n] : undefined;
-      return {
-        valor: String(day.n),
-        rotulo: day.label,
-        sub: count === undefined ? "…" : count === null ? "" : `${count}`,
-        inativo: count === 0,
-      };
-    }), selecionados.map(String), "clients-dia", "clients-dias");
+      const sub = count === undefined ? "…" : count === null ? "" : `${count}`;
+      const on = selecionados.includes(String(day.n));
+      // Dia sem ninguém fica na linha, apagado (chip que some faz os dias
+      // dançarem de lugar a cada carga). ⚠️ A casca não tem CLASSE pra isso: o
+      // próprio mock resolve com `style="opacity:.42"` no Gerenciador. Copio a
+      // solução do mock em vez de inventar classe nova aqui.
+      const apagado = count === 0 && !on ? ` style="opacity:.42"` : "";
+      return `<button type="button" class="${on ? "on" : ""}" data-action="clients-dia" data-filtro="${H.escape(String(day.n))}" aria-pressed="${on}"${apagado}><strong>${H.escape(day.label)}</strong><small>${H.escape(sub)}</small></button>`;
+    }).join("")}</div>`;
   }
   function clientsScreen() {
     const list = state.clients || [];
@@ -5534,7 +5600,33 @@
     const titulo = dias.length
       ? weekDays.filter(day => dias.includes(day.n)).map(day => day.nome).join(" · ")
       : "Cadastros";
-    return shell(`${clientsDiaChips()}<label class="search">${icon("search", 18)}<input id="client-search" aria-label="Buscar clientes" placeholder="Buscar" value="${H.escape(state.query)}"></label><div class="section-title"><strong>${H.escape(titulo)}</strong><span>${list.length}${total > list.length ? ` de ${total}` : ""}</span></div>${firstLoad ? loading() : `<div class="list">${list.length ? list.map(c => clientCatalogCard(c)).join("") : empty(state.clientsError ? "Não foi possível carregar" : "Nenhum cliente", emptyText)}</div>`}${clientsAutoLoad()}`, `<button class="fab" data-action="new-client" aria-label="Novo cliente">${icon("plus", 22)}</button>`);
+    // 🔴 CASCA LOGÍSTICA leva 2 (06/08) — a tela inteira com o vocabulário do
+    // mock: `.dias` (filtro por dia), `.searchrow`/`.search` (busca), `.bar`
+    // (barra de seção), `.lista-card`/`.cli` (a lista mora DENTRO de um cartão
+    // só, dividida por fios — é a forma da tela Clientes do mock), `.vazio` e
+    // `.esq` (esqueleto). Nenhum data-action, texto, fluxo ou dado mudou.
+    //
+    // NÃO VESTIDO, de propósito: o `.fab` de "Novo cliente". A casca NÃO tem
+    // botão flutuante (o mock nunca desenhou um), e o nome `.fab` é REGRA DE
+    // COMPORTAMENTO em duas linhas do app.css (`html.keyboard-open .fab` e
+    // `html.nav-cheia .fab`) — com o teclado aberto ele TEM que sumir. Trocar o
+    // nome sem componente pra pôr no lugar custaria o comportamento e não
+    // compraria roupa nenhuma. Ele também é do Produtos (próxima leva).
+    return shell(`${clientsDiaChips()}<div class="searchrow"><label class="search">${icon("search", 18)}<input id="client-search" aria-label="Buscar clientes" placeholder="Buscar" value="${H.escape(state.query)}"></label></div><div class="bar"><span class="t">${H.escape(titulo)}</span><span>${list.length}${total > list.length ? ` de ${total}` : ""}</span></div>${firstLoad ? clientsEsqueleto() : `<div class="lista-card">${list.length ? list.map(c => clientCatalogCard(c)).join("") : clientsVazio(state.clientsError ? "Não foi possível carregar" : "Nenhum cliente", emptyText)}</div>`}${clientsAutoLoad()}`, `<button class="fab" data-action="new-client" aria-label="Novo cliente">${icon("plus", 22)}</button>`);
+  }
+  /**
+   * CASCA LOGÍSTICA leva 2 — o "nada aqui" e o "carregando" da tela Clientes com
+   * os componentes `.vazio` e `.esq` da casca. Mesmos textos que o `empty()` da
+   * pele velha mostrava; o ícone é parte do componente (o mock nunca desenha
+   * `.vazio` sem ele), não conteúdo novo. `empty()`/`loading()` continuam de pé
+   * pras telas que ainda não foram vestidas — por isso a cópia local.
+   */
+  function clientsVazio(title, text) {
+    return `<div class="vazio"><span class="ico">${icon("users", 24)}</span><strong>${H.escape(title)}</strong>${text ? `<span>${H.escape(text)}</span>` : ""}</div>`;
+  }
+  function clientsEsqueleto() {
+    // Mesma quantidade de linhas que o `loading()` da pele velha desenhava (3).
+    return `<div class="lista-card">${'<div class="esq esq-linha"></div>'.repeat(3)}</div>`;
   }
   function productsScreen() {
     const all = state.products || [];
@@ -7378,10 +7470,18 @@
   // pinta o card. `pendingIsBlocking` é a fonte única dessa regra.
   function pendingIsBlocking(key) { return key === "End" || key === "Dia"; }
   function pendingHasBlocking(list) { return (list || []).some(pendingIsBlocking); }
+  /**
+   * CASCA LOGÍSTICA leva 2 (06/08) — os selos de pendência viraram `.tags`/`.tag`
+   * da casca. A REGRA DE COR não mudou nem um pouco: `pendingIsBlocking` continua
+   * sendo a fonte única, e o que travava a entrega (End/Dia) sai em `.tag.red`,
+   * o informativo (Tel, Pag, Dup) sai no `.tag` neutro — exatamente o que
+   * `.client-missing b` × `b.is-neutral` pintava. O vermelho existe na casca
+   * desde `79d9e159`; sem ele isto teria virado perda de informação.
+   */
   function clientMissingLabels(client) {
     const missing = clientPendingKeys(client);
     const labels = { Tel: "Telefone", End: "Endereço", Dia: "Agenda", Pag: "Pagamento", Dup: "Duplicado" };
-    return missing.length ? `<span class="client-missing">${missing.map(item => `<b${pendingIsBlocking(item) ? "" : ` class="is-neutral"`}>${H.escape(labels[item] || item)}</b>`).join(" ")}</span>` : "";
+    return missing.length ? `<span class="tags">${missing.map(item => `<b class="tag${pendingIsBlocking(item) ? " red" : ""}">${H.escape(labels[item] || item)}</b>`).join(" ")}</span>` : "";
   }
   function enhancePaymentForms() {
     const newForm = app.querySelector("#new-client-form");
@@ -7393,14 +7493,24 @@
       if (clientFinancialFields) clientFinancialFields.innerHTML = paymentFields(state.clientPaymentDraft, "client");
       clientForm.querySelector(".client-primary-actions button[type=submit]").textContent = "Salvar cliente";
     }
-    app.querySelectorAll(".lead-card[data-client]").forEach(card => {
+    // 🔴 CASCA LOGÍSTICA leva 2 (06/08) — ESTA BUSCA É REGRA DE COMPORTAMENTO
+    // ESCRITA POR NOME DE CLASSE, igual ao `html.nav-cheia` que mordeu a leva 1.
+    // O cartão do cliente virou `.cli` e a âncora `.client-balance` deixou de
+    // existir (o valor foi pro `.rgt`): sem trocar os dois nomes aqui, a linha
+    // de agenda ("Entrega TER/SEX · Pagamento dia 10") sumia de TODO cartão,
+    // calada — nada quebra, nada avisa, a informação só some. A linha agora
+    // entra como último filho da coluna do meio (`.who`), que é onde ela já
+    // ficava: depois do endereço e dos selos.
+    app.querySelectorAll(".cli[data-client]").forEach(card => {
       // insertAdjacentHTML NÃO é idempotente: com o nó sobrevivendo ao render
-      // (mount() de 22/07), rodar de novo empilharia um <small> por render.
+      // (mount() de 22/07), rodar de novo empilharia uma linha por render.
       if (card.__hbxScheduleLine) return;
       const client = clientById(card.dataset.client); const line = client && clientScheduleLine(client);
       if (!line) return;
       card.__hbxScheduleLine = true;
-      card.querySelector(".client-balance")?.insertAdjacentHTML("afterend", `<small>${H.escape(line)}</small>`);
+      // `<span>`, não `<small>`: quem pinta sub-linha dentro do `.cli` é
+      // `.cli span`. Um `<small>` aqui sairia sem regra nenhuma.
+      card.querySelector(".who")?.insertAdjacentHTML("beforeend", `<span>${H.escape(line)}</span>`);
     });
   }
   // ==========================================================================
@@ -7518,10 +7628,19 @@
     state.openingOverlay = null;
   }
 
+  /**
+   * CASCA LOGÍSTICA leva 2 (06/08) — ⚠️ VOCABULÁRIO QUE FALTA NA CASCA: o mock
+   * não desenhou rodapé de "carregando o resto da lista" (as listas dele são
+   * finitas, sem rolagem infinita). Pela lei 3 vai no componente MAIS PRÓXIMO —
+   * `.gesto-dica`, a linha de texto pequena, centralizada e apagada que mora
+   * embaixo das listas do mock. O gancho continua sendo o ATRIBUTO
+   * `data-clients-auto-load`, nunca a classe, então o observador de rolagem não
+   * sente nada.
+   */
   function clientsAutoLoad() {
     if (state.clientsPage >= state.clientsTotalPages) return "";
     const status = state.clientsError ? "Não foi possível carregar o restante." : state.clientsLoading ? "Carregando…" : "";
-    return `<div class="clients-auto-load" data-clients-auto-load aria-live="polite">${H.escape(status)}</div>`;
+    return `<div class="gesto-dica" data-clients-auto-load aria-live="polite">${H.escape(status)}</div>`;
   }
 
   function setupClientsAutoLoad() {
@@ -11045,8 +11164,16 @@
     const clientCard = event.target.closest("[data-client]");
     if (clientCard && event.touches.length === 1 && state.screen === "clients" && !state.modal && !state.selected) {
       const touch = event.touches[0]; const hold = { id: clientCard.dataset.client, el: clientCard, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
-      hold.el.classList.add("is-hold-arming");
-      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
+      // CASCA LOGÍSTICA leva 2 — MESMO gesto, MESMOS 950ms, MESMA vibração: só
+      // os nomes das classes de ESTADO VISUAL viraram os da casca
+      // (`armando`/`pronto` do `.gesto-item`), porque o cartão do cliente agora
+      // é `.cli` e `is-hold-arming`/`is-holding` só existem pintadas na pele
+      // velha (`.lead-card.is-hold-arming`). Este gesto é EXCLUSIVO desta tela
+      // (o `if` acima exige `state.screen === "clients"`), então nenhuma outra
+      // lista é afetada — as demais seguem com os nomes antigos até serem
+      // vestidas. Mesma troca que a leva 1 fez no cartão da parada.
+      hold.el.classList.add("armando");
+      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("armando"); hold.el.classList.add("pronto"); H.vibrate(45); }, 950);
       clientHold = hold;
     }
     const productCard = event.target.closest("[data-client-product-id]");
@@ -11162,7 +11289,7 @@
   app.addEventListener("touchmove", event => {
     if (event.touches.length !== 1) return;
     const touch = event.touches[0];
-    if (clientHold && (Math.abs(touch.clientX - clientHold.x) > 12 || Math.abs(touch.clientY - clientHold.y) > 12)) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); clientHold = null; }
+    if (clientHold && (Math.abs(touch.clientX - clientHold.x) > 12 || Math.abs(touch.clientY - clientHold.y) > 12)) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("armando", "pronto"); clientHold = null; }
     if (clientProductHold && (Math.abs(touch.clientX - clientProductHold.x) > 12 || Math.abs(touch.clientY - clientProductHold.y) > 12)) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); clientProductHold = null; }
     if (routeStopHold && (Math.abs(touch.clientX - routeStopHold.x) > 12 || Math.abs(touch.clientY - routeStopHold.y) > 12)) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("armando", "pronto"); routeStopHold = null; }
     if (rmeParadaHold && (Math.abs(touch.clientX - rmeParadaHold.x) > 12 || Math.abs(touch.clientY - rmeParadaHold.y) > 12)) { clearTimeout(rmeParadaHold.timer); rmeParadaHold.el.classList.remove("is-hold-arming", "is-holding"); rmeParadaHold = null; }
@@ -11195,7 +11322,7 @@
     }
     if (clientHold) {
       clearTimeout(clientHold.timer);
-      const hold = clientHold; clientHold = null; hold.el.classList.remove("is-hold-arming", "is-holding");
+      const hold = clientHold; clientHold = null; hold.el.classList.remove("armando", "pronto");
       if (hold.triggered) { ignoredClientClickId = hold.id; touchStart = null; deleteClient(clientById(hold.id)); return; }
     }
     if (clientProductHold) {
@@ -11294,7 +11421,7 @@
       return;
     }
   }, { passive: true });
-  app.addEventListener("touchcancel", () => { if (rmeParadaHold) { clearTimeout(rmeParadaHold.timer); rmeParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeParadaHold = null; if (rmeItemHold) { clearTimeout(rmeItemHold.timer); rmeItemHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeItemHold = null; if (routeModeloHold) { clearTimeout(routeModeloHold.timer); routeModeloHold.el.classList.remove("is-hold-arming", "is-holding"); } routeModeloHold = null; if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("armando", "pronto"); } routeStopHold = null; if (productHold) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); } productHold = null; if (lrtParadaHold) { clearTimeout(lrtParadaHold.timer); lrtParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtParadaHold = null; if (lrtItemHold) { clearTimeout(lrtItemHold.timer); lrtItemHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtItemHold = null; if (historicoHold) { clearTimeout(historicoHold.timer); historicoHold.el.classList.remove("is-hold-arming", "is-holding"); } historicoHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
+  app.addEventListener("touchcancel", () => { if (rmeParadaHold) { clearTimeout(rmeParadaHold.timer); rmeParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeParadaHold = null; if (rmeItemHold) { clearTimeout(rmeItemHold.timer); rmeItemHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeItemHold = null; if (routeModeloHold) { clearTimeout(routeModeloHold.timer); routeModeloHold.el.classList.remove("is-hold-arming", "is-holding"); } routeModeloHold = null; if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("armando", "pronto"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("armando", "pronto"); } routeStopHold = null; if (productHold) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); } productHold = null; if (lrtParadaHold) { clearTimeout(lrtParadaHold.timer); lrtParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtParadaHold = null; if (lrtItemHold) { clearTimeout(lrtItemHold.timer); lrtItemHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtItemHold = null; if (historicoHold) { clearTimeout(historicoHold.timer); historicoHold.el.classList.remove("is-hold-arming", "is-holding"); } historicoHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
   app.addEventListener("contextmenu", event => { if (event.target.closest("[data-client],[data-client-product-id],[data-route-stop],[data-product-id]")) event.preventDefault(); });
   // MATRIZ (PR05082026) — UM registro de gesto pra linha canônica: segurar =
   // excluir (950ms + confirmação, porque desfaz DINHEIRO), nº = alça do
