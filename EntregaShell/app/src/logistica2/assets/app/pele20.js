@@ -3,14 +3,15 @@
 
    Fonte: docs/mockups/logistica2.0/logistica-2.0.html
    Gerador: scripts/pele20-gerar.js   (rode ele; não edite este arquivo)
+   Conferência: node scripts/pele20-conferir.js  (33/33, nos DOIS modos)
 
    Os templates são os MESMOS do mock, palavra por palavra — é isso que faz o
    HTML sair idêntico por CONSTRUÇÃO, e não por semelhança. Editar aqui à mão
    quebra a única regra de aprovação que o dono cravou, e some na próxima
    regeração.
 
-   Única adaptação: o verde limão forte leva texto escuro legível (#12200a),
-   nunca branco — ordem do dono. No mock era interruptor; aqui é lei.
+   O gerador NÃO conserta cor: ele confere e reprova. Aparência se corrige no
+   MOCK — é ele que manda.
    ========================================================================== */
 (function(){
 "use strict";
@@ -100,7 +101,7 @@ const ic=(n,s=18)=>{
    ========================================================================== */
 const status = `<div class="status"><span>9:41</span><span class="right">
   <span class="bars"><i></i><i></i><i></i><i></i></span>
-  <svg viewBox="0 0 24 24" width="13" height="13" fill="none"><path d="M3 9.5a13 13 0 0 1 18 0M6 13a8.6 8.6 0 0 1 12 0M9.4 16.4a3.8 3.8 0 0 1 5.2 0" stroke="#fff" stroke-width="1.35" stroke-linecap="round"/><circle cx="12" cy="19.4" r="1.1" fill="#fff"/></svg>
+  <svg viewBox="0 0 24 24" width="13" height="13" fill="none"><path d="M3 9.5a13 13 0 0 1 18 0M6 13a8.6 8.6 0 0 1 12 0M9.4 16.4a3.8 3.8 0 0 1 5.2 0" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/><circle cx="12" cy="19.4" r="1.1" fill="currentColor"/></svg>
   <span class="batt"></span></span></div>`;
 
 const logo = `<div class="logo"><div class="w"><b>HB</b><em>X</em></div><small>LOGÍSTICA</small></div>`;
@@ -186,14 +187,14 @@ function mapa(){
       <linearGradient id="carc" x1="232" y1="396" x2="232" y2="470" gradientUnits="userSpaceOnUse">
         <stop offset="0" stop-color="#5b9dff" stop-opacity=".5"/><stop offset="1" stop-color="#5b9dff" stop-opacity="0"/></linearGradient>
     </defs>
-    <rect width="400" height="900" fill="#0a1120"/>
-    <path d="M246 160h160v180H246z" fill="#0f2418" opacity=".85"/>
-    <text x="296" y="218" fill="#4b7a52" font-size="10" font-family="Inter">Parque do</text>
-    <text x="296" y="231" fill="#4b7a52" font-size="10" font-family="Inter">Ibirapuera</text>
-    <g stroke="#1b2740" stroke-width="6" opacity=".9" stroke-linecap="round">
+    <rect width="400" height="900" fill="var(--map-fundo)"/>
+    <path d="M246 160h160v180H246z" fill="var(--map-parque)" opacity=".85"/>
+    <text x="296" y="218" fill="var(--map-rotulo)" font-size="10" font-family="Inter">Parque do</text>
+    <text x="296" y="231" fill="var(--map-rotulo)" font-size="10" font-family="Inter">Ibirapuera</text>
+    <g stroke="var(--map-rua)" stroke-width="6" opacity=".9" stroke-linecap="round">
       <path d="M-20 190H420M-20 320H420M-20 460H420M-20 600H420M-20 740H420"/>
       <path d="M56 -20V920M144 -20V920M232 -20V920M318 -20V920"/></g>
-    <g stroke="#16223a" stroke-width="2.2" opacity=".95">
+    <g stroke="var(--map-rua2)" stroke-width="2.2" opacity=".95">
       <path d="M-20 120H420M-20 255H420M-20 390H420M-20 530H420M-20 670H420M-20 806H420"/>
       <path d="M20 -20V920M100 -20V920M188 -20V920M276 -20V920M360 -20V920"/>
       <path d="M-20 66L420 320M420 66L-20 366"/></g>
@@ -201,26 +202,26 @@ function mapa(){
          Ordem visitada: bandeira → 1 → 2 → 3 (atual) → 4 → 5 → 6. -->
     <g filter="url(#gl)">
       <path d="M56 190 H144 V320 H232 V600 H318 V740 H56"
-        fill="none" stroke="#9ede2a" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/></g>
-    <g font-family="Inter" font-size="10" fill="#5c6d8c" letter-spacing="1">
+        fill="none" stroke="var(--map-rota)" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/></g>
+    <g font-family="Inter" font-size="10" fill="var(--map-rotulo)" letter-spacing="1">
       <text x="14" y="150">SANTO AMARO</text><text x="256" y="286">BROOKLIN</text>
       <text x="60" y="430">CAMPO BELO</text><text x="300" y="530">MOEMA</text><text x="150" y="800">JABAQUARA</text></g>
     <g filter="url(#gls)">
-      <circle cx="56" cy="190" r="13" fill="#0d1a2f" stroke="#3d8bff" stroke-width="1.6"/>
-      <path d="M51 185h10v10h-10z" fill="#dbe6f7"/><path d="M51 185h5v5h-5zM56 190h5v5h-5z" fill="#0d1a2f"/></g>
+      <circle cx="56" cy="190" r="13" fill="var(--map-pino)" stroke="var(--map-partida)" stroke-width="1.6"/>
+      <path d="M51 185h10v10h-10z" fill="var(--map-bandeira)"/><path d="M51 185h5v5h-5zM56 190h5v5h-5z" fill="var(--map-bandeira-2)"/></g>
     ${[[144,190,'1'],[232,320,'2'],[318,600,'4'],[144,740,'5'],[56,740,'6']].map(([x,y,t])=>
-      `<g filter="url(#gl)"><circle cx="${x}" cy="${y}" r="13" fill="#0c1526" stroke="#9ede2a" stroke-width="1.5"/>
-       <text x="${x}" y="${y+4.5}" text-anchor="middle" font-size="12" font-weight="400" fill="#eaf6d5">${t}</text></g>`).join('')}
+      `<g filter="url(#gl)"><circle cx="${x}" cy="${y}" r="13" fill="var(--map-pino)" stroke="var(--map-rota)" stroke-width="1.5"/>
+       <text x="${x}" y="${y+4.5}" text-anchor="middle" font-size="12" font-weight="400" fill="var(--map-pino-tinta)">${t}</text></g>`).join('')}
     <g filter="url(#gls)">
-      <circle cx="232" cy="460" r="28" fill="#9ede2a" opacity=".16"/>
-      <circle cx="232" cy="460" r="19" fill="#0c1526" stroke="#9ede2a" stroke-width="1.8"/>
-      <text x="232" y="466" text-anchor="middle" font-size="16" font-weight="400" fill="#fff">3</text></g>
+      <circle cx="232" cy="460" r="28" fill="var(--map-rota)" opacity=".16"/>
+      <circle cx="232" cy="460" r="19" fill="var(--map-pino)" stroke="var(--map-rota)" stroke-width="1.8"/>
+      <text x="232" y="466" text-anchor="middle" font-size="16" font-weight="400" fill="var(--map-pino-tinta)">3</text></g>
     <!-- eu, descendo a rua rumo à parada 3 -->
     <path d="M232 396 l-38 62 h76 z" fill="url(#carc)"/>
     <g transform="translate(232 396) rotate(180)">
-      <rect x="-11" y="-17" width="22" height="34" rx="5" fill="#e9eef7" stroke="#aebbcf"/>
-      <rect x="-7.5" y="-12" width="15" height="10" rx="2.5" fill="#8fa6c4"/>
-      <rect x="-7.5" y="5" width="15" height="7.5" rx="2" fill="#c3cede"/></g>
+      <rect x="-11" y="-17" width="22" height="34" rx="5" fill="var(--map-carro)" stroke="var(--map-carro-borda)"/>
+      <rect x="-7.5" y="-12" width="15" height="10" rx="2.5" fill="var(--map-carro-vidro)"/>
+      <rect x="-7.5" y="5" width="15" height="7.5" rx="2" fill="var(--map-carro-2)"/></g>
   </svg></div>`;
 }
 
@@ -338,23 +339,23 @@ ${nav('rota')}`;}};
    anda é a coluna do meio: como o carro fica no centro horizontal, ele cai em
    cima dela em qualquer altura, e o giro à direita aparece lá na frente. */
 function mapaGps(){
-  const quadra=(x,y,w,h)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="#0d1727"/>`;
+  const quadra=(x,y,w,h)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="var(--map-quadra)"/>`;
   return `<div class="gps-mundo"><svg viewBox="0 0 800 1400" preserveAspectRatio="xMidYMax slice">
-    <rect width="800" height="1400" fill="#0a1120"/>
-    <path d="M600 180h230v210H600z" fill="#0f2418"/>
+    <rect width="800" height="1400" fill="var(--map-fundo)"/>
+    <path d="M600 180h230v210H600z" fill="var(--map-parque)"/>
     ${quadra(40,1000,300,140)}${quadra(460,1000,300,140)}${quadra(40,780,300,150)}
     ${quadra(460,780,300,150)}${quadra(40,590,300,120)}${quadra(460,590,300,120)}
     ${quadra(40,380,300,140)}${quadra(60,180,250,120)}
-    <g stroke="#16223a" stroke-width="17" stroke-linecap="round">
+    <g stroke="var(--map-rua2)" stroke-width="17" stroke-linecap="round">
       <path d="M-40 1180H840M-40 960H840M-40 750H840M-40 555H840M-40 350H840M-40 165H840"/>
     </g>
-    <g stroke="#16223a" stroke-width="13">
+    <g stroke="var(--map-rua2)" stroke-width="13">
       <path d="M110 -20V1420M690 -20V1420"/>
     </g>
-    <path d="M400 1420 V520 H800" fill="none" stroke="#1d2c47" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M400 1420 V520 H800" fill="none" stroke="#4f8f14" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M400 1420 V520 H800" fill="none" stroke="#9ede2a" stroke-width="23" stroke-linecap="round" stroke-linejoin="round"/>
-    <g stroke="#0a1120" stroke-width="3" stroke-dasharray="16 22" opacity=".5">
+    <path d="M400 1420 V520 H800" fill="none" stroke="var(--map-leito)" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M400 1420 V520 H800" fill="none" stroke="var(--map-rota-borda)" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M400 1420 V520 H800" fill="none" stroke="var(--map-rota)" stroke-width="23" stroke-linecap="round" stroke-linejoin="round"/>
+    <g stroke="var(--map-fundo)" stroke-width="3" stroke-dasharray="16 22" opacity=".5">
       <path d="M400 1420 V520 H800" fill="none"/>
     </g>
   </svg></div>`;
@@ -467,7 +468,7 @@ ${hdr({})}
   <div style="position:relative;height:236px;overflow:hidden">${mapa()}
     <div class="map-ctrl" style="top:10px">
       <button style="width:34px;height:34px">${ic('target',16)}</button>
-      <button style="width:34px;height:34px;background:#12253f">${ic('layers',16)}</button>
+      <button class="ativo" style="width:34px;height:34px">${ic('layers',16)}</button>
       <button style="width:34px;height:34px">${ic('plus',16)}</button>
       <button style="width:34px;height:34px">${ic('minus',16)}</button></div>
   </div>
@@ -742,8 +743,10 @@ ${nav('rota')}`;}};
 
 /* 10 — PRODUTOS ----------------------------------------------------------- */
 T.produtos={nome:'Produtos',grupo:'Cadastro',render(){
+  // A cor do produto vira CLASSE, não hex inline: o hex era do tema escuro e
+  // no claro virava ícone claro sobre fundo claro (1,43:1, medido).
   const p=(nome,est,preco,cor)=>`<div class="prod">
-    <span class="thumb" style="width:46px;height:46px;flex:0 0 46px;color:${cor}">${ic('gallon',24)}</span>
+    <span class="thumb t-${cor}" style="width:46px;height:46px;flex:0 0 46px">${ic('gallon',24)}</span>
     <span><span class="nm">${nome}</span><span class="st">${ic('box',13)} Estoque: ${est} un.</span></span>
     <span class="price">R$ ${preco}</span></div>`;
   return `${status}
@@ -758,14 +761,14 @@ ${hdr({semChat:1,badge:3})}
     <button class="chip on">Todos</button><button class="chip">Água</button><button class="chip">Vasilhames</button>
     <button class="chip">Acessórios</button><button class="chip">Kits</button></div>
   <div class="lista-card">
-    ${p('Água 20L','128','18,00','#5b9dff')}
-    ${p('Água 10L','86','12,00','#5b9dff')}
-    ${p('Vasilhame','64','42,00','#3d6fbf')}
-    ${p('Chip dia','210','2,00','#9ede2a')}
-    ${p('Caixa térmica','18','85,00','#8fa6c4')}
-    ${p('Kit entrega','32','35,00','#5b9dff')}
-    ${p('Água c/ gás 1,5L','54','24,00','#5b9dff')}
-    ${p('Suporte de galão','12','69,00','#8fa6c4')}
+    ${p('Água 20L','128','18,00','azul')}
+    ${p('Água 10L','86','12,00','azul')}
+    ${p('Vasilhame','64','42,00','azul-escuro')}
+    ${p('Chip dia','210','2,00','lima')}
+    ${p('Caixa térmica','18','85,00','cinza')}
+    ${p('Kit entrega','32','35,00','azul')}
+    ${p('Água c/ gás 1,5L','54','24,00','azul')}
+    ${p('Suporte de galão','12','69,00','cinza')}
   </div>
   <div class="sum">
     <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>8</b><small>produtos ativos</small></span></span>
@@ -992,7 +995,7 @@ T.historico={nome:'Ajustes · Histórico',grupo:'Ajustes',render(){
       ${dia('Sexta · 01/08','13','57,9 km','560,00')}
       ${dia('Quinta · 31/07','12','52,1 km','478,00')}
     </div>
-    <button class="act full" style="margin-top:9px;justify-content:center;color:var(--red);border-color:#5b2626"
+    <button class="act full perigo" style="margin-top:9px;justify-content:center"
       data-superficie="confirmar">${ic('trash',17)}<b>Apagar o histórico todo</b></button>`);
 }};
 
@@ -1021,7 +1024,7 @@ T.consumo={nome:'Ajustes · Consumo e bônus',grupo:'Ajustes',render(){
 
 /* 20 — ROTA RÁPIDA --------------------------------------------------------- */
 T.rapida={nome:'Rota rápida',grupo:'Rota',render(){
-  const ex=(icone,t,s)=>`<div class="previa" style="border-style:dashed"><span class="marca" style="background:#12253f;color:var(--blue-l)">${ic(icone,13)}</span>
+  const ex=(icone,t,s)=>`<div class="previa" style="border-style:dashed"><span class="marca info">${ic(icone,13)}</span>
     <span><strong>${t}</strong><span>${s}</span></span></div>`;
   return `${status}
 ${hdr({sub:'Rota rápida',voltar:'rota'})}
@@ -1121,7 +1124,7 @@ ${hdr({sub:'Passeio',voltar:'ajustes'})}
   <div class="acts" style="margin-top:0">
     <button class="act" style="justify-content:center">${ic('plus',17)}<b>+15 min</b></button>
     <button class="act go wide" style="justify-content:center" data-ir="mapa">${ic('nav',19)}<b>Navegar</b></button>
-    <button class="act" style="justify-content:center;color:var(--red);border-color:#5b2626">${ic('stop',17)}<b>Encerrar</b></button>
+    <button class="act perigo" style="justify-content:center">${ic('stop',17)}<b>Encerrar</b></button>
   </div>
 </div>
 ${nav('rota')}`;}};
@@ -1215,7 +1218,7 @@ ${hdr({sub:'Portões e bloqueios'})}
     <div class="box-t">A regra dos três tons</div>
     <div class="box-s" style="margin-top:6px;line-height:1.5">
       <b style="color:var(--amber)">Âmbar</b> pede decisão e tem saída ·
-      <b style="color:#ff6b6b">Vermelho</b> bloqueia o trabalho ·
+      <b style="color:var(--red)">Vermelho</b> bloqueia o trabalho ·
       <b style="color:var(--blue-l)">Azul</b> só informa.<br>
       O que bloqueia entra com a curva dura do erro; o que pergunta entra macio.
       <b>Portão sem saída é armadilha</b> — só a atualização obrigatória não fecha.
@@ -1296,7 +1299,7 @@ ${hdr({sub:'Ficha do cliente',voltar:'clientes',semChat:1})}
 
   <div class="acts" style="margin-top:12px">
     <button class="act go wide" style="justify-content:center">${ic('check',19)}<b>Salvar</b></button>
-    <button class="act" style="justify-content:center;color:var(--red);border-color:#5b2626"
+    <button class="act perigo" style="justify-content:center"
       data-superficie="confirmar">${ic('trash',17)}<b>Excluir</b></button>
   </div>
   <div class="banner alerta" style="margin-top:8px">${ic('alert',15)}
@@ -1383,7 +1386,7 @@ ${hdr({semChat:1})}
         <button class="act go" style="justify-content:center">${ic('check',19)}<b>Entregue e pagou</b></button>
         <button class="act" style="justify-content:center">${ic('note',17)}<b>Entregue, marcou</b></button>
       </div>
-      <button class="act full" style="margin-top:7px;justify-content:center;color:var(--red);border-color:#5b2626"
+      <button class="act full perigo" style="margin-top:7px;justify-content:center"
         data-ir="folhanao">${ic('close',17)}<b>Não entregue</b></button>`}
   </div>
 </div>
@@ -1491,7 +1494,8 @@ ${hdr({sub:'Ajustes',semChat:1})}
   <div class="grupo">Som e tela</div>
   <div class="cartao-lista">
     ${chave('volume','Sons e voz','avisos falados na rua',1)}
-    ${chave('moon','Tema escuro','',1)}
+    ${chave('moon','Tema escuro','acompanha o aparelho quando você não escolhe',
+            document.documentElement.dataset.luz!=='claro')}
   </div>
   <div class="grupo">Sem internet</div>
   <div class="cartao-lista">
@@ -1566,6 +1570,19 @@ function numerarItens(tela){
   tela.querySelectorAll('.kpi,.bar,.stop,.cli,.prod,.week,.rowcard,.sum,.acts,.box,.prog,.forms,.searchrow,.chips')
       .forEach((el,i)=>{el.classList.add('anim-item');el.style.setProperty('--i',Math.min(i,14));});
 }
+
+/** Luz: escuro · claro · sistema. "Sistema" resolve na hora e continua ouvindo
+ *  o aparelho — o app não pode ficar claro quando o celular vira noite. */
+const olhoDoSistema=window.matchMedia('(prefers-color-scheme: light)');
+function trocarLuz(escolha){
+  const efetiva = escolha==='sistema' ? (olhoDoSistema.matches?'claro':'escuro') : escolha;
+  document.documentElement.dataset.luz=efetiva;
+  document.documentElement.dataset.luzEscolha=escolha;
+  if(typeof window.HBX20_REPINTAR==="function") window.HBX20_REPINTAR();
+}
+olhoDoSistema.addEventListener('change',()=>{
+  if(document.documentElement.dataset.luzEscolha==='sistema') trocarLuz('sistema');
+});
 
 let limpezaTimer=null;
 function pintar(animar,dir){
@@ -1923,5 +1940,6 @@ window.HBX20 = { T: T, ic: ic, hdr: hdr, nav: nav, status: status, logo: logo,
   folhaCompleta: folhaCompleta, shellRota: shellRota, listaParadas: listaParadas,
   AVISOS: AVISOS, PORTOES: PORTOES, avisar: avisar, portao: portao, erro: erro,
   fechar: fechar, confirmar: confirmar, ligarGestos: ligarGestos,
-  numerarItens: numerarItens, DUR: DUR, ROTA_ESTADOS: ROTA_ESTADOS, PARADAS: PARADAS };
+  numerarItens: numerarItens, DUR: DUR, ROTA_ESTADOS: ROTA_ESTADOS, PARADAS: PARADAS,
+  trocarLuz: trocarLuz };
 })();

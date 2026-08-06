@@ -7376,8 +7376,15 @@
     document.documentElement.classList.add("pele20");
     // Sem re-render inútil: a mesma tela não é repintada (o mock troca camada
     // por camada, e repintar mataria a animação de entrada no meio).
-    if (pele20Atual === chave && app.querySelector(".tela")) return true;
-    pele20Atual = chave;
+    // 🔴 A LUZ FAZ PARTE DA IDENTIDADE DA TELA. `T.ajustes` desenha a chave
+    // "Tema escuro" já ligada ou desligada — o HTML MUDA com o tema. Guardando
+    // só o nome da tela, trocar de tema não repintava nada e a chave ficava
+    // mentindo até o dono trocar de aba. Com a luz na marca, qualquer origem da
+    // troca (dedo, virada de turno, aparelho) repinta sozinha, porque
+    // `hbx:theme` já chama render().
+    const marca = `${chave}:${document.documentElement.dataset.luz || ""}`;
+    if (pele20Atual === marca && app.querySelector(".tela")) return true;
+    pele20Atual = marca;
     app.innerHTML = "";
     const camada = document.createElement("div");
     camada.className = "tela";
@@ -9690,6 +9697,19 @@
   app.addEventListener("click", async event => {
     if (!moduleActive) return;
     if (event.detail === 0) replayIconMotion(event.target);
+    // 🔴 PELE 2.0 — a marcação do mock é INTOCÁVEL: é ela que faz o HTML sair
+    // idêntico, e a única regra de aprovação que o dono cravou. Então o gancho
+    // NÃO pode ser um data-action novo enfiado no template; é por ESTRUTURA,
+    // exatamente como o próprio mock faz na chave do tema. Vem antes do
+    // `closest([data-…])` porque a linha do mock não tem nenhum desses.
+    if (pele20Atual) {
+      const linhaCfg = event.target.closest(".linha-cfg");
+      if (linhaCfg && /Tema escuro/.test(linhaCfg.textContent || "")) {
+        H.theme.toggle();
+        repaintThemedMapLayers();
+        return; // o hbx:theme do toggle já chama render(), e a marca traz a luz
+      }
+    }
     const target = event.target.closest("[data-screen],[data-action],[data-delivery],[data-client],[data-mode],[data-day],[data-client-day],[data-client-product-mode],[data-client-product-id],[data-payment-form],[data-payment-method]"); if (!target) return;
     // O wrapper fecha somente pelo toque no fundo. Controles dentro do modal não
     // podem herdar o data-action="close-modal" do wrapper.

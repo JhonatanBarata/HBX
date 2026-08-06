@@ -892,6 +892,13 @@
     const dark = temaResolvido() === "dark";
     document.documentElement.dataset.theme = dark ? "dark" : "light";
     document.documentElement.style.colorScheme = dark ? "dark" : "light";
+    // PELE 2.0 (06/08) — a casca do mock lê `data-luz` (escuro/claro), a pele
+    // velha lê `data-theme` (dark/light). MESMA decisão, dois vocabulários: o
+    // tema já é resolvido aqui em cima (escolha do dono + virada de turno +
+    // aparelho), e este espelho é a ÚNICA linha que traduz. Se a pele 2.0
+    // ganhasse motor próprio, o app teria dois donos do tema e um dia eles
+    // discordariam — que é justamente o defeito que o mock manda evitar.
+    document.documentElement.dataset.luz = dark ? "escuro" : "claro";
   }
   HBX.theme = {
     get: () => HBX.cache.get("theme", "system"),
