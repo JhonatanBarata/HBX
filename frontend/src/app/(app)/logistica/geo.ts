@@ -1,7 +1,9 @@
 "use client";
 
 // ================================================================
-// LOGÍSTICA-MOBILE — geocoding ZERO-CUSTO pro cadastro de cliente.
+// LOGÍSTICA — geocoding ZERO-CUSTO pro cadastro de cliente (desktop).
+// Mudou de casa em 06/08 junto do clientes-api.ts, quando a view mobile do
+// navegador foi apagada; consumidor vivo = cockpit de endereços.
 //  · buscarCep       — ViaCEP: CEP → rua/bairro/cidade/UF (sem chave, CORS ok).
 //  · geocodar        — Nominatim (OSM) search: texto → {lat,lng} (pino do mapa).
 //  · reverseGeocodar — Nominatim reverse: {lat,lng} → endereço (GPS → rua/nº).

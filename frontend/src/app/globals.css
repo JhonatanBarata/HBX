@@ -37,16 +37,12 @@
    escopo próprio .trk-pub, zero dependência de painel autenticado. */
 @import "./hbx-theme/tracking-publico.css";
 
-/* CASCA MOBILE (MOBILE-CASCA/W1) — a moldura única do celular (topo + slot +
-   tab bar) + transições IR/VOLTAR + bottom sheet + toast. Só estrutura por
-   token; herda a pele ativa. Desktop nunca vê estas classes (a casca só monta
-   sob o breakpoint mobile — ver components/casca/mobile-shell.tsx). */
-@import "./hbx-theme/casca.css";
-/* Renomeado 28/07: este arquivo é o ACABAMENTO MOBILE (escopo .casca), não a
-   casca Premium — o nome antigo (casca-premium.css) passou a colidir com a
-   casca Premium de verdade, que é desktop+mobile e vive lá embaixo, junto das
-   outras cascas. Conteúdo intocado. */
-@import "./hbx-theme/casca-mobile-acabamento.css";
+/* BAIXE O APLICATIVO — a única tela que o celular vê (/baixar + a
+   ParedeCelular). 06/08: aqui viviam os @import da CASCA MOBILE (casca.css e
+   casca-mobile-acabamento.css), um HBX paralelo de telefone que se
+   transformava ao redimensionar. Foi apagado inteiro — no celular quem
+   trabalha é o aplicativo. Ver components/hbx/parede-celular.tsx. */
+@import "./hbx-theme/baixar-app.css";
 
 /* É AQUI QUE FECHA — modal cinematográfico de fechamento de venda (Atendimento +
    Vendas), com passo-a-passo da comissão do vendedor. */
@@ -153,12 +149,6 @@
    seletor de tag e esta folha precisa ganhar o empate sem `!important`.
    Substitui vendas-details2.css (3.109 linhas, DELETADO em 28/07). */
 @import "./hbx-theme/central-do-lead.css";
-
-/* Design System ENTREGA (LOGISTICA-MOBILE M1) — pele mobile do app do
-   entregador, TODA escopada em [data-skin="entrega"]. Não vaza pro
-   dashboard (nenhuma regra fora do escopo); as peles velhas não entram
-   no app (o wrapper redefine as próprias CSS vars). Ver entrega.css. */
-@import "./hbx-theme/entrega.css";
 
 /* CRÉDITOS — vitrine da carteira (Configurações → Créditos) + explicação
    pública na landing (cena de planos do modelo grátis). Ver creditos.css. */

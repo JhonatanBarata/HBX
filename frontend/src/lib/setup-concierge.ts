@@ -58,9 +58,8 @@ export function getSetupOffer(step: { key: string; href: string }, options: {
   vendasAccessible: boolean;
   atendimentoAccessible: boolean;
   gerencialAccessible: boolean;
-  mobile: boolean;
 }): SetupOffer {
-  const { conciergeAccessible, radarAccessible, vendasAccessible, atendimentoAccessible, gerencialAccessible, mobile } = options;
+  const { conciergeAccessible, radarAccessible, vendasAccessible, atendimentoAccessible, gerencialAccessible } = options;
   switch (step.key) {
     case "company_identity_set":
       return {
@@ -68,16 +67,14 @@ export function getSetupOffer(step: { key: string; href: string }, options: {
         guidance: ["Informe os ramos que deseja prospectar.", "Separe ramos diferentes por vírgula.", "Depois você pode completar os demais dados em Configurações."],
         solutions: [
           { id: "company-segment", label: "Definir meu ramo aqui", action: { kind: "company_segment" } },
-          ...(!mobile ? [navigate("company", "Abrir configurações completas", "/configuracoes")] : []),
+          navigate("company", "Abrir configurações completas", "/configuracoes"),
         ],
       };
     case "first_module_confirmed":
       return {
         intro: "Os módulos já vêm do seu plano; você só precisa revisar.",
         guidance: ["Veja as categorias disponíveis.", "Mantenha apenas o que sua operação vai usar.", "As regras de plano e acesso continuam protegidas pelo HBX."],
-        solutions: mobile
-          ? [{ id: "modules-desktop", label: "Ver o que falta", action: { kind: "notice", message: "A revisão de módulos está disponível no computador. Seus acessos continuam protegidos até lá." } }]
-          : [navigate("modules", "Revisar meus módulos", "/configuracoes?sec=M%C3%B3dulos")],
+        solutions: [navigate("modules", "Revisar meus módulos", "/configuracoes?sec=M%C3%B3dulos")],
       };
     case "lead_pulled": {
       if (!radarAccessible) {
@@ -89,12 +86,12 @@ export function getSetupOffer(step: { key: string; href: string }, options: {
       }
       const solutions: SetupSolution[] = [];
       solutions.push(navigate("radar-manual", "Preencher a busca", "/leads"));
-      if (conciergeAccessible && !mobile) {
+      if (conciergeAccessible) {
         solutions.push({ id: "radar-concierge", label: "Buscar por conversa", action: { kind: "concierge_search" } });
       }
-      if (!mobile) solutions.push(navigate("lead-manual", "Cadastrar um lead", "/vendas", { "hbx:abrir-novo-lead": "1" }));
+      solutions.push(navigate("lead-manual", "Cadastrar um lead", "/vendas", { "hbx:abrir-novo-lead": "1" }));
       return {
-        intro: conciergeAccessible && !mobile ? "Como você prefere trazer o primeiro lead?" : "Posso abrir a busca e mostrar exatamente o que preencher.",
+        intro: conciergeAccessible ? "Como você prefere trazer o primeiro lead?" : "Posso abrir a busca e mostrar exatamente o que preencher.",
         guidance: ["Use a busca para encontrar empresas reais.", "Revise o resultado antes de confirmar.", "Se já conhece o contato, use o cadastro manual."],
         solutions,
       };
@@ -109,19 +106,12 @@ export function getSetupOffer(step: { key: string; href: string }, options: {
       }
       return {
         intro: "Escolha a forma mais fácil para conectar seu WhatsApp.",
-        guidance: mobile
-          ? ["Use o código para conectar no próprio celular.", "No WhatsApp, abra Aparelhos conectados.", "Escolha conectar com número de telefone e digite o código."]
-          : ["No WhatsApp, abra Aparelhos conectados.", "QR Code é o caminho mais rápido no computador.", "Código funciona sem usar a câmera."],
-        solutions: mobile
-          ? [
-              { id: "whatsapp-code", label: "Usar código no celular", action: { kind: "whatsapp_code" } },
-              { id: "whatsapp-full", label: "Mais opções", action: { kind: "whatsapp_full" } },
-            ]
-          : [
-              { id: "whatsapp-qr", label: "Mostrar QR Code", action: { kind: "whatsapp_qr" } },
-              { id: "whatsapp-code", label: "Usar código", action: { kind: "whatsapp_code" } },
-              { id: "whatsapp-full", label: "Mais opções", action: { kind: "whatsapp_full" } },
-            ],
+        guidance: ["No WhatsApp, abra Aparelhos conectados.", "QR Code é o caminho mais rápido no computador.", "Código funciona sem usar a câmera."],
+        solutions: [
+          { id: "whatsapp-qr", label: "Mostrar QR Code", action: { kind: "whatsapp_qr" } },
+          { id: "whatsapp-code", label: "Usar código", action: { kind: "whatsapp_code" } },
+          { id: "whatsapp-full", label: "Mais opções", action: { kind: "whatsapp_full" } },
+        ],
       };
     case "first_conversation_started":
     case "first_conversation":
@@ -137,7 +127,7 @@ export function getSetupOffer(step: { key: string; href: string }, options: {
         guidance: ["Abra Conversas.", "Escolha um contato.", "Revise a mensagem e envie você mesmo."],
         solutions: [
           navigate("conversations", "Abrir Conversas", "/conversas"),
-          ...(!mobile && vendasAccessible ? [navigate("conversation-leads", "Escolher pelo funil", "/vendas")] : []),
+          ...(vendasAccessible ? [navigate("conversation-leads", "Escolher pelo funil", "/vendas")] : []),
         ],
       };
     case "first_deal_closed":
@@ -164,12 +154,10 @@ export function getSetupOffer(step: { key: string; href: string }, options: {
       return {
         intro: "Posso abrir o convite pronto para preencher ou mostrar sua equipe.",
         guidance: ["Tenha nome e e-mail do vendedor.", "Escolha o perfil de acesso.", "Revise antes de criar o usuário."],
-        solutions: mobile
-          ? [{ id: "seller-invite-desktop", label: "Ver o que preciso", action: { kind: "notice", message: "Tenha nome e e-mail do vendedor. O cadastro e a revisão dos acessos são concluídos no computador." } }]
-          : [
-              navigate("seller-invite", "Convidar vendedor", "/gerencial?aba=4&novo=1"),
-              navigate("seller-team", "Ver minha equipe", "/gerencial?aba=4"),
-            ],
+        solutions: [
+          navigate("seller-invite", "Convidar vendedor", "/gerencial?aba=4&novo=1"),
+          navigate("seller-team", "Ver minha equipe", "/gerencial?aba=4"),
+        ],
       };
     case "first_seller_released":
       if (!gerencialAccessible) {
@@ -182,9 +170,7 @@ export function getSetupOffer(step: { key: string; href: string }, options: {
       return {
         intro: "A liberação é uma decisão sua; eu levo você até a equipe.",
         guidance: ["Abra a equipe.", "Escolha o vendedor.", "Revise o perfil e os acessos antes de liberar."],
-        solutions: mobile
-          ? [{ id: "seller-release-desktop", label: "Ver o que preciso", action: { kind: "notice", message: "A liberação exige revisar o vendedor e seus acessos no computador." } }]
-          : [navigate("seller-release", "Revisar equipe e acessos", "/gerencial?aba=4")],
+        solutions: [navigate("seller-release", "Revisar equipe e acessos", "/gerencial?aba=4")],
       };
     default: {
       const href = (SAFE_FALLBACKS.has(step.href) ? step.href : "/configuracoes") as SetupHref;

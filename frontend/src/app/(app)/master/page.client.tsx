@@ -254,7 +254,7 @@ export function MasterClient() {
   // usuário logado não é master, aviso amigável (mesmo padrão do dashboard).
   if (!user) {
     return (
-      <div className="app">
+      <div className="app app-shell-root">
         <div className="main" style={{ display: "grid", placeItems: "center", minHeight: "60vh", padding: 24 }}>
           {perfilLento ? (
             <section className="panel" style={{ maxWidth: 420 }}>
@@ -279,7 +279,7 @@ export function MasterClient() {
 
   if (!isMaster) {
     return (
-      <div className="app">
+      <div className="app app-shell-root">
         <div className="main" style={{ display: "grid", placeItems: "center", minHeight: "60vh", padding: 24 }}>
           <section className="panel" style={{ maxWidth: 460 }}>
             <div style={{ padding: 20, display: "grid", gap: 10 }}>
@@ -300,7 +300,7 @@ export function MasterClient() {
   const ativa = JANELAS.find(j => j.id === janela) || JANELAS[0];
 
   return (
-    <div className="app">
+    <div className="app app-shell-root">
       <aside className="side">
       {/* .side virou só moldura (overflow:hidden) — quem rola é .side-scroll,
           ver kit.css. Sem o wrapper aqui o padding/gap do menu some (foram

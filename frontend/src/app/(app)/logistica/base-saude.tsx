@@ -14,8 +14,8 @@ import {
   type ClienteDetail,
   type CriarLocalPayload,
   type LocalCliente,
-} from "@/app/entrega/clientes-api";
-import { buscarCep, formatarCep, geocodar, reverseGeocodar, soDigitos } from "@/app/entrega/geo";
+} from "./clientes-api";
+import { buscarCep, formatarCep, geocodar, reverseGeocodar, soDigitos } from "./geo";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";

@@ -1,0 +1,212 @@
+/* ============================================================
+   "BAIXE O APLICATIVO" (06/08) — a única tela que o celular vê.
+   LEI do dono: no telefone o HBX não abre no navegador; quem trabalha é o
+   aplicativo. Esta folha veste as duas bocas da MESMA tela:
+     · /baixar          — rota pública (link, QR do painel, divulgação);
+     · ParedeCelular    — o que aparece no lugar do app quando um telefone
+                          entra em qualquer rota do sistema.
+   Escopo próprio `.bxa`, sem reusar classe de painel autenticado. 5 Leis:
+   zero hex, zero tamanho de letra literal — só var().
+   ============================================================ */
+
+.bxa {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  padding: 32px 20px calc(32px + env(safe-area-inset-bottom));
+  background: var(--hbx-background);
+  color: var(--text-body);
+  font-family: var(--font-body);
+  text-align: center;
+}
+
+/* Quando é a PAREDE (telefone dentro do app), ela cobre a tela inteira e nada
+   de baixo vaza — o shell desktop nem chega a existir aqui. */
+.bxa--parede {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  overflow-y: auto;
+  justify-content: flex-start;
+}
+
+/* ---------- marca ---------- */
+.bxa__marca {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  font-family: var(--font-display);
+  font-size: var(--fz-t5);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  color: var(--text-strong);
+}
+
+.bxa__marca b {
+  color: var(--hbx-brand);
+  font-weight: 900;
+}
+
+/* ---------- texto ---------- */
+.bxa__head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 30rem;
+}
+
+.bxa__titulo {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fz-t4);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--text-strong);
+}
+
+.bxa__lead {
+  margin: 0;
+  font-size: var(--fz-n1);
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* ---------- cards dos aplicativos ---------- */
+.bxa__apps {
+  display: grid;
+  gap: 14px;
+  width: 100%;
+  max-width: 30rem;
+}
+
+.bxa__app {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--panel-radius);
+  background: var(--hbx-surface);
+  box-shadow: var(--shadow-sm);
+  text-align: left;
+}
+
+.bxa__appTopo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.bxa__icone {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-hairline);
+  background: color-mix(in oklab, var(--hbx-brand) 12%, transparent);
+  color: var(--hbx-brand);
+}
+
+.bxa__appNome {
+  display: block;
+  font-size: var(--fz-t9);
+  font-weight: 800;
+  color: var(--text-strong);
+  line-height: 1.2;
+}
+
+.bxa__appTexto {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--fz-l1);
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+/* ---------- botões ---------- */
+/* Dois botões lado a lado que EMPILHAM sozinhos quando não cabem (flex-wrap,
+   não media query): a tela não tem versão-A e versão-B, tem uma versão só. */
+.bxa__botoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.bxa__baixar,
+.bxa__breve {
+  flex: 1 1 9rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 42px;
+  padding: 0 12px;
+  border-radius: var(--control-radius);
+  font-size: var(--fz-n3);
+  font-weight: 700;
+  text-decoration: none;
+  transition: filter var(--motion-fast);
+}
+
+/* MESMO par do botão principal do app (.btn-teal, kit.css): --hbx-primary com
+   tinta --hbx-action-ink. Não é decoração — é o par que a paleta gerada mantém
+   legível NOS DOIS MODOS. O par "brand + brand-contrast" que estava aqui media
+   2,51:1 no escuro (a marca clareia no dark e a tinta é quase branca). */
+.bxa__baixar {
+  border: 1px solid transparent;
+  background: var(--hbx-primary);
+  color: var(--hbx-action-ink);
+}
+
+.bxa__baixar:hover { filter: brightness(1.06); }
+.bxa__baixar:active { filter: brightness(0.95); }
+
+/* iPhone ainda não tem aplicativo — o botão diz isso na cara, não some. */
+.bxa__breve {
+  border: 1px dashed var(--border-hairline);
+  background: transparent;
+  color: var(--text-muted);
+  cursor: default;
+}
+
+/* ---------- rodapé ---------- */
+.bxa__pe {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 30rem;
+  font-size: var(--fz-l1);
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* Link de texto sobre o canvas: marca MISTURADA com a tinta — o mesmo truque
+   do .btn-result positivo no kit.css ("mix com --text-strong escurece no claro
+   e clareia no escuro"). A marca pura media 3,14:1 no escuro e a
+   --hbx-brand-strong media 2,15:1; a mistura passa nos dois modos sem que a
+   cor deixe de ser a da empresa. */
+.bxa__link {
+  color: color-mix(in oklab, var(--hbx-brand) 55%, var(--text-strong));
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.bxa__link:hover { text-decoration: underline; }
+
+.bxa__sair {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+}

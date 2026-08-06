@@ -417,7 +417,7 @@ type CurrentUser = {
   impersonatedBy?: number | null;
   operationalCapabilities?: Array<"SELLER" | "DRIVER"> | null;
   defaultWorkspace?: "vendas" | "entregas" | null;
-  workspaceHome?: "/vendas" | "/entrega" | null;
+  workspaceHome?: "/vendas" | "/logistica" | null;
   // Empresa do usuário (GET /profile/current-user). null para não-master = órfão
   // de uma empresa excluída (AuthGate detecta e faz saída limpa).
   company?: {

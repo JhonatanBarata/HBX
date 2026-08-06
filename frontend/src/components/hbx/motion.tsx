@@ -225,9 +225,6 @@ const AUTO_MOTION_SELECTOR = [
   ".hbx-drawer-bottom",
   ".hbx-toast",
   ".hot-toast",
-  ".casca-toast",
-  ".casca-sheet-veil",
-  ".casca-view",
   ".hbx-motion-list",
   ".hbx-motion-switch",
   ".hbx-motion-disclosure",
@@ -253,8 +250,8 @@ function classifyMotion(element: HTMLElement): HbxMotionKind | null {
   if (explicit && HBX_MOTIONS.includes(explicit)) return explicit;
 
   if (element.matches("details, .hbx-motion-disclosure")) return "disclosure";
-  if (element.matches(".hbx-page, .app-page, .casca-view")) return "view";
-  if (element.matches(".hbx-toast, .hot-toast, .casca-toast")) return "toast";
+  if (element.matches(".hbx-page, .app-page")) return "view";
+  if (element.matches(".hbx-toast, .hot-toast")) return "toast";
   if (element.matches(".hbx-motion-switch, [role='tabpanel']")) return "switch";
   if (
     element.matches(
@@ -264,10 +261,9 @@ function classifyMotion(element: HTMLElement): HbxMotionKind | null {
     return "floating";
   }
   if (element.matches(".hbx-drawer, .hbx-drawer-bottom")) return "drawer";
-  if (element.matches(".casca-sheet-veil")) return "drawer";
   if (element.matches(".hbx-veil")) {
     return element.querySelector(
-      ":scope > .hbx-drawer, :scope > .hbx-drawer-bottom, :scope > .casca-sheet",
+      ":scope > .hbx-drawer, :scope > .hbx-drawer-bottom",
     )
       ? "drawer"
       : "surface";

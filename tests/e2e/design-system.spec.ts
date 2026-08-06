@@ -59,7 +59,6 @@ const ROTAS = [
   "/conversas",
   "/atendimento",
   "/logistica",
-  "/entrega",
   "/dashboard",
   "/leads",
   "/agenda",

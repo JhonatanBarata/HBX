@@ -5,7 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 
-import { getAdminRouteAdjustments, prepareAdminRoute } from "../../entrega/admin-logistica-api";
+import { getAdminRouteAdjustments, prepareAdminRoute } from "./admin-logistica-api";
 import styles from "./route-builder.module.css";
 import { RouteAddressGate } from "./route-address-gate";
 import { RouteConference } from "./route-conference";

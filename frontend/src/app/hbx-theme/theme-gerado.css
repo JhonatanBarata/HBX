@@ -167,22 +167,6 @@
   --hero-glow:       oklch(from var(--hbx-cor) 0.600 clamp(0.03, c, 0.16) calc(h + 40) / 0.16);
   --soft-ring:       oklch(from var(--hbx-cor) 0.500 clamp(0.02, c, 0.19) h / 0.16);
 
-  /* ANEL DO CascaLoading — 4 paradas girando a partir da escolha + platina no
-     fim (a platina é literal e fica: era literal no Aurora também, e é ela que
-     dá o acabamento metálico do wordmark). */
-  --casca-ring-1: var(--hbx-brand);
-  --casca-ring-2: oklch(from var(--hbx-cor) 0.58 clamp(0.03, c, 0.16) calc(h + 40));
-  --casca-ring-3: oklch(from var(--hbx-cor) 0.62 clamp(0.03, c, 0.14) calc(h + 80));
-  --casca-ring-4: oklch(from var(--hbx-cor) 0.70 clamp(0.03, c, 0.13) calc(h + 120));
-  --casca-ring-5: #E7E9EC;
-  --casca-ring-track: oklch(from var(--hbx-cor) 0.55 clamp(0.02, c, 0.19) h / 0.12);
-  --casca-ring-glow:  oklch(from var(--hbx-cor) 0.60 clamp(0.03, c, 0.16) calc(h + 40) / 0.35);
-  /* tinta (não platina) no claro — platina quase-branca sumia sobre o vidro
-     claro (07/07). No escuro a platina volta, no bloco de baixo. */
-  --casca-mark-1: var(--hbx-foreground);
-  --casca-mark-2: var(--hbx-foreground-soft);
-  --casca-mark-3: var(--hbx-foreground);
-
   /* SOMBRA — a cor vem de --hbx-shadow, então acompanha a escolha sem que
      nenhuma rgba() literal precise ser reescrita por cor. */
   --shadow-xs: 0 10px 22px -16px color-mix(in srgb, var(--hbx-shadow) 30%, transparent);
@@ -272,8 +256,4 @@
 
   --shadow-inset: inset 0 1px 0 rgb(255 255 255 / 0.07);
 
-  /* platina metálica de volta no escuro — a tinta do claro sumiria aqui */
-  --casca-mark-1: #F4F5F7;
-  --casca-mark-2: #C7CBD1;
-  --casca-mark-3: #E7E9EC;
 }

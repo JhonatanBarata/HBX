@@ -13,3 +13,11 @@
 export const MOBILE_APK_URL = String(
   process.env.NEXT_PUBLIC_ANDROID_APK_URL || "/download/android-logistica",
 ).trim();
+
+// HBX Vendas (Salehbx.apk) — o outro aplicativo publicado pelo mesmo nginx
+// (deploy/nginx/hbx-android-download.conf, location = /download/android).
+// Nasceu em 06/08 com a tela "Baixe o aplicativo": desde que o celular parou
+// de abrir o HBX no navegador, os DOIS apps precisam de link na mesma tela.
+export const MOBILE_APK_URL_VENDAS = String(
+  process.env.NEXT_PUBLIC_ANDROID_APK_VENDAS_URL || "/download/android",
+).trim();

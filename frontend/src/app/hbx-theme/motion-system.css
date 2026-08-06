@@ -52,8 +52,7 @@ html:not([data-casca="corporativa"]) :is(
   .hbx-pop,
   .hbx-drawer,
   .hbx-toast,
-  .hot-toast,
-  .casca-toast
+  .hot-toast
 )[data-hbx-motion] {
   animation: none !important;
 }
@@ -157,7 +156,7 @@ html:not([data-casca="corporativa"]) [data-hbx-motion="drawer"].to-left {
   --hbx-motion-drawer-enter-x: calc(var(--hbx-motion-drawer-x) * -1);
 }
 
-html:not([data-casca="corporativa"]) [data-hbx-motion="drawer"]:is(.hbx-drawer-bottom, .casca-sheet-veil) {
+html:not([data-casca="corporativa"]) [data-hbx-motion="drawer"].hbx-drawer-bottom {
   --hbx-motion-drawer-enter-x: 0px;
   --hbx-motion-drawer-enter-y: var(--hbx-motion-drawer-x);
 }
@@ -167,7 +166,7 @@ html:not([data-casca="corporativa"]) [data-hbx-motion="drawer"][data-hbx-motion-
   transition-timing-function: var(--hbx-motion-ease-exit);
 }
 
-html:not([data-casca="corporativa"]) [data-hbx-motion="drawer"]:not(.hbx-veil):not(.casca-sheet-veil):is(
+html:not([data-casca="corporativa"]) [data-hbx-motion="drawer"]:not(.hbx-veil):is(
   [data-hbx-motion-state="entering"],
   [data-hbx-motion-state="exiting"]
 ) {
@@ -175,26 +174,25 @@ html:not([data-casca="corporativa"]) [data-hbx-motion="drawer"]:not(.hbx-veil):n
   translate: var(--hbx-motion-drawer-enter-x) var(--hbx-motion-drawer-enter-y);
 }
 
-html:not([data-casca="corporativa"]) :is(.hbx-veil, .casca-sheet-veil)[data-hbx-motion="drawer"] {
+html:not([data-casca="corporativa"]) .hbx-veil[data-hbx-motion="drawer"] {
   transition: opacity var(--hbx-motion-drawer-enter) var(--hbx-motion-ease-enter);
 }
 
-html:not([data-casca="corporativa"]) :is(.hbx-veil, .casca-sheet-veil)[data-hbx-motion="drawer"][data-hbx-motion-state="exiting"] {
+html:not([data-casca="corporativa"]) .hbx-veil[data-hbx-motion="drawer"][data-hbx-motion-state="exiting"] {
   transition-duration: var(--hbx-motion-drawer-exit);
   transition-timing-function: var(--hbx-motion-ease-exit);
 }
 
-html:not([data-casca="corporativa"]) :is(.hbx-veil, .casca-sheet-veil)[data-hbx-motion="drawer"]:is(
+html:not([data-casca="corporativa"]) .hbx-veil[data-hbx-motion="drawer"]:is(
   [data-hbx-motion-state="entering"],
   [data-hbx-motion-state="exiting"]
 ) {
   opacity: 0;
 }
 
-html:not([data-casca="corporativa"]) :is(.hbx-veil, .casca-sheet-veil)[data-hbx-motion="drawer"] > :is(
+html:not([data-casca="corporativa"]) .hbx-veil[data-hbx-motion="drawer"] > :is(
   .hbx-drawer,
-  .hbx-drawer-bottom,
-  .casca-sheet
+  .hbx-drawer-bottom
 ) {
   animation: none !important;
   transition:
@@ -202,29 +200,20 @@ html:not([data-casca="corporativa"]) :is(.hbx-veil, .casca-sheet-veil)[data-hbx-
     translate var(--hbx-motion-drawer-enter) var(--hbx-motion-ease-enter);
 }
 
-html:not([data-casca="corporativa"]) :is(.hbx-veil, .casca-sheet-veil)[data-hbx-motion="drawer"][data-hbx-motion-state="exiting"] > :is(
+html:not([data-casca="corporativa"]) .hbx-veil[data-hbx-motion="drawer"][data-hbx-motion-state="exiting"] > :is(
   .hbx-drawer,
-  .hbx-drawer-bottom,
-  .casca-sheet
+  .hbx-drawer-bottom
 ) {
   transition-duration: var(--hbx-motion-drawer-exit);
   transition-timing-function: var(--hbx-motion-ease-exit);
 }
 
-html:not([data-casca="corporativa"]) :is(.hbx-veil, .casca-sheet-veil)[data-hbx-motion="drawer"]:is(
+html:not([data-casca="corporativa"]) .hbx-veil[data-hbx-motion="drawer"]:is(
   [data-hbx-motion-state="entering"],
   [data-hbx-motion-state="exiting"]
 ) > :is(.hbx-drawer, .hbx-drawer-bottom) {
   opacity: 0;
   translate: var(--hbx-motion-drawer-enter-x) var(--hbx-motion-drawer-enter-y);
-}
-
-html:not([data-casca="corporativa"]) .casca-sheet-veil[data-hbx-motion="drawer"]:is(
-  [data-hbx-motion-state="entering"],
-  [data-hbx-motion-state="exiting"]
-) > .casca-sheet {
-  opacity: 0;
-  translate: 0 var(--hbx-motion-drawer-x);
 }
 
 /* 3 — TOAST: entra e volta pelo mesmo eixo. */
@@ -351,12 +340,6 @@ html:not([data-casca="corporativa"])[data-hbx-motion-direction="back"] {
   --hbx-motion-view-enter-x: calc(var(--hbx-motion-view-x) * -1);
   --hbx-motion-view-exit-x: var(--hbx-motion-view-x);
 }
-
-html:not([data-casca="corporativa"]) [data-hbx-motion="view"].is-back {
-  --hbx-motion-view-enter-x: calc(var(--hbx-motion-view-x) * -1);
-  --hbx-motion-view-exit-x: var(--hbx-motion-view-x);
-}
-
 html:not([data-casca="corporativa"]) [data-hbx-motion="view"] {
   transition:
     opacity var(--hbx-motion-view-enter) var(--hbx-motion-ease-enter),
@@ -496,7 +479,7 @@ html[data-casca="corporativa"]::view-transition-new(*) {
 
 @media (prefers-reduced-motion: reduce) {
   [data-hbx-motion],
-  [data-hbx-motion] > :is(.hbx-modal, .hbx-drawer, .hbx-drawer-bottom, .casca-sheet),
+  [data-hbx-motion] > :is(.hbx-modal, .hbx-drawer, .hbx-drawer-bottom),
   .hbx-tooltip {
     animation: none !important;
     transition: none !important;

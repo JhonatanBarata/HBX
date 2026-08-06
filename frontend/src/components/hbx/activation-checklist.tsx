@@ -11,7 +11,6 @@ import { usePathname, useRouter } from "next/navigation";
 import { I, ICONS, useMyModules } from "@/components/hbx/shell";
 import { WhatsAppConnectModal, WhatsAppSetupQrModal } from "@/components/hbx/whatsapp-connect-modal";
 import { apiFetch, getToken } from "@/lib/api";
-import { useCascaMobile } from "@/lib/casca-mobile";
 import { subscribeChecklistBump } from "@/lib/onboarding";
 import { getSetupOffer, isAllowedSetupNavigation, type SetupAction } from "@/lib/setup-concierge";
 
@@ -39,7 +38,6 @@ export function ActivationChecklist() {
   const router = useRouter();
   const pathname = usePathname() || "";
   const modules = useMyModules();
-  const mobile = useCascaMobile();
   const [data, setData] = useState<Checklist | null>(null);
   const [open, setOpen] = useState(false);
   const [qrOpen, setQrOpen] = useState(false);
@@ -112,7 +110,6 @@ export function ActivationChecklist() {
     vendasAccessible: modules.byKey.vendas?.accessible === true,
     atendimentoAccessible: modules.byKey.atendimento?.accessible === true,
     gerencialAccessible: modules.byKey.gerencial?.accessible === true,
-    mobile,
   }) : null;
   const guidanceOpen = Boolean(next && guidanceKey === next.key);
   const showingCompletion = data.complete && Boolean(reply) && open;

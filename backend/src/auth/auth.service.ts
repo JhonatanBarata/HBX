@@ -1206,7 +1206,10 @@ export class AuthService implements OnModuleInit {
       const canDeliver = operational.operationalCapabilities.includes('DRIVER');
       return {
         access_token: this.jwtService.sign(payload),
-        next: canSell && canDeliver ? '/workspace' : canSell ? '/vendas' : canDeliver ? '/entrega' : '/dashboard',
+        // 06/08: entregador ia pro '/entrega' (app de celular no NAVEGADOR,
+        // apagado). No computador a logística vive no /logistica; no telefone,
+        // no aplicativo — a ParedeCelular manda baixar.
+        next: canSell && canDeliver ? '/workspace' : canSell ? '/vendas' : canDeliver ? '/logistica' : '/dashboard',
         requiresCheckout: false,
         ...operational,
       };
@@ -1471,7 +1474,7 @@ export class AuthService implements OnModuleInit {
     };
   }
 
-  // Espelha o destino pós-login (mobile/login): entregador→/entrega, vendedor→/vendas,
+  // Espelha o destino pós-login: entregador→/logistica, vendedor→/vendas,
   // os dois→/workspace, master→/master, resto→/dashboard. Best-effort: qualquer falha
   // de projeção cai no /dashboard (nunca quebra o "entrar como").
   private async resolveImpersonationNext(target: any): Promise<string> {
@@ -1484,7 +1487,7 @@ export class AuthService implements OnModuleInit {
         const vendasDenied = resolveTeamPolicyAccessAllowed(policy, 'vendas.access') === false;
         const canSell = operational.operationalCapabilities.includes('SELLER') && !vendasDenied;
         const canDeliver = operational.operationalCapabilities.includes('DRIVER');
-        return canSell && canDeliver ? '/workspace' : canSell ? '/vendas' : canDeliver ? '/entrega' : '/dashboard';
+        return canSell && canDeliver ? '/workspace' : canSell ? '/vendas' : canDeliver ? '/logistica' : '/dashboard';
       }
     } catch {
       // projeção indisponível → destino neutro

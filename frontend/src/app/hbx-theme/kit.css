@@ -1033,7 +1033,7 @@ a.kpi:hover { border-color: var(--border-strong); box-shadow: var(--shadow-inset
   }
   .hbx-drawer-bottom__handle {
     display: block;
-    width: var(--casca-handle-w);
+    width: var(--drawer-handle-w);
     height: var(--space-1);
     margin: 0 auto var(--space-3);
     border-radius: var(--radius-pill);

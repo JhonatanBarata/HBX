@@ -1,15 +1,20 @@
 "use client";
 
-// LOGÍSTICA-MOBILE M9 — "Instalar o app de entrega" (painel do admin).
-// Mostra um QR apontando pra URL pública do /entrega + o link copiável, pro
-// entregador escanear no celular dele e instalar o PWA na tela inicial.
+// "Instalar o app de entrega" (painel do admin).
+// Mostra um QR apontando pra tela pública /baixar + o link copiável, pro
+// entregador escanear no celular dele e instalar o APLICATIVO.
+//
+// 06/08 — o QR apontava pro /entrega, o app de celular que rodava no
+// NAVEGADOR. Aquilo foi apagado (lei do dono: no telefone quem trabalha é o
+// aplicativo), então o destino virou a tela de download, que entrega o APK do
+// HBX Logística e diz a verdade sobre o iPhone.
 //
 // O QR é gerado 100% no cliente (QrCanvas → qr.ts), sem CDN nem serviço de
-// imagem externo (regra do M9): funciona offline e não adiciona dependência.
+// imagem externo: funciona offline e não adiciona dependência.
 //
-// A URL do /entrega é derivada da ORIGEM atual (window.location.origin) — o
-// mesmo domínio em que o admin está logado serve o /entrega. Editável, caso o
-// domínio público do app seja diferente do painel.
+// A URL é derivada da ORIGEM atual (window.location.origin) — o mesmo domínio
+// em que o admin está logado serve a tela. Editável, caso o domínio público
+// seja diferente do painel.
 //
 // Design system (5 Leis): visual todo em classe central (.log-qr-* em
 // screens.css + kit .btn-*/.field-dark). Inline aqui = só layout.
@@ -33,8 +38,8 @@ export function LogisticaInstalarClient() {
     if (typeof window !== "undefined") setOrigin(window.location.origin);
   }, []);
 
-  // URL final do app de entrega (origem + /entrega). Fallback vazio no SSR.
-  const url = useMemo(() => (origin ? `${origin.replace(/\/+$/, "")}/entrega` : ""), [origin]);
+  // URL final da tela de download (origem + /baixar). Fallback vazio no SSR.
+  const url = useMemo(() => (origin ? `${origin.replace(/\/+$/, "")}/baixar` : ""), [origin]);
 
   const copiar = async () => {
     if (!url) return;
@@ -51,10 +56,10 @@ export function LogisticaInstalarClient() {
     return (
       <div className="work" style={{ flex: 1 }}>
         <section className="panel">
-          <div className="panel-head"><h2>Instalar o app de entrega</h2></div>
+          <div className="panel-head"><h2>Instalar o aplicativo</h2></div>
           <div className="emp-empty">
             <strong className="emp-empty__title">Acesso restrito</strong>
-            <span className="emp-empty__text">Só o administrador da empresa compartilha o app de entrega.</span>
+            <span className="emp-empty__text">Só o administrador da empresa compartilha o aplicativo.</span>
           </div>
         </section>
       </div>
@@ -65,7 +70,7 @@ export function LogisticaInstalarClient() {
     <div className="work" style={{ flex: 1 }}>
       <section className="panel">
         <div className="panel-head">
-          <h2>Instalar o app de entrega</h2>
+          <h2>Instalar o aplicativo</h2>
           <div className="meta">
             <Link href="/logistica" className="btn-ghost btn-xs">
               <I d={ICONS.logistica} size={13} /> Rota de hoje
@@ -79,15 +84,15 @@ export function LogisticaInstalarClient() {
               {url ? <QrCanvas text={url} size={248} /> : <div className="log-qr__fallback">…</div>}
             </div>
             <p className="log-qr__hint">
-              <I d={ICONS.phone} size={15} /> O entregador aponta a câmera e instala na tela inicial.
+              <I d={ICONS.phone} size={15} /> O entregador aponta a câmera e baixa o aplicativo.
             </p>
 
             <div className="log-qr__link">
               <input
                 className="field-dark log-qr__url"
                 value={url}
-                onChange={(e) => setOrigin(e.target.value.replace(/\/entrega\/?$/, ""))}
-                aria-label="Endereço do app de entrega"
+                onChange={(e) => setOrigin(e.target.value.replace(/\/baixar\/?$/, ""))}
+                aria-label="Endereço da tela de download"
                 spellCheck={false}
               />
               <button type="button" className="btn-teal btn-xs log-qr__copy" onClick={copiar} disabled={!url}>
@@ -95,8 +100,8 @@ export function LogisticaInstalarClient() {
               </button>
             </div>
 
-            <a className="btn-ghost btn-xs log-qr__open" href={url || "/entrega"} target="_blank" rel="noopener noreferrer">
-              <I d={ICONS.mapin} size={13} /> Abrir o app
+            <a className="btn-ghost btn-xs log-qr__open" href={url || "/baixar"} target="_blank" rel="noopener noreferrer">
+              <I d={ICONS.mapin} size={13} /> Abrir a tela
             </a>
           </div>
         </div>

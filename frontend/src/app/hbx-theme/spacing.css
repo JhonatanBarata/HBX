@@ -64,20 +64,9 @@
      folgada, o que lê como desalinho. Agora é token: cada casca dá a sua. */
   --band-height: 38px;
 
-  /* ---- CASCA MOBILE (MOBILE-CASCA/W1) — métrica ESTRUTURAL da casca -----
-     A régua aprovada pelo dono (violar = refazer): cromo ≤140px, topo 1 linha
-     ~48px, tab bar 54–56px, linhas de lista 56–64px, segmented 28px. Vive AQUI
-     (esqueleto), NUNCA na pele — pele veste só cor/borda/sombra. A casca herda
-     a pele ativa via os tokens de cor (var(--hbx-*)). */
-  --casca-top-h: 48px;          /* topo 1 linha */
-  --casca-tabbar-h: 55px;       /* tab bar (54–56px) */
-  --casca-row-h: 60px;          /* linha de lista (56–64px) */
-  --casca-segment-h: 28px;      /* guia de modo segmented compacto */
-  --casca-action-max: 28px;     /* alvo de ação compacta no topo */
-  --casca-chrome-max: 140px;    /* orçamento total de cromo (auditoria) */
-  --casca-handle-w: 36px;       /* handle do bottom sheet */
-  --casca-loading-size: 148px;  /* diâmetro do anel do CascaLoading */
-  --casca-loading-thick: 10px;  /* espessura ~7% do diâmetro (anel FINO, ordem do dono) */
-  --casca-safe-top: env(safe-area-inset-top, 0px);
-  --casca-safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* Puxador do drawer de baixo (.hbx-drawer-bottom__handle, kit.css). Único
+     sobrevivente do bloco de métrica da CASCA MOBILE, apagado em 06/08 junto
+     com a casca — o resto (topo, tab bar, linha de lista, anel de loading) não
+     tem mais dono: no celular quem trabalha é o aplicativo. */
+  --drawer-handle-w: 36px;
 }

@@ -269,6 +269,39 @@ todas as telas consomem; regex de máscara solto em TSX é proibido. Ao tocar
 numa tela que formata um desses, **migra pro central** em vez de copiar mais
 uma variação.
 
+## 📵 LEI DO CELULAR — o HBX do navegador é de COMPUTADOR (06/08/2026)
+
+Ordem do dono, palavra por palavra: *"remover toda e qualquer view de logística e vendas que
+não for desktop, vamos ter .app para tudo, celular não exibe o HBX desktop. Vai ser lei"* e
+*"o que for tela que se transforma ao redimensionar, remove"*.
+
+- **No telefone o HBX não abre.** Qualquer rota do grupo `(app)` — o `/master` inclusive —
+  entrega a tela de baixar o aplicativo (`ParedeCelular` → `TelaBaixarApp`). Quem trabalha no
+  celular é o APLICATIVO (os dois APKs: HBX Logística e HBX Vendas).
+- **A régua é `lib/celular-const.ts`:** `(max-width: 767px) and (pointer: coarse)`. As duas
+  condições importam, e a segunda é a que sustenta a lei: `pointer: coarse` é DEDO. Mouse é
+  `fine` e **nunca** cai na parede, por mais estreita que a janela do computador fique.
+  Estreitar a janela não pode transformar tela nenhuma.
+- **Proibido nascer tela-que-vira-outra-tela.** Não existe versão-A e versão-B da mesma rota.
+  Painel que precisa caber em janela apertada se resolve com `flex-wrap`/`minmax`, não com um
+  `@media` que troca a experiência. `@media` de acabamento (empilhar, quebrar linha) é
+  permitido; `@media` que substitui a tela, não.
+- **Público continua no celular, e é inegociável:** landing `/`, `/rota`, `/planos`,
+  `/login`, `/register`, `/baixar`, `/acompanhar/[token]` (rastreio do cliente final),
+  `/tutorialexterno`, `/termos`, `/politicas`. Bloquear isso seria mapa pra perder cliente.
+- **`/baixar` é a fonte única do download** (a mesma tela que a parede mostra). Os links dos
+  APKs vêm de `lib/app-mobile.ts` → nginx `/download/android-logistica` e `/download/android`.
+  iPhone ainda **não tem app**: o botão diz "em breve" e o rodapé abre o WhatsApp — não finge.
+- **O que foi apagado nesta data e não volta:** a "casca mobile"
+  (`components/casca/**`, um HBX paralelo de telefone com telas próprias de Vendas/Conversas/
+  Empresas) e o app do entregador no navegador (`app/entrega/**`, o PWA). `/entrega` virou
+  redirect 307 pra `/baixar` em `next.config.ts` — motorista com o PWA velho fixado na tela
+  inicial encontra a tela de download, nunca um 404.
+- **O APK não depende de nada disso:** o WebView carrega os próprios assets
+  (`appassets.androidplatform.net`) e fala com o backend direto. Os endpoints
+  `/mobile/devices/*` continuam vivos e servem o aplicativo — nunca desligá-los "porque a
+  tela web sumiu".
+
 ## Rotas
 
 - Uma rota canônica por funcionalidade; alias só redireciona.

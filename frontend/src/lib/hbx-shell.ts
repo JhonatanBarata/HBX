@@ -8,7 +8,9 @@
 // venda; fora dela NADA muda.
 // Como detecta (feature-detect, zero config):
 //  1. `window.HBXShell` — bridge injetada pela casca via addJavascriptInterface
-//     em TODA página do WebView (contrato em app/entrega/shell-bridge.ts);
+//     em TODA página do WebView (o contrato vivia em app/entrega/shell-bridge.ts,
+//     apagado em 06/08 com a view mobile do navegador; hoje quem fala com esta
+//     bridge é o app dentro do APK — EntregaShell/app/src/*/assets/app/native.js);
 //  2. fallback: User-Agent contendo "HBXShell" (sufixo custom do shell v2,
 //     recomendação §5.4 da AUDITORIA-PLAY — cobre o intervalo antes do JS
 //     nativo e builds futuros).

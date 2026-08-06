@@ -6,26 +6,26 @@
 // vendas/atendimento/webscraping/website/bot) tratada no DESKTOP como um
 // sistema avulso de distribuidora:
 //   · /dashboard (aterrissagem pós-login, 100% vendas) e rota de módulo
-//     DESLIGADO → replace pro /entrega (o app da distribuidora);
+//     DESLIGADO → replace pro /logistica (o módulo da distribuidora);
 //   · rotas neutras (financeiro/empresas/contatos/produtos/configuracoes/
 //     gerencial/...) seguem abrindo no shell reduzido, com o título do
-//     documento = nome da empresa (mesmo padrão do document.title
-//     "Entregas" que o EntregaScaffold já faz).
-// Fonte dos módulos = store do /entrega (entrega-mods): mesmo GET
-// /modules/me do guard real, com espelho em localStorage — decisão
-// instantânea em navegação quente e PWA offline. Fail-closed: enquanto
-// loaded=false NÃO redireciona nem muda título (comportamento atual);
-// erro de rede sem snapshot → byKey vazio → soLogistica false. Empresa
-// multi-módulo: gate 100% inerte. Mobile não passa por aqui (a
-// MobileShell não renderiza children no celular) — o redirect do celular
-// segue sendo o do mobile-shell.tsx.
+//     documento = nome da empresa.
+// Fonte dos módulos = useMyModules (GET /modules/me cacheado do shell), o
+// mesmo veredito do guard real. Fail-closed: enquanto loaded=false NÃO
+// redireciona nem muda título; erro de rede → byKey vazio → soLogistica
+// false. Empresa multi-módulo: gate 100% inerte.
+//
+// 06/08 — o destino era /entrega (app de celular no navegador) e a fonte era
+// o store entrega-mods, de dentro daquele app. A view mobile do navegador foi
+// apagada (celular = aplicativo), então o destino virou o /logistica desktop
+// e a fonte voltou pro store único do shell. No celular este gate nem roda: a
+// ParedeCelular troca o app inteiro pela tela de baixar o aplicativo.
 // ================================================================
 
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 
-import { useEntregaMods } from "@/app/entrega/entrega-mods";
-import { useCurrentUser } from "@/components/hbx/shell";
+import { useCurrentUser, useMyModules } from "@/components/hbx/shell";
 import { soLogistica } from "@/lib/so-logistica";
 
 // Rota de módulo → chave do módulo em /modules/me (mesmas chaves do
@@ -67,13 +67,13 @@ function rotaRedireciona(
 export function SoLogisticaGate({ children }: { children: ReactNode }) {
   const pathname = usePathname() || "";
   const router = useRouter();
-  const mods = useEntregaMods();
+  const mods = useMyModules();
   const user = useCurrentUser();
   const soLog = soLogistica(mods);
   const redireciona = soLog && rotaRedireciona(pathname, mods.byKey);
 
   useEffect(() => {
-    if (redireciona) router.replace("/entrega");
+    if (redireciona) router.replace("/logistica");
   }, [redireciona, router]);
 
   // De-HBX do título do documento nas rotas neutras (só com nome real —

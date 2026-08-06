@@ -1,7 +1,10 @@
 "use client";
 
 // ================================================================
-// LOGÍSTICA-MOBILE A3 — camada de dados da aba "Clientes" do app.
+// LOGÍSTICA — camada de dados de CLIENTE do módulo (desktop).
+// Nasceu no app de celular (LOGÍSTICA-MOBILE A3) e mudou de casa em 06/08,
+// quando a view mobile do navegador foi apagada: o único consumidor vivo é o
+// cockpit de endereços (base-saude.tsx). Os contratos são os mesmos.
 // Wrappers finos sobre os endpoints QUE JÁ EXISTEM (núcleo + logística) —
 // ZERO endpoint novo de escrita. Só o GET de detalhe é aditivo (nucleo/
 // clientes/:id, criado no A3) pra a ficha pré-preencher a edição de PF.

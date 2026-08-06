@@ -104,16 +104,10 @@
 /* O fundo infinito (grade em perspectiva + aurora + névoa) é vidro puro:
    é a camada que o chapado existe para não ter. */
 [data-casca="modern"][data-material="chapado"] .app::before,
-[data-casca="modern"][data-material="chapado"] .app::after,
-[data-casca="modern"][data-material="chapado"] .casca::before,
-[data-casca="modern"][data-material="chapado"] .casca::after,
-[data-casca="modern"][data-material="chapado"] .casca-stack-layer::before,
-[data-casca="modern"][data-material="chapado"] .casca-stack-layer::after {
+[data-casca="modern"][data-material="chapado"] .app::after {
   display: none;
 }
-[data-casca="modern"][data-material="chapado"] .app,
-[data-casca="modern"][data-material="chapado"] .casca,
-[data-casca="modern"][data-material="chapado"] .casca-stack-layer {
+[data-casca="modern"][data-material="chapado"] .app {
   background: var(--hbx-background);
 }
 

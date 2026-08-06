@@ -22,7 +22,7 @@ import { ConviteEquipeBanner } from "@/components/hbx/convite-equipe-banner";
 import { MobileDeviceTopbarBridge } from "@/components/hbx/mobile-device-topbar";
 import { MobileActionBridgeHost } from "@/components/hbx/mobile-action-bridge-host";
 import { ImpersonationBanner } from "@/components/hbx/impersonation-banner";
-import { MobileShell } from "@/components/casca/mobile-shell";
+import { ParedeCelular } from "@/components/hbx/parede-celular";
 
 // FINANCEIRO-UNIVERSAL: o id da navegação precisa de um glifo no registry do shell.
 // Reusa o ícone monetário central e preserva um futuro desenho dedicado.
@@ -101,58 +101,60 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   // /master tem chrome PRÓPRIO (janelas do master + topbar própria): passa direto,
-  // sem o shell padrão por cima (senão viraria menu duplicado).
-  if (pathname.startsWith("/master")) return <>{children}</>;
+  // sem o shell padrão por cima (senão viraria menu duplicado). A ParedeCelular
+  // vem ANTES de propósito — a lei do celular vale pro sistema inteiro, o
+  // /master inclusive.
+  if (pathname.startsWith("/master")) return <ParedeCelular>{children}</ParedeCelular>;
 
   const meta = META[pathname] || { active: "", title: "HBX", crumbs: crumb("HBX") };
 
-  // CASCA MOBILE (MOBILE-CASCA/W1): no celular a MobileShell substitui TODO o
-  // chrome desktop pela moldura própria (topo/tab bar) + registry de telas. No
-  // desktop ela devolve `children` puro — o shell abaixo fica 100% intocado.
+  // PAREDE DO CELULAR (06/08): telefone não abre o HBX — recebe a tela de
+  // baixar o aplicativo no lugar do sistema inteiro. No computador ela
+  // devolve `children` puro; nenhuma classe dela entra no DOM do desktop.
+  // Aqui morreu a "casca mobile" (um HBX paralelo de celular): não existe
+  // mais tela que se transforma ao redimensionar.
   //
-  // BOOT (07/07): "app-shell-root" é só um HOOK de CSS (zero estilo próprio,
-  // não mexe em nada que kit.css já faz com ".app") — o <style> pré-hidratação
-  // em layout.tsx usa ele pra esconder ESTA sidebar num reload mobile antes do
-  // React sequer hidratar. Precisa ser uma classe A MAIS (não trocar ".app"
-  // pela nova) porque /master tem o SEU PRÓPRIO ".app" (master/page.client.tsx,
-  // chrome à parte, fora da MobileShell) que não pode ser afetado.
+  // BOOT: "app-shell-root" é só um HOOK de CSS (zero estilo próprio, não mexe
+  // em nada que kit.css já faz com ".app") — o <style> pré-hidratação em
+  // layout.tsx usa ele pra esconder ESTA árvore num reload de celular antes
+  // do React sequer hidratar. É uma classe A MAIS (não troca o ".app") porque
+  // o /master tem o SEU PRÓPRIO ".app", com a mesma marca posta lá.
   return (
-    <>
-      <MobileShell>
-        <div className="app app-shell-root" data-rail={fixado ? "expanded" : "min"}>
-          <Sidebar active={meta.active} />
-          <div className="main">
-            {/* MASTER "entrar como": faixa de retorno acima do topo, visível em
-                toda tela enquanto o master vê o app como outro usuário. */}
-            <ImpersonationBanner />
-            <Topbar title={meta.title} crumbs={meta.crumbs} />
-            <MobileDeviceTopbarBridge />
-            {/* S1 MODO DISTRIBUIDORA: empresa só-logística no desktop —
-                /dashboard e rota de módulo desligado voltam pro /entrega; rotas
-                neutras ganham título de documento = nome da empresa. Fica FORA
-                do key=pathname (gate persistente, sem remontar por navegação). */}
-            <SoLogisticaGate>
-              <div className="app-page" key={pathname}>{children}</div>
-            </SoLogisticaGate>
-          </div>
-          {/* Tour guiado (coachmark) — vive aqui pra sobreviver à navegação entre
-              módulos; portala pro <body> e só aparece quando a store está ligada. */}
-          <TutorialCoachHost />
-          {/* Sellers Brains (17/06): escurece a tela e dispara recados vivos pro vendedor. */}
-          <SellersBrainsHost />
-          {/* F3 (CONFIRMACAO-TELEFONE): confirme o WhatsApp pra liberar o brinde.
-              Dormant por default (só renderiza com o gate ON no backend). */}
-          <WelcomeCreditPhoneBanner />
-          {/* MODO PUXAR (02/08): convite de equipe pendente pro e-mail logado —
-              aceitar troca a sessão pra empresa. Sem convite, não renderiza. */}
-          <ConviteEquipeBanner />
-          <ConquistaHost />
-          <MobileActionBridgeHost />
+    <ParedeCelular>
+      <div className="app app-shell-root" data-rail={fixado ? "expanded" : "min"}>
+        <Sidebar active={meta.active} />
+        <div className="main">
+          {/* MASTER "entrar como": faixa de retorno acima do topo, visível em
+              toda tela enquanto o master vê o app como outro usuário. */}
+          <ImpersonationBanner />
+          <Topbar title={meta.title} crumbs={meta.crumbs} />
+          <MobileDeviceTopbarBridge />
+          {/* S1 MODO DISTRIBUIDORA: empresa só-logística no desktop —
+              /dashboard e rota de módulo desligado voltam pro /logistica; rotas
+              neutras ganham título de documento = nome da empresa. Fica FORA
+              do key=pathname (gate persistente, sem remontar por navegação). */}
+          <SoLogisticaGate>
+            <div className="app-page" key={pathname}>{children}</div>
+          </SoLogisticaGate>
         </div>
-      </MobileShell>
-      {/* Fica fora da substituição da MobileShell: o mesmo concierge de
-          configuração atende desktop e celular sem duplicar a jornada. */}
+        {/* Tour guiado (coachmark) — vive aqui pra sobreviver à navegação entre
+            módulos; portala pro <body> e só aparece quando a store está ligada. */}
+        <TutorialCoachHost />
+        {/* Sellers Brains (17/06): escurece a tela e dispara recados vivos pro vendedor. */}
+        <SellersBrainsHost />
+        {/* F3 (CONFIRMACAO-TELEFONE): confirme o WhatsApp pra liberar o brinde.
+            Dormant por default (só renderiza com o gate ON no backend). */}
+        <WelcomeCreditPhoneBanner />
+        {/* MODO PUXAR (02/08): convite de equipe pendente pro e-mail logado —
+            aceitar troca a sessão pra empresa. Sem convite, não renderiza. */}
+        <ConviteEquipeBanner />
+        <ConquistaHost />
+        <MobileActionBridgeHost />
+      </div>
+      {/* Fora da árvore ".app" (portala pro body) mas DENTRO da parede: no
+          celular nem o concierge de configuração aparece por cima da tela de
+          baixar o app. */}
       <ActivationChecklist />
-    </>
+    </ParedeCelular>
   );
 }

@@ -158,18 +158,6 @@
   --leading-body: 1.52;
   --leading-tight: 1.1;
 
-  /* ---- 9. CASCA MOBILE — módulo com tamanho próprio, agora DERIVADO ----
-     A métrica da casca é esqueleto (Lei 1) e a pele é proibida de mexer
-     (check-pele R5). O que mudou: em vez de rem soltos, cada linha aponta
-     pro degrau equivalente — quem edita a casca mexe aqui, e quem move o
-     papel no painel move a casca junto. */
-  --casca-text-title: var(--fz-t10);  /* título do topo (1 linha) */
-  --casca-text-label: var(--fz-m2);   /* label da tab bar */
-  --casca-text-stat: var(--fz-m2);    /* stats 1 linha micro */
-  --casca-text-body: var(--fz-n3);    /* corpo de linha de lista */
-  --casca-text-sub: var(--fz-l3);     /* subtítulo/meta de linha */
-  --casca-text-pct: var(--fz-l1);     /* % no centro do loading */
-  --casca-loading-mark: var(--fz-t5); /* wordmark HBX no loading */
 }
 
 /* ============================================================

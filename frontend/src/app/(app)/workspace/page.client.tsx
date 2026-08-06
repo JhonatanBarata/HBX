@@ -15,7 +15,10 @@ export function WorkspaceClient() {
   useEffect(() => {
     if (!user) return;
     if (capabilities.length === 1) {
-      router.replace(capabilities[0] === "DRIVER" ? "/entrega" : "/vendas");
+      // 06/08: o entregador ia pro /entrega, o app de celular do navegador.
+      // Ele foi apagado — no computador a logística vive no /logistica; no
+      // telefone, no aplicativo.
+      router.replace(capabilities[0] === "DRIVER" ? "/logistica" : "/vendas");
     } else if (capabilities.length === 0) {
       router.replace("/dashboard");
     }
@@ -43,16 +46,16 @@ export function WorkspaceClient() {
           <Link href="/vendas" className="workspace-switch__card">
             <span className="workspace-switch__icon"><I d={ICONS.vendas} size={24} /></span>
             <span>
-              <strong>APP Vendas</strong>
+              <strong>Vendas</strong>
               <small>Procurar leads, conversar, fechar vendas e acompanhar comissões.</small>
             </span>
             <b aria-hidden>→</b>
           </Link>
-          <Link href="/entrega" className="workspace-switch__card">
+          <Link href="/logistica" className="workspace-switch__card">
             <span className="workspace-switch__icon"><I d={ICONS.logistica} size={24} /></span>
             <span>
-              <strong>APP Entregas</strong>
-              <small>Ver a própria rota, navegar e concluir com os comprovantes exigidos.</small>
+              <strong>Logística</strong>
+              <small>Montar a rota do dia, acompanhar a entrega e fechar o caixa.</small>
             </span>
             <b aria-hidden>→</b>
           </Link>

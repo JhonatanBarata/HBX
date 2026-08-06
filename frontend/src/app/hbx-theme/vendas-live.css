@@ -460,7 +460,6 @@
 .vnd-enrichment-target.vnd-card,
 .vnd-enrichment-target.row-dense,
 .vnd-enrichment-target.be-card,
-.vnd-enrichment-target.vnd-m__row,
 .vnd-enrichment-target.radar2-card {
   border-color: color-mix(in srgb, var(--flow-color) 34%, var(--border-hairline));
   background:

@@ -41,6 +41,18 @@ const nextConfig: NextConfig = {
 		}
 		return [{ source: "/:path*", headers: headerList }];
 	},
+	// Enterro do /entrega (06/08) — o app de celular que rodava no NAVEGADOR foi
+	// apagado (lei do dono: no telefone quem trabalha é o APLICATIVO). Muito
+	// motorista tem o PWA velho fixado na tela inicial, e aquele ícone aponta
+	// pra cá: sem este desvio ele abriria um 404 branco no meio da rota. Desvio
+	// TEMPORÁRIO (307) de propósito — o dia em que /entrega for outra coisa, o
+	// navegador de ninguém está com 301 gravado.
+	async redirects() {
+		return [
+			{ source: "/entrega", destination: "/baixar", permanent: false },
+			{ source: "/entrega/:path*", destination: "/baixar", permanent: false },
+		];
+	},
 	async rewrites() {
 		const backendUrl = process.env.NEXT_PUBLIC_API_URL ?? DEFAULT_API_URL;
 		return [

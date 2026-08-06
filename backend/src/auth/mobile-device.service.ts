@@ -1012,10 +1012,14 @@ export class MobileDeviceService {
     const vendasDenied = resolveTeamPolicyAccessAllowed(policy, 'vendas.access') === false;
     const canSell = operational.operationalCapabilities.includes('SELLER') && !vendasDenied;
     const canDeliver = operational.operationalCapabilities.includes('DRIVER');
+    // `next` é o destino WEB da sessão. O aplicativo IGNORA este campo (o
+    // NativeApiClient só lê `access_token` daqui) — ele existe pro caso de a
+    // sessão ser aberta no navegador. 06/08: '/entrega' saiu junto com o app
+    // de celular do navegador; no computador o entregador vai pro /logistica.
     const next = canSell && canDeliver
       ? '/workspace'
       : canDeliver
-        ? '/entrega'
+        ? '/logistica'
         : canSell
           ? '/vendas'
           : '/dashboard';

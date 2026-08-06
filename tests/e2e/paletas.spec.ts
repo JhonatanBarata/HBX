@@ -76,7 +76,6 @@ const TOKENS_OBRIGATORIOS = [
   "--text-strong", "--text-body", "--text-muted",
   "--hbx-line", "--border-hairline", "--border-strong",
   "--hbx-shadow", "--hbx-overlay", "--ring-brand",
-  "--casca-ring-1", "--casca-ring-5", "--casca-mark-1",
   "--shadow-xs", "--shadow-sm", "--shadow-inset",
   // Não nascem na paleta (typography.css / spacing.css são os donos), e é
   // justamente por isso que entram: se a folha de cor um dia voltar a

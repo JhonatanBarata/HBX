@@ -39,7 +39,7 @@
 // ATENÇÃO — ESTE ARQUIVO NÃO PODE IMPORTAR REACT. Ele é importado pelo
 // app/layout.tsx, que é SERVER Component; qualquer hook aqui puxaria o módulo
 // inteiro pro bundle do servidor e o Next recusa (500 em TODA rota). É a mesma
-// fronteira que casca-mobile-const.ts documenta. Hook/estado moram em
+// fronteira que celular-const.ts documenta. Hook/estado moram em
 // components/hbx/theme-attributes.tsx.
 // ============================================================
 
