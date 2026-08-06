@@ -7352,10 +7352,24 @@
   // Este mapa é a única coisa que é minha: dizer QUAL tela do mock responde
   // por cada estado do app. Estado sem dono aqui = tela ainda não portada, e
   // cai no caminho antigo em vez de renderizar errado.
+  // 🔴 MODAL SÓ ENTRA AQUI QUANDO A TELA DO MOCK É A MESMA COISA QUE A DO APP.
+  // Levantei os 6 modais de Ajustes do mock contra os do app e só DOIS são a
+  // mesma tela; nos outros o nome bate e o conteúdo não:
+  //   · mock `financeiro` é PAINEL (recebido, em aberto, quem deve). O
+  //     `financeiro` do app é uma lista de CHAVES. Nomes iguais, telas diferentes.
+  //   · mock `historico` é histórico de ROTAS. O `historico` do app é o do
+  //     CLIENTE (visita a visita). Trocar um pelo outro seria mostrar a tela
+  //     errada com a cara certa — o pior tipo de defeito.
+  //   · mock `avancado` e `sons` REORGANIZARAM os ajustes e trouxeram chaves que
+  //     o app não tem (Aceitar cartão, Rastreamento, 4 sons por evento).
+  // Enquanto isso não for decidido, esses 4 seguem no caminho antigo: melhor a
+  // tela velha certa que a nova bonita mentindo.
+  const MODAIS_PELE20 = { recarga: "recarga", statement: "consumo" };
   function pele20Para() {
     const P = window.HBX20;
     if (!P || !P.T) return null;
-    if (state.modal || state.selected || state.confirmation) return null; // folhas/modais: 2ª leva
+    if (state.modal) return MODAIS_PELE20[state.modal] || null;
+    if (state.selected || state.confirmation) return null; // folhas de chegada: leva própria
     if (state.screen === "route") {
       // A tela cheia do GPS é a mesma decisão do syncNavWatch (nav-cheia).
       if (document.documentElement.classList.contains("nav-cheia")) return "mapa";
@@ -7491,6 +7505,49 @@
         semEndereco: String(clientes.filter(c => clientPendingKeys(c).includes("End")).length),
         marcado: brl(total),
       },
+    });
+
+    // ---- Ajustes · Recarga de créditos -------------------------------------
+    // Crédito é NÚMERO INTEIRO, nunca moeda (regra do extrato do backend); só o
+    // preço do pacote é dinheiro. Misturar os dois já rendeu tela errada antes.
+    const pacotes = (typeof recargaPacks === "function" ? recargaPacks() : []) || [];
+    const catalogo = state.recargaCatalog || {};
+    const saldoCreditos = Number(
+      catalogo.balance !== undefined ? catalogo.balance : (state.statement && state.statement.balanceCredits) || 0,
+    );
+    const escolhido = pacotes.find(p => p && p.recommended && !p.paused) || pacotes.find(p => p && !p.paused) || null;
+    P.usarDados("recarga", {
+      // "~17 dias no seu ritmo" precisa de consumo médio, que o app não calcula
+      // hoje: VAZIO em vez de uma previsão inventada sobre o crédito do dono.
+      creditos: { saldo: String(saldoCreditos), ritmo: "" },
+      pacotes: pacotes.map(p => ({
+        creditos: Number(p.credits || 0).toLocaleString("pt-BR"),
+        preco: brl(p.price),
+        selo: p.badge || (p.recommended ? "Mais escolhido" : ""),
+        on: escolhido && p.key === escolhido.key ? 1 : 0,
+      })),
+      cta: escolhido
+        ? `Recarregar ${Number(escolhido.credits || 0).toLocaleString("pt-BR")} créditos · R$ ${brl(escolhido.price)}`
+        : "Escolha um pacote",
+    });
+
+    // ---- Ajustes · Consumo e bônus (o extrato do backend) -------------------
+    const ext = state.statement || {};
+    const totais = ext.totals || {};
+    const uso = ext.usage || {};
+    const movimentos = Array.isArray(ext.trackedDeliveries) ? ext.trackedDeliveries : [];
+    P.usarDados("consumo", {
+      kpi: {
+        saldo: String(Number(ext.balanceCredits || 0)),
+        gastosHoje: String(Number(uso.hoje || 0)),
+        bonus: String(Number(totais.bonusCredits || 0)),
+      },
+      movimento: movimentos.slice(0, 12).map(m => ({
+        tipo: "menos",
+        titulo: "Entrega rastreada",
+        sub: m.completedAt ? H.date(m.completedAt) : "",
+        valor: String(Number(m.paidCredits || m.credits || 0)),
+      })),
     });
 
     // Barulhento onde desenvolvedor olha, invisível na tela: enfeite que não se

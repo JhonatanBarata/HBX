@@ -306,6 +306,73 @@ const DADOS_MOCK={
     total:'336,00',
     resumo:{clientes:'14',produtos:'20',marcado:'336,00'},
   },
+  recarga:{
+    creditos:{saldo:'240',ritmo:'~17 dias no seu ritmo'},
+    pacotes:[
+      {creditos:'100',preco:'49,00',selo:'',on:0},
+      {creditos:'300',preco:'129,00',selo:'+8% grátis',on:1},
+      {creditos:'600',preco:'239,00',selo:'+15% grátis',on:0},
+      {creditos:'1.200',preco:'449,00',selo:'melhor preço',on:0},
+    ],
+    cta:'Recarregar 300 créditos · R$ 129,00',
+  },
+  financeiro:{
+    recebidoHoje:'336,00',
+    emAberto:'257,00',
+    formas:[
+      {nome:'Dinheiro',valor:'132,00',icone:'cash',cor:'var(--lime)'},
+      {nome:'Pix',valor:'52,00',icone:'pix',cor:'var(--blue-l)'},
+      {nome:'Cartão',valor:'84,00',icone:'card',cor:'var(--purple)'},
+    ],
+    marcou:'68,00',
+    devedores:[
+      {ini:'MA',nome:'Maria Aparecida',detalhe:'3 marcações · a mais antiga de 28/07',valor:'74,00',lime:0},
+      {ini:'BZ',nome:'Bar do Zé',detalhe:'2 marcações · desde 02/08',valor:'96,00',lime:0},
+      {ini:'ME',nome:'Mercado Estrela',detalhe:'1 marcação · ontem',valor:'87,00',lime:1},
+    ],
+    semana:{recebido:'2.391,00',marcado:'2.648,00',pendencia:'257,00'},
+  },
+  avancado:{
+    cobranca:[
+      {chave:'financeiro',icone:'wallet',titulo:'Financeiro ligado',sub:'sem ele o app não fala de dinheiro',on:1},
+      {chave:'cobranca-simples',icone:'note',titulo:'Cobrança simples',sub:'uma folha só, sem conferir item a item',on:1},
+      {chave:'cartao',icone:'card',titulo:'Aceitar cartão',sub:'entra como forma de pagamento',on:1},
+    ],
+    rota:[
+      {chave:'conferencia',icone:'check',titulo:'Conferência de rota',sub:'confere endereços antes de montar',on:1},
+      {chave:'rastreamento',icone:'gps',titulo:'Rastreamento',sub:'a Central vê onde o aparelho está',on:0},
+      {chave:'voz',icone:'volume',titulo:'Voz na navegação',sub:'fala a manobra em voz alta',on:1},
+    ],
+  },
+  sons:{
+    todosLigados:1,
+    itens:[
+      {chave:'voz-navegacao',titulo:'Voz da navegação',sub:'"em 240 metros, vire à direita"',on:1},
+      {chave:'chegada',titulo:'Chegada na parada',sub:'toca quando entra no raio de 60 m',on:1},
+      {chave:'recado',titulo:'Recado da Central',sub:'sirene até você abrir',on:1},
+      {chave:'entrega',titulo:'Entrega registrada',sub:'confirmação curta',on:1},
+      {chave:'erro',titulo:'Erro',sub:'quando algo não foi',on:0},
+    ],
+  },
+  historico:{
+    dias:[
+      {dia:'Terça · 05/08',paradas:'14',km:'61,2 km',valor:'412,00'},
+      {dia:'Segunda · 04/08',paradas:'11',km:'48,7 km',valor:'380,00'},
+      {dia:'Sábado · 02/08',paradas:'8',km:'31,4 km',valor:'260,00'},
+      {dia:'Sexta · 01/08',paradas:'13',km:'57,9 km',valor:'560,00'},
+      {dia:'Quinta · 31/07',paradas:'12',km:'52,1 km',valor:'478,00'},
+    ],
+  },
+  consumo:{
+    kpi:{saldo:'240',gastosHoje:'14',bonus:'24'},
+    movimento:[
+      {tipo:'menos',titulo:'Rota de quarta',sub:'14 paradas · hoje 06:12',valor:'14'},
+      {tipo:'menos',titulo:'Rota de terça',sub:'12 paradas · 05/08',valor:'12'},
+      {tipo:'mais',titulo:'Bônus de recarga',sub:'+8% no pacote de 300',valor:'24'},
+      {tipo:'mais',titulo:'Recarga',sub:'pacote 300 · Pix',valor:'300'},
+      {tipo:'menos',titulo:'Rota de segunda',sub:'11 paradas · 04/08',valor:'11'},
+    ],
+  },
 };
 
 /* Cópia rasa: `usarDados` troca a seção INTEIRA, então raso basta — e o
@@ -936,87 +1003,76 @@ ${hdr({sub:titulo,voltar:'ajustes',semChat:1})}
 ${rodape?`<div class="tmx-dock">${rodape}</div>`:''}${nav('ajustes')}`;
 
 T.recarga={nome:'Ajustes · Recarga',grupo:'Ajustes',render(){
-  const pac=(c,preco,selo,on)=>`<button class="pacote ${on?'on':''}">${selo?`<span class="selo">${selo}</span>`:''}
+  const pac=(c,preco,selo,on)=>`<button class="pacote ${on?'on':''}" data-acao="recarga-pacote" data-valor="${c}">${selo?`<span class="selo">${selo}</span>`:''}
     <b>${c}</b><small>créditos</small><span class="preco">R$ ${preco}</span></button>`;
+  const R=D.recarga;
   return telaAjuste('Recarga de créditos',`
     <div class="creditos" style="margin-top:2px">${ic('card',17)}
-      <span><b class="v">240</b> <small>créditos hoje</small></span>
-      <span class="debita">~17 dias no seu ritmo</span></div>
+      <span><b class="v">${R.creditos.saldo}</b> <small>créditos hoje</small></span>
+      <span class="debita">${R.creditos.ritmo}</span></div>
     <div class="grupo">Escolha o pacote</div>
     <div class="pacotes">
-      ${pac('100','49,00','',0)}${pac('300','129,00','+8% grátis',1)}
-      ${pac('600','239,00','+15% grátis',0)}${pac('1.200','449,00','melhor preço',0)}
+      ${R.pacotes.map(x=>pac(x.creditos,x.preco,x.selo,x.on)).join('')}
     </div>
     <div class="grupo">Pagar com</div>
     <div class="pays" style="margin-top:0">
-      <button class="pay sel"><span style="color:var(--blue-l)">${ic('pix',21)}</span>
+      <button class="pay sel" data-acao="recarga-forma" data-valor="pix"><span style="color:var(--blue-l)">${ic('pix',21)}</span>
         <span><b>Pix</b><small>cai na hora</small></span><i class="ok">${ic('check',15)}</i></button>
-      <button class="pay"><span style="color:var(--ink-2)">${ic('card',21)}</span>
+      <button class="pay" data-acao="recarga-forma" data-valor="cartao"><span style="color:var(--ink-2)">${ic('card',21)}</span>
         <span><b>Cartão</b><small>até 3× sem juros</small></span></button>
     </div>
     <div class="banner pausa" style="margin-top:9px">${ic('alert',15)}
       <span>Crédito só é debitado quando a rota <b>inicia</b>. Conferir nunca debita.</span></div>`,
-    `<button class="act go full" style="justify-content:center">${ic('check',19)}<b>Recarregar 300 créditos · R$ 129,00</b></button>`);
+    `<button class="act go full" style="justify-content:center" data-acao="recarga-confirmar">${ic('check',19)}<b>${R.cta}</b></button>`);
 }};
 
 T.financeiro={nome:'Ajustes · Financeiro',grupo:'Ajustes',render(){
+  const F=D.financeiro;
   return telaAjuste('Financeiro',`
     <div class="kpis" style="margin-top:2px">
-      <div class="kpi money"><span class="l">Recebido hoje</span><b class="v">R$ 336,00</b></div>
-      <div class="kpi money"><span class="l">Em aberto</span><b class="v" style="color:var(--amber)">R$ 257,00</b></div>
+      <div class="kpi money"><span class="l">Recebido hoje</span><b class="v">R$ ${F.recebidoHoje}</b></div>
+      <div class="kpi money"><span class="l">Em aberto</span><b class="v" style="color:var(--amber)">R$ ${F.emAberto}</b></div>
     </div>
     <div class="grupo">Por forma, hoje</div>
     <div class="forms">
-      <div class="form-c"><span style="color:var(--lime)">${ic('cash',19)}</span><small>Dinheiro</small><b>R$ 132,00</b></div>
-      <div class="form-c"><span style="color:var(--blue-l)">${ic('pix',19)}</span><small>Pix</small><b>R$ 52,00</b></div>
-      <div class="form-c"><span style="color:var(--purple)">${ic('card',19)}</span><small>Cartão</small><b>R$ 84,00</b></div>
-      <div class="form-c total"><small style="margin-top:0">Marcou</small><b>R$ 68,00</b></div>
+      ${F.formas.map(f=>`<div class="form-c"><span style="color:${f.cor}">${ic(f.icone,19)}</span><small>${f.nome}</small><b>R$ ${f.valor}</b></div>`).join('')}
+      <div class="form-c total"><small style="margin-top:0">Marcou</small><b>R$ ${F.marcou}</b></div>
     </div>
     <div class="grupo">Quem está devendo</div>
     <div class="cartao-lista" style="padding:0 11px">
-      <div class="item-linha"><span class="ava">MA</span>
-        <span><strong>Maria Aparecida</strong><span>3 marcações · a mais antiga de 28/07</span></span>
-        <b style="color:var(--amber);font-size:14px">R$ 74,00</b></div>
-      <div class="item-linha"><span class="ava">BZ</span>
-        <span><strong>Bar do Zé</strong><span>2 marcações · desde 02/08</span></span>
-        <b style="color:var(--amber);font-size:14px">R$ 96,00</b></div>
-      <div class="item-linha"><span class="ava lime">ME</span>
-        <span><strong>Mercado Estrela</strong><span>1 marcação · ontem</span></span>
-        <b style="color:var(--amber);font-size:14px">R$ 87,00</b></div>
+      ${F.devedores.map(d=>`<div class="item-linha" data-acao="devedor-abrir" data-valor="${d.nome}"><span class="ava${d.lime?' lime':''}">${d.ini}</span>
+        <span><strong>${d.nome}</strong><span>${d.detalhe}</span></span>
+        <b style="color:var(--amber);font-size:14px">R$ ${d.valor}</b></div>`).join('')}
     </div>
     <div class="grupo">Semana</div>
     <div class="sum" style="margin-top:0">
-      <span class="c"><span><b>R$ 2.391,00</b><small>recebido</small></span></span>
-      <span class="c"><span><b>R$ 2.648,00</b><small>marcado</small></span></span>
-      <span class="c"><span><b style="color:var(--amber)">R$ 257,00</b><small>pendência</small></span></span>
+      <span class="c"><span><b>R$ ${F.semana.recebido}</b><small>recebido</small></span></span>
+      <span class="c"><span><b>R$ ${F.semana.marcado}</b><small>marcado</small></span></span>
+      <span class="c"><span><b style="color:var(--amber)">R$ ${F.semana.pendencia}</b><small>pendência</small></span></span>
     </div>`);
 }};
 
 T.avancado={nome:'Ajustes · Avançado',grupo:'Ajustes',render(){
-  const ch=(ic0,t,s,on)=>`<button class="linha-cfg"><span class="ico">${ic(ic0,16)}</span>
-    <span><strong>${t}</strong><span>${s}</span></span><span class="chave ${on?'on':''}"><i></i></span></button>`;
+  const ch=(x)=>`<button class="linha-cfg" data-acao="cfg-chave" data-valor="${x.chave}"><span class="ico">${ic(x.icone,16)}</span>
+    <span><strong>${x.titulo}</strong><span>${x.sub}</span></span><span class="chave ${x.on?'on':''}"><i></i></span></button>`;
   return telaAjuste('Avançado',`
     <div class="banner alerta" style="margin-top:2px">${ic('alert',15)}
       <span>Estas chaves mudam <b>como o app trabalha</b>. Na dúvida, não mexa.</span></div>
     <div class="grupo">Cobrança</div>
     <div class="cartao-lista">
-      ${ch('wallet','Financeiro ligado','sem ele o app não fala de dinheiro',1)}
-      ${ch('note','Cobrança simples','uma folha só, sem conferir item a item',1)}
-      ${ch('card','Aceitar cartão','entra como forma de pagamento',1)}
+      ${D.avancado.cobranca.map(ch).join('')}
     </div>
     <div class="grupo">Rota</div>
     <div class="cartao-lista">
-      ${ch('check','Conferência de rota','confere endereços antes de montar',1)}
-      ${ch('gps','Rastreamento','a Central vê onde o aparelho está',0)}
-      ${ch('volume','Voz na navegação','fala a manobra em voz alta',1)}
+      ${D.avancado.rota.map(ch).join('')}
     </div>
     <div class="grupo">Zona de perigo</div>
     <div class="cartao-lista">
-      <button class="linha-cfg"><span class="ico" style="background:#1a1114;color:var(--red)">${ic('trash',16)}</span>
+      <button class="linha-cfg" data-acao="cfg-limpar-dados"><span class="ico" style="background:#1a1114;color:var(--red)">${ic('trash',16)}</span>
         <span><strong style="color:var(--red)">Limpar dados do aparelho</strong>
           <span>a rota do dia se perde se não estiver sincronizada</span></span>
         <span style="color:var(--ink-3)">${ic('chev',15)}</span></button>
-      <button class="linha-cfg" data-superficie="confirmar"><span class="ico" style="background:#1a1114;color:var(--red)">${ic('logout',16)}</span>
+      <button class="linha-cfg" data-superficie="confirmar" data-acao="cfg-desvincular"><span class="ico" style="background:#1a1114;color:var(--red)">${ic('logout',16)}</span>
         <span><strong style="color:var(--red)">Desvincular este aparelho</strong>
           <span>libera a vaga da empresa pra outro celular</span></span>
         <span style="color:var(--ink-3)">${ic('chev',15)}</span></button>
@@ -1024,66 +1080,55 @@ T.avancado={nome:'Ajustes · Avançado',grupo:'Ajustes',render(){
 }};
 
 T.sons={nome:'Ajustes · Sons',grupo:'Ajustes',render(){
-  const linha=(t,s,on)=>`<button class="linha-cfg"><span class="ico">${ic('volume',16)}</span>
-    <span><strong>${t}</strong><span>${s}</span></span>
+  const linha=(x)=>`<button class="linha-cfg" data-acao="som-chave" data-valor="${x.chave}"><span class="ico">${ic('volume',16)}</span>
+    <span><strong>${x.titulo}</strong><span>${x.sub}</span></span>
     <span style="display:flex;align-items:center;gap:9px">
-      <span class="ghost" style="padding:4px 9px;font-size:10.5px">ouvir</span>
-      <span class="chave ${on?'on':''}"><i></i></span></span></button>`;
+      <span class="ghost" style="padding:4px 9px;font-size:10.5px" data-acao="som-ouvir" data-valor="${x.chave}">ouvir</span>
+      <span class="chave ${x.on?'on':''}"><i></i></span></span></button>`;
   return telaAjuste('Sons e voz',`
     <div class="cartao-lista" style="margin-top:2px">
-      <button class="linha-cfg"><span class="ico" style="background:#17230e;color:var(--lime)">${ic('volume',16)}</span>
+      <button class="linha-cfg" data-acao="som-chave" data-valor="todos"><span class="ico" style="background:#17230e;color:var(--lime)">${ic('volume',16)}</span>
         <span><strong>Todos os sons</strong><span>desligar aqui cala o app inteiro</span></span>
-        <span class="chave on"><i></i></span></button>
+        <span class="chave ${D.sons.todosLigados?'on':''}"><i></i></span></button>
     </div>
     <div class="grupo">O que fala</div>
     <div class="cartao-lista">
-      ${linha('Voz da navegação','"em 240 metros, vire à direita"',1)}
-      ${linha('Chegada na parada','toca quando entra no raio de 60 m',1)}
-      ${linha('Recado da Central','sirene até você abrir',1)}
-      ${linha('Entrega registrada','confirmação curta',1)}
-      ${linha('Erro','quando algo não foi',0)}
+      ${D.sons.itens.map(linha).join('')}
     </div>
     <div class="banner pausa" style="margin-top:9px">${ic('alert',15)}
       <span>No volante o som é o único aviso que <b>não exige olhar</b>.</span></div>`);
 }};
 
 T.historico={nome:'Ajustes · Histórico',grupo:'Ajustes',render(){
-  const dia=(d,par,km,val)=>`<div class="rowcard">
+  const dia=(x)=>`<div class="rowcard" data-acao="historico-abrir" data-valor="${x.dia}">
     <span class="ico lime">${ic('route',18)}</span>
-    <span><strong>${d}</strong><span>${par} paradas · ${km}</span></span>
-    <span class="rgt"><small>Recebido</small><b>R$ ${val}</b></span></div>`;
+    <span><strong>${x.dia}</strong><span>${x.paradas} paradas · ${x.km}</span></span>
+    <span class="rgt"><small>Recebido</small><b>R$ ${x.valor}</b></span></div>`;
   return telaAjuste('Histórico de rotas',`
     <div class="searchrow"><label class="search">${ic('search',17)}<input placeholder="Buscar por dia ou cliente"></label>
       <button class="filt">${ic('sliders',18)}</button></div>
     <div style="margin-top:9px">
-      ${dia('Terça · 05/08','14','61,2 km','412,00')}
-      ${dia('Segunda · 04/08','11','48,7 km','380,00')}
-      ${dia('Sábado · 02/08','8','31,4 km','260,00')}
-      ${dia('Sexta · 01/08','13','57,9 km','560,00')}
-      ${dia('Quinta · 31/07','12','52,1 km','478,00')}
+      ${D.historico.dias.map(dia).join('')}
     </div>
     <button class="act full perigo" style="margin-top:9px;justify-content:center"
-      data-superficie="confirmar">${ic('trash',17)}<b>Apagar o histórico todo</b></button>`);
+      data-superficie="confirmar" data-acao="historico-apagar">${ic('trash',17)}<b>Apagar o histórico todo</b></button>`);
 }};
 
 T.consumo={nome:'Ajustes · Consumo e bônus',grupo:'Ajustes',render(){
-  const l=(tipo,t,s,v)=>`<div class="ext-linha">
-    <span class="m ${tipo}">${tipo==='mais'?'+':'−'}</span>
-    <span><strong>${t}</strong><span>${s}</span></span>
-    <b class="${tipo}">${v}</b></div>`;
+  const l=(x)=>`<div class="ext-linha">
+    <span class="m ${x.tipo}">${x.tipo==='mais'?'+':'−'}</span>
+    <span><strong>${x.titulo}</strong><span>${x.sub}</span></span>
+    <b class="${x.tipo}">${x.valor}</b></div>`;
+  const C=D.consumo;
   return telaAjuste('Consumo e bônus',`
     <div class="kpis" style="margin-top:2px">
-      <div class="kpi"><span style="color:var(--lime)">${ic('card',20)}</span><span><b class="v">240</b><span class="l">saldo</span></span></div>
-      <div class="kpi"><span style="color:var(--ink-2)">${ic('chart',20)}</span><span><b class="v">14</b><span class="l">gastos hoje</span></span></div>
-      <div class="kpi"><span style="color:var(--lime)">${ic('spark',20)}</span><span><b class="v">24</b><span class="l">de bônus</span></span></div>
+      <div class="kpi"><span style="color:var(--lime)">${ic('card',20)}</span><span><b class="v">${C.kpi.saldo}</b><span class="l">saldo</span></span></div>
+      <div class="kpi"><span style="color:var(--ink-2)">${ic('chart',20)}</span><span><b class="v">${C.kpi.gastosHoje}</b><span class="l">gastos hoje</span></span></div>
+      <div class="kpi"><span style="color:var(--lime)">${ic('spark',20)}</span><span><b class="v">${C.kpi.bonus}</b><span class="l">de bônus</span></span></div>
     </div>
     <div class="grupo">Movimento</div>
     <div class="extrato">
-      ${l('menos','Rota de quarta','14 paradas · hoje 06:12','14')}
-      ${l('menos','Rota de terça','12 paradas · 05/08','12')}
-      ${l('mais','Bônus de recarga','+8% no pacote de 300','24')}
-      ${l('mais','Recarga','pacote 300 · Pix','300')}
-      ${l('menos','Rota de segunda','11 paradas · 04/08','11')}
+      ${C.movimento.map(l).join('')}
     </div>
     <div class="banner pausa" style="margin-top:9px">${ic('alert',15)}
       <span>Migração entre rotas é <b>grátis</b>: a mesma entrega não debita duas vezes.</span></div>`);
