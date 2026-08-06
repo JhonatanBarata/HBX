@@ -1,33 +1,16 @@
 <!doctype html>
-<html lang="pt-BR" data-app="logistica">
+<html lang="pt-BR" data-tr="eixox" data-av="sino" data-luz="escuro">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
-  <!-- 🔴 05/08 (PR05082026-MAPA-PMTILES, F5) — o mapa deixou de ser host de fora.
-       o host de tiles do openfreemap SAIU do connect-src: estilo, letras, ícones e tiles
-       agora moram no aparelho e são pedidos na MESMA origem da página
-       (appassets.androidplatform.net) — por isso entrou `'self'`, que o
-       connect-src não tinha (a lista era só de hosts, e sem ele o `fetch` do
-       estilo local e o pedido de tile morreriam calados no CSP).
-       viacep/nominatim/osrm continuam porque continuam sendo usados. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://viacep.com.br https://nominatim.openstreetmap.org https://router.project-osrm.org https://www.hbxsystem.com.br https://api.hbxsystem.com.br; worker-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <meta name="theme-color" content="#f4f7f0" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0d120d" media="(prefers-color-scheme: dark)">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- CSP: o script do mock foi pra arquivo justamente por causa do 'self'. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="theme-color" content="#080d17">
   <title>HBX Logística</title>
-  <link rel="stylesheet" href="app.css">
-  <!-- CASCA LOGÍSTICA: a folha do mock, extraída verbatim. Entra DEPOIS da pele
-       velha pra vencer as 11 classes que colidem; as outras 228 são vocabulário
-       novo, que a marcação do app vai adotando leva a leva.
-       O `pele20.js` NÃO entra: as 33 telas do mock são régua de conferência,
-       nunca código de produção. Ver docs/PLANEJAMENTOS/cascalogistica.md -->
-  <link rel="stylesheet" href="pele20.css">
+  <link rel="stylesheet" href="mock.css">
 </head>
 <body>
-  <div id="app" class="app" aria-live="polite"></div>
-  <script src="native.js"></script>
-  <script src="mobile-contract.js"></script>
-  <script src="matriz.js"></script>
-  <script src="app.js"></script>
-  <script src="offline-controls.js"></script>
+  <div class="app" id="app"></div>
+  <script src="mock.js"></script>
 </body>
 </html>

@@ -1,27 +1,39 @@
 /* ==========================================================================
-   CASCA LOGÍSTICA — EXTRAÍDA DO MOCK, NÃO REESCRITA.  ⚠️ ARQUIVO GERADO.
+   FOLHA DO MOCK — GERADO. NÃO EDITE.
 
-   Fonte: docs/mockups/logistica2.0/logistica-2.0.html
-   Gerador: scripts/pele20-gerar.js   (rode ele; não edite este arquivo)
-   Conferência: node scripts/pele20-conferir.js
+   Fonte : docs/mockups/logistica2.0/logistica-2.0.html
+   Gerador: node scripts/casca-injetar.js
 
-   Esta folha é a CASCA: tokens, componentes, tipografia e as 7 leis de
-   movimento do mock. É ela que o app veste — a marcação das telas do app é
-   reescrita pra usar este vocabulário, leva a leva, SEM tocar em comportamento.
-
-   🔴 As 33 telas do mock NÃO viram código: são régua de conferência. Já foram
-   copiadas pra cá uma vez e custaram caro (a tela do mock trouxe o dado de
-   exemplo dele por cima do dia real do motorista). Ver o plano.
-
-   O gerador NÃO conserta cor: ele confere e reprova. Aparência se corrige no
-   MOCK — é ele que manda.
-
-   Plano e leis: docs/PLANEJAMENTOS/cascalogistica.md
+   O mock É o front. Mexeu no mock, roda o gerador — o app acompanha.
+   Editar aqui à mão some na próxima injeção.
    ========================================================================== */
+
+/* ==========================================================================
+   HBX LOGÍSTICA 2.0 — front NOVO, desenhado a partir das imagens de referência
+   de docs/mockups/logistica2.0. Nada aqui reaproveita o app atual.
+
+   DENSIDADE: o app é desenhado em 400x900 (medida lógica de celular) e o
+   quadro inteiro é ampliado por `zoom` — o texto continua vetorial, então
+   ganha resolução sem virar zoom de imagem. É isso que faz caber a MESMA
+   quantidade de linhas das fotos (9 a 10 paradas + rodapé + botões).
+   ========================================================================== */
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:#06090f;color:#e8eefb;overflow:hidden;
+  font-family:Inter,"SF Pro Display","Segoe UI",system-ui,-apple-system,sans-serif;
+  -webkit-font-smoothing:antialiased;}
+button,input{font:inherit;color:inherit}
+/* Sem realce de toque do sistema e sem anel de foco do navegador: os dois
+   desenhavam retângulos claros em volta dos botões redondos do app. */
 .app button{-webkit-tap-highlight-color:transparent}
 .app button:focus{outline:none}
 .app button:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 
+/* ---------- cromo do documento ---------- */
+
+/* ==========================================================================
+   O CELULAR — 400x900 lógico, ampliado por zoom (padrão 1.7)
+   ========================================================================== */
 .app{
   position:relative;width:100%;height:100dvh;border-radius:0;overflow:hidden;
   display:flex;flex-direction:column;

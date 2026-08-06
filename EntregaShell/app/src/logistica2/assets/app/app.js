@@ -3488,20 +3488,10 @@
     }
     return result;
   }
-  /**
-   * CASCA LOGÍSTICA leva 1 (06/08) — os selos da parada viraram `.tags`/`.tag`
-   * da casca. O mock só tem três tons de selo (neutro, `blue`, `lime`), então
-   * acesso vira `blue` e adicional vira `lime`; horário e ordem fixa caem no
-   * neutro. ⚠️ PENDÊNCIA de vocabulário: a casca NÃO tem `.tag` âmbar nem
-   * vermelha, então "janela rígida" perdeu o vermelho que a pele velha dava —
-   * o motivo continua no `title`. Isso se conserta NO MOCK, nunca aqui.
-   * Componente compartilhado com a linha da Conferência da carga.
-   */
   function routeConstraintChips(source) {
     const chips = routeConstraintMeta(source);
-    const tomCasca = tone => tone === "is-access" ? " blue" : tone === "is-price" ? " lime" : "";
     return chips.length
-      ? `<span class="tags">${chips.map(item => `<b class="tag${tomCasca(item.tone)}" title="${H.escape(item.title)}">${H.escape(item.label)}</b>`).join("")}</span>`
+      ? `<div class="route-constraint-chips">${chips.map(item => `<span class="route-constraint-chip ${item.tone}" title="${H.escape(item.title)}">${H.escape(item.label)}</span>`).join("")}</div>`
       : "";
   }
   function previewMatchesDelivery(preview, item) {
@@ -5172,27 +5162,13 @@
   function creditosDiaPanel() {
     if (!isAdmin() || creditosPanelOculto() || !state.creditosDia) return "";
     const hoje = Number(state.creditosDia.hoje || 0);
-    // CASCA LOGÍSTICA leva 1 — vestido com `.creditos` (mesmo componente que o
-    // mock usa pro painel de créditos do dia). Continua sendo o MESMO botão,
-    // com o mesmo data-action e o mesmo texto: só a roupa mudou.
-    return `<button type="button" class="creditos" data-action="statement" aria-label="Consumo de créditos de hoje">${icon("wallet", 14)}<span>Hoje: <b class="v">${hoje}</b> <small>crédito${hoje === 1 ? "" : "s"}</small></span><span class="debita">Saldo: <b>${Number(state.creditosDia.saldo || 0)}</b></span></button>`;
-  }
-  /**
-   * CASCA LOGÍSTICA leva 1 — o "nada aqui" da Rota com o componente `.vazio` da
-   * casca. Mesmos dois textos que o `empty()` da pele velha mostrava; o ícone é
-   * parte do componente (o mock nunca desenha `.vazio` sem ele), não conteúdo
-   * novo. `empty()` continua de pé pras telas que ainda não foram vestidas.
-   */
-  function routeVazio(title, text) {
-    return `<div class="vazio"><span class="ico">${icon("route", 24)}</span><strong>${H.escape(title)}</strong>${text ? `<span>${H.escape(text)}</span>` : ""}</div>`;
+    return `<button type="button" class="creditos-dia" data-action="statement" aria-label="Consumo de créditos de hoje">${icon("wallet", 14)}<span>Hoje: <b>${hoje}</b> crédito${hoje === 1 ? "" : "s"}</span><span class="creditos-dia-saldo">Saldo: <b>${Number(state.creditosDia.saldo || 0)}</b></span></button>`;
   }
   function routeScreen() {
     // CORRIGIR-O-LIXO S1 (29/07, ordem do dono) — o Modo Passeio é uma PELE
     // desta tela, não um app: hero fica, o resto vira busca + mapa + cartão.
     if (passeioModoAtivo()) return shell(passeioConteudo());
-    // CASCA LOGÍSTICA leva 1 — o esqueleto do carregando é o `.esq` da casca
-    // (mesma quantidade de linhas que o `loading()` da pele velha desenhava).
-    if (state.loading) return shell(`<div class="stops">${'<div class="esq esq-linha"></div>'.repeat(3)}</div>`);
+    if (state.loading) return shell(loading());
     // MODO CADERNETA (04/08) — MESMA tela, motor diferente: enquanto o mapa do
     // dia não está provado, aqui não existe montar/iniciar rota. No lugar do
     // Iniciar entra o medidor, a lista do dia vira a caderneta e o rodapé é o
@@ -5201,7 +5177,7 @@
     // rota do dia (tem roster e estados próprios) — cair na tela de erro da rota
     // deixaria o vendedor sem vender por causa de uma chamada que ele não usa.
     if (cadernetaTelaAtiva()) return shell(cadernetaConteudo());
-    if (!state.route) return shell(routeVazio("Rota indisponível", state.error || "Atualize para tentar novamente."));
+    if (!state.route) return shell(empty("Rota indisponível", state.error || "Atualize para tentar novamente."));
     const open = openItems(); const done = deliveredItems(); const total = items().length; const next = open[0];
     const progress = total ? Math.round(done.length / total * 100) : 0;
     const paused = serverRouteActive() && open.length > 0 && state.routePaused;
@@ -5219,24 +5195,14 @@
     // S2 21/07 — "has-next-panel" empurra route-gps-status/route-follow-control
     // (agora também usados pela navegação normal, não só Leitura) pra baixo do
     // painel "Próxima parada" quando os dois aparecem juntos (ver app.css).
-    // 🔴 CASCA LOGÍSTICA leva 1 (06/08) — do herói pra BAIXO a marcação é o
-    // vocabulário do mock: `.dia-bar` (progresso do dia), `.filtro`, `.bar`
-    // (barra de seção), `.stops`/`.stop`, `.perna`, `.vazio` e `.act.full`.
-    // Nenhum data-action, texto, fluxo ou dado mudou — só a roupa.
-    // O BLOCO DO MAPA (route-hero/route-map-shell/route-controls + transmux,
-    // painel da próxima parada, HUD e controles da Leitura) continua na pele
-    // velha DE PROPÓSITO: ele é a leva "GPS", a última da Fase 1 no plano, e a
-    // geometria dele é medida em JS (fitRouteMap lê .route-hero > .route-map-shell,
-    // .route-hero > .route-controls e .route-transmux-wrap pra publicar
-    // --hbx-route-hero-h/--hbx-route-controls-h). Ver cascalogistica.md §6.
-    return shell(`${creditosDiaPanel()}<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="${mapLabel}"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}${showNextPanel && navModeActive() && !state.navCheiaSaiu ? routeNavHud(next) : ""}${navModeActive() && state.navCheiaSaiu ? `<button type="button" class="route-nav-voltar-cheia" data-action="nav-cheia-voltar">${icon("navigation", 15)} Tela cheia</button>` : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : routeTransmuxControl(planned, paused)}</div>${total ? `<div class="dia-bar"><span class="trilho"><i style="width:${progress}%"></i></span></div>` : ""}</section>
-      ${total ? `<div class="filtro" role="tablist" aria-label="Filtros da rota">
-        <button type="button" class="${state.routeFilter === "fila" ? "on" : ""}" data-action="route-filter" data-filter="fila" role="tab" aria-selected="${state.routeFilter === "fila"}">Fila <b>${open.length}</b></button>
-        <button type="button" class="${state.routeFilter === "entregue" ? "on" : ""}" data-action="route-filter" data-filter="entregue" role="tab" aria-selected="${state.routeFilter === "entregue"}">Entregue <b>${done.length}</b></button>
+    return shell(`${creditosDiaPanel()}<section class="hero route-hero"><div class="route-map-shell${showNextPanel ? " has-next-panel" : ""}"><div id="route-live-map" class="route-live-map" aria-label="${mapLabel}"><span class="route-map-loading">Carregando mapa…</span></div>${showNextPanel ? routeNextStopPanel(next) : ""}${showNextPanel && navModeActive() && !state.navCheiaSaiu ? routeNavHud(next) : ""}${navModeActive() && state.navCheiaSaiu ? `<button type="button" class="route-nav-voltar-cheia" data-action="nav-cheia-voltar">${icon("navigation", 15)} Tela cheia</button>` : ""}</div><div class="route-controls">${leituraAtiva ? leituraRouteControls() : routeTransmuxControl(planned, paused)}</div>${total ? `<div class="progress"><i style="width:${progress}%"></i></div>` : ""}</section>
+      ${total ? `<div class="route-filter" role="tablist" aria-label="Filtros da rota">
+        <button type="button" class="route-filter-btn ${state.routeFilter === "fila" ? "active" : ""}" data-action="route-filter" data-filter="fila" role="tab" aria-selected="${state.routeFilter === "fila"}">Fila <b>${open.length}</b></button>
+        <button type="button" class="route-filter-btn ${state.routeFilter === "entregue" ? "active" : ""}" data-action="route-filter" data-filter="entregue" role="tab" aria-selected="${state.routeFilter === "entregue"}">Entregue <b>${done.length}</b></button>
       </div>` : ""}
-      ${state.routeFilter === "fila" && next && !showNextPanel ? `<div class="bar"><span class="t">Próxima parada</span><span>${next.etaAt ? H.date(next.etaAt, { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>${stopCard(next, true)}` : ""}
-      ${total ? (filtered.length ? `<div class="stops">${filtered.map((item, index) => `${state.routeFilter === "fila" ? routeLegConnector(item) : ""}${stopCard(item, false, index + (state.routeFilter === "fila" ? 2 : 1))}`).join("")}</div>` : state.routeFilter === "fila" && next ? "" : routeVazio("Nada aqui", "")) : ""}
-      ${(routeActive() || paused) ? `<button class="act full" type="button" data-action="finalizar-rota" style="margin-top:8px;justify-content:center">${icon("check", 18)}<b>Finalizar</b></button>` : ""}`);
+      ${state.routeFilter === "fila" && next && !showNextPanel ? `<div class="section-title"><strong>Próxima parada</strong><span>${next.etaAt ? H.date(next.etaAt, { hour: "2-digit", minute: "2-digit" }) : ""}</span></div>${stopCard(next, true)}` : ""}
+      ${total ? (filtered.length ? `<div class="list">${filtered.map((item, index) => `${state.routeFilter === "fila" ? routeLegConnector(item) : ""}${stopCard(item, false, index + (state.routeFilter === "fila" ? 2 : 1))}`).join("")}</div>` : state.routeFilter === "fila" && next ? "" : empty("Nada aqui", "")) : ""}
+      ${(routeActive() || paused) ? `<button class="btn btn-primary btn-block rota-finalizar-btn" type="button" data-action="finalizar-rota">${icon("check", 18)} Finalizar</button>` : ""}`);
   }
   function leituraRouteControls() {
     const checkpointLabel = state.leituraCapturing ? "Lendo GPS…" : "Checkpoint";
@@ -5394,38 +5360,10 @@
     const esquerda = (avisoIcon && clearDayVisible && !active && !paused && !planned) ? avisoIcon : (leftIcon || avisoIcon);
     return `<div class="route-transmux-wrap"><span class="route-satellite-slot route-satellite-slot--left">${esquerda}</span><span class="route-control-unit route-control-unit--main" data-state="${main.state}"><button class="route-transmux" type="button" data-action="${main.action}" data-state="${main.state}" aria-label="${main.label}" data-hbx-motion ${state.dayStarting ? "disabled" : ""}>${icon(main.glifo, 44)}</button><small class="route-control-label">${H.escape(main.caption)}</small></span><span class="route-satellite-slot route-satellite-slot--right">${rightIcon}</span></div>`;
   }
-  /**
-   * 🔴 CASCA LOGÍSTICA leva 1 (06/08) — a parada com o vocabulário do mock:
-   * `.stop` (o cartão, grade de 4 colunas), `.numwrap`/`.num` (ordem),
-   * `.who` (nome + endereço + itens + observação), `.tags`/`.tag` (as
-   * restrições) e `.side`/`.pill` (o estado). `.gesto-item` é o componente de
-   * gesto da casca — é ele que pinta o vermelho progressivo do "segurar pra
-   * tirar da rota" (`armando`/`pronto`), que na pele velha morava em
-   * `.stop-card.is-hold-arming`.
-   *
-   * O QUE NÃO VEIO DO MOCK, de propósito (lei 3 — mock é vocabulário, não
-   * catálogo): o `.grip` (esta lista não arrasta; punho que não arrasta é
-   * mentira — fica o vão da coluna), a `.hh` (a hora prevista não é mostrada
-   * no cartão hoje) e o `.marc` (o cartão da Rota não mostra valor marcado).
-   *
-   * As ações (Ligar/WhatsApp/Confirmar, Editar) o mock não desenhou dentro da
-   * parada: entram no componente mais próximo, `.acts`/`.act`, ocupando a
-   * linha inteira da grade.
-   */
   function stopCard(item, featured, sequenceNumber) {
     const c = item.cliente || {}; const done = item.status === "entregue"; const order = sequenceNumber || Math.max(1, orderedItems().indexOf(item) + 1);
     const constraints = routeConstraintChips(routeConstraintSource(item, c));
-    // Mesma semântica de cor que o `.badge` da pele velha carregava: entregue
-    // = verde, em rota = âmbar, agendada = neutro. Trocar o significado da cor
-    // seria mudar o que a tela DIZ, não a roupa dela.
-    const pillTone = done ? "lime" : item.status === "em_rota" ? "amber" : "mute";
-    const itensTxt = (item.itens || []).map(x => `${x.qtdPrevista}× ${x.produto && x.produto.nome || "item"}`).join(", ") || `${item.quantidade || 0} item(ns)`;
-    const acts = done
-      ? `<div class="acts" style="grid-column:1/-1"><button class="act" type="button" data-action="edit-delivered" data-delivery-edit="${H.escape(item.id)}">${icon("edit", 16)}<b>Editar</b></button></div>`
-      : featured
-        ? `<div class="acts" style="grid-column:1/-1"><button class="act" data-action="call-stop" aria-label="Ligar para ${H.escape(c.nome || "cliente")}" style="flex:0 0 auto;justify-content:center">${icon("phone", 17)}</button><button class="act" data-action="wa-stop" aria-label="Abrir WhatsApp de ${H.escape(c.nome || "cliente")}" style="flex:0 0 auto;justify-content:center">${icon("wa", 17)}</button><button class="act go" data-action="confirm-stop" style="justify-content:center" ${state.deliveryConfirming ? "disabled" : ""}><b>Confirmar entrega</b></button></div>`
-        : "";
-    return `<article class="stop gesto-item${featured ? " on" : ""}" data-delivery="${H.escape(item.id)}" data-route-stop="${H.escape(item.id)}" ${featured ? `data-route-current="${H.escape(item.id)}"` : ""} role="button" tabindex="0"><span></span><span class="numwrap"><span class="num${done ? " lime" : ""}">${done ? icon("check", 16) : order}</span></span><span class="who"><strong>${H.escape(c.nome || "Cliente")}${item.localApelido ? ` · ${H.escape(item.localApelido)}` : ""}</strong><span>${H.escape(address(c))}</span><span>${H.escape(itensTxt)}</span>${constraints}${c.observacoes ? `<span>${H.escape(c.observacoes)}</span>` : ""}</span><span class="side"><span class="pill ${pillTone}">${H.escape(statusLabel(item.status))}</span></span>${acts}</article>`;
+    return `<article class="stop-card ${featured ? "card" : ""}" data-delivery="${H.escape(item.id)}" data-route-stop="${H.escape(item.id)}" ${featured ? `data-route-current="${H.escape(item.id)}"` : ""} role="button" tabindex="0"><div class="stop-top"><div class="order">${done ? icon("check", 16) : order}</div><div class="card-main"><strong>${H.escape(c.nome || "Cliente")}${item.localApelido ? ` · ${H.escape(item.localApelido)}` : ""}</strong><span>${H.escape(address(c))}</span><small>${H.escape((item.itens || []).map(x => `${x.qtdPrevista}× ${x.produto && x.produto.nome || "item"}`).join(", ") || `${item.quantidade || 0} item(ns)`)}</small>${constraints}${c.observacoes ? `<small class="stop-obs">${H.escape(c.observacoes)}</small>` : ""}</div><span class="badge ${done ? "success" : item.status === "em_rota" ? "warning" : ""}">${H.escape(statusLabel(item.status))}</span></div>${done ? `<div class="stop-actions stop-actions-done"><button class="btn btn-secondary" type="button" data-action="edit-delivered" data-delivery-edit="${H.escape(item.id)}">${icon("edit", 16)} Editar</button></div>` : ""}${featured ? `<div class="stop-actions"><button class="btn btn-secondary" data-action="call-stop" aria-label="Ligar para ${H.escape(c.nome || "cliente")}">${icon("phone", 17)}</button><button class="btn btn-secondary" data-action="wa-stop" aria-label="Abrir WhatsApp de ${H.escape(c.nome || "cliente")}">${icon("wa", 17)}</button><button class="btn btn-primary" data-action="confirm-stop" ${state.deliveryConfirming ? "disabled" : ""}>Confirmar entrega</button></div>` : ""}</article>`;
   }
   // S2 25/07 (PR25072026-ROTA-CONFERIDA) — conector "perna a perna" entre um
   // card e o próximo na FILA: expõe legDistanceM/legDurationS que o backend já
@@ -5443,27 +5381,14 @@
       // "pino" não diz nada pra quem dirige). `semCoordenadaLabel` encurta o
       // selo quando a MESMA linha já explica o motivo logo abaixo (conferência).
       const txt = item.semCoordenadaLabel || "sem trajeto — não sei onde fica este endereço";
-      return `<div class="perna"><span>${H.escape(txt)}</span></div>`;
+      return `<div class="route-leg-connector"><span class="badge danger">${H.escape(txt)}</span></div>`;
     }
     if (!Number.isFinite(item.legDistanceM)) return ""; // 1ª parada da fila: sem perna anterior pra mostrar
     const distTxt = item.legDistanceM < 1000 ? `${Math.round(item.legDistanceM)} m` : `${(item.legDistanceM / 1000).toFixed(1).replace(".", ",")} km`;
     const minTxt = Number.isFinite(item.legDurationS) ? ` · ${Math.round(item.legDurationS / 60)} min` : "";
-    return `<div class="perna"><span>↓ ${distTxt}${minTxt}</span></div>`;
+    return `<div class="route-leg-connector"><span class="badge">↓ ${distTxt}${minTxt}</span></div>`;
   }
 
-  /**
-   * CASCA LOGÍSTICA leva 2 (06/08) — a linha de cliente é `<button>` no app (é
-   * ela que ABRE a ficha; virar `<div>` custaria foco de teclado e Enter, isto
-   * é, comportamento). No mock o `.cli` é `<div>`, então a folha nunca tinha
-   * precisado desarmar o botão de fábrica — e sem desarme a lista saía em
-   * caixas cinzas.
-   *
-   * O desarme já foi levado pro MOCK (o `.cli` agora nasce com o mesmo tratamento
-   * do `.linha-cfg`), então aqui não sobra estilo inline nenhum. Isso importa
-   * além da limpeza: inline vencia a folha e barrava o `background` que a casca
-   * põe no `.gesto-item.pronto` — o fim do "segurar pra apagar". Com o desarme
-   * na folha, o gesto acende inteiro de novo.
-   */
   // Os catálogos e o wizard usam o mesmo cartão. Em modo seleção, só mudam a
   // ação e o complemento contextual (distância/selecionar); cadastro e edição
   // continuam pertencendo às telas administrativas reais.
@@ -5483,41 +5408,7 @@
     const attrs = selection
       ? `type="button" data-action="leitura-escolher-cliente" data-client-id="${H.escape(client.id)}" data-selection-search="${H.escape(searchText)}"${opts.hidden ? " hidden" : ""}`
       : `data-client="${H.escape(client.id)}"`;
-    // 🔴 CASCA LOGÍSTICA leva 2 (06/08) — o CATÁLOGO (a tela Clientes) veste o
-    // `.cli` do mock: `.ava` (iniciais), a coluna do meio com nome + endereço +
-    // `.tags`, e `.rgt` na ponta direita. `.gesto-item` é o componente de gesto
-    // da casca — é ele que pinta o vermelho progressivo do "segurar pra apagar"
-    // (`armando`/`pronto`), que na pele velha morava em `.lead-card.is-hold-arming`.
-    //
-    // O MODO SELEÇÃO (leitura de rota e o escolhedor do editor de rota) FICA na
-    // pele velha de propósito: ele não é desta tela — vive dentro de folhas e
-    // modais, que o plano põe numa leva posterior. Vestir aqui trocaria a roupa
-    // de duas telas fora do escopo, e é justamente o "duas peles" que o plano
-    // manda evitar. Ver cascalogistica.md §6.
-    //
-    // ⚠️ A coluna do meio leva a classe `.who` (a mesma peça do `.stop`: nome +
-    // endereço + sub-linhas). No mock ela é um `<span>` pelado, mas a linha de
-    // agenda é ENXERTADA depois do render (enhancePaymentForms) e precisava de
-    // uma âncora com NOME — âncora por posição quebra calada na próxima leva.
-    // Medido: dentro do `.cli`, `.who` só acrescenta `min-width:0` e
-    // `overflow-wrap:anywhere` (`.cli span` vence o resto por ser mais tarde na
-    // folha), então a coluna pinta igual à do mock e ainda para de estourar a
-    // grade com nome comprido.
-    if (selection) {
-      return `<button class="lead-card ${pendingHasBlocking(pending) ? "has-pending" : ""} hbx-selection-item lrt-client-row${distance !== null && distance <= 200 ? " lrt-client-near" : ""}" ${attrs}><div class="avatar">${H.escape(initials(name))}</div><div class="card-main"><strong>${H.escape(name)}</strong><span>${H.escape(subtitle)}</span></div>${trailing}</button>`;
-    }
-    // O valor em aberto vira o par `<small>`/`<b>` do `.rgt` (é a forma do mock:
-    // rótulo em cima, dinheiro embaixo). As MESMAS palavras da matriz, na mesma
-    // ordem — só deixaram de morar dentro de um `<small>` só.
-    const marcado = configFlag("moduloFinanceiroAtivo") && Number(client.debitoAtual || 0) > 0
-      ? `<small>${H.escape(HBXMatriz.rotulos.conta.totalMarcado)}</small><b>${HBXMatriz.rs(Number(client.debitoAtual))}</b>`
-      : "";
-    // A seta FICA mesmo quando há valor (no mock ela só aparece sem valor). Ela
-    // é a única coisa que anuncia "isto abre a ficha" — esconder num cliente
-    // que deve seria a tela dizer MENOS do que dizia. Cor por TOKEN, no molde
-    // do próprio mock (que também resolve a seta do `.cli` com estilo inline).
-    const seta = `<span style="color:var(--ink-3)">${icon("chevronRight", 18)}</span>`;
-    return `<button class="cli gesto-item" ${attrs}><span class="ava">${H.escape(initials(name))}</span><span class="who"><strong>${H.escape(name)}</strong><span>${H.escape(subtitle)}</span>${clientMissingLabels(client)}</span><span class="rgt">${marcado}${seta}</span></button>`;
+    return `<button class="lead-card ${pendingHasBlocking(pending) ? "has-pending" : ""}${selection ? " hbx-selection-item lrt-client-row" : ""}${distance !== null && distance <= 200 ? " lrt-client-near" : ""}" ${attrs}><div class="avatar">${H.escape(initials(name))}</div><div class="card-main"><strong>${H.escape(name)}</strong><span>${H.escape(subtitle)}</span>${selection ? "" : `<div class="client-balance">${configFlag("moduloFinanceiroAtivo") && Number(client.debitoAtual || 0) > 0 ? `<small class="mtz-conta mtz-total-marcado">${HBXMatriz.rotulos.conta.totalMarcado} ${HBXMatriz.rs(Number(client.debitoAtual))}</small>` : ""}${clientMissingLabels(client)}</div>`}</div>${trailing}</button>`;
   }
   function productCatalogCard(product, options) {
     const opts = options || {};
@@ -5556,36 +5447,17 @@
    * tela e o handler `clients-dia` nunca rodava. Agora o chip é o `chips()` da
    * MATRIZ, que marca `data-filtro`: atributo de gesto pertence a UM dono só.
    */
-  /**
-   * 🔴 CASCA LOGÍSTICA leva 2 (06/08) — a linha de dias vestida com `.dias` do
-   * mock (o mesmo componente do Gerenciador de Rota: 7 colunas, rótulo em cima,
-   * CONTAGEM embaixo, `.on` no selecionado). Escolhi `.dias` e NÃO o `.chip` da
-   * tela Clientes do mock por um motivo medido: `.chip` é uma pílula de texto
-   * único numa linha que ROLA — ele não empilha rótulo e número (o `<small>`
-   * ficaria colado do lado, o mesmo defeito que o mock documenta no `.kpi`), e
-   * a rolagem devolveria o problema que o app já pagou pra resolver (o
-   * `.montagem-dia` da pele velha somava 470px e não cabia nos 7 dias). A
-   * contagem é o dado que o dono pediu em 05/08 — ela manda no componente.
-   *
-   * ⚠️ SAIU DA MATRIZ, de propósito. `HBXMatriz.chips` é compartilhado com a
-   * Caderneta, que ainda não foi vestida; vestir lá dentro trocaria a roupa de
-   * uma tela fora desta leva. A marcação nasce aqui até a leva da Caderneta
-   * decidir onde o chip vestido vai morar. O `data-filtro` (nunca `data-day`)
-   * continua igualzinho — ele é o gancho do despacho de cliques, não roupa.
-   */
   function clientsDiaChips() {
-    const selecionados = (state.clientsDias || []).map(String);
-    return `<div class="dias">${weekDays.map(day => {
+    const selecionados = state.clientsDias || [];
+    return HBXMatriz.chips(weekDays.map(day => {
       const count = state.dayCounts ? state.dayCounts[day.n] : undefined;
-      const sub = count === undefined ? "…" : count === null ? "" : `${count}`;
-      const on = selecionados.includes(String(day.n));
-      // Dia sem ninguém fica na linha, apagado (chip que some faz os dias
-      // dançarem de lugar a cada carga). ⚠️ A casca não tem CLASSE pra isso: o
-      // próprio mock resolve com `style="opacity:.42"` no Gerenciador. Copio a
-      // solução do mock em vez de inventar classe nova aqui.
-      const apagado = count === 0 && !on ? ` style="opacity:.42"` : "";
-      return `<button type="button" class="${on ? "on" : ""}" data-action="clients-dia" data-filtro="${H.escape(String(day.n))}" aria-pressed="${on}"${apagado}><strong>${H.escape(day.label)}</strong><small>${H.escape(sub)}</small></button>`;
-    }).join("")}</div>`;
+      return {
+        valor: String(day.n),
+        rotulo: day.label,
+        sub: count === undefined ? "…" : count === null ? "" : `${count}`,
+        inativo: count === 0,
+      };
+    }), selecionados.map(String), "clients-dia", "clients-dias");
   }
   function clientsScreen() {
     const list = state.clients || [];
@@ -5600,33 +5472,7 @@
     const titulo = dias.length
       ? weekDays.filter(day => dias.includes(day.n)).map(day => day.nome).join(" · ")
       : "Cadastros";
-    // 🔴 CASCA LOGÍSTICA leva 2 (06/08) — a tela inteira com o vocabulário do
-    // mock: `.dias` (filtro por dia), `.searchrow`/`.search` (busca), `.bar`
-    // (barra de seção), `.lista-card`/`.cli` (a lista mora DENTRO de um cartão
-    // só, dividida por fios — é a forma da tela Clientes do mock), `.vazio` e
-    // `.esq` (esqueleto). Nenhum data-action, texto, fluxo ou dado mudou.
-    //
-    // NÃO VESTIDO, de propósito: o `.fab` de "Novo cliente". A casca NÃO tem
-    // botão flutuante (o mock nunca desenhou um), e o nome `.fab` é REGRA DE
-    // COMPORTAMENTO em duas linhas do app.css (`html.keyboard-open .fab` e
-    // `html.nav-cheia .fab`) — com o teclado aberto ele TEM que sumir. Trocar o
-    // nome sem componente pra pôr no lugar custaria o comportamento e não
-    // compraria roupa nenhuma. Ele também é do Produtos (próxima leva).
-    return shell(`${clientsDiaChips()}<div class="searchrow"><label class="search">${icon("search", 18)}<input id="client-search" aria-label="Buscar clientes" placeholder="Buscar" value="${H.escape(state.query)}"></label></div><div class="bar"><span class="t">${H.escape(titulo)}</span><span>${list.length}${total > list.length ? ` de ${total}` : ""}</span></div>${firstLoad ? clientsEsqueleto() : `<div class="lista-card">${list.length ? list.map(c => clientCatalogCard(c)).join("") : clientsVazio(state.clientsError ? "Não foi possível carregar" : "Nenhum cliente", emptyText)}</div>`}${clientsAutoLoad()}`, `<button class="fab" data-action="new-client" aria-label="Novo cliente">${icon("plus", 22)}</button>`);
-  }
-  /**
-   * CASCA LOGÍSTICA leva 2 — o "nada aqui" e o "carregando" da tela Clientes com
-   * os componentes `.vazio` e `.esq` da casca. Mesmos textos que o `empty()` da
-   * pele velha mostrava; o ícone é parte do componente (o mock nunca desenha
-   * `.vazio` sem ele), não conteúdo novo. `empty()`/`loading()` continuam de pé
-   * pras telas que ainda não foram vestidas — por isso a cópia local.
-   */
-  function clientsVazio(title, text) {
-    return `<div class="vazio"><span class="ico">${icon("users", 24)}</span><strong>${H.escape(title)}</strong>${text ? `<span>${H.escape(text)}</span>` : ""}</div>`;
-  }
-  function clientsEsqueleto() {
-    // Mesma quantidade de linhas que o `loading()` da pele velha desenhava (3).
-    return `<div class="lista-card">${'<div class="esq esq-linha"></div>'.repeat(3)}</div>`;
+    return shell(`${clientsDiaChips()}<label class="search">${icon("search", 18)}<input id="client-search" aria-label="Buscar clientes" placeholder="Buscar" value="${H.escape(state.query)}"></label><div class="section-title"><strong>${H.escape(titulo)}</strong><span>${list.length}${total > list.length ? ` de ${total}` : ""}</span></div>${firstLoad ? loading() : `<div class="list">${list.length ? list.map(c => clientCatalogCard(c)).join("") : empty(state.clientsError ? "Não foi possível carregar" : "Nenhum cliente", emptyText)}</div>`}${clientsAutoLoad()}`, `<button class="fab" data-action="new-client" aria-label="Novo cliente">${icon("plus", 22)}</button>`);
   }
   function productsScreen() {
     const all = state.products || [];
@@ -7470,18 +7316,10 @@
   // pinta o card. `pendingIsBlocking` é a fonte única dessa regra.
   function pendingIsBlocking(key) { return key === "End" || key === "Dia"; }
   function pendingHasBlocking(list) { return (list || []).some(pendingIsBlocking); }
-  /**
-   * CASCA LOGÍSTICA leva 2 (06/08) — os selos de pendência viraram `.tags`/`.tag`
-   * da casca. A REGRA DE COR não mudou nem um pouco: `pendingIsBlocking` continua
-   * sendo a fonte única, e o que travava a entrega (End/Dia) sai em `.tag.red`,
-   * o informativo (Tel, Pag, Dup) sai no `.tag` neutro — exatamente o que
-   * `.client-missing b` × `b.is-neutral` pintava. O vermelho existe na casca
-   * desde `79d9e159`; sem ele isto teria virado perda de informação.
-   */
   function clientMissingLabels(client) {
     const missing = clientPendingKeys(client);
     const labels = { Tel: "Telefone", End: "Endereço", Dia: "Agenda", Pag: "Pagamento", Dup: "Duplicado" };
-    return missing.length ? `<span class="tags">${missing.map(item => `<b class="tag${pendingIsBlocking(item) ? " red" : ""}">${H.escape(labels[item] || item)}</b>`).join(" ")}</span>` : "";
+    return missing.length ? `<span class="client-missing">${missing.map(item => `<b${pendingIsBlocking(item) ? "" : ` class="is-neutral"`}>${H.escape(labels[item] || item)}</b>`).join(" ")}</span>` : "";
   }
   function enhancePaymentForms() {
     const newForm = app.querySelector("#new-client-form");
@@ -7493,45 +7331,16 @@
       if (clientFinancialFields) clientFinancialFields.innerHTML = paymentFields(state.clientPaymentDraft, "client");
       clientForm.querySelector(".client-primary-actions button[type=submit]").textContent = "Salvar cliente";
     }
-    // 🔴 CASCA LOGÍSTICA leva 2 (06/08) — ESTA BUSCA É REGRA DE COMPORTAMENTO
-    // ESCRITA POR NOME DE CLASSE, igual ao `html.nav-cheia` que mordeu a leva 1.
-    // O cartão do cliente virou `.cli` e a âncora `.client-balance` deixou de
-    // existir (o valor foi pro `.rgt`): sem trocar os dois nomes aqui, a linha
-    // de agenda ("Entrega TER/SEX · Pagamento dia 10") sumia de TODO cartão,
-    // calada — nada quebra, nada avisa, a informação só some. A linha agora
-    // entra como último filho da coluna do meio (`.who`), que é onde ela já
-    // ficava: depois do endereço e dos selos.
-    app.querySelectorAll(".cli[data-client]").forEach(card => {
+    app.querySelectorAll(".lead-card[data-client]").forEach(card => {
       // insertAdjacentHTML NÃO é idempotente: com o nó sobrevivendo ao render
-      // (mount() de 22/07), rodar de novo empilharia uma linha por render.
+      // (mount() de 22/07), rodar de novo empilharia um <small> por render.
       if (card.__hbxScheduleLine) return;
       const client = clientById(card.dataset.client); const line = client && clientScheduleLine(client);
       if (!line) return;
       card.__hbxScheduleLine = true;
-      // `<span>`, não `<small>`: quem pinta sub-linha dentro do `.cli` é
-      // `.cli span`. Um `<small>` aqui sairia sem regra nenhuma.
-      card.querySelector(".who")?.insertAdjacentHTML("beforeend", `<span>${H.escape(line)}</span>`);
+      card.querySelector(".client-balance")?.insertAdjacentHTML("afterend", `<small>${H.escape(line)}</small>`);
     });
   }
-  // ==========================================================================
-  // CASCA LOGÍSTICA — por que NÃO existe mais um `pintarPele20` aqui (06/08)
-  // ==========================================================================
-  // Existiu: um caminho de render PARALELO, que pegava a tela pronta do mock
-  // (`pele20.js`) e jogava no lugar da tela do app. Deu dois defeitos de uma vez:
-  //
-  //   1. QUEBROU O COMPORTAMENTO. A tela do mock traz o DADO DE EXEMPLO dele,
-  //      então a Rota do motorista passou a mostrar "João da Silva" e
-  //      "R$ 184,00" por cima do dia real. Casca não pode custar o dado.
-  //   2. CRIOU DUAS PELES. Tela sem tradução pronta caía na marcação velha —
-  //      metade do app com uma cara, metade com outra.
-  //
-  // A correção não é melhorar esse caminho, é NÃO TER esse caminho. O app tem
-  // UM render só, o dele. A casca entra como FOLHA DE ESTILO + vocabulário de
-  // classe (`pele20.css`), e a marcação das telas do app é reescrita pra usar
-  // esse vocabulário, leva a leva — sem tocar em comportamento.
-  //
-  // 🔴 As 33 telas do mock são RÉGUA DE CONFERÊNCIA, nunca código de produção.
-  // Plano e leis: docs/PLANEJAMENTOS/cascalogistica.md
   function render() {
     // S2 21/07 (PR21072026-NAVEGAÇÃO) — sincroniza o watch da navegação a
     // CADA render (o pulso central do app, roda depois de qualquer ação que
@@ -7628,19 +7437,10 @@
     state.openingOverlay = null;
   }
 
-  /**
-   * CASCA LOGÍSTICA leva 2 (06/08) — ⚠️ VOCABULÁRIO QUE FALTA NA CASCA: o mock
-   * não desenhou rodapé de "carregando o resto da lista" (as listas dele são
-   * finitas, sem rolagem infinita). Pela lei 3 vai no componente MAIS PRÓXIMO —
-   * `.gesto-dica`, a linha de texto pequena, centralizada e apagada que mora
-   * embaixo das listas do mock. O gancho continua sendo o ATRIBUTO
-   * `data-clients-auto-load`, nunca a classe, então o observador de rolagem não
-   * sente nada.
-   */
   function clientsAutoLoad() {
     if (state.clientsPage >= state.clientsTotalPages) return "";
     const status = state.clientsError ? "Não foi possível carregar o restante." : state.clientsLoading ? "Carregando…" : "";
-    return `<div class="gesto-dica" data-clients-auto-load aria-live="polite">${H.escape(status)}</div>`;
+    return `<div class="clients-auto-load" data-clients-auto-load aria-live="polite">${H.escape(status)}</div>`;
   }
 
   function setupClientsAutoLoad() {
@@ -9360,10 +9160,6 @@
       if (novosItens.length) body.novosItens = novosItens;
       if (opts.receiptMethod) body.receiptMethod = opts.receiptMethod;
       if (opts.quitarAberto) body.quitarAberto = true;
-      // Etapa B (06/08) — a chegada viaja junto do desfecho (ver marcarChegada).
-      // O servidor apara relógio de celular e só grava a 1ª vez.
-      const chegouEm = chegadaDe(item);
-      if (chegouEm) body.arrivedAt = chegouEm;
       if (proof.fotoId) body.comprovanteFotoId = proof.fotoId;
       if (proof.assinaturaId) body.comprovanteAssinaturaId = proof.assinaturaId;
       if (requirements.codigoObrigatorio) {
@@ -9386,7 +9182,7 @@
       // no catch e só o "error" do gate central de toast() toca.
       const confirmResult = await H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/confirmar`, { method: "POST", body });
       state.deliveryEditingId = null;
-      H.cache.remove(keyName); limparChegada(item); await closeOverlay("sheet"); await refresh(true);
+      H.cache.remove(keyName); await closeOverlay("sheet"); await refresh(true);
       // S3 22/07 — o nativo (OperationalStore.interceptMutation) pode ter
       // respondido 202 LOCAL, sem chegar no servidor ainda (rota preparada
       // offline); nesse caso o corpo vem com offline:true/pendingSync:true.
@@ -9574,11 +9370,7 @@
     const reason = state.deliveryReason;
     if (!item || !reason) return;
     try {
-      // Etapa B (06/08) — "não entregue" É visita: ele esteve lá. Esta é a
-      // parada que mais vira discussão depois; sem hora, a discussão não tem juiz.
-      const chegouEm = chegadaDe(item);
-      await H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/cancelar`, { method: "POST", body: { motivo: reason, ...(chegouEm ? { arrivedAt: chegouEm } : {}) } });
-      limparChegada(item);
+      await H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/cancelar`, { method: "POST", body: { motivo: reason } });
       await closeOverlay("sheet"); await refresh(true); toast("Entrega retirada da rota.");
       const next = openItems()[0]; if (next) showNextStop(next);
     } catch (error) { toast(humanApiError(error), true); }
@@ -9590,10 +9382,7 @@
   async function performOfflineNotDelivered(item) {
     if (!item) return;
     try {
-      // Etapa B (06/08) — "não atendeu" também é visita (mesmo motivo do markNotDelivered).
-      const chegouEm = chegadaDe(item);
-      await H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/cancelar`, { method: "POST", body: { motivo: "Não atendeu.", ...(chegouEm ? { arrivedAt: chegouEm } : {}) } });
-      limparChegada(item);
+      await H.api(`/logistica/entregas/${encodeURIComponent(item.id)}/cancelar`, { method: "POST", body: { motivo: "Não atendeu." } });
       await closeOverlay("sheet"); await refresh(true); toast("Marcado como não atendido.");
       const next = openItems()[0]; if (next) showNextStop(next);
     } catch (error) { toast(humanApiError(error), true); }
@@ -9757,37 +9546,7 @@
     state.nextStopOpening = false;
   }
   function showNextStop(item) { clearInterval(nextStopTimer); state.screen = "route"; state.nextStop = item; state.nextCountdown = 5; state.nextStopOpening = false; render(); nextStopTimer = setInterval(() => { if (!state.nextStop) return clearInterval(nextStopTimer); state.nextCountdown = Math.max(0, state.nextCountdown - 1); if (state.nextCountdown === 0) { clearInterval(nextStopTimer); openNextStop(); return; } const label = document.querySelector(".next-stop-count i"); if (label) label.textContent = String(state.nextCountdown); const ring = document.querySelector(".next-stop-progress"); if (ring) ring.style.strokeDashoffset = (188.5 * state.nextCountdown / 5).toFixed(1); }, 1000); }
-  // ==========================================================================
-  // CARIMBO DE CHEGADA (06/08 — PR06082026 etapa B)
-  // ==========================================================================
-  // A hora de SAÍDA já existia (o servidor grava `deliveredAt` no desfecho da
-  // folha). Faltava a CHEGADA — e sem as duas não dá pra responder "quanto tempo
-  // ele ficou nesta parada", que é a pergunta que o dono faz quando o cliente
-  // reclama.
-  //
-  // Por que a hora nasce AQUI e não num POST no toque do "Cheguei": a folha de
-  // chegada tem que abrir SEM REDE. Um endpoint próprio ou morre offline (e o
-  // carimbo se perde justamente na rua, que é onde ele importa) ou vira mais uma
-  // fila offline pra manter viva. O desfecho — confirmar ou não-entregue — já é
-  // idempotente e já drena da fila; a chegada pega carona nele.
-  //
-  // CHEGADA = a 1ª vez que a folha abriu com a parada ainda EM ABERTO. Isso pega
-  // os quatro caminhos (botão Cheguei, cerca do GPS, toque no card, toque no
-  // pino) e deixa de fora o único que não é visita: abrir uma entrega JÁ
-  // concluída pra corrigir item. Fica no cache persistido porque o app pode
-  // morrer entre a chegada e o desfecho — e aí a hora não pode morrer junto.
-  const chegadaKey = (item) => `delivery-arrived:${item && item.id}`;
-  function marcarChegada(item) {
-    if (!item || !item.id) return;
-    if (item.status === "entregue" || item.status === "cancelada") return;
-    const key = chegadaKey(item);
-    if (H.cache.get(key, null)) return; // 1ª chegada vence, igual ao servidor
-    H.cache.set(key, new Date().toISOString());
-  }
-  const chegadaDe = (item) => (item && item.id ? H.cache.get(chegadaKey(item), null) : null);
-  const limparChegada = (item) => { if (item && item.id) H.cache.remove(chegadaKey(item)); };
-
-  function showSheet(item, arrived) { clearInterval(nextStopTimer); state.nextStop = null; state.openingOverlay = "sheet"; state.selected = item; state.deliveryDraft = makeDeliveryDraft(item); state.deliveryReason = ""; state.deliveryNotDelivered = false; state.deliveryArrived = !!arrived; state.deliveryProductPicker = false; state.deliverySimpleDetail = false; marcarChegada(item); render(); }
+  function showSheet(item, arrived) { clearInterval(nextStopTimer); state.nextStop = null; state.openingOverlay = "sheet"; state.selected = item; state.deliveryDraft = makeDeliveryDraft(item); state.deliveryReason = ""; state.deliveryNotDelivered = false; state.deliveryArrived = !!arrived; state.deliveryProductPicker = false; state.deliverySimpleDetail = false; render(); }
 
   function stopLeituraObsCountdown() {
     if (state.leituraStep !== "observacoes" || state.leituraObsTyped) return;
@@ -11164,16 +10923,8 @@
     const clientCard = event.target.closest("[data-client]");
     if (clientCard && event.touches.length === 1 && state.screen === "clients" && !state.modal && !state.selected) {
       const touch = event.touches[0]; const hold = { id: clientCard.dataset.client, el: clientCard, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
-      // CASCA LOGÍSTICA leva 2 — MESMO gesto, MESMOS 950ms, MESMA vibração: só
-      // os nomes das classes de ESTADO VISUAL viraram os da casca
-      // (`armando`/`pronto` do `.gesto-item`), porque o cartão do cliente agora
-      // é `.cli` e `is-hold-arming`/`is-holding` só existem pintadas na pele
-      // velha (`.lead-card.is-hold-arming`). Este gesto é EXCLUSIVO desta tela
-      // (o `if` acima exige `state.screen === "clients"`), então nenhuma outra
-      // lista é afetada — as demais seguem com os nomes antigos até serem
-      // vestidas. Mesma troca que a leva 1 fez no cartão da parada.
-      hold.el.classList.add("armando");
-      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("armando"); hold.el.classList.add("pronto"); H.vibrate(45); }, 950);
+      hold.el.classList.add("is-hold-arming");
+      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
       clientHold = hold;
     }
     const productCard = event.target.closest("[data-client-product-id]");
@@ -11231,14 +10982,8 @@
     const routeStop = target.closest("[data-route-stop]");
     if (routeStop && event.touches.length === 1 && !state.modal && !state.selected) {
       const touch = event.touches[0]; const hold = { id: routeStop.dataset.routeStop, el: routeStop, x: touch.clientX, y: touch.clientY, triggered: false, timer: null };
-      // CASCA LOGÍSTICA leva 1 — MESMO gesto, MESMO tempo, MESMA vibração: só
-      // os nomes das classes de ESTADO VISUAL passaram a ser os da casca
-      // (`armando`/`pronto` do `.gesto-item`), porque o cartão da parada agora
-      // é `.stop`, e `is-hold-arming`/`is-holding` só existem pintadas na pele
-      // velha (`.stop-card.is-hold-arming`). As outras listas do app seguem
-      // com os nomes antigos até serem vestidas.
-      hold.el.classList.add("armando");
-      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("armando"); hold.el.classList.add("pronto"); H.vibrate(45); }, 950);
+      hold.el.classList.add("is-hold-arming");
+      hold.timer = setTimeout(() => { hold.triggered = true; hold.el.classList.remove("is-hold-arming"); hold.el.classList.add("is-holding"); H.vibrate(45); }, 950);
       routeStopHold = hold;
     }
     // Segurar pressionado no card de Produtos (só admin) arma o vermelho e vibra;
@@ -11289,9 +11034,9 @@
   app.addEventListener("touchmove", event => {
     if (event.touches.length !== 1) return;
     const touch = event.touches[0];
-    if (clientHold && (Math.abs(touch.clientX - clientHold.x) > 12 || Math.abs(touch.clientY - clientHold.y) > 12)) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("armando", "pronto"); clientHold = null; }
+    if (clientHold && (Math.abs(touch.clientX - clientHold.x) > 12 || Math.abs(touch.clientY - clientHold.y) > 12)) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); clientHold = null; }
     if (clientProductHold && (Math.abs(touch.clientX - clientProductHold.x) > 12 || Math.abs(touch.clientY - clientProductHold.y) > 12)) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); clientProductHold = null; }
-    if (routeStopHold && (Math.abs(touch.clientX - routeStopHold.x) > 12 || Math.abs(touch.clientY - routeStopHold.y) > 12)) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("armando", "pronto"); routeStopHold = null; }
+    if (routeStopHold && (Math.abs(touch.clientX - routeStopHold.x) > 12 || Math.abs(touch.clientY - routeStopHold.y) > 12)) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-hold-arming", "is-holding"); routeStopHold = null; }
     if (rmeParadaHold && (Math.abs(touch.clientX - rmeParadaHold.x) > 12 || Math.abs(touch.clientY - rmeParadaHold.y) > 12)) { clearTimeout(rmeParadaHold.timer); rmeParadaHold.el.classList.remove("is-hold-arming", "is-holding"); rmeParadaHold = null; }
     if (rmeItemHold && (Math.abs(touch.clientX - rmeItemHold.x) > 12 || Math.abs(touch.clientY - rmeItemHold.y) > 12)) { clearTimeout(rmeItemHold.timer); rmeItemHold.el.classList.remove("is-hold-arming", "is-holding"); rmeItemHold = null; }
     if (routeModeloHold && (Math.abs(touch.clientX - routeModeloHold.x) > 12 || Math.abs(touch.clientY - routeModeloHold.y) > 12)) { clearTimeout(routeModeloHold.timer); routeModeloHold.el.classList.remove("is-hold-arming", "is-holding"); routeModeloHold = null; }
@@ -11322,7 +11067,7 @@
     }
     if (clientHold) {
       clearTimeout(clientHold.timer);
-      const hold = clientHold; clientHold = null; hold.el.classList.remove("armando", "pronto");
+      const hold = clientHold; clientHold = null; hold.el.classList.remove("is-hold-arming", "is-holding");
       if (hold.triggered) { ignoredClientClickId = hold.id; touchStart = null; deleteClient(clientById(hold.id)); return; }
     }
     if (clientProductHold) {
@@ -11375,7 +11120,7 @@
     }
     if (routeStopHold) {
       clearTimeout(routeStopHold.timer);
-      const hold = routeStopHold; routeStopHold = null; hold.el.classList.remove("armando", "pronto");
+      const hold = routeStopHold; routeStopHold = null; hold.el.classList.remove("is-hold-arming", "is-holding");
       if (hold.triggered) {
         ignoredRouteStopClickId = hold.id;
         touchStart = null;
@@ -11421,7 +11166,7 @@
       return;
     }
   }, { passive: true });
-  app.addEventListener("touchcancel", () => { if (rmeParadaHold) { clearTimeout(rmeParadaHold.timer); rmeParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeParadaHold = null; if (rmeItemHold) { clearTimeout(rmeItemHold.timer); rmeItemHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeItemHold = null; if (routeModeloHold) { clearTimeout(routeModeloHold.timer); routeModeloHold.el.classList.remove("is-hold-arming", "is-holding"); } routeModeloHold = null; if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("armando", "pronto"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("armando", "pronto"); } routeStopHold = null; if (productHold) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); } productHold = null; if (lrtParadaHold) { clearTimeout(lrtParadaHold.timer); lrtParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtParadaHold = null; if (lrtItemHold) { clearTimeout(lrtItemHold.timer); lrtItemHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtItemHold = null; if (historicoHold) { clearTimeout(historicoHold.timer); historicoHold.el.classList.remove("is-hold-arming", "is-holding"); } historicoHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
+  app.addEventListener("touchcancel", () => { if (rmeParadaHold) { clearTimeout(rmeParadaHold.timer); rmeParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeParadaHold = null; if (rmeItemHold) { clearTimeout(rmeItemHold.timer); rmeItemHold.el.classList.remove("is-hold-arming", "is-holding"); } rmeItemHold = null; if (routeModeloHold) { clearTimeout(routeModeloHold.timer); routeModeloHold.el.classList.remove("is-hold-arming", "is-holding"); } routeModeloHold = null; if (clientHold) { clearTimeout(clientHold.timer); clientHold.el.classList.remove("is-hold-arming", "is-holding"); } clientHold = null; if (clientProductHold) { clearTimeout(clientProductHold.timer); clientProductHold.el.classList.remove("is-hold-arming", "is-holding"); } clientProductHold = null; if (routeStopHold) { clearTimeout(routeStopHold.timer); routeStopHold.el.classList.remove("is-hold-arming", "is-holding"); } routeStopHold = null; if (productHold) { clearTimeout(productHold.timer); productHold.el.classList.remove("is-hold-arming", "is-holding"); } productHold = null; if (lrtParadaHold) { clearTimeout(lrtParadaHold.timer); lrtParadaHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtParadaHold = null; if (lrtItemHold) { clearTimeout(lrtItemHold.timer); lrtItemHold.el.classList.remove("is-hold-arming", "is-holding"); } lrtItemHold = null; if (historicoHold) { clearTimeout(historicoHold.timer); historicoHold.el.classList.remove("is-hold-arming", "is-holding"); } historicoHold = null; document.querySelector("[data-route-current].is-swiping-skip")?.classList.remove("is-swiping-skip"); }, { passive: true });
   app.addEventListener("contextmenu", event => { if (event.target.closest("[data-client],[data-client-product-id],[data-route-stop],[data-product-id]")) event.preventDefault(); });
   // MATRIZ (PR05082026) — UM registro de gesto pra linha canônica: segurar =
   // excluir (950ms + confirmação, porque desfaz DINHEIRO), nº = alça do
