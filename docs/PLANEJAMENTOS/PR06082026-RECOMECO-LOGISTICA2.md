@@ -57,9 +57,12 @@ No app não entram na navegação do usuário — são o contrato de comportamen
 
 ### Lacunas achadas (as duas únicas telas/peças que o mock NÃO tem)
 1. **Pareamento** — o app real loga por código (`POST /mobile/devices/pair`). O mock abre direto
-   na rota. A tela nasce NO MOCK (desenho meu, 100% no vocabulário dele), nunca fora.
+   na rota. **Correção medida na F0 (06/08 noite): a tela de pareamento JÁ EXISTE e é NATIVA**
+   (`PairingActivity` Kotlin — instalação virgem sem backend cai nela). A decisão da F2 vira:
+   vestir a nativa com a cara do mock, ou nascer tela no mock e aposentar a nativa.
 2. **A ponte** — `index.html` sem `native.js` = sem H.api, sem Voltar do Android (Lei 10), sem
-   teclado (Lei 4), sem update check. Volta na F2, enxuta.
+   teclado (Lei 4), sem update check. Volta na F2, enxuta. (A 4ª adaptação do injetor já fala
+   com a ponte crua: `HBXAndroid.appReady` destrava a cortina do boot.)
 
 ---
 
@@ -260,7 +263,7 @@ applicationId/assinatura, André atualiza pelo aviso sem reparear. Só com ordem
 
 | Fase | Estado | Prova |
 |---|---|---|
-| F0 casca no vidro | 🔶 iniciada 06/08 (`624461d5`) — 2 defeitos de vidro achados e mortos: cortina nativa congelada em 42% (mock não chamava `appReady`; no V2 a cortina antiga nem sobe) e barra de status DUPLA ("9:41" de maquete sob a barra real → 5ª adaptação). App instala, abre e navega (Chat visto na tela). Falta: varrer as 33 telas nos 2 modos no vidro. | foto do g15 + conferidor verde |
+| F0 casca no vidro | ✅ MEDIDA 06/08 (`624461d5`) — 2 defeitos de vidro mortos: cortina nativa congelada em 42% (mock não chamava `appReady`; no V2 a cortina antiga nem sobe) e barra de status DUPLA ("9:41" de maquete sob a real → 5ª adaptação). **Varredura no WebView REAL do g15: 66/66 telas×modos renderizam sem exceção de JS** (script `varrer-33-no-vidro` via CDP; 1 ruído raro de recurso do próprio WebView, sem URL no código e sem pedido na rede — não reprova). Tela Rota vista no vidro limpa. Falta só o OLHO do dono dizer "é o mock". | foto do g15 + conferidor verde |
 | F1 casca trocável | ⬜ | casca de prova trocando o ambiente |
 | F2 ponte e porta | ⬜ | pareado no g15, Rota real vazia |
 | L1…L11 | ⬜ | cena de cada leva na tela |
