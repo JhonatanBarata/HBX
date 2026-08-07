@@ -450,9 +450,9 @@
          quando esta função roda, e ela não repinta a abertura de propósito
          (`telaAtual() !== 'entrada'`, logo abaixo) porque é uma cena com
          relógio. O nome da empresa também não tem porta no aparelho —
-         `hbx:logistica-company-name` não existe no localStorage do logistica2
-         (medido no g15) e quem grava essa chave é o `app.js`, que o
-         `index.html` do flavor não carrega. Sem porta e sem repinte, a linha
+         `hbx:logistica-company-name` não existe no localStorage do app novo
+         (medido no g15) e quem gravava essa chave era o `app.js`, que o
+         `index.html` não carrega mais. Sem porta e sem repinte, a linha
          saiu do DESENHO (o porquê inteiro está em cima do `.splash-barra`, na
          folha do mock). */
       // 🔴 TELA DE DINHEIRO. O catálogo inteiro era do desenho (R$ 49/129/239/449,

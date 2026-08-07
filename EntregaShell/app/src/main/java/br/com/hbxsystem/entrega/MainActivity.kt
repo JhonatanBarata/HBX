@@ -61,7 +61,7 @@ class MainActivity : AppCompatActivity() {
     // das barras depois — `requestApplyInsets` age sobre esta view.
     private var appHost: FrameLayout? = null
     // 🔴 Enquanto isto for false, TUDO abaixo se comporta exatamente como antes
-    // (o app de produção é o mesmo binário Kotlin — ver o flavor logistica2).
+    // (`vendas` e `logistica` são o mesmo binário Kotlin; quem separa é o flavor).
     private var modoNavegacaoAtivo = false
     private lateinit var nativeBridge: NativeAppBridge
     private lateinit var routeBridge: HBXShellBridge

@@ -27,7 +27,7 @@ const { chromium } = require('playwright');
 
 const raiz = path.join(__dirname, '..');
 const MOCK = path.join(raiz, 'docs/mockups/logistica2.0/logistica-2.0.html');
-const APP = path.join(raiz, 'EntregaShell/app/src/logistica2/assets/app/index.html');
+const APP = path.join(raiz, 'EntregaShell/app/src/logistica/assets/app/index.html');
 const urlDe = (p) => 'file:///' + p.replace(/\\/g, '/');
 const MODOS = ['escuro', 'claro'];
 

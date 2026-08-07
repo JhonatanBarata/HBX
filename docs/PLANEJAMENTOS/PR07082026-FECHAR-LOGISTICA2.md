@@ -556,11 +556,37 @@ está com o caminho separado e sem a chamada que derrubava — mas **teste verde
    `scripts/ops/deploy-vps.js`) — ele está FORA de propósito, pra bancada não carimbar
    versão nova em produção. Depois da troca, tem que voltar.
 
-### 6.3 — A troca em si
-- assets do `logistica2` viram os do `logistica`;
-- `applicationId` volta pra `br.com.hbxsystem.logistica`;
-- sai o `-bancada` do `versionName`; **piso do `versionCode` acima do publicado**;
-- `npm run publish` (o publish **aborta fora do master** e **apaga branch não-master**);
+### 6.3 — A troca em si — ✅ FEITA EM 07/08 (falta só o `npm run publish`)
+
+Ordem do dono: *"junte agora o app em 1"*. O flavor `logistica2` foi **DISSOLVIDO**
+— não sobrou bancada, sobrou um app só.
+
+| O que | Como ficou | Provado por |
+|---|---|---|
+| assets | `logistica2/assets/app/` viraram os do `logistica/` | `casca-conferir` **62/62**, 31 telas, na pasta nova |
+| `applicationId` | `br.com.hbxsystem.logistica` | manifest empacotado |
+| `versionName` | `beta1.3.2` → **`alpha1`** | BuildConfig gerado |
+| piso do `versionCode` | 156 → **171** (publicado era **163**) | BuildConfig gerado |
+| endereço | `https://api.hbxsystem.com.br` / `https://www.hbxsystem.com.br` | BuildConfig gerado, os dois buildTypes |
+| `HBX_V2` | **`true`** no flavor de produção | BuildConfig gerado |
+| `google-services` | **religado** (o desliga era só do `logistica2`) | `processLogisticaReleaseGoogleServices` com `google_app_id` |
+| digital do APK | `logistica2` saiu do `collectApkInputFiles` junto com a pasta | digital recalcula sem erro |
+| peso morto | `app.js` (903 KB) fora do APK | `unzip -l` do release |
+
+🔴 **O que quase passou batido e não estava em lista nenhuma:** os **17 sons
+MARCADO** (`562e4265`, escolhidos de ouvido pelo dono em 07/08) viviam como
+*override de flavor* em `logistica2/res/raw/`. Dissolver o flavor sem movê-los
+**apagaria a identidade sonora do dia, calada**. Foram junto pro `logistica/res/raw/`
+— e agora é o app do cliente que toca MARCADO. O `main/res/raw` fica intocado
+para o `vendas`.
+
+🔴 **`opening.html` FICOU no `logistica/`** de propósito. A §4.6.3 tirou o dele do
+`logistica2` como "peso morto", mas a `ClosingActivity` carrega esse arquivo
+**sem passar pelo `HBX_V2`** (`webView.loadUrl(HbxMobileExperience.openingUrl)`).
+Sem ele, sair do app / desvincular ficaria **8 segundos numa tela invisível**
+antes de fechar. Apagar do app de produção = regressão silenciosa.
+
+- falta: `npm run publish` (o publish **aborta fora do master** e **apaga branch não-master**);
 - ⚠️ conferir o tree antes: `publish` faz `git add -A` e leva junto o que estiver sujo.
 
 ### 6.4 — Depois de publicar

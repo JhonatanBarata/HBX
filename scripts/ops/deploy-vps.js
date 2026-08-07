@@ -222,12 +222,14 @@ function collectApkInputFiles(absolute, collected) {
     // `build`/`.gradle` são SAÍDA do compilador — entrariam na conta e fariam
     // a digital mudar sozinha a cada build, quebrando a regra inteira.
     if (entry === 'build' || entry === '.gradle') continue;
-    // `logistica2` é a BANCADA do app novo (06/08/2026): flavor separado, que
-    // roda contra o localhost e que o publish nem compila (buildTasks monta só
-    // Logistica e Vendas). Se ele entrasse na digital, cada canetada no app
-    // novo carimbaria uma versão nova no APK de PRODUÇÃO e mandaria todo
-    // motorista baixar 2 MB por uma mudança que não existe no aparelho dele.
-    if (entry === 'logistica2') continue;
+    // 🔴 AQUI MORAVA `if (entry === 'logistica2') continue;` — e ele TINHA que
+    // sair na FUSÃO de 07/08. Enquanto o app novo era uma bancada com flavor
+    // próprio, deixá-lo fora da digital impedia que cada canetada no app novo
+    // carimbasse versão nova no APK de PRODUÇÃO e mandasse todo motorista
+    // baixar 2 MB por uma mudança que nem existia no aparelho dele.
+    // Agora o app novo É o app: a pasta `logistica2` deixou de existir e todo
+    // arquivo que vai pro celular precisa entrar na conta. Se um dia voltar
+    // uma bancada com flavor próprio, o pulo volta COM ela — nunca sozinho.
     collectApkInputFiles(path.join(absolute, entry), collected);
   }
   return collected;
@@ -630,7 +632,8 @@ if (require.main === module) {
   }
 }
 
-// `computeApkFingerprint` sai exportado pra que o freio da bancada
-// (logistica2 fora da digital) possa ser MEDIDO, não confiado: basta comparar
-// a digital com e sem a pasta no disco e provar que ela não se mexe.
+// `computeApkFingerprint` sai exportado pra que a digital possa ser MEDIDA, não
+// confiada: dá pra calcular antes e depois de uma mudança e provar se ela muda
+// (ou não) o que vai pro celular. Era assim que se media o freio da bancada,
+// dissolvida na FUSÃO de 07/08.
 module.exports = { main, computeApkFingerprint };

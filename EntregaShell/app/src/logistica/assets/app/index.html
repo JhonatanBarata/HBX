@@ -1,27 +1,28 @@
 <!doctype html>
-<html lang="pt-BR" data-app="logistica">
+<html lang="pt-BR" data-tr="eixox" data-av="sino" data-luz="escuro">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,interactive-widget=resizes-content">
-  <!-- 🔴 05/08 (PR05082026-MAPA-PMTILES, F5) — o mapa deixou de ser host de fora.
-       o host de tiles do openfreemap SAIU do connect-src: estilo, letras, ícones e tiles
-       agora moram no aparelho e são pedidos na MESMA origem da página
-       (appassets.androidplatform.net) — por isso entrou `'self'`, que o
-       connect-src não tinha (a lista era só de hosts, e sem ele o `fetch` do
-       estilo local e o pedido de tile morreriam calados no CSP).
-       viacep/nominatim/osrm continuam porque continuam sendo usados. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://viacep.com.br https://nominatim.openstreetmap.org https://router.project-osrm.org https://www.hbxsystem.com.br https://api.hbxsystem.com.br; worker-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
-  <meta name="theme-color" content="#f4f7f0" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0d120d" media="(prefers-color-scheme: dark)">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- CSP: o script do mock foi pra arquivo justamente por causa do 'self'. -->
+  <!-- `worker-src blob:` é do MAPA: o maplibre desenha num Web Worker criado a
+       partir de blob. Sem esta palavra o mapa morre com a CSP barrando o
+       worker — e o resto da tela sobe normal, então o defeito parece "mapa
+       cinza" em vez de "política bloqueou". Os tiles são da MESMA origem
+       (`appassets.androidplatform.net/tiles/...`, servidos pelo aparelho), por
+       isso `connect-src 'self'` basta. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <meta name="theme-color" content="#080d17">
   <title>HBX Logística</title>
-  <link rel="stylesheet" href="app.css">
+  <link rel="stylesheet" href="mock.css">
 </head>
 <body>
-  <div id="app" class="app" aria-live="polite"></div>
+  <div class="app" id="app"></div>
+  <!-- ORDEM IMPORTA: native (ponte com o Kotlin) → mock (a casca) → ponte
+       (o que é do aparelho: API, Voltar, teclado, tema). O native é carregado
+       ANTES porque ele resolve o tema no load; a ponte DEPOIS porque ela se
+       apoia no que o mock declarou. -->
   <script src="native.js"></script>
-  <script src="mobile-contract.js"></script>
-  <script src="matriz.js"></script>
-  <script src="app.js"></script>
-  <script src="offline-controls.js"></script>
+  <script src="mock.js"></script>
+  <script src="ponte.js"></script>
 </body>
 </html>

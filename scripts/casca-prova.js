@@ -21,7 +21,7 @@ const { execFileSync } = require('child_process');
 const { chromium } = require('playwright');
 
 const raiz = path.join(__dirname, '..');
-const APP = path.join(raiz, 'EntregaShell/app/src/logistica2/assets/app/index.html');
+const APP = path.join(raiz, 'EntregaShell/app/src/logistica/assets/app/index.html');
 const nome = process.argv[2];
 if (!nome) { console.log('uso: node scripts/casca-prova.js <nome-da-casca>'); process.exit(1); }
 

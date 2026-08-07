@@ -50,7 +50,7 @@ const path = require('path');
 
 const raiz = path.join(__dirname, '..');
 const MOCK = path.join(raiz, 'docs/mockups/logistica2.0/logistica-2.0.html');
-const DESTINO = path.join(raiz, 'EntregaShell/app/src/logistica2/assets/app');
+const DESTINO = path.join(raiz, 'EntregaShell/app/src/logistica/assets/app');
 const CASCAS = path.join(raiz, 'docs/mockups/logistica2.0/cascas');
 const fonte = fs.readFileSync(MOCK, 'utf8');
 

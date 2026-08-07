@@ -1,4 +1,3 @@
-import com.android.build.api.variant.BuildConfigField
 import java.io.FileInputStream
 import java.net.URI
 import java.util.Properties
@@ -94,51 +93,40 @@ plugins {
 // que já saiu, senão o ciclo "editar → instalar no aparelho" trava (mesmo caso
 // de 8→15, 15→18, 18→38, 38→60, 60→68, 87→95, 95→110, 110→117, 117→123,
 // 123→131 e 131→134 acima).
-val hbxLogisticaVersionCodeFloor = 156
+// 🔴 156 → 170 em 07/08 — A FUSÃO (o app novo virou O app). O piso estava em
+// 156 e o PUBLICADO em produção era 163 (medido em version-logistica.json:
+// {"versionCode":163,"versionName":"beta1.3.2"}): piso ABAIXO do publicado é
+// exatamente o caso 95→110, o que faz o publish carimbar um número que o
+// celular já roda e a atualização NUNCA aparecer. E desta vez o custo seria o
+// pior possível: o motorista ficaria com o app antigo enquanto o servidor
+// serviria o app novo, sem ninguém ver erro. 170 fica com folga acima de 163.
+// 170 → 171 na MESMA sessão, e o motivo é a prova: a ordem mandava instalar o
+// flavor de PRODUÇÃO no g15 pra provar por toque que o app novo é o app. Isso
+// sideloadou o 170 no aparelho. Piso 170 faria o publish carimbar 170 — o
+// MESMO número que o g15 já roda — e o g15 nunca veria o aviso de atualização
+// aparecer sozinho, que é justamente a 1ª prova depois do publish (§6.4 do
+// PR07082026-FECHAR-LOGISTICA2). O André (163) atualizaria de qualquer jeito,
+// mas a bancada ficaria cega pra conferir o aviso. 171 mantém a lei de sempre:
+// piso ACIMA do maior número que já está em algum celular.
+val hbxLogisticaVersionCodeFloor = 171
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)
         ?: hbxLogisticaVersionCodeFloor
 
 // ---------------------------------------------------------------------------
-// LOGHBX 2 — a bancada do app novo (06/08/2026)
+// A FUSÃO — 07/08/2026: o app novo virou O app
 // ---------------------------------------------------------------------------
-// Cópia viva do Loghbx que roda contra o LOCALHOST e nunca é publicada. Ela
-// existe pra receber a refatoração visual grande sem encostar no APK que o
-// motorista usa hoje — por isso é um flavor SEPARADO, com applicationId
-// próprio: os dois apps convivem no mesmo celular, cada um com seu ícone.
-// Quando o pacote estiver pronto, os assets do logistica2 substituem os do
-// logistica e o applicationId volta ao de sempre — o aparelho atualiza sozinho
-// pelo aviso, sem ninguém reparear.
+// De 06/08 a 07/08 o app novo cresceu num flavor SEPARADO (`logistica2`), com
+// applicationId próprio, apontando pro localhost e fora do publish, pra não
+// encostar no APK que o motorista usa. Ordem do dono em 07/08 — "junte agora o
+// app em 1" — e o flavor foi DISSOLVIDO: os assets dele viraram os do
+// `logistica`, os 17 sons MARCADO vieram junto, e sobrou um app só.
 //
-// O endereço mora FORA do git (EntregaShell/logistica2.properties) de
-// propósito: `apkFingerprintRoots` do scripts/ops/deploy-vps.js hasheia
-// build.gradle.kts, então trocar o IP do notebook aqui dentro carimbaria uma
-// versão nova no APK de PRODUÇÃO e mandaria todo motorista baixar à toa.
-val logistica2PropsFile = rootProject.file("logistica2.properties")
-val logistica2Props = Properties().apply {
-    if (logistica2PropsFile.exists()) {
-        FileInputStream(logistica2PropsFile).use { load(it) }
-    }
-}
-
-fun logistica2Url(propertyName: String, fallback: String): String =
-    logistica2Props.getProperty(propertyName).orEmpty().trim().ifBlank { fallback }.trimEnd('/')
-
-// localhost no celular = o notebook, via `adb reverse tcp:3000 tcp:3000`.
-// Backend local é o container `backend` (porta 3000); o Next fica no 3001.
-// Sem cabo, apontar para o IP da rede em logistica2.properties.
-//
-// 🔴 É "localhost" e NÃO "127.0.0.1" de propósito (custou o 1º pareamento da
-// bancada, 06/08): depois de vincular, o backend devolve um `entryUrl` montado
-// com a URL web dele — que localmente é `http://localhost:3001/mobile/entry`.
-// O `MobileEntrySession.validatedEntryUri` compara HOST com HOST contra o
-// WEB_BASE_URL do APK, e "localhost" != "127.0.0.1" para essa comparação: o
-// pareamento passava no servidor, o app recusava a entrada e voltava pra tela
-// de vínculo como se o código estivesse errado. Os dois lados falam o mesmo
-// nome ou o aparelho nunca entra.
-val logistica2ApiBaseUrl = logistica2Url("apiBaseUrl", "http://localhost:3000")
-val logistica2WebBaseUrl = logistica2Url("webBaseUrl", "http://localhost:3001")
+// 🔴 O QUE NÃO PODE VOLTAR: o flavor carregava um override que forçava
+// API_BASE_URL pro `logistica2.properties` (default `http://localhost:3000`).
+// Um flavor de bancada NUNCA pode ser o mesmo que vai pro cliente — ver o aviso
+// grande onde o bloco morava, logo antes do `prepareVendasCheckoutAssets`.
 
 val keystorePropsFile = rootProject.file("keystore.properties")
 val keystoreProps = Properties().apply {
@@ -209,9 +197,10 @@ android {
         buildConfigField("String", "WEB_BASE_URL", buildConfigString(productionWebBaseUrl))
         buildConfigField("String", "APP_MODE", buildConfigString("vendas"))
         buildConfigField("boolean", "VIDEO_STUDIO", "false")
-        // Só a bancada do Loghbx 2 liga esta chave. Serve para o código novo
-        // separar o que é do app novo SEM inventar um APP_MODE novo (ver o
-        // comentário no flavor logistica2).
+        // Só o flavor `logistica` liga esta chave (desde a FUSÃO de 07/08). Ela
+        // separa o app novo SEM inventar um APP_MODE novo — ver o comentário no
+        // flavor. O `vendas` continua `false` de propósito: ele nunca recebeu a
+        // abertura única, e ligar aqui apagaria a cortina dele.
         buildConfigField("boolean", "HBX_V2", "false")
         buildConfigField("String", "GOOGLE_WEB_CLIENT_ID", buildConfigString(googleWebClientId))
         manifestPlaceholders["hbxUsesCleartextTraffic"] = "false"
@@ -230,37 +219,24 @@ android {
             dimension = "experience"
             applicationId = "br.com.hbxsystem.logistica"
             versionCode = hbxLogisticaVersionCode
-            versionName = "beta1.3.2"
-            buildConfigField("String", "APP_MODE", buildConfigString("logistica"))
-            manifestPlaceholders["hbxAppLabel"] = "HBX Logística"
-        }
-        // Bancada do app novo — nunca entra no publish (o deploy-vps.js monta
-        // só assembleLogisticaRelease e assembleVendasRelease).
-        create("logistica2") {
-            dimension = "experience"
-            applicationId = "br.com.hbxsystem.logistica2"
-            // Número fixo: este APK não tem auto-update, ele nasce do cabo.
-            versionCode = 1
-            // ALPHA1 (07/08) — ordem do dono: "atualize o app para a versão alpha1,
-            // já dentro do vps". Saiu o "-bancada" porque este build deixou de
-            // apontar pro localhost: sem `-PhbxApiBaseUrl`, o `debugApiBaseUrl` cai
-            // no default, que é PRODUÇÃO (https://api.hbxsystem.com.br).
-            // 🔴 Isto NÃO é a troca do §6.3 e NÃO chega no celular do André: o
-            // applicationId continua `.logistica2` (app separado do `.logistica`
-            // dele), o publish não compila este flavor, e ele segue FORA da digital
-            // do APK (`collectApkInputFiles` pula `logistica2`). O André fica no
-            // beta1.3.2 até o dono mandar o contrário.
+            // ALPHA1 (07/08) — ordem do dono na FUSÃO: "junte agora o app em 1".
+            // Sai o `beta1.3.2` (o app antigo) e entra o nome que o dono batizou
+            // pro app novo. Nunca deixar `-bancada` aqui: este é o flavor que vai
+            // pro celular do cliente.
             versionName = "alpha1"
-            // 🔴 APP_MODE CONTINUA "logistica", de propósito. O Kotlin de main/
-            // decide 40+ comportamentos comparando esta string com "logistica"
+            // 🔴 APP_MODE CONTINUA "logistica". O Kotlin de main/ decide 40+
+            // comportamentos comparando esta string com "logistica"
             // (NativeAppBridge, HbxMobileBridge, MainActivity, som, push). Um
-            // APP_MODE "logistica2" faria cada uma dessas funções sair pela
-            // porta dos fundos e o app nasceria oco. Quem separa o app novo é
-            // o HBX_V2 abaixo.
+            // APP_MODE novo faria cada uma dessas funções sair pela porta dos
+            // fundos e o app nasceria oco. Quem liga o app novo é o HBX_V2.
             buildConfigField("String", "APP_MODE", buildConfigString("logistica"))
+            // 🔴 HBX_V2 = a chave do app novo. É ela que decide a ABERTURA ÚNICA
+            // (OpeningActivity sem cena, só o porteiro da sessão) e o porteiro
+            // liso da MainActivity (`if (!BuildConfig.HBX_V2) mountOpeningOverlay`).
+            // Se voltar pra `false`, a abertura anterior RESSUSCITA e o motorista
+            // vê duas aberturas em sequência de novo.
             buildConfigField("boolean", "HBX_V2", "true")
-            manifestPlaceholders["hbxAppLabel"] = "HBX Logística 2"
-            manifestPlaceholders["hbxUsesCleartextTraffic"] = "true"
+            manifestPlaceholders["hbxAppLabel"] = "HBX Logística"
         }
     }
 
@@ -342,29 +318,24 @@ android {
     }
 }
 
-// Na fusão do DSL o buildType VENCE o flavor — e o buildType `debug` define
-// API_BASE_URL a partir de `hbxApiBaseUrl`, que por padrão é PRODUÇÃO. Sem o
-// bloco abaixo, o logistica2Debug (o build que eu uso pra inspecionar a tela
-// pelo Chrome DevTools) nasceria falando com o VPS em vez do localhost — que é
-// exatamente o acidente que esta bancada existe pra evitar. A API de variante
-// roda DEPOIS da fusão e é a única que ganha do buildType.
-androidComponents {
-    onVariants(selector().withFlavor("experience" to "logistica2")) { variant ->
-        variant.buildConfigFields?.put(
-            "API_BASE_URL",
-            BuildConfigField("String", buildConfigString(logistica2ApiBaseUrl), "Bancada do Loghbx 2"),
-        )
-        variant.buildConfigFields?.put(
-            "WEB_BASE_URL",
-            BuildConfigField("String", buildConfigString(logistica2WebBaseUrl), "Bancada do Loghbx 2"),
-        )
-        // Mesmo motivo: o placeholder do buildType `debug` também vence o do
-        // flavor, e ele calcula "false" a partir da URL de produção (https).
-        // Com cleartext bloqueado o app abriria e TODA chamada ao localhost
-        // morreria — com cara de backend fora do ar, não de bloqueio do Android.
-        variant.manifestPlaceholders.put("hbxUsesCleartextTraffic", "true")
-    }
-}
+// 🔴 AQUI MORAVA O OVERRIDE DE ENDEREÇO DA BANCADA — não ressuscitar.
+// Existia um `androidComponents.onVariants(selector().withFlavor("experience" to
+// "logistica2"))` que FORÇAVA API_BASE_URL/WEB_BASE_URL a partir do
+// `logistica2.properties`, cujo default era `http://localhost:3000`. Ele saiu
+// junto com o flavor na FUSÃO de 07/08.
+//
+// Por que o aviso: em 07/08 esse bloco derrubou o app de verdade — o APK saiu
+// apontando pro localhost e o pareamento "expirava" (o servidor aceitava o
+// código, o `MobileEntrySession.validatedEntryUri` comparava HOST com HOST e
+// recusava a entrada, com cara de código errado). Se um dia voltar a existir um
+// flavor de bancada, ele NUNCA pode ser o flavor que vai pro cliente.
+//
+// Hoje o endereço do `logistica` vem de um lugar só: `productionApiBaseUrl` /
+// `productionWebBaseUrl` no `defaultConfig` (release) e `debugApiBaseUrl` /
+// `debugWebBaseUrl` no buildType `debug` — que caem no MESMO valor de produção
+// quando ninguém passa `-PhbxApiBaseUrl`. Pra rodar contra o notebook, é
+// `-PhbxApiBaseUrl=http://localhost:3000 -PhbxWebBaseUrl=http://localhost:3001`
+// na linha de comando: some quando o comando acaba, não fica preso num arquivo.
 
 // Recarga é função geral do sistema: os dois APKs usam o mesmo checkout
 // isolado, sem duplicar os arquivos sensíveis do frontend.
@@ -377,12 +348,17 @@ val prepareVendasCheckoutAssets = tasks.register<Sync>("prepareVendasCheckoutAss
 android.sourceSets.getByName("vendas").assets.srcDir(generatedVendasCheckoutAssets)
 tasks.configureEach {
     if (name.endsWith("VideoStudioGoogleServices")) enabled = false
-    // O google-services.json só declara br.com.hbxsystem e .logistica, então o
-    // plugin derruba o build ao não achar br.com.hbxsystem.logistica2. A
-    // bancada fala com o localhost e não precisa de push; a única chamada ao
-    // Firebase (HbxMobileBridge.registrarPushToken) já vive dentro de
-    // runCatching, então o app sobe igual sem o Firebase inicializado.
-    if (name.contains("Logistica2") && name.endsWith("GoogleServices")) enabled = false
+    // 🔴 AQUI MORAVA O DESLIGA-PUSH DA BANCADA — não ressuscitar sem motivo.
+    // O `logistica2` desligava o `GoogleServices` porque o google-services.json
+    // só declara `br.com.hbxsystem` e `br.com.hbxsystem.logistica`, e o plugin
+    // derruba o build ao não achar um applicationId. Com a FUSÃO de 07/08 o
+    // applicationId voltou pra `.logistica`, que ESTÁ declarado — então o
+    // plugin roda e o push volta a existir.
+    // Por que isto tinha que ser conferido à mão: a única chamada ao Firebase
+    // (`HbxMobileBridge.registrarPushToken`) vive dentro de um `runCatching`.
+    // Com o plugin desligado o Firebase nunca inicializa, a chamada falha, o
+    // `runCatching` engole, o app sobe normal — e o PUSH MORRE EM SILÊNCIO.
+    // Ninguém percebe até o motorista parar de receber recado.
     val empacotaAssetsVendas = name.startsWith("mergeVendas") && name.endsWith("Assets")
     val validaAssetsVendas = name.contains("Vendas") && name.contains("lint", ignoreCase = true)
     if (empacotaAssetsVendas || validaAssetsVendas) {

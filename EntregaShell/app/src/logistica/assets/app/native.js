@@ -745,7 +745,7 @@
         // 🔴 ITEM 1 DO DONO (07/08) — O ARRASTAR ESTAVA MORTO NESTE FLAVOR, e
         // morria CALADO. O ouvinte de toque logo abaixo sempre existiu, mas
         // quem sabe a ordem das abas é o `context`, e `setContext` só é chamado
-        // dentro do `app.js` — que o `logistica2` NÃO carrega (o index.html
+        // dentro do `app.js` — que este app NÃO carrega mais (o index.html
         // puxa native + mock + ponte). Resultado medido: `context` null, este
         // return, dedo pra lá e pra cá sem nada acontecer.
         // Na casca 2.0 quem tem a barra é o MOCK — e só ele sabe quais módulos
