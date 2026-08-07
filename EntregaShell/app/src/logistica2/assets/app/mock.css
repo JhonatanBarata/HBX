@@ -329,8 +329,17 @@ button,input{font:inherit;color:inherit}
 @keyframes spBrilho{from{left:-45%}to{left:125%}}
 .splash-logo small{display:block;font-size:11px;color:var(--logo-sub);margin-top:11px;padding-left:10px;
   animation:spLetras .85s var(--cv-entra) 2.05s both}
-.splash-empresa{margin-top:26px;font-size:13px;color:var(--ink-2);animation:spSobe .55s var(--cv-entra) 2.35s both}
-.splash-barra{width:96px;height:2px;background:var(--barra-trilho);border-radius:2px;overflow:hidden;margin-top:16px}
+/* 🔴 A LINHA DO NOME DA EMPRESA SAIU DA ABERTURA (07/08). Ela dizia "Água Rio
+   Claro" — COPY do desenho — na PRIMEIRA tela que o motorista vê, e o aparelho
+   estava logado na Atlas Distribuidora (medido no g15). O nome da empresa não
+   tem porta no aparelho: `hbx:logistica-company-name` não existe no
+   localStorage do logistica2 (6 chaves, nenhuma é ela) e o único código que
+   grava essa chave é o `app.js`, que o `index.html` do flavor NÃO carrega. A
+   abertura também é a única tela que não pode ser repintada (é uma cena com
+   relógio), então nem o `apagarDemonstracao` alcançava. Sem fonte, VAZIO — e
+   vazio numa cena de 3,4 s é a linha inteira fora. O gap de 42px é o que ela
+   ocupava: sem ele a barra encosta no "LOGÍSTICA". */
+.splash-barra{width:96px;height:2px;background:var(--barra-trilho);border-radius:2px;overflow:hidden;margin-top:42px}
 .splash-barra i{display:block;height:100%;background:var(--splash-marca);transform-origin:left;
   box-shadow:0 0 8px rgba(158,222,42,.8);animation:spCarrega 2.6s var(--cv-entra) .6s both}
 @keyframes spSobe{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
@@ -347,7 +356,6 @@ button,input{font:inherit;color:inherit}
   animation-delay:calc(.35s + var(--i,0) * var(--mv-passo))!important}
 .tela.sai.abertura .splash-logo{animation:mvLogoVoa .9s var(--cv-entra) both}
 @keyframes mvLogoVoa{to{transform:translate(var(--dx,0px),var(--dy,-380px)) scale(var(--esc,.55))}}
-.tela.sai.abertura .splash-empresa,
 .tela.sai.abertura .splash-barra,
 .tela.sai.abertura .splash-anel,
 .tela.sai.abertura .splash-rota,
@@ -1510,6 +1518,10 @@ button,input{font:inherit;color:inherit}
   display:grid;place-items:center;cursor:pointer}
 
 /* ---------- ajustes ---------- */
+/* O título da sub-tela. `telaAjuste` recebia o nome e nunca o escrevia: Recarga,
+   Financeiro, Avançado, Sons, Histórico e Consumo abriam SEM título nenhum, e o
+   cabeçalho é o logo (não anda, §hdr) — não havia onde ler onde se está. */
+.tela-tit{font-size:15.5px;font-weight:700;color:var(--ink);margin:9px 2px 0;letter-spacing:-.01em}
 .grupo{font-size:11px;color:var(--ink-2);margin:12px 2px 5px}
 .cartao-lista{background:var(--card);border:.7px solid var(--line);border-radius:13px;overflow:hidden}
 .linha-cfg{width:100%;display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;
@@ -1849,7 +1861,7 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .splash-fundo{background:radial-gradient(430px 330px at 50% 44%,rgba(47,126,247,.12),transparent 70%)}
 [data-luz="claro"] .splash-logo .w b{color:var(--splash-tinta)}
 [data-luz="claro"] .splash-logo .w em{color:var(--splash-marca)}
-[data-luz="claro"] .splash-logo small,[data-luz="claro"] .splash-empresa{color:var(--splash-sub)}
+[data-luz="claro"] .splash-logo small{color:var(--splash-sub)}
 [data-luz="claro"] .splash-brilho{background:linear-gradient(90deg,transparent,rgba(15,23,38,.10),transparent)}
 [data-luz="claro"] .splash-barra{background:var(--splash-trilho)}
 

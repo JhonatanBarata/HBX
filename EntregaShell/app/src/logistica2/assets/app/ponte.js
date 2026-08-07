@@ -304,6 +304,14 @@
     // O nível do financeiro vem no MESMO payload da rota (não é chute nem
     // pedido extra): é ele que decide qual das duas folhas abre na porta.
     if (typeof r.moduloFinanceiroAtivo === 'boolean') financeiroAtivo = r.moduloFinanceiroAtivo;
+    /* O ANEL DO "TÔ CHEGANDO" vem armado do servidor, no mesmo payload: ele já
+       manda `avisoChegandoAtivo` (a trava tripla dele resolvida) e o raio. O
+       contrato do backend é explícito sobre de quem é a vez — "o app só arma o
+       anel de ~500m quando isto é true (evita POST inútil com o recurso OFF)". */
+    avisoChegandoAtivo = !!r.avisoChegandoAtivo;
+    if (typeof r.avisoChegandoDistanciaM === 'number' && r.avisoChegandoDistanciaM > 0) {
+      avisoChegandoRaioM = r.avisoChegandoDistanciaM;
+    }
     const entregues = itens.filter((it) => String(it.status || '') === 'entregue').length;
     const marcado = itens.reduce((s, it) => s + (typeof it.valorHoje === 'number' ? it.valorHoje : 0), 0);
     const temValor = itens.some((it) => typeof it.valorHoje === 'number');
@@ -424,7 +432,29 @@
       ajustes: {
         carregando: true, avisarChegadaDist: '', creditosLinha: '',
         painelCreditos: '', grupoOffline: 0, empresa: '', versao: '', versaoSub: '',
+        // Papel é DADO, e sem resposta do servidor não se sabe qual é. O desenho
+        // nasce admin (é a tela cheia); o aparelho nasce SEM, e só o `config`
+        // liga. Errar pro lado de mostrar administração é vazar dinheiro.
+        admin: 0,
       },
+      // As chaves de dinheiro. Todas nascem 0 e a tela nem desenha: chave no
+      // estado do desenho é o motorista achando que desligou o que nem carregou.
+      avancado: {
+        carregando: true, admin: 0, financeiro: 0, cobrancaSimples: 0,
+        precoPorCliente: 0, naHora: 0, mensal: 0, fiado: 0,
+      },
+      /* A ABERTURA NÃO ENTRA AQUI — e o motivo é o que torna ela especial. Ela
+         dizia "Água Rio Claro" (nome do desenho) na PRIMEIRA tela que o
+         motorista vê, com o aparelho logado na Atlas. Zerar um slot não
+         resolveria: o `pintar(false)` do fim do mock.js já pintou a abertura
+         quando esta função roda, e ela não repinta a abertura de propósito
+         (`telaAtual() !== 'entrada'`, logo abaixo) porque é uma cena com
+         relógio. O nome da empresa também não tem porta no aparelho —
+         `hbx:logistica-company-name` não existe no localStorage do logistica2
+         (medido no g15) e quem grava essa chave é o `app.js`, que o
+         `index.html` do flavor não carrega. Sem porta e sem repinte, a linha
+         saiu do DESENHO (o porquê inteiro está em cima do `.splash-barra`, na
+         folha do mock). */
       // 🔴 TELA DE DINHEIRO. O catálogo inteiro era do desenho (R$ 49/129/239/449,
       // "+8% grátis") e o botão anunciava "Recarregar 300 créditos · R$ 129,00"
       // sem pacote escolhido de verdade — ele saía pelo `if (!pacoteEscolhido)`
@@ -1081,6 +1111,40 @@
     return (typeof c.lat === 'number' && typeof c.lng === 'number') ? { lat: c.lat, lng: c.lng } : null;
   };
 
+  /* ---- O ANEL DO "TÔ CHEGANDO" -------------------------------------------
+     🔴 A CHAVE EXISTIA E O AVISO NÃO SAÍA — a corrente estava CORTADA no meio.
+     No app que já roda ela tem três elos: o geofence nativo dispara
+     `hbx:arrival`, o `hbx:arrival` chama `POST /logistica/entregas/:id/chegando`
+     e só então o servidor manda o WhatsApp pro cliente. O app novo não tem
+     geofence nativo (a folha abre no TOQUE) e ninguém chamava o `chegando` —
+     então `avisoChegandoEnabled` era uma chave que gravava no banco e não
+     produzia aviso nenhum. Ligar a chave sem religar a corrente seria entregar
+     a mentira com a cara arrumada.
+
+     O anel é o que o backend PEDE ("o app só arma o anel de ~500m quando isto é
+     true"): a cada fix do GPS, parada pendente com pino dentro do raio ganha UM
+     POST. A marcação é feita ANTES da ida e nunca é desfeita — o servidor é a
+     autoridade de idempotência (claim race-safe em `avisoChegandoAt`) e o
+     controller responde `{ok:true}` sempre, de propósito, pra que o app não
+     tenha o que reenviar. Cliente que reenvia é o começo de todo loop.
+     ------------------------------------------------------------------------ */
+  let avisoChegandoAtivo = false;
+  let avisoChegandoRaioM = 500;
+  const jaAvisados = new Set();
+
+  function anelDeChegada() {
+    if (!avisoChegandoAtivo || !ultimaPos || !temPonte()) return;
+    paradasPendentes().forEach((p) => {
+      const id = String((p.item && p.item.id) || '');
+      if (!id || jaAvisados.has(id)) return;
+      const pino = pinoDa(p.item);
+      if (!pino || metrosEntre(ultimaPos, pino) > avisoChegandoRaioM) return;
+      jaAvisados.add(id);
+      // Best-effort de verdade: não trava a rota, não avisa a tela, não repete.
+      window.API.post(`/logistica/entregas/${encodeURIComponent(id)}/chegando`, {}).catch(() => {});
+    });
+  }
+
   /** `lng,lat;lng,lat;…` — origem + as paradas que faltam, na ordem da rota */
   function coordenadasDaNavegacao() {
     if (!ultimoFix) return null;
@@ -1259,6 +1323,10 @@
             precisaoM: Number.isFinite(c.accuracy) ? c.accuracy : null,
           };
           ultimaPos = { lat: c.latitude, lng: c.longitude };
+          // O anel roda em QUALQUER tela: o motorista chega perto do cliente
+          // com o app na lista de paradas, não no GPS. `aoMover` é que é só da
+          // navegação — por isso o anel vem antes, e fora dele.
+          anelDeChegada();
           aoMover();
         },
         () => {}, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
@@ -1410,6 +1478,22 @@
      ------------------------------------------------------------------------ */
   let config = null;
 
+  /* 🔴 QUEM É ADMIN QUEM DIZ É O SERVIDOR, NÃO A TELA. O `GET /logistica/config`
+     responde DOIS tamanhos: pra quem é responsável financeiro ele manda o bloco
+     comercial (`modoRotaPadrao`, `pixChave`, `trackingAtivo`…), e pra gerente,
+     vendedor e motorista esses campos vêm AUSENTES — não nulos, ausentes. Então
+     a presença de um deles É a resposta, e não há gate nenhum inventado aqui.
+     É o MESMO `isAdmin()` do app que já roda (`app.js`, L545), com o MESMO
+     campo, de propósito: dois fronts do mesmo produto não podem discordar sobre
+     quem é dono.
+     ⚠️ Medido: `moduloFinanceiroAtivo` é o ÚNICO dos 6 que o backend exige
+     responsável financeiro pra GRAVAR (está no `changesCommercialConfig`); os
+     outros 5 bastam ser ADMIN. Como o app não tem sinal nenhum que separe
+     gerente de motorista, o corte é este — e ele erra pro lado certo: esconder
+     uma chave que o gerente poderia mexer é menos grave que mostrar uma chave
+     que vai devolver 403 na cara dele. Chave que não obedece é mentira. */
+  const ehAdmin = () => !!config && Object.prototype.hasOwnProperty.call(config, 'modoRotaPadrao');
+
   async function carregarAjustes() {
     if (!temPonte() || typeof window.usarDados !== 'function') return;
     const [cfgR, credR] = await Promise.allSettled([
@@ -1429,8 +1513,10 @@
     let sons = 1;
     try { const p = window.HBX.soundPrefs.get(); sons = p && p.master === false ? 0 : 1; } catch (_) { /* padrão ligado */ }
     const dist = Number(config.avisoChegandoDistanciaM);
+    const admin = ehAdmin() ? 1 : 0;
     window.usarDados('ajustes', {
       ...fonteVoltou,
+      admin,
       avisarChegadaDist: isFinite(dist) && dist > 0 ? `${dist} m` : '',
       avisarChegada: config.avisoChegandoEnabled ? 1 : 0,
       creditosLinha: saldo != null ? `${saldo} ${saldo === 1 ? 'crédito' : 'créditos'}` : '',
@@ -1441,6 +1527,19 @@
       empresa: '',             // o nome da empresa não vem em porta do celular
       versao: info.versionName ? `Versão ${esc(info.versionName)}` : '',
       versaoSub: '',
+    });
+    /* As 6 chaves de dinheiro. Vêm da MESMA resposta que já foi buscada — a tela
+       do Avançado não tem chamada própria, e por isso também não tem estado
+       próprio de falha: quem recarrega é o `recarregar-ajustes`. */
+    window.usarDados('avancado', {
+      ...fonteVoltou,
+      admin,
+      financeiro: config.moduloFinanceiroAtivo ? 1 : 0,
+      cobrancaSimples: config.cobrancaSimples ? 1 : 0,
+      precoPorCliente: config.precoPorClienteAtivo ? 1 : 0,
+      naHora: config.aceitaNaHora ? 1 : 0,
+      mensal: config.aceitaMensal ? 1 : 0,
+      fiado: config.aceitaFiado ? 1 : 0,
     });
     if (cred) encherRecarga(cred);
   }
@@ -2353,7 +2452,29 @@
     'ir-financeiro': () => window.ir('financeiro'),
     'ir-avancado': () => window.ir('avancado'),
     'chave-caderneta': () => virarChave('modoCaderneta'),
+    /* 🔴 TRÊS CAMPOS DO SERVIDOR DISPUTAVAM O RÓTULO "AVISAR CHEGADA". Medido,
+       e a diferença é de FUNÇÃO, não de nome:
+       · `raioChegadaM` (60 m) — no app que já roda é o raio do geofence NATIVO
+         (`activateRoute({raioM})`): é ele que dispara o `hbx:arrival` e ABRE a
+         folha sozinho. O app novo NÃO tem esse geofence — aqui a folha abre
+         quando o motorista TOCA na parada. Logo, no celular novo esse número
+         não muda nada do que ele vê (o que sobra dele é o vigia da Central, que
+         é tela de PC). Não entra: número que não faz nada é o mesmo defeito da
+         chave que não faz nada.
+       · `avisoChegandoEnabled` — liga/desliga o WhatsApp "estou chegando" PRO
+         CLIENTE. É literalmente o "chegou no cliente" do dono. É esta a chave.
+       · `avisoChegandoDistanciaM` (500 m) — a que distância esse aviso sai. É o
+         NÚMERO que aparece na linha, e agora ele é verdade: é o raio do anel
+         armado em `anelDeChegada`. */
     'aviso-chegada': () => virarChave('avisoChegandoEnabled'),
+    // As 6 do dono. Uma chave = um campo = um PATCH, sem lote: assim o que
+    // falhou fica evidente e o resto não volta atrás junto.
+    'chave-financeiro': () => virarChave('moduloFinanceiroAtivo'),
+    'chave-cobranca-simples': () => virarChave('cobrancaSimples'),
+    'chave-preco-cliente': () => virarChave('precoPorClienteAtivo'),
+    'chave-na-hora': () => virarChave('aceitaNaHora'),
+    'chave-mensal': () => virarChave('aceitaMensal'),
+    'chave-fiado': () => virarChave('aceitaFiado'),
     // Som e voz sao do APARELHO (soundPrefs do Kotlin), nao do servidor.
     'chave-sons': () => {
       try {

@@ -510,12 +510,28 @@ const DADOS={
      "Sem internet" inteiro some porque o download de mapa e o pacote offline
      sairam no corte de 06/08 (o PMTiles guarda 60 km sozinho, sem botao). */
   ajustes:{
-    avisarChegadaDist:'60 m', avisarChegada:1,
+    avisarChegadaDist:'500 m', avisarChegada:1,
     creditosLinha:'240 créditos',
+    admin:1,
     modoCaderneta:1, sons:1, painelCreditos:1,
     grupoOffline:1, mapaBaixando:'Baixando o mapa · 62%', mapaBaixado:'14,2 MB de 23,0 MB', mapaPct:62,
     empresa:'Água Rio Claro', versao:'Versão beta1.3.2', versaoSub:'atualizado hoje',
   },
+  /* As 6 chaves de dinheiro do Avançado. `admin` NÃO é papel inventado na tela:
+     é o que o próprio `GET /logistica/config` responde — pra quem não é
+     responsável financeiro o bloco comercial vem AUSENTE, e é essa ausência que
+     o app lê (o mesmo `isAdmin()` do app que já roda). */
+  avancado:{
+    admin:1, financeiro:1, cobrancaSimples:0, precoPorCliente:1,
+    naHora:1, mensal:1, fiado:1,
+  },
+  /* A ABERTURA NÃO TEM SEÇÃO DE DADO, e isso é de propósito — ver o comentário
+     em cima do `.splash-barra`, na folha. Slot com valor de desenho aqui NÃO
+     resolveria: o `casca-conferir` mede mock e app PIXEL A PIXEL, então o que
+     o desenho mostrar o aparelho mostra igual; e a abertura é a única tela que
+     a ponte não repinta (cena com relógio), então o `apagarDemonstracao` nunca
+     alcança o que o `pintar(false)` do fim desta folha já pintou. Sem porta, a
+     linha sai do DESENHO — não é escondida no aparelho. */
   recarga:{
     saldo:'240', ritmo:'~17 dias no seu ritmo',
     pacotes:[['100','49,00','',0,''],['300','129,00','+8% grátis',1,''],
@@ -1297,7 +1313,6 @@ T.entrada={nome:'Entrada (abertura)',grupo:'Sistema',render(){
         <div class="w"><b>H</b><b>B</b><em>X</em><i class="splash-brilho"></i></div>
         <small>LOGÍSTICA</small>
       </div>
-      <div class="splash-empresa">Água Rio Claro</div>
       <div class="splash-barra"><i></i></div>
     </div>
   </div>
@@ -1325,7 +1340,7 @@ function ajustarHastes(camada){
 /* 19 — SUB-TELAS DOS AJUSTES ---------------------------------------------- */
 const telaAjuste=(titulo,corpo,rodape)=>`${status}
 ${hdr({voltar:'ajustes',semChat:1})}
-<div class="body${rodape?' com-dock':''}">${corpo}</div>
+<div class="body${rodape?' com-dock':''}">${titulo?`<h1 class="tela-tit">${titulo}</h1>`:''}${corpo}</div>
 ${rodape?`<div class="tmx-dock">${rodape}</div>`:''}${nav('ajustes')}`;
 
 T.recarga={nome:'Ajustes · Recarga',grupo:'Ajustes',render(){
@@ -1391,33 +1406,42 @@ T.financeiro={nome:'Ajustes · Financeiro',grupo:'Ajustes',render(){
     </div>`);
 }};
 
-T.avancado={nome:'Ajustes · Avançado',grupo:'Ajustes',render(){
-  const ch=(ic0,t,s,on)=>`<button class="linha-cfg"><span class="ico">${ic(ic0,16)}</span>
-    <span><strong>${t}</strong>${s?`<span>${s}</span>`:''}</span><span class="chave ${on?'on':''}"><i></i></span></button>`;
-  return telaAjuste('Avançado',`
+/* 🔴 AS CHAVES DE DINHEIRO DO DONO MORAM AQUI — e as 6 que não tinham porta
+   saíram (07/08). O que havia nesta tela era desenho: `Aceitar cartão` e `Voz na
+   navegação` não existem em campo nenhum do servidor; `Conferência de rota`
+   (`rotaConferidaAtiva`) o app só LÊ — não está no UpdateLogisticaConfigDto, e o
+   ValidationPipe (forbidNonWhitelisted) devolve 400 pra quem tentar gravar;
+   `Rastreamento` saiu do celular por ordem do dono em 26/07 (só o painel do PC
+   grava, por `PATCH /logistica/config/modo-rota`). A "Zona de perigo" foi junto:
+   "Limpar dados do aparelho" não tem porta nativa nenhuma (só existe `logout()`
+   na ponte), e "Desvincular este aparelho" É o `logout()` — o mesmo que o "Sair"
+   dos Ajustes já faz, com o mesmo aviso de reparear. Dois nomes pro mesmo verbo
+   é a lei "mostra num lugar, edita num lugar" quebrada.
+
+   No lugar entram as 6 que o dono cobrou e que EXISTEM no servidor, com os
+   MESMOS nomes do app que já roda (`financeiroModal` do app.js): "Marcar" é o
+   `aceitaFiado` — o "pagou não" dele. O mestre esconde os 5 de baixo quando
+   está desligado porque com o financeiro OFF nenhum deles muda coisa alguma
+   (`abrirParada` já resolve `simples = !financeiroAtivo || cobrancaSimples`).
+   Sem texto embaixo da chave: o nome carrega a consequência, e o grupo
+   "Formas de pagamento" é o que faz "Marcar" ser lido como forma, não como
+   verbo solto. */
+T.avancado={nome:'Ajustes · Avançado',grupo:'Ajustes',render(){const a=DADOS.avancado;
+  const ch=(ic0,t,on,acao)=>`<button class="linha-cfg" data-acao="${acao}"><span class="ico">${ic(ic0,16)}</span>
+    <span><strong>${t}</strong></span><span class="chave ${on?'on':''}"><i></i></span></button>`;
+  return telaAjuste('Avançado',miolo(a,'gear','recarregar-ajustes',5,!a.admin?'':`
     <div class="grupo" style="margin-top:2px">Cobrança</div>
     <div class="cartao-lista">
-      ${ch('wallet','Financeiro ligado','',1)}
-      ${ch('note','Cobrança simples','uma folha só, sem conferir item a item',1)}
-      ${ch('card','Aceitar cartão','',1)}
+      ${ch('wallet','Financeiro ligado',a.financeiro,'chave-financeiro')}
+      ${a.financeiro?ch('note','Cobrança simples na chegada',a.cobrancaSimples,'chave-cobranca-simples'):''}
+      ${a.financeiro?ch('sales','Preço por cliente',a.precoPorCliente,'chave-preco-cliente'):''}
     </div>
-    <div class="grupo">Rota</div>
+    ${a.financeiro?`<div class="grupo">Formas de pagamento</div>
     <div class="cartao-lista">
-      ${ch('check','Conferência de rota','confere endereços antes de montar',1)}
-      ${ch('gps','Rastreamento','a Central vê onde o aparelho está',0)}
-      ${ch('volume','Voz na navegação','',1)}
-    </div>
-    <div class="grupo">Zona de perigo</div>
-    <div class="cartao-lista">
-      <button class="linha-cfg"><span class="ico" style="background:var(--red-bg);color:var(--red)">${ic('trash',16)}</span>
-        <span><strong style="color:var(--red)">Limpar dados do aparelho</strong>
-          <span>a rota do dia se perde se não estiver sincronizada</span></span>
-        <span style="color:var(--ink-3)">${ic('chev',15)}</span></button>
-      <button class="linha-cfg" data-superficie="confirmar"><span class="ico" style="background:var(--red-bg);color:var(--red)">${ic('logout',16)}</span>
-        <span><strong style="color:var(--red)">Desvincular este aparelho</strong>
-          <span>libera a vaga da empresa pra outro celular</span></span>
-        <span style="color:var(--ink-3)">${ic('chev',15)}</span></button>
-    </div>`);
+      ${ch('cash','Na hora',a.naHora,'chave-na-hora')}
+      ${ch('calendar','Mensal',a.mensal,'chave-mensal')}
+      ${ch('note','Marcar',a.fiado,'chave-fiado')}
+    </div>`:''}`));
 }};
 
 T.sons={nome:'Ajustes · Sons',grupo:'Ajustes',render(){
@@ -1856,6 +1880,11 @@ T.ajustes={nome:'Ajustes',grupo:'Cadastro',render(){const a=DADOS.ajustes;
   const chave=(icone,titulo,sub,on,acao)=>`<button class="linha-cfg"${acao?` data-acao="${acao}"`:''}><span class="ico">${ic(icone,16)}</span>
     <span><strong>${titulo}</strong>${sub?`<span>${sub}</span>`:''}</span>
     <span class="chave ${on?'on':''}"><i></i></span></button>`;
+  /* Chave que também mostra um NÚMERO à direita. O número é DADO (o raio que o
+     servidor tem gravado), não explicação — some sozinho quando não chega. */
+  const chaveVal=(icone,titulo,val,on,acao)=>`<button class="linha-cfg" data-acao="${acao}"><span class="ico">${ic(icone,16)}</span>
+    <span><strong>${titulo}</strong></span>
+    <span style="display:flex;align-items:center;gap:9px">${val?`<b style="font-size:12px;color:var(--ink-2)">${val}</b>`:''}<span class="chave ${on?'on':''}"><i></i></span></span></button>`;
   /* 🔴 CHAVE COM VALOR DESCONHECIDO NÃO ENTRA NA TELA. Aqui a mentira é pior
      que numa lista: o motorista lê "Modo caderneta LIGADO" (que é o exemplo do
      desenho), toca pra desligar e acha que desligou — quando na verdade nem
@@ -1867,15 +1896,15 @@ T.ajustes={nome:'Ajustes',grupo:'Cadastro',render(){const a=DADOS.ajustes;
 ${hdr({semChat:1})}
 <div class="body">
   ${miolo(a,'gear','recarregar-ajustes',6,`
-  <div class="grupo">Administração</div>
+  ${a.admin?`<div class="grupo">Administração</div>
   <div class="cartao-lista">
-    ${linha('gps','Avisar chegada','',`<b>${a.avisarChegadaDist}</b>`,'aviso-chegada')}
+    ${chaveVal('gps','Avisar chegada',a.avisarChegadaDist,a.avisarChegada,'aviso-chegada')}
     ${linha('sales','Consumo e bônus','','','ir-consumo')}
     ${a.painelCreditos===''?'':chave('calendar','Painel de créditos do dia','',a.painelCreditos,'painel-creditos')}
     ${linha('card','Recarga de créditos',a.creditosLinha,'','ir-recarga')}
     ${linha('wallet','Financeiro','','','ir-financeiro')}
     ${linha('gear','Avançado','','','ir-avancado')}
-  </div>
+  </div>`:''}
   <div class="grupo">Caderneta</div>
   <div class="cartao-lista">
     ${chave('note','Modo caderneta','',a.modoCaderneta,'chave-caderneta')}
