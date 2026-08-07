@@ -68,6 +68,23 @@ type Config = {
   // PR27072026 F1 (ROTA 3 NÍVEIS) — nível do plano; ausente (config antiga) =
   // ADVANCED no consumo abaixo (mesmo grandfathering do backend).
   logisticaNivel?: "BASIC" | "ADVANCED" | "FULL";
+  // ITEM 9 (07/08) — CSV do que está DESLIGADO no app do motorista. "rota" nunca
+  // entra (o backend filtra), por isso ela aparece aqui fixa e marcada.
+  appModulosDesativados?: string | null;
+  // PR07082026-PROSPECTOR-CNPJ F4 — os 3 disparos automáticos, mesmo shape:
+  // toggle + template + condição. `*Disponivel` é derivado da env (read-only).
+  avisoChegandoEnabled?: boolean;
+  avisoChegandoTemplate?: string | null;
+  avisoChegandoDistanciaM?: number;
+  cobrancaWhatsAtiva?: boolean;
+  cobrancaWhatsTemplate?: string | null;
+  cobrancaWhatsDisponivel?: boolean;
+  prospectorAtivo?: boolean;
+  prospectorTemplate?: string | null;
+  prospectorRaioM?: number;
+  prospectorMaxDia?: number;
+  prospectorEquipe?: boolean;
+  prospectorDisponivel?: boolean;
 };
 
 type ConfigActor = NonNullable<ReturnType<typeof useCurrentUser>> & {
@@ -95,6 +112,150 @@ const VARS: Array<{ key: string; label: string }> = [
   { key: "qtd", label: "Qtd total" },
   { key: "produto", label: "Produto" },
 ];
+
+// ── ITEM 9 (07/08) — MÓDULOS DO MOTORISTA ────────────────────────────────────
+// O admin monta o app do motorista daqui, pelo PC. A lista é a mesma
+// APP_MODULOS_DESATIVAVEIS do backend; grava o CSV do que está DESLIGADO.
+// LEI: Rota NUNCA desliga — ela aparece na lista como item fixo (marcado e
+// desabilitado) para o admin ver o app inteiro, não uma lista pela metade.
+const APP_MODULOS: Array<{ key: string; label: string }> = [
+  { key: "caderneta", label: "Caderneta" },
+  { key: "clientes", label: "Clientes" },
+  { key: "produtos", label: "Produtos" },
+  { key: "chat", label: "Chat" },
+  { key: "ajustes", label: "Ajustes" },
+];
+
+function desativadosSet(csv: string | null | undefined): Set<string> {
+  return new Set(
+    String(csv ?? "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
+/** CSV do que fica DESLIGADO depois de ligar/desligar `key` (ordem estável). */
+function csvComModulo(csv: string | null | undefined, key: string, ligado: boolean): string {
+  const off = desativadosSet(csv);
+  if (ligado) off.delete(key);
+  else off.add(key);
+  return APP_MODULOS.filter((m) => off.has(m.key)).map((m) => m.key).join(",");
+}
+
+// ── PR07082026-PROSPECTOR-CNPJ F4 — MENSAGENS AUTOMÁTICAS ───────────────────
+// Variáveis aceitas por disparo. Só entra chave que o backend RESOLVE: chip que
+// cola um {token} sem fonte escreveria vazio na mensagem do cliente.
+const VARS_CHEGANDO: Array<{ key: string; label: string }> = [
+  { key: "saudacao", label: "Saudação" },
+  { key: "cliente", label: "Cliente" },
+  { key: "itens", label: "Itens" },
+  { key: "qtd", label: "Qtd total" },
+  { key: "produto", label: "Produto" },
+  { key: "empresa", label: "Empresa" },
+];
+const VARS_COBRANCA: Array<{ key: string; label: string }> = [
+  { key: "saudacao", label: "Saudação" },
+  { key: "cliente", label: "Cliente" },
+  { key: "empresa", label: "Empresa" },
+];
+const VARS_PROSPECTOR: Array<{ key: string; label: string }> = [
+  { key: "saudacao", label: "Saudação" },
+  { key: "empresa", label: "Empresa" },
+  { key: "ramo", label: "Ramo" },
+  { key: "cidade", label: "Cidade" },
+];
+
+/**
+ * UM disparo automático. Os três (chegada, cobrança, prospector) são ESTE
+ * componente repetido — nada de layout por disparo. As peças são as mesmas do
+ * bloco de aviso da entrega (cabeça + ctt-toggle + .log-cfg__vars + .log-cfg__ta
+ * + btn-teal): nenhum padrão visual novo nasce aqui.
+ */
+function MensagemAuto(props: {
+  titulo: string;
+  ativo: boolean;
+  onAtivo: (v: boolean) => void;
+  vars: Array<{ key: string; label: string }>;
+  template: string;
+  onTemplate: (v: string) => void;
+  onSalvar: () => void;
+  saving: boolean;
+  disponivel: boolean;
+  motivo: string;
+  children?: React.ReactNode;
+}) {
+  const { titulo, ativo, onAtivo, vars, template, onTemplate, onSalvar, saving, disponivel, motivo, children } = props;
+  const taRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const travado = !disponivel || saving;
+
+  const inserir = useCallback((key: string) => {
+    const token = `{${key}}`;
+    const el = taRef.current;
+    if (!el) { onTemplate(template + token); return; }
+    const start = el.selectionStart ?? template.length;
+    const end = el.selectionEnd ?? template.length;
+    onTemplate(template.slice(0, start) + token + template.slice(end));
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = start + token.length;
+      el.setSelectionRange(pos, pos);
+    });
+  }, [onTemplate, template]);
+
+  return (
+    <div className="log-cfg__msg">
+      <div className="log-cfg__block-head">
+        <strong className="log-cfg__block-title">{titulo}</strong>
+        <label className="ctt-toggle ctt-toggle--inline">
+          <input
+            type="checkbox"
+            checked={ativo}
+            disabled={travado}
+            onChange={(e) => onAtivo(e.target.checked)}
+          />
+          <span>{ativo ? "Ligado" : "Desligado"}</span>
+        </label>
+      </div>
+
+      <div className="log-cfg__vars">
+        {vars.map((v) => (
+          <button
+            type="button"
+            key={v.key}
+            className="btn-ghost btn-xs log-cfg__var"
+            disabled={travado}
+            onClick={() => inserir(v.key)}
+            title={`Inserir {${v.key}}`}
+          >
+            <I d={ICONS.plus} size={11} /> {v.label}
+          </button>
+        ))}
+      </div>
+
+      <textarea
+        ref={taRef}
+        className="field-dark log-cfg__ta"
+        value={template}
+        disabled={travado}
+        onChange={(e) => onTemplate(e.target.value)}
+        rows={4}
+        placeholder="Vazio = mensagem padrão"
+        aria-label={`Mensagem de ${titulo}`}
+      />
+
+      {children}
+
+      {/* O motivo vem ANTES do botão: ele explica a condição logo acima e deixa
+          o "Salvar" como último item dos três cards (é o que alinha a base). */}
+      {!disponivel && <p className="log-cfg__availability" role="status">{motivo}</p>}
+
+      <button className="btn-teal log-cfg__save" onClick={onSalvar} disabled={travado}>
+        <I d={ICONS.check} size={14} /> Salvar mensagem
+      </button>
+    </div>
+  );
+}
 
 // Dados de exemplo do PREVIEW (não vão pra lugar nenhum — só ilustram).
 const PREVIEW_VARS = {
@@ -138,6 +299,11 @@ export function LogisticaConfigClient() {
 
   const [cfg, setCfg] = useState<Config | null>(null);
   const [template, setTemplate] = useState<string>("");
+  // F4 — um rascunho por disparo (o texto só vai pro backend no "Salvar
+  // mensagem", igual ao template da entrega logo acima).
+  const [tplChegando, setTplChegando] = useState<string>("");
+  const [tplCobranca, setTplCobranca] = useState<string>("");
+  const [tplProspector, setTplProspector] = useState<string>("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -161,6 +327,11 @@ export function LogisticaConfigClient() {
       .then((res) => {
         setCfg(res);
         setTemplate(res.templateAviso ?? TEMPLATE_DEFAULT);
+        // Vazio é ESTADO REAL nos 3 (null = manda a mensagem padrão do sistema),
+        // então nenhum deles ganha texto sugerido no lugar do que está gravado.
+        setTplChegando(res.avisoChegandoTemplate ?? "");
+        setTplCobranca(res.cobrancaWhatsTemplate ?? "");
+        setTplProspector(res.prospectorTemplate ?? "");
         setError(null);
       })
       .catch((err: unknown) => {
@@ -416,6 +587,119 @@ export function LogisticaConfigClient() {
               </button>
             </div>
 
+            {/* ── PR07082026-PROSPECTOR-CNPJ F4 — MENSAGENS AUTOMÁTICAS ────────
+                Os 3 disparos no MESMO molde (o componente MensagemAuto repetido
+                3×). Fica sob billingOwner porque é assim que o GET entrega os
+                campos: para gerente (ADMIN sem billing) o backend OMITE os
+                campos de cobrança e de aviso, e um toggle sem dado mostraria
+                "Desligado" para algo que está ligado. */}
+            {billingOwner && (
+              <div className="log-cfg__block">
+                <strong className="log-cfg__block-title">Mensagens automáticas</strong>
+                <div className="log-cfg__msgs">
+                  <MensagemAuto
+                    titulo="Aviso de chegada"
+                    ativo={!!cfg.avisoChegandoEnabled}
+                    onAtivo={(v) => patch({ avisoChegandoEnabled: v })}
+                    vars={VARS_CHEGANDO}
+                    template={tplChegando}
+                    onTemplate={setTplChegando}
+                    onSalvar={() => patch({ avisoChegandoTemplate: tplChegando.trim() })}
+                    saving={saving}
+                    disponivel
+                    motivo=""
+                  >
+                    <div className="log-cfg__grid">
+                      <label className="f">
+                        <span>Distância (m)</span>
+                        <input
+                          className="field-dark"
+                          type="number"
+                          min={100}
+                          max={2000}
+                          value={cfg.avisoChegandoDistanciaM ?? 500}
+                          disabled={saving}
+                          onChange={(e) => setCfg({ ...cfg, avisoChegandoDistanciaM: Number(e.target.value) })}
+                          onBlur={(e) => patch({ avisoChegandoDistanciaM: Number(e.target.value) })}
+                          aria-label="Distância do aviso de chegada em metros"
+                        />
+                      </label>
+                    </div>
+                  </MensagemAuto>
+
+                  <MensagemAuto
+                    titulo="Cobrança no WhatsApp"
+                    ativo={!!cfg.cobrancaWhatsAtiva}
+                    onAtivo={(v) => patch({ cobrancaWhatsAtiva: v })}
+                    vars={VARS_COBRANCA}
+                    template={tplCobranca}
+                    onTemplate={setTplCobranca}
+                    onSalvar={() => patch({ cobrancaWhatsTemplate: tplCobranca.trim() })}
+                    saving={saving}
+                    disponivel={!!cfg.cobrancaWhatsDisponivel}
+                    motivo="Cobrança por WhatsApp indisponível. A preferência fica salva para quando a HBX liberar."
+                  >
+                    <p className="log-cfg__note">Ao lançar e no vencimento.</p>
+                  </MensagemAuto>
+
+                  <MensagemAuto
+                    titulo="Prospector CNPJ"
+                    ativo={!!cfg.prospectorAtivo}
+                    onAtivo={(v) => patch({ prospectorAtivo: v })}
+                    vars={VARS_PROSPECTOR}
+                    template={tplProspector}
+                    onTemplate={setTplProspector}
+                    onSalvar={() => patch({ prospectorTemplate: tplProspector.trim() })}
+                    saving={saving}
+                    disponivel={!!cfg.prospectorDisponivel}
+                    motivo="Prospector indisponível. A preferência fica salva para quando a HBX liberar."
+                  >
+                    <div className="log-cfg__grid">
+                      <label className="f">
+                        <span>Raio (m)</span>
+                        <input
+                          className="field-dark"
+                          type="number"
+                          min={50}
+                          max={500}
+                          value={cfg.prospectorRaioM ?? 150}
+                          disabled={saving || !cfg.prospectorDisponivel}
+                          onChange={(e) => setCfg({ ...cfg, prospectorRaioM: Number(e.target.value) })}
+                          onBlur={(e) => patch({ prospectorRaioM: Number(e.target.value) })}
+                          aria-label="Raio do prospector em metros"
+                        />
+                      </label>
+                      <label className="f">
+                        <span>Vezes por dia</span>
+                        <input
+                          className="field-dark"
+                          type="number"
+                          min={1}
+                          max={8}
+                          value={cfg.prospectorMaxDia ?? 4}
+                          disabled={saving || !cfg.prospectorDisponivel}
+                          onChange={(e) => setCfg({ ...cfg, prospectorMaxDia: Number(e.target.value) })}
+                          onBlur={(e) => patch({ prospectorMaxDia: Number(e.target.value) })}
+                          aria-label="Vezes por dia que o prospector acende"
+                        />
+                      </label>
+                    </div>
+                    <label className="log-cfg__switch">
+                      <input
+                        type="checkbox"
+                        checked={!!cfg.prospectorEquipe}
+                        disabled={saving || !cfg.prospectorDisponivel}
+                        onChange={(e) => patch({ prospectorEquipe: e.target.checked })}
+                      />
+                      <span className="log-cfg__switch-txt">
+                        <span className="log-cfg__switch-name">Liberar pro motorista</span>
+                      </span>
+                    </label>
+                  </MensagemAuto>
+                </div>
+              </div>
+            )}
+
             {/* ── Toggles gerais ─────────────────────────────────────────────── */}
             <div className="log-cfg__block">
               <strong className="log-cfg__block-title">{billingOwner ? "Cobrança e recorrência" : "Recorrência"}</strong>
@@ -478,6 +762,48 @@ export function LogisticaConfigClient() {
                   <span className="log-cfg__switch-name">Código de 6 dígitos</span>
                 </span>
               </label>
+            </div>
+
+            {/* ── ITEM 9 (07/08) — MÓDULOS DO MOTORISTA ──────────────────────
+                O admin monta o app do motorista daqui, pelo PC: deixa mastigado
+                e libera só o que ele precisa. Grava o CSV do que está
+                DESLIGADO. Rota é item fixo, marcado e desabilitado — a lista
+                mostra o app INTEIRO, e é ela que diz por que a Rota não desce.  */}
+            <div className="log-cfg__block">
+              <strong className="log-cfg__block-title">Módulos do motorista</strong>
+              <div className="log-cfg__modulos">
+                <label className="log-cfg__switch">
+                  <input type="checkbox" checked readOnly disabled />
+                  <span className="log-cfg__switch-txt">
+                    <span className="log-cfg__switch-name">Rota</span>
+                    <span className="log-cfg__switch-hint">Sempre ligado</span>
+                  </span>
+                </label>
+                {APP_MODULOS.map((m) => {
+                  const ligado = !desativadosSet(cfg.appModulosDesativados).has(m.key);
+                  return (
+                    <label className="log-cfg__switch" key={m.key}>
+                      <input
+                        type="checkbox"
+                        checked={ligado}
+                        disabled={saving}
+                        onChange={(e) =>
+                          patch({
+                            appModulosDesativados: csvComModulo(
+                              cfg.appModulosDesativados,
+                              m.key,
+                              e.target.checked,
+                            ),
+                          })
+                        }
+                      />
+                      <span className="log-cfg__switch-txt">
+                        <span className="log-cfg__switch-name">{m.label}</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
             </div>
 
             {/* ── Parâmetros de rota ─────────────────────────────────────────── */}

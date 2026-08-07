@@ -3102,6 +3102,47 @@ html, body { height: 100%; }
 .log-cfg__grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
 .log-cfg__grid .f { display: grid; gap: 6px; }
 
+/* ITEM 9 (07/08) — Módulos do motorista: as MESMAS chaves do .log-cfg__switch,
+   numa linha só. Flex e não grade de propósito: em grade de colunas iguais os 6
+   itens sobram um na segunda fila e abrem um vão enorme; aqui cada chave ocupa
+   o tamanho do próprio nome e a lista quebra sozinha quando a janela aperta.
+   `align-items: start` porque a Rota tem uma segunda linha ("Sempre ligado"). */
+.log-cfg__modulos {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: start;
+  gap: var(--space-2) var(--space-5);
+}
+
+/* PR07082026-PROSPECTOR-CNPJ F4 — os 3 disparos automáticos LADO A LADO, no
+   mesmo molde (padronizar = IGUALAR). O card não tem visual próprio: são as
+   mesmas peças do bloco de aviso acima (cabeça + toggle + variáveis + textarea
+   + salvar) numa moldura igual à do .log-cfg__mode. O card indisponível NÃO é
+   apagado por opacity de propósito — dimmar o bloco inteiro derruba o contraste
+   do texto; quem diz "não dá" é o controle desabilitado + .log-cfg__availability. */
+.log-cfg__msgs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+  gap: var(--space-3);
+}
+.log-cfg__msg {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-md);
+  background: var(--surface-recessed);
+}
+.log-cfg__msg .log-cfg__ta { min-width: 0; }
+/* IGUALAR de verdade: cada disparo tem uma condição de altura diferente (um
+   campo, dois, uma frase), então sem isto os três "Salvar mensagem" caíam em
+   três alturas. O auto empurra o botão pro fim do card — os três terminam na
+   mesma linha. `align-self` porque em flex o justify-self do .log-cfg__save
+   não vale (ele esticaria na largura toda). */
+.log-cfg__msg .log-cfg__save { margin-block-start: auto; align-self: start; }
+
 /* Escolha operacional do app único: Vendas ou Entregas. */
 .workspace-switch-wrap { display: grid; place-items: center; min-height: min(72vh, 720px); }
 .workspace-switch { width: min(760px, 100%); padding: clamp(22px, 4vw, 38px); }
