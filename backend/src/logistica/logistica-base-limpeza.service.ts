@@ -88,14 +88,22 @@ export class LogisticaBaseLimpezaService {
           const anterior = a;
           const maisNovo = b;
           if (jaMarcado.has(anterior.id)) continue;
+          // 🔴 DECISÃO DO DONO (06/08, reafirmada com os números na frente): no par
+          // repetido, quem protege é SÓ O FINANCEIRO. Eu havia travado também por
+          // entrega/rota e mostrei a ele que isso deixaria os 12 pares de pé; ele viu
+          // que 22 dos 24 não têm um centavo lançado e mandou apagar o mais antigo
+          // assim mesmo. Fica registrado o que isso custa: o cadastro que sai leva o
+          // histórico de entregas dele (recuperável pelo DeletionRecord, não perdido).
           const vida = vivos.get(anterior.id);
-          if (vida && vida.tem) continue; // cliente vivo NUNCA sai por esta regra
+          if (vida && vida.cobrancas > 0) continue;
           jaMarcado.add(anterior.id);
+          const entregasPerdidas = vida?.entregas ?? 0;
           duplicados.push({
             id: anterior.id,
             nome: anterior.name,
             endereco: [anterior.endereco, anterior.numero].filter(Boolean).join(', '),
-            motivo: `Mesmo endereço de ${maisNovo.name || 'outro cliente'} (cadastrado depois) e sem nenhum movimento`,
+            motivo: `Mesmo endereço de ${maisNovo.name || 'outro cliente'} (cadastrado depois), sem nada de financeiro`
+              + (entregasPerdidas > 0 ? ` · leva ${entregasPerdidas} entrega(s) do histórico` : ''),
           });
         }
       }
