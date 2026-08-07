@@ -2559,9 +2559,17 @@ const DADOS={
     ],
   },
 };
-/** Entra dado novo numa seção e a tela se repinta. */
+/** Entra dado novo numa seção e a tela se repinta — SÓ se algo mudou de verdade.
+    🔴 O FREIO DO PISCA (07/08): a ponte relê a config a cada minuto e a cada
+    volta de foco, e escrevia aqui mesmo com o dado idêntico — e cada escrita
+    troca o DOM inteiro (`pintar` monta outra camada). Tela repintando por
+    minuto na cara do motorista era o "fica piscando às vezes". Dado igual
+    morre aqui, sem repinte; quem muda de verdade continua pintando na hora. */
 function usarDados(secao,valor){
-  DADOS[secao]=Object.assign({},DADOS[secao],valor||{});
+  const atual=DADOS[secao]||{}, novo=valor||{};
+  const mudou=Object.keys(novo).some(k=>JSON.stringify(atual[k])!==JSON.stringify(novo[k]));
+  if(!mudou) return;
+  DADOS[secao]=Object.assign({},atual,novo);
   if(typeof pintar==='function') pintar(false);
 }
 
