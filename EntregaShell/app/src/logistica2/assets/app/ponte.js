@@ -616,6 +616,9 @@
       if (tela === 'clientes') carregarClientes();
       if (tela === 'produtos') carregarProdutos();
       if (tela === 'chat') aoAbrirChat();
+      if (tela === 'ajustes') carregarAjustes();
+      if (tela === 'consumo') carregarConsumo();
+      if (tela === 'salvas') carregarSalvas();
       return r;
     };
   }
@@ -628,6 +631,176 @@
     ligarCamposDaFicha();
   });
   observador.observe(document.getElementById('app') || document.body, { childList: true, subtree: true });
+
+  /* ------------------------------------------------------------------------
+     L10 — ROTAS SALVAS (é aqui que a "Caderneta de <dia>" do L5 vai parar).
+
+     Só LISTA e ABRIR: criar, duplicar, editar e indicar modelo saíram no corte
+     de 06/08 — é trabalho de escritório e o desktop já faz. Por isso o par
+     "Duplicar / três pontinhos" do desenho não é renderizado com dado real:
+     botão que não leva a lugar nenhum é pior que botão ausente.
+     ------------------------------------------------------------------------ */
+  const MODELOS = new Map();
+
+  async function carregarSalvas() {
+    if (!temPonte() || typeof window.usarDados !== 'function') return;
+    let r;
+    try { r = await window.API.get('/logistica/rota-modelos'); } catch (_) { return; }
+    const lista = Array.isArray(r) ? r : [];
+    MODELOS.clear();
+    lista.forEach((m) => { if (m && m.id) MODELOS.set(String(m.id), m); });
+    window.usarDados('salvas', {
+      busca: '',
+      total: `${lista.length} ${lista.length === 1 ? 'rota salva' : 'rotas salvas'}`,
+      // "Ordenar por" precisa de mais de uma ordem pra existir; o servidor
+      // devolve uma lista só, na ordem dele.
+      ordem: '',
+      acoes: 0,
+      lista: lista.map((m) => {
+        const paradas = Array.isArray(m.paradas) ? m.paradas.length : 0;
+        return [
+          esc(m.nome),
+          // A porta não devolve data de criação; o que ela tem é o DIA da
+          // semana do modelo — que é justamente o que identifica a caderneta.
+          m.diaSemana ? DIAS_SEMANA[Number(m.diaSemana)] || '' : '',
+          String(paradas),
+          '',            // produtos: sem fonte
+          '',            // marcado: sem fonte
+          'route',
+          0,
+          String(m.id),
+        ];
+      }),
+    });
+  }
+
+  /** Abrir = GERAR a rota de hoje a partir do modelo. Cria entrega: confirma. */
+  async function abrirSalva(id) {
+    const m = MODELOS.get(String(id));
+    if (!m || typeof window.portao !== 'function') return;
+    const paradas = Array.isArray(m.paradas) ? m.paradas.length : 0;
+    window.portao({
+      tom: 'info', ico: 'play', titulo: 'Usar esta rota hoje?',
+      sub: `${esc(m.nome)} · ${paradas} ${paradas === 1 ? 'parada' : 'paradas'}`,
+      acoes: [['Agora não', ''], ['Usar', 'principal']], classe: 'duas',
+    });
+    const botao = naCamada('.portao-wrap .principal');
+    if (!botao) return;
+    botao.addEventListener('click', () => comTrava(async () => {
+      try { await window.API.post(`/logistica/rota-modelos/${encodeURIComponent(id)}/gerar`, { date: diaOperacional() }); }
+      catch (e) { return avisoErro(e); }
+      await carregarRota();
+      window.ir('rota');
+    }), { once: true });
+  }
+
+  /* ------------------------------------------------------------------------
+     L9 — AJUSTES, RECARGA E CONSUMO.
+
+     🔴 CHAVE QUE APARECE E NÃO CONTROLA NADA É PIOR QUE CHAVE AUSENTE. Só
+     entram as que têm porta: as três do servidor (`avisoChegandoEnabled`,
+     `modoCaderneta`) e as do próprio aparelho (som/voz pelo `soundPrefs` do
+     Kotlin, tema pelo native). O grupo "Sem internet" INTEIRO sai da tela: o
+     download de mapa e o pacote offline morreram no corte de 06/08 — o PMTiles
+     guarda os 60 km sozinho, sem botão. "Painel de créditos do dia" também
+     sai: não achei porta nenhuma pra ele.
+     ------------------------------------------------------------------------ */
+  let config = null;
+
+  async function carregarAjustes() {
+    if (!temPonte() || typeof window.usarDados !== 'function') return;
+    const [cfgR, credR] = await Promise.allSettled([
+      window.API.get('/logistica/config'),
+      window.API.get('/credits/me'),
+    ]);
+    // Mesma lei do L8: fonte fora do ar não reescreve a tela de ajustes com
+    // chave desligada — isso faria o dono achar que perdeu a configuração.
+    if (cfgR.status !== 'fulfilled' || !cfgR.value) return;
+    config = cfgR.value;
+    const cred = credR.status === 'fulfilled' ? credR.value : null;
+    const saldo = cred && typeof cred.balance === 'number' ? cred.balance : null;
+    const info = (window.HBX.info && window.HBX.info()) || {};
+    let sons = 1;
+    try { const p = window.HBX.soundPrefs.get(); sons = p && p.master === false ? 0 : 1; } catch (_) { /* padrão ligado */ }
+    const dist = Number(config.avisoChegandoDistanciaM);
+    window.usarDados('ajustes', {
+      avisarChegadaDist: isFinite(dist) && dist > 0 ? `${dist} m` : '',
+      avisarChegada: config.avisoChegandoEnabled ? 1 : 0,
+      creditosLinha: saldo != null ? `${saldo} ${saldo === 1 ? 'crédito' : 'créditos'}` : '',
+      modoCaderneta: config.modoCaderneta ? 1 : 0,
+      sons,
+      painelCreditos: '',      // sem porta: a linha inteira some
+      grupoOffline: 0,         // corte de 06/08
+      empresa: '',             // o nome da empresa não vem em porta do celular
+      versao: info.versionName ? `Versão ${esc(info.versionName)}` : '',
+      versaoSub: '',
+    });
+    if (cred) encherRecarga(cred);
+  }
+
+  /** os pacotes vêm no MESMO `/credits/me` do saldo — não há porta separada */
+  let pacoteEscolhido = null;
+  function encherRecarga(cred) {
+    const packs = Array.isArray(cred && cred.packs) ? cred.packs : [];
+    const saldo = typeof cred.balance === 'number' ? cred.balance : null;
+    if (!pacoteEscolhido) {
+      const rec = packs.find((p) => p.recommended) || packs[0];
+      pacoteEscolhido = rec ? rec.key : null;
+    }
+    const atual = packs.find((p) => p.key === pacoteEscolhido) || null;
+    window.usarDados('recarga', {
+      saldo: saldo != null ? String(saldo) : '',
+      // "~17 dias no seu ritmo" precisaria do consumo médio — não tenho essa
+      // conta em porta nenhuma, e chutar dias em tela de crédito é mentira.
+      ritmo: '',
+      pacotes: packs.map((p) => [
+        // crédito é NÚMERO INTEIRO; só o PREÇO do pacote é dinheiro.
+        String(p.credits),
+        Number(p.price).toFixed(2).replace('.', ','),
+        esc(p.badge),
+        p.key === pacoteEscolhido ? 1 : 0,
+        esc(p.key),
+      ]),
+      cta: atual ? `Recarregar ${atual.credits} créditos · ${dinheiro(Number(atual.price))}` : '',
+    });
+  }
+
+  async function carregarConsumo() {
+    if (!temPonte() || typeof window.usarDados !== 'function') return;
+    let e;
+    try { e = await window.API.get('/logistica/creditos/extrato'); } catch (_) { return; }
+    if (!e || typeof e !== 'object') return;
+    const uso = e.usage || {};
+    const tot = e.totals || {};
+    const linhas = [];
+    (Array.isArray(e.trackedDeliveries) ? e.trackedDeliveries : []).forEach((d) => {
+      linhas.push(['menos', esc(d.titulo || 'Entrega rastreada'), esc(d.quando || ''), String(d.creditos || 0)]);
+    });
+    (Array.isArray(e.bonuses) ? e.bonuses : []).forEach((b) => {
+      linhas.push(['mais', esc(b.titulo || 'Bônus'), esc(b.quando || ''), String(b.creditos || 0)]);
+    });
+    window.usarDados('consumo', {
+      saldo: typeof e.balanceCredits === 'number' ? String(e.balanceCredits) : '',
+      gastosHoje: typeof uso.hoje === 'number' ? String(uso.hoje) : '',
+      bonus: typeof tot.bonusCredits === 'number' ? String(tot.bonusCredits) : '',
+      linhas,
+      vazio: 'Nenhum movimento neste mês',
+    });
+  }
+
+  /** liga/desliga uma chave do servidor e recarrega — sem otimismo na tela */
+  async function virarChave(campoConfig) {
+    if (!config) return;
+    await comTrava(async () => {
+      const novo = !config[campoConfig];
+      try { await window.API.patch('/logistica/config', { [campoConfig]: novo }); }
+      catch (e) { return avisoErro(e); }
+      await carregarAjustes();
+      // A rota lê as MESMAS chaves pra decidir qual folha abre na porta: sem
+      // isto, virar "modo caderneta" só valeria na próxima abertura do app.
+      await carregarRota();
+    });
+  }
 
   /* ------------------------------------------------------------------------
      L8 — CHAT COM A CENTRAL (o único canal do motorista com o escritório).
@@ -1412,6 +1585,41 @@
     'salvar-cliente': salvarCliente,
     'salvar-produto': salvarProduto,
     'entendi-recado': entendiRecado,
+    'ir-consumo': () => window.ir('consumo'),
+    'ir-recarga': () => window.ir('recarga'),
+    'ir-financeiro': () => window.ir('financeiro'),
+    'ir-avancado': () => window.ir('avancado'),
+    'chave-caderneta': () => virarChave('modoCaderneta'),
+    'aviso-chegada': () => virarChave('avisoChegandoEnabled'),
+    // Som e voz sao do APARELHO (soundPrefs do Kotlin), nao do servidor.
+    'chave-sons': () => {
+      try {
+        const atual = window.HBX.soundPrefs.get() || {};
+        window.HBX.soundPrefs.set(Object.assign({}, atual, { master: atual.master === false }));
+      } catch (_) { /* sem ponte de som: nada a fazer */ }
+      carregarAjustes();
+    },
+    'chave-tema': () => {
+      const escuro = document.documentElement.dataset.luz !== 'claro';
+      if (typeof window.trocarLuz === 'function') window.trocarLuz(escuro ? 'claro' : 'escuro');
+    },
+    // 🔴 SAIR APAGA A SESSAO DO APARELHO — confirma antes, sempre.
+    sair: () => {
+      window.portao({
+        tom: 'alerta', ico: 'logout', titulo: 'Sair do aplicativo?',
+        sub: 'Voce vai precisar parear o aparelho de novo.',
+        acoes: [['Ficar', ''], ['Sair', 'principal']], classe: 'duas',
+      });
+      const b = naCamada('.portao-wrap .principal');
+      if (b) b.addEventListener('click', () => { try { window.HBX.logout(); } catch (_) {} }, { once: true });
+    },
+    recarregar: () => {
+      if (!pacoteEscolhido) return;
+      // O checkout e NATIVO (RechargeCheckoutActivity): o WebView nunca ve
+      // dado de cartao. Aqui so se diz QUAL pacote.
+      try { window.HBX.recharge(pacoteEscolhido); }
+      catch (_) { avisoErro(new Error('Nao consegui abrir a recarga agora.')); }
+    },
     'enviar-recado': enviarRecado,
     // "Responder" não manda nada: ele leva o dedo pro campo. O texto é dele.
     'responder-recado': () => {
@@ -1429,6 +1637,11 @@
     if (chave === 'abrir-parada') return abrirParada(alvo.dataset.parada);
     if (chave === 'abrir-cliente') return abrirCliente(alvo.dataset.cliente);
     if (chave === 'abrir-produto') return abrirProduto(alvo.dataset.produto);
+    if (chave === 'abrir-salva') return abrirSalva(alvo.dataset.salva);
+    if (chave === 'pacote') {
+      pacoteEscolhido = String(alvo.dataset.pacote || '');
+      return carregarAjustes();
+    }
     if (chave === 'chip-dia') {
       const n = Number(alvo.dataset.dia) || 0;
       // 2º toque no mesmo chip DESLIGA o filtro. Chip que só liga é armadilha:

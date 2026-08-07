@@ -374,6 +374,48 @@ const DADOS={
     ],
     sino:2, vazio:'',
   },
+  /* L9 — AJUSTES, RECARGA e CONSUMO. Chave sem fonte nao vira chave: o grupo
+     "Sem internet" inteiro some porque o download de mapa e o pacote offline
+     sairam no corte de 06/08 (o PMTiles guarda 60 km sozinho, sem botao). */
+  ajustes:{
+    avisarChegadaDist:'60 m', avisarChegada:1,
+    creditosLinha:'240 créditos',
+    modoCaderneta:1, sons:1, painelCreditos:1,
+    grupoOffline:1, mapaBaixando:'Baixando o mapa · 62%', mapaBaixado:'14,2 MB de 23,0 MB', mapaPct:62,
+    empresa:'Água Rio Claro', versao:'Versão beta1.3.2', versaoSub:'atualizado hoje',
+  },
+  recarga:{
+    saldo:'240', ritmo:'~17 dias no seu ritmo',
+    pacotes:[['100','49,00','',0,''],['300','129,00','+8% grátis',1,''],
+             ['600','239,00','+15% grátis',0,''],['1.200','449,00','melhor preço',0,'']],
+    cta:'Recarregar 300 créditos · R$ 129,00',
+  },
+  consumo:{
+    saldo:'240', gastosHoje:'14', bonus:'24',
+    linhas:[
+      ['menos','Rota de quarta','14 paradas · hoje 06:12','14'],
+      ['menos','Rota de terça','12 paradas · 05/08','12'],
+      ['mais','Bônus de recarga','+8% no pacote de 300','24'],
+      ['mais','Recarga','pacote 300 · Pix','300'],
+      ['menos','Rota de segunda','11 paradas · 04/08','11'],
+    ],
+    vazio:'',
+  },
+  /* L10 — ROTAS SALVAS. `lista` e [nome, quando, paradas, produtos, marcado,
+     icone, destaque, id]. "Duplicar" e o menu de tres pontos NAO entram: criar
+     e editar modelo sairam no corte de 06/08 (isso e trabalho de escritorio,
+     no desktop). Abrir GERA a rota do dia a partir do modelo. */
+  salvas:{
+    busca:'', total:'6 rotas salvas', ordem:'Mais recentes', acoes:1,
+    lista:[
+      ['Zona Sul manhã','23 de maio, 2025','15','20','184,00','map',0,''],
+      ['Centro tarde','22 de maio, 2025','12','18','152,40','route',0,''],
+      ['Sábado água 20L','17 de maio, 2025','18','1','98,00','gallon',0,''],
+      ['Rota Moema','16 de maio, 2025','14','17','126,30','flag',1,''],
+      ['Rota Brooklin','15 de maio, 2025','11','16','110,20','map',0,''],
+      ['Rota clientes fiéis','10 de maio, 2025','9','14','87,60','users',1,''],
+    ],
+  },
   montagem:{
     titulo:'Montagem de rota', dica:'Segure e arraste para ordenar',
     somaParadas:'6', somaProdutos:'20', somaValor:'R$ 336,00',
@@ -874,32 +916,28 @@ ${nav('rota')}`;}};
 
 /* 9 — ROTAS SALVAS -------------------------------------------------------- */
 T.salvas={nome:'Rotas salvas',grupo:'Rota',render(){
-  const r=(nome,data,paradas,prod,valor,icone,tomLime)=>`
+  const d=DADOS.salvas;
+  const r=(nome,data,paradas,prod,valor,icone,tomLime,id)=>`
     <div class="rowcard">
       <span class="ico ${tomLime?'lime':''}">${ic(icone,20)}</span>
-      <span><strong>${nome}</strong><span>${data}</span>
-        <span class="meta"><i>${ic('list',12)} ${paradas} paradas</i><i>${ic('box',12)} ${prod} produtos</i></span></span>
+      <span><strong>${nome}</strong>${data?`<span>${data}</span>`:''}
+        <span class="meta"><i>${ic('list',12)} ${paradas} paradas</i>${prod?`<i>${ic('box',12)} ${prod} produtos</i>`:''}</span></span>
       <span style="display:flex;align-items:center;gap:9px">
-        <span class="rgt"><small>Marcado</small><b>R$ ${valor}</b></span>
+        ${valor?`<span class="rgt"><small>Marcado</small><b>R$ ${valor}</b></span>`:''}
         <span class="mini-acts">
-          <span class="mini"><span class="c">${ic('play',19)}</span>Abrir</span>
-          <span class="mini"><span class="c">${ic('copy',17)}</span>Duplicar</span>
-          <span class="mini" style="align-self:center">${ic('dots',16)}</span></span></span></div>`;
+          <span class="mini"${id?` data-acao="abrir-salva" data-salva="${id}"`:''}><span class="c">${ic('play',19)}</span>Abrir</span>
+          ${d.acoes?`<span class="mini"><span class="c">${ic('copy',17)}</span>Duplicar</span>
+          <span class="mini" style="align-self:center">${ic('dots',16)}</span>`:''}</span></span></div>`;
   return `${status}
 ${hdr({})}
 <div class="body">
   <div class="searchrow">
-    <label class="search">${ic('search',17)}<input placeholder="Buscar rotas salvas"></label>
+    <label class="search">${ic('search',17)}<input placeholder="Buscar rotas salvas" value="${d.busca}"></label>
     <button class="filt">${ic('sliders',18)}</button></div>
   <div style="display:flex;justify-content:space-between;align-items:center;margin:8px 2px 6px;font-size:12px">
-    <span style="color:var(--ink-2)">6 rotas salvas</span>
-    <span style="color:var(--ink-2)">Ordenar por: <b style="color:var(--lime);font-weight:500">Mais recentes</b></span></div>
-  ${r('Zona Sul manhã','23 de maio, 2025','15','20','184,00','map',0)}
-  ${r('Centro tarde','22 de maio, 2025','12','18','152,40','route',0)}
-  ${r('Sábado água 20L','17 de maio, 2025','18','1','98,00','gallon',0)}
-  ${r('Rota Moema','16 de maio, 2025','14','17','126,30','flag',1)}
-  ${r('Rota Brooklin','15 de maio, 2025','11','16','110,20','map',0)}
-  ${r('Rota clientes fiéis','10 de maio, 2025','9','14','87,60','users',1)}
+    <span style="color:var(--ink-2)">${d.total}</span>
+    ${d.ordem?`<span style="color:var(--ink-2)">Ordenar por: <b style="color:var(--lime);font-weight:500">${d.ordem}</b></span>`:''}</div>
+  ${d.lista.map(x=>r(x[0],x[1],x[2],x[3],x[4],x[5],x[6],x[7])).join('')}
   <div class="box" style="display:flex;align-items:center;gap:10px;margin-top:2px;padding:8px">
     <span style="width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:var(--lime-bg);color:var(--lime)">${ic('save',19)}</span>
     <span style="flex:1"><b style="display:block;font-size:13.5px;font-weight:500">Use uma rota salva hoje</b>
@@ -1022,16 +1060,16 @@ ${hdr({voltar:'ajustes',semChat:1})}
 ${rodape?`<div class="tmx-dock">${rodape}</div>`:''}${nav('ajustes')}`;
 
 T.recarga={nome:'Ajustes · Recarga',grupo:'Ajustes',render(){
-  const pac=(c,preco,selo,on)=>`<button class="pacote ${on?'on':''}">${selo?`<span class="selo">${selo}</span>`:''}
+  const r=DADOS.recarga;
+  const pac=(c,preco,selo,on,chave)=>`<button class="pacote ${on?'on':''}"${chave?` data-acao="pacote" data-pacote="${chave}"`:''}>${selo?`<span class="selo">${selo}</span>`:''}
     <b>${c}</b><small>créditos</small><span class="preco">R$ ${preco}</span></button>`;
   return telaAjuste('Recarga de créditos',`
     <div class="creditos" style="margin-top:2px">${ic('card',17)}
-      <span><b class="v">${DADOS.rota.creditos}</b> <small>créditos hoje</small></span>
-      <span class="debita">~17 dias no seu ritmo</span></div>
+      <span><b class="v">${r.saldo}</b> <small>créditos hoje</small></span>
+      ${r.ritmo?`<span class="debita">${r.ritmo}</span>`:''}</div>
     <div class="grupo">Escolha o pacote</div>
     <div class="pacotes">
-      ${pac('100','49,00','',0)}${pac('300','129,00','+8% grátis',1)}
-      ${pac('600','239,00','+15% grátis',0)}${pac('1.200','449,00','melhor preço',0)}
+      ${r.pacotes.map(x=>pac(x[0],x[1],x[2],x[3],x[4])).join('')}
     </div>
     <div class="grupo">Pagar com</div>
     <div class="pays" style="margin-top:0">
@@ -1042,7 +1080,7 @@ T.recarga={nome:'Ajustes · Recarga',grupo:'Ajustes',render(){
     </div>
     <div class="banner pausa" style="margin-top:9px">${ic('alert',15)}
       <span>Crédito só é debitado quando a rota <b>inicia</b>. Conferir nunca debita.</span></div>`,
-    `<button class="act go full" style="justify-content:center">${ic('check',19)}<b>Recarregar 300 créditos · R$ 129,00</b></button>`);
+    r.cta?`<button class="act go full" style="justify-content:center" data-acao="recarregar">${ic('check',19)}<b>${r.cta}</b></button>`:'');
 }};
 
 T.financeiro={nome:'Ajustes · Financeiro',grupo:'Ajustes',render(){
@@ -1157,19 +1195,16 @@ T.consumo={nome:'Ajustes · Consumo e bônus',grupo:'Ajustes',render(){
     <span class="m ${tipo}">${tipo==='mais'?'+':'−'}</span>
     <span><strong>${t}</strong><span>${s}</span></span>
     <b class="${tipo}">${v}</b></div>`;
+  const c=DADOS.consumo;
   return telaAjuste('Consumo e bônus',`
     <div class="kpis" style="margin-top:2px">
-      <div class="kpi"><span style="color:var(--lime)">${ic('card',20)}</span><span><b class="v">240</b><span class="l">saldo</span></span></div>
-      <div class="kpi"><span style="color:var(--ink-2)">${ic('chart',20)}</span><span><b class="v">14</b><span class="l">gastos hoje</span></span></div>
-      <div class="kpi"><span style="color:var(--lime)">${ic('spark',20)}</span><span><b class="v">24</b><span class="l">de bônus</span></span></div>
+      <div class="kpi"><span style="color:var(--lime)">${ic('card',20)}</span><span><b class="v">${c.saldo}</b><span class="l">saldo</span></span></div>
+      <div class="kpi"><span style="color:var(--ink-2)">${ic('chart',20)}</span><span><b class="v">${c.gastosHoje}</b><span class="l">gastos hoje</span></span></div>
+      <div class="kpi"><span style="color:var(--lime)">${ic('spark',20)}</span><span><b class="v">${c.bonus}</b><span class="l">de bônus</span></span></div>
     </div>
     <div class="grupo">Movimento</div>
     <div class="extrato">
-      ${l('menos','Rota de quarta','14 paradas · hoje 06:12','14')}
-      ${l('menos','Rota de terça','12 paradas · 05/08','12')}
-      ${l('mais','Bônus de recarga','+8% no pacote de 300','24')}
-      ${l('mais','Recarga','pacote 300 · Pix','300')}
-      ${l('menos','Rota de segunda','11 paradas · 04/08','11')}
+      ${c.linhas.length?c.linhas.map(x=>l(x[0],x[1],x[2],x[3])).join(''):`<div class="vazio"><b>${c.vazio||'Sem movimento ainda'}</b></div>`}
     </div>
     <div class="banner pausa" style="margin-top:9px">${ic('alert',15)}
       <span>Migração entre rotas é <b>grátis</b>: a mesma entrega não debita duas vezes.</span></div>`);
@@ -1611,11 +1646,11 @@ ${hdr({})}
 ${nav('chat')}`;}};
 
 /* 13 — AJUSTES (aba nova) -------------------------------------------------- */
-T.ajustes={nome:'Ajustes',grupo:'Cadastro',render(){
-  const linha=(icone,titulo,sub,dir)=>`<button class="linha-cfg"><span class="ico">${ic(icone,16)}</span>
+T.ajustes={nome:'Ajustes',grupo:'Cadastro',render(){const a=DADOS.ajustes;
+  const linha=(icone,titulo,sub,dir,acao)=>`<button class="linha-cfg"${acao?` data-acao="${acao}"`:''}><span class="ico">${ic(icone,16)}</span>
     <span><strong>${titulo}</strong>${sub?`<span>${sub}</span>`:''}</span>
     <span style="display:flex;align-items:center;gap:7px">${dir||''}<span style="color:var(--ink-3)">${ic('chev',15)}</span></span></button>`;
-  const chave=(icone,titulo,sub,on)=>`<button class="linha-cfg"><span class="ico">${ic(icone,16)}</span>
+  const chave=(icone,titulo,sub,on,acao)=>`<button class="linha-cfg"${acao?` data-acao="${acao}"`:''}><span class="ico">${ic(icone,16)}</span>
     <span><strong>${titulo}</strong>${sub?`<span>${sub}</span>`:''}</span>
     <span class="chave ${on?'on':''}"><i></i></span></button>`;
   return `${status}
@@ -1623,37 +1658,37 @@ ${hdr({semChat:1})}
 <div class="body">
   <div class="grupo">Administração</div>
   <div class="cartao-lista">
-    ${linha('gps','Avisar chegada','','<b>60 m</b>')}
-    ${linha('sales','Consumo e bônus')}
-    ${chave('calendar','Painel de créditos do dia','',1)}
-    ${linha('card','Recarga de créditos','240 créditos')}
-    ${linha('wallet','Financeiro')}
-    ${linha('gear','Avançado')}
+    ${linha('gps','Avisar chegada','',`<b>${a.avisarChegadaDist}</b>`,'aviso-chegada')}
+    ${linha('sales','Consumo e bônus','','','ir-consumo')}
+    ${a.painelCreditos===''?'':chave('calendar','Painel de créditos do dia','',a.painelCreditos,'painel-creditos')}
+    ${linha('card','Recarga de créditos',a.creditosLinha,'','ir-recarga')}
+    ${linha('wallet','Financeiro','','','ir-financeiro')}
+    ${linha('gear','Avançado','','','ir-avancado')}
   </div>
   <div class="grupo">Caderneta</div>
   <div class="cartao-lista">
-    ${chave('note','Modo caderneta','a tela do dia vira a caderneta de papel',1)}
+    ${chave('note','Modo caderneta','a tela do dia vira a caderneta de papel',a.modoCaderneta,'chave-caderneta')}
   </div>
   <div class="grupo">Som e tela</div>
   <div class="cartao-lista">
-    ${chave('volume','Sons e voz','avisos falados na rua',1)}
+    ${chave('volume','Sons e voz','avisos falados na rua',a.sons,'chave-sons')}
     ${chave('moon','Tema escuro','acompanha o aparelho quando você não escolhe',
-            document.documentElement.dataset.luz!=='claro')}
+            document.documentElement.dataset.luz!=='claro','chave-tema')}
   </div>
-  <div class="grupo">Sem internet</div>
+  ${a.grupoOffline?`<div class="grupo">Sem internet</div>
   <div class="cartao-lista">
     <div class="linha-cfg" style="cursor:default"><span class="ico">${ic('download',16)}</span>
-      <span><strong>Baixando o mapa · 62%</strong><span>14,2 MB de 23,0 MB</span></span><span></span></div>
-    <div class="prog" style="margin:0 11px 10px"><span class="prog-b"><i style="width:62%"></i></span></div>
+      <span><strong>${a.mapaBaixando}</strong><span>${a.mapaBaixado}</span></span><span></span></div>
+    <div class="prog" style="margin:0 11px 10px"><span class="prog-b"><i style="width:${a.mapaPct}%"></i></span></div>
     ${linha('route','Cadastrar rota offline','o dia fica guardado no aparelho')}
     ${linha('trash','Apagar mapa baixado')}
-  </div>
+  </div>`:''}
   <div class="grupo">Aplicativo</div>
   <div class="cartao-lista">
-    ${linha('users','Nome da empresa','','<b>Água Rio Claro</b>')}
-    ${linha('logout','Sair')}
+    ${a.empresa?linha('users','Nome da empresa','',`<b>${a.empresa}</b>`):''}
+    ${linha('logout','Sair','','','sair')}
     <div class="linha-cfg" style="cursor:default"><span class="ico">${ic('gear',16)}</span>
-      <span><strong>Versão beta1.3.2</strong><span>atualizado hoje</span></span><span></span></div>
+      <span><strong>${a.versao}</strong>${a.versaoSub?`<span>${a.versaoSub}</span>`:''}</span><span></span></div>
   </div>
 </div>
 ${nav('ajustes')}`;}};
