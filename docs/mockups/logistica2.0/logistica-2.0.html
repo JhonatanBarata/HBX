@@ -4411,7 +4411,12 @@ function portao(chave){
   // chave do catálogo OU um portão montado na hora (o app precisa dizer número
   // de verdade: "vai debitar 12, você tem 240" não cabe num catálogo estático).
   const p=typeof chave==='object'?chave:PORTOES[chave]; if(!p) return;
-  const camada=document.querySelector('#app .tela'); if(!camada) return;
+  // 🔴 A CAMADA VIVA É A ÚLTIMA — mesma lei do `pintar`. Com `querySelector`
+  // (a primeira) o portão nascia na camada que estava MORRENDO numa troca de
+  // tela: o diálogo sumia junto com ela e o toque no "Iniciar" fechava tudo
+  // em silêncio — era o "Iniciar rota falha calado" do dono (07/08).
+  const camadas=document.querySelectorAll('#app .tela');
+  const camada=camadas.length?camadas[camadas.length-1]:null; if(!camada) return;
   camada.querySelector('.portao-wrap')?.remove();
   const w=document.createElement('div');
   w.className='portao-wrap';

@@ -773,7 +773,20 @@
         botao.addEventListener('click', () => comTrava(async () => {
           try {
             await window.API.post('/logistica/rota/iniciar', { date: hojeISO() });
-          } catch (e) { return avisoErro(e); }
+          } catch (e) {
+            // 🔴 NUNCA MORRER CALADO (dono, §1.3): primeiro a verdade do
+            // servidor — se a rota JÁ ESTÁ em andamento, a resposta certa é
+            // levar o motorista pra ela, não um erro genérico.
+            await carregarRota();
+            if (estadoRota === 'rodando' || estadoRota === 'pausada') {
+              if (typeof window.ir === 'function') window.ir('rota');
+              return window.portao({
+                tom: 'info', ico: 'route', titulo: 'A rota já está em andamento',
+                sub: 'Você caiu direto nela.', acoes: [['Fechar', '']],
+              });
+            }
+            return avisoErro(e);
+          }
           await carregarRota();
           if (typeof window.ir === 'function') window.ir('rota');
         }), { once: true });
