@@ -247,15 +247,32 @@ antes-e-depois verdes; sem fonte → VAZIO.
 | **L7** | Produtos e vínculos | produtos · cliente-produtos |
 | **L8** | Chat, avisos e portões vivos | recados · rota-avisos · rota-indicadas |
 | **L9** | Ajustes REAIS com a cara do mock | config · creditos/extrato · recarga |
-| **L10** | Satélites: salvas, rápida, gerenciador, leitura, passeio | rota-modelos · geo/* · leitura · passeio |
-| **L11** | Modo avião do começo ao fim do dia | offline prepare/sync/proofs |
+| **L10** | Satélites: salvas (lista+gerar), rápida, gerenciador | rota-modelos · geo/* |
+| ~~**L11**~~ | ~~Modo avião do começo ao fim do dia~~ **CORTADA 06/08** | ~~offline prepare/sync/proofs~~ |
 
-L1–L5 é o dia do motorista — vem primeiro, é o produto. L6–L10 é o admin de bolso. L11 é a prova
-brava (offline é transversal desde L1 via fila; L11 é a bateria dedicada).
+L1–L5 é o dia do motorista — vem primeiro, é o produto. L6–L10 é o admin de bolso.
+**L11 morreu na decisão de 06/08** (0 chamadas em 2 semanas de produção): o offline segue
+transversal desde L1 pela fila do Kotlin (`interceptMutation`), que é grátis e já funciona — o que
+saiu foi só a bateria dedicada do pacote `prepare/sync/proofs`.
+
+### 🔴 O CORTE — decisão do dono, 06/08 (a lista item a item vive no INVENTÁRIO)
+Ritmo escolhido: **piso + navegação completa**. Corte de **34 em 152 pendentes (22%)** — a troca é
+praticamente paridade. **Fora:** comprovante foto/código (morre de vez), Passeio (8), Leitura de
+rota (6), pacote offline (4), tracking ao vivo, mapa offline antigo (3), missões/rota indicada (4),
+editor de modelo (2), `gerar-dia`, tela de chegada nativa.
+**Dentro do piso, e não são feature — travam a troca se faltarem:** aviso de atualização
+(`appUpdateModal` + gate `HBX_V2`), Pulso/Ver Tela/Erros, e a navegação turn-by-turn completa
+(L3b deixa de ser opcional). Lista completa e os números que a justificam:
+`docs/PLANEJAMENTOS/INVENTARIO-APP-ANTIGO-VS-NOVO.md`.
 
 ### FX — A TROCA (fora deste plano)
 Bancada → produção pela regra já cravada: assets do `logistica2` viram `logistica`, mesmo
 applicationId/assinatura, André atualiza pelo aviso sem reparear. Só com ordem do dono.
+**3 itens que quebram calado se esquecer** (detalhe no INVENTÁRIO §DECISÃO):
+1. **religar `google-services`** no flavor — hoje está desligado, e o push morre em silêncio;
+2. **apagar `logistica2/assets/app/app.js` (13.688 linhas) e `app.css`** — o `index.html` não
+   carrega nenhum dos dois; é 1,1 MB de peso morto e uma reserva que não existe;
+3. applicationId/versionName/versionCode + devolver `logistica2` à digital do APK.
 
 ---
 
@@ -270,7 +287,12 @@ applicationId/assinatura, André atualiza pelo aviso sem reparear. Só com ordem
 
 ## 8. DECISÕES DO DONO (só o que muda rumo — o resto eu decido e conto)
 
-1. **Assinatura do cliente como prova de entrega?** Mercado tem, custo baixo, vertical talvez dispense.
+0. ✅ **RESOLVIDA 06/08 — o corte da troca** (ver §6 "O CORTE"): piso + navegação completa;
+   Passeio e Leitura não sobem; comprovante foto/código morre de vez. 34 de 152 cortados.
+   ⚠️ Isto **responde por tabela a decisão nº1 abaixo**: sem comprovante, assinatura sai de pauta.
+1. ~~**Assinatura do cliente como prova de entrega?**~~ **PREJUDICADA 06/08** — o dono matou a prova
+   de entrega por foto/código (0 uso na história do produto). Assinatura é a mesma família; só volta
+   se um cliente pedir.
 2. **Os 4 Ajustes redesenhados no mock** (financeiro/historico/avancado/sons): quando a fiação chegar
    neles (L9), vale o desenho do mock como FUNÇÃO nova, ou veste-se a função atual? Meu default
    pela casca única: vestir a função ATUAL com a cara do mock; desenho vira backlog de feature.

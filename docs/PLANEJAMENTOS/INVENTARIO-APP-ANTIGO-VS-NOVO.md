@@ -18,6 +18,65 @@
 
 ---
 
+## 🔴 DECISÃO DO DONO — 06/08/2026: o que SOBE e o que NÃO SOBE
+
+Combinado no chat, com os números medidos em produção (2 semanas de log do nginx + banco).
+**Ritmo escolhido: piso + navegação completa** — a troca (FX) só acontece com tudo desta lista
+ligado. **O corte é de 34 itens em 152 pendentes (22%)** — ou seja, a troca é praticamente
+paridade; o que sai é o que ninguém usou.
+
+### NÃO SOBE — 33 itens (ficam no app velho e morrem na troca)
+
+| # | Item | Por que sai (medido) |
+|---|---|---|
+| 1-2 | **Comprovante foto** + **código 6 dígitos** (E) | **0 comprovantes na história inteira do produto** — `EntregaComprovante` tem 0 linhas. Decisão do dono: morre de vez (a vertical água/gás cobra na porta e não pede foto). |
+| 3 | Tela de chegada nativa `ChegadaActivity` (E) | A folha do mock JÁ é a chegada; duas chegadas = duas peles. |
+| 4-10 | **Modo Passeio inteiro** (K, 7 itens) | `POST /logistica/passeio/iniciar` = **2 chamadas em 2 semanas**, ambas teste do dono. |
+| 11 | Passeio na entrada de Ajustes (J) | idem. |
+| 12-17 | **Leitura de rota inteira** (L, 6 itens) | 17 sessões na história, **15 delas da company 48 — tenant do próprio dono**. Nenhum cliente usou. A caderneta 7 dias já cobriu a dor ("caderneta NÃO é reconhecimento de rota", GO de 05/08). |
+| 18-21 | **Offline: prepare · sync · proofs · toggle** (O + J) | **0 chamadas em 2 semanas.** O desfecho sem rede já é coberto de graça pelo `interceptMutation` do Kotlin, que é LIGADO pra qualquer POST da ponte. `proofs` some junto com o comprovante. |
+| 22 | **Tracking ao vivo** `TrackingSync` (R) | **0 chamadas do app.** Já está morto hoje — não é perda, é acerto de conta. |
+| 23-24 | Baixar mapa offline + apagar mapa baixado (D) | Nunca gravou um tile (diagnóstico 04/08). O **PMTiles substitui e não tem botão**: o celular guarda 60 km e se vira sozinho. |
+| 25 | Mapa offline em Ajustes (raio/baixar/apagar) (J) | idem — sobra 1 linha informativa. |
+| 26-27 | **Missões / despertador** + **rota indicada (aceitar/negar)** (B) | 4 linhas de `LogisticaRotaIndicada` na história inteira, servidas por um poll de **2.981 chamadas**. 🔴 O poll morre junto (bateria + servidor). |
+| 28-29 | Indicar rota pra alguém + aceitar/negar indicação (M) | mesma frente das missões. |
+| 30-31 | Editor de modelo + criar/editar/apagar modelo (M) | **Lista e "gerar" SOBEM** (a caderneta 7 dias salva "Caderneta de \<dia\>" ali). Editar modelo é trabalho de admin → fica no desktop. |
+| 32 | Gerar o dia — `POST /logistica/gerar-dia` (B) | **0 chamadas do app**: quem gera o dia é a agenda/cockpit. `dia-preview` (456 chamadas) sobe. |
+| 33 | Voz do recado (I) | ⬜ *sobe de carona se o TTS já estiver ligado pela navegação — decidir na leva L8.* |
+
+### FX — só na hora da troca (não é piso, mas se esquecer quebra calado)
+
+1. 🔴 **Push / Firebase religado.** Hoje `google-services` está DESLIGADO no flavor `logistica2`
+   (o `google-services.json` só declara `br.com.hbxsystem` e `.logistica`). Quando o
+   applicationId voltar a ser `.logistica` na troca, tem que religar o plugin — senão o push
+   morre em silêncio (a chamada já vive dentro de `runCatching`).
+2. 🔴 **Apagar `logistica2/assets/app/app.js` (13.688 linhas) e `app.css`.** O `index.html` não
+   carrega nenhum dos dois — são **1,1 MB de peso morto** no APK e, pior, dão a impressão falsa de
+   que "o código velho está lá de reserva". Não está.
+3. applicationId → `br.com.hbxsystem.logistica` · sai o `-bancada` do versionName · piso do
+   versionCode acima do publicado · `logistica2` volta pra digital do APK (`collectApkInputFiles`).
+
+### SOBE — os outros 118 itens
+
+Tudo o que **não** está nas duas listas acima. Em especial, três que não são "feature" e travam a
+troca se faltarem:
+
+- 🔴 **Aviso de atualização** (`appUpdateModal`, R). Sem ele **a troca é a última atualização que o
+  celular do André recebe na vida** — arrebenta o cordão de entrega. Gate `HBX_V2` pendente.
+- 🔴 **Pulso + Ver Tela + Erros do cliente** (Q, 3 itens). São 3.914 chamadas de espelho em 2
+  semanas: é o suporte do dono ao único cliente vivo. Sem isso ele fica cego justamente na troca.
+- 🔴 **Navegação completa** (D): voz, bússola, velocímetro, ETA ao vivo, retraço, traço OSRM,
+  enquadrar, garagem, modo navegação, manter tela acesa. **Decisão do dono: entra no piso** — "o
+  André já quer pular pro GPS".
+
+> **Medida que ordenou a prioridade:** trilha de tela do André (pulso, hoje+ontem) —
+> `clientes 138 · caderneta 108 · caderneta-venda 86 · ajustes 24 · cliente-ficha 20 · rota 17 ·
+> montagem 8 · produtos 8 · chat 2`. A tela nº1 dele é **Clientes**, hoje 0% ligada (15 de 15
+> itens faltando). Único cliente externo vivo = company 41 (Andre Barata); 46 e 47 sumiram em
+> 19/07 e 25/07; 5, 39 e 48 são tenants do próprio dono.
+
+---
+
 ## A. Casca, navegação e leis de tela
 
 | Código (app antigo) | check | Código novo (logistica2) | check |
