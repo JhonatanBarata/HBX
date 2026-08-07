@@ -1,4 +1,4 @@
-import { Controller, ForbiddenException, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Post, Req, UseGuards } from '@nestjs/common';
 import { Admin } from '../auth/admin.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -6,6 +6,7 @@ import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { LogisticaBaseSaudeService } from './logistica-base-saude.service';
 import { LogisticaConferenciaService } from './logistica-conferencia.service';
+import { LogisticaBaseLimpezaService } from './logistica-base-limpeza.service';
 
 /**
  * S7 (25/07, PR25072026-ROTA-CONFERIDA) — `/logistica/base-saude`, painel de
@@ -21,6 +22,7 @@ export class LogisticaBaseSaudeController {
   constructor(
     private readonly baseSaude: LogisticaBaseSaudeService,
     private readonly conferencia: LogisticaConferenciaService,
+    private readonly limpeza: LogisticaBaseLimpezaService,
   ) {}
 
   private companyId(req: any): number {
@@ -45,5 +47,23 @@ export class LogisticaBaseSaudeController {
   @Post('resolver')
   resolver(@Req() req: any) {
     return this.conferencia.resolverEnderecosDaBase(this.companyId(req));
+  }
+
+  /**
+   * 🔴 FAXINA (06/08, regras 1 e 2 do dono) — cadastro duplicado na mesma porta e
+   * cadastro sem endereço fechado saem da base, DESDE QUE não tenham movimento
+   * nenhum (entrega, rota ativa, cobrança). Ver LogisticaBaseLimpezaService pro
+   * porquê do critério ser mais largo que "pagamento".
+   *
+   * `executar` ausente/false = PRÉVIA (não escreve nada, devolve a lista). Só com
+   * `executar:true` os cadastros são arquivados — e ainda assim por soft-delete com
+   * snapshot restaurável.
+   */
+  @Post('limpar')
+  limpar(@Req() req: any, @Body() body: { executar?: boolean }) {
+    return this.limpeza.limpar(this.companyId(req), {
+      executar: body?.executar === true,
+      deletedByUserId: Math.trunc(Number(req?.user?.id || 0)) || null,
+    });
   }
 }

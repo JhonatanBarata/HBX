@@ -71,10 +71,18 @@ export const PISO_PERNA_OUTLIER_M = 2500;
  *  intocável que este alerta NÃO sobrescreve, só denuncia). */
 export const DIVERGE_GPS_OURO_METROS = 300;
 
-/** Fontes PROVADAS no campo (GPS real, seja da entrega ou do cadastro humano com
- *  precisão validada — ver GPS_ACCURACY_LIMITE_METROS em logistica-geo-fonte.util.ts).
- *  Fora daqui o motivo é apurado e registrado, mas é INFORMATIVO (não pinta). */
-const GEOFONTES_PROVADAS = new Set(['gps_entrega', 'gps_cadastro']);
+/**
+ * Fontes que resolvem a PORTA — o ponto é daquela casa, não da rua nem do CEP:
+ *  · gps_entrega   — o entregador esteve lá (o padrão-ouro);
+ *  · gps_cadastro  — decisão humana com precisão validada (GPS_ACCURACY_LIMITE_METROS);
+ *  · cnefe         — base oficial do IBGE casando (CEP, NÚMERO): é o ENDEREÇO da porta
+ *    virando ponto, que é exatamente a hierarquia do endereçamento. 06/08: sem isto o
+ *    sistema curava pelo CNEFE e, na linha seguinte, chamava a própria cura de "fonte
+ *    de localização não confiável" — o dono viu isso na tela e a acusação era contra
+ *    o melhor dado que o sistema tem.
+ * Fora daqui o motivo é apurado e registrado, mas é INFORMATIVO (não pinta).
+ */
+const GEOFONTES_DA_PORTA = new Set(['gps_entrega', 'gps_cadastro', 'cnefe']);
 
 /** 26/07: o amarelo morreu (ver cabeçalho). Só existe "tem problema impeditivo" ou não. */
 export type SemaforoCor = 'verde' | 'vermelho';
@@ -255,7 +263,7 @@ function pontoMedianoCasulo(pontos: Coord[]): Coord | null {
  *  (gps_impreciso, legado sem o campo) recebe o motivo genérico — mesma cautela,
  *  string diferente pra não confundir "veio de geocode" com "GPS baixa precisão". */
 function motivoDeGeoFonte(geoFonte: string | null): 'geocode_nao_provado_em_campo' | 'fonte_nao_confiavel' | null {
-  if (GEOFONTES_PROVADAS.has(String(geoFonte))) return null;
+  if (GEOFONTES_DA_PORTA.has(String(geoFonte))) return null;
   return geoFonte === 'geocode' ? 'geocode_nao_provado_em_campo' : 'fonte_nao_confiavel';
 }
 

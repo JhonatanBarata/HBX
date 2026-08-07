@@ -1331,6 +1331,54 @@
   padding-right: var(--space-1);
 }
 
+/* PRÉVIA da faxina (06/08): a lista de quem sai, ANTES de sair. */
+.log-saude__previa {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--hbx-danger);
+  border-radius: var(--radius-lg);
+  background: var(--hbx-surface-soft);
+}
+
+.log-saude__previa > strong {
+  color: var(--hbx-danger);
+  font-size: var(--fz-m1);
+  font-weight: 800;
+}
+
+.log-saude__previa ul {
+  display: grid;
+  gap: var(--space-1);
+  max-height: 220px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.log-saude__previa li {
+  display: grid;
+  gap: 2px;
+}
+
+.log-saude__previa li b {
+  color: var(--text-strong);
+  font-size: var(--fz-m1);
+  font-weight: 700;
+}
+
+.log-saude__previa li small {
+  color: var(--text-muted);
+  font-size: var(--fz-m1);
+}
+
+.log-saude__previa-acoes {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
 /* O QUE ESTÁ ERRADO neste endereço (06/08) — uma linha por pendência, com o que
    fazer embaixo. `is-corrigir` é o que pede mão; `is-aviso` é estado normal de
    cliente novo e não pode ter o mesmo peso visual do defeito. */

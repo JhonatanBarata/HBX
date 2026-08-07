@@ -64,6 +64,7 @@ import { LogisticaAgendaController } from './logistica-agenda.controller';
 import { LogisticaAgendaService } from './logistica-agenda.service';
 import { LogisticaBaseSaudeController } from './logistica-base-saude.controller';
 import { LogisticaBaseSaudeService } from './logistica-base-saude.service';
+import { LogisticaBaseLimpezaService } from './logistica-base-limpeza.service';
 import { LogisticaCadernetaController } from './logistica-caderneta.controller';
 import { LogisticaCadernetaService } from './logistica-caderneta.service';
 import { LogisticaImportacaoController } from './logistica-importacao.controller';
@@ -250,6 +251,7 @@ import { LogisticaEstoqueService } from './logistica-estoque.service';
     LogisticaTrackingBonusService,
     LogisticaAgendaService,
     LogisticaBaseSaudeService,
+    LogisticaBaseLimpezaService,
     LogisticaCadernetaService,
     LogisticaImportacaoService,
     LogisticaEstoqueService,

@@ -79,6 +79,15 @@ const TAMANHO_PAGINA = 120;
  *  ele aperta de novo (e o carimbo do servidor faz cada volta começar de onde parou). */
 const VOLTAS_MAXIMAS_RESOLVER = 12;
 
+/** Espelha LimpezaResult de backend/src/logistica/logistica-base-limpeza.service.ts. */
+type LimpezaCliente = { id: string; nome: string | null; endereco: string; motivo: string };
+type LimpezaResult = {
+  duplicados: LimpezaCliente[];
+  semEndereco: LimpezaCliente[];
+  apagados: number;
+  executado: boolean;
+};
+
 const FILTROS: Array<{ key: Filtro; label: string }> = [
   { key: "todos", label: "Todos" },
   { key: "vermelho", label: "Corrigir" },
@@ -222,6 +231,8 @@ export function BaseSaude() {
   const [mensagem, setMensagem] = useState<string | null>(null);
   const [resolvendo, setResolvendo] = useState(false);
   const [resolvidoParcial, setResolvidoParcial] = useState(0);
+  const [limpando, setLimpando] = useState(false);
+  const [previa, setPrevia] = useState<LimpezaResult | null>(null);
   const filtroPill = useGlassPill<HTMLButtonElement>(filtro);
 
   const load = useCallback((silencioso = false) => {
@@ -344,6 +355,39 @@ export function BaseSaude() {
       setResolvidoParcial(0);
     }
   }, [load, resolvendo]);
+
+  /**
+   * 🔴 FAXINA (06/08, regras do dono) — cadastro duplicado na mesma porta e cadastro
+   * sem endereço fechado saem da base, mas SÓ quem não tem movimento nenhum.
+   *
+   * Duas etapas de propósito: a 1ª chamada é PRÉVIA e devolve a lista; a tela mostra
+   * os nomes e só então o dono confirma. Apagar cadastro de cliente sem ver a lista
+   * antes é o tipo de botão que a gente não constrói.
+   */
+  const limparBase = useCallback(async (executar: boolean) => {
+    if (limpando) return;
+    setLimpando(true);
+    setError(null);
+    try {
+      const res = await apiFetch<LimpezaResult>("/logistica/base-saude/limpar", {
+        method: "POST",
+        body: JSON.stringify(executar ? { executar: true } : {}),
+      });
+      const total = (res.duplicados?.length || 0) + (res.semEndereco?.length || 0);
+      if (!executar) {
+        setPrevia(res);
+        if (!total) setMensagem("Nada a limpar: todo cadastro sem endereço fechado tem entrega ou rota ativa.");
+        return;
+      }
+      setPrevia(null);
+      setMensagem(`${res.apagados} ${res.apagados === 1 ? "cadastro arquivado" : "cadastros arquivados"}. Dá pra restaurar pelo histórico de exclusões.`);
+      await load(true);
+    } catch (err: unknown) {
+      setError(humanError(err, "Não foi possível limpar a base agora."));
+    } finally {
+      setLimpando(false);
+    }
+  }, [limpando, load]);
 
   const locais = useMemo(
     () => (detalheAtual?.locais ?? []).filter((local) => local.ativo !== false),
@@ -564,12 +608,38 @@ export function BaseSaude() {
                 ? (resolvidoParcial > 0 ? `Resolvendo… ${resolvidoParcial}` : "Resolvendo…")
                 : "Resolver endereços"}
             </button>
-            <button type="button" className="btn-ghost btn-xs" onClick={() => void load()} disabled={loading || resolvendo}>
+            <button type="button" className="btn-ghost btn-xs" onClick={() => void limparBase(false)} disabled={limpando || resolvendo || loading}>
+              <I d={ICONS.trash} size={13} /> {limpando ? "Conferindo…" : "Limpar cadastros mortos"}
+            </button>
+            <button type="button" className="btn-ghost btn-xs" onClick={() => void load()} disabled={loading || resolvendo || limpando}>
               <span aria-hidden>↻</span> {loading ? "Atualizando…" : "Atualizar"}
             </button>
           </header>
 
           {mensagem && !clienteSelecionado && <p className="log-saude__notice is-ok" role="status">{mensagem}</p>}
+
+          {/* PRÉVIA da faxina: os nomes ANTES de qualquer exclusão (06/08). */}
+          {previa && (previa.duplicados.length > 0 || previa.semEndereco.length > 0) && (
+            <div className="log-saude__previa" role="group" aria-label="Cadastros que serão arquivados">
+              <strong>
+                {previa.duplicados.length + previa.semEndereco.length} cadastro(s) sem nenhum movimento — nenhuma entrega, nenhuma rota, nenhuma cobrança
+              </strong>
+              <ul>
+                {[...previa.duplicados, ...previa.semEndereco].map((item) => (
+                  <li key={item.id}>
+                    <b>{item.nome || "Cliente"}</b>
+                    <small>{item.endereco || "sem endereço"} · {item.motivo}</small>
+                  </li>
+                ))}
+              </ul>
+              <div className="log-saude__previa-acoes">
+                <button type="button" className="btn-ghost btn-xs" onClick={() => setPrevia(null)} disabled={limpando}>Cancelar</button>
+                <button type="button" className="btn-teal btn-xs" onClick={() => void limparBase(true)} disabled={limpando}>
+                  {limpando ? "Arquivando…" : "Arquivar estes cadastros"}
+                </button>
+              </div>
+            </div>
+          )}
 
           {error && <p className="log-saude__notice is-error" role="status">{error}</p>}
 

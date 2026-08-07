@@ -90,6 +90,19 @@ const MOTIVOS_DE_ROTA_FORA_DE_ESCOPO = new Set<MotivoConferencia>([
   'rota_degradada',
 ]);
 
+/**
+ * 🔴 MOTIVO QUE NÃO É PENDÊNCIA (06/08) — apurado e devolvido em `motivos[]`, mas não
+ * pinta o painel de amarelo.
+ *
+ * `nunca_entregue` é o estado NORMAL de todo cliente que ainda não recebeu — não há
+ * nada que o dono possa fazer a respeito, a não ser entregar. Medido na company 41:
+ * ele sozinho jogava 212 dos 239 clientes em "revisar", e uma fila de 212 onde não há
+ * o que revisar é a mesma doença que matou o amarelo da conferência em 26/07 (alarme
+ * que toca em tudo não é alarme, é ruído). A informação continua na ficha do cliente,
+ * escrita como aviso — só deixou de ser cor de fila.
+ */
+const MOTIVOS_QUE_NAO_SAO_PENDENCIA = new Set<MotivoConferencia>(['nunca_entregue']);
+
 // Espelha MOTIVOS_IMPEDITIVOS de logistica-conferencia.util.ts (privado lá) SEM
 // fora_do_casulo/perna_outlier (que nunca chegam aqui — ver Set acima) — mantém
 // diverge_gps_ouro na lista por documentação/futuro, mas hoje nunca dispara
@@ -280,7 +293,8 @@ export class LogisticaBaseSaudeService {
       // automática a caminho é AMARELO: continua na fila do "dá pra melhorar", some da
       // fila do "pare o que está fazendo". O motivo continua inteiro em `motivos[]`.
       const temVermelho = !resolveSozinho && motivos.some((m) => MOTIVOS_VERMELHOS_BASE_SAUDE.has(m));
-      const semaforo: SemaforoBaseSaude = temVermelho ? 'vermelho' : motivos.length > 0 ? 'amarelo' : 'verde';
+      const pendencias = motivos.filter((m) => !MOTIVOS_QUE_NAO_SAO_PENDENCIA.has(m));
+      const semaforo: SemaforoBaseSaude = temVermelho ? 'vermelho' : pendencias.length > 0 ? 'amarelo' : 'verde';
 
       if (semaforo === 'verde') verdes++;
       else if (semaforo === 'amarelo') amarelos++;

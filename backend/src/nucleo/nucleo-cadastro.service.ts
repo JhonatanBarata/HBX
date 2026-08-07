@@ -1164,6 +1164,9 @@ export class NucleoCadastroService {
    * o fluxo do vendedor cadastrando "Dona Maria" + endereço. GRÁTIS (não debita
    * crédito: não é lead da base 28M).
    *
+   * 06/08 (REGRA do dono) — CLIENTE não entra mais sem endereço fechado: CEP e
+   * número. Ver `exigirEnderecoFechado` no fim do arquivo.
+   *
    * Idempotência por-tenant: se já existir uma conta com o MESMO document/cnpj
    * OU o MESMO telefone normalizado nesta empresa, faz UPSERT (não duplica) —
    * reusa `upsertContaFromCnpj` (pj com cnpj) ou resolve o profile manualmente.
@@ -1175,6 +1178,7 @@ export class NucleoCadastroService {
     // caía aqui vazio pós-trim; entrada inválida do USUÁRIO é 400, nunca Error puro (o
     // filtro global vira 500 sem isso).
     if (!nome) throw new BadRequestException('Nome é obrigatório');
+    exigirEnderecoFechado(input, input.isCliente ?? true);
 
     const tipo = input.tipo === 'pj' ? 'pj' : 'pf';
     const cnpj = tipo === 'pj' ? normalizeDigits(input.cnpj ?? input.document) : '';
@@ -2293,6 +2297,45 @@ export function enderecoDupKey(
 // debitoAbertoPorClientes).
 function round2(value: number): number {
   return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+/**
+ * 🔴 ENDEREÇO FECHADO É REGRA DE ENTRADA (06/08, ordem do dono): "cliente não serão
+ * mais aceitos cadastros sem CEP e número. se tiver só CEP até ok, aceite SN".
+ *
+ * Por que virou regra: a base do André tinha 109 clientes sem CEP ou sem número, e
+ * cada um deles é um endereço que o sistema não consegue resolver até a porta — o
+ * CNEFE entra por (CEP, número), e sem eles não há como saber onde fica a casa. Barrar
+ * na ENTRADA é o único jeito de a fila parar de crescer enquanto a gente limpa o que
+ * já entrou.
+ *
+ * Duas frouxidões DE PROPÓSITO, porque endereço de rua real é assim:
+ *  · o número vale da coluna `numero` OU de dentro do texto composto (legado);
+ *  · "SN"/"S/N"/"sem número" é resposta VÁLIDA — casa sem número existe, e o dono já
+ *    escreve isso à mão em 10 cadastros. O que não vale é o campo em BRANCO, que não
+ *    diz se é sem número ou se ninguém perguntou.
+ *
+ * Só vale pra CLIENTE (quem recebe entrega). Lead/fornecedor/contato seguem entrando
+ * sem endereço — a regra é da logística, não do CRM.
+ */
+const SEM_NUMERO_DECLARADO = /^(s\.?\/?\s*n\.?|sem\s*n[uú]?mero?)$/i;
+
+export function exigirEnderecoFechado(
+  cadastro: { cep?: string | null; numero?: string | null; endereco?: string | null },
+  isCliente: boolean,
+): void {
+  if (!isCliente) return;
+  const cep = String(cadastro.cep ?? '').replace(/\D+/g, '');
+  if (cep.length !== 8) {
+    throw new BadRequestException('Informe o CEP do cliente (8 dígitos) — sem ele não dá pra achar a casa.');
+  }
+  const numeroTexto = String(cadastro.numero ?? '').trim();
+  const declarouSemNumero = SEM_NUMERO_DECLARADO.test(numeroTexto)
+    || /sem\s*n[uú]?mero|\bs\/?n\b/i.test(String(cadastro.endereco ?? ''));
+  const temNumero = !!extrairNumeroPorta({ numero: cadastro.numero ?? null, endereco: cadastro.endereco ?? null });
+  if (!temNumero && !declarouSemNumero) {
+    throw new BadRequestException('Informe o número da casa — se não tiver, escreva SN.');
+  }
 }
 
 // LOGÍSTICA-MOBILE B1 (07/07) — 'geocode' | 'gps_cadastro' passam pelo cadastro vindos
