@@ -2637,6 +2637,11 @@ function shellRota(conteudo,dock){
     <div class="body${dock?' com-dock':''}">${conteudo}</div>
     ${dock?`<div class="tmx-dock">${dock}</div>`:''}${nav('rota')}`;
 }
+/* Dia da rota a montar (07/08): o admin puxa OUTRO dia pra hoje (adiantar o
+   sábado, refazer o de ontem). Quem sabe os dias e quem é admin é a ponte
+   (`montarDias`); sem ela — o desenho — a linha não existe e nada muda. */
+const chipsMontarDia=(e)=>e!=='montar'||!Array.isArray(DADOS.rota.montarDias)||!DADOS.rota.montarDias.length?'':`<div class="chips">
+  ${DADOS.rota.montarDias.map(x=>`<button class="chip${(DADOS.rota.montarDiaSel||0)===x[0]?' on':''}" data-acao="montar-dia" data-dia="${x[0]}">${x[1]}</button>`).join('')}</div>`;
 T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
   const e=estadoRota;
 
@@ -2663,7 +2668,8 @@ T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
     <div class="vazio">
       <span class="ico">${ic('route',24)}</span>
       <strong>${DADOS.rota.vazioTitulo}</strong>
-    </div>`, transmux(e==='semsinal'?'pronta':e));
+    </div>
+    ${chipsMontarDia(e)}`, transmux(e==='semsinal'?'pronta':e));
   return shellRota(`
   <div class="kpis">
     <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${DADOS.rota.kpiParadas}</b><span class="l">paradas</span></span></div>
@@ -2681,6 +2687,7 @@ T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
   ${emCurso?`<div class="dia-bar"><small>${DADOS.rota.diaFeitas} de ${DADOS.rota.diaTotal}</small><span class="trilho"><i style="width:${DADOS.rota.diaPct}"></i></span><b>${DADOS.rota.diaMarcado}</b><small>marcado</small></div>`:''}
   ${emCurso?`<div class="filtro">
       <button class="on">Fila <b>${DADOS.rota.filtroFila}</b></button><button>Entregue <b>${DADOS.rota.filtroEntregue}</b></button></div>`:''}
+  ${chipsMontarDia(e)}
   ${montada||e==='montar'?`<div class="creditos">${ic('card',17)}
       <span><b class="v">${DADOS.rota.creditos}</b> <small>créditos hoje</small></span>
       <span class="debita">${montada

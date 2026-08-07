@@ -600,7 +600,11 @@
     barraLidaEm = agora;
     let cfg;
     try { cfg = await window.API.get('/logistica/config'); } catch (_) { return; }
+    // A MESMA resposta diz quem é admin (ehAdmin lê o `config`) — sem isso os
+    // chips de dia do montar só nasciam depois de passar pelos Ajustes.
+    config = cfg;
     aplicarBarra(cfg);
+    publicarMontarDias();
   }
 
   /* O admin desliga o módulo com o app do motorista ABERTO — é o caso normal,
@@ -637,6 +641,32 @@
      · toque repetido não cobra duas vezes (trava de reentrância);
      · Cancelar não perde entrega: as abertas voltam pra agenda (encerrar).
      ------------------------------------------------------------------------ */
+  /* --------------------------------------------------------------------
+     O DIA DA ROTA A MONTAR (dono, 07/08): "não estamos conseguindo se
+     adiantar, ou voltar um dia". O trilho é o MESMO do desktop
+     (`/logistica/admin-route/prepare`): o dia operacional continua HOJE —
+     caderneta, cobrança e carimbo coerentes — e só os CLIENTES vêm do dia
+     escolhido. 0 = hoje (fluxo de sempre). Chip só aparece pra admin.
+     -------------------------------------------------------------------- */
+  let montarDia = 0;
+  /** a data (SP) da próxima ocorrência do dia n (1=Seg…7=Dom), hoje inclusive */
+  const dataDoDia = (n) => {
+    const [a, m, d] = diaOperacional().split('-').map(Number);
+    const base = new Date(Date.UTC(a, m - 1, d, 12));
+    const dow = base.getUTCDay() === 0 ? 7 : base.getUTCDay();
+    base.setUTCDate(base.getUTCDate() + (((n - dow) + 7) % 7));
+    return base.toISOString().slice(0, 10);
+  };
+  /** os chips que a Rota desenha no estado "montar" — sem admin, nada entra */
+  function publicarMontarDias() {
+    if (typeof window.usarDados !== 'function') return;
+    if (!ehAdmin()) return;
+    const hoje = diaDaSemana();
+    const dias = [[0, 'Hoje']];
+    for (let n = 1; n <= 7; n += 1) if (n !== hoje) dias.push([n, ROTULO_DIA[n]]);
+    window.usarDados('rota', { montarDias: dias, montarDiaSel: montarDia });
+  }
+
   let ocupado = false;
   const comTrava = async (fn) => {
     if (ocupado) return;
@@ -663,10 +693,21 @@
       const devolverEstado = () => { try { estadoRota = estadoAntes; } catch (_) { /* idem */ } };
 
       let plano;
-      try { plano = await window.API.post('/logistica/rota/planejar', { date: hojeISO() }); }
-      catch (e) { devolverEstado(); return avisoErro(e); }
+      try {
+        if (montarDia && montarDia !== diaDaSemana() && ehAdmin()) {
+          // Outro dia puxado pra HOJE: o prepare materializa a agenda do dia
+          // escolhido em cima do dia operacional de hoje e já planeja.
+          const prep = await window.API.post('/logistica/admin-route/prepare', {
+            operationalDate: hojeISO(), sourceDates: [dataDoDia(montarDia)],
+          });
+          plano = prep && prep.plan ? prep.plan : prep;
+        } else {
+          plano = await window.API.post('/logistica/rota/planejar', { date: hojeISO() });
+        }
+      } catch (e) { devolverEstado(); return avisoErro(e); }
       const paradas = Array.isArray(plano && plano.stops) ? plano.stops
-        : (Array.isArray(plano && plano.items) ? plano.items : []);
+        : (Array.isArray(plano && plano.items) ? plano.items
+          : (Array.isArray(plano && plano.paradas) ? plano.paradas : []));
 
       // semáforo dos endereços: só ATRASA a montagem se o servidor acusar algo.
       let conf = null;
@@ -692,6 +733,9 @@
           sub: 'Dá pra sair assim, mas confira antes.', acoes: [['Ver a rota', 'principal']],
         });
       }
+      // Rota montada: a escolha de dia cumpriu o papel e volta pro padrão —
+      // seleção presa deixaria o PRÓXIMO montar puxando o dia velho calado.
+      if (montarDia) { montarDia = 0; window.usarDados('rota', { montarDiaSel: 0 }); }
       if (typeof window.ir === 'function') window.ir('montagem');
     });
   }
@@ -2667,6 +2711,12 @@
     if (chave === 'pacote') {
       pacoteEscolhido = String(alvo.dataset.pacote || '');
       return carregarAjustes();
+    }
+    if (chave === 'montar-dia') {
+      const n = Number(alvo.dataset.dia) || 0;
+      montarDia = montarDia === n ? 0 : n;
+      window.usarDados('rota', { montarDiaSel: montarDia });
+      return;
     }
     if (chave === 'chip-dia') {
       const n = Number(alvo.dataset.dia) || 0;
