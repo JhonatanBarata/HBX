@@ -567,19 +567,30 @@
      traz um input NOVO, e sem ele o listener empilhava a cada tecla. */
   let buscaTimer = null;
   function ligarBusca() {
-    const el = naCamada('[data-campo="busca-cliente"]');
-    if (!el || el.__hbxBusca) return;
-    el.__hbxBusca = true;
-    el.addEventListener('input', () => {
-      const valor = String(el.value || '');
-      clearTimeout(buscaTimer);
-      buscaTimer = setTimeout(() => {
-        filtroClientes.busca = valor;
-        // O seam guarda o texto pra ele sobreviver ao repinte da lista — sem
-        // isso o campo se apagava sozinho no meio da digitação.
-        carregarClientes();
-      }, 350);
-    });
+    const cli = naCamada('[data-campo="busca-cliente"]');
+    if (cli && !cli.__hbxBusca) {
+      cli.__hbxBusca = true;
+      cli.addEventListener('input', () => {
+        const valor = String(cli.value || '');
+        clearTimeout(buscaTimer);
+        buscaTimer = setTimeout(() => {
+          filtroClientes.busca = valor;
+          // O seam guarda o texto pra ele sobreviver ao repinte da lista — sem
+          // isso o campo se apagava sozinho no meio da digitação.
+          carregarClientes();
+        }, 350);
+      });
+    }
+    const prod = naCamada('[data-campo="busca-produto"]');
+    if (prod && !prod.__hbxBusca) {
+      prod.__hbxBusca = true;
+      // Catálogo inteiro já está no aparelho: filtra na hora, sem espera e sem
+      // ida ao servidor. O que justifica a diferença pro cliente é o TAMANHO.
+      prod.addEventListener('input', () => {
+        filtroProdutos.busca = String(prod.value || '');
+        carregarProdutos();
+      });
+    }
   }
 
   /* Quem abre a tela é quem manda buscar. O mock chama `ir` NU dentro dele, e
@@ -590,6 +601,7 @@
     window.ir = function (tela) {
       const r = irDoMock.apply(this, arguments);
       if (tela === 'clientes') carregarClientes();
+      if (tela === 'produtos') carregarProdutos();
       return r;
     };
   }
@@ -602,6 +614,130 @@
     ligarCamposDaFicha();
   });
   observador.observe(document.getElementById('app') || document.body, { childList: true, subtree: true });
+
+  /* ------------------------------------------------------------------------
+     L7 — PRODUTOS (o catálogo, que é de onde sai o preço de TODA entrega).
+
+     ⚠️ O catálogo do celular devolve `{id, nome, unidade, usaLogistica,
+     precoCatalogo}` — SEM estoque e SEM categoria, embora as duas colunas
+     existam na tabela e o PATCH até aceite `estoque`. Ou seja: dá pra ESCREVER
+     estoque e não dá pra LER. Campo assim é o pior de todos — o dono digitaria
+     por cima do estoque real sem ver o que estava lá. Por isso o campo Estoque
+     e os contadores que dependem dele não aparecem. Está na mão do dono.
+
+     O catálogo inteiro vem numa resposta só (sem paginação), então a busca
+     filtra AQUI — e isso é honesto justamente porque a lista inteira já está
+     no aparelho. Na tela de Clientes é o contrário, e por isso lá vai pro
+     servidor: são coisas diferentes, não incoerência.
+     ------------------------------------------------------------------------ */
+  const PRODUTOS = new Map();
+  let filtroProdutos = { busca: '' };
+  let produto = null;
+
+  /** "R$ 11,00" / "11,00" → 11. Vazio ou lixo → null (não vira zero). */
+  const paraNumero = (txt) => {
+    const limpo = String(txt || '').replace(/[^0-9,.-]/g, '').replace(/\./g, '').replace(',', '.');
+    const n = Number(limpo);
+    return limpo !== '' && isFinite(n) ? n : null;
+  };
+
+  async function carregarProdutos() {
+    if (!temPonte() || typeof window.usarDados !== 'function') return;
+    let r;
+    try { r = await window.API.get('/logistica/produtos'); } catch (_) { return; }
+    const todos = Array.isArray(r) ? r : [];
+    PRODUTOS.clear();
+    todos.forEach((p) => { if (p && p.id != null) PRODUTOS.set(String(p.id), p); });
+    const busca = filtroProdutos.busca.trim().toLowerCase();
+    const lista = busca
+      ? todos.filter((p) => String(p.nome || '').toLowerCase().indexOf(busca) >= 0)
+      : todos;
+    window.usarDados('produtos', {
+      busca: esc(filtroProdutos.busca),
+      // Sem categoria no payload, a fileira de chips inteira SOME. Um filtro
+      // com uma opção só ("Todos") é enfeite com cara de controle.
+      categorias: [],
+      lista: lista.map((p) => [
+        esc(p.nome),
+        esc(p.unidade),
+        typeof p.precoCatalogo === 'number' ? p.precoCatalogo.toFixed(2).replace('.', ',') : '',
+        'azul',
+        String(p.id),
+      ]),
+      ativos: String(todos.length),
+      estoqueBaixo: '',
+      valorEstimado: '',
+    });
+  }
+
+  function abrirProduto(id) {
+    const p = PRODUTOS.get(String(id));
+    if (!p || typeof window.usarDados !== 'function') return;
+    produto = { id: String(id), item: p, rascunho: {} };
+    encherProduto();
+    window.ir('fichaproduto');
+  }
+
+  function encherProduto() {
+    if (!produto) return;
+    const p = produto.item || {};
+    const r = produto.rascunho || {};
+    const v = (k, servidor) => (r[k] !== undefined ? esc(r[k]) : esc(servidor));
+    window.usarDados('fichaproduto', {
+      nome: v('produto-nome', p.nome),
+      // "no catálogo desde… · N entregas" não vem em porta nenhuma do celular.
+      resumo: '',
+      selo: p.usaLogistica ? 'ativo' : '',
+      unidade: v('produto-unidade', p.unidade),
+      preco: v('produto-preco', typeof p.precoCatalogo === 'number' ? dinheiro(p.precoCatalogo) : ''),
+      estoque: '',
+    });
+  }
+
+  async function salvarProduto() {
+    if (!produto) return;
+    await comTrava(async () => {
+      const p = produto.item || {};
+      const corpo = {};
+      const nome = campo('produto-nome');
+      const unidade = campo('produto-unidade');
+      const preco = paraNumero(campo('produto-preco'));
+      if (nome && nome !== String(p.nome || '')) corpo.nome = nome;
+      if (unidade !== String(p.unidade || '')) corpo.unidade = unidade;
+      // 🔴 PREÇO SÓ VIAJA SE VIROU NÚMERO. Campo apagado ou digitado errado não
+      // pode virar 0 — este é o preço de TODA entrega deste produto.
+      if (preco != null && preco !== Number(p.precoCatalogo)) corpo.preco = preco;
+      if (!Object.keys(corpo).length) {
+        return window.portao({
+          tom: 'info', ico: 'check', titulo: 'Nada mudou', sub: 'O produto já está assim.',
+          acoes: [['Fechar', '']],
+        });
+      }
+      const gravar = async () => {
+        try { await window.API.patch(`/logistica/produtos/${encodeURIComponent(produto.id)}`, corpo); }
+        catch (e) { return avisoErro(e); }
+        await carregarProdutos();
+        const atualizado = PRODUTOS.get(produto.id);
+        if (atualizado) produto.item = atualizado;
+        produto.rascunho = {};
+        encherProduto();
+        window.portao({ tom: 'ok', ico: 'check', titulo: 'Produto salvo', sub: '', acoes: [['Fechar', '']] });
+      };
+      // 🔴 PREÇO MUDOU: mostra o número JÁ LIDO antes de gravar.
+      // O campo é texto livre (o mock não tem a moeda "estilo banco" do app
+      // velho) e eu vi na tela um dedo escorregado virar "9 509,50" — que o
+      // leitor entende como NOVE MIL. Este é o preço que multiplica TODA
+      // entrega do produto: ele não pode mudar sem alguém ler o valor.
+      if (corpo.preco === undefined) return gravar();
+      window.portao({
+        tom: 'alerta', ico: 'cash', titulo: 'Confirmar o preço?',
+        sub: `${esc(p.nome)} passa a valer ${dinheiro(corpo.preco)}`,
+        acoes: [['Não', ''], ['Salvar preço', 'principal']], classe: 'duas',
+      });
+      const botao = naCamada('.portao-wrap .principal');
+      if (botao) botao.addEventListener('click', () => { gravar(); }, { once: true });
+    });
+  }
 
   /* ------------------------------------------------------------------------
      L6 — CLIENTES E FICHA (a tela nº1 de quem usa o app de verdade).
@@ -717,20 +853,26 @@
      usuário, e daí em diante o vazio VENCIA o dado do servidor. CEP, rua e
      bairro sumiram na tela por causa disso. Rascunho nasce de tecla, e ponto. */
   const CAMPOS_FICHA = ['nome', 'telefone', 'cep', 'rua', 'numero', 'bairro', 'observacoes'];
+  const CAMPOS_PRODUTO = ['produto-nome', 'produto-unidade', 'produto-preco'];
+  /** liga o rascunho de QUALQUER ficha da camada viva (cliente ou produto) */
   function ligarCamposDaFicha() {
-    if (!ficha) return;
     const camada = camadaViva();
     if (!camada) return;
-    for (const nome of CAMPOS_FICHA) {
-      const el = camada.querySelector(`[data-campo="${nome}"]`);
-      if (!el || el.__hbxCampo) continue;
-      el.__hbxCampo = true;
-      el.addEventListener('input', () => {
-        if (!ficha) return;
-        ficha.rascunho = ficha.rascunho || {};
-        ficha.rascunho[nome] = String(el.value || '');
-      });
-    }
+    const ligar = (nomes, dono) => {
+      for (const nome of nomes) {
+        const el = camada.querySelector(`[data-campo="${nome}"]`);
+        if (!el || el.__hbxCampo) continue;
+        el.__hbxCampo = true;
+        el.addEventListener('input', () => {
+          const alvo = dono();
+          if (!alvo) return;
+          alvo.rascunho = alvo.rascunho || {};
+          alvo.rascunho[nome] = String(el.value || '');
+        });
+      }
+    };
+    ligar(CAMPOS_FICHA, () => ficha);
+    ligar(CAMPOS_PRODUTO, () => produto);
   }
   /** valor a mostrar: o que ele digitou, senão o que o servidor mandou */
   const valorFicha = (nome, doServidor) => {
@@ -1157,6 +1299,7 @@
     'registrar-nao-entregue': registrarNaoEntregue,
     'fechar-dia': fecharDia,
     'salvar-cliente': salvarCliente,
+    'salvar-produto': salvarProduto,
   };
   // captura na fase de subida, DEPOIS do mock: quem não é meu segue o caminho dele.
   document.addEventListener('click', (e) => {
@@ -1167,6 +1310,7 @@
     // o mapa é nome→função; aqui o dado é parte do toque.
     if (chave === 'abrir-parada') return abrirParada(alvo.dataset.parada);
     if (chave === 'abrir-cliente') return abrirCliente(alvo.dataset.cliente);
+    if (chave === 'abrir-produto') return abrirProduto(alvo.dataset.produto);
     if (chave === 'chip-dia') {
       const n = Number(alvo.dataset.dia) || 0;
       // 2º toque no mesmo chip DESLIGA o filtro. Chip que só liga é armadilha:

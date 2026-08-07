@@ -1831,6 +1831,28 @@ const DADOS={
       ['box','Água c/ gás 1,5L','1 por entrega · <b style="color:var(--lime)">R$ 22,00 só pra ela</b>'],
     ],
   },
+  /* L7 — PRODUTOS. `lista` é [nome, linha de baixo, preço, cor, id]. A linha de
+     baixo é TEXTO PRONTO porque a fonte muda: no mock é o estoque, no app é a
+     unidade — o catálogo do celular não devolve estoque nem categoria, e o app
+     de hoje nunca mostrou estoque nesta tela. Slot sem fonte SOME. */
+  produtos:{
+    busca:'', categorias:['Todos','Água','Vasilhames','Acessórios','Kits'], categoriaSel:0,
+    lista:[
+      ['Água 20L','Estoque: 128 un.','18,00','azul',''],
+      ['Água 10L','Estoque: 86 un.','12,00','azul',''],
+      ['Vasilhame','Estoque: 64 un.','42,00','azul-escuro',''],
+      ['Chip dia','Estoque: 210 un.','2,00','lima',''],
+      ['Caixa térmica','Estoque: 18 un.','85,00','cinza',''],
+      ['Kit entrega','Estoque: 32 un.','35,00','azul',''],
+      ['Água c/ gás 1,5L','Estoque: 54 un.','24,00','azul',''],
+      ['Suporte de galão','Estoque: 12 un.','69,00','cinza',''],
+    ],
+    ativos:'8', estoqueBaixo:'2', valorEstimado:'R$ 194,00',
+  },
+  fichaproduto:{
+    nome:'Galão 20 Litros', resumo:'no catálogo desde 03/2025 · 1.284 entregas',
+    selo:'ativo', unidade:'galão', preco:'R$ 11,00', estoque:'128',
+  },
   montagem:{
     titulo:'Montagem de rota', dica:'Segure e arraste para ordenar',
     somaParadas:'6', somaProdutos:'20', somaValor:'R$ 336,00',
@@ -2369,35 +2391,28 @@ ${nav('rota')}`;}};
 T.produtos={nome:'Produtos',grupo:'Cadastro',render(){
   // A cor do produto vira CLASSE, não hex inline: o hex era do tema escuro e
   // no claro virava ícone claro sobre fundo claro (1,43:1, medido).
-  const p=(nome,est,preco,cor)=>`<div class="prod">
+  const d=DADOS.produtos;
+  const p=(nome,sub,preco,cor,id)=>`<div class="prod"${id?` data-acao="abrir-produto" data-produto="${id}"`:''}>
     <span class="thumb t-${cor}" style="width:46px;height:46px;flex:0 0 46px">${ic('gallon',24)}</span>
-    <span><span class="nm">${nome}</span><span class="st">${ic('box',13)} Estoque: ${est} un.</span></span>
-    <span class="price">R$ ${preco}</span></div>`;
+    <span><span class="nm">${nome}</span>${sub?`<span class="st">${ic('box',13)} ${sub}</span>`:''}</span>
+    ${preco?`<span class="price">R$ ${preco}</span>`:''}</div>`;
   return `${status}
 ${hdr({semChat:1,badge:3})}
 <div class="body">
   <div class="screen-head"><span style="color:var(--lime)">${ic('box',30)}</span>
     <span><h2>Produtos</h2><p>Gerencie seus produtos e preços</p></span></div>
   <div class="searchrow">
-    <label class="search">${ic('search',17)}<input placeholder="Buscar produto"></label>
+    <label class="search">${ic('search',17)}<input placeholder="Buscar produto" data-campo="busca-produto" value="${d.busca}"></label>
     <button class="filt">${ic('sliders',18)}</button></div>
-  <div class="chips">
-    <button class="chip on">Todos</button><button class="chip">Água</button><button class="chip">Vasilhames</button>
-    <button class="chip">Acessórios</button><button class="chip">Kits</button></div>
+  ${d.categorias.length?`<div class="chips">
+    ${d.categorias.map((c,i)=>`<button class="chip${d.categoriaSel===i?' on':''}">${c}</button>`).join('')}</div>`:''}
   <div class="lista-card">
-    ${p('Água 20L','128','18,00','azul')}
-    ${p('Água 10L','86','12,00','azul')}
-    ${p('Vasilhame','64','42,00','azul-escuro')}
-    ${p('Chip dia','210','2,00','lima')}
-    ${p('Caixa térmica','18','85,00','cinza')}
-    ${p('Kit entrega','32','35,00','azul')}
-    ${p('Água c/ gás 1,5L','54','24,00','azul')}
-    ${p('Suporte de galão','12','69,00','cinza')}
+    ${d.lista.map(l=>p(l[0],l[1],l[2],l[3],l[4])).join('')}
   </div>
   <div class="sum">
-    <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>8</b><small>produtos ativos</small></span></span>
-    <span class="c"><span style="color:var(--amber)">${ic('alert',17)}</span><span><b>2</b><small style="color:var(--amber)">estoque baixo</small></span></span>
-    <span class="c"><span style="color:var(--blue-l)">${ic('cash',17)}</span><span><b>R$ 194,00</b><small>valor estimado</small></span></span>
+    <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>${d.ativos}</b><small>produtos ativos</small></span></span>
+    ${d.estoqueBaixo?`<span class="c"><span style="color:var(--amber)">${ic('alert',17)}</span><span><b>${d.estoqueBaixo}</b><small style="color:var(--amber)">estoque baixo</small></span></span>`:''}
+    ${d.valorEstimado?`<span class="c"><span style="color:var(--blue-l)">${ic('cash',17)}</span><span><b>${d.valorEstimado}</b><small>valor estimado</small></span></span>`:''}
   </div>
 </div>
 ${nav('produtos')}`;}};
@@ -2680,22 +2695,25 @@ ${hdr({voltar:'rota'})}
 ${nav('rota')}`;}};
 
 /* 21 — FICHA DO PRODUTO ---------------------------------------------------- */
-T.fichaproduto={nome:'Ficha do produto',grupo:'Cadastro',render(){return `${status}
+T.fichaproduto={nome:'Ficha do produto',grupo:'Cadastro',render(){const f=DADOS.fichaproduto;return `${status}
 ${hdr({voltar:'produtos',semChat:1})}
 <div class="body">
   <div class="stop-top" style="margin:2px 0 10px;grid-template-columns:auto 1fr auto">
     <span class="thumb" style="width:52px;height:52px;flex:0 0 52px">${ic('gallon',26)}</span>
-    <span><strong style="font-size:16px">Galão 20 Litros</strong>
-      <span style="font-size:11px;color:var(--ink-2)">no catálogo desde 03/2025 · 1.284 entregas</span></span>
-    <span class="tag lime">ativo</span>
+    <span><strong style="font-size:16px">${f.nome}</strong>
+      ${f.resumo?`<span style="font-size:11px;color:var(--ink-2)">${f.resumo}</span>`:''}</span>
+    ${f.selo?`<span class="tag lime">${f.selo}</span>`:''}
   </div>
   <div class="campos">
-    <label class="campo"><label>Nome</label><input value="Galão 20 Litros"></label>
+    <label class="campo"><label>Nome</label><input value="${f.nome}" data-campo="produto-nome"></label>
     <div class="dupla">
-      <label class="campo"><label>Unidade</label><input value="galão" placeholder="galão, caixa, unidade"></label>
-      <label class="campo"><label>Preço do catálogo</label><input value="R$ 11,00"></label>
+      <label class="campo"><label>Unidade</label><input value="${f.unidade}" placeholder="galão, caixa, unidade" data-campo="produto-unidade"></label>
+      <label class="campo"><label>Preço do catálogo</label><input value="${f.preco}" data-campo="produto-preco"></label>
     </div>
-    <label class="campo"><label>Estoque</label><input value="128"></label>
+    <!-- ESTOQUE só aparece quando existe: o catálogo do celular não devolve
+         essa coluna, e campo de número vazio numa tela de cadastro convida o
+         usuário a digitar algo que não tem onde ser gravado. -->
+    ${f.estoque?`<label class="campo"><label>Estoque</label><input value="${f.estoque}" data-campo="produto-estoque"></label>`:''}
   </div>
   <div class="banner pausa" style="margin-top:9px">${ic('alert',15)}
     <span>O preço da <b>entrega</b> sai daqui, sempre. Preço por cliente vive na ficha dele.</span></div>
@@ -2703,7 +2721,7 @@ ${hdr({voltar:'produtos',semChat:1})}
   <div class="banner alerta">${ic('calendar',15)}
     <span>Dia de entrega é do <b>cliente</b>. Não existe "produto de terça" em lugar nenhum do app.</span></div>
   <div class="acts" style="margin-top:12px">
-    <button class="act go wide" style="justify-content:center">${ic('check',19)}<b>Salvar</b></button>
+    <button class="act go wide" style="justify-content:center" data-acao="salvar-produto">${ic('check',19)}<b>Salvar</b></button>
     <button class="act" style="justify-content:center" data-superficie="confirmar">${ic('box',17)}<b>Arquivar</b></button>
   </div>
 </div>
