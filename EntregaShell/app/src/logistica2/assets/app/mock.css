@@ -91,6 +91,10 @@ button,input{font:inherit;color:inherit}
   --map-fundo:var(--bg-2); --map-quadra:#0d1727; --map-rua:#1b2740; --map-rua2:#16223a;
   --map-parque:#0f2418; --map-rotulo:#5c6d8c; --map-pino:#0c1526; --map-pino-tinta:#eaf6d5;
   --map-rota:var(--lime); --map-rota-borda:#4f8f14; --map-leito:#1d2c47;
+  /* A CABEÇA DA COBRA — a ponta acesa que viaja na frente do traço quando o
+     mapa se desenha. É a única cor do mapa que só existe DURANTE a cena, e
+     ela se vira com CONTRASTE: não há halo nem filtro (ver a folha). */
+  --map-cabeca:#e8f4ff;
   --map-carro:#e9eef7; --map-carro-borda:#aebbcf; --map-carro-vidro:#8fa6c4; --map-carro-2:#c3cede;
   --map-bandeira:#dbe6f7; --map-bandeira-2:#0d1a2f; --map-partida:#3d8bff;
   /* EMPRESAS DO CORREDOR (prospector) — três estados numa peça só: APAGADA
@@ -396,24 +400,33 @@ button,input{font:inherit;color:inherit}
         de apagar; ver o bloco do claro no fim da folha).
      2. O PONTEIRO SURGE SOZINHO, em cima do véu, sem mapa nenhum atrás. Ele é
         o primeiro a existir: a pergunta da tela é "onde eu estou".
-     3. O MAPA SE DESENHA AOS POUCOS, por baixo, DE DENTRO PRA FORA — o clarão
-        abre no próprio ponteiro e cresce. As EMPRESAS do corredor entram junto
-        porque são parte do mundo: a abertura passa por cima delas e elas
-        aparecem onde estão. Não há empresa perto? não entra nada, e a cena é
-        exatamente a mesma — o véu não depende de dado nenhum.
+     3. A COBRA CRESCE. Ordem do dono, 07/08: *"uma cobra crescendo, acho q é
+        este o efeito"*. Uma LINHA sai debaixo do ponteiro, sobe a via
+        principal, vira a esquina e segue — com a ponta acesa viajando na
+        frente — e cada rua menor BROTA dela quando a ponta passa no
+        cruzamento. Depois as avenidas brotam da primeira rua, e as ruas do
+        horizonte brotam das avenidas: um labirinto se fechando. Só no fim a
+        rota acende por cima do leito, e só então o mapa de verdade assenta
+        por baixo. As EMPRESAS do corredor entram junto porque são parte do
+        mundo. Não há empresa perto? não entra nada, e a cena é exatamente a
+        mesma — o véu não depende de dado nenhum.
 
    🔴 A CENA MORA NA CLASSE `cena`, NUNCA NA `entra`. A marca `entra` fica na
    camada PRA SEMPRE (é dela que a Lei 10 herda o papel no repinte): pendurar
    a cena ali fazia o véu RENASCER a cada repinte do seam — uma empresa
    acendendo aos 5 s escurecia a tela inteira do motorista de novo. `cena` cai
-   aos 900 ms, exatamente o mesmo teto do relógio herdado (`currentTime`) do
-   repinte: antes disso o repinte CONTINUA a cena, depois não há cena pra
-   continuar. Dois problemas, um número só.
+   aos 2.200 ms, exatamente o mesmo teto do relógio herdado (`currentTime`) do
+   repinte pra esta camada: antes disso o repinte CONTINUA a cena, depois não
+   há cena pra continuar. Dois problemas, um número só. E esse número é TETO,
+   não duração — a cena acaba sozinha em 1,36 s; o resto é a folga da travada
+   que o boot do mapa dá no aparelho (ver o comentário do `CENA_CHEIA`).
 
    🔴 A CENA NÃO ESPERA O MAPA — e essa é a diferença entre cena e trava. Ela
    é CSS puro, com hora marcada: mapa que não carrega (rede caída, estilo que
-   não sobe, maplibre que não vem) não segura o véu. Aos 880 ms ele saiu de
-   qualquer jeito e sobra a tela honesta que houver — nunca um véu eterno.
+   não sobe, maplibre que não vem) não segura o véu nem a cobra. Terminou,
+   sobra a tela honesta que houver — nunca um véu eterno. O contrário também
+   vale e é novo: o mapa que chega CEDO demais não corta o desenho no meio,
+   ele espera o mesmo relógio.
    ========================================================================== */
 /* 1 — O VÉU. O raio do clarão (`--veu-r`) é propriedade REGISTRADA: sem o
    `@property` o navegador não sabe interpolar comprimento dentro de custom
@@ -425,7 +438,12 @@ button,input{font:inherit;color:inherit}
 .gps-veu{position:absolute;inset:0;z-index:18;pointer-events:none;opacity:0;--veu-r:1500px;
   background:radial-gradient(circle at 50% 68%,transparent 0,transparent var(--veu-r),
     var(--veu) calc(var(--veu-r) * 1.25 + 56px))}
-.tela.cena.cheio .gps-veu{animation:mvVeu .60s var(--cv-cena) .24s both}
+/* 🔴 O CLARÃO ENCOLHEU DE PROPÓSITO (ordem do dono, 07/08: "uma cobra
+   crescendo"). Ele ia até 840 ms e COMIA o desenho: o mapa nascia todo de
+   dentro do clarão e o traço, que já existia, ninguém via. Agora ele é o
+   ACORDAR da cena — abre em 400 ms e sai aos 620 ms, deixando o palco escuro
+   e limpo pra cobra, que é o espetáculo, andar de 260 ms a 1,26 s por cima. */
+.tela.cena.cheio .gps-veu{animation:mvVeu .40s var(--cv-cena) .22s both}
 @keyframes mvVeu{from{opacity:1;--veu-r:0px}}
 
 /* 2 — O PONTEIRO, sozinho e em cima do véu (por isso o `z-index` dele passa a
@@ -436,39 +454,84 @@ button,input{font:inherit;color:inherit}
 .tela.cena.cheio .dirigindo .gps-puck::after{animation:mvPouso .54s var(--cv-sai) .16s both}
 @keyframes mvPouso{from{opacity:.8;transform:scale(.1)}}
 
-/* 3 — O MAPA SE DESENHANDO. Duas peças: o palco inteiro chega de mais longe e
-   entrando em foco, e o desenho de espera se RISCA mesmo — rua, avenida e por
-   último a rota, que é o que o motorista veio ver. `stroke-dasharray` maior
-   que o traço inteiro deixa a linha SÓLIDA parada; quem desenha é o
-   `stroke-dashoffset`, e parado ele é zero. */
-/* 🔴 UM SÓ REVELA, E É O VÉU. A primeira versão tinha DOIS esmaecimentos em
-   cima um do outro — o véu saindo e o mapa entrando — e opacidade se
-   MULTIPLICA: aos 0,5 s o véu estava em 0,8 e o mapa em 0,4, o que dá 0,08 de
-   um mapa que já é quase preto. MEDIDO no g15: 0,8 s de tela preta com o
-   ponteiro sozinho, e o mapa aparecendo de uma vez no fim — o oposto do
-   pedido. Agora o mapa ACENDE cedo e rápido (0,18–0,40 s) e quem faz o "aos
-   poucos" é só o clarão do véu; o foco e a escala seguem até o fim, que é o
-   que dá o ar de mapa se assentando. */
+/* 3 — A COBRA. Ordem do dono (07/08): *"primeiro ir desenhando as ruas, tipo
+   um labirinto se formando"* → *"uma cobra crescendo, acho q é este o efeito"*.
+
+   NÃO É tudo aparecendo junto e não é fade: é UMA LINHA QUE AVANÇA. Ela nasce
+   debaixo do ponteiro, sobe a via principal, VIRA A ESQUINA e segue; cada rua
+   menor BROTA dela no instante exato em que a ponta passa no cruzamento, as
+   avenidas brotam da primeira rua e as duas ruas do horizonte brotam das
+   avenidas. É essa corrente de "quem nasce de quem" que faz o labirinto se
+   fechar em vez de piscar inteiro.
+
+   🔴 QUEM MANDA AGORA É O TRAÇO, NÃO O CLARÃO — essa é a inversão que o dono
+   pediu. Antes o véu ia até 840 ms e revelava o mapa INTEIRO de dentro pra
+   fora; o desenho existia e ninguém via. O véu virou coadjuvante (sai aos
+   620 ms) e o palco fica pra cobra.
+
+   COMO CADA TRAÇO É FEITO — dois caminhos no MESMO `d`:
+     • o CORPO, `stroke-dasharray:--l` (o comprimento exato do caminho) e o
+       `stroke-dashoffset` indo de `--l` até 0: a linha cresce da ponta A pra B.
+     • a CABEÇA, `stroke-dasharray:--h --l`: um risco CURTO e aceso, com o
+       offset indo de `--h` até `--h - --l`. A conta põe o risco exatamente em
+       `[p-h, p]`, ou seja, colado atrás da ponta que está crescendo. Corpo e
+       cabeça compartilham `--d`, `--t` e a MESMA curva — é o que mantém os
+       dois grudados; curvas diferentes descolariam a cabeça do traço.
+
+   🔴 A CURVA É `linear`, e não é preguiça: a hora de cada galho foi CALCULADA
+   como a fração do tronco onde fica o cruzamento (a rua de y=1180 está a
+   240/1300 = 18,5% do tronco, logo brota em .26 + .185×.52 = .36 s). Com
+   easing essa conta não fecha e a rua nasce antes ou depois do encontro — o
+   galho descolado do tronco é justamente o que mata a ilusão da cobra.
+
+   🔴 PARADO É O MAPA PRONTO. O corpo tem `stroke-dashoffset:0` e a cabeça
+   `opacity:0` na regra estática, e todo `@keyframes` daqui declara só o
+   `from` — animação desligada (Lei 7, `prefers-reduced-motion`, ou o portão
+   da casca que congela tudo) mostra o mapa inteiro e cabeça nenhuma. */
+/* 🔴 O `blur()` SAIU DAQUI, e é medição, não gosto. Um desfoque animado
+   repinta a tela CHEIA a cada quadro, e no g15 esta tela já é a mais cara do
+   app. MEDIDO na bancada: a cena inteira roda a 4,8 fps com o blur e o brilho
+   ligados, e 7,6 fps sem os dois. A sensação de "mapa assentando" fica por
+   conta da ESCALA, que o compositor faz de graça. Lei da casa: enfeite não
+   derruba a tela. */
 .tela.cena.cheio .dirigindo .mapa-palco{
-  animation:mvMapaFoco .62s var(--cv-cena) .24s both,
-            mvMapaAcende .22s linear .18s both}
-@keyframes mvMapaFoco{from{transform:scale(1.1);filter:blur(6px)}}
+  animation:mvMapaFoco .52s var(--cv-cena) .20s both,
+            mvMapaAcende .20s linear .16s both}
+@keyframes mvMapaFoco{from{transform:scale(1.1)}}
 @keyframes mvMapaAcende{from{opacity:0}}
-.m-ruas path{stroke-dasharray:5400;stroke-dashoffset:0}
-.m-aves path{stroke-dasharray:3000;stroke-dashoffset:0}
-.m-rota{stroke-dasharray:1400;stroke-dashoffset:0}
-.tela.cena.cheio .dirigindo .m-ruas path{animation:mvRiscaRua .46s var(--cv-cena) .30s both}
-.tela.cena.cheio .dirigindo .m-aves path{animation:mvRiscaAve .44s var(--cv-cena) .36s both}
-.tela.cena.cheio .dirigindo .m-rota{animation:mvRiscaRota .46s var(--cv-cena) .40s both}
-.tela.cena.cheio .dirigindo .m-pontilhado{animation:mvSurge .22s ease-out .62s both}
-@keyframes mvRiscaRua{from{stroke-dashoffset:5400}}
-@keyframes mvRiscaAve{from{stroke-dashoffset:3000}}
-@keyframes mvRiscaRota{from{stroke-dashoffset:1400}}
+.m-corpo{stroke-dasharray:var(--l);stroke-dashoffset:0}
+/* 🔴 A CABEÇA NÃO TEM FILTRO. `drop-shadow` era o item mais caro da cena
+   inteira (4,8 → 6,9 fps só tirando ele, medido no g15 em 3 voltas), porque o
+   filtro reprocessa o mundo em perspectiva a cada quadro. O que faz a ponta
+   ler como ponta é o CONTRASTE dela, não o halo — e contraste é de graça. */
+.m-cabeca{stroke:var(--map-cabeca);opacity:0;
+  stroke-dasharray:var(--h) var(--l);stroke-dashoffset:calc(var(--h) - var(--l))}
+.tela.cena.cheio .dirigindo .m-corpo{animation:mvCresce var(--t) linear var(--d) both}
+.tela.cena.cheio .dirigindo .m-cabeca{animation:mvCabeca var(--t) linear var(--d) both}
+@keyframes mvCresce{from{stroke-dashoffset:var(--l)}}
+/* A cabeça POUSA: acende no primeiro quadro e apaga nos últimos 18% do
+   percurso, pra ela chegar no fim do traço e sumir, em vez de dar um corte. */
+@keyframes mvCabeca{from{stroke-dashoffset:var(--h);opacity:1}82%{opacity:1}}
+.tela.cena.cheio .dirigindo .m-pontilhado{animation:mvSurge .16s ease-out 1.20s both}
 @keyframes mvSurge{from{opacity:0}}
 
+/* 🔴 O MAPA DE VERDADE ESPERA A COBRA — ordem do dono: *"só quando a cobra
+   termina, o mapa real assenta por baixo"*. O maplibre fica `pronto` quando
+   quiser (na bancada, às vezes em 300 ms) e o cruzamento dele CORTAVA a cena
+   no meio. Enquanto há `cena` o desenho fica e o mapa vivo espera; quando a
+   marca cai — no teto de 2,2 s, com ou sem mapa — as duas transições que já
+   existem fazem a troca sozinhas.
+   Isto NÃO é trava: nada aqui espera dado nenhum. É o contrário — é o mapa
+   que espera o relógio, e o relógio nunca falha. */
+.tela.cena.cheio .dirigindo .mapa-palco.pronto>svg{opacity:1}
+.tela.cena.cheio .dirigindo .mapa-palco.pronto .mapa-vivo{opacity:0}
+
 /* 4 — E SÓ ENTÃO a informação. Enquanto o mapa não está legível a tela tem UM
-   assunto; a manobra descendo antes disso seria texto no vazio. Tudo fecha em
-   880 ms — abaixo dos 900 ms da `cena`, de propósito. */
+   assunto; a manobra descendo antes disso seria texto no vazio.
+   🔴 ELA NÃO ESPEROU A COBRA INTEIRA, e é ordem do dono: *"ponteiro e manobra
+   têm que estar legíveis cedo"*. A cena toda vai até 1,36 s, mas quem dirige
+   já tem a manobra aos 500 ms e o rodapé aos 480 ms — o labirinto termina de
+   se fechar POR BAIXO de uma tela que já serve. */
 .tela.cena.cheio .dirigindo .gps-manobra{animation-delay:.50s}
 .tela.cena.cheio .dirigindo .gps-rodape{animation-delay:.48s}
 .tela.cena.cheio .dirigindo .gps-vel,
@@ -644,6 +707,11 @@ button,input{font:inherit;color:inherit}
      declara só o `from`. */
   .app .tela.entra.cheio,.app .tela.sai.cheio,.app .tela.cena.cheio,
   .app .tela.entra.cheio.voltando,.app .tela.sai.cheio.voltando{animation:none!important}
+  /* E o mapa de verdade não espera cobra nenhuma: sem cena não há o que
+     esperar, e segurar o mapa 1,4 s por um espetáculo que não vai acontecer
+     seria a lei virando atraso. Seis classes contra as cinco de lá em cima. */
+  .app .tela.cena.cheio .dirigindo .mapa-palco.pronto>svg{opacity:0}
+  .app .tela.cena.cheio .dirigindo .mapa-palco.pronto .mapa-vivo{opacity:1}
 }
 
 /* barra de status */
@@ -1726,6 +1794,9 @@ button,input{font:inherit;color:inherit}
      "mapa+fila bugado" da foto. Tinta do pino é token, como todo o resto. */
   --map-pino-tinta:#1c3d00;
   --map-rota:#5a9c10; --map-rota-borda:#3f7a00; --map-leito:#cfd8e6;
+  /* No claro a cabeça INVERTE junto com o resto: sobre chão #e6ebf3 uma ponta
+     branca não existiria. Azul cravado, que é o mesmo azul do "partida". */
+  --map-cabeca:#0f4fc0;
   --map-carro:#28405f; --map-carro-borda:#16273c; --map-carro-vidro:#7f9ec4; --map-carro-2:#4a6a92;
   --map-bandeira:#16273c; --map-bandeira-2:#ffffff; --map-partida:#1257c8;
 

@@ -721,21 +721,51 @@ ${nav('rota')}`;}};
 function mapaGps(){ return `<div class="mapa-palco" data-mapa="gps">${mapaGpsDesenho()}</div>`; }
 function mapaGpsDesenho(){
   const quadra=(x,y,w,h)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="var(--map-quadra)"/>`;
+  /* UM TRAÇO DA COBRA = dois caminhos no mesmo `d`: o CORPO, que cresce, e a
+     CABEÇA, um risco curto e aceso viajando colado na ponta (a conta mora na
+     folha de estilo, no bloco "3 — A COBRA").
+       `l`   comprimento do caminho, em unidades do viewBox — a régua do
+             `stroke-dashoffset`. Escrito à mão porque TODA linha aqui é reta:
+             é a soma dos segmentos. Medir com `getTotalLength()` obrigaria o
+             desenho a estar no DOM antes do primeiro quadro da cena, e a cena
+             não pode depender de nada ter subido.
+       ini   a hora de brotar · `dur` quanto leva · `cab` a espessura da
+             cabeça (0 = galho SEM cabeça).
+     🔴 CABEÇA SÓ NOS TRAÇOS QUE MANDAM — tronco, avenidas, ruas do horizonte e
+     a rota: 6 e não 20. Cada caminho a mais é o mundo em perspectiva inteiro
+     repintado de novo a cada quadro, e esta é a tela mais cara do app (medida
+     lá embaixo). Os galhos que saem de trás da via principal já se leem pelo
+     próprio crescimento — quem precisa da ponta acesa é quem LIDERA. */
+  const traco=(d,l,ini,dur,cor,w,cab)=>
+    `<path class="m-corpo" d="${d}" fill="none" stroke="${cor}" stroke-width="${w}" stroke-linecap="round" stroke-linejoin="round" style="--l:${l}px;--d:${ini}s;--t:${dur}s"/>`+
+    (cab?`<path class="m-cabeca" d="${d}" fill="none" stroke-width="${cab}" stroke-linecap="round" stroke-linejoin="round" style="--l:${l}px;--h:${cab*5}px;--d:${ini}s;--t:${dur}s"/>`:'');
+  const RUA='var(--map-rua2)', TRONCO='M400 1420 V520 H800';
+  /* AS RUAS QUE BROTAM DO TRONCO: [y do cruzamento, hora]. A hora é onde a
+     ponta do tronco passa nele — (1420-y)/1300 do percurso, começando em .26
+     e durando .52 s. Elas saem PROS DOIS LADOS a partir de x=400, que é o que
+     dá o galho abrindo em vez de a rua acendendo. */
+  const cruz=[[1180,.36],[960,.44],[750,.53],[555,.61]];
+  /* 🔴 A ORDEM DE PINTURA NÃO É A ORDEM DO TEMPO, e as duas convivem: no SVG
+     quem vem depois cobre quem veio antes, então as ruas finas têm que ficar
+     EMBAIXO do leito da rota (senão elas riscam por cima da pista, que é o
+     desenho errado). O tronco nasce aos 260 ms mas é pintado depois das ruas
+     — e é por isso que cada galho parece SAIR DE TRÁS da via principal. */
   return `<div class="gps-mundo"><svg viewBox="0 0 800 1400" preserveAspectRatio="xMidYMax slice">
     <rect width="800" height="1400" fill="var(--map-fundo)"/>
     <path d="M600 180h230v210H600z" fill="var(--map-parque)"/>
     ${quadra(40,1000,300,140)}${quadra(460,1000,300,140)}${quadra(40,780,300,150)}
     ${quadra(460,780,300,150)}${quadra(40,590,300,120)}${quadra(460,590,300,120)}
     ${quadra(40,380,300,140)}${quadra(60,180,250,120)}
-    <g class="m-ruas" stroke="var(--map-rua2)" stroke-width="17" stroke-linecap="round">
-      <path d="M-40 1180H840M-40 960H840M-40 750H840M-40 555H840M-40 350H840M-40 165H840"/>
+    <g class="m-cobra">
+      ${cruz.map(([y,q])=>traco(`M400 ${y}H-40`,440,q,.30,RUA,17,0)+traco(`M400 ${y}H840`,440,q,.30,RUA,17,0)).join('')}
+      ${traco('M110 1180V-20',1200,.56,.42,RUA,13,8)}${traco('M110 1180V1420',240,.56,.18,RUA,13,0)}
+      ${traco('M690 1180V-20',1200,.56,.42,RUA,13,8)}${traco('M690 1180V1420',240,.56,.18,RUA,13,0)}
+      ${traco('M110 350H840',730,.85,.30,RUA,17,10)}${traco('M110 350H-40',150,.85,.10,RUA,17,0)}
+      ${traco('M690 165H-40',730,.92,.30,RUA,17,10)}${traco('M690 165H840',150,.92,.10,RUA,17,0)}
+      ${traco(TRONCO,1300,.26,.52,'var(--map-leito)',48,16)}
+      ${traco(TRONCO,1300,.84,.42,'var(--map-rota-borda)',34,0)}
+      ${traco(TRONCO,1300,.84,.42,'var(--map-rota)',23,16)}
     </g>
-    <g class="m-aves" stroke="var(--map-rua2)" stroke-width="13">
-      <path d="M110 -20V1420M690 -20V1420"/>
-    </g>
-    <path class="m-rota" d="M400 1420 V520 H800" fill="none" stroke="var(--map-leito)" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
-    <path class="m-rota" d="M400 1420 V520 H800" fill="none" stroke="var(--map-rota-borda)" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
-    <path class="m-rota" d="M400 1420 V520 H800" fill="none" stroke="var(--map-rota)" stroke-width="23" stroke-linecap="round" stroke-linejoin="round"/>
     <g class="m-pontilhado" stroke="var(--map-fundo)" stroke-width="3" stroke-dasharray="16 22" opacity=".5">
       <path d="M400 1420 V520 H800" fill="none"/>
     </g>
@@ -1921,10 +1951,29 @@ let limpezaTimer=null;
    seam RECOMEÇARIA a cena — o véu escurecendo a tela do motorista de novo aos
    5 s, cada vez que uma empresa acende. Com `cena`, o veneno tem prazo.
 
-   900 ms é o MESMO número do relógio herdado lá embaixo, e isso é de
-   propósito: antes dos 900 ms o repinte CONTINUA a cena (`currentTime`);
-   depois deles não existe cena pra continuar. Uma lei, um número. */
-const CENA_CHEIA=900;
+   O número é o MESMO do relógio herdado lá embaixo, e isso é de propósito:
+   enquanto a marca vive o repinte CONTINUA a cena (`currentTime`); depois
+   dela não existe cena pra continuar.
+
+   🔴 SÃO DOIS NÚMEROS PORQUE SÃO DUAS ENTRADAS, e a lei é a mesma nas duas:
+   "o relógio herdado vale exatamente enquanto a entrada roda". Uma tela comum
+   entra em ~740 ms (o eixo X fecha em 150 ms e as linhas escalonadas seguem
+   até lá) — pra ela o teto é `ENTRADA_COMUM`. A tela cheia do GPS tem a CENA
+   DA COBRA: pra ela o teto é `CENA_CHEIA`. Um teto de 2,2 s aplicado a TODA
+   tela seria reabrir o buraco do "nasce terminada" por 1,3 s de brinde.
+
+   🔴 `CENA_CHEIA` É TETO, NÃO É A DURAÇÃO — e a diferença custou uma medição.
+   A cobra dura 1,36 s de RELÓGIO DA ANIMAÇÃO; este número é de RELÓGIO DE
+   PAREDE, e os dois não coincidem. MEDIDO no g15 (07/08): ao entrar na rota a
+   thread trava ~490 ms subindo o mapa, então no instante em que a parede
+   marcava 519 ms o relógio do véu marcava 33. Com o teto colado na duração
+   (1,4 s) a marca caía com a animação ainda em ~950 ms e a ROTA era CORTADA
+   no meio de se desenhar — o motorista via o traço sumir e o mapa pronto
+   aparecer de estalo. A folga cobre a travada; quem termina a cena continua
+   sendo a própria animação (todo `@keyframes` daqui é `both`, o estado final
+   fica). O teto só existe pro caso de nada terminar. */
+const CENA_CHEIA=2200;
+const ENTRADA_COMUM=900;
 let cenaTimer=null;
 function fecharCena(){
   document.querySelectorAll('#app .tela.cena').forEach(c=>c.classList.remove('cena'));
@@ -2045,6 +2094,15 @@ function pintar(animar,dir){
     // `voltando` e `abertura`) e troca só ela — a que sai continua o show dela.
     [...antiga.classList].forEach(c=>{ if(c!=='tela') nova.classList.add(c); });
     nova.style.setProperty('--dir', antiga.style.getPropertyValue('--dir')||1);
+    // 🔴 A CONTAGEM DA CAMADA VELHA É AQUI, ANTES DA TROCA. Fora do documento
+    // a camada perde as animações e `getAnimations` volta vazio — contar
+    // depois do `replaceWith` seria contar ZERO e não carimbar nada, que é
+    // justamente o pisca que a herança existe pra matar.
+    const antes=new Map();
+    (antiga.getAnimations?antiga.getAnimations({subtree:true}):[]).forEach(a=>{
+      const n=a.animationName||a.transitionProperty||'?';
+      antes.set(n,(antes.get(n)||0)+1);
+    });
     antiga.replaceWith(nova);
     // E o relógio continua: `currentTime` põe cada animação exatamente onde a
     // da camada anterior estava. Sem isto a lista recomeçaria do zero e o dado
@@ -2060,14 +2118,28 @@ function pintar(animar,dir){
     // MEDIDO no g15 (07/08), com as empresas do mapa chegando pelo seam: as 17
     // animações da cena nasciam TERMINADAS — o motorista via o desfecho sem
     // nunca ver o prédio acender. Passada a entrada não existe o que
-    // continuar, e carimbar vira só estrago. `CENA_CHEIA` (900 ms) é a entrada
-    // inteira — o eixo X fecha em 150 ms, as linhas escalonadas seguem até
-    // ~740 ms e a cena do GPS fecha em 880 ms. É O MESMO NÚMERO que tira a
-    // marca `cena` lá em cima, e tem que continuar sendo: enquanto vale o
+    // continuar, e carimbar vira só estrago. O teto é a ENTRADA DA CAMADA: a
+    // tela cheia carrega a marca `cena` e vale `CENA_CHEIA` (a cobra fecha em
+    // 1,36 s); qualquer outra vale `ENTRADA_COMUM`. É O MESMO NÚMERO que tira
+    // a marca `cena` lá em cima, e tem que continuar sendo: enquanto vale o
     // relógio herdado existe cena pra continuar; passado ele, não existe.
     const t=performance.now()-entradaEm;
-    if(nova.getAnimations && t<CENA_CHEIA){
-      nova.getAnimations({subtree:true}).forEach(a=>{ try{ a.currentTime=t; }catch(_){} });
+    const teto=nova.classList.contains('cena')?CENA_CHEIA:ENTRADA_COMUM;
+    if(nova.getAnimations && t<teto){
+      // 🔴 SÓ CONTINUA QUEM TINHA O QUE CONTINUAR. O teto sozinho não basta:
+      // dentro da janela, um elemento que NASCEU deste repinte (uma empresa
+      // que o corredor acabou de trazer) também levava o carimbo e aparecia
+      // pronta, sem acender. Aqui a camada velha é contada por nome de
+      // animação; a nova só carimba enquanto houver contraparte. Quem sobra é
+      // peça nova e começa do zero, que é o certo. Navegador sem `animationName`
+      // cai no comportamento antigo — perde o refino, nunca a tela.
+      nova.getAnimations({subtree:true}).forEach(a=>{
+        const n=a.animationName||a.transitionProperty||'?';
+        const resta=antes.get(n)||0;
+        if(resta<=0) return;
+        antes.set(n,resta-1);
+        try{ a.currentTime=t; }catch(_){}
+      });
     }
   }else{
     app.innerHTML='';
