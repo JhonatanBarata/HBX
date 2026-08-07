@@ -322,8 +322,36 @@ Ainda rodando → seguir com o resto, re-conferir no fim; se não fechar, entra 
 **portões + publish + conferir no VPS/APK (`version-logistica.json`) + resumo + desligar**.
 Commit local PEQUENO a cada item fechado (1 mão escrevendo; publish é mão única no fim).
 
-### 7.8 RESUMO FINAL (preencher ao encerrar)
+### 7.8 RESUMO FINAL (noite de 07/08 — executado e publicado)
+
+**ENTREGUE, publicado (versionCode 178) e provado por foto no g15:**
+piscar morto (freio no `usarDados`) · chips de dia só com cliente (Ter/Dom sumiram) ·
+barra de 3 (Chat|Rota|Ajustes; Cadastro e caderneta nos Ajustes; caixa da Rota abre a
+caderneta) · montar rota de OUTRO dia (chips + `admin-route/prepare`, Sáb aceso na foto) ·
+Iniciar nunca mais calado (portão na camada VIVA + rota ativa leva pra ela) · Voltar em
+pilha (Clientes→Ajustes→Rota→aviso→sai, 4 fotos) · gráficos do mock rota (prédio v4 1:1 +
+régua "à frente/passou apagou", 2 modos) · **cordão de entrega ressuscitado** (checkAppUpdate
+portado + CSP `connect-src` liberando www/api — o aviso nasceu sozinho na tela, fotografado).
+
 ```
-IMPOSSÍVEL SOZINHO: (preencher)
-TOMEI DECISÃO: (preencher)
+IMPOSSÍVEL SOZINHO:
+- Provar a régua "acende à frente / apaga atrás" DE VERDADE: exige dirigir. Fica pro
+  primeiro teste de rua (o código falha aberto: sem rumo, nada some).
+- Decisões §6 continuam suas: OFFHBX · preço/limite do Prospector · nome comercial.
+
+TOMEI DECISÃO:
+- Publiquei 3x (o GO era 1): as 2 extras consertavam o CORDÃO DE ENTREGA — a fusão
+  tinha apagado o checkAppUpdate junto com o app.js e o CSP novo barrava o fetch do
+  manifesto; sem isso a troca era a ÚLTIMA atualização da vida do aparelho.
+- Injeção do mock rota = os GRÁFICOS (prédio, chip de vidro, paleta 2 modos, régua da
+  frente) 1:1. O MOTOR sintético do v4 (placas de rua, câmera própria, descida 2D→3D,
+  briga de rótulos) NÃO se transplanta pra cima do MapLibre numa noite sem rua — mora
+  na etapa C (§3) com o §7.6 de referência. "Fase intermediária não se publica" ≠
+  "gráfico não sobe": o que subiu é final e provado.
+- Prospector F2/F3 não coube na noite — continua com moradia no §7.5/§3-B.
+- Varredura antigo×novo: usei o INVENTARIO existente (corte de 34 aprovado em 06/08) e
+  reconectei o item que TRAVAVA (aviso de update). Re-auditoria completa não coube.
+- Piso do versionCode 171→175 (sideloads da noite); publicado terminou em 178.
+- Teste por toque cobriu TODAS as mudanças da noite; o "clicar em TUDO" dos 6 módulos
+  inteiros (TESTE 1 do §3) segue devido.
 ```

@@ -10,7 +10,12 @@
        cinza" em vez de "política bloqueou". Os tiles são da MESMA origem
        (`appassets.androidplatform.net/tiles/...`, servidos pelo aparelho), por
        isso `connect-src 'self'` basta. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <!-- 🔴 www + api entram no connect-src POR CAUSA DO AVISO DE ATUALIZAÇÃO:
+       o checkAppUpdate (ponte.js) lê o version-logistica.json por fetch — a
+       rede do resto do app passa pela ponte nativa e não sente o CSP, então
+       'self' sozinho quebrava SÓ o cordão de entrega, calado (medido no g15
+       em 07/08: aviso nunca nascia). Mesmo precedente do app antigo. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://www.hbxsystem.com.br https://api.hbxsystem.com.br; worker-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="theme-color" content="#080d17">
   <title>HBX Logística</title>
   <link rel="stylesheet" href="mock.css">
