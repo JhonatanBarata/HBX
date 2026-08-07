@@ -513,7 +513,72 @@
     carregador();
   };
 
-  const cargaInicial = () => { apagarDemonstracao(); carregarRota(); carregarRecados(); };
+  /* ------------------------------------------------------------------------
+     ITEM 9 DO DONO (07/08) — A BARRA DO MOTORISTA OBEDECE O ADMIN.
+
+     *"deixar os módulos do motorista na mão do ADMIN (não dentro do app, no
+     desktop)... Se o admin montar, deixar mastigado e liberar o rota para o
+     motorista, ele tem q receber a rota, iniciar e go!"*
+
+     O desktop grava um CSV em `appModulosDesativados` e o `GET
+     /logistica/config` o entrega a TODO ator — inclusive ao motorista. Aqui a
+     ponte só TRADUZ pro seam; quem some com o botão, com o atalho e com o
+     arrastar é a casca (`nav`/`ir`/`podarDesligados`/`arrastarModulo`).
+
+     🔴 REDE CAÍDA NÃO ESCONDE MÓDULO. O `catch` volta SEM escrever: o campo
+     fica como estava (vazio no boot = os 6 na tela). É o contrário do resto
+     desta ponte, onde fonte fora do ar vira aviso — porque aqui o silêncio
+     não pode TIRAR nada do motorista.
+     ------------------------------------------------------------------------ */
+  function aplicarBarra(cfg) {
+    if (!cfg || typeof cfg !== 'object') return;
+    if (typeof window.usarDados !== 'function') return;
+    // Backend antigo (campo ausente) e "nada desligado" (null) caem no mesmo
+    // lugar de propósito: string vazia, barra inteira. Traduzir ≠ decidir.
+    const csv = typeof cfg.appModulosDesativados === 'string' ? cfg.appModulosDesativados : '';
+    window.usarDados('barra', { desligados: csv });
+    // Se o motorista estava JUSTAMENTE no módulo que acabou de ser desligado,
+    // a barra fica sem botão aceso e ele fica preso. A casca o devolve à Rota.
+    try {
+      if (typeof window.resgatarModuloDesligado === 'function') window.resgatarModuloDesligado();
+    } catch (_) { /* casca sem a função: barra velha, nada a resgatar */ }
+  }
+
+  let barraLidaEm = 0;
+  async function carregarBarra() {
+    if (!temPonte()) return;
+    // Três gatilhos podem cair juntos (voltou pro foco + foco da janela +
+    // relógio). Uma leitura por vez basta; o resto é chamada repetida à toa.
+    const agora = Date.now();
+    if (agora - barraLidaEm < 3000) return;
+    barraLidaEm = agora;
+    let cfg;
+    try { cfg = await window.API.get('/logistica/config'); } catch (_) { return; }
+    aplicarBarra(cfg);
+  }
+
+  /* O admin desliga o módulo com o app do motorista ABERTO — é o caso normal,
+     não a exceção. Sem reler durante o turno a barra só obedeceria no próximo
+     boot, e "desliguei no desktop e não sumiu no celular" é exatamente a queixa
+     que este item veio resolver.
+
+     🔴 MEDIDO NO g15 (07/08): `visibilitychange` NÃO dispara neste app. Sair
+     pelos recentes e voltar mantém a Activity viva, a WebView nunca é pausada
+     (`webView.onPause()` não é chamado) e o documento nunca fica `hidden` — a
+     barra ficou 1 minuto mostrando a configuração velha na minha cara. Evento
+     que eu não vi disparar não é garantia, é esperança.
+
+     Então a GARANTIA é o relógio, no mesmo padrão que o app já usa pro modo
+     noturno (`native.js`, 1 checagem por minuto): uma leitura da config por
+     minuto — a linha mais barata do app, uma só. Os dois eventos ficam como
+     ATALHO: onde dispararem, obedece na hora; onde não, o relógio pega. */
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') carregarBarra();
+  });
+  window.addEventListener('focus', carregarBarra);
+  setInterval(carregarBarra, 60000);
+
+  const cargaInicial = () => { apagarDemonstracao(); carregarBarra(); carregarRota(); carregarRecados(); };
   document.addEventListener('DOMContentLoaded', cargaInicial);
   if (document.readyState !== 'loading') setTimeout(cargaInicial, 0);
 
@@ -1355,6 +1420,9 @@
     // chave desligada — isso faria o dono achar que perdeu a configuração.
     if (cfgR.status !== 'fulfilled' || !cfgR.value) return fonteCaiu('ajustes');
     config = cfgR.value;
+    // A MESMA resposta já traz o CSV do item 9 — aproveitar aqui é de graça e
+    // deixa a barra fresca pra quem passou pelos Ajustes (uma chamada a menos).
+    aplicarBarra(config);
     const cred = credR.status === 'fulfilled' ? credR.value : null;
     const saldo = cred && typeof cred.balance === 'number' ? cred.balance : null;
     const info = (window.HBX.info && window.HBX.info()) || {};

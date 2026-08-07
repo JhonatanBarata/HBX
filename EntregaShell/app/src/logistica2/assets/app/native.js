@@ -742,6 +742,16 @@
         root.__hbxOverlaysHTML = nextOverlaysHTML;
       },
       navigate(direction) {
+        // 🔴 ITEM 1 DO DONO (07/08) — O ARRASTAR ESTAVA MORTO NESTE FLAVOR, e
+        // morria CALADO. O ouvinte de toque logo abaixo sempre existiu, mas
+        // quem sabe a ordem das abas é o `context`, e `setContext` só é chamado
+        // dentro do `app.js` — que o `logistica2` NÃO carrega (o index.html
+        // puxa native + mock + ponte). Resultado medido: `context` null, este
+        // return, dedo pra lá e pra cá sem nada acontecer.
+        // Na casca 2.0 quem tem a barra é o MOCK — e só ele sabe quais módulos
+        // o admin desligou no desktop (item 9), então é ele quem decide o
+        // salto. Aqui a porta: existe a casca nova, ela manda.
+        if (typeof window.arrastarModulo === "function") { window.arrastarModulo(direction); return; }
         const context = this.context; if (!context) return;
         const screens = context.appName === "vendas"
           ? [["vendas", "funnel"], ["vendas", "chat"], ["vendas", "agenda"], ["vendas", "more"]]
@@ -848,9 +858,28 @@
       if (explicitTarget && explicitTarget !== overlay) return;
       event.stopImmediatePropagation();
     });
+    // 🔴 A LISTA DO QUE NÃO PEGA ESTAVA TODA NO VOCABULÁRIO DO FRONT ANTIGO.
+    // MEDIDO no mock (07/08, item 1 do dono): `.maplibregl-map`,
+    // `.route-live-map`, `.route-plan-preview-map`, `.bottom-nav`,
+    // `.modal-wrap`, `.sheet-wrap` e `.pss-screen` aparecem ZERO vez na casca
+    // 2.0 — são nomes do `app.js`, que este flavor nem carrega. Ou seja: a
+    // proteção do mapa existia no papel e não cobria UM pixel da tela nova.
+    // Os nomes velhos FICAM (o arquivo ainda é irmão do de `main/` e lá eles
+    // valem); o que entra é o mesmo motivo dito na língua da casca nova:
+    //   .gps          — a navegação em tela cheia: a tela INTEIRA é o mapa.
+    //   .mapa-palco   — o mapa embutido (fila, montagem, ficha).
+    //   .nav          — a própria barra; ali o dedo escolhe, não arrasta.
+    //   .sheet · .erro-wrap · .conf-wrap · .portao-wrap · .aviso — o que está
+    //                   POR CIMA manda: trocar de módulo por baixo de um
+    //                   painel aberto deixaria o painel órfão na tela.
+    //   .grip         — o punho já tem gesto (reordenar a parada). Dois donos
+    //                   no mesmo dedo = os dois erram.
+    // O cartão da parada (`.stop`) NÃO entra de propósito: ele ocupa a tela da
+    // rota quase inteira, e barrá-lo mataria o gesto justamente onde o dono
+    // pediu que ele exista. O toque longo dele já desarma no movimento lateral.
     appRoot.addEventListener("touchstart", event => {
       const target = event.target;
-      if (event.touches.length !== 1 || target.closest?.(".bottom-nav, input, textarea, select, [contenteditable], .chips, .sales-board, .sales-stages, .modal-wrap, .sheet-wrap, [data-route-current], .maplibregl-map, .route-live-map, .route-plan-preview-map, .pss-screen")) { shellSwipe = null; return; }
+      if (event.touches.length !== 1 || target.closest?.(".bottom-nav, input, textarea, select, [contenteditable], .chips, .sales-board, .sales-stages, .modal-wrap, .sheet-wrap, [data-route-current], .maplibregl-map, .route-live-map, .route-plan-preview-map, .pss-screen, .gps, .mapa-palco, .nav, .sheet, .erro-wrap, .conf-wrap, .portao-wrap, .aviso, .grip")) { shellSwipe = null; return; }
       const touch = event.touches[0]; shellSwipe = { x: touch.clientX, y: touch.clientY };
     }, { passive: true });
     appRoot.addEventListener("touchend", event => {

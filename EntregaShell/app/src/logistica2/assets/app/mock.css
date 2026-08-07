@@ -811,8 +811,16 @@ button,input{font:inherit;color:inherit}
 /* ---------- navegação — 6 abas (decisão do dono) ----------
    Chat e Ajustes voltaram pra barra: o Chat é o canal do escritório com o
    motorista e não podia morar em menu escondido. Com 6 colunas o rótulo cai
-   pra 9px e o ícone pra 18 — o alvo de toque continua com ~68px de largura. */
-.nav{position:absolute;left:0;right:0;bottom:0;height:60px;display:grid;grid-template-columns:repeat(6,1fr);
+   pra 9px e o ícone pra 18 — o alvo de toque continua com ~68px de largura.
+
+   🔴 A COLUNA NASCE DO BOTÃO, NÃO DO NÚMERO 6. O admin desliga módulo pelo
+   desktop (item 9, 07/08) e a barra pode vir com 5, 4, 3 botões. Com
+   `repeat(6,1fr)` cravado o que sobrava era um BURACO no fim da barra — os
+   botões presos nas primeiras colunas e o resto vazio. `grid-auto-columns:1fr`
+   dá o mesmo resultado exato com 6 (medido: 62/62 pixel a pixel) e continua
+   dividindo a largura por igual com qualquer quantidade. */
+.nav{position:absolute;left:0;right:0;bottom:0;height:60px;display:grid;
+  grid-auto-flow:column;grid-auto-columns:1fr;
   align-items:center;padding:0 3px 8px;z-index:45;
   background:var(--bg);border-top:.7px solid var(--line)}
 .nav button{border:0;background:transparent;color:var(--ink-3);display:flex;flex-direction:column;align-items:center;

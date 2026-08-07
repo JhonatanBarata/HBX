@@ -838,8 +838,16 @@ button,input{font:inherit;color:inherit}
 /* ---------- navegação — 6 abas (decisão do dono) ----------
    Chat e Ajustes voltaram pra barra: o Chat é o canal do escritório com o
    motorista e não podia morar em menu escondido. Com 6 colunas o rótulo cai
-   pra 9px e o ícone pra 18 — o alvo de toque continua com ~68px de largura. */
-.nav{position:absolute;left:0;right:0;bottom:0;height:60px;display:grid;grid-template-columns:repeat(6,1fr);
+   pra 9px e o ícone pra 18 — o alvo de toque continua com ~68px de largura.
+
+   🔴 A COLUNA NASCE DO BOTÃO, NÃO DO NÚMERO 6. O admin desliga módulo pelo
+   desktop (item 9, 07/08) e a barra pode vir com 5, 4, 3 botões. Com
+   `repeat(6,1fr)` cravado o que sobrava era um BURACO no fim da barra — os
+   botões presos nas primeiras colunas e o resto vazio. `grid-auto-columns:1fr`
+   dá o mesmo resultado exato com 6 (medido: 62/62 pixel a pixel) e continua
+   dividindo a largura por igual com qualquer quantidade. */
+.nav{position:absolute;left:0;right:0;bottom:0;height:60px;display:grid;
+  grid-auto-flow:column;grid-auto-columns:1fr;
   align-items:center;padding:0 3px 8px;z-index:45;
   background:var(--bg);border-top:.7px solid var(--line)}
 .nav button{border:0;background:transparent;color:var(--ink-3);display:flex;flex-direction:column;align-items:center;
@@ -1978,12 +1986,58 @@ function hdr(o={}){
     </div></header>`;
 }
 
+/* ==========================================================================
+   A BARRA — e ela é a ORDEM DE TUDO: dos botões, do arrastar e do que some.
+
+   ITEM 9 DO DONO (07/08): *"deixar os módulos do motorista na mão do ADMIN
+   (não dentro do app, no desktop)... desativar qualquer módulo q ele quiser
+   (caderneta, clientes, produtos, chat, ajustes) MENOS ROTA"*.
+
+   🔴 ROTA NUNCA SOME. O servidor já barra (mandar "rota" grava null), e esta
+   linha é o cinto por cima do suspensório: app de entrega sem a rota não é
+   app de entrega, e o motorista ficaria numa tela sem saída.
+
+   🔴 DESLIGADO SOME DE VERDADE — não é só o botão. Sai da barra, sai do
+   arrastar (`arrastarModulo`), não abre por rota direta (`ir`) e os ATALHOS
+   que levavam pra lá somem junto (`podarDesligados`). Botão que existe e não
+   leva a lugar nenhum é pior que botão ausente.
+
+   🔴 SEM FONTE, NADA SOME. `DADOS.barra.desligados` nasce VAZIO e só a ponte
+   escreve, depois que o servidor responde. Rede caída NÃO pode esconder
+   módulo — é a mesma lei do esqueleto: "vazio porque o servidor disse" e
+   "vazio porque a rede caiu" são opostos, e aqui o padrão do silêncio é
+   MOSTRAR TUDO.
+   ========================================================================== */
+const NAV_ITENS=[['caderneta','Caderneta','note'],['clientes','Clientes','users'],['rota','Rota','map'],
+                 ['produtos','Produtos','box'],['chat','Chat','chat'],['ajustes','Ajustes','gear']];
+/** O CSV que o admin gravou no desktop, virado em lista. Vazio = tudo ligado. */
+function modulosDesligados(){
+  return String((DADOS.barra&&DADOS.barra.desligados)||'')
+    .split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+}
+function moduloDesligado(k){
+  if(k==='rota') return false;                       // a lei, de novo e aqui
+  return modulosDesligados().includes(String(k||'').toLowerCase());
+}
+/** Os módulos que o motorista PODE ver — a ordem é a da barra, sempre. */
+const navLigados=()=>NAV_ITENS.filter(([k])=>!moduloDesligado(k));
+
 function nav(ativo){
-  const it=[['caderneta','Caderneta','note'],['clientes','Clientes','users'],['rota','Rota','map'],
-            ['produtos','Produtos','box'],['chat','Chat','chat'],['ajustes','Ajustes','gear']];
-  return `<nav class="nav">${it.map(([k,l,i])=>
+  return `<nav class="nav">${navLigados().map(([k,l,i])=>
     `<button data-nav="${k}" class="${ativo===k?'on':''}">${ic(i,18)}<span>${l}</span>${ativo===k?'<i class="ping"></i>':''}</button>`
   ).join('')}</nav>`;
+}
+
+/* Os atalhos espalhados pelas telas (o "Abrir caderneta" do pé da rota, por
+   exemplo) apontam pro módulo por `data-ir`. Se o admin desligou o módulo,
+   esse botão vira porta pra parede — o `ir` recusa e o motorista toca duas,
+   três vezes achando que o app travou. Some com ele na pintura, por REGRA:
+   um lugar só, e vale pra qualquer atalho que apareça amanhã. */
+function podarDesligados(tela){
+  if(!modulosDesligados().length) return;            // nada desligado: nem varre
+  tela.querySelectorAll('[data-ir]').forEach(el=>{
+    if(moduloDesligado(el.dataset.ir)) el.remove();
+  });
 }
 
 /* ==========================================================================
@@ -2101,6 +2155,12 @@ const T={};
    em tela de dinheiro é mentira com cara de app pronto.
    ========================================================================== */
 const DADOS={
+  /* ITEM 9 (07/08) — o CSV dos módulos que o ADMIN desligou no desktop, do
+     jeito que o servidor grava: minúsculo, separado por vírgula, sem "rota".
+     🔴 NASCE VAZIO E É ASSIM QUE TEM QUE SER: enquanto ninguém disser o
+     contrário, a barra mostra os 6. Quem escreve aqui é a ponte, só depois de
+     o `/logistica/config` responder — falha de rede não apaga módulo. */
+  barra:{ desligados:'' },
   rota:{
     kpiParadas:'12', kpiEntregues:'6', kpiEntreguesParado:'0',
     saldo:'R$ 184,00', dinheiro:'R$ 132,00', pix:'R$ 52,00',
@@ -3765,6 +3825,10 @@ function pintar(animar,dir){
   const nova=document.createElement('div');
   nova.className='tela';
   nova.innerHTML=T[atual].render();
+  // ITEM 9 — antes de numerar e de entrar em cena: o que o admin desligou não
+  // chega a existir na camada. Numerar primeiro deixaria buraco na fila de
+  // entrada (o `--i` das peças) e a animação sairia com degrau.
+  podarDesligados(nova);
   numerarItens(nova);
   if(atual==='entrada') requestAnimationFrame(()=>ajustarHastes(nova));
   // Os dois gestos valem em TODA lista de paradas. A tela que os ENSINAVA saiu
@@ -3884,8 +3948,56 @@ let aberturaTimer=null;
 let anterior=null;
 function ir(k){
   if(!T[k] || k===atual) return;
+  // ITEM 9 — MÓDULO DESLIGADO NÃO ABRE NEM POR ROTA DIRETA. Tirar o botão da
+  // barra não basta: sobra o atalho de outra tela, o `data-tela` do rail e o
+  // arrastar. A recusa mora AQUI, na única porta por onde toda tela entra.
+  if(moduloDesligado(k)) return;
   const dir = ORDEM.indexOf(k) >= ORDEM.indexOf(atual) ? 1 : -1;
   anterior=atual; atual=k; pintar(true,dir);
+}
+
+/* ==========================================================================
+   ARRASTAR PRA TROCAR DE MÓDULO — item 1 do dono (07/08):
+   *"arrastar pra direita e esquerda muda de módulo? O MAPA NÃO RECEBE ESSA
+   TRATATIVA"*.
+
+   Quem escuta o dedo é o `native.js` (ele já tem a lista do que NÃO pega:
+   campo de texto, folha, modal, chips e — o que importa aqui — o mapa). Quem
+   decide PRA ONDE vai é esta função, porque só a casca sabe a ordem da barra
+   e o que o admin desligou.
+
+   🔴 SÓ ANDA ONDE EXISTE BARRA. O módulo da vez não é a `atual` (a tela
+   `venda` é do módulo "rota", a `ficha` é de "clientes"...): é o botão ACESO
+   da barra desta tela. E tela sem barra — a navegação em tela cheia, a
+   abertura — não anda de jeito nenhum, que é o pedido do dono sobre o mapa
+   dito de outro jeito: lá não existe barra pra arrastar.
+
+   🔴 PULA O QUE ESTÁ DESLIGADO. Com Produtos off, de Rota o arrastar vai
+   direto pro Chat — `navLigados()` é a MESMA lista que desenhou a barra, então
+   o dedo nunca cai num módulo que o motorista não pode ver.
+   ========================================================================== */
+function arrastarModulo(passo){
+  const camadas=document.querySelectorAll('#app .tela');
+  const viva=camadas.length?camadas[camadas.length-1]:null;
+  const aceso=viva?viva.querySelector('.nav button.on'):null;
+  if(!aceso) return;                                  // sem barra, sem gesto
+  const ligados=navLigados().map(([k])=>k);
+  const i=ligados.indexOf(aceso.dataset.nav);
+  if(i<0) return;
+  const alvo=ligados[(i+(passo>0?1:-1)+ligados.length)%ligados.length];
+  if(alvo && alvo!==aceso.dataset.nav) ir(alvo);
+}
+
+/* O admin pode desligar o módulo que o motorista está OLHANDO — a config chega
+   depois, no meio do turno. A tela continua pintada e a barra fica sem nenhum
+   botão aceso: o motorista dentro de um cômodo cuja porta acabou de ser
+   murada, sem arrastar e sem aba pra voltar. Devolve pra Rota, que nunca
+   fecha. Quem chama é a ponte, logo depois de escrever a config na barra. */
+function resgatarModuloDesligado(){
+  const camadas=document.querySelectorAll('#app .tela');
+  const viva=camadas.length?camadas[camadas.length-1]:null;
+  const barra=viva?viva.querySelector('.nav'):null;
+  if(barra && !barra.querySelector('button.on')) ir('rota');
 }
 
 /* ==========================================================================
