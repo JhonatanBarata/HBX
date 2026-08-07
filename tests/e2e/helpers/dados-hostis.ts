@@ -216,6 +216,71 @@ export function painelModuloHostil(modulo: string) {
   };
 }
 
+/**
+ * A OPERAÇÃO DO DIA — motoristas e paradas do cockpit da /logistica.
+ *
+ * Esta tela nunca tinha sido MEDIDA pelo fiscal: o catch-all respondia `{}`
+ * para `/logistica/entregadores`, o `drivers.map` do <Cockpit> estourava e as
+ * três larguras das duas peles mediam o popup "Ops, algo deu errado". Régua em
+ * ZERO, seis combinações verdes, nenhuma olhando para o produto — a armadilha
+ * nº1 desta rede pela terceira vez.
+ *
+ * Mesma régua de hostilidade do resto do arquivo: nome de motorista que é nome
+ * inteiro de brasileiro, cliente com razão social de cartório, cidade composta
+ * com acento e apóstrofo — e, no meio, o extremo curto ("AL", "SP"), que
+ * quebra a caixa dimensionada para o texto longo.
+ */
+export function entregadoresHostis() {
+  return [
+    { id: 1, nome: "Jhonatan Barata de Oliveira", email: "jhonatan@hbx.com.br" },
+    { id: 2, nome: "Maria Aparecida de Souza Nascimento Filho", email: "maria.aparecida@hbx.com.br" },
+    { id: 3, nome: "AL", email: null },
+  ];
+}
+
+/** Resposta de GET /logistica/rota — o dia do motorista, com paradas hostis. */
+export function rotaHostil() {
+  const motoristas = entregadoresHostis();
+  const items = NOMES_LONGOS.map((nome, i) => ({
+    id: `parada-${i}`,
+    // A primeira fica `em_rota` porque é ela que abre o inspetor e o mapa:
+    // parada nenhuma aberta deixaria metade do cockpit fora da medição.
+    status: i === 0 ? "em_rota" : i < 4 ? "agendada" : "entregue",
+    quantidade: i * 7 + 1,
+    valor: 1234567.89,
+    scheduledAt: ISO(0),
+    deliveredAt: i < 4 ? null : ISO(0),
+    cobrancaStatus: i === 2 ? "pendente" : "pago",
+    notes: i === 1 ? "Entregar somente no portão dos fundos, falar com o encarregado do depósito" : null,
+    somenteCobranca: i === 2,
+    motivoCobranca: i === 2 ? "Cliente com fatura vencida há 45 dias" : null,
+    rotaOrdem: i + 1,
+    etaAt: ISO(0),
+    cliente: {
+      id: `cliente-${i}`,
+      nome,
+      endereco: "Avenida Presidente Juscelino Kubitschek de Oliveira, 1234 — Bloco B, Sala 1207",
+      cidade: CIDADES[i % CIDADES.length],
+      uf: i === 3 ? "AL" : "SP",
+      lat: -22.41 - i / 100,
+      lng: -47.56 - i / 100,
+      phone: "+5519981874096",
+    },
+    contato: { id: `contato-${i}`, nome, whatsapp: "+5519981874096", phone: "+5519981874096" },
+    produto: { id: 1, nome: "Galão de água mineral 20 litros retornável", unidade: "un" },
+    entregador: i < 4 ? motoristas[i % motoristas.length] : null,
+    comprovante: { fotoEnviada: false, assinaturaEnviada: false, codigoGerado: false, confirmadoAt: null },
+  }));
+  return {
+    date: new Date().toISOString().slice(0, 10),
+    total: items.length,
+    effectsEnabled: true,
+    trackingRequired: false,
+    comprovante: { fotoObrigatoria: true, assinaturaObrigatoria: false, codigoObrigatorio: false },
+    items,
+  };
+}
+
 /** Conversas do /conversas e do painel lateral — mesma régua de hostilidade. */
 export function conversasHostis() {
   return {

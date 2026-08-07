@@ -13,7 +13,13 @@
 
 import type { Page } from "@playwright/test";
 
-import { boardHostil, conversasHostis, painelModuloHostil } from "./dados-hostis";
+import {
+  boardHostil,
+  conversasHostis,
+  entregadoresHostis,
+  painelModuloHostil,
+  rotaHostil,
+} from "./dados-hostis";
 
 /** Token com `exp` no futuro — o app só checa validade, não assinatura. */
 export function fakeToken(): string {
@@ -311,6 +317,31 @@ export async function setupCommonMocks(page: Page): Promise<void> {
       })
     )
   );
+  // ---- A /LOGISTICA, QUE O FISCAL NUNCA TINHA MEDIDO (07/08/2026) ---------
+  //
+  // Mesmo defeito da /entrega, terceira ocorrência: o catch-all respondia `{}`
+  // para `/logistica/entregadores`, o `setEntregadores({})` da page.client
+  // entregava um objeto ao `drivers.map` do <Cockpit> e a tela morria no
+  // `mount`. Nas duas peles, nas três larguras, o fiscal media o popup "Ops,
+  // algo deu errado" — e popup não tem texto cortado, então a régua ficava em
+  // ZERO com seis combinações "verdes" que nunca viram o produto.
+  //
+  // ⚠️ A ORDEM DESTE BLOCO É DELIBERADA (ver a nota do topo: o Playwright casa
+  // da ÚLTIMA rota registrada para a primeira). `logistica/rota**` também casa
+  // com `rota-avisos`, `rota-indicadas` e `rota-modelos` — por isso a geral
+  // entra ANTES e as específicas DEPOIS. Invertendo, o cockpit receberia um
+  // objeto de rota onde espera lista e voltaria a estourar.
+  await page.route("**/hbx/api/logistica/rota**", (r) => r.fulfill(json(rotaHostil())));
+  await page.route("**/hbx/api/logistica/rota-avisos**", (r) => r.fulfill(json([])));
+  await page.route("**/hbx/api/logistica/rota-indicadas**", (r) => r.fulfill(json([])));
+  await page.route("**/hbx/api/logistica/rota-modelos**", (r) => r.fulfill(json([])));
+  await page.route("**/hbx/api/logistica/recados**", (r) => r.fulfill(json([])));
+  await page.route("**/hbx/api/logistica/produtos**", (r) => r.fulfill(json([])));
+  await page.route("**/hbx/api/logistica/entregadores**", (r) => r.fulfill(json(entregadoresHostis())));
+  await page.route("**/hbx/api/logistica/resumo-dia**", (r) =>
+    r.fulfill(json({ entregues: 12, aReceber: 1234567.89, previstas: 26, fechado: false }))
+  );
+
   // A /automacao é o caso extremo do "formato certo importa mais que dado
   // bonito": ela lê blocos discriminados (`{ ok: true, ... } | { ok: false }`)
   // e um `types` por tipo de bot. Faltando qualquer um deles a tela estoura no

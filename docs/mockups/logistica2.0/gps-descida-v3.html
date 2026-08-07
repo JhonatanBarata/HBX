@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>HBX GPS — a descida (V3)</title>
+<style>
+/* ============================================================
+   REGRA DE OURO DESTE MOCK: celular barato tem que dar conta.
+   Só se anima TRANSFORM e OPACITY — as duas coisas que a GPU
+   compõe sem repintar. Zero blur animado, zero drop-shadow
+   animado, zero stroke-dashoffset em animação (foi o que fez a
+   versão anterior rodar a 10 fps).
+   ============================================================ */
+:root{
+  --bg:#070d15; --map:#141b24; --quadra:#1e2731; --quadra2:#232d38;
+  --via:#39434f; --via2:#2c343e; --leito:#10161d;
+  --rota:#8ede2f; --azul:#4c9eff; --texto:#f2f6fb; --fraco:#8b98a8;
+  --painel:rgba(9,17,28,.92); --linha:rgba(150,172,196,.16);
+  --emp:#5d6874; --emp-topo:#798593; --emp-lado:#4a545f;
+}
+html[data-luz="claro"]{
+  --bg:#eef2f6; --map:#e9edf1; --quadra:#dbe1e7; --quadra2:#e3e8ed;
+  --via:#ffffff; --via2:#f6f8fa; --leito:#d2d8de;
+  --rota:#5ea310; --azul:#1f74e0; --texto:#101a26; --fraco:#717f8f;
+  --painel:rgba(255,255,255,.94); --linha:rgba(80,100,124,.16);
+  --emp:#b9c2cc; --emp-topo:#cdd5dd; --emp-lado:#a3adb8;
+}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;background:#04080e;display:grid;place-items:center;
+     font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+.palco{display:flex;gap:24px;align-items:flex-start;padding:20px;flex-wrap:wrap;justify-content:center}
+.fone{position:relative;width:373px;height:760px;overflow:hidden;background:var(--bg);
+      color:var(--texto);border-radius:32px;box-shadow:0 26px 80px rgba(0,0,0,.55)}
+
+/* ---- O PALCO DO MAPA: a perspectiva mora aqui ---------------- */
+.cena{position:absolute;inset:0;overflow:hidden;perspective:620px;perspective-origin:50% 74%}
+.mundo{position:absolute;left:50%;top:50%;width:1000px;height:1700px;margin:-850px 0 0 -500px;
+       transform-origin:50% 62%;will-change:transform;
+       /* estado inicial = VISTA DE CIMA (plano, sem inclinação) */
+       transform:rotateX(0deg) scale(.35) translate3d(0,40px,0)}
+.cena.desceu .mundo{
+       /* estado final = QUASE DENTRO (o ângulo que o app já tem) */
+       transform:rotateX(62deg) scale(1) translate3d(0,180px,0);
+       transition:transform 2600ms cubic-bezier(.32,.72,.24,1)}
+svg.chao{width:100%;height:100%;display:block}
+.quadra{fill:var(--quadra)} .quadra.b{fill:var(--quadra2)}
+.leito{fill:none;stroke:var(--leito);stroke-width:26;stroke-linecap:round;stroke-linejoin:round}
+.via{fill:none;stroke:var(--via);stroke-width:18;stroke-linecap:round;stroke-linejoin:round}
+.via.men{stroke:var(--via2);stroke-width:11}
+.rota{fill:none;stroke:var(--rota);stroke-width:16;stroke-linecap:round;stroke-linejoin:round}
+.rota.base{stroke:rgba(120,138,156,.22);stroke-width:22}
+
+/* A CIDADE SE MONTANDO: opacidade + escala, escalonadas e LENTAS.
+   Nada de blur. Cada quadra é um elemento; entram em ondas. */
+.quadra,.bairro{opacity:0;transform-box:fill-box;transform-origin:center}
+/* No PLANO a cidade já está lá, quieta e apagada — é mapa, não cena.
+   Na DESCIDA ela se monta de novo (o véu cobre o recomeço). */
+.plano .quadra{opacity:.5} .plano .bairro{opacity:.22}
+.cena.montando .quadra{animation:sobe 900ms cubic-bezier(.2,.8,.2,1) forwards}
+.cena.montando .bairro{animation:aparece 900ms ease forwards}
+@keyframes sobe{from{opacity:0;transform:scale(.92)} to{opacity:1;transform:scale(1)}}
+@keyframes aparece{to{opacity:.34}}
+.bairro{font-size:26px;letter-spacing:2px;fill:var(--fraco);font-weight:650}
+
+/* ---- CLIENTES (as paradas) — existem nos DOIS estados -------- */
+.parada{position:absolute;width:34px;height:34px;transform:translate(-50%,-50%);z-index:40}
+.parada .bolha{position:absolute;inset:0;border-radius:50%;background:var(--azul);
+  border:2px solid rgba(255,255,255,.92);display:grid;place-items:center;
+  font-size:13px;font-weight:600;color:#fff;box-shadow:0 3px 8px rgba(0,0,0,.35)}
+.parada .rotulo{position:absolute;left:50%;top:38px;transform:translateX(-50%);
+  white-space:nowrap;font-size:11px;color:var(--texto);opacity:0;transition:opacity .4s ease}
+.plano .parada .rotulo{opacity:.85}
+
+/* ---- EMPRESAS (o prospector) — clareiam com ANTECEDÊNCIA ----- */
+.empresa{position:absolute;width:46px;height:50px;transform:translate(-50%,-50%);
+  z-index:38;opacity:0;transition:opacity 700ms ease}
+.empresa.no-campo{opacity:1}
+/* 🔴 ORDEM DO DONO: "montou rota, quer ver detalhes? FICA APENAS OS CLIENTES".
+   No plano a empresa não existe — ela é assunto de quem já está rodando. */
+.plano .empresa{display:none}
+.empresa .anel{position:absolute;left:50%;top:50%;width:34px;height:34px;margin:-17px 0 0 -17px;
+  border-radius:50%;border:1px solid rgba(120,142,168,.42);background:rgba(22,32,45,.30);
+  transition:border-color 900ms ease, background 900ms ease}
+html[data-luz="claro"] .empresa .anel{background:rgba(255,255,255,.62);border-color:rgba(96,116,140,.3)}
+.predio{position:absolute;left:50%;top:50%;width:21px;height:21px;transform:translate(-50%,-50%)}
+.predio .frente{position:absolute;left:1px;top:5px;width:16px;height:15px;border-radius:2px;
+  background:var(--emp);transition:background 900ms ease}
+.predio .topo{position:absolute;left:4px;top:1px;width:17px;height:5px;transform:skewX(-38deg);
+  background:var(--emp-topo);transition:background 900ms ease}
+.predio .lado{position:absolute;right:1px;top:5px;width:4px;height:15px;transform:skewY(-40deg);
+  background:var(--emp-lado);transition:background 900ms ease}
+.janelas{position:absolute;left:4px;top:8px;display:grid;grid-template-columns:repeat(3,3px);gap:2px}
+.janelas i{width:3px;height:3px;border-radius:1px;background:rgba(180,196,212,.20);
+  transition:background 500ms ease}
+/* CLAREANDO: começa cedo, cresce devagar. 3 degraus. */
+.empresa[data-luz="1"] .anel{border-color:rgba(142,222,47,.34)}
+.empresa[data-luz="1"] .janelas i:nth-child(-n+2){background:#cdf67a}
+.empresa[data-luz="2"] .anel{border-color:rgba(142,222,47,.62);background:rgba(96,166,32,.14)}
+.empresa[data-luz="2"] .janelas i:nth-child(-n+4){background:#d6ff84}
+.empresa[data-luz="2"] .frente{background:#5c6d44}
+.empresa[data-luz="3"] .anel{border-color:rgba(160,240,60,.95);background:rgba(104,178,34,.20)}
+.empresa[data-luz="3"] .janelas i{background:#dcff8c}
+.empresa[data-luz="3"] .frente{background:#66784a}
+.empresa[data-luz="3"] .topo{background:#7d9258}
+.empresa[data-luz="3"] .lado{background:#586b3c}
+.empresa .nome{position:absolute;left:50%;top:-26px;transform:translateX(-50%);white-space:nowrap;
+  font-size:11px;font-weight:600;color:var(--texto);opacity:0;transition:opacity 600ms ease}
+.empresa[data-luz="2"] .nome,.empresa[data-luz="3"] .nome{opacity:1}
+.empresa .nome b{color:var(--rota);font-weight:600;margin-right:4px}
+
+/* ---- O PONTEIRO: ancorado, nunca sai do lugar --------------- */
+.ponteiro{position:absolute;left:50%;top:74%;width:46px;height:56px;margin:-28px 0 0 -23px;
+  z-index:60;opacity:0;transition:opacity 700ms ease}
+.ponteiro.on{opacity:1}
+.ponteiro .facho{position:absolute;left:50%;top:-64px;transform:translateX(-50%);width:0;height:0;
+  border-left:30px solid transparent;border-right:30px solid transparent;
+  border-bottom:92px solid rgba(52,128,238,.13)}
+.ponteiro svg{position:absolute;inset:0;width:100%;height:100%}
+
+/* ---- CROMO ---------------------------------------------------- */
+.topo-barra{position:absolute;left:8px;right:8px;top:10px;z-index:70;background:var(--painel);
+  border:1px solid var(--linha);border-radius:14px;padding:10px 12px;display:flex;gap:10px;
+  align-items:center;opacity:0;transform:translateY(-14px);transition:opacity .5s ease,transform .5s ease}
+.topo-barra.on{opacity:1;transform:none}
+.seta{width:38px;height:38px;border-radius:10px;background:rgba(60,134,236,.14);color:var(--azul);
+  display:grid;place-items:center;font-size:24px}
+.manobra strong{display:block;font-size:19px;line-height:1}
+.manobra span{font-size:12px;color:var(--fraco)}
+.chip{position:absolute;left:12px;top:88px;z-index:70;background:var(--painel);border:1px solid var(--linha);
+  border-radius:999px;padding:5px 11px 5px 21px;font-size:10px;color:var(--fraco);opacity:0;transition:opacity .5s ease}
+.chip.on{opacity:1}
+.chip:before{content:"";position:absolute;left:9px;top:50%;width:5px;height:5px;border-radius:50%;
+  background:var(--rota);transform:translateY(-50%)}
+.rodape{position:absolute;left:0;right:0;bottom:0;height:82px;z-index:70;background:var(--painel);
+  border-top:1px solid var(--linha);transform:translateY(100%);transition:transform .55s cubic-bezier(.2,.8,.2,1)}
+.rodape.on{transform:none}
+.rodape .linha1{padding:8px 12px 0;font-size:10px;color:var(--fraco)}
+.rodape .linha1 b{color:var(--texto)}
+.nums{display:grid;grid-template-columns:1fr 1fr 1fr 76px;align-items:center;height:52px}
+.num{text-align:center}.num b{display:block;font-size:14px}.num small{font-size:8px;color:var(--fraco)}
+.num:first-child b{color:var(--rota)}
+.sair{margin-right:10px;height:38px;border:1px solid rgba(226,88,88,.36);color:#e4726f;border-radius:11px;
+  display:grid;place-items:center;font-size:10px}
+/* O longe se dissolve no céu — sem isso a borda do mundo fica visível
+   e a cidade parece um tabuleiro flutuando. Gradiente ESTÁTICO (nunca animado). */
+.horizonte{position:absolute;left:0;right:0;top:0;height:44%;z-index:36;pointer-events:none;
+  background:linear-gradient(to bottom,var(--bg) 0%,var(--bg) 26%,rgba(7,13,21,.72) 58%,rgba(7,13,21,0) 100%)}
+html[data-luz="claro"] .horizonte{background:linear-gradient(to bottom,var(--bg) 0%,var(--bg) 26%,rgba(238,242,246,.72) 58%,rgba(238,242,246,0) 100%)}
+.plano .horizonte{opacity:0}
+.veu{position:absolute;inset:0;z-index:65;background:#04080e;opacity:0;pointer-events:none;
+  transition:opacity 900ms ease}
+html[data-luz="claro"] .veu{background:#f2f6fa}
+.veu.on{opacity:.96}
+
+/* ---- Painel de controle (fora do celular) -------------------- */
+.ctrl{width:300px;padding:16px;border-radius:16px;background:#0a1420;border:1px solid rgba(150,170,190,.16);
+  color:#eaf2fa}
+.ctrl h2{margin:0 0 6px;font-size:15px}
+.ctrl p{margin:0 0 12px;color:#93a4b5;font-size:12px;line-height:1.5}
+.ctrl button{width:100%;margin-bottom:8px;border:1px solid rgba(145,165,185,.22);background:#122236;
+  color:#eef6ff;border-radius:10px;padding:10px;font-weight:600;cursor:pointer;font-size:13px}
+.ctrl .nota{color:#7f92a5;font-size:10px;line-height:1.5;margin-top:10px}
+@media(max-width:760px){body{display:block}.palco{padding:0}.fone{width:100vw;height:100vh;border-radius:0}.ctrl{display:none}}
+</style>
+</head>
+<body>
+<div class="palco">
+  <div class="fone plano" id="fone">
+
+    <div class="cena" id="cena">
+      <div class="mundo" id="mundo">
+        <svg class="chao" viewBox="0 0 1000 1700" preserveAspectRatio="xMidYMid slice">
+          <rect x="-200" y="-200" width="1400" height="2100" fill="var(--map)"/>
+          <g id="quadras"></g>
+          <g id="vias"></g>
+          <path class="rota base" id="rotaBase" d="M500 1560 C505 1400 495 1260 520 1130 C548 990 640 940 700 850 C756 764 730 660 650 596 C570 532 520 452 556 372 C592 292 690 262 742 190 C782 134 762 74 700 30"/>
+          <path class="rota" id="rota" d="M500 1560 C505 1400 495 1260 520 1130 C548 990 640 940 700 850 C756 764 730 660 650 596 C570 532 520 452 556 372 C592 292 690 262 742 190 C782 134 762 74 700 30"/>
+          <text class="bairro" x="120" y="640">JARDIM PAULISTA</text>
+          <text class="bairro" x="640" y="1180">CENTRO SUL</text>
+        </svg>
+      </div>
+    </div>
+
+    <div class="horizonte"></div>
+    <div id="camadaPinos"></div>
+    <div class="veu" id="veu"></div>
+
+    <div class="ponteiro" id="ponteiro">
+      <div class="facho"></div>
+      <svg viewBox="0 0 46 56"><path d="M23 3 L42 49 L23 41 L4 49 Z" fill="#1c7bea" stroke="#fff" stroke-width="2.4" stroke-linejoin="round"/></svg>
+    </div>
+
+    <div class="topo-barra" id="barraTopo">
+      <div class="seta" id="seta">↑</div>
+      <div class="manobra"><strong id="dist">240 m</strong><span id="verbo">Siga em frente</span></div>
+    </div>
+    <div class="chip" id="chip">Empresas por perto</div>
+
+    <div class="rodape" id="rodape">
+      <div class="linha1">Parada <b id="paradaN">1 de 4</b> · <b id="paradaNome">Juliana Costa</b></div>
+      <div class="nums">
+        <div class="num"><b id="hora">12:26</b><small>chegada</small></div>
+        <div class="num"><b id="falta">18 min</b><small>restante</small></div>
+        <div class="num"><b id="km">4,2 km</b><small>distância</small></div>
+        <div class="sair">Encerrar</div>
+      </div>
+    </div>
+  </div>
+
+  <aside class="ctrl">
+    <h2>A descida</h2>
+    <p>Rota montada: mapa limpo, só os clientes, visto de cima. Iniciou: a câmera desce, a cidade se monta ao redor e as empresas clareiam com antecedência.</p>
+    <button id="btnPlano">1 · Rota montada (de cima)</button>
+    <button id="btnIniciar">2 · Iniciar rota (a descida)</button>
+    <button id="btnTema">Modo claro</button>
+    <div class="nota">Só transform e opacidade são animados — é o que a GPU compõe sem repintar. Sem blur, sem sombra animada, sem traço se desenhando por quadro.</div>
+  </aside>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+const fone=$('#fone'), cena=$('#cena'), mundo=$('#mundo'), rota=$('#rota');
+const camada=$('#camadaPinos'), ponteiro=$('#ponteiro'), veu=$('#veu');
+let relogios=[], raf=0, ficha=0;
+
+// ---- cidade: quadras e vias desenhadas uma vez, estáticas ------------------
+(function cidade(){
+  const q=$('#quadras'), v=$('#vias');
+  let h='';
+  // Inclinado a 62°, o que está "longe" some no alto da tela: a cidade
+  // precisa chegar até o horizonte, senão o motorista vê a BORDA do mundo.
+  for(let l=-9;l<13;l++) for(let c=-3;c<7;c++){
+    const x=60+c*240, y=60+l*185, w=170, hh=120;
+    // O atraso cresce de BAIXO pra CIMA: a cidade se monta a partir de onde o
+    // motorista está, não do canto da tela. É o "ao seu redor" do pedido.
+    h+=`<rect class="quadra${(l+c)%2?' b':''}" x="${x}" y="${y}" width="${w}" height="${hh}" rx="3" style="animation-delay:${Math.max(0,(11-l))*70+Math.abs(c-2)*45}ms"/>`;
+  }
+  q.innerHTML=h;
+  let r='';
+  for(let l=-9;l<14;l++){const y=30+l*185; r+=`<path class="leito" d="M-800 ${y} H1800"/>`}
+  for(let c=-3;c<8;c++){const x=40+c*240; r+=`<path class="leito" d="M${x} -1700 V2500"/>`}
+  for(let l=-9;l<14;l++){const y=30+l*185; r+=`<path class="via${l%3?' men':''}" d="M-800 ${y} H1800"/>`}
+  for(let c=-3;c<8;c++){const x=40+c*240; r+=`<path class="via${c%2?' men':''}" d="M${x} -1700 V2500"/>`}
+  v.innerHTML=r;
+})();
+
+// ---- os pontos ao longo da rota -------------------------------------------
+const PARADAS=[
+  {n:1,nome:'Juliana Costa',   p:.22},
+  {n:2,nome:'Mercado Estrela', p:.48},
+  {n:3,nome:'Padaria Avenida', p:.71},
+  {n:4,nome:'Salão Bela Vista',p:.93},
+];
+const EMPRESAS=[
+  {nome:'Café Aurora',      p:.16, lado:-118},
+  {nome:'AutoPlus',         p:.29, lado: 124},
+  {nome:'Pharma Life',      p:.41, lado:-126},
+  {nome:'GreenFit',         p:.55, lado: 120},
+  {nome:'EcoMarket',        p:.66, lado:-122},
+  {nome:'TechStore',        p:.79, lado: 126},
+  {nome:'Posto Central',    p:.88, lado:-120},
+];
+
+function pontoNaRota(t){
+  const L=rota.getTotalLength(), s=Math.max(0,Math.min(L,L*t));
+  const a=rota.getPointAtLength(s), b=rota.getPointAtLength(Math.min(L,s+12));
+  return {x:a.x, y:a.y, ang:Math.atan2(b.y-a.y,b.x-a.x)*180/Math.PI};
+}
+function aoLado(t,lado){
+  const a=pontoNaRota(t), r=a.ang*Math.PI/180;
+  return {x:a.x - Math.sin(r)*lado, y:a.y + Math.cos(r)*lado};
+}
+
+// ---- monta os pinos como DOM (transform only) -----------------------------
+function montarPinos(){
+  camada.innerHTML='';
+  PARADAS.forEach(s=>{
+    const d=document.createElement('div'); d.className='parada';
+    d.innerHTML=`<div class="bolha">${s.n}</div><div class="rotulo">${s.nome}</div>`;
+    camada.appendChild(d); s.el=d; s.mundo=pontoNaRota(s.p);
+  });
+  EMPRESAS.forEach(e=>{
+    const d=document.createElement('div'); d.className='empresa';
+    d.innerHTML=`<div class="anel"></div>
+      <div class="predio"><div class="topo"></div><div class="lado"></div><div class="frente"></div>
+        <div class="janelas">${'<i></i>'.repeat(6)}</div></div>
+      <div class="nome"><b>•</b>${e.nome}</div>`;
+    camada.appendChild(d); e.el=d; e.mundo=aoLado(e.p,e.lado);
+  });
+}
+
+// ---- projeção: onde o ponto do mundo cai na tela --------------------------
+// Espelha o transform do .mundo com uma conta simples (escala + deslocamento
+// + achatamento vertical da perspectiva). Não precisa ser exato: é mock.
+let cam={t:0, escala:.30, achata:1, dy:120};
+function projetar(pt){
+  const c=pontoNaRota(cam.t);
+  const dx=(pt.x-c.x)*cam.escala;
+  const dy=(pt.y-c.y)*cam.escala*cam.achata;
+  return {x:186.5+dx, y:(fone.classList.contains('plano')?380:562)+dy};
+}
+function posicionarPinos(){
+  const todos=[...PARADAS,...EMPRESAS];
+  todos.forEach(o=>{
+    const q=projetar(o.mundo);
+    o.el.style.left=q.x+'px'; o.el.style.top=q.y+'px';
+    // Com a tela inclinada, o que projeta muito alto está ALÉM do horizonte —
+    // ali um prédio flutuaria no céu. O corte de cima é mais duro que o de baixo.
+    const tetoY = fone.classList.contains('plano') ? -60 : 150;
+    const naTela=q.x>-60&&q.x<433&&q.y>tetoY&&q.y<820;
+    if(o.el.classList.contains('empresa')){
+      o.el.classList.toggle('no-campo', naTela);
+      // 🔴 O PEDIDO DO DONO: clarear COM ANTECEDÊNCIA, em degraus.
+      // A empresa começa a acender quando ainda falta caminho pra ela —
+      // acender em cima da hora não adianta nada.
+      const falta=o.p-cam.t;                 // quanto falta na rota (0..1)
+      let luz=0;
+      if(falta<=.22 && falta>.13) luz=1;     // longe: o anel esquenta
+      else if(falta<=.13 && falta>.05) luz=2;// médio: nome aparece, janelas acendem
+      else if(falta<=.05 && falta>-.06) luz=3;// perto: acesa de vez
+      else if(falta<=-.06) luz=0;            // passou: apaga
+      if(luz) o.el.dataset.luz=luz; else delete o.el.dataset.luz;
+    } else {
+      o.el.style.display = naTela?'block':'none';
+    }
+  });
+}
+
+// ---- as duas cenas --------------------------------------------------------
+function limpar(){ relogios.forEach(clearTimeout); relogios=[]; if(raf)cancelAnimationFrame(raf); raf=0; ficha++; }
+function daqui(fn,ms){ relogios.push(setTimeout(fn,ms)); }
+
+function cenaPlano(){
+  limpar();
+  fone.classList.add('plano');
+  cena.classList.remove('desceu','montando');
+  ['barraTopo','chip','rodape'].forEach(i=>$('#'+i).classList.remove('on'));
+  ponteiro.classList.remove('on'); veu.classList.remove('on');
+  // De cima a rota INTEIRA tem que caber — quem olha aqui está conferindo
+  // o dia, não dirigindo. Escala menor e centro no meio do trajeto.
+  cam={t:.50, escala:.35, achata:1, dy:0};
+  mundo.style.transform='rotateX(0deg) scale(.35) translate3d(0,40px,0)';
+  document.querySelectorAll('.quadra,.bairro').forEach(e=>e.style.opacity='');
+  montarPinos(); posicionarPinos();
+}
+
+function cenaDescida(){
+  limpar(); const meu=ficha;
+  fone.classList.remove('plano');
+  // 1) véu curto só pra cobrir a troca de enquadramento
+  veu.classList.add('on');
+  daqui(()=>{ if(meu!==ficha)return;
+    cam.t=.015;
+    // 🔴 O transform inline do plano VENCE a regra CSS da descida (inline
+    // sempre ganha de classe). Sem zerar aqui, a câmera nunca inclina e a
+    // navegação nasce chapada — foi exatamente o que aconteceu na 1ª prova.
+    mundo.style.transform='';
+    cena.classList.add('montando');              // a cidade começa a subir
+    cena.classList.add('desceu');                // A DESCIDA (2,6 s)
+    veu.classList.remove('on');
+    ponteiro.classList.add('on');
+  }, 420);
+  // 2) a câmera "chega" — a projeção acompanha a inclinação
+  daqui(()=>{ if(meu!==ficha)return; animarChegada(meu); }, 460);
+  // 3) o cromo entra DEPOIS, sem competir com a descida
+  daqui(()=>{ if(meu!==ficha)return; $('#barraTopo').classList.add('on'); }, 2400);
+  daqui(()=>{ if(meu!==ficha)return; $('#chip').classList.add('on'); }, 2750);
+  daqui(()=>{ if(meu!==ficha)return; $('#rodape').classList.add('on'); }, 3000);
+  daqui(()=>{ if(meu!==ficha)return; dirigir(meu); }, 3400);
+}
+
+// A projeção acompanha a descida: escala cresce, o eixo Y achata (perspectiva).
+function animarChegada(meu){
+  const t0=performance.now(), dur=2600;
+  (function passo(agora){
+    if(meu!==ficha)return;
+    const k=Math.min(1,(agora-t0)/dur);
+    const e=1-Math.pow(1-k,3);                    // mesma curva do CSS
+    cam.escala=.35+e*.65; cam.achata=1-e*.52;
+    posicionarPinos();
+    if(k<1) raf=requestAnimationFrame(passo);
+  })(t0);
+}
+
+function dirigir(meu){
+  const t0=performance.now(), dur=26000;          // devagar: dá pra ler
+  (function passo(agora){
+    if(meu!==ficha)return;
+    const k=Math.min(1,(agora-t0)/dur);
+    cam.t=.015+k*.965;
+    posicionarPinos();
+    cromo(cam.t);
+    if(k<1) raf=requestAnimationFrame(passo);
+  })(t0);
+}
+
+function cromo(t){
+  const resta=Math.max(0,1-t);
+  $('#km').textContent=(4.2*resta).toFixed(1).replace('.',',')+' km';
+  $('#falta').textContent=Math.max(1,Math.ceil(18*resta))+' min';
+  const prox=PARADAS.find(s=>s.p>t)||PARADAS[PARADAS.length-1];
+  $('#paradaN').textContent=`${prox.n} de ${PARADAS.length}`;
+  $('#paradaNome').textContent=prox.nome;
+  const d=Math.max(20,Math.round((prox.p-t)*4200));
+  $('#dist').textContent = d<1000 ? `${d} m` : `${(d/1000).toFixed(1).replace('.',',')} km`;
+  const a=pontoNaRota(t).ang, b=pontoNaRota(Math.min(1,t+.03)).ang;
+  const giro=b-a;
+  $('#seta').textContent = giro>12?'↱' : giro<-12?'↰' : '↑';
+  $('#verbo').textContent = giro>12?'Vire à direita' : giro<-12?'Vire à esquerda' : 'Siga em frente';
+}
+
+$('#btnPlano').addEventListener('click',cenaPlano);
+$('#btnIniciar').addEventListener('click',cenaDescida);
+$('#btnTema').addEventListener('click',e=>{
+  const claro=document.documentElement.dataset.luz==='claro';
+  document.documentElement.dataset.luz=claro?'':'claro';
+  e.target.textContent=claro?'Modo claro':'Modo escuro';
+});
+cenaPlano();
+</script>
+</body>
+</html>

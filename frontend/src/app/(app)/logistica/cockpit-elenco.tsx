@@ -119,7 +119,14 @@ export function CockpitElenco({
             aria-pressed={selecionado === linha.motorista.id}
             onClick={() => onSelecionar(linha.motorista)}
           >
-            <span className="cok-motorista__cracha" aria-hidden>
+            {/* `data-clip-ok`: o farol é um pino que SAI do crachá de
+                propósito (`right/bottom: -2px`, com anel da cor da superfície
+                para se destacar em qualquer fundo). O fiscal de corte lê isso
+                como 2px de conteúdo para fora da caixa — e ele está certo no
+                que mede: o que ele não sabe distinguir é enfeite deliberado de
+                texto escapando. Isenção é decisão consciente, e por isso mora
+                escrita aqui e não numa exceção dentro do fiscal. */}
+            <span className="cok-motorista__cracha" aria-hidden data-clip-ok>
               {iniciais(linha.nome)}
               <i className={`cok-motorista__farol is-${linha.farol}`} />
             </span>

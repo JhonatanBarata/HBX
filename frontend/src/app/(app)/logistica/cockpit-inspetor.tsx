@@ -171,7 +171,9 @@ export function CockpitInspetor({
   return (
     <aside className="cok__inspetor" aria-label={`Painel de ${nome}`}>
       <header className="cok__insp-cabeca">
-        <span className="cok-motorista__cracha" aria-hidden>
+        {/* `data-clip-ok` pelo mesmo motivo do elenco: o pino do farol sai do
+            crachá de propósito. Ver a nota em cockpit-elenco.tsx. */}
+        <span className="cok-motorista__cracha" aria-hidden data-clip-ok>
           {iniciais(nome)}
           <i className={`cok-motorista__farol is-${farol}`} />
         </span>

@@ -2204,20 +2204,55 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
    MESMA variável, que é o que impede o clássico "o título saiu de cima da
    coluna".
    ============================================================ */
+/* ============================================================
+   UMA GRADE SÓ, E ELA MEDE (07/08/2026)
+   ------------------------------------------------------------
+   Até aqui cabeçalho e cada faixa eram GRADES SEPARADAS lendo a mesma
+   variável de trilha. Isso obrigou a trilha a ser px cravado, porque
+   `max-content` numa grade por linha mede O CONTEÚDO DAQUELA LINHA — foi a
+   armadilha de 04/08 (coluna Segmento começando em X=427, 484 e 300 em três
+   faixas seguidas). E px cravado é aposta: medido pelo fiscal de corte,
+   "R$ 1.234.567,89" pedia 107px numa caixa de 91 e "Santa Bárbara d'Oeste"
+   129 em 121 — 44 achados APERTADO nas duas peles.
+
+   As duas saídas eram excludentes enquanto houvesse mais de uma grade. Com
+   `subgrid` deixa de haver: a trilha nasce UMA VEZ aqui, e cabeçalho, lista e
+   faixas apenas a herdam. Os itens de todas elas entram na MESMA conta de
+   `max-content`, então a coluna mede o conteúdo real E fica alinhada de ponta
+   a ponta. Medido nos dois casos que reprovaram (repro de bancada, borda
+   direita da coluna em cada faixa):
+     px cravado           alinhado, mas o dinheiro não cabe
+     max-content solto    cabe, mas as bordas saem em 539/539/547/539
+     subgrid              cabe E as quatro bordas em 547
+
+   Quem escolhe MEDIR ou TRUNCAR é a coluna, em page.client.tsx: dado que
+   decide (Lei 3) mede; texto longo por natureza (Lei 1) fica no px escolhido
+   e usa reticências.
+   ============================================================ */
 .vnd-sales-grade {
   flex: 1 1 auto;
   min-height: 0;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: var(--vnd-grade-cols, 56px minmax(190px, 1.58fr) 72px);
+  /* Cabeçalho na primeira faixa, lista na segunda. `minmax(0, 1fr)` e não
+     `1fr`: sem o piso zero a lista nunca encolhe abaixo do próprio conteúdo e
+     a rolagem vertical vaza para a página inteira. */
+  grid-template-rows: auto minmax(0, 1fr);
+  column-gap: 0;
   overflow-x: auto;
   overscroll-behavior-x: contain;
 }
 
 .vnd-sales-head,
+.vnd-sales-list,
 .vnd-sales-row {
+  /* Cada um ocupa a largura inteira da grade e REPETE as trilhas do pai em vez
+     de declarar as suas. É isto — e só isto — que faz a mesma coluna ter a
+     mesma largura no cabeçalho e em todas as faixas. */
+  grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: var(--vnd-grade-cols, 56px minmax(190px, 1.58fr) 72px);
+  grid-template-columns: subgrid;
   /* `stretch` e não `center`: com as células centralizadas, cada uma ficava só
      da altura do próprio texto e a divisória vertical saía como um risquinho
      no meio da faixa. Agora a célula ocupa a faixa inteira e a linha vai de
@@ -2229,9 +2264,11 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
      quebrada. Sem gap, as duas nascem na MESMA borda; o respiro passou a ser
      padding DENTRO da célula, que anda junto com ela. */
   column-gap: 0;
-  /* Rolando de lado, a linha tem que ser tão larga quanto a trilha inteira —
-     senão o fundo da faixa selecionada some no meio da rolagem. */
-  min-width: max-content;
+  /* Sem `min-width: max-content` aqui de propósito: com `grid-column: 1 / -1`
+     a faixa JÁ ocupa a trilha inteira, e é a trilha que rola. Mantê-lo faria a
+     faixa medir o próprio conteúdo de novo — a grade separada voltando pela
+     porta dos fundos. */
+  min-width: 0;
 }
 
 /* Uma célula = uma caixa que sabe encolher. Sem `min-width: 0` o conteúdo
@@ -2319,7 +2356,6 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
 }
 .vnd-sales-head {
   min-height: 32px;
-  flex: 0 0 auto;
   padding: 0 7px;
   border-bottom: 1px solid var(--vnd-grade-linha);
   background: var(--hbx-table-head);
@@ -2371,10 +2407,14 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   color: var(--hbx-brand);
 }
 .vnd-sales-fields:focus-visible { box-shadow: 0 0 0 2px var(--ring-brand); }
+/* A lista é o ROLO VERTICAL e, ao mesmo tempo, um degrau do subgrid: sem ela
+   repetir as trilhas, as faixas lá dentro não alcançariam a grade do topo e
+   voltariam a medir cada uma a sua. `scrollbar-gutter: stable` foi medido
+   nesta montagem e NÃO desloca as colunas. */
 .vnd-sales-list {
-  flex: 1 1 auto;
+  grid-auto-rows: min-content;
+  align-content: start;
   min-height: 0;
-  min-width: max-content; /* acompanha a trilha quando a grade rola de lado */
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-gutter: stable;
@@ -2566,6 +2606,9 @@ tr.vnd-enrichment-target.is-enrichment-arrival > td {
   color: var(--hbx-brand);
 }
 .vnd-sales-list__empty {
+  /* A lista virou subgrid: sem atravessar as trilhas, o "nenhum lead" cairia
+     dentro da primeira coluna (56px do seletor). */
+  grid-column: 1 / -1;
   min-height: 160px;
   display: grid;
   place-items: center;

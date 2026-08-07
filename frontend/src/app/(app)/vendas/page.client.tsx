@@ -340,6 +340,24 @@ type GridColumn = {
   mono?: boolean;
   gate?: "values";           // só aparece com canViewValues
   nosort?: boolean;          // conteúdo vive fora do card (ex.: status da IA)
+  /**
+   * A LEI 1 DECLARADA (07/08/2026) — ver "Texto que não cabe" em
+   * docs/Rules/FRONTEND.md.
+   *
+   * Por padrão a coluna MEDE: a trilha é `minmax(width, max-content)` e o
+   * `width` vale como PISO, nunca como teto. É o padrão certo porque o defeito
+   * caro é o silencioso — coluna que corta sem avisar. Coluna que ficou larga
+   * demais qualquer um vê.
+   *
+   * `trunca: true` é a exceção CONSCIENTE: texto longo por natureza, cujo
+   * começo já identifica (razão social, e-mail, endereço, texto livre). Aí a
+   * coluna fica no px escolhido e o texto usa reticências — encurtar ali é
+   * decisão de produto, não acidente.
+   *
+   * O que NUNCA leva `trunca`: o dado que decide (Lei 3) — valor em R$, etapa,
+   * status, telefone, prazo, contador. Esse não encurta; quem cede é o layout.
+   */
+  trunca?: boolean;
   text: (c: VendasLead) => string;   // valor cru: ordenação e busca
 };
 
@@ -348,28 +366,30 @@ const COL_MIN = 72;
 const COL_MAX = 560;
 
 const GRID_COLUMNS: GridColumn[] = [
-  { key: "name", label: "Empresa", width: 220, text: c => formatCompanyName(c.name) },
+  { key: "name", label: "Empresa", width: 220, trunca: true, text: c => formatCompanyName(c.name) },
   { key: "icons", label: "Ícones", width: 128, text: c => vendasCanais(c).join(" ") },
   { key: "status", label: "Status", width: 140, nosort: true, text: () => "" },
   // Telefone e Cidade saem SANEADOS daqui, e não do JSX: este `text()` é o
   // mesmo que alimenta ordenação, busca e legenda. Formatar só na pintura
   // deixaria a tela bonita e a ordenação separando "CAMPINAS" de "Campinas".
   { key: "phone", label: "Telefone", width: 148, mono: true, text: c => formatBrPhoneDisplay(c.phone) },
+  // Cidade MEDE: nome de cidade tem tamanho de cidade, não de razão social, e
+  // "Santa Bárbara d'Oeste" virando "Santa Bárbara d'Oes…" não identifica nada.
   { key: "city", label: "Cidade", width: 140, text: c => formatCityName(c.city, c.state) },
   { key: "state", label: "UF", width: 52, text: c => c.state || "" },
-  { key: "segment", label: "Segmento", width: 160, text: c => c.segment || "" },
+  { key: "segment", label: "Segmento", width: 160, trunca: true, text: c => c.segment || "" },
   { key: "stage", label: "Etapa", width: 130, text: c => STAGE_LABEL[normalizeStage(c.status)] },
   { key: "agenda", label: "Agenda", width: 110, text: c => agendaInfo(c).label },
   { key: "engage", label: "Engajamento", width: 130, text: c => vendasEngagementMeta(c.engagement, c.conversation).label },
   { key: "value", label: "Valor", width: 110, mono: true, gate: "values", text: c => leadValueLabel(c) },
-  { key: "next", label: "Próximo passo", width: 200, text: c => c.nextAction || "" },
-  { key: "note", label: "Nota", width: 200, text: c => c.shortNote || "" },
-  { key: "owner", label: "Responsável", width: 150, text: c => c.owner?.name || "" },
+  { key: "next", label: "Próximo passo", width: 200, trunca: true, text: c => c.nextAction || "" },
+  { key: "note", label: "Nota", width: 200, trunca: true, text: c => c.shortNote || "" },
+  { key: "owner", label: "Responsável", width: 150, trunca: true, text: c => c.owner?.name || "" },
   { key: "date", label: "Data", width: 110, mono: true, text: c => fmtWhen(c.block === "closed" ? c.closedAt : c.returnAt) },
-  { key: "email", label: "E-mail", width: 200, text: c => c.email || "" },
-  { key: "address", label: "Endereço", width: 220, text: c => c.address || "" },
+  { key: "email", label: "E-mail", width: 200, trunca: true, text: c => c.email || "" },
+  { key: "address", label: "Endereço", width: 220, trunca: true, text: c => c.address || "" },
   { key: "cnpj", label: "CNPJ", width: 150, mono: true, text: c => c.cnpj || "" },
-  { key: "razao", label: "Razão social", width: 200, text: c => formatCompanyName(c.razaoSocial) },
+  { key: "razao", label: "Razão social", width: 200, trunca: true, text: c => formatCompanyName(c.razaoSocial) },
   { key: "score", label: "Score", width: 70, mono: true, text: c => (c.opportunityScore != null ? String(c.opportunityScore) : "") },
   { key: "temp", label: "Temperatura", width: 110, text: c => c.leadTemperature || "" },
   { key: "attempts", label: "Contatos", width: 80, mono: true, text: c => String(c.attemptCount ?? 0) },
@@ -1414,48 +1434,62 @@ export function VendasClient() {
   const larguraDaColuna = (key: string) => larguras[key] ?? GRID_COLUMNS.find(c => c.key === key)?.width ?? 140;
 
   /**
+   * O PISO da coluna: o número que o usuário arrastou ou, sem arrasto, o de
+   * fábrica. Na coluna que TRUNCA ele é a trilha inteira; na que MEDE ele é só
+   * o mínimo, e mora no `min-width` da célula do cabeçalho (ver
+   * `trilhaDaGrade`).
+   */
+  const pisoDaColuna = (c: GridColumn) => (larguras[c.key] !== undefined ? larguraDaColuna(c.key) : c.width);
+
+  /**
    * A trilha da grade. `check` e `ações` são fixas nas pontas; o miolo é o que
    * o usuário escolheu. A lista ROLA de lado quando não cabe — mesma decisão
    * da fita de etapas: quem cede é o container, nunca o dado.
    *
-   * A LARGURA DE FÁBRICA NÃO É UM NÚMERO, É UM PISO.
-   * O `width` do GRID_COLUMNS foi escrito à mão e, medido pelo fiscal com dado
-   * hostil, erra: "R$ 1.234.567,89" pede 125px numa coluna de 110, e
-   * "São José do Rio Preto" pede 142 em 130. É o mesmo defeito que já tinha
-   * cortado a fita de etapas e o cabeçalho da /clientes — palpite de quem
-   * escreveu a tela não sobrevive à régua de letra do usuário, ao peso da
-   * fonte da pele nem ao dado real do cliente.
+   * A LARGURA ESCOLHIDA É UM PISO, NÃO UM TETO — na coluna que mede.
    *
-   * Então, enquanto o usuário não arrastar, a coluna é `minmax(piso,
-   * max-content)`: ela MEDE o conteúdo em vez de apostar, com teto para uma
-   * razão social de cartório não empurrar todo o resto para fora da tela.
-   * Assim que ele arrasta, vira o número dele — e aí é escolha, não palpite.
+   * Número escrito à mão é aposta na palavra mais curta com a régua de letra
+   * padrão. Medido pelo fiscal de corte com dado hostil, ele erra:
+   * "R$ 1.234.567,89" pede 107px numa caixa de 91 e "Santa Bárbara d'Oeste"
+   * 129 em 121 — e a conta muda de novo quando o usuário mexe na régua (50% a
+   * 150%) ou troca a pele. `max-content` não aposta, mede.
+   *
+   * ARMADILHA MEDIDA EM 01/08: `minmax(130px, min(max-content, 560px))` é
+   * INVÁLIDO — função matemática não aceita palavra de dimensionamento
+   * intrínseco. O navegador descarta a lista de trilhas INTEIRA, a grade vira
+   * uma coluna só e a tela empilha tudo na vertical, sem erro no console e com
+   * build verde. O teto de largura mora no CSS (`.vnd-sales-td > *`).
+   *
+   * ARMADILHA MEDIDA EM 04/08: `max-content` mede o conteúdo do PRÓPRIO
+   * container, e cabeçalho e faixas eram grades separadas — cada faixa media o
+   * que tinha dentro e a coluna Segmento começava em X=427, 484 e 300 em três
+   * faixas seguidas. Isso é o que o `subgrid` de 07/08 resolveu (ver a nota da
+   * `.vnd-sales-grade` em vendas-live.css): agora existe UMA grade, e a conta
+   * de `max-content` é uma só para o cabeçalho e todas as faixas.
+   *
+   * ARMADILHA MEDIDA EM 07/08, E É A QUE ENGANA: `minmax(140px, max-content)`
+   * NÃO mede quando a grade está apertada. O algoritmo de trilha dá a cada uma
+   * o tamanho MÍNIMO e só depois reparte o ESPAÇO QUE SOBROU até o máximo — e
+   * aqui nunca sobra: 16 colunas somam 2224px numa tela de 1341. Na bancada,
+   * com container largo, o `minmax` parecia resolver; na tela real ele deixou
+   * a coluna em 110px e o valor, agora inteiro, passou a VAZAR 17px por cima
+   * da coluna vizinha. Trocar um defeito por outro pior.
+   *
+   * `max-content` puro não depende de sobra: ele é o tamanho BASE da trilha.
+   * Aí o piso perde a moradia na trilha — `max(140px, max-content)` é a mesma
+   * função matemática inválida de 01/08 —, e passa a morar onde funciona: no
+   * `min-width` da célula do CABEÇALHO. A célula é item da mesma grade, então
+   * o piso dela entra na conta de `max-content` da coluna junto com as faixas.
+   *
+   * O PISO vale para a coluna arrastada também. Arrastar para MAIS funciona
+   * normalmente; arrastar para MENOS que o conteúdo, numa coluna que decide,
+   * para no conteúdo — Lei 3: o dado não encurta, quem cede é o layout.
    */
   const trilhaDaGrade = [
     // 56px e não 34: a primeira trilha agora carrega o seletor de marcar tudo
     // MAIS o editor de campos, que veio morar colado nele (04/08).
     "56px",
-    // ARMADILHA MEDIDA EM 01/08: `minmax(130px, min(max-content, 560px))` é
-    // INVÁLIDO — função matemática não aceita palavra de dimensionamento
-    // intrínseco. O navegador descartou a lista de trilhas inteira, a grade
-    // virou uma coluna só e a tela empilhou tudo na vertical. Sem erro no
-    // console, sem build vermelho: é o "CSS morre calado" de novo.
-    // O teto de largura mora no CSS (`.vnd-sales-td > *`), onde ele funciona.
-    //
-    // ARMADILHA MEDIDA EM 04/08 — E ESTA ERA GRAVE: a trilha da coluna sem
-    // largura escolhida era `minmax(Xpx, max-content)`, e `max-content` mede
-    // O CONTEÚDO DO PRÓPRIO CONTAINER. Cabeçalho e faixas são grades
-    // SEPARADAS (um `display:grid` por linha), então cada faixa media o nome
-    // que ela tinha dentro e parava num lugar: a coluna Segmento começava em
-    // X=427 numa faixa, 484 na seguinte, 300 na outra — e o cabeçalho em 300.
-    // Não era coluna, era coincidência. Ninguém tinha visto porque quem já
-    // arrastou as alças tem tudo em px (o `larguras` acima), e aí alinha; a
-    // tela torta era a de quem NUNCA arrastou.
-    // Trilha de grade que se repete linha a linha tem que ser DEFINIDA. O
-    // padrão do campo já é um número — agora ele vale como número.
-    ...gridCols.map(c =>
-      `${larguras[c.key] !== undefined ? larguraDaColuna(c.key) : c.width}px`,
-    ),
+    ...gridCols.map(c => (c.trunca ? `${pisoDaColuna(c)}px` : "max-content")),
     "72px",
   ].join(" ");
 
@@ -1853,7 +1887,17 @@ export function VendasClient() {
                       </button>
                     </span>
                     {gridCols.map(col => (
-                      <span key={col.key} className="vnd-sales-th">
+                      /* O piso da coluna que MEDE mora aqui, e não na trilha:
+                         `max(140px, max-content)` é função matemática com
+                         palavra intrínseca — inválida, e o navegador descarta
+                         a lista de trilhas inteira sem dizer nada (01/08).
+                         Sendo item da mesma grade, o `min-width` do cabeçalho
+                         entra na conta de `max-content` da coluna. */
+                      <span
+                        key={col.key}
+                        className="vnd-sales-th"
+                        style={col.trunca ? undefined : { minWidth: pisoDaColuna(col) }}
+                      >
                         <button type="button" onClick={() => !col.nosort && toggleGridSort(col.key)}
                           disabled={col.nosort} aria-label={col.nosort ? col.label : `Ordenar por ${col.label}`}>
                           <span className="hbx-1linha">{col.label}</span>
@@ -1978,7 +2022,13 @@ export function VendasClient() {
                                 );
                                 break;
                               case "value":
-                                miolo = <strong className="hbx-mono hbx-1linha">{dealPrimary}</strong>;
+                                // LEI 3, e não a 1: valor em R$ é o dado que
+                                // DECIDE. "R$ 1.234.567,89" virando
+                                // "R$ 1.234.5…" não é feio, é errado — some a
+                                // ordem de grandeza, que é justamente o que o
+                                // vendedor lê nessa coluna. Quem cede é a
+                                // trilha, que mede (ver `trilhaDaGrade`).
+                                miolo = <strong className="hbx-mono hbx-inteiro">{dealPrimary}</strong>;
                                 break;
                               case "owner":
                                 miolo = <span className="hbx-1linha">{owner}</span>;

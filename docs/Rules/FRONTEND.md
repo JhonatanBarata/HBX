@@ -362,6 +362,39 @@ ainda cortava. A medida NÃO É CONSTANTE: depende da régua de letra que o usu�
 escolhe (50–150%) e do peso da fonte da pele. Todo px ali é aposta na palavra mais
 curta com a régua padrão. `max-content` não aposta, mede.
 
+### Coluna de tabela: quem MEDE e quem TRUNCA (07/08/2026)
+
+Numa lista de colunas, a escolha das 3 leis é **por coluna**, e a coluna que decide
+declara isso no catálogo — não no CSS de uma célula. Referência viva: a grade da
+/vendas (`GRID_COLUMNS` em `vendas/page.client.tsx` + `.vnd-sales-grade` em
+`vendas-live.css`).
+
+- **O padrão é MEDIR.** Trilha `max-content`, e o número de fábrica vale como PISO.
+  Padrão certo porque o defeito caro é o silencioso: coluna larga demais qualquer um
+  vê, coluna que corta sem avisar ninguém vê.
+- **`trunca: true` é a exceção consciente** (Lei 1): texto longo por natureza cujo
+  começo já identifica — razão social, e-mail, endereço, texto livre. Aí a coluna fica
+  no px escolhido e usa reticências.
+- **O piso mora no `min-width` da célula do CABEÇALHO**, nunca na trilha:
+  `max(140px, max-content)` é função matemática com palavra intrínseca, é INVÁLIDA, e o
+  navegador descarta a lista de trilhas inteira em silêncio (a armadilha de 01/08).
+
+Duas armadilhas medidas, as duas caras:
+
+1. **`max-content` numa grade POR LINHA mede a linha, não a coluna.** Cabeçalho e cada
+   faixa sendo `display:grid` separados, cada um media o próprio conteúdo — a mesma
+   coluna nascia em X=427, 484 e 300 em três faixas seguidas. Quem já arrastou as alças
+   tem tudo em px e não vê; a tela torta é a de quem NUNCA arrastou. A cura é `subgrid`:
+   a trilha nasce UMA vez no container e cabeçalho, lista e faixas só a herdam, então
+   todos entram na MESMA conta de `max-content`.
+2. **`minmax(140px, max-content)` NÃO mede quando a grade está apertada.** O algoritmo
+   dá a cada trilha o tamanho mínimo e só reparte o que SOBRA até o máximo — e em tabela
+   larga nunca sobra (16 colunas somando 2224px em 1341 de tela). Em bancada com
+   container folgado o `minmax` parece resolver; na tela real ele deixa a coluna no piso.
+   Se o dado for `.hbx-inteiro`, o corte vira TRANSBORDO por cima da coluna vizinha —
+   defeito pior que o original. `max-content` puro é o tamanho BASE da trilha e não
+   depende de sobra.
+
 ## Checks
 
 - `cd frontend && npm run lint` (eslint + check-pele) → `npm run build`
@@ -374,6 +407,16 @@ curta com a régua padrão. `max-content` não aposta, mede.
   medida, não truncamento).
   A régua (`tests/e2e/clip-baseline.json`) está **TRAVADA EM ZERO** desde 01/08:
   qualquer corte novo reprova. Consertou de verdade? `npm run clip:regua`.
+  **Escape legítimo: `data-clip-ok`** no elemento (ou num ancestral) isenta a subárvore.
+  É para o enfeite deliberado que o fiscal não sabe distinguir de texto escapando — o
+  primeiro uso foi o pino do farol do motorista, que sai do crachá de propósito
+  (`right/bottom: -2px`). Isenção é decisão que fica ESCRITA no HTML, com o porquê ao
+  lado; nunca uma exceção escondida dentro do fiscal.
+  **A tela precisa MONTAR para ser medida.** Popup de erro não tem texto cortado, então
+  ele passa em tudo: a /logistica ficou de 12/07 a 07/08 com régua zero e seis
+  combinações "verdes" medindo o "Ops, algo deu errado" — o catch-all de
+  `helpers/app-mocks.ts` devolvia `{}` onde a tela esperava lista. Mock novo se escreve
+  pela FORMA que a tela percorre, e dado hostil mora em `helpers/dados-hostis.ts`.
 - **`npm run paletas`** — as 6 cores × 2 modos. Prova que nenhuma esqueceu um token
   (um `var()` órfão pinta **transparente** com o build verde) e mede **contraste WCAG
   AA** nos pares de leitura. Cor não entra no fiscal de corte de propósito: cor é só
