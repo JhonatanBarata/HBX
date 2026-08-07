@@ -1767,6 +1767,7 @@ olhoDoSistema.addEventListener('change',()=>{
 });
 
 let limpezaTimer=null;
+let entradaEm=0;
 function pintar(animar,dir){
   const app=document.getElementById('app');
   const tr=document.documentElement.dataset.tr||'escalonado';
@@ -1778,8 +1779,22 @@ function pintar(animar,dir){
   // — e o relógio de limpeza anterior é cancelado, senão ele remove a errada.
   const camadas=[...app.querySelectorAll('.tela')];
   const antiga=camadas.length?camadas[camadas.length-1]:null;
-  camadas.slice(0,-1).forEach(c=>c.remove());
-  clearTimeout(limpezaTimer);
+  // 🔴 REPINTE DE DADO NÃO MATA A ENTRADA DA TELA. O seam repinta assim que o
+  // servidor responde, e o repinte não anima — só que ele chegava NO MEIO da
+  // entrada e a camada nova nascia sem papel nenhum. Medido no mock: 13
+  // animações vivas viravam ZERO no instante do `usarDados`. Na bancada a
+  // lista de clientes voltava em ~60 ms, então a tela simplesmente não tinha
+  // transição — e a casca tem que ser IGUAL em toda tela, com dado ou sem.
+  // Herdando: a camada nova assume as marcas da que estava entrando e o
+  // relógio continua de onde parou (recomeçar do zero pisca).
+  const herdando = !animar && antiga && antiga.classList.contains('entra');
+  // A varredura de zumbi e o cancelamento do relógio são da TROCA de tela. No
+  // repinte não: a camada que SAI ainda está no ar (na abertura ela é o show
+  // inteiro — é o logo voando pro cabeçalho) e o relógio dela segue valendo.
+  if(!herdando){
+    camadas.slice(0,-1).forEach(c=>c.remove());
+    clearTimeout(limpezaTimer);
+  }
   const nova=document.createElement('div');
   nova.className='tela';
   nova.innerHTML=T[atual].render();
@@ -1842,7 +1857,25 @@ function pintar(animar,dir){
       }
       espera=1000;
     }
+    // Marca de quando a entrada COMEÇOU. É o único jeito de um repinte que
+    // chega no meio saber de onde continuar — a duração da própria camada não
+    // serve (no eixo X ela acaba em 150 ms e as linhas seguem até ~740 ms).
+    entradaEm=performance.now();
     limpezaTimer=setTimeout(()=>antiga.remove(), espera);
+  }else if(herdando){
+    // A camada nova VESTE o papel da que estava entrando (inclusive `cheio`,
+    // `voltando` e `abertura`) e troca só ela — a que sai continua o show dela.
+    [...antiga.classList].forEach(c=>{ if(c!=='tela') nova.classList.add(c); });
+    nova.style.setProperty('--dir', antiga.style.getPropertyValue('--dir')||1);
+    antiga.replaceWith(nova);
+    // E o relógio continua: `currentTime` põe cada animação exatamente onde a
+    // da camada anterior estava. Sem isto a lista recomeçaria do zero e o dado
+    // chegando tarde daria um pisca. Quem não tiver a API fica sem o acerto —
+    // some com o pulo, nunca com a tela.
+    if(nova.getAnimations){
+      const t=performance.now()-entradaEm;
+      nova.getAnimations({subtree:true}).forEach(a=>{ try{ a.currentTime=t; }catch(_){} });
+    }
   }else{
     app.innerHTML='';
     app.appendChild(nova);

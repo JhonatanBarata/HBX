@@ -1178,6 +1178,18 @@ button,input{font:inherit;color:inherit}
 .cli span{display:block;font-size:11px;color:var(--ink-2);margin-top:1px}
 .cli .rgt small{display:block;font-size:10px;color:var(--ink-2)}
 .cli .rgt b{display:block;font-size:13.5px;color:var(--lime);font-weight:500}
+/* 🔴 O CÍRCULO CENTRALIZA SOZINHO — e quase nunca centralizava. `.ava` é um
+   `<span>`, e as regras largas de linha (`.cli span`, `.item-linha span`) têm
+   1 classe + 1 tipo: vencem `.ava` (1 classe) e ainda vêm depois. Roubavam
+   QUATRO propriedades de uma vez — `display:grid` virava `block` (e aí
+   `place-items:center` fica inerte: as iniciais colam no canto de cima),
+   12px virava 11px, a cor da marca virava `--ink-2` e um `margin-top:1px`
+   empurrava o círculo inteiro pra baixo. Medido com `getComputedStyle`, não
+   lido. Mesma família da lei do `.gesto-item` acima: componente que um
+   seletor largo alcança DESARMA quem o alcança, no lugar exato.
+   Vem ANTES do bloco do modo claro de propósito — lá a cor é redesenhada. */
+.cli .ava,.item-linha .ava{display:grid;place-items:center;font-size:12px;margin-top:0;color:var(--blue-l)}
+.cli .ava.lime,.item-linha .ava.lime{color:var(--lime)}
 
 /* ==========================================================================
    MODO CLARO — DESENHADO, não derivado.

@@ -17,6 +17,12 @@
 
 **14 commits locais, nada publicado.** `HEAD` = `267d8e06`.
 
+> **Ordem do dono no mesmo dia, depois deste plano nascer:** *"centralize os dados
+> no círculo do cliente"* · *"remova a abertura anterior e deixe essa nova que
+> fizemos"* · *"pq os clientes não estão com transição das telas? combinamos
+> igualdade na casca"*. As três estão na **§4.6** — a primeira e a terceira já
+> feitas e medidas, a segunda mapeada endpoint por endpoint.
+
 | Leva | Estado | Prova |
 |---|---|---|
 | L1 rota do dia | ✅ | paradas reais no g15 |
@@ -31,6 +37,9 @@
 | L9 ajustes / recarga / consumo | ✅ | `modoCaderneta` t→f pela tela |
 | L10 rotas salvas | ✅ | "Abrir" gerou a rota (entregas 0→1) |
 | L10 rápida / gerenciador | ⬜ | **ver §4.2 e §4.3** |
+| **Casca — círculo do cliente** | ✅ | folga 11,8/11,8/10/10 medida, 2 modos · §4.6.1 |
+| **Casca — transição com dado real** | ✅ | 13 animações vivas com servidor em 200 ms · §4.6.2 |
+| **Abertura única** | ⬜ | duas em sequência hoje — **§4.6.3** |
 
 ### As 28 portas JÁ ligadas na `ponte.js`
 ```
@@ -111,12 +120,25 @@ Banco local: `docker exec app-db-1 psql -U admin -d jhonatan_dev`.
 8. 🔴 **O GANCHO NASCE DO DADO:** `data-acao` só sai no HTML quando o item tem `id` real —
    é o que mantém o mock byte-a-byte idêntico.
 9. Copy: **"pino" é PROIBIDA em tela** (Lei 8 do `hbxapk.md`). Diga "local".
+10. 🔴 **REPINTE DE DADO NÃO MATA A ENTRADA DA TELA.** O seam repinta sem animar —
+    mas ele chega **no meio** da entrada, e a camada nova nascia sem papel nenhum.
+    Medido: **13 animações vivas viravam 0** no instante do `usarDados`. A camada
+    nova tem que HERDAR as marcas da que estava entrando e o relógio tem que
+    CONTINUAR (`currentTime`), nunca recomeçar. Detalhe em §4.6.2.
+11. 🔴 **COMPONENTE QUE UM SELETOR LARGO ALCANÇA SE DESARMA NO LUGAR EXATO.** Regra
+    de linha do tipo `.cli span` tem 1 classe + 1 tipo e **vence** um componente de
+    1 classe (`.ava`). Não se conserta afrouxando a regra larga — conserta-se
+    redeclarando no componente. Já é a lei do `.gesto-item`; agora tem a segunda
+    vítima medida. E **cascata se MEDE**: 4 propriedades roubadas de uma vez sem
+    um erro no console (§4.6.1).
 
 ---
 
 ## 4. O QUE FALTA LIGAR — endpoint por endpoint
 
-> Ordem sugerida: **4.1 → 4.4 → 4.2 → 4.3 → 4.5**. O 4.4 tem o BLOQUEADOR da troca.
+> Ordem sugerida: **4.6.3 → 4.1 → 4.4 → 4.2 → 4.3**. A abertura vem primeiro porque é
+> ordem do dono e mexe no BOOT (quanto mais tarde, mais coisa em cima dela); o 4.4 tem
+> o BLOQUEADOR da troca. A **4.5** não é trabalho: é o que ficou de fora.
 
 ### 4.1 — L3b: A NAVEGAÇÃO (o maior, e está no piso que o dono escolheu)
 
@@ -202,6 +224,111 @@ Comprovante foto/código · Modo Passeio (8) · Leitura de rota (6) · pacote of
 indicada (4, **e o poll de 2.981 chamadas morre junto**) · editor/duplicar modelo (2) ·
 `gerar-dia` · tela de chegada nativa.
 
+### 4.6 — A CASCA: o que o dono apontou em 07/08
+
+#### 4.6.1 — ✅ FEITO · O círculo do cliente estava com os dados no canto
+
+**O defeito, medido com `getComputedStyle` (não lido):**
+
+| Propriedade | Devia ser | Estava | Efeito na tela |
+|---|---|---|---|
+| `display` | `grid` | `block` | `place-items:center` fica **inerte** — as iniciais colam no canto de cima |
+| `font-size` | 12px | 11px | letra menor que o resto da lista |
+| `color` | cor da marca | `--ink-2` | o círculo apagava, parecia desligado |
+| `margin-top` | 0 | 1px | o círculo inteiro descia 1px da linha |
+
+**Quem roubava:** `.cli span` e `.item-linha span` — regra de linha com 1 classe +
+1 tipo (0,1,1), que **vence** `.ava` (0,1,0) e ainda vem depois na folha. Quatro
+propriedades de uma vez, **sem um erro no console**.
+
+**A cura** (no mock, que é a fonte): `.cli .ava, .item-linha .ava` redeclara as
+quatro, com `.lime` junto, **antes** do bloco do modo claro — lá a cor é
+redesenhada de propósito e continua mandando.
+
+**Prova:** folga medida nos 4 lados do círculo = **11,8 / 11,8 / 10 / 10** (era
+`display:block`, sem centro nenhum), nos **dois modos**, e a mesma medida vale no
+`index.html` do app, não só no mock. Grade de prints em
+`outputs/prova-circulo-cliente.png`. O `casca-antes-e-depois` acusou **exatamente
+6** — `clientes`, `ficha` e `financeiro` × 2 modos — e nada mais: o conserto não
+vazou. `casca-conferir` seguiu **66/66**.
+
+#### 4.6.2 — ✅ FEITO · Clientes não tinha transição: o dado do servidor matava
+
+Não era a casca. **A casca estava certa** — medido no mock: entrar em Clientes
+acende **13 animações** (`trXItem`, escalonadas por `--i`).
+
+**O assassino:** `ponte.js` embrulha o `window.ir`; abrir a tela dispara
+`carregarClientes()`, e quando o servidor responde vem `usarDados(...)` →
+`pintar(false)`. O `pintar(false)` fazia `app.innerHTML=''` e criava a camada
+**sem papel nenhum**. Medido: **13 animações → 0**. Na bancada a lista volta em
+~60 ms, então o dono via a tela **sem transição alguma**.
+
+Vale pra **toda** tela que carrega ao abrir — `clientes`, `produtos`, `chat`,
+`ajustes`, `consumo`, `salvas`. Clientes foi só onde apareceu primeiro.
+
+**A cura,** em `pintar()` (mock):
+- `herdando = !animar && antiga.classList.contains('entra')`;
+- herdando, a camada nova **veste as marcas** da que estava entrando (`entra`,
+  `cheio`, `voltando`, `abertura`) e o `--dir`;
+- troca **só ela** (`replaceWith`), sem varrer a camada que SAI nem cancelar o
+  relógio de limpeza — 🔴 é isso que salva a **abertura**, onde a camada que sai é
+  o show inteiro (o logo voando pro cabeçalho);
+- `currentTime` põe cada animação onde a anterior estava. **Continuar, não
+  recomeçar** — recomeçar pisca quando o servidor demora.
+
+**Prova medida:** dado chegando em 200 ms → **13 animações vivas**, relógio em
+**209 ms** (continuou), as duas camadas com papel (`sai` + `entra`) e o dado real
+já na tela. E na abertura: repinte no meio e o `.splash-logo` **segue com
+`mvLogoVoa` rodando** — antes ele era destruído.
+
+⬜ **Fica anotado, mesma origem, ainda ABERTO:** enquanto a chamada não volta, a
+tela mostra os **dados de demonstração do mock** (João da Silva, Mercadinho Bom
+Preço). São 60 ms na bancada, mas numa rede ruim o motorista lê nome de cliente
+que não existe. A cura é o seam nascer VAZIO na 1ª pintura de cada tela — decisão
+do dono: **vazio** ou **esqueleto**? (§5.5)
+
+#### 4.6.3 — ⬜ A ABERTURA ANTERIOR SAI; fica a que fizemos
+
+Hoje o motorista vê **DUAS aberturas em sequência**:
+
+1. a **anterior** — `OfflineLauncherActivity` → **`OpeningActivity`**: logo nativo
+   viajando (1,07 s) + uma WebView própria com `opening.html` (**35 KB**) + o
+   sonic logo;
+2. a **nova** — já dentro do app: `T.entrada` do mock (as hastes, o cometa, a
+   marca, o brilho, a batida) e o logo voando pro cabeçalho, 3,4 s.
+
+A cortina antiga que ficava **dentro** da MainActivity já morreu no flavor
+(`if (!BuildConfig.HBX_V2) mountOpeningOverlay(...)`, e `HBX_V2=true` no
+`logistica2`). **O que sobrou de pé é a Activity inteira, antes dela.**
+
+🔴 **Não é só apagar tela: a `OpeningActivity` é o PORTEIRO DA SESSÃO.** Além do
+show, ela faz — e alguém tem que continuar fazendo:
+
+| O que ela faz hoje | Pra onde vai |
+|---|---|
+| `DeviceCredentialStore.readDeviceToken()` | MainActivity, antes de carregar a WebView |
+| `MobileEntrySession.authenticate(token, installationId)` → `entryUri` | idem — **a MainActivity lê `intent.data` pra tirar o `ticket`** e passar ao `NativeAppBridge` |
+| sem token, ou **401** (limpa o token) → `PairingActivity` | tem que continuar existindo, senão a 1ª instalação não pareia |
+| falha que **não** é da API + `offlineResume` → entra assim mesmo | idem — é o que salva rota preparada com VPS fora |
+| repassa `intent.data` e `EXTRA_DESTINO` (WhatsApp/Maps) | não pode cair no caminho |
+| `EXTRA_OPENING_PROGRESS` / `EXTRA_OFFLINE_RESUME` | viram estado interno |
+| sonic logo (`hbx_sonic_logo`, só `APP_MODE=="logistica"`) | ⬜ decisão: toca junto da nova abertura, ou morre? (§5.6) |
+
+**Ordem de execução (só no flavor `logistica2`, produção não muda):**
+1. `OfflineLauncherActivity` aponta direto pra `MainActivity` quando `HBX_V2`.
+2. A autenticação salva vira um passo **assíncrono da própria MainActivity**, com
+   os 4 desfechos acima intactos — a WebView já sobe, a abertura nova já roda, e
+   quem espera é o `ticket`, não a tela. 🔴 Se a sessão falhar, **PairingActivity**
+   por cima, sem deixar a abertura nova terminar em app sem sessão.
+3. `opening.html` (35 KB) sai do `logistica2/assets/app/` — e vai junto do lixo do
+   §6.2.2. **Não apagar do `logistica/` nem do `vendas/`**, que seguem usando.
+4. Conferir por toque no g15, **em app frio**: uma abertura só, nada de logo
+   nativo antes, e o app entra na rota do dia.
+
+**Cuidado que quebra calado:** `window.statusBarColor`/`navigationBarColor` são
+pintados pela `OpeningActivity`. Sem ela, a 1ª tela pode nascer com as barras na
+cor errada por um quadro — a MainActivity tem que pintar antes do `setContentView`.
+
 ---
 
 ## 5. DECISÕES DO DONO AINDA PENDENTES
@@ -216,6 +343,14 @@ indicada (4, **e o poll de 2.981 chamadas morre junto**) · editor/duplicar mode
    que quebra é a de logística. Investigar em leva própria ou deixar anotado?
 4. **`Product.stock` legado**: o `PATCH /logistica/produtos {estoque}` escreve NELE, não no
    estoque fiscal. O app novo nunca manda, mas a porta segue aberta.
+5. **A 1ª pintura antes do servidor responder** (§4.6.2): hoje sai o dado de
+   DEMONSTRAÇÃO do mock. **Vazio** (a lei do IF: sem informação, nada aparece) ou
+   **esqueleto** (as barras cinza que a tela `rota` já tem no estado `carregando`)?
+   Recomendo **esqueleto**, e só nas telas que carregam ao abrir: é o único que não
+   dá salto de altura quando a lista chega — e a `rota` já provou o padrão.
+6. **O sonic logo na abertura nova** (§4.6.3): a `OpeningActivity` toca
+   `hbx_sonic_logo` na entrada. Saindo ela, o som toca junto da abertura nova
+   (`HBX.sound`, que já existe) ou o app abre calado?
 
 ---
 
@@ -226,6 +361,9 @@ indicada (4, **e o poll de 2.981 chamadas morre junto**) · editor/duplicar mode
 
 ### 6.1 — Antes de trocar (checklist duro)
 - [ ] Tudo do §4 ligado e **provado por toque no g15** (regra §1 do `hbxapk.md`).
+- [ ] 🔴 **Uma abertura só** (§4.6.3), em app FRIO, e a sessão continua entrando:
+      token salvo → rota; sem token e 401 → pareamento; VPS fora com rota preparada
+      → entra offline. Os 4 desfechos, no aparelho, não no teste.
 - [ ] 🔴 **Aviso de atualização funcionando** — sem ele o cordão de entrega arrebenta.
 - [ ] `casca-conferir` 66/66 · `casca-antes-e-depois` limpo · `tsc` back e front limpos.
 - [ ] Rodar contra o **VPS** (não a bancada) e repetir a cena do dia inteiro.
@@ -238,7 +376,8 @@ indicada (4, **e o poll de 2.981 chamadas morre junto**) · editor/duplicar mode
    `runCatching`).
 2. 🔴 **Apagar `logistica2/assets/app/app.js` (13.688 linhas) e `app.css`.** O `index.html`
    não carrega nenhum dos dois: são **1,1 MB de peso morto** no APK e uma "reserva" que não
-   existe.
+   existe. **Junto vai o `opening.html` (35 KB)** quando a §4.6.3 estiver feita —
+   ⚠️ só o do `logistica2/`: o `logistica/` e o `vendas/` seguem usando o deles.
 3. 🔴 **Devolver `logistica2` à digital do APK** (`collectApkInputFiles` em
    `scripts/ops/deploy-vps.js`) — ele está FORA de propósito, pra bancada não carimbar
    versão nova em produção. Depois da troca, tem que voltar.
