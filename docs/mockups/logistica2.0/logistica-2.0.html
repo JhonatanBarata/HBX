@@ -96,6 +96,11 @@ button,input{font:inherit;color:inherit}
   --prog-2:#a4e42f;
   --handle:#2b3a58;
   --fog:#070d18;
+  /* A CENA DE ENTRAR NA ROTA — o véu que escurece a tela e o anel de pouso do
+     ponteiro. São COR, então nascem token: no claro o véu vira luz (o inverso,
+     não o mesmo escurecer) sem uma linha de tela mudar. */
+  --veu:#050912;
+  --puck-anel:rgba(126,180,255,.55);
   --danger-ico-bg:#2a1113;
   --danger-ico:#ff6b6b;
   --danger-btn:#8f2d2d;
@@ -183,6 +188,13 @@ button,input{font:inherit;color:inherit}
   --cv-entra:cubic-bezier(.16,1,.3,1);
   --cv-sai:cubic-bezier(.4,0,1,.6);
   --cv-mola:cubic-bezier(.34,1.42,.5,1);
+  /* CURVA DE CENA — a única que NÃO desacelera de cara. `--cv-entra` gasta 80%
+     do gesto nos primeiros 20% do tempo: é o certo pra peça que chega (chega e
+     assenta), e é o ERRADO pra coisa que se REVELA. MEDIDO na cena de entrar
+     na rota: com `--cv-entra` o véu já estava metade ido aos 360 ms e o mapa
+     aparecia de uma vez — o oposto de "aos poucos". Esta curva anda parelho no
+     meio, que é onde o olho lê a revelação. */
+  --cv-cena:cubic-bezier(.4,0,.25,1);
 }
 
 /* ==========================================================================
@@ -372,7 +384,15 @@ button,input{font:inherit;color:inherit}
    `!important` aqui é de propósito: esta regra tem que vencer a transição
    escolhida no seletor, seja ela qual for — tela cheia é outro tipo de evento.
    ========================================================================== */
-.tela.entra.cheio{animation:mvCheioEntra var(--mv-cheio) var(--cv-entra) both!important}
+/* 🔴 PASSADA A CENA, A TELA CHEIA FICA PARADA — e esta linha é o que garante
+   isso. A camada guarda a marca `entra` pra sempre; quando a marca `cena` cai
+   (aos 900 ms), a regra da transição escolhida no seletor (`[data-tr] .tela.entra`)
+   voltava a alcançar a camada e a tela INTEIRA repiscava. MEDIDO no quadro de
+   950 ms: o mapa, a manobra e o rodapé apagavam e voltavam. Ela vem ANTES da
+   regra da cena de propósito: mesma especificidade, as duas `!important` —
+   quem está depois manda, então enquanto há `cena` quem manda é a cena. */
+.tela.entra.cheio{animation:none!important}
+.tela.cena.cheio{animation:mvCheioEntra var(--mv-cheio) var(--cv-entra) both!important}
 .tela.sai.cheio{animation:mvCheioSai var(--mv-cheio) var(--cv-entra) both!important}
 .tela.entra.cheio .anim-item{animation:none!important}
 @keyframes mvCheioEntra{from{opacity:0;transform:scale(1.14)}to{opacity:1;transform:none}}
@@ -383,15 +403,104 @@ button,input{font:inherit;color:inherit}
 @keyframes mvCheioVolta{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
 @keyframes mvCheioVoltaSai{to{opacity:0;transform:scale(1.16)}}
 /* No GPS a informação chega DEPOIS do lugar, nunca junto: primeiro o mapa
-   assenta, aí a manobra desce do topo, o rodapé sobe e o carro aparece. */
-.tela.entra.cheio .gps-manobra{animation:mvDesce var(--mv-folha) var(--cv-entra) .18s both}
+   assenta, aí a manobra desce do topo, o rodapé sobe e o carro aparece.
+   (Estes tempos são os da tela de CHEGOU — a de DIRIGINDO tem cena própria,
+   logo abaixo, e atrasa cada um deles.) */
+.tela.cena.cheio .gps-manobra{animation:mvDesce var(--mv-folha) var(--cv-entra) .18s both}
 @keyframes mvDesce{from{opacity:0;transform:translateY(-115%)}to{opacity:1;transform:none}}
-.tela.entra.cheio .gps-rodape{animation:mvFolha var(--mv-folha) var(--cv-entra) .14s both}
-.tela.entra.cheio .gps-puck{animation:mvPuck .52s var(--cv-mola) .24s both}
-@keyframes mvPuck{from{opacity:0;transform:scale(.35)}to{opacity:1;transform:none}}
-.tela.entra.cheio .gps-vel,
-.tela.entra.cheio .gps-bussola,
-.tela.entra.cheio .gps-lado button{animation:mvPop var(--mv-normal) var(--cv-mola) .32s both}
+.tela.cena.cheio .gps-rodape{animation:mvFolha var(--mv-folha) var(--cv-entra) .14s both}
+.tela.cena.cheio .gps-vel,
+.tela.cena.cheio .gps-bussola,
+.tela.cena.cheio .gps-lado button{animation:mvPop var(--mv-normal) var(--cv-mola) .32s both}
+
+/* ==========================================================================
+   A CENA DE ENTRAR NA ROTA (ordem do dono, 07/08) — só na tela de DIRIGINDO.
+
+   Três tempos, nesta ordem e por este motivo:
+     1. A TELA ESCURECE. Um véu nasce por cima do mapa. No modo CLARO ele
+        CLAREIA — é o inverso, não o mesmo escurecer com outra cor (o token
+        `--veu` troca de lado e a tela que fica pra trás estoura em luz em vez
+        de apagar; ver o bloco do claro no fim da folha).
+     2. O PONTEIRO SURGE SOZINHO, em cima do véu, sem mapa nenhum atrás. Ele é
+        o primeiro a existir: a pergunta da tela é "onde eu estou".
+     3. O MAPA SE DESENHA AOS POUCOS, por baixo, DE DENTRO PRA FORA — o clarão
+        abre no próprio ponteiro e cresce. As EMPRESAS do corredor entram junto
+        porque são parte do mundo: a abertura passa por cima delas e elas
+        aparecem onde estão. Não há empresa perto? não entra nada, e a cena é
+        exatamente a mesma — o véu não depende de dado nenhum.
+
+   🔴 A CENA MORA NA CLASSE `cena`, NUNCA NA `entra`. A marca `entra` fica na
+   camada PRA SEMPRE (é dela que a Lei 10 herda o papel no repinte): pendurar
+   a cena ali fazia o véu RENASCER a cada repinte do seam — uma empresa
+   acendendo aos 5 s escurecia a tela inteira do motorista de novo. `cena` cai
+   aos 900 ms, exatamente o mesmo teto do relógio herdado (`currentTime`) do
+   repinte: antes disso o repinte CONTINUA a cena, depois não há cena pra
+   continuar. Dois problemas, um número só.
+
+   🔴 A CENA NÃO ESPERA O MAPA — e essa é a diferença entre cena e trava. Ela
+   é CSS puro, com hora marcada: mapa que não carrega (rede caída, estilo que
+   não sobe, maplibre que não vem) não segura o véu. Aos 880 ms ele saiu de
+   qualquer jeito e sobra a tela honesta que houver — nunca um véu eterno.
+   ========================================================================== */
+/* 1 — O VÉU. O raio do clarão (`--veu-r`) é propriedade REGISTRADA: sem o
+   `@property` o navegador não sabe interpolar comprimento dentro de custom
+   property e a abertura viraria um corte seco. Quem não tiver o registro fica
+   com o valor final (aberto) e vê só o esmaecer — perde o clarão, nunca a
+   tela. O `+56px` é o pé do clarão: no primeiro quadro o ponteiro já ilumina
+   um palmo de chão em volta dele, que é o farol dele mesmo começando o mapa. */
+@property --veu-r{syntax:'<length>';inherits:false;initial-value:1500px}
+.gps-veu{position:absolute;inset:0;z-index:18;pointer-events:none;opacity:0;--veu-r:1500px;
+  background:radial-gradient(circle at 50% 68%,transparent 0,transparent var(--veu-r),
+    var(--veu) calc(var(--veu-r) * 1.25 + 56px))}
+.tela.cena.cheio .gps-veu{animation:mvVeu .60s var(--cv-cena) .24s both}
+@keyframes mvVeu{from{opacity:1;--veu-r:0px}}
+
+/* 2 — O PONTEIRO, sozinho e em cima do véu (por isso o `z-index` dele passa a
+   19: o véu é 18). Sobe com mola e larga UM anel de pouso — o "achei você" do
+   GPS. Parado, o anel não existe. */
+.tela.cena.cheio .dirigindo .gps-puck{animation:mvPuck .44s var(--cv-mola) .06s both}
+@keyframes mvPuck{from{opacity:0;transform:scale(.28)}to{opacity:1;transform:none}}
+.tela.cena.cheio .dirigindo .gps-puck::after{animation:mvPouso .54s var(--cv-sai) .16s both}
+@keyframes mvPouso{from{opacity:.8;transform:scale(.1)}}
+
+/* 3 — O MAPA SE DESENHANDO. Duas peças: o palco inteiro chega de mais longe e
+   entrando em foco, e o desenho de espera se RISCA mesmo — rua, avenida e por
+   último a rota, que é o que o motorista veio ver. `stroke-dasharray` maior
+   que o traço inteiro deixa a linha SÓLIDA parada; quem desenha é o
+   `stroke-dashoffset`, e parado ele é zero. */
+/* 🔴 UM SÓ REVELA, E É O VÉU. A primeira versão tinha DOIS esmaecimentos em
+   cima um do outro — o véu saindo e o mapa entrando — e opacidade se
+   MULTIPLICA: aos 0,5 s o véu estava em 0,8 e o mapa em 0,4, o que dá 0,08 de
+   um mapa que já é quase preto. MEDIDO no g15: 0,8 s de tela preta com o
+   ponteiro sozinho, e o mapa aparecendo de uma vez no fim — o oposto do
+   pedido. Agora o mapa ACENDE cedo e rápido (0,18–0,40 s) e quem faz o "aos
+   poucos" é só o clarão do véu; o foco e a escala seguem até o fim, que é o
+   que dá o ar de mapa se assentando. */
+.tela.cena.cheio .dirigindo .mapa-palco{
+  animation:mvMapaFoco .62s var(--cv-cena) .24s both,
+            mvMapaAcende .22s linear .18s both}
+@keyframes mvMapaFoco{from{transform:scale(1.1);filter:blur(6px)}}
+@keyframes mvMapaAcende{from{opacity:0}}
+.m-ruas path{stroke-dasharray:5400;stroke-dashoffset:0}
+.m-aves path{stroke-dasharray:3000;stroke-dashoffset:0}
+.m-rota{stroke-dasharray:1400;stroke-dashoffset:0}
+.tela.cena.cheio .dirigindo .m-ruas path{animation:mvRiscaRua .46s var(--cv-cena) .30s both}
+.tela.cena.cheio .dirigindo .m-aves path{animation:mvRiscaAve .44s var(--cv-cena) .36s both}
+.tela.cena.cheio .dirigindo .m-rota{animation:mvRiscaRota .46s var(--cv-cena) .40s both}
+.tela.cena.cheio .dirigindo .m-pontilhado{animation:mvSurge .22s ease-out .62s both}
+@keyframes mvRiscaRua{from{stroke-dashoffset:5400}}
+@keyframes mvRiscaAve{from{stroke-dashoffset:3000}}
+@keyframes mvRiscaRota{from{stroke-dashoffset:1400}}
+@keyframes mvSurge{from{opacity:0}}
+
+/* 4 — E SÓ ENTÃO a informação. Enquanto o mapa não está legível a tela tem UM
+   assunto; a manobra descendo antes disso seria texto no vazio. Tudo fecha em
+   880 ms — abaixo dos 900 ms da `cena`, de propósito. */
+.tela.cena.cheio .dirigindo .gps-manobra{animation-delay:.50s}
+.tela.cena.cheio .dirigindo .gps-rodape{animation-delay:.48s}
+.tela.cena.cheio .dirigindo .gps-vel,
+.tela.cena.cheio .dirigindo .gps-bussola,
+.tela.cena.cheio .dirigindo .gps-lado button{animation-delay:.58s}
 
 /* ==========================================================================
    FOLHA (bottom sheet) — sobe de baixo, o fundo escurece junto (lei 6).
@@ -552,6 +661,16 @@ button,input{font:inherit;color:inherit}
    telas, pras folhas, pro aviso, pro erro e pro afundar do botão. */
 @media (prefers-reduced-motion:reduce){
   .app *,.app *::before,.app *::after{animation:none!important;transition:none!important}
+  /* 🔴 A TELA CHEIA ESCAPAVA DA LEI 7, e "sem exceção" não tem exceção. As
+     regras do GPS são `!important` com TRÊS classes; o `*` acima tem UMA —
+     entre duas `!important` quem decide é a especificidade, e o `*` perdia.
+     Passava despercebido enquanto o gesto era um zoom; com o VÉU de tela
+     inteira da cena de entrar na rota, quem pediu menos movimento receberia
+     justamente o movimento maior do app. Aqui elas morrem, e o que sobra é o
+     estado parado — que é a tela certa, porque todo `@keyframes` desta folha
+     declara só o `from`. */
+  .app .tela.entra.cheio,.app .tela.sai.cheio,.app .tela.cena.cheio,
+  .app .tela.entra.cheio.voltando,.app .tela.sai.cheio.voltando{animation:none!important}
 }
 
 /* barra de status */
@@ -866,6 +985,16 @@ button,input{font:inherit;color:inherit}
 .mapa-palco>svg{position:absolute;inset:0;width:100%;height:100%}
 .mapa-palco.pronto>svg{opacity:0;transition:opacity .3s ease}
 .mapa-vivo{position:absolute;inset:0}
+/* 🔴 DESENHO DE ESPERA SÓ SERVE SE FOR VISÍVEL. O mapa de verdade nasce como
+   um `canvas` DENTRO deste mesmo palco e, por ser pintado depois, ele TAMPA o
+   desenho com o próprio fundo — preto — durante todo o tempo em que os tiles
+   ainda não chegaram. MEDIDO no g15 (07/08): 1,0 s de tela PRETA entre entrar
+   na rota e o mapa aparecer, exatamente onde a cena promete "o mapa se
+   desenhando". Enquanto não está `pronto` o mapa vivo não aparece; quando
+   fica, os dois se cruzam. E mapa que nunca fica pronto deixa o desenho no
+   ar, que é o desfecho honesto — nunca um retângulo preto. */
+.mapa-palco .mapa-vivo{opacity:0}
+.mapa-palco.pronto .mapa-vivo{opacity:1;transition:opacity .32s ease}
 .gps-mundo{position:absolute;left:-42%;right:-42%;top:-52%;bottom:-6%;
   transform:perspective(640px) rotateX(51deg);transform-origin:50% 74%}
 .gps-mundo svg{width:100%;height:100%;display:block}
@@ -874,14 +1003,26 @@ button,input{font:inherit;color:inherit}
 .gps-horizonte{position:absolute;left:0;right:0;top:0;height:44%;pointer-events:none;
   background:linear-gradient(180deg,var(--fog) 22%,rgba(7,13,24,.72) 58%,transparent)}
 
-.gps-puck{position:absolute;left:50%;top:68%;width:0;height:0;z-index:12}
+/* z-index 19 e não 12: o VÉU da cena de entrada é 18, e o ponteiro tem que
+   surgir EM CIMA dele — é ele quem existe primeiro. Continua abaixo da
+   manobra e do rodapé (20), que é onde eles têm que ficar. */
+.gps-puck{position:absolute;left:50%;top:68%;width:0;height:0;z-index:19}
+/* O ANEL DE POUSO: sai do ponteiro no instante em que ele assenta. Parado ele
+   não existe (opacidade 0) — é peça de cena, não de tela. */
+.gps-puck::after{content:"";position:absolute;left:-90px;top:-90px;width:180px;height:180px;
+  border-radius:50%;border:1.5px solid var(--puck-anel);opacity:0;pointer-events:none}
 /* O facho é um CONE recortado, não um gradiente cônico: o `conic-gradient`
    pintava um retângulo azul na frente da seta (visível no claro, horrível).
-   Recorte em polígono garante a forma; o gradiente só dá a queda de luz. */
-.gps-facho{position:absolute;left:-44px;top:-92px;width:88px;height:100px;
+   Recorte em polígono garante a forma; o gradiente só dá a queda de luz.
+   🔴 CRESCEU 18% junto com a seta (ordem do dono: "o ponteiro um pouco
+   MAIOR"). O pé do cone continua no mesmo lugar — 8px abaixo do ponto do
+   motorista: o que cresce é o alcance da luz, não a posição dele na rua. */
+.gps-facho{position:absolute;left:-52px;top:-110px;width:104px;height:118px;
   background:linear-gradient(180deg,rgba(91,157,255,0),rgba(91,157,255,.30) 78%,rgba(91,157,255,.34));
   clip-path:polygon(50% 100%, 4% 0%, 96% 0%);filter:blur(2px)}
-.gps-seta{position:absolute;left:-17px;top:-19px;width:34px;height:38px;
+/* 34x38 → 40x45 px: 18% maior, e "um pouco" é isso — o ponteiro ganha
+   presença sem tapar a manobra nem o traço da rota. */
+.gps-seta{position:absolute;left:-20px;top:-22.5px;width:40px;height:45px;
   filter:drop-shadow(0 3px 7px rgba(0,0,0,.65))}
 
 .gps-manobra{position:absolute;left:9px;right:9px;top:6px;z-index:20;border-radius:15px;
@@ -1394,6 +1535,12 @@ button,input{font:inherit;color:inherit}
   --splash-bg-1:#f7f9fc; --splash-bg-2:#e9eef6;
   --splash-marca:#5a9c10; --splash-marca-2:#7bc020;
   --splash-tinta:#0f1726; --splash-sub:#55637d; --splash-trilho:#d5dded;
+  /* 🔴 O VÉU INVERTE: no escuro ele ESCURECE, no claro ele CLAREIA. É o pedido
+     literal do dono, e é o certo — véu escuro sobre mapa claro é uma sombra
+     caindo na tela; véu claro é a luz de fora entrando, que é a leitura de
+     quem dirige de dia. Mesma cena, lado oposto. */
+  --veu:#eef2f8;
+  --puck-anel:rgba(18,87,200,.42);
   background:linear-gradient(180deg,var(--bg-2),var(--bg) 34%);
   color:var(--ink);
 }
@@ -1633,6 +1780,14 @@ button,input{font:inherit;color:inherit}
 }
 [data-luz="claro"] .gps{background:#e8edf5}
 [data-luz="claro"] .gps-horizonte{background:linear-gradient(180deg,#e8edf5 22%,rgba(232,237,245,.72) 58%,transparent)}
+/* 🔴 A CENA DE ENTRAR NA ROTA INVERTE NO CLARO, e não é só a cor do véu: a
+   tela que fica pra trás vai pro lado OPOSTO — estoura em LUZ (brightness
+   1.7) em vez de apagar (0.4). Sem isto o modo claro teria um véu branco
+   nascendo em cima de uma tela que escurece, que é a cena brigando consigo
+   mesma. O `:not(.voltando)` deixa a saída DO gps quieta (aquela é outro
+   gesto), e o `!important` é obrigatório porque a regra base também é.  */
+[data-luz="claro"] .tela.sai.cheio:not(.voltando){animation-name:mvCheioSaiClaro!important}
+@keyframes mvCheioSaiClaro{to{opacity:0;transform:scale(.9);filter:brightness(1.7)}}
 [data-luz="claro"] .splash{background:linear-gradient(180deg,var(--splash-bg-1),var(--splash-bg-2))}
 [data-luz="claro"] .splash-fundo{background:radial-gradient(430px 330px at 50% 44%,rgba(47,126,247,.12),transparent 70%)}
 [data-luz="claro"] .splash-logo .w b{color:var(--splash-tinta)}
@@ -2312,16 +2467,16 @@ function mapaGpsDesenho(){
     ${quadra(40,1000,300,140)}${quadra(460,1000,300,140)}${quadra(40,780,300,150)}
     ${quadra(460,780,300,150)}${quadra(40,590,300,120)}${quadra(460,590,300,120)}
     ${quadra(40,380,300,140)}${quadra(60,180,250,120)}
-    <g stroke="var(--map-rua2)" stroke-width="17" stroke-linecap="round">
+    <g class="m-ruas" stroke="var(--map-rua2)" stroke-width="17" stroke-linecap="round">
       <path d="M-40 1180H840M-40 960H840M-40 750H840M-40 555H840M-40 350H840M-40 165H840"/>
     </g>
-    <g stroke="var(--map-rua2)" stroke-width="13">
+    <g class="m-aves" stroke="var(--map-rua2)" stroke-width="13">
       <path d="M110 -20V1420M690 -20V1420"/>
     </g>
-    <path d="M400 1420 V520 H800" fill="none" stroke="var(--map-leito)" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M400 1420 V520 H800" fill="none" stroke="var(--map-rota-borda)" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M400 1420 V520 H800" fill="none" stroke="var(--map-rota)" stroke-width="23" stroke-linecap="round" stroke-linejoin="round"/>
-    <g stroke="var(--map-fundo)" stroke-width="3" stroke-dasharray="16 22" opacity=".5">
+    <path class="m-rota" d="M400 1420 V520 H800" fill="none" stroke="var(--map-leito)" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
+    <path class="m-rota" d="M400 1420 V520 H800" fill="none" stroke="var(--map-rota-borda)" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+    <path class="m-rota" d="M400 1420 V520 H800" fill="none" stroke="var(--map-rota)" stroke-width="23" stroke-linecap="round" stroke-linejoin="round"/>
+    <g class="m-pontilhado" stroke="var(--map-fundo)" stroke-width="3" stroke-dasharray="16 22" opacity=".5">
       <path d="M400 1420 V520 H800" fill="none"/>
     </g>
   </svg></div>`;
@@ -2407,11 +2562,18 @@ function telaGps(chegou){
 
   return `${status}
 <div class="body flush" style="overflow:hidden;padding:0">
-  <div class="gps">
+  <div class="gps dirigindo">
     ${mapaGps()}
     ${empresasChao()}
     <div class="gps-horizonte"></div>
     ${empresasCromo()}
+
+    <!-- O VÉU DA ENTRADA. Ele não guarda dado nenhum e não sabe se o mapa
+         subiu: é só a cena de "entrar na rota", com hora pra começar e hora
+         pra acabar. Parado ele é invisível — quem o acende é a classe "cena"
+         da camada, e ela cai aos 900 ms. (Sem CRASE aqui dentro: este
+         comentário mora num template literal e a crase o fecharia.) -->
+    <div class="gps-veu"></div>
 
     <!-- eu: fixo a 68% da altura, no centro. A tela é a rua À FRENTE. -->
     <div class="gps-puck">
@@ -3538,6 +3700,20 @@ olhoDoSistema.addEventListener('change',()=>{
 });
 
 let limpezaTimer=null;
+/* 🔴 A CENA DE TELA CHEIA TEM HORA PRA ACABAR — e ela mora numa marca PRÓPRIA,
+   não na `entra`. A `entra` fica na camada pra sempre (é dela que o repinte
+   herda o papel, Lei 10): se a cena do GPS pendurasse nela, todo repinte do
+   seam RECOMEÇARIA a cena — o véu escurecendo a tela do motorista de novo aos
+   5 s, cada vez que uma empresa acende. Com `cena`, o veneno tem prazo.
+
+   900 ms é o MESMO número do relógio herdado lá embaixo, e isso é de
+   propósito: antes dos 900 ms o repinte CONTINUA a cena (`currentTime`);
+   depois deles não existe cena pra continuar. Uma lei, um número. */
+const CENA_CHEIA=900;
+let cenaTimer=null;
+function fecharCena(){
+  document.querySelectorAll('#app .tela.cena').forEach(c=>c.classList.remove('cena'));
+}
 let entradaEm=0;
 function pintar(animar,dir){
   const app=document.getElementById('app');
@@ -3583,7 +3759,8 @@ function pintar(animar,dir){
     // seguinte ela virava a que SAI carregando as duas regras de animação — e
     // quem decidia era a ordem da folha, não o código. Some com a marca antes
     // de marcar a saída: uma camada tem UM papel de cada vez.
-    antiga.classList.remove('entra','cheio','voltando');
+    // `cena` some junto: a camada que SAI não pode reencenar a entrada dela.
+    antiga.classList.remove('entra','cheio','voltando','cena');
     nova.classList.add('entra');
     antiga.classList.add('sai');
     // TELA CHEIA: vale saindo de QUALQUER tela, e o gesto inverte na volta.
@@ -3594,6 +3771,14 @@ function pintar(animar,dir){
       nova.classList.add('cheio'); antiga.classList.add('cheio');
       if(saindoDoCheio && !entrandoNoCheio){ nova.classList.add('voltando'); antiga.classList.add('voltando'); }
       espera=580;
+    }
+    // A CENA (véu → ponteiro → mapa) só existe ENTRANDO na tela cheia, e por
+    // 900 ms. O relógio anterior morre aqui: entrar duas vezes seguidas não
+    // pode deixar o primeiro relógio apagar a cena do segundo.
+    if(entrandoNoCheio){
+      nova.classList.add('cena');
+      clearTimeout(cenaTimer);
+      cenaTimer=setTimeout(fecharCena, CENA_CHEIA);
     }
     app.appendChild(nova);
     /* 🔴 REPINTAR NÃO PODE ROLAR A FOLHA PRA CIMA. A folha (`.sheet`) é o
@@ -3653,10 +3838,13 @@ function pintar(animar,dir){
     // MEDIDO no g15 (07/08), com as empresas do mapa chegando pelo seam: as 17
     // animações da cena nasciam TERMINADAS — o motorista via o desfecho sem
     // nunca ver o prédio acender. Passada a entrada não existe o que
-    // continuar, e carimbar vira só estrago. 900 ms é a entrada inteira (o
-    // eixo X fecha em 150 ms, as linhas escalonadas seguem até ~740 ms).
+    // continuar, e carimbar vira só estrago. `CENA_CHEIA` (900 ms) é a entrada
+    // inteira — o eixo X fecha em 150 ms, as linhas escalonadas seguem até
+    // ~740 ms e a cena do GPS fecha em 880 ms. É O MESMO NÚMERO que tira a
+    // marca `cena` lá em cima, e tem que continuar sendo: enquanto vale o
+    // relógio herdado existe cena pra continuar; passado ele, não existe.
     const t=performance.now()-entradaEm;
-    if(nova.getAnimations && t<900){
+    if(nova.getAnimations && t<CENA_CHEIA){
       nova.getAnimations({subtree:true}).forEach(a=>{ try{ a.currentTime=t; }catch(_){} });
     }
   }else{

@@ -622,16 +622,16 @@ function mapaGpsDesenho(){
     ${quadra(40,1000,300,140)}${quadra(460,1000,300,140)}${quadra(40,780,300,150)}
     ${quadra(460,780,300,150)}${quadra(40,590,300,120)}${quadra(460,590,300,120)}
     ${quadra(40,380,300,140)}${quadra(60,180,250,120)}
-    <g stroke="var(--map-rua2)" stroke-width="17" stroke-linecap="round">
+    <g class="m-ruas" stroke="var(--map-rua2)" stroke-width="17" stroke-linecap="round">
       <path d="M-40 1180H840M-40 960H840M-40 750H840M-40 555H840M-40 350H840M-40 165H840"/>
     </g>
-    <g stroke="var(--map-rua2)" stroke-width="13">
+    <g class="m-aves" stroke="var(--map-rua2)" stroke-width="13">
       <path d="M110 -20V1420M690 -20V1420"/>
     </g>
-    <path d="M400 1420 V520 H800" fill="none" stroke="var(--map-leito)" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M400 1420 V520 H800" fill="none" stroke="var(--map-rota-borda)" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
-    <path d="M400 1420 V520 H800" fill="none" stroke="var(--map-rota)" stroke-width="23" stroke-linecap="round" stroke-linejoin="round"/>
-    <g stroke="var(--map-fundo)" stroke-width="3" stroke-dasharray="16 22" opacity=".5">
+    <path class="m-rota" d="M400 1420 V520 H800" fill="none" stroke="var(--map-leito)" stroke-width="48" stroke-linecap="round" stroke-linejoin="round"/>
+    <path class="m-rota" d="M400 1420 V520 H800" fill="none" stroke="var(--map-rota-borda)" stroke-width="34" stroke-linecap="round" stroke-linejoin="round"/>
+    <path class="m-rota" d="M400 1420 V520 H800" fill="none" stroke="var(--map-rota)" stroke-width="23" stroke-linecap="round" stroke-linejoin="round"/>
+    <g class="m-pontilhado" stroke="var(--map-fundo)" stroke-width="3" stroke-dasharray="16 22" opacity=".5">
       <path d="M400 1420 V520 H800" fill="none"/>
     </g>
   </svg></div>`;
@@ -717,11 +717,18 @@ function telaGps(chegou){
 
   return `${status}
 <div class="body flush" style="overflow:hidden;padding:0">
-  <div class="gps">
+  <div class="gps dirigindo">
     ${mapaGps()}
     ${empresasChao()}
     <div class="gps-horizonte"></div>
     ${empresasCromo()}
+
+    <!-- O VÉU DA ENTRADA. Ele não guarda dado nenhum e não sabe se o mapa
+         subiu: é só a cena de "entrar na rota", com hora pra começar e hora
+         pra acabar. Parado ele é invisível — quem o acende é a classe "cena"
+         da camada, e ela cai aos 900 ms. (Sem CRASE aqui dentro: este
+         comentário mora num template literal e a crase o fecharia.) -->
+    <div class="gps-veu"></div>
 
     <!-- eu: fixo a 68% da altura, no centro. A tela é a rua À FRENTE. -->
     <div class="gps-puck">
@@ -1842,6 +1849,20 @@ olhoDoSistema.addEventListener('change',()=>{
 });
 
 let limpezaTimer=null;
+/* 🔴 A CENA DE TELA CHEIA TEM HORA PRA ACABAR — e ela mora numa marca PRÓPRIA,
+   não na `entra`. A `entra` fica na camada pra sempre (é dela que o repinte
+   herda o papel, Lei 10): se a cena do GPS pendurasse nela, todo repinte do
+   seam RECOMEÇARIA a cena — o véu escurecendo a tela do motorista de novo aos
+   5 s, cada vez que uma empresa acende. Com `cena`, o veneno tem prazo.
+
+   900 ms é o MESMO número do relógio herdado lá embaixo, e isso é de
+   propósito: antes dos 900 ms o repinte CONTINUA a cena (`currentTime`);
+   depois deles não existe cena pra continuar. Uma lei, um número. */
+const CENA_CHEIA=900;
+let cenaTimer=null;
+function fecharCena(){
+  document.querySelectorAll('#app .tela.cena').forEach(c=>c.classList.remove('cena'));
+}
 let entradaEm=0;
 function pintar(animar,dir){
   const app=document.getElementById('app');
@@ -1887,7 +1908,8 @@ function pintar(animar,dir){
     // seguinte ela virava a que SAI carregando as duas regras de animação — e
     // quem decidia era a ordem da folha, não o código. Some com a marca antes
     // de marcar a saída: uma camada tem UM papel de cada vez.
-    antiga.classList.remove('entra','cheio','voltando');
+    // `cena` some junto: a camada que SAI não pode reencenar a entrada dela.
+    antiga.classList.remove('entra','cheio','voltando','cena');
     nova.classList.add('entra');
     antiga.classList.add('sai');
     // TELA CHEIA: vale saindo de QUALQUER tela, e o gesto inverte na volta.
@@ -1898,6 +1920,14 @@ function pintar(animar,dir){
       nova.classList.add('cheio'); antiga.classList.add('cheio');
       if(saindoDoCheio && !entrandoNoCheio){ nova.classList.add('voltando'); antiga.classList.add('voltando'); }
       espera=580;
+    }
+    // A CENA (véu → ponteiro → mapa) só existe ENTRANDO na tela cheia, e por
+    // 900 ms. O relógio anterior morre aqui: entrar duas vezes seguidas não
+    // pode deixar o primeiro relógio apagar a cena do segundo.
+    if(entrandoNoCheio){
+      nova.classList.add('cena');
+      clearTimeout(cenaTimer);
+      cenaTimer=setTimeout(fecharCena, CENA_CHEIA);
     }
     app.appendChild(nova);
     /* 🔴 REPINTAR NÃO PODE ROLAR A FOLHA PRA CIMA. A folha (`.sheet`) é o
@@ -1957,10 +1987,13 @@ function pintar(animar,dir){
     // MEDIDO no g15 (07/08), com as empresas do mapa chegando pelo seam: as 17
     // animações da cena nasciam TERMINADAS — o motorista via o desfecho sem
     // nunca ver o prédio acender. Passada a entrada não existe o que
-    // continuar, e carimbar vira só estrago. 900 ms é a entrada inteira (o
-    // eixo X fecha em 150 ms, as linhas escalonadas seguem até ~740 ms).
+    // continuar, e carimbar vira só estrago. `CENA_CHEIA` (900 ms) é a entrada
+    // inteira — o eixo X fecha em 150 ms, as linhas escalonadas seguem até
+    // ~740 ms e a cena do GPS fecha em 880 ms. É O MESMO NÚMERO que tira a
+    // marca `cena` lá em cima, e tem que continuar sendo: enquanto vale o
+    // relógio herdado existe cena pra continuar; passado ele, não existe.
     const t=performance.now()-entradaEm;
-    if(nova.getAnimations && t<900){
+    if(nova.getAnimations && t<CENA_CHEIA){
       nova.getAnimations({subtree:true}).forEach(a=>{ try{ a.currentTime=t; }catch(_){} });
     }
   }else{
