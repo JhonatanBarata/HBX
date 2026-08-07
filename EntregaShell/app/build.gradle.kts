@@ -241,7 +241,16 @@ android {
             applicationId = "br.com.hbxsystem.logistica2"
             // Número fixo: este APK não tem auto-update, ele nasce do cabo.
             versionCode = 1
-            versionName = "2.0.0-bancada"
+            // ALPHA1 (07/08) — ordem do dono: "atualize o app para a versão alpha1,
+            // já dentro do vps". Saiu o "-bancada" porque este build deixou de
+            // apontar pro localhost: sem `-PhbxApiBaseUrl`, o `debugApiBaseUrl` cai
+            // no default, que é PRODUÇÃO (https://api.hbxsystem.com.br).
+            // 🔴 Isto NÃO é a troca do §6.3 e NÃO chega no celular do André: o
+            // applicationId continua `.logistica2` (app separado do `.logistica`
+            // dele), o publish não compila este flavor, e ele segue FORA da digital
+            // do APK (`collectApkInputFiles` pula `logistica2`). O André fica no
+            // beta1.3.2 até o dono mandar o contrário.
+            versionName = "alpha1"
             // 🔴 APP_MODE CONTINUA "logistica", de propósito. O Kotlin de main/
             // decide 40+ comportamentos comparando esta string com "logistica"
             // (NativeAppBridge, HbxMobileBridge, MainActivity, som, push). Um
