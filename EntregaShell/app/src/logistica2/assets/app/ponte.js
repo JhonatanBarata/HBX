@@ -295,12 +295,19 @@
       kpiEntregues: String(entregues),
       kpiEntreguesParado: String(entregues),
       // saldo/dinheiro/pix = o CAIXA do dia (fechamento da caderneta), em
-      // centavos na origem. Fonte fora do ar ⇒ campo vazio, nunca número velho.
-      saldo: caixa && caixa.fechamento ? centavos(caixa.fechamento.totalCents) : '',
-      dinheiro: formas ? centavos(formas.dinheiroCents) : '',
-      pix: formas ? centavos(formas.pixCents) : '',
-      // crédito é NÚMERO INTEIRO, nunca moeda (lei da casa).
-      creditos: credito && typeof credito.balance === 'number' ? String(credito.balance) : '',
+      // centavos na origem. Financeiro OFF ⇒ campo vazio (é resposta, não
+      // falha). ⚠️ Já a fonte FORA DO AR mantém o que estava: apagar o caixa
+      // por causa de rede ruim é pior que mostrar o número de um minuto atrás.
+      ...(caixaR.status === 'fulfilled' ? {
+        saldo: caixa && caixa.fechamento ? centavos(caixa.fechamento.totalCents) : '',
+        dinheiro: formas ? centavos(formas.dinheiroCents) : '',
+        pix: formas ? centavos(formas.pixCents) : '',
+      } : {}),
+      // crédito é NÚMERO INTEIRO, nunca moeda (lei da casa) — e também não
+      // apaga por falha de rede.
+      ...(creditoR.status === 'fulfilled' ? {
+        creditos: credito && typeof credito.balance === 'number' ? String(credito.balance) : '',
+      } : {}),
       diaFeitas: String(entregues),
       diaTotal: String(itens.length),
       diaPct: itens.length ? `${Math.round((entregues / itens.length) * 100)}%` : '0%',
@@ -312,7 +319,9 @@
     });
 
     // L5 — a caderneta e a semana bebem do MESMO resumo que já veio acima.
-    encherCaderneta(caixa, itens, entregues);
+    // Só quando ele REALMENTE respondeu: resumo que falhou não pode zerar o
+    // caixa do dia (mesma lei do fio de recados, ver L8).
+    if (caixaR.status === 'fulfilled') encherCaderneta(caixa, itens, entregues);
 
     // 🔴 A MONTAGEM SE ENCHE AQUI, não só no toque de "Montar rota". Quem chega
     // nela por outro caminho via a lista do MOCK — João da Silva, R$ 336,00 —
@@ -330,9 +339,13 @@
   }
 
   // 1ª carga assim que a casca subiu, e recarga toda vez que a Rota reaparece.
+  // O sino é do CABEÇALHO, que aparece em toda tela: o fio dos recados carrega
+  // no boot junto com a rota, senão o contador só ficaria certo depois de o
+  // motorista abrir o chat — que é exatamente quem ele deveria chamar.
   window.HBXRota = { carregar: carregarRota };
-  document.addEventListener('DOMContentLoaded', carregarRota);
-  if (document.readyState !== 'loading') setTimeout(carregarRota, 0);
+  const cargaInicial = () => { carregarRota(); carregarRecados(); };
+  document.addEventListener('DOMContentLoaded', cargaInicial);
+  if (document.readyState !== 'loading') setTimeout(cargaInicial, 0);
 
   /* ------------------------------------------------------------------------
      6. L2 — MONTAR → MONTAGEM → INICIAR (DEBITA) → ENCERRAR.
@@ -602,6 +615,7 @@
       const r = irDoMock.apply(this, arguments);
       if (tela === 'clientes') carregarClientes();
       if (tela === 'produtos') carregarProdutos();
+      if (tela === 'chat') aoAbrirChat();
       return r;
     };
   }
@@ -614,6 +628,103 @@
     ligarCamposDaFicha();
   });
   observador.observe(document.getElementById('app') || document.body, { childList: true, subtree: true });
+
+  /* ------------------------------------------------------------------------
+     L8 — CHAT COM A CENTRAL (o único canal do motorista com o escritório).
+
+     🔴 O PORTÃO DO RECADO É TRAVA, NÃO AVISO. Recado urgente/alarme que chegou
+     e não teve "Entendi" segura a confirmação da entrega — é o ponto exato
+     onde cobrar não atrapalha a rota nem põe ninguém em risco: ele está
+     PARADO, com o celular na mão, prestes a fechar a parada.
+
+     As rotas indicadas e as missões NÃO entram aqui: saíram no corte de 06/08
+     (4 linhas na história inteira, servidas por 2.981 chamadas de poll).
+     ------------------------------------------------------------------------ */
+  let recados = [];
+  let portaoRecados = [];
+
+  const horaCurta = (iso) => hora(iso);
+
+  async function carregarRecados() {
+    if (!temPonte() || typeof window.usarDados !== 'function') return;
+    const [fioR, portaoR] = await Promise.allSettled([
+      window.API.get('/logistica/recados/me'),
+      window.API.get('/logistica/recados/portao'),
+    ]);
+    /* 🔴 FALHA DE REDE NÃO APAGA A TELA. "Vazio porque o servidor disse vazio"
+       e "vazio porque a rede caiu" são coisas OPOSTAS, e escrever as duas do
+       mesmo jeito faria o fio de recados sumir e o sino zerar no meio da rua.
+       O portão pegou isto: no navegador do conferidor as duas chamadas falham
+       e o sino ia de 2 pra 0 — 60 das 66 telas mudaram por causa do
+       cabeçalho. Sem o fio, não se toca no seam. */
+    if (fioR.status !== 'fulfilled' || !Array.isArray(fioR.value)) return;
+    recados = fioR.value;
+    // O portão é uma segunda fonte: se SÓ ele falhou, mantém o que já valia —
+    // deixar de cobrar o "Entendi" por causa de um erro de rede seria afrouxar
+    // uma trava, e trava não se afrouxa sozinha.
+    if (portaoR.status === 'fulfilled' && Array.isArray(portaoR.value)) portaoRecados = portaoR.value;
+    const pendente = portaoRecados[0] || null;
+    window.usarDados('chat', {
+      recado: pendente ? esc(pendente.texto) : '',
+      // O título é do MOCK e é sempre verdade: quem manda recado é a Central.
+      // Montar "Recado de {autor}" me deu "Recado de Central" na tela — nome
+      // de gente no lugar de instituição vira português torto.
+      recadoTitulo: 'Recado da Central',
+      conversa: recados.map((r) => [
+        r.origem === 'motorista' ? 'minha' : 'deles',
+        esc(r.texto),
+        horaCurta(r.criadoEm),
+      ]),
+      // Fio vazio não é erro: é o dia em que ninguém precisou falar nada.
+      vazio: recados.length ? '' : 'Nenhum recado por aqui',
+      sino: contarNaoLidos(),
+    });
+  }
+
+  /** o número do sino: recado do ESCRITÓRIO que este aparelho ainda não abriu */
+  function contarNaoLidos() {
+    return recados.filter((r) => r && r.origem === 'escritorio' && !r.vistoEm).length;
+  }
+
+  /** abrir o chat é LER: marca visto e o sino zera (o portão continua de pé) */
+  async function aoAbrirChat() {
+    await carregarRecados();
+    // ⚠️ `marcarVisto` exige a LISTA de ids — corpo vazio marca ZERO e volta
+    // "ok" (medido: o sino ficava em 2 depois de abrir a conversa). Ele só
+    // aceita recado do escritório, então mandar os meus não faria nada de
+    // qualquer jeito; mando exatamente os que ainda não foram lidos.
+    const naoLidos = recados.filter((r) => r.origem === 'escritorio' && !r.vistoEm).map((r) => r.id);
+    if (!naoLidos.length) return;
+    try { await window.API.post('/logistica/recados/visto', { ids: naoLidos }); } catch (_) { return; }
+    await carregarRecados();
+  }
+
+  async function entendiRecado() {
+    const alvo = portaoRecados[0];
+    if (!alvo) return;
+    await comTrava(async () => {
+      try { await window.API.post(`/logistica/recados/${encodeURIComponent(alvo.id)}/entendi`, {}); }
+      catch (e) { return avisoErro(e); }
+      await carregarRecados();
+    });
+  }
+
+  async function enviarRecado() {
+    const el = naCamada('[data-campo="recado-texto"]');
+    const texto = el ? String(el.value || '').trim() : '';
+    if (!texto) return;
+    await comTrava(async () => {
+      // clientMessageId: toque duplo ou retry de rede devolve a MESMA resposta
+      // em vez de criar dois balões na central.
+      const corpo = { texto, clientMessageId: window.HBX.uuid(), date: diaOperacional() };
+      const alvo = portaoRecados[0];
+      if (alvo) corpo.recadoId = alvo.id;
+      try { await window.API.post('/logistica/recados/responder', corpo); }
+      catch (e) { return avisoErro(e); }
+      if (el) el.value = '';
+      await carregarRecados();
+    });
+  }
 
   /* ------------------------------------------------------------------------
      L7 — PRODUTOS (o catálogo, que é de onde sai o preço de TODA entrega).
@@ -1300,6 +1411,13 @@
     'fechar-dia': fecharDia,
     'salvar-cliente': salvarCliente,
     'salvar-produto': salvarProduto,
+    'entendi-recado': entendiRecado,
+    'enviar-recado': enviarRecado,
+    // "Responder" não manda nada: ele leva o dedo pro campo. O texto é dele.
+    'responder-recado': () => {
+      const el = naCamada('[data-campo="recado-texto"]');
+      if (el) el.focus();
+    },
   };
   // captura na fase de subida, DEPOIS do mock: quem não é meu segue o caminho dele.
   document.addEventListener('click', (e) => {

@@ -106,7 +106,7 @@ function hdr(o={}){
   const dir = o.live
     ? `<div class="pill-live"><i></i>${o.live}</div>`
     : `<div style="display:flex;gap:7px">
-        <button class="round">${ic('bell',17)}<i class="cnt">${o.badge||2}</i></button>
+        <button class="round">${ic('bell',17)}${DADOS.chat.sino?`<i class="cnt">${DADOS.chat.sino}</i>`:''}</button>
         ${o.semChat?'':`<button class="round">${ic('chat',17)}</button>`}</div>`;
   // Tela que se entra por dentro (ficha, folha) troca o menu pela VOLTA — o
   // hambúrguer ali seria a saída errada e o Voltar do Android tem que casar.
@@ -359,6 +359,20 @@ const DADOS={
   fichaproduto:{
     nome:'Galão 20 Litros', resumo:'no catálogo desde 03/2025 · 1.284 entregas',
     selo:'ativo', unidade:'galão', preco:'R$ 11,00', estoque:'128',
+  },
+  /* L8 — CHAT COM A CENTRAL. `recado` vazio esconde o cartão do portão (não há
+     nada a confirmar). `conversa` é [lado, texto, hora] — lado 'deles' ou
+     'minha'. `sino` é o contador do cabeçalho, um só pra TODAS as telas. */
+  chat:{
+    recado:'Passa no Mercado Estrela antes das 11h', recadoTitulo:'Recado da Central',
+    conversa:[
+      ['deles','Bom dia! A Larissa remarcou pra quinta.','08:12'],
+      ['minha','Beleza, tirei da rota.','08:14'],
+      ['deles','Passa no Mercado Estrela antes das 11h, eles fecham pro almoço.','09:03'],
+      ['minha','Tô a 2 paradas.','09:05'],
+      ['deles','Show. Qualquer coisa me chama.','09:06'],
+    ],
+    sino:2, vazio:'',
   },
   montagem:{
     titulo:'Montagem de rota', dica:'Segure e arraste para ordenar',
@@ -904,7 +918,7 @@ T.produtos={nome:'Produtos',grupo:'Cadastro',render(){
     <span><span class="nm">${nome}</span>${sub?`<span class="st">${ic('box',13)} ${sub}</span>`:''}</span>
     ${preco?`<span class="price">R$ ${preco}</span>`:''}</div>`;
   return `${status}
-${hdr({semChat:1,badge:3})}
+${hdr({semChat:1})}
 <div class="body">
   <div class="screen-head"><span style="color:var(--lime)">${ic('box',30)}</span>
     <span><h2>Produtos</h2><p>Gerencie seus produtos e preços</p></span></div>
@@ -934,7 +948,7 @@ T.clientes={nome:'Clientes',grupo:'Cadastro',render(){
       <span class="tags">${dia?`<b class="tag lime">${dia}</b>`:''}${alerta?`<b class="tag" style="border-color:rgba(245,165,36,.55);color:var(--amber)">${alerta}</b>`:''}</span></span>
     <span class="rgt">${valor?`<small>Marcado</small><b>R$ ${valor}</b>`:`<span style="color:var(--ink-3)">${ic('chev',15)}</span>`}</span></div>`;
   return `${status}
-${hdr({semChat:1,badge:3})}
+${hdr({semChat:1})}
 <div class="body">
   <div class="screen-head"><span style="color:var(--lime)">${ic('users',30)}</span>
     <span><h2>Clientes</h2><p>${d.subtitulo}</p></span></div>
@@ -1576,25 +1590,23 @@ ${hdr({voltar:'rota'})}
 ${nav('rota')}`;}};
 
 /* 12 — CHAT COM A CENTRAL (aba nova) -------------------------------------- */
-T.chat={nome:'Chat com a Central',grupo:'Rota',render(){return `${status}
+T.chat={nome:'Chat com a Central',grupo:'Rota',render(){const d=DADOS.chat;return `${status}
 ${hdr({})}
 <div class="body">
-  <div class="recado">
+  ${d.recado?`<div class="recado">
     <div class="topo">
       <span class="ico">${ic('bell',17)}</span>
-      <span><strong>Recado da Central</strong><span>Passa no Mercado Estrela antes das 11h</span></span>
+      <span><strong>${d.recadoTitulo}</strong><span>${d.recado}</span></span>
     </div>
-    <div class="acoes"><button>Responder</button><button class="principal">Entendi</button></div>
-  </div>
+    <div class="acoes"><button data-acao="responder-recado">Responder</button><button class="principal" data-acao="entendi-recado">Entendi</button></div>
+  </div>`:''}
   <div class="conversa">
-    <div class="msg deles">Bom dia! A Larissa remarcou pra quinta.<small>08:12</small></div>
-    <div class="msg minha">Beleza, tirei da rota.<small>08:14</small></div>
-    <div class="msg deles">Passa no Mercado Estrela antes das 11h, eles fecham pro almoço.<small>09:03</small></div>
-    <div class="msg minha">Tô a 2 paradas.<small>09:05</small></div>
-    <div class="msg deles">Show. Qualquer coisa me chama.<small>09:06</small></div>
+    ${d.conversa.length
+      ? d.conversa.map(m=>`<div class="msg ${m[0]}">${m[1]}<small>${m[2]}</small></div>`).join('')
+      : (d.vazio?`<div class="vazio"><span>${ic('chat',26)}</span><b>${d.vazio}</b></div>`:'')}
   </div>
-  <label class="escrever">${ic('chat',16)}<input placeholder="Escrever para a Central">
-    <button class="enviar">${ic('nav',15)}</button></label>
+  <label class="escrever">${ic('chat',16)}<input placeholder="Escrever para a Central" data-campo="recado-texto">
+    <button class="enviar" data-acao="enviar-recado">${ic('nav',15)}</button></label>
 </div>
 ${nav('chat')}`;}};
 

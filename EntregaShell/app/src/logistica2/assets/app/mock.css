@@ -29,7 +29,7 @@ button,input{font:inherit;color:inherit}
 .app button:focus{outline:none}
 .app button:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 
-/* ---------- cromo do documento ---------- */
+/* ---------- cromo do documento ---------- */
 
 /* ==========================================================================
    O CELULAR — 400x900 lógico, ampliado por zoom (padrão 1.7)
@@ -111,7 +111,7 @@ button,input{font:inherit;color:inherit}
    fábrica. Peso alto fica só no logotipo, que é marca, não texto. */
 .app b,.app strong{font-weight:500}
 .app h2{font-weight:400;letter-spacing:-.018em}
-.app .v,.app .eta b,.app .price,.app .form-c.total b{letter-spacing:-.02em}
+.app .v,.app .eta b,.app .price,.app .form-c.total b{letter-spacing:-.02em}
 
 /* ==========================================================================
    PADRÕES DE MOVIMENTO — as 7 leis. Nada nesta casca aparece do nada.
