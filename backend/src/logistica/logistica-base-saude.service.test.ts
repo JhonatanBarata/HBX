@@ -45,6 +45,10 @@ const CLIENTES = [
   // acusados na company 41 eram assim) — nunca "endereço repetido".
   { id: 'cli-11', name: 'Kelly', lat: -22.43, lng: -47.59, geoFonte: 'gps_entrega', ...END, numero: '188', complemento: null },
   { id: 'cli-12', name: 'Lucas', lat: -22.43, lng: -47.59, geoFonte: 'gps_entrega', ...END, numero: '282', complemento: null },
+  // DUPLICATA SEM PINO: a régua velha (por coordenada) não enxergava, porque exigia
+  // os dois pinos pra comparar. Pela CHAVE, aparece.
+  { id: 'cli-13', name: 'Mara', lat: null, lng: null, geoFonte: null, ...END, numero: '900', complemento: null },
+  { id: 'cli-14', name: 'Nino', lat: null, lng: null, geoFonte: null, ...END, numero: '900', complemento: null },
 ];
 
 const LOCAIS = [
@@ -121,15 +125,18 @@ test('agregado: totais batem, percentVerde arredonda a 1 casa, resolvemSozinhos 
   const service = new LogisticaBaseSaudeService(buildPrismaMock() as any);
   const resultado = await service.getBaseSaude(41);
 
-  assert.equal(resultado.totalClientes, 12);
+  assert.equal(resultado.totalClientes, 14);
   assert.equal(resultado.verdes + resultado.amarelos + resultado.vermelhos, resultado.totalClientes);
-  // verdes: cli-5 (longe, mas coordenada provada) + cli-7 (local válido) + o PRÉDIO
-  // (cli-9/cli-10: apartamentos diferentes não são defeito) = 4/12 = 33,3%.
-  assert.equal(resultado.verdes, 4);
-  assert.equal(resultado.amarelos, 1);
-  // 5 de antes + cli-11/cli-12 (mesmo ponto, números diferentes) = 7.
-  assert.equal(resultado.vermelhos, 7);
-  assert.equal(resultado.percentVerde, 33.3);
+  // verdes: cli-5 + cli-7 + o PRÉDIO (cli-9/cli-10) + as duas casas que só dividiam o
+  // PONTO (cli-11/cli-12, números diferentes = identidades diferentes) = 6/14 = 42,9%.
+  assert.equal(resultado.verdes, 6);
+  // amarelos: cli-6 (geocode) + cli-3 e cli-8, que se resolvem na próxima entrega e
+  // por isso deixaram de ser vermelhos (06/08).
+  assert.equal(resultado.amarelos, 3);
+  // vermelhos: cli-1/cli-2 (mesma porta), cli-4 (sem pino e sem cura a caminho) e
+  // cli-13/cli-14 (duplicata sem pino) = 5.
+  assert.equal(resultado.vermelhos, 5);
+  assert.equal(resultado.percentVerde, 42.9);
   // cli-3 (recorrência) + cli-8 (entrega aberta) — cli-4 fica de fora (nenhum dos dois).
   assert.equal(resultado.resolvemSozinhos, 2);
 });
@@ -147,9 +154,6 @@ test('MESMA PORTA (mesmo número, sem apartamento): vira endereco_repetido nos d
   assert.deepEqual(cli1.mesmaPortaCom, ['Bruno']);
   assert.equal(cli1.mesmaPortaComTotal, 1);
   assert.deepEqual(cli2.mesmaPortaCom, ['Ana']);
-  // Mesma porta NÃO é "mesmo ponto com endereço diferente": os campos não se misturam.
-  assert.deepEqual(cli1.mesmoPontoCom, []);
-  assert.equal(cli1.mesmoPontoComTotal, 0);
 });
 
 test('PRÉDIO (mesma porta, apartamentos DIFERENTES): ninguém é acusado — é condomínio, não defeito', async () => {
@@ -163,21 +167,53 @@ test('PRÉDIO (mesma porta, apartamentos DIFERENTES): ninguém é acusado — é
   assert.equal(ivo.semaforo, 'verde');
   assert.equal(joana.semaforo, 'verde');
   assert.deepEqual(ivo.mesmaPortaCom, []);
-  assert.deepEqual(ivo.mesmoPontoCom, []);
 });
 
-test('MESMO PONTO, NÚMEROS DIFERENTES: é o pino que não separa as casas — nunca endereço repetido', async () => {
+test('MESMO PONTO, NÚMEROS DIFERENTES: NINGUÉM é acusado — a coordenada não é identidade', async () => {
   const service = new LogisticaBaseSaudeService(buildPrismaMock() as any);
   const resultado = await service.getBaseSaude(41);
 
+  // O caso da Adriana (06/08): 5 casas da mesma avenida que o geocode empilhou no
+  // centroide do CEP. Número diferente = porta diferente = identidade diferente.
+  // "Quem mais está perto deste ponto?" nunca mais decide duplicata.
   const kelly = resultado.clientes.find((c) => c.id === 'cli-11')!;
   const lucas = resultado.clientes.find((c) => c.id === 'cli-12')!;
-  assert.deepEqual(kelly.motivos, ['pino_compartilhado']);
-  assert.deepEqual(lucas.motivos, ['pino_compartilhado']);
-  assert.deepEqual(kelly.mesmoPontoCom, ['Lucas']);
-  assert.equal(kelly.mesmoPontoComTotal, 1);
+  assert.deepEqual(kelly.motivos, []);
+  assert.deepEqual(lucas.motivos, []);
+  assert.equal(kelly.semaforo, 'verde');
   assert.deepEqual(kelly.mesmaPortaCom, []);
   assert.equal(kelly.mesmaPortaComTotal, 0);
+});
+
+test('endereço repetido vale SEM PINO NENHUM: duas contas na mesma porta, ambas sem coordenada', async () => {
+  const service = new LogisticaBaseSaudeService(buildPrismaMock() as any);
+  const resultado = await service.getBaseSaude(41);
+
+  // A régua velha exigia os DOIS pinos pra comparar — duplicata de cadastro sem
+  // coordenada passava batida. Pela chave, ela aparece.
+  const mara = resultado.clientes.find((c) => c.id === 'cli-13')!;
+  const nino = resultado.clientes.find((c) => c.id === 'cli-14')!;
+  assert.ok(mara.motivos.includes('endereco_repetido'));
+  assert.ok(nino.motivos.includes('endereco_repetido'));
+  assert.deepEqual(mara.mesmaPortaCom, ['Nino']);
+});
+
+test('VERMELHO significa "preciso de você": quem se resolve na próxima entrega é amarelo', async () => {
+  const service = new LogisticaBaseSaudeService(buildPrismaMock() as any);
+  const resultado = await service.getBaseSaude(41);
+
+  // cli-3 (recorrência ativa) e cli-8 (entrega aberta) estão sem pino, mas a 1ª
+  // entrega grava a porta sozinha — gritar vermelho neles é o ruído que o dono
+  // mandou matar. cli-4 não tem nada a caminho: continua vermelho.
+  const carla = resultado.clientes.find((c) => c.id === 'cli-3')!;
+  const helo = resultado.clientes.find((c) => c.id === 'cli-8')!;
+  const duda = resultado.clientes.find((c) => c.id === 'cli-4')!;
+  assert.ok(carla.motivos.includes('sem_pino'));
+  assert.equal(carla.resolveSozinho, true);
+  assert.equal(carla.semaforo, 'amarelo');
+  assert.equal(helo.semaforo, 'amarelo');
+  assert.equal(duda.resolveSozinho, false);
+  assert.equal(duda.semaforo, 'vermelho');
 });
 
 test('nome na tela é sempre acusação com prova: sem o motivo, nenhuma lista viaja', async () => {
@@ -185,14 +221,9 @@ test('nome na tela é sempre acusação com prova: sem o motivo, nenhuma lista v
   const resultado = await service.getBaseSaude(41);
 
   for (const cliente of resultado.clientes) {
-    if (!cliente.motivos.includes('endereco_repetido')) {
-      assert.deepEqual(cliente.mesmaPortaCom, []);
-      assert.equal(cliente.mesmaPortaComTotal, 0);
-    }
-    if (!cliente.motivos.includes('pino_compartilhado')) {
-      assert.deepEqual(cliente.mesmoPontoCom, []);
-      assert.equal(cliente.mesmoPontoComTotal, 0);
-    }
+    if (cliente.motivos.includes('endereco_repetido')) continue;
+    assert.deepEqual(cliente.mesmaPortaCom, []);
+    assert.equal(cliente.mesmaPortaComTotal, 0);
   }
 });
 
@@ -220,7 +251,9 @@ test('sem_pino + recorrência/entrega aberta → resolveSozinho; sem nenhum dos 
   const helo = resultado.clientes.find((c) => c.id === 'cli-8')!;
 
   assert.deepEqual(carla.motivos, ['sem_pino']);
-  assert.equal(carla.semaforo, 'vermelho');
+  // 06/08: o motivo continua inteiro, mas a COR não grita mais — a cura já vem a
+  // caminho pela 1ª entrega (ver o teste do vermelho honesto acima).
+  assert.equal(carla.semaforo, 'amarelo');
   assert.equal(carla.resolveSozinho, true, 'cli-3 tem recorrência ativa');
 
   assert.deepEqual(duda.motivos, ['sem_pino']);

@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
 import {
-  analisarMesmoPonto,
+  gemeosDePorta,
   conferirParadas,
   type MotivoConferencia,
   type ParadaConferenciaInput,
@@ -97,10 +97,8 @@ const MOTIVOS_DE_ROTA_FORA_DE_ESCOPO = new Set<MotivoConferencia>([
 // abaixo: essa regra não está no escopo desta sprint, S7-SAUDE-DA-BASE.md).
 const MOTIVOS_VERMELHOS_BASE_SAUDE = new Set<MotivoConferencia>([
   'sem_pino',
-  'pino_compartilhado',
-  // 06/08: duas contas na MESMA porta pede a mesma urgência do pino duplicado — ou
-  // falta o apartamento, ou um dos dois cadastros está sobrando. Os dois estragam
-  // entrega, e os dois se resolvem numa edição de cadastro.
+  // 06/08: duas contas na MESMA porta — ou falta o apartamento, ou um dos dois
+  // cadastros está sobrando. Estraga entrega e se resolve numa edição de cadastro.
   'endereco_repetido',
   'diverge_gps_ouro',
 ]);
@@ -114,9 +112,8 @@ const MOTIVOS_VERMELHOS_BASE_SAUDE = new Set<MotivoConferencia>([
  * próxima entrega").
  *
  * REUSA `conferirParadas` (mesmo cérebro puro da S3) com as regras que fazem
- * sentido olhando a base inteira de uma vez: `sem_pino`, `pino_compartilhado`
- * (célula ~11m a 4 casas — a MESMA assinatura do incidente 25/07, empresa 41,
- * agora medida contra TODA a base e não só a rota do dia),
+ * sentido olhando a base inteira de uma vez: `sem_pino`, `endereco_repetido`
+ * (duas contas na MESMA porta — CEP+número+complemento, ver `gemeosDePorta`),
  * `geocode_nao_provado_em_campo`/`fonte_nao_confiavel`, `nunca_entregue`. As
  * regras de ROTA (`fora_do_casulo`, `perna_outlier`, `rota_degradada`) NÃO se
  * aplicam — ver comentário de `MOTIVOS_DE_ROTA_FORA_DE_ESCOPO` acima.
@@ -139,9 +136,8 @@ export class LogisticaBaseSaudeService {
     // filtro usado em logistica-agenda.service.ts (isCliente:true, status:'active').
     const clientes = await this.prisma.customerProfile.findMany({
       where: { companyId, isCliente: true, status: 'active' },
-      // O ENDEREÇO entra no select desde 06/08: sem ele não dá pra saber se duas
-      // paradas no mesmo ponto são a mesma porta (duplicata/apartamento) ou casas
-      // diferentes que o pino não separa — ver `analisarMesmoPonto`.
+      // O ENDEREÇO entra no select desde 06/08: a identidade da porta é CEP → número
+      // → complemento, e é ela que decide endereço repetido (ver `gemeosDePorta`).
       select: {
         id: true, name: true, lat: true, lng: true, geoFonte: true,
         endereco: true, numero: true, complemento: true, bairro: true, cidade: true, uf: true, cep: true,
@@ -252,10 +248,8 @@ export class LogisticaBaseSaudeService {
 
     // COM QUEM (06/08, dono): "igual à de outro cliente" sem dizer QUAL não dá pra
     // corrigir — ele teria que caçar o gêmeo na mão numa base de milhares. Mesma
-    // função que decide o motivo, então a lista nunca discorda do semáforo. São dois
-    // grupos porque são dois problemas: mesma PORTA (é apartamento? é duplicata?) e
-    // mesmo PONTO com endereços diferentes (o mapa não separa as casas).
-    const mesmoPonto = analisarMesmoPonto(inputs);
+    // função que decide o motivo, então a lista nunca discorda do semáforo.
+    const gemeos = gemeosDePorta(inputs);
 
     let verdes = 0;
     let amarelos = 0;
@@ -270,12 +264,6 @@ export class LogisticaBaseSaudeService {
       // rota se algum dia vazar, e recalcula o semáforo em cima do resultado
       // filtrado — nunca confia no semáforo original quando um motivo saiu.
       const motivos = c.motivos.filter((m) => !MOTIVOS_DE_ROTA_FORA_DE_ESCOPO.has(m));
-      const temVermelho = motivos.some((m) => MOTIVOS_VERMELHOS_BASE_SAUDE.has(m));
-      const semaforo: SemaforoBaseSaude = temVermelho ? 'vermelho' : motivos.length > 0 ? 'amarelo' : 'verde';
-
-      if (semaforo === 'verde') verdes++;
-      else if (semaforo === 'amarelo') amarelos++;
-      else vermelhos++;
 
       // "Resolve sozinho": sem_pino hoje, MAS já tem recorrência ativa ou
       // entrega aberta no pipeline — a 1ª entrega grava a porta real (GPS de
@@ -284,14 +272,23 @@ export class LogisticaBaseSaudeService {
         motivos.includes('sem_pino') && (temRecorrenciaAtiva.has(c.id) || temEntregaAberta.has(c.id));
       if (resolveSozinho) resolvemSozinhos++;
 
+      // 🔴 O VERMELHO PRECISA SIGNIFICAR "PRECISO DE VOCÊ" (06/08, ordem do dono).
+      // Medido na company 41: 97 clientes sem pino e 94 deles com entrega recorrente
+      // ativa — ou seja, 94 dos 115 "corrigir" iam se resolver sozinhos na próxima
+      // entrega e mesmo assim gritavam vermelho. É a mesma doença que matou o amarelo
+      // em 26/07 (alarme que toca em tudo não é alarme, é ruído). Quem tem cura
+      // automática a caminho é AMARELO: continua na fila do "dá pra melhorar", some da
+      // fila do "pare o que está fazendo". O motivo continua inteiro em `motivos[]`.
+      const temVermelho = !resolveSozinho && motivos.some((m) => MOTIVOS_VERMELHOS_BASE_SAUDE.has(m));
+      const semaforo: SemaforoBaseSaude = temVermelho ? 'vermelho' : motivos.length > 0 ? 'amarelo' : 'verde';
+
+      if (semaforo === 'verde') verdes++;
+      else if (semaforo === 'amarelo') amarelos++;
+      else vermelhos++;
+
       // Só quem REALMENTE ficou com o motivo leva a lista (o filtro de motivo de
       // rota acima pode ter mudado o veredito) — nome na tela nunca sem acusação.
-      const naMesmaPorta = motivos.includes('endereco_repetido') ? (mesmoPonto.mesmaPorta.get(c.id) ?? []) : [];
-      const noMesmoPonto = motivos.includes('pino_compartilhado') ? (mesmoPonto.outraPorta.get(c.id) ?? []) : [];
-      // Teto de nomes: o incidente 25/07 (empresa 41) colapsou 154 clientes no MESMO
-      // centroide de via — mandar 154 nomes por linha é um payload inútil.
-      const nomesDe = (ids: string[]) =>
-        ids.slice(0, TETO_NOMES_MESMO_PONTO).map((id) => clientePorId.get(id)?.name || 'Cliente');
+      const naMesmaPorta = motivos.includes('endereco_repetido') ? (gemeos.get(c.id) ?? []) : [];
 
       return {
         id: c.id,
@@ -301,10 +298,12 @@ export class LogisticaBaseSaudeService {
         localId: local?.id ?? null,
         localApelido: local?.apelido ?? null,
         resolveSozinho,
-        mesmaPortaCom: nomesDe(naMesmaPorta),
+        // Teto de nomes: uma porta pode ter várias contas penduradas; mandar todas é
+        // payload inútil — a tela escreve "e mais N".
+        mesmaPortaCom: naMesmaPorta
+          .slice(0, TETO_NOMES_MESMO_PONTO)
+          .map((id) => clientePorId.get(id)?.name || 'Cliente'),
         mesmaPortaComTotal: naMesmaPorta.length,
-        mesmoPontoCom: nomesDe(noMesmoPonto),
-        mesmoPontoComTotal: noMesmoPonto.length,
       };
     });
 
@@ -343,10 +342,6 @@ export interface BaseSaudeCliente {
    *  que as separe. Vazio quando o cliente não tem `endereco_repetido`. */
   mesmaPortaCom: string[];
   mesmaPortaComTotal: number;
-  /** Nomes (até 5) de quem cai no mesmo PONTO com endereço DIFERENTE — o pino é que
-   *  não distingue. Vazio quando o cliente não tem `pino_compartilhado`. */
-  mesmoPontoCom: string[];
-  mesmoPontoComTotal: number;
 }
 
 export interface BaseSaudeResult {

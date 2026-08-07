@@ -23,7 +23,6 @@ import { apiFetch } from "@/lib/api";
 type Semaforo = "verde" | "amarelo" | "vermelho";
 type Motivo =
   | "sem_pino"
-  | "pino_compartilhado"
   | "endereco_repetido"
   | "fora_do_casulo"
   | "perna_outlier"
@@ -44,9 +43,6 @@ type BaseSaudeCliente = {
   /** Outras contas na MESMA PORTA (mesmo número, sem apartamento que as separe). */
   mesmaPortaCom?: string[];
   mesmaPortaComTotal?: number;
-  /** Quem cai no mesmo PONTO com endereço diferente (o mapa não separa as casas). */
-  mesmoPontoCom?: string[];
-  mesmoPontoComTotal?: number;
 };
 
 type BaseSaudeResult = {
@@ -78,6 +74,11 @@ type Filtro = "todos" | Semaforo;
 
 const TAMANHO_PAGINA = 120;
 
+/** Quantos lotes o botão "Resolver endereços" encadeia antes de devolver a mão pro
+ *  dono. Teto existe pra base gigante não virar uma tela girando sem fim — sobrou,
+ *  ele aperta de novo (e o carimbo do servidor faz cada volta começar de onde parou). */
+const VOLTAS_MAXIMAS_RESOLVER = 12;
+
 const FILTROS: Array<{ key: Filtro; label: string }> = [
   { key: "todos", label: "Todos" },
   { key: "vermelho", label: "Corrigir" },
@@ -87,9 +88,6 @@ const FILTROS: Array<{ key: Filtro; label: string }> = [
 
 const MOTIVO_LABEL: Record<Motivo, string> = {
   sem_pino: "Sem localização cadastrada",
-  // 06/08: "igual à de outro cliente" era mentira na maioria dos casos — o endereço
-  // é DIFERENTE (números diferentes da mesma rua); quem é igual é o ponto do mapa.
-  pino_compartilhado: "O mapa não separa esta casa da vizinha",
   endereco_repetido: "Mesmo endereço de outro cliente",
   fora_do_casulo: "Fora do agrupamento do dia",
   perna_outlier: "Trecho fora do padrão",
@@ -112,17 +110,17 @@ function motivosTexto(motivos: Motivo[]): string {
 // conferência da rota já tinha matado em 26/07. Aqui a tela passa a separar:
 // o que ele precisa CORRIGIR na frente, o que é normal fica embaixo, escrito
 // como aviso e não como defeito. A COR continua sendo a do servidor.
-const MOTIVOS_CORRIGIR: Motivo[] = ["sem_pino", "endereco_repetido", "pino_compartilhado", "diverge_gps_ouro"];
+const MOTIVOS_CORRIGIR: Motivo[] = ["sem_pino", "endereco_repetido", "diverge_gps_ouro"];
 
-/** Cada motivo em duas partes: o que é + o que fazer. Sem jargão (nada de "pino"). */
+/** Cada motivo em duas partes: o que é + o que fazer. Sem jargão (nada de "pino").
+ *  LEI (06/08): a frase só pode mandar fazer o que ESTA tela faz — "marque o ponto
+ *  certo desta casa" saiu daqui porque não existe mapa pra marcar, e o dono ficou
+ *  preso numa ordem impossível. */
 const MOTIVO_AJUDA: Partial<Record<Motivo, string>> = {
-  sem_pino: "Localize pelo endereço ou use a posição atual e salve.",
-  // Duas coisas diferentes, duas ações diferentes (06/08): endereço repetido se
-  // resolve no CADASTRO (apartamento ou duplicata); ponto grudado se resolve no MAPA.
+  sem_pino: "Confira o CEP e o número; depois use Localizar endereço e salve.",
   endereco_repetido: "Mesmo número, sem apartamento. Se for prédio, escreva o apartamento no Complemento; se não for, um dos dois cadastros está repetido.",
-  pino_compartilhado: "O endereço é outro, mas o ponto do mapa é o mesmo. Marque o ponto certo desta casa.",
   diverge_gps_ouro: "A última entrega foi longe daqui — confirme o endereço.",
-  geocode_nao_provado_em_campo: "Normal em cliente novo: a 1ª entrega confirma sozinha.",
+  geocode_nao_provado_em_campo: "O ponto veio do endereço digitado — a 1ª entrega confirma a porta sozinha.",
   fonte_nao_confiavel: "O ponto veio de uma origem sem confirmação.",
   nunca_entregue: "Ainda não houve entrega neste endereço.",
   fora_do_casulo: "Fica longe do agrupamento do dia.",
@@ -144,10 +142,6 @@ function tituloDoMotivo(motivo: Motivo, cliente: BaseSaudeCliente): string {
   if (motivo === "endereco_repetido") {
     const nomes = listaDeNomes(cliente.mesmaPortaCom ?? [], cliente.mesmaPortaComTotal ?? 0);
     return nomes ? `Mesmo endereço de ${nomes}` : MOTIVO_LABEL[motivo];
-  }
-  if (motivo === "pino_compartilhado") {
-    const nomes = listaDeNomes(cliente.mesmoPontoCom ?? [], cliente.mesmoPontoComTotal ?? 0);
-    return nomes ? `Mesmo ponto no mapa de ${nomes}` : MOTIVO_LABEL[motivo];
   }
   return MOTIVO_LABEL[motivo] || motivo;
 }
@@ -226,6 +220,8 @@ export function BaseSaude() {
   const [salvando, setSalvando] = useState(false);
   const [localizando, setLocalizando] = useState(false);
   const [mensagem, setMensagem] = useState<string | null>(null);
+  const [resolvendo, setResolvendo] = useState(false);
+  const [resolvidoParcial, setResolvidoParcial] = useState(0);
   const filtroPill = useGlassPill<HTMLButtonElement>(filtro);
 
   const load = useCallback((silencioso = false) => {
@@ -306,6 +302,48 @@ export function BaseSaude() {
       .finally(() => { if (vivo) setDetalheLoading(false); });
     return () => { vivo = false; };
   }, [clienteSelecionado?.id, clienteSelecionado?.localId]);
+
+  /**
+   * 🔴 RESOLVER ENDEREÇOS (06/08) — o botão que faz o trabalho no lugar do dono.
+   *
+   * O servidor tem a base de endereços do IBGE (CNEFE) com a coordenada de cada
+   * PORTA. Quem estava com o ponto do CEP (o caso da Adriana: 5 casas da Avenida 74
+   * no mesmo ponto) ou sem ponto nenhum passa a ser resolvido por (CEP + número) —
+   * medido na base do André: 79 dos 130 cadastros com CEP e número têm porta exata
+   * lá. Antes disso, a tela mandava marcar 115 pontos na mão.
+   *
+   * Vai em LOTES e repete sozinho enquanto `restantes` não zerar — o servidor tem
+   * teto por chamada de propósito (requisição pendurada é pior que duas chamadas).
+   */
+  const resolverEnderecos = useCallback(async () => {
+    if (resolvendo) return;
+    setResolvendo(true);
+    setError(null);
+    setMensagem(null);
+    let resolvidos = 0;
+    try {
+      for (let volta = 0; volta < VOLTAS_MAXIMAS_RESOLVER; volta += 1) {
+        const res = await apiFetch<{ curados: number; tentados: number; restantes: number }>(
+          "/logistica/base-saude/resolver",
+          { method: "POST" },
+        );
+        resolvidos += Number(res?.curados) || 0;
+        setResolvidoParcial(resolvidos);
+        if (!Number(res?.restantes)) break;
+      }
+      await load(true);
+      setMensagem(
+        resolvidos > 0
+          ? `${resolvidos} ${resolvidos === 1 ? "endereço resolvido" : "endereços resolvidos"} pela base de endereços.`
+          : "Nenhum endereço novo deu para resolver automaticamente — os que sobraram precisam de CEP e número certos.",
+      );
+    } catch (err: unknown) {
+      setError(humanError(err, "Não foi possível resolver os endereços agora."));
+    } finally {
+      setResolvendo(false);
+      setResolvidoParcial(0);
+    }
+  }, [load, resolvendo]);
 
   const locais = useMemo(
     () => (detalheAtual?.locais ?? []).filter((local) => local.ativo !== false),
@@ -520,10 +558,18 @@ export function BaseSaude() {
               <span role="listitem"><b className="is-warn">{dados.amarelos}</b><small>revisar</small></span>
               <span role="listitem"><b className="is-ok">{dados.verdes}</b><small>prontos</small></span>
             </div>
-            <button type="button" className="btn-ghost btn-xs" onClick={() => void load()} disabled={loading}>
+            <button type="button" className="btn-teal btn-xs" onClick={() => void resolverEnderecos()} disabled={resolvendo || loading}>
+              <I d={ICONS.mapin} size={13} />
+              {resolvendo
+                ? (resolvidoParcial > 0 ? `Resolvendo… ${resolvidoParcial}` : "Resolvendo…")
+                : "Resolver endereços"}
+            </button>
+            <button type="button" className="btn-ghost btn-xs" onClick={() => void load()} disabled={loading || resolvendo}>
               <span aria-hidden>↻</span> {loading ? "Atualizando…" : "Atualizar"}
             </button>
           </header>
+
+          {mensagem && !clienteSelecionado && <p className="log-saude__notice is-ok" role="status">{mensagem}</p>}
 
           {error && <p className="log-saude__notice is-error" role="status">{error}</p>}
 

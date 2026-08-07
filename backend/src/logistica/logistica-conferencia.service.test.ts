@@ -414,7 +414,14 @@ test('cura CNEFE: sem_pino com CEP+número vira pino gravado (fonte cnefe) e a p
     const noLocal = gravadas.find((g) => g.tabela === 'localEntrega');
     assert.ok(noLocal, 'endereço que mora no LOCAL grava no local');
     assert.equal(noLocal!.where.id, 'loc-h2');
-    assert.equal(noLocal!.where.lat, null, 'só grava quem AINDA não tem pino (nunca sobrescreve)');
+    // 06/08 — a trava deixou de ser "só preenche buraco" e virou COMPARAÇÃO de fonte:
+    // a porta do CNEFE troca pino não provado (geocode/impreciso/legado), e nunca
+    // encosta em gps_entrega/gps_cadastro/cnefe. O WHERE é quem garante isso.
+    const fontesTrocaveis = JSON.stringify(noLocal!.where.OR);
+    assert.ok(fontesTrocaveis.includes('geocode'), 'pino de geocode pode ser corrigido pela porta');
+    assert.ok(fontesTrocaveis.includes('"lat":null'), 'quem não tem pino continua entrando');
+    assert.ok(!fontesTrocaveis.includes('gps_entrega') && !fontesTrocaveis.includes('gps_cadastro'),
+      'ponto provado no campo ou marcado por humano NUNCA é sobrescrito');
     assert.equal(noLocal!.data.geoFonte, 'cnefe');
 
     const noPerfil = gravadas.find((g) => g.tabela === 'customerProfile');
@@ -554,7 +561,7 @@ test('cura sem CEP: só com bairro CONFIRMADO e porta exata — o resto fica pen
     const pinoGravado = gravadas.find((g) => g.data.geoFonte === 'cnefe');
     assert.ok(pinoGravado, 'pino curado gravado no perfil');
     assert.equal(pinoGravado!.where.id, 'cli-s1');
-    assert.equal(pinoGravado!.where.lat, null, 'nunca sobrescreve pino existente');
+    assert.ok(JSON.stringify(pinoGravado!.where.OR).includes('geocode'), 'só troca fonte não provada');
 
     assert.equal(consultasCnefe.filter((q) => q.includes('cnefe_endereco')).length, 1, 'UMA consulta cobre os trechos do bairro (nunca um laço por CEP)');
     assert.ok(!consultasCnefe.some((q) => q.includes('ORDER BY ABS(numero')), 'sem CEP no cadastro NUNCA usa vizinho de número — é aí que se inventa endereço');

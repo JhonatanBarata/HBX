@@ -66,23 +66,55 @@ test('TODAS sem pino → todas vermelho/sem_pino, nenhuma regra geométrica queb
   }
 });
 
-// ── incidente real empresa 41: pino compartilhado (154/248) ─────────────────────
-test('pino_compartilhado: 3 clientes no MESMO centroide de via (empresa 41) → todos vermelho', () => {
+// ── 06/08: A COORDENADA NÃO É IDENTIDADE (ordem do dono) ───────────────────────
+// O incidente 25/07 (empresa 41) tinha 154/248 clientes no mesmo centroide de via, e a
+// régua respondia "endereço igual ao de outro cliente". Errado: o que identifica um
+// ponto de entrega é CEP → número → complemento (Correios/DNE, USPS/DPV). Casas
+// diferentes empilhadas num ponto são geocode que não chegou na porta — o que aparece
+// pela FONTE do pino, e não acusando o cadastro de ninguém.
+test('mesmo centroide de via com NÚMEROS diferentes: ninguém é acusado de endereço repetido', () => {
   const PINO_DA_VIA = { lat: -22.398413, lng: -47.554608 }; // "Rua 12" colapsada
+  const rua = { endereco: 'Rua 12', cidade: 'Rio Claro', uf: 'SP', cep: '13504683' };
+  // geoFonte 'geocode' é o caso REAL (os 5 da Avenida 74 vieram do centroide do CEP).
   const paradas = [
-    base({ id: 'cliente-A', ...PINO_DA_VIA }),
-    base({ id: 'cliente-B', lat: -22.39841, lng: -47.55461 }), // difere só na 5ª casa — mesma célula
-    base({ id: 'cliente-C', ...PINO_DA_VIA }),
-    base({ id: 'cliente-D', lat: -22.41, lng: -47.56 }), // endereço DIFERENTE, não compartilha
+    base({ id: 'cliente-A', ...PINO_DA_VIA, geoFonte: 'geocode', porta: { ...rua, numero: '188' } }),
+    base({ id: 'cliente-B', lat: -22.39841, lng: -47.55461, geoFonte: 'geocode', porta: { ...rua, numero: '197' } }),
+    base({ id: 'cliente-C', ...PINO_DA_VIA, geoFonte: 'geocode', porta: { ...rua, numero: '228' } }),
   ];
-  const resultado = conferirParadas(paradas, { engine: 'osrm' });
-  const porId = new Map(resultado.map((r) => [r.id, r]));
-
-  for (const id of ['cliente-A', 'cliente-B', 'cliente-C']) {
-    assert.equal(porId.get(id)!.semaforo, 'vermelho', `${id} deveria ser vermelho`);
-    assert.ok(porId.get(id)!.motivos.includes('pino_compartilhado'), `${id} deveria ter pino_compartilhado`);
+  for (const r of conferirParadas(paradas, { engine: 'osrm' })) {
+    assert.ok(!r.motivos.includes('endereco_repetido'), `${r.id} não pode ser acusado de repetido`);
+    assert.equal(r.semaforo, 'verde', `${r.id} não tem problema IMPEDITIVO nenhum`);
+    // O pino ruim continua denunciado, pela fonte — que é o que ele sempre foi.
+    assert.ok(r.motivos.includes('geocode_nao_provado_em_campo'));
   }
-  assert.ok(!porId.get('cliente-D')!.motivos.includes('pino_compartilhado'), 'cliente-D não compartilha pino');
+});
+
+test('endereco_repetido: MESMO número na mesma rua → os dois vermelhos, com ou sem pino', () => {
+  const rua = { endereco: 'Avenida 96', cidade: 'Rio Claro', uf: 'SP', cep: '13504726' };
+  const paradas = [
+    base({ id: 'com-pino-1', lat: -22.4, lng: -47.55, porta: { ...rua, numero: '405' } }),
+    base({ id: 'com-pino-2', lat: -22.48, lng: -47.59, porta: { ...rua, numero: '405' } }), // longe: o ponto não importa
+    base({ id: 'sem-pino-1', lat: null, lng: null, legDistanceM: null, porta: { ...rua, numero: '900' } }),
+    base({ id: 'sem-pino-2', lat: null, lng: null, legDistanceM: null, porta: { ...rua, numero: '900' } }),
+    base({ id: 'sozinho', lat: -22.41, lng: -47.56, porta: { ...rua, numero: '111' } }),
+  ];
+  const porId = new Map(conferirParadas(paradas, { engine: 'osrm' }).map((r) => [r.id, r]));
+  for (const id of ['com-pino-1', 'com-pino-2', 'sem-pino-1', 'sem-pino-2']) {
+    assert.ok(porId.get(id)!.motivos.includes('endereco_repetido'), `${id} divide a porta`);
+    assert.equal(porId.get(id)!.semaforo, 'vermelho');
+  }
+  assert.ok(!porId.get('sozinho')!.motivos.includes('endereco_repetido'));
+});
+
+test('condomínio: mesmo número com APARTAMENTOS diferentes não é endereço repetido', () => {
+  const rua = { endereco: 'Avenida 96', numero: '405', cidade: 'Rio Claro', uf: 'SP', cep: '13504726' };
+  const paradas = [
+    base({ id: 'apto-32', lat: -22.4, lng: -47.55, porta: { ...rua, complemento: 'Apto 32' } }),
+    base({ id: 'apto-45', lat: -22.4, lng: -47.55, porta: { ...rua, complemento: 'AP. 45' } }),
+  ];
+  for (const r of conferirParadas(paradas, { engine: 'osrm' })) {
+    assert.ok(!r.motivos.includes('endereco_repetido'), `${r.id} é outra unidade do mesmo prédio`);
+  }
 });
 
 // ── incidente real empresa 41: divergência do GPS de ouro (2.991m/1.512m/650m) ──
@@ -299,17 +331,17 @@ test('endereco_sem_numero + cep_endereco_divergente: os dois aparecem, CEP prime
 });
 
 // ── Lei: motivos[] acumula TODOS, mas só impeditivo pinta ───────────────────────
-test('impeditivo pinta e motivos[] acumula o informativo junto (pino compartilhado + geocode não provado)', () => {
-  const PINO = { lat: -22.4, lng: -47.55 };
+test('impeditivo pinta e motivos[] acumula o informativo junto (endereço repetido + geocode não provado)', () => {
+  const rua = { endereco: 'Avenida 96', numero: '405', cidade: 'Rio Claro', uf: 'SP', cep: '13504726' };
   const paradas = [
-    base({ id: 'x1', ...PINO, geoFonte: 'geocode' }),
-    base({ id: 'x2', ...PINO, geoFonte: 'gps_entrega' }),
+    base({ id: 'x1', lat: -22.4, lng: -47.55, geoFonte: 'geocode', porta: rua }),
+    base({ id: 'x2', lat: -22.42, lng: -47.57, geoFonte: 'gps_entrega', porta: rua }),
   ];
   const [x1] = conferirParadas(paradas, { engine: 'osrm' }).filter((r) => r.id === 'x1');
-  assert.equal(x1.semaforo, 'vermelho', 'pino_compartilhado é impeditivo → pinta');
-  assert.ok(x1.motivos.includes('pino_compartilhado'));
+  assert.equal(x1.semaforo, 'vermelho', 'endereco_repetido é impeditivo → pinta');
+  assert.ok(x1.motivos.includes('endereco_repetido'));
   assert.ok(x1.motivos.includes('geocode_nao_provado_em_campo'), 'motivo informativo continua no array (Lei nº4)');
-  assert.deepEqual(motivosVisiveisOrdenados(x1.motivos), ['pino_compartilhado'], 'mas só o impeditivo é exibido');
+  assert.deepEqual(motivosVisiveisOrdenados(x1.motivos), ['endereco_repetido'], 'mas só o impeditivo é exibido');
 });
 
 test('sem_pino não acumula os motivos de coordenada (não dá pra medir casulo/célula/perna de um ponto inexistente)', () => {

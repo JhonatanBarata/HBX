@@ -383,7 +383,11 @@ export class LogisticaConferenciaService implements OnModuleInit {
    * do mesmo cliente no dia. Concorrência e orçamento limitados (a conferência nunca
    * fica lenta por causa disto — mesmo espírito do lote de CEP em logistica-cep.util).
    */
-  private async resolverSemPinoViaCnefe(companyId: number, rows: ParadaConferenciaRow[]): Promise<void> {
+  private async resolverSemPinoViaCnefe(
+    companyId: number,
+    rows: ParadaConferenciaRow[],
+    orcamentoMs = CNEFE_CURA_ORCAMENTO_MS,
+  ): Promise<{ candidatos: number; tentados: number; curados: number }> {
     const porDono = new Map<string, { alvo: AlvoCuraCnefe; linhas: ParadaConferenciaRow[] }>();
     for (const r of rows) {
       const alvo = alvoCuraCnefe(r);
@@ -398,17 +402,19 @@ export class LogisticaConferenciaService implements OnModuleInit {
       if (entrada) entrada.linhas.push(r);
       else porDono.set(chave, { alvo, linhas: [r] });
     }
-    if (!porDono.size) return;
+    if (!porDono.size) return { candidatos: 0, tentados: 0, curados: 0 };
 
     const donos = [...porDono.values()].slice(0, CNEFE_CURA_TETO);
-    const fim = Date.now() + CNEFE_CURA_ORCAMENTO_MS;
+    const fim = Date.now() + orcamentoMs;
     let proximo = 0;
     let curados = 0;
+    let tentados = 0;
     const trabalhador = async (): Promise<void> => {
       for (;;) {
         const i = proximo;
         proximo += 1;
         if (i >= donos.length || Date.now() >= fim) return;
+        tentados += 1;
         const dono = donos[i];
         const cura = await resolverCuraCnefe(dono.alvo, { queryTimeoutMs: 10000 });
         // CARIMBO em toda tentativa, curou ou não: é ele que faz a cura CONVERGIR em vez
@@ -429,6 +435,73 @@ export class LogisticaConferenciaService implements OnModuleInit {
       `[logistica] conferência company=${companyId}: cura automática resolveu ${curados} de ${donos.length} endereço(s) novo(s) sem pino ` +
         '(já tentados antes ficam fora até o cadastro mudar).',
     );
+    return { candidatos: porDono.size, tentados, curados };
+  }
+
+  /**
+   * 🔴 RESOLVER OS ENDEREÇOS DA BASE (06/08, ordem do dono) — o mesmo motor da cura,
+   * apontado pro TENANT inteiro em vez da rota do dia.
+   *
+   * Por que existe: a cura só rodava em quem entrava numa montagem de rota, e só em
+   * quem estava SEM pino. Cliente com pino de centroide de CEP (o caso da Adriana, 5
+   * casas da Avenida 74 no mesmo ponto) nunca era nem tentado — o defeito ficava lá
+   * pra sempre, e a tela mandava o dono "marcar o ponto certo" na mão, 115 vezes.
+   *
+   * É AÇÃO DO OPERADOR (botão), nunca escrita silenciosa: escreve só PINO/CEP de
+   * cadastro pela porta canônica (`gravarCuraCnefe`) — nada de rota, nada de crédito.
+   * Roda em LOTES (teto de 150 donos por chamada, com carimbo que faz convergir), e a
+   * tela repete até `restantes` zerar — mesmo padrão do sanitizador do APK.
+   */
+  async resolverEnderecosDaBase(
+    companyId: number,
+  ): Promise<{ candidatos: number; tentados: number; curados: number; restantes: number }> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+
+    const clientes = await this.prisma.customerProfile.findMany({
+      where: { companyId, isCliente: true, status: 'active' },
+      select: {
+        id: true, name: true, lat: true, lng: true, geoFonte: true,
+        cep: true, endereco: true, numero: true, complemento: true, bairro: true, cidade: true, uf: true,
+        sanitizadoEm: true, updatedAt: true,
+      },
+      take: TETO_CLIENTES_CURA_BASE,
+    });
+    if (!clientes.length) return { candidatos: 0, tentados: 0, curados: 0, restantes: 0 };
+
+    const locais = await this.prisma.localEntrega.findMany({
+      where: { companyId, customerProfileId: { in: clientes.map((c) => c.id) }, ativo: true },
+      select: {
+        id: true, apelido: true, lat: true, lng: true, geoFonte: true, customerProfileId: true, isPrincipal: true,
+        cep: true, endereco: true, numero: true, complemento: true, bairro: true, cidade: true, uf: true,
+        sanitizadoEm: true, updatedAt: true,
+      },
+    });
+    const localPorCliente = new Map<string, (typeof locais)[number]>();
+    for (const local of locais) {
+      const atual = localPorCliente.get(local.customerProfileId);
+      if (!atual || (local.isPrincipal && !atual.isPrincipal)) localPorCliente.set(local.customerProfileId, local);
+    }
+
+    const rows = clientes.map((cliente) => {
+      const local = localPorCliente.get(cliente.id) ?? null;
+      return {
+        id: cliente.id,
+        status: 'agendada',
+        rotaOrdem: null,
+        customerProfileId: cliente.id,
+        localId: local?.id ?? null,
+        local,
+        customerProfile: cliente,
+      };
+    }) as unknown as ParadaConferenciaRow[];
+
+    const res = await this.resolverSemPinoViaCnefe(companyId, rows, CNEFE_CURA_ORCAMENTO_BASE_MS);
+    const restantes = Math.max(0, res.candidatos - res.tentados);
+    this.logger.log(
+      `[logistica] resolver-enderecos company=${companyId}: ${res.curados} resolvido(s) de ${res.tentados} tentado(s); ` +
+        `${restantes} candidato(s) restante(s) nesta base.`,
+    );
+    return { ...res, restantes };
   }
 
   /** Carimba "passou pelo sanitizador" no DONO do endereço (27/07). Best-effort: falhar
@@ -472,9 +545,23 @@ export class LogisticaConferenciaService implements OnModuleInit {
       }
       if (!cura.pino) return false;
       const dados = { lat: cura.pino.lat, lng: cura.pino.lng, geoFonte: 'cnefe' };
+      // 🔴 06/08 — A CURA PASSA A CORRIGIR, NÃO SÓ A PREENCHER (ordem do dono).
+      // Antes o `where` exigia `lat: null`: pino ERRADO nunca era trocado. Foi assim que
+      // 5 casas da Avenida 74 (nº 188/197/228/232/282, company 41) ficaram com o MESMO
+      // ponto — o centroide do CEP que o geocode devolveu — enquanto o CNEFE tinha as 5
+      // portas separadas, nível 1, o tempo todo. "Só preenche buraco" era a única regra
+      // possível quando não se sabia a qualidade do que estava gravado; sabendo a FONTE,
+      // dá pra comparar: porta exata do CNEFE vale mais que ponto de CEP.
+      //
+      // A trava continua dura e é o que separa isto de sobrescrever pino bom: só troca
+      // quando a fonte atual é FRACA (geocode/legado/impreciso ou vazia). `gps_entrega`
+      // (provado na porta), `gps_cadastro` (decisão humana — Lei nº1) e um `cnefe`
+      // anterior NUNCA são tocados; o `updateMany` filtra isso no próprio WHERE, então
+      // corrida com outra escrita não abre brecha.
+      const fonteFraca = { OR: [{ lat: null }, { geoFonte: null }, { geoFonte: { in: FONTES_SUBSTITUIVEIS_PELA_PORTA } }] };
       const res = noLocal
-        ? await this.prisma.localEntrega.updateMany({ where: { id: row.localId as string, companyId, lat: null }, data: dados })
-        : await this.prisma.customerProfile.updateMany({ where: { id: row.customerProfileId, companyId, lat: null }, data: dados });
+        ? await this.prisma.localEntrega.updateMany({ where: { id: row.localId as string, companyId, ...fonteFraca }, data: dados })
+        : await this.prisma.customerProfile.updateMany({ where: { id: row.customerProfileId, companyId, ...fonteFraca }, data: dados });
       return res.count > 0;
     } catch (e) {
       this.logger.warn(`[logistica] cura CNEFE não gravou (segue sem pino): ${String((e as any)?.message || e)}`);
@@ -715,6 +802,24 @@ export class LogisticaConferenciaService implements OnModuleInit {
  *  (palavra do dono, 27/07: "na hora de gerar a rota, rodar essa sanitização era
  *  aceitável") — o que não pode é ficar sem pino por pressa. */
 const CNEFE_CURA_ORCAMENTO_MS = 12000;
+
+/**
+ * Fontes de pino que a PORTA do CNEFE pode substituir (06/08). São as que nunca foram
+ * provadas no chão: `geocode` é endereço digitado virando ponto (na prática, quase
+ * sempre o centroide do CEP), `gps_impreciso` é fix de GPS reprovado pelo teto de
+ * precisão, e `''` é legado sem o campo. Fora desta lista o pino fica onde está —
+ * `gps_entrega`, `gps_cadastro` e um `cnefe` anterior são decisão de campo/humana.
+ */
+const FONTES_SUBSTITUIVEIS_PELA_PORTA = ['geocode', 'gps_impreciso', ''];
+
+/** Teto de clientes lidos por chamada do "Resolver endereços" da base (a cura em si
+ *  tem teto próprio de 150 donos — este só limita a LEITURA num tenant gigante). */
+const TETO_CLIENTES_CURA_BASE = 20_000;
+
+/** Orçamento do lote da BASE: é ação do operador esperando na tela (não o caminho
+ *  quente da geração de rota), então paga mais que os 12s da cura inline — mas com
+ *  teto, pra chamada nenhuma virar requisição pendurada. */
+const CNEFE_CURA_ORCAMENTO_BASE_MS = 25000;
 /** Teto de donos consultados por conferência (defesa contra base gigante toda sem pino). */
 const CNEFE_CURA_TETO = 150;
 
@@ -743,7 +848,13 @@ export interface AlvoCuraCnefe {
  */
 export function alvoCuraCnefe(r: ParadaConferenciaRow): AlvoCuraCnefe | null {
   const coord = resolverCoordenadaMultilocal(r.local, r.customerProfile);
-  if (coord.lat != null && coord.lng != null) return null;
+  // 06/08 — entra na fila quem NÃO TEM pino **e também** quem tem pino de fonte não
+  // provada (o centroide do CEP do caso Adriana). Antes só o vazio era candidato, e
+  // por isso o pino errado sobrevivia pra sempre: nunca era nem tentado. Quem já tem
+  // ponto provado (gps_entrega/gps_cadastro/cnefe) segue de fora, como sempre.
+  const jaProvado = coord.lat != null && coord.lng != null
+    && !FONTES_SUBSTITUIVEIS_PELA_PORTA.includes(String(coord.geoFonte ?? ''));
+  if (jaProvado) return null;
   // 27/07 (incidente company 48) — o alvo é QUEM DÁ PRA LOCALIZAR: local primeiro
   // (a porta é dele), senão o PERFIL. Antes, local com endereço mas SEM CEP
   // travava a cura mesmo com o perfil completinho do lado (28 sem_pino no dia e
