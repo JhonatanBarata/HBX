@@ -952,7 +952,12 @@
       categorias: [],
       lista: lista.map((p) => [
         esc(p.nome),
-        esc(p.unidade),
+        // 🔴 ESTOQUE SÓ EXISTE SE A EMPRESA LIGOU (o campo só vem do servidor
+        // com `estoqueAtivo` no perfil fiscal — quem decide é o ADMIN, no
+        // desktop). Sem ele a linha diz a unidade, como antes.
+        typeof p.estoqueDisponivel === 'number'
+          ? `Estoque: ${p.estoqueDisponivel} un.`
+          : esc(p.unidade),
         typeof p.precoCatalogo === 'number' ? p.precoCatalogo.toFixed(2).replace('.', ',') : '',
         'azul',
         String(p.id),
@@ -983,7 +988,11 @@
       selo: p.usaLogistica ? 'ativo' : '',
       unidade: v('produto-unidade', p.unidade),
       preco: v('produto-preco', typeof p.precoCatalogo === 'number' ? dinheiro(p.precoCatalogo) : ''),
-      estoque: '',
+      // Número, não moeda — e SÓ LEITURA: este saldo é derivado da trilha de
+      // movimentos (entrada, reserva, baixa). Corrigir é fazer contagem de
+      // inventário no desktop, não digitar por cima aqui.
+      estoque: typeof p.estoqueDisponivel === 'number' ? String(p.estoqueDisponivel) : '',
+      estoqueDica: 'disponível hoje · vem do controle de estoque',
     });
   }
 

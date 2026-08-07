@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import type { ActorKindUserLike } from '../access/actor-kind';
 import { PrismaService } from '../prisma/prisma.service';
+import { EstoqueService } from '../fiscal/estoque.service';
 import { LogisticaOccurrenceService } from './logistica-occurrence.service';
 import {
   isoDow,
@@ -22,8 +23,15 @@ export class LogisticaRecorrenciaOccurrenceService extends LogisticaRecorrenciaS
     prisma: PrismaService,
     private readonly occurrences: LogisticaOccurrenceService,
     private readonly agenda: LogisticaAgendaService,
+    // 🔴 QUEM RODA DE VERDADE É ESTA CLASSE: o módulo provê
+    // `LogisticaRecorrenciaService` com `useExisting` apontando pra cá. Serviço
+    // novo que a BASE precisa tem que passar por este construtor também —
+    // senão a base recebe `undefined` e o recurso some CALADO (foi o que
+    // aconteceu com o saldo de estoque: nenhum erro, campo simplesmente não
+    // vinha).
+    @Optional() estoque?: EstoqueService,
   ) {
-    super(prisma);
+    super(prisma, estoque);
   }
 
   override async gerarDia(companyId: number, dateInput?: string): Promise<any> {

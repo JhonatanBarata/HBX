@@ -1853,6 +1853,7 @@ const DADOS={
   fichaproduto:{
     nome:'Galão 20 Litros', resumo:'no catálogo desde 03/2025 · 1.284 entregas',
     selo:'ativo', unidade:'galão', preco:'R$ 11,00', estoque:'128',
+    estoqueDica:'do controle de estoque',
   },
   /* L8 — CHAT COM A CENTRAL. `recado` vazio esconde o cartão do portão (não há
      nada a confirmar). `conversa` é [lado, texto, hora] — lado 'deles' ou
@@ -2760,7 +2761,8 @@ ${hdr({voltar:'produtos',semChat:1})}
     <!-- ESTOQUE só aparece quando existe: o catálogo do celular não devolve
          essa coluna, e campo de número vazio numa tela de cadastro convida o
          usuário a digitar algo que não tem onde ser gravado. -->
-    ${f.estoque?`<label class="campo"><label>Estoque</label><input value="${f.estoque}" data-campo="produto-estoque"></label>`:''}
+    ${f.estoque?`<label class="campo"><label>Estoque</label><input value="${f.estoque}" data-campo="produto-estoque" readonly>
+      <span class="dica">${f.estoqueDica}</span></label>`:''}
   </div>
   <div class="banner pausa" style="margin-top:9px">${ic('alert',15)}
     <span>O preço da <b>entrega</b> sai daqui, sempre. Preço por cliente vive na ficha dele.</span></div>

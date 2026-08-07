@@ -5,8 +5,10 @@ import {
   NotFoundException,
   OnModuleDestroy,
   OnModuleInit,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { EstoqueService } from '../fiscal/estoque.service';
 import { ActorKindUserLike, isBillingOwnerActor } from '../access/actor-kind';
 import { resolvePrincipalContatoId } from './logistica-contato.util';
 import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
@@ -48,7 +50,65 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
   private readonly logger = new Logger(LogisticaRecorrenciaService.name);
   private gerarDiaSweepHandle: ReturnType<typeof setInterval> | null = null;
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // ESTOQUE NO APP (07/08, decisão do dono). @Optional pelo mesmo motivo do
+    // `cargaEstoque` do logistica-rota.service: testes legados instanciam este
+    // serviço só com o prisma, e sem estoque a lista de produtos segue igual.
+    @Optional() private readonly estoque?: EstoqueService,
+  ) {}
+
+  /**
+   * SALDO DISPONÍVEL por produto da logística — vazio quando a empresa não
+   * ligou o controle de estoque.
+   *
+   * 🔴 QUEM DECIDE É O ADMIN, NO DESKTOP: o gate é `FiscalTenantProfile
+   * .estoqueAtivo`, o mesmo que os ganchos de baixa/reserva já respeitam.
+   * Empresa que não ligou não recebe o campo — e a tela do app, que só mostra
+   * o que existe, continua exatamente como está hoje.
+   *
+   * 🔴 E O NÚMERO É O *DISPONÍVEL* (físico − reservado), não o físico: o galpão
+   * pode ter 100 com 40 já reservados pras rotas do dia, e quem olha o app
+   * precisa saber que só pode contar com 60. A matemática NÃO é refeita aqui —
+   * vem inteira do EstoqueService, que é o dono dela.
+   */
+  private async disponivelPorProdutoLogistica(
+    companyId: number,
+    produtoIds: number[],
+  ): Promise<Map<number, number>> {
+    const vazio = new Map<number, number>();
+    if (!this.estoque || !produtoIds.length) return vazio;
+    try {
+      const perfil = await (this.prisma as any).fiscalTenantProfile.findUnique({
+        where: { companyId },
+        select: { estoqueAtivo: true },
+      });
+      if (!perfil?.estoqueAtivo) return vazio;
+      const vinculos = await (this.prisma as any).estoqueProduto.findMany({
+        where: { companyId, ativo: true, logisticaProductId: { in: produtoIds } },
+        select: { id: true, logisticaProductId: true },
+      });
+      if (!vinculos.length) return vazio;
+      const saldos = await this.estoque.saldos(companyId);
+      const out = new Map<number, number>();
+      for (const v of vinculos) {
+        if (v.logisticaProductId == null) continue;
+        const saldo = saldos.get(v.id);
+        // Produto vinculado SEM movimento nenhum tem saldo zero de verdade —
+        // isso é informação (ele existe e está zerado), não ausência.
+        out.set(Number(v.logisticaProductId), saldo ? Number(saldo.disponivel) || 0 : 0);
+      }
+      return out;
+    } catch (e) {
+      // Estoque é ENFEITE nesta lista: se o fiscal tossir, a lista de produtos
+      // (que é o que faz o app funcionar) não pode cair junto.
+      // 🔴 MAS BEST-EFFORT QUE ENGOLE ERRO PRECISA DE ALARME (lei da casa, paga
+      // com 23M de endereços desligados 5 dias em silêncio): o saldo some da
+      // tela sem explicação nenhuma se este catch for mudo.
+      this.logger.warn(`[estoque] saldo indisponível para a empresa ${companyId}: ${String((e as any)?.message || e)}`);
+      return vazio;
+    }
+  }
 
   // ── CRON "gerar dia automático" (INERTE por default) ─────────────────────────
   onModuleInit() {
@@ -367,11 +427,13 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
         ...(billingAudience ? { price: true as const, priceCents: true as const } : {}),
       },
     });
+    const disponivel = await this.disponivelPorProdutoLogistica(companyId, rows.map((p) => p.id));
     return rows.map((p) => ({
       id: p.id,
       nome: p.name,
       unidade: p.unidade ?? null,
       usaLogistica: p.usaLogistica,
+      ...(disponivel.has(p.id) ? { estoqueDisponivel: disponivel.get(p.id) } : {}),
       ...(billingAudience
         ? {
             precoCatalogo:
@@ -1092,6 +1154,13 @@ export interface ProdutoOptionDTO {
   unidade: string | null;
   usaLogistica: boolean;
   precoCatalogo?: number | null;
+  /**
+   * ADITIVO (07/08) — saldo DISPONÍVEL do estoque fiscal. Só existe quando o
+   * tenant ligou `FiscalTenantProfile.estoqueAtivo` E o produto tem vínculo
+   * (`EstoqueProduto.logisticaProductId`). Ausente = a empresa não controla
+   * estoque; o app esconde o campo em vez de mostrar zero.
+   */
+  estoqueDisponivel?: number;
 }
 
 // ── PR18072026 W1 — façade de produtos ────────────────────────────────────────
