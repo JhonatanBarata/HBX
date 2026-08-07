@@ -108,7 +108,10 @@ plugins {
 // PR07082026-FECHAR-LOGISTICA2). O André (163) atualizaria de qualquer jeito,
 // mas a bancada ficaria cega pra conferir o aviso. 171 mantém a lei de sempre:
 // piso ACIMA do maior número que já está em algum celular.
-val hbxLogisticaVersionCodeFloor = 171
+// 171 → 175 em 07/08 (noite): a leva "barra de 3 + dia da rota + Voltar em
+// pilha" sideloadou o 173 no moto g15 durante o teste por toque. Piso ACIMA
+// do maior número que já está em algum celular — a lei de sempre.
+val hbxLogisticaVersionCodeFloor = 175
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)
