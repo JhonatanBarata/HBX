@@ -112,6 +112,112 @@
   };
 
   /* ------------------------------------------------------------------------
+     2b. O CORDÃO DE ENTREGA — aviso de atualização (F4 do app antigo, portado
+     na noite de 07/08). A fusão apagou o app.js e levou o checkAppUpdate
+     junto: o servidor publicava o APK novo e o celular NUNCA perguntava — a
+     troca teria sido a última atualização da vida do aparelho. O contrato
+     nativo é o de sempre (HBXAndroid.appInfo / updateInstallAllowed /
+     openInstallPermission / downloadAndInstall + window.HBXUpdate).
+     Avisa TODA versão nova, UMA vez por versionCode (memória no cache);
+     obrigatória avisa sempre e o portão nasce SEM escape — o handleBack já
+     engole o Voltar de portão sem escape, então a trava fecha sozinha.
+     ------------------------------------------------------------------------ */
+  const bridgeCru = () => (typeof window.HBXAndroid !== 'undefined' ? window.HBXAndroid : null);
+  let updateInfo = null;
+  let updateBusy = false;
+  let updateCheckEm = 0;
+  let updateAguardaPermissao = false;
+
+  function portaoUpdate() {
+    if (!updateInfo || typeof window.portao !== 'function') return;
+    // A abertura é uma cena com relógio; portão em cima dela morre na troca
+    // de camada. Espera a casa (Rota) estar de pé.
+    if (telaAtual() === 'entrada') { setTimeout(portaoUpdate, 2500); return; }
+    const b = bridgeCru();
+    const podeInstalar = b && typeof b.updateInstallAllowed === 'function' ? !!b.updateInstallAllowed() : true;
+    const acoes = [];
+    if (!updateInfo.obrigatoria && !updateBusy) acoes.push(['Agora não', '']);
+    acoes.push([updateBusy ? 'Baixando…' : (podeInstalar ? 'Atualizar agora' : 'Abrir permissão'), 'principal', false]);
+    window.portao({
+      tom: 'info', ico: 'download', titulo: 'Atualizar app',
+      sub: updateBusy ? 'Baixando…'
+        : `Versão ${updateInfo.versionName || ''} pronta.${podeInstalar ? '' : ' O Android vai abrir uma tela: ligue "Permitir desta fonte" e volte.'}`,
+      acoes, classe: acoes.length === 2 ? 'duas' : '',
+    });
+    if (updateBusy) return;
+    const botao = naCamada('.portao-wrap .principal');
+    if (!botao) return;
+    botao.addEventListener('click', () => {
+      if (!podeInstalar) {
+        updateAguardaPermissao = true;
+        try { const bb = bridgeCru(); if (bb && bb.openInstallPermission) bb.openInstallPermission(); } catch (_) { /* sem tela de permissão: o instalador pede */ }
+        return;
+      }
+      iniciarDownloadUpdate();
+    }, { once: true });
+  }
+
+  function iniciarDownloadUpdate() {
+    const b = bridgeCru();
+    if (!updateInfo || !updateInfo.url || !updateInfo.sha256
+      || !b || typeof b.downloadAndInstall !== 'function') {
+      return avisoErro(new Error('Atualização indisponível agora.'));
+    }
+    window.HBXUpdate = {
+      onProgress: (p) => {
+        const v = Math.max(0, Math.min(100, Number(p) || 0));
+        if (v >= 100) { updateBusy = false; return; }
+        const wrap = naCamada('.portao-wrap');
+        const sub = wrap ? wrap.querySelector('.sub') : null;
+        if (sub) sub.textContent = `Baixando… ${v}%`;
+      },
+      onError: (msg) => { updateBusy = false; avisoErro(new Error(msg || 'Falha ao atualizar.')); },
+    };
+    updateBusy = true;
+    portaoUpdate();
+    try { b.downloadAndInstall(updateInfo.url, updateInfo.sha256, updateInfo.versionName || ''); }
+    catch (_) { updateBusy = false; avisoErro(new Error('Não consegui iniciar a atualização.')); }
+  }
+
+  async function checkAppUpdate(forcado) {
+    if (!forcado && Date.now() - updateCheckEm < 1800000) return;   // 30 min
+    const b = bridgeCru();
+    if (!b || typeof b.downloadAndInstall !== 'function') return;   // nativo antigo: sem auto-update
+    const info = (window.HBX && window.HBX.info && window.HBX.info()) || {};
+    const base = String(info.webBaseUrl || '').replace(/\/+$/, '');
+    const meu = Number(info.versionCode || 0);
+    if (!base || !meu) return;
+    updateCheckEm = Date.now();
+    let v;
+    try {
+      const r = await fetch(`${base}/downloads/version-logistica.json`, { cache: 'no-store' });
+      if (!r.ok) return;
+      v = await r.json();
+    } catch (_) { return; }
+    if (!v || !(Number(v.versionCode) > meu)) return;
+    updateInfo = {
+      versionName: v.versionName || '', versionCode: Number(v.versionCode),
+      url: v.url || '', sha256: v.sha256 || '', obrigatoria: !!v.obrigatoria,
+    };
+    // avisa 1x por versionCode; obrigatória e toque manual furam a memória
+    const jaAvisado = Number((window.HBX.cache && window.HBX.cache.get('update-avisado', 0)) || 0);
+    if (!updateInfo.obrigatoria && !forcado && updateInfo.versionCode <= jaAvisado) return;
+    if (!updateInfo.obrigatoria && window.HBX.cache) window.HBX.cache.set('update-avisado', updateInfo.versionCode);
+    portaoUpdate();
+  }
+
+  const retomarPosPermissao = () => {
+    if (!updateAguardaPermissao) return;
+    const b = bridgeCru();
+    const ok = b && typeof b.updateInstallAllowed === 'function' ? !!b.updateInstallAllowed() : true;
+    if (ok) { updateAguardaPermissao = false; iniciarDownloadUpdate(); }
+  };
+  window.addEventListener('focus', () => { retomarPosPermissao(); checkAppUpdate(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') { retomarPosPermissao(); checkAppUpdate(); }
+  });
+
+  /* ------------------------------------------------------------------------
      3. TECLADO NUNCA COBRE CAMPO NEM BOTÃO (Lei 4).
      O WebView não encolhe sozinho: quem sabe a altura real é a `visualViewport`.
      A folha usa `--teclado` pra empurrar o que precisa; a classe é o sinal.
@@ -640,7 +746,7 @@
   window.addEventListener('focus', carregarBarra);
   setInterval(carregarBarra, 60000);
 
-  const cargaInicial = () => { apagarDemonstracao(); carregarBarra(); carregarRota(); carregarRecados(); };
+  const cargaInicial = () => { apagarDemonstracao(); carregarBarra(); carregarRota(); carregarRecados(); checkAppUpdate(); };
   document.addEventListener('DOMContentLoaded', cargaInicial);
   if (document.readyState !== 'loading') setTimeout(cargaInicial, 0);
 
