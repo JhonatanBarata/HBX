@@ -169,6 +169,14 @@ export class UpdateContaDto {
   @MaxLength(160)
   nome?: string;
 
+  // CPF/CNPJ do cliente — OPCIONAL por ordem do dono (07/08): a ficha do app
+  // mostra e deixa editar, mas nunca cobra. Sem esta porta o campo aceitava
+  // digitação e não salvava, que é pior que campo ausente.
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  document?: string;
+
   @IsOptional()
   @IsIn(['pf', 'pj'])
   tipo?: 'pf' | 'pj';

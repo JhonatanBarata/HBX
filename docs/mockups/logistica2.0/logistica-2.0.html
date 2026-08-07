@@ -1779,8 +1779,9 @@ const DADOS={
      `selo` é o cartão do canto ("Tudo certo!"); as formas são o caixa do dia. */
   caderneta:{
     entregues:'6', selo:'Tudo certo!',
-    formaDinheiro:'R$ 132,00', formaPix:'R$ 52,00', formaCartao:'R$ 84,00',
-    formaFiado:'R$ 68,00', formaTotal:'R$ 336,00',
+    formas:[['cash','var(--lime)','Dinheiro','R$ 132,00'],['pix','var(--blue-l)','Pix','R$ 52,00'],
+            ['card','var(--purple)','Cartão','R$ 84,00'],['note','var(--amber)','Caderneta','R$ 68,00']],
+    formaTotal:'R$ 336,00',
     clientes:'14', produtos:'20', marcado:'R$ 336,00',
   },
   /* A SEMANA. `dias` é [dia, data, vendas, produtos, recebido, marcado]; slot sem
@@ -1984,11 +1985,11 @@ T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
   <div class="kpis">
     <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${DADOS.rota.kpiParadas}</b><span class="l">paradas</span></span></div>
     <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">${emCurso?DADOS.rota.kpiEntregues:DADOS.rota.kpiEntreguesParado}</b><span class="l">entregues</span></span></div>
-    <div class="kpi money"><span class="l">Saldo</span><b class="v">${DADOS.rota.saldo}</b><span class="go">${ic('chev',15)}</span></div>
-    <div class="kpi split">
-      <span class="ln"><span style="color:var(--lime)">${ic('cash',16)}</span><span><span class="t" style="color:var(--lime)">Dinheiro</span><span class="m">${DADOS.rota.dinheiro}</span></span></span>
-      <span class="ln"><span style="color:var(--blue-l)">${ic('pix',16)}</span><span><span class="t" style="color:var(--blue-l)">Pix</span><span class="m">${DADOS.rota.pix}</span></span></span>
-    </div>
+    ${DADOS.rota.saldo?`<div class="kpi money"><span class="l">Saldo</span><b class="v">${DADOS.rota.saldo}</b><span class="go">${ic('chev',15)}</span></div>`:''}
+    ${(DADOS.rota.dinheiro||DADOS.rota.pix)?`<div class="kpi split">
+      ${DADOS.rota.dinheiro?`<span class="ln"><span style="color:var(--lime)">${ic('cash',16)}</span><span><span class="t" style="color:var(--lime)">Dinheiro</span><span class="m">${DADOS.rota.dinheiro}</span></span></span>`:''}
+      ${DADOS.rota.pix?`<span class="ln"><span style="color:var(--blue-l)">${ic('pix',16)}</span><span><span class="t" style="color:var(--blue-l)">Pix</span><span class="m">${DADOS.rota.pix}</span></span></span>`:''}
+    </div>`:''}
   </div>
   ${e==='semsinal'?`<div class="banner alerta">${ic('alert',16)}<span><b>Sem sinal.</b> A rota está guardada no aparelho.</span><button>Sincronizar</button></div>`:''}
   ${pausada?`<div class="banner pausa">${ic('pause',16)}<span><b>Rota pausada.</b> Os dados ficam guardados.</span></div>`:''}
@@ -2019,11 +2020,11 @@ ${hdr({})}
   <div class="kpis">
     <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${DADOS.rota.kpiParadas}</b><span class="l">paradas</span></span></div>
     <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">6</b><span class="l">entregues</span></span></div>
-    <div class="kpi money"><span class="l">Saldo</span><b class="v">${DADOS.rota.saldo}</b><span class="go">${ic('chev',15)}</span></div>
-    <div class="kpi split">
-      <span class="ln"><span style="color:var(--lime)">${ic('cash',16)}</span><span><span class="t" style="color:var(--lime)">Dinheiro</span><span class="m">${DADOS.rota.dinheiro}</span></span></span>
-      <span class="ln"><span style="color:var(--blue-l)">${ic('pix',16)}</span><span><span class="t" style="color:var(--blue-l)">Pix</span><span class="m">${DADOS.rota.pix}</span></span></span>
-    </div>
+    ${DADOS.rota.saldo?`<div class="kpi money"><span class="l">Saldo</span><b class="v">${DADOS.rota.saldo}</b><span class="go">${ic('chev',15)}</span></div>`:''}
+    ${(DADOS.rota.dinheiro||DADOS.rota.pix)?`<div class="kpi split">
+      ${DADOS.rota.dinheiro?`<span class="ln"><span style="color:var(--lime)">${ic('cash',16)}</span><span><span class="t" style="color:var(--lime)">Dinheiro</span><span class="m">${DADOS.rota.dinheiro}</span></span></span>`:''}
+      ${DADOS.rota.pix?`<span class="ln"><span style="color:var(--blue-l)">${ic('pix',16)}</span><span><span class="t" style="color:var(--blue-l)">Pix</span><span class="m">${DADOS.rota.pix}</span></span></span>`:''}
+    </div>`:''}
   </div>
   <div class="bar"><span class="t">${ic('list',17)} Sua rota de hoje</span>
     <button class="ghost" data-ir="mapa">${ic('map',15)} Ver mapa</button></div>
@@ -2280,18 +2281,15 @@ ${hdr({})}
         <small style="font-size:11px;color:var(--ink-2)">Confira seu resumo e feche o dia</small></span></span>
     <span class="pill mute">${d.selo} ${ic('check',14)}</span>
   </div>
-  <div class="forms">
-    <div class="form-c"><span style="color:var(--lime)">${ic('cash',19)}</span><small>Dinheiro</small><b>${d.formaDinheiro}</b></div>
-    <div class="form-c"><span style="color:var(--blue-l)">${ic('pix',19)}</span><small>Pix</small><b>${d.formaPix}</b></div>
-    <div class="form-c"><span style="color:var(--purple)">${ic('card',19)}</span><small>Cartão</small><b>${d.formaCartao}</b></div>
-    <div class="form-c"><span style="color:var(--amber)">${ic('note',19)}</span><small>Caderneta</small><b>${d.formaFiado}</b></div>
-    <div class="form-c total"><small style="margin-top:0">Total</small><b>${d.formaTotal}</b></div>
-  </div>
-  <div class="sum">
-    <span class="c"><span style="color:var(--ink-2)">${ic('users',17)}</span><span><b>${d.clientes}</b><small>clientes</small></span></span>
-    <span class="c"><span style="color:var(--ink-2)">${ic('box',17)}</span><span><b>${d.produtos}</b><small>produtos</small></span></span>
-    <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>${d.marcado}</b><small>marcado</small></span></span>
-  </div>
+  ${(d.formas.length||d.formaTotal)?`<div class="forms">
+    ${d.formas.map(f=>`<div class="form-c"><span style="color:${f[1]}">${ic(f[0],19)}</span><small>${f[2]}</small><b>${f[3]}</b></div>`).join('')}
+    ${d.formaTotal?`<div class="form-c total"><small style="margin-top:0">Total</small><b>${d.formaTotal}</b></div>`:''}
+  </div>`:''}
+  ${(d.clientes||d.produtos||d.marcado)?`<div class="sum">
+    ${d.clientes?`<span class="c"><span style="color:var(--ink-2)">${ic('users',17)}</span><span><b>${d.clientes}</b><small>clientes</small></span></span>`:''}
+    ${d.produtos?`<span class="c"><span style="color:var(--ink-2)">${ic('box',17)}</span><span><b>${d.produtos}</b><small>produtos</small></span></span>`:''}
+    ${d.marcado?`<span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>${d.marcado}</b><small>marcado</small></span></span>`:''}
+  </div>`:''}
   <div class="acts">
     <button class="act go" style="justify-content:center" data-acao="fechar-dia">${ic('check',19)}<b>Fechar o dia</b></button>
     <button class="act" style="justify-content:center" data-ir="semana">${ic('chart',17)}<b>Ver detalhes</b></button>
@@ -2329,7 +2327,7 @@ ${hdr({})}
     <h2 style="margin:0;font-size:20px;font-weight:500">Histórico da semana</h2>
     <button class="round sm" style="position:absolute;right:0" data-ir="caderneta">${ic('close',15)}</button></div>
   ${DADOS.semana.dias.map(l=>dia(l[0],l[1],l[2],l[3],l[4],l[5])).join('')}
-  <div class="box" style="margin-top:9px">
+  ${DADOS.semana.marcado?`<div class="box" style="margin-top:9px">
     <div class="box-t" style="margin-bottom:7px">Resumo da semana</div>
     <div style="display:flex;align-items:center">
       <span style="flex:1;border-right:.7px solid var(--line)"><small style="display:block;font-size:10.5px;color:var(--ink-2)">Marcado da semana</small>
@@ -2339,7 +2337,7 @@ ${hdr({})}
       ${DADOS.semana.pendencia?`<span style="flex:1;padding-left:11px"><small style="display:block;font-size:10.5px;color:var(--ink-2)">Pendência</small>
         <b style="font-size:15px;color:var(--amber);font-weight:500">${DADOS.semana.pendencia}</b></span>`:''}
       <span style="color:var(--ink-2);padding-left:5px">${ic('chev',15)}</span></div>
-  </div>
+  </div>`:''}
 </div>
 ${nav('caderneta')}`;}};
 
@@ -2691,9 +2689,9 @@ T.consumo={nome:'Ajustes · Consumo e bônus',grupo:'Ajustes',render(){
   const c=DADOS.consumo;
   return telaAjuste('Consumo e bônus',`
     <div class="kpis" style="margin-top:2px">
-      <div class="kpi"><span style="color:var(--lime)">${ic('card',20)}</span><span><b class="v">${c.saldo}</b><span class="l">saldo</span></span></div>
-      <div class="kpi"><span style="color:var(--ink-2)">${ic('chart',20)}</span><span><b class="v">${c.gastosHoje}</b><span class="l">gastos hoje</span></span></div>
-      <div class="kpi"><span style="color:var(--lime)">${ic('spark',20)}</span><span><b class="v">${c.bonus}</b><span class="l">de bônus</span></span></div>
+      ${c.saldo?`<div class="kpi"><span style="color:var(--lime)">${ic('card',20)}</span><span><b class="v">${c.saldo}</b><span class="l">saldo</span></span></div>`:''}
+      ${c.gastosHoje?`<div class="kpi"><span style="color:var(--ink-2)">${ic('chart',20)}</span><span><b class="v">${c.gastosHoje}</b><span class="l">gastos hoje</span></span></div>`:''}
+      ${c.bonus?`<div class="kpi"><span style="color:var(--lime)">${ic('spark',20)}</span><span><b class="v">${c.bonus}</b><span class="l">de bônus</span></span></div>`:''}
     </div>
     <div class="grupo">Movimento</div>
     <div class="extrato">
@@ -2947,10 +2945,9 @@ ${hdr({voltar:'clientes',semChat:1})}
     <label class="campo"><label>Nome</label><input value="${f.nome}" data-campo="nome"></label>
     <div class="dupla">
       <label class="campo"><label>Telefone / WhatsApp</label><input value="${f.telefone}" data-campo="telefone"></label>
-      <!-- CPF é SÓ LEITURA: o UpdateContaDto do backend não tem porta pra
-           gravar documento. Campo que aceita digitação e não salva é pior que
-           campo ausente — então ele MOSTRA, e não promete. -->
-      <label class="campo"><label>CPF</label><input placeholder="000.000.000-00" value="${f.cpf}" data-campo="cpf" readonly></label>
+      <!-- CPF edita e salva (porta aberta em 07/08 no UpdateContaDto), e NUNCA
+           é obrigatório: ficha sem CPF salva igual. -->
+      <label class="campo"><label>CPF</label><input placeholder="000.000.000-00" value="${f.cpf}" data-campo="cpf"></label>
     </div>
   </div>
 

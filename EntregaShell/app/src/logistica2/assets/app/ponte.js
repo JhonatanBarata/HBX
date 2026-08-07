@@ -249,6 +249,14 @@
   }
 
   const centavos = (c) => (typeof c === 'number' && isFinite(c) ? dinheiro(c / 100) : '');
+  /* 🔴 LEI DO IF (ordem do dono, 07/08): NADA aparece sem informação.
+     Zero NÃO é informação numa quebra por forma de pagamento — se todo mundo
+     pagou no pix, a tela mostra só Pix. Estes dois convertem "nada" em VAZIO,
+     e o vazio faz o slot sumir no template. Cuidado deliberado: isto vale pra
+     RECORTE (quanto entrou em cada forma), não pra medida principal — "0
+     paradas hoje" continua sendo um fato que o motorista precisa ler. */
+  const seTiver = (v) => (v ? String(v) : '');
+  const centavosSeTiver = (c) => (typeof c === 'number' && isFinite(c) && c !== 0 ? dinheiro(c / 100) : '');
 
   async function carregarRota() {
     if (!temPonte() || typeof window.usarDados !== 'function') return;
@@ -299,9 +307,9 @@
       // falha). ⚠️ Já a fonte FORA DO AR mantém o que estava: apagar o caixa
       // por causa de rede ruim é pior que mostrar o número de um minuto atrás.
       ...(caixaR.status === 'fulfilled' ? {
-        saldo: caixa && caixa.fechamento ? centavos(caixa.fechamento.totalCents) : '',
-        dinheiro: formas ? centavos(formas.dinheiroCents) : '',
-        pix: formas ? centavos(formas.pixCents) : '',
+        saldo: caixa && caixa.fechamento ? centavosSeTiver(caixa.fechamento.totalCents) : '',
+        dinheiro: formas ? centavosSeTiver(formas.dinheiroCents) : '',
+        pix: formas ? centavosSeTiver(formas.pixCents) : '',
       } : {}),
       // crédito é NÚMERO INTEIRO, nunca moeda (lei da casa) — e também não
       // apaga por falha de rede.
@@ -780,9 +788,10 @@
       linhas.push(['mais', esc(b.titulo || 'Bônus'), esc(b.quando || ''), String(b.creditos || 0)]);
     });
     window.usarDados('consumo', {
-      saldo: typeof e.balanceCredits === 'number' ? String(e.balanceCredits) : '',
-      gastosHoje: typeof uso.hoje === 'number' ? String(uso.hoje) : '',
-      bonus: typeof tot.bonusCredits === 'number' ? String(tot.bonusCredits) : '',
+      // Crédito é NÚMERO INTEIRO, nunca moeda — e zero some, como todo recorte.
+      saldo: seTiver(e.balanceCredits),
+      gastosHoje: seTiver(uso.hoje),
+      bonus: seTiver(tot.bonusCredits),
       linhas,
       vazio: 'Nenhum movimento neste mês',
     });
@@ -1136,7 +1145,7 @@
      preenche quando o detalhe chega, a foto gravava "" como se fosse escolha do
      usuário, e daí em diante o vazio VENCIA o dado do servidor. CEP, rua e
      bairro sumiram na tela por causa disso. Rascunho nasce de tecla, e ponto. */
-  const CAMPOS_FICHA = ['nome', 'telefone', 'cep', 'rua', 'numero', 'bairro', 'observacoes'];
+  const CAMPOS_FICHA = ['nome', 'telefone', 'cpf', 'cep', 'rua', 'numero', 'bairro', 'observacoes'];
   const CAMPOS_PRODUTO = ['produto-nome', 'produto-unidade', 'produto-preco'];
   /** liga o rascunho de QUALQUER ficha da camada viva (cliente ou produto) */
   function ligarCamposDaFicha() {
@@ -1180,7 +1189,7 @@
       resumo: entregas ? `${entregas} ${entregas === 1 ? 'entrega' : 'entregas'}` : '',
       alerta: pend.map((k) => AVISO_PENDENCIA[k]).filter(Boolean)[0] || '',
       telefone: valorFicha('telefone', d.whatsapp || it.phone),
-      cpf: esc(d.document),
+      cpf: valorFicha('cpf', d.document),
       cep: valorFicha('cep', loc.cep || d.cep),
       rua: valorFicha('rua', loc.endereco || d.endereco),
       numero: valorFicha('numero', loc.numero != null ? loc.numero : d.numero),
@@ -1220,6 +1229,7 @@
       const loc = ficha.local || {};
       const nome = campo('nome');
       const telefone = campo('telefone');
+      const cpf = campo('cpf');
       const observacoes = campo('observacoes');
       const cep = campo('cep');
       const rua = campo('rua');
@@ -1230,6 +1240,11 @@
       if (nome && nome !== String(d.name || it.name || '')) conta.nome = nome;
       if (observacoes !== String(d.observacoes || '')) conta.observacoes = observacoes;
       if (telefone !== String(d.whatsapp || it.phone || '')) conta.phone = telefone;
+      // 🔴 CPF NUNCA É OBRIGATÓRIO (ordem do dono, 07/08): a ficha salva sem
+      // ele igual. Compara SÓ OS DÍGITOS pra máscara digitada
+      // ("123.456.789-00") não parecer mudança quando nada mudou.
+      const soDigitos = (v) => String(v || '').replace(/\D/g, '');
+      if (soDigitos(cpf) !== soDigitos(d.document)) conta.document = cpf;
 
       const mudouEndereco = cep !== String(loc.cep || '')
         || rua !== String(loc.endereco || '')
@@ -1318,23 +1333,27 @@
       // O selo do canto diz um FATO (quantas vendas), nunca um veredito: o app
       // não tem como saber que está "tudo certo". Sem venda, sem selo.
       selo: vendas ? `${vendas} ${vendas === 1 ? 'venda' : 'vendas'}` : '',
-      formaDinheiro: formas ? centavos(formas.dinheiroCents) : '',
-      formaPix: formas ? centavos(formas.pixCents) : '',
-      formaCartao: formas ? centavos(formas.cartaoCents) : '',
-      formaFiado: formas ? centavos(formas.fiadoCents) : '',
-      formaTotal: f ? centavos(f.totalCents) : '',
-      clientes: clientes != null ? String(clientes) : '',
+      // Só entra a forma que teve dinheiro. Cartão com R$ 0,00 no fechamento
+      // de quem só recebeu em pix é ruído com cara de informação.
+      formas: formas ? [
+        ['cash', 'var(--lime)', 'Dinheiro', centavosSeTiver(formas.dinheiroCents)],
+        ['pix', 'var(--blue-l)', 'Pix', centavosSeTiver(formas.pixCents)],
+        ['card', 'var(--purple)', 'Cartão', centavosSeTiver(formas.cartaoCents)],
+        ['note', 'var(--amber)', 'Caderneta', centavosSeTiver(formas.fiadoCents)],
+      ].filter((x) => x[3]) : [],
+      formaTotal: f ? centavosSeTiver(f.totalCents) : '',
+      clientes: seTiver(clientes),
       // 🔴 PRODUTOS E MARCADO SÃO DA CADERNETA, NÃO DA ROTA. Estavam lendo
       // `DADOS.rota.*` — e aí uma venda de 2 galões aparecia como "0 produtos"
       // porque a ROTA de hoje estava vazia. São duas contas diferentes com o
       // mesmo nome; a desta tela é a das VENDAS da página.
       produtos: pagina && Array.isArray(pagina.vendas)
-        ? String(pagina.vendas.reduce((s, v) => s
+        ? seTiver(pagina.vendas.reduce((s, v) => s
             + (Array.isArray(v.itens) ? v.itens.reduce((n, it) => n + (Number(it.qtd) || 0), 0) : 0), 0))
         : '',
       // "marcado" na língua da caderneta é o que ficou FIADO — o que o cliente
       // levou e não pagou. Sem financeiro não existe conta, e o slot fica vazio.
-      marcado: formas ? centavos(formas.fiadoCents) : '',
+      marcado: formas ? centavosSeTiver(formas.fiadoCents) : '',
     });
 
     const dias = Array.isArray(caixa && caixa.historicoDias) ? caixa.historicoDias : [];
@@ -1348,7 +1367,7 @@
         '',                                        // recebido do dia: idem
         h.totalCents != null ? centavos(h.totalCents).replace('R$ ', '') : '',
       ]),
-      marcado: dias.length ? centavos(totalSemana) : '',
+      marcado: centavosSeTiver(totalSemana),
       recebido: '',
       pendencia: '',
     });

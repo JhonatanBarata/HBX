@@ -1427,6 +1427,9 @@ export class NucleoCadastroService {
       data.searchName = normalizeSearch(data.name);
     }
     if (input.tipo !== undefined) data.tipo = input.tipo === 'pj' ? 'pj' : 'pf';
+    // CPF/CNPJ (07/08): mesma normalização do createConta — só DÍGITOS entram,
+    // e campo apagado vira null em vez de string vazia. Nunca obrigatório.
+    if (input.document !== undefined) data.document = normalizeDigits(input.document) || null;
     if (input.email !== undefined) data.email = input.email || null;
     if (input.phone !== undefined) {
       data.phone = normalizeDigits(input.phone) || null;
@@ -2859,6 +2862,8 @@ export interface ImportContasResult {
 export interface UpdateContaInput {
   nome?: string;
   tipo?: 'pf' | 'pj';
+  /** CPF/CNPJ — opcional (ordem do dono 07/08); guardado só em dígitos. */
+  document?: string | null;
   email?: string | null;
   phone?: string | null;
   endereco?: string | null;
