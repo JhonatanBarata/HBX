@@ -91,7 +91,19 @@
         return true;
       }
     }
+    // O degrau do meio (dono, 07/08: "primeiro fecha por partes... aí volta").
+    // A tela que se entra por dentro carrega a própria volta no cabeçalho (o
+    // botão com `data-ir` do hdr) ou no fechar da folha — o Voltar do Android
+    // CASA com ele: Financeiro→Ajustes, Semana→Caderneta, Ficha→Clientes.
     const tela = telaAtual();
+    if (camada && typeof window.ir === 'function') {
+      const volta = camada.querySelector('.hdr [data-ir], .sheet .round[data-ir]');
+      const destino = volta && volta.dataset ? volta.dataset.ir : '';
+      if (destino && destino !== tela) {
+        window.ir(destino);
+        return true;
+      }
+    }
     if (tela && tela !== 'rota' && typeof window.ir === 'function') {
       window.ir('rota');
       return true;
