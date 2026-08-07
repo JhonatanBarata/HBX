@@ -311,6 +311,9 @@
       somaMarcado: temValor ? dinheiro(marcado) : '',
     });
 
+    // L5 — a caderneta e a semana bebem do MESMO resumo que já veio acima.
+    encherCaderneta(caixa, itens, entregues);
+
     // 🔴 A MONTAGEM SE ENCHE AQUI, não só no toque de "Montar rota". Quem chega
     // nela por outro caminho via a lista do MOCK — João da Silva, R$ 336,00 —
     // com o dado real na tela de trás. Dado de enfeite numa tela de dinheiro é
@@ -565,6 +568,96 @@
   observador.observe(document.getElementById('app') || document.body, { childList: true, subtree: true });
 
   /* ------------------------------------------------------------------------
+     L5 — O FECHAMENTO DO DIA (caderneta) E A SEMANA.
+
+     Tudo sai de UMA porta (`/logistica/caderneta/resumo`), que já era pedida
+     pra encher o caixa do topo da Rota — a caderneta não custa requisição nova.
+     🔴 SEM FONTE, VAZIO: o resumo não traz "produtos por dia" nem o recebido
+     de cada dia da semana (só o total). Esses dois slots do desenho ficam SEM
+     NÚMERO em vez de com zero — zero é uma afirmação, e nesta tela ela seria
+     falsa. Está anotado como pendência pro dono decidir a fonte.
+     ------------------------------------------------------------------------ */
+  const DIAS_SEMANA = ['', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
+  const dataBR = (k) => String(k || '').split('-').reverse().slice(0, 2).join('/');
+  /** ISO: segunda = 1 … domingo = 7, no dia operacional de São Paulo. */
+  const diaDaSemana = () => {
+    const [a, m, d] = diaOperacional().split('-').map(Number);
+    const js = new Date(Date.UTC(a, m - 1, d, 12)).getUTCDay();
+    return js === 0 ? 7 : js;
+  };
+
+  function encherCaderneta(caixa, itens, entregues) {
+    if (typeof window.usarDados !== 'function') return;
+    const f = (caixa && caixa.fechamento) || null;
+    const formas = (f && f.formas) || null;
+    const vendas = f ? Number(f.vendas) || 0 : 0;
+    const pagina = (caixa && caixa.pagina) || null;
+    // "clientes" é gente DISTINTA, não linha de venda — o mesmo cliente comprando
+    // duas vezes é UM cliente. Contar venda aqui inflaria o número do dia.
+    const clientes = pagina && Array.isArray(pagina.vendas)
+      ? new Set(pagina.vendas.map((v) => String(v.clienteId || ''))).size
+      : null;
+    window.usarDados('caderneta', {
+      entregues: String(entregues),
+      // O selo do canto diz um FATO (quantas vendas), nunca um veredito: o app
+      // não tem como saber que está "tudo certo". Sem venda, sem selo.
+      selo: vendas ? `${vendas} ${vendas === 1 ? 'venda' : 'vendas'}` : '',
+      formaDinheiro: formas ? centavos(formas.dinheiroCents) : '',
+      formaPix: formas ? centavos(formas.pixCents) : '',
+      formaCartao: formas ? centavos(formas.cartaoCents) : '',
+      formaFiado: formas ? centavos(formas.fiadoCents) : '',
+      formaTotal: f ? centavos(f.totalCents) : '',
+      clientes: clientes != null ? String(clientes) : '',
+      // 🔴 PRODUTOS E MARCADO SÃO DA CADERNETA, NÃO DA ROTA. Estavam lendo
+      // `DADOS.rota.*` — e aí uma venda de 2 galões aparecia como "0 produtos"
+      // porque a ROTA de hoje estava vazia. São duas contas diferentes com o
+      // mesmo nome; a desta tela é a das VENDAS da página.
+      produtos: pagina && Array.isArray(pagina.vendas)
+        ? String(pagina.vendas.reduce((s, v) => s
+            + (Array.isArray(v.itens) ? v.itens.reduce((n, it) => n + (Number(it.qtd) || 0), 0) : 0), 0))
+        : '',
+      // "marcado" na língua da caderneta é o que ficou FIADO — o que o cliente
+      // levou e não pagou. Sem financeiro não existe conta, e o slot fica vazio.
+      marcado: formas ? centavos(formas.fiadoCents) : '',
+    });
+
+    const dias = Array.isArray(caixa && caixa.historicoDias) ? caixa.historicoDias : [];
+    const totalSemana = dias.reduce((s, h) => s + (Number(h.totalCents) || 0), 0);
+    window.usarDados('semana', {
+      dias: dias.map((h) => [
+        DIAS_SEMANA[Number(h.diaSemana)] || '',
+        dataBR(h.dateKey),
+        String(Number(h.vendas) || 0),
+        '',                                        // produtos: sem fonte no resumo
+        '',                                        // recebido do dia: idem
+        h.totalCents != null ? centavos(h.totalCents).replace('R$ ', '') : '',
+      ]),
+      marcado: dias.length ? centavos(totalSemana) : '',
+      recebido: '',
+      pendencia: '',
+    });
+  }
+
+  /** Fechar o dia: registra a caderneta de hoje e salva nas Rotas salvas. */
+  async function fecharDia() {
+    if (typeof window.portao !== 'function') return;
+    const dia = diaDaSemana();
+    window.portao({
+      tom: 'info', ico: 'lock', titulo: 'Fechar o dia?',
+      sub: `Registrar como ${DIAS_SEMANA[dia]}`,
+      acoes: [['Agora não', ''], ['Fechar o dia', 'principal']], classe: 'duas',
+    });
+    const botao = naCamada('.portao-wrap .principal');
+    if (!botao) return;
+    botao.addEventListener('click', () => comTrava(async () => {
+      try { await window.API.post('/logistica/caderneta/finalizar', { dia }); }
+      catch (e) { return avisoErro(e); }
+      await carregarRota();
+      window.ir('caderneta');
+    }), { once: true });
+  }
+
+  /* ------------------------------------------------------------------------
      8. L4 — A PORTA: chegar, entregar e receber.
 
      Três regras de domínio que NÃO nasceram aqui — vieram do app que já roda:
@@ -772,6 +865,7 @@
     'entregue-marcou': () => confirmarEntrega('fiado'),
     'confirmar-venda': () => confirmarEntrega(''),
     'registrar-nao-entregue': registrarNaoEntregue,
+    'fechar-dia': fecharDia,
   };
   // captura na fase de subida, DEPOIS do mock: quem não é meu segue o caminho dele.
   document.addEventListener('click', (e) => {

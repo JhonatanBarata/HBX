@@ -282,6 +282,28 @@ const DADOS={
     contaItem:'R$ 21,00', contaChegada:'R$ 21,00', lancamento:'R$ 21,00',
     recebido:'R$ 21,00', paraCaderneta:'R$ 21,00', forma:'dinheiro',
   },
+  /* L5 — O FECHAMENTO DO DIA. Literais do template da caderneta, MOVIDOS.
+     `selo` é o cartão do canto ("Tudo certo!"); as formas são o caixa do dia. */
+  caderneta:{
+    entregues:'6', selo:'Tudo certo!',
+    formaDinheiro:'R$ 132,00', formaPix:'R$ 52,00', formaCartao:'R$ 84,00',
+    formaFiado:'R$ 68,00', formaTotal:'R$ 336,00',
+    clientes:'14', produtos:'20', marcado:'R$ 336,00',
+  },
+  /* A SEMANA. `dias` é [dia, data, vendas, produtos, recebido, marcado]; slot sem
+     fonte vai VAZIO e a coluna some — número de enfeite em tela de dinheiro é
+     mentira com cara de app pronto. */
+  semana:{
+    dias:[
+      ['Segunda','04/08','10','32','380,00','420,00'],
+      ['Terça','05/08','11','36','412,00','468,00'],
+      ['Quarta','06/08','9','28','301,00','340,00'],
+      ['Quinta','07/08','12','40','478,00','512,00'],
+      ['Sexta','08/08','13','44','560,00','620,00'],
+      ['Sábado','09/08','8','24','260,00','288,00'],
+    ],
+    marcado:'R$ 2.648,00', recebido:'R$ 2.391,00', pendencia:'R$ 257,00',
+  },
   montagem:{
     titulo:'Montagem de rota', dica:'Segure e arraste para ordenar',
     somaParadas:'6', somaProdutos:'20', somaValor:'R$ 336,00',
@@ -633,23 +655,17 @@ ${hdr({})}
 ${nav('rota')}`;}};
 
 /* 5 — CADERNETA + FECHAMENTO --------------------------------------------- */
-T.caderneta={nome:'Caderneta · fechamento',grupo:'Caderneta',render(){return `${status}
+T.caderneta={nome:'Caderneta · fechamento',grupo:'Caderneta',render(){const d=DADOS.caderneta;return `${status}
 ${hdr({})}
 <div class="body">
   <div class="kpis">
     <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${DADOS.rota.kpiParadas}</b><span class="l">paradas</span></span></div>
-    <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">6</b><span class="l">entregues</span></span></div>
+    <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">${d.entregues}</b><span class="l">entregues</span></span></div>
     <div class="kpi money"><span class="l">Saldo</span><b class="v">${DADOS.rota.saldo}</b><span class="go">${ic('chev',15)}</span></div>
   </div>
   <div class="bar"><span class="t">${ic('list',17)} Paradas de hoje</span>
     <button class="ghost" data-ir="mapa">${ic('map',15)} Ver mapa</button></div>
-  <div class="stops">
-    ${stop({n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['A caminho','blue','nav']})}
-    ${stop({n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',pill:['A caminho','blue','nav']})}
-    ${stop({n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Chegou','lime','check']})}
-    ${stop({n:4,hora:'10:45',cor:'lime',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['Chegou','lime','check']})}
-    ${stop({n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara',tags:[['20L x3','blue'],['Vasilhame']],marcado:'63,00',pill:['Pendente','amber','clock']})}
-  </div>
+  <div class="stops">${listaParadas(false)}</div>
 </div>
 <div class="sheet" style="max-height:52%">
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
@@ -657,22 +673,22 @@ ${hdr({})}
       <span class="round" style="border-color:var(--line-2)">${ic('lock',18)}</span>
       <span><b style="font-size:16px;font-weight:500;display:block">Fechamento do dia</b>
         <small style="font-size:11px;color:var(--ink-2)">Confira seu resumo e feche o dia</small></span></span>
-    <span class="pill mute">Tudo certo! ${ic('check',14)}</span>
+    <span class="pill mute">${d.selo} ${ic('check',14)}</span>
   </div>
   <div class="forms">
-    <div class="form-c"><span style="color:var(--lime)">${ic('cash',19)}</span><small>Dinheiro</small><b>R$ 132,00</b></div>
-    <div class="form-c"><span style="color:var(--blue-l)">${ic('pix',19)}</span><small>Pix</small><b>R$ 52,00</b></div>
-    <div class="form-c"><span style="color:var(--purple)">${ic('card',19)}</span><small>Cartão</small><b>R$ 84,00</b></div>
-    <div class="form-c"><span style="color:var(--amber)">${ic('note',19)}</span><small>Caderneta</small><b>R$ 68,00</b></div>
-    <div class="form-c total"><small style="margin-top:0">Total</small><b>R$ 336,00</b></div>
+    <div class="form-c"><span style="color:var(--lime)">${ic('cash',19)}</span><small>Dinheiro</small><b>${d.formaDinheiro}</b></div>
+    <div class="form-c"><span style="color:var(--blue-l)">${ic('pix',19)}</span><small>Pix</small><b>${d.formaPix}</b></div>
+    <div class="form-c"><span style="color:var(--purple)">${ic('card',19)}</span><small>Cartão</small><b>${d.formaCartao}</b></div>
+    <div class="form-c"><span style="color:var(--amber)">${ic('note',19)}</span><small>Caderneta</small><b>${d.formaFiado}</b></div>
+    <div class="form-c total"><small style="margin-top:0">Total</small><b>${d.formaTotal}</b></div>
   </div>
   <div class="sum">
-    <span class="c"><span style="color:var(--ink-2)">${ic('users',17)}</span><span><b>14</b><small>clientes</small></span></span>
-    <span class="c"><span style="color:var(--ink-2)">${ic('box',17)}</span><span><b>${DADOS.rota.somaProdutos}</b><small>produtos</small></span></span>
-    <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>${DADOS.rota.somaMarcado}</b><small>marcado</small></span></span>
+    <span class="c"><span style="color:var(--ink-2)">${ic('users',17)}</span><span><b>${d.clientes}</b><small>clientes</small></span></span>
+    <span class="c"><span style="color:var(--ink-2)">${ic('box',17)}</span><span><b>${d.produtos}</b><small>produtos</small></span></span>
+    <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>${d.marcado}</b><small>marcado</small></span></span>
   </div>
   <div class="acts">
-    <button class="act go" style="justify-content:center">${ic('check',19)}<b>Fechar o dia</b></button>
+    <button class="act go" style="justify-content:center" data-acao="fechar-dia">${ic('check',19)}<b>Fechar o dia</b></button>
     <button class="act" style="justify-content:center" data-ir="semana">${ic('chart',17)}<b>Ver detalhes</b></button>
   </div>
 </div>
@@ -680,20 +696,26 @@ ${nav('caderneta')}`;}};
 
 /* 6 — HISTÓRICO DA SEMANA ------------------------------------------------- */
 T.semana={nome:'Histórico da semana',grupo:'Caderneta',render(){
+  // Slot sem fonte não vira "R$ 0,00": ele SOME. A linha encolhe e continua
+  // verdadeira — é a diferença entre "não tenho esse número" e "esse número é
+  // zero", e numa tela de dinheiro as duas coisas nunca podem se parecer.
   const dia=(d,dt,cli,prod,rec,mk)=>`<div class="week">
     <span class="d"><strong>${d}</strong><span>${dt}</span></span>
-    <span class="q"><i>${ic('users',14)} <b style="color:var(--ink);font-weight:500">${cli}</b> clientes</i>
-      <i>${ic('box',14)} <b style="color:var(--ink);font-weight:500">${prod}</b> produtos</i></span>
-    <span class="r"><small>Recebido</small><b>R$ ${rec}</b></span>
+    <span class="q">${cli?`<i>${ic('users',14)} <b style="color:var(--ink);font-weight:500">${cli}</b> ${cli==='1'?'venda':'vendas'}</i>`:''}
+      ${prod?`<i>${ic('box',14)} <b style="color:var(--ink);font-weight:500">${prod}</b> produtos</i>`:''}</span>
+    ${rec?`<span class="r"><small>Recebido</small><b>R$ ${rec}</b></span>`:''}
     <span class="mk"><span><small>Marcado</small><b>R$ ${mk}</b></span>${ic('chev',14)}</span></div>`;
   return `${status}
 ${hdr({})}
 <div class="body" style="opacity:.4;pointer-events:none">
   <div class="kpis">
     <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${DADOS.rota.kpiParadas}</b><span class="l">paradas</span></span></div>
-    <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">6</b><span class="l">entregues</span></span></div>
+    <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">${DADOS.caderneta.entregues}</b><span class="l">entregues</span></span></div>
   </div>
-  <div class="stops">${stop({n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['A caminho','blue','nav']})}</div>
+  <!-- O fundo é a tela de trás DESBOTADA, não um enfeite: com parada de maquete
+       aqui, o dono lia "João da Silva" por cima do dinheiro real dele. Fundo
+       também é tela. -->
+  <div class="stops">${listaParadas(false)}</div>
 </div>
 <div class="scrim"></div>
 <div class="sheet" style="max-height:80%">
@@ -701,21 +723,16 @@ ${hdr({})}
   <div style="display:flex;align-items:center;justify-content:center;position:relative;margin-bottom:12px">
     <h2 style="margin:0;font-size:20px;font-weight:500">Histórico da semana</h2>
     <button class="round sm" style="position:absolute;right:0" data-ir="caderneta">${ic('close',15)}</button></div>
-  ${dia('Segunda','04/08','10','32','380,00','420,00')}
-  ${dia('Terça','05/08','11','36','412,00','468,00')}
-  ${dia('Quarta','06/08','9','28','301,00','340,00')}
-  ${dia('Quinta','07/08','12','40','478,00','512,00')}
-  ${dia('Sexta','08/08','13','44','560,00','620,00')}
-  ${dia('Sábado','09/08','8','24','260,00','288,00')}
+  ${DADOS.semana.dias.map(l=>dia(l[0],l[1],l[2],l[3],l[4],l[5])).join('')}
   <div class="box" style="margin-top:9px">
     <div class="box-t" style="margin-bottom:7px">Resumo da semana</div>
     <div style="display:flex;align-items:center">
       <span style="flex:1;border-right:.7px solid var(--line)"><small style="display:block;font-size:10.5px;color:var(--ink-2)">Marcado da semana</small>
-        <b style="font-size:15px;color:var(--lime);font-weight:500">R$ 2.648,00</b></span>
-      <span style="flex:1;padding-left:11px;border-right:.7px solid var(--line)"><small style="display:block;font-size:10.5px;color:var(--ink-2)">Recebido</small>
-        <b style="font-size:15px;color:var(--blue-l);font-weight:500">R$ 2.391,00</b></span>
-      <span style="flex:1;padding-left:11px"><small style="display:block;font-size:10.5px;color:var(--ink-2)">Pendência</small>
-        <b style="font-size:15px;color:var(--amber);font-weight:500">R$ 257,00</b></span>
+        <b style="font-size:15px;color:var(--lime);font-weight:500">${DADOS.semana.marcado}</b></span>
+      ${DADOS.semana.recebido?`<span style="flex:1;padding-left:11px;border-right:.7px solid var(--line)"><small style="display:block;font-size:10.5px;color:var(--ink-2)">Recebido</small>
+        <b style="font-size:15px;color:var(--blue-l);font-weight:500">${DADOS.semana.recebido}</b></span>`:''}
+      ${DADOS.semana.pendencia?`<span style="flex:1;padding-left:11px"><small style="display:block;font-size:10.5px;color:var(--ink-2)">Pendência</small>
+        <b style="font-size:15px;color:var(--amber);font-weight:500">${DADOS.semana.pendencia}</b></span>`:''}
       <span style="color:var(--ink-2);padding-left:5px">${ic('chev',15)}</span></div>
   </div>
 </div>
