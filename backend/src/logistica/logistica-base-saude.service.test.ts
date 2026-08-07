@@ -151,9 +151,9 @@ test('MESMA PORTA (mesmo número, sem apartamento): vira endereco_repetido nos d
   assert.deepEqual(cli2.motivos, ['endereco_repetido']);
   assert.equal(cli1.semaforo, 'vermelho');
   assert.equal(cli2.semaforo, 'vermelho');
-  assert.deepEqual(cli1.mesmaPortaCom, ['Bruno']);
+  assert.deepEqual(cli1.mesmaPortaCom, [{ id: 'cli-2', nome: 'Bruno' }]);
   assert.equal(cli1.mesmaPortaComTotal, 1);
-  assert.deepEqual(cli2.mesmaPortaCom, ['Ana']);
+  assert.deepEqual(cli2.mesmaPortaCom, [{ id: 'cli-1', nome: 'Ana' }]);
 });
 
 test('PRÉDIO (mesma porta, apartamentos DIFERENTES): ninguém é acusado — é condomínio, não defeito', async () => {
@@ -195,7 +195,7 @@ test('endereço repetido vale SEM PINO NENHUM: duas contas na mesma porta, ambas
   const nino = resultado.clientes.find((c) => c.id === 'cli-14')!;
   assert.ok(mara.motivos.includes('endereco_repetido'));
   assert.ok(nino.motivos.includes('endereco_repetido'));
-  assert.deepEqual(mara.mesmaPortaCom, ['Nino']);
+  assert.deepEqual(mara.mesmaPortaCom, [{ id: 'cli-14', nome: 'Nino' }]);
 });
 
 test('VERMELHO significa "preciso de você": quem se resolve na próxima entrega é amarelo', async () => {

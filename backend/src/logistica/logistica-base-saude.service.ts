@@ -312,11 +312,13 @@ export class LogisticaBaseSaudeService {
         localId: local?.id ?? null,
         localApelido: local?.apelido ?? null,
         resolveSozinho,
-        // Teto de nomes: uma porta pode ter várias contas penduradas; mandar todas é
-        // payload inútil — a tela escreve "e mais N".
+        // Teto: uma porta pode ter várias contas penduradas; mandar todas é payload
+        // inútil — a tela escreve "e mais N". O ID vai junto desde 06/08 porque a
+        // ficha oferece JUNTAR OS CADASTROS ali mesmo (merge preserva as entregas das
+        // duas contas), e sem o id do gêmeo o dono teria que caçá-lo na mão.
         mesmaPortaCom: naMesmaPorta
           .slice(0, TETO_NOMES_MESMO_PONTO)
-          .map((id) => clientePorId.get(id)?.name || 'Cliente'),
+          .map((id) => ({ id, nome: clientePorId.get(id)?.name || 'Cliente' })),
         mesmaPortaComTotal: naMesmaPorta.length,
       };
     });
@@ -352,9 +354,10 @@ export interface BaseSaudeCliente {
    *  marca por linha os mesmos clientes já contados em `resolvemSozinhos`, pra
    *  o front destacar a linha sem precisar recalcular a regra sozinho. */
   resolveSozinho: boolean;
-  /** Nomes (até 5) das outras contas na MESMA PORTA — mesmo número, sem apartamento
-   *  que as separe. Vazio quando o cliente não tem `endereco_repetido`. */
-  mesmaPortaCom: string[];
+  /** As outras contas (até 5) na MESMA PORTA — mesmo número, sem apartamento que as
+   *  separe. Vazio quando o cliente não tem `endereco_repetido`. Com ID, porque a
+   *  tela resolve ali: informa o apartamento OU junta os cadastros. */
+  mesmaPortaCom: Array<{ id: string; nome: string }>;
   mesmaPortaComTotal: number;
 }
 

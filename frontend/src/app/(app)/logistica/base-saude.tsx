@@ -41,7 +41,7 @@ type BaseSaudeCliente = {
   localApelido: string | null;
   resolveSozinho: boolean;
   /** Outras contas na MESMA PORTA (mesmo número, sem apartamento que as separe). */
-  mesmaPortaCom?: string[];
+  mesmaPortaCom?: Array<{ id: string; nome: string }>;
   mesmaPortaComTotal?: number;
 };
 
@@ -149,7 +149,7 @@ function listaDeNomes(nomes: string[], total: number): string {
 /** O título do motivo já com o NOME de quem está junto, quando existe. */
 function tituloDoMotivo(motivo: Motivo, cliente: BaseSaudeCliente): string {
   if (motivo === "endereco_repetido") {
-    const nomes = listaDeNomes(cliente.mesmaPortaCom ?? [], cliente.mesmaPortaComTotal ?? 0);
+    const nomes = listaDeNomes((cliente.mesmaPortaCom ?? []).map((g) => g.nome), cliente.mesmaPortaComTotal ?? 0);
     return nomes ? `Mesmo endereço de ${nomes}` : MOTIVO_LABEL[motivo];
   }
   return MOTIVO_LABEL[motivo] || motivo;
@@ -232,6 +232,8 @@ export function BaseSaude() {
   const [resolvendo, setResolvendo] = useState(false);
   const [resolvidoParcial, setResolvidoParcial] = useState(0);
   const [limpando, setLimpando] = useState(false);
+  const [juntando, setJuntando] = useState(false);
+  const complementoRef = useRef<HTMLInputElement | null>(null);
   const [previa, setPrevia] = useState<LimpezaResult | null>(null);
   const filtroPill = useGlassPill<HTMLButtonElement>(filtro);
 
@@ -388,6 +390,36 @@ export function BaseSaude() {
       setLimpando(false);
     }
   }, [limpando, load]);
+
+  /**
+   * "É o mesmo cliente" — JUNTA os dois cadastros (merge do núcleo), que migra as
+   * entregas/telefones/planos pro vencedor e arquiva o perdedor com snapshot. É a
+   * saída certa pro par que é a MESMA pessoa cadastrada duas vezes: apagar um deles
+   * perderia o histórico dele, e foi por isso que a faxina automática não encosta
+   * em quem tem movimento.
+   */
+  const juntarCadastros = useCallback(async (alvo: BaseSaudeCliente, gemeo: { id: string; nome: string }) => {
+    if (juntando) return;
+    const nome = alvo.nome || "este cliente";
+    if (typeof window !== "undefined"
+      && !window.confirm(`Juntar "${nome}" e "${gemeo.nome}" num cadastro só? As entregas e telefones dos dois ficam juntos, e nada é perdido.`)) return;
+    setJuntando(true);
+    setDetalheError(null);
+    try {
+      // O MAIS NOVO manda (regra do dono): o gêmeo entra no cliente aberto.
+      await apiFetch(`/nucleo/contas/${encodeURIComponent(gemeo.id)}/merge`, {
+        method: "POST",
+        body: JSON.stringify({ into: alvo.id, motivo: "Mesmo endereço: cadastro repetido" }),
+      });
+      setMensagem(`"${gemeo.nome}" virou o mesmo cadastro de "${nome}".`);
+      setSelecionadoId(alvo.id);
+      await load(true);
+    } catch (err: unknown) {
+      setDetalheError(humanError(err, "Não foi possível juntar os cadastros."));
+    } finally {
+      setJuntando(false);
+    }
+  }, [juntando, load]);
 
   const locais = useMemo(
     () => (detalheAtual?.locais ?? []).filter((local) => local.ativo !== false),
@@ -770,6 +802,32 @@ export function BaseSaude() {
                             >
                               <b>{tituloDoMotivo(motivo, clienteSelecionado)}</b>
                               {MOTIVO_AJUDA[motivo] ? <small>{MOTIVO_AJUDA[motivo]}</small> : null}
+                              {/* AS DUAS SAÍDAS (06/08): o sistema não pode escolher
+                                  entre "é apartamento" e "é o mesmo cliente" — mas o
+                                  dono escolhe em 1 clique, sem caçar o gêmeo na mão. */}
+                              {motivo === "endereco_repetido" && (clienteSelecionado.mesmaPortaCom ?? []).length > 0 && (
+                                <span className="log-saude__pendencia-acoes">
+                                  <button
+                                    type="button"
+                                    className="btn-ghost btn-xs"
+                                    onClick={() => complementoRef.current?.focus()}
+                                    disabled={juntando}
+                                  >
+                                    É outro apartamento
+                                  </button>
+                                  {(clienteSelecionado.mesmaPortaCom ?? []).map((gemeo) => (
+                                    <button
+                                      key={gemeo.id}
+                                      type="button"
+                                      className="btn-ghost btn-xs"
+                                      onClick={() => void juntarCadastros(clienteSelecionado, gemeo)}
+                                      disabled={juntando}
+                                    >
+                                      {juntando ? "Juntando…" : `É o mesmo cliente que ${gemeo.nome} — juntar`}
+                                    </button>
+                                  ))}
+                                </span>
+                              )}
                             </li>
                           ))}
                       </ul>
@@ -794,6 +852,7 @@ export function BaseSaude() {
                       <label className="log-agenda-form__field">
                         <span>Complemento</span>
                         <input
+                          ref={complementoRef}
                           className="field-dark"
                           value={draft.complemento}
                           onChange={(event) => setCampo("complemento", event.target.value)}
