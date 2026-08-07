@@ -232,5 +232,98 @@ Celular: moto g15 serial `ZF5255SMWF` (é do DONO, não do André — o e13 é o
 ## 6. ⬜ DECISÕES DO DONO AINDA ABERTAS
 1. OFFHBX: R$500 como descrito, ou a alternativa da conta congelada (§2.5)?
 2. Preço/limite da automação do Prospector no /master.
-3. Aprovar o novo HTML preview do GPS (§2.3) antes de virar código.
+3. ~~Aprovar o novo HTML preview do GPS (§2.3) antes de virar código~~ → virou o §7.6: o chat
+   "mock rota" está fechando o `gps-ruas-prospector-v4.html` com o dono AGORA; o resultado final
+   dele é a referência aprovada.
 4. Nome comercial da feature (o toggle está "Prospector CNPJ"; sugestão de marketing: "Radar de Rota").
+
+---
+
+## 7. 🔴 A NOITE DE 07/08 — GO dado no chat, execução AUTÔNOMA (dono ausente)
+
+> Brainstorm fechado com o dono em 07/08 à noite. As decisões abaixo são DELE, no chat — não re-perguntar.
+> **Regra de autonomia (ordem literal do dono):** qualquer impedimento → decide com a melhor
+> recomendação e segue; se for muito impeditivo → pula pro próximo item. No fim, resumo SUPER
+> simples em 2 listas: `IMPOSSÍVEL SOZINHO: …` e `TOMEI DECISÃO: …` (no chat E no fim deste
+> arquivo). Depois do resumo: **desligar o computador** (`shutdown /s /t 120`). É a última ação.
+
+### 7.0 Decisões fechadas pelo dono (07/08, chat)
+| Decisão | Resposta dele |
+|---|---|
+| Barra de baixo | **3 módulos fixos: Chat (esq) · Rota (centro) · Ajustes (dir)**. Clientes, Produtos e Caderneta SAEM da barra. |
+| Caderneta completa | Abre pelo **caixa do topo da Rota** (1 toque) **e** por entrada em **Ajustes** (grupo Caderneta). Caderneta é dinheiro, não cadastro. |
+| Clientes + Produtos | **Ajustes › grupo "Cadastro"** (a tela de Ajustes já é em grupos; nasce mais um). |
+| Gráficos do GPS | O chat "mock rota" fecha o `gps-ruas-prospector-v4.html` em breve. **NÃO começar por isso**; é a ÚLTIMA etapa, usando o RESULTADO FINAL do chat, injetado 100% igual. |
+| Publish | **AUTORIZADO** com portões verdes (casca 62/62 · typecheck Webwhats · fiscal/clip · toque no g15 ok). Portão vermelho = NÃO publica e o resumo explica. |
+| Desligar o PC | Sim, no fim, depois do resumo. |
+
+### 7.1 Piscar da tela — causa MEDIDA, freio no seam
+`carregarBarra` roda a cada 60 s + a cada foco (`ponte.js:625`) e escreve no seam MESMO SEM
+MUDANÇA; `usarDados` repinta a tela inteira a cada escrita (`logistica-2.0.html:2565`, `pintar`
+troca o DOM todo). Resultado: repinte por minuto na cara do motorista = "a tela fica piscando".
+**Conserto (um só, central):** `usarDados` compara o valor novo com o que já está em `DADOS[secao]`
+(raso; arrays/objetos por JSON) e **não repinta se nada mudou**. Protege todas as telas de uma vez.
+Prova: app aberto 3+ min parado na Rota sem UM repinte (medir por marcador no DOM, e no g15).
+
+### 7.2 Chips de dia em Clientes — só dia que TEM gente
+Os 7 chips são cravados na fonte (`logistica-2.0.html:3248`). O dono: *"não tem terça nem domingo
+nas rotas, e ainda está aparecendo"*. A lista já traz `diasEntrega` por cliente (ponte).
+**Conserto:** a ponte publica no seam o conjunto de dias com ≥1 cliente; o mock só desenha esses
+chips. Dia selecionado que ficou sem gente → seleção volta pra "todos". Marcou o 1º cliente na
+terça → chip Ter nasce sozinho.
+
+### 7.3 Montar rota de OUTRO dia (adiantar sábado / refazer ontem) — trilho JÁ EXISTE
+O celular só monta HOJE (`ponte.js:666`). O desktop já faz o certo:
+`POST /logistica/admin-route/prepare` com `{ operationalDate: hoje, sourceDates: [data do outro dia] }`
+(`route-builder.tsx:700`, `admin-logistica-api.ts:112`) — **o dia operacional continua HOJE**
+(caderneta, cobrança e carimbo coerentes); só os clientes vêm do outro dia. **Zero backend novo.**
+**Conserto no app:** no fluxo "Montar rota", uma linha de chips de dia (Hoje selecionado; Ontem;
+dias da semana que têm cliente). Dia ≠ hoje → chama `admin-route/prepare`; hoje → fluxo atual.
+Só pra admin (mesma régua do desktop; `DADOS.ajustes.admin` já existe). Quem debita continua
+sendo SÓ o Iniciar.
+
+### 7.4 Reorganização — barra 3 fixos + Ajustes›Cadastro
+1. `NAV_ITENS` → `[chat, rota, ajustes]` (nesta ordem visual: Chat esq, Rota centro, Ajustes dir).
+2. `moduloDesligado`: **rota e ajustes NUNCA desligam** (ajustes é a porta de tudo agora); o CSV
+   `appModulosDesativados` continua valendo pra chat e pros atalhos/entradas de Clientes/Produtos/
+   Caderneta (o `podarDesligados` por `data-ir` já cobre — conferir).
+3. Ajustes ganha grupo **"Cadastro"**: linha Clientes (`ir-clientes`) + linha Produtos
+   (`ir-produtos`). Grupo "Caderneta" ganha linha "Abrir caderneta" além da chave do modo.
+4. Caixa do topo da Rota → toque abre a caderneta completa (se ainda não abrir).
+5. Telas Clientes/Produtos/Caderneta continuam EXISTINDO (T.clientes etc.); mudam de porta de
+   entrada: header com voltar pra quem chamou; barra acende `ajustes` (Clientes/Produtos) e
+   `rota` quando a caderneta vier do caixa. O fluxo "na parada o cliente pediu outro produto"
+   NÃO passa pela tela Produtos da barra — conferir que continua vivo.
+6. Arrastar entre módulos (`arrastarModulo`) passa a circular pelos 3.
+7. Portões da casca: 31 telas continuam 31 (nenhuma tela nasce/morre — muda navegação).
+
+### 7.5 Itens do plano-base que entram na mesma noite (ordem do §3 continua valendo)
+- **Voltar do Android em pilha** (§2.1 — pedido nº1): camada → tela → Rota → aviso → sai.
+  O Kotlin pergunta ao JS se há camada aberta antes de decidir.
+- **"Iniciar rota" calado** (§1.3): rota já ativa → leva pra ela ou diz o motivo.
+- **Varredura app antigo × novo** (§2.2): inventário por agente de busca; reconectar o que o dono
+  não aprovou remover.
+- **Prospector F2/F3** (§3 etapa B): código FINANCEIRO — eu mesmo edito + verificação adversarial.
+  Se a noite não der, fica aqui com moradia (não é "fica pra depois" solto).
+
+### 7.6 ÚLTIMA ETAPA — gráficos do GPS 100% iguais ao mock rota
+Quando chegar aqui, conferir se o chat "mock rota" terminou (sessão parada + `git status` do
+`docs/mockups/logistica2.0/gps-ruas-prospector-v4.html` estável). Terminou → injetar o visual na
+tela de navegação do app **100% igual ao mock**: empresas coladas na rua (sem voar), acende ANTES
+de chegar e apaga depois que passou, ponteiro colado no bottom, descida 2D→3D sem piscar, zoom do
+mock. Leis da casca valem: cor vira token, contraste medido nos 2 modos, slot sem fonte some.
+Ainda rodando → seguir com o resto, re-conferir no fim; se não fechar, entra no resumo como
+`IMPOSSÍVEL SOZINHO: mock rota não terminou — injeção fica pra próxima sessão com este §7.6`.
+
+### 7.7 Ordem de execução da noite (mais leve primeiro, teste no meio)
+1. §7.1 piscar → 2. §7.2 chips → 3. §7.4 reorganização → 4. §7.3 dia da rota →
+5. "Iniciar" calado → 6. Voltar em pilha → **TESTE por toque no g15 (série, um celular só)** →
+7. Varredura antigo×novo → 8. Prospector F2 (se couber) → 9. §7.6 mock rota →
+**portões + publish + conferir no VPS/APK (`version-logistica.json`) + resumo + desligar**.
+Commit local PEQUENO a cada item fechado (1 mão escrevendo; publish é mão única no fim).
+
+### 7.8 RESUMO FINAL (preencher ao encerrar)
+```
+IMPOSSÍVEL SOZINHO: (preencher)
+TOMEI DECISÃO: (preencher)
+```
