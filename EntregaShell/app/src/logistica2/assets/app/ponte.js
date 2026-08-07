@@ -197,6 +197,10 @@
       nome: c.nome || '',
       rua: c.endereco || '',
       bairro: c.cidade || '',
+      // o pino do mapa sai daqui; sem coordenada a parada existe na lista e
+      // NÃO aparece no mapa (é o que "sem trajeto" já conta pro motorista).
+      lat: typeof c.lat === 'number' ? c.lat : null,
+      lng: typeof c.lng === 'number' ? c.lng : null,
       nota: c.observacoes || undefined,
       tags,
       // valorHoje só existe com o financeiro ligado — sem ele, sem número.
@@ -400,6 +404,119 @@
       if (typeof window.ir === 'function') window.ir('rota');
     }), { once: true });
   }
+
+  /* ------------------------------------------------------------------------
+     7. L3a — O MAPA DE VERDADE DENTRO DA CASCA DO MOCK.
+     O mock ILUSTRA o mapa em SVG: serve pra decidir a casca, não pra guiar
+     ninguém. Aqui o palco (`[data-mapa]`) recebe o maplibre com o estilo e os
+     tiles que o PRÓPRIO APARELHO serve (`/tiles/{z}/{x}/{y}.pbf`, mesma origem
+     — por isso CSP e CORS deixam de existir em vez de serem contornados). Todo
+     o cromo em volta (seta, manobra, bússola, velocímetro, rodapé) continua o
+     do mock, intocado. O desenho fica embaixo como fundo de espera: tela preta
+     enquanto o mapa sobe é pior que a ilustração.
+     ------------------------------------------------------------------------ */
+  const MAPA_TILES = 'https://appassets.androidplatform.net/tiles/{z}/{x}/{y}.pbf';
+  // 🔴 O basemap acaba no z14. Sem declarar o teto, o maplibre pede z15+, não
+  // acha nada e a tela fica VAZIA justo no zoom de rua — que é onde o motorista
+  // olha. Com o teto, o z14 estica (overzoom), que é o certo.
+  const MAPA_ZOOM_MAX = 14;
+  let maplibrePromessa = null;
+  const carregarMaplibre = () => {
+    if (window.maplibregl) return Promise.resolve(window.maplibregl);
+    if (maplibrePromessa) return maplibrePromessa;
+    maplibrePromessa = new Promise((ok, falha) => {
+      const s = document.createElement('script');
+      s.src = 'vendor/maplibre-gl.js';
+      s.onload = () => (window.maplibregl ? ok(window.maplibregl) : falha(new Error('Mapa indisponível.')));
+      s.onerror = () => falha(new Error('Mapa indisponível.'));
+      document.head.appendChild(s);
+      setTimeout(() => falha(new Error('Mapa indisponível.')), 9000);
+    });
+    return maplibrePromessa;
+  };
+  const estiloCache = {};
+  async function estiloDoMapa(escuro) {
+    const nome = escuro ? 'dark' : 'light';
+    if (!estiloCache[nome]) {
+      const r = await fetch(`mapa/style-${nome}.json`);
+      estiloCache[nome] = await r.text();
+    }
+    // objeto NOVO a cada mapa: o maplibre mexe no que recebe, e dois mapas
+    // dividindo o mesmo objeto é um contaminando o estilo do outro.
+    const estilo = JSON.parse(estiloCache[nome]);
+    const fonte = estilo.sources && estilo.sources.protomaps;
+    if (!fonte) throw new Error('Estilo do mapa sem a fonte protomaps.');
+    delete fonte.url;                 // era o marcador __HBX_TILES__
+    fonte.type = 'vector';
+    fonte.tiles = [MAPA_TILES];
+    fonte.minzoom = 0;
+    fonte.maxzoom = MAPA_ZOOM_MAX;
+    // 🔴 SPRITE E GLYPHS PRECISAM SER ABSOLUTOS. O maplibre recusa caminho
+    // relativo no sprite ("must be absolute") e o erro só aparece no console:
+    // o mapa sobe, mas SEM ícone e — no caso dos glyphs — sem NOME DE RUA, que
+    // é metade da utilidade do mapa pra quem dirige.
+    const base = `${location.origin}/assets/app/`;
+    if (estilo.sprite && !/^https?:/.test(estilo.sprite)) estilo.sprite = base + estilo.sprite;
+    if (estilo.glyphs && !/^https?:/.test(estilo.glyphs)) estilo.glyphs = base + estilo.glyphs;
+    return estilo;
+  }
+
+  let ultimaPos = null;
+  if (navigator.geolocation) {
+    try {
+      navigator.geolocation.watchPosition(
+        (p) => { ultimaPos = { lat: p.coords.latitude, lng: p.coords.longitude }; },
+        () => {}, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
+      );
+    } catch (_) { /* sem GPS: o mapa abre na 1ª parada */ }
+  }
+
+  /** monta (ou reaproveita) o mapa do palco visível */
+  async function montarMapa(palco) {
+    if (!palco || palco.__hbxMapa) return;
+    palco.__hbxMapa = true;                      // idempotente: 1 mapa por palco
+    let maplibregl; let estilo;
+    try {
+      maplibregl = await carregarMaplibre();
+      estilo = await estiloDoMapa(document.documentElement.dataset.luz !== 'claro');
+    } catch (_) { palco.__hbxMapa = false; return; }   // sem mapa, fica o desenho
+    if (!document.body.contains(palco)) { palco.__hbxMapa = false; return; }
+
+    const alvo = document.createElement('div');
+    alvo.className = 'mapa-vivo';
+    palco.appendChild(alvo);
+
+    const paradas = (typeof PARADAS !== 'undefined' ? PARADAS : []).filter((p) => p.lat && p.lng);
+    const centro = ultimaPos || (paradas[0] ? { lat: paradas[0].lat, lng: paradas[0].lng } : null);
+    const mapa = new maplibregl.Map({
+      container: alvo,
+      style: estilo,
+      center: centro ? [centro.lng, centro.lat] : [-47.5863, -22.4226],
+      zoom: centro ? 15 : 12,
+      maxZoom: 18,
+      attributionControl: false,
+    });
+    palco.__hbxMapaObj = mapa;
+    mapa.on('load', () => {
+      palco.classList.add('pronto');             // o desenho de espera se apaga
+      paradas.forEach((p) => {
+        const pino = document.createElement('div');
+        pino.textContent = String(p.n);
+        pino.style.cssText = 'width:26px;height:26px;border-radius:50%;display:grid;place-items:center;'
+          + 'font:500 12px Inter,sans-serif;background:var(--map-pino);color:var(--map-pino-tinta);'
+          + 'border:1.5px solid var(--map-rota)';
+        new maplibregl.Marker({ element: pino }).setLngLat([p.lng, p.lat]).addTo(mapa);
+      });
+      if (ultimaPos) new maplibregl.Marker({ color: '#3d8bff' }).setLngLat([ultimaPos.lng, ultimaPos.lat]).addTo(mapa);
+    });
+  }
+
+  // toda pintura de tela pode trazer um palco novo: o mapa nasce junto.
+  const observador = new MutationObserver(() => {
+    const palco = naCamada('[data-mapa]');
+    if (palco) montarMapa(palco);
+  });
+  observador.observe(document.getElementById('app') || document.body, { childList: true, subtree: true });
 
   const ACOES = {
     montar: montarRota,

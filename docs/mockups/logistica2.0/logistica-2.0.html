@@ -844,6 +844,12 @@ button,input{font:inherit;color:inherit}
       polegar, do lado direito.
    ========================================================================== */
 .gps{position:absolute;inset:0;overflow:hidden;background:var(--fog)}
+/* palco do mapa REAL: mesma caixa do desenho que ele substitui. O desenho
+   fica embaixo como fundo de espera até o maplibre subir. */
+.mapa-palco{position:absolute;inset:0}
+.mapa-palco>svg{position:absolute;inset:0;width:100%;height:100%}
+.mapa-palco.pronto>svg{opacity:0;transition:opacity .3s ease}
+.mapa-vivo{position:absolute;inset:0}
 .gps-mundo{position:absolute;left:-42%;right:-42%;top:-52%;bottom:-6%;
   transform:perspective(640px) rotateX(51deg);transform-origin:50% 74%}
 .gps-mundo svg{width:100%;height:100%;display:block}
@@ -1659,7 +1665,8 @@ function stop(o){
   </div>`;
 }
 
-function mapa(){
+function mapa(){ return `<div class="mapa-palco" data-mapa="geral">${mapaDesenho()}</div>`; }
+function mapaDesenho(){
   return `<div class="mapwrap"><svg viewBox="0 0 400 900" preserveAspectRatio="xMidYMid slice">
     <defs>
       <filter id="gl" x="-50%" y="-50%" width="200%" height="200%">
@@ -1872,7 +1879,8 @@ ${nav('rota')}`;}};
 /* O MUNDO DO GPS — desenhado achatado e inclinado pelo CSS. A rua em que se
    anda é a coluna do meio: como o carro fica no centro horizontal, ele cai em
    cima dela em qualquer altura, e o giro à direita aparece lá na frente. */
-function mapaGps(){
+function mapaGps(){ return `<div class="mapa-palco" data-mapa="gps">${mapaGpsDesenho()}</div>`; }
+function mapaGpsDesenho(){
   const quadra=(x,y,w,h)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="var(--map-quadra)"/>`;
   return `<div class="gps-mundo"><svg viewBox="0 0 800 1400" preserveAspectRatio="xMidYMax slice">
     <rect width="800" height="1400" fill="var(--map-fundo)"/>

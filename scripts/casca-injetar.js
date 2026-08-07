@@ -183,7 +183,13 @@ fs.writeFileSync(path.join(DESTINO, 'index.html'), `<!doctype html>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <!-- CSP: o script do mock foi pra arquivo justamente por causa do 'self'. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <!-- \`worker-src blob:\` é do MAPA: o maplibre desenha num Web Worker criado a
+       partir de blob. Sem esta palavra o mapa morre com a CSP barrando o
+       worker — e o resto da tela sobe normal, então o defeito parece "mapa
+       cinza" em vez de "política bloqueou". Os tiles são da MESMA origem
+       (\`appassets.androidplatform.net/tiles/...\`, servidos pelo aparelho), por
+       isso \`connect-src 'self'\` basta. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="theme-color" content="#080d17">
   <title>HBX Logística</title>
   <link rel="stylesheet" href="mock.css">
