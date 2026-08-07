@@ -444,6 +444,17 @@
          mostrava 6 dias inventados e R$ 2.648,00. */
       caderneta: { entregues: '', selo: '', formas: [], formaTotal: '', clientes: '', produtos: '', marcado: '' },
       semana: { dias: [], marcado: '', recebido: '', pendencia: '' },
+      /* 🔴 AS EMPRESAS DO CORREDOR SÃO A MENTIRA MAIS CARA DESTA TELA. O
+         desenho traz "Mercado São Judas", "Padaria Avenida" e "Restaurante
+         Sabor" com nome, ramo e posição — e o destino delas, no produto, é
+         virar LEAD e MENSAGEM DE WHATSAPP. Empresa de exemplo aqui não é um
+         número errado num canto: é o motorista tocando num prédio que não
+         existe. Zera INTEIRO; só o `chip` fica, que é COPY do desenho e some
+         sozinho junto com a lista.
+         O prospector ainda não tem servidor (PR07082026-PROSPECTOR-CNPJ, F0):
+         até ele existir, a lista fica vazia e a tela de navegação abre SEM
+         empresa nenhuma, sem chip, sem varredura e sem radar. */
+      mapa: { empresas: [] },
     };
     try {
       Object.keys(zerar).forEach((s) => { DADOS[s] = Object.assign({}, DADOS[s], zerar[s]); });
@@ -708,6 +719,140 @@
       });
       if (ultimaPos) new maplibregl.Marker({ color: '#3d8bff' }).setLngLat([ultimaPos.lng, ultimaPos.lat]).addTo(mapa);
     });
+    // as empresas do corredor não são marcador do maplibre: elas são a peça
+    // do desenho, e quem as coloca no chão é a câmera. Ver `posicionarEmpresas`.
+    const acompanharCamera = () => posicionarEmpresas();
+    mapa.on('move', acompanharCamera);
+    mapa.on('zoom', acompanharCamera);
+    mapa.on('resize', acompanharCamera);
+    mapa.on('load', acompanharCamera);
+  }
+
+  /* ------------------------------------------------------------------------
+     7b. L3b — AS EMPRESAS DO CORREDOR NO CHÃO (prospector).
+
+     O desenho já sabe DESENHAR a empresa (prédio, três estados, a cena de
+     acender). O que ele não pode saber é ONDE ela cai na tela: isso muda a
+     cada quadro que a câmera se mexe. Então a divisão é essa e é limpa —
+     **o DADO passa pelo seam, a GEOMETRIA não**:
+
+       · `usarDados('mapa', {empresas:[…]})` diz QUAIS empresas existem e
+         quais estão acesas → repinta a tela, como toda outra seção;
+       · esta função escreve `--x`, `--y` e `--esc` direto no elemento, a cada
+         `move`/`zoom`. Passar posição de mapa pelo repinte seria repintar a
+         tela inteira 60 vezes por segundo — e, pior, recomeçaria a cena de
+         acender a cada quadro.
+
+     🔴 PROPORCIONAL — a regra de escala, que é o pedido literal do dono
+     ("deixe proporcional as empresas q forem aparecendo"):
+
+         esc = 2^(zoom − 16,5) × perto,   preso entre 0,55 e 1,80
+         perto = 1 − 0,35 × min(1, distância_em_metros / 300)
+
+     · `2^(zoom−16,5)` é a conta da própria projeção: um metro de chão ocupa o
+       DOBRO de pixel a cada nível de zoom. É isso que faz o prédio se
+       comportar como coisa que está na rua e não como adesivo colado no
+       vidro. 16,5 é o zoom de rua, onde o prédio tem o tamanho do desenho.
+     · PISO 0,55 (≈9×10 px): abaixo disso ele vira mancha — some debaixo do
+       próprio dedo que ia tocar nele.
+     · TETO 1,80 (≈29×32 px): acima disso ele TAMPA o traço da rota e a parada
+       da vez. A rota é o trabalho; a empresa é a oferta — a oferta nunca
+       cobre o trabalho.
+     · `perto` faz empresa longe nascer menor (35% menor a 300 m ou mais). É o
+       "empresa longe = menor" com o mapa ainda deitado: quando a câmera
+       ganhar inclinação, a perspectiva soma, não briga.
+
+     O RÓTULO não escala: prédio é mundo, nome é interface. Nome que encolhe
+     com o zoom fica ilegível justo quando há mais deles na tela.
+     ------------------------------------------------------------------------ */
+  /* O CONTRATO DO SEAM, pra leva do backend não ter que adivinhar. Cada item
+     de `usarDados('mapa', { empresas: [...] })`:
+
+       id      obrigatório pro GANCHO — sem ele o prédio aparece e NÃO é
+               clicável (é a lei "o gancho nasce do dado"), que é o certo
+               enquanto não houver o que abrir;
+       nome    o que é digitado em cima do prédio;
+       lat/lng sem elas o prédio não é posicionado — a tela não inventa lugar;
+       distM   metros até a parada (vem do `ProspectoRota.distM`) — é o que
+               faz a de longe nascer menor;
+       aceso   o prospector decidiu acender AGORA (o "3 a 5 vezes no dia");
+       ordem   fila das 6 janelas, ex. [0,3,1,5,2,4] — uma por prédio, senão
+               os prédios piscam em coro;
+       atraso  escalona quem acende primeiro quando duas acendem juntas.
+
+     Faltou campo? o desenho tem padrão pra todos MENOS nome/lat/lng — e sem
+     esses três a empresa simplesmente não entra na tela. */
+  const EMP_ZOOM_BASE = 16.5;
+  const EMP_ESC_PISO = 0.55;
+  const EMP_ESC_TETO = 1.8;
+  const EMP_DIST_CHEIA = 300;
+
+  function posicionarEmpresas() {
+    const palco = naCamada('[data-mapa]');
+    const mapa = palco && palco.__hbxMapaObj;
+    const cena = palco && palco.parentElement;
+    if (!mapa || !cena) return;
+    // 🔴 `.emp[data-lat]`: sem coordenada não há o que projetar. O desenho
+    // posiciona por porcentagem e não tem `data-lat` — por isso o mock não é
+    // afetado por nada daqui, e o portão de pixel segue byte a byte.
+    const alvos = cena.querySelectorAll('.emp[data-lat]');
+    if (!alvos.length) return;
+    let zoom;
+    try { zoom = mapa.getZoom(); } catch (_) { return; }
+    if (!Number.isFinite(zoom)) return;
+    const porZoom = Math.pow(2, zoom - EMP_ZOOM_BASE);
+    alvos.forEach((el) => {
+      const lat = Number(el.dataset.lat); const lng = Number(el.dataset.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+      let ponto;
+      try { ponto = mapa.project([lng, lat]); } catch (_) { return; }
+      const dist = Number(el.dataset.dist) || 0;
+      const perto = 1 - 0.35 * Math.min(1, dist / EMP_DIST_CHEIA);
+      const esc = Math.min(EMP_ESC_TETO, Math.max(EMP_ESC_PISO, porZoom * perto));
+      el.style.setProperty('--x', `${ponto.x.toFixed(1)}px`);
+      el.style.setProperty('--y', `${ponto.y.toFixed(1)}px`);
+      el.style.setProperty('--esc', esc.toFixed(3));
+    });
+  }
+
+  /* 🔴 REPINTE NÃO RECOMEÇA A CENA DE QUEM JÁ ACENDEU — é a Lei nº10 desta
+     frente no tamanho desta tela. Acender a 2ª empresa repinta a seção, e a
+     1ª nasceria de novo apagada pra re-digitar o nome do zero: o app com cara
+     de que descobriu duas vezes a mesma coisa. Quem já estava aceso chega no
+     FIM da cena. A respiração do halo é infinita e não se "termina" — ela
+     fica rodando, que é o certo. */
+  function encerrarCenaDe(jaAcesas) {
+    if (!jaAcesas || !jaAcesas.size) return;
+    document.querySelectorAll('.emp.on[data-empresa]').forEach((el) => {
+      if (!jaAcesas.has(String(el.dataset.empresa))) return;
+      let anims = [];
+      try { anims = el.getAnimations({ subtree: true }); } catch (_) { return; }
+      anims.forEach((a) => {
+        try {
+          if (a.effect && a.effect.getTiming().iterations === Infinity) return;
+          a.finish();
+        } catch (_) { /* animação que não termina fica onde está */ }
+      });
+    });
+  }
+
+  /* O GESTO. Encostar num prédio ACENDE ele na hora — é a "prioridade de
+     usuário" do §F1 do plano do prospector, e é a única parte que não depende
+     de servidor nenhum: a empresa já está na tela, o toque só antecipa o que
+     o prospector faria sozinho.
+     ⬜ A FALA (`HBX.speak`) e o "abrir lead" — que DEBITA 1 crédito e cria o
+     lead na mesa do /vendas — são a leva seguinte, junto com o backend. Botão
+     que cobra não nasce antes da porta que cobra. */
+  function acenderEmpresa(id) {
+    if (!id || typeof window.usarDados !== 'function') return;
+    let lista;
+    try { lista = ((DADOS.mapa || {}).empresas) || []; } catch (_) { return; }
+    const antes = new Set(lista.filter((e) => e.aceso && e.id).map((e) => String(e.id)));
+    if (antes.has(String(id))) return;      // já acesa: o toque não re-encena
+    window.usarDados('mapa', {
+      empresas: lista.map((e) => (String(e.id) === String(id) ? Object.assign({}, e, { aceso: true }) : e)),
+    });
+    requestAnimationFrame(() => { encerrarCenaDe(antes); posicionarEmpresas(); });
   }
 
   /* A BUSCA É DE TECLA, NÃO DE CLIQUE — por isso não cabe no mapa de ações.
@@ -765,6 +910,9 @@
   const observador = new MutationObserver(() => {
     const palco = naCamada('[data-mapa]');
     if (palco) montarMapa(palco);
+    // repinte traz elementos NOVOS, sem `--x/--y`: sem isto as empresas
+    // nasciam empilhadas no canto até a câmera se mexer.
+    posicionarEmpresas();
     ligarBusca();
     ligarCamposDaFicha();
   });
@@ -1834,6 +1982,7 @@
     if (chave === 'abrir-cliente') return abrirCliente(alvo.dataset.cliente);
     if (chave === 'abrir-produto') return abrirProduto(alvo.dataset.produto);
     if (chave === 'abrir-salva') return abrirSalva(alvo.dataset.salva);
+    if (chave === 'abrir-empresa') return acenderEmpresa(alvo.dataset.empresa);
     if (chave === 'pacote') {
       pacoteEscolhido = String(alvo.dataset.pacote || '');
       return carregarAjustes();

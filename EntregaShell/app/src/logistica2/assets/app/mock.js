@@ -253,6 +253,31 @@ const DADOS={
     somaProdutos:'20', somaMarcado:'R$ 336,00',
     vazioTitulo:'Sem paradas hoje', vazioSub:'Monte a rota do dia pra começar.',
   },
+  /* L3b — AS EMPRESAS DO CORREDOR (prospector), na tela de navegação.
+     `chip` é COPY do desenho; `empresas` é DADO e vem do servidor.
+
+     🔴 SEM FONTE, LISTA VAZIA — e a tela fica SEM EMPRESA NENHUMA, sem chip e
+     sem varredura. Os três nomes abaixo são do desenho do dono e vivem SÓ
+     aqui: o app apaga esta lista no boot (`apagarDemonstracao`), porque
+     empresa que não existe, com nome e endereço, é a mentira mais cara que
+     esta tela poderia contar — ela termina em mensagem de WhatsApp.
+
+     Por item: `x`/`y` são a posição NO DESENHO (no aparelho quem escreve é a
+     câmera do mapa, por `lat`/`lng`); `esc` é o tamanho proporcional; `ordem`
+     é a fila em que as 6 janelas acendem — uma fila por prédio, senão os três
+     piscam em coro; `atraso` escalona a cena; `aceso` é o estado que o
+     prospector decide no dia. `id` é o que dá o GANCHO: sem id, sai sem
+     `data-acao`. */
+  mapa:{
+    chip:'Empresas por perto',
+    empresas:[
+      {nome:'Salão Bela Vista',   x:'30%', y:'38%', esc:.66},
+      {nome:'Auto Peças Central', x:'61%', y:'31%', esc:.58},
+      {nome:'Mercado São Judas',  x:'78%', y:'49%', esc:1.12, ordem:[0,3,1,5,2,4], atraso:'.6s',   aceso:true},
+      {nome:'Padaria Avenida',    x:'22%', y:'57%', esc:.88,  ordem:[2,0,4,1,5,3], atraso:'2.1s',  aceso:true},
+      {nome:'Restaurante Sabor',  x:'74%', y:'68%', esc:1,    ordem:[1,2,5,0,4,3], atraso:'3.55s', aceso:true},
+    ],
+  },
   /* L4 — A PORTA. Os literais abaixo são os que estavam nos templates da folha
      de chegada e da folha da venda, MOVIDOS pra cá. `itens` é [ícone, nome,
      linha de baixo, quantidade]; `motivos` é a lista do "não entregue".
@@ -625,6 +650,49 @@ function mapaGpsDesenho(){
                rota), porque a pergunta mudou: não é mais "por onde eu vou",
                é "onde eu estou e o que falta". Manter a visão de direção com
                o carro parado na porta é tela mentindo sobre o que se faz ali. */
+/* AS EMPRESAS DO CORREDOR — duas camadas, e a divisão tem motivo:
+   `empresasChao()` é MUNDO e entra ANTES da névoa do horizonte, pra empresa
+   lá longe ficar embaçada junto com a rua (é o que faz ela parecer estar no
+   chão, e não colada no vidro); `empresasCromo()` é INTERFACE e entra depois,
+   por cima de tudo.
+
+   🔴 Só na tela de DIRIGINDO. Na de "chegou" a pergunta é outra — o motorista
+   está na porta e a tela tem UMA ação — e cinco prédios em cima dela seriam
+   ruído numa hora em que ninguém vai prospectar.
+
+   🔴 O GANCHO NASCE DO DADO: `data-acao` só sai quando a empresa tem `id`
+   real, e `data-lat/lng` só saem quando há coordenada. É isso que mantém
+   desenho e app byte a byte iguais — e que impede botão sem porta. */
+function empresasDoMapa(){ const d=DADOS.mapa||{}; return Array.isArray(d.empresas)?d.empresas:[]; }
+function empresasChao(){
+  const lista=empresasDoMapa(); if(!lista.length) return '';
+  const jan=(o)=>[0,1,2,3,4,5].map(i=>{
+    const p=Array.isArray(o)?o.indexOf(i):i;   // -1 = fila mal formada: cai na ordem natural
+    return `<i style="--j:${p<0?i:p}"></i>`;
+  }).join('');
+  return lista.map(e=>{
+    const nome=e.nome||'';
+    const gancho=e.id?` data-acao="abrir-empresa" data-empresa="${e.id}"`:'';
+    const geo=(e.lat!=null&&e.lng!=null)?` data-lat="${e.lat}" data-lng="${e.lng}" data-dist="${e.distM||0}"`:'';
+    return `<div class="emp${e.aceso?' on':''}"${gancho}${geo}
+      style="--x:${e.x||'50%'};--y:${e.y||'50%'};--esc:${e.esc||1};--n:${nome.length||1};--atraso:${e.atraso||'0s'}">
+      <span class="emp-obj">
+        <span class="emp-halo"></span><span class="emp-varre"></span><span class="emp-anel"></span>
+        <span class="emp-rabo"></span>
+        <span class="emp-predio"><i class="telhado"></i><i class="lado"></i><i class="frente"></i>
+          <span class="emp-janelas">${jan(e.ordem)}</span></span>
+      </span>
+      <span class="emp-rotulo">
+        <span class="emp-linha"><i class="pt">•</i><b class="emp-nome">${nome}</b></span>
+        <span class="emp-trilho"><i class="emp-barra"></i></span></span>
+    </div>`;
+  }).join('');
+}
+function empresasCromo(){
+  const d=DADOS.mapa||{}; if(!empresasDoMapa().length) return '';
+  return `${d.chip?`<div class="emp-chip">${d.chip}</div>`:''}<div class="emp-scan"></div>`;
+}
+
 function telaGps(chegou){
   if(chegou) return `${status}
 <div class="body flush" style="overflow:hidden;padding:0">
@@ -652,10 +720,15 @@ function telaGps(chegou){
 <div class="body flush" style="overflow:hidden;padding:0">
   <div class="gps">
     ${mapaGps()}
+    ${empresasChao()}
     <div class="gps-horizonte"></div>
+    ${empresasCromo()}
 
     <!-- eu: fixo a 68% da altura, no centro. A tela é a rua À FRENTE. -->
     <div class="gps-puck">
+      <!-- o radar pulsa porque há o que varrer: sem empresa no corredor ele não
+           existe, senão a tela finge procurar o que não está lá. -->
+      ${empresasDoMapa().length?'<span class="emp-radar"><i></i><i></i></span>':''}
       <span class="gps-facho"></span>
       <svg class="gps-seta" viewBox="0 0 34 38">
         <path d="M17 1.5 L31.5 35 L17 27 L2.5 35 Z" fill="#3d8bff" stroke="#eaf1ff" stroke-width="2" stroke-linejoin="round"/>
@@ -1915,8 +1988,20 @@ function pintar(animar,dir){
     // da camada anterior estava. Sem isto a lista recomeçaria do zero e o dado
     // chegando tarde daria um pisca. Quem não tiver a API fica sem o acerto —
     // some com o pulo, nunca com a tela.
-    if(nova.getAnimations){
-      const t=performance.now()-entradaEm;
+    //
+    // 🔴 MAS SÓ ENQUANTO A ENTRADA AINDA ESTÁ RODANDO. `entradaEm` é o começo
+    // da ENTRADA da tela, e a marca `entra` fica na camada pra sempre — então,
+    // numa tela aberta há um minuto, `t` valia SESSENTA MIL milissegundos e
+    // era carimbado em TODA animação da camada nova, inclusive nas que tinham
+    // acabado de nascer. Isso não "continua" nada: joga a cena inteira pro fim
+    // antes do primeiro quadro.
+    // MEDIDO no g15 (07/08), com as empresas do mapa chegando pelo seam: as 17
+    // animações da cena nasciam TERMINADAS — o motorista via o desfecho sem
+    // nunca ver o prédio acender. Passada a entrada não existe o que
+    // continuar, e carimbar vira só estrago. 900 ms é a entrada inteira (o
+    // eixo X fecha em 150 ms, as linhas escalonadas seguem até ~740 ms).
+    const t=performance.now()-entradaEm;
+    if(nova.getAnimations && t<900){
       nova.getAnimations({subtree:true}).forEach(a=>{ try{ a.currentTime=t; }catch(_){} });
     }
   }else{
