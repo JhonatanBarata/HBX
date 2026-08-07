@@ -96,12 +96,23 @@ function chavesDeTemplate(json: Record<string, string>): string[] {
   return Object.keys(json).filter((chave) => chave !== '_comment');
 }
 
-// O lead da fixture é REAL, da base da empresa 5 — e isso é de propósito. Régua
-// medida com "João"/"SP" prova só que o texto cabe pra um lead que não existe.
-const LEAD_FIXTURE = {
-  nome: 'Água Santo Agostinho',
-  segmento: 'Distribuidoras de agua',
-  cidade: 'Valinhos',
+// ── ORÇAMENTO DE PIOR CASO, e por que não é "um lead" ────────────────────────
+//
+// A 1ª versão deste fiscal media com UM lead real. Não serve: fiscal que passa
+// ou reprova dependendo do nome do cliente que eu escolhi não é fiscal. O
+// `alimentacao` dava 194 com "Água Santo Agostinho" e 211 com "Rinagua
+// Distribuidora de Água Ltda." — mesma copy, mesmo dia, dois veredictos.
+//
+// Então a medida é o PIOR CASO. E os três valores são os MAIORES REAIS da base
+// (empresa 5), não estimativa minha — o teto tem que vir do dado, senão vira
+// número escolhido pra dar verde.
+//
+// ⚠️ Não há encurtamento no caminho: `formatCompanyName` (front) só arruma
+// maiúscula/acento, e o backend nem isso — o nome inteiro entra na mensagem.
+const LEAD_PIOR_CASO = {
+  nome: 'Rinagua Distribuidora de Água Ltda.', // 35 — o mais comprido da base
+  segmento: 'Distribuidora de agua mineral', //    29
+  cidade: "Santa Bárbara d'Oeste", //              21
 };
 
 /**
@@ -114,9 +125,9 @@ const LEAD_FIXTURE = {
  */
 function renderizarWa(template: string): string {
   return String(template || '')
-    .replace('{nome}', LEAD_FIXTURE.nome ? ` ${LEAD_FIXTURE.nome}` : '')
-    .replace('{segmento}', LEAD_FIXTURE.segmento ? LEAD_FIXTURE.segmento.toLowerCase() : 'sua área')
-    .replace('{cidade}', LEAD_FIXTURE.cidade ? ` em ${LEAD_FIXTURE.cidade}` : '');
+    .replace('{nome}', LEAD_PIOR_CASO.nome ? ` ${LEAD_PIOR_CASO.nome}` : '')
+    .replace('{segmento}', LEAD_PIOR_CASO.segmento ? LEAD_PIOR_CASO.segmento.toLowerCase() : 'sua área')
+    .replace('{cidade}', LEAD_PIOR_CASO.cidade ? ` em ${LEAD_PIOR_CASO.cidade}` : '');
 }
 
 /** Extrai os literais de um `const NOME = [...]` direto do fonte. */
