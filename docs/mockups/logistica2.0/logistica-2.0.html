@@ -2091,8 +2091,12 @@ function hdr(o={}){
    "vazio porque a rede caiu" são opostos, e aqui o padrão do silêncio é
    MOSTRAR TUDO.
    ========================================================================== */
-const NAV_ITENS=[['caderneta','Caderneta','note'],['clientes','Clientes','users'],['rota','Rota','map'],
-                 ['produtos','Produtos','box'],['chat','Chat','chat'],['ajustes','Ajustes','gear']];
+/* 🔴 BARRA DE 3 (decisão do dono, 07/08): Chat na esquerda, Rota no centro,
+   Ajustes na direita — padrão de app de motorista. Caderneta, Clientes e
+   Produtos NÃO morreram: Clientes/Produtos moram em Ajustes › Cadastro e a
+   caderneta abre pelo caixa da Rota (e por Ajustes). O CSV do admin continua
+   valendo pra essas entradas via `podarDesligados`/`ir`. */
+const NAV_ITENS=[['chat','Chat','chat'],['rota','Rota','map'],['ajustes','Ajustes','gear']];
 /** O CSV que o admin gravou no desktop, virado em lista. Vazio = tudo ligado. */
 function modulosDesligados(){
   return String((DADOS.barra&&DADOS.barra.desligados)||'')
@@ -2100,6 +2104,7 @@ function modulosDesligados(){
 }
 function moduloDesligado(k){
   if(k==='rota') return false;                       // a lei, de novo e aqui
+  if(k==='ajustes') return false;                    // é a porta de tudo agora — murar é prender
   return modulosDesligados().includes(String(k||'').toLowerCase());
 }
 /** Os módulos que o motorista PODE ver — a ordem é a da barra, sempre. */
@@ -2120,6 +2125,15 @@ function podarDesligados(tela){
   if(!modulosDesligados().length) return;            // nada desligado: nem varre
   tela.querySelectorAll('[data-ir]').forEach(el=>{
     if(moduloDesligado(el.dataset.ir)) el.remove();
+  });
+  // Caixa dos Ajustes que ficou vazia leva o título junto — título de pé
+  // sobre caixa vazia é a mesma mentira do slot sem fonte.
+  tela.querySelectorAll('.cartao-lista').forEach(c=>{
+    if(!c.children.length){
+      const t=c.previousElementSibling;
+      if(t&&t.classList.contains('grupo')) t.remove();
+      c.remove();
+    }
   });
 }
 
@@ -2673,7 +2687,7 @@ T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
         ? (DADOS.rota.creditosDebita?`Iniciar debita ${DADOS.rota.creditosDebita}`:'não consegui o custo agora')
         : 'monte a rota pra saber'}</span></div>`:''}
   <div class="stops" data-gestos="rota">${listaParadas(emCurso)}</div>
-  <div class="sum">
+  <div class="sum" data-ir="caderneta">
     <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>${DADOS.rota.somaProdutos}</b><small>produtos</small></span></span>
     <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>${DADOS.rota.somaMarcado}</b><small>marcado</small></span></span>
     <span class="c"><span style="color:var(--lime)">${ic('check',17)}</span><span><b>${emCurso?DADOS.rota.kpiEntregues:DADOS.rota.kpiEntreguesParado}</b><small>entregas</small></span></span>
@@ -3047,7 +3061,7 @@ ${nav('rota')}`;}};
 
 /* 5 — CADERNETA + FECHAMENTO --------------------------------------------- */
 T.caderneta={nome:'Caderneta · fechamento',grupo:'Caderneta',render(){const d=DADOS.caderneta;return `${status}
-${hdr({})}
+${hdr({voltar:'rota'})}
 <div class="body">
   <div class="kpis">
     <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${DADOS.rota.kpiParadas}</b><span class="l">paradas</span></span></div>
@@ -3079,7 +3093,7 @@ ${hdr({})}
     <button class="act" style="justify-content:center" data-ir="semana">${ic('chart',17)}<b>Ver detalhes</b></button>
   </div>
 </div>
-${nav('caderneta')}`;}};
+${nav('rota')}`;}};
 
 /* 6 — HISTÓRICO DA SEMANA ------------------------------------------------- */
 T.semana={nome:'Histórico da semana',grupo:'Caderneta',render(){
@@ -3123,7 +3137,7 @@ ${hdr({})}
       <span style="color:var(--ink-2);padding-left:5px">${ic('chev',15)}</span></div>
   </div>`:''}
 </div>
-${nav('caderneta')}`;}};
+${nav('rota')}`;}};
 
 /* 7 — CONFERÊNCIA --------------------------------------------------------- */
 T.conferencia={nome:'Conferência da carga',grupo:'Rota',render(){
@@ -3230,7 +3244,7 @@ T.produtos={nome:'Produtos',grupo:'Cadastro',render(){
     <span><span class="nm">${nome}</span>${sub?`<span class="st">${ic('box',13)} ${sub}</span>`:''}</span>
     ${preco?`<span class="price">R$ ${preco}</span>`:''}</div>`;
   return `${status}
-${hdr({semChat:1})}
+${hdr({voltar:'ajustes',semChat:1})}
 <div class="body">
   <div class="screen-head"><span style="color:var(--lime)">${ic('box',30)}</span>
     <span><h2>Produtos</h2></span></div>
@@ -3248,7 +3262,7 @@ ${hdr({semChat:1})}
     ${d.valorEstimado?`<span class="c"><span style="color:var(--blue-l)">${ic('cash',17)}</span><span><b>${d.valorEstimado}</b><small>valor estimado</small></span></span>`:''}
   </div>
 </div>
-${nav('produtos')}`;}};
+${nav('ajustes')}`;}};
 
 /* 11 — CLIENTES ----------------------------------------------------------- */
 T.clientes={nome:'Clientes',grupo:'Cadastro',render(){
@@ -3267,7 +3281,7 @@ T.clientes={nome:'Clientes',grupo:'Cadastro',render(){
       <span class="tags">${dia?`<b class="tag lime">${dia}</b>`:''}${alerta?`<b class="tag" style="border-color:rgba(245,165,36,.55);color:var(--amber)">${alerta}</b>`:''}</span></span>
     <span class="rgt">${valor?`<small>Marcado</small><b>R$ ${valor}</b>`:`<span style="color:var(--ink-3)">${ic('chev',15)}</span>`}</span></div>`;
   return `${status}
-${hdr({semChat:1})}
+${hdr({voltar:'ajustes',semChat:1})}
 <div class="body">
   <div class="screen-head"><span style="color:var(--lime)">${ic('users',30)}</span>
     <span><h2>Clientes</h2><p>${d.subtitulo}</p></span></div>
@@ -3285,7 +3299,7 @@ ${hdr({semChat:1})}
     <span class="c"><span style="color:var(--lime)">${ic('cash',17)}</span><span><b>${d.marcadoHoje}</b><small>marcado hoje</small></span></span>
   </div>
 </div>
-${nav('clientes')}`;}};
+${nav('ajustes')}`;}};
 
 /* 0 — ENTRADA (abertura do app) ------------------------------------------ */
 T.entrada={nome:'Entrada (abertura)',grupo:'Sistema',render(){
@@ -3565,7 +3579,7 @@ ${hdr({voltar:'produtos',semChat:1})}
     <button class="act" style="justify-content:center" data-superficie="confirmar">${ic('box',17)}<b>Arquivar</b></button>
   </div>
 </div>
-${nav('produtos')}`;}};
+${nav('ajustes')}`;}};
 
 /* 22 — MODO PASSEIO -------------------------------------------------------- */
 T.passeio={nome:'Modo Passeio',grupo:'Sistema',render(){return `${status}
@@ -3726,7 +3740,7 @@ ${hdr({voltar:'clientes',semChat:1})}
       data-superficie="confirmar">${ic('trash',17)}<b>Excluir</b></button>
   </div>
 </div>
-${nav('clientes')}`;}};
+${nav('ajustes')}`;}};
 
 /* 16 — FOLHA DE CHEGADA COMPLETA -----------------------------------------
    A do mock era a SIMPLES (cobrança direta). Esta é a completa: quantidade
@@ -3887,6 +3901,12 @@ T.ajustes={nome:'Ajustes',grupo:'Cadastro',render(){const a=DADOS.ajustes;
   const chaveVal=(icone,titulo,val,on,acao)=>`<button class="linha-cfg" data-acao="${acao}"><span class="ico">${ic(icone,16)}</span>
     <span><strong>${titulo}</strong></span>
     <span style="display:flex;align-items:center;gap:9px">${val?`<b style="font-size:12px;color:var(--ink-2)">${val}</b>`:''}<span class="chave ${on?'on':''}"><i></i></span></span></button>`;
+  /* Linha que ABRE um módulo (barra de 3, 07/08): Clientes/Produtos/Caderneta
+     agora entram por aqui. `data-ir` de propósito — é a mesma marca que o
+     `podarDesligados` varre quando o admin desliga o módulo no desktop. */
+  const linhaIr=(icone,titulo,ir)=>`<button class="linha-cfg" data-ir="${ir}"><span class="ico">${ic(icone,16)}</span>
+    <span><strong>${titulo}</strong></span>
+    <span style="color:var(--ink-3)">${ic('chev',15)}</span></button>`;
   /* 🔴 CHAVE COM VALOR DESCONHECIDO NÃO ENTRA NA TELA. Aqui a mentira é pior
      que numa lista: o motorista lê "Modo caderneta LIGADO" (que é o exemplo do
      desenho), toca pra desligar e acha que desligou — quando na verdade nem
@@ -3907,8 +3927,14 @@ ${hdr({semChat:1})}
     ${linha('wallet','Financeiro','','','ir-financeiro')}
     ${linha('gear','Avançado','','','ir-avancado')}
   </div>`:''}
+  <div class="grupo">Cadastro</div>
+  <div class="cartao-lista">
+    ${linhaIr('users','Clientes','clientes')}
+    ${linhaIr('box','Produtos','produtos')}
+  </div>
   <div class="grupo">Caderneta</div>
   <div class="cartao-lista">
+    ${linhaIr('note','Abrir caderneta','caderneta')}
     ${chave('note','Modo caderneta','',a.modoCaderneta,'chave-caderneta')}
   </div>
   <div class="grupo">Som e tela</div>
