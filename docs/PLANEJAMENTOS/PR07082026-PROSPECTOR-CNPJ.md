@@ -169,6 +169,17 @@ da cobrança (arrume F4). Todo o resto é ligação de peça existente.
     (dedupe por CNPJ no tenant; se já existe, aponta pro existente SEM cobrar) → card confirma
     "na sua mesa do /vendas". O lead aparece na mesa DESKTOP — o APK não ganha tela de lead.
   - **"Dispensar"** → `cooldownAte` (90 dias); 3 dispensas = silêncio permanente.
+    🔴 **ARMADILHA MEDIDA NA REVISÃO ADVERSARIAL (07/08) — a dispensa EVAPORA se você gravar
+    só o estado.** O embarque do F1 é um `INSERT … ON CONFLICT DO UPDATE` que reescreve
+    `estado` para `embarcado` em tudo que **não** for `'lead'` (`prospector-corredor.service.ts`,
+    o `CASE WHEN estado = 'lead'`). E a exclusão da consulta
+    (`prospector-corredor.sql.ts:303`) filtra por `estado = 'lead' OR cooldownAte > now()` —
+    **`estado = 'dispensado'` não é filtrado por nada**. Consequência: prospecto dispensado
+    sem `cooldownAte` volta a `embarcado` e ACENDE DE NOVO no dia seguinte, e o motorista
+    dispensa a mesma empresa pra sempre.
+    **Regra:** o "Dispensar" grava SEMPRE `cooldownAte` (e incrementa `dispensas`). O `estado`
+    é enfeite de leitura; quem manda no silêncio é a data. Cubra com teste: dispensar → iniciar
+    rota de novo → o CNPJ NÃO volta.
 - Sem crédito: mensagem honesta (o booleano `creditosEsgotados` JÁ viaja na config pro app).
 - Offline: ação entra na fila offline (⚠️ LISTA BRANCA — adicionar os campos novos!); o
   débito acontece no replay server-side; UI otimista com estado "aguardando sinal".
