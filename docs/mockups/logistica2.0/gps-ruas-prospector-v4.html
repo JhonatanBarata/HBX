@@ -1,0 +1,1254 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>HBX GPS — ruas de verdade + prospector (V4)</title>
+<style>
+/* =============================================================================
+   HBX GPS V4
+
+   AS QUATRO CORREÇÕES DO DONO (e o que cada uma quebrou por dentro):
+
+   1. "não é pra PISCAR a tela, tem q ir DESCENDO mesmo, entre 2d e 3d"
+      → O erro era ARQUITETURAL: eu tinha DOIS mapas (um SVG de cima e outro
+        inclinado) e trocava um pelo outro atrás de um véu. Toda troca de peça
+        pisca, por melhor que seja o disfarce.
+        Agora existe UM MAPA SÓ. O 2D é o mesmo mapa com inclinação 0°, norte
+        pra cima e zoom aberto; o 3D é ele com 51°, rumo pra cima e zoom
+        fechado. A DESCIDA é a inclinação, o zoom e a âncora ANDANDO — 2,4 s de
+        movimento contínuo, sem véu, sem corte, sem um quadro preto.
+        Consequência boa: o pino azul da rota é o MESMO objeto que vira a seta
+        de navegação. Ele não "aparece", ele desce junto.
+
+   2. "o ponteiro tem q ficar COLADO NO BOTTOM, igual gps comum"
+      → A âncora saiu de 68% pra 86% da altura. E ela deixou de ser um número
+        no CSS: quem manda é `cam.ancoraY`, porque durante a descida ela ANDA
+        (48% na vista de cima → 86% dirigindo). O `transform-origin` do plano é
+        recalculado a cada quadro pra o ponto fixo da perspectiva cair exatamente
+        em cima do ponteiro. Se isso escorregar 1 px, a seta descola da rua.
+
+   3. "tira esse zoom, é bem menor, use os tamanhos dessa foto"
+      → 8,2 px/m mostrava MEIA QUADRA. Agora são 2,9 px/m: ~1 km de rua à
+        frente, umas 8 quadras — a escala da foto de referência. E as larguras
+        vieram junto: a fita da rota tem 8 m (uma pista), não 26.
+
+   4. "melhore e MUITO a qualidade das empresas"
+      → O prédio deixou de ser três `div` com `skew` e virou SVG isométrico de
+        verdade: 3 faces com valores separados, janelas que são paralelogramos
+        DA FACE (não retângulos colados por cima), sombra no chão, luz que
+        escorre no asfalto quando acende, e o nome num chip de vidro com o
+        sublinhado por dentro. Apagada, a empresa não tem anel nenhum — é só
+        um prédio cinza da cidade. O anel verde é o SINAL de que o app achou.
+
+   O QUE NÃO MUDOU: a régua da antecipação. A empresa acende com ~20 s de
+   viagem de antecedência, o nome termina de ser digitado enquanto ela ainda é
+   um ponto lá longe, e o motorista nunca "vê a empresa ao passar".
+   ========================================================================== */
+
+/* ---------------------------------------------------------------- TOKENS -- */
+.app{
+  --bg:#080d17; --bg-2:#0a1120; --card:#0d1626; --line:#1a2740; --line-2:#26375a;
+  --ink:#eef3fb; --ink-2:#93a3bf; --ink-3:#7889a6;
+  --lime:#9ede2a; --blue:#2f7ef7; --blue-l:#5b9dff; --white:#fff;
+  --go-1:#8fd626; --go-2:#68b019; --go-ink:#12200a;
+  --blue-bg:#12253f; --lime-bg-2:#17230e; --red-line-2:#6d2b2b; --red-bg:#1a1114;
+  --glass:#0b1322d9; --trilho:#182741; --fog:#070d18;
+  --ceu-1:#0e1a30; --ceu-2:#0a1424;
+  --sombra-carta:0 12px 30px rgba(0,0,0,.5);
+  --halo-texto:0 0 6px rgba(4,9,18,.9);
+  --puck-anel:rgba(126,180,255,.55);
+
+  /* mapa */
+  --map-fundo:#080e1a; --map-quadra:#131f34; --map-lote:#18263e;
+  --map-rua:#2c3d5c; --map-rua2:#22314c; --map-rua-fio:#0a1120;
+  /* 🔴 O PARQUE TEVE QUE APAGAR. Com #12301e ele virava uma laje verde do
+     tamanho de meia tela e disputava com as DUAS coisas que são verdes de
+     propósito: a fita da rota e a empresa acesa. Verde só pode significar uma
+     coisa na tela; o parque é chão, então ele é quase quadra. */
+  --map-parque:#101f18; --map-agua:#0d2740; --map-rotulo:#67789a;
+  --map-rota:#9ede2a; --map-rota-borda:#3f7a10; --map-rota-brilho:rgba(158,222,42,.13);
+  --map-cabeca:#e8f4ff; --map-faixa:rgba(255,255,255,.55);
+  --map-pino:#0c1526; --map-partida:#3d8bff;
+
+  /* farol — só existe no escuro */
+  --farol:rgba(96,160,255,.26); --farol-2:rgba(96,160,255,.32);
+  --farol-chao:rgba(120,170,255,.11);
+
+  /* empresas — apagada, varrendo, acesa */
+  /* 🔴 APAGADA TEM QUE SER DISCRETA. Com o cinza claro os 15 possíveis
+     gritavam MAIS que os acesos — o prospector virava confete. Apagada é
+     textura de cidade; quem tem que pular na cara é o achado. */
+  --emp-topo:#576475; --emp-esq:#414c5b; --emp-dir:#313a47;
+  --emp-janela:#232f3e;
+  --emp-sombra:rgba(0,0,0,.42); --emp-base:#6b788a;
+  --emp-on-topo:#a8c96a; --emp-on-esq:#7c9a4a; --emp-on-dir:#5d7834;
+  --emp-on-janela:#e7ff9e; --emp-on-janela-brilho:rgba(220,255,128,.85);
+  --emp-on-base:#b2ff43;
+  --emp-anel:rgba(30,52,24,.82); --emp-anel-fio:rgba(165,255,71,.92);
+  --emp-anel-halo:rgba(150,240,60,.2);
+  --emp-luz-chao:rgba(150,240,60,.3);
+  --emp-varre:rgba(88,186,255,.95); --emp-varre-fim:rgba(88,186,255,.05);
+  --emp-chip-bg:rgba(10,19,32,.9); --emp-chip-fio:rgba(120,150,190,.35);
+  --emp-nome:#f4f9ff; --emp-ponto:#b2ff43; --emp-ponto-brilho:rgba(178,255,67,.75);
+  --emp-trilho:rgba(120,140,170,.35); --emp-barra:#b2ff43;
+  --emp-guia:rgba(178,255,67,.5);
+  --emp-radar:rgba(75,157,255,.55); --emp-linha-scan:rgba(85,180,255,.22);
+
+  --cv-entra:cubic-bezier(.2,.8,.2,1); --cv-sai:cubic-bezier(.4,0,1,1);
+  --cv-mola:cubic-bezier(.34,1.4,.5,1);
+}
+
+/* MODO CLARO — é DESENHO, não inversão. De dia ninguém liga farol: os tokens do
+   facho ficam transparentes e a mesma cena simplesmente não acende luz. O prédio
+   aceso não pode ficar "pálido brilhando": no claro ele fica com o lime CHEIO e
+   as janelas ESCURAS — no branco, quem marca é o escuro. */
+.app.claro{
+  --bg:#eef2f7; --bg-2:#f4f7fb; --card:#ffffff; --line:#dbe3ed; --line-2:#c6d2e0;
+  --ink:#0d1726; --ink-2:#5b6b83; --ink-3:#7386a0;
+  --lime:#4f9310; --blue:#1f66e0; --blue-l:#2f7ef7;
+  --blue-bg:#e4eefe; --lime-bg-2:#e9f6d5; --red-line-2:#f0bcbc; --red-bg:#fdeeee;
+  --glass:#ffffffe6; --trilho:#e2e8f0; --fog:#e5ebf3;
+  --ceu-1:#cddced; --ceu-2:#dde7f2;
+  --sombra-carta:0 10px 28px rgba(28,44,70,.14);
+  --halo-texto:0 0 5px rgba(255,255,255,.95);
+  --puck-anel:rgba(31,102,224,.45);
+
+  --map-fundo:#e2e8f0; --map-quadra:#f2f5f8; --map-lote:#e8edf3;
+  --map-rua:#ffffff; --map-rua2:#fbfcfe; --map-rua-fio:#c9d4e2;
+  --map-parque:#d8e6da; --map-agua:#c7e2f2; --map-rotulo:#8494a9;
+  --map-rota:#5aa515; --map-rota-borda:#3a6f08; --map-rota-brilho:rgba(90,165,21,.14);
+  --map-cabeca:#1f66e0; --map-faixa:rgba(255,255,255,.9);
+  --map-pino:#ffffff; --map-partida:#1f66e0;
+
+  --farol:transparent; --farol-2:transparent; --farol-chao:transparent;
+
+  --emp-topo:#c8d1dc; --emp-esq:#a7b2c0; --emp-dir:#8a95a4;
+  --emp-janela:#dde4ec; --emp-sombra:rgba(40,58,84,.2); --emp-base:#8a95a4;
+  --emp-on-topo:#9fc555; --emp-on-esq:#79a02e; --emp-on-dir:#5c7d1c;
+  --emp-on-janela:#31570a; --emp-on-janela-brilho:rgba(49,87,10,.5);
+  --emp-on-base:#4f9310;
+  --emp-anel:rgba(236,249,220,.92); --emp-anel-fio:rgba(79,147,16,.95);
+  --emp-anel-halo:rgba(90,165,21,.22);
+  --emp-luz-chao:rgba(90,165,21,.22);
+  --emp-varre:rgba(31,102,224,.95); --emp-varre-fim:rgba(31,102,224,.04);
+  --emp-chip-bg:rgba(255,255,255,.94); --emp-chip-fio:rgba(120,140,170,.4);
+  --emp-nome:#0d1726; --emp-ponto:#4f9310; --emp-ponto-brilho:rgba(79,147,16,.4);
+  --emp-trilho:rgba(120,140,170,.3); --emp-barra:#4f9310;
+  --emp-guia:rgba(79,147,16,.55);
+  --emp-radar:rgba(31,102,224,.4); --emp-linha-scan:rgba(31,102,224,.14);
+}
+
+/* ---------------------------------------------------------------- PALCO --- */
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:#04070d;display:grid;place-items:center;
+  font-family:"Segoe UI Variable Display","Segoe UI",Inter,ui-sans-serif,system-ui,-apple-system,Roboto,Arial,sans-serif;
+  font-synthesis:none;-webkit-font-smoothing:antialiased}
+.palco{display:flex;gap:30px;align-items:flex-start;padding:24px}
+.app{position:relative;width:412px;height:940px;border-radius:38px;overflow:hidden;
+  background:var(--bg);color:var(--ink);font-size:13px;isolation:isolate;
+  box-shadow:0 34px 100px rgba(0,0,0,.6),0 0 0 1px rgba(150,175,205,.1)}
+
+.barra-sis{position:absolute;inset:0 0 auto 0;height:30px;z-index:90;display:flex;align-items:center;
+  justify-content:space-between;padding:0 16px;font-size:11.5px;color:var(--ink);pointer-events:none;
+  background:linear-gradient(180deg,rgba(0,0,0,.3),transparent)}
+.app.claro .barra-sis{background:linear-gradient(180deg,rgba(255,255,255,.55),transparent)}
+.barra-sis .sinais{display:flex;gap:5px;opacity:.85}
+
+/* ==========================================================================
+   O MAPA — UM SÓ. Ele nunca é trocado, nunca é recriado, nunca pisca.
+   O plano vai de -52% a +106% da altura (1,58H) e de -42% a +142% da largura
+   (1,84W). A origem do rotateX é escrita pelo JS a cada quadro:
+       origem% = (âncora + 0,52) / 1,58
+   que é a conta que crava o ponto fixo da perspectiva em cima do ponteiro.
+   ========================================================================== */
+/* o céu: sem ele a faixa acima do horizonte fica um retângulo preto morto e a
+   tela parece falha de renderização, não distância */
+.gps{position:absolute;inset:0;overflow:hidden;
+  background:linear-gradient(180deg,var(--ceu-1),var(--ceu-2) 26%,var(--fog) 46%)}
+.gps-mundo{position:absolute;left:-42%;right:-42%;top:-52%;bottom:-6%;will-change:transform}
+.gps-mundo svg{width:100%;height:100%;display:block}
+#mundo{will-change:transform}
+
+/* névoa do horizonte: sem ela a borda do mapa vira um corte reto no meio da
+   tela — é o detalhe que denuncia mapa falso. Na vista de cima não existe
+   horizonte, então ela some junto com a inclinação. */
+/* 🔴 A NÉVOA TEM QUE COBRIR A COSTURA. O horizonte cai em 290 px (âncora 86%,
+   inclinação 51°) e o desenho do mundo, por maior que seja, sempre acaba uns
+   pixels ABAIXO dele — é a assíntota da perspectiva, não dá pra "desenhar até
+   o infinito". Então a névoa é opaca até passar de 290 e só aí abre. Sem isso
+   sobra uma tarja escura de ~30 px que lê como falha de renderização. */
+.gps-horizonte{position:absolute;left:0;right:0;top:0;height:36%;pointer-events:none;z-index:14;
+  opacity:0;background:linear-gradient(180deg,var(--fog) 60%,
+    color-mix(in srgb,var(--fog) 74%,transparent) 84%,transparent)}
+
+/* --- O PONTEIRO. Ele NÃO tem posição fixa no CSS: quem escreve --px/--py é a
+       mesma projeção que posiciona as empresas. Assim ele é um objeto do
+       mundo, e não um adesivo colado no vidro que por acaso cai perto da rua. */
+.gps-puck{position:absolute;left:0;top:0;width:0;height:0;z-index:19;
+  transform:translate(var(--px,50%),var(--py,68%))}
+.gps-puck::after{content:"";position:absolute;left:-92px;top:-92px;width:184px;height:184px;
+  border-radius:50%;border:1.5px solid var(--puck-anel);opacity:0;pointer-events:none}
+.gps-puck.pousa::after{animation:puckPouso 700ms var(--cv-sai) both}
+@keyframes puckPouso{from{opacity:.85;transform:scale(.06)}to{opacity:0;transform:scale(1)}}
+
+/* O FAROL: cone recortado em polígono (conic-gradient pintava um retângulo azul
+   na frente da seta). Ele ACENDE — dois piscares e firma. */
+.gps-facho{position:absolute;left:-56px;top:-118px;width:112px;height:126px;opacity:0;
+  background:linear-gradient(180deg,transparent,var(--farol) 74%,var(--farol-2));
+  clip-path:polygon(50% 100%, 3% 0%, 97% 0%);filter:blur(2px)}
+.gps-facho.acende{animation:farolAcende 780ms linear forwards}
+@keyframes farolAcende{0%{opacity:0}9%{opacity:.7}17%{opacity:.05}30%{opacity:.95}
+  42%{opacity:.3}56%{opacity:1}70%{opacity:.82}100%{opacity:1}}
+.farol-chao{position:absolute;left:0;top:0;width:560px;height:480px;z-index:13;opacity:0;
+  transform:translate(var(--px,50%),var(--py,68%)) translate(-50%,-86%);pointer-events:none;
+  background:radial-gradient(ellipse 50% 48% at 50% 80%,var(--farol-chao),transparent 72%)}
+.farol-chao.acende{animation:farolAcende 780ms linear forwards}
+
+/* a peça do ponteiro: PARADO é um pino de rota; DIRIGINDO é a seta. É o mesmo
+   objeto — ele não é trocado, ele se transforma durante a descida. */
+.puck-peca{position:absolute;left:-24px;top:-27px;width:48px;height:54px;
+  filter:drop-shadow(0 3px 7px rgba(0,0,0,.55))}
+.app.claro .puck-peca{filter:drop-shadow(0 3px 8px rgba(28,44,70,.28))}
+.puck-peca .seta{opacity:0;transition:opacity .5s ease}
+.puck-peca .pino{opacity:1;transition:opacity .5s ease}
+.dirigindo .puck-peca .seta{opacity:1}
+.dirigindo .puck-peca .pino{opacity:0}
+
+/* ---------------------------------------------------- CROMO DA VISTA 2D --- */
+.cromo2d{position:absolute;inset:0;z-index:24;pointer-events:none}
+.cromo2d>*{pointer-events:auto}
+.topo{position:absolute;left:12px;right:12px;top:38px;padding:12px 14px;border-radius:16px;
+  background:var(--glass);border:.7px solid var(--line);backdrop-filter:blur(16px);
+  box-shadow:var(--sombra-carta)}
+.topo h1{margin:0;font-size:19px;font-weight:500;letter-spacing:-.35px}
+.topo p{margin:3px 0 0;font-size:12px;color:var(--ink-2)}
+.topo .fitas{display:flex;gap:6px;margin-top:9px}
+.fita{padding:4px 9px;border-radius:999px;font-size:10.5px;border:.7px solid var(--line);
+  background:var(--card);color:var(--ink-2)}
+.fita.lima{color:var(--lime);border-color:var(--emp-anel-fio);background:var(--lime-bg-2)}
+.pe{position:absolute;left:0;right:0;bottom:0;padding:14px 12px 16px;
+  background:linear-gradient(180deg,transparent,var(--bg) 38%)}
+.carta{padding:11px 12px;border-radius:16px;background:var(--card);border:.7px solid var(--line);
+  box-shadow:var(--sombra-carta);display:flex;align-items:center;gap:11px}
+.carta .selo{width:44px;height:44px;border-radius:13px;background:var(--blue-bg);color:var(--blue-l);
+  display:grid;place-items:center;flex:0 0 44px}
+.carta b{display:block;font-size:14px;font-weight:500}
+.carta small{display:block;font-size:11.5px;color:var(--ink-2);margin-top:2px}
+.carta .eta{margin-left:auto;text-align:right}
+.carta .eta b{font-size:15px;color:var(--lime)}
+.carta .eta i{display:block;font-style:normal;font-size:10.5px;color:var(--ink-2)}
+.iniciar{margin-top:9px;width:100%;height:52px;border:0;border-radius:15px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:9px;font-family:inherit;
+  background:linear-gradient(180deg,var(--go-1),var(--go-2));color:var(--go-ink);
+  font-size:15.5px;font-weight:600;box-shadow:0 8px 22px rgba(120,200,30,.26)}
+.iniciar:active{transform:translateY(1px)}
+.cromo2d.sai .topo{animation:sobe 300ms var(--cv-sai) forwards}
+.cromo2d.sai .pe{animation:desce 300ms var(--cv-sai) 50ms forwards}
+@keyframes sobe{to{opacity:0;transform:translateY(-30px)}}
+@keyframes desce{to{opacity:0;transform:translateY(40px)}}
+.cromo2d.fora{display:none}
+
+/* ---------------------------------------------------- CROMO DA VISTA 3D --- */
+.gps-manobra{position:absolute;left:9px;right:9px;top:36px;z-index:22;border-radius:15px;overflow:hidden;
+  background:var(--glass);border:.7px solid var(--line);box-shadow:var(--sombra-carta);
+  backdrop-filter:blur(16px);opacity:0;transform:translateY(-26px)}
+.gps-manobra.on{animation:cai 440ms var(--cv-entra) forwards}
+@keyframes cai{to{opacity:1;transform:none}}
+.gps-manobra .cima{display:flex;align-items:center;gap:12px;padding:11px 13px}
+.gps-manobra .seta{width:48px;height:48px;border-radius:13px;background:var(--blue-bg);color:var(--blue-l);
+  display:grid;place-items:center;flex:0 0 48px}
+.gps-manobra .dist{display:block;font-size:22px;font-weight:500;line-height:1.05;letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums}
+.gps-manobra .verbo{display:block;font-size:15px;color:var(--ink);margin-top:2px}
+.gps-manobra .baixo{display:flex;align-items:center;gap:7px;padding:7px 13px;border-top:.7px solid var(--line);
+  font-size:11.5px;color:var(--ink-2)}
+.gps-manobra.perto .seta{background:var(--lime-bg-2);color:var(--lime)}
+.gps-manobra.perto .dist{color:var(--lime)}
+
+.gps-bussola{position:absolute;right:11px;top:150px;z-index:22;width:38px;height:38px;border-radius:50%;
+  background:var(--glass);border:.7px solid var(--line);display:grid;place-items:center;
+  color:var(--ink-2);font-size:9.5px;opacity:0;backdrop-filter:blur(10px)}
+.gps-bussola svg{position:absolute;top:3px;transform-origin:50% 50%}
+.gps-bussola b{margin-top:13px;font-weight:500}
+.gps-vel{position:absolute;left:11px;bottom:122px;z-index:22;width:56px;height:56px;border-radius:50%;
+  background:var(--glass);border:.7px solid var(--line);display:grid;place-items:center;text-align:center;
+  line-height:1;opacity:0;backdrop-filter:blur(10px)}
+.gps-vel b{display:block;font-size:19px;font-weight:500;font-variant-numeric:tabular-nums}
+.gps-vel small{display:block;font-size:8.5px;color:var(--ink-2);margin-top:2px}
+.gps-lado{position:absolute;right:11px;bottom:122px;z-index:22;display:flex;flex-direction:column;gap:8px;opacity:0}
+.gps-lado button{width:40px;height:40px;border-radius:50%;border:.7px solid var(--line);background:var(--glass);
+  color:var(--blue-l);display:grid;place-items:center;cursor:pointer;backdrop-filter:blur(10px)}
+.aparece.on{animation:surge 420ms var(--cv-mola) forwards}
+@keyframes surge{from{opacity:0;transform:scale(.8)}to{opacity:1;transform:none}}
+
+.gps-rodape{position:absolute;left:0;right:0;bottom:0;z-index:22;background:var(--glass);
+  border-top:.7px solid var(--line);padding:9px 12px 14px;backdrop-filter:blur(18px);
+  transform:translateY(100%);opacity:0}
+.gps-rodape.on{animation:sobeRod 480ms var(--cv-entra) forwards}
+@keyframes sobeRod{to{transform:none;opacity:1}}
+.gps-rodape .parada{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2);margin-bottom:8px}
+.gps-rodape .parada b{color:var(--ink);font-weight:500}
+.gps-rodape .linha{display:flex;align-items:center;gap:10px}
+.gps-rodape .n{flex:1;text-align:center}
+.gps-rodape .n b{display:block;font-size:17px;font-weight:500;line-height:1.1;font-variant-numeric:tabular-nums}
+.gps-rodape .n small{display:block;font-size:10.5px;color:var(--ink-2);margin-top:1px}
+.gps-rodape .n.destaque b{color:var(--lime)}
+.gps-rodape .sair{height:42px;padding:0 15px;border-radius:12px;border:.7px solid var(--red-line-2);
+  background:var(--red-bg);color:#ff8b85;font-size:13.5px;cursor:pointer;font-family:inherit}
+.app.claro .gps-rodape .sair{color:#c2352f}
+
+/* ==========================================================================
+   AS EMPRESAS — reescritas em SVG isométrico.
+
+   🔴 APAGADA NÃO TEM ANEL. Esse era o ruído: 15 anéis cinzas na tela e o
+   motorista sem saber qual importava. Apagada é só um prédio da cidade. O anel
+   verde É o sinal de que o app achou — ele nasce junto com o nome.
+   ========================================================================== */
+.emp-camada{position:absolute;inset:0;z-index:12;pointer-events:none}
+.emp{position:absolute;left:0;top:0;width:0;height:0;
+  transform:translate(var(--px),var(--py));opacity:0;transition:opacity .5s ease}
+.emp.no-ar{opacity:1}
+.emp.possivel{opacity:.5}
+.emp.passou{opacity:.62}
+
+.emp-obj{position:absolute;left:-30px;top:-56px;width:60px;height:64px;
+  transform:scale(var(--esc,1));transform-origin:50% 87.5%}
+.emp-obj svg{width:100%;height:100%;display:block;overflow:visible}
+/* o anel de "achei": chão iluminado + aro. Só existe em .on */
+.emp-luz{fill:var(--emp-luz-chao);opacity:0}
+.emp-aro{fill:var(--emp-anel);stroke:var(--emp-anel-fio);stroke-width:1.4;opacity:0}
+.emp-varre{fill:none;stroke:var(--emp-varre);stroke-width:2;opacity:0;transform-origin:0 0}
+.emp-sombra{fill:var(--emp-sombra)}
+.emp-topo{fill:var(--emp-topo)}
+.emp-esq{fill:var(--emp-esq)}
+.emp-dir{fill:var(--emp-dir)}
+.emp-jan{fill:var(--emp-janela)}
+.emp-pe{fill:var(--emp-base)}
+
+/* ---- ACESA: o estado FINAL, escrito por inteiro. Quem chegar com a animação
+        desligada vê a empresa ACESA e certa, nunca meio pintada. ---- */
+.emp.on .emp-topo{fill:var(--emp-on-topo)}
+.emp.on .emp-esq{fill:var(--emp-on-esq)}
+.emp.on .emp-dir{fill:var(--emp-on-dir)}
+.emp.on .emp-jan{fill:var(--emp-on-janela);filter:drop-shadow(0 0 3px var(--emp-on-janela-brilho))}
+.emp.on .emp-pe{fill:var(--emp-on-base)}
+.emp.on .emp-luz{opacity:1}
+.emp.on .emp-aro{opacity:1}
+.emp.on .emp-rotulo{opacity:1}
+.emp.on .emp-barra{width:100%}
+
+@keyframes empVarre{0%{opacity:.95;transform:scale(.3)}100%{opacity:0;transform:scale(2.4);stroke:var(--emp-varre-fim)}}
+@keyframes empTopo{from{fill:var(--emp-topo)}}
+@keyframes empEsq{from{fill:var(--emp-esq)}}
+@keyframes empDir{from{fill:var(--emp-dir)}}
+@keyframes empPe{from{fill:var(--emp-base)}}
+@keyframes empJanela{from{fill:var(--emp-janela);filter:none}}
+@keyframes empSurge{from{opacity:0}}
+@keyframes empAro{from{opacity:0;transform:scale(.55)}}
+@keyframes empRespira{0%,100%{opacity:.85}50%{opacity:1}}
+/* 🔴 O `to` TEM QUE SER ESCRITO. Com só o `from`, o destino implícito era o
+   valor estático de `clip-path`, que é `none` — e `inset()` → `none` NÃO
+   interpola: o navegador troca SECO na metade. Medido: 0% aos 0/139/277/462 ms
+   e 100% aos 693 ms. Ou seja, não havia digitação nenhuma, havia um pisca no
+   meio do caminho, e a olho nu passava por "apareceu o nome".
+   ⚠️ A MESMA regra está no mock do app (logistica-2.0.html) com o mesmo defeito. */
+@keyframes empDigita{from{clip-path:inset(0 100% 0 0)} to{clip-path:inset(0 0 0 0)}}
+@keyframes empSublinha{from{width:0}}
+@keyframes empNasce{from{opacity:0;transform:scale(calc(var(--esc,1)*.15)) translateY(9px)}}
+
+.emp.nasce .emp-obj{animation:empNasce 560ms var(--cv-mola) both}
+.emp.varrendo .emp-varre{animation:empVarre 820ms ease-out forwards}
+.emp.on .emp-topo{animation:empTopo 400ms ease both}
+.emp.on .emp-esq{animation:empEsq 400ms ease both}
+.emp.on .emp-dir{animation:empDir 400ms ease both}
+.emp.on .emp-pe{animation:empPe 400ms ease both}
+.emp.on .emp-aro{animation:empAro 420ms var(--cv-mola) both}
+.emp.on .emp-luz{animation:empSurge 500ms ease both, empRespira 2.1s ease-in-out .5s infinite}
+/* 🔴 A LUZ E A ESCRITA SÃO A MESMA CENA (ordem do dono). Antes o nome começava
+   200 ms depois, e lia como duas coisas: o prédio acendia, DEPOIS o app
+   escrevia. Agora os dois partem no mesmo instante (40 ms) e terminam quase
+   juntos — a janela acendendo é a letra sendo digitada.
+   Cada janela tem o SEU lugar na fila (--j), e a fila de cada empresa é outra:
+   é o que faz o prédio acender "sozinho" em vez de piscar inteiro. */
+.emp.on .emp-jan{animation:empJanela 300ms ease calc(40ms + var(--j,0)*105ms) both}
+
+/* o rótulo: chip de vidro com fio guia até o prédio. NÃO escala com a câmera —
+   nome que encolhe com o zoom fica ilegível justo quando há mais deles. */
+/* --rx é o EMPURRÃO que mantém o chip dentro da tela quando a empresa está
+   perto da borda (medido: "Academia Corpo & Ação" saía cortada em "demia"). O
+   fio guia leva o empurrão INVERTIDO — ele tem que continuar apontando pro
+   prédio, senão o nome fica órfão apontando pro nada. */
+.emp-rotulo{position:absolute;left:0;bottom:calc(56px * var(--esc,1) + 8px);
+  transform:translateX(calc(-50% + var(--rx,0px)));opacity:0;pointer-events:none;
+  transition:opacity .3s ease}
+.emp.mudo .emp-rotulo{opacity:0 !important}
+.emp-guia{position:absolute;left:calc(50% - var(--rx,0px));bottom:-9px;width:1px;height:9px;
+  background:var(--emp-guia)}
+.emp-chip-nome{display:flex;align-items:center;gap:7px;padding:5px 10px 6px;border-radius:9px;
+  background:var(--emp-chip-bg);border:.7px solid var(--emp-chip-fio);position:relative;overflow:hidden;
+  backdrop-filter:blur(8px);box-shadow:0 4px 12px rgba(0,0,0,.3);white-space:nowrap}
+.app.claro .emp-chip-nome{box-shadow:0 4px 12px rgba(30,48,74,.14)}
+.emp-chip-nome .pt{width:6px;height:6px;border-radius:50%;flex:0 0 6px;background:var(--emp-ponto);
+  box-shadow:0 0 8px var(--emp-ponto-brilho)}
+.emp-nome{font-size:12.5px;font-weight:500;color:var(--emp-nome);overflow:hidden;
+  display:inline-block;white-space:nowrap;letter-spacing:-.1px}
+/* o sublinhado enche MAIS DEVAGAR que a digitação: é ele que dá o ar de "o app
+   ainda está confirmando" depois que o nome já apareceu */
+.emp-trilho{position:absolute;left:0;right:0;bottom:0;height:2px;background:var(--emp-trilho)}
+.emp-barra{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--emp-barra)}
+/* 44 ms por caractere, em steps: é DIGITAÇÃO, não fade. O recorte por clip-path
+   não depende da largura da letra — `ch` mentiria numa fonte proporcional. */
+/* 66 ms por letra — 44 → 51 (+15%) → 66 (+30%), duas ordens do dono.
+   🔴 O TETO DESSE NÚMERO É O SUBLINHADO. Ele TEM que terminar depois do nome:
+   é a barra chegando atrasada que lê como "o app ainda está confirmando". O
+   nome mais comprido da lista tem 23 letras = 1,52 s; a barra leva 1,9 s.
+   Sobram 380 ms de folga — passar de ~80 ms por letra inverte os dois e a
+   cena perde o sentido. */
+.emp.on .emp-nome{animation:empDigita calc(var(--n,1)*66ms) steps(var(--n,1),end) 40ms both}
+.emp.on .emp-rotulo{animation:empSurge 200ms ease both}
+.emp.on .emp-barra{animation:empSublinha 1.9s linear 180ms both}
+.emp.passou .emp-rotulo{opacity:0}
+.emp.passou .emp-luz{animation:none;opacity:.4}
+
+/* ==========================================================================
+   AS PLAQUINHAS DE RUA — a peça da foto de referência do dono.
+   Elas são MUNDO na posição e INTERFACE no desenho: nascem numa coordenada da
+   rua, mas ficam sempre EM PÉ e do mesmo tamanho. Placa deitada no asfalto
+   pela perspectiva é ilegível justo onde mais se precisa dela (longe).
+   A da rua em que se está anda em lima; as outras, em vidro.
+   ========================================================================== */
+.rua-placa{position:absolute;left:0;top:0;z-index:15;pointer-events:none;
+  transform:translate(var(--px),var(--py)) translate(-50%,-50%);
+  padding:3px 8px;border-radius:7px;white-space:nowrap;
+  background:var(--glass);border:.7px solid var(--line);
+  font-size:11px;font-weight:500;color:var(--ink-2);
+  box-shadow:0 3px 9px rgba(0,0,0,.28);opacity:0;transition:opacity .3s ease}
+.app.claro .rua-placa{box-shadow:0 3px 9px rgba(30,48,74,.12)}
+.rua-placa.no-ar{opacity:1}
+.rua-placa.atual{color:var(--go-ink);background:var(--map-rota);border-color:var(--map-rota-borda)}
+
+/* ---- o cromo do prospector ---- */
+.emp-chip{position:absolute;left:12px;top:150px;z-index:16;padding:6px 12px 6px 25px;border-radius:999px;
+  background:var(--glass);border:.7px solid var(--line);font-size:12px;color:var(--ink-2);
+  opacity:0;backdrop-filter:blur(10px);white-space:nowrap}
+.emp-chip b{color:var(--ink);font-weight:500;font-variant-numeric:tabular-nums}
+.emp-chip::before{content:"";position:absolute;left:11px;top:50%;margin-top:-3.5px;width:7px;height:7px;
+  border-radius:50%;background:var(--emp-ponto);box-shadow:0 0 10px var(--emp-ponto-brilho)}
+.emp-scan{position:absolute;left:18px;right:18px;top:34%;height:2px;border-radius:2px;z-index:11;
+  pointer-events:none;opacity:0;background:var(--emp-linha-scan);filter:blur(4px)}
+.emp-scan.on{animation:empScan 5.2s linear infinite}
+@keyframes empScan{from{top:32%;opacity:.5}to{top:76%;opacity:.1}}
+/* o radar mora DENTRO do puck: quem pulsa é a posição do motorista, e o puck já
+   é o único dono dessa coordenada — dois donos do mesmo ponto discordam */
+.emp-radar{position:absolute;left:0;top:0;width:2px;height:2px;opacity:0}
+.emp-radar.on{opacity:1}
+.emp-radar i{position:absolute;left:-1px;top:-1px;width:2px;height:2px;border-radius:50%;
+  border:1px solid var(--emp-radar);transform:translate(-50%,-50%);animation:empRadar 3.6s linear infinite}
+.emp-radar i+i{animation-delay:1.8s}
+@keyframes empRadar{0%{width:8px;height:8px;margin-left:-4px;margin-top:-4px;opacity:.45}
+  100%{width:210px;height:210px;margin-left:-105px;margin-top:-105px;opacity:0}}
+
+.chegou-selo{position:absolute;left:50%;top:210px;z-index:26;transform:translate(-50%,-8px);
+  padding:8px 14px;border-radius:999px;background:var(--lime-bg-2);border:.7px solid var(--emp-anel-fio);
+  color:var(--lime);font-size:12px;white-space:nowrap;opacity:0}
+.chegou-selo.on{animation:selo 2.8s ease forwards}
+@keyframes selo{0%{opacity:0;transform:translate(-50%,-10px)}
+  14%,76%{opacity:1;transform:translate(-50%,0)}100%{opacity:0;transform:translate(-50%,6px)}}
+
+/* ---------------------------------------------------------------- MESA ---- */
+.mesa{width:334px;color:#e8f0fa}
+.mesa h2{margin:0 0 4px;font-size:17px;font-weight:600}
+.mesa .sub{margin:0 0 13px;color:#8fa3ba;font-size:12px;line-height:1.5}
+.grupo{padding:13px;border-radius:15px;background:#0b1421;border:1px solid #1a2740;margin-bottom:10px}
+.grupo h3{margin:0 0 9px;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:#7d92ab;font-weight:600}
+.linha-b{display:flex;gap:7px}
+.mesa button{flex:1;border:1px solid #22334f;background:#111f33;color:#e9f2fc;border-radius:10px;
+  padding:9px 6px;font-weight:500;cursor:pointer;font-size:12px;font-family:inherit}
+.mesa button:hover{background:#16283f}
+.mesa button.ativo{background:#173252;border-color:#2f6ab5;color:#bcdcff}
+.mesa .nota{margin:9px 0 0;color:#7d92ab;font-size:11px;line-height:1.55}
+.mesa .nota b{color:#b8ccdf;font-weight:500}
+.relogio{display:flex;justify-content:space-between;align-items:baseline;font-size:11.5px;color:#8fa3ba;
+  padding:7px 0;border-bottom:1px dashed #1c2b44}
+.relogio:last-child{border-bottom:0}
+.relogio b{color:#dce9f7;font-weight:500;font-variant-numeric:tabular-nums}
+.relogio.viva b{color:#b2ff43}
+@media(max-width:820px){body{display:block}.palco{padding:0;flex-direction:column}.mesa{display:none}}
+
+/* ==========================================================================
+   MODO APRESENTAÇÃO — pra gravar vídeo.
+   Some o painel, some a moldura do palco e SOME O CURSOR (mouse parado no meio
+   do print é o que denuncia captura de tela). O celular ocupa a janela inteira,
+   então qualquer gravador de JANELA já entrega o enquadramento certo, sem
+   precisar recortar depois. Sai com Esc.
+   ========================================================================== */
+/* 🔴 AMPLIA POR `transform`, NUNCA por width/height. A projeção da câmera tem
+   412 x 940 CRAVADO no JS (`const W=412,H=940`) — é dali que sai a âncora do
+   ponteiro e a posição de toda empresa. Mudar o tamanho da caixa desalinharia
+   a seta da rua em cheio. `scale` amplia o resultado pronto e não toca em
+   layout nenhum. */
+body.apresentar{background:#04070d;cursor:none;overflow:hidden}
+body.apresentar .mesa{display:none}
+body.apresentar .palco{padding:0;height:100vh;width:100vw;align-items:center;justify-content:center}
+body.apresentar .app{box-shadow:none;border-radius:0;
+  transform:scale(var(--fit,1));transform-origin:center}
+.dica-video{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:200;
+  padding:7px 14px;border-radius:999px;background:#0b1421;border:1px solid #22334f;
+  color:#8fa3ba;font-size:11.5px;opacity:0;transition:opacity .4s ease;pointer-events:none}
+body.apresentar .dica-video{opacity:1;animation:sumirDica .6s ease 3.4s forwards}
+@keyframes sumirDica{to{opacity:0}}
+
+/* MENOS MOVIMENTO NO SISTEMA = NENHUM MOVIMENTO AQUI. Quem pediu pra parar
+   recebe a tela PRONTA, nunca meio pintada. */
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:1ms !important;animation-delay:0ms !important;
+    transition-duration:1ms !important}
+}
+</style>
+</head>
+<body>
+<div class="palco">
+
+  <div class="app" id="app">
+    <div class="barra-sis"><span id="relogio">08:42</span>
+      <span class="sinais">
+        <svg width="15" height="11" viewBox="0 0 15 11"><path d="M1 8h2v3H1zM5 5.5h2V11H5zM9 3h2v8H9zM13 .5h2V11h-2z" fill="currentColor"/></svg>
+        <svg width="13" height="11" viewBox="0 0 13 11"><path d="M6.5 9.6 1 4.2A7.8 7.8 0 0 1 12 4.2z" fill="currentColor" opacity=".95"/></svg>
+        <svg width="20" height="11" viewBox="0 0 20 11"><rect x=".5" y="1.5" width="16" height="8" rx="2.2" stroke="currentColor" fill="none"/><rect x="2" y="3" width="12" height="5" rx="1" fill="currentColor"/><path d="M18 4v3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </span></div>
+
+    <div class="gps" id="gps">
+      <div class="gps-mundo" id="plano">
+        <svg viewBox="0 0 758.08 1485.2" preserveAspectRatio="none"><g id="mundo"></g></svg>
+      </div>
+
+      <div class="farol-chao" id="farolChao"></div>
+      <div class="emp-camada" id="camadaEmp"></div>
+      <div class="emp-scan" id="scanLinha"></div>
+      <div class="gps-horizonte" id="horizonte"></div>
+      <div class="emp-chip" id="chipProsp">Prospector · <b>0</b> acesas no corredor</div>
+
+      <div class="gps-puck" id="puck">
+        <span class="emp-radar" id="radar"><i></i><i></i></span>
+        <span class="gps-facho" id="facho"></span>
+        <svg class="puck-peca" viewBox="0 0 48 54">
+          <g class="seta">
+            <path d="M24 3 L41 47 L24 38 L7 47 Z" fill="var(--map-partida)" stroke="var(--white)" stroke-width="2.6" stroke-linejoin="round"/>
+          </g>
+          <g class="pino">
+            <circle cx="24" cy="27" r="13" fill="var(--map-partida)" stroke="var(--white)" stroke-width="4"/>
+            <circle cx="24" cy="27" r="4.5" fill="var(--white)"/>
+          </g>
+        </svg>
+      </div>
+
+      <!-- ---------------- cromo da vista de cima ---------------- -->
+      <div class="cromo2d" id="cromo2d">
+        <div class="topo">
+          <h1>Rota de hoje</h1>
+          <p>8 paradas · 14,2 km · começa agora</p>
+          <div class="fitas"><span class="fita">Zona Norte</span><span class="fita">Água 20L</span>
+            <span class="fita lima">15 empresas no corredor</span></div>
+        </div>
+        <div class="pe">
+          <div class="carta">
+            <span class="selo"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11Z"/><circle cx="12" cy="10" r="2.6"/></svg></span>
+            <span><b>Mercado São Judas</b><small>Rua Sete, 412 · Parada 3 de 8</small></span>
+            <span class="eta"><b>09:04</b><i>chegada</i></span>
+          </div>
+          <button class="iniciar" id="btnIniciar">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11 21 3l-8 18-2-7-8-3Z"/></svg>
+            Iniciar rota
+          </button>
+        </div>
+      </div>
+
+      <!-- ---------------- cromo da vista de dirigir ---------------- -->
+      <div class="gps-manobra" id="manobra">
+        <div class="cima">
+          <span class="seta" id="mIcone"></span>
+          <span><b class="dist" id="mDist">—</b><span class="verbo" id="mVerbo">—</span></span>
+        </div>
+        <div class="baixo" id="mBaixo"></div>
+      </div>
+      <div class="gps-bussola aparece" id="bussola">
+        <svg viewBox="0 0 24 24" width="17" height="17" id="agulha">
+          <path d="M12 2.6 L16.2 13 L12 10.4 L7.8 13 Z" fill="#ff8b85"/>
+          <path d="M12 21.4 L7.8 11 L12 13.6 L16.2 11 Z" fill="currentColor" opacity=".4"/>
+        </svg><b id="rumo">N</b>
+      </div>
+      <div class="gps-vel aparece" id="velCaixa"><div><b id="velN">0</b><small>km/h</small></div></div>
+      <div class="gps-lado aparece" id="ladoBtns">
+        <button aria-label="Silenciar voz"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M16 9.5a3.5 3.5 0 0 1 0 5"/><path d="M18.7 6.8a7 7 0 0 1 0 10.4"/></svg></button>
+        <button aria-label="Recentralizar"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
+      </div>
+      <div class="chegou-selo" id="seloChegada">Você chegou · Mercado São Judas</div>
+      <div class="gps-rodape" id="rodape">
+        <div class="parada">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 19V9a3 3 0 0 1 3-3h6a3 3 0 0 0 3-3"/><circle cx="6" cy="20" r="2"/><circle cx="18" cy="4" r="2"/></svg>
+          Parada <b>3 de 8</b> · <b>Mercado São Judas</b>
+        </div>
+        <div class="linha">
+          <span class="n destaque"><b id="rChegada">09:04</b><small>chegada</small></span>
+          <span class="n"><b id="rTempo">4 min</b><small>restante</small></span>
+          <span class="n"><b id="rKm">1,5 km</b><small>distância</small></span>
+          <button class="sair" id="btnSair">Encerrar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <aside class="mesa">
+    <h2>HBX GPS · V4</h2>
+    <p class="sub">Um mapa só: a vista de cima é ele com <b>0° de inclinação</b>. A descida
+      é a inclinação, o zoom e a âncora <b>andando</b> — 2,4 s contínuos, sem véu e sem corte.
+      O ponteiro fica colado embaixo, como todo GPS.</p>
+
+    <div class="grupo">
+      <h3>Cena</h3>
+      <div class="linha-b">
+        <button id="bReplay">Do começo</button>
+        <button id="bTema">Modo claro</button>
+      </div>
+      <div class="linha-b" style="margin-top:7px">
+        <button class="vel" data-v="1">1×</button>
+        <button class="vel ativo" data-v="2">2×</button>
+        <button class="vel" data-v="4">4×</button>
+      </div>
+      <div class="linha-b" style="margin-top:7px">
+        <button id="bVideo">Modo apresentação (gravar)</button>
+      </div>
+      <p class="nota">Some o painel e o cursor, e o celular toma a janela — aí
+        <b>Win + Alt + R</b> grava só ela. Sai com <b>Esc</b>. A volta inteira leva
+        ~70 s em 2× e ~35 s em 4×.</p>
+    </div>
+
+    <div class="grupo">
+      <h3>A câmera, ao vivo</h3>
+      <div class="relogio"><span>inclinação</span><b id="dbgT">0°</b></div>
+      <div class="relogio"><span>zoom</span><b id="dbgK">—</b></div>
+      <div class="relogio"><span>âncora do ponteiro</span><b id="dbgA">—</b></div>
+      <div class="relogio"><span>meio da tela, à frente</span><b id="dbgV">—</b></div>
+      <div class="relogio"><span>rumo</span><b id="dbgH">—</b></div>
+    </div>
+
+    <div class="grupo">
+      <h3>O prospector</h3>
+      <div class="relogio viva"><span>acesas</span><b id="dbgE">0 / 15</b></div>
+      <div class="relogio"><span>próxima a acender em</span><b id="dbgP">—</b></div>
+      <p class="nota">A régua é <b>tempo de viagem</b>, não metro fixo: constrói em 34 s,
+        varre em 22 s, <b>acende em 20 s</b> e se despede 5 s depois de passar. Com trava de
+        170 a 320 m, pra curva lenta não colar a empresa na cara nem reta rápida
+        acender a cidade inteira.</p>
+    </div>
+  </aside>
+  <div class="dica-video">Win + Alt + R grava · Esc sai</div>
+</div>
+
+<script>
+'use strict';
+const $=s=>document.querySelector(s);
+const RAD=Math.PI/180;
+
+/* ===========================================================================
+   L1 · O MUNDO — malha de ruas em METROS. Nada aqui é desenhado "à mão":
+   quadra, rua e rota saem todas desta tabela, então é impossível a rota passar
+   por cima de uma quadra.
+   =========================================================================== */
+/* NÚCLEO = onde há quadra desenhada. LONGE = até onde vai o chão e o risco das
+   ruas. 🔴 Medido: com o núcleo indo só até -560, o mundo ACABAVA em y=369 na
+   tela e o horizonte é em 290 — sobrava uma tarja preta de 79 px, que lê como
+   falha de renderização. Rua longe é só uma linha (custa nada); quadra longe é
+   invisível de qualquer jeito, então ela para no núcleo. */
+const LIM={x0:-620,x1:1600,y0:-560,y1:1720};
+const LONGE={x0:-9400,x1:10400,y0:-11000,y1:6200};
+const HORZ_LONGE=[-700,-980,-1320,-1740,-2260,-2900,-3700];
+const VERT=[
+  {x:-420,w:9, t:'r',nome:'Rua Um'},      {x:-180,w:9, t:'r',nome:'Rua Três'},
+  {x:  90,w:11,t:'r',nome:'Rua Sete'},    {x: 250,w:17,t:'a',nome:'Avenida Nove'},
+  {x: 410,w:17,t:'a',nome:'Avenida Onze'},{x: 580,w:11,t:'r',nome:'Rua Treze'},
+  {x: 750,w:11,t:'r',nome:'Rua Quinze'},  {x: 910,w:9, t:'r',nome:'Rua Dezessete'},
+  {x:1120,w:11,t:'r',nome:'Rua Dezenove'},{x:1360,w:9, t:'r',nome:'Rua Vinte e Um'}
+];
+const HORZ=[
+  {y:-420,w:9, t:'r',nome:'Rua do Porto'},   {y:-140,w:9, t:'r',nome:'Rua da Barra'},
+  {y: 140,w:17,t:'a',nome:'Av. Beira-Rio'},  {y: 300,w:11,t:'r',nome:'Rua Dois'},
+  {y: 480,w:11,t:'r',nome:'Rua Quatro'},     {y: 650,w:17,t:'a',nome:'Avenida Seis'},
+  {y: 820,w:11,t:'r',nome:'Rua Oito'},       {y:1000,w:11,t:'r',nome:'Rua Dez'},
+  {y:1180,w:9, t:'r',nome:'Rua Doze'},       {y:1420,w:9, t:'r',nome:'Rua Catorze'}
+];
+const PARQUE={x:620,y:340,w:270,h:230};
+const RIO={y:-100,h:130};
+
+/* A ROTA: lista de CRUZAMENTOS. Todo vértice é interseção de uma vertical com
+   uma horizontal — é isso que garante que ela nunca corta quadra. */
+const CRUZ=[{x:410,y:1010},{x:410,y:650},{x:580,y:650},{x:580,y:300},{x:90,y:300},{x:90,y:140}];
+const RAIO_CURVA=14;
+const VMAX={0:48,1:34,2:44,3:50,4:36};
+const V_CURVA=17;
+
+function montarRota(pts,r){
+  const segs=[]; let tot=0;
+  const dir=(a,b)=>{const dx=b.x-a.x,dy=b.y-a.y,m=Math.hypot(dx,dy);return{x:dx/m,y:dy/m,m}};
+  for(let i=0;i<pts.length-1;i++){
+    const a=pts[i],b=pts[i+1],d=dir(a,b);
+    const cA=i>0?r:0, cB=i<pts.length-2?r:0;
+    const s={x:a.x+d.x*cA,y:a.y+d.y*cA}, e={x:b.x-d.x*cB,y:b.y-d.y*cB};
+    const len=Math.hypot(e.x-s.x,e.y-s.y);
+    segs.push({t:'l',s,e,d,len,i0:tot,leg:i}); tot+=len;
+    if(cB){
+      const dO=dir(pts[i+1],pts[i+2]);
+      const sg=Math.sign(d.x*dO.y-d.y*dO.x)||1;
+      const c={x:e.x-d.y*r*sg, y:e.y+d.x*r*sg};
+      const e2={x:b.x+dO.x*r, y:b.y+dO.y*r};
+      const a0=Math.atan2(e.y-c.y,e.x-c.x);
+      let sw=Math.atan2(e2.y-c.y,e2.x-c.x)-a0;
+      while(sw> Math.PI)sw-=2*Math.PI;
+      while(sw<-Math.PI)sw+=2*Math.PI;
+      segs.push({t:'a',c,r,a0,sw,len:Math.abs(sw)*r,i0:tot,leg:i,virou:sg>0?'dir':'esq'});
+      tot+=Math.abs(sw)*r;
+    }
+  }
+  return {segs,tot};
+}
+const ROTA=montarRota(CRUZ,RAIO_CURVA);
+function emS(d){
+  d=Math.max(0,Math.min(ROTA.tot,d));
+  for(const g of ROTA.segs){
+    if(d<=g.i0+g.len+1e-6){
+      const u=d-g.i0;
+      if(g.t==='l') return {x:g.s.x+g.d.x*u,y:g.s.y+g.d.y*u,h:Math.atan2(g.d.y,g.d.x),seg:g};
+      const ang=g.a0+Math.sign(g.sw)*(u/g.r);
+      return {x:g.c.x+Math.cos(ang)*g.r,y:g.c.y+Math.sin(ang)*g.r,h:ang+Math.sign(g.sw)*Math.PI/2,seg:g};
+    }
+  }
+  const l=ROTA.segs[ROTA.segs.length-1];
+  return {x:l.e.x,y:l.e.y,h:Math.atan2(l.d.y,l.d.x),seg:l};
+}
+function rotaD(){
+  let d=`M${ROTA.segs[0].s.x} ${ROTA.segs[0].s.y}`;
+  for(const g of ROTA.segs){
+    if(g.t==='l') d+=` L${g.e.x.toFixed(2)} ${g.e.y.toFixed(2)}`;
+    else{const a=g.a0+g.sw;
+      d+=` A${g.r} ${g.r} 0 0 ${g.sw>0?1:0} ${(g.c.x+Math.cos(a)*g.r).toFixed(2)} ${(g.c.y+Math.sin(a)*g.r).toFixed(2)}`;}
+  }
+  return d;
+}
+const CURVAS=ROTA.segs.filter(g=>g.t==='a').map(g=>({i0:g.i0,i1:g.i0+g.len,lado:g.virou,leg:g.leg}));
+
+/* ===========================================================================
+   L2 · AS EMPRESAS — posição por ESTAÇÃO na rota + lado da rua. Assim é
+   impossível uma empresa nascer no asfalto ou dentro de outra quadra.
+   =========================================================================== */
+/* 🔴 O RECUO DA PISTA (ordem do dono: "afaste só um pouco, bem pouquinho").
+   Com 16 m da linha do meio o prédio (que tem ~7 m de meia-largura no chão)
+   encostava a saia dele no asfalto, e o chip do nome ficava por cima da fita
+   lima. Com 27 m ele fica na CALÇADA: a rua tem 8,5 m de meia-pista, então
+   sobram ~11 m limpos entre o meio-fio e a parede. Nem o prédio nem o nome
+   tocam a pista, e a empresa continua sendo do quarteirão — não foi pro fundo
+   do lote. */
+const NOMES=[
+  [  95,-1,28,'Mercadinho Bela Vista'],[ 176, 1,29,'Auto Center Avenida'],
+  [ 262,-1,27,'Padaria Pão Nosso'],   [ 330, 1,28,'Pet Shop Amigo Fiel'],
+  [ 452,-1,26,'Lanchonete Ponto Certo'],[ 556, 1,27,'Drogaria Nova Vida'],
+  [ 648,-1,26,'Salão Beleza Real'],   [ 742, 1,27,'Academia Corpo & Ação'],
+  [ 838,-1,28,'Restaurante do Zé'],   [ 962, 1,28,'Materiais Ribeiro'],
+  [1048,-1,27,'Sorveteria Gelato'],   [1136, 1,28,'Contábil Souza'],
+  [1228,-1,27,'Oficina do Nardo'],    [1315, 1,28,'Empório Central'],
+  [1420,-1,26,'Distribuidora São Judas']
+];
+/* fora do corredor: existem, mas o app NÃO acende — é o corredor ficando
+   visível por CONTRASTE, que é o que o prospector faz de verdade */
+const FORA=[[520,-1,130],[300,1,150],[880,1,160],[1080,-1,145],[1240,1,155],[700,-1,165],
+            [160,1,175],[400,1,300],[900,-1,280],[1150,1,320],[240,-1,290],[1350,-1,240]];
+function lateral(s,lado,off){
+  const p=emS(s);
+  return {x:p.x+(-Math.sin(p.h))*lado*off, y:p.y+(Math.cos(p.h))*lado*off};
+}
+function fila(n,semente){
+  const a=[...Array(n).keys()]; let r=semente*9301+49297;
+  for(let i=n-1;i>0;i--){r=(r*9301+49297)%233280;const j=Math.floor(r/233280*(i+1));[a[i],a[j]]=[a[j],a[i]];}
+  return a;
+}
+const EMPRESAS=NOMES.map(([s,lado,off,nome],i)=>{
+  const p=lateral(s,lado,off);
+  return {i,s,nome,x:p.x,y:p.y,ordem:fila(6,i+3),el:null,fase:0};
+});
+const POSSIVEIS=FORA.map(([s,lado,off])=>lateral(s,lado,off));
+
+/* 🔴 A RÉGUA DA ANTECIPAÇÃO — em TEMPO DE VIAGEM, com trava de distância.
+   Metro fixo mente nos dois extremos: na curva a 17 km/h, 200 m é meio minuto
+   (a cidade inteira acesa); na reta a 50 km/h, 200 m é 14 s (tarde demais). */
+const REGUA={nasce:34, varre:22, acende:20, despede:-5, some:-22};   // segundos
+const TRAVA={min:170, max:320};                                       // metros
+
+/* ===========================================================================
+   L3 · A CÂMERA — UMA SÓ. Ela guarda inclinação, zoom, rumo e a ÂNCORA, e é
+   ela que faz o 2D e o 3D serem a mesma coisa em posições diferentes.
+   =========================================================================== */
+const W=412,H=940, PLW=W*1.84, PLH=H*1.58, PERSP=640;
+const planoEl=$('#plano'), gEl=$('#mundo');
+
+/* Vista de cima: enquadra a rota inteira. Vista de dirigir: 2,9 px/m e o
+   ponteiro colado embaixo. */
+/* 🔴 A CÂMERA MORA NO MOTORISTA — NAS DUAS VISTAS. Na primeira versão a vista
+   de cima estava centrada no MEIO DA ROTA, e a descida interpolava o centro e
+   a âncora ao mesmo tempo: medido, o ponteiro MERGULHAVA pra y=869 no meio do
+   caminho (fora da tela) e voltava. Câmera parada no motorista resolve na
+   raiz — a descida passa a mexer só em inclinação, zoom e âncora, e o ponteiro
+   sobe calmo de 78% pra 86% sem sair do lugar um quadro sequer. */
+const P0=CRUZ[0];
+const ESQ=P0.x-Math.min(...CRUZ.map(p=>p.x)), DIR=Math.max(...CRUZ.map(p=>p.x))-P0.x;
+const ACIMA=P0.y-Math.min(...CRUZ.map(p=>p.y));
+const ANC2D=0.78;
+const K2D=Math.min((W/2-42)/Math.max(ESQ,DIR), (H*ANC2D-176)/ACIMA);
+const K3D=2.9;
+const VISTA_CIMA={tilt:0, k:K2D, ancora:ANC2D, cx:P0.x, cy:P0.y, rumo:-90};
+const cam={tilt:0, k:K2D, ancora:ANC2D, cx:P0.x, cy:P0.y, rumo:-90, s:0, v:0};
+
+let ANCx=PLW/2, ANCy=0, TELAy=0;
+function aplicarCamera(){
+  /* 🔴 A CONTA QUE NÃO PODE ESCORREGAR. O plano vai de -52% a +106% da altura.
+     Pro ponto fixo do rotateX cair EM CIMA do ponteiro:
+         origem% = (âncora + 0,52) / 1,58
+     Com a âncora em 86% isso dá 87,342%. Errar aqui descola a seta da rua. */
+  const oy=(cam.ancora+0.52)/1.58;
+  ANCy=PLH*oy; TELAy=H*cam.ancora;
+  planoEl.style.transformOrigin=`50% ${(oy*100).toFixed(4)}%`;
+  planoEl.style.transform=`perspective(${PERSP}px) rotateX(${cam.tilt.toFixed(3)}deg)`;
+  gEl.setAttribute('transform',
+    `translate(${ANCx.toFixed(2)} ${ANCy.toFixed(2)}) rotate(${(-90-cam.rumo).toFixed(3)}) `+
+    `scale(${cam.k.toFixed(4)}) translate(${(-cam.cx).toFixed(2)} ${(-cam.cy).toFixed(2)})`);
+}
+/* A MESMA perspectiva do CSS, em JS. Com inclinação 0 ela degenera em vista de
+   cima pura (e=1) — é por isso que existe um só caminho de código pros dois. */
+function projetar(wx,wy){
+  const x=(wx-cam.cx)*cam.k, y=(wy-cam.cy)*cam.k;
+  const r=(-90-cam.rumo)*RAD, c=Math.cos(r), s=Math.sin(r);
+  const du=x*c-y*s, dv=x*s+y*c;
+  const st=Math.sin(cam.tilt*RAD), ct=Math.cos(cam.tilt*RAD);
+  const den=PERSP-dv*st;
+  if(den<=10) return null;
+  const e=PERSP/den;
+  return {x:W/2+du*e, y:TELAy+dv*ct*e, e};
+}
+/* Quantos metros à frente está o MEIO DA TELA — o número honesto do zoom.
+   Não adianta medir no topo: acima do horizonte não existe chão, e a conta
+   devolve infinito (foi o "9999 m" da primeira medição). */
+function ruaVisivel(){
+  const st=Math.sin(cam.tilt*RAD), ct=Math.cos(cam.tilt*RAD);
+  const horizonte = st<1e-4 ? -1e9 : TELAy-PERSP*ct/st;
+  const alvo=Math.max(20,(Math.max(0,horizonte)+TELAy)/2)-TELAy;
+  if(st<1e-4) return Math.abs(alvo)/cam.k;
+  const dv=(alvo*PERSP)/(PERSP*ct+alvo*st);
+  return dv<0? Math.abs(dv)/cam.k : 0;
+}
+
+/* ===========================================================================
+   L4 · O DESENHO
+   =========================================================================== */
+function montarMundo(){
+  const P=[];
+  P.push(`<rect x="${LONGE.x0}" y="${LONGE.y0}" width="${LONGE.x1-LONGE.x0}" height="${LONGE.y1-LONGE.y0}" fill="var(--map-fundo)"/>`);
+  P.push(`<rect x="${LIM.x0}" y="${RIO.y}" width="${LIM.x1-LIM.x0}" height="${RIO.h}" fill="var(--map-agua)"/>`);
+  P.push(`<rect x="${PARQUE.x}" y="${PARQUE.y}" width="${PARQUE.w}" height="${PARQUE.h}" rx="10" fill="var(--map-parque)"/>`);
+  for(let i=0;i<VERT.length-1;i++) for(let j=0;j<HORZ.length-1;j++){
+    const a=VERT[i],b=VERT[i+1],c=HORZ[j],d=HORZ[j+1];
+    const x=a.x+a.w/2+4, y=c.y+c.w/2+4, w=(b.x-b.w/2-4)-x, h=(d.y-d.w/2-4)-y;
+    if(w<24||h<24) continue;
+    const cx=x+w/2, cy=y+h/2;
+    if(cx>PARQUE.x-30&&cx<PARQUE.x+PARQUE.w+30&&cy>PARQUE.y-30&&cy<PARQUE.y+PARQUE.h+30) continue;
+    if(cy>RIO.y-40&&cy<RIO.y+RIO.h+40) continue;
+    P.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4" fill="var(--map-quadra)"/>`);
+    P.push(`<rect x="${(x+w*.10).toFixed(1)}" y="${(y+h*.14).toFixed(1)}" width="${(w*.34).toFixed(1)}" height="${(h*.30).toFixed(1)}" rx="2" fill="var(--map-lote)"/>`);
+    P.push(`<rect x="${(x+w*.56).toFixed(1)}" y="${(y+h*.55).toFixed(1)}" width="${(w*.32).toFixed(1)}" height="${(h*.28).toFixed(1)}" rx="2" fill="var(--map-lote)"/>`);
+  }
+  /* a malha vai até LONGE — a cidade não pode ter beirada visível */
+  const todasH=[...HORZ,...HORZ_LONGE.map(y=>({y,w:9,t:'r'}))];
+  VERT.forEach(r=>P.push(`<path d="M${r.x} ${LONGE.y0} V${LONGE.y1}" stroke="var(--map-rua-fio)" stroke-width="${r.w+4}" fill="none"/>`));
+  todasH.forEach(r=>P.push(`<path d="M${LONGE.x0} ${r.y} H${LONGE.x1}" stroke="var(--map-rua-fio)" stroke-width="${r.w+4}" fill="none"/>`));
+  VERT.forEach(r=>P.push(`<path d="M${r.x} ${LONGE.y0} V${LONGE.y1}" stroke="var(--map-${r.t==='a'?'rua':'rua2'})" stroke-width="${r.w}" fill="none"/>`));
+  todasH.forEach(r=>P.push(`<path d="M${LONGE.x0} ${r.y} H${LONGE.x1}" stroke="var(--map-${r.t==='a'?'rua':'rua2'})" stroke-width="${r.w}" fill="none"/>`));
+
+  /* 🔴 A LARGURA DA ROTA É EM METROS E TEM QUE CABER NA RUA. Na 1ª medição eu
+     tinha posto 26 m de leito numa avenida de 17: a fita ficava mais larga que
+     o asfalto e engolia o mapa. Agora a lima tem 8 m — uma pista. */
+  const d=rotaD();
+  P.push(`<path d="${d}" stroke="var(--map-rota-brilho)" stroke-width="17" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`);
+  P.push(`<path d="${d}" stroke="var(--map-rota-borda)" stroke-width="10.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`);
+  P.push(`<path d="${d}" stroke="var(--map-rota)" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`);
+  P.push(`<path d="${d}" stroke="var(--map-faixa)" stroke-width="0.5" stroke-dasharray="4 6.5" fill="none"/>`);
+  const f=CRUZ[CRUZ.length-1];
+  P.push(`<circle cx="${f.x}" cy="${f.y}" r="11" fill="var(--map-pino)" stroke="var(--map-rota)" stroke-width="3.5"/>
+          <circle cx="${f.x}" cy="${f.y}" r="4.5" fill="var(--map-rota)"/>`);
+  gEl.innerHTML=P.join('');
+}
+
+/* --- O PRÉDIO ISOMÉTRICO. Meia-largura 15, altura 20; as janelas são
+       PARALELOGRAMOS DA FACE, calculados no plano da face — retângulo colado
+       por cima é o que fazia o prédio parecer adesivo. --- */
+const BW=15, BH=20;
+const faceEsq=(a,b)=>({x:-BW+BW*a, y:-BW/2+(BW/2)*a-BH*b});
+const faceDir=(a,b)=>({x:BW*a,     y:-(BW/2)*a-BH*b});
+function janela(f,a,b,da,db){
+  const p=[f(a,b),f(a+da,b),f(a+da,b+db),f(a,b+db)];
+  return p.map(q=>`${q.x.toFixed(2)},${q.y.toFixed(2)}`).join(' ');
+}
+const JANELAS=[
+  ['e',.14,.28,.30,.20],['e',.14,.60,.30,.20],['e',.56,.44,.30,.20],
+  ['d',.16,.30,.28,.20],['d',.56,.30,.28,.20],['d',.36,.62,.28,.20]
+];
+function svgPredio(ordem){
+  const jan=JANELAS.map(([f,a,b,da,db],n)=>
+    `<polygon class="emp-jan" style="--j:${ordem[n]}" points="${janela(f==='e'?faceEsq:faceDir,a,b,da,db)}"/>`).join('');
+  return `<svg viewBox="-30 -56 60 64">
+    <ellipse class="emp-luz" cx="0" cy="0" rx="27" ry="13"/>
+    <ellipse class="emp-sombra" cx="1.5" cy="1" rx="16" ry="7"/>
+    <circle class="emp-varre" cx="0" cy="0" r="14"/>
+    <path class="emp-aro" d="M-20,0 A20,9.5 0 1,1 20,0 A20,9.5 0 1,1 -20,0 Z" transform="translate(0,0)"/>
+    <polygon class="emp-esq"  points="-15,-7.5 0,0 0,-20 -15,-27.5"/>
+    <polygon class="emp-dir"  points="0,0 15,-7.5 15,-27.5 0,-20"/>
+    <polygon class="emp-topo" points="0,-20 15,-27.5 0,-35 -15,-27.5"/>
+    ${jan}
+    <circle class="emp-pe" cx="0" cy="0" r="2.2"/>
+  </svg>`;
+}
+function montarEmpresas(){
+  const P=[];
+  POSSIVEIS.forEach((p,i)=>P.push(`<div class="emp possivel" data-pos="${i}">
+    <span class="emp-obj">${svgPredio([0,1,2,3,4,5])}</span></div>`));
+  EMPRESAS.forEach(e=>P.push(`<div class="emp" data-i="${e.i}" style="--n:${e.nome.length}">
+    <span class="emp-obj">${svgPredio(e.ordem)}</span>
+    <span class="emp-rotulo">
+      <span class="emp-chip-nome"><i class="pt"></i><b class="emp-nome">${e.nome}</b>
+        <span class="emp-trilho"><i class="emp-barra"></i></span></span>
+      <span class="emp-guia"></span>
+    </span></div>`));
+  $('#camadaEmp').innerHTML=P.join('');
+  EMPRESAS.forEach(e=>e.el=$(`[data-i="${e.i}"]`));
+  POSSIVEIS.forEach((p,i)=>p.el=$(`[data-pos="${i}"]`));
+}
+
+/* Cada empresa tem UMA fase e ela só anda pra frente. Fase é estado, não efeito
+   colateral de quadro — é o que faz reiniciar a cena zerar de verdade. */
+let contadas=0;
+function passoEmpresas(){
+  const vRef=Math.max(cam.v,8);
+  const lim=t=>Math.max(TRAVA.min,Math.min(TRAVA.max,vRef*t))*(t<0?-1:1);
+  const dNasce=lim(REGUA.nasce), dVarre=lim(REGUA.varre), dAcende=lim(REGUA.acende);
+  const dDesp=-Math.max(40,Math.min(90,vRef*-REGUA.despede)), dSome=-Math.max(150,Math.min(320,vRef*-REGUA.some));
+  let acesas=0, prox=null;
+  for(const e of EMPRESAS){
+    const d=e.s-cam.s;
+    if(e.fase>=3) acesas++;
+    if(e.fase<3&&d>0&&(!prox||d<prox.d)) prox={nome:e.nome,d:Math.max(0,d-dAcende)};
+    if(e.fase===0&&d<=dNasce){e.fase=1;e.el.classList.add('no-ar','nasce');}
+    else if(e.fase===1&&d<=dVarre){e.fase=2;e.el.classList.add('varrendo');}
+    else if(e.fase===2&&d<=dAcende){e.fase=3;e.el.classList.add('on');
+      contadas++;$('#chipProsp').innerHTML=`Prospector · <b>${contadas}</b> acesas no corredor`;}
+    else if(e.fase===3&&d<=dDesp){e.fase=4;e.el.classList.add('passou');}
+    else if(e.fase===4&&d<=dSome){e.fase=5;e.el.classList.remove('no-ar');}
+  }
+  return {acesas,prox};
+}
+
+/* POSIÇÃO + BRIGA DE RÓTULO. Rótulo sobreposto vira ruído: o mais perto ganha o
+   nome; o de trás fica só com o prédio. Nunca some inteiro — o prédio é a
+   informação, o nome é o luxo. */
+const caixas=[];
+function posicionarEmpresas(){
+  caixas.length=0;
+  /* 🔴 O PONTEIRO ENTRA NA BRIGA PRIMEIRO. Sem isto a placa da rua atual caía
+     EM CIMA da seta — medido na tela: "Avenida Onze" tapando o motorista. O
+     ponteiro é a única peça que nunca pode ser coberta, então ele reserva o
+     lugar dele antes de qualquer rótulo. */
+  const q=projetar(emS(cam.s).x,emS(cam.s).y);
+  if(q) caixas.push({a:q.x-46,b:q.x+46,c:q.y-52,d:q.y+34});
+  const lista=EMPRESAS.filter(e=>e.fase>0&&e.fase<5).sort((a,b)=>Math.abs(a.s-cam.s)-Math.abs(b.s-cam.s));
+  for(const e of lista){
+    const t=projetar(e.x,e.y);
+    if(!t||t.x<-110||t.x>W+110||t.y<-70||t.y>H+80||t.e<0.10){e.el.style.opacity='0';continue;}
+    e.el.style.opacity='';
+    /* 🔴 O TAMANHO OBEDECE AO ZOOM, não só à perspectiva. Sem o `k/K3D` a
+       empresa saía do tamanho de perto na VISTA DE CIMA (na vista de cima a
+       perspectiva é 1 em todo lugar) e 15 prédios de tamanho real cobriam o
+       mapa de planejamento. Prédio é OBJETO NO CHÃO: afastou a câmera, ele
+       encolhe. */
+    /* teto 1,15 e não 1,5: medido na tela, o prédio de 3 m de distância ficava
+       MAIOR que a seta e roubava o olho de quem dirige. Quem manda na tela é o
+       motorista; a empresa é o convite, não o assunto. */
+    const esc=Math.max(0.22,Math.min(1.15,t.e*1.42*Math.min(1,cam.k/K3D+0.14)));
+    e.el.style.setProperty('--px',t.x.toFixed(1)+'px');
+    e.el.style.setProperty('--py',t.y.toFixed(1)+'px');
+    e.el.style.setProperty('--esc',esc.toFixed(3));
+    if(e.fase===3){
+      const larg=40+e.nome.length*7.1, base=t.y-(56*esc+8);
+      const meio=Math.max(larg/2+9,Math.min(W-larg/2-9,t.x));   // preso na tela
+      e.el.style.setProperty('--rx',(meio-t.x).toFixed(1)+'px');
+      const cx={a:meio-larg/2-5,b:meio+larg/2+5,c:base-28,d:base+4};
+      const bate=caixas.some(o=>!(cx.b<o.a||cx.a>o.b||cx.d<o.c||cx.c>o.d));
+      e.el.classList.toggle('mudo',bate);
+      if(!bate) caixas.push(cx);
+    }
+  }
+  for(const p of POSSIVEIS){
+    const t=projetar(p.x,p.y);
+    if(!t||t.x<-70||t.x>W+70||t.y<-50||t.y>H+70||t.e<0.13){p.el.classList.remove('no-ar');continue;}
+    p.el.classList.add('no-ar');
+    p.el.style.setProperty('--px',t.x.toFixed(1)+'px');
+    p.el.style.setProperty('--py',t.y.toFixed(1)+'px');
+    p.el.style.setProperty('--esc',Math.max(0.2,Math.min(1.2,t.e*1.15*Math.min(1,cam.k/K3D+0.14))).toFixed(3));
+  }
+}
+/* --- AS PLAQUINHAS DE RUA. Uma por rua, e ela ANDA junto com a câmera: mora
+       sempre no ponto da rua mais perto de quem olha, que é o que faz a placa
+       "acompanhar" em vez de sumir pela lateral. Teto de 6 na tela — placa em
+       excesso vira ruído, e o que interessa é saber ONDE se está. --- */
+const PLACAS=[
+  ...VERT.map(r=>({nome:r.nome, eixo:'v', c:r.x, peso:r.t==='a'?0:1})),
+  ...HORZ.map(r=>({nome:r.nome, eixo:'h', c:r.y, peso:r.t==='a'?0:1}))
+];
+function montarPlacas(){
+  $('#camadaEmp').insertAdjacentHTML('beforeend',
+    PLACAS.map((p,i)=>`<div class="rua-placa" data-placa="${i}">${p.nome}</div>`).join(''));
+  PLACAS.forEach((p,i)=>p.el=$(`[data-placa="${i}"]`));
+}
+function ruaAtual(){
+  const p=emS(cam.s), vertical=Math.abs(Math.cos(p.h))<0.5;
+  const lista=vertical?VERT:HORZ, val=vertical?p.x:p.y;
+  let melhor=null,md=1e9;
+  for(const r of lista){const d=Math.abs((vertical?r.x:r.y)-val); if(d<md){md=d;melhor=r;}}
+  return md<16?melhor.nome:null;
+}
+function posicionarPlacas(){
+  const atual=ruaAtual();
+  const cand=[];
+  for(const p of PLACAS){
+    /* o ponto da rua mais perto do centro da câmera */
+    const wx=p.eixo==='v'?p.c:cam.cx, wy=p.eixo==='v'?cam.cy:p.c;
+    const t=projetar(wx,wy);
+    if(!t||t.x<40||t.x>W-40||t.y<70||t.y>H-130||t.e<0.20){p.el.classList.remove('no-ar');continue;}
+    cand.push({p,t,dist:Math.hypot(wx-cam.cx,wy-cam.cy)+p.peso*120});
+  }
+  cand.sort((a,b)=>a.dist-b.dist);
+  let posto=0;
+  for(const {p,t} of cand){
+    const ehAtual=p.nome===atual;
+    const larg=16+p.nome.length*6.4;
+    const cx={a:t.x-larg/2-4,b:t.x+larg/2+4,c:t.y-11,d:t.y+11};
+    const bate=caixas.some(o=>!(cx.b<o.a||cx.a>o.b||cx.d<o.c||cx.c>o.d));
+    if(bate||posto>=6){p.el.classList.remove('no-ar');continue;}
+    caixas.push(cx); posto++;
+    p.el.classList.add('no-ar');
+    p.el.classList.toggle('atual',ehAtual);
+    p.el.style.setProperty('--px',t.x.toFixed(1)+'px');
+    p.el.style.setProperty('--py',t.y.toFixed(1)+'px');
+  }
+}
+
+function posicionarPuck(){
+  const p=emS(cam.s), t=projetar(p.x,p.y);
+  if(!t) return;
+  ['#puck','#farolChao'].forEach(s=>{
+    $(s).style.setProperty('--px',t.x.toFixed(1)+'px');
+    $(s).style.setProperty('--py',t.y.toFixed(1)+'px');
+  });
+}
+
+/* ===========================================================================
+   L5 · A DIRIGIDA — velocidade com freio de curva. Ela cai ANTES da esquina e
+   sobe na reta: é o que faz a câmera parecer DIRIGIDA e não arrastada.
+   =========================================================================== */
+function alvoDeVelocidade(s){
+  const p=emS(s), vT=V_CURVA/3.6;
+  if(p.seg.t==='a') return vT;
+  let d=Infinity;
+  for(const c of CURVAS) if(c.i0>s) d=Math.min(d,c.i0-s);
+  return Math.min((VMAX[p.seg.leg]||40)/3.6,
+                  Math.sqrt(vT*vT+2*1.7*Math.max(0,d)),
+                  Math.sqrt(2*1.6*Math.max(0,ROTA.tot-s-6)));
+}
+const normAng=a=>{while(a>Math.PI)a-=2*Math.PI;while(a<-Math.PI)a+=2*Math.PI;return a};
+
+/* ===========================================================================
+   L6 · O HUD
+   =========================================================================== */
+const SETAS={
+  dir:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M8 20V11a4 4 0 0 1 4-4h5"/><path d="m14 4 4 3-4 3"/></svg>',
+  esq:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M16 20V11a4 4 0 0 0-4-4H7"/><path d="m10 4-4 3 4 3"/></svg>',
+  fim:'<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-6.3 7-11a7 7 0 1 0-14 0c0 4.7 7 11 7 11Z"/><circle cx="12" cy="10" r="2.6"/></svg>'
+};
+const RUA_DO_TRECHO=['Avenida Onze','Avenida Seis','Rua Treze','Rua Dois','Rua Sete'];
+const fmtM=m=>m<1000?`${Math.max(0,Math.round(m/10)*10)} m`:`${(m/1000).toFixed(1).replace('.',',')} km`;
+
+function atualizarHud(){
+  let prox=null;
+  for(const c of CURVAS) if(c.i1>cam.s){prox=c;break;}
+  const m=$('#manobra');
+  if(prox){
+    const d=Math.max(0,prox.i0-cam.s);
+    $('#mIcone').innerHTML=SETAS[prox.lado];
+    $('#mDist').textContent=fmtM(d);
+    $('#mVerbo').textContent=prox.lado==='dir'?'Vire à direita':'Vire à esquerda';
+    const dep=CURVAS.find(c=>c.i0>prox.i0);
+    $('#mBaixo').textContent=(RUA_DO_TRECHO[prox.leg+1]||'')+
+      (dep?` · depois, ${dep.lado==='dir'?'à direita':'à esquerda'} em ${fmtM(dep.i0-prox.i1)}`:' · depois, siga até o destino');
+    m.classList.toggle('perto',d<70);
+  }else{
+    const d=Math.max(0,ROTA.tot-cam.s);
+    $('#mIcone').innerHTML=SETAS.fim;
+    $('#mDist').textContent=fmtM(d);
+    $('#mVerbo').textContent='Chegando ao destino';
+    $('#mBaixo').textContent='Mercado São Judas · à esquerda';
+    m.classList.toggle('perto',d<130);
+  }
+  /* 🔴 O SINAL DA BÚSSOLA. No mundo o y cresce pra BAIXO, então norte é
+     rumo = -90°: o azimute é rumo + 90, SEM inverter (com o menos ela marcava
+     S dirigindo pro norte). E a agulha GIRA: num mapa heading-up ela é a única
+     peça que sabe onde é o norte. */
+  const g=(cam.rumo+90+360)%360;
+  $('#rumo').textContent=['N','NE','L','SE','S','SO','O','NO'][Math.round(g/45)%8];
+  $('#agulha').style.transform=`rotate(${(-g).toFixed(1)}deg)`;
+  $('#velN').textContent=Math.round(cam.v*3.6);
+  const resta=ROTA.tot-cam.s;
+  $('#rKm').textContent=(resta/1000).toFixed(1).replace('.',',')+' km';
+  const min=Math.max(1,Math.ceil(resta/Math.max(4,cam.v)/60));
+  $('#rTempo').textContent=min+' min';
+  $('#rChegada').textContent=new Date(Date.now()+min*60000).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+  $('#dbgT').textContent=cam.tilt.toFixed(0)+'°';
+  $('#dbgK').textContent=cam.k.toFixed(2)+' px/m';
+  $('#dbgA').textContent=(cam.ancora*100).toFixed(0)+'% da altura';
+  $('#dbgV').textContent=Math.round(ruaVisivel())+' m';
+  $('#dbgH').textContent=$('#rumo').textContent+' · '+Math.round(g)+'°';
+}
+
+/* ===========================================================================
+   L7 · A CENA — sem véu e sem troca de tela.
+   =========================================================================== */
+let relogios=[], raf=0, ficha=0, multi=2;
+const daqui=(f,ms)=>{const id=setTimeout(f,ms);relogios.push(id);return id};
+function limpar(){relogios.forEach(clearTimeout);relogios=[];if(raf)cancelAnimationFrame(raf);raf=0;ficha++;}
+const suave=t=>t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
+
+function vistaDeCima(){
+  Object.assign(cam,VISTA_CIMA,{s:0,v:0});
+  aplicarCamera(); posicionarPuck(); posicionarEmpresas(); posicionarPlacas(); atualizarHud();
+}
+function zerar(){
+  contadas=0; $('#chipProsp').innerHTML='Prospector · <b>0</b> acesas no corredor';
+  EMPRESAS.forEach(e=>{e.fase=0;e.el.className='emp';e.el.style.opacity='';});
+  POSSIVEIS.forEach(p=>p.el.classList.remove('no-ar'));
+  $('#gps').classList.remove('dirigindo');
+  ['#manobra','#bussola','#velCaixa','#ladoBtns','#rodape','#scanLinha','#radar','#seloChegada','#puck']
+    .forEach(s=>$(s).classList.remove('on','pousa'));
+  ['#facho','#farolChao'].forEach(s=>$(s).classList.remove('acende'));
+  $('#chipProsp').style.opacity=''; $('#horizonte').style.opacity='';
+  const c=$('#cromo2d'); c.classList.remove('sai','fora');
+  c.querySelectorAll('.topo,.pe').forEach(e=>{e.style.animation='none';e.offsetHeight;e.style.animation='';});
+  vistaDeCima();
+}
+
+/* A DESCIDA. Uma interpolação só, e é ela o espetáculo: inclinação 0→51°,
+   zoom 0,63→2,9 px/m e a âncora 47%→86% da altura. O mapa NUNCA some, o
+   ponteiro NUNCA é trocado — o pino da rota vira a seta no meio do caminho. */
+function descer(meu,ms,depois){
+  const t0=performance.now(), de={...VISTA_CIMA}, p0=emS(0);
+  const para={tilt:51, k:K3D, ancora:0.86, rumo:p0.h/RAD};
+  cam.cx=p0.x; cam.cy=p0.y;                          // a câmera JÁ está nele
+  (function passo(agora){
+    if(meu!==ficha) return;
+    const u=Math.min(1,(agora-t0)/ms), f=suave(u);
+    cam.tilt=de.tilt+(para.tilt-de.tilt)*f;
+    cam.k   =de.k*Math.pow(para.k/de.k,f);           // zoom é MULTIPLICATIVO
+    cam.ancora=de.ancora+(para.ancora-de.ancora)*f;
+    cam.rumo=de.rumo+normAng((para.rumo-de.rumo)*RAD)/RAD*f;
+    $('#horizonte').style.opacity=f.toFixed(3);
+    aplicarCamera(); posicionarPuck(); posicionarEmpresas(); posicionarPlacas(); atualizarHud();
+    if(u<1) raf=requestAnimationFrame(passo); else depois();
+  })(t0);
+}
+
+function iniciar(){
+  limpar(); zerar(); const meu=++ficha;
+  daqui(()=>$('#cromo2d').classList.add('sai'),0);           // o cromo de cima sai
+  daqui(()=>$('#cromo2d').classList.add('fora'),320);
+  daqui(()=>descer(meu,2400,()=>dirigir(meu)),260);          // A DESCIDA
+  daqui(()=>{$('#gps').classList.add('dirigindo');$('#puck').classList.add('pousa');},1300);
+  daqui(()=>{$('#facho').classList.add('acende');$('#farolChao').classList.add('acende');},1700);
+  daqui(()=>$('#manobra').classList.add('on'),2100);
+  daqui(()=>{$('#bussola').classList.add('on');$('#velCaixa').classList.add('on');},2260);
+  daqui(()=>{$('#ladoBtns').classList.add('on');$('#rodape').classList.add('on');},2380);
+  daqui(()=>{$('#chipProsp').style.opacity='1';$('#scanLinha').classList.add('on');
+             $('#radar').classList.add('on');},2600);
+}
+
+function dirigir(meu){
+  let antes=performance.now();
+  (function quadro(agora){
+    if(meu!==ficha) return;
+    const dt=Math.min(0.05,(agora-antes)/1000)*multi; antes=agora;
+    const alvo=alvoDeVelocidade(cam.s);
+    cam.v+=Math.max(-2.4*dt,Math.min(1.25*dt,alvo-cam.v));
+    cam.s+=cam.v*dt;
+    const p=emS(cam.s); cam.cx=p.x; cam.cy=p.y;
+    /* rumo suavizado por TEMPO (não por quadro): 1× e 4× fazem a MESMA curva */
+    cam.rumo+=normAng(p.h-cam.rumo*RAD)/RAD*Math.min(1,dt*4.2);
+    /* o zoom respira com a velocidade — rápido afasta, devagar aproxima */
+    cam.k+=((K3D+0.8-Math.min(1.2,cam.v*3.6/40))-cam.k)*Math.min(1,dt*1.4);
+    aplicarCamera(); posicionarPuck();
+    const r=passoEmpresas(); posicionarEmpresas(); posicionarPlacas(); atualizarHud();
+    $('#dbgE').textContent=`${r.acesas} / ${EMPRESAS.length}`;
+    $('#dbgP').textContent=r.prox?`${Math.round(r.prox.d)} m · ${r.prox.nome}`:'—';
+    if(cam.s>=ROTA.tot-1){
+      $('#seloChegada').classList.add('on');
+      daqui(()=>{if(meu===ficha) iniciar();},3600);
+      return;
+    }
+    raf=requestAnimationFrame(quadro);
+  })(performance.now());
+}
+
+/* ---------------------------------------------------------------- mesa ---- */
+const tick=()=>$('#relogio').textContent=new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+$('#btnIniciar').addEventListener('click',iniciar);
+$('#btnSair').addEventListener('click',()=>{limpar();zerar();});
+$('#bReplay').addEventListener('click',iniciar);
+$('#bTema').addEventListener('click',()=>{
+  const claro=$('#app').classList.toggle('claro');
+  $('#bTema').textContent=claro?'Modo escuro':'Modo claro';
+});
+document.querySelectorAll('.vel').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.vel').forEach(o=>o.classList.remove('ativo'));
+  b.classList.add('ativo'); multi=+b.dataset.v;
+}));
+
+/* --- modo apresentação: o celular toma a janela, por `scale`, e a cena
+       recomeça do zero pra a gravação já pegar a descida inteira --- */
+function caber(){
+  if(!document.body.classList.contains('apresentar')) return;
+  const f=Math.min(innerWidth/W, innerHeight/H);
+  document.body.style.setProperty('--fit',f.toFixed(4));
+}
+function apresentar(liga){
+  document.body.classList.toggle('apresentar',liga);
+  caber();
+  if(liga) iniciar();
+}
+$('#bVideo').addEventListener('click',()=>apresentar(true));
+addEventListener('keydown',e=>{ if(e.key==='Escape') apresentar(false); });
+addEventListener('resize',caber);
+
+montarMundo(); montarEmpresas(); montarPlacas(); tick(); setInterval(tick,30000);
+zerar(); atualizarHud();
+
+/* 🔴 O `?video` MORA AQUI EMBAIXO, e não junto do botão. Lá em cima ele
+   chamava `iniciar()` ANTES de `montarEmpresas()`, então `zerar()` batia num
+   `e.el` que ainda era `null`: o script morria no meio e a tela abria com o
+   cromo e SEM MAPA. Peça que só existe depois só pode ser ligada depois. */
+if(location.search.includes('video')) apresentar(true);
+else daqui(iniciar,1100);
+</script>
+</body>
+</html>
