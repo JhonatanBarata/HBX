@@ -1797,6 +1797,40 @@ const DADOS={
     ],
     marcado:'R$ 2.648,00', recebido:'R$ 2.391,00', pendencia:'R$ 257,00',
   },
+  /* L6 — CLIENTES. `lista` é [inicial, nome, endereço, dia, marcado, destaque,
+     alerta, id]; o `id` no fim é o que faz o cartão virar botão (mesmo pacto do
+     `stop()`: gancho nasce do dado). `diaSel` é o chip ligado (1=SEG…7=DOM). */
+  clientes:{
+    subtitulo:'14 na rota de hoje', busca:'', diaSel:3,
+    lista:[
+      ['JS','João da Silva','R. das Palmeiras, 145 • Santo Amaro','Chip dia','42,00',0,'',''],
+      ['MB','Mercadinho Bom Preço','Av. João Dias, 890 • Brooklin','','84,00',0,'',''],
+      ['MA','Maria Aparecida','R. Sargento Silva Nunes, 72 • Moema','Chip dia','21,00',1,'',''],
+      ['PN','Padaria Pão Nosso','Av. Ibirapuera, 2331 • Moema','','42,00',0,'',''],
+      ['LY','Larissa Ypê','Rua 3a, 1354 • Jd. Ypê','','',0,'sem número',''],
+      ['BZ','Bar do Zé','R. dos Otonis, 317 • Jabaquara','','63,00',0,'',''],
+      ['ME','Mercado Estrela','R. Aracanguá, 210 • Jabaquara','','84,00',1,'',''],
+      ['QB','Quitanda do Bairro','R. das Orquídeas, 55 • Campo Belo','Chip dia','42,00',0,'',''],
+      ['DC','Depósito Central','R. Dr. Jesuíno Maciel, 980 • Santo Amaro','','126,00',0,'',''],
+    ],
+    total:'128', semEndereco:'3', marcadoHoje:'R$ 336,00',
+  },
+  /* A FICHA. `dias` são os 7 dias em ordem SEG…DOM (1 = entrega nesse dia).
+     `numeroPendente` acende o campo que RESOLVE a pendência — nunca um aviso
+     solto no topo (a regra que o dono cobrou ~10 vezes). */
+  ficha:{
+    ini:'LY', nome:'Larissa Ypê', resumo:'cliente desde 03/2025 · 42 entregas',
+    alerta:'sem número',
+    telefone:'(19) 99812-4477', cpf:'',
+    cep:'13503-210', rua:'Rua 3a', numero:'', bairro:'Jd. Ypê',
+    numeroPendente:1,
+    observacoes:'Portão azul · deixar na área · cachorro solto',
+    dias:[0,1,0,1,0,0,0],
+    produtos:[
+      ['gallon','Galão 20 Litros','2 por entrega · R$ 11,00 (catálogo)'],
+      ['box','Água c/ gás 1,5L','1 por entrega · <b style="color:var(--lime)">R$ 22,00 só pra ela</b>'],
+    ],
+  },
   montagem:{
     titulo:'Montagem de rota', dica:'Segure e arraste para ordenar',
     somaParadas:'6', somaProdutos:'20', somaValor:'R$ 336,00',
@@ -2370,7 +2404,9 @@ ${nav('produtos')}`;}};
 
 /* 11 — CLIENTES ----------------------------------------------------------- */
 T.clientes={nome:'Clientes',grupo:'Cadastro',render(){
-  const c=(ini,nome,end,dia,valor,tomLime,alerta)=>`<div class="cli">
+  const d=DADOS.clientes;
+  const DIAS=['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
+  const c=(ini,nome,end,dia,valor,tomLime,alerta,id)=>`<div class="cli"${id?` data-acao="abrir-cliente" data-cliente="${id}"`:''}>
     <span class="ava ${tomLime?'lime':''}">${ini}</span>
     <span><strong>${nome}</strong><span>${end}</span>
       <span class="tags">${dia?`<b class="tag lime">${dia}</b>`:''}${alerta?`<b class="tag" style="border-color:rgba(245,165,36,.55);color:var(--amber)">${alerta}</b>`:''}</span></span>
@@ -2379,28 +2415,19 @@ T.clientes={nome:'Clientes',grupo:'Cadastro',render(){
 ${hdr({semChat:1,badge:3})}
 <div class="body">
   <div class="screen-head"><span style="color:var(--lime)">${ic('users',30)}</span>
-    <span><h2>Clientes</h2><p>14 na rota de hoje</p></span></div>
+    <span><h2>Clientes</h2><p>${d.subtitulo}</p></span></div>
   <div class="searchrow">
-    <label class="search">${ic('search',17)}<input placeholder="Buscar cliente"></label>
+    <label class="search">${ic('search',17)}<input placeholder="Buscar cliente" data-campo="busca-cliente" value="${d.busca}"></label>
     <button class="filt">${ic('sliders',18)}</button></div>
   <div class="chips">
-    <button class="chip">Seg</button><button class="chip">Ter</button><button class="chip on">Qua</button>
-    <button class="chip">Qui</button><button class="chip">Sex</button><button class="chip">Sáb</button><button class="chip">Dom</button></div>
+    ${DIAS.map((r,i)=>`<button class="chip${d.diaSel===i+1?' on':''}" data-acao="chip-dia" data-dia="${i+1}">${r}</button>`).join('')}</div>
   <div class="lista-card">
-    ${c('JS','João da Silva','R. das Palmeiras, 145 • Santo Amaro','Chip dia','42,00',0,'')}
-    ${c('MB','Mercadinho Bom Preço','Av. João Dias, 890 • Brooklin','','84,00',0,'')}
-    ${c('MA','Maria Aparecida','R. Sargento Silva Nunes, 72 • Moema','Chip dia','21,00',1,'')}
-    ${c('PN','Padaria Pão Nosso','Av. Ibirapuera, 2331 • Moema','','42,00',0,'')}
-    ${c('LY','Larissa Ypê','Rua 3a, 1354 • Jd. Ypê','','',0,'sem número')}
-    ${c('BZ','Bar do Zé','R. dos Otonis, 317 • Jabaquara','','63,00',0,'')}
-    ${c('ME','Mercado Estrela','R. Aracanguá, 210 • Jabaquara','','84,00',1,'')}
-    ${c('QB','Quitanda do Bairro','R. das Orquídeas, 55 • Campo Belo','Chip dia','42,00',0,'')}
-    ${c('DC','Depósito Central','R. Dr. Jesuíno Maciel, 980 • Santo Amaro','','126,00',0,'')}
+    ${d.lista.map(l=>c(l[0],l[1],l[2],l[3],l[4],l[5],l[6],l[7])).join('')}
   </div>
   <div class="sum">
-    <span class="c"><span style="color:var(--lime)">${ic('users',17)}</span><span><b>128</b><small>clientes</small></span></span>
-    <span class="c"><span style="color:var(--amber)">${ic('alert',17)}</span><span><b>3</b><small style="color:var(--amber)">sem endereço</small></span></span>
-    <span class="c"><span style="color:var(--lime)">${ic('cash',17)}</span><span><b>R$ 336,00</b><small>marcado hoje</small></span></span>
+    <span class="c"><span style="color:var(--lime)">${ic('users',17)}</span><span><b>${d.total}</b><small>clientes</small></span></span>
+    ${d.semEndereco?`<span class="c"><span style="color:var(--amber)">${ic('alert',17)}</span><span><b>${d.semEndereco}</b><small style="color:var(--amber)">sem endereço</small></span></span>`:''}
+    <span class="c"><span style="color:var(--lime)">${ic('cash',17)}</span><span><b>${d.marcadoHoje}</b><small>marcado hoje</small></span></span>
   </div>
 </div>
 ${nav('clientes')}`;}};
@@ -2835,60 +2862,61 @@ ${nav('rota')}`;}};
    preço próprio. Pendência aparece NO CAMPO que a resolve, nunca num aviso
    solto no topo — a regra que o dono cobrou ~10 vezes no app. */
 T.ficha={nome:'Ficha do cliente',grupo:'Cadastro',render(){
-  const dia=(l,n,on)=>`<button class="${on?'on':''}"><b>${l}</b><small>${n}</small></button>`;
+  const f=DADOS.ficha;
+  const ROT=['SEG','TER','QUA','QUI','SEX','SÁB','DOM'];
+  const dia=(l,n,on,i)=>`<button class="${on?'on':''}" data-acao="dia-cliente" data-dia="${i}"><b>${l}</b><small>${n}</small></button>`;
   return `${status}
 ${hdr({voltar:'clientes',semChat:1})}
 <div class="body">
   <div class="stop-top" style="margin:2px 0 10px;grid-template-columns:auto 1fr auto">
-    <span class="ava lime">LY</span>
-    <span><strong style="font-size:16px">Larissa Ypê</strong>
-      <span style="font-size:11px;color:var(--ink-2)">cliente desde 03/2025 · 42 entregas</span></span>
-    <span class="tag" style="border-color:rgba(245,165,36,.55);color:var(--amber)">sem número</span>
+    <span class="ava lime">${f.ini}</span>
+    <span><strong style="font-size:16px">${f.nome}</strong>
+      ${f.resumo?`<span style="font-size:11px;color:var(--ink-2)">${f.resumo}</span>`:''}</span>
+    ${f.alerta?`<span class="tag" style="border-color:rgba(245,165,36,.55);color:var(--amber)">${f.alerta}</span>`:''}
   </div>
 
   <div class="grupo">Quem é</div>
   <div class="campos">
-    <label class="campo"><label>Nome</label><input value="Larissa Ypê"></label>
+    <label class="campo"><label>Nome</label><input value="${f.nome}" data-campo="nome"></label>
     <div class="dupla">
-      <label class="campo"><label>Telefone / WhatsApp</label><input value="(19) 99812-4477"></label>
-      <label class="campo"><label>CPF</label><input placeholder="000.000.000-00"></label>
+      <label class="campo"><label>Telefone / WhatsApp</label><input value="${f.telefone}" data-campo="telefone"></label>
+      <!-- CPF é SÓ LEITURA: o UpdateContaDto do backend não tem porta pra
+           gravar documento. Campo que aceita digitação e não salva é pior que
+           campo ausente — então ele MOSTRA, e não promete. -->
+      <label class="campo"><label>CPF</label><input placeholder="000.000.000-00" value="${f.cpf}" data-campo="cpf" readonly></label>
     </div>
   </div>
 
   <div class="grupo">Onde é</div>
   <div class="campos">
-    <label class="campo"><label>CEP</label><input value="13503-210"></label>
+    <label class="campo"><label>CEP</label><input value="${f.cep}" data-campo="cep"></label>
     <div class="tripla">
-      <label class="campo"><label>Rua</label><input value="Rua 3a"></label>
-      <label class="campo erro"><label>Número <span class="pend">· pendente</span></label><input placeholder="—">
-        <span class="dica">sem número o pino não fecha</span></label>
-      <label class="campo"><label>Bairro</label><input value="Jd. Ypê"></label>
+      <label class="campo"><label>Rua</label><input value="${f.rua}" data-campo="rua"></label>
+      <label class="campo${f.numeroPendente?' erro':''}"><label>Número ${f.numeroPendente?'<span class="pend">· pendente</span>':''}</label><input placeholder="—" value="${f.numero}" data-campo="numero">
+        ${f.numeroPendente?'<span class="dica">sem número o pino não fecha</span>':''}</label>
+      <label class="campo"><label>Bairro</label><input value="${f.bairro}" data-campo="bairro"></label>
     </div>
     <label class="campo"><label>Observações da porta</label>
-      <textarea>Portão azul · deixar na área · cachorro solto</textarea></label>
+      <textarea data-campo="observacoes">${f.observacoes}</textarea></label>
   </div>
 
   <div class="grupo">Dias de entrega</div>
   <div class="dias">
-    ${dia('SEG','',0)}${dia('TER','',1)}${dia('QUA','',0)}${dia('QUI','',1)}
-    ${dia('SEX','',0)}${dia('SÁB','',0)}${dia('DOM','',0)}
+    ${ROT.map((r,i)=>dia(r,'',f.dias[i],i+1)).join('')}
   </div>
   <div class="banner pausa" style="margin-top:7px">${ic('calendar',15)}
     <span>O dia é do <b>cliente</b>, não do produto. Vale pra toda a agenda dele.</span></div>
 
   <div class="grupo">O que leva</div>
   <div class="cartao-lista" style="padding:0 11px">
-    <div class="item-linha"><span class="ava" style="width:32px;height:32px">${ic('gallon',16)}</span>
-      <span><strong>Galão 20 Litros</strong><span>2 por entrega · R$ 11,00 (catálogo)</span></span>
-      <span style="color:var(--ink-3)">${ic('chev',15)}</span></div>
-    <div class="item-linha"><span class="ava" style="width:32px;height:32px">${ic('box',16)}</span>
-      <span><strong>Água c/ gás 1,5L</strong><span>1 por entrega · <b style="color:var(--lime)">R$ 22,00 só pra ela</b></span></span>
-      <span style="color:var(--ink-3)">${ic('chev',15)}</span></div>
+    ${f.produtos.map(p=>`<div class="item-linha"><span class="ava" style="width:32px;height:32px">${ic(p[0],16)}</span>
+      <span><strong>${p[1]}</strong><span>${p[2]}</span></span>
+      <span style="color:var(--ink-3)">${ic('chev',15)}</span></div>`).join('')}
   </div>
   <button class="act full" style="margin-top:7px;justify-content:center">${ic('plus',17)}<b>Novo produto / entrega</b></button>
 
   <div class="acts" style="margin-top:12px">
-    <button class="act go wide" style="justify-content:center">${ic('check',19)}<b>Salvar</b></button>
+    <button class="act go wide" style="justify-content:center" data-acao="salvar-cliente">${ic('check',19)}<b>Salvar</b></button>
     <button class="act perigo" style="justify-content:center"
       data-superficie="confirmar">${ic('trash',17)}<b>Excluir</b></button>
   </div>

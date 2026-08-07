@@ -560,12 +560,302 @@
     });
   }
 
+  /* A BUSCA É DE TECLA, NÃO DE CLIQUE — por isso não cabe no mapa de ações.
+     Espera o dedo parar (350ms) antes de ir ao servidor: mandar a cada letra
+     enfileira 8 requisições pra digitar "Larissa" e a última nem sempre é a
+     que chega por último. O guard `__hbxBusca` é obrigatório: cada repinte
+     traz um input NOVO, e sem ele o listener empilhava a cada tecla. */
+  let buscaTimer = null;
+  function ligarBusca() {
+    const el = naCamada('[data-campo="busca-cliente"]');
+    if (!el || el.__hbxBusca) return;
+    el.__hbxBusca = true;
+    el.addEventListener('input', () => {
+      const valor = String(el.value || '');
+      clearTimeout(buscaTimer);
+      buscaTimer = setTimeout(() => {
+        filtroClientes.busca = valor;
+        // O seam guarda o texto pra ele sobreviver ao repinte da lista — sem
+        // isso o campo se apagava sozinho no meio da digitação.
+        carregarClientes();
+      }, 350);
+    });
+  }
+
+  /* Quem abre a tela é quem manda buscar. O mock chama `ir` NU dentro dele, e
+     função declarada no topo vira propriedade do window — então trocar
+     `window.ir` alcança os toques da barra também (mesmo pacto do `trocarLuz`). */
+  if (typeof window.ir === 'function') {
+    const irDoMock = window.ir;
+    window.ir = function (tela) {
+      const r = irDoMock.apply(this, arguments);
+      if (tela === 'clientes') carregarClientes();
+      return r;
+    };
+  }
+
   // toda pintura de tela pode trazer um palco novo: o mapa nasce junto.
   const observador = new MutationObserver(() => {
     const palco = naCamada('[data-mapa]');
     if (palco) montarMapa(palco);
+    ligarBusca();
+    ligarCamposDaFicha();
   });
   observador.observe(document.getElementById('app') || document.body, { childList: true, subtree: true });
+
+  /* ------------------------------------------------------------------------
+     L6 — CLIENTES E FICHA (a tela nº1 de quem usa o app de verdade).
+
+     A lista é PULL: busca e chips de dia vão pro SERVIDOR junto com a página.
+     Filtrar no aparelho esconderia todo cliente que ainda não desceu — a base
+     do cliente real tem centenas.
+
+     🔴 O ENDEREÇO MATA O PINO. Mudou rua/número/bairro/CEP, a coordenada velha
+     MORRE junto (lat/lng = null). Pino velho com endereço novo é o defeito mais
+     caro desta casa: a rota leva o motorista pra porta errada e ninguém vê.
+     Sem pino a parada aparece como "sem trajeto" e a conferência acusa — barulho
+     é melhor que silêncio errado.
+     ------------------------------------------------------------------------ */
+  const CLIENTES = new Map();
+  let filtroClientes = { busca: '', dia: 0 };
+  let ficha = null;          // { id, item, detalhe, local, telefone, dias }
+  let clientesEmVoo = false;
+
+  const iniciais = (nome) => String(nome || '')
+    .split(/\s+/).filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase() || '?';
+
+  const ROTULO_DIA = ['', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'];
+  /** o que a pendência do servidor vira na tela (só a primeira, a mais dura) */
+  const AVISO_PENDENCIA = { numero: 'sem número', endereco: 'sem endereço', dia: 'sem dia', telefone: 'sem telefone' };
+
+  async function carregarClientes() {
+    if (!temPonte() || typeof window.usarDados !== 'function') return;
+    if (clientesEmVoo) return;
+    clientesEmVoo = true;
+    try {
+      const p = new URLSearchParams({ page: '1', pageSize: '100' });
+      if (filtroClientes.busca) p.set('query', filtroClientes.busca);
+      if (filtroClientes.dia) p.set('diasSemana', String(filtroClientes.dia));
+      let r;
+      try { r = await window.API.get(`/nucleo/clientes?${p.toString()}`); } catch (_) { return; }
+      // 🔴 SÓ CLIENTE ENTRA. A mesma porta serve lead e fornecedor; sem este
+      // filtro a agenda de quem nunca comprou apareceria na rota de quem vende.
+      const itens = (Array.isArray(r && r.items) ? r.items : []).filter((c) => c && c.isCliente === true);
+      CLIENTES.clear();
+      itens.forEach((c) => CLIENTES.set(String(c.id), c));
+      // Quem está na rota de HOJE ganha o avatar aceso — é o que o motorista
+      // procura primeiro quando abre a lista.
+      const naRota = new Set();
+      ENTREGAS.forEach((reg) => {
+        const id = reg.item && reg.item.cliente && reg.item.cliente.id;
+        if (id) naRota.add(String(id));
+      });
+      window.usarDados('clientes', {
+        subtitulo: `${ENTREGAS.size} na rota de hoje`,
+        busca: esc(filtroClientes.busca),
+        diaSel: filtroClientes.dia,
+        total: r && typeof r.total === 'number' ? String(r.total) : '',
+        // "sem endereço" seria uma conta da BASE INTEIRA e o servidor não manda
+        // esse total — contar só os que desceram diria um número menor que a
+        // verdade. Slot vazio some; número errado ficaria.
+        semEndereco: '',
+        marcadoHoje: DADOS.rota.somaMarcado || '',
+        lista: itens.map((c) => {
+          const dias = Array.isArray(c.diasEntrega) ? c.diasEntrega : [];
+          const pend = Array.isArray(c.pendencias) ? c.pendencias : [];
+          const aviso = pend.map((k) => AVISO_PENDENCIA[k]).filter(Boolean)[0] || '';
+          const deve = Number(c.debitoAtual) || 0;
+          return [
+            iniciais(c.name),
+            esc(c.name),
+            [esc(c.endereco), esc(c.cidade)].filter(Boolean).join(' • '),
+            dias.map((n) => ROTULO_DIA[n]).filter(Boolean).join(', '),
+            deve > 0 ? deve.toFixed(2).replace('.', ',') : '',
+            naRota.has(String(c.id)) ? 1 : 0,
+            aviso,
+            String(c.id),
+          ];
+        }),
+      });
+    } finally { clientesEmVoo = false; }
+  }
+
+  /** toque no cliente: puxa a ficha inteira (cadastro + o que ele leva) */
+  async function abrirCliente(id) {
+    const item = CLIENTES.get(String(id));
+    if (!item || typeof window.usarDados !== 'function') return;
+    // A ficha abre JÁ com o que a lista sabe; o detalhe entra quando chegar.
+    // Tela de cadastro que fica em branco esperando rede é tela quebrada.
+    // rascunho ZERADO: cliente novo mostra o cadastro DELE, nunca sobra do anterior.
+    ficha = { id: String(id), item, detalhe: null, local: null, telefone: null, rascunho: {}, dias: (item.diasEntrega || []).slice() };
+    encherFicha();
+    window.ir('ficha');
+    const [detR, prodR] = await Promise.allSettled([
+      window.API.get(`/nucleo/clientes/${encodeURIComponent(id)}`),
+      window.API.get(`/logistica/cliente-produtos?customerProfileId=${encodeURIComponent(id)}`),
+    ]);
+    if (!ficha || ficha.id !== String(id)) return;      // trocou de cliente no meio
+    if (detR.status === 'fulfilled' && detR.value) {
+      ficha.detalhe = detR.value;
+      const locais = Array.isArray(detR.value.locais) ? detR.value.locais : [];
+      ficha.local = locais.find((l) => l.isPrincipal) || locais[0] || null;
+      const tels = Array.isArray(detR.value.telefones) ? detR.value.telefones : [];
+      ficha.telefone = tels.find((t) => t.isPrincipal) || tels[0] || null;
+    }
+    ficha.produtos = prodR.status === 'fulfilled' && Array.isArray(prodR.value) ? prodR.value : [];
+    encherFicha();
+  }
+
+  /* 🔴 O QUE O DEDO ESCREVEU TEM QUE SOBREVIVER AO REPINTE.
+     Qualquer `usarDados` repinta a tela inteira a partir do seam — e o texto
+     digitado vive no DOM, não no seam. Medido no g15: digitei o número da casa,
+     toquei num dia e o número SUMIU.
+
+     🔴 E O RASCUNHO SÓ GUARDA O QUE FOI DIGITADO — nunca uma foto dos campos.
+     Minha 1ª versão tirava foto antes de repintar: como a ficha abre VAZIA e
+     preenche quando o detalhe chega, a foto gravava "" como se fosse escolha do
+     usuário, e daí em diante o vazio VENCIA o dado do servidor. CEP, rua e
+     bairro sumiram na tela por causa disso. Rascunho nasce de tecla, e ponto. */
+  const CAMPOS_FICHA = ['nome', 'telefone', 'cep', 'rua', 'numero', 'bairro', 'observacoes'];
+  function ligarCamposDaFicha() {
+    if (!ficha) return;
+    const camada = camadaViva();
+    if (!camada) return;
+    for (const nome of CAMPOS_FICHA) {
+      const el = camada.querySelector(`[data-campo="${nome}"]`);
+      if (!el || el.__hbxCampo) continue;
+      el.__hbxCampo = true;
+      el.addEventListener('input', () => {
+        if (!ficha) return;
+        ficha.rascunho = ficha.rascunho || {};
+        ficha.rascunho[nome] = String(el.value || '');
+      });
+    }
+  }
+  /** valor a mostrar: o que ele digitou, senão o que o servidor mandou */
+  const valorFicha = (nome, doServidor) => {
+    const r = ficha && ficha.rascunho;
+    return r && r[nome] !== undefined ? esc(r[nome]) : esc(doServidor);
+  };
+
+  function encherFicha() {
+    if (!ficha) return;
+    const it = ficha.item || {};
+    const d = ficha.detalhe || {};
+    const loc = ficha.local || {};
+    const pend = Array.isArray(it.pendencias) ? it.pendencias : [];
+    const entregas = Number(it.entregasCount) || 0;
+    const dias = ficha.dias || [];
+    window.usarDados('ficha', {
+      ini: iniciais(it.name || d.name),
+      nome: valorFicha('nome', d.name || it.name),
+      // "cliente desde" não vem em nenhuma das duas portas — some em vez de
+      // virar uma data inventada. O que existe é a contagem de entregas.
+      resumo: entregas ? `${entregas} ${entregas === 1 ? 'entrega' : 'entregas'}` : '',
+      alerta: pend.map((k) => AVISO_PENDENCIA[k]).filter(Boolean)[0] || '',
+      telefone: valorFicha('telefone', d.whatsapp || it.phone),
+      cpf: esc(d.document),
+      cep: valorFicha('cep', loc.cep || d.cep),
+      rua: valorFicha('rua', loc.endereco || d.endereco),
+      numero: valorFicha('numero', loc.numero != null ? loc.numero : d.numero),
+      bairro: valorFicha('bairro', loc.bairro || d.bairro),
+      numeroPendente: pend.indexOf('numero') >= 0 ? 1 : 0,
+      observacoes: valorFicha('observacoes', d.observacoes || it.observacoes),
+      dias: [1, 2, 3, 4, 5, 6, 7].map((n) => (dias.indexOf(n) >= 0 ? 1 : 0)),
+      produtos: (ficha.produtos || []).map((v) => {
+        const p = v.produto || {};
+        const preco = typeof v.precoAcordado === 'number' ? v.precoAcordado : null;
+        const catalogo = typeof p.precoCatalogo === 'number' ? p.precoCatalogo : null;
+        // Preço combinado SÓ PRA ELE ganha destaque; preço de catálogo é o
+        // normal. Sem preço nenhum, a linha diz só a quantidade.
+        const proprio = preco != null && catalogo != null && preco !== catalogo;
+        const valor = preco != null
+          ? (proprio
+            ? ` · <b style="color:var(--lime)">${dinheiro(preco)} só pra ele</b>`
+            : ` · ${dinheiro(preco)} (catálogo)`)
+          : '';
+        return ['box', esc(p.nome), `${Number(v.qtdPadrao) || 0} por entrega${valor}`];
+      }),
+    });
+  }
+
+  /** lê um campo da ficha na camada viva (o que o dedo digitou, não o do seam) */
+  const campo = (nome) => {
+    const el = naCamada(`[data-campo="${nome}"]`);
+    return el ? String(el.value || '').trim() : '';
+  };
+
+  /** Salvar: manda SÓ o que mudou, e cada porta é a sua. */
+  async function salvarCliente() {
+    if (!ficha) return;
+    await comTrava(async () => {
+      const d = ficha.detalhe || {};
+      const it = ficha.item || {};
+      const loc = ficha.local || {};
+      const nome = campo('nome');
+      const telefone = campo('telefone');
+      const observacoes = campo('observacoes');
+      const cep = campo('cep');
+      const rua = campo('rua');
+      const numero = campo('numero');
+      const bairro = campo('bairro');
+
+      const conta = {};
+      if (nome && nome !== String(d.name || it.name || '')) conta.nome = nome;
+      if (observacoes !== String(d.observacoes || '')) conta.observacoes = observacoes;
+      if (telefone !== String(d.whatsapp || it.phone || '')) conta.phone = telefone;
+
+      const mudouEndereco = cep !== String(loc.cep || '')
+        || rua !== String(loc.endereco || '')
+        || numero !== String(loc.numero == null ? '' : loc.numero)
+        || bairro !== String(loc.bairro || '');
+
+      const diasAgora = [1, 2, 3, 4, 5, 6, 7].filter((n) => (ficha.dias || []).indexOf(n) >= 0);
+      const diasAntes = (it.diasEntrega || []).slice().sort().join(',');
+      const mudouDias = diasAgora.slice().sort().join(',') !== diasAntes;
+
+      if (!Object.keys(conta).length && !mudouEndereco && !mudouDias) {
+        return window.portao({
+          tom: 'info', ico: 'check', titulo: 'Nada mudou', sub: 'A ficha já está assim.',
+          acoes: [['Fechar', '']],
+        });
+      }
+      try {
+        if (Object.keys(conta).length) {
+          await window.API.patch(`/nucleo/contas/${encodeURIComponent(ficha.id)}`, conta);
+        }
+        // O telefone vive em DOIS lugares (a conta espelha, o contato é a
+        // verdade) — o app velho já grava nos dois, e a busca lê do espelho.
+        if (conta.phone && ficha.telefone && ficha.telefone.id) {
+          await window.API.patch(`/nucleo/telefones/${encodeURIComponent(ficha.telefone.id)}`,
+            { whatsapp: conta.phone, phone: conta.phone, isPrincipal: true });
+        }
+        if (mudouEndereco && loc.id) {
+          await window.API.patch(`/nucleo/locais/${encodeURIComponent(loc.id)}`, {
+            endereco: rua, numero, bairro, cep,
+            cidade: loc.cidade || '', uf: loc.uf || '',
+            // 🔴 O PINO MORRE COM O ENDEREÇO VELHO. Ver o bloco no topo.
+            lat: null, lng: null,
+          });
+        }
+        if (mudouDias) {
+          await window.API.patch(`/logistica/clientes/${encodeURIComponent(ficha.id)}/dias`, { dias: diasAgora });
+        }
+      } catch (e) { return avisoErro(e); }
+      await carregarClientes();
+      // Rascunho MORRE no salvamento: daqui pra frente quem manda é o servidor
+      // (foi ele que decidiu o que aceitou), senão a tela mostraria pra sempre
+      // o que eu digitei mesmo que a gravação tenha ajustado o valor.
+      await abrirCliente(ficha.id);
+      window.portao({
+        tom: 'ok', ico: 'check', titulo: 'Ficha salva',
+        // Lei 8: a palavra "pino" é PROIBIDA em tela — é jargão de motor. Quem
+        // lê é o motorista, e pra ele o que mudou é o LOCAL.
+        sub: mudouEndereco ? 'O endereço mudou — o local vai ser conferido de novo.' : '',
+        acoes: [['Fechar', '']],
+      });
+    });
+  }
 
   /* ------------------------------------------------------------------------
      L5 — O FECHAMENTO DO DIA (caderneta) E A SEMANA.
@@ -866,6 +1156,7 @@
     'confirmar-venda': () => confirmarEntrega(''),
     'registrar-nao-entregue': registrarNaoEntregue,
     'fechar-dia': fecharDia,
+    'salvar-cliente': salvarCliente,
   };
   // captura na fase de subida, DEPOIS do mock: quem não é meu segue o caminho dele.
   document.addEventListener('click', (e) => {
@@ -875,6 +1166,22 @@
     // Ações que carregam ARGUMENTO no próprio botão. Ficam fora do mapa porque
     // o mapa é nome→função; aqui o dado é parte do toque.
     if (chave === 'abrir-parada') return abrirParada(alvo.dataset.parada);
+    if (chave === 'abrir-cliente') return abrirCliente(alvo.dataset.cliente);
+    if (chave === 'chip-dia') {
+      const n = Number(alvo.dataset.dia) || 0;
+      // 2º toque no mesmo chip DESLIGA o filtro. Chip que só liga é armadilha:
+      // o motorista fica preso num dia e acha que perdeu os clientes.
+      filtroClientes.dia = filtroClientes.dia === n ? 0 : n;
+      window.usarDados('clientes', { diaSel: filtroClientes.dia });
+      return carregarClientes();
+    }
+    if (chave === 'dia-cliente') {
+      if (!ficha) return;
+      const n = Number(alvo.dataset.dia) || 0;
+      const i = ficha.dias.indexOf(n);
+      if (i >= 0) ficha.dias.splice(i, 1); else ficha.dias.push(n);
+      return encherFicha();
+    }
     if (chave === 'forma') { forma = String(alvo.dataset.forma || ''); return repintarFolha(); }
     if (chave === 'motivo') {
       motivo = String(alvo.dataset.motivo || '');
