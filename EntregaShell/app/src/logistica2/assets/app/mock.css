@@ -1384,22 +1384,28 @@ button,input{font:inherit;color:inherit}
 .gravando .crono{font-size:19px;font-weight:500;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 
 /* ==========================================================================
-   OS DOIS GESTOS — funcionam de verdade aqui, com dedo e com mouse.
-   SEGURAR = excluir (950ms, vermelho progressivo, vibração no fim).
+   OS DOIS GESTOS — na LISTA DE PARADAS de verdade, com dedo e com mouse.
+   SEGURAR = retirar da rota (950ms, vermelho progressivo, vibração no fim).
    PUNHO   = arrastar pra reordenar (pega na hora, sem espera).
    A zona do punho NUNCA arma o excluir: dedo na alça é outro gesto.
+
+   🔴 EM REPOUSO ESTA REGRA NÃO PINTA NADA. A tela que ensinava o gesto saiu e o
+   gesto veio pra lista real — e a lista real aparece em telas que o portão
+   antes×depois mede PIXEL a pixel. Por isso `overflow` só entra COM o gesto em
+   curso. Já o `::after` nasce em repouso com largura ZERO (invisível): sem ele
+   existindo antes, a barra vermelha não teria de onde animar — pseudo-elemento
+   recém-criado não transiciona, ele SALTA pra 100%.
    ========================================================================== */
-.gesto-item{position:relative;overflow:hidden;touch-action:pan-y;user-select:none}
-.gesto-item::after{content:"";position:absolute;inset:0;width:0;background:rgba(242,85,90,.22);
+[data-gestos] .stop{touch-action:pan-y;user-select:none}
+[data-gestos] .stop::after{content:"";position:absolute;inset:0;width:0;background:rgba(242,85,90,.22);
   pointer-events:none;transition:width 0s}
-.gesto-item.armando::after{width:100%;transition:width .95s linear}
-.gesto-item.pronto{border-color:var(--red);background:var(--red-bg)}
-.gesto-item.pronto::after{width:100%;background:rgba(242,85,90,.3)}
-.gesto-item.arrastando{z-index:5;box-shadow:0 12px 28px rgba(0,0,0,.5);border-color:var(--blue-line);
+[data-gestos] .stop.armando,[data-gestos] .stop.pronto{overflow:hidden}
+[data-gestos] .stop.armando::after{width:100%;transition:width .95s linear}
+[data-gestos] .stop.pronto{border-color:var(--red);background:var(--red-bg)}
+[data-gestos] .stop.pronto::after{width:100%;background:rgba(242,85,90,.3)}
+[data-gestos] .stop.arrastando{z-index:5;box-shadow:0 12px 28px rgba(0,0,0,.5);border-color:var(--blue-line);
   transform:scale(1.015);transition:transform .12s}
-.gesto-item .grip{cursor:grab;touch-action:none}
-.gesto-dica{font-size:11px;color:var(--ink-2);text-align:center;margin:8px 0 2px}
-.gesto-dica b{color:var(--lime)}
+[data-gestos] .grip{cursor:grab;touch-action:none}
 
 /* ---------- chat da Central ---------- */
 .recado{border:.7px solid var(--amber-line);background:#1a1408;border-radius:14px;padding:11px;margin-top:6px}
@@ -1456,7 +1462,7 @@ button,input{font:inherit;color:inherit}
    medido ao vestir a tela (leva 2): a lista inteira virou caixa cinza.
    O `.linha-cfg` já nasceu com esse desarme; o `.cli` não tinha. Sem ele aqui,
    quem veste é obrigado a desarmar INLINE no app — e estilo inline vence a
-   folha, então o fundo do `.gesto-item.pronto` (segurar pra apagar) nunca
+   folha, então o fundo do `.stop.pronto` (segurar pra apagar) nunca
    chegava. Componente que pode ser botão desarma o botão ELE MESMO. */
 .cli{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;
   padding:8px 2px;border:0;border-bottom:.6px solid rgba(26,39,64,.95);
@@ -1475,7 +1481,7 @@ button,input{font:inherit;color:inherit}
    `place-items:center` fica inerte: as iniciais colam no canto de cima),
    12px virava 11px, a cor da marca virava `--ink-2` e um `margin-top:1px`
    empurrava o círculo inteiro pra baixo. Medido com `getComputedStyle`, não
-   lido. Mesma família da lei do `.gesto-item` acima: componente que um
+   lido. Mesma família da lei do gesto acima: componente que um
    seletor largo alcança DESARMA quem o alcança, no lugar exato.
    Vem ANTES do bloco do modo claro de propósito — lá a cor é redesenhada. */
 .cli .ava,.item-linha .ava{display:grid;place-items:center;font-size:12px;margin-top:0;color:var(--blue-l)}
@@ -1686,8 +1692,8 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .gps-rodape .sair{background:#fff;border-color:#e0a9a7;color:#a01a16}
 [data-luz="claro"] .esq{background:linear-gradient(90deg,#e7ecf5 25%,#f4f7fb 50%,#e7ecf5 75%);background-size:280% 100%}
 [data-luz="claro"] .vazio .ico{background:#fff;border-color:var(--line);color:var(--ink-3)}
-[data-luz="claro"] .gesto-item::after{background:rgba(192,32,27,.14)}
-[data-luz="claro"] .gesto-item.pronto{background:#fff2f1;border-color:var(--red)}
+[data-luz="claro"] [data-gestos] .stop::after{background:rgba(192,32,27,.14)}
+[data-luz="claro"] [data-gestos] .stop.pronto{background:#fff2f1;border-color:var(--red)}
 
 /* Barras fixas: branco sólido, separadas por fio — sem gradiente de fumaça. */
 [data-luz="claro"] .nav,[data-luz="claro"] .tmx-dock,[data-luz="claro"] .gps-rodape{

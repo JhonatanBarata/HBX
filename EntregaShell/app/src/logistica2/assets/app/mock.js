@@ -562,7 +562,7 @@ T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
       <span class="debita">${montada
         ? (DADOS.rota.creditosDebita?`Iniciar debita ${DADOS.rota.creditosDebita}`:'não consegui o custo agora')
         : 'monte a rota pra saber'}</span></div>`:''}
-  <div class="stops">${listaParadas(emCurso)}</div>
+  <div class="stops" data-gestos="rota">${listaParadas(emCurso)}</div>
   <div class="sum">
     <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>${DADOS.rota.somaProdutos}</b><small>produtos</small></span></span>
     <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>${DADOS.rota.somaMarcado}</b><small>marcado</small></span></span>
@@ -1003,7 +1003,7 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
 ${hdr({})}
 <div class="body">
   <h2 style="font-size:23px;font-weight:500;margin:4px 0 2px;letter-spacing:-.4px">${DADOS.montagem.titulo}</h2>
-  <div class="stops">${DADOS.montagem.linhas.map(x=>l(...x)).join('')}</div>
+  <div class="stops" data-gestos="rota">${DADOS.montagem.linhas.map(x=>l(...x)).join('')}</div>
   <div class="sum">
     <span class="c"><span style="color:var(--lime)">${ic('route',17)}</span><span><b>${DADOS.montagem.somaParadas}</b><small>paradas</small></span></span>
     <span class="c"><span style="color:var(--blue-l)">${ic('box',17)}</span><span><b>${DADOS.montagem.somaProdutos}</b><small>produtos</small></span></span>
@@ -1340,8 +1340,6 @@ ${hdr({voltar:'rota'})}
   <div class="campos">
     <label class="campo"><label>Nome de quem recebe</label><input></label>
   </div>
-  <div class="banner alerta" style="margin-top:8px">${ic('alert',15)}
-    <span>Se a porta já tem cadastro, o campo Nome <b>some</b> e a conta é reaproveitada — nada de cliente repetido.</span></div>
   <div class="acts">
     <button class="act go wide" style="justify-content:center" data-ir="rota">${ic('plus',19)}<b>Colocar na rota</b></button>
     <button class="act" style="justify-content:center" data-ir="rota">${ic('back',17)}<b>Voltar</b></button>
@@ -1426,17 +1424,17 @@ ${hdr({voltar:'rota'})}
   <div class="stops">
     <div class="stop"><span class="grip"></span>
       <span class="numwrap"><span class="num lime">1</span><span class="hh lime">08:12</span></span>
-      <span class="who"><strong>João da Silva</strong><span>R. das Palmeiras, 145 · pino ±4 m</span>
+      <span class="who"><strong>João da Silva</strong><span>R. das Palmeiras, 145 · local ±4 m</span>
         <span class="tags"><b class="tag lime">cliente existente</b><b class="tag blue">20L x2</b></span></span>
       <span class="side"><span class="pill lime">${ic('check',14)}Salvo</span></span></div>
     <div class="stop"><span class="grip"></span>
       <span class="numwrap"><span class="num lime">2</span><span class="hh lime">08:29</span></span>
-      <span class="who"><strong>Porta sem cadastro</strong><span>Av. João Dias, 890 · pino ±6 m</span>
+      <span class="who"><strong>Porta sem cadastro</strong><span>Av. João Dias, 890 · local ±6 m</span>
         <span class="tags"><b class="tag" style="border-color:rgba(245,165,36,.55);color:var(--amber)">falta o nome</b></span></span>
       <span class="side"><span class="pill amber">${ic('edit',14)}Nomear</span></span></div>
     <div class="stop"><span class="grip"></span>
       <span class="numwrap"><span class="num lime">3</span><span class="hh lime">08:47</span></span>
-      <span class="who"><strong>Maria Aparecida</strong><span>R. Sargento Silva Nunes, 72 · pino ±3 m</span>
+      <span class="who"><strong>Maria Aparecida</strong><span>R. Sargento Silva Nunes, 72 · local ±3 m</span>
         <span class="tags"><b class="tag lime">cliente existente</b><b class="tag blue">20L x1</b></span></span>
       <span class="side"><span class="pill lime">${ic('check',14)}Salvo</span></span></div>
   </div>
@@ -1447,39 +1445,6 @@ ${hdr({voltar:'rota'})}
     <span class="tmx-main"><button data-estado="pausar">${ic('gps',34)}</button><small>Checkpoint</small></span>
     <span class="tmx-sat tmx-info"><button>${ic('check',20)}</button><small>Finalizar</small></span>
   </div>
-</div>
-${nav('rota')}`;}};
-
-/* 24 — OS DOIS GESTOS (funcionando de verdade) ----------------------------- */
-T.gestos={nome:'Gestos: segurar e arrastar',grupo:'Sistema',render(){
-  const linha=(n,nome,end)=>`
-    <article class="stop gesto-item" data-gesto="${n}">
-      <span class="grip" data-alca="${n}"></span>
-      <span class="numwrap"><span class="num">${n}</span><span class="hh">08:${30+n*7}</span></span>
-      <span class="who"><strong>${nome}</strong><span>${end}</span></span>
-      <span class="side"><span class="marc"><small>Marcado</small><b>R$ ${40+n*7},00</b></span></span>
-    </article>`;
-  return `${status}
-${hdr({})}
-<div class="body">
-  <div class="box" style="margin-top:2px">
-    <div class="box-t">Dois gestos, duas zonas</div>
-    <div class="box-s" style="margin-top:6px;line-height:1.5">
-      <b style="color:var(--red)">Segurar 1 segundo</b> no cartão = excluir. O vermelho enche pra avisar
-      que está armando, e o aparelho vibra quando arma.<br>
-      <b style="color:var(--lime)">Pegar no punho</b> (os 6 pontinhos) = arrastar pra reordenar, na hora,
-      sem espera. Dedo no punho <b>nunca</b> arma o excluir.
-    </div>
-  </div>
-  <div class="gesto-dica">experimente aqui — funciona com o dedo e com o mouse</div>
-  <div class="stops" id="lista-gestos">
-    ${linha(1,'João da Silva','R. das Palmeiras, 145')}
-    ${linha(2,'Mercadinho Bom Preço','Av. João Dias, 890')}
-    ${linha(3,'Maria Aparecida','R. Sargento Silva Nunes, 72')}
-    ${linha(4,'Padaria Pão Nosso','Av. Ibirapuera, 2331')}
-  </div>
-  <div class="banner alerta" style="margin-top:8px">${ic('alert',15)}
-    <span>No app não existe <b>lixeira</b> nem botão de excluir na lista: o gesto É a porta.</span></div>
 </div>
 ${nav('rota')}`;}};
 
@@ -1682,7 +1647,7 @@ ${hdr({voltar:'rota'})}
     <span class="tag">removido</span></div>
 
   <div class="grupo">Já no dia</div>
-  <div class="stops">${listaParadas(false)}</div>
+  <div class="stops" data-gestos="rota">${listaParadas(false)}</div>
 </div>
 <div class="tmx-dock">
   <div class="sum" style="margin:0 0 8px">
@@ -1774,47 +1739,13 @@ ${hdr({semChat:1})}
 </div>
 ${nav('ajustes')}`;}};
 
-/* 14 — PADRÕES DE MOVIMENTO (a tela que evita sofrimento depois) ---------- */
-T.padroes={nome:'Padrões de movimento',grupo:'Sistema',render(){
-  const p=(nome,onde,tempo,curva,acao)=>`
-    <div class="rowcard">
-      <span class="ico lime">${ic('spark',18)}</span>
-      <span><strong>${nome}</strong><span>${onde}</span>
-        <span class="meta"><i>${tempo}</i><i>${curva}</i></span></span>
-      ${acao?`<button class="ghost" ${acao}>ver</button>`:`<span class="tag">automático</span>`}</div>`;
-  return `${status}
-${hdr({})}
-<div class="body">
-  <div class="box" style="margin-top:2px">
-    <div class="box-t">As 7 leis</div>
-    <div class="box-s" style="margin-top:6px;line-height:1.5">
-      1. Nada aparece: o que nasce entra, o que morre sai.<br>
-      2. Quem entra desacelera; quem sai acelera.<br>
-      3. Lista entra escalonada — passo de 22 ms, teto de 14.<br>
-      4. A origem tem significado (aviso nasce no sino).<br>
-      5. Erro entra na cara: rápido, com sacudida e cor cheia.<br>
-      6. O fundo escuro entra e sai junto com a peça.<br>
-      7. Menos movimento no sistema = nenhum movimento aqui.
-    </div>
-  </div>
-  <div class="section-head" style="margin:10px 2px 6px;font-size:12px;color:var(--ink-2)">Superfícies</div>
-  ${p('Troca de tela','Rota → Clientes, aba a aba','440 ms','entra',' data-ir="clientes"')}
-  ${p('Tela cheia','Rota iniciada (GPS) — de qualquer tela','520 ms','entra',' data-ir="mapa"')}
-  ${p('Folha','Venda, fechamento, histórico','380 ms','entra',' data-ir="venda"')}
-  ${p('Aviso','Recado, entrega, falta','280 ms','mola',' data-avisar="recado"')}
-  ${p('Erro','Falhou algo que o motorista tentou','320 ms','mola + sacudida',' data-superficie="erro"')}
-  ${p('Confirmação','Retirar da rota, cancelar','280 ms','entra',' data-superficie="confirmar"')}
-  ${p('Toque','Todo botão do app','120 ms','sai','')}
-</div>
-${nav('rota')}`;}};
-
 /* ==========================================================================
    MONTAGEM
    ========================================================================== */
 const ORDEM=['entrada','rota','rotafoto','mapa','mapachegou','mapalista','gerenciador','montagem','conferencia',
              'venda','folha','folhanao','rapida','salvas','caderneta','semana','clientes','ficha','produtos',
              'fichaproduto','chat','ajustes','recarga','financeiro','avancado','sons','historico','consumo',
-             'passeio','leitura','gestos','portoes','padroes'];
+             'passeio','leitura','portoes'];
 const GRUPOS=['Sistema','Rota','Caderneta','Cadastro','Ajustes'];
 let atual='entrada';
 
@@ -1896,7 +1827,10 @@ function pintar(animar,dir){
   nova.innerHTML=T[atual].render();
   numerarItens(nova);
   if(atual==='entrada') requestAnimationFrame(()=>ajustarHastes(nova));
-  if(atual==='gestos') requestAnimationFrame(()=>ligarGestos(nova));
+  // Os dois gestos valem em TODA lista de paradas. A tela que os ENSINAVA saiu
+  // (07/08, ordem do dono: fora as explicações); o gesto ficou e trocou de
+  // endereço — quem liga não é mais o nome da tela, é a marca `data-gestos`.
+  requestAnimationFrame(()=>ligarGestos(nova));
   // DIREÇÃO (eixo X): +1 = avançando, entra pela direita; -1 = voltando, entra
   // pela esquerda. Um "voltar" que entra pelo mesmo lado do "avançar" é mentira
   // de navegação — o dedo aprende o gesto errado.
@@ -2169,25 +2103,42 @@ function portao(chave){
 }
 
 /* ==========================================================================
-   OS DOIS GESTOS, de verdade. Um ponteiro só (pointer events) atende dedo e
-   mouse. As duas zonas são exclusivas: quem encosta no punho arrasta e NUNCA
-   arma o excluir — no app isso já custou cartão apagado por engano.
+   OS DOIS GESTOS, de verdade — na LISTA DE PARADAS, não numa maquete. Um
+   ponteiro só (pointer events) atende dedo e mouse. As duas zonas são
+   exclusivas: quem encosta no punho arrasta e NUNCA arma o excluir — no app
+   isso já custou cartão apagado por engano.
+
+   🔴 A TELA QUE ENSINAVA O GESTO SAIU; O GESTO NÃO. Ele só trocou de
+   endereço: quem liga é a marca `data-gestos` na lista, e não mais o nome de
+   uma tela de demonstração. Toda lista que DESENHA o punho tem que RESPONDER
+   ao punho — punho decorativo é casca mentindo pro dedo.
    ========================================================================== */
 function ligarGestos(camada){
-  const lista=camada.querySelector('#lista-gestos'); if(!lista) return;
+  camada.querySelectorAll('[data-gestos]').forEach(lista=>ligarLista(camada,lista));
+}
+function ligarLista(camada,lista){
   const TEMPO=950, TOLERANCIA=12;   // 950ms e 12px: os mesmos números do app
 
+  /* Só o NÚMERO da parada renumera. A hora ao lado é ETA — quem recalcula é o
+     servidor, e casca que inventa horário mente com cara de dado. */
   function renumerar(){
-    [...lista.querySelectorAll('.gesto-item')].forEach((el,i)=>{
-      el.querySelector('.num').textContent=i+1;
-      el.querySelector('.hh').textContent=`08:${String(30+(i+1)*7).padStart(2,'0')}`;
+    [...lista.querySelectorAll('.stop')].forEach((el,i)=>{
+      const n=el.querySelector('.num'); if(n) n.textContent=i+1;
     });
+  }
+
+  /* O gesto abriu porta (arrastou ou armou)? Então o TOQUE não vale. Sem isto
+     o `pointerup` vira `click` e a MESMA parada que o dedo acabou de mover (ou
+     de mandar retirar) abre a folha dela por cima. Captura, uma vez só: quem
+     ouve `data-acao` é o documento, na subida, e aí já está engolido. */
+  function engolirToque(item){
+    item.addEventListener('click',e=>{e.stopPropagation();e.preventDefault();},{capture:true,once:true});
   }
 
   // ---- ARRASTAR PELO PUNHO -------------------------------------------------
   function arrastar(item,ev){
     ev.preventDefault();
-    const y0=ev.clientY; let base=0;
+    const y0=ev.clientY; let base=0, andou=false;
     // capturar o ponteiro é o que faz o dedo não "escapar" do cartão no meio do
     // arrasto — mas falha quando o ponteiro não está ativo (e derruba o resto
     // do gesto junto). Vai protegido: sem captura o arrasto ainda funciona.
@@ -2195,9 +2146,10 @@ function ligarGestos(camada){
     item.classList.add('arrastando');
     const mover=e=>{
       let dy=e.clientY-y0-base;
+      if(Math.abs(dy)>3) andou=true;
       const vizinho = dy<0 ? item.previousElementSibling : item.nextElementSibling;
       // troca quando passa de 60% da altura do vizinho — antes disso é tremor
-      if(vizinho && vizinho.classList.contains('gesto-item') && Math.abs(dy)>vizinho.offsetHeight*.6){
+      if(vizinho && vizinho.classList.contains('stop') && Math.abs(dy)>vizinho.offsetHeight*.6){
         const salto=vizinho.offsetHeight*(dy<0?-1:1);
         if(dy<0) lista.insertBefore(item,vizinho); else lista.insertBefore(vizinho,item);
         base+=salto; dy=e.clientY-y0-base;
@@ -2207,6 +2159,7 @@ function ligarGestos(camada){
     const soltar=()=>{
       item.classList.remove('arrastando');
       item.style.transform=''; renumerar();
+      if(andou) engolirToque(item);
       item.removeEventListener('pointermove',mover);
       item.removeEventListener('pointerup',soltar);
       item.removeEventListener('pointercancel',soltar);
@@ -2225,6 +2178,7 @@ function ligarGestos(camada){
       armado=true;
       item.classList.remove('armando'); item.classList.add('pronto');
       if(navigator.vibrate) navigator.vibrate(45);
+      engolirToque(item);
       perguntarExclusao(item);
     },TEMPO);
     const desarmar=()=>{
@@ -2248,7 +2202,7 @@ function ligarGestos(camada){
     const w=document.createElement('div');
     w.className='conf-wrap';
     w.innerHTML=`<div class="conf"><strong>Retirar ${nome} da rota?</strong>
-      <span class="sub">Ele volta na próxima quarta, do jeito que está.</span>
+      <span class="sub">Sai da rota de hoje.</span>
       <span class="acoes"><button data-nao="1">Não</button>
         <button class="principal" data-sim="1">Retirar</button></span></div>`;
     camada.appendChild(w);
@@ -2264,9 +2218,9 @@ function ligarGestos(camada){
   }
 
   lista.addEventListener('pointerdown',ev=>{
-    const item=ev.target.closest('.gesto-item'); if(!item) return;
-    if(ev.target.closest('[data-alca]')) arrastar(item,ev);   // punho: pega na hora
-    else segurar(item,ev);                                    // cartão: arma o excluir
+    const item=ev.target.closest('.stop'); if(!item||!lista.contains(item)) return;
+    if(ev.target.closest('.grip')) arrastar(item,ev);          // punho: pega na hora
+    else segurar(item,ev);                                     // cartão: arma o excluir
   });
 }
 

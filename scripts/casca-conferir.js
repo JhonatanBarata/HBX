@@ -8,10 +8,10 @@
  *
  *   A) O front SOBE? Script sob CSP que não executa, `null.innerHTML` no boot,
  *      folha que não carrega — tudo isso dá TELA PRETA SEM ERRO VISÍVEL. Aqui a
- *      página é aberta e conferida: zero erro, `#app` com conteúdo, as 33 telas
+ *      página é aberta e conferida: zero erro, `#app` com conteúdo, as 31 telas
  *      renderizando.
  *
- *   B) Ela pinta IGUAL ao mock? As 33 telas × 2 modos, PIXEL a pixel, contra o
+ *   B) Ela pinta IGUAL ao mock? As 31 telas × 2 modos, PIXEL a pixel, contra o
  *      mock aberto do lado. É a régua do dono: front idêntico ao mock.
  *
  * ⚠️ Armadilhas de medição já pagas (não repita): o `#app` do mock vive dentro
@@ -74,7 +74,7 @@ body{margin:0;display:block;overflow:hidden;background:#06090f}
   console.log(`  telas carregadas   : ${vida.telas}`);
   console.log(`  tela pintada no boot: ${vida.camada}`);
   console.log(`  folha aplicada     : ${vida.folha}`);
-  const morreu = !vida.temApp || vida.conteudo < 200 || vida.telas !== 33 || !vida.camada;
+  const morreu = !vida.temApp || vida.conteudo < 200 || vida.telas !== 31 || !vida.camada;
   if (app.erros.length) { console.log('  erros:'); app.erros.forEach((e) => console.log('    ' + e)); }
   if (morreu) {
     console.log('\n✗ A CASCA NÃO SUBIU. (tela preta é o desfecho típico: CSP, boot ou folha)');

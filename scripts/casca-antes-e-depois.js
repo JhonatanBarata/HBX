@@ -7,10 +7,10 @@
  * O `casca-conferir` compara MOCK × PELE — numa refatoração do próprio mock os
  * dois mudam JUNTOS e ele fica verde mesmo com a tela mudada (lição paga na
  * fiação da pele 2.0). ESTE portão compara o mock DE AGORA (árvore) com o mock
- * de um commit (HEAD por padrão): 33 telas × 2 modos, pixel a pixel.
+ * de um commit (HEAD por padrão): 31 telas × 2 modos, pixel a pixel.
  *
  * É o instrumento da tokenização (F1 do PR06082026-RECOMECO-LOGISTICA2):
- * trocar 404 hex por token TEM que passar aqui com 66/66 idênticas.
+ * trocar 404 hex por token TEM que passar aqui com 62/62 idênticas.
  */
 const fs = require('fs');
 const path = require('path');
