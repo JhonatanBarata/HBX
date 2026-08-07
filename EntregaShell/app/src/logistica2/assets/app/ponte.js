@@ -161,6 +161,18 @@
       ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
       : '';
   };
+  /* 🔴 O DIA DA OPERAÇÃO É O DE SÃO PAULO — nem o do relógio do aparelho, nem o
+     do servidor. O servidor roda em UTC (sem TZ, medido nos dois containers) e
+     o aparelho pode estar em qualquer fuso; se cada ponta escolher o seu, o
+     motorista vê a rota de ontem ou de amanhã dependendo da HORA. Mesma conta
+     do `operationalDate()` do app que já roda em produção. */
+  const diaOperacional = () => {
+    const partes = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(new Date());
+    return partes;   // en-CA já formata como AAAA-MM-DD
+  };
+
   const distancia = (m, s) => {
     if (!(m > 0)) return '';
     const km = m >= 1000 ? `${(m / 1000).toFixed(1).replace('.', ',')} km` : `${Math.round(m)} m`;
@@ -177,31 +189,54 @@
     return 'montar';
   }
 
+  /* 🔴 O TEMPLATE DO MOCK INTERPOLA CRU (`${…}`), como toda maquete. Enquanto o
+     dado era do mock isso não tinha dono; com dado REAL passa a ter: um nome de
+     cliente com `<` quebra a marcação e o cartão some da lista sem erro nenhum.
+     Escapa-se na FONTE (aqui), nunca no template — assim vale pra toda tela que
+     ler o seam, e o literal do mock (que tem `<b>` de propósito) continua vivo. */
+  const esc = (v) => String(v == null ? '' : v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
   /** uma parada do servidor → uma linha do mock */
   function traduzirParada(item, i, anterior) {
     const c = item.cliente || {};
-    const entregue = String(item.status || '') === 'entregue';
+    const status = String(item.status || '');
+    const entregue = status === 'entregue';
+    const cancelada = status === 'cancelada';
     const tags = [];
     if (item.quantidade > 0) tags.push([`${item.quantidade}x`, 'blue']);
+    // 🔴 CANCELADA NÃO É PENDENTE. Caía no `else` e a parada que o motorista já
+    // resolveu ("não entregue", com motivo) voltava pra lista com cara de coisa
+    // por fazer — ele bateria na mesma porta de novo. Visto no g15.
     const pill = entregue
       ? ['Entregue', 'lime', 'check']
-      : (item.status === 'em_rota' ? ['A caminho', 'blue', 'nav'] : ['Pendente', 'mute', 'clock']);
+      // `mute` + número apagado, e NÃO um vermelho novo: a casca só tem
+      // blue/lime/amber/mute, e "não entregue" é desfecho FECHADO, não bloqueio
+      // (Lei 2c: vermelho só quando trava). Inventar `.pill.red` aqui seria
+      // criar variante que o mock não tem — o oposto de casca única.
+      : cancelada
+        ? ['Não entregue', 'mute', 'close']
+        : (status === 'em_rota' ? ['A caminho', 'blue', 'nav'] : ['Pendente', 'mute', 'clock']);
     return {
+      // 🔴 O ID É O QUE FAZ A PARADA VIRAR BOTÃO. O `stop()` do mock só põe o
+      // gancho quando ele existe — parada de maquete continua inerte.
+      id: item.id,
       // 🔴 O NÚMERO DA TELA É A ORDEM DA VISITA, e gente conta do 1. O servidor
       // grava `rotaOrdem` começando em ZERO — usar o campo cru punha "0, 1, 2"
       // na frente do motorista (visto no g15). A ordem do servidor decide a
       // SEQUÊNCIA; o número que aparece é a posição na fila.
       n: i + 1,
       hora: hora(item.etaAt || item.scheduledAt),
-      cor: entregue ? 'lime' : undefined,
-      nome: c.nome || '',
-      rua: c.endereco || '',
-      bairro: c.cidade || '',
+      cor: entregue ? 'lime' : (cancelada ? 'off' : undefined),
+      nome: esc(c.nome),
+      rua: esc(c.endereco),
+      bairro: esc(c.cidade),
       // o pino do mapa sai daqui; sem coordenada a parada existe na lista e
       // NÃO aparece no mapa (é o que "sem trajeto" já conta pro motorista).
       lat: typeof c.lat === 'number' ? c.lat : null,
       lng: typeof c.lng === 'number' ? c.lng : null,
-      nota: c.observacoes || undefined,
+      nota: c.observacoes ? esc(c.observacoes) : undefined,
       tags,
       // valorHoje só existe com o financeiro ligado — sem ele, sem número.
       marcado: typeof item.valorHoje === 'number' ? item.valorHoje.toFixed(2).replace('.', ',') : '',
@@ -217,22 +252,36 @@
 
   async function carregarRota() {
     if (!temPonte() || typeof window.usarDados !== 'function') return;
+    const dia = diaOperacional();
     let r;
-    try { r = await window.API.get('/logistica/rota'); } catch (_) { return; }
+    // 🔴 A DATA VIAJA SEMPRE. Sem ela o servidor usa o dia DELE — e ele roda em
+    // UTC (medido: nem o container local nem o da VPS têm TZ). Das 21h à
+    // meia-noite de Brasília o UTC já é amanhã, então a rota do motorista
+    // aparecia VAZIA justo no fim do turno. Achado no g15 às 23:28 (defeito meu
+    // da L1: o app velho sempre mandou `?date=`).
+    try { r = await window.API.get(`/logistica/rota?date=${encodeURIComponent(dia)}`); } catch (_) { return; }
 
     // Crédito e caixa do dia vêm de OUTRAS portas — pedidos em paralelo, e
     // cada um que falhar deixa o SEU campo vazio, sem derrubar a tela.
-    const hoje = new Date();
-    const dia = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
     const [creditoR, caixaR] = await Promise.allSettled([
       window.API.get('/credits/me'),
-      window.API.get(`/logistica/caderneta/resumo?data=${dia}`),
+      // ⚠️ é `date`, não `data` (conferido no controller): o nome errado não dá
+      // erro nenhum — o servidor ignora e responde o dia DELE, em UTC.
+      window.API.get(`/logistica/caderneta/resumo?date=${encodeURIComponent(dia)}`),
     ]);
     const credito = creditoR.status === 'fulfilled' ? creditoR.value : null;
     const caixa = caixaR.status === 'fulfilled' ? caixaR.value : null;
     const formas = (caixa && caixa.fechamento && caixa.fechamento.formas) || null;
     const itens = Array.isArray(r.items) ? r.items : [];
     const paradas = itens.map((it, i) => traduzirParada(it, i, i > 0));
+    // L4 — a folha de chegada precisa da entrega INTEIRA (itens, débito,
+    // método padrão), não da linha resumida da lista. Guardada por id, que é o
+    // que o cartão carrega no `data-parada`.
+    ENTREGAS.clear();
+    itens.forEach((it, i) => { if (it && it.id) ENTREGAS.set(String(it.id), { item: it, n: i + 1 }); });
+    // O nível do financeiro vem no MESMO payload da rota (não é chute nem
+    // pedido extra): é ele que decide qual das duas folhas abre na porta.
+    if (typeof r.moduloFinanceiroAtivo === 'boolean') financeiroAtivo = r.moduloFinanceiroAtivo;
     const entregues = itens.filter((it) => String(it.status || '') === 'entregue').length;
     const marcado = itens.reduce((s, it) => s + (typeof it.valorHoje === 'number' ? it.valorHoje : 0), 0);
     const temValor = itens.some((it) => typeof it.valorHoje === 'number');
@@ -303,10 +352,7 @@
       window.portao({ tom: 'trava', ico: 'alert', titulo: 'Não deu certo', sub: msg, acoes: [['Fechar', '']] });
     }
   };
-  const hojeISO = () => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  };
+  const hojeISO = () => diaOperacional();
 
   /** monta a rota do dia: planeja (grava a ordem) e confere (semáforo). */
   async function montarRota() {
@@ -518,17 +564,229 @@
   });
   observador.observe(document.getElementById('app') || document.body, { childList: true, subtree: true });
 
+  /* ------------------------------------------------------------------------
+     8. L4 — A PORTA: chegar, entregar e receber.
+
+     Três regras de domínio que NÃO nasceram aqui — vieram do app que já roda:
+     · a folha é escolhida pela CONFIG, não pelo gosto: financeiro OFF ou
+       "cobrança simples" abrem a folha SIMPLES (`venda`); o resto abre a
+       COMPLETA (`folha`). É o mesmo degrau do `deliverySheet()` do app velho;
+     · a hora da CHEGADA nasce no celular quando a folha abre e viaja no
+       DESFECHO (nunca num POST próprio) — a folha tem que abrir sem rede;
+     · toque repetido não confirma duas vezes: a `idempotencyKey` é gravada
+       ANTES da ida e só morre quando o servidor responde.
+
+     🔴 O COMPROVANTE POR FOTO NÃO ESTÁ AQUI DE PROPÓSITO (decisão do dono,
+     06/08): 0 uso na história do produto. Não é esquecimento.
+     ------------------------------------------------------------------------ */
+  const ENTREGAS = new Map();
+  let financeiroAtivo = true;
+  let cobrancaSimples = false;
+  let aberta = null;              // { id, n, item } — a parada com a folha aberta
+  let forma = '';                 // pix | dinheiro | cartao | fiado
+  let motivo = '';                // o motivo do "não entregue"
+
+  // A config só muda quando o dono mexe em Ajustes: pedir 1× por abertura do
+  // app basta, e uma falha aqui NÃO pode fechar a porta — o default é o
+  // comportamento de hoje (financeiro ligado, folha completa).
+  (async function lerConfig() {
+    if (!temPonte()) return;
+    try {
+      const c = await window.API.get('/logistica/config');
+      if (c && typeof c === 'object') {
+        if (typeof c.moduloFinanceiroAtivo === 'boolean') financeiroAtivo = c.moduloFinanceiroAtivo;
+        cobrancaSimples = !!c.cobrancaSimples;
+      }
+    } catch (_) { /* fica o default */ }
+  })();
+
+  /** a hora em que o motorista CHEGOU nesta parada (1ª abertura da folha) */
+  function carimbarChegada(id) {
+    const chave = `chegada:${id}`;
+    const guardada = window.HBX.cache.get(chave, null);
+    if (guardada) return guardada;
+    // Sobrevive a fechar o app no meio da parada — o desfecho pode vir minutos
+    // depois, e uma chegada perdida vira `null` (o servidor prefere ausente a
+    // inventada, ver `aparaChegada`).
+    const agora = new Date().toISOString();
+    window.HBX.cache.set(chave, agora);
+    return agora;
+  }
+
+  const somaItens = (item) => (Array.isArray(item.itens) ? item.itens : []);
+
+  /** entrega do servidor → seam da folha COMPLETA */
+  function encherFolha(item, n) {
+    const c = item.cliente || {};
+    const anterior = typeof c.debitoAtual === 'number' ? c.debitoAtual : null;
+    const hojeVal = typeof item.valorHoje === 'number' ? item.valorHoje : null;
+    window.usarDados('folha', {
+      n: String(n),
+      cor: String(item.status || '') === 'entregue' ? 'lime' : 'blue',
+      nome: esc(c.nome),
+      endereco: [esc(c.endereco), esc(c.cidade)].filter(Boolean).join(' • '),
+      pill: 'Chegou',
+      cabecalho: `Parada ${n} · ${esc(c.nome)}`,
+      // Observação do cliente é a única coisa que o motorista PRECISA ler antes
+      // de bater na porta — e sem ela a faixa some (não fica caixa vazia).
+      nota: c.observacoes ? esc(c.observacoes) : '',
+      itens: somaItens(item).map((it) => {
+        const prod = (it && it.produto) || {};
+        const qtd = it.qtdEntregue != null ? it.qtdEntregue : it.qtdPrevista;
+        // 🔴 `valorUnit` só existe pra quem tem acesso a preço (billingAudience).
+        // Entregador comum não recebe — e aí a linha diz só "previsto 2", sem
+        // "R$ 0,00 cada", que seria um "não sei" com cara de preço.
+        const preco = typeof it.valorUnit === 'number' ? ` · ${dinheiro(it.valorUnit)} cada` : '';
+        return ['box', esc(prod.nome), `previsto ${it.qtdPrevista}${preco}`, String(qtd == null ? '' : qtd)];
+      }),
+      anterior: anterior != null ? dinheiro(anterior) : '',
+      hoje: hojeVal != null ? dinheiro(hojeVal) : '',
+      total: anterior != null || hojeVal != null ? dinheiro((anterior || 0) + (hojeVal || 0)) : '',
+      forma,
+    });
+  }
+
+  /** entrega do servidor → seam da folha SIMPLES (a venda) */
+  function encherVenda(item, n) {
+    const c = item.cliente || {};
+    const lista = somaItens(item);
+    const primeiro = lista[0] || {};
+    const prod = primeiro.produto || {};
+    const hojeVal = typeof item.valorHoje === 'number' ? item.valorHoje : null;
+    const anterior = typeof c.debitoAtual === 'number' ? c.debitoAtual : null;
+    window.usarDados('venda', {
+      n: String(n),
+      titulo: `Parada ${n} • ${esc(c.nome)}`,
+      endereco: [esc(c.endereco), esc(c.cidade)].filter(Boolean).join(' • '),
+      pill: 'Chegou',
+      produto: esc(prod.nome) || (lista.length > 1 ? `${lista.length} produtos` : ''),
+      tags: lista.map((it) => {
+        const p = (it && it.produto) || {};
+        return [`${esc(p.nome)} x${it.qtdPrevista}`, 'blue'];
+      }),
+      contaItem: hojeVal != null ? dinheiro(hojeVal) : '',
+      contaChegada: hojeVal != null ? dinheiro(hojeVal) : '',
+      // "Lançamento na caderneta" só é verdade quando a forma escolhida é FIADO
+      // — em dinheiro/pix/cartão nada vai pra caderneta. Número que muda de
+      // significado conforme o botão é número que mente.
+      lancamento: forma === 'fiado' && hojeVal != null ? dinheiro(hojeVal) : dinheiro(0),
+      recebido: forma && forma !== 'fiado' && hojeVal != null ? dinheiro(hojeVal) : dinheiro(0),
+      paraCaderneta: anterior != null ? dinheiro(anterior + (forma === 'fiado' ? (hojeVal || 0) : 0)) : '',
+      forma,
+    });
+  }
+
+  /** toque na parada: carimba a chegada e abre a folha que a config mandar */
+  function abrirParada(id) {
+    const reg = ENTREGAS.get(String(id));
+    if (!reg || typeof window.usarDados !== 'function') return;
+    aberta = { id: String(id), n: reg.n, item: reg.item };
+    carimbarChegada(aberta.id);
+    // Método já gravado (reabrindo) > o padrão do cliente > nenhum. Nada de
+    // "Dinheiro" pré-marcado por enfeite: quem escolhe como recebeu é quem
+    // está na porta.
+    const c = reg.item.cliente || {};
+    forma = String(reg.item.receiptMethod || c.metodoPadrao || '');
+    motivo = '';
+    const simples = !financeiroAtivo || cobrancaSimples;
+    if (simples) { encherVenda(reg.item, reg.n); window.ir('venda'); }
+    else { encherFolha(reg.item, reg.n); window.ir('folha'); }
+  }
+
+  /** repinta a folha aberta (o seam é a única fonte da marcação selecionada) */
+  function repintarFolha() {
+    if (!aberta) return;
+    const simples = !financeiroAtivo || cobrancaSimples;
+    if (simples) encherVenda(aberta.item, aberta.n);
+    else encherFolha(aberta.item, aberta.n);
+  }
+
+  /** o desfecho: entregue. `metodo` vazio = a folha ainda não sabe como pagou. */
+  async function confirmarEntrega(metodo) {
+    if (!aberta) return;
+    const escolhido = metodo || forma;
+    // Financeiro ON exige saber como recebeu — senão o fechamento do dia soma
+    // errado e ninguém descobre até o caixa não bater.
+    if (financeiroAtivo && !escolhido) {
+      return window.portao({
+        tom: 'alerta', ico: 'cash', titulo: 'Como o cliente pagou?',
+        sub: 'Escolha a forma antes de confirmar.', acoes: [['Fechar', '']],
+      });
+    }
+    await comTrava(async () => {
+      const chave = `entrega-confirmar:${aberta.id}`;
+      let idem = window.HBX.cache.get(chave, null);
+      if (!idem) { idem = window.HBX.uuid(); window.HBX.cache.set(chave, idem); }
+      const corpo = { idempotencyKey: idem, arrivedAt: carimbarChegada(aberta.id) };
+      if (escolhido) corpo.receiptMethod = escolhido;
+      // O GPS da confirmação é o que realimenta o cadastro do cliente — vai
+      // quando existe, e a falta dele NUNCA barra a entrega.
+      if (ultimaPos) { corpo.lat = ultimaPos.lat; corpo.lng = ultimaPos.lng; }
+      try {
+        await window.API.post(`/logistica/entregas/${encodeURIComponent(aberta.id)}/confirmar`, corpo);
+      } catch (e) { return avisoErro(e); }
+      window.HBX.cache.remove(chave);
+      window.HBX.cache.remove(`chegada:${aberta.id}`);
+      aberta = null; forma = '';
+      await carregarRota();
+      window.ir('rota');
+    });
+  }
+
+  /** o outro desfecho: não entregue, com o motivo que o motorista marcou */
+  async function registrarNaoEntregue() {
+    if (!aberta) return;
+    const escolhido = motivo || (DADOS_MOTIVO_PADRAO() || '');
+    if (!escolhido) {
+      return window.portao({
+        tom: 'alerta', ico: 'alert', titulo: 'O que aconteceu?',
+        sub: 'Marque o motivo antes de registrar.', acoes: [['Fechar', '']],
+      });
+    }
+    await comTrava(async () => {
+      try {
+        await window.API.post(`/logistica/entregas/${encodeURIComponent(aberta.id)}/cancelar`, {
+          motivo: escolhido, arrivedAt: carimbarChegada(aberta.id),
+        });
+      } catch (e) { return avisoErro(e); }
+      window.HBX.cache.remove(`chegada:${aberta.id}`);
+      aberta = null; motivo = '';
+      await carregarRota();
+      window.ir('rota');
+    });
+  }
+
+  /* O 1º motivo já nasce marcado na folha (`.motivo.on` do mock): quem só toca
+     em "Registrar" está escolhendo ELE, não "nenhum". Ler do seam mantém uma
+     fonte só — se o dono trocar a lista no mock, isto acompanha. */
+  function DADOS_MOTIVO_PADRAO() {
+    try { return (DADOS.folha.motivos || [])[0] || ''; } catch (_) { return ''; }
+  }
+
   const ACOES = {
     montar: montarRota,
     'iniciar-rota': iniciarRota,
     iniciar: iniciarRota,
     'cancelar-rota': cancelarRota,
+    'entregue-pagou': () => confirmarEntrega(''),
+    'entregue-marcou': () => confirmarEntrega('fiado'),
+    'confirmar-venda': () => confirmarEntrega(''),
+    'registrar-nao-entregue': registrarNaoEntregue,
   };
   // captura na fase de subida, DEPOIS do mock: quem não é meu segue o caminho dele.
   document.addEventListener('click', (e) => {
     const alvo = e.target.closest('[data-acao], [data-estado]');
     if (!alvo || !temPonte()) return;
     const chave = alvo.dataset.acao || alvo.dataset.estado;
+    // Ações que carregam ARGUMENTO no próprio botão. Ficam fora do mapa porque
+    // o mapa é nome→função; aqui o dado é parte do toque.
+    if (chave === 'abrir-parada') return abrirParada(alvo.dataset.parada);
+    if (chave === 'forma') { forma = String(alvo.dataset.forma || ''); return repintarFolha(); }
+    if (chave === 'motivo') {
+      motivo = String(alvo.dataset.motivo || '');
+      if (typeof window.usarDados === 'function') window.usarDados('folha', { motivo });
+      return;
+    }
     const fn = ACOES[chave];
     if (fn) fn();
   });

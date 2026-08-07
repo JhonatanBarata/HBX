@@ -387,9 +387,18 @@ function finiteNumber(value: unknown): number | undefined {
   return Number.isFinite(number) ? number : undefined;
 }
 
-function allowedReceipt(value: unknown): 'pix' | 'dinheiro' | 'fiado' | undefined {
+// 🔴 'cartao' FALTAVA AQUI (achado no g15, 06/08). Ele entrou no ConfirmarEntregaDto
+// e no normalizeReceipt junto com o Modo Caderneta (04/08, maquininha na rua), mas
+// esta lista branca ficou pra trás — e ela é a porta de TODA confirmação que passa
+// pela fila offline, que é o caminho normal quando a rota tem autorização offline.
+// Efeito medido: a entrega era confirmada, o dinheiro entrava, e o método sumia
+// CALADO — o fechamento do dia perdia aquela venda na conta de dinheiro/pix/cartão.
+// Mesma armadilha do carimbo de chegada, no mesmo arquivo: campo não citado some.
+function allowedReceipt(value: unknown): 'pix' | 'dinheiro' | 'cartao' | 'fiado' | undefined {
   const normalized = String(value || '').trim();
-  return normalized === 'pix' || normalized === 'dinheiro' || normalized === 'fiado' ? normalized : undefined;
+  return normalized === 'pix' || normalized === 'dinheiro' || normalized === 'cartao' || normalized === 'fiado'
+    ? normalized
+    : undefined;
 }
 
 function optionalText(value: unknown, max: number): string | undefined {

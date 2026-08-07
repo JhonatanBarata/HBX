@@ -1041,6 +1041,11 @@ button,input{font:inherit;color:inherit}
 .item-linha strong{display:block;font-size:13px;font-weight:500}
 .item-linha span{display:block;font-size:10.5px;color:var(--ink-2);margin-top:1px}
 .passo{display:flex;align-items:center;gap:8px}
+/* 🔴 O STEPPER É UM <span> DENTRO DE .item-linha — e `.item-linha span` (0,1,1)
+   VENCE `.passo` (0,1,0). Resultado medido no vidro: display virava `block` e a
+   fonte caía pra 10,5px, então os botões − e + EMPILHAVAM num filete de 30px.
+   Não era o dado real ser maior: acontece com o nome do próprio mock. */
+.item-linha .passo{display:flex;margin-top:0}
 .passo button{width:30px;height:30px;border-radius:10px;border:.7px solid var(--line-2);background:var(--card);
   color:var(--ink);font-size:15px;line-height:1;cursor:pointer;display:grid;place-items:center}
 .passo b{min-width:22px;text-align:center;font-size:15px;font-weight:500}
@@ -1652,7 +1657,11 @@ function transmux(estado){
 
 function stop(o){
   const cor=o.cor||'blue';
-  return `<div class="stop ${o.on?'on':''}">
+  /* 🔴 O GANCHO NASCE DO DADO. A parada só vira botão quando tem `id` — que só
+     existe quando o dado é REAL. No mock (paradas de maquete, sem id) o cartão
+     continua inerte e a tela sai byte a byte igual à de antes. */
+  const gancho=o.id?` data-acao="abrir-parada" data-parada="${o.id}"`:'';
+  return `<div class="stop ${o.on?'on':''}"${gancho}>
     <span class="grip"></span>
     <span class="numwrap"><span class="num ${cor==='lime'?'lime':cor==='off'?'off':''}">${o.n}</span>
       <span class="hh ${cor==='lime'?'lime':cor==='off'?'off':''}">${o.hora}</span></span>
@@ -1736,6 +1745,35 @@ const DADOS={
     creditos:'240', creditosDebita:'12',
     somaProdutos:'20', somaMarcado:'R$ 336,00',
     vazioTitulo:'Sem paradas hoje', vazioSub:'Monte a rota do dia pra começar.',
+  },
+  /* L4 — A PORTA. Os literais abaixo são os que estavam nos templates da folha
+     de chegada e da folha da venda, MOVIDOS pra cá. `itens` é [ícone, nome,
+     linha de baixo, quantidade]; `motivos` é a lista do "não entregue".
+     🔴 O comprovante por FOTO saiu da folha na decisão do dono de 06/08 (0 uso
+     na história do produto): chave que aparece e não controla nada é pior que
+     chave ausente. */
+  folha:{
+    n:'3', cor:'lime', nome:'Maria Aparecida',
+    endereco:'R. Sargento Silva Nunes, 72 • Moema', pill:'Chegou',
+    cabecalho:'Parada 3 · Maria Aparecida',
+    nota:'Portão azul · deixar na área · <b>cachorro solto</b>',
+    itens:[
+      ['gallon','Galão 20 Litros','previsto 2 · R$ 11,00 cada','2'],
+      ['box','Água c/ gás 1,5L','previsto 1 · R$ 24,00 cada','0'],
+    ],
+    anterior:'R$ 21,00', hoje:'R$ 22,00', total:'R$ 43,00',
+    forma:'dinheiro',
+    motivos:['Ninguém atendeu','Cliente pediu pra voltar depois','Endereço não encontrado',
+      'Sem troco / não tinha o dinheiro','Estabelecimento fechado'],
+    motivo:'Ninguém atendeu',
+  },
+  venda:{
+    n:'3', titulo:'Parada 3 • Maria Aparecida',
+    endereco:'R. Sargento Silva Nunes, 72 • Moema', pill:'Chegou',
+    produto:'Água Mineral HBX',
+    tags:[['20L x1','blue'],['Vasilhame',''],['Chip dia','lime']],
+    contaItem:'R$ 21,00', contaChegada:'R$ 21,00', lancamento:'R$ 21,00',
+    recebido:'R$ 21,00', paraCaderneta:'R$ 21,00', forma:'dinheiro',
   },
   montagem:{
     titulo:'Montagem de rota', dica:'Segure e arraste para ordenar',
@@ -2030,7 +2068,7 @@ ${hdr({})}
 ${nav('rota')}`;}};
 
 /* 4 — FOLHA DA VENDA ------------------------------------------------------ */
-T.venda={nome:'Folha da venda',grupo:'Rota',render(){return `${status}
+T.venda={nome:'Folha da venda',grupo:'Rota',render(){const d=DADOS.venda;return `${status}
 ${hdr({})}
 <div class="body flush" style="overflow:hidden">
   ${mapa()}<div class="scrim"></div>
@@ -2039,48 +2077,48 @@ ${hdr({})}
     <div class="sheet-head"><div><h2>Folha da venda</h2><p>Chegada / venda</p></div>
       <button class="round sm" data-ir="rota">${ic('close',16)}</button></div>
     <div class="box" style="display:flex;align-items:center;gap:10px">
-      <span class="num lime" style="width:36px;height:36px">3</span>
-      <span style="flex:1"><span class="box-t">Parada 3 • Maria Aparecida</span>
-        <span class="box-s">R. Sargento Silva Nunes, 72 • Moema</span></span>
-      <span class="pill lime">${ic('check',14)}Chegou</span>
+      <span class="num lime" style="width:36px;height:36px">${d.n}</span>
+      <span style="flex:1"><span class="box-t">${d.titulo}</span>
+        <span class="box-s">${d.endereco}</span></span>
+      <span class="pill lime">${ic('check',14)}${d.pill}</span>
     </div>
     <div class="box">
       <div style="display:flex;gap:11px;align-items:flex-start">
         <span class="thumb">${ic('gallon',30)}</span>
-        <span style="flex:1"><span class="box-t">Água Mineral HBX</span>
-          <span class="tags" style="margin-top:6px"><b class="tag blue">20L x1</b><b class="tag">Vasilhame</b><b class="tag lime">Chip dia</b></span></span>
+        <span style="flex:1"><span class="box-t">${d.produto}</span>
+          <span class="tags" style="margin-top:6px">${d.tags.map(t=>`<b class="tag${t[1]?' '+t[1]:''}">${t[0]}</b>`).join('')}</span></span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;margin-top:10px">
         <span style="font-size:12.5px;color:var(--ink-2)">Conta do item</span>
-        <b style="font-size:18px;color:var(--lime);font-weight:500">R$ 21,00</b></div>
+        <b style="font-size:18px;color:var(--lime);font-weight:500">${d.contaItem}</b></div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">
       <div class="box" style="display:flex;align-items:center;justify-content:space-between;margin:0">
-        <span><span class="box-s">Conta da chegada</span><b style="display:block;font-size:15px;color:var(--lime);margin-top:2px">R$ 21,00</b></span>
+        <span><span class="box-s">Conta da chegada</span><b style="display:block;font-size:15px;color:var(--lime);margin-top:2px">${d.contaChegada}</b></span>
         <span style="color:var(--lime)">${ic('check',19)}</span></div>
       <div class="box" style="display:flex;align-items:center;justify-content:space-between;margin:0">
-        <span><span class="box-s">Lançamento na caderneta</span><b style="display:block;font-size:15px;color:var(--lime);margin-top:2px">R$ 21,00</b></span>
+        <span><span class="box-s">Lançamento na caderneta</span><b style="display:block;font-size:15px;color:var(--lime);margin-top:2px">${d.lancamento}</b></span>
         <span style="color:var(--blue-l)">${ic('note',19)}</span></div>
     </div>
     <div class="box">
       <div class="box-t">Forma de pagamento</div>
       <div class="box-s">Selecione como o cliente irá pagar esta venda.</div>
       <div class="pays">
-        <button class="pay sel"><span style="color:var(--lime)">${ic('cash',21)}</span><span><b>Dinheiro</b><small>Pagamento em espécie</small></span><i class="ok">${ic('check',15)}</i></button>
-        <button class="pay blue"><span style="color:var(--blue-l)">${ic('pix',21)}</span><span><b>Pix</b><small>Transferência instantânea</small></span></button>
-        <button class="pay"><span style="color:var(--ink-2)">${ic('card',21)}</span><span><b>Cartão</b><small>Débito ou crédito</small></span></button>
-        <button class="pay"><span style="color:var(--ink-2)">${ic('note',21)}</span><span><b>Caderneta</b><small>Lançar na caderneta</small></span></button>
+        <button class="pay${d.forma==='dinheiro'?' sel':''}" data-acao="forma" data-forma="dinheiro"><span style="color:var(--lime)">${ic('cash',21)}</span><span><b>Dinheiro</b><small>Pagamento em espécie</small></span>${d.forma==='dinheiro'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
+        <button class="pay blue${d.forma==='pix'?' sel':''}" data-acao="forma" data-forma="pix"><span style="color:var(--blue-l)">${ic('pix',21)}</span><span><b>Pix</b><small>Transferência instantânea</small></span>${d.forma==='pix'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
+        <button class="pay${d.forma==='cartao'?' sel':''}" data-acao="forma" data-forma="cartao"><span style="color:var(--ink-2)">${ic('card',21)}</span><span><b>Cartão</b><small>Débito ou crédito</small></span>${d.forma==='cartao'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
+        <button class="pay${d.forma==='fiado'?' sel':''}" data-acao="forma" data-forma="fiado"><span style="color:var(--ink-2)">${ic('note',21)}</span><span><b>Caderneta</b><small>Lançar na caderneta</small></span>${d.forma==='fiado'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
       </div>
     </div>
     <div class="box">
       <div style="display:flex;align-items:center;justify-content:space-between">
         <span class="box-t">Resumo do recebimento</span>
         <button class="ghost">${ic('edit',13)} Editar valores</button></div>
-      <div class="rowline"><span>Recebido hoje</span><b>R$ 21,00</b></div>
-      <div class="rowline"><span>Vai para caderneta</span><b>R$ 21,00</b></div>
+      <div class="rowline"><span>Recebido hoje</span><b>${d.recebido}</b></div>
+      <div class="rowline"><span>Vai para caderneta</span><b>${d.paraCaderneta}</b></div>
     </div>
     <div class="foot2">
-      <button class="act go" style="justify-content:center">${ic('check',19)}<b>Confirmar venda</b></button>
+      <button class="act go" style="justify-content:center" data-acao="confirmar-venda">${ic('check',19)}<b>Confirmar venda</b></button>
       <button class="act" style="justify-content:center" data-ir="rota">${ic('enter',17)}<b>Voltar para rota</b></button>
     </div>
   </div>
@@ -2846,6 +2884,7 @@ ${nav('clientes')}`;}};
    A do mock era a SIMPLES (cobrança direta). Esta é a completa: quantidade
    conferida item a item, motivo quando não entrega e comprovante por foto. */
 function folhaCompleta(naoEntregue){
+  const d=DADOS.folha;
   return `${status}
 ${hdr({semChat:1})}
 <div class="body flush" style="overflow:hidden">
@@ -2854,72 +2893,59 @@ ${hdr({semChat:1})}
     <span class="handle"></span>
     <div class="sheet-head">
       <div><h2>${naoEntregue?'Não entregue':'Chegada'}</h2>
-        <p>${naoEntregue?'Diga o que aconteceu':'Parada 3 · Maria Aparecida'}</p></div>
+        <p>${naoEntregue?'Diga o que aconteceu':d.cabecalho}</p></div>
       <button class="round sm" data-ir="rota">${ic('close',16)}</button></div>
 
     ${naoEntregue?`
       <div class="box">
         <div class="box-t">Motivo</div>
         <div class="motivos">
-          <button class="motivo on"><span class="bola"></span>Ninguém atendeu</button>
-          <button class="motivo"><span class="bola"></span>Cliente pediu pra voltar depois</button>
-          <button class="motivo"><span class="bola"></span>Endereço não encontrado</button>
-          <button class="motivo"><span class="bola"></span>Sem troco / não tinha o dinheiro</button>
-          <button class="motivo"><span class="bola"></span>Estabelecimento fechado</button>
+          ${d.motivos.map(m=>`<button class="motivo${m===d.motivo?' on':''}" data-acao="motivo" data-motivo="${m}"><span class="bola"></span>${m}</button>`).join('')}
         </div>
       </div>
-      <div class="box">
-        <div class="box-t">Comprovante</div>
-        <div class="box-s">Uma foto evita discussão depois. Opcional.</div>
-        <div class="foto"><span class="quadro">${ic('photo',24)}</span>
-          <span><strong>Tirar foto da porta</strong><span>fica guardada com a entrega</span></span></div>
-      </div>
       <div class="foot2">
-        <button class="act go" style="justify-content:center">${ic('check',19)}<b>Registrar</b></button>
+        <button class="act go" style="justify-content:center" data-acao="registrar-nao-entregue">${ic('check',19)}<b>Registrar</b></button>
         <button class="act" style="justify-content:center" data-ir="folha">${ic('back',17)}<b>Voltar</b></button>
       </div>`
     :`
       <div class="box" style="display:flex;align-items:center;gap:10px">
-        <span class="num lime" style="width:36px;height:36px">3</span>
-        <span style="flex:1"><span class="box-t">Maria Aparecida</span>
-          <span class="box-s">R. Sargento Silva Nunes, 72 • Moema</span></span>
-        <span class="pill lime">${ic('check',14)}Chegou</span>
+        <span class="num ${d.cor}" style="width:36px;height:36px">${d.n}</span>
+        <span style="flex:1"><span class="box-t">${d.nome}</span>
+          <span class="box-s">${d.endereco}</span></span>
+        <span class="pill lime">${ic('check',14)}${d.pill}</span>
       </div>
-      <div class="banner alerta" style="margin-top:8px">${ic('alert',15)}
-        <span>Portão azul · deixar na área · <b>cachorro solto</b></span></div>
+      ${d.nota?`<div class="banner alerta" style="margin-top:8px">${ic('alert',15)}
+        <span>${d.nota}</span></div>`:''}
 
       <div class="box">
         <div style="display:flex;align-items:center;justify-content:space-between">
           <span class="box-t">Conferir o que saiu</span>
           <button class="ghost">${ic('plus',13)} Produto</button></div>
-        <div class="item-linha"><span class="thumb" style="width:40px;height:40px;flex:0 0 40px">${ic('gallon',20)}</span>
-          <span><strong>Galão 20 Litros</strong><span>previsto 2 · R$ 11,00 cada</span></span>
-          <span class="passo"><button>−</button><b>2</b><button>+</button></span></div>
-        <div class="item-linha"><span class="thumb" style="width:40px;height:40px;flex:0 0 40px">${ic('box',20)}</span>
-          <span><strong>Água c/ gás 1,5L</strong><span>previsto 1 · R$ 24,00 cada</span></span>
-          <span class="passo"><button>−</button><b>0</b><button>+</button></span></div>
+        ${d.itens.map(it=>`<div class="item-linha"><span class="thumb" style="width:40px;height:40px;flex:0 0 40px">${ic(it[0],20)}</span>
+          <span><strong>${it[1]}</strong><span>${it[2]}</span></span>
+          <span class="passo"><button>−</button><b>${it[3]}</b><button>+</button></span></div>`).join('')}
       </div>
 
       <div class="box">
-        <div class="rowline"><span>Anterior</span><b style="color:var(--amber)">R$ 21,00</b></div>
-        <div class="rowline"><span>Venda de hoje</span><b>R$ 22,00</b></div>
+        <div class="rowline"><span>Anterior</span><b style="color:var(--amber)">${d.anterior}</b></div>
+        <div class="rowline"><span>Venda de hoje</span><b>${d.hoje}</b></div>
         <div class="rowline"><span style="font-size:16px;color:var(--ink)">Total</span>
-          <b style="font-size:19px">R$ 43,00</b></div>
+          <b style="font-size:19px">${d.total}</b></div>
       </div>
 
       <div class="box">
         <div class="box-t">Como pagou</div>
         <div class="pays">
-          <button class="pay sel"><span style="color:var(--lime)">${ic('cash',21)}</span><span><b>Dinheiro</b><small>em espécie</small></span><i class="ok">${ic('check',15)}</i></button>
-          <button class="pay blue"><span style="color:var(--blue-l)">${ic('pix',21)}</span><span><b>Pix</b><small>na hora</small></span></button>
-          <button class="pay"><span style="color:var(--ink-2)">${ic('card',21)}</span><span><b>Cartão</b><small>débito ou crédito</small></span></button>
-          <button class="pay"><span style="color:var(--amber)">${ic('note',21)}</span><span><b>Marcar</b><small>vai pra caderneta</small></span></button>
+          <button class="pay${d.forma==='dinheiro'?' sel':''}" data-acao="forma" data-forma="dinheiro"><span style="color:var(--lime)">${ic('cash',21)}</span><span><b>Dinheiro</b><small>em espécie</small></span>${d.forma==='dinheiro'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
+          <button class="pay blue${d.forma==='pix'?' sel':''}" data-acao="forma" data-forma="pix"><span style="color:var(--blue-l)">${ic('pix',21)}</span><span><b>Pix</b><small>na hora</small></span>${d.forma==='pix'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
+          <button class="pay${d.forma==='cartao'?' sel':''}" data-acao="forma" data-forma="cartao"><span style="color:var(--ink-2)">${ic('card',21)}</span><span><b>Cartão</b><small>débito ou crédito</small></span>${d.forma==='cartao'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
+          <button class="pay${d.forma==='fiado'?' sel':''}" data-acao="forma" data-forma="fiado"><span style="color:var(--amber)">${ic('note',21)}</span><span><b>Marcar</b><small>vai pra caderneta</small></span>${d.forma==='fiado'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
         </div>
       </div>
 
       <div class="foot2">
-        <button class="act go" style="justify-content:center">${ic('check',19)}<b>Entregue e pagou</b></button>
-        <button class="act" style="justify-content:center">${ic('note',17)}<b>Entregue, marcou</b></button>
+        <button class="act go" style="justify-content:center" data-acao="entregue-pagou">${ic('check',19)}<b>Entregue e pagou</b></button>
+        <button class="act" style="justify-content:center" data-acao="entregue-marcou">${ic('note',17)}<b>Entregue, marcou</b></button>
       </div>
       <button class="act full perigo" style="margin-top:7px;justify-content:center"
         data-ir="folhanao">${ic('close',17)}<b>Não entregue</b></button>`}
@@ -3174,6 +3200,15 @@ function pintar(animar,dir){
       espera=580;
     }
     app.appendChild(nova);
+    /* 🔴 REPINTAR NÃO PODE ROLAR A FOLHA PRA CIMA. A folha (`.sheet`) é o
+       único painel que ROLA por dentro, e escolher a forma de pagamento fica
+       no pé dela: sem isto, cada toque jogava o dedo de volta pro topo e o
+       botão de confirmar fugia da tela. Vale pra qualquer repinte do seam,
+       não só o do pagamento — por isso mora aqui e não em quem chamou. */
+    if(antiga&&!animar){
+      const de=antiga.querySelector('.sheet'), para=nova.querySelector('.sheet');
+      if(de&&para&&de.scrollTop) para.scrollTop=de.scrollTop;
+    }
     // ABERTURA: mede o percurso do logo DEPOIS de a camada nova estar no ar —
     // antes disso o cabeçalho ainda não tem posição, e a conta sai errada.
     if(anterior==='entrada'){
