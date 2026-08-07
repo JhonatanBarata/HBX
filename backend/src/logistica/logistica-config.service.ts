@@ -5,6 +5,7 @@ import { CreditWalletService } from '../credits/credit-wallet.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { isCobrancaWhatsEnabled } from './logistica-cobranca.flags';
 import { isPedidoPublicoEnabled } from './logistica-pedido.flags';
+import { isProspectorEnabled } from './logistica-prospector.flags';
 import { isLogisticaTrackingEnabled } from './logistica-tracking.flags';
 import { isResumoDiarioEnabled } from './resumo-diario.flags';
 
@@ -178,6 +179,18 @@ export class LogisticaConfigService {
         'O modo da rota só muda no painel do administrador, no computador.',
       );
     }
+    // PROSPECTOR (07/08, decisão nº8 do dono) — o DISPARO AUTOMÁTICO é cobrado
+    // como automação: quem liga é a HBX no /master, nunca o tenant. Mesmo
+    // cinto-e-suspensório do modo da rota acima — o ValidationPipe global já
+    // rejeita as chaves (elas não existem no UpdateLogisticaConfigDto), e quem
+    // chamar o serviço direto (script, outro módulo) bate aqui. A porta única é
+    // `setProspectorAutomacao`, atrás do MasterGuard.
+    if (
+      forasteiro.prospectorAutomacaoAtiva !== undefined ||
+      forasteiro.prospectorAutomacaoMaxDia !== undefined
+    ) {
+      throw new ForbiddenException('O disparo automático do prospector é liberado pela HBX.');
+    }
 
     const data: Record<string, unknown> = {};
     const changesCommercialConfig = [
@@ -188,6 +201,9 @@ export class LogisticaConfigService {
       input.pixNome,
       input.pixCidade,
       input.cobrancaWhatsAtiva,
+      // F4 (07/08) — o TEXTO da cobrança anda com o toggle dela: quem manda na
+      // cobrança é o responsável financeiro (é a voz da empresa cobrando dinheiro).
+      input.cobrancaWhatsTemplate,
       input.resumoDiarioAtivo,
       input.resumoDiarioHora,
     ].some((value) => value !== undefined);
@@ -300,6 +316,39 @@ export class LogisticaConfigService {
         throw new ForbiddenException('Cobrança automática por WhatsApp é do plano Advanced.');
       }
       data.cobrancaWhatsAtiva = !!input.cobrancaWhatsAtiva;
+    }
+    // F4 PROSPECTOR (07/08) — "organize os 3 disparos": a cobrança ganhou o
+    // texto cadastrado que o aviso de chegada já tinha. MESMO tratamento do
+    // avisoChegandoTemplate (trim + slice 1000, vazio → null); null = a mensagem
+    // fixa de sempre no serviço de cobrança (zero regressão).
+    if (input.cobrancaWhatsTemplate !== undefined) {
+      const t = String(input.cobrancaWhatsTemplate ?? '').trim();
+      data.cobrancaWhatsTemplate = t ? t.slice(0, 1000) : null;
+    }
+    // PROSPECTOR CNPJ (07/08) — MESMO shape do trio avisoChegando acima (toggle +
+    // template + condição). OPERACIONAL: @Admin() do controller basta, não exige
+    // billing owner (mesmo padrão de passeioEquipe/modoCaderneta) — quem escolhe
+    // é o admin da operação, e o que gasta crédito (abrir lead) tem gate próprio
+    // no ato. Gravar é livre; EFEITO só existe com HBX_PROSPECTOR_ENABLED global.
+    if (input.prospectorAtivo !== undefined) data.prospectorAtivo = !!input.prospectorAtivo;
+    if (input.prospectorTemplate !== undefined) {
+      const t = String(input.prospectorTemplate ?? '').trim();
+      data.prospectorTemplate = t ? t.slice(0, 1000) : null;
+    }
+    // Raio do corredor: 150 m é o valor MEDIDO em produção (~53 CNPJs/parada).
+    // Piso 50 (abaixo disso o pino nível 1-2 não distingue vizinho) e teto 500
+    // (acima vira lista, não escolha — "53/parada obriga funil").
+    if (input.prospectorRaioM !== undefined) data.prospectorRaioM = clampInt(input.prospectorRaioM, 50, 500, 150);
+    // Quantas acendem sozinhas no dia — o "3 a 5" do dono, com folga 1..8.
+    if (input.prospectorMaxDia !== undefined) data.prospectorMaxDia = clampInt(input.prospectorMaxDia, 1, 8, 4);
+    // Liberação pra EQUIPE — mesma regra do passeioEquipe (operacional).
+    if (input.prospectorEquipe !== undefined) data.prospectorEquipe = !!input.prospectorEquipe;
+    // ITEM 9 DO DONO (07/08) — o admin desliga módulos do app do motorista PELO
+    // DESKTOP. OPERACIONAL (não exige billing owner) e normalizado igual ao
+    // diasTrabalho: split, filtra chave válida, dedupe, sort, vazio → null.
+    // 🔴 "rota" NUNCA entra (ver normalizeAppModulosDesativados).
+    if (input.appModulosDesativados !== undefined) {
+      data.appModulosDesativados = normalizeAppModulosDesativados(input.appModulosDesativados);
     }
     // S3 RESUMO-DIÁRIO (11/07) — toggle POR TENANT + hora local (0-23) do resumo
     // do dono no zap. Gravar é livre; EFEITO só com HBX_RESUMO_DIARIO_ENABLED
@@ -424,6 +473,61 @@ export class LogisticaConfigService {
       throw new BadRequestException('Nível inválido — use BASIC, ADVANCED ou FULL.');
     }
     const data: Record<string, unknown> = { logisticaNivel: alvo, ...nivelPresetPatch(alvo as LogisticaNivel) };
+    const cfg = await this.prisma.logisticaConfig.upsert({
+      where: { companyId },
+      update: data,
+      create: { companyId, ...data },
+    });
+    const creditosEsgotados = await this.computeCreditosEsgotados(companyId);
+    return serializeConfig(cfg, actor, creditosEsgotados);
+  }
+
+  // ── PROSPECTOR: DISPARO AUTOMÁTICO (decisão nº8), SÓ O MASTER ───────────────
+  /** Estado atual da automação do prospector (pro painel do Master). */
+  async getProspectorAutomacao(
+    companyId: number,
+  ): Promise<{ prospectorAutomacaoAtiva: boolean; prospectorAutomacaoMaxDia: number; prospectorDisponivel: boolean }> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    const cfg = await this.ensureRow(companyId);
+    return {
+      prospectorAutomacaoAtiva: !!(cfg as any).prospectorAutomacaoAtiva,
+      prospectorAutomacaoMaxDia: prospectorAutomacaoMaxDiaOf(cfg),
+      prospectorDisponivel: isProspectorEnabled(),
+    };
+  }
+
+  /**
+   * Liga/desliga o disparo AUTOMÁTICO do prospector e o teto diário dele.
+   * Endereço PRÓPRIO, só Master (MasterGuard no controller — mesmo desenho do
+   * setNivel acima e pelo mesmo motivo: fechar a porta por CONTRATO). Decisão
+   * nº8 do dono: disparo automático é COBRADO como automação, então o tenant
+   * NUNCA liga sozinho — o PATCH genérico da config recusa estas 2 chaves.
+   *
+   * O guard de acesso é do controller; aqui fica o cinto-e-suspensório
+   * (isSystemMaster) pra quem chamar o serviço direto por outro caminho.
+   *
+   * Teto: 0..50/dia. 0 (default) = automação SEM cota — mesmo com a chave
+   * ligada, nada dispara sozinho. O teto do NÍVEL DE DISPARO da empresa
+   * continua mandando por cima disto ("nível é INTENÇÃO; freio é FÍSICA").
+   */
+  async setProspectorAutomacao(
+    companyId: number,
+    input: UpdateProspectorAutomacaoInput,
+    actor?: ActorKindUserLike,
+  ): Promise<LogisticaConfigDTO> {
+    if (!companyId) throw new BadRequestException('Empresa não identificada');
+    if (!actor?.isSystemMaster) {
+      throw new ForbiddenException('O disparo automático do prospector é liberado pela HBX.');
+    }
+    const data: Record<string, unknown> = {};
+    if (input.prospectorAutomacaoAtiva !== undefined) {
+      data.prospectorAutomacaoAtiva = !!input.prospectorAutomacaoAtiva;
+    }
+    if (input.prospectorAutomacaoMaxDia !== undefined) {
+      data.prospectorAutomacaoMaxDia = clampInt(input.prospectorAutomacaoMaxDia, 0, 50, 0);
+    }
+    if (!Object.keys(data).length) throw new BadRequestException('Nada para alterar.');
+
     const cfg = await this.prisma.logisticaConfig.upsert({
       where: { companyId },
       update: data,
@@ -608,6 +712,45 @@ function normalizeDiasTrabalho(raw: unknown): string | null {
   return dias.length > 0 ? dias.join(',') : null;
 }
 
+// ── ITEM 9 DO DONO (07/08) — MÓDULOS DO APP QUE O ADMIN DESLIGA PELO DESKTOP ──
+/**
+ * As ÚNICAS chaves desativáveis do app do motorista. Lista fechada de propósito:
+ * chave que não está aqui é lixo (ou app velho/novo falando outra língua) e é
+ * DESCARTADA, nunca gravada.
+ *
+ * 🔴 "rota" NÃO ESTÁ NA LISTA E NUNCA ESTARÁ — app de entrega sem rota não é
+ * app. Desligar a rota deixaria o motorista com um aparelho que não faz a única
+ * coisa que ele precisa fazer, e o admin descobriria isso na rua.
+ */
+export const APP_MODULOS_DESATIVAVEIS = ['caderneta', 'clientes', 'produtos', 'chat', 'ajustes'] as const;
+export type AppModuloDesativavel = (typeof APP_MODULOS_DESATIVAVEIS)[number];
+
+/**
+ * Normaliza o CSV de módulos desativados — MESMA receita do normalizeDiasTrabalho
+ * acima: split, filtra o que é válido, dedupe, sort, vazio → null.
+ * Case-insensitive ("Chat" = "chat"). "rota" é barrada DUAS vezes: por não estar
+ * na allowlist e pelo filtro explícito (cinto-e-suspensório — se um dia alguém
+ * engordar a lista sem ler o comentário, a lei continua de pé).
+ */
+function normalizeAppModulosDesativados(raw: unknown): string | null {
+  const chaves = Array.from(
+    new Set(
+      String(raw ?? '')
+        .split(',')
+        .map((s) => s.trim().toLowerCase())
+        .filter((s) => s !== 'rota')
+        .filter((s) => (APP_MODULOS_DESATIVAVEIS as readonly string[]).includes(s)),
+    ),
+  ).sort();
+  return chaves.length > 0 ? chaves.join(',') : null;
+}
+
+/** Teto diário da automação do prospector gravado (linha antiga/suja → 0). */
+function prospectorAutomacaoMaxDiaOf(c: any): number {
+  const n = Math.trunc(Number(c?.prospectorAutomacaoMaxDia));
+  return Number.isFinite(n) && n > 0 ? Math.min(50, n) : 0;
+}
+
 // PR27072026 F2 — só os 3 valores da matriz do plano passam; qualquer outro (lixo,
 // vazio) é rejeitado no chamador (BadRequestException), nunca gravado silencioso.
 export type DevedorNaRotaModo = 'COBRANCA' | 'EXCLUIR' | 'NORMAL';
@@ -675,6 +818,26 @@ function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = 
     // campo é só o MODO configurado, pra tela de config saber o que mostrar
     // marcado sem precisar ser billing owner (mesmo padrão de cobrancaAutomatica).
     devedorNaRota: normalizeDevedorNaRota(c.devedorNaRota) ?? 'COBRANCA',
+    // PROSPECTOR CNPJ (07/08) — OPERACIONAIS (todo ator lê, inclusive motorista):
+    // o APK precisa saber se mostra os pinos apagados, com que texto fala, em que
+    // raio acende e quantas vezes por dia — e o motorista comum só entra se
+    // `prospectorEquipe` estiver ligado (mesma leitura do passeioEquipe). São
+    // TOGGLES e RÉGUAS, nunca valor: a LEI DO VENDEDOR segue intacta.
+    prospectorAtivo: !!c.prospectorAtivo,
+    prospectorTemplate: c.prospectorTemplate ?? null,
+    prospectorRaioM: typeof c.prospectorRaioM === 'number' ? c.prospectorRaioM : 150,
+    prospectorMaxDia: typeof c.prospectorMaxDia === 'number' ? c.prospectorMaxDia : 4,
+    prospectorEquipe: !!c.prospectorEquipe,
+    // Derivado da env global. OPERACIONAL de propósito (diferente do
+    // cobrancaWhatsDisponivel, que é do bloco financeiro): quem desenha a tela do
+    // prospector é o APK do motorista, e sem este booleano ele não tem como
+    // esconder a feature quando a HBX ainda não a ligou. É uma chave de produto
+    // global, sem nenhum dado do tenant dentro.
+    prospectorDisponivel: isProspectorEnabled(),
+    // ITEM 9 (07/08) — o que o admin DESLIGOU no app, lido por todo ator: é o
+    // próprio app do motorista que precisa do CSV pra sumir com a entrada do
+    // menu. null = tudo ligado. "rota" nunca aparece aqui (lei dura).
+    appModulosDesativados: c.appModulosDesativados ?? null,
   };
 
   // O GET também é consumido pelo app do entregador. Campos administrativos,
@@ -690,6 +853,10 @@ function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = 
     pixNome: c.pixNome ?? null,
     pixCidade: c.pixCidade ?? null,
     cobrancaWhatsAtiva: !!c.cobrancaWhatsAtiva,
+    // F4 (07/08) — o texto cadastrado da cobrança viaja JUNTO do toggle dela
+    // (bloco do billing owner): é a voz da empresa cobrando dinheiro, não é
+    // assunto do motorista na rua.
+    cobrancaWhatsTemplate: c.cobrancaWhatsTemplate ?? null,
     cobrancaWhatsDisponivel: isCobrancaWhatsEnabled(),
     resumoDiarioAtivo: !!c.resumoDiarioAtivo,
     resumoDiarioHora: typeof c.resumoDiarioHora === 'number' ? c.resumoDiarioHora : 7,
@@ -702,6 +869,11 @@ function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = 
     // Preferência salva (não o modo efetivo): a UI continua mostrando TRACKED
     // enquanto a flag global está OFF. Inicialização/cobrança usam resolveRouteMode.
     modoRotaPadrao: storedRouteMode(c.modoRotaPadrao),
+    // PROSPECTOR — automação COBRADA (decisão nº8): a leitura fica no bloco de
+    // baixo (billing owner) porque é assunto de CONTA, não de operação. O
+    // motorista nem sabe que existe; quem grava é só o Master.
+    prospectorAutomacaoAtiva: !!c.prospectorAutomacaoAtiva,
+    prospectorAutomacaoMaxDia: prospectorAutomacaoMaxDiaOf(c),
   };
 }
 
@@ -789,6 +961,14 @@ export interface UpdateLogisticaRouteModeInput {
   modoRotaPadrao?: LogisticaRouteMode;
 }
 
+// PROSPECTOR (07/08) — os 2 campos da automação COBRADA. Fora do
+// UpdateLogisticaConfigInput de propósito: entram SÓ por setProspectorAutomacao
+// (MasterGuard), e o PATCH genérico os recusa com 403.
+export interface UpdateProspectorAutomacaoInput {
+  prospectorAutomacaoAtiva?: boolean;
+  prospectorAutomacaoMaxDia?: number;
+}
+
 export interface UpdateLogisticaConfigInput {
   avisoWhatsEnabled?: boolean;
   templateAviso?: string | null;
@@ -811,6 +991,17 @@ export interface UpdateLogisticaConfigInput {
   avisoChegandoDistanciaM?: number;
   // S2 COBRANÇA-WHATS — toggle por tenant (efeito só com a env global ligada).
   cobrancaWhatsAtiva?: boolean;
+  // F4 (07/08) — texto cadastrado da cobrança (comercial, billing owner).
+  cobrancaWhatsTemplate?: string | null;
+  // PROSPECTOR CNPJ (07/08) — operacionais (não exigem billing owner, mesmo
+  // padrão de passeioEquipe/modoCaderneta). A AUTOMAÇÃO não mora aqui.
+  prospectorAtivo?: boolean;
+  prospectorTemplate?: string | null;
+  prospectorRaioM?: number;
+  prospectorMaxDia?: number;
+  prospectorEquipe?: boolean;
+  // ITEM 9 (07/08) — CSV dos módulos do app desligados pelo desktop.
+  appModulosDesativados?: string | null;
   // S3 RESUMO-DIÁRIO — toggle por tenant + hora local 0-23 (efeito só com a env).
   resumoDiarioAtivo?: boolean;
   resumoDiarioHora?: number;
@@ -861,6 +1052,8 @@ export interface LogisticaConfigDTO {
   avisoChegandoDistanciaM: number;
   // S2 COBRANÇA-WHATS — toggle do tenant + derivado da env (read-only pro front).
   cobrancaWhatsAtiva?: boolean;
+  // F4 (07/08) — texto cadastrado da cobrança; null = a mensagem fixa de sempre.
+  cobrancaWhatsTemplate?: string | null;
   cobrancaWhatsDisponivel?: boolean;
   // S3 RESUMO-DIÁRIO — toggle+hora do tenant + derivado da env (read-only pro front).
   resumoDiarioAtivo?: boolean;
@@ -903,4 +1096,16 @@ export interface LogisticaConfigDTO {
   // PR27072026 F2 — modo de tratamento do devedor na rota. OPERACIONAL (todo
   // ator lê, mesmo padrão do logisticaNivel acima); ver serializeConfig.
   devedorNaRota: DevedorNaRotaModo;
+  // PROSPECTOR CNPJ (07/08) — OPERACIONAIS (todo ator lê; ver serializeConfig).
+  prospectorAtivo: boolean;
+  prospectorTemplate: string | null;
+  prospectorRaioM: number;
+  prospectorMaxDia: number;
+  prospectorEquipe: boolean;
+  prospectorDisponivel: boolean;
+  // ITEM 9 (07/08) — CSV dos módulos desligados; null = tudo ligado. Operacional.
+  appModulosDesativados: string | null;
+  // PROSPECTOR — automação cobrada: SÓ billing owner lê, SÓ o Master grava.
+  prospectorAutomacaoAtiva?: boolean;
+  prospectorAutomacaoMaxDia?: number;
 }

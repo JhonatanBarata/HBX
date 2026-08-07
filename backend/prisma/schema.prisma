@@ -2239,6 +2239,14 @@ model LogisticaConfig {
   // flag global HBX_COBRANCA_WHATS_ENABLED ligada (padrão flagEnv() && cfg.X, o
   // mesmo do avisoChegando). DEFAULT FALSE — feature nasce dormente nos 2 níveis.
   cobrancaWhatsAtiva    Boolean  @default(false)
+  // F4 (PR07082026-PROSPECTOR-CNPJ, 07/08) — "organize os 3 disparos": o aviso de
+  // chegada JÁ tinha template (avisoChegandoTemplate); a cobrança tinha só o
+  // toggle acima e a MENSAGEM FIXA em código (logistica-cobranca-aviso.service).
+  // Agora ela tem o texto cadastrado, com o MESMO tratamento do avisoChegando
+  // (trim + slice 1000, vazio → null). null = a mensagem de sempre, byte a byte:
+  // zero regressão pra quem já usa a cobrança por WhatsApp. Só o CAMPO nasce
+  // aqui; o consumo no serviço de aviso é de outra frente.
+  cobrancaWhatsTemplate String?
   // S3 RESUMO-DIÁRIO (11/07) — resumo do negócio no WhatsApp do DONO do tenant
   // (destino = Company.contactPhone VERIFICADO, envio pelo chip da própria
   // empresa). Só tem efeito com a flag global HBX_RESUMO_DIARIO_ENABLED ligada
@@ -2315,6 +2323,38 @@ model LogisticaConfig {
   // não aqui). DEFAULT 'COBRANCA' é seguro pra quem já tem financeiro real: passa
   // a AVISAR sem nunca esconder cliente nem cancelar nada sozinho.
   devedorNaRota         String   @default("COBRANCA") @db.VarChar(10) // COBRANCA | EXCLUIR | NORMAL
+  // ── PROSPECTOR CNPJ (PR07082026-PROSPECTOR-CNPJ F0, 07/08) ──────────────────
+  // "Localizar empresas por onde a rota passa" (decisões do dono §0 do plano).
+  // MESMO shape do trio avisoChegando (toggle + template + condição), de
+  // propósito: os 3 disparos ficam IGUAIS na tela e no banco (F4 "arrume isso").
+  //   prospectorAtivo    = a chave da empresa (opt-in do admin; default OFF).
+  //   prospectorTemplate = a mensagem cadastrada; null = fallback do serviço.
+  //   prospectorRaioM    = raio do corredor em metros (clamp 50–500; 150 é o
+  //                        valor MEDIDO em produção: ~53 CNPJs por parada).
+  //   prospectorMaxDia   = quantas empresas ACENDEM sozinhas no dia (clamp 1–8;
+  //                        4 é o meio do "3 a 5 vezes" que o dono pediu).
+  //   prospectorEquipe   = libera pro motorista (papel comum). MESMA regra do
+  //                        passeioEquipe acima: admin usa sempre, funcionário só
+  //                        com esta chave — porque abrir lead DEBITA crédito.
+  prospectorAtivo       Boolean  @default(false)
+  prospectorTemplate    String?
+  prospectorRaioM       Int      @default(150)
+  prospectorMaxDia      Int      @default(4)
+  prospectorEquipe      Boolean  @default(false)
+  // Decisão nº8 do dono: disparo AUTOMÁTICO é COBRADO como automação — o tenant
+  // NUNCA liga sozinho. Estes 2 campos só entram pelo caminho do Master
+  // (MasterGuard no controller + setProspectorAutomacao no serviço, mesmo padrão
+  // do logisticaNivel/setNivel); o PATCH genérico da config recusa os dois.
+  // Teto 0 = automação sem cota (nada dispara sozinho) mesmo com a chave ligada.
+  prospectorAutomacaoAtiva  Boolean @default(false)
+  prospectorAutomacaoMaxDia Int     @default(0)
+  // ── MÓDULOS DO APP DESLIGADOS PELO DESKTOP (item 9 do dono, 07/08) ──────────
+  // CSV das chaves que o admin DESATIVOU no app do motorista (dedupe+sort, mesma
+  // normalização do diasTrabalho acima). null/vazio = tudo ligado (default).
+  // Chaves válidas e ÚNICAS: caderneta,clientes,produtos,chat,ajustes.
+  // 🔴 LEI DURA: "rota" NUNCA pode ser desativada — o app sem rota não é app. A
+  // chave "rota" é DESCARTADA em silêncio pelo normalizador e jamais é gravada.
+  appModulosDesativados String?
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 

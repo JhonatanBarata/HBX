@@ -713,6 +713,65 @@ export class UpdateLogisticaConfigDto {
   @IsBoolean()
   cobrancaWhatsAtiva?: boolean;
 
+  // F4 (PR07082026-PROSPECTOR-CNPJ, 07/08) — "organize os 3 disparos": a cobrança
+  // tinha toggle e MENSAGEM FIXA em código; agora tem texto cadastrado, com as
+  // MESMAS variáveis e o MESMO tratamento do avisoChegandoTemplate. Vazio →
+  // fallback fixo (a mensagem de sempre). Comercial: exige billing owner no serviço.
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  cobrancaWhatsTemplate?: string;
+
+  // ── PROSPECTOR CNPJ (PR07082026 F0, 07/08) ─────────────────────────────────
+  // MESMO shape do trio avisoChegando (toggle + template + condição). Todos
+  // OPERACIONAIS: @Admin() do PATCH basta, não exigem billing owner (padrão do
+  // passeioEquipe/modoCaderneta). Gravar é livre; efeito só com a flag global
+  // HBX_PROSPECTOR_ENABLED ligada (default OFF, dormente).
+  //
+  // 🔴 `prospectorAutomacaoAtiva`/`prospectorAutomacaoMaxDia` NÃO MORAM AQUI —
+  // disparo automático é COBRADO como automação (decisão nº8 do dono) e só entra
+  // pelo endereço do Master (PUT /logistica/master/company/:id/prospector-automacao,
+  // MasterGuard). Fora daqui, o ValidationPipe global (whitelist +
+  // forbidNonWhitelisted) devolve 400 pra quem tentar por este PATCH, e o serviço
+  // ainda tem o cinto-e-suspensório com 403. Não reintroduzir os campos.
+  @IsOptional()
+  @IsBoolean()
+  prospectorAtivo?: boolean;
+
+  // Mensagem cadastrada do prospector. Mesmas variáveis do renderTemplateAviso.
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  prospectorTemplate?: string;
+
+  // Raio do corredor em metros — clamp 50..500 no serviço (default 150, o medido).
+  @IsOptional()
+  @IsInt()
+  @Min(50)
+  @Max(500)
+  prospectorRaioM?: number;
+
+  // Quantas empresas acendem sozinhas no dia — clamp 1..8 no serviço (default 4).
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(8)
+  prospectorMaxDia?: number;
+
+  // Liberação pra EQUIPE (motorista), mesma regra do passeioEquipe.
+  @IsOptional()
+  @IsBoolean()
+  prospectorEquipe?: boolean;
+
+  // ── ITEM 9 DO DONO (07/08) — desligar módulos do app PELO DESKTOP ──────────
+  // CSV das chaves desativadas: caderneta,clientes,produtos,chat,ajustes.
+  // Validação de conteúdo (allowlist, dedupe+sort, vazio→null) no serviço —
+  // mesmo desenho do diasTrabalho. 🔴 "rota" é descartada e nunca gravada.
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  appModulosDesativados?: string;
+
   // S3 RESUMO-DIÁRIO (11/07) — toggle POR TENANT do resumo do dono no WhatsApp
   // + hora LOCAL do envio (0-23). Gravar é livre; efeito só com a flag global
   // HBX_RESUMO_DIARIO_ENABLED ligada (default OFF, dormente).
@@ -791,6 +850,25 @@ export class IniciarPasseioDto {
 export class SetLogisticaNivelDto {
   @IsIn(['BASIC', 'ADVANCED', 'FULL'])
   nivel!: string;
+}
+
+// ── PROSPECTOR: AUTOMAÇÃO COBRADA (PR07082026, decisão nº8 do dono) ──────────
+// PUT /logistica/master/company/:companyId/prospector-automacao. Endereço
+// PRÓPRIO, só Master (MasterGuard) — MESMO motivo do nível acima: o disparo
+// automático do prospector é COBRADO como automação, então o tenant não liga
+// sozinho nem por engano nem por payload forjado. Os 2 campos são opcionais
+// (PATCH parcial); corpo vazio devolve 400 no serviço ("Nada para alterar").
+export class SetProspectorAutomacaoDto {
+  @IsOptional()
+  @IsBoolean()
+  prospectorAutomacaoAtiva?: boolean;
+
+  // Teto de disparos automáticos por dia. 0 = sem cota (nada sai sozinho).
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(50)
+  prospectorAutomacaoMaxDia?: number;
 }
 
 // Toggle "avisar entrega" de UM cliente (2º nível de silêncio, soma com o global).

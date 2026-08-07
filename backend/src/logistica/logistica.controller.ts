@@ -94,6 +94,7 @@ import {
   EspelhoQuadroDto,
   SetAvisarClienteDto,
   SetLogisticaNivelDto,
+  SetProspectorAutomacaoDto,
   UpdateClienteProdutoDto,
   UpdateDiasClienteDto,
   UpdateFinanceiroClienteDto,
@@ -1648,6 +1649,34 @@ export class LogisticaController {
     @Body() dto: SetLogisticaNivelDto,
   ) {
     return this.config.setNivel(companyId, dto.nivel, req.user);
+  }
+
+  /**
+   * PROSPECTOR CNPJ (PR07082026, decisão nº8 do dono) — DISPARO AUTOMÁTICO.
+   *
+   * Endereço PRÓPRIO e só Master, pelo MESMO desenho do nível acima: o disparo
+   * automático é COBRADO como automação, então quem liga é a HBX, nunca o
+   * tenant. O PATCH genérico de config recusa as 2 chaves com 403 e o
+   * ValidationPipe global já as barra antes disso (não existem no
+   * UpdateLogisticaConfigDto) — a porta fecha por CONTRATO, em 3 camadas.
+   *
+   * `companyId` vem do PARÂMETRO da URL (não do JWT): o Master não é escopado a
+   * uma empresa, ele escolhe QUAL empresa na ficha.
+   */
+  @Get('master/company/:companyId/prospector-automacao')
+  @UseGuards(MasterGuard)
+  getProspectorAutomacao(@Param('companyId', ParseIntPipe) companyId: number) {
+    return this.config.getProspectorAutomacao(companyId);
+  }
+
+  @Put('master/company/:companyId/prospector-automacao')
+  @UseGuards(MasterGuard)
+  setProspectorAutomacao(
+    @Req() req: any,
+    @Param('companyId', ParseIntPipe) companyId: number,
+    @Body() dto: SetProspectorAutomacaoDto,
+  ) {
+    return this.config.setProspectorAutomacao(companyId, dto, req.user);
   }
 
   // ── S6 PORTAL-PEDIDO — link público de pedido (token opaco) ─────────────────
