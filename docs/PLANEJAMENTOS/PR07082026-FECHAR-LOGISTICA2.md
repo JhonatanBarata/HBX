@@ -322,19 +322,74 @@ rota com as paradas do pacote offline e **sem** o caixa de mentira · clientes c
 o aviso · túnel de volta + um toque em "Tentar de novo" ⇒ os **11 clientes reais**
 da empresa 39. Grade dos 3 estados × 5 telas em `outputs/prova-esqueleto.png`.
 
-⬜ **O que ficou de fora, com endereço:**
-- **`ajustes` não ganhou esqueleto.** É tela de CHAVE, não de lista: a mentira lá
-  é de outro tipo (ver a chave na posição errada e tocar = ele acha que desligou
-  quando ligou) e pede outra cura — desabilitar o toque até a config chegar.
-- **As outras seções que a ponte alimenta** (`caderneta`, `semana`, `ficha`,
-  `folha`, `venda`, `montagem`, `recarga`, `fichaproduto`) ainda têm exemplo no
-  seam. Elas só abrem depois de uma ação que já carrega, então a janela é bem
-  menor — mas zerar cada uma exige conferir campo a campo quem a ponte escreve,
-  senão some da tela o que ela nunca preenche. É o mesmo trabalho do item 1
-  acima, sete vezes.
-- Com a rota montada e o `custo-preview` fora do ar, a faixa diz *"monte a rota
-  pra saber"* — que não é verdade (ela está montada). É melhor que um número de
-  crédito inventado, mas pede copy própria.
+#### 4.6.5 — ✅ FEITO · A varredura das outras seções (07/08, ordem "termine agora")
+
+O critério do 4.6.4 virou uma **varredura campo a campo** de todas as seções que
+a ponte alimenta: pra cada campo do `DADOS`, quem escreve — **SEMPRE**,
+**CONDICIONAL** (dentro de `...(x.status==='fulfilled' ? … : {})` ou de um `if`)
+ou **NUNCA** — e se é DADO ou COPY. Campo DADO que é CONDICIONAL ou NUNCA é
+mentira esperando a rede cair.
+
+**Limpas, nada a fazer:** `venda` (12/12 SEMPRE) · `fichaproduto` (7/7 SEMPRE) ·
+`ficha` (14/14 SEMPRE). Em `montagem`, os 2 NUNCA são COPY legítimo (título e a
+dica do gesto).
+
+🔴 **A raiz de tudo, que vale escrever:** `usarDados` é **merge**, não
+substituição (`DADOS[s]=Object.assign({},DADOS[s],valor)`). **O que a ponte não
+escreve fica com o valor do desenho pra sempre.** Todos os oito defeitos abaixo
+são a mesma frase.
+
+**O que a varredura achou, e já está corrigido:**
+
+1. 🔴 **`ajustes` — a pior das mentiras, porque é CLICÁVEL.** A tela nascia com o
+   exemplo: "Modo caderneta LIGADO", "240 créditos", e o grupo **"Baixando o mapa
+   · 62%"** — recurso **cortado em 06/08, que não existe mais**. O motorista lia
+   a chave, tocava pra desligar e achava que desligou (o `virarChave` sai no
+   `if (!config) return`, então o toque não fazia nada). **Nem ligada nem
+   desligada é o estado honesto de uma chave que não chegou** — então nenhuma
+   aparece até chegar. Medido: esqueleto com **0 chaves** na tela, sem o mapa
+   cortado e sem o crédito de exemplo.
+2. 🔴 **`recarga` — tela de DINHEIRO, e era a mais exposta.** Catálogo inteiro do
+   desenho (R$ 49 / 129 / 239 / 449, "+8% grátis", "melhor preço") e um botão
+   **"Recarregar 300 créditos · R$ 129,00" que não fazia nada** — sem pacote
+   escolhido de verdade a ação sai no `if (!pacoteEscolhido) return`. Preço
+   inventado com botão de pagar em cima. Pior: ela **só era preenchida de carona
+   no `carregarAjustes`** — quem abrisse a Recarga direto via o catálogo falso.
+   Agora ela **carrega sozinha** (`carregarRecarga`, no `ir('recarga')`) e nasce
+   em esqueleto. Medido: **0 pacotes, 0 botão de pagar**, nenhum preço.
+3. 🔴 **`montagem` abria com as 6 paradas de exemplo e "R$ 336,00"** quando o
+   `/logistica/rota` falhava: o `carregarRota` volta no catch **antes** de
+   escrever no seam, e o `montarRota` navegava mesmo assim. O `carregarRota`
+   passou a **devolver se entrou**, e a montagem só abre se entrou — falhou,
+   avisa e fica onde está. Dinheiro de exemplo numa tela de decisão.
+4. 🔴 **`caderneta` + `semana` — 11 campos de dinheiro presos a UMA chamada.** As
+   duas são 100% DADO e só são escritas se o `caderneta/resumo` responder
+   (`if (caixaR.status === 'fulfilled')`). Com ela no chão a **Caderneta — que é
+   ABA da barra de baixo, alcançável a qualquer momento** — mostrava o
+   fechamento do desenho: **Dinheiro R$ 132,00 · Pix R$ 52,00 · Cartão R$ 84,00 ·
+   Caderneta R$ 68,00**, total **R$ 336,00**, e o selo **"Tudo certo!"** — um
+   veredito que o app não tem como emitir. A Semana mostrava **6 dias inventados
+   e R$ 2.648,00**. (É o MESMO par 132/52 que já tínhamos matado em `rota`: ele
+   estava vivo aqui do lado.) Medido depois: zero valor de exemplo nas duas.
+5. 🔴 **A tela mostrava um motivo e o servidor gravava outro.** `abrirParada`
+   zerava a variável `motivo` mas **não o seam**: marcar "Endereço não
+   encontrado" na parada 3 e abrir o "não entregue" da parada 5 deixava esse
+   motivo **marcado na tela**, enquanto o `registrarNaoEntregue` mandava
+   `motivo || motivos[0]` = **"Ninguém atendeu"** pro `entregas/:id/cancelar`.
+   Agora o seam recebe exatamente o que vai ser enviado, inclusive o padrão da
+   1ª abertura.
+6. A copy do custo: com a rota montada e o `custo-preview` fora do ar, a faixa
+   dizia *"monte a rota pra saber"* (mentira, ela está montada). Agora diz
+   **"não consegui o custo agora"**.
+
+**Prova no g15, túnel derrubado** (`outputs/prova-sem-mentira-2.png`): Ajustes
+com **zero chave** na tela e o aviso · Caderneta com as paradas do pacote offline
+e **nenhum** valor de fechamento inventado.
+
+⬜ **Fica aberto, com endereço:** `folha.motivos` (a lista de 5 motivos) é COPY do
+mock que **vira payload** — o texto escolhido vai como está pro servidor no
+cancelamento. Funciona, mas o dia que existir lista de motivos no servidor, é
+essa chave que passa a ser alimentada.
 
 #### 4.6.3 — ✅ FEITO · A abertura anterior saiu; ficou a que fizemos
 

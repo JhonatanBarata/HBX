@@ -359,6 +359,10 @@
         p.n, p.hora, p.nome, p.rua, p.bairro, p.tags.map((t) => t[0]), p.marcado, p.cor || '',
       ]),
     });
+    // Quem chama precisa saber se a rota REALMENTE entrou: o `montarRota`
+    // navegava pra montagem mesmo com a chamada no chão, e a tela abria com as
+    // paradas de exemplo. Sem este retorno não dá pra distinguir.
+    return true;
   }
 
   // 1ª carga assim que a casca subiu, e recarga toda vez que a Rota reaparece.
@@ -414,6 +418,32 @@
       salvas: { carregando: true, lista: [], total: '' },
       chat: { carregando: true, conversa: [], recado: '' },
       consumo: { carregando: true, linhas: [], saldo: '', gastosHoje: '', bonus: '' },
+      // Ajustes é o pior lugar pra exemplo: o motorista lê a CHAVE no estado do
+      // desenho, toca, e acha que mudou o que nem tinha carregado. Também é a
+      // tela que mostrava "Baixando o mapa · 62%" — recurso CORTADO em 06/08.
+      ajustes: {
+        carregando: true, avisarChegadaDist: '', creditosLinha: '',
+        painelCreditos: '', grupoOffline: 0, empresa: '', versao: '', versaoSub: '',
+      },
+      // 🔴 TELA DE DINHEIRO. O catálogo inteiro era do desenho (R$ 49/129/239/449,
+      // "+8% grátis") e o botão anunciava "Recarregar 300 créditos · R$ 129,00"
+      // sem pacote escolhido de verdade — ele saía pelo `if (!pacoteEscolhido)`
+      // e não fazia nada. Preço inventado com botão em cima não fica na tela.
+      recarga: { carregando: true, saldo: '', ritmo: '', pacotes: [], cta: '' },
+      // A montagem sobrevivia com as 6 paradas de exemplo e "R$ 336,00" quando
+      // o `/logistica/rota` falhava: `carregarRota` volta no catch ANTES de
+      // escrever aqui, e o `montarRota` navegava mesmo assim.
+      montagem: { somaParadas: '', somaProdutos: '', somaValor: '', iniciarSub: '', linhas: [] },
+      /* 🔴 O CAIXA DO DIA — 11 campos de dinheiro presos a UMA chamada.
+         `encherCaderneta` só roda se o `caderneta/resumo` responder; as duas
+         seções são 100% DADO e nenhuma nascia limpa. Com a chamada no chão a
+         Caderneta (que é ABA da barra de baixo, alcançável a qualquer momento)
+         mostrava o fechamento do desenho: Dinheiro R$ 132,00 · Pix R$ 52,00 ·
+         Cartão R$ 84,00 · Caderneta R$ 68,00, total R$ 336,00 — e o selo
+         "Tudo certo!", um veredito que o app não tem como emitir. A Semana
+         mostrava 6 dias inventados e R$ 2.648,00. */
+      caderneta: { entregues: '', selo: '', formas: [], formaTotal: '', clientes: '', produtos: '', marcado: '' },
+      semana: { dias: [], marcado: '', recebido: '', pendencia: '' },
     };
     try {
       Object.keys(zerar).forEach((s) => { DADOS[s] = Object.assign({}, DADOS[s], zerar[s]); });
@@ -496,7 +526,13 @@
         : 0;
 
       devolverEstado();          // o esqueleto sai antes do dado entrar
-      await carregarRota();      // já preenche a montagem com as paradas reais
+      // 🔴 SÓ ABRE A MONTAGEM SE A ROTA ENTROU. Com o `/logistica/rota` no chão
+      // o `carregarRota` volta no catch antes de escrever no seam, e a tela de
+      // montagem abria com as 6 paradas do desenho e "R$ 336,00" — dinheiro de
+      // exemplo numa tela de decisão. Falhou, avisa e fica onde está.
+      if (!(await carregarRota())) {
+        return avisoErro(new Error('Não consegui montar agora. Tente de novo.'));
+      }
       if (comAviso && typeof window.usarDados === 'function') {
         window.usarDados('montagem', { iniciarSub: `${comAviso} com aviso` });
       }
@@ -720,6 +756,7 @@
       if (tela === 'ajustes') carregarAjustes();
       if (tela === 'consumo') carregarConsumo();
       if (tela === 'salvas') carregarSalvas();
+      if (tela === 'recarga') carregarRecarga();
       return r;
     };
   }
@@ -817,7 +854,7 @@
     ]);
     // Mesma lei do L8: fonte fora do ar não reescreve a tela de ajustes com
     // chave desligada — isso faria o dono achar que perdeu a configuração.
-    if (cfgR.status !== 'fulfilled' || !cfgR.value) return;
+    if (cfgR.status !== 'fulfilled' || !cfgR.value) return fonteCaiu('ajustes');
     config = cfgR.value;
     const cred = credR.status === 'fulfilled' ? credR.value : null;
     const saldo = cred && typeof cred.balance === 'number' ? cred.balance : null;
@@ -826,6 +863,7 @@
     try { const p = window.HBX.soundPrefs.get(); sons = p && p.master === false ? 0 : 1; } catch (_) { /* padrão ligado */ }
     const dist = Number(config.avisoChegandoDistanciaM);
     window.usarDados('ajustes', {
+      ...fonteVoltou,
       avisarChegadaDist: isFinite(dist) && dist > 0 ? `${dist} m` : '',
       avisarChegada: config.avisoChegandoEnabled ? 1 : 0,
       creditosLinha: saldo != null ? `${saldo} ${saldo === 1 ? 'crédito' : 'créditos'}` : '',
@@ -840,6 +878,19 @@
     if (cred) encherRecarga(cred);
   }
 
+  /* 🔴 A RECARGA CARREGA SOZINHA. Ela só era preenchida de carona no
+     `carregarAjustes`: quem abrisse a Recarga direto (o atalho `ir-recarga`, ou
+     o caminho vindo do crédito baixo) via o catálogo do DESENHO — preço, selo
+     de desconto e o botão de pagar. Tela de dinheiro não pode depender de por
+     onde o motorista entrou. */
+  async function carregarRecarga() {
+    if (!temPonte() || typeof window.usarDados !== 'function') return;
+    let cred;
+    try { cred = await window.API.get('/credits/me'); } catch (_) { return fonteCaiu('recarga'); }
+    if (!cred) return fonteCaiu('recarga');
+    encherRecarga(cred);
+  }
+
   /** os pacotes vêm no MESMO `/credits/me` do saldo — não há porta separada */
   let pacoteEscolhido = null;
   function encherRecarga(cred) {
@@ -851,6 +902,7 @@
     }
     const atual = packs.find((p) => p.key === pacoteEscolhido) || null;
     window.usarDados('recarga', {
+      ...fonteVoltou,
       saldo: saldo != null ? String(saldo) : '',
       // "~17 dias no seu ritmo" precisaria do consumo médio — não tenho essa
       // conta em porta nenhuma, e chutar dias em tela de crédito é mentira.
@@ -1578,6 +1630,14 @@
       hoje: hojeVal != null ? dinheiro(hojeVal) : '',
       total: anterior != null || hojeVal != null ? dinheiro((anterior || 0) + (hojeVal || 0)) : '',
       forma,
+      /* 🔴 A TELA E O SERVIDOR TÊM QUE DIZER O MESMO MOTIVO. `abrirParada` zerava
+         a variável `motivo` mas NÃO o seam: marcar "Endereço não encontrado" na
+         parada 3 e abrir o "não entregue" da parada 5 deixava esse motivo
+         marcado na tela — enquanto o `registrarNaoEntregue` mandava
+         `motivo || motivos[0]`, ou seja, "Ninguém atendeu", pro servidor. A tela
+         mostrava um e o banco gravava outro. Agora o seam recebe EXATAMENTE o
+         que vai ser enviado, inclusive o padrão da 1ª abertura. */
+      motivo: motivo || (DADOS_MOTIVO_PADRAO() || ''),
     });
   }
 
@@ -1719,6 +1779,8 @@
     'recarregar-salvas': () => retentar('salvas', carregarSalvas),
     'recarregar-chat': () => retentar('chat', carregarRecados),
     'recarregar-consumo': () => retentar('consumo', carregarConsumo),
+    'recarregar-ajustes': () => retentar('ajustes', carregarAjustes),
+    'recarregar-recarga': () => retentar('recarga', carregarRecarga),
     'ir-consumo': () => window.ir('consumo'),
     'ir-recarga': () => window.ir('recarga'),
     'ir-financeiro': () => window.ir('financeiro'),

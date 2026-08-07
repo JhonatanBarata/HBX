@@ -535,7 +535,9 @@ T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
       <button class="on">Fila <b>${DADOS.rota.filtroFila}</b></button><button>Entregue <b>${DADOS.rota.filtroEntregue}</b></button></div>`:''}
   ${montada||e==='montar'?`<div class="creditos">${ic('card',17)}
       <span><b class="v">${DADOS.rota.creditos}</b> <small>créditos hoje</small></span>
-      <span class="debita">${montada&&DADOS.rota.creditosDebita?`Iniciar debita ${DADOS.rota.creditosDebita}`:'monte a rota pra saber'}</span></div>`:''}
+      <span class="debita">${montada
+        ? (DADOS.rota.creditosDebita?`Iniciar debita ${DADOS.rota.creditosDebita}`:'não consegui o custo agora')
+        : 'monte a rota pra saber'}</span></div>`:''}
   <div class="stops">${listaParadas(emCurso)}</div>
   <div class="sum">
     <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>${DADOS.rota.somaProdutos}</b><small>produtos</small></span></span>
@@ -1089,14 +1091,20 @@ T.recarga={nome:'Ajustes · Recarga',grupo:'Ajustes',render(){
   const r=DADOS.recarga;
   const pac=(c,preco,selo,on,chave)=>`<button class="pacote ${on?'on':''}"${chave?` data-acao="pacote" data-pacote="${chave}"`:''}>${selo?`<span class="selo">${selo}</span>`:''}
     <b>${c}</b><small>créditos</small><span class="preco">R$ ${preco}</span></button>`;
+  /* 🔴 A TELA DE DINHEIRO É A ÚLTIMA QUE PODE MENTIR. Ela nascia com o catálogo
+     do desenho — R$ 49 / 129 / 239 / 449, "+8% grátis", "melhor preço" — e com
+     um botão anunciando "Recarregar 300 créditos · R$ 129,00" que, sem pacote
+     escolhido de verdade, não faz NADA. Preço inventado com botão em cima é o
+     pior defeito que esta frente podia ter. */
   return telaAjuste('Recarga de créditos',`
+    ${miolo(r,'card','recarregar-recarga',4,`
     <div class="creditos" style="margin-top:2px">${ic('card',17)}
       <span><b class="v">${r.saldo}</b> <small>créditos hoje</small></span>
       ${r.ritmo?`<span class="debita">${r.ritmo}</span>`:''}</div>
     <div class="grupo">Escolha o pacote</div>
     <div class="pacotes">
       ${r.pacotes.map(x=>pac(x[0],x[1],x[2],x[3],x[4])).join('')}
-    </div>
+    </div>`)}
     <div class="grupo">Pagar com</div>
     <div class="pays" style="margin-top:0">
       <button class="pay sel"><span style="color:var(--blue-l)">${ic('pix',21)}</span>
@@ -1679,9 +1687,17 @@ T.ajustes={nome:'Ajustes',grupo:'Cadastro',render(){const a=DADOS.ajustes;
   const chave=(icone,titulo,sub,on,acao)=>`<button class="linha-cfg"${acao?` data-acao="${acao}"`:''}><span class="ico">${ic(icone,16)}</span>
     <span><strong>${titulo}</strong>${sub?`<span>${sub}</span>`:''}</span>
     <span class="chave ${on?'on':''}"><i></i></span></button>`;
+  /* 🔴 CHAVE COM VALOR DESCONHECIDO NÃO ENTRA NA TELA. Aqui a mentira é pior
+     que numa lista: o motorista lê "Modo caderneta LIGADO" (que é o exemplo do
+     desenho), toca pra desligar e acha que desligou — quando na verdade nem
+     havia configuração carregada. Nem ligada nem desligada é o estado honesto
+     de uma chave que ainda não chegou; então nenhuma delas aparece até chegar.
+     Antes disso a tela mostrava também "Baixando o mapa · 62%", que é um
+     recurso CORTADO em 06/08 e não existe mais. */
   return `${status}
 ${hdr({semChat:1})}
 <div class="body">
+  ${miolo(a,'gear','recarregar-ajustes',6,`
   <div class="grupo">Administração</div>
   <div class="cartao-lista">
     ${linha('gps','Avisar chegada','',`<b>${a.avisarChegadaDist}</b>`,'aviso-chegada')}
@@ -1715,7 +1731,7 @@ ${hdr({semChat:1})}
     ${linha('logout','Sair','','','sair')}
     <div class="linha-cfg" style="cursor:default"><span class="ico">${ic('gear',16)}</span>
       <span><strong>${a.versao}</strong>${a.versaoSub?`<span>${a.versaoSub}</span>`:''}</span><span></span></div>
-  </div>
+  </div>`)}
 </div>
 ${nav('ajustes')}`;}};
 
