@@ -460,6 +460,22 @@
       // sem pacote escolhido de verdade — ele saía pelo `if (!pacoteEscolhido)`
       // e não fazia nada. Preço inventado com botão em cima não fica na tela.
       recarga: { carregando: true, saldo: '', ritmo: '', pacotes: [], cta: '' },
+      /* 🔴 AJUSTES · FINANCEIRO — a última tela que ainda não tinha SEAM NENHUM.
+         As outras eu já zerava aqui; esta não tinha o que zerar, porque os
+         números moravam CRAVADOS no template do mock. Então ela passava por
+         este apagador calada e chegava inteira no aparelho: medido por toque no
+         g15 com a bancada (company 39, UMA entrega de R$ 20,00) ela dizia
+         "Recebido hoje R$ 336,00", "Em aberto R$ 257,00", a quebra por forma
+         completa, TRÊS devedores com nome e sobrenome (Maria Aparecida R$
+         74,00, Bar do Zé R$ 96,00, Mercado Estrela R$ 87,00) e a semana em
+         R$ 2.648,00. Cobrança de gente que não existe, dentro da Administração
+         — o dono lê isso e liga pro cliente.
+         Nasce VAZIO como as irmãs, e `carregando` liga o esqueleto: quem enche
+         é o `carregarFinanceiro`, no `ir('financeiro')`. */
+      financeiro: {
+        carregando: true, recebido: '', emAberto: '', formas: [], marcou: '', devedores: [],
+        semanaRecebido: '', semanaMarcado: '', semanaPendencia: '',
+      },
       // A montagem sobrevivia com as 6 paradas de exemplo e "R$ 336,00" quando
       // o `/logistica/rota` falhava: `carregarRota` volta no catch ANTES de
       // escrever aqui, e o `montarRota` navegava mesmo assim.
@@ -1381,6 +1397,9 @@
       if (tela === 'consumo') carregarConsumo();
       if (tela === 'salvas') carregarSalvas();
       if (tela === 'recarga') carregarRecarga();
+      // A carteira do dono busca sozinha, como a Recarga: quem abrisse o
+      // Financeiro via o dinheiro do DESENHO, viesse de onde viesse.
+      if (tela === 'financeiro') carregarFinanceiro();
       // 🔴 A NAVEGAÇÃO NÃO ESPERA O PRÓXIMO FIX. Entrar na tela já pinta o que
       // se sabe SEM GPS nenhum (parada N de M, nome, endereço, o que falta) e
       // já pede a rota. Sem isto o rodapé nascia vazio e só se enchia no
@@ -1582,6 +1601,113 @@
         esc(p.key),
       ]),
       cta: atual ? `Recarregar ${atual.credits} créditos · ${dinheiro(Number(atual.price))}` : '',
+    });
+  }
+
+  /* ------------------------------------------------------------------------
+     AJUSTES · FINANCEIRO — a carteira do dono, e a última tela cravada.
+
+     DUAS portas, porque são duas perguntas diferentes:
+       · `caderneta/resumo` → o CAIXA DE HOJE (quanto entrou, por qual forma) E
+         o mapa `devedores` (id do cliente → centavos em aberto);
+       · `nucleo/clientes`  → o NOME de quem está nesse mapa.
+
+     🔴 POR QUE NÃO `GET /logistica/financeiro/saldos`, que seria a porta óbvia
+     (ela devolve nome + saldo prontos, é a mesma que o resumo diário do
+     WhatsApp usa): ela EXISTE no servidor e está certa, mas o app NÃO ALCANÇA.
+     O `NativeApiClient` tem uma lista branca de endereços por flavor
+     (`isMobileEndpointAllowed`) e `financeiro/saldos` não está nela — medido no
+     g15, a chamada morre DENTRO do aparelho com "Esta operação não pertence ao
+     logistica", sem nem sair pra rede. Essa lista mora em `src/main/`, que esta
+     frente não pode tocar. Chamar assim mesmo seria pior que não chamar: o
+     "Em aberto" nasceria vazio por bloqueio COM CARA de "ninguém te deve" — e
+     esses dois vazios são opostos (Lei nº1). Então a conta vem pelo caminho que
+     o app já tem aberto, e sem inventar 2ª conta de dívida: o `devedores` do
+     resumo é computado pelo MESMO `saldosFinanceiro` (que por sua vez lê a
+     fonte única `saldoAbertoPorClientes`), e o `debitoAtual` do
+     `nucleo/clientes` é espelho da mesma regra.
+
+     Cada porta escreve SÓ O SEU pedaço, e só se responder. As duas no chão na
+     primeira carga ⇒ `fonteCaiu` (aviso + "Tentar de novo"), nunca tela vazia:
+     "não entrou nada hoje" e "a rede caiu" não podem ter a mesma cara.
+     ------------------------------------------------------------------------ */
+  async function carregarFinanceiro() {
+    if (!temPonte() || typeof window.usarDados !== 'function') return;
+    const dia = diaOperacional();
+    const [caixaR, rosterR] = await Promise.allSettled([
+      window.API.get(`/logistica/caderneta/resumo?date=${encodeURIComponent(dia)}`),
+      window.API.get('/nucleo/clientes?page=1&pageSize=100'),
+    ]);
+    if (caixaR.status !== 'fulfilled' && rosterR.status !== 'fulfilled') return fonteCaiu('financeiro');
+
+    const caixa = caixaR.status === 'fulfilled' ? caixaR.value : null;
+    const formas = (caixa && caixa.fechamento && caixa.fechamento.formas) || null;
+    // `devedores` é { idDoCliente: centavos } e só traz quem tem saldo > 0.
+    const deve = (caixa && caixa.devedores && typeof caixa.devedores === 'object') ? caixa.devedores : null;
+    const totalAberto = deve ? Object.keys(deve).reduce((s, k) => s + (Number(deve[k]) || 0), 0) : 0;
+    // O NOME vem do roster. Quem não estiver nele fica SEM LINHA — mas o valor
+    // dele continua contado no "Em aberto": o total é QUANTO, a lista é QUEM, e
+    // o total nunca pode encolher por causa de uma página de nomes que não veio.
+    const nomes = new Map();
+    if (rosterR.status === 'fulfilled') {
+      const itens = (rosterR.value && Array.isArray(rosterR.value.items)) ? rosterR.value.items : [];
+      itens.forEach((c) => { if (c && c.id && String(c.name || '').trim()) nomes.set(String(c.id), String(c.name)); });
+    }
+    const linhasDevedor = deve
+      ? Object.keys(deve)
+        .filter((id) => nomes.has(String(id)) && (Number(deve[id]) || 0) > 0)
+        .sort((a, b) => (Number(deve[b]) || 0) - (Number(deve[a]) || 0))
+      : [];
+
+    window.usarDados('financeiro', {
+      ...fonteVoltou,
+      ...(caixaR.status === 'fulfilled' ? {
+        /* "Recebido" é o que ENTROU: dinheiro + pix + cartão. NÃO é o
+           `totalCents`, que soma o fiado junto — e fiado é exatamente o que
+           NÃO entrou. Chamar o marcado de recebido seria a mesma mentira desta
+           tela vestida de outra roupa. É soma de número do servidor, não conta
+           minha. Zero some (Lei do IF, a mesma régua do `saldo` da Rota). */
+        recebido: formas
+          ? centavosSeTiver((formas.dinheiroCents || 0) + (formas.pixCents || 0) + (formas.cartaoCents || 0))
+          : '',
+        formas: formas ? [
+          ['cash', 'var(--lime)', 'Dinheiro', centavosSeTiver(formas.dinheiroCents)],
+          ['pix', 'var(--blue-l)', 'Pix', centavosSeTiver(formas.pixCents)],
+          ['card', 'var(--purple)', 'Cartão', centavosSeTiver(formas.cartaoCents)],
+        ].filter((x) => x[3]) : [],
+        // "Marcou" é o fiado do dia — a palavra é do dono (o `aceitaFiado`, o
+        // "pagou não" dele). Não inventar sinônimo aqui é regra, não estilo.
+        marcou: formas ? centavosSeTiver(formas.fiadoCents) : '',
+        // O TOTAL em aberto sai do mapa INTEIRO — inclusive de quem não tem
+        // nome no roster. Ele vem em centavos (o `devedores` do resumo já
+        // converte), por isso `centavosSeTiver` e não `dinheiro`.
+        emAberto: deve ? centavosSeTiver(totalAberto) : '',
+      } : {}),
+      ...(rosterR.status === 'fulfilled' && caixaR.status === 'fulfilled' ? {
+        /* 🔴 O 3º campo é a linha de baixo do desenho ("3 marcações · a mais
+           antiga de 28/07") e vai VAZIA DE PROPÓSITO: nem o `devedores` do
+           resumo nem o `financeiro/saldos` entregam QUANTAS marcações são nem a
+           data da mais antiga — os dois dão só o saldo. Sem porta, o slot some
+           e sobra nome + valor. Contar cobrança aqui no celular seria uma 2ª
+           conta de dívida, fadada a discordar do extrato. */
+        devedores: linhasDevedor.map((id) => [
+          iniciais(nomes.get(String(id))), esc(nomes.get(String(id))), '',
+          centavos(Number(deve[id]) || 0), '',
+        ]),
+      } : {}),
+      /* 🔴 A SEMANA NÃO TEM FONTE — e some INTEIRA, com o título junto.
+         O desenho pede três números: recebido, marcado e pendência da semana.
+         O `historicoDias` do resumo só traz o TOTAL de cada dia (`totalCents`),
+         sem quebra por forma — então "recebido da semana" (dinheiro+pix+cartão)
+         não existe em porta nenhuma. "Pendência" também não: o "em aberto" é
+         saldo ACUMULADO, não da semana — publicá-lo debaixo do título "Semana"
+         seria mentira de moldura, o número certo na caixa errada.
+         E o "marcado" da semana eu NÃO ligo no `sum(totalCents)` de propósito,
+         embora esse número exista: nesta tela, dois dedos acima, "Marcou" já
+         significa FIADO. A mesma palavra com dois sentidos na mesma rolagem é
+         pior que número faltando. (A tela Semana usa "Marcado" no sentido de
+         total — lá é o vocabulário dela, aqui não.)
+         Falta: `historicoDias[]` com as `formas` de cada dia. */
     });
   }
 
@@ -2447,6 +2573,7 @@
     'recarregar-consumo': () => retentar('consumo', carregarConsumo),
     'recarregar-ajustes': () => retentar('ajustes', carregarAjustes),
     'recarregar-recarga': () => retentar('recarga', carregarRecarga),
+    'recarregar-financeiro': () => retentar('financeiro', carregarFinanceiro),
     'ir-consumo': () => window.ir('consumo'),
     'ir-recarga': () => window.ir('recarga'),
     'ir-financeiro': () => window.ir('financeiro'),

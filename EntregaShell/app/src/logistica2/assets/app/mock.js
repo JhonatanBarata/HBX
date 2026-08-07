@@ -538,6 +538,45 @@ const DADOS={
              ['600','239,00','+15% grátis',0,''],['1.200','449,00','melhor preço',0,'']],
     cta:'Recarregar 300 créditos · R$ 129,00',
   },
+  /* L11b — AJUSTES · FINANCEIRO. 🔴 ERA A ÚLTIMA TELA 100% CRAVADA do app, e a
+     pior que sobrou: TODOS os números moravam no template como texto literal —
+     não havia seam nenhum, então o `apagarDemonstracao` não tinha o que zerar e
+     passava por cima calado. Medido por toque no g15 com a bancada (company 39,
+     UMA entrega de R$ 20,00): "Recebido hoje R$ 336,00", "Em aberto R$ 257,00",
+     a quebra por forma inteira, TRÊS devedores com nome e sobrenome (Maria
+     Aparecida R$ 74,00, Bar do Zé R$ 96,00, Mercado Estrela R$ 87,00) e uma
+     semana de R$ 2.648,00. Nome de gente que não existe cobrando dinheiro que
+     não existe, dentro da Administração.
+
+     A régua é a do §4.6.5 (a mesma da cura do GPS): o que é DADO zera sem fonte;
+     o que é COPY fica. E 🔴 SLOT SEM FONTE SOME INTEIRO — com rótulo, unidade e
+     separador. Aqui isso vale por SEÇÃO: `.grupo` é um título ("Por forma,
+     hoje") que só existe pra apresentar a caixa de baixo. Título de pé sobre
+     caixa vazia é a mesma mentira de antes, só que mais feia — então o par
+     título+caixa nasce junto e some junto.
+
+     DADO: recebido · emAberto · formas · marcou · devedores · semanaRecebido ·
+           semanaMarcado · semanaPendencia.
+     COPY: os rótulos, que vivem DENTRO do condicional de cada slot (mesmo
+           pacto do fechamento da caderneta) — e o "Dinheiro/Pix/Cartão" de
+           cada linha de `formas`, que viaja NO dado justamente porque a forma
+           que não teve dinheiro não entra na lista (Lei do IF).
+
+     `devedores` é [iniciais, nome, sub, valor, classe do avatar]. O `sub` ("3
+     marcações · a mais antiga de 28/07") é o único pedaço desta tela SEM PORTA
+     em servidor nenhum — ver o `carregarFinanceiro` da ponte. */
+  financeiro:{
+    recebido:'R$ 336,00', emAberto:'R$ 257,00',
+    formas:[['cash','var(--lime)','Dinheiro','R$ 132,00'],['pix','var(--blue-l)','Pix','R$ 52,00'],
+            ['card','var(--purple)','Cartão','R$ 84,00']],
+    marcou:'R$ 68,00',
+    devedores:[
+      ['MA','Maria Aparecida','3 marcações · a mais antiga de 28/07','R$ 74,00',''],
+      ['BZ','Bar do Zé','2 marcações · desde 02/08','R$ 96,00',''],
+      ['ME','Mercado Estrela','1 marcação · ontem','R$ 87,00','lime'],
+    ],
+    semanaRecebido:'R$ 2.391,00', semanaMarcado:'R$ 2.648,00', semanaPendencia:'R$ 257,00',
+  },
   consumo:{
     saldo:'240', gastosHoje:'14', bonus:'24',
     linhas:[
@@ -1373,37 +1412,43 @@ T.recarga={nome:'Ajustes · Recarga',grupo:'Ajustes',render(){
     r.cta?`<button class="act go full" style="justify-content:center" data-acao="recarregar">${ic('check',19)}<b>${r.cta}</b></button>`:'');
 }};
 
-T.financeiro={nome:'Ajustes · Financeiro',grupo:'Ajustes',render(){
-  return telaAjuste('Financeiro',`
-    <div class="kpis" style="margin-top:2px">
-      <div class="kpi money"><span class="l">Recebido hoje</span><b class="v">R$ 336,00</b></div>
-      <div class="kpi money"><span class="l">Em aberto</span><b class="v" style="color:var(--amber)">R$ 257,00</b></div>
-    </div>
-    <div class="grupo">Por forma, hoje</div>
-    <div class="forms">
-      <div class="form-c"><span style="color:var(--lime)">${ic('cash',19)}</span><small>Dinheiro</small><b>R$ 132,00</b></div>
-      <div class="form-c"><span style="color:var(--blue-l)">${ic('pix',19)}</span><small>Pix</small><b>R$ 52,00</b></div>
-      <div class="form-c"><span style="color:var(--purple)">${ic('card',19)}</span><small>Cartão</small><b>R$ 84,00</b></div>
-      <div class="form-c total"><small style="margin-top:0">Marcou</small><b>R$ 68,00</b></div>
-    </div>
-    <div class="grupo">Quem está devendo</div>
-    <div class="cartao-lista" style="padding:0 11px">
-      <div class="item-linha"><span class="ava">MA</span>
-        <span><strong>Maria Aparecida</strong><span>3 marcações · a mais antiga de 28/07</span></span>
-        <b style="color:var(--amber);font-size:14px">R$ 74,00</b></div>
-      <div class="item-linha"><span class="ava">BZ</span>
-        <span><strong>Bar do Zé</strong><span>2 marcações · desde 02/08</span></span>
-        <b style="color:var(--amber);font-size:14px">R$ 96,00</b></div>
-      <div class="item-linha"><span class="ava lime">ME</span>
-        <span><strong>Mercado Estrela</strong><span>1 marcação · ontem</span></span>
-        <b style="color:var(--amber);font-size:14px">R$ 87,00</b></div>
-    </div>
-    <div class="grupo">Semana</div>
-    <div class="sum" style="margin-top:0">
-      <span class="c"><span><b>R$ 2.391,00</b><small>recebido</small></span></span>
-      <span class="c"><span><b>R$ 2.648,00</b><small>marcado</small></span></span>
-      <span class="c"><span><b style="color:var(--amber)">R$ 257,00</b><small>pendência</small></span></span>
-    </div>`);
+/* 🔴 NENHUM LITERAL DE DINHEIRO AQUI DENTRO. Tudo vem de `DADOS.financeiro`
+   (o seam, seção L11b) e cada pedaço SÓ EXISTE se tiver fonte — inclusive o
+   `.grupo`, que é o TÍTULO da caixa de baixo e some junto com ela. É a mesma
+   régua da cura do GPS, no tamanho desta tela: aqui o "separador órfão" é um
+   título de seção anunciando uma caixa que não veio. */
+T.financeiro={nome:'Ajustes · Financeiro',grupo:'Ajustes',render(){const f=DADOS.financeiro;
+  // título + caixa nascem e somem JUNTOS: é o par indivisível desta tela.
+  const secao=(titulo,corpo)=>corpo?`<div class="grupo">${titulo}</div>${corpo}`:'';
+  const dev=(a,nome,sub,val,cor)=>`<div class="item-linha"><span class="ava${cor?` ${cor}`:''}">${a}</span>
+        <span><strong>${nome}</strong>${sub?`<span>${sub}</span>`:''}</span>
+        <b style="color:var(--amber);font-size:14px">${val}</b></div>`;
+  // o número grande com a legenda embaixo: sem número não sobra legenda sozinha
+  // ("pendência" sem valor é uma coluna vazia com nome).
+  const cel=(v,rot,cor)=>v?`<span class="c"><span><b${cor?` style="color:${cor}"`:''}>${v}</b><small>${rot}</small></span></span>`:'';
+  const semana=[cel(f.semanaRecebido,'recebido'),cel(f.semanaMarcado,'marcado'),
+    cel(f.semanaPendencia,'pendência','var(--amber)')].join('');
+  const kpis=`${f.recebido?`<div class="kpi money"><span class="l">Recebido hoje</span><b class="v">${f.recebido}</b></div>`:''}${f.emAberto?`
+      <div class="kpi money"><span class="l">Em aberto</span><b class="v" style="color:var(--amber)">${f.emAberto}</b></div>`:''}`;
+  const formas=`${f.formas.map(x=>`<div class="form-c"><span style="color:${x[1]}">${ic(x[0],19)}</span><small>${x[2]}</small><b>${x[3]}</b></div>`).join('')}${f.marcou?`
+      <div class="form-c total"><small style="margin-top:0">Marcou</small><b>${f.marcou}</b></div>`:''}`;
+  /* A TELA INTEIRA É DADO, então ela inteira passa pelo `miolo`. Sem isto, a
+     rede no chão pintaria a MESMA tela que "não entrou nada hoje" — e esses
+     dois vazios são opostos (Lei nº1 desta frente). Com ele: esqueleto na
+     primeira carga, aviso com "Tentar de novo" se a fonte não responder. */
+  return telaAjuste('Financeiro',miolo(f,'wallet','recarregar-financeiro',4,`
+    ${kpis?`<div class="kpis" style="margin-top:2px">
+      ${kpis}
+    </div>`:''}
+    ${secao('Por forma, hoje',formas?`<div class="forms">
+      ${formas}
+    </div>`:'')}
+    ${secao('Quem está devendo',f.devedores.length?`<div class="cartao-lista" style="padding:0 11px">
+      ${f.devedores.map(x=>dev(x[0],x[1],x[2],x[3],x[4])).join('')}
+    </div>`:'')}
+    ${secao('Semana',semana?`<div class="sum" style="margin-top:0">
+      ${semana}
+    </div>`:'')}`));
 }};
 
 /* 🔴 AS CHAVES DE DINHEIRO DO DONO MORAM AQUI — e as 6 que não tinham porta
