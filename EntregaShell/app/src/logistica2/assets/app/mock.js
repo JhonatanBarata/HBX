@@ -438,6 +438,33 @@ function usarDados(secao,valor){
   if(typeof pintar==='function') pintar(false);
 }
 
+/* ==========================================================================
+   A 1ª PINTURA DE QUEM BUSCA NO SERVIDOR — esqueleto, nunca demonstração.
+
+   🔴 Tela que carrega ao abrir nascia com o dado de DEMONSTRAÇÃO desta folha
+   (João da Silva, Mercadinho Bom Preço). São 60 ms na bancada, mas numa rede
+   ruim o motorista lê nome de cliente que não existe — mentira com cara de app
+   pronto. Agora nasce ESQUELETO; e se a fonte não responder, nasce o aviso, não
+   uma lista vazia que finge que a base está vazia (a Lei nº1: "vazio porque o
+   servidor disse vazio" e "vazio porque a rede caiu" são opostos).
+
+   `carregando` e `semFonte` nascem AUSENTES em `DADOS`: quem os liga é a ponte,
+   no aparelho. Então o mock — que é o DESENHO — continua byte a byte o mesmo.
+   ========================================================================== */
+/* 🔴 As barras vão SOLTAS, nunca dentro do `.lista-card`: o `.esq` é feito de
+   `var(--card)` e o cartão TEM `background:var(--card)` — esqueleto dentro do
+   cartão fica invisível (medido: um retângulo vazio). É por isso que a `rota`
+   já desenhava assim, contra o fundo da página. */
+const esqLista=(n)=>`<div style="margin-top:6px">${'<div class="esq esq-linha"></div>'.repeat(n)}</div>`;
+const semFonte=(glifo,acao)=>`<div class="vazio">
+  <span class="ico">${ic(glifo,24)}</span>
+  <strong>Não consegui carregar</strong>
+  <span>Sem resposta do servidor agora.</span>
+  <button class="ghost" data-acao="${acao}">${ic('refresh',15)} Tentar de novo</button></div>`;
+/** O miolo de uma tela de lista: esqueleto → aviso → o conteúdo de verdade. */
+const miolo=(d,glifo,acao,linhas,conteudo)=>
+  d.carregando ? esqLista(linhas) : d.semFonte ? semFonte(glifo,acao) : conteudo;
+
 /* 1 — ROTA DO MOTORISTA, com os 7 estados que o app tem de verdade --------- */
 let estadoRota='rodando';
 let PARADAS=[
@@ -508,7 +535,7 @@ T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
       <button class="on">Fila <b>${DADOS.rota.filtroFila}</b></button><button>Entregue <b>${DADOS.rota.filtroEntregue}</b></button></div>`:''}
   ${montada||e==='montar'?`<div class="creditos">${ic('card',17)}
       <span><b class="v">${DADOS.rota.creditos}</b> <small>créditos hoje</small></span>
-      <span class="debita">${montada?`Iniciar debita ${DADOS.rota.creditosDebita}`:'monte a rota pra saber'}</span></div>`:''}
+      <span class="debita">${montada&&DADOS.rota.creditosDebita?`Iniciar debita ${DADOS.rota.creditosDebita}`:'monte a rota pra saber'}</span></div>`:''}
   <div class="stops">${listaParadas(emCurso)}</div>
   <div class="sum">
     <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>${DADOS.rota.somaProdutos}</b><small>produtos</small></span></span>
@@ -936,7 +963,7 @@ ${hdr({})}
   <div style="display:flex;justify-content:space-between;align-items:center;margin:8px 2px 6px;font-size:12px">
     <span style="color:var(--ink-2)">${d.total}</span>
     ${d.ordem?`<span style="color:var(--ink-2)">Ordenar por: <b style="color:var(--lime);font-weight:500">${d.ordem}</b></span>`:''}</div>
-  ${d.lista.map(x=>r(x[0],x[1],x[2],x[3],x[4],x[5],x[6],x[7])).join('')}
+  ${miolo(d,'save','recarregar-salvas',4,d.lista.map(x=>r(x[0],x[1],x[2],x[3],x[4],x[5],x[6],x[7])).join(''))}
   <div class="box" style="display:flex;align-items:center;gap:10px;margin-top:2px;padding:8px">
     <span style="width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:var(--lime-bg);color:var(--lime)">${ic('save',19)}</span>
     <span style="flex:1"><b style="display:block;font-size:13.5px;font-weight:500">Use uma rota salva hoje</b>
@@ -964,9 +991,9 @@ ${hdr({semChat:1})}
     <button class="filt">${ic('sliders',18)}</button></div>
   ${d.categorias.length?`<div class="chips">
     ${d.categorias.map((c,i)=>`<button class="chip${d.categoriaSel===i?' on':''}">${c}</button>`).join('')}</div>`:''}
-  <div class="lista-card">
+  ${miolo(d,'box','recarregar-produtos',6,`<div class="lista-card">
     ${d.lista.map(l=>p(l[0],l[1],l[2],l[3],l[4])).join('')}
-  </div>
+  </div>`)}
   <div class="sum">
     <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>${d.ativos}</b><small>produtos ativos</small></span></span>
     ${d.estoqueBaixo?`<span class="c"><span style="color:var(--amber)">${ic('alert',17)}</span><span><b>${d.estoqueBaixo}</b><small style="color:var(--amber)">estoque baixo</small></span></span>`:''}
@@ -994,9 +1021,9 @@ ${hdr({semChat:1})}
     <button class="filt">${ic('sliders',18)}</button></div>
   <div class="chips">
     ${DIAS.map((r,i)=>`<button class="chip${d.diaSel===i+1?' on':''}" data-acao="chip-dia" data-dia="${i+1}">${r}</button>`).join('')}</div>
-  <div class="lista-card">
+  ${miolo(d,'users','recarregar-clientes',7,`<div class="lista-card">
     ${d.lista.map(l=>c(l[0],l[1],l[2],l[3],l[4],l[5],l[6],l[7])).join('')}
-  </div>
+  </div>`)}
   <div class="sum">
     <span class="c"><span style="color:var(--lime)">${ic('users',17)}</span><span><b>${d.total}</b><small>clientes</small></span></span>
     ${d.semEndereco?`<span class="c"><span style="color:var(--amber)">${ic('alert',17)}</span><span><b>${d.semEndereco}</b><small style="color:var(--amber)">sem endereço</small></span></span>`:''}
@@ -1202,9 +1229,9 @@ T.consumo={nome:'Ajustes · Consumo e bônus',grupo:'Ajustes',render(){
       ${c.bonus?`<div class="kpi"><span style="color:var(--lime)">${ic('spark',20)}</span><span><b class="v">${c.bonus}</b><span class="l">de bônus</span></span></div>`:''}
     </div>
     <div class="grupo">Movimento</div>
-    <div class="extrato">
+    ${miolo(c,'sales','recarregar-consumo',4,`<div class="extrato">
       ${c.linhas.length?c.linhas.map(x=>l(x[0],x[1],x[2],x[3])).join(''):`<div class="vazio"><b>${c.vazio||'Sem movimento ainda'}</b></div>`}
-    </div>
+    </div>`)}
     <div class="banner pausa" style="margin-top:9px">${ic('alert',15)}
       <span>Migração entre rotas é <b>grátis</b>: a mesma entrega não debita duas vezes.</span></div>`);
 }};
@@ -1635,9 +1662,9 @@ ${hdr({})}
     <div class="acoes"><button data-acao="responder-recado">Responder</button><button class="principal" data-acao="entendi-recado">Entendi</button></div>
   </div>`:''}
   <div class="conversa">
-    ${d.conversa.length
+    ${miolo(d,'chat','recarregar-chat',4, d.conversa.length
       ? d.conversa.map(m=>`<div class="msg ${m[0]}">${m[1]}<small>${m[2]}</small></div>`).join('')
-      : (d.vazio?`<div class="vazio"><span>${ic('chat',26)}</span><b>${d.vazio}</b></div>`:'')}
+      : (d.vazio?`<div class="vazio"><span>${ic('chat',26)}</span><b>${d.vazio}</b></div>`:''))}
   </div>
   <label class="escrever">${ic('chat',16)}<input placeholder="Escrever para a Central" data-campo="recado-texto">
     <button class="enviar" data-acao="enviar-recado">${ic('nav',15)}</button></label>

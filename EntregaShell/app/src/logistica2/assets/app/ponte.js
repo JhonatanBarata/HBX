@@ -267,16 +267,30 @@
     // meia-noite de Brasília o UTC já é amanhã, então a rota do motorista
     // aparecia VAZIA justo no fim do turno. Achado no g15 às 23:28 (defeito meu
     // da L1: o app velho sempre mandou `?date=`).
-    try { r = await window.API.get(`/logistica/rota?date=${encodeURIComponent(dia)}`); } catch (_) { return; }
+    try { r = await window.API.get(`/logistica/rota?date=${encodeURIComponent(dia)}`); } catch (_) {
+      // A rota tem estado próprio e o desenho já previa os dois: o esqueleto
+      // (`carregando`) e o aviso com "Tentar de novo" (`vazia`). Só na PRIMEIRA
+      // carga — com a rota do dia já na tela, rede ruim não apaga o dia.
+      try { if (estadoRota === 'carregando') { estadoRota = 'vazia'; pintar(false); } } catch (_) { /* sem seam */ }
+      return;
+    }
 
     // Crédito e caixa do dia vêm de OUTRAS portas — pedidos em paralelo, e
     // cada um que falhar deixa o SEU campo vazio, sem derrubar a tela.
-    const [creditoR, caixaR] = await Promise.allSettled([
+    const [creditoR, caixaR, custoR] = await Promise.allSettled([
       window.API.get('/credits/me'),
       // ⚠️ é `date`, não `data` (conferido no controller): o nome errado não dá
       // erro nenhum — o servidor ignora e responde o dia DELE, em UTC.
       window.API.get(`/logistica/caderneta/resumo?date=${encodeURIComponent(dia)}`),
+      // 🔴 "Iniciar debita N" no cabeçalho vinha do MOCK e de mais lugar nenhum
+      // — o app prometia 12 créditos porque era o número do desenho. É a MESMA
+      // porta que o portão do Iniciar usa pra cobrar, então o cabeçalho passa a
+      // dizer o que o servidor vai debitar de verdade. Falhou: campo vazio, e
+      // pela Lei do IF a linha do custo some — número de crédito inventado é
+      // dinheiro errado na tela principal.
+      window.API.get('/logistica/rota/custo-preview'),
     ]);
+    const custo = custoR.status === 'fulfilled' ? custoR.value : null;
     const credito = creditoR.status === 'fulfilled' ? creditoR.value : null;
     const caixa = caixaR.status === 'fulfilled' ? caixaR.value : null;
     const formas = (caixa && caixa.fechamento && caixa.fechamento.formas) || null;
@@ -316,6 +330,7 @@
       ...(creditoR.status === 'fulfilled' ? {
         creditos: credito && typeof credito.balance === 'number' ? String(credito.balance) : '',
       } : {}),
+      creditosDebita: custo && typeof custo.creditosAIniciar === 'number' ? String(custo.creditosAIniciar) : '',
       diaFeitas: String(entregues),
       diaTotal: String(itens.length),
       diaPct: itens.length ? `${Math.round((entregues / itens.length) * 100)}%` : '0%',
@@ -351,7 +366,85 @@
   // no boot junto com a rota, senão o contador só ficaria certo depois de o
   // motorista abrir o chat — que é exatamente quem ele deveria chamar.
   window.HBXRota = { carregar: carregarRota };
-  const cargaInicial = () => { carregarRota(); carregarRecados(); };
+
+  /* ------------------------------------------------------------------------
+     🔴 NO APARELHO, A DEMONSTRAÇÃO NÃO EXISTE.
+
+     O mock é o front, e o front traz o dado de exemplo do desenho. Até o
+     servidor responder, o motorista via João da Silva, Mercadinho Bom Preço e
+     um saldo que não é dele — 60 ms na bancada, mas segundos numa rede ruim.
+     Nome de cliente que não existe é mentira com cara de app pronto.
+
+     Então, no boot: apaga o exemplo e liga o ESQUELETO das telas que buscam.
+     UMA pintura só no fim (`usarDados` repinta a cada chamada; sete chamadas
+     seriam sete repintes no quadro mais caro do app, o da abertura).
+
+     A trava do 1º quadro é aqui e não em cada carregador de propósito: quando
+     `ir('clientes')` pinta, `carregarClientes` ainda nem começou — ligar o
+     esqueleto lá deixaria um quadro de exemplo passar.
+     ------------------------------------------------------------------------ */
+  function apagarDemonstracao() {
+    if (!temPonte()) return;
+    try { estadoRota = 'carregando'; } catch (_) { /* seam ausente */ }
+    try {
+      if (typeof window.PARADAS !== 'undefined') window.PARADAS = [];
+      else PARADAS = [];
+    } catch (_) { /* idem */ }
+    const zerar = {
+      /* A rota tem estado próprio (`estadoRota`), acima; aqui vai o CABEÇALHO
+         dela — e vai INTEIRO, não os campos que eu lembrei.
+         🔴 Medido no g15 com o túnel derrubado: eu tinha zerado só `saldo`, e a
+         tela mostrou "Dinheiro R$ 132,00 · Pix R$ 52,00" — os números do mock,
+         com cara de caixa do dia. É que a ponte só escreve esses dois quando o
+         `caderneta/resumo` responde (`...(caixaR.status === 'fulfilled' ...)`),
+         e o que ela não escreve FICA. Campo de dinheiro que sobrou do exemplo é
+         a pior mentira desta tela.
+         A régua: o que é DADO zera; o que é COPY (`vazioTitulo`, `vazioSub`)
+         fica, porque é texto do desenho e não vem do servidor. */
+      rota: {
+        kpiParadas: '', kpiEntregues: '', kpiEntreguesParado: '',
+        saldo: '', dinheiro: '', pix: '',
+        diaFeitas: '', diaTotal: '', diaPct: '', diaMarcado: '',
+        filtroFila: '', filtroEntregue: '',
+        creditos: '', creditosDebita: '',
+        somaProdutos: '', somaMarcado: '',
+      },
+      clientes: { carregando: true, lista: [], total: '', semEndereco: '', marcadoHoje: '', subtitulo: '' },
+      produtos: { carregando: true, lista: [], categorias: [], ativos: '', estoqueBaixo: '', valorEstimado: '' },
+      salvas: { carregando: true, lista: [], total: '' },
+      chat: { carregando: true, conversa: [], recado: '' },
+      consumo: { carregando: true, linhas: [], saldo: '', gastosHoje: '', bonus: '' },
+    };
+    try {
+      Object.keys(zerar).forEach((s) => { DADOS[s] = Object.assign({}, DADOS[s], zerar[s]); });
+      // Na ABERTURA não se repinta: ela é uma cena com relógio (o logo viaja
+      // pro cabeçalho) e a camada seria recriada do zero. Nenhuma destas telas
+      // está à vista agora — quem pinta com o valor novo é o `ir('rota')` que
+      // encerra a abertura.
+      if (telaAtual() !== 'entrada') pintar(false);
+    } catch (_) { /* sem seam: a casca não subiu, e aí não há o que apagar */ }
+  }
+
+  /** Fonte fora do ar: some o esqueleto, entra o aviso — nunca lista vazia,
+   *  que mentiria dizendo que a base do motorista está vazia.
+   *  🔴 SÓ NA PRIMEIRA CARGA (`carregando` ainda ligado). Com dado do servidor
+   *  já na tela, rede ruim NÃO apaga nada — é a Lei nº1 desta frente. */
+  const fonteCaiu = (secao) => {
+    if (typeof window.usarDados !== 'function') return;
+    let primeira = false;
+    try { primeira = !!(DADOS[secao] && DADOS[secao].carregando); } catch (_) { return; }
+    if (!primeira) return;
+    window.usarDados(secao, { carregando: false, semFonte: true });
+  };
+  /** Respondeu: sai o esqueleto E o aviso, no MESMO repinte do dado. */
+  const fonteVoltou = { carregando: false, semFonte: false };
+  /** "Tentar de novo": devolve o esqueleto e pede de novo. */
+  const retentar = (secao, carregador) => {
+    if (typeof window.usarDados === 'function') window.usarDados(secao, { carregando: true, semFonte: false });
+    carregador();
+  };
+
+  const cargaInicial = () => { apagarDemonstracao(); carregarRota(); carregarRecados(); };
   document.addEventListener('DOMContentLoaded', cargaInicial);
   if (document.readyState !== 'loading') setTimeout(cargaInicial, 0);
 
@@ -653,11 +746,12 @@
   async function carregarSalvas() {
     if (!temPonte() || typeof window.usarDados !== 'function') return;
     let r;
-    try { r = await window.API.get('/logistica/rota-modelos'); } catch (_) { return; }
+    try { r = await window.API.get('/logistica/rota-modelos'); } catch (_) { return fonteCaiu('salvas'); }
     const lista = Array.isArray(r) ? r : [];
     MODELOS.clear();
     lista.forEach((m) => { if (m && m.id) MODELOS.set(String(m.id), m); });
     window.usarDados('salvas', {
+      ...fonteVoltou,
       busca: '',
       total: `${lista.length} ${lista.length === 1 ? 'rota salva' : 'rotas salvas'}`,
       // "Ordenar por" precisa de mais de uma ordem pra existir; o servidor
@@ -776,8 +870,8 @@
   async function carregarConsumo() {
     if (!temPonte() || typeof window.usarDados !== 'function') return;
     let e;
-    try { e = await window.API.get('/logistica/creditos/extrato'); } catch (_) { return; }
-    if (!e || typeof e !== 'object') return;
+    try { e = await window.API.get('/logistica/creditos/extrato'); } catch (_) { return fonteCaiu('consumo'); }
+    if (!e || typeof e !== 'object') return fonteCaiu('consumo');
     const uso = e.usage || {};
     const tot = e.totals || {};
     const linhas = [];
@@ -788,6 +882,7 @@
       linhas.push(['mais', esc(b.titulo || 'Bônus'), esc(b.quando || ''), String(b.creditos || 0)]);
     });
     window.usarDados('consumo', {
+      ...fonteVoltou,
       // Crédito é NÚMERO INTEIRO, nunca moeda — e zero some, como todo recorte.
       saldo: seTiver(e.balanceCredits),
       gastosHoje: seTiver(uso.hoje),
@@ -839,7 +934,7 @@
        O portão pegou isto: no navegador do conferidor as duas chamadas falham
        e o sino ia de 2 pra 0 — 60 das 66 telas mudaram por causa do
        cabeçalho. Sem o fio, não se toca no seam. */
-    if (fioR.status !== 'fulfilled' || !Array.isArray(fioR.value)) return;
+    if (fioR.status !== 'fulfilled' || !Array.isArray(fioR.value)) return fonteCaiu('chat');
     recados = fioR.value;
     // O portão é uma segunda fonte: se SÓ ele falhou, mantém o que já valia —
     // deixar de cobrar o "Entendi" por causa de um erro de rede seria afrouxar
@@ -847,6 +942,7 @@
     if (portaoR.status === 'fulfilled' && Array.isArray(portaoR.value)) portaoRecados = portaoR.value;
     const pendente = portaoRecados[0] || null;
     window.usarDados('chat', {
+      ...fonteVoltou,
       recado: pendente ? esc(pendente.texto) : '',
       // O título é do MOCK e é sempre verdade: quem manda recado é a Central.
       // Montar "Recado de {autor}" me deu "Recado de Central" na tela — nome
@@ -937,7 +1033,7 @@
   async function carregarProdutos() {
     if (!temPonte() || typeof window.usarDados !== 'function') return;
     let r;
-    try { r = await window.API.get('/logistica/produtos'); } catch (_) { return; }
+    try { r = await window.API.get('/logistica/produtos'); } catch (_) { return fonteCaiu('produtos'); }
     const todos = Array.isArray(r) ? r : [];
     PRODUTOS.clear();
     todos.forEach((p) => { if (p && p.id != null) PRODUTOS.set(String(p.id), p); });
@@ -946,6 +1042,7 @@
       ? todos.filter((p) => String(p.nome || '').toLowerCase().indexOf(busca) >= 0)
       : todos;
     window.usarDados('produtos', {
+      ...fonteVoltou,
       busca: esc(filtroProdutos.busca),
       // Sem categoria no payload, a fileira de chips inteira SOME. Um filtro
       // com uma opção só ("Todos") é enfeite com cara de controle.
@@ -1075,7 +1172,7 @@
       if (filtroClientes.busca) p.set('query', filtroClientes.busca);
       if (filtroClientes.dia) p.set('diasSemana', String(filtroClientes.dia));
       let r;
-      try { r = await window.API.get(`/nucleo/clientes?${p.toString()}`); } catch (_) { return; }
+      try { r = await window.API.get(`/nucleo/clientes?${p.toString()}`); } catch (_) { return fonteCaiu('clientes'); }
       // 🔴 SÓ CLIENTE ENTRA. A mesma porta serve lead e fornecedor; sem este
       // filtro a agenda de quem nunca comprou apareceria na rota de quem vende.
       const itens = (Array.isArray(r && r.items) ? r.items : []).filter((c) => c && c.isCliente === true);
@@ -1089,6 +1186,7 @@
         if (id) naRota.add(String(id));
       });
       window.usarDados('clientes', {
+        ...fonteVoltou,
         subtitulo: `${ENTREGAS.size} na rota de hoje`,
         busca: esc(filtroClientes.busca),
         diaSel: filtroClientes.dia,
@@ -1613,6 +1711,14 @@
     'salvar-cliente': salvarCliente,
     'salvar-produto': salvarProduto,
     'entendi-recado': entendiRecado,
+    // "Tentar de novo" do aviso de fonte fora do ar: volta pro esqueleto e
+    // pede de novo. Sem devolver o esqueleto o toque não teria resposta
+    // nenhuma na tela, e o motorista tocaria três vezes achando que travou.
+    'recarregar-clientes': () => retentar('clientes', carregarClientes),
+    'recarregar-produtos': () => retentar('produtos', carregarProdutos),
+    'recarregar-salvas': () => retentar('salvas', carregarSalvas),
+    'recarregar-chat': () => retentar('chat', carregarRecados),
+    'recarregar-consumo': () => retentar('consumo', carregarConsumo),
     'ir-consumo': () => window.ir('consumo'),
     'ir-recarga': () => window.ir('recarga'),
     'ir-financeiro': () => window.ir('financeiro'),

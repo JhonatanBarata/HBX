@@ -40,6 +40,7 @@
 | **Casca — círculo do cliente** | ✅ | folga 11,8/11,8/10/10 medida, 2 modos · §4.6.1 |
 | **Casca — transição com dado real** | ✅ | 13 animações vivas com servidor em 200 ms · §4.6.2 |
 | **Abertura única** | ✅ | app frio no g15, 12 quadros, uma cena só · §4.6.3 |
+| **1ª pintura sem mentira** | ✅ | túnel derrubado no g15: aviso, não a lista de exemplo · §4.6.4 |
 
 ### As 28 portas JÁ ligadas na `ponte.js`
 ```
@@ -63,6 +64,9 @@ node scripts/casca-injetar.js && node scripts/casca-conferir.js && node scripts/
 ```
 - `casca-conferir` **66/66** = a pele é o mock, pixel a pixel. Ele também pega **erro de
   sintaxe que dá tela preta** (já pegou uma crase dentro de comentário HTML).
+  🔴 Desde 07/08 ele **copia o `DADOS` do mock pro app antes das fotos**: o app apaga a
+  demonstração no boot (§4.6.4) e o `native.js` responde ao `temPonte()` também no
+  navegador — sem a cópia o portão media ESTADO, não casca, e acusava 20 telas legítimas.
 - `casca-antes-e-depois` só deve acusar a tela que você mexeu de propósito.
 
 ---
@@ -281,11 +285,56 @@ Vale pra **toda** tela que carrega ao abrir — `clientes`, `produtos`, `chat`,
 já na tela. E na abertura: repinte no meio e o `.splash-logo` **segue com
 `mvLogoVoa` rodando** — antes ele era destruído.
 
-⬜ **Fica anotado, mesma origem, ainda ABERTO:** enquanto a chamada não volta, a
-tela mostra os **dados de demonstração do mock** (João da Silva, Mercadinho Bom
-Preço). São 60 ms na bancada, mas numa rede ruim o motorista lê nome de cliente
-que não existe. A cura é o seam nascer VAZIO na 1ª pintura de cada tela — decisão
-do dono: **vazio** ou **esqueleto**? (§5.5)
+#### 4.6.4 — ✅ FEITO · A 1ª pintura: esqueleto, nunca demonstração
+
+Mesma origem do 4.6.2, e o dono escolheu **esqueleto** (07/08).
+
+O mock é o front, e o front traz o dado de exemplo do desenho. Até o servidor
+responder, o motorista lia **João da Silva, Mercadinho Bom Preço** e um caixa que
+não era dele. 60 ms na bancada; segundos numa rede ruim.
+
+**Como ficou:**
+- `carregando` e `semFonte` nascem **ausentes** em `DADOS` — o mock, que é o
+  DESENHO, não muda em nada (os dois portões seguiram 66/66);
+- no boot, e só com ponte, `apagarDemonstracao()` apaga o exemplo e liga o
+  esqueleto de `rota`, `clientes`, `produtos`, `salvas`, `chat` e `consumo`,
+  numa pintura só. 🔴 A trava é no BOOT e não em cada carregador de propósito:
+  quando `ir('clientes')` pinta, `carregarClientes` ainda nem começou — ligar lá
+  deixaria um quadro de exemplo passar. E na ABERTURA não repinta: ela é uma
+  cena com relógio;
+- fonte fora do ar ⇒ **aviso** ("Não consegui carregar · Sem resposta do servidor
+  agora · Tentar de novo"), nunca lista vazia fingindo base vazia. E **só na 1ª
+  carga**: com dado do servidor já na tela, rede ruim não apaga nada (Lei nº1).
+
+**Dois defeitos que a própria prova achou, no g15, e já corrigidos:**
+1. 🔴 **`dinheiro` e `pix` vazavam do mock.** Eu tinha zerado só `saldo`, e a tela
+   mostrou **"Dinheiro R$ 132,00 · Pix R$ 52,00"** com o servidor fora — porque a
+   ponte só escreve esses dois quando o `caderneta/resumo` responde, e **o que
+   ela não escreve fica**. A régua virou: em `DADOS.rota`, o que é DADO zera; o
+   que é COPY (`vazioTitulo`, `vazioSub`) fica.
+2. 🔴 **"Iniciar debita 12" nunca veio do servidor** — era o número do MOCK, em
+   dinheiro, na tela principal. Agora `carregarRota` pede o `custo-preview` junto
+   (a MESMA porta que o portão do Iniciar usa pra cobrar) e, se ela falhar, o
+   campo fica vazio e a linha some.
+
+**Prova no g15** (`outputs/prova-sem-mentira.png`), túnel derrubado e app frio:
+rota com as paradas do pacote offline e **sem** o caixa de mentira · clientes com
+o aviso · túnel de volta + um toque em "Tentar de novo" ⇒ os **11 clientes reais**
+da empresa 39. Grade dos 3 estados × 5 telas em `outputs/prova-esqueleto.png`.
+
+⬜ **O que ficou de fora, com endereço:**
+- **`ajustes` não ganhou esqueleto.** É tela de CHAVE, não de lista: a mentira lá
+  é de outro tipo (ver a chave na posição errada e tocar = ele acha que desligou
+  quando ligou) e pede outra cura — desabilitar o toque até a config chegar.
+- **As outras seções que a ponte alimenta** (`caderneta`, `semana`, `ficha`,
+  `folha`, `venda`, `montagem`, `recarga`, `fichaproduto`) ainda têm exemplo no
+  seam. Elas só abrem depois de uma ação que já carrega, então a janela é bem
+  menor — mas zerar cada uma exige conferir campo a campo quem a ponte escreve,
+  senão some da tela o que ela nunca preenche. É o mesmo trabalho do item 1
+  acima, sete vezes.
+- Com a rota montada e o `custo-preview` fora do ar, a faixa diz *"monte a rota
+  pra saber"* — que não é verdade (ela está montada). É melhor que um número de
+  crédito inventado, mas pede copy própria.
 
 #### 4.6.3 — ✅ FEITO · A abertura anterior saiu; ficou a que fizemos
 
@@ -353,11 +402,8 @@ está com o caminho separado e sem a chamada que derrubava — mas **teste verde
    que quebra é a de logística. Investigar em leva própria ou deixar anotado?
 4. **`Product.stock` legado**: o `PATCH /logistica/produtos {estoque}` escreve NELE, não no
    estoque fiscal. O app novo nunca manda, mas a porta segue aberta.
-5. **A 1ª pintura antes do servidor responder** (§4.6.2): hoje sai o dado de
-   DEMONSTRAÇÃO do mock. **Vazio** (a lei do IF: sem informação, nada aparece) ou
-   **esqueleto** (as barras cinza que a tela `rota` já tem no estado `carregando`)?
-   Recomendo **esqueleto**, e só nas telas que carregam ao abrir: é o único que não
-   dá salto de altura quando a lista chega — e a `rota` já provou o padrão.
+5. ~~A 1ª pintura antes do servidor responder~~ — **DECIDIDO 07/08: esqueleto.**
+   Feito e provado no g15 (§4.6.4). Restam as 3 pontas anotadas lá.
 6. **O sonic logo** (§4.6.3): ele tocava — o `logistica2` mantém `APP_MODE`
    `"logistica"` de propósito, e o `playOpeningSound` vinha junto da cena que
    saiu. **Hoje o app abre calado.** Toca junto da abertura nova (`HBX.sound`, que

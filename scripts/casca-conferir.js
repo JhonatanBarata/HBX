@@ -91,6 +91,27 @@ body{margin:0;display:block;overflow:hidden;background:#06090f}
   }, PALCO);
   await cravar(app.p); await cravar(mock.p);
 
+  /* 🔴 MESMOS DADOS DOS DOIS LADOS, senão o portão mede a coisa errada.
+     Desde 07/08 o app APAGA a demonstração no boot e nasce em esqueleto: no
+     aparelho o motorista não pode ler "João da Silva", que é um cliente que
+     não existe. Isso é ESTADO, não casca — e o `native.js` responde ao
+     `temPonte()` também no navegador, então acontece aqui dentro (20 telas
+     acusadas na 1ª rodada, todas legítimas).
+     A régua do dono continua sendo "o front do app é o mock": com o MESMO
+     dado, a pintura tem que ser a mesma. Então o dado do mock é copiado pro
+     app antes das fotos. O que sobrar de diferença é casca, que é o que este
+     portão existe pra pegar. */
+  const estadoDoMock = await mock.p.evaluate(() => ({
+    DADOS: JSON.parse(JSON.stringify(DADOS)),
+    PARADAS: JSON.parse(JSON.stringify(PARADAS)),
+    estadoRota,
+  }));
+  await app.p.evaluate((e) => {
+    Object.keys(e.DADOS).forEach((s) => { DADOS[s] = e.DADOS[s]; });
+    try { if (typeof window.PARADAS !== 'undefined') window.PARADAS = e.PARADAS; else PARADAS = e.PARADAS; } catch (_) { /* seam ausente */ }
+    try { estadoRota = e.estadoRota; } catch (_) { /* idem */ }
+  }, estadoDoMock);
+
   const chaves = await mock.p.evaluate(() => Object.keys(T));
   const tirar = async (pg, k, modo) => {
     await pg.evaluate(([key, m]) => {
