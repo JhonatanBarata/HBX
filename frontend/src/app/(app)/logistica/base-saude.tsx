@@ -653,8 +653,12 @@ export function BaseSaude() {
           {/* PRÉVIA da faxina: os nomes ANTES de qualquer exclusão (06/08). */}
           {previa && (previa.duplicados.length > 0 || previa.semEndereco.length > 0) && (
             <div className="log-saude__previa" role="group" aria-label="Cadastros que serão arquivados">
+              {/* O cabeçalho diz o que a lista REALMENTE é: desde 06/08 o que protege
+                  o duplicado é só o financeiro, então pode haver entrega no histórico
+                  de quem sai (o motivo de cada linha diz quantas). Dizer "sem nenhum
+                  movimento" aqui virou mentira no instante em que a régua mudou. */}
               <strong>
-                {previa.duplicados.length + previa.semEndereco.length} cadastro(s) sem nenhum movimento — nenhuma entrega, nenhuma rota, nenhuma cobrança
+                {previa.duplicados.length + previa.semEndereco.length} cadastro(s) sem nada de financeiro — nada lançado, nada em aberto
               </strong>
               <ul>
                 {[...previa.duplicados, ...previa.semEndereco].map((item) => (
