@@ -141,19 +141,19 @@ const ROTA_ESTADOS={
              esq:{tipo:'aviso', glifo:'bell', rotulo:'Rotas recebidas', contagem:2},
              dir:{tipo:'info', glifo:'plus', rotulo:'Rota rápida'}},
   pronta:   {main:{acao:'iniciar', glifo:'play', rotulo:'Iniciar'},
-             esq:{tipo:'perigo', glifo:'close', rotulo:'Cancelar'},
+             esq:{tipo:'perigo', glifo:'close', rotulo:'Cancelar', acao:'cancelar-rota'},
              dir:{tipo:'info', glifo:'route', rotulo:'Adicionar'}},
   rodando:  {main:{acao:'pausar', glifo:'pause', rotulo:'Pausar'},
-             esq:{tipo:'perigo', glifo:'stop', rotulo:'Cancelar'},
+             esq:{tipo:'perigo', glifo:'stop', rotulo:'Cancelar', acao:'cancelar-rota'},
              dir:{tipo:'info', glifo:'route', rotulo:'Adicionar'}},
   pausada:  {main:{acao:'continuar', glifo:'play', rotulo:'Continuar'},
-             esq:{tipo:'perigo', glifo:'stop', rotulo:'Cancelar'},
+             esq:{tipo:'perigo', glifo:'stop', rotulo:'Cancelar', acao:'cancelar-rota'},
              dir:{tipo:'info', glifo:'route', rotulo:'Adicionar'}},
 };
 function transmux(estado){
   const c=ROTA_ESTADOS[estado]; if(!c) return '';
   const sat=(s,lado)=>s?`<span class="tmx-sat tmx-${s.tipo} tmx-${lado}">
-      <button aria-label="${s.rotulo}">${ic(s.glifo,20)}${s.contagem?`<i class="cont">${s.contagem}</i>`:''}</button>
+      <button aria-label="${s.rotulo}"${s.acao?` data-acao="${s.acao}"`:''}>${ic(s.glifo,20)}${s.contagem?`<i class="cont">${s.contagem}</i>`:''}</button>
       <small>${s.rotulo}</small></span>`:'<span></span>';
   return `<div class="transmux">${sat(c.esq,'esq')}
     <span class="tmx-main">
@@ -248,6 +248,19 @@ const DADOS={
     somaProdutos:'20', somaMarcado:'R$ 336,00',
     vazioTitulo:'Sem paradas hoje', vazioSub:'Monte a rota do dia pra começar.',
   },
+  montagem:{
+    titulo:'Montagem de rota', dica:'Segure e arraste para ordenar',
+    somaParadas:'6', somaProdutos:'20', somaValor:'R$ 336,00',
+    iniciarSub:'João da Silva',
+    linhas:[
+      [1,'08:30','João da Silva','R. das Palmeiras, 145','Santo Amaro',['20L x2','Vasilhame','Chip dia'],'42,00',''],
+      [2,'09:15','Mercadinho Bom Preço','Av. João Dias, 890','Brooklin',['20L x4','Vasilhame'],'84,00',''],
+      [3,'10:05','Maria Aparecida','R. Sargento Silva Nunes, 72','Moema',['20L x1','Chip dia'],'21,00','lime'],
+      [4,'10:45','Padaria Pão Nosso','Av. Ibirapuera, 2331','Moema',['20L x2','Vasilhame'],'42,00',''],
+      [5,'11:30','Bar do Zé','R. dos Otonis, 317','Jabaquara',['20L x3','Vasilhame'],'63,00',''],
+      [6,'12:15','Mercado Estrela','R. Aracanguá, 210','Jabaquara',['20L x4','Chip dia'],'84,00','off'],
+    ],
+  },
 };
 /** Entra dado novo numa seção e a tela se repinta. */
 function usarDados(secao,valor){
@@ -285,7 +298,7 @@ T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
     <div class="kpis"><div class="kpi esq" style="height:47px;border:0"></div><div class="kpi esq" style="height:47px;border:0"></div>
       <div class="kpi esq" style="height:47px;border:0"></div></div>
     <div class="esq" style="height:34px;margin-top:6px"></div>
-    <div style="margin-top:6px">${'<div class="esq esq-linha"></div>'.repeat(5)}</div>`,'Carregando o dia…');
+    <div style="margin-top:6px">${'<div class="esq esq-linha"></div>'.repeat(5)}</div>`);
 
   if(e==='vazia') return shellRota(`
     <div class="vazio">
@@ -720,27 +733,20 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
   return `${status}
 ${hdr({})}
 <div class="body">
-  <h2 style="font-size:23px;font-weight:500;margin:4px 0 2px;letter-spacing:-.4px">Montagem de rota</h2>
-  <p style="margin:0 0 4px;font-size:12.5px;color:var(--lime);display:flex;align-items:center;gap:7px">${ic('dots',15)} Segure e arraste para ordenar</p>
-  <div class="stops">
-    ${l(1,'08:30','João da Silva','R. das Palmeiras, 145','Santo Amaro',['20L x2','Vasilhame','Chip dia'],'42,00','')}
-    ${l(2,'09:15','Mercadinho Bom Preço','Av. João Dias, 890','Brooklin',['20L x4','Vasilhame'],'84,00','')}
-    ${l(3,'10:05','Maria Aparecida','R. Sargento Silva Nunes, 72','Moema',['20L x1','Chip dia'],'21,00','lime')}
-    ${l(4,'10:45','Padaria Pão Nosso','Av. Ibirapuera, 2331','Moema',['20L x2','Vasilhame'],'42,00','')}
-    ${l(5,'11:30','Bar do Zé','R. dos Otonis, 317','Jabaquara',['20L x3','Vasilhame'],'63,00','')}
-    ${l(6,'12:15','Mercado Estrela','R. Aracanguá, 210','Jabaquara',['20L x4','Chip dia'],'84,00','off')}
-  </div>
+  <h2 style="font-size:23px;font-weight:500;margin:4px 0 2px;letter-spacing:-.4px">${DADOS.montagem.titulo}</h2>
+  <p style="margin:0 0 4px;font-size:12.5px;color:var(--lime);display:flex;align-items:center;gap:7px">${ic('dots',15)} ${DADOS.montagem.dica}</p>
+  <div class="stops">${DADOS.montagem.linhas.map(x=>l(...x)).join('')}</div>
   <div class="sum">
-    <span class="c"><span style="color:var(--lime)">${ic('route',17)}</span><span><b>6</b><small>paradas</small></span></span>
-    <span class="c"><span style="color:var(--blue-l)">${ic('box',17)}</span><span><b>${DADOS.rota.somaProdutos}</b><small>produtos</small></span></span>
-    <span class="c"><span style="color:var(--lime)">${ic('cash',17)}</span><span><b>R$ 336,00</b><small>valor marcado</small></span></span>
+    <span class="c"><span style="color:var(--lime)">${ic('route',17)}</span><span><b>${DADOS.montagem.somaParadas}</b><small>paradas</small></span></span>
+    <span class="c"><span style="color:var(--blue-l)">${ic('box',17)}</span><span><b>${DADOS.montagem.somaProdutos}</b><small>produtos</small></span></span>
+    <span class="c"><span style="color:var(--lime)">${ic('cash',17)}</span><span><b>${DADOS.montagem.somaValor}</b><small>valor marcado</small></span></span>
   </div>
   <button class="act full" style="margin-top:9px;background:linear-gradient(180deg,var(--btn-blue-1),var(--btn-blue-2));border:0;color:var(--white);justify-content:center;box-shadow:0 7px 18px rgba(47,126,247,.3)">
-    ${ic('save',19)}<b style="font-size:14px">Salvar rota</b></button>
+    ${ic('save',19)}<b style="font-size:14px" data-acao="salvar-rota">Salvar rota</b></button>
   <button class="act full" style="margin-top:7px;justify-content:center">${ic('spark',17)}
     <span style="text-align:center"><b>Otimizar ordem</b><small>Sugerir melhor sequência</small></span></button>
-  <button class="act go full" style="margin-top:7px;justify-content:center" data-ir="conferencia">${ic('play',19)}
-    <span style="text-align:center"><b>Iniciar rota</b><small>João da Silva</small></span></button>
+  <button class="act go full" style="margin-top:7px;justify-content:center" data-acao="iniciar-rota">${ic('play',19)}
+    <span style="text-align:center"><b>Iniciar rota</b><small>${DADOS.montagem.iniciarSub}</small></span></button>
 </div>
 ${nav('rota')}`;}};
 
@@ -1845,7 +1851,9 @@ const PORTOES={
     acoes:[['Entendi','principal',true]]},
 };
 function portao(chave){
-  const p=PORTOES[chave]; if(!p) return;
+  // chave do catálogo OU um portão montado na hora (o app precisa dizer número
+  // de verdade: "vai debitar 12, você tem 240" não cabe num catálogo estático).
+  const p=typeof chave==='object'?chave:PORTOES[chave]; if(!p) return;
   const camada=document.querySelector('#app .tela'); if(!camada) return;
   camada.querySelector('.portao-wrap')?.remove();
   const w=document.createElement('div');

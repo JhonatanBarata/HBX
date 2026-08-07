@@ -22,6 +22,20 @@
      compartilham — é assim que se lê o estado do mock. */
   const telaAtual = () => { try { return atual; } catch (_) { return null; } };
 
+  /* 🔴 A CAMADA VIVA É A ÚLTIMA, NUNCA A PRIMEIRA. Durante a troca de tela
+     existem DUAS `.tela` no DOM: a que entra e a que morre. `querySelector`
+     devolve a PRIMEIRA — a moribunda — e quem procurar botão ali acha nada (ou
+     acha o botão errado, que some no instante seguinte). O mock já aprendeu
+     isso no `pintar()`; a ponte tem que falar a mesma língua. */
+  const camadaViva = () => {
+    const camadas = document.querySelectorAll('#app .tela');
+    return camadas.length ? camadas[camadas.length - 1] : null;
+  };
+  const naCamada = (sel) => {
+    const c = camadaViva();
+    return c ? c.querySelector(sel) : null;
+  };
+
   /* ------------------------------------------------------------------------
      1. TEMA COM UM DONO SÓ.
      O `native.js` já resolve o tema com três entradas (escolha do dono, virada
@@ -54,7 +68,7 @@
   const POR_CIMA = ['.erro-wrap', '.conf-wrap', '.portao-wrap', '.sheet-wrap', '.modal-wrap', '.aviso'];
   window.HBXApp = window.HBXApp || {};
   window.HBXApp.handleBack = function () {
-    const camada = document.querySelector('#app .tela');
+    const camada = camadaViva();
     if (camada) {
       for (const sel of POR_CIMA) {
         const peca = camada.querySelector(sel);
@@ -173,7 +187,11 @@
       ? ['Entregue', 'lime', 'check']
       : (item.status === 'em_rota' ? ['A caminho', 'blue', 'nav'] : ['Pendente', 'mute', 'clock']);
     return {
-      n: item.rotaOrdem != null ? item.rotaOrdem : i + 1,
+      // 🔴 O NÚMERO DA TELA É A ORDEM DA VISITA, e gente conta do 1. O servidor
+      // grava `rotaOrdem` começando em ZERO — usar o campo cru punha "0, 1, 2"
+      // na frente do motorista (visto no g15). A ordem do servidor decide a
+      // SEQUÊNCIA; o número que aparece é a posição na fila.
+      n: i + 1,
       hora: hora(item.etaAt || item.scheduledAt),
       cor: entregue ? 'lime' : undefined,
       nome: c.nome || '',
@@ -239,10 +257,162 @@
       somaProdutos: String(itens.reduce((s, it) => s + (Number(it.quantidade) || 0), 0)),
       somaMarcado: temValor ? dinheiro(marcado) : '',
     });
+
+    // 🔴 A MONTAGEM SE ENCHE AQUI, não só no toque de "Montar rota". Quem chega
+    // nela por outro caminho via a lista do MOCK — João da Silva, R$ 336,00 —
+    // com o dado real na tela de trás. Dado de enfeite numa tela de dinheiro é
+    // o defeito que esta frente inteira existe pra matar (visto no g15).
+    window.usarDados('montagem', {
+      somaParadas: String(paradas.length),
+      somaProdutos: String(itens.reduce((s, it) => s + (Number(it.quantidade) || 0), 0)),
+      somaValor: temValor ? dinheiro(marcado) : '',
+      iniciarSub: '',
+      linhas: paradas.map((p) => [
+        p.n, p.hora, p.nome, p.rua, p.bairro, p.tags.map((t) => t[0]), p.marcado, p.cor || '',
+      ]),
+    });
   }
 
   // 1ª carga assim que a casca subiu, e recarga toda vez que a Rota reaparece.
   window.HBXRota = { carregar: carregarRota };
   document.addEventListener('DOMContentLoaded', carregarRota);
   if (document.readyState !== 'loading') setTimeout(carregarRota, 0);
+
+  /* ------------------------------------------------------------------------
+     6. L2 — MONTAR → MONTAGEM → INICIAR (DEBITA) → ENCERRAR.
+     Regras que valem dinheiro, todas do domínio e nenhuma inventada aqui:
+     · quem DEBITA é o Iniciar, e só ele;
+     · o número do portão é o MESMO que o servidor vai cobrar (custo-preview),
+       nunca uma conta minha na tela;
+     · toque repetido não cobra duas vezes (trava de reentrância);
+     · Cancelar não perde entrega: as abertas voltam pra agenda (encerrar).
+     ------------------------------------------------------------------------ */
+  let ocupado = false;
+  const comTrava = async (fn) => {
+    if (ocupado) return;
+    ocupado = true;
+    try { await fn(); } finally { ocupado = false; }
+  };
+  const avisoErro = (e) => {
+    const msg = humano(e);
+    if (typeof window.portao === 'function') {
+      window.portao({ tom: 'trava', ico: 'alert', titulo: 'Não deu certo', sub: msg, acoes: [['Fechar', '']] });
+    }
+  };
+  const hojeISO = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  /** monta a rota do dia: planeja (grava a ordem) e confere (semáforo). */
+  async function montarRota() {
+    await comTrava(async () => {
+      // 🔴 TOQUE MUDO É DEFEITO. Montar são 3 idas ao servidor (planejar,
+      // conferir, recarregar) — medido, passa de 2s. Sem sinal na tela o
+      // motorista toca de novo achando que falhou. O mock já tem o estado
+      // "carregando" (esqueleto): é ele que responde ao dedo.
+      const estadoAntes = estadoRota;
+      try { estadoRota = 'carregando'; if (typeof window.pintar === 'function') window.pintar(false); } catch (_) { /* sem seam */ }
+      const devolverEstado = () => { try { estadoRota = estadoAntes; } catch (_) { /* idem */ } };
+
+      let plano;
+      try { plano = await window.API.post('/logistica/rota/planejar', { date: hojeISO() }); }
+      catch (e) { devolverEstado(); return avisoErro(e); }
+      const paradas = Array.isArray(plano && plano.stops) ? plano.stops
+        : (Array.isArray(plano && plano.items) ? plano.items : []);
+
+      // semáforo dos endereços: só ATRASA a montagem se o servidor acusar algo.
+      let conf = null;
+      try { conf = await window.API.post('/logistica/rota/conferir', { date: hojeISO() }); } catch (_) { /* aviso é enfeite, não portão */ }
+      const comAviso = conf && Array.isArray(conf.items)
+        ? conf.items.filter((i) => Array.isArray(i.motivosVisiveis) && i.motivosVisiveis.length).length
+        : 0;
+
+      devolverEstado();          // o esqueleto sai antes do dado entrar
+      await carregarRota();      // já preenche a montagem com as paradas reais
+      if (comAviso && typeof window.usarDados === 'function') {
+        window.usarDados('montagem', { iniciarSub: `${comAviso} com aviso` });
+      }
+      if (comAviso && typeof window.portao === 'function') {
+        window.portao({
+          tom: 'alerta', ico: 'gps', titulo: `${comAviso} ${comAviso === 1 ? 'endereço com aviso' : 'endereços com aviso'}`,
+          sub: 'Dá pra sair assim, mas confira antes.', acoes: [['Ver a rota', 'principal']],
+        });
+      }
+      if (typeof window.ir === 'function') window.ir('montagem');
+    });
+  }
+
+  /** iniciar: mostra o custo REAL e só então cobra. */
+  async function iniciarRota() {
+    await comTrava(async () => {
+      let custo = null;
+      try { custo = await window.API.get('/logistica/rota/custo-preview'); } catch (e) { return avisoErro(e); }
+      // 🔴 NOME DE CAMPO DE DINHEIRO NÃO SE CHUTA. A 1ª versão adivinhou
+      // (`custo`/`total`/`creditos`) e a tela mostrou "Debita 0" com o servidor
+      // dizendo 4,8 — mentira com cara de app pronto. Estes são os nomes
+      // MEDIDOS na resposta, e quem decide se pode sair é o servidor
+      // (`saldoCobre`), não uma conta minha na tela.
+      const debita = Number(custo && custo.creditosAIniciar);
+      const saldo = Number(custo && custo.saldoAtual);
+      const temSaldo = custo && typeof custo.saldoCobre === 'boolean'
+        ? custo.saldoCobre
+        : (isFinite(saldo) && isFinite(debita) ? saldo >= debita : true);
+      const num = (v) => (isFinite(v) ? String(v).replace('.', ',') : '');
+      window.portao({
+        tom: temSaldo ? 'info' : 'trava',
+        ico: temSaldo ? 'play' : 'card',
+        titulo: temSaldo ? 'Iniciar a rota?' : 'Créditos insuficientes',
+        sub: isFinite(saldo)
+          ? `Debita ${num(debita)} · você tem ${num(saldo)}`
+          : `Debita ${num(debita)}`,
+        acoes: temSaldo ? [['Agora não', ''], ['Iniciar', 'principal']] : [['Fechar', '']],
+        classe: temSaldo ? 'duas' : '',
+      });
+      // o "Iniciar" do portão é quem cobra — nunca este trecho.
+      const wrap = naCamada('.portao-wrap');
+      const botao = wrap && wrap.querySelector('.principal');
+      if (temSaldo && botao) {
+        botao.addEventListener('click', () => comTrava(async () => {
+          try {
+            await window.API.post('/logistica/rota/iniciar', { date: hojeISO() });
+          } catch (e) { return avisoErro(e); }
+          await carregarRota();
+          if (typeof window.ir === 'function') window.ir('rota');
+        }), { once: true });
+      }
+    });
+  }
+
+  /** cancelar: encerra a rota; entrega aberta volta pra agenda, nunca some. */
+  async function cancelarRota() {
+    if (typeof window.portao !== 'function') return;
+    window.portao({
+      tom: 'alerta', ico: 'close', titulo: 'Cancelar a rota de hoje?',
+      sub: 'As entregas em aberto voltam pra agenda.',
+      acoes: [['Não', ''], ['Cancelar rota', 'principal']], classe: 'duas',
+    });
+    const botao = naCamada('.portao-wrap .principal');
+    if (!botao) return;
+    botao.addEventListener('click', () => comTrava(async () => {
+      try { await window.API.post('/logistica/rota/encerrar', { date: hojeISO() }); } catch (e) { return avisoErro(e); }
+      await carregarRota();
+      if (typeof window.ir === 'function') window.ir('rota');
+    }), { once: true });
+  }
+
+  const ACOES = {
+    montar: montarRota,
+    'iniciar-rota': iniciarRota,
+    iniciar: iniciarRota,
+    'cancelar-rota': cancelarRota,
+  };
+  // captura na fase de subida, DEPOIS do mock: quem não é meu segue o caminho dele.
+  document.addEventListener('click', (e) => {
+    const alvo = e.target.closest('[data-acao], [data-estado]');
+    if (!alvo || !temPonte()) return;
+    const chave = alvo.dataset.acao || alvo.dataset.estado;
+    const fn = ACOES[chave];
+    if (fn) fn();
+  });
 })();
