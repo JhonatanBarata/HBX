@@ -251,7 +251,7 @@ const DADOS={
     filtroFila:'8', filtroEntregue:'6',
     creditos:'240', creditosDebita:'12',
     somaProdutos:'20', somaMarcado:'R$ 336,00',
-    vazioTitulo:'Sem paradas hoje', vazioSub:'Monte a rota do dia pra começar.',
+    vazioTitulo:'Sem paradas hoje',
   },
   /* L3b — AS EMPRESAS DO CORREDOR (prospector), na tela de navegação.
      `chip` é COPY do desenho; `empresas` é DADO e vem do servidor.
@@ -444,7 +444,7 @@ const DADOS={
     ],
   },
   montagem:{
-    titulo:'Montagem de rota', dica:'Segure e arraste para ordenar',
+    titulo:'Montagem de rota',
     somaParadas:'6', somaProdutos:'20', somaValor:'R$ 336,00',
     iniciarSub:'João da Silva',
     linhas:[
@@ -539,7 +539,6 @@ T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
     <div class="vazio">
       <span class="ico">${ic('route',24)}</span>
       <strong>${DADOS.rota.vazioTitulo}</strong>
-      <span>${DADOS.rota.vazioSub}</span>
     </div>`, transmux(e==='semsinal'?'pronta':e));
   return shellRota(`
   <div class="kpis">
@@ -606,7 +605,7 @@ ${hdr({})}
   </div>
   <div class="acts">
     <button class="act go wide" data-ir="venda">${ic('play',21)}<span><b>Iniciar próxima parada</b><small>João da Silva</small></span></button>
-    <button class="act" data-ir="caderneta">${ic('note',19)}<span><b>Abrir caderneta</b><small>Ver lançamentos</small></span></button>
+    <button class="act" data-ir="caderneta">${ic('note',19)}<b>Abrir caderneta</b></button>
   </div>
 </div>
 ${nav('rota')}`;}};
@@ -819,7 +818,7 @@ ${hdr({})}
   ${mapa()}<div class="scrim"></div>
   <div class="sheet">
     <span class="handle"></span>
-    <div class="sheet-head"><div><h2>Folha da venda</h2><p>Chegada / venda</p></div>
+    <div class="sheet-head"><div><h2>Folha da venda</h2></div>
       <button class="round sm" data-ir="rota">${ic('close',16)}</button></div>
     <div class="box" style="display:flex;align-items:center;gap:10px">
       <span class="num lime" style="width:36px;height:36px">${d.n}</span>
@@ -847,12 +846,11 @@ ${hdr({})}
     </div>
     <div class="box">
       <div class="box-t">Forma de pagamento</div>
-      <div class="box-s">Selecione como o cliente irá pagar esta venda.</div>
       <div class="pays">
-        <button class="pay${d.forma==='dinheiro'?' sel':''}" data-acao="forma" data-forma="dinheiro"><span style="color:var(--lime)">${ic('cash',21)}</span><span><b>Dinheiro</b><small>Pagamento em espécie</small></span>${d.forma==='dinheiro'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
-        <button class="pay blue${d.forma==='pix'?' sel':''}" data-acao="forma" data-forma="pix"><span style="color:var(--blue-l)">${ic('pix',21)}</span><span><b>Pix</b><small>Transferência instantânea</small></span>${d.forma==='pix'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
-        <button class="pay${d.forma==='cartao'?' sel':''}" data-acao="forma" data-forma="cartao"><span style="color:var(--ink-2)">${ic('card',21)}</span><span><b>Cartão</b><small>Débito ou crédito</small></span>${d.forma==='cartao'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
-        <button class="pay${d.forma==='fiado'?' sel':''}" data-acao="forma" data-forma="fiado"><span style="color:var(--ink-2)">${ic('note',21)}</span><span><b>Caderneta</b><small>Lançar na caderneta</small></span>${d.forma==='fiado'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
+        <button class="pay${d.forma==='dinheiro'?' sel':''}" data-acao="forma" data-forma="dinheiro"><span style="color:var(--lime)">${ic('cash',21)}</span><b>Dinheiro</b>${d.forma==='dinheiro'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
+        <button class="pay blue${d.forma==='pix'?' sel':''}" data-acao="forma" data-forma="pix"><span style="color:var(--blue-l)">${ic('pix',21)}</span><b>Pix</b>${d.forma==='pix'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
+        <button class="pay${d.forma==='cartao'?' sel':''}" data-acao="forma" data-forma="cartao"><span style="color:var(--ink-2)">${ic('card',21)}</span><b>Cartão</b>${d.forma==='cartao'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
+        <button class="pay${d.forma==='fiado'?' sel':''}" data-acao="forma" data-forma="fiado"><span style="color:var(--ink-2)">${ic('note',21)}</span><b>Caderneta</b>${d.forma==='fiado'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
       </div>
     </div>
     <div class="box">
@@ -887,8 +885,7 @@ ${hdr({})}
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
     <span style="display:flex;align-items:center;gap:10px">
       <span class="round" style="border-color:var(--line-2)">${ic('lock',18)}</span>
-      <span><b style="font-size:16px;font-weight:500;display:block">Fechamento do dia</b>
-        <small style="font-size:11px;color:var(--ink-2)">Confira seu resumo e feche o dia</small></span></span>
+      <b style="font-size:16px;font-weight:500;display:block">Fechamento do dia</b></span>
     <span class="pill mute">${d.selo} ${ic('check',14)}</span>
   </div>
   ${(d.formas.length||d.formaTotal)?`<div class="forms">
@@ -982,7 +979,7 @@ ${hdr({})}
   <button class="act go full" style="margin-top:9px" data-ir="mapa">${ic('check',21)}
     <span><b>Confirmar carga</b><small>Concluir conferência e iniciar rota</small></span><span class="chev">${ic('chev',16)}</span></button>
   <button class="act full" style="margin-top:7px" data-ir="rota">${ic('back',18)}
-    <span><b>Voltar</b><small>Retornar para a rota</small></span><span class="chev">${ic('chev',16)}</span></button>
+    <b>Voltar</b><span class="chev">${ic('chev',16)}</span></button>
 </div>
 ${nav('rota')}`;}};
 
@@ -999,7 +996,6 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
 ${hdr({})}
 <div class="body">
   <h2 style="font-size:23px;font-weight:500;margin:4px 0 2px;letter-spacing:-.4px">${DADOS.montagem.titulo}</h2>
-  <p style="margin:0 0 4px;font-size:12.5px;color:var(--lime);display:flex;align-items:center;gap:7px">${ic('dots',15)} ${DADOS.montagem.dica}</p>
   <div class="stops">${DADOS.montagem.linhas.map(x=>l(...x)).join('')}</div>
   <div class="sum">
     <span class="c"><span style="color:var(--lime)">${ic('route',17)}</span><span><b>${DADOS.montagem.somaParadas}</b><small>paradas</small></span></span>
@@ -1009,7 +1005,7 @@ ${hdr({})}
   <button class="act full" style="margin-top:9px;background:linear-gradient(180deg,var(--btn-blue-1),var(--btn-blue-2));border:0;color:var(--white);justify-content:center;box-shadow:0 7px 18px rgba(47,126,247,.3)">
     ${ic('save',19)}<b style="font-size:14px" data-acao="salvar-rota">Salvar rota</b></button>
   <button class="act full" style="margin-top:7px;justify-content:center">${ic('spark',17)}
-    <span style="text-align:center"><b>Otimizar ordem</b><small>Sugerir melhor sequência</small></span></button>
+    <b>Otimizar ordem</b></button>
   <button class="act go full" style="margin-top:7px;justify-content:center" data-acao="iniciar-rota">${ic('play',19)}
     <span style="text-align:center"><b>Iniciar rota</b><small>${DADOS.montagem.iniciarSub}</small></span></button>
 </div>
@@ -1060,7 +1056,7 @@ T.produtos={nome:'Produtos',grupo:'Cadastro',render(){
 ${hdr({semChat:1})}
 <div class="body">
   <div class="screen-head"><span style="color:var(--lime)">${ic('box',30)}</span>
-    <span><h2>Produtos</h2><p>Gerencie seus produtos e preços</p></span></div>
+    <span><h2>Produtos</h2></span></div>
   <div class="searchrow">
     <label class="search">${ic('search',17)}<input placeholder="Buscar produto" data-campo="busca-produto" value="${d.busca}"></label>
     <button class="filt">${ic('sliders',18)}</button></div>
@@ -1225,21 +1221,19 @@ T.financeiro={nome:'Ajustes · Financeiro',grupo:'Ajustes',render(){
 
 T.avancado={nome:'Ajustes · Avançado',grupo:'Ajustes',render(){
   const ch=(ic0,t,s,on)=>`<button class="linha-cfg"><span class="ico">${ic(ic0,16)}</span>
-    <span><strong>${t}</strong><span>${s}</span></span><span class="chave ${on?'on':''}"><i></i></span></button>`;
+    <span><strong>${t}</strong>${s?`<span>${s}</span>`:''}</span><span class="chave ${on?'on':''}"><i></i></span></button>`;
   return telaAjuste('Avançado',`
-    <div class="banner alerta" style="margin-top:2px">${ic('alert',15)}
-      <span>Estas chaves mudam <b>como o app trabalha</b>. Na dúvida, não mexa.</span></div>
-    <div class="grupo">Cobrança</div>
+    <div class="grupo" style="margin-top:2px">Cobrança</div>
     <div class="cartao-lista">
-      ${ch('wallet','Financeiro ligado','sem ele o app não fala de dinheiro',1)}
+      ${ch('wallet','Financeiro ligado','',1)}
       ${ch('note','Cobrança simples','uma folha só, sem conferir item a item',1)}
-      ${ch('card','Aceitar cartão','entra como forma de pagamento',1)}
+      ${ch('card','Aceitar cartão','',1)}
     </div>
     <div class="grupo">Rota</div>
     <div class="cartao-lista">
       ${ch('check','Conferência de rota','confere endereços antes de montar',1)}
       ${ch('gps','Rastreamento','a Central vê onde o aparelho está',0)}
-      ${ch('volume','Voz na navegação','fala a manobra em voz alta',1)}
+      ${ch('volume','Voz na navegação','',1)}
     </div>
     <div class="grupo">Zona de perigo</div>
     <div class="cartao-lista">
@@ -1256,26 +1250,24 @@ T.avancado={nome:'Ajustes · Avançado',grupo:'Ajustes',render(){
 
 T.sons={nome:'Ajustes · Sons',grupo:'Ajustes',render(){
   const linha=(t,s,on)=>`<button class="linha-cfg"><span class="ico">${ic('volume',16)}</span>
-    <span><strong>${t}</strong><span>${s}</span></span>
+    <span><strong>${t}</strong>${s?`<span>${s}</span>`:''}</span>
     <span style="display:flex;align-items:center;gap:9px">
       <span class="ghost" style="padding:4px 9px;font-size:10.5px">ouvir</span>
       <span class="chave ${on?'on':''}"><i></i></span></span></button>`;
   return telaAjuste('Sons e voz',`
     <div class="cartao-lista" style="margin-top:2px">
       <button class="linha-cfg"><span class="ico" style="background:var(--lime-bg-2);color:var(--lime)">${ic('volume',16)}</span>
-        <span><strong>Todos os sons</strong><span>desligar aqui cala o app inteiro</span></span>
+        <span><strong>Todos os sons</strong></span>
         <span class="chave on"><i></i></span></button>
     </div>
     <div class="grupo">O que fala</div>
     <div class="cartao-lista">
-      ${linha('Voz da navegação','"em 240 metros, vire à direita"',1)}
+      ${linha('Voz da navegação','',1)}
       ${linha('Chegada na parada','toca quando entra no raio de 60 m',1)}
       ${linha('Recado da Central','sirene até você abrir',1)}
-      ${linha('Entrega registrada','confirmação curta',1)}
-      ${linha('Erro','quando algo não foi',0)}
-    </div>
-    <div class="banner pausa" style="margin-top:9px">${ic('alert',15)}
-      <span>No volante o som é o único aviso que <b>não exige olhar</b>.</span></div>`);
+      ${linha('Entrega registrada','',1)}
+      ${linha('Erro','',0)}
+    </div>`);
 }};
 
 T.historico={nome:'Ajustes · Histórico',grupo:'Ajustes',render(){
@@ -1319,18 +1311,11 @@ T.consumo={nome:'Ajustes · Consumo e bônus',grupo:'Ajustes',render(){
 
 /* 20 — ROTA RÁPIDA --------------------------------------------------------- */
 T.rapida={nome:'Rota rápida',grupo:'Rota',render(){
-  const ex=(icone,t,s)=>`<div class="previa" style="border-style:dashed"><span class="marca info">${ic(icone,13)}</span>
-    <span><strong>${t}</strong><span>${s}</span></span></div>`;
   return `${status}
 ${hdr({voltar:'rota'})}
 <div class="body">
   <label class="search" style="height:48px;margin-top:4px">${ic('search',18)}
     <input placeholder="Endereço, CEP, coordenada ou link" value="Rua 14 JP, 1682"></label>
-  <div class="grupo">O campo aceita qualquer um destes</div>
-  ${ex('route','Endereço escrito','Rua 14 JP, 1682 — acha pelo texto')}
-  ${ex('gps','CEP com número','13503-210, 1682')}
-  ${ex('target','Coordenada colada','-22.4149, -47.5651')}
-  ${ex('map','Link do Maps','maps.app.goo.gl/… — abre e segue o redirecionamento')}
   <div class="grupo">Achei estes</div>
   <div class="stops">
     <div class="stop on"><span class="grip"></span>
@@ -1346,7 +1331,7 @@ ${hdr({voltar:'rota'})}
   </div>
   <div class="grupo">Modo cadastro</div>
   <div class="campos">
-    <label class="campo"><label>Nome de quem recebe</label><input placeholder="mínimo 2 letras — nada de 'teste'"></label>
+    <label class="campo"><label>Nome de quem recebe</label><input></label>
   </div>
   <div class="banner alerta" style="margin-top:8px">${ic('alert',15)}
     <span>Se a porta já tem cadastro, o campo Nome <b>some</b> e a conta é reaproveitada — nada de cliente repetido.</span></div>
@@ -1379,11 +1364,6 @@ ${hdr({voltar:'produtos',semChat:1})}
     ${f.estoque?`<label class="campo"><label>Estoque</label><input value="${f.estoque}" data-campo="produto-estoque" readonly>
       <span class="dica">${f.estoqueDica}</span></label>`:''}
   </div>
-  <div class="banner pausa" style="margin-top:9px">${ic('alert',15)}
-    <span>O preço da <b>entrega</b> sai daqui, sempre. Preço por cliente vive na ficha dele.</span></div>
-  <div class="grupo">Este produto não fala de dia</div>
-  <div class="banner alerta">${ic('calendar',15)}
-    <span>Dia de entrega é do <b>cliente</b>. Não existe "produto de terça" em lugar nenhum do app.</span></div>
   <div class="acts" style="margin-top:12px">
     <button class="act go wide" style="justify-content:center" data-acao="salvar-produto">${ic('check',19)}<b>Salvar</b></button>
     <button class="act" style="justify-content:center" data-superficie="confirmar">${ic('box',17)}<b>Arquivar</b></button>
@@ -1395,9 +1375,7 @@ ${nav('produtos')}`;}};
 T.passeio={nome:'Modo Passeio',grupo:'Sistema',render(){return `${status}
 ${hdr({voltar:'ajustes'})}
 <div class="body com-dock">
-  <div class="banner pausa" style="margin-top:2px">${ic('spark',15)}
-    <span><b>Seu caminho, do seu jeito.</b> Sem cliente, sem cobrança, sem crédito.</span></div>
-  <label class="search" style="height:46px">${ic('search',17)}<input placeholder="Buscar lugar ou endereço"></label>
+  <label class="search" style="height:46px;margin-top:2px">${ic('search',17)}<input placeholder="Buscar lugar ou endereço"></label>
   <div class="grupo">Suas paradas</div>
   <div class="stops">
     <div class="stop"><span class="grip"></span>
@@ -1437,8 +1415,6 @@ ${hdr({voltar:'rota'})}
     <span><b>Gravando</b><span>7 locais · 12,4 km percorridos</span></span>
     <span class="crono">00:38:12</span>
   </div>
-  <div class="banner pausa" style="margin-top:7px">${ic('alert',15)}
-    <span>Ande a rota uma vez. A cada porta, toque em <b>Checkpoint</b> — o app guarda o pino de verdade.</span></div>
   <div class="grupo">Locais registrados</div>
   <div class="stops">
     <div class="stop"><span class="grip"></span>
@@ -1457,8 +1433,6 @@ ${hdr({voltar:'rota'})}
         <span class="tags"><b class="tag lime">cliente existente</b><b class="tag blue">20L x1</b></span></span>
       <span class="side"><span class="pill lime">${ic('check',14)}Salvo</span></span></div>
   </div>
-  <div class="banner alerta" style="margin-top:8px">${ic('gps',15)}
-    <span>Pino tirado <b>na porta</b> vale mais que endereço digitado — é ele que corrige o cadastro velho.</span></div>
 </div>
 <div class="tmx-dock">
   <div class="transmux">
@@ -1513,17 +1487,7 @@ T.portoes={nome:'Portões e bloqueios',grupo:'Sistema',render(){
   return `${status}
 ${hdr({})}
 <div class="body">
-  <div class="box" style="margin-top:2px">
-    <div class="box-t">A regra dos três tons</div>
-    <div class="box-s" style="margin-top:6px;line-height:1.5">
-      <b style="color:var(--amber)">Âmbar</b> pede decisão e tem saída ·
-      <b style="color:var(--red)">Vermelho</b> bloqueia o trabalho ·
-      <b style="color:var(--blue-l)">Azul</b> só informa.<br>
-      O que bloqueia entra com a curva dura do erro; o que pergunta entra macio.
-      <b>Portão sem saída é armadilha</b> — só a atualização obrigatória não fecha.
-    </div>
-  </div>
-  <div class="grupo">Antes de montar / iniciar</div>
+  <div class="grupo" style="margin-top:2px">Antes de montar / iniciar</div>
   ${p('enderecos','Endereços com erro','trava o montar rota — a saída é corrigir ou retirar','alerta')}
   ${p('longe','Longe do ponto de partida','8,7 km da primeira parada','alerta')}
   ${p('creditos','Créditos acabaram','sem crédito a rota não inicia','trava')}
@@ -1573,8 +1537,7 @@ ${hdr({voltar:'clientes',semChat:1})}
     <label class="campo"><label>CEP</label><input value="${f.cep}" data-campo="cep"></label>
     <div class="tripla">
       <label class="campo"><label>Rua</label><input value="${f.rua}" data-campo="rua"></label>
-      <label class="campo${f.numeroPendente?' erro':''}"><label>Número ${f.numeroPendente?'<span class="pend">· pendente</span>':''}</label><input placeholder="—" value="${f.numero}" data-campo="numero">
-        ${f.numeroPendente?'<span class="dica">sem número o pino não fecha</span>':''}</label>
+      <label class="campo${f.numeroPendente?' erro':''}"><label>Número ${f.numeroPendente?'<span class="pend">· pendente</span>':''}</label><input placeholder="—" value="${f.numero}" data-campo="numero"></label>
       <label class="campo"><label>Bairro</label><input value="${f.bairro}" data-campo="bairro"></label>
     </div>
     <label class="campo"><label>Observações da porta</label>
@@ -1585,8 +1548,6 @@ ${hdr({voltar:'clientes',semChat:1})}
   <div class="dias">
     ${ROT.map((r,i)=>dia(r,'',f.dias[i],i+1)).join('')}
   </div>
-  <div class="banner pausa" style="margin-top:7px">${ic('calendar',15)}
-    <span>O dia é do <b>cliente</b>, não do produto. Vale pra toda a agenda dele.</span></div>
 
   <div class="grupo">O que leva</div>
   <div class="cartao-lista" style="padding:0 11px">
@@ -1601,8 +1562,6 @@ ${hdr({voltar:'clientes',semChat:1})}
     <button class="act perigo" style="justify-content:center"
       data-superficie="confirmar">${ic('trash',17)}<b>Excluir</b></button>
   </div>
-  <div class="banner alerta" style="margin-top:8px">${ic('alert',15)}
-    <span>No app, excluir é <b>segurar pressionado</b> no cartão da lista — o botão aqui é a mesma porta.</span></div>
 </div>
 ${nav('clientes')}`;}};
 
@@ -1619,7 +1578,7 @@ ${hdr({semChat:1})}
     <span class="handle"></span>
     <div class="sheet-head">
       <div><h2>${naoEntregue?'Não entregue':'Chegada'}</h2>
-        <p>${naoEntregue?'Diga o que aconteceu':d.cabecalho}</p></div>
+        ${naoEntregue?'':`<p>${d.cabecalho}</p>`}</div>
       <button class="round sm" data-ir="rota">${ic('close',16)}</button></div>
 
     ${naoEntregue?`
@@ -1662,10 +1621,10 @@ ${hdr({semChat:1})}
       <div class="box">
         <div class="box-t">Como pagou</div>
         <div class="pays">
-          <button class="pay${d.forma==='dinheiro'?' sel':''}" data-acao="forma" data-forma="dinheiro"><span style="color:var(--lime)">${ic('cash',21)}</span><span><b>Dinheiro</b><small>em espécie</small></span>${d.forma==='dinheiro'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
-          <button class="pay blue${d.forma==='pix'?' sel':''}" data-acao="forma" data-forma="pix"><span style="color:var(--blue-l)">${ic('pix',21)}</span><span><b>Pix</b><small>na hora</small></span>${d.forma==='pix'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
-          <button class="pay${d.forma==='cartao'?' sel':''}" data-acao="forma" data-forma="cartao"><span style="color:var(--ink-2)">${ic('card',21)}</span><span><b>Cartão</b><small>débito ou crédito</small></span>${d.forma==='cartao'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
-          <button class="pay${d.forma==='fiado'?' sel':''}" data-acao="forma" data-forma="fiado"><span style="color:var(--amber)">${ic('note',21)}</span><span><b>Marcar</b><small>vai pra caderneta</small></span>${d.forma==='fiado'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
+          <button class="pay${d.forma==='dinheiro'?' sel':''}" data-acao="forma" data-forma="dinheiro"><span style="color:var(--lime)">${ic('cash',21)}</span><b>Dinheiro</b>${d.forma==='dinheiro'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
+          <button class="pay blue${d.forma==='pix'?' sel':''}" data-acao="forma" data-forma="pix"><span style="color:var(--blue-l)">${ic('pix',21)}</span><b>Pix</b>${d.forma==='pix'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
+          <button class="pay${d.forma==='cartao'?' sel':''}" data-acao="forma" data-forma="cartao"><span style="color:var(--ink-2)">${ic('card',21)}</span><b>Cartão</b>${d.forma==='cartao'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
+          <button class="pay${d.forma==='fiado'?' sel':''}" data-acao="forma" data-forma="fiado"><span style="color:var(--amber)">${ic('note',21)}</span><b>Marcar</b>${d.forma==='fiado'?`<i class="ok">${ic('check',15)}</i>`:''}</button>
         </div>
       </div>
 
@@ -1782,12 +1741,12 @@ ${hdr({semChat:1})}
   </div>
   <div class="grupo">Caderneta</div>
   <div class="cartao-lista">
-    ${chave('note','Modo caderneta','a tela do dia vira a caderneta de papel',a.modoCaderneta,'chave-caderneta')}
+    ${chave('note','Modo caderneta','',a.modoCaderneta,'chave-caderneta')}
   </div>
   <div class="grupo">Som e tela</div>
   <div class="cartao-lista">
-    ${chave('volume','Sons e voz','avisos falados na rua',a.sons,'chave-sons')}
-    ${chave('moon','Tema escuro','acompanha o aparelho quando você não escolhe',
+    ${chave('volume','Sons e voz','',a.sons,'chave-sons')}
+    ${chave('moon','Tema escuro','',
             document.documentElement.dataset.luz!=='claro','chave-tema')}
   </div>
   ${a.grupoOffline?`<div class="grupo">Sem internet</div>
@@ -1795,7 +1754,7 @@ ${hdr({semChat:1})}
     <div class="linha-cfg" style="cursor:default"><span class="ico">${ic('download',16)}</span>
       <span><strong>${a.mapaBaixando}</strong><span>${a.mapaBaixado}</span></span><span></span></div>
     <div class="prog" style="margin:0 11px 10px"><span class="prog-b"><i style="width:${a.mapaPct}%"></i></span></div>
-    ${linha('route','Cadastrar rota offline','o dia fica guardado no aparelho')}
+    ${linha('route','Cadastrar rota offline')}
     ${linha('trash','Apagar mapa baixado')}
   </div>`:''}
   <div class="grupo">Aplicativo</div>
