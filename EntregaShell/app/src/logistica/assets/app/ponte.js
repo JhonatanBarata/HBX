@@ -991,6 +991,38 @@
   const EMP_ESC_TETO = 1.8;
   const EMP_DIST_CHEIA = 300;
 
+  /* 🔴 A RÉGUA DO MOCK ROTA (§2.3 do plano, correção do dono): a empresa vale
+     À FRENTE do veículo; "depois que passou já era" — o motorista não pode
+     ser avisado de algo que ficou pra trás. Passou é PRA SEMPRE no dia (Set
+     por identidade). Rumo só existe em movimento (`rumoConfiavel`, ≥9 km/h):
+     sem rumo NADA muda — parado ou a pé, a tela continua mostrando tudo. */
+  const empresasPassadas = new Set();
+  const EMP_PASSOU_M = 40;      // atrás disso, apaga o convite (v4: despede 40-90 m)
+  const EMP_SOME_M = 250;       // bem pra trás, sai da tela (v4: some 150-320 m)
+  function reguaDaFrente(el, lat, lng) {
+    const chave = el.dataset.empresa || `${lat},${lng}`;
+    if (empresasPassadas.has(chave)) {
+      el.classList.add('passou');
+      return;
+    }
+    const fix = ultimoFix;
+    const rumo = rumoConfiavel(fix);
+    if (rumo == null || !fix || !Number.isFinite(fix.lat) || !Number.isFinite(fix.lng)) return;
+    // equiretangular basta nesta escala (corredor de 150 m)
+    const kx = 111320 * Math.cos((fix.lat * Math.PI) / 180);
+    const dx = (lng - fix.lng) * kx;
+    const dy = (lat - fix.lat) * 110540;
+    const dist = Math.hypot(dx, dy);
+    if (dist < EMP_PASSOU_M) return;                    // do lado: ainda é agora
+    const aoAlvo = (Math.atan2(dx, dy) * 180) / Math.PI; // 0° = norte, como o rumo
+    let dif = Math.abs(aoAlvo - rumo) % 360;
+    if (dif > 180) dif = 360 - dif;
+    if (dif <= 100) return;                             // à frente (com folga de esquina)
+    empresasPassadas.add(chave);
+    el.classList.add('passou');
+    if (dist > EMP_SOME_M) el.classList.remove('no-ar');
+  }
+
   function posicionarEmpresas() {
     const palco = naCamada('[data-mapa]');
     const mapa = palco && palco.__hbxMapaObj;
@@ -1016,6 +1048,7 @@
       el.style.setProperty('--x', `${ponto.x.toFixed(1)}px`);
       el.style.setProperty('--y', `${ponto.y.toFixed(1)}px`);
       el.style.setProperty('--esc', esc.toFixed(3));
+      reguaDaFrente(el, lat, lng);
     });
   }
 

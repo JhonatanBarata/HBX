@@ -882,27 +882,54 @@ function mapaGpsDesenho(){
    real, e `data-lat/lng` só saem quando há coordenada. É isso que mantém
    desenho e app byte a byte iguais — e que impede botão sem porta. */
 function empresasDoMapa(){ const d=DADOS.mapa||{}; return Array.isArray(d.empresas)?d.empresas:[]; }
+/* --- O PRÉDIO ISOMÉTRICO do mock rota (gps-ruas-prospector-v4), 1:1.
+       Meia-largura 15, altura 20; as janelas são PARALELOGRAMOS DA FACE,
+       calculados no plano da face — retângulo colado por cima é o que fazia
+       o prédio parecer adesivo. --- */
+const EMP_BW=15, EMP_BH=20;
+const empFaceEsq=(a,b)=>({x:-EMP_BW+EMP_BW*a, y:-EMP_BW/2+(EMP_BW/2)*a-EMP_BH*b});
+const empFaceDir=(a,b)=>({x:EMP_BW*a,         y:-(EMP_BW/2)*a-EMP_BH*b});
+function empJanela(f,a,b,da,db){
+  const p=[f(a,b),f(a+da,b),f(a+da,b+db),f(a,b+db)];
+  return p.map(q=>`${q.x.toFixed(2)},${q.y.toFixed(2)}`).join(' ');
+}
+const EMP_JANELAS=[
+  ['e',.14,.28,.30,.20],['e',.14,.60,.30,.20],['e',.56,.44,.30,.20],
+  ['d',.16,.30,.28,.20],['d',.56,.30,.28,.20],['d',.36,.62,.28,.20]
+];
+function svgPredio(ordem){
+  const fila=(n)=>{                       // ordem [3,0,5,...] = lugar de cada janela na fila
+    const p=Array.isArray(ordem)?ordem[n]:n;
+    return Number.isFinite(p)?p:n;
+  };
+  const jan=EMP_JANELAS.map(([f,a,b,da,db],n)=>
+    `<polygon class="emp-jan" style="--j:${fila(n)}" points="${empJanela(f==='e'?empFaceEsq:empFaceDir,a,b,da,db)}"/>`).join('');
+  return `<svg viewBox="-30 -56 60 64">
+    <ellipse class="emp-luz" cx="0" cy="0" rx="27" ry="13"/>
+    <ellipse class="emp-sombra" cx="1.5" cy="1" rx="16" ry="7"/>
+    <circle class="emp-varre" cx="0" cy="0" r="14"/>
+    <path class="emp-aro" d="M-20,0 A20,9.5 0 1,1 20,0 A20,9.5 0 1,1 -20,0 Z" transform="translate(0,0)"/>
+    <polygon class="emp-esq"  points="-15,-7.5 0,0 0,-20 -15,-27.5"/>
+    <polygon class="emp-dir"  points="0,0 15,-7.5 15,-27.5 0,-20"/>
+    <polygon class="emp-topo" points="0,-20 15,-27.5 0,-35 -15,-27.5"/>
+    ${jan}
+    <circle class="emp-pe" cx="0" cy="0" r="2.2"/>
+  </svg>`;
+}
 function empresasChao(){
   const lista=empresasDoMapa(); if(!lista.length) return '';
-  const jan=(o)=>[0,1,2,3,4,5].map(i=>{
-    const p=Array.isArray(o)?o.indexOf(i):i;   // -1 = fila mal formada: cai na ordem natural
-    return `<i style="--j:${p<0?i:p}"></i>`;
-  }).join('');
   return lista.map(e=>{
     const nome=e.nome||'';
     const gancho=e.id?` data-acao="abrir-empresa" data-empresa="${e.id}"`:'';
     const geo=(e.lat!=null&&e.lng!=null)?` data-lat="${e.lat}" data-lng="${e.lng}" data-dist="${e.distM||0}"`:'';
-    return `<div class="emp${e.aceso?' on':''}"${gancho}${geo}
+    return `<div class="emp no-ar${e.aceso?' on':''}"${gancho}${geo}
       style="--x:${e.x||'50%'};--y:${e.y||'50%'};--esc:${e.esc||1};--n:${nome.length||1};--atraso:${e.atraso||'0s'}">
-      <span class="emp-obj">
-        <span class="emp-halo"></span><span class="emp-varre"></span><span class="emp-anel"></span>
-        <span class="emp-rabo"></span>
-        <span class="emp-predio"><i class="telhado"></i><i class="lado"></i><i class="frente"></i>
-          <span class="emp-janelas">${jan(e.ordem)}</span></span>
-      </span>
+      <span class="emp-obj">${svgPredio(e.ordem)}</span>
       <span class="emp-rotulo">
-        <span class="emp-linha"><i class="pt">•</i><b class="emp-nome">${nome}</b></span>
-        <span class="emp-trilho"><i class="emp-barra"></i></span></span>
+        <span class="emp-chip-nome"><i class="pt"></i><b class="emp-nome">${nome}</b>
+          <span class="emp-trilho"><i class="emp-barra"></i></span></span>
+        <span class="emp-guia"></span>
+      </span>
     </div>`;
   }).join('');
 }
