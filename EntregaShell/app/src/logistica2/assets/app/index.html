@@ -11,6 +11,12 @@
 </head>
 <body>
   <div class="app" id="app"></div>
+  <!-- ORDEM IMPORTA: native (ponte com o Kotlin) → mock (a casca) → ponte
+       (o que é do aparelho: API, Voltar, teclado, tema). O native é carregado
+       ANTES porque ele resolve o tema no load; a ponte DEPOIS porque ela se
+       apoia no que o mock declarou. -->
+  <script src="native.js"></script>
   <script src="mock.js"></script>
+  <script src="ponte.js"></script>
 </body>
 </html>
