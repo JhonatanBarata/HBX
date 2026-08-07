@@ -292,7 +292,13 @@ export class LogisticaBaseSaudeService {
       // em 26/07 (alarme que toca em tudo não é alarme, é ruído). Quem tem cura
       // automática a caminho é AMARELO: continua na fila do "dá pra melhorar", some da
       // fila do "pare o que está fazendo". O motivo continua inteiro em `motivos[]`.
-      const temVermelho = !resolveSozinho && motivos.some((m) => MOTIVOS_VERMELHOS_BASE_SAUDE.has(m));
+      // ⚠️ `resolveSozinho` abranda SÓ o `sem_pino` — a 1ª entrega grava a porta pelo
+      // GPS e o problema morre sem ninguém tocar. Endereço REPETIDO é cadastro: nenhuma
+      // entrega conserta duas contas na mesma porta, e deixar a cura automática apagar
+      // essa cor escondia 6 clientes do dono (achado ao conferir a lista contra a tela).
+      const vermelhosPresentes = motivos.filter((m) => MOTIVOS_VERMELHOS_BASE_SAUDE.has(m));
+      const temVermelho = vermelhosPresentes.some((m) => m !== 'sem_pino')
+        || (vermelhosPresentes.includes('sem_pino') && !resolveSozinho);
       const pendencias = motivos.filter((m) => !MOTIVOS_QUE_NAO_SAO_PENDENCIA.has(m));
       const semaforo: SemaforoBaseSaude = temVermelho ? 'vermelho' : pendencias.length > 0 ? 'amarelo' : 'verde';
 

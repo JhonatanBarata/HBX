@@ -308,3 +308,30 @@ test('read-only: se qualquer write acontecer, o guard-spy do mock já derruba o 
   const service = new LogisticaBaseSaudeService(buildPrismaMock() as any);
   await assert.doesNotReject(() => service.getBaseSaude(41));
 });
+
+test('cura automática abranda SÓ o sem_pino: endereço repetido continua vermelho mesmo com entrega a caminho', async () => {
+  // 06/08 — achado conferindo a lista contra a tela: 6 clientes com endereço repetido
+  // E rota ativa sumiam do vermelho, porque `resolveSozinho` apagava a cor inteira.
+  // A entrega grava a PORTA (resolve o sem_pino); ela não desfaz cadastro repetido.
+  const CLIENTES_LOCAL = [
+    { id: 'x1', name: 'Ana', lat: null, lng: null, geoFonte: null, endereco: 'Rua 8', numero: '601', complemento: null, bairro: 'Centro', cidade: 'Rio Claro', uf: 'SP', cep: '13504683' },
+    { id: 'x2', name: 'Bia', lat: null, lng: null, geoFonte: null, endereco: 'Rua 8', numero: '601', complemento: null, bairro: 'Centro', cidade: 'Rio Claro', uf: 'SP', cep: '13504683' },
+  ];
+  const prisma = {
+    customerProfile: { findMany: async () => CLIENTES_LOCAL },
+    localEntrega: { findMany: async () => [] },
+    entrega: {
+      groupBy: async (args: any) => (args?.where?.status === 'entregue'
+        ? []
+        : CLIENTES_LOCAL.map((c) => ({ customerProfileId: c.id, _count: { _all: 1 } }))),
+    },
+    logisticaPlanoEntrega: { groupBy: async () => CLIENTES_LOCAL.map((c) => ({ customerProfileId: c.id, _count: { _all: 1 } })) },
+  };
+  const resultado = await new LogisticaBaseSaudeService(prisma as any).getBaseSaude(41);
+  for (const cliente of resultado.clientes) {
+    assert.ok(cliente.motivos.includes('sem_pino'));
+    assert.ok(cliente.motivos.includes('endereco_repetido'));
+    assert.equal(cliente.resolveSozinho, true, 'a porta ainda vem pela 1ª entrega');
+    assert.equal(cliente.semaforo, 'vermelho', 'mas o cadastro repetido continua pedindo o dono');
+  }
+});
