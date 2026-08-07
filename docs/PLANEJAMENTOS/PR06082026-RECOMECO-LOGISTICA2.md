@@ -239,7 +239,7 @@ antes-e-depois verdes; sem fonte → VAZIO.
 | Leva | Cena que o dono vê funcionando | Portas (§3) |
 |---|---|---|
 | **L1** | ✅ **FEITA E PROVADA NO g15** (06/08, `a1c2879d`+`b1731857`). Seam `DADOS.rota` no mock (literais MOVIDOS, portão 66/66) + tradução na ponte. Provado com 3 entregas REAIS criadas no backend local (nome, endereço, hora, qtd, valor, somatório) e com a empresa vazia → "Sem paradas hoje". Crédito e caixa do dia REAIS (`/credits/me` e `caderneta/resumo`). 🔴 Defeito do MOCK achado pelo print e curado no mock: o satélite do transmux usava classe genérica (`aviso`/`esq`) e herdava regra do cartão de aviso e do esqueleto — o botão principal ia pro canto. Resíduo de teste limpo do banco local. | rota · dia-preview · gerar-dia |
-| **L2** | Montar → conferir → iniciar (débito certo) → encerrar | planejar · conferir · custo-preview · iniciar · encerrar |
+| **L2** | 🔶 **QUASE** (06/08, a438dbf2). Provado no g15: montar → montagem com 3 paradas reais (3 paradas · 6 produtos · R$ 27,00) e portão do dinheiro com número do SERVIDOR (Debita 4,8 · você tem 0 → trava). Cancelar/encerrar ligado. ⬜ **NÃO provado: o Iniciar que DEBITA** — a empresa da bancada tem 0 crédito e não fabrico lançamento no ledger à mão; falta dar crédito pelo /master e repetir. ⚠️ Medido: montar leva ~43s no ambiente LOCAL (sem OSRM → timeout → haversine); o dedo recebe o esqueleto enquanto isso. | planejar · conferir · custo-preview · iniciar · encerrar |
 | **L3** | Dirigindo de verdade: mapa, traço, voz, chegada | osrm · tracking · chegando · (PMTiles) |
 | **L4** | Entregar e receber na porta, até sem sinal | entregas confirmar/cancelar · comprovantes · vender |
 | **L5** | Fechar o dia: caderneta e semana com dinheiro real | caderneta resumo/finalizar · resumo-dia |
