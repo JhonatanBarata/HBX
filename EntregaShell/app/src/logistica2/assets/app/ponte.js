@@ -191,10 +191,24 @@
     };
   }
 
+  const centavos = (c) => (typeof c === 'number' && isFinite(c) ? dinheiro(c / 100) : '');
+
   async function carregarRota() {
     if (!temPonte() || typeof window.usarDados !== 'function') return;
     let r;
     try { r = await window.API.get('/logistica/rota'); } catch (_) { return; }
+
+    // Crédito e caixa do dia vêm de OUTRAS portas — pedidos em paralelo, e
+    // cada um que falhar deixa o SEU campo vazio, sem derrubar a tela.
+    const hoje = new Date();
+    const dia = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
+    const [creditoR, caixaR] = await Promise.allSettled([
+      window.API.get('/credits/me'),
+      window.API.get(`/logistica/caderneta/resumo?data=${dia}`),
+    ]);
+    const credito = creditoR.status === 'fulfilled' ? creditoR.value : null;
+    const caixa = caixaR.status === 'fulfilled' ? caixaR.value : null;
+    const formas = (caixa && caixa.fechamento && caixa.fechamento.formas) || null;
     const itens = Array.isArray(r.items) ? r.items : [];
     const paradas = itens.map((it, i) => traduzirParada(it, i, i > 0));
     const entregues = itens.filter((it) => String(it.status || '') === 'entregue').length;
@@ -209,8 +223,13 @@
       kpiParadas: String(itens.length),
       kpiEntregues: String(entregues),
       kpiEntreguesParado: String(entregues),
-      // saldo/dinheiro/pix são do fechamento do dia: sem essa fonte aqui, vazio.
-      saldo: '', dinheiro: '', pix: '',
+      // saldo/dinheiro/pix = o CAIXA do dia (fechamento da caderneta), em
+      // centavos na origem. Fonte fora do ar ⇒ campo vazio, nunca número velho.
+      saldo: caixa && caixa.fechamento ? centavos(caixa.fechamento.totalCents) : '',
+      dinheiro: formas ? centavos(formas.dinheiroCents) : '',
+      pix: formas ? centavos(formas.pixCents) : '',
+      // crédito é NÚMERO INTEIRO, nunca moeda (lei da casa).
+      creditos: credito && typeof credito.balance === 'number' ? String(credito.balance) : '',
       diaFeitas: String(entregues),
       diaTotal: String(itens.length),
       diaPct: itens.length ? `${Math.round((entregues / itens.length) * 100)}%` : '0%',
