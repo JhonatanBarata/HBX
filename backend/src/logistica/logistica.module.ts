@@ -49,6 +49,7 @@ import { LogisticaPedidoPublicoController } from './logistica-pedido-publico.con
 import { LogisticaOperacaoService } from './logistica-operacao.service';
 import { LogisticaRouteBillingService } from './logistica-route-billing.service';
 import { LogisticaPasseioService } from './logistica-passeio.service';
+import { ProspectorCorredorService } from './prospector-corredor.service';
 import { LogisticaTrackingService } from './logistica-tracking.service';
 import { LogisticaTrackingMobileController } from './logistica-tracking-mobile.controller';
 import { LogisticaTrackingPublicService } from './logistica-tracking-public.service';
@@ -239,6 +240,7 @@ import { LogisticaEstoqueService } from './logistica-estoque.service';
     LogisticaOperacaoService,
     LogisticaRouteBillingService,
     LogisticaPasseioService,
+    ProspectorCorredorService,
     LogisticaTrackingService,
     LogisticaTrackingPublicService,
     OfflineAwareLogisticaTrackedBillingService,

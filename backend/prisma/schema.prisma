@@ -300,6 +300,8 @@ model Company {
   clienteHistoricos      ClienteHistorico[]
   // F0 (27/07) — extrato de eventos da agenda (dia/hora exatos de toda mudança).
   logisticaAgendaEventos LogisticaAgendaEvento[]
+  // PROSPECTOR CNPJ F0 (07/08) — empresas do corredor da rota embarcadas na folha.
+  prospectosRota         ProspectoRota[]
   entregaComprovantes    EntregaComprovante[]
   clienteProdutos        ClienteProduto[]
   logisticaRoutes        LogisticaRoute[]
@@ -6887,4 +6889,53 @@ model CnpjGeo {
   // Recorte por CAIXA (bbox) antes de perguntar rota ao OSRM. Sem PostGIS neste cluster
   // (conferido em pg_available_extensions), o caminho é btree (lat, lng) + BETWEEN.
   @@index([lat, lng])
+}
+
+/// PROSPECTOR CNPJ — F0 (07/08). Plano: docs/PLANEJAMENTOS/PR07082026-PROSPECTOR-CNPJ.md
+///
+/// O lado do TENANT do corredor: `CnpjGeo`/`CnpjPublicCompany` são bases públicas da RFB
+/// (não têm dono); esta tabela é a MEMÓRIA da empresa sobre quem ela já viu passar — o que
+/// embarcou na folha do dia, o que acendeu no mapa, o que o motorista clicou, o que virou
+/// lead e o que ela dispensou. Sem ela o mesmo salão apareceria toda santa segunda-feira.
+///
+/// `@@unique([companyId, cnpj])` = UMA linha viva por empresa-alvo, atualizada a cada rota
+/// (o embarque é upsert). O cooldown é do TENANT, não global: a mesma empresa pode estar
+/// dispensada aqui e quente na distribuidora do bairro vizinho.
+///
+/// Preenchida por `backend/src/logistica/prospector-corredor.service.ts` no INICIAR da rota.
+model ProspectoRota {
+  id             String   @id @default(cuid())
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  companyId      Int
+  /// 14 dígitos, sem pontuação — a mesma chave de `CnpjGeo.cnpj` e `CnpjPublicCompany.cnpj`.
+  cnpj           String
+  /// Snapshot do nome no dia do embarque (nomeFantasia, ou razaoSocial se vazio). É SNAPSHOT
+  /// de propósito: o card do APK não pode depender de join com 28M linhas da RFB pra pintar.
+  nome           String
+  cnaeDescricao  String?
+  lat            Float
+  lng            Float
+  /// Distância em METROS até a parada mais próxima da rota daquele dia.
+  distM          Int
+  /// Telefone da RFB, só dígitos. Null = sem telefone público (não impede virar lead).
+  phoneDigits    String?
+  /// embarcado (entrou na folha) | aceso (o mapa destacou e falou) | clicado (o motorista
+  /// tocou) | lead (virou lead no /vendas — SAI pra sempre do corredor) | dispensado.
+  estado         String   @default("embarcado")
+  /// Dia da rota em YYYY-MM-DD, fuso America/Sao_Paulo — NUNCA o UTC do container.
+  rotaDia        String
+  acesoAt        DateTime?
+  clicadoAt      DateTime?
+  /// Silêncio até esta data (dispensa = 90 dias). Enquanto vigente, o corredor não devolve.
+  cooldownAte    DateTime?
+  /// Quantas vezes o motorista já dispensou. 3 = silêncio permanente (F2 do plano).
+  dispensas      Int      @default(0)
+  /// `VendasLead.id` quando o clique virou lead. Sem relação formal de propósito: o lead
+  /// mora no /vendas e pode ser encerrado sem levar o histórico do corredor junto.
+  leadId         String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([companyId, cnpj])
+  @@index([companyId, rotaDia])
 }
