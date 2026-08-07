@@ -455,6 +455,34 @@
          até ele existir, a lista fica vazia e a tela de navegação abre SEM
          empresa nenhuma, sem chip, sem varredura e sem radar. */
       mapa: { empresas: [] },
+      /* 🔴 O CROMO DO GPS — a última mentira da varredura, e a pior de todas
+         pelo LUGAR: é a tela em que o motorista está DIRIGINDO. Enquanto rota,
+         clientes, ajustes, recarga, caderneta e semana já nasciam limpas, esta
+         seguia dizendo "Parada 3 de 8 · Mercado São Judas" (cliente que não
+         existe), "240 m · Vire à direita" (curva que ninguém escolheu, com a
+         seta apontando) e "12:26 chegada · 45 min restante · 8,2 km". Todos
+         literais do desenho, cravados no template — nenhum saía de porta
+         nenhuma. Na de chegada era ainda mais direto: "Você chegou · Mercado
+         São Judas · R. São Judas, 142 · GPS ±6 m, você está na porta".
+
+         A fiação (§4.1 do PR07082026-FECHAR-LOGISTICA2) ainda não existe;
+         então, como nas empresas do corredor, o campo fica VAZIO e o pedaço
+         some da tela — a tela de navegação abre com o mapa de verdade (L3a),
+         a seta do motorista e o Encerrar, e nada mais. Honesto.
+
+         Zera o que é DADO. NÃO zera o que é COPY: `velocidadeUnidade`,
+         `chegadaRotulo`, `restanteRotulo`, `distanciaRotulo`, `chegouTitulo`,
+         `chegouAcao` e — o que mais importa — `encerrar`, que é a PORTA DE
+         SAÍDA desta tela. Motorista preso na navegação é defeito pior que
+         qualquer número faltando. */
+      gps: {
+        manobraIcone: '', manobraDist: '', manobraVerbo: '',
+        manobraRua: '', manobraDepois: '',
+        rumo: '', velocidade: '',
+        paradaN: '', paradaTotal: '', paradaNome: '',
+        chegada: '', restante: '', distancia: '',
+        chegouEndereco: '', chegouPrecisao: '', chegouFaltam: '', chegouKm: '',
+      },
     };
     try {
       Object.keys(zerar).forEach((s) => { DADOS[s] = Object.assign({}, DADOS[s], zerar[s]); });
@@ -671,15 +699,11 @@
     return estilo;
   }
 
+  /* O centro do mapa. Quem o escreve é a ÚNICA assinatura do GPS, lá embaixo
+     na §7c — havia um `watchPosition` aqui só pra isto, e um segundo pro cromo
+     da navegação seria o mesmo aparelho pedindo posição duas vezes, pagando
+     bateria dobrada pra ter dois fixes que discordam. */
   let ultimaPos = null;
-  if (navigator.geolocation) {
-    try {
-      navigator.geolocation.watchPosition(
-        (p) => { ultimaPos = { lat: p.coords.latitude, lng: p.coords.longitude }; },
-        () => {}, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
-      );
-    } catch (_) { /* sem GPS: o mapa abre na 1ª parada */ }
-  }
 
   /** monta (ou reaproveita) o mapa do palco visível */
   async function montarMapa(palco) {
@@ -855,6 +879,328 @@
     requestAnimationFrame(() => { encerrarCenaDe(antes); posicionarEmpresas(); });
   }
 
+  /* ------------------------------------------------------------------------
+     7c. L3b — O CROMO DA NAVEGAÇÃO COM FONTE (§4.1 do PR07082026).
+
+     O seam `DADOS.gps` já existe e já nasce VAZIO (ver `apagarDemonstracao`).
+     Esta seção é quem o enche, das três fontes que o plano nomeia:
+
+       · `navigator.geolocation` → velocidade, rumo e a precisão do GPS;
+       · `ENTREGAS`             → parada N de M, nome, endereço e o que falta;
+       · `/logistica/osrm/route` → a manobra (distância, verbo, rua, o depois)
+                                   e o total (chegada, restante, distância).
+
+     🔴 O QUE NÃO TEM FONTE NÃO É ESCRITO. Toda função daqui devolve '' quando
+     não sabe, e o template do mock some com o pedaço. É a régua do §4.6.5, e
+     é ela que faz esta tela poder abrir só com o mapa e o Encerrar.
+
+     🔴 "VOCÊ ESTÁ NA PORTA" MORREU COM A DEMONSTRAÇÃO, DE PROPÓSITO. Era um
+     VEREDITO (irmão do selo "Tudo certo!" que o §4.6.5 matou) e não tem porta
+     que o emita. `chegouPrecisao` diz o fato que o aparelho mede — "GPS ±6 m"
+     — e nada além. Quem já diz que chegou é o título da tela.
+     ------------------------------------------------------------------------ */
+  const R_TERRA = 6371000;
+  const rad = (g) => (g * Math.PI) / 180;
+  /** metros entre dois {lat,lng} */
+  function metrosEntre(a, b) {
+    if (!a || !b) return Infinity;
+    const dLat = rad(b.lat - a.lat); const dLng = rad(b.lng - a.lng);
+    const s = Math.sin(dLat / 2) ** 2
+      + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
+    return 2 * R_TERRA * Math.asin(Math.min(1, Math.sqrt(s)));
+  }
+  /** 240 m · 1,2 km — a mesma régua do `distancia()` da lista de paradas */
+  const emMetros = (m) => (!(m >= 0) ? ''
+    : (m >= 1000 ? `${(m / 1000).toFixed(1).replace('.', ',')} km` : `${Math.round(m)} m`));
+  /** 45 min · 1 h 20 — acima de uma hora "95 min" não é jeito de ler tempo */
+  const emMinutos = (s) => {
+    if (!(s >= 0)) return '';
+    const min = Math.max(1, Math.round(s / 60));
+    return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')}`;
+  };
+  const maiuscula = (t) => (t ? t.charAt(0).toUpperCase() + t.slice(1) : '');
+  /* 8 rumos, em português: Leste é L e Oeste é O (N/S/L/O é o que está escrito
+     em toda bússola daqui — E de "East" seria tradução pela metade). */
+  const ROSA = ['N', 'NE', 'L', 'SE', 'S', 'SO', 'O', 'NO'];
+  const cardeal = (g) => (Number.isFinite(g) ? ROSA[Math.round(((g % 360) + 360) % 360 / 45) % 8] : '');
+
+  /* 🔴 A TABELA DE MANOBRA É A DO APP QUE JÁ RODA (`osrmStepInstrucao` do
+     app.js, S5 21/07), COPIADA SEM UMA PALAVRA NOVA. Dois fronts do mesmo
+     produto não podem falar dialetos diferentes na hora de mandar virar. E ela
+     é MÍNIMA de propósito (Lei 8): manobra fora da tabela devolve NADA e o
+     passo é descartado — inventar copy de navegação é pior que ficar quieto.
+     O ícone vem do mesmo lugar da frase, senão a seta e o texto discordam. */
+  function manobraDoPasso(passo) {
+    const m = (passo && passo.maneuver) || {};
+    const tipo = String(m.type || '');
+    const mod = String(m.modifier || '');
+    // 🔴 NOME DE RUA É TEXTO DE TERCEIRO (vem do OSM) e o template do mock
+    // interpola CRU — mesma lei do nome de cliente lá em cima (§L1). Uma rua
+    // com "<" quebraria a marcação e o cartão da manobra sumiria sem erro
+    // nenhum, na tela de quem está dirigindo. Escapa na FONTE.
+    const rua = esc(String((passo && passo.name) || '').trim());
+    const saida = (verbo, icone) => ({ verbo, icone, rua });
+    if (tipo === 'arrive') return saida('você chegou', 'check');
+    if ((tipo === 'roundabout' || tipo === 'rotary') && Number.isFinite(Number(m.exit))) {
+      return saida(`na rotatória, pegue a ${Math.trunc(Number(m.exit))}ª saída`, 'nav');
+    }
+    if (mod === 'slight left') return saida('mantenha-se à esquerda', 'curvaEsquerda');
+    if (mod === 'slight right') return saida('mantenha-se à direita', 'curvaDireita');
+    if (tipo === 'turn' && mod === 'left') return saida('vire à esquerda', 'curvaEsquerda');
+    if (tipo === 'turn' && mod === 'right') return saida('vire à direita', 'curvaDireita');
+    if (tipo === 'continue' || tipo === 'new name') {
+      return saida(rua ? `continue na ${rua}` : 'continue', 'nav');
+    }
+    return null;
+  }
+
+  /* ---- A POSIÇÃO ---------------------------------------------------------
+     O `watchPosition` que já existia guardava só lat/lng (o mapa precisava do
+     centro). Agora ele guarda o fix INTEIRO, porque velocidade, rumo e
+     precisão são three campos da tela — e são os únicos que não custam rede. */
+  let ultimoFix = null;
+  /* 🔴 RUMO PARADO É RUÍDO — a lição já paga no app que roda (`navBearingConfiavel`).
+     No farol o aparelho reporta qualquer coisa; mostrar "SO" com o carro parado
+     é a bússola mentindo, e o mesmo número ainda vai restringir a saída no
+     pedido de rota. Abaixo de ~9 km/h não se fala em rumo. */
+  const RUMO_VELOCIDADE_MIN_MPS = 2.5;
+  const rumoConfiavel = (fix) => (fix && Number.isFinite(fix.velMps) && fix.velMps >= RUMO_VELOCIDADE_MIN_MPS
+    && Number.isFinite(fix.rumoGraus) ? fix.rumoGraus : null);
+
+  /* ---- O PEDIDO DE ROTA, COM FREIO ---------------------------------------
+     🔴 O RETRAÇO É O QUE JÁ CUSTOU UMA MADRUGADA (§4.1). As três regras:
+
+       1. o resultado guardado leva o CARIMBO da entrada que o gerou. Trocou a
+          rota, trocou a assinatura — traço velho não sobrevive à troca;
+       2. UM pedido em voo por vez, intervalo mínimo, e recalcula antes da hora
+          só se o carro andou de verdade;
+       3. orçamento: backoff quando a fonte falha e TETO POR DIA. Roteador em
+          laço é conta de servidor e bateria de motorista.
+
+     Entre dois pedidos a manobra NÃO congela: a distância até a curva é
+     recalculada do fix atual contra o ponto da manobra, que já veio na
+     resposta. É de graça e é o que faz a tela parecer um GPS em vez de um
+     cartaz que troca de minuto em minuto. */
+  const NAV_INTERVALO_MS = 15000;      // piso entre dois pedidos
+  const NAV_ANDOU_M = 120;             // andou isto ⇒ pode pedir antes da hora
+  const NAV_TETO_DIA = 400;            // teto por dia operacional
+  const NAV_BACKOFF_MS = [2000, 5000, 15000, 60000];
+  let navRota = null;                  // { assinatura, passos, totalM, totalS, em }
+  let navPedindo = false;
+  let navUltimoPedidoEm = 0;
+  let navUltimaOrigem = null;
+  let navFalhas = 0;
+  let navGastoDia = { dia: '', n: 0 };
+
+  const navGastar = () => {
+    const dia = diaOperacional();
+    if (navGastoDia.dia !== dia) navGastoDia = { dia, n: 0 };
+    if (navGastoDia.n >= NAV_TETO_DIA) return false;
+    navGastoDia.n += 1;
+    return true;
+  };
+
+  /** as paradas que ainda faltam, na ordem, com pino */
+  function paradasPendentes() {
+    const lista = [];
+    ENTREGAS.forEach((reg) => {
+      const it = reg.item || {};
+      const s = String(it.status || '');
+      if (s === 'entregue' || s === 'cancelada') return;
+      lista.push({ n: reg.n, item: it });
+    });
+    return lista.sort((a, b) => a.n - b.n);
+  }
+  const pinoDa = (it) => {
+    const c = (it && it.cliente) || {};
+    return (typeof c.lat === 'number' && typeof c.lng === 'number') ? { lat: c.lat, lng: c.lng } : null;
+  };
+
+  /** `lng,lat;lng,lat;…` — origem + as paradas que faltam, na ordem da rota */
+  function coordenadasDaNavegacao() {
+    if (!ultimoFix) return null;
+    const pontos = [{ lat: ultimoFix.lat, lng: ultimoFix.lng }];
+    paradasPendentes().forEach((p) => { const pino = pinoDa(p.item); if (pino) pontos.push(pino); });
+    if (pontos.length < 2) return null;
+    return pontos.map((p) => `${p.lng.toFixed(5)},${p.lat.toFixed(5)}`).join(';');
+  }
+
+  /* Direção no pedido — a lição de 30/07 do dono ("vc não retraça a rota"):
+     sem `bearings` o roteador acha que dá pra sair do ponto pra qualquer lado e
+     manda fazer o retorno no meio da avenida. Grau de 15 em 15 pra bússola
+     tremendo não gerar assinatura nova a cada fix. */
+  const BEARING_TOLERANCIA = 60;
+  function bearingsDe(rumo, pontos) {
+    if (rumo == null || pontos < 2) return '';
+    const grau = ((Math.round(rumo / 15) * 15) % 360 + 360) % 360;
+    return `${grau},${BEARING_TOLERANCIA}${';'.repeat(pontos - 1)}`;
+  }
+
+  async function pedirRota() {
+    if (navPedindo || !temPonte()) return;
+    const coords = coordenadasDaNavegacao();
+    if (!coords) return;
+    const rumo = rumoConfiavel(ultimoFix);
+    const bearings = bearingsDe(rumo, coords.split(';').length);
+    const assinatura = `${coords}#${bearings}`;
+    const agora = Date.now();
+    const andou = navUltimaOrigem ? metrosEntre(navUltimaOrigem, ultimoFix) : Infinity;
+    const esperar = navFalhas ? NAV_BACKOFF_MS[Math.min(navFalhas - 1, NAV_BACKOFF_MS.length - 1)] : NAV_INTERVALO_MS;
+    if (agora - navUltimoPedidoEm < esperar && andou < NAV_ANDOU_M) return;
+    if (navRota && navRota.assinatura === assinatura && agora - navRota.em < NAV_INTERVALO_MS) return;
+    if (!navGastar()) return;
+
+    navPedindo = true;
+    navUltimoPedidoEm = agora;
+    navUltimaOrigem = { lat: ultimoFix.lat, lng: ultimoFix.lng };
+    try {
+      const alvo = `/logistica/osrm/route?coords=${encodeURIComponent(coords)}&steps=true`
+        + (bearings ? `&bearings=${encodeURIComponent(bearings)}` : '');
+      const r = await window.API.get(alvo);
+      const rota = r && r.code === 'Ok' && r.routes && r.routes[0];
+      if (!rota) throw new Error('Rota viária não encontrada.');
+      // 🔴 CARIMBO. Sem ele, a resposta que voltou tarde escreve o traço de uma
+      // rota que já não é a de agora — e o motorista segue a manobra da rota
+      // anterior sem nada na tela dizendo que mudou.
+      navRota = {
+        assinatura,
+        em: Date.now(),
+        totalM: Number.isFinite(Number(rota.distance)) ? Number(rota.distance) : null,
+        totalS: Number.isFinite(Number(rota.duration)) ? Number(rota.duration) : null,
+        passos: passosDaPrimeiraPerna(rota),
+      };
+      navFalhas = 0;
+    } catch (_) {
+      // 🔴 FALHOU: NÃO APAGA O QUE ESTÁ NA TELA. A manobra de 20 s atrás ainda
+      // é melhor que uma tela em branco pra quem está no volante — e a
+      // distância até a curva continua sendo recalculada do GPS, de graça.
+      navFalhas += 1;
+    } finally {
+      navPedindo = false;
+      pintarNavegacao();
+    }
+  }
+
+  /** os passos com instrução da 1ª perna (origem → parada da vez) */
+  function passosDaPrimeiraPerna(rota) {
+    const perna = (rota.legs || [])[0] || {};
+    return (perna.steps || []).map((passo) => {
+      const m = manobraDoPasso(passo);
+      const loc = passo && passo.maneuver && passo.maneuver.location;
+      if (!m || !Array.isArray(loc) || loc.length < 2) return null;
+      const lng = Number(loc[0]); const lat = Number(loc[1]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      return Object.assign({ lat, lng }, m);
+    }).filter(Boolean);
+  }
+
+  /* Qual manobra mandar agora: a 1ª ainda À FRENTE. "À frente" aqui é a que
+     está a mais de 25 m — passou dela, ela já era, e insistir é o GPS falando
+     de uma curva que ficou pra trás. */
+  const MANOBRA_PASSOU_M = 25;
+  function manobraDaVez() {
+    if (!navRota || !ultimoFix) return null;
+    const passos = navRota.passos || [];
+    for (let i = 0; i < passos.length; i += 1) {
+      const d = metrosEntre(ultimoFix, passos[i]);
+      if (d > MANOBRA_PASSOU_M) return { passo: passos[i], distancia: d, depois: passos[i + 1] || null };
+    }
+    return null;
+  }
+
+  /* ---- A PINTURA ---------------------------------------------------------
+     Um lugar só escreve no seam do GPS, e ele escreve TUDO — inclusive o vazio.
+     🔴 Escrever só o que eu sei deixaria o resto com o valor anterior: o seam é
+     MERGE (a lei do §4.6.5), e campo que ninguém reescreve fica pra sempre. */
+  function pintarNavegacao() {
+    if (typeof window.usarDados !== 'function') return;
+    const pendentes = paradasPendentes();
+    const vez = pendentes[0] || null;
+    const cliente = (vez && vez.item && vez.item.cliente) || {};
+    const total = ENTREGAS.size;
+
+    // o que falta de estrada: soma das pernas ainda por dirigir
+    const faltaM = pendentes.reduce((s, p) => {
+      const m = Number(p.item && p.item.legDistanceM);
+      return s + (Number.isFinite(m) && m > 0 ? m : 0);
+    }, 0);
+
+    const m = manobraDaVez();
+    const rumo = rumoConfiavel(ultimoFix);
+    const velKmh = ultimoFix && Number.isFinite(ultimoFix.velMps) && ultimoFix.velMps >= 0
+      ? String(Math.round(ultimoFix.velMps * 3.6)) : '';
+    const precisao = ultimoFix && Number.isFinite(ultimoFix.precisaoM)
+      ? `GPS ±${Math.round(ultimoFix.precisaoM)} m` : '';
+
+    // chegada = agora + o que a rota disse que falta. Sem rota, sem hora — a
+    // conta do relógio é do APARELHO, mas o tempo é do roteador.
+    const chegada = navRota && navRota.totalS != null
+      ? hora(new Date(Date.now() + navRota.totalS * 1000).toISOString()) : '';
+
+    window.usarDados('gps', {
+      manobraIcone: m ? m.passo.icone : '',
+      manobraDist: m ? emMetros(m.distancia) : '',
+      manobraVerbo: m ? maiuscula(m.passo.verbo) : '',
+      manobraRua: m ? (m.passo.rua || '') : '',
+      // "depois, siga em frente por 1,2 km" do desenho = a PRÓXIMA manobra. Só
+      // entra se ela existir de verdade; encadeada é o que separa um app com
+      // mapa de um GPS (item 7 do app que já roda).
+      manobraDepois: m && m.depois ? `depois, ${m.depois.verbo}` : '',
+      rumo: cardeal(rumo),
+      velocidade: velKmh,
+      paradaN: vez ? String(vez.n) : '',
+      paradaTotal: total ? String(total) : '',
+      paradaNome: vez ? esc(cliente.nome) : '',
+      chegada,
+      restante: navRota ? emMinutos(navRota.totalS) : '',
+      distancia: navRota ? emMetros(navRota.totalM) : '',
+      chegouEndereco: vez ? esc(cliente.endereco) : '',
+      chegouPrecisao: precisao,
+      // "faltam N paradas" conta as que sobram DEPOIS desta — quem está na
+      // porta da 3ª quer saber o que vem pela frente, não recontar a de agora.
+      // O VERBO CONCORDA: uma parada FALTA, cinco FALTAM. Medido: com 1 pendente
+      // a tela dizia "faltam 1 parada". A ponte escolhe a forma porque só ela
+      // sabe o número; as duas palavras são do desenho.
+      chegouFaltam: pendentes.length > 1
+        ? `${pendentes.length - 1} parada${pendentes.length - 1 > 1 ? 's' : ''}` : '',
+      chegouFaltamVerbo: pendentes.length === 2 ? 'falta' : 'faltam',
+      chegouKm: faltaM > 0 ? emMetros(faltaM) : '',
+    });
+  }
+
+  /* Só se mexe com a tela do GPS à vista. O `watchPosition` é único e vive o
+     app inteiro (o mapa da rota também bebe dele); o que liga e desliga é o
+     PEDIDO DE ROTA e o repinte — bateria e conta de roteador não são pagas por
+     tela que ninguém está olhando. */
+  const naNavegacao = () => telaAtual() === 'mapa' || telaAtual() === 'mapachegou';
+  function aoMover() {
+    if (!naNavegacao()) return;
+    pintarNavegacao();
+    if (telaAtual() === 'mapa') pedirRota();
+  }
+
+  /* ---- A ÚNICA ASSINATURA DO GPS -----------------------------------------
+     Era um `watchPosition` que só guardava o centro do mapa. Vira o fix
+     inteiro, e é dele que saem velocímetro, bússola e precisão. */
+  if (navigator.geolocation) {
+    try {
+      navigator.geolocation.watchPosition(
+        (p) => {
+          const c = p.coords || {};
+          ultimoFix = {
+            lat: c.latitude, lng: c.longitude,
+            velMps: Number.isFinite(c.speed) ? c.speed : null,
+            rumoGraus: Number.isFinite(c.heading) ? c.heading : null,
+            precisaoM: Number.isFinite(c.accuracy) ? c.accuracy : null,
+          };
+          ultimaPos = { lat: c.latitude, lng: c.longitude };
+          aoMover();
+        },
+        () => {}, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
+      );
+    } catch (_) { /* sem GPS: o mapa abre na 1ª parada e o cromo fica vazio */ }
+  }
+
   /* A BUSCA É DE TECLA, NÃO DE CLIQUE — por isso não cabe no mapa de ações.
      Espera o dedo parar (350ms) antes de ir ao servidor: mandar a cada letra
      enfileira 8 requisições pra digitar "Larissa" e a última nem sempre é a
@@ -902,6 +1248,11 @@
       if (tela === 'consumo') carregarConsumo();
       if (tela === 'salvas') carregarSalvas();
       if (tela === 'recarga') carregarRecarga();
+      // 🔴 A NAVEGAÇÃO NÃO ESPERA O PRÓXIMO FIX. Entrar na tela já pinta o que
+      // se sabe SEM GPS nenhum (parada N de M, nome, endereço, o que falta) e
+      // já pede a rota. Sem isto o rodapé nascia vazio e só se enchia no
+      // primeiro `watchPosition` — que numa garagem pode demorar.
+      if (tela === 'mapa' || tela === 'mapachegou') { pintarNavegacao(); if (tela === 'mapa') pedirRota(); }
       return r;
     };
   }
@@ -1943,10 +2294,12 @@
       } catch (_) { /* sem ponte de som: nada a fazer */ }
       carregarAjustes();
     },
-    'chave-tema': () => {
-      const escuro = document.documentElement.dataset.luz !== 'claro';
-      if (typeof window.trocarLuz === 'function') window.trocarLuz(escuro ? 'claro' : 'escuro');
-    },
+    // 🔴 `chave-tema` NÃO ENTRA AQUI — e a ausência é a correção, não um
+    // esquecimento. O tema tem um dono só (§1): a ponte já EMBRULHA o
+    // `trocarLuz` do mock pra falar com o native. O mock vira a luz; o embrulho
+    // leva pro aparelho. Uma entrada aqui viraria a luz uma SEGUNDA vez no
+    // mesmo clique — medido no g15: escuro→claro→escuro, e a chave "Tema
+    // escuro" dos Ajustes simplesmente não fazia nada.
     // 🔴 SAIR APAGA A SESSAO DO APARELHO — confirma antes, sempre.
     sair: () => {
       window.portao({

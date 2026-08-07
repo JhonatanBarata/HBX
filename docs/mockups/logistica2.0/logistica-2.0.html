@@ -1876,6 +1876,12 @@ users:'<circle cx="10" cy="8" r="3.3" fill="none" stroke="currentColor" stroke-w
 play:'<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 8.4l6 3.6-6 3.6V8.4z" fill="currentColor"/>',
 nav:'<path d="M20 4L4 10.6l7 2.6 2.4 7L20 4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
 curvaDireita:'<path d="M7 21v-7.5a4.5 4.5 0 0 1 4.5-4.5H18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M14.5 5.5L19 9l-4.5 3.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
+/* 🔴 A CURVA À ESQUERDA É O ESPELHO DA DIREITA (x → 24−x, e o arco troca o
+   sweep). Não é desenho novo: é o MESMO traço virado. Ela entrou junto com a
+   fiação da navegação porque a tabela de manobra do OSRM tem dois lados — sem
+   ela, "vire à esquerda" sairia com a seta apontando pra DIREITA, que é uma
+   mentira bem pior que a que esta frente veio matar. */
+curvaEsquerda:'<path d="M17 21v-7.5a4.5 4.5 0 0 0-4.5-4.5H6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.5 5.5L5 9l4.5 3.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
 clock:'<circle cx="12" cy="12" r="8.6" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7.6V12l3 1.8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
 alert:'<path d="M12 4l8.5 15h-17L12 4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 10v3.6M12 16.4h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
 chev:'<path d="M9.5 5.5L16 12l-6.5 6.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>',
@@ -2128,6 +2134,53 @@ const DADOS={
       {nome:'Padaria Avenida',    x:'22%', y:'57%', esc:.88,  ordem:[2,0,4,1,5,3], atraso:'2.1s',  aceso:true},
       {nome:'Restaurante Sabor',  x:'74%', y:'68%', esc:1,    ordem:[1,2,5,0,4,3], atraso:'3.55s', aceso:true},
     ],
+  },
+  /* L3b — O CROMO DA NAVEGAÇÃO. Tudo o que estava CRAVADO no template do GPS
+     mora aqui: a manobra, a bússola, o velocímetro, o rodapé e a linha do
+     "Você chegou".
+
+     🔴 ERA A MENTIRA QUE SOBROU DA VARREDURA (§4.6.5). Enquanto `rota`,
+     `clientes`, `ajustes`, `recarga`, `caderneta` e `semana` já nasciam
+     limpas, esta tela seguia dizendo "Parada 3 de 8 · Mercado São Judas",
+     "240 m · Vire à direita" e "12:26 chegada" — na ÚNICA tela em que o
+     motorista está DIRIGINDO. Nome de cliente que não existe, com uma seta
+     mandando virar numa rua que ninguém escolheu.
+
+     A régua é a do §4.6.5: o que é DADO zera sem fonte (`apagarDemonstracao`);
+     o que é COPY fica, porque é texto do desenho e não vem do servidor.
+
+     🔴 SLOT SEM FONTE **SOME INTEIRO** — com rótulo, unidade e separador. O
+     " · " nasce de um `join`, nunca do template: separador órfão e caixa vazia
+     boiando no mapa são a mesma mentira de antes, só que mais feia. O que
+     NUNCA some é o `encerrar`: é a porta de saída desta tela, e motorista
+     preso na navegação é defeito pior que qualquer número faltando.
+
+     DADO: manobra* · rumo · velocidade · paradaN · paradaTotal · paradaNome ·
+           chegada · restante · distancia · chegouEndereco · chegouPrecisao ·
+           chegouFaltam · chegouKm.
+     COPY: velocidadeUnidade · chegadaRotulo · restanteRotulo · distanciaRotulo
+           · encerrar · chegouTitulo · chegouAcao.
+
+     `manobraIcone` é DADO, não enfeite: é o TIPO da curva que o trajeto
+     mandou. Só entra nome que existe no dicionário `I` — nome errado vira
+     caixa vermelha na tela (a trava do `ic()`). */
+  gps:{
+    manobraIcone:'curvaDireita', manobraDist:'240 m', manobraVerbo:'Vire à direita',
+    manobraRua:'R. São Judas', manobraDepois:'depois, siga em frente por 1,2 km',
+    rumo:'N', velocidade:'38', velocidadeUnidade:'km/h',
+    paradaN:'3', paradaTotal:'8', paradaNome:'Mercado São Judas',
+    chegada:'12:26', chegadaRotulo:'chegada',
+    restante:'45 min', restanteRotulo:'restante',
+    distancia:'8,2 km', distanciaRotulo:'distância',
+    encerrar:'Encerrar',
+    chegouTitulo:'Você chegou', chegouEndereco:'R. São Judas, 142',
+    chegouPrecisao:'GPS ±6 m, você está na porta',
+    /* `chegouFaltamVerbo` é COPY com CONCORDÂNCIA: "faltam 5 paradas" mas
+       "falta 1 parada". Quem escolhe a forma é quem sabe o número — a ponte —,
+       e ela não inventa palavra: as duas são do desenho. O desenho só tinha a
+       plural porque o exemplo dele tinha 5. */
+    chegouFaltamVerbo:'faltam', chegouFaltam:'5 paradas',
+    chegouKm:'6,4 km', chegouAcao:'Registrar entrega',
   },
   /* L4 — A PORTA. Os literais abaixo são os que estavam nos templates da folha
      de chegada e da folha da venda, MOVIDOS pra cá. `itens` é [ícone, nome,
@@ -2543,28 +2596,59 @@ function empresasCromo(){
   return `${d.chip?`<div class="emp-chip">${d.chip}</div>`:''}<div class="emp-scan"></div>`;
 }
 
+/* 🔴 NENHUM LITERAL AQUI DENTRO. Todo o cromo desta tela vem de `DADOS.gps`
+   (ver o seam, seção L3b) e cada pedaço SÓ EXISTE se tiver fonte.
+   `trilha` é a régua: o " · " é do `join`, nunca do template — assim o campo
+   que não veio leva o separador embora junto, em vez de deixar um "·" órfão
+   boiando no mapa. */
 function telaGps(chegou){
-  if(chegou) return `${status}
+  const g=DADOS.gps||{};
+  const trilha=(ps)=>ps.filter(Boolean).join(' · ');
+  const paradaDeM=(g.paradaN&&g.paradaTotal)?`Parada <b>${g.paradaN} de ${g.paradaTotal}</b>`:'';
+  /* o número grande + o rótulo embaixo: sem número não sobra rótulo sozinho
+     ("chegada" sem hora é uma coluna vazia com legenda). */
+  const num=(v,rot,destaque)=>v
+    ?`<span class="n${destaque?' destaque':''}"><b>${v}</b>${rot?`<small>${rot}</small>`:''}</span>`:'';
+
+  if(chegou){
+    const rodape=trilha([paradaDeM,g.chegouFaltam?`${g.chegouFaltamVerbo||''} <b>${g.chegouFaltam}</b>`:'',
+      g.chegouKm?`<b>${g.chegouKm}</b>`:'']);
+    const baixo=trilha([g.chegouEndereco,g.chegouPrecisao?`${ic('gps',13)} ${g.chegouPrecisao}`:'']);
+    return `${status}
 <div class="body flush" style="overflow:hidden;padding:0">
   <div class="gps">
     ${mapa()}
     <div class="gps-manobra chegou">
       <div class="cima">
         <span class="seta">${ic('check',26)}</span>
-        <span><b class="dist">Você chegou</b>
-          <span class="verbo">Mercado São Judas</span></span>
+        <span>${g.chegouTitulo?`<b class="dist">${g.chegouTitulo}</b>`:''}${g.paradaNome?`
+          <span class="verbo">${g.paradaNome}</span>`:''}</span>
       </div>
-      <div class="baixo">R. São Judas, 142 · ${ic('gps',13)} GPS ±6 m, você está na porta</div>
+      ${baixo?`<div class="baixo">${baixo}</div>`:''}
     </div>
     <div class="gps-lado" style="bottom:118px">
       <button aria-label="Recentralizar">${ic('target',18)}</button>
     </div>
     <div class="gps-rodape">
-      <div class="parada">${ic('route',14)} Parada <b>3 de 8</b> · faltam <b>5 paradas</b> · <b>6,4 km</b></div>
-      <button class="act go full" style="justify-content:center">${ic('check',20)}<b>Registrar entrega</b></button>
+      ${rodape?`<div class="parada">${ic('route',14)} ${rodape}</div>`:''}
+      <button class="act go full" style="justify-content:center">${ic('check',20)}<b>${g.chegouAcao||''}</b></button>
     </div>
   </div>
 </div>`;
+  }
+
+  /* A MANOBRA INTEIRA SOME sem trajeto — cartão arredondado vazio no topo do
+     mapa é cromo fingindo que sabe pra onde ir. */
+  const manobraBaixo=trilha([g.manobraRua,g.manobraDepois]);
+  const manobra=(g.manobraIcone||g.manobraDist||g.manobraVerbo||manobraBaixo)
+    ?`<div class="gps-manobra">
+      <div class="cima">
+        ${g.manobraIcone?`<span class="seta">${ic(g.manobraIcone,26)}</span>`:''}
+        <span>${g.manobraDist?`<b class="dist">${g.manobraDist}</b>`:''}${g.manobraVerbo?`<span class="verbo">${g.manobraVerbo}</span>`:''}</span>
+      </div>
+      ${manobraBaixo?`<div class="baixo">${manobraBaixo}</div>`:''}
+    </div>`:'';
+  const rodape=trilha([paradaDeM,g.paradaNome?`<b>${g.paradaNome}</b>`:'']);
 
   return `${status}
 <div class="body flush" style="overflow:hidden;padding:0">
@@ -2593,31 +2677,30 @@ function telaGps(chegou){
     </div>
 
     <!-- a manobra manda: distância grande, verbo grande, rua embaixo -->
-    <div class="gps-manobra">
-      <div class="cima">
-        <span class="seta">${ic('curvaDireita',26)}</span>
-        <span><b class="dist">240 m</b><span class="verbo">Vire à direita</span></span>
-      </div>
-      <div class="baixo">R. São Judas · depois, siga em frente por 1,2 km</div>
-    </div>
+    ${manobra}
 
-    <!-- bússola: só existe porque o mapa gira pelo rumo -->
-    <div class="gps-bussola">
-      <svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3.5 L16 13 L12 10.6 L8 13 Z" fill="#ff8b85"/></svg>N
-    </div>
-    <div class="gps-vel"><b>38</b><small>km/h</small></div>
+    <!-- bússola: só existe porque o mapa gira pelo rumo — sem rumo, ela não
+         tem o que apontar e sai de cena inteira -->
+    ${g.rumo?`<div class="gps-bussola">
+      <svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3.5 L16 13 L12 10.6 L8 13 Z" fill="#ff8b85"/></svg>${g.rumo}
+    </div>`:''}
+    ${g.velocidade?`<div class="gps-vel"><b>${g.velocidade}</b>${g.velocidadeUnidade?`<small>${g.velocidadeUnidade}</small>`:''}</div>`:''}
     <div class="gps-lado">
       <button aria-label="Silenciar voz">${ic('volume',18)}</button>
       <button aria-label="Recentralizar">${ic('target',18)}</button>
     </div>
 
+    <!-- 🔴 O RODAPÉ PODE FICAR SÓ COM O "Encerrar", e é o certo: ele é a PORTA
+         DE SAÍDA da navegação. Motorista preso nesta tela é pior que qualquer
+         número faltando — por isso o "encerrar" é COPY e nunca zera. (Sem
+         CRASE aqui dentro: este comentário mora num template literal.) -->
     <div class="gps-rodape">
-      <div class="parada">${ic('route',14)} Parada <b>3 de 8</b> · <b>Mercado São Judas</b></div>
+      ${rodape?`<div class="parada">${ic('route',14)} ${rodape}</div>`:''}
       <div class="linha">
-        <span class="n destaque"><b>12:26</b><small>chegada</small></span>
-        <span class="n"><b>45 min</b><small>restante</small></span>
-        <span class="n"><b>8,2 km</b><small>distância</small></span>
-        <button class="sair" data-ir="rota">Encerrar</button>
+        ${num(g.chegada,g.chegadaRotulo,1)}
+        ${num(g.restante,g.restanteRotulo,0)}
+        ${num(g.distancia,g.distanciaRotulo,0)}
+        <button class="sair" data-ir="rota">${g.encerrar||''}</button>
       </div>
     </div>
   </div>
@@ -4120,8 +4203,14 @@ document.addEventListener('click',e=>{
   if(lz){ trocarLuz(lz.dataset.luz); return; }
   // a chave "Tema escuro" dos Ajustes é a MESMA porta do interruptor do topo:
   // dois lugares que mudam a mesma coisa precisam falar com o mesmo código.
-  const chaveTema=e.target.closest('.linha-cfg');
-  if(chaveTema && /Tema escuro/.test(chaveTema.textContent||'')){
+  // 🔴 QUEM DIZ QUE A LINHA É A CHAVE DO TEMA É O `data-acao`, NUNCA O TEXTO.
+  // Ler `/Tema escuro/` do `textContent` casava com qualquer `.linha-cfg` que
+  // por acaso dissesse isso, e — pior — deixava a porta ABERTA pra um segundo
+  // dono: a ponte trata `data-acao` no mesmo clique, os dois viravam a luz, e
+  // o motorista via a tela não mudar nada (medido no g15: escuro→claro→escuro
+  // num toque só). Contrato é o atributo; o tema tem UM dono (ver ponte.js §1).
+  const chaveTema=e.target.closest('[data-acao="chave-tema"]');
+  if(chaveTema){
     trocarLuz(document.documentElement.dataset.luz==='claro'?'escuro':'claro'); return;
   }
   const er=e.target.closest('#estadorota [data-er]');

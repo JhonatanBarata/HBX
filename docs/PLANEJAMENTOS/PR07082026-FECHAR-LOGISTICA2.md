@@ -28,7 +28,7 @@
 | L1 rota do dia | ✅ | paradas reais no g15 |
 | L2 montar → iniciar → encerrar | 🔶 | falta só o Iniciar que DEBITA (bancada sem crédito) |
 | L3a mapa | ✅ | maplibre + PMTiles offline no aparelho |
-| **L3b navegação** | ⬜ | **é o maior buraco — ver §4.1** |
+| **L3b navegação** | 🔶 | cromo com fonte (seam + 3 portas) medido na bancada · §4.1 · falta o TRAÇO no mapa |
 | L4 entregar / não entregar | ✅ | `arrivedAt`, `receiptMethod` e motivo medidos no banco |
 | L5 caderneta + semana | ✅ | fechar o dia criou a "Caderneta de Sexta" |
 | L6 clientes + ficha | ✅ | número, CPF, dias e o pino morto medidos |
@@ -41,6 +41,7 @@
 | **Casca — transição com dado real** | ✅ | 13 animações vivas com servidor em 200 ms · §4.6.2 |
 | **Abertura única** | ✅ | app frio no g15, 12 quadros, uma cena só · §4.6.3 |
 | **1ª pintura sem mentira** | ✅ | túnel derrubado no g15: aviso, não a lista de exemplo · §4.6.4 |
+| **Cromo do GPS sem mentira** | ✅ | 17 campos DADO zerados, 8 COPY de pé; a tela abre com o Encerrar e nada mais · §4.6.6 |
 
 ### As 28 portas JÁ ligadas na `ponte.js`
 ```
@@ -144,26 +145,40 @@ Banco local: `docker exec app-db-1 psql -U admin -d jhonatan_dev`.
 > **4.5** não é trabalho: é o que ficou de fora. A **4.6** (os 3 pedidos de 07/08)
 > já está feita — sobra dela só o desfecho do pareamento, que virou item da §6.1.
 
-### 4.1 — L3b: A NAVEGAÇÃO (o maior, e está no piso que o dono escolheu)
+### 4.1 — L3b: A NAVEGAÇÃO (🔶 o CROMO está ligado; falta o TRAÇO)
 
-Hoje o mapa é real (L3a) mas **todo o cromo em volta é literal do mock**: manobra,
-velocímetro, ETA, bússola, "Parada 3 de 8". Telas: `T.mapa` / `T.mapachegou`
-(`telaGps()` no mock).
+Hoje o mapa é real (L3a) e **o cromo em volta deixou de ser literal do mock**
+(07/08, §4.6.6): manobra, velocímetro, ETA, bússola e "Parada N de M" passam
+pelo seam `DADOS.gps` e vêm das três fontes marcadas ✅ abaixo. Telas: `T.mapa` /
+`T.mapachegou` (`telaGps()` no mock); a fiação mora na **§7c da `ponte.js`**.
 
-| O que ligar | Porta / fonte |
-|---|---|
-| Traço da rota pelas ruas | `GET /logistica/osrm/route?coords=…&steps=1` → `routes[0].geometry` (GeoJSON) numa layer do maplibre |
-| Reta tracejada (sem trajeto) | quando o OSRM falhar — é o fallback honesto, não pode ficar sem linha |
-| Manobra (distância + verbo + rua) | `legs[].steps[].maneuver` + `.name` do mesmo `route` |
-| ETA · restante · distância (rodapé) | `routes[0].duration` / `.distance` + relógio do aparelho |
-| "Parada N de M" | já existe em `DADOS.rota` / `ENTREGAS` |
-| Velocímetro | `navigator.geolocation` → `coords.speed` (m/s → km/h) |
-| Bússola | `coords.heading` (o mapa já gira pelo rumo no mock) |
-| Faixa de GPS (precisão) | `coords.accuracy` |
-| Voz da navegação | `HBX.speak` (Kotlin JÁ existe, sem chamador) |
-| Manter tela acesa / modo navegação | `HBX.manterTelaAcesa` / `HBX.modoNavegacao` (Kotlin JÁ existe) |
-| Enquadrar rota / recentralizar / garagem | maplibre — **uma função só decide a câmera** |
-| Aviso "estou chegando" (~500 m) | `POST /logistica/entregas/:id/chegando` (allowlist ok) |
+| O que ligar | Porta / fonte | Estado |
+|---|---|---|
+| Traço da rota pelas ruas | `GET /logistica/osrm/route?coords=…&steps=1` → `routes[0].geometry` (GeoJSON) numa layer do maplibre | ⬜ a resposta já chega e já é usada pelo cromo; falta DESENHAR |
+| Reta tracejada (sem trajeto) | quando o OSRM falhar — é o fallback honesto, não pode ficar sem linha | ⬜ |
+| Manobra (distância + verbo + rua) | `legs[].steps[].maneuver` + `.name` do mesmo `route` | ✅ tabela do `app.js` (S5 21/07) copiada sem palavra nova |
+| ETA · restante · distância (rodapé) | `routes[0].duration` / `.distance` + relógio do aparelho | ✅ |
+| "Parada N de M" | já existe em `DADOS.rota` / `ENTREGAS` | ✅ + nome, endereço, o que falta |
+| Velocímetro | `navigator.geolocation` → `coords.speed` (m/s → km/h) | ✅ |
+| Bússola | `coords.heading` (o mapa já gira pelo rumo no mock) | ✅ só ANDANDO (≥2,5 m/s) |
+| Faixa de GPS (precisão) | `coords.accuracy` | ✅ |
+| Voz da navegação | `HBX.speak` (Kotlin JÁ existe, sem chamador) | ⬜ |
+| Manter tela acesa / modo navegação | `HBX.manterTelaAcesa` / `HBX.modoNavegacao` (Kotlin JÁ existe) | ⬜ |
+| Enquadrar rota / recentralizar / garagem | maplibre — **uma função só decide a câmera** | ⬜ |
+| Aviso "estou chegando" (~500 m) | `POST /logistica/entregas/:id/chegando` (allowlist ok) | ⬜ |
+
+**O freio do retraço, como ficou (as 3 regras da caixa abaixo, medidas):** 1 pedido
+em voo, piso de 15 s entre pedidos, recálculo antecipado só com **120 m andados**,
+teto de **400/dia** e backoff 2→5→15→60 s. Medido na bancada: **10 fixes seguidos
+(≈22 m andados) = 1 ida ao roteador**, e a distância até a curva caiu de 240 m pra
+220 m **sem rede** — ela é recalculada do fix atual contra o ponto da manobra, que
+já veio na resposta. Falha de rede **não apaga** a manobra que está na tela.
+
+🔴 **`curvaEsquerda` entrou no dicionário de ícones** (espelho exato do
+`curvaDireita`: `x → 24−x` e o arco troca o sweep). Sem ela, "vire à esquerda"
+sairia com a seta apontando pra **direita** — mentira pior que a que a §4.6.6 veio
+matar. Nenhuma das 31 telas usa o ícone novo, então os dois portões seguiram
+limpos.
 
 🔴 **RETRAÇO (saiu do caminho) — o que já custou uma madrugada:**
 - resultado de rede guardado em memória leva **carimbo da entrada que o gerou** (assinatura
@@ -390,6 +405,49 @@ e **nenhum** valor de fechamento inventado.
 mock que **vira payload** — o texto escolhido vai como está pro servidor no
 cancelamento. Funciona, mas o dia que existir lista de motivos no servidor, é
 essa chave que passa a ser alimentada.
+
+#### 4.6.6 — ✅ FEITO · A tela do GPS, que tinha ficado de fora da varredura
+
+A §4.6.5 varreu as seções que a ponte alimenta. **A navegação não era uma delas**
+— a fiação dela (L3b, §4.1) não existia —, então ela ficou de fora e seguiu
+mentindo sozinha, **na única tela em que o motorista está dirigindo**:
+
+> "Parada **3 de 8** · **Mercado São Judas**" · "**240 m** · Vire à direita" ·
+> "R. São Judas · depois, siga em frente por 1,2 km" · "**12:26** chegada ·
+> **45 min** restante · **8,2 km** distância" · "**38** km/h" · "N" — e, na de
+> chegada, "Você chegou · **Mercado São Judas**" e "R. São Judas, 142 · GPS ±6 m,
+> **você está na porta**".
+
+Todos literais do desenho cravados em `telaGps()`. Nome de cliente que não existe,
+com uma seta mandando virar numa rua que ninguém escolheu.
+
+**Como ficou** — seção `gps` no seam, mesma régua do §4.6.5:
+- **17 campos DADO** zeram em `apagarDemonstracao()`; **8 COPY** ficam;
+- 🔴 **o pedaço sem fonte SOME INTEIRO** — com rótulo, unidade e separador. O
+  " · " nasce de um `join`, nunca do template: separador órfão boiando no mapa é
+  a mesma mentira, só que mais feia. Sem manobra, o cartão inteiro sai de cena;
+  sem rumo, a bússola sai; sem velocidade, o velocímetro sai;
+- 🔴 **o `Encerrar` é COPY e NUNCA zera** — é a porta de saída da navegação, e
+  motorista preso nesta tela é defeito pior que qualquer número faltando;
+- 🔴 **"você está na porta" morreu de propósito.** Era um VEREDITO, irmão do selo
+  "Tudo certo!" que a §4.6.5 matou, e não há porta que o emita. `chegouPrecisao`
+  diz o fato medido — "GPS ±6 m" — e nada além. Quem já diz que chegou é o título.
+
+**Um defeito que a própria prova achou:** com 1 pendente a tela dizia **"faltam 1
+parada"**. O verbo concorda com um número que só a ponte conhece — virou
+`chegouFaltamVerbo`, e as duas formas são do desenho (a plural estava lá só
+porque o exemplo tinha 5).
+
+**Prova medida** (`outputs/prova-gps-sem-mentira.png`, grade mock × app, 2 telas ×
+2 modos): app frio, o texto INTEIRO da tela de dirigindo é **"Encerrar"**, e o da
+chegada é **"Você chegou · Registrar entrega"**. Nenhum dos 14 literais sobreviveu.
+
+Os dois portões: `casca-conferir` **62/62 idênticas** e `casca-antes-e-depois`
+**62/62 idênticas — nem uma tela acusada**. É essa segunda linha que prova o que
+importa: com o dado de demonstração, a marcação das duas telas do GPS sai **byte a
+byte igual** à de antes. Foi mudança de **LUGAR**, não de desenho.
+
+*(62 e não 66 porque o mock passou a ter 31 telas — corte de `gestos` e `padroes`.)*
 
 #### 4.6.3 — ✅ FEITO · A abertura anterior saiu; ficou a que fizemos
 
