@@ -1311,7 +1311,14 @@ ${nav('produtos')}`;}};
 /* 11 — CLIENTES ----------------------------------------------------------- */
 T.clientes={nome:'Clientes',grupo:'Cadastro',render(){
   const d=DADOS.clientes;
-  const DIAS=['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
+  const DIAS=['','Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
+  /* Chip de dia SÓ pra dia que TEM cliente (o dono, 07/08: "não tem terça nem
+     domingo nas rotas, e ainda está aparecendo"). Quem sabe quais têm é a
+     ponte (`dias`); sem ela — o DESENHO — os 7 aparecem. O dia selecionado
+     entra mesmo sem gente, senão o filtro ativo ficaria sem botão de soltar. */
+  const comGente=Array.isArray(d.dias)?d.dias.slice():[1,2,3,4,5,6,7];
+  if(d.diaSel&&comGente.indexOf(d.diaSel)<0) comGente.push(d.diaSel);
+  comGente.sort((a,b)=>a-b);
   const c=(ini,nome,end,dia,valor,tomLime,alerta,id)=>`<div class="cli"${id?` data-acao="abrir-cliente" data-cliente="${id}"`:''}>
     <span class="ava ${tomLime?'lime':''}">${ini}</span>
     <span><strong>${nome}</strong><span>${end}</span>
@@ -1325,8 +1332,8 @@ ${hdr({semChat:1})}
   <div class="searchrow">
     <label class="search">${ic('search',17)}<input placeholder="Buscar cliente" data-campo="busca-cliente" value="${d.busca}"></label>
     <button class="filt">${ic('sliders',18)}</button></div>
-  <div class="chips">
-    ${DIAS.map((r,i)=>`<button class="chip${d.diaSel===i+1?' on':''}" data-acao="chip-dia" data-dia="${i+1}">${r}</button>`).join('')}</div>
+  ${comGente.length?`<div class="chips">
+    ${comGente.map(n=>`<button class="chip${d.diaSel===n?' on':''}" data-acao="chip-dia" data-dia="${n}">${DIAS[n]}</button>`).join('')}</div>`:''}
   ${miolo(d,'users','recarregar-clientes',7,`<div class="lista-card">
     ${d.lista.map(l=>c(l[0],l[1],l[2],l[3],l[4],l[5],l[6],l[7])).join('')}
   </div>`)}

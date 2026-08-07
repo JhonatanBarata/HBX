@@ -1997,6 +1997,11 @@
      ------------------------------------------------------------------------ */
   const CLIENTES = new Map();
   let filtroClientes = { busca: '', dia: 0 };
+  /* Dias que TÊM cliente (união dos `diasEntrega` da base). Só a carga SEM
+     filtro mede — com filtro de dia a lista volta só daquele dia e a união
+     colapsaria pra ele. Entre filtros o valor fica de pé (sticky). O dono
+     (07/08): "não tem terça nem domingo nas rotas, e ainda está aparecendo". */
+  let diasComGente = null;
   let ficha = null;          // { id, item, detalhe, local, telefone, dias }
   let clientesEmVoo = false;
 
@@ -2029,7 +2034,14 @@
         const id = reg.item && reg.item.cliente && reg.item.cliente.id;
         if (id) naRota.add(String(id));
       });
+      if (!filtroClientes.busca && !filtroClientes.dia) {
+        const uniao = new Set();
+        itens.forEach((c) => (Array.isArray(c.diasEntrega) ? c.diasEntrega : [])
+          .forEach((n) => uniao.add(Number(n))));
+        diasComGente = [1, 2, 3, 4, 5, 6, 7].filter((n) => uniao.has(n));
+      }
       window.usarDados('clientes', {
+        ...(diasComGente ? { dias: diasComGente } : {}),
         ...fonteVoltou,
         subtitulo: `${ENTREGAS.size} na rota de hoje`,
         busca: esc(filtroClientes.busca),
