@@ -77,6 +77,34 @@ class OpeningActivity : AppCompatActivity() {
         offlineResume = intent.getBooleanExtra(EXTRA_OFFLINE_RESUME, false)
 
         root = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#050713")) }
+
+        // ----------------------------------------------------------------------
+        // 🔴 ABERTURA ÚNICA (V2) — ordem do dono, 07/08: "remova a abertura
+        // anterior e deixe essa nova que fizemos".
+        //
+        // O motorista via DUAS aberturas em sequência: esta (logo nativo viajando
+        // 1,07 s + a WebView do `opening.html`, 35 KB + o sonic logo) e, logo
+        // depois, a do próprio front (as hastes, o cometa, a marca, o logo voando
+        // pro cabeçalho). Some o SHOW daqui — mas NÃO a Activity.
+        //
+        // Ela não é enfeite: é o PORTEIRO DA SESSÃO. É aqui que o token salvo
+        // vira sessão, que aparelho sem token vai pro pareamento, que o 401 limpa
+        // o token e que a rota preparada entra offline com o VPS fora. Tirar a
+        // Activity jogaria essas quatro decisões pra dentro de um app já aberto —
+        // e um aparelho não pareado ficaria presoolhando dado de demonstração.
+        //
+        // Então sob V2 fica só a decisão, num fundo LISO da mesma cor com que a
+        // abertura nova começa: o olho não vê corte, vê o app abrindo uma vez.
+        // ----------------------------------------------------------------------
+        if (BuildConfig.HBX_V2) {
+            setContentView(root)
+            // A cena que dava o `sequenceReady` não existe mais; sem isto o
+            // `continueWhenReady` esperaria pra sempre por um aviso que não vem.
+            sequenceReady = true
+            authenticateSavedDevice()
+            return
+        }
+
         val handoff = FrameLayout(this).apply { setBackgroundColor(Color.parseColor("#050713")) }
         logo = ImageView(this).apply {
             setImageResource(R.drawable.ic_launcher_foreground)
@@ -291,20 +319,32 @@ class OpeningActivity : AppCompatActivity() {
     private fun transitionToPairing(message: String?) {
         if (continued) return
         continued = true
+        // Sob V2 não existe cena pra fechar nem WebView pra avisar: o pareamento
+        // entra na hora. (`webView` é lateinit — tocar nela aqui derrubaria o app
+        // justo no aparelho que ainda não foi vinculado.)
+        if (BuildConfig.HBX_V2) {
+            irParaPareamento(message)
+            return
+        }
         webView.evaluateJavascript("window.HBXOpening&&window.HBXOpening.complete('login','dark')", null)
         handler.postDelayed({
             if (isFinishing || isDestroyed) return@postDelayed
-            startActivity(
-                Intent(this, PairingActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-                    putExtra(PairingActivity.EXTRA_FORCE_PAIRING, true)
-                    putExtra(PairingActivity.EXTRA_PAIRING_MESSAGE, message)
-                },
-            )
-            finish()
-            @Suppress("DEPRECATION")
-            overridePendingTransition(0, 0)
+            irParaPareamento(message)
         }, openingTime(700L))
+    }
+
+    private fun irParaPareamento(message: String?) {
+        if (isFinishing || isDestroyed) return
+        startActivity(
+            Intent(this, PairingActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                putExtra(PairingActivity.EXTRA_FORCE_PAIRING, true)
+                putExtra(PairingActivity.EXTRA_PAIRING_MESSAGE, message)
+            },
+        )
+        finish()
+        @Suppress("DEPRECATION")
+        overridePendingTransition(0, 0)
     }
 
     override fun onDestroy() {

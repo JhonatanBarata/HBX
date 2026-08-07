@@ -20,8 +20,8 @@
 > **Ordem do dono no mesmo dia, depois deste plano nascer:** *"centralize os dados
 > no círculo do cliente"* · *"remova a abertura anterior e deixe essa nova que
 > fizemos"* · *"pq os clientes não estão com transição das telas? combinamos
-> igualdade na casca"*. As três estão na **§4.6** — a primeira e a terceira já
-> feitas e medidas, a segunda mapeada endpoint por endpoint.
+> igualdade na casca"*. **As três estão feitas e provadas** na §4.6 — sobra só o
+> desfecho do pareamento (§6.1), que não se prova sem desvincular o aparelho.
 
 | Leva | Estado | Prova |
 |---|---|---|
@@ -39,7 +39,7 @@
 | L10 rápida / gerenciador | ⬜ | **ver §4.2 e §4.3** |
 | **Casca — círculo do cliente** | ✅ | folga 11,8/11,8/10/10 medida, 2 modos · §4.6.1 |
 | **Casca — transição com dado real** | ✅ | 13 animações vivas com servidor em 200 ms · §4.6.2 |
-| **Abertura única** | ⬜ | duas em sequência hoje — **§4.6.3** |
+| **Abertura única** | ✅ | app frio no g15, 12 quadros, uma cena só · §4.6.3 |
 
 ### As 28 portas JÁ ligadas na `ponte.js`
 ```
@@ -136,9 +136,9 @@ Banco local: `docker exec app-db-1 psql -U admin -d jhonatan_dev`.
 
 ## 4. O QUE FALTA LIGAR — endpoint por endpoint
 
-> Ordem sugerida: **4.6.3 → 4.1 → 4.4 → 4.2 → 4.3**. A abertura vem primeiro porque é
-> ordem do dono e mexe no BOOT (quanto mais tarde, mais coisa em cima dela); o 4.4 tem
-> o BLOQUEADOR da troca. A **4.5** não é trabalho: é o que ficou de fora.
+> Ordem sugerida: **4.1 → 4.4 → 4.2 → 4.3**. O 4.4 tem o BLOQUEADOR da troca. A
+> **4.5** não é trabalho: é o que ficou de fora. A **4.6** (os 3 pedidos de 07/08)
+> já está feita — sobra dela só o desfecho do pareamento, que virou item da §6.1.
 
 ### 4.1 — L3b: A NAVEGAÇÃO (o maior, e está no piso que o dono escolheu)
 
@@ -287,47 +287,57 @@ Preço). São 60 ms na bancada, mas numa rede ruim o motorista lê nome de clien
 que não existe. A cura é o seam nascer VAZIO na 1ª pintura de cada tela — decisão
 do dono: **vazio** ou **esqueleto**? (§5.5)
 
-#### 4.6.3 — ⬜ A ABERTURA ANTERIOR SAI; fica a que fizemos
+#### 4.6.3 — ✅ FEITO · A abertura anterior saiu; ficou a que fizemos
 
-Hoje o motorista vê **DUAS aberturas em sequência**:
+O motorista via **DUAS aberturas em sequência**:
 
 1. a **anterior** — `OfflineLauncherActivity` → **`OpeningActivity`**: logo nativo
    viajando (1,07 s) + uma WebView própria com `opening.html` (**35 KB**) + o
    sonic logo;
 2. a **nova** — já dentro do app: `T.entrada` do mock (as hastes, o cometa, a
-   marca, o brilho, a batida) e o logo voando pro cabeçalho, 3,4 s.
+   marca, o brilho, a batida) e o logo voando pro cabeçalho.
 
-A cortina antiga que ficava **dentro** da MainActivity já morreu no flavor
-(`if (!BuildConfig.HBX_V2) mountOpeningOverlay(...)`, e `HBX_V2=true` no
-`logistica2`). **O que sobrou de pé é a Activity inteira, antes dela.**
+A cortina antiga que ficava **dentro** da MainActivity já tinha morrido no flavor
+(`if (!BuildConfig.HBX_V2) mountOpeningOverlay(...)`, com `HBX_V2=true` no
+`logistica2`). **O que sobrava de pé era a Activity inteira, antes dela.**
 
-🔴 **Não é só apagar tela: a `OpeningActivity` é o PORTEIRO DA SESSÃO.** Além do
-show, ela faz — e alguém tem que continuar fazendo:
+🔴 **E ela não é enfeite: é o PORTEIRO DA SESSÃO.** Foi o que mudou o desenho —
+o 1º rascunho deste plano mandava mover a autenticação pra MainActivity, e isso
+estava **caro e errado**. O que a Activity decide, e ninguém mais decide:
 
-| O que ela faz hoje | Pra onde vai |
+| Decisão | Por que não pode cair |
 |---|---|
-| `DeviceCredentialStore.readDeviceToken()` | MainActivity, antes de carregar a WebView |
-| `MobileEntrySession.authenticate(token, installationId)` → `entryUri` | idem — **a MainActivity lê `intent.data` pra tirar o `ticket`** e passar ao `NativeAppBridge` |
-| sem token, ou **401** (limpa o token) → `PairingActivity` | tem que continuar existindo, senão a 1ª instalação não pareia |
-| falha que **não** é da API + `offlineResume` → entra assim mesmo | idem — é o que salva rota preparada com VPS fora |
-| repassa `intent.data` e `EXTRA_DESTINO` (WhatsApp/Maps) | não pode cair no caminho |
-| `EXTRA_OPENING_PROGRESS` / `EXTRA_OFFLINE_RESUME` | viram estado interno |
-| sonic logo (`hbx_sonic_logo`, só `APP_MODE=="logistica"`) | ⬜ decisão: toca junto da nova abertura, ou morre? (§5.6) |
+| token salvo → `MobileEntrySession.authenticate` → `entryUri` | é o `ticket` que a MainActivity lê de `intent.data` |
+| **sem token** → `PairingActivity` | sem isso o aparelho novo **abre o app e fica preso** — a 1ª chamada dá 401 e a ponte, pela Lei 1, trata como queda de rede e não apaga a tela: o motorista fica olhando dado de demonstração |
+| **401** → limpa o token → `PairingActivity` | idem, no aparelho desvinculado |
+| falha que não é da API + `offlineResume` | é o que salva rota preparada com o VPS fora |
+| repassa `intent.data` e `EXTRA_DESTINO` (WhatsApp/Maps) | destino que veio de fora |
 
-**Ordem de execução (só no flavor `logistica2`, produção não muda):**
-1. `OfflineLauncherActivity` aponta direto pra `MainActivity` quando `HBX_V2`.
-2. A autenticação salva vira um passo **assíncrono da própria MainActivity**, com
-   os 4 desfechos acima intactos — a WebView já sobe, a abertura nova já roda, e
-   quem espera é o `ticket`, não a tela. 🔴 Se a sessão falhar, **PairingActivity**
-   por cima, sem deixar a abertura nova terminar em app sem sessão.
-3. `opening.html` (35 KB) sai do `logistica2/assets/app/` — e vai junto do lixo do
-   §6.2.2. **Não apagar do `logistica/` nem do `vendas/`**, que seguem usando.
-4. Conferir por toque no g15, **em app frio**: uma abertura só, nada de logo
-   nativo antes, e o app entra na rota do dia.
+**A cura foi tirar o SHOW, não a Activity.** Sob `HBX_V2` ela não monta WebView,
+não faz o logo nativo viajar e não toca som: fica um **fundo liso `#050713`** — a
+mesma cor com que a abertura nova começa — enquanto decide, e entrega a
+MainActivity. O olho não vê corte, vê o app abrindo **uma vez**.
 
-**Cuidado que quebra calado:** `window.statusBarColor`/`navigationBarColor` são
-pintados pela `OpeningActivity`. Sem ela, a 1ª tela pode nascer com as barras na
-cor errada por um quadro — a MainActivity tem que pintar antes do `setContentView`.
+Dois detalhes que derrubariam o app se passassem batido:
+- `sequenceReady` vinha do JS do `opening.html`. Sem a cena, `continueWhenReady`
+  esperaria pra sempre um aviso que não vem → é posto na mão sob V2.
+- `transitionToPairing` chamava `webView` (`lateinit`). Sem a WebView isso
+  **derrubaria o app justo no aparelho ainda não vinculado** — o caminho do
+  pareamento foi separado (`irParaPareamento`) e entra na hora, sem os 700 ms
+  que existiam só pra fechar a cena.
+
+`opening.html` **apagado** do `logistica2/assets/app/` (35 KB de peso morto) —
+o `logistica/` e o `vendas/` seguem com o deles, intocados.
+
+**Prova por toque, app FRIO no g15** (`outputs/prova-abertura-unica.png`, 12
+quadros): toque no ícone → fundo liso → **a abertura nova** (cometa, hastes,
+marca, "Água Rio Claro", barra de carga) → rota do dia com dado real. Nenhum logo
+nativo antes, nenhuma segunda cena. `logcat` sem `FATAL`, app a **55 fps**.
+
+⬜ **O único desfecho não provado no aparelho: o pareamento.** Provar exige
+desvincular o g15 do flavor `logistica2`, e re-parear depende do dono. O código
+está com o caminho separado e sem a chamada que derrubava — mas **teste verde não
+é prova, a tela é**. Fica na §6.1 como item da troca.
 
 ---
 
@@ -348,9 +358,10 @@ cor errada por um quadro — a MainActivity tem que pintar antes do `setContentV
    **esqueleto** (as barras cinza que a tela `rota` já tem no estado `carregando`)?
    Recomendo **esqueleto**, e só nas telas que carregam ao abrir: é o único que não
    dá salto de altura quando a lista chega — e a `rota` já provou o padrão.
-6. **O sonic logo na abertura nova** (§4.6.3): a `OpeningActivity` toca
-   `hbx_sonic_logo` na entrada. Saindo ela, o som toca junto da abertura nova
-   (`HBX.sound`, que já existe) ou o app abre calado?
+6. **O sonic logo** (§4.6.3): ele tocava — o `logistica2` mantém `APP_MODE`
+   `"logistica"` de propósito, e o `playOpeningSound` vinha junto da cena que
+   saiu. **Hoje o app abre calado.** Toca junto da abertura nova (`HBX.sound`, que
+   já existe e não tem chamador) ou fica assim?
 
 ---
 
@@ -361,9 +372,10 @@ cor errada por um quadro — a MainActivity tem que pintar antes do `setContentV
 
 ### 6.1 — Antes de trocar (checklist duro)
 - [ ] Tudo do §4 ligado e **provado por toque no g15** (regra §1 do `hbxapk.md`).
-- [ ] 🔴 **Uma abertura só** (§4.6.3), em app FRIO, e a sessão continua entrando:
-      token salvo → rota; sem token e 401 → pareamento; VPS fora com rota preparada
-      → entra offline. Os 4 desfechos, no aparelho, não no teste.
+- [ ] 🔴 **O PAREAMENTO**, o único desfecho da §4.6.3 que ficou sem prova de tela:
+      aparelho sem token e aparelho com 401 têm que cair na `PairingActivity`, não
+      num app aberto e oco. Provar exige desvincular — fazer numa instalação
+      limpa, **antes** de encostar no aparelho do André.
 - [ ] 🔴 **Aviso de atualização funcionando** — sem ele o cordão de entrega arrebenta.
 - [ ] `casca-conferir` 66/66 · `casca-antes-e-depois` limpo · `tsc` back e front limpos.
 - [ ] Rodar contra o **VPS** (não a bancada) e repetir a cena do dia inteiro.
@@ -376,8 +388,11 @@ cor errada por um quadro — a MainActivity tem que pintar antes do `setContentV
    `runCatching`).
 2. 🔴 **Apagar `logistica2/assets/app/app.js` (13.688 linhas) e `app.css`.** O `index.html`
    não carrega nenhum dos dois: são **1,1 MB de peso morto** no APK e uma "reserva" que não
-   existe. **Junto vai o `opening.html` (35 KB)** quando a §4.6.3 estiver feita —
-   ⚠️ só o do `logistica2/`: o `logistica/` e o `vendas/` seguem usando o deles.
+   existe. O `opening.html` (35 KB) **já saiu** na §4.6.3 — ⚠️ só o do
+   `logistica2/`: o `logistica/` e o `vendas/` seguem usando o deles.
+   🔴 **Na troca, o `HBX_V2` do flavor volta a valer pro app de produção** — e é
+   ele que decide a abertura única e o porteiro liso. Conferir que ele fica
+   **`true`** no flavor que vai pro André, senão a abertura anterior ressuscita.
 3. 🔴 **Devolver `logistica2` à digital do APK** (`collectApkInputFiles` em
    `scripts/ops/deploy-vps.js`) — ele está FORA de propósito, pra bancada não carimbar
    versão nova em produção. Depois da troca, tem que voltar.
