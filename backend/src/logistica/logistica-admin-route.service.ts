@@ -340,6 +340,8 @@ export class LogisticaAdminRouteService {
       userId,
       userId,
       isBillingOwnerActor(actor),
+      // PROSPECTOR (07/08) — o ator inteiro (papel), ver iniciarRota.
+      actor,
     );
   }
 

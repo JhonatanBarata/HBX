@@ -928,13 +928,22 @@ export class LogisticaController {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const actorWhere = await this.operacao.whereForActor(req.user);
     const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
-    return this.rota.iniciarRota(companyId, {
-      date: dto?.date,
-      origemLat: dto?.origemLat,
-      origemLng: dto?.origemLng,
-      deliveryIds: dto?.deliveryIds,
-      ordemManual: dto?.ordemManual,
-    }, entregadorId, Number(req.user?.id) || null, isBillingOwnerActor(req.user));
+    return this.rota.iniciarRota(
+      companyId,
+      {
+        date: dto?.date,
+        origemLat: dto?.origemLat,
+        origemLng: dto?.origemLng,
+        deliveryIds: dto?.deliveryIds,
+        ordemManual: dto?.ordemManual,
+      },
+      entregadorId,
+      Number(req.user?.id) || null,
+      isBillingOwnerActor(req.user),
+      // PROSPECTOR (07/08) — o ATOR inteiro: a liberação pra equipe é por PAPEL
+      // (admin sempre, funcionário só com prospectorEquipe), não por id.
+      req.user,
+    );
   }
 
   /**

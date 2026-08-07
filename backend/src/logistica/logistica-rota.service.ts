@@ -13,6 +13,10 @@ import { LogisticaOsrmService } from './logistica-osrm.service';
 import { LogisticaEstoqueService } from './logistica-estoque.service';
 import { sourceDateFromOccurrenceKey, saoPauloMidnight } from './logistica-agenda-cursor.util';
 import { registrarEventoAgenda, formatDDMM } from './logistica-agenda-evento.util';
+import { ProspectorCorredorService } from './prospector-corredor.service';
+import { isProspectorEnabled } from './logistica-prospector.flags';
+import { rotuloDaCesta } from './prospector-corredor.sql';
+import { isAdminTierActor, type ActorKindUserLike } from '../access/actor-kind';
 
 const ROUTE_BILLING_CONTEXT = Symbol('routeBillingContext');
 type InternalPlanResult = PlanejarRotaResult & { [ROUTE_BILLING_CONTEXT]?: PreparedLogisticaRoute };
@@ -68,6 +72,11 @@ export class LogisticaRotaService {
     // @Optional() e por ÚLTIMO: instanciações diretas em teste continuam
     // válidas; sem o serviço, a rota funciona exatamente como antes.
     @Optional() private readonly cargaEstoque?: LogisticaEstoqueService,
+    // PROSPECTOR CNPJ (PR07082026 F1-servidor, 07/08) — as empresas do corredor
+    // embarcam na folha no INICIAR, ao lado da reserva do B4. @Optional() e por
+    // ÚLTIMO pelo mesmo motivo dos anteriores: sem ele, a rota é EXATAMENTE a
+    // de antes (nenhum prospecto, nenhum campo novo no payload).
+    @Optional() private readonly prospector?: ProspectorCorredorService,
   ) {}
 
   /**
@@ -84,6 +93,149 @@ export class LogisticaRotaService {
       }
     } catch (e: any) {
       this.logger.warn(`[logistica] B4 ${contexto}: reserva da rota FALHOU company=${companyId}: ${String(e?.message || e)}`);
+    }
+  }
+
+  // ── PROSPECTOR CNPJ (PR07082026 F1-servidor) ─────────────────────────────────
+  /**
+   * As 4 CHAVES do prospector, TODAS obrigatórias — qualquer uma fechada devolve
+   * zero prospecto SEM erro e sem efeito nenhum no iniciar-rota:
+   *
+   *  1. `HBX_PROSPECTOR_ENABLED` (env global, default OFF) — a chave mestra.
+   *     É a PRIMEIRA de propósito: com ela fechada nem uma consulta sai, e o
+   *     deploy é 100% inerte (é este gate que torna seguro publicar antes de a
+   *     migration rodar em produção).
+   *  2. `LogisticaConfig.prospectorAtivo` — o admin da empresa opta por entrar.
+   *  3. ATOR: admin (master/dono/gerente) sempre; funcionário comum SÓ com
+   *     `prospectorEquipe` ligado. Mesma leitura do `passeioEquipe`
+   *     (logistica-passeio.service.ts) e FAIL-CLOSED: chamada sem ator
+   *     identificado é tratada como funcionário comum.
+   *  4. PINO: a empresa precisa ter `CnpjGeo` no corredor. Sem pino na região o
+   *     resultado é lista VAZIA — vazio honesto, não erro (`CnpjGeo` hoje é
+   *     SP-only, item 6 das decisões em aberto do plano).
+   *
+   * 🔴 ENFEITE NÃO DERRUBA ROTA: tudo aqui é best-effort COM VOZ. Nenhuma
+   * exceção sobe pro iniciar-rota — mas nenhuma falha é muda (lição CNEFE:
+   * best-effort silencioso desligou 23M endereços por 5 dias sem ninguém ver).
+   *
+   * 🔴 NÃO DEBITA NADA. Embarcar e acender são de graça; o crédito é da F2
+   * (1 crédito quando o motorista ABRE o lead).
+   */
+  private async lerPoliticaProspector(companyId: number): Promise<PoliticaProspector | null> {
+    try {
+      const cfg = await this.prisma.logisticaConfig.findUnique({
+        where: { companyId },
+        select: {
+          prospectorAtivo: true,
+          prospectorEquipe: true,
+          prospectorRaioM: true,
+          prospectorMaxDia: true,
+        },
+      });
+      if (!cfg) return null;
+      return {
+        ativo: !!cfg.prospectorAtivo,
+        equipe: !!cfg.prospectorEquipe,
+        raioM: typeof cfg.prospectorRaioM === 'number' ? cfg.prospectorRaioM : null,
+        maxDia: typeof cfg.prospectorMaxDia === 'number' ? cfg.prospectorMaxDia : null,
+      };
+    } catch (error) {
+      // A migration `20260807000000_prospector_e_modulos_do_app` ainda NÃO está
+      // aplicada em produção: enquanto não estiver, a coluna não existe e o
+      // Prisma reclama (P2022 / 42703). Isso é a TRANSIÇÃO ESPERADA, não um
+      // defeito — mas continua aparecendo no log, com o motivo escrito, porque
+      // "esperado" nunca é desculpa pra silêncio.
+      const msg = String((error as any)?.message || error);
+      if (ehEsquemaAusente(error)) {
+        this.logger.warn(
+          `[logistica] prospector: coluna/tabela ainda não existe neste banco (migration pendente) company=${companyId}: ${msg}`,
+        );
+      } else {
+        this.logger.error(`[logistica] prospector: leitura da config FALHOU company=${companyId}: ${msg}`);
+      }
+      return null;
+    }
+  }
+
+  private async embarcarProspectosBestEffort(
+    companyId: number,
+    plan: PlanejarRotaResult,
+    rotaDia: string,
+    actor?: ActorKindUserLike,
+  ): Promise<RotaProspectorPayload | null> {
+    try {
+      // Chave 1 — env global. Antes de qualquer ida ao banco.
+      if (!this.prospector || !isProspectorEnabled()) return null;
+
+      // Chaves 2 e 3 — tenant e ator, na MESMA leitura de config (uma consulta).
+      const politica = await this.lerPoliticaProspector(companyId);
+      if (!politica || !politica.ativo) return null;
+      if (!isAdminTierActor(actor) && !politica.equipe) return null;
+
+      // Chave 4 — pino. As paradas DO DIA (as da rota que está iniciando); quem
+      // não tem coordenada não entra (o corredor também descarta, mas mandar só
+      // o que é ponto de verdade deixa o log honesto sobre quantas paradas
+      // realmente viraram corredor).
+      const paradas = plan.paradas
+        .filter((p) => !p.semCoordenada && Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng)))
+        .map((p) => ({ lat: Number(p.lat), lng: Number(p.lng) }));
+
+      const resultado = await this.prospector.embarcar(companyId, paradas, {
+        raioM: politica.raioM,
+        maxDia: politica.maxDia,
+        rotaDia,
+      });
+
+      if (!resultado.ok) {
+        // O corredor já logou a mensagem ORIGINAL do erro; aqui o alarme sobe
+        // com o contexto da rota, pra ninguém precisar cruzar dois logs.
+        this.logger.error(
+          `[logistica] prospector: corredor devolveu FALHA no iniciar-rota company=${companyId} rotaDia=${rotaDia} paradas=${paradas.length}.`,
+        );
+        return null;
+      }
+
+      if (resultado.somenteMemoria) {
+        this.logger.warn(
+          `[logistica] prospector: tabela ProspectoRota ausente — ${resultado.prospectos.length} prospecto(s) só em memória company=${companyId} rotaDia=${rotaDia}.`,
+        );
+      }
+
+      this.logger.log(
+        `[logistica] prospector: ${resultado.prospectos.length} empresa(s) embarcada(s) company=${companyId} rotaDia=${rotaDia} raio=${resultado.raioM}m acende=${resultado.acendeNoDia}.`,
+      );
+
+      return {
+        rotaDia: resultado.rotaDia,
+        raioM: resultado.raioM,
+        acendeNoDia: resultado.acendeNoDia,
+        persistido: !resultado.somenteMemoria,
+        // 🔴 LEI DO VENDEDOR: o motorista vê o FATO (nome, ramo, distância,
+        // onde fica) e nada mais. `phoneDigits` e `porte` FICAM no servidor —
+        // o disparo (F3) é feito pelo backend, o app nunca precisa do telefone.
+        empresas: resultado.prospectos.map((p) => ({
+          // `id` é o GANCHO do prédio no mapa do APK (contrato do seam em
+          // EntregaShell/.../ponte.js: "sem id, sai sem data-acao"). É o mesmo
+          // CNPJ — vai nos dois nomes pra ponte não precisar adivinhar.
+          id: p.cnpj,
+          cnpj: p.cnpj,
+          nome: p.nome,
+          ramo: p.cnaeDescricao ?? rotuloDaCesta(p.cnae),
+          lat: p.lat,
+          lng: p.lng,
+          distM: p.distM,
+          afinidade: p.afinidade,
+        })),
+      };
+    } catch (error) {
+      // O caminho que NUNCA pode existir: exceção do prospector derrubando o
+      // iniciar-rota. Se chegou aqui, virou log e a rota segue igual.
+      this.logger.error(
+        `[logistica] prospector FALHOU no iniciar-rota company=${companyId} rotaDia=${rotaDia}: ${String(
+          (error as any)?.message || error,
+        )}`,
+      );
+      return null;
     }
   }
 
@@ -236,6 +388,11 @@ export class LogisticaRotaService {
     entregadorId?: number,
     actorUserId?: number | null,
     includeCommercialMode = false,
+    // PROSPECTOR (07/08) — o ATOR, não só o id dele: a chave nº3 do prospector
+    // é "admin sempre, funcionário só com prospectorEquipe", e isso é PAPEL.
+    // Aditivo e por último: quem não passa ator cai no fail-closed (tratado
+    // como funcionário comum) e o resto do iniciar-rota é byte a byte o mesmo.
+    actor?: ActorKindUserLike,
   ): Promise<PlanejarRotaResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const effectiveDriverId = entregadorId ?? (await this.resolveSingleDriver(companyId, input.date, input.deliveryIds));
@@ -331,6 +488,15 @@ export class LogisticaRotaService {
     // B4 — o caminhão SAIU: reserva o previsto da rota na gaveta do dia (fonte
     // única com a declaração manual — quem declarou manda, ver o serviço).
     await this.reconciliarReservaRotaBestEffort(companyId, input.date, 'iniciar');
+    // PROSPECTOR CNPJ — o caminhão SAIU: as empresas do corredor embarcam na
+    // folha. MESMO lugar da reserva do B4 (rota já ACTIVE, paradas já ordenadas)
+    // e MESMA lei: best-effort com voz, nunca derruba o iniciar.
+    const prospectorPayload = await this.embarcarProspectosBestEffort(
+      companyId,
+      plan,
+      canonicalRouteDate(input.date),
+      actor,
+    );
     const operational = this.tracking
       ? await this.tracking.getOperationalRouteMetadata(
           companyId,
@@ -351,6 +517,9 @@ export class LogisticaRotaService {
       ...plan,
       ...operationalOnly,
       ...(includeCommercialMode ? { routeMode: routeMode ?? prepared.mode } : {}),
+      // ADITIVO: a chave só existe quando o prospector rodou de verdade (4
+      // chaves abertas). Gate fechado ou falha = payload byte a byte o de hoje.
+      ...(prospectorPayload ? { prospector: prospectorPayload } : {}),
     };
   }
 
@@ -1799,6 +1968,57 @@ function normalizeOrdemManual(value?: string[]): string[] | undefined {
   return ids.length ? ids : undefined;
 }
 
+// ── PROSPECTOR CNPJ (PR07082026 F1-servidor) ──────────────────────────────────
+
+/** As 2 chaves de política + as 2 réguas, lidas numa consulta só. Interno. */
+type PoliticaProspector = {
+  ativo: boolean;
+  equipe: boolean;
+  raioM: number | null;
+  maxDia: number | null;
+};
+
+/**
+ * Coluna/tabela que o CÓDIGO já conhece mas o BANCO ainda não (migration
+ * pendente). P2022/P2021 são os códigos do Prisma; 42703/42P01 são os do
+ * Postgres que vazam pelo raw. É a diferença entre "transição esperada" e
+ * "defeito de verdade" — as duas continuam no log, com rótulos diferentes.
+ */
+function ehEsquemaAusente(error: unknown): boolean {
+  const code = String((error as any)?.code || '');
+  if (code === 'P2022' || code === 'P2021') return true;
+  const meta = String((error as any)?.meta?.code || '');
+  if (meta === '42703' || meta === '42P01') return true;
+  return /42703|42P01|does not exist in the current database/i.test(String((error as any)?.message || ''));
+}
+
+/** Uma empresa do corredor, do jeito que o APK desenha o prédio no mapa. */
+export interface RotaProspectoEmpresa {
+  /** Gancho do prédio na tela (contrato do seam da ponte). É o próprio CNPJ. */
+  id: string;
+  cnpj: string;
+  nome: string;
+  /** Ramo legível: descrição do CNAE da RFB, ou o rótulo da cesta. */
+  ramo: string | null;
+  lat: number;
+  lng: number;
+  /** Metros até a parada mais próxima da rota do dia. */
+  distM: number;
+  /** true = está na cesta "sede de água" (afinidade de ramo). */
+  afinidade: boolean;
+}
+
+export interface RotaProspectorPayload {
+  /** Dia OPERACIONAL da rota (YYYY-MM-DD, America/Sao_Paulo). */
+  rotaDia: string;
+  raioM: number;
+  /** Quantas o mapa pode ACENDER sozinho no dia — o resto é reserva do clique. */
+  acendeNoDia: number;
+  /** false = a tabela ProspectoRota ainda não existe (a lista vale só hoje). */
+  persistido: boolean;
+  empresas: RotaProspectoEmpresa[];
+}
+
 export interface PlanejarRotaParada {
   id: string;
   rotaOrdem: number;
@@ -1834,4 +2054,8 @@ export interface PlanejarRotaResult {
   routeStatus?: string | null;
   trackingSessionId?: string | null;
   trackingStatus?: string | null;
+  // PROSPECTOR CNPJ (07/08) — ADITIVO e CONDICIONAL: a chave só aparece no
+  // iniciar-rota e só quando as 4 chaves do prospector estão abertas. Ausente
+  // = exatamente o payload de sempre (planejar/recalcular nunca a produzem).
+  prospector?: RotaProspectorPayload;
 }
