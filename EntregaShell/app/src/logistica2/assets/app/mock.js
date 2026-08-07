@@ -152,7 +152,7 @@ const ROTA_ESTADOS={
 };
 function transmux(estado){
   const c=ROTA_ESTADOS[estado]; if(!c) return '';
-  const sat=(s,lado)=>s?`<span class="tmx-sat ${s.tipo} ${lado}">
+  const sat=(s,lado)=>s?`<span class="tmx-sat tmx-${s.tipo} tmx-${lado}">
       <button aria-label="${s.rotulo}">${ic(s.glifo,20)}${s.contagem?`<i class="cont">${s.contagem}</i>`:''}</button>
       <small>${s.rotulo}</small></span>`:'<span></span>';
   return `<div class="transmux">${sat(c.esq,'esq')}
@@ -230,9 +230,34 @@ function mapa(){
    ========================================================================== */
 const T={};
 
+/* ==========================================================================
+   SEAM DE DADOS — o único lugar por onde o dado REAL entra.
+   Os valores abaixo são os literais que estavam nos templates, MOVIDOS pra cá.
+   O mock continua pintando exatamente o mesmo; o app real chama
+   `usarDados('rota', {...})` e a tela se repinta com o que veio do servidor.
+   🔴 LEI: traduzir ≠ decidir. Sem fonte, o campo vai VAZIO — número inventado
+   em tela de dinheiro é mentira com cara de app pronto.
+   ========================================================================== */
+const DADOS={
+  rota:{
+    kpiParadas:'12', kpiEntregues:'6', kpiEntreguesParado:'0',
+    saldo:'R$ 184,00', dinheiro:'R$ 132,00', pix:'R$ 52,00',
+    diaFeitas:'3', diaTotal:'14', diaPct:'21%', diaMarcado:'R$ 336,00',
+    filtroFila:'8', filtroEntregue:'6',
+    creditos:'240', creditosDebita:'12',
+    somaProdutos:'20', somaMarcado:'R$ 336,00',
+    vazioTitulo:'Sem paradas hoje', vazioSub:'Monte a rota do dia pra começar.',
+  },
+};
+/** Entra dado novo numa seção e a tela se repinta. */
+function usarDados(secao,valor){
+  DADOS[secao]=Object.assign({},DADOS[secao],valor||{});
+  if(typeof pintar==='function') pintar(false);
+}
+
 /* 1 — ROTA DO MOTORISTA, com os 7 estados que o app tem de verdade --------- */
 let estadoRota='rodando';
-const PARADAS=[
+let PARADAS=[
   {n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['A caminho','blue','nav'],perna:''},
   {n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',pill:['A caminho','blue','nav'],perna:'850 m · 4 min'},
   {n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Chegou','lime','check'],perna:'1,2 km · 6 min'},
@@ -272,31 +297,40 @@ T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
 
   const rodando=e==='rodando', pausada=e==='pausada', montada=e==='pronta';
   const emCurso=rodando||pausada;
+  
+  // Dia sem parada nenhuma NÃO é "rota indisponível" (aquilo é falha de
+  // carregar): é o dia ainda por montar. Mesma peça `.vazio`, o fato certo.
+  if(!PARADAS.length) return shellRota(`
+    <div class="vazio">
+      <span class="ico">${ic('route',24)}</span>
+      <strong>${DADOS.rota.vazioTitulo}</strong>
+      <span>${DADOS.rota.vazioSub}</span>
+    </div>`, transmux(e==='semsinal'?'pronta':e));
   return shellRota(`
   <div class="kpis">
-    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">12</b><span class="l">paradas</span></span></div>
-    <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">${emCurso?6:0}</b><span class="l">entregues</span></span></div>
-    <div class="kpi money"><span class="l">Saldo</span><b class="v">R$ 184,00</b><span class="go">${ic('chev',15)}</span></div>
+    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${DADOS.rota.kpiParadas}</b><span class="l">paradas</span></span></div>
+    <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">${emCurso?DADOS.rota.kpiEntregues:DADOS.rota.kpiEntreguesParado}</b><span class="l">entregues</span></span></div>
+    <div class="kpi money"><span class="l">Saldo</span><b class="v">${DADOS.rota.saldo}</b><span class="go">${ic('chev',15)}</span></div>
     <div class="kpi split">
-      <span class="ln"><span style="color:var(--lime)">${ic('cash',16)}</span><span><span class="t" style="color:var(--lime)">Dinheiro</span><span class="m">R$ 132,00</span></span></span>
-      <span class="ln"><span style="color:var(--blue-l)">${ic('pix',16)}</span><span><span class="t" style="color:var(--blue-l)">Pix</span><span class="m">R$ 52,00</span></span></span>
+      <span class="ln"><span style="color:var(--lime)">${ic('cash',16)}</span><span><span class="t" style="color:var(--lime)">Dinheiro</span><span class="m">${DADOS.rota.dinheiro}</span></span></span>
+      <span class="ln"><span style="color:var(--blue-l)">${ic('pix',16)}</span><span><span class="t" style="color:var(--blue-l)">Pix</span><span class="m">${DADOS.rota.pix}</span></span></span>
     </div>
   </div>
   ${e==='semsinal'?`<div class="banner alerta">${ic('alert',16)}<span><b>Sem sinal.</b> A rota está guardada no aparelho.</span><button>Sincronizar</button></div>`:''}
   ${pausada?`<div class="banner pausa">${ic('pause',16)}<span><b>Rota pausada.</b> Os dados ficam guardados.</span></div>`:''}
   <div class="bar"><span class="t">${ic('list',17)} Sua rota de hoje</span>
     <button class="ghost" data-ir="mapa">${ic('map',15)} Ver mapa</button></div>
-  ${emCurso?`<div class="dia-bar"><small>3 de 14</small><span class="trilho"><i style="width:21%"></i></span><b>R$ 336,00</b><small>marcado</small></div>`:''}
+  ${emCurso?`<div class="dia-bar"><small>${DADOS.rota.diaFeitas} de ${DADOS.rota.diaTotal}</small><span class="trilho"><i style="width:${DADOS.rota.diaPct}"></i></span><b>${DADOS.rota.diaMarcado}</b><small>marcado</small></div>`:''}
   ${emCurso?`<div class="filtro">
-      <button class="on">Fila <b>8</b></button><button>Entregue <b>6</b></button></div>`:''}
+      <button class="on">Fila <b>${DADOS.rota.filtroFila}</b></button><button>Entregue <b>${DADOS.rota.filtroEntregue}</b></button></div>`:''}
   ${montada||e==='montar'?`<div class="creditos">${ic('card',17)}
-      <span><b class="v">240</b> <small>créditos hoje</small></span>
-      <span class="debita">${montada?'Iniciar debita 12':'monte a rota pra saber'}</span></div>`:''}
+      <span><b class="v">${DADOS.rota.creditos}</b> <small>créditos hoje</small></span>
+      <span class="debita">${montada?`Iniciar debita ${DADOS.rota.creditosDebita}`:'monte a rota pra saber'}</span></div>`:''}
   <div class="stops">${listaParadas(emCurso)}</div>
   <div class="sum">
-    <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>20</b><small>produtos</small></span></span>
-    <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>R$ 336,00</b><small>marcado</small></span></span>
-    <span class="c"><span style="color:var(--lime)">${ic('check',17)}</span><span><b>${emCurso?6:0}</b><small>entregas</small></span></span>
+    <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>${DADOS.rota.somaProdutos}</b><small>produtos</small></span></span>
+    <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>${DADOS.rota.somaMarcado}</b><small>marcado</small></span></span>
+    <span class="c"><span style="color:var(--lime)">${ic('check',17)}</span><span><b>${emCurso?DADOS.rota.kpiEntregues:DADOS.rota.kpiEntreguesParado}</b><small>entregas</small></span></span>
     <span class="go">${ic('chev',15)}</span>
   </div>
   ${emCurso?`<button class="act full" style="margin-top:8px;justify-content:center">${ic('check',18)}<b>Finalizar</b></button>`
@@ -309,12 +343,12 @@ T.rotafoto={nome:'Rota — igual à foto',grupo:'Rota',render(){return `${status
 ${hdr({})}
 <div class="body">
   <div class="kpis">
-    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">12</b><span class="l">paradas</span></span></div>
+    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${DADOS.rota.kpiParadas}</b><span class="l">paradas</span></span></div>
     <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">6</b><span class="l">entregues</span></span></div>
-    <div class="kpi money"><span class="l">Saldo</span><b class="v">R$ 184,00</b><span class="go">${ic('chev',15)}</span></div>
+    <div class="kpi money"><span class="l">Saldo</span><b class="v">${DADOS.rota.saldo}</b><span class="go">${ic('chev',15)}</span></div>
     <div class="kpi split">
-      <span class="ln"><span style="color:var(--lime)">${ic('cash',16)}</span><span><span class="t" style="color:var(--lime)">Dinheiro</span><span class="m">R$ 132,00</span></span></span>
-      <span class="ln"><span style="color:var(--blue-l)">${ic('pix',16)}</span><span><span class="t" style="color:var(--blue-l)">Pix</span><span class="m">R$ 52,00</span></span></span>
+      <span class="ln"><span style="color:var(--lime)">${ic('cash',16)}</span><span><span class="t" style="color:var(--lime)">Dinheiro</span><span class="m">${DADOS.rota.dinheiro}</span></span></span>
+      <span class="ln"><span style="color:var(--blue-l)">${ic('pix',16)}</span><span><span class="t" style="color:var(--blue-l)">Pix</span><span class="m">${DADOS.rota.pix}</span></span></span>
     </div>
   </div>
   <div class="bar"><span class="t">${ic('list',17)} Sua rota de hoje</span>
@@ -328,8 +362,8 @@ ${hdr({})}
     ${stop({n:6,hora:'12:15',cor:'off',nome:'Mercado Estrela',rua:'R. Aracanguá, 210',bairro:'Jabaquara',tags:[['20L x4','blue'],['Chip dia','lime']],marcado:'84,00',pill:['Pendente','mute','clock']})}
   </div>
   <div class="sum">
-    <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>20</b><small>produtos</small></span></span>
-    <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>R$ 336,00</b><small>marcado</small></span></span>
+    <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>${DADOS.rota.somaProdutos}</b><small>produtos</small></span></span>
+    <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>${DADOS.rota.somaMarcado}</b><small>marcado</small></span></span>
     <span class="c"><span style="color:var(--lime)">${ic('check',17)}</span><span><b>6</b><small>entregas</small></span></span>
     <span class="go">${ic('chev',15)}</span>
   </div>
@@ -555,9 +589,9 @@ T.caderneta={nome:'Caderneta · fechamento',grupo:'Caderneta',render(){return `$
 ${hdr({})}
 <div class="body">
   <div class="kpis">
-    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">12</b><span class="l">paradas</span></span></div>
+    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${DADOS.rota.kpiParadas}</b><span class="l">paradas</span></span></div>
     <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">6</b><span class="l">entregues</span></span></div>
-    <div class="kpi money"><span class="l">Saldo</span><b class="v">R$ 184,00</b><span class="go">${ic('chev',15)}</span></div>
+    <div class="kpi money"><span class="l">Saldo</span><b class="v">${DADOS.rota.saldo}</b><span class="go">${ic('chev',15)}</span></div>
   </div>
   <div class="bar"><span class="t">${ic('list',17)} Paradas de hoje</span>
     <button class="ghost" data-ir="mapa">${ic('map',15)} Ver mapa</button></div>
@@ -586,8 +620,8 @@ ${hdr({})}
   </div>
   <div class="sum">
     <span class="c"><span style="color:var(--ink-2)">${ic('users',17)}</span><span><b>14</b><small>clientes</small></span></span>
-    <span class="c"><span style="color:var(--ink-2)">${ic('box',17)}</span><span><b>20</b><small>produtos</small></span></span>
-    <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>R$ 336,00</b><small>marcado</small></span></span>
+    <span class="c"><span style="color:var(--ink-2)">${ic('box',17)}</span><span><b>${DADOS.rota.somaProdutos}</b><small>produtos</small></span></span>
+    <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>${DADOS.rota.somaMarcado}</b><small>marcado</small></span></span>
   </div>
   <div class="acts">
     <button class="act go" style="justify-content:center">${ic('check',19)}<b>Fechar o dia</b></button>
@@ -608,7 +642,7 @@ T.semana={nome:'Histórico da semana',grupo:'Caderneta',render(){
 ${hdr({})}
 <div class="body" style="opacity:.4;pointer-events:none">
   <div class="kpis">
-    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">12</b><span class="l">paradas</span></span></div>
+    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${DADOS.rota.kpiParadas}</b><span class="l">paradas</span></span></div>
     <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">6</b><span class="l">entregues</span></span></div>
   </div>
   <div class="stops">${stop({n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['A caminho','blue','nav']})}</div>
@@ -698,7 +732,7 @@ ${hdr({})}
   </div>
   <div class="sum">
     <span class="c"><span style="color:var(--lime)">${ic('route',17)}</span><span><b>6</b><small>paradas</small></span></span>
-    <span class="c"><span style="color:var(--blue-l)">${ic('box',17)}</span><span><b>20</b><small>produtos</small></span></span>
+    <span class="c"><span style="color:var(--blue-l)">${ic('box',17)}</span><span><b>${DADOS.rota.somaProdutos}</b><small>produtos</small></span></span>
     <span class="c"><span style="color:var(--lime)">${ic('cash',17)}</span><span><b>R$ 336,00</b><small>valor marcado</small></span></span>
   </div>
   <button class="act full" style="margin-top:9px;background:linear-gradient(180deg,var(--btn-blue-1),var(--btn-blue-2));border:0;color:var(--white);justify-content:center;box-shadow:0 7px 18px rgba(47,126,247,.3)">
@@ -878,7 +912,7 @@ T.recarga={nome:'Ajustes · Recarga',grupo:'Ajustes',render(){
     <b>${c}</b><small>créditos</small><span class="preco">R$ ${preco}</span></button>`;
   return telaAjuste('Recarga de créditos',`
     <div class="creditos" style="margin-top:2px">${ic('card',17)}
-      <span><b class="v">240</b> <small>créditos hoje</small></span>
+      <span><b class="v">${DADOS.rota.creditos}</b> <small>créditos hoje</small></span>
       <span class="debita">~17 dias no seu ritmo</span></div>
     <div class="grupo">Escolha o pacote</div>
     <div class="pacotes">
@@ -1168,9 +1202,9 @@ ${hdr({voltar:'rota'})}
 </div>
 <div class="tmx-dock">
   <div class="transmux">
-    <span class="tmx-sat perigo"><button>${ic('trash',20)}</button><small>Cancelar</small></span>
+    <span class="tmx-sat tmx-perigo"><button>${ic('trash',20)}</button><small>Cancelar</small></span>
     <span class="tmx-main"><button data-estado="pausar">${ic('gps',34)}</button><small>Checkpoint</small></span>
-    <span class="tmx-sat info"><button>${ic('check',20)}</button><small>Finalizar</small></span>
+    <span class="tmx-sat tmx-info"><button>${ic('check',20)}</button><small>Finalizar</small></span>
   </div>
 </div>
 ${nav('rota')}`;}};

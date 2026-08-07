@@ -703,10 +703,10 @@ button,input{font:inherit;color:inherit}
 .tmx-sat{display:flex;flex-direction:column;align-items:center;gap:4px}
 .tmx-sat button{width:46px;height:46px;border-radius:16px;border:.7px solid var(--line);background:var(--card);
   color:var(--ink);display:grid;place-items:center;cursor:pointer;position:relative}
-.tmx-sat.perigo button{color:var(--red);border-color:var(--red-line)}
-.tmx-sat.info button{color:var(--blue-l);border-color:#26436e}
+.tmx-sat.tmx-perigo button{color:var(--red);border-color:var(--red-line)}
+.tmx-sat.tmx-info button{color:var(--blue-l);border-color:#26436e}
 .tmx-sat small{font-size:9.5px;color:var(--ink-2)}
-.tmx-sat.aviso button{color:var(--amber);border-color:var(--amber-line);animation:tmxPisca 1.15s ease-in-out infinite}
+.tmx-sat.tmx-aviso button{color:var(--amber);border-color:var(--amber-line);animation:tmxPisca 1.15s ease-in-out infinite}
 @keyframes tmxPisca{50%{opacity:.35}}
 .tmx-sat .cont{position:absolute;top:-5px;right:-5px;min-width:17px;height:17px;border-radius:9px;background:var(--amber);
   color:#1a1204;font-size:10px;font-weight:500;display:grid;place-items:center;border:1.5px solid var(--bg)}
@@ -1355,12 +1355,12 @@ button,input{font:inherit;color:inherit}
 /* O satélite Cancelar ganhava BORDA VERMELHA no claro: virava um anel em volta
    de um ícone que já é vermelho — cor repetida em duas camadas. A borda volta
    pro fio neutro; quem diz "perigo" é o glifo. */
-[data-luz="claro"] .acoes .perigo,[data-luz="claro"] .tmx-sat.perigo button{color:var(--red);border-color:var(--line-2)}
+[data-luz="claro"] .acoes .perigo,[data-luz="claro"] .tmx-sat.tmx-perigo button{color:var(--red);border-color:var(--line-2)}
 /* Sobras da 1ª passada do claro, achadas MEDINDO a borda (não a olho): as três
    pintavam fio escuro do tema de noite em cima do cartão branco. */
 [data-luz="claro"] .act.perigo{border-color:#e6a3a3}
-[data-luz="claro"] .tmx-sat.info button{border-color:#9dbdf0;color:var(--blue)}
-[data-luz="claro"] .tmx-sat.aviso button{border-color:#e0b978;color:var(--amber)}
+[data-luz="claro"] .tmx-sat.tmx-info button{border-color:#9dbdf0;color:var(--blue)}
+[data-luz="claro"] .tmx-sat.tmx-aviso button{border-color:#e0b978;color:var(--amber)}
 /* Campo com erro: no escuro o fundo é quase preto. No claro tem que ser um
    ROSA claro — senão o campo errado vira o único buraco preto da tela. */
 [data-luz="claro"] .campo.erro input{border-color:#e6a3a3;background:#fff5f5}

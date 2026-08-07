@@ -130,4 +130,100 @@
     patch: (c, corpo) => chamar('PATCH', c, corpo),
     del: (c) => chamar('DELETE', c),
   };
+
+  /* ------------------------------------------------------------------------
+     5. L1 — A ROTA DO DIA COM DADO REAL.
+     A ponte TRADUZ o que o servidor mandou pro vocabulário do mock e entrega
+     no seam (`usarDados`). Ela não decide nada: campo sem fonte vai VAZIO,
+     nunca com número de enfeite.
+     ------------------------------------------------------------------------ */
+  const dinheiro = (n) => (typeof n === 'number' && isFinite(n)
+    ? `R$ ${n.toFixed(2).replace('.', ',')}`
+    : '');
+  const hora = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return isFinite(d.getTime())
+      ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+      : '';
+  };
+  const distancia = (m, s) => {
+    if (!(m > 0)) return '';
+    const km = m >= 1000 ? `${(m / 1000).toFixed(1).replace('.', ',')} km` : `${Math.round(m)} m`;
+    const min = s > 0 ? ` · ${Math.max(1, Math.round(s / 60))} min` : '';
+    return km + min;
+  };
+
+  /** estado da rota, no vocabulário do transmux do mock */
+  function estadoDaRota(r) {
+    const s = String(r.routeStatus || '').toLowerCase();
+    if (s === 'em_rota' || s === 'iniciada' || s === 'running') return 'rodando';
+    if (s === 'pausada' || s === 'paused') return 'pausada';
+    if (r.routeId) return 'pronta';
+    return 'montar';
+  }
+
+  /** uma parada do servidor → uma linha do mock */
+  function traduzirParada(item, i, anterior) {
+    const c = item.cliente || {};
+    const entregue = String(item.status || '') === 'entregue';
+    const tags = [];
+    if (item.quantidade > 0) tags.push([`${item.quantidade}x`, 'blue']);
+    const pill = entregue
+      ? ['Entregue', 'lime', 'check']
+      : (item.status === 'em_rota' ? ['A caminho', 'blue', 'nav'] : ['Pendente', 'mute', 'clock']);
+    return {
+      n: item.rotaOrdem != null ? item.rotaOrdem : i + 1,
+      hora: hora(item.etaAt || item.scheduledAt),
+      cor: entregue ? 'lime' : undefined,
+      nome: c.nome || '',
+      rua: c.endereco || '',
+      bairro: c.cidade || '',
+      nota: c.observacoes || undefined,
+      tags,
+      // valorHoje só existe com o financeiro ligado — sem ele, sem número.
+      marcado: typeof item.valorHoje === 'number' ? item.valorHoje.toFixed(2).replace('.', ',') : '',
+      pill,
+      // parada sem pino não tem trajeto: o mock já pinta isso como ALERTA.
+      perna: item.semCoordenada
+        ? 'sem trajeto — não sei onde fica'
+        : (anterior ? distancia(item.legDistanceM, item.legDurationS) : ''),
+    };
+  }
+
+  async function carregarRota() {
+    if (!temPonte() || typeof window.usarDados !== 'function') return;
+    let r;
+    try { r = await window.API.get('/logistica/rota'); } catch (_) { return; }
+    const itens = Array.isArray(r.items) ? r.items : [];
+    const paradas = itens.map((it, i) => traduzirParada(it, i, i > 0));
+    const entregues = itens.filter((it) => String(it.status || '') === 'entregue').length;
+    const marcado = itens.reduce((s, it) => s + (typeof it.valorHoje === 'number' ? it.valorHoje : 0), 0);
+    const temValor = itens.some((it) => typeof it.valorHoje === 'number');
+
+    if (typeof window.PARADAS !== 'undefined') window.PARADAS = paradas;
+    else try { PARADAS = paradas; } catch (_) { /* seam ausente: nada a fazer */ }
+    try { estadoRota = estadoDaRota(r); } catch (_) { /* idem */ }
+
+    window.usarDados('rota', {
+      kpiParadas: String(itens.length),
+      kpiEntregues: String(entregues),
+      kpiEntreguesParado: String(entregues),
+      // saldo/dinheiro/pix são do fechamento do dia: sem essa fonte aqui, vazio.
+      saldo: '', dinheiro: '', pix: '',
+      diaFeitas: String(entregues),
+      diaTotal: String(itens.length),
+      diaPct: itens.length ? `${Math.round((entregues / itens.length) * 100)}%` : '0%',
+      diaMarcado: temValor ? dinheiro(marcado) : '',
+      filtroFila: String(itens.length - entregues),
+      filtroEntregue: String(entregues),
+      somaProdutos: String(itens.reduce((s, it) => s + (Number(it.quantidade) || 0), 0)),
+      somaMarcado: temValor ? dinheiro(marcado) : '',
+    });
+  }
+
+  // 1ª carga assim que a casca subiu, e recarga toda vez que a Rota reaparece.
+  window.HBXRota = { carregar: carregarRota };
+  document.addEventListener('DOMContentLoaded', carregarRota);
+  if (document.readyState !== 'loading') setTimeout(carregarRota, 0);
 })();
