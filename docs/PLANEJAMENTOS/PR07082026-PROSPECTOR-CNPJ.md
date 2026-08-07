@@ -143,6 +143,26 @@ da cobrança (arrume F4). Todo o resto é ligação de peça existente.
   clique falando na hora. Prova negativa: com `prospectorAtivo=false` nada aparece.
 
 ### F2 — Clique → LEAD: 1 crédito e a mesa do /vendas (desktop)
+
+> 🔴 **O TRILHO DO DINHEIRO JÁ EXISTE — NÃO INVENTAR DÉBITO NOVO.** Localizado em 07/08,
+> é o MESMO choke auditado que o claim do Radar usa (`radar-core-delivery.mixin.ts` ~3889):
+> 1. `usageKey = 'prospector:<companyId>:<cnpj>'` — a idempotência mora aqui. Clicar duas
+>    vezes no mesmo CNPJ **não cobra duas vezes** (o `CreditWalletService` trava pela chave).
+> 2. `commercialUsageLimits.reserveLeadDeliveryCredit(companyId, userId, { usageKey, isBillingAudienceUser })`
+>    — débito REAL **ANTES** de gravar qualquer coisa. Fail-closed: sem saldo, lança e nada é criado
+>    (foi assim que mataram o bug "entrega parcial + 409" no Radar).
+> 3. Cria o lead: `vendasService.importWebscrapingLeadsForUser(user, {...})`, origem `prospector-rota`.
+> 4. **No catch**: `commercialUsageLimits.releaseLeadDeliveryCredit(companyId, userId, { usageKey })`
+>    — estorno atômico, best-effort, idempotente. Gravação que falha DEPOIS do débito devolve o crédito.
+> 5. Só então `ProspectoRota.estado = 'lead'` + `leadId`.
+>
+> **Ação de catálogo:** `lead_delivery` (custo 1, `credit-action-catalog.ts`) — a mesma do claim.
+> Não criar ação nova sem ordem do dono: ação nova é preço novo.
+> **Dedupe sem cobrança:** CNPJ que JÁ é lead do tenant devolve o lead existente e **não debita**.
+> ⚠️ Limitação medida: `VendasLead` não tem coluna de CNPJ, então o casamento é pelo
+> `CustomerProfile`; lead solto sem ficha passa batido (aceito na v1, anotado).
+> **LEI DO VENDEDOR:** o motorista nunca vê saldo — só "não deu pra abrir agora". O booleano
+> `creditosEsgotados` já viaja na config pro app.
 - Card do prospecto no APK: nome, ramo, distância + 2 ações:
   - **"Abrir lead"** → débito de **1 crédito** no `CreditWalletService` (mesmo trilho
     track-first do claim do Radar) → cria lead no /vendas com origem `prospector-rota`
