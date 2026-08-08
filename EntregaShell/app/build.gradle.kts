@@ -111,7 +111,12 @@ plugins {
 // 171 → 175 em 07/08 (noite): a leva "barra de 3 + dia da rota + Voltar em
 // pilha" sideloadou o 173 no moto g15 durante o teste por toque. Piso ACIMA
 // do maior número que já está em algum celular — a lei de sempre.
-val hbxLogisticaVersionCodeFloor = 175
+// 175 → 185 em 07/08 (madrugada de 08): o roteiro funcional (montar → salvar →
+// iniciar → entregar) foi testado por toque no g15 em 6 rodadas de build, e a
+// última sideloadada foi a 184. Piso ACIMA do maior número que já está em
+// algum celular, senão o publish carimba um número que o g15 já roda e o aviso
+// de atualização nunca aparece — que é a 1ª prova depois de publicar.
+val hbxLogisticaVersionCodeFloor = 185
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)

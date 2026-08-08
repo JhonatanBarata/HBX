@@ -298,12 +298,37 @@
     return km + min;
   };
 
-  /** estado da rota, no vocabulário do transmux do mock */
+  /* estado da rota, no vocabulário do transmux do mock.
+     🔴 O VOCABULÁRIO É O DO SERVIDOR, MEDIDO — não o que eu achei que era. O
+     `LogisticaRoute.status` vale `PLANNED | INITIALIZING | ACTIVE | COMPLETED |
+     REFUNDING | FAILED`, e o tracking troca por `ENCERRADA` quando o dia foi
+     encerrado operacionalmente. Eu comparava com 'em_rota'/'iniciada', que não
+     existem: rota INICIADA (ACTIVE, conferido no banco de produção) caía no
+     `if (routeId)` e a tela mostrava "Iniciar" numa rota que já estava rodando.
+     Tocar de novo dava erro — mais um passo sem sequência. */
   function estadoDaRota(r) {
-    const s = String(r.routeStatus || '').toLowerCase();
-    if (s === 'em_rota' || s === 'iniciada' || s === 'running') return 'rodando';
-    if (s === 'pausada' || s === 'paused') return 'pausada';
-    if (r.routeId) return 'pronta';
+    const s = String(r.routeStatus || '').toUpperCase();
+    if (s === 'ACTIVE' || s === 'INITIALIZING') return 'rodando';
+    // Encerrada/concluída NÃO é rodando: o dia fechou. Se ainda sobrou parada
+    // aberta com ordem, o estado é "pronta" (dá pra reiniciar no mesmo dia).
+    if (s === 'PLANNED') return 'pronta';
+    /* 🔴 SEM `routeId` A ROTA AINDA PODE ESTAR MONTADA — e foi isto que quebrou
+       a sequência inteira (dono, 07/08: "cliquei em iniciar rota → monte a rota
+       antes"; e depois "não tem sequência, não tem vida"). O `routeId` é a rota
+       OPERACIONAL do rastreamento, e ela só nasce no INICIAR. Quem prova que o
+       dia foi PLANEJADO é a ordem gravada em cada parada (`rotaOrdem`), que é
+       exatamente o que o `rota/planejar` grava. Lendo só o routeId, montar não
+       mudava nada na tela: o botão continuava "Montar rota" pra sempre e o
+       "Iniciar" ficava num botão fixo, disponível antes da hora. */
+    const itens = Array.isArray(r.items) ? r.items : [];
+    const abertas = itens.filter((it) => {
+      const st = String((it && it.status) || '');
+      return st !== 'entregue' && st !== 'cancelada';
+    });
+    const montadas = abertas.filter((it) => it.rotaOrdem !== null && it.rotaOrdem !== undefined);
+    // TODAS as abertas com ordem = dia planejado. Uma parada nova entrou depois
+    // (sem ordem)? Volta pra "montar" — é verdade: falta planejar de novo.
+    if (abertas.length && montadas.length === abertas.length) return 'pronta';
     return 'montar';
   }
 
@@ -406,7 +431,14 @@
       // dizer o que o servidor vai debitar de verdade. Falhou: campo vazio, e
       // pela Lei do IF a linha do custo some — número de crédito inventado é
       // dinheiro errado na tela principal.
-      window.API.get('/logistica/rota/custo-preview'),
+      // 🔴 A DATA VIAJA AQUI TAMBÉM (medido em produção, 07/08 23h): sem `date`
+      // o servidor usa o dia DELE, e ele roda em UTC — das 21h à meia-noite de
+      // Brasília o UTC já é amanhã. As 96 entregas do dia (scheduledAt
+      // 2026-08-07T03:00Z) ficavam FORA da janela e a porta respondia "Nenhuma
+      // entrega aberta neste dia. Monte a rota antes de iniciar" — foi ESTE o
+      // erro que o dono levou na cara depois de montar a rota. Mesmo remendo
+      // que o `/logistica/rota` já tinha; faltava nas duas do custo.
+      window.API.get(`/logistica/rota/custo-preview?date=${encodeURIComponent(dia)}`),
     ]);
     const custo = custoR.status === 'fulfilled' ? custoR.value : null;
     const credito = creditoR.status === 'fulfilled' ? creditoR.value : null;
@@ -419,6 +451,13 @@
     // que o cartão carrega no `data-parada`.
     ENTREGAS.clear();
     itens.forEach((it, i) => { if (it && it.id) ENTREGAS.set(String(it.id), { item: it, n: i + 1 }); });
+    // As paradas do "Salvar rota", na ORDEM que o planejador deu (o servidor já
+    // devolve por `rotaOrdem`): salvar o roteiro é salvar essa sequência.
+    PARADAS_SALVAR.length = 0;
+    itens.forEach((it) => {
+      const id = it && it.cliente && it.cliente.id;
+      if (id) PARADAS_SALVAR.push({ customerProfileId: String(id) });
+    });
     // O nível do financeiro vem no MESMO payload da rota (não é chute nem
     // pedido extra): é ele que decide qual das duas folhas abre na porta.
     if (typeof r.moduloFinanceiroAtivo === 'boolean') financeiroAtivo = r.moduloFinanceiroAtivo;
@@ -476,15 +515,28 @@
     // nela por outro caminho via a lista do MOCK — João da Silva, R$ 336,00 —
     // com o dado real na tela de trás. Dado de enfeite numa tela de dinheiro é
     // o defeito que esta frente inteira existe pra matar (visto no g15).
-    window.usarDados('montagem', {
-      somaParadas: String(paradas.length),
-      somaProdutos: String(itens.reduce((s, it) => s + (Number(it.quantidade) || 0), 0)),
-      somaValor: temValor ? dinheiro(marcado) : '',
-      iniciarSub: '',
-      linhas: paradas.map((p) => [
-        p.n, p.hora, p.nome, p.rua, p.bairro, p.tags.map((t) => t[0]), p.marcado, p.cor || '',
-      ]),
-    });
+    // 🔴 QUEM MANDA NA MONTAGEM É O ESTADO. Com rota montada ela mostra a ROTA
+    // (com id, ordem e hora) e o pé vira "Iniciar rota"; sem rota montada ela é
+    // a tela de MONTAR, e quem enche é a prévia do dia escolhido. Escrever a
+    // rota real nos dois casos era o que fazia o "Iniciar rota" aparecer sem
+    // rota nenhuma — o "monte a rota antes" que o dono levou na cara.
+    if (estadoRota === 'montar' || montarDia) {
+      encherMontagem();
+    } else {
+      window.usarDados('montagem', {
+        carregando: false,
+        semFonte: false,
+        pronta: 1,
+        somaParadas: String(paradas.length),
+        somaProdutos: String(itens.reduce((s, it) => s + (Number(it.quantidade) || 0), 0)),
+        somaValor: temValor ? dinheiro(marcado) : '',
+        // o sub do botão é a 1ª parada pendente: pra onde ele vai AGORA.
+        iniciarSub: (paradas.find((p) => !p.cor) || paradas[0] || {}).nome || '',
+        linhas: paradas.map((p) => [
+          p.n, p.hora, p.nome, p.rua, p.bairro, p.tags.map((t) => t[0]), p.marcado, p.cor || '',
+        ]),
+      });
+    }
     // Quem chama precisa saber se a rota REALMENTE entrou: o `montarRota`
     // navegava pra montagem mesmo com a chamada no chão, e a tela abria com as
     // paradas de exemplo. Sem este retorno não dá pra distinguir.
@@ -539,16 +591,27 @@
         creditos: '', creditosDebita: '',
         somaProdutos: '', somaMarcado: '',
       },
+      /* A MONTAGEM É TELA DE DECISÃO E DE DINHEIRO: ela mostrava João da Silva
+         e "R$ 336,00" (o desenho) pra quem entrasse antes do servidor
+         responder — e é em cima dessa lista que se toca "Montar rota". Nasce
+         vazia, com esqueleto, e `pronta:0` (sem rota montada não existe botão
+         de iniciar). */
+      montagem: {
+        carregando: true, linhas: [], pronta: 0, iniciarSub: '',
+        somaParadas: '', somaProdutos: '', somaValor: '', dias: [], diaSel: 0,
+      },
       clientes: { carregando: true, lista: [], total: '', semEndereco: '', marcadoHoje: '', subtitulo: '' },
       produtos: { carregando: true, lista: [], categorias: [], ativos: '', estoqueBaixo: '', valorEstimado: '' },
       salvas: { carregando: true, lista: [], total: '' },
-      chat: { carregando: true, conversa: [], recado: '' },
+      // `sino` zera JUNTO: o "2" do desenho ficava no cabeçalho de TODA tela
+      // até os recados responderem — badge de exemplo com cara de recado real.
+      chat: { carregando: true, conversa: [], recado: '', sino: '' },
       consumo: { carregando: true, linhas: [], saldo: '', gastosHoje: '', bonus: '' },
       // Ajustes é o pior lugar pra exemplo: o motorista lê a CHAVE no estado do
       // desenho, toca, e acha que mudou o que nem tinha carregado. Também é a
       // tela que mostrava "Baixando o mapa · 62%" — recurso CORTADO em 06/08.
       ajustes: {
-        carregando: true, avisarChegadaDist: '', creditosLinha: '',
+        carregando: true, creditosLinha: '',
         painelCreditos: '', grupoOffline: 0, empresa: '', versao: '', versaoSub: '',
         // Papel é DADO, e sem resposta do servidor não se sabe qual é. O desenho
         // nasce admin (é a tela cheia); o aparelho nasce SEM, e só o `config`
@@ -560,6 +623,7 @@
       avancado: {
         carregando: true, admin: 0, financeiro: 0, cobrancaSimples: 0,
         precoPorCliente: 0, naHora: 0, mensal: 0, fiado: 0,
+        avisarChegada: 0, avisarChegadaDist: '',
       },
       /* A ABERTURA NÃO ENTRA AQUI — e o motivo é o que torna ela especial. Ela
          dizia "Água Rio Claro" (nome do desenho) na PRIMEIRA tela que o
@@ -775,14 +839,89 @@
     base.setUTCDate(base.getUTCDate() + (((n - dow) + 7) % 7));
     return base.toISOString().slice(0, 10);
   };
-  /** os chips que a Rota desenha no estado "montar" — sem admin, nada entra */
+  /** os chips de dia da tela de MONTAGEM — sem admin, nada entra */
   function publicarMontarDias() {
     if (typeof window.usarDados !== 'function') return;
     if (!ehAdmin()) return;
     const hoje = diaDaSemana();
     const dias = [[0, 'Hoje']];
     for (let n = 1; n <= 7; n += 1) if (n !== hoje) dias.push([n, ROTULO_DIA[n]]);
-    window.usarDados('rota', { montarDias: dias, montarDiaSel: montarDia });
+    window.usarDados('montagem', { dias, diaSel: montarDia });
+  }
+
+  /* 🔴 O CHIP DE DIA TEM QUE TROCAR A LISTA (dono, 07/08: "alterno entre dias
+     e só aparece o mesmo cliente"). Antes o chip só mudava a SELEÇÃO — a lista
+     continuava a mesma, e escolher Sábado parecia quebrado. Agora a MONTAGEM
+     mostra a prévia do dia escolhido (`GET /logistica/dia-preview`, a mesma
+     porta do app antigo): quem VAI entrar na rota, antes de materializar nada.
+     Rota já montada tem prioridade: aí a montagem mostra a rota de verdade
+     (escrita pelo `carregarRota`) e o botão do pé vira "Iniciar rota". */
+  let previaSeq = 0;
+  const PREVIA = [];                  // as paradas da prévia, pro Salvar rota
+  async function encherMontagem() {
+    if (typeof window.usarDados !== 'function') return;
+    // Rota de HOJE já montada: quem manda na tela é o `carregarRota` (o dado
+    // real, com id e ordem). Mas escolher OUTRO dia é dizer "quero montar esse"
+    // — aí a prévia manda mesmo com a rota de hoje pronta, senão o chip de
+    // sábado não teria efeito nenhum depois de montar (o defeito de origem).
+    if (!montarDia && estadoRota !== 'montar' && estadoRota !== 'carregando') return;
+    const alvo = montarDia;
+    const seq = ++previaSeq;
+    const data = alvo ? dataDoDia(alvo) : hojeISO();
+    window.usarDados('montagem', { carregando: true, semFonte: false });
+    let prev;
+    try {
+      prev = await window.API.get(`/logistica/dia-preview?date=${encodeURIComponent(data)}`);
+    } catch (_) {
+      // Prévia no chão com chip aceso mostraria a lista de outro dia com Sáb
+      // selecionado — a mentira que este conserto existe pra matar.
+      if (seq !== previaSeq) return;
+      PREVIA.length = 0;
+      return window.usarDados('montagem', {
+        carregando: false, semFonte: true, linhas: [], somaParadas: '', somaProdutos: '', somaValor: '',
+      });
+    }
+    // trocou de chip enquanto a rede respondia: resposta velha não escreve.
+    if (seq !== previaSeq) return;
+    const clientes = Array.isArray(prev && prev.clientes) ? prev.clientes : [];
+    PREVIA.length = 0;
+    let produtos = 0;
+    let total = 0;
+    let temPreco = false;
+    const linhas = clientes.map((c, i) => {
+      const itens = Array.isArray(c.itens) ? c.itens : [];
+      const qtdCliente = itens.reduce((s, it) => s + Math.max(1, Number(it.qtd) || 1), 0);
+      produtos += qtdCliente;
+      const somaCliente = itens.reduce((s, it) => (typeof it.valorUnit === 'number'
+        ? s + it.valorUnit * Math.max(1, Number(it.qtd) || 1) : s), 0);
+      if (itens.some((it) => typeof it.valorUnit === 'number')) temPreco = true;
+      total += somaCliente;
+      PREVIA.push({
+        customerProfileId: String(c.customerProfileId || ''),
+        ...(c.localId ? { localId: String(c.localId) } : {}),
+      });
+      // a linha do mock é posicional: [n, hora, nome, rua, bairro, tags, valor, cor]
+      return [
+        i + 1, '', esc(c.nome), esc(c.localApelido || ''), '',
+        itens.map((it) => `${Math.max(1, Number(it.qtd) || 1)}x ${esc(it.nome)}`),
+        somaCliente ? somaCliente.toFixed(2).replace('.', ',') : '', '',
+      ];
+    });
+    window.usarDados('montagem', {
+      carregando: false,
+      semFonte: false,
+      linhas,
+      pronta: 0,
+      iniciarSub: '',
+      somaParadas: String(linhas.length),
+      somaProdutos: String(produtos),
+      somaValor: temPreco ? dinheiro(total) : '',
+    });
+  }
+
+  /** o botão do meio da Rota: abre a tela de montar, sem tocar no servidor */
+  function abrirMontagem() {
+    if (typeof window.ir === 'function') window.ir('montagem');
   }
 
   let ocupado = false;
@@ -853,8 +992,10 @@
       }
       // Rota montada: a escolha de dia cumpriu o papel e volta pro padrão —
       // seleção presa deixaria o PRÓXIMO montar puxando o dia velho calado.
-      if (montarDia) { montarDia = 0; window.usarDados('rota', { montarDiaSel: 0 }); }
-      if (typeof window.ir === 'function') window.ir('montagem');
+      if (montarDia) { montarDia = 0; window.usarDados('montagem', { diaSel: 0 }); }
+      // Não navega: o motorista JÁ está na montagem, e ela acabou de virar a
+      // rota de verdade (o `carregarRota` acima escreveu `pronta:1`, então o
+      // botão do pé agora é "Iniciar rota").
     });
   }
 
@@ -862,7 +1003,9 @@
   async function iniciarRota() {
     await comTrava(async () => {
       let custo = null;
-      try { custo = await window.API.get('/logistica/rota/custo-preview'); } catch (e) { return avisoErro(e); }
+      // a data vai JUNTO — sem ela o servidor cobra pelo dia UTC dele (ver a
+      // nota no `carregarRota`): das 21h em diante o portão nem abria.
+      try { custo = await window.API.get(`/logistica/rota/custo-preview?date=${encodeURIComponent(hojeISO())}`); } catch (e) { return avisoErro(e); }
       // 🔴 NOME DE CAMPO DE DINHEIRO NÃO SE CHUTA. A 1ª versão adivinhou
       // (`custo`/`total`/`creditos`) e a tela mostrou "Debita 0" com o servidor
       // dizendo 4,8 — mentira com cara de app pronto. Estes são os nomes
@@ -1600,6 +1743,10 @@
       const r = irDoMock.apply(this, arguments);
       if (tela === 'clientes') carregarClientes();
       if (tela === 'produtos') carregarProdutos();
+      // A montagem é a tela de MONTAR: abrir já traz os chips (quem é admin) e
+      // a lista do dia escolhido. Sem isto ela abriria com a lista da última
+      // vez — e o motorista montaria a rota de ontem sem saber.
+      if (tela === 'montagem') { publicarMontarDias(); encherMontagem(); }
       if (tela === 'chat') aoAbrirChat();
       if (tela === 'ajustes') carregarAjustes();
       if (tela === 'consumo') carregarConsumo();
@@ -1693,11 +1840,64 @@
   }
 
   /* ------------------------------------------------------------------------
+     SALVAR A ROTA (P5 do roteiro) — o botão azul da montagem, que era MORTO.
+
+     Salva o ROTEIRO (a lista de clientes na ordem), não as entregas do dia: é
+     exatamente o que as "Rotas salvas" reaplicam depois (`rota-modelos/:id/gerar`).
+     · O que salva depende do estado: rota montada salva as PARADAS REAIS (na
+       ordem que o planejador deu); ainda por montar salva a PRÉVIA do dia.
+     · Nome repetido não é erro: o servidor recusa duplicado (`assertNomeUnico`),
+       então nome que já existe vira PATCH — salvar de novo ATUALIZA a rota do
+       dia em vez de estourar 400 na cara do motorista. É o mesmo pacto do app
+       antigo (`if (existing) PATCH else POST`).
+     ------------------------------------------------------------------------ */
+  const PARADAS_SALVAR = [];        // as paradas da rota MONTADA, em ordem
+
+  async function salvarRota() {
+    if (typeof window.portao !== 'function') return;
+    const daPrevia = estadoRota === 'montar';
+    const paradas = (daPrevia ? PREVIA : PARADAS_SALVAR).filter((p) => p && p.customerProfileId);
+    if (!paradas.length) {
+      return avisoErro(new Error('Esta rota não tem parada para salvar.'));
+    }
+    const dia = montarDia || diaDaSemana();
+    const nome = `Rota de ${DIAS_SEMANA[dia]} · ${dataBR(daPrevia && montarDia ? dataDoDia(montarDia) : hojeISO())}`;
+    window.portao({
+      tom: 'info', ico: 'save', titulo: 'Salvar esta rota?',
+      sub: `${esc(nome)} · ${paradas.length} ${paradas.length === 1 ? 'parada' : 'paradas'}`,
+      acoes: [['Agora não', ''], ['Salvar', 'principal']], classe: 'duas',
+    });
+    const botao = naCamada('.portao-wrap .principal');
+    if (!botao) return;
+    botao.addEventListener('click', () => comTrava(async () => {
+      let existente = null;
+      try {
+        const lista = await window.API.get('/logistica/rota-modelos');
+        existente = (Array.isArray(lista) ? lista : []).find((m) => m && m.nome === nome) || null;
+      } catch (_) { /* sem lista: segue pelo POST, e o 400 de duplicado avisa */ }
+      try {
+        if (existente) {
+          await window.API.patch(`/logistica/rota-modelos/${encodeURIComponent(existente.id)}`, { paradas });
+        } else {
+          await window.API.post('/logistica/rota-modelos', { nome, diaSemana: dia, paradas });
+        }
+      } catch (e) { return avisoErro(e); }
+      // A lista de Rotas salvas fica fresca na hora: o dono vai OLHAR lá pra
+      // conferir que "ficou salvo" — e lista velha diria que não ficou.
+      await carregarSalvas();
+      window.portao({
+        tom: 'info', ico: 'check', titulo: 'Rota salva',
+        sub: `${esc(nome)} está em Rotas salvas`, acoes: [['Fechar', 'principal']],
+      });
+    }), { once: true });
+  }
+
+  /* ------------------------------------------------------------------------
      L9 — AJUSTES, RECARGA E CONSUMO.
 
      🔴 CHAVE QUE APARECE E NÃO CONTROLA NADA É PIOR QUE CHAVE AUSENTE. Só
-     entram as que têm porta: as três do servidor (`avisoChegandoEnabled`,
-     `modoCaderneta`) e as do próprio aparelho (som/voz pelo `soundPrefs` do
+     entram as que têm porta: as do servidor (`avisoChegandoEnabled` e as 6 de
+     dinheiro) e as do próprio aparelho (som/voz pelo `soundPrefs` do
      Kotlin, tema pelo native). O grupo "Sem internet" INTEIRO sai da tela: o
      download de mapa e o pacote offline morreram no corte de 06/08 — o PMTiles
      guarda os 60 km sozinho, sem botão. "Painel de créditos do dia" também
@@ -1744,10 +1944,7 @@
     window.usarDados('ajustes', {
       ...fonteVoltou,
       admin,
-      avisarChegadaDist: isFinite(dist) && dist > 0 ? `${dist} m` : '',
-      avisarChegada: config.avisoChegandoEnabled ? 1 : 0,
       creditosLinha: saldo != null ? `${saldo} ${saldo === 1 ? 'crédito' : 'créditos'}` : '',
-      modoCaderneta: config.modoCaderneta ? 1 : 0,
       sons,
       painelCreditos: '',      // sem porta: a linha inteira some
       grupoOffline: 0,         // corte de 06/08
@@ -1767,6 +1964,10 @@
       naHora: config.aceitaNaHora ? 1 : 0,
       mensal: config.aceitaMensal ? 1 : 0,
       fiado: config.aceitaFiado ? 1 : 0,
+      // "Avisar chegada" mora no Avançado desde 07/08 (ordem do dono) — o
+      // campo e o raio são os mesmos que a raiz dos Ajustes mostrava.
+      avisarChegada: config.avisoChegandoEnabled ? 1 : 0,
+      avisarChegadaDist: isFinite(dist) && dist > 0 ? `${dist} m` : '',
     });
     if (cred) encherRecarga(cred);
   }
@@ -2771,7 +2972,16 @@
   }
 
   const ACOES = {
-    montar: montarRota,
+    // 🔴 O BOTÃO DO MEIO DA ROTA ABRE A TELA DE MONTAR — não monta no escuro.
+    // Montar era uma ida ao servidor no toque, e o motorista só descobria QUEM
+    // tinha entrado depois de pronto (dono: "clico em montar rota e aparece uma
+    // tela para montar a rota"). Quem monta de verdade é o `montar-agora`, na
+    // montagem, com a lista do dia na frente dos olhos.
+    montar: abrirMontagem,
+    'montar-agora': montarRota,
+    // rota rodando: o botão do meio leva pra navegação (é o que se faz andando)
+    navegar: () => window.ir('mapa'),
+    'salvar-rota': salvarRota,
     'iniciar-rota': iniciarRota,
     iniciar: iniciarRota,
     'cancelar-rota': cancelarRota,
@@ -2786,6 +2996,7 @@
     // "Tentar de novo" do aviso de fonte fora do ar: volta pro esqueleto e
     // pede de novo. Sem devolver o esqueleto o toque não teria resposta
     // nenhuma na tela, e o motorista tocaria três vezes achando que travou.
+    'recarregar-montagem': () => retentar('montagem', encherMontagem),
     'recarregar-clientes': () => retentar('clientes', carregarClientes),
     'recarregar-produtos': () => retentar('produtos', carregarProdutos),
     'recarregar-salvas': () => retentar('salvas', carregarSalvas),
@@ -2798,7 +3009,8 @@
     'ir-recarga': () => window.ir('recarga'),
     'ir-financeiro': () => window.ir('financeiro'),
     'ir-avancado': () => window.ir('avancado'),
-    'chave-caderneta': () => virarChave('modoCaderneta'),
+    // 'chave-caderneta' morreu em 07/08 junto com a chave: o MODO caderneta
+    // foi removido do produto; a caderneta é a tela de anotações, e só.
     /* 🔴 TRÊS CAMPOS DO SERVIDOR DISPUTAVAM O RÓTULO "AVISAR CHEGADA". Medido,
        e a diferença é de FUNÇÃO, não de nome:
        · `raioChegadaM` (60 m) — no app que já roda é o raio do geofence NATIVO
@@ -2878,8 +3090,12 @@
     }
     if (chave === 'montar-dia') {
       const n = Number(alvo.dataset.dia) || 0;
+      // 2º toque no mesmo chip volta pra Hoje — chip que só liga prende o
+      // motorista num dia (mesma régua do chip de dia dos Clientes).
       montarDia = montarDia === n ? 0 : n;
-      window.usarDados('rota', { montarDiaSel: montarDia });
+      // o chip acende JÁ (resposta ao dedo); a lista do dia chega em seguida
+      window.usarDados('montagem', { diaSel: montarDia });
+      encherMontagem();
       return;
     }
     if (chave === 'chip-dia') {

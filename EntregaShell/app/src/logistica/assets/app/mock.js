@@ -109,11 +109,15 @@ const status = `<div class="status"><span>9:41</span><span class="right">
 const logo = `<div class="logo"><div class="w"><b>HB</b><em>X</em></div><small>LOGÍSTICA</small></div>`;
 
 function hdr(o={}){
+  /* O sino e o balão são PORTAS do chat, não enfeite: badge com número que não
+     abre nada é botão morto (dono, 07/08 — "tem número 2, vc clica nada abre").
+     `data-ir` de propósito: se o admin desligar o chat, o `podarDesligados`
+     leva os dois embora junto com o módulo. */
   const dir = o.live
     ? `<div class="pill-live"><i></i>${o.live}</div>`
     : `<div style="display:flex;gap:7px">
-        <button class="round">${ic('bell',17)}${DADOS.chat.sino?`<i class="cnt">${DADOS.chat.sino}</i>`:''}</button>
-        ${o.semChat?'':`<button class="round">${ic('chat',17)}</button>`}</div>`;
+        <button class="round" data-ir="chat">${ic('bell',17)}${DADOS.chat.sino?`<i class="cnt">${DADOS.chat.sino}</i>`:''}</button>
+        ${o.semChat?'':`<button class="round" data-ir="chat">${ic('chat',17)}</button>`}</div>`;
   // Tela que se entra por dentro (ficha, folha) troca o menu pela VOLTA — o
   // hambúrguer ali seria a saída errada e o Voltar do Android tem que casar.
   const esq = o.voltar
@@ -202,19 +206,27 @@ function podarDesligados(tela){
    de rotas recebidas e o Cancelar disputam a esquerda, o Cancelar fica (ele
    controla trabalho em andamento) e o sino só assume com a rota parada.
    ========================================================================== */
+/* 🔴 SATÉLITE SEM CAMINHO NÃO FICA (dono, 07/08: "remove o ícone ou acha o
+   caminho"). Saíram os três que eram botão morto: "Rotas recebidas" (a rota
+   indicada morreu no corte de 06/08 — 4 usos na história, 2.981 polls),
+   "Rota rápida" e "Adicionar" (a rota rápida do app antigo — geo/busca, CEP,
+   link, conta, encaixe — é frente própria; a tela T.rapida fica de referência
+   até ela nascer LIGADA). Quando a frente vier, o satélite volta COM ação. */
 const ROTA_ESTADOS={
-  montar:   {main:{acao:'montar', glifo:'route', rotulo:'Montar rota'},
-             esq:{tipo:'aviso', glifo:'bell', rotulo:'Rotas recebidas', contagem:2},
-             dir:{tipo:'info', glifo:'plus', rotulo:'Rota rápida'}},
+  montar:   {main:{acao:'montar', glifo:'route', rotulo:'Montar rota'}},
+  /* Com a rota pronta o satélite da direita é a PORTA DE VOLTA pra montagem:
+     rever a lista, salvar o roteiro, ou trocar o dia e montar de novo. Sem ele
+     a montagem ficava inalcançável depois de montada — beco sem saída. */
   pronta:   {main:{acao:'iniciar', glifo:'play', rotulo:'Iniciar'},
              esq:{tipo:'perigo', glifo:'close', rotulo:'Cancelar', acao:'cancelar-rota'},
-             dir:{tipo:'info', glifo:'route', rotulo:'Adicionar'}},
-  rodando:  {main:{acao:'pausar', glifo:'pause', rotulo:'Pausar'},
+             dir:{tipo:'info', glifo:'route', rotulo:'Montagem', acao:'montar'}},
+  /* Com a rota RODANDO o que o motorista faz é ANDAR: o botão do meio abre a
+     navegação. "Pausar"/"Continuar" saíram — pausa não existe no servidor
+     (o estado da rota é PLANNED|ACTIVE|COMPLETED|ENCERRADA), então eram dois
+     botões que não pausavam nada. Fechar o dia é o "Finalizar" do pé da lista. */
+  rodando:  {main:{acao:'navegar', glifo:'nav', rotulo:'Navegar'},
              esq:{tipo:'perigo', glifo:'stop', rotulo:'Cancelar', acao:'cancelar-rota'},
-             dir:{tipo:'info', glifo:'route', rotulo:'Adicionar'}},
-  pausada:  {main:{acao:'continuar', glifo:'play', rotulo:'Continuar'},
-             esq:{tipo:'perigo', glifo:'stop', rotulo:'Cancelar', acao:'cancelar-rota'},
-             dir:{tipo:'info', glifo:'route', rotulo:'Adicionar'}},
+             dir:{tipo:'info', glifo:'check', rotulo:'Finalizar', acao:'fechar-dia'}},
 };
 function transmux(estado){
   const c=ROTA_ESTADOS[estado]; if(!c) return '';
@@ -524,20 +536,23 @@ const DADOS={
      "Sem internet" inteiro some porque o download de mapa e o pacote offline
      sairam no corte de 06/08 (o PMTiles guarda 60 km sozinho, sem botao). */
   ajustes:{
-    avisarChegadaDist:'500 m', avisarChegada:1,
     creditosLinha:'240 créditos',
     admin:1,
-    modoCaderneta:1, sons:1, painelCreditos:1,
+    sons:1, painelCreditos:1,
     grupoOffline:1, mapaBaixando:'Baixando o mapa · 62%', mapaBaixado:'14,2 MB de 23,0 MB', mapaPct:62,
     empresa:'Água Rio Claro', versao:'Versão beta1.3.2', versaoSub:'atualizado hoje',
   },
   /* As 6 chaves de dinheiro do Avançado. `admin` NÃO é papel inventado na tela:
      é o que o próprio `GET /logistica/config` responde — pra quem não é
      responsável financeiro o bloco comercial vem AUSENTE, e é essa ausência que
-     o app lê (o mesmo `isAdmin()` do app que já roda). */
+     o app lê (o mesmo `isAdmin()` do app que já roda).
+     "Avisar chegada" mora AQUI desde 07/08 (ordem do dono: sai da raiz dos
+     Ajustes, entra no Avançado). "Modo caderneta" morreu na mesma ordem — o
+     modo foi removido; a caderneta é a tela de anotações, e só. */
   avancado:{
     admin:1, financeiro:1, cobrancaSimples:0, precoPorCliente:1,
     naHora:1, mensal:1, fiado:1,
+    avisarChegadaDist:'500 m', avisarChegada:1,
   },
   /* A ABERTURA NÃO TEM SEÇÃO DE DADO, e isso é de propósito — ver o comentário
      em cima do `.splash-barra`, na folha. Slot com valor de desenho aqui NÃO
@@ -617,10 +632,17 @@ const DADOS={
       ['Rota clientes fiéis','10 de maio, 2025','9','14','87,60','users',1,''],
     ],
   },
+  /* A MONTAGEM É A TELA DE MONTAR (07/08, ordem do dono: "clico em montar rota
+     e aparece uma tela para montar a rota"). `dias`/`diaSel` são os chips do
+     dia (vêm da ponte; sem eles a linha não existe). `pronta` é o que troca o
+     botão do pé: 0 = ainda por montar → "Montar rota"; 1 = montada → "Iniciar
+     rota". Botão de iniciar em rota que não existe foi o erro que o dono viu
+     na cara ("monte a rota antes"). */
   montagem:{
     titulo:'Montagem de rota',
     somaParadas:'6', somaProdutos:'20', somaValor:'R$ 336,00',
     iniciarSub:'João da Silva',
+    dias:[], diaSel:0, pronta:1, vazio:'Nenhum cliente nesse dia',
     linhas:[
       [1,'08:30','João da Silva','R. das Palmeiras, 145','Santo Amaro',['20L x2','Vasilhame','Chip dia'],'42,00',''],
       [2,'09:15','Mercadinho Bom Preço','Av. João Dias, 890','Brooklin',['20L x4','Vasilhame'],'84,00',''],
@@ -695,11 +717,8 @@ function shellRota(conteudo,dock){
     <div class="body${dock?' com-dock':''}">${conteudo}</div>
     ${dock?`<div class="tmx-dock">${dock}</div>`:''}${nav('rota')}`;
 }
-/* Dia da rota a montar (07/08): o admin puxa OUTRO dia pra hoje (adiantar o
-   sábado, refazer o de ontem). Quem sabe os dias e quem é admin é a ponte
-   (`montarDias`); sem ela — o desenho — a linha não existe e nada muda. */
-const chipsMontarDia=(e)=>e!=='montar'||!Array.isArray(DADOS.rota.montarDias)||!DADOS.rota.montarDias.length?'':`<div class="chips">
-  ${DADOS.rota.montarDias.map(x=>`<button class="chip${(DADOS.rota.montarDiaSel||0)===x[0]?' on':''}" data-acao="montar-dia" data-dia="${x[0]}">${x[1]}</button>`).join('')}</div>`;
+/* Os chips de dia MUDARAM DE TELA em 07/08 — moram na Montagem, ao lado da
+   lista que eles trocam. Aqui eles ficavam a uma tela de distância do efeito. */
 T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
   const e=estadoRota;
 
@@ -726,8 +745,7 @@ T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
     <div class="vazio">
       <span class="ico">${ic('route',24)}</span>
       <strong>${DADOS.rota.vazioTitulo}</strong>
-    </div>
-    ${chipsMontarDia(e)}`, transmux(e==='semsinal'?'pronta':e));
+    </div>`, transmux(e==='semsinal'?'pronta':e));
   return shellRota(`
   <div class="kpis">
     <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${DADOS.rota.kpiParadas}</b><span class="l">paradas</span></span></div>
@@ -745,7 +763,6 @@ T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
   ${emCurso?`<div class="dia-bar"><small>${DADOS.rota.diaFeitas} de ${DADOS.rota.diaTotal}</small><span class="trilho"><i style="width:${DADOS.rota.diaPct}"></i></span><b>${DADOS.rota.diaMarcado}</b><small>marcado</small></div>`:''}
   ${emCurso?`<div class="filtro">
       <button class="on">Fila <b>${DADOS.rota.filtroFila}</b></button><button>Entregue <b>${DADOS.rota.filtroEntregue}</b></button></div>`:''}
-  ${chipsMontarDia(e)}
   ${montada||e==='montar'?`<div class="creditos">${ic('card',17)}
       <span><b class="v">${DADOS.rota.creditos}</b> <small>créditos hoje</small></span>
       <span class="debita">${montada
@@ -758,7 +775,7 @@ T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
     <span class="c"><span style="color:var(--lime)">${ic('check',17)}</span><span><b>${emCurso?DADOS.rota.kpiEntregues:DADOS.rota.kpiEntreguesParado}</b><small>entregas</small></span></span>
     <span class="go">${ic('chev',15)}</span>
   </div>
-  ${emCurso?`<button class="act full" style="margin-top:8px;justify-content:center">${ic('check',18)}<b>Finalizar</b></button>`
+  ${emCurso?''   /* o Finalizar é o satélite do dock: no polegar, sem rolar a lista inteira */
            :`<button class="act full" style="margin-top:8px;justify-content:center" data-ir="caderneta">${ic('note',17)}<b>Abrir caderneta</b></button>`}
   `, transmux(e==='semsinal'?'pronta':e));
 }};
@@ -1266,8 +1283,15 @@ ${hdr({})}
 </div>
 ${nav('rota')}`;}};
 
-/* 8 — MONTAGEM DE ROTA ---------------------------------------------------- */
+/* 8 — MONTAGEM DE ROTA ----------------------------------------------------
+   A TELA DE MONTAR, e não mais o relatório do que já foi montado. Entra pelo
+   botão do meio da Rota, mostra QUEM vai entrar (o dia escolhido nos chips) e
+   só então monta. O botão do pé é UM SÓ e segue o estado:
+   por montar → "Montar rota" · montada → "Iniciar rota".
+   "Otimizar ordem" saiu: o planejar do servidor JÁ otimiza a ordem — botão que
+   promete o que já aconteceu é botão morto (e este não fazia nada mesmo). */
 T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
+  const d=DADOS.montagem;
   const l=(n,h,nome,rua,bairro,tags,valor,cor)=>`
     <div class="stop">
       <span class="grip"></span>
@@ -1275,22 +1299,32 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
       <span class="who"><strong>${nome}</strong><span>${rua}</span><span>${bairro}</span>
         <span class="tags">${tags.map(t=>`<b class="tag ${t.startsWith('20L')?'blue':t==='Chip dia'?'lime':''}">${t}</b>`).join('')}</span></span>
       <span class="side"><span class="marc"><small>Marcado</small><b>R$ ${valor}</b></span></span></div>`;
+  /* Os chips do dia moram AQUI (07/08). Antes ficavam na tela Rota, longe da
+     lista que eles mudam — o dono trocava de dia e via a lista de hoje. Quem
+     sabe quais dias existem é a ponte; sem ela — o desenho — a linha some. */
+  const chips=Array.isArray(d.dias)&&d.dias.length?`<div class="chips">
+    ${d.dias.map(x=>`<button class="chip${(d.diaSel||0)===x[0]?' on':''}" data-acao="montar-dia" data-dia="${x[0]}">${x[1]}</button>`).join('')}</div>`:'';
+  const lista=d.linhas.length
+    ? `<div class="stops" data-gestos="rota">${d.linhas.map(x=>l(...x)).join('')}</div>`
+    : `<div class="vazio"><span class="ico">${ic('route',24)}</span><strong>${d.vazio}</strong></div>`;
   return `${status}
-${hdr({})}
+${hdr({voltar:'rota'})}
 <div class="body">
-  <h2 style="font-size:23px;font-weight:500;margin:4px 0 2px;letter-spacing:-.4px">${DADOS.montagem.titulo}</h2>
-  <div class="stops" data-gestos="rota">${DADOS.montagem.linhas.map(x=>l(...x)).join('')}</div>
+  <h2 style="font-size:23px;font-weight:500;margin:4px 0 2px;letter-spacing:-.4px">${d.titulo}</h2>
+  ${chips}
+  ${miolo(d,'route','recarregar-montagem',5,`${lista}
   <div class="sum">
-    <span class="c"><span style="color:var(--lime)">${ic('route',17)}</span><span><b>${DADOS.montagem.somaParadas}</b><small>paradas</small></span></span>
-    <span class="c"><span style="color:var(--blue-l)">${ic('box',17)}</span><span><b>${DADOS.montagem.somaProdutos}</b><small>produtos</small></span></span>
-    <span class="c"><span style="color:var(--lime)">${ic('cash',17)}</span><span><b>${DADOS.montagem.somaValor}</b><small>valor marcado</small></span></span>
-  </div>
-  <button class="act full" style="margin-top:9px;background:linear-gradient(180deg,var(--btn-blue-1),var(--btn-blue-2));border:0;color:var(--white);justify-content:center;box-shadow:0 7px 18px rgba(47,126,247,.3)">
-    ${ic('save',19)}<b style="font-size:14px" data-acao="salvar-rota">Salvar rota</b></button>
-  <button class="act full" style="margin-top:7px;justify-content:center">${ic('spark',17)}
-    <b>Otimizar ordem</b></button>
-  <button class="act go full" style="margin-top:7px;justify-content:center" data-acao="iniciar-rota">${ic('play',19)}
-    <span style="text-align:center"><b>Iniciar rota</b><small>${DADOS.montagem.iniciarSub}</small></span></button>
+    <span class="c"><span style="color:var(--lime)">${ic('route',17)}</span><span><b>${d.somaParadas}</b><small>paradas</small></span></span>
+    <span class="c"><span style="color:var(--blue-l)">${ic('box',17)}</span><span><b>${d.somaProdutos}</b><small>produtos</small></span></span>
+    <span class="c"><span style="color:var(--lime)">${ic('cash',17)}</span><span><b>${d.somaValor}</b><small>valor marcado</small></span></span>
+  </div>`)}
+  ${d.linhas.length?`<button class="act full" style="margin-top:9px;background:linear-gradient(180deg,var(--btn-blue-1),var(--btn-blue-2));border:0;color:var(--white);justify-content:center;box-shadow:0 7px 18px rgba(47,126,247,.3)" data-acao="salvar-rota">
+    ${ic('save',19)}<b style="font-size:14px">Salvar rota</b></button>
+  ${d.pronta
+    ?`<button class="act go full" style="margin-top:7px;justify-content:center" data-acao="iniciar-rota">${ic('play',19)}
+    <span style="text-align:center"><b>Iniciar rota</b>${d.iniciarSub?`<small>${d.iniciarSub}</small>`:''}</span></button>`
+    :`<button class="act go full" style="margin-top:7px;justify-content:center" data-acao="montar-agora">${ic('route',19)}
+    <span style="text-align:center"><b>Montar rota</b>${d.iniciarSub?`<small>${d.iniciarSub}</small>`:''}</span></button>`}`:''}
 </div>
 ${nav('rota')}`;}};
 
@@ -1308,23 +1342,20 @@ T.salvas={nome:'Rotas salvas',grupo:'Rota',render(){
           <span class="mini"${id?` data-acao="abrir-salva" data-salva="${id}"`:''}><span class="c">${ic('play',19)}</span>Abrir</span>
           ${d.acoes?`<span class="mini"><span class="c">${ic('copy',17)}</span>Duplicar</span>
           <span class="mini" style="align-self:center">${ic('dots',16)}</span>`:''}</span></span></div>`;
+  /* Entra pelos Ajustes › Rota (07/08) — antes esta tela não tinha porta
+     NENHUMA no app: salvar a rota funcionava e o dono não tinha onde conferir.
+     Saíram a busca/filtro (não filtravam nada) e a caixa "Usar hoje" (o mesmo
+     que o "Abrir" de cada linha já faz, e ela não fazia). */
   return `${status}
-${hdr({})}
+${hdr({voltar:'ajustes',semChat:1})}
 <div class="body">
-  <div class="searchrow">
-    <label class="search">${ic('search',17)}<input placeholder="Buscar rotas salvas" value="${d.busca}"></label>
-    <button class="filt">${ic('sliders',18)}</button></div>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin:8px 2px 6px;font-size:12px">
-    <span style="color:var(--ink-2)">${d.total}</span>
-    ${d.ordem?`<span style="color:var(--ink-2)">Ordenar por: <b style="color:var(--lime);font-weight:500">${d.ordem}</b></span>`:''}</div>
-  ${miolo(d,'save','recarregar-salvas',4,d.lista.map(x=>r(x[0],x[1],x[2],x[3],x[4],x[5],x[6],x[7])).join(''))}
-  <div class="box" style="display:flex;align-items:center;gap:10px;margin-top:2px;padding:8px">
-    <span style="width:38px;height:38px;border-radius:11px;display:grid;place-items:center;background:var(--lime-bg);color:var(--lime)">${ic('save',19)}</span>
-    <span style="flex:1"><b style="display:block;font-size:13.5px;font-weight:500">Use uma rota salva hoje</b>
-      <small style="font-size:11px;color:var(--ink-2)">Mantenha suas entregas organizadas.</small></span>
-    <button class="ghost" style="border-color:var(--lime);color:var(--lime)">Usar hoje</button></div>
+  <div class="screen-head"><span style="color:var(--lime)">${ic('save',30)}</span>
+    <span><h2>Rotas salvas</h2>${d.total?`<p>${d.total}</p>`:''}</span></div>
+  ${miolo(d,'save','recarregar-salvas',4,d.lista.length
+    ? d.lista.map(x=>r(x[0],x[1],x[2],x[3],x[4],x[5],x[6],x[7])).join('')
+    : `<div class="vazio"><span class="ico">${ic('save',24)}</span><strong>Nenhuma rota salva ainda</strong></div>`)}
 </div>
-${nav('rota')}`;}};
+${nav('ajustes')}`;}};
 
 /* 10 — PRODUTOS ----------------------------------------------------------- */
 T.produtos={nome:'Produtos',grupo:'Cadastro',render(){
@@ -1537,6 +1568,11 @@ T.financeiro={nome:'Ajustes · Financeiro',grupo:'Ajustes',render(){const f=DADO
 T.avancado={nome:'Ajustes · Avançado',grupo:'Ajustes',render(){const a=DADOS.avancado;
   const ch=(ic0,t,on,acao)=>`<button class="linha-cfg" data-acao="${acao}"><span class="ico">${ic(ic0,16)}</span>
     <span><strong>${t}</strong></span><span class="chave ${on?'on':''}"><i></i></span></button>`;
+  /* Chave que também mostra um NÚMERO à direita. O número é DADO (o raio que o
+     servidor tem gravado), não explicação — some sozinho quando não chega. */
+  const chVal=(ic0,t,val,on,acao)=>`<button class="linha-cfg" data-acao="${acao}"><span class="ico">${ic(ic0,16)}</span>
+    <span><strong>${t}</strong></span>
+    <span style="display:flex;align-items:center;gap:9px">${val?`<b style="font-size:12px;color:var(--ink-2)">${val}</b>`:''}<span class="chave ${on?'on':''}"><i></i></span></span></button>`;
   return telaAjuste('Avançado',miolo(a,'gear','recarregar-ajustes',5,!a.admin?'':`
     <div class="grupo" style="margin-top:2px">Cobrança</div>
     <div class="cartao-lista">
@@ -1549,7 +1585,11 @@ T.avancado={nome:'Ajustes · Avançado',grupo:'Ajustes',render(){const a=DADOS.a
       ${ch('cash','Na hora',a.naHora,'chave-na-hora')}
       ${ch('calendar','Mensal',a.mensal,'chave-mensal')}
       ${ch('note','Marcar',a.fiado,'chave-fiado')}
-    </div>`:''}`));
+    </div>`:''}
+    <div class="grupo">Avisos</div>
+    <div class="cartao-lista">
+      ${chVal('gps','Avisar chegada',a.avisarChegadaDist,a.avisarChegada,'aviso-chegada')}
+    </div>`));
 }};
 
 T.sons={nome:'Ajustes · Sons',grupo:'Ajustes',render(){
@@ -1988,11 +2028,6 @@ T.ajustes={nome:'Ajustes',grupo:'Cadastro',render(){const a=DADOS.ajustes;
   const chave=(icone,titulo,sub,on,acao)=>`<button class="linha-cfg"${acao?` data-acao="${acao}"`:''}><span class="ico">${ic(icone,16)}</span>
     <span><strong>${titulo}</strong>${sub?`<span>${sub}</span>`:''}</span>
     <span class="chave ${on?'on':''}"><i></i></span></button>`;
-  /* Chave que também mostra um NÚMERO à direita. O número é DADO (o raio que o
-     servidor tem gravado), não explicação — some sozinho quando não chega. */
-  const chaveVal=(icone,titulo,val,on,acao)=>`<button class="linha-cfg" data-acao="${acao}"><span class="ico">${ic(icone,16)}</span>
-    <span><strong>${titulo}</strong></span>
-    <span style="display:flex;align-items:center;gap:9px">${val?`<b style="font-size:12px;color:var(--ink-2)">${val}</b>`:''}<span class="chave ${on?'on':''}"><i></i></span></span></button>`;
   /* Linha que ABRE um módulo (barra de 3, 07/08): Clientes/Produtos/Caderneta
      agora entram por aqui. `data-ir` de propósito — é a mesma marca que o
      `podarDesligados` varre quando o admin desliga o módulo no desktop. */
@@ -2000,7 +2035,7 @@ T.ajustes={nome:'Ajustes',grupo:'Cadastro',render(){const a=DADOS.ajustes;
     <span><strong>${titulo}</strong></span>
     <span style="color:var(--ink-3)">${ic('chev',15)}</span></button>`;
   /* 🔴 CHAVE COM VALOR DESCONHECIDO NÃO ENTRA NA TELA. Aqui a mentira é pior
-     que numa lista: o motorista lê "Modo caderneta LIGADO" (que é o exemplo do
+     que numa lista: o motorista lê uma chave LIGADA (que é só o exemplo do
      desenho), toca pra desligar e acha que desligou — quando na verdade nem
      havia configuração carregada. Nem ligada nem desligada é o estado honesto
      de uma chave que ainda não chegou; então nenhuma delas aparece até chegar.
@@ -2012,13 +2047,16 @@ ${hdr({semChat:1})}
   ${miolo(a,'gear','recarregar-ajustes',6,`
   ${a.admin?`<div class="grupo">Administração</div>
   <div class="cartao-lista">
-    ${chaveVal('gps','Avisar chegada',a.avisarChegadaDist,a.avisarChegada,'aviso-chegada')}
     ${linha('sales','Consumo e bônus','','','ir-consumo')}
     ${a.painelCreditos===''?'':chave('calendar','Painel de créditos do dia','',a.painelCreditos,'painel-creditos')}
     ${linha('card','Recarga de créditos',a.creditosLinha,'','ir-recarga')}
     ${linha('wallet','Financeiro','','','ir-financeiro')}
     ${linha('gear','Avançado','','','ir-avancado')}
   </div>`:''}
+  <div class="grupo">Rota</div>
+  <div class="cartao-lista">
+    ${linhaIr('save','Rotas salvas','salvas')}
+  </div>
   <div class="grupo">Cadastro</div>
   <div class="cartao-lista">
     ${linhaIr('users','Clientes','clientes')}
@@ -2027,7 +2065,6 @@ ${hdr({semChat:1})}
   <div class="grupo">Caderneta</div>
   <div class="cartao-lista">
     ${linhaIr('note','Abrir caderneta','caderneta')}
-    ${chave('note','Modo caderneta','',a.modoCaderneta,'chave-caderneta')}
   </div>
   <div class="grupo">Som e tela</div>
   <div class="cartao-lista">
