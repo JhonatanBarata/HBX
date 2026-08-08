@@ -787,6 +787,11 @@
     config = cfg;
     aplicarBarra(cfg);
     publicarMontarDias();
+    // A medida dos dias que têm cliente vem UMA vez, aqui, e não na abertura da
+    // montagem: chip que nasce com 7 e encolhe pra 4 meio segundo depois pisca
+    // na cara de quem está escolhendo. Esta função já roda no boot (e a cada
+    // minuto, mas só a 1ª pergunta) — quando a tela abrir, a conta já existe.
+    if (!diasComCliente) carregarDiasComCliente();
   }
 
   /* O admin desliga o módulo com o app do motorista ABERTO — é o caso normal,
@@ -847,13 +852,54 @@
     base.setUTCDate(base.getUTCDate() + (((n - dow) + 7) % 7));
     return base.toISOString().slice(0, 10);
   };
+  /* 🔴 SÓ ENTRA DIA QUE TEM CLIENTE — e "Hoje" não é um dia (dono, 08/08: "não
+     pode ter os dias q não tem cliente, nem o hoje... só carregar e ficar
+     selecionado o dia atual").
+     Antes eram 8 chips: "Hoje" mais os outros 6 dias da semana. Dois defeitos
+     num só: (1) o dia de hoje aparecia com nome falso — sábado se chamava
+     "Hoje" e "Sáb" sumia da fila; (2) terça, quarta e domingo, dias em que esta
+     empresa não entrega, convidavam pra uma lista vazia. Hoje o chip do dia
+     atual É o dia dele (Sáb), já aceso, e o valor dele continua sendo 0 — o
+     resto do fluxo (montar, prepare, salvar) lê 0 como "o dia de hoje, o
+     caminho de sempre", e dinheiro não muda de trilho por causa de rótulo.
+     🔴 QUEM DIZ QUE O DIA TEM GENTE É O SERVIDOR: `GET /logistica/agenda` traz
+     `totalClientesDia` por dia da semana — a MESMA conta do chip do desktop, de
+     propósito (dois fronts do mesmo produto não podem discordar sobre quem
+     entrega na terça). `totalParadas` NÃO serve: ele zera sozinho quando o dia
+     já foi gerado ou a cadência é quinzenal, e o dia sumiria da tela com os
+     clientes todos lá dentro (é o FIX 27/07 do próprio backend). Medido no g15
+     em 08/08: agenda e prévia concordam nos 7 dias (Seg 52·52, Ter 0·0,
+     Qua 0·0, Qui 72·72, Sex 4·1, Sáb 98·98, Dom 0·0).
+     -------------------------------------------------------------------- */
+  let diasComCliente = null;      // Set de 1..7; null = ainda não medi
+  let diasEmVoo = false;
+  async function carregarDiasComCliente() {
+    if (typeof window.API === 'undefined' || !ehAdmin() || diasEmVoo) return;
+    diasEmVoo = true;
+    let r;
+    // Fonte no chão fica com o que já sabia — e, se nunca soube, com os 7 dias.
+    // Sumir com um dia por IGNORÂNCIA tira o acesso ao dia; mostrar um dia a
+    // mais custa um toque. O erro tem que cair pro lado que não prende ninguém.
+    try { r = await window.API.get('/logistica/agenda'); } catch (_) { return; } finally { diasEmVoo = false; }
+    const dias = Array.isArray(r && r.dias) ? r.dias : [];
+    if (!dias.length) return;
+    diasComCliente = new Set(dias
+      .filter((d) => Number(d && d.totalClientesDia) > 0)
+      .map((d) => Number(d.diaSemana)));
+    publicarMontarDias();
+  }
+
   /** os chips de dia da tela de MONTAGEM — sem admin, nada entra */
   function publicarMontarDias() {
     if (typeof window.usarDados !== 'function') return;
     if (!ehAdmin()) return;
     const hoje = diaDaSemana();
-    const dias = [[0, 'Hoje']];
-    for (let n = 1; n <= 7; n += 1) if (n !== hoje) dias.push([n, ROTULO_DIA[n]]);
+    // HOJE fica SEMPRE, mesmo vazio: é o dia que a tela carrega e o dia que
+    // nasce aceso. Chip selecionado que não aparece é tela que não sabe
+    // explicar o que está mostrando.
+    const dias = [1, 2, 3, 4, 5, 6, 7]
+      .filter((n) => n === hoje || !diasComCliente || diasComCliente.has(n))
+      .map((n) => [n === hoje ? 0 : n, ROTULO_DIA[n]]);
     window.usarDados('montagem', { dias, diaSel: montarDia });
   }
 
@@ -2487,7 +2533,10 @@
       // A montagem é a tela de MONTAR: abrir já traz os chips (quem é admin) e
       // a lista do dia escolhido. Sem isto ela abriria com a lista da última
       // vez — e o motorista montaria a rota de ontem sem saber.
-      if (tela === 'montagem') { publicarMontarDias(); encherMontagem(); }
+      // ...e relê quais dias TÊM cliente: cadastrar gente numa terça vazia tem
+      // que devolver a terça pra fila de chips sem fechar o app. Dado igual não
+      // repinta (o freio do `usarDados`), então reler aqui não pisca nada.
+      if (tela === 'montagem') { publicarMontarDias(); carregarDiasComCliente(); encherMontagem(); }
       if (tela === 'chat') aoAbrirChat();
       if (tela === 'ajustes') carregarAjustes();
       if (tela === 'consumo') carregarConsumo();
