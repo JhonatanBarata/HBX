@@ -1242,6 +1242,21 @@
 
     if (casa) {
       if (casa.alvo.parentElement !== palco) {
+        /* 🔴 A CLASSE `pronto` VEM ANTES DO ENXERTO, E ESSA ORDEM ERA A PISCADA
+           (medido 08/08). O palco novo nasce SEM `pronto`, e a folha diz:
+               .mapa-palco>svg          → o mapa DESENHADO, opacidade 1
+               .mapa-palco .mapa-vivo   → o mapa DE VERDADE, opacidade 0
+               .mapa-palco.pronto ...   → o contrário, com transição de .3 s
+           O `resize()` logo abaixo lê `clientHeight` — e ler tamanho OBRIGA o
+           navegador a calcular o estilo ali, com o palco ainda sem `pronto`.
+           O estilo intermediário fica CARIMBADO: o mapa de mentira em cima, o
+           de verdade apagado. Quando a classe entrava depois, as duas
+           transições rodavam e a tela fazia um dissolve de 300 ms do mapa
+           desenhado pro mapa real. Uma vez por repinte, e o repinte era por
+           SEGUNDO — é isso que o dono via como "a imagem está piscando".
+           Pondo a classe primeiro, o primeiro cálculo de estilo do palco já
+           nasce com o valor final: transição não roda em estilo inicial. */
+        palco.classList.add('pronto');
         palco.appendChild(casa.alvo);              // 🔴 O TRANSPLANTE
         try { casa.mapa.resize(); } catch (_) { /* mapa morto */ }
       }
@@ -1765,6 +1780,54 @@
     return null;
   }
 
+  /* ---- O QUE MUDA A CADA SEGUNDO NÃO DERRUBA A TELA ----------------------
+     🔴 A OUTRA METADE DA PISCADA (08/08). `usarDados` repinta a tela toda vez
+     que um campo do seam muda — e repintar monta uma CAMADA NOVA (`innerHTML =
+     render()`), que traz um palco de mapa novo, que obriga o transplante. Numa
+     tela parada isso é invisível; na tela de DIRIGIR o seam muda o tempo todo:
+     a distância da manobra cai de 90 m pra 80 m, o velocímetro anda, o relógio
+     da chegada vira o minuto. Era a tela inteira sendo reconstruída na cara de
+     quem está no volante.
+
+     A divisão que já existia pro velocímetro e pras empresas do corredor
+     ("o DADO passa pelo seam, o que muda a cada quadro NÃO") vira REGRA e ganha
+     nome no desenho: `data-vivo`. Campo marcado é TEXTO PURO num nó só — trocar
+     esse texto não muda a estrutura da tela, então a ponte escreve no nó e
+     atualiza o seam SEM repintar.
+
+     🔴 E SÓ NESSE CASO. Se qualquer outro campo mudou, ou se um campo marcado
+     NASCEU (estava vazio) ou MORREU (esvaziou), a estrutura muda de verdade —
+     a manobra que aparece, a bússola que sai de cena — e aí quem manda é o
+     repinte de sempre. Remendar estrutura no nó é como o front se desencontra
+     do desenho; é justamente o que esta casa não faz.
+
+     Com isto a tela de dirigir passa a ser reconstruída quando a MANOBRA muda
+     (uma vez por quarteirão), não uma vez por segundo. */
+  const CROMO_VIVO = ['manobraDist', 'manobraVerbo', 'velocidade', 'rumo',
+    'chegada', 'restante', 'distancia'];
+  const comoTexto = (v) => (v == null ? '' : String(v));
+
+  /** true = o seam já está atualizado e a tela não precisa ser repintada */
+  function cromoNoNo(novo) {
+    if (telaAtual() !== 'mapa') return false;
+    const atual = (typeof DADOS !== 'undefined' && DADOS.gps) || null;
+    if (!atual) return false;
+    const mudou = Object.keys(novo).filter((k) => comoTexto(atual[k]) !== comoTexto(novo[k]));
+    if (!mudou.length) return true;                       // nada mudou: nem nó, nem camada
+    // campo de fora da lista, ou pedaço nascendo/morrendo ⇒ é estrutura
+    if (mudou.some((k) => !CROMO_VIVO.includes(k) || !atual[k] || !novo[k])) return false;
+    // os nós TODOS antes de escrever QUALQUER um: escrever meio caminho e
+    // desistir deixaria a tela dizendo uma coisa e o seam outra.
+    const nos = mudou.map((k) => naCamada(`[data-vivo="${k}"]`));
+    if (nos.some((n) => !n)) return false;
+    mudou.forEach((k, i) => {
+      const t = comoTexto(novo[k]);
+      if (nos[i].textContent !== t) nos[i].textContent = t;
+    });
+    Object.assign(DADOS.gps, novo);
+    return true;
+  }
+
   /* ---- A PINTURA ---------------------------------------------------------
      Um lugar só escreve no seam do GPS, e ele escreve TUDO — inclusive o vazio.
      🔴 Escrever só o que eu sei deixaria o resto com o valor anterior: o seam é
@@ -1784,26 +1847,32 @@
 
     const m = manobraDaVez();
     const rumo = rumoDaTela();
-    /* 🔴 O VELOCÍMETRO NÃO PODE DERRUBAR A CAMADA A CADA KM/H. Ele é o único
-       número REALMENTE contínuo da tela: a 40 km/h ele muda todo segundo, e
-       cada mudança reconstruía a tela inteira. No seam vai a FAIXA (de 5 em 5);
-       o número exato é escrito direto no nó por `acertarVelocimetro`, mesma
-       divisão que o `posicionarEmpresas` já usa desde o prospector — o DADO
-       passa pelo seam, o que muda a cada quadro NÃO.
+    /* 🔴 O VELOCÍMETRO VAI EXATO — e agora PODE. Ele é o único número
+       realmente contínuo da tela (a 40 km/h muda todo segundo), e por isso ia
+       no seam em faixa de 5 em 5 enquanto o número de verdade era escrito
+       direto no nó: duas verdades pro mesmo lugar, e a faixa aparecendo por um
+       instante a cada repinte. Com o `data-vivo` a troca de texto não repinta
+       nada, então o seam carrega o número certo e ele é o único.
        Abaixo de 3 km/h é ZERO: parado, o aparelho oscila 0-1-0 sozinho. */
     const velExata = ultimoFix && Number.isFinite(ultimoFix.velMps) && ultimoFix.velMps >= 0
       ? Math.round(ultimoFix.velMps * 3.6) : null;
-    const velKmh = velExata == null ? ''
-      : String(velExata < 3 ? 0 : Math.round(velExata / 5) * 5);
-    const precisao = ultimoFix && Number.isFinite(ultimoFix.precisaoM)
-      ? `GPS ±${Math.round(ultimoFix.precisaoM)} m` : '';
+    const velKmh = velExata == null ? '' : String(velExata < 3 ? 0 : velExata);
+    /* 🔴 A PRECISÃO SÓ É ESCRITA NA TELA QUE A DESENHA. `GPS ±20 m` sacode a
+       cada fix (o aparelho mede 18, 21, 19 parado no mesmo lugar) e a tela de
+       DIRIGIR nem a mostra — ela é do "Você chegou". Escrevê-la no seam ali era
+       um repinte por segundo de graça: o `manobraDist` foi arredondado em
+       07/08 pra matar a piscada e ela continuou, porque quem derrubava a
+       camada era ESTE campo invisível. */
+    const precisao = telaAtual() === 'mapachegou'
+      ? (ultimoFix && Number.isFinite(ultimoFix.precisaoM) ? `GPS ±${Math.round(ultimoFix.precisaoM)} m` : '')
+      : ((typeof DADOS !== 'undefined' && DADOS.gps && DADOS.gps.chegouPrecisao) || '');
 
     // chegada = agora + o que a rota disse que falta. Sem rota, sem hora — a
     // conta do relógio é do APARELHO, mas o tempo é do roteador.
     const chegada = navRota && navRota.totalS != null
       ? hora(new Date(Date.now() + navRota.totalS * 1000).toISOString()) : '';
 
-    window.usarDados('gps', {
+    const cromo = {
       manobraIcone: m ? m.passo.icone : '',
       manobraDist: m ? emMetrosDaManobra(m.distancia) : '',
       manobraVerbo: m ? maiuscula(m.passo.verbo) : '',
@@ -1834,7 +1903,10 @@
       // o botão da beirada mostra o estado REAL do aparelho, não um estado só
       // dele: quem silencia pelos Ajustes vê o botão apagado aqui também.
       vozMuda: vozLigada() ? '' : '1',
-    });
+    };
+    // texto que só trocou de valor entra pelo nó; o resto derruba a camada
+    if (cromoNoNo(cromo)) return;
+    window.usarDados('gps', cromo);
   }
 
   /* ---- 7d. O TRAÇO E A CÂMERA — a promessa visual do V4 -------------------
@@ -2027,22 +2099,146 @@
     quandoEstiloPronto(mapa, () => desenharTraco(mapa));
   }
 
-  function cameraDaNavegacao() {
-    if (telaAtual() !== 'mapa' || !ultimoFix) return;
+  /* ---- 7d-bis. A DESCIDA: 2D → 3D, o efeito do V4 -------------------------
+     🔴 O QUE ESTAVA FALTANDO (cena do dono, 08/08: *"a rota do antes e do
+     depois, parece q foi removida"*). O `gps-ruas-prospector-v4.html` abre a
+     navegação com UM movimento só, e é o espetáculo da tela:
+
+         "O 2D é o mesmo mapa com inclinação 0°, norte pra cima e zoom aberto;
+          o 3D é ele com 51°, rumo pra cima e zoom fechado. A DESCIDA é a
+          inclinação, o zoom e a âncora ANDANDO — 2,4 s de movimento contínuo."
+
+     O app não descia NADA. A câmera ia direto pro 3D no `load` do mapa, atrás
+     do véu da cena; quando a cobra terminava e o véu abria, o mapa real já
+     estava deitado. O motorista via um corte, não uma descida — e um corte
+     entre um mapa desenhado de cima e um mapa de verdade já em perspectiva é
+     exatamente o "efeito bosta".
+
+     Aqui a descida volta, no MAPA DE VERDADE e sem tocar no desenho:
+
+       1. VISTA DE CIMA — entrando na navegação a câmera é posta em pé
+          (`pitch 0`, norte pra cima, zoom aberto) POR BAIXO da cena da cobra.
+          Isso é de propósito: quando o véu abre, o mapa real está na MESMA
+          pose do mapa desenhado que acabou de sair. A troca deixa de ser um
+          corte e vira uma continuação.
+       2. A DESCIDA — 2,4 s de `easeTo` levando inclinação, zoom e rumo até a
+          pose de dirigir, com a MESMA curva do V4 (`suave`, cúbica nas duas
+          pontas). Um movimento só, contínuo, sem véu e sem troca de peça.
+       3. DIRIGINDO — a câmera de sempre, seguindo o motorista.
+
+     🔴 A CÂMERA MORA NO MOTORISTA NAS DUAS VISTAS — é a correção que o V4
+     documenta com o preço dela ("o ponteiro MERGULHAVA pra fora da tela e
+     voltava"). Por isso o `offset` do puck é o MESMO nas três fases: só
+     inclinação, zoom e rumo andam. O ponteiro não sai do lugar um quadro.
+
+     🔴 UM DONO SÓ DA CÂMERA, e continua sendo esta função: durante a descida
+     ela NÃO manda passo nenhum (o `easeTo` da descida está no ar e dois
+     comandos brigando é a tela pinotando). Ela só segue aparando a fita, que é
+     de graça e tem que continuar saindo da seta. */
+  const DESCIDA_MS = 2400;
+  /* 🔴 O ZOOM DE CIMA É UM DEGRAU FIXO, não a moldura da rota. Enquadrar a
+     rota inteira (o que o V4 faz, com um percurso de maquete) num dia real
+     significaria abrir 8 km numa parada e 200 m na seguinte — a mesma cena
+     viraria um foguete numa e um cochilo na outra. 1,8 nível é ~3,5× de área:
+     abre o quarteirão inteiro e desce sempre no mesmo tempo. */
+  const NAV_ZOOM_CIMA = NAV_ZOOM - 1.8;
+  /* a curva do V4, `suave` — cúbica nas duas pontas: sai devagar, ganha corpo
+     no meio e assenta sem batida. É ela que faz "descer" em vez de "cortar". */
+  const suave = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (((-2 * t) + 2) ** 3) / 2);
+
+  /* 'cima' = esperando a cena da cobra acabar · 'descendo' = o easeTo de 2,4 s
+     está no ar · 'dirigindo' = a câmera de sempre. */
+  let camFase = 'dirigindo';
+  let vigiaCena = null;
+  const emCena = () => !!document.querySelector('#app .tela.cena');
+
+  /** o encaixe do puck é o mesmo nas três fases — por isso mora sozinho aqui */
+  const recuoDoPuck = (mapa) => {
+    const alto = (mapa.getContainer && mapa.getContainer().clientHeight) || 0;
+    return [0, alto ? alto * NAV_PUCK : 0];
+  };
+
+  /** põe a câmera em pé (2D), sem animação: ela mora atrás do véu da cena */
+  function vistaDeCima() {
     const mapa = mapaDaNavegacao();
     if (!mapa) return;
-    // a fita é aparada A CADA FIX pra continuar saindo da seta
+    const passo = { zoom: NAV_ZOOM_CIMA, pitch: 0, bearing: 0, offset: recuoDoPuck(mapa) };
+    const eu = posicaoDaTela();
+    if (eu) passo.center = [eu.lng, eu.lat];
+    try { mapa.jumpTo(passo); } catch (_) { /* mapa saindo de cena */ }
+  }
+
+  /** o movimento: 2,4 s de inclinação, zoom e rumo andando juntos */
+  function descer() {
+    const mapa = mapaDaNavegacao();
+    if (!mapa || telaAtual() !== 'mapa') { camFase = 'dirigindo'; return; }
+    camFase = 'descendo';
+    const passo = {
+      zoom: NAV_ZOOM, pitch: NAV_PITCH, offset: recuoDoPuck(mapa),
+      duration: DESCIDA_MS, easing: suave,
+    };
+    const eu = posicaoDaTela();
+    if (eu) passo.center = [eu.lng, eu.lat];
+    const rumo = rumoDaTela();
+    if (rumo != null) passo.bearing = rumo;
+    try { mapa.easeTo(passo); } catch (_) { camFase = 'dirigindo'; return; }
+    // o relógio é o dono do fim, não o evento do mapa: `moveend` não chega se
+    // o dedo arrastar o mapa no meio, e a câmera ficaria presa em "descendo".
+    setTimeout(() => { if (camFase === 'descendo') camFase = 'dirigindo'; }, DESCIDA_MS + 80);
+  }
+
+  /* A cena da cobra dura até 2,2 s e a marca `cena` cai no relógio do mock —
+     que a ponte não pode escutar (a camada é TROCADA a cada repinte, então
+     guardar o nó não serve). Uma espiada de 90 ms por até 3 s resolve, custa
+     nada e morre sozinha. Sem cena nenhuma (o app abrindo direto na navegação)
+     a descida começa na hora: o efeito é o mesmo, só não tem cobra antes. */
+  function entrarNaDescida() {
+    if (vigiaCena) { clearInterval(vigiaCena); vigiaCena = null; }
+    camFase = 'cima';
+    vistaDeCima();
+    const desistirEm = Date.now() + 3000;
+    vigiaCena = setInterval(() => {
+      if (camFase !== 'cima' || telaAtual() !== 'mapa') {
+        clearInterval(vigiaCena); vigiaCena = null;
+        if (telaAtual() !== 'mapa') camFase = 'dirigindo';
+        return;
+      }
+      if (emCena() && Date.now() < desistirEm) return;
+      clearInterval(vigiaCena); vigiaCena = null;
+      descer();
+    }, 90);
+  }
+
+  /** corta a descida e devolve a câmera pra quem dirige (dedo, ou troca de tela) */
+  function pararDescida() {
+    if (vigiaCena) { clearInterval(vigiaCena); vigiaCena = null; }
+    camFase = 'dirigindo';
+  }
+
+  function cameraDaNavegacao() {
+    if (telaAtual() !== 'mapa') return;
+    const mapa = mapaDaNavegacao();
+    if (!mapa) return;
+    // a fita é aparada A CADA FIX pra continuar saindo da seta — nas três
+    // fases, inclusive descendo: ela é desenho de fonte, não movimento de câmera
     if (navRota && navRota.geometria) {
       if (mapa.getSource(TRACO)) desenharTraco(mapa); else pintarTraco();
     }
-    const alto = (mapa.getContainer && mapa.getContainer().clientHeight) || 0;
+    // durante a descida a câmera tem dono: o `easeTo` de 2,4 s
+    if (camFase === 'descendo') return;
+    // 🔴 A VISTA DE CIMA NÃO ESPERA GPS. Ela é a POSE de partida da descida, e
+    // o mapa pode chegar na tela antes do primeiro fix (na garagem ele demora).
+    // Sem isto o mapa da garagem — estacionado deitado — abria já em 3D e a
+    // descida descia de lugar nenhum.
+    if (camFase === 'cima') { vistaDeCima(); return; }
+    if (!ultimoFix) return;
     // a câmera segue a posição PRESA NA RUA: com o fix cru ela tremia parada
     const eu = posicaoDaTela();
     const passo = {
       center: [eu.lng, eu.lat],
       zoom: NAV_ZOOM,
       pitch: NAV_PITCH,
-      offset: [0, alto ? alto * NAV_PUCK : 0],
+      offset: recuoDoPuck(mapa),
       duration: 900,
     };
     // 🔴 A MESMA bússola da tela (§ rumoDaTela): andando é o aparelho, parado é
@@ -2052,20 +2248,6 @@
     const rumo = rumoDaTela();
     if (rumo != null) passo.bearing = rumo;
     try { mapa.easeTo(passo); } catch (_) { /* mapa saindo de cena */ }
-  }
-
-  /* O número EXATO do velocímetro, escrito direto no nó — o seam só carrega a
-     faixa de 5 em 5 (ver a nota no `velKmh`). Roda a cada fix E depois de cada
-     repinte: a camada nova nasce com a faixa e, sem isto, ficaria mostrando
-     "40" até o próximo fix. Mesma divisão de trabalho do `posicionarEmpresas`. */
-  function acertarVelocimetro() {
-    if (telaAtual() !== 'mapa' || !ultimoFix) return;
-    const el = naCamada('.gps-vel b');
-    if (!el) return;
-    if (!Number.isFinite(ultimoFix.velMps) || ultimoFix.velMps < 0) return;
-    const v = Math.round(ultimoFix.velMps * 3.6);
-    const txt = String(v < 3 ? 0 : v);
-    if (el.textContent !== txt) el.textContent = txt;
   }
 
   /* ---- A VOZ DA MANOBRA --------------------------------------------------
@@ -2156,7 +2338,7 @@
     if (!naNavegacao()) return;
     pintarNavegacao();
     if (telaAtual() === 'mapa') {
-      pedirRota(); cameraDaNavegacao(); acertarVelocimetro();
+      pedirRota(); cameraDaNavegacao();
       // a voz mora AQUI, no fix — não no repinte: quem entra na tela não pode
       // levar um "vire à direita" na cara só por ter aberto o mapa.
       vozDaManobra(manobraDaVez());
@@ -2323,16 +2505,33 @@
       // boot do app seria pedir fora de hora; não pedir nunca era a tela muda.
       if (tela === 'mapa' || tela === 'mapachegou') {
         garantirGps(); pintarNavegacao();
-        // voltar pra cá com o mapa já montado precisa da câmera de dirigir de
-        // volta na hora — senão a tela abre na moldura da rota inteira.
-        if (tela === 'mapa') { pedirRota(); cameraDaNavegacao(); }
+        // 🔴 ENTRAR NA NAVEGAÇÃO É DESCER (§7d-bis). A câmera é posta em pé por
+        // baixo da cena da cobra e desce 2,4 s depois que o véu abre — é o
+        // movimento do V4. Voltar pra cá com o mapa já na garagem passa pelo
+        // mesmo caminho: ele está estacionado deitado, em 3D, e sem endireitar
+        // antes a tela abriria já dirigindo, sem descida nenhuma.
+        if (tela === 'mapa') { pedirRota(); entrarNaDescida(); }
+        // saindo de "dirigindo" a câmera volta a ter dono nenhum esperando
+        if (tela === 'mapachegou') pararDescida();
       }
       return r;
     };
   }
 
   // toda pintura de tela pode trazer um palco novo: o mapa nasce junto.
+  /* 🔴 QUEM ENTRA NA NAVEGAÇÃO DESCE — INCLUSIVE QUEM JÁ ABRE NELA. O `ir`
+     alcança o toque do "Navegar", mas o app pode SUBIR direto na tela de
+     dirigir (o motorista fechou o app no meio da rota e voltou), e aí `ir`
+     nunca correu. A troca de tela vista daqui é a mesma porta, e ela é única:
+     repinte não muda `telaAtual`, então isto não dispara duas descidas. */
+  let telaVistaAqui = null;
   const observador = new MutationObserver(() => {
+    // a FASE da câmera antes do mapa: `montarMapa` já manda a câmera pro lugar,
+    // e ela precisa saber que a tela está entrando (2D) e não dirigindo (3D).
+    if (telaAtual() !== telaVistaAqui) {
+      telaVistaAqui = telaAtual();
+      if (telaVistaAqui === 'mapa') entrarNaDescida(); else pararDescida();
+    }
     const palco = naCamada('[data-mapa]');
     if (palco) montarMapa(palco);
     // tela que saiu de cena não leva o mapa junto: ele vai pra garagem
@@ -2340,8 +2539,6 @@
     estacionarMapas();
     // tela acesa + tela cheia enquanto dirige; ambas voltam ao sair
     modoDirigindo(naNavegacao());
-    // camada nova nasce com a FAIXA do velocímetro: o número exato entra aqui
-    acertarVelocimetro();
     // repinte traz elementos NOVOS, sem `--x/--y`: sem isto as empresas
     // nasciam empilhadas no canto até a câmera se mexer.
     posicionarEmpresas();
@@ -4024,7 +4221,9 @@
       } catch (_) { return; }        // sem ponte de som: nada a prometer
       pintarNavegacao();             // o botão muda de cara no mesmo toque
     },
-    'gps-centrar': () => cameraDaNavegacao(),
+    // recentralizar é o dedo dizendo "me devolve pra tela de dirigir": ele
+    // ATRAVESSA a descida, senão o toque morre esperando 2,4 s de animação.
+    'gps-centrar': () => { pararDescida(); cameraDaNavegacao(); },
     'aviso-chegada': () => virarChave('avisoChegandoEnabled'),
     // As 6 do dono. Uma chave = um campo = um PATCH, sem lote: assim o que
     // falhou fica evidente e o resto não volta atrás junto.

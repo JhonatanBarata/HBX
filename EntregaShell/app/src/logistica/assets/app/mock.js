@@ -966,8 +966,17 @@ function telaGps(chegou){
   const paradaDeM=(g.paradaN&&g.paradaTotal)?`Parada <b>${g.paradaN} de ${g.paradaTotal}</b>`:'';
   /* o número grande + o rótulo embaixo: sem número não sobra rótulo sozinho
      ("chegada" sem hora é uma coluna vazia com legenda). */
-  const num=(v,rot,destaque)=>v
-    ?`<span class="n${destaque?' destaque':''}"><b>${v}</b>${rot?`<small>${rot}</small>`:''}</span>`:'';
+  /* 🔴 `data-vivo` — A MARCA DO QUE MUDA A CADA SEGUNDO (08/08). Aqui no
+     desenho ela não faz NADA: é atributo inerte, não pinta um pixel, e o mock
+     no navegador segue idêntico. Ela existe pro APARELHO: a tela de dirigir
+     tinha a camada INTEIRA reconstruída toda vez que a distância da manobra
+     caía de 90 m pra 80 m, e reconstruir a camada arranca o mapa do pai e o
+     enxerta noutro — que é a piscada. Com a marca, a ponte troca o TEXTO no
+     lugar e a tela não é derrubada. Só ganha marca o que é texto puro num nó
+     só: o que muda a ESTRUTURA da tela (a manobra que nasce, o pedaço que
+     some) continua repintando, que é o certo. */
+  const num=(v,rot,destaque,campo)=>v
+    ?`<span class="n${destaque?' destaque':''}"><b${campo?` data-vivo="${campo}"`:''}>${v}</b>${rot?`<small>${rot}</small>`:''}</span>`:'';
 
   if(chegou){
     const rodape=trilha([paradaDeM,g.chegouFaltam?`${g.chegouFaltamVerbo||''} <b>${g.chegouFaltam}</b>`:'',
@@ -1003,7 +1012,7 @@ function telaGps(chegou){
     ?`<div class="gps-manobra">
       <div class="cima">
         ${g.manobraIcone?`<span class="seta">${ic(g.manobraIcone,26)}</span>`:''}
-        <span>${g.manobraDist?`<b class="dist">${g.manobraDist}</b>`:''}${g.manobraVerbo?`<span class="verbo">${g.manobraVerbo}</span>`:''}</span>
+        <span>${g.manobraDist?`<b class="dist" data-vivo="manobraDist">${g.manobraDist}</b>`:''}${g.manobraVerbo?`<span class="verbo" data-vivo="manobraVerbo">${g.manobraVerbo}</span>`:''}</span>
       </div>
       ${manobraBaixo?`<div class="baixo">${manobraBaixo}</div>`:''}
     </div>`:'';
@@ -1041,9 +1050,9 @@ function telaGps(chegou){
     <!-- bússola: só existe porque o mapa gira pelo rumo — sem rumo, ela não
          tem o que apontar e sai de cena inteira -->
     ${g.rumo?`<div class="gps-bussola">
-      <svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3.5 L16 13 L12 10.6 L8 13 Z" fill="#ff8b85"/></svg>${g.rumo}
+      <svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3.5 L16 13 L12 10.6 L8 13 Z" fill="#ff8b85"/></svg><span data-vivo="rumo">${g.rumo}</span>
     </div>`:''}
-    ${g.velocidade?`<div class="gps-vel"><b>${g.velocidade}</b>${g.velocidadeUnidade?`<small>${g.velocidadeUnidade}</small>`:''}</div>`:''}
+    ${g.velocidade?`<div class="gps-vel"><b data-vivo="velocidade">${g.velocidade}</b>${g.velocidadeUnidade?`<small>${g.velocidadeUnidade}</small>`:''}</div>`:''}
     <!-- Os dois botões da beirada: até 08/08 eles não tinham GANCHO nenhum e o
          toque morria no vidro. A voz é a do APARELHO (a chave voz do
          soundPrefs), então o estado "mudo" chega pelo seam como qualquer outro
@@ -1062,9 +1071,9 @@ function telaGps(chegou){
     <div class="gps-rodape">
       ${rodape?`<div class="parada">${ic('route',14)} ${rodape}</div>`:''}
       <div class="linha">
-        ${num(g.chegada,g.chegadaRotulo,1)}
-        ${num(g.restante,g.restanteRotulo,0)}
-        ${num(g.distancia,g.distanciaRotulo,0)}
+        ${num(g.chegada,g.chegadaRotulo,1,'chegada')}
+        ${num(g.restante,g.restanteRotulo,0,'restante')}
+        ${num(g.distancia,g.distanciaRotulo,0,'distancia')}
         <button class="sair" data-ir="rota">${g.encerrar||''}</button>
       </div>
     </div>
