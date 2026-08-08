@@ -151,7 +151,11 @@ export function montarEspelho(q: Quadro): string {
   const { vw, sy } = lerMedidasEspelho(q.html);
   const ajuste = `html{width:${vw}px;overflow:hidden;}`
     + (sy > 0 ? `html{margin-top:-${sy}px;}` : "");
-  return `<!doctype html><html data-theme="${attr(q.tema)}"><head><meta charset="utf-8">`
+  /* 🔴 `data-luz` JUNTO COM `data-theme`. O app novo pinta claro/escuro por
+     `data-luz` no <html> (é o que a folha do mock lê); o antigo usava
+     `data-theme`. O campo do contrato é UM só (`tema`) — carimbar os dois
+     atributos com ele custa 20 bytes e evita um espelho sempre escuro. */
+  return `<!doctype html><html data-theme="${attr(q.tema)}" data-luz="${attr(q.tema)}"><head><meta charset="utf-8">`
     + `<style>${css}</style><style>${ajuste}</style></head>`
     + `<body class="${attr(q.bodyClass)}">${html}</body></html>`;
 }

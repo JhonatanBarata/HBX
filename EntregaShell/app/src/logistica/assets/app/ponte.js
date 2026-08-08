@@ -2751,8 +2751,12 @@
       // mantém os dois contratos). `tela` é o PULSO DO APP — de carona, sem
       // requisição nova: é como a Central sabe em que tela o motorista está.
       const resposta = await window.API.post('/logistica/recados/pendentes', { tela: telaAtual() || '', v: 2 });
+      const envelope = resposta && !Array.isArray(resposta) && typeof resposta === 'object' ? resposta : null;
+      // O envelope traz DUAS coisas. Ler só os recados e jogar fora o `espelho`
+      // era o "Ver tela" esperando pra sempre — ver L8c.
+      if (envelope) espelhoSincronizar(!!envelope.espelho, !!envelope.espelhoCss);
       const lista = Array.isArray(resposta) ? resposta
-        : (resposta && Array.isArray(resposta.recados) ? resposta.recados : []);
+        : (envelope && Array.isArray(envelope.recados) ? envelope.recados : []);
       if (!lista.length) return;
       let atraso = 0;
       for (const recado of lista) {
@@ -2812,6 +2816,165 @@
     catch (_) { return; }
     try { window.HBX.recadoRespostaConcluir(id); } catch (_) {}
     await carregarRecados();
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     L8c — VER TELA: o espelho do NOSSO app (portado em 08/08).
+
+     🔴 O QUARTO ÓRFÃO DA FUSÃO. O `espelho` sempre viajou no MESMO envelope do
+     poll de recados (`v: 2`), e quem o lia era o `app.js` que saiu do APK. Sem
+     leitor, o painel do master abria a janela de 60 s e ficava em "aguardando o
+     aparelho…" pra sempre — e ninguém via, porque o botão "Ver tela" só liga com
+     o aparelho pulsando, e o pulso também estava morto. Consertar o pulso ACENDEU
+     o botão e revelou este.
+
+     NÃO é print do sistema nem MediaProjection: é a MARCAÇÃO da tela do HBX
+     (padrão session replay). O WhatsApp, a galeria e a tela de bloqueio de
+     ninguém passam por aqui.
+
+     Três invariantes que não se afrouxam:
+      1. Só liga quando o SERVIDOR manda (`espelho: true`); a janela dura 60 s e
+         fechar o painel para o app sozinho.
+      2. DIGITAÇÃO SAI MASCARADA DAQUI. Mascarar do outro lado é tarde demais.
+      3. Quadro é enfeite de suporte: falha de rede é silêncio, nunca um toast na
+         mão de quem está dirigindo.
+     ══════════════════════════════════════════════════════════════════════════ */
+  const ESPELHO_MS = 2000;
+  /** Tetos espelhados do servidor (`espelho-app.service.ts`). */
+  const ESPELHO_HTML_MAX = 400000;
+  const ESPELHO_CSS_MAX = 300000;
+  const ESPELHO_CSS_MARCA = 'espelho-css-marca';
+  let espelhoTimer = null;
+  let espelhoEnviando = false;
+  let espelhoPrecisaCss = false;
+
+  /* O servidor só pede CSS quando a VERSÃO muda — e `appVersion` é o versionName
+     ("alpha1"), que não muda entre builds. Isso já pintou o HTML novo com o CSS
+     velho no painel do dono. Quem decide aqui é o CONTEÚDO: uma marca barata
+     (tamanho + hash) do próprio CSS, reenviada quando ela muda. */
+  const espelhoMarcaDoCss = (css) => {
+    let h = 0;
+    for (let i = 0; i < css.length; i++) h = (Math.imul(h, 31) + css.charCodeAt(i)) | 0;
+    return `${css.length}:${h}`;
+  };
+
+  function espelhoSincronizar(ativo, precisaCss) {
+    espelhoPrecisaCss = !!precisaCss;
+    if (ativo && !espelhoTimer) {
+      // Uma leitura do CSSOM por ATIVAÇÃO, nunca por quadro: a folha tem ~200 KB
+      // e reler isso de 2 em 2 s é pagar caro por uma pergunta que quase sempre
+      // responde "não mudou".
+      try {
+        if (!espelhoPrecisaCss && espelhoMarcaDoCss(espelhoCss()) !== window.HBX.cache.get(ESPELHO_CSS_MARCA, '')) {
+          espelhoPrecisaCss = true;
+        }
+      } catch (_) { /* CSSOM indisponível: vale a régua do servidor */ }
+      espelhoTimer = setInterval(() => { void espelhoMandarQuadro(); }, ESPELHO_MS);
+      void espelhoMandarQuadro();
+      return;
+    }
+    if (!ativo && espelhoTimer) { clearInterval(espelhoTimer); espelhoTimer = null; }
+  }
+
+  /** O CSS do app inteiro, do CSSOM (a página é `appassets…`, mesma origem). */
+  function espelhoCss() {
+    try {
+      return [...document.styleSheets]
+        .map((folha) => { try { return [...folha.cssRules].map((r) => r.cssText).join('\n'); } catch (_) { return ''; } })
+        .join('\n');
+    } catch (_) { return ''; }
+  }
+
+  /**
+   * A tela como MARCAÇÃO: sem script, sem mapa (canvas WebGL não viaja) e com
+   * todo campo digitável mascarado. O clone nasce ANTES de qualquer edição —
+   * mexer no DOM vivo aqui seria mexer na tela de quem está trabalhando.
+   */
+  function espelhoMarcacao() {
+    const raiz = document.getElementById('app');
+    if (!raiz) return '';
+    const copia = raiz.cloneNode(true);
+    /* A MEDIDA DA TELA DELE. Sem isto o painel desenha o app no tamanho do
+       MONITOR: o dono vê 4 paradas onde o motorista vê 6, e "ver a tela do
+       cliente" mostra outra tela. Viaja como atributo DENTRO da marcação de
+       propósito — o quadro já vai inteiro, então a medida não custa coluna no
+       banco nem versão nova de contrato. `sy` é o que faz o painel ver a MESMA
+       parte da lista. */
+    copia.dataset.espelhoVw = String(Math.round(window.innerWidth || 0));
+    copia.dataset.espelhoVh = String(Math.round(window.innerHeight || 0));
+    copia.dataset.espelhoDpr = String(window.devicePixelRatio || 1);
+    copia.dataset.espelhoSy = String(Math.round(window.scrollY || 0));
+    copia.querySelectorAll('script,iframe,object,embed,link,noscript').forEach((el) => el.remove());
+    // O mapa é canvas WebGL: no clone vem em branco. Vira caixa com rótulo, pra
+    // a tela do painel não parecer quebrada.
+    copia.querySelectorAll('canvas').forEach((el) => {
+      const caixa = document.createElement('div');
+      caixa.className = el.className;
+      caixa.textContent = 'mapa';
+      el.replaceWith(caixa);
+    });
+    // 🔴 INVARIANTE 2. A ordem do `querySelectorAll` é a mesma no clone e no vivo
+    // (clone profundo), então dá pra parear por índice — e o `.value` digitado
+    // NÃO está no HTML, só no objeto vivo: sem este pareamento a máscara
+    // silenciosamente não mascararia nada.
+    const vivos = raiz.querySelectorAll('input,textarea');
+    copia.querySelectorAll('input,textarea').forEach((el, indice) => {
+      const vivo = vivos[indice];
+      const digitado = vivo ? String(vivo.value || '') : String(el.getAttribute('value') || '');
+      const mascara = digitado ? '•••' : '';
+      if (el.tagName === 'TEXTAREA') el.textContent = mascara;
+      else el.setAttribute('value', mascara);
+    });
+    copia.querySelectorAll('[contenteditable]').forEach((el) => {
+      if (String(el.textContent || '').trim()) el.textContent = '•••';
+    });
+    return copia.outerHTML;
+  }
+
+  async function espelhoMandarQuadro() {
+    if (espelhoEnviando) return;
+    espelhoEnviando = true;
+    try {
+      const marcacao = espelhoMarcacao();
+      if (!marcacao) return;
+      // Tela maior que o teto do servidor: manda UMA LINHA dizendo isso, em vez
+      // de um quadro que vai ser recusado. Recusa em série pararia o espelho e o
+      // painel ficaria "aguardando o aparelho…" sem ninguém saber por quê.
+      const html = marcacao.length <= ESPELHO_HTML_MAX
+        ? marcacao
+        : `<div class="app"><section class="card flat">Tela grande demais para o espelho (${Math.round(marcacao.length / 1024)} KB).</section></div>`;
+      const corpo = {
+        tela: telaAtual() || '',
+        html,
+        // 🔴 A LUZ, não o "theme". O app novo pinta por `data-luz` no <html> (é o
+        // que a folha do mock lê); mandar outra coisa aqui devolveria o espelho
+        // sempre no tema escuro, com o motorista no claro.
+        tema: document.documentElement.dataset.luz || '',
+        bodyClass: document.body.className || '',
+      };
+      let marcaEnviada = '';
+      if (espelhoPrecisaCss) {
+        const css = espelhoCss();
+        marcaEnviada = css ? espelhoMarcaDoCss(css) : '';
+        /* O cliente nativo recusa corpo acima de ~512 mil caracteres. CSS que não
+           cabe é DESISTIDO (o espelho sai cru), NUNCA reenviado: senão o app
+           entraria num laço de requisição gigante recusada a cada 2 s — e laço
+           livre no cliente é sempre bug (lei do disjuntor). */
+        if (css && css.length <= ESPELHO_CSS_MAX) corpo.css = css;
+        else espelhoPrecisaCss = false;
+      }
+      const saida = await window.API.post('/logistica/espelho/quadro', corpo);
+      // Servidor aceitou o quadro COM o CSS: para de mandar os 200 KB e grava a
+      // marca do que subiu — é ela que decide o próximo reenvio.
+      if (saida && saida.ok && espelhoPrecisaCss) {
+        espelhoPrecisaCss = false;
+        if (marcaEnviada) window.HBX.cache.set(ESPELHO_CSS_MARCA, marcaEnviada);
+      }
+      // Recusa (a janela fechou no meio) = para o laço na hora, sem esperar o
+      // próximo poll: enfeite de suporte não fica batendo à toa.
+      if (saida && saida.ok === false) espelhoSincronizar(false, false);
+    } catch (_) { /* rede fora = silêncio; o próximo tique tenta de novo */ }
+    finally { espelhoEnviando = false; }
   }
 
   /**
