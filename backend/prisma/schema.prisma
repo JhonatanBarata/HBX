@@ -1622,6 +1622,11 @@ model LogisticaRecado {
   respostaAoId    String?  @db.VarChar(64)
   // Mesmo disparo em massa (broadcast); null = recado individual.
   loteId          String?
+  // APARELHO ALVO (08/08) — em QUAL celular este recado deve cair. Resolvido no
+  // envio pela régua do turno (logistica/aparelho-do-turno.ts) ou escolhido na
+  // tela. null = recado antigo/sem alvo: entra no primeiro aparelho elegível
+  // que puxar (compat com tudo que já está no banco — nada de backfill).
+  deviceId        String?  @db.VarChar(64)
   // ✓ enviado é o createdAt. Daqui pra frente é prova de aparelho:
   entregueEm      DateTime?
   vistoEm         DateTime?
@@ -2840,6 +2845,16 @@ model MobileDevice {
   // hardwareId ficam, e o mesmo celular re-pareando volta pra ESTA vaga
   // (lei "1 celular = 1 vaga"). Re-pareamento limpa a coluna.
   ocultoEm           DateTime?
+  // APARELHO DO TURNO (08/08) — celular de entrega é FERRAMENTA DA EMPRESA, não
+  // celular pessoal: a empresa tem N aparelhos e entrega um por turno. Estas
+  // duas colunas são o estado "quem está com este aparelho", lido pela régua
+  // única em logistica/aparelho-do-turno.ts.
+  //   recebeOperacao=false → aparelho de teste/base: nunca recebe recado nem
+  //   campainha (foi o aparelho de teste do dono comendo o recado do cliente).
+  //   principalDesde → o escritório fixou este como o aparelho da pessoa; o
+  //   mais recente vence (fixar de novo é trocar de aparelho).
+  recebeOperacao     Boolean  @default(true)
+  principalDesde     DateTime?
   // VER TELA (PR05082026-VER-TELA, 05/08) — janela em que o aparelho manda o
   // ESPELHO da tela (só o nosso app, nunca o celular inteiro). Vive 60s e o
   // painel renova enquanto está aberto: fechar a aba apaga sozinho, e um

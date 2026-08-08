@@ -20,10 +20,12 @@ import { I, ICONS } from "@/components/hbx/shell";
 import {
   enviarRecado,
   ehParadaAberta,
+  getAparelhosDoRecado,
   getFioRecados,
   ordenarParadas,
   proximaParada,
   rotuloDoEstado,
+  type AparelhoDoRecado,
   type Entregador,
   type Parada,
   type Recado,
@@ -41,6 +43,18 @@ function iniciais(nome: string): string {
   if (!partes.length) return "?";
   if (partes.length === 1) return partes[0].slice(0, 2).toUpperCase();
   return (partes[0][0] + partes[partes.length - 1][0]).toUpperCase();
+}
+
+/** "há 3 min" — a idade do último sinal do aparelho, no título do botão. */
+function quantoFaz(iso: string | null): string {
+  if (!iso) return "desconhecido";
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "desconhecido";
+  const min = Math.max(0, Math.round((Date.now() - t) / 60000));
+  if (min < 1) return "agora";
+  if (min < 60) return `há ${min} min`;
+  const h = Math.floor(min / 60);
+  return h < 24 ? `há ${h}h` : `há ${Math.floor(h / 24)}d`;
 }
 
 function hora(iso: string | null | undefined): string | null {
@@ -85,6 +99,10 @@ export function CockpitInspetor({
   const [erroFio, setErroFio] = useState<string | null>(null);
   const [texto, setTexto] = useState("");
   const [nivel, setNivel] = useState<RecadoNivel>("normal");
+  // APARELHO DO TURNO (08/08): a tela mostra em qual celular o recado cai —
+  // vem preenchido, e trocar é exceção (aparelho quebrou e pegaram outro).
+  const [aparelhos, setAparelhos] = useState<AparelhoDoRecado[]>([]);
+  const [deviceEscolhido, setDeviceEscolhido] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const logRef = useRef<HTMLDivElement | null>(null);
@@ -147,12 +165,27 @@ export function CockpitInspetor({
     if (el) el.scrollTop = el.scrollHeight;
   }, [fio]);
 
+  // Os aparelhos DESTA pessoa. Falha aqui não pode travar o recado: sem lista,
+  // o envio vai sem `deviceId` e o servidor resolve o alvo igual — a tela só
+  // perde a informação de para onde foi.
+  useEffect(() => {
+    if (!ativo) return;
+    const ctrl = new AbortController();
+    getAparelhosDoRecado(motorista.id, ctrl.signal)
+      .then((lista) => {
+        setAparelhos(lista || []);
+        setDeviceEscolhido(lista?.find((item) => item.doTurno)?.deviceId ?? null);
+      })
+      .catch(() => { setAparelhos([]); setDeviceEscolhido(null); });
+    return () => ctrl.abort();
+  }, [ativo, motorista.id]);
+
   const mandar = useCallback(() => {
     const limpo = texto.trim();
     if (!limpo || enviando) return;
     setEnviando(true);
     setErro(null);
-    enviarRecado({ paraUserId: motorista.id, texto: limpo, nivel })
+    enviarRecado({ paraUserId: motorista.id, texto: limpo, nivel, deviceId: deviceEscolhido })
       .then((criados) => {
         setTexto("");
         setNivel("normal");
@@ -160,8 +193,11 @@ export function CockpitInspetor({
       })
       .catch((e: unknown) => setErro(e instanceof Error ? e.message : "Não foi possível mandar o recado."))
       .finally(() => setEnviando(false));
-  }, [enviando, motorista.id, nivel, texto]);
+  }, [deviceEscolhido, enviando, motorista.id, nivel, texto]);
 
+  // Só quem está NA operação pode ser destino: aparelho de teste/base aparece
+  // no painel do master, nunca aqui como opção de disparo.
+  const aparelhosOperando = aparelhos.filter((item) => item.recebeOperacao);
   const abertas = ordenarParadas(paradas.filter(ehParadaAberta));
   const agora = proximaParada(abertas);
   const fila = abertas.filter((p) => p.id !== agora?.id);
@@ -252,6 +288,38 @@ export function CockpitInspetor({
         </div>
 
         <div className="cok__chat-escrita">
+          {/* APARELHO DO TURNO (08/08) — em QUAL celular isto cai. Nasce
+              preenchido com o do turno: o despachante não escolhe no meio da
+              correria, só vê (e troca se o cara pegou outro aparelho). Com um
+              aparelho só, é informação; com nenhum, é aviso — mandar recado pra
+              quem não tem celular pareado é falar com a parede. */}
+          {aparelhosOperando.length > 0 && (
+            <div className="cok__niveis" role="group" aria-label="Aparelho que vai receber">
+              <small className="hbx-1linha">Cai no celular:</small>
+              {aparelhosOperando.map((item) => (
+                <button
+                  type="button"
+                  key={item.deviceId}
+                  className="cok__nivel"
+                  aria-pressed={deviceEscolhido === item.deviceId}
+                  title={
+                    item.fixado
+                      ? "Fixado no painel como o celular desta pessoa."
+                      : `Último sinal ${quantoFaz(item.ultimoSinalEm)}.`
+                  }
+                  disabled={enviando || aparelhosOperando.length === 1}
+                  onClick={() => setDeviceEscolhido(item.deviceId)}
+                >
+                  {item.nome}
+                </button>
+              ))}
+            </div>
+          )}
+          {aparelhosOperando.length === 0 && aparelhos.length > 0 && (
+            <small className="cok__chat-vazio">
+              Nenhum aparelho de {nome} está na operação — marque um no painel de aparelhos, senão o recado fica esperando.
+            </small>
+          )}
           <div className="cok__niveis" role="group" aria-label="Força do recado">
             {NIVEIS.map((item) => (
               <button

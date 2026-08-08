@@ -24,6 +24,15 @@
 //   POST /master/aparelhos/:deviceId/remover    (2 cliques, com o NOME)
 //   POST /master/aparelhos/:deviceId/espelho    (renova a janela de 60s)
 //   GET  /master/aparelhos/:deviceId/espelho    (o último quadro)
+//   POST /master/aparelhos/:deviceId/operacao/:on|off   (recebe recado?)
+//   POST /master/aparelhos/:deviceId/principal/:on|off  (é o celular dele?)
+//
+// 🔴 APARELHO DO TURNO (08/08). Celular de entrega é FERRAMENTA DA EMPRESA: são
+// N aparelhos e um por turno. O recado passou a ter aparelho alvo, e é aqui que
+// se diz quem está fora da operação (o de teste, o que está na base carregando)
+// e qual é o celular daquela pessoa. Isso nasceu do dia em que o aparelho de
+// teste do dono, pareado no login do cliente, comia o recado do celular que
+// estava na rua — e o painel ainda mostrava ✓ entregue.
 //
 // Visual: só classes centrais (.panel/.tbl/.ckm-*/.tag/.btn-*) — nada de cor,
 // borda ou fonte solta nesta tela (5 Leis do design system).
@@ -44,6 +53,10 @@ export type Aparelho = {
   abertoAgora: boolean;
   falouEm: string | null;
   situacao: "no_app" | "fora_do_app" | "sem_pulso";
+  /** Recebe recado/campainha? false = aparelho de teste ou parado na base. */
+  recebeOperacao: boolean;
+  /** O escritório disse que ESTE é o celular da pessoa. */
+  fixado: boolean;
 };
 
 type TrilhaPonto = { tela: string; at: string };
@@ -290,6 +303,32 @@ export function FichaAparelhos({ companyId }: { companyId: number }) {
     }
   }
 
+  /**
+   * APARELHO DO TURNO (08/08) — marcar não é ação destrutiva: não derruba
+   * ninguém, não pede 2 cliques. Só muda quem é destino de recado.
+   */
+  async function marcar(a: Aparelho, alvo: "operacao" | "principal", ligar: boolean) {
+    const chave = `${a.deviceId}:${alvo}`;
+    setBusy(chave);
+    setArmado(null);
+    try {
+      await apiFetch(
+        `/master/aparelhos/${encodeURIComponent(a.deviceId)}/${alvo}/${ligar ? "on" : "off"}`,
+        { method: "POST" },
+      );
+      setAviso(
+        alvo === "operacao"
+          ? `✓ ${nomeDoAparelho(a)} — ${ligar ? "de volta na operação (recebe recado)" : "fora da operação (não recebe mais recado)"}.`
+          : `✓ ${nomeDoAparelho(a)} — ${ligar ? `é o celular de ${a.userName}` : "solto (quem recebe volta a ser o último ativo)"}.`,
+      );
+      await carregar();
+    } catch (err) {
+      setAviso(err instanceof Error ? err.message : "Falha ao marcar o aparelho.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const lista = linhas || [];
   const noApp = lista.filter(l => l.abertoAgora).length;
   const acaoStyle: React.CSSProperties = { minHeight: 26, fontSize: "var(--hbx-font-min)", padding: "0 8px" };
@@ -334,6 +373,14 @@ export function FichaAparelhos({ companyId }: { companyId: number }) {
                     <td onClick={() => expandir(l.deviceId, "trilha")} style={{ cursor: "pointer" }}>
                       <div className="co">
                         <strong>{nomeDoAparelho(l)}</strong>
+                        {/* Quem recebe recado é informação de OPERAÇÃO — fica na
+                            linha, junto do nome, não escondida num menu. */}
+                        {!l.recebeOperacao && (
+                          <span className="tag warn" title="Este aparelho não recebe recado nem campainha (marcado como teste/base).">fora da operação</span>
+                        )}
+                        {l.recebeOperacao && l.fixado && (
+                          <span className="tag" title="O escritório fixou este como o celular desta pessoa.">celular dele</span>
+                        )}
                         <span className="sub2">{l.userName} · pareado {diaMes(l.pareadoEm)}</span>
                       </div>
                     </td>
@@ -388,6 +435,23 @@ export function FichaAparelhos({ companyId }: { companyId: number }) {
                         <button className={"btn-ghost" + (armRemover ? " btn-danger" : "")} style={acaoStyle} disabled={ocupado}
                           onClick={() => agir(l, "remover")}>
                           {ocupado && armRemover ? "…" : armRemover ? `Remover ${nomeDoAparelho(l)}?` : "Remover"}
+                        </button>
+                        {/* APARELHO DO TURNO (08/08): tirar da operação é o
+                            gesto que impede um celular de teste de comer o
+                            recado de quem está na rua. Não derruba a sessão. */}
+                        <button className="btn-ghost" style={acaoStyle} disabled={ocupado}
+                          title={l.recebeOperacao
+                            ? "Este aparelho para de receber recado e campainha (continua logado)"
+                            : "Devolve este aparelho para a operação"}
+                          onClick={() => marcar(l, "operacao", !l.recebeOperacao)}>
+                          {busy === `${l.deviceId}:operacao` ? "…" : l.recebeOperacao ? "Tirar da operação" : "Voltar pra operação"}
+                        </button>
+                        <button className="btn-ghost" style={acaoStyle} disabled={ocupado}
+                          title={l.fixado
+                            ? "Solta: quem recebe volta a ser o aparelho que deu sinal por último"
+                            : `Fixa este como o celular de ${l.userName} — é o que o recado vai procurar`}
+                          onClick={() => marcar(l, "principal", !l.fixado)}>
+                          {busy === `${l.deviceId}:principal` ? "…" : l.fixado ? "Soltar" : "É o dele"}
                         </button>
                         <button className="btn-ghost" style={acaoStyle} onClick={() => expandir(l.deviceId, "trilha")}>
                           {aberto === "trilha" ? "▾ trilha" : "▸ trilha"}

@@ -61,6 +61,14 @@ export interface PainelAparelho {
   falouEm: string | null;
   /** `sem_pulso` = o app deste celular não reporta tela; presença é DESCONHECIDA. */
   situacao: SituacaoAparelho;
+  /**
+   * APARELHO DO TURNO (08/08) — celular de entrega é ferramenta da empresa.
+   * `recebeOperacao=false` tira o aparelho da operação (é de teste/está na
+   * base): não recebe recado nem campainha. `fixado` = o escritório disse que
+   * ESTE é o aparelho da pessoa; sem ninguém fixado vale o último sinal.
+   */
+  recebeOperacao: boolean;
+  fixado: boolean;
 }
 
 /**
@@ -99,6 +107,8 @@ export class MasterAparelhosService {
         ultimaTela: true,
         ultimaTelaAt: true,
         lastUsedAt: true,
+        recebeOperacao: true,
+        principalDesde: true,
         user: { select: { name: true, username: true, email: true } },
       },
     });
@@ -127,8 +137,51 @@ export class MasterAparelhosService {
         abertoAgora,
         falouEm: falou ? falou.toISOString() : null,
         situacao,
+        recebeOperacao: (linha as any).recebeOperacao !== false,
+        fixado: !!(linha as any).principalDesde,
       };
     });
+  }
+
+  /**
+   * APARELHO DO TURNO (08/08) — tira/devolve o aparelho da operação.
+   *
+   * É o marcador que faltava quando o celular de teste do dono, pareado no
+   * login do cliente, engolia os recados do celular que estava na rua. Tirar da
+   * operação NÃO derruba a sessão: o aparelho continua logado (dá pra testar
+   * tela, ver rota), só para de ser destino de recado e de campainha.
+   */
+  async definirOperacao(deviceIdInput: unknown, recebe: boolean): Promise<{ ok: true; deviceName: string | null; recebeOperacao: boolean }> {
+    const alvo = await this.carregarAlvo(deviceIdInput);
+    await this.prisma.mobileDevice.updateMany({
+      where: { id: alvo.id, companyId: alvo.companyId },
+      // Sair da operação zera o "fixado": aparelho de teste não pode continuar
+      // sendo "o aparelho da pessoa" — seria o mesmo bug com outra roupa.
+      data: recebe ? { recebeOperacao: true } : { recebeOperacao: false, principalDesde: null },
+    });
+    this.logger.log(
+      `[aparelhos] operacao=${recebe ? 'ON' : 'OFF'} device=${alvo.id} company=${alvo.companyId}`,
+    );
+    return { ok: true, deviceName: alvo.name, recebeOperacao: recebe };
+  }
+
+  /**
+   * "É ESTE o celular dele." Fixa o aparelho como o da pessoa — trocou de
+   * aparelho, fixa o novo (o mais recente vence, a régua do turno cuida).
+   * `fixar=false` volta pro automático (último sinal manda).
+   */
+  async fixarPrincipal(deviceIdInput: unknown, fixar: boolean): Promise<{ ok: true; deviceName: string | null; fixado: boolean }> {
+    const alvo = await this.carregarAlvo(deviceIdInput);
+    await this.prisma.mobileDevice.updateMany({
+      where: { id: alvo.id, companyId: alvo.companyId },
+      // Fixar devolve o aparelho pra operação: o gesto "é este o celular dele"
+      // não pode conviver com "este aparelho não recebe".
+      data: fixar ? { principalDesde: new Date(), recebeOperacao: true } : { principalDesde: null },
+    });
+    this.logger.log(
+      `[aparelhos] principal=${fixar ? 'SIM' : 'NAO'} device=${alvo.id} company=${alvo.companyId}`,
+    );
+    return { ok: true, deviceName: alvo.name, fixado: fixar };
   }
 
   /**

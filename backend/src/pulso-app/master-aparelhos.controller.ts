@@ -47,6 +47,24 @@ export class MasterAparelhosController {
   }
 
   /**
+   * APARELHO DO TURNO (08/08) — liga/desliga este aparelho da OPERAÇÃO (recado
+   * + campainha) sem derrubar a sessão. É como um celular de teste para de
+   * roubar o recado do celular que está na rua.
+   */
+  @Post('master/aparelhos/:deviceId/operacao/:estado')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  definirOperacao(@Param('deviceId') deviceId: string, @Param('estado') estado: string) {
+    return this.aparelhos.definirOperacao(deviceId, String(estado) === 'on');
+  }
+
+  /** "É este o celular dele" — fixa (ou solta) o aparelho da pessoa. */
+  @Post('master/aparelhos/:deviceId/principal/:estado')
+  @UseGuards(JwtAuthGuard, MasterGuard)
+  fixarPrincipal(@Param('deviceId') deviceId: string, @Param('estado') estado: string) {
+    return this.aparelhos.fixarPrincipal(deviceId, String(estado) === 'on');
+  }
+
+  /**
    * VER TELA — abre/renova a janela de 60s do espelho. O painel repete isto a
    * cada 10s enquanto a tela está aberta; PARAR de chamar é o desligamento.
    */

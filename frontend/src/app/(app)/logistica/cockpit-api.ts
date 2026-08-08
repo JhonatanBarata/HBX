@@ -185,10 +185,34 @@ export function fraseDaMissao(missao: MissaoIndicada): LinhaDoFeed | null {
   };
 }
 
+/**
+ * APARELHO DO TURNO (08/08) — em qual celular o recado cai. Celular de entrega
+ * é ferramenta da empresa: a pessoa pode ter mais de um pareado (o da rua, o
+ * que ficou na base, o de teste). O servidor já devolve qual recebe (`doTurno`)
+ * — a tela mostra, não pergunta.
+ */
+export type AparelhoDoRecado = {
+  deviceId: string;
+  nome: string;
+  ultimoSinalEm: string | null;
+  recebeOperacao: boolean;
+  fixado: boolean;
+  doTurno: boolean;
+};
+
+export function getAparelhosDoRecado(
+  motoristaUserId: number,
+  signal?: AbortSignal,
+): Promise<AparelhoDoRecado[]> {
+  return apiFetch<AparelhoDoRecado[]>(`/logistica/recados/aparelhos/${motoristaUserId}`, { signal });
+}
+
 export function enviarRecado(input: {
   paraUserId?: number | null;
   texto: string;
   nivel: RecadoNivel;
+  /** Ausente = o servidor manda pro aparelho do turno. */
+  deviceId?: string | null;
 }): Promise<Recado[]> {
   return apiFetch<Recado[]>("/logistica/recados", {
     method: "POST",

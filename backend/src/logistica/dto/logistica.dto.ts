@@ -1156,6 +1156,16 @@ export class EnviarRecadoDto {
   @Min(1)
   paraUserId?: number | null;
 
+  /**
+   * APARELHO DO TURNO (08/08) — em qual celular o recado cai. A tela manda já
+   * preenchido com o aparelho do turno; ausente = o servidor resolve sozinho.
+   * Ignorado no broadcast (lá cada pessoa tem o aparelho dela).
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  deviceId?: string;
+
   @IsString()
   @MaxLength(500)
   texto!: string;

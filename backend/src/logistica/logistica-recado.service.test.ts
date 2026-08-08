@@ -10,7 +10,28 @@ import { LogisticaRecadoService } from './logistica-recado.service';
 
 type Linha = Record<string, any>;
 
-function harness(opts: { linhas?: Linha[]; motoristas?: number[]; entregasPorDono?: number[] } = {}) {
+/**
+ * APARELHO DO TURNO (08/08): o `where` do pull passou a carregar
+ * `OR: [{deviceId: X}, {deviceId: null}]`. O mock precisa entender esse OR,
+ * senão o teste passa verde enquanto o banco entrega recado pro celular errado.
+ */
+function casaOr(where: any, row: Linha): boolean {
+  if (!Array.isArray(where?.OR) || !where.OR.length) return true;
+  return where.OR.some((clausula: any) => {
+    if ('deviceId' in clausula) return (row.deviceId ?? null) === (clausula.deviceId ?? null);
+    return false;
+  });
+}
+
+function harness(
+  opts: {
+    linhas?: Linha[];
+    motoristas?: number[];
+    entregasPorDono?: number[];
+    /** Aparelhos da empresa (o que a régua do turno enxerga). */
+    aparelhos?: Linha[];
+  } = {},
+) {
   const linhas: Linha[] = opts.linhas ? [...opts.linhas] : [];
   const criados: Linha[] = [];
   let seq = 0;
@@ -32,6 +53,7 @@ function harness(opts: { linhas?: Linha[]; motoristas?: number[]; entregasPorDon
           if (where.entregueEm?.not === null && row.entregueEm === null) return false;
           if (where.ackEm === null && row.ackEm !== null) return false;
           if (where.nivel?.in && !where.nivel.in.includes(row.nivel)) return false;
+          if (!casaOr(where, row)) return false;
           return true;
         });
         if (take) saida = saida.slice(0, take);
@@ -66,6 +88,7 @@ function harness(opts: { linhas?: Linha[]; motoristas?: number[]; entregasPorDon
           if (where.vistoEm === null && row.vistoEm !== null) continue;
           if (where.ackEm === null && row.ackEm !== null) continue;
           if (where.nivel?.in && !where.nivel.in.includes(row.nivel)) continue;
+          if (!casaOr(where, row)) continue;
           Object.assign(row, data);
           n++;
         }
@@ -90,7 +113,26 @@ function harness(opts: { linhas?: Linha[]; motoristas?: number[]; entregasPorDon
     entrega: {
       groupBy: async () => (opts.entregasPorDono ?? []).map((id) => ({ entregadorId: id })),
     },
-    mobileDevice: { findMany: async () => [] },
+    mobileDevice: {
+      findMany: async ({ where }: any = {}) => {
+        const lista = opts.aparelhos ?? [];
+        return lista.filter((linha) => {
+          if (where?.companyId != null && linha.companyId !== where.companyId) return false;
+          if (where?.id?.in && !where.id.in.includes(linha.id)) return false;
+          if (where?.userId?.in && !where.userId.in.includes(linha.userId)) return false;
+          if (where?.userId != null && typeof where.userId === 'number' && linha.userId !== where.userId) return false;
+          if (where?.revokedAt === null && linha.revokedAt) return false;
+          if (where?.ocultoEm === null && linha.ocultoEm) return false;
+          return true;
+        });
+      },
+      findFirst: async ({ where }: any = {}) =>
+        (opts.aparelhos ?? []).find(
+          (linha) =>
+            (where?.id == null || linha.id === where.id) &&
+            (where?.companyId == null || linha.companyId === where.companyId),
+        ) ?? null,
+    },
     $transaction: async (input: any) => typeof input === 'function' ? input(prisma) : Promise.all(input),
   };
 
@@ -232,4 +274,101 @@ test('responder: retry é idempotente e confirma o recado na mesma transação',
   assert.equal(h.linhas.filter((row) => row.origem === 'motorista').length, 1, 'não duplica balão');
   assert.ok(h.linhas[0].ackEm, 'resposta já destrava o recado original');
   assert.ok(h.linhas[0].vistoEm, 'responder também prova leitura');
+});
+
+// ── APARELHO DO TURNO (08/08) — o dia em que o celular de teste do dono comeu
+// o recado do cliente. company 49: g15 (teste, app aberto) x e22 (o do cliente).
+const APARELHOS_DO_DIA = [
+  { id: 'g15', companyId: 1, userId: 7, name: 'Motorola moto g15', recebeOperacao: false, principalDesde: null, ultimaTelaAt: new Date(), lastUsedAt: new Date() },
+  { id: 'e22', companyId: 1, userId: 7, name: 'Motorola moto e22', recebeOperacao: true, principalDesde: null, ultimaTelaAt: null, lastUsedAt: new Date(Date.now() - 45 * 60_000) },
+];
+
+test('APARELHO: o recado nasce endereçado ao celular da operação, não ao de teste', async () => {
+  const h = harness({ aparelhos: APARELHOS_DO_DIA });
+  const [row] = await h.service.enviar(1, { id: 9, nome: 'Dono' }, { paraUserId: 7, texto: 'Passa na central', nivel: 'alarme' });
+  assert.equal(h.linhas.find((linha) => linha.id === row.id)?.deviceId, 'e22');
+});
+
+test('APARELHO: o de teste puxa e volta VAZIO — o recado continua esperando o certo', async () => {
+  const h = harness({ aparelhos: APARELHOS_DO_DIA });
+  await h.service.enviar(1, { id: 9, nome: 'Dono' }, { paraUserId: 7, texto: 'oi', nivel: 'alarme' });
+
+  const noTeste = await h.service.puxar(1, 7, 'g15');
+  assert.equal(noTeste.length, 0, 'aparelho errado não leva o recado de ninguém');
+  assert.equal(await h.service.marcarRecebidos(1, 7, h.linhas.map((l) => l.id), 'g15'), 0, 'nem carimba entrega');
+
+  const noCerto = await h.service.puxar(1, 7, 'e22');
+  assert.equal(noCerto.length, 1, 'o celular da operação recebe');
+  assert.equal(await h.service.marcarRecebidos(1, 7, [noCerto[0].id], 'e22'), 1);
+});
+
+test('APARELHO: recado antigo (sem alvo) continua entrando em qualquer aparelho', async () => {
+  const h = harness({
+    aparelhos: APARELHOS_DO_DIA,
+    linhas: [{ id: 'velho', companyId: 1, motoristaUserId: 7, origem: 'escritorio', nivel: 'normal', autorNome: 'D', texto: 'de antes', deviceId: null, createdAt: new Date(), entregueEm: null, vistoEm: null, ackEm: null }],
+  });
+  assert.equal((await h.service.puxar(1, 7, 'e22')).length, 1, 'compat: nada de backfill');
+});
+
+test('APARELHO: escolher na tela um celular que não é da pessoa é recusado', async () => {
+  const h = harness({ aparelhos: APARELHOS_DO_DIA });
+  await assert.rejects(
+    () => h.service.enviar(1, { id: 9, nome: 'Dono' }, { paraUserId: 7, texto: 'oi', deviceId: 'de_outro' }),
+    /não está disponível/i,
+  );
+  // …e o aparelho de teste também não pode ser escolhido: ele está FORA da operação.
+  await assert.rejects(
+    () => h.service.enviar(1, { id: 9, nome: 'Dono' }, { paraUserId: 7, texto: 'oi', deviceId: 'g15' }),
+    /não está disponível/i,
+  );
+});
+
+// ── O FREIO DO RECADO PRESO ────────────────────────────────────────────────
+// Endereçar cria um jeito novo de sumir: alvo sem bateria/esquecido na base.
+const DOIS_DA_EMPRESA = (sinalDoAlvo: Date | null) => [
+  { id: 'aparelho1', companyId: 1, userId: 7, name: 'Aparelho 1', recebeOperacao: true, principalDesde: null, ultimaTelaAt: null, lastUsedAt: sinalDoAlvo },
+  { id: 'aparelho2', companyId: 1, userId: 7, name: 'Aparelho 2', recebeOperacao: true, principalDesde: null, ultimaTelaAt: null, lastUsedAt: new Date() },
+];
+
+function recadoPreso(): Linha[] {
+  return [{
+    id: 'preso', companyId: 1, motoristaUserId: 7, origem: 'escritorio', nivel: 'urgente',
+    autorNome: 'Central', texto: 'Volta pra base', deviceId: 'aparelho1', loteId: null,
+    createdAt: new Date(), entregueEm: null, vistoEm: null, ackEm: null,
+  }];
+}
+
+test('FREIO: alvo calado há 40 min entrega pro outro aparelho DA OPERAÇÃO (e reendereça)', async () => {
+  const h = harness({
+    aparelhos: DOIS_DA_EMPRESA(new Date(Date.now() - 40 * 60_000)),
+    linhas: recadoPreso(),
+  });
+  const lista = await h.service.puxar(1, 7, 'aparelho2');
+  assert.equal(lista.length, 1, 'recado urgente não pode ficar mudo num celular sem bateria');
+  assert.equal(h.linhas[0].deviceId, 'aparelho2', 'quem levou vira o dono — o painel para de apontar o errado');
+  assert.equal(await h.service.marcarRecebidos(1, 7, ['preso'], 'aparelho2'), 1, 'e o ✓✓ é dele');
+});
+
+test('FREIO: alvo ATIVO segura o recado — o outro aparelho não rouba (o bug de 08/08 não volta)', async () => {
+  const h = harness({ aparelhos: DOIS_DA_EMPRESA(new Date()), linhas: recadoPreso() });
+  assert.equal((await h.service.puxar(1, 7, 'aparelho2')).length, 0);
+  assert.equal(h.linhas[0].deviceId, 'aparelho1', 'nada foi reendereçado');
+  assert.equal((await h.service.puxar(1, 7, 'aparelho1')).length, 1, 'o dono do recado continua recebendo');
+});
+
+test('FREIO: aparelho FORA da operação não resgata nem o recado esquecido', async () => {
+  const aparelhos = DOIS_DA_EMPRESA(new Date(Date.now() - 40 * 60_000));
+  aparelhos[1].recebeOperacao = false; // o de teste
+  const h = harness({ aparelhos, linhas: recadoPreso() });
+  assert.equal((await h.service.puxar(1, 7, 'aparelho2')).length, 0, 'teste não entra na operação nem pela porta dos fundos');
+  assert.equal(h.linhas[0].deviceId, 'aparelho1');
+});
+
+test('APARELHO: a tela mostra quem recebe (o do turno marcado) sem ninguém adivinhar', async () => {
+  const h = harness({ aparelhos: APARELHOS_DO_DIA });
+  const lista = await h.service.aparelhosDaPessoa(1, 7);
+  assert.equal(lista.length, 2);
+  assert.equal(lista.find((item) => item.deviceId === 'e22')?.doTurno, true);
+  assert.equal(lista.find((item) => item.deviceId === 'g15')?.doTurno, false);
+  assert.equal(lista.find((item) => item.deviceId === 'g15')?.recebeOperacao, false);
 });

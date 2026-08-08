@@ -3,6 +3,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MobilePushService } from '../auth/mobile-push.service';
 import { canonicalRouteDate } from './logistica-route-billing.service';
 import { resolveOperationalCapabilities } from '../team/operational-capabilities';
+import {
+  AparelhoCandidato,
+  elegiveisParaOperacao,
+  resolverAparelhoDoTurno,
+  ultimoSinal,
+} from './aparelho-do-turno';
 
 /**
  * COCKPIT (03/08) — RECADO escritório ⇄ motorista.
@@ -33,6 +39,14 @@ import { resolveOperationalCapabilities } from '../team/operational-capabilities
  * 🔴 O FCM É SÓ CAMPAINHA (mesma lei do mobile-actions): o push não carrega o
  * texto, só acorda o app pra puxar. Recado pode ter dado de cliente; conteúdo
  * não passa por servidor de terceiro.
+ *
+ * 🔴 RECADO TEM APARELHO (08/08): até aqui o recado era só DA PESSOA e o
+ * primeiro celular que puxasse carimbava `entregueEm` pra todos — dois
+ * aparelhos no mesmo login e o segundo nunca recebia (o painel ainda dizia ✓).
+ * Agora cada recado nasce com `deviceId`: o aparelho do turno daquela pessoa
+ * (régua única em `aparelho-do-turno.ts`) ou o que a tela escolheu. `deviceId`
+ * null = recado antigo, entra no primeiro aparelho elegível — compat, sem
+ * backfill.
  */
 
 const NIVEIS = ['normal', 'urgente', 'alarme'] as const;
@@ -45,6 +59,13 @@ const TEXTO_MAX = 500;
 /** Teto de leitura do fio — o cockpit mostra conversa, não arquivo morto. */
 const FIO_TAKE = 40;
 const OPEN_STATUS = ['agendada', 'em_rota'] as const;
+/**
+ * Alvo CALADO há mais que isto entrega o recado pro próximo aparelho elegível
+ * da pessoa (ver `resgatarDeAlvoFrio`). 15 min é o tamanho de uma pausa de café
+ * com o celular na mochila — abaixo disso a gente estaria trocando de aparelho
+ * por causa de um túnel ou de um elevador.
+ */
+const ALVO_FRIO_MS = 15 * 60_000;
 
 export interface RecadoDTO {
   id: string;
@@ -67,6 +88,23 @@ export interface EnviarRecadoInput {
   paraUserId?: number | null;
   texto: string;
   nivel?: string;
+  /**
+   * Aparelho alvo escolhido NA TELA (o campo já vem preenchido com o do turno;
+   * trocar é a exceção — aparelho quebrou, pegou outro e ninguém registrou).
+   * Só vale em recado individual: em broadcast cada pessoa tem o aparelho dela.
+   */
+  deviceId?: string | null;
+}
+
+/** Uma linha da tela "vai para qual aparelho". */
+export interface AparelhoDaPessoa {
+  deviceId: string;
+  nome: string;
+  ultimoSinalEm: string | null;
+  recebeOperacao: boolean;
+  fixado: boolean;
+  /** É este que recebe se ninguém trocar nada. */
+  doTurno: boolean;
 }
 
 @Injectable()
@@ -119,6 +157,14 @@ export class LogisticaRecadoService {
     const loteId = ehBroadcast && destinos.length > 1 ? `lote_${Date.now().toString(36)}` : null;
     const autorNome = String(autor?.nome || `Usuário ${autor?.id ?? '?'}`).slice(0, 120);
 
+    // Em QUAL celular cada recado cai. Uma query pra todos os destinos: mesmo o
+    // broadcast de 12 pessoas resolve o alvo sem 12 idas ao banco.
+    const alvoPorPessoa = await this.resolverAlvos(companyId, destinos, {
+      // Escolha da tela só existe em recado individual — em broadcast, cada
+      // pessoa tem o aparelho DELA (um deviceId só destruiria o disparo).
+      deviceIdEscolhido: ehBroadcast ? null : input?.deviceId ?? null,
+    });
+
     const criados = await this.prisma.$transaction(
       destinos.map((motoristaUserId) =>
         this.prisma.logisticaRecado.create({
@@ -132,6 +178,7 @@ export class LogisticaRecadoService {
             nivel,
             routeDate,
             loteId,
+            deviceId: alvoPorPessoa.get(motoristaUserId) ?? null,
           },
         }),
       ),
@@ -145,7 +192,13 @@ export class LogisticaRecadoService {
 
     // Campainha depois do commit e best-effort: aparelho desligado não pode
     // desfazer um recado que já está gravado (o pull entrega quando ele voltar).
-    void this.tocarCampainha(companyId, destinos).catch(() => undefined);
+    void this.tocarCampainha(
+      companyId,
+      destinos.map((motoristaUserId) => ({
+        userId: motoristaUserId,
+        deviceId: alvoPorPessoa.get(motoristaUserId) ?? null,
+      })),
+    ).catch(() => undefined);
 
     return criados.map((row) => this.toDTO(row));
   }
@@ -286,18 +339,113 @@ export class LogisticaRecadoService {
    * de "a pessoa leu": são dois estados diferentes e o dono precisa dos dois
    * (é a diferença entre "o celular está desligado" e "ele está ignorando").
    */
-  async puxar(companyId: number, motoristaUserId: number): Promise<RecadoDTO[]> {
+  async puxar(
+    companyId: number,
+    motoristaUserId: number,
+    deviceId?: string | null,
+  ): Promise<RecadoDTO[]> {
     if (!companyId || !motoristaUserId) return [];
     const rows = await this.prisma.logisticaRecado.findMany({
       where: { companyId, motoristaUserId, origem: ORIGEM_ESCRITORIO, entregueEm: null },
       orderBy: { createdAt: 'asc' },
       take: 20,
     });
-    return rows.map((row) => this.toDTO(row));
+    if (!rows.length) return [];
+
+    const alvo = String(deviceId || '').trim();
+    // Chamada sem aparelho (navegador do admin): comportamento de antes.
+    if (!alvo) return rows.map((row) => this.toDTO(row));
+
+    const meus = rows.filter((row) => !row.deviceId || row.deviceId === alvo);
+    const deOutro = rows.filter((row) => row.deviceId && row.deviceId !== alvo);
+    if (!deOutro.length) return meus.map((row) => this.toDTO(row));
+
+    const resgatados = await this.resgatarDeAlvoFrio(companyId, alvo, deOutro);
+    return [...meus, ...resgatados]
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      .map((row) => this.toDTO(row));
+  }
+
+  /**
+   * O FREIO DO RECADO PRESO (08/08).
+   *
+   * Endereçar o recado a um aparelho cria um jeito novo de ele sumir: celular
+   * alvo sem bateria, esquecido na base, ou a pessoa pegou outro sem avisar — e
+   * o urgente fica mudo a manhã inteira enquanto ela está com OUTRO aparelho da
+   * empresa na mão. Então: se o alvo saiu da operação (ou está calado há mais de
+   * ALVO_FRIO_MS) e um aparelho elegível DA MESMA PESSOA está pedindo agora, ele
+   * leva — e o recado é REENDEREÇADO pra ele, pra que o "recebi" seja dele e o
+   * painel pare de apontar o celular errado.
+   *
+   * Isto NÃO ressuscita o bug que gerou tudo: aparelho de teste/base tem
+   * `recebeOperacao=false` e nunca chega aqui (quem pede já passou pelo gate).
+   */
+  private async resgatarDeAlvoFrio<T extends { id: string; deviceId: string | null }>(
+    companyId: number,
+    deviceId: string,
+    pendentes: T[],
+  ): Promise<T[]> {
+    const quemPede = await this.prisma.mobileDevice.findFirst({
+      where: { id: deviceId, companyId },
+      select: { id: true, revokedAt: true, ocultoEm: true, recebeOperacao: true },
+    });
+    // Quem pede precisa estar na operação: aparelho de teste não resgata nada.
+    if (!quemPede || !elegiveisParaOperacao([quemPede as AparelhoCandidato]).length) return [];
+
+    const alvos = Array.from(new Set(pendentes.map((row) => String(row.deviceId))));
+    const linhas = await this.prisma.mobileDevice.findMany({
+      where: { id: { in: alvos }, companyId },
+      select: {
+        id: true,
+        revokedAt: true,
+        ocultoEm: true,
+        recebeOperacao: true,
+        ultimaTelaAt: true,
+        lastUsedAt: true,
+      },
+    });
+    const porId = new Map(linhas.map((linha) => [String(linha.id), linha]));
+    const agora = Date.now();
+
+    const frios = pendentes.filter((row) => {
+      const dono = porId.get(String(row.deviceId));
+      // Alvo que sumiu do banco (aparelho apagado) é órfão na hora.
+      if (!dono) return true;
+      if (!elegiveisParaOperacao([dono as AparelhoCandidato]).length) return true;
+      const sinal = ultimoSinal(dono as AparelhoCandidato);
+      return !sinal || agora - sinal > ALVO_FRIO_MS;
+    });
+    if (!frios.length) return [];
+
+    const ids = frios.map((row) => String(row.id));
+    await this.prisma.logisticaRecado.updateMany({
+      where: { id: { in: ids }, companyId, entregueEm: null },
+      data: { deviceId },
+    });
+    this.logger.log(
+      `[logistica] recado resgatado de aparelho frio company=${companyId} para=${deviceId} qtd=${ids.length}`,
+    );
+    return frios.map((row) => ({ ...row, deviceId }));
+  }
+
+  /**
+   * O que ESTE aparelho pode levar: o que foi endereçado a ele + o que não tem
+   * dono (recado antigo, ou pessoa que não tinha aparelho elegível no envio).
+   * Sem `deviceId` (chamada legada) o filtro some — comportamento de antes.
+   */
+  private filtroDoAparelho(deviceId?: string | null) {
+    const alvo = String(deviceId || '').trim();
+    if (!alvo) return {};
+    return { OR: [{ deviceId: alvo }, { deviceId: null }] };
   }
 
   /** Confirma o recebimento somente depois de o conteúdo estar no aparelho. */
-  async marcarRecebidos(companyId: number, motoristaUserId: number, ids: string[]): Promise<number> {
+  async marcarRecebidos(
+    companyId: number,
+    motoristaUserId: number,
+    ids: string[],
+    deviceId?: string | null,
+  ): Promise<number> {
     const lista = this.idsSeguros(ids);
     if (!companyId || !motoristaUserId || !lista.length) return 0;
     const res = await this.prisma.logisticaRecado.updateMany({
@@ -307,6 +455,7 @@ export class LogisticaRecadoService {
         motoristaUserId,
         origem: ORIGEM_ESCRITORIO,
         entregueEm: null,
+        ...this.filtroDoAparelho(deviceId),
       },
       data: { entregueEm: new Date() },
     });
@@ -320,7 +469,11 @@ export class LogisticaRecadoService {
    * livre. Só cobra o que JÁ está no aparelho (`entregueEm` != null): recado
    * que a rede ainda não trouxe não pode travar a rua.
    */
-  async portao(companyId: number, motoristaUserId: number): Promise<RecadoDTO[]> {
+  async portao(
+    companyId: number,
+    motoristaUserId: number,
+    deviceId?: string | null,
+  ): Promise<RecadoDTO[]> {
     if (!companyId || !motoristaUserId) return [];
     const rows = await this.prisma.logisticaRecado.findMany({
       where: {
@@ -330,6 +483,7 @@ export class LogisticaRecadoService {
         nivel: { in: [...NIVEL_COBRA_ACK] },
         entregueEm: { not: null },
         ackEm: null,
+        ...this.filtroDoAparelho(deviceId),
       },
       orderBy: { createdAt: 'asc' },
       take: 5,
@@ -429,21 +583,137 @@ export class LogisticaRecadoService {
     return pessoa.id;
   }
 
-  /** Acorda os aparelhos das pessoas (best-effort, nunca derruba o envio). */
-  private async tocarCampainha(companyId: number, userIds: number[]): Promise<void> {
-    if (!this.push || !userIds.length) return;
+  /**
+   * Acorda SÓ o aparelho que vai receber (best-effort, nunca derruba o envio).
+   *
+   * Tocar em todos os aparelhos da pessoa era metade do bug: o aparelho de
+   * teste (e o que está na base carregando) acordava junto e podia puxar
+   * primeiro. Alvo sem `deviceId` (recado antigo) mantém o comportamento
+   * anterior, mas já filtrando os aparelhos elegíveis.
+   */
+  private async tocarCampainha(
+    companyId: number,
+    alvos: Array<{ userId: number; deviceId: string | null }>,
+  ): Promise<void> {
+    if (!this.push || !alvos.length) return;
+    const comAlvo = alvos.filter((alvo) => !!alvo.deviceId).map((alvo) => alvo.deviceId as string);
+    const semAlvo = alvos.filter((alvo) => !alvo.deviceId).map((alvo) => alvo.userId);
+
     const aparelhos = await this.prisma.mobileDevice.findMany({
-      where: { companyId, userId: { in: userIds }, revokedAt: null, pushToken: { not: null } },
-      select: { id: true, pushToken: true },
+      where: {
+        companyId,
+        revokedAt: null,
+        pushToken: { not: null },
+        OR: [
+          ...(comAlvo.length ? [{ id: { in: comAlvo } }] : []),
+          ...(semAlvo.length ? [{ userId: { in: semAlvo } }] : []),
+        ],
+      },
+      select: {
+        id: true,
+        pushToken: true,
+        revokedAt: true,
+        ocultoEm: true,
+        recebeOperacao: true,
+      },
       take: 50,
     });
-    for (const aparelho of aparelhos) {
+    if (!aparelhos.length) return;
+
+    for (const aparelho of elegiveisParaOperacao(aparelhos as any[])) {
       try {
-        await this.push.sendWake(aparelho.pushToken);
+        await this.push.sendWake((aparelho as any).pushToken);
       } catch {
         // Campainha muda não invalida o recado: o polling do APK entrega.
       }
     }
+  }
+
+  // ── APARELHO DO TURNO ─────────────────────────────────────────────────────
+  /**
+   * Em qual aparelho cai o recado de cada pessoa. Uma query só; a decisão em si
+   * é da régua pura (`resolverAparelhoDoTurno`), que tem teste próprio.
+   */
+  private async resolverAlvos(
+    companyId: number,
+    userIds: number[],
+    options: { deviceIdEscolhido?: string | null } = {},
+  ): Promise<Map<number, string | null>> {
+    const mapa = new Map<number, string | null>();
+    if (!userIds.length) return mapa;
+
+    const aparelhos = await this.prisma.mobileDevice.findMany({
+      where: { companyId, userId: { in: userIds }, revokedAt: null },
+      select: {
+        id: true,
+        userId: true,
+        name: true,
+        revokedAt: true,
+        ocultoEm: true,
+        recebeOperacao: true,
+        principalDesde: true,
+        ultimaTelaAt: true,
+        lastUsedAt: true,
+      },
+      take: 200,
+    });
+
+    const escolhido = String(options?.deviceIdEscolhido || '').trim();
+    for (const userId of userIds) {
+      const daPessoa = aparelhos.filter((linha) => Number(linha.userId) === Number(userId));
+      if (escolhido && userIds.length === 1) {
+        // Escolha explícita da tela: tem que ser um aparelho DELA e elegível —
+        // senão o recado nasceria endereçado a um celular que nunca vai puxar.
+        const valido = elegiveisParaOperacao(daPessoa as AparelhoCandidato[]).find(
+          (linha) => String(linha.id) === escolhido,
+        );
+        if (!valido) {
+          throw new BadRequestException('Esse aparelho não está disponível para esta pessoa.');
+        }
+        mapa.set(userId, String(valido.id));
+        continue;
+      }
+      const alvo = resolverAparelhoDoTurno(daPessoa as AparelhoCandidato[]);
+      mapa.set(userId, alvo ? String(alvo.id) : null);
+    }
+    return mapa;
+  }
+
+  /**
+   * Os aparelhos de UMA pessoa pra tela de disparo — já marcando qual recebe.
+   * É o que impede o "escolhe às cegas": o campo nasce preenchido.
+   */
+  async aparelhosDaPessoa(companyId: number, motoristaUserId: number): Promise<AparelhoDaPessoa[]> {
+    if (!companyId || !motoristaUserId) return [];
+    const aparelhos = await this.prisma.mobileDevice.findMany({
+      where: { companyId, userId: motoristaUserId, revokedAt: null, ocultoEm: null },
+      select: {
+        id: true,
+        name: true,
+        ocultoEm: true,
+        revokedAt: true,
+        recebeOperacao: true,
+        principalDesde: true,
+        ultimaTelaAt: true,
+        lastUsedAt: true,
+      },
+      take: 20,
+    });
+    const alvo = resolverAparelhoDoTurno(aparelhos as AparelhoCandidato[]);
+    return aparelhos.map((linha) => {
+      const sinal = Math.max(
+        linha.ultimaTelaAt ? new Date(linha.ultimaTelaAt).getTime() : 0,
+        linha.lastUsedAt ? new Date(linha.lastUsedAt).getTime() : 0,
+      );
+      return {
+        deviceId: String(linha.id),
+        nome: linha.name || 'Aparelho Android',
+        ultimoSinalEm: sinal > 0 ? new Date(sinal).toISOString() : null,
+        recebeOperacao: (linha as any).recebeOperacao !== false,
+        fixado: !!(linha as any).principalDesde,
+        doTurno: !!alvo && String(alvo.id) === String(linha.id),
+      };
+    });
   }
 
   private nivelSeguro(valor: unknown): RecadoNivel {

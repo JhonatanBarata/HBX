@@ -33,7 +33,10 @@ export class LogisticaRecadoMobileController {
   @Throttle({ default: { limit: 30, ttl: 60 } })
   async pull(@Body() dto: MobileRecadoPullDto) {
     const device = await this.presence.authenticateLogisticaDevice(dto);
-    return { recados: await this.recados.puxar(device.companyId, device.userId) };
+    // APARELHO DO TURNO (08/08): a credencial JÁ diz qual celular está pedindo —
+    // então o pull entrega só o que é DELE. Sem isso, o aparelho de teste
+    // parado no escritório puxava o recado do celular que está na rua.
+    return { recados: await this.recados.puxar(device.companyId, device.userId, device.id) };
   }
 
   @Post('recebidos')
@@ -45,6 +48,7 @@ export class LogisticaRecadoMobileController {
         device.companyId,
         device.userId,
         dto.ids,
+        device.id,
       ),
     };
   }

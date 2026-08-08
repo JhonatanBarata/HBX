@@ -1108,8 +1108,12 @@ export class LogisticaController {
   async puxarRecados(@Req() req: any) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     const userId = this.ensureUserId(req.user);
-    const lista = await this.recado.puxar(companyId, userId);
-    await this.recado.marcarRecebidos(companyId, userId, lista.map((item) => item.id));
+    // APARELHO DO TURNO (08/08): quem pede é um aparelho (sessão `mobile:<id>`),
+    // então leva só o que é dele. Navegador comum não tem aparelho → null →
+    // filtro some e o comportamento é o de antes.
+    const deviceId = this.pulso ? this.pulso.resolveDeviceIdDaSessao(req.user) : null;
+    const lista = await this.recado.puxar(companyId, userId, deviceId);
+    await this.recado.marcarRecebidos(companyId, userId, lista.map((item) => item.id), deviceId);
     return lista;
   }
 
@@ -1134,7 +1138,7 @@ export class LogisticaController {
     // novidade. Engole tudo por dentro: erro de suporte não derruba a rota.
     if (this.erros && dto?.erros) await this.erros.registrarDoPoll(companyId, deviceId, userId, dto.erros);
 
-    const lista = await this.recado.puxar(companyId, userId);
+    const lista = await this.recado.puxar(companyId, userId, deviceId);
 
     // 🔴 CONTRATO DE RESPOSTA (05/08). APK sem `v` recebe a LISTA CRUA — é o que
     // todo aparelho instalado espera, e mudar isso quebraria o canal de recado do
@@ -1188,6 +1192,7 @@ export class LogisticaController {
         companyId,
         this.ensureUserId(req.user),
         dto?.ids ?? [],
+        this.pulso ? this.pulso.resolveDeviceIdDaSessao(req.user) : null,
       ),
     };
   }
@@ -1199,7 +1204,14 @@ export class LogisticaController {
   @Get('recados/portao')
   portaoRecados(@Req() req: any) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
-    return this.recado.portao(companyId, this.ensureUserId(req.user));
+    // O portão cobra o "Entendi" do recado que está NESTE aparelho: travar a
+    // chegada por causa de um recado endereçado a outro celular seria parar a
+    // rua por uma mensagem que este aparelho nunca recebeu.
+    return this.recado.portao(
+      companyId,
+      this.ensureUserId(req.user),
+      this.pulso ? this.pulso.resolveDeviceIdDaSessao(req.user) : null,
+    );
   }
 
   /** APP: abriu a lista — visto sem exigir o Entendi. */
@@ -1247,6 +1259,19 @@ export class LogisticaController {
     const autorId = this.ensureUserId(req.user);
     const autorNome = String(req.user?.name || req.user?.username || req.user?.email || `Usuário ${autorId}`);
     return this.recado.enviar(companyId, { id: autorId, nome: autorNome }, dto ?? ({} as EnviarRecadoDto), dto?.date);
+  }
+
+  /**
+   * WEB: em qual aparelho o recado desta pessoa vai cair — e quais outros
+   * existem. A tela de disparo nasce com o do turno já escolhido; trocar é a
+   * exceção (aparelho quebrou e pegaram outro sem avisar).
+   */
+  @Get('recados/aparelhos/:motoristaUserId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Admin()
+  aparelhosDoRecado(@Req() req: any, @Param('motoristaUserId', ParseIntPipe) motoristaUserId: number) {
+    const companyId = this.ensureCompanyIdFromUser(req.user);
+    return this.recado.aparelhosDaPessoa(companyId, motoristaUserId);
   }
 
   /** WEB: o fio de UMA pessoa. Abrir já marca as respostas dela como lidas. */
