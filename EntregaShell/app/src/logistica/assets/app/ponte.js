@@ -4090,13 +4090,18 @@
           sub: 'Escreva ao menos o nome do cliente.', acoes: [['Fechar', '']],
         });
       }
-      // 🔴 MESMA PORTA, CONTA NOVA = entrega indo pro cliente errado depois. A
-      // régua do servidor é fail-closed (sem número não acusa nada), então isto
-      // só avisa quando ele tem CERTEZA — e mesmo assim quem decide é o dedo.
-      if (d.numero && d.rua) {
+      /* 🔴 MESMA PORTA, CONTA NOVA = entrega indo pro cliente errado depois. A
+         régua do servidor é fail-closed e mora no `mesmaPorta`: com a RUA dos
+         dois lados, ela só confirma a porta se **o CEP ou a cidade baterem**.
+         MEDIDO no aparelho (08/08, build publicado): eu mandava número + rua +
+         bairro e NUNCA casava — cadastrei duas vezes no mesmo endereço sem um
+         aviso. Bairro não entra na conta dela; o CEP é que decide. Por isso o
+         aviso agora exige CEP e o manda junto: guarda que não dispara é pior
+         que guarda nenhuma, porque dá sensação de conferência. */
+      if (d.numero && d.rua && d.cep) {
         let repetidas = [];
         try {
-          const p = new URLSearchParams({ numero: d.numero, endereco: d.rua });
+          const p = new URLSearchParams({ numero: d.numero, endereco: d.rua, cep: d.cep });
           if (d.bairro) p.set('bairro', d.bairro);
           const r = await window.API.get(`/nucleo/contas/por-endereco?${p.toString()}`);
           repetidas = Array.isArray(r && r.contas) ? r.contas : [];
