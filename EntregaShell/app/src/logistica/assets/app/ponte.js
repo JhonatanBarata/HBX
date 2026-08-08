@@ -1975,6 +1975,33 @@
     try { mapa.easeTo(passo); } catch (_) { /* mapa saindo de cena */ }
   }
 
+  /* ---- O MODO DIRIGINDO --------------------------------------------------
+     🔴 A TELA DO MOTORISTA APAGAVA NO MEIO DA ROTA. `H.manterTelaAcesa` e
+     `H.modoNavegacao` existem em `native.js` desde o GPS FULL SCREEN e NINGUÉM
+     os chamava — o comentário do Kotlin ainda diz "o app.js já tem UM dono do
+     estado de navegação (syncNavWatch)", e esse `app.js` morreu na fusão de
+     07/08. É o mesmo defeito do `locationPermissionChanged`: capacidade
+     nativa viva, fio cortado no meio.
+
+     O que cada uma faz, medido no Kotlin: `manterTelaAcesa` põe/tira
+     FLAG_KEEP_SCREEN_ON (e o Android já limpa sozinho quando o app sai de
+     cena, então não vaza bateria); `modoNavegacao` esconde as barras do
+     sistema e deixa o mapa passar por baixo do recorte da câmera — é a tela
+     cheia que o V4 desenha, sem a barra do Android comendo o topo e a barra de
+     gestos comendo o pé.
+
+     🔴 UM DONO SÓ, e ele é a TELA ATUAL: quem entra em `mapa`/`mapachegou`
+     liga, quem sai desliga. Chamado do repinte (e não só do `ir`) porque o app
+     pode ABRIR direto na navegação, e aí o `ir` nunca correu. O guard de
+     igualdade evita conversar com o nativo 12 vezes por segundo. */
+  let dirigindoAgora = null;
+  function modoDirigindo(ligado) {
+    if (ligado === dirigindoAgora) return;
+    dirigindoAgora = ligado;
+    try { window.HBX.manterTelaAcesa(ligado); } catch (_) { /* sem ponte nativa */ }
+    try { window.HBX.modoNavegacao(ligado); } catch (_) { /* idem */ }
+  }
+
   /* Só se mexe com a tela do GPS à vista. O `watchPosition` é único e vive o
      app inteiro (o mapa da rota também bebe dele); o que liga e desliga é o
      PEDIDO DE ROTA e o repinte — bateria e conta de roteador não são pagas por
@@ -2161,6 +2188,8 @@
     // tela que saiu de cena não leva o mapa junto: ele vai pra garagem
     // off-screen e volta inteiro — com a câmera onde estava.
     estacionarMapas();
+    // tela acesa + tela cheia enquanto dirige; ambas voltam ao sair
+    modoDirigindo(naNavegacao());
     // repinte traz elementos NOVOS, sem `--x/--y`: sem isto as empresas
     // nasciam empilhadas no canto até a câmera se mexer.
     posicionarEmpresas();
