@@ -949,6 +949,14 @@ button,input{font:inherit;color:inherit}
 /* medido: rodapé 120 + abas 60 = 180. 188 dá o respiro de 8px pro último
    cartão não encostar no vidro do controle. */
 .body.com-dock{padding-bottom:188px}
+/* Rodapé de UMA fila (o da Montagem): 48 do botão + 17 do respiro = 65, mais
+   as abas (60) e 7 pro último cartão não encostar no vidro do controle. */
+.body.com-dock-1{padding-bottom:132px}
+/* 🔴 RODAPÉ NÃO MUDA DE ALTURA. A linha de baixo do botão ("Iniciar rota /
+   João da Silva") existe em uns estados e não em outros — sem piso, a barra
+   encolhia 11px no meio do trabalho e a lista inteira dava um pulo. Altura de
+   controle é do CONTROLE, não do texto que calhou de caber nele. */
+.pe-montagem .act{min-height:48px}
 .transmux{display:grid;grid-template-columns:1fr auto 1fr;align-items:end;gap:8px}
 .tmx-sat{display:flex;flex-direction:column;align-items:center;gap:4px}
 .tmx-sat button{width:46px;height:46px;border-radius:16px;border:.7px solid var(--line);background:var(--card);
@@ -968,6 +976,10 @@ button,input{font:inherit;color:inherit}
 .tmx-main button[data-estado="montar"]{background:linear-gradient(180deg,#4a95ff,var(--btn-blue-2));
   box-shadow:0 10px 26px rgba(47,126,247,.32)}
 .tmx-main small{font-size:12px;font-weight:500}
+/* TRABALHANDO: o botão continua no lugar, com o mesmo tamanho, respirando.
+   Some com a sombra viva porque nada vai acontecer se o dedo insistir. */
+.ocupado{opacity:.62;box-shadow:none!important;animation:respira 1.15s ease-in-out infinite}
+@keyframes respira{50%{opacity:.34}}
 
 /* ---------- progresso do dia ---------- */
 .dia-bar{display:flex;align-items:center;gap:9px;margin-top:7px;padding:8px 11px;border-radius:12px;
@@ -1349,6 +1361,12 @@ button,input{font:inherit;color:inherit}
   display:grid;place-items:center;color:var(--ink-2);cursor:pointer}
 .chips{display:flex;gap:6px;margin-top:9px;overflow:auto;padding-bottom:2px;scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
+/* Dias da Montagem no CENTRO (dono, 08/08: "centralize"). Só onde a fileira é
+   curta por natureza — categoria de produto/cliente segue à esquerda, que é
+   fileira comprida. O `safe` é a diferença entre centrar e QUEBRAR: esta linha
+   ROLA, e `center` puro empurra o primeiro chip pra fora do alcance quando os
+   7 dias estouram a largura; com `safe` o estouro volta a começar do início. */
+.chips.centro{justify-content:safe center}
 .chip{padding:8px 13px;border-radius:10px;border:.7px solid var(--line-2);background:transparent;
   color:var(--ink);font-size:12.5px;white-space:nowrap;cursor:pointer}
 .chip.on{border-color:var(--lime);color:var(--lime);background:var(--sel-bg)}
@@ -2173,15 +2191,22 @@ const ROTA_ESTADOS={
   rodando:  {main:{acao:'navegar', glifo:'nav', rotulo:'Navegar'},
              esq:{tipo:'perigo', glifo:'stop', rotulo:'Cancelar', acao:'cancelar-rota'},
              dir:{tipo:'info', glifo:'check', rotulo:'Finalizar', acao:'fechar-dia'}},
+  /* 🔴 O RECIBO DO TOQUE MORA NO BOTÃO TOCADO. Enquanto o servidor monta, o
+     meio vira "Montando…": mesmo lugar, mesmo tamanho, SEM ação (dois toques
+     não montam duas vezes) e sem satélite — cancelar ou iniciar no meio de uma
+     montagem é botão que mente. Antes disto o sinal era o esqueleto da tela
+     inteira, que leva o próprio rodapé embora: o dedo tocava e o botão sumia. */
+  montando: {main:{glifo:'route', rotulo:'Montando…'}},
 };
 function transmux(estado){
   const c=ROTA_ESTADOS[estado]; if(!c) return '';
   const sat=(s,lado)=>s?`<span class="tmx-sat tmx-${s.tipo} tmx-${lado}">
       <button aria-label="${s.rotulo}"${s.acao?` data-acao="${s.acao}"`:''}>${ic(s.glifo,20)}${s.contagem?`<i class="cont">${s.contagem}</i>`:''}</button>
       <small>${s.rotulo}</small></span>`:'<span></span>';
+  // main sem `acao` = trabalho em curso: não vira gancho e não aceita dedo.
   return `<div class="transmux">${sat(c.esq,'esq')}
     <span class="tmx-main">
-      <button data-estado="${c.main.acao}" aria-label="${c.main.rotulo}">${ic(c.main.glifo,34)}</button>
+      <button${c.main.acao?` data-estado="${c.main.acao}"`:' class="ocupado" disabled aria-busy="true"'} aria-label="${c.main.rotulo}">${ic(c.main.glifo,34)}</button>
       <small>${c.main.rotulo}</small></span>
     ${sat(c.dir,'dir')}</div>`;
 }
@@ -2282,6 +2307,15 @@ const DADOS={
     creditos:'240', creditosDebita:'12',
     somaProdutos:'20', somaMarcado:'R$ 336,00',
     vazioTitulo:'Sem paradas hoje',
+    /* 🔴 UM GESTO, UMA REAÇÃO (dono, 08/08: "ao clicar pisca e não monta").
+       Montar são 3 idas ao servidor. O sinal disso era `estadoRota='carregando'`
+       — que na tela Rota troca TUDO pelo esqueleto e leva o rodapé de botões
+       junto (o botão some no meio do próprio toque), e na Montagem não muda
+       NADA (ela nem lê `estadoRota`): repintava a tela inteira sem dizer uma
+       palavra. Agora quem responde ao dedo é o BOTÃO TOCADO, no lugar dele.
+       Mora na seção `rota` porque quem monta é a rota, e as duas telas leem
+       daqui — uma marca só, um repinte só. */
+    montando:0,
   },
   /* L3b — AS EMPRESAS DO CORREDOR (prospector), na tela de navegação.
      `chip` é COPY do desenho; `empresas` é DADO e vem do servidor.
@@ -2691,7 +2725,7 @@ T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
     <div class="vazio">
       <span class="ico">${ic('route',24)}</span>
       <strong>${DADOS.rota.vazioTitulo}</strong>
-    </div>`, transmux(e==='semsinal'?'pronta':e));
+    </div>`, transmux(DADOS.rota.montando?'montando':(e==='semsinal'?'pronta':e)));
   return shellRota(`
   <div class="kpis">
     <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${DADOS.rota.kpiParadas}</b><span class="l">paradas</span></span></div>
@@ -2723,7 +2757,7 @@ T.rota={nome:'Rota do dia (7 estados)',grupo:'Rota',render(){
   </div>
   ${emCurso?''   /* o Finalizar é o satélite do dock: no polegar, sem rolar a lista inteira */
            :`<button class="act full" style="margin-top:8px;justify-content:center" data-ir="caderneta">${ic('note',17)}<b>Abrir caderneta</b></button>`}
-  `, transmux(e==='semsinal'?'pronta':e));
+  `, transmux(DADOS.rota.montando?'montando':(e==='semsinal'?'pronta':e)));
 }};
 
 /* versão antiga da tela (mantida como referência das fotos) --------------- */
@@ -3263,14 +3297,34 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
   /* Os chips do dia moram AQUI (07/08). Antes ficavam na tela Rota, longe da
      lista que eles mudam — o dono trocava de dia e via a lista de hoje. Quem
      sabe quais dias existem é a ponte; sem ela — o desenho — a linha some. */
-  const chips=Array.isArray(d.dias)&&d.dias.length?`<div class="chips">
+  const chips=Array.isArray(d.dias)&&d.dias.length?`<div class="chips centro">
     ${d.dias.map(x=>`<button class="chip${(d.diaSel||0)===x[0]?' on':''}" data-acao="montar-dia" data-dia="${x[0]}">${x[1]}</button>`).join('')}</div>`:'';
   const lista=d.linhas.length
     ? `<div class="stops" data-gestos="rota">${d.linhas.map(x=>l(...x)).join('')}</div>`
     : `<div class="vazio"><span class="ico">${ic('route',24)}</span><strong>${d.vazio}</strong></div>`;
+  /* 🔴 O BOTÃO DE MONTAR NÃO ROLA (dono, 08/08: "montar rota não está sempre
+     visível"). Ele nascia no PÉ da lista: com 52 clientes na tela isso é
+     3.259 px abaixo da dobra — MEDIDO no g15 — e cada repinte devolvia o dedo
+     pro topo, então na prática ele não existia. A lei já estava escrita nesta
+     folha desde o rodapé da Rota ("quem rola é conteúdo; controle de operação
+     em andamento, nunca"); faltava aplicá-la aqui. Mesma peça, `.tmx-dock`.
+     Lado a lado e não empilhados: dois botões cheios comiam 22% da tela do
+     motorista pra sempre. O que MONTA leva a largura maior (`wide`). */
+  const pe=d.linhas.length?`<div class="acts pe-montagem" style="margin-top:0">
+    <button class="act" style="background:linear-gradient(180deg,var(--btn-blue-1),var(--btn-blue-2));border:0;color:var(--white);justify-content:center" data-acao="salvar-rota">
+      ${ic('save',18)}<b>Salvar rota</b></button>
+    ${DADOS.rota.montando
+      ?`<button class="act go wide ocupado" style="justify-content:center" disabled aria-busy="true">${ic('route',19)}
+      <b>Montando…</b></button>`
+      :d.pronta
+      ?`<button class="act go wide" style="justify-content:center" data-acao="iniciar-rota">${ic('play',19)}
+      <span style="text-align:center"><b>Iniciar rota</b>${d.iniciarSub?`<small>${d.iniciarSub}</small>`:''}</span></button>`
+      :`<button class="act go wide" style="justify-content:center" data-acao="montar-agora">${ic('route',19)}
+      <span style="text-align:center"><b>Montar rota</b>${d.iniciarSub?`<small>${d.iniciarSub}</small>`:''}</span></button>`}
+  </div>`:'';
   return `${status}
 ${hdr({voltar:'rota'})}
-<div class="body">
+<div class="body${pe?' com-dock-1':''}">
   <h2 style="font-size:23px;font-weight:500;margin:4px 0 2px;letter-spacing:-.4px">${d.titulo}</h2>
   ${chips}
   ${miolo(d,'route','recarregar-montagem',5,`${lista}
@@ -3279,15 +3333,8 @@ ${hdr({voltar:'rota'})}
     <span class="c"><span style="color:var(--blue-l)">${ic('box',17)}</span><span><b>${d.somaProdutos}</b><small>produtos</small></span></span>
     <span class="c"><span style="color:var(--lime)">${ic('cash',17)}</span><span><b>${d.somaValor}</b><small>valor marcado</small></span></span>
   </div>`)}
-  ${d.linhas.length?`<button class="act full" style="margin-top:9px;background:linear-gradient(180deg,var(--btn-blue-1),var(--btn-blue-2));border:0;color:var(--white);justify-content:center;box-shadow:0 7px 18px rgba(47,126,247,.3)" data-acao="salvar-rota">
-    ${ic('save',19)}<b style="font-size:14px">Salvar rota</b></button>
-  ${d.pronta
-    ?`<button class="act go full" style="margin-top:7px;justify-content:center" data-acao="iniciar-rota">${ic('play',19)}
-    <span style="text-align:center"><b>Iniciar rota</b>${d.iniciarSub?`<small>${d.iniciarSub}</small>`:''}</span></button>`
-    :`<button class="act go full" style="margin-top:7px;justify-content:center" data-acao="montar-agora">${ic('route',19)}
-    <span style="text-align:center"><b>Montar rota</b>${d.iniciarSub?`<small>${d.iniciarSub}</small>`:''}</span></button>`}`:''}
 </div>
-${nav('rota')}`;}};
+${pe?`<div class="tmx-dock">${pe}</div>`:''}${nav('rota')}`;}};
 
 /* 9 — ROTAS SALVAS -------------------------------------------------------- */
 T.salvas={nome:'Rotas salvas',grupo:'Rota',render(){
@@ -4132,6 +4179,26 @@ function fecharCena(){
   document.querySelectorAll('#app .tela.cena').forEach(c=>c.classList.remove('cena'));
 }
 let entradaEm=0;
+/* 🔴 REPINTAR NÃO PODE ROLAR A TELA PRA CIMA (dono, 08/08: "ao clicar pisca").
+   Cada escrita do seam monta uma CAMADA NOVA, e camada nova nasce no topo.
+   MEDIDO no g15, na Montagem com 52 clientes: 3.259 px de rolagem viravam 0 em
+   TODO repinte — o dedo tocava um botão e a tela fugia pra outro lugar.
+   🔴 O guarda que existia pra folha de pagamento NUNCA RODOU: ele estava
+   dentro do ramo `animar` perguntando `!animar`. Aqui vale pros dois ramos de
+   repinte; TROCAR de tela (`animar`) continua começando do topo, que é o certo.
+   `.body` e `.sheet` são os dois únicos painéis que rolam por dentro. */
+const ROLAM=['.body','.sheet'];
+function medirRolagem(camada){
+  const m={};
+  if(camada) ROLAM.forEach(s=>{const el=camada.querySelector(s); if(el&&el.scrollTop) m[s]=el.scrollTop;});
+  return m;
+}
+/* só depois de a camada estar NO documento: nó solto não tem altura, e
+   `scrollTop` de nó sem layout volta zero calado. */
+function herdarRolagem(m,camada){
+  if(!m) return;
+  ROLAM.forEach(s=>{if(!m[s])return; const el=camada.querySelector(s); if(el) el.scrollTop=m[s];});
+}
 function pintar(animar,dir){
   const app=document.getElementById('app');
   const tr=document.documentElement.dataset.tr||'escalonado';
@@ -4143,6 +4210,9 @@ function pintar(animar,dir){
   // — e o relógio de limpeza anterior é cancelado, senão ele remove a errada.
   const camadas=[...app.querySelectorAll('.tela')];
   const antiga=camadas.length?camadas[camadas.length-1]:null;
+  // medido ANTES de qualquer troca: no ramo comum a camada velha é destruída
+  // (`innerHTML=''`) e depois disso não há o que perguntar.
+  const rolagem=animar?{}:medirRolagem(antiga);
   // 🔴 REPINTE DE DADO NÃO MATA A ENTRADA DA TELA. O seam repinta assim que o
   // servidor responde, e o repinte não anima — só que ele chegava NO MEIO da
   // entrada e a camada nova nascia sem papel nenhum. Medido no mock: 13
@@ -4151,7 +4221,26 @@ function pintar(animar,dir){
   // transição — e a casca tem que ser IGUAL em toda tela, com dado ou sem.
   // Herdando: a camada nova assume as marcas da que estava entrando e o
   // relógio continua de onde parou (recomeçar do zero pisca).
-  const herdando = !animar && antiga && antiga.classList.contains('entra');
+  /* 🔴 O PISCA ERA A TELA ENTRANDO DE NOVO — ESTE É O DEFEITO DE RAIZ (dono,
+     08/08: "ao clicar pisca"). A marca `entra` FICA na camada pra sempre, e
+     todo repinte herdava ela: os itens da tela nasciam com `trXItem` (opacity
+     0 → 1) começando do ZERO, porque o carimbo de `currentTime` lá embaixo só
+     vale enquanto a entrada roda. MEDIDO no g15: print tirado logo depois de
+     um `usarDados` mostrou a tela EM BRANCO — 57 animações reencenando a
+     entrada inteira. Numa tela aberta há um minuto não existe entrada pra
+     continuar: a camada nova tem que nascer PARADA, e nascer parada é nascer
+     SEM `entra` (todo `@keyframes` daqui declara só o `from`, então o estado
+     final é o estado do CSS). O precedente já estava na folha: a tela cheia do
+     GPS ganhou `animation:none!important` justamente porque "a tela INTEIRA
+     repiscava" aos 950 ms. Isto é a mesma cura, para TODA tela.
+     Dentro da janela nada muda — repinte no meio da entrada continua herdando,
+     senão volta o pisca que a herança existe pra matar. E `cheio`/`abertura`
+     herdam SEMPRE: são cenas com camada de saída no ar, e o caminho comum
+     (`innerHTML=''`) cortaria o show no meio. */
+  const entradaViva = antiga
+    && (performance.now()-entradaEm) < (antiga.classList.contains('cena')?CENA_CHEIA:ENTRADA_COMUM);
+  const herdando = !animar && antiga && antiga.classList.contains('entra')
+    && (entradaViva || antiga.classList.contains('cheio') || antiga.classList.contains('abertura'));
   // A varredura de zumbi e o cancelamento do relógio são da TROCA de tela. No
   // repinte não: a camada que SAI ainda está no ar (na abertura ela é o show
   // inteiro — é o logo voando pro cabeçalho) e o relógio dela segue valendo.
@@ -4205,15 +4294,6 @@ function pintar(animar,dir){
       cenaTimer=setTimeout(fecharCena, CENA_CHEIA);
     }
     app.appendChild(nova);
-    /* 🔴 REPINTAR NÃO PODE ROLAR A FOLHA PRA CIMA. A folha (`.sheet`) é o
-       único painel que ROLA por dentro, e escolher a forma de pagamento fica
-       no pé dela: sem isto, cada toque jogava o dedo de volta pro topo e o
-       botão de confirmar fugia da tela. Vale pra qualquer repinte do seam,
-       não só o do pagamento — por isso mora aqui e não em quem chamou. */
-    if(antiga&&!animar){
-      const de=antiga.querySelector('.sheet'), para=nova.querySelector('.sheet');
-      if(de&&para&&de.scrollTop) para.scrollTop=de.scrollTop;
-    }
     // ABERTURA: mede o percurso do logo DEPOIS de a camada nova estar no ar —
     // antes disso o cabeçalho ainda não tem posição, e a conta sai errada.
     if(anterior==='entrada'){
@@ -4257,6 +4337,7 @@ function pintar(animar,dir){
       antes.set(n,(antes.get(n)||0)+1);
     });
     antiga.replaceWith(nova);
+    herdarRolagem(rolagem,nova);
     // E o relógio continua: `currentTime` põe cada animação exatamente onde a
     // da camada anterior estava. Sem isto a lista recomeçaria do zero e o dado
     // chegando tarde daria um pisca. Quem não tiver a API fica sem o acerto —
@@ -4297,6 +4378,7 @@ function pintar(animar,dir){
   }else{
     app.innerHTML='';
     app.appendChild(nova);
+    herdarRolagem(rolagem,nova);
   }
   pintarRail();
   // A abertura não fica na tela: ela ENTREGA o app. 3,4 s é a cena inteira

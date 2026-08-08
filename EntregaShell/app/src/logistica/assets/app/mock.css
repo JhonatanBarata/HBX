@@ -922,6 +922,14 @@ button,input{font:inherit;color:inherit}
 /* medido: rodapé 120 + abas 60 = 180. 188 dá o respiro de 8px pro último
    cartão não encostar no vidro do controle. */
 .body.com-dock{padding-bottom:188px}
+/* Rodapé de UMA fila (o da Montagem): 48 do botão + 17 do respiro = 65, mais
+   as abas (60) e 7 pro último cartão não encostar no vidro do controle. */
+.body.com-dock-1{padding-bottom:132px}
+/* 🔴 RODAPÉ NÃO MUDA DE ALTURA. A linha de baixo do botão ("Iniciar rota /
+   João da Silva") existe em uns estados e não em outros — sem piso, a barra
+   encolhia 11px no meio do trabalho e a lista inteira dava um pulo. Altura de
+   controle é do CONTROLE, não do texto que calhou de caber nele. */
+.pe-montagem .act{min-height:48px}
 .transmux{display:grid;grid-template-columns:1fr auto 1fr;align-items:end;gap:8px}
 .tmx-sat{display:flex;flex-direction:column;align-items:center;gap:4px}
 .tmx-sat button{width:46px;height:46px;border-radius:16px;border:.7px solid var(--line);background:var(--card);
@@ -941,6 +949,10 @@ button,input{font:inherit;color:inherit}
 .tmx-main button[data-estado="montar"]{background:linear-gradient(180deg,#4a95ff,var(--btn-blue-2));
   box-shadow:0 10px 26px rgba(47,126,247,.32)}
 .tmx-main small{font-size:12px;font-weight:500}
+/* TRABALHANDO: o botão continua no lugar, com o mesmo tamanho, respirando.
+   Some com a sombra viva porque nada vai acontecer se o dedo insistir. */
+.ocupado{opacity:.62;box-shadow:none!important;animation:respira 1.15s ease-in-out infinite}
+@keyframes respira{50%{opacity:.34}}
 
 /* ---------- progresso do dia ---------- */
 .dia-bar{display:flex;align-items:center;gap:9px;margin-top:7px;padding:8px 11px;border-radius:12px;
@@ -1322,6 +1334,12 @@ button,input{font:inherit;color:inherit}
   display:grid;place-items:center;color:var(--ink-2);cursor:pointer}
 .chips{display:flex;gap:6px;margin-top:9px;overflow:auto;padding-bottom:2px;scrollbar-width:none}
 .chips::-webkit-scrollbar{display:none}
+/* Dias da Montagem no CENTRO (dono, 08/08: "centralize"). Só onde a fileira é
+   curta por natureza — categoria de produto/cliente segue à esquerda, que é
+   fileira comprida. O `safe` é a diferença entre centrar e QUEBRAR: esta linha
+   ROLA, e `center` puro empurra o primeiro chip pra fora do alcance quando os
+   7 dias estouram a largura; com `safe` o estouro volta a começar do início. */
+.chips.centro{justify-content:safe center}
 .chip{padding:8px 13px;border-radius:10px;border:.7px solid var(--line-2);background:transparent;
   color:var(--ink);font-size:12.5px;white-space:nowrap;cursor:pointer}
 .chip.on{border-color:var(--lime);color:var(--lime);background:var(--sel-bg)}
