@@ -4,7 +4,7 @@
  *
  *     node scripts/casca-prova.js <nome>      (ex.: ferro)
  *
- * Duas medições, as duas num navegador de verdade, nas 31 telas × 2 modos:
+ * Duas medições, as duas num navegador de verdade, nas 32 telas × 2 modos:
  *
  *   A) MUDOU MESMO? Compara a pele com a casca contra a pele PADRÃO. Casca que
  *      não muda a tela é casca que não existe — e o número diz o alcance.

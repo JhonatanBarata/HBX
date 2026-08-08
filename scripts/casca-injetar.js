@@ -24,7 +24,7 @@
  *    calado (tela preta, zero erro visível). Mesmo código, outro arquivo.
  *
  * 2. O CROMO DO VISUALIZADOR MORRE. `.doc-top` (título da página), `.rail`
- *    (a lista de 31 telas), `.stage` e `.phone` (o celular DESENHADO em volta)
+ *    (a lista de 32 telas), `.stage` e `.phone` (o celular DESENHADO em volta)
  *    são a moldura de quem olha o mock no navegador. No aparelho, o aparelho
  *    já é o celular. Junto vai o `.notch`: o recorte de câmera desenhado ficaria
  *    por cima do recorte de câmera de verdade.
@@ -43,7 +43,7 @@
  *    hora (visto no g15). O conferidor esconde `.status` dos dois lados.
  *
  * Tudo o mais — tipografia, cor, movimento, abertura, os dois modos de luz,
- * as 31 telas e a navegação entre elas — entra IGUAL, sem uma linha reescrita.
+ * as 32 telas e a navegação entre elas — entra IGUAL, sem uma linha reescrita.
  */
 const fs = require('fs');
 const path = require('path');

@@ -1553,6 +1553,30 @@ button,input{font:inherit;color:inherit}
    nada muda no desenho; o toque parado ali continua abrindo a folha (click). */
 [data-gestos] .grip::before{content:"";position:absolute;left:0;top:0;bottom:0;width:60px;z-index:2}
 
+/* ==========================================================================
+   A AULA DA TELA — "coach marks", o padrão de mercado: escurece tudo, abre um
+   FURO em cima da peça de verdade e explica em uma linha. 3 a 4 passos, nunca
+   um manual: tela que precisa de mais que isso é tela mal desenhada.
+
+   O furo é um `box-shadow` gigante (a sombra é que escurece o resto) — assim o
+   destaque acompanha QUALQUER elemento medido na hora, sem recortar imagem.
+   ========================================================================== */
+.round.acesa{border-color:var(--lime-line);color:var(--lime);background:var(--lime-bg)}
+.aula-wrap{position:absolute;inset:0;z-index:70}
+.aula-furo{position:absolute;border-radius:12px;border:1.5px solid var(--lime);
+  box-shadow:0 0 0 9999px rgba(3,7,14,.8),0 0 14px rgba(158,222,42,.45);
+  transition:top .22s,left .22s,width .22s,height .22s;pointer-events:none}
+.aula-cx{position:absolute;left:11px;right:11px;background:var(--card);
+  border:.7px solid var(--line);border-radius:14px;padding:12px;
+  box-shadow:0 14px 34px rgba(0,0,0,.5)}
+.aula-cx b{display:block;font-size:14px;font-weight:500}
+.aula-cx .txt{display:block;font-size:12.5px;color:var(--ink-2);margin-top:3px;line-height:1.4}
+.aula-cx .pe{display:flex;align-items:center;justify-content:space-between;gap:9px;margin-top:12px}
+.aula-cx .conta{font-size:11px;color:var(--ink-3)}
+.aula-cx .pe button{padding:9px 16px;border-radius:10px;font-size:13px;border:.7px solid var(--line);
+  background:var(--chip-bg);color:var(--ink);cursor:pointer}
+.aula-cx .pe .principal{background:var(--lime);border-color:var(--lime);color:#12200a;font-weight:500}
+
 /* ---------- chat da Central ---------- */
 .recado{border:.7px solid var(--amber-line);background:#1a1408;border-radius:14px;padding:11px;margin-top:6px}
 .recado .topo{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center}
@@ -1806,6 +1830,15 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .btn-blue,[data-luz="claro"] .conf .acoes .azul,
 [data-luz="claro"] .portao .acoes .azul{color:#fff}
 [data-luz="claro"] .enviar{background:var(--lima-viva);color:#16260a}
+/* 🔴 A AULA CAIU NAS DUAS ARMADILHAS DO CLARO — as duas MEDIDAS, não achadas.
+   1) "Pular" usava `--chip-bg` direto, e esse token NÃO é redefinido no claro
+      (quem troca são os componentes, um a um, na linha do `.round` acima):
+      deu 1,03:1, tinta invisível. 2) o botão principal herdava `--lime`, que no
+      claro é o verde que ESCREVE (escuro) — 3,23:1 com a tinta escura. Aqui
+      entra o lima VIVO de preencher, igual ao `.act.go`. */
+[data-luz="claro"] .aula-cx .pe button{background:#fff}
+[data-luz="claro"] .aula-cx .pe .principal{background:linear-gradient(180deg,#9ce02f,#6fb31c);
+  border-color:#6fb31c;color:#16260a}
 [data-luz="claro"] .pacote .selo{background:var(--lime);color:#fff}
 
 /* 2. Brilho vira sombra. */
@@ -1831,6 +1864,9 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .msg.minha{background:#f0f8e4;border-color:#a8cc6e}
 [data-luz="claro"] .scrim,[data-luz="claro"] .portao-wrap,
 [data-luz="claro"] .conf-wrap,[data-luz="claro"] .erro-wrap{background:rgba(20,28,45,.42)}
+/* A aula segue os irmãos: no claro o escuro em volta afrouxa (mesma família do
+   scrim/portão), senão o furo vira um holofote de teatro em cima do branco. */
+[data-luz="claro"] .aula-furo{box-shadow:0 0 0 9999px rgba(20,28,45,.42),0 0 14px rgba(63,122,0,.3)}
 [data-luz="claro"] .sheet{background:linear-gradient(180deg,#fff,#fbfcfe 30%);border-color:var(--line)}
 
 [data-luz="claro"] .erro,[data-luz="claro"] .portao.trava{background:#fff5f5;border-color:#e6a3a3}
@@ -2043,6 +2079,10 @@ moon:'<path d="M20 14.6A8.4 8.4 0 0 1 9.4 4 8.6 8.6 0 1 0 20 14.6z" fill="none" 
 flag:'<path d="M6 21V4M6 4h11l-2 3.5L17 11H6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
 save:'<path d="M5 5.5h11l3 3V19H5V5.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8.5 5.5v4.5h6V5.5M8 19v-4.5h8V19" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/>',
 spark:'<path d="M12 4l1.6 4.7L18 10.3l-4.4 1.6L12 16.6l-1.6-4.7L6 10.3l4.4-1.6L12 4z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M18.5 15.5l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2z" fill="currentColor"/>',
+/* A LÂMPADA — "como usar esta tela". Ela ACENDE (raios + miolo cheio) quando a
+   aula desta tela ainda não foi vista, e fica só de contorno depois. Ícone que
+   explica o próprio estado dispensa legenda. */
+bulb:'<path d="M9.2 16.6a6.2 6.2 0 1 1 5.6 0v1.6H9.2v-1.6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M9.9 20.6h4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>',
 };
 /* Traço FINO: os ícones nasceram em 1,7–2,6 (grosso demais ao lado de texto
    leve). Aqui o traço é afinado num ponto só — 0,72 do original — em vez de
@@ -2078,20 +2118,36 @@ const status = `<div class="status"><span>9:41</span><span class="right">
 const logo = `<div class="logo"><div class="w"><b>HB</b><em>X</em></div><small>LOGÍSTICA</small></div>`;
 
 function hdr(o={}){
-  /* O sino e o balão são PORTAS do chat, não enfeite: badge com número que não
-     abre nada é botão morto (dono, 07/08 — "tem número 2, vc clica nada abre").
-     `data-ir` de propósito: se o admin desligar o chat, o `podarDesligados`
-     leva os dois embora junto com o módulo. */
+  /* 🔴 O SINO E O BALÃO IAM PRO MESMO LUGAR (medido 08/08: os dois eram
+     `data-ir="chat"`). Dois botões, um destino — é a mesma mentira do "dado em
+     2 cards". Ficou UM: o balão, que tem o nome do módulo na barra, e o selo do
+     número mudou de dono junto com ele. A vaga que sobrou virou o "+".
+
+     O "+" é CADASTRAR CLIENTE, em toda tela, sempre a mesma coisa — cadastro
+     feito NA PORTA nasce com o local de verdade; digitado no escritório depois,
+     nasce sem. `data-ir` de propósito nos dois: módulo desligado leva o atalho
+     embora junto (`podarDesligados`). */
+  /* 🔴 A AULA TEM QUE TER PORTA EM TODA TELA QUE TEM AULA. Tela de dentro
+     (cadastro, montagem) troca a lâmpada da esquerda pela VOLTA — e a aula
+     ficaria escrita e inalcançável, que é o botão morto ao contrário.
+     Regra, sem exceção escrita à mão: se a tela TEM aula e a esquerda virou
+     Voltar, a lâmpada senta na vaga do "+". Cadastrar cliente continua a um
+     toque dali (Voltar), e nessas telas o "+" era o botão menos usado. */
+  const mais = (AULAS[atual] && o.voltar)
+    ? `<button class="round" data-aula="1" aria-label="Como usar esta tela">${ic('bulb',18)}</button>`
+    : `<button class="round" data-ir="novocliente" aria-label="Cadastrar cliente">${ic('plus',18)}</button>`;
   const dir = o.live
     ? `<div class="pill-live"><i></i>${o.live}</div>`
-    : `<div style="display:flex;gap:7px">
-        <button class="round" data-ir="chat">${ic('bell',17)}${DADOS.chat.sino?`<i class="cnt">${DADOS.chat.sino}</i>`:''}</button>
-        ${o.semChat?'':`<button class="round" data-ir="chat">${ic('chat',17)}</button>`}</div>`;
-  // Tela que se entra por dentro (ficha, folha) troca o menu pela VOLTA — o
-  // hambúrguer ali seria a saída errada e o Voltar do Android tem que casar.
+    : `<div style="display:flex;gap:7px">${mais}
+        ${o.semChat?'':`<button class="round" data-ir="chat" aria-label="Chat com a Central">${ic('chat',17)}${DADOS.chat.sino?`<i class="cnt">${DADOS.chat.sino}</i>`:''}</button>`}</div>`;
+  // Tela que se entra por dentro (ficha, folha) troca a lâmpada pela VOLTA — a
+  // aula ali seria a saída errada e o Voltar do Android tem que casar.
+  // O hambúrguer morreu em 08/08: não abria nada desde que a barra de 3 virou a
+  // navegação (dono: "os ícones acima do HBX estão mortos"). No lugar dele, a
+  // LÂMPADA — a aula da tela que está aberta.
   const esq = o.voltar
     ? `<button class="round" data-ir="${o.voltar}" aria-label="Voltar">${ic('back',18)}</button>`
-    : `<button class="round">${ic('menu',18)}<i class="ping"></i></button>`;
+    : `<button class="round" data-aula="1" aria-label="Como usar esta tela">${ic('bulb',18)}</button>`;
   // 🔴 O LOGO NÃO ANDA. Os flancos entram EMBRULHADOS com a mesma largura
   // mínima: com 1 ou 2 ícones do lado, o HBX fica cravado no centro em toda
   // tela (medido: sem isto o logo passeava 143↔164 entre abas).
@@ -2467,6 +2523,10 @@ const DADOS={
   /* A FICHA. `dias` são os 7 dias em ordem SEG…DOM (1 = entrega nesse dia).
      `numeroPendente` acende o campo que RESOLVE a pendência — nunca um aviso
      solto no topo (a regra que o dono cobrou ~10 vezes). */
+  /* CADASTRAR CLIENTE (o "+" do cabeçalho). Nasce VAZIO de propósito: é a única
+     tela do app que começa em branco por natureza. `local` é o recado do GPS —
+     vazio = ninguém apertou "Usar meu local" ainda. */
+  novocliente:{ nome:'', telefone:'', cep:'', rua:'', numero:'', bairro:'', local:'', localOk:0, salvando:0 },
   ficha:{
     ini:'LY', nome:'Larissa Ypê', resumo:'cliente desde 03/2025 · 42 entregas',
     alerta:'sem número',
@@ -3437,6 +3497,56 @@ ${hdr({voltar:'ajustes',semChat:1})}
 </div>
 ${nav('ajustes')}`;}};
 
+/* 31 — CADASTRAR CLIENTE (o "+" do cabeçalho) ------------------------------
+   🔴 POR QUE ESTA TELA EXISTE NO CELULAR (dono, 08/08): o endereço bom nasce na
+   PORTA. Medido na empresa 41 em 04/08: 117 paradas sem local nenhum e 130 com
+   local empilhado no mesmo ponto — cadastro digitado no escritório depois não
+   tem como saber onde a casa fica. Com "Usar meu local", a coordenada é a do
+   entregador parado na frente do cliente.
+
+   Campos ao MÍNIMO: nome e endereço. Telefone é opcional, e o resto (CPF, dias,
+   produtos) é a FICHA — quem cadastra na rua está com o motor ligado.
+   ========================================================================== */
+T.novocliente={nome:'Cadastrar cliente',grupo:'Cadastro',render(){const n=DADOS.novocliente;return `${status}
+${hdr({voltar:'clientes',semChat:1})}
+<div class="body">
+  <div class="screen-head"><span style="color:var(--lime)">${ic('plus',30)}</span>
+    <span><h2>Cadastrar cliente</h2><p>Cadastre na porta: o local fica certo.</p></span></div>
+
+  <div class="grupo">Quem é</div>
+  <div class="campos">
+    <label class="campo"><label>Nome</label><input placeholder="Nome do cliente" value="${n.nome}" data-campo="novo-nome"></label>
+    <label class="campo"><label>Telefone / WhatsApp</label><input placeholder="(19) 99999-0000" value="${n.telefone}" data-campo="novo-telefone"></label>
+  </div>
+
+  <!-- 🔴 CEP E NÚMERO SÃO OBRIGATÓRIOS (lei do dono, 06/08 — o servidor recusa
+       sem eles: "sem CEP não dá pra achar a casa"). Medido no aparelho em
+       08/08: sem o campo, o cadastro na rua era impossível. "SN" é resposta
+       válida pro número, e o lugar de ensinar isso é o próprio campo. -->
+  <div class="grupo">Onde é</div>
+  <div class="campos">
+    <label class="campo"><label>CEP</label><input placeholder="00000-000" value="${n.cep}" data-campo="novo-cep"></label>
+    <div class="tripla">
+      <label class="campo"><label>Rua</label><input value="${n.rua}" data-campo="novo-rua"></label>
+      <label class="campo"><label>Número</label><input placeholder="nº ou SN" value="${n.numero}" data-campo="novo-numero"></label>
+      <label class="campo"><label>Bairro</label><input value="${n.bairro}" data-campo="novo-bairro"></label>
+    </div>
+  </div>
+  <button class="act full" style="margin-top:7px;justify-content:center" data-acao="usar-meu-local">
+    ${ic('gps',17)}<b>Usar meu local</b></button>
+  <!-- azul = local pego; âmbar = pego mas impreciso. Sem os dois tons o
+       entregador não saberia que precisa chegar mais perto da porta. -->
+  ${n.local?`<div class="banner ${n.localOk?'pausa':'alerta'}" style="margin-top:7px">${ic(n.localOk?'check':'alert',15)}
+    <span>${n.local}</span></div>`:''}
+
+  <div class="acts" style="margin-top:12px">
+    <button class="act go wide" style="justify-content:center" data-acao="salvar-novo-cliente">
+      ${ic('check',19)}<b>${n.salvando?'Salvando…':'Salvar cliente'}</b></button>
+    <button class="act" style="justify-content:center" data-ir="clientes">${ic('back',17)}<b>Voltar</b></button>
+  </div>
+</div>
+${nav('ajustes')}`;}};
+
 /* 0 — ENTRADA (abertura do app) ------------------------------------------ */
 T.entrada={nome:'Entrada (abertura)',grupo:'Sistema',render(){
   // As hastes nascem com coordenadas provisórias: quem crava é `ajustarHastes`,
@@ -4107,7 +4217,7 @@ ${nav('ajustes')}`;}};
    MONTAGEM
    ========================================================================== */
 const ORDEM=['entrada','rota','rotafoto','mapa','mapachegou','mapalista','gerenciador','montagem','conferencia',
-             'venda','folha','folhanao','rapida','salvas','caderneta','semana','clientes','ficha','produtos',
+             'venda','folha','folhanao','rapida','salvas','caderneta','semana','clientes','novocliente','ficha','produtos',
              'fichaproduto','chat','ajustes','recarga','financeiro','avancado','sons','historico','consumo',
              'passeio','leitura','portoes'];
 const GRUPOS=['Sistema','Rota','Caderneta','Cadastro','Ajustes'];
@@ -4266,6 +4376,9 @@ function pintar(animar,dir){
   // (07/08, ordem do dono: fora as explicações); o gesto ficou e trocou de
   // endereço — quem liga não é mais o nome da tela, é a marca `data-gestos`.
   requestAnimationFrame(()=>ligarGestos(nova));
+  // a lâmpada acende (ou não) junto com a tela: é o único aviso de que existe
+  // aula nova ali dentro.
+  marcarAula(nova);
   // DIREÇÃO (eixo X): +1 = avançando, entra pela direita; -1 = voltando, entra
   // pela esquerda. Um "voltar" que entra pelo mesmo lado do "avançar" é mentira
   // de navegação — o dedo aprende o gesto errado.
@@ -4608,7 +4721,14 @@ function portao(chave){
         // resolver. O botão principal fecha porque RESOLVE. Portão obrigatório
         // não tem escape — sobra só a ação, e é isso que o prende ali.
         const escape = marcado!==undefined ? marcado : (c!=='principal' && c!=='azul');
-        return `<button class="${c}" data-fechar="1"${escape?' data-escape="1"':''}>${t}</button>`;
+        /* 🔴 PORTÃO QUE PERGUNTA PRECISA QUE O "SIM" FAÇA ALGO (08/08). Até
+           aqui todo botão só FECHAVA — servia pro portão que avisa, não pro que
+           decide ("Já tem cliente nesta porta · Cadastrar assim"). `acaoPrincipal`
+           dá um `data-acao` ao botão principal: o portão fecha (o `data-fechar`
+           continua) e a ação corre por cima. Sem isto o "sim" era botão morto —
+           a mesma doença do sino que não abria nada. */
+        const acao = (c==='principal'&&p.acaoPrincipal) ? ` data-acao="${p.acaoPrincipal}"` : '';
+        return `<button class="${c}" data-fechar="1"${escape?' data-escape="1"':''}${acao}>${t}</button>`;
       }).join('')}
     </div></div>`;
   camada.appendChild(w);
@@ -4646,6 +4766,26 @@ function ligarLista(camada,lista){
     });
   }
 
+  /* 🔴 O GESTO ANUNCIA; QUEM GRAVA É A PONTE. A casca não conhece servidor —
+     ela conta o que o dedo fez e pergunta se alguém assume. `preventDefault`
+     do ouvinte = "assumi": daí em diante a casca NÃO mexe mais no DOM, porque
+     a lista volta a ser desenhada pelo dado que o servidor confirmar. Ninguém
+     assumindo (esta folha aberta no navegador) = maquete, e a maquete segue se
+     comportando como sempre — é o que mantém o mock testável sozinho.
+     Mesmo par de eventos de documento que o resto da casa já usa (`hbx:theme`,
+     `hbx:push-wake`): contrato é o NOME do evento, nunca uma função global. */
+  function anunciar(nome,detalhe){
+    return !document.dispatchEvent(new CustomEvent(nome,{detail:detalhe,cancelable:true}));
+  }
+
+  /* Só parada com id REAL viaja. O cartão de maquete nasce sem `data-parada`
+     (o `stop()` só põe o gancho quando o dado é do servidor) e a lista da
+     MONTAGEM é prévia de CLIENTE — a entrega nem existe ainda. Lista sem id
+     não tem o que gravar: lá o gesto continua só visual, e isso é a verdade
+     da tela, não um esquecimento. */
+  const idsNaOrdem = () => [...lista.querySelectorAll('.stop')]
+    .map(el=>el.dataset.parada||'').filter(Boolean);
+
   /* O gesto abriu porta (arrastou ou armou)? Então o TOQUE não vale. Sem isto
      o `pointerup` vira `click` e a MESMA parada que o dedo acabou de mover (ou
      de mandar retirar) abre a folha dela por cima. Captura, uma vez só: quem
@@ -4671,6 +4811,10 @@ function ligarLista(camada,lista){
   // ---- ARRASTAR (pelo punho na hora; pelo cartão, depois do segurar) --------
   function arrastar(item,ev,travarRolagem){
     ev.preventDefault&&ev.preventDefault();
+    // A ordem de ANTES, medida no começo do gesto: é ela que diz, no fim, se o
+    // dedo realmente mudou alguma coisa. Sem esta marca todo toque no punho
+    // viraria uma gravação — inclusive pegar e soltar no mesmo lugar.
+    const ordemAntes=idsNaOrdem().join('|');
     const rolos=roladores(), rolo=rolos[0]||null;
     // O punho tem touch-action:none; o CARTÃO não (ele precisa deixar a lista
     // rolar). Quando o arrasto nasce do segurar, o 1º movimento vertical faria
@@ -4739,6 +4883,13 @@ function ligarLista(camada,lista){
       if(travarRolagem) rolos.forEach((r,i)=>{ r.style.overflowY=antes[i]; });
       item.classList.remove('arrastando');
       item.style.transform=''; renumerar();
+      /* 🔴 O DEDO MANDOU — ALGUÉM TEM QUE GRAVAR. Enquanto este anúncio não
+         existiu, arrastar era TEATRO: o DOM mudava, o servidor não sabia de
+         nada e o primeiro repinte devolvia a ordem antiga (provado reiniciando
+         o app). Só anuncia quando a ordem MUDOU: soltar no mesmo lugar não é
+         ordem nova, e gravar à toa é ida ao servidor no meio da rua. */
+      const ids=idsNaOrdem();
+      if(ids.length>1&&ids.join('|')!==ordemAntes) anunciar('hbx:ordem',{ids});
       if(andou) engolirToque(item);
       item.removeEventListener('pointermove',mover);
       item.removeEventListener('pointerup',soltar);
@@ -4831,9 +4982,17 @@ function ligarLista(camada,lista){
     camada.appendChild(w);
     w.addEventListener('click',e=>{
       if(e.target.closest('[data-sim]')){
-        item.style.transition='opacity .2s, transform .2s';
-        item.style.opacity='0'; item.style.transform='translateX(-30px)';
-        setTimeout(()=>{item.remove();renumerar();},210);
+        /* 🔴 SEM FONTE NADA SOME. A casca só apaga o cartão quando NINGUÉM
+           assume o fio (esta folha no navegador). Com a ponte ouvindo, quem
+           tira a parada da lista é o dado que o SERVIDOR confirmar — apagar
+           antes da resposta perde a parada na tela se a rede cair no meio, e
+           o motorista fica sem saber se retirou ou não. */
+        const id=item.dataset.parada||'';
+        if(!(id&&anunciar('hbx:retirar',{id,nome}))){
+          item.style.transition='opacity .2s, transform .2s';
+          item.style.opacity='0'; item.style.transform='translateX(-30px)';
+          setTimeout(()=>{item.remove();renumerar();},210);
+        }
       } else if(!e.target.closest('[data-nao]')) return;
       item.classList.remove('pronto');
       fechar(w);
@@ -4845,6 +5004,116 @@ function ligarLista(camada,lista){
     if(ev.target.closest('.grip')) arrastar(item,ev,false);    // punho: pega na hora
     else cartao(item,ev);                          // cartão: segurar levanta, deslizar retira
   });
+}
+
+/* ==========================================================================
+   A AULA DA TELA — a lâmpada do cabeçalho.
+
+   🔴 A AULA APONTA PRO ELEMENTO DE VERDADE, nunca descreve a tela por escrito.
+   Manual em texto separado envelhece calado: muda o botão, o manual continua
+   dizendo a frase antiga e ninguém descobre. Aqui cada passo é um SELETOR — se
+   a peça sumir da tela, o passo some junto e o console grita (mesma lei do
+   ícone inexistente que virou caixa vermelha).
+
+   🔴 A AULA NÃO APERTA BOTÃO. Ela destaca e explica. Este app tem rota viva e
+   dinheiro na tela: uma demonstração que "mostra fazendo" confirmaria entrega
+   de verdade. Quem faz é sempre o motorista.
+
+   Teto de 4 passos por tela, de propósito: tela que precisa de mais é tela mal
+   desenhada — a aula é o fiscal do desenho, não o remendo dele.
+   ========================================================================== */
+const AULAS={
+  rota:[
+    ['.kpis','Seu dia','Quantas paradas você tem e quantas já entregou.'],
+    ['.stop','Cada cartão é uma parada','Toque no cartão pra abrir a entrega do cliente.'],
+    ['.grip','Mudar a ordem','Segure aqui do lado e arraste pra cima ou pra baixo. Pra tirar da rota, deslize o cartão pra esquerda.'],
+    ['.tmx-main,.dock-montar','O que fazer agora','O botão grande é sempre o próximo passo do dia.'],
+  ],
+  montagem:[
+    ['.day-chips,.chips','O dia','Escolha o dia. Só aparece dia que tem cliente.'],
+    ['.stop','A ordem do dia','Arraste pra ajustar a ordem antes de sair.'],
+    ['.acts,.tmx-dock','Salvar ou começar','"Salvar rota" guarda pra depois. "Iniciar rota" começa o dia agora.'],
+  ],
+  novocliente:[
+    ['[data-campo="novo-nome"]','O nome','Comece pelo nome do cliente.'],
+    ['[data-acao="usar-meu-local"]','O local certo','Parado na frente da casa, toque aqui: rua, bairro e CEP entram sozinhos, no lugar exato.'],
+    ['[data-campo="novo-numero"]','O número da casa','Este você digita. Se a casa não tem número, escreva SN.'],
+    ['[data-acao="salvar-novo-cliente"]','Pronto','Salvou, o cliente já aparece na sua lista.'],
+  ],
+  chat:[
+    ['.recado','Recado da Central','Toque em "Entendi" pra Central saber que você viu.'],
+    ['.escrever','Falar com a Central','Escreva aqui e mande. Ela responde no mesmo lugar.'],
+  ],
+  ajustes:[
+    ['.cartao-lista','Seus ajustes','Cadastro de clientes e produtos, sons e conta ficam aqui.'],
+    ['.nav','Os três módulos','Chat, Rota e Ajustes. A Rota é onde o dia acontece.'],
+  ],
+};
+/** O aparelho lembra o que já foi visto — a lâmpada acende só pra aula nova. */
+const aulaVista=k=>{ try{ return localStorage.getItem('hbx:aula:'+k)==='1'; }catch(e){ return false; } };
+const marcarVista=k=>{ try{ localStorage.setItem('hbx:aula:'+k,'1'); }catch(e){} };
+/* A lâmpada ACESA é estado do APARELHO (o que este celular já viu), não dado do
+   servidor: por isso é carimbada depois da pintura, e não dentro do `render()`.
+   Mesma linha do velocímetro — o dado passa pelo seam, a marca local não. */
+function marcarAula(camada){
+  const b=camada.querySelector('[data-aula]'); if(!b) return;
+  b.classList.toggle('acesa', !!(AULAS[atual]&&!aulaVista(atual)));
+}
+function abrirAula(){
+  const camadas=document.querySelectorAll('#app .tela');
+  const camada=camadas.length?camadas[camadas.length-1]:null; if(!camada) return;
+  camada.querySelector('.aula-wrap')?.remove();
+  // Passo cujo alvo não está na tela SAI da aula (e grita no console): estado
+  // diferente desenha peça diferente, e apontar pro vazio é pior que não falar.
+  const passos=(AULAS[atual]||[]).filter(p=>{
+    const alvo=camada.querySelector(p[0]);
+    if(!alvo) console.warn('[HBX 2.0] aula de',atual,'— sumiu da tela:',p[0]);
+    return !!alvo;
+  });
+  marcarVista(atual);
+  marcarAula(camada);
+  if(!passos.length){
+    return portao({tom:'info',ico:'bulb',titulo:'Nada a ensinar aqui',
+      sub:'Esta tela não tem aula ainda.',acoes:[['Fechar','principal',true]]});
+  }
+  const w=document.createElement('div');
+  w.className='aula-wrap';
+  w.innerHTML=`<div class="aula-furo"></div><div class="aula-cx"></div>`;
+  camada.appendChild(w);
+  const furo=w.querySelector('.aula-furo'), cx=w.querySelector('.aula-cx');
+  let i=0;
+  function pintarPasso(){
+    const [sel,titulo,texto]=passos[i];
+    const alvo=camada.querySelector(sel);
+    // Medida RELATIVA à camada: o quadro do visualizador tem zoom, e
+    // getBoundingClientRect da janela devolveria o furo fora do lugar.
+    const a=alvo.getBoundingClientRect(), c=camada.getBoundingClientRect();
+    const topo=a.top-c.top, esq=a.left-c.left;
+    const alt=a.height, larg=a.width;
+    Object.assign(furo.style,{top:(topo-6)+'px',left:(esq-6)+'px',
+      width:(larg+12)+'px',height:(alt+12)+'px'});
+    // A caixa fica do lado que tem espaço: abaixo do alvo se couber, senão
+    // acima. Explicação em cima da peça explicada é explicação escondida.
+    const cxAlt=150;
+    const cabeAbaixo = topo+alt+12+cxAlt < c.height;
+    cx.style.top = cabeAbaixo ? (topo+alt+14)+'px' : 'auto';
+    cx.style.bottom = cabeAbaixo ? 'auto' : (c.height-topo+14)+'px';
+    const ultimo=i===passos.length-1;
+    cx.innerHTML=`<b>${titulo}</b><span class="txt">${texto}</span>
+      <div class="pe"><span class="conta">${i+1} de ${passos.length}</span>
+        <span style="display:flex;gap:8px">
+          ${ultimo?'':'<button data-aula-sair="1">Pular</button>'}
+          <button class="principal" data-aula-prox="1">${ultimo?'Entendi':'Próximo'}</button>
+        </span></div>`;
+  }
+  w.addEventListener('click',e=>{
+    if(e.target.closest('[data-aula-sair]')) return w.remove();
+    if(!e.target.closest('[data-aula-prox]')) return;
+    i++;
+    if(i>=passos.length) return w.remove();
+    pintarPasso();
+  });
+  pintarPasso();
 }
 
 function confirmar(){
@@ -4862,6 +5131,9 @@ function confirmar(){
 }
 
 document.addEventListener('click',e=>{
+  // a lâmpada vem ANTES do `data-ir`: ela é botão do cabeçalho como os outros,
+  // e sem esta linha o clique cairia no roteador e não abriria nada.
+  const au=e.target.closest('[data-aula]'); if(au) return abrirAula();
   const t=e.target.closest('[data-tela]'); if(t) return ir(t.dataset.tela);
   const g=e.target.closest('[data-ir]');  if(g) return ir(g.dataset.ir);
   const n=e.target.closest('[data-nav]'); if(n) return ir(n.dataset.nav);

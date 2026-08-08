@@ -1526,6 +1526,30 @@ button,input{font:inherit;color:inherit}
    nada muda no desenho; o toque parado ali continua abrindo a folha (click). */
 [data-gestos] .grip::before{content:"";position:absolute;left:0;top:0;bottom:0;width:60px;z-index:2}
 
+/* ==========================================================================
+   A AULA DA TELA — "coach marks", o padrão de mercado: escurece tudo, abre um
+   FURO em cima da peça de verdade e explica em uma linha. 3 a 4 passos, nunca
+   um manual: tela que precisa de mais que isso é tela mal desenhada.
+
+   O furo é um `box-shadow` gigante (a sombra é que escurece o resto) — assim o
+   destaque acompanha QUALQUER elemento medido na hora, sem recortar imagem.
+   ========================================================================== */
+.round.acesa{border-color:var(--lime-line);color:var(--lime);background:var(--lime-bg)}
+.aula-wrap{position:absolute;inset:0;z-index:70}
+.aula-furo{position:absolute;border-radius:12px;border:1.5px solid var(--lime);
+  box-shadow:0 0 0 9999px rgba(3,7,14,.8),0 0 14px rgba(158,222,42,.45);
+  transition:top .22s,left .22s,width .22s,height .22s;pointer-events:none}
+.aula-cx{position:absolute;left:11px;right:11px;background:var(--card);
+  border:.7px solid var(--line);border-radius:14px;padding:12px;
+  box-shadow:0 14px 34px rgba(0,0,0,.5)}
+.aula-cx b{display:block;font-size:14px;font-weight:500}
+.aula-cx .txt{display:block;font-size:12.5px;color:var(--ink-2);margin-top:3px;line-height:1.4}
+.aula-cx .pe{display:flex;align-items:center;justify-content:space-between;gap:9px;margin-top:12px}
+.aula-cx .conta{font-size:11px;color:var(--ink-3)}
+.aula-cx .pe button{padding:9px 16px;border-radius:10px;font-size:13px;border:.7px solid var(--line);
+  background:var(--chip-bg);color:var(--ink);cursor:pointer}
+.aula-cx .pe .principal{background:var(--lime);border-color:var(--lime);color:#12200a;font-weight:500}
+
 /* ---------- chat da Central ---------- */
 .recado{border:.7px solid var(--amber-line);background:#1a1408;border-radius:14px;padding:11px;margin-top:6px}
 .recado .topo{display:grid;grid-template-columns:auto 1fr;gap:10px;align-items:center}
@@ -1778,6 +1802,15 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .btn-blue,[data-luz="claro"] .conf .acoes .azul,
 [data-luz="claro"] .portao .acoes .azul{color:#fff}
 [data-luz="claro"] .enviar{background:var(--lima-viva);color:#16260a}
+/* 🔴 A AULA CAIU NAS DUAS ARMADILHAS DO CLARO — as duas MEDIDAS, não achadas.
+   1) "Pular" usava `--chip-bg` direto, e esse token NÃO é redefinido no claro
+      (quem troca são os componentes, um a um, na linha do `.round` acima):
+      deu 1,03:1, tinta invisível. 2) o botão principal herdava `--lime`, que no
+      claro é o verde que ESCREVE (escuro) — 3,23:1 com a tinta escura. Aqui
+      entra o lima VIVO de preencher, igual ao `.act.go`. */
+[data-luz="claro"] .aula-cx .pe button{background:#fff}
+[data-luz="claro"] .aula-cx .pe .principal{background:linear-gradient(180deg,#9ce02f,#6fb31c);
+  border-color:#6fb31c;color:#16260a}
 [data-luz="claro"] .pacote .selo{background:var(--lime);color:#fff}
 
 /* 2. Brilho vira sombra. */
@@ -1803,6 +1836,9 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .msg.minha{background:#f0f8e4;border-color:#a8cc6e}
 [data-luz="claro"] .scrim,[data-luz="claro"] .portao-wrap,
 [data-luz="claro"] .conf-wrap,[data-luz="claro"] .erro-wrap{background:rgba(20,28,45,.42)}
+/* A aula segue os irmãos: no claro o escuro em volta afrouxa (mesma família do
+   scrim/portão), senão o furo vira um holofote de teatro em cima do branco. */
+[data-luz="claro"] .aula-furo{box-shadow:0 0 0 9999px rgba(20,28,45,.42),0 0 14px rgba(63,122,0,.3)}
 [data-luz="claro"] .sheet{background:linear-gradient(180deg,#fff,#fbfcfe 30%);border-color:var(--line)}
 
 [data-luz="claro"] .erro,[data-luz="claro"] .portao.trava{background:#fff5f5;border-color:#e6a3a3}

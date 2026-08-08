@@ -401,6 +401,17 @@
   const seTiver = (v) => (v ? String(v) : '');
   const centavosSeTiver = (c) => (typeof c === 'number' && isFinite(c) && c !== 0 ? dinheiro(c / 100) : '');
 
+  /* 🔴 O DEDO MEXE NA TELA POR FORA DO SEAM. Quando o motorista arrasta um
+     cartão, quem muda a lista é o DOM — `DADOS` e `PARADAS` continuam iguais.
+     Aí o freio do `usarDados` (que compara DADO com DADO) conclui "nada mudou"
+     e engole o repinte: com o servidor RECUSANDO a gravação, a tela ficava na
+     ordem que o dedo largou, com um avisinho de erro por cima. Medido na
+     bancada: pedido recusado, aviso "Sem conexão agora" e a lista ainda em
+     `beta → alfa`, mentindo que gravou.
+     Este contador é a mão levantada do gesto: "mexi na tela na unha, o próximo
+     repinte tem que acontecer DE VERDADE". Ele entra na digital lá embaixo. */
+  let gestoSujouATela = 0;
+
   async function carregarRota() {
     if (!temPonte() || typeof window.usarDados !== 'function') return;
     const dia = diaOperacional();
@@ -478,6 +489,17 @@
     try { estadoRota = estadoDaRota(r); } catch (_) { /* idem */ }
 
     window.usarDados('rota', {
+      /* 🔴 A LISTA PRECISA CABER NO FREIO. `usarDados` só repinta quando um
+         CAMPO muda — e a lista de paradas viaja por FORA dele (`PARADAS` é
+         variável do mock, não campo de `DADOS`). Quando só a SEQUÊNCIA muda,
+         todos os KPIs ficam idênticos e o repinte era engolido: a tela
+         continuava na ordem que o dedo arrastou mesmo quando o servidor
+         recusou a gravação — o erro aparecia num aviso e a mentira ficava na
+         tela. Vale igual pro desfecho de uma parada (pendente → não entregue),
+         que também não mexe em KPI nenhum.
+         Esta digital não é desenhada em lugar nenhum: ela existe só pra o
+         freio enxergar que a lista é OUTRA. */
+      digitalDaLista: `${gestoSujouATela}|${itens.map((it) => `${it.id}:${it.status || ''}`).join('|')}`,
       kpiParadas: String(itens.length),
       kpiEntregues: String(entregues),
       kpiEntreguesParado: String(entregues),
@@ -1158,6 +1180,96 @@
       if (typeof window.ir === 'function') window.ir('rota');
     }), { once: true });
   }
+
+  /* ------------------------------------------------------------------------
+     6b. O DEDO QUE MEXE NA ROTA — reordenar e retirar, gravados DE VERDADE.
+
+     Os dois gestos da lista (arrastar pelo punho, deslizar pra retirar) eram
+     só DOM: o `renumerar()` reescrevia os números na tela, ninguém gravava, e
+     o primeiro repinte devolvia a ordem do servidor — provado reiniciando o
+     app, a ordem arrastada sumia. Gesto que promete e não cumpre é pior que
+     gesto que não existe: o motorista sai pra rua confiando numa sequência
+     que só existia na tela dele.
+
+     A casca ANUNCIA (`hbx:ordem` / `hbx:retirar`), esta seção GRAVA. Quem
+     assume chama `preventDefault()` — é o contrato que faz a casca parar de
+     mexer no DOM e esperar o dado real. Sem ponte (mock no navegador)
+     ninguém assume e a maquete continua se virando sozinha.
+     ------------------------------------------------------------------------ */
+
+  /* Uma fila SÉRIE pros dois gestos: eles mexem na MESMA rota, e dois toques
+     rápidos numa rede ruim mandariam duas ordens concorrentes — a última a
+     chegar venceria por acaso. Enfileirando, a última ordem do DEDO vence,
+     que é a que o motorista está vendo. (O `comTrava` global não serve aqui:
+     ele DESCARTA o segundo toque calado, e gesto descartado em silêncio é a
+     mesma mentira que esta seção existe pra matar.) */
+  let filaRota = Promise.resolve();
+  const naFila = (fn) => {
+    filaRota = filaRota.then(fn, fn);
+    return filaRota;
+  };
+
+  /* 🔴 ARRASTOU = "MINHA ORDEM". `ordemManual` é o contrato que já existe no
+     servidor (o mesmo que o desktop manda ao arrastar no Gerenciador): os ids
+     listados recebem `rotaOrdem` NA ORDEM DADA e o motor pula o NN+2-opt —
+     a ordem do motorista não é uma sugestão que o otimizador possa desfazer.
+     Sem `deliveryIds`: quem decide o CONJUNTO continua sendo o servidor (as
+     abertas do dia); eu só digo a SEQUÊNCIA. Id que ele não conhece (parada
+     já entregue, que viaja na lista) é ignorado — medido no teste do
+     `planRouteManual`.
+     💰 Dinheiro: reordenar não cria parada. O snapshot da rota é append-only
+     e o bloco cobrável tem claim ÚNICO por (empresa+motorista+data+bloco),
+     então re-planejar o mesmo conjunto não debita nem reconta — inclusive com
+     a rota ACTIVE, que é justamente quando o motorista arrasta. */
+  document.addEventListener('hbx:ordem', (ev) => {
+    if (!temPonte()) return;
+    const ids = ev.detail && Array.isArray(ev.detail.ids) ? ev.detail.ids.map(String).filter(Boolean) : [];
+    if (ids.length < 2) return;
+    ev.preventDefault();          // eu assumo: a casca não mexe mais na lista
+    gestoSujouATela += 1;         // o DOM saiu do que o dado diz: o repinte vale
+    naFila(async () => {
+      try {
+        await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ordemManual: ids });
+      } catch (e) {
+        // A tela está mostrando a ordem NOVA e o servidor ficou com a velha.
+        // Repintar primeiro DESFAZ a mentira; o aviso vem depois, senão o
+        // motorista fecha o alerta e continua olhando pra ordem que não é.
+        await carregarRota();
+        return avisoErro(e);
+      }
+      await carregarRota();
+    });
+  });
+
+  /* 🔴 RETIRAR É CANCELAR — o app tem UM verbo destrutivo só (lei do dono,
+     29/07). Não nasce aqui um segundo caminho de exclusão: a parada retirada
+     é uma entrega DECIDIDA (ele resolveu não passar lá hoje), e é o
+     `entregas/:id/cancelar` que fecha o desfecho, anda o cursor da agenda e
+     cancela a cobrança dela — o cliente volta na recorrência dele, intacta.
+     O motivo viaja escrito: no extrato fica "Cancelada: retirada da rota pelo
+     motorista", que é o que o escritório precisa ler depois pra saber que
+     ninguém bateu na porta. */
+  document.addEventListener('hbx:retirar', (ev) => {
+    if (!temPonte()) return;
+    const id = String((ev.detail && ev.detail.id) || '');
+    if (!id) return;
+    ev.preventDefault();
+    gestoSujouATela += 1;         // mesma régua do arrastar: repinte garantido
+    naFila(async () => {
+      try {
+        await window.API.post(`/logistica/entregas/${encodeURIComponent(id)}/cancelar`, {
+          motivo: 'retirada da rota pelo motorista',
+        });
+      } catch (e) {
+        // Rede caída NÃO apaga parada: a casca não removeu o cartão (nós
+        // assumimos o gesto), então basta repintar pra tela voltar a ser o
+        // que o servidor tem — a parada continua lá, viva.
+        await carregarRota();
+        return avisoErro(e);
+      }
+      await carregarRota();
+    });
+  });
 
   /* ------------------------------------------------------------------------
      7. L3a — O MAPA DE VERDADE DENTRO DA CASCA DO MOCK.
@@ -2571,6 +2683,10 @@
       // repinta (o freio do `usarDados`), então reler aqui não pisca nada.
       if (tela === 'montagem') { publicarMontarDias(); carregarDiasComCliente(); encherMontagem(); }
       if (tela === 'chat') aoAbrirChat();
+      // Cadastro NASCE EM BRANCO, sempre. Formulário que guarda o cliente
+      // anterior é a receita de cadastrar duas vezes a mesma pessoa — e aqui
+      // ninguém apaga campo por campo com o motor ligado.
+      if (tela === 'novocliente') novoEmBranco();
       if (tela === 'ajustes') carregarAjustes();
       if (tela === 'consumo') carregarConsumo();
       if (tela === 'salvas') carregarSalvas();
@@ -3890,6 +4006,153 @@
     return el ? String(el.value || '').trim() : '';
   };
 
+  /* ==========================================================================
+     CADASTRAR CLIENTE NA PORTA — o "+" do cabeçalho (08/08, pedido do dono).
+
+     🔴 POR QUE ISTO É DINHEIRO, não conforto: medido na empresa 41 em 04/08 —
+     117 paradas SEM local nenhum e 130 com local empilhado no mesmo ponto. Foi
+     o que apodreceu a rota do André. Endereço digitado no escritório não sabe
+     onde a casa fica; cadastro feito com o entregador PARADO na frente dela
+     nasce com a coordenada certa.
+
+     Nada de endpoint novo: `POST /nucleo/contas` já aceita lat/lng/geoFonte/
+     gpsAccuracy e já passa o porteiro do aparelho. Quem decide se a coordenada
+     é boa é o SERVIDOR (fail-closed em 60 m → grava 'gps_impreciso'); o app só
+     conta o que mediu. App que se autodeclara preciso é app que mente.
+     ========================================================================== */
+  let novoLocal = null;      // {lat,lng,precisaoM} do "Usar meu local"
+
+  const novoEmBranco = () => {
+    novoLocal = null;
+    if (typeof window.usarDados === 'function') {
+      window.usarDados('novocliente', {
+        nome: '', telefone: '', cep: '', rua: '', numero: '', bairro: '',
+        local: '', localOk: 0, salvando: 0,
+      });
+    }
+  };
+
+  /* O que o dedo já digitou tem que SOBREVIVER ao repinte do banner do GPS:
+     `usarDados` remonta a camada, e sem devolver os campos o motorista veria o
+     nome que acabou de escrever sumir na hora de pegar o local. */
+  const novoRascunho = () => ({
+    nome: campo('novo-nome'), telefone: campo('novo-telefone'), cep: campo('novo-cep'),
+    rua: campo('novo-rua'), numero: campo('novo-numero'), bairro: campo('novo-bairro'),
+  });
+
+  /** "Usar meu local": crava a coordenada e, de brinde, sugere a rua. */
+  async function usarMeuLocal() {
+    const rascunho = novoRascunho();
+    if (!ultimoFix) {
+      // Sem fix ainda: pede a permissão (o mesmo caminho do Navegar) e explica.
+      // `avisarSemGps` é só da navegação — aqui a fala é outra.
+      garantirGps();
+      return window.portao({
+        tom: 'alerta', ico: 'gps', titulo: 'Ainda sem localização',
+        sub: 'Libere o GPS e espere um instante do lado de fora. Você pode digitar o endereço à mão enquanto isso.',
+        acoes: [['Fechar', '']],
+      });
+    }
+    const precisao = Number(ultimoFix.precisaoM);
+    const ok = Number.isFinite(precisao) && precisao <= 60;
+    novoLocal = { lat: ultimoFix.lat, lng: ultimoFix.lng, precisaoM: Number.isFinite(precisao) ? precisao : null };
+    // Sugestão de rua/bairro: é ENFEITE — 200 sempre, e falha não trava nada
+    // (a mesma lei do "enfeite lento não derruba a tela").
+    let sugestao = null;
+    try {
+      sugestao = await window.API.get(`/logistica/geo/reverse?lat=${encodeURIComponent(novoLocal.lat)}&lng=${encodeURIComponent(novoLocal.lng)}`);
+    } catch (_) { sugestao = null; }
+    const s = sugestao || {};
+    window.usarDados('novocliente', {
+      ...rascunho,
+      // A sugestão só ENTRA em campo vazio: o que o motorista digitou vale mais
+      // que o palpite do mapa.
+      rua: rascunho.rua || esc(s.endereco || ''),
+      bairro: rascunho.bairro || esc(s.bairro || ''),
+      // O CEP é OBRIGATÓRIO no servidor (lei de 06/08) e é justamente o que
+      // ninguém sabe de cor na porta do cliente — vir de graça aqui é o que
+      // torna o cadastro na rua possível.
+      cep: rascunho.cep || esc(s.cep || ''),
+      local: ok
+        ? `Local marcado aqui${Number.isFinite(precisao) ? ` (${Math.round(precisao)} m)` : ''}.`
+        : `Local marcado, mas fraco${Number.isFinite(precisao) ? ` (${Math.round(precisao)} m)` : ''} — chegue mais perto da porta e toque de novo.`,
+      localOk: ok ? 1 : 0,
+    });
+  }
+
+  /** Salvar o cliente novo. Confere porta repetida ANTES de criar. */
+  async function salvarNovoCliente() {
+    await comTrava(async () => {
+      const d = novoRascunho();
+      if (!d.nome) {
+        return window.portao({
+          tom: 'alerta', ico: 'users', titulo: 'Falta o nome',
+          sub: 'Escreva ao menos o nome do cliente.', acoes: [['Fechar', '']],
+        });
+      }
+      // 🔴 MESMA PORTA, CONTA NOVA = entrega indo pro cliente errado depois. A
+      // régua do servidor é fail-closed (sem número não acusa nada), então isto
+      // só avisa quando ele tem CERTEZA — e mesmo assim quem decide é o dedo.
+      if (d.numero && d.rua) {
+        let repetidas = [];
+        try {
+          const p = new URLSearchParams({ numero: d.numero, endereco: d.rua });
+          if (d.bairro) p.set('bairro', d.bairro);
+          const r = await window.API.get(`/nucleo/contas/por-endereco?${p.toString()}`);
+          repetidas = Array.isArray(r && r.contas) ? r.contas : [];
+        } catch (_) { repetidas = []; }
+        if (repetidas.length) {
+          const nomes = repetidas.slice(0, 3).map((c) => esc(c.name || c.nome || '')).filter(Boolean).join(', ');
+          /* O portão do mock não devolve resposta — ele FECHA. Então a segunda
+             metade do caminho vira uma AÇÃO própria, e o botão a chama. Nada de
+             promessa esperando um clique que pode nunca vir: portão fechado por
+             fora deixaria o cadastro pendurado pra sempre. */
+          return window.portao({
+            tom: 'alerta', ico: 'alert', titulo: 'Já tem cliente nesta porta',
+            sub: `${nomes || 'Outro cadastro'} já está neste endereço. Cadastrar de novo cria cliente repetido.`,
+            acoes: [['Deixar pra lá', '', true], ['Cadastrar assim', 'principal']],
+            acaoPrincipal: 'criar-cliente-assim',
+          });
+        }
+      }
+      await criarCliente(d);
+    });
+  }
+
+  /** a criação de verdade — chamada direta ou depois do aviso de porta repetida */
+  async function criarCliente(dado) {
+    const d = dado || novoRascunho();
+    if (!d.nome) return;
+    window.usarDados('novocliente', { ...d, salvando: 1 });
+    const corpo = { nome: d.nome, isCliente: true };
+    if (d.telefone) { corpo.phone = d.telefone; corpo.whatsapp = d.telefone; }
+    if (d.cep) corpo.cep = d.cep;
+    if (d.rua) corpo.endereco = d.rua;
+    if (d.numero) corpo.numero = d.numero;
+    if (d.bairro) corpo.bairro = d.bairro;
+    if (novoLocal) {
+      corpo.lat = novoLocal.lat; corpo.lng = novoLocal.lng;
+      corpo.geoFonte = 'gps_cadastro';
+      if (Number.isFinite(novoLocal.precisaoM)) corpo.gpsAccuracy = novoLocal.precisaoM;
+    }
+    const tinhaLocal = !!novoLocal;
+    let criado;
+    try { criado = await window.API.post('/nucleo/contas', corpo); }
+    catch (e) { window.usarDados('novocliente', { ...d, salvando: 0 }); return avisoErro(e); }
+    novoEmBranco();
+    await carregarClientes();
+    // Cai na FICHA do cliente novo quando o servidor devolveu o id: é onde se
+    // marca dia e produto, que é o passo seguinte natural de quem cadastrou.
+    const id = criado && (criado.id || (criado.conta && criado.conta.id));
+    if (id && CLIENTES.get(String(id))) await abrirCliente(String(id));
+    else window.ir('clientes');
+    window.portao({
+      tom: 'ok', ico: 'check', titulo: 'Cliente cadastrado',
+      sub: tinhaLocal ? 'Com o local marcado na porta.' : 'Sem local marcado — dá pra marcar na primeira entrega.',
+      acoes: [['Fechar', 'principal', true]],
+    });
+  }
+
   /** Salvar: manda SÓ o que mudou, e cada porta é a sua. */
   async function salvarCliente() {
     if (!ficha) return;
@@ -4297,6 +4560,10 @@
     'fechar-dia': fecharDia,
     'salvar-cliente': salvarCliente,
     'salvar-produto': salvarProduto,
+    // o "+" do cabeçalho: cadastrar cliente na porta
+    'usar-meu-local': usarMeuLocal,
+    'salvar-novo-cliente': salvarNovoCliente,
+    'criar-cliente-assim': () => comTrava(() => criarCliente(null)),
     'entendi-recado': entendiRecado,
     // "Tentar de novo" do aviso de fonte fora do ar: volta pro esqueleto e
     // pede de novo. Sem devolver o esqueleto o toque não teria resposta
