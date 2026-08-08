@@ -77,6 +77,9 @@ function bancada(cenario: CenarioBancada = {}) {
     },
     entrega: {
       findMany: async () => entregas,
+      // piso da numeração (maiorOrdemFechadaDoDia): bancada sem nada fechado,
+      // então o piso é 0 e a régua segue 0..N-1 como sempre foi.
+      aggregate: async () => ({ _max: { rotaOrdem: null } }),
       updateMany: async (args: any) => {
         const alvo = entregas.find((e) => e.id === args?.where?.id);
         if (alvo && args?.data?.status) Object.assign(alvo, args.data);

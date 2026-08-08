@@ -357,6 +357,8 @@ test('POST rota/iniciar cria a sessão TRACKED antes de ativar a rota e expõe s
     logisticaConfig: { findUnique: async () => ({ velocidadeMediaKmH: 25, tempoParadaMin: 5 }) },
     entrega: {
       findMany: async () => [delivery],
+      // piso da numeração: nada fechado nesta bancada ⇒ piso 0.
+      aggregate: async () => ({ _max: { rotaOrdem: null } }),
       updateMany: async (args: any) => {
         if (args.data.status === 'em_rota') Object.assign(delivery, args.data);
         return { count: 1 };
@@ -426,6 +428,8 @@ test('POST rota/iniciar não move a entrega para em_rota quando a rota comercial
     logisticaConfig: { findUnique: async () => ({ velocidadeMediaKmH: 25, tempoParadaMin: 5 }) },
     entrega: {
       findMany: async () => [delivery],
+      // piso da numeração: nada fechado nesta bancada ⇒ piso 0.
+      aggregate: async () => ({ _max: { rotaOrdem: null } }),
       updateMany: async (args: any) => {
         if (args.data.status) Object.assign(delivery, args.data);
         return { count: 1 };

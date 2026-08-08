@@ -288,11 +288,16 @@ export class LogisticaRotaService {
           },
         );
 
+    // O piso da numeração (ver `maiorOrdemFechadaDoDia`): as abertas continuam
+    // 0..N-1 entre elas — o que muda é onde essa régua COMEÇA, pra não colidir
+    // com quem o dia já fechou. Manhã limpa = piso 0 = nada muda.
+    const pisoOrdem = await this.maiorOrdemFechadaDoDia(companyId, start, end, entregadorId);
+
     // Persiste rotaOrdem/etaAt de cada parada (sequencial: são poucas paradas/dia).
     for (const p of plan.paradas) {
       const changed = await this.prisma.entrega.updateMany({
         where: { companyId, id: p.id },
-        data: { rotaOrdem: p.rotaOrdem, etaAt: p.etaAt },
+        data: { rotaOrdem: p.rotaOrdem + pisoOrdem, etaAt: p.etaAt },
       });
       if (changed.count !== 1) throw new ConflictException('Entrega saiu da rota durante o planejamento.');
     }
@@ -359,7 +364,9 @@ export class LogisticaRotaService {
       ...(plan.degradedReason ? { degradedReason: plan.degradedReason } : {}),
       paradas: plan.paradas.map((p) => ({
         id: p.id,
-        rotaOrdem: p.rotaOrdem,
+        // o número que SAI é o mesmo que foi gravado — quem lê a resposta
+        // (app, desktop, iniciar) não pode ver uma régua diferente da do banco.
+        rotaOrdem: p.rotaOrdem + pisoOrdem,
         etaAt: p.etaAt ? p.etaAt.toISOString() : null,
         semCoordenada: p.semCoordenada,
         lat: p.lat,
@@ -425,9 +432,14 @@ export class LogisticaRotaService {
       throw error;
     }
 
-    // 1ª parada roteável (rotaOrdem=0) vira 'em_rota' com startedAt — só se ainda
-    // estiver 'agendada' (não rebaixa nada já em rota/entregue).
-    const primeira = plan.paradas.find((p) => p.rotaOrdem === 0 && !p.semCoordenada) ?? plan.paradas[0];
+    // 1ª parada roteável vira 'em_rota' com startedAt — só se ainda estiver
+    // 'agendada' (não rebaixa nada já em rota/entregue).
+    // ⚠️ "primeira" é a MENOR ordem DESTE plano, não o número zero: desde o
+    // piso de numeração (ver `maiorOrdemFechadaDoDia`) uma rota re-planejada no
+    // meio do dia começa em 3, 7, 12… Comparar com 0 fazia o `find` falhar
+    // sempre e cair no fallback calado, perdendo o "roteável" da regra.
+    const menorOrdem = plan.paradas.reduce((m, p) => Math.min(m, p.rotaOrdem), Number.POSITIVE_INFINITY);
+    const primeira = plan.paradas.find((p) => p.rotaOrdem === menorOrdem && !p.semCoordenada) ?? plan.paradas[0];
     const startedAt = new Date();
     let changedFirst = false;
     let trackingSessionEnsured = false;
@@ -1148,6 +1160,44 @@ export class LogisticaRotaService {
     const tempoParadaMin =
       cfg && cfg.tempoParadaMin >= 0 ? cfg.tempoParadaMin : LogisticaRotaService.DEFAULT_PARADA_MIN;
     return { velocidadeMediaKmH, tempoParadaMin };
+  }
+
+  /**
+   * 🔴 O NÚMERO DA ABERTA NÃO PODE COLIDIR COM O DA JÁ FECHADA (08/08/2026).
+   *
+   * `planRoute*` numera as paradas ABERTAS de 0 a N-1, e `fetchParadasAbertas`
+   * só enxerga 'agendada'/'em_rota' — entregue e cancelada ficam com o número
+   * que já tinham. Re-planejar no meio do dia devolvia as abertas ao ZERO e
+   * elas colidiam com as fechadas: como o `listRota` ordena por
+   * `[rotaOrdem asc, status asc]`, os cartões "Entregue" passavam a INTERCALAR
+   * no meio dos pendentes na tela do motorista. Isso era raro enquanto só quem
+   * montasse a rota de novo re-planejava; com o ARRASTAR do app novo (o gesto
+   * manda `ordemManual`), todo gesto re-planeja — e o defeito virou rotina.
+   *
+   * Aqui sai o PISO: as abertas passam a numerar DEPOIS da última fechada do
+   * dia. Dia sem nada fechado devolve 0 e o comportamento de sempre segue byte
+   * a byte (é o caso de toda montagem de manhã). Mesmo escopo do fetch das
+   * abertas (empresa + motorista), e a janela é a mesma que o `listRota`
+   * mostra: parada sem `scheduledAt` só entra na lista quando está ABERTA,
+   * então fechada fora da janela nunca divide tela com esta rota.
+   */
+  private async maiorOrdemFechadaDoDia(
+    companyId: number,
+    start: Date,
+    end: Date,
+    entregadorId?: number,
+  ): Promise<number> {
+    const fechadas = await this.prisma.entrega.aggregate({
+      where: {
+        companyId,
+        ...(entregadorId ? { entregadorId } : {}),
+        status: { notIn: [...LogisticaRotaService.STATUS_ABERTO] },
+        scheduledAt: { gte: start, lte: end },
+      },
+      _max: { rotaOrdem: true },
+    });
+    const maior = fechadas?._max?.rotaOrdem;
+    return typeof maior === 'number' && Number.isFinite(maior) ? maior + 1 : 0;
   }
 
   private async fetchParadasAbertas(companyId: number, start: Date, end: Date, entregadorId?: number, deliveryIds?: string[]): Promise<ParadaRow[]> {
