@@ -1170,7 +1170,17 @@
           + 'border:1.5px solid var(--map-rota)';
         new maplibregl.Marker({ element: pino }).setLngLat([p.lng, p.lat]).addTo(mapa);
       });
-      if (ultimaPos) new maplibregl.Marker({ color: '#3d8bff' }).setLngLat([ultimaPos.lng, ultimaPos.lat]).addTo(mapa);
+      // 🔴 A SETA É UMA SÓ. No palco "gps" quem mostra o motorista é o puck do
+      // desenho, parado a 68% da tela — um marcador do maplibre no mesmo lugar
+      // seria a segunda seta, e o V4 promete uma. No mapa "geral" (a rota
+      // inteira, sem puck) o marcador é justamente o que diz onde ele está.
+      const naGps = palco.dataset && palco.dataset.mapa === 'gps';
+      if (ultimaPos && !naGps) {
+        new maplibregl.Marker({ color: '#3d8bff' }).setLngLat([ultimaPos.lng, ultimaPos.lat]).addTo(mapa);
+      }
+      // mapa novo nasce sem o traço e na câmera de montagem: a navegação
+      // reassume as duas coisas na hora, sem esperar o próximo fix do GPS.
+      if (naGps) { desenharTraco(mapa); cameraDaNavegacao(); }
     });
     // as empresas do corredor não são marcador do maplibre: elas são a peça
     // do desenho, e quem as coloca no chão é a câmera. Ver `posicionarEmpresas`.
@@ -1564,8 +1574,11 @@
         totalM: Number.isFinite(Number(rota.distance)) ? Number(rota.distance) : null,
         totalS: Number.isFinite(Number(rota.duration)) ? Number(rota.duration) : null,
         passos: passosDaPrimeiraPerna(rota),
+        // a fita verde do V4 — vem de graça na mesma resposta (§7d)
+        geometria: geometriaDe(rota),
       };
       navFalhas = 0;
+      pintarTraco();
     } catch (_) {
       // 🔴 FALHOU: NÃO APAGA O QUE ESTÁ NA TELA. A manobra de 20 s atrás ainda
       // é melhor que uma tela em branco pra quem está no volante — e a
@@ -1664,6 +1677,113 @@
     });
   }
 
+  /* ---- 7d. O TRAÇO E A CÂMERA — a promessa visual do V4 -------------------
+     O mock `gps-ruas-prospector-v4.html` promete um GPS: mundo INCLINADO
+     girando pelo rumo, a seta parada a 68% da tela e a FITA VERDE saindo dela
+     rua adentro. O app entregava um mapa plano, norte pra cima, parado no
+     ponto onde foi montado, sem traço nenhum — mapa com pinos, não navegação.
+
+     🔴 A GEOMETRIA JÁ VINHA NO FIO E O APP A JOGAVA FORA. O proxy do backend
+     (`logistica-osrm.service.ts`) pede `overview=full&geometries=geojson` em
+     TODA chamada: `routes[0].geometry` sempre esteve na resposta que o
+     `pedirRota` já fazia. Desenhar o traço não custa uma requisição nova.
+
+     🔴 WEBGL NÃO LÊ `var()` (a lei do §4 do guia): a cor sai do token por
+     `getComputedStyle` na hora de pintar. A receita das 2 demãos é a do V4
+     (`--map-rota-borda` embaixo, `--map-rota` em cima); o brilho de 3ª demão
+     do mock não tem token no app e NÃO foi inventado aqui.
+
+     🔴 A CÂMERA TEM UM DONO SÓ (a lei que custou a piscada do mapa): esta
+     função é a única que mexe em centro, zoom, inclinação e giro na tela de
+     dirigir. E ela só GIRA com rumo confiável (≥9 km/h) — parado, o rumo do
+     aparelho é ruído puro e o mapa rodopiaria na cara de quem está na porta
+     do cliente. */
+  const TRACO = 'hbx-rota-traco';
+  const NAV_ZOOM = 16.6;
+  const NAV_PITCH = 55;
+  /* o puck do desenho mora a 68% da altura: a câmera desce o centro até ele,
+     senão o motorista dirige com a seta no meio da tela e metade do mapa
+     mostrando a rua que já passou. 0,18 = 68% − 50%. */
+  const NAV_PUCK = 0.18;
+
+  const mapaDaNavegacao = () => {
+    const palco = naCamada('[data-mapa="gps"]');
+    return (palco && palco.__hbxMapaObj) || null;
+  };
+  const tinta = (nome, padrao) => {
+    try {
+      return getComputedStyle(document.documentElement).getPropertyValue(nome).trim() || padrao;
+    } catch (_) { return padrao; }
+  };
+  const geometriaDe = (rota) => {
+    const g = rota && rota.geometry;
+    return (g && g.type === 'LineString' && Array.isArray(g.coordinates) && g.coordinates.length > 1)
+      ? g : null;
+  };
+
+  /* Espera o estilo SÓ pra DESENHAR — nunca pra decidir fluxo (a recaída de
+     31/07: um `isStyleLoaded` na porta de uma função barrou o pedido da rota e
+     o dono ficou "sem traço, sem voz, sem ETA"). Teto de 1,2 s porque mapa
+     remontado pode nunca dizer "pronto". */
+  function quandoEstiloPronto(mapa, fn) {
+    if (!mapa) return;
+    if (mapa.isStyleLoaded && mapa.isStyleLoaded()) { fn(); return; }
+    let feito = false;
+    const roda = () => { if (feito) return; feito = true; try { fn(); } catch (_) { /* estilo trocou no meio */ } };
+    try { mapa.once('styledata', roda); } catch (_) { /* mapa morto */ }
+    setTimeout(roda, 1200);
+  }
+
+  function desenharTraco(mapa) {
+    const geo = navRota && navRota.geometria;
+    if (!mapa || !geo) return;
+    const dado = { type: 'Feature', geometry: geo, properties: {} };
+    try {
+      const fonte = mapa.getSource(TRACO);
+      if (fonte) { fonte.setData(dado); return; }
+      mapa.addSource(TRACO, { type: 'geojson', data: dado });
+      mapa.addLayer({
+        id: `${TRACO}-casca`,
+        type: 'line',
+        source: TRACO,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': tinta('--map-rota-borda', '#4f8f14'), 'line-width': 11 },
+      });
+      mapa.addLayer({
+        id: `${TRACO}-fita`,
+        type: 'line',
+        source: TRACO,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': tinta('--map-rota', '#78c900'), 'line-width': 7 },
+      });
+    } catch (_) { /* estilo ainda trocando: a próxima passada redesenha */ }
+  }
+
+  /** o traço chega pela rede; o mapa pode nascer depois dele, e vice-versa */
+  function pintarTraco() {
+    const mapa = mapaDaNavegacao();
+    if (!mapa) return;
+    quandoEstiloPronto(mapa, () => desenharTraco(mapa));
+  }
+
+  function cameraDaNavegacao() {
+    if (telaAtual() !== 'mapa' || !ultimoFix) return;
+    const mapa = mapaDaNavegacao();
+    if (!mapa) return;
+    if (navRota && navRota.geometria && !mapa.getSource(TRACO)) pintarTraco();
+    const alto = (mapa.getContainer && mapa.getContainer().clientHeight) || 0;
+    const passo = {
+      center: [ultimoFix.lng, ultimoFix.lat],
+      zoom: NAV_ZOOM,
+      pitch: NAV_PITCH,
+      offset: [0, alto ? alto * NAV_PUCK : 0],
+      duration: 900,
+    };
+    const rumo = rumoConfiavel(ultimoFix);
+    if (rumo != null) passo.bearing = rumo;    // parado, o mapa NÃO gira
+    try { mapa.easeTo(passo); } catch (_) { /* mapa saindo de cena */ }
+  }
+
   /* Só se mexe com a tela do GPS à vista. O `watchPosition` é único e vive o
      app inteiro (o mapa da rota também bebe dele); o que liga e desliga é o
      PEDIDO DE ROTA e o repinte — bateria e conta de roteador não são pagas por
@@ -1672,34 +1792,105 @@
   function aoMover() {
     if (!naNavegacao()) return;
     pintarNavegacao();
-    if (telaAtual() === 'mapa') pedirRota();
+    if (telaAtual() === 'mapa') { pedirRota(); cameraDaNavegacao(); }
   }
 
   /* ---- A ÚNICA ASSINATURA DO GPS -----------------------------------------
      Era um `watchPosition` que só guardava o centro do mapa. Vira o fix
-     inteiro, e é dele que saem velocímetro, bússola e precisão. */
-  if (navigator.geolocation) {
-    try {
-      navigator.geolocation.watchPosition(
-        (p) => {
-          const c = p.coords || {};
-          ultimoFix = {
-            lat: c.latitude, lng: c.longitude,
-            velMps: Number.isFinite(c.speed) ? c.speed : null,
-            rumoGraus: Number.isFinite(c.heading) ? c.heading : null,
-            precisaoM: Number.isFinite(c.accuracy) ? c.accuracy : null,
-          };
-          ultimaPos = { lat: c.latitude, lng: c.longitude };
-          // O anel roda em QUALQUER tela: o motorista chega perto do cliente
-          // com o app na lista de paradas, não no GPS. `aoMover` é que é só da
-          // navegação — por isso o anel vem antes, e fora dele.
-          anelDeChegada();
-          aoMover();
-        },
-        () => {}, { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 },
-      );
-    } catch (_) { /* sem GPS: o mapa abre na 1ª parada e o cromo fica vazio */ }
+     inteiro, e é dele que saem velocímetro, bússola e precisão.
+
+     🔴 07/08 — O APP NUNCA PEDIA A PERMISSÃO, E A TELA DE DIRIGIR MORRIA
+     CALADA. Medido no g15 com a rota de 97 paradas rodando:
+     `ACCESS_FINE_LOCATION granted=false` → o `onGeolocationPermissionsShowPrompt`
+     do Kotlin nega (ele só libera com a permissão do Android na mão) →
+     `watchPosition` cai em "User denied Geolocation" → `ultimoFix` nunca
+     existe → `coordenadasDaNavegacao()` devolve null → `pedirRota()` volta na
+     porta → `navRota` fica null. Resultado na tela: SEM manobra, SEM chegada,
+     SEM restante, SEM distância, SEM velocímetro e SEM bússola — o mapa mudo
+     com "Parada 1 de 97" e o Encerrar, que é exatamente o que o dono viu.
+     Quem pede a permissão do Android é o nativo (`H.requestLocationPermission`,
+     que já existia) e NINGUÉM o chamava: o `iniciarRota` só fala com o servidor
+     e o app novo não usa o `activateRoute` do app velho, que era quem pedia.
+
+     🔴 E O ERRO ERA ENGOLIDO (`() => {}`) — a armadilha de [[cnefe-morto-por-cast-de-cep]]:
+     best-effort que engole erro precisa de ALARME. Pior: o watch morre no
+     "negado" e ninguém o rearma, então conceder a permissão DEPOIS não
+     ressuscitava nada — só recarregar o app inteiro. Agora quem entra na
+     navegação garante o GPS, o "negado" pede a permissão UMA vez e a resposta
+     do Android (`locationPermissionChanged`, que o Kotlin já gritava pra um
+     ouvinte que não existia) rearma a assinatura na hora. */
+  const GPS_OPCOES = { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 };
+  let gpsWatch = null;
+  let gpsPedido = false;   // já pedi a permissão nesta sessão (pedir 2× não abre 2 diálogos)
+  let gpsNegado = false;   // o aparelho disse não
+
+  function aoFix(p) {
+    const c = p.coords || {};
+    ultimoFix = {
+      lat: c.latitude, lng: c.longitude,
+      velMps: Number.isFinite(c.speed) ? c.speed : null,
+      rumoGraus: Number.isFinite(c.heading) ? c.heading : null,
+      precisaoM: Number.isFinite(c.accuracy) ? c.accuracy : null,
+    };
+    ultimaPos = { lat: c.latitude, lng: c.longitude };
+    // O anel roda em QUALQUER tela: o motorista chega perto do cliente
+    // com o app na lista de paradas, não no GPS. `aoMover` é que é só da
+    // navegação — por isso o anel vem antes, e fora dele.
+    anelDeChegada();
+    aoMover();
   }
+
+  function armarGps() {
+    if (!navigator.geolocation || gpsWatch !== null) return;
+    try {
+      gpsWatch = navigator.geolocation.watchPosition(aoFix, aoErroGps, GPS_OPCOES);
+      gpsNegado = false;
+    } catch (_) { gpsWatch = null; }
+  }
+
+  /* Só o NEGADO (código 1) desarma. Timeout e "posição indisponível" são a
+     garagem, o túnel, o prédio — o watch continua vivo e o próximo fix chega
+     sozinho; matá-lo ali deixaria o motorista sem GPS pelo resto do dia. */
+  function aoErroGps(e) {
+    if (!e || e.code !== 1) return;
+    if (gpsWatch !== null) {
+      try { navigator.geolocation.clearWatch(gpsWatch); } catch (_) { /* já morreu */ }
+      gpsWatch = null;
+    }
+    gpsNegado = true;
+    // Fora da navegação a permissão não é cobrada: diálogo de localização na
+    // cara de quem abriu o app pra ver o chat é pedido fora de hora.
+    if (naNavegacao()) garantirGps();
+  }
+
+  function garantirGps() {
+    if (!gpsNegado) { armarGps(); return; }
+    if (gpsPedido) { avisarSemGps(); return; }
+    gpsPedido = true;
+    try { window.HBX.requestLocationPermission(); } catch (_) { avisarSemGps(); }
+  }
+
+  /* O ALARME. Só na tela que depende dele, e só depois que o Android já teve a
+     chance de responder — senão vira aviso de problema que o toque seguinte
+     resolveria. */
+  function avisarSemGps() {
+    if (typeof window.portao !== 'function' || !naNavegacao()) return;
+    window.portao({
+      tom: 'alerta', ico: 'gps', titulo: 'Sem localização',
+      sub: 'Libere o GPS do HBX nos ajustes do Android.',
+      acoes: [['Fechar', '']],
+    });
+  }
+
+  // O Kotlin responde aqui depois do diálogo do Android (`MainActivity.
+  // notificarPermissaoCadastroLocalizacao`). Sem este ouvinte, o "Permitir" do
+  // motorista não acendia nada até ele fechar e abrir o app.
+  window.HBXApp.locationPermissionChanged = function (concedida) {
+    if (concedida) { gpsNegado = false; armarGps(); return; }
+    avisarSemGps();
+  };
+
+  armarGps();
 
   /* A BUSCA É DE TECLA, NÃO DE CLIQUE — por isso não cabe no mapa de ações.
      Espera o dedo parar (350ms) antes de ir ao servidor: mandar a cada letra
@@ -1759,7 +1950,15 @@
       // se sabe SEM GPS nenhum (parada N de M, nome, endereço, o que falta) e
       // já pede a rota. Sem isto o rodapé nascia vazio e só se enchia no
       // primeiro `watchPosition` — que numa garagem pode demorar.
-      if (tela === 'mapa' || tela === 'mapachegou') { pintarNavegacao(); if (tela === 'mapa') pedirRota(); }
+      // 🔴 E É AQUI QUE A PERMISSÃO DE LOCALIZAÇÃO SE COBRA: no toque do
+      // "Navegar", que é o momento em que ela passa a fazer falta. Pedir no
+      // boot do app seria pedir fora de hora; não pedir nunca era a tela muda.
+      if (tela === 'mapa' || tela === 'mapachegou') {
+        garantirGps(); pintarNavegacao();
+        // voltar pra cá com o mapa já montado precisa da câmera de dirigir de
+        // volta na hora — senão a tela abre na moldura da rota inteira.
+        if (tela === 'mapa') { pedirRota(); cameraDaNavegacao(); }
+      }
       return r;
     };
   }
