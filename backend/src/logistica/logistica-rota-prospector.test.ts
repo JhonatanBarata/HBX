@@ -121,10 +121,16 @@ function bancada(cenario: CenarioBancada = {}) {
     debug: () => {},
   };
 
-  const iniciar = (actor?: any, date = '2026-08-07') =>
+  /* ⚠️ `date` NÃO tem valor padrão de propósito (achado em 08/08). Tinha:
+     `date = '2026-08-07'`. Como default de parâmetro do JS também vale pra
+     `undefined`, o teste do "sem data no pedido" passava a data de ontem e
+     NUNCA exercitou o caminho que ele diz provar — ficou verde por um dia e
+     quebrou sozinho na virada da meia-noite. É a armadilha "teste verde no meu
+     fuso": quem quer omitir a data passa `null`, e omitir é omitir mesmo. */
+  const iniciar = (actor?: any, date: string | null = '2026-08-07') =>
     rota.iniciarRota(
       companyId,
-      { date, deliveryIds: PARADAS_RIO_CLARO.map((p) => p.id), ordemManual: PARADAS_RIO_CLARO.map((p) => p.id) },
+      { date: date ?? undefined, deliveryIds: PARADAS_RIO_CLARO.map((p) => p.id), ordemManual: PARADAS_RIO_CLARO.map((p) => p.id) },
       7,
       7,
       false,
@@ -343,12 +349,18 @@ test('payload: aditivo, com nome/ramo/distância — e SEM telefone, porte ou qu
     assert.equal(r.prospector.acendeNoDia, 4);
 
     const empresa = r.prospector.empresas[0];
-    assert.deepEqual(Object.keys(empresa).sort(), ['afinidade', 'cnpj', 'distM', 'id', 'lat', 'lng', 'nome', 'ramo'].sort());
+    assert.deepEqual(
+      Object.keys(empresa).sort(),
+      ['aceso', 'afinidade', 'cnpj', 'distM', 'id', 'lat', 'lng', 'nome', 'ramo'].sort(),
+    );
     assert.equal(empresa.id, EMPRESA_SALAO.cnpj, 'o `id` é o gancho do prédio no mapa');
     assert.equal(empresa.nome, 'Salão Bela Vista');
     assert.equal(empresa.ramo, 'Cabeleireiros, manicure e pedicure');
     assert.equal(empresa.distM, 42);
     assert.equal(empresa.afinidade, true);
+    // `aceso` é decisão do SERVIDOR (08/08) e vale nos dois payloads: única do
+    // dia com teto 4, ela nasce acesa. A ponte não escolhe nada.
+    assert.equal(empresa.aceso, true);
 
     const bruto = JSON.stringify(r.prospector);
     assert.equal(bruto.includes('551933334444'), false, 'telefone NUNCA viaja pro motorista');
@@ -560,7 +572,7 @@ test('rotaDia sem data no pedido cai no HOJE de São Paulo, nunca no UTC do cont
   await comEnv('true', async () => {
     const corredor = corredorDuble({ prospectos: [] });
     const b = bancada({ config: CONFIG_LIGADA, prospector: corredor.servico });
-    await b.iniciar(ADMIN, undefined as any);
+    await b.iniciar(ADMIN, null);
 
     const hojeSP = new Intl.DateTimeFormat('en-CA', {
       timeZone: 'America/Sao_Paulo',
@@ -588,5 +600,299 @@ test('embarcar é DE GRAÇA: o prospector não toca em carteira nem em cobrança
       b.logs.some((l) => /credit|debit|carteira/i.test(l.msg)),
       false,
     );
+  });
+});
+
+// ===========================================================================
+// A RELEITURA DO DIA (08/08) — `lerProspectosDoDia`, a porta que faltava.
+//
+// O defeito que estes testes trancam: o `prospector` só existia na resposta do
+// `POST /rota/iniciar`, e essa resposta é EFÊMERA. Fechou o app, trocou de
+// tela, acabou a bateria — na volta quem roda é o `GET /logistica/rota`, que
+// não sabia do assunto. Medido em produção em 08/08: 8 empresas embarcadas na
+// company 41, ZERO prédios na tela de navegação.
+//
+// A régua aqui é a MESMA do embarque (as 4 chaves), mais duas próprias:
+//  · NÃO EMBARCA: o `listRota` é hot-path de polling — o corredor (que varre a
+//    RFB) não pode rodar aqui, nunca;
+//  · O QUE ACENDE É IGUAL nos dois payloads, senão reabrir o app trocaria os
+//    prédios acesos sem nada ter acontecido na rua.
+// ===========================================================================
+
+type CenarioReleitura = {
+  companyId?: number;
+  config?: Record<string, unknown> | null;
+  erroConfig?: any;
+  /** Linhas de ProspectoRota. `Error` no lugar do array = banco no chão. */
+  linhas?: any[] | Error;
+};
+
+const LINHA = (over: Record<string, unknown> = {}) => ({
+  cnpj: '11111111000191',
+  nome: 'Salão Bela Vista',
+  cnaeDescricao: 'Cabeleireiros, manicure e pedicure',
+  lat: -22.4261,
+  lng: -47.5787,
+  distM: 42,
+  ...over,
+});
+
+function bancadaReleitura(cenario: CenarioReleitura = {}) {
+  const companyId = cenario.companyId ?? 41;
+  const logs: Array<{ nivel: string; msg: string }> = [];
+  const buscas: any[] = [];
+
+  const prisma: any = {
+    logisticaConfig: {
+      findUnique: async () => {
+        if (cenario.erroConfig) throw cenario.erroConfig;
+        return cenario.config === undefined ? null : cenario.config;
+      },
+    },
+    prospectoRota: {
+      findMany: async (args: any) => {
+        buscas.push(args);
+        if (cenario.linhas instanceof Error) throw cenario.linhas;
+        return cenario.linhas ?? [];
+      },
+    },
+  };
+
+  // Corredor NÃO injetado de propósito: a releitura não pode depender dele —
+  // se algum dia alguém fizer o `listRota` embarcar, estes testes quebram.
+  const rota = new LogisticaRotaService(prisma, {} as any);
+  (rota as any).logger = {
+    log: (m: string) => logs.push({ nivel: 'log', msg: String(m) }),
+    warn: (m: string) => logs.push({ nivel: 'warn', msg: String(m) }),
+    error: (m: string) => logs.push({ nivel: 'error', msg: String(m) }),
+    debug: () => {},
+  };
+
+  return {
+    logs,
+    buscas,
+    companyId,
+    ler: (actor?: any, dia = '2026-08-08') => rota.lerProspectosDoDia(companyId, dia, actor),
+  };
+}
+
+test('RELEITURA: o dia embarcado volta no payload — o defeito de 08/08 fechado', async () => {
+  await comEnv('true', async () => {
+    const b = bancadaReleitura({
+      config: CONFIG_LIGADA,
+      linhas: [LINHA(), LINHA({ cnpj: '22222222000192', nome: 'Padaria Avenida', distM: 88 })],
+    });
+    const r = await b.ler(ADMIN);
+
+    assert.ok(r, 'a releitura tem que devolver payload');
+    assert.equal(r!.empresas.length, 2);
+    assert.equal(r!.rotaDia, '2026-08-08');
+    assert.equal(r!.persistido, true, 'veio da tabela: por definição está persistido');
+    // O contrato do seam da ponte: sem id/nome/lat/lng o prédio não entra na tela.
+    const primeira = r!.empresas[0];
+    assert.equal(primeira.id, '11111111000191');
+    assert.equal(primeira.id, primeira.cnpj, 'id e cnpj são o mesmo, pra ponte não adivinhar');
+    assert.equal(primeira.nome, 'Salão Bela Vista');
+    assert.equal(primeira.lat, -22.4261);
+    assert.equal(primeira.distM, 42);
+  });
+});
+
+test('RELEITURA: NÃO EMBARCA — o corredor (que varre a RFB) nunca roda no hot-path do polling', async () => {
+  await comEnv('true', async () => {
+    // A bancada não injeta o ProspectorCorredorService: se a releitura tentasse
+    // embarcar, isto viraria "Cannot read properties of undefined".
+    const b = bancadaReleitura({ config: CONFIG_LIGADA, linhas: [LINHA()] });
+    const r = await b.ler(ADMIN);
+    assert.equal(r!.empresas.length, 1);
+    assert.equal(b.buscas.length, 1, 'uma leitura só, e é a da tabela');
+  });
+});
+
+test('RELEITURA: as 4 chaves valem aqui também — desligar apaga a tela, não só para de embarcar', async () => {
+  // Chave 1 — env global
+  await comEnv(undefined, async () => {
+    const b = bancadaReleitura({ config: CONFIG_LIGADA, linhas: [LINHA()] });
+    assert.equal(await b.ler(ADMIN), null);
+    assert.equal(b.buscas.length, 0, 'env OFF não gasta nem uma consulta');
+  });
+  await comEnv('true', async () => {
+    // Chave 2 — o tenant
+    const desligada = bancadaReleitura({ config: { ...CONFIG_LIGADA, prospectorAtivo: false }, linhas: [LINHA()] });
+    assert.equal(await desligada.ler(ADMIN), null);
+    assert.equal(desligada.buscas.length, 0);
+
+    // Chave 2 — empresa sem linha de config nenhuma (opt-in, nunca por omissão)
+    const semConfig = bancadaReleitura({ config: null, linhas: [LINHA()] });
+    assert.equal(await semConfig.ler(ADMIN), null);
+
+    // Chave 3 — funcionário comum sem prospectorEquipe
+    const semEquipe = bancadaReleitura({ config: CONFIG_LIGADA, linhas: [LINHA()] });
+    assert.equal(await semEquipe.ler(FUNCIONARIO), null);
+    assert.equal(semEquipe.buscas.length, 0);
+
+    // Chave 3 — fail-closed: chamada SEM ator é funcionário comum
+    const semAtor = bancadaReleitura({ config: CONFIG_LIGADA, linhas: [LINHA()] });
+    assert.equal(await semAtor.ler(undefined), null);
+
+    // Chave 3 — com prospectorEquipe ligado o funcionário passa
+    const comEquipe = bancadaReleitura({
+      config: { ...CONFIG_LIGADA, prospectorEquipe: true },
+      linhas: [LINHA()],
+    });
+    assert.equal((await comEquipe.ler(FUNCIONARIO))!.empresas.length, 1);
+
+    // Chave 3 — gerente é admin-tier: passa sem prospectorEquipe
+    const gerente = bancadaReleitura({ config: CONFIG_LIGADA, linhas: [LINHA()] });
+    assert.equal((await gerente.ler(GERENTE))!.empresas.length, 1);
+
+    // Chave 4 — nenhuma linha embarcada no dia
+    const vazio = bancadaReleitura({ config: CONFIG_LIGADA, linhas: [] });
+    assert.equal(await vazio.ler(ADMIN), null, 'dia sem embarque não inventa chave no payload');
+  });
+});
+
+test('RELEITURA: a busca é ESCOPADA na company e no DIA, e ignora lead/dispensado', async () => {
+  await comEnv('true', async () => {
+    const b = bancadaReleitura({ companyId: 41, config: CONFIG_LIGADA, linhas: [LINHA()] });
+    await b.ler(ADMIN, '2026-08-08');
+
+    const where = b.buscas[0].where;
+    assert.equal(where.companyId, 41, 'multi-tenant: nada atravessa empresa');
+    assert.equal(where.rotaDia, '2026-08-08', 'o dia da rota, nunca o histórico inteiro');
+    // Quem virou lead saiu do corredor pra sempre; quem foi dispensado está de
+    // castigo. Os dois voltarem como prédio seria o app reoferecendo o que o
+    // motorista já resolveu.
+    assert.deepEqual(where.estado, { notIn: ['lead', 'dispensado'] });
+  });
+});
+
+test('RELEITURA: LEI DO VENDEDOR — telefone NUNCA sai do servidor', async () => {
+  await comEnv('true', async () => {
+    const b = bancadaReleitura({ config: CONFIG_LIGADA, linhas: [LINHA()] });
+    const r = await b.ler(ADMIN);
+
+    assert.equal(b.buscas[0].select.phoneDigits, undefined, 'o SELECT nem pede o telefone');
+    assert.equal(/phone/i.test(JSON.stringify(r)), false, 'e ele não aparece no payload de jeito nenhum');
+  });
+});
+
+test('RELEITURA: quem ACENDE é o servidor, pelo teto do dia, do mais PERTO pro mais longe', async () => {
+  await comEnv('true', async () => {
+    const b = bancadaReleitura({
+      config: { ...CONFIG_LIGADA, prospectorMaxDia: 2 },
+      // de propósito fora de ordem: quem ordena é o servidor, não o banco.
+      linhas: [
+        LINHA({ cnpj: '33333333000193', distM: 300 }),
+        LINHA({ cnpj: '11111111000191', distM: 40 }),
+        LINHA({ cnpj: '22222222000192', distM: 120 }),
+      ],
+    });
+    const r = await b.ler(ADMIN);
+
+    assert.equal(r!.acendeNoDia, 2, 'o teto do dia é o da config do tenant');
+    assert.deepEqual(
+      r!.empresas.map((e) => [e.distM, e.aceso]),
+      [[40, true], [120, true], [300, false]],
+      'as 2 mais perto acendem; o resto é reserva do clique',
+    );
+  });
+});
+
+test('RELEITURA: relida DUAS vezes acende os MESMOS prédios (nada sorteado, nada da ordem do banco)', async () => {
+  await comEnv('true', async () => {
+    const linhas = [
+      LINHA({ cnpj: '33333333000193', distM: 90 }),
+      LINHA({ cnpj: '11111111000191', distM: 90 }),
+      LINHA({ cnpj: '22222222000192', distM: 90 }),
+    ];
+    const primeira = await bancadaReleitura({
+      config: { ...CONFIG_LIGADA, prospectorMaxDia: 1 },
+      linhas,
+    }).ler(ADMIN);
+    const segunda = await bancadaReleitura({
+      config: { ...CONFIG_LIGADA, prospectorMaxDia: 1 },
+      linhas: [...linhas].reverse(),
+    }).ler(ADMIN);
+
+    assert.deepEqual(
+      primeira!.empresas.map((e) => [e.cnpj, e.aceso]),
+      segunda!.empresas.map((e) => [e.cnpj, e.aceso]),
+      'empate no distM desempata por cnpj — a ordem do banco não decide nada',
+    );
+    assert.equal(primeira!.empresas[0].cnpj, '11111111000191');
+    assert.equal(primeira!.empresas[0].aceso, true);
+  });
+});
+
+test('O QUE ACENDE É A MESMA RÉGUA no iniciar e na releitura', async () => {
+  await comEnv('true', async () => {
+    const empresas = [
+      { ...EMPRESA_SALAO, cnpj: '33333333000193', distM: 300 },
+      { ...EMPRESA_SALAO, cnpj: '11111111000191', distM: 40 },
+      { ...EMPRESA_SALAO, cnpj: '22222222000192', distM: 120 },
+    ];
+    const corredor = corredorDuble({ prospectos: empresas, maxDia: 2, acendeNoDia: 2 });
+    const doIniciar: any = await bancada({
+      config: { ...CONFIG_LIGADA, prospectorMaxDia: 2 },
+      prospector: corredor.servico,
+    }).iniciar(ADMIN);
+
+    const daReleitura = await bancadaReleitura({
+      config: { ...CONFIG_LIGADA, prospectorMaxDia: 2 },
+      linhas: empresas.map((e) => LINHA({ cnpj: e.cnpj, distM: e.distM })),
+    }).ler(ADMIN);
+
+    // 🔴 É ISTO que impede a tela mudar sozinha: reabrir o app não pode trocar
+    // quais prédios estão acesos se nada aconteceu na rua.
+    assert.deepEqual(
+      doIniciar.prospector.empresas.map((e: any) => [e.cnpj, e.aceso]),
+      daReleitura!.empresas.map((e) => [e.cnpj, e.aceso]),
+    );
+  });
+});
+
+test('RELEITURA: sem cnaeDescricao o ramo fica NULO — rótulo não se inventa na releitura', async () => {
+  await comEnv('true', async () => {
+    const b = bancadaReleitura({ config: CONFIG_LIGADA, linhas: [LINHA({ cnaeDescricao: null })] });
+    const r = await b.ler(ADMIN);
+    assert.equal(r!.empresas[0].ramo, null);
+    // `afinidade` é do CNAE, que a tabela não guarda: AUSENTE ("não sei"),
+    // nunca `false` ("apurei e não tem").
+    assert.equal('afinidade' in r!.empresas[0], false);
+  });
+});
+
+test('RELEITURA: raio e teto sem config caem nos PADRÕES, não em zero', async () => {
+  await comEnv('true', async () => {
+    const b = bancadaReleitura({
+      config: { prospectorAtivo: true, prospectorEquipe: false, prospectorRaioM: null, prospectorMaxDia: null },
+      linhas: [LINHA()],
+    });
+    const r = await b.ler(ADMIN);
+    assert.equal(r!.raioM, 150, 'RAIO_PADRAO_M');
+    assert.equal(r!.acendeNoDia, 4, 'MAX_DIA_PADRAO — teto zero deixaria a tela toda apagada');
+  });
+});
+
+test('ENFEITE: banco no chão na releitura NÃO derruba a rota do dia — e não é mudo', async () => {
+  await comEnv('true', async () => {
+    const b = bancadaReleitura({ config: CONFIG_LIGADA, linhas: new Error('connection refused') });
+    assert.equal(await b.ler(ADMIN), null, 'falha não vira lista vazia mentirosa');
+    const alarme = b.logs.filter((l) => l.nivel === 'error');
+    assert.equal(alarme.length, 1, 'lição CNEFE: best-effort mudo desligou 23M endereços por 5 dias');
+    assert.match(alarme[0].msg, /connection refused/, 'a mensagem ORIGINAL do banco aparece');
+    assert.match(alarme[0].msg, /company=41/);
+  });
+});
+
+test('ENFEITE: tabela ProspectoRota ausente (migration pendente) é AVISO, nunca erro', async () => {
+  await comEnv('true', async () => {
+    const erro: any = new Error('The table `public.ProspectoRota` does not exist in the current database.');
+    erro.code = 'P2021';
+    const b = bancadaReleitura({ config: CONFIG_LIGADA, linhas: erro });
+    assert.equal(await b.ler(ADMIN), null);
+    assert.equal(b.logs.filter((l) => l.nivel === 'error').length, 0, 'transição esperada não é defeito');
+    assert.ok(b.logs.some((l) => l.nivel === 'warn' && /migration pendente/i.test(l.msg)), 'mas não é silêncio');
   });
 });

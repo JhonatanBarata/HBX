@@ -5,7 +5,13 @@ import { ConversationsService } from '../messaging/conversations.service';
 import { CreditActionUsageService } from '../credits/credit-action-usage.service';
 import { FiscalComprovanteEntregaService } from '../fiscal/fiscal-comprovante-entrega.service';
 import { EstoqueService } from '../fiscal/estoque.service';
-import { LogisticaRotaService, haversineKm, hasCoord, type Coord } from './logistica-rota.service';
+import {
+  LogisticaRotaService,
+  haversineKm,
+  hasCoord,
+  type Coord,
+  type RotaProspectorPayload,
+} from './logistica-rota.service';
 import { LogisticaConfigService, renderTemplateAviso, storedNivel } from './logistica-config.service';
 import { LogisticaRecoveryService } from './logistica-recovery.service';
 import { LogisticaCobrancaAvisoService } from './logistica-cobranca-aviso.service';
@@ -424,6 +430,18 @@ export class LogisticaService {
       }
     }
 
+    // PROSPECTOR CNPJ (08/08) — as empresas do corredor viajam TAMBÉM aqui, não
+    // só na resposta do iniciar. É o que faz o motorista reabrir o app (ou só
+    // trocar de tela) e continuar vendo os prédios que o servidor achou de
+    // manhã. 100% LEITURA de `ProspectoRota` (o corredor NÃO roda neste
+    // hot-path) e best-effort: falha vira log, a rota do dia sai igual.
+    let prospector: RotaProspectorPayload | null = null;
+    try {
+      prospector = await this.rota.lerProspectosDoDia(companyId, canonicalRouteDate(dateInput), actor ?? undefined);
+    } catch (e: any) {
+      this.logger.warn(`[logistica] listRota prospector company=${companyId} falhou: ${String(e?.message || e)}`);
+    }
+
     const { routeMode, ...operationalRouteMetadata } = routeMetadata;
     // S2 (25/07, PR25072026-ROTA-CONFERIDA) — "perna a perna": rastreia o ÚLTIMO
     // ponto físico válido ao longo da SEQUÊNCIA (`rows` já vem ordenado por
@@ -443,6 +461,9 @@ export class LogisticaService {
       avisoChegandoAtivo,
       avisoChegandoDistanciaM,
       comprovante,
+      // ADITIVO: a chave só existe quando as 4 chaves abrem E há empresa
+      // embarcada no dia. Sem prospector o payload é byte a byte o de antes.
+      ...(prospector ? { prospector } : {}),
       items: rowsVisiveis.map((r) => {
         const foto = r.comprovantes.find((item) => item.tipo === 'foto') ?? null;
         const assinatura = r.comprovantes.find((item) => item.tipo === 'assinatura') ?? null;
@@ -3833,6 +3854,10 @@ export interface RotaResult {
   avisoChegandoAtivo: boolean;
   avisoChegandoDistanciaM: number;
   comprovante: RotaRequisitosComprovante;
+  // PROSPECTOR CNPJ (08/08) — as empresas do corredor DO DIA, relidas de
+  // `ProspectoRota`. Ausente = prospector desligado, ator sem permissão, ou
+  // nenhuma empresa embarcada hoje. Ver LogisticaRotaService.lerProspectosDoDia.
+  prospector?: RotaProspectorPayload;
   items: RotaItem[];
 }
 

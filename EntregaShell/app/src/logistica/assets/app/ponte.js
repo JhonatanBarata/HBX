@@ -422,6 +422,82 @@
      repinte tem que acontecer DE VERDADE". Ele entra na digital lá embaixo. */
   let gestoSujouATela = 0;
 
+  /* ------------------------------------------------------------------------
+     PROSPECTOR CNPJ — AS EMPRESAS DO CORREDOR CHEGAM NA TELA (08/08).
+
+     🔴 O DEFEITO QUE ISTO FECHA. O servidor achava as empresas, gravava em
+     `ProspectoRota` e mandava tudo na resposta do `POST /rota/iniciar` — e esta
+     ponte JOGAVA A RESPOSTA FORA (`await window.API.post(...)`, sem destino) e
+     nascia com `mapa:{empresas:[]}` cravado, com um comentário dizendo que "o
+     prospector ainda não tem servidor". O servidor nasceu no MESMO dia, sete
+     horas depois do comentário. Medido em produção em 08/08: 8 empresas
+     embarcadas na company 41, ZERO prédios na tela de navegação.
+
+     🔴 DUAS PORTAS, UMA FUNÇÃO. A lista chega no `iniciar` (a resposta do
+     clique) E no `GET /logistica/rota` (a releitura do dia). Precisa das duas:
+     só a primeira e a lista morre quando o app fecha, troca de tela ou a
+     bateria acaba; só a segunda e o motorista dirige um poll inteiro sem
+     empresa nenhuma logo depois de iniciar. Mesma tradução nos dois lugares —
+     dado em dois caminhos que traduzem diferente é bug de produto.
+
+     🔴 AUSENTE ≠ VAZIO. Sem a chave `prospector` a função volta SEM ESCREVER: é
+     "não sei" (prospector desligado, ator sem permissão, migration pendente), e
+     não "hoje não tem empresa". Escrever `[]` aqui apagaria da tela, no meio da
+     rua, a lista que já estava certa.
+
+     🔴 QUEM DECIDE QUEM ACENDE É O SERVIDOR (`aceso`, ver `ordenarParaAcender`
+     no backend). A ponte não escolhe: se ela sorteasse, reabrir o app trocaria
+     os prédios acesos sem nada ter acontecido na rua.
+     ------------------------------------------------------------------------ */
+  /* A fila das 6 janelas de UM prédio ([0,3,1,5,2,4]) — uma por prédio, senão
+     todos piscam em coro. DETERMINÍSTICA a partir do CNPJ, nunca sorteada: o
+     `usarDados` compara o dado com o de antes, então fila nova a cada volta do
+     polling seria dado novo a cada 5 s — a cena de acender recomeçaria sozinha,
+     pra sempre, na tela de quem está dirigindo. */
+  function filaDeJanelas(id) {
+    const fila = [0, 1, 2, 3, 4, 5];
+    let semente = 7;
+    for (let i = 0; i < id.length; i += 1) semente = (semente * 31 + id.charCodeAt(i)) >>> 0;
+    for (let i = fila.length - 1; i > 0; i -= 1) {
+      semente = (semente * 1103515245 + 12345) >>> 0;
+      const j = semente % (i + 1);
+      const troca = fila[i]; fila[i] = fila[j]; fila[j] = troca;
+    }
+    return fila;
+  }
+
+  function aplicarProspector(resp) {
+    if (typeof window.usarDados !== 'function') return;
+    const p = resp && resp.prospector;
+    if (!p || !Array.isArray(p.empresas)) return;   // ausente = NÃO SEI (ver acima)
+    const empresas = p.empresas
+      // 🔴 SEM NOME OU SEM PINO A EMPRESA NÃO ENTRA — é o contrato do seam:
+      // "a tela não inventa lugar". Prédio no meio do mapa sem coordenada de
+      // verdade seria um convite pra um endereço que ninguém apurou.
+      .filter((e) => e && e.nome && Number.isFinite(Number(e.lat)) && Number.isFinite(Number(e.lng)))
+      .map((e, i) => {
+        // O id é o GANCHO (`data-acao="abrir-empresa"`) e é o CNPJ: só dígitos.
+        const id = String(e.id || e.cnpj || '').replace(/\D/g, '');
+        return {
+          id,
+          // 🔴 RAZÃO SOCIAL É TEXTO DE TERCEIRO (vem da RFB) e o template do
+          // mock interpola CRU — mesma lei do nome de cliente e do nome de rua.
+          // "COMÉRCIO & CIA" ou um "<" perdido apagariam o prédio da tela sem
+          // erro nenhum. Escapa na FONTE.
+          nome: esc(e.nome),
+          lat: Number(e.lat),
+          lng: Number(e.lng),
+          distM: Number(e.distM) || 0,
+          aceso: !!e.aceso,
+          ordem: filaDeJanelas(id || String(i)),
+          // escalona quem acende primeiro: as três da cena do desenho entram
+          // com respiro entre elas, não todas no mesmo quadro.
+          atraso: `${(i * 0.75).toFixed(2)}s`,
+        };
+      });
+    window.usarDados('mapa', { empresas });
+  }
+
   async function carregarRota() {
     if (!temPonte() || typeof window.usarDados !== 'function') return;
     const dia = diaOperacional();
@@ -537,6 +613,10 @@
       somaProdutos: String(itens.reduce((s, it) => s + (Number(it.quantidade) || 0), 0)),
       somaMarcado: temValor ? dinheiro(marcado) : '',
     });
+
+    // As empresas do corredor viajam no MESMO payload da rota (o servidor as
+    // relê de `ProspectoRota`): é isto que faz elas sobreviverem a fechar o app.
+    aplicarProspector(r);
 
     // L5 — a caderneta e a semana bebem do MESMO resumo que já veio acima.
     // Só quando ele REALMENTE respondeu: resumo que falhou não pode zerar o
@@ -715,9 +795,14 @@
          número errado num canto: é o motorista tocando num prédio que não
          existe. Zera INTEIRO; só o `chip` fica, que é COPY do desenho e some
          sozinho junto com a lista.
-         O prospector ainda não tem servidor (PR07082026-PROSPECTOR-CNPJ, F0):
-         até ele existir, a lista fica vazia e a tela de navegação abre SEM
-         empresa nenhuma, sem chip, sem varredura e sem radar. */
+         🔴 ESTE COMENTÁRIO JÁ MENTIU UMA VEZ. Ele dizia "o prospector ainda não
+         tem servidor (F0)" — e o servidor nasceu SETE HORAS depois, no mesmo dia
+         07/08. O comentário ficou, a ponte nunca foi ligada, e o app passou um
+         dia inteiro com 8 empresas embarcadas no banco e ZERO prédios na tela.
+         Hoje quem enche a lista é o `aplicarProspector`, nas DUAS portas
+         (iniciar e releitura da rota). O que sobra aqui é só o apagador: até o
+         servidor responder, a tela de navegação abre SEM empresa nenhuma, sem
+         chip, sem varredura e sem radar — que continua sendo o certo. */
       mapa: { empresas: [] },
       /* 🔴 O CROMO DO GPS — a última mentira da varredura, e a pior de todas
          pelo LUGAR: é a tela em que o motorista está DIRIGINDO. Enquanto rota,
@@ -1152,7 +1237,10 @@
       if (temSaldo && botao) {
         botao.addEventListener('click', () => comTrava(async () => {
           try {
-            await window.API.post('/logistica/rota/iniciar', { date: hojeISO() });
+            // 🔴 A RESPOSTA DO INICIAR TEM DADO DENTRO. Ela era descartada, e
+            // com ela iam embora as empresas do corredor (`prospector`) que o
+            // servidor acabou de embarcar pro dia. Ver `aplicarProspector`.
+            aplicarProspector(await window.API.post('/logistica/rota/iniciar', { date: hojeISO() }));
           } catch (e) {
             // 🔴 NUNCA MORRER CALADO (dono, §1.3): primeiro a verdade do
             // servidor — se a rota JÁ ESTÁ em andamento, a resposta certa é

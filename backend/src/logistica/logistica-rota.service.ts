@@ -15,7 +15,13 @@ import { sourceDateFromOccurrenceKey, saoPauloMidnight } from './logistica-agend
 import { registrarEventoAgenda, formatDDMM } from './logistica-agenda-evento.util';
 import { ProspectorCorredorService } from './prospector-corredor.service';
 import { isProspectorEnabled } from './logistica-prospector.flags';
-import { rotuloDaCesta } from './prospector-corredor.sql';
+import {
+  rotuloDaCesta,
+  clampRaioM,
+  clampMaxDia,
+  RAIO_PADRAO_M,
+  MAX_DIA_PADRAO,
+} from './prospector-corredor.sql';
 import { isAdminTierActor, type ActorKindUserLike } from '../access/actor-kind';
 
 const ROUTE_BILLING_CONTEXT = Symbol('routeBillingContext');
@@ -213,19 +219,23 @@ export class LogisticaRotaService {
         // 🔴 LEI DO VENDEDOR: o motorista vê o FATO (nome, ramo, distância,
         // onde fica) e nada mais. `phoneDigits` e `porte` FICAM no servidor —
         // o disparo (F3) é feito pelo backend, o app nunca precisa do telefone.
-        empresas: resultado.prospectos.map((p) => ({
-          // `id` é o GANCHO do prédio no mapa do APK (contrato do seam em
-          // EntregaShell/.../ponte.js: "sem id, sai sem data-acao"). É o mesmo
-          // CNPJ — vai nos dois nomes pra ponte não precisar adivinhar.
-          id: p.cnpj,
-          cnpj: p.cnpj,
-          nome: p.nome,
-          ramo: p.cnaeDescricao ?? rotuloDaCesta(p.cnae),
-          lat: p.lat,
-          lng: p.lng,
-          distM: p.distM,
-          afinidade: p.afinidade,
-        })),
+        empresas: ordenarParaAcender(
+          resultado.prospectos.map((p) => ({
+            // `id` é o GANCHO do prédio no mapa do APK (contrato do seam em
+            // EntregaShell/.../ponte.js: "sem id, sai sem data-acao"). É o mesmo
+            // CNPJ — vai nos dois nomes pra ponte não precisar adivinhar.
+            id: p.cnpj,
+            cnpj: p.cnpj,
+            nome: p.nome,
+            ramo: p.cnaeDescricao ?? rotuloDaCesta(p.cnae),
+            lat: p.lat,
+            lng: p.lng,
+            distM: p.distM,
+            afinidade: p.afinidade,
+            aceso: false,
+          })),
+          resultado.acendeNoDia,
+        ),
       };
     } catch (error) {
       // O caminho que NUNCA pode existir: exceção do prospector derrubando o
@@ -235,6 +245,99 @@ export class LogisticaRotaService {
           (error as any)?.message || error,
         )}`,
       );
+      return null;
+    }
+  }
+
+  /**
+   * RELEITURA do prospector do dia — o mesmo payload do `iniciar-rota`, montado
+   * a partir do que JÁ está embarcado em `ProspectoRota`.
+   *
+   * 🔴 POR QUE PRECISOU EXISTIR (08/08). O `prospector` só viajava na resposta
+   * do `POST /rota/iniciar`, e essa resposta é EFÊMERA: o app fechou, o
+   * motorista trocou de tela, a bateria acabou — na volta quem roda é o
+   * `GET /logistica/rota`, que não sabia do assunto. Resultado: 8 empresas
+   * embarcadas no banco e ZERO prédios na tela de navegação. Payload que só
+   * existe no instante do clique não é dado do dia, é notificação.
+   *
+   * NÃO EMBARCA NADA. Este caminho é 100% LEITURA: quem acha empresa no
+   * corredor (e gasta a consulta na RFB) continua sendo o INICIAR, uma vez por
+   * dia. O `listRota` é hot-path de polling do app — mandar o corredor rodar
+   * aqui seria varrer a RFB a cada refresh.
+   *
+   * AS MESMAS 4 CHAVES do embarque, na mesma ordem (env → tenant → ator →
+   * pino), porque desligar o prospector tem que apagar a tela também, não só
+   * parar de embarcar novos. A chave nº4 aqui é "tem linha gravada pro dia".
+   */
+  async lerProspectosDoDia(
+    companyId: number,
+    rotaDia: string,
+    actor?: ActorKindUserLike,
+  ): Promise<RotaProspectorPayload | null> {
+    try {
+      // Chave 1 — env global. Antes de qualquer ida ao banco.
+      if (!isProspectorEnabled()) return null;
+
+      // Chaves 2 e 3 — tenant e ator. Fail-closed igual ao embarque.
+      const politica = await this.lerPoliticaProspector(companyId);
+      if (!politica || !politica.ativo) return null;
+      if (!isAdminTierActor(actor) && !politica.equipe) return null;
+
+      const raioM = clampRaioM(politica.raioM ?? RAIO_PADRAO_M);
+      const maxDia = clampMaxDia(politica.maxDia ?? MAX_DIA_PADRAO);
+
+      // Chave 4 — o que foi embarcado NESTE dia. `lead` e `dispensado` ficam de
+      // fora: quem virou lead saiu do corredor pra sempre (mora no /vendas
+      // agora) e quem foi dispensado está de castigo — os dois voltarem como
+      // prédio apagado seria o app oferecendo de novo o que o motorista já
+      // resolveu.
+      const linhas = await this.prisma.prospectoRota.findMany({
+        where: { companyId, rotaDia, estado: { notIn: ['lead', 'dispensado'] } },
+        select: { cnpj: true, nome: true, cnaeDescricao: true, lat: true, lng: true, distM: true },
+        orderBy: [{ distM: 'asc' }, { cnpj: 'asc' }],
+        take: 64,
+      });
+      if (linhas.length === 0) return null;
+
+      return {
+        rotaDia,
+        raioM,
+        acendeNoDia: maxDia,
+        // Veio da tabela: por definição está persistido.
+        persistido: true,
+        // LEI DO VENDEDOR (a mesma do embarque): `phoneDigits` está no SELECT?
+        // Não — e é de propósito. O telefone nunca sai do servidor; o disparo
+        // da F3 é feito pelo backend.
+        empresas: ordenarParaAcender(
+          linhas.map((l) => ({
+            id: l.cnpj,
+            cnpj: l.cnpj,
+            nome: l.nome,
+            // `ramo` é o snapshot do embarque. Sem `cnae` gravado não há como
+            // cair no `rotuloDaCesta` — e inventar rótulo aqui seria pior que
+            // não ter: o motorista leria uma classificação que ninguém apurou.
+            ramo: l.cnaeDescricao ?? null,
+            lat: l.lat,
+            lng: l.lng,
+            distM: l.distM,
+            aceso: false,
+          })),
+          maxDia,
+        ),
+      };
+    } catch (error) {
+      // ENFEITE NÃO DERRUBA ROTA — aqui vale em dobro: o `listRota` é a tela
+      // principal do motorista. Nada sobe; mas nada é mudo (lição CNEFE).
+      const msg = String((error as any)?.message || error);
+      if (ehEsquemaAusente(error)) {
+        this.logger.warn(
+          `[logistica] prospector: releitura sem tabela/coluna (migration pendente) company=${companyId} rotaDia=${rotaDia}: ${msg}`,
+        );
+      } else {
+        this.logger.error(
+          `[logistica] prospector: releitura do dia FALHOU company=${companyId} rotaDia=${rotaDia}: ${msg}`,
+        );
+      }
       return null;
     }
   }
@@ -2054,8 +2157,49 @@ export interface RotaProspectoEmpresa {
   lng: number;
   /** Metros até a parada mais próxima da rota do dia. */
   distM: number;
-  /** true = está na cesta "sede de água" (afinidade de ramo). */
-  afinidade: boolean;
+  /**
+   * true = está na cesta "sede de água" (afinidade de ramo). SÓ existe no
+   * payload do INICIAR: a afinidade é do CNAE, e `ProspectoRota` guarda a
+   * descrição do ramo, não o código — então a RELEITURA (listRota) não tem como
+   * recomputá-la. Campo opcional em vez de `false` na releitura de propósito:
+   * "não sei" e "não tem afinidade" são coisas diferentes.
+   */
+  afinidade?: boolean;
+  /**
+   * O prédio nasce ACESO na tela de navegação (o resto nasce apagado e é
+   * reserva do clique do motorista). Decidido pelo SERVIDOR, nos dois payloads,
+   * pela mesma régua — ver `ordenarParaAcender`.
+   */
+  aceso: boolean;
+}
+
+/**
+ * QUEM ACENDE SOZINHO — a régua ÚNICA dos dois payloads do prospector (o do
+ * `iniciar-rota` e o da releitura do `listRota`).
+ *
+ * 🔴 POR QUE ISTO EXISTE. A tela de navegação pinta prédio ACESO e prédio
+ * APAGADO. Se cada payload decidisse por conta, reabrir o app trocaria QUAIS
+ * empresas estão acesas — o motorista veria a tela mudar sozinha sem nada ter
+ * acontecido na rua. Dado em dois lugares que discordam é bug de produto.
+ *
+ * A DIVISÃO DE TRABALHO, que é o que torna esta régua reproduzível:
+ *  · a AFINIDADE de ramo (cesta "sede de água") decide quem EMBARCA — é o
+ *    ranking do corredor (`ordenarProspectos`), e o cap é o dobro do teto do dia;
+ *  · a DISTÂNCIA decide quem ACENDE — e distância É persistida (`ProspectoRota.
+ *    distM`), então a releitura reproduz a MESMA lista, na MESMA ordem, com os
+ *    MESMOS acesos, sem coluna nova e sem migration.
+ *
+ * Desempate por `cnpj` porque duas empresas na mesma esquina dão o mesmo `distM`
+ * arredondado — sem ele a ordem viraria a do banco, que não é estável.
+ */
+export function ordenarParaAcender(
+  empresas: readonly RotaProspectoEmpresa[],
+  acendeNoDia: number,
+): RotaProspectoEmpresa[] {
+  const teto = Number.isFinite(acendeNoDia) ? Math.max(0, Math.trunc(acendeNoDia)) : 0;
+  return [...empresas]
+    .sort((a, b) => (a.distM !== b.distM ? a.distM - b.distM : a.cnpj < b.cnpj ? -1 : a.cnpj > b.cnpj ? 1 : 0))
+    .map((e, i) => ({ ...e, aceso: i < teto }));
 }
 
 export interface RotaProspectorPayload {
