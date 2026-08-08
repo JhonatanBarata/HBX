@@ -1515,6 +1515,14 @@ button,input{font:inherit;color:inherit}
    "Entendi" do recado saía branco no lima: 1,78:1, medido. Regra que diz o
    contrário da lei não se corrige com ordem; se corrige dizendo a lei. */
 .recado .acoes .principal{background:linear-gradient(180deg,var(--go-1),var(--go-2));border:0;color:var(--go-ink)}
+/* 🔴 O CHAT ENCOSTA NO PÉ (dono, 08/08: "encoste o chat no bottom"). A conversa
+   nascia no TOPO e sobrava um vão morto de meia tela entre o campo de escrever e
+   a barra — o único lugar do app onde o dedo já está embaixo. `margin-top:auto`
+   empurra conversa + campo pro rodapé e some sozinho quando o fio cresce: aí a
+   `.body` volta a rolar como qualquer tela, sem regra nova. O cartão do recado
+   NÃO desce junto — ele é aviso de topo, não mensagem. */
+.body.chat-corpo{display:flex;flex-direction:column}
+.body.chat-corpo .conversa{margin-top:auto}
 .conversa{display:flex;flex-direction:column;gap:6px;margin-top:12px}
 .msg{max-width:82%;padding:8px 11px;border-radius:14px;font-size:12.5px;line-height:1.35}
 .msg.deles{background:var(--card);border:.7px solid var(--line);border-bottom-left-radius:5px;align-self:flex-start}

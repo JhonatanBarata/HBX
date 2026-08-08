@@ -2166,6 +2166,10 @@
     posicionarEmpresas();
     ligarBusca();
     ligarCamposDaFicha();
+    // O chat vive no PÉ. Qualquer repinte (o do fio, o da barra, o de outra
+    // seção) nasce com a rolagem no zero — quem devolve o pé é isto, no mesmo
+    // lugar onde o mapa já reencontra o palco dele.
+    encostarNoPe();
   });
   observador.observe(document.getElementById('app') || document.body, { childList: true, subtree: true });
 
@@ -2602,6 +2606,31 @@
       // Fio vazio não é erro: é o dia em que ninguém precisou falar nada.
       vazio: recados.length ? '' : 'Nenhum recado por aqui',
       sino: contarNaoLidos(),
+    });
+    encostarNoPe();
+  }
+
+  /* O fio que passa da tela: o CSS não alcança (o `margin-top:auto` some quando
+     o conteúdo estoura) e o chat abria na mensagem mais VELHA, com o campo de
+     escrever fora da tela.
+
+     🔴 A RÉGUA É A CAMADA, NÃO A MENSAGEM. Tentei guardar "última mensagem já
+     vista" e não funcionou: `usarDados` repinta SÍNCRONO (`pintar(false)`) e
+     cada repinte cria uma `.tela` NOVA, com `scrollTop` zerado — o `aoAbrirChat`
+     sozinho repinta duas vezes (carrega o fio, marca visto, recarrega), então a
+     segunda pintura desfazia a rolagem da primeira e a marca dizia "já desci".
+     Medido no g15: o fio comprido abria na "Linha 1".
+
+     Camada NOVA = pintura nova = desce. Camada que eu já desci = o dedo é o
+     dono da rolagem, e ninguém arranca a leitura de quem voltou pra trás. */
+  let ultimoCorpoChat = null;
+  function encostarNoPe() {
+    if (telaAtual() !== 'chat') return;
+    requestAnimationFrame(() => {
+      const corpo = naCamada('.body.chat-corpo');
+      if (!corpo || corpo === ultimoCorpoChat) return;
+      ultimoCorpoChat = corpo;
+      corpo.scrollTop = corpo.scrollHeight;
     });
   }
 

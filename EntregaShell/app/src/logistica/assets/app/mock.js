@@ -2002,7 +2002,7 @@ ${nav('rota')}`;}};
 /* 12 — CHAT COM A CENTRAL (aba nova) -------------------------------------- */
 T.chat={nome:'Chat com a Central',grupo:'Rota',render(){const d=DADOS.chat;return `${status}
 ${hdr({})}
-<div class="body">
+<div class="body chat-corpo">
   ${d.recado?`<div class="recado">
     <div class="topo">
       <span class="ico">${ic('bell',17)}</span>
