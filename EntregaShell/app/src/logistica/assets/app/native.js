@@ -874,12 +874,16 @@
     //                   painel aberto deixaria o painel órfão na tela.
     //   .grip         — o punho já tem gesto (reordenar a parada). Dois donos
     //                   no mesmo dedo = os dois erram.
-    // O cartão da parada (`.stop`) NÃO entra de propósito: ele ocupa a tela da
-    // rota quase inteira, e barrá-lo mataria o gesto justamente onde o dono
-    // pediu que ele exista. O toque longo dele já desarma no movimento lateral.
+    //   [data-gestos] — a lista de paradas INTEIRA (08/08, pedido do dono de
+    //                   melhorar o arrastar): o cartão ganhou gestos próprios —
+    //                   deslizar pra esquerda RETIRA, segurar LEVANTA pra
+    //                   reordenar. É a mesma lei do .grip esticada pra lista:
+    //                   dois donos no mesmo dedo = os dois erram. O módulo
+    //                   continua trocando no resto da tela (cabeçalho, resumo,
+    //                   rodapé) e nas telas sem lista de gestos.
     appRoot.addEventListener("touchstart", event => {
       const target = event.target;
-      if (event.touches.length !== 1 || target.closest?.(".bottom-nav, input, textarea, select, [contenteditable], .chips, .sales-board, .sales-stages, .modal-wrap, .sheet-wrap, [data-route-current], .maplibregl-map, .route-live-map, .route-plan-preview-map, .pss-screen, .gps, .mapa-palco, .nav, .sheet, .erro-wrap, .conf-wrap, .portao-wrap, .aviso, .grip")) { shellSwipe = null; return; }
+      if (event.touches.length !== 1 || target.closest?.(".bottom-nav, input, textarea, select, [contenteditable], .chips, .sales-board, .sales-stages, .modal-wrap, .sheet-wrap, [data-route-current], .maplibregl-map, .route-live-map, .route-plan-preview-map, .pss-screen, .gps, .mapa-palco, .nav, .sheet, .erro-wrap, .conf-wrap, .portao-wrap, .aviso, .grip, [data-gestos]")) { shellSwipe = null; return; }
       const touch = event.touches[0]; shellSwipe = { x: touch.clientX, y: touch.clientY };
     }, { passive: true });
     appRoot.addEventListener("touchend", event => {

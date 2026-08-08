@@ -1498,28 +1498,33 @@ button,input{font:inherit;color:inherit}
 .gravando .crono{font-size:19px;font-weight:500;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
 
 /* ==========================================================================
-   OS DOIS GESTOS — na LISTA DE PARADAS de verdade, com dedo e com mouse.
-   SEGURAR = retirar da rota (950ms, vermelho progressivo, vibração no fim).
-   PUNHO   = arrastar pra reordenar (pega na hora, sem espera).
-   A zona do punho NUNCA arma o excluir: dedo na alça é outro gesto.
+   OS GESTOS DA LISTA — na LISTA DE PARADAS de verdade, com dedo e com mouse.
+   PUNHO    = arrastar pra reordenar, pega na hora — e a zona de pegada é a
+              COLUNA ESQUERDA INTEIRA do cartão (dono, 08/08: "difícil de
+              acertar os pontinhos"). O desenho continua os 6 pontinhos; o que
+              engorda é só o alvo, invisível, via ::before (dedo pede 48dp+).
+   SEGURAR  = levantar o cartão pra arrastar (380ms, vibra ao pegar) — o padrão
+              Keep/Spotify. O excluir saiu do segurar…
+   DESLIZAR PRA ESQUERDA = …e virou o retirar: o cartão acompanha o dedo, a
+              tinta vermelha cresce junto (--puxa), passou do limiar pergunta.
 
-   🔴 EM REPOUSO ESTA REGRA NÃO PINTA NADA. A tela que ensinava o gesto saiu e o
-   gesto veio pra lista real — e a lista real aparece em telas que o portão
-   antes×depois mede PIXEL a pixel. Por isso `overflow` só entra COM o gesto em
-   curso. Já o `::after` nasce em repouso com largura ZERO (invisível): sem ele
-   existindo antes, a barra vermelha não teria de onde animar — pseudo-elemento
-   recém-criado não transiciona, ele SALTA pra 100%.
+   🔴 EM REPOUSO ESTA REGRA NÃO PINTA NADA — a lista real aparece em telas que o
+   portão antes×depois mede PIXEL a pixel. O `::after` vermelho nasce com
+   opacity 0 (invisível) e quem o acende é a var --puxa, escrita só com o gesto
+   em curso; o ::before do punho é transparente por natureza.
    ========================================================================== */
 [data-gestos] .stop{touch-action:pan-y;user-select:none}
-[data-gestos] .stop::after{content:"";position:absolute;inset:0;width:0;background:rgba(242,85,90,.22);
-  pointer-events:none;transition:width 0s}
-[data-gestos] .stop.armando,[data-gestos] .stop.pronto{overflow:hidden}
-[data-gestos] .stop.armando::after{width:100%;transition:width .95s linear}
-[data-gestos] .stop.pronto{border-color:var(--red);background:var(--red-bg)}
-[data-gestos] .stop.pronto::after{width:100%;background:rgba(242,85,90,.3)}
+[data-gestos] .stop::after{content:"";position:absolute;inset:0;border-radius:inherit;
+  background:rgba(242,85,90,.22);opacity:var(--puxa,0);pointer-events:none}
+[data-gestos] .stop.pronto{overflow:hidden;border-color:var(--red);background:var(--red-bg)}
+[data-gestos] .stop.pronto::after{opacity:1;background:rgba(242,85,90,.3)}
 [data-gestos] .stop.arrastando{z-index:5;box-shadow:0 12px 28px rgba(0,0,0,.5);border-color:var(--blue-line);
-  transform:scale(1.015);transition:transform .12s}
+  transform:scale(1.015);transition:transform .12s,box-shadow .12s}
 [data-gestos] .grip{cursor:grab;touch-action:none}
+/* O alvo gordo do punho: cobre punho + número + hora, altura toda do cartão.
+   z-index sobe por cima do .numwrap (irmão posterior) só pro TOQUE — sem cor,
+   nada muda no desenho; o toque parado ali continua abrindo a folha (click). */
+[data-gestos] .grip::before{content:"";position:absolute;left:0;top:0;bottom:0;width:60px;z-index:2}
 
 /* ---------- chat da Central ---------- */
 .recado{border:.7px solid var(--amber-line);background:#1a1408;border-radius:14px;padding:11px;margin-top:6px}

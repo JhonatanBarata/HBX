@@ -2640,10 +2640,13 @@ function portao(chave){
 }
 
 /* ==========================================================================
-   OS DOIS GESTOS, de verdade — na LISTA DE PARADAS, não numa maquete. Um
-   ponteiro só (pointer events) atende dedo e mouse. As duas zonas são
-   exclusivas: quem encosta no punho arrasta e NUNCA arma o excluir — no app
-   isso já custou cartão apagado por engano.
+   OS GESTOS DA LISTA, de verdade — na LISTA DE PARADAS, não numa maquete. Um
+   ponteiro só (pointer events) atende dedo e mouse. Três gestos (dono, 08/08):
+   · PUNHO (coluna esquerda inteira) — arrasta NA HORA, sem espera.
+   · SEGURAR o cartão parado — LEVANTA pra arrastar (Keep/Spotify).
+   · DESLIZAR o cartão pra ESQUERDA — retirar da rota (o excluir morava no
+     segurar; segurar virou arrastar, então o excluir mudou de gesto, não de
+     peso: continua PERGUNTANDO antes de apagar).
 
    🔴 A TELA QUE ENSINAVA O GESTO SAIU; O GESTO NÃO. Ele só trocou de
    endereço: quem liga é a marca `data-gestos` na lista, e não mais o nome de
@@ -2654,7 +2657,11 @@ function ligarGestos(camada){
   camada.querySelectorAll('[data-gestos]').forEach(lista=>ligarLista(camada,lista));
 }
 function ligarLista(camada,lista){
-  const TEMPO=950, TOLERANCIA=12;   // 950ms e 12px: os mesmos números do app
+  // 950ms era o tempo do EXCLUIR (que hoje é deslize); levantar pra arrastar
+  // pede menos dedo parado — 380ms é o "pegar" dos apps de lista do mercado.
+  // 64px de deslize = o MESMO limiar do troca-módulo no native.js: o dedo
+  // aprende UMA distância. 12px de tolerância seguem os números do app.
+  const LEVANTA=380, TOLERANCIA=12, LIMIAR=64;
 
   /* Só o NÚMERO da parada renumera. A hora ao lado é ETA — quem recalcula é o
      servidor, e casca que inventa horário mente com cara de dado. */
@@ -2672,65 +2679,169 @@ function ligarLista(camada,lista){
     item.addEventListener('click',e=>{e.stopPropagation();e.preventDefault();},{capture:true,once:true});
   }
 
-  // ---- ARRASTAR PELO PUNHO -------------------------------------------------
-  function arrastar(item,ev){
-    ev.preventDefault();
-    const y0=ev.clientY; let base=0, andou=false;
+  /* Quem ROLA por baixo da lista — pra rolagem automática na borda e pra
+     TRAVAR a rolagem nativa enquanto um cartão está no dedo. Todos os
+     roláveis, não só o primeiro: escondido um, o navegador pega o próximo. */
+  function roladores(){
+    const rs=[];
+    for(let p=lista.parentElement;p;p=p.parentElement){
+      if(p.scrollHeight>p.clientHeight+4){
+        const o=getComputedStyle(p).overflowY;
+        if(o==='auto'||o==='scroll') rs.push(p);
+      }
+    }
+    return rs;
+  }
+
+  // ---- ARRASTAR (pelo punho na hora; pelo cartão, depois do segurar) --------
+  function arrastar(item,ev,travarRolagem){
+    ev.preventDefault&&ev.preventDefault();
+    const rolos=roladores(), rolo=rolos[0]||null;
+    // O punho tem touch-action:none; o CARTÃO não (ele precisa deixar a lista
+    // rolar). Quando o arrasto nasce do segurar, o 1º movimento vertical faria
+    // o navegador roubar o gesto (pointercancel) — então trava-se a rolagem
+    // nativa enquanto durar. overflow:hidden não barra rolagem por SCRIPT: a
+    // automática da borda continua funcionando por baixo da trava.
+    const antes=travarRolagem?rolos.map(r=>r.style.overflowY):null;
+    if(travarRolagem) rolos.forEach(r=>r.style.overflowY='hidden');
+    if(navigator.vibrate) navigator.vibrate(20);   // "peguei" — o dedo sente na hora
+    const y0=ev.clientY; let base=0, rolou=0, dedoY=ev.clientY, andou=false, vivo=true;
     // capturar o ponteiro é o que faz o dedo não "escapar" do cartão no meio do
     // arrasto — mas falha quando o ponteiro não está ativo (e derruba o resto
     // do gesto junto). Vai protegido: sem captura o arrasto ainda funciona.
     try{ item.setPointerCapture(ev.pointerId); }catch(e){}
     item.classList.add('arrastando');
-    const mover=e=>{
-      let dy=e.clientY-y0-base;
+    // dy em espaço de LISTA: o que o dedo andou MAIS o que a lista rolou por
+    // baixo — sem o `rolou`, a rolagem automática deixava o cartão pra trás.
+    const aplicar=()=>{
+      let dy=dedoY-y0+rolou-base;
       if(Math.abs(dy)>3) andou=true;
       const vizinho = dy<0 ? item.previousElementSibling : item.nextElementSibling;
       // troca quando passa de 60% da altura do vizinho — antes disso é tremor
       if(vizinho && vizinho.classList.contains('stop') && Math.abs(dy)>vizinho.offsetHeight*.6){
         const salto=vizinho.offsetHeight*(dy<0?-1:1);
         if(dy<0) lista.insertBefore(item,vizinho); else lista.insertBefore(vizinho,item);
-        base+=salto; dy=e.clientY-y0-base;
+        base+=salto; dy=dedoY-y0+rolou-base;
       }
       item.style.transform=`translateY(${dy}px) scale(1.015)`;
     };
+    // Rolagem AUTOMÁTICA na borda: cartão no dedo perto do topo/pé, a lista
+    // anda sozinha (quanto mais fundo na borda, mais rápido). Sem isto, mover
+    // uma parada 40 posições numa lista de 50 obrigava soltar no meio.
+    const BORDA=64, VEL=13;
+    (function quadro(){
+      if(!vivo) return;
+      if(rolo){
+        const r=rolo.getBoundingClientRect(); let v=0;
+        if(dedoY<r.top+BORDA) v=-Math.ceil((r.top+BORDA-dedoY)/BORDA*VEL);
+        else if(dedoY>r.bottom-BORDA) v=Math.ceil((dedoY-(r.bottom-BORDA))/BORDA*VEL);
+        if(v){
+          const marca=rolo.scrollTop;
+          rolo.scrollTop=marca+v;
+          const real=rolo.scrollTop-marca;
+          if(real){ rolou+=real; aplicar(); }
+        }
+      }
+      requestAnimationFrame(quadro);
+    })();
+    const mover=e=>{ dedoY=e.clientY; aplicar(); };
+    // 🔴 NO DEDO, QUEM DIRIGE É O TOQUE, NÃO O PONTEIRO (medido no aparelho,
+    // 08/08): o cartão é touch-action:pan-y, e no 1º movimento vertical o
+    // WebView toma o gesto pra "rolar" e dispara POINTERCANCEL — mesmo com a
+    // rolagem travada (a trava impede a tela de andar, não o sequestro). Só
+    // que os TOUCHMOVE continuam pingando durante o gesto sequestrado: então
+    // o dedo entra por eles, e o pointercancel de toque é IGNORADO. Mouse não
+    // tem sequestro — segue no fluxo de ponteiro.
+    const dedo=ev.pointerType!=='mouse';
+    const moverToque=e=>{
+      if(!e.touches||!e.touches[0]) return;
+      dedoY=e.touches[0].clientY; aplicar();
+      if(e.cancelable) e.preventDefault();
+    };
     const soltar=()=>{
+      if(!vivo) return;                 // toque e ponteiro terminam os dois: só o 1º vale
+      vivo=false;
+      if(travarRolagem) rolos.forEach((r,i)=>{ r.style.overflowY=antes[i]; });
       item.classList.remove('arrastando');
       item.style.transform=''; renumerar();
       if(andou) engolirToque(item);
       item.removeEventListener('pointermove',mover);
       item.removeEventListener('pointerup',soltar);
-      item.removeEventListener('pointercancel',soltar);
+      item.removeEventListener('pointercancel',cancelou);
+      item.removeEventListener('touchmove',moverToque);
+      item.removeEventListener('touchend',soltar);
+      item.removeEventListener('touchcancel',soltar);
     };
+    const cancelou=e=>{ if(e.pointerType!=='touch') soltar(); };
     item.addEventListener('pointermove',mover);
     item.addEventListener('pointerup',soltar);
-    item.addEventListener('pointercancel',soltar);
+    item.addEventListener('pointercancel',cancelou);
+    if(dedo){
+      item.addEventListener('touchmove',moverToque,{passive:false});
+      item.addEventListener('touchend',soltar);
+      item.addEventListener('touchcancel',soltar);
+    }
   }
 
-  // ---- SEGURAR PARA EXCLUIR ------------------------------------------------
-  function segurar(item,ev){
+  // ---- O CARTÃO: segurar LEVANTA pra arrastar, deslizar pra esquerda RETIRA -
+  function cartao(item,ev){
     const x0=ev.clientX, y0=ev.clientY;
-    item.classList.add('armando');
-    let armado=false;
+    let deslizando=false, dedoX=x0, dedoY=y0;
     const relogio=setTimeout(()=>{
-      armado=true;
-      item.classList.remove('armando'); item.classList.add('pronto');
-      if(navigator.vibrate) navigator.vibrate(45);
+      // dedo PARADO no cartão o tempo do LEVANTA: vira arrasto, com a vibrada
+      // mais longa do "peguei de verdade". O toque depois disso não vale mais.
+      largar();
       engolirToque(item);
-      perguntarExclusao(item);
-    },TEMPO);
-    const desarmar=()=>{
-      clearTimeout(relogio);
-      if(!armado) item.classList.remove('armando');
-      item.removeEventListener('pointermove',mexeu);
-      item.removeEventListener('pointerup',desarmar);
-      item.removeEventListener('pointercancel',desarmar);
-      item.removeEventListener('pointerleave',desarmar);
+      if(navigator.vibrate) navigator.vibrate(45);
+      arrastar(item,{clientY:dedoY,pointerId:ev.pointerId,pointerType:ev.pointerType},ev.pointerType!=='mouse');
+    },LEVANTA);
+    const mexeu=e=>{
+      dedoX=e.clientX; dedoY=e.clientY;
+      const dx=dedoX-x0, dy=dedoY-y0;
+      if(deslizando){
+        // o cartão acompanha o dedo (só pra esquerda, com batente) e a tinta
+        // vermelha cresce na proporção; no limiar, vibra e fica "pronto".
+        item.style.transform=`translateX(${Math.max(Math.min(0,dx),-110)}px)`;
+        item.style.setProperty('--puxa',String(Math.min(1,-dx/LIMIAR)));
+        const passou=-dx>=LIMIAR;
+        if(passou&&!item.classList.contains('pronto')&&navigator.vibrate) navigator.vibrate(25);
+        item.classList.toggle('pronto',passou);
+        return;
+      }
+      if(Math.abs(dx)>TOLERANCIA||Math.abs(dy)>TOLERANCIA){
+        clearTimeout(relogio);
+        // esquerda com folga sobre o vertical = retirar; o resto é rolagem do
+        // navegador (vertical) ou nada (direita) — e o segurar já desarmou.
+        if(dx<0&&Math.abs(dx)>Math.abs(dy)*1.2){
+          deslizando=true;
+          try{ item.setPointerCapture(ev.pointerId); }catch(err){}
+        } else largar();
+      }
     };
-    const mexeu=e=>{ if(Math.abs(e.clientX-x0)>TOLERANCIA||Math.abs(e.clientY-y0)>TOLERANCIA) desarmar(); };
+    const soltou=e=>{
+      if(deslizando){
+        const dx=dedoX-x0;
+        engolirToque(item);
+        item.style.transition='transform .15s';
+        item.style.transform=''; item.style.removeProperty('--puxa');
+        setTimeout(()=>{ item.style.transition=''; },160);
+        // pointercancel/pointerleave é gesto ABORTADO — nunca pergunta.
+        if(e.type==='pointerup'&&-dx>=LIMIAR) perguntarExclusao(item);
+        else item.classList.remove('pronto');
+      }
+      largar();
+    };
+    function largar(){
+      clearTimeout(relogio);
+      item.removeEventListener('pointermove',mexeu);
+      item.removeEventListener('pointerup',soltou);
+      item.removeEventListener('pointercancel',soltou);
+      item.removeEventListener('pointerleave',soltou);
+    }
     item.addEventListener('pointermove',mexeu);
-    item.addEventListener('pointerup',desarmar);
-    item.addEventListener('pointercancel',desarmar);
-    item.addEventListener('pointerleave',desarmar);
+    item.addEventListener('pointerup',soltou);
+    item.addEventListener('pointercancel',soltou);
+    item.addEventListener('pointerleave',soltou);
   }
 
   // Exclusão de peso PERGUNTA — o gesto abre a porta, não apaga sozinho.
@@ -2756,8 +2867,8 @@ function ligarLista(camada,lista){
 
   lista.addEventListener('pointerdown',ev=>{
     const item=ev.target.closest('.stop'); if(!item||!lista.contains(item)) return;
-    if(ev.target.closest('.grip')) arrastar(item,ev);          // punho: pega na hora
-    else segurar(item,ev);                                     // cartão: arma o excluir
+    if(ev.target.closest('.grip')) arrastar(item,ev,false);    // punho: pega na hora
+    else cartao(item,ev);                          // cartão: segurar levanta, deslizar retira
   });
 }
 
