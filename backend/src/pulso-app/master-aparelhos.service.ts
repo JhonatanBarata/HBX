@@ -28,6 +28,24 @@ import { PULSO_ABERTO_MS } from './pulso-app.service';
 /** Teto de aparelhos por empresa no painel — é ficha de cliente, não relatório. */
 const PAINEL_TAKE = 60;
 
+/**
+ * 🔴 "NUNCA PULSOU" NÃO É "FORA DO APP" (08/08). Mesma lei do `fonteCaiu` do
+ * aparelho: *vazio porque o servidor disse vazio* e *vazio porque ninguém
+ * mandou* são coisas OPOSTAS, e escrever as duas do mesmo jeito faz o painel
+ * mentir. O pulso morreu na fusão de 07/08 (o `POST /logistica/recados/pendentes`,
+ * que carrega o `tela`, ficou sem chamador quando o `app.js` saiu do APK), então
+ * TODO aparelho com o APK publicado reporta `ultimaTelaAt` NULL — e a coluna
+ * dizia "fora do app" segurando um `lastUsedAt` de 2 minutos atrás na MESMA
+ * linha. Medido: moto e22, company 49, pulso NULL desde o pareamento e heartbeat
+ * de 05:25:06.
+ *
+ * `lastUsedAt` NÃO substitui o pulso: ele é tocado por qualquer chamada
+ * autenticada do aparelho (inclusive o sync nativo com o app FECHADO), então
+ * prova que o CELULAR fala com o servidor, nunca que a tela está aberta. Serve
+ * pra uma coisa só: separar "não sei" de "fora do app".
+ */
+export type SituacaoAparelho = 'no_app' | 'fora_do_app' | 'sem_pulso';
+
 export interface PainelAparelho {
   deviceId: string;
   deviceName: string | null;
@@ -39,7 +57,18 @@ export interface PainelAparelho {
   ultimaTelaAt: string | null;
   /** Servidor decide: painel nunca calcula presença com relógio de terceiro. */
   abertoAgora: boolean;
+  /** Última vez que o APARELHO falou com o servidor (heartbeat/credencial). */
+  falouEm: string | null;
+  /** `sem_pulso` = o app deste celular não reporta tela; presença é DESCONHECIDA. */
+  situacao: SituacaoAparelho;
 }
+
+/**
+ * Janela do "ainda está falando comigo". O heartbeat bate a cada 30s em primeiro
+ * plano e o jwt.strategy regrava no máximo 1×/min — 3 minutos dá folga pra rede
+ * ruim sem transformar um celular desligado há meia hora em "não sei".
+ */
+const FALOU_RECENTE_MS = 3 * 60_000;
 
 @Injectable()
 export class MasterAparelhosService {
@@ -69,12 +98,23 @@ export class MasterAparelhosService {
         appVersion: true,
         ultimaTela: true,
         ultimaTelaAt: true,
+        lastUsedAt: true,
         user: { select: { name: true, username: true, email: true } },
       },
     });
 
     return linhas.map((linha) => {
       const at = linha.ultimaTelaAt ? new Date(linha.ultimaTelaAt) : null;
+      const falou = linha.lastUsedAt ? new Date(linha.lastUsedAt) : null;
+      const abertoAgora = Boolean(at && agora.getTime() - at.getTime() < PULSO_ABERTO_MS);
+      // A ordem é a régua: pulso fresco manda; sem pulso NENHUM, quem fala é o
+      // heartbeat, e ele só tem direito de dizer "não sei" — nunca "está no app".
+      const falouAgora = Boolean(falou && agora.getTime() - falou.getTime() < FALOU_RECENTE_MS);
+      const situacao: SituacaoAparelho = abertoAgora
+        ? 'no_app'
+        : !at && falouAgora
+          ? 'sem_pulso'
+          : 'fora_do_app';
       return {
         deviceId: linha.id,
         deviceName: linha.name ?? null,
@@ -84,7 +124,9 @@ export class MasterAparelhosService {
         appVersion: linha.appVersion ?? null,
         ultimaTela: linha.ultimaTela ?? null,
         ultimaTelaAt: at ? at.toISOString() : null,
-        abertoAgora: Boolean(at && agora.getTime() - at.getTime() < PULSO_ABERTO_MS),
+        abertoAgora,
+        falouEm: falou ? falou.toISOString() : null,
+        situacao,
       };
     });
   }

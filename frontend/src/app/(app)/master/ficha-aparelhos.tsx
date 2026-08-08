@@ -10,6 +10,12 @@
 // Vocabulário: ⚪ é "fora do app", NUNCA "offline" — a gente lê o pulso do
 // APLICATIVO, não o estado do celular no mundo.
 //
+// 🔴 E "NÃO REPORTA" NÃO É "FORA DO APP" (08/08). O pulso morreu na fusão de
+// 07/08 junto com o `app.js`, então todo APK publicado tem `ultimaTelaAt` NULL —
+// e esta coluna dizia "fora do app" com o heartbeat do mesmo aparelho de 2
+// minutos atrás no banco. O dono viu no e22: "fala que está offline! e não
+// está". Ausência de dado tem nome próprio; ela nunca vira uma afirmação.
+//
 // Backend (JWT + MasterGuard):
 //   GET  /master/empresas/:companyId/aparelhos
 //   GET  /master/pulso/:deviceId/trilha         (lazy, só ao expandir)
@@ -36,6 +42,8 @@ export type Aparelho = {
   ultimaTela: string | null;
   ultimaTelaAt: string | null;
   abertoAgora: boolean;
+  falouEm: string | null;
+  situacao: "no_app" | "fora_do_app" | "sem_pulso";
 };
 
 type TrilhaPonto = { tela: string; at: string };
@@ -326,13 +334,25 @@ export function FichaAparelhos({ companyId }: { companyId: number }) {
                       </div>
                     </td>
                     <td>
-                      <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}>
+                      {/* 🔴 TRÊS ESTADOS, não dois. "sem_pulso" = o app deste celular
+                          não reporta tela (APK anterior ao conserto de 08/08): a
+                          presença é DESCONHECIDA, e escrever "fora do app" ali era o
+                          painel afirmando o que não sabe — com o heartbeat do mesmo
+                          aparelho de minutos atrás na linha ao lado. */}
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 7 }}
+                        title={l.situacao === "sem_pulso"
+                          ? `Este app não manda o pulso de tela. O aparelho falou com o servidor ${haQuantoTempo(l.falouEm)} — atualize o app para saber se ele está aberto.`
+                          : undefined}>
                         <span className={"ckm-dot" + (l.abertoAgora ? " ok" : "")} />
-                        {l.abertoAgora ? "no app" : "fora do app"}
+                        {l.situacao === "no_app" ? "no app" : l.situacao === "sem_pulso" ? "não reporta" : "fora do app"}
                       </span>
                     </td>
                     <td>{l.ultimaTela || <span className="ckm-muted-cell">—</span>}</td>
-                    <td>{haQuantoTempo(l.ultimaTelaAt)}</td>
+                    <td>
+                      {l.situacao === "sem_pulso"
+                        ? <span className="ckm-muted-cell">falou {haQuantoTempo(l.falouEm)}</span>
+                        : haQuantoTempo(l.ultimaTelaAt)}
+                    </td>
                     <td className="ckm-feed-meta">{l.appVersion || "—"}</td>
                     <td>
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>

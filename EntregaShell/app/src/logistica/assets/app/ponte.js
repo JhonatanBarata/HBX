@@ -2639,7 +2639,12 @@
      está sem Firebase. `carregarBarra` já paga 1 chamada por minuto: recado é
      mais urgente que configuração, e continua sendo UMA chamada por vez.
      ══════════════════════════════════════════════════════════════════════════ */
-  const RECADOS_POLL_MS = 10000;
+  /* 5 s NÃO é chute: `PULSO_ABERTO_MS` do servidor é 15 s, e é ESTE poll que
+     carrega o `tela` que decide "no app / fora do app" no painel do master.
+     Com 10 s um poll lento já passava dos 15 e o aparelho piscava pra "fora do
+     app" com o motorista olhando pra tela. A cadência e a janela são um par —
+     mexer numa sem a outra faz o painel mentir. */
+  const RECADOS_POLL_MS = 5000;
   /** Recado velho não grita. Aparelho que passou o dia desligado não pode
       acordar tocando 20 alarmes de ontem — o PORTÃO continua cobrando o
       "Entendi" deles (trava não expira), só o barulho é que tem validade. */

@@ -22,6 +22,7 @@ type Aparelho = {
   appVersion: string | null;
   ultimaTela: string | null;
   ultimaTelaAt: Date | null;
+  lastUsedAt: Date | null;
   revokedAt: Date | null;
   ocultoEm: Date | null;
   tokenVersion: number;
@@ -38,6 +39,7 @@ function aparelho(over: Partial<Aparelho> & { id: string; companyId: number }): 
     appVersion: '149',
     ultimaTela: null,
     ultimaTelaAt: null,
+    lastUsedAt: null,
     revokedAt: null,
     ocultoEm: null,
     tokenVersion: 3,
@@ -110,6 +112,55 @@ test('aparelho que nunca pulsou não inventa hora nem presença', async () => {
   assert.equal(linha.ultimaTela, null);
   assert.equal(linha.abertoAgora, false);
   assert.equal(linha.appVersion, null);
+  assert.equal(linha.situacao, 'fora_do_app', 'sem pulso E sem heartbeat: aí sim é fora do app');
+});
+
+/**
+ * 🔴 O CASO moto e22 (08/08). Aparelho ligado, falando com o servidor, e o painel
+ * escrevia "fora do app" porque o APK dele não manda o pulso de tela — que morreu
+ * na fusão de 07/08. O dono viu e disse: "fala que está offline! e não está".
+ *
+ * Ausência de dado tem NOME PRÓPRIO. Nunca vira afirmação.
+ */
+test('nunca pulsou mas FALOU agora: é "não sei", nunca "fora do app"', async () => {
+  const agora = new Date('2026-08-08T05:30:00.000Z');
+  const h = harness([
+    aparelho({ id: 'e22', companyId: 49, name: 'moto e22', lastUsedAt: new Date(agora.getTime() - 60_000) }),
+  ]);
+  const [linha] = await h.service.listar(49, agora);
+  assert.equal(linha.situacao, 'sem_pulso');
+  assert.equal(linha.abertoAgora, false, 'heartbeat NUNCA promove a "está no app": ele não prova tela aberta');
+  assert.equal(linha.falouEm, new Date(agora.getTime() - 60_000).toISOString());
+});
+
+test('heartbeat velho não segura "não sei": celular desligado é fora do app', async () => {
+  const agora = new Date('2026-08-08T05:30:00.000Z');
+  const h = harness([
+    aparelho({ id: 'e22', companyId: 49, lastUsedAt: new Date(agora.getTime() - 30 * 60_000) }),
+  ]);
+  const [linha] = await h.service.listar(49, agora);
+  assert.equal(linha.situacao, 'fora_do_app');
+});
+
+test('pulso fresco MANDA: heartbeat não muda quem está no app', async () => {
+  const agora = new Date('2026-08-08T05:30:00.000Z');
+  const h = harness([
+    aparelho({
+      id: 'g15', companyId: 49, ultimaTela: 'rota',
+      ultimaTelaAt: new Date(agora.getTime() - 5_000),
+      lastUsedAt: new Date(agora.getTime() - 5_000),
+    }),
+    // Pulsou um dia, hoje não: tem dado, e o dado diz que ele saiu. Heartbeat
+    // fresco (sync nativo com o app FECHADO) não pode reabrir o app na tela.
+    aparelho({
+      id: 'velho', companyId: 49, ultimaTela: 'rota',
+      ultimaTelaAt: new Date(agora.getTime() - 10 * 60_000),
+      lastUsedAt: new Date(agora.getTime() - 10_000),
+    }),
+  ]);
+  const lista = await h.service.listar(49, agora);
+  assert.equal(lista.find((l) => l.deviceId === 'g15')?.situacao, 'no_app');
+  assert.equal(lista.find((l) => l.deviceId === 'velho')?.situacao, 'fora_do_app');
 });
 
 test('derrubado e removido somem da lista; a LINHA continua no banco', async () => {
