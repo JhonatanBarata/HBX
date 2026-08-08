@@ -528,6 +528,12 @@ const DADOS={
     telefone:'(19) 99812-4477', cpf:'',
     cep:'13503-210', rua:'Rua 3a', numero:'', bairro:'Jd. Ypê',
     numeroPendente:1,
+    /* EXCLUIR só existe pra quem o SERVIDOR aceita: `DELETE /nucleo/contas/:id`
+       é ADMIN-only, e o mesmo `admin` dos Ajustes (ausência do bloco comercial
+       no `GET /logistica/config`) é quem responde. Mostrar pro motorista daria
+       403 — que o tradutor de erro do app vira "sua sessão expirou", mentira
+       pior que o botão morto que este slot veio matar (08/08). */
+    admin:1,
     observacoes:'Portão azul · deixar na área · cachorro solto',
     dias:[0,1,0,1,0,0,0],
     produtos:[
@@ -1746,9 +1752,16 @@ T.historico={nome:'Ajustes · Histórico',grupo:'Ajustes',render(){
       ${dia('Sábado · 02/08','8','31,4 km','260,00')}
       ${dia('Sexta · 01/08','13','57,9 km','560,00')}
       ${dia('Quinta · 31/07','12','52,1 km','478,00')}
-    </div>
-    <button class="act full perigo" style="margin-top:9px;justify-content:center"
-      data-superficie="confirmar">${ic('trash',17)}<b>Apagar o histórico todo</b></button>`);
+    </div>`);
+  /* 🔴 "APAGAR O HISTÓRICO TODO" SAIU (08/08) — era a terceira cópia da
+     confirmação decorativa (`data-superficie="confirmar"`): prometia apagar e
+     abria "Retirar da rota de hoje? Mercado Estrela". Não existe endpoint que
+     apague o histórico de rotas (o que a allowlist tem é
+     `DELETE /logistica/clientes/:id/historico`, que é o histórico de UM
+     cliente — outra coisa). Botão de apagar sem porta é o pior tipo de botão
+     morto: o motorista acha que apagou. Esta tela ainda é ÓRFÃ (os Ajustes não
+     têm linha pra ela e os 5 dias acima são do desenho) — quando ganhar porta,
+     ela ganha dado real, não este botão de volta. */
 }};
 
 T.consumo={nome:'Ajustes · Consumo e bônus',grupo:'Ajustes',render(){
@@ -1824,9 +1837,15 @@ ${hdr({voltar:'produtos',semChat:1})}
     ${f.estoque?`<label class="campo"><label>Estoque</label><input value="${f.estoque}" data-campo="produto-estoque" readonly>
       <span class="dica">${f.estoqueDica}</span></label>`:''}
   </div>
+  <!-- 🔴 "ARQUIVAR" SAIU (08/08, ordem do dono). Era o mesmo defeito do Excluir
+       da ficha do cliente — data-superficie="confirmar" abria a confirmação
+       decorativa da maquete, e numa ficha de PRODUTO o motorista lia "Retirar
+       da rota de hoje? Mercado Estrela · volta na próxima quarta". E aqui não
+       havia nem porta pra ligar: o backend só tem POST/PATCH de
+       /logistica/produtos — arquivar/excluir produto não existe em endpoint
+       nenhum, nem na allowlist do APK. Produto sai do catálogo pelo PC. -->
   <div class="acts" style="margin-top:12px">
     <button class="act go wide" style="justify-content:center" data-acao="salvar-produto">${ic('check',19)}<b>Salvar</b></button>
-    <button class="act" style="justify-content:center" data-superficie="confirmar">${ic('box',17)}<b>Arquivar</b></button>
   </div>
 </div>
 ${nav('ajustes')}`;}};
@@ -1984,10 +2003,20 @@ ${hdr({voltar:'clientes',semChat:1})}
   </div>
   <button class="act full" style="margin-top:7px;justify-content:center">${ic('plus',17)}<b>Novo produto / entrega</b></button>
 
+  <!-- 🔴 O EXCLUIR PROMETIA E NÃO CUMPRIA (medido no aparelho em 08/08): ele era
+       data-superficie="confirmar", a confirmação DECORATIVA da maquete — na
+       ficha de um cliente real o diálogo dizia "Retirar da rota de hoje?
+       Mercado Estrela · volta na próxima quarta" (nome de OUTRO cliente, verbo
+       de OUTRA ação) e nada era excluído. Agora é data-acao própria: a ponte
+       pergunta com o nome de QUEM está aberto e chama a porta de verdade.
+       O botão só nasce pra admin — ver o porquê no DADOS.ficha. Com um botão
+       só o .acts (flex) dá a linha inteira ao Salvar, sem buraco.
+       ⚠️ Comentário DENTRO de template literal: nada de acento grave aqui, ele
+       FECHA a string (custou uma tela preta na primeira injeção deste item). -->
   <div class="acts" style="margin-top:12px">
     <button class="act go wide" style="justify-content:center" data-acao="salvar-cliente">${ic('check',19)}<b>Salvar</b></button>
-    <button class="act perigo" style="justify-content:center"
-      data-superficie="confirmar">${ic('trash',17)}<b>Excluir</b></button>
+    ${f.admin?`<button class="act perigo" style="justify-content:center"
+      data-acao="excluir-cliente">${ic('trash',17)}<b>Excluir</b></button>`:''}
   </div>
 </div>
 ${nav('ajustes')}`;}};

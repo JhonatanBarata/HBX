@@ -249,10 +249,20 @@
     if (/Abra esta tela pelo HBX/i.test(msg)) return msg;
     return msg || 'Não consegui agora.';
   };
+  /* 🔴 O TRADUTOR APAGAVA O QUE O SERVIDOR DISSE (08/08). O `native.js` entrega
+     `error.status` (o código HTTP) e `error.body` (o corpo já lido) — e este
+     `catch` jogava os dois no lixo ao trocar de Error. Quem chama ficava sem
+     como distinguir "409 porque o cliente tem dívida" de "500 qualquer": a
+     mensagem que sobrava era o `Falha 409` cru do envelope. A tradução em
+     português continua a mesma (é ela que vai pra tela por padrão); o status e
+     o corpo viajam JUNTO pra quem quiser dizer a frase certa daquele caso. */
   const chamar = (metodo, caminho, corpo) => {
     if (!temPonte()) return Promise.reject(new Error('Abra esta tela pelo HBX Logística.'));
     return window.HBX.api(caminho, { method: metodo, body: corpo }).catch((e) => {
-      throw new Error(humano(e));
+      const erro = new Error(humano(e));
+      erro.status = Number((e && e.status) || 0);
+      erro.body = (e && e.body) || null;
+      throw erro;
     });
   };
   window.API = {
@@ -3968,6 +3978,12 @@
     const entregas = Number(it.entregasCount) || 0;
     const dias = ficha.dias || [];
     window.usarDados('ficha', {
+      // O EXCLUIR é do dono, não do motorista: `DELETE /nucleo/contas/:id` é
+      // ADMIN-only no servidor, e este é o MESMO sinal das 6 chaves do Avançado.
+      // Config que não chegou (app sem rede no boot) = sem botão: esconder um
+      // botão que o servidor talvez aceitasse é menos grave que oferecer uma
+      // exclusão que volta 403 traduzido como "sua sessão expirou".
+      admin: ehAdmin() ? 1 : 0,
       ini: iniciais(it.name || d.name),
       nome: valorFicha('nome', d.name || it.name),
       // "cliente desde" não vem em nenhuma das duas portas — some em vez de
@@ -4234,6 +4250,83 @@
         acoes: [['Fechar', '']],
       });
     });
+  }
+
+  /* 🔴 O EXCLUIR DA FICHA ERA CENÁRIO (medido no aparelho, 08/08). O botão era
+     `data-superficie="confirmar"` — a confirmação DECORATIVA da maquete: na
+     ficha de um cliente real ele abria "Retirar da rota de hoje? Mercado
+     Estrela · volta na próxima quarta". Nome de outro cliente, verbo de outra
+     ação, e nada era excluído. Três defeitos numa peça só.
+
+     Agora a pergunta cita QUEM está aberto, e o "Excluir" chama a porta de
+     verdade. Duas coisas o servidor decide e a tela obedece:
+     · quem pode — `DELETE /nucleo/contas/:id` é ADMIN-only; o botão só nasce
+       pra `admin` (ver `encherFicha`), então o 403 não chega aqui por desenho;
+     · dívida trava — cliente com valor em aberto volta 409 CLIENTE_COM_DEBITO,
+       COM o saldo. Esse número vira frase: "Fulano deve R$ 84,00", e não o
+       `Falha 409` cru que o envelope entregava antes de o status viajar.
+     É soft-delete no servidor (guarda um retrato antes de esconder), por isso a
+     frase é "sai do cadastro", nunca "apaga pra sempre" — a tela não promete
+     mais do que o banco faz. */
+  async function excluirCliente() {
+    if (!ficha || typeof window.portao !== 'function') return;
+    const id = ficha.id;
+    const d = ficha.detalhe || {};
+    const it = ficha.item || {};
+    // O nome vem do MESMO lugar que a tela está mostrando (detalhe > lista);
+    // sem nome não se pergunta, porque a pergunta sem nome é a de antes.
+    const nome = String(d.name || it.name || '').trim();
+    if (!nome) return;
+    // Já montada, a parada de hoje é da ROTA, não do cadastro: apagar o cliente
+    // não a tira de lá. Dizer isso aqui evita o motorista sair pra rua achando
+    // que a parada sumiu — e é de graça (`PARADAS_SALVAR` já está na memória).
+    const naRotaDeHoje = PARADAS_SALVAR.some((p) => String(p.customerProfileId) === String(id));
+    window.portao({
+      tom: 'alerta', ico: 'trash', titulo: `Excluir ${esc(nome)}?`,
+      sub: `Sai do cadastro e não entra mais em rota. As entregas já feitas ficam no histórico.${
+        naRotaDeHoje ? ' A parada de hoje continua na rota até você retirar.' : ''}`,
+      acoes: [['Não', ''], ['Excluir', 'principal']], classe: 'duas',
+    });
+    const botao = naCamada('.portao-wrap .principal');
+    if (!botao) return;
+    botao.addEventListener('click', () => comTrava(async () => {
+      try { await window.API.del(`/nucleo/contas/${encodeURIComponent(id)}`); }
+      catch (e) { return erroDeExcluir(e, nome); }
+      ficha = null;
+      await carregarClientes();
+      if (typeof window.ir === 'function') window.ir('clientes');
+      window.portao({
+        tom: 'ok', ico: 'check', titulo: 'Cliente excluído',
+        sub: `${esc(nome)} saiu do cadastro.`, acoes: [['Fechar', '']],
+      });
+    }), { once: true });
+  }
+
+  /** as duas respostas que o servidor dá aqui e que o aviso genérico estraga */
+  function erroDeExcluir(e, nome) {
+    const corpo = (e && e.body) || {};
+    if (String(corpo.error || '') === 'CLIENTE_COM_DEBITO') {
+      // `saldo` vem em REAIS (o serviço arredonda em 2 casas), não em centavos.
+      const saldo = typeof corpo.saldo === 'number' ? corpo.saldo : null;
+      return window.portao({
+        tom: 'trava', ico: 'cash', titulo: 'Tem valor em aberto',
+        sub: saldo != null
+          ? `${esc(nome)} deve ${dinheiro(saldo)}. Receba ou baixe a dívida antes de excluir.`
+          : `${esc(nome)} tem valor em aberto. Receba ou baixe a dívida antes de excluir.`,
+        acoes: [['Fechar', '']],
+      });
+    }
+    // 403 aqui não é sessão vencida (é o que o tradutor diria): é o servidor
+    // dizendo que esta conta não manda no cadastro. O botão nem devia estar na
+    // tela — se apareceu, a frase tem que ser a verdadeira.
+    if (Number(e && e.status) === 403) {
+      return window.portao({
+        tom: 'trava', ico: 'lock', titulo: 'Isso é do escritório',
+        sub: 'Excluir cliente é no computador, com a conta do dono.',
+        acoes: [['Fechar', '']],
+      });
+    }
+    return avisoErro(e);
   }
 
   /* ------------------------------------------------------------------------
@@ -4564,6 +4657,7 @@
     'registrar-nao-entregue': registrarNaoEntregue,
     'fechar-dia': fecharDia,
     'salvar-cliente': salvarCliente,
+    'excluir-cliente': excluirCliente,
     'salvar-produto': salvarProduto,
     // o "+" do cabeçalho: cadastrar cliente na porta
     'usar-meu-local': usarMeuLocal,
