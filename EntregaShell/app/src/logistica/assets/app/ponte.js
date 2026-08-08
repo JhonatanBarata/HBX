@@ -527,6 +527,7 @@
         carregando: false,
         semFonte: false,
         pronta: 1,
+        vazio: textoVazio(0),
         somaParadas: String(paradas.length),
         somaProdutos: String(itens.reduce((s, it) => s + (Number(it.quantidade) || 0), 0)),
         somaValor: temValor ? dinheiro(marcado) : '',
@@ -598,6 +599,9 @@
          de iniciar). */
       montagem: {
         carregando: true, linhas: [], pronta: 0, iniciarSub: '',
+        // COPY que o ESTADO decide não é copy do desenho: no boot o dia é HOJE,
+        // e o "nesse dia" do mock não se refere a dia nenhum sem chip aceso.
+        vazio: textoVazio(0),
         somaParadas: '', somaProdutos: '', somaValor: '', dias: [], diaSel: 0,
       },
       clientes: { carregando: true, lista: [], total: '', semEndereco: '', marcadoHoje: '', subtitulo: '' },
@@ -894,14 +898,26 @@
     if (typeof window.usarDados !== 'function') return;
     if (!ehAdmin()) return;
     const hoje = diaDaSemana();
-    // HOJE fica SEMPRE, mesmo vazio: é o dia que a tela carrega e o dia que
-    // nasce aceso. Chip selecionado que não aparece é tela que não sabe
-    // explicar o que está mostrando.
+    // 🔴 A REGRA É UMA SÓ, E VALE PRO HOJE TAMBÉM (dono, 08/08: "se o dia não
+    // tem nada: nada a exibir hoje"). Eu tinha aberto exceção pro dia atual —
+    // ele ficaria de pé mesmo vazio, pra não sobrar seleção sem chip. Errado:
+    // chip de um dia que não tem ninguém é convite pra lista vazia, e o dia
+    // atual não é diferente dos outros. Quem explica a tela quando hoje está
+    // vazio é o TEXTO ("Nada a exibir hoje"), não um chip mentindo que há o que
+    // montar.
     const dias = [1, 2, 3, 4, 5, 6, 7]
-      .filter((n) => n === hoje || !diasComCliente || diasComCliente.has(n))
+      .filter((n) => !diasComCliente || diasComCliente.has(n))
       .map((n) => [n === hoje ? 0 : n, ROTULO_DIA[n]]);
     window.usarDados('montagem', { dias, diaSel: montarDia });
   }
+
+  /* O recado da lista vazia. Hoje sem ninguém não tem chip pra explicar a tela
+     (a regra acima o tirou da fila), então quem explica é esta linha — texto
+     literal do dono. Outro dia continua com o recado que já existia: ali o chip
+     está aceso e o "nesse dia" tem a quem se referir. Um dia da semana pode vir
+     vazio mesmo tendo gente: a cadência (quinzenal, de N em N) decide se ele
+     cai NESTA semana. */
+  const textoVazio = (dia) => (dia ? 'Nenhum cliente nesse dia' : 'Nada a exibir hoje');
 
   /* 🔴 O CHIP DE DIA TEM QUE TROCAR A LISTA (dono, 07/08: "alterno entre dias
      e só aparece o mesmo cliente"). Antes o chip só mudava a SELEÇÃO — a lista
@@ -967,6 +983,7 @@
       linhas,
       pronta: 0,
       iniciarSub: '',
+      vazio: textoVazio(alvo),
       somaParadas: String(linhas.length),
       somaProdutos: String(produtos),
       somaValor: temPreco ? dinheiro(total) : '',
