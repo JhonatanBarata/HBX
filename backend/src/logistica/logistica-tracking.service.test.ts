@@ -252,15 +252,27 @@ function setup(options?: { session?: boolean; sessionStartedAt?: Date }) {
         .filter((status) => !['entregue', 'cancelada'].includes(status)).length,
     },
   };
-  prisma.$queryRawUnsafe = async () => {
+  /* 🔴 A TRAVA DA ROTA CHAMA `$executeRawUnsafe`, NÃO `$queryRawUnsafe` (achado
+     em 08/08). O commit `ae2606f2` ("execute advisory route lock without void
+     decoding") trocou o método do `lockLogisticaRouteTransaction` — porque
+     `pg_advisory_xact_lock` devolve `void` e o `$queryRaw` do Prisma quebra ao
+     tentar desserializar isso — e ESTE dublê ficou no método antigo. Resultado:
+     o guarda de tipo da trava (`typeof tx?.$executeRawUnsafe !== 'function'`)
+     derrubava 4 testes com "A trava da rota exige uma transação PostgreSQL
+     ativa" — falha do DUBLÊ, com cara de defeito do serviço.
+     Os dois nomes apontam pro MESMO portão de propósito: é ele que o
+     `pauseNextRouteLock` segura pra simular duas rotas disputando a trava. */
+  const portaoDaTrava = async () => {
     if (state.routeLockGate) {
       const gate = state.routeLockGate;
       state.routeLockGate = null;
       gate.markStarted();
       await gate.waitForRelease;
     }
-    return [];
+    return 1;   // `$executeRawUnsafe` devolve linhas afetadas, não linhas
   };
+  prisma.$queryRawUnsafe = portaoDaTrava;
+  prisma.$executeRawUnsafe = portaoDaTrava;
   prisma.$transaction = async (callback: any) => callback(prisma);
 
   const mobileDevices: any = {

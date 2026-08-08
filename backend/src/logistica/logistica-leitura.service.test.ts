@@ -646,7 +646,14 @@ test('finalizar: nome duplicado (case-insensitive) na empresa → 409 ROTA_NOME_
   const { prisma, stores } = buildHarness({
     product: [seedProduct(1)],
     customerProfile: [{ id: 'cust-1', companyId: COMPANY, name: 'A', isCliente: true }],
-    logisticaRotaModelo: [{ id: 'modelo-existente', companyId: COMPANY, nome: 'Rota Centro', diaSemana: 1, paradasJson: [] }],
+    /* 🔴 `tipo: 'LIVRE'` NÃO É ENFEITE (achado em 08/08). O `assertNomeUnico`
+       procura por `{ companyId, tipo: 'LIVRE', nome }` — o `tipo` entrou com a
+       AGENDA-SEMANAL, que separou os dois espaços de nome. No banco a coluna tem
+       `@default("LIVRE")` (schema.prisma), então a linha real SEMPRE nasce LIVRE;
+       esta bancada é um Map em memória e não aplica default do Prisma, então a
+       linha semeada ficava com `tipo` undefined, o filtro não achava ninguém e o
+       teste do 409 morria calado — sem duplicata pra achar, `finalizar` passava. */
+    logisticaRotaModelo: [{ id: 'modelo-existente', companyId: COMPANY, tipo: 'LIVRE', nome: 'Rota Centro', diaSemana: 1, paradasJson: [] }],
   });
   const svc = new LogisticaLeituraService(prisma as any);
   const sessao = await svc.iniciar(COMPANY, USER, 'LEITURA');
