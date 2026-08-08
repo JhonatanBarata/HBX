@@ -357,7 +357,21 @@ export function FichaAparelhos({ companyId }: { companyId: number }) {
                         ? <span className="ckm-muted-cell">falou {haQuantoTempo(l.falouEm)}</span>
                         : haQuantoTempo(l.ultimaTelaAt)}
                     </td>
-                    <td className="ckm-feed-meta">{l.appVersion || "—"}</td>
+                    {/* 🔴 A COLUNA MOSTRAVA "alpha1" PRA TODO MUNDO. `alpha1` é o
+                        versionNAME e não muda entre publicações: o cliente parado
+                        num APK de ontem e o aparelho recém-atualizado ficavam
+                        IDÊNTICOS aqui. Em 08/08 o que denunciou o celular
+                        desatualizado do cliente foi o TAMANHO do arquivo no log do
+                        nginx — o painel não ajudou em nada. Agora o app manda o
+                        versionCODE junto, e quem AINDA não tem número é, por
+                        construção, um build anterior a este conserto. */}
+                    <td className="ckm-feed-meta">
+                      {l.appVersion
+                        ? (/\(\d+\)/.test(l.appVersion)
+                          ? l.appVersion
+                          : <span title="Build anterior a 08/08 — não informa o versionCode. Peça para atualizar o app.">{l.appVersion} · versão antiga</span>)
+                        : "—"}
+                    </td>
                     <td>
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                         {/* Ver tela só existe com o app ABERTO: espelho de app fechado

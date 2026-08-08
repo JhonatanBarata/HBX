@@ -336,7 +336,14 @@ object HbxMobileBridge {
         executor.execute {
             val payload = credentialPayload(context) ?: return@execute
             payload.put("pushToken", pushToken)
-            payload.put("appVersion", BuildConfig.VERSION_NAME)
+            // 🔴 O versionNAME NÃO IDENTIFICA BUILD. Ele é "alpha1" e não muda
+            // entre publicações: no painel do master, o cliente parado num APK de
+            // ontem e o aparelho recém-atualizado apareciam IDÊNTICOS ("alpha1"),
+            // e o dono não tinha como desconfiar. Custou uma madrugada em 08/08 —
+            // o que denunciou o cliente desatualizado foi o TAMANHO do arquivo no
+            // log do nginx, não o sistema. Quem identifica build é o versionCODE,
+            // e é ele que o `version-logistica.json` compara pra oferecer update.
+            payload.put("appVersion", "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
             val error = runCatching {
                 postJson("/mobile/actions/register-push", payload)
             }.exceptionOrNull()
