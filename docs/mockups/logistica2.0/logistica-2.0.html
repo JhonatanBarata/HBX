@@ -1134,6 +1134,9 @@ button,input{font:inherit;color:inherit}
 .gps-lado{position:absolute;right:11px;bottom:104px;z-index:20;display:flex;flex-direction:column;gap:8px}
 .gps-lado button{width:40px;height:40px;border-radius:50%;border:.7px solid var(--line);background:var(--glass);
   color:var(--blue-l);display:grid;place-items:center;cursor:pointer}
+/* voz desligada: o botão continua ali, apagado — quem silenciou precisa ver
+   COMO religar, e trocar o ícone por um "sem som" seria vocabulário novo. */
+.gps-lado button.mudo{opacity:.45}
 
 .gps-rodape{position:absolute;left:0;right:0;bottom:0;z-index:20;background:var(--glass);
   border-top:.7px solid var(--line);padding:9px 12px 12px}
@@ -2929,7 +2932,7 @@ function telaGps(chegou){
       ${baixo?`<div class="baixo">${baixo}</div>`:''}
     </div>
     <div class="gps-lado" style="bottom:118px">
-      <button aria-label="Recentralizar">${ic('target',18)}</button>
+      <button data-acao="gps-centrar" aria-label="Recentralizar">${ic('target',18)}</button>
     </div>
     <div class="gps-rodape">
       ${rodape?`<div class="parada">${ic('route',14)} ${rodape}</div>`:''}
@@ -2987,9 +2990,15 @@ function telaGps(chegou){
       <svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3.5 L16 13 L12 10.6 L8 13 Z" fill="#ff8b85"/></svg>${g.rumo}
     </div>`:''}
     ${g.velocidade?`<div class="gps-vel"><b>${g.velocidade}</b>${g.velocidadeUnidade?`<small>${g.velocidadeUnidade}</small>`:''}</div>`:''}
+    <!-- Os dois botões da beirada: até 08/08 eles não tinham GANCHO nenhum e o
+         toque morria no vidro. A voz é a do APARELHO (a chave voz do
+         soundPrefs), então o estado "mudo" chega pelo seam como qualquer outro
+         dado da tela. (Sem CRASE aqui dentro: este comentário mora num
+         template literal e a crase o fecharia — foi o que eu fiz agora.) -->
     <div class="gps-lado">
-      <button aria-label="Silenciar voz">${ic('volume',18)}</button>
-      <button aria-label="Recentralizar">${ic('target',18)}</button>
+      <button data-acao="gps-voz" class="${g.vozMuda?'mudo':''}"
+        aria-label="${g.vozMuda?'Ligar voz':'Silenciar voz'}">${ic('volume',18)}</button>
+      <button data-acao="gps-centrar" aria-label="Recentralizar">${ic('target',18)}</button>
     </div>
 
     <!-- 🔴 O RODAPÉ PODE FICAR SÓ COM O "Encerrar", e é o certo: ele é a PORTA

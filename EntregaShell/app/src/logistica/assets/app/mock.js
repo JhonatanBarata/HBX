@@ -986,7 +986,7 @@ function telaGps(chegou){
       ${baixo?`<div class="baixo">${baixo}</div>`:''}
     </div>
     <div class="gps-lado" style="bottom:118px">
-      <button aria-label="Recentralizar">${ic('target',18)}</button>
+      <button data-acao="gps-centrar" aria-label="Recentralizar">${ic('target',18)}</button>
     </div>
     <div class="gps-rodape">
       ${rodape?`<div class="parada">${ic('route',14)} ${rodape}</div>`:''}
@@ -1044,9 +1044,15 @@ function telaGps(chegou){
       <svg viewBox="0 0 24 24" width="15" height="15"><path d="M12 3.5 L16 13 L12 10.6 L8 13 Z" fill="#ff8b85"/></svg>${g.rumo}
     </div>`:''}
     ${g.velocidade?`<div class="gps-vel"><b>${g.velocidade}</b>${g.velocidadeUnidade?`<small>${g.velocidadeUnidade}</small>`:''}</div>`:''}
+    <!-- Os dois botões da beirada: até 08/08 eles não tinham GANCHO nenhum e o
+         toque morria no vidro. A voz é a do APARELHO (a chave voz do
+         soundPrefs), então o estado "mudo" chega pelo seam como qualquer outro
+         dado da tela. (Sem CRASE aqui dentro: este comentário mora num
+         template literal e a crase o fecharia — foi o que eu fiz agora.) -->
     <div class="gps-lado">
-      <button aria-label="Silenciar voz">${ic('volume',18)}</button>
-      <button aria-label="Recentralizar">${ic('target',18)}</button>
+      <button data-acao="gps-voz" class="${g.vozMuda?'mudo':''}"
+        aria-label="${g.vozMuda?'Ligar voz':'Silenciar voz'}">${ic('volume',18)}</button>
+      <button data-acao="gps-centrar" aria-label="Recentralizar">${ic('target',18)}</button>
     </div>
 
     <!-- 🔴 O RODAPÉ PODE FICAR SÓ COM O "Encerrar", e é o certo: ele é a PORTA

@@ -1702,6 +1702,9 @@
         alvos,
       };
       navFalhas = 0;
+      // rota nova = manobras novas: o que já foi dito não vale mais. Sem isto,
+      // uma curva que se repete na rota seguinte nasceria muda.
+      if (trocouAlvo) vozDitas.clear();
       pintarTraco();
     } catch (_) {
       // 🔴 FALHOU: NÃO APAGA O QUE ESTÁ NA TELA. A manobra de 20 s atrás ainda
@@ -1802,6 +1805,9 @@
         ? `${pendentes.length - 1} parada${pendentes.length - 1 > 1 ? 's' : ''}` : '',
       chegouFaltamVerbo: pendentes.length === 2 ? 'falta' : 'faltam',
       chegouKm: faltaM > 0 ? emMetros(faltaM) : '',
+      // o botão da beirada mostra o estado REAL do aparelho, não um estado só
+      // dele: quem silencia pelos Ajustes vê o botão apagado aqui também.
+      vozMuda: vozLigada() ? '' : '1',
     });
   }
 
@@ -1975,6 +1981,58 @@
     try { mapa.easeTo(passo); } catch (_) { /* mapa saindo de cena */ }
   }
 
+  /* ---- A VOZ DA MANOBRA --------------------------------------------------
+     🔴 UM GPS QUE NÃO FALA É UM GPS QUE SE LÊ DIRIGINDO. O botão "Silenciar
+     voz" já estava DESENHADO na tela de dirigir desde o V4 — e não silenciava
+     nada, porque não havia voz nenhuma: `HBX.speak` existe (os recados da
+     Central usam) e a navegação nunca o chamou. Mais um fio cortado na fusão,
+     irmão do `locationPermissionChanged` e do `manterTelaAcesa`.
+
+     DUAS falas por manobra, e só duas: a de PREPARAR (~300 m) e a da HORA
+     (~60 m). As palavras são as MESMAS que já estão na tela — a tabela de
+     manobra é mínima de propósito (Lei 8) e inventar copy de navegação é pior
+     que ficar quieto.
+
+     🔴 CADA FALA UMA VEZ SÓ. O fix chega de segundo em segundo; sem marca, o
+     aparelho repetiria "vire à direita" o quarteirão inteiro. A marca é a
+     manobra (o ponto dela) + o degrau. E quem entra na tela já colado na curva
+     NÃO ouve o "em 300 metros" depois do "vire": o degrau pulado já nasce
+     marcado.
+
+     Quem manda na voz é o APARELHO (`soundPrefs`): a chave mestra e a chave
+     `voz` que os Ajustes já tinham. Uma voz com dois donos discorda um dia. */
+  const VOZ_PREPARA_M = 300;
+  const VOZ_AGORA_M = 60;
+  const vozDitas = new Set();
+
+  const vozLigada = () => {
+    try {
+      const p = window.HBX.soundPrefs.get() || {};
+      return p.master !== false && p.voz !== false;
+    } catch (_) { return true; }
+  };
+
+  // o nome da rua vem ESCAPADO da fonte (§L1: é texto de terceiro e o mock
+  // interpola cru). Falar "&amp;" seria o aparelho lendo marcação em voz alta.
+  const paraFalar = (t) => String(t || '').replace(/&amp;/g, ' e ').replace(/&[a-z]+;/g, ' ').trim();
+
+  function vozDaManobra(m) {
+    if (!m || !m.passo || !vozLigada()) return;
+    const verbo = m.passo.verbo || '';
+    if (!verbo) return;
+    const degrau = m.distancia <= VOZ_AGORA_M ? 'agora'
+      : (m.distancia <= VOZ_PREPARA_M ? 'prepara' : '');
+    if (!degrau) return;
+    const onde = `${m.passo.lat.toFixed(5)},${m.passo.lng.toFixed(5)}`;
+    if (vozDitas.has(`${onde}#${degrau}`)) return;
+    vozDitas.add(`${onde}#prepara`);      // pulou o preparar? ele não volta atrás
+    vozDitas.add(`${onde}#${degrau}`);
+    const rua = paraFalar(m.passo.rua);
+    falar(degrau === 'agora'
+      ? (rua ? `${verbo} na ${rua}` : verbo)
+      : `Em ${Math.round(m.distancia / 10) * 10} metros, ${verbo}`);
+  }
+
   /* ---- O MODO DIRIGINDO --------------------------------------------------
      🔴 A TELA DO MOTORISTA APAGAVA NO MEIO DA ROTA. `H.manterTelaAcesa` e
      `H.modoNavegacao` existem em `native.js` desde o GPS FULL SCREEN e NINGUÉM
@@ -2010,7 +2068,12 @@
   function aoMover() {
     if (!naNavegacao()) return;
     pintarNavegacao();
-    if (telaAtual() === 'mapa') { pedirRota(); cameraDaNavegacao(); }
+    if (telaAtual() === 'mapa') {
+      pedirRota(); cameraDaNavegacao();
+      // a voz mora AQUI, no fix — não no repinte: quem entra na tela não pode
+      // levar um "vire à direita" na cara só por ter aberto o mapa.
+      vozDaManobra(manobraDaVez());
+    }
   }
 
   /* ---- A ÚNICA ASSINATURA DO GPS -----------------------------------------
@@ -3863,6 +3926,16 @@
        · `avisoChegandoDistanciaM` (500 m) — a que distância esse aviso sai. É o
          NÚMERO que aparece na linha, e agora ele é verdade: é o raio do anel
          armado em `anelDeChegada`. */
+    // Os dois da beirada da tela de dirigir. Até 08/08 o toque neles morria no
+    // vidro — botão desenhado que não faz nada é pior que botão ausente.
+    'gps-voz': () => {
+      try {
+        const p = window.HBX.soundPrefs.get() || {};
+        window.HBX.soundPrefs.set(Object.assign({}, p, { voz: p.voz === false }));
+      } catch (_) { return; }        // sem ponte de som: nada a prometer
+      pintarNavegacao();             // o botão muda de cara no mesmo toque
+    },
+    'gps-centrar': () => cameraDaNavegacao(),
     'aviso-chegada': () => virarChave('avisoChegandoEnabled'),
     // As 6 do dono. Uma chave = um campo = um PATCH, sem lote: assim o que
     // falhou fica evidente e o resto não volta atrás junto.
