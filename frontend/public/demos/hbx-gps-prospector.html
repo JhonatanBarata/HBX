@@ -1192,6 +1192,11 @@ function dirigir(meu){
     const alvo=alvoDeVelocidade(cam.s);
     cam.v+=Math.max(-2.4*dt,Math.min(1.25*dt,alvo-cam.v));
     cam.s+=cam.v*dt;
+    /* O perfil de frenagem zera a velocidade 6 m antes do fim geométrico da
+       rota. Esse é o ponto de chegada do carro: fecha a distância, pinta o
+       destino exato e libera o próximo ciclo. */
+    const chegou=ROTA.tot-cam.s<=6;
+    if(chegou){cam.s=ROTA.tot;cam.v=0;}
     const p=emS(cam.s); cam.cx=p.x; cam.cy=p.y;
     /* rumo suavizado por TEMPO (não por quadro): 1× e 4× fazem a MESMA curva */
     cam.rumo+=normAng(p.h-cam.rumo*RAD)/RAD*Math.min(1,dt*4.2);
@@ -1201,9 +1206,11 @@ function dirigir(meu){
     const r=passoEmpresas(); posicionarEmpresas(); posicionarPlacas(); atualizarHud();
     $('#dbgE').textContent=`${r.acesas} / ${EMPRESAS.length}`;
     $('#dbgP').textContent=r.prox?`${Math.round(r.prox.d)} m · ${r.prox.nome}`:'—';
-    if(cam.s>=ROTA.tot-1){
+    if(chegou){
       $('#seloChegada').classList.add('on');
-      daqui(()=>{if(meu===ficha) iniciar();},3600);
+      /* Na vitrine, chegada não vira tela parada: reinicia no mesmo instante
+         visual, deixando só um quarto de segundo para a chegada ser lida. */
+      daqui(()=>{if(meu===ficha) iniciar();},250);
       return;
     }
     raf=requestAnimationFrame(quadro);
@@ -1239,6 +1246,15 @@ function apresentar(liga){
 $('#bVideo').addEventListener('click',()=>apresentar(true));
 addEventListener('keydown',e=>{ if(e.key==='Escape') apresentar(false); });
 addEventListener('resize',caber);
+
+const luzPublica=new URLSearchParams(location.search).get('luz');
+if(luzPublica==='claro'){
+  $('#app').classList.add('claro');
+  $('#bTema').textContent='Modo escuro';
+}else if(luzPublica==='escuro'){
+  $('#app').classList.remove('claro');
+  $('#bTema').textContent='Modo claro';
+}
 
 montarMundo(); montarEmpresas(); montarPlacas(); tick(); setInterval(tick,30000);
 zerar(); atualizarHud();
