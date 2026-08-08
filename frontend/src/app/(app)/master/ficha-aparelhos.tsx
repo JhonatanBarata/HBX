@@ -130,21 +130,56 @@ function attr(valor: string | null): string {
  */
 export const ESPELHO_PADRAO = { vw: 360, vh: 800, sy: 0 };
 
-export function lerMedidasEspelho(html: string | null): { vw: number; vh: number; sy: number } {
+/**
+ * 🔴 A MEDIDA DO APARELHO MENTE ÀS VEZES (08/08) — e mentira de medida vira
+ * "esse lixo" na tela do dono.
+ *
+ * Aconteceu com o g15: o quadro chegou dizendo `vw=1728 vh=3483` — EXATAMENTE
+ * 4× o tamanho real (432×871, conferido no próprio aparelho por ADB/CDP). O
+ * WebView ignora o `<meta viewport>` quando `useWideViewPort` está desligado e
+ * calcula a largura de layout sozinho; num arranque ele errou por 4. O painel,
+ * fiel, desenhou o app num viewport de 1728 px e encolheu pra 30% pra caber:
+ * 25 paradas microscópicas onde o motorista via 9. A cura no aparelho já foi
+ * (MainActivity liga `useWideViewPort`), mas APK publicado demora a chegar em
+ * celular na rua — então o PAINEL também não pode acreditar em qualquer número.
+ *
+ * A régua: celular em pé tem entre 240 e 640 px de CSS. Fora disso a medida é
+ * defeito, não aparelho. E como o erro vem como FATOR (tudo 4× junto), dividir
+ * os dois lados pelo mesmo fator devolve a FORMA verdadeira do celular —
+ * 1728×3483 vira 432×871, que é o tamanho de verdade. Nunca em silêncio: o
+ * cabeçalho mostra o que o app disse.
+ */
+const LARG_MIN = 240;
+const LARG_MAX = 640;
+/** Alvo do reenquadramento: retrato Android comum (o g15 é exatamente isto). */
+const LARG_REF = 432;
+
+export type MedidasEspelho = { vw: number; vh: number; sy: number; crua: { vw: number; vh: number } | null };
+
+export function lerMedidasEspelho(html: string | null): MedidasEspelho {
   const ler = (nome: string, fallback: number, teto: number) => {
     const achado = new RegExp(`data-espelho-${nome}="(-?[\\d.]+)"`).exec(String(html || ""));
     const n = achado ? Math.round(Number(achado[1])) : NaN;
     return Number.isFinite(n) && n >= 0 && n <= teto && n > 0 ? n : fallback;
   };
+  const vw = ler("vw", ESPELHO_PADRAO.vw, 4000);
+  const vh = ler("vh", ESPELHO_PADRAO.vh, 4000);
+  // Rolagem pode ser 0 legitimamente (topo da tela) — por isso lê separado.
+  const sy = (() => {
+    const achado = /data-espelho-sy="(\d+)"/.exec(String(html || ""));
+    const n = achado ? Math.round(Number(achado[1])) : NaN;
+    return Number.isFinite(n) && n >= 0 && n <= 200000 ? n : 0;
+  })();
+
+  if (vw >= LARG_MIN && vw <= LARG_MAX) return { vw, vh, sy, crua: null };
+  // Fator ÚNICO nos dois lados (e na rolagem, que vive na mesma régua): o que
+  // se conserta é a escala da medida, nunca a proporção do aparelho.
+  const fator = vw / LARG_REF;
   return {
-    vw: ler("vw", ESPELHO_PADRAO.vw, 4000),
-    vh: ler("vh", ESPELHO_PADRAO.vh, 4000),
-    // Rolagem pode ser 0 legitimamente (topo da tela) — por isso lê separado.
-    sy: (() => {
-      const achado = /data-espelho-sy="(\d+)"/.exec(String(html || ""));
-      const n = achado ? Math.round(Number(achado[1])) : NaN;
-      return Number.isFinite(n) && n >= 0 && n <= 200000 ? n : 0;
-    })(),
+    vw: LARG_REF,
+    vh: Math.max(1, Math.round(vh / fator)),
+    sy: Math.round(sy / fator),
+    crua: { vw, vh },
   };
 }
 
@@ -520,8 +555,11 @@ export function FichaAparelhos({ companyId }: { companyId: number }) {
         // igual. Como o conteúdo é DOM (não imagem), ampliar não borra: o texto
         // é redesenhado no tamanho novo — daí a "resolução" que ele pediu.
         const medidas = lerMedidasEspelho(quadro?.html || null);
+        // Cabe INTEIRO ou não cabe. O piso de 0.3 que existia aqui era o pior
+        // dos dois mundos com medida errada: além de minúsculo, o quadro
+        // estourava a caixa e sumia cortado no `overflow:hidden`.
         const escala = caixa
-          ? Math.max(0.3, Math.min(caixa.w / medidas.vw, caixa.h / medidas.vh))
+          ? Math.min(caixa.w / medidas.vw, caixa.h / medidas.vh)
           : 1;
         // A janela nasce com a FORMA do aparelho e cresce até o limite da tela.
         const alturaMax = "calc(100dvh - 132px)";
@@ -541,7 +579,9 @@ export function FichaAparelhos({ companyId }: { companyId: number }) {
               <div className="meta" style={{ display: "flex", gap: 10, alignItems: "center" }}>
                 <span className="ckm-feed-meta">
                   {quadro?.html
-                    ? `${quadro.tela || "tela"} · ${medidas.vw}×${medidas.vh} · ${haQuantoTempo(quadro.at)}`
+                    ? `${quadro.tela || "tela"} · ${medidas.vw}×${medidas.vh}`
+                      + (medidas.crua ? ` (o app disse ${medidas.crua.vw}×${medidas.crua.vh})` : "")
+                      + ` · ${haQuantoTempo(quadro.at)}`
                     : "aguardando o aparelho…"}
                 </span>
                 <button type="button" className="btn-ghost" style={acaoStyle} onClick={fecharEspelho}>Fechar</button>

@@ -1012,13 +1012,18 @@
   /** monta a rota do dia: planeja (grava a ordem) e confere (semáforo). */
   async function montarRota() {
     await comTrava(async () => {
-      // 🔴 TOQUE MUDO É DEFEITO. Montar são 3 idas ao servidor (planejar,
-      // conferir, recarregar) — medido, passa de 2s. Sem sinal na tela o
-      // motorista toca de novo achando que falhou. O mock já tem o estado
-      // "carregando" (esqueleto): é ele que responde ao dedo.
-      const estadoAntes = estadoRota;
-      try { estadoRota = 'carregando'; if (typeof window.pintar === 'function') window.pintar(false); } catch (_) { /* sem seam */ }
-      const devolverEstado = () => { try { estadoRota = estadoAntes; } catch (_) { /* idem */ } };
+      // 🔴 TOQUE MUDO É DEFEITO — mas o recibo é do BOTÃO, não da tela inteira.
+      // Montar são 3 idas ao servidor (planejar, conferir, recarregar) e passa
+      // de 2 s. O sinal disto era `estadoRota='carregando'`, e ele mentia nas
+      // duas telas: na Rota trocava tudo pelo esqueleto — que vai SEM rodapé,
+      // então o botão sumia no meio do próprio toque; na Montagem não mudava
+      // nada (ela não lê `estadoRota`), só repintava. Agora quem responde ao
+      // dedo é o botão tocado, no lugar dele: "Montando…", sem aceitar toque.
+      const montando = (v) => {
+        try { window.usarDados('rota', { montando: v }); } catch (_) { /* sem seam */ }
+      };
+      montando(1);
+      const devolverEstado = () => montando(0);
 
       let plano;
       try {
@@ -1044,14 +1049,28 @@
         ? conf.items.filter((i) => Array.isArray(i.motivosVisiveis) && i.motivosVisiveis.length).length
         : 0;
 
-      devolverEstado();          // o esqueleto sai antes do dado entrar
+      /* 🔴 A ESCOLHA DE DIA MORRE ANTES DE RECARREGAR — e é ISTO que fazia o
+         toque parecer morto (dono, 08/08: "clica e não monta rota"). Quem
+         decide o que a montagem mostra é o `carregarRota`, olhando pra
+         `montarDia`: com ela ainda de pé ele reabria a PRÉVIA do dia por cima
+         da rota que acabou de nascer e reescrevia `pronta:0` — o botão do pé
+         continuava "Montar rota" com a rota MONTADA no servidor. Medido no
+         g15: `carregarRota()` devolvendo true, `estadoRota:'pronta'`, e a tela
+         terminando em `pronta:0` com o botão `montar-agora`.
+         Zerando aqui, o `carregarRota` escreve a rota REAL e o pé vira
+         "Iniciar rota" no mesmo repinte. A escolha já cumpriu o papel: o
+         `prepare` acima levou o dia; seleção presa deixaria o PRÓXIMO montar
+         puxando o dia velho calado. */
+      if (montarDia) { montarDia = 0; window.usarDados('montagem', { diaSel: 0 }); }
       // 🔴 SÓ ABRE A MONTAGEM SE A ROTA ENTROU. Com o `/logistica/rota` no chão
       // o `carregarRota` volta no catch antes de escrever no seam, e a tela de
       // montagem abria com as 6 paradas do desenho e "R$ 336,00" — dinheiro de
       // exemplo numa tela de decisão. Falhou, avisa e fica onde está.
       if (!(await carregarRota())) {
+        devolverEstado();
         return avisoErro(new Error('Não consegui montar agora. Tente de novo.'));
       }
+      devolverEstado();          // o "Montando…" sai com o dado já na tela
       if (comAviso && typeof window.usarDados === 'function') {
         window.usarDados('montagem', { iniciarSub: `${comAviso} com aviso` });
       }
@@ -1061,9 +1080,6 @@
           sub: 'Dá pra sair assim, mas confira antes.', acoes: [['Ver a rota', 'principal']],
         });
       }
-      // Rota montada: a escolha de dia cumpriu o papel e volta pro padrão —
-      // seleção presa deixaria o PRÓXIMO montar puxando o dia velho calado.
-      if (montarDia) { montarDia = 0; window.usarDados('montagem', { diaSel: 0 }); }
       // Não navega: o motorista JÁ está na montagem, e ela acabou de virar a
       // rota de verdade (o `carregarRota` acima escreveu `pronta:1`, então o
       // botão do pé agora é "Iniciar rota").
@@ -3330,6 +3346,41 @@
   }
 
   /**
+   * 🔴 A ROLAGEM DE DENTRO (08/08) — o que faz o painel ver a MESMA parada.
+   *
+   * `window.scrollY` é 0 no app inteiro: a janela não rola, quem rola é o MIOLO
+   * da tela (a lista de paradas, o corpo do chat). Com só o `sy` da janela, o
+   * motorista estava na parada 45 e o dono via a 1 — "ver a tela dele" mostrando
+   * outra tela, que é o mesmo defeito que a medida errada causa.
+   *
+   * `scrollTop` é estado de runtime: não existe no `outerHTML`, então não viaja
+   * de graça no clone. Aqui ele vira DESENHO — o miolo recortado e o conteúdo
+   * empurrado pra cima na medida exata. Vale a mesma regra da máscara: o
+   * pareamento é por ÍNDICE (clone profundo tem a mesma ordem), e por isso esta
+   * passada roda ANTES de qualquer remoção no clone.
+   */
+  function espelhoRolagemDeDentro(raiz, copia) {
+    const vivos = raiz.querySelectorAll('*');
+    const clones = copia.querySelectorAll('*');
+    const total = Math.min(vivos.length, clones.length);
+    for (let i = 0; i < total; i++) {
+      const vivo = vivos[i];
+      const st = Math.round(vivo.scrollTop || 0);
+      const sl = Math.round(vivo.scrollLeft || 0);
+      // 4 px de folga: rolagem de 1 px é resíduo de toque, não é a tela dele.
+      if (st < 4 && sl < 4) continue;
+      const filho = clones[i].firstElementChild;
+      if (!filho) continue;
+      const base = vivo.firstElementChild ? getComputedStyle(vivo.firstElementChild) : null;
+      const mt = base ? parseFloat(base.marginTop) || 0 : 0;
+      const ml = base ? parseFloat(base.marginLeft) || 0 : 0;
+      clones[i].style.overflow = 'hidden';
+      if (st >= 4) filho.style.marginTop = `${mt - st}px`;
+      if (sl >= 4) filho.style.marginLeft = `${ml - sl}px`;
+    }
+  }
+
+  /**
    * A tela como MARCAÇÃO: sem script, sem mapa (canvas WebGL não viaja) e com
    * todo campo digitável mascarado. O clone nasce ANTES de qualquer edição —
    * mexer no DOM vivo aqui seria mexer na tela de quem está trabalhando.
@@ -3348,6 +3399,7 @@
     copia.dataset.espelhoVh = String(Math.round(window.innerHeight || 0));
     copia.dataset.espelhoDpr = String(window.devicePixelRatio || 1);
     copia.dataset.espelhoSy = String(Math.round(window.scrollY || 0));
+    espelhoRolagemDeDentro(raiz, copia);
     copia.querySelectorAll('script,iframe,object,embed,link,noscript').forEach((el) => el.remove());
     // O mapa é canvas WebGL: no clone vem em branco. Vira caixa com rótulo, pra
     // a tela do painel não parecer quebrada.

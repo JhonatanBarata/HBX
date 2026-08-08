@@ -145,6 +145,17 @@ class MainActivity : AppCompatActivity() {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.databaseEnabled = true
+            // 🔴 QUEM MANDA NA LARGURA DA TELA É O `<meta viewport>` (08/08).
+            // Desligado (o padrão), `useWideViewPort` faz o WebView IGNORAR o
+            // `width=device-width` da página e inventar a largura de layout por
+            // conta própria. No g15 ele errou por 4×: o app foi montado num
+            // viewport de 1728 px (o real é 432) e o "Ver tela" do /master
+            // mostrou 25 paradas microscópicas onde o motorista via 9. Ligado,
+            // a conta é a da página — 432×871 sempre, em qualquer arranque.
+            // `loadWithOverviewMode` fica FALSE de propósito: é ele que daria
+            // um "zoom pra caber" por cima, e a página já cabe por desenho.
+            settings.useWideViewPort = true
+            settings.loadWithOverviewMode = false
             settings.setGeolocationEnabled(true)
             settings.allowFileAccess = false
             settings.allowContentAccess = true
@@ -342,6 +353,10 @@ class MainActivity : AppCompatActivity() {
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = false
             settings.allowFileAccess = false
+            // Mesma regra da tela principal: a abertura também tem
+            // `width=device-width` e também não pode ter a largura chutada.
+            settings.useWideViewPort = true
+            settings.loadWithOverviewMode = false
             webViewClient = object : WebViewClient() {
                 override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?) =
                     request?.url?.let(assetLoader::shouldInterceptRequest)
