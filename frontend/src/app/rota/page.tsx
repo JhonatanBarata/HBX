@@ -7,9 +7,8 @@ import { RotaSiteClient } from "./page.client";
 // (grupo `(app)`), por isso a vitrine mora em `/rota` — mesmo nome comercial
 // dos planos (Rota Basic / Advanced / Full).
 export const metadata: Metadata = {
-  title: "Gerenciador de Rota — HBX Logística para distribuidoras",
-  description:
-    "Agenda por cliente, rota do dia em um clique, recebimento na porta, cobrança automática no WhatsApp e rastreamento ao vivo. Para distribuidora de água e gás.",
+  title: "HBX Logística — Rota e Prospector",
+  description: "Organize as entregas, navegue e encontre empresas na sua rota.",
 };
 
 export default function RotaPage() {

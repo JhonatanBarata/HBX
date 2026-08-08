@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { LoginClient } from "@/components/hbx/login-client";
+import { LogisticaRealPreview } from "@/components/hbx/logistica-real-preview";
 import { RadarDisc } from "@/components/hbx/radar-disc";
 import { RegisterPanel } from "@/components/hbx/register-client";
 import { applyThemeSoft, setThemeMode } from "@/components/hbx/theme-attributes";
@@ -189,23 +190,14 @@ function StageVisual({ stage }: { stage: StageKey }) {
   return <BillingScreen />;
 }
 
-function PhoneVisual({ stage }: { stage: StageKey }) {
+function PhoneVisual({ themeMode }: { themeMode: "dark" | "light" }) {
   return (
-    <div className="f1-phone" aria-label="Prévia do HBX Logística no celular">
-      <div className="f1-phone__notch" />
-      <div className="f1-phone__screen">
-        <header className="f1-phone__status"><span>9:41</span><b>HBX</b><span><i /> 100%</span></header>
-        <div className="f1-phone__canvas" key={stage}>
-          <StageVisual stage={stage} />
-        </div>
-        <nav className="f1-phone__nav" aria-hidden="true">
-          {STAGES.map((item) => (
-            <span className={item.key === stage ? "is-active" : ""} key={item.key}>
-              <Icon name={STAGE_ICONS[item.key]} />
-            </span>
-          ))}
-        </nav>
-      </div>
+    <div className="f1-real-phone" aria-label="Prospector do HBX Logística em funcionamento">
+      <LogisticaRealPreview
+        className="f1-real-phone__iframe"
+        screen="prospector"
+        themeMode={themeMode}
+      />
     </div>
   );
 }
@@ -376,7 +368,7 @@ export function PublicEntry({ initialScreen = "home" }: { initialScreen?: EntryS
               </section>
             </div>
           </article>
-          <PhoneVisual stage={stage.key} />
+          <PhoneVisual themeMode={themeMode} />
         </div>
 
         <div className="f1-stage-shell">

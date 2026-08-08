@@ -1,19 +1,4 @@
-/* ============================================================================
-   PÁGINA DE LOGÍSTICA NO SITE — /rota (28/07, PR27072026-ROTA-3-NIVEIS)
-
-   Vitrine pública do Gerenciador de Rota. Veste a casca da landing
-   (.public-entry: backdrop, header, footer, CTAs .f1-*) e só acrescenta o que é
-   desta página, no escopo .rota-site.
-
-   Zero hex e zero rgba: tudo deriva dos tokens que a .public-entry já expõe
-   (--f1-*), então claro/escuro e troca de pele saem de graça (Lei nº1/nº4 do
-   Design System — esta folha NÃO precisa de isenção no check-pele).
-
-   Alvo de altura: cabe em 1366x768 sem rolar (regra "zero scroll" do
-   FRONTEND.md). O bloco @media (max-height: 900px) no fim é o freio de
-   espaçamento; abaixo de 900px de largura a página vira coluna única e passa a
-   rolar de propósito (celular).
-   ============================================================================ */
+/* /rota — vitrine curta, feita com as telas reais do HBX Logística. */
 
 .rota-site {
   display: flex;
@@ -21,527 +6,207 @@
   flex-direction: column;
 }
 
-/* ── Palco: copy + escada à esquerda, prova à direita ────────────────────── */
-
-.rt-hero {
+.rt-simple {
   position: relative;
   z-index: 1;
   display: grid;
-  width: min(1500px, 100%);
+  width: min(1380px, 100%);
+  min-height: 0;
   margin: 0 auto;
-  padding: clamp(10px, 2vh, 26px) clamp(24px, 4vw, 68px) clamp(14px, 2.4vh, 28px);
+  padding: clamp(12px, 2vh, 26px) clamp(24px, 4vw, 68px);
   flex: 1;
-  grid-template-columns: minmax(360px, 0.92fr) minmax(0, 1fr);
+  grid-template-columns: minmax(390px, 0.9fr) minmax(360px, 1.1fr);
   align-items: center;
-  column-gap: clamp(24px, 3vw, 46px);
-  row-gap: clamp(16px, 2.4vh, 28px);
+  gap: clamp(28px, 5vw, 78px);
 }
 
-.rt-copy {
+.rt-simple__copy {
   display: grid;
   min-width: 0;
-  gap: clamp(10px, 1.6vh, 18px);
-  animation: f1-rise-in 0.8s var(--f1-ease) both;
+  gap: clamp(12px, 1.8vh, 20px);
+  animation: f1-rise-in 0.7s var(--f1-ease) both;
 }
 
-.rt-eyebrow {
-  display: inline-flex;
-  width: max-content;
-  padding: 6px 12px;
-  align-items: center;
-  gap: 7px;
-  border: 1px solid var(--f1-line);
-  border-radius: 999px;
+.rt-simple__name {
   color: var(--f1-accent);
-  background: var(--f1-accent-soft);
-  font-size: var(--hbx-font-min);
-  font-weight: 800;
-  letter-spacing: 0.1em;
+  font-size: var(--fz-l1);
+  font-weight: var(--weight-extrabold);
+  letter-spacing: var(--tracking-overline);
   text-transform: uppercase;
 }
-.rt-eyebrow .f1-icon { width: 1.05em; height: 1.05em; }
 
-.rt-copy h1 {
+.rt-simple__copy h1 {
   margin: 0;
-  font-family: var(--font-display, var(--font-body, "Plus Jakarta Sans", sans-serif));
-  font-size: clamp(1.9rem, calc(2.9vw * var(--hbx-font-scale)), 3rem);
-  font-weight: 800;
-  line-height: 1.05;
-  letter-spacing: -0.028em;
-}
-.rt-copy h1 em { color: var(--f1-accent); }
-
-.rt-lead {
-  max-width: 46ch;
-  margin: 0;
-  color: var(--f1-text-soft);
-  font-size: clamp(0.86rem, calc(1.05vw * var(--hbx-font-scale)), 1rem);
-  font-weight: 500;
-  line-height: 1.5;
+  font-family: var(--font-display);
+  font-size: clamp(var(--fz-t1), 4.4vw, var(--fz-hero));
+  font-weight: var(--weight-extrabold);
+  line-height: 1.02;
+  letter-spacing: var(--tracking-tight);
 }
 
-/* ── A escada (Basic / Advanced / Full) ──────────────────────────────────── */
-/* Seleção ativa = pílula deslizante (Lei nº2), no mesmo molde do seletor de
-   etapas da landing: a pílula anda por transform, guiada pelo data-nivel do
-   <main> — sem medir DOM, sem JS de layout. */
-
-.rt-ladder {
-  position: relative;
-  display: grid;
-  padding: 5px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  border: 1px solid var(--f1-line);
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--f1-surface-solid) 74%, transparent);
-  box-shadow: inset 0 1px 0 var(--f1-line);
-  backdrop-filter: blur(18px);
-}
-.rt-ladder__pill {
-  position: absolute;
-  z-index: 0;
-  left: 5px;
-  top: 5px;
-  width: calc((100% - 10px) / 3);
-  height: calc(100% - 10px);
-  border: 1px solid var(--f1-line-strong);
-  border-radius: 14px;
-  background: var(--f1-surface-up);
-  box-shadow: 0 10px 24px var(--f1-shadow-soft), inset 0 1px 0 var(--f1-line-strong);
-  transition: transform 0.55s var(--f1-ease);
-}
-.rota-site[data-nivel="ADVANCED"] .rt-ladder__pill { transform: translateX(100%); }
-.rota-site[data-nivel="FULL"] .rt-ladder__pill { transform: translateX(200%); }
-
-.rt-ladder__item {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  min-width: 0;
-  padding: 9px 6px;
-  justify-items: center;
-  gap: 2px;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-  transition: color 0.3s ease;
-}
-.rt-ladder__item strong {
-  color: var(--f1-text-soft);
-  font-size: 0.86rem;
-  font-weight: 780;
-  letter-spacing: -0.015em;
-  transition: color 0.3s ease;
-}
-.rt-ladder__item small {
-  color: var(--f1-text-soft);
-  font-family: var(--font-mono, monospace);
-  font-size: var(--hbx-font-min);
-  opacity: 0.8;
-}
-.rt-ladder__item.is-active strong { color: var(--f1-text); }
-.rt-ladder__item.is-active small { color: var(--f1-accent); opacity: 1; }
-
-/* ── Cartão de preço (o que está sendo vendido) ──────────────────────────── */
-
-.rt-preco {
-  display: grid;
-  padding: clamp(14px, 1.8vh, 20px) clamp(16px, 1.6vw, 22px);
-  gap: clamp(8px, 1.2vh, 13px);
-  border: 1px solid var(--f1-line-strong);
-  border-radius: var(--f1-radius-md);
-  background: var(--f1-surface);
-  box-shadow: 0 22px 54px var(--f1-shadow-soft), inset 0 1px 0 var(--f1-line);
-  backdrop-filter: blur(20px);
-  animation: rt-troca 0.5s var(--f1-ease) both;
-}
-.rt-preco > header {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 14px;
-}
-.rt-preco__slogan {
-  max-width: 20ch;
-  color: var(--f1-text);
-  font-size: clamp(0.9rem, calc(1.1vw * var(--hbx-font-scale)), 1.05rem);
-  font-weight: 760;
-  line-height: 1.25;
-  letter-spacing: -0.02em;
-}
-.rt-preco__valor {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: baseline;
-  gap: 3px;
+.rt-simple__copy h1 em {
   color: var(--f1-accent);
-}
-.rt-preco__valor i { font-size: 0.82rem; font-style: normal; font-weight: 700; }
-.rt-preco__valor strong { font-size: clamp(1.9rem, calc(2.5vw * var(--hbx-font-scale)), 2.6rem); font-weight: 820; letter-spacing: -0.05em; line-height: 1; }
-.rt-preco__valor small { color: var(--f1-text-soft); font-size: 0.72rem; font-weight: 650; }
-
-.rt-preco__franquia,
-.rt-preco__conta {
-  margin: 0;
-  color: var(--f1-text-soft);
-  font-size: 0.78rem;
-  line-height: 1.45;
-}
-.rt-preco__franquia b { color: var(--f1-text); font-weight: 780; }
-.rt-preco__conta {
-  padding: 9px 12px;
-  border-left: 2px solid var(--f1-accent);
-  border-radius: 0 var(--f1-radius-sm) var(--f1-radius-sm) 0;
-  color: var(--f1-text);
-  background: var(--f1-accent-soft);
-  font-weight: 620;
-}
-.rt-preco__nota { color: var(--f1-text-soft); font-size: 0.7rem; line-height: 1.4; }
-
-.rt-cta-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
-.rt-cta-row .f1-primary-cta,
-.rt-cta-row .f1-secondary-cta { min-height: 46px; font-size: 0.85rem; }
-
-/* ── Prova: o que entra no plano + a tela do celular ─────────────────────── */
-
-.rt-showcase {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: clamp(16px, 1.8vw, 28px);
-  animation: f1-product-in 1s 0.15s var(--f1-ease) both;
-}
-
-/* grid-template-rows fixo + min-height: a lista cresce/encolhe conforme o nível
-   (recurso travado ocupa 2 linhas), e sem isto o painel mudava de altura a cada
-   clique — a página inteira dava um pulinho. Cabeçalho e rodapé ficam ancorados,
-   a lista respira no meio. */
-.rt-painel {
-  display: grid;
-  min-width: 0;
-  min-height: min(58vh, 470px);
-  padding: clamp(14px, 1.8vh, 20px);
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: clamp(9px, 1.3vh, 14px);
-  border: 1px solid var(--f1-line-strong);
-  border-radius: var(--f1-radius-lg);
-  background: var(--f1-surface);
-  box-shadow: 0 34px 80px var(--f1-shadow), inset 0 1px 0 var(--f1-line);
-  backdrop-filter: blur(24px) saturate(130%);
-}
-.rt-painel__head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding-bottom: clamp(8px, 1.2vh, 12px);
-  border-bottom: 1px solid var(--f1-line);
-}
-.rt-painel__head > span { display: grid; min-width: 0; gap: 3px; }
-.rt-painel__head small { color: var(--f1-accent); font-size: var(--hbx-font-min); font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; }
-.rt-painel__head strong { font-size: clamp(1rem, calc(1.3vw * var(--hbx-font-scale)), 1.25rem); font-weight: 780; letter-spacing: -0.025em; }
-.rt-painel__head > b {
-  display: inline-flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border: 1px solid var(--f1-line);
-  border-radius: 999px;
-  color: var(--f1-text-soft);
-  background: var(--f1-surface-solid);
-  font-size: var(--hbx-font-min);
-  font-weight: 700;
-}
-.rt-painel__head > b i { width: 5px; height: 5px; border-radius: 50%; background: var(--f1-success); box-shadow: 0 0 10px var(--f1-success); }
-
-.rt-recursos { display: grid; margin: 0; padding: 0; align-content: center; gap: clamp(4px, 0.7vh, 8px); list-style: none; }
-.rt-recursos li {
-  display: grid;
-  align-items: center;
-  gap: 9px;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  padding: clamp(4px, 0.6vh, 7px) 0;
-  font-size: clamp(var(--hbx-font-min), calc(0.86vw * var(--hbx-font-scale)), 0.82rem);
-  line-height: 1.3;
-  transition: opacity 0.3s ease;
-}
-.rt-recursos__mark {
-  display: grid;
-  width: 21px;
-  height: 21px;
-  place-items: center;
-  border-radius: 7px;
-  transition: background 0.3s ease, color 0.3s ease;
-}
-.rt-recursos__mark .f1-icon { width: 13px; height: 13px; stroke-width: 2.4; }
-.rt-recursos li.is-on .rt-recursos__mark { color: var(--f1-accent-ink); background: var(--f1-success); }
-.rt-recursos li.is-on .rt-recursos__txt { color: var(--f1-text); }
-.rt-recursos li.is-off .rt-recursos__mark { color: var(--f1-text-soft); background: color-mix(in srgb, var(--f1-text-soft) 14%, transparent); }
-.rt-recursos li.is-off .rt-recursos__txt { color: var(--f1-text-soft); opacity: 0.72; }
-.rt-recursos li.is-off .rt-recursos__mark .f1-icon { stroke-width: 1.9; }
-
-/* O selo é o motor de upgrade — o mesmo "ver-mas-não-usar" que roda dentro do
-   app quando o tenant esbarra num recurso de nível acima. */
-.rt-selo {
-  flex: 0 0 auto;
-  padding: 3px 8px;
-  border: 1px solid color-mix(in srgb, var(--f1-accent) 40%, transparent);
-  border-radius: 999px;
-  color: var(--f1-accent);
-  background: var(--f1-accent-soft);
-  font-size: var(--hbx-font-min);
   font-style: normal;
-  font-weight: 750;
-  white-space: nowrap;
 }
 
-.rt-painel__foot {
+.rt-simple__copy > p {
+  max-width: 40ch;
+  margin: 0;
+  color: var(--f1-text-soft);
+  font-size: var(--fz-n1);
+  font-weight: var(--weight-medium);
+  line-height: 1.55;
+}
+
+.rt-simple__actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
-  padding-top: clamp(8px, 1.2vh, 12px);
-  border-top: 1px solid var(--f1-line);
-  color: var(--f1-text-soft);
-  font-size: var(--hbx-font-min);
-  line-height: 1.4;
 }
-.rt-painel__foot > span { min-width: 0; flex: 1 1 240px; }
-.rt-painel__apk {
+
+.rt-simple__actions .f1-primary-cta,
+.rt-simple__actions .f1-secondary-cta {
+  min-height: 46px;
+  font-size: var(--fz-n2);
+}
+
+.rt-simple__apk {
   display: inline-flex;
-  flex: 0 0 auto;
+  width: max-content;
   align-items: center;
-  gap: 7px;
-  padding: 7px 12px;
-  border: 1px solid var(--f1-line);
-  border-radius: 999px;
-  color: var(--f1-text) !important;
-  background: var(--f1-surface-solid);
-  font-size: var(--hbx-font-min);
-  font-weight: 730;
-  transition: transform 0.3s var(--f1-ease), border-color 0.3s ease;
-}
-.rt-painel__apk:hover { transform: translateY(-2px); border-color: var(--f1-accent); }
-
-/* ── Celular: a mesma tela que o cliente/motorista vê ────────────────────── */
-
-.rt-phone {
-  position: relative;
-  display: block;
-  width: clamp(196px, 15vw, 236px);
-  aspect-ratio: 0.485;
-  max-height: min(60vh, 520px);
-  padding: 7px;
-  overflow: hidden;
-  border: 1px solid var(--f1-line-strong);
-  border-radius: 36px;
-  background: color-mix(in srgb, var(--f1-surface-solid) 90%, var(--f1-shadow) 10%);
-  box-shadow: 16px 30px 60px var(--f1-shadow), inset 0 1px 0 var(--f1-line-strong);
-  animation: rt-flutua 6s ease-in-out infinite;
-}
-.rt-phone__notch {
-  position: absolute;
-  z-index: 3;
-  top: 11px;
-  left: 50%;
-  width: 30%;
-  height: 15px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--f1-shadow) 92%, var(--f1-text) 8%);
-  transform: translateX(-50%);
-}
-.rt-phone__screen {
-  display: flex;
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  border: 1px solid var(--f1-line);
-  border-radius: 29px;
-  flex-direction: column;
-  background: var(--f1-surface-solid);
-}
-.rt-phone__status {
-  display: flex;
-  height: 40px;
-  padding: 15px 13px 0;
-  align-items: center;
-  justify-content: space-between;
-  color: var(--f1-text-soft);
-  font-family: var(--font-mono, monospace);
-  font-size: var(--hbx-font-min);
-  font-weight: 700;
-}
-.rt-phone__status b { color: var(--f1-text); font-family: var(--font-body, sans-serif); font-size: var(--hbx-font-min); letter-spacing: 0.04em; }
-.rt-phone__status > span:last-child { display: inline-flex; align-items: center; gap: 3px; }
-.rt-phone__status i { display: block; width: 4px; height: 4px; border-radius: 50%; background: var(--f1-success); }
-.rt-phone__canvas {
-  position: relative;
-  min-height: 0;
-  flex: 1;
-  border-top: 1px solid var(--f1-line);
-  animation: rt-troca 0.5s var(--f1-ease) both;
+  gap: 8px;
+  color: var(--f1-text-soft) !important;
+  font-size: var(--fz-l1);
+  font-weight: var(--weight-bold);
+  transition: color 0.2s ease;
 }
 
-/* flex (e não grid) por causa do rodapé: `margin-top: auto` no .rt-tela__foot
-   cola a linha de fechamento na base da tela do celular, seja qual for a
-   quantidade de conteúdo acima. */
-.rt-tela { display: flex; height: 100%; padding: 10px; flex-direction: column; gap: 8px; }
-.rt-tela__head { display: flex; align-items: flex-end; justify-content: space-between; gap: 8px; }
-.rt-tela__head > span { display: grid; min-width: 0; gap: 1px; }
-.rt-tela__head small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 650; }
-.rt-tela__head strong { font-size: var(--hbx-font-min); font-weight: 780; line-height: 1.2; letter-spacing: -0.02em; }
-.rt-tela__head > b {
-  flex: 0 0 auto;
-  padding: 3px 6px;
-  border-radius: 999px;
-  color: var(--f1-accent);
-  background: var(--f1-accent-soft);
-  font-size: var(--hbx-font-min);
-  font-weight: 750;
-}
-.rt-tela__head--centro { justify-content: center; text-align: center; }
-.rt-tela__head--centro > span { justify-items: center; }
-.rt-tela__foot {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: auto;
-  padding-top: 7px;
-  border-top: 1px solid var(--f1-line);
-  color: var(--f1-text-soft);
-  font-size: var(--hbx-font-min);
-  line-height: 1.25;
-}
-.rt-tela__foot .f1-icon { width: 11px; height: 11px; flex: 0 0 auto; }
+.rt-simple__apk:hover { color: var(--f1-accent) !important; }
+.rt-simple__apk .f1-icon { width: 16px; height: 16px; }
 
-.rt-paradas { display: grid; margin: 0; padding: 0; gap: 6px; list-style: none; }
-.rt-paradas li {
+.rt-planos {
   display: grid;
-  align-items: center;
-  gap: 7px;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  padding: 7px;
-  border: 1px solid var(--f1-line);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--f1-surface-up) 60%, transparent);
-  animation: rt-entra 0.5s var(--f1-ease) both;
+  margin-top: clamp(2px, 1vh, 10px);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
-.rt-paradas li:nth-child(2) { animation-delay: 0.1s; }
-.rt-paradas li:nth-child(3) { animation-delay: 0.2s; }
-.rt-paradas li > i { width: 6px; height: 6px; border-radius: 50%; background: var(--f1-accent); }
-.rt-paradas li > span { display: grid; min-width: 0; gap: 1px; }
-.rt-paradas strong { overflow: hidden; font-size: var(--hbx-font-min); font-weight: 740; text-overflow: ellipsis; white-space: nowrap; }
-.rt-paradas small { overflow: hidden; color: var(--f1-text-soft); font-size: var(--hbx-font-min); text-overflow: ellipsis; white-space: nowrap; }
-.rt-paradas em { flex: 0 0 auto; color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-style: normal; font-weight: 700; }
 
-.rt-bolha {
+.rt-planos button {
   display: grid;
-  gap: 4px;
-  padding: 8px;
-  border: 1px solid color-mix(in srgb, var(--f1-success) 34%, transparent);
-  border-radius: 12px 12px 12px 3px;
-  background: color-mix(in srgb, var(--f1-success) 12%, transparent);
-  animation: rt-entra 0.5s var(--f1-ease) both;
-}
-.rt-bolha p { margin: 0; font-size: var(--hbx-font-min); line-height: 1.45; }
-.rt-bolha small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); }
-
-.rt-recebidos { display: grid; margin: 0; padding: 0; gap: 5px; list-style: none; }
-.rt-recebidos li {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 7px;
+  min-width: 0;
+  padding: 12px;
+  gap: 3px;
   border: 1px solid var(--f1-line);
-  border-radius: 9px;
+  border-radius: var(--f1-radius-sm);
+  color: var(--f1-text-soft);
   background: var(--f1-surface);
-  font-size: var(--hbx-font-min);
-  animation: rt-entra 0.5s 0.12s var(--f1-ease) both;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease;
 }
-.rt-recebidos li > i { width: 5px; height: 5px; border-radius: 50%; background: var(--f1-success); }
-.rt-recebidos li > span { overflow: hidden; flex: 1; text-overflow: ellipsis; white-space: nowrap; }
-.rt-recebidos li > em { color: var(--f1-success); font-style: normal; font-weight: 750; }
 
-.rt-trilha { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; margin-top: 4px; }
-.rt-trilha span { height: 3px; border-radius: 999px; background: var(--f1-line-strong); }
-.rt-trilha span.is-done { background: var(--f1-success); }
-.rt-trilha span.is-now { background: var(--f1-accent); animation: rt-pulsa 1.8s ease-in-out infinite; }
+.rt-planos button:hover { transform: translateY(-2px); border-color: var(--f1-line-strong); }
+.rt-planos button.is-active { border-color: var(--f1-accent); color: var(--f1-text); background: var(--f1-accent-soft); }
+.rt-planos strong { font-size: var(--fz-n3); font-weight: var(--weight-extrabold); }
+.rt-planos span { color: var(--f1-text); font-size: var(--fz-t8); font-weight: var(--weight-extrabold); white-space: nowrap; }
+.rt-planos span small { color: var(--f1-text-soft); font-size: var(--fz-m1); font-weight: var(--weight-semibold); }
+.rt-planos em { overflow: hidden; color: var(--f1-text-soft); font-size: var(--fz-m1); font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
 
-.rt-passos { display: grid; margin: 0; padding: 0; grid-template-columns: repeat(4, 1fr); gap: 3px; list-style: none; color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 650; text-align: center; }
-.rt-passos li.is-done { color: var(--f1-success); }
-.rt-passos li.is-now { color: var(--f1-accent); font-weight: 800; }
-
-/* O ETA ocupa o meio da tela (flex: 1) — é o que o cliente final abre o link
-   pra ver, e é assim que ele aparece no app de delivery que ele já conhece. */
-.rt-eta {
+.rt-demo {
   display: grid;
-  flex: 1;
+  min-width: 0;
+  min-height: 0;
   align-content: center;
   justify-items: center;
-  gap: 3px;
-  padding: 10px 8px;
-  border: 1px solid var(--f1-line);
-  border-radius: 12px;
-  background: radial-gradient(circle at 50% 0%, var(--f1-accent-soft), transparent 70%);
-  animation: rt-entra 0.5s 0.1s var(--f1-ease) both;
+  gap: 12px;
+  animation: f1-product-in 0.9s 0.08s var(--f1-ease) both;
 }
-.rt-eta strong { color: var(--f1-accent); font-size: var(--hbx-font-min); font-weight: 800; letter-spacing: -0.02em; }
-.rt-eta small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); }
 
-.rt-pedido {
+.rt-demo__nav {
   display: grid;
-  gap: 2px;
-  padding: 8px;
+  width: min(100%, 560px);
+  padding: 5px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 4px;
   border: 1px solid var(--f1-line);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--f1-surface-up) 60%, transparent);
-  animation: rt-entra 0.5s 0.18s var(--f1-ease) both;
+  border-radius: var(--f1-radius-md);
+  background: var(--f1-surface);
 }
-.rt-pedido small { color: var(--f1-text-soft); font-size: var(--hbx-font-min); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
-.rt-pedido strong { font-size: var(--hbx-font-min); font-weight: 750; }
-.rt-pedido span { color: var(--f1-text-soft); font-size: var(--hbx-font-min); }
 
-@keyframes rt-troca { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes rt-entra { from { opacity: 0; transform: translateX(10px); } to { opacity: 1; transform: translateX(0); } }
-@keyframes rt-flutua { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-9px); } }
-@keyframes rt-pulsa { 50% { opacity: 0.45; } }
+.rt-demo__nav button {
+  min-width: 0;
+  min-height: 38px;
+  padding: 0 8px;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--f1-radius-sm);
+  color: var(--f1-text-soft);
+  background: transparent;
+  font-size: var(--fz-l1);
+  font-weight: var(--weight-bold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.2s ease, background 0.2s ease;
+}
 
-/* ── Freio de altura (regra "zero scroll" do FRONTEND.md) ────────────────── */
+.rt-demo__nav button.is-active { color: var(--f1-text); background: var(--f1-surface-up); }
+
+.rt-demo__frame {
+  position: relative;
+  width: min(290px, 45vw);
+  aspect-ratio: 412 / 940;
+  overflow: hidden;
+  border: 1px solid var(--f1-line-strong);
+  border-radius: var(--f1-radius-lg);
+  background: var(--f1-surface-solid);
+  box-shadow: 0 30px 80px var(--f1-shadow);
+}
+
+.rt-demo__iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+}
 
 @media (max-height: 900px) and (min-width: 901px) {
-  .rt-hero { row-gap: 14px; }
-  .rt-copy { gap: 9px; }
-  .rt-preco { gap: 8px; }
-  .rt-recursos li { padding: 3px 0; }
-  .rt-painel { gap: 8px; }
-  .rt-phone { width: clamp(180px, 13vw, 210px); }
+  .rt-simple { padding-top: 8px; padding-bottom: 8px; }
+  .rt-simple__copy { gap: 10px; }
+  .rt-demo { gap: 8px; }
+  .rt-demo__frame { width: min(240px, 30vh, 35vw); }
+  .rt-planos button { padding: 9px; }
 }
-
-/* ── Coluna única (tablet/celular): aqui rolar é o esperado ──────────────── */
 
 @media (max-width: 900px) {
-  .rt-hero {
+  .rota-site { overflow: auto; }
+  .rt-simple {
+    padding: 20px 18px 34px;
     grid-template-columns: minmax(0, 1fr);
-    padding-bottom: 34px;
     align-items: start;
+    gap: 28px;
   }
-  .rt-showcase { grid-template-columns: minmax(0, 1fr); justify-items: center; }
-  .rt-phone { width: min(240px, 74vw); max-height: none; }
+  .rt-simple__copy { justify-items: center; text-align: center; }
+  .rt-simple__copy > p { margin-inline: auto; }
+  .rt-simple__actions { justify-content: center; }
+  .rt-demo__frame { width: min(300px, 78vw); }
 }
 
-@media (max-width: 560px) {
-  .rt-preco > header { flex-direction: column; align-items: flex-start; gap: 6px; }
-  .rt-preco__slogan { max-width: none; }
-  .rt-cta-row .f1-primary-cta,
-  .rt-cta-row .f1-secondary-cta { flex: 1 1 auto; justify-content: center; }
-  .rt-recursos li { grid-template-columns: auto minmax(0, 1fr); }
-  .rt-selo { grid-column: 2; justify-self: start; }
-  .rt-painel__foot { flex-direction: column; align-items: flex-start; }
+@media (max-width: 520px) {
+  .rt-simple__copy h1 { font-size: var(--fz-t1); }
+  .rt-simple__actions { width: 100%; }
+  .rt-simple__actions .f1-primary-cta,
+  .rt-simple__actions .f1-secondary-cta { flex: 1 1 100%; }
+  .rt-planos { width: 100%; grid-template-columns: 1fr; }
+  .rt-planos button { grid-template-columns: 1fr auto; align-items: center; }
+  .rt-planos span { grid-row: 1 / 3; grid-column: 2; }
+  .rt-planos em { white-space: normal; }
+  .rt-demo__nav { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rt-phone { animation: none; }
-  .rt-trilha span.is-now { animation: none; }
+  .rt-simple__copy,
+  .rt-demo { animation: none; }
 }

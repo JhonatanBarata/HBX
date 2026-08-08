@@ -236,22 +236,60 @@ button,input{font:inherit;color:inherit}
 [data-tr="eixoz"] .tela.entra .anim-item{
   animation:trItem .3s ease-out both;animation-delay:calc(var(--i,0)*16ms + 60ms)}
 
-/* 5 — EIXO X (versão 2): três coisas mudaram em relação à primeira.
-   (a) A tela NÃO desliza como bloco — quem desliza são as LINHAS, uma atrás da
-       outra. Bloco inteiro andando é carrossel; cascata lateral é aplicativo.
+/* 5 — EIXO X (versão 3): a versão 2 aplicou a lei (a) só na ENTRADA. A saída
+   continuava sendo a v1, e o "voltar" era espelho, não reverso.
+   (a) Nem a entrada nem a SAÍDA andam como bloco — quem desliza são as LINHAS,
+       uma atrás da outra. Bloco inteiro andando é carrossel; cascata lateral é
+       aplicativo. MEDIDO na v2: a camada que saía tinha UMA animação (a camada
+       inteira viajando 24px) contra as OITO da que entrava. Metade da troca
+       obedecia a lei, a outra metade não.
    (b) Tem DIREÇÃO: indo pra frente entra pela direita, voltando entra pela
-       esquerda (`--dir`, posto pelo JS). Sem isso o "voltar" mente.
-   (c) Curva de saída longa (.16,1,.3,1): 90% do caminho nos primeiros 40% do
-       tempo, e o resto assentando. É o que faz parecer que tem massa. */
+       esquerda (`--dir`, posto pelo JS). Quem SAI vai pro lado contrário de
+       quem entra — mesmo eixo, sentidos opostos, que é o que lê como empurrão.
+   (c) 🔴 E TEM ORDEM, que é o que faltava pro reverso ser reverso. `--i` é a
+       posição de cima pra baixo; `--ord` é a posição na FILA da cena, e
+       voltando ela inverte (`--n - --i`, com `--n` posto pelo `numerarItens`).
+       MEDIDO na v2, ida e volta na mesma dupla de telas: os atrasos saíam
+       IDÊNTICOS nos dois sentidos (0,22,44,66,88,110,132,154 ms) e só o sinal
+       do translate mudava. Espelhar o eixo não desfaz gesto nenhum: a última
+       linha que saiu tem que ser a PRIMEIRA a voltar. Agora voltando a cascata
+       começa por baixo, nas duas camadas.
+   (d) Lei 2 — quem entra desacelera (`--cv-entra`), quem sai acelera
+       (`--cv-sai`), nunca a mesma curva nos dois. E a saída é mais curta em
+       TUDO: 150 ms por linha contra 440, passo de 16 ms contra 22, cena de
+       374 ms contra 594.
+   (e) 🔴 A JANELA DA SAÍDA É DE 150 ms, E O PASSO FOI MEDIDO PRA CABER NELA.
+       O fundo da `.tela` é gradiente OPACO e quem entra fica por cima
+       (z-index 2): quando o `trXFade` fecha, a camada que sai é 100% coberta.
+       Dos 260 ms da saída v1, 110 já rodavam atrás dessa parede — invisíveis.
+       A tentação é alargar o `trXFade` pra "dar palco". NÃO ALARGUE: eu tentei
+       .3s e o print dos 120 ms mostrou as DUAS telas legíveis ao mesmo tempo,
+       "João da Silva" escrito duas vezes deslocado — vira defeito de pintura,
+       não transição. O fade fica em .15s, e quem cabe na janela é o PASSO: com
+       16 ms, as 8 linhas de uma tela comum COMEÇAM a sair entre 0 e 112 ms,
+       todas dentro dos 150 ms. É o começo escalonado que o olho lê como
+       cascata; o fim do percurso pode terminar atrás da parede sem prejuízo. */
 [data-tr="eixox"] .tela.entra{animation:trXFade .15s linear both}
-[data-tr="eixox"] .tela.sai{animation:trXSai .26s cubic-bezier(.4,0,1,.6) both}
+[data-tr="eixox"] .tela.sai{animation:trXSaiCamada .34s linear both}
 @keyframes trXFade{from{opacity:0}to{opacity:1}}
-@keyframes trXSai{to{opacity:0;transform:translateX(calc(-24px * var(--dir,1)))}}
+/* A camada que sai não translada mais NADA: o movimento é todo das linhas.
+   Ela só apaga, e apaga tarde, pra não engolir a própria cascata. */
+@keyframes trXSaiCamada{0%,45%{opacity:1}100%{opacity:0}}
+/* A FILA DA CENA. `--ord` existe pra que entrada e saída leiam a MESMA ordem:
+   indo pra frente ela é o próprio `--i` (de cima pra baixo); voltando ela
+   conta do fim pro começo. `--n` é o maior `--i` que a camada realmente usou. */
+[data-tr="eixox"] .tela .anim-item{--ord:var(--i,0)}
+[data-tr="eixox"] .tela[data-dir="tras"] .anim-item{--ord:calc(var(--n,14) - var(--i,0))}
 [data-tr="eixox"] .tela.entra .anim-item{
-  animation:trXItem .44s cubic-bezier(.16,1,.3,1) both;animation-delay:calc(var(--i,0)*22ms)}
+  animation:trXItem .44s var(--cv-entra) both;animation-delay:calc(var(--ord,0)*22ms)}
+[data-tr="eixox"] .tela.sai .anim-item{
+  animation:trXSaiItem .15s var(--cv-sai) both;animation-delay:calc(var(--ord,0)*16ms)}
 @keyframes trXItem{
   from{opacity:0;transform:translateX(calc(28px * var(--dir,1)))}
   to{opacity:1;transform:none}}
+@keyframes trXSaiItem{
+  from{opacity:1;transform:none}
+  to{opacity:0;transform:translateX(calc(-26px * var(--dir,1)))}}
 
 /* 6 — SÓ O CONTEÚDO: o cromo (logo, topo, abas) NÃO se mexe — troca só o
    miolo, escalonado. É o que Stripe e Notion fazem: a moldura fica parada e
@@ -383,7 +421,15 @@ button,input{font:inherit;color:inherit}
 .tela.entra.cheio{animation:none!important}
 .tela.cena.cheio{animation:mvCheioEntra var(--mv-cheio) var(--cv-entra) both!important}
 .tela.sai.cheio{animation:mvCheioSai var(--mv-cheio) var(--cv-entra) both!important}
-.tela.entra.cheio .anim-item{animation:none!important}
+/* 🔴 A CAMADA QUE SAI PRECISA DA MESMA MORDAÇA DA QUE ENTRA. Enquanto a saída
+   do eixo X era do BLOCO, só a `.entra` tinha linha aqui — não existia regra
+   nenhuma alcançando `.anim-item` de camada saindo. Com a saída virando cascata
+   de linhas (v3), `[data-tr="eixox"] .tela.sai .anim-item` passaria a alcançar
+   TAMBÉM a tela que afunda pro GPS: as linhas dela sairiam de lado por cima do
+   "afunda e escurece", que é show próprio e não admite sócio. MEDIDO antes da
+   v3: `.tela.sai.cheio` tinha exatamente 1 animação (`mvCheioSai`) e zero de
+   item — é esse número que esta linha preserva. */
+.tela.entra.cheio .anim-item,.tela.sai.cheio .anim-item{animation:none!important}
 @keyframes mvCheioEntra{from{opacity:0;transform:scale(1.14)}to{opacity:1;transform:none}}
 @keyframes mvCheioSai{to{opacity:0;transform:scale(.9);filter:brightness(.4)}}
 /* Voltando do GPS o gesto inverte: o mapa encolhe e a tela volta de trás. */
