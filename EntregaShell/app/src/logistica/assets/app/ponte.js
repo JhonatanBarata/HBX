@@ -810,7 +810,15 @@
   window.addEventListener('focus', carregarBarra);
   setInterval(carregarBarra, 60000);
 
-  const cargaInicial = () => { apagarDemonstracao(); carregarBarra(); carregarRota(); carregarRecados(); checkAppUpdate(); };
+  const cargaInicial = () => {
+    apagarDemonstracao(); carregarBarra(); carregarRota(); carregarRecados(); checkAppUpdate();
+    // O que chegou com o app fechado alerta AGORA — o motorista abre o app e
+    // descobre o recado das 6h, em vez de esperar o próximo tique.
+    pulsoRecados();
+    // O app pode ter sido aberto PELA tela do alarme: a resposta dela chega
+    // antes de qualquer evento, guardada no aparelho.
+    drenarRespostaDoAlarme();
+  };
   document.addEventListener('DOMContentLoaded', cargaInicial);
   if (document.readyState !== 'loading') setTimeout(cargaInicial, 0);
 
@@ -2602,9 +2610,211 @@
     return recados.filter((r) => r && r.origem === 'escritorio' && !r.vistoEm).length;
   }
 
+  /* ══════════════════════════════════════════════════════════════════════════
+     L8b — A ESCADA DE FORÇA DO RECADO (restaurada em 08/08).
+
+     🔴 ELA EXISTIA E MORREU CALADA. A fusão de 07/08 (`8a491ffe`) tirou o
+     `app.js` de 13.504 linhas do APK, e com ele saiu o ÚNICO leitor do campo
+     `nivel`. O servidor continuou gravando normal/urgente/alarme, o cockpit
+     continuou mostrando ✓✓, o Kotlin continuou com o despertador de pé — e o
+     celular ficou mudo nos três degraus. Bug de FRONTEIRA: nenhum lado estava
+     quebrado, o fio entre eles é que não existia mais.
+
+     A escada é decidida no SERVIDOR (`nivel`) e obedecida aqui:
+       normal  → aviso na tela + sino. Sem barulho, de propósito.
+       urgente → vibra, toca `warning`, FALA em voz alta e trava o PORTÃO.
+       alarme  → despertador NATIVO (MissaoAlarme), que fura Doze e tela apagada.
+
+     🔴 POR QUE NÃO SEQUESTRAR A TELA NO URGENTE: o cara está DIRIGINDO com o
+     mapa aberto. Tomar a tela é perigoso e o Android moderno nem garante. A
+     cobrança do clique acontece onde ele JÁ vai tocar no celular PARADO — na
+     confirmação da entrega. Clique garantido, rota intacta, motorista vivo.
+
+     🔴 O PULL É O QUE DÁ DENTE AO PORTÃO. `recados/portao` só cobra recado com
+     `entregueEm` preenchido, e quem preenche é `recados/recebidos`. Sem este
+     canal o portão devolvia lista vazia PARA SEMPRE: o "Entendi" nunca era
+     cobrado e o urgente não tinha nenhuma força — nem som, nem trava.
+
+     O push (FCM) é o caminho rápido; o relógio de 10 s é o paraquedas de quem
+     está sem Firebase. `carregarBarra` já paga 1 chamada por minuto: recado é
+     mais urgente que configuração, e continua sendo UMA chamada por vez.
+     ══════════════════════════════════════════════════════════════════════════ */
+  const RECADOS_POLL_MS = 10000;
+  /** Recado velho não grita. Aparelho que passou o dia desligado não pode
+      acordar tocando 20 alarmes de ontem — o PORTÃO continua cobrando o
+      "Entendi" deles (trava não expira), só o barulho é que tem validade. */
+  const ALERTA_FORTE_VALIDADE_MS = 2 * 60 * 60 * 1000;
+  let recadosChecando = false;
+  const recadosAlertados = new Set();
+
+  const falar = (t) => { try { window.HBX.speak(String(t || '').slice(0, 300)); } catch (_) {} };
+  const vibrar = (ms) => { try { window.HBX.vibrate(ms); } catch (_) {} };
+  const tocarSom = (chave) => { try { window.HBX.sound(chave); } catch (_) {} };
+  const recente = (iso) => {
+    const t = new Date(iso || 0).getTime();
+    return Number.isFinite(t) && Date.now() - t <= ALERTA_FORTE_VALIDADE_MS;
+  };
+
+  /** o cartão que desce do sino, com o texto DE VERDADE que o escritório mandou */
+  function avisoDeRecado(recado, forte) {
+    if (typeof window.avisar !== 'function') return;
+    const titulo = recado.nivel === 'alarme' ? 'ALARME da Central'
+      : recado.nivel === 'urgente' ? 'URGENTE · Recado da Central'
+        : 'Recado da Central';
+    window.avisar({ ico: forte ? 'alert' : 'chat', cls: forte ? 'alerta' : '', titulo, sub: esc(recado.texto) });
+  }
+
+  /**
+   * O degrau de UM recado que acabou de chegar. Nunca duas vezes o mesmo id:
+   * o servidor repete o recado até o ✓ de `recebidos`, e repetir alerta seria
+   * o app gritando o mesmo aviso de 10 em 10 segundos.
+   */
+  function alertarRecado(recado, atrasoAlarme) {
+    const id = String(recado.id || '');
+    if (!id || recadosAlertados.has(id)) return;
+    recadosAlertados.add(id);
+    const nivel = String(recado.nivel || 'normal');
+    const forte = nivel === 'urgente' || nivel === 'alarme';
+    // Recado velho entra no fio e no sino, sem barulho. Ver a validade acima.
+    if (forte && !recente(recado.criadoEm)) { avisoDeRecado(recado, true); return; }
+
+    if (nivel === 'alarme') {
+      // Com a conversa JÁ ABERTA não se arma sirene por baixo da tela: ele está
+      // olhando pro recado. Lê em voz alta e pronto.
+      if (telaAtual() === 'chat') { falar(`Alarme da central. ${recado.texto}`); return; }
+      // O prefixo `recado_` é o que faz o Kotlin tratar isto como RECADO e não
+      // como missão de rota (`ehAlarmeDeRecado`): a tela cheia diz "RESPONDER"
+      // em vez de "ACEITAR", e a resposta volta pelo `RecadoPendente`.
+      const armado = window.HBX.missaoAlarme(
+        `recado_${id}`, Date.now() + 1500 + atrasoAlarme, 'Recado da central', String(recado.texto || ''),
+      );
+      // Sem ponte nativa (ou alarme recusado pelo sistema) o recado NÃO pode
+      // passar em silêncio: cai no degrau de baixo, que é barulho de app.
+      if (armado) return;
+    }
+    if (forte) {
+      vibrar(200);
+      tocarSom('warning');
+      falar(nivel === 'alarme' ? `Alarme da central. ${recado.texto}` : `Recado urgente da central. ${recado.texto}`);
+    } else {
+      tocarSom('sync_complete');
+    }
+    avisoDeRecado(recado, forte);
+  }
+
+  /**
+   * O PULSO — puxa o que ainda não chegou, alerta e só então confirma o ✓✓.
+   *
+   * A ordem importa: o ✓ de `recebidos` é o que faz o servidor PARAR de mandar.
+   * Confirmar antes de alertar transformaria uma falha no meio do caminho em
+   * recado entregue que nunca avisou ninguém.
+   */
+  async function pulsoRecados() {
+    if (!temPonte() || recadosChecando) return;
+    recadosChecando = true;
+    try {
+      // `v: 2` pede o envelope; APK sem o campo recebe a lista crua (o servidor
+      // mantém os dois contratos). `tela` é o PULSO DO APP — de carona, sem
+      // requisição nova: é como a Central sabe em que tela o motorista está.
+      const resposta = await window.API.post('/logistica/recados/pendentes', { tela: telaAtual() || '', v: 2 });
+      const lista = Array.isArray(resposta) ? resposta
+        : (resposta && Array.isArray(resposta.recados) ? resposta.recados : []);
+      if (!lista.length) return;
+      let atraso = 0;
+      for (const recado of lista) {
+        if (!recado || recado.origem !== 'escritorio') continue;
+        alertarRecado(recado, atraso);
+        // Dois alarmes no mesmo segundo viram um só toque: o AlarmManager
+        // substitui o PendingIntent do mesmo requestCode. Escalona.
+        if (recado.nivel === 'alarme') atraso += 7000;
+      }
+      const ids = lista.map((r) => String(r && r.id || '')).filter(Boolean);
+      if (ids.length) await window.API.post('/logistica/recados/recebidos', { ids });
+      // O fio e o portão leem o estado NOVO (entregueEm preenchido) — é isto
+      // que acende o cartão do "Entendi" e arma a trava da entrega.
+      await carregarRecados();
+    } catch (_) {
+      // Rede fora = silêncio. O próximo tique tenta de novo e o servidor
+      // guarda o recado até o ✓ chegar: nada se perde aqui.
+    } finally { recadosChecando = false; }
+  }
+
+  setInterval(pulsoRecados, RECADOS_POLL_MS);
+  /* O push é só campainha: o Kotlin dispara este evento e o pulso acima é que
+     vai buscar o conteúdo. Sem ouvinte deste evento — que é como o app ficou
+     depois da fusão — o FCM acordava o aparelho para NADA. */
+  document.addEventListener('hbx:push-wake', pulsoRecados);
+  /* Tocou na notificação do sistema (ou no "Responder" da tela do alarme): a
+     caixa de recados abre, que é o que a pessoa pediu ao tocar. */
+  document.addEventListener('hbx:open-recados', () => {
+    drenarRespostaDoAlarme();
+    if (typeof window.ir === 'function') window.ir('chat');
+  });
+
+  /**
+   * O QUE A PESSOA APERTOU NA TELA CHEIA DO ALARME.
+   *
+   * A `MissaoAlarmeActivity` não fala com o backend de propósito: lá não há
+   * sessão nem tenant. Ela ANOTA a resposta (`RecadoPendente`, persistido em
+   * SharedPreferences) e acorda o app — quem executa é este JS. Sem este
+   * dreno, o "Entendi" da tela cheia ficava guardado no aparelho PARA SEMPRE:
+   * a pessoa respondia, a central nunca via, e o portão continuava cobrando o
+   * mesmo recado na próxima entrega.
+   */
+  async function drenarRespostaDoAlarme() {
+    let bruto = '';
+    try { bruto = window.HBX.recadoRespostaPendente() || ''; } catch (_) { return; }
+    if (!bruto) return;
+    let resposta = null;
+    try { resposta = JSON.parse(bruto); } catch (_) { return; }
+    const id = String((resposta && resposta.id) || '').replace(/^recado_/, '');
+    if (!id) return;
+    cancelarSirene(id);
+    // "responder" é o dedo indo pro campo de texto — a mensagem é dele, e o
+    // slot só se limpa quando o POST do "Entendi" volta ok (rede caída no meio
+    // não pode apagar a resposta que a pessoa já deu).
+    if (resposta.acao !== 'entendi') return;
+    try { await window.API.post(`/logistica/recados/${encodeURIComponent(id)}/entendi`, {}); }
+    catch (_) { return; }
+    try { window.HBX.recadoRespostaConcluir(id); } catch (_) {}
+    await carregarRecados();
+  }
+
+  /**
+   * A TRAVA. Chamada ANTES de fechar a parada: recado urgente/alarme que já
+   * está no aparelho e não teve "Entendi" segura o desfecho e mostra o texto.
+   * Devolve `true` = travou (o chamador para aqui).
+   */
+  function travaDoRecado() {
+    const alvo = portaoRecados[0];
+    if (!alvo || typeof window.portao !== 'function') return false;
+    window.portao({
+      tom: 'alerta', ico: 'bell', titulo: 'Recado da Central',
+      sub: esc(alvo.texto),
+      // Sem escape de propósito: é o degrau que o dono pediu, "o nível que
+      // atrapalha a rota se ele não clicar". O `handleBack` já engole o Voltar
+      // de portão sem escape, então a trava não tem porta dos fundos.
+      acoes: [['Entendi', 'principal', false]],
+    });
+    const b = naCamada('.portao-wrap .principal');
+    if (b) b.addEventListener('click', () => { entendiRecado(); }, { once: true });
+    return true;
+  }
+
   /** abrir o chat é LER: marca visto e o sino zera (o portão continua de pé) */
   async function aoAbrirChat() {
     await carregarRecados();
+    /* Regra do dono (03/08): abrir a conversa CALA toda repetição forte. Ele
+       está lendo — insistir vira ruído. O portão continua cobrando o "Entendi";
+       só a sirene é que para.
+       ⚠️ SEM filtrar por `ackEm`: recado já respondido é justamente o que mais
+       precisa calar, e filtrá-lo deixava a corrente do alarme viva por meia
+       hora depois do "Entendi" (medido no g15, 08/08 — o app pulava sozinho
+       pro Chat de 2 em 2 minutos). Cancelar é idempotente: cancelar o que já
+       morreu não custa nada. */
+    recados
+      .filter((r) => r && r.origem === 'escritorio' && r.nivel === 'alarme')
+      .forEach((r) => cancelarSirene(r.id));
     // ⚠️ `marcarVisto` exige a LISTA de ids — corpo vazio marca ZERO e volta
     // "ok" (medido: o sino ficava em 2 depois de abrir a conversa). Ele só
     // aceita recado do escritório, então mandar os meus não faria nada de
@@ -2621,8 +2831,18 @@
     await comTrava(async () => {
       try { await window.API.post(`/logistica/recados/${encodeURIComponent(alvo.id)}/entendi`, {}); }
       catch (e) { return avisoErro(e); }
+      /* 🔴 O "ENTENDI" TEM QUE CALAR A SIRENE. O despertador nativo cutuca de 2
+         em 2 minutos e só a RESPOSTA mata a corrente (`MissaoAlarme.cancelar`);
+         o ack no servidor não chega até o AlarmManager. Medido no g15: recado
+         já respondido continuou abrindo a tela cheia por meia hora. */
+      cancelarSirene(alvo.id);
       await carregarRecados();
     });
+  }
+
+  /** mata a corrente nativa de um recado — idempotente, e a única saída dela */
+  function cancelarSirene(id) {
+    try { window.HBX.missaoAlarmeCancelar(`recado_${String(id || '')}`); } catch (_) {}
   }
 
   async function enviarRecado() {
@@ -3297,6 +3517,10 @@
   /** o desfecho: entregue. `metodo` vazio = a folha ainda não sabe como pagou. */
   async function confirmarEntrega(metodo) {
     if (!aberta) return;
+    // 🔴 O PORTÃO DO RECADO VEM ANTES DO DINHEIRO. Ele está PARADO, com o
+    // celular na mão: é o único ponto do dia em que dá pra cobrar o "Entendi"
+    // sem tirar os olhos dele da rua. Ver L8b.
+    if (travaDoRecado()) return;
     const escolhido = metodo || forma;
     // Financeiro ON exige saber como recebeu — senão o fechamento do dia soma
     // errado e ninguém descobre até o caixa não bater.
@@ -3329,6 +3553,9 @@
   /** o outro desfecho: não entregue, com o motivo que o motorista marcou */
   async function registrarNaoEntregue() {
     if (!aberta) return;
+    // Mesma trava do confirmar: os dois desfechos fecham a parada, e o recado
+    // cobra no desfecho — não na forma de pagamento.
+    if (travaDoRecado()) return;
     const escolhido = motivo || (DADOS_MOTIVO_PADRAO() || '');
     if (!escolhido) {
       return window.portao({

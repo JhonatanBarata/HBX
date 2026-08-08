@@ -4358,14 +4358,22 @@ function origemDoSino(aviso,botao,camada){
 }
 
 function avisar(tipo){
-  const camada=document.querySelector('#app .tela'); if(!camada) return;
-  const cfg=AVISOS[tipo]||AVISOS.recado;
+  // 🔴 A CAMADA VIVA É A ÚLTIMA — mesma lei do `portao`. Com `querySelector` (a
+  // primeira) o aviso nascia na camada que estava MORRENDO numa troca de tela e
+  // sumia junto com ela. Na maquete isso nunca aparecia (a demo dispara parado);
+  // no app o recado chega JUSTO quando o motorista acabou de trocar de tela.
+  const camadas=document.querySelectorAll('#app .tela');
+  const camada=camadas.length?camadas[camadas.length-1]:null; if(!camada) return;
+  // chave do catálogo OU um aviso montado na hora — mesmo contrato do `portao`.
+  // O app precisa dizer o texto DE VERDADE ("Recado da Central" com a frase que
+  // o escritório escreveu), e texto de verdade não cabe num catálogo estático.
+  const cfg=typeof tipo==='object'&&tipo?tipo:(AVISOS[tipo]||AVISOS.recado);
   camada.querySelector('.aviso')?.remove();
   clearTimeout(avisoTimer);
   const el=document.createElement('div');
-  el.className='aviso '+cfg.cls;
-  el.innerHTML=`<span class="ico">${ic(cfg.ico,17)}</span>
-    <span><strong>${cfg.titulo}</strong><span class="sub">${cfg.sub}</span></span>
+  el.className='aviso '+(cfg.cls||'');
+  el.innerHTML=`<span class="ico">${ic(cfg.ico||'chat',17)}</span>
+    <span><strong>${cfg.titulo||''}</strong><span class="sub">${cfg.sub||''}</span></span>
     <span class="barra"><i></i></span>`;
   camada.appendChild(el);
   // o sino acende junto: selo pulsa e sai um anel do botão. Sem isso o aviso
