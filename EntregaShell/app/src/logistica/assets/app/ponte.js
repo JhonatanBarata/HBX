@@ -1134,16 +1134,126 @@
      bateria dobrada pra ter dois fixes que discordam. */
   let ultimaPos = null;
 
-  /** monta (ou reaproveita) o mapa do palco visível */
+  /* ------------------------------------------------------------------------
+     🔴 UM MAPA POR PALCO, PELA VIDA DO APP — E ELE É TRANSPLANTADO, NUNCA
+     RECRIADO. (08/08, cena do dono: "ela volta em outro estado, e fica
+     repetindo 2Dx3D".)
+
+     O guard antigo (`palco.__hbxMapa`) era por ELEMENTO, e o elemento morre a
+     cada repinte: a tela de dirigir repinta a cada fix do GPS (a distância da
+     manobra muda de 89 m pra 88 m e o seam repinta, como deve). Resultado
+     MEDIDO no g15, 8 amostras em 7 s: **3 mapas diferentes**, cada um nascendo
+     na câmera de montagem — plano, zoom 15 — e sendo puxado de volta pro 3D
+     pela navegação. É exatamente o "2D×3D" que o dono viu, mais tile baixado
+     de novo a cada 5 segundos.
+
+     Esta é a lei que o app velho já tinha (`el.__hbxMap`) e o app novo perdeu
+     na fusão. Aqui ela volta com nome: a GARAGEM guarda um mapa por NOME de
+     palco ('gps', 'geral'); quando o repinte troca o palco, o mesmo nó de mapa
+     MUDA DE PAI e a câmera continua exatamente onde estava.
+     ------------------------------------------------------------------------ */
+  const GARAGEM = new Map();     // nome do palco → { gl, mapa, alvo, pinos, chave, luz }
+  const MONTANDO = new Set();    // nome em criação (carregar o maplibre é async)
+
+  const nomeDoPalco = (p) => String((p && p.dataset && p.dataset.mapa) || 'geral');
+  const luzDeAgora = () => (document.documentElement.dataset.luz === 'claro' ? 'claro' : 'escuro');
+
+  /* A garagem off-screen: tela que sai de cena não leva o mapa junto. Nó
+     desconectado perde o contexto WebGL em alguns aparelhos — e perder o
+     contexto é a piscada voltando pela porta dos fundos. */
+  const BOX = document.createElement('div');
+  BOX.setAttribute('aria-hidden', 'true');
+  BOX.style.cssText = 'position:absolute;left:-9999px;top:0;width:360px;height:640px;pointer-events:none';
+
+  function estacionarMapas() {
+    GARAGEM.forEach((casa) => {
+      if (casa.alvo.isConnected) return;
+      if (!BOX.isConnected) document.body.appendChild(BOX);
+      BOX.appendChild(casa.alvo);
+      try { casa.mapa.resize(); } catch (_) { /* mapa morto */ }
+    });
+  }
+
+  /** os pinos numerados: só se refaz quando a LISTA muda, não a cada repinte */
+  function sincronizarPinos(casa) {
+    const paradas = (typeof PARADAS !== 'undefined' ? PARADAS : []).filter((p) => p.lat && p.lng);
+    const chave = paradas.map((p) => `${p.n}:${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join('|');
+    if (chave === casa.chave) return;
+    casa.chave = chave;
+    casa.pinos.forEach((m) => { try { m.remove(); } catch (_) { /* já saiu */ } });
+    casa.pinos.clear();
+    paradas.forEach((p) => {
+      const pino = document.createElement('div');
+      pino.textContent = String(p.n);
+      pino.style.cssText = 'width:26px;height:26px;border-radius:50%;display:grid;place-items:center;'
+        + 'font:500 12px Inter,sans-serif;background:var(--map-pino);color:var(--map-pino-tinta);'
+        + 'border:1.5px solid var(--map-rota)';
+      casa.pinos.set(String(p.n), new casa.gl.Marker({ element: pino })
+        .setLngLat([p.lng, p.lat]).addTo(casa.mapa));
+    });
+    pinosVisiveis(casa);
+  }
+
+  /* 🔴 PINO FORA DA TELA NÃO É PINO — é enfeite encostado na moldura. Com a
+     câmera de dirigir inclinada, parada a 7,9 km projeta ALÉM do horizonte e o
+     maplibre planta o marcador na beirada: foi o "1 2 3 4" enfileirado na
+     direita que o dono viu. Ele não diz onde a parada está — diz só que ela
+     não cabe. Some. (Só no palco "gps": no mapa "geral" a moldura é a rota
+     inteira, e ali todo pino está, por construção, dentro da tela.) */
+  function pinosVisiveis(casa) {
+    if (!casa || casa.nome !== 'gps') return;
+    let larg; let alt;
+    try { const c = casa.mapa.getContainer(); larg = c.clientWidth; alt = c.clientHeight; }
+    catch (_) { return; }
+    casa.pinos.forEach((marcador) => {
+      let p;
+      try { p = casa.mapa.project(marcador.getLngLat()); } catch (_) { return; }
+      const dentro = p && p.x >= -18 && p.x <= larg + 18 && p.y >= 0 && p.y <= alt + 18;
+      marcador.getElement().style.visibility = dentro ? '' : 'hidden';
+    });
+  }
+
+  /* A LUZ agora é do MAPA, não do nascimento dele. Antes o tema trocava porque
+     o mapa era refeito; com um mapa só pela vida do app, quem troca a pele do
+     mapa é `setStyle` — e o traço, que mora numa fonte do estilo, volta depois. */
+  function acertarLuz(casa) {
+    const luz = luzDeAgora();
+    if (casa.luz === luz) return;
+    casa.luz = luz;
+    estiloDoMapa(luz !== 'claro').then((estilo) => {
+      try { casa.mapa.setStyle(estilo); } catch (_) { return; }
+      casa.mapa.once('styledata', () => desenharTraco(casa.mapa));
+    }).catch(() => { /* sem estilo novo: fica o de agora */ });
+  }
+
+  /** põe o mapa do palco visível no ar — criando UMA vez, transplantando sempre */
   async function montarMapa(palco) {
-    if (!palco || palco.__hbxMapa) return;
-    palco.__hbxMapa = true;                      // idempotente: 1 mapa por palco
-    let maplibregl; let estilo;
+    if (!palco) return;
+    const nome = nomeDoPalco(palco);
+    const casa = GARAGEM.get(nome);
+
+    if (casa) {
+      if (casa.alvo.parentElement !== palco) {
+        palco.appendChild(casa.alvo);              // 🔴 O TRANSPLANTE
+        try { casa.mapa.resize(); } catch (_) { /* mapa morto */ }
+      }
+      palco.__hbxMapa = true;
+      palco.__hbxMapaObj = casa.mapa;
+      palco.classList.add('pronto');
+      acertarLuz(casa);
+      sincronizarPinos(casa);
+      if (nome === 'gps') { desenharTraco(casa.mapa); cameraDaNavegacao(); }
+      return;
+    }
+
+    if (MONTANDO.has(nome)) return;   // criação em voo: o próximo repinte transplanta
+    MONTANDO.add(nome);
+    let gl; let estilo;
     try {
-      maplibregl = await carregarMaplibre();
-      estilo = await estiloDoMapa(document.documentElement.dataset.luz !== 'claro');
-    } catch (_) { palco.__hbxMapa = false; return; }   // sem mapa, fica o desenho
-    if (!document.body.contains(palco)) { palco.__hbxMapa = false; return; }
+      gl = await carregarMaplibre();
+      estilo = await estiloDoMapa(luzDeAgora() !== 'claro');
+    } catch (_) { MONTANDO.delete(nome); return; }  // sem mapa, fica o desenho
+    if (!palco.isConnected) { MONTANDO.delete(nome); return; }
 
     const alvo = document.createElement('div');
     alvo.className = 'mapa-vivo';
@@ -1151,7 +1261,7 @@
 
     const paradas = (typeof PARADAS !== 'undefined' ? PARADAS : []).filter((p) => p.lat && p.lng);
     const centro = ultimaPos || (paradas[0] ? { lat: paradas[0].lat, lng: paradas[0].lng } : null);
-    const mapa = new maplibregl.Map({
+    const mapa = new gl.Map({
       container: alvo,
       style: estilo,
       center: centro ? [centro.lng, centro.lat] : [-47.5863, -22.4226],
@@ -1159,32 +1269,25 @@
       maxZoom: 18,
       attributionControl: false,
     });
+    const nova = { nome, gl, mapa, alvo, pinos: new Map(), chave: null, luz: luzDeAgora() };
+    GARAGEM.set(nome, nova);
+    MONTANDO.delete(nome);
+    palco.__hbxMapa = true;
     palco.__hbxMapaObj = mapa;
+
     mapa.on('load', () => {
       palco.classList.add('pronto');             // o desenho de espera se apaga
-      paradas.forEach((p) => {
-        const pino = document.createElement('div');
-        pino.textContent = String(p.n);
-        pino.style.cssText = 'width:26px;height:26px;border-radius:50%;display:grid;place-items:center;'
-          + 'font:500 12px Inter,sans-serif;background:var(--map-pino);color:var(--map-pino-tinta);'
-          + 'border:1.5px solid var(--map-rota)';
-        new maplibregl.Marker({ element: pino }).setLngLat([p.lng, p.lat]).addTo(mapa);
-      });
+      sincronizarPinos(nova);
       // 🔴 A SETA É UMA SÓ. No palco "gps" quem mostra o motorista é o puck do
       // desenho, parado a 68% da tela — um marcador do maplibre no mesmo lugar
       // seria a segunda seta, e o V4 promete uma. No mapa "geral" (a rota
       // inteira, sem puck) o marcador é justamente o que diz onde ele está.
-      const naGps = palco.dataset && palco.dataset.mapa === 'gps';
-      if (ultimaPos && !naGps) {
-        new maplibregl.Marker({ color: '#3d8bff' }).setLngLat([ultimaPos.lng, ultimaPos.lat]).addTo(mapa);
-      }
-      // mapa novo nasce sem o traço e na câmera de montagem: a navegação
-      // reassume as duas coisas na hora, sem esperar o próximo fix do GPS.
-      if (naGps) { desenharTraco(mapa); cameraDaNavegacao(); }
+      if (nome === 'gps') { desenharTraco(mapa); cameraDaNavegacao(); return; }
+      if (ultimaPos) new gl.Marker({ color: '#3d8bff' }).setLngLat([ultimaPos.lng, ultimaPos.lat]).addTo(mapa);
     });
     // as empresas do corredor não são marcador do maplibre: elas são a peça
     // do desenho, e quem as coloca no chão é a câmera. Ver `posicionarEmpresas`.
-    const acompanharCamera = () => posicionarEmpresas();
+    const acompanharCamera = () => { posicionarEmpresas(); pinosVisiveis(nova); };
     mapa.on('move', acompanharCamera);
     mapa.on('zoom', acompanharCamera);
     mapa.on('resize', acompanharCamera);
@@ -1552,7 +1655,18 @@
     const agora = Date.now();
     const andou = navUltimaOrigem ? metrosEntre(navUltimaOrigem, ultimoFix) : Infinity;
     const esperar = navFalhas ? NAV_BACKOFF_MS[Math.min(navFalhas - 1, NAV_BACKOFF_MS.length - 1)] : NAV_INTERVALO_MS;
-    if (agora - navUltimoPedidoEm < esperar && andou < NAV_ANDOU_M) return;
+    if (agora - navUltimoPedidoEm < esperar) return;
+    /* 🔴 PARADO NÃO SE REPEDE ROTA — a cena do dono ("ela volta em outro
+       estado"). O relógio sozinho mandava um pedido a cada 15 s, e o GPS de
+       carro parado BALANÇA (medido no g15: 0 → 8 → 11 → 0 km/h sem sair do
+       lugar). Origem tremida = rota tremida: a manobra ia de "91 m, vire à
+       direita, Av. Nove" pra "161 m, vire à esquerda, Av. Treze" e VOLTAVA no
+       pedido seguinte. Quem manda pedir de novo é ANDAR, não o relógio.
+       As paradas são a exceção: mudou o alvo, a rota é outra e o pedido é
+       obrigatório (é a ordem da rota, não o tremor do aparelho). */
+    const alvos = coords.split(';').slice(1).join(';');
+    const trocouAlvo = !navRota || navRota.alvos !== alvos;
+    if (!trocouAlvo && andou < NAV_ANDOU_M) return;
     if (navRota && navRota.assinatura === assinatura && agora - navRota.em < NAV_INTERVALO_MS) return;
     if (!navGastar()) return;
 
@@ -1576,6 +1690,8 @@
         passos: passosDaPrimeiraPerna(rota),
         // a fita verde do V4 — vem de graça na mesma resposta (§7d)
         geometria: geometriaDe(rota),
+        // as paradas SEM a origem: é o que decide se a rota virou outra
+        alvos,
       };
       navFalhas = 0;
       pintarTraco();
@@ -1609,9 +1725,13 @@
   const MANOBRA_PASSOU_M = 25;
   function manobraDaVez() {
     if (!navRota || !ultimoFix) return null;
+    // 🔴 a distância até a curva se mede da posição PRESA NA RUA: do fix cru,
+    // ela oscilava metros pra cima e pra baixo com o carro parado, e era isso
+    // que fazia a manobra trocar de "91 m" pra "161 m" e voltar.
+    const eu = posicaoDaTela();
     const passos = navRota.passos || [];
     for (let i = 0; i < passos.length; i += 1) {
-      const d = metrosEntre(ultimoFix, passos[i]);
+      const d = metrosEntre(eu, passos[i]);
       if (d > MANOBRA_PASSOU_M) return { passo: passos[i], distancia: d, depois: passos[i + 1] || null };
     }
     return null;
@@ -1734,8 +1854,66 @@
     setTimeout(roda, 1200);
   }
 
-  function desenharTraco(mapa) {
+  /* 🔴 A FITA SAI DA SETA, SEMPRE. Entre dois pedidos ao roteador o carro anda
+     — e o traço ficava onde a rota foi CALCULADA, solto no meio da tela, longe
+     do motorista (print das 00:38). Aqui ele é APARADO a cada fix: acha o
+     ponto mais perto, joga fora o que ficou pra trás e começa no próprio fix.
+     É de graça, a geometria já está no aparelho.
+     Longe demais da linha (>200 m: saiu do caminho) devolve a fita inteira —
+     costurar uma reta gigante do carro até a rota seria desenhar um caminho
+     que não existe. */
+  /* 🔴 A SETA NASCE NA RUA, NUNCA DENTRO DA CASA — cena do dono, 08/08: "da
+     seta começar dentro da minha casa? ela tinha q começar pela rua, igual
+     todo gps!!". O fix CRU do aparelho cai onde o aparelho acha que está (o
+     quintal, o telhado, o quarto) e balança de metro em metro com o carro
+     parado. Desenhar a fita e centrar a câmera nesse ponto é o que fazia a
+     rota sair de dentro de casa e tremer o tempo todo.
+
+     Todo GPS do mundo resolve isso do mesmo jeito: PRENDE a posição na linha
+     da rota. A conta aqui é a projeção do fix no SEGMENTO mais perto — não no
+     VÉRTICE mais perto, senão a seta pularia de esquina em esquina no meio da
+     quadra. Em metros locais (equiretangular), que nesta escala é exato.
+
+     🔴 E NÃO PRENDE DE QUALQUER JEITO: acima de 60 m da rota ele saiu do
+     caminho de verdade, e aí a posição mostrada é a REAL. Prender sempre seria
+     desenhar o motorista numa rua onde ele não está — mentira com cara de GPS. */
+  const SNAP_MAX_M = 60;
+  function presoNaRota(fix) {
     const geo = navRota && navRota.geometria;
+    const c = geo && geo.coordinates;
+    if (!fix || !Number.isFinite(fix.lat) || !c || c.length < 2) return null;
+    const kx = 111320 * Math.cos((fix.lat * Math.PI) / 180);
+    const ky = 110540;
+    const px = fix.lng * kx; const py = fix.lat * ky;
+    let melhor = null;
+    for (let i = 0; i < c.length - 1; i += 1) {
+      const ax = c[i][0] * kx; const ay = c[i][1] * ky;
+      const dx = (c[i + 1][0] * kx) - ax; const dy = (c[i + 1][1] * ky) - ay;
+      const den = (dx * dx) + (dy * dy);
+      let t = den > 0 ? ((((px - ax) * dx) + ((py - ay) * dy)) / den) : 0;
+      t = t < 0 ? 0 : (t > 1 ? 1 : t);
+      const qx = ax + (t * dx); const qy = ay + (t * dy);
+      const d = Math.hypot(px - qx, py - qy);
+      if (!melhor || d < melhor.d) melhor = { d, i, lat: qy / ky, lng: qx / kx };
+    }
+    return (melhor && melhor.d <= SNAP_MAX_M) ? melhor : null;
+  }
+
+  /** onde a tela deve mostrar o motorista: na rua se der, no fix se não der */
+  const posicaoDaTela = () => presoNaRota(ultimoFix) || ultimoFix || null;
+
+  function tracoDaVez() {
+    const geo = navRota && navRota.geometria;
+    if (!geo) return null;
+    const preso = presoNaRota(ultimoFix);
+    if (!preso) return geo;                       // fora da rota: a fita inteira
+    const resto = geo.coordinates.slice(preso.i + 1);
+    if (!resto.length) return geo;
+    return { type: 'LineString', coordinates: [[preso.lng, preso.lat]].concat(resto) };
+  }
+
+  function desenharTraco(mapa) {
+    const geo = tracoDaVez();
     if (!mapa || !geo) return;
     const dado = { type: 'Feature', geometry: geo, properties: {} };
     try {
@@ -1770,10 +1948,15 @@
     if (telaAtual() !== 'mapa' || !ultimoFix) return;
     const mapa = mapaDaNavegacao();
     if (!mapa) return;
-    if (navRota && navRota.geometria && !mapa.getSource(TRACO)) pintarTraco();
+    // a fita é aparada A CADA FIX pra continuar saindo da seta
+    if (navRota && navRota.geometria) {
+      if (mapa.getSource(TRACO)) desenharTraco(mapa); else pintarTraco();
+    }
     const alto = (mapa.getContainer && mapa.getContainer().clientHeight) || 0;
+    // a câmera segue a posição PRESA NA RUA: com o fix cru ela tremia parada
+    const eu = posicaoDaTela();
     const passo = {
-      center: [ultimoFix.lng, ultimoFix.lat],
+      center: [eu.lng, eu.lat],
       zoom: NAV_ZOOM,
       pitch: NAV_PITCH,
       offset: [0, alto ? alto * NAV_PUCK : 0],
@@ -1967,6 +2150,9 @@
   const observador = new MutationObserver(() => {
     const palco = naCamada('[data-mapa]');
     if (palco) montarMapa(palco);
+    // tela que saiu de cena não leva o mapa junto: ele vai pra garagem
+    // off-screen e volta inteiro — com a câmera onde estava.
+    estacionarMapas();
     // repinte traz elementos NOVOS, sem `--x/--y`: sem isto as empresas
     // nasciam empilhadas no canto até a câmera se mexer.
     posicionarEmpresas();
