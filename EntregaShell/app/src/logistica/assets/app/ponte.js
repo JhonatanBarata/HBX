@@ -1495,6 +1495,23 @@
   /** 240 m · 1,2 km — a mesma régua do `distancia()` da lista de paradas */
   const emMetros = (m) => (!(m >= 0) ? ''
     : (m >= 1000 ? `${(m / 1000).toFixed(1).replace('.', ',')} km` : `${Math.round(m)} m`));
+
+  /* 🔴 A DISTÂNCIA DA MANOBRA É ARREDONDADA, E POR DUAS RAZÕES.
+     1) HONESTIDADE: o GPS deste aparelho mede com ±20 m (medido: precisão 19,6 m).
+        Escrever "89 m" é precisão falsa — todo GPS do mundo arredonda.
+     2) O PISCA (cena do dono, 08/08: "a imagem está piscando, tá bugado"):
+        `pintar()` do mock monta uma CAMADA NOVA a cada mudança do seam
+        (`innerHTML = render()`), e a camada nova traz um palco de mapa novo,
+        que obriga o transplante do mapa. Com a distância mudando de metro em
+        metro, isso acontecia UMA VEZ POR SEGUNDO — medido no g15: 88 m -> 89 m
+        -> 89 m, um repinte por segundo com a tela na cara de quem dirige.
+     Degraus: 10 m perto, 50 m no quarteirão, 0,1 km na estrada. */
+  const emMetrosDaManobra = (m) => {
+    if (!(m >= 0)) return '';
+    if (m >= 1000) return `${(m / 1000).toFixed(1).replace('.', ',')} km`;
+    const passo = m < 100 ? 10 : 50;
+    return `${Math.max(passo, Math.round(m / passo) * passo)} m`;
+  };
   /** 45 min · 1 h 20 — acima de uma hora "95 min" não é jeito de ler tempo */
   const emMinutos = (s) => {
     if (!(s >= 0)) return '';
@@ -1766,9 +1783,18 @@
     }, 0);
 
     const m = manobraDaVez();
-    const rumo = rumoConfiavel(ultimoFix);
-    const velKmh = ultimoFix && Number.isFinite(ultimoFix.velMps) && ultimoFix.velMps >= 0
-      ? String(Math.round(ultimoFix.velMps * 3.6)) : '';
+    const rumo = rumoDaTela();
+    /* 🔴 O VELOCÍMETRO NÃO PODE DERRUBAR A CAMADA A CADA KM/H. Ele é o único
+       número REALMENTE contínuo da tela: a 40 km/h ele muda todo segundo, e
+       cada mudança reconstruía a tela inteira. No seam vai a FAIXA (de 5 em 5);
+       o número exato é escrito direto no nó por `acertarVelocimetro`, mesma
+       divisão que o `posicionarEmpresas` já usa desde o prospector — o DADO
+       passa pelo seam, o que muda a cada quadro NÃO.
+       Abaixo de 3 km/h é ZERO: parado, o aparelho oscila 0-1-0 sozinho. */
+    const velExata = ultimoFix && Number.isFinite(ultimoFix.velMps) && ultimoFix.velMps >= 0
+      ? Math.round(ultimoFix.velMps * 3.6) : null;
+    const velKmh = velExata == null ? ''
+      : String(velExata < 3 ? 0 : Math.round(velExata / 5) * 5);
     const precisao = ultimoFix && Number.isFinite(ultimoFix.precisaoM)
       ? `GPS ±${Math.round(ultimoFix.precisaoM)} m` : '';
 
@@ -1779,7 +1805,7 @@
 
     window.usarDados('gps', {
       manobraIcone: m ? m.passo.icone : '',
-      manobraDist: m ? emMetros(m.distancia) : '',
+      manobraDist: m ? emMetrosDaManobra(m.distancia) : '',
       manobraVerbo: m ? maiuscula(m.passo.verbo) : '',
       manobraRua: m ? (m.passo.rua || '') : '',
       // "depois, siga em frente por 1,2 km" do desenho = a PRÓXIMA manobra. Só
@@ -1916,6 +1942,49 @@
   /** onde a tela deve mostrar o motorista: na rua se der, no fix se não der */
   const posicaoDaTela = () => presoNaRota(ultimoFix) || ultimoFix || null;
 
+  /* ---- PRA ONDE A TELA APONTA -------------------------------------------
+     🔴 ORDEM DO DONO (08/08): "tem q ficar sempre apontando pro lugar onde tem
+     q ir". O rumo do APARELHO só é confiável em movimento (≥9 km/h) — parado
+     ele é ruído puro, e era por isso que a câmera ficava norte-acima com a
+     fita saindo de lado: o motorista via a rota atravessando a tela em vez de
+     subir na frente dele.
+
+     Quem sabe pra onde ele vai, mesmo parado, é a ROTA. Dois degraus:
+       1. ANDANDO: o rumo do aparelho — é a verdade do que está acontecendo;
+       2. PARADO/LENTO: o rumo DA ROTA no ponto onde ele está, olhando 40 m de
+          traço à frente (média vetorial, pra curva não fazer a tela pinotar).
+     Sem rota, ou fora dela, NÃO gira: girar sem saber é pior que ficar quieto.
+
+     🔴 E ISTO NÃO ENTRA NO PEDIDO AO ROTEADOR. O `bearings` do OSRM continua
+     saindo só do rumo do aparelho — mandar a direção DA ROTA de volta pra ela
+     mesma é conversa circular, e o `bearings` existe justamente pra impedir
+     que o roteador invente um retorno no meio da avenida. */
+  const RUMO_OLHAR_M = 40;
+
+  function rumoDaRota() {
+    const geo = navRota && navRota.geometria;
+    const c = geo && geo.coordinates;
+    const preso = presoNaRota(ultimoFix);
+    if (!c || !preso) return null;
+    const kx = 111320 * Math.cos((preso.lat * Math.PI) / 180);
+    let ax = preso.lng * kx; let ay = preso.lat * 110540;
+    let somaX = 0; let somaY = 0; let andou = 0;
+    for (let i = preso.i + 1; i < c.length && andou < RUMO_OLHAR_M; i += 1) {
+      const bx = c[i][0] * kx; const by = c[i][1] * 110540;
+      const dx = bx - ax; const dy = by - ay;
+      const d = Math.hypot(dx, dy);
+      if (d > 0) { somaX += dx; somaY += dy; andou += d; }
+      ax = bx; ay = by;
+    }
+    if (!andou) return null;
+    return ((Math.atan2(somaX, somaY) * 180) / Math.PI + 360) % 360;   // 0° = norte
+  }
+
+  const rumoDaTela = () => {
+    const doAparelho = rumoConfiavel(ultimoFix);
+    return doAparelho != null ? doAparelho : rumoDaRota();
+  };
+
   function tracoDaVez() {
     const geo = navRota && navRota.geometria;
     if (!geo) return null;
@@ -1976,9 +2045,27 @@
       offset: [0, alto ? alto * NAV_PUCK : 0],
       duration: 900,
     };
-    const rumo = rumoConfiavel(ultimoFix);
-    if (rumo != null) passo.bearing = rumo;    // parado, o mapa NÃO gira
+    // 🔴 A MESMA bússola da tela (§ rumoDaTela): andando é o aparelho, parado é
+    // a ROTA. Deixar só o `rumoConfiavel` aqui era o que mantinha o mapa
+    // norte-acima com a fita atravessando a tela — a bússola dizia uma coisa e
+    // a câmera fazia outra. Sem rumo nenhum (fora da rota) NÃO gira.
+    const rumo = rumoDaTela();
+    if (rumo != null) passo.bearing = rumo;
     try { mapa.easeTo(passo); } catch (_) { /* mapa saindo de cena */ }
+  }
+
+  /* O número EXATO do velocímetro, escrito direto no nó — o seam só carrega a
+     faixa de 5 em 5 (ver a nota no `velKmh`). Roda a cada fix E depois de cada
+     repinte: a camada nova nasce com a faixa e, sem isto, ficaria mostrando
+     "40" até o próximo fix. Mesma divisão de trabalho do `posicionarEmpresas`. */
+  function acertarVelocimetro() {
+    if (telaAtual() !== 'mapa' || !ultimoFix) return;
+    const el = naCamada('.gps-vel b');
+    if (!el) return;
+    if (!Number.isFinite(ultimoFix.velMps) || ultimoFix.velMps < 0) return;
+    const v = Math.round(ultimoFix.velMps * 3.6);
+    const txt = String(v < 3 ? 0 : v);
+    if (el.textContent !== txt) el.textContent = txt;
   }
 
   /* ---- A VOZ DA MANOBRA --------------------------------------------------
@@ -2069,7 +2156,7 @@
     if (!naNavegacao()) return;
     pintarNavegacao();
     if (telaAtual() === 'mapa') {
-      pedirRota(); cameraDaNavegacao();
+      pedirRota(); cameraDaNavegacao(); acertarVelocimetro();
       // a voz mora AQUI, no fix — não no repinte: quem entra na tela não pode
       // levar um "vire à direita" na cara só por ter aberto o mapa.
       vozDaManobra(manobraDaVez());
@@ -2253,6 +2340,8 @@
     estacionarMapas();
     // tela acesa + tela cheia enquanto dirige; ambas voltam ao sair
     modoDirigindo(naNavegacao());
+    // camada nova nasce com a FAIXA do velocímetro: o número exato entra aqui
+    acertarVelocimetro();
     // repinte traz elementos NOVOS, sem `--x/--y`: sem isto as empresas
     // nasciam empilhadas no canto até a câmera se mexer.
     posicionarEmpresas();
