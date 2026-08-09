@@ -855,7 +855,22 @@
          e "R$ 336,00" (o desenho) pra quem entrasse antes do servidor
          responder. Nasce vazia, com esqueleto. `pronta:1` porque o pé desta
          tela é UM só — "Iniciar rota" (o 2º "Montar rota" morreu em 08/08); e
-         com a lista vazia o pé nem é desenhado. */
+         com a lista vazia o pé nem é desenhado.
+
+         🔴 ESTA CHAVE ESTAVA ESCRITA DUAS VEZES NESTE MESMO OBJETO (09/08). A
+         segunda — lá embaixo, entre o `financeiro` e a `caderneta`, acrescentada
+         depois pro caso do `/logistica/rota` no chão — repetia cinco campos e
+         SOBRESCREVIA este bloco inteiro: em objeto literal quem vence é a
+         última. Os cinco repetidos tinham valor idêntico (por isso as 6 paradas
+         de exemplo e o "R$ 336,00" morriam mesmo assim), mas `carregando`,
+         `vazio`, `pronta`, `dias` e `diaSel` NUNCA chegavam ao seam. O que se
+         via: a Montagem nascia SEM ESQUELETO, com o vazio do desenho na cara —
+         "Nenhum cliente nesse dia" por um quadro em toda abertura da tela (o
+         `ir('montagem')` pinta ANTES de o `encherMontagem` ligar o `carregando`).
+         É a Lei nº1 desta frente invertida: dizia "não tem ninguém" quando o
+         certo era "estou buscando". Chave repetida é bug MUDO — nem o `node
+         --check` nem os portões reclamam. UMA chave só, e o caso da rota no chão
+         está coberto aqui dentro, não numa segunda cópia. */
       montagem: {
         carregando: true, linhas: [], pronta: 1, iniciarSub: '',
         // COPY que o ESTADO decide não é copy do desenho: no boot o dia é HOJE,
@@ -939,10 +954,10 @@
         carregando: true, recebido: '', emAberto: '', formas: [], marcou: '', devedores: [],
         semanaRecebido: '', semanaMarcado: '', semanaPendencia: '',
       },
-      // A montagem sobrevivia com as 6 paradas de exemplo e "R$ 336,00" quando
-      // o `/logistica/rota` falhava: `carregarRota` volta no catch ANTES de
-      // escrever aqui, e o `montarRota` navegava mesmo assim.
-      montagem: { somaParadas: '', somaProdutos: '', somaValor: '', iniciarSub: '', linhas: [] },
+      // (A 2ª `montagem:` morava AQUI — o caso do `/logistica/rota` no chão, em
+      // que `carregarRota` volta no catch antes de escrever e o `montarRota`
+      // navegava mesmo assim. Fundida na chave lá de cima, que já zerava os
+      // mesmos cinco campos com os mesmos valores; o porquê está escrito lá.)
       /* 🔴 O CAIXA DO DIA — 11 campos de dinheiro presos a UMA chamada.
          `encherCaderneta` só roda se o `caderneta/resumo` responder; as duas
          seções são 100% DADO e nenhuma nascia limpa. Com a chamada no chão a
@@ -4826,7 +4841,25 @@
        imprevisível; este ponto é o único em que as duas já chegaram. Config que
        nunca chega = tour que não abre nesta sessão, e está certo: o
        `carregarBarra` tenta de novo a cada minuto. */
-    if (!fatos.carregando && tutorialVisto === false) abrirObrigatorio();
+    /* ⛔ FREIO LIGADO EM 09/08 02:0x — O TUTORIAL OBRIGATÓRIO TRAVA O APP.
+       MEDIDO no g15 com o APK 205, do jeito que o cliente faz: abre o app →
+       cartão "O app mudou" → toca "Vamos lá" → e o aparelho fica MUDO. Nem o
+       botão de montar, nem a aba Ajustes, nem a de Chat respondem. E não há
+       furo, nem balão, nem escurecido na tela: a lição monta a camada que come
+       o dedo e NÃO DESENHA NADA. Reiniciar não salva — sem `tutorialVistoEm`
+       gravado, o obrigatório dispara em todo boot e prende de novo.
+       App travado sem sinal nenhum é o pior desfecho possível: o motorista não
+       tem o que tocar e nem sabe por quê. Enquanto a causa não está achada, o
+       gatilho automático fica DESLIGADO — é o freio, não o remendo do sintoma.
+       O tutorial NÃO foi apagado: o motor, os capítulos e a porta dos Ajustes
+       ("Aprenda a usar") continuam inteiros e funcionam a pedido, com X. O que
+       sai é só o disparo sozinho, que é o que prende.
+       PARA RELIGAR: achar por que o passo 1 (`tela:'rota'`, alvo do botão de
+       montar, `tipo:'fazer'`) monta o véu sem furo e sem balão — a suspeita é
+       o ramo de jornada `if(p.tela&&p.tela!==atual) return ir(p.tela)` girando
+       contra a tela em que já se está — provar no aparelho, e trocar esta
+       linha de volta. */
+    void abrirObrigatorio;
   }
 
   /** a PORTA — o único lugar do app que abre o tutorial obrigatório */

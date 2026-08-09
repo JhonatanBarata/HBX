@@ -743,7 +743,10 @@ const DADOS={
   tutorial:{
     carregando:0, obrigatorioVisto:0,
     admin:1, financeiro:1, chat:1,
-    prospectorAtivo:0, prospectorDisponivel:1,
+    /* `prospectorVejo` = "esta pessoa enxerga os prédios" (admin sempre,
+       funcionário só com a chave da equipe). É a régua do servidor, traduzida
+       pela ponte; separada de `prospectorAtivo`, que é só "a empresa ligou". */
+    prospectorAtivo:0, prospectorDisponivel:1, prospectorVejo:0,
   },
   /* A ABERTURA NÃO TEM SEÇÃO DE DADO, e isso é de propósito — ver o comentário
      em cima do `.splash-barra`, na folha. Slot com valor de desenho aqui NÃO
@@ -3640,10 +3643,11 @@ const CAPITULOS={
      crédito) nem dado de verdade (Salvar cliente cria conta): tutorial que
      gasta ou cadastra é tutorial que o cliente paga pra ver. */
   montar:{titulo:'Montar e iniciar a rota',ico:'route',passos:[
-    /* O alvo tem DOIS seletores porque o botão de montar muda de casa com o
-       estado da rota: no dia zerado ele é o botão grande do meio; com a rota
-       já pronta é o satélite "Montagem". Mesma porta, dois desenhos. */
-    {tela:'rota',alvo:'.tmx-main button[data-estado="montar"],[data-acao="montar"]',tipo:'fazer',
+    /* O alvo é uma FILA porque o botão de montar muda de casa com o estado da
+       rota: no dia zerado ele é o botão grande do meio; com a rota já pronta é
+       o satélite "Montagem". Mesma porta, dois desenhos — e o grande vem
+       primeiro porque é o que o dedo procura. */
+    {tela:'rota',alvo:['.tmx-main button[data-estado="montar"]','[data-acao="montar"]'],tipo:'fazer',
      titulo:'Comece por aqui',texto:'Toque em montar pra armar o seu dia.'},
     {tela:'montagem',alvo:'.day-chips,.chips',tipo:'fazer',
      titulo:'O dia',texto:'Escolha o dia. Só aparece dia que tem cliente.'},
@@ -3683,14 +3687,28 @@ const CAPITULOS={
      DESLIGADO mas o dono PODE ligar ⇒ os 2 últimos, que terminam na chave de
      verdade em Ajustes › Avançado;
      desligado pra quem não é dono, ou empresa sem prospector ⇒ o `se` do
-     capítulo derruba tudo e ele NÃO EXISTE — nem linha vazia no catálogo. */
+     capítulo derruba tudo e ele NÃO EXISTE — nem linha vazia no catálogo.
+
+     🔴 QUEM ENSINA O PRÉDIO É `prospectorVejo`, NÃO `prospectorAtivo` (09/08).
+     "A empresa ligou" e "esta pessoa vê" são coisas diferentes: o prospector
+     tem QUATRO chaves, e a régua de quem enxerga é do servidor — admin sempre,
+     funcionário só com `prospectorEquipe`. Ensinar pelo `prospectorAtivo`
+     sozinho poria "toque no prédio aceso" na frente do motorista de uma empresa
+     com a chave da equipe desligada, que nunca verá prédio nenhum: o tutorial
+     FABRICANDO a pergunta besta que veio matar. A ponte já traduz a régua num
+     fato só; aqui é só obedecer. */
   prospector:{titulo:'Prospector — vender no caminho',ico:'sales',
-    se:d=>!!(d.prospectorAtivo||(d.admin&&d.prospectorDisponivel)),passos:[
-    {tela:'mapa',alvo:'.emp-chip,.emp.on',se:d=>!!d.prospectorAtivo,
+    se:d=>!!(d.prospectorVejo||(d.admin&&d.prospectorDisponivel&&!d.prospectorAtivo)),passos:[
+    /* 🔴 O ALVO É O PRÉDIO (`.emp-obj`), NUNCA O `.emp`. O `.emp` é um PONTO —
+       `width:0;height:0`, só a coordenada no mapa — e o desenho inteiro mora no
+       filho. Medido: o furo saía um pontinho de 12 px no meio do mapa, e o
+       prédio que a frase explica ficava do lado de fora, embaçado. Peça que se
+       posiciona por coordenada não é peça que se mede. */
+    {tela:'mapa',alvo:['.emp-chip','.emp.on .emp-obj'],se:d=>!!d.prospectorVejo,
      titulo:'Empresas no seu caminho',texto:'Os prédios acesos no mapa são empresas a até 150 m da sua rota.'},
-    {tela:'mapa',alvo:'.emp.on',se:d=>!!d.prospectorAtivo,
+    {tela:'mapa',alvo:'.emp.on .emp-obj',se:d=>!!d.prospectorVejo,
      titulo:'Toque no prédio',texto:'Abre quem é a empresa. Se interessar, ela vira um lead seu.'},
-    {tela:'mapa',alvo:'',se:d=>!!d.prospectorAtivo,
+    {tela:'mapa',alvo:'',se:d=>!!d.prospectorVejo,
      titulo:'Custa 1 crédito',texto:'Só quando você pega o lead. Olhar é de graça.'},
     {alvo:'',se:d=>!d.prospectorAtivo,
      titulo:'Vender no caminho',texto:'O app pode te mostrar empresas a até 150 m da rota que você já faz.'},
@@ -3736,6 +3754,19 @@ function tutorCondicao(fn){
    pro AVANÇADO, que se abre a qualquer hora do dia. */
 const tourSoMostrar=()=>estadoRota==='rodando'||estadoRota==='pausada';
 
+/* 🔴 `alvo` ACEITA UMA FILA DE SELETORES, e a fila é a ORDEM DE PREFERÊNCIA —
+   `querySelector('a,b')` NÃO serve pra isso: ele devolve o primeiro na ordem do
+   DOCUMENTO, não o primeiro da lista. Custou uma medida: o passo do prospector
+   pedia `.emp-chip,.emp.on .emp-obj` querendo o chip, e como o prédio nasce
+   antes no HTML o furo caía sempre no prédio. Um array diz "este, e se não
+   houver, aquele" — que é o que uma tela com dois desenhos pro mesmo assunto
+   realmente precisa. String continua valendo e continua sendo uma união CSS. */
+function acharAlvo(camada,alvo){
+  if(!alvo) return null;
+  const fila=Array.isArray(alvo)?alvo:[alvo];
+  for(const sel of fila){ const el=sel&&camada.querySelector(sel); if(el) return el; }
+  return null;
+}
 /** Tupla velha `[sel,titulo,texto]` ou objeto novo — sai objeto dos dois lados. */
 function normalizarPasso(p,telaPadrao){
   const o=Array.isArray(p)
@@ -3975,7 +4006,7 @@ function abrirAula(){
   marcarVista(atual);
   marcarAula(camada);
   const passos=(AULAS[atual]||[]).map(p=>normalizarPasso(p,atual)).filter(p=>{
-    const tem=!!(p.alvo&&camada.querySelector(p.alvo));
+    const tem=!!acharAlvo(camada,p.alvo);
     if(!tem) console.warn('[HBX 2.0] aula de',atual,'— sumiu da tela:',p.alvo);
     return tem;
   });

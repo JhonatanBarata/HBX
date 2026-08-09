@@ -58,6 +58,23 @@ mas se chama "Encerrar". Verbo destrutivo em botão que não destrói, na tela o
 
 Lei que sai daqui: **sair da navegação e cancelar a rota são dois verbos, nunca o mesmo botão.**
 
+### D) 🔴 O MAPA 2D NUNCA EXISTIU NA TELA — estava soterrado pela maquete
+Achado só DEPOIS de publicar a cura A, dirigindo o app no g15 (APK 204): a tela ficou 2 minutos
+com o mesmo desenho imóvel — ruas em grade perfeita e 6 pinos de **posição fixa**
+(`MAPA_PARADAS`), que não são as paradas de ninguém.
+
+A regra que apaga o desenho de espera é `.mapa-palco.pronto>svg` — **filho direto**. Mas
+`mapaDesenho()` devolve `<div class="mapwrap"><svg>`: o seletor mira um neto e casa com nada. E
+`.mapwrap` tem `z-index:10` enquanto `.mapa-vivo` não tem nenhum — o maplibre subia, ficava
+`opacity:1` como manda a regra de baixo, e continuava **embaixo**. Nunca faltou mapa; o mapa
+estava escondido.
+
+**Cura:** a regra passa a mirar o invólucro (`.mapa-palco.pronto>.mapwrap`), com
+`pointer-events:none` junto — caixa invisível de tela inteira come o dedo, que é o mesmo defeito
+do facho da seta no 3D. Só o palco 2D: o `gps` tem a coreografia da cena de entrada e não se toca.
+
+**LEI: seletor de filho direto morre calado quando alguém embrulha o alvo.**
+
 ### C) 🟡 A tela "Chegou" é um beco sem saída
 `T.mapachegou` não tem `data-ir` nenhum, não tem `nav()`, e o botão verde grande
 ("Registrar entrega") **não tem `data-acao`** — é botão morto desde que nasceu. Quem chega numa
