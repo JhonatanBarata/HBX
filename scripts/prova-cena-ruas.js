@@ -244,7 +244,7 @@ const eh = (nome, cond, medida) => {
   (cond ? ok : falhou).push(linha);
 };
 
-async function abrir(navegador, pele, porta, { itens, ruas, pouco, estado }) {
+async function abrir(navegador, pele, porta, { itens, ruas, pouco, estado, luz }) {
   const ctx = await navegador.newContext({
     viewport: { width: 412, height: 940 },
     geolocation: { latitude: EU.lat, longitude: EU.lng, accuracy: 22 },
@@ -258,6 +258,7 @@ async function abrir(navegador, pele, porta, { itens, ruas, pouco, estado }) {
   await p.goto(`http://127.0.0.1:${porta}/assets/app/index.html`);
   await p.waitForTimeout(400);
   await p.addStyleTag({ content: pele });
+  if (luz) await p.evaluate((l) => { document.documentElement.dataset.luz = l; }, luz);
   await p.evaluate(PONTE, { itens, estado });
   await p.evaluate(() => window.HBXRota.carregar());
   await p.waitForTimeout(500);
@@ -471,8 +472,7 @@ const ultimo = (fita, cond) => { const q = [...fita].reverse().find(cond); retur
       const u = f.slice(-6);
       return u.length === 6 && u.every((q) => q.camadas === 0 && q.vis === 'visible');
     }, null, { timeout: 20000 }).catch(() => {});
-    await p.evaluate(() => { window.__fita = []; });
-    await p.evaluate(() => window.ir('montagem'));
+    await p.evaluate(() => { window.__marcas = { montagem: Math.round(performance.now()) }; window.ir('montagem'); });
     await p.waitForTimeout(600);
     /* 🔴 O TOQUE É O DE VERDADE, o botão é que é emprestado. Quem dispara
        `montarRota` é o ouvinte de clique em `[data-acao]` — o mesmo pra qualquer
@@ -482,6 +482,7 @@ const ultimo = (fita, cond) => { const q = [...fita].reverse().find(cond); retur
        cena voltar", não o dock da Montagem. Então o clique entra pela porta
        real, com um botão descartável. */
     await p.evaluate(() => {
+      window.__marcas.click = Math.round(performance.now());
       const b = document.createElement('button');
       b.setAttribute('data-acao', 'montar-agora');
       document.body.appendChild(b);
@@ -489,21 +490,61 @@ const ultimo = (fita, cond) => { const q = [...fita].reverse().find(cond); retur
       b.remove();
     });
     await p.waitForTimeout(1500);
-    const fora = await p.evaluate(() => ({
-      cena: (window.__fita || []).some((q) => q.camadas > 0),
-      quando: (window.__fita || []).slice(0, 8).map((q) => `${q.t - (window.__fita[0] || {}).t}:${q.camadas}:${q.vis}:${q.caixa}:${q.telas}`),
-      tela: (typeof window.telaAtual === 'function' && window.telaAtual()) || document.body.dataset.tela || '?',
-      temPalco: !!document.querySelector('.mapa-palco[data-mapa="geral"]'),
-    }));
+    const fora = await p.evaluate(() => {
+      const m = window.__marcas || {};
+      const f = window.__fita || [];
+      // a janela em que o mapa estava FORA da tela: de `ir('montagem')` até o
+      // clique. Nela não pode ter nascido camada de cena nenhuma.
+      const janela = f.filter((q) => q.t >= m.montagem && q.t <= m.click);
+      return {
+        cena: janela.some((q) => q.camadas > 0),
+        quadros: janela.length,
+        pico: Math.max(0, ...janela.map((q) => q.camadas)),
+        temPalco: !!document.querySelector('.mapa-palco[data-mapa="geral"]'),
+      };
+    });
     eh('5.1 a cena NAO toca fora da tela do mapa', !fora.cena,
-      `tela=${fora.tela} palco=${fora.temPalco} em=${JSON.stringify(fora.quando)}`);
-    await p.evaluate(() => window.ir('rota'));
-    const fita = await fitaDe(p, 6000);
+      `${fora.quadros} quadros na janela, pico ${fora.pico} camadas, palco=${fora.temPalco}`);
+    await p.evaluate(() => { window.__marcas.volta = Math.round(performance.now()); window.ir('rota'); });
+    const tudo = await fitaDe(p, 6000);
+    const marcas = await p.evaluate(() => window.__marcas);
+    // só o que aconteceu DEPOIS de voltar pro mapa: antes disso a fita ainda tem
+    // a cena de entrada inteira, que é outro caso.
+    const fita = tudo.filter((q) => q.t >= marcas.volta);
     eh('5.2 rota nova: a cena roda ao voltar pro mapa', fita.some((q) => q.camadas > 0),
       `${fita.filter((q) => q.camadas > 0).length} quadros com cena`);
     eh('5.3 rota nova: SEM cartao de coordenada (isso é da entrada)', fita.every((q) => !q.cartao));
     const fim = fita[fita.length - 1];
     eh('5.4 rota nova: o mundo volta no fim', !!fim && fim.vis === 'visible', fim ? fim.vis : '—');
+    await ctx.close();
+  }
+
+  /* ======================================================================
+     CASO 6 — A PELE CLARA. A cena tem que sair com a tinta do tema, e essa é
+     a armadilha: a pele clara do mock mora em `[data-luz="claro"] .app{…}`, e
+     quem lê token na RAIZ recebe o valor do ESCURO (foi o conserto do `tinta`).
+     ====================================================================== */
+  {
+    const { ctx, p } = await abrir(navegador, pele, porta, { itens: [], luz: 'claro' });
+    await p.waitForFunction(() => (window.__fita || []).some((q) => q.gs.some((g) => g !== null && g > 0)), null, { timeout: 9000 }).catch(() => {});
+    const cor = await p.evaluate(() => {
+      const palco = document.querySelector('.mapa-palco[data-mapa="geral"]');
+      const m = palco && palco.__hbxMapaObj;
+      let g = null;
+      for (let i = 0; i < 7 && m; i += 1) {
+        try { if (m.getLayer(`hbx-cena-ruas-${i}`)) { g = m.getPaintProperty(`hbx-cena-ruas-${i}`, 'line-gradient'); break; } } catch (_) { /* saiu */ }
+      }
+      const casca = document.querySelector('.app') || document.documentElement;
+      return {
+        usada: Array.isArray(g) ? g.filter((x) => typeof x === 'string' && x.charAt(0) === '#')[0] : null,
+        token: getComputedStyle(casca).getPropertyValue('--map-cena-rua').trim(),
+        raiz: getComputedStyle(document.documentElement).getPropertyValue('--map-cena-rua').trim(),
+      };
+    });
+    eh('6.1 no claro a cena desenha com a tinta CLARA', !!cor.usada && cor.usada === cor.token,
+      `usada=${cor.usada} token=${cor.token}`);
+    eh('6.2 e ela é DIFERENTE da tinta da raiz (a pegadinha do tema)', cor.token !== cor.raiz,
+      `claro=${cor.token} raiz=${cor.raiz}`);
     await ctx.close();
   }
 

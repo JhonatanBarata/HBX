@@ -3708,7 +3708,17 @@
      repinte o nó troca de pai no MESMO tique, e ninguém observa esse instante. */
   const mapaNaTela = (casa) => {
     const pai = casa && casa.alvo && casa.alvo.parentElement;
-    return !!(pai && pai.classList && pai.classList.contains('mapa-palco') && pai.isConnected);
+    if (!pai || !pai.classList || !pai.classList.contains('mapa-palco')) return false;
+    /* 🔴 E TEM QUE SER A CAMADA VIVA — a régua que esta casa já tinha
+       (`camadaViva`, lá em cima). Na troca de tela as DUAS `.tela` existem no
+       DOM por alguns quadros, e o palco continua dentro da que está MORRENDO.
+       Medido: abrir a Montagem É mandar montar (§ `ir('montagem')`), então o
+       pedido de cena chegava exatamente durante essa transição — a cena inteira
+       tocava na tela que estava saindo e o motorista voltava pro mapa com tudo
+       já desenhado. Cena tocada pra ninguém é pior que cena nenhuma: gasta o
+       pedido. */
+    const viva = camadaViva();
+    return !!(viva && viva.contains(pai));
   };
 
   /** o pedido: a cena acontece quando o palco estiver na tela, nunca antes */
