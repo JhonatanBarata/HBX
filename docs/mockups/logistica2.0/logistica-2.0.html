@@ -2192,6 +2192,18 @@ button,input{font:inherit;color:inherit}
   border-color:#264900}
 [data-luz="claro"] .sheet{background:linear-gradient(180deg,#fff,#fbfcfe 30%);border-color:var(--line)}
 
+/* 🔴 O SELO DO PORTÃO CONTINUAVA DE NOITE DENTRO DO CARTÃO BRANCO. O `.aviso`
+   tem as 3 linhas do claro (ok/alerta/info, logo acima); o `.portao` só ganhou
+   a do `trava` (abaixo) e os outros três seguiam com os tokens de noite.
+   MEDIDO no print do g15, portão "ok" no claro: bloco #17230e a 15,8:1 contra
+   o cartão branco — um buraco preto no cartão — e o tique em `--lime` (que no
+   claro é #3f7a00, o verde que ESCREVE) a 3,02:1 DENTRO dele, raspando o piso
+   de 3:1 de objeto gráfico. Mesmos valores do `.aviso`, que é o irmão desta
+   peça: padronizar é IGUALAR, não escolher um tom novo. */
+[data-luz="claro"] .portao.ok .ico{background:#f0f8e4;color:var(--lime)}
+[data-luz="claro"] .portao.alerta .ico{background:#fdf3e0;color:var(--amber)}
+[data-luz="claro"] .portao.info .ico{background:#eaf1fe;color:var(--blue)}
+
 [data-luz="claro"] .erro,[data-luz="claro"] .portao.trava{background:#fff5f5;border-color:#e6a3a3}
 [data-luz="claro"] .erro .ico,[data-luz="claro"] .portao.trava .ico{background:#fbe3e3;color:#b3211c}
 [data-luz="claro"] .erro .acoes .principal{background:#b3211c;border-color:#b3211c;color:#fff}
