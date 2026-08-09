@@ -108,6 +108,10 @@ Sem id, o botão não é desenhado — Lei do IF: melhor vaga vazia que botão q
 | P3 | `T.mapalista` ("Mapa + fila") não recebe **nenhum dado** da ponte — KPIs fixos | Tela órfã. Ou ganha dado, ou sai do índice. Proposta: sai (a lista já é `rotalista`) |
 | P4 | Os 4 botões do `.map-ctrl` da `mapalista` são inertes | Morre junto com P3 |
 | P5 | A borda do mapa offline aparece no 2D de dia longo (~14% cinza num dia de 64 km) | Travar o zoom-out no recorte que o APK carrega (default) × baixar mais tile (engorda o APK) |
+| P6 | **Cadastro com coordenada (0,0)**: existe pelo menos um cliente assim na company 48 (foi ele que mandou o enquadrar pra África). O app agora o ignora no mapa, mas o dado continua torto | Achar e corrigir no cadastro — ou barrar (0,0) na gravação |
+| P7 | **Rotas `ACTIVE` penduradas** de dias anteriores (08/08 e 31/07 ainda ACTIVE no banco da 48) | Encerrar as velhas; o dia que não fecha deixa lixo que confunde o estado da tela |
+| P8 | ⛔ **Tutorial obrigatório TRAVA o app** — freio aplicado em `3eb3972b`, disparo automático desligado | Frente do tutorial: achar por que o passo 1 monta véu sem furo e sem balão, provar no aparelho, religar |
+| P9 | 🔴 **O estado `rodando` não aparece.** Iniciei a rota no g15 (créditos 49728→49520, a navegação abriu, `LogisticaRoute` ACTIVE no banco) e a tela Rota continuou com o dock de `pronta` (Cancelar·Iniciar·Montagem) — inclusive depois de fechar e reabrir o app. Ou seja **os estados 3→4→5 do dono não se alcançam pelo rodapé**: "Navegar" e "Finalizar" nunca aparecem | Achar por que `estadoDaRota` não devolve `rodando`: o `/logistica/rota?date=` do dia parece não enxergar a rota ACTIVE (suspeita de fuso/dia operacional — a ACTIVE mais nova está gravada 2h antes do toque). É o próximo item desta frente |
 
 ---
 
