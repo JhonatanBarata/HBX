@@ -18,6 +18,9 @@ import { FiscalModule } from '../fiscal/fiscal.module';
 // tela atual do aparelho de carona no poll dos recados. Sem ciclo: o pulso só
 // depende de Prisma.
 import { PulsoAppModule } from '../pulso-app/pulso-app.module';
+// TUTORIAL OBRIGATÓRIO (09/08): LogisticaTutorialService reusa o carimbo de
+// onboarding do UsersService (zero migration). Sem ciclo: users/ não importa logistica.
+import { UsersModule } from '../users/users.module';
 import { LogisticaService } from './logistica.service';
 import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
 import { LogisticaRecorrenciaOccurrenceService } from './logistica-recorrencia-occurrence.service';
@@ -75,6 +78,7 @@ import { LogisticaNivelMasterController } from './logistica-nivel-master.control
 import { LogisticaPlanosPublicoController } from './logistica-planos-publico.controller';
 import { LogisticaNivelPlanoService } from './logistica-nivel-plano.service';
 import { LogisticaEstoqueService } from './logistica-estoque.service';
+import { LogisticaTutorialService } from './logistica-tutorial.service';
 
 /**
  * NÚCLEO-CRM N6 (05/07) — módulo LOGÍSTICA (app de entrega, cliente água).
@@ -188,9 +192,14 @@ import { LogisticaEstoqueService } from './logistica-estoque.service';
  * preço de anúncio) que alimenta a vitrine `/rota` do site com o MESMO catálogo
  * que o Master edita. Sem ela a página teria preço escrito à mão e passaria a
  * mentir no dia em que o dono mudasse o valor.
+ *
+ * TUTORIAL OBRIGATÓRIO (09/08, CONTRATO-TUTOR): LogisticaTutorialService é o único
+ * provider novo desta frente — endereço PRÓPRIO (`/logistica/tutorial*`), zero
+ * migration, importa UsersModule só pra reusar o carimbo de onboarding por usuário
+ * que já existia (UsersService#stampOnboardingEvent/getOnboardingEvents).
  */
 @Module({
-  imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule, NucleoModule, FiscalModule, PulsoAppModule],
+  imports: [PrismaModule, MessagingModule, HbxRecoveryModule, CreditsModule, ModulesAccessModule, AuthModule, NucleoModule, FiscalModule, PulsoAppModule, UsersModule],
   controllers: [
     LogisticaController,
     LogisticaRecadoMobileController,
@@ -257,6 +266,7 @@ import { LogisticaEstoqueService } from './logistica-estoque.service';
     LogisticaCadernetaService,
     LogisticaImportacaoService,
     LogisticaEstoqueService,
+    LogisticaTutorialService,
   ],
   exports: [
     LogisticaService,

@@ -50,6 +50,7 @@ import { LogisticaOccurrenceService } from './logistica-occurrence.service';
 import { LogisticaLeituraService } from './logistica-leitura.service';
 import { LogisticaGeoService } from './logistica-geo.service';
 import { LogisticaAgendaService } from './logistica-agenda.service';
+import { LogisticaTutorialService } from './logistica-tutorial.service';
 import {
   FinalizarLeituraDto,
   IniciarLeituraDto,
@@ -175,6 +176,9 @@ export class LogisticaController {
     private readonly espelho: EspelhoAppService = null as any,
     // ERROS QUE O CLIENTE VIU (05/08) — de carona no poll. Mesmo padrão.
     private readonly erros: ErrosAppService = null as any,
+    // TUTORIAL OBRIGATÓRIO (09/08) — carimbo por usuário (zero migration). Mesmo
+    // padrão de default acima.
+    private readonly tutorial: LogisticaTutorialService = null as any,
   ) {}
 
   private ensureCompanyIdFromUser(user: any): number {
@@ -1597,6 +1601,29 @@ export class LogisticaController {
   getConfig(@Req() req: any) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     return this.config.getConfig(companyId, req.user);
+  }
+
+  /**
+   * TUTORIAL OBRIGATÓRIO (09/08, CONTRATO-TUTOR) — "já viu?" é POR USUÁRIO, não
+   * por aparelho. Endereço PRÓPRIO (não dentro do GET config acima): aquele roda
+   * a cada minuto por motorista; este dado só interessa uma vez, no boot. SEM
+   * @Admin() de propósito — o motorista é justamente quem consulta.
+   */
+  @Get('tutorial')
+  getTutorial(@Req() req: any) {
+    const userId = this.ensureUserId(req.user);
+    return this.tutorial.status(userId);
+  }
+
+  /**
+   * Carimba o tutorial obrigatório como visto. Idempotente (herda de
+   * stampOnboardingEvent): repetir a chamada não troca o carimbo, só devolve o
+   * vigente.
+   */
+  @Post('tutorial/visto')
+  marcarTutorialVisto(@Req() req: any) {
+    const userId = this.ensureUserId(req.user);
+    return this.tutorial.marcarVisto(userId);
   }
 
   /**
