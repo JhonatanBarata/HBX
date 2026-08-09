@@ -3294,6 +3294,27 @@ function ligarLista(camada,lista){
     lista.querySelectorAll('.perna').forEach(el=>el.remove());
   }
 
+  /* 🔴 O CARTÃO NÃO É VIZINHO DO CARTÃO — TEM UMA PERNA NO MEIO (dono, 09/08:
+     *"montagem de rota — estou movendo de lugar na tela e não realoca"*).
+     Desde que a montagem ganhou o conector, a lista é perna-cartão-perna-cartão:
+     o `previousElementSibling` de um `.stop` é a PERNA, e o teste de vizinhança
+     reprovava SEMPRE — o cartão subia no dedo, voltava pro lugar e nunca trocava
+     de posição. Mesma doença na rota EM CURSO, que também desenha perna.
+     Quem procura vizinho, então, PULA o que não é cartão. */
+  const ehStop=el=>!!el&&el.classList.contains('stop');
+  function vizinhoStop(el,cima){
+    let p=cima?el.previousElementSibling:el.nextElementSibling;
+    while(p&&!ehStop(p)) p=cima?p.previousElementSibling:p.nextElementSibling;
+    return p;
+  }
+  /* …E QUEM ANDA É O BLOCO, NUNCA O CARTÃO SOZINHO. A perna nasce ANTES do
+     cartão dela (`${perna(p.perna)}${stop(p)}`): mover só o cartão deixaria a
+     perna órfã no meio de dois clientes que não são mais aqueles. */
+  const pernaDe=el=>{
+    const p=el.previousElementSibling;
+    return (p&&p.classList.contains('perna'))?p:null;
+  };
+
   /* 🔴 O GESTO ANUNCIA; QUEM GRAVA É A PONTE. A casca não conhece servidor —
      ela conta o que o dedo fez e pergunta se alguém assume. `preventDefault`
      do ouvinte = "assumi": daí em diante a casca NÃO mexe mais no DOM, porque
@@ -3373,12 +3394,32 @@ function ligarLista(camada,lista){
     const aplicar=()=>{
       let dy=dedoY-y0+rolou-base;
       if(Math.abs(dy)>3) andou=true;
-      const vizinho = dy<0 ? item.previousElementSibling : item.nextElementSibling;
-      // troca quando passa de 60% da altura do vizinho — antes disso é tremor
-      if(vizinho && vizinho.classList.contains('stop') && Math.abs(dy)>vizinho.offsetHeight*.6){
-        const salto=vizinho.offsetHeight*(dy<0?-1:1);
-        if(dy<0) lista.insertBefore(item,vizinho); else lista.insertBefore(vizinho,item);
-        base+=salto; dy=dedoY-y0+rolou-base;
+      const cima = dy<0;
+      const vizinho = vizinhoStop(item,cima);
+      /* Troca quando passa de 60% do PASSO — e o passo é a distância REAL entre
+         os dois cartões (cartão + perna + respiro), não a altura seca do
+         vizinho: com a perna no meio, a altura seca pedia um dedo mais longo do
+         que o olho enxerga. `offsetTop` é layout puro — o transform do arrasto
+         não mexe nele. Abaixo disso é tremor. */
+      const passo = vizinho ? (Math.abs(vizinho.offsetTop-item.offsetTop)||vizinho.offsetHeight) : 0;
+      if(vizinho && passo && Math.abs(dy)>passo*.6){
+        /* 🔴 O SALTO SE MEDE, NÃO SE ADIVINHA. "A altura do vizinho" só era o
+           tanto que o cartão andava numa lista de cartões iguais e colados; com
+           perna no meio (e cartões de alturas diferentes) ela errava e o cartão
+           dava um pulo a cada troca. Mede-se o `offsetTop` antes e depois — o
+           que sobra é exato em qualquer lista. */
+        const antesTop=item.offsetTop;
+        const meuPar=pernaDe(item), parDele=pernaDe(vizinho);
+        if(cima){
+          const alvo=parDele||vizinho;
+          if(meuPar) lista.insertBefore(meuPar,alvo);
+          lista.insertBefore(item,alvo);
+        }else{
+          const alvo=meuPar||item;
+          if(parDele) lista.insertBefore(parDele,alvo);
+          lista.insertBefore(vizinho,alvo);
+        }
+        base+=item.offsetTop-antesTop; dy=dedoY-y0+rolou-base;
       }
       item.style.transform=`translateY(${dy}px) scale(1.015)`;
     };
