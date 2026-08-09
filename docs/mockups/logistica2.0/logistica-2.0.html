@@ -1053,8 +1053,16 @@ button,input{font:inherit;color:inherit}
 
 /* ---------- conector de perna ---------- */
 .perna{display:flex;justify-content:center;margin:-1px 0 1px}
-.perna span{font-size:10px;color:var(--ink-3);background:var(--bg);padding:1px 9px;border-radius:999px;
+/* 🔴 A SETA É DESENHO, NÃO LETRA (dono, 09/08: "uma seta bem bonita"). Era o
+   caractere "↓", e caractere depende da FONTE do aparelho: no g15 ele saía
+   fino, alto demais e desalinhado do texto ao lado. Virou `ic('seta')` — o
+   mesmo cofre de ícones do resto da casa, mesma espessura de traço. O `span`
+   passa a ser inline-flex porque agora ele tem DOIS filhos (o svg e o texto) e
+   `padding` sozinho não centraliza um SVG contra uma linha de 10px. */
+.perna span{display:inline-flex;align-items:center;gap:4px;
+  font-size:10px;color:var(--ink-3);background:var(--bg);padding:2px 9px;border-radius:999px;
   border:.7px solid var(--line)}
+.perna span svg{flex:0 0 auto;opacity:.85}
 /* 🔴 "SEM TRAJETO" NÃO É UMA DISTÂNCIA A MENOS, É UM PINO FALTANDO. O trecho
    normal diz quanto falta; este diz que o app NÃO SABE onde fica o endereço —
    e sem tom próprio ele saía com a mesma cara de "850 m · 4 min", que é
@@ -2216,6 +2224,10 @@ note:'<rect x="6" y="3.5" width="13" height="17" rx="2.2" fill="none" stroke="cu
 users:'<circle cx="10" cy="8" r="3.3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M4 19.5c0-3.4 2.7-5.3 6-5.3s6 1.9 6 5.3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="17.4" cy="9.4" r="2.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M20.5 18.4c0-2.3-1.1-3.7-3-4.1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
 play:'<circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 8.4l6 3.6-6 3.6V8.4z" fill="currentColor"/>',
 nav:'<path d="M20 4L4 10.6l7 2.6 2.4 7L20 4z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>',
+/* A SETA DO CONECTOR — "daqui pro próximo cliente". Haste inteira + ponta
+   aberta: numa pílula de 10px o desenho tem que se ler de relance, e ponta
+   fechada (triângulo) vira uma mancha nesse tamanho. */
+seta:'<path d="M12 4.4v13.4M6.8 12.6L12 17.8l5.2-5.2" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"/>',
 curvaDireita:'<path d="M7 21v-7.5a4.5 4.5 0 0 1 4.5-4.5H18" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M14.5 5.5L19 9l-4.5 3.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>',
 /* 🔴 A CURVA À ESQUERDA É O ESPELHO DA DIREITA (x → 24−x, e o arco troca o
    sweep). Não é desenho novo: é o MESMO traço virado. Ela entrou junto com a
@@ -2478,9 +2490,22 @@ function stop(o){
   const cor=o.cor||'blue';
   /* 🔴 O GANCHO NASCE DO DADO. A parada só vira botão quando tem `id` — que só
      existe quando o dado é REAL. No mock (paradas de maquete, sem id) o cartão
-     continua inerte e a tela sai byte a byte igual à de antes. */
-  const gancho=o.id?` data-acao="abrir-parada" data-parada="${o.id}"`:'';
-  return `<div class="stop ${o.on?'on':''}"${gancho}>
+     continua inerte e a tela sai byte a byte igual à de antes.
+
+     🔴 DUAS PORTAS, PORQUE SÃO DUAS COISAS (dono, 09/08: "no montagem de rota
+     não consigo abrir o cliente"). Na ROTA a linha é uma ENTREGA e o toque abre
+     a folha dela (`abrir-parada`). Na MONTAGEM a entrega ainda não existe — a
+     linha é um CLIENTE do dia — e o toque tem que abrir a FICHA dele
+     (`abrir-cliente`). A montagem não tinha gancho nenhum: o cartão era papel
+     de parede, e o único jeito de ver quem era aquele cliente antes de sair pra
+     rua era sair da tela e procurar na lista de Clientes. */
+  const gancho=o.id?` data-acao="abrir-parada" data-parada="${o.id}"`
+    :o.cliente?` data-acao="abrir-cliente" data-cliente="${o.cliente}"`:'';
+  /* A POSIÇÃO DE ORIGEM DO CARTÃO NA PRÉVIA — é por ela que o arrasto da
+     montagem fala (ver `posicoesDaPrevia` no `ligarLista`). Só existe onde a
+     lista é prévia; na rota quem viaja é o id da entrega. */
+  const naPrevia=o.previa!=null&&o.previa!==''?` data-previa="${o.previa}"`:'';
+  return `<div class="stop ${o.on?'on':''}"${gancho}${naPrevia}>
     <span class="grip"></span>
     <span class="numwrap"><span class="num ${cor==='lime'?'lime':cor==='off'?'off':''}">${o.n}</span>
       <span class="hh ${cor==='lime'?'lime':cor==='off'?'off':''}">${o.hora}</span></span>
@@ -2757,6 +2782,12 @@ const DADOS={
   novocliente:{ nome:'', telefone:'', cep:'', rua:'', numero:'', bairro:'', local:'', localOk:0, salvando:0 },
   ficha:{
     ini:'LY', nome:'Larissa Ypê', resumo:'cliente desde 03/2025 · 42 entregas',
+    /* 🔴 A FICHA VOLTA PRA ONDE ELA FOI ABERTA. O Voltar era `clientes`,
+       cravado: quem abriu a ficha DE DENTRO da montagem (09/08, quando o cartão
+       de lá ganhou o toque) voltava pra lista de Clientes e perdia a rota que
+       estava montando. Quem sabe a porta de entrada é quem abriu — a ponte
+       escreve este campo; sem ela vale o padrão de sempre. */
+    volta:'clientes',
     alerta:'sem número',
     telefone:'(19) 99812-4477', cpf:'',
     cep:'13503-210', rua:'Rua 3a', numero:'', bairro:'Jd. Ypê',
@@ -2819,7 +2850,8 @@ const DADOS={
     admin:1,
     sons:1, painelCreditos:1,
     grupoOffline:1, mapaBaixando:'Baixando o mapa · 62%', mapaBaixado:'14,2 MB de 23,0 MB', mapaPct:62,
-    empresa:'Água Rio Claro', versao:'Versão beta1.3.2', versaoSub:'atualizado hoje',
+    empresa:'Água Rio Claro', versao:'Versão beta1.3.2 (202)',
+    versaoSub:'toque para procurar atualização', versaoTag:'',
   },
   /* As 6 chaves de dinheiro do Avançado. `admin` NÃO é papel inventado na tela:
      é o que o próprio `GET /logistica/config` responde — pra quem não é
@@ -2926,13 +2958,17 @@ const DADOS={
     // Vazios pelo MESMO motivo dos `dias`: nome de espaço é dinheiro do dono na
     // tela. Maquete aqui faria o motorista ler "Manhã" num espaço que não existe.
     modos:[], modoSel:'',
+    /* A linha da montagem é a MESMA do `.stop` da rota (ver `T.montagem`): um
+       objeto, não mais uma tupla posicional de 8 casas. Foi a tupla que fez o
+       cartão daqui virar cópia — cada campo novo da rota (`pill`, `perna`,
+       `nota`, o gancho de toque) exigia uma 9ª casa e ninguém a abria. */
     linhas:[
-      [1,'08:30','João da Silva','R. das Palmeiras, 145','Santo Amaro',['20L x2','Vasilhame','Chip dia'],'42,00',''],
-      [2,'09:15','Mercadinho Bom Preço','Av. João Dias, 890','Brooklin',['20L x4','Vasilhame'],'84,00',''],
-      [3,'10:05','Maria Aparecida','R. Sargento Silva Nunes, 72','Moema',['20L x1','Chip dia'],'21,00','lime'],
-      [4,'10:45','Padaria Pão Nosso','Av. Ibirapuera, 2331','Moema',['20L x2','Vasilhame'],'42,00',''],
-      [5,'11:30','Bar do Zé','R. dos Otonis, 317','Jabaquara',['20L x3','Vasilhame'],'63,00',''],
-      [6,'12:15','Mercado Estrela','R. Aracanguá, 210','Jabaquara',['20L x4','Chip dia'],'84,00','off'],
+      {n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['Pendente','mute','clock'],perna:''},
+      {n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',pill:['Pendente','mute','clock'],perna:'850 m · 4 min'},
+      {n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Entregue','lime','check'],perna:'1,2 km · 6 min'},
+      {n:4,hora:'10:45',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['Pendente','mute','clock'],perna:'620 m · 3 min'},
+      {n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara',tags:[['20L x3','blue'],['Vasilhame']],marcado:'63,00',pill:['Pendente','mute','clock'],perna:'2,1 km · 9 min'},
+      {n:6,hora:'12:15',cor:'off',nome:'Mercado Estrela',rua:'R. Aracanguá, 210',bairro:'Jabaquara',tags:[['20L x4','blue'],['Chip dia','lime']],marcado:'84,00',pill:['Não entregue','mute','close'],perna:'sem trajeto — não sei onde fica'},
     ],
   },
 };
@@ -2987,13 +3023,21 @@ let PARADAS=[
   {n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara',nota:'cachorro solto no pátio',tags:[['20L x3','blue'],['Vasilhame'],['15 min','amber'],['Janela rígida','red']],marcado:'63,00',pill:['Pendente','amber','clock'],perna:'2,1 km · 9 min'},
   {n:6,hora:'12:15',cor:'off',nome:'Mercado Estrela',rua:'R. Aracanguá, 210',bairro:'Jabaquara',tags:[['20L x4','blue'],['Chip dia','lime']],marcado:'84,00',pill:['Pendente','mute','clock'],perna:'sem trajeto — não sei onde fica'},
 ];
+/* 🔴 O CONECTOR É UMA PEÇA SÓ, USADA PELAS DUAS LISTAS (dono, 09/08: ele pediu
+   a seta e a distância "entre um cliente e outro" na MONTAGEM, e ali não havia
+   conector nenhum). Ele vivia embutido no `listaParadas` da rota; embutido, a
+   montagem teria que reescrever o mesmo HTML — e casca duplicada é casca que
+   sai de sincronia no primeiro ajuste de cor.
+   "sem trajeto" ganha o tom de ALERTA: não é uma distância a menos, é um pino
+   faltando. Com a mesma cara do "850 m · 4 min" ele passava batido. */
+function perna(txt){
+  if(!txt) return '';
+  const semRota=String(txt).startsWith('sem');
+  return `<div class="perna${semRota?' alerta':''}">
+    <span>${ic(semRota?'alert':'seta',12)}${txt}</span></div>`;
+}
 function listaParadas(comPerna){
-  // "sem trajeto" ganha o tom de ALERTA: não é uma distância a menos, é um pino
-  // faltando. Com a mesma cara do "850 m · 4 min" ele passava batido.
-  return PARADAS.map(p=>{
-    const semRota=p.perna&&p.perna.startsWith('sem');
-    return `${comPerna&&p.perna?`<div class="perna${semRota?' alerta':''}"><span>${semRota?p.perna:'↓ '+p.perna}</span></div>`:''}${stop(p)}`;
-  }).join('');
+  return PARADAS.map(p=>`${comPerna?perna(p.perna):''}${stop(p)}`).join('');
 }
 /* 🔴 A LISTA SE ENTRA POR DENTRO, ENTÃO ELA TEM VOLTA. Desde 08/08 quem abre a
    aba Rota vê o MAPA; a lista é a tela de dentro. Sem o Voltar no header o
@@ -3679,13 +3723,22 @@ ${nav('rota')}`;}};
    promete o que já aconteceu é botão morto (e este não fazia nada mesmo). */
 T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
   const d=DADOS.montagem;
-  const l=(n,h,nome,rua,bairro,tags,valor,cor)=>`
-    <div class="stop">
-      <span class="grip"></span>
-      <span class="numwrap"><span class="num ${cor}">${n}</span><span class="hh ${cor}">${h}</span></span>
-      <span class="who"><strong>${nome}</strong><span>${rua}</span><span>${bairro}</span>
-        <span class="tags">${tags.map(t=>`<b class="tag ${t.startsWith('20L')?'blue':t==='Chip dia'?'lime':''}">${t}</b>`).join('')}</span></span>
-      <span class="side"><span class="marc"><small>Marcado</small><b>R$ ${valor}</b></span></span></div>`;
+  /* 🔴 A MONTAGEM PASSOU A USAR A MESMA PEÇA DA ROTA (dono, 09/08, três queixas
+     que eram UM defeito só: "não consigo abrir o cliente", "colocar uma seta
+     bem bonita e a distância entre um cliente e outro", "os botões do status
+     não estão aparecendo").
+
+     Ela tinha um cartão PRÓPRIO, escrito à mão aqui dentro — parecido com o
+     `.stop` da rota, mas sem gancho de toque, sem conector de perna e sem a
+     pílula de status. Três buracos numa peça só porque a peça era uma CÓPIA:
+     tudo o que a rota ganhou desde então nasceu do lado de fora dela.
+     Agora a linha é `stop()`, a mesma da rota — e o que a montagem tem de
+     próprio viaja no DADO (`cliente` em vez de `id`, `previa` pro arrasto),
+     nunca num segundo desenho.
+
+     De quebra some o "Marcado R$ " vazio: o cartão da montagem imprimia a
+     etiqueta de dinheiro mesmo sem preço nenhum (financeiro desligado), e o
+     `stop()` obedece a Lei do IF — sem valor, sem etiqueta. */
   /* Os chips do dia moram AQUI (07/08). Antes ficavam na tela Rota, longe da
      lista que eles mudam — o dono trocava de dia e via a lista de hoje. Quem
      sabe quais dias existem é a ponte; sem ela — o desenho — a linha some. */
@@ -3705,7 +3758,7 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
     ${d.modos.map((m,i)=>`<button class="modo${(d.modoSel||'')===m[0]?' on':''}${m[1]?'':' vaga'}" data-acao="modo-rota" data-modo="${m[0]}">
       <b>${m[1]||`Espaço ${i}`}</b>${m[2]?'<i class="ponto"></i>':''}</button>`).join('')}</div>`:'';
   const lista=d.linhas.length
-    ? `<div class="stops" data-gestos="rota">${d.linhas.map(x=>l(...x)).join('')}</div>`
+    ? `<div class="stops" data-gestos="rota">${d.linhas.map(p=>`${perna(p.perna)}${stop(p)}`).join('')}</div>`
     : `<div class="vazio"><span class="ico">${ic('route',24)}</span><strong>${d.vazio}</strong></div>`;
   /* 🔴 O BOTÃO DE MONTAR NÃO ROLA (dono, 08/08: "montar rota não está sempre
      visível"). Ele nascia no PÉ da lista: com 52 clientes na tela isso é
@@ -4304,7 +4357,7 @@ T.ficha={nome:'Ficha do cliente',grupo:'Cadastro',render(){
   const ROT=['SEG','TER','QUA','QUI','SEX','SÁB','DOM'];
   const dia=(l,n,on,i)=>`<button class="${on?'on':''}" data-acao="dia-cliente" data-dia="${i}"><b>${l}</b><small>${n}</small></button>`;
   return `${status}
-${hdr({voltar:'clientes',semChat:1})}
+${hdr({voltar:f.volta||'clientes',semChat:1})}
 <div class="body">
   <div class="stop-top" style="margin:2px 0 10px;grid-template-columns:auto 1fr auto">
     <span class="ava lime">${f.ini}</span>
@@ -4577,8 +4630,17 @@ ${hdr({semChat:1})}
   <div class="cartao-lista">
     ${a.empresa?linha('users','Nome da empresa','',`<b>${a.empresa}</b>`):''}
     ${linha('logout','Sair','','','sair')}
-    <div class="linha-cfg" style="cursor:default"><span class="ico">${ic('gear',16)}</span>
-      <span><strong>${a.versao}</strong>${a.versaoSub?`<span>${a.versaoSub}</span>`:''}</span><span></span></div>
+    ${/* 🔴 A LINHA DA VERSÃO ERA UM `div` MORTO (09/08, bronca do dono: "nem em
+          ajustes eu consigo clicar em atualizar"). No app ANTIGO ela era o único
+          caminho MANUAL pra atualização: tocar forçava a checagem e respondia
+          sempre ("já está na mais recente" / abre o portão / "não consegui
+          agora"). A fusão apagou o `app.js` e trouxe só o aviso AUTOMÁTICO — que
+          é pop-up, some com o primeiro repinte e avisa uma vez por versão. Sem
+          esta linha, quem perdeu o pop-up ficava preso na versão velha SEM NADA
+          pra tocar. Aviso automático é conveniência; a porta manual é a garantia,
+          e garantia não se apaga. */''}
+    ${a.versao?linha('download',a.versao,a.versaoSub,
+        a.versaoTag?`<span class="tag blue">${a.versaoTag}</span>`:'','buscar-update'):''}
   </div>`)}
 </div>
 ${nav('ajustes')}`;}};
@@ -5183,6 +5245,18 @@ function ligarLista(camada,lista){
     });
   }
 
+  /* 🔴 MUDOU A ORDEM, O CONECTOR DE PERNA MORRE. "850 m · 4 min" é a distância
+     até o vizinho de CIMA: o arrasto move o cartão e deixa a pílula onde
+     estava, então ela passa a falar de dois clientes que não são mais vizinhos.
+     Mesma lei da hora — a casca não RECALCULA distância —, mas aqui ela pode
+     APAGAR, e apagar é obrigação: número errado na tela é pior que número
+     nenhum. O conector volta inteiro no repinte que o servidor confirmar.
+     Só quando a ordem MUDOU de verdade: pegar e soltar no mesmo lugar não pode
+     comer os trechos certos que já estavam ali. */
+  function apagarPernas(){
+    lista.querySelectorAll('.perna').forEach(el=>el.remove());
+  }
+
   /* 🔴 O GESTO ANUNCIA; QUEM GRAVA É A PONTE. A casca não conhece servidor —
      ela conta o que o dedo fez e pergunta se alguém assume. `preventDefault`
      do ouvinte = "assumi": daí em diante a casca NÃO mexe mais no DOM, porque
@@ -5316,12 +5390,12 @@ function ligarLista(camada,lista){
          o app). Só anuncia quando a ordem MUDOU: soltar no mesmo lugar não é
          ordem nova, e gravar à toa é ida ao servidor no meio da rua. */
       const ids=idsNaOrdem();
-      if(ids.length>1&&ids.join('|')!==ordemAntes) anunciar('hbx:ordem',{ids});
+      if(ids.length>1&&ids.join('|')!==ordemAntes){ apagarPernas(); anunciar('hbx:ordem',{ids}); }
       // Lista sem id de entrega (a MONTAGEM) fala por posição — mesmo evento,
       // outra chave, porque quem grava é o mesmo ouvinte.
       else{
         const pos=posicoesDaPrevia();
-        if(pos.length>1&&pos.join('|')!==previaAntes) anunciar('hbx:ordem',{previa:pos});
+        if(pos.length>1&&pos.join('|')!==previaAntes){ apagarPernas(); anunciar('hbx:ordem',{previa:pos}); }
       }
       if(andou) engolirToque(item);
       item.removeEventListener('pointermove',mover);
@@ -5424,7 +5498,9 @@ function ligarLista(camada,lista){
         if(!(id&&anunciar('hbx:retirar',{id,nome}))){
           item.style.transition='opacity .2s, transform .2s';
           item.style.opacity='0'; item.style.transform='translateX(-30px)';
-          setTimeout(()=>{item.remove();renumerar();},210);
+          // Sai um cliente do meio ⇒ os trechos vizinhos deixam de ser
+          // verdade, mesma razão do arrasto acima.
+          setTimeout(()=>{item.remove();renumerar();apagarPernas();},210);
         }
       } else if(!e.target.closest('[data-nao]')) return;
       item.classList.remove('pronto');

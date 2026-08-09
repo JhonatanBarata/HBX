@@ -178,6 +178,16 @@
     if (updateBusy) return;
     const botao = naCamada('.portao-wrap .principal');
     if (!botao) return;
+    /* 🔴 A MEMÓRIA SÓ VALE DEPOIS QUE O PORTÃO NASCEU (09/08). O carimbo
+       `update-avisado` era posto no `checkAppUpdate`, ANTES de pintar — e o
+       portão mora na camada VIVA, que qualquer repinte do boot (`carregarRota`
+       chega junto) leva embora. Resultado medido no aparelho do dono: versão
+       nova no servidor, pop-up morto no berço, versão marcada como "já avisada"
+       e nenhum caminho de volta. Carimbo de "eu avisei" só depois que o aviso
+       está DE PÉ na tela. */
+    if (!updateInfo.obrigatoria && window.HBX && window.HBX.cache) {
+      window.HBX.cache.set('update-avisado', updateInfo.versionCode);
+    }
     botao.addEventListener('click', () => {
       if (!podeInstalar) {
         updateAguardaPermissao = true;
@@ -210,30 +220,59 @@
     catch (_) { updateBusy = false; avisoErro(new Error('Não consegui iniciar a atualização.')); }
   }
 
+  /* Toque manual (`forcado`) SEMPRE responde — é o contrato do app antigo, que
+     a fusão perdeu. Silêncio num botão que o dono acabou de tocar é botão morto:
+     ele fica sem saber se o app está atualizado, se a rede caiu ou se o toque
+     nem chegou. Checagem automática continua CALADA quando não há novidade. */
+  const respostaSeco = (titulo, sub) => {
+    if (typeof window.portao !== 'function') return;
+    window.portao({ tom: 'info', ico: 'download', titulo, sub, acoes: [['Entendi', 'principal', true]] });
+  };
+
   async function checkAppUpdate(forcado) {
     if (!forcado && Date.now() - updateCheckEm < 1800000) return;   // 30 min
     const b = bridgeCru();
-    if (!b || typeof b.downloadAndInstall !== 'function') return;   // nativo antigo: sem auto-update
+    if (!b || typeof b.downloadAndInstall !== 'function') {         // nativo antigo: sem auto-update
+      if (forcado) respostaSeco('Atualização', 'Esta versão do aplicativo não atualiza sozinha. Fale com a Central.');
+      return;
+    }
     const info = (window.HBX && window.HBX.info && window.HBX.info()) || {};
     const base = String(info.webBaseUrl || '').replace(/\/+$/, '');
     const meu = Number(info.versionCode || 0);
-    if (!base || !meu) return;
+    if (!base || !meu) {
+      if (forcado) respostaSeco('Atualização', 'Não consegui identificar a versão instalada agora.');
+      return;
+    }
     updateCheckEm = Date.now();
     let v;
     try {
       const r = await fetch(`${base}/downloads/version-logistica.json`, { cache: 'no-store' });
-      if (!r.ok) return;
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
       v = await r.json();
-    } catch (_) { return; }
-    if (!v || !(Number(v.versionCode) > meu)) return;
+    } catch (_) {
+      if (forcado) avisoErro(new Error('Não consegui verificar agora. Confira a internet e tente de novo.'));
+      return;
+    }
+    if (!v || !(Number(v.versionCode) > meu)) {
+      // Já está na mais recente: some com o rastro de uma versão que ele já
+      // instalou (senão a linha dos Ajustes continuaria oferecendo o que não
+      // existe mais) e responde a quem perguntou.
+      updateInfo = null;
+      pintarLinhaVersao();
+      if (forcado) respostaSeco('Tudo certo', 'Você já está na versão mais recente.');
+      return;
+    }
     updateInfo = {
       versionName: v.versionName || '', versionCode: Number(v.versionCode),
       url: v.url || '', sha256: v.sha256 || '', obrigatoria: !!v.obrigatoria,
     };
+    // A linha dos Ajustes passa a ANUNCIAR — ela é a porta que sobrevive ao
+    // pop-up perdido, então precisa saber que há versão nova mesmo se o portão
+    // nascer e morrer num repinte.
+    pintarLinhaVersao();
     // avisa 1x por versionCode; obrigatória e toque manual furam a memória
     const jaAvisado = Number((window.HBX.cache && window.HBX.cache.get('update-avisado', 0)) || 0);
     if (!updateInfo.obrigatoria && !forcado && updateInfo.versionCode <= jaAvisado) return;
-    if (!updateInfo.obrigatoria && window.HBX.cache) window.HBX.cache.set('update-avisado', updateInfo.versionCode);
     portaoUpdate();
   }
 
@@ -247,6 +286,40 @@
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') { retomarPosPermissao(); checkAppUpdate(); }
   });
+  /* 🔴 EVENTO QUE NÃO DISPARA NÃO É GARANTIA (09/08) — mesma lei que já vale
+     pra `carregarBarra` neste arquivo: MEDIDO no g15, `visibilitychange` NÃO
+     dispara neste app (a Activity fica viva, a WebView nunca é pausada), e o
+     `focus` da janela segue o mesmo destino. Ou seja: o único momento em que a
+     checagem realmente acontecia era o boot FRIO — e o motorista deixa o app
+     aberto o dia inteiro. Publicava-se versão nova e o aparelho não olhava mais.
+     Quem garante é o RELÓGIO; os dois eventos ficam como atalho. A trava de 30
+     min lá dentro é que manda no custo, então o tique pode ser barato. */
+  setInterval(() => checkAppUpdate(), 600000);   // 10 min de tique, 30 min de trava
+
+  /* A linha "Versão" dos Ajustes fala por si: ela diz o que está instalado e,
+     quando há versão nova, ANUNCIA. É a porta manual — o pop-up é conveniência,
+     esta linha é a garantia. */
+  function linhaDaVersao() {
+    const info = (window.HBX && window.HBX.info && window.HBX.info()) || {};
+    const meu = Number(info.versionCode || 0);
+    // 🔴 O versionNAME NÃO IDENTIFICA BUILD (mesma lição do `HbxMobileBridge`):
+    // ele é "alpha1" e não muda entre publicações. Sem o versionCODE do lado, o
+    // dono olha a tela e não tem como saber se o aparelho pegou a publicação de
+    // agora ou a de três dias atrás.
+    const nome = info.versionName ? `Versão ${esc(info.versionName)}${meu ? ` (${meu})` : ''}` : '';
+    const nova = updateInfo && updateInfo.versionCode > meu;
+    return {
+      versao: nome,
+      versaoSub: nova
+        ? `Versão ${esc(updateInfo.versionName || '')} pronta — toque para instalar`
+        : 'toque para procurar atualização',
+      versaoTag: nova ? 'Atualizar' : '',
+    };
+  }
+  function pintarLinhaVersao() {
+    if (typeof window.usarDados !== 'function' || !temPonte()) return;
+    window.usarDados('ajustes', linhaDaVersao());
+  }
 
   /* ------------------------------------------------------------------------
      3. TECLADO NUNCA COBRE CAMPO NEM BOTÃO (Lei 4).
@@ -382,26 +455,42 @@
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 
+  /* 🔴 O STATUS DA PARADA FALA UMA LÍNGUA SÓ (09/08). A pílula era escrita
+     DENTRO do `traduzirParada`, e por isso existia só na lista da rota: a
+     montagem — que mostra as MESMAS paradas quando o dia já está montado —
+     nascia sem status nenhum, e o dono a viu muda ("os botões do status não
+     está aparecendo"). Duas telas escrevendo o mesmo desfecho em dois lugares
+     é a receita de dizerem coisas diferentes no primeiro estado novo.
+
+     🔴 CANCELADA NÃO É PENDENTE. Caía no `else` e a parada que o motorista já
+     resolveu ("não entregue", com motivo) voltava pra lista com cara de coisa
+     por fazer — ele bateria na mesma porta de novo. Visto no g15.
+     `mute` + número apagado, e NÃO um vermelho novo: a casca só tem
+     blue/lime/amber/mute, e "não entregue" é desfecho FECHADO, não bloqueio
+     (Lei 2c: vermelho só quando trava). Inventar `.pill.red` aqui seria criar
+     variante que o mock não tem — o oposto de casca única. */
+  function pilulaDaParada(statusCru) {
+    const status = String(statusCru || '');
+    if (status === 'entregue') return ['Entregue', 'lime', 'check'];
+    if (status === 'cancelada') return ['Não entregue', 'mute', 'close'];
+    if (status === 'em_rota') return ['A caminho', 'blue', 'nav'];
+    return ['Pendente', 'mute', 'clock'];
+  }
+  /** o tom do NÚMERO da parada — o par visual da pílula acima */
+  function corDaParada(statusCru) {
+    const status = String(statusCru || '');
+    if (status === 'entregue') return 'lime';
+    if (status === 'cancelada') return 'off';
+    return undefined;
+  }
+
   /** uma parada do servidor → uma linha do mock */
   function traduzirParada(item, i, anterior) {
     const c = item.cliente || {};
     const status = String(item.status || '');
-    const entregue = status === 'entregue';
-    const cancelada = status === 'cancelada';
     const tags = [];
     if (item.quantidade > 0) tags.push([`${item.quantidade}x`, 'blue']);
-    // 🔴 CANCELADA NÃO É PENDENTE. Caía no `else` e a parada que o motorista já
-    // resolveu ("não entregue", com motivo) voltava pra lista com cara de coisa
-    // por fazer — ele bateria na mesma porta de novo. Visto no g15.
-    const pill = entregue
-      ? ['Entregue', 'lime', 'check']
-      // `mute` + número apagado, e NÃO um vermelho novo: a casca só tem
-      // blue/lime/amber/mute, e "não entregue" é desfecho FECHADO, não bloqueio
-      // (Lei 2c: vermelho só quando trava). Inventar `.pill.red` aqui seria
-      // criar variante que o mock não tem — o oposto de casca única.
-      : cancelada
-        ? ['Não entregue', 'mute', 'close']
-        : (status === 'em_rota' ? ['A caminho', 'blue', 'nav'] : ['Pendente', 'mute', 'clock']);
+    const pill = pilulaDaParada(status);
     return {
       // 🔴 O ID É O QUE FAZ A PARADA VIRAR BOTÃO. O `stop()` do mock só põe o
       // gancho quando ele existe — parada de maquete continua inerte.
@@ -412,7 +501,7 @@
       // SEQUÊNCIA; o número que aparece é a posição na fila.
       n: i + 1,
       hora: hora(item.etaAt || item.scheduledAt),
-      cor: entregue ? 'lime' : (cancelada ? 'off' : undefined),
+      cor: corDaParada(status),
       nome: esc(c.nome),
       rua: esc(c.endereco),
       bairro: esc(c.cidade),
@@ -747,7 +836,13 @@
       // tela que mostrava "Baixando o mapa · 62%" — recurso CORTADO em 06/08.
       ajustes: {
         carregando: true, creditosLinha: '',
-        painelCreditos: '', grupoOffline: 0, empresa: '', versao: '', versaoSub: '',
+        painelCreditos: '', grupoOffline: 0, empresa: '',
+        /* A VERSÃO NÃO ZERA: ela não vem do servidor, vem do APK (ponte nativa,
+           leitura síncrona). Nasce preenchida pra não piscar vazia entre o boot
+           e a resposta do `/logistica/config`. (O miolo dos Ajustes ainda é
+           esqueleto enquanto `carregando` — a linha só APARECE quando a tela
+           inteira aparece; o que se ganha aqui é que ela já chega certa.) */
+        ...linhaDaVersao(),
         // Papel é DADO, e sem resposta do servidor não se sabe qual é. O desenho
         // nasce admin (é a tela cheia); o aparelho nasce SEM, e só o `config`
         // liga. Errar pro lado de mostrar administração é vazar dinheiro.
@@ -1280,6 +1375,42 @@
     publicarPrevia();
   }
 
+  /* ------------------------------------------------------------------------
+     🔴 O TRECHO ENTRE UM CLIENTE E O OUTRO, NA MONTAGEM (dono, 09/08: "colocar
+     uma seta bem bonita, e a distância entre um cliente e outro").
+
+     A lista da rota já tinha o conector — ela recebe do servidor a perna REAL,
+     por RUA (`legDistanceM`/`legDurationS`, calculada pelo OSRM no planejar). A
+     montagem não tinha nada, e é justamente ali que o dono decide a ordem.
+
+     DUAS FONTES, E A DIFERENÇA IMPORTA:
+     · Rota JÁ MONTADA e nesta MESMA sequência ⇒ a perna do servidor, por rua,
+       com os minutos. Só quando o vizinho de cima é o vizinho de cima DELE
+       também (`pos` exatamente anterior): reaproveitar a perna com a lista
+       reordenada pelo dedo seria mostrar a distância de outro par de portas.
+     · Qualquer outro caso ⇒ LINHA RETA entre os dois pinos, e SEM minutos.
+       Linha reta é a mesma régua que ordenou a lista (`encadearPorDistancia`),
+       então ela explica a ordem que está na tela. Minuto, não: tempo só existe
+       com rua, e inventar "4 min" de um voo de pássaro é dinheiro e hora
+       errados na decisão de quem monta o dia.
+     Sem pino dos dois lados não há trecho — e sem pino NENHUM a linha já diz o
+     que é: "sem trajeto", em tom de alerta (é pino faltando, não distância a
+     menos).
+     ------------------------------------------------------------------------ */
+  function pernaDaPrevia(atual, anterior, naRota, anteriorNaRota) {
+    const temPino = (c) => !!c && typeof c.lat === 'number' && typeof c.lng === 'number'
+      && isFinite(c.lat) && isFinite(c.lng) && !(c.lat === 0 && c.lng === 0);
+    if (!temPino(atual)) return 'sem trajeto — não sei onde fica';
+    if (!anterior) return '';
+    if (naRota && anteriorNaRota && naRota.pos === anteriorNaRota.pos + 1
+      && typeof naRota.legDistanceM === 'number') {
+      const real = distancia(naRota.legDistanceM, naRota.legDurationS);
+      if (real) return real;
+    }
+    if (!temPino(anterior)) return '';
+    return emMetros(metrosEntre(anterior, atual));
+  }
+
   /** a prévia na tela — encadeada pelo GPS quando existe fix */
   function publicarPrevia() {
     if (typeof window.usarDados !== 'function' || !previaCrua) return;
@@ -1322,12 +1453,29 @@
         customerProfileId: String(c.customerProfileId || ''),
         ...(c.localId ? { localId: String(c.localId) } : {}),
       });
-      // a linha do mock é posicional: [n, hora, nome, rua, bairro, tags, valor, cor]
-      return [
-        i + 1, (naRotaMontada(daRota, c) || { hora: '' }).hora, esc(c.nome), esc(c.localApelido || ''), '',
-        itens.map((it) => `${Math.max(1, Number(it.qtd) || 1)}x ${esc(it.nome)}`),
-        somaCliente ? somaCliente.toFixed(2).replace('.', ',') : '', '',
-      ];
+      const naRota = naRotaMontada(daRota, c);
+      // a linha da montagem é o MESMO objeto do `.stop` da rota (ver T.montagem)
+      return {
+        /* 🔴 AQUI A LINHA É UM CLIENTE, NÃO UMA ENTREGA. A entrega só nasce no
+           "Montar rota" — então o gancho do toque é `cliente`, e é ele que abre
+           a ficha. Enquanto este campo não existiu, o cartão da montagem não
+           tinha porta nenhuma (dono, 09/08). */
+        cliente: String(c.customerProfileId || ''),
+        // a POSIÇÃO de origem: é por ela que o arrasto desta lista fala
+        // (`hbx:ordem` → `{previa}`), já que não há id de entrega pra mandar.
+        previa: i,
+        n: i + 1,
+        hora: naRota ? naRota.hora : '',
+        nome: esc(c.nome),
+        rua: esc(c.localApelido || ''),
+        bairro: '',
+        nota: c.observacoes ? esc(c.observacoes) : undefined,
+        tags: itens.map((it) => [`${Math.max(1, Number(it.qtd) || 1)}x ${esc(it.nome)}`, 'blue']),
+        marcado: somaCliente ? somaCliente.toFixed(2).replace('.', ',') : '',
+        cor: corDaParada(naRota && naRota.status),
+        pill: pilulaDaParada(naRota && naRota.status),
+        perna: pernaDaPrevia(c, clientes[i - 1], naRota, naRotaMontada(daRota, clientes[i - 1])),
+      };
     });
     window.usarDados('montagem', {
       carregando: false,
@@ -1367,9 +1515,21 @@
       const cid = String((it && it.cliente && it.cliente.id) || '');
       const pos = i; i += 1;
       if (!cid) return;
+      /* 🔴 A MONTAGEM PRECISA DA PARADA INTEIRA, NÃO SÓ DA HORA (09/08). Com a
+         rota já montada, a lista de lá mostra as MESMAS pessoas que a lista da
+         rota — e mostrava todas como "Pendente", sem trecho nenhum, porque
+         daqui só saía `hora`. `status` é o que acende a pílula; `legDistanceM`
+         /`legDurationS` são a perna REAL, por rua, que o motor já calculou. */
+      const dado = {
+        pos,
+        hora: hora(it.etaAt || it.scheduledAt),
+        status: String((it && it.status) || ''),
+        legDistanceM: typeof it.legDistanceM === 'number' ? it.legDistanceM : null,
+        legDurationS: typeof it.legDurationS === 'number' ? it.legDurationS : null,
+      };
       const porta = `${cid}|${String((it && it.localId) || '')}`;
-      if (!porPorta.has(porta)) porPorta.set(porta, { pos, hora: hora(it.etaAt || it.scheduledAt) });
-      if (!porCliente.has(cid)) porCliente.set(cid, { pos, hora: hora(it.etaAt || it.scheduledAt) });
+      if (!porPorta.has(porta)) porPorta.set(porta, dado);
+      if (!porCliente.has(cid)) porCliente.set(cid, dado);
     });
     if (!porCliente.size) return null;
     return { porPorta, porCliente };
@@ -4034,7 +4194,6 @@
     aplicarBarra(config);
     const cred = credR.status === 'fulfilled' ? credR.value : null;
     const saldo = cred && typeof cred.balance === 'number' ? cred.balance : null;
-    const info = (window.HBX.info && window.HBX.info()) || {};
     let sons = 1;
     try { const p = window.HBX.soundPrefs.get(); sons = p && p.master === false ? 0 : 1; } catch (_) { /* padrão ligado */ }
     const dist = Number(config.avisoChegandoDistanciaM);
@@ -4047,8 +4206,7 @@
       painelCreditos: '',      // sem porta: a linha inteira some
       grupoOffline: 0,         // corte de 06/08
       empresa: '',             // o nome da empresa não vem em porta do celular
-      versao: info.versionName ? `Versão ${esc(info.versionName)}` : '',
-      versaoSub: '',
+      ...linhaDaVersao(),      // versão instalada + anúncio de versão nova
     });
     /* As 6 chaves de dinheiro. Vêm da MESMA resposta que já foi buscada — a tela
        do Avançado não tem chamada própria, e por isso também não tem estado
@@ -5021,13 +5179,30 @@
   }
 
   /** toque no cliente: puxa a ficha inteira (cadastro + o que ele leva) */
-  async function abrirCliente(id) {
-    const item = CLIENTES.get(String(id));
-    if (!item || typeof window.usarDados !== 'function') return;
+  async function abrirCliente(id, volta) {
+    if (!id || typeof window.usarDados !== 'function') return;
+    /* 🔴 CLIENTE FORA DA LISTA CARREGADA TAMBÉM ABRE (09/08). O `CLIENTES` é a
+       PÁGINA de clientes que está na memória — 100 por vez, e ela encolhe
+       quando há filtro de busca ou de dia. A montagem chama esta função com
+       quem está na ROTA do dia, que não é o mesmo conjunto: com 120 clientes na
+       base, o de número 101 tocava o cartão e NADA acontecia — o `return` calado
+       de um `item` ausente. Sem o resumo da lista a ficha abre só com o nome e
+       enche quando o detalhe chega, que é como ela já se comporta. */
+    const item = CLIENTES.get(String(id)) || { id: String(id) };
     // A ficha abre JÁ com o que a lista sabe; o detalhe entra quando chegar.
     // Tela de cadastro que fica em branco esperando rede é tela quebrada.
     // rascunho ZERADO: cliente novo mostra o cadastro DELE, nunca sobra do anterior.
-    ficha = { id: String(id), item, detalhe: null, local: null, telefone: null, rascunho: {}, dias: (item.diasEntrega || []).slice() };
+    ficha = {
+      id: String(id),
+      item,
+      detalhe: null,
+      local: null,
+      telefone: null,
+      rascunho: {},
+      dias: (item.diasEntrega || []).slice(),
+      // por onde ele entrou: é pra lá que o Voltar tem que devolver.
+      volta: volta || 'clientes',
+    };
     encherFicha();
     window.ir('ficha');
     const [detR, prodR] = await Promise.allSettled([
@@ -5099,6 +5274,7 @@
       // botão que o servidor talvez aceitasse é menos grave que oferecer uma
       // exclusão que volta 403 traduzido como "sua sessão expirou".
       admin: ehAdmin() ? 1 : 0,
+      volta: ficha.volta || 'clientes',
       ini: iniciais(it.name || d.name),
       nome: valorFicha('nome', d.name || it.name),
       // "cliente desde" não vem em nenhuma das duas portas — some em vez de
@@ -5280,7 +5456,10 @@
     // Cai na FICHA do cliente novo quando o servidor devolveu o id: é onde se
     // marca dia e produto, que é o passo seguinte natural de quem cadastrou.
     const id = criado && (criado.id || (criado.conta && criado.conta.id));
-    if (id && CLIENTES.get(String(id))) await abrirCliente(String(id));
+    // O `CLIENTES.get` que guardava esta porta caiu junto com o de dentro do
+    // `abrirCliente`: cliente novo que nasce fora da página carregada (base com
+    // mais de 100) caía na lista em vez da ficha dele.
+    if (id) await abrirCliente(String(id));
     else window.ir('clientes');
     window.portao({
       tom: 'ok', ico: 'check', titulo: 'Cliente cadastrado',
@@ -5356,7 +5535,9 @@
       // Rascunho MORRE no salvamento: daqui pra frente quem manda é o servidor
       // (foi ele que decidiu o que aceitou), senão a tela mostraria pra sempre
       // o que eu digitei mesmo que a gravação tenha ajustado o valor.
-      await abrirCliente(ficha.id);
+      // Reabrir a ficha não troca a porta de saída: quem salvou veio de algum
+      // lugar, e o Voltar continua devolvendo pra lá.
+      await abrirCliente(ficha.id, ficha.volta);
       window.portao({
         tom: 'ok', ico: 'check', titulo: 'Ficha salva',
         // Lei 8: a palavra "pino" é PROIBIDA em tela — é jargão de motor. Quem
@@ -5870,6 +6051,12 @@
       try { window.HBX.recharge(pacoteEscolhido); }
       catch (_) { avisoErro(new Error('Nao consegui abrir a recarga agora.')); }
     },
+    /* 🔴 A PORTA MANUAL DA ATUALIZAÇÃO (09/08). Enquanto só existia o pop-up
+       automático, perder o aviso uma vez era ficar preso na versão velha: sem
+       chip no cabeçalho, sem linha nos Ajustes, sem nada pra tocar. `forcado`
+       fura a trava de 30 min E a memória do "já avisei" — e responde SEMPRE,
+       inclusive quando não há novidade. */
+    'buscar-update': () => { checkAppUpdate(true); },
     'enviar-recado': enviarRecado,
     // "Responder" não manda nada: ele leva o dedo pro campo. O texto é dele.
     'responder-recado': () => {
@@ -5885,7 +6072,10 @@
     // Ações que carregam ARGUMENTO no próprio botão. Ficam fora do mapa porque
     // o mapa é nome→função; aqui o dado é parte do toque.
     if (chave === 'abrir-parada') return abrirParada(alvo.dataset.parada);
-    if (chave === 'abrir-cliente') return abrirCliente(alvo.dataset.cliente);
+    // A ficha volta pra TELA DE ONDE SAIU o toque (Clientes ou Montagem): quem
+    // abriu a ficha no meio de montar a rota não pode cair na lista de
+    // cadastro e perder o dia que estava arrumando.
+    if (chave === 'abrir-cliente') return abrirCliente(alvo.dataset.cliente, telaAtual());
     if (chave === 'abrir-produto') return abrirProduto(alvo.dataset.produto);
     if (chave === 'abrir-salva') return abrirSalva(alvo.dataset.salva);
     if (chave === 'abrir-empresa') return acenderEmpresa(alvo.dataset.empresa);

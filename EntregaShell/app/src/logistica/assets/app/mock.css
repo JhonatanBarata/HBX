@@ -1026,8 +1026,16 @@ button,input{font:inherit;color:inherit}
 
 /* ---------- conector de perna ---------- */
 .perna{display:flex;justify-content:center;margin:-1px 0 1px}
-.perna span{font-size:10px;color:var(--ink-3);background:var(--bg);padding:1px 9px;border-radius:999px;
+/* 🔴 A SETA É DESENHO, NÃO LETRA (dono, 09/08: "uma seta bem bonita"). Era o
+   caractere "↓", e caractere depende da FONTE do aparelho: no g15 ele saía
+   fino, alto demais e desalinhado do texto ao lado. Virou `ic('seta')` — o
+   mesmo cofre de ícones do resto da casa, mesma espessura de traço. O `span`
+   passa a ser inline-flex porque agora ele tem DOIS filhos (o svg e o texto) e
+   `padding` sozinho não centraliza um SVG contra uma linha de 10px. */
+.perna span{display:inline-flex;align-items:center;gap:4px;
+  font-size:10px;color:var(--ink-3);background:var(--bg);padding:2px 9px;border-radius:999px;
   border:.7px solid var(--line)}
+.perna span svg{flex:0 0 auto;opacity:.85}
 /* 🔴 "SEM TRAJETO" NÃO É UMA DISTÂNCIA A MENOS, É UM PINO FALTANDO. O trecho
    normal diz quanto falta; este diz que o app NÃO SABE onde fica o endereço —
    e sem tom próprio ele saía com a mesma cara de "850 m · 4 min", que é
