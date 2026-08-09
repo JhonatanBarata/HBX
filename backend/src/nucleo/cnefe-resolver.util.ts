@@ -19,7 +19,7 @@
 // nem conferência; falha de banco entra em cooldown pra não martelar conexão quebrada.
 
 import { PrismaClient } from '@prisma/client';
-import { normalizeVia, viasCompativeis } from './nucleo-geo.util';
+import { normalizeVia, pinoValido, viasCompativeis } from './nucleo-geo.util';
 
 const UFS_VALIDAS = new Set([
   'RO', 'AC', 'AM', 'RR', 'PA', 'AP', 'TO',
@@ -247,11 +247,8 @@ export function viasCompativeisCnefe(pedida: string | null | undefined, candidat
 }
 
 function coordValida(row: CnefeRow): row is CnefeRow & { lat: number; lng: number } {
-  return (
-    typeof row.lat === 'number' && Number.isFinite(row.lat) &&
-    typeof row.lng === 'number' && Number.isFinite(row.lng) &&
-    !(row.lat === 0 && row.lng === 0)
-  );
+  // A régua é UMA só (`pinoValido`, nucleo-geo.util) — esta era uma das 12 cópias.
+  return pinoValido(row.lat, row.lng);
 }
 
 /** Haversine em METROS — local de propósito (nucleo não importa nada de logistica). */

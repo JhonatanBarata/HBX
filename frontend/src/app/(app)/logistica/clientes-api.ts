@@ -314,9 +314,14 @@ export interface CriarLocalPayload {
   cidade?: string;
   uf?: string;
   cep?: string;
-  lat?: number;
-  lng?: number;
-  geoFonte?: "geocode" | "gps_cadastro";
+  // 🔴 09/08 — `null` é ORDEM DE APAGAR o pino; ausência é "não mexe".
+  // O cockpit de endereços limpava lat/lng na tela e OMITIA os campos no
+  // payload — e o servidor só grava `if (input.lat !== undefined)`. Resultado:
+  // endereço novo salvo com o pino da casa VELHA, calado, enquanto a tela dizia
+  // "Sem ponto confirmado". Quem apaga o endereço tem que poder apagar o ponto.
+  lat?: number | null;
+  lng?: number | null;
+  geoFonte?: "geocode" | "gps_cadastro" | null;
   // TETO DE PRECISÃO (25/07) — mesma regra do CriarClientePayload acima.
   gpsAccuracy?: number;
   isPrincipal?: boolean;

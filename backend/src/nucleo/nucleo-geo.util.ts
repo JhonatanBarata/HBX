@@ -83,9 +83,32 @@ function normalizeLookupValue(value: string | null | undefined): string {
   return stripped.toLowerCase().replace(/\s+/g, ' ').trim();
 }
 
-/** Coordenada numérica válida (não confunde 0,0 nem NaN com "sem pino"). */
-export function hasNumericCoord(lat: unknown, lng: unknown): lat is number {
-  return typeof lat === 'number' && Number.isFinite(lat) && typeof lng === 'number' && Number.isFinite(lng);
+/**
+ * 🔴 A ÚNICA RÉGUA DE "ISTO É UM PINO?" DA CASA (09/08).
+ *
+ * Ela existia DOZE vezes — oito no backend, quatro no app — e com DUAS regras
+ * diferentes: nove recusavam 0,0 e três aceitavam. A que aceitava morava
+ * justamente nos dois lugares que mais decidem: `hasNumericCoord` (aqui, que diz
+ * "já tem pino, não precisa geocodificar") e `temCoordenadaValida`
+ * (logistica-geo-fonte.util.ts, que ESCOLHE de qual fonte sai o pino). Com um
+ * 0,0 gravado num LocalEntrega, aquela versão frouxa fazia as duas coisas que a
+ * casa proíbe na mesma tacada: elegia o 0,0 como fonte e DESCARTAVA o pino bom
+ * do perfil, e ainda travava o geocode do servidor com um "já tem pino" falso —
+ * enquanto a rota (`hasCoord`) e o app jogavam a parada fora por não ser pino.
+ * O cliente sumia do mapa e ninguém conseguia curá-lo.
+ *
+ * 0,0 é a Ilha Nula, no golfo da Guiné: é o que sobra quando um fix falha, um
+ * import vem vazio ou um `Number(undefined || 0)` passa. Não é endereço de
+ * ninguém — em produção hoje não existe nenhum, e é assim que tem que continuar.
+ *
+ * Faixa também entra: |lat|<=90 e |lng|<=180. Fora disso não é a Terra.
+ */
+export function pinoValido(lat: unknown, lng: unknown): boolean {
+  return (
+    typeof lat === 'number' && Number.isFinite(lat) && Math.abs(lat) <= 90 &&
+    typeof lng === 'number' && Number.isFinite(lng) && Math.abs(lng) <= 180 &&
+    !(lat === 0 && lng === 0)
+  );
 }
 
 // ── Comparação de VIA (logradouro) ──────────────────────────────────────────────

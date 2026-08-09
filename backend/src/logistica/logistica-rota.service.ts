@@ -6,8 +6,13 @@ import {
   type PreparedLogisticaRoute,
 } from './logistica-route-billing.service';
 import { LogisticaTrackingService } from './logistica-tracking.service';
-import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
+import {
+  resolverCoordenadaMultilocal,
+  enderecoDaFonteMultilocal,
+  linhaEnderecoDaFonte,
+} from './logistica-geo-fonte.util';
 import { stopDeRotaMorta } from './logistica-rota-viva.util';
+import { pinoValido } from '../nucleo/nucleo-geo.util';
 import { diagnosticarMotoristaUnico } from './logistica-motorista-unico.util';
 import { LogisticaOsrmService } from './logistica-osrm.service';
 import { LogisticaEstoqueService } from './logistica-estoque.service';
@@ -1323,30 +1328,66 @@ export class LogisticaRotaService {
         orderBy: [{ rotaOrdem: 'asc' }, { createdAt: 'asc' }],
         select: {
           customerProfileId: true,
+          // 🔴 09/08 — MULTILOCAL. Este select lia SÓ o perfil: medido na empresa 41
+          // (14 dias, 187 linhas cliente-dia deste endpoint) 31 nasciam SEM pino
+          // (o pino mora no LOCAL, o perfil não tem) e 22 nasciam com o pino de
+          // OUTRA porta — >50 m de distância, pior caso 5,8 km; na empresa 48, 17
+          // de 100 com pino errado. Como o app reenche o rascunho com esta resposta,
+          // reutilizar um dia mandava o motorista pra porta errada ou fazia a tela
+          // gritar "não sei onde fica" pra cliente com porta marcada.
+          localId: true,
+          local: {
+            select: {
+              apelido: true, endereco: true, numero: true, complemento: true,
+              bairro: true, cidade: true, uf: true, cep: true,
+              lat: true, lng: true, geoFonte: true,
+            },
+          },
           customerProfile: {
             select: {
-              name: true, endereco: true, bairro: true, cidade: true,
-              lat: true, lng: true,
+              name: true, endereco: true, numero: true, complemento: true,
+              bairro: true, cidade: true, uf: true, cep: true,
+              lat: true, lng: true, geoFonte: true,
               logisticaPlanosEntrega: { where: { ativo: true }, take: 1, select: { id: true } },
             },
           },
         },
       });
-      // o mesmo cliente 2x no dia é UMA linha: reutilizar duplicaria a porta.
+      // 🔴 09/08 — a chave é (cliente|porta), não o cliente: duas portas do mesmo
+      // cliente no MESMO dia são duas paradas legítimas, e deduplicar por cliente
+      // apagava a segunda. O mesmo cliente na MESMA porta 2x continua sendo UMA
+      // linha — reutilizar duplicaria a porta. Mesma semântica do `chaveHistorico`
+      // da conferência (as duas pontas precisam concordar sobre o que é "a mesma
+      // parada"), sem virar import: o dono da chave é quem a usa.
       const vistos = new Set<string>();
       const clientes = rows.flatMap((r) => {
-        const id = String(r.customerProfileId);
-        if (vistos.has(id)) return [];
-        vistos.add(id);
+        const chave = `${r.customerProfileId}|${r.localId ?? ''}`;
+        if (vistos.has(chave)) return [];
+        vistos.add(chave);
         const c = r.customerProfile;
+        // A régua ÚNICA do multilocal: pino e endereço saem da MESMA fonte inteira
+        // (o "pino Frankenstein" — CEP de um, rua do outro — é o que ela mata).
+        const coord = resolverCoordenadaMultilocal(r.local, c);
+        const fonte = enderecoDaFonteMultilocal(r.local, c);
         return [{
-          customerProfileId: id,
+          customerProfileId: String(r.customerProfileId),
+          localId: r.localId ?? null,
           nome: c?.name ?? '',
-          endereco: c?.endereco ?? '',
-          bairro: c?.bairro ?? '',
-          cidade: c?.cidade ?? '',
-          lat: c?.lat ?? null,
-          lng: c?.lng ?? null,
+          endereco: fonte.endereco ?? '',
+          numero: fonte.numero ?? '',
+          complemento: fonte.complemento ?? '',
+          bairro: fonte.bairro ?? '',
+          cidade: fonte.cidade ?? '',
+          uf: fonte.uf ?? '',
+          cep: fonte.cep ?? '',
+          // 🔴 09/08 — quem monta a linha é o SERVIDOR: 44 dos 225 clientes da
+          // empresa 41 têm o número só na coluna `numero`, então o app, lendo o
+          // `endereco` cru, mostrava "Rua M-7" onde o desktop mostrava
+          // "Rua M-7, 897". Endereço é DADO — não muda de valor conforme a tela.
+          enderecoLinha: linhaEnderecoDaFonte(fonte),
+          lat: coord.lat,
+          lng: coord.lng,
+          geoFonte: coord.geoFonte,
           recorrente: (c?.logisticaPlanosEntrega?.length ?? 0) > 0,
         }];
       });
@@ -1361,17 +1402,21 @@ export class LogisticaRotaService {
         scheduledAt: { gte: inicio, lte: fim },
         OR: eParada,
       },
-      select: { scheduledAt: true, customerProfileId: true },
+      select: { scheduledAt: true, customerProfileId: true, localId: true },
     });
     // agrupa pela MESMA régua de dia do resolveDayRange (fuso local do
     // servidor, via toDayISO) — segunda régua de dia é como as telas começam
     // a discordar da rota.
+    // 🔴 09/08 — e conta pela MESMA chave (cliente|porta) do ramo com `date`:
+    // contando só o cliente, o chip do dia dizia "2 paradas" e reutilizar
+    // enchia o rascunho com 3 (cliente com duas portas). O mesmo dado com dois
+    // números em duas telas é bug de produto, não detalhe.
     const porDia = new Map<string, Set<string>>();
     rows.forEach((r) => {
       if (!r.scheduledAt) return;
       const dia = toDayISO(r.scheduledAt);
       if (!porDia.has(dia)) porDia.set(dia, new Set());
-      porDia.get(dia)!.add(String(r.customerProfileId));
+      porDia.get(dia)!.add(`${r.customerProfileId}|${r.localId ?? ''}`);
     });
     const dias = [...porDia.entries()]
       .map(([data, ids]) => ({ data, paradas: ids.size }))
@@ -1524,15 +1569,7 @@ export type StopComCoord = Stop & { lat: number; lng: number };
  * necessário, usamos filtrarComCoord.
  */
 export function hasCoord(s: Stop): boolean {
-  return (
-    typeof s.lat === 'number' &&
-    typeof s.lng === 'number' &&
-    Number.isFinite(s.lat) &&
-    Number.isFinite(s.lng) &&
-    Math.abs(s.lat) <= 90 &&
-    Math.abs(s.lng) <= 180 &&
-    !(s.lat === 0 && s.lng === 0)
-  );
+  return pinoValido(s.lat, s.lng);
 }
 
 /** Filtra e ESTREITA para paradas com coord garantida (para NN/2-opt). */
@@ -1948,7 +1985,7 @@ export async function planRouteByRoads(stops: Stop[], opts: PlanRouteOptions): P
   // com o crachá certo.
   if (valid.length < 2) return { ...planRoute(stops, opts), degradedReason: 'coords_invalidas' };
 
-  const hasOrigin = !!opts.origem && Number.isFinite(opts.origem.lat) && Number.isFinite(opts.origem.lng) && Math.abs(opts.origem.lat) <= 90 && Math.abs(opts.origem.lng) <= 180 && !(opts.origem.lat === 0 && opts.origem.lng === 0);
+  const hasOrigin = !!opts.origem && pinoValido(opts.origem.lat, opts.origem.lng);
   const coordinates: Coord[] = [...(hasOrigin ? [opts.origem as Coord] : []), ...valid.map((stop) => ({ lat: stop.lat, lng: stop.lng }))];
 
   // DEGRAU 1 — proxy interno. Guarda o motivo só pra reportar CASO o degrau 2
@@ -2069,10 +2106,7 @@ function compareByRotaOrdem(a: Stop, b: Stop): number {
 }
 
 function coordFromInput(lat?: number | null, lng?: number | null): Coord | null {
-  if (typeof lat === 'number' && typeof lng === 'number' && Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0)) {
-    return { lat, lng };
-  }
-  return null;
+  return pinoValido(lat, lng) ? { lat: lat as number, lng: lng as number } : null;
 }
 
 function round2(n: number): number {

@@ -3602,7 +3602,7 @@
     try { const c = mapa.getContainer(); L = c.clientWidth || L; A = c.clientHeight || A; } catch (_) { /* fora de cena */ }
     const focos = [];
     const eu = ultimaPos || ultimoFix;
-    if (eu && pontoOk(eu.lat, eu.lng)) {
+    if (eu && pinoValido(eu.lat, eu.lng)) {
       try { const t = mapa.project([eu.lng, eu.lat]); focos.push([t.x, t.y]); } catch (_) { /* sem projeção */ }
     }
     while (focos.length < 4) focos.push([Math.random() * L, Math.random() * A]);
@@ -3698,12 +3698,25 @@
 
   /* ---- a cena ---------------------------------------------------------------- */
 
+  /* 🔴 "NA TELA" NÃO É `isConnected`. O mapa que sai de cena não é destruído: ele
+     vai pra garagem off-screen (`estacionarMapas`), que É parte do documento — ou
+     seja, `alvo.isConnected` continua true com o mapa a mil pixels da tela. Quem
+     diz a verdade é o PAI: mapa em cena mora dentro de um `.mapa-palco`. Com a
+     régua errada, a cena da rota nova tocava inteira na garagem e o motorista
+     chegava no mapa com tudo já desenhado — a cena acontecia pra ninguém.
+     E ela também não pode ser `parentElement !== null` puro: no meio de um
+     repinte o nó troca de pai no MESMO tique, e ninguém observa esse instante. */
+  const mapaNaTela = (casa) => {
+    const pai = casa && casa.alvo && casa.alvo.parentElement;
+    return !!(pai && pai.classList && pai.classList.contains('mapa-palco') && pai.isConnected);
+  };
+
   /** o pedido: a cena acontece quando o palco estiver na tela, nunca antes */
   function pedirCena(motivo) {
     if (semMovimento()) return;
     cenaPedido = { motivo, em: Date.now() };
     const casa = GARAGEM.get('geral');
-    if (casa && casa.alvo && casa.alvo.isConnected) atenderCena(casa);
+    if (mapaNaTela(casa)) atenderCena(casa);
   }
 
   function atenderCena(casa) {
@@ -3717,7 +3730,6 @@
   }
 
   function chamarCena(casa, motivo) {
-    (window.__cena=window.__cena||[]).push(['chamar',motivo,Math.round(performance.now())]);
     if (!casa || casa.nome !== 'geral' || !casa.mapa) return;
     if (cena || semMovimento()) return;
     if (motivo === 'entrada') {
@@ -3733,7 +3745,6 @@
     quandoEstiloPronto(mapa, () => {
       if (cena !== daVez) return;
       daVez.mundo = esconderMundo(mapa);
-      (window.__cena=window.__cena||[]).push(['escondeu',!!daVez.mundo,Math.round(performance.now())]);
       if (!daVez.mundo) { encerrarCena('sem-estilo', true); return; }
       esperarChao(daVez);
     });
@@ -3746,7 +3757,7 @@
     const prazoFix = Date.now() + CENA_TETO_FIX;
     const olhar = () => {
       if (cena !== daVez) return;
-      if (!daVez.casa.alvo.isConnected) { (window.__cena=window.__cena||[]).push(['saiu',Math.round(performance.now())]); encerrarCena('saiu', true); return; }
+      if (!mapaNaTela(daVez.casa)) { encerrarCena('saiu', true); return; }
       let tile = true;
       try { tile = mapa.areTilesLoaded(); } catch (_) { tile = true; }
       const querFix = daVez.motivo === 'entrada' && Date.now() < prazoFix;
@@ -3756,9 +3767,7 @@
          exceção aqui dentro deixaria a cidade escondida pelo resto do dia — e
          foi exatamente o que a prova pegou na primeira volta: um nome de função
          errado apagou o mapa inteiro e nada o trouxe de volta. */
-      (window.__cena=window.__cena||[]).push(['comecar',Math.round(performance.now())]);
-      try { comecarCena(daVez); } catch (e) { (window.__cena=window.__cena||[]).push(['ERRO', e && e.message, (e && e.stack || '').split('
-')[1]]); encerrarCena('erro', true); }
+      try { comecarCena(daVez); } catch (_) { encerrarCena('erro', true); }
     };
     setTimeout(olhar, 160);
   }
@@ -3769,7 +3778,6 @@
     const ruas = ruasDaCena(mapa);
     /* Sem rua nenhuma não há cena — e isso é comum e normal: tile que não chegou,
        mapa fora da área coberta, aparelho sem o pacote. O mundo volta na hora. */
-    (window.__cena=window.__cena||[]).push(['ruas',ruas.length,Math.round(performance.now())]);
     if (!ruas.length) { encerrarCena('sem-rua', true); return; }
     ondasDasRuas(casa, ruas);
     const nomes = nomesDaCena(ruas);
@@ -3862,7 +3870,7 @@
     /* O pino e o cartão: só na ENTRADA, e só com fix. Sem fix não há "onde eu
        estou" — e posição inventada é a pior mentira que esta tela conta. */
     const eu = ultimaPos || ultimoFix;
-    if (daVez.motivo === 'entrada' && eu && pontoOk(eu.lat, eu.lng)) {
+    if (daVez.motivo === 'entrada' && eu && pinoValido(eu.lat, eu.lng)) {
       moverEuNoPlano();
       try { daVez.eu = casa.eu ? casa.eu.getElement() : null; } catch (_) { daVez.eu = null; }
       if (daVez.eu) daVez.eu.classList.add('nascendo');
@@ -3902,7 +3910,7 @@
     if (cena !== daVez) return;
     const casa = daVez.casa;
     const mapa = casa.mapa;
-    if (!casa.alvo.isConnected) { encerrarCena('saiu', true); return; }
+    if (!mapaNaTela(casa)) { encerrarCena('saiu', true); return; }
     const agora = (window.performance && performance.now) ? performance.now() : Date.now();
     const t = agora - daVez.t0;
     if (t > CENA_TETO_VIDA) { encerrarCena('teto'); return; }
@@ -3973,7 +3981,6 @@
      devolver a cidade deixaria o motorista com um mapa vazio pelo resto do dia,
      e isso é bem pior que não ter cena nenhuma. */
   function encerrarCena(motivo, seco) {
-    (window.__cena=window.__cena||[]).push(['fim',motivo,Math.round(performance.now())]);
     const c = cena;
     if (!c) return;
     cena = null;

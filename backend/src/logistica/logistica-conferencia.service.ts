@@ -4,7 +4,13 @@ import { PrismaService } from '../prisma/prisma.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaAgendaService } from './logistica-agenda.service';
 import { LogisticaOsrmService } from './logistica-osrm.service';
-import { enderecoDaFonteMultilocal, resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
+import {
+  enderecoDaFonteMultilocal,
+  resolverCoordenadaMultilocal,
+  FONTES_SUBSTITUIVEIS_PELA_PORTA,
+  geoFonteDaPorta,
+} from './logistica-geo-fonte.util';
+import { pinoValido } from '../nucleo/nucleo-geo.util';
 import {
   conferirCepsEmLote,
   descobrirCepsPorEndereco,
@@ -583,7 +589,9 @@ export class LogisticaConferenciaService implements OnModuleInit {
       // (provado na porta), `gps_cadastro` (decisão humana — Lei nº1) e um `cnefe`
       // anterior NUNCA são tocados; o `updateMany` filtra isso no próprio WHERE, então
       // corrida com outra escrita não abre brecha.
-      const fonteFraca = { OR: [{ lat: null }, { geoFonte: null }, { geoFonte: { in: FONTES_SUBSTITUIVEIS_PELA_PORTA } }] };
+      // `[...]` porque a escada é congelada (readonly) e o Prisma exige array mutável
+      // no `in` — a cópia é do TIPO, a lista continua tendo um dono só.
+      const fonteFraca = { OR: [{ lat: null }, { geoFonte: null }, { geoFonte: { in: [...FONTES_SUBSTITUIVEIS_PELA_PORTA] } }] };
       const res = noLocal
         ? await this.prisma.localEntrega.updateMany({ where: { id: row.localId as string, companyId, ...fonteFraca }, data: dados })
         : await this.prisma.customerProfile.updateMany({ where: { id: row.customerProfileId, companyId, ...fonteFraca }, data: dados });
@@ -828,14 +836,10 @@ export class LogisticaConferenciaService implements OnModuleInit {
  *  aceitável") — o que não pode é ficar sem pino por pressa. */
 const CNEFE_CURA_ORCAMENTO_MS = 12000;
 
-/**
- * Fontes de pino que a PORTA do CNEFE pode substituir (06/08). São as que nunca foram
- * provadas no chão: `geocode` é endereço digitado virando ponto (na prática, quase
- * sempre o centroide do CEP), `gps_impreciso` é fix de GPS reprovado pelo teto de
- * precisão, e `''` é legado sem o campo. Fora desta lista o pino fica onde está —
- * `gps_entrega`, `gps_cadastro` e um `cnefe` anterior são decisão de campo/humana.
- */
-const FONTES_SUBSTITUIVEIS_PELA_PORTA = ['geocode', 'gps_impreciso', ''];
+/* A lista de "quem a PORTA pode substituir" (06/08) virou a ESCADA única em
+   logistica-geo-fonte.util.ts (09/08). A lista daqui era uma de quatro cópias e não
+   conhecia `cnefe_cep` — o ponto do TRECHO do CEP sobrevivia à cura que acha a CASA,
+   que é subir na escada, não descer. Ver `FONTES_SUBSTITUIVEIS_PELA_PORTA` lá. */
 
 /** Teto de clientes lidos por chamada do "Resolver endereços" da base (a cura em si
  *  tem teto próprio de 150 donos — este só limita a LEITURA num tenant gigante). */
@@ -877,8 +881,11 @@ export function alvoCuraCnefe(r: ParadaConferenciaRow): AlvoCuraCnefe | null {
   // provada (o centroide do CEP do caso Adriana). Antes só o vazio era candidato, e
   // por isso o pino errado sobrevivia pra sempre: nunca era nem tentado. Quem já tem
   // ponto provado (gps_entrega/gps_cadastro/cnefe) segue de fora, como sempre.
-  const jaProvado = coord.lat != null && coord.lng != null
-    && !FONTES_SUBSTITUIVEIS_PELA_PORTA.includes(String(coord.geoFonte ?? ''));
+  // A pergunta é "este pino foi provado na PORTA?", e quem responde é a escada única.
+  // Perguntar pela lista do que é SUBSTITUÍVEL deixava um buraco: fonte desconhecida
+  // (string velha, typo, coluna de migração antiga) não está na lista, e por isso
+  // passava por PROVADA — o pior lado pra errar.
+  const jaProvado = pinoValido(coord.lat, coord.lng) && geoFonteDaPorta(coord.geoFonte);
   if (jaProvado) return null;
   // 27/07 (incidente company 48) — o alvo é QUEM DÁ PRA LOCALIZAR: local primeiro
   // (a porta é dele), senão o PERFIL. Antes, local com endereço mas SEM CEP
@@ -1089,22 +1096,12 @@ function enderecoDaFonteEscolhida(row: ParadaConferenciaRow): EnderecoCadastrado
   return enderecoDaFonteMultilocal(row.local, row.customerProfile);
 }
 
-// PR18072026 (duplicado de logistica-rota.service.ts, privado lá): valida
-// origemLat/Lng vindos do body — finito, dentro da faixa, nunca 0,0 (mesmo crivo do
-// planejador, pra origem inválida nunca ser tratada como um ponto real no oceano).
+// PR18072026 — valida origemLat/Lng vindos do body pela régua ÚNICA (`pinoValido`),
+// pra origem inválida nunca ser tratada como um ponto real no oceano. O corpo era
+// copiado do planejador; o comentário até avisava ("duplicado de..."), o que nunca
+// impediu ninguém de mexer só num dos dois.
 function coordFromInput(lat?: number | null, lng?: number | null): Coord | null {
-  if (
-    typeof lat === 'number' &&
-    typeof lng === 'number' &&
-    Number.isFinite(lat) &&
-    Number.isFinite(lng) &&
-    Math.abs(lat) <= 90 &&
-    Math.abs(lng) <= 180 &&
-    !(lat === 0 && lng === 0)
-  ) {
-    return { lat, lng };
-  }
-  return null;
+  return pinoValido(lat, lng) ? { lat: lat as number, lng: lng as number } : null;
 }
 
 // Mesma normalização de logistica-rota.service.ts (privada lá): trim + tamanho + teto

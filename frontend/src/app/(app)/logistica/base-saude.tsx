@@ -4,6 +4,13 @@
 // A lista continua usando o semáforo canônico de GET /logistica/base-saude.
 // Ao selecionar um cliente, a ficha completa vem de GET /nucleo/clientes/:id:
 // assim nenhum LocalEntrega secundário some e a correção grava no local exato.
+//
+// 🔴 09/08 — QUEM RESOLVE ENDEREÇO É O SERVIDOR. Esta tela resolvia CEP e ponto
+// no NAVEGADOR, com uma cópia envelhecida da régua do servidor (ver geo.ts): a
+// tela que existe pra CONSERTAR endereço rodava o motor mais fraco do sistema e
+// recusava rua numerada — a base inteira do cliente real. Agora CEP, "Localizar
+// endereço" e "Usar posição atual" batem nas MESMAS portas da Rota rápida e do
+// APK (`/logistica/geo/cep` e `/logistica/geo/reverse`).
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -15,7 +22,7 @@ import {
   type CriarLocalPayload,
   type LocalCliente,
 } from "./clientes-api";
-import { buscarCep, formatarCep, geocodar, reverseGeocodar, soDigitos } from "./geo";
+import { formatarCep, soDigitos, type Ponto } from "./geo";
 import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
@@ -71,6 +78,60 @@ type LocalDraft = {
 };
 
 type Filtro = "todos" | Semaforo;
+
+/** GET /logistica/geo/cep — CEP (+número) → texto do endereço e ponto. Responde
+ *  200 SEMPRE: sem match vem `fonte:'nenhum'` com o texto que houver. */
+type GeoCepResposta = {
+  fonte: "cnefe" | "geocode" | "nenhum";
+  /** 'porta' = a casa; 'rua'/'cep' = o trecho da via, NÃO a porta. */
+  precisao?: "porta" | "rua" | "cep";
+  lat: number | null;
+  lng: number | null;
+  endereco: string;
+  bairro: string;
+  cidade: string;
+  uf: string;
+  cep: string;
+  numero: string;
+};
+
+/** GET /logistica/geo/reverse — ponto do GPS → endereço (sugestão editável). */
+type GeoReverseResposta = {
+  endereco: string;
+  numero: string;
+  bairro: string;
+  cidade: string;
+  uf: string;
+  cep: string;
+  fonte: "geocode" | "nenhum";
+};
+
+/** A ÚNICA porta de "endereço → ponto" desta tela (a mesma da Rota rápida).
+ *  A UF NÃO vai no pedido de propósito: ela é o PORTÃO da base de endereços no
+ *  servidor (UF sem carga = desiste), e a UF desta ficha é justamente o campo
+ *  que pode estar errado — quem manda é a UF do próprio CEP. */
+function resolverNoServidor(cep: string, numero: string): Promise<GeoCepResposta> {
+  const params = new URLSearchParams({ cep: soDigitos(cep) });
+  const digitos = soDigitos(numero);
+  if (digitos) params.set("numero", digitos);
+  return apiFetch<GeoCepResposta>(`/logistica/geo/cep?${params.toString()}`);
+}
+
+/** Ponto só existe quando o servidor achou de verdade — 'nenhum' não vira pino. */
+function pontoDaResposta(res: GeoCepResposta | null): Ponto | null {
+  if (!res || res.fonte === "nenhum") return null;
+  const lat = Number(res.lat);
+  const lng = Number(res.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
+/** Ponto de TRECHO não se vende como porta exata — a tela diz o que ele é. */
+function avisoDaPrecisao(res: GeoCepResposta): string {
+  if (res.precisao === "cep") return "O ponto é do trecho da rua, não da porta — informe o número para achar a porta.";
+  if (res.precisao === "rua") return "O ponto caiu na rua, não na porta — confira o número.";
+  return "";
+}
 
 const TAMANHO_PAGINA = 120;
 
@@ -203,8 +264,18 @@ function payloadDoDraft(draft: LocalDraft): CriarLocalPayload {
     cidade: draft.cidade.trim(),
     uf: draft.uf.trim().toUpperCase(),
     cep: draft.cep.replace(/\D/g, ""),
-    ...(temCoordenada ? { lat, lng } : {}),
-    ...(temCoordenada && draft.geoFonte ? { geoFonte: draft.geoFonte } : {}),
+    // 🔴 09/08 — O PINO VELHO TEM QUE MORRER DE VERDADE. Antes, sem coordenada
+    // no rascunho o payload OMITIA lat/lng — e o servidor só grava
+    // `if (input.lat !== undefined)`. O endereço novo ficava salvo com o pino da
+    // casa VELHA, calado, enquanto esta tela dizia "Sem ponto confirmado".
+    // `null` é ordem de apagar; ausência é "não mexe".
+    lat: temCoordenada ? lat : null,
+    lng: temCoordenada ? lng : null,
+    // Sem ponto, a procedência também morre. COM ponto e sem fonte no rascunho
+    // (pino que veio do banco — 'gps_entrega' da entrega, 'cnefe' da base de
+    // endereços), OMITE: quem sabe a procedência é o servidor, e mandar null
+    // aqui apagaria justamente o ponto de OURO provado em campo.
+    ...(temCoordenada ? (draft.geoFonte ? { geoFonte: draft.geoFonte } : {}) : { geoFonte: null }),
     ...(temCoordenada && draft.gpsAccuracy !== null ? { gpsAccuracy: draft.gpsAccuracy } : {}),
   };
 }
@@ -443,71 +514,71 @@ export function BaseSaude() {
 
   // BUG 04/08 (dono): corrigir o CEP AQUI gravava só o TEXTO — o pino ficava o
   // velho e o semáforo seguia vermelho no APK; no celular, digitar o CEP refaz
-  // o pino (lookupClientCep). Espelho do comportamento do aparelho: ViaCEP
-  // preenche as partes, o pino velho MORRE (pino errado é pior que pino vazio)
-  // e o geocode fail-closed tenta provar um novo. Sem prova → fica sem ponto e
-  // a tela mostra "Sem ponto confirmado" (Localizar/posição atual resolvem).
+  // o pino. Mesmo comportamento do aparelho, e desde 09/08 pelo MESMO motor: o
+  // servidor devolve o texto do CEP e o ponto de uma vez (base de endereços do
+  // IBGE primeiro). O pino velho MORRE antes (pino errado é pior que pino
+  // vazio); sem ponto novo, a tela fica em "Sem ponto confirmado".
   const cepReqRef = useRef(0);
   const resolverCep = useCallback(async (cepValor: string, numeroAtual: string) => {
     const requestId = ++cepReqRef.current;
     setMensagem("Buscando CEP…");
     setDetalheError(null);
-    const end = await buscarCep(cepValor);
+    let res: GeoCepResposta;
+    try {
+      res = await resolverNoServidor(cepValor, numeroAtual);
+    } catch (err: unknown) {
+      if (requestId !== cepReqRef.current) return;
+      setMensagem(null);
+      setDetalheError(humanError(err, "CEP não encontrado. Confira os campos ou use Localizar endereço."));
+      return;
+    }
     if (requestId !== cepReqRef.current) return;
-    if (!end) {
+    const ponto = pontoDaResposta(res);
+    if (!ponto && !res.endereco && !res.cidade) {
       setMensagem(null);
       setDetalheError("CEP não encontrado. Confira os campos ou use Localizar endereço.");
       return;
     }
     setDraft((atual) => atual ? {
       ...atual,
-      endereco: end.logradouro || atual.endereco,
-      bairro: end.bairro || atual.bairro,
-      cidade: end.cidade || atual.cidade,
-      uf: end.uf || atual.uf,
-      lat: "",
-      lng: "",
-      geoFonte: "",
+      endereco: res.endereco || atual.endereco,
+      bairro: res.bairro || atual.bairro,
+      cidade: res.cidade || atual.cidade,
+      uf: res.uf || atual.uf,
+      lat: ponto ? String(ponto.lat) : "",
+      lng: ponto ? String(ponto.lng) : "",
+      geoFonte: ponto ? "geocode" : "",
       gpsAccuracy: null,
     } : atual);
-    setMensagem("Endereço preenchido pelo CEP. Localizando o ponto…");
-    const ponto = await geocodar({
-      logradouro: end.logradouro,
-      numero: numeroAtual,
-      bairro: end.bairro,
-      cidade: end.cidade,
-      uf: end.uf,
-      cep: end.cep,
-    });
-    if (requestId !== cepReqRef.current) return;
-    if (ponto) {
-      setDraft((atual) => atual ? {
-        ...atual,
-        lat: String(ponto.lat),
-        lng: String(ponto.lng),
-        geoFonte: "geocode",
-        gpsAccuracy: null,
-      } : atual);
-      setMensagem("Ponto localizado pelo CEP. Salve para confirmar a alteração.");
-    } else {
-      setMensagem("CEP preenchido, mas sem ponto provado — use Localizar endereço ou a posição atual antes de salvar.");
+    if (!ponto) {
+      // A frase só manda fazer o que ADIANTA: "Localizar endereço" bate na MESMA
+      // porta e devolveria o mesmo nada — mandar tentar de novo seria enrolação.
+      setMensagem(soDigitos(numeroAtual)
+        ? "Endereço preenchido pelo CEP, mas sem ponto — confira o número ou use a posição atual antes de salvar."
+        : "Endereço preenchido pelo CEP, mas sem ponto — informe o número ou use a posição atual antes de salvar.");
+      return;
     }
+    const aviso = avisoDaPrecisao(res);
+    setMensagem(aviso
+      ? `Endereço preenchido pelo CEP. ${aviso}`
+      : "Endereço e ponto preenchidos pelo CEP. Salve para confirmar a alteração.");
   }, []);
 
+  // "Localizar endereço" — mesma porta do servidor. Sem CEP não há o que
+  // localizar: procurar pelo texto solto é o pino de loteria que jogou cliente a
+  // 3 km da porta (25/07), e o que resolve nesta tela é digitar o CEP.
   const localizarPeloEndereco = useCallback(async () => {
     if (!draft) return;
+    if (soDigitos(draft.cep).length !== 8) {
+      setDetalheError("Informe o CEP completo para localizar o endereço.");
+      return;
+    }
     setLocalizando(true);
     setDetalheError(null);
     try {
-      const ponto = await geocodar({
-        logradouro: draft.endereco,
-        numero: draft.numero,
-        bairro: draft.bairro,
-        cidade: draft.cidade,
-        uf: draft.uf,
-        cep: draft.cep,
-      });
-      if (!ponto) throw new Error("Não achei um ponto confiável. Use a localização atual ou confirme os campos.");
+      const res = await resolverNoServidor(draft.cep, draft.numero);
+      const ponto = pontoDaResposta(res);
+      if (!ponto) throw new Error("Não achei um ponto confiável. Confira o CEP e o número, ou use a posição atual.");
       setDraft((atual) => atual ? {
         ...atual,
         lat: String(ponto.lat),
@@ -515,7 +586,8 @@ export function BaseSaude() {
         geoFonte: "geocode",
         gpsAccuracy: null,
       } : atual);
-      setMensagem("Ponto localizado. Salve para confirmar a alteração.");
+      const aviso = avisoDaPrecisao(res);
+      setMensagem(aviso ? `Ponto localizado. ${aviso}` : "Ponto localizado. Salve para confirmar a alteração.");
     } catch (err: unknown) {
       setDetalheError(humanError(err, "Não foi possível localizar o endereço."));
     } finally {
@@ -539,16 +611,22 @@ export function BaseSaude() {
         });
       });
       const ponto = { lat: posicao.coords.latitude, lng: posicao.coords.longitude };
-      const endereco = await reverseGeocodar(ponto);
+      // O endereço do ponto é SUGESTÃO (best-effort, servidor): se ela não vier,
+      // o ponto capturado continua valendo — GPS bom não se perde porque a
+      // sugestão de texto falhou.
+      const endereco = await apiFetch<GeoReverseResposta>(
+        `/logistica/geo/reverse?lat=${encodeURIComponent(String(ponto.lat))}&lng=${encodeURIComponent(String(ponto.lng))}`,
+      ).catch(() => null);
+      const sugestao = endereco && endereco.fonte !== "nenhum" ? endereco : null;
       setDraft((atual) => atual ? {
         ...atual,
-        ...(endereco ? {
-          endereco: endereco.logradouro || atual.endereco,
-          numero: endereco.numero || atual.numero,
-          bairro: endereco.bairro || atual.bairro,
-          cidade: endereco.cidade || atual.cidade,
-          uf: endereco.uf || atual.uf,
-          cep: endereco.cep || atual.cep,
+        ...(sugestao ? {
+          endereco: sugestao.endereco || atual.endereco,
+          numero: sugestao.numero || atual.numero,
+          bairro: sugestao.bairro || atual.bairro,
+          cidade: sugestao.cidade || atual.cidade,
+          uf: sugestao.uf || atual.uf,
+          cep: formatarCep(sugestao.cep) || atual.cep,
         } : {}),
         lat: String(ponto.lat),
         lng: String(ponto.lng),

@@ -598,6 +598,14 @@ export class LogisticaService {
         // MULTILOCAL (10/07) — apelido do local ("Casa"|"Loja"…) pro card da rota;
         // null quando a entrega não tem local (usa o perfil).
         localApelido: r.local?.apelido ?? null,
+        /* 🔴 QUAL PORTA (09/08). O apelido saía daqui desde 10/07 e o `localId`, não —
+           e apelido não identifica nada: na empresa 41, 100% dos clientes têm apelido
+           VAZIO. Sem o id, a lista da rota não consegue dizer se a parada aberta é a
+           MESMA porta que a linha da montagem, e o app teve que comparar por CONTA:
+           cliente com duas portas no mesmo dia aparecia uma vez só, ou duas vezes
+           errado. É o mesmo dado que o `dia-preview` e o histórico já mandam — três
+           listas da mesma gente têm que se reconhecer pela mesma chave. */
+        localId: r.localId ?? null,
         cliente: {
           id: r.customerProfile.id,
           nome: r.customerProfile.name ?? null,

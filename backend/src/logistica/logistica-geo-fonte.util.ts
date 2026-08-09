@@ -14,6 +14,8 @@
 // pino BOM que existe jamais pode ser descartado. Este helper resolve as duas leis
 // juntas: escolhe a fonte inteira primeiro (local só vale com lat E lng válidos),
 // depois tira lat/lng/geoFonte SEMPRE da mesma fonte escolhida.
+import { pinoValido } from '../nucleo/nucleo-geo.util';
+
 export interface FonteGeoCoord {
   lat: number | null | undefined;
   lng: number | null | undefined;
@@ -26,17 +28,19 @@ export interface CoordenadaResolvida {
   geoFonte: string | null;
 }
 
-/** Coordenada numérica válida (finita) nos dois eixos — nem null, nem undefined, nem NaN. */
+/**
+ * A fonte tem PINO? Régua única da casa (`pinoValido`, nucleo-geo.util) — finito,
+ * dentro da faixa e nunca 0,0.
+ *
+ * 🔴 09/08 — aqui a régua era FROUXA (só "número finito"), e este é o pior lugar
+ * possível pra isso: é ela que ESCOLHE a fonte. Um 0,0 gravado num LocalEntrega
+ * ganhava de um pino BOM do perfil, e a parada saía do mapa com a coordenada certa
+ * ali do lado. Ver o comentário de `pinoValido`.
+ */
 function temCoordenadaValida(
   fonte: FonteGeoCoord | null | undefined,
 ): fonte is FonteGeoCoord & { lat: number; lng: number } {
-  return (
-    !!fonte &&
-    typeof fonte.lat === 'number' &&
-    Number.isFinite(fonte.lat) &&
-    typeof fonte.lng === 'number' &&
-    Number.isFinite(fonte.lng)
-  );
+  return !!fonte && pinoValido(fonte.lat, fonte.lng);
 }
 
 /**
@@ -151,6 +155,88 @@ export function linhaEnderecoDaFonte(e: FonteEnderecoCadastro | null | undefined
   const temNumeroNoTexto = new RegExp(`(^|[^0-9])${numero.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^0-9]|$)`).test(rua);
   return temNumeroNoTexto ? rua : `${rua}, ${numero}`;
 }
+
+/* ── A ESCADA DA PROCEDÊNCIA DO PINO (09/08) — escrita em UM lugar só ─────────
+ *
+ * `geoFonte` não é etiqueta: é a PROCEDÊNCIA do ponto, e procedência tem hierarquia.
+ * Do melhor pro pior:
+ *  · gps_entrega  — o entregador confirmou NA PORTA. É o melhor dado que a casa tem.
+ *  · gps_cadastro — decisão humana explícita com precisão validada (<=60m). Intocável.
+ *  · cnefe        — porta do Censo/IBGE casando (CEP, NÚMERO): é o ENDEREÇO virando ponto.
+ *  · cnefe_cep    — ponto do TRECHO do CEP (endereço S/N). Acerta a rua, não a casa.
+ *  · geocode / gps_impreciso / cidade — nunca foram provados no chão.
+ *  · null / ''    — sem procedência. Pino sem dono é mentira: vale ZERO.
+ *
+ * 🔴 ELA MORAVA EM QUATRO LUGARES, E OS QUATRO JÁ DISCORDAVAM (medido em 09/08):
+ *  · `FONTES_SUBSTITUIVEIS_PELA_PORTA` (conferência) não conhecia `cnefe_cep`;
+ *  · `GEOFONTES_DA_PORTA` (semáforo) não era nem exportada;
+ *  · `FONTES_PROVADAS` (fechamento do dia) dizia no comentário seguir "a MESMA lei do
+ *    semáforo" e estava sem o `cnefe` que o semáforo ganhou em 06/08 — 206 locais e 151
+ *    perfis curados pelo Censo contavam como "não provados" e o convite de GPS voltava
+ *    a aparecer pra quem já tinha a porta resolvida;
+ *  · e o sync perfil→local, que é quem MAIS mexe em pino, não tinha nenhuma.
+ * Mora aqui, e não no cadastro, porque este arquivo é o dono do assunto `geoFonte` — e
+ * os dois lados (núcleo e logística) já o importam.
+ */
+export type GeoFonteGravada =
+  | 'gps_entrega'
+  | 'gps_cadastro'
+  | 'cnefe'
+  | 'cnefe_cep'
+  | 'geocode'
+  | 'gps_impreciso'
+  | 'cidade';
+
+export const FORCA_GEO_FONTE: Readonly<Record<GeoFonteGravada, number>> = Object.freeze({
+  gps_entrega: 5,
+  gps_cadastro: 4,
+  cnefe: 3,
+  cnefe_cep: 2,
+  geocode: 1,
+  gps_impreciso: 1,
+  cidade: 1,
+});
+
+/**
+ * As 3 fontes que resolvem a PORTA: ponto daquela casa, não da rua nem do centroide do
+ * CEP. Pino assim NUNCA é rebaixado por cópia automática, NUNCA é sobrescrito pela cura
+ * e conta como "provado" na medida do dia. É a MESMA lista nos três lugares — era
+ * exatamente isso que não acontecia.
+ */
+export const GEO_FONTES_DA_PORTA: readonly GeoFonteGravada[] = Object.freeze([
+  'gps_entrega',
+  'gps_cadastro',
+  'cnefe',
+] as GeoFonteGravada[]);
+
+/** Fonte conhecida? (`hasOwnProperty` de propósito: `geoFonte` vem do banco como string
+ *  crua, e `FORCA['toString']` devolveria uma função em vez de "não conheço"). */
+function fonteConhecida(v: string | null | undefined): v is GeoFonteGravada {
+  return typeof v === 'string' && Object.prototype.hasOwnProperty.call(FORCA_GEO_FONTE, v);
+}
+
+/** Posição na escada acima; desconhecida/vazia/null = 0 (o chão). */
+export function forcaGeoFonte(v: string | null | undefined): number {
+  return fonteConhecida(v) ? FORCA_GEO_FONTE[v] : 0;
+}
+
+/** O pino foi provado na PORTA (gps_entrega | gps_cadastro | cnefe)? */
+export function geoFonteDaPorta(v: string | null | undefined): boolean {
+  return fonteConhecida(v) && GEO_FONTES_DA_PORTA.includes(v);
+}
+
+/**
+ * A cura pela PORTA do Censo pode trocar este pino? Sim para tudo que está ABAIXO da
+ * porta na escada — e isso agora inclui `cnefe_cep`, que a lista velha não conhecia:
+ * o trecho do CEP acerta a rua, a porta acerta a casa, e trocar rua por casa é subir.
+ * `''` cobre o legado sem o campo; `null` é tratado pelo chamador (no Prisma, `geoFonte:
+ * null` não casa com `in`, então o WHERE precisa do OR).
+ */
+export const FONTES_SUBSTITUIVEIS_PELA_PORTA: readonly string[] = Object.freeze(
+  ([...(Object.keys(FORCA_GEO_FONTE) as GeoFonteGravada[])]
+    .filter((f) => !geoFonteDaPorta(f)) as string[])
+    .concat(['']),
+);
 
 // ── TETO DE PRECISÃO DO GPS DE CADASTRO (25/07) ──────────────────────────────
 //

@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { hasNumericCoord, resolveServerGeo } from './nucleo-geo.util';
+import { pinoValido, resolveServerGeo } from './nucleo-geo.util';
 import { normalizeSearch } from './nucleo-search.util';
 // 🔴 28/07 (dono) — régua de "mesma porta" do anti-duplicata de endereço.
 import { mesmaPorta, numeroDaPorta, PortaCadastro } from './endereco-porta.util';
@@ -8,7 +8,13 @@ import { mesmaPorta, numeroDaPorta, PortaCadastro } from './endereco-porta.util'
 // maybeResolveServerGeo); e o pino de CEP pro endereço SEM número.
 import { extrairNumeroPorta, resolverCnefeCep } from './cnefe-resolver.util';
 import { logradouroDoCadastro } from '../logistica/logistica-cep.util';
-import { decidirGeoFonteCadastro } from '../logistica/logistica-geo-fonte.util';
+import {
+  decidirGeoFonteCadastro,
+  forcaGeoFonte,
+  geoFonteDaPorta,
+  FORCA_GEO_FONTE,
+  type GeoFonteGravada,
+} from '../logistica/logistica-geo-fonte.util';
 
 /**
  * NÚCLEO-CRM N1 (04/07) — serviço INERTE da espinha de cadastro.
@@ -1245,11 +1251,11 @@ export class NucleoCadastroService {
       // Navegador conseguiu → respeita sempre. Senão, tenta resolver no servidor
       // (Nominatim → cidade) SÓ se a conta ainda não tem nenhuma coordenada e não é
       // pino humano protegido (maybeResolveServerGeo cobre as duas checagens).
-      const clientCoord = hasNumericCoord(input.lat, input.lng);
+      const clientCoord = pinoValido(input.lat, input.lng);
       const resolvedGeo = clientCoord ? null : await this.maybeResolveServerGeo(input, existing);
       // TETO DE PRECISÃO (25/07) — hasCoord usa o valor FINAL (o novo se veio, senão
       // o já salvo): editar só `geoFonte` sem reenviar lat/lng ainda decide certo.
-      const hasCoordParaGeoFonte = hasNumericCoord(
+      const hasCoordParaGeoFonte = pinoValido(
         input.lat !== undefined ? input.lat : existing.lat,
         input.lng !== undefined ? input.lng : existing.lng,
       );
@@ -1294,7 +1300,7 @@ export class NucleoCadastroService {
       });
       contaId = updated.id;
     } else {
-      const clientCoord = hasNumericCoord(input.lat, input.lng);
+      const clientCoord = pinoValido(input.lat, input.lng);
       const resolvedGeo = clientCoord ? null : await this.maybeResolveServerGeo(input, null);
       const created = await this.prisma.customerProfile.create({
         data: {
@@ -1452,32 +1458,12 @@ export class NucleoCadastroService {
 
     // Coordenada (B-backend 08/07): o navegador mandou lat/lng explícito → respeita
     // sempre (inclusive troca o pino humano se for uma edição explícita — é o próprio
-    // vendedor mexendo). Quando NÃO mandou NENHUM dos dois, tenta resolver no servidor
-    // (Nominatim → cidade) SÓ se a conta ainda não tem coordenada nenhuma — e
+    // vendedor mexendo). Sem coordenada no resultado, tenta resolver no servidor — e
     // `maybeResolveServerGeo` blinda o pino humano ('gps_cadastro'): nunca sobrescreve.
-    if (input.lat !== undefined || input.lng !== undefined) {
-      if (input.lat !== undefined) data.lat = input.lat;
-      if (input.lng !== undefined) data.lng = input.lng;
-      // TETO DE PRECISÃO (25/07) — fail-closed via decidirGeoFonteCadastro (ver
-      // comentário equivalente em createConta acima). hasCoord usa o valor FINAL
-      // (o novo se veio, senão o já salvo) — mandar só `lat` (sem `lng`) não perde
-      // o `lng` existente na conta da decisão.
-      if (input.geoFonte !== undefined) {
-        const latFinal = input.lat !== undefined ? input.lat : found.lat;
-        const lngFinal = input.lng !== undefined ? input.lng : found.lng;
-        data.geoFonte = decidirGeoFonteCadastro(hasNumericCoord(latFinal, lngFinal), input.geoFonte, input.gpsAccuracy);
-      }
-    } else {
-      if (input.geoFonte !== undefined) {
-        data.geoFonte = decidirGeoFonteCadastro(hasNumericCoord(found.lat, found.lng), input.geoFonte, input.gpsAccuracy);
-      }
-      const resolvedGeo = await this.maybeResolveServerGeo(input, found);
-      if (resolvedGeo) {
-        data.lat = resolvedGeo.lat;
-        data.lng = resolvedGeo.lng;
-        data.geoFonte = resolvedGeo.geoFonte;
-      }
-    }
+    // 09/08 — a régua toda mora em `decidirPinoNoUpdate`, compartilhada com o
+    // `updateLocal`: o que é regra no PERFIL é regra no LOCAL (e vice-versa), senão a
+    // mesma edição salva coisas diferentes conforme a tela por onde ela entrou.
+    Object.assign(data, await this.decidirPinoNoUpdate(input, found));
 
     // Papéis no PATCH: aqui podem LIGAR e DESLIGAR (é edição explícita da conta).
     if (input.isCliente !== undefined) data.isCliente = Boolean(input.isCliente);
@@ -1552,9 +1538,12 @@ export class NucleoCadastroService {
       uf?: string | null;
       cep?: string | null;
     },
-    existing: GeoRecord | null,
+    // 09/08 — sem o `id` de propósito: o LOCAL passou a usar esta mesma função (era só
+    // do perfil, e por isso a porta que 62% das entregas usam nunca ganhava pino do
+    // CNEFE na escrita). O `id` nunca foi lido aqui; exigi-lo só forçava duplicação.
+    existing: GeoRecordParaResolver | null,
   ): Promise<{ lat: number; lng: number; geoFonte: 'geocode' | 'cnefe' | 'cnefe_cep' } | null> {
-    if (existing && (hasNumericCoord(existing.lat, existing.lng) || existing.geoFonte === 'gps_cadastro')) {
+    if (existing && (pinoValido(existing.lat, existing.lng) || existing.geoFonte === 'gps_cadastro')) {
       return null; // já tem pino (qualquer fonte) OU é pino humano protegido — nunca mexe
     }
 
@@ -1602,6 +1591,70 @@ export class NucleoCadastroService {
   }
 
   /**
+   * 🔴 O PINO NUM PATCH (09/08) — a régua ÚNICA de perfil e local.
+   *
+   * Nasceu de dois defeitos que eram o mesmo defeito, um em cada porta:
+   *
+   * 1) `lat`/`lng` OMITIDOS não são "não mexe no pino" quando o ENDEREÇO mudou. O
+   *    cockpit de endereços do desktop, ao trocar o CEP sem que o geocode prove ponto
+   *    novo, simplesmente não manda lat/lng — e o endereço NOVO ficava salvo com o pino
+   *    VELHO, calado, enquanto a tela dizia "sem ponto provado". Agora o corpo pode
+   *    dizer `lat: null, lng: null` — "esse pino não é desta porta" — e o pino some.
+   *    Junto com ele some a `geoFonte`: procedência sem ponto é mentira pronta pra
+   *    enganar a próxima regra que ler só a fonte.
+   *    APAGAR é sempre EXPLÍCITO: `undefined` (campo ausente) nunca apaga nada — senão
+   *    qualquer PATCH de apelido viraria uma porta pra destruir pino de ouro sem querer.
+   *
+   * 2) Registro que fica SEM coordenada tenta o servidor (CNEFE → geocode com freio),
+   *    exatamente como o perfil já fazia. `maybeResolveServerGeo` continua blindando
+   *    `gps_cadastro` (decisão humana) e nunca escreve por cima de pino existente — o
+   *    que volta, volta PROVADO, e só quando não há nada no lugar.
+   *
+   * A `geoFonte` usada na blindagem é a SALVA, não a do corpo: quem decide se um pino
+   * do cliente vira 'gps_cadastro' é `decidirGeoFonteCadastro` (fail-closed), aqui só
+   * se compara procedência já gravada.
+   */
+  private async decidirPinoNoUpdate(
+    input: PinoNoCorpo,
+    atual: GeoRecordParaResolver,
+  ): Promise<{ lat?: number | null; lng?: number | null; geoFonte?: string | null }> {
+    const apagouOPino = input.lat === null || input.lng === null;
+    const latFinal = apagouOPino ? null : input.lat !== undefined ? input.lat : atual.lat;
+    const lngFinal = apagouOPino ? null : input.lng !== undefined ? input.lng : atual.lng;
+
+    const data: { lat?: number | null; lng?: number | null; geoFonte?: string | null } = {};
+    if (apagouOPino) {
+      data.lat = null;
+      data.lng = null;
+      data.geoFonte = null;
+    } else {
+      if (input.lat !== undefined) data.lat = input.lat;
+      if (input.lng !== undefined) data.lng = input.lng;
+      // TETO DE PRECISÃO (25/07) — fail-closed: o backend decide entre
+      // 'gps_cadastro'/'gps_impreciso' via gpsAccuracy, nunca confia na alegação crua
+      // do cliente. hasCoord usa o valor FINAL (novo se veio, senão o já salvo), então
+      // editar só o `geoFonte` sem reenviar o pino ainda decide certo.
+      if (input.geoFonte !== undefined) {
+        data.geoFonte = decidirGeoFonteCadastro(
+          pinoValido(latFinal, lngFinal),
+          input.geoFonte,
+          input.gpsAccuracy,
+        );
+      }
+    }
+
+    if (!pinoValido(latFinal, lngFinal)) {
+      const resolvedGeo = await this.maybeResolveServerGeo(input, { ...atual, lat: latFinal, lng: lngFinal });
+      if (resolvedGeo) {
+        data.lat = resolvedGeo.lat;
+        data.lng = resolvedGeo.lng;
+        data.geoFonte = resolvedGeo.geoFonte;
+      }
+    }
+    return data;
+  }
+
+  /**
    * MULTILOCAL (11/07) — semeia/sincroniza o LOCAL PRINCIPAL a partir do endereço do
    * PERFIL (CustomerProfile). O card de clientes do /entrega lê endereço/número/gps do
    * LOCAL principal; contas criadas/importadas FORA da ficha (createConta manual, import
@@ -1611,8 +1664,18 @@ export class NucleoCadastroService {
    * IDEMPOTENTE e sem duplicar (a ficha/front já faz upsert do principal pelos endpoints de
    * local): se já existe um principal ATIVO → ATUALIZA (sync); senão, e havendo endereço no
    * perfil → CRIA principal (seed), mas SÓ quando não há nenhum local ativo (preserva a
-   * invariante "1 principal por conta" — jamais cria um 2º). geoFonte do local = a do perfil.
+   * invariante "1 principal por conta" — jamais cria um 2º).
    * Best-effort: NUNCA lança (não trava o cadastro) — espelha `maybeResolveServerGeo`.
+   *
+   * 🔴 O SYNC NÃO REBAIXA PINO (09/08). Ele roda a cada edição de QUALQUER campo de
+   * endereço do perfil (`enderecoFieldsTouched`) — inclusive corrigir o bairro. Se o
+   * LOCAL já tem pino provado na porta (`GEO_FONTES_DA_PORTA`) e o perfil chega com
+   * fonte mais fraca, o TEXTO do endereço é copiado e o PINO fica onde está. O caso
+   * real: o entregador prova a porta (`gps_entrega` vai pro local e pro perfil), depois
+   * alguém arruma o bairro no perfil — e o perfil, que também tem `gps_entrega`, não
+   * rebaixa nada; quem rebaixava era a cópia com fonte perdida (ver
+   * `normalizeGeoFonteCopiaInterna`). Com as duas correções juntas o pino do chão só
+   * some quando alguém, de propósito, manda outro.
    */
   private async seedOrSyncLocalPrincipal(companyId: number, customerProfileId: string): Promise<void> {
     if (!companyId || !customerProfileId) return;
@@ -1626,25 +1689,39 @@ export class NucleoCadastroService {
       });
       if (!perfil) return;
 
-      const data = {
+      const textoDoEndereco = {
         endereco: perfil.endereco || null,
         numero: perfil.numero || null,
         bairro: perfil.bairro || null,
         cidade: perfil.cidade || null,
         uf: perfil.uf || null, // já normalizado (uppercase) na escrita do perfil
         cep: perfil.cep || null,
+      };
+      const pinoDoPerfil = {
         lat: perfil.lat ?? null,
         lng: perfil.lng ?? null,
-        geoFonte: normalizeGeoFonteInput(perfil.geoFonte),
+        geoFonte: normalizeGeoFonteCopiaInterna(perfil.geoFonte),
       };
+      const data = { ...textoDoEndereco, ...pinoDoPerfil };
 
       const principal = await this.prisma.localEntrega.findFirst({
         where: { companyId, customerProfileId, ativo: true, isPrincipal: true },
-        select: { id: true },
+        // lat/lng/geoFonte entram no select porque o sync PRECISA saber o que vai
+        // sobrescrever antes de sobrescrever (09/08 — ver o cabeçalho deste método).
+        select: { id: true, lat: true, lng: true, geoFonte: true },
       });
       if (principal) {
         // SYNC: atualiza o principal existente — nunca cria um 2º (sem duplicar).
-        await this.prisma.localEntrega.update({ where: { id: principal.id }, data });
+        // O pino do LOCAL só é trocado quando o do perfil vale o mesmo ou mais na
+        // escada (`forcaGeoFonte`). Local sem pino, ou com pino fraco, copia tudo —
+        // é o comportamento de sempre, e é o que faz o cadastro convergir.
+        const localTemPinoDaPorta =
+          pinoValido(principal.lat, principal.lng) && geoFonteDaPorta(principal.geoFonte);
+        const perfilRebaixaria = forcaGeoFonte(pinoDoPerfil.geoFonte) < forcaGeoFonte(principal.geoFonte);
+        await this.prisma.localEntrega.update({
+          where: { id: principal.id },
+          data: localTemPinoDaPorta && perfilRebaixaria ? textoDoEndereco : data,
+        });
         return;
       }
 
@@ -1788,6 +1865,15 @@ export class NucleoCadastroService {
     });
     const isPrincipal = input.isPrincipal === true || ativosCount === 0;
 
+    /* 🔴 A PORTA TAMBÉM PEDE PINO AO SERVIDOR (09/08). Só o PERFIL chamava
+       `maybeResolveServerGeo` — e a porta é o LOCAL (`resolverCoordenadaMultilocal` lê
+       o local primeiro; 62% das entregas medidas saem por ele). Resultado: o 2º
+       endereço do cliente nascia sem pino sempre que o navegador não conseguisse
+       geocodificar, e ficava esperando a 1ª entrega confirmada pra existir no mapa.
+       Mesma regra do perfil: só quando o registro NASCE sem coordenada. */
+    const clientCoord = pinoValido(input.lat, input.lng);
+    const resolvedGeo = clientCoord ? null : await this.maybeResolveServerGeo(input, null);
+
     const created = await this.prisma.$transaction(async (tx) => {
       if (isPrincipal) {
         // trocar principal é ATÔMICO: desmarca o(s) principal(is) atual(is) na mesma tx.
@@ -1808,11 +1894,13 @@ export class NucleoCadastroService {
           cidade: input.cidade || null,
           uf: (input.uf || '').toUpperCase() || null,
           cep: input.cep || null,
-          lat: input.lat ?? null,
-          lng: input.lng ?? null,
+          lat: resolvedGeo ? resolvedGeo.lat : input.lat ?? null,
+          lng: resolvedGeo ? resolvedGeo.lng : input.lng ?? null,
           // TETO DE PRECISÃO (25/07) — fail-closed via decidirGeoFonteCadastro (ver
           // comentário equivalente em createConta/updateConta acima).
-          geoFonte: decidirGeoFonteCadastro(hasNumericCoord(input.lat, input.lng), input.geoFonte, input.gpsAccuracy),
+          geoFonte: resolvedGeo
+            ? resolvedGeo.geoFonte
+            : decidirGeoFonteCadastro(clientCoord, input.geoFonte, input.gpsAccuracy),
           isPrincipal,
           ativo: true,
         },
@@ -1836,6 +1924,10 @@ export class NucleoCadastroService {
         id: true, customerProfileId: true, isPrincipal: true, lat: true, lng: true,
         // pra julgar o endereço pelo RESULTADO (salvo + corpo), como no updateConta.
         cep: true, numero: true, endereco: true,
+        // 09/08 — o resto do endereço + a procedência do pino entram porque a régua
+        // do pino (`decidirPinoNoUpdate`) é a MESMA do perfil, e ela lê o registro
+        // inteiro pra decidir se ainda dá pra resolver no servidor.
+        bairro: true, cidade: true, uf: true, geoFonte: true,
         customerProfile: { select: { isCliente: true } },
       },
     });
@@ -1863,16 +1955,9 @@ export class NucleoCadastroService {
     if (input.cidade !== undefined) data.cidade = input.cidade || null;
     if (input.uf !== undefined) data.uf = (input.uf || '').toUpperCase() || null;
     if (input.cep !== undefined) data.cep = input.cep || null;
-    if (input.lat !== undefined) data.lat = input.lat;
-    if (input.lng !== undefined) data.lng = input.lng;
-    // TETO DE PRECISÃO (25/07) — fail-closed via decidirGeoFonteCadastro. hasCoord
-    // usa o valor FINAL (novo se veio, senão o já salvo) — editar só o geoFonte sem
-    // mexer no pino ainda decide certo.
-    if (input.geoFonte !== undefined) {
-      const latFinal = input.lat !== undefined ? input.lat : found.lat;
-      const lngFinal = input.lng !== undefined ? input.lng : found.lng;
-      data.geoFonte = decidirGeoFonteCadastro(hasNumericCoord(latFinal, lngFinal), input.geoFonte, input.gpsAccuracy);
-    }
+    // 09/08 — pino: MESMA régua do perfil (apagar é explícito; sem coordenada no
+    // resultado, o servidor tenta provar uma). Ver `decidirPinoNoUpdate`.
+    Object.assign(data, await this.decidirPinoNoUpdate(input, found));
 
     const promote = input.isPrincipal === true && !found.isPrincipal;
 
@@ -2400,23 +2485,42 @@ export function exigirEnderecoFechado(
   }
 }
 
-// LOGÍSTICA-MOBILE B1 (07/07) — 'geocode' | 'gps_cadastro' passam pelo cadastro vindos
-// do CLIENTE (o front nunca manda outra coisa; o DTO também trava, isto é defesa em
-// profundidade). 'cidade' (08/07, LOGÍSTICA-MOBILE B-backend) é gravado SÓ pelo próprio
-// serviço (fallback aproximado do `resolveServerGeo`, nunca vem do body) — some da
-// lista dos DTOs de propósito, mas passa por aqui quando o serviço escreve. 'gps_entrega'
-// é gravado SOMENTE pelo confirmarEntrega (LogisticaService) — nunca aqui.
-// TETO DE PRECISÃO (25/07) — 'gps_impreciso' é um valor JÁ DECIDIDO pelo backend (nunca
-// cru do cliente); usado só pra copiar fielmente o perfil→local em seedOrSyncLocalPrincipal
-// (ver abaixo). Decisões vindas de INPUT do cliente passam por `decidirGeoFonteCadastro`,
-// não por esta função.
-// R9 (27/07) — 'cnefe' entra na mesma classe de 'cidade': valor que SÓ o próprio
-// serviço grava (resolveServerGeo via base CNEFE), nunca aceito cru do cliente (os
-// DTOs continuam sem ele de propósito); passa por aqui só na cópia fiel perfil→local.
-function normalizeGeoFonteInput(
-  v: string | null | undefined,
-): 'geocode' | 'gps_cadastro' | 'cidade' | 'gps_impreciso' | 'cnefe' | null {
-  return v === 'geocode' || v === 'gps_cadastro' || v === 'cidade' || v === 'gps_impreciso' || v === 'cnefe' ? v : null;
+/* A ESCADA DA PROCEDENCIA DO PINO mudou de casa em 09/08 (logistica-geo-fonte.util.ts):
+ * a conferencia, o semaforo e o fechamento do dia tinham cada um a SUA copia, e as tres
+ * ja discordavam entre si. Uma escada so, no arquivo dono do assunto `geoFonte`. */
+
+/* CÓPIA INTERNA perfil→local (09/08) — esta função NÃO é porta de entrada de cliente.
+ *
+ * Ela nasceu (07/07) como "normalizeGeoFonteInput", com a allowlist curta do que o
+ * front manda ('geocode' | 'gps_cadastro'), e foi ganhando remendo a cada fonte nova
+ * que o próprio serviço passou a gravar ('cidade' 08/07, 'gps_impreciso' 25/07,
+ * 'cnefe' 27/07). O comentário antigo dizia, com todas as letras, que 'gps_entrega'
+ * "nunca é gravado aqui" — e estava certo sobre QUEM GRAVA e errado sobre o que esta
+ * função faz: ela COPIA o que já está gravado no perfil para o local principal.
+ *
+ * 🔴 MEDIDO EM PROD (09/08): 22 perfis com `gps_entrega` e local principal ativo, e 2
+ * com `cnefe_cep`. Em todos, corrigir o BAIRRO no perfil derrubava a fonte do local
+ * pra null (a coordenada continuava lá, órfã) — e fonte null é justamente o que a cura
+ * do CNEFE tem permissão de sobrescrever. Ou seja: o pino provado no chão pelo
+ * entregador virava candidato a ser trocado por um palpite, sem ninguém pedir nada.
+ * Lei nº1 da casa: pino errado é pior que pino vazio, e pino BOM que existe jamais
+ * pode ser descartado.
+ *
+ * Por que UMA função e não duas (a "curta do cliente" + a "completa da cópia"): não
+ * existe caller de cliente. O valor cru do body NUNCA passa por aqui — ele entra por
+ * `decidirGeoFonteCadastro` (logistica-geo-fonte.util.ts), que é fail-closed e só
+ * devolve 'geocode' | 'gps_cadastro' | 'gps_impreciso', e antes disso já bateu no
+ * `@IsIn` dos DTOs. Uma segunda função com allowlist curta e zero chamadores seria
+ * código morto fingindo ser trava. O nome é a trava: quem chamar isto está COPIANDO
+ * o que a casa já gravou.
+ *
+ * A lista é a MESMA da escada acima — uma fonte nova entra em um lugar só. */
+function normalizeGeoFonteCopiaInterna(v: string | null | undefined): GeoFonteGravada | null {
+  // `hasOwnProperty` de propósito: `geoFonte` vem do banco como string crua, e
+  // `FORCA['toString']` devolveria uma função em vez de "não conheço".
+  return typeof v === 'string' && Object.prototype.hasOwnProperty.call(FORCA_GEO_FONTE, v)
+    ? (v as GeoFonteGravada)
+    : null;
 }
 
 // MULTILOCAL (11/07) — "a conta tem endereço?" pro seed do LOCAL PRINCIPAL: qualquer
@@ -2442,7 +2546,7 @@ function hasAnyEnderecoField(input: {
     filled(input.cidade) ||
     filled(input.uf) ||
     filled(input.cep) ||
-    hasNumericCoord(input.lat, input.lng)
+    pinoValido(input.lat, input.lng)
   );
 }
 
@@ -2517,6 +2621,25 @@ type GeoRecord = {
   uf: string | null;
   cep: string | null;
 };
+
+/** 09/08 — o mesmo recorte SEM o `id`: é o que `maybeResolveServerGeo` de fato lê, e é
+ *  o que o LOCAL consegue oferecer sem fingir ser um CustomerProfile. */
+type GeoRecordParaResolver = Omit<GeoRecord, 'id'>;
+
+/** 09/08 — o pedaço do corpo de um PATCH que decide o PINO (perfil ou local). Os campos
+ *  de endereço entram porque, sem coordenada, é deles que o servidor tenta provar uma. */
+interface PinoNoCorpo {
+  endereco?: string | null;
+  numero?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  uf?: string | null;
+  cep?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  geoFonte?: string | null;
+  gpsAccuracy?: number | null;
+}
 
 const GEO_RECORD_SELECT = {
   id: true,

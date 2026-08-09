@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 
 import { MobilePushService } from '../auth/mobile-push.service';
 import { canonicalRouteDate } from './logistica-route-billing.service';
+import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
 import { haversineMeters } from './logistica-tracking.service';
 
 
@@ -344,12 +345,21 @@ export class LogisticaRotaAvisoService implements OnModuleInit, OnModuleDestroy 
         status: { in: [...STATUS_ABERTO] },
         OR: [{ scheduledAt: { gte: start, lte: end } }, { scheduledAt: null }],
       },
-      select: { customerProfile: { select: { lat: true, lng: true } } },
+      // 🔴 09/08 — MULTILOCAL. Lia só o perfil: medido na empresa 41, 174 entregas
+      // dos últimos 14 dias têm pino no LOCAL e NENHUM no perfil. Nessas, o
+      // motorista parado exatamente na porta certa não era reconhecido "dentro de
+      // cliente" e levava 'parado_demais' — alarme falso é o que faz o dono parar
+      // de ler o sino, que é o mesmo que não ter vigia.
+      select: {
+        local: { select: { lat: true, lng: true } },
+        customerProfile: { select: { lat: true, lng: true } },
+      },
       take: 200,
     });
     return paradas.some((parada) => {
-      const lat = parada.customerProfile?.lat;
-      const lng = parada.customerProfile?.lng;
+      // A fonte é escolhida INTEIRA (régua única do multilocal): lat de um com lng
+      // do outro põe a porta no meio do nada.
+      const { lat, lng } = resolverCoordenadaMultilocal(parada.local, parada.customerProfile);
       if (typeof lat !== 'number' || typeof lng !== 'number') return false;
       return haversineMeters(onde.lat, onde.lng, lat, lng) <= Math.max(30, raioM);
     });

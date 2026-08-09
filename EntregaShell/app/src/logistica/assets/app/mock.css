@@ -112,6 +112,16 @@ button,input{font:inherit;color:inherit}
      mapa se desenha. É a única cor do mapa que só existe DURANTE a cena, e
      ela se vira com CONTRASTE: não há halo nem filtro (ver a folha). */
   --map-cabeca:#e8f4ff;
+  /* A CENA DAS RUAS (entrada do app e toda rota nova, ver `cenaDasRuas` na
+     ponte). São as ruas DE VERDADE do mapa se desenhando, então a tinta tem que
+     morar entre duas coisas: mais clara que a rua final do basemap (#333 no
+     escuro), pra a cena ser VISTA, e perto o bastante dela pra a troca no fim
+     ser um assentamento e não um susto. Medido contra o chão do basemap
+     (#1f1f1f): 3,08:1 — passa o AA de peça gráfica (3,0).
+     A ponta acesa da rua que cresce é a MESMA `--map-cabeca` da cobra: uma
+     cena, um vocabulário. */
+  --map-cena-rua:#59677a;
+  --map-cena-nome:#8d9bad;
   /* 🔴 ONDE EU ESTOU — a peça que faltava no mapa 2D (dono, 09/08: *"cadê minha
      localização?"*). Ela é AZUL em qualquer pele, e de propósito: o lima é a
      ROTA e o `--map-pino` é a PARADA; se o motorista fosse verde também, a
@@ -1396,6 +1406,46 @@ button,input{font:inherit;color:inherit}
    a maquete de novo, inventando posição (ver `mapa()`). A ponte marca o palco
    assim que cria o mapa; daí em diante quem mostra o motorista é o marcador. */
 .mapa-palco.com-mapa>.eu-puck{display:none}
+
+/* ==========================================================================
+   🔴 A CENA DAS RUAS — a entrada do app (ordem do dono, 09/08: *"ao ligar, era
+   pras ruas virem surgindo, um efeito bem legal na entrada dele, e este efeito
+   se repete sempre que uma rota é criada"*).
+
+   A DIVISÃO É A MESMA DE SEMPRE: o que é MAPA mora no mapa. As ruas que
+   crescem não são desenho nenhum — são as ruas DE VERDADE dos tiles, viradas
+   em camadas do maplibre pela ponte (`cenaDasRuas`). Aqui em cima ficam só as
+   duas peças de CROMO da cena: o ponto que nasce e o cartão que se escreve.
+   Foi ordem literal ("não remonte coisas, crie dentro do mapa mesmo") e é
+   também o motivo de a cena terminar sem cruzamento: o que se apaga no fim é
+   uma camada por cima da mesma geometria que fica.
+
+   🔴 A CASA TEM UMA VELOCIDADE DE ESCRITA SÓ: 66 ms por letra, a régua do nome
+   da empresa — e é o MESMO `@keyframes empDigita`, não uma cópia. Cena com dois
+   relógios é cena que se contradiz na mesma tela.
+   ========================================================================== */
+/* O ponto só ACENDE (`empSurge`); quem faz o gesto de pouso é o halo, que já
+   tem transform próprio. 🔴 E não pode ser diferente: no app este elemento É o
+   `.maplibregl-marker` (o vendor escreve `transform` nele a cada quadro), então
+   animar transform aqui arrancaria o ponto do lugar dele no mapa. */
+.eu-puck.nascendo{animation:empSurge 260ms ease both}
+.eu-puck.nascendo::before{animation:mvPouso 620ms var(--cv-sai) both}
+
+/* O cartão: coordenada e endereço, escritos debaixo do ponto. Ele mora DENTRO
+   do mapa vivo (o nó que é transplantado de palco em palco), nunca no palco —
+   palco morre a cada repinte e levaria a cena junto. */
+.cena-eu{position:absolute;left:50%;top:50%;margin-top:28px;z-index:5;
+  transform:translateX(-50%);pointer-events:none;text-align:center;
+  animation:empSurge 200ms ease both}
+.cena-eu.saindo{animation:trApaga 300ms ease forwards}
+/* 🔴 `display:table` E NÃO `block`: o clip corta a CAIXA, e caixa de bloco é
+   larga como a linha mais comprida das duas — a curta começaria a aparecer do
+   vazio à esquerda em vez de da primeira letra. `table` encolhe no texto. */
+.cena-eu b,.cena-eu i{display:table;margin:0 auto;white-space:nowrap;overflow:hidden;
+  text-shadow:0 1px 4px var(--map-fundo);
+  animation:empDigita calc(var(--n,1)*66ms) steps(var(--n,1),end) var(--atraso,0s) both}
+.cena-eu b{font:500 12px Inter,sans-serif;color:var(--ink);letter-spacing:.04em}
+.cena-eu i{font:400 12px Inter,sans-serif;font-style:normal;color:var(--ink-2);margin-top:3px}
 .gps-mundo{position:absolute;left:-42%;right:-42%;top:-52%;bottom:-6%;
   transform:perspective(640px) rotateX(51deg);transform-origin:50% 74%}
 .gps-mundo svg{width:100%;height:100%;display:block}
@@ -2414,6 +2464,13 @@ button,input{font:inherit;color:inherit}
   /* No claro a cabeça INVERTE junto com o resto: sobre chão #e6ebf3 uma ponta
      branca não existiria. Azul cravado, que é o mesmo azul do "partida". */
   --map-cabeca:#0f4fc0;
+  /* A CENA DAS RUAS no claro INVERTE, como todo o resto: no basemap claro a rua
+     final é BRANCA sobre chão #e2dfda, então a rua que se desenha tem que ser
+     mais ESCURA que o chão pra existir (2,41:1 contra ele) e clarear até o
+     branco quando o mapa assenta. Cena escrevendo em branco sobre creme seria
+     uma cena invisível. */
+  --map-cena-rua:#9aa3ad;
+  --map-cena-nome:#6d7787;
   /* O "eu" no claro: o mesmo azul, um tom mais FUNDO (o chão do mapa claro é
      #e6ebf3 — o azul de tela escura clareia demais ali) e o halo mais forte,
      porque transparência sobre cinza claro some. Anel branco fica branco: é

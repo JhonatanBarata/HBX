@@ -7,6 +7,7 @@ import { saoPauloMidnight } from './logistica-agenda-cursor.util';
 import { LogisticaRecorrenciaService, resolveValorUnit } from './logistica-recorrencia.service';
 import { LogisticaAgendaService } from './logistica-agenda.service';
 import type { VenderDto } from './dto/logistica.dto';
+import { geoFonteDaPorta } from './logistica-geo-fonte.util';
 
 /**
  * O FECHAMENTO DO DIA — quanto entrou hoje, por qual forma, e o registro do dia.
@@ -37,9 +38,11 @@ import type { VenderDto } from './dto/logistica.dto';
  * nenhuma regra de dinheiro nova mora aqui (código financeiro tem dono).
  */
 
-// Fontes PROVADAS no campo — MESMA lei do semáforo da conferência
-// (GEOFONTES_PROVADAS em logistica-conferencia.util.ts): geocode não conta.
-const FONTES_PROVADAS = new Set(['gps_entrega', 'gps_cadastro']);
+/* 🔴 09/08 — este comentário dizia "MESMA lei do semáforo da conferência" e a lista
+   estava SEM o `cnefe`, que o semáforo ganhou em 06/08. Cópia que jura ser igual e
+   não é: 206 locais e 151 perfis (medido em prod) já tinham a porta resolvida pelo
+   Censo e contavam aqui como NÃO provados — o convite de GPS voltava a aparecer pra
+   quem já estava resolvido. Agora quem responde é a escada única. */
 
 export interface FechamentoMedida {
   total: number;
@@ -774,7 +777,7 @@ export class LogisticaFechamentoDiaService {
     let provados = 0;
     for (const conta of contas) {
       const fonte = conta.locais[0]?.geoFonte ?? conta.geoFonte;
-      if (fonte && FONTES_PROVADAS.has(fonte)) provados += 1;
+      if (geoFonteDaPorta(fonte)) provados += 1;
     }
     const total = clienteIds.length;
     return { total, provados, pronto: total > 0 && provados >= total };

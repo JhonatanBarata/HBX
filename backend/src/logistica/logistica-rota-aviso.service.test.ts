@@ -20,7 +20,10 @@ function dentroDoDia(hora: number): Date {
   return new Date(ano, mes - 1, dia, hora, 0, 0, 0);
 }
 
-function buildPrisma(seed: { rotas?: any[]; entregas?: any[]; users?: any[]; modelos?: any[] } = {}) {
+function buildPrisma(seed: {
+  rotas?: any[]; entregas?: any[]; users?: any[]; modelos?: any[];
+  sessoes?: any[]; configs?: any[]; pontos?: any[];
+} = {}) {
   const avisos: any[] = [];
   const prisma: any = {
     logisticaRoute: {
@@ -37,8 +40,29 @@ function buildPrisma(seed: { rotas?: any[]; entregas?: any[]; users?: any[]; mod
     },
     entrega: {
       findMany: async ({ where }: any) => (seed.entregas ?? []).filter(
-        (e) => e.companyId === where.companyId && e.entregadorId === where.entregadorId,
+        (e) => e.companyId === where.companyId && e.entregadorId === where.entregadorId
+          // `contarDia` não filtra status no topo; `estaEmAlgumCliente` filtra —
+          // e o dublê tem que respeitar isso, senão a parada JÁ ENTREGUE também
+          // "seguraria" o motorista dentro de um cliente.
+          && (!where.status?.in || where.status.in.includes(e.status)),
       ),
+      // A pergunta do ATRASO. Devolve null por padrão: os testes que a exercitam
+      // desligam a régua (atrasoMin: 0); sem este stub, o TypeError cairia no
+      // catch por sessão e apagaria em silêncio a pergunta que o teste mede.
+      findFirst: async () => null,
+    },
+    logisticaTrackingSession: {
+      findMany: async () => seed.sessoes ?? [],
+    },
+    logisticaConfig: {
+      findMany: async ({ where }: any) => (seed.configs ?? []).filter(
+        (c) => (where.companyId?.in ?? []).includes(c.companyId),
+      ),
+    },
+    logisticaTrackingPoint: {
+      findMany: async ({ where }: any) => (seed.pontos ?? [])
+        .filter((p) => p.sessionId === where.sessionId && p.capturedAt >= where.capturedAt.gte)
+        .sort((a, b) => b.capturedAt.getTime() - a.capturedAt.getTime()),
     },
     user: {
       findFirst: async ({ where }: any) => (seed.users ?? []).find((u) => u.id === where.id && u.companyId === where.companyId) ?? null,
@@ -195,6 +219,80 @@ test('listar/visto: o × do banner tira da tela e o recado não volta', async ()
   assert.equal(await service.visto(COMPANY, aviso.id), true);
   assert.equal((await service.listar(COMPANY)).length, 0);
   assert.equal(await service.visto(COMPANY, aviso.id), false, 'dispensar 2× não é erro nem no-op mentiroso');
+});
+
+/**
+ * 🔴 09/08 — A SENTINELA ACUSAVA QUEM ESTAVA NA PORTA CERTA.
+ *
+ * `estaEmAlgumCliente` lia só `customerProfile.lat/lng`. Medido na empresa 41:
+ * 174 entregas dos últimos 14 dias têm pino no LOCAL e NENHUM no perfil — nessas,
+ * o motorista parado exatamente na porta do cliente não era reconhecido "dentro
+ * de cliente" e levava 'parado_demais'. Alarme falso é o que faz o dono parar de
+ * ler o sino, que dá no mesmo que não ter vigia.
+ */
+const PORTA_DO_LOCAL = { lat: -22.4102, lng: -47.5602 };
+const A_DOIS_KM = { lat: -22.4302, lng: -47.5602 };
+
+/** Sessão viva, com sinal fresco, parada há 29 min no ponto `onde`. */
+function cenarioParado(onde: { lat: number; lng: number }, agora: Date) {
+  const ponto = (minAtras: number) => ({
+    sessionId: 's1',
+    capturedAt: new Date(agora.getTime() - minAtras * 60 * 1000),
+    latitude: onde.lat,
+    longitude: onde.lng,
+  });
+  return {
+    sessoes: [{
+      id: 's1',
+      companyId: COMPANY,
+      entregadorId: MOTORISTA,
+      startedAt: dentroDoDia(8),
+      lastPointAt: new Date(agora.getTime() - 60 * 1000),
+      lastLatitude: onde.lat,
+      lastLongitude: onde.lng,
+    }],
+    // atraso DESLIGADO: a pergunta deste teste é a do PARADO, e régua 0 é o jeito
+    // que a própria sentinela oferece pra calar uma pergunta.
+    configs: [{
+      companyId: COMPANY, sentinelaSemSinalMin: 15, sentinelaParadoMin: 25,
+      sentinelaAtrasoMin: 0, raioChegadaM: 60,
+    }],
+    pontos: [ponto(0), ponto(10), ponto(20), ponto(29)],
+    users: USERS,
+  };
+}
+
+/** Parada aberta com pino SÓ no LOCAL — o caso das 174 entregas da empresa 41. */
+const PARADA_COM_PINO_NO_LOCAL = [
+  { companyId: COMPANY, entregadorId: MOTORISTA, status: 'entregue', scheduledAt: dentroDoDia(9), local: null, customerProfile: { lat: null, lng: null } },
+  {
+    companyId: COMPANY, entregadorId: MOTORISTA, status: 'em_rota', scheduledAt: dentroDoDia(9),
+    local: { lat: PORTA_DO_LOCAL.lat, lng: PORTA_DO_LOCAL.lng },
+    customerProfile: { lat: null, lng: null },
+  },
+];
+
+test('sentinela: parado NA porta do LOCAL (perfil sem pino) NÃO vira "parado_demais"', async () => {
+  const agora = dentroDoDia(11);
+  const { service, avisos } = buildPrisma({
+    ...cenarioParado(PORTA_DO_LOCAL, agora),
+    entregas: PARADA_COM_PINO_NO_LOCAL,
+  });
+
+  assert.equal(await service.varrer(agora), 0);
+  assert.deepEqual(avisos, [], 'descarregar galão demora — parado dentro do cliente é trabalho');
+});
+
+test('sentinela: parado a 2 km da porta ainda vira "parado_demais" (o alarme não morreu)', async () => {
+  const agora = dentroDoDia(11);
+  const { service, avisos } = buildPrisma({
+    ...cenarioParado(A_DOIS_KM, agora),
+    entregas: PARADA_COM_PINO_NO_LOCAL,
+  });
+
+  assert.equal(await service.varrer(agora), 1);
+  assert.equal(avisos[0].tipo, 'parado_demais');
+  assert.match(avisos[0].detalhe, /min parado fora de cliente/);
 });
 
 test('multi-tenant: recado de outra empresa não aparece nem é dispensável', async () => {

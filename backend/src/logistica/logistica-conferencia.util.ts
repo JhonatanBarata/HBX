@@ -5,6 +5,8 @@ import { haversineKm, type Coord, type RouteEngine } from './logistica-rota.serv
 // e é justamente o desencontro entre "mesmo ponto" e "mesmo endereço" que este
 // arquivo passou a distinguir em 06/08.
 import { mesmaPorta, numeroDaPorta, type PortaCadastro } from '../nucleo/endereco-porta.util';
+import { pinoValido } from '../nucleo/nucleo-geo.util';
+import { geoFonteDaPorta } from './logistica-geo-fonte.util';
 
 /**
  * S3 (25/07, PR25072026-ROTA-CONFERIDA) — SEMÁFORO de confiança do pino, matemática
@@ -82,7 +84,9 @@ export const DIVERGE_GPS_OURO_METROS = 300;
  *    o melhor dado que o sistema tem.
  * Fora daqui o motivo é apurado e registrado, mas é INFORMATIVO (não pinta).
  */
-const GEOFONTES_DA_PORTA = new Set(['gps_entrega', 'gps_cadastro', 'cnefe']);
+/* A lista mora na escada única (logistica-geo-fonte.util.ts) desde 09/08 — este `Set`
+   era uma das quatro cópias, e a do fechamento do dia já tinha ficado pra trás sem o
+   `cnefe`. Aqui só se pergunta; quem responde é `geoFonteDaPorta`. */
 
 /** 26/07: o amarelo morreu (ver cabeçalho). Só existe "tem problema impeditivo" ou não. */
 export type SemaforoCor = 'verde' | 'vermelho';
@@ -225,19 +229,10 @@ export interface ParadaConferida {
   motivos: MotivoConferencia[];
 }
 
-/** true nos dois eixos, finito, dentro da faixa e nunca 0,0 (mesmo crivo de `hasCoord`
- *  em logistica-rota.service.ts, reescrito aqui p/ assinatura (lat,lng) em vez de
- *  Stop — evita montar um Stop de mentira só pra checar coordenada). */
+/** Régua única da casa (`pinoValido`) com o guard de tipo que este arquivo usa. O corpo
+ *  era uma cópia — "mesmo crivo, reescrito aqui" é como as réguas começam a divergir. */
 function temCoordenadaValida(lat: number | null, lng: number | null): lat is number {
-  return (
-    typeof lat === 'number' &&
-    typeof lng === 'number' &&
-    Number.isFinite(lat) &&
-    Number.isFinite(lng) &&
-    Math.abs(lat) <= 90 &&
-    Math.abs(lng) <= 180 &&
-    !(lat === 0 && lng === 0)
-  );
+  return pinoValido(lat, lng);
 }
 
 /** Mediana simples (ordena e pega o meio; par = média dos dois centrais). Vazio → 0
@@ -263,7 +258,7 @@ function pontoMedianoCasulo(pontos: Coord[]): Coord | null {
  *  (gps_impreciso, legado sem o campo) recebe o motivo genérico — mesma cautela,
  *  string diferente pra não confundir "veio de geocode" com "GPS baixa precisão". */
 function motivoDeGeoFonte(geoFonte: string | null): 'geocode_nao_provado_em_campo' | 'fonte_nao_confiavel' | null {
-  if (GEOFONTES_DA_PORTA.has(String(geoFonte))) return null;
+  if (geoFonteDaPorta(geoFonte)) return null;
   return geoFonte === 'geocode' ? 'geocode_nao_provado_em_campo' : 'fonte_nao_confiavel';
 }
 

@@ -480,13 +480,16 @@ export class CreateLocalDto {
   @MaxLength(12)
   cep?: string;
 
+  // 09/08 — `null` é um VALOR aqui, não ausência: "sem pino". Ausente (`undefined`) e
+  // `null` significam a mesma coisa na CRIAÇÃO, mas o tipo nasce igual ao do
+  // UpdateLocalDto de propósito — é o mesmo formulário mandando o mesmo campo.
   @IsOptional()
   @IsNumber()
-  lat?: number;
+  lat?: number | null;
 
   @IsOptional()
   @IsNumber()
-  lng?: number;
+  lng?: number | null;
 
   // Origem do pino (mesma convenção do perfil). 'gps_entrega' é EXCLUSIVO do confirmar
   // (LogisticaService), nunca aceito aqui — o serviço ignora qualquer outro valor.
@@ -552,13 +555,21 @@ export class UpdateLocalDto {
   @MaxLength(12)
   cep?: string;
 
+  /* 🔴 APAGAR O PINO É DIZER `null` (09/08) — o campo AUSENTE nunca apaga nada.
+     O cockpit de endereços do desktop, quando o CEP muda e o geocode não prova ponto
+     novo, OMITIA lat/lng: o endereço novo era salvo com o pino velho, calado, enquanto
+     a tela dizia "sem ponto provado". Com `null` explícito o front consegue dizer "esse
+     pino não é desta porta", e o serviço apaga pino E procedência juntos (ver
+     `decidirPinoNoUpdate`). `@IsOptional()` já deixa `null` passar sem validar — é o
+     mesmo padrão dos outros campos nulláveis do repo (ex.: `limiteFiado`,
+     `tempoParadaMin` em logistica.dto.ts); o tipo aqui é o que documenta a intenção. */
   @IsOptional()
   @IsNumber()
-  lat?: number;
+  lat?: number | null;
 
   @IsOptional()
   @IsNumber()
-  lng?: number;
+  lng?: number | null;
 
   // TETO DE PRECISÃO (25/07) — 'gps_impreciso' incluído (ver CreateContaDto).
   @IsOptional()
