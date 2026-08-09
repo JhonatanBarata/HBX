@@ -422,6 +422,54 @@
     return partes;   // en-CA já formata como AAAA-MM-DD
   };
 
+  /* 🔴 EXTRATO É DOCUMENTO, E DOCUMENTO NÃO MUDA DE HORA CONFORME O APARELHO.
+     O `hora()` lá de cima lê o relógio do celular — serve pro que está
+     acontecendo agora, na mão do motorista. Aqui não: a mesma entrega tem que
+     carimbar a mesma hora em qualquer aparelho, então o relógio é o da operação
+     (São Paulo), igual ao `diaOperacional`. Sem isto, o dono viajando vê o
+     extrato inteiro deslocado e acha que foi cobrado no dia errado. */
+  const diaAnterior = (ymd) => {
+    const [a, m, d] = String(ymd).split('-').map(Number);
+    if (!a || !m || !d) return '';
+    const x = new Date(Date.UTC(a, m - 1, d) - 86400000);
+    return `${x.getUTCFullYear()}-${String(x.getUTCMonth() + 1).padStart(2, '0')}-${String(x.getUTCDate()).padStart(2, '0')}`;
+  };
+  /** AAAA-MM-DD do instante, no fuso da operação. Vazio se a data não presta. */
+  const diaEmSp = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (!isFinite(d.getTime())) return '';
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(d);
+  };
+  /** "12/09" — a data curta que se lê num aviso de vencimento. */
+  const diaCurto = (iso) => {
+    const ymd = diaEmSp(iso);
+    return ymd ? `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}` : '';
+  };
+  /** "hoje 06:12" · "ontem 17:40" · "05/08" — o quando de uma linha do extrato. */
+  const quandoDoExtrato = (iso) => {
+    const ymd = diaEmSp(iso);
+    if (!ymd) return '';
+    const hoje = diaOperacional();
+    if (ymd !== hoje && ymd !== diaAnterior(hoje)) return `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}`;
+    const hm = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit',
+    }).format(new Date(iso));
+    return `${ymd === hoje ? 'hoje' : 'ontem'} ${hm}`;
+  };
+  const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+    'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+  /* "agosto" — e "dezembro/2025" quando o ano NÃO é o corrente. O bônus é do mês
+     anterior: em janeiro, "dezembro" sozinho é o dezembro errado. */
+  const mesRotulo = (ym) => {
+    const s = String(ym || '');
+    const nome = MESES[Number(s.slice(5, 7)) - 1];
+    if (!nome) return '';
+    return s.slice(0, 4) === diaOperacional().slice(0, 4) ? nome : `${nome}/${s.slice(0, 4)}`;
+  };
+
   const distancia = (m, s) => {
     if (!(m > 0)) return '';
     const km = m >= 1000 ? `${(m / 1000).toFixed(1).replace('.', ',')} km` : `${Math.round(m)} m`;
@@ -901,7 +949,17 @@
       // `sino` zera JUNTO: o "2" do desenho ficava no cabeçalho de TODA tela
       // até os recados responderem — badge de exemplo com cara de recado real.
       chat: { carregando: true, conversa: [], recado: '', sino: '' },
-      consumo: { carregando: true, linhas: [], saldo: '', gastosHoje: '', bonus: '' },
+      /* 🔴 CRÉDITOS — a tela única (09/08), e DOIS pares de bandeira porque são
+         DUAS portas de rede: `carregando`/`semFonte` cobrem `/credits/me`
+         (saldo + pacotes, a espinha da tela) e `movCarregando`/`movSemFonte`
+         cobrem `/logistica/creditos/extrato` (o movimento). Com um par só, o
+         extrato no chão apagaria a recarga — que é o que a pessoa veio fazer
+         aqui. Tudo nasce VAZIO: catálogo de demonstração numa tela de dinheiro
+         é preço inventado com botão de cobrar em cima. */
+      creditos: {
+        carregando: true, saldo: '', vence: '', pacotes: [], cta: '',
+        movCarregando: true, mes: '', gastosHoje: '', gastosMes: '', bonus: '', linhas: [],
+      },
       // Ajustes é o pior lugar pra exemplo: o motorista lê a CHAVE no estado do
       // desenho, toca, e acha que mudou o que nem tinha carregado. Também é a
       // tela que mostrava "Baixando o mapa · 62%" — recurso CORTADO em 06/08.
@@ -950,11 +1008,10 @@
          `index.html` não carrega mais. Sem porta e sem repinte, a linha
          saiu do DESENHO (o porquê inteiro está em cima do `.splash-barra`, na
          folha do mock). */
-      // 🔴 TELA DE DINHEIRO. O catálogo inteiro era do desenho (R$ 49/129/239/449,
-      // "+8% grátis") e o botão anunciava "Recarregar 300 créditos · R$ 129,00"
-      // sem pacote escolhido de verdade — ele saía pelo `if (!pacoteEscolhido)`
-      // e não fazia nada. Preço inventado com botão em cima não fica na tela.
-      recarga: { carregando: true, saldo: '', ritmo: '', pacotes: [], cta: '' },
+      // (A `recarga:` morava AQUI e foi fundida na `creditos:` lá de cima, que é
+      // a tela única desde 09/08. O motivo de zerar continua o mesmo: o catálogo
+      // era do desenho — R$ 49/129/239/449, "+8% grátis" — e o botão anunciava
+      // "Recarregar 300 créditos · R$ 129,00" sem pacote escolhido de verdade.)
       /* 🔴 AJUSTES · FINANCEIRO — a última tela que ainda não tinha SEAM NENHUM.
          As outras eu já zerava aqui; esta não tinha o que zerar, porque os
          números moravam CRAVADOS no template do mock. Então ela passava por
@@ -1768,12 +1825,22 @@
       carregando: false,
       semFonte: false,
       linhas,
-      // 🔴 O PÉ É "INICIAR", SEMPRE (dono: "MONTAR ROTA → MONTAGEM DE ROTA
-      // (BOTÃO INICIAR)"). O `pronta:0` desta tela era o segundo "Montar rota",
-      // o toque a mais que existia só pra trocar a fonte da mesma lista.
-      pronta: 1,
-      // quem vem primeiro: é pra onde ele vai agora.
-      iniciarSub: esc((clientes[0] && clientes[0].nome) || ''),
+      /* 🔴 O PÉ É "INICIAR" NO DIA DE HOJE — E "MONTAR" NO DIA QUE AINDA VEM.
+         O "Iniciar sempre" (08/08: "MONTAR ROTA → MONTAGEM DE ROTA (BOTÃO
+         INICIAR)") nasceu quando esta lista era SEMPRE a de hoje: ali o toque a
+         mais só trocava a fonte da mesma lista, e matá-lo foi certo.
+         Com o chip de OUTRO dia aceso a lista é uma PRÉVIA — ninguém "inicia"
+         uma segunda-feira no domingo, e o verde prometendo isso era promessa
+         falsa: ele levaria pro Iniciar do dia de HOJE, que está vazio. Agora
+         quem escolheu um dia futuro vê "Montar rota", que é o verbo verdadeiro
+         (prepara aquele dia, no dia dele) — e o chip morre no fim do montar, o
+         que devolve o pé pro Iniciar de hoje sozinho. */
+      pronta: previaAlvo ? 0 : 1,
+      // Hoje: quem vem primeiro, que é pra onde ele vai agora. Dia futuro: o
+      // DIA, porque é ele que responde "montar o quê?".
+      iniciarSub: previaAlvo
+        ? esc(ROTULO_DIA[previaAlvo] || '')
+        : esc((clientes[0] && clientes[0].nome) || ''),
       vazio: textoVazio(alvo),
       somaParadas: String(linhas.length),
       somaProdutos: String(produtos),
@@ -2000,14 +2067,26 @@
       const devolverEstado = () => montando(0);
 
       let plano;
+      /* 🔴 MONTAR OUTRO DIA MONTA O DIA DELE, NÃO O DE HOJE (dono, 09/08: "o
+         prepare não pode materializar no dia de hoje").
+         Este ramo mandava `operationalDate: hojeISO()` — e era assim que a
+         agenda de segunda virava entrega de domingo. O servidor agora adota a
+         ORIGEM como dia da rota; aqui a tela para de fingir que aquilo virou a
+         rota de hoje. Guardo a data preparada porque o `conferir` tem que olhar
+         pro dia que foi montado, e o recibo tem que dizer QUAL. */
+      let diaPreparado = '';
+      let rotuloPreparado = '';
       try {
         if (montarDia && montarDia !== diaDaSemana() && ehAdmin()) {
-          // Outro dia puxado pra HOJE: o prepare materializa a agenda do dia
-          // escolhido em cima do dia operacional de hoje e já planeja.
+          const alvo = dataDoDia(montarDia);
           const prep = await window.API.post('/logistica/admin-route/prepare', {
-            operationalDate: hojeISO(), sourceDates: [dataDoDia(montarDia)], ...origemGps(),
+            operationalDate: alvo, sourceDates: [alvo], ...origemGps(),
           });
           plano = prep && prep.plan ? prep.plan : prep;
+          // Quem manda na data é a RESPOSTA do servidor, nunca a minha conta:
+          // se ele decidir outro dia, o conferir e o recibo seguem ele.
+          diaPreparado = String((prep && prep.operationalDate) || alvo);
+          rotuloPreparado = ROTULO_DIA[montarDia] || '';
         } else {
           plano = await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...origemGps() });
         }
@@ -4425,9 +4504,9 @@
       // ninguém apaga campo por campo com o motor ligado.
       if (tela === 'novocliente') novoEmBranco();
       if (tela === 'ajustes') carregarAjustes();
-      if (tela === 'consumo') carregarConsumo();
       if (tela === 'salvas') carregarSalvas();
-      if (tela === 'recarga') carregarRecarga();
+      // Créditos é UMA tela desde 09/08 e busca as DUAS portas de uma vez.
+      if (tela === 'creditos') carregarCreditos();
       // A carteira do dono busca sozinha, como a Recarga: quem abrisse o
       // Financeiro via o dinheiro do DESENHO, viesse de onde viesse.
       if (tela === 'financeiro') carregarFinanceiro();
@@ -4807,25 +4886,72 @@
       prospector: config.prospectorAtivo ? 1 : 0,
       prospectorDisponivel: prospectorPodeLigar(),
     });
-    if (cred) encherRecarga(cred);
+    if (cred) encherCarteira(cred);
   }
 
-  /* 🔴 A RECARGA CARREGA SOZINHA. Ela só era preenchida de carona no
-     `carregarAjustes`: quem abrisse a Recarga direto (o atalho `ir-recarga`, ou
-     o caminho vindo do crédito baixo) via o catálogo do DESENHO — preço, selo
-     de desconto e o botão de pagar. Tela de dinheiro não pode depender de por
-     onde o motorista entrou. */
-  async function carregarRecarga() {
+  /* ------------------------------------------------------------------------
+     AJUSTES · CRÉDITOS — a tela única (09/08), e a única que cobra dinheiro.
+
+     Ela era DUAS: "Recarga de créditos" e "Consumo e bônus", vizinhas na
+     Administração, as duas mostrando o MESMO saldo. Viraram uma, com o foco na
+     recarga. São DUAS portas de rede, e continuam duas de propósito:
+       · `/credits/me`                    → saldo, lotes vencendo e catálogo;
+       · `/logistica/creditos/extrato`    → uso do mês, bônus e movimento.
+     Cada uma com o seu par de bandeiras (`carregando`/`semFonte` e
+     `movCarregando`/`movSemFonte`), porque extrato no chão NÃO pode derrubar a
+     recarga: quem abriu esta tela veio comprar crédito.
+
+     🔴 CARREGA SOZINHA, venha de onde vier. A recarga só era preenchida de
+     carona no `carregarAjustes`; quem entrasse pelo atalho via o catálogo do
+     DESENHO — preço, selo de desconto e o botão de pagar. Tela de dinheiro não
+     pode depender de por onde a pessoa entrou.
+     ------------------------------------------------------------------------ */
+  async function carregarCreditos() {
     if (!temPonte() || typeof window.usarDados !== 'function') return;
-    let cred;
-    try { cred = await window.API.get('/credits/me'); } catch (_) { return fonteCaiu('recarga'); }
-    if (!cred) return fonteCaiu('recarga');
-    encherRecarga(cred);
+    // As duas portas saem JUNTAS e cada uma responde por si — `allSettled`, nunca
+    // `all`: com `all`, o extrato fora do ar levaria a carteira junto no catch.
+    const [credR, extR] = await Promise.allSettled([
+      window.API.get('/credits/me'),
+      window.API.get('/logistica/creditos/extrato'),
+    ]);
+    if (credR.status === 'fulfilled' && credR.value) encherCarteira(credR.value);
+    else fonteCaiu('creditos');
+    if (extR.status === 'fulfilled' && extR.value && typeof extR.value === 'object') encherMovimento(extR.value);
+    else movimentoCaiu();
+  }
+
+  /* 🔴 O PAGAMENTO CAÍA E A TELA NÃO FICAVA SABENDO. O `MainActivity` chama
+     `window.HBXApp.rechargeCompleted(payload)` assim que o checkout nativo
+     aprova a cobrança (`recargaLauncher`, com `{ok, packKey, credited,
+     balanceAfter}`) — e no app novo NINGUÉM atendia por esse nome: quem
+     atendia era o `app.js`, que a fusão apagou. O desfecho é o pior possível
+     numa tela de dinheiro: o dono paga, o checkout diz "créditos adicionados",
+     ele volta, e o saldo continua o de antes até fechar e abrir o app inteiro.
+     App que mostra saldo velho depois de cobrar parece app que perdeu a compra.
+
+     `balanceAfter` pinta na hora — não é otimismo local, é o número que o
+     próprio servidor acabou de devolver junto do "aprovado". A releitura
+     confirma e ainda traz a linha nova do extrato. */
+  window.HBXApp.rechargeCompleted = function (res) {
+    const saldo = Number(res && res.balanceAfter);
+    if (isFinite(saldo) && typeof window.usarDados === 'function') {
+      window.usarDados('creditos', { ...fonteVoltou, saldo: String(saldo) });
+    }
+    carregarCreditos();
+  };
+
+  /** o movimento tem bandeira PRÓPRIA — mesma lei do `fonteCaiu`, outro par */
+  function movimentoCaiu() {
+    if (typeof window.usarDados !== 'function') return;
+    let primeira = false;
+    try { primeira = !!(DADOS.creditos && DADOS.creditos.movCarregando); } catch (_) { return; }
+    if (!primeira) return;
+    window.usarDados('creditos', { movCarregando: false, movSemFonte: true });
   }
 
   /** os pacotes vêm no MESMO `/credits/me` do saldo — não há porta separada */
   let pacoteEscolhido = null;
-  function encherRecarga(cred) {
+  function encherCarteira(cred) {
     const packs = Array.isArray(cred && cred.packs) ? cred.packs : [];
     const saldo = typeof cred.balance === 'number' ? cred.balance : null;
     if (!pacoteEscolhido) {
@@ -4833,12 +4959,10 @@
       pacoteEscolhido = rec ? rec.key : null;
     }
     const atual = packs.find((p) => p.key === pacoteEscolhido) || null;
-    window.usarDados('recarga', {
+    window.usarDados('creditos', {
       ...fonteVoltou,
       saldo: saldo != null ? String(saldo) : '',
-      // "~17 dias no seu ritmo" precisaria do consumo médio — não tenho essa
-      // conta em porta nenhuma, e chutar dias em tela de crédito é mentira.
-      ritmo: '',
+      vence: creditoVencendo(cred),
       pacotes: packs.map((p) => [
         // crédito é NÚMERO INTEIRO; só o PREÇO do pacote é dinheiro.
         String(p.credits),
@@ -4846,9 +4970,74 @@
         esc(p.badge),
         p.key === pacoteEscolhido ? 1 : 0,
         esc(p.key),
+        detalheDoPacote(p),
       ]),
       cta: atual ? `Recarregar ${atual.credits} créditos · ${dinheiro(Number(atual.price))}` : '',
     });
+  }
+
+  /* 🔴 ESCOLHER PACOTE É TOQUE, NÃO REDE. O toque num pacote chamava
+     `carregarAjustes()` — DUAS chamadas HTTP (`/logistica/config` e
+     `/credits/me`) só pra acender a borda de um cartão. Na rede da rua o dedo
+     batia e a tela ficava parada até a resposta; e com o `/logistica/config` no
+     chão o `fonteCaiu('ajustes')` engolia a escolha, então o pacote NUNCA
+     acendia. O catálogo já está na tela — quem manda no aceso é este objeto, e
+     o repinte é local e instantâneo. O botão do pé reusa os MESMOS textos da
+     linha escolhida: dois lugares formatando o mesmo preço é onde nasce a
+     discordância de centavo. */
+  function escolherPacote(chave) {
+    const k = String(chave || '');
+    if (!k || k === pacoteEscolhido || typeof window.usarDados !== 'function') return;
+    const packs = Array.isArray(DADOS.creditos && DADOS.creditos.pacotes) ? DADOS.creditos.pacotes : [];
+    const atual = packs.find((p) => p[4] === k);
+    if (!atual) return;
+    pacoteEscolhido = k;
+    window.usarDados('creditos', {
+      pacotes: packs.map((p) => [p[0], p[1], p[2], p[4] === k ? 1 : 0, p[4], p[5]]),
+      cta: `Recarregar ${atual[0]} créditos · R$ ${atual[1]}`,
+    });
+  }
+
+  /* 🔴 O CRÉDITO VENCE, E O APP NUNCA DISSE ISSO. O `lots[]` do `/credits/me`
+     traz `remaining` e `expiresAt` desde sempre e ninguém lia: o dono comprava
+     300 créditos com 90 dias de validade e descobria o vencimento pelo saldo
+     que sumiu. Dinheiro que evapora calado é a pior surpresa que um produto
+     guarda — e aqui ela custa uma recarga que não precisava acontecer.
+     Só o lote que vence PRIMEIRO, e só dentro de 30 dias: aviso permanente vira
+     paisagem, e lote de 89 dias não é notícia. Lote sem `expiresAt` não vence e
+     nem entra na conta. */
+  function creditoVencendo(cred) {
+    const lots = Array.isArray(cred && cred.lots) ? cred.lots : [];
+    const vivos = lots
+      .map((l) => ({ resta: Number(l && l.remaining), quando: l && l.expiresAt }))
+      .filter((l) => l.resta > 0 && l.quando && isFinite(new Date(l.quando).getTime()));
+    if (!vivos.length) return '';
+    const limite = Date.now() + 30 * 86400000;
+    const primeiro = vivos
+      .map((l) => ({ ...l, t: new Date(l.quando).getTime() }))
+      .sort((a, b) => a.t - b.t)[0];
+    if (primeiro.t > limite) return '';
+    // Lotes que vencem NO MESMO DIA somam: são um vencimento só pra quem lê.
+    const dia = diaCurto(primeiro.quando);
+    const soma = vivos.reduce((s, l) => s + (diaCurto(l.quando) === dia ? l.resta : 0), 0);
+    return `${soma} ${soma === 1 ? 'crédito vence' : 'créditos vencem'} em ${dia}`;
+  }
+
+  /* O que faz escolher: o preço POR CRÉDITO (a única conta que responde "qual é
+     o mais barato" quando os pacotes têm tamanhos diferentes) e a VALIDADE.
+     Os dois já vinham no `/credits/me` — `price`, `credits` e
+     `defaultExpiryDays` — e nenhum dos dois chegava na tela. Cada pedaço só
+     entra se tiver fonte, e o separador nasce com o segundo pedaço. */
+  function detalheDoPacote(p) {
+    const partes = [];
+    const credits = Number(p && p.credits);
+    const price = Number(p && p.price);
+    if (credits > 0 && isFinite(price) && price > 0) {
+      partes.push(`${dinheiro(price / credits)} por crédito`);
+    }
+    const dias = Number(p && p.defaultExpiryDays);
+    if (isFinite(dias) && dias > 0) partes.push(`vale ${dias} dias`);
+    return partes.join(' · ');
   }
 
   /* ------------------------------------------------------------------------
@@ -4958,25 +5147,49 @@
     });
   }
 
-  async function carregarConsumo() {
-    if (!temPonte() || typeof window.usarDados !== 'function') return;
-    let e;
-    try { e = await window.API.get('/logistica/creditos/extrato'); } catch (_) { return fonteCaiu('consumo'); }
-    if (!e || typeof e !== 'object') return fonteCaiu('consumo');
+  /* 🔴 AS LINHAS DO EXTRATO LIAM CAMPOS QUE NÃO EXISTEM. Este bloco pedia
+     `d.titulo`, `d.quando` e `d.creditos` — e o `getAdminStatement` devolve
+     `{claimId, routeId, trackingSessionId, deliveryId, credits, paidCredits,
+     completedAt}`. Nenhum dos três nomes batia: TODA linha caía no texto de
+     reserva ("Entrega rastreada"), com a data VAZIA e o valor no `|| 0`. O dono
+     abria o extrato e via uma pilha de linhas iguais dizendo que cada entrega
+     custou ZERO crédito — número errado, na tela em que o número é o produto.
+     Mesma coisa no bônus, que devolve `{sourceMonth, bonusCredits, grantedAt,
+     status}`.
+
+     🔴 O VALOR DA LINHA É `credits`, NÃO `paidCredits`. `paidCreditsConsumed` é
+     a parcela que saiu de lote PAGO — a base do cashback, medida em
+     `paidCreditsForUsage` (só `grantType === 'paid'`). Quem usou crédito de
+     bônus veria "−0" numa entrega que tirou 2 da carteira. O que a linha do
+     extrato responde é "quanto saiu daqui", e isso é `credits`. */
+  function encherMovimento(e) {
     const uso = e.usage || {};
     const tot = e.totals || {};
     const linhas = [];
     (Array.isArray(e.trackedDeliveries) ? e.trackedDeliveries : []).forEach((d) => {
-      linhas.push(['menos', esc(d.titulo || 'Entrega rastreada'), esc(d.quando || ''), String(d.creditos || 0)]);
+      const cr = Number(d && d.credits);
+      linhas.push([
+        'menos', 'Entrega rastreada', quandoDoExtrato(d && d.completedAt),
+        String(isFinite(cr) && cr > 0 ? cr : 0),
+      ]);
     });
+    /* Bônus só entra CONCEDIDO. A tabela guarda a linha do mês desde que a
+       varredura a cria (`ensureBonusRow`), muito antes de conceder: sem este
+       filtro o extrato anunciaria um crédito de bônus que ainda não existe na
+       carteira — promessa, não movimento. */
     (Array.isArray(e.bonuses) ? e.bonuses : []).forEach((b) => {
-      linhas.push(['mais', esc(b.titulo || 'Bônus'), esc(b.quando || ''), String(b.creditos || 0)]);
+      const cr = Number(b && b.bonusCredits);
+      if (!(cr > 0) || String(b && b.status).toUpperCase() !== 'GRANTED') return;
+      const mes = mesRotulo(b && b.sourceMonth);
+      const quando = b && b.grantedAt ? `creditado em ${diaCurto(b.grantedAt)}` : '';
+      linhas.push(['mais', mes ? `Bônus de ${mes}` : 'Bônus', quando, String(cr)]);
     });
-    window.usarDados('consumo', {
-      ...fonteVoltou,
+    window.usarDados('creditos', {
+      movCarregando: false, movSemFonte: false,
       // Crédito é NÚMERO INTEIRO, nunca moeda — e zero some, como todo recorte.
-      saldo: seTiver(e.balanceCredits),
+      mes: mesRotulo(e.month),
       gastosHoje: seTiver(uso.hoje),
+      gastosMes: seTiver(uso.mes),
       bonus: seTiver(tot.bonusCredits),
       linhas,
       vazio: 'Nenhum movimento neste mês',
@@ -7216,6 +7429,12 @@
        O `montar-agora` (o 2º "Montar rota", no pé da própria tela) morreu com
        ele: era o toque a mais que só trocava a fonte da mesma lista. */
     montar: abrirMontagem,
+    /* 🔴 E O `montar-agora` VOLTOU A TER DONO. Ele saiu do mapa de ações quando
+       o pé da Montagem virou "Iniciar sempre" — botão desenhado sem ação, a
+       doença que este arquivo persegue. Hoje ele reaparece na tela no único
+       caso em que faz sentido: dia futuro escolhido no chip, onde "Iniciar" não
+       existe. Sem esta linha o toque morreria no vidro. */
+    'montar-agora': montarRota,
     // rota rodando: o botão do meio leva pra navegação (é o que se faz andando)
     navegar: () => window.ir('mapa'),
     'salvar-rota': salvarRota,
@@ -7246,12 +7465,19 @@
     'recarregar-produtos': () => retentar('produtos', carregarProdutos),
     'recarregar-salvas': () => retentar('salvas', carregarSalvas),
     'recarregar-chat': () => retentar('chat', carregarRecados),
-    'recarregar-consumo': () => retentar('consumo', carregarConsumo),
     'recarregar-ajustes': () => retentar('ajustes', carregarAjustes),
-    'recarregar-recarga': () => retentar('recarga', carregarRecarga),
+    /* Os dois blocos da tela de Créditos tentam de novo SEPARADO — cada um pede
+       só a sua porta. Um "Tentar de novo" que rebuscasse as duas devolveria ao
+       esqueleto o bloco que já estava certo na tela. */
+    'recarregar-creditos': () => retentar('creditos', carregarCreditos),
+    'recarregar-movimento': () => {
+      if (typeof window.usarDados === 'function') {
+        window.usarDados('creditos', { movCarregando: true, movSemFonte: false });
+      }
+      carregarCreditos();
+    },
     'recarregar-financeiro': () => retentar('financeiro', carregarFinanceiro),
-    'ir-consumo': () => window.ir('consumo'),
-    'ir-recarga': () => window.ir('recarga'),
+    'ir-creditos': () => window.ir('creditos'),
     'ir-financeiro': () => window.ir('financeiro'),
     'ir-avancado': () => window.ir('avancado'),
     // 'chave-caderneta' morreu em 07/08 junto com a chave; em 09/08 a palavra
@@ -7361,10 +7587,7 @@
     if (chave === 'abrir-produto') return abrirProduto(alvo.dataset.produto);
     if (chave === 'abrir-salva') return abrirSalva(alvo.dataset.salva);
     if (chave === 'abrir-empresa') return acenderEmpresa(alvo.dataset.empresa);
-    if (chave === 'pacote') {
-      pacoteEscolhido = String(alvo.dataset.pacote || '');
-      return carregarAjustes();
-    }
+    if (chave === 'pacote') return escolherPacote(alvo.dataset.pacote);
     if (chave === 'modo-rota') return escolherModo(alvo.dataset.modo);
     // As três da parada avulsa que carregam ARGUMENTO no próprio botão.
     if (chave === 'rapida-opcao') return rapidaEscolher(alvo.dataset.i);
