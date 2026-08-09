@@ -202,6 +202,43 @@ DADO, não motor.
 
 ---
 
+## §6b — EXECUTADO E PROVADO NO APARELHO (09/08, 02:19) ✅
+
+F0–F3 no ar. **APK 207 publicado**; conferido baixando o APK que o cliente recebe
+(`/download/android-logistica`): freio fora, chamada ativa, `mock.js` íntegro.
+
+Roteiro rodado no g15 contra a PRODUÇÃO, com print por passo
+(`scratchpad/g15-01…17`):
+
+| # | Passo | Resultado |
+|---|---|---|
+| C1 | Boot frio com carimbo zerado | obrigatório dispara sozinho depois da abertura: "O app mudou · Vamos lá" |
+| C2 | "Vamos lá" (o toque que travava o APK 205) | abre o capítulo 1 — véu, furo e balão, app respondendo |
+| C3 | Toque FORA do furo | nada acontece; não anda e não fecha; anel pulsa aos 4 s |
+| C4 | Toque DENTRO do furo | executa a ação REAL (abre a Montagem, troca o dia) **e** anda o passo |
+| C5 | Jornada entre telas | Rota → Montagem → Rota → Ajustes → Cadastrar cliente, sozinho |
+| C6 | Último "Entendi" | volta pra Rota inteira e grava no servidor |
+| C7 | Carimbo em produção | usuário 58 com `logistica_tutorial_obrigatorio` no `onboardingStateJson` |
+| C8 | Reabrir o app | **não repete** |
+| C9 | Catálogo Ajustes › Aprenda a usar | 4 capítulos, com o do Prospector presente (empresa com a chave ligada) |
+
+Contraste medido nas 2 peles pelo worker do motor; 3 reprovas no claro achadas e
+corrigidas (contador, anel do furo a 1,81:1, barra do capítulo).
+Portões: `casca-conferir` **66/66 idênticas**, 33 telas.
+
+### O falso culpado que quase matou a frente
+
+Às 02:0x uma sessão paralela mediu no g15 (APK 205) que o tutorial **travava o
+app**: véu comendo o dedo, sem furo e sem balão. Puxou o freio — decisão certa
+com a informação que tinha. A causa, porém, não era o motor: o `casca-injetar`
+rodou ENTRE duas edições e gerou um `mock.js` que **chamava `acharAlvo()` sem
+definir a função**. O APK 205 nasceu desse arquivo, e o passo estourava
+`ReferenceError` exatamente depois de montar o véu e antes de desenhar — o
+sintoma, nos mínimos detalhes. Reinjetado e remedido no aparelho: tudo passa.
+
+**LEI: app que quebra logo depois de uma injeção — o primeiro suspeito é o
+ARQUIVO GERADO, não a lógica recém-escrita.**
+
 ## §7 — FASES (cada uma com gate; nenhuma depende da seguinte)
 
 | Fase | Entrega | Gate de saída |
