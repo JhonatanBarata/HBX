@@ -1496,7 +1496,11 @@
         customerProfileId: cid,
         ...(it.localId ? { localId: String(it.localId) } : {}),
         nome: c.nome || '',
-        localApelido: c.endereco || '',
+        // A avulsa fala a MESMA língua da prévia do servidor (09/08): quem
+        // desenha o cartão lê `enderecoLinha`, então enfiar a rua no campo do
+        // apelido — como era feito aqui — só funcionava por acidente.
+        enderecoLinha: c.endereco || '',
+        bairro: c.bairro || c.cidade || '',
         observacoes: c.observacoes || '',
         // Sem produto: a avulsa é uma PARADA, não uma venda montada. Item
         // inventado aqui viraria contagem falsa no rodapé da tela.
@@ -1722,8 +1726,19 @@
         n: i + 1,
         hora: naRota ? naRota.hora : '',
         nome: esc(c.nome),
-        rua: esc(c.localApelido || ''),
-        bairro: '',
+        /* 🔴 O ENDEREÇO DO CARTÃO É O ENDEREÇO (dono, 09/08: "celular tem que
+           espelhar os mesmos dados que o desktop tem").
+           Aqui estava `c.localApelido` — o APELIDO do local ("Casa", "Loja"),
+           não a rua. Medido em prod na empresa 41: dos 51 clientes de segunda,
+           51 têm apelido VAZIO e 51 têm rua preenchida — ou seja, a montagem
+           listava a lista inteira com o endereço em branco enquanto o mesmo
+           cliente aparecia com "Rua M-7, 897" no computador e na tela de Rota
+           deste mesmo app (`rua: esc(c.endereco)`, lá em cima).
+           Agora vem pronto do servidor (`enderecoLinha`, montado da MESMA fonte
+           que deu o pino). O apelido não morre: quando existe, ele é o que o
+           dono chamou aquela porta, então entra na linha de baixo. */
+        rua: esc(c.enderecoLinha || c.endereco || c.localApelido || ''),
+        bairro: esc(c.bairro || c.cidade || (c.enderecoLinha ? c.localApelido : '') || ''),
         nota: c.observacoes ? esc(c.observacoes) : undefined,
         tags: itens.map((it) => [`${Math.max(1, Number(it.qtd) || 1)}x ${esc(it.nome)}`, 'blue']),
         marcado: somaCliente ? somaCliente.toFixed(2).replace('.', ',') : '',

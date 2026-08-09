@@ -77,6 +77,81 @@ export function resolverCoordenadaMultilocal(
   };
 }
 
+/**
+ * O ENDEREÇO da fonte escolhida — a irmã EM TEXTO de `resolverCoordenadaMultilocal`
+ * (09/08, ordem do dono: "celular tem que espelhar os mesmos dados que o desktop tem").
+ *
+ * Nasceu extraída da conferência (`enderecoDaFonteEscolhida`), que já tinha a regra
+ * certa, para que as prévias do dia parassem de inventar a sua: a lista de montagem
+ * do APK mostrava o APELIDO do local — um campo que 100% dos clientes da empresa 41
+ * têm vazio — enquanto o mesmo cliente aparecia com "Rua M-7, 897 - Jardim Cervezão"
+ * no computador. Endereço é DADO, e dado não pode mudar de valor conforme a tela.
+ *
+ * Regra (idêntica à da conferência, e agora com um dono só):
+ *  - a fonte é a MESMA que deu o pino (`fonteEscolhidaMultilocal`) — nunca o CEP de
+ *    um com a rua do outro, que é o "Frankenstein" que este arquivo existe pra matar;
+ *  - exceção única: a fonte escolhida (ou a ausência dela, quando ninguém tem pino)
+ *    não tem endereço NENHUM → cai pro perfil, que no legado é onde o endereço mora.
+ *    Fonte com endereço PARCIAL não cai: completar com o do perfil recria a mistura.
+ */
+export interface FonteEnderecoCadastro {
+  cep?: string | null;
+  endereco?: string | null;
+  numero?: string | null;
+  complemento?: string | null;
+  bairro?: string | null;
+  cidade?: string | null;
+  uf?: string | null;
+}
+
+function copiarEndereco(fonte: FonteEnderecoCadastro | null | undefined): Required<FonteEnderecoCadastro> {
+  return {
+    cep: fonte?.cep ?? null,
+    endereco: fonte?.endereco ?? null,
+    numero: fonte?.numero ?? null,
+    complemento: fonte?.complemento ?? null,
+    bairro: fonte?.bairro ?? null,
+    cidade: fonte?.cidade ?? null,
+    uf: fonte?.uf ?? null,
+  };
+}
+
+/** Tem QUALQUER coisa comparável contra o CEP? (bairro sozinho não conta — ele não
+ *  entra na comparação, ver logistica-cep.util.ts). */
+function temEnderecoUtil(e: Required<FonteEnderecoCadastro>): boolean {
+  return Boolean(
+    String(e.cep ?? '').trim()
+    || String(e.endereco ?? '').trim()
+    || String(e.cidade ?? '').trim()
+    || String(e.uf ?? '').trim(),
+  );
+}
+
+export function enderecoDaFonteMultilocal(
+  local: (FonteGeoCoord & FonteEnderecoCadastro) | null | undefined,
+  perfil: (FonteGeoCoord & FonteEnderecoCadastro) | null | undefined,
+): Required<FonteEnderecoCadastro> {
+  const escolhida = fonteEscolhidaMultilocal(local, perfil);
+  const daFonte = copiarEndereco(escolhida === 'local' ? local : perfil);
+  if (temEnderecoUtil(daFonte)) return daFonte;
+  return copiarEndereco(perfil);
+}
+
+/**
+ * A linha de endereço que a tela mostra — "Rua M-7, 897". Uma função só porque
+ * MONTAGEM e ROTA são a mesma lista de gente: duas montagens viram duas verdades.
+ * `numero` já dentro do texto (legado "Rua X, 123 - Centro") não é repetido.
+ */
+export function linhaEnderecoDaFonte(e: FonteEnderecoCadastro | null | undefined): string {
+  const rua = String(e?.endereco ?? '').trim();
+  const numero = String(e?.numero ?? '').trim();
+  if (!rua) return numero ? `nº ${numero}` : '';
+  if (!numero) return rua;
+  // "Rua X, 123" já traz o número — repetir viraria "Rua X, 123, 123".
+  const temNumeroNoTexto = new RegExp(`(^|[^0-9])${numero.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^0-9]|$)`).test(rua);
+  return temNumeroNoTexto ? rua : `${rua}, ${numero}`;
+}
+
 // ── TETO DE PRECISÃO DO GPS DE CADASTRO (25/07) ──────────────────────────────
 //
 // `geoFonte='gps_cadastro'` é a fonte INTOCÁVEL (logistica.service.ts:

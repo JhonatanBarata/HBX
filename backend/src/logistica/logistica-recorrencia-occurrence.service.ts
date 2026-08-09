@@ -9,7 +9,11 @@ import {
   parseDateOrNull,
 } from './logistica-recorrencia.service';
 import { LogisticaAgendaService } from './logistica-agenda.service';
-import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
+import {
+  enderecoDaFonteMultilocal,
+  linhaEnderecoDaFonte,
+  resolverCoordenadaMultilocal,
+} from './logistica-geo-fonte.util';
 
 /**
  * Mantém todo o CRUD legado de ClienteProduto, mas troca os dois pontos de
@@ -60,11 +64,27 @@ export class LogisticaRecorrenciaOccurrenceService extends LogisticaRecorrenciaS
           // resolverCoordenadaMultilocal escolhe a fonte inteira (local só vale com
           // lat E lng válidos; stop.cliente não tem geoFonte — clienteDto não expõe).
           const coord = resolverCoordenadaMultilocal(stop.local, stop.cliente);
+          // 🔴 O ENDEREÇO VAI JUNTO, DA MESMA FONTE DO PINO (09/08, ordem do dono:
+          // "celular tem que espelhar os mesmos dados que o desktop tem"). Até aqui
+          // a prévia mandava só o APELIDO do local — e apelido é APELIDO: na empresa
+          // 41 os 51 clientes de segunda têm apelido vazio e rua preenchida, então a
+          // montagem do APK listava 51 cartões com o endereço EM BRANCO enquanto o
+          // computador mostrava a rua inteira. Mesma régua da conferência, e por
+          // isso a mesma função (nunca a rua de um com o CEP do outro).
+          const endereco = enderecoDaFonteMultilocal(stop.local, stop.cliente);
           return {
             customerProfileId: stop.customerProfileId,
             nome: stop.cliente?.nome || 'Cliente',
             localId: stop.localId ?? null,
             localApelido: stop.local?.apelido ?? null,
+            endereco: endereco.endereco,
+            numero: endereco.numero,
+            complemento: endereco.complemento,
+            bairro: endereco.bairro,
+            cidade: endereco.cidade,
+            uf: endereco.uf,
+            cep: endereco.cep,
+            enderecoLinha: linhaEnderecoDaFonte(endereco),
             lat: coord.lat,
             lng: coord.lng,
             geoFonte: coord.geoFonte,

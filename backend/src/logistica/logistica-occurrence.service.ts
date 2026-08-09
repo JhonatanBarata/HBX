@@ -2,7 +2,11 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { resolvePrincipalContatoId } from './logistica-contato.util';
 import { canonicalRouteDate } from './logistica-route-billing.service';
-import { resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
+import {
+  enderecoDaFonteMultilocal,
+  linhaEnderecoDaFonte,
+  resolverCoordenadaMultilocal,
+} from './logistica-geo-fonte.util';
 
 const SAO_PAULO_TIME_ZONE = 'America/Sao_Paulo';
 const OPEN_DELIVERY_STATUS = ['agendada', 'em_rota'] as const;
@@ -20,7 +24,7 @@ type RecurrenceRow = {
   diasSemana: string | null;
   proximaData: Date | null;
   product: { id: number; name: string; price: number | null; priceCents: number | null } | null;
-  customerProfile: {
+  customerProfile: ({
     id: string;
     name: string | null;
     precoPadrao: number | null;
@@ -28,13 +32,25 @@ type RecurrenceRow = {
     lng: number | null;
     geoFonte: string | null;
     observacoes: string | null;
-  } | null;
-  local: {
+  } & EnderecoDaLinha) | null;
+  local: ({
     apelido: string | null;
     lat: number | null;
     lng: number | null;
     geoFonte: string | null;
-  } | null;
+  } & EnderecoDaLinha) | null;
+};
+
+/** As colunas de endereço lidas nas DUAS fontes (perfil e local) — quem escolhe
+ *  qual delas vale é `enderecoDaFonteMultilocal`, nunca um `??` campo a campo. */
+type EnderecoDaLinha = {
+  endereco: string | null;
+  numero: string | null;
+  complemento: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  uf: string | null;
+  cep: string | null;
 };
 
 type OccurrenceCandidate = {
@@ -55,6 +71,17 @@ export type OccurrencePreviewCustomer = {
   nome: string;
   localId: string | null;
   localApelido: string | null;
+  // 09/08 — o endereço da fonte escolhida (a mesma que deu o pino). `enderecoLinha`
+  // é o texto pronto que a lista mostra ("Rua M-7, 897"), montado por uma função só
+  // pra montagem e rota nunca escreverem a mesma porta de dois jeitos.
+  endereco: string | null;
+  numero: string | null;
+  complemento: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  uf: string | null;
+  cep: string | null;
+  enderecoLinha: string;
   lat: number | null;
   lng: number | null;
   geoFonte: string | null;
@@ -278,11 +305,22 @@ export class LogisticaOccurrenceService {
         // combinar a lat de uma fonte com a lng de outra. resolverCoordenadaMultilocal
         // escolhe a fonte inteira (local só vale com lat E lng válidos).
         const coord = resolverCoordenadaMultilocal(row.local, row.customerProfile);
+        // O endereço sai da MESMA fonte do pino (mesma função da conferência e da
+        // prévia da Agenda V2) — ver enderecoDaFonteMultilocal.
+        const endereco = enderecoDaFonteMultilocal(row.local, row.customerProfile);
         group = {
           customerProfileId: row.customerProfileId,
           nome: String(row.customerProfile?.name || '').trim(),
           localId: row.localId ?? null,
           localApelido: row.local?.apelido ?? null,
+          endereco: endereco.endereco,
+          numero: endereco.numero,
+          complemento: endereco.complemento,
+          bairro: endereco.bairro,
+          cidade: endereco.cidade,
+          uf: endereco.uf,
+          cep: endereco.cep,
+          enderecoLinha: linhaEnderecoDaFonte(endereco),
           lat: coord.lat,
           lng: coord.lng,
           geoFonte: coord.geoFonte,
@@ -554,10 +592,23 @@ export class LogisticaOccurrenceService {
         diasSemana: true,
         proximaData: true,
         product: { select: { id: true, name: true, price: true, priceCents: true } },
+        // 09/08 — o ENDEREÇO entra aqui junto com o pino (ordem do dono: "celular tem
+        // que espelhar os mesmos dados que o desktop tem"). A prévia mandava só o
+        // apelido do local, e apelido vazio virava cartão sem endereço na montagem do
+        // APK. Colunas de leitura, nas DUAS fontes — a régua de qual delas vale é
+        // `enderecoDaFonteMultilocal`, nunca um `??` campo a campo.
         customerProfile: {
-          select: { id: true, name: true, precoPadrao: true, lat: true, lng: true, geoFonte: true, observacoes: true },
+          select: {
+            id: true, name: true, precoPadrao: true, lat: true, lng: true, geoFonte: true, observacoes: true,
+            endereco: true, numero: true, complemento: true, bairro: true, cidade: true, uf: true, cep: true,
+          },
         },
-        local: { select: { apelido: true, lat: true, lng: true, geoFonte: true } },
+        local: {
+          select: {
+            apelido: true, lat: true, lng: true, geoFonte: true,
+            endereco: true, numero: true, complemento: true, bairro: true, cidade: true, uf: true, cep: true,
+          },
+        },
       },
     })) as RecurrenceRow[];
 

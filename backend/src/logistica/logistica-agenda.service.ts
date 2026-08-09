@@ -2237,6 +2237,7 @@ function planInclude() {
         name: true,
         endereco: true,
         numero: true,
+        complemento: true,
         bairro: true,
         cidade: true,
         uf: true,
@@ -2259,6 +2260,7 @@ function localSelect() {
     apelido: true,
     endereco: true,
     numero: true,
+    complemento: true,
     bairro: true,
     cidade: true,
     uf: true,
@@ -2419,9 +2421,15 @@ function clienteDto(profile: any) {
     nome: profile.name || 'Cliente',
     endereco: profile.endereco ?? null,
     numero: profile.numero ?? null,
+    // 09/08 — `complemento` e `cep` faltavam AQUI e só aqui: quem lê a prévia do dia
+    // pela fonte PERFIL (o caso de 50 dos 51 clientes de segunda da empresa 41, que
+    // não têm LocalEntrega) montava o endereço sem o apartamento e sem o CEP, e a
+    // mesma pessoa aparecia com endereço menor no celular do que no computador.
+    complemento: profile.complemento ?? null,
     bairro: profile.bairro ?? null,
     cidade: profile.cidade ?? null,
     uf: profile.uf ?? null,
+    cep: profile.cep ?? null,
     lat: profile.lat ?? null,
     lng: profile.lng ?? null,
   };
@@ -2433,6 +2441,9 @@ function addressDto(local: any) {
     apelido: local.apelido ?? null,
     endereco: local.endereco ?? null,
     numero: local.numero ?? null,
+    // mesma razão do `complemento` em clienteDto (09/08): o apartamento é o que
+    // distingue duas contas na MESMA porta, e ele não pode existir só no desktop.
+    complemento: local.complemento ?? null,
     bairro: local.bairro ?? null,
     cidade: local.cidade ?? null,
     uf: local.uf ?? null,

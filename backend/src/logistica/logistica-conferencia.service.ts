@@ -4,7 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { LogisticaConfigService } from './logistica-config.service';
 import { LogisticaAgendaService } from './logistica-agenda.service';
 import { LogisticaOsrmService } from './logistica-osrm.service';
-import { fonteEscolhidaMultilocal, resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
+import { enderecoDaFonteMultilocal, resolverCoordenadaMultilocal } from './logistica-geo-fonte.util';
 import {
   conferirCepsEmLote,
   descobrirCepsPorEndereco,
@@ -985,30 +985,6 @@ function chaveHistorico(customerProfileId: string, localId: string | null): stri
   return `${customerProfileId}|${localId ?? ''}`;
 }
 
-/** Tem QUALQUER coisa comparável contra o CEP? (bairro sozinho não conta — ele não entra
- *  na comparação, ver logistica-cep.util.ts). */
-function temEnderecoUtil(e: EnderecoCadastrado | null): boolean {
-  if (!e) return false;
-  return Boolean(
-    String(e.cep ?? '').trim() ||
-      String(e.endereco ?? '').trim() ||
-      String(e.cidade ?? '').trim() ||
-      String(e.uf ?? '').trim(),
-  );
-}
-
-function enderecoDe(fonte: EnderecoCadastrado | null | undefined): EnderecoCadastrado {
-  return {
-    cep: fonte?.cep ?? null,
-    endereco: fonte?.endereco ?? null,
-    numero: fonte?.numero ?? null,
-    complemento: fonte?.complemento ?? null,
-    bairro: fonte?.bairro ?? null,
-    cidade: fonte?.cidade ?? null,
-    uf: fonte?.uf ?? null,
-  };
-}
-
 /**
  * Endereço a conferir, tirado da MESMA fonte que deu o pino (`fonteEscolhidaMultilocal`)
  * — nunca o CEP de um com a rua do outro: essa mistura é o "pino Frankenstein" que
@@ -1020,10 +996,11 @@ function enderecoDe(fonte: EnderecoCadastrado | null | undefined): EnderecoCadas
  * completar com o do perfil recriaria a mistura.
  */
 function enderecoDaFonteEscolhida(row: ParadaConferenciaRow): EnderecoCadastrado {
-  const escolhida = fonteEscolhidaMultilocal(row.local, row.customerProfile);
-  const daFonte = escolhida === 'local' ? enderecoDe(row.local) : enderecoDe(row.customerProfile);
-  if (temEnderecoUtil(daFonte)) return daFonte;
-  return enderecoDe(row.customerProfile);
+  // A regra mora em logistica-geo-fonte.util.ts desde 09/08 — ela é a irmã EM TEXTO
+  // do `resolverCoordenadaMultilocal`, e as prévias do dia (montagem do APK) passaram
+  // a precisar dela também. Duas cópias da mesma régua é como o celular começou a
+  // mostrar um endereço diferente do computador.
+  return enderecoDaFonteMultilocal(row.local, row.customerProfile);
 }
 
 // PR18072026 (duplicado de logistica-rota.service.ts, privado lá): valida
