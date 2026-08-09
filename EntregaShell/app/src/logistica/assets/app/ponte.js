@@ -1599,6 +1599,18 @@
     });
     // as empresas do corredor não são marcador do maplibre: elas são a peça
     // do desenho, e quem as coloca no chão é a câmera. Ver `posicionarEmpresas`.
+    /* 🔴 QUEM COMEÇOU O MOVIMENTO: O DEDO OU NÓS? `originalEvent` só existe
+       quando veio de gesto humano — o nosso próprio `easeTo` dispara os mesmos
+       eventos e, sem esta pergunta, a câmera se declararia "solta" sozinha a
+       cada fix e nunca mais seguiria ninguém. Só o palco da navegação: no mapa
+       "geral" não há câmera automática pra brigar com o dedo. */
+    if (nome === 'gps') {
+      const doDedo = (e) => { if (e && e.originalEvent) soltarCamera(); };
+      mapa.on('dragstart', doDedo);
+      mapa.on('rotatestart', doDedo);
+      mapa.on('pitchstart', doDedo);
+      mapa.on('zoomstart', doDedo);
+    }
     const acompanharCamera = () => { posicionarEmpresas(); pinosVisiveis(nova); };
     mapa.on('move', acompanharCamera);
     mapa.on('zoom', acompanharCamera);
@@ -2550,20 +2562,46 @@
      comandos brigando é a tela pinotando). Ela só segue aparando a fita, que é
      de graça e tem que continuar saindo da seta. */
   const DESCIDA_MS = 2400;
-  /* 🔴 O ZOOM DE CIMA É UM DEGRAU FIXO, não a moldura da rota. Enquadrar a
-     rota inteira (o que o V4 faz, com um percurso de maquete) num dia real
-     significaria abrir 8 km numa parada e 200 m na seguinte — a mesma cena
-     viraria um foguete numa e um cochilo na outra. 1,8 nível é ~3,5× de área:
-     abre o quarteirão inteiro e desce sempre no mesmo tempo. */
-  const NAV_ZOOM_CIMA = NAV_ZOOM - 1.8;
+  /* 🔴 A VISTA DE CIMA É A MOLDURA DA ROTA (08/08 — dono: "não mostra o mapa
+     2d antes do 3d"). Ela era um DEGRAU FIXO de 1,8 nível, e o degrau tinha
+     uma razão boa: dia real abre 8 km numa parada e 200 m na seguinte, e a
+     mesma cena viraria foguete numa e cochilo na outra. A razão continua de
+     pé — por isso o enquadramento vem CAPADO DOS DOIS LADOS: `cameraForBounds`
+     da rota, e o zoom que sair dali é apertado entre um piso e um teto. O
+     motorista vê o máximo de dia que dá pra ver, e a descida leva sempre o
+     mesmo tempo.
+
+     🔴 E ela agora FICA NA TELA. Antes existia só como pose de partida, atrás
+     do véu da cena: tecnicamente havia 2D, na prática ninguém via — que é
+     exatamente a queixa. `GERAL_MS` é quanto ela fica visível DEPOIS que a
+     cena sai, antes de a descida começar. */
+  const GERAL_ZOOM_TETO = NAV_ZOOM - 1.2;
+  const GERAL_ZOOM_PISO = 12.5;
+  const GERAL_MS = 2200;
   /* a curva do V4, `suave` — cúbica nas duas pontas: sai devagar, ganha corpo
      no meio e assenta sem batida. É ela que faz "descer" em vez de "cortar". */
   const suave = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (((-2 * t) + 2) ** 3) / 2);
 
-  /* 'cima' = esperando a cena da cobra acabar · 'descendo' = o easeTo de 2,4 s
-     está no ar · 'dirigindo' = a câmera de sempre. */
+  /* 'cima' = a moldura da rota, na tela · 'descendo' = o easeTo de 2,4 s está
+     no ar · 'dirigindo' = a câmera de sempre · 'solta' = O DEDO É O DONO.
+
+     🔴 'solta' É O ESTADO QUE FALTAVA (dono: "se vc movimenta o mapa, a seta
+     fica travada"). Não existia jeito nenhum de a câmera calar a boca: o
+     `easeTo` do próximo fix — e vem um por segundo — desfazia o arrasto no
+     meio do gesto. MEDIDO no g15 antes do conserto: 2 s de arrasto, ZERO px
+     de mundo andado. Todo mapa de rua do mercado tem esse estado; o nosso
+     não tinha. */
   let camFase = 'dirigindo';
   let vigiaCena = null;
+  let geralTimer = null;
+  let voltaTimer = null;
+  /* pose da moldura, calculada UMA vez por entrada: recalcular a cada fix
+     faria a vista de cima tremer de leve enquanto o motorista a olha. */
+  let poseGeral = null;
+  /* 🔴 O DEDO NÃO SEGURA O MAPA PRA SEMPRE. Sem volta automática, quem
+     encostou sem querer dirige o resto do dia com a câmera parada num
+     quarteirão que ficou pra trás. 12 s é o repouso padrão do mercado. */
+  const VOLTA_MS = 12000;
   const emCena = () => !!document.querySelector('#app .tela.cena');
 
   /** o encaixe do puck é o mesmo nas três fases — por isso mora sozinho aqui */
@@ -2572,13 +2610,66 @@
     return [0, alto ? alto * NAV_PUCK : 0];
   };
 
-  /** põe a câmera em pé (2D), sem animação: ela mora atrás do véu da cena */
-  function vistaDeCima() {
+  /* A MOLDURA: o retângulo que cabe a rota inteira MAIS o motorista. Ele entra
+     na conta de propósito — enquadrar só o traço deixaria de fora justamente
+     quem está olhando, e a vista de cima existe pra dizer "você está aqui, o
+     dia é esse". Sem geometria (rota ainda não voltou do roteador) sobram as
+     paradas; sem nada, devolve null e a pose antiga vale. */
+  function molduraDaRota() {
+    const pontos = [];
+    const geo = navRota && navRota.geometria;
+    if (geo && Array.isArray(geo.coordinates)) {
+      geo.coordinates.forEach((c) => {
+        if (Array.isArray(c) && Number.isFinite(c[0]) && Number.isFinite(c[1])) pontos.push([c[0], c[1]]);
+      });
+    }
+    if (!pontos.length) {
+      const paradas = (typeof PARADAS !== 'undefined' ? PARADAS : []) || [];
+      paradas.forEach((p) => {
+        if (Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng))) pontos.push([Number(p.lng), Number(p.lat)]);
+      });
+    }
+    const eu = posicaoDaTela();
+    if (eu) pontos.push([eu.lng, eu.lat]);
+    if (pontos.length < 2) return null;
+    let oe = pontos[0][0]; let ol = pontos[0][0];
+    let os = pontos[0][1]; let on = pontos[0][1];
+    pontos.forEach((p) => {
+      if (p[0] < oe) oe = p[0];
+      if (p[0] > ol) ol = p[0];
+      if (p[1] < os) os = p[1];
+      if (p[1] > on) on = p[1];
+    });
+    return [[oe, os], [ol, on]];
+  }
+
+  /** põe a câmera em pé (2D) na moldura da rota — e ela FICA na tela */
+  function vistaGeral() {
     const mapa = mapaDaNavegacao();
     if (!mapa) return;
-    const passo = { zoom: NAV_ZOOM_CIMA, pitch: 0, bearing: 0, offset: recuoDoPuck(mapa) };
-    const eu = posicaoDaTela();
-    if (eu) passo.center = [eu.lng, eu.lat];
+    if (!poseGeral) {
+      const caixa = molduraDaRota();
+      if (caixa && typeof mapa.cameraForBounds === 'function') {
+        let calc = null;
+        // 🔴 O RECUO DO PUCK ENTRA AQUI TAMBÉM. A moldura é calculada pro
+        // quadro inteiro, mas a câmera de dirigir vive deslocada 18% pra
+        // baixo — sem o mesmo `offset` a rota nasceria centrada e daria um
+        // pulo lateral no primeiro quadro da descida.
+        try { calc = mapa.cameraForBounds(caixa, { padding: 56, offset: recuoDoPuck(mapa) }); } catch (_) { calc = null; }
+        if (calc && Number.isFinite(calc.zoom)) {
+          poseGeral = {
+            center: calc.center,
+            zoom: Math.min(GERAL_ZOOM_TETO, Math.max(GERAL_ZOOM_PISO, calc.zoom)),
+          };
+        }
+      }
+      if (!poseGeral) {
+        // sem moldura possível, o degrau fixo de antes — nunca ficar sem pose
+        const eu = posicaoDaTela();
+        poseGeral = { zoom: GERAL_ZOOM_TETO, ...(eu ? { center: [eu.lng, eu.lat] } : {}) };
+      }
+    }
+    const passo = { pitch: 0, bearing: 0, offset: recuoDoPuck(mapa), ...poseGeral };
     try { mapa.jumpTo(passo); } catch (_) { /* mapa saindo de cena */ }
   }
 
@@ -2587,6 +2678,7 @@
     const mapa = mapaDaNavegacao();
     if (!mapa || telaAtual() !== 'mapa') { camFase = 'dirigindo'; return; }
     camFase = 'descendo';
+    poseGeral = null;               // a próxima entrada remede a moldura do dia
     const passo = {
       zoom: NAV_ZOOM, pitch: NAV_PITCH, offset: recuoDoPuck(mapa),
       duration: DESCIDA_MS, easing: suave,
@@ -2608,8 +2700,10 @@
      a descida começa na hora: o efeito é o mesmo, só não tem cobra antes. */
   function entrarNaDescida() {
     if (vigiaCena) { clearInterval(vigiaCena); vigiaCena = null; }
+    if (geralTimer) { clearTimeout(geralTimer); geralTimer = null; }
     camFase = 'cima';
-    vistaDeCima();
+    poseGeral = null;
+    vistaGeral();
     const desistirEm = Date.now() + 3000;
     vigiaCena = setInterval(() => {
       if (camFase !== 'cima' || telaAtual() !== 'mapa') {
@@ -2619,14 +2713,92 @@
       }
       if (emCena() && Date.now() < desistirEm) return;
       clearInterval(vigiaCena); vigiaCena = null;
-      descer();
+      // 🔴 A CENA SAIU: SÓ AGORA A VISTA DE CIMA É VISÍVEL. Descer aqui era o
+      // defeito — a moldura vivia inteira atrás do véu e o motorista só via o
+      // 3D pronto. O tempo de leitura começa quando a tela abre, não antes.
+      geralTimer = setTimeout(() => {
+        geralTimer = null;
+        if (camFase === 'cima') descer();
+      }, GERAL_MS);
     }, 90);
   }
 
   /** corta a descida e devolve a câmera pra quem dirige (dedo, ou troca de tela) */
   function pararDescida() {
     if (vigiaCena) { clearInterval(vigiaCena); vigiaCena = null; }
+    if (geralTimer) { clearTimeout(geralTimer); geralTimer = null; }
+    poseGeral = null;
     camFase = 'dirigindo';
+  }
+
+  /* ---- O DEDO NA CÂMERA ---------------------------------------------------
+     🔴 A SETA PREGADA NO VIDRO. Seguindo, o puck é DESENHO parado a 68% da
+     tela e quem gira é o mundo — é o certo, é o que o V4 promete e é uma seta
+     só. Com o dedo levando o mapa embora, esse mesmo desenho vira mentira: a
+     seta fica no meio da tela apontando pra um lugar onde o motorista não
+     está. Então quando o dedo assume, o puck do desenho SAI e entra um
+     marcador no CHÃO, na posição de verdade, girando com o rumo.
+
+     🔴 E ELE NÃO É UMA SETA NOVA: é o CLONE do `.gps-seta` que o mock acabou
+     de desenhar. Desenho continua morando no mock (Lei da casca) — esta
+     função só transplanta. Seta desenhada aqui na ponte seria a segunda
+     fonte de verdade do mesmo bico, e um dia as duas discordariam. */
+  let puckSolto = null;
+  function marcarSolta(solta) {
+    const gps = naCamada('.gps');
+    if (gps) gps.classList.toggle('solta', !!solta);
+  }
+  function sincronizarPuckSolto(ligado) {
+    const casa = GARAGEM.get('gps');
+    if (!casa || !casa.mapa || !casa.gl) return;
+    if (!ligado) {
+      if (puckSolto) {
+        try { puckSolto.remove(); } catch (_) { /* já saiu de cena */ }
+        puckSolto = null;
+      }
+      return;
+    }
+    const eu = posicaoDaTela();
+    if (!eu) return;
+    if (!puckSolto) {
+      const molde = naCamada('.gps-puck .gps-seta');
+      if (!molde) return;                       // sem desenho na tela, sem clone
+      const casca = document.createElement('div');
+      casca.className = 'gps-puck-solto';
+      casca.appendChild(molde.cloneNode(true));
+      try {
+        puckSolto = new casa.gl.Marker({ element: casca, rotationAlignment: 'map', pitchAlignment: 'map' })
+          .setLngLat([eu.lng, eu.lat]).addTo(casa.mapa);
+      } catch (_) { puckSolto = null; return; }
+    }
+    try {
+      puckSolto.setLngLat([eu.lng, eu.lat]);
+      const rumo = rumoDaTela();
+      if (rumo != null) puckSolto.setRotation(rumo);
+    } catch (_) { /* marcador saindo de cena */ }
+  }
+
+  /** o dedo pegou o mapa: a câmera cala a boca até ele desistir ou pedir volta */
+  function soltarCamera() {
+    if (telaAtual() !== 'mapa') return;
+    if (vigiaCena) { clearInterval(vigiaCena); vigiaCena = null; }
+    if (geralTimer) { clearTimeout(geralTimer); geralTimer = null; }
+    camFase = 'solta';
+    marcarSolta(true);
+    sincronizarPuckSolto(true);
+    if (voltaTimer) clearTimeout(voltaTimer);
+    voltaTimer = setTimeout(voltarASeguir, VOLTA_MS);
+  }
+
+  /** volta a seguir o motorista — pelo botão, ou sozinho depois do repouso */
+  function voltarASeguir() {
+    if (voltaTimer) { clearTimeout(voltaTimer); voltaTimer = null; }
+    if (geralTimer) { clearTimeout(geralTimer); geralTimer = null; }
+    poseGeral = null;
+    camFase = 'dirigindo';
+    marcarSolta(false);
+    sincronizarPuckSolto(false);
+    cameraDaNavegacao();
   }
 
   function cameraDaNavegacao() {
@@ -2640,11 +2812,16 @@
     }
     // durante a descida a câmera tem dono: o `easeTo` de 2,4 s
     if (camFase === 'descendo') return;
+    // 🔴 E COM O DEDO NA TELA O DONO É ELE. Este `return` é o conserto do
+    // "arrasta e não anda": sem ele, o fix seguinte (1 por segundo) reescrevia
+    // a câmera por cima do gesto. A seta segue viva — mas no CHÃO, não no
+    // vidro (`sincronizarPuckSolto`), senão ela mentiria a posição.
+    if (camFase === 'solta') { sincronizarPuckSolto(true); return; }
     // 🔴 A VISTA DE CIMA NÃO ESPERA GPS. Ela é a POSE de partida da descida, e
     // o mapa pode chegar na tela antes do primeiro fix (na garagem ele demora).
     // Sem isto o mapa da garagem — estacionado deitado — abria já em 3D e a
     // descida descia de lugar nenhum.
-    if (camFase === 'cima') { vistaDeCima(); return; }
+    if (camFase === 'cima') { vistaGeral(); return; }
     if (!ultimoFix) return;
     // a câmera segue a posição PRESA NA RUA: com o fix cru ela tremia parada
     const eu = posicaoDaTela();
@@ -4920,7 +5097,10 @@
     },
     // recentralizar é o dedo dizendo "me devolve pra tela de dirigir": ele
     // ATRAVESSA a descida, senão o toque morre esperando 2,4 s de animação.
-    'gps-centrar': () => { pararDescida(); cameraDaNavegacao(); },
+    // 🔴 E agora ele tem O QUE desfazer: até 08/08 este botão só reafirmava
+    // uma câmera que nunca tinha saído do lugar — botão sem trabalho, do lado
+    // de um mapa que não obedecia o dedo. Os dois defeitos eram um só.
+    'gps-centrar': () => { voltarASeguir(); },
     'aviso-chegada': () => virarChave('avisoChegandoEnabled'),
     // As 6 do dono. Uma chave = um campo = um PATCH, sem lote: assim o que
     // falhou fica evidente e o resto não volta atrás junto.

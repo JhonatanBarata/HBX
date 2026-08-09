@@ -1170,6 +1170,17 @@ button,input{font:inherit;color:inherit}
    presença sem tapar a manobra nem o traço da rota. */
 .gps-seta{position:absolute;left:-20px;top:-22.5px;width:40px;height:45px;
   filter:drop-shadow(0 3px 7px rgba(0,0,0,.65))}
+/* 🔴 O DEDO PEGOU O MAPA (08/08 — dono: "se vc movimenta o mapa, a seta fica
+   travada"). Seguindo o motorista, o ponteiro é DESENHO parado a 68% da tela
+   e quem anda é o mundo. Com o dedo levando o mapa embora isso vira mentira:
+   a seta fica no vidro, apontando pra onde ele não está. Então ela sai daqui
+   e a ponte planta um CLONE dela no chão do mapa (`.gps-puck-solto`), na
+   posição de verdade. O facho e o anel vão junto: são a mesma peça.
+   Some o ponteiro do vidro, não a informação — ela só muda de dono. */
+.gps.solta .gps-puck{opacity:0;transition:opacity .18s ease}
+/* a casca do clone tem tamanho ZERO: é o `left/top` negativo do próprio
+   `.gps-seta` que centra o bico no ponto do mapa. */
+.gps-puck-solto{width:0;height:0}
 
 .gps-manobra{position:absolute;left:9px;right:9px;top:6px;z-index:20;border-radius:15px;
   background:var(--card);border:.7px solid var(--line);box-shadow:0 12px 30px rgba(0,0,0,.5);overflow:hidden}
