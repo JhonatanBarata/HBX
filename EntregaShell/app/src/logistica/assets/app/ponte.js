@@ -2195,6 +2195,48 @@
      "Iniciar", no mesmo lugar da tela, ele me fez encerrar a rota do dono três
      vezes sem querer — provado no log do servidor.
      ------------------------------------------------------------------------ */
+
+  /* 🔴 CANCELOU? O APARELHO NÃO GUARDA CÓPIA (dono, 09/08: "cancelar tem q
+     limpar toda a rota já carregada… fica limpinho para montar rota do zero").
+
+     A rota carregada mora em SEIS lugares deste lado do fio, e o `carregarRota`
+     só reescreve os dois primeiros — e só se a rede responder. Sem esta faxina
+     o dono cancelava e ainda via: a lista da Montagem com os mesmos clientes
+     (`previaCrua`/`PREVIA`, que a tela republica sem ir à rede), a folha de
+     chegada de uma parada morta (`ENTREGAS`), e o "Salvar rota" oferecendo o
+     roteiro que acabou de ser apagado (`PARADAS_SALVAR`).
+
+     O `previaSeq` sobe junto porque a Montagem monta sozinha ao abrir: uma
+     busca em VOO no instante do cancelamento voltaria depois e republicaria o
+     dia cancelado por cima da tela limpa — resposta velha não escreve.
+
+     E vem tudo ANTES do `carregarRota`: se a rede cair no meio, o servidor já
+     cancelou e a tela TEM que estar limpa do mesmo jeito. Rota que sobrevive na
+     tela depois do cancelar é a mesma mentira que esta seção existe pra matar. */
+  function esquecerRotaCarregada() {
+    esquecerTraco();
+    previaSeq += 1;
+    previaCrua = null;
+    previaDoDedo = false;
+    previaComGps = false;
+    previaAlvo = 0;
+    PREVIA.length = 0;
+    PARADAS_SALVAR.length = 0;
+    ENTREGAS.clear();
+    if (typeof window.PARADAS !== 'undefined') window.PARADAS = [];
+    else try { PARADAS = []; } catch (_) { /* sem seam: nada a fazer */ }
+    // `semFonte: false` de propósito: o dia está vazio porque o dono MANDOU
+    // esvaziar, não porque a rede caiu — são opostos, e a folha tem uma peça
+    // pra cada um. `vazio` vem do mesmo escritor do boot: "nesse dia" sem chip
+    // aceso não se refere a dia nenhum.
+    if (typeof window.usarDados === 'function') {
+      window.usarDados('montagem', {
+        carregando: false, semFonte: false, linhas: [], vazio: textoVazio(0), iniciarSub: '',
+        somaParadas: '', somaProdutos: '', somaValor: '',
+      });
+    }
+  }
+
   async function cancelarRota() {
     if (typeof window.portao !== 'function') return;
     window.portao({
@@ -2203,12 +2245,17 @@
     });
     const botao = naCamada('.portao-wrap .principal');
     if (!botao) return;
-    botao.addEventListener('click', () => comTrava(async () => {
+    /* `comTravaFila` e não `comTrava`: este é o "Sim" de um portão, a mesma
+       peça do "Iniciar" logo acima. O portão FECHA no toque, então toque
+       descartado por app ocupado (a Montagem monta sozinha ao abrir) não tem
+       repeteco — o dono via o diálogo sumir e a rota continuar de pé. */
+    botao.addEventListener('click', () => comTravaFila(async () => {
       try { await window.API.post('/logistica/rota/limpar-dia', { date: hojeISO() }); } catch (e) { return avisoErro(e); }
-      // 🔴 O SERVIDOR ENCERROU; O APARELHO TAMBÉM TEM QUE ESQUECER. A fita e a
-      // geometria são DESTE lado do fio — e vêm ANTES do `carregarRota`, senão
-      // o repinte que ele dispara passaria com a rota morta ainda desenhada.
-      esquecerTraco();
+      // 🔴 O SERVIDOR ENCERROU; O APARELHO TAMBÉM TEM QUE ESQUECER. A fita, a
+      // geometria e a lista são DESTE lado do fio — e vêm ANTES do
+      // `carregarRota`, senão o repinte que ele dispara passaria com a rota
+      // morta ainda desenhada.
+      esquecerRotaCarregada();
       await carregarRota();
       if (typeof window.ir === 'function') window.ir('rota');
     }), { once: true });

@@ -41,6 +41,14 @@ type RouteRow = {
   operationalEndedAt: Date | null;
 };
 
+/** O congelado da rota carregada (09/08): cancelar apaga o que não foi entregue. */
+type StopRow = {
+  id: string;
+  companyId: number;
+  routeId: string;
+  deliveryId: string;
+};
+
 const DATE = '2026-07-18';
 const { start: DAY_START } = resolveDayRange(DATE);
 
@@ -79,10 +87,16 @@ function matchesWhere(row: EntregaRow, where: any): boolean {
   return true;
 }
 
-function buildHarness(seed: EntregaRow[], routeSeed: RouteRow[] = [], planoSeed: PlanoRow[] = []) {
+function buildHarness(
+  seed: EntregaRow[],
+  routeSeed: RouteRow[] = [],
+  planoSeed: PlanoRow[] = [],
+  stopSeed: StopRow[] = [],
+) {
   const store = new Map<string, EntregaRow>(seed.map((row) => [row.id, { ...row }]));
   const routeStore = new Map<string, RouteRow>(routeSeed.map((row) => [row.id, { ...row }]));
   const planoStore = new Map<string, PlanoRow>(planoSeed.map((row) => [row.id, { ...row }]));
+  const stopStore = new Map<string, StopRow>(stopSeed.map((row) => [row.id, { ...row }]));
   const financeiroChargeCalls: string[] = [];
   let failNextUpdateMany = false;
 
@@ -104,6 +118,23 @@ function buildHarness(seed: EntregaRow[], routeSeed: RouteRow[] = [], planoSeed:
     return clone;
   }
 
+  function cloneStops(): Map<string, StopRow> {
+    const clone = new Map<string, StopRow>();
+    for (const [id, row] of stopStore) clone.set(id, { ...row });
+    return clone;
+  }
+
+  /** `where.route` / `where.delivery` são relações to-one: resolvem na linha viva. */
+  function matchesRouteFilter(route: RouteRow | undefined, filtro: any): boolean {
+    if (!filtro) return true;
+    if (!route) return false;
+    if (filtro.companyId != null && route.companyId !== filtro.companyId) return false;
+    if (filtro.entregadorId != null && route.entregadorId !== filtro.entregadorId) return false;
+    if (filtro.routeDate != null && route.routeDate !== filtro.routeDate) return false;
+    if (filtro.status?.in && !filtro.status.in.includes(route.status)) return false;
+    return true;
+  }
+
   function financeiroChargeGuard(method: string) {
     return async () => {
       financeiroChargeCalls.push(method);
@@ -115,6 +146,7 @@ function buildHarness(seed: EntregaRow[], routeSeed: RouteRow[] = [], planoSeed:
     working: Map<string, EntregaRow>,
     workingRoutes: Map<string, RouteRow>,
     workingPlanos: Map<string, PlanoRow>,
+    workingStops: Map<string, StopRow>,
   ) {
     return {
       entrega: {
@@ -162,11 +194,24 @@ function buildHarness(seed: EntregaRow[], routeSeed: RouteRow[] = [], planoSeed:
         updateMany: async ({ where, data }: any) => {
           let count = 0;
           for (const row of workingRoutes.values()) {
-            if (where.companyId != null && row.companyId !== where.companyId) continue;
-            if (where.entregadorId != null && row.entregadorId !== where.entregadorId) continue;
-            if (where.routeDate != null && row.routeDate !== where.routeDate) continue;
-            if (where.status?.in && !where.status.in.includes(row.status)) continue;
+            if (!matchesRouteFilter(row, where)) continue;
             Object.assign(row, data);
+            count++;
+          }
+          return { count };
+        },
+      },
+      logisticaRouteStop: {
+        deleteMany: async ({ where }: any) => {
+          let count = 0;
+          for (const [id, row] of [...workingStops]) {
+            if (where.companyId != null && row.companyId !== where.companyId) continue;
+            if (!matchesRouteFilter(workingRoutes.get(row.routeId), where.route)) continue;
+            if (where.delivery?.status?.not !== undefined) {
+              const entrega = working.get(row.deliveryId);
+              if (!entrega || entrega.status === where.delivery.status.not) continue;
+            }
+            workingStops.delete(id);
             count++;
           }
           return { count };
@@ -187,7 +232,8 @@ function buildHarness(seed: EntregaRow[], routeSeed: RouteRow[] = [], planoSeed:
       const working = cloneStore();
       const workingRoutes = cloneRoutes();
       const workingPlanos = clonePlanos();
-      const tx = buildTx(working, workingRoutes, workingPlanos);
+      const workingStops = cloneStops();
+      const tx = buildTx(working, workingRoutes, workingPlanos, workingStops);
       const result = await callback(tx); // se lançar, propaga SEM tocar os stores (rollback)
       store.clear();
       for (const [id, row] of working) store.set(id, row);
@@ -195,6 +241,8 @@ function buildHarness(seed: EntregaRow[], routeSeed: RouteRow[] = [], planoSeed:
       for (const [id, row] of workingRoutes) routeStore.set(id, row);
       planoStore.clear();
       for (const [id, row] of workingPlanos) planoStore.set(id, row);
+      stopStore.clear();
+      for (const [id, row] of workingStops) stopStore.set(id, row);
       return result;
     },
   };
@@ -204,6 +252,7 @@ function buildHarness(seed: EntregaRow[], routeSeed: RouteRow[] = [], planoSeed:
     store,
     routeStore,
     planoStore,
+    stopStore,
     financeiroChargeCalls,
     setFailNextUpdateMany: (value: boolean) => { failNextUpdateMany = value; },
   };
@@ -308,6 +357,87 @@ test('limparDia: marca operationalEndedAt na rota ACTIVE sem tocar o status de c
   assert.equal(r99.operationalEndedAt, null, 'rota de outro motorista fora do escopo — intocada');
 });
 
+// ── 4b. A ROTA MONTADA (PLANNED) TAMBÉM MORRE — dono, 09/08 ─────────────────
+// "cancelar tem q limpar toda a rota já carregada… deleta ela, tudo, fica
+// limpinho para montar rota do zero". A rota montada e não iniciada é PLANNED,
+// e ela sobrevivia inteira ao cancelar: o aparelho lê `routeStatus` e PLANNED
+// significa "pronta" pra ele — o rodapé seguia oferecendo "Iniciar" num dia sem
+// nenhuma parada viva.
+test('limparDia: rota PLANNED (montada, nunca iniciada) morre junto', async () => {
+  const routeDate = canonicalRouteDate(DATE);
+  const h = buildHarness(
+    [seedRow({ id: 'd-agendada', status: 'agendada', rotaOrdem: 0 })],
+    [{ id: 'r-planned', companyId: 7, entregadorId: 42, routeDate, status: 'PLANNED', operationalEndedAt: null }],
+  );
+
+  const result = await h.service.limparDia(7, { date: DATE }, 42);
+
+  const rota = h.routeStore.get('r-planned')!;
+  assert.ok(rota.operationalEndedAt instanceof Date, 'a rota montada não pode sobreviver ao cancelar');
+  assert.equal(rota.status, 'PLANNED', 'status de cobrança continua intocado — quem mata é o campo operacional');
+  assert.equal(result.resumo.rotasEncerradas, 1);
+});
+
+// ── 4c. O SNAPSHOT VAI JUNTO, MENOS O QUE JÁ FOI ENTREGUE ──────────────────
+// `LogisticaRouteStop` é o congelado da rota carregada. Cancelar apaga o que
+// não foi feito e não encosta no comprovante do que foi.
+test('limparDia: apaga as paradas congeladas do que não foi entregue e preserva as do entregue', async () => {
+  const routeDate = canonicalRouteDate(DATE);
+  const entregueAt = atHour(10);
+  const h = buildHarness(
+    [
+      seedRow({ id: 'd-entregue', status: 'entregue', rotaOrdem: 0, etaAt: entregueAt, startedAt: entregueAt }),
+      seedRow({ id: 'd-aberta', status: 'em_rota', rotaOrdem: 1, startedAt: atHour(9) }),
+      seedRow({ id: 'd-agendada', status: 'agendada', rotaOrdem: 2 }),
+    ],
+    [
+      { id: 'r-42', companyId: 7, entregadorId: 42, routeDate, status: 'PLANNED', operationalEndedAt: null },
+      { id: 'r-99', companyId: 7, entregadorId: 99, routeDate, status: 'PLANNED', operationalEndedAt: null },
+    ],
+    [],
+    [
+      { id: 's-entregue', companyId: 7, routeId: 'r-42', deliveryId: 'd-entregue' },
+      { id: 's-aberta', companyId: 7, routeId: 'r-42', deliveryId: 'd-aberta' },
+      { id: 's-agendada', companyId: 7, routeId: 'r-42', deliveryId: 'd-agendada' },
+      // rota de OUTRO motorista: fora do escopo, não pode perder parada nenhuma
+      { id: 's-outro', companyId: 7, routeId: 'r-99', deliveryId: 'd-agendada' },
+    ],
+  );
+
+  const result = await h.service.limparDia(7, { date: DATE }, 42);
+
+  assert.equal(result.resumo.paradasApagadas, 2);
+  assert.ok(h.stopStore.has('s-entregue'), 'o comprovante do que foi entregue fica');
+  assert.equal(h.stopStore.has('s-aberta'), false);
+  assert.equal(h.stopStore.has('s-agendada'), false);
+  assert.ok(h.stopStore.has('s-outro'), 'rota de outro motorista — intocada');
+  // e nada de dinheiro: cancelar não estorna (dono: "perde até os créditos")
+  assert.deepEqual(h.financeiroChargeCalls, []);
+});
+
+// ── 4d. Idempotente também do lado da rota ─────────────────────────────────
+test('limparDia: 2ª chamada não acha mais parada nem rota viva → zeros, sem erro', async () => {
+  const routeDate = canonicalRouteDate(DATE);
+  const h = buildHarness(
+    [seedRow({ id: 'd1', status: 'agendada', rotaOrdem: 0 })],
+    [{ id: 'r-42', companyId: 7, entregadorId: 42, routeDate, status: 'PLANNED', operationalEndedAt: null }],
+    [],
+    [{ id: 's1', companyId: 7, routeId: 'r-42', deliveryId: 'd1' }],
+  );
+
+  const primeira = await h.service.limparDia(7, { date: DATE }, 42);
+  assert.equal(primeira.resumo.paradasApagadas, 1);
+  assert.equal(primeira.resumo.rotasEncerradas, 1);
+
+  const segunda = await h.service.limparDia(7, { date: DATE }, 42);
+  assert.equal(segunda.ok, true);
+  assert.equal(segunda.resumo.paradasApagadas, 0);
+  // a rota continua PLANNED (o status de cobrança nunca muda), então ela entra
+  // no updateMany de novo — carimbar `operationalEndedAt` numa rota já morta é
+  // inofensivo e mantém o método tudo-ou-nada.
+  assert.equal(segunda.resumo.canceladas, 0);
+});
+
 // ── 5. Atomicidade ─────────────────────────────────────────────────────────
 test('limparDia: falha injetada não deixa estado parcial (rollback)', async () => {
   const h = buildHarness([
@@ -345,7 +475,10 @@ test('limparDia: 2ª chamada seguida acha 0 abertas → canceladas: 0, sem erro'
 test('limparDia: dia sem nenhuma entrega devolve resumo zerado, sem erro', async () => {
   const h = buildHarness([]);
   const result = await h.service.limparDia(7, { date: DATE }, 42);
-  assert.deepEqual(result, { ok: true, resumo: { canceladas: 0, planosLiberados: 0 } });
+  assert.deepEqual(result, {
+    ok: true,
+    resumo: { canceladas: 0, planosLiberados: 0, rotasEncerradas: 0, paradasApagadas: 0 },
+  });
 });
 
 // ── 7. O DIA VOLTA (incidente 25/07: "98 paradas" que listavam 0) ────────────

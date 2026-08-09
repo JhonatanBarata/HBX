@@ -1151,25 +1151,72 @@ export class LogisticaRotaService {
         planosLiberados += liberados.count;
       }
 
-      // Encerra a rota OPERACIONALMENTE (campo decoupled — mesmo comentário do
-      // encerrarRota): NÃO altera `status` de cobrança.
-      await tx.logisticaRoute.updateMany({
+      /* 🔴 CANCELAR APAGA A ROTA INTEIRA — INCLUSIVE A QUE SÓ ESTAVA MONTADA
+         (dono, 09/08: "cancelar tem q limpar toda a rota já carregada… deleta
+         ela, tudo, fica limpinho para montar rota do zero").
+
+         Até aqui este updateMany só alcançava `ACTIVE`/`INITIALIZING` — a rota
+         que o motorista tinha MONTADO e ainda não iniciado é `PLANNED`, e ela
+         sobrevivia inteira ao cancelamento. O aparelho lê o estado por
+         `routeStatus` (`getOperationalRouteMetadata`) e `PLANNED` significa
+         "pronta" pra ele: o dono cancelava, todas as entregas do dia morriam, e
+         o rodapé continuava oferecendo "Iniciar" numa rota sem nenhuma parada
+         viva. Cancelar que deixa a rota de pé não cancelou nada.
+
+         E o SNAPSHOT vai junto. `LogisticaRouteStop` é o congelado da rota
+         carregada; deixá-lo para trás é o que fazia stop de entrega cancelada
+         sobrar pendurado (a "cobrança fantasma" que o billing teve de aprender a
+         descontar, ver `assertRouteBillingReady`). Some o que não foi feito;
+         fica o que já foi ENTREGUE — a mesma lei de sempre ("só sobrevive o que
+         já foi entregue", histórico e financeiro intocados).
+
+         💰 DINHEIRO: nada é estornado, de propósito (dono: "a pessoa perde até
+         os créditos, foda-se"). Este método continua sem encostar em
+         `FinanceiroCharge` nem nos claims — teste guarda isso. Os claims são
+         únicos por (empresa+motorista+data+bloco), então montar de novo no mesmo
+         dia reaproveita o que já foi debitado: nem devolve, nem cobra duas
+         vezes. Apagar a `LogisticaRoute` em si está FORA de questão — os claims
+         são `onDelete: Cascade` nela, e apagar rota apagaria o registro do
+         débito. Ela fica morta, não sumida. */
+      const rotaCarregada = {
+        companyId,
+        routeDate,
+        ...(entregadorId ? { entregadorId } : {}),
+        status: { in: ['PLANNED', 'INITIALIZING', 'ACTIVE'] },
+      };
+
+      // A entrega ENTREGUE mantém o stop dela: é o comprovante do que a rota
+      // cobrou de verdade. `delivery` é relação to-one — o filtro enxerga o
+      // status JÁ atualizado logo acima, dentro desta mesma transação.
+      const paradas = await tx.logisticaRouteStop.deleteMany({
         where: {
           companyId,
-          routeDate,
-          ...(entregadorId ? { entregadorId } : {}),
-          status: { in: ['ACTIVE', 'INITIALIZING'] },
+          route: rotaCarregada,
+          delivery: { status: { not: 'entregue' } },
         },
+      });
+
+      // Encerra a rota OPERACIONALMENTE (campo decoupled — mesmo comentário do
+      // encerrarRota): NÃO altera `status` de cobrança. Zerado sozinho quando o
+      // dia for (re)iniciado.
+      const rotas = await tx.logisticaRoute.updateMany({
+        where: rotaCarregada,
         data: { operationalEndedAt: new Date() },
       });
 
-      return { canceladas: canceladas.count, planosLiberados };
+      return {
+        canceladas: canceladas.count,
+        planosLiberados,
+        rotasEncerradas: rotas.count,
+        paradasApagadas: paradas.count,
+      };
     });
 
     this.logger.log(
       `[logistica] limpar-dia ${dayISO} company=${companyId}` +
         (entregadorId ? ` entregador=${entregadorId}` : '') +
         `: canceladas=${resumo.canceladas} planosLiberados=${resumo.planosLiberados}` +
+        ` rotasEncerradas=${resumo.rotasEncerradas} paradasApagadas=${resumo.paradasApagadas}` +
         (input.motivo ? ` motivo="${String(input.motivo).slice(0, 200)}"` : ''),
     );
 
@@ -2094,6 +2141,10 @@ export interface LimparDiaResumo {
   canceladas: number;
   /** Planos recorrentes cuja `proximaData` voltou pro dia limpo (25/07). */
   planosLiberados: number;
+  /** Rotas do dia (montada, inicializando ou rodando) que morreram (09/08). */
+  rotasEncerradas: number;
+  /** Paradas congeladas apagadas — as do que NÃO foi entregue (09/08). */
+  paradasApagadas: number;
 }
 
 export interface LimparDiaResult {
