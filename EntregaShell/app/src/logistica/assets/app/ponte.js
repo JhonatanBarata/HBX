@@ -1611,7 +1611,15 @@
       mapa.on('pitchstart', doDedo);
       mapa.on('zoomstart', doDedo);
     }
-    const acompanharCamera = () => { posicionarEmpresas(); pinosVisiveis(nova); };
+    /* 🔴 O PUCK SOLTO ANDA COM O MAPA, NÃO COM O GPS. Sincronizá-lo só no fix
+       (1 por segundo) deixaria a seta escorregando um quadro atrás do dedo
+       durante o arrasto inteiro. Ele entra aqui, junto com os prédios, que é
+       exatamente o mesmo problema já resolvido. */
+    const acompanharCamera = () => {
+      posicionarEmpresas();
+      pinosVisiveis(nova);
+      if (camFase === 'solta') sincronizarPuckSolto(true);
+    };
     mapa.on('move', acompanharCamera);
     mapa.on('zoom', acompanharCamera);
     mapa.on('resize', acompanharCamera);
@@ -2359,10 +2367,14 @@
   const TRACO = 'hbx-rota-traco';
   const NAV_ZOOM = 16.6;
   const NAV_PITCH = 55;
-  /* o puck do desenho mora a 68% da altura: a câmera desce o centro até ele,
+  /* o puck do desenho mora a 78% da altura: a câmera desce o centro até ele,
      senão o motorista dirige com a seta no meio da tela e metade do mapa
-     mostrando a rua que já passou. 0,18 = 68% − 50%. */
-  const NAV_PUCK = 0.18;
+     mostrando a rua que já passou. 0,28 = 78% − 50%.
+     🔴 ESTE NÚMERO É GÊMEO DO `top` do `.gps-puck` no mock — os dois desceram
+     juntos de 68% pra 78% em 09/08 (dono: "a seta tem q descer"). Mexer em um
+     sem o outro põe a câmera mirando um palmo acima da seta, e a tela inteira
+     fica torta sem nada parecer errado. */
+  const NAV_PUCK = 0.28;
 
   const mapaDaNavegacao = () => {
     const palco = naCamada('[data-mapa="gps"]');
@@ -2576,7 +2588,10 @@
      exatamente a queixa. `GERAL_MS` é quanto ela fica visível DEPOIS que a
      cena sai, antes de a descida começar. */
   const GERAL_ZOOM_TETO = NAV_ZOOM - 1.2;
-  const GERAL_ZOOM_PISO = 12.5;
+  /* o piso é FREIO DE TILE, não gosto: cada nível a menos é 4× de área pra
+     baixar antes de a tela existir. 13,5 abre o bairro e não sai do que o
+     aparelho já tem em mãos. */
+  const GERAL_ZOOM_PISO = 13.5;
   const GERAL_MS = 2200;
   /* a curva do V4, `suave` — cúbica nas duas pontas: sai devagar, ganha corpo
      no meio e assenta sem batida. É ela que faz "descer" em vez de "cortar". */
@@ -2610,27 +2625,39 @@
     return [0, alto ? alto * NAV_PUCK : 0];
   };
 
-  /* A MOLDURA: o retângulo que cabe a rota inteira MAIS o motorista. Ele entra
-     na conta de propósito — enquadrar só o traço deixaria de fora justamente
-     quem está olhando, e a vista de cima existe pra dizer "você está aqui, o
-     dia é esse". Sem geometria (rota ainda não voltou do roteador) sobram as
-     paradas; sem nada, devolve null e a pose antiga vale. */
+  /* 🔴 A MOLDURA É O COMEÇO DO CAMINHO, NÃO O DIA INTEIRO — e este limite
+     custou uma medição pra aprender. A 1ª versão enquadrava a rota toda: num
+     dia de 63,9 km a câmera pulava pro centro do percurso, a 30 km dali, e o
+     mapa passava ~15 s CINZA baixando tile de uma região onde o motorista nem
+     está (medido no g15, APK 196). Enquadramento bonito, tela quebrada.
+
+     Então a moldura é o motorista MAIS o traço até `GERAL_ALCANCE_M` à frente:
+     os tiles já estão na mão (é onde ele está), a vista de cima abre na hora e
+     ainda responde a pergunta que ela existe pra responder — "onde estou e pra
+     onde vou agora". O dia inteiro é assunto da tela de lista, não de quem
+     está com o pé no freio esperando pra sair. */
+  const GERAL_ALCANCE_M = 1500;
   function molduraDaRota() {
-    const pontos = [];
+    const eu = posicaoDaTela();
+    if (!eu) return null;                       // sem âncora não há moldura honesta
+    const kx = 111320 * Math.cos((eu.lat * Math.PI) / 180);
+    const perto = (lng, lat) => Math.hypot((lng - eu.lng) * kx, (lat - eu.lat) * 110540) <= GERAL_ALCANCE_M;
+    const pontos = [[eu.lng, eu.lat]];
     const geo = navRota && navRota.geometria;
     if (geo && Array.isArray(geo.coordinates)) {
       geo.coordinates.forEach((c) => {
-        if (Array.isArray(c) && Number.isFinite(c[0]) && Number.isFinite(c[1])) pontos.push([c[0], c[1]]);
+        if (!Array.isArray(c) || !Number.isFinite(c[0]) || !Number.isFinite(c[1])) return;
+        if (perto(c[0], c[1])) pontos.push([c[0], c[1]]);
       });
     }
-    if (!pontos.length) {
+    if (pontos.length < 2) {
+      // sem traço por perto, a próxima parada é o que dá direção à vista
       const paradas = (typeof PARADAS !== 'undefined' ? PARADAS : []) || [];
       paradas.forEach((p) => {
-        if (Number.isFinite(Number(p.lat)) && Number.isFinite(Number(p.lng))) pontos.push([Number(p.lng), Number(p.lat)]);
+        const la = Number(p.lat); const ln = Number(p.lng);
+        if (Number.isFinite(la) && Number.isFinite(ln) && perto(ln, la)) pontos.push([ln, la]);
       });
     }
-    const eu = posicaoDaTela();
-    if (eu) pontos.push([eu.lng, eu.lat]);
     if (pontos.length < 2) return null;
     let oe = pontos[0][0]; let ol = pontos[0][0];
     let os = pontos[0][1]; let on = pontos[0][1];
@@ -2732,50 +2759,54 @@
   }
 
   /* ---- O DEDO NA CÂMERA ---------------------------------------------------
-     🔴 A SETA PREGADA NO VIDRO. Seguindo, o puck é DESENHO parado a 68% da
+     🔴 A SETA PREGADA NO VIDRO. Seguindo, o puck é DESENHO parado a 78% da
      tela e quem gira é o mundo — é o certo, é o que o V4 promete e é uma seta
      só. Com o dedo levando o mapa embora, esse mesmo desenho vira mentira: a
      seta fica no meio da tela apontando pra um lugar onde o motorista não
-     está. Então quando o dedo assume, o puck do desenho SAI e entra um
-     marcador no CHÃO, na posição de verdade, girando com o rumo.
+     está.
 
-     🔴 E ELE NÃO É UMA SETA NOVA: é o CLONE do `.gps-seta` que o mock acabou
-     de desenhar. Desenho continua morando no mock (Lei da casca) — esta
-     função só transplanta. Seta desenhada aqui na ponte seria a segunda
-     fonte de verdade do mesmo bico, e um dia as duas discordariam. */
-  let puckSolto = null;
+     Então, solta, ela troca de sistema de coordenadas: deixa de ser posição de
+     TELA e passa a ser posição de MAPA, projetada a cada quadro. **É o mesmo
+     mecanismo do `posicionarEmpresas`** — que já roda nesta tela e é a peça
+     mais provada daqui. Uma 1ª tentativa plantou um `maplibregl.Marker` com um
+     clone da seta dentro: não apareceu na tela e falhou CALADA (o `catch`
+     zerava o marcador e seguia). Mecanismo novo pra problema que o app já sabe
+     resolver é um jeito caro de inventar um bug. */
   function marcarSolta(solta) {
     const gps = naCamada('.gps');
     if (gps) gps.classList.toggle('solta', !!solta);
+    if (!solta) {
+      const puck = naCamada('.gps-puck');
+      if (puck) {
+        puck.style.removeProperty('--px');
+        puck.style.removeProperty('--py');
+        puck.style.removeProperty('transform');
+      }
+    }
   }
   function sincronizarPuckSolto(ligado) {
-    const casa = GARAGEM.get('gps');
-    if (!casa || !casa.mapa || !casa.gl) return;
-    if (!ligado) {
-      if (puckSolto) {
-        try { puckSolto.remove(); } catch (_) { /* já saiu de cena */ }
-        puckSolto = null;
-      }
-      return;
-    }
+    if (!ligado) return;
+    const mapa = mapaDaNavegacao();
+    const puck = naCamada('.gps-puck');
+    if (!mapa || !puck) return;
     const eu = posicaoDaTela();
     if (!eu) return;
-    if (!puckSolto) {
-      const molde = naCamada('.gps-puck .gps-seta');
-      if (!molde) return;                       // sem desenho na tela, sem clone
-      const casca = document.createElement('div');
-      casca.className = 'gps-puck-solto';
-      casca.appendChild(molde.cloneNode(true));
-      try {
-        puckSolto = new casa.gl.Marker({ element: casca, rotationAlignment: 'map', pitchAlignment: 'map' })
-          .setLngLat([eu.lng, eu.lat]).addTo(casa.mapa);
-      } catch (_) { puckSolto = null; return; }
-    }
-    try {
-      puckSolto.setLngLat([eu.lng, eu.lat]);
-      const rumo = rumoDaTela();
-      if (rumo != null) puckSolto.setRotation(rumo);
-    } catch (_) { /* marcador saindo de cena */ }
+    // a marca vive na camada VIVA, e o repinte troca a camada: reafirmar aqui
+    // (e não só no toque) é o que mantém a seta no chão depois de um repinte.
+    const gps = puck.closest('.gps');
+    if (gps && !gps.classList.contains('solta')) gps.classList.add('solta');
+    let ponto;
+    try { ponto = mapa.project([eu.lng, eu.lat]); } catch (_) { return; }
+    puck.style.setProperty('--px', `${ponto.x.toFixed(1)}px`);
+    puck.style.setProperty('--py', `${ponto.y.toFixed(1)}px`);
+    /* 🔴 O RUMO AGORA É RELATIVO À TELA. Seguindo, a câmera gira junto com o
+       motorista e a seta aponta pra cima sempre; solta, o mapa ficou parado no
+       rumo que estava — então o bico tem que compensar a diferença, senão ele
+       aponta pro norte da tela em vez da rua dele. */
+    const rumo = rumoDaTela();
+    let bussola = 0;
+    try { bussola = mapa.getBearing() || 0; } catch (_) { bussola = 0; }
+    if (rumo != null) puck.style.transform = `rotate(${(rumo - bussola).toFixed(1)}deg)`;
   }
 
   /** o dedo pegou o mapa: a câmera cala a boca até ele desistir ou pedir volta */

@@ -28,6 +28,25 @@
 **Resumo em uma frase:** o app cobra 6 toques em 3 telas pra fazer UMA coisa (sair entregando),
 não mostra o traçado em momento nenhum, e a única tela de mapa que existe briga com o dedo.
 
+### §1b — O PROSPECTOR NÃO ESTAVA QUEBRADO (medido 09/08 00:4x)
+
+O dono pediu "com o modo prospector ligado, inicie a rota, tem q aparecer pelo menos a empresa
+vizinha". Não apareceu nada — e nenhuma das duas causas era do prospector:
+
+1. **O g15 está na company 48** (`jbinformatica1100@gmail.com`), não na 41 (André). O log do
+   servidor foi quem contou (`rota planejada … company=48`). A 41 tinha `prospectorAtivo=true`,
+   a 48 tinha `false` — 4 chaves, a nº2 fechada. Ligado na 48 → `prospector: 8 empresa(s)
+   embarcada(s) company=48 raio=150m acende=4`. **LEI: a empresa do aparelho se lê no log do
+   servidor, nunca de cabeça.**
+2. **O APK do celular era mais velho que o fio.** Instalado 193 às 17:31; o `aplicarProspector`
+   subiu nos publishes de 19:28 e 19:48. Prova: `unzip -p base.apk assets/app/ponte.js |
+   grep -c Prospector` = **0**. É a 3ª reincidência de "publish subiu o código mas não o APK":
+   app velho não dá erro nenhum, só fica "não aplicado".
+
+**Entra na bateria (C0), antes de qualquer medição no aparelho:**
+`adb shell dumpsys package br.com.hbxsystem.logistica | grep -E "versionCode|lastUpdateTime"`
+comparado com a hora do último `chore: publish`. Instalado < publicado ⇒ pare e reinstale.
+
 ---
 
 ## §2 — OS 2 MODOS OPERANDI (arquitetura fechada no brainstorm de 08/08)
