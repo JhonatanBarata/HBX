@@ -77,8 +77,17 @@ export function MobileDevicePanel() {
   const [error, setError] = useState<string | null>(null);
   const [targets, setTargets] = useState<PairingTargetsResponse | null>(null);
   const [targetId, setTargetId] = useState<string>("");
+  // A pergunta "de quem é este código / com que nível ele entra" NÃO pode sumir
+  // calada: se a lista da equipe não carrega, a tela DIZ isso e oferece tentar de
+  // novo. Antes o erro era engolido e a pergunta inteira desaparecia da tela sem
+  // deixar rastro — o dono só via o botão gerando código sem perguntar nada.
+  const [targetsError, setTargetsError] = useState<string | null>(null);
+  const [targetsLoading, setTargetsLoading] = useState(true);
 
-  const canPairOthers = Boolean(targets?.canPairOthers && (targets?.targets?.length || 0) > 1);
+  // Basta ser do eixo administrativo: mesmo sozinho na empresa a pergunta aparece
+  // (com uma opção só). Esconder a pergunta quando a equipe tinha 1 pessoa era o
+  // mesmo defeito de sumir calado, só que por outro caminho.
+  const canPairOthers = Boolean(targets?.canPairOthers);
   const selfTarget = targets?.targets.find(t => t.isSelf) || null;
   const selectedTarget = targets?.targets.find(t => String(t.id) === targetId) || selfTarget;
   const maxDevices = targets?.maxDevicesPerUser || 4;
@@ -94,19 +103,25 @@ export function MobileDevicePanel() {
     }
   }, []);
 
-  // Sem a lista de alvos (funcionário comum, ou falha) a tela segue exatamente
-  // como era: gera o código da própria conta.
+  // Quem pode receber o código, e com que nível cada um entra. Falhar aqui NÃO é
+  // silêncio: `targetsError` acende o alarme na tela e o botão "Tentar de novo"
+  // fica ao lado — a pergunta é a parte principal desta tela, não um enfeite.
   const loadTargets = useCallback(async () => {
+    setTargetsLoading(true);
     try {
       const result = await apiFetch<PairingTargetsResponse>("/mobile/devices/pairing-targets");
       const list = Array.isArray(result?.targets) ? result.targets : [];
       setTargets({ ...result, targets: list });
+      setTargetsError(null);
       const self = list.find(t => t.isSelf);
       if (self) setTargetId(String(self.id));
-      return Boolean(result?.canPairOthers && list.length > 1);
-    } catch {
+      return Boolean(result?.canPairOthers);
+    } catch (err) {
       setTargets(null);
+      setTargetsError(err instanceof Error ? err.message : "Não foi possível carregar a equipe e o nível de acesso.");
       return false;
+    } finally {
+      setTargetsLoading(false);
     }
   }, []);
 
@@ -223,6 +238,25 @@ export function MobileDevicePanel() {
                 O código vale por 10 minutos, funciona uma única vez e vincula o celular à conta escolhida.
               </p>
 
+              {targetsLoading && !targets && !targetsError && (
+                <p className={styles.loading} style={{ margin: 0 }}>Carregando a equipe e o nível…</p>
+              )}
+
+              {/* Alarme: sem a lista, a pergunta some — e some sem avisar era o bug. */}
+              {targetsError && (
+                <div className={styles.targetsAlarm}>
+                  <strong>Não deu para carregar a equipe e o nível.</strong>
+                  <span>{targetsError}</span>
+                  <button
+                    className="btn-ghost"
+                    onClick={() => void loadTargets().then(companyWide => loadDevices(companyWide))}
+                    disabled={targetsLoading}
+                  >
+                    {targetsLoading ? "Tentando…" : "Tentar de novo"}
+                  </button>
+                </div>
+              )}
+
               {canPairOthers && (
                 <div className={styles.targetField}>
                   <label className={styles.targetLabel} htmlFor="hbx-pairing-target">Gerar código para</label>
@@ -242,21 +276,39 @@ export function MobileDevicePanel() {
                 </div>
               )}
 
-              {/* O nível é do CADASTRO — aqui só se vê o que o celular vai herdar. */}
+              {/* O NÍVEL é a pergunta desta tela: quem apertar "gerar" tem de ver,
+                  ANTES, com que poder aquele celular vai entrar. O valor é do
+                  CADASTRO (Gerencial → Equipe) — aqui ele é mostrado em bloco
+                  próprio, e o caminho para mudá-lo fica junto. */}
               {selectedTarget && (
-                <p className={styles.levelLine}>
-                  Entra como <strong>{selectedTarget.levelLabel}</strong> · {selectedTarget.operationalLabel}
-                  {" · "}{selectedTarget.activeDevices} de {maxDevices} aparelhos
-                </p>
+                <div className={styles.levelBox}>
+                  <span className={styles.levelBoxTitle}>Nível deste celular</span>
+                  <strong className={styles.levelBoxLevel}>{selectedTarget.levelLabel}</strong>
+                  <span className={styles.levelBoxMeta}>
+                    {selectedTarget.name} · {selectedTarget.operationalLabel}
+                    {" · "}{selectedTarget.activeDevices} de {maxDevices} aparelhos
+                  </span>
+                  <Link className={styles.levelLink} href="/gerencial?aba=4">
+                    Mudar o nível desta pessoa → Gerencial · Equipe
+                  </Link>
+                </div>
               )}
 
+              {/* Sem a lista, o código só pode sair para a PRÓPRIA conta — e o botão
+                  diz isso em vez de gerar calado como se tivesse perguntado. */}
               <button className="btn-teal" onClick={generateCode} disabled={busy}>
-                {busy ? "Gerando…" : pairing && remainingSeconds > 0 ? "Gerar outro código" : "Gerar código de vinculação"}
+                {busy
+                  ? "Gerando…"
+                  : targetsError
+                    ? "Gerar código só para mim"
+                    : pairing && remainingSeconds > 0
+                      ? "Gerar outro código"
+                      : "Gerar código de vinculação"}
               </button>
 
               {canPairOthers && (
                 <Link className={styles.levelLink} href="/gerencial?aba=4&novo=1">
-                  Mudar o nível ou cadastrar alguém novo → Gerencial · Equipe
+                  Cadastrar alguém novo → Gerencial · Equipe
                 </Link>
               )}
             </article>
