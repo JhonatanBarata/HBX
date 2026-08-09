@@ -4787,10 +4787,25 @@ T.entrada={nome:'Entrada (abertura)',grupo:'Sistema',render(){
 function ajustarHastes(camada){
   const splash=camada.querySelector('.svg-ok, .splash'); if(!splash) return;
   const em=splash.querySelector('.w em'); if(!em) return;
-  const pos=(n,c)=>{let x=0,y=0;while(n&&n!==c){x+=n.offsetLeft;y+=n.offsetTop;n=n.offsetParent;}return{x,y};};
-  const p=pos(em,splash);
-  const cx=p.x+em.offsetWidth/2, cy=p.y+em.offsetHeight/2;
-  const hw=em.offsetWidth*.34, hh=em.offsetHeight*.30;
+  /* 🔴 O SVG É ESTICADO, ENTÃO A CONTA TEM QUE MANDAR NO viewBox — e este era o
+     defeito que o dono viu na foto do g15: *"o X está se deslocando"*, e com ele
+     o "apareceu 2x" (a pessoa vê o X das hastes num lugar e o X do logotipo em
+     outro). O viewBox estava CRAVADO em `0 0 412 900` com
+     `preserveAspectRatio="none"`: numa tela de 940 de altura, cada unidade do
+     desenho virava 1,044 px e a medida — feita em PIXEL — pousava 19 px abaixo
+     do glifo (MEDIDO na bancada; no g15, mais baixo ainda, porque lá a caixa não
+     tem 900 nem 940). Nenhuma conta de posição sobrevive a um sistema de
+     coordenadas que se estica sozinho: o viewBox passa a ser a caixa de verdade,
+     e aí 1 unidade = 1 px, sempre.
+     A medida também sai do `getBoundingClientRect` e não da corrente de
+     `offsetParent` — retângulo de tela é o que o olho vê, e não depende de quem
+     está posicionado no meio do caminho. */
+  const cRect=splash.getBoundingClientRect();
+  const svg=splash.querySelector('.splash-xis');
+  if(svg) svg.setAttribute('viewBox',`0 0 ${Math.round(cRect.width)} ${Math.round(cRect.height)}`);
+  const eRect=em.getBoundingClientRect();
+  const cx=eRect.x-cRect.x+eRect.width/2, cy=eRect.y-cRect.y+eRect.height/2;
+  const hw=eRect.width*.34, hh=eRect.height*.30;
   const põe=(sel,x1,y1,x2,y2)=>splash.querySelectorAll(sel).forEach(l=>{
     l.setAttribute('x1',x1.toFixed(1)); l.setAttribute('y1',y1.toFixed(1));
     l.setAttribute('x2',x2.toFixed(1)); l.setAttribute('y2',y2.toFixed(1));});
@@ -5848,7 +5863,17 @@ function pintar(animar,dir){
   // entrada (o `--i` das peças) e a animação sairia com degrau.
   podarDesligados(nova);
   numerarItens(nova);
-  if(atual==='entrada') requestAnimationFrame(()=>ajustarHastes(nova));
+  /* 🔴 MEDIR UMA VEZ SÓ É MEDIR ANTES DA FONTE. O glifo do X muda de largura
+     quando a fonte de verdade entra no lugar da de reserva, e a haste fica no
+     lugar da medida velha — o mesmo "X deslocado" por outro caminho. Três
+     passadas: no primeiro quadro (pra já nascer certa), quando a fonte assenta,
+     e aos 600 ms — todas antes das hastes pousarem, que é aos 1,25 s. */
+  if(atual==='entrada'){
+    const medir=()=>ajustarHastes(nova);
+    requestAnimationFrame(medir);
+    if(document.fonts&&document.fonts.ready&&document.fonts.ready.then) document.fonts.ready.then(medir).catch(()=>{});
+    setTimeout(medir,600);
+  }
   // Os dois gestos valem em TODA lista de paradas. A tela que os ENSINAVA saiu
   // (07/08, ordem do dono: fora as explicações); o gesto ficou e trocou de
   // endereço — quem liga não é mais o nome da tela, é a marca `data-gestos`.
@@ -6016,11 +6041,54 @@ function pintar(animar,dir){
      telas não existiria: navegar É repintar). O estado do passo vive fora do
      DOM justamente por isso; aqui só se redesenha o que já é verdade. */
   tourRepintar();
-  // A abertura não fica na tela: ela ENTREGA o app. 3,4 s é a cena inteira
-  // (rota + cometa + marca + brilho + batida) — o corte cai no fim da batida.
-  clearTimeout(aberturaTimer);
-  if(atual==='entrada') aberturaTimer=setTimeout(()=>ir('rota'),3400);
+  // A abertura não fica na tela: ela ENTREGA o app (ver `armarAbertura`).
+  if(atual==='entrada') armarAbertura();
 }
+
+/* ==========================================================================
+   🔴 A ABERTURA ENTREGA O APP QUANDO O APP ESTÁ PRONTO — não num relógio cego
+   (dono, 09/08, no g15: *"o HBX na hora q sobe para a tela está até ok, mas ele
+   sempre trava, pq o celular está carregando tudo as coisas enquanto funciona"*
+   · *"aparece o HBX no começo, aguarda realmente ter carregado tudo a entrada,
+   aí sim acontece o efeito"*).
+
+   O que havia aqui era `clearTimeout` + `setTimeout(3400)` DENTRO do `pintar` —
+   ou seja, cada repinte que chegasse durante a abertura reiniciava a contagem.
+   Dois defeitos num só: a saída não tinha hora (dado que chega tarde empurrava
+   a abertura) e, quando saía, saía no meio do carregamento — o logo voava pro
+   cabeçalho enquanto o aparelho ainda montava mapa, e é isso que trava.
+
+   Agora são TRÊS coisas, e as três precisam ser verdade:
+   · PISO (3,4 s): a cena inteira — rota, cometa, marca, brilho e batida. Cortar
+     antes é jogar fora a única animação que o motorista assiste inteira.
+   · PRONTO: quem carrega avisa (`window.aberturaPronta()`). No mock não existe
+     ponte, então o piso já vale como pronto — o desenho continua se explicando
+     sozinho.
+   · TETO (7 s): rede ruim, GPS mudo, tile que não chega. O relógio nunca falha,
+     e app que não abre é pior que app que abre sem o mapa pronto.
+   ========================================================================== */
+const ABERTURA_PISO=3400, ABERTURA_TETO=7000;
+let aberturaEm=0, aberturaOk=false, aberturaSaiu=false;
+function armarAbertura(){
+  if(aberturaEm) return;              // o relógio é UM, e ele não reinicia
+  aberturaEm=performance.now();
+  const olhar=()=>{
+    if(aberturaSaiu || atual!=='entrada') return;
+    const dt=performance.now()-aberturaEm;
+    if(dt>=ABERTURA_TETO || (dt>=ABERTURA_PISO && aberturaOk)){ aberturaSaiu=true; ir('rota'); return; }
+    aberturaTimer=setTimeout(olhar,120);
+  };
+  aberturaTimer=setTimeout(olhar,ABERTURA_PISO);
+}
+/** a ponte avisa aqui quando dado, mapa e primeiro fix estão na mão */
+window.aberturaPronta=function(){ aberturaOk=true; };
+/* Sem ponte (o mock aberto no navegador) ninguém avisa — e o desenho não pode
+   ficar preso na primeira tela até o teto. O piso responde por ele.
+   🔴 A PERGUNTA É O PROTOCOLO, NÃO `window.HBX`: o `native.js` cria o `HBX` no
+   evento de load, DEPOIS desta folha rodar — perguntar por ele aqui devolveria
+   "não tem ponte" dentro do próprio aplicativo, e a abertura voltaria a sair
+   cega. Mock aberto à mão é `file:`; app e bancada são http(s). */
+if(location.protocol==='file:') aberturaOk=true;
 let aberturaTimer=null;
 let anterior=null;
 function ir(k){

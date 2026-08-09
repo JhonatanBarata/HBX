@@ -1387,7 +1387,18 @@
   setInterval(() => { if (!tourRodando()) viradaDoDia(); }, 60000);
 
   const cargaInicial = () => {
-    apagarDemonstracao(); carregarBarra(); carregarRota(); carregarRecados(); checkAppUpdate();
+    apagarDemonstracao(); carregarBarra(); carregarRecados(); checkAppUpdate();
+    /* 🔴 A ABERTURA ESPERA ESTA LINHA (§ 7a-ter). O `carregarRota` era chamado
+       solto aqui; agora o FIM dele — dando certo ou dando errado — é uma das três
+       peças que liberam a primeira tela. Falhar também é "carregou": app que não
+       abre porque o servidor caiu é pior que app aberto sem a lista. */
+    Promise.resolve(carregarRota())
+      .catch(() => {})
+      .then(() => bootChegou('dado'));
+    // o mapa nasce fora da tela enquanto o HBX ainda está no ar
+    setTimeout(prepararMapaCedo, ABERTURA_MAPA_EM);
+    // e o teto: sem GPS, sem tile, sem rede, a abertura sai mesmo assim
+    setTimeout(avisarAbertura, ABERTURA_TETO_PONTE);
     // O estado do tutorial é do USUÁRIO e vem em porta PRÓPRIA — pendurar no
     // `/logistica/config` custaria uma consulta por minuto por aparelho pra um
     // dado que só interessa no boot.
@@ -3447,19 +3458,28 @@
   const CENA_ONDAS = 7;
   /** 66 ms por letra — a régua de escrita desta casa (`empDigita`, no mock) */
   const CENA_LETRA = 66;
-  const CENA_PASSO = 130;
-  const CENA_ONDA = 560;
+  /* 🔴 MAIS DEVAGAR — ordem do dono (09/08): *"o certo é o efeito acontecer mais
+     devagar"*. Os números de antes vinham de uma cena que precisava caber no vão
+     entre a abertura e o mapa; agora ela NÃO cabe em vão nenhum, ela É a entrada
+     do mapa (§ 7a-ter), e pode respirar. Onda mais longa (0,82 s) e passo maior
+     (0,17 s) — a frente inteira leva 1,84 s em vez de 1,34 s. */
+  const CENA_PASSO = 170;
+  const CENA_ONDA = 820;
   /** quando a primeira onda parte: na entrada, depois do pino e da coordenada */
-  const CENA_RUAS_ENTRADA = 820;
+  const CENA_RUAS_ENTRADA = 700;
   /** na rota nova o mapa JÁ está na cara do motorista: nada de tela parada */
-  const CENA_RUAS_ROTA = 120;
+  const CENA_RUAS_ROTA = 140;
   const CENA_TETO_FIX = 1400;
   const CENA_TETO_TILE = 2200;
   const CENA_TETO_VIDA = 9000;
   const CENA_MAX_RUAS = 130;
   const CENA_MAX_NOMES = 16;
   const CENA_VALIDADE = 60000;
-  const CENA_SAI = 320;
+  const CENA_SAI = 520;
+  /** o assentamento: quanto o mundo de verdade leva pra subir por baixo da cena */
+  const CENA_ASSENTA = 700;
+  /** e quando é o dedo que encerra, ele sobe em 1/3 disso */
+  const CENA_ASSENTA_DEDO = 260;
   const CENA_INVISIVEL = 'rgba(0,0,0,0)';
   /* A largura é a MESMA do basemap (`roads_*` no style), classe por classe. Não
      é capricho: no fim a camada da cena se apaga por cima da rua de verdade, e
@@ -3489,26 +3509,87 @@
     return sl === 'roads' || sl === 'buildings' || sl === 'pois' || sl === 'places';
   };
 
-  /** apaga o mundo e DEVOLVE o que cada camada era — restaurar "visible" em cima
-      de camada que o estilo já escondia seria a cena ligando peça que ninguém
-      pediu. */
+  /* A opacidade de cada tipo de camada — é por ela que o mundo VOLTA subindo, em
+     vez de aparecer de uma vez. Ligar `visibility` devolve a cidade inteira num
+     quadro só: casca de rua, prédio, ponto de interesse e todo rótulo aparecem
+     juntos, e é EXATAMENTE isso que o dono chamou de pisca no fim da cena. */
+  const CENA_OPACIDADE = {
+    line: ['line-opacity'], fill: ['fill-opacity'],
+    symbol: ['text-opacity', 'icon-opacity'],
+    circle: ['circle-opacity'], 'fill-extrusion': ['fill-extrusion-opacity'],
+  };
+
+  /** apaga o mundo e DEVOLVE o que cada camada era — visibilidade E opacidade.
+      Restaurar "visible" (ou opacidade 1) em cima de camada que o estilo já
+      escondia seria a cena ligando peça que ninguém pediu. */
   function esconderMundo(mapa) {
     let camadas = [];
     try { camadas = (mapa.getStyle().layers || []); } catch (_) { return null; }
     const antes = new Map();
     camadas.forEach((l) => {
       if (!cenaEscondeCamada(l)) return;
-      antes.set(l.id, (l.layout && l.layout.visibility) || 'visible');
+      const op = {};
+      (CENA_OPACIDADE[l.type] || []).forEach((p) => {
+        try { op[p] = mapa.getPaintProperty(l.id, p); } catch (_) { op[p] = undefined; }
+      });
+      antes.set(l.id, { vis: (l.layout && l.layout.visibility) || 'visible', op });
       try { mapa.setLayoutProperty(l.id, 'visibility', 'none'); } catch (_) { /* estilo trocando */ }
     });
     return antes.size ? antes : null;
   }
 
-  function devolverMundo(mapa, antes) {
+  /* 🔴 O MUNDO VOLTA POR BAIXO, DESBOTANDO — e a ordem aqui é o assentamento
+     inteiro (dono, 09/08: *"assim q termina, ele pisca tbm... o certo é o efeito
+     já ser o efeito no MAPA, não efeito, depois entra o mapa"*).
+
+     São dois quadros e uma conta:
+     1º quadro — a camada ACENDE já transparente (opacidade 0 com transição 0).
+        Nada muda na tela: ninguém vê ligar o que está invisível.
+     2º quadro — a transição de verdade sobe cada opacidade até o valor que ela
+        tinha no estilo. As ruas de verdade sobem DEBAixo das ruas da cena, que
+        ainda estão opacas por cima: não há dobra de tinta, não há vão.
+     No fim, a folha volta a ser a do estilo (transição e valor originais) — cena
+     que deixa `-transition` cravado envenena todo repinte seguinte do mapa. */
+  function devolverMundo(mapa, antes, ms) {
     if (!mapa || !antes) return;
+    if (!ms) {
+      antes.forEach((v, id) => {
+        try { if (mapa.getLayer(id)) mapa.setLayoutProperty(id, 'visibility', v.vis); } catch (_) { /* já foi */ }
+      });
+      return;
+    }
     antes.forEach((v, id) => {
-      try { if (mapa.getLayer(id)) mapa.setLayoutProperty(id, 'visibility', v); } catch (_) { /* já foi */ }
+      try {
+        if (!mapa.getLayer(id)) return;
+        Object.keys(v.op).forEach((p) => {
+          mapa.setPaintProperty(id, p + '-transition', { duration: 0, delay: 0 });
+          mapa.setPaintProperty(id, p, 0);
+        });
+        mapa.setLayoutProperty(id, 'visibility', v.vis);
+      } catch (_) { /* estilo trocando */ }
     });
+    requestAnimationFrame(() => {
+      antes.forEach((v, id) => {
+        try {
+          if (!mapa.getLayer(id)) return;
+          Object.keys(v.op).forEach((p) => {
+            mapa.setPaintProperty(id, p + '-transition', { duration: ms, delay: 0 });
+            mapa.setPaintProperty(id, p, v.op[p] === undefined ? 1 : v.op[p]);
+          });
+        } catch (_) { /* estilo trocando */ }
+      });
+    });
+    setTimeout(() => {
+      antes.forEach((v, id) => {
+        try {
+          if (!mapa.getLayer(id)) return;
+          Object.keys(v.op).forEach((p) => {
+            mapa.setPaintProperty(id, p + '-transition', undefined);
+            mapa.setPaintProperty(id, p, v.op[p]);
+          });
+        } catch (_) { /* estilo trocando */ }
+      });
+    }, ms + 90);
   }
 
   /* ---- a geometria de verdade ------------------------------------------------
@@ -3721,6 +3802,15 @@
     return !!(viva && viva.contains(pai));
   };
 
+  /* 🔴 A CENA NÃO COMEÇA ATRÁS DE UMA TELA QUE ESTÁ SAINDO. Na troca, a camada
+     nova (com o palco) entra ANTES de a antiga terminar de sair — na abertura
+     isso é quase um segundo, porque o logo ainda está voando pro cabeçalho.
+     MEDIDO na bancada: a cena nascia aos 3,74 s e as ruas partiam aos 4,54 s,
+     com o splash na tela até 4,53 — ou seja, o pino nascia e a coordenada era
+     escrita INTEIRA por trás do splash, e o motorista só pegava a cena no meio.
+     Enquanto houver alguém saindo de cena, a cena espera. */
+  const telaSaindo = () => !!document.querySelector('#app .tela.sai');
+
   /** o pedido: a cena acontece quando o palco estiver na tela, nunca antes */
   function pedirCena(motivo) {
     if (semMovimento()) return;
@@ -3767,6 +3857,10 @@
     const prazoFix = Date.now() + CENA_TETO_FIX;
     const olhar = () => {
       if (cena !== daVez) return;
+      /* Duas perguntas diferentes, e confundi-las custa a cena: quem SAIU da
+         tela encerra; quem ainda não CHEGOU (a tela anterior está saindo por
+         cima) espera. */
+      if (telaSaindo() && Date.now() < prazo) { setTimeout(olhar, 120); return; }
       if (!mapaNaTela(daVez.casa)) { encerrarCena('saiu', true); return; }
       let tile = true;
       try { tile = mapa.areTilesLoaded(); } catch (_) { tile = true; }
@@ -3996,7 +4090,12 @@
     cena = null;
     if (c.raf) { try { cancelAnimationFrame(c.raf); } catch (_) { /* já passou */ } }
     const mapa = c.casa && c.casa.mapa;
-    devolverMundo(mapa, c.mundo);
+    /* 🔴 O DEDO TEM PRESSA E O FIM NÃO. Quem tocou o mapa quer o mapa agora — um
+       assentamento de 1,2 s ali seria a cena continuando depois de ser mandada
+       embora. Fim natural assenta com calma; dedo assenta em 1/3 do tempo; seco
+       (tela trocou, estilo novo, erro) é imediato. */
+    const assenta = seco ? 0 : (motivo === 'dedo' ? CENA_ASSENTA_DEDO : CENA_ASSENTA);
+    devolverMundo(mapa, c.mundo, assenta);
     if (mapa && c.dedo) {
       ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart'].forEach((ev) => {
         try { mapa.off(ev, c.dedo); } catch (_) { /* mapa morto */ }
@@ -4009,21 +4108,103 @@
       else { el.classList.add('saindo'); setTimeout(() => { try { el.remove(); } catch (_) { /* já saiu */ } }, CENA_SAI + 60); }
     }
     if (seco) { limparCena(mapa); return; }
-    // o fundido: a camada da cena se apaga POR CIMA da rua de verdade que
-    // acabou de voltar. Mesma geometria, mesma largura — não há cruzamento.
+    /* 🔴 A SAÍDA É ESCALONADA, e cada atraso tem motivo:
+       · OS NOMES DA CENA SAEM PRIMEIRO (sem atraso). Os do basemap estão subindo
+         por baixo, em outra posição (eles se repetem ao longo da rua; os nossos
+         ficam no meio dela) — dois rótulos da mesma rua ao mesmo tempo lê como
+         fantasma, não como assentamento.
+       · AS RUAS DA CENA SÓ DEPOIS (atraso de 55% do assentamento), quando a rua
+         de verdade já está opaca embaixo. Aí o que acontece na tela é uma troca
+         de COR na mesma linha — sem vão, sem dobra, sem pisca. */
+    const espera = Math.round(assenta * 0.55);
+    const dura = motivo === 'dedo' ? 200 : CENA_SAI;
     try {
       for (let i = 0; i < CENA_ONDAS; i += 1) {
         const id = `${CENA_FONTE}-${i}`;
         if (!mapa.getLayer(id)) continue;
-        mapa.setPaintProperty(id, 'line-opacity-transition', { duration: CENA_SAI, delay: 0 });
+        mapa.setPaintProperty(id, 'line-opacity-transition', { duration: dura, delay: espera });
         mapa.setPaintProperty(id, 'line-opacity', 0);
       }
       if (mapa.getLayer(CENA_NOMES_L)) {
-        mapa.setPaintProperty(CENA_NOMES_L, 'text-opacity-transition', { duration: CENA_SAI, delay: 0 });
+        mapa.setPaintProperty(CENA_NOMES_L, 'text-opacity-transition', { duration: Math.min(260, dura), delay: 0 });
         mapa.setPaintProperty(CENA_NOMES_L, 'text-opacity', 0);
       }
     } catch (_) { /* estilo trocando: o limpar abaixo resolve */ }
-    setTimeout(() => limparCena(mapa), CENA_SAI + 80);
+    setTimeout(() => limparCena(mapa), espera + dura + 90);
+  }
+
+
+  /* ==========================================================================
+     7a-ter. A CORRENTE DA ABERTURA — HBX, app carregado, cena, mapa. Nessa
+     ordem, sem tela morta no meio.
+
+     Dono (09/08, no g15): *"o HBX na hora q sobe para a tela está até ok, mas
+     ele sempre trava, pq o celular está carregando tudo as coisas enquanto
+     funciona"* · *"tente trabalhar em passos: aparece o HBX no começo, aguarda
+     realmente ter carregado tudo a entrada, aí sim acontece o efeito"* · *"vai
+     pesar demais se tiver tela piscando e coisa mal feita, tem q ser limpo,
+     sensação profissional"*.
+
+     🔴 O QUE ELE VIU (medido no boot do g15, APK 234): a abertura entregava o
+     app num relógio cego e o mapa só COMEÇAVA A NASCER depois — a tela Rota
+     entrava com o palco vivo e VAZIO (cinza chapado, com a seta e mais nada) por
+     um segundo largo, e só então a cena das ruas tinha o que desenhar. Três
+     coisas em fila, cada uma cortando a anterior: HBX → cinza → cena → mapa.
+
+     🔴 A CURA É INVERTER QUEM ESPERA QUEM. O mapa passa a nascer DURANTE a
+     abertura, numa garagem fora da tela (a mesma do `estacionarMapas`), e a
+     abertura só entrega o app quando dado, mapa e primeiro fix estão na mão. Aí
+     a tela Rota entra com tudo pronto e a cena começa no primeiro quadro — não
+     existe mais o vão cinza, porque não existe mais espera depois da porta.
+
+     🔴 E O MAPA NÃO NASCE NO PRIMEIRO QUADRO DA ABERTURA. As duas hastes voam de
+     0,3 s a 1,25 s e são a parte mais bonita da cena; subir contexto WebGL e
+     parsear tile no meio disso é gastar quadro justamente onde ele aparece.
+     `ABERTURA_MAPA_EM` põe o mapa pra nascer depois que a marca se forma, no
+     trecho de brilho e batida, que é barato.
+
+     🔴 O TETO DAQUI É MENOR QUE O DO MOCK (6 s contra 7 s), de propósito: quem
+     decide a saída tem que ser o AVISO, não o socorro. Se o meu teto vencer
+     primeiro, a abertura sai pela porta da frente ("pronto o que deu") em vez de
+     ser arrancada pelo relógio de emergência do desenho.
+     ========================================================================== */
+  const ABERTURA_MAPA_EM = 1300;
+  const ABERTURA_TETO_PONTE = 6000;
+  const bootFalta = new Set(['dado', 'mapa', 'fix']);
+  let bootAvisou = false;
+
+  function avisarAbertura() {
+    if (bootAvisou) return;
+    bootAvisou = true;
+    try { if (typeof window.aberturaPronta === 'function') window.aberturaPronta(); }
+    catch (_) { /* mock velho sem a porta: o teto do desenho responde */ }
+  }
+
+  /** cada peça avisa quando chega; a última acende a luz verde da abertura */
+  function bootChegou(peca) {
+    if (!bootFalta.delete(peca)) return;
+    if (!bootFalta.size) avisarAbertura();
+  }
+
+  /* 🔴 O PALCO FANTASMA É O TRUQUE INTEIRO, e ele não inventa nada: é um
+     `.mapa-palco` de verdade, com o mesmo `data-mapa="geral"`, morando na
+     garagem fora da tela. `montarMapa` roda nele sem uma linha de exceção, e
+     quando a tela Rota nasce o TRANSPLANTE que já existe leva o mapa pronto pra
+     ela — com câmera, seta e tiles no lugar.
+     Ele tem o tamanho da JANELA e não os 360x640 da garagem: tile se pede pelo
+     retângulo visível, e nascer pequeno seria pedir tudo de novo no transplante. */
+  function prepararMapaCedo() {
+    if (GARAGEM.get('geral') || MONTANDO.has('geral')) return;
+    if (!BOX.isConnected) document.body.appendChild(BOX);
+    const fantasma = document.createElement('div');
+    fantasma.className = 'mapa-palco';
+    fantasma.dataset.mapa = 'geral';
+    fantasma.setAttribute('aria-hidden', 'true');
+    const L = window.innerWidth || 412;
+    const A = window.innerHeight || 800;
+    fantasma.style.cssText = 'position:absolute;left:0;top:0;width:' + L + 'px;height:' + A + 'px';
+    BOX.appendChild(fantasma);
+    montarMapa(fantasma);
   }
 
   /* A LUZ agora é do MAPA, não do nascimento dele. Antes o tema trocava porque
@@ -4120,7 +4301,7 @@
        quadro antes de sumir: quem esconde o mundo é o `styledata`, que vem antes
        do primeiro tile pintar, e no `load` já é tarde. A cena é UMA por vida do
        app (`cenaJaEntrou`) — voltar pra aba Rota é voltar, não é ligar de novo. */
-    if (nome === 'geral') chamarCena(nova, 'entrada');
+    if (nome === 'geral') pedirCena('entrada');
     palco.__hbxMapa = true;
     palco.__hbxMapaObj = mapa;
     // existe mapa de verdade: o "você está aqui" de DESENHO sai de cena (ver
@@ -4154,6 +4335,8 @@
       desenharTraco(mapa);
       moverEuNoPlano();
       enquadrarGeral(nova);
+      // a abertura está segurando o app por causa desta linha (§ 7a-ter)
+      bootChegou('mapa');
     });
     // as empresas do corredor não são marcador do maplibre: elas são a peça
     // do desenho, e quem as coloca no chão é a câmera. Ver `posicionarEmpresas`.
@@ -5722,6 +5905,7 @@
       precisaoM: Number.isFinite(c.accuracy) ? c.accuracy : null,
     };
     ultimaPos = { lat: c.latitude, lng: c.longitude };
+    bootChegou('fix');           // § 7a-ter: a abertura espera o 1º fix
     /* 🔴 O 1º FIX QUASE SEMPRE CHEGA DEPOIS DA LISTA — numa garagem, bem
        depois. A montagem abre, busca o dia e pinta antes de existir GPS: se
        ninguém voltasse aqui, a tela ficaria na ordem do banco justamente na

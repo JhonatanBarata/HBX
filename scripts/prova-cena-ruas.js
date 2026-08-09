@@ -194,6 +194,14 @@ const GRAVAR = (ondas) => {
     if (m) {
       let vis = null;
       try { vis = m.getLayoutProperty('roads_minor', 'visibility') || 'visible'; } catch (_) { vis = null; }
+      // o assentamento: a rua de verdade sobe por OPACIDADE, e a da cena só cai
+      // depois. Os dois números abaixo são o que prova que não houve pisca.
+      let opMundo = null; let trMundo = null; let trCena = null;
+      try {
+        opMundo = m.getPaintProperty('roads_minor', 'line-opacity');
+        trMundo = m.getPaintProperty('roads_minor', 'line-opacity-transition');
+        if (m.getLayer('hbx-cena-ruas-0')) trCena = m.getPaintProperty('hbx-cena-ruas-0', 'line-opacity-transition');
+      } catch (_) { /* estilo trocando */ }
       const gs = [];
       let camadas = 0;
       for (let i = 0; i < ondas; i += 1) {
@@ -223,6 +231,7 @@ const GRAVAR = (ondas) => {
         t: Math.round(performance.now()),
         vis,
         camadas,
+        opMundo, trMundo, trCena,
         telas: document.querySelectorAll('.tela').length,
         caixa: `${Math.round(r.width)}x${Math.round(r.height)}@${Math.round(r.y)}`,
         gs,
@@ -392,6 +401,20 @@ const ultimo = (fita, cond) => { const q = [...fita].reverse().find(cond); retur
       `${trilha.size} nomes`);
     eh('1.20 a letra do MAPA anda na mesma régua de 66 ms', deltas.length > 4 && Math.abs(media - LETRA) <= 14,
       `media ${Math.round(media)} ms em ${deltas.length} letras`);
+
+    /* --- O ASSENTAMENTO (dono: *"assim q termina, ele pisca tbm"*) ---------
+       A rua de verdade não pode APARECER: ela tem que subir por baixo da cena.
+       Três marcas provam isso na fita, e nenhuma delas é opinião. */
+    const acendeu = fita.find((q) => q.vis === 'visible' && q.opMundo === 0);
+    eh('1.24 o mundo ACENDE transparente (nada aparece de uma vez)', !!acendeu,
+      acendeu ? `em ${acendeu.t - fita[0].t} ms` : 'apareceu com opacidade cheia');
+    const subiu = fita.find((q) => q.trMundo && q.trMundo.duration >= 400 && q.opMundo === 1);
+    eh('1.25 e SOBE com transicao longa (700 ms)', !!subiu,
+      subiu ? `${subiu.trMundo.duration} ms` : 'sem transicao de subida');
+    const espera = fita.find((q) => q.trCena && q.trCena.delay > 0);
+    eh('1.26 a cena so comeca a sair DEPOIS do mundo comecar a subir',
+      !!espera && espera.trCena.delay >= 300,
+      espera ? `atraso ${espera.trCena.delay} ms` : 'saiu junto');
 
     // --- o desfecho: nada da cena fica pra tras
     const fim = fita[fita.length - 1];
