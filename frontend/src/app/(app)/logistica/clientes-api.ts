@@ -465,9 +465,11 @@ export interface ClienteProduto {
   productId: number;
   qtdPadrao: number;
   precoAcordado?: number | null;
-  frequenciaDias: number | null;
+  // 🔴 F2/F5 (09/08) — `frequenciaDias`/`proximaData` SAÍRAM: as colunas de
+  // cadência foram dropadas do `ClienteProduto` e o servidor não as serializa
+  // mais. `diasSemana` continua vindo, mas agora é PROJEÇÃO do plano
+  // (`LogisticaPlanoEntrega.diaSemana`) — o dia é da visita, não do produto.
   diasSemana: string | null;
-  proximaData: string | null;
   ativo: boolean;
   // MULTILOCAL 10/07 — "entregar em [local]" (default = local principal do
   // cliente); opcional/fail-soft (backend sem o campo ainda = undefined).
@@ -484,7 +486,6 @@ export interface CriarClienteProdutoPayload {
   productId: number;
   qtdPadrao?: number;
   precoAcordado?: number;
-  frequenciaDias?: number;
   // 🔴 27/07 (ordem do dono): NÃO existe dia da semana em produto. O dia é do
   // CLIENTE (a visita) e se grava em `salvarDiasCliente` — o servidor copia os
   // dias da conta pro vínculo novo.
@@ -546,14 +547,10 @@ export function enderecoCurtoCliente(c: { endereco?: string | null; cidade?: str
   return partes.join(" — ");
 }
 
-/** Rótulo curto da forma de pagamento pro badge do card (sem jargão ERP). */
-/** Frequência em texto simples pro chip do produto ("a cada 3 dias" / "avulso"). */
-export function frequenciaLabel(dias: number | null | undefined): string {
-  if (!dias || dias <= 0) return "Avulso";
-  if (dias === 1) return "Todo dia";
-  if (dias === 7) return "Toda semana";
-  return `A cada ${dias} dias`;
-}
+// 🔴 MORRERAM AQUI `frequenciaLabel` e `recorrenciaLabel` (F5, 09/08). Os dois
+// liam `frequenciaDias` do vínculo — coluna dropada na F2. Rótulo sem fonte
+// mente. Quem descreve recorrência agora lê `diasSemana` (projeção do plano)
+// com `diasSemanaLabel` abaixo.
 
 // Rótulos ISO (1=seg … 7=dom) na ordem natural pra exibição ("Seg, Qua, Sex").
 const DIA_SEMANA_LABEL: Record<number, string> = {
@@ -574,17 +571,4 @@ export function diasSemanaLabel(diasSemana: string | null | undefined): string {
     .filter((n) => Number.isFinite(n) && n >= 1 && n <= 7);
   const unicos = Array.from(new Set(dias)).sort((a, b) => a - b);
   return unicos.map((n) => DIA_SEMANA_LABEL[n]).join(", ");
-}
-
-/**
- * Rótulo de recorrência do produto do cliente — cobre os 2 modos:
- * dia-da-semana ("Seg, Qua, Sex") tem prioridade; senão, frequência em dias.
- */
-export function recorrenciaLabel(p: {
-  diasSemana?: string | null;
-  frequenciaDias?: number | null;
-}): string {
-  const porSemana = diasSemanaLabel(p.diasSemana);
-  if (porSemana) return porSemana;
-  return frequenciaLabel(p.frequenciaDias);
 }

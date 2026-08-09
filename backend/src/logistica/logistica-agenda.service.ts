@@ -22,7 +22,7 @@ import { resolvePrincipalContatoId } from './logistica-contato.util';
 import { stopLivreWhere } from './logistica-rota-viva.util';
 import {
   matchSequenciaImportada,
-  parseParadasModeloJson,
+  paradasDoModelo,
   separarParadasDuplicadas,
   SequenciaMatchPlano,
 } from './logistica-agenda-sequencia.util';
@@ -173,12 +173,7 @@ export class LogisticaAgendaService {
       }),
       this.prisma.logisticaRotaModelo.findFirst({
         where: { companyId, tipo: 'SEMANAL', diaSemana: day },
-        include: {
-          paradas: {
-            orderBy: { ordem: 'asc' },
-            include: { itens: { orderBy: { createdAt: 'asc' } } },
-          },
-        },
+        include: { paradas: { orderBy: { ordem: 'asc' } } },
         orderBy: { updatedAt: 'desc' },
       }),
     ]);
@@ -317,14 +312,14 @@ export class LogisticaAgendaService {
     normalizeWeekday(dayInput); // valida o parâmetro da rota; a listagem não filtra por dia.
     const rotas = await this.prisma.logisticaRotaModelo.findMany({
       where: { companyId },
-      select: { id: true, nome: true, diaSemana: true, paradasJson: true, updatedAt: true },
+      select: { id: true, nome: true, diaSemana: true, updatedAt: true, _count: { select: { paradas: true } } },
       orderBy: { updatedAt: 'desc' },
     });
     return rotas.map((rota) => ({
       id: rota.id,
       nome: rota.nome,
       diaSemana: rota.diaSemana ?? null,
-      totalParadas: Array.isArray(rota.paradasJson) ? (rota.paradasJson as any[]).length : 0,
+      totalParadas: rota._count.paradas,
       updatedAt: rota.updatedAt.toISOString(),
     }));
   }
@@ -348,7 +343,7 @@ export class LogisticaAgendaService {
 
     const modelo = await this.prisma.logisticaRotaModelo.findFirst({
       where: { id: modeloId, companyId },
-      select: { paradasJson: true },
+      select: { paradas: PARADAS_DO_MODELO },
     });
     if (!modelo) throw new NotFoundException('Rota salva não encontrada.');
 
@@ -369,7 +364,7 @@ export class LogisticaAgendaService {
       localId: stop.localId ?? null,
     }));
 
-    const paradasModelo = parseParadasModeloJson(modelo.paradasJson);
+    const paradasModelo = paradasDoModelo(modelo.paradas);
     const resultado = matchSequenciaImportada(planosAtuais, paradasModelo);
 
     // Nomes/endereços são só pra exibir — a ordem em si já está fechada acima.
@@ -415,12 +410,13 @@ export class LogisticaAgendaService {
 
   /**
    * S3 — conferência de divergência entre os planos ativos do dia e a rota
-   * salva "espelho" do mesmo dia (`LogisticaRotaModelo` SEMANAL, `paradasJson`
-   * — a mesma fonte que `getDay` usa para montar a sequência oficial, mas ali
-   * paradas sem `planoEntregaId` são silenciosamente ignoradas; aqui é
-   * justamente essas sobras que viram aviso). READ-ONLY absoluto: nenhuma
-   * escrita, nenhuma correção — só relata usando o MESMO matcher da S2, pra
-   * não existir um segundo cálculo que possa divergir do preview de import.
+   * salva "espelho" do mesmo dia (`LogisticaRotaModelo` SEMANAL — a MESMA
+   * `LogisticaRotaModeloParada` que `getDay` usa para montar a sequência
+   * oficial, mas ali paradas sem `planoEntregaId` são silenciosamente
+   * ignoradas; aqui é justamente essas sobras que viram aviso). READ-ONLY
+   * absoluto: nenhuma escrita, nenhuma correção — só relata usando o MESMO
+   * matcher da S2, pra não existir um segundo cálculo que possa divergir do
+   * preview de import.
    */
   async getDivergencias(companyId: number, dayInput: unknown): Promise<AgendaDivergenciasDto> {
     this.assertCompany(companyId);
@@ -430,7 +426,7 @@ export class LogisticaAgendaService {
     const route = await this.prisma.logisticaRotaModelo.findFirst({
       where: { companyId, tipo: 'SEMANAL', diaSemana: day },
       orderBy: { updatedAt: 'desc' },
-      select: { paradasJson: true },
+      select: { paradas: PARADAS_DO_MODELO },
     });
     if (!route) {
       return { total: 0, itens: [], semRotaSalva: true };
@@ -452,7 +448,7 @@ export class LogisticaAgendaService {
     }));
     const planById = new Map(plans.map((plan) => [plan.id, plan]));
 
-    const paradasModeloBruto = parseParadasModeloJson(route.paradasJson);
+    const paradasModeloBruto = paradasDoModelo(route.paradas);
     const { unicas: paradasModelo, duplicadas } = separarParadasDuplicadas(paradasModeloBruto);
     const resultado = matchSequenciaImportada(planosAtuais, paradasModelo);
 
@@ -598,7 +594,7 @@ export class LogisticaAgendaService {
       const route = await this.ensureDayRoute(tx, companyId, normalized.diaSemana);
       const order = await nextRouteOrder(tx, route.id);
       await this.createRouteStop(tx, companyId, route.id, order, plan.id, normalized);
-      await this.syncRouteMirror(tx, companyId, route.id, true);
+      await this.bumpRouteVersao(tx, companyId, route.id);
       return plan.id;
     });
 
@@ -661,7 +657,7 @@ export class LogisticaAgendaService {
       if (oldStop) {
         await tx.logisticaRotaModeloParada.delete({ where: { id: oldStop.id } });
         await compactRouteOrders(tx, oldStop.rotaModeloId);
-        await this.syncRouteMirror(tx, companyId, oldStop.rotaModeloId, true);
+        await this.bumpRouteVersao(tx, companyId, oldStop.rotaModeloId);
       }
 
       const targetRoute = await this.ensureDayRoute(tx, companyId, normalized.diaSemana);
@@ -671,7 +667,7 @@ export class LogisticaAgendaService {
       await makeOrderSlot(tx, targetRoute.id, targetOrder);
       await this.createRouteStop(tx, companyId, targetRoute.id, targetOrder, existing.id, normalized);
       await compactRouteOrders(tx, targetRoute.id);
-      await this.syncRouteMirror(tx, companyId, targetRoute.id, true);
+      await this.bumpRouteVersao(tx, companyId, targetRoute.id);
     });
 
     // F0 (27/07) — extrato: dia da semana trocado é a mudança que mais gera
@@ -1046,7 +1042,7 @@ export class LogisticaAgendaService {
       }
 
       await writeRouteOrder(tx, rows, requested);
-      await this.syncRouteMirror(tx, companyId, route.id, true);
+      await this.bumpRouteVersao(tx, companyId, route.id);
     });
 
     return this.getDay(companyId, day);
@@ -1250,9 +1246,10 @@ export class LogisticaAgendaService {
               data: { ativo: false, versao: { increment: 1 } },
             });
             await compactRouteOrders(tx, sourceRoute.id);
-            await this.syncRouteMirror(tx, companyId, sourceRoute.id, false);
+            // A versão do dia de ORIGEM já subiu no update logo acima; o que
+            // existia aqui era só a reescrita do espelho JSON, morto na F3.
           }
-          await this.syncRouteMirror(tx, companyId, targetRoute.id, true);
+          await this.bumpRouteVersao(tx, companyId, targetRoute.id);
 
           if (openAction === 'MOVER') {
             for (const delivery of deliveries) {
@@ -1799,11 +1796,18 @@ export class LogisticaAgendaService {
         tipo: 'SEMANAL',
         ativo: true,
         versao: 1,
-        paradasJson: [],
       },
     });
   }
 
+  /**
+   * 🔴 F3 (09/08) — A PARADA VIROU SÓ POSIÇÃO. Saíram daqui o `itens` (cópia do
+   * `LogisticaPlanoEntregaItem`: 716 = 716 em produção) e o `...normalized.schedule`
+   * (janela/tempoParada/instruções/acesso/adicional). Os dois eram fotografia do
+   * PLANO tirada no instante do create — e plano editado depois deixava a
+   * fotografia velha decidindo a tela. Agora `stopDto` lê o plano direto: uma
+   * pergunta, uma resposta.
+   */
   private async createRouteStop(
     tx: any,
     companyId: number,
@@ -1821,58 +1825,22 @@ export class LogisticaAgendaService {
         localId: normalized.localId,
         ordem: order,
         ordemTravada: true,
-        ...normalized.schedule,
-        itens: {
-          // 🔴 28/07 — `companyId` NÃO entra em create ANINHADO (mesma lei do
-          // createPlan e do importador legado): o campo participa das relações
-          // compostas, o Prisma o herda do pai, e passá-lo aqui derruba com
-          // "Unknown argument `companyId`" só em RUNTIME — o `tx: any` engole o
-          // typecheck. Era o último call site com o erro, e como ele roda DENTRO
-          // da transação do createPlan/updatePlan, a exceção desfazia o plano
-          // inteiro: o espelho cadastro→Agenda nunca gravava nada e o motivo
-          // morria calado dentro de `agendaAvisos`. Sintomas medidos na empresa
-          // 48: cliente com dia marcado ficava sem plano (pendência "Dia"
-          // eterna, fora de todo roster) e "Remover este dia do cadastro"
-          // esvaziava o vínculo mas deixava o plano ativo (o cliente voltava).
-          create: normalized.items.map((item: any) => ({
-            productId: item.productId,
-            produtoNomeSnapshot: String(item.nome || 'Produto').slice(0, 140),
-            qtd: item.qtd,
-            valorUnit: item.valorUnit,
-          })),
-        },
       },
     });
   }
 
-  private async syncRouteMirror(tx: any, companyId: number, routeId: string, incrementVersion: boolean) {
-    const route = await tx.logisticaRotaModelo.findFirst({
+  /**
+   * A VERSÃO DA ROTA SOBE QUANDO A ORDEM MUDA — e só isso.
+   *
+   * Isto era o `syncRouteMirror`, que reescrevia o `paradasJson` a cada mexida
+   * na sequência. O espelho morreu na F3 (a tabela é a fonte), mas o `versao`
+   * NÃO: ele é o carimbo que o app usa pra saber que a rota do dia mudou.
+   * Apagar a função inteira teria levado o carimbo junto, calado.
+   */
+  private async bumpRouteVersao(tx: any, companyId: number, routeId: string) {
+    await tx.logisticaRotaModelo.updateMany({
       where: { id: routeId, companyId },
-      include: {
-        paradas: {
-          orderBy: { ordem: 'asc' },
-          include: { itens: { orderBy: { createdAt: 'asc' } } },
-        },
-      },
-    });
-    if (!route) return;
-    const mirror = route.paradas.map((stop: any) => ({
-      customerProfileId: stop.customerProfileId,
-      ...(stop.localId ? { localId: stop.localId } : {}),
-      ...(stop.janelaInicio ? { horaRef: stop.janelaInicio } : {}),
-      itens: stop.itens.map((item: any) => ({
-        productId: item.productId,
-        qtd: item.qtd,
-        valorUnit: Number(item.valorUnit || 0),
-      })),
-      ...(stop.planoEntregaId ? { planoEntregaId: stop.planoEntregaId } : {}),
-    }));
-    await tx.logisticaRotaModelo.update({
-      where: { id: route.id },
-      data: {
-        paradasJson: mirror,
-        ...(incrementVersion ? { versao: { increment: 1 } } : {}),
-      },
+      data: { versao: { increment: 1 } },
     });
   }
 
@@ -1950,6 +1918,17 @@ function planInclude() {
   };
 }
 
+/**
+ * A lista do modelo, na ORDEM — a única leitura de parada de rota salva que o
+ * matcher de sequência conhece. Quem traduz as linhas pro formato dele é o
+ * `paradasDoModelo` (logistica-agenda-sequencia.util.ts), onde mora a lei de
+ * "parada sem cliente é descartada, nunca vira string vazia".
+ */
+const PARADAS_DO_MODELO = {
+  orderBy: { ordem: 'asc' },
+  select: { customerProfileId: true, localId: true },
+} as const;
+
 function localSelect() {
   return {
     id: true,
@@ -2007,6 +1986,13 @@ function planDto(plan: any) {
   };
 }
 
+/**
+ * 🔴 F3 (09/08) — A PARADA SÓ ACRESCENTA POSIÇÃO. Janela, tempo de parada,
+ * instruções, acesso, adicional e itens vinham do snapshot da parada com
+ * fallback pro plano; agora vêm SÓ do plano (`...plan`), que é onde o dono
+ * edita. Enquanto existiram as duas cópias, editar a visita não mudava a tela
+ * do dia — a fotografia velha ganhava do dado novo, calada.
+ */
 function stopDto(stop: any, plan: any) {
   return {
     ...plan,
@@ -2014,20 +2000,6 @@ function stopDto(stop: any, plan: any) {
     ordem: stop.ordem,
     ordemTravada: stop.ordemTravada,
     planoEntregaId: plan.id,
-    janela: windowDto(stop) ?? plan.janela,
-    tempoParadaMin: stop.tempoParadaMin ?? plan.tempoParadaMin,
-    instrucoes: stop.instrucoes ?? plan.instrucoes,
-    acesso: accessDto(stop) ?? plan.acesso,
-    adicional: additionalDto(stop) ?? plan.adicional,
-    itens: stop.itens?.length
-      ? stop.itens.map((item: any) => ({
-        id: item.id,
-        productId: item.productId,
-        nome: item.produtoNomeSnapshot,
-        qtd: item.qtd,
-        valorUnit: Number(item.valorUnit || 0),
-      }))
-      : plan.itens,
   };
 }
 
@@ -2596,31 +2568,17 @@ async function writeRouteOrder(
   `;
 }
 
+/**
+ * O que o `createRouteStop` precisa saber do plano pra virar POSIÇÃO na rota do
+ * dia. Depois da F3 são dois campos: quem e onde. Itens e janela ficaram no
+ * plano (o `stopDto` lê de lá), então copiá-los pra cá só criaria de novo a
+ * fotografia que a F3 enterrou.
+ */
 function normalizedFromPlan(plan: any, day: number) {
   return {
     customerProfileId: plan.customerProfileId,
     localId: plan.localId ?? null,
     diaSemana: day,
-    items: (plan.itens ?? []).map((item: any) => ({
-      productId: item.productId,
-      nome: item.product?.name || 'Produto',
-      qtd: item.qtd,
-      valorUnit: Number(item.valorUnit || 0),
-    })),
-    schedule: {
-      janelaInicio: plan.janelaInicio ?? null,
-      janelaFim: plan.janelaFim ?? null,
-      janelaTipo: plan.janelaTipo ?? null,
-      tempoParadaMin: plan.tempoParadaMin ?? null,
-      instrucoes: plan.instrucoes ?? null,
-      acessoTipo: plan.acessoTipo ?? null,
-      acessoAndares: plan.acessoAndares ?? null,
-      acessoTemElevador: plan.acessoTemElevador ?? null,
-      acessoObservacao: plan.acessoObservacao ?? null,
-      adicionalTipo: plan.adicionalTipo ?? null,
-      adicionalValor: plan.adicionalValor ?? null,
-      adicionalMotivo: plan.adicionalMotivo ?? null,
-    },
   };
 }
 

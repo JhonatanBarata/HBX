@@ -308,31 +308,22 @@ model Company {
   logisticaRouteStops    LogisticaRouteStop[]
   // PR18072026 W1 — roteiros salvos (rota-modelo) da empresa.
   logisticaRotaModelos   LogisticaRotaModelo[]
-  // ROTA PRONTA (29/07) — indicações de rota salva pra equipe.
-  logisticaRotasIndicadas LogisticaRotaIndicada[]
   // 31/07 — recados de rota que morreu no meio (abandonada/parcial/parada).
   logisticaRotaAvisos    LogisticaRotaAviso[]
   // COCKPIT (03/08) — canal de recado escritório ⇄ motorista.
   logisticaRecados       LogisticaRecado[]
   // AGENDA-SEMANAL (23/07) — planos recorrentes, paradas normalizadas e ações
-  // auditadas. Tudo aditivo; ClienteProduto/paradasJson continuam compatíveis.
+  // auditadas. Desde 09/08 (F2) é a ÚNICA agenda: ClienteProduto virou só preço.
   logisticaPlanosEntrega LogisticaPlanoEntrega[]
   logisticaPlanoEntregaItens LogisticaPlanoEntregaItem[]
   logisticaRotaModeloParadas LogisticaRotaModeloParada[]
-  logisticaRotaModeloParadaItens LogisticaRotaModeloParadaItem[]
   logisticaAgendaAcoes   LogisticaAgendaAcao[]
-  // PR20072026 W1 — sessões de "Leitura de Rota" (captura em campo) da empresa.
-  logisticaLeituraSessoes LogisticaLeituraSessao[]
   logisticaEssentialClaims LogisticaEssentialCreditClaim[]
   logisticaTrackingSessions LogisticaTrackingSession[]
   logisticaTrackingPoints LogisticaTrackingPoint[]
   logisticaTrackingEvents LogisticaTrackingEvent[]
   logisticaTrackedCreditClaims LogisticaTrackedCreditClaim[]
   logisticaTrackingBonusGrants LogisticaTrackingBonusGrant[]
-  // F4 (27/07, PR27072026-ROTA-3-NIVEIS) — quarentena de importação (lotes + itens).
-  // Ver LogisticaImportacaoLote pro porquê (empresa 41: lista podre direto na base viva).
-  logisticaImportacaoLotes LogisticaImportacaoLote[]
-  logisticaImportacaoItens LogisticaImportacaoItem[]
   // F2 (27/07, PR27072026-ROTA-3-NIVEIS) — estoque de carga do caminhão
   // (conferência do dia: carregou/vendeu/voltou). Ver LogisticaCargaDia.
   logisticaCargaDias     LogisticaCargaDia[]
@@ -1183,8 +1174,6 @@ model CustomerProfile {
   financeiroCharges    FinanceiroCharge[]
   recoveryDebtItems    RecoveryDebtItem[]
   conversations        CompanyConversation[]
-  // PR20072026 W1 — paradas de Leitura de Rota que resolveram para esta conta.
-  logisticaLeituraParadas LogisticaLeituraParada[]
 
   @@unique([companyId, phoneNormalized])
   @@unique([id, companyId])
@@ -1492,9 +1481,9 @@ model LogisticaRotaModelo {
   tipo       String   @default("LIVRE") @db.VarChar(20)
   ativo      Boolean  @default(true)
   versao     Int      @default(1)
-  // Array ordenado de { customerProfileId, localId? } — a ORDEM da lista é a
-  // ordem do roteiro (o índice vira a ordemManual quando o app aplica o modelo).
-  paradasJson Json
+  // 🔴 09/08 (F3) — `paradasJson` DROPADA. A lista morava aqui E em
+  // `LogisticaRotaModeloParada`, e as duas divergiram em produção (modelo
+  // cms0xmqd0… da empresa 41: 9 no JSON, 7 na tabela). A tabela é a fonte.
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   paradas    LogisticaRotaModeloParada[]
@@ -1503,44 +1492,8 @@ model LogisticaRotaModelo {
   @@unique([id, companyId])
   @@index([companyId])
   @@index([companyId, tipo, diaSemana, ativo])
-  indicacoes LogisticaRotaIndicada[]
 }
 
-// ROTA PRONTA (29/07) — indicação de uma rota salva para alguém da equipe: o
-// web indica, o app da pessoa mostra popup impeditivo Aceitar/Negar. userIds
-// são Int sem FK de propósito (evento operacional; usuário apagado não pode
-// travar delete — mesma dor da FK Restrict do TrackingSession).
-// status: pendente → aceita → aplicada | negada; cancelada = substituída por
-// nova indicação do mesmo modelo pra mesma pessoa.
-model LogisticaRotaIndicada {
-  id           String   @id @default(cuid())
-  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  companyId    Int
-  rotaModelo   LogisticaRotaModelo @relation(fields: [rotaModeloId, companyId], references: [id, companyId], onDelete: Cascade)
-  rotaModeloId String
-  // Nome congelado no ato: o aviso "Rota X negada por Y" sobrevive a rename/delete do modelo.
-  nomeSnapshot String   @db.VarChar(80)
-  paraUserId   Int
-  porUserId    Int
-  status       String   @default("pendente") @db.VarChar(20)
-  respondidaEm DateTime?
-  aplicadaEm   DateTime?
-  // Aviso de negada dispensado no web (null = ainda aparece no banner).
-  avisoVistoEm DateTime?
-  // AGENDADOR (02/08) — hora marcada da missão. NULL = imediata (contrato
-  // antigo: popup no próximo poll). Com hora, a indicação nasce ARMADA: o app
-  // agenda um despertador NATIVO e o popup só existe na hora marcada.
-  agendadaPara DateTime?
-  // Quando o aparelho confirmou que armou o despertador desta indicação — é o
-  // que deixa o web dizer "o celular já sabe" sem inventar.
-  alarmeArmadoEm DateTime?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  @@index([companyId, paraUserId, status])
-  @@index([companyId, status, createdAt])
-  @@index([companyId, paraUserId, status, agendadaPara], map: "LogisticaRotaIndicada_agendada_idx")
-}
 
 // 31/07 — RECADO DE ROTA QUE MORREU NO MEIO.
 //
@@ -1742,8 +1695,14 @@ model LogisticaAgendaEvento {
   @@index([companyId, createdAt])
 }
 
-// Ordem relacional da rota. ParadasJson permanece como espelho de
-// compatibilidade, mas a agenda nova lê esta tabela.
+// A ORDEM da rota salva — fonte ÚNICA desde 09/08 (F3), quando o espelho
+// `LogisticaRotaModelo.paradasJson` foi dropado.
+//
+// 🔴 ESTA TABELA É SÓ ORDEM. Item, janela, acesso e adicional da visita moram no
+// PLANO (`LogisticaPlanoEntrega`) — os 12 campos snapshot que existiam aqui eram
+// cópia byte a byte dele (716 = 716 linhas em produção) e foram dropados junto
+// com `LogisticaRotaModeloParadaItem`. Modelo LIVRE é ordem de clientes; quem
+// precisa de item ganha plano.
 model LogisticaRotaModeloParada {
   id                String   @id @default(cuid())
   company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -1759,21 +1718,8 @@ model LogisticaRotaModeloParada {
   localId           String?
   ordem             Int
   ordemTravada      Boolean  @default(true)
-  janelaInicio      String?  @db.VarChar(5)
-  janelaFim         String?  @db.VarChar(5)
-  janelaTipo        String?  @db.VarChar(20)
-  tempoParadaMin    Int?
-  instrucoes        String?  @db.VarChar(500)
-  acessoTipo        String?  @db.VarChar(20)
-  acessoAndares     Int?
-  acessoTemElevador Boolean?
-  acessoObservacao  String?  @db.VarChar(240)
-  adicionalTipo     String?  @db.VarChar(20)
-  adicionalValor    Float?
-  adicionalMotivo   String?  @db.VarChar(120)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
-  itens             LogisticaRotaModeloParadaItem[]
 
   @@unique([id, companyId])
   @@unique([rotaModeloId, ordem])
@@ -1782,23 +1728,6 @@ model LogisticaRotaModeloParada {
   @@index([companyId, planoEntregaId])
 }
 
-model LogisticaRotaModeloParadaItem {
-  id            String   @id @default(cuid())
-  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  companyId     Int
-  parada        LogisticaRotaModeloParada @relation(fields: [paradaId, companyId], references: [id, companyId], onDelete: Cascade)
-  paradaId      String
-  product       Product? @relation(fields: [productId, companyId], references: [id, companyId], onDelete: Restrict)
-  productId     Int?
-  produtoNomeSnapshot String @db.VarChar(140)
-  qtd           Int
-  valorUnit     Float
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-
-  @@index([companyId, paradaId])
-  @@index([companyId, productId])
-}
 
 // Toda mudança em massa do dia é idempotente e auditável. `resultadoJson`
 // permite repetir a mesma chave sem executar a transação novamente.
@@ -1823,59 +1752,7 @@ model LogisticaAgendaAcao {
   @@index([companyId, diaOrigem, createdAt])
 }
 
-// PR20072026 W1 — "Leitura de Rota": sessão de captura em campo (docs/PLANEJAMENTOS/
-// PR20072026/SPEC-LEITURA-DE-ROTA.md). `modo` LEITURA manda GPS a cada parada;
-// MANUAL (criar rota manualmente) não manda. Ao finalizar vira uma
-// LogisticaRotaModelo (acima) — esta sessão NUNCA cria Entrega/EntregaItem
-// (decisão do dono 20/07: item 8 da spec — materializar entregas — CORTADO).
-model LogisticaLeituraSessao {
-  id         String   @id @default(cuid())
-  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  companyId  Int
-  userId     Int      // dono da sessão (req.user) — escopo por usuário; nunca 2 ABERTAS ao mesmo tempo
-  modo       String   @default("LEITURA") // LEITURA | MANUAL
-  status     String   @default("ABERTA")  // ABERTA | FINALIZADA | CANCELADA
-  startedAt  DateTime @default(now())
-  finishedAt DateTime?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  paradas    LogisticaLeituraParada[]
-  // S2 (PR21072026-MONTAR-ROTA-PLAY) — trilha (breadcrumb GPS) acumulada via
-  // POST /logistica/leitura/:id/trilha: [{ lat, lng, ts }], já simplificada
-  // (Douglas-Peucker) no aparelho antes de enviar. Aceita lotes mesmo após
-  // FINALIZADA/CANCELADA (cauda da fila offline não pode se perder).
-  trilhaJson Json?
 
-  @@index([companyId, userId, status])
-}
-
-// Uma parada capturada dentro de uma LogisticaLeituraSessao. `clientKey` é a
-// idempotência do replay offline (o app gera no aparelho e reenvia até
-// confirmar) — @@unique([sessaoId, clientKey]) garante que o replay nunca
-// duplica cliente/parada. `localEntregaId` tem relation de verdade (memória
-// 17/07 — FK órfã sem relation deu P2003 em produção).
-model LogisticaLeituraParada {
-  id                String   @id @default(cuid())
-  sessao            LogisticaLeituraSessao @relation(fields: [sessaoId], references: [id], onDelete: Cascade)
-  sessaoId          String
-  clientKey         String   // idempotência do replay offline
-  ordem             Int
-  capturadoEm       DateTime
-  lat               Float?
-  lng               Float?
-  accuracy          Float?
-  customerProfile   CustomerProfile? @relation(fields: [customerProfileId], references: [id], onDelete: SetNull)
-  customerProfileId String?
-  localEntrega      LocalEntrega? @relation(fields: [localEntregaId], references: [id], onDelete: SetNull)
-  localEntregaId    String?
-  itensJson         Json     // [{ productId, qtd, valorUnit }]
-  telefoneConfirmado Boolean @default(false)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  @@unique([sessaoId, clientKey])
-  @@index([sessaoId, ordem])
-}
 
 // ROTA RASTREADA PR2 (14/07) — sessão única e congelada da rota TRACKED.
 // O aparelho e o motorista são amarrados também no banco pelo companyId; uma
@@ -2079,11 +1956,17 @@ model EntregaComprovante {
   @@unique([entregaId, tipo, clientKey])
 }
 
-// LOGÍSTICA-MOBILE M2 (05/07) — amarração PRODUTO×CLIENTE + recorrência.
-// Diz "o cliente X leva N do produto Y a cada Z dias (ou nos dias W da semana),
-// pelo preço acordado". É a agenda da logística: o gerador "entregas do dia"
-// (POST /logistica/gerar-dia) varre os vínculos ativos vencidos e materializa
-// Entrega + EntregaItem, avançando proximaData. Tabela nova, isolada e aditiva.
+// LOGÍSTICA-MOBILE M2 (05/07) — amarração PRODUTO×CLIENTE.
+// Diz "o cliente X leva N do produto Y pelo preço acordado".
+//
+// 🔴 09/08 (F2 do PR09082026-ROTA-SEIS-VERBOS) — ESTA TABELA NÃO É MAIS AGENDA.
+// Ela nasceu acumulando dois papéis: o preço combinado E a cadência da visita
+// (`diasSemana`/`frequenciaDias`/`proximaData`). A cadência virou a AGENDA V2
+// (`LogisticaPlanoEntrega`), e as duas cópias passaram a se contradizer — era a
+// máquina de "a tela A diz um dia, a tela B diz outro". As 3 colunas foram
+// DROPADAS; sobrou o papel que só ela faz: PREÇO (o fechamento do dia grava
+// `precoAcordado` aqui, via gravarPrecoCombinado).
+// Quem pergunta "que dia o cliente recebe?" pergunta ao PLANO. Sempre.
 model ClienteProduto {
   id                String   @id @default(cuid())
   company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -2098,9 +1981,6 @@ model ClienteProduto {
   localId           String?
   qtdPadrao         Int      @default(1)
   precoAcordado     Float?   // vence o preço do catálogo/precoPadrao do cliente
-  frequenciaDias    Int?     // 7 = semanal (OU use diasSemana; não os dois)
-  diasSemana        String?  // "1,3,5" = seg/qua/sex (1=seg … 7=dom)
-  proximaData       DateTime?
   ativo             Boolean  @default(true)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -2110,7 +1990,7 @@ model ClienteProduto {
   // (ex.: 1 galão na segunda, outro na sexta, vínculos separados). gerarDia()
   // agora AGREGA todos os vínculos vencidos do cliente no dia (1 Entrega, N
   // EntregaItem) — ver logistica-recorrencia.service.ts.
-  @@index([companyId, ativo, proximaData])
+  @@index([companyId, ativo])
   @@index([companyId, customerProfileId])
   @@index([companyId, productId])
 }
@@ -2153,8 +2033,6 @@ model LocalEntrega {
   clienteProdutos   ClienteProduto[]
   logisticaPlanosEntrega LogisticaPlanoEntrega[]
   logisticaRotaModeloParadas LogisticaRotaModeloParada[]
-  // PR20072026 W1 — paradas de Leitura de Rota que resolveram para este local.
-  logisticaLeituraParadas LogisticaLeituraParada[]
 
   @@index([companyId, customerProfileId])
   @@index([companyId, customerProfileId, isPrincipal])
@@ -2204,9 +2082,6 @@ model LogisticaConfig {
   moduloFinanceiroAtivo Boolean  @default(false)
   moduloRecoveryAtivo   Boolean  @default(false)
   gerarDiaAutomatico    Boolean  @default(false)
-  // AGENDA-SEMANAL — cutover por tenant. Ligada geral em 26/07 (lei do dono:
-  // entregar é entregar LIGADO); default true = empresa nova nasce no fluxo atual.
-  agendaV2Ativa         Boolean  @default(true)
   // ROTA-CONFERIDA (S4/S5/S6 PR25072026) — tela de conferência + rota congelada
   // + preview de créditos no APK. Ligada geral em 26/07, mesma lei acima.
   rotaConferidaAtiva    Boolean  @default(true)
@@ -2225,7 +2100,8 @@ model LogisticaConfig {
   // Ajustes do APK (padrão Modo Passeio). Default false = plataforma intacta.
   modoCaderneta         Boolean  @default(false)
   // TASK 4 (08/07) — dias da semana em que a empresa TRABALHA (CSV ISO "1,2,3,4,5,6,7",
-  // 1=segunda…7=domingo; mesma convenção de ClienteProduto.diasSemana). null = default
+  // 1=segunda…7=domingo; mesma convenção ISO de LogisticaPlanoEntrega.diaSemana,
+  // que desde 09/08 é a única fonte de dia). null = default
   // (sem restrição configurada). Usado pelo pop-up "Gerar entregas" do app pra sugerir
   // só os dias úteis do tenant — não filtra nem bloqueia o gerarDia em si.
   diasTrabalho          String?
@@ -5508,7 +5384,6 @@ model Product {
   clienteProdutos ClienteProduto[]
   entregaItens EntregaItem[]
   logisticaPlanoEntregaItens LogisticaPlanoEntregaItem[]
-  logisticaRotaModeloParadaItens LogisticaRotaModeloParadaItem[]
   recoveryDebtItemProducts RecoveryDebtItemProduct[]
   // F2 (27/07, PR27072026-ROTA-3-NIVEIS) — itens do estoque de carga do caminhão.
   logisticaCargaDiaItens LogisticaCargaDiaItem[]
@@ -6733,95 +6608,7 @@ model AiConciergeReviewFinding {
   @@index([reviewedFor, verdict])
 }
 
-// F4 (27/07, PR27072026-ROTA-3-NIVEIS) — MÁQUINA DE ENGOLIR LISTA PODRE: quarentena
-// OBRIGATÓRIA de toda importação de clientes de logística. Lição da empresa 41 (245
-// clientes importados direto na base viva, endereços podres — "M22A", sem número, sem
-// cidade — a operação travou 2 semanas): nenhuma importação nasce mais CustomerProfile
-// direto. Ela nasce RASCUNHO aqui, passa pela MESMA régua do sanitizador CNEFE que já
-// existe (logistica-conferencia.service.ts/cnefe-resolver.util.ts — reusada, não
-// duplicada) e só vira cliente de verdade no gesto explícito de EFETIVAR. A agenda
-// (LogisticaPlanoEntrega/generateDay) NUNCA enxerga um item que não passou por aqui —
-// nenhuma escrita deste bloco cria plano/entrega fora do caminho de efetivação.
-// Migration só aditiva (2 tabelas novas, zero coluna tocada em tabela existente).
-model LogisticaImportacaoLote {
-  id              String   @id @default(cuid())
-  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  companyId       Int
-  origem          String   @db.VarChar(20) // ARQUIVO | TEXTO | FOTO
-  nomeArquivo     String?
-  // TEXTO colado raramente traz cidade/UF por linha (WhatsApp/caderneta assumem que
-  // "todo mundo sabe" a cidade da rota) — o operador informa 1x ao colar e todo item
-  // sem cidade/UF própria herda daqui. Nunca sobrescreve o que a linha já trouxer.
-  cidadePadrao    String?
-  ufPadrao        String?
-  status          String   @default("RASCUNHO") @db.VarChar(20) // RASCUNHO | CONFERIDO | EFETIVADO | DESCARTADO
-  totalItens      Int      @default(0)
-  totalVerdes     Int      @default(0)
-  totalVermelhos  Int      @default(0)
-  totalPendentes  Int      @default(0)
-  totalEfetivados Int      @default(0)
-  criadoPorUserId Int?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  itens           LogisticaImportacaoItem[]
 
-  @@unique([id, companyId])
-  @@index([companyId, status, createdAt])
-}
-
-model LogisticaImportacaoItem {
-  id                String   @id @default(cuid())
-  company           Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  companyId         Int
-  lote              LogisticaImportacaoLote @relation(fields: [loteId, companyId], references: [id, companyId], onDelete: Cascade)
-  loteId            String
-  // Posição original na planilha/texto (1-based) — auditoria e correção "linha 42 falhou".
-  linha             Int
-  // A linha/registro ORIGINAL, sempre preservado — mesmo item ilegível vira VERMELHO
-  // com o bruto intacto, NUNCA é descartado silenciosamente (ordem do dono, F4).
-  bruto             String   @db.Text
-  nome              String?
-  telefone          String?
-  endereco          String?
-  numero            String?
-  bairro            String?
-  cidade            String?
-  uf                String?
-  cep               String?
-  // CSV ISO "1,3,5" (1=segunda…7=domingo) — MESMA convenção de ClienteProduto.diasSemana
-  // e LogisticaConfig.diasTrabalho. 1 dia = 1 LogisticaPlanoEntrega na efetivação.
-  diasSemana        String?
-  produtoTexto      String?
-  produtoId         Int?
-  qtd               Int?
-  valorUnit         Float?
-  // Pino resolvido pelo SANITIZADOR (CNEFE) — nunca chute/geocode solto (Lei nº1 do
-  // freio: pino errado é pior que pino vazio). null até statusSanitizacao='VERDE'.
-  lat               Float?
-  lng               Float?
-  geoFonte          String?
-  statusSanitizacao String   @default("PENDENTE") @db.VarChar(20) // VERDE | VERMELHO | PENDENTE
-  motivoProblema    String?  @db.VarChar(200)
-  // SEM @relation DE PROPÓSITO (mesmo padrão de LogisticaAgendaEvento.planoEntregaId):
-  // é só o RASTRO de qual conta nasceu daqui — o cliente efetivado passa a viver a vida
-  // dele em CustomerProfile; apagar o cliente depois não pode arrastar o histórico do
-  // lote, e o item não pode travar a exclusão de uma conta.
-  customerProfileId String?
-  efetivadoAt       DateTime?
-  // FOTO (jpg/png/pdf) — mesmo padrão de armazenamento de EntregaComprovante
-  // (metadata na linha, bytes em disco via storagePath). null pra ARQUIVO/TEXTO.
-  fotoOriginalFilename String?
-  fotoStoredFilename   String?
-  fotoStoragePath      String?
-  fotoContentType      String?
-  fotoByteSize         Int?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  @@unique([loteId, linha])
-  @@index([companyId, loteId, statusSanitizacao])
-  @@index([companyId, customerProfileId])
-}
 
 // MODO PUXAR (02/08/2026) — convite único de equipe. O admin convida por e-mail e
 // a resposta pra ele é SEMPRE "convite enviado" (anti-enumeração: o campo nunca

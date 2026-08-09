@@ -276,31 +276,31 @@ type ProdutoOption = {
   precoCatalogo: number | null;
 };
 
+// 🔴 CADÊNCIA NÃO MORA MAIS NO VÍNCULO (F2/F5, 09/08): `frequenciaDias` e
+// `proximaData` viraram colunas dropadas e o servidor não as devolve — os dois
+// campos saíram daqui porque a tela pintava vazio pra sempre. `diasSemana`
+// FICA: hoje é PROJEÇÃO do plano (`LogisticaPlanoEntrega.diaSemana`), igual pra
+// todos os vínculos do cliente, porque o dia é da VISITA.
 type ClienteProduto = {
   id: string;
   customerProfileId: string;
   productId: number;
   qtdPadrao: number;
   precoAcordado: number | null;
-  frequenciaDias: number | null;
   diasSemana: string | null;
-  proximaData: string | null;
   ativo: boolean;
   produto: { id: number; nome: string; unidade: string | null; precoCatalogo: number | null } | null;
 };
 
 function fmtRecorrencia(cp: ClienteProduto): string {
-  if (cp.diasSemana) {
-    const map = ["", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
-    const dias = cp.diasSemana
-      .split(",")
-      .map((d) => map[Number(d.trim())] || "")
-      .filter(Boolean)
-      .join("/");
-    return dias ? `Toda ${dias}` : "Sem recorrência";
-  }
-  if (cp.frequenciaDias) return cp.frequenciaDias === 7 ? "Semanal" : `A cada ${cp.frequenciaDias} dias`;
-  return "Sem recorrência";
+  if (!cp.diasSemana) return "Sem recorrência";
+  const map = ["", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+  const dias = cp.diasSemana
+    .split(",")
+    .map((d) => map[Number(d.trim())] || "")
+    .filter(Boolean)
+    .join("/");
+  return dias ? `Toda ${dias}` : "Sem recorrência";
 }
 
 // ── LOGÍSTICA-MOBILE M6 — financeiro do cliente (forma de pagamento + extrato) ─
@@ -722,7 +722,6 @@ function ClienteProdutosDrawer({
   const [productId, setProductId] = useState<string>("");
   const [qtdPadrao, setQtdPadrao] = useState("1");
   const [precoAcordado, setPrecoAcordado] = useState("");
-  const [frequencia, setFrequencia] = useState(""); // "" | "7" | "15" | "30"
 
   const load = useCallback(() => {
     setLoading(true);
@@ -777,13 +776,11 @@ function ClienteProdutosDrawer({
           productId: Number(productId),
           qtdPadrao: Math.max(1, Number(qtdPadrao) || 1),
           precoAcordado: precoAcordado.trim() ? Number(precoAcordado) : undefined,
-          frequenciaDias: frequencia ? Number(frequencia) : undefined,
         }),
       });
       setProductId("");
       setQtdPadrao("1");
       setPrecoAcordado("");
-      setFrequencia("");
       await load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Não foi possível vincular o produto.");
@@ -887,22 +884,18 @@ function ClienteProdutosDrawer({
               aria-label="Quantidade padrão"
             />
           </div>
-          <div className="cli-prod__form-row">
-            <input
-              className="field-dark"
-              placeholder="Preço acordado (opcional)"
-              inputMode="decimal"
-              value={precoAcordado}
-              onChange={(e) => setPrecoAcordado(e.target.value)}
-              aria-label="Preço acordado"
-            />
-            <select className="field-dark" value={frequencia} onChange={(e) => setFrequencia(e.target.value)} aria-label="Frequência">
-              <option value="">Sem recorrência</option>
-              <option value="7">Semanal (7 dias)</option>
-              <option value="15">Quinzenal (15 dias)</option>
-              <option value="30">Mensal (30 dias)</option>
-            </select>
-          </div>
+          {/* MORREU AQUI o seletor "Frequência" (F5, 09/08): ele mandava
+              `frequenciaDias` pro vínculo, o servidor IGNORA desde a F2 e a
+              coluna nem existe mais. Escolher "Semanal" não fazia nada — quem
+              define quando a visita acontece é a Agenda. */}
+          <input
+            className="field-dark"
+            placeholder="Preço acordado (opcional)"
+            inputMode="decimal"
+            value={precoAcordado}
+            onChange={(e) => setPrecoAcordado(e.target.value)}
+            aria-label="Preço acordado"
+          />
           <button type="submit" className="btn-teal" disabled={saving || !productId}>
             <I d={ICONS.plus} size={13} /> {saving ? "Adicionando…" : "Adicionar produto"}
           </button>

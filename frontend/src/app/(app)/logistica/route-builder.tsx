@@ -81,7 +81,10 @@ type DayPreview = {
   clientes: PreviewCustomer[];
 };
 
-type AgendaSource = "AGENDA_V2" | "LEGADO";
+// 🔴 MORREU AQUI o `AgendaSource` (F5, 09/08). A prévia do dia tinha DUAS fontes
+// — a Agenda e o gerador V1 de `ClienteProduto` — e um `if (modo === "AGENDA_V2"
+// && agendaV2Ativa)` escolhendo. O gerador V1 e a flag foram apagados na F1/F2;
+// a condição virou sempre-verdadeira e a outra fonte, ramo morto.
 
 type RouteForOrdering = {
   items: Array<{
@@ -246,11 +249,8 @@ function normalizeAgendaPreview(result: AgendaDayPreview): DayPreview {
   };
 }
 
-async function fetchDayPreview(source: AgendaSource, day: number, date: string): Promise<DayPreview> {
-  if (source === "AGENDA_V2") {
-    return normalizeAgendaPreview(await getAgendaDayPreview(day as AgendaWeekday, date));
-  }
-  return apiFetch<DayPreview>(`/logistica/dia-preview?date=${encodeURIComponent(date)}`);
+async function fetchDayPreview(day: number, date: string): Promise<DayPreview> {
+  return normalizeAgendaPreview(await getAgendaDayPreview(day as AgendaWeekday, date));
 }
 
 function humanError(error: unknown): string {
@@ -261,30 +261,11 @@ function itemsLabel(customer: PreviewCustomer): string {
   return customer.itens.map((item) => `${item.qtd} ${item.nome}`).join(" · ") || "Sem itens";
 }
 
-function snapshotItems(customer: PreviewCustomer): Array<{ productId: number; qtd: number; valorUnit: number }> {
-  if (!customer.itens.length) {
-    throw new Error(`Revise os preços de ${customer.nome || "um cliente"} antes de salvar esta rota.`);
-  }
-  return customer.itens.map((item) => {
-    const valorUnit = item.valorUnit;
-    if (
-      !Number.isInteger(item.productId)
-      || item.productId <= 0
-      || !Number.isInteger(item.qtd)
-      || item.qtd <= 0
-      || typeof valorUnit !== "number"
-      || !Number.isFinite(valorUnit)
-      || valorUnit < 0
-    ) {
-      throw new Error(`Revise os preços de ${customer.nome || "um cliente"} antes de salvar esta rota.`);
-    }
-    return {
-      productId: item.productId,
-      qtd: item.qtd,
-      valorUnit,
-    };
-  });
-}
+// 🔴 F3 (09/08) — `snapshotItems` MORREU AQUI. A rota salva virou só ORDEM
+// (cliente + porta + posição): o que a visita leva mora na Agenda, no plano do
+// cliente. Mandar `itens` no corpo agora é 400 na porta (o DTO recusa chave que
+// não conhece), e a trava de "revise os preços antes de salvar" perdeu o
+// motivo — salvar uma SEQUÊNCIA nunca dependeu de preço.
 
 function routeItemMatches(customer: PreviewCustomer, item: RouteForOrdering["items"][number]): boolean {
   const profileId = item.customerProfileId || item.cliente.id;
@@ -377,7 +358,6 @@ export function RouteBuilderDialog({
   // 31/07 — o que está acontecendo com cada rota salva HOJE (ver RouteModelState).
   const [modelStates, setModelStates] = useState<Record<string, RouteModelState>>({});
   const [agendaLoading, setAgendaLoading] = useState(true);
-  const [agendaSource, setAgendaSource] = useState<AgendaSource>("LEGADO");
   const [selectedDays, setSelectedDays] = useState<number[]>([]);
   const [sourceDates, setSourceDates] = useState<Record<number, string>>({});
   const [dayCounts, setDayCounts] = useState<Record<number, number | null | undefined>>({});
@@ -429,18 +409,16 @@ export function RouteBuilderDialog({
     getWeeklyAgenda()
       .then((agenda) => {
         if (cancelled) return;
-        if (agenda.modo === "AGENDA_V2" && agenda.agendaV2Ativa) {
-          setAgendaSource("AGENDA_V2");
-          setDayCounts(Object.fromEntries(WEEK_DAYS.map((day) => {
-            const summary = agenda.dias.find((item) => item.diaSemana === day.n);
-            return [day.n, summary?.totalParadas ?? 0];
-          })));
-        } else {
-          setAgendaSource("LEGADO");
-        }
+        setDayCounts(Object.fromEntries(WEEK_DAYS.map((day) => {
+          const summary = agenda.dias.find((item) => item.diaSemana === day.n);
+          return [day.n, summary?.totalParadas ?? 0];
+        })));
       })
       .catch(() => {
-        if (!cancelled) setAgendaSource("LEGADO");
+        // A semana é a ÚNICA fonte do contador do dia. Sem ela, o dia mostra
+        // vazio (`null`) em vez de esqueleto eterno — a lista continua abrindo,
+        // e a prévia real vem do clique no dia.
+        if (!cancelled) setDayCounts(Object.fromEntries(WEEK_DAYS.map((day) => [day.n, null])));
       })
       .finally(() => {
         if (!cancelled) setAgendaLoading(false);
@@ -483,23 +461,12 @@ export function RouteBuilderDialog({
     });
   }, [manualOrder, preview, search]);
 
-  async function loadDayCounts(days: number[]) {
-    if (agendaSource === "AGENDA_V2") return;
-    setDayCounts(Object.fromEntries(days.map((day) => [day, undefined])));
-    await Promise.all(days.map(async (day) => {
-      try {
-        const result = await fetchDayPreview("LEGADO", day, dateForWeekday(day));
-        setDayCounts((current) => ({ ...current, [day]: result.clientes.length }));
-      } catch {
-        setDayCounts((current) => ({ ...current, [day]: null }));
-      }
-    }));
-  }
-
+  // O contador de cada dia vem do resumo da semana, carregado ao abrir o
+  // diálogo (o botão fica desabilitado até chegar). O `loadDayCounts` que
+  // varria `/logistica/dia-preview` dia a dia morreu com a fonte legada.
   function openDays() {
     setError(null);
     setStep("days");
-    void loadDayCounts(WEEK_DAYS.map((day) => day.n));
   }
 
   async function refreshPreview(days: number[]) {
@@ -515,11 +482,11 @@ export function RouteBuilderDialog({
     try {
       const rows = await Promise.all(days.map(async (day) => {
         const primaryDate = dateForWeekday(day);
-        let result = await fetchDayPreview(agendaSource, day, primaryDate);
+        let result = await fetchDayPreview(day, primaryDate);
         let sourceDate = primaryDate;
         if (day === isoWeekday(operationalDate()) && result.clientes.length === 0) {
           const fallbackDate = dateForWeekday(day, 1);
-          const fallback = await fetchDayPreview(agendaSource, day, fallbackDate);
+          const fallback = await fetchDayPreview(day, fallbackDate);
           if (fallback.clientes.length) {
             result = fallback;
             sourceDate = fallbackDate;
@@ -641,7 +608,6 @@ export function RouteBuilderDialog({
       .map((customer) => ({
         customerProfileId: customer.customerProfileId,
         ...(customer.localId ? { localId: customer.localId } : {}),
-        itens: snapshotItems(customer),
       }));
     if (!stops.length) return;
     const existing = models.find((model) => Number(model.diaSemana) === day);
@@ -665,11 +631,13 @@ export function RouteBuilderDialog({
     setError(null);
     try {
       if (mode === "manual" && saveManual && selectedDays.length === 1) {
-        const snapshotCustomers = manualOrder.map((key) => preview.find((customer) => previewKey(customer) === key));
-        if (snapshotCustomers.some((customer) => !customer)) {
+        // A prévia velha ainda barra: sequência que aponta pra cliente que saiu
+        // da lista salvaria uma ordem que não existe. O que caiu (F3) foi só a
+        // conferência de PREÇO — a rota salva não guarda mais item nenhum.
+        const ordemAtual = manualOrder.map((key) => preview.find((customer) => previewKey(customer) === key));
+        if (ordemAtual.some((customer) => !customer)) {
           throw new Error("Atualize a prévia antes de salvar esta rota.");
         }
-        snapshotCustomers.forEach((customer) => snapshotItems(customer as PreviewCustomer));
       }
       const today = operationalDate();
       const selectedSourceDates = selectedDays.map((day) => sourceDates[day] || dateForWeekday(day));

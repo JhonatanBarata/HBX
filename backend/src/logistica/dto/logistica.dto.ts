@@ -970,6 +970,12 @@ export class VarrerRecoveryDto {
 // Uma parada do molde: cliente + local opcional (mesmo par que ordemManual usa
 // pra montar a lista de aplicação — o app resolve id→ordemManual na hora de
 // aplicar o modelo; não existe endpoint "aplicar" no backend).
+//
+// 🔴 F3 (09/08) — `itens` SAIU DA PORTA. O modelo de rota é só ORDEM: o que a
+// visita leva mora no PLANO (`LogisticaPlanoEntrega`), que é onde o dono
+// combina. O snapshot aqui era cópia byte a byte do `PlanoEntregaItem` e só
+// servia pra envelhecer sozinho. O APK sempre mandou apenas cliente+porta; o
+// desktop mandava `itens` e parou no mesmo commit (route-builder.tsx).
 export class RotaModeloParadaDto {
   @IsString()
   @MaxLength(80)
@@ -979,26 +985,6 @@ export class RotaModeloParadaDto {
   @IsString()
   @MaxLength(80)
   localId?: string;
-
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(50)
-  @ValidateNested({ each: true })
-  @Type(() => RotaModeloParadaItemDto)
-  itens?: RotaModeloParadaItemDto[];
-}
-
-export class RotaModeloParadaItemDto {
-  @IsInt()
-  productId!: number;
-
-  @IsInt()
-  @Min(1)
-  qtd!: number;
-
-  @IsNumber()
-  @Min(0)
-  valorUnit!: number;
 }
 
 export class CreateRotaModeloDto {

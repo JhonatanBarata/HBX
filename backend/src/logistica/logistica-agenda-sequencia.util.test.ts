@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   matchSequenciaImportada,
-  parseParadasModeloJson,
+  paradasDoModelo,
   separarParadasDuplicadas,
   SequenciaMatchPlano,
 } from './logistica-agenda-sequencia.util';
@@ -117,26 +117,26 @@ test('semPlano: parada do modelo cujo cliente não tem plano no dia', () => {
   assert.equal(resultado.semPlano[0].localId, null);
 });
 
-test('parseParadasModeloJson: não-array vira lista vazia (sem erro)', () => {
-  assert.deepEqual(parseParadasModeloJson(null), []);
-  assert.deepEqual(parseParadasModeloJson(undefined), []);
-  assert.deepEqual(parseParadasModeloJson('lixo'), []);
-  assert.deepEqual(parseParadasModeloJson({ nao: 'e array' }), []);
-  assert.deepEqual(parseParadasModeloJson(42), []);
+// 🔴 F3 (09/08) — a lista do modelo saiu do `paradasJson` e virou linha
+// (`LogisticaRotaModeloParada`). O leitor mudou de nome (`parseParadasModeloJson`
+// → `paradasDoModelo`), mas a LEI que ele guarda é a mesma e continua testada:
+// parada sem cliente é DESCARTADA, nunca vira '' — string vazia casaria com
+// qualquer plano.
+test('paradasDoModelo: lista ausente vira lista vazia (sem erro)', () => {
+  assert.deepEqual(paradasDoModelo(null), []);
+  assert.deepEqual(paradasDoModelo(undefined), []);
+  assert.deepEqual(paradasDoModelo([]), []);
 });
 
-test('parseParadasModeloJson: item null/lixo dentro do array é ignorado sem quebrar os válidos', () => {
-  const bruto = [
-    null,
-    'string solta',
-    42,
-    { semCustomerProfileId: true },
-    { customerProfileId: '' }, // vazio também não conta
+test('paradasDoModelo: parada SEM cliente é descartada e não vira string vazia', () => {
+  const rows = [
+    { customerProfileId: null, localId: null },   // parada ligada só ao plano
+    { customerProfileId: '   ', localId: null },  // só espaço também não conta
     { customerProfileId: '  cliente-ok  ', localId: 'local-1' },
-    { customerProfileId: 'cliente-sem-local' },
+    { customerProfileId: 'cliente-sem-local', localId: null },
   ];
 
-  const paradas = parseParadasModeloJson(bruto);
+  const paradas = paradasDoModelo(rows);
 
   assert.equal(paradas.length, 2);
   assert.deepEqual(paradas[0], { customerProfileId: 'cliente-ok', localId: 'local-1' });

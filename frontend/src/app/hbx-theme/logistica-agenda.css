@@ -166,48 +166,9 @@
   box-shadow: var(--shadow-xs);
 }
 
-.log-agenda-legacy {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  min-height: 46px;
-  padding: 8px 10px 8px 13px;
-  border: 1px solid color-mix(in srgb, var(--hbx-warning) 38%, var(--border-hairline));
-  border-radius: var(--radius-lg);
-  background: color-mix(in srgb, var(--hbx-warning) 8%, var(--hbx-surface));
-}
-
-.log-agenda-legacy strong {
-  color: var(--text-strong);
-  font-size: var(--fz-m1);
-  font-weight: 800;
-}
-
-.log-agenda-legacy__days {
-  display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
-  gap: 5px;
-}
-
-.log-agenda-legacy__day {
-  display: grid;
-  gap: 2px;
-  justify-items: center;
-  padding: 7px 5px;
-  border: 1px solid var(--border-hairline);
-  border-radius: var(--radius-md);
-  background: var(--hbx-surface-soft);
-  color: var(--text-muted);
-  font-size: var(--hbx-font-min);
-  font-weight: 750;
-  font-variant-numeric: tabular-nums;
-}
-
-.log-agenda-legacy__day b {
-  color: var(--text-strong);
-  font-size: var(--hbx-font-min);
-}
+/* MORREU AQUI a faixa `.log-agenda-legacy*` (F5, 09/08) — vestia a barra
+   "Agenda antiga · N vínculos" e a grade de dias do modal "Organizar agenda".
+   Os dois saíram do TSX na mesma passada; CSS sem tela é peso morto. */
 
 .log-agenda__head,
 .log-agenda__head-main,
@@ -1116,10 +1077,6 @@
     padding: 12px;
   }
 
-  .log-agenda-legacy__days {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
   .log-today-meta {
     align-items: flex-start;
     flex-wrap: wrap;
@@ -1184,11 +1141,6 @@
 }
 
 @media (max-width: 460px) {
-  .log-agenda-legacy {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
   .log-agenda__actions {
     display: grid;
     grid-template-columns: 1fr;

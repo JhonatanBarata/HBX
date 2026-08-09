@@ -9,6 +9,16 @@ import { canonicalRouteDate } from './logistica-route-billing.service';
  * opcional + paradas em ordem (cliente + local opcional). Company-scoped,
  * fail-closed (id de outra empresa → null, o controller vira 404).
  *
+ * 🔴 F3 (09/08) — O MODELO É SÓ ORDEM, E A ORDEM MORA NUMA TABELA SÓ.
+ * Até aqui a mesma lista vivia em DOIS lugares: `paradasJson` (array) e
+ * `LogisticaRotaModeloParada` (linhas). Em produção elas já tinham divergido —
+ * modelo `cms0xmqd0…` da empresa 41 com 9 paradas no JSON e 7 na tabela. Agora
+ * a TABELA é a única fonte: o JSON não é lido em lugar nenhum e sai no DROP da
+ * migration única. Junto morreram o item da parada
+ * (`LogisticaRotaModeloParadaItem`, cópia byte a byte do `PlanoEntregaItem`) e
+ * os snapshots de janela/acesso/adicional: **o item e a janela da visita moram
+ * no PLANO** (`LogisticaPlanoEntrega`), decisão G5 do plano dos 6 verbos.
+ *
  * Aplicar o modelo é 100% CLIENT-SIDE: o app lê `paradas` e monta o
  * `ordemManual` que manda pro planejar/iniciar — não existe endpoint
  * "aplicar" aqui (contrato do 00-ORQUESTRACAO.md).
@@ -29,6 +39,20 @@ import { canonicalRouteDate } from './logistica-route-billing.service';
  */
 export const ROTA_NOME_DUPLICADO_CODE = 'ROTA_NOME_DUPLICADO';
 export const ROTA_NOME_DUPLICADO_MESSAGE = 'Já existe uma rota com esse nome neste dia.';
+
+/**
+ * 🔴 A LISTA DE PARADAS MORA NUMA TABELA SÓ (09/08, F3 do PR09082026-ROTA-SEIS-VERBOS).
+ *
+ * Até aqui a mesma lista vivia em DOIS lugares — `paradasJson` (array na linha do
+ * modelo) e `LogisticaRotaModeloParada` (linhas de verdade) — e eles JÁ tinham
+ * divergido em produção: o modelo `cms0xmqd0…` da empresa 41 dizia 9 paradas no
+ * JSON e 7 na tabela. Duas cópias da mesma verdade não empatam pra sempre.
+ *
+ * Agora a TABELA é a única fonte, e a coluna foi dropada na mesma migration.
+ * O backfill que trouxe os modelos LIVRE (que só existiam no JSON) está em
+ * `backend/scripts/backfill-rota-modelo-paradas.js` — ele roda ANTES da migration,
+ * porque LÊ a coluna que ela apaga.
+ */
 
 type RotaModeloClient = Pick<PrismaService, 'logisticaRotaModelo'> | { logisticaRotaModelo: any };
 
@@ -76,6 +100,7 @@ export class LogisticaRotaModeloService {
     const rows = await this.prisma.logisticaRotaModelo.findMany({
       where: { companyId, tipo: 'LIVRE' },
       orderBy: [{ nome: 'asc' }],
+      include: { paradas: PARADAS_EM_ORDEM },
     });
     return rows.map(toDTO);
   }
@@ -84,13 +109,17 @@ export class LogisticaRotaModeloService {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const nome = normalizeNome(input.nome);
     const diaSemana = normalizeDiaSemana(input.diaSemana);
-    const paradas = normalizeParadas(input.paradas);
+    const paradas = await this.resolverParadas(companyId, normalizeParadas(input.paradas));
     await assertNomeUnico(this.prisma, companyId, nome, diaSemana);
-    const row = await this.prisma.logisticaRotaModelo.create({
-      data: { companyId, nome, diaSemana, paradasJson: paradas as any },
+    const row = await this.prisma.$transaction(async (tx) => {
+      const criado = await tx.logisticaRotaModelo.create({
+        data: { companyId, nome, diaSemana },
+      });
+      await gravarParadas(tx, companyId, criado.id, paradas);
+      return criado;
     });
     this.logger.log(`[logistica] rota-modelo criado company=${companyId} id=${row.id} paradas=${paradas.length}`);
-    return toDTO(row);
+    return toDTO({ ...row, paradas });
   }
 
   async update(companyId: number, id: string, input: Partial<RotaModeloInput>): Promise<RotaModeloDTO | null> {
@@ -114,10 +143,80 @@ export class LogisticaRotaModeloService {
       data.nome = nome;
     }
     if (input.diaSemana !== undefined) data.diaSemana = diaFinal;
-    if (input.paradas !== undefined) data.paradasJson = normalizeParadas(input.paradas) as any;
+    // A lista NOVA é conferida ANTES de apagar a antiga: cliente fantasma tem
+    // que virar 400 com a rota velha intacta, nunca modelo esvaziado no meio.
+    const paradas = input.paradas !== undefined
+      ? await this.resolverParadas(companyId, normalizeParadas(input.paradas))
+      : null;
 
-    const row = await this.prisma.logisticaRotaModelo.update({ where: { id: existing.id }, data });
-    return toDTO(row);
+    const row = await this.prisma.$transaction(async (tx) => {
+      const atualizado = await tx.logisticaRotaModelo.update({ where: { id: existing.id }, data });
+      if (paradas) {
+        // Trocar a ordem é REESCREVER a lista: apaga e regrava 1..N. A unique
+        // (rotaModeloId, ordem) não deixa duas linhas na mesma posição, então
+        // update posição-a-posição precisaria de dois passes — apagar antes é
+        // mais barato e não deixa sobra de parada que saiu do molde.
+        await tx.logisticaRotaModeloParada.deleteMany({ where: { companyId, rotaModeloId: existing.id } });
+        await gravarParadas(tx, companyId, existing.id, paradas);
+      }
+      return atualizado;
+    });
+    if (paradas) return toDTO({ ...row, paradas });
+    const atual = await this.prisma.logisticaRotaModelo.findFirst({
+      where: { id: existing.id, companyId },
+      include: { paradas: PARADAS_EM_ORDEM },
+    });
+    return atual ? toDTO(atual) : null;
+  }
+
+  /**
+   * A LISTA VIRA LINHA (F3, 09/08) — e linha tem FK de verdade.
+   * `LogisticaRotaModeloParada` aponta pra `CustomerProfile` e `LocalEntrega`
+   * com `Restrict`: id que não existe nesta empresa derrubava o INSERT com erro
+   * cru de banco (500 na cara do motorista, no meio da rua). Então a lista é
+   * CONFERIDA antes de escrever:
+   *
+   * - cliente inexistente / de outra empresa → 400 explicando o quê (fail-closed,
+   *   multi-tenant: nada atravessa empresa);
+   * - local que não é mais daquele cliente → vira `null` COM ALARME no log. É a
+   *   mesma leniência que o `gerar` sempre teve com o localId velho do JSON, só
+   *   que aplicada na HORA DE GRAVAR, onde o dado ainda dá pra consertar.
+   */
+  private async resolverParadas(companyId: number, entrada: RotaModeloParada[]): Promise<ParadaOrdenada[]> {
+    if (!entrada.length) return [];
+    const clienteIds = [...new Set(entrada.map((parada) => parada.customerProfileId))];
+    const clientes = await this.prisma.customerProfile.findMany({
+      where: { companyId, id: { in: clienteIds } },
+      select: { id: true },
+    });
+    const daEmpresa = new Set(clientes.map((cliente) => cliente.id));
+    const fantasmas = clienteIds.filter((id) => !daEmpresa.has(id));
+    if (fantasmas.length) {
+      this.logger.warn(
+        `[logistica] rota-modelo company=${companyId}: ${fantasmas.length} parada(s) apontam pra cliente fora da empresa (${fantasmas.slice(0, 5).join(', ')})`,
+      );
+      throw new BadRequestException('Uma parada aponta para um cliente que não existe nesta empresa.');
+    }
+
+    const locaisPedidos = [...new Set(entrada.map((parada) => parada.localId).filter(Boolean) as string[])];
+    const locais = locaisPedidos.length
+      ? await this.prisma.localEntrega.findMany({
+        where: { companyId, id: { in: locaisPedidos } },
+        select: { id: true, customerProfileId: true },
+      })
+      : [];
+    const donoDoLocal = new Map(locais.map((local) => [local.id, local.customerProfileId]));
+
+    return entrada.map((parada, index) => {
+      let localId = parada.localId ?? null;
+      if (localId && donoDoLocal.get(localId) !== parada.customerProfileId) {
+        this.logger.warn(
+          `[logistica] rota-modelo company=${companyId}: local ${localId} não é mais do cliente ${parada.customerProfileId} — parada salva sem porta.`,
+        );
+        localId = null;
+      }
+      return { customerProfileId: parada.customerProfileId, localId, ordem: index + 1 };
+    });
   }
 
   async remove(companyId: number, id: string): Promise<boolean> {
@@ -151,9 +250,11 @@ export class LogisticaRotaModeloService {
    * `origem:'avulsa'` (NÃO reusa 'recorrente' — consumidores de `origem` não
    * são tocados por este PR), `cobrancaStatus:'pendente'`.
    *
-   * Cada parada precisa carregar a fotografia exata de itens, quantidade e
-   * preço. A rota salva nunca consulta `ClienteProduto`: vínculo comercial não
-   * pode trocar silenciosamente o conteúdo de uma visita já organizada.
+   * 🔴 F3 (09/08) — o QUE o cliente recebe NÃO mora mais aqui. O modelo é só
+   * ORDEM (cliente + porta + posição); os itens vêm do PLANO da Agenda, que é
+   * onde o dono combina o que a visita leva. O snapshot de itens da parada era
+   * cópia byte a byte do `LogisticaPlanoEntregaItem` (716 = 716 em produção) e
+   * só servia pra divergir do plano com o tempo.
    *
    * Idempotência IDÊNTICA ao gerarDia — [companyId, customerProfileId, localId,
    * dia]: já existe Entrega → REUSA o id (não duplica com a recorrência nem
@@ -170,13 +271,11 @@ export class LogisticaRotaModeloService {
     if (!Number.isInteger(userId) || userId <= 0) throw new BadRequestException('Usuário não identificado');
     const modelo = await this.prisma.logisticaRotaModelo.findFirst({
       where: { id: String(id ?? '').trim(), companyId, tipo: 'LIVRE' },
-      select: { id: true, paradasJson: true },
+      select: { id: true, paradas: PARADAS_EM_ORDEM },
     });
     if (!modelo) throw new NotFoundException('Modelo de rota não encontrado');
 
-    const paradas: RotaModeloParada[] = Array.isArray(modelo.paradasJson)
-      ? (modelo.paradasJson as unknown as RotaModeloParada[])
-      : [];
+    const paradas = modelo.paradas;
 
     const dia = startOfDay(parseDateOrNull(dateInput) ?? new Date());
     const dayEnd = endOfDay(dia);
@@ -197,7 +296,7 @@ export class LogisticaRotaModeloService {
     const nomes = new Map<number, string>();
 
     for (const parada of paradas) {
-      const customerProfileId = String((parada as any)?.customerProfileId ?? '').trim();
+      const customerProfileId = String(parada.customerProfileId ?? '').trim();
       if (!customerProfileId) {
         avisos.push('Parada sem cliente vinculado foi ignorada.');
         continue;
@@ -222,7 +321,7 @@ export class LogisticaRotaModeloService {
       // localId da parada salva SÓ vale se ainda pertencer ao MESMO cliente+
       // empresa (leniência igual à do resolveLocalDoCliente em recorrencia) —
       // senão cai no grupo sem-local (null), mesma chave de idempotência do gerarDia.
-      const localIdParada = String((parada as any)?.localId ?? '').trim();
+      const localIdParada = String(parada.localId ?? '').trim();
       let localId: string | null = null;
       if (localIdParada) {
         const local = await this.prisma.localEntrega.findFirst({
@@ -352,34 +451,27 @@ export class LogisticaRotaModeloService {
       // Como o app mostra o 1º aviso como erro, o dono via o nome de um cliente
       // que nem existe mais no cadastro e nenhuma rota.
       //
-      // Agora o snapshot é o ATALHO, não a exigência: sem ele, os itens vêm do
-      // plano ATIVO daquele cliente/local na Agenda (a mesma fonte do gerar-dia).
-      // Só depois de as duas portas falharem é que a parada vira aviso.
-      // CASCATA DE 3 FONTES, nesta ordem:
-      //  1) snapshot da parada (rota salva pelo editor/Leitura — o mais fiel);
-      //  2) plano ATIVO da Agenda V2 (a fonte da visita hoje, mesma do gerar-dia);
-      //  3) vínculo ClienteProduto ativo (empresa ainda em modo LEGADO).
-      // Só depois das três é que a parada vira aviso.
-      let itens: EntregaItemCreate[] = Array.isArray(parada.itens) && parada.itens.length
-        ? await resolveSnapshotItens(this.prisma, companyId, parada.itens)
-        : [];
-      if (!itens.length) {
-        const plano = await this.prisma.logisticaPlanoEntrega.findFirst({
-          where: {
-            companyId,
-            customerProfileId,
-            ativo: true,
-            ...(localId ? { localId } : {}),
-          },
-          orderBy: { createdAt: 'asc' },
-          select: { itens: { select: { productId: true, qtd: true, valorUnit: true } } },
-        });
-        itens = (plano?.itens ?? []).map((item) => ({
-          productId: item.productId,
-          qtdPrevista: Math.max(1, Math.trunc(Number(item.qtd) || 1)),
-          valorUnit: Number(item.valorUnit || 0),
-        }));
-      }
+      // 🔴 F3 (09/08) — A CASCATA PERDEU O 1º DEGRAU e ficou mais honesta.
+      // O snapshot de itens da parada MORREU (era cópia do plano que envelhecia
+      // sozinha). Restam as duas fontes que são donas do assunto de verdade:
+      //  1) plano ATIVO da Agenda V2 (a fonte da visita hoje, mesma do gerar-dia);
+      //  2) vínculo ClienteProduto ativo (empresa ainda em modo LEGADO).
+      // Só depois das duas é que a parada vira aviso.
+      const plano = await this.prisma.logisticaPlanoEntrega.findFirst({
+        where: {
+          companyId,
+          customerProfileId,
+          ativo: true,
+          ...(localId ? { localId } : {}),
+        },
+        orderBy: { createdAt: 'asc' },
+        select: { itens: { select: { productId: true, qtd: true, valorUnit: true } } },
+      });
+      let itens: EntregaItemCreate[] = (plano?.itens ?? []).map((item) => ({
+        productId: item.productId,
+        qtdPrevista: Math.max(1, Math.trunc(Number(item.qtd) || 1)),
+        valorUnit: Number(item.valorUnit || 0),
+      }));
       if (!itens.length) itens = await this.resolveLegacyItens(companyId, customerProfileId);
       if (!itens.length) {
         avisos.push(`${cliente.name || 'Um cliente'} está sem itens na Agenda — revise o cadastro.`);
@@ -573,7 +665,7 @@ export class LogisticaRotaModeloService {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const modelos = await this.prisma.logisticaRotaModelo.findMany({
       where: { companyId, tipo: 'LIVRE' },
-      select: { id: true, paradasJson: true },
+      select: { id: true, paradas: PARADAS_EM_ORDEM },
     });
     if (!modelos.length) return [];
 
@@ -584,11 +676,8 @@ export class LogisticaRotaModeloService {
     const clientesPorModelo = new Map<string, string[]>();
     const todosClientes = new Set<string>();
     for (const modelo of modelos) {
-      const paradas: RotaModeloParada[] = Array.isArray(modelo.paradasJson)
-        ? (modelo.paradasJson as unknown as RotaModeloParada[])
-        : [];
-      const ids = paradas
-        .map((parada) => String((parada as any)?.customerProfileId ?? '').trim())
+      const ids = modelo.paradas
+        .map((parada) => String(parada.customerProfileId ?? '').trim())
         .filter(Boolean);
       clientesPorModelo.set(modelo.id, ids);
       for (const id of ids) todosClientes.add(id);
@@ -730,24 +819,40 @@ export class LogisticaRotaModeloService {
   }
 }
 
-async function resolveSnapshotItens(
-  prisma: Pick<PrismaService, 'product'>,
+/**
+ * A ORDEM É A LISTA. Toda leitura de parada do modelo passa por AQUI — um
+ * `select` só, com `orderBy: ordem`. É o que garante que "aplicar o modelo"
+ * devolva sempre a MESMA sequência, sem cada tela inventar a própria ordenação.
+ */
+const PARADAS_EM_ORDEM = {
+  orderBy: { ordem: 'asc' },
+  select: { customerProfileId: true, localId: true },
+} as const;
+
+/**
+ * Grava a lista 1..N. `createMany` (e não create aninhado) de propósito:
+ * `companyId` participa das relações compostas da parada, então num create
+ * ANINHADO o Prisma o herda do pai e passá-lo derruba com "Unknown argument
+ * `companyId`" só em RUNTIME (mesma lei do createPlan/createRouteStop). No
+ * `createMany`, que é chamada de topo, ele é escalar comum e VAI explícito.
+ */
+async function gravarParadas(
+  tx: any,
   companyId: number,
-  snapshot: RotaModeloItem[],
-): Promise<EntregaItemCreate[]> {
-  const itens = snapshot.map((item) => ({
-    productId: Math.trunc(Number(item.productId)),
-    qtdPrevista: Math.trunc(Number(item.qtd)),
-    valorUnit: Number(item.valorUnit),
-  }));
-  const productIds = [...new Set(itens.map((item) => item.productId))];
-  const produtos = productIds.length
-    ? await prisma.product.findMany({ where: { companyId, id: { in: productIds } }, select: { id: true } })
-    : [];
-  if (produtos.length !== productIds.length) {
-    throw new BadRequestException('Um produto salvo nesta rota não pertence mais a esta empresa.');
-  }
-  return itens;
+  rotaModeloId: string,
+  paradas: ParadaOrdenada[],
+): Promise<void> {
+  if (!paradas.length) return;
+  await tx.logisticaRotaModeloParada.createMany({
+    data: paradas.map((parada) => ({
+      companyId,
+      rotaModeloId,
+      customerProfileId: parada.customerProfileId,
+      localId: parada.localId,
+      ordem: parada.ordem,
+      ordemTravada: true,
+    })),
+  });
 }
 
 /**
@@ -802,10 +907,16 @@ export function normalizeDiaSemana(value: unknown): number | null {
   return n;
 }
 
-// PR20072026 W1 — `horaRef` ("HH:MM") é chave ADITIVA: hora de referência da
-// parada. Quem gravava era o finalizar da Leitura de Rota (enterrada em 09/08),
-// mas os modelos SALVOS por ela seguem em produção com a chave — PRESERVAR aqui,
-// senão uma releitura de modelo antigo perde o campo em silêncio.
+/**
+ * 🔴 F3 (09/08) — A PARADA VIROU DUAS CHAVES: cliente e porta. Saíram daqui:
+ * - `itens`: o que a visita leva mora no PLANO (`LogisticaPlanoEntrega`), que é
+ *   onde o dono combina — snapshot na parada só servia pra envelhecer sozinho;
+ * - `horaRef`: quem gravava era o finalizar da Leitura de Rota, enterrada em
+ *   09/08 (F4). Sem escritor e sem coluna pra morar, o campo virava enfeite que
+ *   a próxima gravação apagaria de qualquer jeito.
+ * Chave a mais no corpo NÃO passa calada: o `ValidationPipe` roda com
+ * `forbidNonWhitelisted`, então o DTO recusa `itens` na porta, antes daqui.
+ */
 export function normalizeParadas(value: unknown): RotaModeloParada[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) throw new BadRequestException('paradas deve ser uma lista.');
@@ -817,35 +928,9 @@ export function normalizeParadas(value: unknown): RotaModeloParada[] {
     }
     const localIdRaw = (item as any)?.localId;
     const localId = localIdRaw != null ? String(localIdRaw).trim() : null;
-    const horaRefRaw = (item as any)?.horaRef;
-    const horaRef = horaRefRaw != null ? String(horaRefRaw).trim() : null;
-    const itensRaw = (item as any)?.itens;
-    let itens: RotaModeloItem[] | undefined;
-    if (itensRaw !== undefined) {
-      if (!Array.isArray(itensRaw) || itensRaw.length > 50) {
-        throw new BadRequestException(`paradas[${index}].itens deve ter no máximo 50 itens.`);
-      }
-      itens = itensRaw.map((raw: any, itemIndex: number) => {
-        const productId = Math.trunc(Number(raw?.productId));
-        const qtd = Math.trunc(Number(raw?.qtd));
-        const valorUnit = Number(raw?.valorUnit);
-        if (!Number.isInteger(productId) || productId <= 0) {
-          throw new BadRequestException(`paradas[${index}].itens[${itemIndex}].productId inválido.`);
-        }
-        if (!Number.isInteger(qtd) || qtd < 1) {
-          throw new BadRequestException(`paradas[${index}].itens[${itemIndex}].qtd deve ser ao menos 1.`);
-        }
-        if (!Number.isFinite(valorUnit) || valorUnit < 0) {
-          throw new BadRequestException(`paradas[${index}].itens[${itemIndex}].valorUnit inválido.`);
-        }
-        return { productId, qtd, valorUnit };
-      });
-    }
     return {
       customerProfileId,
       ...(localId ? { localId } : {}),
-      ...(horaRef ? { horaRef } : {}),
-      ...(itens ? { itens } : {}),
     };
   });
 }
@@ -854,8 +939,8 @@ function toDTO(row: {
   id: string;
   nome: string;
   diaSemana: number | null;
-  paradasJson: unknown;
   createdAt?: Date | null;
+  paradas?: Array<{ customerProfileId: string | null; localId: string | null }> | null;
 }): RotaModeloDTO {
   return {
     id: row.id,
@@ -867,22 +952,28 @@ function toDTO(row: {
     // trocar de lugar embaixo do dedo do motorista. Campo que já existia na
     // linha — só não saía pela porta.
     criadoEm: row.createdAt ? new Date(row.createdAt).toISOString() : null,
-    paradas: Array.isArray(row.paradasJson) ? (row.paradasJson as RotaModeloParada[]) : [],
+    // O contrato da porta NÃO mudou com a F3: continua `[{customerProfileId,
+    // localId?}]`, na ordem. O app (`ordenarPeloEspaco`) e o desktop leem isto
+    // igualzinho — o que mudou foi de ONDE o servidor tira a lista.
+    paradas: (row.paradas ?? [])
+      .filter((parada) => !!parada.customerProfileId)
+      .map((parada) => ({
+        customerProfileId: String(parada.customerProfileId),
+        ...(parada.localId ? { localId: parada.localId } : {}),
+      })),
   };
 }
 
 export interface RotaModeloParada {
   customerProfileId: string;
   localId?: string;
-  // PR20072026 W1 — hora de referência ("HH:MM") da parada na captura original.
-  horaRef?: string;
-  itens?: RotaModeloItem[];
 }
 
-export interface RotaModeloItem {
-  productId: number;
-  qtd: number;
-  valorUnit: number;
+/** A parada já conferida contra o banco, com a posição que vai pro `ordem`. */
+interface ParadaOrdenada {
+  customerProfileId: string;
+  localId: string | null;
+  ordem: number;
 }
 
 interface EntregaItemCreate {

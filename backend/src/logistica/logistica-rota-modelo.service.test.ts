@@ -8,14 +8,28 @@ import { LogisticaRotaModeloService } from './logistica-rota-modelo.service';
  * opcional + paradas em ordem. Company-scoped fail-closed (404 cross-tenant).
  */
 
-function buildPrisma(seed: any[] = []) {
-  const store = new Map<string, any>(seed.map((row) => [row.id, { ...row }]));
+/**
+ * 🔴 F3 (09/08) — A BANCADA SEGUIU A FONTE. As fixtures deixaram de semear
+ * `paradasJson` e passaram a semear `paradas` (as linhas de
+ * `LogisticaRotaModeloParada`), porque é DE LÁ que o serviço lê agora. Uma
+ * bancada que continuasse alimentando o JSON ficaria verde enquanto a tela do
+ * dono voltava vazia — teste que mede a cópia morta não prova nada.
+ */
+function buildPrisma(seed: any[] = [], locais: Array<{ id: string; customerProfileId: string }> = []) {
+  const store = new Map<string, any>(seed.map((row) => [row.id, { paradas: [], ...row }]));
   let nextId = 1;
+  const ordenadas = (row: any) =>
+    [...(row.paradas ?? [])]
+      .sort((a: any, b: any) => (a.ordem ?? 0) - (b.ordem ?? 0))
+      .map((p: any) => ({ customerProfileId: p.customerProfileId, localId: p.localId ?? null }));
+  const comParadas = (row: any) => ({ ...row, paradas: ordenadas(row) });
   const prisma: any = {
     logisticaRotaModelo: {
       findMany: async (args: any) => {
         const where = args?.where || {};
-        return Array.from(store.values()).filter((row) => row.companyId === where.companyId);
+        return Array.from(store.values())
+          .filter((row) => row.companyId === where.companyId)
+          .map(comParadas);
       },
       // PR20072026 W1 — findFirst também serve o lookup por NOME (case-insensitive)
       // de assertNomeUnico (where.id ausente, where.nome = {equals, mode}).
@@ -37,11 +51,11 @@ function buildPrisma(seed: any[] = []) {
         }
         const row = rows[0];
         if (!row) return null;
-        return { id: row.id, nome: row.nome, diaSemana: row.diaSemana ?? null };
+        return comParadas(row);
       },
       create: async (args: any) => {
         const id = `modelo-${nextId++}`;
-        const row = { id, createdAt: new Date(), updatedAt: new Date(), ...args.data };
+        const row = { id, createdAt: new Date(), updatedAt: new Date(), paradas: [], ...args.data };
         store.set(id, row);
         return row;
       },
@@ -55,18 +69,59 @@ function buildPrisma(seed: any[] = []) {
         return { id: args.where.id };
       },
     },
+    // A ordem agora é LINHA: createMany grava 1..N e deleteMany limpa o modelo
+    // inteiro antes de regravar (é assim que o serviço reescreve a sequência).
+    logisticaRotaModeloParada: {
+      createMany: async ({ data }: any) => {
+        for (const parada of data) {
+          const dono = store.get(parada.rotaModeloId);
+          if (!dono) throw new Error(`parada órfã: modelo ${parada.rotaModeloId} não existe`);
+          dono.paradas = [...(dono.paradas ?? []), { ...parada }];
+        }
+        return { count: data.length };
+      },
+      deleteMany: async ({ where }: any) => {
+        const dono = store.get(where.rotaModeloId);
+        const antes = dono?.paradas?.length ?? 0;
+        if (dono) dono.paradas = [];
+        return { count: antes };
+      },
+    },
+    // `resolverParadas` confere cliente e porta ANTES de gravar (a FK é
+    // Restrict). Por padrão a bancada diz "existe" pra tudo que foi pedido;
+    // quem quiser testar o fantasma sobrescreve este mock.
+    customerProfile: {
+      findMany: async ({ where }: any) => (where?.id?.in ?? []).map((id: string) => ({ id })),
+    },
+    // Porta SÓ vale se ainda for do MESMO cliente (FK composta + a leniência do
+    // serviço). Bancada sem local semeado = nenhuma porta existe, e a parada é
+    // gravada sem porta com alarme no log — que é o comportamento de verdade.
+    localEntrega: {
+      findMany: async ({ where }: any) => locais.filter((local) => (where?.id?.in ?? []).includes(local.id)),
+    },
     // 27/07 — `remove` solta o carimbo de origem das entregas antes de apagar o
     // modelo (FK Restrict). Sem estes dois mocks os testes de remove estouravam
     // "Cannot read properties of undefined (reading 'updateMany')" — falha de
     // FIXTURE, não de comportamento, que deixava a suíte vermelha desde então.
     entrega: { updateMany: async () => ({ count: 0 }) },
-    $transaction: async (ops: any[]) => Promise.all(ops),
+    // As duas formas: array (o `remove`) e callback (create/update, que agora
+    // escrevem modelo + paradas na MESMA transação).
+    $transaction: async (arg: any) => (Array.isArray(arg) ? Promise.all(arg) : arg(prisma)),
   };
   return { prisma, store };
 }
 
+/** Açúcar da bancada: as linhas de parada de um modelo, já numeradas. */
+function paradasSeed(pares: Array<[string, string | null]>) {
+  return pares.map(([customerProfileId, localId], index) => ({
+    customerProfileId,
+    localId,
+    ordem: index + 1,
+  }));
+}
+
 test('create: grava nome/diaSemana/paradas e devolve o DTO', async () => {
-  const { prisma } = buildPrisma();
+  const { prisma } = buildPrisma([], [{ id: 'l2', customerProfileId: 'c2' }]);
   const svc = new LogisticaRotaModeloService(prisma);
   const dto = await svc.create(7, {
     nome: 'Segunda — Centro',
@@ -117,8 +172,8 @@ test('create: parada sem customerProfileId rejeita', async () => {
 
 test('list: só lista os modelos da PRÓPRIA empresa', async () => {
   const { prisma } = buildPrisma([
-    { id: 'm1', companyId: 7, nome: 'A', diaSemana: null, paradasJson: [] },
-    { id: 'm2', companyId: 8, nome: 'B', diaSemana: null, paradasJson: [] },
+    { id: 'm1', companyId: 7, nome: 'A', diaSemana: null, paradas: [] },
+    { id: 'm2', companyId: 8, nome: 'B', diaSemana: null, paradas: [] },
   ]);
   const svc = new LogisticaRotaModeloService(prisma);
   const list = await svc.list(7);
@@ -128,7 +183,7 @@ test('list: só lista os modelos da PRÓPRIA empresa', async () => {
 
 test('update: edita nome/diaSemana/paradas (PATCH parcial); campos omitidos não mudam', async () => {
   const { prisma } = buildPrisma([
-    { id: 'm1', companyId: 7, nome: 'Original', diaSemana: 1, paradasJson: [{ customerProfileId: 'c1' }] },
+    { id: 'm1', companyId: 7, nome: 'Original', diaSemana: 1, paradas: [{ customerProfileId: 'c1' }] },
   ]);
   const svc = new LogisticaRotaModeloService(prisma);
   const dto = await svc.update(7, 'm1', { nome: 'Renomeado' });
@@ -138,7 +193,7 @@ test('update: edita nome/diaSemana/paradas (PATCH parcial); campos omitidos não
 });
 
 test('update: id de OUTRA empresa → null (404 no controller), nada é escrito', async () => {
-  const { prisma, store } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'A', diaSemana: null, paradasJson: [] }]);
+  const { prisma, store } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'A', diaSemana: null, paradas: [] }]);
   const svc = new LogisticaRotaModeloService(prisma);
   const res = await svc.update(999, 'm1', { nome: 'Hackeado' });
   assert.equal(res, null);
@@ -146,7 +201,7 @@ test('update: id de OUTRA empresa → null (404 no controller), nada é escrito'
 });
 
 test('remove: apaga o modelo da própria empresa e devolve true', async () => {
-  const { prisma, store } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'A', diaSemana: null, paradasJson: [] }]);
+  const { prisma, store } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'A', diaSemana: null, paradas: [] }]);
   const svc = new LogisticaRotaModeloService(prisma);
   const ok = await svc.remove(7, 'm1');
   assert.equal(ok, true);
@@ -154,7 +209,7 @@ test('remove: apaga o modelo da própria empresa e devolve true', async () => {
 });
 
 test('remove: id de OUTRA empresa → false, não apaga', async () => {
-  const { prisma, store } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'A', diaSemana: null, paradasJson: [] }]);
+  const { prisma, store } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'A', diaSemana: null, paradas: [] }]);
   const svc = new LogisticaRotaModeloService(prisma);
   const ok = await svc.remove(999, 'm1');
   assert.equal(ok, false);
@@ -171,7 +226,7 @@ test('remove: id inexistente → false', async () => {
 // 08/08 — a régua passou a ser POR DIA (os 2 espaços da tela de montar).
 
 test('create: nome duplicado (case-insensitive) no MESMO dia → 409 ROTA_NOME_DUPLICADO', async () => {
-  const { prisma } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'Segunda — Centro', diaSemana: 1, paradasJson: [] }]);
+  const { prisma } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'Segunda — Centro', diaSemana: 1, paradas: [] }]);
   const svc = new LogisticaRotaModeloService(prisma);
   await assert.rejects(
     () => svc.create(7, { nome: '  segunda — centro  ', diaSemana: 1 }),
@@ -188,7 +243,7 @@ test('create: nome duplicado (case-insensitive) no MESMO dia → 409 ROTA_NOME_D
    sábado não pode trancar "Manhã" na segunda, senão o 2º espaço de metade dos
    dias nasce impossível de salvar. */
 test('create: MESMO nome em OUTRO dia da semana não conflita', async () => {
-  const { prisma } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'Manhã', diaSemana: 6, paradasJson: [] }]);
+  const { prisma } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'Manhã', diaSemana: 6, paradas: [] }]);
   const svc = new LogisticaRotaModeloService(prisma);
   const dto = await svc.create(7, { nome: 'Manhã', diaSemana: 1 });
   assert.equal(dto.nome, 'Manhã');
@@ -198,7 +253,7 @@ test('create: MESMO nome em OUTRO dia da semana não conflita', async () => {
 /* As SEM dia fixo (`diaSemana: null`) formam o próprio espaço de nome — o filtro
    é `diaSemana: null`, não "sem filtro". */
 test('create: nome duplicado entre duas rotas SEM dia fixo → 409', async () => {
-  const { prisma } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'Avulsa', diaSemana: null, paradasJson: [] }]);
+  const { prisma } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'Avulsa', diaSemana: null, paradas: [] }]);
   const svc = new LogisticaRotaModeloService(prisma);
   await assert.rejects(
     () => svc.create(7, { nome: 'AVULSA' }),
@@ -210,7 +265,7 @@ test('create: nome duplicado entre duas rotas SEM dia fixo → 409', async () =>
 });
 
 test('create: mesmo nome em OUTRA empresa não conflita', async () => {
-  const { prisma } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'Segunda', diaSemana: 1, paradasJson: [] }]);
+  const { prisma } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'Segunda', diaSemana: 1, paradas: [] }]);
   const svc = new LogisticaRotaModeloService(prisma);
   const dto = await svc.create(8, { nome: 'Segunda' });
   assert.equal(dto.nome, 'Segunda');
@@ -218,8 +273,8 @@ test('create: mesmo nome em OUTRA empresa não conflita', async () => {
 
 test('update: renomear para um nome já usado por OUTRO modelo DO MESMO DIA → 409 ROTA_NOME_DUPLICADO', async () => {
   const { prisma } = buildPrisma([
-    { id: 'm1', companyId: 7, nome: 'Manhã', diaSemana: 1, paradasJson: [] },
-    { id: 'm2', companyId: 7, nome: 'Tarde', diaSemana: 1, paradasJson: [] },
+    { id: 'm1', companyId: 7, nome: 'Manhã', diaSemana: 1, paradas: [] },
+    { id: 'm2', companyId: 7, nome: 'Tarde', diaSemana: 1, paradas: [] },
   ]);
   const svc = new LogisticaRotaModeloService(prisma);
   await assert.rejects(
@@ -234,8 +289,8 @@ test('update: renomear para um nome já usado por OUTRO modelo DO MESMO DIA → 
 
 test('update: renomear pro nome de um modelo de OUTRO dia não conflita', async () => {
   const { prisma } = buildPrisma([
-    { id: 'm1', companyId: 7, nome: 'Manhã', diaSemana: 6, paradasJson: [] },
-    { id: 'm2', companyId: 7, nome: 'Tarde', diaSemana: 1, paradasJson: [] },
+    { id: 'm1', companyId: 7, nome: 'Manhã', diaSemana: 6, paradas: [] },
+    { id: 'm2', companyId: 7, nome: 'Tarde', diaSemana: 1, paradas: [] },
   ]);
   const svc = new LogisticaRotaModeloService(prisma);
   const dto = await svc.update(7, 'm2', { nome: 'Manhã' });
@@ -246,8 +301,8 @@ test('update: renomear pro nome de um modelo de OUTRO dia não conflita', async 
    de origem deixaria o nome passar aqui e colidir lá — duas "Manhã" no sábado. */
 test('update: mudar nome e dia junto confere no dia de DESTINO → 409', async () => {
   const { prisma } = buildPrisma([
-    { id: 'm1', companyId: 7, nome: 'Manhã', diaSemana: 6, paradasJson: [] },
-    { id: 'm2', companyId: 7, nome: 'Tarde', diaSemana: 1, paradasJson: [] },
+    { id: 'm1', companyId: 7, nome: 'Manhã', diaSemana: 6, paradas: [] },
+    { id: 'm2', companyId: 7, nome: 'Tarde', diaSemana: 1, paradas: [] },
   ]);
   const svc = new LogisticaRotaModeloService(prisma);
   await assert.rejects(
@@ -260,7 +315,7 @@ test('update: mudar nome e dia junto confere no dia de DESTINO → 409', async (
 });
 
 test('update: renomear pro MESMO nome do próprio modelo não conflita', async () => {
-  const { prisma } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'Segunda', diaSemana: 1, paradasJson: [] }]);
+  const { prisma } = buildPrisma([{ id: 'm1', companyId: 7, nome: 'Segunda', diaSemana: 1, paradas: [] }]);
   const svc = new LogisticaRotaModeloService(prisma);
   const dto = await svc.update(7, 'm1', { nome: 'Segunda' });
   assert.equal(dto!.nome, 'Segunda');
@@ -295,16 +350,24 @@ function buildGerarPrisma(
   const entregas = new Map<string, any>((seed.entregas ?? []).map((r) => [r.id, { ...r }]));
   const contatos = new Map<string, any>((seed.contatos ?? []).map((r) => [r.id, { ...r }]));
   let entregaSeq = 0;
+  /** As paradas do modelo como a tabela devolve: só cliente + porta, em ordem. */
+  const paradasDo = (row: any) => (row.paradas ?? []).map((p: any) => ({
+    customerProfileId: p.customerProfileId ?? null,
+    localId: p.localId ?? null,
+  }));
 
   const prisma: any = {
+    // 🔴 F3 (09/08) — a lista do modelo vem da TABELA (`paradas`), na ordem.
+    // O seed usa `paradas: [{ customerProfileId, localId? }]`: é o mesmo par que
+    // o serviço lê de `LogisticaRotaModeloParada`.
     logisticaRotaModelo: {
       findFirst: async ({ where }: any) => {
         const row = Array.from(modelos.values()).find((r) => r.id === where.id && r.companyId === where.companyId);
-        return row ? { id: row.id, paradasJson: row.paradasJson } : null;
+        return row ? { id: row.id, paradas: paradasDo(row) } : null;
       },
       findMany: async ({ where }: any) => Array.from(modelos.values())
         .filter((r) => r.companyId === where.companyId)
-        .map((r) => ({ id: r.id, paradasJson: r.paradasJson })),
+        .map((r) => ({ id: r.id, paradas: paradasDo(r) })),
     },
     customerProfile: {
       findFirst: async ({ where }: any) => {
@@ -452,7 +515,7 @@ function buildGerarPrisma(
 
 test('gerar: modelo de OUTRA empresa → 404', async () => {
   const { prisma } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: 999, paradasJson: [] }],
+    modelos: [{ id: 'm1', companyId: 999, paradas: [] }],
   });
   const svc = new LogisticaRotaModeloService(prisma);
   await assert.rejects(() => svc.gerar(COMPANY, 'm1', GERAR_DATE, USER), /não encontrado/);
@@ -460,7 +523,7 @@ test('gerar: modelo de OUTRA empresa → 404', async () => {
 
 test('gerar: cliente COM vínculo ativo → Entrega criada com itens "de sempre" (ignora dia/vencimento)', async () => {
   const { prisma, entregas } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    modelos: [{ id: 'm1', companyId: COMPANY, paradas: [{ customerProfileId: 'c1' }] }],
     customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
     produtos: [{ id: 1, price: 7, priceCents: null }],
     clienteProdutos: [
@@ -501,7 +564,7 @@ test('gerar: cliente COM vínculo ativo → Entrega criada com itens "de sempre"
 // tela, rota vazia. Cancelada agora REABRE a mesma linha (não duplica, não cobra 2x).
 test('gerar: entrega CANCELADA do dia → reabre a MESMA linha em vez de devolver rota vazia', async () => {
   const { prisma, entregas } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    modelos: [{ id: 'm1', companyId: COMPANY, paradas: [{ customerProfileId: 'c1' }] }],
     customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
     produtos: [{ id: 1, price: 7, priceCents: null }],
     clienteProdutos: [
@@ -535,7 +598,7 @@ test('gerar: entrega CANCELADA do dia → reabre a MESMA linha em vez de devolve
 
 test('gerar: entrega JÁ ENTREGUE do dia → aviso e parada ignorada (não vira rota fantasma)', async () => {
   const { prisma } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    modelos: [{ id: 'm1', companyId: COMPANY, paradas: [{ customerProfileId: 'c1' }] }],
     customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
     entregas: [
       { id: 'e-entregue', companyId: COMPANY, customerProfileId: 'c1', localId: null, scheduledAt: new Date(2026, 6, 20, 0, 0, 0, 0), status: 'entregue', entregadorId: USER },
@@ -553,7 +616,7 @@ test('gerar: entrega JÁ ENTREGUE do dia → aviso e parada ignorada (não vira 
 // entrega vazia (parada de R$0, sem produto, que só suja a rota) — vira aviso.
 test('gerar: sem snapshot, sem plano e sem vínculo → aviso, NÃO cria entrega vazia', async () => {
   const { prisma, entregas } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    modelos: [{ id: 'm1', companyId: COMPANY, paradas: [{ customerProfileId: 'c1' }] }],
     customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
   });
   const svc = new LogisticaRotaModeloService(prisma);
@@ -569,7 +632,7 @@ test('gerar: sem snapshot, sem plano e sem vínculo → aviso, NÃO cria entrega
 // O gerar exigia snapshot e devolvia rota vazia com um aviso por parada.
 test('gerar: parada SEM snapshot cai no PLANO da Agenda e materializa', async () => {
   const { prisma, entregas } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    modelos: [{ id: 'm1', companyId: COMPANY, paradas: [{ customerProfileId: 'c1' }] }],
     customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
     produtos: [{ id: 9, price: 11, priceCents: null }],
     planos: [{
@@ -595,7 +658,7 @@ test('gerar: parada SEM snapshot cai no PLANO da Agenda e materializa', async ()
 // planos deles ficaram ativos — a rota mostrava nome que o cadastro não tem.
 test('gerar: cliente fora do cadastro (deleted) → aviso COM O NOME, parada ignorada', async () => {
   const { prisma, entregas } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    modelos: [{ id: 'm1', companyId: COMPANY, paradas: [{ customerProfileId: 'c1' }] }],
     customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Elaine', status: 'deleted', isCliente: false }],
     produtos: [{ id: 1, price: 7, priceCents: null }],
     clienteProdutos: [
@@ -615,7 +678,7 @@ test('gerar: cliente fora do cadastro (deleted) → aviso COM O NOME, parada ign
 // "foi retirado de hoje" com a entrega viva do lado.
 test('gerar: com cancelada E aberta no mesmo dia → usa a ABERTA', async () => {
   const { prisma } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    modelos: [{ id: 'm1', companyId: COMPANY, paradas: [{ customerProfileId: 'c1' }] }],
     customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
     entregas: [
       { id: 'e-cancelada', companyId: COMPANY, customerProfileId: 'c1', localId: null, scheduledAt: new Date(2026, 6, 20, 8, 0, 0, 0), status: 'cancelada', entregadorId: USER },
@@ -631,7 +694,7 @@ test('gerar: com cancelada E aberta no mesmo dia → usa a ABERTA', async () => 
 
 test('gerar: cliente já agendado HOJE (mesmo local) → REUSA o id, não duplica', async () => {
   const { prisma, entregas } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    modelos: [{ id: 'm1', companyId: COMPANY, paradas: [{ customerProfileId: 'c1' }] }],
     customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
     entregas: [
       {
@@ -652,7 +715,7 @@ test('gerar: cliente já agendado HOJE (mesmo local) → REUSA o id, não duplic
 
 test('gerar: rodar 2× no MESMO dia é idempotente', async () => {
   const { prisma, entregas } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    modelos: [{ id: 'm1', companyId: COMPANY, paradas: [{ customerProfileId: 'c1' }] }],
     customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
     produtos: [{ id: 1, price: 7, priceCents: null }],
     clienteProdutos: [
@@ -669,7 +732,7 @@ test('gerar: rodar 2× no MESMO dia é idempotente', async () => {
 
 test('gerar: NÃO avança proximaData de nenhum vínculo (só a recorrência automática mexe nisso)', async () => {
   const { prisma, clienteProdutos } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    modelos: [{ id: 'm1', companyId: COMPANY, paradas: [{ customerProfileId: 'c1' }] }],
     customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Josefina' }],
     produtos: [{ id: 1, price: 5, priceCents: null }],
     clienteProdutos: [
@@ -699,7 +762,7 @@ test('gerar: cliente de OUTRA empresa / excluído → pula com aviso; preserva O
       {
         id: 'm1',
         companyId: COMPANY,
-        paradasJson: [
+        paradas: [
           { customerProfileId: 'c-fantasma' },
           { customerProfileId: 'c1' },
           { customerProfileId: 'c2' },
@@ -736,7 +799,7 @@ test('gerar: cliente de OUTRA empresa / excluído → pula com aviso; preserva O
 test('gerar: CANCELADA de outro motorista NÃO trava mais — a rota salva assume a parada', async () => {
   const OUTRO = 42;
   const { prisma, entregas } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    modelos: [{ id: 'm1', companyId: COMPANY, paradas: [{ customerProfileId: 'c1' }] }],
     customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Márcia' }],
     produtos: [{ id: 1, price: 7, priceCents: null }],
     clienteProdutos: [
@@ -765,7 +828,7 @@ test('gerar: CANCELADA de outro motorista NÃO trava mais — a rota salva assum
 test('gerar: entrega ABERTA de outro motorista continua barrada — e agora a mensagem diz QUEM e desde quando', async () => {
   const OUTRO = 42;
   const { prisma } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    modelos: [{ id: 'm1', companyId: COMPANY, paradas: [{ customerProfileId: 'c1' }] }],
     customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Márcia' }],
     entregas: [
       {
@@ -813,7 +876,7 @@ test('gerar: entrega ABERTA de outro motorista continua barrada — e agora a me
 test('estadoDoDia: rota com paradas de OUTRO motorista na rua → na_rua, com nome, e podeMontar=false', async () => {
   const OUTRO = 42;
   const { prisma } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }, { customerProfileId: 'c2' }] }],
+    modelos: [{ id: 'm1', companyId: COMPANY, paradas: [{ customerProfileId: 'c1' }, { customerProfileId: 'c2' }] }],
     entregas: [
       { id: 'e1', companyId: COMPANY, customerProfileId: 'c1', localId: null, scheduledAt: new Date(2026, 6, 20, 9), status: 'entregue', entregadorId: OUTRO },
       { id: 'e2', companyId: COMPANY, customerProfileId: 'c2', localId: null, scheduledAt: new Date(2026, 6, 20, 9), status: 'em_rota', entregadorId: OUTRO },
@@ -836,7 +899,7 @@ test('estadoDoDia: rota com paradas de OUTRO motorista na rua → na_rua, com no
 test('estadoDoDia: só cancelada no dia → livre e podeMontar=true (cancelada não é posse)', async () => {
   const OUTRO = 42;
   const { prisma } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    modelos: [{ id: 'm1', companyId: COMPANY, paradas: [{ customerProfileId: 'c1' }] }],
     entregas: [
       { id: 'e1', companyId: COMPANY, customerProfileId: 'c1', localId: null, scheduledAt: new Date(2026, 6, 20, 9), status: 'cancelada', entregadorId: OUTRO },
     ],
@@ -851,7 +914,7 @@ test('estadoDoDia: só cancelada no dia → livre e podeMontar=true (cancelada n
 
 test('estadoDoDia: multi-tenant — modelo/entrega de outra empresa não vaza', async () => {
   const { prisma } = buildGerarPrisma({
-    modelos: [{ id: 'm-alheio', companyId: 999, paradasJson: [{ customerProfileId: 'c1' }] }],
+    modelos: [{ id: 'm-alheio', companyId: 999, paradas: [{ customerProfileId: 'c1' }] }],
   });
   const svc = new LogisticaRotaModeloService(prisma);
   assert.deepEqual(await svc.estadoDoDia(COMPANY, GERAR_DATE, USER), []);
@@ -865,7 +928,7 @@ test('estadoDoDia: multi-tenant — modelo/entrega de outra empresa não vaza', 
 test('gerar: aberta de motorista com rota MORTA → assume a parada e avisa quem estava com ela', async () => {
   const OUTRO = 42;
   const { prisma, entregas } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    modelos: [{ id: 'm1', companyId: COMPANY, paradas: [{ customerProfileId: 'c1' }] }],
     customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Márcia' }],
     entregas: [
       { id: 'e-largada', companyId: COMPANY, customerProfileId: 'c1', localId: null, scheduledAt: new Date(2026, 6, 20, 9), status: 'agendada', entregadorId: OUTRO },
@@ -886,7 +949,7 @@ test('gerar: aberta de motorista com rota MORTA → assume a parada e avisa quem
 test('gerar: motorista SEM rota nenhuma no dia também não segura parada', async () => {
   const OUTRO = 42;
   const { prisma, entregas } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    modelos: [{ id: 'm1', companyId: COMPANY, paradas: [{ customerProfileId: 'c1' }] }],
     customerProfiles: [{ id: 'c1', companyId: COMPANY, name: 'Márcia' }],
     entregas: [
       { id: 'e-orfa', companyId: COMPANY, customerProfileId: 'c1', localId: null, scheduledAt: new Date(2026, 6, 20, 9), status: 'agendada', entregadorId: OUTRO },
@@ -903,7 +966,7 @@ test('gerar: motorista SEM rota nenhuma no dia também não segura parada', asyn
 test('estadoDoDia: dono com rota MORTA → estado montada e podeMontar=true (o painel convida a assumir)', async () => {
   const OUTRO = 42;
   const { prisma } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }, { customerProfileId: 'c2' }] }],
+    modelos: [{ id: 'm1', companyId: COMPANY, paradas: [{ customerProfileId: 'c1' }, { customerProfileId: 'c2' }] }],
     entregas: [
       { id: 'e1', companyId: COMPANY, customerProfileId: 'c1', localId: null, scheduledAt: new Date(2026, 6, 20, 9), status: 'agendada', entregadorId: OUTRO },
     ],
@@ -925,7 +988,7 @@ test('estadoDoDia: dono com rota MORTA → estado montada e podeMontar=true (o p
  */
 test('estadoDoDia: recado de rota largada → devolvida, com quem, quantas atendeu e sem trancar', async () => {
   const { prisma } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }, { customerProfileId: 'c2' }] }],
+    modelos: [{ id: 'm1', companyId: COMPANY, paradas: [{ customerProfileId: 'c1' }, { customerProfileId: 'c2' }] }],
     recados: [{ companyId: COMPANY, rotaModeloId: 'm1', motoristaNome: 'João da Silva', entregues: 0, createdAt: new Date(2026, 6, 20, 14, 31) }],
   });
   const svc = new LogisticaRotaModeloService(prisma);

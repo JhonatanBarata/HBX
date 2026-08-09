@@ -6,7 +6,6 @@ import { GlassPill, useGlassPill } from "@/components/hbx/glass-pill";
 import { I, ICONS } from "@/components/hbx/shell";
 
 import {
-  applyAgendaLegacy,
   agendaNoticeText,
   createAgendaPlan,
   executeAgendaDayAction,
@@ -16,7 +15,6 @@ import {
   getAgendaDivergencias,
   getAgendaImportPreview,
   getAgendaImportSequences,
-  getAgendaLegacyPreview,
   getWeeklyAgenda,
   updateAgendaOrder,
   updateAgendaPlan,
@@ -30,7 +28,6 @@ import {
   type AgendaDivergencias,
   type AgendaFrequency,
   type AgendaImportarPreview,
-  type AgendaLegacyPreview,
   type AgendaOpenDeliveriesAction,
   type AgendaPlan,
   type AgendaPlanPayload,
@@ -913,119 +910,10 @@ function DayActionModal({
   );
 }
 
-function LegacyMigrationModal({
-  onClose,
-  onCompleted,
-}: {
-  onClose: () => void;
-  onCompleted: (message: string) => Promise<void>;
-}) {
-  const [preview, setPreview] = useState<AgendaLegacyPreview | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [applying, setApplying] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [key] = useState(idempotencyKey);
-
-  useEscape(!applying, onClose);
-
-  useEffect(() => {
-    let cancelled = false;
-    getAgendaLegacyPreview()
-      .then((result) => {
-        if (!cancelled) {
-          setPreview(result);
-          setError(null);
-        }
-      })
-      .catch((previewError: unknown) => {
-        if (!cancelled) setError(humanError(previewError, "Não foi possível preparar a agenda."));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => { cancelled = true; };
-  }, []);
-
-  async function apply() {
-    if (!preview?.podeAplicar || applying) return;
-    setApplying(true);
-    setError(null);
-    try {
-      const result = await applyAgendaLegacy(key);
-      await onCompleted(`${result.planosCriados} planos organizados.`);
-    } catch (applyError: unknown) {
-      setError(humanError(applyError, "Não foi possível organizar a agenda."));
-      setApplying(false);
-    }
-  }
-
-  const firstWarning = preview?.avisos?.[0] ? agendaNoticeText(preview.avisos[0]) : null;
-
-  return (
-    <div className="hbx-veil" onMouseDown={(event) => { if (event.target === event.currentTarget && !applying) onClose(); }}>
-      <section className="hbx-modal log-agenda-modal" role="dialog" aria-modal="true" aria-labelledby="log-agenda-legacy-title">
-        <header className="log-agenda-modal__head">
-          <span className="log-agenda-stop__order" aria-hidden>
-            <I d={ICONS.agenda} size={16} />
-          </span>
-          <div className="log-agenda-modal__title">
-            <h2 id="log-agenda-legacy-title">Organizar agenda</h2>
-            <p>Prévia segura</p>
-          </div>
-          <button type="button" className="log-agenda-modal__close" aria-label="Fechar" onClick={onClose} disabled={applying}>
-            <I d={ICONS.x} size={15} />
-          </button>
-        </header>
-
-        <div className="log-agenda-modal__body">
-          {loading && <p className="log-agenda-impact__notice">Calculando…</p>}
-          {!loading && preview && (
-            <div className="log-agenda-impact">
-              <p className="log-agenda-impact__notice">Cadastros atuais continuam intactos.</p>
-              <div className="log-agenda-impact__stats">
-                <div className="log-agenda-impact__stat">
-                  <strong>{preview.totalVinculos}</strong>
-                  <span>Vínculos</span>
-                </div>
-                <div className="log-agenda-impact__stat">
-                  <strong>{preview.totalPlanos}</strong>
-                  <span>Planos</span>
-                </div>
-                <div className="log-agenda-impact__stat">
-                  <strong>{preview.totalItens}</strong>
-                  <span>Itens</span>
-                </div>
-              </div>
-              <div className="log-agenda-legacy__days" aria-label="Planos por dia">
-                {preview.dias.map((day) => (
-                  <span className="log-agenda-legacy__day" key={day.diaSemana}>
-                    <b>{WEEK_DAYS.find((item) => item.value === day.diaSemana)?.short}</b>
-                    {day.totalPlanos}
-                  </span>
-                ))}
-              </div>
-              {firstWarning && (
-                <p className="log-agenda-impact__notice">
-                  {firstWarning}{preview.avisos.length > 1 ? ` · +${preview.avisos.length - 1}` : ""}
-                </p>
-              )}
-            </div>
-          )}
-          {error && <p className="log-agenda-form__error">{error}</p>}
-        </div>
-
-        <footer className="log-agenda-modal__foot">
-          <div className="log-agenda-modal__actions">
-            <button type="button" className="btn-ghost" onClick={onClose} disabled={applying}>Voltar</button>
-            <button type="button" className="btn-teal" onClick={() => void apply()} disabled={!preview?.podeAplicar || applying}>
-              <I d={ICONS.check} size={14} /> {applying ? "Organizando…" : "Organizar agora"}
-            </button>
-          </div>
-        </footer>
-      </section>
-    </div>
-  );
-}
+// 🔴 MORREU AQUI o `LegacyMigrationModal` — a faixa "Agenda antiga · N vínculos"
+// e o botão "Organizar agora" (F5, 09/08). Ele chamava duas portas que a F2
+// apagou do backend; clicar virou erro de rede. Não existe mais agenda antiga
+// pra importar: o dia da visita mora no plano (`LogisticaPlanoEntrega`).
 
 function ImportSequenceModal({
   day,
@@ -1136,7 +1024,7 @@ function ImportSequenceModal({
               {sequencesLoading && <p className="log-agenda-impact__notice">Procurando rotas salvas…</p>}
               {!sequencesLoading && sequencesError && <p className="log-agenda-form__error">{sequencesError}</p>}
               {!sequencesLoading && !sequencesError && sequences?.length === 0 && (
-                <p className="log-agenda-impact__notice">Nenhuma rota salva ainda. Salve uma rota na Leitura de Rota ou aqui na Agenda.</p>
+                <p className="log-agenda-impact__notice">Nenhuma rota salva ainda. Salve uma rota em Montar rota.</p>
               )}
               {!sequencesLoading && !sequencesError && !!sequences?.length && (
                 <div className="log-agenda-import__list">
@@ -1419,7 +1307,6 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
   const [moveStop, setMoveStop] = useState<AgendaStop | null>(null);
   const [dayActionOpen, setDayActionOpen] = useState(false);
   const [importSequenceOpen, setImportSequenceOpen] = useState(false);
-  const [legacyMigrationOpen, setLegacyMigrationOpen] = useState(false);
   const [catalogs, setCatalogs] = useState<AgendaCatalogs | null>(null);
   const [catalogsLoading, setCatalogsLoading] = useState(false);
   const [catalogsError, setCatalogsError] = useState<string | null>(null);
@@ -1461,8 +1348,8 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
   }, []);
 
   // S3 — badge "⚠ N diferenças" no cabeçalho do dia aberto. Falha aqui nunca
-  // vira erro visível (endpoint pode estar guardado com agendaV2 desligada,
-  // ou o dia simplesmente não tem rota salva) — o badge só some.
+  // vira erro visível (o dia simplesmente pode não ter rota salva) — o badge só
+  // some.
   const loadDivergencias = useCallback(async (day: AgendaWeekday) => {
     const requestId = ++divergenceRequest.current;
     try {
@@ -1512,7 +1399,7 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
   function closeDivergenceModal() {
     setDivergenceModalOpen(false);
     // Sem F5 forçado: o que gerou a divergência foi corrigido em outra tela
-    // (ficha do plano, Leitura de Rota…) — ao fechar, refaz a conferência.
+    // (ficha do plano, Montar rota…) — ao fechar, refaz a conferência.
     void loadDivergencias(selectedDay);
   }
 
@@ -1552,13 +1439,6 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
     await refresh(messageText);
   }
 
-  async function legacyMigrationCompleted(messageText: string) {
-    setLegacyMigrationOpen(false);
-    await refresh(messageText);
-  }
-
-  const legacyMode = summary?.modo === "LEGADO" || detail?.modo === "LEGADO";
-  const legacyLinks = summary?.migracao.totalVinculos ?? detail?.migracao.totalVinculos ?? 0;
   const summaryByDay = useMemo(
     () => new Map((summary?.dias || []).map((day) => [day.diaSemana, day])),
     [summary],
@@ -1640,15 +1520,6 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
       </div>
 
       <div id="log-agenda-day-panel" className="log-agenda__surface" role="tabpanel" aria-labelledby={`log-agenda-day-${selectedDay}-tab`}>
-        {legacyMode && (
-          <div className="log-agenda-legacy">
-            <strong>Agenda antiga · {legacyLinks} vínculos</strong>
-            <button type="button" className="btn-teal btn-xs" onClick={() => setLegacyMigrationOpen(true)}>
-              Organizar agora
-            </button>
-          </div>
-        )}
-
         <header className="log-agenda__head">
           <div className="log-agenda__head-main">
             <div className="log-agenda__head-copy">
@@ -1673,24 +1544,18 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
             )}
           </div>
           <div className="log-agenda__actions">
-            {!legacyMode && (
-              <button type="button" className="btn-ghost btn-xs" onClick={() => setDayActionOpen(true)} disabled={detailLoading || !detail}>
-                <I d={ICONS.config} size={13} /> Organizar dia
-              </button>
-            )}
-            {!legacyMode && (
-              <button type="button" className="btn-ghost btn-xs" onClick={() => setImportSequenceOpen(true)} disabled={detailLoading || !detail}>
-                <I d={ICONS.download} size={13} /> Importar sequência
-              </button>
-            )}
+            <button type="button" className="btn-ghost btn-xs" onClick={() => setDayActionOpen(true)} disabled={detailLoading || !detail}>
+              <I d={ICONS.config} size={13} /> Organizar dia
+            </button>
+            <button type="button" className="btn-ghost btn-xs" onClick={() => setImportSequenceOpen(true)} disabled={detailLoading || !detail}>
+              <I d={ICONS.download} size={13} /> Importar sequência
+            </button>
             <button type="button" className="btn-ghost btn-xs" onClick={onOpenRouteBuilder}>
               <I d={ICONS.logistica} size={13} /> Montar rota
             </button>
-            {!legacyMode && (
-              <button type="button" className="btn-teal btn-xs" onClick={() => openEditor(null)} disabled={detailLoading}>
-                <I d={ICONS.plus} size={13} /> Parada
-              </button>
-            )}
+            <button type="button" className="btn-teal btn-xs" onClick={() => openEditor(null)} disabled={detailLoading}>
+              <I d={ICONS.plus} size={13} /> Parada
+            </button>
           </div>
         </header>
 
@@ -1742,12 +1607,10 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
         {!detailLoading && !detailError && detail && !detail.paradas.length && (
           <div className="log-agenda__feedback">
             <strong>Dia livre</strong>
-            <span>{legacyMode ? "Organize a agenda para editar." : "Adicione a primeira parada."}</span>
-            {!legacyMode && (
-              <button type="button" className="btn-teal" onClick={() => openEditor(null)}>
-                <I d={ICONS.plus} size={14} /> Adicionar
-              </button>
-            )}
+            <span>Adicione a primeira parada.</span>
+            <button type="button" className="btn-teal" onClick={() => openEditor(null)}>
+              <I d={ICONS.plus} size={14} /> Adicionar
+            </button>
           </div>
         )}
 
@@ -1767,19 +1630,15 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
               const additional = additionalChip(stop);
               return (
                 <article className={`log-agenda-stop hbx-card-enter${plan?.ativo === false ? " is-paused" : ""}`} key={stop.id}>
-                  {legacyMode ? (
-                    <span className="log-agenda-stop__order" aria-hidden>{stop.ordem}</span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="log-agenda-stop__order"
-                      onClick={() => openMove(stop)}
-                      aria-label={`Mover ${stop.cliente.nome}, posição ${stop.ordem}`}
-                      title="Mover parada"
-                    >
-                      {stop.ordem}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    className="log-agenda-stop__order"
+                    onClick={() => openMove(stop)}
+                    aria-label={`Mover ${stop.cliente.nome}, posição ${stop.ordem}`}
+                    title="Mover parada"
+                  >
+                    {stop.ordem}
+                  </button>
                   <div className="log-agenda-stop__copy">
                     <span className="log-agenda-stop__name">
                       {stop.cliente.nome}
@@ -1806,16 +1665,14 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
                       )}
                     </span>
                   </div>
-                  {!legacyMode && (
-                    <div className="log-agenda-stop__actions">
-                      <button type="button" className="log-agenda-stop__action" onClick={() => openMove(stop)}>
-                        <I d={ICONS.arrow} size={12} /> Mover
-                      </button>
-                      <button type="button" className="log-agenda-stop__action" onClick={() => plan && openEditor(plan)} disabled={!plan}>
-                        <I d={ICONS.edit} size={12} /> Editar
-                      </button>
-                    </div>
-                  )}
+                  <div className="log-agenda-stop__actions">
+                    <button type="button" className="log-agenda-stop__action" onClick={() => openMove(stop)}>
+                      <I d={ICONS.arrow} size={12} /> Mover
+                    </button>
+                    <button type="button" className="log-agenda-stop__action" onClick={() => plan && openEditor(plan)} disabled={!plan}>
+                      <I d={ICONS.edit} size={12} /> Editar
+                    </button>
+                  </div>
                 </article>
               );
             })}
@@ -1857,13 +1714,6 @@ export function WeeklyAgenda({ onOpenRouteBuilder }: { onOpenRouteBuilder: () =>
           day={selectedDay}
           onClose={() => setImportSequenceOpen(false)}
           onApply={importSequenceApplied}
-        />
-      )}
-
-      {legacyMigrationOpen && (
-        <LegacyMigrationModal
-          onClose={() => setLegacyMigrationOpen(false)}
-          onCompleted={legacyMigrationCompleted}
         />
       )}
 

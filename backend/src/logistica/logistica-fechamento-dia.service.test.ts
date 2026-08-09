@@ -30,7 +30,19 @@ function prismaMock(overrides: Record<string, Record<string, Fn>> = {}) {
     clienteHistorico: { deleteMany: async () => ({ count: 0 }) },
     deletionRecord: { create: async () => ({}) },
     // As Rotas salvas do aprendiz e o nome do convite.
-    logisticaRotaModelo: { findFirst: async () => null, create: async () => ({}), update: async () => ({}) },
+    // 🔴 F3 (09/08) — a lista da rota salva virou LINHA: o `create` do modelo
+    // precisa devolver `id` (o backfill de paradas pendura nele) e a tabela de
+    // paradas entra no mock. Sem isso o "aprendiz" gravava o nome e perdia a
+    // lista — calado, que é o defeito que esta frente veio matar.
+    logisticaRotaModelo: {
+      findFirst: async () => null,
+      create: async () => ({ id: 'rota-nova' }),
+      update: async () => ({}),
+    },
+    logisticaRotaModeloParada: {
+      createMany: async () => ({ count: 0 }),
+      deleteMany: async () => ({ count: 0 }),
+    },
     user: { findFirst: async () => ({ name: 'Tester' }) },
     $transaction: async (fn: any) => fn(base),
   };
@@ -493,11 +505,25 @@ test('resumo/aprendiz: semana FECHADA vira "Rota de <dia>" (dedupe, ordem de reg
     vendaDeMesa('s4', 'a', '2026-08-01', { deliveredAt: new Date('2026-08-01T16:00:00-03:00') }),
   ];
   const criados: any[] = [];
+  const paradasCriadas: any[] = [];
+  let rotaSeq = 0;
   const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       entrega: entregaMockPorJanela(rows),
       customerProfile: perfilVivoMock,
-      logisticaRotaModelo: { findFirst: async () => null, create: async (args: any) => { criados.push(args.data); return {}; }, update: async () => ({}) },
+      logisticaRotaModelo: {
+        findFirst: async () => null,
+        create: async (args: any) => {
+          const id = `rota-${++rotaSeq}`;
+          criados.push({ id, ...args.data });
+          return { id };
+        },
+        update: async () => ({}),
+      },
+      logisticaRotaModeloParada: {
+        createMany: async ({ data }: any) => { paradasCriadas.push(...data); return { count: data.length }; },
+        deleteMany: async () => ({ count: 0 }),
+      },
       user: { findFirst: async () => ({ name: 'André' }) },
     }) as any,
     logisticaMock() as any,
@@ -508,11 +534,18 @@ test('resumo/aprendiz: semana FECHADA vira "Rota de <dia>" (dedupe, ordem de reg
   const sexta = criados.find((c) => c.diaSemana === 5);
   assert.ok(sabado && sexta, 'uma rota salva por dia com venda');
   assert.equal(sabado.nome, 'Rota de Sábado');
-  // Ordem de registro, cliente repetido entra 1× (b vendeu antes da repetição do a).
-  assert.deepEqual(sabado.paradasJson, [
-    { customerProfileId: 'b', localId: null },
-    { customerProfileId: 'a', localId: null },
-  ]);
+  // Ordem de registro, cliente repetido entra 1x (b vendeu antes da repetição do a).
+  // A lista agora é LINHA (`LogisticaRotaModeloParada`), com `ordem` explícita —
+  // é ela, e não mais um array JSON, que diz a sequência da rota do dono.
+  assert.deepEqual(
+    paradasCriadas
+      .filter((parada) => parada.rotaModeloId === sabado.id)
+      .map((parada) => ({ customerProfileId: parada.customerProfileId, localId: parada.localId, ordem: parada.ordem })),
+    [
+      { customerProfileId: 'b', localId: null, ordem: 1 },
+      { customerProfileId: 'a', localId: null, ordem: 2 },
+    ],
+  );
 });
 
 test('resumo/aprendiz: semana já carimbada (updatedAt desta semana) não regera — e o convite continua elegível', async () => {
@@ -722,11 +755,20 @@ test('finalizar: dia diferente de hoje RE-ETIQUETA a sessão de hoje e salva a R
     rows.forEach((r) => { r.fechamentoDiaSemana = args.data.fechamentoDiaSemana; });
     return { count: rows.length };
   };
+  const paradasCriadas: any[] = [];
   const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       entrega,
       customerProfile: perfilVivoMock,
-      logisticaRotaModelo: { findFirst: async () => null, create: async (args: any) => { criados.push(args.data); return {}; }, update: async () => ({}) },
+      logisticaRotaModelo: {
+        findFirst: async () => null,
+        create: async (args: any) => { criados.push(args.data); return { id: 'rota-nova' }; },
+        update: async () => ({}),
+      },
+      logisticaRotaModeloParada: {
+        createMany: async ({ data }: any) => { paradasCriadas.push(...data); return { count: data.length }; },
+        deleteMany: async () => ({ count: 0 }),
+      },
     }) as any,
     logisticaMock() as any,
   );
@@ -740,7 +782,14 @@ test('finalizar: dia diferente de hoje RE-ETIQUETA a sessão de hoje e salva a R
   assert.deepEqual(retags[0].where.OR, [{ fechamentoDiaSemana: diaHoje }, { fechamentoDiaSemana: null }]);
   assert.equal(criados[0].diaSemana, alvo);
   assert.match(criados[0].nome, /^Rota de /);
-  assert.deepEqual(criados[0].paradasJson, [{ customerProfileId: 'a', localId: null }]);
+  assert.deepEqual(
+    paradasCriadas.map((parada) => ({
+      customerProfileId: parada.customerProfileId,
+      localId: parada.localId,
+      ordem: parada.ordem,
+    })),
+    [{ customerProfileId: 'a', localId: null, ordem: 1 }],
+  );
 });
 
 test('finalizar: dia sem nada registrado → recusa com mensagem humana', async () => {

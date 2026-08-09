@@ -53,19 +53,19 @@
  * BARRA a limpeza em vez de arrastar (erro real: `LogisticaRouteStop_deliveryId_
  * companyId_fkey`). Mapeei TODA @relation do schema.prisma que aponta pra essas 4
  * tabelas (conferido contra a migration SQL real, não só o schema.prisma) — a lista
- * completa das 15 tabelas bloqueantes e a ordem topológica de exclusão vivem em
+ * completa das 14 tabelas bloqueantes e a ordem topológica de exclusão vivem em
  * `CADEIA_BLOQUEIO` (logo abaixo). Resumo da cadeia (folha → raiz): LogisticaTrackingPoint/
  * TrackingEvent/TrackedCreditClaim/RouteStop (bloqueiam Entrega) → LogisticaTrackingSession/
  * EssentialCreditClaim/Route (agora livres) → EntregaComprovante/EntregaItem (filhos de
- * Entrega) → Entrega → LogisticaRotaModeloParadaItem/RotaModeloParada/RotaModelo e
+ * Entrega) → Entrega → LogisticaRotaModeloParada/RotaModelo e
  * LogisticaPlanoEntregaItem/PlanoEntrega (bloqueiam CustomerProfile/LocalEntrega, e
- * dependiam de Entrega já ter sumido). Estas 15 tabelas usam chave composta
+ * dependiam de Entrega já ter sumido). Estas 14 tabelas usam chave composta
  * `[id, companyId]` no schema — mas como aqui elas são só APAGADAS/RESTAURADAS por id
  * (nunca remapeadas pra um id novo), a composição não exige tratamento especial:
  * o backup guarda a linha inteira e o rollback recria com o MESMO id original.
  *
  * BACKUP/ROLLBACK — mesmo contrato do backfill-pinos-suspeitos.js, agora cobrindo as 4
- * tabelas de cadastro + as 15 da cadeia-bloqueio (19 no total): ANTES de qualquer escrita,
+ * tabelas de cadastro + as 14 da cadeia-bloqueio (18 no total): ANTES de qualquer escrita,
  * o estado ATUAL da empresa 45 (linha completa de cada uma) é gravado em JSON em
  * /app/storage/espelhar-logistica-<timestamp>.json. `--rollback=<arquivo>` apaga o que
  * este script criou e devolve exatamente essas linhas (mesmos ids, mesmos valores —
@@ -252,7 +252,7 @@ const SELECT_CLIENTE_PRODUTO = {
 // LocalEntrega/Product (todas as ocorrências de "Entrega @relation", "CustomerProfile
 // @relation", "LocalEntrega @relation", "Product @relation") e conferi o onDelete de cada
 // uma contra a migration SQL real (não só o schema, pra não confiar em default implícito
-// errado). Resultado — SÓ estas 15 tabelas têm FK Restrict nessa direção; todas as outras
+// errado). Resultado — SÓ estas 14 tabelas têm FK Restrict nessa direção; todas as outras
 // (Contato, DebtCase, VendasLead, FinanceiroCharge, ClienteHistorico, CompanyConversation,
 // AtendimentoCustomer, HbxRecoveryCustomer, RecoveryDebtItem, RecoveryDebtItemProduct,
 // ProductVersion) são Cascade ou SetNull — não bloqueiam, só aparecem no risco-cascata
@@ -271,11 +271,13 @@ const SELECT_CLIENTE_PRODUTO = {
 //   8-9  filhos diretos de Entrega (Cascade — não bloqueiam, mas entram no backup pra
 //        restaurar com fidelidade): EntregaComprovante, EntregaItem.
 //   10   Entrega — agora que 1-4 sumiram, nada mais restringe a deleção.
-//   11-13 bloqueiam LogisticaPlanoEntrega/CustomerProfile/LocalEntrega (RotaModeloParada
-//        tem Restrict em customerProfileId/localId/planoEntregaId): RotaModeloParadaItem,
-//        RotaModeloParada, RotaModelo (RotaModelo só é liberado depois que Entrega, no
-//        passo 10, parou de referenciá-lo via rotaModeloOrigem, também Restrict).
-//   14-15 bloqueiam CustomerProfile/LocalEntrega diretamente (Restrict em
+//   11-12 bloqueiam LogisticaPlanoEntrega/CustomerProfile/LocalEntrega (RotaModeloParada
+//        tem Restrict em customerProfileId/localId/planoEntregaId): RotaModeloParada,
+//        RotaModelo (RotaModelo só é liberado depois que Entrega, no passo 10, parou de
+//        referenciá-lo via rotaModeloOrigem, também Restrict).
+//        F3 (09/08): o `RotaModeloParadaItem` saiu daqui — a tabela morreu junto com o
+//        snapshot de itens da parada (o item da visita mora no plano).
+//   13-14 bloqueiam CustomerProfile/LocalEntrega diretamente (Restrict em
 //        customerProfileId/localId) e também dependiam de Entrega (planoEntregaOrigem,
 //        Restrict) já ter sumido no passo 10: PlanoEntregaItem, PlanoEntrega.
 //
@@ -294,7 +296,6 @@ const CADEIA_BLOQUEIO = [
   // da Entrega via relação.
   { chave: 'entregaItens', modelo: 'entregaItem', where: (id) => ({ entrega: { companyId: id } }) },
   { chave: 'entregas', modelo: 'entrega', where: (id) => ({ companyId: id }) },
-  { chave: 'rotaModeloParadaItens', modelo: 'logisticaRotaModeloParadaItem', where: (id) => ({ companyId: id }) },
   { chave: 'rotaModeloParadas', modelo: 'logisticaRotaModeloParada', where: (id) => ({ companyId: id }) },
   { chave: 'rotaModelos', modelo: 'logisticaRotaModelo', where: (id) => ({ companyId: id }) },
   { chave: 'planoEntregaItens', modelo: 'logisticaPlanoEntregaItem', where: (id) => ({ companyId: id }) },
@@ -542,7 +543,6 @@ function imprimirPlano({ origem, destinoAtual, risco, empresas }) {
     entregaComprovantes: 'EntregaComprovante',
     entregaItens: 'EntregaItem',
     entregas: 'Entrega',
-    rotaModeloParadaItens: 'LogisticaRotaModeloParadaItem',
     rotaModeloParadas: 'LogisticaRotaModeloParada',
     rotaModelos: 'LogisticaRotaModelo',
     planoEntregaItens: 'LogisticaPlanoEntregaItem',

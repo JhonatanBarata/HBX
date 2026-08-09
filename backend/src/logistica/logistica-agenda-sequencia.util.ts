@@ -25,8 +25,8 @@ export interface SequenciaMatchResultado {
 }
 
 /**
- * Casa as paradas de uma rota salva (`LogisticaRotaModelo.paradasJson`) com os
- * planos do dia. Lei anti-erro-grave nº1: dado ambíguo nunca vira verdade —
+ * Casa as paradas de uma rota salva (`LogisticaRotaModeloParada`, em `ordem`)
+ * com os planos do dia. Lei anti-erro-grave nº1: dado ambíguo nunca vira verdade —
  * cliente com 2+ planos no dia sem `localId` que desempate cai em `ambiguos`,
  * nunca casa sozinho (mesma lei do incidente do pino: errado é pior que vazio).
  *
@@ -115,7 +115,7 @@ export function matchSequenciaImportada(
 
 /**
  * S3 (conferência de divergência) — separa paradas do modelo cujo par
- * (customerProfileId+localId) se repete DENTRO do próprio `paradasJson`.
+ * (customerProfileId+localId) se repete DENTRO da própria lista do modelo.
  * Extensão aditiva: não mexe em `matchSequenciaImportada` nem no comportamento
  * da S2 (o import de sequência continua recebendo a lista completa se quiser).
  * A 1ª ocorrência de cada par segue em `unicas` (candidata normal ao
@@ -147,16 +147,30 @@ export function separarParadasDuplicadas(paradasModelo: SequenciaMatchParada[]):
   return { unicas, duplicadas };
 }
 
-/** Lê `paradasJson` (formato livre, gravado por Leitura de Rota ou pelo espelho da Agenda) sem confiar cegamente no shape. */
-export function parseParadasModeloJson(raw: unknown): SequenciaMatchParada[] {
-  if (!Array.isArray(raw)) return [];
+/**
+ * 🔴 F3 (09/08) — A LISTA DO MODELO VEM DA TABELA, NÃO DE UM JSON.
+ *
+ * Isto substitui o `parseParadasModeloJson`, que lia o `paradasJson` — a 2ª
+ * cópia da lista dentro do modelo de rota. Enquanto existiram as duas, elas
+ * divergiram em produção (modelo `cms0xmqd0…` da empresa 41: 9 paradas no JSON,
+ * 7 na tabela). Agora a fonte é `LogisticaRotaModeloParada`, lida em `ordem`.
+ *
+ * A LEI que estava no parse continua aqui, e é a razão desta função existir em
+ * vez de um `.map()` solto na tela: parada sem cliente é DESCARTADA, nunca vira
+ * `''` — string vazia casaria com qualquer plano, e dado ambíguo virando
+ * verdade é o erro grave nº1 desta casa. `customerProfileId` é opcional no
+ * schema (existe parada ligada só ao plano), então o caso é REAL, não teórico.
+ */
+export function paradasDoModelo(
+  rows: Array<{ customerProfileId: string | null; localId: string | null }> | null | undefined,
+): SequenciaMatchParada[] {
+  if (!Array.isArray(rows)) return [];
   const paradas: SequenciaMatchParada[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== 'object') continue;
-    const customerProfileId = String((item as any).customerProfileId ?? '').trim();
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') continue;
+    const customerProfileId = String(row.customerProfileId ?? '').trim();
     if (!customerProfileId) continue;
-    const localIdRaw = (item as any).localId;
-    const localId = localIdRaw ? String(localIdRaw).trim() || null : null;
+    const localId = row.localId ? String(row.localId).trim() || null : null;
     paradas.push({ customerProfileId, localId });
   }
   return paradas;

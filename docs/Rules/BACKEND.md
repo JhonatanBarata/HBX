@@ -23,6 +23,35 @@
 - Superfície master-pura: `MASTER_SURFACE_MODULE_KEYS` em `modules.service.ts`
   (só `master` e `exclusoes`; superfície completa só ao "Operar" uma empresa).
 
+## Rota — os 6 verbos e a tabela DONA de cada um (09/08, faxina `PR09082026-ROTA-SEIS-VERBOS.md`)
+
+A logística tinha a agenda em 4 cópias e a ordem da rota em 4 números. Cada tela
+lia uma cópia diferente — é a raiz de "a lista diz 107, o mapa diz sem paradas".
+Depois da faxina, **cada pergunta tem UMA tabela que responde**:
+
+| Verbo | Tabela dona |
+|---|---|
+| Agendar (quem recebe o quê, que dia) | `LogisticaPlanoEntrega` + `Item` |
+| Fazer a rota | `Entrega` (+ `rotaOrdem`) — `materializeForRoute` é o único gerador |
+| Limpar a rota | `Entrega.rotaOrdem = null` — limpar apaga ORDEM, nunca entrega/dinheiro |
+| Usar a rota | `Entrega.status` + desfechos |
+| Fechar a rota | fechamento-dia + `LogisticaRoute.operationalEndedAt` |
+| Faturar | `LogisticaRoute` / `RouteStop` / claims — snapshot imutável |
+| Histórico | `ClienteHistorico` + `LogisticaAgendaEvento` + snapshots da `Entrega` |
+
+**Três ordens, três donos — nunca se misturam:**
+`RotaModeloParada.ordem` = o molde salvo · `Entrega.rotaOrdem` = a operação do dia
+· `RouteStop.snapshotOrder` = **dinheiro, NUNCA lido por tela**.
+
+Regras que caem daí:
+- `ClienteProduto` **não é agenda** — é PREÇO (`precoAcordado`). Quem pergunta
+  "que dia o cliente recebe?" pergunta ao PLANO.
+- Não existe mais flag `agendaV2Ativa`: a Agenda V2 é o sistema, não uma opção.
+- Tela que precisar de uma 4ª lista de paradas está errada — o dado já existe.
+- **Tabela vazia não prova ramo morto.** Ramo morto se prova por caminho de código
+  inalcançável. `LogisticaCargaDia` está com 0 linhas e é a base do estoque ativo
+  (nota fiscal) — não se toca.
+
 ## Banco e migrations
 
 - Migration destrutiva ou operação destrutiva de dados: SÓ com ordem explícita do dono

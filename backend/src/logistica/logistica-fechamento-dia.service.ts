@@ -590,6 +590,11 @@ export class LogisticaFechamentoDiaService {
    * Acha pelo nome novo OU pelo antigo, e a linha antiga é RENOMEADA no mesmo
    * update — a rota dele continua a mesma (id, versão, histórico), só troca a
    * palavra na lista.
+   *
+   * 🔴 F3 (09/08) — a lista virou LINHA (`LogisticaRotaModeloParada`), não mais
+   * um array JSON dentro do modelo. O "mudou?" que decide o bump de `versao`
+   * passou a comparar a lista GRAVADA com a nova; era exatamente esse
+   * `JSON.stringify` de duas cópias que deixava as telas discordarem.
    */
   private async salvarRotaDoDia(
     companyId: number,
@@ -606,21 +611,52 @@ export class LogisticaFechamentoDiaService {
           { nome: { equals: NOME_ANTIGO_DIA[dia], mode: 'insensitive' } },
         ],
       },
-      select: { id: true, nome: true, paradasJson: true },
+      select: {
+        id: true,
+        nome: true,
+        paradas: { orderBy: { ordem: 'asc' }, select: { customerProfileId: true, localId: true } },
+      },
     });
+    const novas = paradas.map((parada, index) => ({
+      companyId,
+      customerProfileId: parada.customerProfileId,
+      localId: parada.localId ?? null,
+      ordem: index + 1,
+      ordemTravada: true,
+    }));
+
     if (!existente) {
-      await this.prisma.logisticaRotaModelo.create({
-        data: { companyId, nome, diaSemana: dia, paradasJson: paradas as any },
+      await this.prisma.$transaction(async (tx) => {
+        const criado = await tx.logisticaRotaModelo.create({
+          data: { companyId, nome, diaSemana: dia },
+        });
+        if (novas.length) {
+          await tx.logisticaRotaModeloParada.createMany({
+            data: novas.map((parada) => ({ ...parada, rotaModeloId: criado.id })),
+          });
+        }
       });
       this.logger.log(`[fechamento] salvou "${nome}" company=${companyId} paradas=${paradas.length}`);
       return;
     }
-    const igual = JSON.stringify(existente.paradasJson ?? []) === JSON.stringify(paradas);
-    await this.prisma.logisticaRotaModelo.update({
-      where: { id: existente.id },
-      data: igual
-        ? { nome, diaSemana: dia }
-        : { nome, diaSemana: dia, paradasJson: paradas as any, versao: { increment: 1 } },
+
+    const chave = (lista: Array<{ customerProfileId: string | null; localId: string | null }>) =>
+      lista.map((parada) => `${parada.customerProfileId ?? ''}:${parada.localId ?? ''}`).join('|');
+    const igual = chave(existente.paradas) === chave(novas);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.logisticaRotaModelo.update({
+        where: { id: existente.id },
+        data: igual ? { nome, diaSemana: dia } : { nome, diaSemana: dia, versao: { increment: 1 } },
+      });
+      if (igual) return;
+      // Reescrever a lista inteira: a unique (rotaModeloId, ordem) não deixa
+      // duas linhas na mesma posição, então apagar antes é o caminho de um passe.
+      await tx.logisticaRotaModeloParada.deleteMany({ where: { companyId, rotaModeloId: existente.id } });
+      if (novas.length) {
+        await tx.logisticaRotaModeloParada.createMany({
+          data: novas.map((parada) => ({ ...parada, rotaModeloId: existente.id })),
+        });
+      }
     });
     if (!igual) {
       this.logger.log(`[fechamento] atualizou "${nome}" company=${companyId} paradas=${paradas.length}`);

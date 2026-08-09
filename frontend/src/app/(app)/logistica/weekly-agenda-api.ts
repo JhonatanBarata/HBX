@@ -9,6 +9,11 @@ export type AgendaAccessType = "TERREO" | "ESCADA" | "ELEVADOR" | "OUTRO";
 export type AgendaAdditionalType = "FIXO" | "POR_UNIDADE";
 export type AgendaDayAction = "PAUSAR" | "MOVER";
 export type AgendaOpenDeliveriesAction = "MANTER" | "MOVER" | "CANCELAR";
+/**
+ * PROVENIÊNCIA do plano (`LogisticaPlanoEntrega.origem`): "LEGADO" é o plano que
+ * nasceu da migração antiga e continua no banco. NÃO é modo de operação — a
+ * agenda tem UM modo só desde a F1/09/08 (ver `modo` em AgendaSummary).
+ */
 export type AgendaMode = "LEGADO" | "AGENDA_V2";
 // S4-AVISO-DE-HORARIO — campos aditivos por parada (estimativa v1, sem OSRM).
 export type AgendaAlertaJanela = "CONFLITO" | "APERTADO" | null;
@@ -127,13 +132,6 @@ export type AgendaStop = {
   alertaJanela?: AgendaAlertaJanela;
 };
 
-export type AgendaMigrationStatus = {
-  necessaria: boolean;
-  totalVinculos: number;
-  totalPlanosProjetados: number;
-  avisos: AgendaNotice[];
-};
-
 export type AgendaDaySummary = {
   diaSemana: AgendaWeekday;
   nome: string;
@@ -145,17 +143,17 @@ export type AgendaDaySummary = {
   avisos: AgendaNotice[];
 };
 
+// F5 (09/08) — UM MODO SÓ. A flag `agendaV2Ativa` e o bloco `migracao` saíram do
+// contrato de tela junto com a agenda V1: a coluna não existe mais no banco e o
+// servidor mandava literal fixo. O tipo LITERAL é o freio — quem tentar
+// ressuscitar um `if (modo === "LEGADO")` não compila.
 export type AgendaSummary = {
-  modo: AgendaMode;
-  agendaV2Ativa: boolean;
-  migracao: AgendaMigrationStatus;
+  modo: "AGENDA_V2";
   dias: AgendaDaySummary[];
 };
 
 export type AgendaDayDetail = {
-  modo: AgendaMode;
-  agendaV2Ativa: boolean;
-  migracao: AgendaMigrationStatus;
+  modo: "AGENDA_V2";
   diaSemana: AgendaWeekday;
   nome: string;
   ativo: boolean;
@@ -239,32 +237,6 @@ export type AgendaDayActionResult = {
   idempotencyKey: string;
   replayed: boolean;
   [key: string]: unknown;
-};
-
-export type AgendaLegacyPreview = {
-  agendaV2Ativa: boolean;
-  totalVinculos: number;
-  totalPlanos: number;
-  totalItens: number;
-  dias: Array<{
-    diaSemana: AgendaWeekday;
-    totalPlanos: number;
-    totalItens: number;
-  }>;
-  avisos: AgendaNotice[];
-  podeAplicar: boolean;
-};
-
-export type AgendaLegacyApplyResult = {
-  acaoId: string;
-  idempotencyKey: string;
-  replayed: boolean;
-  planosCriados: number;
-  itensCriados: number;
-  rotasCriadas: number;
-  rotasAproveitadas: number;
-  agendaV2Ativa: true;
-  avisos: AgendaNotice[];
 };
 
 export type AgendaDayPreview = {
@@ -396,13 +368,9 @@ export function getAgendaDivergencias(day: AgendaWeekday): Promise<AgendaDiverge
   return apiFetch<AgendaDivergencias>(`/logistica/agenda/dias/${day}/divergencias`);
 }
 
-export function getAgendaLegacyPreview(): Promise<AgendaLegacyPreview> {
-  return apiFetch<AgendaLegacyPreview>("/logistica/agenda/legado/preview");
-}
-
-export function applyAgendaLegacy(idempotencyKeyValue: string): Promise<AgendaLegacyApplyResult> {
-  return apiFetch<AgendaLegacyApplyResult>("/logistica/agenda/legado/aplicar", {
-    method: "POST",
-    body: JSON.stringify({ idempotencyKey: idempotencyKeyValue }),
-  });
-}
+// 🔴 MORRERAM AQUI `getAgendaLegacyPreview` e `applyAgendaLegacy` (F5, 09/08). As
+// duas portas — `GET /logistica/agenda/legado/preview` e `POST .../aplicar` —
+// foram apagadas do backend na F2: importavam a cadência do `ClienteProduto`
+// (`diasSemana`/`frequenciaDias`/`proximaData`) pros planos, e essas colunas não
+// existem mais. Quem escreve dia da visita é `definirDiasDaVisita`, direto no
+// plano.
