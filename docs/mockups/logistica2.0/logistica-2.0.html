@@ -6041,6 +6041,19 @@ function tutorCondicao(fn){
    pro AVANÇADO, que se abre a qualquer hora do dia. */
 const tourSoMostrar=()=>estadoRota==='rodando'||estadoRota==='pausada';
 
+/* 🔴 `alvo` ACEITA UMA FILA DE SELETORES, e a fila é a ORDEM DE PREFERÊNCIA —
+   `querySelector('a,b')` NÃO serve pra isso: ele devolve o primeiro na ordem do
+   DOCUMENTO, não o primeiro da lista. Custou uma medida: o passo do prospector
+   pedia `.emp-chip,.emp.on .emp-obj` querendo o chip, e como o prédio nasce
+   antes no HTML o furo caía sempre no prédio. Um array diz "este, e se não
+   houver, aquele" — que é o que uma tela com dois desenhos pro mesmo assunto
+   realmente precisa. String continua valendo e continua sendo uma união CSS. */
+function acharAlvo(camada,alvo){
+  if(!alvo) return null;
+  const fila=Array.isArray(alvo)?alvo:[alvo];
+  for(const sel of fila){ const el=sel&&camada.querySelector(sel); if(el) return el; }
+  return null;
+}
 /** Tupla velha `[sel,titulo,texto]` ou objeto novo — sai objeto dos dois lados. */
 function normalizarPasso(p,telaPadrao){
   const o=Array.isArray(p)
