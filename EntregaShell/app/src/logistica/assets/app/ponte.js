@@ -446,6 +446,28 @@
     return 'montar';
   }
 
+  /* 🔴 SEM ROTA MONTADA, O MAPA NÃO DESENHA ROTA NENHUMA (dono, 09/08 — print
+     do g15 com o rodapé em "Montar rota"). Ele havia CANCELADO a rota e mesmo
+     assim via 6 pinos numerados, a fita verde ligando eles e "52 paradas · 0
+     entregues" na barra. Medido no banco de produção (company 48, dia 09/08):
+     52 entregas `agendada`, **0 com `rotaOrdem`** — ou seja, a tela estava
+     vestindo de ROTA aquilo que é só AGENDA. Pino numerado é a SEQUÊNCIA da
+     visita; sem ninguém ter montado, esse número é invenção.
+
+     A régua mora AQUI, num lugar só, e as três telas que ela governa (os
+     pinos, o enquadramento e a fita) a CONSULTAM — espalhar `if (estadoRota…)`
+     por três arquivos é como as regras desta casa se contradizem no primeiro
+     estado novo.
+
+     🔴 E O CORTE É PELO ESTADO DA ROTA, NUNCA PELO STATUS DA PARADA. Parada
+     `cancelada` é o "Não entregue" do motorista: com a rota RODANDO ela
+     continua no mapa, com a cor dela. Filtrar por status apagaria da tela
+     justamente a parada que ele precisa reencontrar. */
+  const rotaMontada = () => {
+    const e = (typeof estadoRota !== 'undefined' ? String(estadoRota) : '');
+    return e === 'pronta' || e === 'rodando' || e === 'pausada';
+  };
+
   /* 🔴 O TEMPLATE DO MOCK INTERPOLA CRU (`${…}`), como toda maquete. Enquanto o
      dado era do mock isso não tinha dono; com dado REAL passa a ter: um nome de
      cliente com `<` quebra a marcação e o cartão some da lista sem erro nenhum.
@@ -714,6 +736,15 @@
          Esta digital não é desenhada em lugar nenhum: ela existe só pra o
          freio enxergar que a lista é OUTRA. */
       digitalDaLista: `${gestoSujouATela}|${itens.map((it) => `${it.id}:${it.status || ''}`).join('|')}`,
+      /* 🔴 ESTE CAMPO É O TOTAL DO DIA, E NÃO SE ESVAZIA (09/08). A barra do
+         mapa dizia "52 paradas · 0 entregues" no estado `montar` — a AGENDA
+         vestida de rota — e a 1ª cura foi mandar o campo VAZIO daqui. Errado, e
+         medido: `kpiParadas` é lido por mais quatro telas (lista, foto,
+         caderneta, semana), onde ele é o total do dia e É pra aparecer; esvaziar
+         na fonte deixava o rótulo "paradas" sem número em todas elas.
+         A régua de "sem rota montada não se conta parada" ficou onde ela nasce:
+         na barra do `T.rota`, que já tem o estado da rota na mão. Régua de uma
+         superfície não se aplica na fonte que serve cinco. */
       kpiParadas: String(itens.length),
       kpiEntregues: String(entregues),
       kpiEntreguesParado: String(entregues),
@@ -862,7 +893,19 @@
         carregando: true, admin: 0, financeiro: 0, cobrancaSimples: 0,
         precoPorCliente: 0, naHora: 0, mensal: 0, fiado: 0,
         avisarChegada: 0, avisarChegadaDist: '',
+        // A chave do prospector nasce DESLIGADA e INDISPONÍVEL: até o servidor
+        // dizer, a linha nem é desenhada. Oferecer no boot um recurso que a
+        // empresa pode não ter é a mesma mentira das outras chaves.
+        prospector: 0, prospectorDisponivel: 0,
       },
+      /* O TUTORIAL NASCE SEM SABER DE NADA. `carregando:1` é o que segura o
+         motor do tour: capítulo escondido antes de a config chegar seria
+         esconder por IGNORÂNCIA, e "não sei" nunca apaga nada (a mesma lei do
+         módulo que não some por rede ruim). E `obrigatorioVisto` nasce 1 —
+         "não sei" responde JÁ VIU, senão o 0 do DESENHO viraria fato e o
+         obrigatório (que não tem X) dispararia por ignorância. Só um "nunca
+         visto" dito pelo servidor o zera. */
+      tutorial: { carregando: 1, obrigatorioVisto: 1 },
       /* A ABERTURA NÃO ENTRA AQUI — e o motivo é o que torna ela especial. Ela
          dizia "Água Rio Claro" (nome do desenho) na PRIMEIRA tela que o
          motorista vê, com o aparelho logado na Atlas. Zerar um slot não
@@ -952,6 +995,11 @@
         rumo: '', velocidade: '',
         paradaN: '', paradaTotal: '', paradaNome: '',
         chegada: '', restante: '', distancia: '',
+        // 🔴 `chegouId` É DADO, e dado ZERA. Ele é o id da entrega que o botão
+        // verde abre: sobrevivendo ao boot, o "Você chegou" abriria a folha de
+        // uma parada de ONTEM — a mesma família de mentira que este bloco
+        // existe pra matar, só que com o toque do dedo por cima.
+        chegouId: '',
         chegouEndereco: '', chegouPrecisao: '', chegouFaltam: '', chegouKm: '',
       },
     };
@@ -1013,6 +1061,10 @@
     try {
       if (typeof window.resgatarModuloDesligado === 'function') window.resgatarModuloDesligado();
     } catch (_) { /* casca sem a função: barra velha, nada a resgatar */ }
+    // A MESMA resposta diz quem é admin, o que a empresa tem e o que o admin
+    // desligou — que é exatamente o que o tour precisa pra saber qual capítulo
+    // existe. De carona: nenhuma chamada nova (ver a seção TUTORIAL).
+    publicarTutorial();
   }
 
   let barraLidaEm = 0;
@@ -1056,7 +1108,23 @@
     if (document.visibilityState === 'visible') carregarBarra();
   });
   window.addEventListener('focus', carregarBarra);
-  setInterval(carregarBarra, 60000);
+  /* 🔴 TIQUE DE RELÓGIO NÃO PODE DERRUBAR O TOUR (09/08). Todo `usarDados`
+     monta uma camada NOVA (é o `pintar` que faz isso), e o tutorial guiado vive
+     DENTRO da camada, como a aula: um tique de fundo no meio de um passo
+     arrancaria o furo da tela sem ninguém ter encostado no aparelho. O freio do
+     `usarDados` engole o que não mudou, mas o obrigatório roda justamente no
+     BOOT, quando ainda está tudo chegando.
+     Espera só o que é RELÓGIO. O que é DEDO continua passando — é o clique do
+     próprio passo `fazer` que abre a montagem de verdade. E o pulso dos recados
+     NÃO espera, de propósito: recado é trava e alarme, e atrasar alarme por
+     causa de tutorial seria trocar segurança por enfeite.
+     Quem publica `window.TUTOR` é o motor da casca (ver a seção TUTORIAL). */
+  const tourRodando = () => {
+    try {
+      return !!(window.TUTOR && typeof window.TUTOR.rodando === 'function' && window.TUTOR.rodando());
+    } catch (_) { return false; }   // motor de casca velha: nada a respeitar
+  };
+  setInterval(() => { if (!tourRodando()) carregarBarra(); }, 60000);
 
   /* 🔴 A MEIA-NOITE DEIXAVA A TELA NUM DIA E OS BOTÕES NOUTRO — e foi ISTO que o
      dono levou na cara em 09/08 às 00:37: a tela dizia "52 paradas" com o
@@ -1081,10 +1149,16 @@
     if (document.visibilityState === 'visible') viradaDoDia();
   });
   window.addEventListener('focus', viradaDoDia);
-  setInterval(viradaDoDia, 60000);
+  // Mesma espera do tique acima: a virada de um minuto atrasada não custa nada,
+  // o tour arrancado da tela custa o passo inteiro.
+  setInterval(() => { if (!tourRodando()) viradaDoDia(); }, 60000);
 
   const cargaInicial = () => {
     apagarDemonstracao(); carregarBarra(); carregarRota(); carregarRecados(); checkAppUpdate();
+    // O estado do tutorial é do USUÁRIO e vem em porta PRÓPRIA — pendurar no
+    // `/logistica/config` custaria uma consulta por minuto por aparelho pra um
+    // dado que só interessa no boot.
+    carregarTutorial();
     // O que chegou com o app fechado alerta AGORA — o motorista abre o app e
     // descobre o recado das 6h, em vez de esperar o próximo tique.
     pulsoRecados();
@@ -1923,6 +1997,10 @@
     if (!botao) return;
     botao.addEventListener('click', () => comTrava(async () => {
       try { await window.API.post('/logistica/rota/encerrar', { date: hojeISO() }); } catch (e) { return avisoErro(e); }
+      // 🔴 O SERVIDOR ENCERROU; O APARELHO TAMBÉM TEM QUE ESQUECER. A fita e a
+      // geometria são DESTE lado do fio — e vêm ANTES do `carregarRota`, senão
+      // o repinte que ele dispara passaria com a rota morta ainda desenhada.
+      esquecerTraco();
       await carregarRota();
       if (typeof window.ir === 'function') window.ir('rota');
     }), { once: true });
@@ -2147,9 +2225,25 @@
     });
   }
 
+  /* 🔴 O QUE O MAPA DESENHA TEM UM DONO SÓ — esta função (09/08). Sem rota
+     montada ela devolve LISTA VAZIA, e é por isso que os pinos e o
+     enquadramento somem juntos: "Montar rota vazio = mapa com MINHA SETA na
+     minha localização", literal.
+     🔴 E NÃO SE MEXE NO `PARADAS` GLOBAL pra conseguir isso: ele alimenta
+     também a lista da tela `rotalista`, que continua mostrando o dia inteiro.
+     A régua é do MAPA — zerar a fonte seria apagar uma tela que ninguém
+     pediu. */
+  function paradasDoMapa() {
+    if (!rotaMontada()) return [];
+    return ((typeof PARADAS !== 'undefined' ? PARADAS : []) || []).filter((p) => {
+      const la = Number(p && p.lat); const ln = Number(p && p.lng);
+      return Number.isFinite(la) && Number.isFinite(ln);
+    });
+  }
+
   /** os pinos numerados: só se refaz quando a LISTA muda, não a cada repinte */
   function sincronizarPinos(casa) {
-    const paradas = (typeof PARADAS !== 'undefined' ? PARADAS : []).filter((p) => p.lat && p.lng);
+    const paradas = paradasDoMapa();
     const chave = paradas.map((p) => `${p.n}:${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join('|');
     if (chave === casa.chave) return;
     casa.chave = chave;
@@ -2194,11 +2288,10 @@
 
   function enquadrarGeral(casa) {
     if (!casa || casa.nome !== 'geral') return;
-    const pontos = [];
-    ((typeof PARADAS !== 'undefined' ? PARADAS : []) || []).forEach((p) => {
-      const la = Number(p.lat); const ln = Number(p.lng);
-      if (Number.isFinite(la) && Number.isFinite(ln)) pontos.push([ln, la]);
-    });
+    // a MESMA lista dos pinos (§ paradasDoMapa): sem rota montada ela vem
+    // vazia, e a moldura passa a ser só o motorista — enquadrar uma rota que
+    // ninguém montou levaria a câmera pra um dia que não existe.
+    const pontos = paradasDoMapa().map((p) => [Number(p.lng), Number(p.lat)]);
     const eu = ultimaPos || ultimoFix;
     if (eu && Number.isFinite(eu.lat) && Number.isFinite(eu.lng)) pontos.push([eu.lng, eu.lat]);
     // Sem um ponto sequer não há o que enquadrar — e a câmera fica onde está.
@@ -3307,7 +3400,23 @@
     return { type: 'LineString', coordinates: [[preso.lng, preso.lat]].concat(resto) };
   }
 
+  /* 🔴 A FITA SE APAGA DE VERDADE, NÃO "DEIXA DE SER PINTADA". O mapa é UM só
+     pela vida do app (a GARAGEM): fonte e camadas ficam nele mesmo depois que
+     a tela repinta. Só parar de desenhar deixaria a fita da rota morta viva na
+     tela pro dia inteiro — foi metade do print de 09/08. */
+  function apagarTraco(mapa) {
+    if (!mapa) return;
+    try {
+      if (mapa.getLayer(`${TRACO}-fita`)) mapa.removeLayer(`${TRACO}-fita`);
+      if (mapa.getLayer(`${TRACO}-casca`)) mapa.removeLayer(`${TRACO}-casca`);
+      if (mapa.getSource(TRACO)) mapa.removeSource(TRACO);
+    } catch (_) { /* estilo trocando: a próxima passada limpa */ }
+  }
+
   function desenharTraco(mapa) {
+    // 🔴 A MESMA RÉGUA DOS PINOS (§ rotaMontada): sem rota montada o mapa não
+    // desenha rota — e aqui isso quer dizer TIRAR o que já estava desenhado.
+    if (!rotaMontada()) { apagarTraco(mapa); return; }
     const geo = tracoDaVez();
     if (!mapa || !geo) return;
     const dado = { type: 'Feature', geometry: geo, properties: {} };
@@ -3337,11 +3446,22 @@
      da aba Rota, que desde 08/08 é a TELA PRINCIPAL, ficava com os pinos soltos
      e nenhum caminho entre eles. O caminho já estava no aparelho; faltava
      desenhá-lo na tela em que o motorista olha o dia. */
+  /** os dois palcos que podem ter fita: o da navegação e o da tela Rota */
+  const palcosDoTraco = () => [mapaDaNavegacao(), (GARAGEM.get('geral') || {}).mapa].filter(Boolean);
+
   function pintarTraco() {
-    [mapaDaNavegacao(), (GARAGEM.get('geral') || {}).mapa].forEach((mapa) => {
-      if (!mapa) return;
-      quandoEstiloPronto(mapa, () => desenharTraco(mapa));
-    });
+    palcosDoTraco().forEach((mapa) => quandoEstiloPronto(mapa, () => desenharTraco(mapa)));
+  }
+
+  /* 🔴 ROTA CANCELADA NÃO DEIXA RASTRO (a lei que o dono já cravou em
+     [[rota-pronta-frente]]: "rastro não é posse"). A geometria mora no
+     APARELHO e sobrevive ao cancelamento: sem isto o `navRota` da rota morta
+     continuava valendo — a fita seguia desenhada, a bússola parada ainda
+     apontava pra ela (`rumoDaRota`) e o `tracoDoPlano` a daria por boa ("já
+     serve a estas paradas") na entrada seguinte da tela. */
+  function esquecerTraco() {
+    navRota = null;
+    palcosDoTraco().forEach(apagarTraco);
   }
 
   /* ---- O 2D TAMBÉM TEM DIREITO DE PEDIR O CAMINHO ------------------------
@@ -3369,6 +3489,11 @@
 
   function tracoDoPlano() {
     if (!planoQuerTraco || telaAtual() !== 'rota') return;
+    /* 🔴 E SEM ROTA MONTADA NÃO SE PEDE CAMINHO (§ rotaMontada). Aqui isso é
+       DINHEIRO: pedir ao roteador o caminho de uma agenda que ninguém montou é
+       pagar por um traço que a régua do mapa vai recusar a desenhar. O
+       bilhete FICA — quem montar a rota e voltar pra cá o gasta. */
+    if (!rotaMontada()) return;
     /* Sem fix do GPS, ou sem parada com pino, não há o que pedir — e aí o
        bilhete FICA armado: numa garagem o 1º fix demora, e é ele que volta
        aqui sozinho (`aoFix`). */
@@ -4384,6 +4509,14 @@
       // campo e o raio são os mesmos que a raiz dos Ajustes mostrava.
       avisarChegada: config.avisoChegandoEnabled ? 1 : 0,
       avisarChegadaDist: isFinite(dist) && dist > 0 ? `${dist} m` : '',
+      /* PROSPECTOR (09/08) — até hoje a chave só existia no desktop, e o
+         capítulo do tutorial terminava mandando o dono "ligar no computador".
+         São DOIS fatos, não um: `prospector` é o estado da empresa, e
+         `prospectorDisponivel` é a HBX ter ligado o recurso. A linha só é
+         DESENHADA com o segundo — chave de recurso que a empresa não tem
+         devolve 403 na cara do dono. */
+      prospector: config.prospectorAtivo ? 1 : 0,
+      prospectorDisponivel: prospectorPodeLigar(),
     });
     if (cred) encherRecarga(cred);
   }
@@ -4574,6 +4707,175 @@
       await carregarRota();
     });
   }
+
+  /* ══════════════════════════════════════════════════════════════════════════
+     TUTORIAL GUIADO — os FATOS que o motor do tour lê, e a PORTA que o abre.
+
+     🔴 O OBRIGATÓRIO NÃO PODE NASCER DE DADO PINTADO. A abertura do app pinta
+     SÍNCRONA e não repinta (é uma cena com relógio que termina em `ir('rota')`,
+     recriando a camada inteira). Quem escrevesse "nunca viu" no seam e esperasse
+     a tela reagir esperaria pra sempre — é o mesmo defeito que matou o pop-up da
+     atualização no berço, em 09/08. Então o disparo é uma PORTA: quando a
+     resposta do servidor chega dizendo que este USUÁRIO nunca viu, a ponte CHAMA
+     `TUTOR.obrigatorio()`. O seam continua existindo, mas pra o motor DECIDIR
+     qual capítulo existe — nunca pra abrir o tour.
+
+     🔴 AUSENTE ≠ VAZIO, de novo e aqui — e neste seam o "não sei" tem UM lado
+     seguro só. `carregando` segura o motor enquanto falta fonte, e
+     `obrigatorioVisto` responde JÁ VIU até o servidor dizer o contrário: o
+     obrigatório não tem X, então errar pro lado de disparar prende 90 s quem já
+     o viu, toda vez que a rede falhar. Errar pro outro lado custa um boot.
+
+     🔴 O CARIMBO É DO USUÁRIO, NÃO DO APARELHO. Por `localStorage` ele repetiria
+     a cada reinstalação e sumiria no celular novo — a lição que o RECADO já
+     custou. A lâmpada e a aula avançada continuam por aparelho (conveniência de
+     leitura); a garantia do "todo cliente vai ler uma vez" é do servidor.
+     ══════════════════════════════════════════════════════════════════════════ */
+
+  /** o que o servidor DISSE: null = ainda não sei (nunca "não viu") */
+  let tutorialVisto = null;
+  /** a pergunta ao servidor já teve desfecho — resposta OU falha. Ver o freio. */
+  let tutorialPerguntado = false;
+  /* Nesta SESSÃO o obrigatório já foi aberto (ou já foi concluído). A porta é de
+     um sentido só: sem isto, uma releitura reabriria o tour por cima de quem
+     está no meio dele — ou de quem acabou de fechá-lo com a gravação no chão.
+     Quem decide de novo é o próximo boot, lendo o servidor. */
+  let obrigatorioResolvido = false;
+
+  /* 🔴 "PODE LIGAR" É CAMPO DO SERVIDOR, NÃO DEDUÇÃO MINHA. O `GET
+     /logistica/config` responde `prospectorDisponivel` — a chave-mestra da HBX
+     (`HBX_PROSPECTOR_ENABLED`), servida a TODO ator, motorista inclusive.
+     Deduzir por "o campo `prospectorAtivo` existe na resposta" daria SEMPRE
+     verdadeiro: ele é serializado pra todo mundo, com default `false`. A chave
+     apareceria nos Ajustes de empresa que não tem o recurso, e chave que não
+     obedece é mentira. Backend velho, sem o campo: NÃO SEI ⇒ não ofereço. */
+  const prospectorPodeLigar = () => (config && typeof config.prospectorDisponivel === 'boolean'
+    ? (config.prospectorDisponivel ? 1 : 0)
+    : 0);
+
+  /* A MESMA régua da barra (`moduloDesligado` da casca), lida do MESMO CSV: não
+     existe capítulo de Chat num app em que o admin apagou o Chat. */
+  const moduloLigado = (k) => (String((config && config.appModulosDesativados) || '')
+    .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+    .includes(String(k).toLowerCase()) ? 0 : 1);
+
+  let tutorialAdiado = 0;
+
+  /** os fatos do tour — traduzir, nunca decidir: quem esconde capítulo é o motor */
+  function publicarTutorial() {
+    if (typeof window.usarDados !== 'function') return;
+    /* 🔴 NEM A MINHA PRÓPRIA ESCRITA REPINTA POR CIMA DO TOUR. Escrever no seam
+       monta camada NOVA, e o tour vive dentro da camada: publicar isto no meio
+       de um passo arrancaria o furo da tela. E ninguém está esperando o dado
+       agora — o motor já leu o que precisava pra montar o capítulo (a porta
+       abaixo só abre com os fatos COMPLETOS na tela). Espera ele sair. */
+    if (tourRodando()) {
+      if (!tutorialAdiado) {
+        tutorialAdiado = setTimeout(() => { tutorialAdiado = 0; publicarTutorial(); }, 1500);
+      }
+      return;
+    }
+    const fatos = {
+      /* `carregando` é o FREIO do motor: enquanto vale 1 ele não decide nada.
+         Só cai quando as DUAS fontes tiveram desfecho — a config, que diz quais
+         capítulos existem pra esta pessoa, e a pergunta do tutorial, que diz se
+         o obrigatório já rodou. Derrubar o freio com uma delas pendente é deixar
+         o motor decidir com meia verdade; e "pergunta que falhou" também é
+         desfecho, senão o catálogo ficaria num esqueleto eterno por causa de
+         uma porta que caiu. */
+      carregando: (config && tutorialPerguntado) ? 0 : 1,
+      /* 🔴 "NÃO SEI" RESPONDE **JÁ VIU** — e isto não é otimismo, é a única
+         resposta segura. Pra o motor esta chave responde "posso pular o
+         obrigatório?", e o obrigatório NÃO TEM X: disparar por ignorância
+         prenderia 90 s num tutorial quem já o viu, toda vez que a rede falhasse.
+         Quem ABRE o tour é a porta logo abaixo (`abrirObrigatorio`), e ela só é
+         chamada com resposta na mão — então dizer 1 aqui não esconde nada de
+         ninguém, e o próximo boot pergunta de novo. Só um "nunca visto" DITO
+         pelo servidor vale 0. */
+      obrigatorioVisto: tutorialVisto === false ? 0 : 1,
+    };
+    if (config) {
+      fatos.admin = ehAdmin() ? 1 : 0;
+      fatos.financeiro = config.moduloFinanceiroAtivo ? 1 : 0;
+      fatos.prospectorAtivo = config.prospectorAtivo ? 1 : 0;
+      fatos.prospectorDisponivel = prospectorPodeLigar();
+      fatos.chat = moduloLigado('chat');
+    }
+    window.usarDados('tutorial', fatos);
+    /* 🔴 A PORTA ABRE AQUI, E SÓ AQUI — depois de os fatos estarem NA TELA.
+       Abrir direto no fim da resposta do tutorial era abrir cedo demais: a
+       config pode chegar depois, e o motor filtraria os capítulos por `se:`
+       com meia verdade (motorista virando admin, capítulo do prospector
+       aparecendo pra quem não tem). As duas fontes têm ordem de chegada
+       imprevisível; este ponto é o único em que as duas já chegaram. Config que
+       nunca chega = tour que não abre nesta sessão, e está certo: o
+       `carregarBarra` tenta de novo a cada minuto. */
+    if (!fatos.carregando && tutorialVisto === false) abrirObrigatorio();
+  }
+
+  /** a PORTA — o único lugar do app que abre o tutorial obrigatório */
+  function abrirObrigatorio() {
+    if (obrigatorioResolvido) return;
+    /* A abertura é uma cena com relógio e termina recriando a camada inteira:
+       tour montado em cima dela morre no berço, sem deixar rastro. Espera a
+       casa ficar de pé — a MESMA espera que o portão da atualização já faz. */
+    if (telaAtual() === 'entrada') { setTimeout(abrirObrigatorio, 2500); return; }
+    if (!window.TUTOR || typeof window.TUTOR.obrigatorio !== 'function') {
+      // Casca sem o motor do tour. Silêncio aqui seria um tutorial obrigatório
+      // que "não dispara" sem nenhuma pista de por quê.
+      console.warn('[HBX ponte] tutorial: o servidor diz "nunca visto", mas esta casca não tem window.TUTOR.obrigatorio()');
+      return;
+    }
+    obrigatorioResolvido = true;
+    try { window.TUTOR.obrigatorio(); } catch (e) {
+      // Recusou: devolve a porta, senão o próximo caminho que a chamasse
+      // encontraria a sessão marcada como resolvida sem nada ter aberto.
+      obrigatorioResolvido = false;
+      console.warn('[HBX ponte] tutorial: o motor recusou abrir —', (e && e.message) || e);
+    }
+  }
+
+  /** o estado do tutorial deste USUÁRIO. Porta própria, uma vez, no boot. */
+  async function carregarTutorial() {
+    if (!temPonte()) return;
+    let r;
+    try { r = await window.API.get('/logistica/tutorial'); } catch (e) {
+      /* 🔴 FALHA AQUI É "NÃO SEI", NUNCA "NÃO VIU". Rede no chão — ou o endereço
+         barrado DENTRO do aparelho pela lista branca do `NativeApiClient` —
+         não pode empurrar um tutorial obrigatório em cima de quem já o viu.
+         Fica sem porta e sem carimbo, e o próximo boot pergunta de novo. O
+         aviso é de CONSOLE porque o motorista não tem o que fazer com esta
+         falha: ela não tira nada da tela dele. */
+      console.warn('[HBX ponte] tutorial: não consegui ler o estado —', (e && e.message) || e);
+      tutorialPerguntado = true;
+      publicarTutorial();
+      return;
+    }
+    tutorialVisto = !!(r && r.obrigatorioVistoEm);
+    tutorialPerguntado = true;
+    // Quem abre a porta é o `publicarTutorial` — ele é o único que sabe se as
+    // DUAS fontes já chegaram. Ver a lei escrita lá.
+    publicarTutorial();
+  }
+
+  /* O motor chama esta função no último "Entendi". No mock ela nasce no-op (o
+     desenho define o seam, a ponte põe a rede) — e a ponte carrega DEPOIS do
+     mock, então esta linha é a que vale no aparelho.
+
+     🔴 GRAVAÇÃO NO CHÃO NÃO PRENDE NINGUÉM E NÃO REPETE. O tutorial acabou na
+     tela dele; falhar aqui só significa que o servidor ainda não sabe. Não há
+     portão de erro — dizer "Não deu certo" logo depois de "Pronto pra rodar" é
+     castigar quem fez tudo certo — e não há segunda tentativa nesta sessão:
+     quem tenta de novo é o próximo boot, que relê o estado. */
+  window.tutorialConcluido = function () {
+    obrigatorioResolvido = true;
+    if (!temPonte()) return;
+    window.API.post('/logistica/tutorial/visto', {})
+      .then(() => { tutorialVisto = true; publicarTutorial(); })
+      .catch((e) => {
+        console.warn('[HBX ponte] tutorial: não consegui gravar o "visto" —', (e && e.message) || e);
+      });
+  };
 
   /* ------------------------------------------------------------------------
      L8 — CHAT COM A CENTRAL (o único canal do motorista com o escritório).
@@ -6667,6 +6969,10 @@
     'chave-na-hora': () => virarChave('aceitaNaHora'),
     'chave-mensal': () => virarChave('aceitaMensal'),
     'chave-fiado': () => virarChave('aceitaFiado'),
+    // A do prospector entra pela MESMA porta das seis: um campo, um PATCH, sem
+    // otimismo na tela. É ela que deixa o capítulo "Ligue o prospector"
+    // terminar num `fazer` de verdade — o dono liga na hora, aprendeu fazendo.
+    'chave-prospector': () => virarChave('prospectorAtivo'),
     // Som e voz sao do APARELHO (soundPrefs do Kotlin), nao do servidor.
     'chave-sons': () => {
       try {

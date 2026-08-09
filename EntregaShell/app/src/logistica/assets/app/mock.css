@@ -1715,20 +1715,78 @@ button,input{font:inherit;color:inherit}
    destaque acompanha QUALQUER elemento medido na hora, sem recortar imagem.
    ========================================================================== */
 .round.acesa{border-color:var(--lime-line);color:var(--lime);background:var(--lime-bg)}
-.aula-wrap{position:absolute;inset:0;z-index:70}
+/* 🔴 O TOUR MORA ABAIXO DO PORTÃO E DO AVISO. Ele era `z-index:70`, acima de
+   TUDO: a trava de crédito (59), o erro (60) e o recado da Central (55)
+   nasciam ATRÁS da lição e o motorista ficava preso aprendendo por cima de uma
+   decisão. 52 é o degrau certo — acima da faixa de status (50) e da barra de
+   módulos (45), que o furo precisa poder escurecer, e abaixo de tudo o que
+   INTERROMPE. Aula é conveniência; trava e recado são o dia.
+
+   E o embrulho não come mais o dedo: quem come é o VÉU, logo abaixo. */
+.aula-wrap{position:absolute;inset:0;z-index:52;pointer-events:none}
+/* 🔴 O VÉU SÃO 4 PAINÉIS EM VOLTA DO ALVO, não uma camada com máscara. Dois
+   motivos medidos: (1) o recorte sai de graça — 4 retângulos, sem compor
+   máscara a cada quadro, que é o que o g15 paga caro; (2) o BURACO fica
+   clicável sem uma linha de regra, e é isso que separa "assista" de "faça":
+   no passo `fazer` o botão de verdade continua respondendo ao dedo e é o
+   clique dele que anda a lição. Fora do buraco o toque morre aqui — não fecha
+   o tour e não vaza pra tela. */
+.aula-veu{position:absolute;pointer-events:auto}
+/* O FORA FICA FOSCO. O escuro continua vindo do `box-shadow` do furo (abaixo);
+   este painel só desfoca o que já está escuro. */
+@supports (backdrop-filter:blur(2px)) or (-webkit-backdrop-filter:blur(2px)){
+  .aula-veu{-webkit-backdrop-filter:blur(4px);backdrop-filter:blur(4px)}
+}
+/* 🔴 FALLBACK OBRIGATÓRIO: aparelho que não tem `backdrop-filter` fica com o
+   escuro CHAPADO — exatamente a aula que já funcionava antes deste tour. O
+   painel continua lá (é ele que come o dedo), só não desfoca. Enfeite não
+   derruba rota. */
+@supports not ((backdrop-filter:blur(2px)) or (-webkit-backdrop-filter:blur(2px))){
+  .aula-veu{background:transparent}
+}
 .aula-furo{position:absolute;border-radius:12px;border:1.5px solid var(--lime);
   box-shadow:0 0 0 9999px rgba(3,7,14,.8),0 0 14px rgba(158,222,42,.45);
   transition:top .22s,left .22s,width .22s,height .22s;pointer-events:none}
+/* A LEI VELHA VIROU MODO. "A aula não aperta botão" continua valendo no passo
+   `mostrar`: ali o furo TAMPA o próprio buraco e nem o alvo responde. Só o
+   `fazer` abre a passagem. */
+.aula-wrap[data-tipo="mostrar"] .aula-furo{pointer-events:auto}
+/* Passo sem alvo (o que explica, não aponta): sem furo, véu inteiro, balão no
+   meio. Nasce da mesma peça — não é um segundo desenho. */
+.aula-wrap[data-furo="0"] .aula-furo{display:none}
+/* 4 s sem toque no passo `fazer` e o anel PULSA. É DICA, não bronca: o anel é
+   filho do furo (nunca o `box-shadow`, que muda de cor entre as duas peles e
+   viraria um `@keyframes` por tema). */
+.aula-furo::after{content:"";position:absolute;inset:-3px;border-radius:15px;
+  border:2px solid var(--lime);opacity:0;pointer-events:none}
+.aula-furo.dica::after{animation:aulaDica 1.5s ease-out infinite}
+@keyframes aulaDica{0%{opacity:.95;transform:scale(1)}70%,100%{opacity:0;transform:scale(1.14)}}
 .aula-cx{position:absolute;left:11px;right:11px;background:var(--card);
   border:.7px solid var(--line);border-radius:14px;padding:12px;
-  box-shadow:0 14px 34px rgba(0,0,0,.5)}
+  box-shadow:0 14px 34px rgba(0,0,0,.5);pointer-events:auto}
+/* Balão sem alvo fica no MEIO da tela — e o `bottom:auto` é obrigatório, senão
+   ele herda a posição do passo anterior e nasce esticado. */
+.aula-wrap[data-furo="0"] .aula-cx{top:50%;bottom:auto;transform:translateY(-50%)}
 .aula-cx b{display:block;font-size:14px;font-weight:500}
 .aula-cx .txt{display:block;font-size:12.5px;color:var(--ink-2);margin-top:3px;line-height:1.4}
 .aula-cx .pe{display:flex;align-items:center;justify-content:space-between;gap:9px;margin-top:12px}
-.aula-cx .conta{font-size:11px;color:var(--ink-3)}
+/* 🔴 O CONTADOR ERA `--ink-3`: 3,9:1 no escuro, MEDIDO — texto abaixo dos 4,5:1
+   numa peça que existe justamente pra dizer onde a pessoa está. Sobe pro
+   `--ink-2`, que é o tom de legenda desta casa (7,0:1 escuro / 7,1:1 claro). */
+.aula-cx .conta{font-size:11px;color:var(--ink-2)}
 .aula-cx .pe button{padding:9px 16px;border-radius:10px;font-size:13px;border:.7px solid var(--line);
   background:var(--chip-bg);color:var(--ink);cursor:pointer}
 .aula-cx .pe .principal{background:var(--lime);border-color:var(--lime);color:#12200a;font-weight:500}
+/* A BARRA DO CAPÍTULO — "2 de 5" diz o número, ela diz o TAMANHO do que falta.
+   Tour sem fim à vista é tour que o cliente abandona no meio. */
+.aula-prog{display:block;height:3px;border-radius:2px;background:var(--barra-trilho);overflow:hidden;margin-bottom:9px}
+.aula-prog i{display:block;height:100%;border-radius:2px;background:var(--lime);transition:width .22s}
+/* O X do avançado. No obrigatório ele não é desenhado — não é escondido por
+   CSS: botão que existe e não fecha é a mentira que este app não conta. */
+.aula-cx .fechar{position:absolute;top:8px;right:8px;width:27px;height:27px;padding:0;
+  border-radius:9px;border:.7px solid var(--line);background:var(--chip-bg);color:var(--ink-2);
+  display:grid;place-items:center;cursor:pointer}
+.aula-cx.com-x b{padding-right:30px}
 
 /* ---------- chat da Central ---------- */
 .recado{border:.7px solid var(--amber-line);background:#1a1408;border-radius:14px;padding:11px;margin-top:6px}
@@ -1997,9 +2055,19 @@ button,input{font:inherit;color:inherit}
       deu 1,03:1, tinta invisível. 2) o botão principal herdava `--lime`, que no
       claro é o verde que ESCREVE (escuro) — 3,23:1 com a tinta escura. Aqui
       entra o lima VIVO de preencher, igual ao `.act.go`. */
-[data-luz="claro"] .aula-cx .pe button{background:#fff}
+/* 🔴 E O X DO TOUR ENTRA NA MESMA LISTA — pela armadilha nº1 acima, palavra por
+   palavra: ele também nasceu com `--chip-bg`, o token que o claro NÃO
+   redefine. Peça nova do balão que não entrar aqui repete o 1,03:1. */
+[data-luz="claro"] .aula-cx .pe button,[data-luz="claro"] .aula-cx .fechar{background:#fff}
 [data-luz="claro"] .aula-cx .pe .principal{background:linear-gradient(180deg,#9ce02f,#6fb31c);
   border-color:#6fb31c;color:#16260a}
+/* O trilho da barra é o MESMO da barra do aviso (`--barra-trilho` é tinta de
+   noite; no cartão branco ele viraria um risco preto). */
+[data-luz="claro"] .aula-prog{background:#e2e8f2}
+[data-luz="claro"] .aula-prog i{background:#6fb31c}
+/* O anel da dica segue o furo: no claro o lima que ESCREVE é escuro, e o anel
+   é BORDA — precisa dos 3:1 contra o que está embaixo dele. */
+[data-luz="claro"] .aula-furo::after{border-color:#3f7a00}
 [data-luz="claro"] .pacote .selo{background:var(--lime);color:#fff}
 
 /* 2. Brilho vira sombra. */

@@ -711,6 +711,28 @@ const DADOS={
     admin:1, financeiro:1, cobrancaSimples:0, precoPorCliente:1,
     naHora:1, mensal:1, fiado:1,
     avisarChegadaDist:'500 m', avisarChegada:1,
+    /* 🔴 A CHAVE DO PROSPECTOR ATRAVESSOU O VIDRO (09/08). Ela só existia no
+       desktop, e o capítulo que ensina a ligar terminava em "vá pro
+       computador" — lição que acaba fora do app é lição que ninguém faz.
+       `prospectorDisponivel` é a empresa PODER ter (o campo existe na config);
+       `prospector` é estar ligada. São dois, e não um, pelo mesmo motivo do
+       `admin`: chave que a empresa não pode ter não vira linha na tela. */
+    prospector:0, prospectorDisponivel:1,
+  },
+  /* O TUTOR. Quem escreve é a ponte, no boot; o motor só LÊ.
+     🔴 AUSENTE ≠ VAZIO, e aqui isso é o coração da coisa: enquanto
+     `carregando` valer 1 o motor não decide NADA — não dispara o obrigatório e
+     não esconde capítulo. Chave que não chegou é "não sei", e "não sei" nunca
+     apaga uma lição nem prende ninguém num tutorial.
+     `obrigatorioVisto` é do USUÁRIO (vem do servidor), não do aparelho: por
+     aparelho ele repetiria a cada reinstalação e sumiria no celular novo — a
+     mesma lição que o recado já custou. O resto é a empresa: `admin`,
+     `financeiro`, `chat` e os dois do prospector decidem quais capítulos
+     existem pra esta pessoa. */
+  tutorial:{
+    carregando:0, obrigatorioVisto:0,
+    admin:1, financeiro:1, chat:1,
+    prospectorAtivo:0, prospectorDisponivel:1,
   },
   /* A ABERTURA NÃO TEM SEÇÃO DE DADO, e isso é de propósito — ver o comentário
      em cima do `.splash-barra`, na folha. Slot com valor de desenho aqui NÃO
@@ -943,10 +965,22 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
      não cabe em 412px — este app já perdeu texto por isso). */
   const aviso = e==='pausada'  ? ['pause','Rota pausada','pausa']
               : e==='semsinal' ? ['alert','Sem sinal','alerta'] : null;
+  /* 🔴 SEM ROTA MONTADA A BARRA NÃO CONTA PARADA (dono, 09/08: ele cancelou a
+     rota, limpou tudo, e a tela continuou dizendo "52 paradas · 0 entregues").
+     Aquele 52 era a AGENDA do dia — clientes que ninguém montou — vestida de
+     rota pronta. É a mesma régua dos pinos do mapa (`rotaMontada` na ponte),
+     e aqui ela sai de graça do estado que esta folha JÁ tem na mão: paradas só
+     existem depois de montar. A contagem some inteira e o `vazioTitulo` assume,
+     que é a frase que esta barra já usava pra dia sem rota.
+     Por que a régua mora AQUI e não no dado: `kpiParadas` é lido por mais
+     quatro telas (lista, foto, caderneta, semana), onde ele é o total do DIA e
+     tem que continuar aparecendo. Esvaziar o campo apagaria o número lá também
+     — a régua é desta barra, então o dono dela é esta linha. */
+  const temRota=e==='pronta'||emCurso;
   const entregues=emCurso?d.kpiEntregues:d.kpiEntreguesParado;
   const conta=[aviso?`<b>${aviso[1]}</b>`:'',
-               d.kpiParadas?`<b>${d.kpiParadas}</b> paradas`:'',
-               (aviso||!entregues)?'':`<b>${entregues}</b> entregues`]
+               (temRota&&d.kpiParadas)?`<b>${d.kpiParadas}</b> paradas`:'',
+               (aviso||!temRota||!entregues)?'':`<b>${entregues}</b> entregues`]
               .filter(Boolean).join(' <small>·</small> ');
   const fato = e==='carregando'
     ? '<span class="esq" style="height:15px;width:118px;border-radius:8px"></span>'
@@ -2004,7 +2038,17 @@ T.avancado={nome:'Ajustes · Avançado',grupo:'Ajustes',render(){const a=DADOS.a
     <div class="grupo">Avisos</div>
     <div class="cartao-lista">
       ${chVal('gps','Avisar chegada',a.avisarChegadaDist,a.avisarChegada,'aviso-chegada')}
-    </div>`));
+    </div>
+    ${/* 🔴 SÓ DESENHA SE A EMPRESA PODE (`prospectorDisponivel`). Chave que a
+          empresa não tem é botão que promete e devolve erro — e este devolveria
+          400 no `UpdateLogisticaConfigDto`, que o app traduz como "sua sessão
+          expirou". Grupo próprio porque não é cobrança nem aviso: é uma FONTE
+          DE CLIENTE. O nome carrega a consequência inteira, sem linha de
+          explicação embaixo — mesma régua das 6 de cima. */''}
+    ${a.prospectorDisponivel?`<div class="grupo">Vender no caminho</div>
+    <div class="cartao-lista">
+      ${ch('sales','Prospector — empresas no caminho',a.prospector,'chave-prospector')}
+    </div>`:''}`));
 }};
 
 T.sons={nome:'Ajustes · Sons',grupo:'Ajustes',render(){
@@ -2569,6 +2613,19 @@ ${hdr({semChat:1})}
   <div class="cartao-lista">
     ${linhaIr('note','Abrir caderneta','caderneta')}
   </div>
+  ${/* 🔴 O CATÁLOGO NASCE DO MOTOR, NUNCA DE UMA LISTA ESCRITA À MÃO AQUI. Se
+        a régua de "este capítulo existe pra esta empresa" morasse na tela, ela
+        seria a SEGUNDA cópia da regra — e a tela e o tour discordariam no
+        primeiro ajuste (linha no catálogo abrindo um capítulo sem passo, que é
+        botão morto com nome bonito). Um lugar só: `capitulosDoCatalogo()`.
+        O ✓ é do APARELHO (o que este celular já viu), como a lâmpada — por
+        isso ele é conveniência de leitura, e não a garantia do obrigatório,
+        que é do usuário e mora no servidor. */''}
+  ${(()=>{const cs=capitulosDoCatalogo();return cs.length?`<div class="grupo">Aprenda a usar</div>
+  <div class="cartao-lista">
+    ${cs.map(([id,c])=>linha(c.ico||'bulb',c.titulo,'',
+        tutorFeito(id)?`<span style="color:var(--lime)">${ic('check',15)}</span>`:'','tutor-'+id)).join('')}
+  </div>`:'';})()}
   <div class="grupo">Som e tela</div>
   <div class="cartao-lista">
     ${chave('volume','Sons e voz','',a.sons,'chave-sons')}
@@ -2929,6 +2986,12 @@ function pintar(animar,dir){
     herdarRolagem(rolagem,nova);
   }
   pintarRail();
+  /* 🔴 O TOUR SE REMONTA NA CAMADA NOVA. O `.aula-wrap` mora DENTRO da camada,
+     e a camada é trocada inteira a cada repinte do seam — sem esta linha a
+     lição sumia no primeiro dado que a ponte entregasse (e a jornada entre
+     telas não existiria: navegar É repintar). O estado do passo vive fora do
+     DOM justamente por isso; aqui só se redesenha o que já é verdade. */
+  tourRepintar();
   // A abertura não fica na tela: ela ENTREGA o app. 3,4 s é a cena inteira
   // (rota + cometa + marca + brilho + batida) — o corte cai no fim da batida.
   clearTimeout(aberturaTimer);
@@ -3475,9 +3538,11 @@ function ligarLista(camada,lista){
    a peça sumir da tela, o passo some junto e o console grita (mesma lei do
    ícone inexistente que virou caixa vermelha).
 
-   🔴 A AULA NÃO APERTA BOTÃO. Ela destaca e explica. Este app tem rota viva e
-   dinheiro na tela: uma demonstração que "mostra fazendo" confirmaria entrega
-   de verdade. Quem faz é sempre o motorista.
+   🔴 A AULA NÃO APERTA BOTÃO — e continua não apertando. Este app tem rota
+   viva e dinheiro na tela; quem faz é sempre o motorista. O que mudou em 09/08
+   é que o motorista agora pode fazer DENTRO da lição: no passo `fazer` o furo
+   abre passagem e é o dedo DELE, no botão de verdade, que anda o passo. A lei
+   virou freio, não sumiu — ver `tourSoMostrar` lá embaixo.
 
    Teto de 4 passos por tela, de propósito: tela que precisa de mais é tela mal
    desenhada — a aula é o fiscal do desenho, não o remendo dele.
@@ -3535,62 +3600,416 @@ function marcarAula(camada){
   const b=camada.querySelector('[data-aula]'); if(!b) return;
   b.classList.toggle('acesa', !!(AULAS[atual]&&!aulaVista(atual)));
 }
-function abrirAula(){
-  const camadas=document.querySelectorAll('#app .tela');
-  const camada=camadas.length?camadas[camadas.length-1]:null; if(!camada) return;
-  camada.querySelector('.aula-wrap')?.remove();
-  // Passo cujo alvo não está na tela SAI da aula (e grita no console): estado
-  // diferente desenha peça diferente, e apontar pro vazio é pior que não falar.
-  const passos=(AULAS[atual]||[]).filter(p=>{
-    const alvo=camada.querySelector(p[0]);
-    if(!alvo) console.warn('[HBX 2.0] aula de',atual,'— sumiu da tela:',p[0]);
-    return !!alvo;
+/* ==========================================================================
+   O TUTOR — a MESMA aula, agora com jornada, espera de dedo e condição.
+
+   Encomenda do dono (09/08): *"tutorial que todo cliente vai ter q ler…
+   obrigatório simples, avançado ensina tudo e fecha quando quiser, blur escuro
+   fora, aguardando o click, e o prospector pula sozinho pra quem não tem."*
+
+   🔴 UM MOTOR SÓ. A lâmpada e o tour são a mesma máquina: a lâmpada é um
+   CAPÍTULO montado na hora com os passos de `AULAS[atual]`; o obrigatório é
+   uma FILA de capítulos. Dois motores de coach mark seriam duas verdades pra
+   mesma tela — cada um com sua régua de "sumiu da tela", cada um apontando pro
+   seu botão. É a mesma doença da peça copiada que custou 09/08.
+
+   O passo virou OBJETO — `{tela, alvo, tipo, titulo, texto, se}` — e a tupla
+   antiga `[seletor, título, texto]` continua valendo: é o formato das `AULAS`,
+   e conteúdo que já está certo não se reescreve pra caber em motor novo.
+
+   · `tela`  — diferente da atual? o motor navega e REMONTA na camada VIVA.
+   · `tipo`  — `mostrar` anda no "Próximo"; `fazer` espera o CLIQUE REAL no
+               alvo, que executa a ação de verdade (aprendeu fazendo).
+   · `se(d)` — recebe `DADOS.tutorial`. Falso ⇒ o passo sai; capítulo que ficou
+               sem passo NÃO aparece. "Pular sozinho" é lei do MOTOR, nunca um
+               `if` repetido em cada capítulo.
+   ========================================================================== */
+const CAPITULOS={
+  /* Os três do OBRIGATÓRIO. Nenhum `fazer` mira dinheiro (Iniciar rota debita
+     crédito) nem dado de verdade (Salvar cliente cria conta): tutorial que
+     gasta ou cadastra é tutorial que o cliente paga pra ver. */
+  montar:{titulo:'Montar e iniciar a rota',ico:'route',passos:[
+    /* O alvo tem DOIS seletores porque o botão de montar muda de casa com o
+       estado da rota: no dia zerado ele é o botão grande do meio; com a rota
+       já pronta é o satélite "Montagem". Mesma porta, dois desenhos. */
+    {tela:'rota',alvo:'.tmx-main button[data-estado="montar"],[data-acao="montar"]',tipo:'fazer',
+     titulo:'Comece por aqui',texto:'Toque em montar pra armar o seu dia.'},
+    {tela:'montagem',alvo:'.day-chips,.chips',tipo:'fazer',
+     titulo:'O dia',texto:'Escolha o dia. Só aparece dia que tem cliente.'},
+    {tela:'montagem',alvo:'.stop',
+     titulo:'Cada cartão é uma parada',texto:'Segure no punho do lado pra arrastar e mudar a ordem.'},
+    {tela:'montagem',alvo:'[data-ir="rapida"]',
+     titulo:'Uma parada fora do dia',texto:'O "+" põe na rota um endereço que não estava agendado.'},
+    {tela:'montagem',alvo:'.acts,.tmx-dock',
+     titulo:'Salvar ou começar',texto:'"Salvar rota" guarda pra depois. "Iniciar rota" começa o dia — hoje é só olhar.'},
+  ]},
+  clientes:{titulo:'Onde moram os clientes',ico:'users',passos:[
+    {tela:'rota',alvo:'.nav',tipo:'fazer',
+     titulo:'Os três módulos',texto:'Chat, Rota e Ajustes. Toque em Ajustes.'},
+    {tela:'ajustes',alvo:'[data-ir="clientes"]',tipo:'fazer',
+     titulo:'Cadastro fica aqui',texto:'Clientes, produtos e caderneta moram nos Ajustes.'},
+    {tela:'clientes',alvo:'.cli',
+     titulo:'A ficha do cliente',texto:'Toque num cliente pra ver endereço, preço e o que ele deve.'},
+  ]},
+  cadastro:{titulo:'Cadastrar um cliente',ico:'plus',tela:'novocliente',passos:[
+    {alvo:'[data-campo="novo-nome"]',titulo:'O nome',texto:'Comece pelo nome do cliente.'},
+    {alvo:'[data-acao="usar-meu-local"]',titulo:'O local certo',
+     texto:'Parado na frente da casa, toque aqui: rua, bairro e CEP entram sozinhos.'},
+    {alvo:'[data-campo="novo-numero"]',titulo:'O número da casa',
+     texto:'Este você digita. Se a casa não tem número, escreva SN.'},
+  ]},
+  /* Os do AVANÇADO que REAPROVEITAM a aula da tela — `aula` em vez de `passos`.
+     Copy nova não se inventa: a que está lá já foi lida e aprovada. */
+  avulsa:{titulo:'Parada avulsa — o "+"',ico:'plus',aula:'rapida',tela:'rapida'},
+  entregar:{titulo:'Entregar e receber',ico:'check',aula:'folha',tela:'folha'},
+  caderneta:{titulo:'Caderneta e fechamento',ico:'note',aula:'caderneta',tela:'caderneta',
+    se:d=>!!d.financeiro},
+  chat:{titulo:'Recados da Central',ico:'chat',aula:'chat',tela:'chat',se:d=>!!d.chat},
+  creditos:{titulo:'Créditos e recarga',ico:'card',aula:'consumo',tela:'consumo',se:d=>!!d.admin},
+  /* 🔴 O CAPÍTULO QUE SE ADAPTA — a régua do "pular sozinho" do dono, inteira,
+     sem um tour separado. Três estados, e quem decide é o `se` de cada passo:
+     LIGADO ⇒ os 3 primeiros (o que são os prédios, o toque, o crédito);
+     DESLIGADO mas o dono PODE ligar ⇒ os 2 últimos, que terminam na chave de
+     verdade em Ajustes › Avançado;
+     desligado pra quem não é dono, ou empresa sem prospector ⇒ o `se` do
+     capítulo derruba tudo e ele NÃO EXISTE — nem linha vazia no catálogo. */
+  prospector:{titulo:'Prospector — vender no caminho',ico:'sales',
+    se:d=>!!(d.prospectorAtivo||(d.admin&&d.prospectorDisponivel)),passos:[
+    {tela:'mapa',alvo:'.emp-chip,.emp.on',se:d=>!!d.prospectorAtivo,
+     titulo:'Empresas no seu caminho',texto:'Os prédios acesos no mapa são empresas a até 150 m da sua rota.'},
+    {tela:'mapa',alvo:'.emp.on',se:d=>!!d.prospectorAtivo,
+     titulo:'Toque no prédio',texto:'Abre quem é a empresa. Se interessar, ela vira um lead seu.'},
+    {tela:'mapa',alvo:'',se:d=>!!d.prospectorAtivo,
+     titulo:'Custa 1 crédito',texto:'Só quando você pega o lead. Olhar é de graça.'},
+    {alvo:'',se:d=>!d.prospectorAtivo,
+     titulo:'Vender no caminho',texto:'O app pode te mostrar empresas a até 150 m da rota que você já faz.'},
+    {tela:'avancado',alvo:'[data-acao="chave-prospector"]',tipo:'fazer',se:d=>!d.prospectorAtivo,
+     titulo:'Ligue aqui',texto:'Você liga e desliga quando quiser.'},
+  ]},
+};
+/** A fila do obrigatório, na ordem em que o motorista precisa aprender. */
+const OBRIGATORIO=['montar','clientes','cadastro'];
+/** A ordem do catálogo de Ajustes › "Aprenda a usar". */
+const CATALOGO=['montar','avulsa','entregar','caderneta','chat','prospector','creditos'];
+
+/* O aparelho lembra o capítulo VISTO e ONDE parou — retomar de onde parou é
+   conveniência de leitura, então é do aparelho. O "obrigatório visto" NÃO mora
+   aqui: é do USUÁRIO e vem do servidor (`DADOS.tutorial.obrigatorioVisto`).
+   Por aparelho ele repetiria a cada reinstalação e sumiria no celular novo. */
+const tutorLer=k=>{ try{ return localStorage.getItem('hbx:tutor:'+k); }catch(e){ return null; } };
+const tutorGravar=(k,v)=>{ try{ localStorage.setItem('hbx:tutor:'+k,v); }catch(e){} };
+const tutorFeito=id=>tutorLer('feito:'+id)==='1';
+
+/** A camada VIVA é a ÚLTIMA — mesma lei do `portao` e do `avisar`. */
+function camadaViva(){
+  const c=document.querySelectorAll('#app .tela');
+  return c.length?c[c.length-1]:null;
+}
+/** O que a ponte contou sobre esta empresa. Ausente = objeto vazio, nunca nulo. */
+const tutorDados=()=>DADOS.tutorial||{};
+/* 🔴 "NÃO SEI" NUNCA ESCONDE. Enquanto a ponte não respondeu (`carregando`), a
+   condição não é falsa — ela é desconhecida, e o motor não decide nada. É a
+   mesma lei do "vazio porque o servidor disse vazio" ≠ "vazio porque a rede
+   caiu": esconder capítulo por dado que não chegou some com a lição pra sempre
+   naquele boot, e o cliente nunca descobre que ela existia. */
+function tutorCondicao(fn){
+  if(typeof fn!=='function') return true;
+  const d=tutorDados();
+  if(d.carregando) return true;
+  try{ return !!fn(d); }catch(_){ return true; }
+}
+/* 🔴 ROTA VIVA REBAIXA `fazer` PRA `mostrar`, SOZINHO. Herda a lei da aula: com
+   o dia rodando, os botões da tela movem entrega e dinheiro de verdade, e uma
+   lição que pede o dedo ali cobra o preço do erro do motorista. O obrigatório
+   roda no 1º acesso — não há rota nem dinheiro pra estragar; esta trava existe
+   pro AVANÇADO, que se abre a qualquer hora do dia. */
+const tourSoMostrar=()=>estadoRota==='rodando'||estadoRota==='pausada';
+
+/** Tupla velha `[sel,titulo,texto]` ou objeto novo — sai objeto dos dois lados. */
+function normalizarPasso(p,telaPadrao){
+  const o=Array.isArray(p)
+    ? {alvo:p[0],titulo:p[1],texto:p[2]}
+    : Object.assign({},p);
+  if(!('tela' in o)) o.tela=telaPadrao;
+  if(o.tipo!=='fazer') o.tipo='mostrar';
+  return o;
+}
+/** Os passos que sobram pra ESTA empresa. Alvo ausente é filtrado só na hora
+ *  de pintar — o passo mora em outra tela, e tela que não está no ar não tem
+ *  peça pra medir. */
+function passosDoCapitulo(cap){
+  const crus=cap.passos||(cap.aula?AULAS[cap.aula]:null)||[];
+  return crus.map(p=>normalizarPasso(p,cap.tela)).filter(p=>tutorCondicao(p.se));
+}
+/** O catálogo: [id, capítulo] dos que existem pra esta empresa E têm passo. */
+function capitulosDoCatalogo(){
+  return CATALOGO.map(id=>[id,CAPITULOS[id]]).filter(([id,c])=>{
+    if(!c) return false;
+    if(!tutorCondicao(c.se)) return false;
+    if(passosDoCapitulo(c).length) return true;
+    // Capítulo sem passo não vira linha — e não sai calado: linha no catálogo
+    // abrindo um capítulo vazio seria botão morto com nome bonito.
+    console.warn('[HBX 2.0] tutor — capítulo sem passo, fora do catálogo:',id,
+      c.aula?`(a aula "${c.aula}" não existe em AULAS)`:'');
+    return false;
   });
+}
+
+/* O ESTADO DO TOUR VIVE FORA DA CAMADA. `pintar()` troca o DOM inteiro a cada
+   dado que chega — guardar o passo dentro do `.aula-wrap` era perder a lição
+   no primeiro repinte do seam. Aqui a camada é só o DESENHO do passo; a
+   verdade é este objeto, e `tourRepintar()` a redesenha onde ela couber. */
+const TOUR={id:null,cap:null,passos:[],i:0,obrig:false,fila:0,
+  alvoEl:null,esperandoDedo:false,volta:null,dicaTimer:null,remedir:[]};
+const tourRodando=()=>!!TOUR.cap;
+
+function tourLimparRelogios(){
+  clearTimeout(TOUR.dicaTimer); TOUR.dicaTimer=null;
+  TOUR.remedir.forEach(t=>clearTimeout(t)); TOUR.remedir=[];
+}
+function tourApagarDesenho(){
+  document.querySelectorAll('#app .tela .aula-wrap').forEach(w=>w.remove());
+}
+function tourEncerrar(){
+  tourLimparRelogios(); tourApagarDesenho();
+  TOUR.id=null; TOUR.cap=null; TOUR.passos=[]; TOUR.i=0;
+  TOUR.alvoEl=null; TOUR.esperandoDedo=false;
+}
+
+/** Abre um capítulo. `obrig` = sem X e emenda no próximo da fila. */
+function tourAbrirCapitulo(id,obrig,retomar){
+  const cap=CAPITULOS[id]; if(!cap) return false;
+  const passos=passosDoCapitulo(cap);
+  if(!passos.length){ console.warn('[HBX 2.0] tutor — capítulo sem passo:',id); return false; }
+  tourLimparRelogios();
+  TOUR.id=id; TOUR.cap=cap; TOUR.passos=passos; TOUR.obrig=!!obrig;
+  TOUR.volta=TOUR.volta||atual;
+  const guardado=retomar?parseInt(tutorLer('pos:'+id)||'0',10):0;
+  TOUR.i=(guardado>0&&guardado<passos.length)?guardado:0;
+  tourRepintar();
+  return true;
+}
+/** O passo saiu do ar (alvo sumiu, tela murada): anda um e tenta de novo. */
+function tourPular(motivo,p){
+  console.warn('[HBX 2.0] tutor —',motivo,':',(p&&p.alvo)||'(sem alvo)','· capítulo',TOUR.id);
+  TOUR.i++; tourRepintar();
+}
+function tourConcluirCapitulo(){
+  const id=TOUR.id, obrig=TOUR.obrig;
+  tutorGravar('feito:'+id,'1');
+  tutorGravar('pos:'+id,'0');
+  tourEncerrar();
+  if(!obrig){
+    const volta=TOUR.volta; TOUR.volta=null;
+    // Volta pra onde o capítulo foi aberto: quem abriu a lição nos Ajustes não
+    // pode ser largado na tela de dirigir.
+    if(volta&&volta!==atual) ir(volta);
+    else pintar(false);          // o ✓ do catálogo é dado de tela: repinta
+    return;
+  }
+  TOUR.fila++;
+  tutorGravar('obrig',String(TOUR.fila));
+  const prox=OBRIGATORIO[TOUR.fila];
+  if(prox&&tourAbrirCapitulo(prox,true,false)) return;
+  tourFecharObrigatorio();
+}
+/** Anda a fila do obrigatório até achar um capítulo que tenha passo. */
+function tourSeguirObrigatorio(){
+  for(let n=TOUR.fila;n<OBRIGATORIO.length;n++){
+    TOUR.fila=n;
+    if(tourAbrirCapitulo(OBRIGATORIO[n],true,true)) return;
+  }
+  tourFecharObrigatorio();
+}
+/** O fecho do obrigatório: o portão de saída e o carimbo no servidor. */
+function tourFecharObrigatorio(){
+  TOUR.obrig=false; TOUR.fila=0; TOUR.volta=null;
+  tutorGravar('obrig','0');
+  tutorGravar('feito:obrigatorio','1');
+  /* 🔴 QUEM GRAVA NO SERVIDOR É A PONTE. O motor é o DESENHO e não fala com a
+     rede — aqui ele só anuncia. No mock a função nasce no-op (o seam existe
+     antes da rede, como toda porta desta casa). */
+  try{ window.tutorialConcluido(); }catch(_){}
+  if(atual!=='rota') ir('rota');
+  portao({tom:'ok',ico:'bulb',titulo:'Pronto pra rodar',
+    sub:'Quer rever? Ajustes › Aprenda a usar. A 💡 lá em cima ensina cada tela.',
+    acoes:[['Entendi','principal',true]]});
+}
+
+/* 🔴 O TOUR SE REMONTA NA CAMADA VIVA, a cada pintura. `portao()` já ensinou a
+   lei aqui: com `querySelector` (a primeira) a peça nasce na camada que está
+   MORRENDO numa troca de tela e some junto com ela. E o alvo é MEDIDO de novo
+   a cada remonte — a tela repintou, a peça mudou de lugar. */
+function tourRepintar(){
+  if(!TOUR.cap) return;
+  tourLimparRelogios();
+  tourApagarDesenho();
+  const p=TOUR.passos[TOUR.i];
+  if(!p) return tourConcluirCapitulo();
+  // JORNADA: passo em outra tela navega — e `pintar()` chama esta função de
+  // novo, já na camada certa. Tela que não existe ou módulo que o admin
+  // desligou não prendem a lição: o passo cai e o console grita.
+  if(p.tela&&p.tela!==atual){
+    if(!T[p.tela]) return tourPular('tela inexistente',p);
+    if(moduloDesligado(p.tela)) return tourPular('módulo desligado',p);
+    return ir(p.tela);
+  }
+  const camada=camadaViva(); if(!camada) return;
+  const alvo=p.alvo?camada.querySelector(p.alvo):null;
+  // Passo cujo alvo não está na tela SAI (e grita no console): estado diferente
+  // desenha peça diferente, e apontar pro vazio é pior que não falar.
+  if(p.alvo&&!alvo) return tourPular('sumiu da tela',p);
+  /* O rebaixamento é decidido AQUI, no quadro, não quando o capítulo abriu: a
+     rota pode começar a rodar no meio da lição (a ponte relê a config a cada
+     minuto) e um `fazer` congelado na abertura pediria o dedo do motorista num
+     botão que agora move dinheiro. */
+  const tipo=(p.tipo==='fazer'&&!tourSoMostrar())?'fazer':'mostrar';
+  TOUR.alvoEl=alvo;
+  TOUR.esperandoDedo=(tipo==='fazer');
+
+  const w=document.createElement('div');
+  w.className='aula-wrap';
+  w.dataset.tipo=tipo;
+  w.dataset.furo=alvo?'1':'0';
+  w.innerHTML=`<div class="aula-veu"></div><div class="aula-veu"></div>
+    <div class="aula-veu"></div><div class="aula-veu"></div>
+    <div class="aula-furo"></div><div class="aula-cx"></div>`;
+  camada.appendChild(w);
+  const furo=w.querySelector('.aula-furo'), cx=w.querySelector('.aula-cx');
+  const veus=[...w.querySelectorAll('.aula-veu')];
+
+  function medir(){
+    const c=camada.getBoundingClientRect();
+    if(!alvo||!camada.contains(alvo)){
+      // Sem alvo: o véu é um painel só, cobrindo tudo. Os outros três somem —
+      // painel de largura zero ainda pinta borda em alguns navegadores.
+      Object.assign(veus[0].style,{top:'0',left:'0',width:'100%',height:'100%',display:''});
+      veus.slice(1).forEach(v=>v.style.display='none');
+      return;
+    }
+    // Medida RELATIVA à camada: o quadro do visualizador tem zoom, e
+    // getBoundingClientRect da janela devolveria o furo fora do lugar.
+    const a=alvo.getBoundingClientRect();
+    const topo=a.top-c.top, esq=a.left-c.left, alt=a.height, larg=a.width;
+    const t=topo-6, l=esq-6, lg=larg+12, at=alt+12;
+    Object.assign(furo.style,{top:t+'px',left:l+'px',width:lg+'px',height:at+'px'});
+    veus.forEach(v=>v.style.display='');
+    Object.assign(veus[0].style,{top:'0',left:'0',width:'100%',height:Math.max(0,t)+'px'});
+    Object.assign(veus[1].style,{top:(t+at)+'px',left:'0',width:'100%',bottom:'0',height:'auto'});
+    Object.assign(veus[2].style,{top:t+'px',left:'0',width:Math.max(0,l)+'px',height:at+'px'});
+    Object.assign(veus[3].style,{top:t+'px',left:(l+lg)+'px',right:'0',width:'auto',height:at+'px'});
+    // A caixa fica do lado que tem espaço: abaixo do alvo se couber, senão
+    // acima. Explicação em cima da peça explicada é explicação escondida.
+    const cxAlt=cx.offsetHeight||160;
+    const cabeAbaixo=topo+alt+14+cxAlt<c.height;
+    cx.style.top=cabeAbaixo?(topo+alt+14)+'px':'auto';
+    cx.style.bottom=cabeAbaixo?'auto':(c.height-topo+14)+'px';
+  }
+
+  const ultimo=TOUR.i===TOUR.passos.length-1;
+  const pct=Math.round(((TOUR.i+1)/TOUR.passos.length)*100);
+  if(!TOUR.obrig) cx.classList.add('com-x');
+  cx.innerHTML=`<span class="aula-prog"><i style="width:${pct}%"></i></span>
+    ${TOUR.obrig?'':`<button class="fechar" data-aula-sair="1" data-escape="1" aria-label="Fechar">${ic('close',15)}</button>`}
+    <b>${p.titulo}</b><span class="txt">${p.texto}</span>
+    <div class="pe"><span class="conta">${TOUR.i+1} de ${TOUR.passos.length}</span>
+      <span style="display:flex;gap:8px">
+        ${tipo==='fazer'?'':`<button class="principal" data-aula-prox="1"${ultimo?' data-escape="1"':''}>${ultimo?'Entendi':'Próximo'}</button>`}
+      </span></div>`;
+  medir();
+  /* 🔴 A TELA AINDA ESTÁ ENTRANDO QUANDO O TOUR MEDE. A camada nasce com a
+     cascata de entrada (`--i` por peça), então a régua tirada no primeiro
+     quadro pega o alvo NO MEIO do próprio deslize. Duas remedidas cobrem a
+     entrada comum (~740 ms) e o furo transiciona sozinho até o lugar — quem
+     olha vê o destaque assentar, nunca pular. */
+  TOUR.remedir.push(setTimeout(medir,140),setTimeout(medir,520));
+  // 4 s parado no `fazer` e o anel pulsa. Dica, não bronca.
+  if(tipo==='fazer') TOUR.dicaTimer=setTimeout(()=>furo.classList.add('dica'),4000);
+
+  w.addEventListener('click',e=>{
+    if(e.target.closest('[data-aula-sair]')){
+      const volta=TOUR.volta; TOUR.volta=null;
+      tutorGravar('pos:'+TOUR.id,String(TOUR.i));   // retoma de onde parou
+      tourEncerrar();
+      if(volta&&volta!==atual) ir(volta);
+      return;
+    }
+    if(!e.target.closest('[data-aula-prox]')) return;
+    TOUR.i++; tourRepintar();
+  });
+}
+
+/* 🔴 O CLIQUE QUE ANDA O PASSO É O DE VERDADE, e por isso este ouvinte OLHA e
+   não atrapalha: nada de `preventDefault`, nada de `stopPropagation`. O véu já
+   garantiu que só o alvo é alcançável; aqui o motor apenas toma nota de que o
+   dedo chegou. Captura pra ver o toque ANTES de a ação repintar a tela e levar
+   o elemento embora. */
+document.addEventListener('click',e=>{
+  if(!TOUR.esperandoDedo||!TOUR.alvoEl) return;
+  if(e.target!==TOUR.alvoEl&&!TOUR.alvoEl.contains(e.target)) return;
+  TOUR.esperandoDedo=false;
+  TOUR.i++;
+  tutorGravar('pos:'+TOUR.id,String(TOUR.i));
+  // Some com o desenho na hora: o motorista precisa VER a ação que ele acabou
+  // de fazer. Se a ação repintar a tela, `pintar()` remonta o tour no passo
+  // novo; se não repintar (o clique não navegou), o relógio abaixo remonta.
+  tourApagarDesenho();
+  TOUR.remedir.push(setTimeout(tourRepintar,340));
+},true);
+
+/** A lâmpada: a aula DESTA tela, montada na hora — capítulo como outro qualquer. */
+function abrirAula(){
+  const camada=camadaViva(); if(!camada) return;
+  if(tourRodando()) return;
   marcarVista(atual);
   marcarAula(camada);
+  const passos=(AULAS[atual]||[]).map(p=>normalizarPasso(p,atual)).filter(p=>{
+    const tem=!!(p.alvo&&camada.querySelector(p.alvo));
+    if(!tem) console.warn('[HBX 2.0] aula de',atual,'— sumiu da tela:',p.alvo);
+    return tem;
+  });
   if(!passos.length){
     return portao({tom:'info',ico:'bulb',titulo:'Nada a ensinar aqui',
       sub:'Esta tela não tem aula ainda.',acoes:[['Fechar','principal',true]]});
   }
-  const w=document.createElement('div');
-  w.className='aula-wrap';
-  w.innerHTML=`<div class="aula-furo"></div><div class="aula-cx"></div>`;
-  camada.appendChild(w);
-  const furo=w.querySelector('.aula-furo'), cx=w.querySelector('.aula-cx');
-  let i=0;
-  function pintarPasso(){
-    const [sel,titulo,texto]=passos[i];
-    const alvo=camada.querySelector(sel);
-    // Medida RELATIVA à camada: o quadro do visualizador tem zoom, e
-    // getBoundingClientRect da janela devolveria o furo fora do lugar.
-    const a=alvo.getBoundingClientRect(), c=camada.getBoundingClientRect();
-    const topo=a.top-c.top, esq=a.left-c.left;
-    const alt=a.height, larg=a.width;
-    Object.assign(furo.style,{top:(topo-6)+'px',left:(esq-6)+'px',
-      width:(larg+12)+'px',height:(alt+12)+'px'});
-    // A caixa fica do lado que tem espaço: abaixo do alvo se couber, senão
-    // acima. Explicação em cima da peça explicada é explicação escondida.
-    const cxAlt=150;
-    const cabeAbaixo = topo+alt+12+cxAlt < c.height;
-    cx.style.top = cabeAbaixo ? (topo+alt+14)+'px' : 'auto';
-    cx.style.bottom = cabeAbaixo ? 'auto' : (c.height-topo+14)+'px';
-    const ultimo=i===passos.length-1;
-    cx.innerHTML=`<b>${titulo}</b><span class="txt">${texto}</span>
-      <div class="pe"><span class="conta">${i+1} de ${passos.length}</span>
-        <span style="display:flex;gap:8px">
-          ${ultimo?'':'<button data-aula-sair="1" data-escape="1">Pular</button>'}
-          <button class="principal" data-aula-prox="1"${ultimo?' data-escape="1"':''}>${ultimo?'Entendi':'Próximo'}</button>
-        </span></div>`;
-  }
-  w.addEventListener('click',e=>{
-    if(e.target.closest('[data-aula-sair]')) return w.remove();
-    if(!e.target.closest('[data-aula-prox]')) return;
-    i++;
-    if(i>=passos.length) return w.remove();
-    pintarPasso();
-  });
-  pintarPasso();
+  tourLimparRelogios();
+  TOUR.id='aula:'+atual; TOUR.cap={titulo:T[atual]?T[atual].nome:atual};
+  TOUR.passos=passos; TOUR.i=0; TOUR.obrig=false; TOUR.volta=null;
+  tourRepintar();
 }
+
+/* ==========================================================================
+   AS DUAS PORTAS DO TUTOR — o que a ponte chama, e o que ela implementa.
+   `window.TUTOR` é o motor se oferecendo; `window.tutorialConcluido` é o motor
+   pedindo. No mock a segunda nasce NO-OP: o desenho define o seam, a ponte
+   sobrescreve com a rede. Sem isto o obrigatório terminaria num erro calado.
+   ========================================================================== */
+window.tutorialConcluido = window.tutorialConcluido || function(){};
+window.TUTOR={
+  /* Abre (ou retoma) o obrigatório. Não faz nada se já tem tour na tela.
+     🔴 E NÃO DECIDE COM DADO QUE NÃO CHEGOU: enquanto `carregando`, ninguém é
+     preso num tutorial; quem chama de novo depois do bootstrap é a ponte. */
+  obrigatorio(){
+    if(tourRodando()) return;
+    const d=tutorDados();
+    if(d.carregando||d.obrigatorioVisto) return;
+    TOUR.volta=null;
+    TOUR.fila=Math.max(0,Math.min(OBRIGATORIO.length-1,parseInt(tutorLer('obrig')||'0',10)||0));
+    // Quem matou o app no meio RETOMA — o cartão de boas-vindas é da primeira
+    // vez, e repeti-lo a cada volta seria cobrar o mesmo minuto duas vezes.
+    if(TOUR.fila>0) return tourSeguirObrigatorio();
+    portao({tom:'info',ico:'bulb',titulo:'O app mudou',
+      sub:'Em 1 minuto eu te mostro o que importa.',
+      acoes:[['Vamos lá','principal']],semFechar:1,acaoPrincipal:'tutor-comecar'});
+  },
+  /** Um capítulo avulso do catálogo — sempre fechável no X. */
+  abrir(id){
+    if(tourRodando()) return;
+    TOUR.volta=null; TOUR.obrig=false; TOUR.fila=0;
+    tourAbrirCapitulo(id,false,true);
+  },
+  rodando(){ return tourRodando(); },
+};
 
 function confirmar(){
   const camada=document.querySelector('#app .tela'); if(!camada) return;
@@ -3666,6 +4085,18 @@ document.addEventListener('click',e=>{
   if(pt){ portao(pt.dataset.portao); return; }
   const fec=e.target.closest('[data-fechar]');
   if(fec){ fechar(fec.closest('.erro-wrap,.conf-wrap,.portao-wrap')); }
+  /* O TUTOR TEM DUAS PORTAS E UM PREFIXO SÓ. `tutor-comecar` é o "Vamos lá" do
+     cartão de abertura; `tutor-<id>` é a linha do catálogo dos Ajustes. O
+     prefixo mantém o namespace longe do roteador de `data-acao` da ponte —
+     dois donos pro mesmo nome foi o defeito que a chave do tema já pagou.
+     Vem DEPOIS do `data-fechar`: o portão fecha primeiro, e a espera cobre a
+     saída dele (o tour senta abaixo do portão, então abrir por cima seria
+     abrir escondido). */
+  const tu=e.target.closest('[data-acao^="tutor-"]');
+  if(tu){
+    const id=tu.dataset.acao.slice(6);
+    setTimeout(()=>{ id==='comecar'?tourSeguirObrigatorio():window.TUTOR.abrir(id); },230);
+  }
 });
 pintar(false);
 
