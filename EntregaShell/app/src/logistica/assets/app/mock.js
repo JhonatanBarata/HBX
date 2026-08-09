@@ -302,20 +302,62 @@ function stop(o){
 }
 
 function mapa(){ return `<div class="mapa-palco" data-mapa="geral">${mapaDesenho()}</div>`; }
+
+/* ==========================================================================
+   🔴 O DESENHO NÃO INVENTA O DIA — ordem do dono, 08/08: *"o mapa 2d tem coisa
+   traçada nele. Pode ter realmente, mas eu limpei e não tem nada, e continua de
+   1 a 6, não é isso!"*
+
+   Este SVG é o PANO DE ESPERA do mapa de verdade: ele existe só pra a tela não
+   ficar preta enquanto os tiles não chegam (1,0 s medido no g15). Até aqui ele
+   vinha com uma rota de SEIS paradas cravada no arquivo, mais o Parque do
+   Ibirapuera, cinco bairros de São Paulo e um carro — e NADA disso saía de dado
+   nenhum. Enquanto isto era o desenho atrás de um botão "Ver mapa", passava; com
+   o mapa virando a TELA PRINCIPAL, o app abre afirmando um dia inteiro que não
+   existe, numa cidade onde a empresa não fica — a mesma mentira que o
+   `apagarDemonstracao` existe pra matar em toda outra tela.
+
+   A régua é a do §4.6.5: o que é DADO zera sem fonte; o que é DESENHO fica.
+
+   · A MALHA DE RUAS FICA SEMPRE. Ela não afirma nada — é a textura de "mapa
+     carregando", e é ela que evita o retângulo preto.
+   · A ROTA E OS PINOS SAEM DE `PARADAS`. Zero parada ⇒ zero pino, zero traço,
+     zero bandeira. E a CONTAGEM é a de verdade: 3 paradas desenham 3, não 6.
+   · OS PINOS SÃO IGUAIS ENTRE SI, como os do mapa vivo (`sincronizarPinos`). O
+     pino grande dizia "você está na parada 3" — afirmação que este desenho não
+     tem como saber, e que ficava cravada mesmo com a rota parada.
+   · O CARRO SAIU. "Onde eu estou" é o marcador do mapa VIVO, movido pelo GPS a
+     cada fix (`moverEuNoPlano`). Desenhar um carro no meio da tela era prometer
+     localização sem ter localização — e era ele que fazia parecer que o app
+     sabia onde o motorista estava quando não sabia.
+   · OS NOMES DE BAIRRO SAÍRAM. Nome de bairro é ENDEREÇO, e o desenho não sabe
+     em que cidade o motorista está. A mancha do parque fica: verde sem nome é
+     textura, "Ibirapuera" é afirmação.
+   ========================================================================== */
+/* Os pontos por onde o traço passa, na ordem — a partida e depois uma parada por
+   vez. `ate` é o pedaço de caminho que LEVA até aquele pino, então o traço
+   termina exatamente no último pino desenhado e nunca sobra rabo depois dele. */
+const MAPA_PARADAS=[
+  {x:144,y:190, ate:'H144'},
+  {x:232,y:320, ate:'V320 H232'},
+  {x:232,y:460, ate:'V460'},
+  {x:318,y:600, ate:'V600 H318'},
+  {x:144,y:740, ate:'V740 H144'},
+  {x:56, y:740, ate:'H56'},
+];
 function mapaDesenho(){
+  const total=(typeof PARADAS!=='undefined'&&PARADAS)?PARADAS.length:0;
+  const pontos=MAPA_PARADAS.slice(0,Math.min(total,MAPA_PARADAS.length));
+  const traco=pontos.length?`M56 190 ${pontos.map(p=>p.ate).join(' ')}`:'';
   return `<div class="mapwrap"><svg viewBox="0 0 400 900" preserveAspectRatio="xMidYMid slice">
     <defs>
       <filter id="gl" x="-50%" y="-50%" width="200%" height="200%">
         <feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
       <filter id="gls" x="-80%" y="-80%" width="260%" height="260%">
         <feGaussianBlur stdDeviation="8" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-      <linearGradient id="carc" x1="232" y1="396" x2="232" y2="470" gradientUnits="userSpaceOnUse">
-        <stop offset="0" stop-color="#5b9dff" stop-opacity=".5"/><stop offset="1" stop-color="#5b9dff" stop-opacity="0"/></linearGradient>
     </defs>
     <rect width="400" height="900" fill="var(--map-fundo)"/>
     <path d="M246 160h160v180H246z" fill="var(--map-parque)" opacity=".85"/>
-    <text x="296" y="218" fill="var(--map-rotulo)" font-size="10" font-family="Inter">Parque do</text>
-    <text x="296" y="231" fill="var(--map-rotulo)" font-size="10" font-family="Inter">Ibirapuera</text>
     <g stroke="var(--map-rua)" stroke-width="6" opacity=".9" stroke-linecap="round">
       <path d="M-20 190H420M-20 320H420M-20 460H420M-20 600H420M-20 740H420"/>
       <path d="M56 -20V920M144 -20V920M232 -20V920M318 -20V920"/></g>
@@ -323,30 +365,14 @@ function mapaDesenho(){
       <path d="M-20 120H420M-20 255H420M-20 390H420M-20 530H420M-20 670H420M-20 806H420"/>
       <path d="M20 -20V920M100 -20V920M188 -20V920M276 -20V920M360 -20V920"/>
       <path d="M-20 66L420 320M420 66L-20 366"/></g>
-    <!-- TRAÇADO: segue as ruas do desenho, sem cruzar consigo mesmo.
-         Ordem visitada: bandeira → 1 → 2 → 3 (atual) → 4 → 5 → 6. -->
-    <g filter="url(#gl)">
-      <path d="M56 190 H144 V320 H232 V600 H318 V740 H56"
-        fill="none" stroke="var(--map-rota)" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/></g>
-    <g font-family="Inter" font-size="10" fill="var(--map-rotulo)" letter-spacing="1">
-      <text x="14" y="150">SANTO AMARO</text><text x="256" y="286">BROOKLIN</text>
-      <text x="60" y="430">CAMPO BELO</text><text x="300" y="530">MOEMA</text><text x="150" y="800">JABAQUARA</text></g>
-    <g filter="url(#gls)">
+    ${traco?`<g filter="url(#gl)"><path d="${traco}"
+        fill="none" stroke="var(--map-rota)" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/></g>`:''}
+    ${pontos.length?`<g filter="url(#gls)">
       <circle cx="56" cy="190" r="13" fill="var(--map-pino)" stroke="var(--map-partida)" stroke-width="1.6"/>
-      <path d="M51 185h10v10h-10z" fill="var(--map-bandeira)"/><path d="M51 185h5v5h-5zM56 190h5v5h-5z" fill="var(--map-bandeira-2)"/></g>
-    ${[[144,190,'1'],[232,320,'2'],[318,600,'4'],[144,740,'5'],[56,740,'6']].map(([x,y,t])=>
-      `<g filter="url(#gl)"><circle cx="${x}" cy="${y}" r="13" fill="var(--map-pino)" stroke="var(--map-rota)" stroke-width="1.5"/>
-       <text x="${x}" y="${y+4.5}" text-anchor="middle" font-size="12" font-weight="400" fill="var(--map-pino-tinta)">${t}</text></g>`).join('')}
-    <g filter="url(#gls)">
-      <circle cx="232" cy="460" r="28" fill="var(--map-rota)" opacity=".16"/>
-      <circle cx="232" cy="460" r="19" fill="var(--map-pino)" stroke="var(--map-rota)" stroke-width="1.8"/>
-      <text x="232" y="466" text-anchor="middle" font-size="16" font-weight="400" fill="var(--map-pino-tinta)">3</text></g>
-    <!-- eu, descendo a rua rumo à parada 3 -->
-    <path d="M232 396 l-38 62 h76 z" fill="url(#carc)"/>
-    <g transform="translate(232 396) rotate(180)">
-      <rect x="-11" y="-17" width="22" height="34" rx="5" fill="var(--map-carro)" stroke="var(--map-carro-borda)"/>
-      <rect x="-7.5" y="-12" width="15" height="10" rx="2.5" fill="var(--map-carro-vidro)"/>
-      <rect x="-7.5" y="5" width="15" height="7.5" rx="2" fill="var(--map-carro-2)"/></g>
+      <path d="M51 185h10v10h-10z" fill="var(--map-bandeira)"/><path d="M51 185h5v5h-5zM56 190h5v5h-5z" fill="var(--map-bandeira-2)"/></g>`:''}
+    ${pontos.map((p,i)=>
+      `<g filter="url(#gl)"><circle cx="${p.x}" cy="${p.y}" r="13" fill="var(--map-pino)" stroke="var(--map-rota)" stroke-width="1.5"/>
+       <text x="${p.x}" y="${p.y+4.5}" text-anchor="middle" font-size="12" font-weight="400" fill="var(--map-pino-tinta)">${i+1}</text></g>`).join('')}
   </svg></div>`;
 }
 
@@ -684,12 +710,13 @@ const DADOS={
      no desktop). Abrir GERA a rota do dia a partir do modelo. */
   salvas:{
     busca:'', total:'6 rotas salvas', ordem:'Mais recentes', acoes:1,
+    // O 9º campo é o CABEÇALHO do dia: só a 1ª linha de cada dia o carrega.
     lista:[
-      ['Zona Sul manhã','23 de maio, 2025','15','20','184,00','map',0,''],
+      ['Zona Sul manhã','23 de maio, 2025','15','20','184,00','map',0,'','Segunda'],
       ['Centro tarde','22 de maio, 2025','12','18','152,40','route',0,''],
-      ['Sábado água 20L','17 de maio, 2025','18','1','98,00','gallon',0,''],
+      ['Sábado água 20L','17 de maio, 2025','18','1','98,00','gallon',0,'','Quarta'],
       ['Rota Moema','16 de maio, 2025','14','17','126,30','flag',1,''],
-      ['Rota Brooklin','15 de maio, 2025','11','16','110,20','map',0,''],
+      ['Rota Brooklin','15 de maio, 2025','11','16','110,20','map',0,'','Sábado'],
       ['Rota clientes fiéis','10 de maio, 2025','9','14','87,60','users',1,''],
     ],
   },
@@ -1511,7 +1538,7 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
   return `${status}
 ${hdr({voltar:'rota'})}
 <div class="body${pe?' com-dock-1':''}">
-  <h2 style="font-size:23px;font-weight:500;margin:4px 0 2px;letter-spacing:-.4px">${d.titulo}</h2>
+  <h2 style="font-size:23px;font-weight:500;margin:4px 0 2px;letter-spacing:-.4px;text-align:center">${d.titulo}</h2>
   ${chips}
   ${modos}
   ${miolo(d,'route','recarregar-montagem',5,`${lista}
@@ -1526,7 +1553,13 @@ ${pe?`<div class="tmx-dock">${pe}</div>`:''}${nav('rota')}`;}};
 /* 9 — ROTAS SALVAS -------------------------------------------------------- */
 T.salvas={nome:'Rotas salvas',grupo:'Rota',render(){
   const d=DADOS.salvas;
-  const r=(nome,data,paradas,prod,valor,icone,tomLime,id)=>`
+  /* 🔴 A LISTA SE DIVIDE PELOS DIAS (dono, 08/08). Rota salva deixou de ser um
+     monte só: cada dia da semana guarda até 2, e é aqui que o dono vê tudo o
+     que existe — inclusive o que sobrou além dos 2 espaços da tela de montar.
+     O cabeçalho vem NA LINHA (`cab`), não numa segunda lista, porque quem sabe
+     onde o dia troca é quem ordenou: a ponte. */
+  const r=(nome,data,paradas,prod,valor,icone,tomLime,id,cab)=>`
+    ${cab?`<div class="grupo">${cab}</div>`:''}
     <div class="rowcard">
       <span class="ico ${tomLime?'lime':''}">${ic(icone,20)}</span>
       <span><strong>${nome}</strong>${data?`<span>${data}</span>`:''}
@@ -1547,7 +1580,7 @@ ${hdr({voltar:'ajustes',semChat:1})}
   <div class="screen-head"><span style="color:var(--lime)">${ic('save',30)}</span>
     <span><h2>Rotas salvas</h2>${d.total?`<p>${d.total}</p>`:''}</span></div>
   ${miolo(d,'save','recarregar-salvas',4,d.lista.length
-    ? d.lista.map(x=>r(x[0],x[1],x[2],x[3],x[4],x[5],x[6],x[7])).join('')
+    ? d.lista.map(x=>r(x[0],x[1],x[2],x[3],x[4],x[5],x[6],x[7],x[8])).join('')
     : `<div class="vazio"><span class="ico">${ic('save',24)}</span><strong>Nenhuma rota salva ainda</strong></div>`)}
 </div>
 ${nav('ajustes')}`;}};
@@ -2972,6 +3005,15 @@ function ligarLista(camada,lista){
   const idsNaOrdem = () => [...lista.querySelectorAll('.stop')]
     .map(el=>el.dataset.parada||'').filter(Boolean);
 
+  /* 🔴 …MAS A MONTAGEM TAMBÉM PRECISA CONTAR (08/08). Sem id de entrega o
+     anúncio nunca saía dali, e o arrasto da prévia ficava só no DOM até alguém
+     apertar "Montar rota": qualquer repinte no meio — um fix de GPS chegando da
+     garagem, a troca de espaço no seletor — desfazia a decisão do dedo em
+     silêncio. `data-previa` é a POSIÇÃO de origem do cartão, carimbada pela
+     ponte, e viaja junto porque o arrasto MOVE o nó em vez de redesenhar. */
+  const posicoesDaPrevia = () => [...lista.querySelectorAll('.stop[data-previa]')]
+    .map(el=>el.dataset.previa).filter(v=>v!=null&&v!=='');
+
   /* O gesto abriu porta (arrastou ou armou)? Então o TOQUE não vale. Sem isto
      o `pointerup` vira `click` e a MESMA parada que o dedo acabou de mover (ou
      de mandar retirar) abre a folha dela por cima. Captura, uma vez só: quem
@@ -3001,6 +3043,7 @@ function ligarLista(camada,lista){
     // dedo realmente mudou alguma coisa. Sem esta marca todo toque no punho
     // viraria uma gravação — inclusive pegar e soltar no mesmo lugar.
     const ordemAntes=idsNaOrdem().join('|');
+    const previaAntes=posicoesDaPrevia().join('|');
     const rolos=roladores(), rolo=rolos[0]||null;
     // O punho tem touch-action:none; o CARTÃO não (ele precisa deixar a lista
     // rolar). Quando o arrasto nasce do segurar, o 1º movimento vertical faria
@@ -3076,6 +3119,12 @@ function ligarLista(camada,lista){
          ordem nova, e gravar à toa é ida ao servidor no meio da rua. */
       const ids=idsNaOrdem();
       if(ids.length>1&&ids.join('|')!==ordemAntes) anunciar('hbx:ordem',{ids});
+      // Lista sem id de entrega (a MONTAGEM) fala por posição — mesmo evento,
+      // outra chave, porque quem grava é o mesmo ouvinte.
+      else{
+        const pos=posicoesDaPrevia();
+        if(pos.length>1&&pos.join('|')!==previaAntes) anunciar('hbx:ordem',{previa:pos});
+      }
       if(andou) engolirToque(item);
       item.removeEventListener('pointermove',mover);
       item.removeEventListener('pointerup',soltar);

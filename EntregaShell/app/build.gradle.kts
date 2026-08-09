@@ -116,7 +116,13 @@ plugins {
 // última sideloadada foi a 184. Piso ACIMA do maior número que já está em
 // algum celular, senão o publish carimba um número que o g15 já roda e o aviso
 // de atualização nunca aparece — que é a 1ª prova depois de publicar.
-val hbxLogisticaVersionCodeFloor = 185
+// 185 → 201 em 09/08 (madrugada): a leva "títulos de tela centralizados" provou
+// no g15 por sideload, e o último debug instalado foi o 200. Com o piso em 185,
+// o publicado era 198 e o próximo publish carimbaria max(198,185)+1 = 199 — ou
+// seja, ABAIXO do que o g15 já roda, e o aparelho de bancada ficaria cego pro
+// aviso de atualização. Piso ACIMA do maior número que já está em algum celular:
+// a lei de sempre, terceira vez que ela é cobrada por sideload de prova.
+val hbxLogisticaVersionCodeFloor = 201
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)

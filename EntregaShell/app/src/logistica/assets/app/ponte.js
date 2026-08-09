@@ -658,29 +658,17 @@
     // nela por outro caminho via a lista do MOCK — João da Silva, R$ 336,00 —
     // com o dado real na tela de trás. Dado de enfeite numa tela de dinheiro é
     // o defeito que esta frente inteira existe pra matar (visto no g15).
-    // 🔴 QUEM MANDA NA MONTAGEM É O ESTADO. Com rota montada ela mostra a ROTA
-    // (com id, ordem e hora) e o pé vira "Iniciar rota"; sem rota montada ela é
-    // a tela de MONTAR, e quem enche é a prévia do dia escolhido. Escrever a
-    // rota real nos dois casos era o que fazia o "Iniciar rota" aparecer sem
-    // rota nenhuma — o "monte a rota antes" que o dono levou na cara.
-    if (estadoRota === 'montar' || montarDia) {
-      encherMontagem();
-    } else {
-      window.usarDados('montagem', {
-        carregando: false,
-        semFonte: false,
-        pronta: 1,
-        vazio: textoVazio(0),
-        somaParadas: String(paradas.length),
-        somaProdutos: String(itens.reduce((s, it) => s + (Number(it.quantidade) || 0), 0)),
-        somaValor: temValor ? dinheiro(marcado) : '',
-        // o sub do botão é a 1ª parada pendente: pra onde ele vai AGORA.
-        iniciarSub: (paradas.find((p) => !p.cor) || paradas[0] || {}).nome || '',
-        linhas: paradas.map((p) => [
-          p.n, p.hora, p.nome, p.rua, p.bairro, p.tags.map((t) => t[0]), p.marcado, p.cor || '',
-        ]),
-      });
-    }
+    /* 🔴 A MONTAGEM TEM UM DONO SÓ, E NÃO É AQUI (dono, 08/08: "o prévia vai
+       ser a montagem única").
+       Este `else` era a tela "de depois": com a rota montada ele reescrevia a
+       MESMA lista com outra fonte — sem o seletor de modos, sem o arrasto,
+       trocando só a hora do lado do nome. Era o "próximo que não serve pra
+       nada visualmente", e ele custava caro: o motorista arrastava, mandava
+       montar, e o repinte devolvia a lista do servidor por cima do gesto dele.
+       Agora a lista da Montagem sai SEMPRE do `publicarPrevia`. O que a rota
+       montada faz é dar a ORDEM e a HORA de cada parada (ver
+       `ordemDaRotaMontada`) — mandar no conteúdo, não na pintura. */
+    if (previaCrua) publicarPrevia();
     // Quem chama precisa saber se a rota REALMENTE entrou: o `montarRota`
     // navegava pra montagem mesmo com a chamada no chão, e a tela abria com as
     // paradas de exemplo. Sem este retorno não dá pra distinguir.
@@ -737,11 +725,11 @@
       },
       /* A MONTAGEM É TELA DE DECISÃO E DE DINHEIRO: ela mostrava João da Silva
          e "R$ 336,00" (o desenho) pra quem entrasse antes do servidor
-         responder — e é em cima dessa lista que se toca "Montar rota". Nasce
-         vazia, com esqueleto, e `pronta:0` (sem rota montada não existe botão
-         de iniciar). */
+         responder. Nasce vazia, com esqueleto. `pronta:1` porque o pé desta
+         tela é UM só — "Iniciar rota" (o 2º "Montar rota" morreu em 08/08); e
+         com a lista vazia o pé nem é desenhado. */
       montagem: {
-        carregando: true, linhas: [], pronta: 0, iniciarSub: '',
+        carregando: true, linhas: [], pronta: 1, iniciarSub: '',
         // COPY que o ESTADO decide não é copy do desenho: no boot o dia é HOJE,
         // e o "nesse dia" do mock não se refere a dia nenhum sem chip aceso.
         vazio: textoVazio(0),
@@ -1133,11 +1121,13 @@
 
   async function encherMontagem() {
     if (typeof window.usarDados !== 'function') return;
-    // Rota de HOJE já montada: quem manda na tela é o `carregarRota` (o dado
-    // real, com id e ordem). Mas escolher OUTRO dia é dizer "quero montar esse"
-    // — aí a prévia manda mesmo com a rota de hoje pronta, senão o chip de
-    // sábado não teria efeito nenhum depois de montar (o defeito de origem).
-    if (!montarDia && estadoRota !== 'montar' && estadoRota !== 'carregando') return;
+    /* 🔴 UMA TELA SÓ (dono, 08/08: "o prévia vai ser a montagem única").
+       Aqui havia um portão que devolvia a tela pro `carregarRota` assim que a
+       rota ficava montada — e era ELE o "próximo" que o dono mandou apagar: a
+       mesma tela repintada por outra fonte, sem os modos e sem o arrasto, só
+       pra mostrar a mesma gente com hora do lado. Agora a lista da Montagem
+       tem UM dono do começo ao fim; quem muda com a rota montada é a ORDEM
+       dela (ver `ordemDaRotaMontada`), não quem a escreve. */
     const alvo = montarDia;
     const seq = ++previaSeq;
     const data = alvo ? dataDoDia(alvo) : hojeISO();
@@ -1194,6 +1184,17 @@
   /** a fileira do seletor — e o ponto âmbar de "editado" mora no modo ATIVO */
   function publicarModos() {
     if (typeof window.usarDados !== 'function') return;
+    /* 🔴 SÓ APARECE ONDE TEM O QUE REORDENAR. Com a rota de hoje JÁ MONTADA a
+       tela mostra as paradas REAIS e a sequência virou dado do servidor
+       (`rotaOrdem`) — quem manda nela é o arrasto da lista, não este botão.
+       A fileira ali trocaria de aceso sem mudar linha nenhuma: toque mudo, que
+       nesta casa é defeito. Mesma condição do `encherMontagem`, de propósito —
+       o seletor existe exatamente quando a PRÉVIA existe.
+       Salvar continua funcionando na rota montada: o botão azul pergunta em
+       qual espaço gravar (ver `salvarRota`). */
+    if (!montarDia && estadoRota !== 'montar' && estadoRota !== 'carregando') {
+      return window.usarDados('montagem', { modos: [], modoSel: '' });
+    }
     const modos = ['dist', 's1', 's2'].map((chave, i) => {
       const m = i ? ESPACOS[i - 1] : null;
       // `previaDoDedo` já é o "o dedo mandou nesta lista" da montagem — o ponto
@@ -1227,7 +1228,7 @@
   }
 
   /* A ordem gravada num espaço, aplicada por cima da lista de hoje. O elo é
-     cliente+porta (a mesma dupla que o `fixarSequencia` usa lá embaixo); sem a
+     cliente+porta (a mesma dupla que o `idsNaOrdemDaTela` usa lá embaixo); sem a
      porta bater, vale o cliente. Quem não está no espaço vai pro FIM mantendo a
      ordem que tinha — o índice de origem no desempate é o que garante isso sem
      depender de `sort` estável. */
@@ -1243,12 +1244,18 @@
       if (!porPorta.has(porta)) porPorta.set(porta, i);
       if (!porCliente.has(cid)) porCliente.set(cid, i);
     });
+    /* 🔴 A PORTA CERTA GANHA DA PORTA IRMÃ (achado na prova). Com o mesmo
+       cliente em dois endereços e só UM salvo no espaço, os dois empatavam no
+       índice do espaço — e o desempate por posição de origem entregava o lugar
+       pra porta ERRADA (a que não estava salva). O peso vira par/ímpar do mesmo
+       índice: acerto de porta é PAR, acerto só de cliente é o ímpar logo
+       depois. A ordem entre índices diferentes não muda; o empate acabou. */
     const FIM = Number.MAX_SAFE_INTEGER;
     const peso = (c) => {
       const cid = String((c && c.customerProfileId) || '');
       const porta = `${cid}|${String((c && c.localId) || '')}`;
-      if (porPorta.has(porta)) return porPorta.get(porta);
-      return porCliente.has(cid) ? porCliente.get(cid) : FIM;
+      if (porPorta.has(porta)) return porPorta.get(porta) * 2;
+      return porCliente.has(cid) ? porCliente.get(cid) * 2 + 1 : FIM;
     };
     return clientes
       .map((c, i) => ({ c, p: peso(c), i }))
@@ -1280,11 +1287,20 @@
     // Ordem do dedo > ordem do ESPAÇO > ordem do GPS > ordem do servidor.
     previaComGps = previaDoDedo || !!ultimaPos;
     const espaco = modeloDoModo();
+    // uma leitura só da rota montada por pintura: ordem E hora saem dela.
+    const daRota = pesosDaRotaMontada();
     const clientes = previaDoDedo
       ? previaCrua.slice()
       : (espaco
         ? ordenarPeloEspaco(encadearPorDistancia(previaCrua, ultimaPos), espaco)
-        : encadearPorDistancia(previaCrua, ultimaPos));
+        /* 🔴 QUEM ORDENA É O OTIMIZADOR, ASSIM QUE ELE RESPONDE (dono, 08/08:
+           "o otimizador é pra funcionar já no carregamento, ao apertar Montar
+           Rota, só isso"). O encadeado por linha reta daqui é só a resposta
+           IMEDIATA — a lista já nasce em ordem de distância enquanto o servidor
+           calcula por RUA. Quando a rota volta montada, ela vence: é a mesma
+           sequência que o motorista vai dirigir, e é isso que faz a tela parar
+           de discordar do que foi gravado. */
+        : (ordemDaRotaMontada(previaCrua, daRota) || encadearPorDistancia(previaCrua, ultimaPos)));
     // 🔴 O QUE FOI PUBLICADO VIRA A VERDADE. Guardar a ordem CRUA do servidor
     // depois de pintar outra deixaria dois donos da mesma lista — e o próximo
     // repinte escolheria um deles no escuro. Daqui pra frente `previaCrua` e
@@ -1308,7 +1324,7 @@
       });
       // a linha do mock é posicional: [n, hora, nome, rua, bairro, tags, valor, cor]
       return [
-        i + 1, '', esc(c.nome), esc(c.localApelido || ''), '',
+        i + 1, (naRotaMontada(daRota, c) || { hora: '' }).hora, esc(c.nome), esc(c.localApelido || ''), '',
         itens.map((it) => `${Math.max(1, Number(it.qtd) || 1)}x ${esc(it.nome)}`),
         somaCliente ? somaCliente.toFixed(2).replace('.', ',') : '', '',
       ];
@@ -1317,30 +1333,65 @@
       carregando: false,
       semFonte: false,
       linhas,
-      pronta: 0,
-      iniciarSub: '',
+      // 🔴 O PÉ É "INICIAR", SEMPRE (dono: "MONTAR ROTA → MONTAGEM DE ROTA
+      // (BOTÃO INICIAR)"). O `pronta:0` desta tela era o segundo "Montar rota",
+      // o toque a mais que existia só pra trocar a fonte da mesma lista.
+      pronta: 1,
+      // quem vem primeiro: é pra onde ele vai agora.
+      iniciarSub: esc((clientes[0] && clientes[0].nome) || ''),
       vazio: textoVazio(alvo),
       somaParadas: String(linhas.length),
       somaProdutos: String(produtos),
       somaValor: temPreco ? dinheiro(total) : '',
     });
-    etiquetarPrevia();
   }
 
-  /* 🔴 A ETIQUETA QUE FAZ O ARRASTO DA PRÉVIA CONTAR. O cartão da montagem não
-     tem `data-parada` — e não pode ter mesmo: a entrega ainda não existe, não
-     há id de servidor pra pôr ali. Sem NENHUMA marca, porém, um cartão movido
-     pelo dedo vira anônimo e o montar cravaria a ordem que EU publiquei, não a
-     que ele está vendo. Este número é a posição de origem de cada cartão; o
-     mock MOVE o nó (não redesenha), então ele viaja junto com o dedo.
-     `pintar` é síncrono (o seam repinta na hora), então carimbar logo depois de
-     escrever alcança a camada nova. Só na montagem: em outra tela o `.stops` da
-     camada viva é a lista da ROTA, e carimbá-la seria etiqueta mentindo. */
-  function etiquetarPrevia() {
-    if (telaAtual() !== 'montagem') return;
-    const lista = naCamada('.stops');
-    if (!lista) return;
-    [...lista.querySelectorAll('.stop')].forEach((el, i) => { el.dataset.previa = String(i); });
+  /* ------------------------------------------------------------------------
+     A ROTA MONTADA VISTA PELA LISTA DA MONTAGEM.
+
+     O elo é cliente+porta — o mesmo par que o espaço usa. `ENTREGAS` guarda as
+     entregas na ordem que o servidor devolveu (que é a `rotaOrdem`), então a
+     posição dentro dele É a sequência do otimizador.
+
+     Devolve `null` quando não há rota montada ou quando ela não fala da mesma
+     gente (dia trocado no chip, prévia de outro dia): sem casamento, a lista
+     segue no encadeado por distância em vez de aceitar uma ordem alheia.
+     ------------------------------------------------------------------------ */
+  function pesosDaRotaMontada() {
+    if (!ENTREGAS.size) return null;
+    const porPorta = new Map();
+    const porCliente = new Map();
+    let i = 0;
+    ENTREGAS.forEach((e) => {
+      const it = e && e.item;
+      const cid = String((it && it.cliente && it.cliente.id) || '');
+      const pos = i; i += 1;
+      if (!cid) return;
+      const porta = `${cid}|${String((it && it.localId) || '')}`;
+      if (!porPorta.has(porta)) porPorta.set(porta, { pos, hora: hora(it.etaAt || it.scheduledAt) });
+      if (!porCliente.has(cid)) porCliente.set(cid, { pos, hora: hora(it.etaAt || it.scheduledAt) });
+    });
+    if (!porCliente.size) return null;
+    return { porPorta, porCliente };
+  }
+
+  const naRotaMontada = (mapas, c) => {
+    if (!mapas) return null;
+    const cid = String((c && c.customerProfileId) || '');
+    return mapas.porPorta.get(`${cid}|${String((c && c.localId) || '')}`) || mapas.porCliente.get(cid) || null;
+  };
+
+  function ordemDaRotaMontada(clientes, mapas) {
+    if (!mapas) return null;
+    // Casou pouco? Então a rota no servidor é de outro dia/outro conjunto e
+    // ordenar por ela seria pior que não ordenar.
+    const casou = clientes.filter((c) => naRotaMontada(mapas, c)).length;
+    if (casou < Math.min(2, clientes.length) || casou * 2 < clientes.length) return null;
+    const FIM = Number.MAX_SAFE_INTEGER;
+    return clientes
+      .map((c, i) => ({ c, p: (naRotaMontada(mapas, c) || { pos: FIM }).pos, i }))
+      .sort((a, b) => (a.p - b.p) || (a.i - b.i))
+      .map((x) => x.c);
   }
 
   /** o botão do meio da Rota: abre a tela de montar, sem tocar no servidor */
@@ -1384,94 +1435,35 @@
   const origemGps = () => (ultimaPos ? { origemLat: ultimaPos.lat, origemLng: ultimaPos.lng } : {});
 
   /* ------------------------------------------------------------------------
-     🔴 A ROTA É CRIADA NA SEQUÊNCIA EXATA DA TELA (ordem do dono, 08/08).
+     🔴 A ORDEM É DO OTIMIZADOR — SALVO QUANDO GENTE DECIDE (dono, 08/08).
 
-     Até aqui o servidor era o dono da ordem em DOIS momentos, e nos dois ele
-     podia desfazer o que o motorista estava vendo:
-       · MONTAR  → o `planejar` roda NN + 2-opt e grava a ordem DELE. A lista
-                   que o motorista acabou de ler na montagem virava outra.
-       · INICIAR → "re-planeja a partir da origem atual" (está escrito no
-                   próprio serviço). Ou seja: mesmo depois de arrastar cartão
-                   por cartão, o toque em Iniciar reordenava tudo de novo — o
-                   arrasto era gravado e desfeito no passo seguinte.
+     A regra tem duas metades, e a 1ª versão desta seção errou por só ter uma:
+       · SEM decisão humana → quem ordena é o servidor, a partir do GPS. Ele
+         roda no montar e RE-RODA no iniciar ("re-planeja a partir da origem
+         atual"), que é justamente o que o dono quer: a rota sai encadeada de
+         onde ele está NA HORA DE SAIR, não de onde ele estava ao montar.
+       · COM decisão humana → arrasto do dedo ou um ESPAÇO escolhido. Aí a
+         sequência é dele e o motor não tem o direito de refazê-la: entra o
+         `ordemManual` ("os ids recebem rotaOrdem NA ORDEM DADA e o motor pula
+         o NN+2-opt"), o mesmo contrato que o Gerenciador do desktop usa.
 
-     O contrato pra isso já existia e é o mesmo que o desktop usa: `ordemManual`
-     — "os ids listados recebem rotaOrdem NA ORDEM DADA e o motor pula o
-     NN+2-opt". Agora ele viaja nos dois momentos, e quem o preenche é a TELA.
+     Mandar `ordemManual` SEMPRE — como esta seção fazia — é desligar o
+     otimizador com outro nome. Ele volta a mandar por padrão.
 
-     💰 Não custa: re-planejar o MESMO conjunto não cria parada nem debita (o
-     bloco cobrável tem claim único por empresa+motorista+data+bloco) — é a
-     mesma conta que o arrastar já fazia desde 08/08.
-
-     ⚖️ O que se perde de propósito: o otimizador por rua deixa de ter a última
-     palavra. Ele continua sendo quem PROPÕE a ordem no montar (é ele que roda
-     primeiro, agora a partir do GPS); o que ele não faz mais é reescrever a
-     sequência depois que ela foi mostrada.
+     💰 Re-planejar o mesmo conjunto não cria parada nem debita (claim único por
+     empresa+motorista+data+bloco).
      ------------------------------------------------------------------------ */
 
-  /** os ids das paradas na ORDEM DO DOM — a lista da rota carrega `data-parada` */
-  function idsNaTela() {
-    const lista = naCamada('.stops');
-    if (!lista) return [];
-    return [...lista.querySelectorAll('.stop')]
-      .map((el) => String((el.dataset && el.dataset.parada) || '')).filter(Boolean);
-  }
+  /** o dedo ou um espaço mandaram nesta lista? então a ordem é DELES */
+  const ordemDeGente = () => previaDoDedo || modoSel !== 'dist';
 
-  /* A sequência que o motorista está vendo, em ids de entrega. O DOM manda
-     quando ele tem o que dizer (é a tela LITERAL, inclusive no meio de um
-     arrasto que ainda não voltou do servidor); fora da lista — na montagem, que
-     desenha as paradas sem `data-parada` — vale a ordem em que a ponte pintou,
-     que é a mesma que o servidor devolveu. */
-  const sequenciaDaTela = () => {
-    const carregada = [...ENTREGAS.keys()];
-    const doDom = idsNaTela();
-    return doDom.length === carregada.length && doDom.length > 1 ? doDom : carregada;
-  };
-
-  /* A sequência da PRÉVIA (tela de montar), em clientes. O arrasto ali é só
-     visual — a entrega ainda não existe, então não há id pra gravar (está dito
-     no próprio mock). A etiqueta `data-previa`, carimbada a cada pintura, é o
-     que faz o dedo contar mesmo assim: o mock MOVE o nó, e a etiqueta viaja
-     junto. Sem lista na tela, vale a ordem que eu publiquei. */
-  function indicesDaPrevia() {
-    if (telaAtual() !== 'montagem') return null;
-    const lista = naCamada('.stops');
-    if (!lista) return null;
-    const nos = [...lista.querySelectorAll('.stop[data-previa]')];
-    // Lista de outro tamanho = outra lista (ou etiqueta velha). Na dúvida, a
-    // ordem que EU publiquei — nunca uma permutação meio adivinhada.
-    if (!nos.length || nos.length !== PREVIA.length) return null;
-    const idx = nos.map((el) => Number(el.dataset.previa));
-    if (idx.some((n) => !(n >= 0 && n < PREVIA.length))) return null;
-    if (new Set(idx).size !== idx.length) return null;
-    return idx;
-  }
-
-  function ordemDaPrevia() {
-    const idx = indicesDaPrevia();
-    if (!idx) return PREVIA.slice();
-    const alvo = idx.map((n) => PREVIA[n]);
-    /* 🔴 ARRASTOU = A LISTA É OUTRA, NO DADO. Deixar a decisão só no DOM era
-       promessa de 2 segundos: o "Montando…" repinta a tela inteira e o cartão
-       voltava pro lugar de antes na cara dele. Aqui o dedo entra no dado — e
-       o repinte seguinte já nasce na ordem dele. */
-    if (idx.some((n, i) => n !== i) && previaCrua && previaCrua.length === idx.length) {
-      previaCrua = idx.map((n) => previaCrua[n]);
-      previaDoDedo = true;
-      publicarPrevia();
-    }
-    return alvo;
-  }
-
-  /* Casa a sequência da tela com as entregas que nasceram no montar e crava.
-     O elo é o CLIENTE (a prévia fala de cliente; a rota, de entrega): mesmo
-     cliente com duas portas vira duas entregas, consumidas na ordem em que
-     aparecem. Entrega que não estava na prévia não se perde — vai pro fim, na
-     ordem que o servidor deu, e explícita (não confio no "as ausentes vão pro
-     fim" ficar valendo pra sempre do outro lado).
-     Devolve `false` só quando tentou gravar e o servidor recusou. */
-  async function fixarSequencia(sequencia) {
-    if (!Array.isArray(sequencia) || sequencia.length < 2 || !ENTREGAS.size) return true;
+  /* Casa a lista da tela (clientes) com as entregas do dia (ids) e devolve a
+     sequência em ids — o formato que o servidor entende. O elo é o CLIENTE:
+     mesmo cliente com duas portas vira duas entregas, consumidas na ordem em
+     que aparecem. Entrega fora da tela não se perde: vai pro fim, explícita.
+     `null` = não deu pra casar, e aí ninguém crava nada. */
+  function idsNaOrdemDaTela() {
+    if (!ENTREGAS.size || !PREVIA.length) return null;
     const porCliente = new Map();
     ENTREGAS.forEach((e, id) => {
       const cid = String((e && e.item && e.item.cliente && e.item.cliente.id) || '');
@@ -1481,16 +1473,22 @@
       else porCliente.set(cid, [String(id)]);
     });
     const ids = [];
-    sequencia.forEach((p) => {
+    PREVIA.forEach((p) => {
       const fila = porCliente.get(String((p && p.customerProfileId) || ''));
       if (fila && fila.length) ids.push(fila.shift());
     });
-    // Casou pouco (dia trocado, prévia de outro conjunto): a ordem do servidor
-    // é melhor que uma ordem MINHA feita em cima de meia dúzia de palpites.
-    if (ids.length < 2) return true;
+    if (ids.length < 2) return null;
     const atual = [...ENTREGAS.keys()].map(String);
-    const alvo = ids.concat(atual.filter((id) => ids.indexOf(id) < 0));
-    if (alvo.join('|') === atual.join('|')) return true;   // o servidor já concordou
+    return ids.concat(atual.filter((id) => ids.indexOf(id) < 0));
+  }
+
+  /* Crava no servidor a ordem que a gente decidiu. Só é chamada quando
+     `ordemDeGente()` — em modo Distância isto NUNCA roda, e o otimizador segue
+     dono da sequência. Devolve false só quando tentou e o servidor recusou. */
+  async function cravarOrdemDaTela() {
+    const alvo = idsNaOrdemDaTela();
+    if (!alvo) return true;
+    if (alvo.join('|') === [...ENTREGAS.keys()].map(String).join('|')) return true;
     try {
       await window.API.post('/logistica/rota/planejar', {
         date: hojeISO(), ordemManual: alvo, ...origemGps(),
@@ -1515,11 +1513,6 @@
       const montando = (v) => {
         try { window.usarDados('rota', { montando: v }); } catch (_) { /* sem seam */ }
       };
-      /* 🔴 A FOTO DA TELA VEM ANTES DE TUDO — inclusive do "Montando…". É esta
-         sequência que a rota vai ter no fim, e ela mora no DOM: o `montando(1)`
-         repinta a tela inteira e leva junto as etiquetas do arrasto. Ler depois
-         seria cravar a ordem que EU publiquei, não a que o dedo deixou. */
-      const sequencia = ordemDaPrevia();
       montando(1);
       const devolverEstado = () => montando(0);
 
@@ -1547,18 +1540,9 @@
         ? conf.items.filter((i) => Array.isArray(i.motivosVisiveis) && i.motivosVisiveis.length).length
         : 0;
 
-      /* 🔴 A ESCOLHA DE DIA MORRE ANTES DE RECARREGAR — e é ISTO que fazia o
-         toque parecer morto (dono, 08/08: "clica e não monta rota"). Quem
-         decide o que a montagem mostra é o `carregarRota`, olhando pra
-         `montarDia`: com ela ainda de pé ele reabria a PRÉVIA do dia por cima
-         da rota que acabou de nascer e reescrevia `pronta:0` — o botão do pé
-         continuava "Montar rota" com a rota MONTADA no servidor. Medido no
-         g15: `carregarRota()` devolvendo true, `estadoRota:'pronta'`, e a tela
-         terminando em `pronta:0` com o botão `montar-agora`.
-         Zerando aqui, o `carregarRota` escreve a rota REAL e o pé vira
-         "Iniciar rota" no mesmo repinte. A escolha já cumpriu o papel: o
-         `prepare` acima levou o dia; seleção presa deixaria o PRÓXIMO montar
-         puxando o dia velho calado. */
+      /* A ESCOLHA DE DIA MORRE AQUI. O `prepare` acima já trouxe o dia escolhido
+         pra HOJE; seleção presa deixaria o próximo montar puxando o dia velho
+         calado, e o chip aceso mentindo sobre o que está na lista. */
       if (montarDia) { montarDia = 0; window.usarDados('montagem', { diaSel: 0 }); }
       // 🔴 SÓ ABRE A MONTAGEM SE A ROTA ENTROU. Com o `/logistica/rota` no chão
       // o `carregarRota` volta no catch antes de escrever no seam, e a tela de
@@ -1568,21 +1552,12 @@
         devolverEstado();
         return avisoErro(new Error('Não consegui montar agora. Tente de novo.'));
       }
-      // 🔴 E AGORA A ORDEM VOLTA A SER A DA TELA. O `planejar` acima devolveu a
-      // sequência DELE (NN + 2-opt por rua); esta linha crava a que o motorista
-      // estava lendo. Só fala com o servidor se as duas discordarem.
-      const cravou = await fixarSequencia(sequencia);
+      /* 🔴 O ARRASTO E O ESPAÇO SOBREVIVEM AO MONTAR. Sem esta linha o motorista
+         arrastava, mandava montar, e o otimizador devolvia a ordem DELE por
+         cima — o gesto virava enfeite. Em modo Distância isto nem roda: lá a
+         sequência é do servidor, de propósito. */
+      if (ordemDeGente()) await cravarOrdemDaTela();
       devolverEstado();          // o "Montando…" sai com o dado já na tela
-      if (!cravou && typeof window.portao === 'function') {
-        // Rota montada, ordem do servidor na tela: não é mentira nenhuma (a
-        // lista foi repintada), mas não é o que ele pediu — e some calado seria
-        // ele descobrir isso na rua, no 3º cliente.
-        return window.portao({
-          tom: 'alerta', ico: 'route', titulo: 'Montei, mas a ordem é a do sistema',
-          sub: 'Não consegui gravar a ordem da tela. Arraste de novo ou monte outra vez.',
-          acoes: [['Fechar', '']],
-        });
-      }
       if (comAviso && typeof window.usarDados === 'function') {
         window.usarDados('montagem', { iniciarSub: `${comAviso} com aviso` });
       }
@@ -1601,6 +1576,18 @@
   /** iniciar: mostra o custo REAL e só então cobra. */
   async function iniciarRota() {
     await comTrava(async () => {
+      /* 🔴 UMA TELA SÓ ⇒ O INICIAR TAMBÉM MONTA (dono: "MONTAR ROTA → MONTAGEM
+         DE ROTA (BOTÃO INICIAR)"). O 2º "Montar rota" morreu, então o dia pode
+         chegar aqui sem ordem gravada — e o servidor responderia "monte a rota
+         antes de iniciar" no toque que devia sair pra rua. Planejar de novo o
+         mesmo conjunto não cria parada nem debita. */
+      if (estadoRota === 'montar' || !ENTREGAS.size) {
+        try {
+          await window.API.post('/logistica/rota/planejar', { date: hojeISO(), ...origemGps() });
+        } catch (e) { return avisoErro(e); }
+        if (!(await carregarRota())) return avisoErro(new Error('Não consegui montar agora. Tente de novo.'));
+        if (ordemDeGente()) await cravarOrdemDaTela();
+      }
       let custo = null;
       // a data vai JUNTO — sem ela o servidor cobra pelo dia UTC dele (ver a
       // nota no `carregarRota`): das 21h em diante o portão nem abria.
@@ -1635,13 +1622,17 @@
             // 🔴 A RESPOSTA DO INICIAR TEM DADO DENTRO. Ela era descartada, e
             // com ela iam embora as empresas do corredor (`prospector`) que o
             // servidor acabou de embarcar pro dia. Ver `aplicarProspector`.
-            // 🔴 `ordemManual` = A LISTA COMO ELA ESTÁ NA TELA. Sem ela o
-            // iniciar re-planeja e o motorista sai com uma sequência que
-            // ninguém mostrou — inclusive desfazendo os cartões que ele
-            // arrastou um por um. Id que o servidor não conhece (parada já
-            // entregue, que viaja na lista) ele ignora sozinho.
+            /* 🔴 AQUI O OTIMIZADOR TEM A ÚLTIMA PALAVRA — de propósito. O
+               iniciar "re-planeja a partir da origem atual": é o único momento
+               em que o servidor sabe de ONDE o motorista está saindo de fato
+               (montou na base às 7h, saiu às 8h de outro lugar). Por isso NÃO
+               vai `ordemManual` no caso comum.
+               A exceção é a ordem de gente: arrasto ou espaço escolhido. Aí a
+               sequência viaja junto, senão o toque de sair desfaria a decisão
+               dele — que foi o defeito que este trecho já teve. */
+            const minha = ordemDeGente() ? idsNaOrdemDaTela() : null;
             aplicarProspector(await window.API.post('/logistica/rota/iniciar', {
-              date: hojeISO(), ordemManual: sequenciaDaTela(), ...origemGps(),
+              date: hojeISO(), ...(minha ? { ordemManual: minha } : {}), ...origemGps(),
             }));
           } catch (e) {
             // 🔴 NUNCA MORRER CALADO (dono, §1.3): primeiro a verdade do
@@ -1709,6 +1700,24 @@
     return filaRota;
   };
 
+  /* 🔴 O DEDO MANDOU NA PRÉVIA — e agora o DADO sabe na hora. Antes disto o
+     arrasto da montagem vivia só no DOM até o "Montar rota" ler a tela, e
+     qualquer repinte no meio o desfazia calado (o fix de GPS que chega da
+     garagem é o caso real). Nada vai ao servidor: a entrega ainda não existe.
+     Confere tudo antes de aplicar — uma lista de posições torta reescreveria a
+     prévia com buraco, e prévia com buraco vira rota com cliente faltando. */
+  function reordenarPrevia(idx) {
+    if (!Array.isArray(idx) || idx.length < 2) return;
+    if (!previaCrua || previaCrua.length !== idx.length) return;
+    if (idx.some((n) => !Number.isInteger(n) || n < 0 || n >= previaCrua.length)) return;
+    if (new Set(idx).size !== idx.length) return;
+    if (!idx.some((n, i) => n !== i)) return;      // soltou no mesmo lugar
+    previaCrua = idx.map((n) => previaCrua[n]);
+    previaDoDedo = true;
+    publicarModos();     // acende o ponto de "editado" no espaço que está aceso
+    publicarPrevia();
+  }
+
   /* 🔴 ARRASTOU = "MINHA ORDEM". `ordemManual` é o contrato que já existe no
      servidor (o mesmo que o desktop manda ao arrastar no Gerenciador): os ids
      listados recebem `rotaOrdem` NA ORDEM DADA e o motor pula o NN+2-opt —
@@ -1723,6 +1732,12 @@
      a rota ACTIVE, que é justamente quando o motorista arrasta. */
   document.addEventListener('hbx:ordem', (ev) => {
     if (!temPonte()) return;
+    // A MONTAGEM fala por POSIÇÃO: lá a entrega ainda não existe, então não há
+    // id pra mandar ao servidor — e não há servidor pra chamar. Sai antes.
+    if (ev.detail && Array.isArray(ev.detail.previa)) {
+      ev.preventDefault();
+      return reordenarPrevia(ev.detail.previa.map(Number));
+    }
     const ids = ev.detail && Array.isArray(ev.detail.ids) ? ev.detail.ids.map(String).filter(Boolean) : [];
     if (ids.length < 2) return;
     ev.preventDefault();          // eu assumo: a casca não mexe mais na lista
@@ -1975,7 +1990,14 @@
       try {
         casa.eu = new casa.gl.Marker({ color: '#3d8bff' })
           .setLngLat([eu.lng, eu.lat]).addTo(casa.mapa);
-      } catch (_) { casa.eu = null; }
+      } catch (_) { casa.eu = null; return; }
+      /* 🔴 O PRIMEIRO FIX ENQUADRA — UMA VEZ. O mapa nasce antes de existir GPS
+         (numa garagem, bem antes) e nasce onde dá: no fallback da cidade, zoom
+         12. Sem isto o motorista ganhava o marcador dele num mapa apontado pra
+         outro lugar — a seta existia e estava FORA DA TELA. Só na criação do
+         marcador, nunca nos fixes seguintes: aí seria a câmera desfazendo o
+         arrasto uma vez por segundo, que é o defeito que a fase 'solta' curou. */
+      enquadrarGeral(casa);
       return;
     }
     try { casa.eu.setLngLat([eu.lng, eu.lat]); } catch (_) { /* mapa saindo de cena */ }
@@ -3645,7 +3667,24 @@
       // Negada, ninguém leva alerta nesta tela (`avisarSemGps` só fala na
       // navegação): a lista cai na ordem do servidor e a rota se monta como
       // antes. Montar rota nunca depende de permissão.
-      if (tela === 'montagem') { garantirGps(); publicarMontarDias(); carregarDiasComCliente(); carregarEspacos(); encherMontagem(); }
+      if (tela === 'montagem') {
+        garantirGps(); publicarMontarDias(); carregarDiasComCliente(); carregarEspacos(); encherMontagem();
+        /* 🔴 O OTIMIZADOR RODA NO CARREGAMENTO (dono, 08/08: "é pra funcionar
+           já no carregamento, ao apertar Montar Rota, só isso"). Chegar aqui É
+           mandar montar — o 2º "Montar rota" no pé da tela não existe mais.
+           Rota JÁ RODANDO fica de fora: re-planejar no meio do dia embaralharia
+           a sequência de quem está na rua só porque ele abriu a tela. */
+        if (estadoRota !== 'rodando' && estadoRota !== 'pausada') montarRota();
+      }
+      /* 🔴 A TELA PRINCIPAL DA ROTA É UM MAPA, E MAPA SEM "ONDE EU ESTOU" NÃO É
+         MAPA (dono, 08/08: *"não mostra minha localização tbm"*). O watch do
+         GPS só era armado dentro da NAVEGAÇÃO (`naNavegacao()`), então na aba
+         Rota nunca chegava um fix: sem fix não há marcador, e sem marcador o
+         `enquadrarGeral` também não tinha o motorista pra pôr na moldura. O
+         "pedir fora de hora" que este arquivo evita é pedir no boot ou na tela
+         de chat — numa tela que É um mapa, a localização é o assunto. Mesma
+         régua do "Navegar" e da Montagem: cobra-se onde serve. */
+      if (tela === 'rota') garantirGps();
       if (tela === 'chat') aoAbrirChat();
       // Cadastro NASCE EM BRANCO, sempre. Formulário que guarda o cliente
       // anterior é a receita de cadastrar duas vezes a mesma pessoa — e aqui
@@ -3730,6 +3769,22 @@
     const lista = Array.isArray(r) ? r : [];
     MODELOS.clear();
     lista.forEach((m) => { if (m && m.id) MODELOS.set(String(m.id), m); });
+    /* 🔴 A LISTA SE DIVIDE PELOS DIAS (dono, 08/08) — é a mesma mudança dos 2
+       espaços da tela de montar, vista pelo outro lado: lá cabem 2 por dia, e
+       AQUI é onde o dono enxerga tudo o que existe (inclusive o que sobrou de
+       antes dos espaços, ou o que o "fechar o dia" salvou sozinho).
+       Dentro do dia a ordem é a de NASCIMENTO, a mesma dos espaços — assim o
+       1º da Segunda nesta tela é o Espaço 1 da Segunda lá. As sem dia fixo vão
+       pro fim, agrupadas: elas existem (vêm do desktop) e sumir com elas seria
+       a tela mentindo. */
+    const ordenada = lista.slice().sort((a, b) => {
+      const da = Number(a && a.diaSemana) || 99;
+      const db = Number(b && b.diaSemana) || 99;
+      if (da !== db) return da - db;
+      return String((a && a.criadoEm) || '').localeCompare(String((b && b.criadoEm) || ''))
+        || String((a && a.id) || '').localeCompare(String((b && b.id) || ''));
+    });
+    let diaAnterior = null;
     window.usarDados('salvas', {
       ...fonteVoltou,
       busca: '',
@@ -3738,8 +3793,11 @@
       // devolve uma lista só, na ordem dele.
       ordem: '',
       acoes: 0,
-      lista: lista.map((m) => {
+      lista: ordenada.map((m) => {
         const paradas = Array.isArray(m.paradas) ? m.paradas.length : 0;
+        const dia = Number(m.diaSemana) || 0;
+        const cab = dia === diaAnterior ? '' : (DIAS_SEMANA[dia] || 'Sem dia fixo');
+        diaAnterior = dia;
         return [
           esc(m.nome),
           // A porta não devolve data de criação; o que ela tem é o DIA da
@@ -3751,6 +3809,7 @@
           'route',
           0,
           String(m.id),
+          cab,
         ];
       }),
     });
@@ -3793,7 +3852,12 @@
   const nomeCurto = (v) => String(v == null ? '' : v).replace(/\s+/g, ' ').trim().slice(0, NOME_MAX);
 
   /** o que o "Salvar" grava: rota montada manda; ainda por montar, a prévia */
-  const paradasParaSalvar = () => (estadoRota === 'montar' ? PREVIA : PARADAS_SALVAR)
+  /* Salvar espaço salva O QUE ESTÁ NA TELA. Na Montagem isso é sempre a lista
+     da prévia (a tela é uma só desde 08/08, e é ela que o dedo reordena); em
+     qualquer outra, as paradas da rota carregada. Antes a chave era
+     `estadoRota`, e com a rota montada ele salvava a ordem do SERVIDOR mesmo
+     com o motorista olhando pra ordem dele. */
+  const paradasParaSalvar = () => (telaAtual() === 'montagem' && PREVIA.length ? PREVIA : PARADAS_SALVAR)
     .filter((p) => p && p.customerProfileId);
 
   /* 🔴 O ESPAÇO VAZIO ENSINA (dono, 08/08: "clicou em cima ensina — abre o mini
@@ -5689,13 +5753,13 @@
   }
 
   const ACOES = {
-    // 🔴 O BOTÃO DO MEIO DA ROTA ABRE A TELA DE MONTAR — não monta no escuro.
-    // Montar era uma ida ao servidor no toque, e o motorista só descobria QUEM
-    // tinha entrado depois de pronto (dono: "clico em montar rota e aparece uma
-    // tela para montar a rota"). Quem monta de verdade é o `montar-agora`, na
-    // montagem, com a lista do dia na frente dos olhos.
+    /* 🔴 DOIS PASSOS, NÃO TRÊS (dono, 08/08: "MONTAR ROTA → MONTAGEM DE ROTA
+       (BOTÃO INICIAR)"). Este botão abre a Montagem — e abrir a Montagem JÁ
+       roda o otimizador (ver o guarda do `ir`), então o motorista chega com a
+       lista do dia na frente dos olhos e o pé já dizendo "Iniciar rota".
+       O `montar-agora` (o 2º "Montar rota", no pé da própria tela) morreu com
+       ele: era o toque a mais que só trocava a fonte da mesma lista. */
     montar: abrirMontagem,
-    'montar-agora': montarRota,
     // rota rodando: o botão do meio leva pra navegação (é o que se faz andando)
     navegar: () => window.ir('mapa'),
     'salvar-rota': salvarRota,

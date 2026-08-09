@@ -682,6 +682,14 @@ button,input{font:inherit;color:inherit}
 .pt-linha .m{width:26px;height:26px;border-radius:9px;display:grid;place-items:center;background:var(--amber-bg);color:var(--amber)}
 .pt-linha strong{display:block;font-size:12.5px;font-weight:500}
 .pt-linha span{display:block;font-size:10.5px;color:var(--amber);margin-top:1px}
+/* Passo de mini tutorial — irmão do `.pt-linha`, em tinta NEUTRA de propósito:
+   aquele é linha de PROBLEMA (âmbar em tudo), este só explica uma função que
+   ainda não foi usada. Mesma peça com a mesma cor ensinaria o motorista que
+   espaço vazio é pendência. */
+.pt-passo{display:grid;grid-template-columns:16px 1fr;gap:9px;align-items:start;padding:6px 2px}
+.pt-passo>b{font-size:14px;font-weight:500;color:var(--lime);line-height:1.3}
+.pt-passo>span{display:block;font-size:11.5px;color:var(--ink-2);line-height:1.35}
+.pt-passo strong{display:block;font-size:12.5px;font-weight:500;color:var(--ink)}
 .pt-nums{display:flex;gap:0;background:var(--field);border:.7px solid var(--line);border-radius:12px;overflow:hidden}
 .pt-nums div{flex:1;padding:9px 6px;text-align:center;border-right:.7px solid var(--line)}
 .pt-nums div:last-child{border-right:0}
@@ -1404,7 +1412,14 @@ button,input{font:inherit;color:inherit}
   padding:10px 12px 72px;max-height:88%;overflow:auto;scrollbar-width:none;box-shadow:0 -18px 44px rgba(0,0,0,.6)}
 .sheet::-webkit-scrollbar{display:none}
 .sheet .handle{width:36px;height:3px;border-radius:2px;background:var(--handle);margin:0 auto 10px}
-.sheet-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
+/* Título de FOLHA também é centralizado (§título de tela). O × sai do fluxo:
+   com ele empurrando, o título ficava torto pra esquerda. É o mesmo arranjo que
+   a folha do "Histórico da semana" já fazia à mão — agora é regra, não exceção.
+   A folga lateral no bloco de texto existe pra que título comprido nunca corra
+   por baixo do botão de fechar. */
+.sheet-head{display:flex;align-items:flex-start;justify-content:center;text-align:center;gap:10px;margin-bottom:10px;position:relative}
+.sheet-head>div{padding:0 34px}
+.sheet-head>button{position:absolute;right:0;top:0}
 .sheet-head h2{margin:0;font-size:21px;font-weight:500;letter-spacing:-.3px}
 .sheet-head p{margin:2px 0 0;font-size:12px;color:var(--ink-2)}
 .box{background:var(--card);border:.7px solid var(--line);border-radius:13px;padding:10px}
@@ -1490,7 +1505,19 @@ button,input{font:inherit;color:inherit}
 .modos .ponto{flex:0 0 5px;width:5px;height:5px;border-radius:50%;background:var(--amber)}
 
 /* ---------- título de tela ---------- */
-.screen-head{display:flex;align-items:center;gap:10px;margin:2px 0 0}
+/* 🔴 TÍTULO DE TELA É CENTRALIZADO (dono, 08/08, na Montagem de rota: "quero q
+   TODOS estes títulos fiquem centralizados"). A régua vale para as três
+   famílias que escrevem o nome da tela — `.screen-head` (ícone + título),
+   `.tela-tit` dos Ajustes e o `<h2>` da Montagem — senão trocar de tela faz o
+   título pular de canto pro meio, que é o defeito de origem.
+
+   🔴 E O ÍCONE SOBE, não fica ao lado. Centralizar a FILEIRA (ícone + texto)
+   deixa o grupo no meio e o TÍTULO 20px pra direita — medido: 226 contra os
+   206 do eixo, enquanto "Montagem de rota" caía em 206 cravado. Seria a mesma
+   desigualdade de novo, só que disfarçada. Empilhado, o texto senta no eixo.
+   O ícone não vira canto esquerdo porque ali, uma linha acima, já mora o botão
+   de Voltar — dois glifos redondos empilhados na margem viram um só na leitura. */
+.screen-head{display:flex;flex-direction:column;align-items:center;text-align:center;gap:5px;margin:2px 0 0}
 .screen-head h2{margin:0;font-size:21px;font-weight:500;letter-spacing:-.3px}
 .screen-head p{margin:1px 0 0;font-size:11.5px;color:var(--ink-2)}
 
@@ -1733,7 +1760,8 @@ button,input{font:inherit;color:inherit}
 /* O título da sub-tela. `telaAjuste` recebia o nome e nunca o escrevia: Recarga,
    Financeiro, Avançado, Sons, Histórico e Consumo abriam SEM título nenhum, e o
    cabeçalho é o logo (não anda, §hdr) — não havia onde ler onde se está. */
-.tela-tit{font-size:15.5px;font-weight:700;color:var(--ink);margin:9px 2px 0;letter-spacing:-.01em}
+/* Centralizado pela mesma régua do `.screen-head` (§título de tela). */
+.tela-tit{font-size:15.5px;font-weight:700;color:var(--ink);margin:9px 2px 0;letter-spacing:-.01em;text-align:center}
 .grupo{font-size:11px;color:var(--ink-2);margin:12px 2px 5px}
 .cartao-lista{background:var(--card);border:.7px solid var(--line);border-radius:13px;overflow:hidden}
 .linha-cfg{width:100%;display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;
@@ -1877,6 +1905,14 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .pill.amber{background:#fdf1de;border-color:#e0b978;color:var(--amber)}
 [data-luz="claro"] .pill.mute{background:#fff;border-color:var(--line-2);color:var(--ink-2)}
 [data-luz="claro"] .chip.on{background:#f0f8e4;border-color:var(--lime);color:var(--lime)}
+/* 🔴 O SELETOR DE ORDEM ENTRA AQUI JUNTO (08/08, MEDIDO). `--sel-bg` é verde
+   quase PRETO: no escuro dá 10,51:1 e no claro dava 3,25:1 — reprovado, e
+   visualmente uma pílula preta no meio de uma tela branca. O `.chip.on` logo
+   acima nunca teve esse defeito porque tem esta linha; a peça nova nascia sem
+   ela. Mesmo fundo do chip, de propósito: as duas fileiras vivem coladas na
+   mesma tela, e "padronizar é IGUALAR". */
+[data-luz="claro"] .modos{background:#fff}
+[data-luz="claro"] .modos .modo.on{background:#f0f8e4;box-shadow:inset 0 0 0 .7px var(--lime);color:var(--lime)}
 [data-luz="claro"] .montagem-dia.active,[data-luz="claro"] .dias button.on,
 [data-luz="claro"] .tempo button.on{background:#f0f8e4;border-color:var(--lime);color:var(--lime)}
 [data-luz="claro"] .filtro button.on{background:#f0f8e4;border-color:var(--lime);color:var(--lime)}
