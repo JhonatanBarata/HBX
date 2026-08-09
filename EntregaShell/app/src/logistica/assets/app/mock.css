@@ -1645,16 +1645,47 @@ button,input{font:inherit;color:inherit}
 .previa strong{display:block;font-size:13px;font-weight:500}
 .previa span{display:block;font-size:10.5px;color:var(--ink-2)}
 
-/* ---------- pacotes de recarga ---------- */
-.pacotes{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px}
-.pacote{border:.7px solid var(--line);background:var(--card);border-radius:14px;padding:12px 11px;text-align:center;
+/* ---------- créditos: o saldo e os pacotes de recarga ----------
+   🔴 O PACOTE VIROU LINHA, E A LINHA É O QUE DEIXA COMPARAR. Em cartão de
+   grade (2 colunas) só cabiam dois números — quantidade e preço — e com TRÊS
+   pacotes no catálogo real a grade ainda deixava um órfão de meia largura. Em
+   linha cabe o que decide a compra: o preço POR CRÉDITO (a única conta que diz
+   qual pacote é mais barato) e a VALIDADE, que é a pergunta que ninguém pensa
+   em fazer antes de o crédito vencer. */
+.saldo{display:flex;align-items:center;gap:11px;margin-top:2px;padding:12px 13px;border-radius:14px;
+  background:var(--card);border:.7px solid var(--line)}
+/* 🔴 `--lime-bg`, NUNCA `--lime-bg-2`: só o primeiro tem par no modo claro
+   (`#f0f8e4`). O `-2` fica `#17230e` — verde quase preto — e com a tinta
+   `--lime` do claro (`#3f7a00`) daria escuro sobre escuro, o glifo sumindo
+   sem erro nenhum no console. Cascata se MEDE. */
+.saldo .ico{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;flex:0 0 auto;
+  background:var(--lime-bg);color:var(--lime)}
+.saldo .n{display:flex;align-items:baseline;gap:5px}
+.saldo .n b{font-size:27px;font-weight:500;line-height:1;letter-spacing:-.02em}
+.saldo .n small{font-size:11.5px;color:var(--ink-2)}
+.saldo .vence{display:block;font-size:10.5px;color:var(--amber);margin-top:3px}
+
+.pacotes{display:grid;gap:8px;margin-top:6px}
+.pacote{display:grid;grid-template-columns:auto 1fr auto;gap:11px;align-items:center;
+  border:.7px solid var(--line);background:var(--card);border-radius:14px;padding:11px;text-align:left;
   cursor:pointer;color:var(--ink);position:relative}
 .pacote.on{border-color:var(--lime);background:var(--sel-bg)}
-.pacote b{display:block;font-size:21px;font-weight:500;letter-spacing:-.02em}
-.pacote small{display:block;font-size:10.5px;color:var(--ink-2);margin-top:1px}
-.pacote .preco{display:block;font-size:14px;color:var(--lime);margin-top:7px}
-.pacote .selo{position:absolute;top:-7px;left:50%;transform:translateX(-50%);font-size:9.5px;padding:2px 8px;
+.pacote .qt{min-width:58px}
+.pacote .qt b{display:block;font-size:21px;font-weight:500;letter-spacing:-.02em;line-height:1}
+.pacote .qt small{display:block;font-size:10.5px;color:var(--ink-2);margin-top:2px}
+.pacote .det small{display:block;font-size:10.5px;color:var(--ink-2);line-height:1.3}
+.pacote .preco{font-size:15px;font-weight:500;color:var(--lime);white-space:nowrap}
+.pacote .selo{display:inline-block;font-size:9.5px;padding:2px 8px;margin-bottom:3px;
   border-radius:999px;background:var(--lime);color:var(--go-ink)}
+
+/* A letra miúda do pé — o que o botão grande vai fazer de verdade. Não é
+   banner: banner é aviso, isto é a regra do pagamento, e ela não pisca.
+   🔴 INLINE, NÃO FLEX. Em `display:flex` o texto vira um item que ocupa toda a
+   largura que sobra, e o cadeado é EMPURRADO pra margem esquerda enquanto a
+   frase se centraliza em duas linhas — parece peça solta que caiu ali. Ícone
+   que pertence à frase anda DENTRO dela. */
+.nota{margin-top:9px;font-size:10.5px;color:var(--ink-3);text-align:center;line-height:1.4}
+.nota svg{vertical-align:-2px;margin-right:4px}
 
 /* ---------- extrato ---------- */
 .extrato{background:var(--card);border:.7px solid var(--line);border-radius:13px;padding:0 11px;margin-top:6px}
@@ -1942,6 +1973,7 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .rowcard,[data-luz="claro"] .week,[data-luz="claro"] .cartao-lista,
 [data-luz="claro"] .lista-card,[data-luz="claro"] .previa,[data-luz="claro"] .dia-bar,
 [data-luz="claro"] .creditos,[data-luz="claro"] .forms,[data-luz="claro"] .prog,
+[data-luz="claro"] .saldo,
 [data-luz="claro"] .filtro button,[data-luz="claro"] .pacote,[data-luz="claro"] .extrato,
 [data-luz="claro"] .tempo button,[data-luz="claro"] .search,[data-luz="claro"] .filt{
   box-shadow:0 1px 2px rgba(15,23,38,.05),0 1px 8px rgba(15,23,38,.04);

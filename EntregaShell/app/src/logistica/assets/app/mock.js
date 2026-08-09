@@ -692,11 +692,49 @@ const DADOS={
      a ponte não repinta (cena com relógio), então o `apagarDemonstracao` nunca
      alcança o que o `pintar(false)` do fim desta folha já pintou. Sem porta, a
      linha sai do DESENHO — não é escondida no aparelho. */
-  recarga:{
-    saldo:'240', ritmo:'~17 dias no seu ritmo',
-    pacotes:[['100','49,00','',0,''],['300','129,00','+8% grátis',1,''],
-             ['600','239,00','+15% grátis',0,''],['1.200','449,00','melhor preço',0,'']],
-    cta:'Recarregar 300 créditos · R$ 129,00',
+  /* 🔴 CRÉDITOS — UMA TELA SÓ (09/08, pedido do dono: *"faça uma tela só, com
+     os dados de consumo e bônus, e a recarga de créditos; foco na recarga"*).
+     Eram DUAS linhas vizinhas na Administração abrindo duas telas que falam do
+     MESMO número: "Recarga de créditos" mostrava o saldo e vendia pacote,
+     "Consumo e bônus" mostrava o saldo de novo e o extrato. Saldo em dois
+     cartões é bug de produto — e pra recarregar, que é o ato que traz dinheiro,
+     o dono tinha que adivinhar qual das duas portas era.
+
+     🔴 UMA SEÇÃO, DUAS PORTAS DE REDE — e por isso DOIS PARES de estado. O
+     saldo e os pacotes vêm de `/credits/me`; o movimento vem de
+     `/logistica/creditos/extrato`. `carregando`/`semFonte` são do primeiro (a
+     espinha da tela) e `movCarregando`/`movSemFonte` são do segundo. Extrato
+     fora do ar NÃO pode tirar a recarga do ar: quem entrou aqui pra comprar
+     crédito compra do mesmo jeito, com o extrato mostrando "tentar de novo" no
+     seu próprio quadrado.
+
+     O catálogo de demonstração é o catálogo REAL de fábrica (starter/growth/
+     scale, 100/300/800 por R$ 97/247/597). Os R$ 49/129/239/449 com "+8%
+     grátis" que moravam aqui não existem em servidor nenhum — desenho de tela
+     de dinheiro que inventa preço ensina o preço errado a quem desenha depois.
+
+     `detalhe` (6º campo do pacote) é COMPOSTO pela ponte a partir de `price`,
+     `credits` e `defaultExpiryDays` — preço por crédito é a única conta que
+     responde "qual é o mais barato", e validade é a pergunta que ninguém faz
+     antes de o crédito vencer. */
+  creditos:{
+    saldo:'240', vence:'60 vencem em 12/09',
+    pacotes:[['100','97,00','',0,'starter','R$ 0,97 por crédito · vale 90 dias'],
+             ['300','247,00','Mais vendido',1,'growth','R$ 0,82 por crédito · vale 90 dias'],
+             ['800','597,00','',0,'scale','R$ 0,75 por crédito · vale 90 dias']],
+    cta:'Recarregar 300 créditos · R$ 247,00',
+    mes:'agosto', gastosHoje:'14', gastosMes:'63', bonus:'24',
+    /* 🔴 SÓ ENTRA O QUE O EXTRATO ITEMIZA: entrega rastreada e bônus. O crédito
+       "essencial" (1 por bloco de rota) o servidor devolve como TOTAL do mês,
+       nunca linha a linha — então ele vive no cartão "no mês" e não inventa
+       linha nenhuma aqui. Desenho que mostra uma linha que o app não sabe
+       preencher é promessa que o aparelho quebra. */
+    linhas:[
+      ['menos','Entrega rastreada','hoje 06:12','2'],
+      ['menos','Entrega rastreada','ontem 17:40','2'],
+      ['mais','Bônus de julho','creditado em 01/08','24'],
+    ],
+    vazio:'',
   },
   /* L11b — AJUSTES · FINANCEIRO. 🔴 ERA A ÚLTIMA TELA 100% CRAVADA do app, e a
      pior que sobrou: TODOS os números moravam no template como texto literal —
@@ -737,17 +775,11 @@ const DADOS={
     ],
     semanaRecebido:'R$ 2.391,00', semanaMarcado:'R$ 2.648,00', semanaPendencia:'R$ 257,00',
   },
-  consumo:{
-    saldo:'240', gastosHoje:'14', bonus:'24',
-    linhas:[
-      ['menos','Rota de quarta','14 paradas · hoje 06:12','14'],
-      ['menos','Rota de terça','12 paradas · 05/08','12'],
-      ['mais','Bônus de recarga','+8% no pacote de 300','24'],
-      ['mais','Recarga','pacote 300 · Pix','300'],
-      ['menos','Rota de segunda','11 paradas · 04/08','11'],
-    ],
-    vazio:'',
-  },
+  /* (A seção `consumo:` morava AQUI e foi fundida na `creditos:` lá de cima —
+     mesma tela, mesmo número. As linhas dela eram do desenho e nenhuma existia:
+     "Rota de quarta · 14 paradas" e "Recarga · pacote 300 · Pix" não saem de
+     porta nenhuma — o extrato do servidor só itemiza entrega rastreada e bônus,
+     e Pix não existe no checkout deste app.) */
   /* L10 — ROTAS SALVAS. `lista` e [nome, quando, paradas, produtos, marcado,
      icone, destaque, id]. "Duplicar" e o menu de tres pontos NAO entram: criar
      e editar modelo sairam no corte de 06/08 (isso e trabalho de escritorio,
@@ -1938,6 +1970,14 @@ T.creditos={nome:'Ajustes · Créditos',grupo:'Ajustes',render(){
     </div>
     <div class="nota">${ic('lock',13)}
       <span>Pagamento no cartão, pelo Mercado Pago. A HBX não guarda o número do seu cartão.</span></div>`:''}`)}
+    ${/* 🔴 UM AVISO SÓ QUANDO TUDO CAIU. As duas portas têm bandeira própria de
+          propósito — extrato no chão não pode derrubar a recarga — mas o
+          contrário NÃO é simétrico: sem a carteira não há saldo, não há pacote e
+          não há botão, então a tela inteira está no chão e o bloco de baixo só
+          repetiria "Não consegui carregar / Tentar de novo" um palmo abaixo do
+          primeiro. Duas vezes a mesma frase na mesma tela é ruído, e o `Tentar
+          de novo` que sobra rebusca as DUAS portas de qualquer jeito. */''}
+    ${c.semFonte?'':`
     <div class="grupo">Consumo e bônus${c.mes?` · ${c.mes}`:''}</div>
     ${kpis?`<div class="kpis" style="margin-top:0">${kpis}</div>`:''}
     ${mioloDe(c.movCarregando,c.movSemFonte,'sales','recarregar-movimento',4,`<div class="extrato">
@@ -1945,7 +1985,7 @@ T.creditos={nome:'Ajustes · Créditos',grupo:'Ajustes',render(){
                        :`<div class="vazio"><b>${c.vazio||'Sem movimento ainda'}</b></div>`}
     </div>`)}
     <div class="banner pausa">${ic('alert',15)}
-      <span>Migração entre rotas é <b>grátis</b>: a mesma entrega não debita duas vezes.</span></div>`,
+      <span>Migração entre rotas é <b>grátis</b>: a mesma entrega não debita duas vezes.</span></div>`}`,
     c.cta?`<button class="act go full" style="justify-content:center" data-acao="recarregar">${ic('check',19)}<b>${c.cta}</b></button>`:'');
 }};
 
