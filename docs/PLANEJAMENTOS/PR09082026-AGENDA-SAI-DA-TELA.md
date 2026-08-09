@@ -108,7 +108,31 @@ desktop lê ou depende dela.
 4. **`dataLonga`** ("Domingo, 9 de agosto") → cabeçalho da Montagem, que
    virou a dona do dia.
 
-### A3 — A VASSOURA DA VIRADA (a RAIZ do "puxava rota atrasada")
+### A3 — A VASSOURA DA VIRADA — ⚠️ O PLANO ESTAVA ERRADO EM DOIS PONTOS (medido 09/08)
+
+**1. A torneira já foi fechada, e não por mim.** O commit `c690e4bc` ("a
+torneira — o prepare parou de materializar no dia de hoje", publicado 03:36)
+matou a causa que eu descrevi: escolher "Seg" no domingo agora PREPARA A
+SEGUNDA, e as entregas nascem no dia delas. O "puxava rota atrasada" que o dono
+viveu tinha essa origem.
+
+**2. A vassoura já existia — o que faltava era o ALCANCE.**
+`encerrarDiasAnteriores` (`logistica-fechamento-caixa.util.ts`, F0 27/07) já
+fecha rota e entrega de dia passado, lazy, no início de
+`prepare`/`start`/`materializeForRoute`. Construir outra teria sido inventar
+bug em cima de mecanismo pronto.
+O que ela tinha era um ponto cego: o `WHERE` exigia `agendaOcorrenciaKey` ou
+`rotaModeloId` — "só o que a montagem trouxe". **Medido em produção: das 109
+entregas abertas de dias passados, 107 não tinham nenhum dos dois** (company 5
+com 14 de 21/07, bancada 39 com 93 de 11/07, `origem` nulo, nenhuma tocada).
+Toda entrega nascida fora da agenda — a avulsa do "+", o painel web, a
+importação — ficava `agendada` para sempre, invisível dos dois lados.
+✅ **Feito (`0b6e8be4`):** a cláusula saiu; as quatro que protegem de verdade
+ficam (sem `startedAt`, sem comprovante, cobrança `pendente`, `stopLivreWhere`).
+Produção se cura sozinha na próxima montagem de cada empresa — nenhum UPDATE
+na mão. Vacinas: órfã de dia passado fecha; órfã com cobrança contabilizada não.
+
+O desenho original desta fase, mantido como registro:
 - Regra nova no servidor: **entrega `'agendada'` de dia operacional passado,
   sem `LogisticaRoute` ACTIVE pendurada, ganha desfecho automático**
   (`'cancelada'`, motivo "dia encerrado", evento no `AgendaEvento`).
@@ -134,17 +158,15 @@ desktop lê ou depende dela.
   mexidas · teste da vassoura (fixture: entrega de ontem `'agendada'` → 1ª
   leitura de hoje a cancela; com rota ACTIVE → fica).
 
-## 6. DECISÕES DO DONO (gate)
+## 6. DECISÕES DO DONO — GO DADO (09/08)
 
-- **D1 — a vassoura pode cancelar sozinha?** (única que muda dado).
-  Recomendo SIM: é o que a faxina manual já fez 2×, o desfecho fica no
-  histórico e é reversível por dado. Alternativa conservadora: só esconder
-  da tela (mantém o pus no banco).
-- **D2 — o rótulo "Não entregues" pro grupo `cancelada`** na Rota de hoje
-  fica? Recomendo SIM (é a língua do desfecho do motorista), mas registro o
-  atrito com [[cancelar-e-cancelar-um-verbo-so]].
-- **D3 — a semana aparece na Montagem também com lista cheia?** Recomendo
-  NÃO: só no estado vazio — com lista cheia os chips já contam os dias.
+- **D1 — a vassoura pode cancelar sozinha? SIM.** Aplicado como AUMENTO DE
+  ALCANCE da vassoura que já existia (§A3), não como mecanismo novo.
+- **D2 — o rótulo "Não entregues" pro grupo `cancelada`: a pergunta se
+  dissolveu.** Os três grupos só existiam no modo agenda; com o modo fora,
+  `DESFECHOS` e `listaParadasSeparada` morreram inteiros. Durante a rota quem
+  conta desfecho é o filtro "Fila / Entregue", que já existia.
+- **D3 — semana só no vazio da Montagem: SIM.** Implementado assim.
 
 ## 7. O QUE NÃO MUDA
 
@@ -165,8 +187,24 @@ desktop lê ou depende dela.
 
 ## 9. STATUS
 
-- [ ] GO do dono (D1–D3)
-- [ ] A1 — modo agenda morre
-- [ ] A2 — moradias (semana, créditos, dataLonga)
-- [ ] A3 — vassoura da virada
-- [ ] A4 — prova no g15
+- [x] GO do dono (D1–D3) — 09/08
+- [x] **A1 — modo agenda morre** (`a8974fdc`): porta (`temRotaNoDia`),
+      `tituloAgenda`, KPI "agendadas", rótulo "O que está agendado",
+      `DESFECHOS`, `listaParadasSeparada`, `qtd*` — e a tela de reserva
+      `T.rotafoto`, que era cópia sem porta com 6 clientes de mentira.
+- [x] **A2 — moradias** (`a8974fdc`): semana no vazio da Montagem, créditos no
+      topo dela, data por extenso como subtítulo.
+- [x] **A3 — alcance da vassoura** (`0b6e8be4`): ver §A3 — o plano estava
+      errado, a vassoura já existia e a raiz já tinha sido tapada.
+- [ ] **A4 — prova no g15**: pendente por construção. O front vive no APK, e
+      APK só se refaz no `npm run publish` — o código publicado às 05:02 é
+      ANTERIOR a estes dois commits. Cena a conferir no aparelho: domingo sem
+      botão "Lista"; Montagem com semana + créditos + data; quarta montando só
+      o dia real; rota montada com a "Rota de hoje" idêntica.
+
+## 10. PORTÕES DESTA ENTREGA
+
+`casca-conferir` 60/60 (mock == pele, 30 telas × 2 modos) ·
+`casca-antes-e-depois` acusa só `montagem` (a tela mexida) · prova de cena com
+45 asserts nos 7 estados da rota · `fechamento-caixa` 5/5 · `admin-route` 7/7 ·
+`tsc` 0.
