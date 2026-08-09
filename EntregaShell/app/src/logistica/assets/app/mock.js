@@ -404,30 +404,34 @@ const DADOS={
     creditos:'240', creditosDebita:'12',
     somaProdutos:'20', somaMarcado:'R$ 336,00',
     vazioTitulo:'Sem paradas hoje',
-    /* 🔴 A TELA PASSOU A TER NOME (dono, 09/08: *"clico em lista… q isso? isso é
-       a agenda? coloca pelo menos o nome dela!!"*). Ela nasceu como a `T.rota`
-       de dentro do mapa e herdou o cabeçalho da rota — que é o LOGO, e logo não
-       diz onde se está. O único rótulo escrito era "Sua rota de hoje", no meio
-       da tela, e ele MENTIA no estado em que o dono estava: sem rota montada
-       aquilo não é rota nenhuma, é o dia da AGENDA.
-       São dois nomes porque são duas coisas, e quem escolhe é o estado da rota
-       — a mesma régua `rotaMontada` que já governa os pinos e a barra do mapa.
-       COPY do desenho: nome de tela não vem do servidor. */
-    titulo:'Rota de hoje', tituloAgenda:'Agenda de hoje',
+    /* 🔴 UM NOME SÓ, PORQUE É UMA COISA SÓ (dono, 09/08: *"estou inclinado a
+       remover o agenda, não vejo utilidade q o montar rota não tem"*).
+       Esta tela teve dois nomes por um dia: com rota montada, "Rota de hoje";
+       sem rota, "Agenda de hoje" — e o modo agenda era a tela do print que
+       dizia "0 agendadas" no topo e empilhava "Não entregues · 137" embaixo.
+       O modo morreu inteiro (ver `T.rotalista`): a lista só se abre quando há
+       rota, e quem responde "quem espera hoje?" é a MONTAGEM, que é a tela que
+       também faz alguma coisa a respeito. COPY do desenho, não vem do servidor. */
+    titulo:'Rota de hoje',
     /* DADO — a data por extenso ("Domingo, 9 de agosto"). Sem fonte, o subtítulo
        some: inventar a data do aparelho numa tela que fala do dia OPERACIONAL
        (fuso de São Paulo, virada às 00h) é a receita de mostrar o dia errado às
-       21h. Quem sabe o dia é a ponte, que já o calcula pra pedir a rota. */
+       21h. Quem sabe o dia é a ponte, que já o calcula pra pedir a rota.
+       🔴 MUDOU DE TELA junto com o modo agenda: quem carrega a data agora é a
+       MONTAGEM (o cabeçalho dela). Continua morando na seção `rota` porque quem
+       calcula o dia é o mesmo carregamento da rota — o campo mudou de leitor,
+       não de dono. */
     dataLonga:'',
     /* DADO — a semana da agenda: uma linha por dia com a quantidade de clientes.
        `[[diaSemana, 'Segunda', 53, ehHoje]]`. Sem fonte, o bloco some inteiro
        (Lei do IF) — dia da semana com número inventado seria pior que nada,
-       porque é por ele que o dono decide em que dia sai pra rua. */
+       porque é por ele que o dono decide em que dia sai pra rua.
+       🔴 TAMBÉM MUDOU DE TELA: mora no VAZIO da Montagem. É a resposta ao
+       domingo ("então quando eu entrego?") no lugar onde ela vira ação — o chip
+       do dia está a um dedo de distância. Com lista cheia ela não aparece: ali
+       os chips já contam os dias, e a mesma conta em dois lugares é bug de
+       produto por lei desta casa. */
     semana:[], semanaTitulo:'Os dias que você entrega',
-    /* DADO — quantos em cada desfecho do dia. É o que "separe o q foi agendado"
-       pede: o cabeçalho de cada grupo carrega a sua conta. Vazio = grupo não
-       existe hoje e não vira cabeçalho órfão. */
-    qtdAgendadas:'', qtdEntreguesDia:'', qtdNaoEntregues:'',
     /* 🔴 UM GESTO, UMA REAÇÃO (dono, 08/08: "ao clicar pisca e não monta").
        Montar são 3 idas ao servidor. O sinal disso era `estadoRota='carregando'`
        — que na tela Rota troca TUDO pelo esqueleto e leva o rodapé de botões
@@ -951,32 +955,20 @@ function listaParadas(comPerna){
   return PARADAS.map(p=>`${comPerna?perna(p.perna):''}${stop(p)}`).join('');
 }
 /* ==========================================================================
-   🔴 SEM ROTA MONTADA, A LISTA SE SEPARA POR DESFECHO (dono, 09/08).
+   ⚰️ A LISTA SEPARADA POR DESFECHO MORREU COM O MODO AGENDA (09/08, no mesmo
+   dia em que nasceu).
 
-   A cena: 107 cartões numerados de 1 a 107 debaixo do rótulo "Sua rota de
-   hoje". Medido no banco (company 41, 09/08): as 107 entregas do dia estavam
-   TODAS em `cancelada` e NENHUMA tinha `rotaOrdem` — ou seja, nem uma parada
-   de rota existia ali. A tela empilhava rejeito do dia com cara de roteiro.
+   Ela existia SÓ no estado sem rota: os três grupos ("Agendadas", "Entregues",
+   "Não entregues · 137") eram o corpo da tela "Agenda de hoje" do print do
+   dono. Com o modo agenda fora, esta tela só abre COM rota montada — e aí a
+   lista É a sequência da visita, que não se quebra em três blocos (quebrar põe
+   a parada 7 depois da 40). Quem conta desfecho durante a rota é o filtro
+   "Fila / Entregue", que já mora aqui embaixo.
 
-   É a mesma mentira que a régua `rotaMontada` já matou nos pinos e na barra do
-   mapa, no lugar em que ela ainda não tinha chegado: a LISTA. Aqui a cura não
-   é apagar — o dono PRECISA ver o que aconteceu com o dia —, é DIZER O QUE
-   CADA COISA É. Cada grupo leva o nome e a conta ("Não entregues · 107"), que
-   é literalmente o que foi pedido: "separe o q foi agendado… e quantidades".
-
-   🔴 O DESFECHO VIAJA COMO DADO (`st`), NUNCA COMO TEXTO DA PÍLULA. Agrupar
-   lendo "Não entregue" da pílula amarraria a separação à COPY: no dia em que
-   alguém trocar a palavra, a lista se desmonta calada. `st` é o status cru do
-   servidor, o mesmo que a pílula já traduz.
-
-   🔴 E COM ROTA MONTADA NÃO SE AGRUPA NADA: ali a lista É a sequência da
-   visita, e quebrar a sequência em três blocos põe a parada 7 depois da 40.
-   Quem chama esta função é só o estado sem rota.
-
-   Parada de maquete não tem `st` — no mock todas caem no primeiro grupo e a
-   folha continua desenhando a mesma lista de sempre.
+   Fica o registro do porquê, que é o que se leva pra próxima: agrupar lendo a
+   PÍLULA seria amarrar a separação à copy; o desfecho viajava como DADO (`st`,
+   o status cru do servidor). Se um dia voltar, volta assim.
    ========================================================================== */
-const DESFECHOS=[['agendada','Agendadas'],['entregue','Entregues'],['cancelada','Não entregues']];
 /* Quantas paradas o dia ainda ESPERA. É a conta que decide duas coisas — o
    número do KPI sem rota e o verbo do rodapé (`dockDaRota`) —, e por isso mora
    num lugar só: KPI dizendo "30 agendadas" com um botão que responde "nenhuma
@@ -984,6 +976,14 @@ const DESFECHOS=[['agendada','Agendadas'],['entregue','Entregues'],['cancelada',
    Parada de maquete não tem `st` e conta como aberta: o mock segue igual. */
 const paradasAbertasNaTela=()=>PARADAS.filter(p=>{
   const s=String(p.st||''); return s!=='entregue'&&s!=='cancelada';}).length;
+/* 🔴 EXISTE ROTA NO DIA? — a régua da PORTA da lista (09/08, com a morte do
+   modo agenda). Ela inclui o `semsinal`, e é essa a diferença pra régua da
+   BARRA do mapa: sem sinal a rota está montada e guardada no aparelho (o
+   próprio `dockDaRota` manda o rodapé do `pronta` nesse estado), e é justamente
+   offline que o motorista mais precisa abrir a lista das paradas. A barra do
+   mapa continua com a régua dela, mais curta, porque lá o estado GANHA da
+   contagem: "Sem sinal" e "12 paradas" não cabem na mesma linha de 412px. */
+const temRotaNoDia=e=>e==='pronta'||e==='rodando'||e==='pausada'||e==='semsinal';
 /* O RODAPÉ DA ROTA — a mesma conta pro mapa e pra lista. As duas telas
    escreviam esta escada à mão, em duas cópias que já divergiam num ponto (a
    lista lia `DADOS.rota.montando`, o mapa lia o `d` local); e é numa cópia
@@ -994,23 +994,12 @@ function dockDaRota(e){
   if(e==='montar'&&!paradasAbertasNaTela()) return transmux('semparada');
   return transmux(e);
 }
-function listaParadasSeparada(){
-  const dono=p=>{const s=String(p.st||'');return s==='entregue'?'entregue':s==='cancelada'?'cancelada':'agendada';};
-  /* A conta sai da PRÓPRIA lista, não de um campo do seam: cabeçalho que conta
-     por fora acaba dizendo 107 em cima de 3 cartões no primeiro filtro novo. */
-  return DESFECHOS.map(([chave,nome])=>{
-    const doGrupo=PARADAS.filter(p=>dono(p)===chave);
-    if(!doGrupo.length) return '';
-    /* O arrasto continua em CADA grupo (`data-gestos`), não some: o `.grip` é
-       desenhado pelo `stop()` e alça que aparece sem pegar é botão morto — o
-       pecado que esta casa persegue. O que ele nunca faz é atravessar grupo:
-       cada container tem o seu `ligarLista`. */
-    return `<div class="grupo">${nome} <b>·</b> ${doGrupo.length}</div>
-      <div class="stops" data-gestos="rota">${doGrupo.map(p=>stop(p)).join('')}</div>`;
-  }).join('');
-}
 /* A SEMANA DA AGENDA — uma linha por dia, com quantas pessoas esperam nele.
-   Sem fonte não existe bloco: ver `DADOS.rota.semana`. */
+   Sem fonte não existe bloco: ver `DADOS.rota.semana`.
+   🔴 QUEM CHAMA É A MONTAGEM, e só com a lista vazia (dono, 09/08). Ela nasceu
+   na tela da agenda; quando a agenda saiu, a pergunta que ela responde — "então
+   quando eu entrego?" — continuou existindo, e mudou pra tela onde o dia se
+   decide. */
 function semanaAgenda(){
   const d=DADOS.rota;
   if(!Array.isArray(d.semana)||!d.semana.length) return '';
@@ -1105,7 +1094,16 @@ T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
     ${mapa()}
     <div class="plano-bar${aviso?' '+aviso[2]:''}">
       <span class="f">${ic(aviso?aviso[0]:'route',16)}${fato}</span>
-      <button class="ghost" data-ir="rotalista">${ic('list',15)} Lista</button>
+      ${/* 🔴 SEM ROTA NÃO HÁ LISTA PRA ABRIR (dono, 09/08: *"estou inclinado a
+           remover o agenda"*). Este botão era a única porta do modo agenda — a
+           tela que dizia "0 agendadas" e listava 137 canceladas num domingo
+           sem cliente nenhum. Com o modo morto, o botão sem rota abriria uma
+           tela sem assunto; e quem quer ver quem espera hoje tem a MONTAGEM, a
+           um toque daqui pelo dock (satélite "Montagem", ou o próprio "Montar
+           rota" quando o dia não tem nada aberto).
+           Porta que some junto com o que ela abria não deixa beco: o dock desta
+           mesma tela é quem carrega as ações do dia por montar. */''}
+      ${temRotaNoDia(e)?`<button class="ghost" data-ir="rotalista">${ic('list',15)} Lista</button>`:''}
     </div>
     <div class="plano-lado">
       <button data-acao="mapa-enquadrar" aria-label="Enquadrar a rota">${ic('target',18)}</button>
@@ -1127,19 +1125,21 @@ T.rotalista={nome:'Rota do dia · lista (7 estados)',grupo:'Rota',render(){
   const e=estadoRota;
   const rodando=e==='rodando', pausada=e==='pausada', montada=e==='pronta';
   const emCurso=rodando||pausada;
-  /* 🔴 A MESMA RÉGUA DO MAPA, AGORA NA LISTA (`rotaMontada` da ponte): paradas
-     só existem depois de montar. Aqui ela decide TRÊS coisas de uma vez — o
-     NOME da tela, se a lista se separa por desfecho e se a semana aparece. Uma
-     régua só, no lugar onde a tela já tem o estado na mão; foi espalhando `if`
-     de estado por três funções que a mentira dos pinos nasceu em três lugares. */
-  const temRota=montada||emCurso;
+  /* 🔴 ESTA TELA SÓ EXISTE COM ROTA (dono, 09/08). Ela tinha duas
+     personalidades: com rota montada era a lista da operação; sem rota virava
+     "Agenda de hoje", com outro título, outro KPI, a lista quebrada em três
+     grupos e a semana no pé. O modo agenda saiu inteiro — a porta que o abria
+     (o botão "Lista" da barra do mapa) só nasce com rota, ver `temRotaNoDia`.
+     O que sobra aqui é UMA tela com UM assunto, e por isso nada mais pergunta
+     "tem rota?" folha adentro: era espalhando essa pergunta por três funções
+     que a mentira dos pinos nasceu em três lugares. */
   /* O NOME DA TELA. `.screen-head` é a peça central dos títulos (centralizada
      pela régua de 08/08) — a mesma da Montagem, que é a tela vizinha: título
      que muda de tamanho a um toque de distância é o defeito que "padronizar é
      IGUALAR" descreve. Sem ícone de propósito: uma linha acima já mora o botão
      redondo de Voltar, e dois glifos empilhados na margem viram um só. */
   const cabeca=`<div class="screen-head"><span>
-      <h2>${temRota?DADOS.rota.titulo:DADOS.rota.tituloAgenda}</h2>
+      <h2>${DADOS.rota.titulo}</h2>
       ${DADOS.rota.dataLonga?`<p>${DADOS.rota.dataLonga}</p>`:''}</span></div>`;
 
   // O esqueleto é do CONTEÚDO; o rodapé de controle não é conteúdo e por isso
@@ -1159,28 +1159,23 @@ T.rotalista={nome:'Rota do dia · lista (7 estados)',grupo:'Rota',render(){
     </div>`);
 
   // Dia sem parada nenhuma NÃO é "rota indisponível" (aquilo é falha de
-  // carregar): é o dia ainda por montar. Mesma peça `.vazio`, o fato certo.
-  /* 🔴 E A SEMANA FICA DE PÉ JUSTAMENTE AQUI. O domingo do dono cai neste
-     ramo: a tela dizia "Sem paradas hoje" e mais nada — nenhuma pista de que
-     a empresa tem 253 clientes agendados nos outros seis dias. É o dia em que
-     a pergunta "então quando eu entrego?" é a única que existe, e a resposta
-     estava a um fetch que o app JÁ faz (os chips da Montagem bebem dela). */
+  // carregar). Aqui isto virou GUARDA, não estado de trabalho: com o modo
+  // agenda fora, quem chega nesta tela tem rota, e rota tem parada. Se um dia
+  // a lista chegar vazia mesmo assim (corrida entre o estado e o dado), a tela
+  // diz o fato em vez de desenhar uma casca sem conteúdo. A semana saiu daqui
+  // pra Montagem junto com o modo agenda — era ela quem respondia o domingo.
   if(!PARADAS.length) return shellRota(`${cabeca}
     <div class="vazio">
       <span class="ico">${ic('route',24)}</span>
       <strong>${DADOS.rota.vazioTitulo}</strong>
-    </div>
-    ${semanaAgenda()}`, dockDaRota(e));
-  /* 🔴 "107 PARADAS" ERAM 107 CANCELADAS. `kpiParadas` é o total do DIA (o
-     servidor manda `itens.length` cru, e outras quatro telas leem esse campo
-     como total) — vestido de "paradas" numa tela sem rota montada, ele conta
-     como ponto de visita o que já foi resolvido. Sem rota, o número passa a ser
-     o que de fato espera visita, e o rótulo diz o que ele é; o que foi
-     entregue e o que não foi têm cada um o seu grupo, com a sua conta. */
-  const abertas=paradasAbertasNaTela();
+    </div>`, dockDaRota(e));
+  /* `kpiParadas` é o total do DIA (o servidor manda `itens.length` cru, e outras
+     quatro telas leem esse campo como total). Aqui ele é o que sempre quis ser:
+     as paradas da rota que está de pé. O "107 paradas" que eram 107 canceladas
+     morreu com o modo agenda — sem rota, esta tela não abre. */
   return shellRota(`${cabeca}
   <div class="kpis">
-    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${temRota?DADOS.rota.kpiParadas:abertas}</b><span class="l">${temRota?'paradas':'agendadas'}</span></span></div>
+    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${DADOS.rota.kpiParadas}</b><span class="l">paradas</span></span></div>
     <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">${emCurso?DADOS.rota.kpiEntregues:DADOS.rota.kpiEntreguesParado}</b><span class="l">entregues</span></span></div>
     ${DADOS.rota.saldo?`<div class="kpi money"><span class="l">Saldo</span><b class="v">${DADOS.rota.saldo}</b><span class="go">${ic('chev',15)}</span></div>`:''}
     ${(DADOS.rota.dinheiro||DADOS.rota.pix)?`<div class="kpi split">
@@ -1201,25 +1196,21 @@ T.rotalista={nome:'Rota do dia · lista (7 estados)',grupo:'Rota',render(){
        está na rua teria que cancelar a rota pra adicionar uma parada nela.
        Aqui o encaixe é o que interessa: "No caminho" põe a parada onde ela
        custa menos, em vez de jogar pro fim do dia. -->
-  ${temRota?'':semanaAgenda()}
-  <!-- 🔴 O RÓTULO DA BARRA MENTIA JUNTO. "Sua rota de hoje" era o ÚNICO texto
-       que nomeava o que está embaixo — e sem rota montada nada ali é rota. Ele
-       segue a mesma régua do título: uma frase, dois estados, nenhuma inventada.
-       Com rota, a barra continua dizendo exatamente o que dizia. -->
-  <div class="bar"><span class="t">${ic('list',17)} ${temRota?'Sua rota de hoje':'O que está agendado'}</span>
+  <div class="bar"><span class="t">${ic('list',17)} Sua rota de hoje</span>
     <button class="ghost" data-ir="rapida" aria-label="Adicionar parada avulsa">${ic('plus',15)} Parada</button>
     <button class="ghost" data-ir="rota">${ic('map',15)} Ver mapa</button></div>
   ${emCurso?`<div class="dia-bar"><small>${DADOS.rota.diaFeitas} de ${DADOS.rota.diaTotal}</small><span class="trilho"><i style="width:${DADOS.rota.diaPct}"></i></span><b>${DADOS.rota.diaMarcado}</b><small>marcado</small></div>`:''}
   ${emCurso?`<div class="filtro">
       <button class="on">Fila <b>${DADOS.rota.filtroFila}</b></button><button>Entregue <b>${DADOS.rota.filtroEntregue}</b></button></div>`:''}
-  ${montada||e==='montar'?`<div class="creditos">${ic('card',17)}
+  ${/* O crédito do dia. O ramo "monte a rota pra saber" mudou de tela junto com
+       o modo agenda: ele falava de um dia SEM rota, e dia sem rota agora é
+       assunto da Montagem — que é onde o toque que gasta o crédito acontece.
+       Aqui sobra o que esta tela sabe: a rota está de pé, e iniciar debita
+       tanto. */''}
+  ${montada?`<div class="creditos">${ic('card',17)}
       <span><b class="v">${DADOS.rota.creditos}</b> <small>créditos hoje</small></span>
-      <span class="debita">${montada
-        ? (DADOS.rota.creditosDebita?`Iniciar debita ${DADOS.rota.creditosDebita}`:'não consegui o custo agora')
-        : 'monte a rota pra saber'}</span></div>`:''}
-  ${temRota
-    ? `<div class="stops" data-gestos="rota">${listaParadas(emCurso)}</div>`
-    : listaParadasSeparada()}
+      <span class="debita">${DADOS.rota.creditosDebita?`Iniciar debita ${DADOS.rota.creditosDebita}`:'não consegui o custo agora'}</span></div>`:''}
+  <div class="stops" data-gestos="rota">${listaParadas(emCurso)}</div>
   <div class="sum" data-ir="fechamento">
     <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>${DADOS.rota.somaProdutos}</b><small>produtos</small></span></span>
     <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>${DADOS.rota.somaMarcado}</b><small>marcado</small></span></span>
@@ -1232,41 +1223,23 @@ T.rotalista={nome:'Rota do dia · lista (7 estados)',grupo:'Rota',render(){
 }};
 
 
-/* versão antiga da tela (mantida como referência das fotos) --------------- */
-T.rotafoto={nome:'Rota — igual à foto',grupo:'Rota',render(){return `${status}
-${hdr({})}
-<div class="body">
-  <div class="kpis">
-    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${DADOS.rota.kpiParadas}</b><span class="l">paradas</span></span></div>
-    <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">6</b><span class="l">entregues</span></span></div>
-    ${DADOS.rota.saldo?`<div class="kpi money"><span class="l">Saldo</span><b class="v">${DADOS.rota.saldo}</b><span class="go">${ic('chev',15)}</span></div>`:''}
-    ${(DADOS.rota.dinheiro||DADOS.rota.pix)?`<div class="kpi split">
-      ${DADOS.rota.dinheiro?`<span class="ln"><span style="color:var(--lime)">${ic('cash',16)}</span><span><span class="t" style="color:var(--lime)">Dinheiro</span><span class="m">${DADOS.rota.dinheiro}</span></span></span>`:''}
-      ${DADOS.rota.pix?`<span class="ln"><span style="color:var(--blue-l)">${ic('pix',16)}</span><span><span class="t" style="color:var(--blue-l)">Pix</span><span class="m">${DADOS.rota.pix}</span></span></span>`:''}
-    </div>`:''}
-  </div>
-  <div class="bar"><span class="t">${ic('list',17)} Sua rota de hoje</span>
-    <button class="ghost" data-ir="mapa">${ic('map',15)} Ver mapa</button></div>
-  <div class="stops">
-    ${stop({n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['A caminho','blue','nav']})}
-    ${stop({n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',pill:['A caminho','blue','nav']})}
-    ${stop({n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Chegou','lime','check']})}
-    ${stop({n:4,hora:'10:45',cor:'lime',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['Chegou','lime','check']})}
-    ${stop({n:5,hora:'11:30',nome:'Bar do Zé',rua:'R. dos Otonis, 317',bairro:'Jabaquara',tags:[['20L x3','blue'],['Vasilhame']],marcado:'63,00',pill:['Pendente','amber','clock']})}
-    ${stop({n:6,hora:'12:15',cor:'off',nome:'Mercado Estrela',rua:'R. Aracanguá, 210',bairro:'Jabaquara',tags:[['20L x4','blue'],['Chip dia','lime']],marcado:'84,00',pill:['Pendente','mute','clock']})}
-  </div>
-  <div class="sum">
-    <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>${DADOS.rota.somaProdutos}</b><small>produtos</small></span></span>
-    <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>${DADOS.rota.somaMarcado}</b><small>marcado</small></span></span>
-    <span class="c"><span style="color:var(--lime)">${ic('check',17)}</span><span><b>6</b><small>entregas</small></span></span>
-    <span class="go">${ic('chev',15)}</span>
-  </div>
-  <div class="acts">
-    <button class="act go wide" data-ir="venda">${ic('play',21)}<span><b>Iniciar próxima parada</b><small>João da Silva</small></span></button>
-    <button class="act" data-ir="fechamento">${ic('note',19)}<b>Fechamento do dia</b></button>
-  </div>
-</div>
-${nav('rota')}`;}};
+/* ⚰️ A TELA DE RESERVA MORREU (09/08, ordem do dono: *"já remove do mock e da
+   tela standby"*).
+
+   `T.rotafoto` — "Rota — igual à foto" — era a versão ANTIGA desta tela,
+   guardada como referência das fotos do desenho original. Ela não tinha porta
+   nenhuma (nenhum `data-ir` no app inteiro apontava pra cá): só existia na
+   fileira do visualizador, e viajava dentro do APK como tela morta.
+
+   Por que ela some agora, e não "fica que não atrapalha":
+   · Era uma CÓPIA da tela de Rota — a peça que não recebe nada do que a
+     original ganha. Enquanto a Rota virava mapa, ganhava régua de rota
+     montada, arrasto, desfecho e dock, esta seguia com "Iniciar próxima
+     parada" e a lista de 6 nomes de mentira.
+   · E os nomes de mentira são o custo real: João da Silva, Mercadinho Bom
+     Preço, Bar do Zé — cliente que não existe, com rua e valor, na mesma
+     fileira das telas de verdade.
+   Quem quiser a foto antiga abre o git. Referência é história, não tela. */
 
 /* O MUNDO DO GPS — desenhado achatado e inclinado pelo CSS. A rua em que se
    anda é a coluna do meio: como o carro fica no centro horizontal, ele cai em
@@ -1806,9 +1779,19 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
   const modos=Array.isArray(d.modos)&&d.modos.length?`<div class="modos">
     ${d.modos.map((m,i)=>`<button class="modo${(d.modoSel||'')===m[0]?' on':''}${m[1]?'':' vaga'}" data-acao="modo-rota" data-modo="${m[0]}">
       <b>${m[1]||`Espaço ${i}`}</b>${m[2]?'<i class="ponto"></i>':''}</button>`).join('')}</div>`:'';
+  /* 🔴 A SEMANA CHEGOU AQUI COM A MORTE DO MODO AGENDA (dono, 09/08). Ela
+     morava na tela "Agenda de hoje"; quando a agenda saiu, a pergunta que ela
+     responde ficou — e o domingo é o dia em que ela é a ÚNICA pergunta: a tela
+     diz "Nada a exibir hoje" e o dono não tem pista nenhuma de que a empresa
+     tem 253 clientes agendados nos outros seis dias.
+     Só no VAZIO, de propósito: com lista na tela os chips de dia logo acima já
+     contam quem tem gente, e a mesma conta em dois lugares da MESMA tela é
+     exatamente o bug de produto que esta casa persegue. O dado é o mesmo que os
+     chips já pedem no boot (`DADOS.rota.semana`) — nenhuma ida nova à rede. */
   const lista=d.linhas.length
     ? `<div class="stops" data-gestos="rota">${d.linhas.map(p=>`${perna(p.perna)}${stop(p)}`).join('')}</div>`
-    : `<div class="vazio"><span class="ico">${ic('route',24)}</span><strong>${d.vazio}</strong></div>`;
+    : `<div class="vazio"><span class="ico">${ic('route',24)}</span><strong>${d.vazio}</strong></div>
+       ${semanaAgenda()}`;
   /* 🔴 O BOTÃO DE MONTAR NÃO ROLA (dono, 08/08: "montar rota não está sempre
      visível"). Ele nascia no PÉ da lista: com 52 clientes na tela isso é
      3.259 px abaixo da dobra — MEDIDO no g15 — e cada repinte devolvia o dedo
@@ -1852,8 +1835,30 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
 ${hdr({voltar:'rota'})}
 <div class="body com-dock-1">
   <h2 style="font-size:23px;font-weight:500;margin:4px 0 2px;letter-spacing:-.4px;text-align:center">${d.titulo}</h2>
+  ${/* A DATA POR EXTENSO — mudou de tela com o modo agenda (09/08). Ela nomeia
+       o DIA de que a tela fala, e desde que os chips trocam o dia da lista essa
+       é a informação que some primeiro: "Montagem de rota" não diz se o que
+       está embaixo é hoje ou a quarta que vem. Some sem fonte (Lei do IF) —
+       data do aparelho numa tela que fala do dia OPERACIONAL mostra o dia
+       errado às 21h. Estilo colado no `.screen-head p`, que é o subtítulo das
+       outras telas: título de tela é família única, por lei de 08/08. */''}
+  ${DADOS.rota.dataLonga?`<p style="margin:1px 0 0;font-size:11.5px;color:var(--ink-2);text-align:center">${DADOS.rota.dataLonga}</p>`:''}
   ${chips}
   ${modos}
+  ${/* 🔴 O CRÉDITO MUDOU PRA TELA ONDE ELE É GASTO (dono, 09/08). Ele morava
+       na "Agenda de hoje" dizendo "monte a rota pra saber" — informação de
+       preço numa tela que não tinha o botão que cobra. Aqui embaixo estão os
+       dois toques que gastam ("Montar rota" e "Iniciar rota"), então o número
+       fica na frente da decisão, que é a lei do portão de crédito.
+       Sem saldo do servidor não há linha: crédito inventado é dinheiro
+       inventado. E o subtexto é o mesmo par de sempre — com a rota já montada
+       o servidor sabe o custo REAL; antes disso, ninguém sabe, e a tela diz
+       isso com todas as letras em vez de chutar um número. */''}
+  ${DADOS.rota.creditos?`<div class="creditos">${ic('card',17)}
+    <span><b class="v">${DADOS.rota.creditos}</b> <small>créditos hoje</small></span>
+    <span class="debita">${d.pronta
+      ? (DADOS.rota.creditosDebita?`Iniciar debita ${DADOS.rota.creditosDebita}`:'não consegui o custo agora')
+      : 'monte a rota pra saber'}</span></div>`:''}
   ${miolo(d,'route','recarregar-montagem',5,`${lista}
   <div class="sum">
     <span class="c"><span style="color:var(--lime)">${ic('route',17)}</span><span><b>${d.somaParadas}</b><small>paradas</small></span></span>
@@ -2804,7 +2809,7 @@ ${nav('ajustes')}`;}};
 /* ==========================================================================
    MONTAGEM
    ========================================================================== */
-const ORDEM=['entrada','rota','rotalista','rotafoto','mapa','mapachegou','mapalista','gerenciador','montagem','conferencia',
+const ORDEM=['entrada','rota','rotalista','mapa','mapachegou','mapalista','gerenciador','montagem','conferencia',
              'venda','folha','folhanao','rapida','salvas','fechamento','semana','clientes','novocliente','ficha','produtos',
              'fichaproduto','chat','ajustes','creditos','financeiro','avancado','sons','historico',
              'passeio','portoes'];
@@ -3771,7 +3776,11 @@ const AULAS={
      console: aula viva apontando pro vazio. Cada tela ensina o que ELA tem. */
   rota:[
     ['.plano-bar','Seu dia','Quantas paradas você tem hoje e quantas já entregou.'],
-    ['[data-ir="rotalista"]','A lista das paradas','Toque aqui pra ver cada cliente, mudar a ordem e abrir a entrega.'],
+    /* `opcional` porque a porta é do ESTADO: o botão "Lista" só existe com rota
+       montada (ver `temRotaNoDia`). Num dia por montar o passo sai de fininho,
+       sem alarme — a aula continua ensinando o que ESTA tela tem agora. */
+    {alvo:'[data-ir="rotalista"]',titulo:'A lista das paradas',
+     texto:'Toque aqui pra ver cada cliente, mudar a ordem e abrir a entrega.',opcional:1},
     ['[data-acao="mapa-enquadrar"]','Perdeu a rota de vista','Arrastou o mapa sem querer? Toque aqui que a rota inteira volta.'],
     ['.tmx-main','O que fazer agora','O botão grande é sempre o próximo passo do dia.'],
   ],
@@ -4257,9 +4266,17 @@ function abrirAula(){
   if(tourRodando()) return;
   marcarVista(atual);
   marcarAula(camada);
+  /* 🔴 O AVISO É PRA AULA VELHA, NÃO PRA PEÇA QUE A TELA ESCONDE DE PROPÓSITO
+     (09/08). O grito existe pra flagrar lição apontando pro vazio depois de um
+     redesenho — e ele só serve enquanto for raro. Peça que a própria tela liga
+     e desliga (o botão "Lista", que só nasce com rota montada) faria o console
+     gritar todo domingo, e guarda que grita à toa é guarda que se aprende a
+     ignorar. Quem sabe que a ausência é legítima é quem escreveu o passo:
+     `opcional:1`. O passo continua caindo fora do roteiro — o que sai é o
+     alarme falso. */
   const passos=(AULAS[atual]||[]).map(p=>normalizarPasso(p,atual)).filter(p=>{
     const tem=!!acharAlvo(camada,p.alvo);
-    if(!tem) console.warn('[HBX 2.0] aula de',atual,'— sumiu da tela:',p.alvo);
+    if(!tem&&!p.opcional) console.warn('[HBX 2.0] aula de',atual,'— sumiu da tela:',p.alvo);
     return tem;
   });
   if(!passos.length){
