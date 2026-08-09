@@ -1049,7 +1049,10 @@ function jaSanitizado(cad: { sanitizadoEm?: Date | null; updatedAt?: Date | null
  * MEXER AQUI SÓ AO MUDAR A REGRA DE VERDADE: cada data nova custa uma passada de cura
  * na base inteira de todos os tenants.
  */
-const CURA_REGUA_DESDE = Date.parse('2026-08-09T00:00:00Z');
+// 09/08 14:30Z — o CEP do cadastro passou a mandar no nome da rua (cepDoCadastro).
+// Sem subir esta data, os 34 clientes da company 41 carimbados hoje de manhã pela
+// régua ANTERIOR nunca veriam o conserto: o carimbo os recusaria antes da 1ª consulta.
+const CURA_REGUA_DESDE = Date.parse('2026-08-09T14:30:00Z');
 
 /** Aplica o pino curado na linha EM MEMÓRIA (a fonte inteira, nunca campo solto) —
  *  esta mesma conferência já roda com o pino novo, sem re-consultar o banco. */
