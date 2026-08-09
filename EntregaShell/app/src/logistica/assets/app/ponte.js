@@ -1463,12 +1463,31 @@
 
      Só vale pro DIA DE HOJE: `ENTREGAS` é a rota de hoje, e enfiá-la na prévia
      de uma quarta-feira futura seria mentir sobre o dia que ele está olhando.
+
+     🔴 E AVULSA É `origem`, NÃO "TUDO QUE SOBROU" (dono, 09/08: domingo, chip
+     nenhum aceso, "tem 51 clientes carregados... era pra estar 0").
+     Eu tinha escrito o filtro ao contrário: entrava toda entrega aberta que não
+     casasse com a prévia. Num dia SEM agenda a prévia é vazia por definição, e
+     aí a peneira não peneira nada — TODA entrega pendurada no dia vira "avulsa".
+     Medido em produção: `dia-preview?date=2026-08-09` devolveu lista vazia (35
+     bytes, o servidor está certo) e a tela mostrou 51 clientes; 50 deles são de
+     SEGUNDA. Vieram do `admin-route/prepare` das 03:02 — montar o dia de outro
+     dia materializa as entregas no dia operacional de HOJE — e o `encerrar` as
+     devolve VIVAS ('agendada'), de propósito. Resíduo de um domingo.
+     Era a "agenda vestida de rota" de novo, a mesma que a régua `rotaMontada`
+     matou na barra do mapa hoje de manhã: a barra aprendeu, esta lista não.
+     A régua honesta já existe e é vocabulário desta casa: `origem`. Quem nasce
+     à mão é 'avulsa' (`POST /logistica/entregas`, pedido público, rota salva
+     materializada); quem nasce da agenda é 'recorrente' — e de quem nasce da
+     agenda quem manda é a AGENDA, ou seja o `dia-preview`. Legado grava null, e
+     null o app já lê como recorrente (contrato do próprio `listRota`).
      ------------------------------------------------------------------------ */
   function somarAvulsas(data) {
     if (data !== hojeISO() || !ENTREGAS.size || !Array.isArray(previaCrua)) return;
     const jaTem = new Set(previaCrua.map((c) => String((c && c.customerProfileId) || '')));
     paradasAbertas().forEach((p) => {
       const it = p.item || {};
+      if (String(it.origem || 'recorrente') !== 'avulsa') return;
       const c = it.cliente || {};
       const cid = String(c.id || '');
       if (!cid || jaTem.has(cid)) return;
