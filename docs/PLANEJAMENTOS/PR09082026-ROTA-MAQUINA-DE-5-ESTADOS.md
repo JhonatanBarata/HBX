@@ -111,7 +111,40 @@ Sem id, o botão não é desenhado — Lei do IF: melhor vaga vazia que botão q
 | P6 | **Cadastro com coordenada (0,0)**: existe pelo menos um cliente assim na company 48 (foi ele que mandou o enquadrar pra África). O app agora o ignora no mapa, mas o dado continua torto | Achar e corrigir no cadastro — ou barrar (0,0) na gravação |
 | P7 | **Rotas `ACTIVE` penduradas** de dias anteriores (08/08 e 31/07 ainda ACTIVE no banco da 48) | Encerrar as velhas; o dia que não fecha deixa lixo que confunde o estado da tela |
 | P8 | ⛔ **Tutorial obrigatório TRAVA o app** — freio aplicado em `3eb3972b`, disparo automático desligado | Frente do tutorial: achar por que o passo 1 monta véu sem furo e sem balão, provar no aparelho, religar |
-| P9 | 🔴 **O estado `rodando` não aparece.** Iniciei a rota no g15 (créditos 49728→49520, a navegação abriu, `LogisticaRoute` ACTIVE no banco) e a tela Rota continuou com o dock de `pronta` (Cancelar·Iniciar·Montagem) — inclusive depois de fechar e reabrir o app. Ou seja **os estados 3→4→5 do dono não se alcançam pelo rodapé**: "Navegar" e "Finalizar" nunca aparecem | Achar por que `estadoDaRota` não devolve `rodando`: o `/logistica/rota?date=` do dia parece não enxergar a rota ACTIVE (suspeita de fuso/dia operacional — a ACTIVE mais nova está gravada 2h antes do toque). É o próximo item desta frente |
+| ~~P9~~ | ✅ **RESOLVIDO** — ver §6 abaixo | commit `8b83e54f` |
+
+---
+
+## §6 — P9 FECHADO: por que o `rodando` não aparecia (09/08, medido)
+
+**Não era o app não enxergar a rota ACTIVE. Era a rota estar ENCERRADA.**
+
+O backend reporta `routeStatus: 'ENCERRADA'` sempre que `operationalEndedAt` está carimbado
+(`logistica-tracking.service.ts`, `getOperationalRouteMetadata`) — **mesmo com `status: 'ACTIVE'`**,
+porque encerrar é decoupled da cobrança de propósito. E `estadoDaRota` (`ponte.js`) não conhece
+`ENCERRADA`: cai no fallback das paradas, vê todas com `rotaOrdem` e devolve **`pronta`**. Rodapé
+volta a "Iniciar", calado, numa rota que já foi iniciada.
+
+Prova: limpei o `operationalEndedAt` da rota do dia e o rodapé virou **Cancelar · Navegar ·
+Finalizar** no boot seguinte. Daí em diante os 5 estados fecharam na tela:
+
+| Estado | Provado no g15 |
+|---|---|
+| 3 · Navegar | 3D com manobra ("80 m · Vire à direita"), seta com facho, "Parada 1 de 52 · Vânia", 63,5 km |
+| 4 · Sair | volta pra Rota **com a rota viva** — rodapé segue Navegar·Cancelar·Finalizar |
+| 5 · Finalizar | portão "Fechar o dia? · Registrar como Domingo" (não confirmado: fecha caixa real) |
+
+**E quem encerrava a rota era a própria tela.** O rodapé já tratava cancelar como destrutivo
+(satélite vermelho), mas o PORTÃO que ele abre pintava o "Cancelar rota" do **mesmo verde do
+"Iniciar"**, no mesmo lugar da tela. No teste ao vivo isso me fez encerrar a rota **três vezes**
+sem querer — o log do servidor registrou os três `rota encerrada`. Curado com
+`portao({ perigo:true })`, que troca só a cor do principal (a classe continua `principal`, senão a
+ponte perde o listener do "sim").
+
+**LEI:** destrutivo nunca veste o verde de trabalhar — nem no rodapé, nem dentro do portão.
+
+⬜ Sobra desta análise (não é P9, é conforto): rota encerrada volta pro rodapé de "pronta" **sem
+dizer nada**. Quem cancelou sem querer não tem como saber. Cabe uma linha na barra do dia.
 
 ---
 
