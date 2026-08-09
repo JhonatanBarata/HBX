@@ -2,9 +2,9 @@ import { Body, Controller, ForbiddenException, Get, NotFoundException, Post, Que
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
-import { LogisticaCadernetaService } from './logistica-caderneta.service';
+import { LogisticaFechamentoDiaService } from './logistica-fechamento-dia.service';
 import { LogisticaOperacaoService } from './logistica-operacao.service';
-import { ApagarVendaCadernetaDto, FinalizarCadernetaDto, VenderCadernetaDto } from './dto/logistica.dto';
+import { ApagarVendaDto, FinalizarDiaDto, VenderDto } from './dto/logistica.dto';
 
 /**
  * MODO CADERNETA (PR04082026) — rotas do APK. Mesmo guard/kill-switch do
@@ -15,9 +15,9 @@ import { ApagarVendaCadernetaDto, FinalizarCadernetaDto, VenderCadernetaDto } fr
 @Controller('logistica')
 @UseGuards(JwtAuthGuard, ModuleAccessGuard)
 @ModuleAccess('logistica')
-export class LogisticaCadernetaController {
+export class LogisticaFechamentoDiaController {
   constructor(
-    private readonly caderneta: LogisticaCadernetaService,
+    private readonly caderneta: LogisticaFechamentoDiaService,
     // Default preserva testes que instanciam direto; no Nest é sempre injetado.
     private readonly operacao: LogisticaOperacaoService = null as any,
   ) {}
@@ -45,7 +45,7 @@ export class LogisticaCadernetaController {
    * o dia é gesto de quem vendeu o dia.
    */
   @Post('caderneta/finalizar')
-  async finalizar(@Req() req: any, @Body() dto: FinalizarCadernetaDto) {
+  async finalizar(@Req() req: any, @Body() dto: FinalizarDiaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     if (this.operacao) await this.operacao.assertCapacidade(req.user, 'SELLER');
     return this.caderneta.finalizar(companyId, dto.dia);
@@ -53,7 +53,7 @@ export class LogisticaCadernetaController {
 
   /** Vendeu: entrega de hoje já entregue + cobrança + GPS calado. Nunca debita. */
   @Post('caderneta/vender')
-  async vender(@Req() req: any, @Body() dto: VenderCadernetaDto) {
+  async vender(@Req() req: any, @Body() dto: VenderDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     // Mesma régua do createEntrega: vender é capacidade de VENDEDOR.
     if (this.operacao) await this.operacao.assertCapacidade(req.user, 'SELLER');
@@ -66,7 +66,7 @@ export class LogisticaCadernetaController {
    * motorista com o erro na tela e sem saída.
    */
   @Post('caderneta/apagar-venda')
-  async apagarVenda(@Req() req: any, @Body() dto: ApagarVendaCadernetaDto) {
+  async apagarVenda(@Req() req: any, @Body() dto: ApagarVendaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
     if (this.operacao) await this.operacao.assertCapacidade(req.user, 'SELLER');
     const res = await this.caderneta.apagarVenda(companyId, dto.entregaId, {

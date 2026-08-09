@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { LogisticaCadernetaService } from './logistica-caderneta.service';
+import { LogisticaFechamentoDiaService } from './logistica-fechamento-dia.service';
 import { isoWeekdayForDate, saoPauloDateKey } from './logistica-occurrence.service';
 import { saoPauloMidnight } from './logistica-agenda-cursor.util';
 
@@ -97,7 +97,7 @@ const DTO_BASE = {
 } as any;
 
 test('vender: modo desligado → recusa com mensagem humana', async () => {
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({ logisticaConfig: { findUnique: async () => ({ modoCaderneta: false }) } }) as any,
     logisticaMock() as any,
   );
@@ -106,7 +106,7 @@ test('vender: modo desligado → recusa com mensagem humana', async () => {
 
 test("vender: 'pagou' sem método → recusa antes de criar qualquer coisa", async () => {
   const calls: string[] = [];
-  const svc = new LogisticaCadernetaService(prismaMock() as any, logisticaMock(calls) as any);
+  const svc = new LogisticaFechamentoDiaService(prismaMock() as any, logisticaMock(calls) as any);
   await assert.rejects(
     () => svc.vender(5, { ...DTO_BASE, metodo: undefined }),
     /como recebeu/,
@@ -116,7 +116,7 @@ test("vender: 'pagou' sem método → recusa antes de criar qualquer coisa", asy
 
 test('vender: cria + confirma com o método imediato e a MESMA key (cartao passa inteiro)', async () => {
   const calls: string[] = [];
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       entrega: {
         findFirst: async (args: any) =>
@@ -134,14 +134,14 @@ test('vender: cria + confirma com o método imediato e a MESMA key (cartao passa
 
 test("vender: 'deveu' manda 'fiado' EXPLÍCITO (nunca deixa o M6 derivar e quitar)", async () => {
   const calls: string[] = [];
-  const svc = new LogisticaCadernetaService(prismaMock() as any, logisticaMock(calls) as any);
+  const svc = new LogisticaFechamentoDiaService(prismaMock() as any, logisticaMock(calls) as any);
   await svc.vender(5, { ...DTO_BASE, desfecho: 'deveu', metodo: undefined });
   assert.ok(calls[1].startsWith('confirm:ent-1:fiado:'));
 });
 
 test('vender: mesma idempotencyKey já gravada → replay, NADA re-executa', async () => {
   const calls: string[] = [];
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       entrega: { findFirst: async () => ({ id: 'ent-velha', valor: 15 }), findMany: async () => [] },
     }) as any,
@@ -163,7 +163,7 @@ test('vender: itens extras viram novosItens do confirmar (multi-produto)', async
       return { id: 'ent-1', status: 'entregue' };
     },
   } as any;
-  const svc = new LogisticaCadernetaService(prismaMock() as any, logistica);
+  const svc = new LogisticaFechamentoDiaService(prismaMock() as any, logistica);
   await svc.vender(5, {
     ...DTO_BASE,
     itens: [
@@ -182,7 +182,7 @@ test('vender: itens extras viram novosItens do confirmar (multi-produto)', async
 // O combinado estava no banco desde 24/07 e nenhum caminho da venda o lia.
 test('vender: o preço COMBINADO com o cliente vence o catálogo (caso Larissa: 11, não 13)', async () => {
   const calls: string[] = [];
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       clienteProduto: { findMany: async () => [{ productId: 7, precoAcordado: 11 }] },
       product: { findMany: async () => [{ id: 7, price: 13, priceCents: 1300 }] },
@@ -195,7 +195,7 @@ test('vender: o preço COMBINADO com o cliente vence o catálogo (caso Larissa: 
 
 test('vender: SEM combinado, o preço é o do catálogo × quantidade', async () => {
   const calls: string[] = [];
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({ product: { findMany: async () => [{ id: 7, price: 13, priceCents: 1300 }] } }) as any,
     logisticaMock(calls) as any,
   );
@@ -206,7 +206,7 @@ test('vender: SEM combinado, o preço é o do catálogo × quantidade', async ()
 test('vender: preço EDITADO na tela vence tudo E vira o combinado do cliente', async () => {
   const calls: string[] = [];
   const gravados: any[] = [];
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       clienteProduto: {
         findMany: async () => [{ productId: 7, precoAcordado: 11 }],
@@ -226,7 +226,7 @@ test('vender: preço EDITADO na tela vence tudo E vira o combinado do cliente', 
 
 test('vender: preço NÃO editado nunca reescreve o cadastro do cliente', async () => {
   const gravados: any[] = [];
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       clienteProduto: {
         findMany: async () => [{ productId: 7, precoAcordado: 11 }],
@@ -243,7 +243,7 @@ test('vender: preço NÃO editado nunca reescreve o cadastro do cliente', async 
 
 test('vender: preço editado em cliente SEM vínculo cria o combinado sem dia (não inventa recorrência)', async () => {
   const criados: any[] = [];
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       clienteProduto: {
         findMany: async () => [],
@@ -282,7 +282,7 @@ function prismaApagar(entrega: any, extra: Record<string, Record<string, Fn>> = 
 
 test('apagar-venda: desfaz nos TRÊS lugares — entrega, cobrança e histórico', async () => {
   const { prisma, trilha } = prismaApagar({ id: 'ent-9', status: 'entregue', notes: null, valor: 13 });
-  const svc = new LogisticaCadernetaService(prisma as any, logisticaMock() as any);
+  const svc = new LogisticaFechamentoDiaService(prisma as any, logisticaMock() as any);
   const r = await svc.apagarVenda(5, 'ent-9', { deletedByUserId: 3 });
   assert.equal(r!.entregaId, 'ent-9');
   assert.deepEqual(trilha, ['snapshot', 'charge:cancelled', 'entrega:cancelada', 'historico:apagado']);
@@ -290,28 +290,28 @@ test('apagar-venda: desfaz nos TRÊS lugares — entrega, cobrança e histórico
 
 test('apagar-venda: entrega de outra empresa (ou inexistente) → null, nada é tocado', async () => {
   const { prisma, trilha } = prismaApagar(null);
-  const svc = new LogisticaCadernetaService(prisma as any, logisticaMock() as any);
+  const svc = new LogisticaFechamentoDiaService(prisma as any, logisticaMock() as any);
   assert.equal(await svc.apagarVenda(5, 'ent-de-outro'), null);
   assert.deepEqual(trilha, []);
 });
 
 test('apagar-venda: entrega JÁ FATURADA no mês é recusada (fatura fechada não some por toque-longo)', async () => {
   const { prisma, trilha } = prismaApagar({ id: 'ent-9', status: 'entregue', cobrancaStatus: 'faturada', notes: null, valor: 13 });
-  const svc = new LogisticaCadernetaService(prisma as any, logisticaMock() as any);
+  const svc = new LogisticaFechamentoDiaService(prisma as any, logisticaMock() as any);
   await assert.rejects(() => svc.apagarVenda(5, 'ent-9'), /fechamento do mês/);
   assert.deepEqual(trilha, []);
 });
 
 test('apagar-venda: 2º toque é idempotente e AINDA limpa o histórico que sobrou', async () => {
   const { prisma, trilha } = prismaApagar({ id: 'ent-9', status: 'cancelada', notes: null, valor: 13 });
-  const svc = new LogisticaCadernetaService(prisma as any, logisticaMock() as any);
+  const svc = new LogisticaFechamentoDiaService(prisma as any, logisticaMock() as any);
   const r = await svc.apagarVenda(5, 'ent-9');
   assert.equal(r!.jaApagada, true);
   assert.deepEqual(trilha, ['historico:apagado']);
 });
 
 test('resumo: medidor conta pino PROVADO (local principal vence; geocode não conta)', async () => {
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       logisticaPlanoEntrega: {
         findMany: async () => [
@@ -342,7 +342,7 @@ test('resumo: medidor conta pino PROVADO (local principal vence; geocode não co
 // dia cadastrado, não só quem entrega hoje (emenda 3 do dono).
 test('resumo: base mede a AGENDA INTEIRA, o dia mede só hoje', async () => {
   const provados: Record<string, boolean> = { a: true, b: true, c: false };
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       logisticaPlanoEntrega: {
         // Com diaSemana no where = clientes de hoje (a, b). Sem ele = a base (a, b, c).
@@ -369,13 +369,13 @@ test('resumo: base mede a AGENDA INTEIRA, o dia mede só hoje', async () => {
 });
 
 test('resumo: base vazia NUNCA é pronta (0 de 0 não convida ninguém pro GPS)', async () => {
-  const svc = new LogisticaCadernetaService(prismaMock() as any, logisticaMock() as any);
+  const svc = new LogisticaFechamentoDiaService(prismaMock() as any, logisticaMock() as any);
   const r = await svc.resumo(5, '2026-08-05');
   assert.deepEqual(r.base, { total: 0, provados: 0, pronto: false });
 });
 
 test('resumo: fechamento quebra por forma e o sem-método-imediato vira fiado do dia', async () => {
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       entrega: {
         findFirst: async () => null,
@@ -402,7 +402,7 @@ test('resumo: fechamento quebra por forma e o sem-método-imediato vira fiado do
 });
 
 test('resumo: dia vazio nunca é "pronto" (0 de 0 não libera GPS)', async () => {
-  const svc = new LogisticaCadernetaService(prismaMock() as any, logisticaMock() as any);
+  const svc = new LogisticaFechamentoDiaService(prismaMock() as any, logisticaMock() as any);
   const r = await svc.resumo(5, '2026-08-05');
   assert.equal(r.dia.pronto, false);
   assert.equal(r.ativo, true);
@@ -417,7 +417,7 @@ test("vender: financeiro OFF → 'pagou' SEM método passa (folha de 1 botão) e
       return { id: 'ent-1', status: 'entregue' };
     },
   } as any;
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       logisticaConfig: { findUnique: async () => ({ modoCaderneta: true, moduloFinanceiroAtivo: false }) },
     }) as any,
@@ -429,7 +429,7 @@ test("vender: financeiro OFF → 'pagou' SEM método passa (folha de 1 botão) e
 });
 
 test('resumo: financeiro OFF → fechamento null (número de dinheiro não se inventa)', async () => {
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       logisticaConfig: { findUnique: async () => ({ modoCaderneta: true, moduloFinanceiroAtivo: false }) },
     }) as any,
@@ -455,7 +455,7 @@ test('resumo/página: etiqueta vence a data, sem etiqueta cai no dia real; fecha
     vendaDeMesa('e2', 'b', '2026-08-05', { cadernetaDiaSemana: 6 }), // quarta ETIQUETADA sábado
     vendaDeMesa('e3', 'c', '2026-08-04'), // terça → página 2, fora da página 6
   ];
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({ entrega: entregaMockPorJanela(rows), customerProfile: perfilVivoMock }) as any,
     logisticaMock() as any,
   );
@@ -480,7 +480,7 @@ test('resumo/aprendiz: semana FECHADA vira "Caderneta de <dia>" (dedupe, ordem d
     vendaDeMesa('s4', 'a', '2026-08-01', { deliveredAt: new Date('2026-08-01T16:00:00-03:00') }),
   ];
   const criados: any[] = [];
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       entrega: entregaMockPorJanela(rows),
       customerProfile: perfilVivoMock,
@@ -505,7 +505,7 @@ test('resumo/aprendiz: semana FECHADA vira "Caderneta de <dia>" (dedupe, ordem d
 test('resumo/aprendiz: semana já carimbada (updatedAt desta semana) não regera — e o convite continua elegível', async () => {
   const rows = [vendaDeMesa('s1', 'a', '2026-08-01')];
   const criados: any[] = [];
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       entrega: entregaMockPorJanela(rows),
       customerProfile: perfilVivoMock,
@@ -527,7 +527,7 @@ test('resumo/sumiu: cliente do dia que comprava e faltou 2 semanas ganha o aviso
   // x comprou no sábado 18/07 (janela do histórico, ANTES do corte de 2 semanas)
   // e nunca mais. y é do dia mas nunca comprou → NÃO é sumido.
   const rows = [vendaDeMesa('h1', 'x', '2026-07-18')];
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       entrega: entregaMockPorJanela(rows),
       customerProfile: perfilVivoMock,
@@ -550,7 +550,7 @@ test('resumo/sugestão: vendido 2+ datas na página, com OUTRO dia cadastrado �
     vendaDeMesa('g1', 'y', '2026-07-25', { cadernetaDiaSemana: 6 }),
     vendaDeMesa('g2', 'y', '2026-08-01', { cadernetaDiaSemana: 6 }),
   ];
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       entrega: entregaMockPorJanela(rows),
       customerProfile: perfilVivoMock,
@@ -578,7 +578,7 @@ test('resumo/página: venda multi-produto devolve o principal ESCALAR na frente 
       itens: [{ productId: 9, qtdPrevista: 1, qtdEntregue: 1, valorUnit: 18, product: { name: 'Água com gás' } }],
     }),
   ];
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({ entrega: entregaMockPorJanela(rows), customerProfile: perfilVivoMock }) as any,
     logisticaMock() as any,
   );
@@ -591,7 +591,7 @@ test('resumo/página: venda multi-produto devolve o principal ESCALAR na frente 
 
 test('vender: a etiqueta da página viaja explícita (registrar numa página folheada)', async () => {
   const etiquetas: any[] = [];
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       entrega: {
         findFirst: async () => null,
@@ -608,7 +608,7 @@ test('vender: a etiqueta da página viaja explícita (registrar numa página fol
 
 test('vender: sem etiqueta do APK, a página é o dia real de HOJE em SP (APK velho)', async () => {
   const etiquetas: any[] = [];
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       entrega: {
         findFirst: async () => null,
@@ -644,7 +644,7 @@ function recorrenciaAgendaMocks() {
 test('ouro nº1: cliente SEM dia nenhum + 2 datas distintas na página → dia preenchido pela porta canônica', async () => {
   const { chamadas, recorrencia, agenda } = recorrenciaAgendaMocks();
   const hoje = saoPauloDateKey(new Date())!;
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       entrega: {
         findFirst: async () => null,
@@ -682,7 +682,7 @@ test('ouro nº1: cliente SEM dia nenhum + 2 datas distintas na página → dia p
 
 test('ouro nº1: cliente que JÁ tem dia cadastrado NUNCA é reescrito calado', async () => {
   const { chamadas, recorrencia, agenda } = recorrenciaAgendaMocks();
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       logisticaPlanoEntrega: { findMany: async () => [], count: async () => 1 },
     }) as any,
@@ -708,7 +708,7 @@ test('finalizar: dia diferente de hoje RE-ETIQUETA a sessão de hoje e salva a C
     rows.forEach((r) => { r.cadernetaDiaSemana = args.data.cadernetaDiaSemana; });
     return { count: rows.length };
   };
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({
       entrega,
       customerProfile: perfilVivoMock,
@@ -730,7 +730,7 @@ test('finalizar: dia diferente de hoje RE-ETIQUETA a sessão de hoje e salva a C
 });
 
 test('finalizar: dia sem nada registrado → recusa com mensagem humana', async () => {
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({ entrega: entregaMockPorJanela([]) }) as any,
     logisticaMock() as any,
   );
@@ -738,7 +738,7 @@ test('finalizar: dia sem nada registrado → recusa com mensagem humana', async 
 });
 
 test('finalizar: modo desligado → recusa', async () => {
-  const svc = new LogisticaCadernetaService(
+  const svc = new LogisticaFechamentoDiaService(
     prismaMock({ logisticaConfig: { findUnique: async () => ({ modoCaderneta: false }) } }) as any,
     logisticaMock() as any,
   );

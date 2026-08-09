@@ -2123,24 +2123,47 @@
     });
   }
 
-  /** cancelar: encerra a rota; entrega aberta volta pra agenda, nunca some. */
+  /* ------------------------------------------------------------------------
+     🔴 CANCELAR É CANCELAR — UM VERBO SÓ (lei do dono, 29/07; regressão que a
+     fusão trouxe de volta e ele pegou ao vivo em 09/08: "estou apertando
+     Cancelar, eu clico em montar rota, os clientes voltam!!!").
+
+     Eu tinha apontado este botão pro `rota/encerrar` — o verbo do "guarda o
+     resto pra depois": ele devolve as entregas abertas VIVAS ('agendada'). E
+     abrir a Montagem chama `rota/planejar`, que lê justamente as entregas
+     ABERTAS do dia. Então o ciclo se fechava sozinho: cancelo → as entregas
+     ficam vivas → monto → o planejador acha as mesmas → os clientes voltam. O
+     botão nunca cancelou nada; ele DESMONTAVA.
+
+     O verbo certo já existia inteiro do outro lado do fio, e até na allowlist
+     do Kotlin: `POST /logistica/rota/limpar-dia`. Só faltava alguém chamar —
+     o mesmo padrão de sempre desta fusão (a capacidade viva, o chamador morto
+     junto com o `app.js`). Ele mata o que não foi feito ('cancelada'), não
+     encosta no que já foi entregue, solta o motorista da entrega morta e —
+     detalhe que só o `limpar-dia` faz — DESFAZ a ocorrência recorrente, isto é,
+     devolve o `proximaData` do plano; sem isso o dia virava pedra (o FIX 25/07
+     dele).
+
+     Palavras do dono na lei: "eu bati a porra do caminhão, não vai ter entrega,
+     limpa pendência". E a pergunta é a mesma em todo caminho destrutivo:
+     "Tem certeza que deseja cancelar?" → Não / Sim. Sem parágrafo, sem 3º
+     botão, sem resumo — por isso a legenda saiu (ela ainda dizia "voltam pra
+     agenda", que era verdade do `encerrar` e vira MENTIRA aqui).
+
+     `perigo` continua (09/08): o "Sim" é vermelho. Vestido do verde do
+     "Iniciar", no mesmo lugar da tela, ele me fez encerrar a rota do dono três
+     vezes sem querer — provado no log do servidor.
+     ------------------------------------------------------------------------ */
   async function cancelarRota() {
     if (typeof window.portao !== 'function') return;
-    /* 🔴 `perigo` PINTA O "SIM" DE VERMELHO (09/08). O rodapé já tratava cancelar
-       como destrutivo — satélite vermelho —, mas o portão que ele abre vestia o
-       "Cancelar rota" do MESMO verde do "Iniciar", no MESMO lugar da tela. No
-       teste ao vivo isso me fez encerrar a rota do dono três vezes sem querer
-       (provado no log do servidor), e foi o que escondeu o estado `rodando`:
-       rota encerrada volta pro rodapé de "pronta", calada. */
     window.portao({
-      tom: 'alerta', ico: 'close', titulo: 'Cancelar a rota de hoje?',
-      sub: 'As entregas em aberto voltam pra agenda.',
-      acoes: [['Não', ''], ['Cancelar rota', 'principal']], classe: 'duas', perigo: true,
+      tom: 'alerta', ico: 'close', titulo: 'Tem certeza que deseja cancelar?',
+      acoes: [['Não', ''], ['Sim', 'principal']], classe: 'duas', perigo: true,
     });
     const botao = naCamada('.portao-wrap .principal');
     if (!botao) return;
     botao.addEventListener('click', () => comTrava(async () => {
-      try { await window.API.post('/logistica/rota/encerrar', { date: hojeISO() }); } catch (e) { return avisoErro(e); }
+      try { await window.API.post('/logistica/rota/limpar-dia', { date: hojeISO() }); } catch (e) { return avisoErro(e); }
       // 🔴 O SERVIDOR ENCERROU; O APARELHO TAMBÉM TEM QUE ESQUECER. A fita e a
       // geometria são DESTE lado do fio — e vêm ANTES do `carregarRota`, senão
       // o repinte que ele dispara passaria com a rota morta ainda desenhada.

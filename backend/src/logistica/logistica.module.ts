@@ -69,8 +69,8 @@ import { LogisticaAgendaService } from './logistica-agenda.service';
 import { LogisticaBaseSaudeController } from './logistica-base-saude.controller';
 import { LogisticaBaseSaudeService } from './logistica-base-saude.service';
 import { LogisticaBaseLimpezaService } from './logistica-base-limpeza.service';
-import { LogisticaCadernetaController } from './logistica-caderneta.controller';
-import { LogisticaCadernetaService } from './logistica-caderneta.service';
+import { LogisticaFechamentoDiaController } from './logistica-fechamento-dia.controller';
+import { LogisticaFechamentoDiaService } from './logistica-fechamento-dia.service';
 import { LogisticaImportacaoController } from './logistica-importacao.controller';
 import { LogisticaImportacaoService } from './logistica-importacao.service';
 import { LogisticaEstoqueController } from './logistica-estoque.controller';
@@ -213,7 +213,7 @@ import { LogisticaTutorialService } from './logistica-tutorial.service';
     LogisticaOsrmController,
     LogisticaAgendaController,
     LogisticaBaseSaudeController,
-    LogisticaCadernetaController,
+    LogisticaFechamentoDiaController,
     LogisticaImportacaoController,
     LogisticaEstoqueController,
     LogisticaNivelMasterController,
@@ -263,7 +263,7 @@ import { LogisticaTutorialService } from './logistica-tutorial.service';
     LogisticaAgendaService,
     LogisticaBaseSaudeService,
     LogisticaBaseLimpezaService,
-    LogisticaCadernetaService,
+    LogisticaFechamentoDiaService,
     LogisticaImportacaoService,
     LogisticaEstoqueService,
     LogisticaTutorialService,

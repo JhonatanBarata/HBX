@@ -1304,7 +1304,7 @@ export class AtribuirLoteDto {
 }
 
 // ── MODO CADERNETA (PR04082026) — vender por toque, sem rota ─────────────────
-export class VenderCadernetaItemDto {
+export class VenderItemDto {
   @IsInt()
   @Min(1)
   productId!: number;
@@ -1329,13 +1329,13 @@ export class VenderCadernetaItemDto {
 }
 
 /** Apagar a venda errada da caderneta (segurar pressionado na linha do dia). */
-export class ApagarVendaCadernetaDto {
+export class ApagarVendaDto {
   @IsString()
   @MaxLength(60)
   entregaId!: string;
 }
 
-export class VenderCadernetaGpsDto {
+export class VenderGpsDto {
   @IsNumber()
   @Min(-90)
   @Max(90)
@@ -1353,7 +1353,7 @@ export class VenderCadernetaGpsDto {
   accuracy?: number;
 }
 
-export class VenderCadernetaDto {
+export class VenderDto {
   @IsString()
   @MaxLength(60)
   clienteId!: string;
@@ -1364,12 +1364,12 @@ export class VenderCadernetaDto {
   localId?: string;
 
   // O preço do item é OPCIONAL e só existe quando o dono editou na tela; sem
-  // ele o serviço resolve pela régua de sempre (ver VenderCadernetaItemDto).
+  // ele o serviço resolve pela régua de sempre (ver VenderItemDto).
   @IsArray()
   @ArrayMaxSize(30)
   @ValidateNested({ each: true })
-  @Type(() => VenderCadernetaItemDto)
-  itens!: VenderCadernetaItemDto[];
+  @Type(() => VenderItemDto)
+  itens!: VenderItemDto[];
 
   // 'pagou' exige metodo; 'deveu' vira fiado (charge pendente, se financeiro ON).
   @IsString()
@@ -1384,8 +1384,8 @@ export class VenderCadernetaDto {
   // GPS calado — realimenta o pino (<=60m); ausência nunca trava a venda.
   @IsOptional()
   @ValidateNested()
-  @Type(() => VenderCadernetaGpsDto)
-  gps?: VenderCadernetaGpsDto;
+  @Type(() => VenderGpsDto)
+  gps?: VenderGpsDto;
 
   // Número da casa, opcional, só quando o cadastro não tem (a venda nunca trava).
   @IsOptional()
@@ -1409,7 +1409,7 @@ export class VenderCadernetaDto {
 
 // FINALIZAR O DIA da caderneta (05/08): "qual dia podemos registrar?" — o dia
 // escolhido registra a página e salva a "Caderneta de <dia>" nas Rotas salvas.
-export class FinalizarCadernetaDto {
+export class FinalizarDiaDto {
   @IsInt()
   @Min(1)
   @Max(7)

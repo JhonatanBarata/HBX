@@ -6,23 +6,32 @@ import { isoWeekdayForDate, saoPauloDateKey } from './logistica-occurrence.servi
 import { saoPauloMidnight } from './logistica-agenda-cursor.util';
 import { LogisticaRecorrenciaService, resolveValorUnit } from './logistica-recorrencia.service';
 import { LogisticaAgendaService } from './logistica-agenda.service';
-import type { VenderCadernetaDto } from './dto/logistica.dto';
+import type { VenderDto } from './dto/logistica.dto';
 
 /**
- * MODO CADERNETA (PR04082026-MODO-CADERNETA) — venda por toque no cliente, SEM
- * rota e SEM debitar crédito (o débito segue exclusivo do Iniciar rota).
+ * O FECHAMENTO DO DIA — quanto entrou hoje, por qual forma, e o registro do dia.
  *
- * Nasceu do André (company 41): ele abandonou a ROTA (pinos podres), não o app —
- * usa a tela de Clientes como caderneta. Aqui a venda registrada é a MESMA
- * máquina do confirmar da rota (cobrança, comprovante, idempotência).
+ * 🔴 O "MODO CADERNETA" MORREU (09/08, ordem do dono: "a caderneta está
+ * desativada nos ajustes, nem tem mais isso nos ajustes, não existe mais
+ * caderneta. É fechamento, renomeie e remove qualquer legado desse cancer").
+ * O modo era uma CHAVE (`LogisticaConfig.modoCaderneta`) que a tela de Ajustes
+ * deixou de oferecer em 07/08 — e como ninguém mais podia ligá-la, os três
+ * portões que a exigiam viraram paredes: o "Fechar o dia" respondia "O modo
+ * caderneta está desligado nos Ajustes" pra uma chave que não existia mais em
+ * lugar nenhum, e o aprendiz das rotas salvas simplesmente nunca rodava. Nenhum
+ * portão aqui lê a chave: vender e fechar o dia são do produto, não de um modo.
  *
- * CADERNETA 7 DIAS (05/08, PR05082026-CADERNETA-7-DIAS): a caderneta virou a de
- * papel — 7 páginas, uma por dia da semana. Cada venda leva a etiqueta da página
- * (`cadernetaDiaSemana`); o dinheiro NUNCA muda de dia (deliveredAt = agora,
- * sempre). Do que ele anota o sistema tira ouro sozinho: o dia do cliente se
- * preenche pela porta canônica (2 anotações na mesma página), o sumiço ganha
- * chip, e na virada da semana as páginas viram "Caderneta de Segunda…Domingo"
- * nas Rotas salvas (o aprendiz). Tudo best-effort: ouro nunca derruba venda.
+ * Venda por toque no cliente, SEM rota e SEM debitar crédito (o débito segue
+ * exclusivo do Iniciar rota). A venda registrada é a MESMA máquina do confirmar
+ * da rota (cobrança, comprovante, idempotência).
+ *
+ * SETE PÁGINAS, UMA POR DIA DA SEMANA (05/08): cada venda leva a etiqueta da
+ * página (`fechamentoDiaSemana`); o dinheiro NUNCA muda de dia (deliveredAt =
+ * agora, sempre). Do que ele anota o sistema tira ouro sozinho: o dia do
+ * cliente se preenche pela porta canônica (2 anotações na mesma página), o
+ * sumiço ganha chip, e na virada da semana as páginas viram "Rota de
+ * Segunda…Domingo" nas Rotas salvas (o aprendiz). Tudo best-effort: ouro nunca
+ * derruba venda.
  *
  * Reuso deliberado: `vender` = createEntrega + confirmarEntrega EXISTENTES —
  * nenhuma regra de dinheiro nova mora aqui (código financeiro tem dono).
@@ -32,20 +41,19 @@ import type { VenderCadernetaDto } from './dto/logistica.dto';
 // (GEOFONTES_PROVADAS em logistica-conferencia.util.ts): geocode não conta.
 const FONTES_PROVADAS = new Set(['gps_entrega', 'gps_cadastro']);
 
-export interface CadernetaMedida {
+export interface FechamentoMedida {
   total: number;
   provados: number;
   pronto: boolean;
 }
 
-export interface CadernetaResumo {
-  ativo: boolean;
-  dia: CadernetaMedida;
+export interface FechamentoResumo {
+  dia: FechamentoMedida;
   // A BASE DA AGENDA (PR05082026-VER-TELA V4, 05/08): todos os clientes com dia
   // de entrega cadastrado, não só os de hoje. É ELA que decide quando o convite
   // do GPS aparece — emenda 3 do dono: cliente avulso, sem dia, nunca trava o
   // GPS de ninguém. Campo ADITIVO: APK velho simplesmente ignora.
-  base: CadernetaMedida;
+  base: FechamentoMedida;
   // null quando o módulo financeiro do tenant está OFF — sem financeiro não
   // existe "quanto entrou por forma"; número inventado em tela de dinheiro é
   // mentira (o APK esconde o card quando vem null).
@@ -56,21 +64,21 @@ export interface CadernetaResumo {
   } | null;
   // QUEM DEVE (05/08, ordem do dono: `{Devedor?} S/N? Caso sim: "Deve: {valor}"`)
   // — só quem tem saldo em aberto entra, em centavos, indexado pelo id do
-  // cliente. Vem no resumo (e não no roster) porque a lista da caderneta mistura
-  // duas fontes (agenda do dia + entregas de hoje) e o "Deve" tem de valer pras
+  // cliente. Vem no resumo (e não no roster) porque a lista do dia mistura duas
+  // fontes (agenda do dia + entregas de hoje) e o "Deve" tem de valer pras
   // duas. Vazio com financeiro OFF: sem cobrança não existe devedor.
   devedores: Record<string, number>;
-  // CADERNETA 7 DIAS — a página pedida (`?dia=`; ausente = dia real do date).
-  // ADITIVO: APK velho nunca manda `dia` e ignora os campos novos.
-  pagina: CadernetaPagina;
+  // A página pedida (`?dia=`; ausente = dia real do date) — 7 páginas, uma por
+  // dia da semana. ADITIVO: APK velho nunca manda `dia` e ignora os campos novos.
+  pagina: FechamentoPagina;
   // Os dias da janela que TÊM venda (a seção Histórico no pé da tela).
-  historicoDias: CadernetaHistoricoDia[];
-  // O aviso do GPS: elegível quando a semana FECHADA tem vendas e as Cadernetas
+  historicoDias: FechamentoHistoricoDia[];
+  // O aviso do GPS: elegível quando a semana FECHADA tem vendas e as rotas
   // salvas existem. O teto de 1×/dia é do APK (marca d'água ao APARECER).
   conviteGps: { elegivel: boolean; nome: string | null };
 }
 
-export interface CadernetaPaginaVenda {
+export interface FechamentoPaginaVenda {
   entregaId: string;
   clienteId: string;
   localId: string | null;
@@ -85,16 +93,16 @@ export interface CadernetaPaginaVenda {
   diasAtuais?: number[];
 }
 
-export interface CadernetaPagina {
+export interface FechamentoPagina {
   diaSemana: number;
   // A DATA da página dentro da janela ("qua · 05/08/2026" no cabeçalho da tela).
   dateKey: string;
   // As vendas DA PÁGINA na janela de 7 dias civis SP terminando no `date` —
   // cada dia da semana aparece exatamente 1× na janela. Ordem = ordem de
   // registro (a sequência dele).
-  vendas: CadernetaPaginaVenda[];
+  vendas: FechamentoPaginaVenda[];
   // Fechamento DA PÁGINA (mesma forma do fechamento do dia; null sem financeiro).
-  fechamento: CadernetaResumo['fechamento'];
+  fechamento: FechamentoResumo['fechamento'];
   // Ouro nº2 — clientes do dia que compravam nesta página e faltaram as últimas
   // 2 semanas (precisa de histórico: sem compra ANTIGA não há sumiço).
   sumidos: string[];
@@ -102,21 +110,21 @@ export interface CadernetaPagina {
 
 // O HISTÓRICO da caderneta (ordem do dono 05/08): "SEG a DOM bem bonito, só o
 // que realmente tiver dados" — 1 linha por dia da janela COM venda, com a data.
-export interface CadernetaHistoricoDia {
+export interface FechamentoHistoricoDia {
   diaSemana: number;
   dateKey: string;
   vendas: number;
   totalCents: number | null;
 }
 
-export interface CadernetaVendaResult {
+export interface FechamentoVendaResult {
   ok: true;
   entregaId: string;
   totalCents: number;
   replayed?: boolean;
 }
 
-export interface CadernetaApagarVendaResult {
+export interface FechamentoApagarVendaResult {
   ok: true;
   entregaId: string;
   /** true quando a venda já estava apagada (2º toque, replay da fila offline). */
@@ -159,8 +167,24 @@ function paginaDaVenda(e: { cadernetaDiaSemana?: number | null; deliveredAt?: Da
 
 // O nome que o aprendiz grava nas Rotas salvas — 1 por dia da semana, atualizado
 // na virada da semana. Renomeou? A renomeada vira DELE (a próxima semana cria a
-// "Caderneta de X" de novo do zero).
-const NOME_CADERNETA_DIA: Record<number, string> = {
+// "Rota de X" de novo do zero).
+const NOME_ROTA_DIA: Record<number, string> = {
+  1: 'Rota de Segunda',
+  2: 'Rota de Terça',
+  3: 'Rota de Quarta',
+  4: 'Rota de Quinta',
+  5: 'Rota de Sexta',
+  6: 'Rota de Sábado',
+  7: 'Rota de Domingo',
+};
+
+// 🔴 O NOME VELHO, SÓ PARA ACHAR E RENOMEAR (09/08). Estas linhas existem no
+// banco de quem já usou o app ("Caderneta de Quarta" está na lista de Rotas
+// salvas dele agora). Procurar só pelo nome novo criaria uma SEGUNDA linha do
+// mesmo dia e o dono veria a rota dele duplicada — por isso o upsert procura
+// pelos dois e, achando a velha, RENOMEIA em vez de criar. Some sozinho
+// conforme as semanas passam; é a única lembrança da palavra no código.
+const NOME_ANTIGO_DIA: Record<number, string> = {
   1: 'Caderneta de Segunda',
   2: 'Caderneta de Terça',
   3: 'Caderneta de Quarta',
@@ -171,8 +195,8 @@ const NOME_CADERNETA_DIA: Record<number, string> = {
 };
 
 @Injectable()
-export class LogisticaCadernetaService {
-  private readonly logger = new Logger(LogisticaCadernetaService.name);
+export class LogisticaFechamentoDiaService {
+  private readonly logger = new Logger(LogisticaFechamentoDiaService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -193,7 +217,7 @@ export class LogisticaCadernetaService {
     companyId: number,
     dateInput?: unknown,
     opts?: { dia?: unknown; userId?: number | null },
-  ): Promise<CadernetaResumo> {
+  ): Promise<FechamentoResumo> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const dateKey = dateKeyValida(dateInput);
     const cfg = await this.configRow(companyId);
@@ -232,7 +256,7 @@ export class LogisticaCadernetaService {
       }
     }
 
-    let fechamento: CadernetaResumo['fechamento'] = null;
+    let fechamento: FechamentoResumo['fechamento'] = null;
     if (cfg?.moduloFinanceiroAtivo) {
       const inicio = saoPauloMidnight(dateKey);
       const fim = new Date(inicio.getTime() + 24 * 60 * 60 * 1000);
@@ -253,7 +277,7 @@ export class LogisticaCadernetaService {
       fechamento = { totalCents, vendas: entregues.length, formas };
     }
 
-    // ── CADERNETA 7 DIAS: a página pedida (default = dia real do date).
+    // ── A página pedida (default = dia real do date).
     const paginaDia = diaSemanaValido(opts?.dia) ?? diaSemana;
     const { pagina, historicoDias } = await this.montarPagina(
       companyId,
@@ -263,18 +287,22 @@ export class LogisticaCadernetaService {
     );
 
     // ── O aprendiz + o aviso do GPS. Fail-closed num bloco só: se a geração das
-    // Cadernetas salvas falhar, o convite NÃO sai (abriria uma lista vazia) e o
+    // rotas salvas falhar, o convite NÃO sai (abriria uma lista vazia) e o
     // próximo resumo tenta de novo. Nunca derruba a tela do dia.
-    let conviteGps: CadernetaResumo['conviteGps'] = { elegivel: false, nome: null };
-    if (cfg?.modoCaderneta) {
-      try {
-        conviteGps = await this.aprenderEConvidar(companyId, dateKey, opts?.userId ?? null);
-      } catch (e: any) {
-        this.logger.warn(`[caderneta] aprendiz company=${companyId} falhou: ${String(e?.message || e)}`);
-      }
+    //
+    // 🔴 RODAVA ATRÁS DA CHAVE MORTA (até 09/08): estava dentro de um
+    // `if (cfg?.modoCaderneta)`, e como a chave saiu dos Ajustes em 07/08 o
+    // aprendiz PAROU de rodar em todo mundo — as rotas salvas da semana e o
+    // convite do GPS estavam desligados sem nenhum aviso. Quem tem venda tem
+    // aprendiz: é do produto, não de um modo.
+    let conviteGps: FechamentoResumo['conviteGps'] = { elegivel: false, nome: null };
+    try {
+      conviteGps = await this.aprenderEConvidar(companyId, dateKey, opts?.userId ?? null);
+    } catch (e: any) {
+      this.logger.warn(`[fechamento] aprendiz company=${companyId} falhou: ${String(e?.message || e)}`);
     }
 
-    return { ativo: !!cfg?.modoCaderneta, dia, base, fechamento, devedores, pagina, historicoDias, conviteGps };
+    return { dia, base, fechamento, devedores, pagina, historicoDias, conviteGps };
   }
 
   /**
@@ -287,7 +315,7 @@ export class LogisticaCadernetaService {
     dateKey: string,
     paginaDia: number,
     financeiro: boolean,
-  ): Promise<{ pagina: CadernetaPagina; historicoDias: CadernetaHistoricoDia[] }> {
+  ): Promise<{ pagina: FechamentoPagina; historicoDias: FechamentoHistoricoDia[] }> {
     const fim = saoPauloMidnight(somarDiasKey(dateKey, 1));
     const inicioJanela = saoPauloMidnight(somarDiasKey(dateKey, -6));
     // 3 janelas (21 dias) na MESMA busca: a corrente alimenta a lista; as duas
@@ -339,7 +367,7 @@ export class LogisticaCadernetaService {
     ]);
 
     const daPagina = entregues.filter((e) => paginaDaVenda(e) === paginaDia);
-    const vendas: CadernetaPaginaVenda[] = daPagina.map((e) => {
+    const vendas: FechamentoPaginaVenda[] = daPagina.map((e) => {
       const itens = (e.itens || []).map((i) => ({
         productId: i.productId ?? null,
         nome: i.product?.name || '',
@@ -378,7 +406,7 @@ export class LogisticaCadernetaService {
       };
     });
 
-    let fechamento: CadernetaResumo['fechamento'] = null;
+    let fechamento: FechamentoResumo['fechamento'] = null;
     if (financeiro) {
       const formas = { dinheiroCents: 0, pixCents: 0, cartaoCents: 0, fiadoCents: 0 };
       let totalCents = 0;
@@ -446,7 +474,7 @@ export class LogisticaCadernetaService {
     // só dia COM venda entra ("o q realmente tiver dados"), ordenado SEG→DOM.
     const diaHoje = isoWeekdayForDate(dateKey);
     const dataDoDia = (d: number) => somarDiasKey(dateKey, -(((diaHoje - d) % 7 + 7) % 7));
-    const historicoDias: CadernetaHistoricoDia[] = [];
+    const historicoDias: FechamentoHistoricoDia[] = [];
     for (let d = 1; d <= 7; d += 1) {
       const doDiaD = entregues.filter((e) => paginaDaVenda(e) === d);
       if (!doDiaD.length) continue;
@@ -500,22 +528,24 @@ export class LogisticaCadernetaService {
   }
 
   /**
-   * Gera/atualiza 1 rota salva por dia da semana com vendas ("Caderneta de X",
+   * Gera/atualiza 1 rota salva por dia da semana com vendas ("Rota de X",
    * tipo LIVRE — é o tipo que a lista de Rotas salvas do APK mostra). Ordem =
    * ordem de registro; dedupe por cliente+local; só cliente vivo. Idempotente
-   * por semana: a caderneta mais nova com updatedAt já DESTA semana = feito.
+   * por semana: a rota mais nova com updatedAt já DESTA semana = feito.
    */
-  private async gerarCadernetasSalvas(
+  private async gerarRotasSalvas(
     companyId: number,
     inicioSemanaAtual: Date,
     vendasSemana: Array<{
       customerProfileId: string;
       localId: string | null;
       deliveredAt: Date | null;
-      cadernetaDiaSemana: number | null;
+      fechamentoDiaSemana: number | null;
     }>,
   ): Promise<void> {
-    const nomes = Object.values(NOME_CADERNETA_DIA);
+    // Os dois nomes: sem o antigo aqui, quem já tem "Caderneta de X" da semana
+    // passada refaria a semana inteira no primeiro resumo depois do deploy.
+    const nomes = [...Object.values(NOME_ROTA_DIA), ...Object.values(NOME_ANTIGO_DIA)];
     const maisNova = await this.prisma.logisticaRotaModelo.findFirst({
       where: { companyId, tipo: 'LIVRE', nome: { in: nomes, mode: 'insensitive' } },
       orderBy: [{ updatedAt: 'desc' }],
@@ -587,23 +617,24 @@ export class LogisticaCadernetaService {
   }
 
   /**
-   * 🔴 FINALIZAR O DIA (ordem do dono 05/08): "qual dia podemos registrar?" —
-   * fecha a caderneta do dia, registra o dia da semana escolhido e salva a
-   * "Caderneta de <dia>" nas Rotas salvas NA HORA (sem esperar a virada da
-   * semana do aprendiz).
+   * 🔴 FECHAR O DIA (ordem do dono 05/08): "qual dia podemos registrar?" —
+   * fecha o dia, registra o dia da semana escolhido e salva a "Rota de <dia>"
+   * nas Rotas salvas NA HORA (sem esperar a virada da semana do aprendiz).
    *
-   * Dia escolhido ≠ hoje = passar a limpo a caderneta de papel: a SESSÃO de
+   * Dia escolhido ≠ hoje = passar a limpo o caderno de papel: a SESSÃO de
    * hoje (vendas de hoje na página de hoje, etiqueta explícita ou vazia) é
    * re-etiquetada pro dia escolhido. Venda feita hoje DENTRO de um dia do
    * histórico (etiqueta ≠ hoje) não se move — foi edição de outro dia.
    * O dinheiro NUNCA muda de dia (deliveredAt intocado — contrato da frente).
+   *
+   * 🔴 SEM PORTÃO DE MODO (09/08). Aqui morava `if (!cfg.modoCaderneta) throw`
+   * — o defeito que o dono flagrou: o botão respondia "O modo caderneta está
+   * desligado nos Ajustes" apontando pra uma chave que os Ajustes não mostram
+   * desde 07/08. Portão que só se abre por uma porta que não existe mais é
+   * parede.
    */
   async finalizar(companyId: number, diaInput: unknown): Promise<{ ok: true; dia: number; clientes: number }> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
-    const cfg = await this.configRow(companyId);
-    if (!cfg?.modoCaderneta) {
-      throw new BadRequestException('O modo caderneta está desligado nos Ajustes.');
-    }
     const diaAlvo = diaSemanaValido(diaInput);
     if (!diaAlvo) throw new BadRequestException('Escolha o dia da semana.');
 
@@ -667,7 +698,7 @@ export class LogisticaCadernetaService {
    * "Pronto" exige total > 0: base vazia não é base provada — oferecer o GPS
    * pra quem não tem cliente nenhum seria convite pra tela vazia.
    */
-  private async medir(companyId: number, diaSemana: number | null): Promise<CadernetaMedida> {
+  private async medir(companyId: number, diaSemana: number | null): Promise<FechamentoMedida> {
     const planos = await this.prisma.logisticaPlanoEntrega.findMany({
       // Cliente morto não conta (mesma régua CLIENTE_VIVO da agenda).
       where: {
@@ -705,17 +736,18 @@ export class LogisticaCadernetaService {
   /**
    * Vendeu: cria a Entrega de HOJE já entregue reusando createEntrega +
    * confirmarEntrega (cobrança/GPS/idempotência da casa). NUNCA debita crédito.
+   *
+   * 🔴 SEM PORTÃO DE MODO (09/08) — mesma cirurgia do `finalizar`: a venda por
+   * toque no cliente exigia a chave morta, ou seja, estava barrada pra todo
+   * mundo desde que os Ajustes pararam de oferecê-la.
    */
   async vender(
     companyId: number,
-    dto: VenderCadernetaDto,
+    dto: VenderDto,
     actor?: LogisticaActor | null,
-  ): Promise<CadernetaVendaResult> {
+  ): Promise<FechamentoVendaResult> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const cfg = await this.configRow(companyId);
-    if (!cfg?.modoCaderneta) {
-      throw new BadRequestException('O modo caderneta está desligado nos Ajustes.');
-    }
     const itens = Array.isArray(dto.itens) ? dto.itens : [];
     if (itens.length === 0) throw new BadRequestException('Escolha ao menos um produto.');
     const desfecho = String(dto.desfecho || '').trim();
@@ -1058,7 +1090,7 @@ export class LogisticaCadernetaService {
     companyId: number,
     entregaId: string,
     opts: { deletedByUserId?: number | null } = {},
-  ): Promise<CadernetaApagarVendaResult | null> {
+  ): Promise<FechamentoApagarVendaResult | null> {
     if (!companyId) throw new BadRequestException('Empresa não identificada');
     const id = String(entregaId || '').trim();
     if (!id) throw new BadRequestException('Entrega não identificada');
