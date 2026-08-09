@@ -2813,7 +2813,17 @@
     l.id = 'maplibre-css';
     l.rel = 'stylesheet';
     l.href = 'vendor/maplibre-gl.css';
-    document.head.appendChild(l);
+    /* 🔴 O VENDOR ENTRA ANTES DA FOLHA DA CASA — medido no g15 (09/08, APK 226):
+       appendChild punha esta folha DEPOIS do mock.css, e `.maplibregl-map
+       {position:relative}` (vendor) empata em especificidade com `.mapa-vivo
+       {position:absolute;inset:0}` (casa) — empate se decide por ORDEM, o
+       vendor vencia, o alvo do mapa virava `relative` de altura 0 e a cidade
+       inteira pintava num retângulo invisível (canvas vivo, 71 camadas, tela
+       cinza). Vendor é BASE: a casa tem que ter a última palavra em qualquer
+       empate — por isso a folha dele entra antes da primeira folha nossa. */
+    const casa = document.querySelector('link[rel="stylesheet"]');
+    if (casa && casa.parentNode) casa.parentNode.insertBefore(l, casa);
+    else document.head.appendChild(l);
   };
 
   const carregarMaplibre = () => {
@@ -4858,12 +4868,39 @@
      Sem a API (WebView velho) ninguém arma no boot: o desfecho é a barra dizendo
      que a localização está desligada, e um toque resolve. Ficar sem pedir é
      recuperável com um toque; pedir fora de hora não tem desfazer. */
+  /* 🔴 'prompt' NO WEBVIEW NÃO ENCERRA A PERGUNTA — medido no g15 (09/08):
+     com ACCESS_FINE_LOCATION concedida e a Localização do aparelho LIGADA, o
+     `permissions.query` respondia 'prompt' mesmo assim, porque o portão dele é
+     o da ORIGEM da página (a camada que `onGeolocationPermissionsShowPrompt`
+     responde), não o do Android. Confiar nele deixava o eu-pino morto num
+     aparelho com tudo em ordem. Quando a resposta é 'prompt'/nula, quem decide
+     é uma SONDA: no WebView um pedido de fix nunca abre diálogo (o Kotlin nega
+     ou libera CALADO — medido em 08/08), então fix ou timeout = a permissão
+     existe (2/3 são garagem e túnel, a régua do watch); código 1 = não existe,
+     e a barra vira a porta. Na bancada a sonda também nunca abre nada. */
+  function sondaDePermissao() {
+    return new Promise((res) => {
+      if (!navigator.geolocation) return res(null);
+      try {
+        navigator.geolocation.getCurrentPosition(
+          () => res('granted'),
+          (e) => res(e && e.code === 1 ? 'denied' : 'granted'),
+          { maximumAge: 1 << 30, timeout: 3500 },
+        );
+      } catch (_) { res(null); }
+    });
+  }
+
   function estadoDaPermissao() {
     try {
-      if (!navigator.permissions || !navigator.permissions.query) return Promise.resolve(null);
+      if (!navigator.permissions || !navigator.permissions.query) return sondaDePermissao();
       return navigator.permissions.query({ name: 'geolocation' })
-        .then((s) => (s && s.state) || null, () => null);
-    } catch (_) { return Promise.resolve(null); }
+        .then((s) => {
+          const estado = (s && s.state) || null;
+          if (estado === 'granted' || estado === 'denied') return estado;
+          return sondaDePermissao();
+        }, () => sondaDePermissao());
+    } catch (_) { return sondaDePermissao(); }
   }
 
   function armarGpsSeConcedido() {

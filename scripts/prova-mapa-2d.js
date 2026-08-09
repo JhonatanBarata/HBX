@@ -271,6 +271,47 @@ const RESOLVER = (valor) => {
   }
 
   /* ======================================================================
+     CASO 1c — O WEBVIEW DO G15: `permissions.query` responde 'prompt' MESMO
+     com a permissao do Android concedida (o portao dele e por ORIGEM, outra
+     camada — medido no aparelho em 09/08, APK 227). A regua nao pode parar
+     no 'prompt': a sonda silenciosa decide, e o eu-pino tem que existir sem
+     nenhum pedido de permissao ao Kotlin.
+     ====================================================================== */
+  {
+    const ctx = await navegador.newContext({
+      viewport: { width: 412, height: 940 },
+      geolocation: { latitude: -22.4126, longitude: -47.5763, accuracy: 30 },
+      permissions: ['geolocation'],
+    });
+    // ANTES da pagina nascer: a query passa a mentir 'prompt' como no g15.
+    await ctx.addInitScript(() => {
+      if (navigator.permissions && navigator.permissions.query) {
+        navigator.permissions.query = () => Promise.resolve({ state: 'prompt' });
+      }
+    });
+    const p = await ctx.newPage();
+    const erros = [];
+    p.on('pageerror', (e) => erros.push(e.message));
+    await p.goto(`http://127.0.0.1:${porta}/assets/app/index.html`);
+    await p.waitForTimeout(500);
+    await p.addStyleTag({ content: pele });
+    await p.evaluate(PONTE, []);
+    await p.evaluate(() => window.HBXRota.carregar());
+    await p.waitForTimeout(700);
+    await p.evaluate(() => window.ir('rota'));
+    await p.waitForTimeout(5200);
+    const a = await p.evaluate(LER);
+    eh('1c.1 query mentindo prompt: a SONDA acha o GPS e o eu-pino EXISTE', !!a.eu,
+      a.eu ? `x=${a.eu.x} y=${a.eu.y}` : 'ausente');
+    eh('1c.2 e ninguem PEDIU permissao pra isso (sonda e calada)',
+      a.pediuPermissao === 0, `pedidos=${a.pediuPermissao}`);
+    eh('1c.3 a barra NAO diz desligada com o GPS em ordem',
+      !/desligada/i.test(a.barraTexto), `barra="${a.barraTexto}"`);
+    eh('1c.4 sem erro de pagina', erros.length === 0, erros[0] || 'limpo');
+    await ctx.close();
+  }
+
+  /* ======================================================================
      CASO 2 — ROTA MONTADA COM 3 PARADAS.
      Os tres pinos numerados, no zoom em que a cidade inteira cabe. É o print
      do dono: fita desenhada e ZERO pino.
@@ -305,6 +346,29 @@ const RESOLVER = (valor) => {
       a.pinos.every((x) => x.w >= 20 && x.h >= 20),
       a.pinos.map((x) => `${x.w}x${x.h}`).join(' '));
     eh('2.8 sem erro de pagina', erros.length === 0, erros[0] || 'limpo');
+    /* 🔴 A VACINA DO G15 (09/08, APK 226): a folha do vendor entrava DEPOIS do
+       mock.css e `.maplibregl-map{position:relative}` vencia `.mapa-vivo
+       {position:absolute}` no empate de especificidade — alvo com altura 0,
+       cidade inteira pintada num retângulo invisível, tela cinza no aparelho.
+       ESTA bancada nunca viu o defeito porque a pele entra por addStyleTag,
+       sempre por último — por isso aqui se cobra a ORDEM das folhas no
+       documento, não só o resultado visual. */
+    const ordem = await p.evaluate(() => {
+      const vendor = document.getElementById('maplibre-css');
+      const casa = document.querySelector('link[rel="stylesheet"]:not(#maplibre-css)');
+      const alvo = document.querySelector('.mapa-palco[data-mapa="geral"] > .mapa-vivo');
+      const r = alvo ? alvo.getBoundingClientRect() : null;
+      return {
+        antes: !!(vendor && casa
+          && (vendor.compareDocumentPosition(casa) & Node.DOCUMENT_POSITION_FOLLOWING)),
+        pos: alvo ? getComputedStyle(alvo).position : '-',
+        altura: r ? Math.round(r.height) : 0,
+      };
+    });
+    eh('2.9 folha do vendor entra ANTES da folha da casa (empate e da casa)',
+      ordem.antes, ordem.antes ? 'vendor primeiro' : 'vendor por ultimo');
+    eh('2.10 o alvo do mapa e absoluto e tem altura de tela',
+      ordem.pos === 'absolute' && ordem.altura > 300, `${ordem.pos} ${ordem.altura}px`);
     await ctx.close();
   }
 

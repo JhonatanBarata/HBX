@@ -1363,7 +1363,14 @@ button,input{font:inherit;color:inherit}
      fix, `--cone:0` e ele não existe — apontar pra um lado inventado seria
      pior que não apontar (Lei do IF, aplicada a desenho).
    ========================================================================== */
-.eu-puck{position:relative;width:20px;height:20px;border-radius:50%;
+/* A casca do puck NÃO declara `position`: quem o põe no lugar é o dono do
+   palco — no app é o `.maplibregl-marker` do vendor (absolute + transform a
+   cada quadro), aqui no mock é o `.demo` logo abaixo. Declarar position aqui
+   empatava com a folha do vendor no MESMO elemento e a ordem das folhas
+   escolhia qual dos dois quebrava (medido 09/08: vendor por último = palco de
+   altura 0, tela cinza no g15; casa por último = puck pregado em 0,47). Os
+   ::before/::after continuam ancorados porque os DOIS donos posicionam. */
+.eu-puck{width:20px;height:20px;border-radius:50%;
   background:var(--eu-1);border:3px solid var(--eu-anel);
   box-shadow:0 2px 7px rgba(0,0,0,.38)}
 .eu-puck::before{content:'';position:absolute;left:50%;top:50%;
