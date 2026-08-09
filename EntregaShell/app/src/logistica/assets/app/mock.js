@@ -1571,14 +1571,10 @@ T.semana={nome:'Histórico da semana',grupo:'Caderneta',render(){
   return `${status}
 ${hdr({})}
 <div class="body" style="opacity:.4;pointer-events:none">
-  <div class="kpis">
-    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${DADOS.rota.kpiParadas}</b><span class="l">paradas</span></span></div>
-    <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">${DADOS.caderneta.entregues}</b><span class="l">entregues</span></span></div>
-  </div>
-  <!-- O fundo é a tela de trás DESBOTADA, não um enfeite: com parada de maquete
-       aqui, o dono lia "João da Silva" por cima do dinheiro real dele. Fundo
-       também é tela. -->
-  <div class="stops">${listaParadas(false)}</div>
+  <!-- O fundo é a tela de trás DESBOTADA, não um enfeite: fundo também é tela,
+       e a tela de trás é a caderneta — o MESMO corpo, apagado. Com a lista de
+       paradas aqui, o dono lia um roster de 150 por cima do dinheiro dele. -->
+  ${cadernetaCorpo()}
 </div>
 <div class="scrim"></div>
 <div class="sheet" style="max-height:80%">
