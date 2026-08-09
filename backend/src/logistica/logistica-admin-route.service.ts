@@ -178,9 +178,38 @@ export class LogisticaAdminRouteService {
     // operationalDate pedido) — preparar a rota de amanhã com antecedência não
     // pode fechar a rota de HOJE, que ainda está rodando.
     await encerrarDiasAnteriores(this.prisma, companyId, canonicalRouteDate());
-    const operationalDate = canonicalRouteDate(input?.operationalDate);
+    const requestedDate = canonicalRouteDate(input?.operationalDate);
     const pendingIds = normalizeIds(input?.pendingDeliveryIds);
-    const sourceDates = Array.isArray(input?.sourceDates) ? input.sourceDates : [operationalDate];
+    const sourceDates = Array.isArray(input?.sourceDates) && input.sourceDates.length
+      ? input.sourceDates
+      : [requestedDate];
+    /* ----------------------------------------------------------------------
+       🔴 O PREPARE NÃO MATERIALIZA NO DIA DE HOJE (dono, 09/08: "conserta a
+       torneira, o prepare não pode materializar no dia de hoje").
+
+       A ROTA NASCE NO DIA DELA. Até aqui, escolher um dia no celular e mandar
+       montar fazia isto: `generateDay` criava as entregas no dia de ORIGEM e o
+       `updateMany` do `materializeForRoute` as RE-DATAVA pra hoje
+       (`scheduledAt: operationalDate`). Era a torneira — e o estrago foi medido
+       em produção: num DOMINGO, dia em que esta empresa não entrega e a agenda
+       tem zero plano, 50 clientes de SEGUNDA viraram entregas de hoje. Ficavam
+       penduradas num dia que a agenda não conhece, então nenhuma tela sabia
+       explicá-las: a barra do mapa dizia "Sem paradas hoje" (a régua
+       `rotaMontada`) e a Montagem listava 51.
+
+       Agora, com UM dia de origem, é ELE o dia operacional: escolher "Seg" no
+       domingo PREPARA A SEGUNDA, e o domingo continua vazio — que é o que
+       "se adiantar" sempre quis dizer. Nada muda quando origem e dia batem (o
+       caminho de todo dia, do celular e do desktop): a conta dá o mesmo valor.
+
+       ⚠️ A EXCEÇÃO É O DESKTOP JUNTANDO DIAS. O `route-builder` manda VÁRIAS
+       origens de propósito ("puxa terça e quinta pra dentro da rota de hoje").
+       Ali não existe "o dia dela" pra escolher — são vários — e o dia pedido é
+       a única resposta possível. Regra que eu esticasse pra esse caso quebraria
+       um recurso que o dono usa, e não é dele que a torneira pinga.
+       ---------------------------------------------------------------------- */
+    const origensUnicas = [...new Set(sourceDates.map((value) => canonicalRouteDate(value)))];
+    const operationalDate = origensUnicas.length === 1 ? origensUnicas[0] : requestedDate;
 
     const moved = await this.movePending(companyId, operationalDate, pendingIds, userId);
     const materialized = this.agenda && await this.agenda.isAgendaV2Active(companyId)

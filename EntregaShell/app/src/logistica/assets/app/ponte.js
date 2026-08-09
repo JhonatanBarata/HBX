@@ -229,6 +229,19 @@
     window.portao({ tom: 'info', ico: 'download', titulo, sub, acoes: [['Entendi', 'principal', true]] });
   };
 
+  /* 🔴 O CATCH QUE CHUTA A CAUSA MENTE (09/08, medido no aparelho do dono no APK
+     211). `fetch` barrado pela CSP e `fetch` sem internet chegam aqui com a
+     MESMA cara ("Failed to fetch"), e a frase "confira a internet" mandou o dono
+     olhar o wi-fi enquanto o problema era a POLÍTICA do próprio app — o
+     `connect-src` do index.html, perdido numa injeção do gerador. O navegador
+     conta a verdade num evento à parte; quem escuta, sabe qual das duas é. */
+  let cspBarrouEm = 0;
+  document.addEventListener('securitypolicyviolation', (e) => {
+    const alvo = String((e && e.blockedURI) || '');
+    const regra = String((e && e.violatedDirective) || '');
+    if (alvo.includes('version-logistica') || regra.indexOf('connect-src') === 0) cspBarrouEm = Date.now();
+  });
+
   async function checkAppUpdate(forcado) {
     if (!forcado && Date.now() - updateCheckEm < 1800000) return;   // 30 min
     const b = bridgeCru();
@@ -250,7 +263,11 @@
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       v = await r.json();
     } catch (_) {
-      if (forcado) avisoErro(new Error('Não consegui verificar agora. Confira a internet e tente de novo.'));
+      if (forcado) {
+        avisoErro(new Error(Date.now() - cspBarrouEm < 5000
+          ? 'Esta versão do app não consegue procurar atualização. Baixe a nova em hbxsystem.com.br e avise a Central.'
+          : 'Não consegui verificar agora. Confira a internet e tente de novo.'));
+      }
       return;
     }
     if (!v || !(Number(v.versionCode) > meu)) {
@@ -2000,16 +2017,40 @@
           : (Array.isArray(plano && plano.paradas) ? plano.paradas : []));
 
       // semáforo dos endereços: só ATRASA a montagem se o servidor acusar algo.
+      // Confere o dia que foi MONTADO — preparar a segunda e conferir o domingo
+      // devolveria o semáforo de um dia que ninguém tocou.
       let conf = null;
-      try { conf = await window.API.post('/logistica/rota/conferir', { date: hojeISO(), ...origemGps() }); } catch (_) { /* aviso é enfeite, não portão */ }
+      try {
+        conf = await window.API.post('/logistica/rota/conferir', { date: diaPreparado || hojeISO(), ...origemGps() });
+      } catch (_) { /* aviso é enfeite, não portão */ }
       const comAviso = conf && Array.isArray(conf.items)
         ? conf.items.filter((i) => Array.isArray(i.motivosVisiveis) && i.motivosVisiveis.length).length
         : 0;
 
-      /* A ESCOLHA DE DIA MORRE AQUI. O `prepare` acima já trouxe o dia escolhido
-         pra HOJE; seleção presa deixaria o próximo montar puxando o dia velho
-         calado, e o chip aceso mentindo sobre o que está na lista. */
+      /* A ESCOLHA DE DIA MORRE AQUI. O dia escolhido já foi montado — no dia
+         DELE —, e seleção presa deixaria o próximo montar puxando o dia velho
+         calado, com o chip aceso mentindo sobre o que está na lista. */
       if (montarDia) { montarDia = 0; window.usarDados('montagem', { diaSel: 0 }); }
+
+      /* 🔴 ROTA DE OUTRO DIA NÃO É A ROTA DE HOJE, E A TELA TEM QUE DIZER ISSO.
+         Antes o dia escolhido era despejado em cima de hoje, então o silêncio
+         aqui "funcionava": a lista de hoje mudava na cara dele. Agora o domingo
+         continua vazio de propósito — e sem uma palavra o toque pareceria não
+         ter feito nada, que é o defeito que esta frente inteira mata. Recibo
+         primeiro, tela de hoje depois. */
+      if (diaPreparado) {
+        devolverEstado();
+        await carregarRota();
+        if (typeof window.portao === 'function') {
+          window.portao({
+            tom: 'ok', ico: 'check',
+            titulo: rotuloPreparado ? `Rota de ${rotuloPreparado} montada` : 'Rota montada',
+            sub: 'Ela abre sozinha quando o dia chegar. Hoje segue como está.',
+            acoes: [['Entendi', 'principal']],
+          });
+        }
+        return;
+      }
       // 🔴 SÓ ABRE A MONTAGEM SE A ROTA ENTROU. Com o `/logistica/rota` no chão
       // o `carregarRota` volta no catch antes de escrever no seam, e a tela de
       // montagem abria com as 6 paradas do desenho e "R$ 336,00" — dinheiro de
@@ -2297,8 +2338,10 @@
      tiles que o PRÓPRIO APARELHO serve (`/tiles/{z}/{x}/{y}.pbf`, mesma origem
      — por isso CSP e CORS deixam de existir em vez de serem contornados). Todo
      o cromo em volta (seta, manobra, bússola, velocímetro, rodapé) continua o
-     do mock, intocado. O desenho fica embaixo como fundo de espera: tela preta
-     enquanto o mapa sobe é pior que a ilustração.
+     do mock, intocado. No palco 2D o fundo de espera é a COR do palco — a
+     maquete SVG morreu em 09/08 (ver `mapa()` no mock: ela inventava um dia e
+     piscava ao cruzar com o mapa vivo). O palco da navegação continua com o
+     desenho dele, que ali é CENA, não substituto de mapa.
      ------------------------------------------------------------------------ */
   const MAPA_TILES = 'https://appassets.androidplatform.net/tiles/{z}/{x}/{y}.pbf';
   // 🔴 O basemap acaba no z14. Sem declarar o teto, o maplibre pede z15+, não
@@ -2572,18 +2615,17 @@
       if (casa.alvo.parentElement !== palco) {
         /* 🔴 A CLASSE `pronto` VEM ANTES DO ENXERTO, E ESSA ORDEM ERA A PISCADA
            (medido 08/08). O palco novo nasce SEM `pronto`, e a folha diz:
-               .mapa-palco>svg          → o mapa DESENHADO, opacidade 1
                .mapa-palco .mapa-vivo   → o mapa DE VERDADE, opacidade 0
-               .mapa-palco.pronto ...   → o contrário, com transição de .3 s
+               .mapa-palco.pronto ...   → opacidade 1, com transição de .32 s
            O `resize()` logo abaixo lê `clientHeight` — e ler tamanho OBRIGA o
            navegador a calcular o estilo ali, com o palco ainda sem `pronto`.
-           O estilo intermediário fica CARIMBADO: o mapa de mentira em cima, o
-           de verdade apagado. Quando a classe entrava depois, as duas
-           transições rodavam e a tela fazia um dissolve de 300 ms do mapa
-           desenhado pro mapa real. Uma vez por repinte, e o repinte era por
-           SEGUNDO — é isso que o dono via como "a imagem está piscando".
-           Pondo a classe primeiro, o primeiro cálculo de estilo do palco já
-           nasce com o valor final: transição não roda em estilo inicial. */
+           O estilo intermediário fica CARIMBADO: mapa apagado sobre o chão do
+           palco. Quando a classe entrava depois, a transição rodava e a tela
+           fazia um fundido de 300 ms até o mapa reaparecer. Uma vez por
+           repinte, e o repinte era por SEGUNDO — é isso que o dono via como "a
+           imagem está piscando". Pondo a classe primeiro, o primeiro cálculo de
+           estilo do palco já nasce com o valor final: transição não roda em
+           estilo inicial. */
         palco.classList.add('pronto');
         palco.appendChild(casa.alvo);              // 🔴 O TRANSPLANTE
         try { casa.mapa.resize(); } catch (_) { /* mapa morto */ }
@@ -3591,6 +3633,28 @@
     } catch (_) { /* estilo trocando: a próxima passada limpa */ }
   }
 
+  /* 🔴 A FITA TEM A LARGURA DO ZOOM, NÃO UMA LARGURA (dono, 09/08, olhando a
+     rota montada de 56 paradas: *"arrumar esse visual, horrível"*).
+
+     Ela era 7 px de fita sobre 11 px de casca, cravados, em qualquer zoom. No
+     zoom de RUA isso está certo — a conta da projeção em Rio Claro (lat 22,4°)
+     dá 2,2 m por pixel no z16, então a fita mede 15 m de chão: a largura de uma
+     rua, que é o que ela promete ser. No zoom em que o DIA INTEIRO cabe na tela
+     (z12, o do print), o mesmo pixel vale 35 m — e a mesma fita passa a cobrir
+     uma faixa de 247 m de largura, com a casca em 388 m. Isso não é uma rota
+     desenhada por cima da cidade: é a cidade apagada por baixo de um risco de
+     doze quarteirões de largura.
+
+     A cura é a régua do próprio mapa: largura em pixel INTERPOLADA pelo zoom,
+     que é como todo navegador desenha rota. Longe ela é um fio; perto ela volta
+     a ter 7/11 — os números de hoje, que no zoom de dirigir sempre foram bons.
+     Os dois palcos usam a mesma escala: o da navegação vive em z16,5+, onde ela
+     entrega exatamente o que já entregava. */
+  const LARGURA_FITA = ['interpolate', ['linear'], ['zoom'],
+    11, 2.2, 13, 3.2, 15, 5, 16.5, 7, 18, 8.5];
+  const LARGURA_CASCA = ['interpolate', ['linear'], ['zoom'],
+    11, 3.8, 13, 5, 15, 8, 16.5, 11, 18, 13];
+
   function desenharTraco(mapa) {
     // 🔴 A MESMA RÉGUA DOS PINOS (§ rotaMontada): sem rota montada o mapa não
     // desenha rota — e aqui isso quer dizer TIRAR o que já estava desenhado.
@@ -3607,14 +3671,14 @@
         type: 'line',
         source: TRACO,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': tinta('--map-rota-borda', '#4f8f14'), 'line-width': 11 },
+        paint: { 'line-color': tinta('--map-rota-borda', '#4f8f14'), 'line-width': LARGURA_CASCA },
       });
       mapa.addLayer({
         id: `${TRACO}-fita`,
         type: 'line',
         source: TRACO,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': tinta('--map-rota', '#78c900'), 'line-width': 7 },
+        paint: { 'line-color': tinta('--map-rota', '#78c900'), 'line-width': LARGURA_FITA },
       });
     } catch (_) { /* estilo ainda trocando: a próxima passada redesenha */ }
   }

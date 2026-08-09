@@ -465,7 +465,13 @@ const PLAN = {
   }],
 };
 
-test('preparar usa hoje como data operacional, aceita origem de quarta e não cobra', async () => {
+/* 🔴 ESTE TESTE MUDOU DE LADO EM 09/08, e o motivo está no incidente do domingo.
+   Ele guardava "preparar usa HOJE como data operacional" — e era exatamente essa
+   regra que despejava a agenda de segunda dentro do domingo: 50 clientes de
+   SEGUNDA viraram entrega de um dia em que a empresa não entrega, invisíveis pra
+   agenda e sem tela que soubesse explicá-los. Ordem do dono: "o prepare não pode
+   materializar no dia de hoje". Com UMA origem, a rota nasce no dia DELA. */
+test('preparar com origem de outro dia monta o DIA DA ORIGEM, nunca hoje', async () => {
   let materializeInput: any = null;
   let planCall: any[] | null = null;
   let assignment: any = null;
@@ -514,23 +520,23 @@ test('preparar usa hoje como data operacional, aceita origem de quarta e não co
   }, ADMIN);
 
   assert.deepEqual(materializeInput, {
-    operationalDate: '2026-07-16',
+    operationalDate: '2026-07-15',
     sourceDates: ['2026-07-15'],
     driverUserId: 42,
     actorUserId: 42,
   });
   assert.equal(assignment.where.companyId, 7);
-  assert.equal(assignment.data.scheduledAt.toISOString(), '2026-07-16T03:00:00.000Z');
+  assert.equal(assignment.data.scheduledAt.toISOString(), '2026-07-15T03:00:00.000Z');
   assert.equal(openQuery.where.companyId, 7);
   assert.equal(openQuery.where.entregadorId, 42);
-  assert.equal(openQuery.where.scheduledAt.gte.toISOString(), '2026-07-16T03:00:00.000Z');
+  assert.equal(openQuery.where.scheduledAt.gte.toISOString(), '2026-07-15T03:00:00.000Z');
   assert.equal(planCall?.[0], 7);
-  assert.equal(planCall?.[1].date, '2026-07-16');
+  assert.equal(planCall?.[1].date, '2026-07-15');
   assert.deepEqual(planCall?.[1].deliveryIds, ['delivery-1']);
   assert.equal(planCall?.[2], 42);
   assert.equal(planCall?.[3], 42);
   assert.equal(planCall?.[4], false, 'Traçar não ativa cobrança comercial');
-  assert.equal(result.operationalDate, '2026-07-16');
+  assert.equal(result.operationalDate, '2026-07-15');
   assert.equal(result.plan.total, 1);
 });
 

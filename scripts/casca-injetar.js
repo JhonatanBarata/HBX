@@ -187,9 +187,18 @@ fs.writeFileSync(path.join(DESTINO, 'index.html'), `<!doctype html>
        partir de blob. Sem esta palavra o mapa morre com a CSP barrando o
        worker — e o resto da tela sobe normal, então o defeito parece "mapa
        cinza" em vez de "política bloqueou". Os tiles são da MESMA origem
-       (\`appassets.androidplatform.net/tiles/...\`, servidos pelo aparelho), por
-       isso \`connect-src 'self'\` basta. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; worker-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
+       (\`appassets.androidplatform.net/tiles/...\`, servidos pelo aparelho). -->
+  <!-- 🔴 www + api NO connect-src SÃO O CORDÃO DE ATUALIZAÇÃO — e esta linha já
+       se perdeu DUAS vezes. O \`checkAppUpdate\` (ponte.js) é a ÚNICA coisa do app
+       que fala rede por \`fetch\`: todo o resto passa pela ponte nativa, que não
+       sente CSP. Então \`connect-src 'self'\` sozinho quebra SÓ o update, e quebra
+       CALADO — o toque em Ajustes > Versão responde "confira a internet" com a
+       internet perfeita (medido no aparelho do dono, APK 211, 09/08).
+       A 1ª perda foi a fusão; a 2ª foi aqui: o conserto de 07/08 (8ea965d1) foi
+       escrito à mão no \`index.html\`, que é GERADO — a injeção seguinte
+       (e8033eb9, 5 h depois) devolveu o \`self\` sozinho. O lugar é ESTE arquivo.
+       Guardado por \`tests/app-cordao-de-update.test.mjs\`. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://www.hbxsystem.com.br https://api.hbxsystem.com.br; worker-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'">
   <meta name="theme-color" content="#080d17">
   <title>HBX Logística</title>
   <link rel="stylesheet" href="mock.css">
