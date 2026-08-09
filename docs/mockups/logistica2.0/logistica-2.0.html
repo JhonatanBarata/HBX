@@ -3118,9 +3118,17 @@ const semFonte=(glifo,acao)=>`<div class="vazio">
   <strong>Não consegui carregar</strong>
   <span>Sem resposta do servidor agora.</span>
   <button class="ghost" data-acao="${acao}">${ic('refresh',15)} Tentar de novo</button></div>`;
+/* 🔴 A MESMA ESCADA, COM AS BANDEIRAS NA MÃO. Uma tela pode ter DUAS fontes de
+   rede independentes — a de Créditos tem: `/credits/me` traz saldo e pacotes,
+   `/logistica/creditos/extrato` traz o movimento. Com um par único de bandeiras
+   por SEÇÃO, a queda de uma porta apagaria o bloco da outra: extrato no chão
+   levaria junto a recarga, que é o que a pessoa veio fazer. Aqui cada bloco
+   sobe, cai e se recupera sozinho, com o seu próprio "Tentar de novo". */
+const mioloDe=(carregando,sem,glifo,acao,linhas,conteudo)=>
+  carregando ? esqLista(linhas) : sem ? semFonte(glifo,acao) : conteudo;
 /** O miolo de uma tela de lista: esqueleto → aviso → o conteúdo de verdade. */
 const miolo=(d,glifo,acao,linhas,conteudo)=>
-  d.carregando ? esqLista(linhas) : d.semFonte ? semFonte(glifo,acao) : conteudo;
+  mioloDe(d.carregando,d.semFonte,glifo,acao,linhas,conteudo);
 
 /* 1 — ROTA DO MOTORISTA, com os 7 estados que o app tem de verdade --------- */
 let estadoRota='rodando';
@@ -4161,34 +4169,73 @@ ${hdr({voltar:'ajustes',semChat:1})}
 <div class="body${rodape?' com-dock':''}">${titulo?`<h1 class="tela-tit">${titulo}</h1>`:''}${corpo}</div>
 ${rodape?`<div class="tmx-dock">${rodape}</div>`:''}${nav('ajustes')}`;
 
-T.recarga={nome:'Ajustes · Recarga',grupo:'Ajustes',render(){
-  const r=DADOS.recarga;
-  const pac=(c,preco,selo,on,chave)=>`<button class="pacote ${on?'on':''}"${chave?` data-acao="pacote" data-pacote="${chave}"`:''}>${selo?`<span class="selo">${selo}</span>`:''}
-    <b>${c}</b><small>créditos</small><span class="preco">R$ ${preco}</span></button>`;
-  /* 🔴 A TELA DE DINHEIRO É A ÚLTIMA QUE PODE MENTIR. Ela nascia com o catálogo
-     do desenho — R$ 49 / 129 / 239 / 449, "+8% grátis", "melhor preço" — e com
-     um botão anunciando "Recarregar 300 créditos · R$ 129,00" que, sem pacote
-     escolhido de verdade, não faz NADA. Preço inventado com botão em cima é o
-     pior defeito que esta frente podia ter. */
-  return telaAjuste('Recarga de créditos',`
-    ${miolo(r,'card','recarregar-recarga',4,`
-    <div class="creditos" style="margin-top:2px">${ic('card',17)}
-      <span><b class="v">${r.saldo}</b> <small>créditos hoje</small></span>
-      ${r.ritmo?`<span class="debita">${r.ritmo}</span>`:''}</div>
-    <div class="grupo">Escolha o pacote</div>
+/* 🔴 A TELA DE DINHEIRO É A ÚLTIMA QUE PODE MENTIR — e a que morreu aqui mentia
+   em TRÊS lugares, todos em cima do botão que cobra.
+
+   1. "Pagar com: [Pix ✓ cai na hora] [Cartão até 3× sem juros]". O Pix vinha
+      MARCADO como escolhido, e Pix NÃO EXISTE neste app: o checkout nativo
+      (`RechargeCheckoutActivity` + `assets/checkout/`) é tokenização de CARTÃO
+      no Mercado Pago, ponto — nenhuma linha de Pix, nenhuma de parcelamento, e
+      o `POST /financeiro/credits/recharge` do servidor se chama
+      `rechargeWithCard`. Os dois botões não tinham `data-acao` nenhum: era
+      MAQUETE viajando como controle, a mesma peça que em 08/08 fez três telas
+      prometerem apagar e não apagarem. Quem tocasse "Pix" e depois "Recarregar"
+      caía num formulário de cartão. Saiu; no lugar entra a letra miúda que diz
+      a verdade — cartão, pelo Mercado Pago, e a HBX não guarda o número.
+   2. O catálogo do desenho (R$ 49/129/239/449, "+8% grátis", "melhor preço")
+      não bate com pacote nenhum de fábrica (100/300/800 por R$ 97/247/597).
+   3. "~17 dias no seu ritmo" não tem porta — e a conta que EXISTE não serve:
+      o `usage` do extrato soma `paidCreditsConsumed`, que é o crédito vindo de
+      lote PAGO (a base do cashback), não tudo que saiu da carteira. Quem usa
+      crédito de bônus apareceria gastando menos do que gasta, e a tela diria
+      que o saldo dura MAIS do que dura — o erro pro lado errado numa tela de
+      recarga. Fica de fora até existir "consumo por dia" de verdade.
+
+   O que a tela ganhou, tudo com fonte: o preço POR CRÉDITO (a única conta que
+   responde "qual é o mais barato"), a VALIDADE de cada pacote
+   (`defaultExpiryDays`, que já vinha no `/credits/me` e ninguém mostrava) e o
+   aviso de crédito VENCENDO (`lots[].expiresAt` — dinheiro que evapora sem
+   ninguém avisar era a pior surpresa que este produto guardava). */
+T.creditos={nome:'Ajustes · Créditos',grupo:'Ajustes',render(){
+  const c=DADOS.creditos;
+  const pac=(qtd,preco,selo,on,chave,det)=>`<button class="pacote ${on?'on':''}"${chave?` data-acao="pacote" data-pacote="${chave}"`:''}>
+    <span class="qt"><b>${qtd}</b><small>créditos</small></span>
+    <span class="det">${selo?`<span class="selo">${selo}</span>`:''}${det?`<small>${det}</small>`:''}</span>
+    <span class="preco">R$ ${preco}</span></button>`;
+  const l=(tipo,t,s,v)=>`<div class="ext-linha">
+    <span class="m ${tipo}">${tipo==='mais'?'+':'−'}</span>
+    <span><strong>${t}</strong><span>${s}</span></span>
+    <b class="${tipo}">${v}</b></div>`;
+  // Número sem fonte não vira cartão com rótulo órfão — some inteiro.
+  const kpi=(glifo,cor,v,rot)=>v?`<div class="kpi"><span style="color:${cor}">${ic(glifo,20)}</span>
+      <span><b class="v">${v}</b><span class="l">${rot}</span></span></div>`:'';
+  const kpis=[kpi('chart','var(--ink-2)',c.gastosHoje,'gastos hoje'),
+              kpi('calendar','var(--ink-2)',c.gastosMes,'no mês'),
+              kpi('spark','var(--lime)',c.bonus,'de bônus')].join('');
+  return telaAjuste('Créditos',`
+    ${miolo(c,'card','recarregar-creditos',4,`
+    ${c.saldo?`<div class="saldo">
+      <span class="ico">${ic('card',20)}</span>
+      <span><span class="n"><b>${c.saldo}</b><small>créditos</small></span>
+        ${c.vence?`<span class="vence">${c.vence}</span>`:''}</span>
+    </div>`:''}
+    <div class="banner pausa">${ic('alert',15)}
+      <span>Crédito só é debitado quando a rota <b>inicia</b>. Conferir nunca debita.</span></div>
+    ${c.pacotes.length?`<div class="grupo">Escolha o pacote</div>
     <div class="pacotes">
-      ${r.pacotes.map(x=>pac(x[0],x[1],x[2],x[3],x[4])).join('')}
-    </div>`)}
-    <div class="grupo">Pagar com</div>
-    <div class="pays" style="margin-top:0">
-      <button class="pay sel"><span style="color:var(--blue-l)">${ic('pix',21)}</span>
-        <span><b>Pix</b><small>cai na hora</small></span><i class="ok">${ic('check',15)}</i></button>
-      <button class="pay"><span style="color:var(--ink-2)">${ic('card',21)}</span>
-        <span><b>Cartão</b><small>até 3× sem juros</small></span></button>
+      ${c.pacotes.map(x=>pac(x[0],x[1],x[2],x[3],x[4],x[5])).join('')}
     </div>
-    <div class="banner pausa" style="margin-top:9px">${ic('alert',15)}
-      <span>Crédito só é debitado quando a rota <b>inicia</b>. Conferir nunca debita.</span></div>`,
-    r.cta?`<button class="act go full" style="justify-content:center" data-acao="recarregar">${ic('check',19)}<b>${r.cta}</b></button>`:'');
+    <div class="nota">${ic('lock',13)}
+      <span>Pagamento no cartão, pelo Mercado Pago. A HBX não guarda o número do seu cartão.</span></div>`:''}`)}
+    <div class="grupo">Consumo e bônus${c.mes?` · ${c.mes}`:''}</div>
+    ${kpis?`<div class="kpis" style="margin-top:0">${kpis}</div>`:''}
+    ${mioloDe(c.movCarregando,c.movSemFonte,'sales','recarregar-movimento',4,`<div class="extrato">
+      ${c.linhas.length?c.linhas.map(x=>l(x[0],x[1],x[2],x[3])).join('')
+                       :`<div class="vazio"><b>${c.vazio||'Sem movimento ainda'}</b></div>`}
+    </div>`)}
+    <div class="banner pausa">${ic('alert',15)}
+      <span>Migração entre rotas é <b>grátis</b>: a mesma entrega não debita duas vezes.</span></div>`,
+    c.cta?`<button class="act go full" style="justify-content:center" data-acao="recarregar">${ic('check',19)}<b>${c.cta}</b></button>`:'');
 }};
 
 /* 🔴 NENHUM LITERAL DE DINHEIRO AQUI DENTRO. Tudo vem de `DADOS.financeiro`
@@ -4335,25 +4382,12 @@ T.historico={nome:'Ajustes · Histórico',grupo:'Ajustes',render(){
      ela ganha dado real, não este botão de volta. */
 }};
 
-T.consumo={nome:'Ajustes · Consumo e bônus',grupo:'Ajustes',render(){
-  const l=(tipo,t,s,v)=>`<div class="ext-linha">
-    <span class="m ${tipo}">${tipo==='mais'?'+':'−'}</span>
-    <span><strong>${t}</strong><span>${s}</span></span>
-    <b class="${tipo}">${v}</b></div>`;
-  const c=DADOS.consumo;
-  return telaAjuste('Consumo e bônus',`
-    <div class="kpis" style="margin-top:2px">
-      ${c.saldo?`<div class="kpi"><span style="color:var(--lime)">${ic('card',20)}</span><span><b class="v">${c.saldo}</b><span class="l">saldo</span></span></div>`:''}
-      ${c.gastosHoje?`<div class="kpi"><span style="color:var(--ink-2)">${ic('chart',20)}</span><span><b class="v">${c.gastosHoje}</b><span class="l">gastos hoje</span></span></div>`:''}
-      ${c.bonus?`<div class="kpi"><span style="color:var(--lime)">${ic('spark',20)}</span><span><b class="v">${c.bonus}</b><span class="l">de bônus</span></span></div>`:''}
-    </div>
-    <div class="grupo">Movimento</div>
-    ${miolo(c,'sales','recarregar-consumo',4,`<div class="extrato">
-      ${c.linhas.length?c.linhas.map(x=>l(x[0],x[1],x[2],x[3])).join(''):`<div class="vazio"><b>${c.vazio||'Sem movimento ainda'}</b></div>`}
-    </div>`)}
-    <div class="banner pausa" style="margin-top:9px">${ic('alert',15)}
-      <span>Migração entre rotas é <b>grátis</b>: a mesma entrega não debita duas vezes.</span></div>`);
-}};
+/* (A tela `T.consumo` — "Consumo e bônus" — morava AQUI e virou o bloco de
+   baixo da `T.creditos`, lá em cima. Ela mostrava o SALDO num cartão e a
+   Recarga mostrava o MESMO saldo em outro: dado em dois cartões é bug de
+   produto. As duas linhas vizinhas na Administração viraram uma; a copy do
+   "Migração entre rotas é grátis" foi junto, e agora fica colada no extrato,
+   que é o lugar onde a dúvida "por que não debitou duas vezes?" nasce.) */
 
 /* 20 — PARADA AVULSA (era "Rota rápida") ----------------------------------
    O histórico mora em `DADOS.rapida`; aqui só o desenho.
@@ -4830,9 +4864,13 @@ ${hdr({semChat:1})}
   ${miolo(a,'gear','recarregar-ajustes',6,`
   ${a.admin?`<div class="grupo">Administração</div>
   <div class="cartao-lista">
-    ${linha('sales','Consumo e bônus','','','ir-consumo')}
+    ${/* 🔴 DUAS LINHAS VIRARAM UMA (09/08). "Consumo e bônus" e "Recarga de
+          créditos" abriam duas telas que mostravam o MESMO saldo, e quem queria
+          comprar crédito tinha que adivinhar qual das duas portas vendia. Uma
+          linha só, com o saldo na própria linha: o número que interessa já se lê
+          daqui, e o toque leva pra onde se recarrega. */''}
     ${a.painelCreditos===''?'':chave('calendar','Painel de créditos do dia','',a.painelCreditos,'painel-creditos')}
-    ${linha('card','Recarga de créditos',a.creditosLinha,'','ir-recarga')}
+    ${linha('card','Créditos',a.creditosLinha,'','ir-creditos')}
     ${linha('wallet','Financeiro','','','ir-financeiro')}
     ${linha('gear','Avançado','','','ir-avancado')}
   </div>`:''}
@@ -4900,7 +4938,7 @@ ${nav('ajustes')}`;}};
    ========================================================================== */
 const ORDEM=['entrada','rota','rotalista','rotafoto','mapa','mapachegou','mapalista','gerenciador','montagem','conferencia',
              'venda','folha','folhanao','rapida','salvas','fechamento','semana','clientes','novocliente','ficha','produtos',
-             'fichaproduto','chat','ajustes','recarga','financeiro','avancado','sons','historico','consumo',
+             'fichaproduto','chat','ajustes','creditos','financeiro','avancado','sons','historico',
              'passeio','leitura','portoes'];
 const GRUPOS=['Sistema','Rota','Fechamento','Cadastro','Ajustes'];
 let atual='entrada';
@@ -5912,6 +5950,18 @@ const AULAS={
     ['.cartao-lista','Seus ajustes','Cadastro de clientes e produtos, sons e conta ficam aqui.'],
     ['.nav','Os três módulos','Chat, Rota e Ajustes. A Rota é onde o dia acontece.'],
   ],
+  /* 🔴 ESTA AULA NÃO EXISTIA — e o capítulo "Créditos e recarga" do catálogo
+     apontava pra ela (`aula:'consumo'`). Capítulo sem passo é DERRUBADO pelo
+     `capitulosDoCatalogo`, calado pro dono e com um `console.warn` que ninguém
+     lê: a lição de como comprar crédito simplesmente não estava no app. Agora a
+     aula existe, e a ordem dela é a ordem da tela — saldo, pacote, botão, e só
+     no fim pra onde o crédito foi. */
+  creditos:[
+    ['.saldo','Quanto você tem','Seu saldo, e o aviso quando algum crédito está perto de vencer.'],
+    ['.pacotes','Escolha o pacote','O preço por crédito diz qual sai mais barato. Toque no que você quer.'],
+    ['.tmx-dock','Recarregar','O botão do pé mostra o pacote escolhido e o valor. O pagamento é no cartão.'],
+    ['.extrato','Para onde o crédito foi','Cada entrega rastreada e cada bônus do mês aparece aqui.'],
+  ],
 };
 /** O aparelho lembra o que já foi visto — a lâmpada acende só pra aula nova. */
 const aulaVista=k=>{ try{ return localStorage.getItem('hbx:aula:'+k)==='1'; }catch(e){ return false; } };
@@ -5996,7 +6046,7 @@ const CAPITULOS={
   fechamento:{titulo:'Fechamento do dia',ico:'note',aula:'fechamento',tela:'fechamento',
     se:d=>!!d.financeiro},
   chat:{titulo:'Recados da Central',ico:'chat',aula:'chat',tela:'chat',se:d=>!!d.chat},
-  creditos:{titulo:'Créditos e recarga',ico:'card',aula:'consumo',tela:'consumo',se:d=>!!d.admin},
+  creditos:{titulo:'Créditos e recarga',ico:'card',aula:'creditos',tela:'creditos',se:d=>!!d.admin},
   /* 🔴 O CAPÍTULO QUE SE ADAPTA — a régua do "pular sozinho" do dono, inteira,
      sem um tour separado. Três estados, e quem decide é o `se` de cada passo:
      LIGADO ⇒ os 3 primeiros (o que são os prédios, o toque, o crédito);
