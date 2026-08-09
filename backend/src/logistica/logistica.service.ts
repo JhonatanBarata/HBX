@@ -202,7 +202,7 @@ export class LogisticaService {
         deliveredAt: true,
         deliveredLat: true,
         deliveredLng: true,
-        // MODO CADERNETA (05/08) — COMO foi recebida. Lido sempre (a config do
+        // FECHAMENTO DO DIA (05/08) — COMO foi recebida. Lido sempre (a config do
         // tenant só é carregada DEPOIS desta query); quem gateia a SAÍDA é o
         // moduloFinanceiroAtivoConfig lá embaixo, igual ao debitoAtual.
         receiptMethod: true,
@@ -539,7 +539,7 @@ export class LogisticaService {
         deliveredAt: r.deliveredAt ? r.deliveredAt.toISOString() : null,
         deliveredLat: r.deliveredLat ?? null,
         deliveredLng: r.deliveredLng ?? null,
-        // MODO CADERNETA (05/08) — 'dinheiro'|'pix'|'cartao'|'fiado'|null. Mesmo
+        // FECHAMENTO DO DIA (05/08) — 'dinheiro'|'pix'|'cartao'|'fiado'|null. Mesmo
         // gate ADITIVO do metodoPadrao/debitoAtual (config do tenant, não papel
         // do ator): é o que a lista do dia usa pra dizer quem PAGOU e quem ficou
         // devendo, em vez de sete "Entregue" iguais.
@@ -645,7 +645,7 @@ export class LogisticaService {
                     qtdPrevista: r.quantidade,
                     qtdEntregue: null,
                     // 🔴 05/08 — era `valorUnit: 0` FIXO, e é por isso que a linha
-                    // da caderneta escrevia "Un R$ 0,00 = Total: R$ 0,00" numa
+                    // da venda por toque escrevia "Un R$ 0,00 = Total: R$ 0,00" numa
                     // venda de R$ 22 (cena do dono). Este ramo é a entrega de UM
                     // produto, que vive nas colunas da própria Entrega e não tem
                     // EntregaItem nenhum — o zero era um "não sei" disfarçado de
@@ -2500,7 +2500,7 @@ export class LogisticaService {
    * ROTA (badge da chegada) e pelo EXTRATO (ficha) — a regra vive SÓ aqui pra os
    * dois nunca divergirem. Read-only, company-scoped.
    */
-  // PÚBLICA desde 05/08 — a caderneta precisa do MESMO número pra escrever
+  // PÚBLICA desde 05/08 — o fechamento precisa do MESMO número pra escrever
   // "Deve: R$ X" na linha do dia. Reusar é o ponto: uma 2ª conta de dívida em
   // outro serviço é como a tela começa a discordar do extrato.
   async saldoAbertoPorClientes(
@@ -3030,7 +3030,7 @@ export class LogisticaService {
       //   "1× Galão 20Litros - Un R$ 11,00 = Total: R$ 11,00"
       //
       // 🔴 DOIS defeitos corrigidos aqui em 05/08, medidos na produção (cia 41):
-      //  (1) o histórico das 7 vendas da caderneta saiu com itensResumo VAZIO —
+      //  (1) o histórico das 7 vendas do dia saiu com itensResumo VAZIO —
       //      venda de 1 produto nasce pelo createEntrega, que grava
       //      productId/quantidade NA Entrega e não cria EntregaItem nenhum. Só
       //      olhar EntregaItem era garantir histórico em branco. Agora há o
@@ -3048,7 +3048,7 @@ export class LogisticaService {
           nome: String(it.product?.name || 'item').trim(),
           valorUnit: typeof it.valorUnit === 'number' ? it.valorUnit : null,
         }));
-        // Principal ESCALAR: a venda multi-produto da caderneta guarda o 1º
+        // Principal ESCALAR: a venda multi-produto por toque guarda o 1º
         // produto nas colunas da Entrega e só os EXTRAS em EntregaItem
         // (novosItens do confirmar) — "só itens OU só escalar" perdia o
         // principal. Ele entra na FRENTE quando o produto dele não está entre
@@ -3569,14 +3569,14 @@ export function aparaChegada(
 }
 
 // M4 — só um dos métodos de recebimento aceitos passa; qualquer outro vira null.
-// CADERNETA (04/08) — 'cartao' entrou junto com o modo caderneta (maquininha na
+// 04/08 — 'cartao' entrou junto com a venda por toque (maquininha na
 // rua/balcão): aditivo — o app antigo nunca manda 'cartao', zero mudança pra quem roda.
 function normalizeReceipt(v: string | null | undefined): 'pix' | 'dinheiro' | 'cartao' | 'fiado' | null {
   const s = String(v || '').trim().toLowerCase();
   return s === 'pix' || s === 'dinheiro' || s === 'cartao' || s === 'fiado' ? s : null;
 }
 
-// CADERNETA (04/08) — método IMEDIATO = dinheiro em mãos na hora (quita o charge).
+// 04/08 — método IMEDIATO = dinheiro em mãos na hora (quita o charge).
 // Fonte única: os 5 pontos do confirmar que decidiam por "pix||dinheiro" leem daqui.
 function metodoImediato(v: string | null | undefined): boolean {
   return v === 'pix' || v === 'dinheiro' || v === 'cartao';

@@ -108,7 +108,7 @@ export interface FechamentoPagina {
   sumidos: string[];
 }
 
-// O HISTÓRICO da caderneta (ordem do dono 05/08): "SEG a DOM bem bonito, só o
+// O HISTÓRICO do fechamento (ordem do dono 05/08): "SEG a DOM bem bonito, só o
 // que realmente tiver dados" — 1 linha por dia da janela COM venda, com a data.
 export interface FechamentoHistoricoDia {
   diaSemana: number;
@@ -212,7 +212,7 @@ export class LogisticaFechamentoDiaService {
     return this.prisma.logisticaConfig.findUnique({ where: { companyId } });
   }
 
-  /** Medidor do dia + fechamento por forma — o contrato da tela caderneta do APK. */
+  /** Medidor do dia + fechamento por forma — o contrato da tela de fechamento do APK. */
   async resumo(
     companyId: number,
     dateInput?: unknown,
@@ -251,7 +251,7 @@ export class LogisticaFechamentoDiaService {
           if (c > 0) devedores[row.customerProfileId] = c;
         }
       } catch (e: any) {
-        this.logger.warn(`[caderneta] devedores company=${companyId} falhou: ${String(e?.message || e)}`);
+        this.logger.warn(`[fechamento] devedores company=${companyId} falhou: ${String(e?.message || e)}`);
         devedores = {};
       }
     }
@@ -306,7 +306,7 @@ export class LogisticaFechamentoDiaService {
   }
 
   /**
-   * A PÁGINA da caderneta: vendas da janela de 7 dias civis SP (cada dia da
+   * A PÁGINA do fechamento: vendas da janela de 7 dias civis SP (cada dia da
    * semana cabe 1× na janela) + fechamento por forma DA página + sumidos.
    * Venda sem etiqueta (legado) cai no dia real do deliveredAt.
    */
@@ -494,8 +494,8 @@ export class LogisticaFechamentoDiaService {
 
   /**
    * O APRENDIZ + o aviso: na virada da semana, as vendas da semana FECHADA
-   * (segunda→domingo) viram/atualizam as "Caderneta de <dia>" nas Rotas salvas.
-   * Elegível pro convite = semana fechada COM vendas e cadernetas geradas.
+   * (segunda→domingo) viram/atualizam as "Rota de <dia>" nas Rotas salvas.
+   * Elegível pro convite = semana fechada COM vendas e rotas geradas.
    */
   private async aprenderEConvidar(
     companyId: number,
@@ -666,7 +666,7 @@ export class LogisticaFechamentoDiaService {
       });
     }
 
-    // A página do dia alvo (janela de 7 dias) vira a Caderneta salva.
+    // A página do dia alvo (janela de 7 dias) vira a Rota salva.
     const inicioJanela = saoPauloMidnight(somarDiasKey(hojeKey, -6));
     const vendas = await this.prisma.entrega.findMany({
       where: { companyId, status: 'entregue', deliveredAt: { gte: inicioJanela, lt: fimHoje } },
@@ -785,7 +785,7 @@ export class LogisticaFechamentoDiaService {
     }
 
     // 🔴 PREÇO POR CLIENTE (05/08) — a régua de sempre, resolvida AQUI e não no
-    // createEntrega (que só conhece o catálogo). Sem isto a caderneta cobrava
+    // createEntrega (que só conhece o catálogo). Sem isto a venda cobrava
     // R$13 de quem tem R$11 combinado (Larissa, cia 41): o precoAcordado estava
     // no banco desde 24/07 e nenhum caminho da venda o lia. Fica DEPOIS do
     // portão de idempotência de propósito — replay não consulta preço nenhum.
@@ -830,7 +830,7 @@ export class LogisticaFechamentoDiaService {
       null,
     );
 
-    // ── CADERNETA 7 DIAS: a etiqueta da página (explícita do APK novo; APK velho
+    // ── A ETIQUETA DA PÁGINA (explícita do APK novo; APK velho
     // não manda e cai no dia real em SP). Best-effort: sem etiqueta a página se
     // resolve pelo deliveredAt — a venda nunca trava por causa de organização.
     const paginaDia = diaSemanaValido(dto.diaSemana) ?? isoWeekdayForDate(dateKeyValida(null));
@@ -840,7 +840,7 @@ export class LogisticaFechamentoDiaService {
         data: { fechamentoDiaSemana: paginaDia },
       });
     } catch (e: any) {
-      this.logger.warn(`[caderneta] etiqueta dia venda=${criada.id} falhou: ${String(e?.message || e)}`);
+      this.logger.warn(`[fechamento] etiqueta dia venda=${criada.id} falhou: ${String(e?.message || e)}`);
     }
 
     // ── Ouro nº1: cliente SEM dia nenhum vendido em 2 datas distintas na MESMA
@@ -850,7 +850,7 @@ export class LogisticaFechamentoDiaService {
     try {
       await this.aprenderDiaDoCliente(companyId, dto.clienteId, paginaDia, primeiro.productId);
     } catch (e: any) {
-      this.logger.warn(`[caderneta] dia aprendido cliente=${dto.clienteId} falhou: ${String(e?.message || e)}`);
+      this.logger.warn(`[fechamento] dia aprendido cliente=${dto.clienteId} falhou: ${String(e?.message || e)}`);
     }
 
     // 🔴 O PREÇO EDITADO FICA (ordem do dono: "ficar o preço fixo até a
@@ -864,7 +864,7 @@ export class LogisticaFechamentoDiaService {
         await this.gravarPrecoCombinado(companyId, dto.clienteId, item.productId, preco.valorUnit);
       } catch (e: any) {
         this.logger.warn(
-          `[caderneta] preço combinado cliente=${dto.clienteId} produto=${item.productId} falhou: ${String(e?.message || e)}`,
+          `[fechamento] preço combinado cliente=${dto.clienteId} produto=${item.productId} falhou: ${String(e?.message || e)}`,
         );
       }
     }
@@ -885,7 +885,7 @@ export class LogisticaFechamentoDiaService {
           data: { numero },
         });
       } catch (e: any) {
-        this.logger.warn(`[caderneta] numero best-effort cliente=${dto.clienteId} falhou: ${String(e?.message || e)}`);
+        this.logger.warn(`[fechamento] numero best-effort cliente=${dto.clienteId} falhou: ${String(e?.message || e)}`);
       }
     }
 
@@ -1072,7 +1072,7 @@ export class LogisticaFechamentoDiaService {
       const anterior = anteriores.find((s: any) => s && String(s.id) === String(vinculoId)) ?? null;
       await this.agenda.espelharVinculoCadastro(companyId, vinculoId, anterior);
     }
-    this.logger.log(`[caderneta] dia aprendido cliente=${clienteId} dia=${dia} company=${companyId}`);
+    this.logger.log(`[fechamento] dia aprendido cliente=${clienteId} dia=${dia} company=${companyId}`);
   }
 
   /**
@@ -1139,7 +1139,7 @@ export class LogisticaFechamentoDiaService {
             entityType: 'Entrega',
             entityId: entrega.id,
             companyId,
-            motivo: 'Venda apagada na caderneta',
+            motivo: 'Venda apagada no fechamento do dia',
             snapshot: JSON.stringify({ entrega, charges }),
             deletedByUserId: opts.deletedByUserId ?? null,
           },
@@ -1153,7 +1153,7 @@ export class LogisticaFechamentoDiaService {
           data: {
             status: 'cancelada',
             cobrancaStatus: 'pendente',
-            notes: `${entrega.notes ? entrega.notes + ' | ' : ''}Venda apagada na caderneta`.slice(0, 500),
+            notes: `${entrega.notes ? entrega.notes + ' | ' : ''}Venda apagada no fechamento`.slice(0, 500),
           },
         });
       }

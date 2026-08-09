@@ -90,7 +90,7 @@ function harness(linhas: Aparelho[]) {
 test('lista é DA EMPRESA: aparelho de outro tenant nunca entra na ficha', async () => {
   const agora = new Date('2026-08-05T12:00:00.000Z');
   const h = harness([
-    aparelho({ id: 'e13', companyId: 41, name: 'moto e13', ultimaTela: 'caderneta', ultimaTelaAt: new Date(agora.getTime() - 5_000) }),
+    aparelho({ id: 'e13', companyId: 41, name: 'moto e13', ultimaTela: 'fechamento', ultimaTelaAt: new Date(agora.getTime() - 5_000) }),
     aparelho({ id: 'g15', companyId: 41, name: 'moto g15', userId: 9, ultimaTela: 'rota', ultimaTelaAt: new Date(agora.getTime() - 60_000) }),
     aparelho({ id: 'outra', companyId: 48, name: 'celular do dono' }),
   ]);

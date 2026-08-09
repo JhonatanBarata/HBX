@@ -260,7 +260,7 @@ export function ImportarLogisticaClient() {
               <p>
                 {loteAtual
                   ? "Só cliente CONFERIDO (verde) vira cadastro de verdade. Corrija o vermelho ou efetive só o que está pronto."
-                  : "Arraste uma planilha, cole a lista do WhatsApp ou mande foto da caderneta. Tudo entra em quarentena antes de virar cliente."}
+                  : "Arraste uma planilha, cole a lista do WhatsApp ou mande foto do caderno. Tudo entra em quarentena antes de virar cliente."}
               </p>
             </div>
           </div>
@@ -563,7 +563,7 @@ function CriacaoZonas({ busy, onArquivo, onTexto, onFotos }: {
         <div className="log-quar-zone">
           <div className="log-quar-drop" onClick={() => fotoRef.current?.click()}>
             <I d={ICONS.image} size={22} />
-            <span className="log-quar-drop__title">{busy === "criando" ? "Enviando…" : "Foto da caderneta/lista"}</span>
+            <span className="log-quar-drop__title">{busy === "criando" ? "Enviando…" : "Foto do caderno/lista"}</span>
             <span className="log-quar-drop__sub">JPG, PNG ou PDF — no celular abre a câmera direto</span>
           </div>
           <input

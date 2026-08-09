@@ -5,7 +5,7 @@
 // A régua de ENDEREÇO/CNEFE (verde/vermelho) mora em
 // logistica-importacao-sanitizacao.util.ts e REUSA o sanitizador existente
 // (cnefe-resolver.util.ts/logistica-cep.util.ts) — este arquivo só EXTRAI campos
-// de um texto bruto (linha colada do WhatsApp/caderneta) ou de uma linha de
+// de um texto bruto (linha colada do WhatsApp/caderno de papel) ou de uma linha de
 // planilha; nunca decide verde/vermelho.
 //
 // Filosofia (ordem do dono, F4): "linhas ilegíveis viram item VERMELHO com o bruto
@@ -179,7 +179,7 @@ const UFS_BR = new Set([
 const SEGMENTO_RE = /\s*[,;]\s*|\s+[-–—]\s+/;
 
 /**
- * Heurística linha-a-linha do TEXTO COLADO (WhatsApp/caderneta digitada). Convenção
+ * Heurística linha-a-linha do TEXTO COLADO (WhatsApp/caderno digitado). Convenção
  * assumida (a mais comum em lista de entrega real): "Nome - endereço - dia [- tel]",
  * em qualquer ordem de vírgula/hífen. 1º pedaço = nome; o RESTO (menos dia/telefone/
  * qtd+produto, que são reconhecidos em qualquer posição) = endereço.

@@ -132,13 +132,13 @@ test('html gigante é RECUSADO inteiro (cortado no meio de uma tag vira sopa)', 
 test('quadro do master: devolve tema/bodyClass e diz se a janela ainda vale', async () => {
   const h = harness(
     [{ id: 'e13', companyId: 41, espelhoAte: DAQUI_A_POUCO(), appVersion: '150' }],
-    [{ deviceId: 'e13', companyId: 41, tela: 'caderneta', html: '<main/>', tema: 'dark', bodyClass: 'keyboard-open', css: '.a{}', cssVersao: '150', at: AGORA() }],
+    [{ deviceId: 'e13', companyId: 41, tela: 'fechamento', html: '<main/>', tema: 'dark', bodyClass: 'keyboard-open', css: '.a{}', cssVersao: '150', at: AGORA() }],
   );
   const q = await h.service.quadro('e13');
   assert.equal(q.ativo, true);
   assert.equal(q.tema, 'dark');
   assert.equal(q.bodyClass, 'keyboard-open');
-  assert.equal(q.tela, 'caderneta');
+  assert.equal(q.tela, 'fechamento');
   assert.equal(typeof q.at, 'string', 'o painel recebe ISO, não Date');
 
   h.devices[0].espelhoAte = JA_ERA();

@@ -19,7 +19,7 @@ import {
  * sempre do JWT no controller.
  */
 
-// ── criar lote por TEXTO colado (WhatsApp/caderneta) ─────────────────────────────
+// ── criar lote por TEXTO colado (WhatsApp/caderno de papel) ─────────────────────
 export class CriarLoteTextoDto {
   @IsString()
   @MaxLength(40000)

@@ -537,7 +537,7 @@
       context: null,
       setContext(context) { this.context = context; },
       // `rotulos` (opcional) troca só o TEXTO de um item, por tela:
-      // { route: "Caderneta" }. MODO CADERNETA (PR05082026-VER-TELA V4, 05/08):
+      // { route: "Fechamento" }. O modo de 05/08 (PR05082026-VER-TELA V4):
       // o dono pediu que "Rota" SUMISSE com o modo ligado — sumir aqui é trocar
       // o RÓTULO, mantendo posição e ícone (lei das MESMAS TELAS: a tela do dia
       // mora ali; virar aba nova seria um app diferente pro mesmo motorista).
@@ -674,9 +674,9 @@
               if (current) button.setAttribute("aria-current", current); else button.removeAttribute("aria-current");
               // 05/08 — o RÓTULO também é reconciliado. As chaves da barra são o
               // `data-destination`, que NÃO muda quando só o texto muda ("Rota"
-              // → "Caderneta"): sem esta linha o rótulo novo só apareceria
+              // → outro rótulo): sem esta linha o rótulo novo só apareceria
               // depois de um render que trocasse a barra inteira, e o modo
-              // caderneta ligado ficaria escrito "Rota" pra sempre.
+              // modo ligado ficaria escrito "Rota" pra sempre.
               const rotulo = button.querySelector("span");
               const proximo = nextButtons[index].querySelector("span");
               if (rotulo && proximo && rotulo.textContent !== proximo.textContent) rotulo.textContent = proximo.textContent;

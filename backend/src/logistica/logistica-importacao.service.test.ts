@@ -171,7 +171,7 @@ test('criarLoteFoto: nasce com item(ns) PENDENTE "aguardando transcrição" — 
   // imagem de verdade pro detectarArquivoFoto aceitar, só a assinatura.
   const fakeJpeg = Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x00, 0x00, 0x00, 0x00]);
   const lote = await service.criarLoteFoto(COMPANY_ID, USER_ID, [
-    { buffer: fakeJpeg, originalname: 'caderneta-pagina1.jpg' },
+    { buffer: fakeJpeg, originalname: 'caderno-pagina1.jpg' },
   ]);
   assert.equal(lote.origem, 'FOTO');
   assert.equal(lote.totalPendentes, 1);

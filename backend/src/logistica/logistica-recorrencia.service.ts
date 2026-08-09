@@ -776,7 +776,7 @@ export class LogisticaRecorrenciaService implements OnModuleInit, OnModuleDestro
     const dayEnd = endOfDay(dia);
     const dow = isoDow(dia);
 
-    // MODO CADERNETA (05/08) — o preço do item sai pra QUALQUER ator quando o
+    // FECHAMENTO DO DIA (05/08) — o preço do item sai pra QUALQUER ator quando o
     // tenant tem financeiro ligado, e não só pro dono. Mesma régua do
     // `debitoAtual`/`valorHoje` do listRota, pelo mesmo motivo: quem cobra na
     // porta é o entregador. Gatear por PAPEL aqui criaria o pior dos mundos —
@@ -1116,10 +1116,10 @@ export interface DiaPreviewItemDTO {
   productId: number;
   nome: string;
   qtd: number;
-  // MODO CADERNETA (05/08) — o preço UNITÁRIO já resolvido pela régua de sempre
+  // FECHAMENTO DO DIA (05/08) — o preço UNITÁRIO já resolvido pela régua de sempre
   // (precoAcordado > catálogo > precoPadrao), o MESMO `resolveValorUnit` que o
   // gerarDia grava no EntregaItem. Existia no banco e morria aqui: o preview
-  // mandava só productId/nome/qtd, então a caderneta do APK caía no preço de
+  // mandava só productId/nome/qtd, então a venda do APK caía no preço de
   // CATÁLOGO e cobrava R$13 de quem tem R$11 acordado (caso Larissa, cia 41,
   // 05/08). Aditivo e gateado pela MESMA audiência de cobrança do resto do
   // preview (`includeBillingInputs`): sem ela o campo simplesmente não vem.
