@@ -404,6 +404,95 @@ const RESOLVER = (valor) => {
   }
 
   /* ======================================================================
+     CASO 6 — O CELULAR FRACO (item 9 do dono, 09/08: "carrega só o quadrado
+     ao redor"). Tres reguas mecanicas, todas MEDIDAS:
+     6a) MOLDURA: 60 empresas plantadas (20 perto, 40 longe) — so as de
+         dentro trabalham; as de fora ficam visibility:hidden.
+     6b) UM QUADRO = UMA CONTA: 30 eventos 'move' disparados juntos coalescem
+         em ~1 passada (contamos as PROJECOES, nao os eventos).
+     6c) POOL de pinos: mudar a lista NAO recria os marcadores de quem ficou
+         (identidade de no preservada).
+     ====================================================================== */
+  {
+    const itens = [0, 1, 2].map(paradaFalsa);
+    const { ctx, p } = await abrir(navegador, pele, porta, { itens, permissao: true });
+    await p.evaluate(() => {
+      const palco = document.querySelector('.mapa-palco[data-mapa="geral"]');
+      const mapa = palco.__hbxMapaObj;
+      const cena = palco.parentElement;
+      const c = mapa.getCenter();
+      // 20 na moldura (ate ~600 m do centro), 40 longe (cidade inteira fora)
+      for (let i = 0; i < 60; i += 1) {
+        const perto = i < 20;
+        const el = document.createElement('div');
+        el.className = 'emp';
+        el.dataset.empresa = `e${i}`;
+        el.dataset.lat = String(c.lat + (perto ? (i % 5) * 0.001 : 0.6 + i * 0.01));
+        el.dataset.lng = String(c.lng + (perto ? ((i % 4) - 2) * 0.001 : 0.6 + i * 0.01));
+        el.dataset.dist = '100';
+        el.innerHTML = '<span class="emp-nome">Empresa ' + i + '</span>';
+        cena.appendChild(el);
+      }
+      // a moeda do trabalho por quadro e a PROJECAO — o contador mora no window
+      window.__proj = 0;
+      const orig = mapa.project.bind(mapa);
+      mapa.project = (x) => { window.__proj += 1; return orig(x); };
+      mapa.fire('move');
+    });
+    await p.waitForTimeout(450);
+    const m6a = await p.evaluate(() => {
+      const cena = document.querySelector('.mapa-palco[data-mapa="geral"]').parentElement;
+      const todos = [...cena.querySelectorAll('.emp[data-lat]')];
+      const r = {
+        aDentro: todos.filter((e) => e.style.visibility !== 'hidden').length,
+        aFora: todos.filter((e) => e.style.visibility === 'hidden').length,
+        aposPrimeira: window.__proj,
+      };
+      window.__proj = 0;
+      const mapa = document.querySelector('.mapa-palco[data-mapa="geral"]').__hbxMapaObj;
+      for (let i = 0; i < 30; i += 1) mapa.fire('move');
+      return r;
+    });
+    await p.waitForTimeout(450);
+    const m6b = await p.evaluate(() => {
+      const doBurst = window.__proj;
+      // POOL: marca a identidade dos nos ANTES de a lista mudar — e CONTA no
+      // mesmo instante (contar depois do usarDados pega o transplante no meio
+      // e devolve 0: o conferidor medindo a si mesmo, de novo).
+      const marcados = [...document.querySelectorAll('.map-pino')];
+      marcados.forEach((e, i) => { e.__id = 'p' + i; });
+      const mapa = document.querySelector('.mapa-palco[data-mapa="geral"]').__hbxMapaObj;
+      const c = mapa.getCenter();
+      /* PARADAS e const de SCRIPT (nao mora no window; "o identificador NU
+         funciona", licao do depurador de 08/08) — entao se MUTA, nunca se
+         reatribui. */
+      PARADAS.push({ n: PARADAS.length + 1, lat: c.lat + 0.002, lng: c.lng + 0.002 });
+      window.usarDados('rota', { kpiParadas: String(PARADAS.length) });
+      return { doBurst, pinosAntes: marcados.length };
+    });
+    await p.waitForTimeout(1000);
+    const m6c = await p.evaluate(() => {
+      const depois = [...document.querySelectorAll('.map-pino')];
+      return {
+        pinosDepois: depois.length,
+        reusados: depois.filter((e) => e.__id).length,
+      };
+    });
+    const m6 = { ...m6a, ...m6b, ...m6c };
+    eh('6a.1 as de FORA da moldura ficam escondidas (visibility:hidden)',
+      m6.aFora >= 38, `fora=${m6.aFora}/40`);
+    eh('6a.2 as de DENTRO continuam no ar', m6.aDentro >= 18 && m6.aDentro <= 22,
+      `dentro=${m6.aDentro}/20`);
+    eh('6b.1 30 eventos coalescem em ~1 passada (projecoes ~= 1 varredura)',
+      m6.doBurst > 0 && m6.doBurst <= m6.aposPrimeira * 2,
+      `burst=${m6.doBurst} · 1 passada=${m6.aposPrimeira}`);
+    eh('6c.1 parada nova NAO recria os pinos de quem ficou',
+      m6.reusados === m6.pinosAntes && m6.pinosDepois === m6.pinosAntes + 1,
+      `reusados=${m6.reusados}/${m6.pinosAntes} · depois=${m6.pinosDepois}`);
+    await ctx.close();
+  }
+
+  /* ======================================================================
      CASO 4 — CONTRASTE MEDIDO NOS 2 MODOS.
      Peca grafica: AA = 3,0. Texto do pino: AA = 4,5.
      Os dois fundos possiveis do pino sao OPOSTOS (chao do mapa e fita da

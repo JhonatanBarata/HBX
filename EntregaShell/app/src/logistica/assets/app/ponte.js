@@ -3063,18 +3063,34 @@
     const chave = paradas.map((p) => `${p.n}:${p.lat.toFixed(5)},${p.lng.toFixed(5)}`).join('|');
     if (chave === casa.chave) return;
     casa.chave = chave;
-    casa.pinos.forEach((m) => { try { m.remove(); } catch (_) { /* já saiu */ } });
-    casa.pinos.clear();
+    /* 🔴 O PINO É REAPROVEITADO POR NÚMERO (item 9, 09/08). Derrubar os N e
+       recriar os N a cada mudança de lista era pagar N remoções + N nós novos
+       + N marcadores re-registrados no maplibre pra trocar, às vezes, UMA
+       coordenada. Agora: quem continua, `setLngLat`; quem entrou, nasce; quem
+       saiu, sai. */
+    const vivos = new Set();
     paradas.forEach((p) => {
+      const k = String(p.n);
+      vivos.add(k);
+      const ja = casa.pinos.get(k);
+      if (ja) {
+        try { ja.setLngLat([p.lng, p.lat]); } catch (_) { /* mapa saindo de cena */ }
+        return;
+      }
       const pino = document.createElement('div');
-      pino.textContent = String(p.n);
+      pino.textContent = k;
       /* A PELE SAIU DO INLINE (Lei 1: nada de cor solta em tela). Era um
          `cssText` com as cores escritas aqui dentro, invisível pro fiscal e
          impossível de trocar junto com o resto da casca. Agora é a classe
          `.map-pino` do mock, que é onde toda peça deste app veste. */
       pino.className = 'map-pino';
-      casa.pinos.set(String(p.n), new casa.gl.Marker({ element: pino })
+      casa.pinos.set(k, new casa.gl.Marker({ element: pino })
         .setLngLat([p.lng, p.lat]).addTo(casa.mapa));
+    });
+    [...casa.pinos.keys()].forEach((k) => {
+      if (vivos.has(k)) return;
+      try { casa.pinos.get(k).remove(); } catch (_) { /* já saiu */ }
+      casa.pinos.delete(k);
     });
     acertarPinos(casa);
     pinosVisiveis(casa);
@@ -3414,10 +3430,24 @@
        (1 por segundo) deixaria a seta escorregando um quadro atrás do dedo
        durante o arrasto inteiro. Ele entra aqui, junto com os prédios, que é
        exatamente o mesmo problema já resolvido. */
+    /* 🔴 UM QUADRO DE TELA = UMA CONTA (item 9 do dono, 09/08: "não tem tempo
+       pro celular de baixa qualidade pensar"). O maplibre dispara 'move' várias
+       vezes POR QUADRO durante easeTo/gesto — e cada disparo varria todas as
+       empresas e pinos de novo, no mesmo quadro que o anterior já tinha
+       varrido. O rAF coalesce: N eventos no mesmo quadro viram UMA passada, e
+       o último quadro depois que a câmera para ainda roda (cada evento arma o
+       bilhete de novo). É a mesma régua da V4, onde o loop é 1×/quadro por
+       construção. */
+    let quadroArmado = false;
     const acompanharCamera = () => {
-      posicionarEmpresas();
-      pinosVisiveis(nova);
-      if (camFase === 'solta') sincronizarPuckSolto(true);
+      if (quadroArmado) return;
+      quadroArmado = true;
+      requestAnimationFrame(() => {
+        quadroArmado = false;
+        posicionarEmpresas();
+        pinosVisiveis(nova);
+        if (camFase === 'solta') sincronizarPuckSolto(true);
+      });
     };
     mapa.on('move', acompanharCamera);
     mapa.on('zoom', acompanharCamera);
@@ -3636,17 +3666,36 @@
     let zoom;
     try { zoom = mapa.getZoom(); } catch (_) { return; }
     if (!Number.isFinite(zoom)) return;
-    // LER ANTES DE ESCREVER: a medida do chip é a única leitura de layout daqui,
-    // e ela vem toda de uma vez, antes da primeira escrita. Intercalar leitura e
-    // escrita nesta função é reflow síncrono a cada quadro do mapa.
-    alvos.forEach(larguraDoRotulo);
-    const porZoom = Math.pow(2, zoom - EMP_ZOOM_BASE);
-    const postos = [];
+    /* 🔴 A MOLDURA DECIDE QUEM TRABALHA (item 9 do dono, 09/08: "carrega só o
+       quadrado ao redor — jogos, placas fracas, carregam mais perto"; é a
+       régua da V4:1315, que a fusão não trouxe). Projetar é matemática
+       barata; o caro é medir chip, escrever estilo e brigar por rótulo — e
+       isso só quem está na moldura paga. Folgas da V4 (±110 na largura,
+       -70/+80 na altura): prédio meio-dentro ainda aparece, quem some não
+       pisca na borda. Fora da moldura o elemento fica visibility:hidden — o
+       estado de cena (aceso/passou) CONGELA e volta intacto com a câmera. */
+    const larg = cena.clientWidth || 0;
+    const alt = cena.clientHeight || 0;
+    const dentroDaMoldura = [];
+    const esconder = [];
     alvos.forEach((el) => {
       const lat = Number(el.dataset.lat); const lng = Number(el.dataset.lng);
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
       let ponto;
       try { ponto = mapa.project([lng, lat]); } catch (_) { return; }
+      const fora = ponto.x < -110 || ponto.x > larg + 110 || ponto.y < -70 || ponto.y > alt + 80;
+      if (fora) { if (el.style.visibility !== 'hidden') esconder.push(el); return; }
+      dentroDaMoldura.push({ el, ponto, lat, lng });
+    });
+    // LER ANTES DE ESCREVER, e só de quem vai aparecer: a medida do chip é a
+    // única leitura de layout daqui, toda de uma vez antes da 1ª escrita.
+    // Intercalar leitura e escrita aqui é reflow síncrono a cada quadro.
+    dentroDaMoldura.forEach((p) => larguraDoRotulo(p.el));
+    const porZoom = Math.pow(2, zoom - EMP_ZOOM_BASE);
+    const postos = [];
+    esconder.forEach((el) => { el.style.visibility = 'hidden'; });
+    dentroDaMoldura.forEach(({ el, ponto, lat, lng }) => {
+      if (el.style.visibility) el.style.visibility = '';
       const dist = Number(el.dataset.dist) || 0;
       const perto = 1 - 0.35 * Math.min(1, dist / EMP_DIST_CHEIA);
       const esc = Math.min(EMP_ESC_TETO, Math.max(EMP_ESC_PISO, porZoom * perto));
@@ -3656,7 +3705,7 @@
       reguaDaFrente(el, lat, lng);
       postos.push({ el, x: ponto.x, y: ponto.y, esc });
     });
-    deconflitarRotulos(postos, cena.clientWidth || 0);
+    deconflitarRotulos(postos, larg);
   }
 
   /* 🔴 REPINTE NÃO RECOMEÇA A CENA DE QUEM JÁ ACENDEU — é a Lei nº10 desta
