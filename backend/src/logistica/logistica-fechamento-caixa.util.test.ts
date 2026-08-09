@@ -53,7 +53,9 @@ function buildHarness(routes: RouteRow[], entregas: EntregaRow[]) {
     if (row.startedAt != null) return false;
     if (row.comprovanteConfirmadoAt != null) return false;
     if ((row.comprovantesCount ?? 0) > 0) return false;
-    if (!row.agendaOcorrenciaKey && !row.rotaModeloId) return false;
+    // 09/08 — a linha `if (!agendaOcorrenciaKey && !rotaModeloId) return false`
+    // saiu junto com a cláusula real: entrega nascida fora da agenda (avulsa,
+    // painel, importação) também se fecha. O espelho tem que espelhar.
     if (!(row.cobrancaStatus === 'pendente' || row.cobrancaStatus == null)) return false;
     if (row.stop) {
       const rt = row.stop.route;
@@ -179,6 +181,77 @@ test('encerrarDiasAnteriores: entrega já iniciada (saiu pra rua) NÃO é cancel
 
   assert.equal(resumo.entregasCanceladas, 0);
   assert.equal(h.entregaStore.get('entrega-em-rua')!.status, 'agendada', 'já começada — intocada');
+  assert.equal(h.eventos.length, 0);
+});
+
+/**
+ * 🔴 A VACINA DO PONTO CEGO (09/08). A entrega que NÃO veio da agenda — a
+ * avulsa do "+", a que o painel web agenda, a importada — não tem
+ * `agendaOcorrenciaKey` nem `rotaModeloId`, e por isso ficava 'agendada' pra
+ * sempre: a lista do dia filtra por hoje (ninguém a via) e o fechamento exigia
+ * uma das duas chaves (ninguém a fechava). Medido em produção no dia: 107 de
+ * 109 entregas abertas de dias passados eram exatamente esta.
+ * Se alguém reintroduzir a cláusula, este teste cai.
+ */
+test('encerrarDiasAnteriores: entrega ÓRFÃ de dia passado (avulsa/painel) também se fecha', async () => {
+  const h = buildHarness(
+    [],
+    [
+      {
+        id: 'entrega-avulsa',
+        companyId: 7,
+        customerProfileId: 'cliente-3',
+        status: 'agendada',
+        scheduledAt: new Date(`${SEXTA_ANTERIOR}T09:00:00-03:00`),
+        startedAt: null,
+        comprovanteConfirmadoAt: null,
+        comprovantesCount: 0,
+        agendaOcorrenciaKey: null,   // ← nasceu fora da agenda
+        rotaModeloId: null,          // ← e fora de modelo de rota
+        cobrancaStatus: 'pendente',
+      },
+    ],
+  );
+
+  const resumo = await encerrarDiasAnteriores(h.prisma, 7, HOJE);
+
+  assert.equal(resumo.entregasCanceladas, 1, 'a órfã de dia passado É alcançada pelo fechamento');
+  assert.equal(h.entregaStore.get('entrega-avulsa')!.status, 'cancelada');
+  assert.equal(h.eventos.length, 1, 'e deixa rastro no extrato como qualquer outra');
+  assert.equal(h.eventos[0].tipo, 'CANCELADA_FECHAMENTO');
+  assert.equal(h.eventos[0].customerProfileId, 'cliente-3');
+});
+
+/**
+ * O outro lado da mesma moeda: alcance maior NÃO pode virar mão pesada. A órfã
+ * com dinheiro no meio (cobrança já contabilizada) continua de fora — é o
+ * critério que sempre protegeu, e é ele que continua protegendo agora que a
+ * cláusula da chave saiu.
+ */
+test('encerrarDiasAnteriores: órfã com cobrança contabilizada NÃO se fecha', async () => {
+  const h = buildHarness(
+    [],
+    [
+      {
+        id: 'entrega-com-dinheiro',
+        companyId: 7,
+        customerProfileId: 'cliente-4',
+        status: 'agendada',
+        scheduledAt: new Date(`${SEXTA_ANTERIOR}T09:00:00-03:00`),
+        startedAt: null,
+        comprovanteConfirmadoAt: null,
+        comprovantesCount: 0,
+        agendaOcorrenciaKey: null,
+        rotaModeloId: null,
+        cobrancaStatus: 'nao_contabilizado',
+      },
+    ],
+  );
+
+  const resumo = await encerrarDiasAnteriores(h.prisma, 7, HOJE);
+
+  assert.equal(resumo.entregasCanceladas, 0);
+  assert.equal(h.entregaStore.get('entrega-com-dinheiro')!.status, 'agendada');
   assert.equal(h.eventos.length, 0);
 });
 

@@ -35,6 +35,11 @@ import { registrarEventoAgenda, formatDDMM } from './logistica-agenda-evento.uti
  *
  * Idempotente e barato: sem rota velha aberta nem entrega pendurada, o custo é
  * duas queries que não acham nada.
+ *
+ * 09/08 — ALCANCE CORRIGIDO: o passo 2 cobre agora TODA entrega de dia passado
+ * que ninguém tocou, tenha ela vindo da agenda ou não (avulsa do "+", painel
+ * web, importação). Ver o comentário no `AND` da query: a cláusula que exigia
+ * `agendaOcorrenciaKey`/`rotaModeloId` era um ponto cego, não uma proteção.
  */
 
 const STATUS_ROTA_ABERTA = ['ACTIVE', 'INITIALIZING', 'PLANNED'] as const;
@@ -82,7 +87,23 @@ export async function encerrarDiasAnteriores(
         comprovanteConfirmadoAt: null,
         comprovantes: { none: {} },
         AND: [
-          { OR: [{ agendaOcorrenciaKey: { not: null } }, { rotaModeloId: { not: null } }] },
+          /* 🔴 09/08 — O PONTO CEGO: aqui exigia-se `agendaOcorrenciaKey` OU
+             `rotaModeloId`, ou seja, "só o que a MONTAGEM trouxe". Entrega
+             nascida fora da agenda — a avulsa do "+", a que o painel web
+             agenda, a importada — não tem nenhum dos dois e ficava 'agendada'
+             PARA SEMPRE, invisível: a lista do dia filtra por hoje, então
+             ninguém a via, e o fechamento não a alcançava.
+             Medido em produção (09/08): das 109 entregas abertas de dias
+             passados, **107 eram exatamente essas** (company 5 e a bancada 39,
+             `origem` nulo, nenhuma tocada) — e nenhuma delas seria fechada por
+             mais montagem que a empresa fizesse.
+             A cláusula saiu porque ela não era o que protegia. Quem protege são
+             as OUTRAS quatro linhas, e cada uma continua aqui: sem `startedAt`
+             (ninguém saiu pra rua), sem comprovante, cobrança 'pendente' (nada
+             de dinheiro no meio) e `stopLivreWhere` (nenhuma rota viva a
+             reivindica). Dia passado + nada disso = ninguém vai entregar isso
+             nunca. Fechar é o desfecho honesto; deixar 'agendada' é um cliente
+             que o banco jura que ainda espera. */
           // 27/07 — `cobrancaStatus` é `String @default("pendente")`, NÃO é nullable:
           // o ramo `null` fazia o Prisma recusar a query inteira ("Argument
           // `cobrancaStatus` is missing") e derrubava o fechamento — que roda no começo
