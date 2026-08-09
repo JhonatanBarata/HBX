@@ -821,7 +821,22 @@
     const credito = creditoR.status === 'fulfilled' ? creditoR.value : null;
     const caixa = caixaR.status === 'fulfilled' ? caixaR.value : null;
     const formas = (caixa && caixa.fechamento && caixa.fechamento.formas) || null;
-    const itens = Array.isArray(r.items) ? r.items : [];
+    /* 🔴 CANCELADA SEM ORDEM NUNCA ESTEVE NESTA ROTA (09/08, MEDIDO em produção).
+       A lei de cima continua de pé — cancelada É o "não entregue" do motorista e
+       tem que ficar no mapa com a cor dela —, mas ela vale pra quem foi MONTADO
+       aqui. `GET /logistica/rota` devolve tudo que cai no DIA, sem filtro de
+       status, e limpeza administrativa carimba o dia de hoje em massa: na
+       company 41 eram 137 canceladas das 09h24, todas com `rotaOrdem` NULO.
+       Bastava montar qualquer rota pra elas entrarem — a tela dizia "140
+       paradas" com 3 paradas de verdade, e o motorista rolava 137 cartões
+       mortos antes de achar a primeira porta.
+       A régua é a MESMA que o `estadoDaRota` já usa duas telas acima: quem prova
+       que a parada é desta rota é a ORDEM gravada. Cancelada COM ordem fica
+       (é o desfecho do dia); cancelada SEM ordem nunca foi parada, é resíduo. */
+    const itens = (Array.isArray(r.items) ? r.items : []).filter((it) => {
+      if (!it || String(it.status || '') !== 'cancelada') return true;
+      return it.rotaOrdem !== null && it.rotaOrdem !== undefined;
+    });
     const paradas = itens.map((it, i) => traduzirParada(it, i, i > 0));
     // L4 — a folha de chegada precisa da entrega INTEIRA (itens, débito,
     // método padrão), não da linha resumida da lista. Guardada por id, que é o
