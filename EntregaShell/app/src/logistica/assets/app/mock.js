@@ -1854,9 +1854,17 @@ ${hdr({voltar:'rota'})}
        inventado. E o subtexto é o mesmo par de sempre — com a rota já montada
        o servidor sabe o custo REAL; antes disso, ninguém sabe, e a tela diz
        isso com todas as letras em vez de chutar um número. */''}
+  ${/* 🔴 QUEM DECIDE O SUBTEXTO É A ROTA, NÃO O PÉ DA TELA (achado no g15, 09/08).
+       A 1ª versão lia `d.pronta` — e `pronta` aqui responde "o dia da lista é
+       HOJE?" (é o que troca o pé entre Iniciar e Montar), não "existe rota
+       montada?". Resultado no aparelho, num domingo sem nada pra montar: a tela
+       caía no ramo da rota pronta, não achava custo e escrevia **"não consegui
+       o custo agora"** — cara de erro do servidor onde a verdade é que ninguém
+       montou rota nenhuma. A régua certa é a mesma que governa a porta da
+       lista: `temRotaNoDia`. Sem rota, a frase é a que o desenho sempre teve. */''}
   ${DADOS.rota.creditos?`<div class="creditos">${ic('card',17)}
     <span><b class="v">${DADOS.rota.creditos}</b> <small>créditos hoje</small></span>
-    <span class="debita">${d.pronta
+    <span class="debita">${temRotaNoDia(estadoRota)
       ? (DADOS.rota.creditosDebita?`Iniciar debita ${DADOS.rota.creditosDebita}`:'não consegui o custo agora')
       : 'monte a rota pra saber'}</span></div>`:''}
   ${miolo(d,'route','recarregar-montagem',5,`${lista}

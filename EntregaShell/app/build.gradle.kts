@@ -122,7 +122,22 @@ plugins {
 // seja, ABAIXO do que o g15 já roda, e o aparelho de bancada ficaria cego pro
 // aviso de atualização. Piso ACIMA do maior número que já está em algum celular:
 // a lei de sempre, terceira vez que ela é cobrada por sideload de prova.
-val hbxLogisticaVersionCodeFloor = 201
+// 201 → 221 em 09/08 (manhã) — A QUARTA COBRANÇA DA MESMA LEI, e desta vez ela
+// mordeu o dono na cara: ele publicou a leva "a agenda sai da tela", abriu o
+// g15 e não viu nada mudar. Medido: o publish carimbou **219** (digital nova,
+// conteúdo certo — provado com `unzip -p base.apk assets/app/mock.js` dentro do
+// .apk publicado), mas o g15 tinha **220** instalado às 04:41 por sideload de
+// prova de OUTRA sessão. 219 < 220 ⇒ o app se recusa a "atualizar pra trás", e
+// com razão: quem decide é o NÚMERO, não a data. O aparelho ficou rodando o
+// front da véspera enquanto o servidor servia o novo, sem erro nenhum na tela —
+// a assinatura exata de [[publish-subiu-codigo-mas-nao-o-apk]].
+// E o piso em 201 deixava a armadilha armada pro publish SEGUINTE: max(219,201)
+// + 1 = 220, o mesmo número do sideload, e o g15 seguiria cego. 221 fica acima
+// do maior número que existe em qualquer celular hoje.
+// 🔴 A LIÇÃO QUE NÃO PEGOU EM 4 TENTATIVAS: quem sideloada pra provar SOBE O
+// PISO no mesmo commit. O sideload é diagnóstico; o piso é o que devolve o
+// aparelho pro fluxo de verdade (aviso → download → instalar).
+val hbxLogisticaVersionCodeFloor = 221
 val hbxLogisticaVersionCode =
     (project.findProperty("hbxLogisticaVersionCode") as String?)?.toIntOrNull()
         ?.coerceAtLeast(hbxLogisticaVersionCodeFloor)
