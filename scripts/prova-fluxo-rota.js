@@ -87,20 +87,42 @@ const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agen
   window.__S = S;
   /* O DIALETO REAL do /nucleo/clientes (09/08): lat/lng (o map da resposta
      descartava os dois e este dublê, mais generoso que o servidor, escondia o
-     buraco — o aparelho carimbava "sem trajeto" em todo escolhido) e
-     `diasEntrega` (recorrência ativa, de onde o rascunho tira o
-     `resolveSozinho` da régua do desktop). c6/c7 são o par da vacina:
-     sem pino COM recorrência × sem pino SEM recorrência. */
+     buraco — o aparelho carimbava "sem trajeto" em todo escolhido),
+     `numero` em COLUNA PRÓPRIA e `diasEntrega` (recorrência ativa, de onde o
+     rascunho tira o `resolveSozinho` da régua do desktop). NÃO tem `bairro`,
+     `complemento` nem locais — dublê mais generoso que o servidor esconde
+     exatamente o buraco que a vacina existe pra achar.
+     c6/c7 são o par da vacina do aviso: sem pino COM recorrência × sem pino
+     SEM recorrência. c8 é o número que SÓ mora na coluna (44 dos 225 clientes
+     da empresa 41 são assim — o cartao dizia "Rua M-7" e o computador
+     "Rua M-7, 897") e c9 é o (0,0) que NÃO é pino.
+     🔴 A ORDEM É CONTRATO: as cenas marcam por ÍNDICE (`marcar(0)`…), então
+     gente nova entra no FIM da fila, nunca no meio. */
   const CLIENTES = [
-    { id: 'c1', name: 'Larissa Ype', isCliente: true, endereco: 'Rua 3a, 1354', cidade: 'Rio Claro', lat: -22.40, lng: -47.55, diasEntrega: [6] },
-    { id: 'c2', name: 'Ademir', isCliente: true, endereco: 'Av. 28a, 507', cidade: 'Rio Claro', lat: -22.401, lng: -47.551, diasEntrega: [] },
-    { id: 'c3', name: 'Alfredo', isCliente: true, endereco: 'Rua 4-a, 93', cidade: 'Rio Claro', lat: -22.402, lng: -47.552, diasEntrega: [] },
-    { id: 'c4', name: 'Ana Alice', isCliente: true, endereco: 'Av. 28a, 507', cidade: 'Rio Claro', lat: -22.403, lng: -47.553, diasEntrega: [] },
-    { id: 'c5', name: 'Andreia bicicletaria', isCliente: true, endereco: 'Rua 8 JP, 210', cidade: 'Rio Claro', lat: -22.404, lng: -47.554, diasEntrega: [] },
-    { id: 'c6', name: 'Rosa recorrente', isCliente: true, endereco: 'Av 60, 586', cidade: 'Rio Claro', lat: null, lng: null, diasEntrega: [6] },
-    { id: 'c7', name: 'Zeca sem porta', isCliente: true, endereco: 'Rua 19, 880', cidade: 'Rio Claro', lat: null, lng: null, diasEntrega: [] },
+    { id: 'c1', name: 'Larissa Ype', isCliente: true, endereco: 'Rua 3a, 1354', numero: '1354', cidade: 'Rio Claro', lat: -22.40, lng: -47.55, diasEntrega: [6] },
+    { id: 'c2', name: 'Ademir', isCliente: true, endereco: 'Av. 28a, 507', numero: '507', cidade: 'Rio Claro', lat: -22.401, lng: -47.551, diasEntrega: [] },
+    { id: 'c3', name: 'Alfredo', isCliente: true, endereco: 'Rua 4-a, 93', numero: '93', cidade: 'Rio Claro', lat: -22.402, lng: -47.552, diasEntrega: [] },
+    { id: 'c4', name: 'Ana Alice', isCliente: true, endereco: 'Av. 28a, 507', numero: '507', cidade: 'Rio Claro', lat: -22.403, lng: -47.553, diasEntrega: [] },
+    { id: 'c5', name: 'Andreia bicicletaria', isCliente: true, endereco: 'Rua 8 JP, 210', numero: '210', cidade: 'Rio Claro', lat: -22.404, lng: -47.554, diasEntrega: [] },
+    { id: 'c6', name: 'Rosa recorrente', isCliente: true, endereco: 'Av 60, 586', numero: '586', cidade: 'Rio Claro', lat: null, lng: null, diasEntrega: [6] },
+    { id: 'c7', name: 'Zeca sem porta', isCliente: true, endereco: 'Rua 19, 880', numero: '880', cidade: 'Rio Claro', lat: null, lng: null, diasEntrega: [] },
+    { id: 'c8', name: 'Marcos M-7', isCliente: true, endereco: 'Rua M-7', numero: '897', cidade: 'Rio Claro', lat: -22.405, lng: -47.555, diasEntrega: [] },
+    { id: 'c9', name: 'Nilda zero zero', isCliente: true, endereco: 'Rua Zero', numero: '10', cidade: 'Rio Claro', lat: 0, lng: 0, diasEntrega: [] },
   ];
   const porId = new Map(CLIENTES.map((c) => [c.id, c]));
+  /* 🔴 O SERVIDOR MONTA A LINHA, E ESTE DUBLÊ É O SERVIDOR. Espelho de
+     `linhaEnderecoDaFonte` (backend/src/logistica/logistica-geo-fonte.util.ts):
+     sem rua é "nº 123"; número já escrito dentro da rua não repete. Stub que
+     concatenasse na força bruta devolveria "Rua 3a, 1354, 1354" e a prova
+     passaria a medir o dublê, não o app. */
+  const linhaDoServidor = (endereco, numero) => {
+    const rua = String(endereco == null ? '' : endereco).trim();
+    const num = String(numero == null ? '' : numero).trim();
+    if (!rua) return num ? `nº ${num}` : '';
+    if (!num) return rua;
+    const numEsc = num.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|[^0-9])${numEsc}([^0-9]|$)`).test(rua) ? rua : `${rua}, ${num}`;
+  };
 
   const diaDe = (ymd) => {
     const [a, m, d] = String(ymd).split('-').map(Number);
@@ -129,18 +151,60 @@ const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agen
       // ANTES do genérico '/logistica/rota' (prefixo engole o específico —
       // foi exatamente assim que este stub nasceu devolvendo rota no historico)
       if (caminho.indexOf('/logistica/rota/historico') === 0) {
-        // o dialeto REAL do historicoDeRotas: dias sem date; clientes com date
+        /* O DIALETO REAL do historicoDeRotas (09/08, contrato novo): dias sem
+           `date`; com `date`, UMA LINHA POR PORTA, com a bagagem inteira —
+           `localId`, as partes do endereço, a `enderecoLinha` já MONTADA pelo
+           servidor, pino e `recorrente`. Dublê que devolvesse só `endereco`
+           cru (como este devolvia) é vacina que não vacina: o app passaria
+           lendo o campo errado e a prova ficaria verde. */
         const d = q('date');
+        if (d === '2026-08-07') {
+          /* 🔴 O MESMO CLIENTE EM DUAS PORTAS NO MESMO DIA. É o caso que a
+             chave por cliente engolia: a segunda porta sumia da lista e a
+             entrega nascia no endereço do perfil. Os dois com pino e SEM
+             recorrência — assim o silêncio da linha só pode vir do PINO. */
+          return R({
+            data: d,
+            clientes: [
+              {
+                customerProfileId: 'c8', localId: 'L1', nome: 'Marcos M-7',
+                endereco: 'Rua M-7', numero: '897', complemento: '', bairro: 'Cervezao',
+                cidade: 'Rio Claro', uf: 'SP', cep: '13503543',
+                enderecoLinha: 'Rua M-7, 897',
+                lat: -22.405, lng: -47.555, geoFonte: 'gps_cadastro', recorrente: false,
+              },
+              {
+                customerProfileId: 'c8', localId: 'L2', nome: 'Marcos M-7',
+                endereco: 'Av 60', numero: '586', complemento: 'Fundos', bairro: 'Centro',
+                cidade: 'Rio Claro', uf: 'SP', cep: '13500000',
+                enderecoLinha: 'Av 60, 586',
+                lat: -22.410, lng: -47.560, geoFonte: 'geocode', recorrente: false,
+              },
+            ],
+          });
+        }
         if (d) {
           return R({
             data: d,
             clientes: [
-              { customerProfileId: 'c3', nome: 'Alfredo', endereco: 'Rua 4-a, 93', bairro: '', cidade: 'Rio Claro', lat: -22.402, lng: -47.552, recorrente: true },
-              { customerProfileId: 'c7', nome: 'Zeca sem porta', endereco: 'Rua 19, 880', bairro: '', cidade: 'Rio Claro', lat: null, lng: null, recorrente: false },
+              {
+                customerProfileId: 'c3', localId: 'L3', nome: 'Alfredo',
+                endereco: 'Rua 4-a', numero: '93', complemento: '', bairro: '',
+                cidade: 'Rio Claro', uf: 'SP', cep: '13500111',
+                enderecoLinha: 'Rua 4-a, 93',
+                lat: -22.402, lng: -47.552, geoFonte: 'gps_cadastro', recorrente: true,
+              },
+              {
+                customerProfileId: 'c7', localId: null, nome: 'Zeca sem porta',
+                endereco: 'Rua 19', numero: '880', complemento: '', bairro: '',
+                cidade: 'Rio Claro', uf: 'SP', cep: '',
+                enderecoLinha: 'Rua 19, 880',
+                lat: null, lng: null, geoFonte: null, recorrente: false,
+              },
             ],
           });
         }
-        return R({ dias: [{ data: '2026-08-08', paradas: 2 }] });
+        return R({ dias: [{ data: '2026-08-08', paradas: 2 }, { data: '2026-08-07', paradas: 2 }] });
       }
       if (caminho.indexOf('/logistica/rota/planejar') === 0 && metodo === 'POST') {
         const manual = corpo && Array.isArray(corpo.ordemManual) ? corpo.ordemManual.map(String) : null;
@@ -199,7 +263,16 @@ const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agen
         const id = `e${S.seq}`;
         S.entregas.push({
           id, status: 'agendada', rotaOrdem: null, origem: 'avulsa',
-          cliente: { id: String(c.id), nome: c.name, endereco: c.endereco, cidade: c.cidade, lat: c.lat, lng: c.lng },
+          // MULTILOCAL: o servidor guarda a porta que veio no corpo (o DTO já
+          // aceita `localId`) — sem ela a entrega nasce no endereço do perfil.
+          localId: corpo.localId ? String(corpo.localId) : null,
+          cliente: {
+            id: String(c.id), nome: c.name, endereco: c.endereco, numero: c.numero,
+            cidade: c.cidade, lat: c.lat, lng: c.lng,
+            // o `listRota` manda a linha PRONTA (linhaEnderecoDaFonte) — é ela
+            // que o cartão lê, na montagem e na lista da rota.
+            enderecoLinha: linhaDoServidor(c.endereco, c.numero),
+          },
         });
         return R({ id });
       }
@@ -254,13 +327,25 @@ const SO_MEDIR = process.argv.includes('--antes');
   const espiar = () => p.evaluate(() => ({
     tela: (function () { try { return atual; } catch (e) { return null; } })(),
     linhas: [...document.querySelectorAll('.stops .stop .who strong')].map((e) => e.textContent.trim()),
+    /* A LINHA DE ENDEREÇO DO CARTÃO. No `stop()` do mock o `.who` é
+       <strong>nome</strong><span>rua</span><span>bairro</span> — a rua é o 2º
+       filho. É este texto que o dono compara com o computador; medir só o nome
+       deixaria o endereço divergir sem ninguém ver. */
+    ruas: [...document.querySelectorAll('.stops .stop .who')]
+      .map((e) => ((e.children[1] || {}).textContent || '').trim()),
     // a ROUPA da rota de hoje: hora prevista e pílula de status. Numa PRÉVIA de
     // outro dia nada disso pode existir — a entrega daquele dia nem nasceu.
     horas: [...document.querySelectorAll('.stops .stop .hh')].map((e) => e.textContent.trim()).filter(Boolean),
     pills: [...document.querySelectorAll('.stops .stop .pill')].map((e) => e.textContent.trim()).filter(Boolean),
     pernas: [...document.querySelectorAll('.stops .perna, .stops .leg')].map((e) => e.textContent.trim()).filter(Boolean),
     nStops: document.querySelectorAll('.stops .stop').length,
+    // as três peças que o dono mandou tirar da Montagem em 09/08. Ficam MEDIDAS
+    // (e não apagadas da prova): portão que só cobra o que existe não percebe
+    // desenho voltando sozinho numa fusão.
     chips: [...document.querySelectorAll('[data-acao="montar-dia"]')].map((e) => [e.textContent.trim(), e.classList.contains('on') ? 1 : 0]),
+    creditos: document.querySelectorAll('.creditos').length,
+    gruposAvulsa: [...document.querySelectorAll('.grupo')]
+      .map((e) => e.textContent.trim()).filter((t) => /avulsa/i.test(t)).length,
     pe: (document.querySelector('.pe-montagem .go b') || {}).textContent || '',
     vazio: (document.querySelector('.vazio strong') || {}).textContent || '',
     portao: (document.querySelector('.portao h3') || {}).textContent || '',
@@ -270,6 +355,11 @@ const SO_MEDIR = process.argv.includes('--antes');
     routeStatus: window.__S.routeStatus,
   }));
   const posts = () => p.evaluate(() => window.__chamadas.filter((c) => c[0] === 'POST').map((c) => c[1]));
+  /* os POSTs COM O CORPO. "Saiu o POST" não prova nada quando o defeito é um
+     campo faltando dentro dele — era assim que a entrega nascia na porta
+     errada com a lista mostrando a certa. */
+  const postsDe = (rota) => p.evaluate((r) => window.__chamadas
+    .filter((c) => c[0] === 'POST' && c[1] === r).map((c) => c[2]), rota);
   const zerar = () => p.evaluate(() => { window.__chamadas = []; });
   const marcar = async (i) => {
     // a lista da porta "Meus clientes" chega da rede: esperar o BOTÃO existir é
@@ -282,26 +372,31 @@ const SO_MEDIR = process.argv.includes('--antes');
     }, i);
     await p.waitForTimeout(120);
   };
-  const tocarChip = async (n) => {
-    await p.evaluate((d) => {
-      const x = [...document.querySelectorAll('[data-acao="montar-dia"]')].find((e) => Number(e.dataset.dia) === d);
-      if (!x) throw new Error(`chip do dia ${d} nao existe`);
-      x.click();
-    }, n);
-    await p.waitForTimeout(1500);
-  };
   const irPara = async (tela, ms) => {
     await p.evaluate((t) => window.ir(t), tela);
     await p.waitForTimeout(ms || 1400);
   };
 
   /* ===================================================================
-     CENA A — MONTAGEM: 3 avulsas de hoje + os chips de dia
+     CENA A — A MONTAGEM DEPOIS DA FAXINA DE 09/08 (ordem do dono: "remover
+     linha toda: 9340 créditos…", "remover 'Rota avulsa' o escrito", "remova
+     os dias da semana (estamos em avulsas)").
+
+     Esta cena nasceu medindo os CHIPS DE DIA — e eles saíram do desenho, com
+     a máquina de escolher dia ficando sem porta. Ela passa a medir o que
+     RESTOU e o que TEM QUE CONTINUAR AUSENTE: a lista de hoje com o avulso na
+     frente (a LEI da ordem, que era do dado e não do rótulo) e as três peças
+     fora da tela. Apagar as asserções em vez de invertê-las deixaria o desenho
+     livre pra voltar sozinho na próxima fusão, calado.
+
+     A agenda de HOJE entra junto de propósito: sem ela a lista seria só
+     avulsa e "o avulso vem primeiro" não teria com quem ser comparado.
      =================================================================== */
-  await cena({ mesmaBase: true });
+  await cena({ mesmaBase: true, agendaHoje: AGENDA_HOJE });
   await irPara('montagem');
   await irPara('rapida', 900);
-  await marcar(0); await marcar(1); await marcar(2);
+  // Alfredo (2) e Ana Alice (3): os dois estão FORA da agenda de hoje (c1/c5)
+  await marcar(2); await marcar(3);
   await zerar();
   await p.evaluate(() => document.querySelector('[data-acao="rapida-adicionar-escolhidos"]').click());
   await p.waitForTimeout(2000);
@@ -313,51 +408,22 @@ const SO_MEDIR = process.argv.includes('--antes');
   await p.waitForTimeout(600);
 
   const tA0 = await espiar();
-  nota(`[A] apos "Adicionar 3 na rota": tela=${tA0.tela} · stops=${tA0.nStops} · entregas no servidor=${tA0.entregasNoServidor}`);
+  nota(`[A] apos "Adicionar 2 na rota": tela=${tA0.tela} · stops=${tA0.nStops} · entregas no servidor=${tA0.entregasNoServidor}`);
   nota(`    linhas: ${tA0.linhas.join(' | ')}`);
-  nota(`    horas=${JSON.stringify(tA0.horas)} · pills=${JSON.stringify(tA0.pills)}`);
-  nota(`    chips: ${tA0.chips.map((c) => c[0] + (c[1] ? '*' : '')).join(' ')} · pe="${tA0.pe}"`);
+  nota(`    chips=${tA0.chips.length} · linha de credito=${tA0.creditos} · cabecalho avulsa=${tA0.gruposAvulsa} · pe="${tA0.pe}"`);
 
-  await zerar();
-  await tocarChip(DIA_A);
-  const tA1 = await espiar();
-  nota(`[A] chip dia ${DIA_A} (5 na agenda): stops=${tA1.nStops} · linhas: ${tA1.linhas.join(' | ')}`);
-  nota(`    horas=${JSON.stringify(tA1.horas)} · pills=${JSON.stringify(tA1.pills)}`);
-  nota(`    POSTs no toque do chip: ${(await posts()).join(' , ') || '(nenhum)'} · entregas=${tA1.entregasNoServidor} · pe="${tA1.pe}"`);
-
-  await zerar();
-  await tocarChip(DIA_B);
-  const tA2 = await espiar();
-  nota(`[A] chip dia ${DIA_B} (2 na agenda): stops=${tA2.nStops} · linhas: ${tA2.linhas.join(' | ')}`);
-  nota(`    horas=${JSON.stringify(tA2.horas)} · pills=${JSON.stringify(tA2.pills)}`);
-  nota(`    POSTs: ${(await posts()).join(' , ') || '(nenhum)'} · entregas=${tA2.entregasNoServidor}`);
-
-  await zerar();
-  await tocarChip(DIA_B);                     // 2º toque no mesmo chip = volta pra HOJE
-  const tA3 = await espiar();
-  nota(`[A] volta pra HOJE: stops=${tA3.nStops} · linhas: ${tA3.linhas.join(' | ')}`);
-  nota(`    POSTs: ${(await posts()).join(' , ') || '(nenhum)'} · entregas=${tA3.entregasNoServidor} · pe="${tA3.pe}"`);
-
-  eh('A1 · chip de outro dia mostra a lista DAQUELE dia', tA1.nStops === 5);
-  eh('A2 · trocar de chip troca a fileira INTEIRA', tA2.nStops === 2);
-  eh('A3 · voltar pra hoje devolve a tela EXATA de antes', tA3.nStops === tA0.nStops && tA3.linhas.join('|') === tA0.linhas.join('|'));
-  eh('A4 · tocar chip NAO materializa entrega nova', tA3.entregasNoServidor === tA0.entregasNoServidor);
-  /* 🔴 O CORAÇÃO DO DEFEITO A: a prévia de OUTRO dia não pode vestir a roupa da
-     rota de HOJE. Hora prevista e pílula de status são da ENTREGA — e a entrega
-     da segunda-feira não existe ainda. */
-  eh('A5 · prévia de outro dia NAO mostra hora da rota de hoje', tA1.horas.length === 0 && tA2.horas.length === 0);
-  /* 🔴 CHIP É DA AGENDA, E SÓ DELA (dono, 09/08: "vc meio q criou um 'dom'
-     como se tivesse cliente de domingo, totalmente fora de semantica... isso
-     aqui é AVULSO, crie uma parte avulsa"). A 1ª versão desta prova cobrava o
-     contrário — o chip de HOJE nascendo de parada/rascunho — e foi exatamente
-     o "Dom" fantasma que ele reprovou na tela. Agora: com avulsas de hoje e
-     agenda vazia no dia, NENHUM chip inventado; quem mostra o trabalho é a
-     PARTE AVULSA, com cabeçalho próprio no topo da lista. */
-  const cabA = await p.evaluate(() => [...document.querySelectorAll('.grupo')]
-    .map((e) => e.textContent.trim()).filter((t) => /avulsa/i.test(t)).length);
-  eh('A6 · chip de dia so nasce da AGENDA (nenhum "Dom" fantasma de avulsa)',
-    !tA0.chips.some((c) => c[0] === 'Dom' || c[0] === 'Hoje'), tA0.chips.map((c) => c[0]).join(' '));
-  eh('A6b · a PARTE AVULSA existe com cabecalho proprio', cabA >= 1, `cabecalhos=${cabA}`);
+  eh('A1 · a Montagem NAO tem mais chip de dia', tA0.chips.length === 0,
+    tA0.chips.map((c) => c[0]).join(' '));
+  eh('A2 · a lista de hoje = agenda (2) + avulsas (2)', tA0.nStops === 4, `stops=${tA0.nStops}`);
+  /* 🔴 A ORDEM SOBREVIVEU AO RÓTULO. O cabeçalho "Rota avulsa" saiu, mas quem
+     punha o avulso na frente nunca foi ele — é a partição da ponte
+     (`clientesOrdenados`). Se ela cair junto com o desenho, é AQUI que aparece. */
+  eh('A3 · o avulso continua no TOPO da lista',
+    /Alfredo/.test(tA0.linhas[0] || '') && /Ana Alice/.test(tA0.linhas[1] || ''),
+    tA0.linhas.join(' | '));
+  eh('A4 · nenhum cabecalho "Rota avulsa" na lista', tA0.gruposAvulsa === 0, `cabecalhos=${tA0.gruposAvulsa}`);
+  eh('A5 · nenhuma linha de credito na Montagem', tA0.creditos === 0, `linhas=${tA0.creditos}`);
+  eh('A6 · escolher cliente NAO materializa entrega', tA0.entregasNoServidor === 0);
 
   /* ===================================================================
      CENA B — VOLTAR SEM SALVAR: o rascunho não persiste
@@ -446,6 +512,147 @@ const SO_MEDIR = process.argv.includes('--antes');
     && (await posts()).indexOf('/logistica/entregas') < 0);
   eh('H4 · o recibo diz o verbo do estado (na lista)', /na lista/i.test(tH.portao), tH.portao);
   eh('H5 · mesma lingua: so o sem-porta-sem-recorrencia avisa', flagsH.length === 1, `avisos=${flagsH.length}`);
+  /* 🔴 A LINHA É A DO SERVIDOR, INTEIRA. O histórico manda `enderecoLinha`
+     montada lá (rua + número) e as partes ao lado. O app lia o `endereco` cru
+     e o cartão perdia o número — "Rua 4-a" onde o computador diz "Rua 4-a, 93". */
+  eh('H6 · o cartao mostra a enderecoLinha DO SERVIDOR (com numero)',
+    tH.ruas[0] === 'Rua 4-a, 93' && tH.ruas[1] === 'Rua 19, 880', tH.ruas.join(' | '));
+
+  /* ===================================================================
+     CENA J — REUTILIZAR UM DIA LEVA A PORTA JUNTO (09/08).
+
+     Duas coisas na mesma cena, porque são o mesmo defeito visto de dois
+     lados: o dia 07/08 tem o MESMO cliente em DUAS portas (`localId` L1 e
+     L2), os dois com pino e SEM recorrência.
+     · A chave por cliente engolia a segunda porta — a lista mostrava 1 onde
+       o dia teve 2.
+     · O `POST /logistica/entregas` ia SEM `localId` — a entrega nascia no
+       endereço do PERFIL sabendo de qual porta o dia veio, e o motorista
+       ia pra porta errada com a tela mostrando a certa.
+     Sem recorrência nenhuma, o silêncio da linha só pode vir do PINO: é
+     assim que esta cena prova que a bagagem viajou, e não o `resolveSozinho`.
+     =================================================================== */
+  await cena({});
+  await irPara('rota', 900);
+  await irPara('montagem');
+  await zerar();
+  await p.evaluate(() => {
+    const lista = document.querySelectorAll('[data-acao="historico-usar"]');
+    if (lista.length < 2) throw new Error(`o historico so tem ${lista.length} dia(s)`);
+    lista[1].click();                      // 07/08 — o dia das duas portas
+  });
+  await p.waitForTimeout(2200);
+  const tJ = await espiar();
+  const flagsJ = tJ.pernas.filter((t) => /não sei onde fica/i.test(t));
+  const trechosJ = tJ.pernas.filter((t) => /\d\s*(m|km)/.test(t));
+  nota(`[J] reutilizar 07/08 (2 portas do mesmo cliente): stops=${tJ.nStops} · linhas: ${tJ.linhas.join(' | ')}`);
+  nota(`    ruas: ${tJ.ruas.join(' | ')} · avisos=${flagsJ.length} · trechos medidos=${JSON.stringify(trechosJ)}`);
+  eh('J1 · o mesmo cliente em DUAS portas vira DUAS linhas', tJ.nStops === 2, `stops=${tJ.nStops}`);
+  eh('J2 · cada porta com o SEU endereco (a linha do servidor)',
+    tJ.ruas[0] === 'Rua M-7, 897' && tJ.ruas[1] === 'Av 60, 586', tJ.ruas.join(' | '));
+  eh('J3 · o pino viajou junto: nenhuma linha diz "nao sei onde fica"',
+    flagsJ.length === 0, `avisos=${flagsJ.length}`);
+  eh('J4 · e o trecho entre as duas portas foi MEDIDO (so ha trecho com os 2 pinos)',
+    trechosJ.length >= 1, JSON.stringify(trechosJ));
+
+  await zerar();
+  await p.evaluate(() => {
+    const x = document.querySelector('.pe-montagem [data-acao="iniciar-rota"], .pe-montagem [data-acao="montar-agora"]');
+    if (!x) throw new Error('sem "Iniciar rota" no pe da montagem');
+    x.click();
+  });
+  await p.waitForTimeout(2800);
+  const corposJ = await postsDe('/logistica/entregas');
+  const tJ2 = await espiar();
+  nota(`[J] materializar: POSTs /logistica/entregas=${corposJ.length} · localIds=${JSON.stringify(corposJ.map((c) => c && c.localId))}`);
+  nota(`    entregas no servidor=${tJ2.entregasNoServidor} · routeStatus=${tJ2.routeStatus}`);
+  eh('J5 · as DUAS portas viraram entrega', corposJ.length === 2, `posts=${corposJ.length}`);
+  eh('J6 · e cada POST levou o SEU localId',
+    corposJ.length === 2 && String(corposJ[0].localId) === 'L1' && String(corposJ[1].localId) === 'L2',
+    JSON.stringify(corposJ.map((c) => c && c.localId)));
+
+  /* ===================================================================
+     CENA K — O NÚMERO QUE SÓ MORA NA COLUNA `numero` (09/08).
+
+     44 dos 225 clientes da empresa 41 (20%) têm o número só ali. O cartão
+     do celular mostrava "Rua M-7" onde o computador mostra "Rua M-7, 897" —
+     endereço é DADO, e dado não pode mudar de valor conforme a tela.
+     A cena cobra a MESMA linha nas TRÊS origens da lista: a da AGENDA
+     (`dia-preview`, linha pronta do servidor), a do RASCUNHO (escolher na
+     mão em "Meus clientes", onde só chegam as PARTES) e a do HISTÓRICO
+     (linha pronta do servidor, medida na cena J e repetida aqui de perto).
+     =================================================================== */
+  const AGENDA_M7 = [{
+    customerProfileId: 'c8', localId: 'L1', nome: 'Marcos M-7',
+    endereco: 'Rua M-7', numero: '897', bairro: 'Cervezao', cidade: 'Rio Claro',
+    enderecoLinha: 'Rua M-7, 897', lat: -22.405, lng: -47.555, resolveSozinho: true, itens: [],
+  }];
+  await cena({ agendaHoje: AGENDA_M7 });
+  await irPara('montagem');
+  const tK0 = await espiar();
+  nota(`[K] agenda: ruas=${JSON.stringify(tK0.ruas)}`);
+  eh('K1 · AGENDA: o cartao mostra "Rua M-7, 897"', tK0.ruas[0] === 'Rua M-7, 897', tK0.ruas.join(' | '));
+
+  await cena({});
+  await irPara('montagem');
+  await irPara('rapida', 900);
+  await marcar(7);                          // c8 — numero so na coluna
+  await p.evaluate(() => document.querySelector('[data-acao="rapida-adicionar-escolhidos"]').click());
+  await p.waitForTimeout(2000);
+  const tK1 = await espiar();
+  nota(`[K] rascunho ("Meus clientes"): ruas=${JSON.stringify(tK1.ruas)}`);
+  eh('K2 · RASCUNHO: a porta "Meus clientes" monta a linha com o numero',
+    tK1.ruas[0] === 'Rua M-7, 897', tK1.ruas.join(' | '));
+  /* 🔴 E NÃO REPETE O QUE JÁ ESTÁ ESCRITO. O legado grava "Rua 3a, 1354" na
+     rua E 1354 na coluna; concatenar na força bruta viraria
+     "Rua 3a, 1354, 1354" na cara do motorista. */
+  await p.evaluate(() => {
+    const x = document.querySelector('.portao-wrap .principal');
+    if (x) x.click();
+  });
+  await p.waitForTimeout(400);
+  await irPara('rapida', 900);
+  await marcar(0);                          // c1 — numero JÁ dentro do texto da rua
+  await p.evaluate(() => document.querySelector('[data-acao="rapida-adicionar-escolhidos"]').click());
+  await p.waitForTimeout(2000);
+  const tK2 = await espiar();
+  nota(`[K] numero ja no texto: ruas=${JSON.stringify(tK2.ruas)}`);
+  eh('K3 · numero ja escrito na rua NAO é repetido',
+    tK2.ruas.indexOf('Rua 3a, 1354') >= 0 && !tK2.ruas.some((r) => /1354.*1354/.test(r)),
+    tK2.ruas.join(' | '));
+
+  /* ===================================================================
+     CENA L — (0,0) NÃO É PINO, E A RÉGUA É UMA SÓ (09/08).
+
+     `pinoValido` nasceu porque esta mesma pergunta estava escrita de seis
+     jeitos no `ponte.js` — e as cópias da montagem deixavam o par (0,0)
+     passar: zero é FINITO, então `isFinite` não barra o que o `truthy`
+     barrava de graça. Um cliente com (0,0) virava um ponto no Golfo da
+     Guiné e a câmera abria de Rio Claro até o Senegal (medido no g15).
+     Aqui a régua se mede pela TELA: os dois clientes são iguais em tudo
+     (sem recorrência, endereço completo) — só a coordenada muda.
+     =================================================================== */
+  await cena({});
+  await irPara('montagem');
+  await irPara('rapida', 900);
+  await marcar(7); await marcar(8);         // c8 (pino real) e c9 (0,0)
+  await p.evaluate(() => document.querySelector('[data-acao="rapida-adicionar-escolhidos"]').click());
+  await p.waitForTimeout(2000);
+  const tL = await espiar();
+  const flagsL = tL.pernas.filter((t) => /não sei onde fica/i.test(t));
+  nota(`[L] pino real x (0,0): stops=${tL.nStops} · linhas: ${tL.linhas.join(' | ')} · avisos=${flagsL.length}`);
+  eh('L1 · os dois entraram na lista', tL.nStops === 2, `stops=${tL.nStops}`);
+  eh('L2 · (0,0) é recusado como pino: UMA linha avisa "nao sei onde fica"',
+    flagsL.length === 1, `avisos=${flagsL.length}`);
+  /* quem sobra em cima é quem TEM pino: sem pino a linha vai pro FIM da fila
+     (`encadearPorDistancia`), então o (0,0) tem que ser o ÚLTIMO. */
+  eh('L3 · coordenada real é aceita e ordena na frente do (0,0)',
+    /Marcos/.test(tL.linhas[0] || '') && /Nilda/.test(tL.linhas[1] || ''), tL.linhas.join(' | '));
+  await p.evaluate(() => {
+    const x = document.querySelector('.portao-wrap .principal');
+    if (x) x.click();
+  });
+  await p.waitForTimeout(400);
 
   /* ===================================================================
      CENA B2 — SALVAR/INICIAR materializa o rascunho

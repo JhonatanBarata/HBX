@@ -908,18 +908,18 @@ const DADOS={
     ],
   },
   /* A MONTAGEM É A TELA DE MONTAR (07/08, ordem do dono: "clico em montar rota
-     e aparece uma tela para montar a rota"). `dias`/`diaSel` são os chips do
-     dia (vêm da ponte; sem eles a linha não existe). `pronta` é o que troca o
-     botão do pé: 0 = ainda por montar → "Montar rota"; 1 = montada → "Iniciar
-     rota". Botão de iniciar em rota que não existe foi o erro que o dono viu
-     na cara ("monte a rota antes"). */
+     e aparece uma tela para montar a rota"). `pronta` é o que troca o botão do
+     pé: 0 = ainda por montar → "Montar rota"; 1 = montada → "Iniciar rota".
+     Botão de iniciar em rota que não existe foi o erro que o dono viu na cara
+     ("monte a rota antes").
+     `dias`/`diaSel` saíram com os chips de dia (09/08). */
   montagem:{
     titulo:'Montagem de rota',
     somaParadas:'6', somaProdutos:'20', somaValor:'R$ 336,00',
     iniciarSub:'João da Silva',
-    dias:[], diaSel:0, pronta:1, vazio:'Nenhum cliente nesse dia',
-    // Vazios pelo MESMO motivo dos `dias`: nome de espaço é dinheiro do dono na
-    // tela. Maquete aqui faria o motorista ler "Manhã" num espaço que não existe.
+    pronta:1, vazio:'Nenhum cliente nesse dia',
+    // Espaços vazios de propósito: nome de espaço é dinheiro do dono na tela.
+    // Maquete aqui faria o motorista ler "Manhã" num espaço que não existe.
     modos:[], modoSel:'',
     // demo do HISTÓRICO (09/08) — dado vivo vem da ponte; aqui é só a peça.
     historico:[
@@ -930,10 +930,8 @@ const DADOS={
        objeto, não mais uma tupla posicional de 8 casas. Foi a tupla que fez o
        cartão daqui virar cópia — cada campo novo da rota (`pill`, `perna`,
        `nota`, o gancho de toque) exigia uma 9ª casa e ninguém a abria. */
-    // O 1º demo é AVULSO de propósito: é ele que mostra o cabeçalho da parte
-    // avulsa (09/08) no visualizador, senão a peça só existiria com dado vivo.
     linhas:[
-      {n:1,hora:'08:30',avulsa:1,nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['Pendente','mute','clock'],perna:''},
+      {n:1,hora:'08:30',nome:'João da Silva',rua:'R. das Palmeiras, 145',bairro:'Santo Amaro',tags:[['20L x2','blue'],['Vasilhame'],['Chip dia','lime']],marcado:'42,00',pill:['Pendente','mute','clock'],perna:''},
       {n:2,hora:'09:15',nome:'Mercadinho Bom Preço',rua:'Av. João Dias, 890',bairro:'Brooklin',tags:[['20L x4','blue'],['Vasilhame']],marcado:'84,00',pill:['Pendente','mute','clock'],perna:'850 m · 4 min'},
       {n:3,hora:'10:05',cor:'lime',nome:'Maria Aparecida',rua:'R. Sargento Silva Nunes, 72',bairro:'Moema',tags:[['20L x1','blue'],['Chip dia','lime']],marcado:'21,00',pill:['Entregue','lime','check'],perna:'1,2 km · 6 min'},
       {n:4,hora:'10:45',nome:'Padaria Pão Nosso',rua:'Av. Ibirapuera, 2331',bairro:'Moema',tags:[['20L x2','blue'],['Vasilhame']],marcado:'42,00',pill:['Pendente','mute','clock'],perna:'620 m · 3 min'},
@@ -1878,11 +1876,14 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
      De quebra some o "Marcado R$ " vazio: o cartão da montagem imprimia a
      etiqueta de dinheiro mesmo sem preço nenhum (financeiro desligado), e o
      `stop()` obedece a Lei do IF — sem valor, sem etiqueta. */
-  /* Os chips do dia moram AQUI (07/08). Antes ficavam na tela Rota, longe da
-     lista que eles mudam — o dono trocava de dia e via a lista de hoje. Quem
-     sabe quais dias existem é a ponte; sem ela — o desenho — a linha some. */
-  const chips=Array.isArray(d.dias)&&d.dias.length?`<div class="chips centro">
-    ${d.dias.map(x=>`<button class="chip${(d.diaSel||0)===x[0]?' on':''}" data-acao="montar-dia" data-dia="${x[0]}">${x[1]}</button>`).join('')}</div>`:'';
+  /* ⚰️ OS CHIPS DE DIA SAÍRAM DA TELA (dono, 09/08: *"remova os dias da semana
+     (estamos em avulsas)"*). Eles eram o seletor da AGENDA: trocavam a lista
+     pela prévia de outro dia da semana. Quem monta rota hoje entra pelo "+" ›
+     "Meus clientes" e escolhe quem vai, um a um — a lista é AVULSA, e um chip
+     de terça em cima dela é pergunta de outra tela.
+     Some o SLOT inteiro, não só os botões: fileira vazia guardando lugar é
+     buraco no desenho. A escolha de dia continua na ponte (`montarDia`), agora
+     sem porta — e sem porta ela fica em 0, que é HOJE, o caminho de sempre. */
   /* 🔴 O SELETOR DE ORDEM (dono, 08/08) — o botão do MEIO da montagem. Três
      posições e uma só na tela por vez: a ordem automática por DISTÂNCIA (a que
      a lista já nasce) e os 2 ESPAÇOS de rota salva daquele dia da semana. O
@@ -1905,15 +1906,16 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
      contam quem tem gente, e a mesma conta em dois lugares da MESMA tela é
      exatamente o bug de produto que esta casa persegue. O dado é o mesmo que os
      chips já pedem no boot (`DADOS.rota.semana`) — nenhuma ida nova à rede. */
-  /* 🔴 A PARTE AVULSA (dono, 09/08: "isso aqui é AVULSO, crie uma parte
-     avulsa" — depois do chip "Dom" fantasma que a 1ª cura inventou). Quem é
-     avulso NÃO vira dia de agenda: vem etiquetado (`avulsa`) pela ponte, senta
-     no TOPO da lista como grupo próprio, e o cabeçalho só nasce na VIRADA da
-     etiqueta — mesmo padrão do `cab` das Rotas salvas. */
+  /* A PARTE AVULSA PERDEU A FAIXA ESCRITA (dono, 09/08: *"remover 'Rota
+     avulsa' o escrito"*). O avulso continua vindo etiquetado pela ponte e
+     continua sentando no TOPO da lista — o que saiu foi o RÓTULO: com a lista
+     inteira avulsa (é o caminho normal desde que os chips de dia saíram) ele
+     nomeava o óbvio, e cabeçalho que aparece sempre não separa nada.
+     A etiqueta `avulsa` saiu da linha junto: campo que ninguém desenha é campo
+     morto, e campo morto vira parede na próxima leitura. A ORDEM (avulso na
+     frente) é da ponte e não depende dele. */
   const lista=d.linhas.length
-    ? `<div class="stops" data-gestos="rota">${d.linhas.map((p,i)=>{
-        const cab=p.avulsa&&(!i||!d.linhas[i-1].avulsa)?`<div class="grupo">Rota avulsa</div>`:'';
-        return `${cab}${perna(p.perna)}${stop(p)}`;}).join('')}</div>`
+    ? `<div class="stops" data-gestos="rota">${d.linhas.map(p=>`${perna(p.perna)}${stop(p)}`).join('')}</div>`
     : `<div class="vazio"><span class="ico">${ic('route',24)}</span><strong>${d.vazio}</strong></div>
        ${semanaAgenda()}`;
   /* O HISTÓRICO (dono, 09/08: "criar um histórico, salva por 14 dias. SIMPLES
@@ -1977,30 +1979,16 @@ ${hdr({voltar:'rota'})}
        errado às 21h. Estilo colado no `.screen-head p`, que é o subtítulo das
        outras telas: título de tela é família única, por lei de 08/08. */''}
   ${DADOS.rota.dataLonga?`<p style="margin:1px 0 0;font-size:11.5px;color:var(--ink-2);text-align:center">${DADOS.rota.dataLonga}</p>`:''}
-  ${chips}
   ${modos}
-  ${/* 🔴 O CRÉDITO MUDOU PRA TELA ONDE ELE É GASTO (dono, 09/08). Ele morava
-       na "Agenda de hoje" dizendo "monte a rota pra saber" — informação de
-       preço numa tela que não tinha o botão que cobra. Aqui embaixo estão os
-       dois toques que gastam ("Montar rota" e "Iniciar rota"), então o número
-       fica na frente da decisão, que é a lei do portão de crédito.
-       Sem saldo do servidor não há linha: crédito inventado é dinheiro
-       inventado. E o subtexto é o mesmo par de sempre — com a rota já montada
-       o servidor sabe o custo REAL; antes disso, ninguém sabe, e a tela diz
-       isso com todas as letras em vez de chutar um número. */''}
-  ${/* 🔴 QUEM DECIDE O SUBTEXTO É A ROTA, NÃO O PÉ DA TELA (achado no g15, 09/08).
-       A 1ª versão lia `d.pronta` — e `pronta` aqui responde "o dia da lista é
-       HOJE?" (é o que troca o pé entre Iniciar e Montar), não "existe rota
-       montada?". Resultado no aparelho, num domingo sem nada pra montar: a tela
-       caía no ramo da rota pronta, não achava custo e escrevia **"não consegui
-       o custo agora"** — cara de erro do servidor onde a verdade é que ninguém
-       montou rota nenhuma. A régua certa é a mesma que governa a porta da
-       lista: `temRotaNoDia`. Sem rota, a frase é a que o desenho sempre teve. */''}
-  ${DADOS.rota.creditos?`<div class="creditos">${ic('card',17)}
-    <span><b class="v">${DADOS.rota.creditos}</b> <small>créditos hoje</small></span>
-    <span class="debita">${temRotaNoDia(estadoRota)
-      ? (DADOS.rota.creditosDebita?`Iniciar debita ${DADOS.rota.creditosDebita}`:'não consegui o custo agora')
-      : 'monte a rota pra saber'}</span></div>`:''}
+  ${/* ⚰️ A LINHA DE CRÉDITO SAIU DAQUI (dono, 09/08: *"remover linha toda:
+       9340 créditos…"*). Ela chegou nesta tela hoje de manhã, pela lei do
+       portão de crédito ("o número na frente da decisão"), e o dono cortou:
+       saldo de 9.340 com um "monte a rota pra saber" do lado é ruído no topo
+       da lista que ele veio montar. O saldo continua onde ele é resposta a uma
+       pergunta — a tela de Créditos — e o custo REAL continua aparecendo na
+       Rota já montada (`.creditos` do `T.rotalista`), que é onde ele deixa de
+       ser estimativa. Quem cobra segue cobrando: o portão de crédito é do
+       Iniciar, não deste texto. */''}
   ${miolo(d,'route','recarregar-montagem',5,`${lista}
   <div class="sum">
     <span class="c"><span style="color:var(--lime)">${ic('route',17)}</span><span><b>${d.somaParadas}</b><small>paradas</small></span></span>
@@ -4047,7 +4035,9 @@ const AULAS={
     ['.tmx-main,.dock-montar','O que fazer agora','O botão grande é sempre o próximo passo do dia.'],
   ],
   montagem:[
-    ['.day-chips,.chips','O dia','Escolha o dia. Só aparece dia que tem cliente.'],
+    /* ⚰️ O passo "O dia" saiu com os chips (09/08, ordem do dono). Aula viva
+       apontando pro vazio é o defeito que o cabeçalho deste bloco descreve:
+       cada tela ensina o que ELA tem, e esta não tem mais dia pra escolher. */
     ['.stop','A ordem do dia','Arraste pra ajustar a ordem antes de sair.'],
     ['[data-ir="rapida"]','Uma parada fora do dia','O "+" põe na rota um endereço que não está agendado hoje.'],
     ['.acts,.tmx-dock','Salvar ou começar','"Salvar rota" guarda pra depois. "Iniciar rota" começa o dia agora.'],
@@ -4129,8 +4119,10 @@ const CAPITULOS={
        primeiro porque é o que o dedo procura. */
     {tela:'rota',alvo:['.tmx-main button[data-estado="montar"]','[data-acao="montar"]'],tipo:'fazer',
      titulo:'Comece por aqui',texto:'Toque em montar pra armar o seu dia.'},
-    {tela:'montagem',alvo:'.day-chips,.chips',tipo:'fazer',
-     titulo:'O dia',texto:'Escolha o dia. Só aparece dia que tem cliente.'},
+    /* ⚰️ O passo "O dia" saiu com os chips (09/08, ordem do dono: "remova os
+       dias da semana"). Ele era `fazer` — o tour PARAVA esperando um clique
+       num chip que não existe mais, e capítulo OBRIGATÓRIO travado é a pior
+       versão do "peça que sumiu do roteiro": o dono não sai dele. */
     {tela:'montagem',alvo:'.stop',
      titulo:'Cada cartão é uma parada',texto:'Segure no punho do lado pra arrastar e mudar a ordem.'},
     {tela:'montagem',alvo:'[data-ir="rapida"]',

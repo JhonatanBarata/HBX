@@ -558,6 +558,59 @@
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
 
+  /* 🔴 A LINHA DE ENDEREÇO SE MONTA NUMA RÉGUA SÓ (09/08, dono: "o q for regra
+     no celular é desktop tbm"). Espelho fiel de `linhaEnderecoDaFonte`
+     (backend/src/logistica/logistica-geo-fonte.util.ts): sem rua devolve
+     "nº 123"; número já escrito dentro do texto da rua não é repetido, senão
+     o legado "Rua X, 123 - Centro" viraria "Rua X, 123 - Centro, 123".
+
+     Medido na empresa 41: 44 dos 225 clientes têm o número SÓ na coluna
+     `numero`. As listas que montavam a linha com o `endereco` cru mostravam
+     "Rua M-7" onde o computador mostra "Rua M-7, 897" — 20% da base com dois
+     endereços dependendo da tela. Endereço é DADO; dado não muda de valor
+     conforme a tela.
+
+     🔴 ELA SÓ ENTRA ONDE O SERVIDOR NÃO MANDOU A LINHA PRONTA — hoje, só a
+     porta "Meus clientes" (`/nucleo/clientes` manda `endereco` e `numero`
+     separados). Agenda (`dia-preview`) e histórico (`rota/historico`) já vêm
+     com `enderecoLinha` montada lá: recalcular a linha de quem já a tem é
+     criar a segunda régua de novo, com outro nome. */
+  function linhaDeEndereco(endereco, numero) {
+    const rua = String(endereco == null ? '' : endereco).trim();
+    const num = String(numero == null ? '' : numero).trim();
+    if (!rua) return num ? `nº ${num}` : '';
+    if (!num) return rua;
+    const numEsc = num.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|[^0-9])${numEsc}([^0-9]|$)`).test(rua) ? rua : `${rua}, ${num}`;
+  }
+
+  /* 🔴 RÉGUA ÚNICA DE PINO (09/08). "Esta linha tem porta marcada?" era a mesma
+     pergunta escrita de SEIS jeitos neste arquivo: umas cópias só checavam
+     `typeof === 'number'`, outras somavam `isFinite`, e as duas primeiras da
+     lista da montagem deixavam o par (0,0) passar. Cópia de régua é exatamente
+     como duas telas do mesmo app voltam a discordar.
+
+     · 0,0 é o Golfo da Guiné, não a porta do cliente — coluna zerada por
+       importação é AUSÊNCIA de pino, e foi ela que abriu a câmera de Rio Claro
+       até o Senegal (medido no g15, APK 206). Zero é finito: `isFinite`
+       sozinho não barra o que o `truthy` barrava de graça.
+     · faixa (|lat|<=90, |lng|<=180) porque lat/lng trocados desenham pino no
+       mar em silêncio, em vez de a linha dizer que não sabe onde fica. */
+  function pinoValido(lat, lng) {
+    const a = Number(lat);
+    const b = Number(lng);
+    return Number.isFinite(a) && Number.isFinite(b)
+      && Math.abs(a) <= 90 && Math.abs(b) <= 180
+      && !(a === 0 && b === 0);
+  }
+
+  /* 🔴 A IDENTIDADE DE UMA PARADA É `cliente|porta` (09/08). O mesmo cliente
+     em duas portas no mesmo dia são DUAS paradas legítimas, e toda lista que
+     deduplicava só pelo cliente apagava a segunda em silêncio. Agenda, rota e
+     histórico mandam `localId` — a chave fecha nas três, e sem porta ela é o
+     cliente no endereço do perfil, que é o que o legado sempre foi. */
+  const chaveDaPorta = (cid, localId) => `${String(cid || '')}|${String(localId || '')}`;
+
   /* 🔴 O STATUS DA PARADA FALA UMA LÍNGUA SÓ (09/08). A pílula era escrita
      DENTRO do `traduzirParada`, e por isso existia só na lista da rota: a
      montagem — que mostra as MESMAS paradas quando o dia já está montado —
@@ -657,10 +710,13 @@
       // dois jeitos (dono, 09/08).
       rua: esc(c.enderecoLinha || ''),
       bairro: esc(c.bairro || c.cidade || ''),
-      // o pino do mapa sai daqui; sem coordenada a parada existe na lista e
-      // NÃO aparece no mapa (é o que "sem trajeto" já conta pro motorista).
-      lat: typeof c.lat === 'number' ? c.lat : null,
-      lng: typeof c.lng === 'number' ? c.lng : null,
+      /* o pino do mapa sai daqui; sem coordenada a parada existe na lista e
+         NÃO aparece no mapa (é o que "sem trajeto" já conta pro motorista).
+         🔴 OS DOIS EIXOS ANDAM JUNTOS, pela régua única: cada campo com o seu
+         próprio teste deixava passar meia coordenada (lat boa, lng nula) —
+         é o "pino Frankenstein" que o util do servidor nasceu pra matar. */
+      lat: pinoValido(c.lat, c.lng) ? Number(c.lat) : null,
+      lng: pinoValido(c.lat, c.lng) ? Number(c.lng) : null,
       nota: c.observacoes ? esc(c.observacoes) : undefined,
       tags,
       // valorHoje só existe com o financeiro ligado — sem ele, sem número.
@@ -1025,7 +1081,7 @@
         // COPY que o ESTADO decide não é copy do desenho: no boot o dia é HOJE,
         // e o "nesse dia" do mock não se refere a dia nenhum sem chip aceso.
         vazio: textoVazio(0),
-        somaParadas: '', somaProdutos: '', somaValor: '', dias: [], diaSel: 0,
+        somaParadas: '', somaProdutos: '', somaValor: '',
         // o HISTÓRICO demo do mock morre aqui como todo dado de exemplo —
         // "Sáb · 95 paradas" inventado numa tela de decisão é a mentira de
         // sempre com roupa nova (09/08).
@@ -1258,11 +1314,10 @@
     // chips de dia do montar só nasciam depois de passar pelos Ajustes.
     config = cfg;
     aplicarBarra(cfg);
-    publicarMontarDias();
-    // A medida dos dias que têm cliente vem UMA vez, aqui, e não na abertura da
-    // montagem: chip que nasce com 7 e encolhe pra 4 meio segundo depois pisca
-    // na cara de quem está escolhendo. Esta função já roda no boot (e a cada
-    // minuto, mas só a 1ª pergunta) — quando a tela abrir, a conta já existe.
+    // A medida dos dias que têm cliente vem UMA vez, aqui: a semana da lista
+    // vazia responde "então quando eu entrego?" e ela não pode nascer com sete
+    // zeros e se corrigir meio segundo depois. Esta função já roda no boot (e a
+    // cada minuto, mas só a 1ª pergunta) — quando a tela abrir, a conta existe.
     if (!diasComCliente) carregarDiasComCliente();
   }
 
@@ -1360,7 +1415,16 @@
      adiantar, ou voltar um dia". O trilho é o MESMO do desktop
      (`/logistica/admin-route/prepare`): o dia operacional continua HOJE —
      fechamento, cobrança e carimbo coerentes — e só os CLIENTES vêm do dia
-     escolhido. 0 = hoje (fluxo de sempre). Chip só aparece pra admin.
+     escolhido. 0 = hoje (fluxo de sempre).
+
+     ⚠️ SEM PORTA DESDE 09/08 — leia antes de mexer. Os chips de dia saíram da
+     Montagem por ordem do dono ("remova os dias da semana, estamos em
+     avulsas") e eles eram o ÚNICO jeito de mudar este valor. Hoje `montarDia`
+     nasce e morre em 0: a Montagem é sempre HOJE, e tudo o que depende dele
+     abaixo (`diaDosEspacos`, o ramo `prepare` do `montarRota`, o recibo "Rota
+     de Sáb montada") está de pé mas inalcançável. Ficou de pé de propósito, à
+     espera da porta que o dono decidir — não é código esquecido, e ninguém
+     deve tratá-lo como capacidade viva enquanto porta não houver.
      -------------------------------------------------------------------- */
   let montarDia = 0;
 
@@ -1388,7 +1452,13 @@
         na hora (porta Endereço, modo Cadastro). O que virou rascunho é a
         PARADA, nunca o cliente.
      ------------------------------------------------------------------------ */
-  const RASCUNHO = [];        // {id, nome, endereco, bairro, lat, lng}
+  /* {id, localId?, nome, enderecoLinha, bairro, lat?, lng?, resolveSozinho}
+     🔴 A LINHA JÁ CHEGA MONTADA, e o rascunho NÃO guarda `endereco` cru
+     (09/08): quem enche este array é quem sabe de onde o dado veio — do
+     servidor, que manda `enderecoLinha` pronta (histórico), ou das partes,
+     que passam por `linhaDeEndereco` na porta "Meus clientes". Guardar a rua
+     crua aqui convidaria a próxima tela a montar a linha do jeito dela. */
+  const RASCUNHO = [];
   /** a rota está viva na rua? então nada aqui é rascunho */
   const rotaNaRua = () => estadoRota === 'rodando' || estadoRota === 'pausada';
   /** as telas em que o rascunho SOBREVIVE: elas são a própria escolha de gente */
@@ -1396,8 +1466,6 @@
   function descartarRascunho() {
     if (!RASCUNHO.length) return;
     RASCUNHO.length = 0;
-    // o chip de HOJE pode ter nascido só por causa do rascunho — ver `publicarMontarDias`
-    publicarMontarDias();
   }
 
   /** a data (SP) da próxima ocorrência do dia n (1=Seg…7=Dom), hoje inclusive */
@@ -1438,9 +1506,8 @@
      🔴 E O FETCH SAIU DO PORTÃO DE ADMIN. Ele estava lá porque o único cliente
      era o chip da MONTAGEM, que é tela de admin — mas a semana é da tela do
      motorista também, e "em que dia eu entrego?" não é dado de dono. O
-     endpoint não tem `@Admin` (conferido no controller); quem continua atrás do
-     portão é a PUBLICAÇÃO dos chips (`publicarMontarDias`), que é o que
-     realmente pertence ao admin. */
+     endpoint não tem `@Admin` (conferido no controller). Com o chip fora do
+     desenho (09/08) sobrou UM cliente: a SEMANA da lista vazia. */
   async function carregarDiasComCliente() {
     if (typeof window.API === 'undefined' || diasEmVoo) return;
     diasEmVoo = true;
@@ -1455,7 +1522,6 @@
       .filter((d) => Number(d && d.totalClientesDia) > 0)
       .map((d) => Number(d.diaSemana)));
     publicarSemana(dias);
-    publicarMontarDias();
   }
 
   /* A SEMANA DA AGENDA na tela da lista: `[[dia, 'Segunda', 53, ehHoje]]`.
@@ -1481,37 +1547,16 @@
     window.usarDados('rota', { semana: semana.some((x) => x[2] > 0) ? semana : [] });
   }
 
-  /** os chips de dia da tela de MONTAGEM — sem admin, nada entra */
-  function publicarMontarDias() {
-    if (typeof window.usarDados !== 'function') return;
-    if (!ehAdmin()) return;
-    const hoje = diaDaSemana();
-    // 🔴 A REGRA É UMA SÓ, E VALE PRO HOJE TAMBÉM (dono, 08/08: "se o dia não
-    // tem nada: nada a exibir hoje"). Eu tinha aberto exceção pro dia atual —
-    // ele ficaria de pé mesmo vazio, pra não sobrar seleção sem chip. Errado:
-    // chip de um dia que não tem ninguém é convite pra lista vazia, e o dia
-    // atual não é diferente dos outros. Quem explica a tela quando hoje está
-    // vazio é o TEXTO ("Nada a exibir hoje"), não um chip mentindo que há o que
-    // montar.
-    /* 🔴 CHIP DE DIA É DA AGENDA, E SÓ DELA (dono, 09/08: "vc meio q criou um
-       'dom' como se tivesse cliente de domingo, totalmente fora de semantica…
-       isso aqui é AVULSO, crie uma parte avulsa"). A 1ª cura da "porta de
-       volta" fez rascunho e parada aberta acenderem o chip de HOJE — e num
-       domingo sem agenda nasceu um "Dom" mentindo que havia cliente de
-       domingo. O chip conta a AGENDA; o avulso vive na PARTE AVULSA da lista
-       de HOJE (etiqueta `avulsa` no somarRascunho/somarAvulsas), e a volta de
-       um dia espiado é o 2º toque no chip aceso — regra que os chips já têm. */
-    const temHoje = !!(diasComCliente && diasComCliente.has(hoje));
-    const dias = [1, 2, 3, 4, 5, 6, 7]
-      .filter((n) => (n === hoje ? temHoje : (!diasComCliente || diasComCliente.has(n))))
-      .map((n) => [n === hoje ? 0 : n, ROTULO_DIA[n]]);
-    window.usarDados('montagem', { dias, diaSel: montarDia });
-  }
+  /* ⚰️ `publicarMontarDias` MORREU (dono, 09/08: "remova os dias da semana
+     (estamos em avulsas)"). Ela existia só pra encher a fileira de chips da
+     Montagem — que saiu do desenho. Publicar `dias` num seam que ninguém mais
+     desenha não é neutro: TODO `usarDados` que muda de valor monta uma camada
+     nova, e esta era chamada no boot, na volta do foco, depois de materializar
+     e depois de cadastrar. Repinte pra dado invisível é o "pisca" de sempre.
+     Quem media os dias com gente (`carregarDiasComCliente`) fica: ela alimenta
+     a SEMANA da lista vazia, que continua na tela. */
 
-  /* O recado da lista vazia. Hoje sem ninguém não tem chip pra explicar a tela
-     (a regra acima o tirou da fila), então quem explica é esta linha — texto
-     literal do dono. Outro dia continua com o recado que já existia: ali o chip
-     está aceso e o "nesse dia" tem a quem se referir. Um dia da semana pode vir
+  /* O recado da lista vazia — texto literal do dono. Um dia da semana pode vir
      vazio mesmo tendo gente: a cadência (quinzenal, de N em N) decide se ele
      cai NESTA semana. */
   const textoVazio = (dia) => (dia ? 'Nenhum cliente nesse dia' : 'Nada a exibir hoje');
@@ -1546,8 +1591,7 @@
      servidor mandou e quem não tem coordenada vai pro FIM (não some — some é
      que seria mentira). ------------------------------------------------------ */
   function encadearPorDistancia(itens, de) {
-    const temPino = (c) => typeof c.lat === 'number' && typeof c.lng === 'number'
-      && isFinite(c.lat) && isFinite(c.lng) && !(c.lat === 0 && c.lng === 0);
+    const temPino = (c) => pinoValido(c && c.lat, c && c.lng);
     const semPino = itens.filter((c) => !temPino(c));
     if (!de) return itens.filter(temPino).concat(semPino);
     const fila = itens.filter(temPino);
@@ -1652,8 +1696,7 @@
         pisca à toa; repintar por cima de um arrasto é desfazer decisão humana —
         o pecado que a frente inteira está matando.
      ------------------------------------------------------------------------ */
-  const semPinoNaPrevia = (c) => !(c && typeof c.lat === 'number' && typeof c.lng === 'number'
-    && isFinite(c.lat) && isFinite(c.lng) && !(c.lat === 0 && c.lng === 0));
+  const semPinoNaPrevia = (c) => !pinoValido(c && c.lat, c && c.lng);
   const SANITIZADO = new Set();       // datas já tentadas nesta sessão
 
   async function sanitizarPrevia(seq, data, dia) {
@@ -1742,16 +1785,20 @@
         customerProfileId: cid,
         ...(it.localId ? { localId: String(it.localId) } : {}),
         nome: c.nome || '',
-        // A avulsa fala a MESMA língua da prévia do servidor (09/08): quem
-        // desenha o cartão lê `enderecoLinha`, então enfiar a rua no campo do
-        // apelido — como era feito aqui — só funcionava por acidente.
-        enderecoLinha: c.endereco || '',
+        /* A avulsa fala a MESMA língua da prévia do servidor (09/08): quem
+           desenha o cartão lê `enderecoLinha`.
+           🔴 E A LINHA É A DO SERVIDOR, não a rua crua. Aqui se lia
+           `c.endereco` — o campo do `listRota` que traz SÓ a rua — e a mesma
+           parada aparecia "Rua M-7" na montagem e "Rua M-7, 897" na lista da
+           rota logo abaixo, que já lê `enderecoLinha`. O servidor manda o
+           campo pronto em `/logistica/rota`; ler outro é escolher divergir. */
+        enderecoLinha: c.enderecoLinha || '',
         bairro: c.bairro || c.cidade || '',
         observacoes: c.observacoes || '',
         // Sem produto: a avulsa é uma PARADA, não uma venda montada. Item
         // inventado aqui viraria contagem falsa no rodapé da tela.
         itens: [],
-        ...(typeof c.lat === 'number' && typeof c.lng === 'number' ? { lat: c.lat, lng: c.lng } : {}),
+        ...(pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : {}),
         // a PARTE AVULSA da lista (dono, 09/08: "isso aqui é AVULSO, crie uma
         // parte avulsa") — a tela agrupa por esta etiqueta, nunca por chip.
         avulsa: true,
@@ -1768,30 +1815,47 @@
      Só HOJE: rascunho é do dia que se está montando, e empurrá-lo pra prévia de
      uma quarta-feira futura seria mentir sobre o dia que está na tela.
 
-     Quem já está na prévia — ou já virou parada de verdade — não entra 2×: o
-     mesmo cliente em duas linhas é bug de produto pela lei desta casa.
+     Quem já está na prévia — ou já virou parada de verdade — não entra 2×.
+
+     🔴 E "2×" SE MEDE POR PORTA, NÃO POR CLIENTE (09/08). A mesma dupla
+     `cliente|localId` que o espaço salvo (`ordenarPeloEspaco`) e a PREVIA já
+     usam: o mesmo cliente em duas portas no mesmo dia são duas paradas
+     legítimas, e a chave por cliente apagava a segunda em silêncio.
+
+     🔴 DUAS CHAVES, PORQUE AS DUAS FONTES SABEM COISAS DIFERENTES — e chutar
+     porta em cima de quem não a informa é inventar dado. O `dia-preview` manda
+     `localId` em toda linha, então a prévia se compara por PORTA. O `listRota`
+     NÃO manda (medido: o item expõe `localApelido`, nunca o id do local), e
+     ali a única verdade disponível é a CONTA — comparar por porta contra
+     `undefined` faria toda parada já aberta virar "porta diferente" e a lista
+     mostraria o mesmo cliente duas vezes.
      ------------------------------------------------------------------------ */
   function somarRascunho(data) {
     if (data !== hojeISO() || !RASCUNHO.length || !Array.isArray(previaCrua)) return;
-    const jaTem = new Set(previaCrua.map((c) => String((c && c.customerProfileId) || '')));
+    const jaTem = new Set(previaCrua.map((c) => chaveDaPorta(c && c.customerProfileId, c && c.localId)));
+    const jaEhParada = new Set();
     paradasAbertas().forEach((p) => {
       const cid = String((((p.item || {}).cliente) || {}).id || '');
-      if (cid) jaTem.add(cid);
+      if (cid) jaEhParada.add(cid);
     });
     RASCUNHO.forEach((c) => {
       const cid = String(c.id || '');
-      if (!cid || jaTem.has(cid)) return;
-      jaTem.add(cid);
+      const porta = chaveDaPorta(cid, c.localId);
+      if (!cid || jaEhParada.has(cid)) return;
+      jaTem.add(porta);
       previaCrua.push({
         customerProfileId: cid,
+        ...(c.localId ? { localId: String(c.localId) } : {}),
         nome: c.nome || '',
         // fala a MESMA língua da prévia do servidor: quem desenha o cartão lê
-        // `enderecoLinha` (é o achado de 09/08 que a avulsa já pagou).
-        enderecoLinha: c.endereco || '',
+        // `enderecoLinha` — e a linha já vem MONTADA no rascunho, pela régua
+        // única (a do servidor quando ele a mandou, `linhaDeEndereco` quando
+        // só chegaram as partes). Remontar aqui seria a terceira régua.
+        enderecoLinha: c.enderecoLinha || '',
         bairro: c.bairro || '',
         // Sem produto: rascunho é uma PARADA escolhida, não uma venda montada.
         itens: [],
-        ...(typeof c.lat === 'number' && typeof c.lng === 'number' ? { lat: c.lat, lng: c.lng } : {}),
+        ...(pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : {}),
         // a MESMA bagagem da linha da agenda — a régua é uma só (ver o push
         // do rascunho): sem isto a avulsa era a única linha "sem trajeto".
         resolveSozinho: !!c.resolveSozinho,
@@ -1847,28 +1911,43 @@
       });
     }
     const clientes = Array.isArray(resp && resp.clientes) ? resp.clientes : [];
+    /* 🔴 A CHAVE É A PORTA, NÃO O CLIENTE (09/08). O servidor manda UMA LINHA
+       POR PORTA — o mesmo cliente em dois `localId` no mesmo dia são duas
+       paradas de verdade — e a chave por cliente engolia a segunda calada.
+       Mesma dupla `cliente|localId` do espaço salvo e da PREVIA. */
     const jaNoRascunho = new Set(RASCUNHO.map((c) => String(c.id)));
     let novos = 0;
     clientes.forEach((c) => {
       const id = String(c.customerProfileId || '');
+      const porta = chaveDaPorta(id, c.localId);
       if (!id || jaNoRascunho.has(id) || paradaAbertaDaConta(id)) return;
       jaNoRascunho.add(id);
-      // a MESMA bagagem do escolher na mão (pino + recorrência) — zero não é pino.
-      const lat = Number(c.lat); const lng = Number(c.lng);
+      /* 🔴 A BAGAGEM INTEIRA VIAJA (09/08). O que sai daqui senta no MESMO
+         cartão da linha da agenda e é lido pela MESMA régua, então tem que
+         chegar com tudo que ela tem:
+         · `localId` — sem ele, reutilizar um dia cria a entrega na porta
+           ERRADA (no perfil) sabendo qual porta era. Medido na empresa 41:
+           31 linhas de 187 nasciam sem pino e 22 com o pino de outra porta;
+         · `enderecoLinha` DO SERVIDOR, nunca a rua crua — 44 dos 225 clientes
+           têm o número só na coluna `numero`, e remontar a linha aqui seria a
+           segunda régua que este dia inteiro está matando;
+         · pino pela régua única (zero não é pino) e `resolveSozinho` de
+           `recorrente`, senão a linha grita "não sei onde fica" pra cliente
+           com porta marcada. */
       RASCUNHO.push({
         id,
+        ...(c.localId ? { localId: String(c.localId) } : {}),
         nome: String(c.nome || 'Cliente'),
-        endereco: String(c.endereco || ''),
+        enderecoLinha: String(c.endereco || ''),
         bairro: String(c.bairro || c.cidade || ''),
-        ...(isFinite(lat) && isFinite(lng) && !(lat === 0 && lng === 0) ? { lat, lng } : {}),
+        ...(pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : {}),
         resolveSozinho: !!c.recorrente,
       });
       novos += 1;
     });
-    // volta pra HOJE: o rascunho vive na lista de hoje, e reutilizar com um
-    // chip de outro dia aceso mostraria a lista errada com o recibo certo.
+    // volta pra HOJE: o rascunho vive na lista de hoje. (O `diaSel` do seam
+    // saiu com os chips — nada mais desenha a seleção de dia.)
     montarDia = 0;
-    window.usarDados('montagem', { diaSel: 0 });
     // ESPERA a lista chegar antes do recibo — portão aberto antes do repinte
     // morre com a camada (armadilha 2 da parada avulsa, 09/08).
     await encherMontagem();
@@ -1965,7 +2044,7 @@
     paradas.forEach((p, i) => {
       const cid = String((p && p.customerProfileId) || '');
       if (!cid) return;
-      const porta = `${cid}|${String((p && p.localId) || '')}`;
+      const porta = chaveDaPorta(cid, p && p.localId);
       if (!porPorta.has(porta)) porPorta.set(porta, i);
       if (!porCliente.has(cid)) porCliente.set(cid, i);
     });
@@ -1978,7 +2057,7 @@
     const FIM = Number.MAX_SAFE_INTEGER;
     const peso = (c) => {
       const cid = String((c && c.customerProfileId) || '');
-      const porta = `${cid}|${String((c && c.localId) || '')}`;
+      const porta = chaveDaPorta(cid, c && c.localId);
       if (porPorta.has(porta)) return porPorta.get(porta) * 2;
       return porCliente.has(cid) ? porCliente.get(cid) * 2 + 1 : FIM;
     };
@@ -2028,8 +2107,7 @@
      menos).
      ------------------------------------------------------------------------ */
   function pernaDaPrevia(atual, anterior, naRota, anteriorNaRota) {
-    const temPino = (c) => !!c && typeof c.lat === 'number' && typeof c.lng === 'number'
-      && isFinite(c.lat) && isFinite(c.lng) && !(c.lat === 0 && c.lng === 0);
+    const temPino = (c) => pinoValido(c && c.lat, c && c.lng);
     /* 🔴 A MESMA RÉGUA DO PAINEL DO COMPUTADOR (dono, 09/08: "quero ver erro
        apenas nos 4, igual está no desktop do Andre"; e a lei geral: "o que for
        regra no celular é regra no desktop também").
@@ -2110,8 +2188,12 @@
            a ficha. Enquanto este campo não existiu, o cartão da montagem não
            tinha porta nenhuma (dono, 09/08). */
         cliente: String(c.customerProfileId || ''),
-        // a etiqueta da PARTE AVULSA — o desenho agrupa por ela (T.montagem)
-        avulsa: c.avulsa ? 1 : 0,
+        /* A etiqueta `avulsa` NÃO viaja mais na linha (dono, 09/08: "remover
+           'Rota avulsa' o escrito"). Ela servia ao cabeçalho do grupo, que saiu
+           do desenho — e campo que ninguém desenha some do seam junto, senão
+           daqui a um mês alguém lê a linha e acha que a tela agrupa por ele.
+           O que a etiqueta faz de verdade continua acontecendo logo acima: a
+           PARTIÇÃO (`clientesOrdenados`) põe o avulso na frente. */
         // a POSIÇÃO de origem: é por ela que o arrasto desta lista fala
         // (`hbx:ordem` → `{previa}`), já que não há id de entrega pra mandar.
         previa: i,
@@ -2200,7 +2282,7 @@
         legDistanceM: typeof it.legDistanceM === 'number' ? it.legDistanceM : null,
         legDurationS: typeof it.legDurationS === 'number' ? it.legDurationS : null,
       };
-      const porta = `${cid}|${String((it && it.localId) || '')}`;
+      const porta = chaveDaPorta(cid, it && it.localId);
       if (!porPorta.has(porta)) porPorta.set(porta, dado);
       if (!porCliente.has(cid)) porCliente.set(cid, dado);
     });
@@ -2211,7 +2293,7 @@
   const naRotaMontada = (mapas, c) => {
     if (!mapas) return null;
     const cid = String((c && c.customerProfileId) || '');
-    return mapas.porPorta.get(`${cid}|${String((c && c.localId) || '')}`) || mapas.porCliente.get(cid) || null;
+    return mapas.porPorta.get(chaveDaPorta(cid, c && c.localId)) || mapas.porCliente.get(cid) || null;
   };
 
   function ordemDaRotaMontada(clientes, mapas) {
@@ -2400,6 +2482,11 @@
       try {
         await window.API.post('/logistica/entregas', {
           customerProfileId: String(c.id),
+          /* 🔴 A PORTA VIAJA JUNTO (09/08). Sem `localId` a entrega nasce no
+             ENDEREÇO DO PERFIL mesmo quando o rascunho sabe de qual porta o
+             dia veio — reutilizar um dia do histórico mandava o motorista pra
+             porta errada com a lista dizendo a certa. O DTO já aceita o campo
+             e o servidor valida que o local é do mesmo cliente+empresa. */
           quantidade: 1,
           scheduledAt: `${hojeISO()}T12:00:00.000Z`,
           paraMinhaRota: true,
@@ -2410,7 +2497,6 @@
     // A rota é relida ANTES de quem chamou seguir: é dela que sai a lista de
     // abertas que o planejar vai ordenar.
     if (entraram) await carregarRota();
-    publicarMontarDias();      // o chip de HOJE pode ter mudado de fonte
     return { falharam, entraram };
   }
 
@@ -2476,7 +2562,7 @@
       /* A ESCOLHA DE DIA MORRE AQUI. O dia escolhido já foi montado — no dia
          DELE —, e seleção presa deixaria o próximo montar puxando o dia velho
          calado, com o chip aceso mentindo sobre o que está na lista. */
-      if (montarDia) { montarDia = 0; window.usarDados('montagem', { diaSel: 0 }); }
+      if (montarDia) montarDia = 0;
 
       /* 🔴 ROTA DE OUTRO DIA NÃO É A ROTA DE HOJE, E A TELA TEM QUE DIZER ISSO.
          Antes o dia escolhido era despejado em cima de hoje, então o silêncio
@@ -3027,14 +3113,14 @@
      finito e não passa no truthy. Uma parada com (0,0) no cadastro virou um
      ponto no Golfo da Guiné, e "enquadrar a rota" abriu a câmera de Rio Claro
      até o SENEGAL: um oceano na tela com três pinos grudados em São Paulo.
-     `pontoOk` é a régua que esta casa já tinha (rejeita 0,0 e o que sai da
+     `pinoValido` é a régua que esta casa já tinha (rejeita 0,0 e o que sai da
      faixa) — a mesma que a parada avulsa usa pra aceitar coordenada digitada.
      LEI: trocar um filtro por outro "mais rigoroso" exige perguntar o que o
      antigo barrava DE GRAÇA. `truthy` barrava o zero; `isFinite` não. */
   function paradasDoMapa() {
     if (!rotaMontada()) return [];
     return ((typeof PARADAS !== 'undefined' ? PARADAS : []) || [])
-      .filter((p) => p && pontoOk(p.lat, p.lng));
+      .filter((p) => p && pinoValido(p.lat, p.lng));
   }
 
   /* 🔴 QUEM DECIDE O TAMANHO DO PINO É A QUANTIDADE, NÃO SÓ O ZOOM (09/08).
@@ -3148,7 +3234,7 @@
     // mesma régua das paradas (§ paradasDoMapa): fix zerado é ponto no oceano,
     // e um só deles estica a moldura do dia inteiro pra outro continente.
     const eu = ultimaPos || ultimoFix;
-    if (eu && pontoOk(eu.lat, eu.lng)) pontos.push([eu.lng, eu.lat]);
+    if (eu && pinoValido(eu.lat, eu.lng)) pontos.push([eu.lng, eu.lat]);
     // Sem um ponto sequer não há o que enquadrar — e a câmera fica onde está.
     // Pular pra lugar nenhum seria o mapa "corrigindo" pro meio do oceano.
     if (!pontos.length) return;
@@ -3910,7 +3996,8 @@
   }
   const pinoDa = (it) => {
     const c = (it && it.cliente) || {};
-    return (typeof c.lat === 'number' && typeof c.lng === 'number') ? { lat: c.lat, lng: c.lng } : null;
+    // mesma régua do resto do app: zero não é pino, meia coordenada não é pino.
+    return pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : null;
   };
 
   /* ---- O ANEL DO "TÔ CHEGANDO" -------------------------------------------
@@ -5251,7 +5338,7 @@
       // navegação): a lista cai na ordem do servidor e a rota se monta como
       // antes. Montar rota nunca depende de permissão.
       if (tela === 'montagem') {
-        garantirGps(); publicarMontarDias(); carregarDiasComCliente(); carregarEspacos(); encherMontagem(); carregarHistorico();
+        garantirGps(); carregarDiasComCliente(); carregarEspacos(); encherMontagem(); carregarHistorico();
         /* 🔴 O OTIMIZADOR RODA NO CARREGAMENTO (dono, 08/08: "é pra funcionar
            já no carregamento, ao apertar Montar Rota, só isso"). Chegar aqui É
            mandar montar — o 2º "Montar rota" no pé da tela não existe mais.
@@ -7276,11 +7363,9 @@
 
   const PAR_COORD = /(-?\d{1,2}[.,]\d{3,8})\s*,\s*(-?\d{1,3}[.,]\d{3,8})/;
   const digitos = (v) => String(v || '').replace(/\D/g, '');
-  const pontoOk = (lat, lng) => {
-    const a = Number(lat); const b = Number(lng);
-    return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a) <= 90 && Math.abs(b) <= 180
-      && !(a === 0 && b === 0);
-  };
+  /* O `pontoOk` que morava aqui era a MESMA régua de pino com outro nome — e
+     enquanto ela tinha dois nomes, a montagem foi consertada num e não no
+     outro. Hoje é `pinoValido`, no topo do arquivo, para o app inteiro. */
   /** "13500-000 1067" → {cep:'13500000', numero:'1067'}. Sem CEP no texto, null. */
   function lerCepENumero(texto) {
     const t = String(texto || '');
@@ -7413,7 +7498,7 @@
       opcoes: res ? [] : r.opcoes.map((o) => ({
         titulo: esc(o.nome || o.endereco || 'Endereço'),
         detalhe: esc(o.detalhe || detalheDaPorta(o)),
-        dist: pontoOk(o.lat, o.lng) && ultimaPos
+        dist: pinoValido(o.lat, o.lng) && ultimaPos
           ? emMetros(metrosEntre(ultimaPos, { lat: Number(o.lat), lng: Number(o.lng) })) : '',
       })),
       achado: res ? {
@@ -7492,7 +7577,7 @@
         // Só o SERVIDOR abre link curto do Maps: redirecionamento é rede, e o
         // WebView não segue esse salto sozinho.
         const lido = await window.API.get(`/logistica/geo/link?u=${encodeURIComponent(texto)}`);
-        if (lido && pontoOk(lido.lat, lido.lng)) {
+        if (lido && pinoValido(lido.lat, lido.lng)) {
           await rapidaFixarPonto(Number(lido.lat), Number(lido.lng), String(lido.rotulo || ''), 'ponto');
         } else {
           r.aviso = 'Não consegui ler essa localização. Tente o endereço escrito.';
@@ -7511,7 +7596,7 @@
            devolve o ponto do TRECHO; a tela avisa que é aproximado e quem
            confirma é a pessoa. */
         const res = await window.API.get(`/logistica/geo/cep?cep=${encodeURIComponent(cn.cep)}`);
-        if (res && pontoOk(res.lat, res.lng)) {
+        if (res && pinoValido(res.lat, res.lng)) {
           r.origem = 'cep'; r.cep = cn.cep; r.numero = ''; r.resolvido = res;
           r.aviso = 'Sem número: o ponto é o da rua. Confira antes de adicionar.';
         } else if (res && (res.endereco || res.cidade)) {
@@ -7521,11 +7606,11 @@
         }
       } else {
         // Endereço escrito: o servidor devolve candidatas e QUEM ESCOLHE É ELE.
-        const perto = ultimaPos && pontoOk(ultimaPos.lat, ultimaPos.lng)
+        const perto = ultimaPos && pinoValido(ultimaPos.lat, ultimaPos.lng)
           ? `&lat=${encodeURIComponent(ultimaPos.lat)}&lng=${encodeURIComponent(ultimaPos.lng)}` : '';
         const payload = await window.API.get(`/logistica/geo/busca?q=${encodeURIComponent(texto)}${perto}`);
         const itens = (payload && Array.isArray(payload.items) ? payload.items : [])
-          .filter((it) => pontoOk(it.lat, it.lng)).slice(0, 4);
+          .filter((it) => pinoValido(it.lat, it.lng)).slice(0, 4);
         if (itens.length === 1) await rapidaFixarPonto(Number(itens[0].lat), Number(itens[0].lng), String(itens[0].nome || ''), 'busca');
         else if (itens.length) r.opcoes = itens;
         else r.aviso = 'Não encontrei esse endereço.';
@@ -7615,13 +7700,13 @@
     const ids = base.map((p) => p.id);
     const pontoDe = (p) => {
       const c = (p && p.item && p.item.cliente) || {};
-      return pontoOk(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : null;
+      return pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : null;
     };
     const pNovo = pontoDe(novo);
     let indice = ids.length;
     if (posicao === 'primeira') indice = 0;
     else if (pNovo && base.length) {
-      const pOrigem = ultimaPos && pontoOk(ultimaPos.lat, ultimaPos.lng)
+      const pOrigem = ultimaPos && pinoValido(ultimaPos.lat, ultimaPos.lng)
         ? { lat: ultimaPos.lat, lng: ultimaPos.lng } : null;
       // nós[0] = de onde eu saio (pode não existir), depois as paradas na
       // ordem, e o ponto novo no fim.
@@ -7727,7 +7812,7 @@
         /* O pino viaja quando ELE é a intenção (link colado, candidata escolhida
            na lista). Em CEP+número não: ali o servidor resolve pela base CNEFE,
            que é a fonte certa e grava a `geoFonte` certa junto. */
-        if (r.origem !== 'cep' && pontoOk(res.lat, res.lng)) {
+        if (r.origem !== 'cep' && pinoValido(res.lat, res.lng)) {
           corpo.lat = Number(res.lat); corpo.lng = Number(res.lng);
         }
         Object.keys(corpo).forEach((k) => {
@@ -7828,6 +7913,12 @@
        propósito do gesto é somar a ela agora — lá não existe momento "salvar". */
     if (volta === 'montagem' && !rotaNaRua()) {
       const nomes = new Map((r.lista || []).map((c) => [String(c.id), c]));
+      /* Aqui a chave é o CLIENTE, e de propósito: `/nucleo/clientes` não fala
+         de locais, então marcar alguém nesta porta quer dizer "este cliente",
+         no endereço do perfil. Chavear por `cliente|localId` faria quem já
+         entrou pelo histórico numa porta nascer DE NOVO no perfil — uma
+         segunda visita que ninguém pediu. Porta que não conhece porta
+         deduplica por quem ela conhece. */
       const jaNoRascunho = new Set(RASCUNHO.map((c) => String(c.id)));
       let novos = 0;
       ids.forEach((id) => {
@@ -7843,22 +7934,26 @@
            Recorrência ativa = a régua de `logistica-base-saude` ("a 1ª
            entrega grava a porta pelo GPS do entregador"), lida do
            `diasEntrega` que o card de clientes já manda. Zero não é pino
-           (a lição do mapa na África). */
-        const latC = Number(c.lat); const lngC = Number(c.lng);
+           (a lição do mapa na África).
+
+           🔴 E O ENDEREÇO SE MONTA COM O NÚMERO. Esta é a ÚNICA das três
+           origens da lista que não recebe `enderecoLinha` pronta: o
+           `/nucleo/clientes` manda `endereco` e `numero` em campos separados,
+           e o `numero` era simplesmente ignorado aqui. Medido na empresa 41:
+           44 dos 225 clientes têm o número só nessa coluna — o cartão dizia
+           "Rua M-7" e o computador, "Rua M-7, 897". A régua é a mesma do
+           servidor (`linhaDeEndereco` = `linhaEnderecoDaFonte`). */
         RASCUNHO.push({
           id: String(id),
           nome: String(c.name || 'Cliente'),
-          endereco: String(c.endereco || ''),
+          enderecoLinha: String(c.endereco || ''),
           bairro: String(c.cidade || ''),
-          ...(isFinite(latC) && isFinite(lngC) && !(latC === 0 && lngC === 0) ? { lat: latC, lng: lngC } : {}),
+          ...(pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : {}),
           resolveSozinho: Array.isArray(c.diasEntrega) && c.diasEntrega.length > 0,
         });
         novos += 1;
       });
       rapida = null;
-      // O chip de HOJE pode passar a existir só por causa do rascunho — é ele
-      // que dá a porta de volta quando o dedo for espiar outro dia.
-      publicarMontarDias();
       await voltarDaAvulsa(volta);
       const q = `${novos} ${novos === 1 ? 'parada' : 'paradas'}`;
       return window.portao({
@@ -8612,19 +8707,10 @@
     if (chave === 'historico-usar') {
       return void usarHistorico(String(alvo.dataset.data || ''));
     }
-    if (chave === 'montar-dia') {
-      const n = Number(alvo.dataset.dia) || 0;
-      // 2º toque no mesmo chip volta pra Hoje — chip que só liga prende o
-      // motorista num dia (mesma régua do chip de dia dos Clientes).
-      montarDia = montarDia === n ? 0 : n;
-      // o chip acende JÁ (resposta ao dedo); a lista do dia chega em seguida
-      window.usarDados('montagem', { diaSel: montarDia });
-      // Os 2 espaços são DO DIA: trocar de chip troca a fileira inteira, senão
-      // o Espaço 1 de sábado ficaria aceso na tela de segunda.
-      carregarEspacos();
-      encherMontagem();
-      return;
-    }
+    /* ⚰️ `montar-dia` MORREU COM O CHIP (dono, 09/08: "remova os dias da semana
+       (estamos em avulsas)"). Era o toque no chip de dia da Montagem; sem o
+       chip no desenho, ninguém pode disparar isto. Gancho de botão que não
+       existe é o mesmo que botão sem gancho, só do avesso. */
     if (chave === 'chip-dia') {
       const n = Number(alvo.dataset.dia) || 0;
       // 2º toque no mesmo chip DESLIGA o filtro. Chip que só liga é armadilha:
