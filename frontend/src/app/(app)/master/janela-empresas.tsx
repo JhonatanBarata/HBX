@@ -185,7 +185,7 @@ type LogisticaNivel = "BASIC" | "ADVANCED" | "FULL";
 const NIVEL_ORDEM: LogisticaNivel[] = ["BASIC", "ADVANCED", "FULL"];
 const NIVEL_LABEL: Record<LogisticaNivel, string> = { BASIC: "Basic", ADVANCED: "Advanced", FULL: "Full" };
 const NIVEL_DESCRICAO: Record<LogisticaNivel, string> = {
-  BASIC: "Caderneta eletrônica que te coloca na localização.",
+  BASIC: "Anota o dia inteiro e te leva até a porta.",
   ADVANCED: "O app cobra por você.",
   FULL: "iFood da sua distribuidora.",
 };

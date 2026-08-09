@@ -1134,7 +1134,7 @@ html, body { height: 100%; }
 .vnd-card.is-locked { cursor: pointer; }
 .vnd-card.is-locked .vnd-card__grip { display: none; }
 .vnd-pipe.is-dragging .vnd-card.is-locked { cursor: pointer; }
-/* PUNHO ⠿ — 6 pontinhos (2 col × 3 lin), o MESMO desenho do punho da caderneta
+/* PUNHO ⠿ — 6 pontinhos (2 col × 3 lin), o MESMO desenho do punho da lista
    no APK e do ⠿ do Organizar campos logo aqui do lado. Era 11×14, que na grade
    de 4px pinta 3×3 = 9 pontos: alça parecida não é alça igual, e o dono pediu
    um jeito só de dizer "arraste aqui" (06/08). */

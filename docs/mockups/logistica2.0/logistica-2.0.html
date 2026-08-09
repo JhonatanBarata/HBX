@@ -112,15 +112,17 @@ button,input{font:inherit;color:inherit}
   --logo-sub:#dbe4f2;
   /* O mapa também é pele: sem token aqui ele fica escuro no tema claro — e
      mapa que não acompanha o tema é o buraco clássico da troca de pele. */
-  --map-fundo:var(--bg-2); --map-quadra:#0d1727; --map-rua:#1b2740; --map-rua2:#16223a;
-  --map-parque:#0f2418; --map-rotulo:#5c6d8c; --map-pino:#0c1526; --map-pino-tinta:#eaf6d5;
+  /* 🔴 A MAQUETE DO 2D LEVOU AS CORES DELA JUNTO (09/08): saíram `--map-rua`
+     (a grade de ruas larga), `--map-rotulo`, `--map-carro*`, `--map-bandeira*`
+     e `--map-partida`. Token sem quem o leia é casca que promete pele em peça
+     que não existe mais — e a próxima casca pintaria o vazio. */
+  --map-fundo:var(--bg-2); --map-quadra:#0d1727; --map-rua2:#16223a;
+  --map-parque:#0f2418; --map-pino:#0c1526; --map-pino-tinta:#eaf6d5;
   --map-rota:var(--lime); --map-rota-borda:#4f8f14; --map-leito:#1d2c47;
   /* A CABEÇA DA COBRA — a ponta acesa que viaja na frente do traço quando o
      mapa se desenha. É a única cor do mapa que só existe DURANTE a cena, e
      ela se vira com CONTRASTE: não há halo nem filtro (ver a folha). */
   --map-cabeca:#e8f4ff;
-  --map-carro:#e9eef7; --map-carro-borda:#aebbcf; --map-carro-vidro:#8fa6c4; --map-carro-2:#c3cede;
-  --map-bandeira:#dbe6f7; --map-bandeira-2:#0d1a2f; --map-partida:#3d8bff;
   /* EMPRESAS DO CORREDOR (prospector) — três estados numa peça só: APAGADA
      (possível), VARRENDO (o app está olhando) e ACESA (achou). Cada cor do
      desenho do dono virou token aqui: casca nova troca a família inteira sem
@@ -1106,8 +1108,9 @@ button,input{font:inherit;color:inherit}
 .esq-linha{height:62px;margin-bottom:6px}
 
 /* ---------- mapa ---------- */
-.mapwrap{position:absolute;inset:0;z-index:10}
-.mapwrap svg{width:100%;height:100%;display:block}
+/* 🔴 `.mapwrap` MORREU JUNTO COM A MAQUETE (09/08) — era a caixa do SVG de
+   espera do mapa 2D, com `z-index:10` por cima do mapa de verdade. Ver `mapa()`
+   lá embaixo: o palco de espera agora é COR, não desenho. */
 .map-float{position:absolute;left:12px;z-index:30}
 .map-chip{display:flex;align-items:center;gap:9px;padding:8px 12px;border-radius:12px;
   background:var(--glass);border:.7px solid var(--line)}
@@ -1207,39 +1210,19 @@ button,input{font:inherit;color:inherit}
       polegar, do lado direito.
    ========================================================================== */
 .gps{position:absolute;inset:0;overflow:hidden;background:var(--fog)}
-/* palco do mapa REAL: mesma caixa do desenho que ele substitui. O desenho
-   fica embaixo como fundo de espera até o maplibre subir. */
-.mapa-palco{position:absolute;inset:0}
-.mapa-palco>svg{position:absolute;inset:0;width:100%;height:100%}
-.mapa-palco.pronto>svg{opacity:0;transition:opacity .3s ease}
-/* 🔴 A REGRA ACIMA NUNCA PEGOU O MAPA 2D — e foi por isso que a tela "Rota do
-   dia" NUNCA mostrou um mapa de verdade (dono, 09/08). O desenho de espera não
-   é filho direto do palco: `mapaDesenho()` devolve `<div class="mapwrap"><svg>`,
-   então `.mapa-palco.pronto>svg` mira um neto e casa com nada. Pior: `.mapwrap`
-   tem `z-index:10` e o `.mapa-vivo` não tem nenhum — o mapa REAL subia, ficava
-   `opacity:1` como manda a regra de baixo, e continuava ESCONDIDO debaixo da
-   maquete. O que o dono via como "meu mapa" eram as ruas em grade perfeita e os
-   6 pinos de posição FIXA do desenho.
-   A cura é dizer o nome de quem se quer apagar. Só o palco 2D: no `gps` o
-   desenho é a CENA de entrada, que tem coreografia própria (e lá o mapa vivo já
-   vence por ordem de DOM, sem z-index no meio).
-   LEI: seletor de filho direto morre calado quando alguém embrulha o alvo —
-   quando o desenho ganha um invólucro, a regra que o esconde tem que ir junto. */
-/* `pointer-events:none` junto, e não é detalhe: `.mapwrap` cobre a tela inteira
-   com `z-index:10`, e caixa invisível continua comendo o dedo. Sem isto o mapa
-   2D nasceria impossível de arrastar — o MESMO defeito que o facho da seta já
-   causou no 3D (08/08: arrasto do centro = 0 px). Enfeite apagado sai do
-   caminho da mão. */
-.mapa-palco.pronto>.mapwrap{opacity:0;pointer-events:none;transition:opacity .3s ease}
+/* 🔴 O PALCO DE ESPERA É COR, NÃO DESENHO (09/08 — a maquete morreu, ver
+   `mapa()`). Ele nasce com a cor do mapa e fica assim até o maplibre subir: o
+   que o motorista vê antes do mapa é um chão escuro liso, nunca uma cidade
+   inventada e nunca um retângulo preto. Some com isto o `.mapwrap` (a caixa do
+   SVG, `z-index:10`), a regra que o apagava e o `pointer-events` que existia só
+   porque uma caixa invisível continuava comendo o dedo em cima do mapa. */
+.mapa-palco{position:absolute;inset:0;background:var(--map-fundo)}
 .mapa-vivo{position:absolute;inset:0}
-/* 🔴 DESENHO DE ESPERA SÓ SERVE SE FOR VISÍVEL. O mapa de verdade nasce como
-   um `canvas` DENTRO deste mesmo palco e, por ser pintado depois, ele TAMPA o
-   desenho com o próprio fundo — preto — durante todo o tempo em que os tiles
-   ainda não chegaram. MEDIDO no g15 (07/08): 1,0 s de tela PRETA entre entrar
-   na rota e o mapa aparecer, exatamente onde a cena promete "o mapa se
-   desenhando". Enquanto não está `pronto` o mapa vivo não aparece; quando
-   fica, os dois se cruzam. E mapa que nunca fica pronto deixa o desenho no
-   ar, que é o desfecho honesto — nunca um retângulo preto. */
+/* O mapa de verdade nasce como um `canvas` DENTRO deste palco e, por ser
+   pintado antes dos tiles chegarem, ele entra PRETO — 1,0 s medido no g15
+   (07/08) entre entrar na rota e o mapa aparecer. Enquanto não está `pronto`
+   ele não aparece; quando fica, cruza com o chão do palco em .32 s. E mapa que
+   nunca fica pronto deixa o chão no ar, que é o desfecho honesto. */
 .mapa-palco .mapa-vivo{opacity:0}
 .mapa-palco.pronto .mapa-vivo{opacity:1;transition:opacity .32s ease}
 .gps-mundo{position:absolute;left:-42%;right:-42%;top:-52%;bottom:-6%;
@@ -2209,8 +2192,8 @@ button,input{font:inherit;color:inherit}
 /* O mapa claro: RUA BRANCA sobre quadra cinza — exatamente o oposto do escuro,
    onde a rua é que é escura. Sem isto o mapa fica preto no meio da tela clara. */
 [data-luz="claro"] .app{
-  --map-fundo:#e6ebf3; --map-quadra:#dbe2ed; --map-rua:#ffffff; --map-rua2:#f2f5fa;
-  --map-parque:#d9ead9; --map-rotulo:#6b7a94; --map-pino:#ffffff;
+  --map-fundo:#e6ebf3; --map-quadra:#dbe2ed; --map-rua2:#f2f5fa;
+  --map-parque:#d9ead9; --map-pino:#ffffff;
   /* 🔴 O pino virou BRANCO no claro e o número dentro dele continuava branco:
      o "3" da parada da vez sumia dentro de um círculo branco gigante — foi o
      "mapa+fila bugado" da foto. Tinta do pino é token, como todo o resto. */
@@ -2219,8 +2202,6 @@ button,input{font:inherit;color:inherit}
   /* No claro a cabeça INVERTE junto com o resto: sobre chão #e6ebf3 uma ponta
      branca não existiria. Azul cravado, que é o mesmo azul do "partida". */
   --map-cabeca:#0f4fc0;
-  --map-carro:#28405f; --map-carro-borda:#16273c; --map-carro-vidro:#7f9ec4; --map-carro-2:#4a6a92;
-  --map-bandeira:#16273c; --map-bandeira-2:#ffffff; --map-partida:#1257c8;
 
   /* 🔴 AS EMPRESAS NO CLARO — paleta 1:1 do mock rota (gps-ruas-prospector-v4),
      que o dono desenhou com o claro DENTRO. O que resolve o contraste aqui é
@@ -2634,91 +2615,28 @@ function stop(o){
   </div>`;
 }
 
-function mapa(){ return `<div class="mapa-palco" data-mapa="geral">${mapaDesenho()}</div>`; }
-
 /* ==========================================================================
-   🔴 O DESENHO NÃO INVENTA O DIA — ordem do dono, 08/08: *"o mapa 2d tem coisa
-   traçada nele. Pode ter realmente, mas eu limpei e não tem nada, e continua de
-   1 a 6, não é isso!"*
+   🔴 A MAQUETE DO MAPA 2D MORREU — ordem do dono, 09/08: *"esse câncer pisca,
+   depois abre o 3. Remover o 2 sem legados, totalmente destrutivo."*
 
-   Este SVG é o PANO DE ESPERA do mapa de verdade: ele existe só pra a tela não
-   ficar preta enquanto os tiles não chegam (1,0 s medido no g15). Até aqui ele
-   vinha com uma rota de SEIS paradas cravada no arquivo, mais o Parque do
-   Ibirapuera, cinco bairros de São Paulo e um carro — e NADA disso saía de dado
-   nenhum. Enquanto isto era o desenho atrás de um botão "Ver mapa", passava; com
-   o mapa virando a TELA PRINCIPAL, o app abre afirmando um dia inteiro que não
-   existe, numa cidade onde a empresa não fica — a mesma mentira que o
-   `apagarDemonstracao` existe pra matar em toda outra tela.
+   Aqui morava um SVG de espera: malha de ruas em grade perfeita, uma mancha de
+   parque, um traço verde e SEIS pinos de posição CRAVADA no arquivo. Ele
+   existia por um motivo real — a tela não podia ficar preta no 1,0 s entre
+   entrar na rota e o mapa de verdade assentar (medido no g15) — e cobrava um
+   preço que só ficou visível quando o mapa virou a TELA PRINCIPAL:
 
-   A régua é a do §4.6.5: o que é DADO zera sem fonte; o que é DESENHO fica.
+   · MENTIA O DIA. Montar 56 paradas acendia 6 pinos num bairro que não é o do
+     motorista, porque as posições eram do desenho, não do dado. Cada régua
+     nova (`temRota`, `rotaMontada`) apertava a mentira sem matá-la: o desenho
+     só sabia desenhar a rota que ele já tinha dentro.
+   · PISCAVA. Maquete e mapa vivo se cruzavam num dissolve toda vez que o palco
+     entrava — e é esse cruzamento que o dono via como "pisca antes de abrir".
 
-   · A MALHA DE RUAS FICA SEMPRE. Ela não afirma nada — é a textura de "mapa
-     carregando", e é ela que evita o retângulo preto.
-   · A ROTA E OS PINOS SAEM DE `PARADAS`. Zero parada ⇒ zero pino, zero traço,
-     zero bandeira. E a CONTAGEM é a de verdade: 3 paradas desenham 3, não 6.
-   · OS PINOS SÃO IGUAIS ENTRE SI, como os do mapa vivo (`sincronizarPinos`). O
-     pino grande dizia "você está na parada 3" — afirmação que este desenho não
-     tem como saber, e que ficava cravada mesmo com a rota parada.
-   · O CARRO SAIU. "Onde eu estou" é o marcador do mapa VIVO, movido pelo GPS a
-     cada fix (`moverEuNoPlano`). Desenhar um carro no meio da tela era prometer
-     localização sem ter localização — e era ele que fazia parecer que o app
-     sabia onde o motorista estava quando não sabia.
-   · OS NOMES DE BAIRRO SAÍRAM. Nome de bairro é ENDEREÇO, e o desenho não sabe
-     em que cidade o motorista está. A mancha do parque fica: verde sem nome é
-     textura, "Ibirapuera" é afirmação.
+   O que fica no lugar: NADA. O palco tem a cor do mapa (`.mapa-palco`), o mapa
+   vivo entra por cima quando fica pronto. Fundo de espera não precisa de
+   desenho, precisa de COR — e cor não tem o que piscar nem o que inventar.
    ========================================================================== */
-/* Os pontos por onde o traço passa, na ordem — a partida e depois uma parada por
-   vez. `ate` é o pedaço de caminho que LEVA até aquele pino, então o traço
-   termina exatamente no último pino desenhado e nunca sobra rabo depois dele. */
-const MAPA_PARADAS=[
-  {x:144,y:190, ate:'H144'},
-  {x:232,y:320, ate:'V320 H232'},
-  {x:232,y:460, ate:'V460'},
-  {x:318,y:600, ate:'V600 H318'},
-  {x:144,y:740, ate:'V740 H144'},
-  {x:56, y:740, ate:'H56'},
-];
-function mapaDesenho(){
-  /* 🔴 O FUNDO DE ESPERA TAMBÉM NÃO INVENTA ROTA (dono, 09/08). Este SVG é o
-     que fica na tela enquanto o mapa de verdade não assenta — e ele desenhava
-     traço e pinos por CONTAGEM: `PARADAS.length` maior que zero já bastava. No
-     dia em que o dono cancelou a rota, as 52 entregas agendadas viraram os 6
-     pinos desta maquete, em posições FIXAS, com uma fita verde ligando elas.
-     Ou seja: a tela mostrava uma rota que não existia, e nem os pontos eram os
-     dele. Mesma régua da ponte (`rotaMontada`) e da barra (`temRota`): sem rota
-     montada, o fundo é só a cidade. `estadoRota` ausente = folha aberta fora do
-     app (o desenho), e aí a maquete continua inteira. */
-  const temRota=typeof estadoRota==='undefined'
-    ||estadoRota==='pronta'||estadoRota==='rodando'||estadoRota==='pausada';
-  const total=(temRota&&typeof PARADAS!=='undefined'&&PARADAS)?PARADAS.length:0;
-  const pontos=MAPA_PARADAS.slice(0,Math.min(total,MAPA_PARADAS.length));
-  const traco=pontos.length?`M56 190 ${pontos.map(p=>p.ate).join(' ')}`:'';
-  return `<div class="mapwrap"><svg viewBox="0 0 400 900" preserveAspectRatio="xMidYMid slice">
-    <defs>
-      <filter id="gl" x="-50%" y="-50%" width="200%" height="200%">
-        <feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-      <filter id="gls" x="-80%" y="-80%" width="260%" height="260%">
-        <feGaussianBlur stdDeviation="8" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-    </defs>
-    <rect width="400" height="900" fill="var(--map-fundo)"/>
-    <path d="M246 160h160v180H246z" fill="var(--map-parque)" opacity=".85"/>
-    <g stroke="var(--map-rua)" stroke-width="6" opacity=".9" stroke-linecap="round">
-      <path d="M-20 190H420M-20 320H420M-20 460H420M-20 600H420M-20 740H420"/>
-      <path d="M56 -20V920M144 -20V920M232 -20V920M318 -20V920"/></g>
-    <g stroke="var(--map-rua2)" stroke-width="2.2" opacity=".95">
-      <path d="M-20 120H420M-20 255H420M-20 390H420M-20 530H420M-20 670H420M-20 806H420"/>
-      <path d="M20 -20V920M100 -20V920M188 -20V920M276 -20V920M360 -20V920"/>
-      <path d="M-20 66L420 320M420 66L-20 366"/></g>
-    ${traco?`<g filter="url(#gl)"><path d="${traco}"
-        fill="none" stroke="var(--map-rota)" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/></g>`:''}
-    ${pontos.length?`<g filter="url(#gls)">
-      <circle cx="56" cy="190" r="13" fill="var(--map-pino)" stroke="var(--map-partida)" stroke-width="1.6"/>
-      <path d="M51 185h10v10h-10z" fill="var(--map-bandeira)"/><path d="M51 185h5v5h-5zM56 190h5v5h-5z" fill="var(--map-bandeira-2)"/></g>`:''}
-    ${pontos.map((p,i)=>
-      `<g filter="url(#gl)"><circle cx="${p.x}" cy="${p.y}" r="13" fill="var(--map-pino)" stroke="var(--map-rota)" stroke-width="1.5"/>
-       <text x="${p.x}" y="${p.y+4.5}" text-anchor="middle" font-size="12" font-weight="400" fill="var(--map-pino-tinta)">${i+1}</text></g>`).join('')}
-  </svg></div>`;
-}
+function mapa(){ return `<div class="mapa-palco" data-mapa="geral"></div>`; }
 
 /* ==========================================================================
    TELAS
@@ -6165,6 +6083,18 @@ function acharAlvo(camada,alvo){
   for(const sel of fila){ const el=sel&&camada.querySelector(sel); if(el) return el; }
   return null;
 }
+/* 🔴 "EXISTE NO DOM" ≠ "DÁ PRA APONTAR". Duas peças desta casa mentem pro
+   `querySelector`: a de tamanho ZERO (o `.emp` é `width:0;height:0` — só a
+   coordenada) e a que a CÂMERA levou pra fora (o `.emp-obj`, projetado do
+   lat/lng: sai da tela sozinho enquanto o motorista anda). Nenhuma das duas se
+   aponta, e o tour tratá-las como alvo é o que fabrica a tela preta. Basta
+   ENCOSTAR na camada — alvo meio visível ainda ensina, e o balão preso (ver
+   `medir`) garante que a saída continua na tela. */
+function alvoNaTela(camada,el){
+  const c=camada.getBoundingClientRect(), a=el.getBoundingClientRect();
+  if(a.width<=0||a.height<=0) return false;
+  return a.bottom>c.top&&a.top<c.bottom&&a.right>c.left&&a.left<c.right;
+}
 /** Tupla velha `[sel,titulo,texto]` ou objeto novo — sai objeto dos dois lados. */
 function normalizarPasso(p,telaPadrao){
   const o=Array.isArray(p)
@@ -6299,6 +6229,16 @@ function tourRepintar(){
   // Passo cujo alvo não está na tela SAI (e grita no console): estado diferente
   // desenha peça diferente, e apontar pro vazio é pior que não falar.
   if(p.alvo&&!alvo) return tourPular('sumiu da tela',p);
+  /* 🔴 ALVO FORA DA TELA É ALVO AUSENTE — e custou uma TELA PRETA (09/08). Peça
+     posicionada por COORDENADA DE MAPA (`.emp`, que a ponte projeta com
+     `mapa.project([lng,lat])`) continua no DOM quando está 1.240 px acima do
+     topo: `querySelector` acha, o freio de cima não dispara, e o furo nasce
+     fora da tela levando o balão junto. O que sobra na tela é só o
+     `box-shadow: 0 0 0 9999px` do furo — TUDO preto, sem balão, sem X e sem
+     "Próximo". MEDIDO no capítulo do prospector: balão em `top:-1177px`,
+     motorista PRESO. `querySelector` responde "existe"; quem responde "dá pra
+     apontar" é a RÉGUA. */
+  if(alvo&&!alvoNaTela(camada,alvo)) return tourPular('fora da tela',p);
   /* O rebaixamento é decidido AQUI, no quadro, não quando o capítulo abriu: a
      rota pode começar a rodar no meio da lição (a ponte relê a config a cada
      minuto) e um `fazer` congelado na abertura pediria o dedo do motorista num
@@ -6340,10 +6280,18 @@ function tourRepintar(){
     Object.assign(veus[3].style,{top:t+'px',left:(l+lg)+'px',right:'0',width:'auto',height:at+'px'});
     // A caixa fica do lado que tem espaço: abaixo do alvo se couber, senão
     // acima. Explicação em cima da peça explicada é explicação escondida.
+    /* 🔴 E O BALÃO NUNCA SAI DA TELA — a GARANTIA, irmã da régua do `alvoNaTela`
+       e não uma segunda cópia dela. A régua barra o alvo que está inteiro fora;
+       aqui se resolve o que ela deixa passar de propósito: alvo MEIO visível dá
+       `topo` negativo, e o mapa anda por baixo do tour (`posicionarEmpresas`
+       roda a cada quadro do mapa), então a remedida dos 140/520 ms pode pegar o
+       prédio já saindo. Preso entre as duas bordas, o X está SEMPRE alcançável
+       — e é o X que separa "lição" de "cativeiro". */
     const cxAlt=cx.offsetHeight||160;
+    const preso=v=>Math.max(11,Math.min(v,Math.max(11,c.height-cxAlt-11)));
     const cabeAbaixo=topo+alt+14+cxAlt<c.height;
-    cx.style.top=cabeAbaixo?(topo+alt+14)+'px':'auto';
-    cx.style.bottom=cabeAbaixo?'auto':(c.height-topo+14)+'px';
+    cx.style.top=preso(cabeAbaixo?topo+alt+14:topo-14-cxAlt)+'px';
+    cx.style.bottom='auto';
   }
 
   const ultimo=TOUR.i===TOUR.passos.length-1;

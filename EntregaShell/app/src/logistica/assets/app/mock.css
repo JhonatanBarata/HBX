@@ -88,15 +88,17 @@ button,input{font:inherit;color:inherit}
   --logo-sub:#dbe4f2;
   /* O mapa também é pele: sem token aqui ele fica escuro no tema claro — e
      mapa que não acompanha o tema é o buraco clássico da troca de pele. */
-  --map-fundo:var(--bg-2); --map-quadra:#0d1727; --map-rua:#1b2740; --map-rua2:#16223a;
-  --map-parque:#0f2418; --map-rotulo:#5c6d8c; --map-pino:#0c1526; --map-pino-tinta:#eaf6d5;
+  /* 🔴 A MAQUETE DO 2D LEVOU AS CORES DELA JUNTO (09/08): saíram `--map-rua`
+     (a grade de ruas larga), `--map-rotulo`, `--map-carro*`, `--map-bandeira*`
+     e `--map-partida`. Token sem quem o leia é casca que promete pele em peça
+     que não existe mais — e a próxima casca pintaria o vazio. */
+  --map-fundo:var(--bg-2); --map-quadra:#0d1727; --map-rua2:#16223a;
+  --map-parque:#0f2418; --map-pino:#0c1526; --map-pino-tinta:#eaf6d5;
   --map-rota:var(--lime); --map-rota-borda:#4f8f14; --map-leito:#1d2c47;
   /* A CABEÇA DA COBRA — a ponta acesa que viaja na frente do traço quando o
      mapa se desenha. É a única cor do mapa que só existe DURANTE a cena, e
      ela se vira com CONTRASTE: não há halo nem filtro (ver a folha). */
   --map-cabeca:#e8f4ff;
-  --map-carro:#e9eef7; --map-carro-borda:#aebbcf; --map-carro-vidro:#8fa6c4; --map-carro-2:#c3cede;
-  --map-bandeira:#dbe6f7; --map-bandeira-2:#0d1a2f; --map-partida:#3d8bff;
   /* EMPRESAS DO CORREDOR (prospector) — três estados numa peça só: APAGADA
      (possível), VARRENDO (o app está olhando) e ACESA (achou). Cada cor do
      desenho do dono virou token aqui: casca nova troca a família inteira sem
@@ -1079,8 +1081,9 @@ button,input{font:inherit;color:inherit}
 .esq-linha{height:62px;margin-bottom:6px}
 
 /* ---------- mapa ---------- */
-.mapwrap{position:absolute;inset:0;z-index:10}
-.mapwrap svg{width:100%;height:100%;display:block}
+/* 🔴 `.mapwrap` MORREU JUNTO COM A MAQUETE (09/08) — era a caixa do SVG de
+   espera do mapa 2D, com `z-index:10` por cima do mapa de verdade. Ver `mapa()`
+   lá embaixo: o palco de espera agora é COR, não desenho. */
 .map-float{position:absolute;left:12px;z-index:30}
 .map-chip{display:flex;align-items:center;gap:9px;padding:8px 12px;border-radius:12px;
   background:var(--glass);border:.7px solid var(--line)}
@@ -1180,39 +1183,19 @@ button,input{font:inherit;color:inherit}
       polegar, do lado direito.
    ========================================================================== */
 .gps{position:absolute;inset:0;overflow:hidden;background:var(--fog)}
-/* palco do mapa REAL: mesma caixa do desenho que ele substitui. O desenho
-   fica embaixo como fundo de espera até o maplibre subir. */
-.mapa-palco{position:absolute;inset:0}
-.mapa-palco>svg{position:absolute;inset:0;width:100%;height:100%}
-.mapa-palco.pronto>svg{opacity:0;transition:opacity .3s ease}
-/* 🔴 A REGRA ACIMA NUNCA PEGOU O MAPA 2D — e foi por isso que a tela "Rota do
-   dia" NUNCA mostrou um mapa de verdade (dono, 09/08). O desenho de espera não
-   é filho direto do palco: `mapaDesenho()` devolve `<div class="mapwrap"><svg>`,
-   então `.mapa-palco.pronto>svg` mira um neto e casa com nada. Pior: `.mapwrap`
-   tem `z-index:10` e o `.mapa-vivo` não tem nenhum — o mapa REAL subia, ficava
-   `opacity:1` como manda a regra de baixo, e continuava ESCONDIDO debaixo da
-   maquete. O que o dono via como "meu mapa" eram as ruas em grade perfeita e os
-   6 pinos de posição FIXA do desenho.
-   A cura é dizer o nome de quem se quer apagar. Só o palco 2D: no `gps` o
-   desenho é a CENA de entrada, que tem coreografia própria (e lá o mapa vivo já
-   vence por ordem de DOM, sem z-index no meio).
-   LEI: seletor de filho direto morre calado quando alguém embrulha o alvo —
-   quando o desenho ganha um invólucro, a regra que o esconde tem que ir junto. */
-/* `pointer-events:none` junto, e não é detalhe: `.mapwrap` cobre a tela inteira
-   com `z-index:10`, e caixa invisível continua comendo o dedo. Sem isto o mapa
-   2D nasceria impossível de arrastar — o MESMO defeito que o facho da seta já
-   causou no 3D (08/08: arrasto do centro = 0 px). Enfeite apagado sai do
-   caminho da mão. */
-.mapa-palco.pronto>.mapwrap{opacity:0;pointer-events:none;transition:opacity .3s ease}
+/* 🔴 O PALCO DE ESPERA É COR, NÃO DESENHO (09/08 — a maquete morreu, ver
+   `mapa()`). Ele nasce com a cor do mapa e fica assim até o maplibre subir: o
+   que o motorista vê antes do mapa é um chão escuro liso, nunca uma cidade
+   inventada e nunca um retângulo preto. Some com isto o `.mapwrap` (a caixa do
+   SVG, `z-index:10`), a regra que o apagava e o `pointer-events` que existia só
+   porque uma caixa invisível continuava comendo o dedo em cima do mapa. */
+.mapa-palco{position:absolute;inset:0;background:var(--map-fundo)}
 .mapa-vivo{position:absolute;inset:0}
-/* 🔴 DESENHO DE ESPERA SÓ SERVE SE FOR VISÍVEL. O mapa de verdade nasce como
-   um `canvas` DENTRO deste mesmo palco e, por ser pintado depois, ele TAMPA o
-   desenho com o próprio fundo — preto — durante todo o tempo em que os tiles
-   ainda não chegaram. MEDIDO no g15 (07/08): 1,0 s de tela PRETA entre entrar
-   na rota e o mapa aparecer, exatamente onde a cena promete "o mapa se
-   desenhando". Enquanto não está `pronto` o mapa vivo não aparece; quando
-   fica, os dois se cruzam. E mapa que nunca fica pronto deixa o desenho no
-   ar, que é o desfecho honesto — nunca um retângulo preto. */
+/* O mapa de verdade nasce como um `canvas` DENTRO deste palco e, por ser
+   pintado antes dos tiles chegarem, ele entra PRETO — 1,0 s medido no g15
+   (07/08) entre entrar na rota e o mapa aparecer. Enquanto não está `pronto`
+   ele não aparece; quando fica, cruza com o chão do palco em .32 s. E mapa que
+   nunca fica pronto deixa o chão no ar, que é o desfecho honesto. */
 .mapa-palco .mapa-vivo{opacity:0}
 .mapa-palco.pronto .mapa-vivo{opacity:1;transition:opacity .32s ease}
 .gps-mundo{position:absolute;left:-42%;right:-42%;top:-52%;bottom:-6%;
@@ -2181,8 +2164,8 @@ button,input{font:inherit;color:inherit}
 /* O mapa claro: RUA BRANCA sobre quadra cinza — exatamente o oposto do escuro,
    onde a rua é que é escura. Sem isto o mapa fica preto no meio da tela clara. */
 [data-luz="claro"] .app{
-  --map-fundo:#e6ebf3; --map-quadra:#dbe2ed; --map-rua:#ffffff; --map-rua2:#f2f5fa;
-  --map-parque:#d9ead9; --map-rotulo:#6b7a94; --map-pino:#ffffff;
+  --map-fundo:#e6ebf3; --map-quadra:#dbe2ed; --map-rua2:#f2f5fa;
+  --map-parque:#d9ead9; --map-pino:#ffffff;
   /* 🔴 O pino virou BRANCO no claro e o número dentro dele continuava branco:
      o "3" da parada da vez sumia dentro de um círculo branco gigante — foi o
      "mapa+fila bugado" da foto. Tinta do pino é token, como todo o resto. */
@@ -2191,8 +2174,6 @@ button,input{font:inherit;color:inherit}
   /* No claro a cabeça INVERTE junto com o resto: sobre chão #e6ebf3 uma ponta
      branca não existiria. Azul cravado, que é o mesmo azul do "partida". */
   --map-cabeca:#0f4fc0;
-  --map-carro:#28405f; --map-carro-borda:#16273c; --map-carro-vidro:#7f9ec4; --map-carro-2:#4a6a92;
-  --map-bandeira:#16273c; --map-bandeira-2:#ffffff; --map-partida:#1257c8;
 
   /* 🔴 AS EMPRESAS NO CLARO — paleta 1:1 do mock rota (gps-ruas-prospector-v4),
      que o dono desenhou com o claro DENTRO. O que resolve o contraste aqui é

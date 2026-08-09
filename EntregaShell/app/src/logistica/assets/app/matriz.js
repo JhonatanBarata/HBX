@@ -1,6 +1,6 @@
 "use strict";
 /*
- * MATRIZ DA TELA (PR05082026, GO 05/08) — a caderneta é a matriz; toda lista
+ * MATRIZ DA TELA (PR05082026, GO 05/08) — a lista do dia é a matriz; toda lista
  * vira espelho dela. AQUI mora o que existe em 2+ telas: a linha canônica, o
  * vocabulário do dinheiro, o telegrama da conta, os chips de filtro e o gesto
  * de segurar-pra-apagar / arrastar-pelo-punho. Tela NÃO escreve gesto nem
@@ -103,7 +103,7 @@
 
   // ---- chips de filtro (Lei 7 — colunas iguais, contagem dentro) ------------
   /**
-   * `ativo` aceita valor único (caderneta) ou ARRAY (Clientes é multi-dia:
+   * `ativo` aceita valor único (o dia aberto) ou ARRAY (Clientes é multi-dia:
    * "quem eu atendo no começo da semana?" é pergunta legítima).
    * Cada chip: { valor, rotulo, contagem } — ou `sub` pra texto livre ("…"
    * enquanto carrega) e `inativo` pro dia sem ninguém (fica na linha, apagado:

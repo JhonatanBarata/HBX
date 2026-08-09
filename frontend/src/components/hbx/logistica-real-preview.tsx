@@ -3,7 +3,7 @@ export type LogisticaRealScreen =
   | "montagem"
   | "rota"
   | "folha"
-  | "caderneta";
+  | "fechamento";
 
 const GPS_PREVIEW_VERSION = "20260808-loop-3";
 

@@ -39,7 +39,7 @@ const DEMOS: Array<{ key: LogisticaRealScreen; label: string }> = [
   { key: "prospector", label: "Prospector" },
   { key: "montagem", label: "Montar rota" },
   { key: "folha", label: "Entregar" },
-  { key: "caderneta", label: "Fechar o dia" },
+  { key: "fechamento", label: "Fechar o dia" },
 ];
 
 const ICONS = {

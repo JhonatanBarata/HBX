@@ -119,7 +119,7 @@ const VARS: Array<{ key: string; label: string }> = [
 // LEI: Rota NUNCA desliga — ela aparece na lista como item fixo (marcado e
 // desabilitado) para o admin ver o app inteiro, não uma lista pela metade.
 const APP_MODULOS: Array<{ key: string; label: string }> = [
-  { key: "caderneta", label: "Caderneta" },
+  { key: "fechamento", label: "Fechamento" },
   { key: "clientes", label: "Clientes" },
   { key: "produtos", label: "Produtos" },
   { key: "chat", label: "Chat" },

@@ -720,7 +720,29 @@ function normalizeDiasTrabalho(raw: unknown): string | null {
  * app. Desligar a rota deixaria o motorista com um aparelho que não faz a única
  * coisa que ele precisa fazer, e o admin descobriria isso na rua.
  */
-export const APP_MODULOS_DESATIVAVEIS = ['caderneta', 'clientes', 'produtos', 'chat', 'ajustes'] as const;
+export const APP_MODULOS_DESATIVAVEIS = ['fechamento', 'clientes', 'produtos', 'chat', 'ajustes'] as const;
+
+/**
+ * 🔴 A CHAVE VELHA, TRADUZIDA (09/08). O CSV vive no BANCO: quem desligou o
+ * módulo antes de 09/08 tem a string 'caderneta' gravada. Só renomear a
+ * allowlist faria a chave antiga cair no filtro de lixo, e o módulo que o admin
+ * MANDOU sumir reapareceria no celular do motorista sozinho — decisão dele
+ * desfeita em silêncio, que é o pior jeito de errar. Aqui ela é traduzida na
+ * entrada E na saída; a linha some do banco na primeira vez que o admin salvar.
+ */
+const APP_MODULO_RENOMEADO: Record<string, string> = { caderneta: 'fechamento' };
+
+/** Aplica os renomes na lista já normalizada (entrada e leitura usam a MESMA). */
+export function traduzirModulosRenomeados(csv: string | null): string | null {
+  if (!csv) return csv;
+  const chaves = Array.from(
+    new Set(
+      csv.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean)
+        .map((k) => APP_MODULO_RENOMEADO[k] ?? k),
+    ),
+  ).sort();
+  return chaves.length > 0 ? chaves.join(',') : null;
+}
 export type AppModuloDesativavel = (typeof APP_MODULOS_DESATIVAVEIS)[number];
 
 /**
@@ -736,6 +758,9 @@ function normalizeAppModulosDesativados(raw: unknown): string | null {
       String(raw ?? '')
         .split(',')
         .map((s) => s.trim().toLowerCase())
+        // O rename entra ANTES da allowlist: 'caderneta' vira 'fechamento' e
+        // passa; sem esta linha ela seria descartada como lixo.
+        .map((s) => APP_MODULO_RENOMEADO[s] ?? s)
         .filter((s) => s !== 'rota')
         .filter((s) => (APP_MODULOS_DESATIVAVEIS as readonly string[]).includes(s)),
     ),
@@ -832,7 +857,9 @@ function serializeConfig(c: any, actor?: ActorKindUserLike, creditosEsgotados = 
     // ITEM 9 (07/08) — o que o admin DESLIGOU no app, lido por todo ator: é o
     // próprio app do motorista que precisa do CSV pra sumir com a entrada do
     // menu. null = tudo ligado. "rota" nunca aparece aqui (lei dura).
-    appModulosDesativados: c.appModulosDesativados ?? null,
+    // Traduzido na LEITURA também: o app novo poda por `data-ir="fechamento"`,
+    // e a linha antiga do banco ainda diz 'caderneta'.
+    appModulosDesativados: traduzirModulosRenomeados(c.appModulosDesativados ?? null),
   };
 
   // O GET também é consumido pelo app do entregador. Campos administrativos,

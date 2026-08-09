@@ -182,11 +182,21 @@ test('chave inválida é descartada (allowlist), sem erro e sem sujar o banco', 
   const { service, upsertCalls } = setup();
   const cfg = await service.updateConfig(
     7,
-    { appModulosDesativados: 'caderneta,financeiro,xpto,clientes' },
+    { appModulosDesativados: 'fechamento,financeiro,xpto,clientes' },
     GERENTE,
   );
-  assert.equal(gravado(upsertCalls).appModulosDesativados, 'caderneta,clientes');
-  assert.equal(cfg.appModulosDesativados, 'caderneta,clientes');
+  assert.equal(gravado(upsertCalls).appModulosDesativados, 'clientes,fechamento');
+  assert.equal(cfg.appModulosDesativados, 'clientes,fechamento');
+});
+
+// 🔴 A CHAVE VELHA DO BANCO (vacina de 09/08). 'caderneta' foi renomeada pra
+// 'fechamento'; sem a tradução ela cairia no filtro de lixo e o módulo que o
+// admin desligou VOLTARIA sozinho no celular do motorista.
+test("chave renomeada: 'caderneta' gravada antes de 09/08 vale como 'fechamento'", async () => {
+  const { service, upsertCalls } = setup();
+  const cfg = await service.updateConfig(7, { appModulosDesativados: 'caderneta,clientes' }, GERENTE);
+  assert.equal(gravado(upsertCalls).appModulosDesativados, 'clientes,fechamento');
+  assert.equal(cfg.appModulosDesativados, 'clientes,fechamento');
 });
 
 test('dedupe + sort + vazio→null (mesma receita do diasTrabalho)', async () => {
@@ -207,10 +217,10 @@ test('as 5 chaves válidas passam todas juntas', async () => {
   const { service, upsertCalls } = setup();
   await service.updateConfig(
     7,
-    { appModulosDesativados: 'ajustes,caderneta,chat,clientes,produtos' },
+    { appModulosDesativados: 'ajustes,fechamento,chat,clientes,produtos' },
     GERENTE,
   );
-  assert.equal(gravado(upsertCalls).appModulosDesativados, 'ajustes,caderneta,chat,clientes,produtos');
+  assert.equal(gravado(upsertCalls).appModulosDesativados, 'ajustes,chat,clientes,fechamento,produtos');
 });
 
 // ── AUTOMAÇÃO COBRADA: só o Master grava (decisão nº8) ───────────────────────

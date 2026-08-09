@@ -326,91 +326,28 @@ function stop(o){
   </div>`;
 }
 
-function mapa(){ return `<div class="mapa-palco" data-mapa="geral">${mapaDesenho()}</div>`; }
-
 /* ==========================================================================
-   🔴 O DESENHO NÃO INVENTA O DIA — ordem do dono, 08/08: *"o mapa 2d tem coisa
-   traçada nele. Pode ter realmente, mas eu limpei e não tem nada, e continua de
-   1 a 6, não é isso!"*
+   🔴 A MAQUETE DO MAPA 2D MORREU — ordem do dono, 09/08: *"esse câncer pisca,
+   depois abre o 3. Remover o 2 sem legados, totalmente destrutivo."*
 
-   Este SVG é o PANO DE ESPERA do mapa de verdade: ele existe só pra a tela não
-   ficar preta enquanto os tiles não chegam (1,0 s medido no g15). Até aqui ele
-   vinha com uma rota de SEIS paradas cravada no arquivo, mais o Parque do
-   Ibirapuera, cinco bairros de São Paulo e um carro — e NADA disso saía de dado
-   nenhum. Enquanto isto era o desenho atrás de um botão "Ver mapa", passava; com
-   o mapa virando a TELA PRINCIPAL, o app abre afirmando um dia inteiro que não
-   existe, numa cidade onde a empresa não fica — a mesma mentira que o
-   `apagarDemonstracao` existe pra matar em toda outra tela.
+   Aqui morava um SVG de espera: malha de ruas em grade perfeita, uma mancha de
+   parque, um traço verde e SEIS pinos de posição CRAVADA no arquivo. Ele
+   existia por um motivo real — a tela não podia ficar preta no 1,0 s entre
+   entrar na rota e o mapa de verdade assentar (medido no g15) — e cobrava um
+   preço que só ficou visível quando o mapa virou a TELA PRINCIPAL:
 
-   A régua é a do §4.6.5: o que é DADO zera sem fonte; o que é DESENHO fica.
+   · MENTIA O DIA. Montar 56 paradas acendia 6 pinos num bairro que não é o do
+     motorista, porque as posições eram do desenho, não do dado. Cada régua
+     nova (`temRota`, `rotaMontada`) apertava a mentira sem matá-la: o desenho
+     só sabia desenhar a rota que ele já tinha dentro.
+   · PISCAVA. Maquete e mapa vivo se cruzavam num dissolve toda vez que o palco
+     entrava — e é esse cruzamento que o dono via como "pisca antes de abrir".
 
-   · A MALHA DE RUAS FICA SEMPRE. Ela não afirma nada — é a textura de "mapa
-     carregando", e é ela que evita o retângulo preto.
-   · A ROTA E OS PINOS SAEM DE `PARADAS`. Zero parada ⇒ zero pino, zero traço,
-     zero bandeira. E a CONTAGEM é a de verdade: 3 paradas desenham 3, não 6.
-   · OS PINOS SÃO IGUAIS ENTRE SI, como os do mapa vivo (`sincronizarPinos`). O
-     pino grande dizia "você está na parada 3" — afirmação que este desenho não
-     tem como saber, e que ficava cravada mesmo com a rota parada.
-   · O CARRO SAIU. "Onde eu estou" é o marcador do mapa VIVO, movido pelo GPS a
-     cada fix (`moverEuNoPlano`). Desenhar um carro no meio da tela era prometer
-     localização sem ter localização — e era ele que fazia parecer que o app
-     sabia onde o motorista estava quando não sabia.
-   · OS NOMES DE BAIRRO SAÍRAM. Nome de bairro é ENDEREÇO, e o desenho não sabe
-     em que cidade o motorista está. A mancha do parque fica: verde sem nome é
-     textura, "Ibirapuera" é afirmação.
+   O que fica no lugar: NADA. O palco tem a cor do mapa (`.mapa-palco`), o mapa
+   vivo entra por cima quando fica pronto. Fundo de espera não precisa de
+   desenho, precisa de COR — e cor não tem o que piscar nem o que inventar.
    ========================================================================== */
-/* Os pontos por onde o traço passa, na ordem — a partida e depois uma parada por
-   vez. `ate` é o pedaço de caminho que LEVA até aquele pino, então o traço
-   termina exatamente no último pino desenhado e nunca sobra rabo depois dele. */
-const MAPA_PARADAS=[
-  {x:144,y:190, ate:'H144'},
-  {x:232,y:320, ate:'V320 H232'},
-  {x:232,y:460, ate:'V460'},
-  {x:318,y:600, ate:'V600 H318'},
-  {x:144,y:740, ate:'V740 H144'},
-  {x:56, y:740, ate:'H56'},
-];
-function mapaDesenho(){
-  /* 🔴 O FUNDO DE ESPERA TAMBÉM NÃO INVENTA ROTA (dono, 09/08). Este SVG é o
-     que fica na tela enquanto o mapa de verdade não assenta — e ele desenhava
-     traço e pinos por CONTAGEM: `PARADAS.length` maior que zero já bastava. No
-     dia em que o dono cancelou a rota, as 52 entregas agendadas viraram os 6
-     pinos desta maquete, em posições FIXAS, com uma fita verde ligando elas.
-     Ou seja: a tela mostrava uma rota que não existia, e nem os pontos eram os
-     dele. Mesma régua da ponte (`rotaMontada`) e da barra (`temRota`): sem rota
-     montada, o fundo é só a cidade. `estadoRota` ausente = folha aberta fora do
-     app (o desenho), e aí a maquete continua inteira. */
-  const temRota=typeof estadoRota==='undefined'
-    ||estadoRota==='pronta'||estadoRota==='rodando'||estadoRota==='pausada';
-  const total=(temRota&&typeof PARADAS!=='undefined'&&PARADAS)?PARADAS.length:0;
-  const pontos=MAPA_PARADAS.slice(0,Math.min(total,MAPA_PARADAS.length));
-  const traco=pontos.length?`M56 190 ${pontos.map(p=>p.ate).join(' ')}`:'';
-  return `<div class="mapwrap"><svg viewBox="0 0 400 900" preserveAspectRatio="xMidYMid slice">
-    <defs>
-      <filter id="gl" x="-50%" y="-50%" width="200%" height="200%">
-        <feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-      <filter id="gls" x="-80%" y="-80%" width="260%" height="260%">
-        <feGaussianBlur stdDeviation="8" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-    </defs>
-    <rect width="400" height="900" fill="var(--map-fundo)"/>
-    <path d="M246 160h160v180H246z" fill="var(--map-parque)" opacity=".85"/>
-    <g stroke="var(--map-rua)" stroke-width="6" opacity=".9" stroke-linecap="round">
-      <path d="M-20 190H420M-20 320H420M-20 460H420M-20 600H420M-20 740H420"/>
-      <path d="M56 -20V920M144 -20V920M232 -20V920M318 -20V920"/></g>
-    <g stroke="var(--map-rua2)" stroke-width="2.2" opacity=".95">
-      <path d="M-20 120H420M-20 255H420M-20 390H420M-20 530H420M-20 670H420M-20 806H420"/>
-      <path d="M20 -20V920M100 -20V920M188 -20V920M276 -20V920M360 -20V920"/>
-      <path d="M-20 66L420 320M420 66L-20 366"/></g>
-    ${traco?`<g filter="url(#gl)"><path d="${traco}"
-        fill="none" stroke="var(--map-rota)" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round"/></g>`:''}
-    ${pontos.length?`<g filter="url(#gls)">
-      <circle cx="56" cy="190" r="13" fill="var(--map-pino)" stroke="var(--map-partida)" stroke-width="1.6"/>
-      <path d="M51 185h10v10h-10z" fill="var(--map-bandeira)"/><path d="M51 185h5v5h-5zM56 190h5v5h-5z" fill="var(--map-bandeira-2)"/></g>`:''}
-    ${pontos.map((p,i)=>
-      `<g filter="url(#gl)"><circle cx="${p.x}" cy="${p.y}" r="13" fill="var(--map-pino)" stroke="var(--map-rota)" stroke-width="1.5"/>
-       <text x="${p.x}" y="${p.y+4.5}" text-anchor="middle" font-size="12" font-weight="400" fill="var(--map-pino-tinta)">${i+1}</text></g>`).join('')}
-  </svg></div>`;
-}
+function mapa(){ return `<div class="mapa-palco" data-mapa="geral"></div>`; }
 
 /* ==========================================================================
    TELAS
@@ -3851,6 +3788,18 @@ function acharAlvo(camada,alvo){
   for(const sel of fila){ const el=sel&&camada.querySelector(sel); if(el) return el; }
   return null;
 }
+/* 🔴 "EXISTE NO DOM" ≠ "DÁ PRA APONTAR". Duas peças desta casa mentem pro
+   `querySelector`: a de tamanho ZERO (o `.emp` é `width:0;height:0` — só a
+   coordenada) e a que a CÂMERA levou pra fora (o `.emp-obj`, projetado do
+   lat/lng: sai da tela sozinho enquanto o motorista anda). Nenhuma das duas se
+   aponta, e o tour tratá-las como alvo é o que fabrica a tela preta. Basta
+   ENCOSTAR na camada — alvo meio visível ainda ensina, e o balão preso (ver
+   `medir`) garante que a saída continua na tela. */
+function alvoNaTela(camada,el){
+  const c=camada.getBoundingClientRect(), a=el.getBoundingClientRect();
+  if(a.width<=0||a.height<=0) return false;
+  return a.bottom>c.top&&a.top<c.bottom&&a.right>c.left&&a.left<c.right;
+}
 /** Tupla velha `[sel,titulo,texto]` ou objeto novo — sai objeto dos dois lados. */
 function normalizarPasso(p,telaPadrao){
   const o=Array.isArray(p)
@@ -3985,6 +3934,16 @@ function tourRepintar(){
   // Passo cujo alvo não está na tela SAI (e grita no console): estado diferente
   // desenha peça diferente, e apontar pro vazio é pior que não falar.
   if(p.alvo&&!alvo) return tourPular('sumiu da tela',p);
+  /* 🔴 ALVO FORA DA TELA É ALVO AUSENTE — e custou uma TELA PRETA (09/08). Peça
+     posicionada por COORDENADA DE MAPA (`.emp`, que a ponte projeta com
+     `mapa.project([lng,lat])`) continua no DOM quando está 1.240 px acima do
+     topo: `querySelector` acha, o freio de cima não dispara, e o furo nasce
+     fora da tela levando o balão junto. O que sobra na tela é só o
+     `box-shadow: 0 0 0 9999px` do furo — TUDO preto, sem balão, sem X e sem
+     "Próximo". MEDIDO no capítulo do prospector: balão em `top:-1177px`,
+     motorista PRESO. `querySelector` responde "existe"; quem responde "dá pra
+     apontar" é a RÉGUA. */
+  if(alvo&&!alvoNaTela(camada,alvo)) return tourPular('fora da tela',p);
   /* O rebaixamento é decidido AQUI, no quadro, não quando o capítulo abriu: a
      rota pode começar a rodar no meio da lição (a ponte relê a config a cada
      minuto) e um `fazer` congelado na abertura pediria o dedo do motorista num
@@ -4026,10 +3985,18 @@ function tourRepintar(){
     Object.assign(veus[3].style,{top:t+'px',left:(l+lg)+'px',right:'0',width:'auto',height:at+'px'});
     // A caixa fica do lado que tem espaço: abaixo do alvo se couber, senão
     // acima. Explicação em cima da peça explicada é explicação escondida.
+    /* 🔴 E O BALÃO NUNCA SAI DA TELA — a GARANTIA, irmã da régua do `alvoNaTela`
+       e não uma segunda cópia dela. A régua barra o alvo que está inteiro fora;
+       aqui se resolve o que ela deixa passar de propósito: alvo MEIO visível dá
+       `topo` negativo, e o mapa anda por baixo do tour (`posicionarEmpresas`
+       roda a cada quadro do mapa), então a remedida dos 140/520 ms pode pegar o
+       prédio já saindo. Preso entre as duas bordas, o X está SEMPRE alcançável
+       — e é o X que separa "lição" de "cativeiro". */
     const cxAlt=cx.offsetHeight||160;
+    const preso=v=>Math.max(11,Math.min(v,Math.max(11,c.height-cxAlt-11)));
     const cabeAbaixo=topo+alt+14+cxAlt<c.height;
-    cx.style.top=cabeAbaixo?(topo+alt+14)+'px':'auto';
-    cx.style.bottom=cabeAbaixo?'auto':(c.height-topo+14)+'px';
+    cx.style.top=preso(cabeAbaixo?topo+alt+14:topo-14-cxAlt)+'px';
+    cx.style.bottom='auto';
   }
 
   const ultimo=TOUR.i===TOUR.passos.length-1;

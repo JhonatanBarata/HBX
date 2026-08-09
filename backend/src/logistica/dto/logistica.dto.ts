@@ -120,7 +120,7 @@ export class ConfirmarEntregaDto {
   @IsOptional()
   @IsString()
   @MaxLength(20)
-  // CADERNETA (04/08) — 'cartao' aditivo (maquininha); app antigo nunca manda.
+  // 04/08 — 'cartao' aditivo (maquininha); app antigo nunca manda.
   @IsIn(['pix', 'dinheiro', 'cartao', 'fiado'])
   receiptMethod?: string; // pix | dinheiro | cartao | fiado
 
@@ -1298,7 +1298,7 @@ export class AtribuirLoteDto {
   entregadorId?: number | null;
 }
 
-// ── MODO CADERNETA (PR04082026) — vender por toque, sem rota ─────────────────
+// ── VENDER POR TOQUE no cliente, sem rota (PR04082026) ──────────────────────
 export class VenderItemDto {
   @IsInt()
   @Min(1)
@@ -1388,7 +1388,7 @@ export class VenderDto {
   @MaxLength(20)
   numero?: string;
 
-  // CADERNETA 7 DIAS (05/08) — a página aberta quando ele registrou (1=seg..7=dom).
+  // AS 7 PÁGINAS (05/08) — a página aberta quando ele registrou (1=seg..7=dom).
   // Ausente (APK velho) = o dia real em SP. É etiqueta de organização, nunca data
   // de dinheiro: deliveredAt segue "agora" sempre.
   @IsOptional()
