@@ -323,11 +323,34 @@ export function escolherPinoRua(rows: CnefeRow[], numeroPedido: number, input: C
   // mesmo teto de numeração e de dispersão de sempre.
   if (!viaPedida && !input.cepDoCadastro) return null;
 
-  const candidatos = (Array.isArray(rows) ? rows : [])
+  let candidatos = (Array.isArray(rows) ? rows : [])
     .filter(coordValida)
     .filter((r) => typeof r.numero === 'number' && Number.isFinite(r.numero))
     .filter((r) => (input.cepDoCadastro ? true : viasCompativeisCnefe(viaPedida, r.logradouro)));
   if (!candidatos.length) return null;
+
+  /* 🔴 UM CEP PODE TER DUAS RUAS — E SEM ISTO O VIZINHO PULA PRA OUTRA (medido).
+     O CEP 13504363 tem 278 portas na RUA DEZENOVE e 10 na AVENIDA SESSENTA E QUATRO.
+     Tirando o veto do nome (cepDoCadastro), o "vizinho mais próximo por numeração"
+     do 864 virou o 916 da AVENIDA 64 — outra rua — e o cadastro seria reescrito com
+     ela. Pino errado é pior que pino vazio, e cadastro reescrito errado é pior ainda.
+     Então o CEP prova UMA rua: a DOMINANTE (a que tem mais portas nele). O vizinho só
+     vale dentro dela; empate técnico entre duas ruas ⇒ null, que é "não sei". */
+  if (input.cepDoCadastro) {
+    const porLogradouro = new Map<string, typeof candidatos>();
+    for (const r of candidatos) {
+      const chave = String(r.logradouro ?? '').trim().toUpperCase();
+      const lista = porLogradouro.get(chave);
+      if (lista) lista.push(r);
+      else porLogradouro.set(chave, [r]);
+    }
+    if (porLogradouro.size > 1) {
+      const ordenadas = [...porLogradouro.values()].sort((a, b) => b.length - a.length);
+      // Dominante de verdade: pelo menos o dobro da 2ª. Sem folga, não há dona.
+      if (ordenadas[0].length < ordenadas[1].length * 2) return null;
+      candidatos = ordenadas[0];
+    }
+  }
 
   const vizinho = candidatos[0];
   if (Math.abs((vizinho.numero as number) - numeroPedido) > CNEFE_VIZINHO_DELTA_MAX) return null;
