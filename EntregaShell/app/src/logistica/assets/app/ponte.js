@@ -1803,6 +1803,22 @@
     ocupado = true;
     try { await fn(); } finally { ocupado = false; }
   };
+  /* 🔴 O "SIM" DE UM PORTÃO NÃO PODE SER DESCARTADO (09/08). `comTrava` protege
+     do toque duplo JOGANDO FORA o segundo — o que é certo pro botão de uma tela
+     (ele continua ali, dá pra tocar de novo) e errado pra uma confirmação: ela
+     FECHA no toque, e toque descartado numa peça que sumiu não tem repeteco.
+     Se o app estiver ocupado no instante do "Iniciar" (a Montagem monta sozinha
+     ao abrir, e a rede pode estar devolvendo isso agora), o dono via o diálogo
+     fechar e nada acontecer. Aqui o toque ESPERA a vez; e se a vez não chegar,
+     ele FALA — nunca morre calado. */
+  const comTravaFila = async (fn) => {
+    const limite = Date.now() + 12000;
+    while (ocupado && Date.now() < limite) {
+      await new Promise((r) => { setTimeout(r, 60); });
+    }
+    if (ocupado) return avisoErro(new Error('O app ainda está terminando a ação anterior. Toque de novo.'));
+    return comTrava(fn);
+  };
   const avisoErro = (e) => {
     const msg = humano(e);
     if (typeof window.portao === 'function') {
@@ -2033,7 +2049,9 @@
       const wrap = naCamada('.portao-wrap');
       const botao = wrap && wrap.querySelector('.principal');
       if (temSaldo && botao) {
-        botao.addEventListener('click', () => comTrava(async () => {
+        // `comTravaFila`, não `comTrava`: ver a nota lá em cima — o toque que
+        // chega ocupado espera a vez em vez de morrer junto com o diálogo.
+        botao.addEventListener('click', () => comTravaFila(async () => {
           try {
             // 🔴 A RESPOSTA DO INICIAR TEM DADO DENTRO. Ela era descartada, e
             // com ela iam embora as empresas do corredor (`prospector`) que o

@@ -29,7 +29,7 @@ button,input{font:inherit;color:inherit}
 .app button:focus{outline:none}
 .app button:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 
-/* ---------- cromo do documento ---------- */
+/* ---------- cromo do documento ---------- */
 
 /* ==========================================================================
    O CELULAR — 400x900 lógico, ampliado por zoom (padrão 1.7)
@@ -140,7 +140,7 @@ button,input{font:inherit;color:inherit}
    fábrica. Peso alto fica só no logotipo, que é marca, não texto. */
 .app b,.app strong{font-weight:500}
 .app h2{font-weight:400;letter-spacing:-.018em}
-.app .v,.app .eta b,.app .price,.app .form-c.total b{letter-spacing:-.02em}
+.app .v,.app .eta b,.app .price,.app .form-c.total b{letter-spacing:-.02em}
 
 /* ==========================================================================
    PADRÕES DE MOVIMENTO — as 7 leis. Nada nesta casca aparece do nada.
@@ -679,6 +679,12 @@ button,input{font:inherit;color:inherit}
 .portao.perigo .acoes .principal{background:var(--danger-btn);border:0;color:var(--white)}
 .portao .acoes .perigo{color:var(--red);border-color:var(--red-line)}
 .portao .acoes .azul{background:linear-gradient(180deg,var(--btn-blue-1),var(--btn-blue-2));border:0;color:var(--white)}
+/* 🔴 PORTÃO QUE ATRAVESSOU UM REPINTE NÃO ENTRA DE NOVO. Ele é MUDADO de
+   camada (ver `pintar`), e re-inserir um nó reencena todo `@keyframes` dele:
+   o diálogo que já estava aberto piscaria a cada dado que chega do servidor.
+   Vem depois das regras acima de propósito — mesma especificidade, quem está
+   embaixo vence, inclusive o `mvErro`+`mvSacode` do `.trava`. */
+.portao-wrap.remontado,.portao-wrap.remontado *:not(.saindo){animation:none}
 /* linha de problema: o nome, o que falta, e a seta que leva ao conserto */
 .pt-linha{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:9px 10px;
   border-radius:12px;border:.7px solid var(--line);background:var(--field);margin-bottom:6px;cursor:pointer}

@@ -1520,35 +1520,36 @@ ${hdr({})}
 </div>
 ${nav('rota')}`;}};
 
-/* 5 — CADERNETA + FECHAMENTO --------------------------------------------- */
-T.caderneta={nome:'Caderneta · fechamento',grupo:'Caderneta',render(){const d=DADOS.caderneta;return `${status}
-${hdr({voltar:'rota'})}
-<div class="body">
-  <div class="kpis">
-    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${DADOS.rota.kpiParadas}</b><span class="l">paradas</span></span></div>
-    <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">${d.entregues}</b><span class="l">entregues</span></span></div>
-    <div class="kpi money"><span class="l">Saldo</span><b class="v">${DADOS.rota.saldo}</b><span class="go">${ic('chev',15)}</span></div>
-  </div>
-  <div class="bar"><span class="t">${ic('list',17)} Paradas de hoje</span>
-    <button class="ghost" data-ir="mapa">${ic('map',15)} Ver mapa</button></div>
-  <div class="stops">${listaParadas(false)}</div>
-</div>
-<div class="sheet" style="max-height:52%">
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+/* 5 — CADERNETA + FECHAMENTO ---------------------------------------------
+   🔴 A CADERNETA É O FECHAMENTO DO DIA, E SÓ (dono, 09/08: "a caderneta devia
+   ser o finalizar, fechamento do dia — você entra e tem 150 clientes ali").
+   A lista de paradas que morava aqui era o roster INTEIRO do dia — assunto da
+   Rota, repetido numa tela de dinheiro: com agenda grande viravam 150 cartões
+   na frente do caixa, e o fechamento ficava espremido numa folha de 52%. O
+   corpo é um só e a `semana` o desenha desbotado no fundo. O selo só aparece
+   com fato ("N vendas"): sem venda, pill com um check sozinho era veredito
+   sem fonte. */
+function cadernetaCorpo(){const d=DADOS.caderneta;return `
+  <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 10px">
     <span style="display:flex;align-items:center;gap:10px">
       <span class="round" style="border-color:var(--line-2)">${ic('lock',18)}</span>
       <b style="font-size:16px;font-weight:500;display:block">Fechamento do dia</b></span>
-    <span class="pill mute">${d.selo} ${ic('check',14)}</span>
+    ${d.selo?`<span class="pill mute">${d.selo} ${ic('check',14)}</span>`:''}
   </div>
   ${(d.formas.length||d.formaTotal)?`<div class="forms">
     ${d.formas.map(f=>`<div class="form-c"><span style="color:${f[1]}">${ic(f[0],19)}</span><small>${f[2]}</small><b>${f[3]}</b></div>`).join('')}
     ${d.formaTotal?`<div class="form-c total"><small style="margin-top:0">Total</small><b>${d.formaTotal}</b></div>`:''}
   </div>`:''}
-  ${(d.clientes||d.produtos||d.marcado)?`<div class="sum">
+  ${(d.entregues||d.clientes||d.produtos||d.marcado)?`<div class="sum">
+    ${d.entregues?`<span class="c"><span style="color:var(--lime)">${ic('check',17)}</span><span><b>${d.entregues}</b><small>entregues</small></span></span>`:''}
     ${d.clientes?`<span class="c"><span style="color:var(--ink-2)">${ic('users',17)}</span><span><b>${d.clientes}</b><small>clientes</small></span></span>`:''}
     ${d.produtos?`<span class="c"><span style="color:var(--ink-2)">${ic('box',17)}</span><span><b>${d.produtos}</b><small>produtos</small></span></span>`:''}
     ${d.marcado?`<span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>${d.marcado}</b><small>marcado</small></span></span>`:''}
-  </div>`:''}
+  </div>`:''}`;}
+T.caderneta={nome:'Caderneta · fechamento',grupo:'Caderneta',render(){return `${status}
+${hdr({voltar:'rota'})}
+<div class="body">
+  ${cadernetaCorpo()}
   <div class="acts">
     <button class="act go" style="justify-content:center" data-acao="fechar-dia">${ic('check',19)}<b>Fechar o dia</b></button>
     <button class="act" style="justify-content:center" data-ir="semana">${ic('chart',17)}<b>Ver detalhes</b></button>
@@ -2841,6 +2842,25 @@ function pintar(animar,dir){
     camadas.slice(0,-1).forEach(c=>c.remove());
     clearTimeout(limpezaTimer);
   }
+  /* 🔴 O PORTÃO ATRAVESSA O REPINTE (dono, 09/08: *"tela montagem de rota — não
+     consigo iniciar rota"*).
+     O portão mora DENTRO da camada, e todo repinte do seam troca a camada
+     inteira: `antiga.replaceWith(nova)` num ramo, `app.innerHTML=''` no outro.
+     Quem perguntava alguma coisa morria calado no primeiro dado que chegasse do
+     servidor — e o "Iniciar a rota? · Debita X" é EXATAMENTE isso. Medido no
+     código da Montagem: ela abre com quatro buscas no ar e ainda GARANTE O GPS,
+     e o 1º fix chama `publicarPrevia()` (a lista renasce encadeada pela posição
+     do motorista) — numa garagem esse fix chega dezenas de segundos depois, ou
+     seja, bem no meio do diálogo aberto. Some o portão, some com ele o ouvinte
+     do "sim" que a ponte pendurou no `.principal`, e o toque seguinte não faz
+     nada. O dono lê isso como "não consigo iniciar rota".
+     O tour já tinha essa cura (`tourRepintar`), o portão não tinha.
+     🔴 E ELE É MUDADO DE CAMADA, NÃO REDESENHADO. Redesenhar devolveria um
+     botão NOVO, sem o ouvinte — a mesma morte com outro nome. Mover o nó leva
+     junto tudo o que está pendurado nele.
+     Só no REPINTE: TROCAR de tela continua fechando o portão, que é o certo —
+     diálogo de uma tela não segue o dedo pra outra. */
+  const portaoVivo = (!animar && antiga) ? antiga.querySelector('.portao-wrap') : null;
   const nova=document.createElement('div');
   nova.className='tela';
   nova.innerHTML=T[atual].render();
@@ -2944,6 +2964,7 @@ function pintar(animar,dir){
     });
     antiga.replaceWith(nova);
     herdarRolagem(rolagem,nova);
+    remontarPortao(nova,portaoVivo);
     // E o relógio continua: `currentTime` põe cada animação exatamente onde a
     // da camada anterior estava. Sem isto a lista recomeçaria do zero e o dado
     // chegando tarde daria um pisca. Quem não tiver a API fica sem o acerto —
@@ -2998,6 +3019,10 @@ function pintar(animar,dir){
     app.innerHTML='';
     app.appendChild(nova);
     herdarRolagem(rolagem,nova);
+    // `innerHTML=''` só DESLIGA a camada velha do documento: o nó do portão
+    // continua vivo na variável (com os ouvintes), e é por isso que ele pode
+    // ser re-encaixado aqui embaixo.
+    remontarPortao(nova,portaoVivo);
   }
   pintarRail();
   /* 🔴 O TOUR SE REMONTA NA CAMADA NOVA. O `.aula-wrap` mora DENTRO da camada,
@@ -3248,6 +3273,13 @@ function portao(chave){
       }).join('')}
     </div></div>`;
   camada.appendChild(w);
+}
+/** Leva o portão aberto pra camada nova de um repinte — ver a nota no `pintar`.
+ *  MOVE o nó (os ouvintes vão junto) e desliga a entrada dele, que já rodou. */
+function remontarPortao(nova,wrap){
+  if(!wrap) return;
+  wrap.classList.add('remontado');
+  nova.appendChild(wrap);
 }
 
 /* ==========================================================================
