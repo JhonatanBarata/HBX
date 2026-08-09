@@ -2248,12 +2248,21 @@
      também a lista da tela `rotalista`, que continua mostrando o dia inteiro.
      A régua é do MAPA — zerar a fonte seria apagar uma tela que ninguém
      pediu. */
+  /* 🔴 ZERO É UM NÚMERO FINITO — E FOI ISSO QUE MANDOU O MAPA PRA ÁFRICA
+     (medido no g15, APK 206, 09/08 02:06). O filtro daqui nasceu como
+     `Number.isFinite(lat) && Number.isFinite(lng)`, mais "correto" que o
+     `p.lat && p.lng` que ele substituiu — e mais ERRADO, porque `0` passa no
+     finito e não passa no truthy. Uma parada com (0,0) no cadastro virou um
+     ponto no Golfo da Guiné, e "enquadrar a rota" abriu a câmera de Rio Claro
+     até o SENEGAL: um oceano na tela com três pinos grudados em São Paulo.
+     `pontoOk` é a régua que esta casa já tinha (rejeita 0,0 e o que sai da
+     faixa) — a mesma que a parada avulsa usa pra aceitar coordenada digitada.
+     LEI: trocar um filtro por outro "mais rigoroso" exige perguntar o que o
+     antigo barrava DE GRAÇA. `truthy` barrava o zero; `isFinite` não. */
   function paradasDoMapa() {
     if (!rotaMontada()) return [];
-    return ((typeof PARADAS !== 'undefined' ? PARADAS : []) || []).filter((p) => {
-      const la = Number(p && p.lat); const ln = Number(p && p.lng);
-      return Number.isFinite(la) && Number.isFinite(ln);
-    });
+    return ((typeof PARADAS !== 'undefined' ? PARADAS : []) || [])
+      .filter((p) => p && pontoOk(p.lat, p.lng));
   }
 
   /** os pinos numerados: só se refaz quando a LISTA muda, não a cada repinte */
@@ -2307,8 +2316,10 @@
     // vazia, e a moldura passa a ser só o motorista — enquadrar uma rota que
     // ninguém montou levaria a câmera pra um dia que não existe.
     const pontos = paradasDoMapa().map((p) => [Number(p.lng), Number(p.lat)]);
+    // mesma régua das paradas (§ paradasDoMapa): fix zerado é ponto no oceano,
+    // e um só deles estica a moldura do dia inteiro pra outro continente.
     const eu = ultimaPos || ultimoFix;
-    if (eu && Number.isFinite(eu.lat) && Number.isFinite(eu.lng)) pontos.push([eu.lng, eu.lat]);
+    if (eu && pontoOk(eu.lat, eu.lng)) pontos.push([eu.lng, eu.lat]);
     // Sem um ponto sequer não há o que enquadrar — e a câmera fica onde está.
     // Pular pra lugar nenhum seria o mapa "corrigindo" pro meio do oceano.
     if (!pontos.length) return;

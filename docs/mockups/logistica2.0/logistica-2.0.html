@@ -5964,7 +5964,14 @@ const CAPITULOS={
      titulo:'Salvar ou começar',texto:'"Salvar rota" guarda pra depois. "Iniciar rota" começa o dia — hoje é só olhar.'},
   ]},
   clientes:{titulo:'Onde moram os clientes',ico:'users',passos:[
-    {tela:'rota',alvo:'.nav',tipo:'fazer',
+    /* 🔴 PASSO `fazer` APONTA PRO BOTÃO, NUNCA PRA BARRA QUE O CONTÉM (09/08,
+       flagrado percorrendo o tour). O alvo era `.nav` — a barra inteira, os três
+       módulos dentro do mesmo furo. Dois estragos de uma vez: o dedo não sabia
+       ONDE tocar (a frase diz "Ajustes", o holofote dizia "qualquer um destes"),
+       e tocar o botão ERRADO satisfazia o passo — o tour seguia pro passo
+       seguinte, que espera a tela de Ajustes, achava o alvo no vazio e o
+       capítulo inteiro caía. Alvo de `fazer` é a peça que a frase manda tocar. */
+    {tela:'rota',alvo:'[data-nav="ajustes"]',tipo:'fazer',
      titulo:'Os três módulos',texto:'Chat, Rota e Ajustes. Toque em Ajustes.'},
     {tela:'ajustes',alvo:'[data-ir="clientes"]',tipo:'fazer',
      titulo:'Cadastro fica aqui',texto:'Clientes, produtos e caderneta moram nos Ajustes.'},
