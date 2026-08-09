@@ -64,6 +64,26 @@ export interface CnefeInput {
   /** Logradouro do cadastro — quando presente, o candidato PRECISA ter via compatível. */
   endereco?: string | null;
   uf?: string | null;
+  /**
+   * 🔴 O CEP DO CADASTRO MANDA NO NOME DA RUA (09/08, ordem do dono: "se o nome da rua
+   * está errado, puxe pelo CEP, e acabou — apague o nome da rua que o cliente está e
+   * preencha com o do CEP").
+   *
+   * Até aqui o nome da rua tinha VETO: `viasCompativeisCnefe` derrubava o candidato
+   * quando o cadastro dizia "Rua 18" e o CEP dizia "Rua Dezenove", ou "Rua Jacutinga"
+   * onde o Censo tem "Estrada de Jacutinga". O cadastro vencia a base oficial — e o
+   * cliente ficava sem pino por causa de uma palavra digitada errada.
+   *
+   * Com `cepDoCadastro`, a hierarquia inverte: o CEP é dado que o dono digitou e ele
+   * identifica UM trecho de rua; o nome oficial sai da base e volta pro cadastro (ver
+   * `gravarCuraCnefe`). A prova NÃO afrouxa — continuam valendo a porta/vizinho e o
+   * teto de dispersão, que é o que impede um CEP de cidade inteira virar pino.
+   *
+   * ⚠️ Só vale pro CEP que VEIO DO CADASTRO. CEP ADIVINHADO (ViaCEP, no caminho de
+   * quem não tem CEP) mantém o veto: lá o nome da rua é a única evidência de que se
+   * está no trecho certo, e foi exatamente isso que a auditoria de 27/07 provou.
+   */
+  cepDoCadastro?: boolean;
 }
 
 export interface CnefePino {
@@ -272,7 +292,9 @@ export function escolherPinoPorta(rows: CnefeRow[], input: CnefeInput): CnefePin
   let candidatos = (Array.isArray(rows) ? rows : []).filter(coordValida);
   if (!candidatos.length) return null;
 
-  const viaPedida = String(input.endereco ?? '').trim();
+  // `cepDoCadastro` tira o VETO do nome (ver CnefeInput): o CEP já prova o trecho, e
+  // o nome divergente é o defeito a corrigir, não o motivo pra desistir.
+  const viaPedida = input.cepDoCadastro ? '' : String(input.endereco ?? '').trim();
   if (viaPedida) {
     candidatos = candidatos.filter((r) => viasCompativeisCnefe(viaPedida, r.logradouro));
     if (!candidatos.length) return null;
@@ -295,12 +317,16 @@ export function escolherPinoPorta(rows: CnefeRow[], input: CnefeInput): CnefePin
  */
 export function escolherPinoRua(rows: CnefeRow[], numeroPedido: number, input: CnefeInput): CnefePino | null {
   const viaPedida = String(input.endereco ?? '').trim();
-  if (!viaPedida) return null;
+  // Sem logradouro E sem CEP do cadastro não há prova nenhuma do trecho — segue null.
+  // Com CEP do cadastro, o trecho está provado por ele: é a regra do dono ("se repetir
+  // o CEP e diferir no número, está certinho"), e o vizinho continua limitado pelo
+  // mesmo teto de numeração e de dispersão de sempre.
+  if (!viaPedida && !input.cepDoCadastro) return null;
 
   const candidatos = (Array.isArray(rows) ? rows : [])
     .filter(coordValida)
     .filter((r) => typeof r.numero === 'number' && Number.isFinite(r.numero))
-    .filter((r) => viasCompativeisCnefe(viaPedida, r.logradouro));
+    .filter((r) => (input.cepDoCadastro ? true : viasCompativeisCnefe(viaPedida, r.logradouro)));
   if (!candidatos.length) return null;
 
   const vizinho = candidatos[0];
@@ -327,7 +353,8 @@ export function escolherPinoCep(rows: CnefeRow[], input: CnefeInput): CnefePino 
   let candidatos = (Array.isArray(rows) ? rows : []).filter(coordValida);
   if (!candidatos.length) return null;
 
-  const viaPedida = String(input.endereco ?? '').trim();
+  // Mesma inversão de hierarquia do `escolherPinoPorta` (ver CnefeInput#cepDoCadastro).
+  const viaPedida = input.cepDoCadastro ? '' : String(input.endereco ?? '').trim();
   if (viaPedida) {
     const compativeis = candidatos.filter((r) => viasCompativeisCnefe(viaPedida, r.logradouro));
     if (!compativeis.length) return null;
@@ -494,8 +521,9 @@ export async function resolverCnefe(
     const pinoPorta = escolherPinoPorta(porta, input);
     if (pinoPorta) return pinoPorta;
 
-    // Fallback de RUA só faz sentido com logradouro no cadastro (ver escolherPinoRua).
-    if (!String(input.endereco ?? '').trim()) return null;
+    // Fallback de RUA precisa de prova do trecho: o logradouro do cadastro OU o CEP
+    // que o próprio dono digitou (ver escolherPinoRua e CnefeInput#cepDoCadastro).
+    if (!String(input.endereco ?? '').trim() && !input.cepDoCadastro) return null;
     const rua = (await cnefeQuery(
       'SELECT logradouro, numero, lat, lng, nivel_geo, municipio FROM cnefe_endereco ' +
         `WHERE cep = ${CEP_PARAM} AND numero IS NOT NULL AND lat IS NOT NULL AND lng IS NOT NULL ` +

@@ -21,6 +21,7 @@ import {
   resolverCnefe,
   resolverCnefeLote,
   resolverCnefePorta,
+  viasCompativeisCnefe,
   type CnefePino,
 } from '../nucleo/cnefe-resolver.util';
 import {
@@ -551,7 +552,24 @@ export class LogisticaConferenciaService implements OnModuleInit {
         else await this.prisma.customerProfile.updateMany({ where: { id: row.customerProfileId, companyId, ...onde }, data: { cep: cura.cepDescoberto } });
       }
       if (!cura.pino) return false;
-      const dados = { lat: cura.pino.lat, lng: cura.pino.lng, geoFonte: 'cnefe' };
+      /* 🔴 O NOME DA RUA SAI DO CEP (09/08, ordem do dono: "apague o nome da rua que
+         o cliente está e preencha com o do CEP"). Chega aqui já decidido lá em
+         `resolverCuraCnefe`: só vem preenchido quando o CEP do CADASTRO provou a porta
+         e o nome gravado divergia do oficial.
+         Escreve SÓ o logradouro — `numero`, `complemento` e `bairro` são colunas
+         próprias e continuam do dono. Quem monta a linha da tela é
+         `linhaEnderecoDaFonte` ("Estrada de Jacutinga, 1360"), então trocar só a rua
+         não deixa endereço pela metade em lugar nenhum. */
+      const ruaOficial = String(cura.logradouroOficial ?? '').trim();
+      const dados: { lat: number; lng: number; geoFonte: string; endereco?: string } = {
+        lat: cura.pino.lat, lng: cura.pino.lng, geoFonte: 'cnefe',
+        ...(ruaOficial ? { endereco: ruaOficial } : {}),
+      };
+      if (ruaOficial) {
+        this.logger.log(
+          `[logistica] cura CNEFE company=${companyId}: rua corrigida pelo CEP — "${alvo.endereco ?? ''}" → "${ruaOficial}".`,
+        );
+      }
       // 🔴 06/08 — A CURA PASSA A CORRIGIR, NÃO SÓ A PREENCHER (ordem do dono).
       // Antes o `where` exigia `lat: null`: pino ERRADO nunca era trocado. Foi assim que
       // 5 casas da Avenida 74 (nº 188/197/228/232/282, company 41) ficaram com o MESMO
@@ -902,6 +920,13 @@ export function alvoCuraCnefe(r: ParadaConferenciaRow): AlvoCuraCnefe | null {
 export interface CuraCnefeResultado {
   pino: CnefePino | null;
   cepDescoberto: string | null;
+  /**
+   * 🔴 O NOME OFICIAL DA RUA, quando o CEP do cadastro provou a porta e o cadastro
+   * estava com outro nome (09/08, ordem do dono: "apague o nome da rua que o cliente
+   * está e preencha com o do CEP"). Só vem preenchido quando há o que corrigir —
+   * `null` quando o nome já batia, pra escrita não tocar em quem está certo.
+   */
+  logradouroOficial: string | null;
 }
 
 /**
@@ -929,10 +954,26 @@ export async function resolverCuraCnefe(
   );
   // `cepDescoberto` só quando a prova foi a PORTA (o resolver já devolve null no
   // vizinho) e o cadastro está sem CEP: nunca trocar o CEP que o dono digitou.
-  if (direta) return { pino: direta.pino, cepDescoberto: alvo.cep ? null : direta.cep };
+  if (direta) return { pino: direta.pino, cepDescoberto: alvo.cep ? null : direta.cep, logradouroOficial: null };
   if (alvo.cep) {
-    const pino = await resolverCnefe({ ...base, cep: alvo.cep }, opts);
-    return pino ? { pino, cepDescoberto: null } : null;
+    /* 🔴 COM CEP NO CADASTRO, O CEP MANDA NO NOME DA RUA (09/08, ordem do dono: "se o
+       nome da rua está errado, puxe pelo CEP, e acabou — apague o nome da rua que o
+       cliente está e preencha com o do CEP").
+       `cepDoCadastro` tira o veto de `viasCompativeisCnefe` lá no resolver. Medido na
+       company 41: "Rua 18, 864" com o CEP 13504363, que o Censo chama de RUA DEZENOVE;
+       "Rua Jacutinga" onde a base tem "Estrada de Jacutinga". O cliente ficava sem pino
+       por causa de uma palavra digitada, com o CEP certo do lado.
+       A PROVA não afrouxou: continua sendo a porta (ou o vizinho do MESMO CEP dentro
+       do teto de numeração e de dispersão). O que mudou é quem perde a discussão sobre
+       o NOME — o cadastro, não a base oficial. */
+    const pino = await resolverCnefe({ ...base, cep: alvo.cep, cepDoCadastro: true }, opts);
+    if (!pino) return null;
+    // Nome novo só quando REALMENTE difere do que está gravado: reescrever cadastro
+    // certo é mexer no que não está quebrado.
+    const oficial = String(pino.logradouro ?? '').trim();
+    const atual = logradouroDoCadastro(alvo.endereco);
+    const divergiu = !!oficial && (!atual || !viasCompativeisCnefe(atual, oficial));
+    return { pino, cepDescoberto: null, logradouroOficial: divergiu ? oficial : null };
   }
   // ── ESCOPO (27/07, ordem do dono, depois da pesquisa dele) ────────────────────
   // "Não existe entrega sem o endereço certo. Eu queria um sistema que limpasse
@@ -955,7 +996,9 @@ export async function resolverCuraCnefe(
   // 1 consulta cobrindo os trechos do bairro (nunca um laço por CEP: com 37 trechos e
   // 4s de teto por consulta, a cura morria no orçamento antes de curar alguém).
   const emLote = await resolverCnefeLote(comBairro.map((r) => r.cep), base, { ...opts, exigirPorta: true });
-  return emLote ? { pino: emLote.pino, cepDescoberto: emLote.cep } : null;
+  // CEP ADIVINHADO mantém o veto do nome (ver CnefeInput#cepDoCadastro): aqui o nome
+  // da rua é a única evidência de que se está no trecho certo.
+  return emLote ? { pino: emLote.pino, cepDescoberto: emLote.cep, logradouroOficial: null } : null;
 }
 
 /**
