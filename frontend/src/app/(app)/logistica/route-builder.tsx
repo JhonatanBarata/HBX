@@ -6,6 +6,7 @@ import { I, ICONS } from "@/components/hbx/shell";
 import { apiFetch } from "@/lib/api";
 
 import { getAdminRouteAdjustments, prepareAdminRoute } from "./admin-logistica-api";
+import { listClientes, type ClienteListItem } from "./clientes-api";
 import styles from "./route-builder.module.css";
 import { RouteAddressGate } from "./route-address-gate";
 import { RouteConference } from "./route-conference";
@@ -23,7 +24,11 @@ import {
 //   "gate"        → Endereços com erro, ANTES de materializar qualquer entrega.
 //   "conferencia" → mapa + distância + previsão + crédito; só "Aceitar rota"
 //                   consolida, e sair sem aceitar DESFAZ a montagem.
-type Step = "home" | "saved" | "days" | "order" | "manual" | "gate" | "conferencia";
+/* "escolher" (09/08) — A TERCEIRA PORTA. Ordem do dono: "eu quero montar uma
+   rota AGORA, 5 pontos". As duas portas antigas respondem "de que dia?" e "qual
+   rota salva?"; nenhuma responde "estes cinco aqui". Sem endpoint novo: as
+   entregas nascem por `paraMinhaRota` e a ordem sai do `planejar` de sempre. */
+type Step = "home" | "saved" | "escolher" | "days" | "order" | "manual" | "gate" | "conferencia";
 
 type RouteModelStop = {
   customerProfileId: string;
@@ -379,6 +384,38 @@ export function RouteBuilderDialog({
   // conferência em vez de morrer num toast que fechava a tela.
   const [aviso, setAviso] = useState<string | null>(null);
   const previewRequest = useRef(0);
+  // A terceira porta: a base inteira, marcada à mão.
+  const [clientes, setClientes] = useState<ClienteListItem[]>([]);
+  const [clientesLoading, setClientesLoading] = useState(false);
+  const [clientesCaiu, setClientesCaiu] = useState(false);
+  const [marcados, setMarcados] = useState<string[]>([]);
+  const clientesRequest = useRef(0);
+
+  /* A busca vai ao servidor com a MESMA espera da lista do celular: uma ida por
+     letra enfileira pedidos e a última resposta nem sempre é a última digitada
+     — o contador `clientesRequest` é quem decide qual resposta vale. */
+  useEffect(() => {
+    if (step !== "escolher") return undefined;
+    const alvo = search.trim();
+    const pedido = ++clientesRequest.current;
+    setClientesLoading(true);
+    const t = setTimeout(() => {
+      listClientes(alvo)
+        .then((resposta) => {
+          if (clientesRequest.current !== pedido) return;
+          setClientes((resposta.items || []).filter((c) => c.isCliente));
+          setClientesCaiu(false);
+          setClientesLoading(false);
+        })
+        .catch(() => {
+          if (clientesRequest.current !== pedido) return;
+          // Lista vazia e lista que não carregou são coisas OPOSTAS.
+          setClientesCaiu(true);
+          setClientesLoading(false);
+        });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [step, search]);
 
   // 31/07 — estado das rotas salvas: relido toda vez que a lista aparece (a
   // pessoa pode aceitar, sair ou devolver a rota com este diálogo aberto).
@@ -722,9 +759,60 @@ export function RouteBuilderDialog({
     }
   }
 
+  /* ==========================================================================
+     MONTAR COM OS ESCOLHIDOS — as duas metades do verbo num toque: cria as
+     paradas e MONTA a ordem, caindo na MESMA conferência das outras duas
+     portas (montar e conferir são a mesma coisa aqui desde 29/07).
+
+     🔴 UMA DE CADA VEZ, e não `Promise.all`: cinco POSTs em paralelo disputam a
+     mesma rota no servidor, e eu perderia o nome de quem falhou. Quem entrou,
+     entrou — falha parcial vira RECADO na conferência, nunca "não deu certo"
+     (dizer isso faria o operador montar tudo de novo por cima).
+     ========================================================================== */
+  async function montarComEscolhidos() {
+    if (building || !marcados.length) return;
+    setBuilding(true);
+    setError(null);
+    try {
+      const date = operationalDate();
+      const nomePorId = new Map(clientes.map((c) => [String(c.id), String(c.name || "Cliente")]));
+      const deliveryIds: string[] = [];
+      const falharam: string[] = [];
+      for (const id of marcados) {
+        try {
+          const criada = await apiFetch<{ id: string }>("/logistica/entregas", {
+            method: "POST",
+            body: JSON.stringify({
+              customerProfileId: id,
+              quantidade: 1,
+              scheduledAt: `${date}T12:00:00.000Z`,
+              // Sem isto a entrega nasce órfã e o Iniciar recusa o dia inteiro
+              // ("Atribua as entregas a exatamente um motorista").
+              paraMinhaRota: true,
+            }),
+          });
+          if (criada?.id) deliveryIds.push(String(criada.id));
+        } catch {
+          falharam.push(nomePorId.get(id) || "Cliente");
+        }
+      }
+      if (!deliveryIds.length) throw new Error("Não consegui adicionar as paradas. Tente de novo.");
+      await apiFetch("/logistica/rota/planejar", {
+        method: "POST",
+        body: JSON.stringify({ date, deliveryIds }),
+      });
+      setAviso(falharam.length ? `Não consegui: ${falharam.join(", ")}.` : null);
+      setMarcados([]);
+      abrirConferencia(date, deliveryIds);
+    } catch (buildError: unknown) {
+      setError(humanError(buildError));
+      setBuilding(false);
+    }
+  }
+
   function back() {
     setError(null);
-    if (step === "saved" || step === "days") setStep("home");
+    if (step === "saved" || step === "days" || step === "escolher") setStep("home");
     else if (step === "order") setStep("days");
     else if (step === "manual") setStep("order");
   }
@@ -750,8 +838,10 @@ export function RouteBuilderDialog({
 
   const title = step === "saved"
     ? "Rotas Salvas"
-    : step === "days"
-      ? "Por dia"
+    : step === "escolher"
+      ? "Escolher clientes"
+      : step === "days"
+        ? "Por dia"
       : step === "order"
         ? "Ordem das paradas"
         : step === "manual"
@@ -778,6 +868,7 @@ export function RouteBuilderDialog({
           <div className={styles.heading}>
             <h2 id="route-builder-title">{title}</h2>
             {step === "days" && <p>Escolha os dias</p>}
+            {step === "escolher" && <p>{marcados.length} {marcados.length === 1 ? "marcado" : "marcados"}</p>}
             {step === "order" && <p>{preview.length} {preview.length === 1 ? "parada pronta" : "paradas prontas"}</p>}
             {step === "manual" && <p>Busque ou digite a posição</p>}
             {step === "gate" && <p>{gateProblemas} de {gateTotal} {gateTotal === 1 ? "cliente" : "clientes"}</p>}
@@ -831,7 +922,57 @@ export function RouteBuilderDialog({
                 </span>
                 <span className={styles.chevron}>›</span>
               </button>
+              <button type="button" className={styles.option} onClick={() => { setSearch(""); setMarcados([]); setStep("escolher"); }} disabled={building}>
+                <span className={styles.optionIcon}><I d={ICONS.clientes} size={19} /></span>
+                <span className={styles.optionCopy}>
+                  <strong>Escolher clientes</strong>
+                  <small>Marque quem entra e monte agora</small>
+                </span>
+                <span className={styles.chevron}>›</span>
+              </button>
             </div>
+          )}
+
+          {step === "escolher" && (
+            <>
+              <label className={styles.search}>
+                <span aria-hidden>⌕</span>
+                <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar cliente pelo nome" aria-label="Buscar cliente para a rota" />
+              </label>
+              {clientesCaiu ? (
+                <p className={styles.empty}>Não consegui carregar os clientes. Tente de novo.</p>
+              ) : clientesLoading && !clientes.length ? (
+                <p className={styles.empty}>Carregando clientes…</p>
+              ) : clientes.length ? (
+                <div className={styles.previewList}>
+                  {clientes.map((cliente) => {
+                    const id = String(cliente.id);
+                    const marcado = marcados.includes(id);
+                    const endereco = [cliente.endereco, cliente.cidade].filter(Boolean).join(" • ");
+                    return (
+                      <button
+                        type="button"
+                        key={id}
+                        className={`${styles.previewRow} ${styles.pickRow} ${marcado ? styles.picked : ""}`}
+                        aria-pressed={marcado}
+                        disabled={building}
+                        onClick={() => setMarcados((atual) => (atual.includes(id) ? atual.filter((x) => x !== id) : [...atual, id]))}
+                      >
+                        <span className={styles.pickBox} aria-hidden>{marcado ? "✓" : ""}</span>
+                        <span className={styles.avatar}>{(cliente.name || "C").trim().slice(0, 1).toLocaleUpperCase("pt-BR")}</span>
+                        <span className={styles.previewCopy}>
+                          <strong>{cliente.name || "Cliente"}</strong>
+                          <small>{endereco || "sem endereço"}</small>
+                        </span>
+                        {/* Pino ausente é o mesmo aviso da prévia por dia: a parada
+                            entra, mas sai sem trajeto — e quem monta tem que ver. */}
+                        {!endereco && <b className={styles.gpsWarning}>GPS</b>}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : <p className={styles.empty}>Nenhum cliente com esse nome.</p>}
+            </>
           )}
 
           {step === "saved" && (
@@ -978,6 +1119,7 @@ export function RouteBuilderDialog({
             <div className={styles.footerActions}>
               <button type="button" className={styles.secondary} onClick={back} disabled={building}>Voltar</button>
               {step === "days" && <button type="button" className={styles.primary} onClick={conferirDepoisDoPortao} disabled={!selectedDays.length || !preview.length || previewLoading || building}>Próximo ›</button>}
+              {step === "escolher" && <button type="button" className={styles.primary} onClick={() => void montarComEscolhidos()} disabled={!marcados.length || building}>{building ? "Montando…" : `Montar rota com ${marcados.length}`}</button>}
               {step === "manual" && <button type="button" className={styles.primary} onClick={() => void buildFromDays("manual")} disabled={!manualOrder.length || building}>{building ? "Montando…" : "Gerar agora"}</button>}
             </div>
           </footer>

@@ -263,6 +263,50 @@
   background: var(--hbx-brand-soft);
 }
 
+/* PORTA "ESCOLHER CLIENTES" (09/08) — a linha da prévia vira BOTÃO de marcar.
+   O aceso é o MESMO do `.dayRow.selected` de propósito: as duas fileiras
+   respondem à mesma pergunta ("isto entra na rota?") e padronizar é IGUALAR,
+   não inventar um segundo verde. */
+.pickRow {
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.pickRow:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--hbx-brand) 48%, var(--border-hairline));
+}
+
+.pickRow:disabled {
+  cursor: default;
+  opacity: 0.56;
+}
+
+.pickRow.picked {
+  border-color: color-mix(in srgb, var(--hbx-brand) 66%, transparent);
+  background: var(--hbx-brand-soft);
+}
+
+.pickBox {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 6px;
+  color: transparent;
+  font-size: var(--fz-m2);
+  line-height: 1;
+}
+
+.pickRow.picked .pickBox {
+  border-color: transparent;
+  background: var(--hbx-brand);
+  color: var(--text-on-brand);
+}
+
 .countSkeleton {
   width: 84px;
   height: 10px;
