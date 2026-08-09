@@ -9,6 +9,10 @@
 O que faltava era o miolo de dois deles e dois verbos mentindo. Este plano é a correção, não uma
 reconstrução.
 
+> **ESTADO: os defeitos A, B e C do §2 estão CORRIGIDOS no commit `8f3f772f`.**
+> Portões de bancada: casca 66/66 idênticas, 33 telas, sem erro de console.
+> Falta a prova de TELA no aparelho (§5) — é o que fecha a entrega.
+
 ---
 
 ## §1 — A MÁQUINA, MEDIDA NO CÓDIGO DE HOJE

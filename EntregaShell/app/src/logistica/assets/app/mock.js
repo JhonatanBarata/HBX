@@ -371,7 +371,18 @@ const MAPA_PARADAS=[
   {x:56, y:740, ate:'H56'},
 ];
 function mapaDesenho(){
-  const total=(typeof PARADAS!=='undefined'&&PARADAS)?PARADAS.length:0;
+  /* 🔴 O FUNDO DE ESPERA TAMBÉM NÃO INVENTA ROTA (dono, 09/08). Este SVG é o
+     que fica na tela enquanto o mapa de verdade não assenta — e ele desenhava
+     traço e pinos por CONTAGEM: `PARADAS.length` maior que zero já bastava. No
+     dia em que o dono cancelou a rota, as 52 entregas agendadas viraram os 6
+     pinos desta maquete, em posições FIXAS, com uma fita verde ligando elas.
+     Ou seja: a tela mostrava uma rota que não existia, e nem os pontos eram os
+     dele. Mesma régua da ponte (`rotaMontada`) e da barra (`temRota`): sem rota
+     montada, o fundo é só a cidade. `estadoRota` ausente = folha aberta fora do
+     app (o desenho), e aí a maquete continua inteira. */
+  const temRota=typeof estadoRota==='undefined'
+    ||estadoRota==='pronta'||estadoRota==='rodando'||estadoRota==='pausada';
+  const total=(temRota&&typeof PARADAS!=='undefined'&&PARADAS)?PARADAS.length:0;
   const pontos=MAPA_PARADAS.slice(0,Math.min(total,MAPA_PARADAS.length));
   const traco=pontos.length?`M56 190 ${pontos.map(p=>p.ate).join(' ')}`:'';
   return `<div class="mapwrap"><svg viewBox="0 0 400 900" preserveAspectRatio="xMidYMid slice">
@@ -3855,7 +3866,7 @@ function tourRepintar(){
     return ir(p.tela);
   }
   const camada=camadaViva(); if(!camada) return;
-  const alvo=p.alvo?camada.querySelector(p.alvo):null;
+  const alvo=acharAlvo(camada,p.alvo);
   // Passo cujo alvo não está na tela SAI (e grita no console): estado diferente
   // desenha peça diferente, e apontar pro vazio é pior que não falar.
   if(p.alvo&&!alvo) return tourPular('sumiu da tela',p);

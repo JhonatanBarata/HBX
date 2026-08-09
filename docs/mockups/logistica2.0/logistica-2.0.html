@@ -1203,6 +1203,25 @@ button,input{font:inherit;color:inherit}
 .mapa-palco{position:absolute;inset:0}
 .mapa-palco>svg{position:absolute;inset:0;width:100%;height:100%}
 .mapa-palco.pronto>svg{opacity:0;transition:opacity .3s ease}
+/* 🔴 A REGRA ACIMA NUNCA PEGOU O MAPA 2D — e foi por isso que a tela "Rota do
+   dia" NUNCA mostrou um mapa de verdade (dono, 09/08). O desenho de espera não
+   é filho direto do palco: `mapaDesenho()` devolve `<div class="mapwrap"><svg>`,
+   então `.mapa-palco.pronto>svg` mira um neto e casa com nada. Pior: `.mapwrap`
+   tem `z-index:10` e o `.mapa-vivo` não tem nenhum — o mapa REAL subia, ficava
+   `opacity:1` como manda a regra de baixo, e continuava ESCONDIDO debaixo da
+   maquete. O que o dono via como "meu mapa" eram as ruas em grade perfeita e os
+   6 pinos de posição FIXA do desenho.
+   A cura é dizer o nome de quem se quer apagar. Só o palco 2D: no `gps` o
+   desenho é a CENA de entrada, que tem coreografia própria (e lá o mapa vivo já
+   vence por ordem de DOM, sem z-index no meio).
+   LEI: seletor de filho direto morre calado quando alguém embrulha o alvo —
+   quando o desenho ganha um invólucro, a regra que o esconde tem que ir junto. */
+/* `pointer-events:none` junto, e não é detalhe: `.mapwrap` cobre a tela inteira
+   com `z-index:10`, e caixa invisível continua comendo o dedo. Sem isto o mapa
+   2D nasceria impossível de arrastar — o MESMO defeito que o facho da seta já
+   causou no 3D (08/08: arrasto do centro = 0 px). Enfeite apagado sai do
+   caminho da mão. */
+.mapa-palco.pronto>.mapwrap{opacity:0;pointer-events:none;transition:opacity .3s ease}
 .mapa-vivo{position:absolute;inset:0}
 /* 🔴 DESENHO DE ESPERA SÓ SERVE SE FOR VISÍVEL. O mapa de verdade nasce como
    um `canvas` DENTRO deste mesmo palco e, por ser pintado depois, ele TAMPA o
@@ -2090,12 +2109,14 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .aula-cx .pe .principal{background:linear-gradient(180deg,#9ce02f,#6fb31c);
   border-color:#6fb31c;color:#16260a}
 /* O trilho da barra é o MESMO da barra do aviso (`--barra-trilho` é tinta de
-   noite; no cartão branco ele viraria um risco preto). */
+   noite; no cartão branco ele viraria um risco preto). E o preenchido é o
+   verde de ESCREVER, não o de preencher: o lima vivo (#6fb31c) dava 2,10:1
+   contra o trilho — barra é objeto gráfico, vale a régua dos 3:1 igual. */
 [data-luz="claro"] .aula-prog{background:#e2e8f2}
-[data-luz="claro"] .aula-prog i{background:#6fb31c}
-/* O anel da dica segue o furo: no claro o lima que ESCREVE é escuro, e o anel
-   é BORDA — precisa dos 3:1 contra o que está embaixo dele. */
-[data-luz="claro"] .aula-furo::after{border-color:#3f7a00}
+[data-luz="claro"] .aula-prog i{background:#3f7a00}
+/* O anel da dica é o MESMO anel do furo — a dica não muda a fronteira, ela
+   pisca a que já existe. Cor diferente aqui seria uma segunda régua. */
+[data-luz="claro"] .aula-furo::after{border-color:#264900}
 [data-luz="claro"] .pacote .selo{background:var(--lime);color:#fff}
 
 /* 2. Brilho vira sombra. */
@@ -2122,8 +2143,18 @@ button,input{font:inherit;color:inherit}
 [data-luz="claro"] .scrim,[data-luz="claro"] .portao-wrap,
 [data-luz="claro"] .conf-wrap,[data-luz="claro"] .erro-wrap{background:rgba(20,28,45,.42)}
 /* A aula segue os irmãos: no claro o escuro em volta afrouxa (mesma família do
-   scrim/portão), senão o furo vira um holofote de teatro em cima do branco. */
-[data-luz="claro"] .aula-furo{box-shadow:0 0 0 9999px rgba(20,28,45,.42),0 0 14px rgba(63,122,0,.3)}
+   scrim/portão), senão o furo vira um holofote de teatro em cima do branco.
+
+   🔴 A TERCEIRA ARMADILHA DO CLARO, e ela é FILHA da linha de cima. Com o véu
+   afrouxado em .42 o entorno vira um cinza médio (146,152,162 — composto e
+   MEDIDO), e o `--lime` do claro (#3f7a00, o verde que ESCREVE) dava 1,81:1
+   contra ele: o anel que existe pra dizer "olhe aqui" sumia justamente do lado
+   de fora, que é de onde o olho vem. Escurecer o véu até o anel aparecer
+   exigiria .83 de opacidade — o holofote de teatro que esta regra evita. Então
+   quem desce é o ANEL: 3,55:1 contra o véu e 10:1 contra o alvo claro embaixo.
+   Anel precisa dos 3:1 nos DOIS lados — ele é a fronteira, não a decoração. */
+[data-luz="claro"] .aula-furo{box-shadow:0 0 0 9999px rgba(20,28,45,.42),0 0 14px rgba(63,122,0,.3);
+  border-color:#264900}
 [data-luz="claro"] .sheet{background:linear-gradient(180deg,#fff,#fbfcfe 30%);border-color:var(--line)}
 
 [data-luz="claro"] .erro,[data-luz="claro"] .portao.trava{background:#fff5f5;border-color:#e6a3a3}
@@ -2639,7 +2670,18 @@ const MAPA_PARADAS=[
   {x:56, y:740, ate:'H56'},
 ];
 function mapaDesenho(){
-  const total=(typeof PARADAS!=='undefined'&&PARADAS)?PARADAS.length:0;
+  /* 🔴 O FUNDO DE ESPERA TAMBÉM NÃO INVENTA ROTA (dono, 09/08). Este SVG é o
+     que fica na tela enquanto o mapa de verdade não assenta — e ele desenhava
+     traço e pinos por CONTAGEM: `PARADAS.length` maior que zero já bastava. No
+     dia em que o dono cancelou a rota, as 52 entregas agendadas viraram os 6
+     pinos desta maquete, em posições FIXAS, com uma fita verde ligando elas.
+     Ou seja: a tela mostrava uma rota que não existia, e nem os pontos eram os
+     dele. Mesma régua da ponte (`rotaMontada`) e da barra (`temRota`): sem rota
+     montada, o fundo é só a cidade. `estadoRota` ausente = folha aberta fora do
+     app (o desenho), e aí a maquete continua inteira. */
+  const temRota=typeof estadoRota==='undefined'
+    ||estadoRota==='pronta'||estadoRota==='rodando'||estadoRota==='pausada';
+  const total=(temRota&&typeof PARADAS!=='undefined'&&PARADAS)?PARADAS.length:0;
   const pontos=MAPA_PARADAS.slice(0,Math.min(total,MAPA_PARADAS.length));
   const traco=pontos.length?`M56 190 ${pontos.map(p=>p.ate).join(' ')}`:'';
   return `<div class="mapwrap"><svg viewBox="0 0 400 900" preserveAspectRatio="xMidYMid slice">
@@ -6129,7 +6171,7 @@ function tourRepintar(){
     return ir(p.tela);
   }
   const camada=camadaViva(); if(!camada) return;
-  const alvo=p.alvo?camada.querySelector(p.alvo):null;
+  const alvo=acharAlvo(camada,p.alvo);
   // Passo cujo alvo não está na tela SAI (e grita no console): estado diferente
   // desenha peça diferente, e apontar pro vazio é pior que não falar.
   if(p.alvo&&!alvo) return tourPular('sumiu da tela',p);
