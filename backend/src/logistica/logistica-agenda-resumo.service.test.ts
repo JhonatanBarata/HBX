@@ -85,7 +85,8 @@ function plano(overrides: Record<string, any> = {}) {
 function buildService(plans: any[], routes: any[] = []) {
   const prisma: any = {
     logisticaConfig: {
-      findUnique: async () => ({ agendaV2Ativa: true, diasTrabalho: null }),
+      // F1 (09/08) — sobrou `diasTrabalho`: a flag `agendaV2Ativa` não é mais lida.
+      findUnique: async () => ({ diasTrabalho: null }),
     },
     logisticaPlanoEntrega: { findMany: async () => plans },
     logisticaRotaModelo: { findMany: async () => routes },

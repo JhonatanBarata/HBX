@@ -58,10 +58,13 @@ jobs:
           path: backend-build.log
           if-no-files-found: error
           retention-days: 3
-      - name: Admin route, occurrence and APK contracts
+      # F1 (09/08) — `logistica-occurrence.service.test.js` saiu daqui junto com o
+      # motor de ocorrências, apagado na faxina "um gerador só". Quem prova o
+      # gerador agora é o par agenda-generateday + admin-route.
+      - name: Admin route, agenda and APK contracts
         run: >-
           node --test
-          dist/logistica/logistica-occurrence.service.test.js
+          dist/logistica/logistica-agenda-generateday.service.test.js
           dist/logistica/logistica-admin-route.service.test.js
           dist/logistica/logistica-operacao.service.test.js
           dist/logistica/logistica-mobile.service.test.js

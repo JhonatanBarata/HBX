@@ -7,8 +7,8 @@ import { CreditsModule } from '../credits/credits.module';
 // PR10072026 W1: gate de módulo em rota (ModuleAccessGuard precisa do ModulesService).
 import { ModulesAccessModule } from '../modules/modules.module';
 import { AuthModule } from '../auth/auth.module';
-// F4 (27/07) — quarentena de importação reusa o cadastro idempotente do NÚCLEO-CRM
-// (NucleoCadastroService#createConta) pra virar CustomerProfile na efetivação.
+// LogisticaBaseLimpezaService reusa o cadastro idempotente do NÚCLEO-CRM
+// (NucleoCadastroService) pra fundir/limpar conta sem duplicar regra.
 import { NucleoModule } from '../nucleo/nucleo.module';
 // FISCAL F2a (04/08): FiscalComprovanteEntregaService (exportado pelo FiscalModule)
 // gera o comprovante SEM VALOR FISCAL que pega carona no aviso "entregue".
@@ -23,17 +23,13 @@ import { PulsoAppModule } from '../pulso-app/pulso-app.module';
 import { UsersModule } from '../users/users.module';
 import { LogisticaService } from './logistica.service';
 import { LogisticaRecorrenciaService } from './logistica-recorrencia.service';
-import { LogisticaRecorrenciaOccurrenceService } from './logistica-recorrencia-occurrence.service';
-import { LogisticaOccurrenceService } from './logistica-occurrence.service';
 import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConferenciaService } from './logistica-conferencia.service';
 import { LogisticaCustoPreviewService } from './logistica-custo-preview.service';
 import { LogisticaRotaModeloService } from './logistica-rota-modelo.service';
-import { LogisticaRotaIndicadaService } from './logistica-rota-indicada.service';
 import { LogisticaRotaAvisoService } from './logistica-rota-aviso.service';
 import { LogisticaRecadoService } from './logistica-recado.service';
 import { LogisticaRecadoMobileController } from './logistica-recado-mobile.controller';
-import { LogisticaLeituraService } from './logistica-leitura.service';
 import { LogisticaGeoService } from './logistica-geo.service';
 import { LogisticaOsrmService } from './logistica-osrm.service';
 import { LogisticaOsrmController } from './logistica-osrm.controller';
@@ -71,8 +67,6 @@ import { LogisticaBaseSaudeService } from './logistica-base-saude.service';
 import { LogisticaBaseLimpezaService } from './logistica-base-limpeza.service';
 import { LogisticaFechamentoDiaController } from './logistica-fechamento-dia.controller';
 import { LogisticaFechamentoDiaService } from './logistica-fechamento-dia.service';
-import { LogisticaImportacaoController } from './logistica-importacao.controller';
-import { LogisticaImportacaoService } from './logistica-importacao.service';
 import { LogisticaEstoqueController } from './logistica-estoque.controller';
 import { LogisticaNivelMasterController } from './logistica-nivel-master.controller';
 import { LogisticaPlanosPublicoController } from './logistica-planos-publico.controller';
@@ -120,10 +114,15 @@ import { LogisticaTutorialService } from './logistica-tutorial.service';
  * WhatsApp/cobrança (efeitos continuam só no confirmar, atrás da flag do N6).
  *
  * ADMIN MOBILE (16/07): ocorrência recorrente, data operacional e rota deixam de
- * ser a mesma coisa. O adapter LogisticaRecorrenciaOccurrenceService mantém o
- * CRUD antigo, mas direciona preview/gerar-dia para o motor determinístico de
- * ocorrências. O novo controller expõe Ajustar → Traçar → Começar exclusivamente
+ * ser a mesma coisa. O controller expõe Ajustar → Traçar → Começar exclusivamente
  * ao administrador, sem antecipar a futura árvore de roles.
+ *
+ * UM GERADOR SÓ (F1, 09/08): o adapter LogisticaRecorrenciaOccurrenceService e o
+ * motor de ocorrências (LogisticaOccurrenceService) foram APAGADOS. Existiam pra
+ * escolher, por flag, entre o gerador legado de `ClienteProduto` e a Agenda V2 —
+ * e as 9 empresas de produção estavam todas na V2. `LogisticaRecorrenciaService`
+ * voltou a ser um provider comum: ele mantém o CRUD do vínculo e delega
+ * gerar-dia/prévia direto pra LogisticaAgendaService.
  *
  * CONTRATO APK (17/07): LogisticaMobileController mantém a rota actor-scoped e
  * entrega ao motorista apenas as instruções de recebimento necessárias. A mesma
@@ -161,12 +160,14 @@ import { LogisticaTutorialService } from './logistica-tutorial.service';
  * findMany/groupBy); nenhuma dependência nova de módulo (só PrismaModule, já
  * importado acima).
  *
- * F4 QUARENTENA-DE-IMPORTAÇÃO (27/07, PR27072026-ROTA-3-NIVEIS): LogisticaImportacaoController/
- * Service expõem `/logistica/importacao` — arquivo novo, dono próprio (F4), zero
- * edição nos controllers/DTOs que a frente F1 (níveis de plano) mexe em paralelo.
- * Importa NucleoModule (novo import aqui) só pra reusar NucleoCadastroService#createConta
- * na efetivação — LogisticaAgendaService (plano de entrega) já é provider deste
- * módulo, nenhum import extra precisa pra ele.
+ * ENTERRAR AS MORTAS (F4, 09/08, PR09082026-ROTA-SEIS-VERBOS): três features
+ * publicadas foram APAGADAS depois de medidas em produção — IMPORTAÇÃO
+ * (`/logistica/importacao`, 0 lotes desde que nasceu), LEITURA DE ROTA
+ * (`/logistica/leitura/*`, 17 sessões e TODAS canceladas, 0 paradas capturadas) e
+ * ROTA INDICADA (`/logistica/rota-indicadas/*`, 4 usos na vida). Foram-se os
+ * controllers/services/DTOs/testes das três; as telas (web e APK) saíram na
+ * mesma onda. NucleoModule continua importado — quem usa NucleoCadastroService
+ * agora é LogisticaBaseLimpezaService, não mais a efetivação da importação.
  *
  * F3 FULL-POLIDO (27/07, PR27072026-ROTA-3-NIVEIS): LogisticaTrackingPublicService
  * expõe o link "acompanhe sua entrega" — LogisticaTrackingPublicController é a
@@ -214,19 +215,13 @@ import { LogisticaTutorialService } from './logistica-tutorial.service';
     LogisticaAgendaController,
     LogisticaBaseSaudeController,
     LogisticaFechamentoDiaController,
-    LogisticaImportacaoController,
     LogisticaEstoqueController,
     LogisticaNivelMasterController,
     LogisticaPlanosPublicoController,
   ],
   providers: [
     LogisticaService,
-    LogisticaOccurrenceService,
-    LogisticaRecorrenciaOccurrenceService,
-    {
-      provide: LogisticaRecorrenciaService,
-      useExisting: LogisticaRecorrenciaOccurrenceService,
-    },
+    LogisticaRecorrenciaService,
     LogisticaAdminRouteService,
     LogisticaAdminRouteViewService,
     LogisticaMobileService,
@@ -234,10 +229,8 @@ import { LogisticaTutorialService } from './logistica-tutorial.service';
     LogisticaConferenciaService,
     LogisticaCustoPreviewService,
     LogisticaRotaModeloService,
-    LogisticaRotaIndicadaService,
     LogisticaRotaAvisoService,
     LogisticaRecadoService,
-    LogisticaLeituraService,
     LogisticaGeoService,
     LogisticaOsrmService,
     LogisticaConfigService,
@@ -264,14 +257,12 @@ import { LogisticaTutorialService } from './logistica-tutorial.service';
     LogisticaBaseSaudeService,
     LogisticaBaseLimpezaService,
     LogisticaFechamentoDiaService,
-    LogisticaImportacaoService,
     LogisticaEstoqueService,
     LogisticaTutorialService,
   ],
   exports: [
     LogisticaService,
     LogisticaRecorrenciaService,
-    LogisticaOccurrenceService,
     LogisticaMobileService,
     LogisticaRotaService,
     LogisticaConfigService,

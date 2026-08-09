@@ -505,9 +505,6 @@ export function LogisticaClient() {
           <Link href="/logistica/estoque" className="cok__menu-item" role="menuitem">
             <I d={ICONS.produtos} size={13} /> Estoque
           </Link>
-          <Link href="/logistica/importar" className="cok__menu-item" role="menuitem">
-            <I d={ICONS.upload} size={13} /> Importar
-          </Link>
           <Link href="/logistica/config" className="cok__menu-item" role="menuitem">
             <I d={ICONS.config} size={13} /> Regras
           </Link>

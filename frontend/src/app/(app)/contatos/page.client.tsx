@@ -1252,17 +1252,13 @@ export function ContatosClient({ clientesOnly = false }: { clientesOnly?: boolea
           <I d={ICONS.plus} size={13} /> <span>{onlyClientes ? "Novo cliente" : "Novo cadastro"}</span>
         </button>
 
-        {/* Em /clientes, a entrada oficial passa pela quarentena da logística.
-            Em /contatos, a importação direta existente permanece intacta. */}
-        {clientesOnly ? (
-          <Link href="/logistica/importar" className="btn-ghost ctt-command__import" title="Importar clientes">
-            <I d={ICONS.upload} size={13} /> <span>Importar</span>
-          </Link>
-        ) : (
-          <button type="button" className="btn-ghost ctt-command__import" onClick={() => setShowImport(true)} title="Importar planilha">
-            <I d={ICONS.upload} size={13} /> <span>Importar</span>
-          </button>
-        )}
+        {/* F4 (09/08, PR09082026-ROTA-SEIS-VERBOS/G2): a quarentena de
+            /logistica/importar morreu (0 lotes desde que nasceu) e /clientes
+            voltou pra MESMA importação direta de /contatos — uma boca só, a
+            que a base inteira usa. */}
+        <button type="button" className="btn-ghost ctt-command__import" onClick={() => setShowImport(true)} title="Importar planilha">
+          <I d={ICONS.upload} size={13} /> <span>Importar</span>
+        </button>
 
         <span className={"ctt-command__status" + (loading ? " is-loading" : "")} title={loading ? "Atualizando cadastros" : "Cadastros atualizados"}>
           <i aria-hidden="true" />

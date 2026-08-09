@@ -503,8 +503,8 @@ h3 { font-size: .95rem; }
    o botão nativo entra com borda/fundo cinza e texto centralizado E, pior, com
    largura mínima igual ao conteúdo: dentro do .list (grid) isso estourava a
    coluna pra ~716px num modal de 360px e jogava a linha inteira pra fora da
-   tela. width: 0 com flex: 1 1 auto é o mesmo par já usado em
-   .lrt-client-row .card-main. Uma classe só, para os dois casos. */
+   tela. width: 0 com flex: 1 1 auto é o par que resolve. (O gêmeo desta regra
+   morava em .lrt-client-row .card-main, enterrado com a Leitura em 09/08.) */
 .card-main-btn { flex: 1 1 auto; width: 0; min-width: 0; padding: 0; border: 0; color: inherit; background: none; font: inherit; text-align: left; }
 .rme-dica { margin: 10px 2px 0; text-align: center; }
 /* O ::after do "segurar" precisa de position/overflow no próprio card, igual ao
@@ -514,20 +514,13 @@ h3 { font-size: .95rem; }
 .rp2-order-row[data-rme-parada].is-hold-arming::after { animation: client-hold-fill .65s linear .3s forwards; }
 .rp2-order-row[data-rme-parada].is-holding { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--surface)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 24%, transparent); transform: scale(.985); }
 .rp2-order-row[data-rme-parada].is-holding::after { transform: scaleX(1); }
-/* Mesmo gesto no produto fixado e na rota salva inteira (Salvos e Minhas rotas). */
-.lrt-produto-item[data-rme-item], .row-card[data-route-modelo-hold], .rp2-mode-card[data-route-modelo-hold], .lrt-produto-item[data-lrt-item-hold] { position: relative; overflow: hidden; }
-.lrt-produto-item[data-rme-item]::after, .row-card[data-route-modelo-hold]::after, .rp2-mode-card[data-route-modelo-hold]::after, .lrt-produto-item[data-lrt-item-hold]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: color-mix(in srgb, var(--danger) 20%, transparent); transform: scaleX(0); transform-origin: left center; }
-.lrt-produto-item[data-rme-item].is-hold-arming::after, .row-card[data-route-modelo-hold].is-hold-arming::after, .rp2-mode-card[data-route-modelo-hold].is-hold-arming::after, .lrt-produto-item[data-lrt-item-hold].is-hold-arming::after { animation: client-hold-fill .65s linear .3s forwards; }
-.lrt-produto-item[data-rme-item].is-holding, .row-card[data-route-modelo-hold].is-holding, .rp2-mode-card[data-route-modelo-hold].is-holding, .lrt-produto-item[data-lrt-item-hold].is-holding { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--surface)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 24%, transparent); transform: scale(.985); }
-.lrt-produto-item[data-rme-item].is-holding::after, .row-card[data-route-modelo-hold].is-holding::after, .rp2-mode-card[data-route-modelo-hold].is-holding::after, .lrt-produto-item[data-lrt-item-hold].is-holding::after { transform: scaleX(1); }
+/* Mesmo gesto na rota salva inteira (Salvos e Minhas rotas). */
+.row-card[data-route-modelo-hold], .rp2-mode-card[data-route-modelo-hold] { position: relative; overflow: hidden; }
+.row-card[data-route-modelo-hold]::after, .rp2-mode-card[data-route-modelo-hold]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: color-mix(in srgb, var(--danger) 20%, transparent); transform: scaleX(0); transform-origin: left center; }
+.row-card[data-route-modelo-hold].is-hold-arming::after, .rp2-mode-card[data-route-modelo-hold].is-hold-arming::after { animation: client-hold-fill .65s linear .3s forwards; }
+.row-card[data-route-modelo-hold].is-holding, .rp2-mode-card[data-route-modelo-hold].is-holding { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--surface)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 24%, transparent); transform: scale(.985); }
+.row-card[data-route-modelo-hold].is-holding::after, .rp2-mode-card[data-route-modelo-hold].is-holding::after { transform: scaleX(1); }
 .rme-remove { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 35%, var(--line)); background: color-mix(in srgb, var(--danger) 10%, var(--surface)); }
-/* S3 21/07 — parada do resumo da leitura (Resumo/finalizar): mesmo gesto de
-   segurar, na linha inteira; troca o "Remover" que era link-btn/texto. */
-.lrt-timeline-row[data-lrt-parada-hold] { position: relative; overflow: hidden; -webkit-user-select: none; user-select: none; touch-action: pan-y; transition: border-color .14s ease, box-shadow .14s ease, transform .14s ease; }
-.lrt-timeline-row[data-lrt-parada-hold]::after { content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; background: color-mix(in srgb, var(--danger) 20%, transparent); transform: scaleX(0); transform-origin: left center; }
-.lrt-timeline-row[data-lrt-parada-hold].is-hold-arming::after { animation: client-hold-fill .65s linear .3s forwards; }
-.lrt-timeline-row[data-lrt-parada-hold].is-holding { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--surface)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--danger) 24%, transparent); transform: scale(.985); }
-.lrt-timeline-row[data-lrt-parada-hold].is-holding::after { transform: scaleX(1); }
 
 .overlay-host.is-opening .modal-wrap, .overlay-host.is-opening .sheet-wrap { animation: overlay-in .18s ease-out both; }
 .overlay-host.is-opening .app-confirm, .overlay-host.is-opening .day-home { animation: modal-in .22s cubic-bezier(.2,.8,.2,1) both; }
@@ -581,10 +574,6 @@ h3 { font-size: .95rem; }
 .ddd-input { width: 74px; padding: 10px 12px; text-align: center; font-size: 1.2rem; font-weight: 700; letter-spacing: .04em; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); color: var(--ink); }
 .ddd-preview { font-size: 1.02rem; font-weight: 600; color: var(--ink); }
 .ddd-sug { margin: 2px 0 0; color: var(--muted); font-size: .78rem; }
-/* Contador do passo Observações da Leitura. */
-.lrt-obs-count { margin: 10px 2px 0; color: var(--muted); font-size: .76rem; text-align: center; }
-.lrt-obs-count b { color: var(--brand-strong); font-weight: 800; }
-.lrt-obs-count span { opacity: .75; }
 /* S1 21/07 (achado 3/4) — única definição de .btn-danger; a 1ª versão morta
    (hex b62f2f, nunca vencia a cascata) foi apagada. */
 .btn-danger { border: 1px solid var(--danger); color: var(--on-solid); background: var(--danger); }
@@ -849,7 +838,6 @@ h3 { font-size: .95rem; }
    (é o dado que se lê de relance, dirigindo). */
 .route-next-panel.has-manobra .route-next-panel-title { font-size: 1.02rem; line-height: 1.2; white-space: normal; }
 .route-next-panel.has-manobra .route-next-panel-open { padding: 11px 40px 11px 14px; }
-html.leitura-route-active .route-map-shell { border-color: color-mix(in srgb, var(--info) 58%, var(--line)); box-shadow: 0 12px 32px color-mix(in srgb, var(--info) 15%, transparent); }
 /* 🔴 31/07 (dono, item 2) — NAVEGANDO, O MAPA TOMA A TELA. O mapa era um cartão
    de meia tela com a lista de paradas embaixo: dirigindo, metade do celular
    mostrava coisa que ninguém lê a 60 km/h. Com `nav-cheia` (classe posta em
@@ -863,12 +851,6 @@ html.nav-cheia .section-title,
 html.nav-cheia .list,
 html.nav-cheia .fab { display: none; }
 html.nav-cheia .route-controls { padding-top: 6px; }
-/* S3 21/07 — mapa vivo da tela "Leitura de rota" (state.modal === "leitura-ativa"):
-   mesma moldura do mapa da Rota (.route-map-shell/.route-live-map, reaproveitados
-   via classe), só mais baixo pra caber no cartão central junto do cabeçalho/CTA/
-   setas. Só tokens (--brand) + as mesmas sombras neutras já usadas nesta seção. */
-.leitura-live-map-shell { height: 260px; min-height: 220px; max-height: 300px; }
-.leitura-live-dot { display: block; width: 20px; height: 20px; border: 3px solid white; border-radius: 50%; background: var(--brand); box-shadow: 0 0 0 6px color-mix(in srgb, var(--brand) 28%, transparent), 0 3px 10px rgba(0,0,0,.3); }
 /* Sem padding: a altura é dada pelo fitRouteMap e o play é centrado nela, então
    qualquer padding aqui quebraria a simetria da folga. */
 .route-controls { display: grid; place-items: center; min-height: 124px; padding: 0; background: transparent; }
@@ -971,23 +953,6 @@ html.nav-cheia .route-controls { padding-top: 6px; }
 .recados-composer .btn { min-height: 48px; padding-inline: 14px; }
 .recados-caixa > .field-error { margin: 0; padding: 0 12px 10px; background: var(--surface); }
 html.keyboard-open .content.is-chat { height: calc(var(--hbx-visible-height) - 60px); padding-bottom: 8px; }
-.leitura-route-controls { width: min(100%, 360px); min-height: 112px; display: grid; grid-template-columns: 82px 112px 82px; align-items: center; justify-content: space-between; gap: 10px; }
-.leitura-route-action, .leitura-route-recording { display: flex; flex-direction: column; align-items: center; justify-content: center; border: 0; font-weight: 800; touch-action: manipulation; transition: transform .16s cubic-bezier(.2,.78,.2,1), filter .16s ease; }
-.leitura-route-action { min-width: 82px; min-height: 74px; gap: 5px; padding: 8px 6px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); font-size: .68rem; }
-.leitura-route-action svg { flex: 0 0 auto; }
-.leitura-route-action--cancel { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 38%, var(--line)); background: color-mix(in srgb, var(--danger) 8%, var(--surface)); }
-.leitura-route-action--checkpoint { color: var(--ink); border-color: color-mix(in srgb, var(--cta-to) 34%, var(--line)); background: var(--cta); box-shadow: 0 9px 20px color-mix(in srgb, var(--cta-to) 28%, transparent); }
-.leitura-route-recording { position: relative; width: 112px; height: 112px; gap: 7px; padding: 0; border: 2px solid color-mix(in srgb, var(--success) 58%, var(--line)); border-radius: 50%; color: var(--ink); background: var(--surface); box-shadow: 0 12px 24px color-mix(in srgb, var(--success) 20%, transparent), inset 0 0 0 5px color-mix(in srgb, var(--success) 9%, transparent); }
-.leitura-route-action:active:not(:disabled), .leitura-route-recording:active:not(:disabled) { transform: translateY(1px) scale(.975); }
-.leitura-route-recording strong { font-size: .76rem; }
-.leitura-route-recording-dot { position: relative; display: block; width: 23px; height: 23px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 5px color-mix(in srgb, var(--success) 13%, transparent); }
-.leitura-route-recording-dot::after { content: ""; position: absolute; inset: -7px; border: 2px solid color-mix(in srgb, var(--success) 42%, transparent); border-radius: inherit; }
-.leitura-route-controls.is-entering .leitura-route-action--cancel { animation: leitura-control-left .42s cubic-bezier(.2,.82,.2,1.1) both; }
-.leitura-route-controls.is-entering .leitura-route-action--checkpoint { animation: leitura-control-right .42s cubic-bezier(.2,.82,.2,1.1) both; }
-.leitura-route-controls.is-entering .leitura-route-recording { animation: leitura-recording-morph .42s cubic-bezier(.2,.82,.2,1.1) both; }
-@keyframes leitura-control-left { from { opacity: 0; transform: translate3d(62px,0,0) scale(.45) rotate(10deg); } to { opacity: 1; transform: translate3d(0,0,0) scale(1) rotate(0); } }
-@keyframes leitura-control-right { from { opacity: 0; transform: translate3d(-62px,0,0) scale(.45) rotate(-10deg); } to { opacity: 1; transform: translate3d(0,0,0) scale(1) rotate(0); } }
-@keyframes leitura-recording-morph { from { opacity: .7; transform: scale(.82); border-radius: 38%; } to { opacity: 1; transform: scale(1); border-radius: 50%; } }
 .progress { height: 6px; overflow: hidden; margin-top: 12px; border-radius: 99px; background: rgba(255,255,255,.12); }
 .progress i { display: block; height: 100%; border-radius: inherit; background: var(--brand); }
 /* 05/08 (PR05082026-MAPA-PMTILES, F5) — a barra do download do mapa mora DENTRO
@@ -1013,34 +978,6 @@ html.keyboard-open .content.is-chat { height: calc(var(--hbx-visible-height) - 6
 .settings-copy strong { font-size: .78rem; }.settings-copy span { margin-top: 2px; color: var(--muted); font-size: .65rem; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 
-/* PR20072026 W2 — Leitura de Rota (lrt-*): escolha Existente/Novo +
-   distância na busca + timeline final. Só tokens
-   existentes (--brand/--danger/--surface/--line/--muted…), sem hex novo. */
-.lrt-choice { display: grid; gap: 10px; }
-.lrt-choice-btn { display: flex; align-items: center; gap: 10px; }
-.lrt-client-row { display: flex; align-items: center; gap: 10px; }
-.lrt-client-near { border-color: color-mix(in srgb, var(--brand) 55%, var(--line)); background: var(--brand-soft); }
-.lrt-distance { flex: 0 0 auto; color: var(--brand-strong); font-size: .68rem; font-weight: 850; }
-.lrt-address-summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.lrt-phone-display { padding: 16px; border-radius: 14px; background: var(--surface-2); font-size: 1.4rem; font-weight: 850; text-align: center; }
-/* PR20072026 fix 20/07 — item do Produto com qtd (−/+) E valor na mesma tela
-   (a tela "Valor do cliente" foi fundida aqui). Só tokens existentes. */
-.lrt-produto-item { display: grid; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); margin-bottom: 10px; }
-.lrt-produto-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
-.lrt-produto-head small { display: block; color: var(--muted); font-size: .7rem; }
-.lrt-produto-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.lrt-produto-valor { display: flex; align-items: center; gap: 6px; flex: 1 1 auto; max-width: 160px; padding: 0 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
-.lrt-produto-valor span { color: var(--muted); font-size: .8rem; font-weight: 800; }
-.lrt-produto-valor input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; padding: 12px 0; font-size: 1rem; font-weight: 700; text-align: right; }
-.lrt-timeline { display: grid; gap: 8px; }
-.lrt-timeline-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); }
-.lrt-timeline-time { flex: 0 0 auto; color: var(--muted); font-size: .68rem; font-weight: 800; }
-.lrt-timeline-valor { flex: 0 0 auto; color: var(--brand-strong); font-size: .8rem; }
-.lrt-timeline-actions { display: grid; gap: 2px; flex: 0 0 auto; text-align: right; }
-.lrt-timeline-actions .link-btn { min-height: auto; padding: 2px 0; font-size: .66rem; }
-.lrt-timeline-editing { flex-direction: column; align-items: stretch; gap: 10px; }
-.lrt-timeline-edit-body { display: grid; gap: 10px; }
-.lrt-timeline-total { margin: 6px 2px 0; color: var(--muted); font-size: .78rem; font-weight: 800; text-align: right; }
 
 @media (min-width: 620px) {
   .form-grid { grid-template-columns: repeat(2, 1fr); }
@@ -1086,25 +1023,6 @@ html.keyboard-open .content.is-chat { height: calc(var(--hbx-visible-height) - 6
 .center-arrow:disabled { cursor: default; }
 .center-arrow:disabled .center-arrow-glyph { opacity: .38; box-shadow: none; background: var(--surface-2); color: var(--muted); transform: none; }
 .center-arrow:disabled .center-arrow-label { opacity: .55; }
-.center-modal.leitura-step-exit { pointer-events: none; animation: leitura-step-exit .17s cubic-bezier(.4,0,1,1) both; }
-.center-modal.leitura-step-enter { animation: leitura-step-enter .24s cubic-bezier(.2,.8,.2,1) both; }
-.center-modal.leitura-step-enter > * { opacity: 0; animation: leitura-step-item-enter .22s cubic-bezier(.2,.8,.2,1) both; }
-.center-modal.leitura-step-enter > :nth-child(1) { animation-delay: .03s; }
-.center-modal.leitura-step-enter > :nth-child(2) { animation-delay: .07s; }
-.center-modal.leitura-step-enter > :nth-child(3) { animation-delay: .11s; }
-.center-modal.leitura-step-enter > :nth-child(4) { animation-delay: .15s; }
-@keyframes leitura-step-exit { from { opacity: 1; transform: translate3d(0,0,0) scale(1); } to { opacity: 0; transform: translate3d(-18px,0,0) scale(.985); } }
-@keyframes leitura-step-enter { from { opacity: 0; transform: translate3d(18px,0,0) scale(.985); } to { opacity: 1; transform: translate3d(0,0,0) scale(1); } }
-@keyframes leitura-step-item-enter { from { opacity: 0; transform: translate3d(0,8px,0); } to { opacity: 1; transform: translate3d(0,0,0); } }
-@media (prefers-reduced-motion: reduce) {
-  .center-modal.leitura-step-exit, .center-modal.leitura-step-enter, .center-modal.leitura-step-enter > * { animation-duration: .01ms; animation-delay: 0s; }
-}
-
-/* F3.1 — campo de moeda "estilo banco" (guarda centavos, caret sempre no fim). */
-.lrt-produto-valor-input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; padding: 12px 0; font-size: 1.05rem; font-weight: 800; text-align: right; caret-color: transparent; }
-.lrt-produto-valor-locked { justify-content: flex-end; color: var(--muted); background: var(--surface-3); cursor: pointer; }
-.lrt-produto-valor-locked span { font-size: .8rem; font-weight: 800; }
-
 /* F3.4 — chips vivos GPS + Rede injetados no topbar (ver renderHeaderExtras). */
 .hbx-chip { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); color: var(--muted); }
 .hbx-chip svg { width: 15px; height: 15px; }
@@ -1132,16 +1050,6 @@ html.keyboard-open .content.is-chat { height: calc(var(--hbx-visible-height) - 6
 /* F4 — barra de progresso do auto-update. */
 .app-update-progress { height: 8px; overflow: hidden; border-radius: 99px; background: var(--surface-3); }
 .app-update-progress i { display: block; height: 100%; border-radius: inherit; background: var(--brand); transition: width .2s ease; }
-
-/* F3.2 — cartão de comparação de endereço (GPS × cadastro) na Leitura. */
-.lrt-endereco-card { display: flex; align-items: center; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-2); font-weight: 700; }
-.lrt-endereco-ok { color: var(--success); border-color: color-mix(in srgb, var(--success) 40%, var(--line)); background: color-mix(in srgb, var(--success) 10%, var(--surface)); }
-/* S1 21/07 (achado 3) — consolidado com o bloco de baixo (mesmo seletor
-   repetido 3×): mantido o valor que HOJE vence por ordem (gap/padding/
-   background do 2º bloco); border-radius continua vencendo no bloco
-   compartilhado com .lrt-endereco-card (16px), por isso não repito aqui. */
-.lrt-endereco-compare { display: grid; gap: 7px; padding: 8px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); font-size: .82rem; }
-.lrt-endereco-compare p { margin: 0; }
 
 /* Ajustes do fluxo guiado no APK: o JS informa a altura realmente visivel pelo
    VisualViewport em --hbx-visible-height e liga .keyboard-open no html. */
@@ -1203,81 +1111,18 @@ html.keyboard-open .modal form > .client-primary-actions:last-child {
   padding-block: 6px 2px;
 }
 
-/* Cliente existente: nenhuma coluna pode aumentar a largura do cartao/modal. */
-.lrt-client-row { width: 100%; max-width: 100%; min-width: 0; overflow: hidden; }
-.lrt-client-row .card-main { flex: 1 1 auto; width: 0; min-width: 0; }
-.lrt-client-row .avatar, .lrt-client-row .lrt-distance { flex: 0 0 auto; }
-.lrt-client-row .lrt-distance { max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .center-modal-body > .search { flex: 0 0 auto; margin-bottom: 10px; }
 .center-modal-body > .list { padding-right: 2px; overflow-x: hidden; }
 
-/* Endereco: estado GPS e escolhas com hierarquia clara, sem cor fixa nova. */
-.lrt-endereco-loading, .lrt-gps-loading {
-  display: grid;
-  justify-items: center;
-  gap: 10px;
-  min-height: 168px;
-  padding: 24px 18px;
-  border: 1px solid color-mix(in srgb, var(--brand) 30%, var(--line));
-  border-radius: 17px;
-  color: var(--muted);
-  background: color-mix(in srgb, var(--brand-soft) 52%, var(--surface));
-  text-align: center;
-}
-.lrt-endereco-loading::before, .lrt-gps-loading::before {
-  content: "";
-  width: 34px;
-  height: 34px;
-  border: 3px solid color-mix(in srgb, var(--brand) 24%, var(--line));
-  border-top-color: var(--brand-strong);
-  border-radius: 50%;
-  animation: hbx-loading-spin .72s linear infinite;
-}
-/* S2 22/07 (APK-PROFISSIONAL) — o ícone respirava pra sempre (lrt-gps-pulse
-   infinite) durante "Recebendo sinal do GPS…"/"Localizando endereço…": dois
-   indicadores de espera ao mesmo tempo (o anel abaixo escondido por este
-   `:has()` + o ícone pulsando). Só pode haver UM indicador de espera — o anel
-   já é honesto e determinístico (hbx-loading-spin, linha acima), então ele
-   fica visível também neste estado; o ícone volta a ser estático (é rótulo do
-   que está acontecendo, não o spinner). */
-.lrt-endereco-loading-icon {
-  display: grid;
-  place-items: center;
-  width: 52px;
-  height: 52px;
-  border: 1px solid color-mix(in srgb, var(--brand) 34%, var(--line));
-  border-radius: 17px;
-  color: var(--brand-strong);
-  background: var(--surface);
-}
-.lrt-endereco-loading strong, .lrt-gps-loading strong { color: var(--ink); font-size: .86rem; }
-.lrt-endereco-loading p, .lrt-gps-loading p, .lrt-endereco-loading > span, .lrt-gps-loading > span { margin: 0; font-size: .74rem; }
-.lrt-endereco-options { display: grid; gap: 9px; }
-.lrt-endereco-option {
-  display: grid;
-  gap: 4px;
-  width: 100%;
-  min-width: 0;
-  padding: 12px 13px;
-  border: 1px solid var(--line);
-  border-radius: 15px;
-  color: var(--ink);
-  background: var(--surface-2);
-  text-align: left;
-}
-.lrt-endereco-option.is-current { border-color: color-mix(in srgb, var(--brand) 46%, var(--line)); background: var(--brand-soft); }
-.lrt-endereco-option--gps { border-color: color-mix(in srgb, var(--brand) 46%, var(--line)); background: color-mix(in srgb, var(--brand-soft) 72%, var(--surface)); }
-.lrt-endereco-option-kicker { color: var(--brand-strong); font-size: .66rem; font-weight: 800; }
-.lrt-endereco-option strong { font-size: .8rem; }
-.lrt-endereco-option small, .lrt-endereco-option > span { color: var(--muted); font-size: .69rem; }
 /* S4 21/07 (Lei 7) — classe única de aviso inline: 3 variantes (ok/warn/danger)
    com os mesmos ingredientes (borda color-mix + fundo suave + texto pequeno
    centralizado), só troca o token de cor. Nomes antigos que já existiam no
-   HTML (.lrt-endereco-warning / .client-ddd-hint / .client-duplicate-warning,
-   este último hoje sem uso — achado S4) viram alias na MESMA regra pra não
-   reescrever HTML espalhado pelo app.js (1ª aplicação real: status do CEP em
-   clientAddressFields, ok × warn — antes as duas caras eram texto cinza igual). */
-.hbx-aviso, .hbx-aviso--warn, .lrt-endereco-warning, .client-ddd-hint { margin: 0; padding: 9px 11px; border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--line)); border-radius: 11px; color: var(--warning); background: color-mix(in srgb, var(--warning) 9%, var(--surface)); font-size: .7rem; font-weight: 600; text-align: center; }
+   HTML (.client-ddd-hint / .client-duplicate-warning, este último hoje sem uso
+   — achado S4) viram alias na MESMA regra pra não reescrever HTML espalhado
+   pelo app.js (1ª aplicação real: status do CEP em clientAddressFields, ok ×
+   warn — antes as duas caras eram texto cinza igual).
+   09/08 — o alias .lrt-endereco-warning saiu com a Leitura de Rota (F4). */
+.hbx-aviso, .hbx-aviso--warn, .client-ddd-hint { margin: 0; padding: 9px 11px; border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--line)); border-radius: 11px; color: var(--warning); background: color-mix(in srgb, var(--warning) 9%, var(--surface)); font-size: .7rem; font-weight: 600; text-align: center; }
 .hbx-aviso--danger, .client-duplicate-warning { border-color: color-mix(in srgb, var(--danger) 55%, var(--line)); color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--surface)); font-weight: 800; }
 .hbx-aviso--ok { border-color: color-mix(in srgb, var(--success) 32%, var(--line)); color: var(--success); background: color-mix(in srgb, var(--success) 10%, var(--surface)); }
 /* 26/07 — Conferência de rota. Duas frases curtas no resumo do cabeçalho (uma
@@ -1294,12 +1139,6 @@ html.keyboard-open .modal form > .client-primary-actions:last-child {
 .conferencia-reorder { display: grid; gap: 4px; flex: 0 0 auto; }
 .conferencia-reorder-btn { display: grid; place-items: center; width: 34px; min-height: 26px; padding: 0; border: 1px solid var(--line); border-radius: 8px; color: var(--brand-strong); background: var(--surface-2); font: inherit; font-size: .7rem; line-height: 1; }
 .conferencia-reorder-btn:disabled { color: var(--muted); opacity: .45; }
-.lrt-endereco-card, .lrt-endereco-compare { border-radius: 16px; box-shadow: 0 6px 18px color-mix(in srgb, var(--ink) 5%, transparent); }
-.lrt-endereco-compare p { padding: 10px 11px; border-radius: 11px; background: var(--surface-2); line-height: 1.45; }
-.lrt-endereco-compare p[style*="--warning"] { border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--line)); background: color-mix(in srgb, var(--warning) 9%, var(--surface)); }
-/* @keyframes lrt-gps-pulse removido em 22/07 (S2 APK-PROFISSIONAL) — era o
-   pulso infinito do .lrt-endereco-loading-icon, tirado por rodar pra sempre
-   sem parar (ver comentário acima da regra). Sem uso restante no arquivo. */
 
 /* Clientes/Produtos reaproveitados em modo selecao. O modo muda a acao do card,
    mas conserva busca, avatar e texto das listas reais. */
@@ -1370,17 +1209,6 @@ html.keyboard-open .modal form > .client-primary-actions:last-child {
 .subtitle-footer { margin-top: 14px; text-align: center; }
 /* Modal "Atualizar app". */
 .app-update-actions { margin-top: 14px; }
-/* Campo "Número da casa" da Leitura de Rota. */
-.lrt-input-lg { font-size: 1.3rem; }
-/* Campo/botão de valor no editor de parada da Leitura (mais estreito que o
-   padrão .lrt-produto-valor pra caber ao lado do stepper no modal central). */
-.lrt-produto-valor--edit { flex: 0 0 120px; max-width: 120px; padding: 0 10px; }
-.lrt-produto-valor--edit-locked { flex: 0 0 120px; max-width: 120px; }
-/* Linha de item no editor de parada da Leitura. */
-.lrt-timeline-edit-item { padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
-.lrt-timeline-edit-item-name { display: block; font-size: .82rem; margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.lrt-timeline-edit-item-row { display: flex; align-items: center; gap: 10px; justify-content: space-between; }
-.lrt-timeline-edit-actions { gap: 10px; margin-top: 10px; }
 /* Observação em destaque no card de parada da rota (stopCard). */
 .stop-obs { display: block; margin-top: 2px; font-weight: 700; color: var(--brand-strong); }
 /* Reaproveitável: item "apagado" (produto arquivado, pacote de recarga pausado). */
@@ -1421,13 +1249,6 @@ html.keyboard-open .modal form > .client-primary-actions:last-child {
   html.keyboard-open .center-modal-resumo { margin-top: 0; }
 }
 
-html.leitura-route-active .topbar { margin-bottom: calc(-1 * var(--hbx-topbar-h, 60px)); opacity: 0; pointer-events: none; transform: translateY(calc(-100% - var(--safe-top))); }
-html.leitura-route-active .bottom-nav { opacity: 0; pointer-events: none; transform: translateY(calc(100% + var(--safe-bottom) + 12px)); }
-html.leitura-route-active .bottom-nav.is-centered { transform: translate(-50%, calc(100% + var(--safe-bottom) + 12px)); }
-html.leitura-route-active .content.is-rota { padding-top: 10px; padding-bottom: calc(10px + var(--safe-bottom)); }
-@media (min-width: 820px) {
-  html.leitura-route-active .bottom-nav, html.leitura-route-active .bottom-nav.is-centered { transform: translateX(-110%); }
-}
 /* ── CHEGADA EDITÁVEL + HISTÓRICO (22/07, pedido do dono) ───────────────────────
    Tudo por token (Lei 2). Os dois verdes mantêm o papel fixo: esmeralda (--cta) só
    na ação principal [Pago]; limão (--brand) na confirmação [Entregue]. Alvos de

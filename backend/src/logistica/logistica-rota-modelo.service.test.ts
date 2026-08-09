@@ -285,7 +285,6 @@ function buildGerarPrisma(
     users?: any[];
     rotas?: any[];
     recados?: any[];
-    indicacoes?: any[];
   } = {},
 ) {
   const modelos = new Map<string, any>((seed.modelos ?? []).map((r) => [r.id, { ...r }]));
@@ -446,11 +445,6 @@ function buildGerarPrisma(
         && (where.status?.in ?? []).includes(r.status)
         && (where.operationalEndedAt === null ? r.operationalEndedAt == null : true)
       )),
-    },
-    logisticaRotaIndicada: {
-      findMany: async ({ where }: any) => (seed.indicacoes ?? []).filter(
-        (r: any) => r.companyId === where.companyId && (where.rotaModeloId?.in ?? []).includes(r.rotaModeloId),
-      ),
     },
   };
   return { prisma, modelos, entregas, clienteProdutos };
@@ -855,31 +849,6 @@ test('estadoDoDia: só cancelada no dia → livre e podeMontar=true (cancelada n
   assert.equal(estado.podeMontar, true);
 });
 
-test('estadoDoDia: aceitou e devolveu hoje → devolvida, com quem e quantas atendeu', async () => {
-  const OUTRO = 42;
-  const { prisma } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }, { customerProfileId: 'c2' }] }],
-    users: [{ id: OUTRO, companyId: COMPANY, name: 'João', username: 'joao' }],
-    indicacoes: [
-      {
-        companyId: COMPANY,
-        rotaModeloId: 'm1',
-        paraUserId: OUTRO,
-        status: 'desfeita',
-        respondidaEm: new Date(2026, 6, 20, 14, 31),
-      },
-    ],
-  });
-  const svc = new LogisticaRotaModeloService(prisma);
-  const [estado] = await svc.estadoDoDia(COMPANY, GERAR_DATE, USER);
-
-  assert.equal(estado.estado, 'devolvida');
-  assert.equal(estado.pessoaNome, 'João');
-  assert.equal(estado.entregues, 0, '0 de 2 atendidas — é o recado que faltava');
-  assert.equal(estado.total, 2);
-  assert.equal(estado.podeMontar, true, 'devolvida NÃO tranca: a rota está livre pra outra pessoa');
-});
-
 test('estadoDoDia: multi-tenant — modelo/entrega de outra empresa não vaza', async () => {
   const { prisma } = buildGerarPrisma({
     modelos: [{ id: 'm-alheio', companyId: 999, paradasJson: [{ customerProfileId: 'c1' }] }],
@@ -949,9 +918,14 @@ test('estadoDoDia: dono com rota MORTA → estado montada e podeMontar=true (o p
   assert.equal(estado.podeMontar, true, 'vitrine e caixa: o gerar deixa assumir, a tela também');
 });
 
-test('estadoDoDia: recado de rota largada aparece mesmo SEM indicação (rota que o motorista montou sozinho)', async () => {
+/**
+ * 09/08 (F4) — a Rota Indicada morreu e ERA a outra fonte de `devolvida`. Este
+ * teste é o que garante que o estado NÃO morreu junto: o recado de rota largada
+ * (`LogisticaRotaAviso`) sempre foi fonte própria, e é ele que sobra.
+ */
+test('estadoDoDia: recado de rota largada → devolvida, com quem, quantas atendeu e sem trancar', async () => {
   const { prisma } = buildGerarPrisma({
-    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }] }],
+    modelos: [{ id: 'm1', companyId: COMPANY, paradasJson: [{ customerProfileId: 'c1' }, { customerProfileId: 'c2' }] }],
     recados: [{ companyId: COMPANY, rotaModeloId: 'm1', motoristaNome: 'João da Silva', entregues: 0, createdAt: new Date(2026, 6, 20, 14, 31) }],
   });
   const svc = new LogisticaRotaModeloService(prisma);
@@ -959,5 +933,8 @@ test('estadoDoDia: recado de rota largada aparece mesmo SEM indicação (rota qu
 
   assert.equal(estado.estado, 'devolvida');
   assert.equal(estado.pessoaNome, 'João da Silva');
+  assert.equal(estado.entregues, 0, '0 de 2 atendidas — é o recado que faltava');
+  assert.equal(estado.total, 2);
+  assert.equal(estado.podeMontar, true, 'devolvida NÃO tranca: a rota está livre pra outra pessoa');
   assert.ok(estado.em, 'a hora do recado alimenta o "às HH:MM" da tela');
 });

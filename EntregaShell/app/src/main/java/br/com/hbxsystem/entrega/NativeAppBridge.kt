@@ -206,86 +206,6 @@ class NativeAppBridge(
         }
     }
 
-    // ── S2 (PR21072026-MONTAR-ROTA-PLAY) — MODO "Leitura de Rota" ────────────
-    // Mesmo padrão fire-and-forget de activateRoute/stopRoute acima: RotaState
-    // + RotaService já fazem tudo (a Leitura é independente de `alvos`/rota do
-    // dia, então não passa pelo gate de permissão de activateRoute). Front
-    // deve garantir a permissão de localização ANTES via
-    // `requestLocationPermission()` (já existe, sem mudança aqui) — se não
-    // tiver, `RotaService.iniciarForeground` se autoencerra sem crashar.
-    // Contrato completo em S2-CONTRATO-PONTE.md.
-
-    @JavascriptInterface
-    fun iniciarLeituraTrilha(leituraId: String) {
-        if (BuildConfig.APP_MODE != "logistica") return
-        val safeId = leituraId.trim().take(120)
-        if (safeId.isEmpty()) return
-        activity.runOnUiThread {
-            RotaState.iniciarLeitura(safeId)
-            RotaState.persistir(activity)
-            RotaService.sync(activity)
-        }
-    }
-
-    @JavascriptInterface
-    fun pararLeituraTrilha() {
-        if (BuildConfig.APP_MODE != "logistica") return
-        activity.runOnUiThread {
-            val idFinalizado = RotaState.pararLeitura()
-            RotaState.persistir(activity)
-            if (idFinalizado != null) LeituraTrilhaSync.requestFlush(activity)
-            // Só derruba o foreground se não houver rota do dia ativa também —
-            // ver stopRunnable/onStartCommand em RotaService (S2 coexistência).
-            if (RotaState.alvos.isEmpty()) RotaService.requestStop(activity)
-        }
-    }
-
-    /** Front chama ao fechar o popup "detectado pausa, salvar rota?" — aceitar
-     *  ou dispensar tem o MESMO efeito nativo (reinicia o cooldown de 60s do
-     *  detector); quem decide o que fazer com a parada é o front/backend. */
-    @JavascriptInterface
-    fun resolverPausaLeitura(aceitar: Boolean) {
-        if (BuildConfig.APP_MODE != "logistica") return
-        RotaState.resolverPausaPendente()
-    }
-
-    /** Leitura síncrona (mesmo padrão de `offlineStatus()`/`appInfo()`): trilha
-     *  acumulada + última amostra + pausa pendente (sobrevive a restart do
-     *  processo). Formato exato em S2-CONTRATO-PONTE.md. */
-    @JavascriptInterface
-    fun leituraStatus(): String {
-        if (BuildConfig.APP_MODE != "logistica") return JSONObject().put("ativa", false).toString()
-        val pontos = JSONArray()
-        RotaState.trilhaAcumuladaParaJs().forEach { pontos.put(JSONArray().put(it[0]).put(it[1])) }
-        val out = JSONObject()
-            .put("ativa", RotaState.isLeituraAtiva())
-            .put("leituraId", RotaState.leituraIdAtual())
-            .put("pontos", pontos)
-        RotaState.ultimaAmostraLeitura()?.let { p ->
-            out.put(
-                "ultimaAmostra",
-                JSONObject().put("lat", p.lat).put("lng", p.lng).put("ts", p.ts).put("accuracyM", p.accuracyM).apply {
-                    p.speedMps?.takeIf(Double::isFinite)?.let { put("speedMps", it) }
-                    p.bearingDeg?.takeIf(Double::isFinite)?.let { put("bearingDeg", it) }
-                },
-            )
-        }
-        RotaState.pausaPendenteAtual()?.let { pausa ->
-            out.put(
-                "pausaPendente",
-                JSONObject().put("lat", pausa.lat).put("lng", pausa.lng).put("ts", pausa.ts).apply {
-                    put(
-                        "clienteProximo",
-                        pausa.clienteProximo?.let { c ->
-                            JSONObject().put("id", c.id).put("nome", c.nome).put("distanciaM", c.distanciaM)
-                        } ?: JSONObject.NULL,
-                    )
-                },
-            )
-        }
-        return out.toString()
-    }
-
     @JavascriptInterface
     fun requestLocationPermission() {
         if (BuildConfig.APP_MODE != "logistica") return
@@ -310,41 +230,30 @@ class NativeAppBridge(
         PasseioAlarme.cancelar(activity)
     }
 
-    // AGENDADOR DE MISSÃO (02/08) — despertador da rota marcada (MissaoAlarme.kt).
-    // Mesmo contrato de coerção do passeio: millis viaja como STRING. Rearmar a
-    // mesma missão é seguro (idempotente) — o app rearma a cada abertura porque
-    // o alarme mora no aparelho e o aparelho pode ter sido limpo/reiniciado.
+    // O DESPERTADOR (02/08) — hoje ele serve UM dono só: o recado de nível
+    // `alarme` da Central. Nasceu pra rota indicada (`MissaoAlarme.kt` guarda o
+    // nome), e a rota indicada morreu na F4 de 09/08 (4 usos na vida inteira).
+    // 🔴 Por isso a porta é FECHADA pra qualquer id que não seja de recado: id
+    // fora do contrato acordaria o motorista com uma tela que não sabe
+    // responder nada — pior que alarme nenhum.
     @JavascriptInterface
     fun missaoAlarme(id: String, atMillis: String, titulo: String, texto: String): Boolean {
         if (BuildConfig.APP_MODE != "logistica") return false
-        val quando = atMillis.trim().toLongOrNull() ?: return false
+        // `atMillis` continua no contrato da ponte (o JS já manda) mas não manda
+        // mais em nada: recado toca AGORA — esperar o AlarmManager aqui abria uma
+        // janela de vários segundos nos aparelhos sem permissão de alarme exato.
+        if (atMillis.trim().toLongOrNull() == null) return false
         val safeId = id.filterNot(Char::isISOControl).take(40)
+        if (!ehAlarmeDeRecado(safeId)) return false
         val safeTitulo = titulo.filterNot(Char::isISOControl).take(60)
-        val limiteTexto = if (ehAlarmeDeRecado(safeId)) 500 else 120
-        val safeTexto = texto.filterNot(Char::isISOControl).take(limiteTexto)
-        if (ehAlarmeDeRecado(safeId)) {
-            // Recado chegou agora; esperar AlarmManager aqui introduzia uma
-            // janela de vários segundos nos aparelhos sem permissão exata.
-            return MissaoAlarme.dispararAgora(activity, safeId, safeTitulo, safeTexto)
-        }
-        return MissaoAlarme.agendar(activity, safeId, quando, safeTitulo, safeTexto)
+        val safeTexto = texto.filterNot(Char::isISOControl).take(500)
+        return MissaoAlarme.dispararAgora(activity, safeId, safeTitulo, safeTexto)
     }
 
     @JavascriptInterface
     fun missaoAlarmeCancelar(id: String) {
         if (BuildConfig.APP_MODE != "logistica") return
         MissaoAlarme.cancelar(activity, id.filterNot(Char::isISOControl).take(40))
-    }
-
-    /**
-     * Drena o que a pessoa apertou na tela do despertador ("aceitar"/"negar").
-     * Devolve JSON uma única vez — quem executa a resposta de verdade é o
-     * app.js, no fluxo normal da rota indicada.
-     */
-    @JavascriptInterface
-    fun missaoRespostaPendente(): String {
-        if (BuildConfig.APP_MODE != "logistica") return ""
-        return MissaoPendente.drenar().orEmpty()
     }
 
     /** Recado não é drenado até o servidor confirmar o POST. */

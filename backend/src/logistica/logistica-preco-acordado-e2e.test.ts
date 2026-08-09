@@ -1,90 +1,107 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { LogisticaOccurrenceService, occurrenceItemId } from './logistica-occurrence.service';
+import { LogisticaAgendaService } from './logistica-agenda.service';
 import { LogisticaService } from './logistica.service';
 
 /**
- * PR18072026 W1 (item 9) — teste END-TO-END provando o FIO INTEIRO:
- *   ClienteProduto.precoAcordado → gerarDia (motor de PRODUÇÃO,
- *   LogisticaOccurrenceService.materialize — é o que o controller realmente
- *   chama; ver logistica-recorrencia-occurrence.service.ts override de
- *   gerarDia) → EntregaItem.valorUnit usa o preço acordado → confirmarEntrega
- *   → FinanceiroCharge.amount com o valor CERTO.
+ * PR18072026 W1 (item 9) — teste END-TO-END provando o FIO INTEIRO do preço:
+ *   preço combinado no plano da Agenda → generateDay (o gerador de PRODUÇÃO) →
+ *   EntregaItem.valorUnit → Entrega.valor → confirmarEntrega →
+ *   FinanceiroCharge.amount com o valor CERTO.
  *
- * Furo investigado e NÃO encontrado: resolveUnitValue (logistica-occurrence.
- * service.ts) já prioriza precoAcordado > catálogo > precoPadrao > 0 (mesma
- * regra de resolveValorUnit em logistica-recorrencia.service.ts, já coberta
- * por teste unitário); confirmarEntrega usa `entrega.valor` como
- * `valorCobranca` quando o payload não toca o stepper (F1: "sem stepper, o
- * valor previsto vale"); lancarCobranca cria o charge com esse MESMO valor.
- * Cada elo já tinha teste unitário próprio — o que faltava era 1 teste
- * atravessando os DOIS serviços com o MESMO dado, provado aqui.
+ * 🔴 F1 (09/08) — ESTE TESTE TROCOU DE MOTOR, NÃO DE ASSUNTO. Ele nasceu
+ * apontando pra `LogisticaOccurrenceService.materialize`, que era "o gerarDia de
+ * produção" em 18/07. Não é mais: o motor de ocorrências foi apagado e quem
+ * materializa o dia é `LogisticaAgendaService.generateDay`, lendo o preço do
+ * item do PLANO. O fio que o teste guarda (preço combinado → item da entrega →
+ * charge) é o mesmo; apenas o primeiro elo mudou de casa. Teste de e2e que
+ * continua exercitando um motor morto passa verde enquanto o dinheiro erra.
  */
 
-test('precoAcordado → materialize (gerarDia real) → EntregaItem.valorUnit → confirmarEntrega → charge com o valor certo', async () => {
+test('preço do plano → generateDay (gerador real) → EntregaItem.valorUnit → confirmarEntrega → charge com o valor certo', async () => {
   const companyId = 7;
-  const sourceDate = '2026-07-20';
-  const occurrenceId = occurrenceItemId('recorrencia-galao', sourceDate);
+  const sexta = '2026-07-31';
+  const planoId = 'plano-galao';
 
-  // ── Passo 1: materialize (o gerarDia de PRODUÇÃO) ──────────────────────────
-  const recurrenceRow = {
-    id: 'recorrencia-galao',
+  // ── Passo 1: generateDay (o gerador de PRODUÇÃO) ───────────────────────────
+  // O preço COMBINADO com o cliente (R$12) mora no item do plano — é ele que
+  // tem que chegar no EntregaItem, nunca o preço de catálogo.
+  const plano = {
+    id: planoId,
     companyId,
     customerProfileId: 'customer-1',
-    productId: 10,
     localId: null,
-    qtdPadrao: 2,
-    // precoAcordado (R$12) VENCE o catálogo (R$20) e o precoPadrao do cliente (R$30).
-    precoAcordado: 12,
-    frequenciaDias: null,
-    diasSemana: '1',
-    proximaData: new Date('2026-07-20T03:00:00.000Z'),
-    product: { id: 10, name: 'Galão 20L', price: 20, priceCents: null },
+    diaSemana: 5, // sexta
+    ativo: true,
+    proximaData: null,
+    frequencia: 'SEMANAL',
+    intervaloDias: null,
+    revisao: 1,
+    janelaInicio: null,
+    janelaFim: null,
+    janelaTipo: null,
+    tempoParadaMin: null,
+    instrucoes: null,
+    acessoTipo: null,
+    acessoAndares: null,
+    acessoTemElevador: null,
+    acessoObservacao: null,
+    adicionalTipo: null,
+    adicionalValor: null,
+    adicionalMotivo: null,
     customerProfile: {
       id: 'customer-1',
       name: 'Cliente Um',
-      precoPadrao: 30,
+      endereco: null,
+      numero: null,
+      bairro: null,
+      cidade: null,
+      uf: null,
+      cep: null,
       lat: -23.5,
       lng: -46.6,
-      geoFonte: 'gps_cadastro',
     },
     local: null,
+    itens: [
+      {
+        id: 'item-1',
+        productId: 10,
+        qtd: 2,
+        valorUnit: 12,
+        product: { id: 10, name: 'Galão 20L', unidade: 'UN' },
+      },
+    ],
   };
 
   let createdData: any = null;
-  const tx: any = {
-    $executeRawUnsafe: async () => 0,
-    contato: { findFirst: async () => null },
-    entregaItem: {
-      findMany: async () => [],
-      createMany: async () => ({ count: 0 }),
+  const agendaPrisma: any = {
+    logisticaPlanoEntrega: {
+      findMany: async ({ where }: any) =>
+        where.companyId === companyId && where.diaSemana === 5 ? [plano] : [],
     },
+    logisticaRotaModelo: { findFirst: async () => null },
+    contato: { findFirst: async () => null },
     entrega: {
-      findMany: async () => [],
-      findFirst: async () => null,
+      findFirst: async () => null, // nenhuma ocorrência anterior, nada pendurado
       create: async ({ data }: any) => {
         createdData = data;
-        return { id: 'delivery-1', notes: data.notes, entregadorId: data.entregadorId };
+        return { id: 'delivery-1' };
       },
-      update: async () => ({ id: 'delivery-1' }),
     },
-    clienteProduto: { updateMany: async () => ({ count: 1 }) },
-  };
-  const materializePrisma: any = {
-    clienteProduto: { findMany: async () => [recurrenceRow] },
-    $transaction: async (callback: any) => callback(tx),
+    logisticaAgendaEvento: { create: async () => ({ id: 'evt-1' }) },
   };
 
-  const occurrences = new LogisticaOccurrenceService(materializePrisma);
-  const gerado = await occurrences.materialize(companyId, {
-    operationalDate: sourceDate,
-    sourceDates: [sourceDate],
-  });
+  const agenda = new LogisticaAgendaService(agendaPrisma);
+  const gerado = await agenda.generateDay(companyId, sexta);
 
   assert.equal(gerado.criadas, 1);
-  assert.equal(createdData.itens.create[0].id, occurrenceId);
-  assert.equal(createdData.itens.create[0].valorUnit, 12, 'EntregaItem.valorUnit usa o precoAcordado (12), não o catálogo (20) nem o precoPadrao (30)');
+  assert.deepEqual(gerado.deliveryIds, ['delivery-1']);
+  assert.equal(
+    createdData.itens.create[0].valorUnit,
+    12,
+    'EntregaItem.valorUnit usa o preço combinado do item do plano',
+  );
   assert.equal(createdData.quantidade, 2);
   assert.equal(createdData.valor, 24, 'Entrega.valor = Σ qtdPrevista×valorUnit = 2×12');
 
@@ -94,11 +111,11 @@ test('precoAcordado → materialize (gerarDia real) → EntregaItem.valorUnit �
     status: 'em_rota',
     customerProfileId: 'customer-1',
     contatoId: null,
-    valor: createdData.valor, // 24 — exatamente o que materialize gravou
+    valor: createdData.valor, // 24 — exatamente o que generateDay gravou
     cobrancaStatus: 'pendente',
   };
   const entregaItensGerados = [
-    { id: occurrenceId, qtdPrevista: 2, qtdEntregue: null, valorUnit: createdData.itens.create[0].valorUnit }, // 12
+    { id: 'item-entrega-1', qtdPrevista: 2, qtdEntregue: null, valorUnit: createdData.itens.create[0].valorUnit }, // 12
   ];
   const conta = {
     id: 'customer-1',
@@ -155,11 +172,11 @@ test('precoAcordado → materialize (gerarDia real) → EntregaItem.valorUnit �
 
     assert.equal(res?.status, 'entregue');
     assert.equal(res?.cobrancaLancada, true);
-    assert.equal(chargesCreated.length, 1, '1 charge criado a partir da entrega gerada por materialize');
+    assert.equal(chargesCreated.length, 1, '1 charge criado a partir da entrega gerada pela Agenda');
     assert.equal(
       chargesCreated[0].amount,
       24,
-      'charge.amount = 24 = precoAcordado(12) × qtd(2) — o MESMO valor que materialize gravou em Entrega.valor',
+      'charge.amount = 24 = preço combinado(12) × qtd(2) — o MESMO valor que generateDay gravou em Entrega.valor',
     );
   } finally {
     if (prev === undefined) delete process.env.HBX_LOGISTICA_ENABLED;

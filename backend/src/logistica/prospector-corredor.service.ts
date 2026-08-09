@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { saoPauloDateKey } from './logistica-occurrence.service';
+import { saoPauloDateKey } from './logistica-dia.util';
 import {
   ParadaCoord,
   LinhaCorredor,

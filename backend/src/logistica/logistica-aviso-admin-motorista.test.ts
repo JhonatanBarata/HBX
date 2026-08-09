@@ -3,28 +3,30 @@ import assert from 'node:assert/strict';
 
 import { LogisticaController } from './logistica.controller';
 import { LogisticaRotaAvisoService } from './logistica-rota-aviso.service';
-import { LogisticaRotaIndicadaService } from './logistica-rota-indicada.service';
 
 /**
  * 🔴 VACINA DA CENA DE 02/08/2026 — "só sumiu tarefa e aí?? completo??"
  *
  * O dono aceitou a missão às 20:53 no celular, a rota montou e parou na
  * Conferência. Às 21:00 ele desistiu: as 3 entregas viraram 'cancelada' no mesmo
- * milissegundo e NENHUM aviso nasceu — `LogisticaRotaAviso` vazia, e a
- * `LogisticaRotaIndicada` ainda dizendo 'aplicada' (o desktop achando que a rota
- * estava com o motorista).
+ * milissegundo e NENHUM aviso nasceu — `LogisticaRotaAviso` vazia.
  *
  * Causa: `whereForActor` devolve `{}` pro ADMIN de propósito ("admin preserva
- * visão da empresa inteira"), e as duas redes de aviso liam esse `{}` como "não
- * dá pra saber quem foi". Numa distribuidora pequena o dono é o admin E o
- * motorista — a configuração onde o bug é 100% dos casos.
+ * visão da empresa inteira"), e a rede de aviso lia esse `{}` como "não dá pra
+ * saber quem foi". Numa distribuidora pequena o dono é o admin E o motorista —
+ * a configuração onde o bug é 100% dos casos.
+ *
+ * 09/08 (F4, PR09082026-ROTA-SEIS-VERBOS): eram DUAS redes de aviso; a segunda,
+ * a devolução da `LogisticaRotaIndicada`, foi ENTERRADA junto com a Rota
+ * Indicada (4 usos na vida). A LEI que sobrevive é a mesma e vale inteira pra
+ * rede que ficou: quem desiste é o AUTENTICADO, o escopo de escrita é o do ator.
  *
  * O que estes testes trancam:
- *  1. admin === motorista gera os DOIS avisos (o que faltava);
+ *  1. admin === motorista gera o aviso (o que faltava);
  *  2. o ESCOPO DE ESCRITA do admin continua sendo a empresa inteira (o fix não
  *     pode ter estreitado o descarte);
  *  3. o fail-closed continua de pé: admin que descarta a rota DE OUTRA PESSOA
- *     não fabrica aviso no nome de ninguém — e isso é MEDIDO com os serviços de
+ *     não fabrica aviso no nome de ninguém — e isso é MEDIDO com o serviço de
  *     verdade, não prometido em comentário.
  */
 
@@ -52,7 +54,6 @@ function montarControllerComEspioes() {
     descartarMontagem: [] as Array<number | undefined>,
     encerrarRota: [] as Array<number | undefined>,
     limparDia: [] as Array<number | undefined>,
-    desfazerDoMotorista: [] as number[],
     registrarSaida: [] as number[],
   };
   const rota: any = {
@@ -69,23 +70,17 @@ function montarControllerComEspioes() {
       return { ok: true };
     },
   };
-  const rotaIndicada: any = {
-    desfazerDoMotorista: async (_c: number, paraUserId: number) => {
-      chamadas.desfazerDoMotorista.push(paraUserId);
-      return 1;
-    },
-  };
   const rotaAviso: any = {
     registrarSaida: async (_c: number, entregadorId: number) => {
       chamadas.registrarSaida.push(entregadorId);
       return 'abandonada';
     },
   };
-  return { chamadas, controller: montarController({ rota, rotaIndicada, rotaAviso }) };
+  return { chamadas, controller: montarController({ rota, rotaAviso }) };
 }
 
 /** Posicional: o controller tem defaults `null` pra tudo depois do `recovery`. */
-function montarController(deps: { rota?: any; rotaIndicada?: any; rotaAviso?: any }) {
+function montarController(deps: { rota?: any; rotaAviso?: any }) {
   return new LogisticaController(
     {} as any, // service
     {} as any, // recorrencia
@@ -95,31 +90,23 @@ function montarController(deps: { rota?: any; rotaIndicada?: any; rotaAviso?: an
     operacaoReal, // operacao
     null as any, // tracking
     null as any, // trackingBonus
-    null as any, // occurrences
     null as any, // rotaModelo
-    null as any, // leitura
     null as any, // geo
     null as any, // agenda
     null as any, // conferencia
     null as any, // custoPreview
     null as any, // nivelPlano
     null as any, // passeio
-    (deps.rotaIndicada ?? null) as any, // rotaIndicada
     (deps.rotaAviso ?? null) as any, // rotaAviso
   );
 }
 
 // ── 1. A CENA ────────────────────────────────────────────────────────────────
-test('🔴 admin que dirige desiste da rota: os DOIS avisos saem no nome dele', async () => {
+test('🔴 admin que dirige desiste da rota: o aviso sai no nome dele', async () => {
   const { controller, chamadas } = montarControllerComEspioes();
 
   await controller.descartarMontagem({ user: admin }, { date: DIA } as any);
 
-  assert.deepEqual(
-    chamadas.desfazerDoMotorista,
-    [DONO],
-    'a indicação tem que voltar pra "desfeita" — senão o desktop segue dizendo que a rota está com o motorista',
-  );
   assert.deepEqual(
     chamadas.registrarSaida,
     [DONO],
@@ -155,7 +142,6 @@ test('motorista comum: identidade continua vindo do recorte do ator', async () =
   await controller.descartarMontagem({ user: motorista }, { date: DIA } as any);
 
   assert.deepEqual(chamadas.descartarMontagem, [OUTRO], 'motorista só descarta o que é dele');
-  assert.deepEqual(chamadas.desfazerDoMotorista, [OUTRO]);
   assert.deepEqual(chamadas.registrarSaida, [OUTRO]);
 });
 
@@ -164,104 +150,69 @@ test('ator sem id (chamada interna/legada): sem identidade, nenhum aviso', async
 
   await controller.descartarMontagem({ user: { companyId: COMPANY, role: 'ADMIN' } }, { date: DIA } as any);
 
-  assert.deepEqual(chamadas.desfazerDoMotorista, []);
   assert.deepEqual(chamadas.registrarSaida, []);
 });
 
-// ── 3. FAIL-CLOSED MEDIDO, com os serviços de VERDADE ────────────────────────
+// ── 3. FAIL-CLOSED MEDIDO, com o serviço de VERDADE ──────────────────────────
 /**
- * O fix passa a mandar o id do admin pras duas redes. A garantia de que isso não
- * fabrica aviso em cima dos outros não é confiança: as duas já são escopadas por
- * esse id. Aqui os serviços reais rodam contra um banco de mentira onde a rota
- * do dia e a indicação viva são de OUTRA pessoa.
+ * O fix passa a mandar o id do admin pra rede de aviso. A garantia de que isso
+ * não fabrica aviso em cima dos outros não é confiança: `registrarSaida` já é
+ * escopado por esse id. Aqui o serviço real roda contra um banco de mentira onde
+ * a rota do dia é de OUTRA pessoa.
  */
-test('🔒 admin descartando a rota DE OUTRA PESSOA não gera aviso nenhum', async () => {
-  const indicacoes = [
-    { id: 'ind-1', companyId: COMPANY, paraUserId: OUTRO, status: 'aplicada' },
-  ];
-  const avisos: any[] = [];
-  const prisma: any = {
-    // A rota do dia é do OUTRO, iniciada e com entrega aberta: cenário que
-    // GERARIA 'abandonada' se o aviso fosse atribuído à pessoa errada.
+function prismaComRotaDe(dono: number, avisos: any[]) {
+  return {
+    // Rota iniciada com entrega aberta: o cenário que GERARIA 'abandonada' se o
+    // aviso fosse atribuído à pessoa errada.
     logisticaRoute: {
       findFirst: async ({ where }: any) => (
-        where.entregadorId === OUTRO && where.companyId === COMPANY
+        where.entregadorId === dono && where.companyId === COMPANY
           ? { startedAt: new Date(2026, 7, 2, 8, 0, 0) }
           : null
       ),
     },
     entrega: {
       findMany: async ({ where }: any) => (
-        where.entregadorId === OUTRO
+        where.entregadorId === dono
           ? [{ status: 'agendada', rotaModeloId: null }]
           : []
       ),
     },
-    user: { findFirst: async () => ({ name: 'Outro Motorista' }) },
+    user: { findFirst: async () => ({ name: 'Motorista' }) },
     logisticaRotaModelo: { findFirst: async () => null },
     logisticaRotaAviso: {
       create: async ({ data }: any) => { avisos.push(data); return { id: 'a1', ...data }; },
     },
-    logisticaRotaIndicada: {
-      updateMany: async ({ where, data }: any) => {
-        let count = 0;
-        for (const row of indicacoes) {
-          if (row.companyId !== where.companyId) continue;
-          if (row.paraUserId !== where.paraUserId) continue;
-          if (!(where.status?.in ?? []).includes(row.status)) continue;
-          Object.assign(row, data);
-          count++;
-        }
-        return { count };
-      },
-    },
-  };
-  const avisoService = new LogisticaRotaAvisoService(prisma);
-  const indicadaService = new LogisticaRotaIndicadaService(prisma);
+  } as any;
+}
+
+test('🔒 admin descartando a rota DE OUTRA PESSOA não gera aviso nenhum', async () => {
+  const avisos: any[] = [];
   const controller = montarController({
     rota: { descartarMontagem: async () => ({ ok: true }) },
-    rotaIndicada: indicadaService,
-    rotaAviso: avisoService,
+    rotaAviso: new LogisticaRotaAvisoService(prismaComRotaDe(OUTRO, avisos)),
   });
 
   await controller.descartarMontagem({ user: admin }, { date: DIA } as any);
 
   assert.deepEqual(avisos, [], 'nenhum recado nasce no nome de quem não desistiu');
-  assert.equal(indicacoes[0].status, 'aplicada', 'a indicação do outro motorista fica intocada');
 });
 
 /**
- * E a mesma máquina, com os MESMOS serviços reais, quando o admin É o motorista:
- * a indicação dele volta pra 'desfeita'. Este par (o de cima mudo, este falando)
- * é a prova de que o fix separa "quem" de "escopo" sem afrouxar nada.
+ * E a mesma máquina, com o MESMO serviço real, quando o admin É o motorista: o
+ * recado nasce. Este par (o de cima mudo, este falando) é a prova de que o fix
+ * separa "quem" de "escopo" sem afrouxar nada.
  */
-test('🔴 admin === motorista, serviços reais: a indicação dele volta pra "desfeita"', async () => {
-  const indicacoes = [
-    { id: 'ind-1', companyId: COMPANY, paraUserId: DONO, status: 'aplicada' },
-    { id: 'ind-2', companyId: COMPANY, paraUserId: OUTRO, status: 'aplicada' },
-  ];
-  const prisma: any = {
-    logisticaRotaIndicada: {
-      updateMany: async ({ where, data }: any) => {
-        let count = 0;
-        for (const row of indicacoes) {
-          if (row.companyId !== where.companyId) continue;
-          if (row.paraUserId !== where.paraUserId) continue;
-          if (!(where.status?.in ?? []).includes(row.status)) continue;
-          Object.assign(row, data);
-          count++;
-        }
-        return { count };
-      },
-    },
-  };
+test('🔴 admin === motorista, serviço real: o recado de abandono nasce no nome dele', async () => {
+  const avisos: any[] = [];
   const controller = montarController({
     rota: { descartarMontagem: async () => ({ ok: true }) },
-    rotaIndicada: new LogisticaRotaIndicadaService(prisma),
+    rotaAviso: new LogisticaRotaAvisoService(prismaComRotaDe(DONO, avisos)),
   });
 
   await controller.descartarMontagem({ user: admin }, { date: DIA } as any);
 
-  assert.equal(indicacoes[0].status, 'desfeita', 'a rota do dono volta a aparecer como devolvida');
-  assert.equal(indicacoes[1].status, 'aplicada', 'e a de mais ninguém é tocada');
+  assert.equal(avisos.length, 1, 'quem saiu pra rua e largou vira recado');
+  assert.equal(avisos[0].tipo, 'abandonada', '0 entregues com parada aberta = abandonada');
+  assert.equal(avisos[0].motoristaUserId, DONO);
 });

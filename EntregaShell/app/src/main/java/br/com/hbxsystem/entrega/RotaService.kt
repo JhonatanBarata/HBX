@@ -41,8 +41,6 @@ class RotaService : Service() {
         private const val CHANNEL_ROTA = "rota_status"
         private const val CHANNEL_CHEGADA = "chegada"
         private const val NOTIF_ID_ROTA = 1001
-        // S2 (PR21072026-MONTAR-ROTA-PLAY) — heads-up de pausa detectada na Leitura.
-        private const val NOTIF_ID_LEITURA_PAUSA = 1002
         private const val DEBOUNCE_STOP_MS = 4000L
 
         private const val ACTION_SYNC = "br.com.hbxsystem.entrega.action.SYNC"
@@ -137,28 +135,10 @@ class RotaService : Service() {
     private val vozHandler = Handler(Looper.getMainLooper())
     private val vozPendente = HashMap<String, Runnable>()
 
-    // S2 (PR21072026-MONTAR-ROTA-PLAY) — clearRota (fim do dia/rota) NUNCA pode
-    // derrubar uma Leitura em andamento (recursos independentes do mesmo
-    // serviço). Só efetiva a parada de verdade quando a Leitura também não
-    // está ativa; senão só atualiza a notificação (que passa a mostrar o
-    // texto do modo leitura, já que `alvos` ficou vazio).
-    private val stopRunnable = Runnable {
-        if (RotaState.isLeituraAtiva()) {
-            atualizarNotificacaoRota()
-        } else {
-            pararDeVerdade()
-        }
-    }
+    private val stopRunnable = Runnable { pararDeVerdade() }
 
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
-            // S2 (PR21072026-MONTAR-ROTA-PLAY) — Leitura de Rota é um MODO
-            // independente de `alvos`/`routeActive` (roda sem nenhuma rota do
-            // dia). Por isso avalia ANTES do early-return de baixo — senão um
-            // fix nunca alimentava a trilha enquanto não havia paradas.
-            if (RotaState.isLeituraAtiva()) {
-                processarLeitura(location)
-            }
             val alvos = RotaState.alvos
             if (alvos.isEmpty()) return
             // Garante que o primeiro fix válido da sessão seja START antes de
@@ -214,14 +194,11 @@ class RotaService : Service() {
                 // intent null = restart STICKY do sistema após kill do processo.
                 // RotaState era memória pura e renascia VAZIO — serviço zumbi de
                 // GPS ligado com "0 paradas" drenando bateria. Agora: restaura o
-                // snapshot persistido; sem rota ativa E sem Leitura ativa → se
-                // mata na hora. S2 (PR21072026-MONTAR-ROTA-PLAY): a Leitura roda
-                // sem `alvos` (sem rota do dia) — sem este segundo critério, um
-                // restart no meio de uma Leitura matava o GPS em silêncio.
+                // snapshot persistido; sem rota ativa → se mata na hora.
                 if (RotaState.alvos.isEmpty()) {
                     RotaState.restaurar(this)
                 }
-                if (RotaState.alvos.isEmpty() && !RotaState.isLeituraAtiva()) {
+                if (RotaState.alvos.isEmpty()) {
                     pararDeVerdade()
                     return START_NOT_STICKY
                 }
@@ -428,130 +405,6 @@ class RotaService : Service() {
         }
     }
 
-    // ── S2 (PR21072026-MONTAR-ROTA-PLAY) — MODO "Leitura de Rota" ───────────
-
-    private val leituraMaxAccuracyM = 35.0
-    private val leituraMaxSpeedMps = 41.7 // ~150 km/h
-    private val leituraVisualMaxAgeMs = 15_000L
-
-    /** Roda a cada fix de GPS enquanto `RotaState.isLeituraAtiva()`. Filtra
-     *  lixo (S2.1), alimenta o detector de pausa (S2.2) e a gravação da
-     *  trilha, e entrega o evento de pausa pro front (S2.3) quando disparar. */
-    private fun processarLeitura(location: Location) {
-        val sample = location.toTrackingSample()
-        val idadeMs = System.currentTimeMillis() - sample.capturedAtMs
-        if (!sample.latitude.isFinite() || sample.latitude !in -90.0..90.0 ||
-            !sample.longitude.isFinite() || sample.longitude !in -180.0..180.0 ||
-            !sample.accuracyM.isFinite() || sample.accuracyM <= 0.0 ||
-            idadeMs !in 0L..leituraVisualMaxAgeMs
-        ) {
-            return
-        }
-
-        val ultimo = RotaState.ultimaAmostraLeitura()
-        val temPrecisaoParaGravar = sample.accuracyM <= leituraMaxAccuracyM
-        if (temPrecisaoParaGravar && ultimo != null) {
-            val elapsedS = (sample.capturedAtMs - ultimo.ts) / 1000.0
-            if (elapsedS > 0.0) {
-                val dist = haversine(ultimo.lat, ultimo.lng, sample.latitude, sample.longitude)
-                if (dist / elapsedS > leituraMaxSpeedMps) return // salto absurdo — descarta
-            }
-        }
-
-        val ponto = TrilhaPonto(
-            lat = sample.latitude,
-            lng = sample.longitude,
-            ts = sample.capturedAtMs,
-            accuracyM = sample.accuracyM,
-            speedMps = sample.speedMps,
-            bearingDeg = sample.bearingDeg,
-        )
-
-        // O mapa precisa apontar a posição assim que o Android tiver um fix
-        // recente, mesmo enquanto a precisão ainda está refinando. Esse ponto é
-        // apenas visual; a trilha continua aceitando somente accuracy <= 35 m.
-        RotaState.notificarPosicao(ponto)
-        if (!temPrecisaoParaGravar) return
-
-        // Detector de pausa roda em TODA amostra aceita (independente do
-        // filtro de gravação abaixo, que só decide o que fica na trilha).
-        val pausaBruta = RotaState.avaliarPausa(ponto)
-        val gravou = RotaState.registrarPontoTrilhaSeNecessario(ponto)
-
-        // Throttle deliberado: NÃO persiste a cada fix de GPS (chegaria a cada
-        // ~3s durante toda a Leitura) — só quando um ponto novo entrou na
-        // trilha (cadência do filtro 8m/15s) ou uma pausa disparou.
-        if (gravou || pausaBruta != null) {
-            RotaState.persistir(this)
-        }
-
-        if (pausaBruta != null) {
-            val evento = pausaBruta.copy(clienteProximo = clienteMaisProximo(pausaBruta.lat, pausaBruta.lng))
-            RotaState.notificarPausa(evento)
-            // Mesmo padrão da chegada: sempre publica o aviso (heads-up); em
-            // foreground o listener (MainActivity) também despacha o evento
-            // direto na WebView (RotaState.notificarPausa já cuidou disso).
-            notificarPausaHeadsUp(evento)
-        }
-
-        if (gravou) {
-            RotaState.notificarPonto(ponto) // no-op se ninguém tá ouvindo (app em background)
-            LeituraTrilhaSync.requestFlush(this)
-        }
-    }
-
-    /** Cliente cadastrado mais próximo do ponto de pausa, dentro do raio da
-     *  rota (`RotaState.raioM`, reuso pedido na sprint). Null se não há
-     *  `alvos` carregados ou nenhum está dentro do raio — a Leitura roda sem
-     *  nenhuma rota do dia na maioria das vezes. */
-    private fun clienteMaisProximo(lat: Double, lng: Double): ClienteProximo? {
-        val alvos = RotaState.alvos
-        if (alvos.isEmpty()) return null
-        val raio = RotaState.raioM
-        var melhor: Parada? = null
-        var melhorDist = Double.MAX_VALUE
-        for (alvo in alvos) {
-            val dist = haversine(lat, lng, alvo.lat, alvo.lng)
-            if (dist <= raio && dist < melhorDist) {
-                melhor = alvo
-                melhorDist = dist
-            }
-        }
-        val encontrado = melhor ?: return null
-        return ClienteProximo(id = encontrado.id, nome = encontrado.nome, distanciaM = melhorDist)
-    }
-
-    @SuppressLint("MissingPermission") // mesma permissão do canal chegada, já concedida antes da rota.
-    private fun notificarPausaHeadsUp(pausa: PausaDetectada) {
-        try {
-            val activityIntent = Intent(this, MainActivity::class.java).addFlags(
-                Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP,
-            )
-            val pendingActivity = PendingIntent.getActivity(
-                this,
-                "leitura_pausa".hashCode(),
-                activityIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
-            val texto = pausa.clienteProximo?.let { "Perto de ${it.nome} — toque para salvar a parada" }
-                ?: "Toque para salvar a parada"
-            val notif = NotificationCompat.Builder(this, CHANNEL_CHEGADA)
-                .setSmallIcon(R.mipmap.ic_launcher)
-                .setContentTitle("Pausa detectada na Leitura")
-                .setContentText(texto)
-                .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
-                .setDefaults(Notification.DEFAULT_SOUND or Notification.DEFAULT_VIBRATE)
-                .setVibrate(longArrayOf(0, 400, 250, 400))
-                .setAutoCancel(true)
-                .setContentIntent(pendingActivity)
-                .build()
-            NotificationManagerCompat.from(this).notify(NOTIF_ID_LEITURA_PAUSA, notif)
-        } catch (e: Exception) {
-            /* canal desativado/revogado pelo usuário — evento já ficou pendente em RotaState */
-        }
-    }
-
     // ── notificação persistente (foreground) ────────────────────────────
 
     private fun criarCanais() {
@@ -569,13 +422,6 @@ class RotaService : Service() {
     }
 
     private fun buildNotificacaoRota(): Notification {
-        // S2 (PR21072026-MONTAR-ROTA-PLAY) — Leitura sem nenhuma rota do dia
-        // (`alvos` vazio) tem notificação própria. Quando os dois coexistem
-        // (rota do dia + Leitura ao mesmo tempo — raro), o texto da rota do dia
-        // continua tendo prioridade; não perde a informação de chegada/tracking.
-        if (RotaState.isLeituraAtiva() && RotaState.alvos.isEmpty()) {
-            return buildNotificacaoLeitura()
-        }
         val count = RotaState.alvos.size
         val texto = if (count == 1) "1 parada" else "$count paradas"
         val tracked = RotaState.isTrackedRoute()
@@ -591,22 +437,6 @@ class RotaService : Service() {
                 },
             )
             .setContentText(if (tracked && !trackingBlocked) "$texto • localização ativa" else texto)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setOngoing(true)
-            .setSilent(true)
-            .build()
-    }
-
-    /** Copy mínima pedida na sprint: "Gravando rota · N paradas" (N = pausas
-     *  detectadas nesta sessão de Leitura, contador nativo — não é o total de
-     *  paradas já salvas no backend, ver S2-CONTRATO-PONTE.md). */
-    private fun buildNotificacaoLeitura(): Notification {
-        val count = RotaState.pausasDetectadasNaSessao()
-        val texto = if (count == 1) "Gravando rota · 1 parada" else "Gravando rota · $count paradas"
-        return NotificationCompat.Builder(this, CHANNEL_ROTA)
-            .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle("Leitura de rota")
-            .setContentText(texto)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
             .setSilent(true)
@@ -761,8 +591,7 @@ class RotaService : Service() {
     private fun tentarPontoInicialImediato() {
         val config = RotaState.activeTrackingConfig()
         val precisaInicioRastreamento = config != null && trackingStore.peekNextSequence(config.routeId) == 0L
-        val leituraAtiva = RotaState.isLeituraAtiva()
-        if (!precisaInicioRastreamento && !leituraAtiva) return
+        if (!precisaInicioRastreamento) return
         val lm = locationManager ?: return
         val candidates = mutableListOf<Location>()
         try {
@@ -782,8 +611,7 @@ class RotaService : Service() {
             // provider ausente
         }
         candidates.maxByOrNull(Location::getTime)?.let { location ->
-            if (leituraAtiva) processarLeitura(location)
-            if (precisaInicioRastreamento) processarRastreamento(location, force = true)
+            processarRastreamento(location, force = true)
         }
     }
 

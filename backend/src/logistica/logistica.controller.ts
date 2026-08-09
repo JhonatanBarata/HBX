@@ -36,7 +36,6 @@ import { LogisticaRotaService } from './logistica-rota.service';
 import { LogisticaConferenciaService } from './logistica-conferencia.service';
 import { LogisticaCustoPreviewService } from './logistica-custo-preview.service';
 import { LogisticaRotaModeloService } from './logistica-rota-modelo.service';
-import { LogisticaRotaIndicadaService } from './logistica-rota-indicada.service';
 import { LogisticaRotaAvisoService } from './logistica-rota-aviso.service';
 import { LogisticaRecadoService } from './logistica-recado.service';
 import { LogisticaConfigService } from './logistica-config.service';
@@ -46,18 +45,9 @@ import { LogisticaRecoveryService } from './logistica-recovery.service';
 import { LogisticaOperacaoService } from './logistica-operacao.service';
 import { LogisticaTrackingService } from './logistica-tracking.service';
 import { LogisticaTrackingBonusService } from './logistica-tracking-bonus.service';
-import { LogisticaOccurrenceService } from './logistica-occurrence.service';
-import { LogisticaLeituraService } from './logistica-leitura.service';
 import { LogisticaGeoService } from './logistica-geo.service';
 import { LogisticaAgendaService } from './logistica-agenda.service';
 import { LogisticaTutorialService } from './logistica-tutorial.service';
-import {
-  FinalizarLeituraDto,
-  IniciarLeituraDto,
-  RegistrarLeituraParadaDto,
-  RegistrarTrilhaDto,
-  UpdateLeituraParadaDto,
-} from './dto/logistica-leitura.dto';
 import { LogisticaPasseioService } from './logistica-passeio.service';
 // PULSO DO APP (04/08) — a tela atual do aparelho pega carona no poll dos recados.
 import { PulsoAppService } from '../pulso-app/pulso-app.service';
@@ -85,10 +75,8 @@ import {
   FecharMesDto,
   GerarDiaDto,
   GerarRotaModeloDto,
-  IndicarRotaDto,
   IniciarPasseioDto,
   IniciarRotaDto,
-  ResponderRotaIndicadaDto,
   LimparDiaDto,
   PlanejarRotaDto,
   PulsoRecadosDto,
@@ -139,13 +127,10 @@ export class LogisticaController {
     private readonly operacao: LogisticaOperacaoService = null as any,
     private readonly tracking: LogisticaTrackingService = null as any,
     private readonly trackingBonus: LogisticaTrackingBonusService = null as any,
-    private readonly occurrences: LogisticaOccurrenceService = null as any,
     // PR18072026 W1 — CRUD de rota-modelo. Default preserva testes legados que
     // instanciam o controller diretamente com poucos argumentos; no módulo
     // Nest o provider é sempre injetado.
     private readonly rotaModelo: LogisticaRotaModeloService = null as any,
-    // PR20072026 W1 — sessão de "Leitura de Rota". Mesmo padrão de default acima.
-    private readonly leitura: LogisticaLeituraService = null as any,
     // PR20072026-ROTA-SALVA F3.2 — geocode reverso (GPS → endereço). Mesmo padrão de default acima.
     private readonly geo: LogisticaGeoService = null as any,
     // AGENDA-SEMANAL — mantém os construtores diretos dos testes legados.
@@ -162,8 +147,6 @@ export class LogisticaController {
     private readonly nivelPlano: LogisticaNivelPlanoService = null as any,
     // MODO PASSEIO (29/07) — débito do passeio. Mesmo padrão de default acima.
     private readonly passeio: LogisticaPasseioService = null as any,
-    // ROTA PRONTA (29/07) — indicação de rota salva. Mesmo padrão de default acima.
-    private readonly rotaIndicada: LogisticaRotaIndicadaService = null as any,
     // 31/07 — recados de rota que morreu no meio. Mesmo padrão de default acima.
     private readonly rotaAviso: LogisticaRotaAvisoService = null as any,
     // COCKPIT (03/08) — canal de recado escritório ⇄ motorista. Mesmo padrão.
@@ -764,9 +747,8 @@ export class LogisticaController {
   @Post('gerar-dia')
   async gerarDia(@Req() req: any, @Body() dto: GerarDiaDto) {
     const companyId = this.ensureCompanyIdFromUser(req.user);
-    if (this.agenda && await this.agenda.isAgendaV2Active(companyId)) {
-      return this.agenda.generateDay(companyId, dto?.date);
-    }
+    // UM GERADOR SÓ (F1, 09/08): `gerarDia` já É a Agenda V2 — o `if` que
+    // escolhia entre dois motores morreu junto com o motor legado.
     return this.recorrencia.gerarDia(companyId, dto?.date);
   }
 
@@ -991,25 +973,9 @@ export class LogisticaController {
     const actorWhere = await this.operacao.whereForActor(req.user);
     const entregadorId = typeof actorWhere.entregadorId === 'number' ? actorWhere.entregadorId : undefined;
     const resultado = await this.rota.descartarMontagem(companyId, { date: dto?.date, motivo: dto?.motivo }, entregadorId);
-    // 🔴 PR29072026 (bug do dono) — quem desiste da rota DEVOLVE a indicação:
-    // sem isto ela ficava presa em 'aplicada' e o web dizia que a rota estava de
-    // pé com um motorista que já tinha cancelado. Vira 'desfeita' e aparece no
-    // MESMO banner da negada.
-    //
-    // Best-effort DEPOIS do commit: falha aqui não pode desfazer a devolução das
-    // ocorrências da agenda, que é a parte irreversível do descarte.
-    const motorista = this.quemDirigiu(req.user, entregadorId);
-    if (motorista && this.rotaIndicada) {
-      try {
-        await this.rotaIndicada.desfazerDoMotorista(companyId, motorista);
-      } catch (e) {
-        this.logger?.warn?.(`[logistica] descarte ok, mas indicacao nao voltou: ${String((e as any)?.message || e)}`);
-      }
-    }
-    // 31/07 — e o recado de quem SAIU PRA RUA e largou no meio (o de cima só
-    // existe pra rota que veio de indicação; este vale pra rota que a pessoa
-    // montou sozinha). Quem não iniciou não gera recado nenhum — ver o serviço.
-    await this.recadoDeSaida(companyId, motorista, dto?.date);
+    // 31/07 — e o recado de quem SAIU PRA RUA e largou no meio. Quem não iniciou
+    // não gera recado nenhum — ver o serviço.
+    await this.recadoDeSaida(companyId, this.quemDirigiu(req.user, entregadorId), dto?.date);
     return resultado;
   }
 
@@ -1029,11 +995,10 @@ export class LogisticaController {
    *    montagem da empresa inteira, e isso NÃO muda aqui;
    *  - IDENTIDADE DO AVISO (a quem atribuir) é quem autenticou.
    *
-   * Continua fail-closed pro admin que descarta a rota DE OUTRA PESSOA, porque as
-   * duas redes já são escopadas por este id: `desfazerDoMotorista` só mexe em
-   * indicação com `paraUserId` = ele, e `registrarSaida` só acha `LogisticaRoute`
-   * com `entregadorId` = ele. Admin que não dirigiu não casa com nada e nenhum
-   * aviso nasce no nome de quem não desistiu.
+   * Continua fail-closed pro admin que descarta a rota DE OUTRA PESSOA, porque a
+   * rede de aviso já é escopada por este id: `registrarSaida` só acha
+   * `LogisticaRoute` com `entregadorId` = ele. Admin que não dirigiu não casa com
+   * nada e nenhum aviso nasce no nome de quem não desistiu.
    */
   private quemDirigiu(user: any, entregadorId?: number): number | undefined {
     if (entregadorId) return entregadorId;
@@ -1350,151 +1315,16 @@ export class LogisticaController {
     return this.rotaModelo.gerar(companyId, id, dto?.date, userId);
   }
 
-  // ── ROTA PRONTA (29/07) — indicação de rota salva pra equipe ───────────────
-  // Mesma guarda das demais rota-modelos (sem gate de cargo, decisão do dono:
-  // qualquer um da empresa indica, inclusive pra admin).
-
-  /** WEB: manda a rota salva pro celular de alguém — o APK abre o popup Aceitar/Negar. */
-  @Post('rota-modelos/:id/indicar')
-  indicarRota(@Req() req: any, @Param('id') id: string, @Body() dto: IndicarRotaDto) {
-    const companyId = this.ensureCompanyIdFromUser(req.user);
-    const porUserId = this.ensureUserId(req.user);
-    return this.rotaIndicada.indicar(companyId, id, dto.paraUserId, porUserId, dto.agendadaPara);
-  }
-
-  /** WEB: histórico recente (alimenta o banner "Rota X negada por Y"). */
-  @Get('rota-indicadas')
-  listRotasIndicadas(@Req() req: any) {
-    const companyId = this.ensureCompanyIdFromUser(req.user);
-    return this.rotaIndicada.listar(companyId);
-  }
-
-  /**
-   * APP: indicações vivas da pessoa logada (pendente = popup; aceita = guardada).
-   * `?agendadas=1` é o app que sabe armar despertador pedindo também as missões
-   * com hora marcada — sem isso, aparelho antigo abriria o popup adiantado.
-   */
-  @Get('rota-indicadas/pendentes')
-  listRotasIndicadasPendentes(@Req() req: any, @Query('agendadas') agendadas?: string) {
-    const companyId = this.ensureCompanyIdFromUser(req.user);
-    const userId = this.ensureUserId(req.user);
-    const incluirAgendadas = String(agendadas ?? '') === '1' || String(agendadas ?? '') === 'true';
-    return this.rotaIndicada.pendentes(companyId, userId, incluirAgendadas);
-  }
-
-  /** APP: confirma que o despertador desta missão foi armado no aparelho. */
-  @Post('rota-indicadas/:id/alarme-armado')
-  marcarAlarmeArmado(@Req() req: any, @Param('id') id: string) {
-    const companyId = this.ensureCompanyIdFromUser(req.user);
-    const userId = this.ensureUserId(req.user);
-    return this.rotaIndicada.marcarAlarmeArmado(companyId, id, userId);
-  }
-
-  /** APP: Aceitar/Negar do popup — só a pessoa indicada responde. */
-  @Post('rota-indicadas/:id/responder')
-  responderRotaIndicada(@Req() req: any, @Param('id') id: string, @Body() dto: ResponderRotaIndicadaDto) {
-    const companyId = this.ensureCompanyIdFromUser(req.user);
-    const userId = this.ensureUserId(req.user);
-    return this.rotaIndicada.responder(companyId, id, userId, !!dto.aceita);
-  }
-
-  /** APP: fecha o ciclo do aceite depois de gerar+planejar com sucesso. */
-  @Post('rota-indicadas/:id/aplicada')
-  aplicarRotaIndicada(@Req() req: any, @Param('id') id: string) {
-    const companyId = this.ensureCompanyIdFromUser(req.user);
-    const userId = this.ensureUserId(req.user);
-    return this.rotaIndicada.aplicada(companyId, id, userId);
-  }
-
-  /** WEB: dispensa o aviso de negada (banner some, histórico fica). */
-  @Post('rota-indicadas/:id/visto')
-  async marcarRotaIndicadaVista(@Req() req: any, @Param('id') id: string) {
-    const companyId = this.ensureCompanyIdFromUser(req.user);
-    return { success: await this.rotaIndicada.avisoVisto(companyId, id) };
-  }
-
-  // ── PR20072026 W1 — "Leitura de Rota" (docs/PLANEJAMENTOS/PR20072026/
-  // SPEC-LEITURA-DE-ROTA.md + 00-ORQUESTRACAO.md, contrato = LEI). Mesma
-  // guarda das rotas acima (driver comum PODE usar, sem @Admin) — sessão é
-  // escopada por (companyId, userId) dentro do serviço.
-
-  @Post('leitura/iniciar')
-  iniciarLeitura(@Req() req: any, @Body() dto: IniciarLeituraDto) {
-    const companyId = this.ensureCompanyIdFromUser(req.user);
-    const userId = this.ensureUserId(req.user);
-    return this.leitura.iniciar(companyId, userId, dto?.modo);
-  }
-
-  @Get('leitura/atual')
-  leituraAtual(@Req() req: any) {
-    const companyId = this.ensureCompanyIdFromUser(req.user);
-    const userId = this.ensureUserId(req.user);
-    return this.leitura.atual(companyId, userId);
-  }
-
-  @Post('leitura/:id/parada')
-  registrarLeituraParada(@Req() req: any, @Param('id') id: string, @Body() dto: RegistrarLeituraParadaDto) {
-    const companyId = this.ensureCompanyIdFromUser(req.user);
-    const userId = this.ensureUserId(req.user);
-    return this.leitura.registrarParada(companyId, userId, id, dto);
-  }
-
-  @Get('leitura/:id/resumo')
-  leituraResumo(@Req() req: any, @Param('id') id: string) {
-    const companyId = this.ensureCompanyIdFromUser(req.user);
-    const userId = this.ensureUserId(req.user);
-    return this.leitura.resumo(companyId, userId, id);
-  }
-
-  @Patch('leitura/:id/parada/:paradaId')
-  updateLeituraParada(
-    @Req() req: any,
-    @Param('id') id: string,
-    @Param('paradaId') paradaId: string,
-    @Body() dto: UpdateLeituraParadaDto,
-  ) {
-    const companyId = this.ensureCompanyIdFromUser(req.user);
-    const userId = this.ensureUserId(req.user);
-    return this.leitura.updateParada(companyId, userId, id, paradaId, dto);
-  }
-
-  @Delete('leitura/:id/parada/:paradaId')
-  async removeLeituraParada(@Req() req: any, @Param('id') id: string, @Param('paradaId') paradaId: string) {
-    const companyId = this.ensureCompanyIdFromUser(req.user);
-    const userId = this.ensureUserId(req.user);
-    await this.leitura.removeParada(companyId, userId, id, paradaId);
-    return { success: true };
-  }
-
-  @Post('leitura/:id/finalizar')
-  finalizarLeitura(@Req() req: any, @Param('id') id: string, @Body() dto: FinalizarLeituraDto) {
-    const companyId = this.ensureCompanyIdFromUser(req.user);
-    const userId = this.ensureUserId(req.user);
-    return this.leitura.finalizar(companyId, userId, id, dto);
-  }
-
-  @Post('leitura/:id/cancelar')
-  async cancelarLeitura(@Req() req: any, @Param('id') id: string) {
-    const companyId = this.ensureCompanyIdFromUser(req.user);
-    const userId = this.ensureUserId(req.user);
-    await this.leitura.cancelar(companyId, userId, id);
-    return { success: true };
-  }
-
-  /**
-   * S2 (PR21072026-MONTAR-ROTA-PLAY) — trilha (breadcrumb GPS) gravada pelo
-   * RotaService nativo durante a Leitura. Ver S2-CONTRATO-PONTE.md.
-   */
-  @Post('leitura/:id/trilha')
-  registrarLeituraTrilha(@Req() req: any, @Param('id') id: string, @Body() dto: RegistrarTrilhaDto) {
-    const companyId = this.ensureCompanyIdFromUser(req.user);
-    const userId = this.ensureUserId(req.user);
-    return this.leitura.registrarTrilha(companyId, userId, id, dto.pontos);
-  }
+  // ── ENTERRADAS EM 09/08 (F4, PR09082026-ROTA-SEIS-VERBOS) ─────────────────
+  // `POST rota-modelos/:id/indicar` + todo `rota-indicadas/*` (ROTA PRONTA,
+  // 4 usos na vida) e todo `leitura/*` ("Leitura de Rota": 17 sessões, TODAS
+  // canceladas, 0 paradas capturadas) saíram daqui junto com os serviços, DTOs e
+  // telas (web e APK). Quem grava a ordem da rota é o modelo de rota; quem conta
+  // que alguém largou a rota no meio é `LogisticaRotaAviso` (vivo, acima).
 
   /**
    * PR20072026-ROTA-SALVA F3.2 — geocode reverso (GPS → endereço), sugestão
-   * EDITÁVEL pro passo "Sequência" da Leitura de Rota. 200 SEMPRE (nunca 500):
+   * EDITÁVEL pro cadastro em campo. 200 SEMPRE (nunca 500):
    * flag `HBX_GEO_SERVER_ENABLED` OFF (default) ou sem match → `fonte:'nenhum'`
    * com campos vazios. lat/lng fora do intervalo válido → 400 (erro de input).
    */

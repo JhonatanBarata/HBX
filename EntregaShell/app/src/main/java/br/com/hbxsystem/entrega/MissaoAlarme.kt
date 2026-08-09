@@ -16,19 +16,20 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /**
- * AGENDADOR DE MISSÃO (02/08) — o despertador da rota marcada.
+ * O DESPERTADOR DO RECADO DE ALARME — a tela que acorda o motorista.
  *
- * Cena que este arquivo existe pra resolver: o admin agenda a rota das 16:00 e
- * vai embora; o motorista está com o celular no bolso, tela apagada. Às 16:00 o
- * aparelho TEM que acordar sozinho, tocar como despertador e não parar até a
- * pessoa responder. Nada disso pode depender do app estar aberto, de internet
- * na hora, nem de push (o FCM deste projeto não está configurado no servidor —
- * e mesmo configurado, push não fura Doze com garantia de horário).
+ * 🔴 O NOME É HERANÇA (02/08): ele nasceu pro "agendador de missão" da Rota
+ * Indicada, que morreu na F4 de 09/08 (PR09082026-ROTA-SEIS-VERBOS/G3 — 4 usos
+ * na vida inteira). O maquinário ficou porque JÁ ERA o dono do recado de nível
+ * `alarme` da Central, e trocar o nome hoje mexeria no AndroidManifest, nos dois
+ * receivers e na chave de SharedPreferences que guarda alarme armado no
+ * aparelho de quem está na rua. Todo id que entra aqui é `recado_<id>`.
  *
- * Por isso o relógio é NATIVO e LOCAL: quando o app vê a missão agendada (pelo
- * poll normal, com o app aberto em qualquer momento antes), ele ARMA aqui um
- * AlarmManager exato. Depois disso o servidor não é mais necessário — o alarme
- * toca offline, com o app fechado.
+ * Cena que este arquivo existe pra resolver: a Central manda um recado de
+ * alarme; o motorista está com o celular no bolso, tela apagada. O aparelho TEM
+ * que acordar sozinho, tocar como despertador e não parar até a pessoa
+ * responder. Nada disso pode depender do app estar aberto ou de internet na
+ * hora — o relógio é NATIVO e LOCAL.
  *
  * ## A insistência (pedido literal do dono: "tem que ser tipo um alarme, incomodar mesmo")
  *
@@ -45,9 +46,8 @@ import org.json.JSONObject
  * - **Reboot:** a missão fica gravada aqui e o `BOOT_COMPLETED` rearma (`rearmarTudo`).
  * - **Exatidão negada (Android 14+):** cai em `setWindow` de 5 min — atrasa, nunca silencia.
  *
- * O que ele NÃO faz de propósito: decidir nada sobre a rota. Aceitar/Negar
- * continua sendo do fluxo de `LogisticaRotaIndicada` — este arquivo só acorda a
- * pessoa e entrega a resposta dela pro app (`MissaoPendente`).
+ * O que ele NÃO faz de propósito: falar com o backend. Ele só acorda a pessoa e
+ * entrega a resposta dela pro app (`RecadoPendente`).
  */
 object MissaoAlarme {
 
@@ -72,22 +72,6 @@ object MissaoAlarme {
     private const val NOTIF_BASE = 51000
 
     // ── agendar / cancelar ────────────────────────────────────────────────
-
-    /**
-     * Arma (ou re-arma) o despertador de uma missão. Chamado pelo app quando o
-     * poll traz uma indicação com hora marcada — idempotente de propósito: o
-     * app rearma a cada abertura, e rearmar a mesma missão só substitui o
-     * PendingIntent (mesmo requestCode + FLAG_UPDATE_CURRENT).
-     */
-    fun agendar(context: Context, id: String, atMillis: Long, titulo: String, texto: String): Boolean {
-        val missaoId = id.trim()
-        if (missaoId.isEmpty()) return false
-        // Hora já passada não vira alarme: quem chega atrasado é o popup normal
-        // do app, não um despertador tocando sobre um horário morto.
-        if (atMillis <= System.currentTimeMillis()) return false
-        guardar(context, missaoId, atMillis, titulo, texto)
-        return armarRodada(context, missaoId, atMillis, titulo, texto, rodada = 0)
-    }
 
     /**
      * Recado de alarme acabou de chegar por push: toca agora, sem passar pelo
@@ -160,12 +144,6 @@ object MissaoAlarme {
         armarRodada(context, id, System.currentTimeMillis() + RODADA_INTERVALO_MS, titulo, texto, rodada + 1)
     }
 
-    /** "Adiar" da tela do alarme — a pessoa respondeu que viu, só não agora. */
-    fun adiar(context: Context, id: String, titulo: String, texto: String, minutos: Int) {
-        val quando = System.currentTimeMillis() + minutos.coerceIn(1, 60) * 60_000L
-        armarRodada(context, id, quando, titulo, texto, rodada = 0)
-    }
-
     // ── memória do alarme (sobrevive a reboot) ────────────────────────────
 
     private fun prefs(context: Context) = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
@@ -204,10 +182,9 @@ object MissaoAlarme {
 
     /**
      * BOOT_COMPLETED — celular reiniciado perde TODO alarme agendado. Sem isto,
-     * reiniciar o aparelho às 14h faria a missão das 16:00 nunca tocar, em
-     * silêncio, e o admin só descobriria pela entrega que não saiu.
-     * Missão cuja hora já passou durante o desligamento é descartada aqui: o
-     * popup normal do app cobre esse caso quando ele abrir.
+     * a cutucada seguinte de um recado ainda não respondido nunca tocaria, em
+     * silêncio. Cutucada cuja hora já passou durante o desligamento é
+     * descartada aqui: o fio de recados do app cobre esse caso quando ele abrir.
      */
     fun rearmarTudo(context: Context) {
         val agora = System.currentTimeMillis()
@@ -288,11 +265,10 @@ object MissaoAlarme {
             telaIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-        val ehRecado = ehAlarmeDeRecado(id)
         val notif = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(titulo.ifBlank { "Missão agendada" })
-            .setContentText(texto.ifBlank { if (ehRecado) "Toque para responder" else "Toque para aceitar" })
+            .setContentTitle(titulo.ifBlank { "Recado da central" })
+            .setContentText(texto.ifBlank { "Toque para responder" })
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -310,30 +286,6 @@ object MissaoAlarme {
         if (context is Activity && !context.isFinishing && !context.isDestroyed) {
             runCatching { context.startActivity(telaIntent) }
         }
-    }
-}
-
-/**
- * O slot entre o despertador e a tela do app — mesmo papel do `DestinoPendente`
- * do compartilhamento: a `MissaoAlarmeActivity` não fala com o backend, ela só
- * anota o que a pessoa apertou e acorda o app; o `app.js` drena isto quando
- * carrega e executa a resposta de verdade (aceitar = responder + aplicar rota).
- *
- * Sem este slot, "Aceitar" na tela do alarme viraria só "abriu o app" e o
- * motorista teria que aceitar DE NOVO no popup — dois aceites pro mesmo sim.
- */
-object MissaoPendente {
-    @Volatile
-    private var json: String? = null
-
-    fun guardar(valor: String) {
-        json = valor
-    }
-
-    fun drenar(): String? {
-        val atual = json
-        json = null
-        return atual
     }
 }
 
@@ -392,9 +344,9 @@ object RecadoPendente {
 class MissaoAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         val id = intent.getStringExtra(MissaoAlarme.EXTRA_ID)?.takeIf(String::isNotBlank) ?: return
-        val titulo = intent.getStringExtra(MissaoAlarme.EXTRA_TITULO)?.takeIf(String::isNotBlank) ?: "Missão agendada"
+        val titulo = intent.getStringExtra(MissaoAlarme.EXTRA_TITULO)?.takeIf(String::isNotBlank) ?: "Recado da central"
         val texto = intent.getStringExtra(MissaoAlarme.EXTRA_TEXTO)?.takeIf(String::isNotBlank)
-            ?: "Rota marcada pelo escritório"
+            ?: "A central enviou uma mensagem"
         val rodada = intent.getIntExtra(MissaoAlarme.EXTRA_RODADA, 0)
         // Primeiro a corrente, depois o barulho: se o processo morrer tocando,
         // a próxima cutucada já está no relógio do sistema.
@@ -408,8 +360,8 @@ class MissaoAlarmReceiver : BroadcastReceiver() {
  * agendado. Este receiver põe tudo de pé de novo.
  *
  * `MY_PACKAGE_REPLACED` não é detalhe: o APK se auto-atualiza do próprio VPS, e
- * sem ele um publish no meio da tarde apagava a missão das 16:00 CALADO — o
- * despertador só voltaria se alguém abrisse o app por acaso.
+ * sem ele um publish no meio da tarde apagava a cutucada do recado ainda não
+ * respondido CALADO — ela só voltaria se alguém abrisse o app por acaso.
  */
 class MissaoBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {

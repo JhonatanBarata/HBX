@@ -33,7 +33,6 @@ test("Hoje, Semana e Endereços permanecem no mesmo cockpit", async ({ page }) =
     { id: 1, nome: "Ana Souza", email: "ana@teste.local" },
   ])));
   await page.route("**/hbx/api/logistica/rota-avisos**", (route) => route.fulfill(json([])));
-  await page.route("**/hbx/api/logistica/rota-indicadas**", (route) => route.fulfill(json([])));
   await page.route("**/hbx/api/logistica/recados-nao-lidos**", (route) => route.fulfill(json({})));
   await page.route("**/hbx/api/logistica/tracking/live**", (route) => route.fulfill(json({ routes: [] })));
   await page.route("**/hbx/api/logistica/base-saude**", (route) => route.fulfill(json({

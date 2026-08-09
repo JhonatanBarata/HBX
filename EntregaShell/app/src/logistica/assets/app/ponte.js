@@ -443,6 +443,22 @@
       timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit',
     }).format(d);
   };
+  /* "Domingo, 9 de agosto" — o subtítulo da lista/agenda. Sai do dia
+     OPERACIONAL (`diaOperacional`, fuso de São Paulo), nunca do relógio do
+     aparelho: das 21h à meia-noite o `new Date()` local e o dia da operação já
+     divergem, e a tela escreveria a data de amanhã em cima da rota de hoje.
+     Montado a partir do AAAA-MM-DD com `Date.UTC` pelo mesmo motivo de sempre —
+     `new Date('2026-08-09')` é meia-noite UTC, que no Brasil ainda é o dia 8. */
+  const dataPorExtenso = (ymd) => {
+    const [a, m, d] = String(ymd || '').split('-').map(Number);
+    if (!a || !m || !d) return '';
+    const x = new Date(Date.UTC(a, m - 1, d));
+    if (!isFinite(x.getTime())) return '';
+    const txt = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long',
+    }).format(x);
+    return txt ? txt.charAt(0).toUpperCase() + txt.slice(1) : '';
+  };
   /** "12/09" — a data curta que se lê num aviso de vencimento. */
   const diaCurto = (iso) => {
     const ymd = diaEmSp(iso);
@@ -571,6 +587,44 @@
     return undefined;
   }
 
+  /* 🔴 "00:00" EM 107 CARTÕES NÃO É HORA, É A DATA (dono, 09/08 — a lista das
+     107 canceladas, todas marcando meia-noite). `scheduledAt` de entrega sem
+     horário combinado é a MEIA-NOITE do dia operacional (medido em produção:
+     as 107 da company 41 têm `2026-08-09 03:00:00Z`, que é 00:00 em São Paulo).
+     Imprimir isso põe um compromisso na tela do motorista que ninguém marcou.
+
+     A hora de verdade tem duas origens e só duas: a `etaAt`, que o planejador
+     calcula quando a rota é MONTADA, e um `scheduledAt` com hora de fato
+     escolhida. Meia-noite vinda do agendamento é "sem hora" — some, e o `.hh`
+     do cartão fica vazio como já fica na Montagem. É a Lei do IF aplicada a um
+     campo que ninguém tinha olhado: zero não é informação, meia-noite também
+     não. */
+  /* 🔴 …E MEIA-NOITE TEM DUAS CONVENÇÕES NESTE BANCO (medido 09/08, company 41).
+     A maioria das entregas do dia 9 tem `2026-08-09T03:00:00Z` — meia-noite de
+     São Paulo, o carimbo certo. Mas 30 delas, criadas pelo `rota-modelo gerar`,
+     têm `2026-08-09T00:00:00Z` — meia-noite UTC —, e o aparelho as imprimia
+     como **21:00**: uma hora de compromisso, com cara de horário combinado, num
+     lote inteiro em que ninguém combinou nada. Cortar só o "00:00" do relógio
+     do aparelho pegaria uma convenção e deixaria a outra passando.
+     Hora combinada de verdade neste produto mora na JANELA do plano
+     (`janelaInicio`/`janelaFim`), campo próprio; o horário de `scheduledAt` é
+     marcador de DIA em qualquer um dos dois carimbos. Então: meia-noite em São
+     Paulo OU meia-noite em UTC = sem hora. */
+  const ehMarcadorDeDia = (iso) => {
+    const d = new Date(iso);
+    if (!isFinite(d.getTime())) return true;
+    if (d.getUTCHours() === 0 && d.getUTCMinutes() === 0) return true;
+    const hm = new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(d);
+    return hm === '00:00' || hm === '24:00';
+  };
+  function horaDaParada(item) {
+    if (item && item.etaAt) return hora(item.etaAt);
+    if (!item || !item.scheduledAt || ehMarcadorDeDia(item.scheduledAt)) return '';
+    return hora(item.scheduledAt);
+  }
+
   /** uma parada do servidor → uma linha do mock */
   function traduzirParada(item, i, anterior) {
     const c = item.cliente || {};
@@ -582,12 +636,19 @@
       // 🔴 O ID É O QUE FAZ A PARADA VIRAR BOTÃO. O `stop()` do mock só põe o
       // gancho quando ele existe — parada de maquete continua inerte.
       id: item.id,
+      /* 🔴 O DESFECHO CRU, PRA LISTA PODER SE SEPARAR (dono, 09/08: "isso é a
+         agenda? separe o q foi agendado"). Sem rota montada a folha agrupa as
+         paradas por status (`listaParadasSeparada`) — e agrupar lendo a PALAVRA
+         da pílula amarraria a separação à copy: trocar "Não entregue" por
+         qualquer outra coisa desmontaria a lista sem um erro sequer. A pílula
+         TRADUZ este campo; ela não é a fonte dele. */
+      st: status,
       // 🔴 O NÚMERO DA TELA É A ORDEM DA VISITA, e gente conta do 1. O servidor
       // grava `rotaOrdem` começando em ZERO — usar o campo cru punha "0, 1, 2"
       // na frente do motorista (visto no g15). A ordem do servidor decide a
       // SEQUÊNCIA; o número que aparece é a posição na fila.
       n: i + 1,
-      hora: hora(item.etaAt || item.scheduledAt),
+      hora: horaDaParada(item),
       cor: corDaParada(status),
       nome: esc(c.nome),
       rua: esc(c.endereco),
@@ -801,6 +862,10 @@
          Esta digital não é desenhada em lugar nenhum: ela existe só pra o
          freio enxergar que a lista é OUTRA. */
       digitalDaLista: `${gestoSujouATela}|${itens.map((it) => `${it.id}:${it.status || ''}`).join('|')}`,
+      /* O subtítulo do nome da tela. Escrito a cada carga da rota (e não uma vez
+         no boot) porque o app do motorista ATRAVESSA a meia-noite ligado — quem
+         vira o dia é a `viradaDoDia`, e ela recarrega por aqui. */
+      dataLonga: dataPorExtenso(dia),
       /* 🔴 ESTE CAMPO É O TOTAL DO DIA, E NÃO SE ESVAZIA (09/08). A barra do
          mapa dizia "52 paradas · 0 entregues" no estado `montar` — a AGENDA
          vestida de rota — e a 1ª cura foi mandar o campo VAZIO daqui. Errado, e
@@ -1304,8 +1369,20 @@
      -------------------------------------------------------------------- */
   let diasComCliente = null;      // Set de 1..7; null = ainda não medi
   let diasEmVoo = false;
+  /* 🔴 A MESMA RESPOSTA JÁ TRAZIA A CONTA, E ELA ERA JOGADA FORA. O `/logistica/
+     agenda` devolve `totalClientesDia` por dia e este loader guardava só o
+     CONJUNTO de dias que têm gente — o suficiente pros chips ("Seg, Qua, Qui"),
+     nada pro que o dono pediu em 09/08 ("os dias q foram agendados e
+     quantidades"). Zero pedido novo ao servidor: o número já estava no pacote.
+
+     🔴 E O FETCH SAIU DO PORTÃO DE ADMIN. Ele estava lá porque o único cliente
+     era o chip da MONTAGEM, que é tela de admin — mas a semana é da tela do
+     motorista também, e "em que dia eu entrego?" não é dado de dono. O
+     endpoint não tem `@Admin` (conferido no controller); quem continua atrás do
+     portão é a PUBLICAÇÃO dos chips (`publicarMontarDias`), que é o que
+     realmente pertence ao admin. */
   async function carregarDiasComCliente() {
-    if (typeof window.API === 'undefined' || !ehAdmin() || diasEmVoo) return;
+    if (typeof window.API === 'undefined' || diasEmVoo) return;
     diasEmVoo = true;
     let r;
     // Fonte no chão fica com o que já sabia — e, se nunca soube, com os 7 dias.
@@ -1317,7 +1394,31 @@
     diasComCliente = new Set(dias
       .filter((d) => Number(d && d.totalClientesDia) > 0)
       .map((d) => Number(d.diaSemana)));
+    publicarSemana(dias);
     publicarMontarDias();
+  }
+
+  /* A SEMANA DA AGENDA na tela da lista: `[[dia, 'Segunda', 53, ehHoje]]`.
+     🔴 OS SETE DIAS ENTRAM, INCLUSIVE OS ZERADOS — ao contrário dos chips, que
+     escondem o dia vazio de propósito (chip é CONVITE: levar pra uma lista sem
+     ninguém é botão morto). Aqui a linha é RESPOSTA, não convite: quem abre a
+     tela num domingo está perguntando "e nos outros dias?", e um domingo que
+     some da semana deixa a pergunta sem resposta. Domingo com 0 é a resposta.
+     Só o dia da semana entra — `totalClientesDia` é a LISTA DE GENTE do dia,
+     estável; `totalParadas` zera sozinho quando o dia já foi gerado e faria a
+     semana inteira piscar pra zero ao longo do turno (é o FIX 27/07 do backend). */
+  const NOME_DIA = ['', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado', 'Domingo'];
+  function publicarSemana(dias) {
+    if (typeof window.usarDados !== 'function') return;
+    const hoje = diaDaSemana();
+    const porDia = new Map(dias.map((d) => [Number(d && d.diaSemana), d]));
+    const semana = [1, 2, 3, 4, 5, 6, 7].map((n) => {
+      const d = porDia.get(n);
+      return [n, NOME_DIA[n], Number((d && d.totalClientesDia) || 0), n === hoje ? 1 : 0];
+    });
+    // Empresa que não agendou NINGUÉM em dia nenhum não ganha um quadro de sete
+    // zeros: aí o bloco todo é ruído, e o vazio da tela já diz o que precisa.
+    window.usarDados('rota', { semana: semana.some((x) => x[2] > 0) ? semana : [] });
   }
 
   /** os chips de dia da tela de MONTAGEM — sem admin, nada entra */

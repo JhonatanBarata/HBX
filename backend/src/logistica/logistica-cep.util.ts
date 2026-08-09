@@ -30,7 +30,14 @@ import { normalizeVia } from '../nucleo/nucleo-geo.util';
 // 27/07 (caso Dona Maria) — a MESMA régua de via do resolver CNEFE, que entende
 // numeral por extenso e token colado ("M22A" ↔ "Rua M 22A" ↔ "M VINTE E DOIS A").
 // Régua velha aqui e nova lá = "CEP e endereço não batem" mentindo na conferência.
-import { viasCompativeisCnefe } from '../nucleo/cnefe-resolver.util';
+import {
+  logradouroDoCadastro,
+  nucleoBairro,
+  separarTipoColado,
+  tokensBairro,
+  viasCompativeisCnefe,
+  TIPO_VIA_EXTENSO,
+} from '../nucleo/cnefe-resolver.util';
 
 const VIACEP_URL = 'https://viacep.com.br/ws';
 const VIACEP_TIMEOUT_MS = 2500;
@@ -223,22 +230,6 @@ export async function consultarCepPublico(cepRaw: string | null | undefined): Pr
  *  Claro devolve 14 CEPs compatíveis, "Rua 9" devolve 37). */
 const VIACEP_BUSCA_MAX = 16;
 
-/**
- * Tipos de via POR EXTENSO. O ViaCEP guarda "Avenida 54 A" e casa por trecho de texto:
- * buscar "Av. 54a" devolve ZERO — e o PONTO da abreviação chega a derrubar a rota da
- * API, que responde HTML no lugar de JSON. Medido em produção 27/07 nos cadastros reais
- * de Rio Claro: com abreviação, 0 de 5 clientes resolviam; por extenso, 13 seguidos.
- */
-const TIPO_VIA_EXTENSO: Record<string, string> = {
-  av: 'avenida', avn: 'avenida', avd: 'avenida', avenida: 'avenida',
-  r: 'rua', rua: 'rua',
-  tv: 'travessa', trav: 'travessa', travessa: 'travessa',
-  rod: 'rodovia', rodovia: 'rodovia',
-  est: 'estrada', estr: 'estrada', estrada: 'estrada',
-  al: 'alameda', alameda: 'alameda',
-  pc: 'praca', pca: 'praca', praca: 'praca',
-};
-
 export interface CepDaRua {
   cep: string;
   logradouro: string;
@@ -248,31 +239,6 @@ export interface CepDaRua {
   /** O bairro deste trecho é o bairro do cadastro? É o desempate que decide QUAL pedaço
    *  de uma rua comprida é o do cliente. */
   bairroBate: boolean;
-}
-
-/** Palavras de TIPO de bairro — não identificam nada sozinhas ("Jardim", "Vila"...).
- *  O cadastro escreve "Jd. Santa Cruz" e o ViaCEP "Jardim Santa Cruz": comparar o texto
- *  inteiro nunca casa; comparar o NÚCLEO ("santa cruz") casa sempre. */
-const TIPO_BAIRRO = new Set([
-  'jardim', 'jd', 'vila', 'vl', 'parque', 'pq', 'conjunto', 'conj', 'habitacional',
-  'residencial', 'res', 'chacara', 'chacaras', 'distrito', 'nucleo', 'bairro', 'setor',
-  'cidade', 'centro', 'do', 'da', 'de', 'dos', 'das', 'e',
-]);
-
-/** Numeral ROMANO do bairro vira dígito: o Correio escreve "Jardim São Caetano II" e o
- *  cadastro "Jd. São Caetano 2" — sem isto o bairro nunca casa (caso Eudis, 27/07). */
-const ROMANO: Record<string, string> = {
-  i: '1', ii: '2', iii: '3', iv: '4', v: '5', vi: '6', vii: '7', viii: '8', ix: '9', x: '10',
-};
-
-/** O núcleo do bairro, sem as palavras de tipo: "Jd. Santa Cruz" → ["santa","cruz"];
- *  "Jardim São Caetano II" → ["sao","caetano","2"]. */
-function nucleoBairro(valor: string | null | undefined): string[] {
-  return normalizar(valor)
-    .replace(/[.,/\\-]/g, ' ')
-    .split(/\s+/)
-    .map((t) => ROMANO[t] ?? t)
-    .filter((t) => (t.length > 1 || /^\d$/.test(t)) && !TIPO_BAIRRO.has(t));
 }
 
 /**
@@ -297,48 +263,12 @@ function semAcento(valor: string | null | undefined): string {
   return normalizar(valor);
 }
 
-/** O trecho começa com tipo de via ("Rua ...", "Av. ...")? É o que separa logradouro
- *  de bairro num campo de texto livre. */
-function pareceVia(trecho: string): boolean {
-  const primeiro = semAcento(trecho).replace(/[.]/g, '').split(/\s+/)[0] ?? '';
-  if (primeiro in TIPO_VIA_EXTENSO) return true;
-  const letraDigito = /^([a-z]+?)(\d{1,4})([a-z]?)$/.exec(primeiro);
-  return !!letraDigito && (letraDigito[1] in TIPO_VIA_EXTENSO || separarTipoColado(letraDigito[1]) !== null);
-}
-
-/**
- * Tipo de via GRUDADO no nome, seguido de número: "Avm19" = Av. M-19, "Ruam20a" =
- * Rua M-20A — o cadastro é digitado correndo, sem espaço. Só separa quando o token já
- * vem colado a um NÚMERO (o chamador garante isso), que é o que confina a regra a este
- * caso e impede o estrago óbvio: "Rua Rui Barbosa" não pode virar "rua r ui barbosa".
- * Prefixo de 2+ letras, sobra de 1-2 letras.
- */
-function separarTipoColado(token: string): string[] | null {
-  if (token in TIPO_VIA_EXTENSO) return null;
-  for (const tipo of ['travessa', 'avenida', 'alameda', 'estrada', 'rodovia', 'praca', 'trav', 'estr', 'rua', 'av', 'rod', 'est', 'pca', 'avn', 'avd', 'pc', 'tv', 'al']) {
-    if (!token.startsWith(tipo)) continue;
-    const resto = token.slice(tipo.length);
-    if (resto.length >= 1 && resto.length <= 2 && /^[a-z]+$/.test(resto)) return [tipo, resto];
-  }
-  return null;
-}
-
-/**
- * Só o LOGRADOURO, de um campo de texto livre. Pega o trecho que COMEÇA COM TIPO DE VIA,
- * não o primeiro — na base real metade dos endereços começa pelo BAIRRO ("Jd. Ipanema,
- * Rua M22, nº 601" tinha que dar "Rua M22", e dava "Jd. Ipanema", que não é rua nenhuma
- * e nunca ia achar CEP). Sem nenhum trecho com cara de via, devolve o primeiro (honesto:
- * é o que o cadastro tem) e a busca simplesmente não acha.
- */
-export function logradouroDoCadastro(endereco: string | null | undefined): string {
-  const bruto = String(endereco ?? '').trim();
-  if (!bruto) return '';
-  const trechos = bruto
-    .split(/\s*[,;]\s*|\s+[-—–]\s+|\s+n[ºo°]\s*|\s+n[uú]mero\s+/i)
-    .map((t) => String(t ?? '').replace(/\s+/g, ' ').trim())
-    .filter(Boolean);
-  return trechos.find(pareceVia) ?? trechos[0] ?? '';
-}
+/* `pareceVia`, `separarTipoColado`, `TIPO_VIA_EXTENSO` e `logradouroDoCadastro`
+   MUDARAM DE CASA em 09/08 (`nucleo/cnefe-resolver.util.ts`): a porta direta — a cura
+   que acha o pino por município+rua+número, sem CEP — precisa da MESMA régua de "o que
+   é a rua deste texto". Régua duplicada é como as duas curas passariam a discordar
+   sobre o mesmo cadastro. Re-exportado daqui pra ninguém ter que trocar de import. */
+export { logradouroDoCadastro };
 
 /**
  * O termo que o ViaCEP entende, a partir da via do cadastro: pontuação vira espaço
@@ -448,11 +378,7 @@ export async function descobrirCepsPorEndereco(cadastro: EnderecoCadastrado): Pr
   // Os DOIS lados passam pela mesma régua (romano → dígito, pontuação → espaço): o
   // Correio escreve "São Caetano II" e o cadastro "São Caetano 2" — comparar cru nunca
   // casa, e foi assim que o Eudis ganhou o CEP do Centro (auditoria do dono, 27/07).
-  const textoCadastro = ` ${normalizar(`${cadastro.bairro ?? ''} ${cadastro.endereco ?? ''}`)
-    .replace(/[.,/\\-]/g, ' ')
-    .split(/\s+/)
-    .map((t) => ROMANO[t] ?? t)
-    .join(' ')} `;
+  const textoCadastro = ` ${tokensBairro(`${cadastro.bairro ?? ''} ${cadastro.endereco ?? ''}`).join(' ')} `;
   for (const c of saida) {
     const nucleo = nucleoBairro(c.bairro);
     c.bairroBate = nucleo.length > 0 && nucleo.every((t) => textoCadastro.includes(` ${t} `));

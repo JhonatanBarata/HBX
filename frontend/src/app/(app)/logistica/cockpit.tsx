@@ -42,13 +42,10 @@ import {
   atribuirLote,
   cancelarEntrega,
   ehParadaAberta,
-  fraseDaMissao,
   fraseDoAviso,
-  getMissoes,
   getRecadosNaoLidos,
   type Entregador,
   type LinhaDoFeed,
-  type MissaoIndicada,
   type Parada,
   type RotaAviso,
 } from "./cockpit-api";
@@ -122,7 +119,6 @@ export function Cockpit({
   // motorista com rota já nasce aberto. `null` = o operador fechou o painel.
   const [selecionado, setSelecionado] = useState<number | null | undefined>(undefined);
   const [avisos, setAvisos] = useState<RotaAviso[]>([]);
-  const [missoes, setMissoes] = useState<MissaoIndicada[]>([]);
   const [naoLidos, setNaoLidos] = useState<Record<string, number>>({});
   const [sinoAberto, setSinoAberto] = useState(false);
   const [live, setLive] = useState<TrackingLiveResponse | null>(null);
@@ -140,9 +136,6 @@ export function Cockpit({
       apiFetch<RotaAviso[]>("/logistica/rota-avisos")
         .then((linhas) => { if (vivo) setAvisos(Array.isArray(linhas) ? linhas : []); })
         .catch(() => { /* acessório: rede fora não derruba a tela */ });
-      getMissoes()
-        .then((linhas) => { if (vivo) setMissoes(Array.isArray(linhas) ? linhas : []); })
-        .catch(() => { /* idem */ });
     };
     carregar();
     const timer = setInterval(carregar, TICK_AVISOS_MS);
@@ -209,8 +202,8 @@ export function Cockpit({
 
   /**
    * O FEED — uma lista só, ordenada por gravidade. Os três banners empilhados
-   * e o painel "Missões enviadas" viravam quatro caixas competindo pelo mesmo
-   * olhar; aqui é uma pergunta ("o que precisa de mim?") com uma resposta.
+   * viravam caixas competindo pelo mesmo olhar; aqui é uma pergunta ("o que
+   * precisa de mim?") com uma resposta.
    */
   const feed = useMemo<LinhaDoFeed[]>(() => {
     const doVigia: LinhaDoFeed[] = avisos.map((aviso) => {
@@ -223,12 +216,9 @@ export function Cockpit({
         dispensavelId: aviso.id,
       };
     });
-    const dasMissoes = missoes
-      .map(fraseDaMissao)
-      .filter((linha): linha is LinhaDoFeed => linha !== null);
-    // Grave primeiro: quem sumiu do mapa não pode ficar abaixo de "aceitou a rota".
-    return [...doVigia, ...dasMissoes].sort((a, b) => Number(b.grave) - Number(a.grave));
-  }, [avisos, missoes]);
+    // Grave primeiro: quem sumiu do mapa não pode ficar abaixo de um atraso.
+    return [...doVigia].sort((a, b) => Number(b.grave) - Number(a.grave));
+  }, [avisos]);
 
   const selecionadoEfetivo = selecionado === undefined
     ? (drivers.find((driver) => stops.some((stop) => Number(stop.entregador?.id) === driver.id))

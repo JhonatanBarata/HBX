@@ -117,9 +117,8 @@ export class LogisticaRotaAvisoService implements OnModuleInit, OnModuleDestroy 
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         select: { startedAt: true },
       });
-      // Não saiu pra rua = não abandonou nada. Desfazer montagem antes de sair
-      // é o fluxo normal de quem não aceitou (e esse já tem o aviso de rota
-      // indicada devolvida).
+      // Não saiu pra rua = não abandonou nada. Desfazer a montagem antes de sair
+      // é o fluxo normal de quem não aceitou o roteiro, não um abandono.
       if (!rota?.startedAt) return null;
 
       const contagem = await this.contarDia(companyId, entregadorId, routeDate);

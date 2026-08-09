@@ -2,15 +2,20 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  __resetCnefePortaCacheForTests,
   __setCnefeQueryForTests,
+  canonVia,
   escolherPinoCep,
   escolherPinoPorta,
   escolherPinoRua,
+  escolherPortaDireta,
   extrairNumeroPorta,
   normalizarViaNumeral,
   resolverCnefe,
   resolverCnefeCep,
   resolverCnefeLote,
+  resolverCnefePorta,
+  type CnefePortaRow,
   type CnefeRow,
 } from './cnefe-resolver.util';
 
@@ -303,5 +308,186 @@ test('resolverCnefe: banco quebrado NUNCA lança (best-effort → null)', async 
     assert.equal(await resolverCnefe({ cep: '13500000', numero: 752, uf: 'SP' }), null);
   } finally {
     __setCnefeQueryForTests(null);
+  }
+});
+
+// ── A PORTA DIRETA: município + rua + número, sem CEP (09/08) ──────────────────────
+// Os casos abaixo são os mesmos que a company 41 tinha na rua: cadastro com endereço
+// completo e SEM CEP, rua numerada, bairro com nome popular diferente do oficial. A
+// Lei nº1 continua mandando — a prova é a PORTA no Censo, não o palpite de faixa.
+
+function porta(partial: Partial<CnefePortaRow>): CnefePortaRow {
+  return { loc_norm: 'jardim boa vista', numero: 157, lat: -22.37854, lng: -47.590847, cep: '13504689', spread_m: 0, cnefe_nivel: 1, ...partial };
+}
+
+test('canonVia: a chave da consulta é a MESMA dos dois lados (cadastro e banco)', () => {
+  assert.equal(canonVia('Av. 96'), 'av 96');
+  assert.equal(canonVia('AVENIDA NOVENTA E SEIS'), 'av 96');
+  assert.equal(canonVia('Av. M55'), 'av m 55');
+  assert.equal(canonVia('AVENIDA M CINQUENTA E CINCO'), 'av m 55');
+  assert.equal(canonVia('Rua 3a'), 'rua 3 a');
+  assert.equal(canonVia('RUA TRES A'), 'rua 3 a');
+  assert.equal(canonVia('Rua 08'), 'rua 8');
+  assert.equal(canonVia('Rua João Polastri'), 'rua joao polastri');
+});
+
+test('porta direta: número exato com o bairro do cadastro batendo → pino de PORTA', () => {
+  const pino = escolherPortaDireta(
+    [porta({}), porta({ loc_norm: 'recanto verde 1', lat: -22.9, lng: -47.9 })],
+    { numero: 157, bairro: 'Jd. Boa Vista' },
+  );
+  assert.ok(pino);
+  assert.equal(pino!.precisao, 'porta');
+  assert.equal(pino!.lat, -22.37854);
+});
+
+test('porta direta: bairro do cadastro NÃO precisa existir — a porta agrupada decide', () => {
+  const pino = escolherPortaDireta([porta({ loc_norm: 'recanto verde 1' })], { numero: 157, bairro: null });
+  assert.ok(pino);
+  assert.equal(pino!.precisao, 'porta');
+});
+
+test('porta direta: MESMO número em pedaços distantes da rua → null (ambiguidade real)', () => {
+  const pino = escolherPortaDireta(
+    [porta({ loc_norm: 'jardim araucaria' }), porta({ loc_norm: 'centro', lat: -22.34, lng: -47.62 })],
+    { numero: 157, bairro: 'Nenhum Lugar' },
+  );
+  assert.equal(pino, null);
+});
+
+test('porta direta: porta cujo próprio espalhamento estoura o teto não é porta', () => {
+  const pino = escolherPortaDireta([porta({ spread_m: 4105 })], { numero: 157, bairro: 'Jd. Boa Vista' });
+  assert.equal(pino, null);
+});
+
+test('vizinho de número: com bairro provado vale até 200; sem bairro só a MESMA QUADRA', () => {
+  const vizinhoDoBairro = escolherPortaDireta(
+    [porta({ numero: 250, loc_norm: 'jardim boa vista' })],
+    { numero: 157, bairro: 'Jd. Boa Vista' },
+  );
+  assert.ok(vizinhoDoBairro);
+  assert.equal(vizinhoDoBairro!.precisao, 'rua');
+
+  // mesmo vizinho, bairro que não bate: 93 de diferença é outro pedaço da rua.
+  assert.equal(
+    escolherPortaDireta([porta({ numero: 250, loc_norm: 'centro' })], { numero: 157, bairro: 'Jd. Boa Vista' }),
+    null,
+  );
+  // dentro da quadra (Δ ≤ 40) o vizinho vale mesmo sem bairro provado.
+  const mesmaQuadra = escolherPortaDireta([porta({ numero: 158, loc_norm: 'centro' })], { numero: 157, bairro: 'Jd. Boa Vista' });
+  assert.ok(mesmaQuadra);
+  assert.equal(mesmaQuadra!.precisao, 'rua');
+});
+
+test('resolverCnefePorta: consulta por (municipio, via, numero) e devolve o CEP da PORTA', async () => {
+  const vistas: string[] = [];
+  __resetCnefePortaCacheForTests();
+  __setCnefeQueryForTests(async (sql, params) => {
+    vistas.push(sql);
+    if (sql.includes('FROM cnefe_uf')) return [{ status: 'carregada' }];
+    if (sql.includes('to_regclass')) return [{ porta: 'cnefe_porta', mapa: 'cnefe_mun_map' }];
+    if (sql.includes('FROM cnefe_mun_map')) {
+      assert.deepEqual(params, ['SP', 'rio claro']);
+      return [{ cod_municipio: '3543907' }];
+    }
+    if (sql.includes('FROM cnefe_porta')) {
+      assert.deepEqual(params, ['3543907', 'av 96', 157]);
+      return [porta({})];
+    }
+    return [];
+  });
+  try {
+    const achado = await resolverCnefePorta({
+      endereco: 'Jd. Boa Vista, Av. 96, nº 157', numero: '157', bairro: 'Jd. Boa Vista', cidade: 'Rio Claro', uf: 'SP',
+    });
+    assert.ok(achado);
+    assert.equal(achado!.pino.precisao, 'porta');
+    assert.equal(achado!.cep, '13504689');
+    assert.ok(vistas.some((s) => s.includes('via_canon IN ($2)')));
+  } finally {
+    __setCnefeQueryForTests(null);
+    __resetCnefePortaCacheForTests();
+  }
+});
+
+test('resolverCnefePorta: token colado pergunta as DUAS grafias ("Rua M55" e "Rua M 55")', async () => {
+  let paramsVistos: unknown[] = [];
+  __resetCnefePortaCacheForTests();
+  __setCnefeQueryForTests(async (sql, params) => {
+    if (sql.includes('FROM cnefe_uf')) return [{ status: 'carregada' }];
+    if (sql.includes('to_regclass')) return [{ porta: 'cnefe_porta', mapa: 'cnefe_mun_map' }];
+    if (sql.includes('FROM cnefe_mun_map')) return [{ cod_municipio: '3543907' }];
+    if (sql.includes('FROM cnefe_porta')) {
+      paramsVistos = params;
+      assert.ok(sql.includes('via_canon IN ($2,$3)'));
+      return [];
+    }
+    return [];
+  });
+  try {
+    const achado = await resolverCnefePorta({
+      endereco: 'Jd. Ipanema, Rua M55, nº 2126', numero: '2126', bairro: 'Jd. Ipanema', cidade: 'Rio Claro', uf: 'SP',
+    });
+    assert.equal(achado, null);
+    // separada (casa o extenso do IBGE) E colada (casa o que o banco gravou colado)
+    assert.deepEqual(paramsVistos, ['3543907', 'rua m 55', 'rua m55', 2126]);
+  } finally {
+    __setCnefeQueryForTests(null);
+    __resetCnefePortaCacheForTests();
+  }
+});
+
+test('resolverCnefePorta: vizinho NUNCA carimba CEP no cadastro (faixa é do vizinho, não da casa)', async () => {
+  __resetCnefePortaCacheForTests();
+  __setCnefeQueryForTests(async (sql) => {
+    if (sql.includes('FROM cnefe_uf')) return [{ status: 'carregada' }];
+    if (sql.includes('to_regclass')) return [{ porta: 'cnefe_porta', mapa: 'cnefe_mun_map' }];
+    if (sql.includes('FROM cnefe_mun_map')) return [{ cod_municipio: '3543907' }];
+    if (sql.includes('FROM cnefe_porta')) return [porta({ numero: 160 })];
+    return [];
+  });
+  try {
+    const achado = await resolverCnefePorta({
+      endereco: 'Jd. Boa Vista, Av. 96, nº 157', numero: '157', bairro: 'Jd. Boa Vista', cidade: 'Rio Claro', uf: 'SP',
+    });
+    assert.ok(achado);
+    assert.equal(achado!.pino.precisao, 'rua');
+    assert.equal(achado!.cep, null);
+  } finally {
+    __setCnefeQueryForTests(null);
+    __resetCnefePortaCacheForTests();
+  }
+});
+
+test('resolverCnefePorta: banco sem os agregados → null, e SEM derrubar a cura por CEP', async () => {
+  __resetCnefePortaCacheForTests();
+  __setCnefeQueryForTests(async (sql) => {
+    if (sql.includes('FROM cnefe_uf')) return [{ status: 'carregada' }];
+    if (sql.includes('to_regclass')) return [{ porta: null, mapa: null }];
+    throw new Error('não devia consultar agregado que não existe');
+  });
+  try {
+    const achado = await resolverCnefePorta({
+      endereco: 'Av. 96, nº 157', numero: '157', cidade: 'Rio Claro', uf: 'SP',
+    });
+    assert.equal(achado, null);
+  } finally {
+    __setCnefeQueryForTests(null);
+    __resetCnefePortaCacheForTests();
+  }
+});
+
+test('resolverCnefePorta: sem cidade/UF/rua/número não consulta nada', async () => {
+  let consultou = false;
+  __resetCnefePortaCacheForTests();
+  __setCnefeQueryForTests(async () => { consultou = true; return []; });
+  try {
+    assert.equal(await resolverCnefePorta({ endereco: 'Av. 96', numero: null, cidade: 'Rio Claro', uf: 'SP' }), null);
+    assert.equal(await resolverCnefePorta({ endereco: 'Av. 96', numero: 157, cidade: '', uf: 'SP' }), null);
+    assert.equal(await resolverCnefePorta({ endereco: '', numero: 157, cidade: 'Rio Claro', uf: 'SP' }), null);
+    assert.equal(consultou, false);
+  } finally {
+    __setCnefeQueryForTests(null);
+    __resetCnefePortaCacheForTests();
   }
 });

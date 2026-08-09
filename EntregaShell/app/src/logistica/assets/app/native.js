@@ -421,17 +421,14 @@
     passeioAlarmeCancelar() { try { bridge && bridge.passeioAlarmeCancelar && bridge.passeioAlarmeCancelar(); } catch (_) {} },
     // AGENDADOR DE MISSÃO (02/08) — despertador da rota marcada pelo escritório.
     // Mesmo motivo do passeio pra ser nativo: o alarme tem que tocar com o app
-    // FECHADO e a tela apagada. Rearmar a mesma missão é idempotente.
+    // FECHADO e a tela apagada. O nome é herança da rota indicada (morta na F4
+    // de 09/08) — hoje o ÚNICO id aceito é `recado_<id>`, e o nativo recusa
+    // qualquer outro. Quem responde é o par recadoResposta* abaixo.
     missaoAlarme(id, atMillis, titulo, texto) {
       try { return !!(bridge && bridge.missaoAlarme && bridge.missaoAlarme(String(id || ""), String(Math.round(Number(atMillis) || 0)), String(titulo || ""), String(texto || ""))); }
       catch (_) { return false; }
     },
     missaoAlarmeCancelar(id) { try { bridge && bridge.missaoAlarmeCancelar && bridge.missaoAlarmeCancelar(String(id || "")); } catch (_) {} },
-    // O que a pessoa apertou na tela do despertador; "" quando não há nada.
-    missaoRespostaPendente() {
-      try { return (bridge && bridge.missaoRespostaPendente && bridge.missaoRespostaPendente()) || ""; }
-      catch (_) { return ""; }
-    },
     recadoRespostaPendente() {
       try { return (bridge && bridge.recadoRespostaPendente && bridge.recadoRespostaPendente()) || ""; }
       catch (_) { return ""; }

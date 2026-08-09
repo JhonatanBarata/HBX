@@ -37,7 +37,13 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * AGENDADOR DE MISSÃO (02/08) — a tela do despertador.
+ * A TELA DO DESPERTADOR — o recado de nível `alarme` da Central.
+ *
+ * 🔴 O NOME É HERANÇA: nasceu como tela da missão agendada (Rota Indicada), que
+ * morreu na F4 de 09/08. Sobrou UM dono — o recado — e a tela ficou com UMA
+ * cara só: RESPONDER / Entendi. A segunda cara (ACEITAR / Adiar / "Não vou
+ * conseguir") saiu junto com a feature: alarme que oferece uma escolha que não
+ * existe mais é pior que alarme nenhum.
  *
  * Irmã da `ChegadaActivity` (mesma receita de tela-por-cima-de-tudo, som em
  * loop e layout programático), com três diferenças que vêm do pedido do dono
@@ -49,16 +55,16 @@ import java.util.Locale
  *    do `MissaoAlarme` traz tudo de volta em 2 minutos.
  * 2. **Volume que cresce.** Começa em 35% e sobe até o talo em ~20s. Despertador
  *    que já nasce no máximo assusta; despertador que cresce, acorda.
- * 3. **Fala o que é.** TTS diz a missão em voz alta — o motorista de bolso
+ * 3. **Fala o que é.** TTS lê o recado em voz alta — o motorista de bolso
  *    entende sem tirar o celular. Best-effort: aparelho sem voz pt-BR só não fala.
  *
  * O **Voltar do Android está desligado** aqui de propósito (Lei 10 do
  * [[hbxapk]] fala em popup que fecha no Voltar; despertador é a exceção
  * declarada — sair sem responder por gesto de reflexo é exatamente o que faz o
- * motorista perder a missão).
+ * motorista perder o recado).
  *
- * Esta tela NÃO fala com o backend. Ela anota a resposta no `MissaoPendente` e
- * acorda o app; quem responde de verdade é o `app.js` (fluxo da rota indicada).
+ * Esta tela NÃO fala com o backend. Ela anota a resposta no `RecadoPendente` e
+ * acorda o app; quem responde de verdade é a ponte (`ponte.js`).
  */
 class MissaoAlarmeActivity : AppCompatActivity() {
 
@@ -69,7 +75,6 @@ class MissaoAlarmeActivity : AppCompatActivity() {
         private const val RAMPA_INCREMENTO = 0.03f
         /** Piso do volume de alarme do sistema: alarme mudo não é alarme. */
         private const val PISO_VOLUME_SISTEMA = 0.7f
-        private const val ADIAR_MINUTOS = 5
     }
 
     private var mediaPlayer: MediaPlayer? = null
@@ -89,14 +94,12 @@ class MissaoAlarmeActivity : AppCompatActivity() {
     }
 
     private val missaoId: String by lazy { intent.getStringExtra(MissaoAlarme.EXTRA_ID).orEmpty() }
-    private val ehRecado: Boolean by lazy { ehAlarmeDeRecado(missaoId) }
     private val titulo: String by lazy {
-        intent.getStringExtra(MissaoAlarme.EXTRA_TITULO)?.takeIf(String::isNotBlank)
-            ?: if (ehRecado) "Recado da central" else "Missão agendada"
+        intent.getStringExtra(MissaoAlarme.EXTRA_TITULO)?.takeIf(String::isNotBlank) ?: "Recado da central"
     }
     private val texto: String by lazy {
         intent.getStringExtra(MissaoAlarme.EXTRA_TEXTO)?.takeIf(String::isNotBlank)
-            ?: if (ehRecado) "A central enviou uma mensagem" else "Rota marcada pelo escritório"
+            ?: "A central enviou uma mensagem"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -186,7 +189,7 @@ class MissaoAlarmeActivity : AppCompatActivity() {
         // Lei 8 do [[hbxapk]]: DADO em linha, nunca parágrafo. A tela toda é
         // hora + nome + tamanho da rota — o motorista decide sem ler texto.
         val etiqueta = TextView(this).apply {
-            text = if (ehRecado) "RECADO DA CENTRAL" else "MISSÃO AGENDADA"
+            text = "RECADO DA CENTRAL"
             setTextColor(corAcento)
             gravity = Gravity.CENTER
             letterSpacing = 0.18f
@@ -221,7 +224,7 @@ class MissaoAlarmeActivity : AppCompatActivity() {
         }
 
         val botaoPrincipal = Button(this).apply {
-            text = if (ehRecado) "RESPONDER" else "ACEITAR"
+            text = "RESPONDER"
             setTextColor(Color.WHITE)
             setTypeface(typeface, Typeface.BOLD)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 24f)
@@ -235,34 +238,18 @@ class MissaoAlarmeActivity : AppCompatActivity() {
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 dpParaPx(84),
             ).apply { topMargin = dpParaPx(40) }
-            setOnClickListener { responder(if (ehRecado) "responder" else "aceitar") }
-        }
-
-        val botaoAdiar = Button(this).apply {
-            text = "Adiar $ADIAR_MINUTOS min"
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 18f)
-            isAllCaps = false
-            background = GradientDrawable().apply {
-                cornerRadius = dpParaPx(18).toFloat()
-                setColor(Color.parseColor("#26313A"))
-            }
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dpParaPx(60),
-            ).apply { topMargin = dpParaPx(14) }
-            setOnClickListener { adiar() }
+            setOnClickListener { responder("responder") }
         }
 
         val botaoSecundario = TextView(this).apply {
-            text = if (ehRecado) "Entendi" else "Não vou conseguir"
+            text = "Entendi"
             setTextColor(corSecundaria)
             gravity = Gravity.CENTER
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
             setPadding(dpParaPx(24), dpParaPx(26), dpParaPx(24), dpParaPx(10))
             isClickable = true
             isFocusable = true
-            setOnClickListener { responder(if (ehRecado) "entendi" else "negar") }
+            setOnClickListener { responder("entendi") }
         }
 
         coluna.addView(etiqueta)
@@ -270,7 +257,6 @@ class MissaoAlarmeActivity : AppCompatActivity() {
         coluna.addView(txtTitulo)
         coluna.addView(txtDetalhe)
         coluna.addView(botaoPrincipal)
-        if (!ehRecado) coluna.addView(botaoAdiar)
         root.addView(coluna)
         root.addView(
             botaoSecundario,
@@ -304,9 +290,9 @@ class MissaoAlarmeActivity : AppCompatActivity() {
     // ── respostas ─────────────────────────────────────────────────────────
 
     /**
-     * Anota a resposta no slot e acorda o app. Quem chama o backend é o
-     * `app.js` — aqui não há sessão, token nem tenant, e inventar isso na
-     * Activity seria uma segunda porta pro mesmo fluxo.
+     * Anota a resposta no slot e acorda o app. Quem chama o backend é a ponte —
+     * aqui não há sessão, token nem tenant, e inventar isso na Activity seria
+     * uma segunda porta pro mesmo fluxo.
      */
     private fun responder(acao: String) {
         if (respondido) return
@@ -320,8 +306,7 @@ class MissaoAlarmeActivity : AppCompatActivity() {
                 .put("titulo", titulo)
                 .put("texto", texto)
                 .toString()
-            if (ehRecado) RecadoPendente.guardar(this, resposta)
-            else MissaoPendente.guardar(resposta)
+            RecadoPendente.guardar(this, resposta)
         }
         abrirAppDerrubandoOCadeado()
     }
@@ -372,7 +357,7 @@ class MissaoAlarmeActivity : AppCompatActivity() {
         runCatching {
             startActivity(
                 Intent(this, MainActivity::class.java)
-                    .putExtra(HbxMobileBridge.EXTRA_OPEN_RECADOS, ehRecado)
+                    .putExtra(HbxMobileBridge.EXTRA_OPEN_RECADOS, true)
                     .addFlags(
                         Intent.FLAG_ACTIVITY_NEW_TASK or
                             Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
@@ -380,17 +365,6 @@ class MissaoAlarmeActivity : AppCompatActivity() {
                     ),
             )
         }
-        finish()
-    }
-
-    private fun adiar() {
-        if (respondido) return
-        respondido = true
-        // Adiar mata a corrente atual e arma UMA volta nova — senão a cutucada
-        // de 2 min continuaria correndo por baixo do adiamento de 5.
-        MissaoAlarme.cancelar(this, missaoId)
-        MissaoAlarme.adiar(this, missaoId, titulo, texto, ADIAR_MINUTOS)
-        pararSomEVibracao()
         finish()
     }
 
@@ -475,9 +449,7 @@ class MissaoAlarmeActivity : AppCompatActivity() {
                             .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
                             .build(),
                     )
-                    val chamada = if (ehRecado) "Recado da central" else "Missão agendada"
-                    val fala = if (ehRecado) "$chamada. $texto" else "$chamada. $titulo. $texto"
-                    tts?.speak(fala, TextToSpeech.QUEUE_ADD, null, "missao")
+                    tts?.speak("Recado da central. $texto", TextToSpeech.QUEUE_ADD, null, "recado")
                 }
             }
             tts = motor

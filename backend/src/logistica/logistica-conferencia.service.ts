@@ -15,7 +15,14 @@ import {
   type CepVeredito,
   type EnderecoCadastrado,
 } from './logistica-cep.util';
-import { aquecerCnefe, extrairNumeroPorta, resolverCnefe, resolverCnefeLote, type CnefePino } from '../nucleo/cnefe-resolver.util';
+import {
+  aquecerCnefe,
+  extrairNumeroPorta,
+  resolverCnefe,
+  resolverCnefeLote,
+  resolverCnefePorta,
+  type CnefePino,
+} from '../nucleo/cnefe-resolver.util';
 import {
   haversineKm,
   planRouteByRoads,
@@ -908,6 +915,21 @@ export async function resolverCuraCnefe(
   opts?: { queryTimeoutMs?: number },
 ): Promise<CuraCnefeResultado | null> {
   const base = { numero: alvo.numero, endereco: alvo.endereco, uf: alvo.uf };
+  /* 🔴 A PORTA DIRETA VEM PRIMEIRO (09/08) — município + rua + número, dentro do
+     próprio Censo, sem CEP e sem uma única chamada de rede. Antes de existir, o
+     cadastro SEM CEP dependia de três apostas em série no ViaCEP (achar a rua, casar
+     o nome do trecho com o bairro que o cliente usa, e a faixa de numeração do
+     Correio bater com a do Censo) — medido na company 41: 18 dos 91 clientes sem
+     pino curavam. Por aqui, 56. Vem antes de QUEM TEM CEP também: é a mesma prova
+     (a porta no Censo) por um caminho mais curto e sem ambiguidade de faixa.
+     Ver `resolverCnefePorta` pro porquê disto não afrouxar a Lei nº1. */
+  const direta = await resolverCnefePorta(
+    { ...base, bairro: alvo.bairro, cidade: alvo.cidade },
+    opts,
+  );
+  // `cepDescoberto` só quando a prova foi a PORTA (o resolver já devolve null no
+  // vizinho) e o cadastro está sem CEP: nunca trocar o CEP que o dono digitou.
+  if (direta) return { pino: direta.pino, cepDescoberto: alvo.cep ? null : direta.cep };
   if (alvo.cep) {
     const pino = await resolverCnefe({ ...base, cep: alvo.cep }, opts);
     return pino ? { pino, cepDescoberto: null } : null;
@@ -964,9 +986,27 @@ export function problemaDoCadastro(r: ParadaConferenciaRow): string {
 function jaSanitizado(cad: { sanitizadoEm?: Date | null; updatedAt?: Date | null } | null | undefined): boolean {
   const carimbo = cad?.sanitizadoEm ? new Date(cad.sanitizadoEm).getTime() : 0;
   if (!carimbo) return false;
+  // Carimbo de uma RÉGUA que não existe mais não recusa ninguém — ver CURA_REGUA_DESDE.
+  if (carimbo < CURA_REGUA_DESDE) return false;
   const mudou = cad?.updatedAt ? new Date(cad.updatedAt).getTime() : 0;
   return mudou <= carimbo;
 }
+
+/**
+ * 🔴 QUANDO A RÉGUA DA CURA MUDOU PELA ÚLTIMA VEZ (09/08 — a porta direta).
+ *
+ * O carimbo `sanitizadoEm` existe pra cura CONVERGIR ("não sanitizar 2x"): quem já foi
+ * tentado e não teve o cadastro tocado fica de fora. Só que ele guarda uma resposta
+ * *daquela* régua — e o dia em que a régua melhora, o carimbo vira PAREDE: os 39
+ * clientes da company 41 já carimbados em 05/08 nunca seriam reavaliados pela porta
+ * direta, e o conserto não chegaria em ninguém que já estava na base. Régua nova ⇒
+ * uma tentativa nova, uma vez, pra toda a base — e a partir daí o carimbo volta a
+ * segurar como sempre.
+ *
+ * MEXER AQUI SÓ AO MUDAR A REGRA DE VERDADE: cada data nova custa uma passada de cura
+ * na base inteira de todos os tenants.
+ */
+const CURA_REGUA_DESDE = Date.parse('2026-08-09T00:00:00Z');
 
 /** Aplica o pino curado na linha EM MEMÓRIA (a fonte inteira, nunca campo solto) —
  *  esta mesma conferência já roda com o pino novo, sem re-consultar o banco. */

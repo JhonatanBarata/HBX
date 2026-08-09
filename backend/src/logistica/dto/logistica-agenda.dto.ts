@@ -272,12 +272,6 @@ export class ExecutarAgendaDiaAcaoDto {
   entregasAbertas!: 'MANTER' | 'MOVER' | 'CANCELAR';
 }
 
-export class AplicarLegadoAgendaDto {
-  @IsString()
-  @MaxLength(100)
-  idempotencyKey!: string;
-}
-
 // S2 — Importar sequência pronta. GETs read-only: sem @Body, sem validação de
 // class-validator; os tipos aqui só documentam a resposta do service.
 export interface AgendaSequenciaResumoDto {

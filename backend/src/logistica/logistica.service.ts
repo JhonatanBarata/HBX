@@ -34,7 +34,7 @@ import { resolverCoordenadaMultilocal, GPS_ACCURACY_LIMITE_METROS } from './logi
 // no DESFECHO (aqui), nunca na geração. Ver avancarPlanoNoDesfecho abaixo.
 import { sourceDateFromOccurrenceKey, saoPauloMidnight } from './logistica-agenda-cursor.util';
 import { nextOccurrenceDate } from './logistica-agenda.service';
-import { saoPauloDateKey } from './logistica-occurrence.service';
+import { saoPauloDateKey } from './logistica-dia.util';
 import { registrarEventoAgenda, formatDDMM } from './logistica-agenda-evento.util';
 // F3 (27/07) — {eta} no aviso de chegada (minutos até chegar, do etaAt).
 import { formatEtaMinutos } from './logistica-tracking-public.util';

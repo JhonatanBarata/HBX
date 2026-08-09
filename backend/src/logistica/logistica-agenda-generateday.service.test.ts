@@ -57,9 +57,8 @@ function buildHarness(planos: any[], entregasSeed: any[] = []) {
   let seq = entregasSeed.length;
 
   const prisma: any = {
-    logisticaConfig: {
-      findUnique: async () => ({ agendaV2Ativa: true }),
-    },
+    // F1 (09/08) — `generateDay` não consulta mais `LogisticaConfig`: não existe
+    // flag pra perguntar. A agenda é O gerador, sem porteiro.
     logisticaPlanoEntrega: {
       findMany: async ({ where }: any) => planos.filter((p) => p.companyId === where.companyId && p.diaSemana === where.diaSemana && p.ativo === true),
       // DE PROPÓSITO sem updateMany — ver comentário do arquivo (tripwire).

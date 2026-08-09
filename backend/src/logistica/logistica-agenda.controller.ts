@@ -16,7 +16,6 @@ import { RolesGuard } from '../auth/roles.guard';
 import { ModuleAccessGuard } from '../modules/module-access.guard';
 import { ModuleAccess } from '../modules/module-feature.decorator';
 import {
-  AplicarLegadoAgendaDto,
   CreateAgendaPlanoDto,
   ExecutarAgendaDiaAcaoDto,
   ReordenarAgendaDiaDto,
@@ -97,23 +96,14 @@ export class LogisticaAgendaController {
     return this.agenda.getCatalogs(this.companyId(req));
   }
 
-  @Get('legado/preview')
-  @UseGuards(RolesGuard)
-  @Admin()
-  legacyPreview(@Req() req: any) {
-    return this.agenda.getLegacyPreview(this.companyId(req));
-  }
-
-  @Post('legado/aplicar')
-  @UseGuards(RolesGuard)
-  @Admin()
-  applyLegacy(@Req() req: any, @Body() dto: AplicarLegadoAgendaDto) {
-    return this.agenda.applyLegacy(
-      this.companyId(req),
-      this.userId(req),
-      dto.idempotencyKey,
-    );
-  }
+  // 🔴 MORREU AQUI o "Organizar agora" (`GET legado/preview` + `POST
+  // legado/aplicar`, F2 09/08). Ele lia a agenda V1 de dentro do
+  // `ClienteProduto` (`diasSemana`/`frequenciaDias`/`proximaData`) e a copiava
+  // pros planos. Nenhum cadastro grava mais dia no vínculo — a porta é
+  // `definirDiasDaVisita`, e ela já escreve PLANO —, então o importador não tem
+  // mais de onde importar. Ele também já era inalcançável desde a F1: o `modo`
+  // da agenda passou a ser sempre `AGENDA_V2`, e a tela só oferecia o botão em
+  // modo LEGADO. A tela do botão sai na F5.
 
   @Post('planos')
   @UseGuards(RolesGuard)

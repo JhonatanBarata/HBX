@@ -252,7 +252,34 @@ function podarDesligados(tela){
    rota... cadê o +?". Porta boa é a que fica onde a mão vai. Ela mora no dock
    da Montagem e na barra da Rota·lista; ver `T.rapida`. */
 const ROTA_ESTADOS={
-  montar:   {main:{acao:'montar', glifo:'route', rotulo:'Montar rota'}},
+  /* 🔴 "E SE EU QUISER COMEÇAR AGORA? NÃO ERA PRA SER INICIAR?" (dono, 09/08).
+     Era. O motor JÁ fazia isso: `iniciarRota` na ponte abre com
+     `if (estadoRota === 'montar' || !ENTREGAS.size) → planejar`, ou seja, o
+     Iniciar MONTA sozinho quando não há ordem gravada, e só depois abre o
+     portão com o custo REAL do servidor ("Debita 4,8 · você tem 9.340"). O que
+     faltava era o BOTÃO: o dia por montar oferecia só "Montar rota", então
+     sair pra rua custava dois toques em telas diferentes — e o segundo toque
+     não decide nada que o primeiro já não tenha decidido.
+
+     🔴 O PREÇO CONTINUA ANTES DA COBRANÇA. Encurtar não é cobrar escondido: o
+     portão de crédito é o mesmo, com o número que o servidor mandou, e ele
+     abre DEPOIS de montar (que é quando o custo existe de verdade). Um toque,
+     uma decisão, o valor na frente dela.
+
+     🔴 E A MONTAGEM NÃO PODE FICAR INALCANÇÁVEL — foi por isso que o `pronta`
+     ganhou o satélite da direita, e o motivo vale igual aqui: rever a lista,
+     trocar o dia, escolher o espaço ou pôr uma parada na mão continua a UM
+     toque, no mesmo lugar em que ele já mora no estado seguinte. Sem "Cancelar"
+     à esquerda porque ainda não há rota nenhuma pra cancelar. */
+  montar:   {main:{acao:'iniciar', glifo:'play', rotulo:'Iniciar'},
+             dir:{tipo:'info', glifo:'route', rotulo:'Montagem', acao:'montar'}},
+  /* 🔴 DIA SEM UMA PARADA ABERTA NÃO GANHA "INICIAR" — e o corte é por parada
+     ABERTA, não por lista vazia (medido 09/08 na company 41: 137 cartões na
+     tela, 107 deles `cancelada`; "Iniciar" ali bateria em `Nenhuma entrega
+     aberta neste dia. Monte a rota antes de iniciar`, que é o beco sem saída
+     que o dono já levou na cara). Sem nada aberto, o que existe é MONTAR o dia
+     — e a Montagem sabe receber o dia vazio (ela vira "Adicionar parada"). */
+  semparada:{main:{acao:'montar', glifo:'route', rotulo:'Montar rota'}},
   /* Com a rota pronta o satélite da direita é a PORTA DE VOLTA pra montagem:
      rever a lista, salvar o roteiro, ou trocar o dia e montar de novo. Sem ele
      a montagem ficava inalcançável depois de montada — beco sem saída. */
@@ -377,6 +404,30 @@ const DADOS={
     creditos:'240', creditosDebita:'12',
     somaProdutos:'20', somaMarcado:'R$ 336,00',
     vazioTitulo:'Sem paradas hoje',
+    /* 🔴 A TELA PASSOU A TER NOME (dono, 09/08: *"clico em lista… q isso? isso é
+       a agenda? coloca pelo menos o nome dela!!"*). Ela nasceu como a `T.rota`
+       de dentro do mapa e herdou o cabeçalho da rota — que é o LOGO, e logo não
+       diz onde se está. O único rótulo escrito era "Sua rota de hoje", no meio
+       da tela, e ele MENTIA no estado em que o dono estava: sem rota montada
+       aquilo não é rota nenhuma, é o dia da AGENDA.
+       São dois nomes porque são duas coisas, e quem escolhe é o estado da rota
+       — a mesma régua `rotaMontada` que já governa os pinos e a barra do mapa.
+       COPY do desenho: nome de tela não vem do servidor. */
+    titulo:'Rota de hoje', tituloAgenda:'Agenda de hoje',
+    /* DADO — a data por extenso ("Domingo, 9 de agosto"). Sem fonte, o subtítulo
+       some: inventar a data do aparelho numa tela que fala do dia OPERACIONAL
+       (fuso de São Paulo, virada às 00h) é a receita de mostrar o dia errado às
+       21h. Quem sabe o dia é a ponte, que já o calcula pra pedir a rota. */
+    dataLonga:'',
+    /* DADO — a semana da agenda: uma linha por dia com a quantidade de clientes.
+       `[[diaSemana, 'Segunda', 53, ehHoje]]`. Sem fonte, o bloco some inteiro
+       (Lei do IF) — dia da semana com número inventado seria pior que nada,
+       porque é por ele que o dono decide em que dia sai pra rua. */
+    semana:[], semanaTitulo:'Os dias que você entrega',
+    /* DADO — quantos em cada desfecho do dia. É o que "separe o q foi agendado"
+       pede: o cabeçalho de cada grupo carrega a sua conta. Vazio = grupo não
+       existe hoje e não vira cabeçalho órfão. */
+    qtdAgendadas:'', qtdEntreguesDia:'', qtdNaoEntregues:'',
     /* 🔴 UM GESTO, UMA REAÇÃO (dono, 08/08: "ao clicar pisca e não monta").
        Montar são 3 idas ao servidor. O sinal disso era `estadoRota='carregando'`
        — que na tela Rota troca TUDO pelo esqueleto e leva o rodapé de botões
@@ -899,6 +950,77 @@ function perna(txt){
 function listaParadas(comPerna){
   return PARADAS.map(p=>`${comPerna?perna(p.perna):''}${stop(p)}`).join('');
 }
+/* ==========================================================================
+   🔴 SEM ROTA MONTADA, A LISTA SE SEPARA POR DESFECHO (dono, 09/08).
+
+   A cena: 107 cartões numerados de 1 a 107 debaixo do rótulo "Sua rota de
+   hoje". Medido no banco (company 41, 09/08): as 107 entregas do dia estavam
+   TODAS em `cancelada` e NENHUMA tinha `rotaOrdem` — ou seja, nem uma parada
+   de rota existia ali. A tela empilhava rejeito do dia com cara de roteiro.
+
+   É a mesma mentira que a régua `rotaMontada` já matou nos pinos e na barra do
+   mapa, no lugar em que ela ainda não tinha chegado: a LISTA. Aqui a cura não
+   é apagar — o dono PRECISA ver o que aconteceu com o dia —, é DIZER O QUE
+   CADA COISA É. Cada grupo leva o nome e a conta ("Não entregues · 107"), que
+   é literalmente o que foi pedido: "separe o q foi agendado… e quantidades".
+
+   🔴 O DESFECHO VIAJA COMO DADO (`st`), NUNCA COMO TEXTO DA PÍLULA. Agrupar
+   lendo "Não entregue" da pílula amarraria a separação à COPY: no dia em que
+   alguém trocar a palavra, a lista se desmonta calada. `st` é o status cru do
+   servidor, o mesmo que a pílula já traduz.
+
+   🔴 E COM ROTA MONTADA NÃO SE AGRUPA NADA: ali a lista É a sequência da
+   visita, e quebrar a sequência em três blocos põe a parada 7 depois da 40.
+   Quem chama esta função é só o estado sem rota.
+
+   Parada de maquete não tem `st` — no mock todas caem no primeiro grupo e a
+   folha continua desenhando a mesma lista de sempre.
+   ========================================================================== */
+const DESFECHOS=[['agendada','Agendadas'],['entregue','Entregues'],['cancelada','Não entregues']];
+/* Quantas paradas o dia ainda ESPERA. É a conta que decide duas coisas — o
+   número do KPI sem rota e o verbo do rodapé (`dockDaRota`) —, e por isso mora
+   num lugar só: KPI dizendo "30 agendadas" com um botão que responde "nenhuma
+   entrega aberta" seriam duas verdades diferentes sobre o mesmo dia.
+   Parada de maquete não tem `st` e conta como aberta: o mock segue igual. */
+const paradasAbertasNaTela=()=>PARADAS.filter(p=>{
+  const s=String(p.st||''); return s!=='entregue'&&s!=='cancelada';}).length;
+/* O RODAPÉ DA ROTA — a mesma conta pro mapa e pra lista. As duas telas
+   escreviam esta escada à mão, em duas cópias que já divergiam num ponto (a
+   lista lia `DADOS.rota.montando`, o mapa lia o `d` local); e é numa cópia
+   dessas que o estado novo aparece só em metade das telas. */
+function dockDaRota(e){
+  if(DADOS.rota.montando) return transmux('montando');
+  if(e==='semsinal') return transmux('pronta');
+  if(e==='montar'&&!paradasAbertasNaTela()) return transmux('semparada');
+  return transmux(e);
+}
+function listaParadasSeparada(){
+  const dono=p=>{const s=String(p.st||'');return s==='entregue'?'entregue':s==='cancelada'?'cancelada':'agendada';};
+  /* A conta sai da PRÓPRIA lista, não de um campo do seam: cabeçalho que conta
+     por fora acaba dizendo 107 em cima de 3 cartões no primeiro filtro novo. */
+  return DESFECHOS.map(([chave,nome])=>{
+    const doGrupo=PARADAS.filter(p=>dono(p)===chave);
+    if(!doGrupo.length) return '';
+    /* O arrasto continua em CADA grupo (`data-gestos`), não some: o `.grip` é
+       desenhado pelo `stop()` e alça que aparece sem pegar é botão morto — o
+       pecado que esta casa persegue. O que ele nunca faz é atravessar grupo:
+       cada container tem o seu `ligarLista`. */
+    return `<div class="grupo">${nome} <b>·</b> ${doGrupo.length}</div>
+      <div class="stops" data-gestos="rota">${doGrupo.map(p=>stop(p)).join('')}</div>`;
+  }).join('');
+}
+/* A SEMANA DA AGENDA — uma linha por dia, com quantas pessoas esperam nele.
+   Sem fonte não existe bloco: ver `DADOS.rota.semana`. */
+function semanaAgenda(){
+  const d=DADOS.rota;
+  if(!Array.isArray(d.semana)||!d.semana.length) return '';
+  return `<div class="grupo">${d.semanaTitulo}</div>
+  <div class="semana">${d.semana.map(x=>`
+    <div class="d${x[3]?' hoje':''}${x[2]?'':' vazio-dia'}">
+      <span class="nm">${x[1]}${x[3]?' · hoje':''}</span>
+      <span class="qt">${x[2]}<small>${x[2]==1?'cliente':'clientes'}</small></span>
+    </div>`).join('')}</div>`;
+}
 /* 🔴 A LISTA SE ENTRA POR DENTRO, ENTÃO ELA TEM VOLTA. Desde 08/08 quem abre a
    aba Rota vê o MAPA; a lista é a tela de dentro. Sem o Voltar no header o
    botão do Android não teria par aqui e o único caminho de saída seria a
@@ -929,7 +1051,7 @@ function shellRota(conteudo,dock){
 T.rota={nome:'Rota do dia (mapa 2D)',grupo:'Rota',render(){
   const e=estadoRota, d=DADOS.rota;
   const emCurso=e==='rodando'||e==='pausada';
-  const dock=transmux(d.montando?'montando':(e==='semsinal'?'pronta':e));
+  const dock=dockDaRota(e);
 
   if(e==='vazia') return `${status}${hdr({})}
     <div class="body">
@@ -1003,6 +1125,22 @@ ${dock?`<div class="tmx-dock">${dock}</div>`:''}${nav('rota')}`;
    porta pela qual se entrou). */
 T.rotalista={nome:'Rota do dia · lista (7 estados)',grupo:'Rota',render(){
   const e=estadoRota;
+  const rodando=e==='rodando', pausada=e==='pausada', montada=e==='pronta';
+  const emCurso=rodando||pausada;
+  /* 🔴 A MESMA RÉGUA DO MAPA, AGORA NA LISTA (`rotaMontada` da ponte): paradas
+     só existem depois de montar. Aqui ela decide TRÊS coisas de uma vez — o
+     NOME da tela, se a lista se separa por desfecho e se a semana aparece. Uma
+     régua só, no lugar onde a tela já tem o estado na mão; foi espalhando `if`
+     de estado por três funções que a mentira dos pinos nasceu em três lugares. */
+  const temRota=montada||emCurso;
+  /* O NOME DA TELA. `.screen-head` é a peça central dos títulos (centralizada
+     pela régua de 08/08) — a mesma da Montagem, que é a tela vizinha: título
+     que muda de tamanho a um toque de distância é o defeito que "padronizar é
+     IGUALAR" descreve. Sem ícone de propósito: uma linha acima já mora o botão
+     redondo de Voltar, e dois glifos empilhados na margem viram um só. */
+  const cabeca=`<div class="screen-head"><span>
+      <h2>${temRota?DADOS.rota.titulo:DADOS.rota.tituloAgenda}</h2>
+      ${DADOS.rota.dataLonga?`<p>${DADOS.rota.dataLonga}</p>`:''}</span></div>`;
 
   // O esqueleto é do CONTEÚDO; o rodapé de controle não é conteúdo e por isso
   // não vira esqueleto nem desaparece — ver `ROTA_ESTADOS.carregando`.
@@ -1020,19 +1158,29 @@ T.rotalista={nome:'Rota do dia · lista (7 estados)',grupo:'Rota',render(){
       <button class="ghost">${ic('refresh',15)} Tentar de novo</button>
     </div>`);
 
-  const rodando=e==='rodando', pausada=e==='pausada', montada=e==='pronta';
-  const emCurso=rodando||pausada;
-  
   // Dia sem parada nenhuma NÃO é "rota indisponível" (aquilo é falha de
   // carregar): é o dia ainda por montar. Mesma peça `.vazio`, o fato certo.
-  if(!PARADAS.length) return shellRota(`
+  /* 🔴 E A SEMANA FICA DE PÉ JUSTAMENTE AQUI. O domingo do dono cai neste
+     ramo: a tela dizia "Sem paradas hoje" e mais nada — nenhuma pista de que
+     a empresa tem 253 clientes agendados nos outros seis dias. É o dia em que
+     a pergunta "então quando eu entrego?" é a única que existe, e a resposta
+     estava a um fetch que o app JÁ faz (os chips da Montagem bebem dela). */
+  if(!PARADAS.length) return shellRota(`${cabeca}
     <div class="vazio">
       <span class="ico">${ic('route',24)}</span>
       <strong>${DADOS.rota.vazioTitulo}</strong>
-    </div>`, transmux(DADOS.rota.montando?'montando':(e==='semsinal'?'pronta':e)));
-  return shellRota(`
+    </div>
+    ${semanaAgenda()}`, dockDaRota(e));
+  /* 🔴 "107 PARADAS" ERAM 107 CANCELADAS. `kpiParadas` é o total do DIA (o
+     servidor manda `itens.length` cru, e outras quatro telas leem esse campo
+     como total) — vestido de "paradas" numa tela sem rota montada, ele conta
+     como ponto de visita o que já foi resolvido. Sem rota, o número passa a ser
+     o que de fato espera visita, e o rótulo diz o que ele é; o que foi
+     entregue e o que não foi têm cada um o seu grupo, com a sua conta. */
+  const abertas=paradasAbertasNaTela();
+  return shellRota(`${cabeca}
   <div class="kpis">
-    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${DADOS.rota.kpiParadas}</b><span class="l">paradas</span></span></div>
+    <div class="kpi"><span style="color:var(--lime)">${ic('route',20)}</span><span><b class="v">${temRota?DADOS.rota.kpiParadas:abertas}</b><span class="l">${temRota?'paradas':'agendadas'}</span></span></div>
     <div class="kpi"><span style="color:var(--lime)">${ic('check',20)}</span><span><b class="v">${emCurso?DADOS.rota.kpiEntregues:DADOS.rota.kpiEntreguesParado}</b><span class="l">entregues</span></span></div>
     ${DADOS.rota.saldo?`<div class="kpi money"><span class="l">Saldo</span><b class="v">${DADOS.rota.saldo}</b><span class="go">${ic('chev',15)}</span></div>`:''}
     ${(DADOS.rota.dinheiro||DADOS.rota.pix)?`<div class="kpi split">
@@ -1053,7 +1201,12 @@ T.rotalista={nome:'Rota do dia · lista (7 estados)',grupo:'Rota',render(){
        está na rua teria que cancelar a rota pra adicionar uma parada nela.
        Aqui o encaixe é o que interessa: "No caminho" põe a parada onde ela
        custa menos, em vez de jogar pro fim do dia. -->
-  <div class="bar"><span class="t">${ic('list',17)} Sua rota de hoje</span>
+  ${temRota?'':semanaAgenda()}
+  <!-- 🔴 O RÓTULO DA BARRA MENTIA JUNTO. "Sua rota de hoje" era o ÚNICO texto
+       que nomeava o que está embaixo — e sem rota montada nada ali é rota. Ele
+       segue a mesma régua do título: uma frase, dois estados, nenhuma inventada.
+       Com rota, a barra continua dizendo exatamente o que dizia. -->
+  <div class="bar"><span class="t">${ic('list',17)} ${temRota?'Sua rota de hoje':'O que está agendado'}</span>
     <button class="ghost" data-ir="rapida" aria-label="Adicionar parada avulsa">${ic('plus',15)} Parada</button>
     <button class="ghost" data-ir="rota">${ic('map',15)} Ver mapa</button></div>
   ${emCurso?`<div class="dia-bar"><small>${DADOS.rota.diaFeitas} de ${DADOS.rota.diaTotal}</small><span class="trilho"><i style="width:${DADOS.rota.diaPct}"></i></span><b>${DADOS.rota.diaMarcado}</b><small>marcado</small></div>`:''}
@@ -1064,7 +1217,9 @@ T.rotalista={nome:'Rota do dia · lista (7 estados)',grupo:'Rota',render(){
       <span class="debita">${montada
         ? (DADOS.rota.creditosDebita?`Iniciar debita ${DADOS.rota.creditosDebita}`:'não consegui o custo agora')
         : 'monte a rota pra saber'}</span></div>`:''}
-  <div class="stops" data-gestos="rota">${listaParadas(emCurso)}</div>
+  ${temRota
+    ? `<div class="stops" data-gestos="rota">${listaParadas(emCurso)}</div>`
+    : listaParadasSeparada()}
   <div class="sum" data-ir="fechamento">
     <span class="c"><span style="color:var(--lime)">${ic('box',17)}</span><span><b>${DADOS.rota.somaProdutos}</b><small>produtos</small></span></span>
     <span class="c"><span style="color:var(--ink-2)">${ic('receipt',17)}</span><span><b>${DADOS.rota.somaMarcado}</b><small>marcado</small></span></span>
@@ -1073,7 +1228,7 @@ T.rotalista={nome:'Rota do dia · lista (7 estados)',grupo:'Rota',render(){
   </div>
   ${emCurso?''   /* o Finalizar é o satélite do dock: no polegar, sem rolar a lista inteira */
            :`<button class="act full" style="margin-top:8px;justify-content:center" data-ir="fechamento">${ic('note',17)}<b>Fechamento do dia</b></button>`}
-  `, transmux(DADOS.rota.montando?'montando':(e==='semsinal'?'pronta':e)));
+  `, dockDaRota(e));
 }};
 
 
@@ -2306,43 +2461,6 @@ ${hdr({voltar:'ajustes'})}
 </div>
 ${nav('rota')}`;}};
 
-/* 23 — LEITURA DE ROTA (gravando o caminho) -------------------------------- */
-T.leitura={nome:'Leitura de rota',grupo:'Sistema',render(){return `${status}
-${hdr({voltar:'rota'})}
-<div class="body com-dock">
-  <div class="gravando">
-    <span class="bola"></span>
-    <span><b>Gravando</b><span>7 locais · 12,4 km percorridos</span></span>
-    <span class="crono">00:38:12</span>
-  </div>
-  <div class="grupo">Locais registrados</div>
-  <div class="stops">
-    <div class="stop"><span class="grip"></span>
-      <span class="numwrap"><span class="num lime">1</span><span class="hh lime">08:12</span></span>
-      <span class="who"><strong>João da Silva</strong><span>R. das Palmeiras, 145 · local ±4 m</span>
-        <span class="tags"><b class="tag lime">cliente existente</b><b class="tag blue">20L x2</b></span></span>
-      <span class="side"><span class="pill lime">${ic('check',14)}Salvo</span></span></div>
-    <div class="stop"><span class="grip"></span>
-      <span class="numwrap"><span class="num lime">2</span><span class="hh lime">08:29</span></span>
-      <span class="who"><strong>Porta sem cadastro</strong><span>Av. João Dias, 890 · local ±6 m</span>
-        <span class="tags"><b class="tag" style="border-color:rgba(245,165,36,.55);color:var(--amber)">falta o nome</b></span></span>
-      <span class="side"><span class="pill amber">${ic('edit',14)}Nomear</span></span></div>
-    <div class="stop"><span class="grip"></span>
-      <span class="numwrap"><span class="num lime">3</span><span class="hh lime">08:47</span></span>
-      <span class="who"><strong>Maria Aparecida</strong><span>R. Sargento Silva Nunes, 72 · local ±3 m</span>
-        <span class="tags"><b class="tag lime">cliente existente</b><b class="tag blue">20L x1</b></span></span>
-      <span class="side"><span class="pill lime">${ic('check',14)}Salvo</span></span></div>
-  </div>
-</div>
-<div class="tmx-dock">
-  <div class="transmux">
-    <span class="tmx-sat tmx-perigo"><button>${ic('trash',20)}</button><small>Cancelar</small></span>
-    <span class="tmx-main"><button data-estado="pausar">${ic('gps',34)}</button><small>Checkpoint</small></span>
-    <span class="tmx-sat tmx-info"><button>${ic('check',20)}</button><small>Finalizar</small></span>
-  </div>
-</div>
-${nav('rota')}`;}};
-
 /* 18 — PORTÕES (catálogo navegável) --------------------------------------- */
 T.portoes={nome:'Portões e bloqueios',grupo:'Sistema',render(){
   const p=(chave,nome,quando,tom)=>`
@@ -2359,7 +2477,6 @@ ${hdr({})}
   ${p('longe','Longe do ponto de partida','8,7 km da primeira parada','alerta')}
   ${p('creditos','Créditos acabaram','sem crédito a rota não inicia','trava')}
   <div class="grupo">No meio do dia</div>
-  ${p('missao','Rota recebida da Central','Aceitar · Depois · Negar','alerta')}
   ${p('fora','Entrega fora da rota de hoje','vira parada avulsa','alerta')}
   ${p('ddd','Telefone sem DDD','sem DDD o WhatsApp não abre','alerta')}
   ${p('preco','Preço bloqueado','quem muda preço é o escritório','alerta')}
@@ -2690,7 +2807,7 @@ ${nav('ajustes')}`;}};
 const ORDEM=['entrada','rota','rotalista','rotafoto','mapa','mapachegou','mapalista','gerenciador','montagem','conferencia',
              'venda','folha','folhanao','rapida','salvas','fechamento','semana','clientes','novocliente','ficha','produtos',
              'fichaproduto','chat','ajustes','creditos','financeiro','avancado','sons','historico',
-             'passeio','leitura','portoes'];
+             'passeio','portoes'];
 const GRUPOS=['Sistema','Rota','Fechamento','Cadastro','Ajustes'];
 let atual='entrada';
 
@@ -3200,12 +3317,6 @@ const PORTOES={
       <div class="pt-linha"><span class="m">${ic('alert',13)}</span>
         <span><strong>Bar do Zé</strong><span>não sei onde fica este endereço</span></span>${ic('chev',15)}</div>`,
     acoes:[['Remover da rota',''],['Remover do dia','perigo']]},
-
-  missao:{tom:'info',ico:'bell',titulo:'A Central mandou uma rota',
-    sub:'Zona Sul manhã · 6 paradas · 14,2 km. Começa a 3,4 km de você.',
-    corpo:`<div class="pt-nums"><div><b>6</b><small>paradas</small></div>
-      <div><b>14,2 km</b><small>percurso</small></div><div><b>~1h20</b><small>estimado</small></div></div>`,
-    acoes:[['Negar','perigo'],['Depois',''],['Aceitar','principal']],classe:'tres'},
 
   creditos:{tom:'trava',ico:'card',titulo:'Créditos acabaram',
     sub:'Sem crédito a rota não inicia. As entregas de hoje continuam guardadas.',

@@ -512,16 +512,6 @@ class MainActivity : AppCompatActivity() {
             HbxRecadoUiWake.registrar { runOnUiThread { entregarAberturaDeRecados() } }
             RotaState.registrarListener { paradaId -> runOnUiThread { entregarChegada(paradaId) } }
             RotaState.drenarPendencias().forEach(::entregarChegada)
-            // S2 (PR21072026-MONTAR-ROTA-PLAY) — mesmo padrão da chegada acima,
-            // pro evento de pausa da Leitura de Rota (ver S2-CONTRATO-PONTE.md).
-            RotaState.registrarPausaListener { pausa -> runOnUiThread { entregarPausa(pausa) } }
-            RotaState.drenarPausasPendentes().forEach(::entregarPausa)
-            // Mapa ao vivo (S3.1): ponto a ponto, só em foreground (sem fila —
-            // o acumulado completo já está em RotaState pra quando reabrir).
-            RotaState.registrarPontoListener { ponto -> runOnUiThread { entregarPonto(ponto) } }
-            // Fix visual mais frequente: não grava nem envia ponto extra, apenas
-            // mantém posição, precisão e direção do mapa acompanhando o GPS.
-            RotaState.registrarPosicaoListener { ponto -> runOnUiThread { entregarPosicao(ponto) } }
         }
     }
 
@@ -530,9 +520,6 @@ class MainActivity : AppCompatActivity() {
             HbxPushWake.registrar(null)
             HbxRecadoUiWake.registrar(null)
             RotaState.registrarListener(null)
-            RotaState.registrarPausaListener(null)
-            RotaState.registrarPontoListener(null)
-            RotaState.registrarPosicaoListener(null)
         }
         super.onPause()
     }
@@ -644,47 +631,6 @@ class MainActivity : AppCompatActivity() {
         val js = "document.dispatchEvent(new CustomEvent('hbx:destino',{detail:${JSONObject.quote(json)}}));"
         webView.evaluateJavascript(js, null)
     }
-
-    /** S2 (PR21072026-MONTAR-ROTA-PLAY) — evento de pausa detectada na Leitura
-     *  de Rota, mesmo caminho (`document.dispatchEvent`) que a chegada já usa.
-     *  Nome de evento e formato do detail são o CONTRATO — ver S2-CONTRATO-PONTE.md. */
-    private fun entregarPausa(pausa: PausaDetectada) {
-        val clienteJson = pausa.clienteProximo?.let { c ->
-            JSONObject().put("id", c.id).put("nome", c.nome).put("distanciaM", c.distanciaM)
-        } ?: JSONObject.NULL
-        val detail = JSONObject()
-            .put("lat", pausa.lat)
-            .put("lng", pausa.lng)
-            .put("ts", pausa.ts)
-            .put("clienteProximo", clienteJson)
-        val js = "document.dispatchEvent(new CustomEvent('hbx:leitura-pausa',{detail:$detail}));"
-        webView.evaluateJavascript(js, null)
-    }
-
-    /** S2/S3.1 — mapa ao vivo: um ponto novo (já filtrado 8m/15s) pro front
-     *  desenhar incremental na trilha, sem precisar de polling. */
-    private fun entregarPonto(ponto: TrilhaPonto) {
-        val detail = ponto.toLeituraLocationJson()
-        val js = "document.dispatchEvent(new CustomEvent('hbx:leitura-ponto',{detail:$detail}));"
-        webView.evaluateJavascript(js, null)
-    }
-
-    private fun entregarPosicao(ponto: TrilhaPonto) {
-        val detail = ponto.toLeituraLocationJson()
-        val js = "document.dispatchEvent(new CustomEvent('hbx:leitura-posicao',{detail:$detail}));"
-        webView.evaluateJavascript(js, null)
-    }
-
-    private fun TrilhaPonto.toLeituraLocationJson(): JSONObject =
-        JSONObject()
-            .put("lat", lat)
-            .put("lng", lng)
-            .put("ts", ts)
-            .put("accuracyM", accuracyM)
-            .apply {
-                speedMps?.takeIf(Double::isFinite)?.let { put("speedMps", it) }
-                bearingDeg?.takeIf(Double::isFinite)?.let { put("bearingDeg", it) }
-            }
 
     private fun temPermissao(permission: String): Boolean =
         ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED

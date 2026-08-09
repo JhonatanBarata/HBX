@@ -465,12 +465,49 @@ function gerar(vozKey, outDir) {
   return relatorio;
 }
 
+/* ─────────────────────────────────────────────────────────────────────────────
+   10. INSTALAR — a troca é de ARQUIVO, nunca de código.
+   Os 17 `.ogg` mantêm o nome, então `HbxSoundEngine.kt`, as Activities, os
+   `R.raw.*`, o `soundPrefs` e a folha "Sons e voz" continuam de pé (mesma
+   receita do `EntregaShell/app/src/logistica/LEIA-ME-sons.md`). Sobrescreve
+   arquivo versionado — se não gostar, `git checkout` na pasta e voltou.
+
+     node scripts/sons-hbx-estudio.js ./tmp-sons --instalar=madeira
+
+   O `if (!fs.existsSync(oggPath))` não é paranoia: nome que não existe em
+   `res/raw` vira arquivo NOVO que nenhum `R.raw.*` referencia — o som some do
+   app sem erro de build e sem ninguém perceber.
+   ────────────────────────────────────────────────────────────────────────── */
+const RAW = path.join(__dirname, '..', 'EntregaShell', 'app', 'src', 'logistica', 'res', 'raw');
+
+function instalar(vozKey, tmpDir) {
+  const { execFileSync } = require('child_process');
+  const dir = path.join(tmpDir, vozKey);
+  let n = 0;
+  for (const nome of Object.keys(FRASES)) {
+    const oggPath = path.join(RAW, `${nome}.ogg`);
+    if (!fs.existsSync(oggPath)) throw new Error(`nao existe em res/raw: ${nome}.ogg`);
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-i', path.join(dir, `${nome}.wav`),
+      '-c:a', 'libvorbis', '-q:a', '4', '-ac', '1', oggPath]);
+    n++;
+  }
+  return n;
+}
+
 const OUT = process.argv[2] || '.';
-const argVoz = (process.argv.find(a => a.startsWith('--voz=')) || '--voz=aco,madeira,prisma').slice(6);
+const argInstalar = (process.argv.find(a => a.startsWith('--instalar=')) || '').slice(11);
+const argVoz = argInstalar
+  || (process.argv.find(a => a.startsWith('--voz=')) || '--voz=aco,madeira,prisma').slice(6);
+
 for (const v of argVoz.split(',').map(s => s.trim()).filter(Boolean)) {
-  if (!VOZES[v]) { console.error(`voz desconhecida: ${v}`); process.exit(1); }
+  if (!VOZES[v]) { console.error(`voz desconhecida: ${v} (use aco, madeira ou prisma)`); process.exit(1); }
   const dir = path.join(OUT, v);
   const r = gerar(v, dir);
   console.log(`\n== ${VOZES[v].nome} (${r.length} sons) -> ${dir}`);
   for (const x of r) console.log('  ' + x.nome.padEnd(24), x.dur.toFixed(2) + 's', 'pico ' + x.pico.toFixed(2));
+}
+
+if (argInstalar) {
+  const n = instalar(argInstalar, OUT);
+  console.log(`\n>> ${n} .ogg da voz ${VOZES[argInstalar].nome} gravados em res/raw. Zero linha de codigo muda.`);
 }

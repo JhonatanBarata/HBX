@@ -1,307 +1,34 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  addCivilDays,
-  isoWeekdayForDate,
-  LogisticaOccurrenceService,
-  occurrenceItemId,
-  saoPauloDateKey,
-} from './logistica-occurrence.service';
+import { addCivilDays, isoWeekdayForDate } from './logistica-dia.util';
 import { LogisticaAdminRouteService } from './logistica-admin-route.service';
 
-type RecurrenceSeed = {
-  id: string;
-  companyId: number;
-  customerProfileId: string;
-  productId: number;
-  localId: string | null;
-  qtdPadrao: number;
-  precoAcordado: number | null;
-  frequenciaDias: number | null;
-  diasSemana: string | null;
-  proximaData: Date | null;
-  product: { id: number; name: string; price: number | null; priceCents: number | null };
-  customerProfile: {
-    id: string;
-    name: string;
-    precoPadrao: number | null;
-    lat: number | null;
-    lng: number | null;
-    geoFonte: string | null;
-  };
-  local: { apelido: string | null; lat: number | null; lng: number | null; geoFonte: string | null } | null;
-};
+/**
+ * 🔴 F1 (09/08) — O QUE SAIU DAQUI: o harness que exercitava o motor de
+ * ocorrências (`LogisticaOccurrenceService.materialize`) e seus 5 testes. Aquele
+ * motor foi APAGADO — as 9 empresas de produção rodam a Agenda V2, e o `if` que
+ * escolhia entre os dois era o único caminho até ele. O que ficou aqui é o que
+ * o `prepare`/`start` fazem DE VERDADE (traçar sem cobrar, filtrar devedor,
+ * nascer no dia da origem, mover pendência), agora com a Agenda no lugar do
+ * gerador antigo — mesmo contrato de retorno, um motor só.
+ */
 
-function buildOccurrenceHarness(input: RecurrenceSeed[], validDriverId = 42) {
-  const recurrences = input.map((row) => ({ ...row }));
-  const deliveries = new Map<string, any>();
-  const items = new Map<string, any>();
-  let deliverySequence = 0;
-
-  const matchesDate = (value: Date | null | undefined, range: any) => {
-    if (!range) return true;
-    if (!value) return false;
-    const time = value.getTime();
-    if (range.gte && time < new Date(range.gte).getTime()) return false;
-    if (range.gt && time <= new Date(range.gt).getTime()) return false;
-    if (range.lte && time > new Date(range.lte).getTime()) return false;
-    if (range.lt && time >= new Date(range.lt).getTime()) return false;
-    return true;
-  };
-
-  const entregaFindMany = async ({ where }: any = {}) => Array.from(deliveries.values())
-    .filter((delivery) => {
-      if (where?.companyId != null && delivery.companyId !== where.companyId) return false;
-      return matchesDate(delivery.scheduledAt, where?.scheduledAt);
-    })
-    .map((delivery) => ({
-      ...delivery,
-      itens: Array.from(items.values())
-        .filter((item) => item.entregaId === delivery.id)
-        .map((item) => ({ ...item })),
-    }));
-
-  const entregaItemFindMany = async ({ where }: any = {}) => {
-    if (where?.id?.in) {
-      return where.id.in.flatMap((id: string) => {
-        const item = items.get(id);
-        if (!item) return [];
-        const delivery = deliveries.get(item.entregaId);
-        return [{
-          ...item,
-          entrega: delivery
-            ? { companyId: delivery.companyId, scheduledAt: delivery.scheduledAt, status: delivery.status }
-            : null,
-        }];
-      });
-    }
-    if (where?.entregaId) {
-      return Array.from(items.values())
-        .filter((item) => item.entregaId === where.entregaId)
-        .map((item) => ({ ...item }));
-    }
-    return Array.from(items.values()).map((item) => ({ ...item }));
-  };
-
-  const tx: any = {
-    $executeRawUnsafe: async () => 0,
-    contato: { findFirst: async () => null },
-    clienteProduto: {
-      findMany: async ({ where }: any) => recurrences.filter((row) => row.companyId === where.companyId),
-      updateMany: async ({ where, data }: any) => {
-        const row = recurrences.find((candidate) => candidate.id === where.id && candidate.companyId === where.companyId);
-        if (!row) return { count: 0 };
-        row.proximaData = data.proximaData ?? null;
-        return { count: 1 };
-      },
-    },
-    entregaItem: {
-      findMany: entregaItemFindMany,
-      createMany: async ({ data }: any) => {
-        let count = 0;
-        for (const row of data || []) {
-          if (items.has(row.id)) continue;
-          items.set(row.id, { ...row });
-          count++;
-        }
-        return { count };
-      },
-    },
-    entrega: {
-      findMany: entregaFindMany,
-      findFirst: async ({ where }: any) => Array.from(deliveries.values()).find((delivery) => {
-        if (delivery.companyId !== where.companyId) return false;
-        if (delivery.customerProfileId !== where.customerProfileId) return false;
-        if ((delivery.localId ?? null) !== (where.localId ?? null)) return false;
-        if (where.status?.in && !where.status.in.includes(delivery.status)) return false;
-        if (!matchesDate(delivery.scheduledAt, where.scheduledAt)) return false;
-        if (Array.isArray(where.OR)) {
-          const driverAllowed = where.OR.some((clause: any) => clause.entregadorId === delivery.entregadorId);
-          if (!driverAllowed) return false;
-        }
-        return true;
-      }) ?? null,
-      create: async ({ data }: any) => {
-        const id = data.id || `delivery-${++deliverySequence}`;
-        const delivery = { id, createdAt: new Date(), rotaOrdem: null, etaAt: null, ...data, itens: undefined };
-        deliveries.set(id, delivery);
-        for (const item of data.itens?.create || []) items.set(item.id, { ...item, entregaId: id });
-        return { id, notes: delivery.notes ?? null, entregadorId: delivery.entregadorId ?? null };
-      },
-      update: async ({ where, data }: any) => {
-        const current = deliveries.get(where.id);
-        if (!current) throw new Error(`Entrega inexistente: ${where.id}`);
-        const updated = { ...current, ...data };
-        deliveries.set(where.id, updated);
-        return updated;
-      },
-    },
-  };
-
-  const prisma: any = {
-    ...tx,
-    user: {
-      findFirst: async ({ where }: any) =>
-        where.id === validDriverId && where.companyId === 7 && where.isActive === true ? { id: validDriverId } : null,
-    },
-    $transaction: async (callback: (transaction: any) => Promise<any>) => callback(tx),
-  };
-
+/** O gerador ÚNICO: `LogisticaAgendaService.materializeForRoute`. */
+function agendaStub(
+  resultado: any,
+  onCall?: (companyId: number, input: any) => void,
+): any {
   return {
-    service: new LogisticaOccurrenceService(prisma),
-    recurrences,
-    deliveries,
-    items,
+    materializeForRoute: async (companyId: number, input: any) => {
+      onCall?.(companyId, input);
+      return resultado;
+    },
   };
 }
 
-function weeklySeed(overrides: Partial<RecurrenceSeed> = {}): RecurrenceSeed {
-  return {
-    id: 'rec-wed',
-    companyId: 7,
-    customerProfileId: 'customer-1',
-    productId: 10,
-    localId: null,
-    qtdPadrao: 2,
-    precoAcordado: 5,
-    frequenciaDias: null,
-    diasSemana: '3',
-    proximaData: new Date('2026-07-15T03:00:00.000Z'),
-    product: { id: 10, name: 'Galão 20L', price: 6, priceCents: null },
-    customerProfile: {
-      id: 'customer-1',
-      name: 'Mercado Central',
-      precoPadrao: null,
-      lat: -23.5,
-      lng: -46.6,
-      geoFonte: 'gps_cadastro',
-    },
-    local: null,
-    ...overrides,
-  };
-}
-
-test('datas civis e identificador de ocorrência seguem São Paulo sem escorregar o dia', () => {
+test('datas civis de São Paulo não escorregam o dia', () => {
   assert.equal(addCivilDays('2026-07-16', -1), '2026-07-15');
   assert.equal(isoWeekdayForDate('2026-07-16'), 4);
-  assert.equal(occurrenceItemId('rec-wed', '2026-07-15'), 'occ_20260715_rec-wed');
-});
-
-test('quinta inclui a ocorrência de quarta na rota de quinta, preserva a agenda e não duplica no retry', async () => {
-  const harness = buildOccurrenceHarness([weeklySeed()]);
-
-  const first = await harness.service.materialize(7, {
-    operationalDate: '2026-07-16',
-    sourceDates: ['2026-07-15'],
-    driverUserId: 42,
-    actorUserId: 42,
-  });
-
-  assert.equal(first.date, '2026-07-16');
-  assert.deepEqual(first.sourceDates, ['2026-07-15']);
-  assert.equal(first.avancados, 1);
-  assert.equal(harness.deliveries.size, 1);
-  assert.equal(harness.items.size, 1);
-
-  const delivery = Array.from(harness.deliveries.values())[0];
-  assert.equal(saoPauloDateKey(delivery.scheduledAt), '2026-07-16');
-  assert.equal(delivery.entregadorId, 42);
-  assert.ok(harness.items.has('occ_20260715_rec-wed'));
-  assert.equal(saoPauloDateKey(harness.recurrences[0].proximaData), '2026-07-22');
-
-  const replay = await harness.service.materialize(7, {
-    operationalDate: '2026-07-16',
-    sourceDates: ['2026-07-15'],
-    driverUserId: 42,
-    actorUserId: 42,
-  });
-
-  assert.equal(replay.avancados, 0);
-  assert.equal(replay.puladas, 1);
-  assert.equal(harness.deliveries.size, 1);
-  assert.equal(harness.items.size, 1);
-});
-
-test('quarta e sexta do mesmo cliente/local viram uma única parada operacional com duas ocorrências', async () => {
-  const harness = buildOccurrenceHarness([
-    weeklySeed(),
-    weeklySeed({
-      id: 'rec-fri',
-      productId: 11,
-      qtdPadrao: 1,
-      precoAcordado: 8,
-      diasSemana: '5',
-      proximaData: new Date('2026-07-17T03:00:00.000Z'),
-      product: { id: 11, name: 'Fardo', price: 8, priceCents: null },
-    }),
-  ]);
-
-  const result = await harness.service.materialize(7, {
-    operationalDate: '2026-07-16',
-    sourceDates: ['2026-07-15', '2026-07-17'],
-    driverUserId: 42,
-    actorUserId: 42,
-  });
-
-  assert.equal(result.avancados, 2);
-  assert.equal(result.criadas, 1);
-  assert.equal(harness.deliveries.size, 1);
-  assert.equal(harness.items.size, 2);
-  assert.ok(harness.items.has('occ_20260715_rec-wed'));
-  assert.ok(harness.items.has('occ_20260717_rec-fri'));
-
-  const delivery = Array.from(harness.deliveries.values())[0];
-  assert.equal(delivery.quantidade, 3);
-  assert.match(String(delivery.notes), /15\/07\/2026/);
-  assert.match(String(delivery.notes), /17\/07\/2026/);
-  assert.equal(saoPauloDateKey(harness.recurrences[0].proximaData), '2026-07-22');
-  assert.equal(saoPauloDateKey(harness.recurrences[1].proximaData), '2026-07-24');
-});
-
-test('materialização mantém dados de outra empresa fora da operação', async () => {
-  const harness = buildOccurrenceHarness([
-    weeklySeed(),
-    weeklySeed({
-      id: 'foreign-recurrence',
-      companyId: 8,
-      customerProfileId: 'foreign-customer',
-      productId: 99,
-      product: { id: 99, name: 'Produto externo', price: 99, priceCents: null },
-      customerProfile: {
-        id: 'foreign-customer',
-        name: 'Outra empresa',
-        precoPadrao: null,
-        lat: null,
-        lng: null,
-        geoFonte: null,
-      },
-    }),
-  ]);
-
-  await harness.service.materialize(7, {
-    operationalDate: '2026-07-16',
-    sourceDates: ['2026-07-15'],
-    driverUserId: 42,
-    actorUserId: 42,
-  });
-
-  assert.equal(harness.deliveries.size, 1);
-  assert.ok(harness.items.has('occ_20260715_rec-wed'));
-  assert.ok(!harness.items.has('occ_20260715_foreign-recurrence'));
-});
-
-test('motorista precisa pertencer à mesma empresa antes de materializar', async () => {
-  const harness = buildOccurrenceHarness([weeklySeed()], 99);
-  await assert.rejects(
-    () => harness.service.materialize(7, {
-      operationalDate: '2026-07-16',
-      sourceDates: ['2026-07-15'],
-      driverUserId: 42,
-      actorUserId: 42,
-    }),
-    /Motorista inválido para esta empresa/,
-  );
-  assert.equal(harness.deliveries.size, 0);
 });
 
 test('preparar traça sem cobrar e começar é a única etapa que inicia a rota comercial', async () => {
@@ -319,17 +46,14 @@ test('preparar traça sem cobrar e começar é a única etapa que inicia a rota 
       findMany: async () => [{ id: 'delivery-1' }, { id: 'delivery-2' }],
     },
   };
-  const occurrences: any = {
-    materialize: async () => ({
-      date: '2026-07-16',
-      sourceDates: ['2026-07-15'],
-      criadas: 1,
-      puladas: 0,
-      avancados: 2,
-      candidatos: 2,
-      deliveryIds: ['delivery-1', 'delivery-2'],
-    }),
-  };
+  const agenda = agendaStub({
+    date: '2026-07-16',
+    sourceDates: ['2026-07-15'],
+    criadas: 1,
+    puladas: 0,
+    avancados: 2,
+    deliveryIds: ['delivery-1', 'delivery-2'],
+  });
   const rota: any = {
     planejarRota: async (...args: any[]) => {
       planejarCalls.push(args);
@@ -352,7 +76,7 @@ test('preparar traça sem cobrar e começar é a única etapa que inicia a rota 
   // PR27072026 F2 — prepare() agora chama logistica.resolverDevedorNaRota pro
   // filtro EXCLUIR da parada amarela de devedor; stub devolve Map vazio (ninguém
   // é EXCLUIR), preservando o comportamento anterior deste teste.
-  const service = new LogisticaAdminRouteService(prisma, occurrences, rota, { resolverDevedorNaRota: async () => new Map() } as any);
+  const service = new LogisticaAdminRouteService(prisma, rota, { resolverDevedorNaRota: async () => new Map() } as any, agenda);
   const actor = { id: 42, companyId: 7, role: 'ADMIN', canViewBilling: true };
 
   const prepared = await service.prepare(7, {
@@ -394,17 +118,14 @@ test('preparar filtra a parada EXCLUIR da montagem (nunca ganha rotaOrdem), sem 
       ],
     },
   };
-  const occurrences: any = {
-    materialize: async () => ({
-      date: '2026-07-16',
-      sourceDates: ['2026-07-15'],
-      criadas: 0,
-      puladas: 0,
-      avancados: 2,
-      candidatos: 2,
-      deliveryIds: ['delivery-devedor', 'delivery-em-dia'],
-    }),
-  };
+  const agenda = agendaStub({
+    date: '2026-07-16',
+    sourceDates: ['2026-07-15'],
+    criadas: 0,
+    puladas: 0,
+    avancados: 2,
+    deliveryIds: ['delivery-devedor', 'delivery-em-dia'],
+  });
   const rota: any = {
     planejarRota: async (...args: any[]) => {
       planejarCalls.push(args);
@@ -421,7 +142,7 @@ test('preparar filtra a parada EXCLUIR da montagem (nunca ganha rotaOrdem), sem 
       ]);
     },
   };
-  const service = new LogisticaAdminRouteService(prisma, occurrences, rota, logistica);
+  const service = new LogisticaAdminRouteService(prisma, rota, logistica, agenda);
   const actor = { id: 42, companyId: 7, role: 'ADMIN', canViewBilling: true };
 
   await service.prepare(7, { operationalDate: '2026-07-16', sourceDates: ['2026-07-15'] }, actor);
@@ -492,27 +213,24 @@ test('preparar com origem de outro dia monta o DIA DA ORIGEM, nunca hoje', async
       },
     },
   };
-  const occurrences: any = {
-    materialize: async (_companyId: number, input: any) => {
-      materializeInput = input;
-      return {
-        date: '2026-07-16',
-        sourceDates: ['2026-07-15'],
-        criadas: 1,
-        puladas: 0,
-        avancados: 1,
-        candidatos: 1,
-        deliveryIds: ['delivery-1'],
-      };
+  const agenda = agendaStub(
+    {
+      date: '2026-07-16',
+      sourceDates: ['2026-07-15'],
+      criadas: 1,
+      puladas: 0,
+      avancados: 1,
+      deliveryIds: ['delivery-1'],
     },
-  };
+    (_companyId, input) => { materializeInput = input; },
+  );
   const rota: any = {
     planejarRota: async (...args: any[]) => {
       planCall = args;
       return PLAN;
     },
   };
-  const service = new LogisticaAdminRouteService(prisma, occurrences, rota, { resolverDevedorNaRota: async () => new Map() } as any);
+  const service = new LogisticaAdminRouteService(prisma, rota, { resolverDevedorNaRota: async () => new Map() } as any, agenda);
 
   const result = await service.prepare(7, {
     operationalDate: '2026-07-16',
@@ -561,7 +279,7 @@ test('começar é a operação separada que inicia e congela a rota', async () =
       return { ...PLAN, routeStatus: 'ACTIVE' };
     },
   };
-  const service = new LogisticaAdminRouteService(prisma, {} as any, rota, { resolverDevedorNaRota: async () => new Map() } as any);
+  const service = new LogisticaAdminRouteService(prisma, rota, { resolverDevedorNaRota: async () => new Map() } as any, agendaStub(null));
 
   await service.start(7, { operationalDate: '2026-07-16' }, ADMIN);
 
@@ -605,7 +323,7 @@ test('tentar novamente move somente a própria parada para o fim', async () => {
       return { recalculadas: 1 };
     },
   };
-  const service = new LogisticaAdminRouteService(prisma, {} as any, rota, { resolverDevedorNaRota: async () => new Map() } as any);
+  const service = new LogisticaAdminRouteService(prisma, rota, { resolverDevedorNaRota: async () => new Map() } as any, agendaStub(null));
 
   const result = await service.retryLater(7, 'delivery-1', ADMIN);
 
@@ -676,17 +394,14 @@ test('preparar com pendência: clone do dia novo herda a origem da entrega origi
       return callback(tx);
     },
   };
-  const occurrences: any = {
-    materialize: async () => ({
-      date: operationalDate,
-      sourceDates: [operationalDate],
-      criadas: 0,
-      puladas: 0,
-      avancados: 0,
-      candidatos: 0,
-      deliveryIds: [],
-    }),
-  };
+  const agenda = agendaStub({
+    date: operationalDate,
+    sourceDates: [operationalDate],
+    criadas: 0,
+    puladas: 0,
+    avancados: 0,
+    deliveryIds: [],
+  });
   const rota: any = {
     planejarRota: async () => ({
       date: operationalDate,
@@ -699,7 +414,7 @@ test('preparar com pendência: clone do dia novo herda a origem da entrega origi
       paradas: [],
     }),
   };
-  const service = new LogisticaAdminRouteService(prisma, occurrences, rota, { resolverDevedorNaRota: async () => new Map() } as any);
+  const service = new LogisticaAdminRouteService(prisma, rota, { resolverDevedorNaRota: async () => new Map() } as any, agenda);
 
   await service.prepare(companyId, {
     operationalDate,

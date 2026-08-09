@@ -27,22 +27,17 @@ import {
   SequenciaMatchPlano,
 } from './logistica-agenda-sequencia.util';
 import { AgendaAlertaJanela, calcularEtas } from './logistica-agenda-eta.util';
+// Peças puras do vínculo. Moram num util (e não no LogisticaRecorrenciaService)
+// porque agora é ELE que injeta ESTE serviço — importar de lá fecharia ciclo de DI.
 import {
-  aplicarItemNoPlano,
-  cadenciaDoVinculo,
-  escolherPlanoDoDia,
-  EspelhoVinculoSnapshot,
-  planejarEspelho,
-  removerItemDoPlano,
-} from './logistica-agenda-espelho.util';
-import {
-  carregarVinculoEspelhoSnapshot,
+  carregarVinculoItemSnapshot,
   parseDateOrNull,
   resolveValorUnit,
-} from './logistica-recorrencia.service';
-// FUSO (26/07) — a Agenda passou a usar os MESMOS helpers de dia civil de São Paulo
-// que o resto do módulo já usava; ver o bloco "FUSO" no fim deste arquivo.
-import { isoWeekdayForDate, saoPauloDateKey } from './logistica-occurrence.service';
+  VinculoItemSnapshot,
+} from './logistica-recorrencia.util';
+// FUSO (26/07) — a Agenda usa os MESMOS helpers de dia civil de São Paulo que o
+// resto do módulo; ver o bloco "FUSO" no fim deste arquivo.
+import { isoWeekdayForDate, saoPauloDateKey } from './logistica-dia.util';
 // F0 (27/07) — motor confiável: cursor só avança no desfecho (ver generateDay),
 // guarda anti-dupla-aberta, extrato de eventos e fechamento de caixa lazy.
 import { sourceDateFromOccurrenceKey } from './logistica-agenda-cursor.util';
@@ -59,27 +54,10 @@ const DAY_IN_MS = 24 * 60 * 60 * 1000;
 const PRESERVED_ROUTE_STATUS = ['em_rota'] as const;
 const FINISHED_DELIVERY_STATUS = ['entregue', 'cancelada'] as const;
 
-type AgendaMode = 'LEGADO' | 'AGENDA_V2';
+// Sobrou UM modo (F1, 09/08). O campo continua no payload porque as telas leem
+// `modo`/`agendaV2Ativa` — quem limpa o contrato da resposta é outra frente.
+type AgendaMode = 'AGENDA_V2';
 type AgendaFrequency = 'SEMANAL' | 'QUINZENAL' | 'INTERVALO';
-
-type LegacyGroup = {
-  id: string;
-  key: string;
-  customerProfileId: string;
-  localId: string | null;
-  diaSemana: number;
-  frequencia: AgendaFrequency;
-  intervaloDias: number | null;
-  proximaData: Date | null;
-  cliente: any;
-  local: any;
-  itens: Array<{
-    productId: number;
-    nome: string;
-    qtd: number;
-    valorUnit: number;
-  }>;
-};
 
 type AgendaContext = {
   mode: AgendaMode;
@@ -91,8 +69,6 @@ type AgendaContext = {
     totalPlanosProjetados: number;
     avisos: unknown[];
   };
-  legacyGroups?: LegacyGroup[];
-  legacyWarnings?: unknown[];
 };
 
 type DbLike = PrismaService | any;
@@ -103,21 +79,9 @@ export class LogisticaAgendaService {
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async isAgendaV2Active(companyId: number): Promise<boolean> {
-    this.assertCompany(companyId);
-    const config = await this.prisma.logisticaConfig.findUnique({
-      where: { companyId },
-      select: { agendaV2Ativa: true },
-    });
-    return config?.agendaV2Ativa === true;
-  }
-
   async getSummary(companyId: number) {
     this.assertCompany(companyId);
     const context = await this.getContext(companyId);
-    if (context.mode === 'LEGADO') {
-      return this.getLegacySummary(companyId, context);
-    }
 
     const [plans, routes] = await Promise.all([
       this.prisma.logisticaPlanoEntrega.findMany({
@@ -199,9 +163,6 @@ export class LogisticaAgendaService {
     this.assertCompany(companyId);
     const day = normalizeWeekday(dayInput);
     const context = await this.getContext(companyId);
-    if (context.mode === 'LEGADO') {
-      return this.getLegacyDay(companyId, day, context);
-    }
 
     const [plans, route] = await Promise.all([
       this.prisma.logisticaPlanoEntrega.findMany({
@@ -353,7 +314,6 @@ export class LogisticaAgendaService {
   /** S2 — rotas salvas candidatas a importar (qualquer rota da empresa, com ou sem dia fixo). */
   async listImportSequences(companyId: number, dayInput: unknown): Promise<AgendaSequenciaResumoDto[]> {
     this.assertCompany(companyId);
-    await this.assertAgendaV2(companyId);
     normalizeWeekday(dayInput); // valida o parâmetro da rota; a listagem não filtra por dia.
     const rotas = await this.prisma.logisticaRotaModelo.findMany({
       where: { companyId },
@@ -383,7 +343,6 @@ export class LogisticaAgendaService {
     modeloIdInput: unknown,
   ): Promise<AgendaImportarPreviewDto> {
     this.assertCompany(companyId);
-    await this.assertAgendaV2(companyId);
     const day = normalizeWeekday(dayInput);
     const modeloId = cleanId(modeloIdInput);
 
@@ -465,7 +424,6 @@ export class LogisticaAgendaService {
    */
   async getDivergencias(companyId: number, dayInput: unknown): Promise<AgendaDivergenciasDto> {
     this.assertCompany(companyId);
-    await this.assertAgendaV2(companyId);
     const day = normalizeWeekday(dayInput);
     const diaNome = DAY_NAMES[day - 1];
 
@@ -554,244 +512,51 @@ export class LogisticaAgendaService {
     return { total: itens.length, itens };
   }
 
+  /**
+   * 🔴 NÃO EXISTE MAIS "MODO LEGADO" (F1, 09/08). A Agenda V2 é O sistema, não
+   * uma opção: a flag `LogisticaConfig.agendaV2Ativa` estava `true` nas 9
+   * empresas medidas em produção e nasce `true` por default desde 26/07 — o
+   * `if` que escolhia entre ela e o motor de `ClienteProduto` só mantinha vivo
+   * um ramo que ninguém percorria. Sobrou o que a tela realmente precisa: os
+   * dias de trabalho da empresa.
+   */
   private async getContext(companyId: number): Promise<AgendaContext> {
     const config = await this.prisma.logisticaConfig.findUnique({
       where: { companyId },
-      select: { agendaV2Ativa: true, diasTrabalho: true },
+      select: { diasTrabalho: true },
     });
-    const active = config?.agendaV2Ativa === true;
-    const diasTrabalho = parseWeekdays(config?.diasTrabalho);
-    if (active) {
-      return {
-        mode: 'AGENDA_V2',
-        active: true,
-        diasTrabalho,
-        migration: {
-          necessaria: false,
-          totalVinculos: 0,
-          totalPlanosProjetados: 0,
-          avisos: [],
-        },
-      };
-    }
-
-    const legacy = await this.loadLegacyGroups(companyId);
     return {
-      mode: 'LEGADO',
-      active: false,
-      diasTrabalho,
+      mode: 'AGENDA_V2',
+      active: true,
+      diasTrabalho: parseWeekdays(config?.diasTrabalho),
       migration: {
-        necessaria: legacy.totalLinks > 0,
-        totalVinculos: legacy.totalLinks,
-        totalPlanosProjetados: legacy.groups.length,
-        avisos: legacy.warnings,
+        necessaria: false,
+        totalVinculos: 0,
+        totalPlanosProjetados: 0,
+        avisos: [],
       },
-      legacyGroups: legacy.groups,
-      legacyWarnings: legacy.warnings,
     };
-  }
-
-  private async getLegacySummary(companyId: number, context: AgendaContext) {
-    const groups = context.legacyGroups ?? [];
-    const routes = await this.prisma.logisticaRotaModelo.findMany({
-      where: { companyId },
-      select: { id: true, nome: true, diaSemana: true, ativo: true, versao: true, paradasJson: true },
-      orderBy: { updatedAt: 'desc' },
-    });
-
-    return {
-      modo: context.mode,
-      agendaV2Ativa: false,
-      migracao: context.migration,
-      dias: DAY_NAMES.map((nome, index) => {
-        const day = index + 1;
-        const dayGroups = groups.filter((group) => group.diaSemana === day);
-        const route = routes.find((item) => item.diaSemana === day) ?? null;
-        return {
-          diaSemana: day,
-          nome,
-          ativo: context.diasTrabalho.length
-            ? context.diasTrabalho.includes(day)
-            : dayGroups.length > 0,
-          rota: route ? legacyRouteDto(route) : null,
-          totalPlanos: dayGroups.length,
-          totalParadas: dayGroups.length,
-          totalClientes: new Set(dayGroups.map((group) => group.customerProfileId)).size,
-          // Paridade com a V2 (ver FIX 27/07 em getSummary): a lista de gente do dia.
-          // No legado o grupo não tem filtro de ciclo, então é o mesmo conjunto.
-          totalClientesDia: new Set(dayGroups.map((group) => group.customerProfileId)).size,
-          avisos: [],
-        };
-      }),
-    };
-  }
-
-  private async getLegacyDay(companyId: number, day: number, context: AgendaContext) {
-    const groups = (context.legacyGroups ?? []).filter((group) => group.diaSemana === day);
-    const route = await this.prisma.logisticaRotaModelo.findFirst({
-      where: { companyId, diaSemana: day },
-      select: { id: true, nome: true, diaSemana: true, ativo: true, versao: true, paradasJson: true },
-      orderBy: { updatedAt: 'desc' },
-    });
-    const ordered = orderLegacyGroups(groups, route?.paradasJson);
-    const plans = ordered.map((group) => legacyPlanDto(group));
-    const stops = plans.map((plan, index) => ({
-      ...plan,
-      id: `parada:${plan.id}`,
-      ordem: index + 1,
-      ordemTravada: true,
-      planoEntregaId: plan.id,
-    }));
-
-    return {
-      modo: context.mode,
-      agendaV2Ativa: false,
-      migracao: context.migration,
-      diaSemana: day,
-      nome: DAY_NAMES[day - 1],
-      ativo: context.diasTrabalho.length ? context.diasTrabalho.includes(day) : plans.length > 0,
-      rota: route ? legacyRouteDto(route) : null,
-      planos: plans,
-      paradas: attachEtaInfo(stops),
-      totais: {
-        planos: plans.length,
-        paradas: stops.length,
-        clientes: new Set(plans.map((plan) => plan.customerProfileId)).size,
-        itens: plans.reduce((total, plan) => total + plan.itens.length, 0),
-      },
-      avisos: context.legacyWarnings ?? [],
-    };
-  }
-
-  private async loadLegacyGroups(companyId: number): Promise<{
-    groups: LegacyGroup[];
-    warnings: unknown[];
-    totalLinks: number;
-  }> {
-    const links = await this.prisma.clienteProduto.findMany({
-      where: { companyId, ativo: true },
-      include: {
-        customerProfile: {
-          select: {
-            id: true,
-            name: true,
-            endereco: true,
-            numero: true,
-            bairro: true,
-            cidade: true,
-            uf: true,
-            cep: true,
-            lat: true,
-            lng: true,
-            precoPadrao: true,
-          },
-        },
-        local: { select: localSelect() },
-        product: { select: { id: true, name: true, price: true, priceCents: true } },
-      },
-      orderBy: [{ customerProfileId: 'asc' }, { createdAt: 'asc' }],
-    });
-
-    const map = new Map<string, LegacyGroup>();
-    const warnings: unknown[] = [];
-    let unscheduled = 0;
-    let adjustedIntervals = 0;
-
-    for (const link of links) {
-      const days = legacyLinkDays(link);
-      if (!days.length) {
-        unscheduled += 1;
-        continue;
-      }
-      const cadence = legacyCadence(link);
-      if (
-        !parseWeekdays(link.diasSemana).length
-        && cadence.frequency === 'INTERVALO'
-        && Math.trunc(Number(link.frequenciaDias)) !== cadence.intervalDays
-      ) {
-        adjustedIntervals += 1;
-      }
-      for (const day of days) {
-        const nextDate = parseWeekdays(link.diasSemana).length
-          ? null
-          : link.proximaData ?? null;
-        const cadencePhase = legacyCadencePhase(cadence, link.proximaData);
-        const key = [
-          link.customerProfileId,
-          link.localId || '',
-          day,
-          cadence.frequency,
-          cadence.intervalDays || '',
-          cadencePhase,
-        ].join('|');
-        let group = map.get(key);
-        if (!group) {
-          group = {
-            id: virtualLegacyId(key),
-            key,
-            customerProfileId: link.customerProfileId,
-            localId: link.localId ?? null,
-            diaSemana: day,
-            frequencia: cadence.frequency,
-            intervaloDias: cadence.intervalDays,
-            proximaData: nextDate,
-            cliente: link.customerProfile,
-            local: link.local ?? null,
-            itens: [],
-          };
-          map.set(key, group);
-        }
-        if (nextDate && (!group.proximaData || nextDate < group.proximaData)) {
-          group.proximaData = nextDate;
-        }
-        group.itens.push({
-          productId: link.productId,
-          nome: link.product?.name || 'Produto',
-          qtd: Math.max(1, Math.trunc(Number(link.qtdPadrao) || 1)),
-          valorUnit: resolveValorUnit(link as any),
-        });
-      }
-    }
-
-    if (unscheduled) {
-      warnings.push({
-        codigo: 'VINCULO_SEM_DIA',
-        mensagem: `${unscheduled} vínculo(s) sem dia continuam fora da agenda.`,
-      });
-    }
-    if (adjustedIntervals) {
-      warnings.push({
-        codigo: 'INTERVALO_AJUSTADO_A_ROTA',
-        mensagem: `${adjustedIntervals} vínculo(s) por dias corridos serão ajustados para semanas completas.`,
-      });
-    }
-    return { groups: [...map.values()], warnings, totalLinks: links.length };
   }
 
   async createPlan(companyId: number, input: CreateAgendaPlanoDto) {
     this.assertCompany(companyId);
-    const activateAgenda = await this.assertCanWriteAgenda(companyId);
+    // O PRIMEIRO plano da empresa inaugura a agenda: garante a linha de
+    // `LogisticaConfig` (várias rotinas contam com ela existindo).
+    //
+    // 🔴 MORREU AQUI o porteiro "organize os cadastros atuais antes" (F2,
+    // 09/08). Ele contava vínculos com `diasSemana`/`proximaData` — a agenda V1
+    // dentro do `ClienteProduto`. Não existe mais cadastro que grave dia no
+    // vínculo: quem escreve dia é `definirDiasDaVisita`, e ele escreve PLANO.
+    // Sem uma segunda agenda pra atropelar, o porteiro só sabia barrar.
+    const inaugurando = !(await this.agendaJaOrganizada(this.prisma, companyId));
     const normalized = await this.normalizePlanInput(companyId, input);
 
     const created = await this.prisma.$transaction(async (tx) => {
-      if (activateAgenda) {
-        const legacyWithSchedule = await tx.clienteProduto.count({
-          where: {
-            companyId,
-            ativo: true,
-            OR: [
-              { diasSemana: { not: null } },
-              { proximaData: { not: null } },
-            ],
-          },
-        });
-        if (legacyWithSchedule > 0) {
-          throw new ConflictException('Organize os cadastros atuais antes de editar a nova Agenda.');
-        }
+      if (inaugurando) {
         await tx.logisticaConfig.upsert({
           where: { companyId },
-          update: { agendaV2Ativa: true },
-          create: { companyId, agendaV2Ativa: true },
+          update: {},
+          create: { companyId },
         });
       }
       const plan = await tx.logisticaPlanoEntrega.create({
@@ -842,7 +607,6 @@ export class LogisticaAgendaService {
 
   async updatePlan(companyId: number, id: string, input: UpdateAgendaPlanoDto) {
     this.assertCompany(companyId);
-    await this.assertAgendaV2(companyId);
     const existing = await this.prisma.logisticaPlanoEntrega.findFirst({
       where: { id: cleanId(id), companyId },
       include: planInclude(),
@@ -930,139 +694,285 @@ export class LogisticaAgendaService {
   }
 
   /**
-   * PONTE CADASTRO→AGENDA (26/07) — o combinado do negócio é dia por CLIENTE/
-   * visita; com a V2 ativa, o cadastro que grava dia no vínculo (APK/site,
-   * POST/PATCH/DELETE /logistica/cliente-produtos) ficava invisível pro
-   * generateDay. Este método espelha a mudança do vínculo nos planos:
-   *  - dia que ENTROU → item entra no plano do (cliente, local, dia); sem plano
-   *    compatível → cria (createPlan, com parada no fim da rota do dia).
-   *  - dia que SAIU → item sai do plano; visita que esvaziou → pausa (ativo=false),
-   *    nunca delete.
-   *  - dia MANTIDO → qtd/valor do item são atualizados se divergirem.
-   * Fail-closed: ambiguidade (2+ planos ou 2+ itens do mesmo produto) não chuta —
-   * vira aviso no retorno. NUNCA lança: erro vira aviso (o vínculo já foi salvo;
-   * quebrar a resposta do cadastro deixaria o APK em erro com dado gravado).
+   * 🔴 A PORTA ÚNICA DE ESCRITA DE DIA DA SEMANA (F2, 09/08).
+   *
+   * O dia da visita é do CLIENTE e mora em `LogisticaPlanoEntrega` — ponto. Até
+   * a F2 o cadastro gravava o dia em `ClienteProduto.diasSemana` e um ESPELHO
+   * copiava aquilo pros planos depois; eram duas agendas pra mesma pergunta, e
+   * toda vez que o espelho falhava calado o cliente sumia da rota com o dia
+   * gravado na tela. A mão foi invertida: agora o cadastro escreve o PLANO
+   * direto e o vínculo voltou a ser só o que ele sempre deveria ter sido —
+   * preço e quantidade combinados.
+   *
+   * Contrato:
+   *  - dia PEDIDO que não tem plano → cria (`createPlan`, com parada no fim da
+   *    rota daquele dia, igual a Agenda faz pela tela);
+   *  - dia PEDIDO com plano pausado → reativa e re-sincroniza os itens;
+   *  - dia que SAIU → PAUSA o plano (`ativo=false`), nunca apaga: histórico,
+   *    entregas já geradas e a ordem salva da rota continuam de pé;
+   *  - `dias: []` → cliente sem dia fixo (todos os planos pausados).
+   *
+   * Os ITENS da visita vêm dos vínculos ATIVOS do cliente, agrupados por local
+   * (multilocal: cada local do cliente ganha o plano do dia com os itens dele).
+   * Cliente sem vínculo nenhum NÃO ganha plano — visita sem item não existe
+   * (`normalizeItems` exige 1..50), e inventar uma seria pior que não ter dia.
+   *
+   * NUNCA lança: o que não deu vira aviso (mesma lei do antigo espelho — o
+   * cadastro já foi salvo, derrubar a resposta deixaria o APK em erro com dado
+   * gravado). Aviso SEMPRE vira linha de log.
+   */
+  async definirDiasDaVisita(
+    companyId: number,
+    customerProfileId: string,
+    dias: number[],
+  ): Promise<{ avisos: string[]; diasSemana: string | null }> {
+    const avisos: string[] = [];
+    const alvo = normalizeVisitDays(dias);
+    const clienteId = cleanId(customerProfileId);
+    try {
+      this.assertCompany(companyId);
+      if (!clienteId) throw new BadRequestException('Cliente é obrigatório.');
+
+      const itensPorLocal = await this.itensDoCadastroPorLocal(companyId, clienteId);
+      const planos = await this.prisma.logisticaPlanoEntrega.findMany({
+        where: { companyId, customerProfileId: clienteId },
+        select: { id: true, localId: true, diaSemana: true, ativo: true },
+        orderBy: { createdAt: 'asc' },
+      });
+
+      // 1) Dias que SAÍRAM: pausa. Vale pra QUALQUER plano do cliente, inclusive
+      //    de local que não tem mais vínculo — "sem dia" é resposta do cliente
+      //    inteiro, não de um local só.
+      for (const plano of planos) {
+        if (alvo.includes(plano.diaSemana) || !plano.ativo) continue;
+        try {
+          await this.updatePlan(companyId, plano.id, { ativo: false });
+        } catch (error: any) {
+          avisos.push(`${diaNomeAgenda(plano.diaSemana)}: ${String(error?.message || error)}`);
+        }
+      }
+
+      // 2) Dias PEDIDOS: um plano por (local, dia), com os itens do cadastro.
+      for (const [localId, itens] of itensPorLocal) {
+        if (!itens.length) continue;
+        for (const dia of alvo) {
+          const existente = planos.find((p) => (p.localId ?? null) === localId && p.diaSemana === dia);
+          try {
+            if (existente) {
+              await this.updatePlan(companyId, existente.id, { ativo: true, itens });
+            } else {
+              await this.createPlan(companyId, {
+                customerProfileId: clienteId,
+                localId,
+                diaSemana: dia,
+                frequencia: 'SEMANAL',
+                itens,
+              } as any);
+            }
+          } catch (error: any) {
+            avisos.push(`${diaNomeAgenda(dia)}: ${String(error?.message || error)}`);
+          }
+        }
+      }
+
+      if (alvo.length && !itensPorLocal.size) {
+        avisos.push('O cliente não tem nenhum produto no cadastro — sem item não existe visita.');
+      }
+    } catch (error: any) {
+      avisos.push(String(error?.message || error));
+    }
+    this.reportarCadastro('dias-da-visita', companyId, clienteId, avisos);
+    return { avisos, diasSemana: alvo.length ? alvo.join(',') : null };
+  }
+
+  /**
+   * SINCRONIZA O ITEM DO VÍNCULO NAS VISITAS ATIVAS (F2, 09/08 — era o
+   * `espelharVinculoCadastro` da ponte de 26/07).
+   *
+   * 🔴 O QUE MUDOU: o método NÃO lê mais cadência nenhuma do `ClienteProduto`.
+   * Quem responde "que dias este cliente recebe" é o PLANO; aqui só se responde
+   * "o que vai na visita". Mexer num vínculo (criar/editar/apagar produto,
+   * quantidade, preço ou local) atualiza o item nas visitas ATIVAS do cliente:
+   *  - vínculo apagado/desativado, ou que MUDOU DE LOCAL → o item sai das
+   *    visitas do local ANTERIOR; visita que esvaziou vira PAUSADA, nunca
+   *    apagada;
+   *  - vínculo vivo → o item entra/atualiza nas visitas ativas do local ATUAL.
+   *
+   * 🔴 NÃO RESSUSCITA DIA PAUSADO: acrescentar um produto nunca pode trazer de
+   * volta um dia que o dono tirou do cadastro. Cliente sem visita ativa fica só
+   * com o vínculo (preço combinado) até alguém definir os dias — aí o
+   * `definirDiasDaVisita` monta o plano já com este item dentro.
+   *
+   * Fail-closed e sem lançar: o produto duplicado na mesma visita é AMBÍGUO
+   * (vira aviso, não chute), e erro vira aviso + log.
    */
   async espelharVinculoCadastro(
     companyId: number,
     vinculoId: string | null,
-    anterior: EspelhoVinculoSnapshot | null,
+    anterior: VinculoItemSnapshot | null,
   ): Promise<{ avisos: string[] }> {
     const avisos: string[] = [];
     try {
       this.assertCompany(companyId);
-      if (!(await this.isAgendaV2Active(companyId))) return { avisos };
       const atual = vinculoId
-        ? await carregarVinculoEspelhoSnapshot(this.prisma, companyId, vinculoId)
+        ? await carregarVinculoItemSnapshot(this.prisma, companyId, vinculoId)
         : null;
-      if (!atual && !anterior) return { avisos };
+      if (!atual && !anterior) return this.reportarCadastro('vinculo', companyId, vinculoId, avisos);
 
-      const plano = planejarEspelho(anterior, atual);
-      const diaNome = (dia: number) => DAY_NAMES[dia - 1] ?? String(dia);
-
-      const candidatosDoDia = async (snap: EspelhoVinculoSnapshot, dia: number) => {
-        const rows = await this.prisma.logisticaPlanoEntrega.findMany({
-          where: {
-            companyId,
-            customerProfileId: snap.customerProfileId,
-            localId: snap.localId ?? null,
-            diaSemana: dia,
-          },
-          select: {
-            id: true,
-            ativo: true,
-            frequencia: true,
-            intervaloDias: true,
-            proximaData: true,
-            itens: { select: { productId: true, qtd: true, valorUnit: true } },
-          },
-          orderBy: { createdAt: 'asc' },
-        });
-        return rows.map((row) => ({
-          id: row.id,
-          ativo: row.ativo,
-          frequencia: row.frequencia,
-          intervaloDias: row.intervaloDias ?? null,
-          proximaData: row.proximaData ?? null,
-          itens: row.itens.map((item) => ({
-            productId: item.productId,
-            qtd: item.qtd,
-            valorUnit: Number(item.valorUnit || 0),
-          })),
-        }));
-      };
-
-      // Dias de onde o item SAI (local/cadência do vínculo ANTERIOR).
-      for (const dia of plano.remover) {
-        if (!anterior) break;
-        try {
-          const escolha = escolherPlanoDoDia(await candidatosDoDia(anterior, dia), cadenciaDoVinculo(anterior));
-          if (escolha.aviso) { avisos.push(`${diaNome(dia)}: ${escolha.aviso}`); continue; }
-          if (!escolha.plano) continue; // nada a remover — dia nunca espelhado
-          const remocao = removerItemDoPlano(escolha.plano.itens, anterior.productId);
-          if (remocao.aviso) { avisos.push(`${diaNome(dia)}: ${remocao.aviso}`); continue; }
-          if (remocao.esvaziou) {
-            if (escolha.plano.ativo) await this.updatePlan(companyId, escolha.plano.id, { ativo: false });
-          } else if (remocao.itens) {
-            await this.updatePlan(companyId, escolha.plano.id, { itens: remocao.itens });
-          }
-        } catch (error: any) {
-          avisos.push(`${diaNome(dia)}: espelho da Agenda falhou (${String(error?.message || error)}).`);
-        }
+      const saiuDoLocal = Boolean(
+        anterior
+        && (!atual || !atual.ativo || (atual.localId ?? null) !== (anterior.localId ?? null)),
+      );
+      if (anterior && saiuDoLocal) {
+        avisos.push(...await this.removerItemDasVisitas(
+          companyId,
+          anterior.customerProfileId,
+          anterior.localId ?? null,
+          anterior.productId,
+        ));
       }
-
-      // Dias em que o item ENTRA ou PERMANECE (local/cadência do vínculo ATUAL).
-      if (atual) {
-        const item = { productId: atual.productId, qtd: atual.qtdPadrao, valorUnit: atual.valorUnit };
-        const cadencia = cadenciaDoVinculo(atual);
-        for (const dia of [...plano.adicionar, ...plano.manter]) {
-          try {
-            const escolha = escolherPlanoDoDia(await candidatosDoDia(atual, dia), cadencia);
-            if (escolha.aviso) { avisos.push(`${diaNome(dia)}: ${escolha.aviso}`); continue; }
-            if (escolha.criar) {
-              await this.createPlan(companyId, {
-                customerProfileId: atual.customerProfileId,
-                localId: atual.localId,
-                diaSemana: dia,
-                frequencia: cadencia.frequencia,
-                intervaloDias: cadencia.intervaloDias,
-                proximaData: cadencia.proximaData ? dateKey(cadencia.proximaData) : null,
-                itens: [item],
-              } as any);
-              continue;
-            }
-            if (!escolha.plano) continue;
-            const mescla = aplicarItemNoPlano(escolha.plano.itens, item);
-            if (mescla.aviso) { avisos.push(`${diaNome(dia)}: ${mescla.aviso}`); continue; }
-            if (mescla.itens) {
-              await this.updatePlan(companyId, escolha.plano.id, { itens: mescla.itens, ativo: true });
-            } else if (!escolha.plano.ativo) {
-              await this.updatePlan(companyId, escolha.plano.id, { ativo: true });
-            }
-          } catch (error: any) {
-            avisos.push(`${diaNome(dia)}: espelho da Agenda falhou (${String(error?.message || error)}).`);
-          }
-        }
+      if (atual && atual.ativo) {
+        avisos.push(...await this.aplicarItemNasVisitas(companyId, atual));
+      } else if (atual && !atual.ativo && !anterior) {
+        // Vínculo já nasceu/ficou pausado sem passado conhecido: nada a fazer,
+        // mas o item pode estar numa visita antiga — tira pra tela não mentir.
+        avisos.push(...await this.removerItemDasVisitas(
+          companyId,
+          atual.customerProfileId,
+          atual.localId ?? null,
+          atual.productId,
+        ));
       }
-      return this.reportarEspelho(companyId, vinculoId, avisos);
     } catch (error: any) {
-      avisos.push(`Espelho da Agenda falhou (${String(error?.message || error)}).`);
-      return this.reportarEspelho(companyId, vinculoId, avisos);
+      avisos.push(`Sincronizar o cadastro com a Agenda falhou (${String(error?.message || error)}).`);
     }
+    return this.reportarCadastro('vinculo', companyId, vinculoId, avisos);
   }
 
   /**
-   * 🔴 28/07 — o espelho falhava CALADO. Os avisos voltavam no JSON como
-   * `agendaAvisos` e ninguém logava nem mostrava, então um erro de Prisma dentro
-   * da transação (o `companyId` no create aninhado do createRouteStop) desfazia
-   * o plano inteiro sem deixar rastro: o dono via "cliente com dia e sem plano"
-   * e não tinha por onde começar. Falha de espelho agora SEMPRE vira linha de
-   * log — é a mesma lei do disjuntor: o conserto é o freio, não o sintoma.
+   * Itens da visita, por local, lidos do CADASTRO (`ClienteProduto` = preço e
+   * quantidade combinados). `null` na chave = vínculo sem local (perfil).
    */
-  private reportarEspelho(companyId: number, vinculoId: string | null, avisos: string[]) {
+  private async itensDoCadastroPorLocal(
+    companyId: number,
+    customerProfileId: string,
+  ): Promise<Map<string | null, AgendaPlanoItemDto[]>> {
+    const vinculos = await this.prisma.clienteProduto.findMany({
+      where: { companyId, customerProfileId, ativo: true },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        localId: true,
+        productId: true,
+        qtdPadrao: true,
+        precoAcordado: true,
+        product: { select: { price: true, priceCents: true } },
+        customerProfile: { select: { precoPadrao: true } },
+      },
+    });
+    const out = new Map<string | null, AgendaPlanoItemDto[]>();
+    for (const v of vinculos) {
+      const localId = v.localId ?? null;
+      const lista = out.get(localId) ?? [];
+      const item = {
+        productId: v.productId,
+        qtd: Math.max(1, Math.trunc(Number(v.qtdPadrao) || 1)),
+        valorUnit: resolveValorUnit(v as any),
+      };
+      // Mesmo produto vinculado 2× ao mesmo cliente/local (o schema permite, e é
+      // intencional): a visita leva UMA linha por produto — a mais antiga manda.
+      if (!lista.some((i) => i.productId === item.productId)) lista.push(item);
+      out.set(localId, lista);
+    }
+    return out;
+  }
+
+  /** Visitas ATIVAS do cliente naquele local (o dia vem daqui, nunca do vínculo). */
+  private async visitasAtivas(companyId: number, customerProfileId: string, localId: string | null) {
+    return this.prisma.logisticaPlanoEntrega.findMany({
+      where: { companyId, customerProfileId, localId, ativo: true },
+      select: {
+        id: true,
+        diaSemana: true,
+        itens: { select: { productId: true, qtd: true, valorUnit: true } },
+      },
+      orderBy: { diaSemana: 'asc' },
+    });
+  }
+
+  private async aplicarItemNasVisitas(companyId: number, v: VinculoItemSnapshot): Promise<string[]> {
+    const avisos: string[] = [];
+    const visitas = await this.visitasAtivas(companyId, v.customerProfileId, v.localId ?? null);
+    for (const visita of visitas) {
+      const iguais = visita.itens.filter((i) => i.productId === v.productId);
+      if (iguais.length > 1) {
+        avisos.push(`${diaNomeAgenda(visita.diaSemana)}: AMBIGUO: o produto aparece mais de uma vez na visita — ajuste pela Agenda.`);
+        continue;
+      }
+      const atual = iguais[0];
+      if (atual && atual.qtd === v.qtdPadrao && Number(atual.valorUnit || 0) === v.valorUnit) continue;
+      if (!atual && visita.itens.length >= 50) {
+        avisos.push(`${diaNomeAgenda(visita.diaSemana)}: a visita já tem 50 itens — ajuste pela Agenda.`);
+        continue;
+      }
+      const itens = atual
+        ? visita.itens.map((i) => (i.productId === v.productId
+          ? { productId: i.productId, qtd: v.qtdPadrao, valorUnit: v.valorUnit }
+          : { productId: i.productId, qtd: i.qtd, valorUnit: Number(i.valorUnit || 0) }))
+        : [
+          ...visita.itens.map((i) => ({ productId: i.productId, qtd: i.qtd, valorUnit: Number(i.valorUnit || 0) })),
+          { productId: v.productId, qtd: v.qtdPadrao, valorUnit: v.valorUnit },
+        ];
+      try {
+        await this.updatePlan(companyId, visita.id, { itens });
+      } catch (error: any) {
+        avisos.push(`${diaNomeAgenda(visita.diaSemana)}: ${String(error?.message || error)}`);
+      }
+    }
+    return avisos;
+  }
+
+  private async removerItemDasVisitas(
+    companyId: number,
+    customerProfileId: string,
+    localId: string | null,
+    productId: number,
+  ): Promise<string[]> {
+    const avisos: string[] = [];
+    const visitas = await this.visitasAtivas(companyId, customerProfileId, localId);
+    for (const visita of visitas) {
+      const iguais = visita.itens.filter((i) => i.productId === productId);
+      if (!iguais.length) continue;
+      if (iguais.length > 1) {
+        avisos.push(`${diaNomeAgenda(visita.diaSemana)}: AMBIGUO: o produto aparece mais de uma vez na visita — ajuste pela Agenda.`);
+        continue;
+      }
+      const restantes = visita.itens
+        .filter((i) => i.productId !== productId)
+        .map((i) => ({ productId: i.productId, qtd: i.qtd, valorUnit: Number(i.valorUnit || 0) }));
+      try {
+        // Visita sem item nenhum não existe: PAUSA (nunca delete — a ordem da
+        // rota, o histórico e as entregas já geradas continuam de pé).
+        if (!restantes.length) await this.updatePlan(companyId, visita.id, { ativo: false });
+        else await this.updatePlan(companyId, visita.id, { itens: restantes });
+      } catch (error: any) {
+        avisos.push(`${diaNomeAgenda(visita.diaSemana)}: ${String(error?.message || error)}`);
+      }
+    }
+    return avisos;
+  }
+
+  /**
+   * 🔴 28/07 — a ponte cadastro→agenda falhava CALADA. Os avisos voltavam no
+   * JSON como `agendaAvisos` e ninguém logava nem mostrava, então um erro de
+   * Prisma dentro da transação desfazia o plano inteiro sem deixar rastro: o
+   * dono via "cliente com dia e sem plano" e não tinha por onde começar. Falha
+   * de sincronismo agora SEMPRE vira linha de log — é a mesma lei do disjuntor:
+   * o conserto é o freio, não o sintoma.
+   */
+  private reportarCadastro(escopo: string, companyId: number, alvo: string | null, avisos: string[]) {
     if (avisos.length) {
       this.logger.warn(
-        `[logistica] espelho cadastro→agenda company=${companyId} vinculo=${vinculoId ?? '-'}: ${avisos.join(' | ')}`,
+        `[logistica] cadastro→agenda (${escopo}) company=${companyId} alvo=${alvo ?? '-'}: ${avisos.join(' | ')}`,
       );
     }
     return { avisos };
@@ -1071,7 +981,6 @@ export class LogisticaAgendaService {
   async reorderDay(companyId: number, dayInput: unknown, input: ReordenarAgendaDiaDto) {
     this.assertCompany(companyId);
     const day = normalizeWeekday(dayInput);
-    await this.assertAgendaV2(companyId);
     const modes = [
       input.planoIds !== undefined,
       input.posicao !== undefined,
@@ -1129,214 +1038,20 @@ export class LogisticaAgendaService {
     return this.getDay(companyId, day);
   }
 
-  async getLegacyPreview(companyId: number) {
-    this.assertCompany(companyId);
-    const context = await this.getContext(companyId);
-    if (context.active) {
-      return {
-        agendaV2Ativa: true,
-        totalVinculos: 0,
-        totalPlanos: 0,
-        totalItens: 0,
-        dias: [],
-        avisos: [{ codigo: 'AGENDA_JA_ATIVA', mensagem: 'A agenda já está organizada.' }],
-        podeAplicar: false,
-      };
-    }
-    const groups = context.legacyGroups ?? [];
-    return {
-      agendaV2Ativa: false,
-      totalVinculos: context.migration.totalVinculos,
-      totalPlanos: groups.length,
-      totalItens: groups.reduce((total, group) => total + group.itens.length, 0),
-      dias: DAY_NAMES.map((_, index) => {
-        const day = index + 1;
-        const dayGroups = groups.filter((group) => group.diaSemana === day);
-        return {
-          diaSemana: day,
-          totalPlanos: dayGroups.length,
-          totalItens: dayGroups.reduce((total, group) => total + group.itens.length, 0),
-        };
-      }),
-      avisos: context.legacyWarnings ?? [],
-      podeAplicar: true,
-    };
-  }
-
-  async applyLegacy(companyId: number, userId: number, idempotencyKeyInput: string) {
-    this.assertCompany(companyId);
-    const userIdValue = await this.resolveAuditUserId(companyId, userId);
-    const idempotencyKey = normalizeIdempotencyKey(idempotencyKeyInput);
-    const requestHash = hashPayload({ acao: 'IMPORTAR_LEGADO' });
-    const replay = await this.findActionReplay(companyId, idempotencyKey, requestHash);
-    if (replay) return { ...(replay.resultadoJson as any), replayed: true };
-
-    const context = await this.getContext(companyId);
-    if (context.active) throw new ConflictException('A agenda já está organizada.');
-    const groups = context.legacyGroups ?? [];
-
-    try {
-      return await this.prisma.$transaction(async (tx) => {
-        const config = await tx.logisticaConfig.findUnique({
-          where: { companyId },
-          select: { agendaV2Ativa: true, diasTrabalho: true },
-        });
-        if (config?.agendaV2Ativa) throw new ConflictException('A agenda já está organizada.');
-
-        const routeByDay = new Map<number, any>();
-        let routesCreated = 0;
-        let routesReused = 0;
-        let plansCreated = 0;
-        let itemsCreated = 0;
-
-        for (let day = 1; day <= 7; day += 1) {
-          if (!groups.some((group) => group.diaSemana === day)) continue;
-          const existingRoute = await tx.logisticaRotaModelo.findFirst({
-            where: { companyId, diaSemana: day },
-            orderBy: { updatedAt: 'desc' },
-          });
-          if (existingRoute) {
-            routeByDay.set(day, await tx.logisticaRotaModelo.update({
-              where: { id: existingRoute.id },
-              data: {
-                tipo: 'SEMANAL',
-                ativo: parseWeekdays(config?.diasTrabalho).length
-                  ? parseWeekdays(config?.diasTrabalho).includes(day)
-                  : groups.some((group) => group.diaSemana === day),
-                versao: { increment: 1 },
-              },
-            }));
-            routesReused += 1;
-          } else if (groups.some((group) => group.diaSemana === day)) {
-            routeByDay.set(day, await tx.logisticaRotaModelo.create({
-              data: {
-                companyId,
-                nome: `Rota de ${DAY_NAMES[day - 1]}`,
-                diaSemana: day,
-                tipo: 'SEMANAL',
-                ativo: parseWeekdays(config?.diasTrabalho).length
-                  ? parseWeekdays(config?.diasTrabalho).includes(day)
-                  : true,
-                versao: 1,
-                paradasJson: [],
-              },
-            }));
-            routesCreated += 1;
-          }
-        }
-
-        for (const [day, route] of routeByDay) {
-          const existingJson = route.paradasJson;
-          const dayGroups = orderLegacyGroups(
-            groups.filter((group) => group.diaSemana === day),
-            existingJson,
-          );
-          await tx.logisticaRotaModeloParada.deleteMany({
-            where: { companyId, rotaModeloId: route.id },
-          });
-          let order = 1;
-          for (const group of dayGroups) {
-            const plan = await tx.logisticaPlanoEntrega.upsert({
-              where: {
-                companyId_legadoChave: {
-                  companyId,
-                  legadoChave: group.key,
-                },
-              },
-              update: {},
-              create: {
-                companyId,
-                customerProfileId: group.customerProfileId,
-                localId: group.localId,
-                diaSemana: group.diaSemana,
-                frequencia: group.frequencia,
-                intervaloDias: group.intervaloDias,
-                proximaData: group.proximaData,
-                ativo: true,
-                origem: 'LEGADO',
-                legadoChave: group.key,
-                itens: {
-                  // Sem `companyId` — herdado do pai (ver createPlan). Era ESTE ponto
-                  // que derrubava o "Organizar agora" inteiro em runtime.
-                  create: group.itens.map((item) => ({
-                    productId: item.productId,
-                    qtd: item.qtd,
-                    valorUnit: item.valorUnit,
-                  })),
-                },
-              },
-              include: { itens: true },
-            });
-            plansCreated += 1;
-            itemsCreated += plan.itens.length;
-            await tx.logisticaRotaModeloParada.create({
-              data: {
-                companyId,
-                rotaModeloId: route.id,
-                planoEntregaId: plan.id,
-                customerProfileId: group.customerProfileId,
-                localId: group.localId,
-                ordem: order,
-                ordemTravada: true,
-                itens: {
-                  // Sem `companyId` — herdado do pai (ver createPlan).
-                  create: group.itens.map((item) => ({
-                    productId: item.productId,
-                    produtoNomeSnapshot: item.nome.slice(0, 140),
-                    qtd: item.qtd,
-                    valorUnit: item.valorUnit,
-                  })),
-                },
-              },
-            });
-            order += 1;
-          }
-          await this.syncRouteMirror(tx, companyId, route.id, false);
-        }
-
-        await tx.logisticaConfig.upsert({
-          where: { companyId },
-          update: { agendaV2Ativa: true },
-          create: { companyId, agendaV2Ativa: true },
-        });
-
-        const action = await tx.logisticaAgendaAcao.create({
-          data: {
-            companyId,
-            idempotencyKey,
-            requestHash,
-            acao: 'IMPORTAR_LEGADO',
-            diaOrigem: 0,
-            dataInicio: new Date(),
-            entregasAbertas: 'MANTER',
-            executadoPorUserId: userIdValue,
-            resultadoJson: {},
-          },
-        });
-        const result = {
-          acaoId: action.id,
-          idempotencyKey,
-          replayed: false,
-          planosCriados: plansCreated,
-          itensCriados: itemsCreated,
-          rotasCriadas: routesCreated,
-          rotasAproveitadas: routesReused,
-          agendaV2Ativa: true as const,
-          avisos: context.legacyWarnings ?? [],
-        };
-        await tx.logisticaAgendaAcao.update({
-          where: { id: action.id },
-          data: { resultadoJson: result as any },
-        });
-        return result;
-      }, { isolationLevel: 'Serializable' });
-    } catch (error: any) {
-      if (error?.code === 'P2002') {
-        const replayAfterRace = await this.findActionReplay(companyId, idempotencyKey, requestHash);
-        if (replayAfterRace) return { ...(replayAfterRace.resultadoJson as any), replayed: true };
-      }
-      throw error;
-    }
+  /**
+   * "ORGANIZAR AGORA" — traz os vínculos antigos (`ClienteProduto` com dia) pra
+   * dentro da Agenda V2. Continua sendo a porta de entrada de empresa que nunca
+   * organizou; o que mudou (F1, 09/08) é COMO se sabe que ela já organizou.
+   *
+   * 🔴 A CHAVE VIROU DADO. Antes o porteiro era a flag `agendaV2Ativa`; com a
+   * flag apagada, a pergunta é respondida pelo que existe no banco: empresa com
+   * plano de entrega JÁ ESTÁ organizada. É a mesma resposta que a flag dava nas
+   * 9 empresas de produção (714 planos, flag `true`), só que lida da verdade em
+   * vez de um interruptor que alguém podia esquecer ligado.
+   */
+  private async agendaJaOrganizada(db: DbLike, companyId: number): Promise<boolean> {
+    const planos = await db.logisticaPlanoEntrega.count({ where: { companyId } });
+    return planos > 0;
   }
 
   async getActionPreview(
@@ -1347,7 +1062,6 @@ export class LogisticaAgendaService {
     startInput?: string,
   ) {
     this.assertCompany(companyId);
-    await this.assertAgendaV2(companyId);
     const day = normalizeWeekday(dayInput);
     const action = normalizeDayAction(actionInput);
     const destination = action === 'MOVER' ? normalizeWeekday(destinationInput) : null;
@@ -1410,7 +1124,6 @@ export class LogisticaAgendaService {
     input: ExecutarAgendaDiaAcaoDto,
   ) {
     this.assertCompany(companyId);
-    await this.assertAgendaV2(companyId);
     const actorId = await this.resolveAuditUserId(companyId, userId);
     const day = normalizeWeekday(dayInput);
     const action = normalizeDayAction(input.acao);
@@ -1599,7 +1312,6 @@ export class LogisticaAgendaService {
 
   async generateDay(companyId: number, dateInput?: string) {
     this.assertCompany(companyId);
-    await this.assertAgendaV2(companyId);
     const date = parseOperationalDate(dateInput);
     const day = isoWeekday(date);
     const plans = await this.prisma.logisticaPlanoEntrega.findMany({
@@ -1793,7 +1505,6 @@ export class LogisticaAgendaService {
     } = {},
   ) {
     this.assertCompany(companyId);
-    await this.assertAgendaV2(companyId);
     // F0 (27/07) — FECHAMENTO DE CAIXA lazy: antes de montar qualquer coisa,
     // fecha sozinho rota/entrega de dia que já passou e ninguém encerrou. Roda
     // com o HOJE real (não o `operationalDate` pedido — preparar a rota de
@@ -1944,35 +1655,6 @@ export class LogisticaAgendaService {
       deliveryIds: [...deliveryIds],
       avisos: [...new Set(warnings)],
     };
-  }
-
-  private async assertAgendaV2(companyId: number) {
-    if (!(await this.isAgendaV2Active(companyId))) {
-      throw new ConflictException('Organize os cadastros atuais antes de editar a nova Agenda.');
-    }
-  }
-
-  /**
-   * Criar o primeiro plano é uma ação explícita. Em empresa realmente vazia,
-   * ela também inaugura a Agenda V2; havendo vínculos antigos com dia, exige a
-   * importação consciente para não deixar parte da operação para trás.
-   */
-  private async assertCanWriteAgenda(companyId: number): Promise<boolean> {
-    if (await this.isAgendaV2Active(companyId)) return false;
-    const legacyWithSchedule = await this.prisma.clienteProduto.count({
-      where: {
-        companyId,
-        ativo: true,
-        OR: [
-          { diasSemana: { not: null } },
-          { proximaData: { not: null } },
-        ],
-      },
-    });
-    if (legacyWithSchedule > 0) {
-      throw new ConflictException('Organize os cadastros atuais antes de editar a nova Agenda.');
-    }
-    return true;
   }
 
   private async getPlanOrThrow(companyId: number, id: string) {
@@ -2311,29 +1993,6 @@ function planDto(plan: any) {
   };
 }
 
-function legacyPlanDto(group: LegacyGroup) {
-  return {
-    id: group.id,
-    revisao: 0,
-    ativo: true,
-    customerProfileId: group.customerProfileId,
-    localId: group.localId,
-    diaSemana: group.diaSemana,
-    frequencia: group.frequencia,
-    intervaloDias: group.intervaloDias,
-    proximaData: group.proximaData?.toISOString() ?? null,
-    cliente: clienteDto({ id: group.customerProfileId, ...(group.cliente || {}) }),
-    local: group.local ? addressDto(group.local) : null,
-    itens: group.itens,
-    janela: null,
-    tempoParadaMin: null,
-    instrucoes: null,
-    acesso: accessDto(group.local),
-    adicional: null,
-    origem: 'LEGADO' as const,
-  };
-}
-
 function stopDto(stop: any, plan: any) {
   return {
     ...plan,
@@ -2400,16 +2059,6 @@ function routeDto(route: any) {
     tipo: 'SEMANAL' as const,
     ativo: route.ativo,
     versao: route.versao,
-  };
-}
-
-function legacyRouteDto(route: any) {
-  return {
-    id: route.id,
-    nome: route.nome,
-    tipo: 'SEMANAL' as const,
-    ativo: route.ativo !== false,
-    versao: Number(route.versao || 1),
   };
 }
 
@@ -2502,46 +2151,22 @@ function parseWeekdays(value: unknown): number[] {
     .filter((day) => day >= 1 && day <= 7))];
 }
 
-function legacyLinkDays(link: any): number[] {
-  const explicit = parseWeekdays(link.diasSemana);
-  if (explicit.length) return explicit;
-  if (link.proximaData instanceof Date) return [isoWeekday(link.proximaData)];
-  return [];
+/**
+ * Dias da visita pedidos pelo cadastro: ISO 1..7, sem repetido, em ordem. Dia
+ * inválido é DESCARTADO (nunca vira lista vazia calada nem estoura 400 no meio
+ * de um cadastro que já foi gravado).
+ */
+function normalizeVisitDays(dias: unknown): number[] {
+  return [...new Set(
+    (Array.isArray(dias) ? dias : [])
+      .map((d) => Math.trunc(Number(d)))
+      .filter((d) => Number.isInteger(d) && d >= 1 && d <= 7),
+  )].sort((a, b) => a - b);
 }
 
-function legacyCadence(link: any): { frequency: AgendaFrequency; intervalDays: number | null } {
-  if (parseWeekdays(link.diasSemana).length) {
-    return { frequency: 'SEMANAL', intervalDays: null };
-  }
-  const days = Math.trunc(Number(link.frequenciaDias));
-  if (days === 14) return { frequency: 'QUINZENAL', intervalDays: null };
-  if (days > 0 && days !== 7) {
-    return {
-      frequency: 'INTERVALO',
-      intervalDays: Math.min(364, Math.max(7, Math.ceil(days / 7) * 7)),
-    };
-  }
-  return { frequency: 'SEMANAL', intervalDays: null };
-}
-
-function virtualLegacyId(key: string): string {
-  return `legado:${createHash('sha256').update(key).digest('hex').slice(0, 24)}`;
-}
-
-function orderLegacyGroups(groups: LegacyGroup[], paradasJson: unknown): LegacyGroup[] {
-  const list = [...groups];
-  const stops = Array.isArray(paradasJson) ? paradasJson as any[] : [];
-  const rank = new Map<string, number>();
-  stops.forEach((stop, index) => {
-    const key = `${String(stop?.customerProfileId ?? '')}:${String(stop?.localId ?? '')}`;
-    if (!rank.has(key)) rank.set(key, index);
-  });
-  return list.sort((a, b) => {
-    const aRank = rank.get(`${a.customerProfileId}:${a.localId || ''}`);
-    const bRank = rank.get(`${b.customerProfileId}:${b.localId || ''}`);
-    if (aRank != null || bRank != null) return (aRank ?? Number.MAX_SAFE_INTEGER) - (bRank ?? Number.MAX_SAFE_INTEGER);
-    return String(a.cliente?.name || '').localeCompare(String(b.cliente?.name || ''), 'pt-BR');
-  });
+/** Nome do dia pro aviso que o cadastro devolve/loga. */
+function diaNomeAgenda(dia: number): string {
+  return DAY_NAMES[dia - 1] ?? String(dia);
 }
 
 // ── FUSO (26/07) — a Agenda pensa em SÃO PAULO, nunca no fuso do processo ────────
@@ -2558,7 +2183,7 @@ function orderLegacyGroups(groups: LegacyGroup[], paradasJson: unknown): LegacyG
 //
 // LEI: data de operação é dia CIVIL de São Paulo, explicitamente — nunca herdada do
 // fuso do processo (o mesmo código roda no Windows do dono e num container UTC, e os
-// dois têm que decidir o MESMO dia). Mesmo padrão que `logistica-occurrence.service.ts`
+// dois têm que decidir o MESMO dia). Mesmo padrão que `logistica-dia.util.ts`
 // (saoPauloDateKey/isoWeekdayForDate) e `logistica-admin-route.service.ts` (`-03:00`)
 // já usavam — a Agenda era a peça fora do compasso.
 const SAO_PAULO_UTC_OFFSET = '-03:00';
@@ -2861,19 +2486,6 @@ function normalizeOpenDeliveryAction(
     throw new BadRequestException('Só é possível mover entregas junto com um dia movido.');
   }
   return normalized as 'MANTER' | 'MOVER' | 'CANCELAR';
-}
-
-function legacyCadencePhase(
-  cadence: { frequency: AgendaFrequency; intervalDays: number | null },
-  nextDate: Date | null | undefined,
-): string {
-  if (!nextDate) return '';
-  const anchor = startOfDay(nextDate);
-  if (cadence.frequency === 'QUINZENAL') {
-    return String(Math.floor(anchor.getTime() / (7 * 86_400_000)) % 2);
-  }
-  if (cadence.frequency === 'INTERVALO') return dateKey(anchor);
-  return '';
 }
 
 async function nextRouteOrder(tx: any, routeId: string): Promise<number> {

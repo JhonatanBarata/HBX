@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { LogisticaFechamentoDiaService } from './logistica-fechamento-dia.service';
-import { isoWeekdayForDate, saoPauloDateKey } from './logistica-occurrence.service';
+import { isoWeekdayForDate, saoPauloDateKey } from './logistica-dia.util';
 import { saoPauloMidnight } from './logistica-agenda-cursor.util';
 
 // FECHAMENTO DO DIA — testes de mesa do serviço (mocks pobres, padrão dos

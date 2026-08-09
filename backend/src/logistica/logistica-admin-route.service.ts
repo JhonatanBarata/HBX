@@ -1,12 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { isBillingOwnerActor } from '../access/actor-kind';
 import { PrismaService } from '../prisma/prisma.service';
-import {
-  addCivilDays,
-  isoWeekdayForDate,
-  LogisticaOccurrenceService,
-  saoPauloDateKey,
-} from './logistica-occurrence.service';
+import { addCivilDays, isoWeekdayForDate, saoPauloDateKey } from './logistica-dia.util';
 import type { LogisticaActor } from './logistica-operacao.service';
 import { canonicalRouteDate } from './logistica-route-billing.service';
 import { LogisticaRotaService } from './logistica-rota.service';
@@ -71,10 +66,9 @@ function dayLabel(dateKey: string): string {
 export class LogisticaAdminRouteService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly occurrences: LogisticaOccurrenceService,
     private readonly rota: LogisticaRotaService,
     private readonly logistica: LogisticaService,
-    private readonly agenda: LogisticaAgendaService = null as any,
+    private readonly agenda: LogisticaAgendaService,
   ) {}
 
   async getRoute(companyId: number, dateInput: string | undefined, actor: LogisticaActor) {
@@ -92,9 +86,7 @@ export class LogisticaAdminRouteService {
     const route: any = await this.getRoute(companyId, operationalDate, actor);
     const monday = addCivilDays(operationalDate, 1 - isoWeekdayForDate(operationalDate));
     const weekDates = Array.from({ length: 7 }, (_, index) => addCivilDays(monday, index));
-    const agendaV2 = Boolean(this.agenda) && await this.agenda.isAgendaV2Active(companyId);
     const previews = await Promise.all(weekDates.map(async (date) => {
-      if (!agendaV2) return this.occurrences.preview(companyId, date);
       const agendaPreview = await this.agenda.getDayPreview(
         companyId,
         isoWeekdayForDate(date),
@@ -212,19 +204,14 @@ export class LogisticaAdminRouteService {
     const operationalDate = origensUnicas.length === 1 ? origensUnicas[0] : requestedDate;
 
     const moved = await this.movePending(companyId, operationalDate, pendingIds, userId);
-    const materialized = this.agenda && await this.agenda.isAgendaV2Active(companyId)
-      ? await this.agenda.materializeForRoute(companyId, {
-        operationalDate,
-        sourceDates,
-        driverUserId: userId,
-        actorUserId: userId,
-      })
-      : await this.occurrences.materialize(companyId, {
-        operationalDate,
-        sourceDates,
-        driverUserId: userId,
-        actorUserId: userId,
-      });
+    // UM GERADOR SÓ (F1, 09/08) — `materializeForRoute` é o ÚNICO caminho
+    // agenda→dia. Não há mais motor alternativo atrás de flag.
+    const materialized = await this.agenda.materializeForRoute(companyId, {
+      operationalDate,
+      sourceDates,
+      driverUserId: userId,
+      actorUserId: userId,
+    });
 
     const { start, end } = dateRange(operationalDate);
     await this.prisma.entrega.updateMany({
@@ -303,9 +290,8 @@ export class LogisticaAdminRouteService {
    *    `encerrarDiasAnteriores` já rodando no início de `prepare`/`start`, este
    *    caso devia virar raro; o diagnóstico fica como REDE DE SEGURANÇA (ex.:
    *    empresa que ainda não passou por um `prepare` desde o deploy deste fix).
-   * 2) Nenhum plano ativo pro dia da semana sendo preparado (só faz sentido na
-   *    Agenda V2 — a mensagem cita `diaSemana`; empresa em modo legado cai
-   *    direto no fallback 3, que já era a mensagem original).
+   * 2) Nenhum plano ativo pro dia da semana sendo preparado (a mensagem cita o
+   *    `diaSemana`: "ninguém tem QUARTA como dia de entrega").
    * 3) Planos existem mas nada foi gerado/nada ficou em aberto — mensagem
    *    original, sem mudança de comportamento pra quem já via ela.
    */
@@ -327,14 +313,12 @@ export class LogisticaAdminRouteService {
       );
     }
 
-    if (this.agenda && await this.agenda.isAgendaV2Active(companyId)) {
-      const dia = isoWeekdayForDate(operationalDate);
-      const temPlano = await this.prisma.logisticaPlanoEntrega.count({
-        where: { companyId, diaSemana: dia, ativo: true },
-      });
-      if (temPlano === 0) {
-        throw new BadRequestException(`Nenhum cliente tem ${DAY_ABBR[dia - 1]} como dia de entrega.`);
-      }
+    const dia = isoWeekdayForDate(operationalDate);
+    const temPlano = await this.prisma.logisticaPlanoEntrega.count({
+      where: { companyId, diaSemana: dia, ativo: true },
+    });
+    if (temPlano === 0) {
+      throw new BadRequestException(`Nenhum cliente tem ${DAY_ABBR[dia - 1]} como dia de entrega.`);
     }
 
     throw new BadRequestException('Nenhuma parada foi encontrada para a rota de hoje.');

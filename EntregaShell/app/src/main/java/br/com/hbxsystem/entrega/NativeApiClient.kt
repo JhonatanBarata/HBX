@@ -278,7 +278,6 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "admin-route", "adjustments"),
             listOf("logistica", "rota-modelos"),
             listOf("nucleo", "clientes"),
-            listOf("logistica", "leitura", "atual"),
             // O gerenciador de Produtos precisa dos ativos e arquivados para
             // tornar a ação "Reativar produto" alcançável.
             listOf("products"),
@@ -290,8 +289,9 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         // 🔴 28/07 (dono) — anti-duplicata de endereço da Rota rápida: quem JÁ está
         // nesta porta. Leitura pura; sem isto o app cria conta nova em cima da antiga.
         method == "GET" && segments == listOf("nucleo", "contas", "por-endereco") -> true
-        // Reverse geocode do ponto capturado na leitura de rota. Sem isto o app
-        // caía sempre no Nominatim: o backend respondia, a política é que barrava.
+        // Reverse geocode do ponto capturado ("Usar meu local" do cadastro na
+        // porta). Sem isto o app caía sempre no Nominatim: o backend respondia,
+        // a política é que barrava.
         method == "GET" && segments == listOf("logistica", "geo", "reverse") -> true
         // R2 (27/07) — rota rápida: CEP+número → pino (base CNEFE do backend).
         method == "GET" && segments == listOf("logistica", "geo", "cep") -> true
@@ -301,16 +301,12 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         // WhatsApp o app resolve sozinho; aqui só passa o link curto do Maps, que
         // exige seguir redirecionamento (rede, com trava de host, mora no servidor).
         method == "GET" && segments == listOf("logistica", "geo", "link") -> true
-        // PR20072026 W2 — GET /logistica/leitura/:id/resumo.
-        method == "GET" && segments.size == 4 && segments.take(2) == listOf("logistica", "leitura") && segments[3] == "resumo" -> true
         // S4 (PR21072026-NAVEGACAO-HBX) — proxy OSRM: coords vai em query string,
         // não afeta os segments de path; allowlist trava só route/table.
         method == "GET" && segments == listOf("logistica", "osrm", "route") -> true
         method == "GET" && segments == listOf("logistica", "osrm", "table") -> true
         // HISTÓRICO DO CLIENTE (22/07) — GET /logistica/clientes/:id/historico.
         method == "GET" && segments.size == 4 && segments.take(2) == listOf("logistica", "clientes") && segments[3] == "historico" -> true
-        // ROTA PRONTA (29/07) — indicações de rota vivas da pessoa logada (popup Aceitar/Negar).
-        method == "GET" && segments == listOf("logistica", "rota-indicadas", "pendentes") -> true
         // 🔴 FECHAMENTO DO DIA (04/08) — medidor do dia + o caixa por forma (a
         // data vai na query, não no path). Sem esta linha o app barra a chamada
         // AQUI, dentro do aparelho, e a tela do dia nasceria zerada com o
@@ -367,7 +363,6 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
             listOf("logistica", "admin-route", "start"),
             listOf("nucleo", "contas"),
             listOf("products"),
-            listOf("logistica", "leitura", "iniciar"),
             // MODO PASSEIO (29/07) — iniciar (e cobrar) o passeio; gate
             // admin×passeioEquipe e idempotência por tourId moram no backend.
             listOf("logistica", "passeio", "iniciar"),
@@ -399,17 +394,10 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         ) -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "entregas") && segments[3] in setOf("confirmar", "cancelar", "reabrir", "comprovantes", "chegando") -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "rota-modelos") && segments[3] == "gerar" -> true
-        // ROTA PRONTA (29/07) — Aceitar/Negar do popup e o fecho do ciclo do aceite.
-        // AGENDADOR (02/08) — "alarme-armado" carimba que o despertador desta
-        // missão foi agendado NESTE aparelho.
-        method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "rota-indicadas") && segments[3] in setOf("responder", "aplicada", "alarme-armado") -> true
         // RECADOS (03/08) — o "Entendi" do portão: POST /logistica/recados/:id/entendi.
         // O id fica no terceiro segmento; a ação, no quarto.
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "recados") && segments[3] == "entendi" -> true
         method == "POST" && segments.size == 4 && segments.take(2) == listOf("nucleo", "clientes") && segments[3] in setOf("locais", "telefones") -> true
-        // PR20072026 W2 — sessão de leitura: parada/finalizar/cancelar por :id.
-        // S2 (PR21072026-MONTAR-ROTA-PLAY) — "trilha" soma a trilha GPS ao lote.
-        method == "POST" && segments.size == 4 && segments.take(2) == listOf("logistica", "leitura") && segments[3] in setOf("parada", "finalizar", "cancelar", "trilha") -> true
         method == "PATCH" && segments == listOf("logistica", "config") -> true
         method == "PATCH" && segments.size == 5
             && segments.take(3) == listOf("logistica", "agenda", "dias")
@@ -422,8 +410,6 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         method == "PATCH" && segments.size == 3 && segments.take(2) == listOf("logistica", "rota-modelos") -> true
         method == "PATCH" && segments.size == 3 && segments.take(2) == listOf("logistica", "produtos") -> true
         method == "PATCH" && segments.size == 3 && segments[0] == "nucleo" && segments[1] in setOf("contas", "locais", "telefones") -> true
-        // PR20072026 W2 — PATCH/DELETE de uma parada dentro da sessão de leitura.
-        method == "PATCH" && segments.size == 5 && segments.take(2) == listOf("logistica", "leitura") && segments[3] == "parada" -> true
         // HISTÓRICO (22/07) — apagar UMA linha (segurar pressionado) ou o histórico
         // inteiro do cliente. Apaga só o registro da visita; dinheiro fica intacto.
         method == "DELETE" && segments.size == 4 && segments.take(2) == listOf("logistica", "clientes") && segments[3] == "historico" -> true
@@ -431,7 +417,6 @@ internal fun isMobileEndpointAllowed(appMode: String, methodInput: String, endpo
         method == "DELETE" && segments.size == 3 && segments.take(2) == listOf("nucleo", "contas") -> true
         method == "DELETE" && segments.size == 3 && segments.take(2) == listOf("logistica", "cliente-produtos") -> true
         method == "DELETE" && segments.size == 3 && segments.take(2) == listOf("logistica", "rota-modelos") -> true
-        method == "DELETE" && segments.size == 5 && segments.take(2) == listOf("logistica", "leitura") && segments[3] == "parada" -> true
         else -> false
     }
     return when (appMode) {

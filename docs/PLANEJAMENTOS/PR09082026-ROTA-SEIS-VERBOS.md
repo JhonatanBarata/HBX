@@ -92,7 +92,7 @@ zero JSON.
 | G1 | **Leitura de Rota** (montar andando) — 2 tabelas, ~1.500 linhas back + telas APK | 17 sessões, TODAS canceladas, 0 paradas capturadas | MATAR |
 | G2 | **Importação** (`/logistica/importar`) — 2 tabelas, ~1.200 linhas + tela | 0 lotes desde que nasceu | MATAR |
 | G3 | **Rota Indicada** (indicar rota → popup no app) — 1 tabela + serviço + UI web/APK | 4 usos na vida | MATAR |
-| G4 | **Carga do dia** (balcão B4) — 2 tabelas | 0 linhas, mas publicada há 5 dias | Prazo: 30 dias sem uso → morre em 08/09 |
+| ~~G4~~ | ~~Carga do dia~~ | — | ⛔ **NÃO MORRE — decisão do dono (09/08)**: `LogisticaCargaDia`/`Item` são a base do **estoque ativo (modo nota fiscal)** que vem à frente. 0 linhas hoje é feature nova sem uso, não lixo. Ninguém encosta. |
 | G5 | Modelo LIVRE sem itens | Itens passam a morar SÓ no plano; LIVRE vira ordem de clientes | Aceitar (quem precisa de item ganha plano) |
 | G6 | `zz_backup_*` de 09/08 | Backup da agenda 48 | DROP depois que F2 rodar 7 dias limpa |
 
@@ -127,9 +127,10 @@ zero JSON.
 - 2º tempo: DROP `paradasJson`, DROP `RotaModeloParadaItem`, DROP colunas snapshot da parada.
 - Prova: aplicar cada um dos 28 modelos gera a MESMA lista de antes (script de conferência antes/depois).
 
-### F4 — ENTERRAR AS MORTAS (G1–G4, G6)
-- Por feature aprovada: controller + service + testes + telas (web e APK) + tabela (2 tempos).
-- Ordem sugerida: G2 importação (zero risco) → G3 indicada → G1 leitura (tem código no APK: `LeituraTrilhaSync.kt` etc.) → G4 no prazo.
+### F4 — ENTERRAR AS MORTAS (G1, G2, G3, G6)
+- Por feature: controller + service + testes + telas (web e APK) + tabela.
+- Ordem: G2 importação (zero risco) → G3 indicada → G1 leitura (tem código no APK: `LeituraTrilhaSync.kt` etc.).
+- ⛔ **`LogisticaCargaDia`/`LogisticaCargaDiaItem` ficam intactas** (ver G4): reservadas pro estoque ativo / nota fiscal.
 
 ### F5 — O CONTRATO DAS ORDENS (fecha a porta pro câncer voltar)
 - Varredura: toda leitura de ordem no front/app aponta pra `Entrega.rotaOrdem`; `snapshotOrder` fica proibido em tela (comentário-contrato no schema + teste que falha se um endpoint expor).

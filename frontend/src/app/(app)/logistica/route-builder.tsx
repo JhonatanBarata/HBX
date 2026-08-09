@@ -23,15 +23,7 @@ import {
 //   "gate"        → Endereços com erro, ANTES de materializar qualquer entrega.
 //   "conferencia" → mapa + distância + previsão + crédito; só "Aceitar rota"
 //                   consolida, e sair sem aceitar DESFAZ a montagem.
-type Step = "home" | "saved" | "assign" | "days" | "order" | "manual" | "gate" | "conferencia";
-
-// ROTA PRONTA (29/07) — mesma lista de /logistica/entregadores da atribuição
-// de entrega (quem pode dirigir; admin incluso — sem trava de cargo).
-type Entregador = {
-  id: number;
-  nome: string;
-  email?: string | null;
-};
+type Step = "home" | "saved" | "days" | "order" | "manual" | "gate" | "conferencia";
 
 type RouteModelStop = {
   customerProfileId: string;
@@ -56,7 +48,7 @@ type RouteModel = {
 // motorista"). `podeMontar` vem do servidor com a MESMA regra do gerar.
 type RouteModelState = {
   id: string;
-  estado: "livre" | "indicada" | "montada" | "na_rua" | "devolvida";
+  estado: "livre" | "montada" | "na_rua" | "devolvida";
   pessoaNome: string | null;
   pessoaEhVoce: boolean;
   comEle: number;
@@ -155,9 +147,6 @@ function estadoDaRota(state: RouteModelState | undefined): { texto: string; aler
     // convida em vez de só informar (era aqui que o dono levava 409).
     const convite = state.pessoaEhVoce ? "" : " — clique para assumir";
     return { texto: `${state.pessoaEhVoce ? "Você está" : `${quem} parou`} com ${state.comEle} de ${state.total} paradas${convite}`, alerta: false };
-  }
-  if (state.estado === "indicada") {
-    return { texto: `Aguardando ${quem} aceitar`, alerta: false };
   }
   if (state.estado === "devolvida") {
     const hora = horaCurta(state.em);
@@ -401,15 +390,6 @@ export function RouteBuilderDialog({
   const [search, setSearch] = useState("");
   const [building, setBuilding] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // ROTA PRONTA (29/07) — indicar uma rota salva pro celular de alguém.
-  const [assignModel, setAssignModel] = useState<RouteModel | null>(null);
-  const [team, setTeam] = useState<Entregador[]>([]);
-  const [teamLoading, setTeamLoading] = useState(false);
-  const [assigning, setAssigning] = useState(false);
-  // AGENDADOR DE MISSÃO (02/08) — a indicação pode nascer com HORA. "agora" é o
-  // default de propósito: o comportamento antigo continua sendo um clique só.
-  const [assignQuando, setAssignQuando] = useState<"agora" | "marcar">("agora");
-  const [assignHora, setAssignHora] = useState("");
   // PR29072026 — portão de endereços + conferência.
   const [gate, setGate] = useState<{ dias: number[]; dates: string[]; dados: ChecarEnderecosResult } | null>(null);
   // Clientes que o operador mandou ficar fora SÓ HOJE (o dia deles fica salvo).
@@ -739,58 +719,6 @@ export function RouteBuilderDialog({
     }
   }
 
-  // ROTA PRONTA (29/07) — escolher a pessoa: o backend cria a indicação e o
-  // popup Aceitar/Negar aparece no celular dela (polling do APK).
-  function openAssign(model: RouteModel) {
-    setError(null);
-    setAssignModel(model);
-    setAssignQuando("agora");
-    setAssignHora("");
-    setStep("assign");
-    if (team.length || teamLoading) return;
-    setTeamLoading(true);
-    apiFetch<Entregador[]>("/logistica/entregadores")
-      .then((rows) => setTeam(Array.isArray(rows) ? rows : []))
-      .catch((loadError: unknown) => setError(humanError(loadError)))
-      .finally(() => setTeamLoading(false));
-  }
-
-  async function indicarPara(person: Entregador) {
-    if (!assignModel || assigning) return;
-    // A hora se confere ANTES de marcar `assigning`: com hora vazia ou já
-    // passada não existe missão pra mandar, e travar os botões pra depois
-    // mostrar erro é o tipo de tela que parece quebrada.
-    let agendadaPara: string | undefined;
-    if (assignQuando === "marcar") {
-      const quando = assignHora ? new Date(assignHora) : null;
-      if (!quando || Number.isNaN(quando.getTime())) {
-        setError("Escolha o dia e a hora da missão.");
-        return;
-      }
-      if (quando.getTime() < Date.now()) {
-        setError("Essa hora já passou. Escolha um horário à frente.");
-        return;
-      }
-      agendadaPara = quando.toISOString();
-    }
-    setAssigning(true);
-    setError(null);
-    try {
-      await apiFetch(`/logistica/rota-modelos/${encodeURIComponent(assignModel.id)}/indicar`, {
-        method: "POST",
-        body: JSON.stringify(agendadaPara ? { paraUserId: person.id, agendadaPara } : { paraUserId: person.id }),
-      });
-      onCompleted(
-        agendadaPara
-          ? `Missão marcada para ${person.nome} às ${new Date(agendadaPara).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}.`
-          : `Rota indicada para ${person.nome}.`,
-      );
-    } catch (assignError: unknown) {
-      setError(humanError(assignError));
-      setAssigning(false);
-    }
-  }
-
   // "Ao clicar no dia, OU EM ROTAS SALVAS" — o portão vale nos dois caminhos.
   // Rota salva sem dia da semana não tem roster de dia pra conferir: segue direto.
   function buildSavedRoute(model: RouteModel) {
@@ -829,7 +757,6 @@ export function RouteBuilderDialog({
   function back() {
     setError(null);
     if (step === "saved" || step === "days") setStep("home");
-    else if (step === "assign") { setAssignModel(null); setStep("saved"); }
     else if (step === "order") setStep("days");
     else if (step === "manual") setStep("order");
   }
@@ -855,19 +782,17 @@ export function RouteBuilderDialog({
 
   const title = step === "saved"
     ? "Rotas Salvas"
-    : step === "assign"
-      ? "Indicar rota"
-      : step === "days"
-        ? "Por dia"
-        : step === "order"
-          ? "Ordem das paradas"
-          : step === "manual"
-            ? "Sua ordem"
-            : step === "gate"
-              ? "Endereços com erro"
-              : step === "conferencia"
-                ? "Conferência de rota"
-                : "Montar Rota";
+    : step === "days"
+      ? "Por dia"
+      : step === "order"
+        ? "Ordem das paradas"
+        : step === "manual"
+          ? "Sua ordem"
+          : step === "gate"
+            ? "Endereços com erro"
+            : step === "conferencia"
+              ? "Conferência de rota"
+              : "Montar Rota";
 
   const gateTotal = Number(gate?.dados.total) || 0;
   const gateProblemas = gate?.dados.problemas.length || 0;
@@ -884,7 +809,6 @@ export function RouteBuilderDialog({
           <span className={styles.icon}><I d={ICONS.logistica} size={20} /></span>
           <div className={styles.heading}>
             <h2 id="route-builder-title">{title}</h2>
-            {step === "assign" && <p>{assignModel?.nome || "Rota"}</p>}
             {step === "days" && <p>Escolha os dias</p>}
             {step === "order" && <p>{preview.length} {preview.length === 1 ? "parada pronta" : "paradas prontas"}</p>}
             {step === "manual" && <p>Busque ou digite a posição</p>}
@@ -957,8 +881,7 @@ export function RouteBuilderDialog({
                     ? `${state?.pessoaNome || "Outra pessoa"} está com as paradas desta rota hoje.`
                     : "";
                   return (
-                  <div className={styles.savedRow} key={model.id}>
-                    <button type="button" className={`${styles.option} ${ocupada ? styles.bloqueada : ""}`} onClick={() => void buildSavedRoute(model)} disabled={building || ocupada} title={motivo}>
+                    <button type="button" key={model.id} className={`${styles.option} ${ocupada ? styles.bloqueada : ""}`} onClick={() => void buildSavedRoute(model)} disabled={building || ocupada} title={motivo}>
                       <span className={`${styles.optionIcon} ${styles.star}`}>☆</span>
                       <span className={styles.optionCopy}>
                         <strong>{model.nome || "Rota"}</strong>
@@ -967,61 +890,8 @@ export function RouteBuilderDialog({
                       </span>
                       <span className={styles.chevron}>›</span>
                     </button>
-                    <button type="button" className={styles.assign} onClick={() => openAssign(model)} disabled={building || ocupada} title={ocupada ? motivo : `Indicar ${model.nome || "rota"} para alguém`}>
-                      Indicar
-                    </button>
-                  </div>
                   );
                 }) : <p className={styles.empty}>Nenhuma rota salva.</p>}
-            </div>
-          )}
-
-          {step === "assign" && (
-            <div className={styles.list}>
-              {/* AGENDADOR (02/08) — quando e quem no MESMO gesto: escolhe a
-                  hora aqui em cima e toca na pessoa. "Agora" segue sendo um
-                  clique só, igual antes do agendador existir. */}
-              <div className={styles.quickModos}>
-                <button
-                  type="button"
-                  className={`${styles.quickModo} ${assignQuando === "agora" ? styles.quickModoAtivo : ""}`}
-                  aria-pressed={assignQuando === "agora"}
-                  onClick={() => { setAssignQuando("agora"); setError(null); }}
-                  disabled={assigning}
-                >
-                  Agora
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.quickModo} ${assignQuando === "marcar" ? styles.quickModoAtivo : ""}`}
-                  aria-pressed={assignQuando === "marcar"}
-                  onClick={() => { setAssignQuando("marcar"); setError(null); }}
-                  disabled={assigning}
-                >
-                  Marcar hora
-                </button>
-              </div>
-              {assignQuando === "marcar" ? (
-                <label className={styles.quickField}>
-                  <span>Tocar o alarme em</span>
-                  <input
-                    type="datetime-local"
-                    value={assignHora}
-                    onChange={(event) => { setAssignHora(event.target.value); setError(null); }}
-                    disabled={assigning}
-                  />
-                </label>
-              ) : null}
-              {teamLoading ? <p className={styles.empty}>Carregando a equipe…</p> : team.length ? team.map((person) => (
-                <button type="button" className={styles.option} key={person.id} onClick={() => void indicarPara(person)} disabled={assigning}>
-                  <span className={styles.avatar}>{(person.nome || "?").trim().slice(0, 1).toLocaleUpperCase("pt-BR")}</span>
-                  <span className={styles.optionCopy}>
-                    <strong>{person.nome}</strong>
-                    {person.email ? <small>{person.email}</small> : null}
-                  </span>
-                  <span className={styles.chevron}>›</span>
-                </button>
-              )) : <p className={styles.empty}>Ninguém disponível para dirigir.</p>}
             </div>
           )}
 
@@ -1138,7 +1008,7 @@ export function RouteBuilderDialog({
               </label>
             )}
             <div className={styles.footerActions}>
-              <button type="button" className={styles.secondary} onClick={back} disabled={building || assigning}>Voltar</button>
+              <button type="button" className={styles.secondary} onClick={back} disabled={building}>Voltar</button>
               {step === "days" && <button type="button" className={styles.primary} onClick={conferirDepoisDoPortao} disabled={!selectedDays.length || !preview.length || previewLoading || building}>Próximo ›</button>}
               {step === "manual" && <button type="button" className={styles.primary} onClick={() => void buildFromDays("manual")} disabled={!manualOrder.length || building}>{building ? "Montando…" : "Gerar agora"}</button>}
             </div>

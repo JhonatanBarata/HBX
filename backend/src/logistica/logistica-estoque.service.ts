@@ -3,7 +3,7 @@ import type { ActorKindUserLike } from '../access/actor-kind';
 import { PrismaService } from '../prisma/prisma.service';
 import { EstoqueService } from '../fiscal/estoque.service';
 import { LogisticaConfigService } from './logistica-config.service';
-import { addCivilDays } from './logistica-occurrence.service';
+import { addCivilDays } from './logistica-dia.util';
 import { canonicalRouteDate } from './logistica-route-billing.service';
 import type { ConferirRetornoCargaDiaDto, DeclararCargaDiaDto } from './dto/logistica-estoque.dto';
 

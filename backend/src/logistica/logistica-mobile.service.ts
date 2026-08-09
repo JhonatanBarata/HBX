@@ -1,6 +1,5 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { LogisticaOccurrenceService } from './logistica-occurrence.service';
 import { type LogisticaActor, LogisticaOperacaoService } from './logistica-operacao.service';
 import { LogisticaService } from './logistica.service';
 import { LogisticaAgendaService } from './logistica-agenda.service';
@@ -38,9 +37,8 @@ export class LogisticaMobileService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly logistica: LogisticaService,
-    private readonly occurrences: LogisticaOccurrenceService,
     private readonly operacao: LogisticaOperacaoService,
-    private readonly agenda: LogisticaAgendaService = null as any,
+    private readonly agenda: LogisticaAgendaService,
   ) {}
 
   async getRoute(companyId: number, date: string | undefined, actor: LogisticaActor) {
@@ -116,15 +114,13 @@ export class LogisticaMobileService {
     const actorUserId = positiveInt(actor?.id);
     const driverUserId = positiveInt((actorWhere as any)?.entregadorId) ?? actorUserId;
 
-    const materializeInput = {
+    // UM GERADOR SÓ (F1, 09/08): a AGENDA materializa, sempre. Não existe mais
+    // um segundo motor esperando atrás de um `if`.
+    return this.agenda.materializeForRoute(companyId, {
       operationalDate: input?.operationalDate,
       sourceDates: Array.isArray(input?.sourceDates) ? input.sourceDates : undefined,
       driverUserId,
       actorUserId,
-    };
-    if (this.agenda && await this.agenda.isAgendaV2Active(companyId)) {
-      return this.agenda.materializeForRoute(companyId, materializeInput);
-    }
-    return this.occurrences.materialize(companyId, materializeInput);
+    });
   }
 }

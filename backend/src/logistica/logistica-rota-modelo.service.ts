@@ -14,9 +14,10 @@ import { canonicalRouteDate } from './logistica-route-billing.service';
  * "aplicar" aqui (contrato do 00-ORQUESTRACAO.md).
  *
  * PR20072026 W1 — nome ÚNICO por empresa (case-insensitive/trim, SEM constraint
- * no banco — dados legados podem ter duplicata). `assertNomeUnico` é exportado
- * para o finalizar de logistica-leitura.service.ts reusar a MESMA regra dentro
- * da própria transação (aceita `tx` do Prisma).
+ * no banco — dados legados podem ter duplicata). `assertNomeUnico` é exportado e
+ * aceita `tx` do Prisma para quem criar modelo DENTRO de uma transação reusar a
+ * MESMA regra (o último chamador externo, o finalizar da Leitura de Rota, foi
+ * enterrado em 09/08 — a regra continua valendo pro CRUD daqui).
  *
  * 🔴 08/08 — O ESPAÇO DE NOME PASSOU A SER O DIA (dono: os 2 espaços da tela de
  * montar são "2 rotas diferentes DO DIA", e o nome é livre: *"se ele por manhã,
@@ -593,7 +594,7 @@ export class LogisticaRotaModeloService {
       for (const id of ids) todosClientes.add(id);
     }
 
-    const [entregas, rotasVivas, indicacoes] = await Promise.all([
+    const [entregas, rotasVivas] = await Promise.all([
       todosClientes.size
         ? this.prisma.entrega.findMany({
             where: {
@@ -614,25 +615,16 @@ export class LogisticaRotaModeloService {
         },
         select: { entregadorId: true, startedAt: true },
       }),
-      this.prisma.logisticaRotaIndicada.findMany({
-        where: {
-          companyId,
-          rotaModeloId: { in: modelos.map((m) => m.id) },
-          OR: [
-            { status: { in: ['pendente', 'aceita'] } },
-            // Devolvida/negada é recado do DIA: ontem já não é notícia.
-            { status: { in: ['negada', 'desfeita'] }, respondidaEm: { gte: dia, lte: dayEnd } },
-          ],
-        },
-        orderBy: { createdAt: 'desc' },
-        select: { rotaModeloId: true, paraUserId: true, status: true, respondidaEm: true },
-      }),
     ]);
 
-    // 31/07 — recado de rota que morreu no meio TAMBÉM alimenta a linha: a rota
-    // que o motorista montou sozinho e largou não tem indicação nenhuma pra
-    // contar a história. Best-effort (tabela nova; ambiente sem migration não
-    // pode derrubar o painel).
+    // 31/07 — recado de rota que morreu no meio é o que alimenta a linha
+    // `devolvida`: a rota que o motorista montou, começou e largou. Best-effort
+    // (ambiente sem migration não pode derrubar o painel).
+    //
+    // 09/08 (F4) — antes existia uma SEGUNDA fonte de `devolvida`, a
+    // `LogisticaRotaIndicada` ("aceitou e desistiu"). A Rota Indicada foi
+    // enterrada (4 usos na vida); o recado de saída, que nunca dependeu dela,
+    // continua sendo a história de quem largou a rota.
     const recados = await this.prisma.logisticaRotaAviso.findMany({
       where: { companyId, routeDate, rotaModeloId: { in: modelos.map((m) => m.id) } },
       orderBy: { createdAt: 'desc' },
@@ -656,7 +648,6 @@ export class LogisticaRotaModeloService {
     const naRua = new Map<number, Date | null>(rotasVivas.map((rota) => [rota.entregadorId, rota.startedAt]));
     const pessoasCitadas = new Set<number>();
     for (const entrega of porCliente.values()) if (entrega.entregadorId) pessoasCitadas.add(entrega.entregadorId);
-    for (const indicacao of indicacoes) pessoasCitadas.add(indicacao.paraUserId);
     const nomes = new Map<number, string>();
     if (pessoasCitadas.size) {
       const users = await this.prisma.user.findMany({
@@ -682,26 +673,19 @@ export class LogisticaRotaModeloService {
       for (const [id, quantas] of donos) if (quantas > comEle) { dono = id; comEle = quantas; }
       const outroDono = [...donos.keys()].find((id) => id !== userId) ?? null;
 
-      const viva = indicacoes.find((linha) => linha.rotaModeloId === modelo.id && (linha.status === 'pendente' || linha.status === 'aceita'));
-      const devolvida = indicacoes.find((linha) => linha.rotaModeloId === modelo.id && (linha.status === 'desfeita' || linha.status === 'negada'));
       const largada = recados.find((linha) => linha.rotaModeloId === modelo.id);
 
       let estado: RotaModeloEstado = 'livre';
       if (dono && naRua.has(dono)) estado = 'na_rua';
       else if (dono) estado = 'montada';
-      else if (viva) estado = 'indicada';
-      else if (devolvida || largada) estado = 'devolvida';
+      else if (largada) estado = 'devolvida';
 
       const pessoaNome = estado === 'na_rua' || estado === 'montada'
         ? (dono ? (nomes.get(dono) ?? `Usuário ${dono}`) : null)
-        : estado === 'indicada'
-          ? (nomes.get(viva!.paraUserId) ?? `Usuário ${viva!.paraUserId}`)
-          : estado === 'devolvida'
-            ? (devolvida ? (nomes.get(devolvida.paraUserId) ?? `Usuário ${devolvida.paraUserId}`) : largada!.motoristaNome)
-            : null;
-      const pessoaId = estado === 'na_rua' || estado === 'montada'
-        ? dono
-        : estado === 'indicada' ? viva!.paraUserId : estado === 'devolvida' && devolvida ? devolvida.paraUserId : null;
+        : estado === 'devolvida'
+          ? largada!.motoristaNome
+          : null;
+      const pessoaId = estado === 'na_rua' || estado === 'montada' ? dono : null;
 
       return {
         id: modelo.id,
@@ -712,9 +696,7 @@ export class LogisticaRotaModeloService {
         total: clientes.length,
         entregues,
         desde: dono && naRua.get(dono) ? (naRua.get(dono) as Date).toISOString() : null,
-        em: estado === 'devolvida'
-          ? (devolvida?.respondidaEm?.toISOString() ?? largada?.createdAt.toISOString() ?? null)
-          : null,
+        em: estado === 'devolvida' ? (largada?.createdAt.toISOString() ?? null) : null,
         // 🔒 MESMA RÉGUA DO `gerar` (vitrine e caixa, um porteiro só): agora só
         // trava quem está NA RUA. Parada de rota morta é assumível — o painel
         // libera o clique porque o servidor também libera.
@@ -820,10 +802,10 @@ export function normalizeDiaSemana(value: unknown): number | null {
   return n;
 }
 
-// PR20072026 W1 — `horaRef` ("HH:MM") é chave ADITIVA gravada pelo finalizar de
-// logistica-leitura.service.ts (hora de referência da parada capturada em campo).
-// PRESERVAR aqui: o modelo salvo pela Leitura de Rota também passa por esta
-// função (via prisma direto no finalizar, mas com o MESMO contrato de shape).
+// PR20072026 W1 — `horaRef` ("HH:MM") é chave ADITIVA: hora de referência da
+// parada. Quem gravava era o finalizar da Leitura de Rota (enterrada em 09/08),
+// mas os modelos SALVOS por ela seguem em produção com a chave — PRESERVAR aqui,
+// senão uma releitura de modelo antigo perde o campo em silêncio.
 export function normalizeParadas(value: unknown): RotaModeloParada[] {
   if (value === undefined) return [];
   if (!Array.isArray(value)) throw new BadRequestException('paradas deve ser uma lista.');
@@ -931,11 +913,14 @@ export interface GerarRotaModeloResult {
 
 /**
  * 31/07 — estado de uma rota salva HOJE (linha do painel "Rotas Salvas").
- * `livre` = ninguém pegou · `indicada` = mandada e ainda não aplicada ·
- * `montada` = as paradas estão no nome de alguém, parado · `na_rua` = esse
- * alguém tem rota viva iniciada · `devolvida` = aceitou e desistiu hoje.
+ * `livre` = ninguém pegou · `montada` = as paradas estão no nome de alguém,
+ * parado · `na_rua` = esse alguém tem rota viva iniciada · `devolvida` = saiu
+ * pra rua e largou no meio hoje (recado de `LogisticaRotaAviso`).
+ *
+ * 09/08 (F4) — `indicada` MORREU junto com a Rota Indicada. `devolvida` NÃO
+ * morreu: ela também nasce de rota largada, que nunca dependeu da indicação.
  */
-export type RotaModeloEstado = 'livre' | 'indicada' | 'montada' | 'na_rua' | 'devolvida';
+export type RotaModeloEstado = 'livre' | 'montada' | 'na_rua' | 'devolvida';
 
 export interface RotaModeloEstadoDTO {
   id: string;
@@ -948,7 +933,7 @@ export interface RotaModeloEstadoDTO {
   entregues: number;
   /** Início da rota viva (ISO) — só no estado `na_rua`. */
   desde: string | null;
-  /** Hora da devolução/recusa (ISO) — só no estado `devolvida`. */
+  /** Hora em que a rota foi largada (ISO) — só no estado `devolvida`. */
   em: string | null;
   podeMontar: boolean;
 }

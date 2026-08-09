@@ -1,6 +1,6 @@
 import type { PrismaService } from '../prisma/prisma.service';
 import { stopLivreWhere } from './logistica-rota-viva.util';
-import { saoPauloDateKey } from './logistica-occurrence.service';
+import { saoPauloDateKey } from './logistica-dia.util';
 import { saoPauloMidnight } from './logistica-agenda-cursor.util';
 import { registrarEventoAgenda, formatDDMM } from './logistica-agenda-evento.util';
 

@@ -109,81 +109,15 @@ export type AtribuirLoteResult = {
   entregador: { id: number; nome: string } | null;
 };
 
-/**
- * ROTA INDICADA (29/07 + agendador 02/08) — a missão que o escritório mandou
- * pro celular de alguém. No cockpit ela deixa de ter painel próprio ("Missões
- * enviadas") e vira LINHA DO FEED: é a mesma pergunta dos outros avisos —
- * "tem algo pendente de mim hoje?" — e merecia a mesma moradia.
- */
-export type MissaoIndicada = {
-  id: string;
-  nome: string;
-  status: string;
-  paraNome: string;
-  porNome: string;
-  avisoVisto: boolean;
-  agendadaPara: string | null;
-  alarmeArmado: boolean;
-};
-
-/** Linha do feed, seja ela vinda do vigia, da sentinela ou de uma missão. */
+/** Linha do feed, vinda do vigia ou da sentinela. */
 export type LinhaDoFeed = {
   chave: string;
   titulo: string;
   detalhe: string;
   grave: boolean;
-  /** Só aviso do vigia/sentinela se dispensa (missão viva some sozinha). */
+  /** Aviso do vigia/sentinela que se dispensa. */
   dispensavelId: string | null;
 };
-
-export function getMissoes(): Promise<MissaoIndicada[]> {
-  return apiFetch<MissaoIndicada[]>("/logistica/rota-indicadas");
-}
-
-/**
- * A frase da missão. `pendente`/`aceita` = está viva (o dono quer saber se o
- * celular recebeu); `negada`/`desfeita` = alguém devolveu e ele ficou sem
- * motorista — esse é o grave.
- */
-export function fraseDaMissao(missao: MissaoIndicada): LinhaDoFeed | null {
-  if (missao.status === "negada" || missao.status === "desfeita") {
-    if (missao.avisoVisto) return null;
-    return {
-      chave: `missao:${missao.id}`,
-      titulo: `Rota ${missao.nome} ${missao.status === "desfeita" ? "devolvida" : "negada"} por ${missao.paraNome}`,
-      detalhe: "Ninguém está com ela agora.",
-      grave: true,
-      dispensavelId: null,
-    };
-  }
-  if (missao.status !== "pendente" && missao.status !== "aceita") return null;
-
-  const quando = missao.agendadaPara
-    ? new Date(missao.agendadaPara).toLocaleString("pt-BR", {
-        day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit",
-      })
-    : "agora";
-
-  if (missao.status === "aceita") {
-    return {
-      chave: `missao:${missao.id}`,
-      titulo: `${missao.paraNome} aceitou a rota ${missao.nome}`,
-      detalhe: `Marcada para ${quando}.`,
-      grave: false,
-      dispensavelId: null,
-    };
-  }
-  // Pendente com hora marcada e SEM alarme armado é o único caso que alerta:
-  // o escritório acha que mandou, e o celular nunca recebeu.
-  const mudo = !!missao.agendadaPara && !missao.alarmeArmado;
-  return {
-    chave: `missao:${missao.id}`,
-    titulo: `Rota ${missao.nome} esperando ${missao.paraNome}`,
-    detalhe: mudo ? `Marcada para ${quando} — o celular ainda não recebeu.` : `Marcada para ${quando}.`,
-    grave: mudo,
-    dispensavelId: null,
-  };
-}
 
 /**
  * APARELHO DO TURNO (08/08) — em qual celular o recado cai. Celular de entrega

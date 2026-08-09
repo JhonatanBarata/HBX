@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { LogisticaService } from './logistica.service';
 import type { LogisticaActor } from './logistica-operacao.service';
-import { isoWeekdayForDate, saoPauloDateKey } from './logistica-occurrence.service';
+import { isoWeekdayForDate, saoPauloDateKey } from './logistica-dia.util';
 import { saoPauloMidnight } from './logistica-agenda-cursor.util';
 import { LogisticaRecorrenciaService, resolveValorUnit } from './logistica-recorrencia.service';
 import { LogisticaAgendaService } from './logistica-agenda.service';

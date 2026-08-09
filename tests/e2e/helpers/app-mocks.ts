@@ -328,12 +328,11 @@ export async function setupCommonMocks(page: Page): Promise<void> {
   //
   // ⚠️ A ORDEM DESTE BLOCO É DELIBERADA (ver a nota do topo: o Playwright casa
   // da ÚLTIMA rota registrada para a primeira). `logistica/rota**` também casa
-  // com `rota-avisos`, `rota-indicadas` e `rota-modelos` — por isso a geral
-  // entra ANTES e as específicas DEPOIS. Invertendo, o cockpit receberia um
-  // objeto de rota onde espera lista e voltaria a estourar.
+  // com `rota-avisos` e `rota-modelos` — por isso a geral entra ANTES e as
+  // específicas DEPOIS. Invertendo, o cockpit receberia um objeto de rota onde
+  // espera lista e voltaria a estourar.
   await page.route("**/hbx/api/logistica/rota**", (r) => r.fulfill(json(rotaHostil())));
   await page.route("**/hbx/api/logistica/rota-avisos**", (r) => r.fulfill(json([])));
-  await page.route("**/hbx/api/logistica/rota-indicadas**", (r) => r.fulfill(json([])));
   await page.route("**/hbx/api/logistica/rota-modelos**", (r) => r.fulfill(json([])));
   await page.route("**/hbx/api/logistica/recados**", (r) => r.fulfill(json([])));
   await page.route("**/hbx/api/logistica/produtos**", (r) => r.fulfill(json([])));

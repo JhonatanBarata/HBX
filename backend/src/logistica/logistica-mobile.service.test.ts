@@ -41,10 +41,14 @@ test('rota móvel expõe instrução de recebimento sem inventar campos monetár
   assert.equal('limiteFiado' in result.items[0].cliente, false);
 });
 
+// UM GERADOR SÓ (F1, 09/08) — o adapter mobile chama `materializeForRoute` da
+// AGENDA. O motor de ocorrências que ficava atrás do `if (agendaV2Ativa)` foi
+// apagado; o que este teste guarda continua igual: data operacional e datas de
+// origem são coisas DIFERENTES, e o motorista vai junto.
 test('materialização móvel separa data operacional das datas recorrentes e atribui o motorista', async () => {
   let materializeInput: any = null;
-  const occurrences: any = {
-    materialize: async (companyId: number, input: any) => {
+  const agenda: any = {
+    materializeForRoute: async (companyId: number, input: any) => {
       assert.equal(companyId, 7);
       materializeInput = input;
       return { date: input.operationalDate, sourceDates: input.sourceDates, deliveryIds: ['delivery-1'] };
@@ -53,7 +57,7 @@ test('materialização móvel separa data operacional das datas recorrentes e at
   const operacao: any = {
     whereForActor: async () => ({ entregadorId: 42 }),
   };
-  const service = new LogisticaMobileService({} as any, {} as any, occurrences, operacao);
+  const service = new LogisticaMobileService({} as any, {} as any, operacao, agenda);
 
   const result: any = await service.materialize(
     7,

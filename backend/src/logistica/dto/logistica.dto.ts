@@ -1040,27 +1040,6 @@ export class GerarRotaModeloDto {
   date?: string;
 }
 
-// ROTA PRONTA (29/07) — POST /rota-modelos/:id/indicar: manda a rota salva pro
-// celular de alguém da equipe (popup Aceitar/Negar no APK).
-export class IndicarRotaDto {
-  @IsInt()
-  @Min(1)
-  paraUserId!: number;
-
-  // AGENDADOR (02/08) — hora marcada da missão em ISO. Ausente = imediata
-  // (contrato antigo intacto). A régua de "faz sentido?" (passado, ano errado)
-  // mora no serviço, junto com a mensagem que a pessoa lê.
-  @IsOptional()
-  @IsString()
-  agendadaPara?: string;
-}
-
-// ROTA PRONTA (29/07) — POST /rota-indicadas/:id/responder (só a pessoa indicada).
-export class ResponderRotaIndicadaDto {
-  @IsBoolean()
-  aceita!: boolean;
-}
-
 // ── PR18072026 W1 — façade de produtos sob /logistica (allowlist do APK) ─────
 // O app do entregador só fala com endpoints `logistica/*` (isMobileEndpointAllowed
 // no NativeApiClient.kt) — este é o par POST/PATCH que faltava pra editar o

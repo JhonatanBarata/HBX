@@ -501,15 +501,6 @@
   scrollbar-gutter: stable;
 }
 
-.log-today-scroll .log-negada {
-  min-height: 30px;
-  margin: 0;
-  padding: 4px 8px;
-  gap: 6px;
-  border-radius: var(--radius-sm);
-  font-size: var(--hbx-font-min);
-}
-
 .log-instruments {
   display: grid;
   grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);

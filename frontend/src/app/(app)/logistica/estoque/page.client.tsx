@@ -19,7 +19,7 @@
 // no aviso vermelho com a mensagem do backend (humanError).
 //
 // Design system (5 Leis): casco reusa .log-agenda/.log-agenda__surface/
-// .log-agenda__head (MESMO padrão de /logistica/importar e Saúde da Base);
+// .log-agenda__head (MESMO padrão da Saúde da Base);
 // tabela reusa .tbl-wrap/.tbl (financeiro/gerencial); card do formulário reusa
 // .log-cfg__block (config); a linha produto+qtd reusa .log-agenda-form__section/
 // .log-agenda-form__products/.log-agenda-product/.log-agenda-form__field/

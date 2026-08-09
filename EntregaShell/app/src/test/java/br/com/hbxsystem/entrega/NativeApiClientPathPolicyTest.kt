@@ -75,7 +75,7 @@ class NativeApiClientPathPolicyTest {
     }
 
     @Test
-    fun reverseGeocodeDaLeituraPassaPelaPolitica() {
+    fun reverseGeocodePassaPelaPolitica() {
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/geo/reverse"))
         // R2 (27/07) — rota rápida: CEP+número → pino (CNEFE).
         assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/geo/cep"))
@@ -98,23 +98,31 @@ class NativeApiClientPathPolicyTest {
         assertTrue(isMobileEndpointAllowed("vendas", "POST", "/financeiro/credits/recharge"))
     }
 
+    /**
+     * F4 (09/08, PR09082026-ROTA-SEIS-VERBOS/G1+G3) — LEITURA DE ROTA e ROTA
+     * INDICADA foram ENTERRADAS: 17 sessões de leitura, todas canceladas, 0
+     * paradas capturadas; 4 indicações na vida inteira. As telas saíram do app
+     * e os endpoints saem do backend.
+     *
+     * Este teste é a LÁPIDE: allowlist é a única coisa que sobreviveria a uma
+     * remoção pela metade (linha esquecida aqui = porta aberta pra um endpoint
+     * que não existe mais, e o defeito só apareceria no aparelho).
+     */
     @Test
-    fun pr20072026LeituraDeRotaEndpointsFollowTheExactMethodPolicy() {
-        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/leitura/iniciar"))
-        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/leitura/atual"))
-        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/leitura/sessao-1/parada"))
-        assertTrue(isMobileEndpointAllowed("logistica", "GET", "/logistica/leitura/sessao-1/resumo"))
-        assertTrue(isMobileEndpointAllowed("logistica", "PATCH", "/logistica/leitura/sessao-1/parada/parada-1"))
-        assertTrue(isMobileEndpointAllowed("logistica", "DELETE", "/logistica/leitura/sessao-1/parada/parada-1"))
-        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/leitura/sessao-1/finalizar"))
-        assertTrue(isMobileEndpointAllowed("logistica", "POST", "/logistica/leitura/sessao-1/cancelar"))
-        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/leitura/sessao-1"))
-        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/leitura/sessao-1"))
-        assertFalse(isMobileEndpointAllowed("logistica", "DELETE", "/logistica/leitura/sessao-1"))
-        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/leitura/sessao-1/parada/parada-1"))
-        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/leitura/sessao-1/parada/parada-1"))
-        assertFalse(isMobileEndpointAllowed("vendas", "GET", "/logistica/leitura/atual"))
-        assertFalse(isMobileEndpointAllowed("vendas", "POST", "/logistica/leitura/iniciar"))
+    fun leituraDeRotaERotaIndicadaEstaoEnterradas() {
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/leitura/iniciar"))
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/leitura/atual"))
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/leitura/sessao-1/parada"))
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/leitura/sessao-1/resumo"))
+        assertFalse(isMobileEndpointAllowed("logistica", "PATCH", "/logistica/leitura/sessao-1/parada/parada-1"))
+        assertFalse(isMobileEndpointAllowed("logistica", "DELETE", "/logistica/leitura/sessao-1/parada/parada-1"))
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/leitura/sessao-1/finalizar"))
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/leitura/sessao-1/cancelar"))
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/leitura/sessao-1/trilha"))
+        assertFalse(isMobileEndpointAllowed("logistica", "GET", "/logistica/rota-indicadas/pendentes"))
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/rota-indicadas/missao-1/responder"))
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/rota-indicadas/missao-1/aplicada"))
+        assertFalse(isMobileEndpointAllowed("logistica", "POST", "/logistica/rota-indicadas/missao-1/alarme-armado"))
     }
 
     /**
@@ -154,8 +162,12 @@ class NativeApiClientPathPolicyTest {
      * painel do master ficaria "Aguardando o aparelho…" com o servidor 100% ok,
      * e a venda por toque morreria dentro do celular.
      *
-     * 🔴 OS DOIS ENDEREÇOS SÃO COBRADOS AQUI (09/08). `fechamento/*` é o vivo;
-     * `caderneta/*` é a porta velha do aparelho que ainda não atualizou. Testar
+     * 🔴 OS DOIS ENDEREÇOS SÃO COBRADOS AQUI (09/08). `fechamento/…` é o vivo;
+     * `caderneta/…` é a porta velha do aparelho que ainda não atualizou.
+     * (E a reticência não é estilo: comentário de bloco em Kotlin ANINHA, então
+     * um `/` seguido de `*` dentro do texto abre um comentário que nunca fecha e
+     * derruba o arquivo inteiro no compilador — foi o que aconteceu aqui.)
+     * Testar
      * só o novo deixaria a remoção acidental da porta velha passar verde e
      * derrubar a venda de quem está na rua com o APK antigo.
      */
