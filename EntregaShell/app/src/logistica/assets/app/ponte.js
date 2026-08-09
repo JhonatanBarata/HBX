@@ -1081,7 +1081,7 @@
         // COPY que o ESTADO decide não é copy do desenho: no boot o dia é HOJE,
         // e o "nesse dia" do mock não se refere a dia nenhum sem chip aceso.
         vazio: textoVazio(0),
-        somaParadas: '', somaProdutos: '', somaValor: '',
+        somaParadas: '', somaProdutos: '', somaValor: '', dias: [], diaSel: 0,
         // o HISTÓRICO demo do mock morre aqui como todo dado de exemplo —
         // "Sáb · 95 paradas" inventado numa tela de decisão é a mentira de
         // sempre com roupa nova (09/08).
@@ -1314,10 +1314,11 @@
     // chips de dia do montar só nasciam depois de passar pelos Ajustes.
     config = cfg;
     aplicarBarra(cfg);
-    // A medida dos dias que têm cliente vem UMA vez, aqui: a semana da lista
-    // vazia responde "então quando eu entrego?" e ela não pode nascer com sete
-    // zeros e se corrigir meio segundo depois. Esta função já roda no boot (e a
-    // cada minuto, mas só a 1ª pergunta) — quando a tela abrir, a conta existe.
+    publicarMontarDias();
+    // A medida dos dias que têm cliente vem UMA vez, aqui, e não na abertura da
+    // montagem: chip que nasce com 7 e encolhe pra 4 meio segundo depois pisca
+    // na cara de quem está escolhendo. Esta função já roda no boot (e a cada
+    // minuto, mas só a 1ª pergunta) — quando a tela abrir, a conta já existe.
     if (!diasComCliente) carregarDiasComCliente();
   }
 
@@ -1415,16 +1416,13 @@
      adiantar, ou voltar um dia". O trilho é o MESMO do desktop
      (`/logistica/admin-route/prepare`): o dia operacional continua HOJE —
      fechamento, cobrança e carimbo coerentes — e só os CLIENTES vêm do dia
-     escolhido. 0 = hoje (fluxo de sempre).
+     escolhido. 0 = hoje (fluxo de sempre). Chip só aparece pra admin.
 
-     ⚠️ SEM PORTA DESDE 09/08 — leia antes de mexer. Os chips de dia saíram da
-     Montagem por ordem do dono ("remova os dias da semana, estamos em
-     avulsas") e eles eram o ÚNICO jeito de mudar este valor. Hoje `montarDia`
-     nasce e morre em 0: a Montagem é sempre HOJE, e tudo o que depende dele
-     abaixo (`diaDosEspacos`, o ramo `prepare` do `montarRota`, o recibo "Rota
-     de Sáb montada") está de pé mas inalcançável. Ficou de pé de propósito, à
-     espera da porta que o dono decidir — não é código esquecido, e ninguém
-     deve tratá-lo como capacidade viva enquanto porta não houver.
+     🔴 OS CHIPS SAÍRAM E VOLTARAM EM 09/08, e a lição fica escrita aqui: eles
+     são a ÚNICA porta deste valor. Sem eles `montarDia` nasce e morre em 0 —
+     `diaDosEspacos`, o ramo `prepare` do `montarRota` e o recibo "Rota de Sáb
+     montada" ficam de pé e inalcançáveis. Quem for tirar o chip da tela de
+     novo está tirando "montar a rota de outro dia" junto.
      -------------------------------------------------------------------- */
   let montarDia = 0;
 
@@ -1466,6 +1464,8 @@
   function descartarRascunho() {
     if (!RASCUNHO.length) return;
     RASCUNHO.length = 0;
+    // o chip de HOJE pode ter nascido só por causa do rascunho — ver `publicarMontarDias`
+    publicarMontarDias();
   }
 
   /** a data (SP) da próxima ocorrência do dia n (1=Seg…7=Dom), hoje inclusive */
@@ -1506,8 +1506,9 @@
      🔴 E O FETCH SAIU DO PORTÃO DE ADMIN. Ele estava lá porque o único cliente
      era o chip da MONTAGEM, que é tela de admin — mas a semana é da tela do
      motorista também, e "em que dia eu entrego?" não é dado de dono. O
-     endpoint não tem `@Admin` (conferido no controller). Com o chip fora do
-     desenho (09/08) sobrou UM cliente: a SEMANA da lista vazia. */
+     endpoint não tem `@Admin` (conferido no controller); quem continua atrás do
+     portão é a PUBLICAÇÃO dos chips (`publicarMontarDias`), que é o que
+     realmente pertence ao admin. */
   async function carregarDiasComCliente() {
     if (typeof window.API === 'undefined' || diasEmVoo) return;
     diasEmVoo = true;
@@ -1522,6 +1523,7 @@
       .filter((d) => Number(d && d.totalClientesDia) > 0)
       .map((d) => Number(d.diaSemana)));
     publicarSemana(dias);
+    publicarMontarDias();
   }
 
   /* A SEMANA DA AGENDA na tela da lista: `[[dia, 'Segunda', 53, ehHoje]]`.
@@ -1547,16 +1549,37 @@
     window.usarDados('rota', { semana: semana.some((x) => x[2] > 0) ? semana : [] });
   }
 
-  /* ⚰️ `publicarMontarDias` MORREU (dono, 09/08: "remova os dias da semana
-     (estamos em avulsas)"). Ela existia só pra encher a fileira de chips da
-     Montagem — que saiu do desenho. Publicar `dias` num seam que ninguém mais
-     desenha não é neutro: TODO `usarDados` que muda de valor monta uma camada
-     nova, e esta era chamada no boot, na volta do foco, depois de materializar
-     e depois de cadastrar. Repinte pra dado invisível é o "pisca" de sempre.
-     Quem media os dias com gente (`carregarDiasComCliente`) fica: ela alimenta
-     a SEMANA da lista vazia, que continua na tela. */
+  /** os chips de dia da tela de MONTAGEM — sem admin, nada entra */
+  function publicarMontarDias() {
+    if (typeof window.usarDados !== 'function') return;
+    if (!ehAdmin()) return;
+    const hoje = diaDaSemana();
+    // 🔴 A REGRA É UMA SÓ, E VALE PRO HOJE TAMBÉM (dono, 08/08: "se o dia não
+    // tem nada: nada a exibir hoje"). Eu tinha aberto exceção pro dia atual —
+    // ele ficaria de pé mesmo vazio, pra não sobrar seleção sem chip. Errado:
+    // chip de um dia que não tem ninguém é convite pra lista vazia, e o dia
+    // atual não é diferente dos outros. Quem explica a tela quando hoje está
+    // vazio é o TEXTO ("Nada a exibir hoje"), não um chip mentindo que há o que
+    // montar.
+    /* 🔴 CHIP DE DIA É DA AGENDA, E SÓ DELA (dono, 09/08: "vc meio q criou um
+       'dom' como se tivesse cliente de domingo, totalmente fora de semantica…
+       isso aqui é AVULSO, crie uma parte avulsa"). A 1ª cura da "porta de
+       volta" fez rascunho e parada aberta acenderem o chip de HOJE — e num
+       domingo sem agenda nasceu um "Dom" mentindo que havia cliente de
+       domingo. O chip conta a AGENDA; o avulso vive na PARTE AVULSA da lista
+       de HOJE (etiqueta `avulsa` no somarRascunho/somarAvulsas), e a volta de
+       um dia espiado é o 2º toque no chip aceso — regra que os chips já têm. */
+    const temHoje = !!(diasComCliente && diasComCliente.has(hoje));
+    const dias = [1, 2, 3, 4, 5, 6, 7]
+      .filter((n) => (n === hoje ? temHoje : (!diasComCliente || diasComCliente.has(n))))
+      .map((n) => [n === hoje ? 0 : n, ROTULO_DIA[n]]);
+    window.usarDados('montagem', { dias, diaSel: montarDia });
+  }
 
-  /* O recado da lista vazia — texto literal do dono. Um dia da semana pode vir
+  /* O recado da lista vazia. Hoje sem ninguém não tem chip pra explicar a tela
+     (a regra acima o tirou da fila), então quem explica é esta linha — texto
+     literal do dono. Outro dia continua com o recado que já existia: ali o chip
+     está aceso e o "nesse dia" tem a quem se referir. Um dia da semana pode vir
      vazio mesmo tendo gente: a cadência (quinzenal, de N em N) decide se ele
      cai NESTA semana. */
   const textoVazio = (dia) => (dia ? 'Nenhum cliente nesse dia' : 'Nada a exibir hoje');
@@ -1841,7 +1864,7 @@
     RASCUNHO.forEach((c) => {
       const cid = String(c.id || '');
       const porta = chaveDaPorta(cid, c.localId);
-      if (!cid || jaEhParada.has(cid)) return;
+      if (!cid || jaTem.has(porta) || jaEhParada.has(cid)) return;
       jaTem.add(porta);
       previaCrua.push({
         customerProfileId: cid,
@@ -1915,13 +1938,13 @@
        POR PORTA — o mesmo cliente em dois `localId` no mesmo dia são duas
        paradas de verdade — e a chave por cliente engolia a segunda calada.
        Mesma dupla `cliente|localId` do espaço salvo e da PREVIA. */
-    const jaNoRascunho = new Set(RASCUNHO.map((c) => String(c.id)));
+    const jaNoRascunho = new Set(RASCUNHO.map((c) => chaveDaPorta(c.id, c.localId)));
     let novos = 0;
     clientes.forEach((c) => {
       const id = String(c.customerProfileId || '');
       const porta = chaveDaPorta(id, c.localId);
-      if (!id || jaNoRascunho.has(id) || paradaAbertaDaConta(id)) return;
-      jaNoRascunho.add(id);
+      if (!id || jaNoRascunho.has(porta) || paradaAbertaDaConta(id)) return;
+      jaNoRascunho.add(porta);
       /* 🔴 A BAGAGEM INTEIRA VIAJA (09/08). O que sai daqui senta no MESMO
          cartão da linha da agenda e é lido pela MESMA régua, então tem que
          chegar com tudo que ela tem:
@@ -1938,16 +1961,17 @@
         id,
         ...(c.localId ? { localId: String(c.localId) } : {}),
         nome: String(c.nome || 'Cliente'),
-        enderecoLinha: String(c.endereco || ''),
+        enderecoLinha: String(c.enderecoLinha || ''),
         bairro: String(c.bairro || c.cidade || ''),
         ...(pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : {}),
         resolveSozinho: !!c.recorrente,
       });
       novos += 1;
     });
-    // volta pra HOJE: o rascunho vive na lista de hoje. (O `diaSel` do seam
-    // saiu com os chips — nada mais desenha a seleção de dia.)
+    // volta pra HOJE: o rascunho vive na lista de hoje, e reutilizar com um
+    // chip de outro dia aceso mostraria a lista errada com o recibo certo.
     montarDia = 0;
+    window.usarDados('montagem', { diaSel: 0 });
     // ESPERA a lista chegar antes do recibo — portão aberto antes do repinte
     // morre com a camada (armadilha 2 da parada avulsa, 09/08).
     await encherMontagem();
@@ -2487,6 +2511,7 @@
              dia veio — reutilizar um dia do histórico mandava o motorista pra
              porta errada com a lista dizendo a certa. O DTO já aceita o campo
              e o servidor valida que o local é do mesmo cliente+empresa. */
+          ...(c.localId ? { localId: String(c.localId) } : {}),
           quantidade: 1,
           scheduledAt: `${hojeISO()}T12:00:00.000Z`,
           paraMinhaRota: true,
@@ -2497,6 +2522,7 @@
     // A rota é relida ANTES de quem chamou seguir: é dela que sai a lista de
     // abertas que o planejar vai ordenar.
     if (entraram) await carregarRota();
+    publicarMontarDias();      // o chip de HOJE pode ter mudado de fonte
     return { falharam, entraram };
   }
 
@@ -2562,7 +2588,7 @@
       /* A ESCOLHA DE DIA MORRE AQUI. O dia escolhido já foi montado — no dia
          DELE —, e seleção presa deixaria o próximo montar puxando o dia velho
          calado, com o chip aceso mentindo sobre o que está na lista. */
-      if (montarDia) montarDia = 0;
+      if (montarDia) { montarDia = 0; window.usarDados('montagem', { diaSel: 0 }); }
 
       /* 🔴 ROTA DE OUTRO DIA NÃO É A ROTA DE HOJE, E A TELA TEM QUE DIZER ISSO.
          Antes o dia escolhido era despejado em cima de hoje, então o silêncio
@@ -2596,6 +2622,12 @@
          cima — o gesto virava enfeite. Em modo Distância isto nem roda: lá a
          sequência é do servidor, de propósito. */
       if (ordemDeGente()) await cravarOrdemDaTela();
+      /* 🔴 ROTA NOVA REPETE A CENA DA ENTRADA — ordem do dono: *"este efeito se
+         repete sempre que uma rota é criada"*. Aqui é só o PEDIDO: quem monta
+         está na tela de Montagem, e a cena acontece quando o mapa voltar pra
+         frente (ver `atenderCena` no transplante). Cena tocada num palco fora da
+         tela é cena que ninguém vê. */
+      pedirCena('rota');
       devolverEstado();          // o "Montando…" sai com o dado já na tela
       /* Quem não conseguiu virar parada é dito por NOME, e antes do semáforo de
          endereço: "o Alfredo não entrou" vale mais pra quem vai sair pra rua do
@@ -3370,6 +3402,613 @@
     });
   }
 
+  /* ==========================================================================
+     7a-bis. A CENA DAS RUAS — o mapa se desenhando.
+
+     Ordem do dono (09/08): *"entrada do app, ao ligar, era pras ruas virem
+     surgindo, um efeito bem legal na entrada dele, e este efeito se repete
+     sempre que uma rota é criada — não remonte coisas, crie dentro do mapa
+     mesmo"*. E o roteiro, na letra dele: carrega escuro (ou claro, conforme o
+     tema), nasce o pino centralizado onde a pessoa está, escreve a coordenada e
+     o endereço em que ela possivelmente está, aí as ruas vão surgindo de vários
+     pontos aleatórios até se formar a rua do mapa de onde ela está, e quando a
+     rua FECHA começam a escrever as letras.
+
+     🔴 "DENTRO DO MAPA MESMO" É O PROJETO INTEIRO, não um detalhe de gosto. A
+     cena da navegação (§ "A COBRA", no mock) desenha um SVG e depois cruza com
+     o mapa vivo — ali é CENA, dura 1,36 s e some. Repetir aquilo aqui traria de
+     volta exatamente o que morreu em 09/08 com a maquete do 2D: um desenho que
+     inventa uma cidade e pisca ao encontrar a de verdade. Então aqui não há
+     desenho nenhum. As ruas que crescem SÃO as ruas dos tiles:
+     `querySourceFeatures` devolve a geometria que o mapa já baixou, ela vira uma
+     fonte GeoJSON com `lineMetrics`, e o crescimento é `line-gradient` andando
+     de 0 a 1 em cima do próprio comprimento de cada rua. No fim a camada da cena
+     se apaga por cima da MESMA geometria que fica — não há cruzamento possível
+     porque não há duas cidades.
+
+     🔴 UM QUADRO = UMA CONTA (a lei do item 9). O que roda a cada quadro é UMA
+     linha de tinta por onda em voo (no máximo três ao mesmo tempo): trocar o
+     gradiente é reenviar uma rampa de cor, não relayoutar a fonte. Nada de
+     `setData` por quadro na geometria (seria a cidade inteira reserializada 60
+     vezes por segundo) e nada de `setFilter` por quadro (que manda o worker
+     refazer o tile). O único `setData` de repetição é o dos NOMES, e só quando
+     uma letra muda: 16 pontinhos, no máximo 15 vezes por segundo.
+
+     🔴 O RELÓGIO MANDA, O DADO NÃO SEGURA. A cena espera o tile e o primeiro fix
+     com TETO (2,2 s / 1,4 s, os mesmos números da cena da navegação). Vencido o
+     teto, ou sem rua nenhuma pra desenhar, o mundo volta na hora e a tela é a de
+     sempre. Enfeite não derruba tela — e enfeite não segura motorista: o
+     primeiro toque no mapa encerra tudo e devolve o mapa pronto.
+     ========================================================================== */
+  const CENA_FONTE = 'hbx-cena-ruas';
+  const CENA_NOMES = 'hbx-cena-nomes';
+  const CENA_NOMES_L = 'hbx-cena-nomes-txt';
+  /** quantas frentes de crescimento; cada uma parte `CENA_PASSO` depois da outra */
+  const CENA_ONDAS = 7;
+  /** 66 ms por letra — a régua de escrita desta casa (`empDigita`, no mock) */
+  const CENA_LETRA = 66;
+  const CENA_PASSO = 130;
+  const CENA_ONDA = 560;
+  /** quando a primeira onda parte: na entrada, depois do pino e da coordenada */
+  const CENA_RUAS_ENTRADA = 820;
+  /** na rota nova o mapa JÁ está na cara do motorista: nada de tela parada */
+  const CENA_RUAS_ROTA = 120;
+  const CENA_TETO_FIX = 1400;
+  const CENA_TETO_TILE = 2200;
+  const CENA_TETO_VIDA = 9000;
+  const CENA_MAX_RUAS = 130;
+  const CENA_MAX_NOMES = 16;
+  const CENA_VALIDADE = 60000;
+  const CENA_SAI = 320;
+  const CENA_INVISIVEL = 'rgba(0,0,0,0)';
+  /* A largura é a MESMA do basemap (`roads_*` no style), classe por classe. Não
+     é capricho: no fim a camada da cena se apaga por cima da rua de verdade, e
+     um pixel de diferença viraria a rua "engordando" no último quadro. */
+  const CENA_LARGURA = ['interpolate', ['exponential', 1.6], ['zoom'],
+    11, ['match', ['get', 'c'], 'a', 1.6, 'b', 1.3, 0.2],
+    15, ['match', ['get', 'c'], 'a', 5, 'b', 3, 2],
+    18, ['match', ['get', 'c'], 'a', 15, 'b', 13, 11]];
+
+  let cena = null;          // a cena EM CURSO (uma por vez, sempre)
+  let cenaPedido = null;    // { motivo, em } — pedido esperando o palco aparecer
+  let cenaJaEntrou = false; // a de ENTRADA é uma por vida do app
+
+  /* Lei 7: quem pediu menos movimento não ganha cena nenhuma — e não é um
+     "modo degradado", é a tela pronta, que é o que essa pessoa pediu. */
+  const semMovimento = () => {
+    try { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); }
+    catch (_) { return false; }
+  };
+
+  /* 🔴 O QUE SAI DE CENA É O QUE A CENA VAI DESENHAR, e só. Chão, água e área
+     verde FICAM: eles são o papel em que as ruas se desenham (e no claro são a
+     diferença entre "mapa apagado" e "tela branca quebrada"). Sai o que a cena
+     conta: rua, prédio, ponto de interesse e todo nome de lugar. */
+  const cenaEscondeCamada = (l) => {
+    const sl = l && l['source-layer'];
+    return sl === 'roads' || sl === 'buildings' || sl === 'pois' || sl === 'places';
+  };
+
+  /** apaga o mundo e DEVOLVE o que cada camada era — restaurar "visible" em cima
+      de camada que o estilo já escondia seria a cena ligando peça que ninguém
+      pediu. */
+  function esconderMundo(mapa) {
+    let camadas = [];
+    try { camadas = (mapa.getStyle().layers || []); } catch (_) { return null; }
+    const antes = new Map();
+    camadas.forEach((l) => {
+      if (!cenaEscondeCamada(l)) return;
+      antes.set(l.id, (l.layout && l.layout.visibility) || 'visible');
+      try { mapa.setLayoutProperty(l.id, 'visibility', 'none'); } catch (_) { /* estilo trocando */ }
+    });
+    return antes.size ? antes : null;
+  }
+
+  function devolverMundo(mapa, antes) {
+    if (!mapa || !antes) return;
+    antes.forEach((v, id) => {
+      try { if (mapa.getLayer(id)) mapa.setLayoutProperty(id, 'visibility', v); } catch (_) { /* já foi */ }
+    });
+  }
+
+  /* ---- a geometria de verdade ------------------------------------------------
+     Uma rua do tile vem em pedaço e em duplicata (o mesmo trecho aparece na
+     borda de dois tiles). Aqui ela vira uma peça de cena: aparada no que cabe na
+     tela, medida em PIXEL (é em pixel que se decide se vale desenhar), reduzida
+     a no máximo 14 pontos e carimbada com nome e classe. */
+  function aparar(mapa, coords, L, A) {
+    if (!Array.isArray(coords) || coords.length < 2) return null;
+    const tela = [];
+    let dentro = 0;
+    for (let i = 0; i < coords.length; i += 1) {
+      const c = coords[i];
+      if (!Array.isArray(c) || !Number.isFinite(c[0]) || !Number.isFinite(c[1])) return null;
+      let t;
+      try { t = mapa.project(c); } catch (_) { return null; }
+      tela.push(t);
+      if (t.x > -80 && t.x < L + 80 && t.y > -80 && t.y < A + 80) dentro += 1;
+    }
+    if (!dentro) return null;
+    let px = 0;
+    for (let i = 1; i < tela.length; i += 1) {
+      px += Math.hypot(tela[i].x - tela[i - 1].x, tela[i].y - tela[i - 1].y);
+    }
+    if (px < 30) return null;                    // risco de 30 px não é rua, é ruído
+    const passo = Math.max(1, Math.ceil((coords.length - 1) / 13));
+    const pontos = []; const tp = [];
+    for (let i = 0; i < coords.length; i += passo) { pontos.push([coords[i][0], coords[i][1]]); tp.push(tela[i]); }
+    const fim = coords[coords.length - 1];
+    const ult = pontos[pontos.length - 1];
+    if (ult[0] !== fim[0] || ult[1] !== fim[1]) { pontos.push([fim[0], fim[1]]); tp.push(tela[tela.length - 1]); }
+    if (pontos.length < 2) return null;
+    const meio = tp[Math.floor(tp.length / 2)];
+    return {
+      pontos, tp, px, mx: meio.x, my: meio.y,
+      x0: tp[0].x, y0: tp[0].y, x1: tp[tp.length - 1].x, y1: tp[tp.length - 1].y,
+    };
+  }
+
+  function ruasDaCena(mapa) {
+    let L; let A;
+    try { const c = mapa.getContainer(); L = c.clientWidth; A = c.clientHeight; } catch (_) { return []; }
+    if (!L || !A) return [];
+    let brutas = [];
+    try { brutas = mapa.querySourceFeatures('protomaps', { sourceLayer: 'roads' }) || []; }
+    catch (_) { return []; }
+    const vistas = new Set();
+    const ruas = [];
+    // teto de varredura: o zoom da cidade traz milhares de feições e a conta é
+    // por PONTO. Este laço roda UMA vez na vida da cena e mesmo assim tem freio.
+    const teto = Math.min(brutas.length, 2600);
+    for (let i = 0; i < teto; i += 1) {
+      const f = brutas[i];
+      const g = f && f.geometry;
+      if (!g) continue;
+      const partes = g.type === 'LineString' ? [g.coordinates]
+        : (g.type === 'MultiLineString' ? g.coordinates : null);
+      if (!partes) continue;
+      const p = f.properties || {};
+      const nome = String(p['name:pt'] || p.name || p['pgf:name'] || '').trim();
+      const classe = p.kind === 'highway' ? 'a' : (p.kind === 'major_road' ? 'b' : 'c');
+      for (let k = 0; k < partes.length; k += 1) {
+        const rua = aparar(mapa, partes[k], L, A);
+        if (!rua) continue;
+        // a duplicata da borda do tile tem as MESMAS pontas: arredondar em 7 px
+        // mata a cópia sem matar duas ruas paralelas de verdade.
+        const chave = `${Math.round(rua.x0 / 7)},${Math.round(rua.y0 / 7)}|${Math.round(rua.x1 / 7)},${Math.round(rua.y1 / 7)}`;
+        if (vistas.has(chave)) continue;
+        vistas.add(chave);
+        rua.nome = nome.slice(0, 34); rua.classe = classe;
+        ruas.push(rua);
+      }
+      if (ruas.length >= CENA_MAX_RUAS * 3) break;
+    }
+    // as maiores primeiro: se houver corte, que sobre o desenho da cidade e não
+    // um punhado de vielas.
+    ruas.sort((a, b) => b.px - a.px);
+    return ruas.slice(0, CENA_MAX_RUAS);
+  }
+
+  /* ---- de vários pontos aleatórios -------------------------------------------
+     🔴 "DE VÁRIOS PONTOS ALEATÓRIOS" É O PEDIDO LITERAL, e um dos pontos não é
+     aleatório: onde a pessoa está. É isso que faz o labirinto se fechar
+     EM VOLTA DELA e não num canto qualquer da tela.
+     Cada rua entra na onda da sua DISTÂNCIA até o foco mais perto — é a onda
+     que carrega o tempo, não a rua, e é por isso que a cena inteira custa sete
+     linhas de tinta por quadro em vez de cento e trinta. */
+  function ondasDasRuas(casa, ruas) {
+    const mapa = casa.mapa;
+    let L = 412; let A = 800;
+    try { const c = mapa.getContainer(); L = c.clientWidth || L; A = c.clientHeight || A; } catch (_) { /* fora de cena */ }
+    const focos = [];
+    const eu = ultimaPos || ultimoFix;
+    if (eu && pontoOk(eu.lat, eu.lng)) {
+      try { const t = mapa.project([eu.lng, eu.lat]); focos.push([t.x, t.y]); } catch (_) { /* sem projeção */ }
+    }
+    while (focos.length < 4) focos.push([Math.random() * L, Math.random() * A]);
+    let maior = 1;
+    ruas.forEach((r) => {
+      let d = Infinity; let perto = focos[0];
+      focos.forEach((f) => {
+        const q = Math.hypot(r.mx - f[0], r.my - f[1]);
+        if (q < d) { d = q; perto = f; }
+      });
+      r.dist = d; r.foco = perto;
+      if (d > maior) maior = d;
+    });
+    ruas.forEach((r) => {
+      const t = Math.min(1, r.dist / maior);
+      // o tremor de meia onda desmancha a fileira: sem ele as ruas nascem em
+      // anéis concêntricos perfeitos, que é desenho de radar, não de cidade.
+      const bruto = Math.round((t * (CENA_ONDAS - 1)) + ((Math.random() - 0.5) * 0.9));
+      r.onda = Math.max(0, Math.min(CENA_ONDAS - 1, bruto));
+      // e ela cresce PRA LONGE do foco: começando pela ponta errada, a rua
+      // pareceria correr de volta pra dentro do que já foi desenhado.
+      const dIni = Math.hypot(r.x0 - r.foco[0], r.y0 - r.foco[1]);
+      const dFim = Math.hypot(r.x1 - r.foco[0], r.y1 - r.foco[1]);
+      if (dFim < dIni) { r.pontos.reverse(); r.tp.reverse(); }
+    });
+  }
+
+  /** os nomes que cabem: um por rua, um por NOME, e nunca dois em cima do outro */
+  function nomesDaCena(ruas) {
+    const usados = new Set();
+    const postos = [];
+    const escolhidos = [];
+    ruas.forEach((r) => {
+      if (escolhidos.length >= CENA_MAX_NOMES) return;
+      if (!r.nome || r.px < 90) return;          // nome não cabe em rua curta
+      const chave = r.nome.toLowerCase();
+      if (usados.has(chave)) return;
+      if (postos.some((p) => Math.hypot(p[0] - r.mx, p[1] - r.my) < 84)) return;
+      usados.add(chave); postos.push([r.mx, r.my]);
+      escolhidos.push(r);
+    });
+    return escolhidos;
+  }
+
+  /* ---- o cartão do "onde eu estou" -------------------------------------------
+     🔴 O ENDEREÇO SAI DO MAPA QUE JÁ ESTÁ NO APARELHO, não da rede. Pedir o
+     reverso ao servidor na abertura seria pôr a cena de entrada — e com ela a
+     primeira tela do dia — dependendo de sinal de celular em galpão. A rua mais
+     perto do fix é o que o próprio mapa sabe responder, na hora e offline, e é
+     exatamente o que o dono pediu: o endereço em que a pessoa POSSIVELMENTE
+     está. Sem rua com nome por perto, a linha não existe — nada de inventar. */
+  function ruaMaisPerto(mapa, ruas, eu) {
+    let alvo;
+    try { alvo = mapa.project([eu.lng, eu.lat]); } catch (_) { return ''; }
+    let melhor = ''; let dm = 260;              // além de 260 px não é "onde estou"
+    ruas.forEach((r) => {
+      if (!r.nome) return;
+      r.tp.forEach((t) => {
+        const d = Math.hypot(t.x - alvo.x, t.y - alvo.y);
+        if (d < dm) { dm = d; melhor = r.nome; }
+      });
+    });
+    return melhor;
+  }
+
+  const grauDe = (v, pos, neg) => `${Math.abs(v).toFixed(4).replace('.', ',')}° ${v >= 0 ? pos : neg}`;
+
+  function cartaoDaCena(casa, coordenada, endereco) {
+    const eu = ultimaPos || ultimoFix;
+    let ponto;
+    try { ponto = casa.mapa.project([eu.lng, eu.lat]); } catch (_) { return null; }
+    const cartao = document.createElement('div');
+    cartao.className = 'cena-eu';
+    cartao.setAttribute('aria-hidden', 'true');
+    // ele nasce COLADO no pino, não no meio do palco: com rota montada a câmera
+    // enquadra o dia inteiro e o meio da tela não é onde a pessoa está.
+    cartao.style.left = `${Math.round(ponto.x)}px`;
+    cartao.style.top = `${Math.round(ponto.y)}px`;
+    const linha = (tag, texto, atraso) => {
+      const el = document.createElement(tag);
+      el.textContent = texto;
+      // `--n` é o número de letras: é ele que faz o `empDigita` andar de letra em
+      // letra (steps) em vez de varrer a caixa.
+      el.style.setProperty('--n', String(Math.max(1, texto.length)));
+      if (atraso) el.style.setProperty('--atraso', atraso);
+      cartao.appendChild(el);
+    };
+    linha('b', coordenada, '');
+    if (endereco) linha('i', endereco, '.18s');
+    try { casa.alvo.appendChild(cartao); } catch (_) { return null; }
+    return cartao;
+  }
+
+  /* ---- a cena ---------------------------------------------------------------- */
+
+  /** o pedido: a cena acontece quando o palco estiver na tela, nunca antes */
+  function pedirCena(motivo) {
+    if (semMovimento()) return;
+    cenaPedido = { motivo, em: Date.now() };
+    const casa = GARAGEM.get('geral');
+    if (casa && casa.alvo && casa.alvo.isConnected) atenderCena(casa);
+  }
+
+  function atenderCena(casa) {
+    const p = cenaPedido;
+    if (!p) return;
+    // pedido velho não vira cena: montar a rota de manhã e abrir o mapa à tarde
+    // não é "rota nova", é o dia em andamento.
+    if (Date.now() - p.em > CENA_VALIDADE) { cenaPedido = null; return; }
+    cenaPedido = null;
+    chamarCena(casa, p.motivo);
+  }
+
+  function chamarCena(casa, motivo) {
+    (window.__cena=window.__cena||[]).push(['chamar',motivo,Math.round(performance.now())]);
+    if (!casa || casa.nome !== 'geral' || !casa.mapa) return;
+    if (cena || semMovimento()) return;
+    if (motivo === 'entrada') {
+      if (cenaJaEntrou) return;
+      cenaJaEntrou = true;
+    }
+    const mapa = casa.mapa;
+    cena = { casa, motivo, mundo: null, t0: 0, ondas: [], nomes: [], cartao: null, eu: null, raf: 0, dedo: null };
+    const daVez = cena;
+    /* O mundo sai de cena assim que o estilo existir — ANTES do primeiro tile
+       pintar. Escondê-lo no `load` deixaria a cidade aparecer por um quadro e
+       sumir, que é a piscada que esta casa passou o dia 09/08 matando. */
+    quandoEstiloPronto(mapa, () => {
+      if (cena !== daVez) return;
+      daVez.mundo = esconderMundo(mapa);
+      (window.__cena=window.__cena||[]).push(['escondeu',!!daVez.mundo,Math.round(performance.now())]);
+      if (!daVez.mundo) { encerrarCena('sem-estilo', true); return; }
+      esperarChao(daVez);
+    });
+  }
+
+  /** o teto que nunca falha: tile na mão (e fix, na entrada) ou o relógio */
+  function esperarChao(daVez) {
+    const mapa = daVez.casa.mapa;
+    const prazo = Date.now() + CENA_TETO_TILE;
+    const prazoFix = Date.now() + CENA_TETO_FIX;
+    const olhar = () => {
+      if (cena !== daVez) return;
+      if (!daVez.casa.alvo.isConnected) { (window.__cena=window.__cena||[]).push(['saiu',Math.round(performance.now())]); encerrarCena('saiu', true); return; }
+      let tile = true;
+      try { tile = mapa.areTilesLoaded(); } catch (_) { tile = true; }
+      const querFix = daVez.motivo === 'entrada' && Date.now() < prazoFix;
+      const temFix = !!(ultimaPos || ultimoFix);
+      if ((!tile || (querFix && !temFix)) && Date.now() < prazo) { setTimeout(olhar, 120); return; }
+      /* 🔴 ERRO NO MEIO DA CENA TAMBÉM DEVOLVE O MUNDO. Sem este laço, uma
+         exceção aqui dentro deixaria a cidade escondida pelo resto do dia — e
+         foi exatamente o que a prova pegou na primeira volta: um nome de função
+         errado apagou o mapa inteiro e nada o trouxe de volta. */
+      (window.__cena=window.__cena||[]).push(['comecar',Math.round(performance.now())]);
+      try { comecarCena(daVez); } catch (e) { (window.__cena=window.__cena||[]).push(['ERRO', e && e.message, (e && e.stack || '').split('
+')[1]]); encerrarCena('erro', true); }
+    };
+    setTimeout(olhar, 160);
+  }
+
+  function comecarCena(daVez) {
+    const casa = daVez.casa;
+    const mapa = casa.mapa;
+    const ruas = ruasDaCena(mapa);
+    /* Sem rua nenhuma não há cena — e isso é comum e normal: tile que não chegou,
+       mapa fora da área coberta, aparelho sem o pacote. O mundo volta na hora. */
+    (window.__cena=window.__cena||[]).push(['ruas',ruas.length,Math.round(performance.now())]);
+    if (!ruas.length) { encerrarCena('sem-rua', true); return; }
+    ondasDasRuas(casa, ruas);
+    const nomes = nomesDaCena(ruas);
+
+    const corpo = tinta('--map-cena-rua', '#59677a');
+    const cabeca = tinta('--map-cabeca', '#e8f4ff');
+    const tintaNome = tinta('--map-cena-nome', '#8d9bad');
+    /* O halo do nome é o CHÃO DO BASEMAP, lido do estilo que está no ar. Ele não
+       vira token: a cor do chão mora no `style-*.json` e um token igual a ela
+       seria a mesma verdade em dois arquivos — que é como eles discordam. */
+    let halo = tinta('--map-fundo', '#1f1f1f');
+    try { const c = mapa.getPaintProperty('earth', 'fill-color'); if (typeof c === 'string') halo = c; } catch (_) { /* estilo sem chão */ }
+
+    const dado = {
+      type: 'FeatureCollection',
+      features: ruas.map((r) => ({
+        type: 'Feature',
+        properties: { w: r.onda, c: r.classe },
+        geometry: { type: 'LineString', coordinates: r.pontos },
+      })),
+    };
+    try {
+      // `lineMetrics` é o que dá o `line-progress`: sem ele o gradiente não tem
+      // régua e a rua não tem como crescer.
+      mapa.addSource(CENA_FONTE, { type: 'geojson', lineMetrics: true, data: dado });
+      mapa.addSource(CENA_NOMES, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+    } catch (_) { encerrarCena('sem-fonte', true); return; }
+
+    // debaixo da fita da rota, sempre: a cena desenha a CIDADE, e cidade não
+    // passa por cima do caminho do dia.
+    let antesDe;
+    try { antesDe = mapa.getLayer(`${TRACO}-casca`) ? `${TRACO}-casca` : undefined; } catch (_) { antesDe = undefined; }
+
+    for (let i = 0; i < CENA_ONDAS; i += 1) {
+      try {
+        mapa.addLayer({
+          id: `${CENA_FONTE}-${i}`,
+          type: 'line',
+          source: CENA_FONTE,
+          filter: ['==', ['get', 'w'], i],
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          paint: {
+            'line-width': CENA_LARGURA,
+            'line-opacity': 0,
+            'line-opacity-transition': { duration: 0, delay: 0 },
+            'line-gradient': ['step', ['line-progress'], corpo, 0.001, CENA_INVISIVEL],
+          },
+        }, antesDe);
+      } catch (_) { /* uma onda a menos não derruba a cena */ }
+      daVez.ondas.push({ em: 0, acesa: false, pronta: false });
+    }
+    try {
+      mapa.addLayer({
+        id: CENA_NOMES_L,
+        type: 'symbol',
+        source: CENA_NOMES,
+        layout: {
+          'symbol-placement': 'line-center',
+          'text-font': ['Noto Sans Regular'],
+          'text-field': ['get', 'txt'],
+          'text-size': 12,
+          // o nome está CRESCENDO letra a letra: deixar o motor de colisão
+          // decidir a cada quadro faria o rótulo piscar dentro da própria
+          // escrita. Quem garante que eles não se encavalam é o espaçamento de
+          // 84 px lá no `nomesDaCena`.
+          'text-allow-overlap': true,
+          'text-ignore-placement': true,
+        },
+        paint: {
+          'text-color': tintaNome,
+          'text-halo-color': halo,
+          'text-halo-width': 1,
+          'text-opacity-transition': { duration: 0, delay: 0 },
+        },
+      });
+    } catch (_) { /* sem glyph: a cena roda só com as ruas */ }
+
+    const ruasEm = daVez.motivo === 'entrada' ? CENA_RUAS_ENTRADA : CENA_RUAS_ROTA;
+    daVez.ondas.forEach((o, i) => { o.em = ruasEm + (i * CENA_PASSO); });
+    daVez.nomes = nomes.map((r) => ({
+      nome: r.nome,
+      pontos: r.pontos,
+      // 🔴 A LETRA COMEÇA QUANDO A RUA FECHA — ordem literal do dono. A onda é
+      // quem fecha, e o tremorzinho de 0 a 160 ms evita que doze nomes comecem
+      // a ser escritos no mesmo quadro.
+      em: ruasEm + (r.onda * CENA_PASSO) + CENA_ONDA + Math.round(Math.random() * 160),
+      q: -1,
+    }));
+
+    /* O pino e o cartão: só na ENTRADA, e só com fix. Sem fix não há "onde eu
+       estou" — e posição inventada é a pior mentira que esta tela conta. */
+    const eu = ultimaPos || ultimoFix;
+    if (daVez.motivo === 'entrada' && eu && pontoOk(eu.lat, eu.lng)) {
+      moverEuNoPlano();
+      try { daVez.eu = casa.eu ? casa.eu.getElement() : null; } catch (_) { daVez.eu = null; }
+      if (daVez.eu) daVez.eu.classList.add('nascendo');
+      const coordenada = `${grauDe(Number(eu.lat), 'N', 'S')}  ${grauDe(Number(eu.lng), 'E', 'W')}`;
+      const endereco = ruaMaisPerto(mapa, ruas, eu);
+      daVez.cartao = cartaoDaCena(casa, coordenada, endereco);
+    }
+
+    /* 🔴 O DEDO ENCERRA A CENA. Quem tocou o mapa quer o mapa, não o espetáculo
+       — e cena que briga com o dedo é a mesma doença da câmera que desfazia o
+       arrasto na navegação. */
+    daVez.dedo = (e) => { if (e && e.originalEvent) encerrarCena('dedo'); };
+    ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart'].forEach((ev) => {
+      try { mapa.on(ev, daVez.dedo); } catch (_) { /* versão sem o gesto */ }
+    });
+
+    daVez.t0 = (window.performance && performance.now) ? performance.now() : Date.now();
+    proximoQuadro(daVez);
+  }
+
+  /** o próximo quadro — e o laço que garante que a cena nunca morre calada */
+  function proximoQuadro(daVez) {
+    daVez.raf = requestAnimationFrame(() => {
+      try { quadroDaCena(daVez); } catch (_) { encerrarCena('erro', true); }
+    });
+  }
+
+  /** o gradiente de uma onda no ponto `p` do crescimento (0..1) */
+  function faixaDaOnda(p, corpo, cabeca) {
+    if (p >= 1) return ['step', ['line-progress'], corpo, 0.999, corpo];
+    const cab = Math.max(0.001, Math.min(0.985, p - 0.09));
+    const ponta = Math.max(cab + 0.005, Math.min(0.999, p));
+    return ['step', ['line-progress'], corpo, cab, cabeca, ponta, CENA_INVISIVEL];
+  }
+
+  function quadroDaCena(daVez) {
+    if (cena !== daVez) return;
+    const casa = daVez.casa;
+    const mapa = casa.mapa;
+    if (!casa.alvo.isConnected) { encerrarCena('saiu', true); return; }
+    const agora = (window.performance && performance.now) ? performance.now() : Date.now();
+    const t = agora - daVez.t0;
+    if (t > CENA_TETO_VIDA) { encerrarCena('teto'); return; }
+
+    const corpo = daVez.corpo || (daVez.corpo = tinta('--map-cena-rua', '#59677a'));
+    const cabeca = daVez.cabeca || (daVez.cabeca = tinta('--map-cabeca', '#e8f4ff'));
+
+    let ruasProntas = true;
+    for (let i = 0; i < daVez.ondas.length; i += 1) {
+      const o = daVez.ondas[i];
+      if (o.pronta) continue;
+      const p = (t - o.em) / CENA_ONDA;
+      if (p <= 0) { ruasProntas = false; continue; }
+      const id = `${CENA_FONTE}-${i}`;
+      try {
+        if (!o.acesa) { o.acesa = true; mapa.setPaintProperty(id, 'line-opacity', 1); }
+        mapa.setPaintProperty(id, 'line-gradient', faixaDaOnda(Math.min(1, p), corpo, cabeca));
+      } catch (_) { o.pronta = true; continue; }
+      if (p >= 1) o.pronta = true; else ruasProntas = false;
+    }
+
+    let nomesProntos = true;
+    let mudou = false;
+    for (let i = 0; i < daVez.nomes.length; i += 1) {
+      const n = daVez.nomes[i];
+      const q = Math.max(0, Math.min(n.nome.length, Math.floor((t - n.em) / CENA_LETRA)));
+      if (q !== n.q) { n.q = q; mudou = true; }
+      if (q < n.nome.length) nomesProntos = false;
+    }
+    if (mudou) escreverNomes(daVez);
+
+    if (ruasProntas && nomesProntos) { encerrarCena('fim'); return; }
+    proximoQuadro(daVez);
+  }
+
+  function escreverNomes(daVez) {
+    let fonte;
+    try { fonte = daVez.casa.mapa.getSource(CENA_NOMES); } catch (_) { return; }
+    if (!fonte) return;
+    const features = [];
+    daVez.nomes.forEach((n) => {
+      if (n.q <= 0) return;
+      features.push({
+        type: 'Feature',
+        properties: { txt: n.nome.slice(0, n.q) },
+        geometry: { type: 'LineString', coordinates: n.pontos },
+      });
+    });
+    try { fonte.setData({ type: 'FeatureCollection', features }); } catch (_) { /* fonte saindo */ }
+  }
+
+  /** tira as peças da cena do mapa — só as nossas, e sempre por nome */
+  function limparCena(mapa) {
+    if (!mapa) return;
+    try {
+      if (mapa.getLayer(CENA_NOMES_L)) mapa.removeLayer(CENA_NOMES_L);
+      for (let i = 0; i < CENA_ONDAS; i += 1) {
+        const id = `${CENA_FONTE}-${i}`;
+        if (mapa.getLayer(id)) mapa.removeLayer(id);
+      }
+      if (mapa.getSource(CENA_NOMES)) mapa.removeSource(CENA_NOMES);
+      if (mapa.getSource(CENA_FONTE)) mapa.removeSource(CENA_FONTE);
+    } catch (_) { /* estilo trocou: foi tudo junto */ }
+  }
+
+  /* 🔴 UM SÓ DESFECHO, E ELE DEVOLVE O MUNDO. Toda saída da cena passa por aqui
+     — fim, dedo, tela que trocou, teto, erro no meio. Cena que morre sem
+     devolver a cidade deixaria o motorista com um mapa vazio pelo resto do dia,
+     e isso é bem pior que não ter cena nenhuma. */
+  function encerrarCena(motivo, seco) {
+    (window.__cena=window.__cena||[]).push(['fim',motivo,Math.round(performance.now())]);
+    const c = cena;
+    if (!c) return;
+    cena = null;
+    if (c.raf) { try { cancelAnimationFrame(c.raf); } catch (_) { /* já passou */ } }
+    const mapa = c.casa && c.casa.mapa;
+    devolverMundo(mapa, c.mundo);
+    if (mapa && c.dedo) {
+      ['dragstart', 'zoomstart', 'rotatestart', 'pitchstart'].forEach((ev) => {
+        try { mapa.off(ev, c.dedo); } catch (_) { /* mapa morto */ }
+      });
+    }
+    if (c.eu) { try { c.eu.classList.remove('nascendo'); } catch (_) { /* saiu do DOM */ } }
+    if (c.cartao) {
+      const el = c.cartao;
+      if (seco) { try { el.remove(); } catch (_) { /* já saiu */ } }
+      else { el.classList.add('saindo'); setTimeout(() => { try { el.remove(); } catch (_) { /* já saiu */ } }, CENA_SAI + 60); }
+    }
+    if (seco) { limparCena(mapa); return; }
+    // o fundido: a camada da cena se apaga POR CIMA da rua de verdade que
+    // acabou de voltar. Mesma geometria, mesma largura — não há cruzamento.
+    try {
+      for (let i = 0; i < CENA_ONDAS; i += 1) {
+        const id = `${CENA_FONTE}-${i}`;
+        if (!mapa.getLayer(id)) continue;
+        mapa.setPaintProperty(id, 'line-opacity-transition', { duration: CENA_SAI, delay: 0 });
+        mapa.setPaintProperty(id, 'line-opacity', 0);
+      }
+      if (mapa.getLayer(CENA_NOMES_L)) {
+        mapa.setPaintProperty(CENA_NOMES_L, 'text-opacity-transition', { duration: CENA_SAI, delay: 0 });
+        mapa.setPaintProperty(CENA_NOMES_L, 'text-opacity', 0);
+      }
+    } catch (_) { /* estilo trocando: o limpar abaixo resolve */ }
+    setTimeout(() => limparCena(mapa), CENA_SAI + 80);
+  }
+
   /* A LUZ agora é do MAPA, não do nascimento dele. Antes o tema trocava porque
      o mapa era refeito; com um mapa só pela vida do app, quem troca a pele do
      mapa é `setStyle` — e o traço, que mora numa fonte do estilo, volta depois. */
@@ -3424,6 +4063,12 @@
       // acertam — os dois são DADO, e dado velho na tela principal é mentira.
       desenharTraco(casa.mapa);
       moverEuNoPlano();
+      /* 🔴 A CENA DA ROTA NOVA ESPERA O PALCO APARECER. Quem monta a rota está
+         na tela de Montagem: tocar a cena ali seria desenhar a cidade num mapa
+         que ninguém está olhando, e chegar na aba Rota com tudo já pronto. O
+         pedido fica guardado e é ATENDIDO aqui, no mesmo tique em que o mapa
+         volta pra tela — antes de qualquer quadro pintar. */
+      atenderCena(casa);
       return;
     }
 
@@ -3453,6 +4098,12 @@
     const nova = { nome, gl, mapa, alvo, pinos: new Map(), chave: null, luz: luzDeAgora(), eu: null };
     GARAGEM.set(nome, nova);
     MONTANDO.delete(nome);
+    /* 🔴 A CENA DE ENTRADA É CHAMADA AQUI, NO NASCIMENTO DO MAPA — e não no
+       `load`. É a diferença entre a cidade nunca aparecer e ela aparecer por um
+       quadro antes de sumir: quem esconde o mundo é o `styledata`, que vem antes
+       do primeiro tile pintar, e no `load` já é tarde. A cena é UMA por vida do
+       app (`cenaJaEntrou`) — voltar pra aba Rota é voltar, não é ligar de novo. */
+    if (nome === 'geral') chamarCena(nova, 'entrada');
     palco.__hbxMapa = true;
     palco.__hbxMapaObj = mapa;
     // existe mapa de verdade: o "você está aqui" de DESENHO sai de cena (ver
@@ -4327,9 +4978,18 @@
     const palco = naCamada('[data-mapa="gps"]');
     return (palco && palco.__hbxMapaObj) || null;
   };
+  /* 🔴 A TINTA DO MAPA SAI DO `.app`, NÃO DA RAIZ — e isto era um pedaço da pele
+     clara que nunca chegava no mapa. A pele clara do mock inteira mora em
+     `[data-luz="claro"] .app{…}`: o `data-luz` está no `<html>`, mas o SELETOR
+     exige o `.app`, então a raiz continua com os tokens do ESCURO. Lendo dali, a
+     fita da rota saía com a lima de tela escura em cima do mapa claro — o
+     "buraco clássico da troca de pele" que o próprio mock avisa duas linhas
+     acima do token. A raiz fica de reserva: no mock, fora do `.app`, é ela que
+     responde. */
   const tinta = (nome, padrao) => {
     try {
-      return getComputedStyle(document.documentElement).getPropertyValue(nome).trim() || padrao;
+      const casca = document.querySelector('.app') || document.documentElement;
+      return getComputedStyle(casca).getPropertyValue(nome).trim() || padrao;
     } catch (_) { return padrao; }
   };
   const geometriaDe = (rota) => {
@@ -5338,7 +5998,7 @@
       // navegação): a lista cai na ordem do servidor e a rota se monta como
       // antes. Montar rota nunca depende de permissão.
       if (tela === 'montagem') {
-        garantirGps(); carregarDiasComCliente(); carregarEspacos(); encherMontagem(); carregarHistorico();
+        garantirGps(); publicarMontarDias(); carregarDiasComCliente(); carregarEspacos(); encherMontagem(); carregarHistorico();
         /* 🔴 O OTIMIZADOR RODA NO CARREGAMENTO (dono, 08/08: "é pra funcionar
            já no carregamento, ao apertar Montar Rota, só isso"). Chegar aqui É
            mandar montar — o 2º "Montar rota" no pé da tela não existe mais.
@@ -7946,7 +8606,7 @@
         RASCUNHO.push({
           id: String(id),
           nome: String(c.name || 'Cliente'),
-          enderecoLinha: String(c.endereco || ''),
+          enderecoLinha: linhaDeEndereco(c.endereco, c.numero),
           bairro: String(c.cidade || ''),
           ...(pinoValido(c.lat, c.lng) ? { lat: Number(c.lat), lng: Number(c.lng) } : {}),
           resolveSozinho: Array.isArray(c.diasEntrega) && c.diasEntrega.length > 0,
@@ -7954,6 +8614,9 @@
         novos += 1;
       });
       rapida = null;
+      // O chip de HOJE pode passar a existir só por causa do rascunho — é ele
+      // que dá a porta de volta quando o dedo for espiar outro dia.
+      publicarMontarDias();
       await voltarDaAvulsa(volta);
       const q = `${novos} ${novos === 1 ? 'parada' : 'paradas'}`;
       return window.portao({
@@ -8707,10 +9370,19 @@
     if (chave === 'historico-usar') {
       return void usarHistorico(String(alvo.dataset.data || ''));
     }
-    /* ⚰️ `montar-dia` MORREU COM O CHIP (dono, 09/08: "remova os dias da semana
-       (estamos em avulsas)"). Era o toque no chip de dia da Montagem; sem o
-       chip no desenho, ninguém pode disparar isto. Gancho de botão que não
-       existe é o mesmo que botão sem gancho, só do avesso. */
+    if (chave === 'montar-dia') {
+      const n = Number(alvo.dataset.dia) || 0;
+      // 2º toque no mesmo chip volta pra Hoje — chip que só liga prende o
+      // motorista num dia (mesma régua do chip de dia dos Clientes).
+      montarDia = montarDia === n ? 0 : n;
+      // o chip acende JÁ (resposta ao dedo); a lista do dia chega em seguida
+      window.usarDados('montagem', { diaSel: montarDia });
+      // Os 2 espaços são DO DIA: trocar de chip troca a fileira inteira, senão
+      // o Espaço 1 de sábado ficaria aceso na tela de segunda.
+      carregarEspacos();
+      encherMontagem();
+      return;
+    }
     if (chave === 'chip-dia') {
       const n = Number(alvo.dataset.dia) || 0;
       // 2º toque no mesmo chip DESLIGA o filtro. Chip que só liga é armadilha:

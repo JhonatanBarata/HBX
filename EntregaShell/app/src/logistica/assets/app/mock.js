@@ -908,18 +908,18 @@ const DADOS={
     ],
   },
   /* A MONTAGEM É A TELA DE MONTAR (07/08, ordem do dono: "clico em montar rota
-     e aparece uma tela para montar a rota"). `pronta` é o que troca o botão do
-     pé: 0 = ainda por montar → "Montar rota"; 1 = montada → "Iniciar rota".
-     Botão de iniciar em rota que não existe foi o erro que o dono viu na cara
-     ("monte a rota antes").
-     `dias`/`diaSel` saíram com os chips de dia (09/08). */
+     e aparece uma tela para montar a rota"). `dias`/`diaSel` são os chips do
+     dia (vêm da ponte; sem eles a linha não existe). `pronta` é o que troca o
+     botão do pé: 0 = ainda por montar → "Montar rota"; 1 = montada → "Iniciar
+     rota". Botão de iniciar em rota que não existe foi o erro que o dono viu
+     na cara ("monte a rota antes"). */
   montagem:{
     titulo:'Montagem de rota',
     somaParadas:'6', somaProdutos:'20', somaValor:'R$ 336,00',
     iniciarSub:'João da Silva',
-    pronta:1, vazio:'Nenhum cliente nesse dia',
-    // Espaços vazios de propósito: nome de espaço é dinheiro do dono na tela.
-    // Maquete aqui faria o motorista ler "Manhã" num espaço que não existe.
+    dias:[], diaSel:0, pronta:1, vazio:'Nenhum cliente nesse dia',
+    // Vazios pelo MESMO motivo dos `dias`: nome de espaço é dinheiro do dono na
+    // tela. Maquete aqui faria o motorista ler "Manhã" num espaço que não existe.
     modos:[], modoSel:'',
     // demo do HISTÓRICO (09/08) — dado vivo vem da ponte; aqui é só a peça.
     historico:[
@@ -1876,14 +1876,17 @@ T.montagem={nome:'Montagem de rota',grupo:'Rota',render(){
      De quebra some o "Marcado R$ " vazio: o cartão da montagem imprimia a
      etiqueta de dinheiro mesmo sem preço nenhum (financeiro desligado), e o
      `stop()` obedece a Lei do IF — sem valor, sem etiqueta. */
-  /* ⚰️ OS CHIPS DE DIA SAÍRAM DA TELA (dono, 09/08: *"remova os dias da semana
-     (estamos em avulsas)"*). Eles eram o seletor da AGENDA: trocavam a lista
-     pela prévia de outro dia da semana. Quem monta rota hoje entra pelo "+" ›
-     "Meus clientes" e escolhe quem vai, um a um — a lista é AVULSA, e um chip
-     de terça em cima dela é pergunta de outra tela.
-     Some o SLOT inteiro, não só os botões: fileira vazia guardando lugar é
-     buraco no desenho. A escolha de dia continua na ponte (`montarDia`), agora
-     sem porta — e sem porta ela fica em 0, que é HOJE, o caminho de sempre. */
+  /* Os chips do dia moram AQUI (07/08). Antes ficavam na tela Rota, longe da
+     lista que eles mudam — o dono trocava de dia e via a lista de hoje. Quem
+     sabe quais dias existem é a ponte; sem ela — o desenho — a linha some.
+     🔴 SAÍRAM E VOLTARAM NO MESMO DIA (09/08). O dono mandou tirar ("remova os
+     dias da semana, estamos em avulsas") e, vendo a tela sem eles, mandou
+     devolver: *"os dias tem q ficar sim"*. Ficou a medida de que eles NÃO são
+     enfeite da agenda — são a única porta pra montar a rota de outro dia
+     (`montarDia`); sem eles a Montagem vira "hoje" e ponto. O que saiu de vez
+     na mesma faxina foi a linha de crédito e o cabeçalho "Rota avulsa". */
+  const chips=Array.isArray(d.dias)&&d.dias.length?`<div class="chips centro">
+    ${d.dias.map(x=>`<button class="chip${(d.diaSel||0)===x[0]?' on':''}" data-acao="montar-dia" data-dia="${x[0]}">${x[1]}</button>`).join('')}</div>`:'';
   /* 🔴 O SELETOR DE ORDEM (dono, 08/08) — o botão do MEIO da montagem. Três
      posições e uma só na tela por vez: a ordem automática por DISTÂNCIA (a que
      a lista já nasce) e os 2 ESPAÇOS de rota salva daquele dia da semana. O
@@ -1979,6 +1982,7 @@ ${hdr({voltar:'rota'})}
        errado às 21h. Estilo colado no `.screen-head p`, que é o subtítulo das
        outras telas: título de tela é família única, por lei de 08/08. */''}
   ${DADOS.rota.dataLonga?`<p style="margin:1px 0 0;font-size:11.5px;color:var(--ink-2);text-align:center">${DADOS.rota.dataLonga}</p>`:''}
+  ${chips}
   ${modos}
   ${/* ⚰️ A LINHA DE CRÉDITO SAIU DAQUI (dono, 09/08: *"remover linha toda:
        9340 créditos…"*). Ela chegou nesta tela hoje de manhã, pela lei do
@@ -4035,9 +4039,7 @@ const AULAS={
     ['.tmx-main,.dock-montar','O que fazer agora','O botão grande é sempre o próximo passo do dia.'],
   ],
   montagem:[
-    /* ⚰️ O passo "O dia" saiu com os chips (09/08, ordem do dono). Aula viva
-       apontando pro vazio é o defeito que o cabeçalho deste bloco descreve:
-       cada tela ensina o que ELA tem, e esta não tem mais dia pra escolher. */
+    ['.day-chips,.chips','O dia','Escolha o dia. Só aparece dia que tem cliente.'],
     ['.stop','A ordem do dia','Arraste pra ajustar a ordem antes de sair.'],
     ['[data-ir="rapida"]','Uma parada fora do dia','O "+" põe na rota um endereço que não está agendado hoje.'],
     ['.acts,.tmx-dock','Salvar ou começar','"Salvar rota" guarda pra depois. "Iniciar rota" começa o dia agora.'],
@@ -4119,10 +4121,8 @@ const CAPITULOS={
        primeiro porque é o que o dedo procura. */
     {tela:'rota',alvo:['.tmx-main button[data-estado="montar"]','[data-acao="montar"]'],tipo:'fazer',
      titulo:'Comece por aqui',texto:'Toque em montar pra armar o seu dia.'},
-    /* ⚰️ O passo "O dia" saiu com os chips (09/08, ordem do dono: "remova os
-       dias da semana"). Ele era `fazer` — o tour PARAVA esperando um clique
-       num chip que não existe mais, e capítulo OBRIGATÓRIO travado é a pior
-       versão do "peça que sumiu do roteiro": o dono não sai dele. */
+    {tela:'montagem',alvo:'.day-chips,.chips',tipo:'fazer',
+     titulo:'O dia',texto:'Escolha o dia. Só aparece dia que tem cliente.'},
     {tela:'montagem',alvo:'.stop',
      titulo:'Cada cartão é uma parada',texto:'Segure no punho do lado pra arrastar e mudar a ordem.'},
     {tela:'montagem',alvo:'[data-ir="rapida"]',

@@ -44,6 +44,16 @@ const DIA_B = ((DOW + 2) % 7) + 1;
 
 const PONTE = ({ hoje, diaA, diaB, entregas, routeStatus, custo, mesmaBase, agendaHoje, hojeDow }) => {
   window.__chamadas = [];
+  /* 🔴 PROMESSA QUE MORRE SOZINHA NÃO ACENDE `pageerror`. Quase tudo da ponte é
+     chamado sem `await` (`montarRota()` no abrir da tela, `void sanitizarPrevia`):
+     um erro lá dentro vira unhandledrejection, some do console do aparelho e
+     deixa a tela num estado intermediário — foi assim que o "Montando…" ficou
+     preso com o botão do pé sumido. Aqui ele fica GUARDADO pra prova poder
+     mostrar de quem é a culpa. */
+  window.__erros = [];
+  window.addEventListener('unhandledrejection', (e) => {
+    window.__erros.push(String((e.reason && (e.reason.stack || e.reason.message)) || e.reason));
+  });
   /* 🔴 A AGENDA É FEITA DA MESMA GENTE QUE O "MEUS CLIENTES" (`mesmaBase`).
      Com listas DISJUNTAS o defeito A não aparece — e disjunto é o que nenhuma
      base real é: os clientes que o dono marca à mão na porta "Meus clientes"
@@ -372,31 +382,34 @@ const SO_MEDIR = process.argv.includes('--antes');
     }, i);
     await p.waitForTimeout(120);
   };
+  const tocarChip = async (n) => {
+    await p.evaluate((d) => {
+      const x = [...document.querySelectorAll('[data-acao="montar-dia"]')].find((e) => Number(e.dataset.dia) === d);
+      if (!x) throw new Error(`chip do dia ${d} nao existe`);
+      x.click();
+    }, n);
+    await p.waitForTimeout(1500);
+  };
   const irPara = async (tela, ms) => {
     await p.evaluate((t) => window.ir(t), tela);
     await p.waitForTimeout(ms || 1400);
   };
 
   /* ===================================================================
-     CENA A — A MONTAGEM DEPOIS DA FAXINA DE 09/08 (ordem do dono: "remover
-     linha toda: 9340 créditos…", "remover 'Rota avulsa' o escrito", "remova
-     os dias da semana (estamos em avulsas)").
+     CENA A — MONTAGEM: 3 avulsas de hoje + os chips de dia
 
-     Esta cena nasceu medindo os CHIPS DE DIA — e eles saíram do desenho, com
-     a máquina de escolher dia ficando sem porta. Ela passa a medir o que
-     RESTOU e o que TEM QUE CONTINUAR AUSENTE: a lista de hoje com o avulso na
-     frente (a LEI da ordem, que era do dado e não do rótulo) e as três peças
-     fora da tela. Apagar as asserções em vez de invertê-las deixaria o desenho
-     livre pra voltar sozinho na próxima fusão, calado.
-
-     A agenda de HOJE entra junto de propósito: sem ela a lista seria só
-     avulsa e "o avulso vem primeiro" não teria com quem ser comparado.
+     🔴 OS CHIPS SAÍRAM E VOLTARAM NO MESMO DIA (09/08): o dono mandou tirar
+     ("remova os dias da semana, estamos em avulsas") e, vendo a tela sem eles,
+     mandou devolver ("os dias tem q ficar sim"). Esta cena voltou inteira com
+     eles. O que a faxina deixou de herança são as duas asserções de AUSÊNCIA
+     no fim (A7/A8): a linha de crédito e o cabeçalho "Rota avulsa" seguem
+     FORA, e peça removida vira asserção negativa no portão que a dirigia —
+     senão o desenho volta sozinho numa fusão, calado.
      =================================================================== */
-  await cena({ mesmaBase: true, agendaHoje: AGENDA_HOJE });
+  await cena({ mesmaBase: true });
   await irPara('montagem');
   await irPara('rapida', 900);
-  // Alfredo (2) e Ana Alice (3): os dois estão FORA da agenda de hoje (c1/c5)
-  await marcar(2); await marcar(3);
+  await marcar(0); await marcar(1); await marcar(2);
   await zerar();
   await p.evaluate(() => document.querySelector('[data-acao="rapida-adicionar-escolhidos"]').click());
   await p.waitForTimeout(2000);
@@ -408,22 +421,52 @@ const SO_MEDIR = process.argv.includes('--antes');
   await p.waitForTimeout(600);
 
   const tA0 = await espiar();
-  nota(`[A] apos "Adicionar 2 na rota": tela=${tA0.tela} · stops=${tA0.nStops} · entregas no servidor=${tA0.entregasNoServidor}`);
+  nota(`[A] apos "Adicionar 3 na rota": tela=${tA0.tela} · stops=${tA0.nStops} · entregas no servidor=${tA0.entregasNoServidor}`);
   nota(`    linhas: ${tA0.linhas.join(' | ')}`);
-  nota(`    chips=${tA0.chips.length} · linha de credito=${tA0.creditos} · cabecalho avulsa=${tA0.gruposAvulsa} · pe="${tA0.pe}"`);
+  nota(`    horas=${JSON.stringify(tA0.horas)} · pills=${JSON.stringify(tA0.pills)}`);
+  nota(`    chips: ${tA0.chips.map((c) => c[0] + (c[1] ? '*' : '')).join(' ')} · pe="${tA0.pe}"`);
+  nota(`    linha de credito=${tA0.creditos} · cabecalho avulsa=${tA0.gruposAvulsa}`);
 
-  eh('A1 · a Montagem NAO tem mais chip de dia', tA0.chips.length === 0,
-    tA0.chips.map((c) => c[0]).join(' '));
-  eh('A2 · a lista de hoje = agenda (2) + avulsas (2)', tA0.nStops === 4, `stops=${tA0.nStops}`);
-  /* 🔴 A ORDEM SOBREVIVEU AO RÓTULO. O cabeçalho "Rota avulsa" saiu, mas quem
-     punha o avulso na frente nunca foi ele — é a partição da ponte
-     (`clientesOrdenados`). Se ela cair junto com o desenho, é AQUI que aparece. */
-  eh('A3 · o avulso continua no TOPO da lista',
-    /Alfredo/.test(tA0.linhas[0] || '') && /Ana Alice/.test(tA0.linhas[1] || ''),
-    tA0.linhas.join(' | '));
-  eh('A4 · nenhum cabecalho "Rota avulsa" na lista', tA0.gruposAvulsa === 0, `cabecalhos=${tA0.gruposAvulsa}`);
-  eh('A5 · nenhuma linha de credito na Montagem', tA0.creditos === 0, `linhas=${tA0.creditos}`);
-  eh('A6 · escolher cliente NAO materializa entrega', tA0.entregasNoServidor === 0);
+  await zerar();
+  await tocarChip(DIA_A);
+  const tA1 = await espiar();
+  nota(`[A] chip dia ${DIA_A} (5 na agenda): stops=${tA1.nStops} · linhas: ${tA1.linhas.join(' | ')}`);
+  nota(`    horas=${JSON.stringify(tA1.horas)} · pills=${JSON.stringify(tA1.pills)}`);
+  nota(`    POSTs no toque do chip: ${(await posts()).join(' , ') || '(nenhum)'} · entregas=${tA1.entregasNoServidor} · pe="${tA1.pe}"`);
+
+  await zerar();
+  await tocarChip(DIA_B);
+  const tA2 = await espiar();
+  nota(`[A] chip dia ${DIA_B} (2 na agenda): stops=${tA2.nStops} · linhas: ${tA2.linhas.join(' | ')}`);
+  nota(`    horas=${JSON.stringify(tA2.horas)} · pills=${JSON.stringify(tA2.pills)}`);
+  nota(`    POSTs: ${(await posts()).join(' , ') || '(nenhum)'} · entregas=${tA2.entregasNoServidor}`);
+
+  await zerar();
+  await tocarChip(DIA_B);                     // 2º toque no mesmo chip = volta pra HOJE
+  const tA3 = await espiar();
+  nota(`[A] volta pra HOJE: stops=${tA3.nStops} · linhas: ${tA3.linhas.join(' | ')}`);
+  nota(`    POSTs: ${(await posts()).join(' , ') || '(nenhum)'} · entregas=${tA3.entregasNoServidor} · pe="${tA3.pe}"`);
+
+  eh('A1 · chip de outro dia mostra a lista DAQUELE dia', tA1.nStops === 5);
+  eh('A2 · trocar de chip troca a fileira INTEIRA', tA2.nStops === 2);
+  eh('A3 · voltar pra hoje devolve a tela EXATA de antes', tA3.nStops === tA0.nStops && tA3.linhas.join('|') === tA0.linhas.join('|'));
+  eh('A4 · tocar chip NAO materializa entrega nova', tA3.entregasNoServidor === tA0.entregasNoServidor);
+  /* 🔴 O CORAÇÃO DO DEFEITO A: a prévia de OUTRO dia não pode vestir a roupa da
+     rota de HOJE. Hora prevista e pílula de status são da ENTREGA — e a entrega
+     da segunda-feira não existe ainda. */
+  eh('A5 · prévia de outro dia NAO mostra hora da rota de hoje', tA1.horas.length === 0 && tA2.horas.length === 0);
+  /* 🔴 CHIP É DA AGENDA, E SÓ DELA (dono, 09/08: "vc meio q criou um 'dom'
+     como se tivesse cliente de domingo, totalmente fora de semantica... isso
+     aqui é AVULSO, crie uma parte avulsa"). A 1ª versão desta prova cobrava o
+     contrário — o chip de HOJE nascendo de parada/rascunho — e foi exatamente
+     o "Dom" fantasma que ele reprovou na tela. */
+  eh('A6 · chip de dia so nasce da AGENDA (nenhum "Dom" fantasma de avulsa)',
+    !tA0.chips.some((c) => c[0] === 'Dom' || c[0] === 'Hoje'), tA0.chips.map((c) => c[0]).join(' '));
+  /* As duas HERANÇAS da faxina: o que o dono mandou tirar continua fora. O
+     avulso segue no TOPO sem precisar de rótulo — quem ordena é a partição da
+     ponte (`clientesOrdenados`), nunca o cabeçalho. */
+  eh('A7 · nenhum cabecalho "Rota avulsa" na lista', tA0.gruposAvulsa === 0, `cabecalhos=${tA0.gruposAvulsa}`);
+  eh('A8 · nenhuma linha de credito na Montagem', tA0.creditos === 0, `linhas=${tA0.creditos}`);
 
   /* ===================================================================
      CENA B — VOLTAR SEM SALVAR: o rascunho não persiste
@@ -556,10 +599,22 @@ const SO_MEDIR = process.argv.includes('--antes');
     trechosJ.length >= 1, JSON.stringify(trechosJ));
 
   await zerar();
+  /* 🔴 ESPERAR O BOTÃO EXISTIR, NUNCA UM RELÓGIO (mesma lei do `marcar`). Abrir
+     a Montagem já MANDA montar (o otimizador roda no carregamento), e enquanto
+     ela monta o pé é o "Montando…" — um botão sem gancho, de propósito. Sono
+     fixo aqui dá prova intermitente que culpa o app pelo relógio da bancada. */
+  await p.waitForSelector('.pe-montagem [data-acao="iniciar-rota"], .pe-montagem [data-acao="montar-agora"]', { timeout: 8000 })
+    .catch(async () => {
+      // e quando ele REALMENTE não vier, o erro diz o que a tela mostrava.
+      const oQueTinha = await p.evaluate(() => [...document.querySelectorAll('.pe-montagem')]
+        .map((e, i) => `pe#${i}:` + [...e.querySelectorAll('button')]
+          .map((x) => `[${x.dataset.acao || x.dataset.ir || '(sem gancho)'}]`).join('')).join(' ')
+        + ' | montando=' + JSON.stringify((DADOS.rota || {}).montando)
+        + ' | erros=' + JSON.stringify(window.__erros));
+      throw new Error(`sem "Iniciar rota"/"Montar rota" no pe da montagem; ${oQueTinha}`);
+    });
   await p.evaluate(() => {
-    const x = document.querySelector('.pe-montagem [data-acao="iniciar-rota"], .pe-montagem [data-acao="montar-agora"]');
-    if (!x) throw new Error('sem "Iniciar rota" no pe da montagem');
-    x.click();
+    document.querySelector('.pe-montagem [data-acao="iniciar-rota"], .pe-montagem [data-acao="montar-agora"]').click();
   });
   await p.waitForTimeout(2800);
   const corposJ = await postsDe('/logistica/entregas');
