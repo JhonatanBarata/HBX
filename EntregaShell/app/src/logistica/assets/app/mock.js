@@ -3250,7 +3250,7 @@ function portao(chave){
      (`naCamada('.portao-wrap .principal')`) — mudar o nome mataria o "sim". */
   w.innerHTML=`<div class="portao ${p.tom}${p.perigo?' perigo':''}">
     <span class="ico">${ic(p.ico,22)}</span>
-    <h3>${p.titulo}</h3><span class="sub">${p.sub}</span>
+    <h3>${p.titulo}</h3>${p.sub?`<span class="sub">${p.sub}</span>`:''}
     ${p.corpo?`<div class="corpo">${p.corpo}</div>`:''}
     <div class="acoes ${p.classe||(p.acoes.length===2?'duas':'')}">
       ${p.acoes.map(([t,c,marcado])=>{
