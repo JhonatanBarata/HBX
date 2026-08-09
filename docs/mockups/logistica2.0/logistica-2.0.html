@@ -1152,15 +1152,18 @@ button,input{font:inherit;color:inherit}
 /* z-index 19 e não 12: o VÉU da cena de entrada é 18, e o ponteiro tem que
    surgir EM CIMA dele — é ele quem existe primeiro. Continua abaixo da
    manobra e do rodapé (20), que é onde eles têm que ficar. */
-/* 🔴 78%, NÃO 68% (dono, 09/08: "a seta tem q descer, ficar mais embaixo, ela
-   está quase no meio da tela"). Quanto mais baixo o ponteiro, mais rua À FRENTE
-   cabe na tela — que é a única parte do mapa que serve pra dirigir. O
-   `NAV_PUCK` da ponte é o mesmo número (78% − 50%) e anda junto com este.
+/* 🔴 86% — o número do V4 ("o ponteiro tem q ficar COLADO NO BOTTOM, igual gps
+   comum"), confirmado pelo dono em 09/08: "a seta tem q descer, ficar mais
+   embaixo, ela está quase no meio da tela". Quanto mais baixo o ponteiro, mais
+   rua À FRENTE cabe na tela — que é a única parte do mapa que serve pra
+   dirigir. O `NAV_ANCORA` da ponte é este mesmo número e o recuo da câmera sai
+   dele; escrever os dois à mão foi o que já deixou a câmera mirando um palmo
+   acima da seta.
    🔴 E ELE NÃO PEGA TOQUE. O puck tem tamanho 0, mas os filhos NÃO: o facho é
    uma caixa de 104×118 px bem no meio da tela e engolia todo arrasto que
    começasse ali — o mapa parecia travado justamente onde a mão cai primeiro.
    Ponteiro é DESENHO: quem manda no dedo, aqui, é o mapa. */
-.gps-puck{position:absolute;left:50%;top:78%;width:0;height:0;z-index:19;pointer-events:none}
+.gps-puck{position:absolute;left:50%;top:86%;width:0;height:0;z-index:19;pointer-events:none}
 /* O ANEL DE POUSO: sai do ponteiro no instante em que ele assenta. Parado ele
    não existe (opacidade 0) — é peça de cena, não de tela. */
 .gps-puck::after{content:"";position:absolute;left:-90px;top:-90px;width:180px;height:180px;
@@ -1187,7 +1190,7 @@ button,input{font:inherit;color:inherit}
    ponte projeta o ponto de verdade e escreve em `--px/--py`, exatamente como
    já faz com os prédios do prospector. Mesma peça, mesmo facho, mesmo anel —
    muda só quem decide onde ela mora. */
-.gps.solta .gps-puck{left:var(--px,50%);top:var(--py,78%)}
+.gps.solta .gps-puck{left:var(--px,50%);top:var(--py,86%)}
 
 .gps-manobra{position:absolute;left:9px;right:9px;top:6px;z-index:20;border-radius:15px;
   background:var(--card);border:.7px solid var(--line);box-shadow:0 12px 30px rgba(0,0,0,.5);overflow:hidden}

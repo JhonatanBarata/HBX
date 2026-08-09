@@ -2366,15 +2366,19 @@
      do cliente. */
   const TRACO = 'hbx-rota-traco';
   const NAV_ZOOM = 16.6;
-  const NAV_PITCH = 55;
-  /* o puck do desenho mora a 78% da altura: a câmera desce o centro até ele,
-     senão o motorista dirige com a seta no meio da tela e metade do mapa
-     mostrando a rua que já passou. 0,28 = 78% − 50%.
-     🔴 ESTE NÚMERO É GÊMEO DO `top` do `.gps-puck` no mock — os dois desceram
-     juntos de 68% pra 78% em 09/08 (dono: "a seta tem q descer"). Mexer em um
-     sem o outro põe a câmera mirando um palmo acima da seta, e a tela inteira
-     fica torta sem nada parecer errado. */
-  const NAV_PUCK = 0.28;
+  /* 51°, o número do V4 (`para={tilt:51,…}`) — era 55 aqui por chute. */
+  const NAV_PITCH = 51;
+  /* 🔴 86% — "o ponteiro tem q ficar COLADO NO BOTTOM, igual gps comum"
+     (correção nº2 do V4, repetida pelo dono em 09/08). Foi 68%, virou 78% na
+     primeira passada e agora é o número do mock. Este é o valor MESTRE: o
+     `top` do `.gps-puck` no mock e o `NAV_PUCK` daqui saem os dois dele. */
+  const NAV_ANCORA = 0.86;
+  /* o recuo da câmera até o puck: ela desce o centro até ele, senão o motorista
+     dirige com a seta no meio da tela e metade do mapa mostrando a rua que já
+     passou. Sai do `NAV_ANCORA` em vez de ser digitado — o número existe em UM
+     lugar só, e o `top` do `.gps-puck` no mock é o mesmo. Escrever os dois à
+     mão foi o que deixou a câmera mirando um palmo acima da seta. */
+  const NAV_PUCK = NAV_ANCORA - 0.5;
 
   const mapaDaNavegacao = () => {
     const palco = naCamada('[data-mapa="gps"]');
@@ -2588,10 +2592,10 @@
      exatamente a queixa. `GERAL_MS` é quanto ela fica visível DEPOIS que a
      cena sai, antes de a descida começar. */
   const GERAL_ZOOM_TETO = NAV_ZOOM - 1.2;
-  /* o piso é FREIO DE TILE, não gosto: cada nível a menos é 4× de área pra
-     baixar antes de a tela existir. 13,5 abre o bairro e não sai do que o
-     aparelho já tem em mãos. */
-  const GERAL_ZOOM_PISO = 13.5;
+  /* o piso deixou de ser freio de tile (a câmera não sai mais de cima do
+     motorista, então não há região nova pra baixar) e virou só o limite de
+     bom senso: abaixo disso a rota vira um risco e o mapa, um borrão. */
+  const GERAL_ZOOM_PISO = 9.5;
   const GERAL_MS = 2200;
   /* a curva do V4, `suave` — cúbica nas duas pontas: sai devagar, ganha corpo
      no meio e assenta sem batida. É ela que faz "descer" em vez de "cortar". */
@@ -2625,77 +2629,72 @@
     return [0, alto ? alto * NAV_PUCK : 0];
   };
 
-  /* 🔴 A MOLDURA É O COMEÇO DO CAMINHO, NÃO O DIA INTEIRO — e este limite
-     custou uma medição pra aprender. A 1ª versão enquadrava a rota toda: num
-     dia de 63,9 km a câmera pulava pro centro do percurso, a 30 km dali, e o
-     mapa passava ~15 s CINZA baixando tile de uma região onde o motorista nem
-     está (medido no g15, APK 196). Enquadramento bonito, tela quebrada.
+  /* 🔴 O 2D MOSTRA A ROTA INTEIRA — ordem do dono (09/08: "2d = todas rotas"),
+     e é exatamente o que o V4 faz. O truque que eu tinha perdido está no
+     `K2D` dele: **a câmera NÃO se muda pro meio do percurso, ela fica no
+     MOTORISTA e só ABRE o zoom até a rota caber acima dele**. A diferença não
+     é estética, é de funcionamento — a 1ª tentativa enquadrou a rota com
+     `cameraForBounds`, a câmera pulou 30 km pro centro de um dia de 63,9 km e
+     o mapa passou ~15 s CINZA baixando tile de uma região onde o motorista nem
+     estava (medido no g15, APK 196). Ancorada nele, os tiles são os do lugar
+     onde ele já está e só ficam mais grossos conforme abre.
 
-     Então a moldura é o motorista MAIS o traço até `GERAL_ALCANCE_M` à frente:
-     os tiles já estão na mão (é onde ele está), a vista de cima abre na hora e
-     ainda responde a pergunta que ela existe pra responder — "onde estou e pra
-     onde vou agora". O dia inteiro é assunto da tela de lista, não de quem
-     está com o pé no freio esperando pra sair. */
-  const GERAL_ALCANCE_M = 1500;
-  function molduraDaRota() {
+     Devolve a maior distância, em metros, do motorista até um ponto da rota. */
+  function alcanceDaRota() {
     const eu = posicaoDaTela();
-    if (!eu) return null;                       // sem âncora não há moldura honesta
+    if (!eu) return 0;
     const kx = 111320 * Math.cos((eu.lat * Math.PI) / 180);
-    const perto = (lng, lat) => Math.hypot((lng - eu.lng) * kx, (lat - eu.lat) * 110540) <= GERAL_ALCANCE_M;
-    const pontos = [[eu.lng, eu.lat]];
+    let maior = 0;
+    const medir = (lng, lat) => {
+      const d = Math.hypot((lng - eu.lng) * kx, (lat - eu.lat) * 110540);
+      if (d > maior) maior = d;
+    };
     const geo = navRota && navRota.geometria;
     if (geo && Array.isArray(geo.coordinates)) {
       geo.coordinates.forEach((c) => {
-        if (!Array.isArray(c) || !Number.isFinite(c[0]) || !Number.isFinite(c[1])) return;
-        if (perto(c[0], c[1])) pontos.push([c[0], c[1]]);
+        if (Array.isArray(c) && Number.isFinite(c[0]) && Number.isFinite(c[1])) medir(c[0], c[1]);
       });
     }
-    if (pontos.length < 2) {
-      // sem traço por perto, a próxima parada é o que dá direção à vista
+    if (!maior) {
       const paradas = (typeof PARADAS !== 'undefined' ? PARADAS : []) || [];
       paradas.forEach((p) => {
         const la = Number(p.lat); const ln = Number(p.lng);
-        if (Number.isFinite(la) && Number.isFinite(ln) && perto(ln, la)) pontos.push([ln, la]);
+        if (Number.isFinite(la) && Number.isFinite(ln)) medir(ln, la);
       });
     }
-    if (pontos.length < 2) return null;
-    let oe = pontos[0][0]; let ol = pontos[0][0];
-    let os = pontos[0][1]; let on = pontos[0][1];
-    pontos.forEach((p) => {
-      if (p[0] < oe) oe = p[0];
-      if (p[0] > ol) ol = p[0];
-      if (p[1] < os) os = p[1];
-      if (p[1] > on) on = p[1];
-    });
-    return [[oe, os], [ol, on]];
+    return maior;
   }
 
-  /** põe a câmera em pé (2D) na moldura da rota — e ela FICA na tela */
+  /* o cromo come tela: o cartão da manobra no topo e o rodapé embaixo. A rota
+     tem que caber no que SOBRA, senão ela nasce por baixo da manobra. */
+  const GERAL_MARGEM_TOPO = 150;
+  const GERAL_MARGEM_LADO = 24;
+
+  /** põe a câmera em pé (2D) com a rota INTEIRA acima do motorista */
   function vistaGeral() {
     const mapa = mapaDaNavegacao();
     if (!mapa) return;
-    if (!poseGeral) {
-      const caixa = molduraDaRota();
-      if (caixa && typeof mapa.cameraForBounds === 'function') {
-        let calc = null;
-        // 🔴 O RECUO DO PUCK ENTRA AQUI TAMBÉM. A moldura é calculada pro
-        // quadro inteiro, mas a câmera de dirigir vive deslocada 18% pra
-        // baixo — sem o mesmo `offset` a rota nasceria centrada e daria um
-        // pulo lateral no primeiro quadro da descida.
-        try { calc = mapa.cameraForBounds(caixa, { padding: 56, offset: recuoDoPuck(mapa) }); } catch (_) { calc = null; }
-        if (calc && Number.isFinite(calc.zoom)) {
-          poseGeral = {
-            center: calc.center,
-            zoom: Math.min(GERAL_ZOOM_TETO, Math.max(GERAL_ZOOM_PISO, calc.zoom)),
-          };
-        }
+    const eu = posicaoDaTela();
+    if (!poseGeral && eu) {
+      const alcance = alcanceDaRota();
+      let zoom = GERAL_ZOOM_TETO;
+      if (alcance > 30) {
+        const caixa = (mapa.getContainer && mapa.getContainer()) || null;
+        const larg = (caixa && caixa.clientWidth) || 360;
+        const alt = (caixa && caixa.clientHeight) || 640;
+        // espaço útil: do topo do mapa até a âncora do puck, e meia largura
+        const pxAcima = Math.max(80, alt * NAV_ANCORA - GERAL_MARGEM_TOPO);
+        const pxLado = Math.max(80, larg / 2 - GERAL_MARGEM_LADO);
+        const porPixel = alcance / Math.min(pxAcima, pxLado);     // metros por pixel
+        const noZero = 156543.03392 * Math.cos((eu.lat * Math.PI) / 180);
+        zoom = Math.log2(noZero / porPixel);
       }
-      if (!poseGeral) {
-        // sem moldura possível, o degrau fixo de antes — nunca ficar sem pose
-        const eu = posicaoDaTela();
-        poseGeral = { zoom: GERAL_ZOOM_TETO, ...(eu ? { center: [eu.lng, eu.lat] } : {}) };
-      }
+      poseGeral = {
+        center: [eu.lng, eu.lat],
+        zoom: Math.min(GERAL_ZOOM_TETO, Math.max(GERAL_ZOOM_PISO, zoom)),
+      };
     }
+    if (!poseGeral) return;                     // sem fix ainda: a pose vem no próximo
     const passo = { pitch: 0, bearing: 0, offset: recuoDoPuck(mapa), ...poseGeral };
     try { mapa.jumpTo(passo); } catch (_) { /* mapa saindo de cena */ }
   }
